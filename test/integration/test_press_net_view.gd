@@ -158,6 +158,30 @@ func test_eine_aufgenommene_zelle_verglimmt_und_behaelt_ihr_zeichen() -> void:
 	assert_not_null(mini.get_child(0).get_node_or_null("CellMark"),
 		"aufgenommen heißt verglommen, nicht fort")
 
+## WELLE L: es gibt nur noch EINE Ausrichtung - das Kreuz liegt IMMER hochkant im
+## Rahmen, denn die Kassette ist überall quer gerollt und dreht es im Bild auf.
+## Der Rahmen ist gekippt, die Zeichnung DIESELBE.
+func test_das_mini_netz_steht_immer_hochkant_im_rahmen() -> void:
+	var card := StampNet.empty_net()
+	card[2] = StampNet.value_cell(7)
+	var turned := PressNetView.stamp_net_upright(card, 12.0)
+	add_child_autofree(turned)
+	var flat := DieNetView.net_size(12.0)
+	assert_eq(turned.size, Vector2(flat.y, flat.x), "der Rahmen ist gekippt")
+	assert_eq(turned.get_child_count(), 1, "die Zeichnung hängt als EIN Kind darin")
+	var inner: Control = turned.get_child(0)
+	assert_almost_eq(inner.rotation, PI * 0.5, 0.0001, "eine Vierteldrehung")
+	assert_eq(inner.position, Vector2(flat.y, 0.0),
+		"und der Versatz setzt sie bündig in den Rahmen")
+
+func test_das_mini_netz_bleibt_ohne_bestellung_flach() -> void:
+	# Magazin, Laden und Wett-Gewinn rufen ohne Argument - sie sollen nichts merken.
+	var card := StampNet.empty_net()
+	var mini := PressNetView.stamp_net(card, 12.0)
+	add_child_autofree(mini)
+	assert_eq(mini.name, "StampNet", "kein Dreh-Halter darüber")
+	assert_eq(mini.size, DieNetView.net_size(12.0))
+
 func test_a_rune_cell_draws_the_same_figure_as_the_die() -> void:
 	var card := StampNet.empty_net()
 	card[1] = StampNet.rune_cell(Rune.AFTERGLOW)
@@ -213,3 +237,27 @@ func test_the_net_no_longer_folds() -> void:
 	assert_false(net.has_method("fold"), "die Faltung wohnt jetzt in StencilView")
 	assert_eq(_cell(0).position, DieNetView.cell_position(0, net.cell))
 	assert_eq(_cell(0).scale, Vector2.ONE)
+
+# --- Die ZELLE unter dem Zeiger (2026-09-04) --------------------------------------
+# Die Kassette trägt ihr Netz als gebackene Textur in einem HOCHKANTEN Rahmen. Wer
+# wissen will, welche Zelle unter dem Zeiger liegt, dreht den Anteil um dieselbe
+# Vierteldrehung zurück, die stamp_net_upright hinlegt.
+
+func test_the_upright_lookup_is_the_inverse_of_the_quarter_turn() -> void:
+	var cell := 20.0
+	var flat := DieNetView.net_size(cell)
+	for face in StampNet.FACES:
+		# Mitte der Zelle in der FLACHEN Zeichnung ...
+		var middle := DieNetView.cell_position(face, cell) + Vector2.ONE * cell * 0.5
+		# ... vorwärts durch die Drehung des Rahmens (host = (-p.y + span.y, p.x)) ...
+		var host := Vector2(flat.y - middle.y, middle.x)
+		var share := Vector2(host.x / flat.y, host.y / flat.x)
+		assert_eq(PressNetView.upright_face_at(share), face,
+			"Seite %d findet sich selbst wieder" % face)
+
+func test_outside_the_net_nothing_is_hit() -> void:
+	assert_eq(PressNetView.upright_face_at(Vector2(-0.01, 0.5)), -1)
+	assert_eq(PressNetView.upright_face_at(Vector2(0.5, 1.01)), -1)
+	# Die Ecken des Kreuzes sind LEER - dort liegt keine Seite.
+	assert_eq(PressNetView.upright_face_at(Vector2(0.02, 0.02)), -1,
+		"die tote Ecke des Kreuzes trifft keine Zelle")

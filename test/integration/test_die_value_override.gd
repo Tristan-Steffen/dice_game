@@ -36,9 +36,18 @@ func _top_label(slot: int) -> Label3D:
 			return display.labels[axis]
 	return null
 
-func test_the_green_is_the_same_one_the_workbench_uses() -> void:
-	# "Grün heißt vorläufig" muss überall dasselbe Grün sein.
-	assert_eq(PressNetView.PREVIEW_UP, DieFaceDisplay.PREVIEW_NUMBER_COLOR)
+func test_the_green_is_the_same_hue_the_workbench_uses() -> void:
+	# "Grün heißt vorläufig" ist überall dieselbe LESART - aber nicht dieselbe
+	# Helligkeit: der Würfel schreibt auf eine dunkle Seite, die Netz-Zelle auf eine
+	# HELLE (ohne Material ist sie weiß), und dort verschwand das helle Grün samt
+	# seinem weißen Saum. Gleicher Farbton, dunkler Wert (Spieler-Meldung 2026-09-04).
+	var die_green := DieFaceDisplay.PREVIEW_NUMBER_COLOR
+	assert_almost_eq(PressNetView.PREVIEW_UP.h, die_green.h, 0.03,
+		"derselbe Farbton - grün heißt weiter vorläufig")
+	assert_lt(PressNetView.PREVIEW_UP.v, die_green.v * 0.7,
+		"aber deutlich dunkler, sonst liest es auf der hellen Zelle nicht")
+	assert_lt(PressNetView.PREVIEW_DOWN.v, 0.8,
+		"und das Sinken-Rot ebenso")
 
 func test_override_writes_the_top_face_in_green() -> void:
 	dice.set_value_overrides({0: 6})

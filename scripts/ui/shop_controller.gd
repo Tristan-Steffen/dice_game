@@ -454,21 +454,27 @@ func _build_layout() -> void:
 	content_root.custom_minimum_size = Vector2(0.0, u * BAND_CHARM_UNITS)
 	root.add_child(content_root)
 
-	# EIN Band unter den Karten, und es gehört ganz der GRAVUREN-Reihe: seit der
-	# Hinweis-Schirm tot ist, steht sie mittig über der vollen Seitenbreite. Sie
-	# steht UNABHÄNGIG von der Doppelseite - ein Kauf baut sie nicht um.
+	# EIN Band unter den Karten, und es gehört ganz der GRAVUREN-Reihe. Sie steht
+	# LINKS in ihm (Spieler-Entscheid 2026-09-04): mittig teilte sie den freien Rand
+	# auf beide Seiten auf, und seit die Karte gewachsen ist, blieb rechts zu wenig
+	# für die FLANKE - links gebunden fällt der ganze Rest ihr zu. Sie steht
+	# UNABHÄNGIG von der Doppelseite - ein Kauf baut sie nicht um.
 	var gravur_band := VBoxContainer.new()
 	gravur_band.name = "GravurBand"
 	gravur_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
 	gravur_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gravur_band.add_child(_heading_row("GRAVUREN", _tinted(NEON_CYAN), ""))
-	var slit_center := CenterContainer.new()
-	slit_center.name = "SlitCenter"
-	slit_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slit_center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var slit_lane := HBoxContainer.new()
+	slit_lane.name = "SlitLane"
+	slit_lane.alignment = BoxContainer.ALIGNMENT_BEGIN
+	slit_lane.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slit_lane.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	slit_row = _build_slit_row()
-	slit_center.add_child(slit_row)
-	gravur_band.add_child(slit_center)
+	# Die Reihe hält ihre eigene Höhe und steht senkrecht mittig in der Bahn - wie
+	# im alten CenterContainer, nur eben nicht mehr waagerecht zentriert.
+	slit_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slit_lane.add_child(slit_row)
+	gravur_band.add_child(slit_lane)
 	root.add_child(gravur_band)
 
 	# Die Bucht bekommt die ganze Resthöhe: sie ist die Auslage, nicht ein Fach
@@ -561,7 +567,7 @@ func slit_size() -> Vector2:
 func _build_slit_row() -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.name = "SlitRow"
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	row.add_theme_constant_override("separation", int(u * SLIT_GAP))
 	row.custom_minimum_size = Vector2(0.0, u * SLIT_SEAT_HEIGHT)
 	_slit_pads.clear()
@@ -719,8 +725,9 @@ func _build_slit_info() -> void:
 	_slit_info_key = ""
 
 ## Die freie RECHTE Flanke in globalen Pixeln: von der Kante der Reihe plus Fuge
-## bis zum Seitenrand, senkrecht auf der Reihe. GEMESSEN - ein leeres Rechteck
-## heißt, dass die Seite noch nicht ausgelegt ist oder zu wenig Platz bleibt.
+## bis zum Seitenrand, senkrecht auf der Reihe. Seit die Reihe LINKS steht
+## (2026-09-04), fällt ihr der ganze Rest der Seite zu. GEMESSEN - ein leeres
+## Rechteck heißt, dass die Seite noch nicht ausgelegt ist oder zu wenig bleibt.
 func slit_flank_rect() -> Rect2:
 	if slit_row == null or not is_instance_valid(slit_row):
 		return Rect2()
@@ -735,14 +742,17 @@ func slit_flank_rect() -> Rect2:
 
 ## Der EINE Schreiber der Flanke (-1 = kein Platz gegriffen). Ein verkaufter oder
 ## nie gewürfelter Platz zeigt NICHTS - dort liegt keine Ware, die etwas sagen
-## könnte. Idempotent: dieselbe Kassette schreibt nichts neu.
-func set_slit_hover(seat: int) -> void:
+## könnte. Idempotent: dieselbe Kassette schreibt nichts neu. `cell_hint` ist die
+## Zeile der NETZ-ZELLE unter dem Zeiger (scene_root fragt den Körper): sie
+## übersteuert die Wirkung des ganzen Pakets, der Name bleibt stehen.
+func set_slit_hover(seat: int, cell_hint := "") -> void:
 	if slit_info == null or not is_instance_valid(slit_info):
 		return
 	var pack: Pack = null
 	if seat >= 0 and seat < _slit_seats.size():
 		pack = _slit_pack(_slit_seats[seat])
-	var key := "" if pack == null else "%d:%d" % [seat, pack.get_instance_id()]
+	var key := "" if pack == null else "%d:%d:%s" % [seat, pack.get_instance_id(),
+		cell_hint]
 	if key == _slit_info_key:
 		return
 	_slit_info_key = key
@@ -758,7 +768,7 @@ func set_slit_hover(seat: int) -> void:
 	slit_info.size = flank.size
 	slit_info_name.text = pack.display_name
 	slit_info_name.modulate = PackDrawerView.COLORS.get(Pack.shelf_of(pack), NEON_TEXT)
-	slit_info_body.text = _pack_info_body(pack)
+	slit_info_body.text = cell_hint if cell_hint != "" else _pack_info_body(pack)
 	_fit_slit_info(flank.size)
 	slit_info.visible = true
 

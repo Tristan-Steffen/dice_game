@@ -20,8 +20,12 @@ static var _ovens: Dictionary = {}
 static var _holder: Node = null
 
 ## Kantenmaß der Backung - Quad und Textur teilen dieses Seitenverhältnis.
+## Es gibt seit der Welle L nur noch EINE Backung: das Kreuz liegt hochkant im
+## Rahmen (3 Zellen breit x 4 hoch), denn die Kassette ist an JEDEM Ort QUER
+## gerollt und dreht es im Bild wieder auf. So füllt es die Karte fast ganz.
 static func span() -> Vector2:
-	return DieNetView.net_size(CELL)
+	var wanted := DieNetView.net_size(CELL)
+	return Vector2(wanted.y, wanted.x)
 
 static func size_px() -> Vector2i:
 	var wanted := span()
@@ -52,7 +56,7 @@ static func bake(net: Array, accent: Color, drained: Array = []) -> SubViewport:
 	oven.use_hdr_2d = false
 	oven.disable_3d = true
 	oven.render_target_update_mode = SubViewport.UPDATE_ONCE
-	var drawing := PressNetView.stamp_net(net, CELL, accent, drained)
+	var drawing := PressNetView.stamp_net_upright(net, CELL, accent, drained)
 	# Ohne Inhalt bleibt das leere Kreuz - aber in der Sortenfarbe: eine Kassette,
 	# die ihr Paket noch nicht kennt (Wett-Gewinn), stünde sonst als schwarzes
 	# Gitter da.
@@ -61,7 +65,8 @@ static func bake(net: Array, accent: Color, drained: Array = []) -> SubViewport:
 	oven.add_child(drawing)
 	return oven
 
-## Der Schlüssel einer Backung: ihr Inhalt, ihr Ton und ihre Abdunkelung.
+## Der Schlüssel einer Backung: ihr Inhalt, ihr Ton und ihre Abdunkelung. Eine
+## Orientierung steht nicht mehr darin - es gibt nur noch die eine.
 static func signature(net: Array, accent: Color, drained: Array) -> String:
 	var parts: Array[String] = [accent.to_html(false)]
 	for face in StampNet.FACES:

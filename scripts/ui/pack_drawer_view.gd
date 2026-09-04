@@ -1,8 +1,8 @@
 class_name PackDrawerView
 extends Control
 ## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze, in der jedes
-## versiegelte Paket als EIGENE Kassette versenkt STEHT - wie Akten im Fach, Rang
-## hinter Rang. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
+## versiegelte Paket als EIGENE Kassette FLACH LIEGT - Netz nach oben, wie Karten
+## auf dem Tisch. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
 ## was in ihrer Breite Platz hat, alles Weitere fließt in den nächsten Rang nach
 ## vorn. Eine Kassette SCHRUMPFT NIE - was nicht mehr in die Grube passt, kommt
 ## gar nicht erst herein: capacity_for misst den Deckel an der Grube, GameRun
@@ -40,24 +40,26 @@ const COLORS := {
 	Pack.SHELF_SPECIAL: Color("#bd93f9"),
 }
 
-## Der EINE Anzeige-Maßstab einer Kassette - im Magazin wie im Leseschlitz
-## (WorkshopView misst seine Schlitze daran, scene_root skaliert die Körper).
-## Eine Karte behält damit ihre Größe ihr ganzes Leben lang: Fach -> Schlitz ->
-## Fach ohne Schrumpfen und Wachsen auf dem Weg.
-const CASSETTE_SCALE := 1.4
+## Der EINE Anzeige-Maßstab einer Kassette - ÜBERALL (Welle L): Magazin,
+## Schacht-Reihe, Laden-Vitrine, Schwarzmarkt, Wett-Gewinn, geworfener Einsatz,
+## Auszahlungs-Ablage. Es gibt keinen kontext-eigenen Maßstab mehr; wer eine Karte
+## stellt, stellt sie in diesem Maß. 2,184 = das alte Magazin-Maß 1,4 plus 30 %
+## plus noch einmal 20 % (Spieler-Entscheide 2026-09-04: die Schrift blieb zu klein).
+const CASSETTE_SCALE := 2.184
 
-## Greifluft quer zum Kappen-Fußabdruck (die Kassetten STEHEN, gemessen wird ihre
-## Kappe: Breite × Dicke) und die TIEFE eines Rangs. In der Tiefe braucht es mehr:
-## der stehende Körper ragt im 15°-Blick über den Rang dahinter, ein Rangabstand
-## im bloßen Kappenmaß verdeckte die Kappen seiner Vorgänger.
+## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette (ihre ganze Kartenfläche:
+## Langseite × Breite) und die TIEFE eines Rangs. Seit die Karte flach liegt
+## (2026-09-04), lehnt sich nichts mehr über seinen Hintermann: der Rang braucht
+## nur noch das Kartenmaß plus einen Hauch Luft.
 const CELL_SPAN := 1.15
-const RANK_SPAN := 1.9
+const RANK_SPAN := 1.05
 ## Randluft im Platz.
 const SLOT_INSET := 0.12
 ## Rückfall-Zellbreite (Einheiten u), solange niemand die Welt-Projektion gemeldet
-## hat; die Tiefe folgt dem Kappen-Verhältnis.
-const CELL_FALLBACK := 5.0
-const CELL_FALLBACK_DEPTH := 0.41
+## hat; die Tiefe folgt dem Kartenformat der LIEGENDEN Kassette (Breite/Langseite).
+## Gemessen wird die LANGSEITE - die Kassette liegt überall QUER (Welle L).
+const CELL_FALLBACK := 7.5
+const CELL_FALLBACK_DEPTH := 0.667
 
 ## Der gemalte RAHMEN um die Grube - Schatten oben, Licht unten, die Umkehrung
 ## der Konsolenkante. Die Fläche darin ist ein echtes Loch (screen_glass schneidet
@@ -86,8 +88,8 @@ const FULL_BODY := "Voll - jede weitere Prämie zerfällt zu Geld."
 
 ## Gemeinsame Maßeinheit der Werkbank (setzt WorkshopView über build).
 var u := 8.0
-## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln (Welt-Projektion ihrer
-## Kappe: Breite × Kappentiefe).
+## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln (Welt-Projektion ihrer
+## Kartenfläche: Langseite × Breite).
 var cell_px := Vector2.ZERO
 ## Der Streifen, in dem das Fach liegt (= die eigene Größe, von build gemerkt).
 var strip := Vector2.ZERO
@@ -155,7 +157,7 @@ static func grid_for(field_size: Vector2, cell: Vector2, count: int) -> Dictiona
 		"rows": ceili(float(maxi(count, 1)) / float(columns)),
 		"scale": CASSETTE_SCALE}
 
-## Wie viele Kassetten in ihrer festen Größe nebeneinander in die Grube stehen.
+## Wie viele Kassetten in ihrer festen Größe nebeneinander in die Grube liegen.
 static func _columns_at(field_size: Vector2, cell: Vector2) -> int:
 	var wide := cell.x * CELL_SPAN * CASSETTE_SCALE
 	if field_size.x <= 0.0 or wide <= 0.0:
@@ -169,7 +171,7 @@ static func _ranks_at(field_size: Vector2, cell: Vector2) -> int:
 		return 1
 	return maxi(int(field_size.y / deep), 1)
 
-## Der DECKEL des Magazins: so viele Kassetten stehen in voller Größe in dieser
+## Der DECKEL des Magazins: so viele Kassetten liegen in voller Größe in dieser
 ## Grube - Spalten mal Ränge, dieselbe Arithmetik wie das Raster. Gemessen, nicht
 ## autoriert: scene_root schiebt die Zahl in GameRun, und dort sperrt sie Kauf wie
 ## Prämie. Darüber hinaus legt das Raster nichts mehr an, weil nichts mehr kommt.
@@ -177,7 +179,7 @@ static func capacity_for(field_size: Vector2, cell: Vector2) -> int:
 	return _columns_at(field_size, cell) * _ranks_at(field_size, cell)
 
 ## Spalten einer Zeile - wie viele Kassetten in ihrer festen Größe nebeneinander
-## stehen. Der Magazin-Deckel formt das Raster NICHT; er begrenzt den Bestand.
+## liegen. Der Magazin-Deckel formt das Raster NICHT; er begrenzt den Bestand.
 static func columns_for(field_size: Vector2, cell: Vector2, count: int) -> int:
 	return int(grid_for(field_size, cell, count)["columns"])
 

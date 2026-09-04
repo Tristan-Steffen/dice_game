@@ -216,22 +216,29 @@ func test_the_close_step_fills_the_frame_up_to_the_corners_top_edge() -> void:
 	assert_almost_eq(top_height, 1.0, 0.001,
 		"die Oberkante der Ecke schließt mit dem oberen Bildrand ab - die Luft liegt unten")
 
-func test_the_camera_stands_still_in_the_close_view() -> void:
-	_aim_at_workshop()
-	rig.zoom_workshop_close()
-	rig.is_animating = false
-	var before := rig.global_transform
-	rig._process(0.1)
-	assert_eq(rig.global_transform, before, "kein Rundschauen in der Nahsicht")
-
-func test_every_focused_station_stands_still() -> void:
-	# Rundschauen gibt es nur in Übersicht und Freikamera: auch die weite
-	# Werkbank-Sicht hält ihre Lage - wie jede andere Station.
+func test_the_workshop_looks_around_in_both_of_its_levels() -> void:
+	# Spieler-Entscheid 2026-09-04: die Werkstatt ist keine FESTE Fassung mehr -
+	# sie kippt mit der Maus wie jede andere Station, weite Sicht wie Nahsicht.
 	_aim_at_workshop()
 	assert_false(rig.workshop_close, "die erste Stufe ist die weite")
-	var before := rig.global_transform
+	var wide := rig.global_transform
 	rig._process(0.1)
-	assert_eq(rig.global_transform, before, "kein Rundschauen in einer Fokus-Station")
+	assert_ne(rig.global_transform, wide, "die weite Werkbank-Sicht schaut sich um")
+	rig.zoom_workshop_close()
+	rig.is_animating = false
+	var close := rig.global_transform
+	rig._process(0.1)
+	assert_ne(rig.global_transform, close, "und die Nahsicht ebenso")
+
+func test_only_hub_and_title_stand_still() -> void:
+	# Ihr Fenster füllt das Bild - ein Schwenk schöbe es nur.
+	for fixed: CameraRig.Mode in [CameraRig.Mode.HUB, CameraRig.Mode.TITLE]:
+		rig.mode = fixed
+		rig.is_animating = false
+		var before := rig.global_transform
+		rig._process(0.1)
+		assert_eq(rig.global_transform, before,
+			"Modus %d hält seine Lage" % int(fixed))
 
 func test_stepping_back_returns_to_the_wide_workshop_not_the_overview() -> void:
 	_aim_at_workshop()

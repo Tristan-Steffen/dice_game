@@ -265,7 +265,7 @@ func _drawing(pane: Vector2) -> Control:
 	box.set_corner_radius_all(maxi(1, int(StampNetOven.CELL * 0.2)))
 	host.add_theme_stylebox_override("panel", box)
 	var net := net_for(_values)
-	var drawing := PressNetView.stamp_net(net, StampNetOven.CELL, accent)
+	var drawing := PressNetView.stamp_net_upright(net, StampNetOven.CELL, accent)
 	drawing.position = Vector2.ONE * StampNetOven.CELL * PANE_PAD
 	# Dieselbe Regel wie im Ofen: ein leeres Kreuz stünde sonst als schwarzes
 	# Gitter da - LEER heißt dunkel, nicht unsichtbar.
@@ -277,8 +277,11 @@ func _drawing(pane: Vector2) -> Control:
 func _apply_body() -> void:
 	if _body == null:
 		return
+	# Der ROLL wie bei jeder Kassette (Welle L): die Backung liegt hochkant, erst
+	# die Vierteldrehung stellt das Kreuz im Bild wieder auf.
 	_body.transform = Transform3D(
-		Basis(Vector3.RIGHT, lerpf(-PI * 0.5, 0.0, _pose)).scaled(Vector3.ONE * _scale),
+		Basis(Vector3.RIGHT, lerpf(-PI * 0.5, 0.0, _pose)).scaled(Vector3.ONE * _scale)
+			* Basis(Vector3.BACK, PI * 0.5),
 		Vector3.ZERO)
 
 func _set_scale(value: float) -> void:

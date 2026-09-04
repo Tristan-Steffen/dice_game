@@ -7,8 +7,8 @@ extends Node3D
 ## - kein .tscn, kein GLB.
 ## Die FLÄCHE trägt seit 2026-09-02 das Netz (StampNetOven), die SORTE den Rahmen
 ## und die GRÖSSE dessen Stärke; die drei Kern-Riegel und die Größen-Streifen der
-## Vorderseite sind damit gestorben. Die KAPPE bleibt unberührt - im Magazin steht
-## die Kassette, und von oben ist sie die ganze Auskunft.
+## Vorderseite sind damit gestorben. Seit 2026-09-04 LIEGT die Kassette auch im
+## Magazin flach - von oben liest man dort ihr Netz, nicht mehr ihre Kappe.
 ## Drei Regeln des Tisches gelten auch hier: nur EMISSION, keine eigenen Lichter
 ## (die Bodenkacheln vertragen 16); im Ruhezustand bleibt das Leuchten UNTER der
 ## Bloom-Schwelle, der Ausbruch (flare) gibt den Kopfraum aus; und die Sortenfarbe
@@ -32,12 +32,20 @@ const HEIGHT := DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE * SIZE_FAC
 const UNIT := HEIGHT / 3.0
 const WIDTH := UNIT * 2.0
 const DEPTH := UNIT * 0.28
+## Die STANDHÖHE: quer gerollt (Welle L - die eine Ausrichtung) steht die Kassette
+## auf ihrer LANGSEITE, ihr aufrechtes Maß ist also ihre BREITE. Jede senkrechte
+## Rechnung mißt daran, nie an HEIGHT: das Einsinken, der Aufstieg, der Griff und
+## die Tiefe jeder Grube.
+const STAND_HEIGHT := WIDTH
 
-## Rahmenbreiten des Gehäuses. Der Fuß ist der breiteste Balken - er trägt die
-## Kontaktfinnen und gibt der Zelle ihren Stand.
-const SIDE_BAR := WIDTH * 0.14
-const TOP_BAR := HEIGHT * 0.14
-const FOOT_BAR := HEIGHT * 0.21
+## Rahmenbreiten des Gehäuses. Sie sind so SCHMAL wie möglich (Spieler-Entscheid
+## 2026-09-04): der Ausschnitt IST fast die ganze Karte, damit das Prägenetz darin
+## ohne Rand liegt. Bemessen an der stärksten Blende (der des Kolossalen), deren
+## Außenkante damit gerade auf der Kartenkante landet; der Fuß bleibt der breiteste
+## Balken - er trägt die Kontaktfinnen und gibt der Zelle ihren Stand.
+const SIDE_BAR := WIDTH * 0.0668
+const TOP_BAR := HEIGHT * 0.075
+const FOOT_BAR := HEIGHT * 0.135
 ## Rückwand: der Ausschnitt ist ein Loch im Rahmen, sie schließt ihn nach hinten.
 const BACK_DEPTH := DEPTH * 0.42
 
@@ -155,6 +163,11 @@ var hover_lift := HOVER_LIFT
 var badge_on_face := false
 ## Aufgehellt, aber deutlich unter dem Lese-Ausbruch: Greifen ist kein Lesen.
 const HOVER_ENERGY := 1.75
+## Das aufrechte Maß, an dem JEDE senkrechte Rechnung dieser Zelle mißt: Einsinken
+## und Griff-Hub. Normal ist es die STANDHÖHE; im flachen MAGAZIN liegt die Karte,
+## dort setzt ihr harter Schreiber (lie_in_pit) ihr Liegemaß - stehend gerechnet
+## versänke sie meterweit unter ihrem eigenen Grubenboden.
+var stand_measure := STAND_HEIGHT
 
 ## Auftauchen und Abtreten wie ein schwebender Würfel (FloatingDie): der Körper
 ## wächst an Ort und Stelle aus dem Nichts und schrumpft wieder hinein. Skaliert
@@ -207,10 +220,11 @@ const BADGE_GAP := HEIGHT * 0.16
 ## die kleiner ist als eine Netzkachel - mehr Pixel wären Vorrat für nichts.
 const GLYPH_TEXTURE_SIZE := 128
 
-## Das PRÄGENETZ auf der Fläche: es füllt die Fensterbreite fast ganz aus (das
-## Kreuz ist breiter als hoch, gebunden ist es also quer) und liegt VOR der
-## Scheibe - dahinter fräße das Rauchglas seine Ziffern.
-const NET_WIDTH_SHARE := 0.98
+## Das PRÄGENETZ auf der Fläche: es füllt den Ausschnitt GANZ aus - zwischen ihm
+## und der Kartenkante steht nur noch die Blende (Spieler-Entscheid 2026-09-04:
+## die Schrift war zu klein). Es liegt VOR der Scheibe - dahinter fräße das
+## Rauchglas seine Ziffern.
+const NET_WIDTH_SHARE := 1.0
 const NET_PROUD := 0.004
 ## Beim versiegelten Stück rückt es hoch: darunter liegt das Siegelband.
 const NET_SEALED_LIFT := 0.16
@@ -345,8 +359,61 @@ static func net_span(cell_scale: float) -> Vector2:
 	var width := opening_size().x * NET_WIDTH_SHARE * cell_scale
 	return Vector2(width, width * span.y / maxf(span.x, 1.0))
 
+## Das Netz DIESER Karte: sie liegt überall QUER und trägt darum die hochkante
+## Backung, und die füllt den Rahmen fast ganz - also wird sie an der Fensterhöhe
+## gedeckelt. Ein VERSIEGELTES Stück rückt sein Netz über das Band, ihm bleibt
+## entsprechend weniger Platz.
 func net_size() -> Vector2:
-	return net_span(1.0)
+	var span := net_span(1.0)
+	var room := opening_size().y * NET_WIDTH_SHARE
+	if sealed():
+		room -= opening_size().y * NET_SEALED_LIFT * 2.0
+	if span.y > room and span.y > 0.0:
+		span *= room / span.y
+	return span
+
+## Die Netz-Fläche (und ihre Hinterleuchtung) auf das aktuelle Maß bringen - nach
+## einem Wechsel der Orientierung. Neu gebaute Kopien nehmen es aus net_size()
+## ohnehin schon mit.
+func _apply_net_layout() -> void:
+	var span := net_size()
+	var mid := opening_center_y() \
+		+ (opening_size().y * NET_SEALED_LIFT if sealed() else 0.0)
+	for cell: Node3D in _cells:
+		var plate := cell.get_node_or_null("StampNet") as MeshInstance3D
+		if plate != null and plate.mesh is QuadMesh:
+			(plate.mesh as QuadMesh).size = span
+			plate.position = Vector3(0.0, mid, DEPTH * 0.5 + NET_PROUD)
+		var core := cell.get_node_or_null("Core") as MeshInstance3D
+		if core != null and core.mesh is BoxMesh:
+			(core.mesh as BoxMesh).size = Vector3(span.x * CORE_NET_MARGIN,
+				span.y * CORE_NET_MARGIN, DEPTH * 0.30)
+			core.position = Vector3(0.0, mid, DEPTH * 0.02)
+
+## Welche Zelle ihres PRÄGENETZES der Zeiger trifft (-1 = keine, auch neben der
+## Netz-Fläche). Geschnitten wird im WELTRAUM gegen die Ebene der Netz-Platte, nicht
+## in Display-Pixeln: so antwortet die Karte in JEDER Lage - flach in der
+## Magazin-Grube, geneigt im Schacht, liegend in einer Auslage -, und niemand muß
+## ihre Projektion nachrechnen.
+func net_face_at(camera: Camera3D, screen_pos: Vector2) -> int:
+	if camera == null or not visible or _cells.is_empty():
+		return -1
+	var plate := _cells[0].get_node_or_null("StampNet") as MeshInstance3D
+	if plate == null or not plate.visible or not (plate.mesh is QuadMesh):
+		return -1
+	var span := (plate.mesh as QuadMesh).size
+	if span.x <= 0.0 or span.y <= 0.0:
+		return -1
+	var world := plate.global_transform
+	var hit = Plane(world.basis.z.normalized(), world.origin).intersects_ray(
+		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
+	if hit == null:
+		return -1
+	var local := world.affine_inverse() * (hit as Vector3)
+	# Das Quad mißt von seiner MITTE und sein y zeigt nach oben, die Backung von
+	# oben links - beides hier geradegerückt.
+	return PressNetView.upright_face_at(Vector2(local.x / span.x + 0.5,
+		0.5 - local.y / span.y))
 
 ## Rahmenstärke dieser Größe - die eine Größen-Marke der Fläche.
 func bezel_lip() -> float:
@@ -566,22 +633,26 @@ func seat_hard(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
 	set_body_scale(PackDrawerView.CASSETTE_SCALE)
+	stand_measure = STAND_HEIGHT
 	_lying = false
 	_show_share = SUNK_SHOW  # vor der Lage: sie entscheidet über die Marke
 	_set_pose_blend(1.0)
 	set_socketed(true)
 	global_position = at - Vector3.UP * drop_for(SUNK_SHOW)
 
-## GRUBE (Magazin): hart auf ihren Magazin-Platz - stehend im Loch, Kopfkante
-## bündig unter der Tischkante, nicht gesteckt. Das Gegenstück zu seat_hard - der
-## eine idempotente Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt das
-## Fach. Genannt wird ihr GLASPUNKT, nicht ihre Einsinktiefe.
-func stand_in_pit(glass_at: Vector3) -> void:
+## GRUBE (Magazin): hart auf ihren Magazin-Platz - sie LIEGT dort flach im Loch
+## (Spieler-Entscheid 2026-09-04: von oben soll ihr Netz lesen), ihre Blende bündig
+## unter der Tischkante, nicht gesteckt. Das Gegenstück zu seat_hard - der eine
+## idempotente Schreiber des Fachs; der Anzeige-Maßstab bleibt, den setzt das Fach.
+## Genannt wird ihr GLASPUNKT, nicht ihre Einsinktiefe.
+func lie_in_pit(glass_at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
-	_lying = false
+	stand_measure = lying_over(1.0)  # flach gerechnet: die Grube ist flach
+	_lying = true
+	badge_on_face = true  # neben ihr läge die Zahl im Nachbarplatz
 	_show_share = PIT_SHOW  # vor der Lage: sie entscheidet über die Marke
-	_set_pose_blend(1.0)
+	_set_pose_blend(0.0)
 	set_socketed(false)
 	global_position = glass_at - Vector3.UP * drop_for(PIT_SHOW)
 
@@ -592,6 +663,7 @@ func stand_in_pit(glass_at: Vector3) -> void:
 func stand_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
+	stand_measure = STAND_HEIGHT
 	_lying = false
 	_show_share = 1.0  # vor der Lage: sie entscheidet über die Marke
 	_set_pose_blend(1.0)
@@ -605,6 +677,7 @@ func stand_on_glass(at: Vector3) -> void:
 func stand_in_shaft(glass_at: Vector3, pose_blend: float) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
+	stand_measure = STAND_HEIGHT
 	_show_share = 1.0  # vor der Lage: sie entscheidet über die Marke
 	_lying = pose_blend < 0.5
 	badge_on_face = _lying  # geneigt liest man sie von oben - neben ihr läge sie im Nachbarn
@@ -618,6 +691,7 @@ func stand_in_shaft(glass_at: Vector3, pose_blend: float) -> void:
 func lie_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_kill(_pose_tween)
+	stand_measure = STAND_HEIGHT
 	_lying = true
 	_show_share = 1.0  # liegend steckt sie in nichts - die Marke bleibt sichtbar
 	_set_pose_blend(0.0)
@@ -630,18 +704,22 @@ func lie_on_glass(at: Vector3) -> void:
 static func lying_under(cell_scale: float) -> float:
 	return maxf(FIN_DEPTH - DEPTH, 0.0) * 0.5 * cell_scale
 
-## Und wie hoch sie über ihm steht - die Blende ist ihr höchster Punkt.
+## Und wie hoch sie über ihm steht. Ihr höchster Punkt ist die KAPPE, nicht die
+## Blende: quer gerollt kragt sie zu beiden Seiten der Karte aus, und liegend zeigt
+## diese Auskragung nach OBEN. An dieser Zahl mißt die flache Magazin-Grube - mit
+## der bloßen Blende gerechnet ragten die Kappen als grüne Zungen aus dem Loch
+## (Sichtprobe 2026-09-04).
 static func lying_over(cell_scale: float) -> float:
-	return (DEPTH + BEZEL_RISE) * cell_scale
+	return (DEPTH * 0.5 + maxf(DEPTH * 0.5 + BEZEL_RISE, CAP_DEPTH * 0.5)) * cell_scale
 
 ## GRUBE (Magazin): die Ankunft im Loch - die Kassette steigt aus dem Grubenboden
-## auf ihre versenkte Standhöhe. Der ENDZUSTAND steht zuerst (stand_in_pit,
+## auf ihre versenkte Liegehöhe. Der ENDZUSTAND steht zuerst (lie_in_pit,
 ## byteweise derselbe) - gefahren wird nur der Weg dorthin, damit ein übersprungener
 ## oder abgeräumter Tween nichts schuldig bleibt. from_below ist die Grubentiefe:
 ## so tief startet sie, dass sie unter dem Boden liegt.
 func rise_into_pit(glass_at: Vector3, from_below: float, delay := 0.0,
 		time := RISE_TIME) -> void:
-	stand_in_pit(glass_at)
+	lie_in_pit(glass_at)
 	_start_rise(from_below, delay, time)
 
 ## FLÄCHE (Läden): die Kassette steigt DURCH die Tischfläche auf ihren Platz -
@@ -683,17 +761,17 @@ func _start_rise(from_below: float, delay: float, time: float) -> void:
 func rise_depth() -> float:
 	if _lying:
 		return lying_over(_body_scale)
-	return (crown_y() + HEIGHT * 0.5) * _body_scale
+	return STAND_HEIGHT * _body_scale
 
 ## Wie tief die Zelle unter ihrem Glaspunkt hängt, wenn `show` von ihr übersteht.
 ## Statisch auf dem Grundmaß (Schlitz und Einschub stehen auf 1) ...
 static func sunk_drop(show: float) -> float:
-	return HEIGHT * (1.0 - show)
+	return STAND_HEIGHT * (1.0 - show)
 
-## ... und als Instanz MIT dem Anzeige-Maßstab: eine gewachsene Kassette hängt
-## tiefer, sonst ragte ihre Kappe über den Grubenrand.
+## ... und als Instanz MIT dem Anzeige-Maßstab und dem gesetzten aufrechten Maß:
+## eine gewachsene Kassette hängt tiefer, eine LIEGENDE nur um ihre eigene Dicke.
 func drop_for(show: float) -> float:
-	return HEIGHT * _body_scale * (1.0 - show)
+	return stand_measure * _body_scale * (1.0 - show)
 
 ## Ihr GLASPUNKT (der Platz, auf dem sie steht) - der Abgleich vergleicht damit,
 ## nicht mit der eingesunkenen Position.
@@ -846,14 +924,20 @@ func _apply_pose() -> void:
 	# setzt die Zelle auf das Glas, nicht hinein. Dazwischen wird schlicht
 	# gemischt - die Enden bleiben exakt die beiden Posen.
 	var angle := lerpf(-PI * 0.5, 0.0, _pose_blend)
-	var lift := lerpf(DEPTH * 0.5, HEIGHT * 0.5, _pose_blend) * _body_scale
+	var upright := STAND_HEIGHT * 0.5
+	var lift := lerpf(DEPTH * 0.5, upright, _pose_blend) * _body_scale
 	# Der Griff hebt den KÖRPER, nicht den Platz: er überlebt jedes Gleiten und
 	# jeden Neuaufbau des Fachs. Er gilt in BEIDEN Lagen - im Archiv zieht man die
 	# stehende Akte heraus, in der Bucht hebt man die liegende Ware an; wie weit,
 	# sagt hover_lift, und das setzt der Wirt.
-	lift += HEIGHT * hover_lift * _hover_share * _body_scale
+	lift += stand_measure * hover_lift * _hover_share * _body_scale
+	# Der ROLL sitzt VOR der Kippung (in der Karten-Ebene): er dreht das Blatt in
+	# sich, nicht seine Neigung zur Kamera. Er steht FEST - eine Karte ist überall
+	# quer (Welle L), es gibt keine zweite Ausrichtung mehr.
+	var roll := PI * 0.5
 	_body.transform = Transform3D(
-		Basis(Vector3.RIGHT, angle).scaled(Vector3.ONE * _body_scale),
+		Basis(Vector3.RIGHT, angle).scaled(Vector3.ONE * _body_scale)
+			* Basis(Vector3.BACK, roll),
 		Vector3(0.0, lift, 0.0))
 
 func _build_materials() -> void:
@@ -1041,7 +1125,7 @@ func _build_cell() -> Node3D:
 
 	if _band_material != null:
 		_add_box(cell, "Seal", Vector3(WIDTH * 1.04, HEIGHT * 0.16, DEPTH * 1.12),
-			Vector3(0.0, mid - opening.y * 0.24, 0.0), _band_material)
+			Vector3(0.0, mid - opening.y * 0.30, 0.0), _band_material)
 
 	# Die KAPPE: massive Sortenfarbe auf der Kopfkante, ihre Oberfläche exakt auf
 	# HEIGHT/2 - so bleibt die Standhöhe die alte und die Einsink-Rechnung stimmt.
@@ -1145,8 +1229,9 @@ func _place_badge() -> void:
 		_cap_badge.visible = _count > 1 and standing
 	_badge.text = "×%d" % _count if _count > 1 else ""
 	# Eine steckende Zelle zeigt keine Schwebemarke: sie ist einzeln, und die Zahl
-	# stünde als einziges Stück Schrift aus dem Tisch heraus.
-	_badge.visible = _count > 1 and not standing and not sunk()
+	# stünde als einziges Stück Schrift aus dem Tisch heraus. Die LIEGENDE Karte im
+	# Magazin trägt ihre Zahl dagegen auf sich - die ragt nirgends heraus.
+	_badge.visible = _count > 1 and not standing and (badge_on_face or not sunk())
 	var top := maxf(float(shown_cells()) - 1.0, 0.0)
 	if _pose_blend < 0.5:
 		if badge_on_face:
@@ -1166,13 +1251,13 @@ func _place_badge() -> void:
 	_badge.position = Vector3(top * STACK_STAGGER * 0.5,
 		HEIGHT * 0.5 + BADGE_GAP + top * STACK_PITCH, top * STACK_PITCH * 0.5)
 
-## Stehend ist ein Bündel EINE Karte (die Zahl steht auf ihrer Kappe); liegend
-## liegt der Stapel als flacher Haufen da. Eine Reihe stehender Sliver läse sich
-## in der Grube als Fächer, nicht als Stück.
+## Ein Bündel ist EINE Karte, sobald es STEHT (die Zahl auf seiner Kappe) oder
+## VERSENKT liegt (die Zahl auf seiner Fläche): ein Turm aus fünf Karten ragte aus
+## dem Loch. Nur AUF der Fläche liegt der Stapel wirklich da.
 func _sync_stack() -> void:
-	var standing := _pose_blend >= 0.5
+	var single := _pose_blend >= 0.5 or sunk()
 	for i in _cells.size():
-		_cells[i].visible = not standing or i == 0
+		_cells[i].visible = not single or i == 0
 
 ## Backt das Siegelzeichen der Sorte EINMAL in eine Textur - dieselbe Zeichnung
 ## wie im Regal (PackIconRenderer), nie ein zweites Zeichen. Der Ofen bleibt für

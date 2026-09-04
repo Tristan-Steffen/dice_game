@@ -23,8 +23,10 @@ extends Panel
 ## Alles darunter liegt in der SCHÜRZE, und sie beginnt UNTER der Fensterkante:
 ## eine Naht, dann das KONSOLEN-BAND (nur noch der GRIFF, mittig unter der
 ## Schacht-Reihe), dieselbe Naht noch einmal, dann das MAGAZIN; seine Unterkante
-## sitzt bündig mit der Pool-Unterkante (die gemeldete apron_bottom-Linie), seine
-## linke Kante auf der gemeldeten shelf_left-Linie (die linke Kante des Ist-Netzes).
+## sitzt bündig mit der Pool-Unterkante (die gemeldete apron_bottom-Linie) - es sei
+## denn, die FLACH LIEGENDE Karte braucht mehr Tiefe, dann wächst der Streifen nach
+## unten in den freien Filz (shelf_min_height). Seine linke Kante liegt auf der
+## gemeldeten shelf_left-Linie (der linken Kante des Ist-Netzes).
 ##
 ## Die REIHE IST die Rechnung: getippt geht eine Kassette in den nächsten freien
 ## Schacht, gezogen sortiert sie um (Reihenfolge = Rechenreihenfolge), geklickt
@@ -128,24 +130,29 @@ const DIFF_PAD := 0.9
 const DIFF_NET_SHARE := 0.92
 
 ## --- Die SCHACHT-REIHE ----------------------------------------------------------
-## Spaltenluft zwischen zwei Schacht-Mündern und der Rand des Blechs.
-const BENCH_GAP := 1.2
+## Die FUGE zwischen zwei Schacht-Mündern (in u). Seit der Welle L ist sie ein
+## SUMMAND: Kartengröße plus Fuge ergibt die Teilung der Reihe, und daraus folgt,
+## wie breit der Streifen sein muß - nie umgekehrt.
+const MOUTH_GAP := 1.6
 const CONSOLE_PAD_X := 1.2
 const CONSOLE_PAD_Y := 0.9
-## Ein Schacht-Mund ist so breit, wie die Reihe hergibt - gedeckelt, damit eine
-## kurze Serie keine Riesenlöcher schneidet, und mit einem Boden, damit eine lange
-## Serie die Kassette nicht zerdrückt.
-const MOUTH_MAX_WIDTH := 11.0
-const MOUTH_MIN_WIDTH := 3.2
-## Höhe eines Mundes als Anteil seiner Breite: die Kassette liegt geneigt darüber,
-## ihre Fläche ist höher als breit (2 : 3).
-const MOUTH_ASPECT := 1.5
-## Die Kassette im Schacht steht in IHREM eigenen Maß (nicht im Magazin-Maß): erst
-## so mißt eine Netz-Zelle an der Werkstatt-Weitsicht genug Bildschirmpixel, um
-## ihre Ziffern zu lesen. Anteil der Mund-Breite, den ihre Fläche füllt.
-const SOCKET_FILL := 0.92
-## Die Reihe atmet: unter so vielen Slots bleibt der Mund beim Deckel stehen.
-const SOCKET_ROOM := 1.30
+## Seitenverhältnis der KASSETTE selbst (Höhe / Breite, 2 : 3).
+const CARD_ASPECT := 1.5
+## ... und das des MUNDES: die Karte liegt QUER im Schacht (um die Blickachse
+## gerollt, Langseite waagerecht), also ist das Loch BREITER als hoch - das
+## Verhältnis der Kassette gekippt.
+const MOUTH_ASPECT := 1.0 / CARD_ASPECT
+## HÖHENRESERVE der Reihe in u: an ihr hängt das Höhenbudget der ganzen Seite
+## (bench_aspect), und sie deckelt zugleich die Mundhöhe. Die BREITE des Mundes
+## deckelt sie NICHT - die kommt aus der festen Kartengröße (Welle L: die Reihe
+## paßt sich der Karte an, nie umgekehrt).
+const MOUTH_HEIGHT_UNITS := 16.5
+## Luft um die Karte im Loch: der Mund ist eine Spur größer als ihr Fußabdruck,
+## sonst schlösse das Blech bündig an ihre Kante an.
+const MOUTH_ROOM := 1.09
+## Und der BODEN der Teilung, wenn der Tisch den Streifen gekappt hat: enger als
+## so rücken die Münder nie zusammen, sonst deckten sich die Karten zu.
+const MOUTH_TIGHT := 0.62
 
 ## Der Schacht-MUND selbst: ein Loch, kein Ding - dunkle Fläche, Saum in der
 ## Sortenfarbe der Karte, die darin steht.
@@ -184,21 +191,28 @@ const BAND_HEIGHT_UNITS := 6.4
 ## (Name, Seele im Essenz-Glühen, Wirkung); beim Hover über eine Magazin-Kassette
 ## oder eine Netz-Zelle übersteuert DEREN Text. scene_root ist der EINE Schreiber
 ## (set_info) - das Fenster hält nur die Fassung. Ränder/Grade in u.
+## Die Grade sind 2026-09-04 rund verdreifacht worden: in einem 24 u hohen Schirm
+## stand die alte Schrift bei 1,3-1,6 u und war schlicht unlesbar.
 const INFO_MARGIN := 1.2
-const INFO_NAME_UNITS := 2.6
-const INFO_SOUL_UNITS := 2.2
-const INFO_GAP := 0.4
-const INFO_NAME_FONT := 0.62
-const INFO_SOUL_FONT := 0.6
-## Der Wirkungstext läuft um. Sein Grad ist GESETZT (u), nicht aus dem Rest-Block
-## gerechnet: der Schirm ist seit der Welle J so hoch wie das Band, und ein
-## Block-Anteil blähte die Schrift auf Überschriftgröße.
-const INFO_BODY_UNITS := 1.4
-## Mindesthöhe des Magazin-Streifens (Einheiten u).
+const INFO_NAME_UNITS := 5.0
+const INFO_SOUL_UNITS := 4.0
+const INFO_GAP := 0.6
+const INFO_NAME_FONT := 0.8
+const INFO_SOUL_FONT := 0.8
+## Der Wirkungstext läuft um und PASST SICH EIN: der Schirm ist so breit wie die
+## Schacht-Reihe, also mal schmal (zwei Schächte) und mal sehr breit (acht) - ein
+## GESETZTER Grad wäre dort abgeschnitten und hier winzig. Genommen wird die größte
+## Stufe, die umgebrochen noch in den Restblock paßt.
+const INFO_BODY_STEPS := [3.4, 3.0, 2.6, 2.2, 1.9, 1.6, 1.4]
+## Absolute Mindesthöhe des Magazin-Streifens (Einheiten u) - der Boden unter dem
+## gemessenen Kartenmaß (siehe shelf_min_height).
 const SHELF_MIN_HEIGHT := 6.0
 ## Sollhöhe des Magazin-Streifens (Einheiten u). Die Schürze (Naht + Band + Naht +
 ## Streifen) wird von scene_root aus der Pool-Höhe herausgerechnet, so dass die
-## MAGAZIN-Unterkante bündig mit der Pool-Unterkante sitzt (apron_span_units).
+## MAGAZIN-Unterkante bündig mit der Pool-Unterkante säße (apron_span_units) -
+## seit die Karte dort FLACH LIEGT (2026-09-04) braucht sie mehr, und der Streifen
+## wächst dann nach unten in den freien Filz (Spieler-Entscheid: lieber tiefer als
+## ein geschrumpftes Fenster).
 const SHELF_STRIP_UNITS := 12.0
 
 ## Der EINE Handlungs-Sitz im Band, MITTIG unter der Schacht-Reihe: er trägt
@@ -313,14 +327,27 @@ var editing_locked: bool = false:
 			return
 		editing_locked = value
 		refresh()
-## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln (ihre Kappe: Breite ×
-## Kappentiefe); scene_root misst ihn an der Welt-Projektion und schiebt ihn
-## herein (ZERO = noch unbekannt, dann trägt das Rückfallmaß der Leiste).
+## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln (ihre Kartenfläche:
+## LANGSEITE × Breite - sie liegt quer); scene_root misst ihn an der
+## Welt-Projektion und schiebt ihn herein (ZERO = noch unbekannt, dann trägt das
+## Rückfallmaß der Leiste).
 var data_cell_px := Vector2.ZERO:
 	set(value):
 		if data_cell_px.is_equal_approx(value):
 			return
 		data_cell_px = value
+		refresh()
+## Die Maßeinheit u des Fensters (0 = die u-Konvention, Fensterbreite/100). Seit
+## der Welle L kann der STREIFEN breiter sein, als seine 100 u ausmachen: die
+## Schacht-Reihe wächst mit der FESTEN Kartengröße nach rechts, das Fenster mit
+## ihr. Dann gibt scene_root die Einheit aus der HÖHE vor (dasselbe
+## apron_bottom-Muster), sonst zerrisse die breitere Reihe die senkrechte
+## Rechnung (bench_aspect).
+var unit_px := 0.0:
+	set(value):
+		if is_equal_approx(unit_px, value):
+			return
+		unit_px = value
 		refresh()
 
 ## Der SOLL-SCHIRM rechts - er trägt NUR noch das Ergebnis-Netz, ohne Hintergrund.
@@ -376,6 +403,9 @@ var _action_button: Button
 var _info_name: Label
 var _info_soul: Label
 var _info_body: Label
+## Der Restblock des Wirkungstextes und die Einheit, in der seine Leiter mißt.
+var _info_body_span := Vector2.ZERO
+var _info_unit := 0.0
 var _info_soul_tint := Color.WHITE
 
 func _ready() -> void:
@@ -439,7 +469,7 @@ func _refresh_content() -> void:
 	_info_soul = null
 	_info_body = null
 	_prune_series()
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	_free_own(_content)
 	_content = null  # queue_free wirkt erst am Bildende - sonst hängt hier ein Zombie
 	_console = null
@@ -498,7 +528,7 @@ func _free_own(node: Node) -> void:
 
 ## Der Innenraum des Fensters in Fenster-Koordinaten - die Straße liegt darin.
 func street_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	return Rect2(Vector2(u * CONTENT_MARGIN_X, u * CONTENT_MARGIN_Y),
 		Vector2(maxf(size.x - u * CONTENT_MARGIN_X * 2.0, 1.0),
 			maxf(size.y - u * CONTENT_MARGIN_Y * 2.0, 1.0)))
@@ -506,7 +536,7 @@ func street_rect() -> Rect2:
 ## Die ERGEBNIS-SPALTE rechts: Ergebnis-Podest über dem Soll-Schirm, volle Höhe
 ## der Straße.
 func result_column_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	var street := street_rect()
 	var width := u * DIFF_WIDTH_UNITS
 	return Rect2(Vector2(street.end.x - width, street.position.y),
@@ -516,7 +546,7 @@ func result_column_rect() -> Rect2:
 ## Straße und trägt links den Tooltip-Schirm, rechts das Soll-Netz. EINE Zeile,
 ## also EIN Rechteck - beide bekommen daraus ihre Höhe.
 func band_row_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	var street := street_rect()
 	var height := minf(u * DIFF_HEIGHT_UNITS, street.size.y)
 	return Rect2(Vector2(street.position.x, street.end.y - height),
@@ -533,7 +563,7 @@ func diff_screen_rect() -> Rect2:
 ## Das ERGEBNIS-PODEST: über dem Soll-Schirm, um die Fuge abgesetzt - dorthin
 ## wechselt der Zielwürfel am Ende der Serie.
 func result_podium_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	var column := result_column_rect()
 	var diff := diff_screen_rect()
 	var bottom := diff.position.y - u * STAGE_NET_GAP
@@ -543,7 +573,7 @@ func result_podium_rect() -> Rect2:
 
 ## Der Platz der SCHACHT-REIHE: die Straße links der Ergebnis-Spalte.
 func row_field_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	var street := street_rect()
 	var right := result_column_rect().position.x - u * STREET_GAP
 	return Rect2(street.position,
@@ -789,7 +819,7 @@ func bench_open() -> bool:
 ## Das Konsolen-Band: es liegt GANZ unter dem Fenster, eine Naht unter seiner
 ## Kante - und dieselbe Naht trennt es vom Magazin.
 func console_band_rect() -> Rect2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	return Rect2(Vector2(0.0, size.y + u * CONSOLE_SHELF_GAP),
 		Vector2(size.x, band_size(u).y))
 
@@ -799,11 +829,12 @@ func band_size(u: float) -> Vector2:
 
 ## Fenster PLUS Schürze in Display-Pixeln: alles, was zur Werkbank gehört - und
 ## damit die EINE Weiterleitungs-Region. Sie streckt sich nach UNTEN bis zur
-## Schürzenlinie und nach LINKS bis zur Magazin-Kante: ragte die Grube darüber
-## hinaus, fiele jeder Chip-Tap dort durch (der Welle-H-Bug).
+## echten Magazin-Unterkante (die seit 2026-09-04 unter die Schürzenlinie reichen
+## darf) und nach LINKS bis zur Magazin-Kante: ragte die Grube darüber hinaus,
+## fiele jeder Chip-Tap dort durch (der Welle-H-Bug).
 func bench_rect() -> Rect2:
 	var rect := get_global_rect()
-	rect.size.y = maxf(rect.size.y, apron_bottom_y())
+	rect.size.y = maxf(rect.size.y, maxf(apron_bottom_y(), shelf_rect().end.y))
 	var left := shelf_rect().position.x
 	if left < 0.0:
 		rect.position.x += left
@@ -812,14 +843,22 @@ func bench_rect() -> Rect2:
 
 ## Das Seitenverhältnis (Breite/Höhe) der Werkbank - GELÖST, nicht gesetzt. Die
 ## Grundseite ist die STRASSE, und sie trägt ZWEI Spalten über EINEM Band: rechts
-## Kopfraum, Podest, Fuge; links die höchstmögliche Schacht-Reihe (der Mund-Deckel)
-## und ihre Fuge - die HÖHERE der beiden gibt das Maß. Das Fenster ist per
-## u-Konvention 100u breit, darum ist die BREITE die Höhe mal diesem Verhältnis.
+## Kopfraum, Podest, Fuge; links die Höhenreserve der Schacht-Reihe und ihre Fuge -
+## die HÖHERE der beiden gibt das Maß. Es löst nur noch die HÖHE gegen die
+## Maßeinheit u; die BREITE kommt seit der Welle L aus der Reihe selbst
+## (bench_width_for) und ist mindestens diese 100 u.
 static func bench_aspect() -> float:
 	var column := STAGE_HEAD_ROOM + STAGE_HEIGHT + STAGE_NET_GAP + DIFF_HEIGHT_UNITS
-	var row := MOUTH_MAX_WIDTH * MOUTH_ASPECT + CONSOLE_PAD_Y * 2.0 + ROW_BAND_GAP \
+	var row := MOUTH_HEIGHT_UNITS + CONSOLE_PAD_Y * 2.0 + ROW_BAND_GAP \
 		+ DIFF_HEIGHT_UNITS
 	return 100.0 / (CONTENT_MARGIN_Y * 2.0 + maxf(column, row))
+
+## Die Maßeinheit u dieses Fensters: die vorgegebene, sonst die u-Konvention
+## (Fensterbreite/100). Alles Gesetzte im Fenster rechnet in ihr.
+func unit() -> float:
+	if unit_px > 0.0:
+		return unit_px
+	return maxf(size.x, 200.0) / 100.0
 
 ## Wie tief die Schürze unter der Fensterkante hängt, in Einheiten u: Naht, ganzes
 ## Konsolen-Band, Naht, Magazin-Streifen - eine reine Konstante, kein Weltmaß.
@@ -837,7 +876,7 @@ static func apron_span_units() -> float:
 func apron_bottom_y() -> float:
 	if apron_bottom > size.y:
 		return apron_bottom
-	return size.y + maxf(size.x, 200.0) / 100.0 * apron_units()
+	return size.y + unit() * apron_units()
 
 # --- Die SCHACHT-REIHE -------------------------------------------------------------
 
@@ -847,35 +886,56 @@ func slot_count() -> int:
 	var slots := run.series_slots() if run != null else FALLBACK_SLOTS
 	return maxi(slots, _slot_cards().size())
 
-## Breite EINES Schacht-Mundes: GELÖST aus dem Platz, den die Reihe hat - gedeckelt
-## nach oben (eine kurze Serie schneidet keine Riesenlöcher) und nach unten (eine
-## lange Serie zerdrückt die Kassette nicht).
-func mouth_width(u: float) -> float:
-	var columns := float(slot_count())
-	var room := row_field_rect().size.x - u * CONSOLE_PAD_X * 2.0
-	var solved := (room - (columns - 1.0) * u * BENCH_GAP) / maxf(columns, 1.0)
-	return clampf(solved, u * MOUTH_MIN_WIDTH, u * MOUTH_MAX_WIDTH)
+## Die LANGSEITE einer Kassette in Fenster-Pixeln, in der EINEN Größe, die sie
+## überall hat. Sie ist die Bezugsgröße der ganzen Reihe (Welle L).
+func card_span_px() -> float:
+	return shelf_cell_px().x * PackDrawerView.CASSETTE_SCALE
 
+## Breite EINES Schacht-Mundes: die Kartenbreite plus Luft. Nicht mehr aus dem
+## verfügbaren Platz gelöst - die Karte schrumpft nie, die REIHE wächst, und mit
+## ihr der ganze Streifen (siehe bench_width_for).
+func mouth_width(_u: float) -> float:
+	return card_span_px() * MOUTH_ROOM
+
+## Die Mundhöhe folgt dem Kartenformat, bleibt aber in der Höhenreserve der Reihe:
+## die Karte SCHWEBT über ihrem Loch, ein knapper Mund liegt hinter ihr.
 func mouth_size(u: float) -> Vector2:
 	var wide := mouth_width(u)
-	return Vector2(wide, wide * MOUTH_ASPECT)
+	return Vector2(wide, minf(wide * MOUTH_ASPECT, u * MOUTH_HEIGHT_UNITS))
 
-## Maße des Blechs: die Münder mit ihrer Luft dazwischen, plus Rand.
-func console_size(u: float) -> Vector2:
-	var mouth := mouth_size(u)
+## Die TEILUNG der Reihe: Kartenbreite plus Fuge. Hat der TISCH den Streifen
+## gekappt (er ist endlich), schließt sich die FUGE, bis die Reihe wieder in ihr
+## Feld paßt - die KARTE behält ihre Größe, notfalls rücken die Münder zusammen.
+func mouth_step(u: float) -> float:
+	var wide := mouth_width(u)
 	var columns := float(slot_count())
-	var row := columns * mouth.x + (columns - 1.0) * u * BENCH_GAP
-	return Vector2(row + u * CONSOLE_PAD_X * 2.0, mouth.y + u * CONSOLE_PAD_Y * 2.0)
+	if columns < 2.0:
+		return wide + u * MOUTH_GAP
+	var room := row_field_rect().size.x - u * CONSOLE_PAD_X * 2.0
+	return clampf((room - wide) / (columns - 1.0), wide * MOUTH_TIGHT,
+		wide + u * MOUTH_GAP)
 
-## Der Anzeige-Maßstab einer Kassette IM SCHACHT: sie steht dort in IHREM eigenen
-## Maß, nicht im Magazin-Maß - der Mund gibt es vor. scene_root skaliert die
-## Körper darauf (ui/ faßt nie einen an).
-func socket_cell_scale() -> float:
-	var u := maxf(size.x, 200.0) / 100.0
-	var wide := shelf_cell_px().x
-	if wide <= 0.0:
-		return PackDrawerView.CASSETTE_SCALE
-	return maxf(mouth_width(u) * SOCKET_FILL / wide, PackDrawerView.CASSETTE_SCALE)
+## Maße des Blechs: die Münder mit ihrer Teilung, plus Rand.
+func console_size(u: float) -> Vector2:
+	var columns := float(slot_count())
+	return Vector2(mouth_width(u) + (columns - 1.0) * mouth_step(u)
+		+ u * CONSOLE_PAD_X * 2.0,
+		mouth_size(u).y + u * CONSOLE_PAD_Y * 2.0)
+
+## Die Breite des KONSOLEN-BLECHS für slots Münder - eine reine Rechnung, damit
+## scene_root den Streifen stellen kann, bevor das Fenster steht.
+static func row_span(slots: int, u: float, mouth: float) -> float:
+	var columns := float(maxi(slots, 1))
+	return columns * mouth + (columns - 1.0) * u * MOUTH_GAP + u * CONSOLE_PAD_X * 2.0
+
+## Wie BREIT das Fenster sein muß, damit slots Kassetten in ihrer einen Größe
+## nebeneinander in die Reihe passen: die Reihe plus alles, was links und rechts
+## von ihr in u steht (Ränder, Straßenfuge, Ergebnis-Spalte). Die u-Konvention
+## (100 u) bleibt der Boden - schmaler wird der Streifen nie.
+static func bench_width_for(slots: int, u: float, card_px: float) -> float:
+	var row := row_span(slots, u, card_px * MOUTH_ROOM)
+	return maxf(u * 100.0,
+		row + u * (CONTENT_MARGIN_X * 2.0 + STREET_GAP + DIFF_WIDTH_UNITS))
 
 ## Die Reihe als flache Leiste, eingelassen in ihr Konsolen-Blech. Ein belegter
 ## Schacht trägt seine echte Kassette (scene_root stellt sie); ein Klick nimmt sie
@@ -920,7 +980,7 @@ func _build_shaft_row(u: float) -> void:
 	var slots := slot_count()
 	_portals.resize(slots)
 	var mouth := mouth_size(u)
-	var step := mouth.x + u * BENCH_GAP
+	var step := mouth_step(u)
 	var left := u * CONSOLE_PAD_X
 	for i in slots:
 		var card: Dictionary = cards[i] if i < cards.size() else {}
@@ -1326,10 +1386,13 @@ func _build_info_screen(u: float) -> void:
 		soul_h * INFO_SOUL_FONT, CasinoStyle.CREAM, false)
 	top += soul_h + u * INFO_GAP
 	var body_h := maxf(rect.size.y - top - pad, u * 3.0)
-	_info_body = _info_line(screen, "InfoBody", Vector2(pad, top), Vector2(inner, body_h),
-		u * INFO_BODY_UNITS, MUTED_COLOR, true)
+	_info_body_span = Vector2(inner, body_h)
+	_info_unit = u
+	_info_body = _info_line(screen, "InfoBody", Vector2(pad, top), _info_body_span,
+		u * float(INFO_BODY_STEPS[0]), MUTED_COLOR, true)
 	_info_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	_info_soul_tint = Color.WHITE
+	_fit_info_body()
 
 ## Eine Zeile des Info-Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst
 ## klemmt die Mindestgröße die Zeile hoch.
@@ -1363,6 +1426,25 @@ func set_info(die_name: String, soul: String, soul_tint: Color, body: String) ->
 	_info_soul.text = soul
 	_info_soul.add_theme_color_override("font_color", soul_tint)
 	_info_body.text = body
+	_fit_info_body()
+
+## Der Grad des Wirkungstextes: die größte Stufe, die umgebrochen noch in den
+## Restblock paßt (die Leiter des Ladens, hier im Fenster). Gerufen beim Aufbau
+## und bei jedem Textwechsel - der Block steht fest, der Text nicht.
+func _fit_info_body() -> void:
+	var font := ThemeDB.fallback_font
+	if font == null or _info_body == null or not is_instance_valid(_info_body) \
+			or _info_body_span.x <= 0.0:
+		return
+	var lead := _info_body.get_theme_constant("line_spacing")
+	var px := maxi(8, int(_info_unit * float(INFO_BODY_STEPS[INFO_BODY_STEPS.size() - 1])))
+	for step: float in INFO_BODY_STEPS:
+		var wanted := maxi(8, int(_info_unit * step))
+		if text_block_height(font, _info_body.text, _info_body_span.x, wanted, lead) \
+				<= _info_body_span.y:
+			px = wanted
+			break
+	_info_body.add_theme_font_size_override("font_size", px)
 
 ## DER GRIFF: EINE atomare Buchung in GameRun, dann die Zeremonie. Gemeldet wird
 ## press_started VOR dem Buchen (die Dekompression der Zellen braucht sie noch in
@@ -1443,7 +1525,7 @@ func _play_series_ceremony(generation: int) -> void:
 	var cards := press_display_anchors()
 	var rail := _rail_seat_y()
 	var entry := Vector2(cards[0].x, rail) if not cards.is_empty() else die_seat()
-	entry.x -= mouth_size(maxf(size.x, 200.0) / 100.0).x * 0.8  # der Reihenanfang
+	entry.x -= mouth_size(unit()).x * 0.8  # der Reihenanfang
 	stencil_moved.emit(entry, STENCIL_TO_RAIL_TIME)
 	if not await _scan_wait(STENCIL_TO_RAIL_TIME, generation, launched):
 		return
@@ -1634,9 +1716,19 @@ func _build_drawer(u: float) -> void:
 ## Fensterkante, links auf der gemeldeten shelf_left-Linie (KORREKTUR-WELLE J: die
 ## linke Kante des Ist-Netzes). Ganze Pixel, damit die Platz-Rechnung nicht driftet.
 func shelf_strip_size() -> Vector2:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	return Vector2(floorf(maxf(size.x - shelf_left_x(), u * 20.0)),
-		maxf(apron_bottom_y() - shelf_top(), u * SHELF_MIN_HEIGHT))
+		maxf(apron_bottom_y() - shelf_top(), shelf_min_height()))
+
+## Die MINDESTTIEFE des Magazins: seit die Kassette dort FLACH LIEGT (2026-09-04),
+## ist es ihr eigener Fußabdruck plus Rangluft und die gemalte Fassung. Reicht die
+## Pool-Höhe dafür nicht, wächst der Streifen nach UNTEN in den freien Filz - die
+## Karte schrumpft nie, die Fassung paßt sich an (dieselbe Regel wie bei der
+## Schacht-Reihe, die nach rechts wächst).
+func shelf_min_height() -> float:
+	var card := shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE * PackDrawerView.RANK_SPAN
+	return maxf(card + PackDrawerView.rim_inset(shelf_unit()) * 2.0,
+		unit() * SHELF_MIN_HEIGHT)
 
 ## Die gemeldete Linkskante, auf das Fenster geklemmt: nach rechts rückt sie nie.
 func shelf_left_x() -> float:
@@ -1645,7 +1737,7 @@ func shelf_left_x() -> float:
 ## Oberkante des Magazins: eine Naht unter dem Konsolen-Band. Der Abstand zur
 ## Konsole ist gesetzt, die HÖHE folgt daraus.
 func shelf_top() -> float:
-	return console_band_rect().end.y + maxf(size.x, 200.0) / 100.0 * CONSOLE_SHELF_GAP
+	return console_band_rect().end.y + unit() * CONSOLE_SHELF_GAP
 
 ## Der Platz des Magazins: unter dem Konsolen-Band, rechts bündig mit der
 ## Fensterkante, links auf shelf_left - Unterkante = Pool-Unterkante (apron_bottom).
@@ -1671,13 +1763,13 @@ func shelf_pit_radius() -> float:
 
 ## Die Maßeinheit, in der die Schürze rechnet (u = Fensterbreite/100).
 func shelf_unit() -> float:
-	return maxf(size.x, 200.0) / 100.0
+	return unit()
 
 ## Das Zellmaß, an dem sich das Magazin misst (ohne gemeldetes das Rückfallmaß).
 func shelf_cell_px() -> Vector2:
 	if data_cell_px.x > 0.0 and data_cell_px.y > 0.0:
 		return data_cell_px
-	return PackDrawerView.fallback_cell(maxf(size.x, 200.0) / 100.0)
+	return PackDrawerView.fallback_cell(unit())
 
 ## Anzeige-Maßstab der Magazin-Kassetten (scene_root skaliert die Körper darauf).
 func shelf_cell_scale() -> float:
@@ -1832,7 +1924,7 @@ func _style_button(button: Button, accent: Color) -> void:
 		_button_box(Color("#1a183666"), Color(accent.r, accent.g, accent.b, 0.25)))
 
 func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
-	var u := maxf(size.x, 200.0) / 100.0
+	var u := unit()
 	var box := StyleBoxFlat.new()
 	box.bg_color = bg
 	box.border_color = border

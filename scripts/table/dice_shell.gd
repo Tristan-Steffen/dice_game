@@ -28,7 +28,8 @@ const RADIUS := 3.0          # Hüllmaß des Wirbels (Klickzone, Bahn-Umgriff)
 const BOB_AMPLITUDE := 0.12
 const BOB_SPEED := 1.2
 
-const GHOST_SCALE := 0.6      # Tray-Würfelgröße (DiceTrayView.DIE_SCALE)
+## Die EINE Würfelgröße - kein eigenes Maß hier: ein Würfel ist überall gleich groß.
+const GHOST_SCALE := DiceTrayView.DIE_SCALE
 const GHOST_DAMP := 0.05
 const GHOST_MAX_SPEED := 26.0  # Sicherheitsventil der Bahnführung (über r·ω·Puls)
 ## Fester Eigendrall je Bahn-Platz (rad/s) - das Taumeln ist Choreographie,

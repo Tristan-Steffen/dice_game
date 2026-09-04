@@ -577,13 +577,111 @@ func test_reordering_keeps_the_anchors_and_swaps_the_uids() -> void:
 		"die Reihenfolge IST die Rechenreihenfolge")
 	assert_eq(view.press_slot_anchors(), anchors, "die Schächte selbst stehen still")
 
-## Der Anzeige-Maßstab der Schacht-Kassette ist ein EIGENES Maß: im Schacht steht
-## sie größer als im Magazin, sonst läse ihr Netz an der Weitsicht nicht.
-func test_a_shaft_cassette_stands_bigger_than_in_the_magazine() -> void:
-	view.data_cell_px = Vector2(40, 16)
+## WELLE L: die Schacht-Kassette steht in der EINEN Kartengröße - derselben wie im
+## Magazin. Das eigene Schacht-Maß (socket_cell_scale) ist gestorben.
+func test_a_shaft_cassette_stands_at_the_one_card_size() -> void:
+	view.data_cell_px = Vector2(60, 16)
 	await wait_frames(2)
-	assert_gt(view.socket_cell_scale(), PackDrawerView.CASSETTE_SCALE,
-		"die Schacht-Karte trägt ihr eigenes Maß")
+	assert_almost_eq(view.card_span_px(), 60.0 * PackDrawerView.CASSETTE_SCALE,
+		0.001, "die Langseite der Karte in ihrer einen Größe")
+	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
+		"und das Magazin stellt sie in genau derselben - Slot == Magazin")
+	assert_false(view.has_method("socket_cell_scale"),
+		"es gibt keinen kontext-eigenen Maßstab mehr")
+
+# --- WELLE L: EINE Kartengröße, die Reihe paßt sich an ----------------------------
+
+## (3) Der MUND kommt aus der KARTE plus Fuge, nicht mehr aus dem Platz: er ist bei
+## zwei wie bei acht Schächten gleich groß.
+func test_the_mouth_is_the_card_plus_its_gap() -> void:
+	view.data_cell_px = Vector2(24, 8)
+	view.refresh()
+	await wait_frames(2)
+	var short := view.mouth_width(view.unit())
+	assert_almost_eq(short, view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
+		"die Kartenbreite plus Luft")
+	run.hub_level = 10
+	run.series_slot_bonus = 4
+	view.refresh()
+	await wait_frames(2)
+	assert_gt(view.slot_count(), 5, "eine lange Serie")
+	assert_almost_eq(view.mouth_width(view.unit()), short, 0.001,
+		"und sie zerdrückt die Karte NICHT - der Mund bleibt der Karte treu")
+
+## Und im Bild steht die Fuge auch: zwischen zwei Mündern klafft genau sie.
+func test_two_shafts_stand_a_real_gap_apart() -> void:
+	view.data_cell_px = Vector2(24, 8)  # kleine Karte: die Reihe paßt bequem
+	run.hub_level = 10
+	view.refresh()
+	await wait_frames(2)
+	var u := view.unit()
+	assert_gt(view._slit_panels.size(), 1)
+	var first: Rect2 = view._slit_panels[0].get_global_rect()
+	var second: Rect2 = view._slit_panels[1].get_global_rect()
+	assert_almost_eq(second.position.x - first.end.x, u * WorkshopView.MOUTH_GAP, 0.5,
+		"die Münder stehen nicht mehr bündig aneinander")
+	assert_lte(view.console_size(u).x, view.row_field_rect().size.x + 0.5,
+		"und die Reihe bleibt trotzdem im Feld")
+
+## (3) Der STREIFEN wächst mit der Reihe, statt die Karten zu schrumpfen: je Slot
+## genau eine Kartenbreite plus eine Fuge mehr.
+func test_the_strip_grows_instead_of_shrinking_the_cards() -> void:
+	var u := 5.0
+	var card := 110.0
+	var mouth := card * WorkshopView.MOUTH_ROOM
+	assert_almost_eq(WorkshopView.row_span(6, u, mouth)
+		- WorkshopView.row_span(2, u, mouth),
+		4.0 * (mouth + u * WorkshopView.MOUTH_GAP), 0.001,
+		"je Karte eine Kartenbreite plus Fuge")
+	var six := WorkshopView.bench_width_for(6, u, card)
+	assert_gt(six, WorkshopView.bench_width_for(2, u, card),
+		"sechs Karten brauchen mehr Streifen als zwei")
+	assert_gt(WorkshopView.bench_width_for(8, u, card), six)
+	assert_gte(WorkshopView.bench_width_for(1, u, card), u * 100.0,
+		"und schmaler als seine 100 u wird der Streifen nie")
+
+## Und die Karte bleibt auch dann groß, wenn der TISCH den Streifen kappt: dann
+## rückt die TEILUNG zusammen, nie der Mund selbst.
+func test_a_capped_strip_closes_the_gap_before_it_shrinks_a_card() -> void:
+	view.data_cell_px = Vector2(60, 16)
+	run.hub_level = 10
+	run.series_slot_bonus = 4
+	view.refresh()
+	await wait_frames(2)
+	var u := view.unit()
+	assert_lt(view.mouth_step(u), view.mouth_width(u) + u * WorkshopView.MOUTH_GAP,
+		"die Fuge schließt sich")
+	assert_almost_eq(view.mouth_width(u),
+		view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
+		"aber der Mund - und damit die Karte - bleibt")
+	assert_gte(view.mouth_step(u), view.mouth_width(u) * WorkshopView.MOUTH_TIGHT,
+		"aber nie enger als der Boden - die Karten decken sich nie ganz zu")
+
+## Die MASSEINHEIT darf von außen vorgegeben werden: der Streifen ist breiter als
+## seine 100 u, sonst zerrisse die gewachsene Reihe die senkrechte Rechnung.
+func test_the_reported_unit_beats_the_window_width() -> void:
+	await wait_frames(2)
+	var own := view.size.x / 100.0
+	assert_almost_eq(view.unit(), own, 0.001, "ohne Meldung die u-Konvention")
+	view.unit_px = own * 0.5
+	await wait_frames(2)
+	assert_almost_eq(view.unit(), own * 0.5, 0.001, "gemeldet schlägt gerechnet")
+
+## (2) Die gemeldeten ANKER zeigen weiter auf Mund- bzw. Kartenflächen-Mitte - die
+## Schablonen-Fahrt fährt unverändert.
+func test_the_anchors_still_name_the_card_faces() -> void:
+	await wait_frames(2)
+	var u := view.size.x / 100.0
+	var mouths := view.press_slot_anchors()
+	assert_eq(mouths, view.press_display_anchors(),
+		"Mund und Kartenfläche liegen aufeinander")
+	assert_eq(mouths.size(), view.slot_count())
+	for i in mouths.size():
+		var mouth: Rect2 = view._slit_panels[i].get_global_rect()
+		assert_almost_eq(mouths[i].x, mouth.get_center().x, 0.001)
+		assert_almost_eq(mouths[i].y, mouth.get_center().y, 0.001)
+	assert_almost_eq(mouths[0].y, view._rail_seat_y(), u * 0.5,
+		"und sie liegen auf der Zeile der Schiene")
 
 # --- DER SOLL-SCHIRM: das UI-Spiegelbild des linken Netzes (KORREKTUR-WELLE I) -----
 # Die Aufschlüsselungs-Zeilen sind tot - der Schirm trägt nur noch das Ergebnis-Netz

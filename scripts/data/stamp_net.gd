@@ -235,6 +235,26 @@ static func line(net: Array) -> String:
 		return "%d Zellen, +%d gesamt" % [cells, sum] if cells > 1 else "1 Zelle, +%d" % sum
 	return "%d Zellen" % cells if cells > 1 else "1 Zelle"
 
+## Was EINE Zelle tut, im Klartext ("" = leere Zelle). Die Quellen sind die
+## bestehenden: das Material seine Seiten-Zeile, die Rune ihre, der Operator seine
+## Wirkung - hier wird nichts zweitformuliert.
+static func cell_hint(cell: Dictionary) -> String:
+	match kind_of(cell):
+		KIND_VALUE:
+			return "Zahl: +%d auf diese Seite" % int(cell.get("value", 0))
+		KIND_MATERIAL:
+			return DieMaterial.face_hint(String(cell.get("id", "")))
+		KIND_RUNE:
+			return Rune.hint(String(cell.get("id", "")))
+		KIND_OPERATOR:
+			var op := String(cell.get("id", ""))
+			return "%s: %s" % [operator_name(op), operator_effect(op)]
+		KIND_DOPE:
+			return "Veredelung: sättigt das Material dieser Seite"
+		KIND_POINTER:
+			return "Pointer: verdrahtet diese Seite auf Seite %d" % (int(cell.get("to", 0)) + 1)
+	return ""
+
 ## --- Wurf-Werkzeug -------------------------------------------------------------
 
 static func _tier(tier: int) -> int:

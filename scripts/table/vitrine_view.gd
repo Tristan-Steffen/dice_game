@@ -524,10 +524,12 @@ func _lay_shelf(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var row: Array = stock.get(ShopController.KIND_ENGRAVING_PACK, [])
 	for i in row.size():
 		entries.append({"kind": ShopController.KIND_ENGRAVING_PACK, "index": i, "pack": row[i]})
-	var pitch := DataCellView.WIDTH * PackDrawerView.CASSETTE_SCALE * PackDrawerView.CELL_SPAN
+	# QUER: die liegende Karte reicht mit ihrer LANGSEITE quer durch die Bucht
+	# (Welt-Z), nicht mit ihrer Breite - Teilung und Greifradius messen daran.
+	var pitch := DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PackDrawerView.CELL_SPAN
 	var offsets := row_spots(entries.size(), _field_width(), pitch)
 	var radius := pick_radius(
-		DataCellView.WIDTH * PackDrawerView.CASSETTE_SCALE * PICK_FACTOR, offsets)
+		DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PICK_FACTOR, offsets)
 	var x := _band_depths().x
 	var rest := cell_y()
 	for i in entries.size():
@@ -549,7 +551,7 @@ func _lay_shelf(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 		cell.set_count(maxi(pack.count, 1))
 		cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 		cell.hover_lift = DataCellView.HOVER_LIFT
-		_hover_head[key] = DataCellView.HEIGHT * cell.body_scale() * cell.hover_lift
+		_hover_head[key] = DataCellView.STAND_HEIGHT * cell.body_scale() * cell.hover_lift
 		cell.lie_on_glass(spot)
 		items.append({"kind": entry["kind"], "index": entry["index"], "key": key, "spot": spot,
 			"node": cell, "cell": cell, "radius": radius})
@@ -622,7 +624,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	_row_pitch = absf(offsets[1] - offsets[0]) if offsets.size() >= 2 else 0.0
 	var x := center.x
 	var pack_radius := pick_radius(
-		DataCellView.WIDTH * PackDrawerView.CASSETTE_SCALE * PICK_FACTOR, offsets)
+		DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PICK_FACTOR, offsets)
 	var die_radius := pick_radius(bowl_reach() * PICK_FACTOR, offsets)
 	for i in entries.size():
 		var entry := entries[i]
@@ -645,7 +647,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			cell.set_count(maxi((entry["pack"] as Pack).count, 1))
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 			cell.hover_lift = DataCellView.HOVER_LIFT
-			_hover_head[key] = DataCellView.HEIGHT * cell.body_scale() * cell.hover_lift
+			_hover_head[key] = DataCellView.STAND_HEIGHT * cell.body_scale() * cell.hover_lift
 			cell.lie_on_glass(spot)
 			items.append({"kind": entry["kind"], "index": entry["index"], "key": key,
 				"spot": spot, "node": cell, "cell": cell, "radius": pack_radius})
@@ -679,7 +681,8 @@ func _zone_reach(zone: int) -> float:
 ## Wie weit eine liegende Kassette bzw. das höchste Stück der Schale von seiner
 ## Mitte aus nach vorn und hinten reicht - daran messen sich die beiden Bänder.
 static func shelf_reach() -> float:
-	return DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * 0.5
+	# QUER liegend zeigt die Karte ihre BREITE nach vorn/hinten, nicht ihre Länge.
+	return DataCellView.WIDTH * PackDrawerView.CASSETTE_SCALE * 0.5
 
 static func bowl_reach() -> float:
 	return DieBuilder.HALF_EXTENT * DIE_SCALE * SILHOUETTE

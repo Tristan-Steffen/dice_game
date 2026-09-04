@@ -379,13 +379,15 @@ func test_magazine_and_slit_are_cut_to_the_same_cassette() -> void:
 		"die Kassette steht senkrecht über ihrem Schlitz, nie schmaler")
 
 ## Die Menge drückt keine Karte klein - nie. Der gemessene Deckel ist genau so
-## gewählt, dass eine randvolle Grube noch in voller Größe steht.
+## gewählt, dass eine randvolle Grube noch in voller Größe steht. Seit der Welle L
+## fällt er KLEINER aus als der kopflose Rückfall (GameRun.PACK_CAPACITY): die Karte
+## ist um 30 % gewachsen und liegt quer, es passen also weniger nebeneinander.
 func test_the_magazine_never_squeezes_its_cards_by_count() -> void:
 	view.apron_bottom = _apron_line()
 	await wait_frames(2)
 	var capacity := PackDrawerView.capacity_for(view.shelf_pit_rect().size,
 		view.shelf_cell_px())
-	assert_gt(capacity, GameRun.PACK_CAPACITY, "die echte Grube fasst mehr als der Rückfall")
+	assert_gt(capacity, 0, "die Grube hat einen GEMESSENEN Deckel")
 	run.set_pack_capacity(capacity)
 	for i in capacity:
 		run.grant_pack(Pack.number_pack())
@@ -442,8 +444,13 @@ func test_the_console_stays_clear_of_the_drawer() -> void:
 	await wait_frames(2)
 	assert_gt(_drawer_rect().position.y, _console().get_global_rect().end.y,
 		"die Reihe endet weit über dem Fach")
-	assert_gt(view.mouth_size(u).y, view.mouth_size(u).x,
-		"ein Schacht-Mund ist höher als breit - die Karte steht hochkant darin")
+	# KORREKTUR-WELLE K: die Karte LIEGT QUER im Schacht, also ist das Loch breiter
+	# als hoch - genau das Verhältnis der Kassette, gekippt.
+	assert_gt(view.mouth_size(u).x, view.mouth_size(u).y,
+		"ein Schacht-Mund ist breiter als hoch - die Karte liegt quer darin")
+	assert_almost_eq(view.mouth_size(u).x / view.mouth_size(u).y,
+		WorkshopView.CARD_ASPECT, 0.001,
+		"und zwar genau um das Kassetten-Verhältnis")
 
 func test_the_drawer_never_reflows_however_the_stock_stands() -> void:
 	# Der Beweis in einem Bild: dasselbe Fach-Rechteck bei leerem, gemischtem und
@@ -537,19 +544,26 @@ func test_the_long_series_row_still_fits_between_the_screens() -> void:
 		assert_gte(mouth.position.x, view._console.get_global_rect().position.x - 0.5)
 		assert_lte(mouth.end.x, view._console.get_global_rect().end.x + 0.5)
 
-## Und ganz oben, mit jedem Zuschlag: acht Schächte passen ebenso.
+## Und ganz oben, mit jedem Zuschlag: acht Schächte passen ebenso - der STREIFEN
+## wächst dafür mit (bench_width_for), genau wie scene_root ihn stellt. Die Karte
+## schrumpft nie, also ist die Breite die Stellschraube, nicht ihr Maß.
 func test_eight_shafts_still_fit_the_row_field() -> void:
 	run.hub_level = 10
 	run.series_slot_bonus = 2
+	var u0 := view.size.x / 100.0
+	view.size.x = WorkshopView.bench_width_for(8, u0,
+		view.shelf_cell_px().x * PackDrawerView.CASSETTE_SCALE)
+	view.unit_px = u0
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view.slot_count(), 8, "acht ist der Deckel")
 	var console := _console().get_rect()
 	var field := view.row_field_rect()
 	assert_lte(console.size.x, field.size.x + 0.5, "die Reihe bleibt im Feld")
-	var u := view.size.x / 100.0
-	assert_gte(view.mouth_width(u), u * WorkshopView.MOUTH_MIN_WIDTH - 0.001,
-		"und kein Mund fällt unter sein Mindestmaß")
+	var u := view.unit()
+	assert_almost_eq(view.mouth_width(u),
+		view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
+		"und kein Mund schrumpft: die Karte hat EINE Größe (Welle L)")
 
 # --- KORREKTUR-WELLE J: ein BAND aus Ist-Netz | Tooltip | Soll-Netz ----------------
 

@@ -190,3 +190,28 @@ func test_a_fixed_pointer_net_always_points_at_a_neighbour() -> void:
 func test_a_fixed_net_never_exceeds_the_six_faces() -> void:
 	assert_eq(StampNet.filled_count(StampNet.fixed_net(Engraving.doping(), 99,
 		_rng(1))), StampNet.FACES)
+
+# --- Was EINE Zelle tut, im Klartext (2026-09-04) ---------------------------------
+# Der Zeiger auf einer Netz-Zelle soll DEREN Wirkung lesen, nicht die des ganzen
+# Pakets. Die Quellen bleiben die bestehenden - hier wird nichts zweitformuliert.
+
+func test_a_material_cell_names_its_material() -> void:
+	var material: DieMaterial = DieMaterial.all()[0]
+	var hint := StampNet.cell_hint(StampNet.material_cell(material.id))
+	assert_eq(hint, DieMaterial.face_hint(material.id),
+		"dieselbe Seiten-Zeile, die auch das Würfelnetz nennt")
+	assert_true(hint.contains(material.display_name), "und sie nennt das Material")
+
+func test_a_rune_cell_names_its_rune() -> void:
+	var rune_id: String = Rune.all()[0].id
+	assert_eq(StampNet.cell_hint(StampNet.rune_cell(rune_id)), Rune.hint(rune_id),
+		"dieselbe Zeile, die auch der Würfel nennt")
+
+func test_a_value_cell_and_an_operator_cell_say_what_they_do() -> void:
+	assert_true(StampNet.cell_hint(StampNet.value_cell(3)).contains("+3"))
+	var op := StampNet.cell_hint(StampNet.operator_cell(StampNet.OP_DOUBLER))
+	assert_true(op.contains(StampNet.operator_name(StampNet.OP_DOUBLER)))
+	assert_true(op.contains(StampNet.operator_effect(StampNet.OP_DOUBLER)))
+
+func test_an_empty_cell_says_nothing() -> void:
+	assert_eq(StampNet.cell_hint({}), "", "eine leere Zelle erklärt nichts")

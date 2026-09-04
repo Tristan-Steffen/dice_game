@@ -72,7 +72,11 @@ const FOOT_FADE_TIME := 0.3
 const FOOT_BODY_STEPS := [2.2, 1.9, 1.65, 1.4]
 
 ## Die STEHENDEN Schilder der Bucht: Abstand unter dem Stück-Anker und Grade.
-const PLATE_DROP_UNITS := 4.6
+## Gehängt wird die PREISZEILE, nicht der Kopf des Schildes (Spieler-Entscheid
+## 2026-09-04): so steht der Preis bei Würfel wie Kassette auf DERSELBEN Höhe, und
+## er steht tief genug, dass die liegende Karte ihn nicht mehr verdeckt (gemessen:
+## halbe Kartentiefe 44,3 px = 5,6 u).
+const PLATE_PRICE_DROP_UNITS := 7.4
 const PLATE_SOUL_FONT := 2.2
 const PLATE_PRICE_FONT := 2.6
 
@@ -583,12 +587,18 @@ func set_bay_plates(entries: Array) -> void:
 		var blocked := _offer_blocked(offer)
 		var tag := ShopController.FULL_MARK if blocked else "⚡ %d" % price
 		var tint := CasinoStyle.RED if blocked or run.charge < price else CHARGE_COLOR
-		plate.add_child(_label(tag, u * PLATE_PRICE_FONT, tint, HORIZONTAL_ALIGNMENT_CENTER))
+		var price_line := _label(tag, u * PLATE_PRICE_FONT, tint,
+			HORIZONTAL_ALIGNMENT_CENTER)
+		plate.add_child(price_line)
 		_plate_layer.add_child(plate)
 		plate.reset_size()
-		# Mittig unter den Stück-Anker, in die Bucht geklemmt.
+		# Mittig unter den Stück-Anker, in die Bucht geklemmt - und die PREISZEILE
+		# hängt, nicht der Kopf: eine Seelen-Zeile darüber schöbe den Preis sonst
+		# tiefer als den einer Kassette, die keine trägt.
 		var local: Vector2 = (entry["px"] as Vector2) - origin
-		var pos := Vector2(local.x - plate.size.x * 0.5, local.y + u * PLATE_DROP_UNITS)
+		var above := maxf(plate.size.y - price_line.size.y, 0.0)
+		var pos := Vector2(local.x - plate.size.x * 0.5,
+			local.y + u * PLATE_PRICE_DROP_UNITS - above)
 		if field.size.x > 0.0:
 			var flocal := Rect2(field.position - origin, field.size)
 			pos.x = clampf(pos.x, flocal.position.x,

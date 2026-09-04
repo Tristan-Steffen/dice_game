@@ -21,9 +21,13 @@ const TOUCHED_BORDER := CasinoStyle.GOLD
 ## Verpuffte Zelle: Füllung und Ziffer dimmen aus.
 const DIM_ALPHA := 0.30
 const DIM_NUMBER := Color(0.35, 0.35, 0.42)
-## Vorschau: steigt grün (dasselbe Grün wie am liegenden Würfel), sinkt warm-rot.
-const PREVIEW_UP := DieFaceDisplay.PREVIEW_NUMBER_COLOR
-const PREVIEW_DOWN := Color(1.0, 0.6, 0.5)
+## Vorschau: steigt GRÜN, sinkt warm-rot - dieselbe Lesart wie am liegenden
+## Würfel, aber für HELLEN Grund gemischt. Die Netz-Zelle trägt die Materialfarbe,
+## und ohne Material ist sie WEISS: das helle Grün des 3D-Würfels
+## (DieFaceDisplay.PREVIEW_NUMBER_COLOR) verschwand darauf samt seinem weißen Saum
+## (Spieler-Meldung 2026-09-04). Gleicher Farbton, dunkler Wert.
+const PREVIEW_UP := Color(0.07, 0.42, 0.16)
+const PREVIEW_DOWN := Color(0.62, 0.13, 0.08)
 ## Was ein Beitrag der überfahrenen Karte NICHT ist, verblaßt (Hover-Highlight).
 const GHOST_ALPHA := 0.35
 
@@ -295,10 +299,11 @@ func hint_for_face(face: int) -> String:
 ## eine Schablone schon AUFGENOMMEN hat - sie dunkeln ab.
 static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT,
 		drained: Array = []) -> Control:
+	var span := DieNetView.net_size(cell)
 	var root := Control.new()
 	root.name = "StampNet"
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.custom_minimum_size = DieNetView.net_size(cell)
+	root.custom_minimum_size = span
 	root.size = root.custom_minimum_size
 	for face in StampNet.FACES:
 		var dim := face < drained.size() and bool(drained[face])
@@ -307,6 +312,39 @@ static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT,
 		chip.size = Vector2.ONE * cell
 		root.add_child(chip)
 	return root
+
+## Dasselbe Kreuz in seinem HOCHKANTEN Rahmen - die EINE Ausrichtung, in der eine
+## Kassette es trägt (Welle L): sie liegt überall quer gerollt und dreht es im Bild
+## wieder auf. Vierteldrehung IM UHRZEIGERSINN, der Versatz setzt das gedrehte
+## Rechteck bündig in den Rahmen; gedreht wird der RAHMEN, nie der Inhalt.
+static func stamp_net_upright(net: Array, cell: float, accent: Color = VALUE_TINT,
+		drained: Array = []) -> Control:
+	var root := stamp_net(net, cell, accent, drained)
+	var span := root.size
+	var host := Control.new()
+	host.name = "StampNetTurned"
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.custom_minimum_size = Vector2(span.y, span.x)
+	host.size = host.custom_minimum_size
+	root.rotation = PI * 0.5
+	root.position = Vector2(span.y, 0.0)
+	host.add_child(root)
+	return host
+
+## Welche Zelle des HOCHKANTEN Netzes an dieser Stelle liegt (-1 = keine). Der
+## Anteil (0..1 je Achse, Ursprung oben links) wird um die Vierteldrehung des
+## Rahmens zurückgedreht und dann dem Kreuz zugeordnet - dieselbe Drehung, die
+## stamp_net_upright hinlegt, nur rückwärts. Anteile statt Pixel: der Aufrufer
+## mißt am Quad der Karte, nicht an der Backung.
+static func upright_face_at(share: Vector2) -> int:
+	if share.x < 0.0 or share.x > 1.0 or share.y < 0.0 or share.y > 1.0:
+		return -1
+	var span := DieNetView.net_size(1.0)
+	var flat := Vector2(share.y * span.x, (1.0 - share.x) * span.y)
+	for face in StampNet.FACES:
+		if Rect2(DieNetView.cell_position(face, 1.0), Vector2.ONE).has_point(flat):
+			return face
+	return -1
 
 ## EINE Zelle des Mini-Netzes. Die Sorte entscheidet Füllung und Zeichen: Zahl
 ## "+n", Material seine Farbe, Rune ihr Linienzug (dieselbe Quelle wie am Würfel),

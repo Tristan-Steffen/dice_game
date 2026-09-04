@@ -1230,6 +1230,27 @@ func _setup_table_screen() -> void:
 	# und rechts der INFO-SÄULE darunter, die breiter ist als die Schale - beginnt
 	# der STATIONS-STREIFEN.
 	_place_ausgabefach()
+	_pool_row_px = pool_bounds
+	var corner := _place_workshop_strip()
+	_place_raster_switch()  # auf dem freien Filz über der Pool-Grube
+	_setup_deck_glass()
+	_setup_screen_spill_lights(corner)
+
+
+## Die POOL-REIHE in Display-Pixeln - das Höhen- und Ortsbudget des Streifens.
+## Gemessen in _setup_panels, gemerkt, damit eine Neuplatzierung nicht neu messen
+## muss (der Pool steht fest, die Reihe wächst).
+var _pool_row_px := Rect2()
+## Serienlänge, für die der Streifen zuletzt gestellt wurde (-1 = noch nie). Wächst
+## die Reihe, wächst der Streifen - je Bild gefragt, EIN Schreiber.
+var _strip_slots := -1
+
+## Der EINE Schreiber des STATIONS-STREIFENS: Fenster, gemeldete Maße, Magazin-
+## Grube, Klickzone und die beiden Kamera-Rahmen. Er ist idempotent und wird
+## WIEDERHOLT gerufen - die Schacht-Reihe wächst mit der Serienlänge, und mit ihr
+## der Streifen (Welle L). Gibt die Ecke zurück, an der das Spill-Licht misst.
+func _place_workshop_strip() -> Rect2:
+	var pool_bounds := _pool_row_px
 	var fach_rect := _fach_rect_px()
 	var fach_net_span := _fach_net_span()
 	var workshop_left := pool_bounds.end.x
@@ -1239,12 +1260,18 @@ func _setup_table_screen() -> void:
 			workshop_left = maxf(workshop_left, fach_net_span.x + fach_net_span.y)
 	var workshop_top := pool_bounds.position.y
 	var workshop_height := pool_bounds.size.y
-	var workshop_rect := _fit_workshop_rect(workshop_left, workshop_top, workshop_height)
+	_strip_slots = _wanted_strip_slots()
+	var workshop_rect := _fit_workshop_rect(workshop_left, workshop_top,
+		workshop_height, _strip_slots)
+	# Die Einheit ZUERST: der Streifen ist breiter als seine 100 u, also darf das
+	# Fenster sie nicht mehr aus seiner Breite ziehen (siehe WorkshopView.unit).
+	if table_screen.workshop_window != null:
+		table_screen.workshop_window.unit_px = _workshop_unit(workshop_height)
 	table_screen.place_workshop_window(workshop_rect)
 	# Die Werkbank misst Regal und Buchten an der ECHTEN Größe einer liegenden
 	# Datenzelle - sie muss sie also kennen, bevor sie auslegt (wie beim Wurf).
 	if table_screen.workshop_window != null:
-		table_screen.workshop_window.data_cell_px = _data_cell_apparent_px()
+		table_screen.workshop_window.data_cell_px = _data_cell_lying_px()
 		# Das MAGAZIN spannt nur den STREIFEN und endet mit seiner Unterkante
 		# bündig an der POOL-Unterkante: scene_root schiebt die gemessene
 		# Pool-Höhe als apron_bottom herein (window-lokal, Fensteroberkante =
@@ -1259,8 +1286,6 @@ func _setup_table_screen() -> void:
 		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
 		# der Körper darunter hängen alle an DIESEM Streifen.
 		_sync_pack_pit(table_screen.workshop_window)
-	_place_raster_switch()  # auf dem freien Filz über der Pool-Grube
-	_setup_deck_glass()
 	# Klick, Zeiger und Kamera messen sich an Fenster PLUS Schürze - der Pool
 	# behält seine eigene Station.
 	var bench_rect := table_screen.workshop_window.bench_rect() \
@@ -1269,6 +1294,7 @@ func _setup_table_screen() -> void:
 	if table_screen.workshop_window != null:
 		_bench_top_px = table_screen.workshop_window.get_global_rect().position.y \
 			+ table_screen.workshop_window.shelf_top()
+	_free_own_child("WorkshopClickZone")  # eine Neuplatzierung ersetzt sie
 	workshop_click_zone = _screen_zoom_zone("WorkshopClickZone", bench_rect,
 		camera_rig.configure_workshop_target)
 
@@ -1295,29 +1321,50 @@ func _setup_table_screen() -> void:
 	camera_rig.configure_workshop_close_target(
 		table_screen.pixel_to_world(workshop_close_rect.get_center()),
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
+	return corner
 
-	_setup_screen_spill_lights(corner)
+## Wie viele Schächte die Reihe tragen soll: was das Fenster sagt, solange es
+## steht (es zählt auch die steckenden Karten mit), sonst der Lauf.
+func _wanted_strip_slots() -> int:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop != null and is_instance_valid(workshop) and workshop.is_inside_tree():
+		return workshop.slot_count()
+	return run.series_slots() if run != null else WorkshopView.FALLBACK_SLOTS
+
+## Je Bild gefragt: wächst (oder schrumpft) die Serienlänge, wächst der STREIFEN
+## mit ihr - die Karte behält ihre eine Größe. Idempotent, EIN Schreiber.
+func _sync_workshop_strip() -> void:
+	if table_screen == null or _pool_row_px.size.x <= 0.0:
+		return
+	if _wanted_strip_slots() == _strip_slots:
+		return
+	_setup_screen_spill_lights(_place_workshop_strip())
 
 ## Das Rechteck des STATIONS-STREIFENS: linke Kante am Ausgabefach-Platz,
-## Oberkante bündig mit der Pool-Reihe. Die HÖHE ist jetzt kürzer als die
-## Pool-Reihe: Fenster PLUS Schürze (Naht + Band + Naht + Magazin) füllen
-## zusammen das Pool-Höhen-Budget, so dass die Magazin-Unterkante die
-## Pool-Unterkante trifft. Die BREITE folgt aus der Fensterhöhe (bench_aspect),
-## die Schürze aus apron_span_units (in u = Fensterbreite/100).
-func _fit_workshop_rect(left: float, top: float, budget: float) -> Rect2:
-	var aspect := WorkshopView.bench_aspect()
-	# H + apron_u*(H*aspect/100) = budget  ->  H = budget / (1 + apron_u*aspect/100)
-	var apron_factor := WorkshopView.apron_span_units() * aspect / 100.0
-	var height := budget / (1.0 + apron_factor)
-	var width := height * aspect
+## Oberkante bündig mit der Pool-Reihe. Die HÖHE hängt an der Pool-Reihe: Fenster
+## PLUS Schürze (Naht + Band + Naht + Magazin) füllen zusammen deren Budget, so
+## dass die Magazin-Unterkante die Pool-Unterkante trifft. Die BREITE kommt seit
+## der Welle L aus der SCHACHT-REIHE: die Karte hat EINE Größe, also wächst der
+## Streifen nach rechts, statt sie zu zerdrücken.
+func _fit_workshop_rect(left: float, top: float, budget: float, slots: int) -> Rect2:
+	var u := _workshop_unit(budget)
+	var height := u * 100.0 / WorkshopView.bench_aspect()
+	var card := _data_cell_lying_px().x * PackDrawerView.CASSETTE_SCALE
+	var width := WorkshopView.bench_width_for(slots, u, card)
 	# Der Tisch ist endlich: passt die gelöste Breite nicht mehr auf die Anzeige,
-	# wird gekappt und die Höhe aus der gekappten Breite zurückgerechnet.
+	# wird gekappt - die Karten stehen dann enger, sie schrumpfen aber nicht.
 	var room := float(TableScreen.RESOLUTION.x) - left - WORKSHOP_RIGHT_MARGIN
 	if width > room:
 		push_warning("Werkstatt-Streifen gekappt: %.0f statt %.0f px breit" % [room, width])
 		width = maxf(room, 1.0)
-		height = width / aspect
 	return Rect2(Vector2(left, top), Vector2(width, height))
+
+## Die Maßeinheit u des Streifens - GELÖST aus dem Höhen-Budget, nicht mehr aus
+## der Breite. Fenster + Schürze füllen die Pool-Höhe, und der senkrechte Inhalt
+## des Fensters (bench_aspect) füllt die Fensterhöhe; die Breite ist damit frei.
+static func _workshop_unit(budget: float) -> float:
+	return budget / (100.0 / WorkshopView.bench_aspect()
+		+ WorkshopView.apron_span_units())
 
 ## Je großem Fenster ein Spill-Licht in dessen Farbwelt; die Werkbank-Ecke
 ## bekommt EIN gemeinsames Licht (ihre Fenster teilen sich den Zoom sowieso).
@@ -1346,6 +1393,7 @@ func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color, energy_fa
 	var half := Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
 	var height := clampf(minf(half.x, half.y) * SPILL_HEIGHT_FACTOR,
 		SPILL_HEIGHT_MIN, SPILL_HEIGHT_MAX)
+	_free_own_child(light_name)  # EIN Licht je Name: eine Neuplatzierung ersetzt es
 	var light := OmniLight3D.new()
 	light.name = light_name
 	light.position = Vector3((a.x + b.x) * 0.5, height, (a.z + b.z) * 0.5)
@@ -1355,6 +1403,14 @@ func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color, energy_fa
 	light.omni_attenuation = SPILL_ATTENUATION
 	light.shadow_enabled = false
 	add_child(light)
+
+## Ein eigenes Kind gleichen Namens abräumen - für die Bauteile, die eine
+## Neuplatzierung des Streifens ERSETZT (Klickzone, Spill-Licht).
+func _free_own_child(child_name: String) -> void:
+	var known := get_node_or_null(NodePath(child_name))
+	if known != null:
+		remove_child(known)
+		known.queue_free()
 
 ## Kamera-Zoomziele aus den echten Positionen ableiten, damit Editor-
 ## Verschiebungen den Zoom automatisch mitnehmen.
@@ -2731,7 +2787,9 @@ func _on_stencil_launched(time: float) -> void:
 	_drop_stencil()  # eine Schablone der vorigen Fahrt fliegt hier nie mit
 	var stencil := StencilView.new()
 	add_child(stencil)
-	stencil.setup(DataCellView.net_span(workshop.socket_cell_scale()) * STENCIL_SPAN_GAIN,
+	# Sie mißt sich am Netz EINER Schacht-Karte - in derselben einen Kartengröße
+	# und derselben einen Ausrichtung wie die Netze, die sie liest.
+	stencil.setup(DataCellView.net_span(PackDrawerView.CASSETTE_SCALE) * STENCIL_SPAN_GAIN,
 		SOCKET_POSE, PressNetView.VALUE_TINT)
 	var birth := _fach_net_birth_px()
 	stencil.seat_at(_stencil_seat(birth if birth.x >= 0.0 else workshop.hand_anchor_px()))
@@ -3532,8 +3590,8 @@ func _sync_data_cells() -> void:
 
 ## Die Grube unter dem Magazin: das Loch im Glas, der ausgeblendete Filz darunter
 ## und der Körper, den man hindurch sieht. Idempotent - dieselben Maße schreiben
-## dasselbe. Die TIEFE ist der Stand einer größtmöglich angezeigten Kassette plus
-## Luft: was in der Grube steht, darf ihren Boden nie berühren.
+## dasselbe. Die TIEFE ist das Liegemaß einer Kassette plus Luft: die Grube ist
+## flach, gerade tief genug, dass nichts über ihren Rand ragt.
 func _sync_pack_pit(workshop: WorkshopView) -> void:
 	if table_screen == null:
 		return
@@ -3541,7 +3599,7 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
 	# Der DECKEL des Magazins wird an DIESER Grube gemessen: so viele Kassetten
-	# stehen darin in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
+	# liegen darin in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
 	# entschieden werden - core misst keine Fenster.
 	_pack_capacity = PackDrawerView.capacity_for(rect.size, workshop.shelf_cell_px())
 	if run != null:
@@ -3557,11 +3615,12 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	pack_pit.setup(table_screen.pixel_to_world(rect.get_center()), half,
 		_pack_pit_depth())
 
-## Die Tiefe der Magazin-Grube: der Stand einer größtmöglich angezeigten Kassette
-## plus Luft. Sie ist zugleich die Strecke, die eine ankommende Zelle steigt -
-## darunter liegt sie ganz unter dem Boden.
+## Die Tiefe der Magazin-Grube: das LIEGEMASS einer Kassette plus Luft - seit
+## 2026-09-04 liegt sie dort flach, eine stehende Rechnung grübe ein Loch, das
+## siebenmal so tief wäre wie ihr Inhalt. Sie ist zugleich die Strecke, die eine
+## ankommende Zelle steigt - darunter liegt sie ganz unter dem Boden.
 func _pack_pit_depth() -> float:
-	return DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
+	return DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE) * PACK_PIT_DEPTH_ROOM
 
 # --- Die EINE Ankunft des Magazins ------------------------------------------
 # Wer auch immer liefert - Laden, Hub-Prämie, Charm, Nebenwette, Hinterzimmer -,
@@ -4184,7 +4243,15 @@ func _sync_slit_hover() -> void:
 		cell.set_hovered(on)
 		if on and hovered < 0:
 			hovered = seat
-	charm_shop.set_slit_hover(hovered)
+	# Dieselbe Zell-Auskunft wie in der Werkstatt: liegt der Zeiger auf einer Zelle
+	# des Prägenetzes, nennt die Flanke DEREN Wirkung statt der des ganzen Pakets.
+	var cell_hint := ""
+	if hovered >= 0:
+		var camera := get_viewport().get_camera_3d()
+		if camera != null:
+			cell_hint = _cell_face_hint(slit_cells.get(hovered), camera,
+				get_viewport().get_mouse_position())
+	charm_shop.set_slit_hover(hovered, cell_hint)
 
 ## Laufwechsel: die Ware des alten Ladens liegt nirgends mehr.
 func _drop_slit_cells() -> void:
@@ -7938,7 +8005,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		elif cell.glass_position().distance_to(target) > 0.01:
 			cell.glide_to(target, DATA_CELL_SLIDE_TIME)
 		else:
-			cell.stand_in_pit(target)
+			cell.lie_in_pit(target)
 		# Die ×n-Marke heißt jetzt BÜNDEL: mehrere Stücke in EINER Karte.
 		cell.set_count(maxi(pack.count, 1))
 		cell.set_dimmed(workshop.shelf_locked())
@@ -7954,7 +8021,7 @@ func _show_shelf_cell(cell: DataCellView, uid: int, target: Vector3, fresh: int)
 		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
 		cell.rise_into_pit(target, _pack_pit_depth(), float(fresh) * DATA_CELL_STAGGER)
 		return
-	cell.stand_in_pit(target)
+	cell.lie_in_pit(target)
 	cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 
 ## Die SCHACHT-REIHE: je belegtem Platz eine Zelle, geneigt in ihrem Schacht
@@ -7965,7 +8032,7 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 	var sorts := workshop.press_slot_sorts()
 	var uids := workshop.press_slot_uids()
 	var anchors := workshop.press_slot_anchors()
-	var scale := workshop.socket_cell_scale()
+	var scale := PackDrawerView.CASSETTE_SCALE  # EINE Kartengröße, überall
 	# Gegriffen wird nach UID, nicht nach Platz: ein UMSORTIEREN verrückt die
 	# Indizes, aber es sind dieselben Körper - sie FAHREN um, sie entstehen nicht neu.
 	var standing: Dictionary = {}
@@ -8137,16 +8204,17 @@ func _series_shaft_at(at: Vector3, cell: DataCellView) -> LiftShaftView:
 		_socket_shaft_depth(cell))
 	return _series_shaft
 
-## Der Grundriß EINER Schacht-Karte in Weltmaßen: die Kassette steht quer gedreht,
-## ihre BREITE läuft entlang Welt-Z und ihre HÖHE (fast liegend) entlang Welt-X.
+## Der Grundriß EINER Schacht-Karte in Weltmaßen. Sie liegt seit der
+## Korrektur-Welle K QUER: ihre LANGSEITE läuft entlang Welt-Z (im Bild
+## waagerecht), ihre Breite (fast liegend) entlang Welt-X.
 func _socket_field_half(cell: DataCellView) -> Vector2:
-	return Vector2(DataCellView.HEIGHT, DataCellView.WIDTH) * 0.5 \
+	return Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * 0.5 \
 		* cell.body_scale() * SOCKET_SHAFT_ROOM
 
 ## Und wie tief: die Karte muß hochkant durch ihr Öffnungsband passen.
 func _socket_shaft_depth(cell: DataCellView) -> float:
 	return maxf(VitrineView.shaft_depth(),
-		DataCellView.HEIGHT * cell.body_scale() * VitrineView.SHAFT_ROOM)
+		DataCellView.STAND_HEIGHT * cell.body_scale() * VitrineView.SHAFT_ROOM)
 
 ## Der Weg zurück ins Magazin: sie richtet sich in ihrem Schacht AUF, gleitet heim
 ## auf SEINEN Platz und sinkt dort in die Grube - im Magazin STEHEN die Kassetten.
@@ -8161,7 +8229,7 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 		_finish_cell_return(cell, uid, false)
 		return
 	cell.set_socketed(false)
-	cell.set_pose(1.0, DATA_CELL_RAISE_TIME)  # aus der Schacht-Lage zurück ins Stehen
+	cell.set_pose(0.0, DATA_CELL_RAISE_TIME)  # aus der Schacht-Lage flach ins Magazin
 	await get_tree().create_timer(DATA_CELL_RAISE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
@@ -8173,6 +8241,7 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	await get_tree().create_timer(DATA_CELL_SLIDE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
 		return
+	cell.stand_measure = DataCellView.lying_over(1.0)  # sie sinkt liegend ein
 	cell.plunge(DataCellView.PIT_SHOW, DATA_CELL_PLUNGE_TIME)
 	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
 	if run != launched or cell == null or not is_instance_valid(cell):
@@ -8248,30 +8317,19 @@ func _free_data_cell(cell: DataCellView) -> void:
 	remove_child(cell)
 	cell.queue_free()
 
-## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln: das, was aus der Grube
-## nach oben zeigt - ihre KAPPE, also Breite × Kappentiefe. Die Kappe liegt in der
-## Glasebene, wird also wie die Werkbank selbst projiziert.
-func _data_cell_apparent_px() -> Vector2:
-	if table_screen == null:
-		return Vector2.ZERO
-	var origin := table_screen.world_to_pixel(Vector3.ZERO)
-	var wide := absf(table_screen.world_to_pixel(
-		Vector3(0.0, 0.0, DataCellView.WIDTH)).x - origin.x)
-	var deep := absf(table_screen.world_to_pixel(
-		Vector3(DataCellView.CAP_DEPTH, 0.0, 0.0)).y - origin.y)
-	return Vector2(wide, deep)
-
 ## Fußabdruck einer LIEGENDEN Datenzelle in Display-Pixeln: die große Kartenfläche
-## nach oben, also Breite × Höhe. Danach sind die Stellplätze des Ladens
-## geschnitten - dort liegt die Ware, sie steckt nirgends mehr.
+## nach oben. QUER (Welle L) liegt ihre LANGSEITE waagerecht im Bild, ihre Breite
+## nach vorn. Danach sind die Stellplätze des Ladens geschnitten UND die Plätze des
+## Magazins - seit 2026-09-04 liegt die Karte auch dort flach, es gibt nur noch
+## diesen EINEN Fußabdruck.
 func _data_cell_lying_px() -> Vector2:
 	if table_screen == null:
 		return Vector2.ZERO
 	var origin := table_screen.world_to_pixel(Vector3.ZERO)
 	var wide := absf(table_screen.world_to_pixel(
-		Vector3(0.0, 0.0, DataCellView.WIDTH)).x - origin.x)
+		Vector3(0.0, 0.0, DataCellView.HEIGHT)).x - origin.x)
 	var deep := absf(table_screen.world_to_pixel(
-		Vector3(DataCellView.HEIGHT, 0.0, 0.0)).y - origin.y)
+		Vector3(DataCellView.WIDTH, 0.0, 0.0)).y - origin.y)
 	return Vector2(wide, deep)
 
 ## Der Bühnen-Würfel unter dem Bildschirmpunkt (null = keiner). Bewusst NICHT in
@@ -9488,8 +9546,10 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 func _free_camera_allowed() -> bool:
 	if camera_rig == null or log_open:
 		return false
-	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.workshop_close \
-			or camera_rig.die_focus:
+	# Der TITEL ist modal und die INSPEKTION auch; die Werkstatt-NAHSICHT war es
+	# bis zum 2026-09-04 - sie ist es nicht mehr (Spieler-Entscheid: die
+	# Werkstatt-Kamera soll sich bewegen wie die Übersicht).
+	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.die_focus:
 		return false
 	return tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
 		and charm_drag_index == -1 and chip_drag_value == -1 and not shell_drag_active \
@@ -9526,6 +9586,7 @@ func _process(delta: float) -> void:
 	_sync_fach_curtain()  # und der Vorhang sinkt/steigt mit der Zielwahl
 	_sync_fach_nets()  # und die Info-Säule zeigt, was über ihr steht
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
+	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
 ## Würfel in der Schale und stellt das Hover-Highlight der Serie (Karte <-> Netz-
@@ -9563,6 +9624,12 @@ func _write_workshop_info(workshop: WorkshopView, pixel: Vector2, hover_uid: int
 		if cell_hint != "":
 			workshop.set_info("", "", CasinoStyle.CREAM, cell_hint)
 			return
+		# Eine ZELLE eines PRÄGENETZES erklärt sich selbst - das Material, die Rune,
+		# der Operator, der dort steht. Sie schlägt die Kassette als Ganzes.
+		var stamp := _stamp_cell_hint()
+		if stamp != "":
+			workshop.set_info("", "", CasinoStyle.CREAM, stamp)
+			return
 		if hover_uid > 0 and run != null:
 			var pack := run.pack_by_uid(hover_uid)
 			if pack != null:
@@ -9578,6 +9645,35 @@ func _write_workshop_info(workshop: WorkshopView, pixel: Vector2, hover_uid: int
 		essence.display_name if essence != null else "",
 		ShopController.soul_tint(die.essence_id),
 		essence.description if essence != null else "")
+
+## Die NETZ-ZELLE einer Kassette unter dem Zeiger, im Klartext ("" = keine).
+## GEFRAGT werden die KÖRPER - sie schneiden den Zeigerstrahl selbst, das Fenster
+## weiß von ihren Flächen nichts. Der SCHACHT zuerst: seine Karte steht über der
+## Grube, also gewinnt sie, wo beide unter dem Zeiger lägen.
+func _stamp_cell_hint() -> String:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return ""
+	var screen := get_viewport().get_mouse_position()
+	for cell in socket_cells:
+		var shaft_hint := _cell_face_hint(cell, camera, screen)
+		if shaft_hint != "":
+			return shaft_hint
+	for uid: int in shelf_cells:
+		var pit_hint := _cell_face_hint(shelf_cells[uid], camera, screen)
+		if pit_hint != "":
+			return pit_hint
+	return ""
+
+## Dieselbe Frage an EINEN Körper - der EINE Ort, an dem Treffer und Klartext
+## zusammenkommen (auch der Laden fragt hier).
+func _cell_face_hint(cell: DataCellView, camera: Camera3D, screen: Vector2) -> String:
+	if cell == null or not is_instance_valid(cell):
+		return ""
+	var face := cell.net_face_at(camera, screen)
+	if face < 0:
+		return ""
+	return StampNet.cell_hint(StampNet.cell_at(cell.stamp_net, face))
 
 ## Der Würfel, den der Info-Schirm erklärt - derselbe, den die Info-Säule am Fach
 ## zeigt: der gewählte Zielwürfel (er schwebt am Fach-Sitz) oder sonst der Neuzugang.
