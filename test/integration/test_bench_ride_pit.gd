@@ -1,11 +1,10 @@
 extends GutTest
-## Die BÜHNEN-FAHRT des Zielwürfels fährt ZWEI Felder mit EINER Maschine (senken am
-## Pool-Sitz, heben am Podest) - und genau dort entstand der Verdacht auf ein
-## stehengebliebenes Loch. Geprüft wird die Regel, nicht der Fall: jede Fahrt
-## SCHLIESST ihr Loch, ein Umsetzen der Maschine zwischen den Beinen läßt keines
-## offen, und der harte Weg schließt es auch mitten in der Fahrt.
-## Das Loch wird hier so gebucht, wie scene_root es bucht: opened setzt, closed
-## räumt (siehe _bench_shaft_at).
+## Das LOCH der Hebebühne: jede Fahrt SCHLIESST es wieder, ein Umsetzen der
+## Maschine zwischen zwei Feldern läßt keines offen, und der harte Weg schließt es
+## auch mitten in der Fahrt. Die Regel gilt für JEDEN Besteller (Vitrine, Schluck,
+## Wett-Tresen); die Bühnen-Fahrt des Zielwürfels gehört seit der Welle T NICHT
+## mehr dazu - sie fliegt als TRAGE-BOGEN über den Tisch und gräbt gar kein Loch.
+## Gebucht wird hier wie in scene_root: opened setzt, closed räumt.
 
 const HALF := Vector2(0.6, 0.6)
 
@@ -36,8 +35,8 @@ func test_ein_abgang_schliesst_sein_loch() -> void:
 	assert_false(_open, "nach dem Abgang steht kein Loch mehr offen")
 
 func test_zwei_beine_ueber_zwei_felder_lassen_kein_loch_stehen() -> void:
-	# Genau die Fahrt Pool -> Podest: Bein A am Sitz, dann wird DIESELBE Maschine
-	# aufs Podest umgesetzt und Bein B fährt dort.
+	# Der harte Fall: Bein A am einen Feld, dann wird DIESELBE Maschine auf ein
+	# zweites umgesetzt und fährt dort Bein B.
 	var shaft := _shaft()
 	var body := _body()
 	var first := shaft.run_exit([body], [Vector3.ZERO], 0.0)

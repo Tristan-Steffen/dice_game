@@ -40,6 +40,11 @@ var rest_y := 0.0
 var _bob_phase := 0.0
 var _fly_tween: Tween
 var _pose_tween: Tween
+## Die drei Stücke des Trage-Bogens (carry_to): Start, Ziel und die Scheitelhöhe
+## über der Sehne.
+var _carry_from := Vector3.ZERO
+var _carry_to := Vector3.ZERO
+var _carry_hump := 0.0
 ## Wachsen und Schrumpfen teilen sich EINEN Tween: sonst versteckte ein spätes
 ## Abtreten den Würfel, der längst wieder aufgeht.
 var _scale_tween: Tween
@@ -106,6 +111,37 @@ func move_to(target: Vector3, time: float) -> void:
 	_fly_tween.tween_property(die, "global_position", target, time)
 	_fly_tween.tween_property(emitter, "global_position",
 		Vector3(target.x, target.y - hover_height, target.z), time)
+
+## Der TRAGE-BOGEN: was der SPIELER bewegt, fliegt ÜBER dem Tisch. Der Würfel reist
+## samt seiner Station in einem flachen Bogen auf einen anderen Platz - XZ gerade,
+## Y als Parabel über der Sehne, ohne Trudeln; unter die Sehne kommt er nie, also
+## nie unter die Fläche. Liefert die Fahrt (null = kein Körper).
+func carry_to(target: Vector3, time: float, peak: float) -> Tween:
+	if die == null or not is_instance_valid(die):
+		return null
+	rest_y = target.y
+	_bob_phase = 0.0
+	_kill(_fly_tween)
+	_carry_from = die.global_position
+	_carry_to = target
+	var chord := (_carry_from.y + target.y) * 0.5
+	_carry_hump = maxf(maxf(_carry_from.y, target.y) + maxf(peak, 0.0) - chord, 0.0)
+	if time <= 0.0:
+		_set_carry_share(1.0)
+		return null
+	# Sofort auf den Start setzen: die Station steht sonst ein Bild lang im
+	# Weltursprung (setup legt sie nicht hin, das tat bisher land_at).
+	_set_carry_share(0.0)
+	_fly_tween = create_tween()
+	_fly_tween.tween_method(_set_carry_share, 0.0, 1.0, time) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	return _fly_tween
+
+func _set_carry_share(share: float) -> void:
+	var seat := _carry_from.lerp(_carry_to, share)
+	seat.y += 4.0 * _carry_hump * share * (1.0 - share)
+	die.global_position = seat
+	emitter.global_position = Vector3(seat.x, seat.y - hover_height, seat.z)
 
 ## Steht die Station schon an diesem Platz? (Der Würfel selbst wippt, sein Feld
 ## nicht - also fragt die Station.)

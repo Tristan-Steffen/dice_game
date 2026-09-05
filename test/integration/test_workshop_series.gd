@@ -962,3 +962,43 @@ func test_a_fresh_card_takes_the_screen_back_from_the_result() -> void:
 	assert_false(view.showing_result(), "die neue Karte rechnet, statt zu erinnern")
 	assert_eq(view.preview_target(), run.owned_pool[0], "und zwar auf dem echten Würfel")
 	assert_eq(int(view.preview()["bonus"][4]), 1, "mit ihrem eigenen Beitrag")
+
+# --- WARUM der Griff schweigt ------------------------------------------------------
+## Eine geschlossene Bremse stand bisher stumm im Knopf: der Spieler sah einen
+## grauen Griff und keinen Grund. Die Caption nennt die ERSTE geschlossene.
+
+func test_a_ready_grip_says_nothing() -> void:
+	var pack := _valued_pack(0, 2)
+	view.set_target_die(run.owned_pool[0])
+	view.slot_pack(pack.pack_uid)
+	assert_true(view.can_pull(), "eine Karte reicht")
+	assert_eq(view.grip_blocker(), "", "wer greifen darf, bekommt keine Mahnung")
+
+func test_a_zurred_round_names_itself() -> void:
+	var pack := _valued_pack(0, 2)
+	view.set_target_die(run.owned_pool[0])
+	view.slot_pack(pack.pack_uid)
+	view.editing_locked = true
+	assert_false(view.can_pull())
+	assert_true(view.grip_blocker().contains("gezurrt"),
+		"die gesperrte Werkstatt nennt sich: %s" % view.grip_blocker())
+
+func test_a_missing_target_names_itself() -> void:
+	var pack := _valued_pack(0, 2)
+	view.slot_pack(pack.pack_uid)
+	assert_null(view.target_die(), "ohne Tipp auf den Vorrat steht kein Ziel")
+	assert_true(view.grip_blocker().contains("Ziel"),
+		"das fehlende Ziel nennt sich: %s" % view.grip_blocker())
+
+func test_a_spent_grip_names_itself() -> void:
+	var pack := _valued_pack(0, 2)
+	view.set_target_die(run.owned_pool[0])
+	view.slot_pack(pack.pack_uid)
+	view.pull_lever()
+	view.skip_ceremony()
+	var again := _valued_pack(1, 2)
+	view.slot_pack(again.pack_uid)  # das Ziel steht noch - ein zweiter Tipp wählte es AB
+	assert_not_null(view.target_die(), "das Ziel überlebt den Griff")
+	assert_false(run.press_allowed(), "der Griff der Sitzung ist weg")
+	assert_true(view.grip_blocker().contains("verbraucht"),
+		"der verbrauchte Griff nennt sich: %s" % view.grip_blocker())

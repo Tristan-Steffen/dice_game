@@ -93,3 +93,36 @@ func test_materializing_brings_the_same_body_back() -> void:
 	stage.materialize()
 	assert_true(stage.visible, "er steht wieder da")
 	assert_same(stage.die, body, "und zwar als derselbe Körper")
+
+# --- Der TRAGE-BOGEN ---------------------------------------------------------------
+## Was der SPIELER bewegt, fliegt ÜBER dem Tisch: der Zielwürfel reist vom Pool-Sitz
+## aufs Podest in einem flachen Bogen - und kommt dabei nie unter die Fläche.
+
+func test_the_carry_arc_lands_exactly_on_its_target() -> void:
+	stage.land_at(TARGET, 0.0)
+	var goal := Vector3(-2.0, 1.2, 5.0)
+	var flight := stage.carry_to(goal, 0.2, 1.2)
+	assert_not_null(flight, "der Bogen ist eine Fahrt")
+	await wait_for_signal(flight.finished, 5.0)
+	assert_almost_eq(stage.die.global_position, goal, Vector3.ONE * 0.001,
+		"am Ende steht er auf dem Ziel")
+	assert_almost_eq(stage.emitter.global_position,
+		goal - Vector3.UP * stage.hover_height, Vector3.ONE * 0.001,
+		"und sein Feld ist mitgereist")
+
+func test_the_carry_arc_never_dips_below_the_table() -> void:
+	stage.land_at(TARGET, 0.0)
+	var goal := Vector3(-2.0, 1.2, 5.0)
+	var low := minf(TARGET.y, goal.y)
+	stage.carry_to(goal, 0.4, 1.2)
+	for i in 12:
+		await wait_frames(2)
+		assert_gte(stage.die.global_position.y, low - 0.001,
+			"unter die Sehne - und damit unter den Tisch - kommt er nie")
+
+func test_a_carry_without_time_stands_hard_on_its_target() -> void:
+	stage.land_at(TARGET, 0.0)
+	var goal := Vector3(1.0, 1.2, 1.0)
+	assert_null(stage.carry_to(goal, 0.0, 1.2), "ohne Zeit gibt es keine Fahrt")
+	assert_almost_eq(stage.die.global_position, goal, Vector3.ONE * 0.001,
+		"er steht sofort da")

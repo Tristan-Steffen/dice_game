@@ -206,11 +206,11 @@ const CLAMP_HOVER := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 const PACK_MOVE_TIME := 0.4
 ## Staffel, mit der eine frische Aufspannung in ihren Feldern entsteht.
 const CLAMP_MATERIALIZE_STAGGER := 0.07
-## Die WANDERUNG Pool<->Bank fährt je Zwinge eine eigene Plattform - doppelt schnell
-## (set_speed_scale) und dicht gestaffelt, damit die vier von links nach rechts
-## nacheinander durch die Fläche fahren.
-const CLAMP_MIGRATE_SPEED := 2.0
-const CLAMP_MIGRATE_STAGGER := 0.1
+## Der TRAGE-BOGEN des ZIELWÜRFELS (Pool <-> Podest): die Zielwahl ist ein
+## Spieler-Zug, er fliegt also ÜBER dem Tisch. Der Scheitel ist eine Würfelkante -
+## sichtbar ein Bogen, aber kein Wurf.
+const BENCH_CARRY_TIME := 0.5
+const BENCH_CARRY_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
 ## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
@@ -516,7 +516,6 @@ var _bench_die: DieDefinition
 var _bench_riding := false
 ## Der Schacht der Fahrt - dieselbe Maschine trägt beide Beine (Senken am Pool-Sitz,
 ## dann Heben an der Bühne).
-var _bench_shaft: LiftShaftView
 ## Generationsmarke der Fahrten: ein Abbruch (Reset/Laufwechsel) zählt sie hoch, ein
 ## noch laufender Tween meldet dann nichts mehr zurück.
 var _bench_gen := 0
@@ -3132,10 +3131,13 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 	puck.visible = shown
 	return puck
 
-# --- Die FAHRT Pool <-> Bühne (Hebebühne) ----------------------------------------
-# EIN Schacht, zwei Beine: Senken am Pool-Sitz, dann Heben an der Bühne - und
-# umgekehrt bei der Rückfahrt. Der Ort-Zustand kippt erst, wenn das jeweilige Bein
-# STEHT (Endzustand zuerst); der EINE Aufräum-Pfad ist _reset_bench_migration_hard.
+# --- Die FAHRT Pool <-> Bühne (TRAGE-BOGEN) --------------------------------------
+# Die Zielwahl ist ein SPIELER-Zug, also fliegt der Würfel ÜBER dem Tisch: EIN
+# Körper reist im flachen Bogen vom Pool-Sitz auf das Podest und zurück (Welle T,
+# 2026-09-05 - davor sank er durch ein Loch und stieg durch ein zweites). Der
+# Ort-Zustand kippt beim ABFLUG (der Sitz wird leer, sobald der Träger fliegt) bzw.
+# bei der ANKUNFT - ein Würfel wird nie zweimal gezeigt. Der EINE Aufräum-Pfad ist
+# _reset_bench_migration_hard.
 
 ## Der EINE Schreiber des ORTS: welcher Würfel auf dem Podest steht (null = keiner).
 ## Er zieht den leeren Puck gleich mit - der weicht dem Körper und kommt zurück,
@@ -3162,10 +3164,9 @@ func _sync_bench_migration() -> void:
 		return
 	_ride_bench_from_pool(wanted)
 
-## Pool -> Bühne: Bein A senkt den Tray-Slot am Pool-Sitz durch ein Loch (der Slot
-## fährt selbst, sichtbar bis unten), Bein B hebt den FloatingDie an der Bühne.
-## Fällt Bein A aus (kein Sitz/kein Loch), kippt der Ort sofort und Bein B läuft
-## trotzdem. Fire-and-forget.
+## Pool -> Bühne: der Würfel HEBT AB. Sein Sitz wird in demselben Bild leer, in dem
+## der fliegende Körper an dessen Platz entsteht (nie zweimal gezeigt), und der
+## Träger reist im TRAGE-BOGEN über den Tisch aufs Podest. Fire-and-forget.
 func _ride_bench_from_pool(die: DieDefinition) -> void:
 	if die == null:
 		return
@@ -3185,46 +3186,13 @@ func _ride_bench_from_pool(die: DieDefinition) -> void:
 			_bench_riding = false
 			return
 		bench_at = _bench_podium_target(workshop)
+	# Der ABFLUG-Platz: der Sitz des Würfels im Pool - gerechnet, nie am Körper
+	# gemessen. Ohne Sitz (er liegt gar nicht im Vorrat) startet er am Podest selbst.
 	var seat := _pool_tray_source().find(die)
-	var sank := false
-	if seat >= 0 and seat < pool_tray_view.slot_roots.size() \
-			and pool_tray_view.slot_roots[seat].visible:
-		var field := _bench_pool_field(seat)
-		var shaft := _bench_shaft_at(field, _tray_shaft_depth()) \
-			if not field.is_empty() else null
-		if shaft != null:
-			pool_tray_view.set_slot_riding(seat, true)
-			var root := pool_tray_view.slot_roots[seat]
-			var emitter := pool_tray_view.slot_emitter(seat)
-			# Unterwegs unter die Fläche: nicht spiegeln (zurück gibt es die Marke am
-			# Sitz - _seat_bench_pool_hard bzw. der harte Pfad).
-			ScreenReflection.set_reflective(root, false)
-			ScreenReflection.set_reflective(emitter, false)
-			var tween := shaft.run_exit([root, emitter],
-				[pool_tray_view.slot_home_position(seat, true),
-				pool_tray_view.slot_home_position(seat)], 0.0)
-			if tween != null:
-				tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
-				sank = true
-				tween.finished.connect(func() -> void:
-					_finish_bench_pool_sink(die, seat, bench_at, generation, launched))
-	if not sank:
-		_finish_bench_pool_sink(die, seat, bench_at, generation, launched)
-
-## Bein A steht (der Tray-Slot ist unten hinaus): hart zurück auf den Sitz und
-## ausblenden, der Ort kippt auf BÜHNE - dann startet Bein B (die Auffahrt).
-func _finish_bench_pool_sink(die: DieDefinition, seat: int, bench_at: Vector3,
-		generation: int, launched: GameRun) -> void:
+	var from := bench_at
 	if seat >= 0 and pool_tray_view != null and seat < pool_tray_view.slot_roots.size():
-		pool_tray_view.slot_roots[seat].global_position = \
-			pool_tray_view.slot_home_position(seat, true)
-		pool_tray_view.slot_emitter(seat).global_position = \
-			pool_tray_view.slot_home_position(seat)
-		pool_tray_view.set_slot_riding(seat, false)
-	if generation != _bench_gen or run != launched:
-		_bench_riding = false
-		return
-	_seat_bench_place(die)  # ab jetzt LEER im Pool, er steht auf dem Podest
+		from = pool_tray_view.slot_home_position(seat, true)
+	_seat_bench_place(die)  # ab jetzt LEER im Pool, er gehört dem Podest
 	_refresh_deck_trays()  # der Schreiber bestätigt die Pool-Lücke
 	if bench_at == Vector3.ZERO:
 		# Kein Netz gemessen (Fenster noch ohne Layout): der Körper erscheint hart,
@@ -3233,22 +3201,17 @@ func _finish_bench_pool_sink(die: DieDefinition, seat: int, bench_at: Vector3,
 		_rebuild_bench_stage()
 		_sync_bench_migration()  # wer derweil umwählte, kehrt um
 		return
-	var shaft := _bench_shaft_at(_bench_field(bench_at), _tray_shaft_depth())
-	var stage := _spawn_floating_die(die, CLAMP_EMITTER_TINT, bench_at, CLAMP_HOVER)
+	var stage := _spawn_floating_die(die, CLAMP_EMITTER_TINT, from, CLAMP_HOVER)
 	_free_stage(bench_stage)  # ein Rest der vorigen Wahl steht hier nie
 	bench_stage = stage
-	stage.set_process(false)  # kein Eigen-Wippen, solange die Plattform ihn führt
-	var tween: Tween = null
-	if shaft != null:
-		tween = shaft.run_cycle([stage.die, stage.emitter],
-			[bench_at, bench_at - Vector3.UP * stage.hover_height], 0.0)
+	stage.set_process(false)  # kein Eigen-Wippen, solange der Bogen ihn führt
+	var tween := stage.carry_to(bench_at, BENCH_CARRY_TIME, BENCH_CARRY_PEAK)
 	if tween == null:
 		stage.set_process(true)
 		stage.land_at(bench_at, 0.0)
 		stage.materialize()
 		_bench_riding = false
 		return
-	tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
 	tween.finished.connect(func() -> void:
 		if is_instance_valid(stage):
 			stage.set_process(true)
@@ -3265,8 +3228,9 @@ func _bench_stage_rest() -> Vector3:
 		return Vector3.ZERO
 	return bench_stage.emitter.global_position + Vector3.UP * bench_stage.hover_height
 
-## Bühne -> Pool: Bein A senkt Würfel und Feld an der Bühne durch ihr Loch
-## (run_exit). Ohne Körper (Bühne nie gelegt) entfällt Bein A.
+## Bühne -> Pool: derselbe Bogen rückwärts. Der Träger fliegt über den Tisch auf
+## den Sitz zurück, den er verlassen hat; erst bei der ANKUNFT fällt er weg und der
+## Sitz zeigt wieder seinen Würfel. Ohne Körper (Bühne nie gelegt) entfällt der Flug.
 func _ride_bench_to_pool(die: DieDefinition) -> void:
 	if die == null:
 		return
@@ -3274,25 +3238,23 @@ func _ride_bench_to_pool(die: DieDefinition) -> void:
 	var generation := _bench_gen
 	var launched := run
 	var stage := bench_stage
-	var bench_at := _bench_stage_rest()
-	var sank := false
-	if stage != null and is_instance_valid(stage) and bench_at != Vector3.ZERO:
-		var shaft := _bench_shaft_at(_bench_field(bench_at), _tray_shaft_depth())
-		if shaft != null:
-			stage.set_process(false)  # die Plattform führt ihn, das Wippen schweigt
-			var tween := shaft.run_exit([stage.die, stage.emitter],
-				[bench_at, bench_at - Vector3.UP * stage.hover_height], 0.0)
-			if tween != null:
-				tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
-				sank = true
-				tween.finished.connect(func() -> void:
-					_finish_bench_sink(die, generation, launched))
-	if not sank:
+	var seat := _pool_tray_source().find(die)
+	var flew := false
+	if stage != null and is_instance_valid(stage) and _bench_stage_rest() != Vector3.ZERO \
+			and seat >= 0 and pool_tray_view != null \
+			and seat < pool_tray_view.slot_roots.size():
+		stage.set_process(false)  # kein Eigen-Wippen, solange der Bogen ihn führt
+		var tween := stage.carry_to(pool_tray_view.slot_home_position(seat, true),
+			BENCH_CARRY_TIME, BENCH_CARRY_PEAK)
+		if tween != null:
+			flew = true
+			tween.finished.connect(func() -> void:
+				_finish_bench_sink(die, generation, launched))
+	if not flew:
 		_finish_bench_sink(die, generation, launched)
 
-## Bein A steht (der Bühnen-Würfel ist unten hinaus): sein Körper ist frei, der Ort
-## kippt auf POOL - dann hebt Bein B den Tray-Slot an seinem Sitz. Unter der Fläche
-## spiegelt er nicht (sonst geisterte sein Bild durch die Anzeige).
+## Der Bogen ist ANGEKOMMEN: der Träger fällt weg und im selben Zug zeigt sein Sitz
+## den Würfel wieder - kein Bild lang stehen beide da. Der Ort kippt auf POOL.
 func _finish_bench_sink(die: DieDefinition, generation: int, launched: GameRun) -> void:
 	_free_stage(bench_stage)
 	bench_stage = null
@@ -3300,40 +3262,10 @@ func _finish_bench_sink(die: DieDefinition, generation: int, launched: GameRun) 
 		_bench_riding = false
 		return
 	_seat_bench_place(null)  # ab jetzt liegt er im Pool
-	var seat := _pool_tray_source().find(die)
-	var risen := false
-	if _pool_standing and pool_tray_view != null and seat >= 0 \
-			and seat < pool_tray_view.slot_roots.size():
-		var root := pool_tray_view.slot_roots[seat]
-		var emitter := pool_tray_view.slot_emitter(seat)
-		pool_tray_view.set_slot_riding(seat, true)
-		ScreenReflection.set_reflective(root, false)
-		ScreenReflection.set_reflective(emitter, false)
-		root.global_position = pool_tray_view.slot_home_position(seat, true) \
-			- Vector3.UP * _tray_shaft_depth()
-		emitter.global_position = pool_tray_view.slot_home_position(seat) \
-			- Vector3.UP * _tray_shaft_depth()
-		_refresh_deck_trays()  # der Sitz gilt wieder als belegt; riding hält die Lage
-		var field := _bench_pool_field(seat)
-		var shaft := _bench_shaft_at(field, _tray_shaft_depth()) \
-			if not field.is_empty() else null
-		var tween: Tween = null
-		if shaft != null:
-			tween = shaft.run_cycle([root, emitter],
-				[pool_tray_view.slot_home_position(seat, true),
-				pool_tray_view.slot_home_position(seat)], 0.0)
-		if tween != null:
-			tween.set_speed_scale(CLAMP_MIGRATE_SPEED)
-			risen = true
-			tween.finished.connect(func() -> void:
-				_seat_bench_pool_hard(seat)
-				_bench_riding = false
-				_sync_bench_migration())
-	if not risen:
-		_seat_bench_pool_hard(seat)
-		_refresh_deck_trays()
-		_bench_riding = false
-		_sync_bench_migration()
+	_seat_bench_pool_hard(_pool_tray_source().find(die))
+	_refresh_deck_trays()
+	_bench_riding = false
+	_sync_bench_migration()
 
 ## Der Sitz steht wieder: an seinem Platz, spiegelnd, dem Schwebe-Takt zurückgegeben.
 func _seat_bench_pool_hard(seat: int) -> void:
@@ -3360,20 +3292,17 @@ func _migrate_bench_to_pool() -> void:
 	bench_stage = null
 	_seat_bench_place(null)
 
-## Der EINE harte Aufräum-Pfad der Fahrt: der Schacht bündig, SEIN LOCH ZU, jeder
-## ridende Pool-Sitz hart auf seinem Platz (ein Körper unter dem Tisch ist der
-## schlimmste Rest), die Fahrmarke gelöscht. Reset, Laufwechsel und Abbruch gehen
-## durch ihn. Er läßt den Ort-Zustand (_bench_die) unberührt - der ist Sache von
-## _migrate_bench_to_pool.
+## Der EINE harte Aufräum-Pfad der Fahrt: ein abgebrochener Bogen steht sofort auf
+## seinem Ziel (Endzustand zuerst - er schuldet nichts), jeder ridende Pool-Sitz
+## liegt hart auf seinem Platz (ein Körper unter dem Tisch ist der schlimmste Rest
+## - der Bogen legt keinen mehr dorthin, andere Fahrten schon), die Fahrmarke ist
+## gelöscht. Reset, Laufwechsel und Abbruch gehen durch ihn. Er läßt den
+## Ort-Zustand (_bench_die) unberührt - der ist Sache von _migrate_bench_to_pool.
 func _reset_bench_migration_hard() -> void:
 	_bench_gen += 1
-	if _bench_shaft != null and is_instance_valid(_bench_shaft):
-		_bench_shaft.settle_hard()
-	# Das Loch schließt der harte Weg IMMER, auch ohne stehende Maschine (die Fahrt
-	# setzt denselben Schacht zwischen zwei Feldern um - ein Abbruch dazwischen ließe
-	# sonst ein offenes Loch stehen).
-	if table_screen != null:
-		table_screen.clear_pit(TableScreen.clamp_pit(0))
+	if bench_stage != null and is_instance_valid(bench_stage) and bench_stage.is_flying():
+		bench_stage.land_at(_bench_stage_rest(), 0.0)
+		bench_stage.set_process(true)
 	if pool_tray_view != null:
 		for i in pool_tray_view.slot_roots.size():
 			if i < pool_tray_view.slot_riding.size() and pool_tray_view.slot_riding[i]:
@@ -3389,24 +3318,6 @@ func _reset_bench_migration_hard() -> void:
 				ScreenReflection.set_reflective(pool_tray_view.slot_emitter(i), true)
 	_bench_riding = false
 
-## Der EINE Schacht der Fahrt - es fährt immer nur ein Würfel, also genügt eine
-## Maschine. Idempotent an SEINE aktuelle Stelle gestellt (Pool-Sitz oder Bühne).
-func _bench_shaft_at(field: Dictionary, depth: float) -> LiftShaftView:
-	if table_screen == null or field.is_empty():
-		return null
-	if _bench_shaft == null or not is_instance_valid(_bench_shaft):
-		_bench_shaft = LiftShaftView.new("BenchShaft")
-		add_child(_bench_shaft)
-		var pit := TableScreen.clamp_pit(0)
-		_bench_shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
-			table_screen.set_lift_pit(pit, at, hole))
-		_bench_shaft.closed.connect(func() -> void:
-			table_screen.clear_pit(pit))
-	_bench_shaft.deck_skin = table_screen.display_skin()
-	_bench_shaft.order_skin(PIT_SKIN)
-	_bench_shaft.setup(field["at"], field["half"], depth)
-	return _bench_shaft
-
 ## Das Loch an einem Pool-Sitz: das Sitz-Feld, gegen Nachbar-Berührung zugeschnitten
 ## (die Schwarzmarkt-Regel - Wand plus Fuge weichen auf beiden Achsen zurück).
 func _bench_pool_field(seat: int) -> Dictionary:
@@ -3417,11 +3328,6 @@ func _bench_pool_field(seat: int) -> Dictionary:
 	var h: Vector2 = (field["half"] as Vector2) - Vector2(cut, cut)
 	field["half"] = Vector2(maxf(h.x, 0.05), maxf(h.y, 0.05))
 	return field
-
-## Das Loch an der Bühne: würfelgroß - dort steht nie ein Nachbar, der es
-## zuschneiden müßte.
-func _bench_field(at: Vector3) -> Dictionary:
-	return {"at": Vector3(at.x, 0.0, at.z), "half": SWALLOW_HALF}
 
 ## Zieht die Augenzahlen des Bühnen-Würfels nach (geteilte Instanzen: eine
 ## Projektion ändert den Würfel, nicht seinen Platz).
@@ -9456,7 +9362,7 @@ func _update_workshop_hover() -> void:
 ## (set_caption ist idempotent).
 func _write_workshop_caption(workshop: WorkshopView, pixel: Vector2) -> void:
 	if pixel.x < 0.0:
-		workshop.set_caption("")
+		workshop.set_caption(workshop.grip_blocker())
 		return
 	# Netz-Zelle im Fenster schlägt Zelle auf einem KÖRPER schlägt Kartenname.
 	var cell_hint := workshop.net_hint_at(pixel)
@@ -9467,7 +9373,10 @@ func _write_workshop_caption(workshop: WorkshopView, pixel: Vector2) -> void:
 	if stamp != "":
 		workshop.set_caption(stamp)
 		return
-	workshop.set_caption(workshop.hover_pack_name())
+	# Ohne Hover sagt die Zeile, WARUM der Griff schweigt - eine gesperrte Bremse
+	# stünde sonst stumm im Knopf.
+	var name_hint := workshop.hover_pack_name()
+	workshop.set_caption(name_hint if name_hint != "" else workshop.grip_blocker())
 
 ## Die NETZ-ZELLE einer Kassette unter dem Zeiger, im Klartext ("" = keine).
 ## GEFRAGT werden die KÖRPER - sie schneiden den Zeigerstrahl selbst, das Fenster

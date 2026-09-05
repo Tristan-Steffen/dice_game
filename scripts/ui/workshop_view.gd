@@ -1494,6 +1494,23 @@ func set_caption(text: String) -> void:
 func caption_text() -> String:
 	return _caption.text if _caption != null and is_instance_valid(_caption) else ""
 
+## WARUM der Griff nicht zünden darf ("" = er darf). Die Bremsen stehen sonst
+## stumm im Knopf: eine gesperrte Werkstatt, ein fehlendes Ziel, eine Serie aus
+## lauter Katalysatoren, der verbrauchte Griff. Gefragt wird sie in der Reihenfolge,
+## in der can_pull prüft - genannt wird die ERSTE geschlossene Bremse.
+func grip_blocker() -> String:
+	if run == null or can_pull() or burning():
+		return ""
+	if editing_locked:
+		return "Die Runde ist gezurrt - die Werkstatt öffnet erst im Laden wieder."
+	if target_die() == null:
+		return "Kein Ziel: einen Würfel im Vorrat antippen."
+	if stamping_card_count() <= 0:
+		return "Katalysatoren allein prägen nichts - eine Karte mit Netz dazu."
+	if not run.press_allowed():
+		return "Der Griff dieser Sitzung ist verbraucht."
+	return ""
+
 ## Der Grad der Caption: die größte Stufe, die noch in die Restbreite paßt.
 func _fit_caption() -> void:
 	var font := ThemeDB.fallback_font
