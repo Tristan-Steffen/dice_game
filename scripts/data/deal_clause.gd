@@ -34,6 +34,8 @@ const TAG_MONEY := "geld"
 ## Alles, was an der Serienlänge der Presse dreht - Bonus wie Malus tragen
 ## dasselbe Etikett, damit die Paarungsregel nie beide auf EINE Karte legt.
 const TAG_SERIES := "serie"
+## Alles, was an der LADUNG der Würfel dreht - nicht der Energie-Haushalt.
+const TAG_CHARGE := "ladung"
 
 # --- Klausel-ids (Single Source of Truth) --------------------------------------
 
@@ -46,6 +48,7 @@ const CASH_DISCOUNT := "cash_discount"
 const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
 const CHAIN_DRIVER := "chain_driver"
+const DRAIN := "drain"
 
 # Bonus, Stufe 2
 const HIGH_VOLTAGE := "high_voltage"
@@ -58,6 +61,8 @@ const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
 const GOLDEN_HANDSHAKE := "golden_handshake"
 const WORK_HARDENING := "work_hardening"
+const COOLING_BREAK := "cooling_break"
+const NOISE_FILTER := "noise_filter"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
@@ -73,6 +78,7 @@ const DEDUCTION := "deduction"
 const SERVICE_FEE := "service_fee"
 const INFLATION := "inflation"
 const POWER_CUT := "power_cut"
+const STANDING_CURRENT := "standing_current"
 
 # Malus, Stufe 2
 const BENCHMARK_SURCHARGE_II := "benchmark_surcharge_ii"
@@ -83,6 +89,8 @@ const DISCHARGE := "discharge"
 const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
 const SHORT_CIRCUIT := "short_circuit"
+const OVERLOAD := "overload"
+const MAINTENANCE_CONTRACT := "maintenance_contract"
 
 # Malus, Stufe 3
 const BENCHMARK_SHOCK := "benchmark_shock"
@@ -98,6 +106,7 @@ const STANDARD_PROTOCOL := "standard_protocol"
 const ALL_ROUNDER := "all_rounder"
 const TILTED_FLOOR := "tilted_floor"
 const BALANCED_SCALES := "balanced_scales"
+const POWER_FAILURE := "power_failure"
 
 ## Farbe der Marke: das erste Tag bestimmt sie, damit gleiche Themen am Hub
 ## gleich aussehen. Tag-lose Klauseln erben die Stufenfarbe.
@@ -113,6 +122,7 @@ const TAG_COLORS := {
 	TAG_THROTTLE: "#ff8c42",
 	TAG_MONEY: "#ffd319",
 	TAG_SERIES: "#6effc7",
+	TAG_CHARGE: "#d9b3ff",
 }
 const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5555"]
 
@@ -186,6 +196,19 @@ static func seed_capital() -> DealClause:
 static func chain_driver() -> DealClause:
 	return _bonus(CHAIN_DRIVER, "Kettentreiber", "Serienlänge +1",
 		Scope.ROUND, Tier.ONE, [TAG_SERIES])
+
+## Ableitung: der Ladungs-Schritt kehrt sich um - jede Zündung SENKT, ohne Wurf.
+static func drain() -> DealClause:
+	return _bonus(DRAIN, "Ableitung", "Jede Zündung eines gewerteten Würfels senkt seine Ladung um 1",
+		Scope.ROUND, Tier.ONE, [TAG_CHARGE])
+
+static func cooling_break() -> DealClause:
+	return _bonus(COOLING_BREAK, "Kühlpause", "Kein Würfel brennt diese Runde durch",
+		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
+
+static func noise_filter() -> DealClause:
+	return _bonus(NOISE_FILTER, "Entstörung", "Alle Würfel sofort auf Ladung 1",
+		Scope.INSTANT, Tier.TWO, [TAG_CHARGE])
 
 static func high_voltage() -> DealClause:
 	return _bonus(HIGH_VOLTAGE, "Hochspannung", "+3 Überladungs-Stufen",
@@ -275,6 +298,10 @@ static func power_cut() -> DealClause:
 	return _malus(POWER_CUT, "Stromsperre", "Der Automat bleibt aus",
 		Scope.ROUND, Tier.ONE, [TAG_SLOT])
 
+static func standing_current() -> DealClause:
+	return _malus(STANDING_CURRENT, "Dauerstrom", "Nicht gespielte Würfel entladen diese Runde nicht",
+		Scope.ROUND, Tier.ONE, [TAG_CHARGE])
+
 static func benchmark_surcharge_ii() -> DealClause:
 	return _malus(BENCHMARK_SURCHARGE_II, "Benchmark-Aufschlag II", "Benchmark +100%",
 		Scope.ROUND, Tier.TWO, [TAG_BENCHMARK])
@@ -307,6 +334,17 @@ static func rip_off() -> DealClause:
 static func short_circuit() -> DealClause:
 	return _malus(SHORT_CIRCUIT, "Kurzschluss", "Serienlänge ist 1",
 		Scope.ROUND, Tier.TWO, [TAG_SERIES])
+
+## Überlast: der Ladungswurf trifft immer - bei 3 also sicheres Durchbrennen.
+static func overload() -> DealClause:
+	return _malus(OVERLOAD, "Überlast", "Jede Zündung eines gewerteten Würfels hebt seine Ladung sicher um 1",
+		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
+
+## Sperrt die Bucht erst im Fenster NACH dieser Runde - darum eine Runden-Klausel.
+static func maintenance_contract() -> DealClause:
+	return _malus(MAINTENANCE_CONTRACT, "Wartungsvertrag",
+		"Die Reparatur-Bucht bleibt vor der nächsten Runde geschlossen",
+		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
 
 static func benchmark_shock() -> DealClause:
 	return _malus(BENCHMARK_SHOCK, "Benchmark-Schock", "Benchmark +250%",
@@ -354,21 +392,26 @@ static func balanced_scales() -> DealClause:
 	return _malus(BALANCED_SCALES, "Gleichgewicht", "Nur gerade Augen zählen",
 		Scope.ROUND, Tier.BOSS, [TAG_THROTTLE])
 
+static func power_failure() -> DealClause:
+	return _malus(POWER_FAILURE, "Netzausfall", "Der Ladungswurf trifft immer",
+		Scope.ROUND, Tier.BOSS, [TAG_CHARGE])
+
 static func all() -> Array[DealClause]:
 	return [
 		savings_bonus(), free_charm(), advance_payment(), spotlight(),
-		cash_discount(), insurance_fraud(), seed_capital(), chain_driver(),
+		cash_discount(), insurance_fraud(), seed_capital(), chain_driver(), drain(),
 		high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
-		golden_handshake(), work_hardening(),
+		golden_handshake(), work_hardening(), cooling_break(), noise_filter(),
 		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
 		benchmark_surcharge(), betting_tax(), empties(), deduction(),
-		service_fee(), inflation(), power_cut(),
+		service_fee(), inflation(), power_cut(), standing_current(),
 		benchmark_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
 		discharge(), heat_warning(), rip_off(), short_circuit(),
+		overload(), maintenance_contract(),
 		benchmark_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
-		tilted_floor(), balanced_scales(),
+		tilted_floor(), balanced_scales(), power_failure(),
 	]
 
 ## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
@@ -436,6 +479,8 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 			return "Jede ausgelöste Seite wächst dauerhaft um +2 Augen"
 		CHAIN_DRIVER:
 			return "Serienlänge +2"
+		DRAIN:
+			return "Jede Zündung eines gewerteten Würfels senkt seine Ladung um 2"
 	return clause.text
 
 static func tags_of(clause_id: String) -> Array[String]:

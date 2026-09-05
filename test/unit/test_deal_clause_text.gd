@@ -22,6 +22,7 @@ const DOUBLED := {
 	DealClause.GOLD_VEIN: "+20$ je geräumter Überladungs-Stufe",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite wächst dauerhaft um +2 Augen",
 	DealClause.CHAIN_DRIVER: "Serienlänge +2",
+	DealClause.DRAIN: "Jede Zündung eines gewerteten Würfels senkt seine Ladung um 2",
 }
 
 func test_text_for_returns_the_plain_text_without_the_charm():

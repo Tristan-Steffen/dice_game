@@ -265,7 +265,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				for _e in essence_repeat:
 					var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
 						wild_eyes if i == wild else 0, charm_ids, energy,
-						DiceScoring.first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+						DiceScoring.first_scoring_for(ctx, i), volcanic, t == 0 and f == 0,
+						int(running_charges.get(i, 0)))
 					if spends_energy and energy > 0:
 						energy -= 1
 						energy_spent += 1
@@ -285,6 +286,17 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					crit_once *= cx
 					crit_indices_now.append(j)
 					crit_steps.append(_crit_step(cx, j, base, mult, charm_ids))
+				# Transformator: eigener Schlag je Dock-Platz, LEBENDER Stand vor
+				# dem Wurf dieser Zündung - wie in DiceScoring.
+				for j in charm_ids.size():
+					var charge_crit := CharmEffects.charge_crit_at(j, int(running_charges.get(i, 0)), charm_ids)
+					if is_equal_approx(charge_crit, 1.0):
+						continue
+					crits += 1
+					mult *= charge_crit
+					crit_once *= charge_crit
+					crit_indices_now.append(j)
+					crit_steps.append(_crit_step(charge_crit, j, base, mult, charm_ids))
 				if first_firing:
 					step_crit = crit_once
 					crit_charm_indices = crit_indices_now
@@ -333,6 +345,17 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
 				if bool(charge_hit["fuse"]):
 					fuse_used = true
+				# Lichtbogen: sein Zuschlag reist als CHARM-Basis dieser Zündung,
+				# damit das Dock-Pad blitzt. Krits multiplizieren nur den Mult, die
+				# späte Addition ändert die Summe also nicht.
+				var arc_base := CharmEffects.burnout_base(charm_ids) if bool(charge_hit["burned"]) else 0
+				if arc_base > 0:
+					base += arc_base
+					charm_base_now += arc_base
+					entry["charm_base_add"] = charm_base_now
+					entry["charm_base_after"] = base
+					entry["base_after_crit"] = base
+					_merge_indices(charm_indices_now, CharmEffects.charm_indices_of(Charm.ARC_FLASH, charm_ids))
 				entry["charge_after"] = int(running_charges.get(i, 0))
 				entry["charge_up"] = bool(charge_hit["charged"])
 				entry["burned"] = bool(charge_hit["burned"])

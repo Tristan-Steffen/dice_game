@@ -138,6 +138,18 @@ const METRONOME := "metronome"
 const GAP_TOOTH := "gap_tooth"
 const DROP_HEIGHT := "drop_height"
 const INVENTORY := "inventory"
+# Ladung (Welle 2): die Sicherung heisst SAFETY_FUSE, weil FUSE schon die
+# Zündschnur des Knallgases ist - zwei Dinge, zwei ids.
+const VOLTMETER := "voltmeter"
+const SAFETY_FUSE := "safety_fuse"
+const HEAT_SINK := "heat_sink"
+const INSULATION_TAPE := "insulation_tape"
+const ARC_FLASH := "arc_flash"
+const GROUNDING := "grounding"
+const CONTINUOUS_DUTY := "continuous_duty"
+const TRANSFORMER := "transformer"
+const EMBER_CORE := "ember_core"
+const SPARK_PLUG := "spark_plug"
 # Essenz-Charms: je einer für jede Essenz ab "selten" - siehe ESSENCE_REQUIREMENT.
 const AMALGAM := "amalgam"
 const LEAD_APRON := "lead_apron"
@@ -211,6 +223,7 @@ const ESSENCE_REQUIREMENT := {
 	# Pflicht "je Seele ab selten genau ein Charm" bleibt davon unberührt.
 	CAMOUFLAGE: Essence.KRYPTON,
 	CUTTING_TORCH: Essence.ACETYLENE,
+	SPARK_PLUG: Essence.SPARK_GAP,
 }
 
 ## Zweite Angebots-Bedingung neben der Seele: das SPIELZEUG muss auf dem Tisch
@@ -392,6 +405,17 @@ const RARITIES := {
 	GAP_TOOTH: RARITY_RARE,
 	DROP_HEIGHT: RARITY_UNCOMMON,
 	INVENTORY: RARITY_RARE,
+	# Ladung
+	VOLTMETER: RARITY_UNCOMMON,
+	SAFETY_FUSE: RARITY_UNCOMMON,
+	HEAT_SINK: RARITY_RARE,
+	INSULATION_TAPE: RARITY_COMMON,
+	ARC_FLASH: RARITY_RARE,
+	GROUNDING: RARITY_UNCOMMON,
+	CONTINUOUS_DUTY: RARITY_RARE,
+	TRANSFORMER: RARITY_LEGENDARY,
+	EMBER_CORE: RARITY_RARE,
+	SPARK_PLUG: RARITY_RARE,
 	# Essenz-Charms: die Rarität misst die STÄRKE mit der Seele, nicht die Nische -
 	# die Nische regelt schon die Angebots-Kopplung (ESSENCE_REQUIREMENT).
 	AMALGAM: RARITY_RARE,
@@ -978,6 +1002,41 @@ static func drop_height() -> Charm:
 static func inventory() -> Charm:
 	return _make(INVENTORY, "Inventur", "+2 Basispunkte je Material-Seite im gesamten Würfelpool.")
 
+# --- Ladung ------------------------------------------------------------------
+
+static func voltmeter() -> Charm:
+	return _make(VOLTMETER, "Spannungsmesser", "+2 Mult je Ladung der gewerteten Hand.")
+
+static func safety_fuse() -> Charm:
+	return _make(SAFETY_FUSE, "Sicherung",
+		"Der erste Durchbrenner jeder Runde wird verhindert; der Würfel fällt statt dessen auf 0.")
+
+static func heat_sink() -> Charm:
+	return _make(HEAT_SINK, "Kühlkörper", "Kein Würfel steigt über Ladung 2.")
+
+static func insulation_tape() -> Charm:
+	return _make(INSULATION_TAPE, "Isolierband", "Reparaturen kosten $5 statt 1 ⚡.")
+
+static func arc_flash() -> Charm:
+	return _make(ARC_FLASH, "Lichtbogen",
+		"Brennt ein Würfel beim Werten durch, gibt er seiner Hand +230 Basispunkte.")
+
+static func grounding() -> Charm:
+	return _make(GROUNDING, "Erdung", "Am Rundenende entladen ALLE Würfel um 1, auch die gespielten.")
+
+static func continuous_duty() -> Charm:
+	return _make(CONTINUOUS_DUTY, "Dauerbetrieb", "Nicht gespielte Würfel entladen am Rundenende nicht.")
+
+static func transformer() -> Charm:
+	return _make(TRANSFORMER, "Transformator", "Jeder gewertete Würfel auf Ladung 3 kritet ×2.")
+
+static func ember_core() -> Charm:
+	return _make(EMBER_CORE, "Glutkern",
+		"Der erste durchgebrannte Würfel der Hand zählt für die Kombination als jede Zahl.")
+
+static func spark_plug() -> Charm:
+	return _make(SPARK_PLUG, "Zündkerze", "Die Funkenstrecke kritet ×(2 + Ladung) statt ×(1 + Ladung).")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -1025,4 +1084,7 @@ static func all() -> Array[Charm]:
 		factory_finish(), bottle_rack(), pressure_gauge(), empty_plinth(), odometer(),
 		tail_light(), strobe(), metronome(),
 		zahnluecke(), drop_height(), inventory(),
+		# Ladung
+		voltmeter(), safety_fuse(), heat_sink(), insulation_tape(), arc_flash(),
+		grounding(), continuous_duty(), transformer(), ember_core(), spark_plug(),
 	]

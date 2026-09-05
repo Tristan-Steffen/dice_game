@@ -80,6 +80,11 @@ const CHERENKOV_CRIT := 8.0
 const SHOOTING_STAR_CRIT := 4.0
 const GAMMA_BURST_CRIT := 10.0
 
+## Funkenstrecke: Krit ×(Sockel + Ladung). Ohne Zündkerze ist der Sockel 1, ein
+## kalter Würfel kritet also gar nicht.
+const SPARK_GAP_BASE := 1
+const SPARK_PLUG_BASE := 2
+
 ## Fuchsfeuer: Augen je zwei Würfeln in der Ablage (Pilzgeflecht legt zusätzlich
 ## die Augensumme der Ablage drauf).
 const FOXFIRE_PER_PAIR := 10
@@ -324,8 +329,12 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
 		energy: int = 0, first_scoring: bool = false, fumbles: int = 0,
-		first_firing: bool = true) -> float:
+		first_firing: bool = true, charge: int = 0) -> float:
 	match essence_id:
+		Essence.SPARK_GAP:
+			# Der LEBENDE Stand vor dem Wurf dieser Zündung; bei 1,0 kein Krit.
+			var spark_base := SPARK_PLUG_BASE if charm_ids.has(Charm.SPARK_PLUG) else SPARK_GAP_BASE
+			return maxf(1.0, float(spark_base + maxi(0, charge)))
 		Essence.XENON:
 			return XENON_CRIT
 		Essence.BALL_LIGHTNING:
@@ -719,21 +728,21 @@ static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
 		best = maxf(best, pointer_chance(essence_id, base))
 	return best
 
-## Kann dieser Würfel nicht durchbrennen? Eine immune Seele (Bogenlampe, Welle 2)
+## Kann dieser Würfel nicht durchbrennen? Eine immune Seele (Bogenlampe)
 ## deckelt an der Spitze, statt durchzubrennen - in JEDER Quelle.
-static func immune_to_burnout(_essence_ids: Array[String]) -> bool:
-	return false
+static func immune_to_burnout(essence_ids: Array[String]) -> bool:
+	return essence_ids.has(Essence.ARC_LAMP)
 
 ## Krits ALLER wirksamen Seelen multipliziert - hier ist das Produkt richtig, es
 ## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
 static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
 		energy: int = 0, first_scoring: bool = false, fumbles: int = 0,
-		first_firing: bool = true) -> float:
+		first_firing: bool = true, charge: int = 0) -> float:
 	var factor := 1.0
 	for essence_id in essence_ids:
 		factor *= crit_once_for(essence_id, value, crits_before, ball_bonus, wild_value,
-			charm_ids, energy, first_scoring, fumbles, first_firing)
+			charm_ids, energy, first_scoring, fumbles, first_firing, charge)
 	return maxf(1.0, factor)
 
 ## Essenz-id eines Slots aus dem ctx-Dictionary ("" = keine).

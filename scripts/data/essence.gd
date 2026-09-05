@@ -26,6 +26,7 @@ const FIREDAMP := "firedamp"
 const CARBON_DIOXIDE := "carbon_dioxide"
 const HALOGEN := "halogen"
 const ACETYLENE := "acetylene"
+const ARC_LAMP := "arc_lamp"
 
 static func carbon_dioxide() -> Essence:
 	return _make(CARBON_DIOXIDE, "Kohlendioxid",
@@ -68,6 +69,7 @@ const LIGHT_PILLAR := "light_pillar"
 const MIDNIGHT_SUN := "midnight_sun"
 const GAMMA_BURST := "gamma_burst"
 const BACKGROUND_RADIATION := "background_radiation"
+const SPARK_GAP := "spark_gap"
 
 const NONE := ""
 
@@ -156,6 +158,12 @@ static func acetylene() -> Essence:
 	return _make(ACETYLENE, "Acetylen",
 		"+10 Basispunkte je Stufe der genommenen Kombination.",
 		"+10 Basis je Kombinationsstufe", Rarity.COMMON, Color(0.85, 0.92, 1.0))
+
+## Warmes Weiss statt Ladungs-Violett: die Lampe brennt ruhig, sie glüht nicht.
+static func arc_lamp() -> Essence:
+	return _make(ARC_LAMP, "Bogenlampe",
+		"Kann nicht durchbrennen: auf Überschlag bleibt sie stehen.",
+		"brennt nie durch", Rarity.COMMON, Color(1.0, 0.95, 0.85))
 
 # --- Phänomene --------------------------------------------------------------------
 
@@ -297,6 +305,12 @@ static func midnight_sun() -> Essence:
 		"+1 Auslösung je bereits genommener Hand dieser Runde.",
 		"+1 Auslösung je genommener Hand", Rarity.EPIC, Color(1.0, 0.8, 0.35))
 
+## Heissweiss-violett wie die Ladung selbst - nie das Energie-Cyan.
+static func spark_gap() -> Essence:
+	return _make(SPARK_GAP, "Funkenstrecke",
+		"Jede ihrer Auslösungen kritet ×(1 + Ladung).",
+		"kritet ×(1 + Ladung)", Rarity.RARE, Color(0.88, 0.75, 1.0))
+
 static func background_radiation() -> Essence:
 	return _make(BACKGROUND_RADIATION, "Hintergrundstrahlung",
 		"Wird er gewertet, wachsen alle Seiten aller liegenden Würfel dauerhaft +5.",
@@ -317,12 +331,14 @@ static func all() -> Array[Essence]:
 	return [
 		helium(), neon(), argon(), krypton(), xenon(), nitrogen(), oxygen(),
 		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(), acetylene(),
+		arc_lamp(),
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), plasma(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), varnish(),
 		phosphorescence(), detonating_gas(), aurora(), quintessence(), antimatter(),
 		cherenkov(), shooting_star(), foxfire(), black_light(), volcanic_lightning(),
 		optical_fiber(), light_pillar(), midnight_sun(), background_radiation(), gamma_burst(),
+		spark_gap(),
 	]
 
 static func by_id(essence_id: String) -> Essence:

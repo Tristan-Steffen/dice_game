@@ -78,6 +78,9 @@ const METRONOME_BASE := 6
 const SEDIMENT_MULT := 4
 const STROBE_MULT := 2
 
+## Spannungsmesser: Mult je Ladung der gewerteten Hand (zusätzlich zur Grundregel).
+const VOLTMETER_MULT := 2
+
 ## Standby-Licht: Mult je gelagerter Energie. Kilometerzähler: je gespielter
 ## Runde. Flaschenregal: je Essenz-Würfel in der Ablage.
 const STANDBY_LIGHT_MULT := 1
@@ -303,6 +306,23 @@ static func die_charm_target_mult_at(j: int, slot: int, values: Array[int], char
 static func die_charm_crit_at(_j: int, _slot: int, _values: Array[int], _charm_ids: Array[String], _participating: Array[int] = [], _value_override: int = 0) -> float:
 	return 1.0
 
+## Transformator: Krit der Besitz-Position j am LEBENDEN Ladungs-Stand dieser
+## Zündung (gelesen VOR ihrem Wurf). Eigener Hook, weil die Ladung in keiner
+## der die_charm_*-Signaturen steht.
+const TRANSFORMER_CRIT := 2.0
+
+static func charge_crit_at(j: int, charge: int, charm_ids: Array[String]) -> float:
+	if charm_ids[j] == Charm.TRANSFORMER and charge >= DieDefinition.CHARGE_MAX:
+		return TRANSFORMER_CRIT
+	return 1.0
+
+## Lichtbogen: Basispunkte, die eine IN der Wertung durchgebrannte Zündung der
+## Hand schenkt - je Exemplar erneut. Fumble, Griff und Klausel zahlen nichts.
+const ARC_FLASH_BASE := 230
+
+static func burnout_base(charm_ids: Array[String]) -> int:
+	return ARC_FLASH_BASE * charm_ids.count(Charm.ARC_FLASH)
+
 ## Primzahl-Test für Augenzahlen (Seiten können durch Knochen beliebig wachsen).
 ## Gemerkt, weil dieselben Zahlen in Vorschau, Wertung und Schrittliste hundertfach
 ## wiederkehren - milliardengroße Seiten kosten sonst je Zündung eine Wurzelsuche.
@@ -505,6 +525,14 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 			return LUMINOUS_PAINT_MULT * runes
 		Charm.STANDBY_LIGHT:
 			return STANDBY_LIGHT_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ENERGY, 0)))
+		Charm.VOLTMETER:
+			# END-Stand der Hand: die ctx-KOPIE trägt die laufenden Ladungen.
+			var charge_sum := 0
+			for slot in scored:
+				if DiceScoring.burned_for(ctx, slot):
+					continue
+				charge_sum += DiceScoring.charge_for(ctx, slot)
+			return VOLTMETER_MULT * charge_sum
 		Charm.ODOMETER:
 			return ODOMETER_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ROUND, 0)))
 		Charm.BOTTLE_RACK:

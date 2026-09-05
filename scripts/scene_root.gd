@@ -10397,6 +10397,7 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_CHARGES: _slot_charges(),
 		DiceScoring.CTX_BURNED: _slot_burned(),
 		DiceScoring.CTX_CHARGE_RULE: run.charge_rule(),
+		DiceScoring.CTX_EMBER_CORE: run.charm_ids().has(Charm.EMBER_CORE),  # Joker aus Ruß
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
 		# Kaltverfestigung: hand-weit, also ohne Umschlüsselung in _score_ctx_for_slots.
 		DiceScoring.CTX_CLAUSE_GROWTH: run.clause_face_growth(),

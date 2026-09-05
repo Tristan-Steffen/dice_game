@@ -288,6 +288,14 @@ var die_scored_this_round: Dictionary = {}
 const REPAIR_ENERGY := 1
 const DRAIN_MONEY := 5
 const DISCHARGE_ALL_ENERGY := 5
+## Isolierband: die Reparatur kostet dann Geld statt Energie.
+const REPAIR_MONEY := 5
+## Kühlkörper: Deckel der Ladung, solange er im Dock liegt.
+const HEAT_SINK_CAP := 2
+## Überlast/Netzausfall: der Ladungswurf trifft immer.
+const FORCED_CHARGE_CHANCE := 1.0
+## Entstörung: auf diese Stufe fällt der ganze Vorrat sofort.
+const NOISE_FILTER_CHARGE := 1
 ## Wartungsvertrag (Welle 2): die Runde, BIS zu der die Bucht geschlossen bleibt
 ## (0 = offen). Das Zurren löscht sie wieder.
 var repair_lock_round: int = 0
@@ -1218,6 +1226,25 @@ func _apply_instant_clause(clause_id: String) -> void:
 			free_charm_pending = true
 		DealClause.FREE_SPINS:
 			free_spins_used.clear()
+		DealClause.NOISE_FILTER:
+			_apply_noise_filter()
+		DealClause.MAINTENANCE_CONTRACT:
+			repair_lock_round = round_number + 1
+
+## Entstörung: der ganze Vorrat fällt sofort auf Ladung 1 (der Kühlkörper-Deckel
+## gilt auch hier). Durchgebrannte bleiben dunkel - sie werden repariert.
+func _apply_noise_filter() -> void:
+	var level := mini(NOISE_FILTER_CHARGE, int(charge_rule().get("cap", DieDefinition.CHARGE_MAX)))
+	var touched := 0
+	for die in owned_pool:
+		if die == null or die.burned_out or die.charge == level:
+			continue
+		die.charge = level
+		touched += 1
+	if touched == 0:
+		return
+	charge_logged.emit("%d Würfel entstört auf %d" % [touched, level])
+	note_pool_changed()
 
 ## Energie, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
 ## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zur Bank.
@@ -1661,10 +1688,34 @@ func note_bare_dice(count: int) -> void:
 
 # --- LADUNG: Regel, Buchungen und die Reparatur-Bucht ---------------------------
 
-## Die Ladungs-Regel dieser Runde als EIN Dictionary. Charms und Klauseln füllen
-## sie ab Welle 2; heute steht der Standard.
+## Die Ladungs-Regel dieser Runde als EIN Dictionary - die EINE Stelle, an der
+## Charms und Klauseln zusammenkommen:
+##   chance    0,5   Überlast / Netzausfall: 1,0
+##   step      +1    Ableitung: −1 × Winkeladvokat (bei step < 0 gilt chance nicht)
+##   cap       3     Kühlkörper: 2
+##   can_burn  true  Kühlpause und Kühlkörper: false
+##   fuse_armed      Sicherung, solange sie diese Runde noch nicht gehalten hat
 func charge_rule() -> Dictionary:
-	return DiceScoring.default_charge_rule()
+	var rule := DiceScoring.default_charge_rule()
+	var ids := charm_ids()
+	if _clause_active(DealClause.DRAIN):
+		rule["step"] = -1 * deal_bonus_factor()
+	if _clause_active(DealClause.OVERLOAD) or _clause_active(DealClause.POWER_FAILURE):
+		rule["chance"] = FORCED_CHARGE_CHANCE
+	if ids.has(Charm.HEAT_SINK):
+		rule["cap"] = HEAT_SINK_CAP
+		rule["can_burn"] = false
+	if _clause_active(DealClause.COOLING_BREAK):
+		rule["can_burn"] = false
+	rule["fuse_armed"] = ids.has(Charm.SAFETY_FUSE) and not fuse_used_this_round
+	return rule
+
+## Was eine Reparatur kostet - {"energy": n} oder mit Isolierband {"money": n}.
+## EINE Quelle für Buchung und Knopf-Beschriftung.
+func repair_price() -> Dictionary:
+	if charm_ids().has(Charm.INSULATION_TAPE):
+		return {"money": REPAIR_MONEY}
+	return {"energy": REPAIR_ENERGY}
 
 ## "Würfel N" - die Vorrats-Position, an der die Chronik ihn nennt.
 func _die_label(die: DieDefinition) -> String:
@@ -1759,26 +1810,30 @@ func charge_fumble_dice(defs: Array[DieDefinition]) -> Array[Dictionary]:
 		note_pool_changed()
 	return changes
 
-## Dauerbetrieb/Dauerstrom (Welle 2): nicht gespielte Würfel entladen gar nicht.
+## Dauerbetrieb/Dauerstrom: nicht gespielte Würfel entladen gar nicht.
 func _cooling_spares_unplayed() -> bool:
-	return false
+	return charm_ids().has(Charm.CONTINUOUS_DUTY) or _clause_active(DealClause.STANDING_CURRENT)
 
-## Erdung (Welle 2): am Rundenende entladen ALLE Würfel, auch die gespielten.
+## Erdung: am Rundenende entladen ALLE Würfel, auch die gespielten.
 func _cooling_hits_all() -> bool:
-	return false
+	return charm_ids().has(Charm.GROUNDING)
 
 ## Rundenende: jeder Vorrats-Würfel, der in DIESER Runde nicht gewertet hat,
 ## verliert eine Ladung. Durchgebrannte sind ausgenommen - sie entladen nicht,
 ## sie werden repariert.
 func cool_unplayed_dice() -> Array[DieDefinition]:
 	var cooled: Array[DieDefinition] = []
-	if _cooling_spares_unplayed():
-		return cooled
+	# Beide Schalter zugleich: die GESPIELTEN entladen (Erdung), die
+	# ungespielten nicht (Dauerbetrieb) - darum je Würfel entschieden.
+	var spares := _cooling_spares_unplayed()
 	var hits_all := _cooling_hits_all()
 	for die in owned_pool:
 		if die == null or die.burned_out or die.charge <= 0:
 			continue
-		if not hits_all and die_scored_this_round.has(die.get_instance_id()):
+		var played := die_scored_this_round.has(die.get_instance_id())
+		if played and not hits_all:
+			continue
+		if not played and spares:
 			continue
 		if die.charge_down():
 			cooled.append(die)
@@ -1796,16 +1851,27 @@ func note_round_committed() -> void:
 	if repair_lock_round > 0 and round_number >= repair_lock_round:
 		repair_lock_round = 0
 
-## Reparatur: durchgebrannt -> Ladung 0, für REPAIR_ENERGY ⚡. Prüfen-dann-
-## abbuchen wie overclock_combo; false = es wurde nichts gebucht.
+## Reparatur: durchgebrannt -> Ladung 0, zum Preis aus repair_price(). Prüfen-
+## dann-abbuchen wie overclock_combo, in BEIDEN Zweigen; false = nichts gebucht.
 func repair_die(die: DieDefinition) -> bool:
 	if die == null or not die.burned_out or repair_locked():
 		return false
-	if energy < REPAIR_ENERGY:
-		return false
-	spend_energy(REPAIR_ENERGY)
+	var price := repair_price()
+	var note := ""
+	if price.has("money"):
+		var cost := int(price["money"])
+		if money < cost:
+			return false
+		add_money(-cost)
+		note = "($%d)" % cost
+	else:
+		var spark := int(price["energy"])
+		if energy < spark:
+			return false
+		spend_energy(spark)
+		note = "(%d ⚡)" % spark
 	die.repair()
-	charge_logged.emit("%s repariert (%d ⚡)" % [_die_label(die), REPAIR_ENERGY])
+	charge_logged.emit("%s repariert %s" % [_die_label(die), note])
 	note_pool_changed()
 	return true
 

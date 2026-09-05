@@ -284,6 +284,9 @@ const CTX_CHARGES := "charges"
 const CTX_BURNED := "burned"
 const CTX_CHARGE_ROLLS := "charge_rolls"
 const CTX_CHARGE_RULE := "charge_rule"
+## Glutkern (Charm): hand-weit, also OHNE Umschlüsselung - der erste
+## durchgebrannte Slot wird zum Joker der Erkennung.
+const CTX_EMBER_CORE := "ember_core"
 
 ## Grundchance, mit der eine Zündung die Ladung hebt (bzw. durchbrennt).
 const CHARGE_CHANCE := 0.5
@@ -481,13 +484,25 @@ static func points_for(key: String, combo_levels: Dictionary = {}) -> int:
 	return 0
 
 ## Der Joker-Slot (Polarlicht) oder -1. Legendär und damit Unikat: es kann NIE
-## mehr als einen geben, darum genügt EIN Index statt einer Liste.
+## mehr als einen geben, darum genügt EIN Index statt einer Liste. Ohne
+## Polarlicht macht der GLUTKERN den niedrigsten durchgebrannten Slot zum Joker -
+## er liefert 0 Augen, taugt der Erkennung aber als jede Zahl.
 static func wild_slot(ctx: Dictionary) -> int:
 	var essences := essences_in(ctx)
 	for slot in essences:
 		if EssenceEffects.is_wild(EssenceEffects.essence_at(essences, int(slot))):
 			return int(slot)
-	return -1
+	if not bool(ctx.get(CTX_EMBER_CORE, false)):
+		return -1
+	var burned: Dictionary = ctx.get(CTX_BURNED, {})
+	var lowest := -1
+	for key in burned:
+		if not bool(burned[key]):
+			continue
+		var slot := int(key)
+		if lowest < 0 or slot < lowest:
+			lowest = slot
+	return lowest
 
 ## Die Zahl, zu der sich der Joker (Polarlicht) für diese Kategorie macht - 0,
 ## wenn keiner mitspielt oder keine Belegung trägt. Dieselbe Wahl wie
@@ -960,7 +975,8 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					for _e in essence_repeat:
 						var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
 							wild_eyes if i == wild else 0, charm_ids, energy,
-							first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+							first_scoring_for(ctx, i), volcanic, t == 0 and f == 0,
+							int(running_charges.get(i, 0)))
 						if spends_energy and energy > 0:
 							energy -= 1
 						if not is_equal_approx(ess_crit, 1.0):
@@ -971,6 +987,13 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 						if not is_equal_approx(die_crit, 1.0):
 							crits += 1
 						mult *= die_crit
+					# Transformator: LEBENDER Ladungs-Stand, gelesen VOR dem Wurf
+					# dieser Zündung - der Krit gehört zur Zündung, der Wurf kommt danach.
+					for j in charm_ids.size():
+						var charge_crit := CharmEffects.charge_crit_at(j, int(running_charges.get(i, 0)), charm_ids)
+						if not is_equal_approx(charge_crit, 1.0):
+							crits += 1
+						mult *= charge_crit
 					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 					# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
 					# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
@@ -986,6 +1009,9 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
 				if bool(charge_hit["fuse"]):
 					fuse_used = true
+				# Lichtbogen: NUR das Durchbrennen in der Wertung zahlt.
+				if bool(charge_hit["burned"]):
+					base += CharmEffects.burnout_base(charm_ids)
 				if bool(burned_now.get(i, false)):
 					break
 			# Durchgebrannt: die Glieder DIESES Antritts entfallen mit ihm.
