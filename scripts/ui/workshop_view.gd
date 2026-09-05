@@ -1174,13 +1174,17 @@ func _seat_button(u: float) -> Button:
 	_action_button.visible = not _series.is_empty()
 	return _action_button
 
-## Darf jetzt gegriffen werden? Drei Bremsen: ein gewählter Zielwürfel, eine VOLLE
-## Reihe (der Block IST sechs Karten) und mindestens eine Karte, die prägt.
+## Darf jetzt gegriffen werden? Vier Bremsen: ein gewählter, nicht durchgebrannter
+## Zielwürfel, eine VOLLE Reihe (der Block IST sechs Karten) und mindestens eine
+## Karte, die prägt.
 ## Griffe selbst sind unbegrenzt (Spieler-Entscheid 2026-09-05).
 func can_pull() -> bool:
 	if run == null or editing_locked or burning():
 		return false
 	if target_die() == null:
+		return false
+	# Auf einen durchgebrannten Würfel prägt der Griff nicht.
+	if target_die().burned_out:
 		return false
 	if _series.size() < GameRun.SERIES_SLOT_CAP:
 		return false
@@ -1295,6 +1299,8 @@ func grip_blocker() -> String:
 		return "Runde gezurrt - erst im Laden wieder."
 	if target_die() == null:
 		return "Kein Ziel: einen Vorrats-Würfel antippen."
+	if target_die().burned_out:
+		return "Würfel durchgebrannt - erst reparieren."
 	if _series.size() < GameRun.SERIES_SLOT_CAP:
 		# Der Kurzschluß deckelt die Reihe unter sechs - dann geht der Griff nie.
 		if run.series_slots() < GameRun.SERIES_SLOT_CAP:

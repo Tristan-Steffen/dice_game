@@ -9,7 +9,8 @@ class_name ScoreBreakdown
 
 ## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
 ## Ergebnis: key, participating, eye_slots, combo, combo_factor_steps, die_steps,
-## charm_steps, base, mult, merge_total, post_steps, total (== score_category).
+## charge_mult_step, charges_after, burned_after, fuse_used, charm_steps, base,
+## mult, merge_total, post_steps, total (== score_category).
 ## "combo" trägt die PUREN Kategorie-Werte; jede Doppelter-Boden-Kopie ist ein
 ## eigener "combo_factor_step" dahinter - sonst reiste die Verdopplung
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
@@ -85,6 +86,22 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		})
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
+	# LADUNG wie in DiceScoring._base_and_mult - dieselbe Quelle, derselbe Platz.
+	var charge_rule := DiceScoring.charge_rule_in(ctx)
+	var charge_cap := int(charge_rule.get("cap", DieDefinition.CHARGE_MAX))
+	var charge_rolls: Dictionary = ctx.get(DiceScoring.CTX_CHARGE_ROLLS, {})
+	var charge_used := {}
+	var running_charges := {}
+	var entered_hot := {}
+	var burned_now := {}
+	for i in scored:
+		var charge_in := DiceScoring.charge_for(ctx, i)
+		running_charges[i] = charge_in
+		entered_hot[i] = charge_in >= charge_cap
+		burned_now[i] = DiceScoring.burned_for(ctx, i)
+	var fuse_armed := bool(charge_rule.get("fuse_armed", false))
+	var fuse_used := false
+	var burned_after: Array[int] = []
 	# LAUFENDE Werte der GANZEN Hand wie in DiceScoring._base_and_mult - die
 	# Ansteckung (Miasma) schiebt Augen quer über die Reihe.
 	var running_values: Array[int] = []
@@ -98,6 +115,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# Echo-Kammer: aus der GANZEN Wertung bestimmt, nicht aus dem Einzel-Slot unten.
 	var echo_slot: int = shape["echo_slot"]
 	for i in eye_slots:
+		# Durchgebrannt: kein Würfel-Schritt, wie in DiceScoring.
+		if bool(burned_now.get(i, false)):
+			continue
 		var info := DiceScoring.level_info_for(ctx, i)
 		var level := MaterialEffects.level_in(info)
 		var eye_sum := int(info.get("eye_sum", 0))
@@ -306,7 +326,25 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 				entry["value_after"] = running_values[i]
+				# LADUNG an derselben Stelle wie in DiceScoring: ganz am Ende der
+				# Zündung - die Zündung, die durchbrennt, zählt noch voll.
+				var charge_hit := DiceScoring.apply_charge_step(i, running_charges, entered_hot,
+					burned_now, charge_rolls, charge_used, charge_rule,
+					EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
+				if bool(charge_hit["fuse"]):
+					fuse_used = true
+				entry["charge_after"] = int(running_charges.get(i, 0))
+				entry["charge_up"] = bool(charge_hit["charged"])
+				entry["burned"] = bool(charge_hit["burned"])
 				firings.append(entry)
+				if bool(charge_hit["burned"]):
+					burned_after.append(i)
+					break
+			# Durchgebrannt: die Glieder DIESES Antritts entfallen - die Gruppe
+			# trägt trotzdem ihre gezählten Zündungen.
+			if bool(burned_now.get(i, false)):
+				groups.append({"firings": firings, "links": []})
+				break
 			# Glieder feuern EINMAL wie eine Zündung mit getauschter Seite - exakt
 			# DiceScoring._base_and_mult.
 			var links: Array[Dictionary] = []
@@ -414,16 +452,40 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"det_links": det_links,
 		})
 
+	# 2b. GRUNDREGEL der Ladung: +1 Mult je Ladung der gewerteten Hand, EIN
+	# eigener Schritt vor den Charm-Schritten. 0 Mult = kein Schritt.
+	var charge_points := 0
+	for i in scored:
+		if bool(burned_now.get(i, false)):
+			continue
+		charge_points += int(running_charges.get(i, 0))
+	var charge_mult_step := {}
+	if charge_points > 0:
+		var charge_add := DiceScoring.CHARGE_MULT_PER_POINT * charge_points
+		mult += float(charge_add)
+		charge_mult_step = {
+			"kind": "charge_mult",
+			"mult_add": charge_add,
+			"base_after": base,
+			"mult_after": mult,
+		}
+	# Die statischen Charms lesen den END-Stand über eine KOPIE - wie in DiceScoring.
+	var charm_ctx := ctx
+	if not running_charges.is_empty():
+		charm_ctx = ctx.duplicate()
+		charm_ctx[DiceScoring.CTX_CHARGES] = running_charges
+		charm_ctx[DiceScoring.CTX_BURNED] = burned_now
+
 	# 3. Statische Charm-Schritte strikt in Besitz-Reihenfolge: additive Boni
 	# UND Faktoren der Position j wirken an ihrer Position - nie gesammelt am Ende.
 	var charm_steps: Array[Dictionary] = []
 	for j in charm_ids.size():
-		var base_add := CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
+		var base_add := CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, charm_ctx)
 		var mult_add := CharmEffects.mult_bonus_at(j, key, charm_ids) \
-			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored)
+			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, charm_ctx, participating, scored)
 		# Krit: eigener Hook, wirkt im Schritt als Mult-Faktor; crit_x bleibt
 		# separat sichtbar, damit die UI Krits inszenieren kann.
-		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
+		var crit_x := CharmEffects.charm_crit_at(j, dice, charm_ids, charm_ctx, participating, key, scored)
 		if not is_equal_approx(crit_x, 1.0):
 			crits += 1
 		var mult_x := crit_x
@@ -498,6 +560,13 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# Ein Schritt je Doppelter-Boden-Kopie, direkt hinter der Kombination.
 		"combo_factor_steps": combo_factor_steps,
 		"die_steps": die_steps,
+		# LADUNG: der Grundregel-Schritt vor den Charms ({} = 0 Mult), die
+		# END-Stände der Hand, wer in IHR durchgebrannt ist und ob die Sicherung
+		# gehalten hat. GameRun bucht daraus (book_charge_results).
+		"charge_mult_step": charge_mult_step,
+		"charges_after": running_charges,
+		"burned_after": burned_after,
+		"fuse_used": fuse_used,
 		"charm_steps": charm_steps,
 		"base": base,
 		"mult": mult,
@@ -533,6 +602,26 @@ static func attach_activation_money(breakdown: Dictionary, plan: Dictionary) -> 
 			_assign_money(trigger["firings"], group["firings"])
 			_assign_money(trigger["links"], group["links"])
 		_assign_money(step.get("det_links", []), entry["det_links"])
+
+## Slot -> Zahl der Zündungen, die noch gezählt haben, bevor der Würfel in DIESER
+## Hand durchgebrannt ist. Die Nehmen-Effekte brechen daran an genau derselben
+## Zündung ab wie die Wertung - EINE Quelle, keine zweite Rechnung.
+static func burn_stops(breakdown: Dictionary) -> Dictionary:
+	var stops := {}
+	for step: Dictionary in breakdown.get("die_steps", []):
+		var fired := 0
+		var burned := false
+		for group: Dictionary in step.get("die_triggers", []):
+			for firing: Dictionary in group.get("firings", []):
+				fired += 1
+				if bool(firing.get("burned", false)):
+					burned = true
+					break
+			if burned:
+				break
+		if burned:
+			stops[int(step.get("slot", -1))] = fired
+	return stops
 
 ## Das gesamte Trinkgeld einer Hand: die Summe aller "tip_money" der Schrittliste.
 ## NUR eine Bilanz - gebucht wird jedes Paket bei seiner Ankunft, und zwar genau

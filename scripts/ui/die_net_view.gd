@@ -103,7 +103,11 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 	if def == null:
 		return ""
 	if face == EDGE:
-		return Essence.hint(def.essence_id)
+		var soul := Essence.hint(def.essence_id)
+		var charge_line := charge_hint(def)
+		if charge_line == "":
+			return soul
+		return "%s  ·  %s" % [soul, charge_line] if soul != "" else charge_line
 	if face < 0 or face >= def.materials.size():
 		return ""
 	var hint := DieMaterial.face_hint(def.materials[face], MaterialEffects.face_level(def, face))
@@ -115,6 +119,18 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 		var rune_hint := Rune.hint(rune_id)
 		hint = "%s  ·  %s" % [hint, rune_hint] if hint != "" else rune_hint
 	return hint
+
+## Die Ladungs-Zeile eines Würfels ("" = kalt und heil). EINE Quelle für jede
+## Info-Zeile: Grube, Werkstatt-Caption, Laden-Fuß, Schwarzmarkt.
+static func charge_hint(def: DieDefinition) -> String:
+	if def == null:
+		return ""
+	if def.burned_out:
+		return "Durchgebrannt - Reparatur %d ⚡" % GameRun.REPAIR_ENERGY
+	if def.charge <= 0:
+		return ""
+	return "Ladung %d/%d - %s" % [def.charge, DieDefinition.CHARGE_MAX,
+		DieDefinition.charge_name(def.charge)]
 
 ## Größter Schriftgrad, der samt Saum noch IN eine Zelle der Kantenlänge cell paßt.
 ## Gemessen: die Mindesthöhe eines Labels ist ~1,42 × Grad, der Saum kommt beidseits

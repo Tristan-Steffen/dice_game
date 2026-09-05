@@ -719,6 +719,11 @@ static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
 		best = maxf(best, pointer_chance(essence_id, base))
 	return best
 
+## Kann dieser Würfel nicht durchbrennen? Eine immune Seele (Bogenlampe, Welle 2)
+## deckelt an der Spitze, statt durchzubrennen - in JEDER Quelle.
+static func immune_to_burnout(_essence_ids: Array[String]) -> bool:
+	return false
+
 ## Krits ALLER wirksamen Seelen multipliziert - hier ist das Produkt richtig, es
 ## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
 static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0,

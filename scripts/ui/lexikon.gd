@@ -22,6 +22,7 @@ const KRIT := "krit"
 const MULT := "mult"
 const BASISPUNKTE := "basispunkte"
 const ENERGIE := "energie"
+const LADUNG := "ladung"
 const AUSLOESUNG := "ausloesung"
 const RUNE := "rune"
 const GRAVUR := "gravur"
@@ -45,7 +46,7 @@ const SCHWARZMARKT := "schwarzmarkt"
 const UEBERTAKTEN := "uebertakten"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
-const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, AUSLOESUNG,
+const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	BENCHMARK, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
 	PRESSE, PRAEGENETZ, SERIE, SCHWARZMARKT, UEBERTAKTEN]
@@ -182,6 +183,9 @@ static func _build_concepts() -> void:
 		CAT_BEGRIFFE)
 	_add(ENERGIE, "Energie",
 		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert in der Kondensatorbank. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie fürs Übertakten, für die Presse und im Schwarzmarkt.",
+		CAT_BEGRIFFE)
+	_add(LADUNG, "Ladung",
+		"Jeder Würfel trägt eine Ladung von 0 bis 3 (Glimmen, Kriechstrom, Überschlag), und jede Ladung ist +1 Mult für seine Hand. Jede Auslösung eines gewerteten Würfels würfelt auf +1; wer mit Überschlag in eine Hand geht, würfelt statt dessen aufs Durchbrennen. Ein durchgebrannter Würfel zählt weiter für die Kombination, liefert aber keine Augen und feuert nichts - die Reparatur-Bucht holt ihn zurück. Wer eine Runde lang nicht gewertet hat, verliert eine Stufe.",
 		CAT_BEGRIFFE)
 	_add(AUSLOESUNG, "Auslösung",
 		"Ein volles Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal. Essenzen wie Argon lassen den ganzen Würfel mehrfach auslösen, die Rune Nachglühen legt je Seite eine Auslösung obendrauf - Würfel-Faktor und Seiten-Faktor multiplizieren sich.",

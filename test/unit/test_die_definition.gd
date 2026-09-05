@@ -71,3 +71,84 @@ func test_instantiate_copies_the_essence_independently():
 	assert_eq(copy.essence_id, Essence.ARGON, "die Essenz wird übernommen")
 	copy.essence_id = Essence.NEON
 	assert_eq(original.essence_id, Essence.ARGON, "Original bleibt unverändert")
+
+# --- Ladung -----------------------------------------------------------------------
+
+func test_a_fresh_die_is_cold_and_whole():
+	var die := DieDefinition.standard()
+	assert_eq(die.charge, 0)
+	assert_false(die.burned_out)
+
+func test_charge_names_are_one_source():
+	assert_eq(DieDefinition.charge_name(0), "kalt")
+	assert_eq(DieDefinition.charge_name(1), "Glimmen")
+	assert_eq(DieDefinition.charge_name(2), "Kriechstrom")
+	assert_eq(DieDefinition.charge_name(DieDefinition.CHARGE_MAX), "Überschlag")
+	assert_eq(DieDefinition.charge_name(99), "Überschlag", "geklemmt statt außerhalb")
+
+func test_charge_up_climbs_to_the_cap():
+	var die := DieDefinition.standard()
+	assert_false(die.charge_up(), "kein Durchbrennen auf dem Weg")
+	assert_eq(die.charge, 1)
+	die.charge_up()
+	die.charge_up()
+	assert_eq(die.charge, DieDefinition.CHARGE_MAX)
+	assert_false(die.burned_out)
+
+func test_charge_up_at_the_cap_burns_the_die():
+	var die := DieDefinition.standard()
+	die.charge = DieDefinition.CHARGE_MAX
+	assert_true(die.charge_up(), "an der Spitze brennt er durch")
+	assert_true(die.burned_out)
+	assert_eq(die.charge, 0, "er trägt keine Ladung mehr")
+
+func test_an_immune_die_holds_at_the_cap():
+	var die := DieDefinition.standard()
+	die.charge = DieDefinition.CHARGE_MAX
+	assert_false(die.charge_up(DieDefinition.CHARGE_MAX, true))
+	assert_false(die.burned_out)
+	assert_eq(die.charge, DieDefinition.CHARGE_MAX)
+
+func test_a_burned_die_neither_charges_nor_drains():
+	var die := DieDefinition.standard()
+	die.charge = 2
+	die.burn_out()
+	assert_false(die.charge_up())
+	assert_false(die.charge_down())
+	assert_eq(die.charge, 0)
+
+func test_charge_down_stops_at_zero():
+	var die := DieDefinition.standard()
+	die.charge = 1
+	assert_true(die.charge_down())
+	assert_eq(die.charge, 0)
+	assert_false(die.charge_down(), "kalt bleibt kalt")
+
+func test_repair_clears_the_soot_and_the_charge():
+	var die := DieDefinition.standard()
+	die.burn_out()
+	die.repair()
+	assert_false(die.burned_out)
+	assert_eq(die.charge, 0)
+
+func test_instantiate_carries_charge_and_soot():
+	var original := DieDefinition.standard()
+	original.charge = 2
+	original.burned_out = true
+	var copy := original.instantiate()
+	assert_eq(copy.charge, 2)
+	assert_true(copy.burned_out)
+	copy.charge = 0
+	assert_eq(original.charge, 2, "Original bleibt unverändert")
+
+func test_become_carries_charge_and_soot():
+	# become schreibt IN die Instanz - eine Kopie ohne die beiden Felder verlöre
+	# die Ladung des Würfels beim Tausch.
+	var target := DieDefinition.standard()
+	target.charge = 3
+	var source := DieDefinition.standard()
+	source.charge = 1
+	source.burned_out = true
+	target.become(source)
+	assert_eq(target.charge, 1)
+	assert_true(target.burned_out)

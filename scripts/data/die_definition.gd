@@ -31,8 +31,22 @@ extends Resource
 ## (Charm) überhaupt zu setzen. Was sitzt, wirkt weiter: der Charm entscheidet
 ## über das ÄTZEN, nicht über die Rune.
 @export var third_runes: Array[String] = ["", "", "", "", "", ""]
+## LADUNG des GANZEN Würfels (0..CHARGE_MAX). Sie hängt am Würfel, nicht an einer
+## Seite, überlebt den Rundenwechsel und ist je Stufe +1 Mult.
+@export var charge: int = 0
+## Durchgebrannt: der Würfel zählt weiter für die HAND-ERKENNUNG, liefert aber
+## 0 Augen und feuert nichts mehr. Nur die Reparatur holt ihn zurück.
+@export var burned_out: bool = false
 @export var style_id: String = "normal"
 @export var display_name: String = "Normal"
+
+## Höchste Ladungsstufe; wer MIT ihr in eine Hand geht, würfelt aufs Durchbrennen.
+const CHARGE_MAX := 3
+## Stufen-Namen, Index = Ladung. EINE Quelle für jede Info-Zeile.
+const CHARGE_NAMES: Array[String] = ["kalt", "Glimmen", "Kriechstrom", "Überschlag"]
+
+static func charge_name(level: int) -> String:
+	return CHARGE_NAMES[clampi(level, 0, CHARGE_NAMES.size() - 1)]
 
 ## Übernimmt den Inhalt von other, OHNE die Instanz zu tauschen: Rundendeck und
 ## Trays halten dieselbe Referenz wie der Pool und zeigen den neuen Würfel damit
@@ -48,6 +62,8 @@ func become(other: DieDefinition) -> void:
 	second_runes = other.second_runes.duplicate()
 	third_runes = other.third_runes.duplicate()
 	essence_id = other.essence_id
+	charge = other.charge
+	burned_out = other.burned_out
 	style_id = other.style_id
 	display_name = other.display_name
 
@@ -89,6 +105,36 @@ func dope(face: int) -> bool:
 		return false
 	levels[face] = DieMaterial.MAX_LEVEL
 	return true
+
+## Eine Stufe heißer; true = er ist dabei DURCHGEBRANNT. An der Spitze gibt es
+## keine Stufe mehr, also brennt er durch - eine immune Seele bleibt stehen.
+func charge_up(cap: int = CHARGE_MAX, immune: bool = false) -> bool:
+	if burned_out:
+		return false
+	if charge >= cap:
+		if immune:
+			return false
+		burn_out()
+		return true
+	charge += 1
+	return false
+
+## Eine oder mehrere Stufen kühler (nie unter 0); true = es hat sich etwas bewegt.
+func charge_down(steps: int = 1) -> bool:
+	if burned_out or charge <= 0 or steps <= 0:
+		return false
+	charge = maxi(0, charge - steps)
+	return true
+
+## Durchgebrannt: dunkel und ohne Ladung. Er trägt keine mehr - er ist tot, nicht heiß.
+func burn_out() -> void:
+	burned_out = true
+	charge = 0
+
+## Reparatur: der Ruß fällt, der Würfel steht wieder kalt da. Gravuren bleiben.
+func repair() -> void:
+	burned_out = false
+	charge = 0
 
 ## Wie viele Runen diese Schale je Seite trägt: das Vakuum saugt das Kernlicht
 ## nach innen und hält ohne Innendruck eine zweite Rune aus - unter der

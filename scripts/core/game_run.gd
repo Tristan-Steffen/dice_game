@@ -22,6 +22,9 @@ signal secret_shop_discovered
 signal secret_stock_changed
 ## Die Serie der Werkbank hat sich geändert (Griff, Slots, verbrauchte Karten).
 signal press_changed
+## Ein Ladungs-Ereignis in Klartext (Aufladen, Durchbrennen, Entladen, Bucht) -
+## die Chronik hängt daran; gebucht ist es hier schon.
+signal charge_logged(text: String)
 
 const POOL_SIZE := 30
 ## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
@@ -279,6 +282,17 @@ var round_bare_dice: int = 0
 ## Würfel-Exemplare, die diese Runde schon gewertet haben - ihre nächste Wertung
 ## ist keine Erstwertung mehr (Sternschnuppe, Gammablitz).
 var die_scored_this_round: Dictionary = {}
+
+## --- LADUNG -------------------------------------------------------------------
+## Preise der Reparatur-Bucht.
+const REPAIR_ENERGY := 1
+const DRAIN_MONEY := 5
+const DISCHARGE_ALL_ENERGY := 5
+## Wartungsvertrag (Welle 2): die Runde, BIS zu der die Bucht geschlossen bleibt
+## (0 = offen). Das Zurren löscht sie wieder.
+var repair_lock_round: int = 0
+## Die Sicherung hat in dieser Runde schon einen Durchbrenner abgefangen.
+var fuse_used_this_round: bool = false
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
@@ -838,10 +852,11 @@ func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
 ## keine prägende Karte in der Reihe, geschieht NICHTS (leeres Dictionary). Die
 ## SECHSER-Pflicht ist eine Fenster-Regel, hier bucht auch eine kürzere Serie.
 ## second_die trägt die Doppelmatrize; ohne sie bleibt er unberührt.
-## Liefert {"projection", "second", "cards", "kept"}.
+## Ein DURCHGEBRANNTER Zielwürfel wird verweigert - erst reparieren.
+## Liefert {"projection", "second", "cards", "kept", "burned"}.
 func apply_series(pack_uids: Array[int], die: DieDefinition,
 		second_die: DieDefinition = null, rng: RandomNumberGenerator = null) -> Dictionary:
-	if die == null:
+	if die == null or die.burned_out:
 		return {}
 	var chosen := _series_indices(pack_uids)
 	if chosen.is_empty():
@@ -854,6 +869,9 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	press_boost_pending = false  # der Schub galt genau dieser Serie
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)
+	# Der Griff HEIZT: erzwungenes +1 auf den Zielwürfel. Brennt er dabei durch,
+	# bleibt die Prägung trotzdem stehen - sie wirkt nach der Reparatur wieder.
+	var burned_target := charge_up_forced(die)
 	var second: Dictionary = {}
 	if bool(terms["matrix"]) and second_die != null and second_die != die:
 		second = SeriesResolver.secondary(projection, second_die)
@@ -865,7 +883,7 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	press_changed.emit()
 	note_pool_changed()
 	return {"projection": projection, "second": second,
-		"cards": chosen.size(), "kept": kept}
+		"cards": chosen.size(), "kept": kept, "burned": burned_target}
 
 ## Der EINE Schreibweg einer Projektion: über die vorhandenen DieDefinition-Wege,
 ## damit Veredelung, Runen-Plätze und Einbrand-Regel gelten wie überall.
@@ -1574,6 +1592,7 @@ func roll_essence_round_state() -> void:
 	round_crit_count = 0
 	round_fumbles = 0
 	round_bare_dice = 0
+	fuse_used_this_round = false
 
 ## Gespeicherte Basispunkte dieses Würfel-Exemplars (0 = leer).
 func phosphor_store(die: DieDefinition) -> int:
@@ -1639,6 +1658,188 @@ func note_dice_scored(defs: Array[DieDefinition], participating: Array[int]) -> 
 ## Neonmarker: die materiallosen Würfel dieses Zuges wachsen in den Rundenzähler.
 func note_bare_dice(count: int) -> void:
 	round_bare_dice += maxi(0, count)
+
+# --- LADUNG: Regel, Buchungen und die Reparatur-Bucht ---------------------------
+
+## Die Ladungs-Regel dieser Runde als EIN Dictionary. Charms und Klauseln füllen
+## sie ab Welle 2; heute steht der Standard.
+func charge_rule() -> Dictionary:
+	return DiceScoring.default_charge_rule()
+
+## "Würfel N" - die Vorrats-Position, an der die Chronik ihn nennt.
+func _die_label(die: DieDefinition) -> String:
+	var index := owned_pool.find(die)
+	return "Würfel %d" % (index + 1) if index >= 0 else "Ein Würfel"
+
+func _log_charge(die: DieDefinition, burned: bool) -> void:
+	if burned:
+		charge_logged.emit("%s brennt durch" % _die_label(die))
+	else:
+		charge_logged.emit("%s lädt auf %d" % [_die_label(die), die.charge])
+
+## Das EINE erzwungene +1 (Fumble, Griff, Klausel): kein Wurf, sondern sicher -
+## und an der Spitze sicher durchgebrannt, sofern nicht die Seele immun ist, die
+## Regel das Brennen verbietet oder die Sicherung es abfängt.
+## true = der Würfel ist dabei durchgebrannt.
+func charge_up_forced(die: DieDefinition) -> bool:
+	if die == null or die.burned_out:
+		return false
+	var rule := charge_rule()
+	var cap := int(rule.get("cap", DieDefinition.CHARGE_MAX))
+	var souls: Array[String] = [die.essence_id]
+	var immune := EssenceEffects.immune_to_burnout(souls)
+	if die.charge >= cap:
+		if immune or not bool(rule.get("can_burn", true)):
+			return false
+		if bool(rule.get("fuse_armed", false)) and not fuse_used_this_round:
+			fuse_used_this_round = true
+			die.charge = 0
+			charge_logged.emit("%s: die Sicherung hält" % _die_label(die))
+			return false
+		die.burn_out()
+		_log_charge(die, true)
+		return true
+	die.charge = mini(cap, die.charge + 1)
+	_log_charge(die, false)
+	return false
+
+## Bucht die Ladung einer genommenen Hand: die END-Stände der (auf ECHTE Slots
+## umgerechneten) Aufschlüsselung wandern in die Defs. slots sind die gewerteten
+## Slots wie bei note_dice_scored; leer heißt "alles, was die Hand nennt".
+## Liefert je Änderung {die, slot, before, after, burned} für die Zeremonie -
+## gebucht ist hier schon alles (Buchung vor dem Licht).
+func book_charge_results(defs: Array[DieDefinition], breakdown: Dictionary,
+		slots: Array[int] = []) -> Array[Dictionary]:
+	var changes: Array[Dictionary] = []
+	var charges: Dictionary = breakdown.get("charges_after", {})
+	var burned: Array = breakdown.get("burned_after", [])
+	if bool(breakdown.get("fuse_used", false)):
+		fuse_used_this_round = true
+	var touched: Array[int] = []
+	for key in charges:
+		touched.append(int(key))
+	touched.sort()
+	for slot in touched:
+		if not slots.is_empty() and not slots.has(slot):
+			continue
+		if slot < 0 or slot >= defs.size() or defs[slot] == null:
+			continue
+		var die: DieDefinition = defs[slot]
+		if die.burned_out:
+			continue
+		var before := die.charge
+		var burns := burned.has(slot)
+		die.charge = maxi(0, int(charges[slot]))
+		if burns:
+			die.burn_out()
+		if before == die.charge and not burns:
+			continue
+		_log_charge(die, burns)
+		changes.append({"die": die, "slot": slot, "before": before,
+			"after": die.charge, "burned": burns})
+	if not changes.is_empty():
+		note_pool_changed()
+	return changes
+
+## Fumble: jeder Würfel, der beim ECHTEN Fumble in der Grube liegt, bekommt ein
+## erzwungenes +1. Ergebnisliste wie book_charge_results.
+func charge_fumble_dice(defs: Array[DieDefinition]) -> Array[Dictionary]:
+	var changes: Array[Dictionary] = []
+	for i in defs.size():
+		var die: DieDefinition = defs[i]
+		if die == null or die.burned_out:
+			continue
+		var before := die.charge
+		var burned := charge_up_forced(die)
+		if before == die.charge and not burned:
+			continue
+		changes.append({"die": die, "slot": i, "before": before,
+			"after": die.charge, "burned": burned})
+	if not changes.is_empty():
+		note_pool_changed()
+	return changes
+
+## Dauerbetrieb/Dauerstrom (Welle 2): nicht gespielte Würfel entladen gar nicht.
+func _cooling_spares_unplayed() -> bool:
+	return false
+
+## Erdung (Welle 2): am Rundenende entladen ALLE Würfel, auch die gespielten.
+func _cooling_hits_all() -> bool:
+	return false
+
+## Rundenende: jeder Vorrats-Würfel, der in DIESER Runde nicht gewertet hat,
+## verliert eine Ladung. Durchgebrannte sind ausgenommen - sie entladen nicht,
+## sie werden repariert.
+func cool_unplayed_dice() -> Array[DieDefinition]:
+	var cooled: Array[DieDefinition] = []
+	if _cooling_spares_unplayed():
+		return cooled
+	var hits_all := _cooling_hits_all()
+	for die in owned_pool:
+		if die == null or die.burned_out or die.charge <= 0:
+			continue
+		if not hits_all and die_scored_this_round.has(die.get_instance_id()):
+			continue
+		if die.charge_down():
+			cooled.append(die)
+	if not cooled.is_empty():
+		charge_logged.emit("%d Würfel entladen" % cooled.size())
+		note_pool_changed()
+	return cooled
+
+## Der Wartungsvertrag sperrt die Bucht für das Fenster VOR der nächsten Runde.
+func repair_locked() -> bool:
+	return repair_lock_round > 0 and round_number <= repair_lock_round
+
+## Das Zurren der Runde löscht die Sperre, für die sie galt.
+func note_round_committed() -> void:
+	if repair_lock_round > 0 and round_number >= repair_lock_round:
+		repair_lock_round = 0
+
+## Reparatur: durchgebrannt -> Ladung 0, für REPAIR_ENERGY ⚡. Prüfen-dann-
+## abbuchen wie overclock_combo; false = es wurde nichts gebucht.
+func repair_die(die: DieDefinition) -> bool:
+	if die == null or not die.burned_out or repair_locked():
+		return false
+	if energy < REPAIR_ENERGY:
+		return false
+	spend_energy(REPAIR_ENERGY)
+	die.repair()
+	charge_logged.emit("%s repariert (%d ⚡)" % [_die_label(die), REPAIR_ENERGY])
+	note_pool_changed()
+	return true
+
+## Ableiten: EINE Stufe herunter, für DRAIN_MONEY $.
+func drain_die(die: DieDefinition) -> bool:
+	if die == null or die.burned_out or die.charge <= 0 or repair_locked():
+		return false
+	if money < DRAIN_MONEY:
+		return false
+	add_money(-DRAIN_MONEY)
+	die.charge_down()
+	charge_logged.emit("%s abgeleitet auf %d ($%d)" % [_die_label(die), die.charge, DRAIN_MONEY])
+	note_pool_changed()
+	return true
+
+## Alle entladen: jede Ladung auf 0 für DISCHARGE_ALL_ENERGY ⚡. Durchgebrannte
+## bleiben durchgebrannt - das ist die Reparatur. Steht ohnehin alles kalt, wird
+## nichts gebucht.
+func discharge_all() -> bool:
+	if repair_locked() or energy < DISCHARGE_ALL_ENERGY:
+		return false
+	var hot := 0
+	for die in owned_pool:
+		if die != null and not die.burned_out and die.charge > 0:
+			hot += 1
+	if hot == 0:
+		return false
+	spend_energy(DISCHARGE_ALL_ENERGY)
+	for die in owned_pool:
+		if die != null and not die.burned_out:
+			die.charge = 0
+	charge_logged.emit("%d Würfel entladen (%d ⚡)" % [hot, DISCHARGE_ALL_ENERGY])
+	note_pool_changed()
+	return true
 
 ## Erster beteiligter Löschgas-Würfel (-1 = keiner). Er schluckt JEDEN Fumble,
 ## an dem er beteiligt war - kein Rundenlimit, kein Preis.

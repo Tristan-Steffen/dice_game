@@ -9,6 +9,8 @@ extends RefCounted
 const ENTRY_THROW := "throw"
 const ENTRY_TAKE := "take"
 const ENTRY_FARKLE := "farkle"
+## Ein Ladungs-Ereignis: Aufladen, Durchbrennen, Entladen, Reparatur-Bucht.
+const ENTRY_CHARGE := "charge"
 
 const STEP_POSE := "pose"  # der Eintrag selbst, ohne Wertung (Wurf, Fumble)
 const STEP_COMBO := "combo"

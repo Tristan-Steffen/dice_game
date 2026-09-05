@@ -275,6 +275,101 @@ static func equal_faces_for(ctx: Dictionary, slot: int) -> int:
 	var faces: Dictionary = ctx.get(CTX_EQUAL_FACES, {})
 	return int(faces.get(slot, 0))
 
+## LADUNG (ctx-Schlüssel): Slot -> Ladung BEIM NEHMEN, Slot -> schon vorher
+## durchgebrannt, Slot -> die vorgewürfelten Floats der Zündungen und die
+## Regel-Parameter als EIN Dictionary. Alle drei slot-gebundenen Schlüssel werden
+## umgeschlüsselt und für den Farkle-Vergleich mitgeschnappt.
+## FEHLT CTX_CHARGE_ROLLS, lädt die Wertung NICHT - das ist die Vorschau.
+const CTX_CHARGES := "charges"
+const CTX_BURNED := "burned"
+const CTX_CHARGE_ROLLS := "charge_rolls"
+const CTX_CHARGE_RULE := "charge_rule"
+
+## Grundchance, mit der eine Zündung die Ladung hebt (bzw. durchbrennt).
+const CHARGE_CHANCE := 0.5
+## Wurf-Vorrat je Würfel. Reicht er nicht, gilt der Wurf als VERFEHLT - nie
+## nachwürfeln, die Wertung ist rein.
+const CHARGE_ROLLS_PER_DIE := 32
+## Grundregel: so viel Mult je Ladung der gewerteten Hand.
+const CHARGE_MULT_PER_POINT := 1
+
+## Der Standard der Ladungs-Regel; GameRun.charge_rule() füllt sie aus Charms
+## und Klauseln. step < 0 heißt: jede Zündung SENKT statt zu würfeln.
+static func default_charge_rule() -> Dictionary:
+	return {
+		"chance": CHARGE_CHANCE,
+		"step": 1,
+		"cap": DieDefinition.CHARGE_MAX,
+		"can_burn": true,
+		"fuse_armed": false,
+	}
+
+static func charge_rule_in(ctx: Dictionary) -> Dictionary:
+	var rule: Dictionary = ctx.get(CTX_CHARGE_RULE, {})
+	return rule if not rule.is_empty() else default_charge_rule()
+
+## Ladung des Slots beim Nehmen (0 = kalt).
+static func charge_for(ctx: Dictionary, slot: int) -> int:
+	var charges: Dictionary = ctx.get(CTX_CHARGES, {})
+	return maxi(0, int(charges.get(slot, 0)))
+
+## War dieser Slot schon VOR der Hand durchgebrannt?
+static func burned_for(ctx: Dictionary, slot: int) -> bool:
+	var burned: Dictionary = ctx.get(CTX_BURNED, {})
+	return bool(burned.get(slot, false))
+
+## Würfelt den Vorrat der Ladungs-Würfe aus - EINMAL je Nehmen, wie
+## roll_pointer_fires: Slot -> Array[float] mit CHARGE_ROLLS_PER_DIE Werten.
+static func roll_charge_rolls(slots: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
+	var rolls := {}
+	for slot in slots:
+		var pool: Array[float] = []
+		for _r in CHARGE_ROLLS_PER_DIE:
+			pool.append(rng.randf() if rng != null else randf())
+		rolls[slot] = pool
+	return rolls
+
+## EIN Ladungs-Schritt am Ende einer Zündung der oberen Seite. Mutiert running,
+## burned und used und liefert {"charged", "burned", "fuse"}. EINE Quelle für die
+## Wertung und ihre Spiegel - sonst driften Schrittliste und Rechnung auseinander.
+static func apply_charge_step(slot: int, running: Dictionary, entered_hot: Dictionary,
+		burned: Dictionary, rolls: Dictionary, used: Dictionary, rule: Dictionary,
+		immune: bool = false, fuse_ready: bool = false) -> Dictionary:
+	var result := {"charged": false, "burned": false, "fuse": false}
+	if bool(burned.get(slot, false)):
+		return result
+	var step := int(rule.get("step", 1))
+	var cap := int(rule.get("cap", DieDefinition.CHARGE_MAX))
+	var before := int(running.get(slot, 0))
+	# Ableitung: jede Zündung SENKT, ohne Wurf.
+	if step < 0:
+		running[slot] = maxi(0, before + step)
+		result["charged"] = int(running[slot]) != before
+		return result
+	if not rolls.has(slot):
+		return result  # Vorschau: ohne Vorrat lädt nichts
+	var pool: Array = rolls[slot]
+	var index := int(used.get(slot, 0))
+	used[slot] = index + 1
+	if index >= pool.size() or float(pool[index]) >= float(rule.get("chance", CHARGE_CHANCE)):
+		return result
+	# HEISS hereingekommen: der Wurf trifft das Durchbrennen statt der Stufe. Wer
+	# die Spitze erst in dieser Hand erreicht, ist bis zur nächsten sicher.
+	if bool(entered_hot.get(slot, false)) and before >= cap:
+		if immune or not bool(rule.get("can_burn", true)):
+			return result
+		running[slot] = 0
+		result["charged"] = before != 0
+		if fuse_ready:
+			result["fuse"] = true
+			return result
+		burned[slot] = true
+		result["burned"] = true
+		return result
+	running[slot] = mini(cap, before + step)
+	result["charged"] = int(running[slot]) != before
+	return result
+
 ## Stresstest-Flagge (ctx-Schlüssel): das Elmsfeuer glüht dort vierfach.
 const CTX_STRESS := "stress_round"
 
@@ -751,6 +846,23 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		running_values.append(raw[i] if i < raw.size() else dice[i])
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
+	# LADUNG: laufender Stand je Slot, wer HEISS hereinkam (nur der kann
+	# durchbrennen) und wer schon dunkel ist. entered_hot steht vor der Zählung
+	# fest - wer die Spitze erst hier erreicht, ist bis zur nächsten Hand sicher.
+	var charge_rule := charge_rule_in(ctx)
+	var charge_cap := int(charge_rule.get("cap", DieDefinition.CHARGE_MAX))
+	var charge_rolls: Dictionary = ctx.get(CTX_CHARGE_ROLLS, {})
+	var charge_used := {}
+	var running_charges := {}
+	var entered_hot := {}
+	var burned_now := {}
+	for i in scored:
+		var charge_in := charge_for(ctx, i)
+		running_charges[i] = charge_in
+		entered_hot[i] = charge_in >= charge_cap
+		burned_now[i] = burned_for(ctx, i)
+	var fuse_armed := bool(charge_rule.get("fuse_armed", false))
+	var fuse_used := false
 	# Metronom: die einmal zündenden Würfel stehen VOR der Zählung fest.
 	var singles: Array[int] = []
 	if charm_ids.has(Charm.METRONOME):
@@ -759,6 +871,10 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# an, je Antritt zündet die obere Seite face_triggers-mal; je Zündung Augen ->
 	# Material -> würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
 	for i in order:
+		# Durchgebrannt: zählt für die Erkennung, liefert aber 0 Augen und feuert
+		# nichts - kein Phosphor, keine Trigger, keine Glieder.
+		if bool(burned_now.get(i, false)):
+			continue
 		var info := level_info_for(ctx, i)
 		var level := MaterialEffects.level_in(info)
 		var eye_sum := int(info.get("eye_sum", 0))
@@ -808,62 +924,73 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids) \
 					+ EssenceEffects.firedamp_base_of(essence_ids, crits)
 				triggers += 1
-				if not has_die_bonus:
-					continue
-				base += MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
-				mult += float(MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)) \
-					+ float(EssenceEffects.mult_bonus_of(essence_ids)) \
-					+ float(EssenceEffects.combo_level_mult_of(essence_ids, combo_level, charm_ids))
-				# Der BETRAG folgt dem laufenden Wert (shown), das ZIEL bleibt an den
-				# liegenden Werten - eine Zählung darf sich nie selbst umzielen.
-				for j in charm_ids.size():
-					base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, shown, materials)
-					mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown))
-					mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, shown))
-				base += CharmEffects.metronome_base(i, singles, charm_ids)
-				mult += float(CharmEffects.strobe_mult(t * face_triggers + f, charm_ids))
-				var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
-				if cascade_add > 0:
-					mult += float(cascade_add)
-					cascade_last = shown
-				# Material-Krit (Rubin III, Glas III), dann der Essenz-Krit - beide
-				# in der Würfel-Substufe, VOR den würfelgebundenen Charm-Krits. Ozon
-				# liest crits VOR seinem eigenen Schlag, zählt sich also nie selbst
-				# mit; das Grubengas zündet an JEDEM Krit sofort mit.
-				# Härteofen: der Krit einer veredelten Seite schlägt zweimal - je Schlag
-				# ein eigener Krit, nie einer im Quadrat.
-				var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
-				for _r in MaterialEffects.payoff_repeats(level, charm_ids):
-					if not is_equal_approx(mat_crit, 1.0):
-						crits += 1
-					mult *= mat_crit
-				# Manometer: der Essenz-Krit schlägt mehrfach - je Schlag ein eigener,
-				# nie einer im Quadrat (Härteofen-Grammatik). Ozon liest den Stand VOR
-				# der Salve, der Tscherenkow dagegen je Schlag den frischen Energierest.
-				var crits_before_essence := crits
-				var spends_energy := EssenceEffects.spends_energy(essence_ids, charm_ids)
-				for _e in essence_repeat:
-					var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
-						wild_eyes if i == wild else 0, charm_ids, energy,
-						first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
-					if spends_energy and energy > 0:
-						energy -= 1
-					if not is_equal_approx(ess_crit, 1.0):
-						crits += 1
-					mult *= ess_crit
-				for j in charm_ids.size():
-					var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
-					if not is_equal_approx(die_crit, 1.0):
-						crits += 1
-					mult *= die_crit
-				running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
-				# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
-				# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
-				# sie den Zuwachs schon mit. Nur die obere Seite steckt an, nie ein Glied.
-				MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
-				# Bestrahlung: das Radon schiebt bei JEDER Zündung Augen auf jeden
-				# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
-				MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
+				if has_die_bonus:
+					base += MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
+					mult += float(MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)) \
+						+ float(EssenceEffects.mult_bonus_of(essence_ids)) \
+						+ float(EssenceEffects.combo_level_mult_of(essence_ids, combo_level, charm_ids))
+					# Der BETRAG folgt dem laufenden Wert (shown), das ZIEL bleibt an den
+					# liegenden Werten - eine Zählung darf sich nie selbst umzielen.
+					for j in charm_ids.size():
+						base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, shown, materials)
+						mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown))
+						mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, shown))
+					base += CharmEffects.metronome_base(i, singles, charm_ids)
+					mult += float(CharmEffects.strobe_mult(t * face_triggers + f, charm_ids))
+					var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
+					if cascade_add > 0:
+						mult += float(cascade_add)
+						cascade_last = shown
+					# Material-Krit (Rubin III, Glas III), dann der Essenz-Krit - beide
+					# in der Würfel-Substufe, VOR den würfelgebundenen Charm-Krits. Ozon
+					# liest crits VOR seinem eigenen Schlag, zählt sich also nie selbst
+					# mit; das Grubengas zündet an JEDEM Krit sofort mit.
+					# Härteofen: der Krit einer veredelten Seite schlägt zweimal - je Schlag
+					# ein eigener Krit, nie einer im Quadrat.
+					var mat_crit := MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
+					for _r in MaterialEffects.payoff_repeats(level, charm_ids):
+						if not is_equal_approx(mat_crit, 1.0):
+							crits += 1
+						mult *= mat_crit
+					# Manometer: der Essenz-Krit schlägt mehrfach - je Schlag ein eigener,
+					# nie einer im Quadrat (Härteofen-Grammatik). Ozon liest den Stand VOR
+					# der Salve, der Tscherenkow dagegen je Schlag den frischen Energierest.
+					var crits_before_essence := crits
+					var spends_energy := EssenceEffects.spends_energy(essence_ids, charm_ids)
+					for _e in essence_repeat:
+						var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
+							wild_eyes if i == wild else 0, charm_ids, energy,
+							first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
+						if spends_energy and energy > 0:
+							energy -= 1
+						if not is_equal_approx(ess_crit, 1.0):
+							crits += 1
+						mult *= ess_crit
+					for j in charm_ids.size():
+						var die_crit := CharmEffects.die_charm_crit_at(j, i, dice, charm_ids, participating, shown)
+						if not is_equal_approx(die_crit, 1.0):
+							crits += 1
+						mult *= die_crit
+					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
+					# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
+					# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
+					# sie den Zuwachs schon mit. Nur die obere Seite steckt an, nie ein Glied.
+					MaterialEffects.spread_miasma_once(running_values, i, scored, essence_ids, rune_ids, charm_ids)
+					# Bestrahlung: das Radon schiebt bei JEDER Zündung Augen auf jeden
+					# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
+					MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
+				# LADUNG: der Wurf sitzt am ENDE jeder Zündung der oberen Seite -
+				# die Zündung, die den Würfel durchbrennt, zählt noch voll.
+				var charge_hit := apply_charge_step(i, running_charges, entered_hot, burned_now,
+					charge_rolls, charge_used, charge_rule,
+					EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
+				if bool(charge_hit["fuse"]):
+					fuse_used = true
+				if bool(burned_now.get(i, false)):
+					break
+			# Durchgebrannt: die Glieder DIESES Antritts entfallen mit ihm.
+			if bool(burned_now.get(i, false)):
+				break
 			# Glieder: je Würfel-Trigger erst der dafür gewürfelte Pointer, dann das
 			# Essenz-Glied (Röntgenlicht); im letzten Durchgang die Runen-Glieder.
 			# Jedes feuert EINMAL wie eine Zündung mit getauschter Seite (nie
@@ -904,11 +1031,27 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					if not is_equal_approx(link_die_crit, 1.0):
 						crits += 1
 					mult *= link_die_crit
+	# GRUNDREGEL: +1 Mult je Ladung der gewerteten Hand (END-Stand nach der
+	# Würfelphase; ein durchgebrannter Würfel zählt 0) - ein eigener Schritt VOR
+	# den statischen Charms.
+	var charge_points := 0
+	for i in scored:
+		if bool(burned_now.get(i, false)):
+			continue
+		charge_points += int(running_charges.get(i, 0))
+	mult += float(CHARGE_MULT_PER_POINT * charge_points)
+	# Die statischen Charms lesen denselben END-Stand (Spannungsmesser) - über
+	# eine KOPIE, das Original bleibt unberührt.
+	var charm_ctx := ctx
+	if not running_charges.is_empty():
+		charm_ctx = ctx.duplicate()
+		charm_ctx[CTX_CHARGES] = running_charges
+		charm_ctx[CTX_BURNED] = burned_now
 	for j in charm_ids.size():
-		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
+		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, charm_ctx)
 		mult += float(CharmEffects.mult_bonus_at(j, key, charm_ids) \
-			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored))
-		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
+			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, charm_ctx, participating, scored))
+		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, charm_ctx, participating, key, scored)
 		if not is_equal_approx(static_crit, 1.0):
 			crits += 1
 		mult *= static_crit

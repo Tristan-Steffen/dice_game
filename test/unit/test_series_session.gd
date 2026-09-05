@@ -201,3 +201,33 @@ func test_a_series_of_only_catalysts_does_nothing() -> void:
 	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
 	assert_true(run.apply_series(_uids([fuel]), _die(), null, _rng(1)).is_empty())
 	assert_eq(run.owned_packs.size(), 1, "und die Karte liegt noch da")
+
+# --- Der Griff HEIZT ------------------------------------------------------------
+## Er ist ein erzwungenes +1 auf den Zielwürfel; an der Spitze brennt der Würfel
+## sicher durch, und ein durchgebrannter Würfel wird gar nicht erst geprägt.
+
+func test_the_grip_lifts_the_target_by_one() -> void:
+	var card := _card({0: StampNet.value_cell(3)})
+	var die := _die()
+	var result := run.apply_series(_uids([card]), die, null, _rng(1))
+	assert_eq(die.charge, 1)
+	assert_false(bool(result["burned"]))
+
+func test_the_grip_burns_a_die_at_the_cap_but_still_stamps_it() -> void:
+	var card := _card({0: StampNet.value_cell(3)})
+	var die := _die()
+	var before: int = die.faces[0]
+	die.charge = DieDefinition.CHARGE_MAX
+	var result := run.apply_series(_uids([card]), die, null, _rng(1))
+	assert_true(bool(result["burned"]))
+	assert_true(die.burned_out)
+	assert_eq(die.faces[0], before + 3, "die Prägung bleibt stehen")
+
+func test_the_grip_refuses_a_burned_die() -> void:
+	var card := _card({0: StampNet.value_cell(3)})
+	var die := _die()
+	var before: int = die.faces[0]
+	die.burn_out()
+	assert_true(run.apply_series(_uids([card]), die, null, _rng(1)).is_empty())
+	assert_eq(die.faces[0], before, "nichts geprägt")
+	assert_eq(run.owned_packs.size(), 1, "und nichts verbraucht")

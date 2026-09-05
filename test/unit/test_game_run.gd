@@ -1960,6 +1960,171 @@ func test_the_chain_reaction_button_states_its_prize():
 	assert_eq(bet.reward_label(), "Nächste Serie: +1 Slot")
 	assert_eq(bet.reward_label(2), bet.reward_label(), "der Quotenbonus rührt es nicht an")
 
+# --- Ladung -----------------------------------------------------------------------
+
+func test_the_charge_rule_starts_at_the_default():
+	assert_eq(run.charge_rule(), DiceScoring.default_charge_rule())
+
+func test_a_forced_lift_never_rolls():
+	# Nur das SPIELEN würfelt - Fumble, Griff und Klausel heben sicher.
+	var die := run.owned_pool[0]
+	assert_false(run.charge_up_forced(die))
+	assert_eq(die.charge, 1)
+
+func test_a_forced_lift_at_the_cap_burns_for_sure():
+	var die := run.owned_pool[0]
+	die.charge = DieDefinition.CHARGE_MAX
+	assert_true(run.charge_up_forced(die))
+	assert_true(die.burned_out)
+
+func test_the_fumble_lifts_every_die_in_the_pit():
+	var pit: Array[DieDefinition] = [run.owned_pool[0], run.owned_pool[1]]
+	run.owned_pool[1].charge = DieDefinition.CHARGE_MAX
+	var changes := run.charge_fumble_dice(pit)
+	assert_eq(changes.size(), 2)
+	assert_eq(run.owned_pool[0].charge, 1)
+	assert_true(run.owned_pool[1].burned_out, "an der Spitze brennt er sicher durch")
+	assert_true(bool(changes[1]["burned"]))
+
+func test_the_fumble_leaves_a_burned_die_alone():
+	run.owned_pool[0].burn_out()
+	var pit: Array[DieDefinition] = [run.owned_pool[0]]
+	assert_eq(run.charge_fumble_dice(pit).size(), 0)
+
+func test_booking_writes_the_end_state_into_the_defs():
+	var defs: Array[DieDefinition] = [run.owned_pool[0], run.owned_pool[1]]
+	var breakdown := {
+		"charges_after": {0: 2, 1: 0},
+		"burned_after": [1] as Array[int],
+		"fuse_used": true,
+	}
+	var changes := run.book_charge_results(defs, breakdown, _p([0, 1]))
+	assert_eq(run.owned_pool[0].charge, 2)
+	assert_true(run.owned_pool[1].burned_out)
+	assert_true(run.fuse_used_this_round, "die Sicherung ist für diese Runde verbraucht")
+	assert_eq(changes.size(), 2)
+
+func test_booking_skips_slots_outside_the_hand():
+	var defs: Array[DieDefinition] = [run.owned_pool[0], run.owned_pool[1]]
+	var breakdown := {"charges_after": {0: 2, 1: 3}, "burned_after": [] as Array[int]}
+	run.book_charge_results(defs, breakdown, _p([0]))
+	assert_eq(run.owned_pool[0].charge, 2)
+	assert_eq(run.owned_pool[1].charge, 0, "Slot 1 gehörte nicht zur Hand")
+
+func test_the_round_end_cools_only_the_unplayed():
+	run.owned_pool[0].charge = 2
+	run.owned_pool[1].charge = 2
+	run.note_dice_scored([run.owned_pool[0]] as Array[DieDefinition], _p([0]))
+	var cooled := run.cool_unplayed_dice()
+	assert_eq(run.owned_pool[0].charge, 2, "gespielt bleibt heiß")
+	assert_eq(run.owned_pool[1].charge, 1, "liegen gelassen kühlt eine Stufe")
+	assert_eq(cooled.size(), 1)
+
+func test_the_round_end_spares_burned_dice():
+	run.owned_pool[0].burn_out()
+	assert_eq(run.cool_unplayed_dice().size(), 0, "durchgebrannt entlädt nicht")
+	assert_true(run.owned_pool[0].burned_out)
+
+func test_repairing_costs_energy_and_clears_the_soot():
+	run.owned_pool[0].burn_out()
+	run.energy = GameRun.REPAIR_ENERGY
+	assert_true(run.repair_die(run.owned_pool[0]))
+	assert_false(run.owned_pool[0].burned_out)
+	assert_eq(run.energy, 0)
+
+func test_repairing_refuses_without_energy():
+	run.owned_pool[0].burn_out()
+	run.energy = 0
+	assert_false(run.repair_die(run.owned_pool[0]), "prüfen, dann abbuchen")
+	assert_true(run.owned_pool[0].burned_out)
+
+func test_repairing_refuses_a_whole_die():
+	run.energy = 5
+	assert_false(run.repair_die(run.owned_pool[0]))
+	assert_eq(run.energy, 5, "nichts gebucht")
+
+func test_draining_costs_money_and_takes_one_step():
+	run.owned_pool[0].charge = 2
+	run.money = GameRun.DRAIN_MONEY
+	assert_true(run.drain_die(run.owned_pool[0]))
+	assert_eq(run.owned_pool[0].charge, 1)
+	assert_eq(run.money, 0)
+
+func test_draining_refuses_a_cold_die():
+	run.money = 50
+	assert_false(run.drain_die(run.owned_pool[0]))
+	assert_eq(run.money, 50)
+
+func test_discharge_all_clears_every_charge_at_once():
+	run.owned_pool[0].charge = 3
+	run.owned_pool[1].charge = 1
+	run.owned_pool[2].burn_out()
+	run.energy = GameRun.DISCHARGE_ALL_ENERGY
+	assert_true(run.discharge_all())
+	assert_eq(run.owned_pool[0].charge, 0)
+	assert_eq(run.owned_pool[1].charge, 0)
+	assert_true(run.owned_pool[2].burned_out, "die Reparatur ist etwas anderes")
+	assert_eq(run.energy, 0)
+
+func test_discharge_all_refuses_a_cold_pool():
+	run.energy = GameRun.DISCHARGE_ALL_ENERGY
+	assert_false(run.discharge_all(), "steht alles kalt, wird nichts gebucht")
+	assert_eq(run.energy, GameRun.DISCHARGE_ALL_ENERGY)
+
+func test_the_maintenance_contract_bars_the_bay():
+	run.owned_pool[0].burn_out()
+	run.energy = 5
+	run.money = 50
+	run.repair_lock_round = run.round_number
+	assert_true(run.repair_locked())
+	assert_false(run.repair_die(run.owned_pool[0]))
+	assert_false(run.discharge_all())
+	run.owned_pool[1].charge = 1
+	assert_false(run.drain_die(run.owned_pool[1]))
+
+func test_committing_the_round_clears_the_lock():
+	run.repair_lock_round = run.round_number
+	run.note_round_committed()
+	assert_eq(run.repair_lock_round, 0)
+	assert_false(run.repair_locked())
+
+func test_the_lock_survives_until_its_own_round():
+	run.repair_lock_round = run.round_number + 1
+	run.note_round_committed()
+	assert_eq(run.repair_lock_round, run.round_number + 1, "sie gilt erst der nächsten")
+	assert_true(run.repair_locked())
+
+func test_the_grip_heats_its_target():
+	run.purchase_pack(Pack.number_pack(), 0)
+	var uids: Array[int] = [run.owned_packs[0].pack_uid]
+	var die := run.owned_pool[0]
+	var result := run.apply_series(uids, die, null, _seeded(4))
+	assert_false(result.is_empty())
+	assert_eq(die.charge, 1, "der Griff hebt sicher um eins")
+	assert_false(bool(result["burned"]))
+
+func test_the_grip_burns_a_die_that_stands_at_the_cap():
+	run.purchase_pack(Pack.number_pack(), 0)
+	var uids: Array[int] = [run.owned_packs[0].pack_uid]
+	var die := run.owned_pool[0]
+	die.charge = DieDefinition.CHARGE_MAX
+	var result := run.apply_series(uids, die, null, _seeded(4))
+	assert_true(bool(result["burned"]))
+	assert_true(die.burned_out, "die Prägung bleibt trotzdem stehen")
+
+func test_the_grip_refuses_a_burned_die():
+	run.purchase_pack(Pack.number_pack(), 0)
+	var uids: Array[int] = [run.owned_packs[0].pack_uid]
+	var die := run.owned_pool[0]
+	die.burn_out()
+	assert_true(run.apply_series(uids, die, null, _seeded(4)).is_empty())
+	assert_eq(run.owned_packs.size(), 1, "keine Karte verbraucht")
+
+func test_a_fresh_round_rearms_the_fuse():
+	run.fuse_used_this_round = true
+	run.roll_essence_round_state()
+	assert_false(run.fuse_used_this_round)
+
 # --- Helfer -----------------------------------------------------------------------
 
 func _seeded(value: int) -> RandomNumberGenerator:

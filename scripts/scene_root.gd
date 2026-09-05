@@ -813,6 +813,8 @@ var pre_reroll_runes: Dictionary = {}  # Runen der oberen Seiten VOR dem Neu-Wü
 var pre_reroll_det_links: Dictionary = {}  # Runen-Glieder VOR dem Neu-Würfeln
 var pre_reroll_essence_links: Dictionary = {}  # Röntgen-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Zustände VOR dem Neu-Würfeln
+var pre_reroll_charges: Dictionary = {}  # Ladungen VOR dem Neu-Würfeln
+var pre_reroll_burned: Dictionary = {}  # Durchgebrannte VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
@@ -820,6 +822,13 @@ var pre_reroll_first_scoring: Dictionary = {}  # Erstwertungs-Marken VOR dem Neu
 ## Der einzige Zufall der Wertung: der Pointer. Ein eigener Generator, damit
 ## der Wurf je Zug genau EINMAL fällt und danach im ctx eingefroren steht.
 var pointer_rng := RandomNumberGenerator.new()
+## Eigener Würfelbecher der LADUNG - so verschiebt sie die Pointer-Würfe nicht.
+var charge_rng := RandomNumberGenerator.new()
+## Was die letzte Buchung der Ladung bewegt hat (Zug, Fumble, Rundenende) - die
+## Zeremonien der Welle 3 hängen daran, heute liest sie niemand.
+var _last_charge_results: Array[Dictionary] = []
+var _last_fumble_charges: Array[Dictionary] = []
+var _last_cooled_dice: Array[DieDefinition] = []
 ## Vom Spieler gelegte Zählreihenfolge der liegenden Würfel (Slot-Indizes).
 ## Jeder Wurf setzt sie auf die kanonische Reihe zurück; Ziehen permutiert sie,
 ## und die Reihe in der Grube wird DARAUS gerendert - nie umgekehrt.
@@ -10186,6 +10195,25 @@ func _slot_essences() -> Dictionary:
 			essences[i] = def.essence_id
 	return essences
 
+## Slot -> Ladung bzw. durchgebrannt, aus den Defs gelesen. Beide sind
+## slot-gebunden, werden also umgeschlüsselt und für den Farkle-Vergleich
+## mitgeschnappt; kalte und heile Würfel fehlen einfach.
+func _slot_charges() -> Dictionary:
+	var charges := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def != null and def.charge > 0:
+			charges[i] = def.charge
+	return charges
+
+func _slot_burned() -> Dictionary:
+	var burned := {}
+	for i in dice.count():
+		var def: DieDefinition = dice.slot_defs[i]
+		if def != null and def.burned_out:
+			burned[i] = true
+	return burned
+
 ## Gespeicherte Basispunkte je Wurf-Slot (Phosphoreszenz) - Zustand am Würfel-
 ## Exemplar, den nur GameRun führt; er sammelt über den ganzen Run.
 func _phosphor_stores() -> Dictionary:
@@ -10364,6 +10392,11 @@ func _score_ctx() -> Dictionary:
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
 		DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets(),
 		DiceScoring.CTX_RUNES: _slot_runes(),  # Runen der oben liegenden Seiten
+		# LADUNG: Stand und Ruß je Würfel plus die Regel-Parameter der Runde. Die
+		# Würfe (CTX_CHARGE_ROLLS) fehlen hier mit Absicht - die Vorschau lädt nicht.
+		DiceScoring.CTX_CHARGES: _slot_charges(),
+		DiceScoring.CTX_BURNED: _slot_burned(),
+		DiceScoring.CTX_CHARGE_RULE: run.charge_rule(),
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
 		# Kaltverfestigung: hand-weit, also ohne Umschlüsselung in _score_ctx_for_slots.
 		DiceScoring.CTX_CLAUSE_GROWTH: run.clause_face_growth(),
@@ -10478,7 +10511,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	ctx[DiceScoring.CTX_PLAYER_ORDER] = mapped_order
 	# Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl umschlüsseln,
 	# sonst feuern sie am falschen Würfel (gilt für beide Glieder-Schlüssel).
-	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_ESSENCE_LINKS, DiceScoring.CTX_POINTER_FIRES]:
+	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_ESSENCE_LINKS,
+			DiceScoring.CTX_POINTER_FIRES, DiceScoring.CTX_CHARGE_ROLLS]:
 		var mapped_links := {}
 		var links: Dictionary = ctx.get(link_key, {})
 		for s in links:
@@ -10496,7 +10530,8 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	# Essenzen, Runen und der Phosphor-Speicher hängen ebenso am Slot.
 	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RUNES,
 			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT,
-			DiceScoring.CTX_FIRST_SCORING, DiceScoring.CTX_EQUAL_FACES]:
+			DiceScoring.CTX_FIRST_SCORING, DiceScoring.CTX_EQUAL_FACES,
+			DiceScoring.CTX_CHARGES, DiceScoring.CTX_BURNED]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
 		for slot in source:
@@ -10798,6 +10833,8 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_det_links = _det_links()
 		pre_reroll_essence_links = _essence_links()
 		pre_reroll_levels = _material_levels()
+		pre_reroll_charges = _slot_charges()
+		pre_reroll_burned = _slot_burned()
 		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_phosphor_mult = _phosphor_mults()
 		pre_reroll_first_scoring = _first_scoring_flags()
@@ -11032,6 +11069,8 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_DET_LINKS] = pre_reroll_det_links
 	old_ctx[DiceScoring.CTX_ESSENCE_LINKS] = pre_reroll_essence_links
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
+	old_ctx[DiceScoring.CTX_CHARGES] = pre_reroll_charges
+	old_ctx[DiceScoring.CTX_BURNED] = pre_reroll_burned
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences, _discarded_essence_ids())
 	old_ctx[DiceScoring.CTX_RUNES] = pre_reroll_runes
@@ -11158,6 +11197,9 @@ func _on_farkle(forgivable: bool = true) -> void:
 	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
 		_play_rune_energy_volley(consolation_energy)
+	# LADUNG: der echte Fumble heizt die ganze Hand - erzwungenes +1 auf jeden
+	# Würfel, der in der Grube liegt. Ein verziehener Fumble kommt nie hierher.
+	_last_fumble_charges = run.charge_fumble_dice(active_kinds)
 	momentum_streak = 0
 	_update_charm_badges()
 	first_hand_after_farkle = true
@@ -11260,30 +11302,43 @@ func _on_take_button_pressed() -> void:
 	# hand["score"] ist damit veraltet, gezahlt wird breakdown["total"].
 	var sel_fires := _roll_pointer_fires(String(hand["key"]), sel_values, slots, ids, sel_ctx)
 	sel_ctx[DiceScoring.CTX_POINTER_FIRES] = sel_fires
-	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
-	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
-	# Würfel hängen können und die Ordnung wertungsrelevant ist.
-	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
-	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
-	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
 	# EINE Quelle wie in der Wertung - sonst nähme der Zug einen anderen Echo-Kopf
 	# als die Punkte, die er gerade gezeigt hat.
 	var sel_shape := DiceScoring.hand_shape(hand["key"], sel_values, ids, sel_ctx)
 	var sel_participating: Array[int] = sel_shape["participating"]
 	var sel_scored: Array[int] = sel_shape["scored"]
 	var sel_order: Array[int] = sel_shape["order"]
+	# LADUNG: die Würfe der Zündungen EINMAL je Zug auswürfeln und einfrieren, wie
+	# die Pointer - danach ist die Wertung wieder rein.
+	sel_ctx[DiceScoring.CTX_CHARGE_ROLLS] = DiceScoring.roll_charge_rolls(sel_scored, charge_rng)
+	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
+	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
+	# Würfel hängen können und die Ordnung wertungsrelevant ist.
+	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
+	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
+	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
 	# Geld, das EINZELNE Zündungen erzeugen (Goldseiten, Seelen-Geld), hängt an
 	# seiner Zündung: der Plan reist in der Schrittliste mit, die Zeremonie zahlt
 	# ihn dort. Noch in AUSWAHL-Indizes, also vor dem Rückrechnen anhängen.
+	var sel_burned: Array[int] = []
+	for k in sel_scored:
+		if DiceScoring.burned_for(sel_ctx, k):
+			sel_burned.append(k)
 	ScoreBreakdown.attach_activation_money(breakdown, MaterialEffects.plan_activation_money(
 		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
 		GameRun.is_stress_round(run.round_number), sel_fires, hands_taken_this_round,
-		sel_participating))
+		sel_participating, sel_burned, ScoreBreakdown.burn_stops(breakdown)))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
 	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
 	_log_begin_take(breakdown, String(hand["key"]), ids)
+	# Die gewerteten Slots, in ECHTEN Slots - die Ladung bucht damit, bevor das
+	# Licht läuft (Buchung vor dem Licht).
+	var scored_slots: Array[int] = []
+	for p in sel_scored:
+		scored_slots.append(slots[p])
+	_last_charge_results = run.book_charge_results(active_kinds, breakdown, scored_slots)
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
 	# Verluste zahlen an ihrem Auslöser: Servicegebühr und Steuerwetten hängen an
@@ -11307,9 +11362,13 @@ func _on_take_button_pressed() -> void:
 	# Nehmen-Effekte der Materialien - die gewerteten AUSGEWÄHLTEN Würfel (mit
 	# Vollzähler ALLE liegenden), genau einmal hier (nie in der Vorschau);
 	# Knochen/Glas verändern die Pool-Würfel dauerhaft. sel_shape steht schon.
-	var participating: Array[int] = []
-	for p in sel_scored:
-		participating.append(slots[p])
+	var participating: Array[int] = scored_slots.duplicate()
+	# Durchgebrannte Slots und die Abbruch-Zündungen auf echte Slots: die
+	# Nehmen-Effekte brechen an genau derselben Zündung ab wie die Wertung.
+	var burned_slots: Array[int] = []
+	for p in sel_burned:
+		burned_slots.append(slots[p])
+	var burn_stops := ScoreBreakdown.burn_stops(breakdown)
 	# Die engere KOMBINATIONS-Menge auf echte Slots: Vollzähler und Krypton weiten
 	# die gewertete Menge, gehören der Kombination aber nicht an (Zauberkarte).
 	var combination: Array[int] = []
@@ -11332,7 +11391,7 @@ func _on_take_button_pressed() -> void:
 		ids, echo_slot, _effective_essence_sets(), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires,
 		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
-		run.clause_face_growth())
+		run.clause_face_growth(), burned_slots, burn_stops)
 	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
 	# seinem Krit losgeschickt, gebucht wird bei Ankunft.
 	report.tip_money = ScoreBreakdown.tip_money_total(breakdown)
@@ -12352,6 +12411,16 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 				for idx: int in firing["miasma_recipients"]:
 					mapped.append(slots[idx])
 				firing["miasma_recipients"] = mapped
+	# LADUNG: END-Stände und Durchbrenner nennen ebenfalls Auswahl-Indizes.
+	var mapped_charges := {}
+	var charges: Dictionary = breakdown.get("charges_after", {})
+	for idx in charges:
+		mapped_charges[slots[int(idx)]] = int(charges[idx])
+	breakdown["charges_after"] = mapped_charges
+	var mapped_burned: Array[int] = []
+	for idx: int in breakdown.get("burned_after", []):
+		mapped_burned.append(slots[idx])
+	breakdown["burned_after"] = mapped_burned
 	# Auch die Pro-Würfel-Pulse tragen Auswahl-Indizes - auf echte Slots umrechnen.
 	for step: Dictionary in breakdown["charm_steps"]:
 		if step.has("pulses"):
@@ -12568,6 +12637,8 @@ func _connect_run() -> void:
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
 	run.energy_changed.connect(_on_energy_changed)
+	# Jedes Ladungs-Ereignis geht in die Chronik der Runde.
+	run.charge_logged.connect(_log_record_charge)
 	# Paket-Einsätze werden bezahlbar oder knapp, während die Wettannahme offen ist.
 	run.packs_changed.connect(_refresh_side_bet_affordability)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
@@ -12765,6 +12836,8 @@ func _commit_round() -> void:
 	if round_committed:
 		return
 	round_committed = true
+	# Das Zurren löscht die Sperre des Wartungsvertrags, für die sie galt.
+	run.note_round_committed()
 	# Mit der Unterschrift ist die Ladenzeit vorbei - der Knopf geht mit.
 	shop_reopen_allowed = false
 	_sync_shop_reopen_button()
@@ -12897,6 +12970,9 @@ func _on_round_complete() -> void:
 		for entry in leftover_dice:
 			leftover_defs.append(entry["def"])
 		_jewelry_box_upgrades = run.apply_jewelry_box(leftover_defs)
+		# LADUNG: was diese Runde nicht gewertet hat, kühlt eine Stufe ab -
+		# gebucht VOR der Auszahlung.
+		_last_cooled_dice = run.cool_unplayed_dice()
 		# Füllhorn: die Prämie hängt am BALKEN, also an den geräumten Stufen -
 		# gebucht hier, gezeigt an seinem Dock-Platz.
 		_encore_packs = run.apply_encore(stages)
@@ -14098,6 +14174,15 @@ func _log_finish_entry() -> void:
 	if run == null or round_log.is_empty():
 		return
 	round_log.entries[round_log.entries.size() - 1]["post_state"] = _log_display_state()
+
+## Ein Ladungs-Ereignis (Aufladen, Durchbrennen, Entladen, Bucht): eine reine
+## Pose-Zeile wie der Fumble - gebucht hat GameRun längst.
+func _log_record_charge(text: String) -> void:
+	if run == null or dice == null:
+		return
+	var entry := _log_entry_base(RoundLog.ENTRY_CHARGE, text)
+	entry["post_state"] = entry["state"].duplicate(true)
+	round_log.add_entry(entry)
 
 func _log_record_farkle() -> void:
 	if run == null:
