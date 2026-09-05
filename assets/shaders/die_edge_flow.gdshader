@@ -38,6 +38,12 @@ uniform float breath_amount = 0.08;
 // Auswahl-Farbe der Gravur-Station (a > 0 = aktiv): flach und exakt, der
 // Nachfolger von set_edge_tint auf dem alten StandardMaterial.
 uniform vec4 flat_tint = vec4(0.0);
+// Die LADUNG des Würfels (0-3). Ein EIGENER Kanal neben flow_style, denn der
+// gehört der Seelen-Rarität: ab 2 kriechen Funken die Kanten entlang, ab 3
+// glüht ihr Kern orange. Stufe 1 sitzt allein im lamp_color (Glimmen).
+uniform float charge_level = 0.0;
+uniform vec3 charge_color = vec3(0.86, 0.66, 1.35);
+uniform vec3 charge_core = vec3(1.45, 0.72, 0.30);
 
 const float BREATH_SPEED = 1.4;
 
@@ -49,6 +55,14 @@ const float BOIL_SPEED = 4.2;
 // Senke/Spitze um den Anker 1.0; die Spitze trägt zusätzlich flow_color.
 const float FLOW_DIP = 0.3;
 const float FLOW_LIFT = 0.5;
+
+// KRIECHSTROM: schmale, helle Köpfe, die die Kante entlanglaufen. Scharf statt
+// breit (SPARK_SHARP) - eine breite Welle läse als zweite Strömung, ein
+// schmaler Kopf als Funke.
+const float SPARK_SCALE = 3.4;
+const float SPARK_SPEED = 5.5;
+const float SPARK_SHARP = 14.0;
+const float SPARK_GAIN = 0.8;
 
 varying vec3 local_pos;
 
@@ -91,9 +105,11 @@ void fragment() {
 		ROUGHNESS = roughness_amount;
 		float breath = 1.0 + sin(TIME * BREATH_SPEED + phase) * breath_amount;
 		vec3 glow = lamp_color;
-		if (flow_style > 0.5) {
+		// Welcher Balken und wohin: dieselbe Laufrichtung tragen Seelen-Fluss und
+		// Ladungs-Funken - EINE Ableitung aus der Geometrie.
+		float run = 0.0;
+		if (flow_style > 0.5 || charge_level > 1.5) {
 			vec3 a = abs(local_pos);
-			float run;
 			if (a.x < a.y && a.x < a.z) {
 				run = local_pos.x * sign(local_pos.z);   // Riegel längs X: Zirkulation
 			} else if (a.z < a.y) {
@@ -101,9 +117,17 @@ void fragment() {
 			} else {
 				run = local_pos.y;                       // Pfosten: aufwärts
 			}
+		}
+		if (flow_style > 0.5) {
 			float blob = liquid(run * FLOW_SCALE, flow_style, TIME + phase);
 			glow = lamp_color * (1.0 - FLOW_DIP * (1.0 - blob)) + flow_color * blob * FLOW_LIFT;
 		}
 		EMISSION = glow * pattern * breath;
+		if (charge_level > 1.5) {
+			float head = max(sin(run * SPARK_SCALE - TIME * SPARK_SPEED + phase), 0.0);
+			float spark = pow(head, SPARK_SHARP);
+			vec3 tint = charge_level > 2.5 ? mix(charge_color, charge_core, 0.62) : charge_color;
+			EMISSION += tint * spark * SPARK_GAIN;
+		}
 	}
 }

@@ -153,6 +153,7 @@ var slot_bank_window: SlotBankView
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
+var repair_bay_window: RepairBayView
 ## Das Netz-Raster des Vorrats auf dem geschlossenen Gruben-Glas (Glas-Ansicht);
 ## es liegt auf dem Pool-Loch und steht nur, solange die Ansicht offen ist. Es
 ## wohnt in seinem EIGENEN SubViewport (siehe _build_content): nicht-HDR und
@@ -573,6 +574,11 @@ func _build_content() -> void:
 	workshop_window.visible = false
 	add_child(workshop_window)
 
+	# Reparatur-Bucht: RECHTS neben dem Werkstatt-Streifen, in derselben Zeile.
+	# Position/Größe setzt scene_root über place_repair_bay.
+	repair_bay_window = RepairBayView.new()
+	add_child(repair_bay_window)
+
 	# Glas-Ansicht: Sie zieht in einen EIGENEN, NICHT-HDR-SubViewport mit
 	# transparent_bg - dort trägt sie echtes Per-Pixel-Alpha (der HDR-Haupt-Viewport
 	# gibt keins her), und ihre Auflösung wird an der Bildschirm-Pixeldichte des
@@ -758,6 +764,11 @@ func _fire_fumble_wave(center: Vector2) -> void:
 ## Kurzes Zucken: der Rundenpuls sackt weg und kommt zurück (die Grube
 ## "erschrickt"). Nur solange die Runde läuft; endet sie, überschreibt der
 ## folgende set_round_pulse(false) das Zucken ohnehin.
+## Das Zucken auf Zuruf: der Durchbrenner läßt die Grube erschrecken wie der
+## Fumble. EIN Weg, zwei Anlässe.
+func pit_flinch() -> void:
+	_stutter_round_pulse()
+
 func _stutter_round_pulse() -> void:
 	if pit_waves == null:
 		return
@@ -813,6 +824,10 @@ const FUMBLE_MARK_FADE := 0.35
 const FUMBLE_MARK_BLINK := 0.22
 ## Ruhende Würfel stehen still und blass - sie haben den Fumble nicht ausgelöst.
 const FUMBLE_MARK_CALM := Color(1.1, 0.45, 0.45, 0.55)
+## Der Fumble LÄDT die ganze Hand: wer +1 bekam, steht in Ladungsfarbe da, wer
+## dabei durchbrannte, in Ruß. EINE Quelle für beides ist der Würfel selbst.
+const FUMBLE_MARK_CHARGED := DieFaceDisplay.CHARGE_COLOR
+const FUMBLE_MARK_BURNED := Color(0.34, 0.30, 0.32, 0.9)
 
 var _fumble_marks: Control
 
@@ -832,8 +847,9 @@ func show_fumble_marks(marks: Array[Dictionary], side_px: float) -> void:
 	for mark in marks:
 		var frame := _build_fumble_mark(mark, side_px)
 		_fumble_marks.add_child(frame)
-		# Der Blinktakt hängt am Umriss selbst: er stirbt mit ihm.
-		if bool(mark.get("fresh", false)):
+		# Der Blinktakt hängt am Umriss selbst: er stirbt mit ihm. Ein Würfel, den
+		# der Fumble geladen hat, blinkt ebenfalls - das +1 IST frisch.
+		if bool(mark.get("fresh", false)) or bool(mark.get("charged", false)):
 			var blink := frame.create_tween().set_loops()
 			blink.tween_property(frame, "modulate:a", 0.25, FUMBLE_MARK_BLINK)
 			blink.tween_property(frame, "modulate:a", 1.0, FUMBLE_MARK_BLINK)
@@ -846,6 +862,11 @@ func show_fumble_marks(marks: Array[Dictionary], side_px: float) -> void:
 func _build_fumble_mark(mark: Dictionary, side_px: float) -> Control:
 	var fresh: bool = bool(mark.get("fresh", false))
 	var tint := FUMBLE_COLOR if fresh else FUMBLE_MARK_CALM
+	# Die LADUNG schlägt den Wurf-Ton: sie ist die Nachricht dieses Umrisses.
+	if bool(mark.get("burned", false)):
+		tint = FUMBLE_MARK_BURNED
+	elif bool(mark.get("charged", false)):
+		tint = FUMBLE_MARK_CHARGED
 	var frame := Panel.new()
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var center: Vector2 = mark.get("pixel", Vector2.ZERO)
@@ -1044,6 +1065,16 @@ func place_workshop_window(rect: Rect2) -> void:
 	workshop_window.refresh()
 	_sync_reflection_windows()
 
+## Spannt die REPARATUR-BUCHT über rect auf (rechts vom Werkstatt-Streifen).
+func place_repair_bay(rect: Rect2) -> void:
+	if repair_bay_window == null:
+		return
+	repair_bay_window.position = rect.position
+	repair_bay_window.size = rect.size
+	repair_bay_window.visible = true
+	repair_bay_window.refresh()
+	_sync_reflection_windows()
+
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
@@ -1217,6 +1248,7 @@ func _sync_reflection_windows() -> void:
 		radii.append(10.0)
 	# Die WERKSTATT ist KEIN Fenster mehr: ihr Streifen hat seit 2026-09-03 keinen
 	# Schirm-Hintergrund, ihre Teile liegen auf dem Filz (wie der Kombi-Cluster).
+	# Die REPARATUR-BUCHT teilt diese Grammatik und steht darum ebenfalls nicht hier.
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))

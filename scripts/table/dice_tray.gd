@@ -120,6 +120,12 @@ func flash_segment(index: int, strength: float) -> void:
 		peak, 0.0, FIELD_FLASH_DECAY)
 	_field_tweens[index] = tween
 
+## Ein Schlag in ALLE Wände zugleich: die Entladung eines durchgebrannten
+## Würfels fährt ringsum ins Feld, nicht in ein einzelnes Segment.
+func slam(strength: float) -> void:
+	for i in field_materials.size():
+		flash_segment(i, strength)
+
 ## group unterscheidet Boden- und Wandkontakte für den Würfel-Sound.
 func _add_box(node_name: String, box_position: Vector3, box_basis: Basis, size: Vector3, material: PhysicsMaterial, group: String) -> void:
 	var body := StaticBody3D.new()

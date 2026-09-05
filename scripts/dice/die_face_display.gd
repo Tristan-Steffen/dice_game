@@ -119,6 +119,49 @@ const MOTE_GLOW := 1.5
 ## Stützpunkte je Kante, aus denen die Funken treten (12 Kanten × 6).
 const MOTE_EDGE_SAMPLES := 6
 
+## --- Die LADUNG am Körper ------------------------------------------------------
+## NIE das Energie-Cyan: ein Würfel mit Blitzen darf nicht aussehen, als präge er
+## ⚡. Weißviolett, in der Spitze der orange Kern des Überschlags.
+const CHARGE_COLOR := Color(0.86, 0.66, 1.35)
+const CHARGE_CORE_COLOR := Color(1.45, 0.72, 0.30)
+## Durchgebrannt: Ruß statt Licht - flache dunkle Kanten, entsättigter Körper.
+const BURNED_BODY := Color(0.035, 0.03, 0.035)
+const BURNED_EDGE := Color(0.14, 0.12, 0.12)
+const BURNED_NUMBER := Color(0.30, 0.28, 0.30)
+## Wie stark die Ladung den Rahmen-Ton je Stufe einfärbt (Index = Stufe).
+const CHARGE_LAMP_MIX := [0.0, 0.35, 0.5, 0.72]
+## Ab dieser Stufe kriechen Funken über die Kanten (Shader) und die Eck-Lampen an.
+const CHARGE_SPARK_LEVEL := 2
+## Ab dieser Stufe springen Teilchen aus dem Würfel und der Kern wird orange.
+const CHARGE_ARC_LEVEL := 3
+## Wie weit der Überschlag vom Weißviolett in den ORANGEN Kern zieht - gemessen
+## an der Sichtprobe: darunter las Stufe 3 wie ein helleres Stufe 2.
+const CHARGE_CORE_MIX := 0.42
+## Ruhe-Deckel der Stufen unter dem Überschlag: der Rahmen bleibt unter der
+## Bloom-Schwelle (0,95) - Stufe 2 tritt erst in ihren FUNKEN darüber.
+const CHARGE_REST_CEILING := 0.92
+## Der Blitz beim Aufladen/Entladen/Reparieren.
+const CHARGE_FLASH_TIME := 0.35
+const CHARGE_FLASH_GAIN := 2.2
+## Überschlag-Teilchen: wenige, kurz, nach außen von den Kanten weg.
+const ARC_COUNT := 12
+const ARC_LIFETIME := 0.55
+const ARC_GLOW := 1.8
+## Wie kräftig die Ladung die Boden-Lache einfärbt und hebt.
+const CHARGE_POOL_MIX := 0.65
+const CHARGE_POOL_GAIN := 1.25
+
+## Ladung und Ruß des gezeigten Würfels (aus der Def) plus der TRANSIENTE
+## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
+var _charge_level := 0
+var _burned := false
+var _charge_override := -1
+var _burned_override := false
+var _charge_flash := 0.0
+var _charge_flash_tween: Tween
+## Überschlag-Teilchen (nur Stufe 3, faul gebaut wie die Seelenfunken).
+var charge_motes: CPUParticles3D = null
+
 ## Pointer auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
 ## Band je Zeiger - Pad auf der Quellseite, über den Kantenbalken hinweg, bis
 ## zur Pfeilspitze auf der Zielseite. Überall gleich breit: die gequerte Kante
@@ -244,6 +287,12 @@ func apply_definition(def: DieDefinition) -> void:
 		labels[axis].modulate = NUMBER_COLOR
 		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
 		_set_textures(quad_material, material_id)
+	# Die LADUNG kommt aus der Def - jeder Ort des Würfels bekommt sie damit über
+	# den EINEN Refresh-Pfad; der Zeremonie-Stand tritt hier ab.
+	_charge_level = clampi(def.charge, 0, DieDefinition.CHARGE_MAX)
+	_burned = def.burned_out
+	_charge_override = -1
+	_burned_override = false
 	# Ein Zugriff statt is_valid_id + glow_for; die Rarität entscheidet die
 	# Animationsstufen der Seele.
 	var essence := Essence.by_id(def.essence_id)
@@ -296,13 +345,16 @@ func _refresh_face_colors() -> void:
 		_refresh_frame(axis, profile, level)
 	_apply_essence_edge()
 	if corner_caps != null:
-		corner_caps.visible = essence_id != ""
+		# Ab dem Kriechstrom brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
+		corner_caps.visible = not shown_burned() \
+			and (essence_id != "" or shown_charge() >= CHARGE_SPARK_LEVEL)
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
 			_has_material = true
 	_refresh_soul_motion()
 	_refresh_pool()
+	_refresh_charge()
 
 ## Würfel-Farbe: kräftiger als der UI-Tint (siehe DIE_SATURATION). Wird auf
 ## alles gelegt, was Licht trägt - Emission, Würfellicht, Fresnel-Schimmer.
@@ -316,9 +368,9 @@ static func intense(color: Color) -> Color:
 ## Material-Boden, kahl das neutrale Neon unter der Bloom-Schwelle - dieselben
 ## zwei Fälle wie _apply_essence_edge/_apply_profile für den Füllkörper.
 func _frame_glow_color() -> Color:
-	if essence_id != "":
-		return intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
-	return intense(EDGE_NEON) * EDGE_GLOW * body_tint
+	var lamp := intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint \
+		if essence_id != "" else intense(EDGE_NEON) * EDGE_GLOW * body_tint
+	return _charged_lamp(lamp)
 
 ## Bewegungsfarbe der Seele (Fluss-Ballungen, Seelenfunken): die Glow-Farbe,
 ## unter dem Luma-Boden der kalte Void-Ton.
@@ -451,9 +503,8 @@ func _apply_essence_edge() -> void:
 		return
 	edge_material_res.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	_apply_profile(edge_material_res, null, true)
-	if essence_id == "":
-		return
-	edge_material_res.emission = intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint
+	# EINE Quelle für Balken, Kappen und Füllkörper - die Ladung färbt sie mit.
+	edge_material_res.emission = _frame_glow_color()
 
 ## Ohne Material: dunkler Glas-Körper, das Licht liegt allein in der Emission.
 ## Mit Material: die Einlage trägt die echte Oberfläche aus dem Profil.
@@ -682,7 +733,177 @@ func _refresh_pool() -> void:
 			color = intense(mixed / float(tints.size()))
 			strength = POOL_MATERIAL_STRENGTH
 	color *= body_tint
+	# GLIMMEN: die Lache wärmt mit - sie ist die Erdung des geladenen Würfels.
+	var level := shown_charge()
+	if level > 0 and not shown_burned():
+		var mix := CHARGE_POOL_MIX * float(level) / float(DieDefinition.CHARGE_MAX)
+		color = color.lerp(CHARGE_COLOR, mix)
+		strength *= 1.0 + (CHARGE_POOL_GAIN - 1.0) * float(level) / float(DieDefinition.CHARGE_MAX)
 	_pool_color = Color(color.r, color.g, color.b, POOL_ALPHA_PER_STRENGTH * strength)
+
+# --- Die LADUNG am Körper ------------------------------------------------------
+# Vier Zustände auf EINEM Weg: Glimmen (warmer Atem in Kante und Lache),
+# Kriechstrom (Funken laufen die Kanten entlang, Eck-Lampen an), Überschlag
+# (dazu Teilchen und der orange Kern) und Ruß (flach, dunkel, kein Licht).
+# Alles Licht sitzt an Kanten, Ecken, Ziffern, Lache und in den Teilchen - über
+# den Flächen liegt bewusst KEINE Hülle.
+
+## Die gezeigte Stufe: der Zeremonie-Stand schlägt den Def-Stand.
+func shown_charge() -> int:
+	if shown_burned():
+		return 0
+	return _charge_override if _charge_override >= 0 else _charge_level
+
+## Zeigt der Würfel Ruß? Ebenfalls Zeremonie vor Def.
+func shown_burned() -> bool:
+	if _charge_override >= 0:
+		return _burned_override
+	return _burned
+
+## Der TRANSIENTE Stand der Wertungs-Zeremonie (wie die Wert-Overrides): der Körper
+## folgt der laufenden Aufschlüsselung, apply_definition holt ihn zurück.
+func set_charge_override(level: int, burned: bool) -> void:
+	_charge_override = clampi(level, 0, DieDefinition.CHARGE_MAX)
+	_burned_override = burned
+	_refresh_face_colors()
+
+func clear_charge_override() -> void:
+	if _charge_override < 0:
+		return
+	_charge_override = -1
+	_burned_override = false
+	_refresh_face_colors()
+
+## Kurzer Blitz in Ladungsfarbe (Aufladen, Entladen, Reparatur) - wie flare_runes
+## eine reine Anzeige, die von selbst zurückfällt.
+func flash_charge(strength := 1.0) -> void:
+	if _charge_flash_tween != null and _charge_flash_tween.is_valid():
+		_charge_flash_tween.kill()
+	_charge_flash = clampf(strength, 0.0, 1.0)
+	_refresh_face_colors()
+	_charge_flash_tween = create_tween()
+	_charge_flash_tween.tween_method(func(v: float) -> void:
+		_charge_flash = v
+		_refresh_face_colors(), _charge_flash, 0.0, CHARGE_FLASH_TIME)
+
+## Der Rahmen-Ton mit Ladung und Blitz. Unter dem Überschlag bleibt er in Ruhe
+## unter der Bloom-Schwelle - eine Material-Kante darf er dabei nie dimmen.
+func _charged_lamp(lamp: Color) -> Color:
+	var level := shown_charge()
+	if level <= 0 and _charge_flash <= 0.0:
+		return lamp
+	var hot := lamp
+	if level > 0:
+		hot = hot.lerp(CHARGE_COLOR, float(CHARGE_LAMP_MIX[mini(level, 3)]))
+		if level >= CHARGE_ARC_LEVEL:
+			hot = hot.lerp(CHARGE_CORE_COLOR, CHARGE_CORE_MIX)
+		else:
+			hot = _cap_channels(hot, maxf(CHARGE_REST_CEILING, _max_channel(lamp)))
+	if _charge_flash > 0.0:
+		hot = hot.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
+	return hot
+
+static func _max_channel(color: Color) -> float:
+	return maxf(color.r, maxf(color.g, color.b))
+
+## Skaliert alle Kanäle, bis der hellste den Deckel trifft - der TON bleibt.
+static func _cap_channels(color: Color, ceiling: float) -> Color:
+	var peak := _max_channel(color)
+	if peak <= ceiling or peak <= 0.0:
+		return color
+	var k := ceiling / peak
+	return Color(color.r * k, color.g * k, color.b * k, color.a)
+
+## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Shader-Uniforms
+## der Kanten, die Teilchen des Überschlags und - beim Ruß - der flache dunkle
+## Rahmen samt entsättigten Flächen und gedimmter Ziffer.
+func _refresh_charge() -> void:
+	var burned := shown_burned()
+	var level := shown_charge()
+	for material: ShaderMaterial in [beam_material, cap_material]:
+		if material == null:
+			continue
+		material.set_shader_parameter("charge_level", 0.0 if burned else float(level))
+		material.set_shader_parameter("charge_color",
+			Vector3(CHARGE_COLOR.r, CHARGE_COLOR.g, CHARGE_COLOR.b))
+		material.set_shader_parameter("charge_core",
+			Vector3(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b))
+	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
+	if not burned:
+		return
+	# Ruß: flache dunkle Kanten (der set_edge_tint-Schalter), Körper und Flächen
+	# entsättigt, Ziffer gedimmt, keine Lache, keine Seelen-Bewegung.
+	set_edge_tint(BURNED_EDGE)
+	for axis in quads:
+		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
+		material.albedo_color = BURNED_BODY
+		material.emission = BURNED_EDGE * FACE_GLOW
+		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+		var frame: MeshInstance3D = frames.get(axis)
+		if frame != null and frame.visible:
+			(frame.material_override as StandardMaterial3D).emission = BURNED_EDGE * FACE_GLOW
+		var label: Label3D = labels.get(axis)
+		if label != null:
+			label.modulate = BURNED_NUMBER
+	if glow_pool != null:
+		glow_pool.visible = false
+	if soul_motes != null:
+		soul_motes.queue_free()
+		soul_motes = null
+
+## Die Teilchen des Überschlags kommen und gehen mit der Stufe (wie soul_motes).
+func _sync_charge_motes(wanted: bool) -> void:
+	if not wanted:
+		if charge_motes != null:
+			charge_motes.queue_free()
+			charge_motes = null
+		return
+	if charge_motes == null:
+		charge_motes = _build_charge_motes()
+		add_child(charge_motes)
+	var tint := CHARGE_COLOR * body_tint * ARC_GLOW
+	tint.a = 1.0
+	charge_motes.color = tint
+
+## Kurze Funken, die von den KANTEN nach außen springen - dasselbe Muster wie die
+## Seelenfunken, nur schneller, kürzer und ohne Auftrieb (der Überschlag fällt
+## nicht, er schießt).
+func _build_charge_motes() -> CPUParticles3D:
+	var motes := CPUParticles3D.new()
+	motes.name = "ChargeArcs"
+	motes.amount = ARC_COUNT
+	motes.lifetime = ARC_LIFETIME
+	motes.preprocess = ARC_LIFETIME
+	motes.local_coords = false
+	motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
+	motes.emission_points = _edge_emission_points()
+	motes.direction = Vector3.UP
+	motes.spread = 180.0  # nach außen, in jede Richtung von der Kante weg
+	motes.gravity = Vector3.ZERO
+	motes.initial_velocity_min = 1.2
+	motes.initial_velocity_max = 2.6
+	motes.scale_amount_min = 0.35
+	motes.scale_amount_max = 0.8
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.25, 1.0])
+	# Weiß in den Kern der Stufe 3: der Funke kühlt im Flug ins Orange aus.
+	ramp.colors = PackedColorArray([Color(1, 1, 1, 0), Color.WHITE,
+		Color(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b, 0.0)])
+	motes.color_ramp = ramp
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * 0.12
+	motes.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = _mote_texture()
+	motes.material_override = material
+	motes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if not quads.is_empty():
+		motes.layers = (quads.values()[0] as VisualInstance3D).layers
+	return motes
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
 ## Unschattiert, damit exakt die flache Auswahl-Farbe erscheint - beleuchtet

@@ -267,6 +267,13 @@ const SCORE_STEP_GAP_MIN := 0.1
 ## Mult-Orbs (TableScreen.crit_pit_mult) ausspielen, bevor der nächste Schritt
 ## den Trommelwirbel fortsetzt - der Krit bricht das Accelerando bewusst.
 const CRIT_HOLD := 0.45
+## LADUNG in der Zeremonie: der Blitz einer ladenden Zündung, der Rundum-Einschlag
+## des Durchbrenners in die Grubenwände und der gedimmte Blitz des Entladens.
+const CHARGE_FLASH_STRENGTH := 0.9
+const CHARGE_BURN_SLAM := 1.0
+const COOLING_FLASH_STRENGTH := 0.45
+## Das Entladen am Rundenende: alle betroffenen Würfel zugleich, kurz gehalten.
+const COOLING_TIME := 0.6
 ## Drain: Grunddauer + je Überladungs-Rollover; jeder Rollover hält kurz inne.
 const DRAIN_BASE_TIME := 0.8
 const DRAIN_PER_ROLLOVER := 0.4
@@ -485,6 +492,9 @@ var side_bets_click_zone: StaticBody3D
 var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var workshop_click_zone: StaticBody3D
+var repair_click_zone: StaticBody3D
+## Die zuletzt gestellte Höhe der Bucht - sie wächst mit der Fall-Liste.
+var _repair_bay_height := 0.0
 var chips_click_zone: StaticBody3D
 ## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
 ## Fläche, auf der ein Doppelklick sie öffnet.
@@ -1341,7 +1351,43 @@ func _place_workshop_strip() -> Rect2:
 	camera_rig.configure_workshop_close_target(
 		table_screen.pixel_to_world(close_frame.get_center()),
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
+	_place_repair_bay(bench_rect, workshop_rect)
 	return corner
+
+## Die REPARATUR-BUCHT steht RECHTS neben dem Streifen, in DERSELBEN Zeile: linke
+## Kante eine Werkstatt-Einheit hinter seiner Schürze, Oberkante seine Oberkante,
+## Höhe seine Fensterhöhe - und sie darf nach unten wachsen, wenn die Liste es
+## braucht (bay_rect meldet es, wie bench_rect). Gekappt wird am freien Filz.
+func _place_repair_bay(bench_rect: Rect2, workshop_rect: Rect2) -> void:
+	if table_screen == null or table_screen.repair_bay_window == null:
+		return
+	var left := bench_rect.end.x + _workshop_unit() * WorkshopView.STREET_GAP
+	var room := float(TableScreen.RESOLUTION.x) - left - WORKSHOP_RIGHT_MARGIN
+	if room <= 0.0:
+		table_screen.repair_bay_window.visible = false
+		return
+	var budget := Rect2(Vector2.ZERO, Vector2(room, workshop_rect.size.y))
+	var u := RepairBayView.unit_for(budget)
+	var width := minf(RepairBayView.width_for(u), room)
+	table_screen.place_repair_bay(Rect2(Vector2(left, workshop_rect.position.y),
+		Vector2(width, workshop_rect.size.y)))
+	_repair_bay_height = table_screen.repair_bay_window.bay_rect().size.y
+	_place_repair_zone()
+
+## Klickzone und Kamera-Rahmen der Bucht - sie messen an bay_rect(), also an der
+## ECHTEN Liste: eine Zeile außerhalb der Region schluckte jeden Klick.
+func _place_repair_zone() -> void:
+	var bay: RepairBayView = table_screen.repair_bay_window
+	if bay == null or not bay.visible:
+		return
+	var rect := bay.bay_rect()
+	_free_own_child("RepairClickZone")  # eine Neuplatzierung ersetzt sie
+	repair_click_zone = _screen_zoom_zone("RepairClickZone", rect,
+		camera_rig.configure_repair_target)
+	var corner_a := table_screen.pixel_to_world(rect.position)
+	var corner_b := table_screen.pixel_to_world(rect.end)
+	camera_rig.configure_repair_target(table_screen.pixel_to_world(rect.get_center()),
+		Vector2(absf(corner_a.z - corner_b.z), absf(corner_a.x - corner_b.x)) * 0.5)
 
 ## Wie weit der Würfel über dem TURMKOPF nach oben projiziert, in Display-Pixeln:
 ## seine Welthöhe mal dem GEMESSENEN Aufwärts-Versatz der geneigten Station
@@ -2050,6 +2096,7 @@ func _on_money_changed(new_money: int) -> void:
 	_shown_money = new_money
 	_refresh_hub_info()
 	_refresh_side_bet_affordability()
+	_refresh_repair_bay()  # Ableiten und Reparieren kosten Geld
 	# Eine offene Umtausch-Geste/-Zeremonie abbrechen: Token entwerten, Geist
 	# verwerfen - die Börse ist bereits endgültig gebucht.
 	_exchange_token += 1
@@ -9463,6 +9510,13 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 			and TableScreen.window_takes_pixel(workshop, workshop.bench_rect(), pixel,
 				is_click, camera_rig.mode == CameraRig.Mode.WORKSHOP, flying):
 		return true
+	# Die REPARATUR-BUCHT: SICHTBAR HEISST BEDIENBAR, keine Stations-Ausnahme -
+	# repariert wird aus jeder Kamera-Lage. Sie mißt an ihrer ECHTEN Liste.
+	var bay: RepairBayView = table_screen.repair_bay_window
+	if bay != null and is_instance_valid(bay) \
+			and TableScreen.window_takes_pixel(bay, bay.bay_rect(), pixel, is_click,
+				camera_rig.mode == CameraRig.Mode.REPAIR, flying):
+		return true
 	# Der Laden RÄUMT AB: seine Seite steht noch, ist aber tot - kein Kauf aus einem
 	# schließenden Laden. Sie deckt den ganzen Hub, also schweigt der ganze Hub.
 	if charm_shop != null and is_instance_valid(charm_shop) and charm_shop.leaving():
@@ -9563,6 +9617,8 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		station = CameraRig.Mode.SLOTS
 	elif collider == workshop_click_zone:
 		station = CameraRig.Mode.WORKSHOP
+	elif collider == repair_click_zone:
+		station = CameraRig.Mode.REPAIR
 	elif collider == score_click_zone:
 		station = CameraRig.Mode.SCORE
 	elif collider == chips_click_zone:
@@ -9931,12 +9987,22 @@ func _sync_screen_action_buttons() -> void:
 ## projizierten Stelle, mit der Augenzahl, die oben lag. Die Würfel des LETZTEN
 ## Wurfs blinken - sie haben den Fumble ausgelöst.
 func _show_fumble_marks() -> void:
+	# Welcher Slot beim Fumble +1 bekam - und welcher dabei durchbrannte.
+	var charged := {}
+	var burned := {}
+	for change in _last_fumble_charges:
+		var slot := int(change.get("slot", -1))
+		charged[slot] = true
+		if bool(change.get("burned", false)):
+			burned[slot] = true
 	var marks: Array[Dictionary] = []
 	for i in _visible_pit_slots():
 		marks.append({
 			"pixel": table_screen.world_to_pixel(dice.bodies[i].global_position),
 			"value": dice.values[i],
 			"fresh": last_thrown_slots.has(i),
+			"charged": charged.has(i),
+			"burned": burned.has(i),
 		})
 	table_screen.show_fumble_marks(marks, _die_pixel_side())
 
@@ -10127,6 +10193,9 @@ func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 func _sync_editing_lock() -> void:
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.editing_locked = _dice_editing_locked()
+	# Die REPARATUR-BUCHT ist offen, solange die Werkstatt es ist.
+	if table_screen != null and table_screen.repair_bay_window != null:
+		table_screen.repair_bay_window.set_enabled(not _dice_editing_locked())
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -11180,10 +11249,6 @@ func _on_farkle(forgivable: bool = true) -> void:
 	_log_record_farkle()
 	if table_screen != null:
 		table_screen.pit_fumble()
-		# Beim Fumble fliegen die Würfel zu schnell weg, um sie zu lesen: an ihrer
-		# Stelle bleibt der Umriss samt Augenzahl stehen. Vor dem Verwerfen - der
-		# Phönixfeder-Zweig nimmt sie genauso mit.
-		_show_fumble_marks()
 
 	# Ein verziehener Farkle (oben) zählt bewusst NICHT gegen die "Saubere Runde".
 	round_farkled = true
@@ -11201,6 +11266,12 @@ func _on_farkle(forgivable: bool = true) -> void:
 	# LADUNG: der echte Fumble heizt die ganze Hand - erzwungenes +1 auf jeden
 	# Würfel, der in der Grube liegt. Ein verziehener Fumble kommt nie hierher.
 	_last_fumble_charges = run.charge_fumble_dice(active_kinds)
+	# Beim Fumble fliegen die Würfel zu schnell weg, um sie zu lesen: an ihrer
+	# Stelle bleibt der Umriss samt Augenzahl stehen. NACH der Ladungs-Buchung -
+	# die Umrisse tragen sie mit. Vor dem Verwerfen; der Phönixfeder-Zweig nimmt
+	# sie genauso mit.
+	if table_screen != null:
+		_show_fumble_marks()
 	momentum_streak = 0
 	_update_charm_badges()
 	first_hand_after_farkle = true
@@ -11762,6 +11833,9 @@ func _play_die_links(links: Array, slot: int, die_px: Vector2, gain_px: Vector2,
 func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array) -> bool:
 	var die_charm_indices: Array = pulse.get("die_charm_indices", [])
 	_flash_scoring_die(slot)
+	# LADUNG: die Zündung, die lädt, hebt seine Stufe; die, die ihn durchbrennt,
+	# entlädt sich in die Grubenwände. Gebucht ist beides längst.
+	_play_charge_beat(pulse, slot)
 	# Geld, das DIESE Zündung erzeugt, fliegt sofort los - eine Neon-Seele mit
 	# zwei Auslösungen zahlt ihr erstes Paket vor ihrer zweiten Zündung.
 	_fire_die_money(die_px, int(pulse.get("money", 0)))
@@ -11831,6 +11905,172 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 	if pulse.has("value_after"):
 		_play_eye_pips(pulse, slot, die_px)
 	return true
+
+# --- Die REPARATUR-BUCHT ---------------------------------------------------------
+# Gebucht wird in GameRun, SOFORT beim Klick; erst danach fliegt das Licht
+# (Buchung vor dem Licht). Die Bucht selbst faßt nichts an und bucht nichts.
+
+## Zieht die Liste der Bucht nach (Vorrat, Börse, Sperre) - idempotent, das
+## Fenster baut nur bei echtem Wechsel neu.
+func _refresh_repair_bay() -> void:
+	var bay: RepairBayView = table_screen.repair_bay_window if table_screen != null else null
+	if bay == null or not is_instance_valid(bay):
+		return
+	bay.refresh()
+	# Die Liste wächst nach unten, also wandert das Rechteck: Klickzone und
+	# Kamera-Rahmen ziehen mit, sonst schluckte die unterste Zeile jeden Klick.
+	var height := bay.bay_rect().size.y
+	if is_equal_approx(height, _repair_bay_height):
+		return
+	_repair_bay_height = height
+	_place_repair_zone()
+
+## Der Zell-Platz eines Falls in Display-Pixeln (Ziel der Kometen); leer, wenn die
+## Bucht ihn nicht (mehr) führt.
+func _repair_case_px(die: DieDefinition) -> Vector2:
+	var bay: RepairBayView = table_screen.repair_bay_window if table_screen != null else null
+	if bay == null or not is_instance_valid(bay):
+		return Vector2.ZERO
+	var index := bay.cases().find(die)
+	var rects := bay.case_rects()
+	if index < 0 or index >= rects.size():
+		return bay.bay_rect().get_center()
+	return rects[index].get_center()
+
+func _on_repair_requested(die: DieDefinition) -> void:
+	if run == null:
+		return
+	var price := run.repair_price()
+	var target := _repair_case_px(die)
+	if not run.repair_die(die):
+		return
+	# Der Ruß fällt bei der ANKUNFT des Lichts - gebucht ist er längst.
+	if price.has("money"):
+		_fly_repair_money(die, target)
+	else:
+		_fly_repair_energy(die, target)
+
+func _on_drain_requested(die: DieDefinition) -> void:
+	if run == null:
+		return
+	var target := _repair_case_px(die)
+	if not run.drain_die(die):
+		return
+	_fly_repair_money(die, target)
+
+func _on_discharge_all_requested() -> void:
+	if run == null:
+		return
+	# Wer JETZT heiß steht, blitzt gleich - nach der Buchung steht alles auf 0.
+	var hot: Array[DieDefinition] = []
+	for die in run.owned_pool:
+		if die != null and not die.burned_out and die.charge > 0:
+			hot.append(die)
+	var target := Vector2.ZERO
+	var bay: RepairBayView = table_screen.repair_bay_window if table_screen != null else null
+	if bay != null and is_instance_valid(bay):
+		target = bay.bay_rect().get_center()
+	if not run.discharge_all():
+		return
+	_fly_repair_energy(null, target, hot)
+
+## ⚡ aus der KONDENSATORBANK zur Bucht - dieselbe Börse, aus der das Übertakten
+## zahlt. Bei Ankunft pulst die Bank und die betroffenen Würfel blitzen.
+func _fly_repair_energy(die: DieDefinition, to_px: Vector2,
+		extra: Array[DieDefinition] = []) -> void:
+	var guard := run
+	var travel := table_screen.energy_comet(to_px, CasinoStyle.ENERGY) \
+		if table_screen != null else 0.0
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != guard:
+		return
+	if capacitor_bank != null and is_instance_valid(capacitor_bank):
+		capacitor_bank.pulse()
+	_flash_repaired_dice(die, extra)
+
+## Geld aus dem SCHATZ zur Bucht (Ableiten, Isolierband-Reparatur).
+func _fly_repair_money(die: DieDefinition, to_px: Vector2) -> void:
+	var guard := run
+	var travel := table_screen.money_comet(false, TableScreen.SIDE_MONEY_COLOR) \
+		if table_screen != null else 0.0
+	if travel > 0.0:
+		await get_tree().create_timer(travel).timeout
+	if run != guard:
+		return
+	_flash_repaired_dice(die, [])
+
+## Der Blitz am Vorrats-Würfel: er zeigt den GEBUCHTEN Stand längst, das Licht
+## quittiert ihn nur. Ein Würfel ohne Körper (versenkter Vorrat) bleibt still.
+func _flash_repaired_dice(die: DieDefinition, extra: Array[DieDefinition]) -> void:
+	if pool_tray_view == null:
+		return
+	for i in pool_tray_view.slot_defs.size():
+		var seated: DieDefinition = pool_tray_view.slot_defs[i]
+		if seated == null or (seated != die and not extra.has(seated)):
+			continue
+		var display: DieFaceDisplay = pool_tray_view.slot_face_displays[i]
+		if display != null:
+			display.flash_charge(CHARGE_FLASH_STRENGTH)
+
+## Das ENTLADEN am Rundenende: die betroffenen Vorrats-Würfel zeigen kurz ihre
+## ALTE Stufe (gebucht ist die neue längst), blitzen gedimmt in Ladungsfarbe und
+## fallen dann auf den gebuchten Stand zurück. Steht der Vorrat nicht im Bild,
+## spielt nichts - eine Maschine, die keiner sieht, hat nicht gespielt.
+func _play_cooling_ceremony(defs: Array[DieDefinition]) -> void:
+	if defs.is_empty() or pool_tray_view == null or not pool_tray_view.visible:
+		return
+	var guard := run
+	var lit: Array[DieFaceDisplay] = []
+	for i in pool_tray_view.slot_defs.size():
+		var def: DieDefinition = pool_tray_view.slot_defs[i]
+		if def == null or not defs.has(def):
+			continue
+		var display: DieFaceDisplay = pool_tray_view.slot_face_displays[i]
+		if display == null:
+			continue
+		display.set_charge_override(mini(def.charge + 1, DieDefinition.CHARGE_MAX), false)
+		display.flash_charge(COOLING_FLASH_STRENGTH)
+		lit.append(display)
+	if lit.is_empty():
+		return
+	await get_tree().create_timer(COOLING_TIME).timeout
+	if run != guard:
+		return
+	for display in lit:
+		if is_instance_valid(display):
+			display.clear_charge_override()
+
+## Die LADUNG einer Zündung, rein visuell: der Override zeigt den Stand, den die
+## Aufschlüsselung an dieser Stelle hat - der GEBUCHTE Stand steht schon in der Def
+## und übernimmt am Ende der Zeremonie (clear_charge_override). Ein abgebrochener
+## Tween schuldet damit nichts.
+func _play_charge_beat(pulse: Dictionary, slot: int) -> void:
+	if slot < 0 or slot >= dice.count():
+		return
+	var display: DieFaceDisplay = dice.face_displays[slot]
+	if display == null:
+		return
+	if bool(pulse.get("burned", false)):
+		# DIE DURCHBRENN-ZEREMONIE: Einschlag in die Grubenwände, der Rundenpuls
+		# stottert wie beim Fumble, dann fällt der Würfel dunkel.
+		if dice_pit != null:
+			dice_pit.slam(CHARGE_BURN_SLAM)
+		if table_screen != null:
+			table_screen.pit_flinch()
+		display.set_charge_override(0, true)
+		return
+	if not bool(pulse.get("charge_up", false)):
+		return
+	display.set_charge_override(int(pulse.get("charge_after", 0)), false)
+	display.flash_charge(CHARGE_FLASH_STRENGTH)
+
+## Nach der Zeremonie: der Def-Stand übernimmt an JEDEM Grubenwürfel.
+func _clear_charge_overrides() -> void:
+	for i in dice.count():
+		var display: DieFaceDisplay = dice.face_displays[i]
+		if display != null:
+			display.clear_charge_override()
 
 ## Augen-Pips einer Zündung. Drei Volleys im PHYSISCHEN Bereich: erst die eigene
 ## Wandlung (Knochen wächst, Glas schrumpft, Helium hebt), dann der Miasma-
@@ -12224,6 +12464,7 @@ func _cleanup_take_animation() -> void:
 	_score_pending = 0
 	_eye_tick_applied.clear()
 	_eye_planned.clear()
+	_clear_charge_overrides()
 	table_screen.reset_pit_score()
 
 ## Startpunkt des Zähl-Kometen eines Charm-Schritts: das Kontakt-Pad des ersten
@@ -12590,6 +12831,14 @@ func _connect_run() -> void:
 			table_screen.workshop_window.die_returned.connect(_on_die_returned)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
+	# Die REPARATUR-BUCHT liest denselben Lauf - sie bucht nichts, scene_root tut es.
+	if table_screen != null and table_screen.repair_bay_window != null:
+		var bay := table_screen.repair_bay_window
+		if not bay.repair_requested.is_connected(_on_repair_requested):
+			bay.repair_requested.connect(_on_repair_requested)
+			bay.drain_requested.connect(_on_drain_requested)
+			bay.discharge_all_requested.connect(_on_discharge_all_requested)
+		bay.set_run(run)
 	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
 	if shop_vitrine != null and is_instance_valid(shop_vitrine):
 		shop_vitrine.clear()
@@ -12678,6 +12927,7 @@ func _on_energy_changed(value: int) -> void:
 	_sync_capacitor()
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 	_refresh_side_bet_affordability()
+	_refresh_repair_bay()  # die Knöpfe der Bucht dimmen sich mit
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.refresh_if_idle()  # der Einsatz kostet ⚡
 
@@ -12974,6 +13224,9 @@ func _on_round_complete() -> void:
 		# LADUNG: was diese Runde nicht gewertet hat, kühlt eine Stufe ab -
 		# gebucht VOR der Auszahlung.
 		_last_cooled_dice = run.cool_unplayed_dice()
+		await _play_cooling_ceremony(_last_cooled_dice)
+		if phase != Phase.PAYOUT:
+			return  # Reset während des Entladens
 		# Füllhorn: die Prämie hängt am BALKEN, also an den geräumten Stufen -
 		# gebucht hier, gezeigt an seinem Dock-Platz.
 		_encore_packs = run.apply_encore(stages)
@@ -13908,6 +14161,7 @@ func _on_pool_changed() -> void:
 		_sync_fach_nets()
 	if _deck_glass:
 		_show_deck_glass_window()  # das Raster auf dem Glas folgt der Buchung
+	_refresh_repair_bay()
 
 ## Shop geschlossen. Beim ERSTEN Mal beginnt damit die nächste Runde; ein
 ## Wieder-Eintritt (Hub-Knopf) macht beim Schließen nur die Anzeige zu. Nur der

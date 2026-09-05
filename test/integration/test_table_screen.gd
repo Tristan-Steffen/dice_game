@@ -236,6 +236,32 @@ func test_the_fumble_leaves_an_outline_per_discarded_die():
 	assert_eq(calm_box.border_color, TableScreen.FUMBLE_MARK_CALM,
 		"der schon liegende Würfel steht blass daneben")
 
+## Der Fumble LÄDT die ganze Hand: der Umriss eines geladenen Würfels steht in
+## Ladungsfarbe und BLINKT (das +1 ist frisch), ein durchgebrannter in Ruß.
+func test_the_fumble_outline_carries_the_charge():
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	var marks: Array[Dictionary] = [
+		{"pixel": Vector2(300, 350), "value": 5, "fresh": false, "charged": true},
+		{"pixel": Vector2(400, 350), "value": 3, "fresh": false, "charged": true,
+			"burned": true},
+		{"pixel": Vector2(500, 400), "value": 2, "fresh": false},
+	]
+	screen.show_fumble_marks(marks, 40.0)
+	var built := _fumble_marks()
+	var charged: StyleBoxFlat = (built[0] as Panel).get_theme_stylebox("panel")
+	assert_eq(charged.border_color, TableScreen.FUMBLE_MARK_CHARGED,
+		"geladen steht er in Ladungsfarbe")
+	var burned: StyleBoxFlat = (built[1] as Panel).get_theme_stylebox("panel")
+	assert_eq(burned.border_color, TableScreen.FUMBLE_MARK_BURNED,
+		"durchgebrannt in Ruß - die Ladung schlägt den Wurf-Ton")
+	var calm: StyleBoxFlat = (built[2] as Panel).get_theme_stylebox("panel")
+	assert_eq(calm.border_color, TableScreen.FUMBLE_MARK_CALM,
+		"wen der Fumble nicht anfaßte, steht blass daneben")
+	# Der Blinktakt hängt am Umriss selbst - geladen blinkt wie frisch geworfen.
+	await wait_seconds(TableScreen.FUMBLE_MARK_BLINK)
+	assert_lt((built[0] as Panel).modulate.a, 0.9, "der geladene blinkt")
+	assert_almost_eq((built[2] as Panel).modulate.a, 1.0, 0.001, "der ruhige nicht")
+
 func test_the_fumble_outlines_go_with_the_rest_of_the_pit():
 	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
 	var marks: Array[Dictionary] = [{"pixel": Vector2(300, 350), "value": 5, "fresh": true}]
@@ -255,6 +281,20 @@ func test_pit_window_shares_the_one_window_look():
 	assert_eq(pit_style.bg_color, shared.bg_color)
 	assert_eq(pit_style.border_color, shared.border_color)
 	assert_eq(pit_style.border_width_top, shared.border_width_top)
+
+## Die REPARATUR-BUCHT wird gestellt wie jedes andere Fenster - aber sie ist,
+## wie der Werkstatt-Streifen, KEIN Glas-Fenster: sie liegt auf dem Filz.
+func test_the_repair_bay_is_placed_but_is_no_glass_window():
+	var material := mesh.material_override as ShaderMaterial
+	var before: int = material.get_shader_parameter("window_count")
+	var rect := Rect2(Vector2(1200, 900), Vector2(400, 500))
+	screen.place_repair_bay(rect)
+	assert_not_null(screen.repair_bay_window, "die Bucht steht im Baum")
+	assert_eq(screen.repair_bay_window.position, rect.position, "auf dem gemeldeten Platz")
+	assert_eq(screen.repair_bay_window.size, rect.size)
+	assert_true(screen.repair_bay_window.visible, "und sichtbar")
+	assert_eq(int(material.get_shader_parameter("window_count")), before,
+		"kein Glas-Fenster - ihre Teile liegen auf dem Filz")
 
 func test_glass_gets_the_window_rects_for_reflection_masking():
 	# NUR die Fenster spiegeln (der Filz dazwischen nicht): das Glas-Material

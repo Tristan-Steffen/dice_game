@@ -618,3 +618,29 @@ func test_the_die_focus_pose_shows_three_faces() -> void:
 	assert_almost_eq(basis.get_scale(), Vector3.ONE, Vector3.ONE * 0.001,
 		"eine reine Drehung, keine Skalierung")
 	assert_ne(basis, CameraRig.ZOOM_BASIS, "und sie ist gegen die Kamera verdreht")
+
+# --- Die REPARATUR-BUCHT ---------------------------------------------------------
+## Sie ist eine STATION wie jede andere: eigener Blickpunkt, eigener Abstand aus
+## dem gemeldeten Rechteck (die geneigte Rechnung der weiten Werkbank-Sicht).
+
+func test_the_repair_bay_is_a_station_with_its_own_target() -> void:
+	assert_true(CameraRig.is_station(CameraRig.Mode.REPAIR), "REPAIR ist eine Station")
+	rig.configure_repair_target(Vector3(-24.0, 0.0, 34.0), Vector2(5.0, 7.0))
+	assert_eq(rig.station_target(CameraRig.Mode.REPAIR), Vector3(-24.0, 0.0, 34.0),
+		"und zoom_to findet ihren Blickpunkt")
+	rig.zoom_to(CameraRig.Mode.REPAIR)
+	assert_eq(rig.mode, CameraRig.Mode.REPAIR, "die Fahrt setzt den Modus")
+
+func test_zero_keeps_the_measured_repair_extent() -> void:
+	# Die Klickzone meldet nur den Punkt - dieselbe Konvention wie die Werkbank.
+	rig.configure_repair_target(Vector3(-24.0, 0.0, 34.0), Vector2(5.0, 7.0))
+	var half := rig.repair_half
+	rig.configure_repair_target(Vector3(-20.0, 0.0, 30.0))
+	assert_eq(rig.repair_half, half, "ZERO läßt das gemessene Maß stehen")
+	assert_eq(rig.repair_target, Vector3(-20.0, 0.0, 30.0), "der Punkt wandert trotzdem")
+
+func test_the_repair_distance_grows_with_the_bay() -> void:
+	rig.configure_repair_target(Vector3(-24.0, 0.0, 34.0), Vector2(4.0, 6.0))
+	var near := rig.repair_distance()
+	rig.configure_repair_target(Vector3(-24.0, 0.0, 34.0), Vector2(8.0, 12.0))
+	assert_gt(rig.repair_distance(), near, "eine längere Liste braucht mehr Abstand")

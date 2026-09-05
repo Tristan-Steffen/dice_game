@@ -134,3 +134,57 @@ func test_die_zellen_nennen_ihre_seele_im_tooltip() -> void:
 	await wait_frames(2)
 	assert_true(fresh.grid().tiles[3].tooltip_text.contains(
 		Essence.by_id(Essence.NEON).display_name), "die Seele steht an der Kachel")
+
+# --- Die LADUNG als FARBSTUFE ------------------------------------------------------
+# Jede Kachel trägt ihre Ladung als Saum und Außenschein, durchgebrannte stehen
+# dunkel mit gedimmtem Netz - so sortiert der Spieler den Vorrat nach Ladung, ohne
+# jeden Würfel anzusehen.
+
+func _box(index: int) -> StyleBoxFlat:
+	return view.grid().tiles[index].get_theme_stylebox("normal")
+
+func test_die_kachel_traegt_die_ladung_als_farbstufe() -> void:
+	run.owned_pool[1].charge = 1
+	run.owned_pool[2].charge = 3
+	view.show_pool(view.title(), run.owned_pool, 6)
+	await wait_frames(2)
+	var cold := _box(0)
+	var warm := _box(1)
+	var hot := _box(2)
+	assert_gt(warm.border_color.b, cold.border_color.b, "Glimmen zieht ins Violett")
+	assert_gt(hot.border_color.b, warm.border_color.b, "und der Überschlag weiter")
+	assert_eq(cold.shadow_size, 0, "kalt trägt keinen Schein")
+	assert_gt(hot.shadow_color.a, warm.shadow_color.a, "die Stufe trägt den Schein")
+
+func test_die_durchgebrannte_kachel_steht_dunkel() -> void:
+	run.owned_pool[3].burn_out()
+	view.show_pool(view.title(), run.owned_pool, 6)
+	await wait_frames(2)
+	var burned := _box(3)
+	assert_lt(burned.bg_color.get_luminance(), _box(0).bg_color.get_luminance(),
+		"tot, nicht heiß")
+	assert_eq(burned.shadow_size, 0, "und ohne jeden Schein")
+	var tile: Button = view.grid().tiles[3]
+	var net: Control = tile.get_child(0).get_child(0)
+	assert_eq(net.modulate, DiceGridView.BURNED_NET_DIM, "das Netz ist gedimmt")
+
+## Das Raster prüft seine Frische am INHALT - die Ladung gehört dazu, sonst bliebe
+## die Kachel auf ihrer alten Stufe stehen.
+func test_eine_geaenderte_ladung_baut_das_raster_neu() -> void:
+	await wait_frames(2)
+	var before := _box(2).border_color
+	run.owned_pool[2].charge = 3
+	view.show_pool(view.title(), run.owned_pool, 6)
+	await wait_frames(2)
+	assert_ne(_box(2).border_color, before, "die Signatur sieht die Ladung")
+
+## Seele UND Ladung kommen aus der EINEN Quelle (hint_for) - nichts steht doppelt.
+func test_der_tooltip_nennt_die_ladung_und_die_seele_genau_einmal() -> void:
+	run.owned_pool[4].essence_id = Essence.NEON
+	run.owned_pool[4].charge = 2
+	view.show_pool(view.title(), run.owned_pool, 6)
+	await wait_frames(2)
+	var text: String = view.grid().tiles[4].tooltip_text
+	var soul: String = Essence.by_id(Essence.NEON).display_name
+	assert_eq(text.count(soul), 1, "der Seelen-Name steht genau einmal")
+	assert_string_contains(text, DieDefinition.charge_name(2), "und die Ladungs-Stufe dabei")

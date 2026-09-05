@@ -7,7 +7,7 @@ extends Camera3D
 ## Das leichte Maus-Rundschauen läuft überall außer an den drei Stationen, deren
 ## Fenster das Bild füllt (Hub, Werkstatt, Titel) - dort verschöbe es nur.
 
-enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
+enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE, REPAIR }
 
 signal mode_changed(new_mode: Mode)
 
@@ -113,6 +113,10 @@ var workshop_wide_half := Vector2(12.0, 14.0)
 ## Welt-Z, y = entlang Welt-X) - wie beim Titel aus den echten Rechtecken.
 var workshop_close_target := Vector3(-24, 0, 22)
 var workshop_close_half := Vector2(12.0, 10.0)
+## Die REPARATUR-BUCHT rechts neben dem Werkstatt-Streifen: Blickpunkt und halbe
+## Ausmaße, aus denen ihr Abstand fällt (wie die weite Werkbank-Sicht).
+var repair_target := Vector3(-24, 0, 34)
+var repair_half := Vector2(6.0, 8.0)
 ## Steht die Werkbank in der Nahsicht? Dort steht die Kamera zusätzlich STILL.
 var workshop_close: bool = false
 ## Steht die Nahsicht auf einem schwebenden WÜRFEL? Sie ist ein TEMPORÄRER Rahmen
@@ -431,6 +435,18 @@ func configure_workshop_target(target: Vector3, half_extent := Vector2.ZERO) -> 
 	if half_extent.x > 0.0 and half_extent.y > 0.0:
 		workshop_wide_half = half_extent
 
+## Die Reparatur-Bucht - ZERO heißt "das zuletzt gemessene Maß behalten", wie bei
+## der Werkbank (die Klickzone meldet nur den Punkt).
+func configure_repair_target(target: Vector3, half_extent := Vector2.ZERO) -> void:
+	repair_target = target
+	if half_extent.x > 0.0 and half_extent.y > 0.0:
+		repair_half = half_extent
+
+## Abstand der Bucht: dieselbe geneigte Rechnung wie die weite Werkbank-Sicht -
+## ihre untere Kante steht näher an der Kamera und bildet sich größer ab.
+func repair_distance() -> float:
+	return maxf(WORKSHOP_MIN_DISTANCE, tilted_fit_distance(repair_half, WORKSHOP_WIDE_MARGIN))
+
 func configure_workshop_close_target(center: Vector3, half_extent: Vector2) -> void:
 	workshop_close_target = center
 	workshop_close_half = half_extent
@@ -578,6 +594,8 @@ func station_target(target_mode: Mode) -> Vector3:
 			return chips_target
 		Mode.WORKSHOP:
 			return workshop_target
+		Mode.REPAIR:
+			return repair_target
 	return Vector3.ZERO
 
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
@@ -596,6 +614,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.WORKSHOP:
 		distance = workshop_wide_distance()
+	if target_mode == Mode.REPAIR:
+		distance = repair_distance()
 	# Das höchste Fenster des Tisches: sein Abstand wird gerechnet, nicht gesetzt.
 	if target_mode == Mode.HUB:
 		distance = hub_distance()

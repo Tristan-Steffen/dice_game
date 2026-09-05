@@ -194,6 +194,8 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: 
 
 	var cell := u * DETAIL_CELL
 	var net := DieNetView.build(def, -1, cell)
+	if def.burned_out:
+		net.modulate = BURNED_NET_DIM  # tot, nicht heiß
 	center.add_child(net)
 
 	var total := DieNetView.total_badge(def, cell)
@@ -208,11 +210,32 @@ const SOUL_BORDER_U := 0.45
 const PLAIN_BORDER_U := 0.2
 const SOUL_GLOW_ALPHA := 0.35
 
+## Die LADUNG als FARBSTUFE über der Seelen-Grundlage: der Saum wandert stufenweise
+## in die Ladungsfarbe und bekommt ihren Außenschein - so sortiert der Spieler den
+## Vorrat nach Ladung, ohne jeden Würfel anzusehen. EINE Farbquelle ist der Würfel
+## selbst (DieFaceDisplay.CHARGE_COLOR).
+const CHARGE_TINT := DieFaceDisplay.CHARGE_COLOR
+const CHARGE_STEPS := [0.0, 0.35, 0.7, 1.0]
+const CHARGE_GLOW_ALPHA := 0.55
+## Durchgebrannt: dunkle Kachel, matter Saum, gedimmtes Netz.
+const BURNED_BG := Color("#17141fff")
+const BURNED_BORDER := Color(0.32, 0.29, 0.31)
+const BURNED_NET_DIM := Color(0.45, 0.42, 0.45, 1.0)
+
 ## Kachel-Saum: gold für das aktuelle Ziel, sonst das Essenzglühen
 ## bzw. Cyan bei normalen Würfeln - Spezialwürfel sind so vor Versehen geschützt.
 ## Eine Seele trägt zusätzlich dickeren Saum, Außenschein und getönten Grund; der
 ## Gold-Saum des Ziels gewinnt weiterhin, die Dicke bleibt.
 func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
+	tile.add_theme_color_override("font_color", GOLD if highlighted else TEXT_COLOR)
+	tile.add_theme_stylebox_override("normal", tile_box(def, u, highlighted))
+	tile.add_theme_stylebox_override("hover", box(u, Color("#2c2757ff"), GOLD))
+	tile.add_theme_stylebox_override("pressed", box(u, Color("#3a2f66"), GOLD))
+	tile.add_theme_stylebox_override("focus", tile_box(def, u, highlighted))
+
+## Die FASSUNG einer Würfel-Kachel als reine Funktion - EINE Quelle für das
+## Raster der Glas-Ansicht UND für die Zellen der Reparatur-Bucht.
+static func tile_box(def: DieDefinition, unit: float, highlighted: bool) -> StyleBoxFlat:
 	var accent := CYAN
 	var souled := def.essence_id != ""
 	var glow := Color.TRANSPARENT
@@ -231,11 +254,21 @@ func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 		bg = Color(tinted.r, tinted.g, tinted.b, bg.a)
 	var width_u := SOUL_BORDER_U if souled else PLAIN_BORDER_U
 	var glow_alpha := SOUL_GLOW_ALPHA if souled else 0.0
-	tile.add_theme_color_override("font_color", GOLD if highlighted else TEXT_COLOR)
-	tile.add_theme_stylebox_override("normal", _box(bg, border, width_u, glow_alpha))
-	tile.add_theme_stylebox_override("hover", _box(Color("#2c2757ff"), GOLD))
-	tile.add_theme_stylebox_override("pressed", _box(Color("#3a2f66"), GOLD))
-	tile.add_theme_stylebox_override("focus", _box(bg, border, width_u, glow_alpha))
+	# Die LADUNG legt sich ALS ZWEITER SAUM über die Seelen-Grundlage; Ruß nimmt
+	# beides zurück (der Würfel ist tot, nicht heiß).
+	if def.burned_out:
+		if not highlighted:
+			border = BURNED_BORDER  # der Gold-Saum des Ziels gewinnt weiterhin
+		bg = BURNED_BG
+		width_u = PLAIN_BORDER_U
+		glow_alpha = 0.0
+	elif def.charge > 0:
+		var heat := float(CHARGE_STEPS[clampi(def.charge, 0, DieDefinition.CHARGE_MAX)])
+		if not highlighted:
+			border = border.lerp(CHARGE_TINT, heat)
+		width_u = maxf(width_u, SOUL_BORDER_U * heat)
+		glow_alpha = maxf(glow_alpha, CHARGE_GLOW_ALPHA * heat)
+	return box(unit, bg, border, width_u, glow_alpha)
 
 ## Tooltip: Name, Augensumme, Seiten (aufsteigend) und Material-Seiten.
 func _describe(def: DieDefinition) -> String:
@@ -248,9 +281,11 @@ func _describe(def: DieDefinition) -> String:
 		parts.append(str(v))
 	var text := "%s\nAugensumme %d\nSeiten: %s" % [
 		def.display_name, DiceRowView.eye_total(def), " ".join(parts)]
-	if Essence.is_valid_id(def.essence_id):
-		var essence := Essence.by_id(def.essence_id)
-		text += "\n%s" % essence.display_name
+	# Seele UND Ladung kommen aus der EINEN Quelle - der Kanten-Chip erklärt beide,
+	# und ein zweiter Seelen-Name stünde sonst doppelt.
+	var edge := DieNetView.hint_for(def, DieNetView.EDGE)
+	if edge != "":
+		text += "\n%s" % edge
 	return text
 
 ## Leerer Platz: stiller Platzhalter, damit das Raster die Lücken spiegelt.
@@ -266,14 +301,16 @@ func _empty_tile() -> Control:
 	cell.add_theme_stylebox_override("panel", box)
 	return cell
 
-func _box(bg: Color, border: Color, width_u := PLAIN_BORDER_U, glow_alpha := 0.0) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * width_u)))
-	box.set_corner_radius_all(int(u * 0.7))
-	box.set_content_margin_all(int(u * 0.3))
+## Die eine Kachel-Fassung, in Einheiten von unit gerechnet.
+static func box(unit: float, bg: Color, border: Color, width_u := PLAIN_BORDER_U,
+		glow_alpha := 0.0) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.set_border_width_all(maxi(1, int(unit * width_u)))
+	style.set_corner_radius_all(int(unit * 0.7))
+	style.set_content_margin_all(int(unit * 0.3))
 	if glow_alpha > 0.0:
-		box.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
-		box.shadow_size = maxi(1, int(u * 0.6))
-	return box
+		style.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
+		style.shadow_size = maxi(1, int(unit * 0.6))
+	return style
