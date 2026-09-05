@@ -355,7 +355,7 @@ func test_pack_stake_label_names_type_and_size():
 		Pack.amount_phrase(Pack.TYPE_MATERIAL, Pack.TIER_GROSS, 2),
 		"und zwar aus der EINEN Quelle")
 
-func test_tax_and_charge_stake_labels():
+func test_tax_and_energy_stake_labels():
 	assert_eq(_bet("table_fee").stake_label(), "$3 je Hand")
 	assert_eq(_bet("dice_toll").stake_label(), "$1 je Würfel")
 	assert_eq(_bet("feedback_loop").stake_label(), "4 ⚡")
@@ -390,7 +390,7 @@ func test_new_payout_reward_labels():
 	ship.reward_pack_tier = Pack.TIER_KOLOSSAL
 	assert_eq(ship.reward_label(), "1 Kolossales Zahlen-Paket")
 
-## Der Quotenbonus (×2) verdoppelt Geld, Ware und Ladung - Einzelstücke nicht.
+## Der Quotenbonus (×2) verdoppelt Geld, Ware und Energie - Einzelstücke nicht.
 func test_payout_factor_spares_unique_goods():
 	assert_eq(_bet("jackpot").reward_label(2), "$36")
 	var many := _bet("full_house")

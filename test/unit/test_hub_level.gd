@@ -180,26 +180,26 @@ func test_slots_unlock_one_after_another() -> void:
 
 func test_spin_slot_pays_and_gates_on_unlock() -> void:
 	var run := _run(100)
-	run.charge = 5
+	run.energy = 5
 	run.hub_level = 3  # Automat I frei
 	run.slot_bank.fumble_chance = 0.0
 	assert_false(run.can_spin_slot(1), "Automat II noch gesperrt")
 	assert_true(run.can_spin_slot(0))
-	var before := run.charge
+	var before := run.energy
 	run.spin_slot(0)
-	assert_eq(run.charge, before - run.slot_spin_charge(0), "Einsatz abgezogen")
+	assert_eq(run.energy, before - run.slot_spin_energy(0), "Einsatz abgezogen")
 	assert_false(run.slot_bank.can_spin(0), "Automat gedreht")
 
-func test_cannot_spin_slot_without_charge() -> void:
+func test_cannot_spin_slot_without_energy() -> void:
 	var run := _run(100)  # Geld hilft nicht: der Dreh kostet Energie
-	run.charge = 0
+	run.energy = 0
 	run.hub_level = 3
 	assert_false(run.can_spin_slot(0))
 
 func test_redeem_books_run_prizes() -> void:
 	const M := SlotPrize.Kind.MATERIAL
 	const S := SlotPrize.Kind.ENGRAVING
-	const C := SlotPrize.Kind.CHARGE
+	const C := SlotPrize.Kind.ENERGY
 	const D := SlotPrize.Kind.DIE
 	var run := _run(9999)
 	run.hub_level = 9  # alle drei frei

@@ -51,15 +51,15 @@ func _pair_score(charm_ids: Array[String], ctx: Dictionary) -> int:
 
 # --- Tscherenkow-Licht & Steuerstab: der Krit verbrennt Energie -------------------
 
-func test_the_cherenkov_crit_burns_one_charge_per_slam():
+func test_the_cherenkov_crit_burns_one_energy_per_slam():
 	var soul := _ids([Essence.CHERENKOV])
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5), 1.0, 0.0001, "ohne Energie kein Krit")
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 1),
 		EssenceEffects.CHERENKOV_CRIT, 0.0001, "eine Energie reicht für den vollen Schlag")
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, NO_CHARMS, 10),
 		EssenceEffects.CHERENKOV_CRIT, 0.0001, "der Faktor hängt nicht am Speicher")
-	assert_true(EssenceEffects.spends_charge(soul, NO_CHARMS))
-	assert_false(EssenceEffects.spends_charge(_ids([Essence.NEON]), NO_CHARMS))
+	assert_true(EssenceEffects.spends_energy(soul, NO_CHARMS))
+	assert_false(EssenceEffects.spends_energy(_ids([Essence.NEON]), NO_CHARMS))
 
 func test_the_moderator_makes_the_crit_free_and_scales_it():
 	var soul := _ids([Essence.CHERENKOV])
@@ -67,52 +67,52 @@ func test_the_moderator_makes_the_crit_free_and_scales_it():
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, rod, 10), 10.0, 0.0001)
 	assert_almost_eq(EssenceEffects.crit_of(soul, 5, 0, 0, 0, rod, 1), 1.0, 0.0001,
 		"eine Energie ist kein Krit")
-	assert_false(EssenceEffects.spends_charge(soul, rod), "mit Steuerstab kostet er nichts")
+	assert_false(EssenceEffects.spends_energy(soul, rod), "mit Steuerstab kostet er nichts")
 	assert_almost_eq(EssenceEffects.crit_of(_ids([Essence.NEON]), 5, 0, 0, 0, rod, 10),
 		1.0, 0.0001, "der Steuerstab gehört dem Tscherenkow allein")
 
 func test_the_cherenkov_crit_lands_in_the_score():
 	var ctx := _soul_ctx(Essence.CHERENKOV)
 	assert_eq(_pair_score(NO_CHARMS, ctx), 40, "ohne Energie zählt das Paar normal")
-	ctx[DiceScoring.CTX_CHARGE] = 10
+	ctx[DiceScoring.CTX_ENERGY] = 10
 	assert_eq(_pair_score(NO_CHARMS, ctx), 20 * 2 * 8, "×8 an der Zündung des Würfels")
 	assert_eq(_pair_score(_ids([Charm.MODERATOR]), ctx), 20 * 2 * 10, "mit Steuerstab ×(Energie)")
 
 ## Zwei Schläge in einer Hand: das Manometer wiederholt die Seele, jeder
 ## wiederholte Schlag zahlt seine eigene Energie.
-func _cherenkov_double_slam(charge: int, charm_ids: Array[String]) -> Dictionary:
+func _cherenkov_double_slam(energy: int, charm_ids: Array[String]) -> Dictionary:
 	var ctx := _soul_ctx(Essence.CHERENKOV)
-	ctx[DiceScoring.CTX_CHARGE] = charge
+	ctx[DiceScoring.CTX_ENERGY] = energy
 	ctx[DiceScoring.CTX_ESSENCE_SET] = {0: _ids([Essence.CHERENKOV])}
 	var ids := _ids([Charm.PRESSURE_GAUGE])
 	ids.append_array(charm_ids)
 	return ScoreBreakdown.build(PAIR, _d([5, 5]), ids, false, _m(["", ""]), {}, ctx)
 
-func test_two_slams_spend_two_charges():
+func test_two_slams_spend_two_energys():
 	var out := _cherenkov_double_slam(3, _ids([]))
-	assert_eq(int(out["charge_spent"]), 2, "zwei Schläge, zwei Energie")
+	assert_eq(int(out["energy_spent"]), 2, "zwei Schläge, zwei Energie")
 	assert_eq(int(out["total"]), 20 * 2 * 8 * 8, "beide Schläge voll")
 
-func test_the_last_charge_ends_the_slams():
+func test_the_last_energy_ends_the_slams():
 	var out := _cherenkov_double_slam(1, _ids([]))
-	assert_eq(int(out["charge_spent"]), 1, "mehr war nicht da")
+	assert_eq(int(out["energy_spent"]), 1, "mehr war nicht da")
 	assert_eq(int(out["total"]), 20 * 2 * 8, "der zweite Schlag fällt aus")
 
 func test_an_empty_bank_pays_and_costs_nothing():
 	var out := _cherenkov_double_slam(0, _ids([]))
-	assert_eq(int(out["charge_spent"]), 0)
+	assert_eq(int(out["energy_spent"]), 0)
 	assert_eq(int(out["total"]), 40, "kein Krit, keine Kosten")
 
 func test_the_moderator_slams_for_free():
 	var out := _cherenkov_double_slam(10, _ids([Charm.MODERATOR]))
-	assert_eq(int(out["charge_spent"]), 0, "der Steuerstab zahlt nie")
+	assert_eq(int(out["energy_spent"]), 0, "der Steuerstab zahlt nie")
 	assert_eq(int(out["total"]), 20 * 2 * 10 * 10, "beide Schläge ×10")
 
 # --- Standby-Licht, Kilometerzähler, Flaschenregal: statische Mult-Charms ----------
 
-func test_the_standby_light_pays_per_stored_charge():
+func test_the_standby_light_pays_per_stored_energy():
 	assert_eq(_pair_score(_ids([Charm.STANDBY_LIGHT]), {}), 40, "leerer Speicher, leerer Charm")
-	assert_eq(_pair_score(_ids([Charm.STANDBY_LIGHT]), {DiceScoring.CTX_CHARGE: 4}),
+	assert_eq(_pair_score(_ids([Charm.STANDBY_LIGHT]), {DiceScoring.CTX_ENERGY: 4}),
 		20 * (2 + 4 * CharmEffects.STANDBY_LIGHT_MULT))
 
 func test_the_odometer_counts_the_played_rounds():
@@ -450,7 +450,7 @@ func test_the_radiation_lands_on_top_of_the_simulated_running_value():
 func test_the_breakdown_mirrors_every_new_source():
 	var ctx := {
 		DiceScoring.CTX_ESSENCES: {0: Essence.CHERENKOV, 1: Essence.FOXFIRE},
-		DiceScoring.CTX_CHARGE: 5,
+		DiceScoring.CTX_ENERGY: 5,
 		DiceScoring.CTX_ROUND: 4,
 		DiceScoring.CTX_HANDS_TAKEN: 2,
 		DiceScoring.CTX_FUMBLES: 1,

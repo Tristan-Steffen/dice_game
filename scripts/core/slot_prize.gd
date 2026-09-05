@@ -8,7 +8,7 @@ extends RefCounted
 ## Die drei Gravur-Sorten sind EIGENE Symbole (Zahlen/Material/Würfel) - dieselbe
 ## Dreiteilung wie Pakete im Laden und Schubladen an der Werkbank. Geld verdient
 ## man an den Runden, nicht am Automaten: ausgezahlt wird Ware oder Energie.
-enum Kind { FUMBLE, ENGRAVING, MATERIAL, DICE_ENGRAVING, CHARGE, DIE, WILD }
+enum Kind { FUMBLE, ENGRAVING, MATERIAL, DICE_ENGRAVING, ENERGY, DIE, WILD }
 
 ## Paketsorte hinter einem Gravur-Symbol ("" = kein Gravur-Symbol).
 static func pack_type_of(kind_value: int) -> String:
@@ -35,7 +35,7 @@ static func pack_name_tiered(kind_value: int, count: int = 1,
 
 var kind: int = Kind.FUMBLE
 var packs: Array[Pack] = []      # Basis-Ausschüttung (vor Multiplikator)
-var charge: int = 0              # Energie einer ⚡-Reihe
+var energy: int = 0              # Energie einer ⚡-Reihe
 var die: DieDefinition = null
 var label: String = "Fumble"    # Kurztext für den Zwischenspeicher
 
@@ -53,10 +53,10 @@ static func from_spec(spec: Dictionary, hub_level: int = 1) -> SlotPrize:
 				# Pack.tiered ist der eine Schreibweg: Aufschrift und Preis kommen mit.
 				p.packs.append(Pack.tiered(Pack.by_type(pack_type), pack_tier))
 			p.label = "%d %s" % [count, pack_name_tiered(p.kind, count, pack_tier)]
-		"charge":
-			p.kind = Kind.CHARGE
-			p.charge = maxi(1, int(spec.get("amount", 1)))
-			p.label = "%d⚡" % p.charge
+		"energy":
+			p.kind = Kind.ENERGY
+			p.energy = maxi(1, int(spec.get("amount", 1)))
+			p.label = "%d⚡" % p.energy
 		"die":
 			p.kind = Kind.DIE
 			p.die = _roll_die(hub_level)
@@ -71,7 +71,7 @@ static func symbol_for(kind_value: int) -> String:
 		Kind.ENGRAVING: return "◉"
 		Kind.MATERIAL: return "◆"
 		Kind.DICE_ENGRAVING: return "▣"
-		Kind.CHARGE: return "⚡"
+		Kind.ENERGY: return "⚡"
 		Kind.DIE: return "⬢"
 		Kind.WILD: return "★"
 	return "✖"   # Fumble

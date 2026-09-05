@@ -152,8 +152,8 @@ func test_selling_frees_a_slot_again():
 	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY)
 
 func test_secret_market_charm_slot_is_barred_at_capacity():
-	# Der Schwarzmarkt geht denselben Weg: voller Dock, keine Ladung abgebucht.
-	run.charge = GameRun.SECRET_CHARM_PRICE
+	# Der Schwarzmarkt geht denselben Weg: voller Dock, keine Energie abgebucht.
+	run.energy = GameRun.SECRET_CHARM_PRICE
 	run.secret_stock.append({
 		GameRun.OFFER_KIND: GameRun.KIND_CHARM,
 		GameRun.OFFER_ITEM: Charm.horseshoe(),
@@ -162,7 +162,7 @@ func test_secret_market_charm_slot_is_barred_at_capacity():
 	})
 	_fill_charm_dock()
 	assert_false(run.buy_secret_offer(0))
-	assert_eq(run.charge, GameRun.SECRET_CHARM_PRICE, "kein Abzug")
+	assert_eq(run.energy, GameRun.SECRET_CHARM_PRICE, "kein Abzug")
 	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]), "der Platz bleibt liegen")
 
 func test_charm_ids_lists_owned_ids_in_order():
@@ -469,7 +469,7 @@ func test_a_secret_buy_checks_the_magazine_before_paying():
 	run._roll_secret_stock()
 	run.set_pack_capacity(1)
 	run.grant_pack(Pack.number_pack())
-	run.charge = 99
+	run.energy = 99
 	for i in run.secret_stock.size():
 		var kind := String(run.secret_stock[i][GameRun.OFFER_KIND])
 		# Charm und Würfel hängen nicht am Magazin - der eine am Dock, der andere
@@ -575,7 +575,7 @@ func test_the_exchange_ignores_slots_outside_the_pool():
 ## Wand mit einer 3er-Reihe des Symbols in der obersten Zeile; der Rest bildet in
 ## keiner Richtung eine Reihe.
 func _winning_wall(symbol: int) -> void:
-	var filler := [SlotPrize.Kind.CHARGE, SlotPrize.Kind.FUMBLE]
+	var filler := [SlotPrize.Kind.ENERGY, SlotPrize.Kind.FUMBLE]
 	for c in SlotMachine.TOTAL_COLS:
 		var col: Array = []
 		for r in SlotMachine.ROWS:
@@ -664,29 +664,29 @@ func test_booking_a_won_die_lands_in_the_out_tray():
 
 ## Das ⚡-Symbol ersetzt den Charm: eine Reihe zahlt Energie in denselben Speicher
 ## wie jede andere Quelle - und was nicht mehr hineinpaßt, zahlt bar.
-func test_booking_a_won_charge_fills_the_capacitor():
-	var prize := SlotPrize.from_spec({"kind": "charge", "amount": 3})
-	assert_eq(prize.kind, SlotPrize.Kind.CHARGE)
-	assert_eq(prize.charge, 3)
+func test_booking_a_won_energy_fills_the_capacitor():
+	var prize := SlotPrize.from_spec({"kind": "energy", "amount": 3})
+	assert_eq(prize.kind, SlotPrize.Kind.ENERGY)
+	assert_eq(prize.energy, 3)
 	assert_eq(prize.label, "3⚡", "der Zwischenspeicher nennt die Menge")
-	run.charge = 0
+	run.energy = 0
 	run.book_slot_prize(prize)
-	assert_eq(run.charge, 3, "die Energie liegt in der Bank")
+	assert_eq(run.energy, 3, "die Energie liegt in der Bank")
 
-func test_a_full_capacitor_pays_the_slot_charge_in_money():
-	var prize := SlotPrize.from_spec({"kind": "charge", "amount": 4})
-	run.charge = run.charge_cap()
+func test_a_full_capacitor_pays_the_slot_energy_in_money():
+	var prize := SlotPrize.from_spec({"kind": "energy", "amount": 4})
+	run.energy = run.energy_cap()
 	var money_before := run.money
 	run.book_slot_prize(prize)
-	assert_eq(run.charge, run.charge_cap(), "der Speicher bleibt voll")
-	assert_eq(run.money, money_before + 4 * GameRun.CHARGE_OVERFLOW_MONEY,
+	assert_eq(run.energy, run.energy_cap(), "der Speicher bleibt voll")
+	assert_eq(run.money, money_before + 4 * GameRun.ENERGY_OVERFLOW_MONEY,
 		"der Überlauf zahlt bar - dieselbe Grammatik wie die ⚡-Wette")
 
-func test_the_multiplier_scales_the_won_charge():
-	var prize := SlotPrize.from_spec({"kind": "charge", "amount": 2})
-	run.charge = 0
+func test_the_multiplier_scales_the_won_energy():
+	var prize := SlotPrize.from_spec({"kind": "energy", "amount": 2})
+	run.energy = 0
 	run._book_slot_prize(prize, 2)
-	assert_eq(run.charge, 4)
+	assert_eq(run.energy, 4)
 
 
 # --- Rundenfortschritt -----------------------------------------------------------
@@ -933,34 +933,34 @@ func test_overclock_cost_climbs_per_stage_and_caps():
 func test_overclock_cost_is_the_same_for_every_combination():
 	assert_eq(run.overclock_cost(DiceScoring.TWO_KIND), run.overclock_cost(DiceScoring.SIX_KIND))
 
-func test_overclock_combo_spends_charge_and_levels():
+func test_overclock_combo_spends_energy_and_levels():
 	watch_signals(run)
-	run.charge = 5
+	run.energy = 5
 	assert_true(run.overclock_combo(DiceScoring.FULL_HOUSE))
-	assert_eq(run.charge, 4, "eine Energie für die erste Stufe")
+	assert_eq(run.energy, 4, "eine Energie für die erste Stufe")
 	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 1)
 	assert_signal_emitted(run, "combo_upgraded")
 	assert_true(run.overclock_combo(DiceScoring.FULL_HOUSE))
-	assert_eq(run.charge, 2, "die zweite Stufe kostet zwei")
+	assert_eq(run.energy, 2, "die zweite Stufe kostet zwei")
 
-func test_overclock_without_charge_changes_nothing():
+func test_overclock_without_energy_changes_nothing():
 	watch_signals(run)
-	run.charge = 0
+	run.energy = 0
 	assert_false(run.overclock_combo(DiceScoring.FULL_HOUSE))
 	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 0)
-	assert_eq(run.charge, 0, "nichts abgebucht")
+	assert_eq(run.energy, 0, "nichts abgebucht")
 	assert_signal_not_emitted(run, "combo_upgraded")
 
 func test_overclock_raises_scoring():
-	run.charge = 5
+	run.energy = 5
 	run.overclock_combo(DiceScoring.TWO_KIND)
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, run.combo_levels), 4, "Paar: +2 je Stufe")
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, run.combo_levels), 20)
 
-func test_can_overclock_checks_charge():
-	run.charge = GameRun.overclock_cost_at(0)
+func test_can_overclock_checks_energy():
+	run.energy = GameRun.overclock_cost_at(0)
 	assert_true(run.can_overclock(DiceScoring.TWO_KIND))
-	run.charge -= 1
+	run.energy -= 1
 	assert_false(run.can_overclock(DiceScoring.TWO_KIND))
 
 # --- Rampenlicht & Midashandschuh -------------------------------------------------
@@ -1144,11 +1144,11 @@ func test_instant_clause_pays_once_on_signing():
 	run.advance_round()
 	assert_eq(run.money, before + GameRun.ADVANCE_PAYMENT_MONEY, "aber nur einmal")
 
-func test_instant_charge_clauses_book_immediately():
+func test_instant_energy_clauses_book_immediately():
 	_sign([DealClause.SEED_CAPITAL])
-	assert_eq(run.charge, GameRun.SEED_CAPITAL_CHARGE)
+	assert_eq(run.energy, GameRun.SEED_CAPITAL_ENERGY)
 	_sign([DealClause.DISCHARGE])
-	assert_eq(run.charge, 0, "unter null geht die Börse nie")
+	assert_eq(run.energy, 0, "unter null geht die Börse nie")
 
 func test_signing_a_card_clears_the_offers_and_signals():
 	run.roll_route_offers()
@@ -1288,12 +1288,12 @@ func test_the_shyster_doubles_the_instant_money():
 	assert_eq(run.money, GameRun.ADVANCE_PAYMENT_MONEY * 2)
 	assert_eq(run.deal_bonus_factor(), 2)
 
-func test_the_shyster_doubles_the_instant_charge():
+func test_the_shyster_doubles_the_instant_energy():
 	_shyster()
 	_sign([DealClause.SEED_CAPITAL])
-	assert_eq(run.charge, GameRun.SEED_CAPITAL_CHARGE * 2)
-	assert_eq(GameRun.instant_clause_charge(DealClause.SEED_CAPITAL, 2),
-		GameRun.SEED_CAPITAL_CHARGE * 2, "die Zeremonie liest dieselbe Quelle")
+	assert_eq(run.energy, GameRun.SEED_CAPITAL_ENERGY * 2)
+	assert_eq(GameRun.instant_clause_energy(DealClause.SEED_CAPITAL, 2),
+		GameRun.SEED_CAPITAL_ENERGY * 2, "die Zeremonie liest dieselbe Quelle")
 
 func test_the_shyster_doubles_the_linear_bonuses():
 	_shyster()
@@ -1302,7 +1302,7 @@ func test_the_shyster_doubles_the_linear_bonuses():
 	assert_eq(run.deal_unused_die_bonus(), GameRun.SAVINGS_DIE_BONUS * 2)
 	assert_eq(run.farkle_consolation(), GameRun.INSURANCE_FRAUD_MONEY * 2)
 	assert_eq(run.gold_vein_income(), GameRun.GOLD_VEIN_MONEY * 2)
-	assert_eq(run.charge_per_stage(), 4)
+	assert_eq(run.energy_per_stage(), 4)
 	assert_eq(run.side_bet_payout_factor(), 4)
 	assert_eq(run.max_overcharge_stages(),
 		run.overcharge_frame() + GameRun.HIGH_VOLTAGE_STAGES * 2)
@@ -1344,10 +1344,10 @@ func test_the_shyster_doubles_the_work_hardening():
 
 func test_the_shyster_never_touches_a_malus():
 	_shyster()
-	run.add_charge(5)
-	var before := run.charge
+	run.add_energy(5)
+	var before := run.energy
 	_sign([DealClause.DISCHARGE, DealClause.BETTING_TAX, DealClause.HALF_PAYOUT])
-	assert_eq(run.charge, before - GameRun.DISCHARGE_CHARGE, "die Entladung bleibt einfach")
+	assert_eq(run.energy, before - GameRun.DISCHARGE_ENERGY, "die Entladung bleibt einfach")
 	assert_eq(run.side_bet_stake_factor(), 2, "die Wettsteuer bleibt einfach")
 	assert_almost_eq(run.round_payout_factor(), 0.5, 0.0001)
 
@@ -1545,41 +1545,41 @@ func test_fuse_failure_beats_the_mains_hum():
 	_sign([DealClause.MAINS_HUM, DealClause.FUSE_FAILURE])
 	assert_eq(run.stage_scale(), GameRun.FUSE_FAILURE_SCALE)
 
-func test_double_loader_mints_two_charges_per_stage():
+func test_double_loader_mints_two_energys_per_stage():
 	_sign([DealClause.DOUBLE_LOADER])
-	assert_eq(run.charge_per_stage(), 2)
-	var split := run.charge_split(2)
-	assert_eq(int(split["stored"]), 4, "zwei Stufen prägen vier Ladungen")
+	assert_eq(run.energy_per_stage(), 2)
+	var split := run.energy_split(2)
+	assert_eq(int(split["stored"]), 4, "zwei Stufen prägen vier ⚡")
 
 ## Die Zeremonie fliegt EINEN Kometen je STUFE und bucht dessen Prägung bei der
-## Ankunft. charge_split rechnet weiterhin in LADUNGEN - beide Zahlen müssen
+## Ankunft. energy_split rechnet weiterhin in LADUNGEN - beide Zahlen müssen
 ## zusammenpassen, sonst plant die Vorschau anders, als gebucht wird.
 func test_the_stage_arithmetic_behind_one_comet_per_stage():
 	_sign([DealClause.DOUBLE_LOADER])
 	run.hub_level = 1  # Deckel 5
-	assert_eq(run.charge_cap(), 5)
+	assert_eq(run.energy_cap(), 5)
 	var stages := 4
-	var split := run.charge_split(stages)
+	var split := run.energy_split(stages)
 	assert_eq(int(split["stored"]), 5, "die Börse nimmt fünf")
 	assert_eq(int(split["overflow"]), 3, "die übrigen drei zahlen bar")
 	# Je Stufe: erst was noch hineinpaßt, der Rest bar - genau die Aufteilung, die
 	# _play_bank_discharge je Einschlag bucht. Eine Stufe kann GETEILT ankommen.
-	var per_stage := run.charge_per_stage()
+	var per_stage := run.energy_per_stage()
 	var minted := 0
-	var charges: Array[int] = []
+	var energys: Array[int] = []
 	var cash: Array[int] = []
 	for i in stages:
 		var take := clampi(int(split["stored"]) - minted, 0, per_stage)
-		charges.append(take)
+		energys.append(take)
 		cash.append(per_stage - take)
 		minted += per_stage
-	assert_eq(charges, [2, 2, 1, 0] as Array[int], "die dritte Stufe kommt geteilt an")
+	assert_eq(energys, [2, 2, 1, 0] as Array[int], "die dritte Stufe kommt geteilt an")
 	assert_eq(cash, [0, 0, 1, 2] as Array[int])
 	var booked := 0
-	for c in charges:
+	for c in energys:
 		booked += c
 	assert_eq(booked, int(split["stored"]), "gebucht wird exakt die Vorschau")
-	assert_eq(charges.size(), stages, "ein Komet je Stufe, nie zwei")
+	assert_eq(energys.size(), stages, "ein Komet je Stufe, nie zwei")
 
 func test_shop_price_clauses_multiply():
 	_sign([DealClause.INFLATION])
@@ -1599,16 +1599,16 @@ func test_the_first_charm_of_the_block_is_free():
 func test_free_spins_are_one_per_machine():
 	run.hub_level = 10  # alle drei Automaten frei
 	_sign([DealClause.FREE_SPINS])
-	assert_eq(run.slot_spin_charge(0), 0)
-	run.charge = 0
+	assert_eq(run.slot_spin_energy(0), 0)
+	run.energy = 0
 	assert_true(run.can_spin_slot(0), "gratis geht auch ohne Energie")
 	run.spin_slot(0)
-	assert_gt(run.slot_spin_charge(0), 0, "der Gratisdreh ist verbraucht")
-	assert_eq(run.slot_spin_charge(1), 0, "der nächste Automat hat seinen noch")
+	assert_gt(run.slot_spin_energy(0), 0, "der Gratisdreh ist verbraucht")
+	assert_eq(run.slot_spin_energy(1), 0, "der nächste Automat hat seinen noch")
 
 func test_power_cut_switches_the_slots_off():
 	run.hub_level = 10
-	run.charge = 9
+	run.energy = 9
 	assert_true(run.can_spin_slot(0))
 	_sign([DealClause.POWER_CUT])
 	assert_false(run.slots_enabled())
@@ -1773,7 +1773,7 @@ func test_tax_bets_are_placeable_without_money():
 	run.place_side_bet(bet)
 	assert_eq(run.money, 0, "beim Platzieren wird nichts abgebucht")
 
-func test_per_hand_tax_is_charged_at_every_take():
+func test_per_hand_tax_is_energyd_at_every_take():
 	run.money = 20
 	var bet := _place("table_fee")  # $3 je Hand
 	assert_eq(run.tax_side_bets(4), bet.stake)
@@ -1799,24 +1799,24 @@ func test_insolvency_voids_the_tax_bet():
 	var won := run.resolve_side_bets({"cleared": true})
 	assert_eq(won.size(), 0, "verfallen = verloren")
 
-func test_charge_stake_is_paid_from_the_capacitor():
+func test_energy_stake_is_paid_from_the_capacitor():
 	var bet := SideBet._from_template(_template("feedback_loop"))
-	run.charge = bet.stake_charge - 1
+	run.energy = bet.stake_energy - 1
 	assert_false(run.can_place_side_bet(bet))
-	run.charge = bet.stake_charge + 1
+	run.energy = bet.stake_energy + 1
 	assert_true(run.can_place_side_bet(bet))
 	run.place_side_bet(bet)
-	assert_eq(run.charge, 1)
+	assert_eq(run.energy, 1)
 
-func test_charge_payout_overflows_into_money():
+func test_energy_payout_overflows_into_money():
 	var bet := SideBet._from_template(_template("feedback_loop"))  # 8 ⚡ Gewinn
-	run.charge = bet.stake_charge
+	run.energy = bet.stake_energy
 	run.place_side_bet(bet)
-	run.charge = run.charge_cap() - 1  # nur noch EINE passt hinein
+	run.energy = run.energy_cap() - 1  # nur noch EINE passt hinein
 	run.money = 0
 	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
-	assert_eq(run.charge, run.charge_cap(), "die Börse läuft voll")
-	assert_eq(run.money, (bet.payout_charge - 1) * GameRun.CHARGE_OVERFLOW_MONEY,
+	assert_eq(run.energy, run.energy_cap(), "die Börse läuft voll")
+	assert_eq(run.money, (bet.payout_energy - 1) * GameRun.ENERGY_OVERFLOW_MONEY,
 		"der Rest fällt bar an")
 
 func test_pack_payout_lands_sealed_in_the_stash():

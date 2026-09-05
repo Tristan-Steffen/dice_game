@@ -17,7 +17,7 @@ const STRAY_LIGHT_MONEY := 1
 
 ## Funkenflug speist EINEN Funken je Zug - nicht je Auslösung, sonst würde ein
 ## Argon-Würfel die Bank doppelt füllen.
-const SPARK_FLIGHT_CHARGE := 1
+const SPARK_FLIGHT_ENERGY := 1
 
 ## Stichel: JEDE Rune wirkt doppelt - Nachglühen, Funkenflug, Streulicht und der
 ## Abguss (GameRun.apply_rune_cast); die Kehrseite zündet über
@@ -43,10 +43,10 @@ static func protects_face_value(rune_ids: Array[String]) -> bool:
 
 ## Energie, die die gewertete Seite in DIESEM Zug abgibt (Funkenflug) - je Zug
 ## einmal, unabhängig von der Zahl der Auslösungen.
-static func charge_for_take(rune_ids: Array[String], charm_ids: Array[String] = []) -> int:
+static func energy_for_take(rune_ids: Array[String], charm_ids: Array[String] = []) -> int:
 	if not rune_ids.has(Rune.SPARK_FLIGHT):
 		return 0
-	return SPARK_FLIGHT_CHARGE * burin_factor(charm_ids)
+	return SPARK_FLIGHT_ENERGY * burin_factor(charm_ids)
 
 ## Abguss: nimmt die gewertete Seite eine Kopie ihrer Material-Gravur mit in den
 ## Vorrat? Nur das Prädikat - gebucht wird in GameRun (die fünfte Wirkungsform:

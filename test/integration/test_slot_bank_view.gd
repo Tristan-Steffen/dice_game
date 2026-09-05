@@ -7,7 +7,7 @@ extends GutTest
 
 const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
-const C := SlotPrize.Kind.CHARGE
+const C := SlotPrize.Kind.ENERGY
 const F := SlotPrize.Kind.FUMBLE
 
 ## Das Fenster am Tisch: die hohe Spalte des Kombi-Clusters.
@@ -19,7 +19,7 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 200
-	run.charge = 20  # Einsatz ist Energie
+	run.energy = 20  # Einsatz ist Energie
 	run.hub_level = 9  # alle drei Automaten frei
 	view = SlotBankView.new()
 	view.size = WINDOW_SIZE
@@ -186,11 +186,11 @@ func test_spun_without_a_win_can_reset_to_spin_again() -> void:
 func test_paying_the_stake_announces_the_coin() -> void:
 	var paid: Array[int] = []
 	view.spin_paid.connect(func(machine: int) -> void: paid.append(machine))
-	var charge_before := run.charge
+	var energy_before := run.energy
 	var money_before := run.money
 	view._on_spin_pressed(0)
 	assert_eq(paid, [0] as Array[int], "der Einwurf meldet sich, damit das Licht losfährt")
-	assert_eq(run.charge, charge_before - run.slot_spin_charge(0), "der Einsatz ist sofort weg")
+	assert_eq(run.energy, energy_before - run.slot_spin_energy(0), "der Einsatz ist sofort weg")
 	assert_eq(run.money, money_before, "Geld kostet der Dreh nicht")
 
 func test_the_reel_waits_for_the_coin_to_arrive() -> void:
@@ -210,14 +210,14 @@ func test_without_strips_the_reel_starts_at_once() -> void:
 
 # --- Bezahlbarkeit folgt der Energie (Wechsel auf den Automaten) -----------------
 
-func test_refresh_if_idle_tracks_the_current_charge() -> void:
+func test_refresh_if_idle_tracks_the_current_energy() -> void:
 	# Beim letzten Aufbau leer -> gesperrt; nach Energiezuwachs macht refresh_if_idle
 	# den Automaten wieder drehbar (sonst bliebe der Knopf grau, obwohl die ⚡ reicht).
-	run.charge = 0
+	run.energy = 0
 	view.refresh()
 	await wait_frames(2)
 	assert_true((view._spin_buttons[0] as Button).disabled, "leer: Drehen gesperrt")
-	run.charge = 5
+	run.energy = 5
 	view.refresh_if_idle()
 	await wait_frames(2)
 	assert_false((view._spin_buttons[0] as Button).disabled, "nach Energiezuwachs drehbar")

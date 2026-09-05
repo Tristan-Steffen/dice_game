@@ -16,7 +16,7 @@ extends Node3D
 
 const KIND_NONE := ""
 const KIND_CHIPS := "chips"
-const KIND_CHARGE := "charge"
+const KIND_ENERGY := "energy"
 const KIND_TOKEN := "token"
 
 ## Luft zwischen Unterseite und Anzeige - dasselbe Maß wie in einer Bucht.
@@ -74,25 +74,25 @@ func _init(prize_name := "BetPrize") -> void:
 
 ## Wie viele Elko-Dosen ein Energie-Preis wirklich zeigt (die Zahl steht auf dem
 ## Knopf, der Körper sagt nur, WAS es ist).
-static func charge_cells(count: int) -> int:
+static func energy_cells(count: int) -> int:
 	return clampi(count, 1, ELKO_CAP)
 
 ## Die Rasterform des Elko-Feldes: x = Spalten, y = Reihen.
-static func charge_grid(count: int) -> Vector2i:
-	var shown := charge_cells(count)
+static func energy_grid(count: int) -> Vector2i:
+	var shown := energy_cells(count)
 	var cols := mini(shown, ELKO_COLS)
 	@warning_ignore("integer_division")
 	var rows := (shown + cols - 1) / cols
 	return Vector2i(cols, rows)
 
 ## Der Fußabdruck EINER Bauform in Welt-Maßen (x = Welt-X, y = Welt-Z), ohne sie zu
-## bauen. amount ist der Betrag (chips) bzw. die Stückzahl (charge).
+## bauen. amount ist der Betrag (chips) bzw. die Stückzahl (energy).
 static func span_for(build_kind: String, amount: int = 0) -> Vector2:
 	match build_kind:
 		KIND_CHIPS:
 			return ChipStackView.pile_span(amount)
-		KIND_CHARGE:
-			var grid := charge_grid(amount)
+		KIND_ENERGY:
+			var grid := energy_grid(amount)
 			var cell := CapacitorBankView.loose_cell_size()
 			return Vector2(float(grid.y - 1) * CapacitorBankView.ROW_PITCH + cell.x,
 				float(grid.x - 1) * CapacitorBankView.CELL_PITCH + cell.y)
@@ -115,10 +115,10 @@ func setup_chips(amount: int) -> void:
 
 ## Energie: ein Stück der Kondensator-Bank - dieselben Elkos, nur ohne Platine, und
 ## darum ebenfalls ohne eigenen Akzent.
-func setup_charge(count: int) -> void:
-	_reset(KIND_CHARGE)
-	var shown := charge_cells(count)
-	var grid := charge_grid(count)
+func setup_energy(count: int) -> void:
+	_reset(KIND_ENERGY)
+	var shown := energy_cells(count)
+	var grid := energy_grid(count)
 	var cols := grid.x
 	var rows := grid.y
 	var pitch_z := CapacitorBankView.CELL_PITCH
@@ -132,7 +132,7 @@ func setup_charge(count: int) -> void:
 			(float(row) - float(rows - 1) * 0.5) * pitch_x, 0.0,
 			(float(col) - float(cols - 1) * 0.5) * pitch_z)
 		_body.add_child(cell)
-	_natural = span_for(KIND_CHARGE, count)
+	_natural = span_for(KIND_ENERGY, count)
 	_natural_height = CapacitorBankView.loose_cell_height()
 
 ## Die geprägte MARKE für die Einzelstücke, die weder Ware noch Geld sind

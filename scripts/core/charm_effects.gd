@@ -504,7 +504,7 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 				runes += DiceScoring.runes_for(ctx, slot).size()
 			return LUMINOUS_PAINT_MULT * runes
 		Charm.STANDBY_LIGHT:
-			return STANDBY_LIGHT_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_CHARGE, 0)))
+			return STANDBY_LIGHT_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ENERGY, 0)))
 		Charm.ODOMETER:
 			return ODOMETER_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ROUND, 0)))
 		Charm.BOTTLE_RACK:
@@ -767,7 +767,7 @@ static func jackpot_income(charm_ids: Array[String], hand_points: int, goal: int
 	return charm_ids.count(Charm.JACKPOT_BELL) * JACKPOT_BELL_MONEY
 
 ## Quotenblatt: gewonnene Nebenwetten zahlen 100 % mehr BARGELD (je Vorkommen,
-## aufgerundet). Ladung und Ware bleiben unberührt.
+## aufgerundet). Energie und Ware bleiben unberührt.
 const ODDS_SHEET_FACTOR := 2.0
 
 static func side_bet_money(amount: int, charm_ids: Array[String]) -> int:
@@ -784,16 +784,16 @@ static func side_bet_money(amount: int, charm_ids: Array[String]) -> int:
 ## Dynamo: Energie, die die Besitz-Position j am Ende einer GERÄUMTEN Runde
 ## prägt (0 = kein Dynamo). Gebucht in der Rundenende-Zeremonie, das Licht
 ## fliegt hinterher - wie jede andere ⚡-Quelle.
-const DYNAMO_CHARGE := 1
+const DYNAMO_ENERGY := 1
 
-static func round_end_charge_at(j: int, charm_ids: Array[String]) -> int:
-	return DYNAMO_CHARGE if charm_ids[j] == Charm.DYNAMO else 0
+static func round_end_energy_at(j: int, charm_ids: Array[String]) -> int:
+	return DYNAMO_ENERGY if charm_ids[j] == Charm.DYNAMO else 0
 
 ## Trostpreis: jeder Fumble wirft eine Energie ab (je Vorkommen).
-const CONSOLATION_CHARGE := 1
+const CONSOLATION_ENERGY := 1
 
-static func fumble_charge(charm_ids: Array[String]) -> int:
-	return charm_ids.count(Charm.CONSOLATION_PRIZE) * CONSOLATION_CHARGE
+static func fumble_energy(charm_ids: Array[String]) -> int:
+	return charm_ids.count(Charm.CONSOLATION_PRIZE) * CONSOLATION_ENERGY
 
 ## Supraleiter: Nachlass auf den Übertaktungs-Preis (je Vorkommen 1 ⚡); der
 ## Aufrufer klemmt bei 1 - gratis übertaktet niemand.

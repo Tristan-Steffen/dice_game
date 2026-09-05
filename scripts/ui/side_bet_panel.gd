@@ -94,7 +94,7 @@ const GREEN := Color("#50fa7b")
 const RED := Color("#ff5555")
 const GOLD := Color("#ffd319")
 const ENGRAVING_GLOW := Color("#c77dff")  # Gravur-Licht (violett)
-const CHARGE_COLOR := CasinoStyle.CHARGE
+const ENERGY_COLOR := CasinoStyle.ENERGY
 
 var run: GameRun
 var mode: int = Mode.PROGRESS
@@ -251,14 +251,14 @@ func _sync_affordability(index: int, bet: SideBet) -> void:
 	_style_button(button, CasinoStyle.RED if short else payout_accent(bet))
 	_seat_trades[index].modulate = CasinoStyle.RED if short else GOLD
 
-## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Ladung cyan, alles übrige
+## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Energie cyan, alles übrige
 ## (Gravuren, Sonderposten, Paket, Chipstufe) grün.
 static func payout_accent(bet: SideBet) -> Color:
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
 			return GOLD
-		SideBet.Payout.CHARGE:
-			return CHARGE_COLOR
+		SideBet.Payout.ENERGY:
+			return ENERGY_COLOR
 	return GREEN
 
 ## Legt den glühenden Einsatz-Saum auf den gesetzten Sitz. Er ist jetzt die FASSUNG

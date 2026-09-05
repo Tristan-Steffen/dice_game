@@ -26,74 +26,74 @@ func _legendaries() -> Array[Charm]:
 
 func test_fresh_run_starts_empty() -> void:
 	var run := _run()
-	assert_eq(run.charge, 0)
+	assert_eq(run.energy, 0)
 	assert_false(run.secret_shop_unlocked)
 	assert_eq(run.secret_rerolls, 0)
 	assert_eq(run.secret_stock.size(), 0)
 
-func test_charge_cap_wakes_one_row_per_milestone() -> void:
+func test_energy_cap_wakes_one_row_per_milestone() -> void:
 	# Die Bank ist ein 5×5-Raster: der Deckel ist IMMER eine ganze Reihenzahl
-	# (Vielfaches von CHARGE_ROW), eine Reihe je Meilenstein 1/3/5/7/10.
+	# (Vielfaches von ENERGY_ROW), eine Reihe je Meilenstein 1/3/5/7/10.
 	var run := _run()
-	assert_eq(run.charge_cap(), GameRun.CHARGE_ROW, "Hinterzimmer: eine Reihe")
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "Hinterzimmer: eine Reihe")
 	run.hub_level = 2
-	assert_eq(run.charge_cap_rows(), 1)
+	assert_eq(run.energy_cap_rows(), 1)
 	run.hub_level = 3
-	assert_eq(run.charge_cap_rows(), 2)
+	assert_eq(run.energy_cap_rows(), 2)
 	run.hub_level = 4
-	assert_eq(run.charge_cap_rows(), 2)
+	assert_eq(run.energy_cap_rows(), 2)
 	run.hub_level = 5
-	assert_eq(run.charge_cap_rows(), 3)
+	assert_eq(run.energy_cap_rows(), 3)
 	run.hub_level = 7
-	assert_eq(run.charge_cap_rows(), 4)
+	assert_eq(run.energy_cap_rows(), 4)
 	run.hub_level = 9
-	assert_eq(run.charge_cap_rows(), 4)
+	assert_eq(run.energy_cap_rows(), 4)
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	assert_eq(run.charge_cap(), GameRun.CHARGE_ROW * GameRun.CHARGE_ROWS_MAX,
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW * GameRun.ENERGY_ROWS_MAX,
 		"High Roller: das volle 5×5-Raster")
 
-func test_add_charge_stores_to_cap_and_returns_overflow() -> void:
+func test_add_energy_stores_to_cap_and_returns_overflow() -> void:
 	var run := _run()  # Deckel 5 (eine Reihe)
-	assert_eq(run.add_charge(3), 0)
-	assert_eq(run.charge, 3)
-	assert_eq(run.add_charge(5), 3, "2 passen noch, 3 laufen über")
-	assert_eq(run.charge, 5)
-	assert_eq(run.add_charge(3), 3, "volle Börse nimmt nichts mehr")
-	assert_eq(run.charge, 5)
+	assert_eq(run.add_energy(3), 0)
+	assert_eq(run.energy, 3)
+	assert_eq(run.add_energy(5), 3, "2 passen noch, 3 laufen über")
+	assert_eq(run.energy, 5)
+	assert_eq(run.add_energy(3), 3, "volle Börse nimmt nichts mehr")
+	assert_eq(run.energy, 5)
 
-func test_add_charge_emits_new_value() -> void:
+func test_add_energy_emits_new_value() -> void:
 	var run := _run()
 	var seen: Array[int] = []
-	run.charge_changed.connect(func(value: int) -> void: seen.append(value))
-	run.add_charge(3)
-	run.add_charge(9)
+	run.energy_changed.connect(func(value: int) -> void: seen.append(value))
+	run.add_energy(3)
+	run.add_energy(9)
 	assert_eq(seen.size(), 2)
 	assert_eq(seen[0], 3)
 	assert_eq(seen[1], 5, "beim zweiten Mal bis zum Deckel")
 
-func test_spend_charge_clamps_at_zero_and_emits() -> void:
+func test_spend_energy_clamps_at_zero_and_emits() -> void:
 	var run := _run()
-	run.charge = 3
+	run.energy = 3
 	var seen: Array[int] = []
-	run.charge_changed.connect(func(value: int) -> void: seen.append(value))
-	run.spend_charge(5)
-	assert_eq(run.charge, 0)
+	run.energy_changed.connect(func(value: int) -> void: seen.append(value))
+	run.spend_energy(5)
+	assert_eq(run.energy, 0)
 	assert_eq(seen.size(), 1)
 	assert_eq(seen[0], 0)
 
-func test_charge_split_previews_without_mutating() -> void:
+func test_energy_split_previews_without_mutating() -> void:
 	var run := _run()  # Deckel 5
-	run.charge = 3
-	var split := run.charge_split(5)
+	run.energy = 3
+	var split := run.energy_split(5)
 	var stored: int = split["stored"]
 	var overflow: int = split["overflow"]
 	assert_eq(stored, 2)
 	assert_eq(overflow, 3)
-	assert_eq(run.charge, 3, "Vorschau ändert den Stand nicht")
+	assert_eq(run.energy, 3, "Vorschau ändert den Stand nicht")
 
-func test_charge_split_on_empty_wallet_stores_everything() -> void:
+func test_energy_split_on_empty_wallet_stores_everything() -> void:
 	var run := _run()
-	var split := run.charge_split(5)
+	var split := run.energy_split(5)
 	var stored: int = split["stored"]
 	var overflow: int = split["overflow"]
 	assert_eq(stored, 5)
@@ -107,15 +107,15 @@ func test_fresh_run_starts_barred() -> void:
 	assert_eq(run.secret_stock.size(), 0, "die Auslage wird erst beim Öffnen gewürfelt")
 	assert_lt(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL)
 
-func test_unlocking_costs_no_charge_and_fires_once() -> void:
+func test_unlocking_costs_no_energy_and_fires_once() -> void:
 	var run := _run()
 	run.hub_level = GameRun.HUB_MAX_LEVEL  # Deckel 25, damit der Rest liegen bleibt
-	run.charge = 7
+	run.energy = 7
 	var fired: Array = []
 	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
 	assert_true(run.unlock_secret_shop())
 	assert_true(run.secret_shop_unlocked)
-	assert_eq(run.charge, 7, "der Zutritt kostet keine Energie mehr")
+	assert_eq(run.energy, 7, "der Zutritt kostet keine Energie mehr")
 	assert_eq(run.secret_stock.size(), 3, "erste Auslage gratis gewürfelt")
 	assert_eq(fired.size(), 1)
 	assert_false(run.unlock_secret_shop(), "ein zweites Mal gibt es nichts zu öffnen")
@@ -186,7 +186,7 @@ func test_the_special_slot_also_lists_catalysts() -> void:
 			var pack: Pack = offer[GameRun.OFFER_ITEM]
 			assert_true(pack.is_catalyst())
 			assert_eq(int(offer[GameRun.OFFER_PRICE]),
-				GameRun.secret_charge_price(Pack.catalyst_price(pack.catalyst_id)),
+				GameRun.secret_energy_price(Pack.catalyst_price(pack.catalyst_id)),
 				"der ⚡-Preis kommt aus dem Kurs, nicht aus einer zweiten Tabelle")
 			seen[pack.catalyst_id] = true
 	assert_gt(seen.size(), 0, "das Hinterzimmer führt sie")
@@ -207,22 +207,22 @@ func test_the_stock_never_lists_a_catalyst_twice() -> void:
 func test_buying_a_catalyst_stocks_the_sealed_cassette() -> void:
 	var run := _discovered()
 	run.secret_stock[1] = run._secret_catalyst_offer()
-	run.charge = 99
+	run.energy = 99
 	var pack: Pack = run.secret_stock[1][GameRun.OFFER_ITEM]
 	var price := run.secret_offer_price(run.secret_stock[1])
 	assert_true(run.buy_secret_offer(1))
-	assert_eq(run.charge, 99 - price)
+	assert_eq(run.energy, 99 - price)
 	assert_eq(run.owned_packs.size(), 1)
 	assert_eq(run.owned_packs[0].catalyst_id, pack.catalyst_id)
 	assert_eq(Pack.shelf_of(run.owned_packs[0]), Pack.SHELF_SPECIAL)
 
 ## Der Kurs ist EINER: aufgerundet, nie unter 1 ⚡.
-func test_the_charge_price_follows_the_house_rate() -> void:
-	assert_eq(GameRun.secret_charge_price(Pack.SPECIAL_PRICE), 3,
+func test_the_energy_price_follows_the_house_rate() -> void:
+	assert_eq(GameRun.secret_energy_price(Pack.SPECIAL_PRICE), 3,
 		"$30 = 3 ⚡, der Kurs, an dem er abgelesen ist")
-	assert_eq(GameRun.secret_charge_price(14), 2)
-	assert_eq(GameRun.secret_charge_price(8), 1)
-	assert_eq(GameRun.secret_charge_price(0), 1, "nie geschenkt")
+	assert_eq(GameRun.secret_energy_price(14), 2)
+	assert_eq(GameRun.secret_energy_price(8), 1)
+	assert_eq(GameRun.secret_energy_price(0), 1, "nie geschenkt")
 
 func test_stock_never_lists_a_charm_twice() -> void:
 	for i in 10:
@@ -320,45 +320,45 @@ func test_the_reroll_costs_the_same_every_time() -> void:
 	# Flach statt Leiter: der zweite Neuwurf eines Besuchs kostet wie der erste.
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	run.charge = 25
+	run.energy = 25
 	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 22)
+	assert_eq(run.energy, 22)
 	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 19)
+	assert_eq(run.energy, 19)
 	assert_true(run.reroll_secret_stock())
-	assert_eq(run.charge, 16)
+	assert_eq(run.energy, 16)
 	assert_eq(run.secret_reroll_cost(), 3, "der Preis steigt nicht mehr")
 	assert_eq(run.secret_rerolls, 3, "der Zähler läuft weiter - er kostet nur nichts mehr")
 
 func test_reroll_replaces_the_whole_stock() -> void:
 	var run := _discovered()
-	run.charge = 3
+	run.energy = 3
 	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_true(run.reroll_secret_stock())
 	assert_eq(run.secret_stock.size(), 3)
 	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_ne(after, before, "frisch gewürfelte Instanzen")
 
-func test_reroll_without_charge_changes_nothing() -> void:
+func test_reroll_without_energy_changes_nothing() -> void:
 	var run := _discovered()
-	run.charge = 2  # Neuwurf kostet 3
+	run.energy = 2  # Neuwurf kostet 3
 	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_false(run.reroll_secret_stock())
-	assert_eq(run.charge, 2)
+	assert_eq(run.energy, 2)
 	assert_eq(run.secret_rerolls, 0)
 	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(after, before, "Auslage unverändert")
 
 # --- Kauf ----------------------------------------------------------------------
 
-func test_buying_a_charm_spends_charge_and_docks_it() -> void:
+func test_buying_a_charm_spends_energy_and_docks_it() -> void:
 	var run := _discovered()
-	run.charge = GameRun.SECRET_CHARM_PRICE
+	run.energy = GameRun.SECRET_CHARM_PRICE
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_true(run.buy_secret_offer(0))
-	assert_eq(run.charge, 0)
+	assert_eq(run.energy, 0)
 	assert_true(run.owned_charm_ids().has(charm.id))
 	assert_true(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
@@ -373,12 +373,12 @@ func _is_bundle_price(price: int, count: int) -> bool:
 func test_buying_a_special_engraving_stocks_it() -> void:
 	var run := _discovered()
 	_force_engraving_slot(run)
-	run.charge = 99
+	run.energy = 99
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
 	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
 	var price := run.secret_offer_price(run.secret_stock[1])
 	assert_true(run.buy_secret_offer(1))
-	assert_eq(run.charge, 99 - price)
+	assert_eq(run.energy, 99 - price)
 	assert_eq(run.owned_packs.size(), 1, "der Sonderposten liegt versiegelt im Lager")
 	assert_not_null(run.owned_packs[0].fixed_engraving)
 	assert_eq(run.owned_packs[0].fixed_engraving.id, engraving.id)
@@ -388,7 +388,7 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 func test_a_bundle_carries_a_cell_per_piece() -> void:
 	var run := _discovered()
 	_force_engraving_slot(run)
-	run.charge = 99
+	run.energy = 99
 	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
 	assert_true(run.buy_secret_offer(1))
 	assert_eq(run.owned_packs.size(), 1, "eine Karte, nicht n Karten")
@@ -398,31 +398,31 @@ func test_a_bundle_carries_a_cell_per_piece() -> void:
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
-	run.charge = 99  # reicht für jedes Bündel
+	run.energy = 99  # reicht für jedes Bündel
 	assert_true(run.buy_secret_offer(1))
-	var charge_after := run.charge
+	var energy_after := run.energy
 	var owned := run.owned_packs.size()
 	assert_false(run.buy_secret_offer(1), "der Platz ist leer")
-	assert_eq(run.charge, charge_after, "kein zweiter Abzug")
+	assert_eq(run.energy, energy_after, "kein zweiter Abzug")
 	assert_eq(run.owned_packs.size(), owned)
 
-func test_buying_without_charge_is_rejected() -> void:
+func test_buying_without_energy_is_rejected() -> void:
 	var run := _discovered()
-	run.charge = GameRun.SECRET_CHARM_PRICE - 1
+	run.energy = GameRun.SECRET_CHARM_PRICE - 1
 	assert_false(run.buy_secret_offer(0))
 	assert_eq(run.owned_charms.size(), 0)
 	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
 func test_invalid_index_is_rejected() -> void:
 	var run := _discovered()
-	run.charge = GameRun.SECRET_CHARM_PRICE
+	run.energy = GameRun.SECRET_CHARM_PRICE
 	assert_false(run.buy_secret_offer(-1))
 	assert_false(run.buy_secret_offer(run.secret_stock.size()))
-	assert_eq(run.charge, GameRun.SECRET_CHARM_PRICE)
+	assert_eq(run.energy, GameRun.SECRET_CHARM_PRICE)
 
 func test_buy_emits_stock_changed() -> void:
 	var run := _discovered()
-	run.charge = GameRun.SECRET_CHARM_PRICE
+	run.energy = GameRun.SECRET_CHARM_PRICE
 	var fired: Array = []
 	run.secret_stock_changed.connect(func() -> void: fired.append(true))
 	assert_true(run.buy_secret_offer(0))
@@ -436,7 +436,7 @@ func test_rag_collector_rolls_its_number_on_either_path() -> void:
 	assert_between(shop.lumpensammler_value, 1, 6)
 
 	var market := _run()
-	market.charge = 8
+	market.energy = 8
 	market.secret_stock.append({
 		GameRun.OFFER_KIND: GameRun.KIND_CHARM,
 		GameRun.OFFER_ITEM: Charm.rag_collector(),
@@ -475,7 +475,7 @@ func test_the_die_price_climbs_with_the_rarity() -> void:
 ## Platz selbst, statt dass der Laden still einen überschreibt.
 func _run_with_secret_die() -> GameRun:
 	var run := _run()
-	run.charge = 40
+	run.energy = 40
 	run.unlock_secret_shop()
 	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
 	die.essence_id = Essence.RADON
@@ -487,14 +487,14 @@ func _run_with_secret_die() -> GameRun:
 
 func test_buying_an_essence_die_stashes_it_in_the_tray() -> void:
 	var run := _run_with_secret_die()
-	var before := run.charge
+	var before := run.energy
 	var pool_souls: Array[String] = []
 	for pool_die in run.owned_pool:
 		pool_souls.append(pool_die.essence_id)
 	assert_true(run.buy_secret_offer(2))
 	assert_eq(run.pending_dice.size(), 1, "die Ware liegt im Ausgabefach")
 	assert_eq(run.owned_packs.size(), 0, "ein Würfel wird nie versiegelt")
-	assert_eq(run.charge, before - 6, "der Preis ist abgebucht")
+	assert_eq(run.energy, before - 6, "der Preis ist abgebucht")
 	assert_true(bool(run.secret_stock[2][GameRun.OFFER_SOLD]), "der Platz bleibt leer")
 	for i in run.owned_pool.size():
 		assert_eq(run.owned_pool[i].essence_id, pool_souls[i], "der Pool bleibt unangetastet")

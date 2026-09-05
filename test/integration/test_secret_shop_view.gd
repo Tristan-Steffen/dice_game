@@ -13,7 +13,7 @@ func before_each() -> void:
 	run = GameRun.new_run()
 	run.hub_level = GameRun.HUB_MAX_LEVEL  # volle Börse (25) - reicht für jeden Kauf
 	run.unlock_secret_shop()  # Schwarzmarkt freigeschaltet
-	run.charge = run.charge_cap()
+	run.energy = run.energy_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
 	view.size = Vector2(786, 437)  # gemessene Tasche seit dem TOPF-Rückbau der Automaten
@@ -69,18 +69,18 @@ func test_content_fits_the_flat_window() -> void:
 	assert_lt(view.reroll_button.get_global_rect().end.x, window.end.x + 1.0,
 		"und er wird nicht aus dem Kopfstreifen geschoben")
 
-func test_wallet_shows_charge_and_cap() -> void:
+func test_wallet_shows_energy_and_cap() -> void:
 	await wait_frames(2)
-	assert_eq(view.wallet_label.text, "⚡ %d/%d" % [run.charge, run.charge_cap()])
+	assert_eq(view.wallet_label.text, "⚡ %d/%d" % [run.energy, run.energy_cap()])
 
 func test_buying_a_charm_through_the_card_books_it() -> void:
 	await wait_frames(2)
 	var seat := view.card_slot_index()
 	var charm: Charm = run.secret_stock[seat][GameRun.OFFER_ITEM]
 	var price: int = run.secret_stock[seat][GameRun.OFFER_PRICE]
-	var before := run.charge
+	var before := run.energy
 	_card().pressed.emit()
-	assert_eq(run.charge, before - price, "in Ladung bezahlt")
+	assert_eq(run.energy, before - price, "in Energie bezahlt")
 	assert_true(run.owned_charm_ids().has(charm.id), "Charm im Dock")
 	assert_true(bool(run.secret_stock[seat][GameRun.OFFER_SOLD]))
 
@@ -88,10 +88,10 @@ func test_reroll_button_swaps_the_whole_stock() -> void:
 	await wait_frames(2)
 	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	var cost := run.secret_reroll_cost()
-	var charge_before := run.charge
+	var energy_before := run.energy
 	view.reroll_button.pressed.emit()
 	await wait_frames(2)
-	assert_eq(run.charge, charge_before - cost)
+	assert_eq(run.energy, energy_before - cost)
 	assert_eq(run.secret_rerolls, 1)
 	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_ne(after, before, "frisch gewürfelte Auslage")
@@ -99,12 +99,12 @@ func test_reroll_button_swaps_the_whole_stock() -> void:
 	assert_string_contains(view.reroll_button.text, "⚡%d" % run.secret_reroll_cost(),
 		"der Knopf trägt den Preis des nächsten Wurfs")
 
-func test_reroll_is_disabled_without_charge() -> void:
-	run.charge = 0
+func test_reroll_is_disabled_without_energy() -> void:
+	run.energy = 0
 	await wait_frames(2)
 	assert_true(view.reroll_button.disabled)
 	for button in _live_buttons():
-		assert_true(button.disabled, "ohne Ladung ist nichts kaufbar")
+		assert_true(button.disabled, "ohne Energie ist nichts kaufbar")
 
 ## Das Fenster kennt keinen Schließen-Knopf mehr - zurück geht es per Rechtsklick
 ## über die Kamera, wie bei jedem anderen Tisch-Fenster.
@@ -202,12 +202,12 @@ func test_a_charm_purchase_reports_no_goods() -> void:
 
 # --- Die Beschriftung auf der Scheibe -------------------------------------------
 
-func test_the_annotation_prices_in_charge() -> void:
+func test_the_annotation_prices_in_energy() -> void:
 	await wait_frames(2)
 	var data: Dictionary = view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1)
-	assert_true(bool(data["charge"]), "das Hinterzimmer zahlt in Energie")
+	assert_true(bool(data["energy"]), "das Hinterzimmer zahlt in Energie")
 	assert_eq(int(data["price"]), run.secret_offer_price(run.secret_stock[1]))
-	assert_eq(int(data["money"]), run.charge, "kaufbar heißt hier: die Börse deckt es")
+	assert_eq(int(data["money"]), run.energy, "kaufbar heißt hier: die Börse deckt es")
 	assert_ne(String(data["title"]), "", "ein Stück ohne Namen wäre keins")
 
 func test_a_full_magazine_shows_on_the_annotation() -> void:
@@ -409,7 +409,7 @@ func _push_plates() -> void:
 			"px": view.vitrine_pit_rect().get_center() + Vector2(40.0 * i, 0)})
 	view.set_bay_plates(entries)
 
-func test_plates_stand_the_charge_price_without_a_pointer() -> void:
+func test_plates_stand_the_energy_price_without_a_pointer() -> void:
 	await wait_frames(2)
 	_push_plates()
 	assert_eq(view._plate_layer.get_child_count(), 2, "je Bucht-Stück ein Schild")

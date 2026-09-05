@@ -14,7 +14,7 @@ signal new_game_requested
 signal menu_requested
 signal debug_win_round_requested
 signal debug_money_requested
-signal debug_charge_requested
+signal debug_energy_requested
 signal library_requested
 signal test_materials_requested
 signal test_pointers_requested
@@ -35,7 +35,7 @@ const FRAME_BG := Color("#1a1836aa")
 const TITLE_COLOR := Color("#ff79c6")
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 const GOLD_COLOR := Color("#ffd319")
-const CHARGE_COLOR := CasinoStyle.CHARGE
+const ENERGY_COLOR := CasinoStyle.ENERGY
 
 ## Signaturfarbe je Hub-Stufe (1..10): der ganze Hub wechselt Rahmen-, Hintergrund-
 ## und Lizenz-Farbe, damit die Ausbaustufe schon aus der Ferne ablesbar ist. Kühl
@@ -57,7 +57,7 @@ var round_label: Label
 var money_label: Label
 ## Ladungs-Börse (⚡ N/Deckel). Steht ab Lauf-Beginn da - vor der Entdeckung des
 ## Schwarzmarkts bewusst unerklärt.
-var charge_label: Label
+var energy_label: Label
 ## Lizenz-Zeile + nächste Freischaltung als Plan + Aufstieg-Knopf.
 var hub_level_label: Label
 var hub_next_label: Label
@@ -181,14 +181,14 @@ func layout() -> void:
 	money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	money_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(money_label)
-	charge_label = Label.new()
-	charge_label.name = "ChargeLabel"
-	charge_label.text = "⚡ 0/0"
-	charge_label.add_theme_font_size_override("font_size", int(u * 5.0))
-	charge_label.modulate = CHARGE_COLOR
-	charge_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	charge_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_child(charge_label)
+	energy_label = Label.new()
+	energy_label.name = "EnergyLabel"
+	energy_label.text = "⚡ 0/0"
+	energy_label.add_theme_font_size_override("font_size", int(u * 5.0))
+	energy_label.modulate = ENERGY_COLOR
+	energy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	energy_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(energy_label)
 
 	# Roulette-Rad: eine freie Bühne trägt den Rad-Rand (Fahrplan-Stationen), die
 	# Lizenz-Nabe in der Mitte und die Bonus-Chips seitlich. Kein Raster mehr - der
@@ -273,7 +273,7 @@ func _build_settings_menu(u: float) -> void:
 		u, debug_money_requested.emit, true)
 	# Ebenso ein Nachschlag-Knopf; der Speicherdeckel bleibt in Kraft.
 	_make_menu_button(box, "Debug: +10 ⚡", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
-		u, debug_charge_requested.emit, true)
+		u, debug_energy_requested.emit, true)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
 	_test_pointers_button = _make_menu_button(box, "🧪 Testpointer: aus",
@@ -355,7 +355,7 @@ const PULSE_FILL := Color(0.82, 0.66, 0.18, 0.97)  # ganzes Panel kräftig golde
 
 var _charge := 0.0  # 0..1 aktuelle Gold-Ladung
 
-## Setzt die Ladung direkt (fraction 0..1) - ein Schritt je angekommenem Chip.
+## Setzt die Energie direkt (fraction 0..1) - ein Schritt je angekommenem Chip.
 func charge_gold(fraction: float) -> void:
 	if _frame_style == null:
 		return
@@ -363,7 +363,7 @@ func charge_gold(fraction: float) -> void:
 		_frame_tween.kill()
 	_apply_charge(clampf(fraction, 0.0, 1.0))
 
-## Restlose Entladung: die gesamte Ladung schießt in die Leiste, der Rahmen
+## Restlose Entladung: die gesamte Energie schießt in die Leiste, der Rahmen
 ## kehrt LINEAR über duration zum Grundzustand zurück - kein Nachglühen.
 func discharge_gold(duration: float) -> void:
 	if _frame_style == null or _charge <= 0.0:
@@ -549,19 +549,19 @@ func set_run_info(round_number: int, money: int, note: String = "") -> void:
 	money_label.text = "$%d" % money
 
 ## Stand der Ladungs-Börse; scene_root treibt sie, der Hub kennt keinen GameRun.
-func set_charge_display(charge: int, cap: int) -> void:
-	if _built and charge_label != null:
-		charge_label.text = "⚡ %d/%d" % [charge, cap]
+func set_energy_display(energy: int, cap: int) -> void:
+	if _built and energy_label != null:
+		energy_label.text = "⚡ %d/%d" % [energy, cap]
 
-## Kurzer Pop der Börse - eine Ladung ist eben eingetroffen.
-func pulse_charge() -> void:
-	if not _built or charge_label == null:
+## Kurzer Pop der Börse - eine Energie ist eben eingetroffen.
+func pulse_energy() -> void:
+	if not _built or energy_label == null:
 		return
-	charge_label.pivot_offset = charge_label.size / 2.0
+	energy_label.pivot_offset = energy_label.size / 2.0
 	var tween := create_tween()
-	tween.tween_property(charge_label, "scale", Vector2.ONE * 1.3, 0.09) \
+	tween.tween_property(energy_label, "scale", Vector2.ONE * 1.3, 0.09) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(charge_label, "scale", Vector2.ONE, 0.22) \
+	tween.tween_property(energy_label, "scale", Vector2.ONE, 0.22) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 ## Setzt die Hub-Ausbaustufe: Lizenz-Zeile, Aufstieg-Knopf (nächste Freischaltung

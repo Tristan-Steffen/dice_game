@@ -9,9 +9,9 @@ extends Node3D
 ## geschaut wird (Übersicht ~20°, Stationen 15°): ein stehender Elko zeigte nur
 ## seinen runden Deckel.
 ## Drei Zellzustände - dunkel (Reihe noch gesperrt), schwach cyan glimmend
-## (Deckel erreicht, leer) und heiß bernsteinfarben pulsierend (eine Ladung liegt
+## (Deckel erreicht, leer) und heiß bernsteinfarben pulsierend (eine Energie liegt
 ## darin) - und sie sitzen alle auf der DOSE; Ring und Beine bleiben in jedem
-## Zustand statisch. Der Deckel wächst nur in 5er-Schritten (GameRun.CHARGE_ROW),
+## Zustand statisch. Der Deckel wächst nur in 5er-Schritten (GameRun.ENERGY_ROW),
 ## also schaltet immer eine ganze Reihe um.
 ## Nur EMISSION/unshaded-Albedo, keine OmniLights: die Bodenkacheln vertragen nur
 ## 16 Lichter (siehe TableGround).
@@ -54,7 +54,7 @@ const RAIL_MARGIN_X := 0.04       # Überstand entlang X (knapper: schmale Achse
 ## verschmelzen. ROW_PITCH − CRIMP_DIAMETER hält sie offen.
 
 ## Geladene Zelle: heißer Bernstein - BEWUSST eine andere Farbe als das Börsen-
-## Cyan (CasinoStyle.CHARGE), damit ein gespeicherter Punkt sich krass vom leeren
+## Cyan (CasinoStyle.ENERGY), damit ein gespeicherter Punkt sich krass vom leeren
 ## (cyan glimmenden) Platz abhebt. Leere Zelle glimmt schwach cyan mit - der
 ## DECKEL soll ablesbar sein, nicht nur der Bestand. Gesperrte Zelle bleibt
 ## totes Glas: das Bauteil ist da, aber stromlos.
@@ -81,7 +81,7 @@ const LEG_EMISSION := Color(0.10, 0.11, 0.14)
 const FLICKER_FLOOR := 0.8
 const FLICKER_BAND := 0.3
 
-var _charge := 0
+var _energy := 0
 var _cap := 0
 var _cells: Array[MeshInstance3D] = []
 var _can_mesh: CylinderMesh
@@ -106,15 +106,15 @@ func _ready() -> void:
 	_apply_fill()
 	set_process(false)
 
-## Einziger Eingang: scene_root spiegelt GameRun.charge/charge_cap hierher.
+## Einziger Eingang: scene_root spiegelt GameRun.energy/energy_cap hierher.
 ## Das Raster steht fest - Deckel wie Bestand sind reine Umfärbungen.
-func set_charge(charge: int, cap: int) -> void:
+func set_energy(energy: int, cap: int) -> void:
 	_cap = clampi(cap, 0, GRID_COLS * GRID_ROWS)
-	_charge = clampi(charge, 0, _cap)
+	_energy = clampi(energy, 0, _cap)
 	if not _cells.is_empty():
 		_apply_fill()
 
-## Kurzer elastischer Pop - eine Ladung ist eben eingetroffen (wie ChipStackView).
+## Kurzer elastischer Pop - eine Energie ist eben eingetroffen (wie ChipStackView).
 func pulse() -> void:
 	if _pulse_tween != null and _pulse_tween.is_valid():
 		_pulse_tween.kill()
@@ -125,8 +125,8 @@ func pulse() -> void:
 	_pulse_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_pulse_tween.tween_property(self, "scale", _rest_scale, 0.35)
 
-func charge_count() -> int:
-	return _charge
+func energy_count() -> int:
+	return _energy
 
 func cap_count() -> int:
 	return _cap
@@ -239,7 +239,7 @@ static func loose_cell_height() -> float:
 
 func _apply_fill() -> void:
 	for i in _cells.size():
-		if i < _charge:
+		if i < _energy:
 			if not _lit_materials.has(i):
 				var lit := StandardMaterial3D.new()
 				lit.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

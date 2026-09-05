@@ -170,7 +170,7 @@ var fach_net_window: FachNetView
 ## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
 var slot_hub_strip: LedStripView
 ## Ader Schwarzmarkt <-> Hub: der Zwilling der Automaten-Ader eine Etage tiefer -
-## alles, was der Hinterzimmer-Laden kostet, fährt als Ladung hier hinüber.
+## alles, was der Hinterzimmer-Laden kostet, fährt als Energie hier hinüber.
 var secret_hub_strip: LedStripView
 ## Ständiges Würfelnetz-Feld unter den Grubenwürfeln (DieNetView): gefüllt vom
 ## Hover (set_pit_die/clear_pit_die), sichtbar mit den Aktions-Knöpfen.
@@ -2324,8 +2324,8 @@ const OVERCLOCK_PULSE_CORE := 3.0 * SUPERSAMPLE
 const OVERCLOCK_PULSE_GLOW := 7.0 * SUPERSAMPLE
 const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
 ## Aus der Bank bezahlte Übertaktung: dieselbe ⚡-Signalfarbe, gleiche Dämpfung.
-const CHARGE_PULSE_COLOR := Color(CasinoStyle.CHARGE.r, CasinoStyle.CHARGE.g,
-	CasinoStyle.CHARGE.b, 0.6)
+const ENERGY_PULSE_COLOR := Color(CasinoStyle.ENERGY.r, CasinoStyle.ENERGY.g,
+	CasinoStyle.ENERGY.b, 0.6)
 ## Wölbung eines LOKALEN Bogenflugs (Presse-Meteor): Anteil der Luftlinie, aber nie
 ## flacher als ein Mindestmaß - ein kurzer Hüpfer soll trotzdem fliegen.
 const ARC_LIFT_SHARE := 0.42
@@ -2351,9 +2351,9 @@ func play_overclock_pulse(combo_key: String) -> void:
 ## Energie-Übertaktung: die Kondensatorbank steht an der Ecke des Chip-Netzes,
 ## ihr Licht fährt also nur noch die verlegten Schienen zum Chip - kein Hub-Weg,
 ## denn bezahlt wird aus der Bank. Gebucht ist beim Start längst.
-func play_charge_overclock_pulse(combo_key: String) -> void:
+func play_energy_overclock_pulse(combo_key: String) -> void:
 	await get_tree().create_timer(
-		_pulse_wiring_to_chip(combo_key, CHARGE_PULSE_COLOR)).timeout
+		_pulse_wiring_to_chip(combo_key, ENERGY_PULSE_COLOR)).timeout
 
 ## Bus-Kometen von den Randkontakten zum Chip; liefert ihre Laufzeit.
 func _pulse_wiring_to_chip(combo_key: String, color: Color) -> float:
@@ -2533,7 +2533,7 @@ func _arc_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 
 ## Ladungs-Komet Hub -> Kondensator-Bank: die zweite Etappe einer Überladungs-
 ## Stufe. Sie fährt die Hub-Cluster-Ader, an deren Eintritt die Bank steht.
-func charge_comet(to_px: Vector2, color: Color) -> float:
+func energy_comet(to_px: Vector2, color: Color) -> float:
 	if led_strip == null or led_strip.strip_path.size() < 2 or hub == null:
 		return 0.0
 	var path := _route_via_strip(hub.position + hub.size * 0.5, led_strip, to_px)
@@ -2559,7 +2559,7 @@ func slot_pay_comet(color: Color) -> float:
 	return travel
 
 ## Zahlungs-Komet Hub -> Schwarzmarkt: Eintrittsgeld, Kauf und Neuwurf fahren als
-## Ladung die Hinterzimmer-Ader hinüber (verlegt ist sie Laden -> Hub, die Zahlung
+## Energie die Hinterzimmer-Ader hinüber (verlegt ist sie Laden -> Hub, die Zahlung
 ## fährt dagegen - wie der Automaten-Einsatz). Liefert die Laufzeit.
 func secret_shop_pay_comet(color: Color) -> float:
 	if secret_hub_strip == null or secret_hub_strip.strip_path.size() < 2:

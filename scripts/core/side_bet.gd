@@ -24,13 +24,13 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 	DISTINCT_COMBOS, HAND_LIMIT, COMEBACK, HIGH_DICE, CLEARED, MAX_HAND_DICE,
 	FULL_HANDS, NO_REPEAT, NO_FALLBACK }
 
-## Womit der Einsatz bezahlt wird. MONEY/PACKS/CHARGE sind beim Platzieren
+## Womit der Einsatz bezahlt wird. MONEY/PACKS/ENERGY sind beim Platzieren
 ## fällig, MONEY_PER_HAND/MONEY_PER_DIE laufen als Steuer je genommener Hand -
 ## reicht das Geld dafür nicht, verfällt die Wette (voided).
-enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, CHARGE }
+enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, ENERGY }
 ## Was der Gewinn ausschüttet. PRESS_BOOST ist ein Einmal-Schub auf die nächste
 ## Serie (ein Slot mehr), kein Bestand.
-enum Payout { PACKS, MONEY, SPECIAL, CHARGE, PACK, COMBO_LEVEL, PRESS_BOOST }
+enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, COMBO_LEVEL, PRESS_BOOST }
 
 ## Hub-Stufe, ab der eine Wette ohne eigenen "unlock" ausliegt (= die Stufe, die
 ## die Nebenwetten überhaupt installiert, GameRun.HUB_SIDE_BETS_LEVEL).
@@ -56,7 +56,7 @@ var stake_packs: int = 0           # nur Stake.PACKS: Anzahl geopferter Pakete
 ## gezogen (nie frei gewürfelt) - verzehrt wird genau, was der Knopf nennt.
 var stake_pack_type: String = Pack.TYPE_NUMBER
 var stake_pack_tier: int = Pack.TIER_NORMAL
-var stake_charge: int = 0          # nur Stake.CHARGE: Ladung (⚡)
+var stake_energy: int = 0          # nur Stake.ENERGY: Energie (⚡)
 var payout_kind: int = Payout.PACKS
 var reward_packs: int = 1          # nur Payout.PACKS: Anzahl versiegelter Pakete
 ## Sorte und Größe des GEWINNS, beim Auswürfeln der Auslage festgelegt (Regal-
@@ -64,7 +64,7 @@ var reward_packs: int = 1          # nur Payout.PACKS: Anzahl versiegelter Paket
 var reward_pack_type: String = Pack.TYPE_NUMBER
 var reward_pack_tier: int = Pack.TIER_NORMAL
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
-var payout_charge: int = 0     # nur Payout.CHARGE: Gewinn in Ladung (⚡)
+var payout_energy: int = 0     # nur Payout.ENERGY: Gewinn in Energie (⚡)
 var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
 var unlock_level: int = UNLOCK_BASE
 var display_name: String = ""
@@ -170,7 +170,7 @@ const TEMPLATES := [
 		"stake": 5, "payout": Payout.MONEY, "payout_money": 18, "name": "Keine Resterampe",
 		"unlock": 7, "desc": "Nimm nie die Höchste Zahl."},
 	# --- Penthouse (8) ---
-	{"id": "deep_charge", "condition": Condition.OVERCHARGE, "target": 4,
+	{"id": "deep_energy", "condition": Condition.OVERCHARGE, "target": 4,
 		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 3,
 		"name": "Tiefenladung", "unlock": 8,
 		"desc": "Räume mindestens vier Überladungs-Stufen."},
@@ -178,8 +178,8 @@ const TEMPLATES := [
 		"stake": 12, "payout": Payout.MONEY, "payout_money": 45, "name": "Blankoscheck",
 		"unlock": 8, "desc": "Werte schon die erste Hand mit %d+ Punkten."},
 	{"id": "feedback_loop", "condition": Condition.OVERCHARGE, "target": 3,
-		"stake_kind": Stake.CHARGE, "stake_charge": 4,
-		"payout": Payout.CHARGE, "payout_charge": 8, "name": "Rückkopplung",
+		"stake_kind": Stake.ENERGY, "stake_energy": 4,
+		"payout": Payout.ENERGY, "payout_energy": 8, "name": "Rückkopplung",
 		"unlock": 8, "desc": "Räume mindestens drei Überladungs-Stufen."},
 	{"id": "patent", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
 		"stake": 12, "payout": Payout.COMBO_LEVEL, "name": "Patent", "unlock": 8,
@@ -237,11 +237,11 @@ static func _from_template(t: Dictionary, benchmark: int = 0) -> SideBet:
 	bet.stake_kind = int(t.get("stake_kind", Stake.MONEY))
 	bet.stake = int(t.get("stake", 0))
 	bet.stake_packs = int(t.get("stake_packs", 0))
-	bet.stake_charge = int(t.get("stake_charge", 0))
+	bet.stake_energy = int(t.get("stake_energy", 0))
 	bet.payout_kind = int(t.get("payout", Payout.PACKS))
 	bet.reward_packs = int(t.get("reward", 1))
 	bet.payout_money = int(t.get("payout_money", 0))
-	bet.payout_charge = int(t.get("payout_charge", 0))
+	bet.payout_energy = int(t.get("payout_energy", 0))
 	bet.special_id = t.get("special", "")
 	bet.unlock_level = int(t.get("unlock", UNLOCK_BASE))
 	bet.display_name = t["name"]
@@ -498,7 +498,7 @@ func special_engraving() -> Engraving:
 	return null
 
 ## Einsatz-Etikett: Geld, die BENANNTEN Pakete (Sorte + Größe aus dem Besitz gezogen),
-## Ladung oder laufende Steuer.
+## Energie oder laufende Steuer.
 ## factor = Deal-Aufschlag (Quotenpaket) - der Knopf muss den WIRKLICH fälligen
 ## Einsatz zeigen.
 func stake_label(factor: int = 1) -> String:
@@ -510,8 +510,8 @@ func stake_label(factor: int = 1) -> String:
 			return "$%d je Hand" % (stake * factor)
 		Stake.MONEY_PER_DIE:
 			return "$%d je Würfel" % (stake * factor)
-		Stake.CHARGE:
-			return "%d ⚡" % (stake_charge * factor)
+		Stake.ENERGY:
+			return "%d ⚡" % (stake_energy * factor)
 	return "$%d" % (stake * factor)
 
 ## Gewinn-Etikett: Barbetrag oder die versiegelten Pakete beim NAMEN ("2 Große
@@ -523,8 +523,8 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 	match payout_kind:
 		Payout.MONEY:
 			return "$%d" % CharmEffects.side_bet_money(payout_money * factor, charm_ids)
-		Payout.CHARGE:
-			return "%d ⚡" % (payout_charge * factor)
+		Payout.ENERGY:
+			return "%d ⚡" % (payout_energy * factor)
 		Payout.SPECIAL:
 			var special := special_engraving()
 			return "1 %s" % (special.display_name if special != null else special_id)

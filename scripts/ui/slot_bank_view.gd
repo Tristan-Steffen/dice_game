@@ -391,7 +391,7 @@ func _spin_button(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 		button.disabled = true
 		accent = MUTED_COLOR
 	else:
-		button.text = "gratis" if run.slot_spin_charge(i) <= 0 else "Drehen  %d⚡" % run.slot_spin_charge(i)
+		button.text = "gratis" if run.slot_spin_energy(i) <= 0 else "Drehen  %d⚡" % run.slot_spin_energy(i)
 		var can := not _spinning and run != null and run.can_spin_slot(i)
 		button.disabled = not can
 		if can:
@@ -428,10 +428,10 @@ func _legend_row(u: float) -> Control:
 	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var names := {
 		SlotPrize.Kind.ENGRAVING: "Zahlen", SlotPrize.Kind.MATERIAL: "Material",
-		SlotPrize.Kind.DICE_ENGRAVING: "Runen", SlotPrize.Kind.CHARGE: "Energie",
+		SlotPrize.Kind.DICE_ENGRAVING: "Runen", SlotPrize.Kind.ENERGY: "Energie",
 		SlotPrize.Kind.WILD: "Joker", SlotPrize.Kind.FUMBLE: "Fumble"}
 	for kind in [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING,
-			SlotPrize.Kind.CHARGE, SlotPrize.Kind.WILD, SlotPrize.Kind.FUMBLE]:
+			SlotPrize.Kind.ENERGY, SlotPrize.Kind.WILD, SlotPrize.Kind.FUMBLE]:
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", int(u * 0.4))
 		entry.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -492,7 +492,7 @@ func _on_spin_pressed(machine: int) -> void:
 	_spinning_index = machine
 	# Der Preis VOR dem Dreh: ein Gratisdreh (Freispiel-Charm, Freispiel-Klausel)
 	# kostet keine Energie, also fährt auch kein Einsatz-Licht.
-	var price := run.slot_spin_charge(machine)
+	var price := run.slot_spin_energy(machine)
 	var block := run.spin_slot(machine)
 	if block.is_empty():
 		_spinning = false
@@ -942,7 +942,7 @@ func _kind_color(kind: int) -> Color:
 		SlotPrize.Kind.ENGRAVING: return PackIconRenderer.COLORS[Pack.TYPE_NUMBER]
 		SlotPrize.Kind.MATERIAL: return PackIconRenderer.COLORS[Pack.TYPE_MATERIAL]
 		SlotPrize.Kind.DICE_ENGRAVING: return PackIconRenderer.DICE_ENGRAVING_COLOR
-		SlotPrize.Kind.CHARGE: return CYAN
+		SlotPrize.Kind.ENERGY: return CYAN
 		SlotPrize.Kind.DIE: return DIE_COLOR
 		SlotPrize.Kind.WILD: return GOLD
 	return RED  # Fumble

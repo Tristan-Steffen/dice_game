@@ -24,7 +24,7 @@ extends Node3D
 const HAND_SIZE := 6
 
 ## Einmal für den geschafften Benchmark - und erneut je Überladungs-Stufe, die
-## nicht mehr in die Ladungs-Börse passt (siehe GameRun.charge_split).
+## nicht mehr in die Ladungs-Börse passt (siehe GameRun.energy_split).
 const MONEY_PER_ROUND_CLEAR := 5
 const MONEY_PER_UNUSED_DIE := 1  # je noch nicht gezogenem Würfel im Rundenpool
 
@@ -50,8 +50,8 @@ const BANK_STAGE_GAP_START := 0.28
 const BANK_STAGE_GAP_DECAY := 0.82
 const BANK_STAGE_GAP_MIN := 0.12
 const BANK_BAR_DRAIN_TIME := 0.45
-## Stufen, die eine Ladung prägen, fahren cyan statt in ihrer Stufenfarbe.
-const CHARGE_COMET_COLOR := CasinoStyle.CHARGE
+## Stufen, die eine Energie prägen, fahren cyan statt in ihrer Stufenfarbe.
+const ENERGY_COMET_COLOR := CasinoStyle.ENERGY
 
 ## --- Schwarzmarkt ---------------------------------------------------------------
 ## Anteil des Rasterplatzes, den die Bank einnimmt - knapp unter 1, nur noch ein
@@ -170,7 +170,7 @@ const CLUSTER_SPILL_FACTOR := 2.6
 const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Underglow", "LEDStrip", "ChromeTrim"]
 
 
-## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.CHARGE), Ware und
+## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.ENERGY), Ware und
 ## Würfel zyan - dieselbe Farbe trägt jede Lieferung zur Werkbank.
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
 
@@ -727,7 +727,7 @@ var payout_shaft: LiftShaftView = null
 var _payout_depth := 0.0
 ## Die zurückgehaltenen Gewinn-Pakete: ihre Kassette steigt erst NACH dem Kassieren.
 var _payout_packs: Array[int] = []
-## Was beim Kassieren noch als Licht an sein Ziel reist: je Wette {bet, money, charge}.
+## Was beim Kassieren noch als Licht an sein Ziel reist: je Wette {bet, money, energy}.
 var _payout_claims: Array[Dictionary] = []
 ## Die Körper, die gerade VERSINKEN - freigegeben am Ende ihres Band-Schritts, und vom
 ## EINEN Aufräum-Pfad, falls er sie dort überholt.
@@ -1620,7 +1620,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.new_game_requested.connect(_on_reset_button_pressed)
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
-		table_screen.hub.debug_charge_requested.connect(_on_debug_charge_pressed)
+		table_screen.hub.debug_energy_requested.connect(_on_debug_energy_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
@@ -1821,7 +1821,7 @@ func _sync_combo_upgrade_buttons() -> void:
 	if not show:
 		_clear_combo_upgrade_hover()
 
-## Kauft die Stufe der angeklickten Kombination. Reicht die Ladung nicht,
+## Kauft die Stufe der angeklickten Kombination. Reicht die Energie nicht,
 ## verpufft der Klick - er darf aber NICHT als Zoom-Klick weiterlaufen, sonst
 ## fährt die Kamera weg, weil man sich einen Chip nicht leisten kann.
 func _try_combo_upgrade_click(screen_pos: Vector2) -> bool:
@@ -1898,7 +1898,7 @@ func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
 		return
 	if capacitor_bank != null:
 		capacitor_bank.pulse()  # die Bank gibt ab
-	await table_screen.play_charge_overclock_pulse(combo_key)
+	await table_screen.play_energy_overclock_pulse(combo_key)
 	if combo_chips.has(combo_key):
 		combo_chips[combo_key].play_upgrade_flash()
 	if combo_key != highlighted_combo_key:
@@ -2442,8 +2442,8 @@ func _on_side_bet_placed(index: int) -> void:
 	var glow_color := SideBetPanel.GOLD
 	if bet.stake_kind == SideBet.Stake.PACKS:
 		glow_color = SideBetPanel.ENGRAVING_GLOW
-	elif bet.stake_kind == SideBet.Stake.CHARGE:
-		glow_color = CHARGE_COMET_COLOR
+	elif bet.stake_kind == SideBet.Stake.ENERGY:
+		glow_color = ENERGY_COMET_COLOR
 	# Das Maß des Einsatzes wird JETZT genommen - bei der Landung steht der nächste
 	# Zahlplan längst woanders, und der Schacht muß den ganzen Stapel schlucken.
 	var stake_high := _bet_stake_height(bet, _pending_bet_chips)
@@ -2463,7 +2463,7 @@ func _bet_stake_height(bet: SideBet, chips: Array[int]) -> float:
 		SideBet.Stake.PACKS:
 			return BetPrizeView.FLOOR_CLEAR \
 				+ DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
-		SideBet.Stake.CHARGE:
+		SideBet.Stake.ENERGY:
 			return BetPrizeView.FLOOR_CLEAR + CapacitorBankView.loose_cell_height()
 	return BetPrizeView.FLOOR_CLEAR + ChipStackView.CHIP_HEIGHT \
 		+ ChipStackView.stack_lift(mini(chips.size(), THROW_SALVO_CAP) - 1)
@@ -2474,7 +2474,7 @@ func _bet_stake_height(bet: SideBet, chips: Array[int]) -> float:
 func _on_slot_spin_paid(_machine: int) -> void:
 	if table_screen == null:
 		return
-	table_screen.slot_pay_comet(CasinoStyle.CHARGE)
+	table_screen.slot_pay_comet(CasinoStyle.ENERGY)
 
 ## Gewonnene Pakete: je Paket ein Licht vom Automaten ins Werkstatt-Lager, dicht
 ## gestaffelt wie die Frankiermaschinen-Salve. Erst die letzte Ankunft jubelt.
@@ -2516,14 +2516,14 @@ func _fly_slot_die_to_fach(def: DieDefinition, from_px: Vector2) -> void:
 
 ## Funkenflug: der Funke springt aus der Grube auf die bestehende ⚡-Route. Die
 ## Energie ist beim Aufruf SCHON gebucht - das hier ist reine Anzeige (wie bei
-## den Nebenwetten), darum _fly_charge_to_capacitor(false). Dieselbe Salve trägt
+## den Nebenwetten), darum _fly_energy_to_capacitor(false). Dieselbe Salve trägt
 ## die Charm-Energie aus der Grube (Dynamo, Trostpreis) - sie kommt aus keiner
 ## Rune und fliegt darum ohne Funken.
 ## sparks nennt je ⚡ den Würfel, aus dem es springt: seine Rune lodert GENAU dann,
 ## wenn der Komet losfliegt. Der Funke, der von der Naht abspringt, und die
 ## Energie, die im Kondensator landet, werden so zu EINEM Vorgang - der stärkste
 ## Ursache-Wirkung-Lesbarkeitsgewinn, den das Runen-System zu bieten hat.
-func _play_rune_charge_volley(count: int, sparks: Array[int] = []) -> void:
+func _play_rune_energy_volley(count: int, sparks: Array[int] = []) -> void:
 	var launched := run
 	for i in count:
 		var slot: int = sparks[i] if i < sparks.size() else -1
@@ -2537,23 +2537,23 @@ func _play_rune_charge_volley(count: int, sparks: Array[int] = []) -> void:
 func _launch_rune_spark(slot: int) -> void:
 	if slot >= 0 and slot < dice.count():
 		_flare_runes(slot)
-	_fly_charge_to_capacitor(false)
+	_fly_energy_to_capacitor(false)
 
-## Die ⚡-Salve AB HUB: je Ladung ein Komet die Hub-Cluster-Ader zur Bank, dicht
+## Die ⚡-Salve AB HUB: je Energie ein Komet die Hub-Cluster-Ader zur Bank, dicht
 ## gestaffelt wie der Funkenflug. Die ⚡ sind beim Aufruf SCHON gebucht, hier fliegt
 ## nur das Licht (book=false); ein Laufwechsel während der Salve lässt den Rest liegen.
 ## Sie trägt die Kupfer-Energie eines Zuges und den kassierten Wett-Gewinn.
-func _play_hub_charge_volley(count: int) -> void:
+func _play_hub_energy_volley(count: int) -> void:
 	if count <= 0 or table_screen == null:
 		return
 	var launched := run
 	for i in count:
 		if i == 0:
-			_fly_charge_to_capacitor(false)
+			_fly_energy_to_capacitor(false)
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if run == launched:
-					_fly_charge_to_capacitor(false))
+					_fly_energy_to_capacitor(false))
 
 ## Spiegelt die Lauf-Übersicht in den Hub - null-tolerant (kein Run/kein Hub).
 func _refresh_hub_info() -> void:
@@ -4408,7 +4408,7 @@ const THROW_SET_TIME := 0.1
 ## Umdrehungen je Achse, also genau in der Lage, in der das Stück gebaut wurde.
 ## Nichts bleibt schief im Glas stecken.
 const THROW_SPIN := Vector3(TAU, TAU, TAU)
-## Mehr Stücke wirft niemand: eine Salve ist eine Geste, keine Ladung.
+## Mehr Stücke wirft niemand: eine Salve ist eine Geste, keine Energie.
 const THROW_SALVO_CAP := 8
 ## Wie weit eine Salve um ihren Platz streut - ein Haufen, kein Turm. Geld streut
 ## NICHT: es stapelt (throw_stack_lift).
@@ -4525,7 +4525,7 @@ func _throw_chip_bodies(values: Array[int]) -> Array[Node3D]:
 
 ## Eine lose Elko-Zelle als Wurfkörper - dieselbe Dose wie in der Bank, nur an einem
 ## Halter, dessen Ursprung der Flug fassen darf.
-func _throw_charge_body() -> Node3D:
+func _throw_energy_body() -> Node3D:
 	var holder := Node3D.new()
 	holder.name = "WurfElko"
 	add_child(holder)
@@ -5979,8 +5979,8 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 		SideBet.Payout.MONEY:
 			return {"body": "chips",
 				"amount": CharmEffects.side_bet_money(bet.payout_money * factor, run.charm_ids())}
-		SideBet.Payout.CHARGE:
-			return {"body": "charge", "count": bet.payout_charge * factor}
+		SideBet.Payout.ENERGY:
+			return {"body": "energy", "count": bet.payout_energy * factor}
 		SideBet.Payout.COMBO_LEVEL:
 			return {"body": "token", "text": "LVL+1", "tint": CasinoStyle.GOLD_INTENSE}
 		SideBet.Payout.PRESS_BOOST:
@@ -6130,8 +6130,8 @@ func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 	match body_kind:
 		"chips":
 			prize.setup_chips(int(spec.get("amount", 0)))
-		"charge":
-			prize.setup_charge(int(spec.get("count", 1)))
+		"energy":
+			prize.setup_energy(int(spec.get("count", 1)))
 		"token":
 			prize.setup_token(String(spec.get("text", "")), tint)
 		_:
@@ -6649,7 +6649,7 @@ func _play_bet_goods_payouts() -> void:
 		var bet: SideBet = claim["bet"]
 		_ledger_money("bet_%d" % i, bet.display_name, int(claim.get("money", 0)),
 			bet.description)
-		_ledger_charge(int(claim.get("charge", 0)))
+		_ledger_energy(int(claim.get("energy", 0)))
 	_raise_payout_batch(goods)
 	await get_tree().create_timer(LiftShaftView.cycle_time()).timeout
 
@@ -6670,7 +6670,7 @@ func _count_bet_payout(index: int, bet: SideBet, claim: Dictionary) -> void:
 		return
 	_ledger_money("bet_%d" % index, bet.display_name, int(claim.get("money", 0)),
 		bet.description)
-	_ledger_charge(int(claim.get("charge", 0)))
+	_ledger_energy(int(claim.get("energy", 0)))
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION * 0.5).timeout
 
 ## Nimmt den stehenden Preis EINER Wette vom Tresen (false = kein Körper da, der
@@ -6744,7 +6744,7 @@ func _payout_body_wanted(bet: SideBet) -> bool:
 	match bet.payout_kind:
 		SideBet.Payout.SPECIAL, SideBet.Payout.PACK, SideBet.Payout.PACKS:
 			return not bet.awarded_packs.is_empty()
-		SideBet.Payout.MONEY, SideBet.Payout.CHARGE:
+		SideBet.Payout.MONEY, SideBet.Payout.ENERGY:
 			return false
 	return true  # die Marken (LVL+1, Presse-Schub): Ware
 
@@ -6928,9 +6928,9 @@ func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 					func() -> void:
 						if run == launched and is_instance_valid(workshop):
 							_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint))
-	var charge := int(claim.get("charge", 0))
-	if charge > 0:
-		_play_hub_charge_volley(charge)
+	var energy := int(claim.get("energy", 0))
+	if energy > 0:
+		_play_hub_energy_volley(energy)
 	if int(claim.get("money", 0)) > 0:
 		_fly_payout_money()
 
@@ -7004,8 +7004,8 @@ func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 	match prize.kind:
 		SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL, SlotPrize.Kind.DICE_ENGRAVING:
 			_fly_slot_packs(prize.packs, from_px)
-		SlotPrize.Kind.CHARGE:
-			_fly_slot_charge(prize.charge, from_px)
+		SlotPrize.Kind.ENERGY:
+			_fly_slot_energy(prize.energy, from_px)
 		SlotPrize.Kind.DIE:
 			# Gebucht hat das Fenster VOR der Emission - hinterlegt liegt er hinten.
 			if run != null and not run.pending_dice.is_empty():
@@ -7014,16 +7014,16 @@ func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 ## Die gewonnene Energie reist die ZWEI Etappen jedes ⚡ im Spiel: die Automaten-Ader
 ## in den Hub, dann die Hub-Cluster-Ader zur Kondensator-Bank. Die Automaten sind
 ## die sechste ⚡-Quelle; gebucht ist längst, das hier ist reine Anzeige.
-func _fly_slot_charge(count: int, from_px: Vector2) -> void:
+func _fly_slot_energy(count: int, from_px: Vector2) -> void:
 	if count <= 0 or table_screen == null:
 		return
 	var launched := run
-	var travel := table_screen.slot_prize_comet(from_px, CasinoStyle.CHARGE)
+	var travel := table_screen.slot_prize_comet(from_px, CasinoStyle.ENERGY)
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
 	if run != launched:
 		return
-	_play_hub_charge_volley(count)
+	_play_hub_energy_volley(count)
 
 ## Die Magazin-Plätze der Pakete, die dieser Einsatz gleich verzehrt - gefragt VOR
 ## der Buchung, denn danach steht dort nichts mehr. WELCHE es sind, sagt GameRun
@@ -7063,12 +7063,12 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 				entries.append({
 					"body": _throw_cell_body(from, sort, bet.stake_pack_tier),
 					"from": from, "to": _throw_scatter(seat, i, anchors.size())})
-		SideBet.Stake.CHARGE:
-			var count := BetPrizeView.charge_cells(run.side_bet_stake_charge(bet))
+		SideBet.Stake.ENERGY:
+			var count := BetPrizeView.energy_cells(run.side_bet_stake_energy(bet))
 			var from := capacitor_bank.global_position if capacitor_bank != null \
 				else _treasure_throw_point()
 			for i in mini(count, THROW_SALVO_CAP):
-				entries.append({"body": _throw_charge_body(), "from": from,
+				entries.append({"body": _throw_energy_body(), "from": from,
 					"to": _throw_scatter(seat, i, mini(count, THROW_SALVO_CAP))})
 		_:
 			var bodies := _throw_chip_bodies(chips)
@@ -10375,7 +10375,7 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_ROUND_CRITS: run.round_crit_count,
 		# Lauf- und Rundenzustand der dritten Welle - alle hand-weit, also ohne
 		# Umschlüsselung; nur die Erstwertungs-Marken hängen am Slot.
-		DiceScoring.CTX_CHARGE: run.charge,
+		DiceScoring.CTX_ENERGY: run.energy,
 		DiceScoring.CTX_ROUND: run.round_number,
 		DiceScoring.CTX_HANDS_TAKEN: hands_taken_this_round,
 		DiceScoring.CTX_FUMBLES: run.round_fumbles,
@@ -11154,10 +11154,10 @@ func _on_farkle(forgivable: bool = true) -> void:
 	# Vulkanblitz/Aschewolke: der Zähler der Runde und der run-lange. Der
 	# Trostpreis prägt seine Energie gleich mit - gebucht in GameRun, das Licht
 	# fliegt erst hinterher.
-	var consolation_charge := run.note_fumble(_volcanic_in_pit())
-	if consolation_charge > 0:
+	var consolation_energy := run.note_fumble(_volcanic_in_pit())
+	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
-		_play_rune_charge_volley(consolation_charge)
+		_play_rune_energy_volley(consolation_energy)
 	momentum_streak = 0
 	_update_charm_badges()
 	first_hand_after_farkle = true
@@ -11354,21 +11354,21 @@ func _on_take_button_pressed() -> void:
 		hand_note = "Abguss: %d Material-Gravuren abgeformt." % cast_copies
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
 	# hinterher (wie die Nebenwetten-Energie).
-	if report.charge > 0:
-		run.add_charge(report.charge)
-		_play_rune_charge_volley(report.charge, report.sparks)
+	if report.energy > 0:
+		run.add_energy(report.energy)
+		_play_rune_energy_volley(report.energy, report.sparks)
 	# Tscherenkow: jeder Krit verbrennt eine Energie. Ausgeben animiert nicht -
-	# der Speicher zieht sich still aus charge_changed nach.
-	report.charge_spent = int(breakdown.get("charge_spent", 0))
-	if report.charge_spent > 0:
-		run.spend_charge(report.charge_spent)
+	# der Speicher zieht sich still aus energy_changed nach.
+	report.energy_spent = int(breakdown.get("energy_spent", 0))
+	if report.energy_spent > 0:
+		run.spend_energy(report.energy_spent)
 	# Kupfer speist je Zündung; was über den Speicher hinausläuft, zahlt bar (das
 	# Geld reitet die Geld-Bahn und braucht nichts Eigenes). Gebucht wird SOFORT,
 	# das Licht fliegt hinterher - dieselbe Regel wie beim Funkenflug.
-	if report.copper_charge > 0:
-		var banked := run.charge
-		run.book_copper_charge(report.copper_charge)
-		_play_hub_charge_volley(run.charge - banked)
+	if report.copper_energy > 0:
+		var banked := run.energy
+		run.book_copper_energy(report.copper_energy)
+		_play_hub_energy_volley(run.energy - banked)
 	# Streulicht und Einbrand feuern NICHT beim Zählen: der eine zahlt fürs
 	# Danebenliegen, der andere wehrt einen Verlust ab. Beide brauchen darum ihren
 	# eigenen Auslöser, sonst wäre ihre Wirkung die einzige, die man nie sieht.
@@ -12481,8 +12481,8 @@ func _connect_run() -> void:
 	charm_shop.run = run
 	if table_screen != null and table_screen.secret_shop_window != null:
 		table_screen.secret_shop_window.run = run
-		if not table_screen.secret_shop_window.charge_spent.is_connected(_on_secret_shop_charge_spent):
-			table_screen.secret_shop_window.charge_spent.connect(_on_secret_shop_charge_spent)
+		if not table_screen.secret_shop_window.energy_spent.is_connected(_on_secret_shop_energy_spent):
+			table_screen.secret_shop_window.energy_spent.connect(_on_secret_shop_energy_spent)
 		if not table_screen.secret_shop_window.goods_purchased.is_connected(_on_secret_goods_purchased):
 			table_screen.secret_shop_window.goods_purchased.connect(_on_secret_goods_purchased)
 		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
@@ -12567,7 +12567,7 @@ func _connect_run() -> void:
 	run.secret_shop_discovered.connect(_on_secret_shop_discovered)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
-	run.charge_changed.connect(_on_charge_changed)
+	run.energy_changed.connect(_on_energy_changed)
 	# Paket-Einsätze werden bezahlbar oder knapp, während die Wettannahme offen ist.
 	run.packs_changed.connect(_refresh_side_bet_affordability)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
@@ -12584,7 +12584,7 @@ func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
 	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
+		table_screen.hub.set_energy_display(run.energy, run.energy_cap())
 	if table_screen != null:
 		table_screen.set_secret_shop_installed(true)
 		if table_screen.secret_shop_window != null:
@@ -12598,11 +12598,11 @@ func _sync_secret_shop_state() -> void:
 func _sync_capacitor() -> void:
 	if capacitor_bank == null or run == null:
 		return
-	capacitor_bank.set_charge(run.charge, run.charge_cap())
+	capacitor_bank.set_energy(run.energy, run.energy_cap())
 
-func _on_charge_changed(value: int) -> void:
+func _on_energy_changed(value: int) -> void:
 	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_charge_display(value, run.charge_cap())
+		table_screen.hub.set_energy_display(value, run.energy_cap())
 	_sync_capacitor()
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 	_refresh_side_bet_affordability()
@@ -12619,17 +12619,17 @@ func _on_secret_shop_discovered() -> void:
 		return
 	if table_screen.hub != null:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	var travel := table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
+	var travel := table_screen.secret_shop_pay_comet(CasinoStyle.ENERGY)
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
 	if run != opening_run or table_screen == null:
 		return  # Reset während des Kometen
 	table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)
 
-## Ladung für Ware oder Neuwurf: sie fährt dieselbe Ader wie das Eintrittsgeld.
-func _on_secret_shop_charge_spent(_amount: int) -> void:
+## Energie für Ware oder Neuwurf: sie fährt dieselbe Ader wie das Eintrittsgeld.
+func _on_secret_shop_energy_spent(_amount: int) -> void:
 	if table_screen != null:
-		table_screen.secret_shop_pay_comet(CasinoStyle.CHARGE)
+		table_screen.secret_shop_pay_comet(CasinoStyle.ENERGY)
 
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
@@ -12664,11 +12664,11 @@ func _open_route_choice() -> void:
 func _on_route_chosen(index: int) -> void:
 	if not route_pending:
 		return  # doppelte Unterschrift = doppelter Vorschuss
-	var charge_before := run.charge
+	var energy_before := run.energy
 	run.take_route(index)
-	# Startkapital & Co. prägen Ladung SOFORT - GameRun hat gebucht, das Licht
+	# Startkapital & Co. prägen Energie SOFORT - GameRun hat gebucht, das Licht
 	# holt nach: je ⚡ ein Komet auf dem Weg der Überladungs-Auszahlung.
-	_play_deal_charge_volley(run.charge - charge_before)
+	_play_deal_energy_volley(run.energy - energy_before)
 	route_pending = false
 	_commit_round()  # ab der Unterschrift sind die Würfel im Spiel
 	if route_choice != null:
@@ -12823,7 +12823,7 @@ func _round_should_end() -> bool:
 
 ## Rundenende: MONEY_PER_ROUND_CLEAR EINMAL für den geschafften Benchmark, je
 ## ungezogenem Würfel MONEY_PER_UNUSED_DIE - und je gefüllter Überladungs-Stufe
-## eine Ladung (⚡). Was nicht mehr in die Börse passt, fällt zum alten Satz als
+## eine Energie (⚡). Was nicht mehr in die Börse passt, fällt zum alten Satz als
 ## Geld an. Die Auszahlung läuft als Tisch-Animation, bevor der Shop aufgeht; die
 ## Phase springt schon auf PAYOUT, damit derweil nichts anklickbar bleibt.
 ## Die WAREN-Plots der Seite, gemerkt bei der Buchung und gesetzt erst in der
@@ -12851,9 +12851,9 @@ func _ledger_money(id: String, caption: String, amount: int, note := "") -> void
 		payout_ledger.add_money(id, caption, amount, note)
 
 ## MELDET Energie an die Auszahlungs-Seite - eigene Zeile, nicht in der Summe.
-func _ledger_charge(amount: int) -> void:
+func _ledger_energy(amount: int) -> void:
 	if payout_ledger != null and phase == Phase.PAYOUT:
-		payout_ledger.add_charge(amount)
+		payout_ledger.add_energy(amount)
 
 func _on_round_complete() -> void:
 	var stages := run.stages_cleared(hand_total)
@@ -12903,7 +12903,7 @@ func _on_round_complete() -> void:
 		# Aufteilung VOR jeder Buchung DIESER Zählsequenz (die Wetten haben schon
 		# gezahlt, ihre ⚡ füllt die Börse zuerst): die Zeremonie plant daraus ihre
 		# Kometen und bucht sie einzeln bei Ankunft.
-		var split := run.charge_split(stages)
+		var split := run.energy_split(stages)
 		# Zinsen rechnen auf demselben Stand - Wett-Geld verzinst also mit - und
 		# reisen mit dem Benchmark-Kometen: ein eigener Komet für ein paar Dollar
 		# wäre Zeremonie um ihrer selbst willen.
@@ -13032,7 +13032,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 	# wie GameRun._pay_side_bet gegen den Stand VOR der Buchung.
 	var factor := run.side_bet_payout_factor()
 	var ids := run.charm_ids()
-	var charge_room := maxi(run.charge_cap() - run.charge, 0)
+	var energy_room := maxi(run.energy_cap() - run.energy, 0)
 	_drop_payout_bodies()  # was die Vorrunde etwa liegenließ, geht VOR der Buchung
 	_suppress_money_light = true
 	var won := run.resolve_side_bets(result)
@@ -13040,7 +13040,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 	# Im SELBEN synchronen Zug wie die Buchung: das Magazin hält die Gewinn-Kassette
 	# zurück, bis kassiert ist - dazwischen liegt kein Bild, sie blitzt also nie auf.
 	_withhold_payout_packs(won)
-	var plan := _bet_ledger_plan(won, factor, ids, charge_room)
+	var plan := _bet_ledger_plan(won, factor, ids, energy_room)
 	_refresh_side_bet_panel()  # Wetten geleert -> Fenster zeigt "keine aktiv"
 	# Die STELLPLÄTZE der Seite: nur WARE stellt einen Körper (Geld und ⚡ sind
 	# Zeilen), je Stück mit seinem NAMEN aus der EINEN Formulierung des Fensters
@@ -13056,7 +13056,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 	for i in won.size():
 		var entry: Dictionary = plan[i] if i < plan.size() else {}
 		var claim := {"bet": won[i], "money": int(entry.get("money", 0)),
-			"charge": int(entry.get("charge", 0))}
+			"energy": int(entry.get("energy", 0))}
 		if _payout_body_wanted(won[i]) and panel != null:
 			var bet: SideBet = won[i]
 			var spec := _bet_price_spec(bet)
@@ -13101,24 +13101,24 @@ func _resolve_side_bets(cleared: bool) -> void:
 ## (Pakete, LVL+1, Presse-Schub) melden nichts - nur was am vollen Magazin zu
 ## Geld zerfallen ist, steht ehrlich in der Zeile SEINER Wette.
 func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
-		charge_room: int) -> Array[Dictionary]:
+		energy_room: int) -> Array[Dictionary]:
 	var plan: Array[Dictionary] = []
-	var room := charge_room
+	var room := energy_room
 	for bet in won:
 		var money := 0
-		var charge := 0
+		var energy := 0
 		match bet.payout_kind:
 			SideBet.Payout.MONEY:
 				money = CharmEffects.side_bet_money(bet.payout_money * factor, ids)
-			SideBet.Payout.CHARGE:
-				var minted := bet.payout_charge * factor
-				charge = clampi(minted, 0, room)
-				room -= charge
-				money = (minted - charge) * GameRun.CHARGE_OVERFLOW_MONEY
+			SideBet.Payout.ENERGY:
+				var minted := bet.payout_energy * factor
+				energy = clampi(minted, 0, room)
+				room -= energy
+				money = (minted - energy) * GameRun.ENERGY_OVERFLOW_MONEY
 			SideBet.Payout.SPECIAL, SideBet.Payout.PACK, SideBet.Payout.PACKS:
 				# Je am vollen Magazin zerfallenem Paket sein Fizzle-Geld.
 				money = bet.awarded_fizzled * GameRun.PACK_FIZZLE_MONEY
-		plan.append({"money": money, "charge": charge})
+		plan.append({"money": money, "energy": energy})
 	return plan
 
 ## Darf eine frisch freigeschaltete Wettannahme SOFORT aufmachen? Gewettet wird vor
@@ -13296,7 +13296,7 @@ func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> 
 			Charm.STAMP_MACHINE:
 				await _play_stamp_machine_meteors(j)
 			Charm.DYNAMO:
-				await _play_dynamo_charge(j, CharmEffects.round_end_charge_at(j, ids))
+				await _play_dynamo_energy(j, CharmEffects.round_end_energy_at(j, ids))
 			Charm.JEWELRY_BOX:
 				await _play_jewelry_box_meteors(j, jewelry_copy)
 				jewelry_copy += 1
@@ -13385,13 +13385,13 @@ func _fire_jewelry_box_meteor(grant: Dictionary, from_px: Vector2, index := -1) 
 ## Dynamo: die geräumte Runde prägt eine Energie. Gebucht ist sie, bevor das
 ## Licht startet - der Komet fliegt nur hinterher (book first, fly afterwards),
 ## darum die reine Anzeige-Salve.
-func _play_dynamo_charge(index: int, count: int) -> void:
+func _play_dynamo_energy(index: int, count: int) -> void:
 	if count <= 0:
 		return
-	run.add_charge(count)
-	_ledger_charge(count)
+	run.add_energy(count)
+	_ledger_energy(count)
 	_flash_charm_and_pad(index)
-	_play_deal_charge_volley(count)
+	_play_deal_energy_volley(count)
 	await get_tree().create_timer(CHARM_PAYOUT_STEP_INTERVAL).timeout
 
 ## EIN Geld-Charm zahlt sichtbar: Pad blitzt, "+N$" steigt am Pad auf, und der
@@ -13563,47 +13563,47 @@ func _fire_charm_pack(pack: Pack, from_px: Vector2, index := -1) -> float:
 
 ## Bank-Entladung: EIN Bank-Komet je geräumter STUFE (oberste zuerst), aus dem
 ## Zielbalken um die Grube in den Hub. Jede Ankunft entlädt den Balken eine Stufe
-## und bucht, was GENAU DIESE Stufe geprägt hat - mit dem Doppellader zwei Ladungen
+## und bucht, was GENAU DIESE Stufe geprägt hat - mit dem Doppellader zwei ⚡
 ## statt einer, nie zwei Kometen: doppelt so viele Einschläge läsen sich, als hätte
 ## der Spieler doppelt so viele Stufen geräumt.
-## Was in die Börse passt, ist in charge_split vorausgeplant: die ersten stored
-## Ladungen der Reihe. Eine Stufe kann darum GETEILT ankommen (ein Teil Ladung, der
+## Was in die Börse passt, ist in energy_split vorausgeplant: die ersten stored
+## ⚡ der Reihe. Eine Stufe kann darum GETEILT ankommen (ein Teil Energie, der
 ## Rest Geld) - genau dann, wenn die Börse mittendrin volläuft.
 func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_stages: int,
 		hub: HubView) -> void:
 	var comets := cleared_stages
 	if comets <= 0:
 		return
-	var per_stage := maxi(1, run.charge_per_stage())
+	var per_stage := maxi(1, run.energy_per_stage())
 	var vein := run.gold_vein_income()
 	var gap := BANK_STAGE_GAP_START
 	var minted := 0
 	for k in range(comets, 0, -1):
-		# Die Ladungen DIESER Stufe: erst was noch in die Börse passt, der Rest bar.
-		var charges := clampi(stored - minted, 0, per_stage)
-		var cash := per_stage - charges
+		# Die ⚡ DIESER Stufe: erst was noch in die Börse passt, der Rest bar.
+		var energys := clampi(stored - minted, 0, per_stage)
+		var cash := per_stage - energys
 		# Balken auf die verbleibenden Stufen schrumpfen (in der nächst-tieferen Farbe).
 		var remaining_frac := float(k - 1) / float(comets)
 		table_screen.drain_goal_bar(remaining_frac, table_screen.stage_fill_color(maxi(k - 1, 1)),
 			BANK_BAR_DRAIN_TIME)
-		var color := CHARGE_COMET_COLOR if charges > 0 else table_screen.stage_fill_color(k)
+		var color := ENERGY_COMET_COLOR if energys > 0 else table_screen.stage_fill_color(k)
 		var travel: float = table_screen.bank_comet(color)
 		await get_tree().create_timer(travel).timeout
 		if phase != Phase.PAYOUT:
 			return  # Spiel während der Auszahlung zurückgesetzt
 		if hub != null:
 			hub.flash_frame(color)
-		if charges > 0:
+		if energys > 0:
 			# Zweite Etappe: vom Hub über die Schatz-Leiste zur Kondensator-Bank.
 			# Bewusst NICHT abgewartet - die nächste Stufe startet sofort, wie bei
 			# der Frankiermaschinen-Salve; gebucht wird bei der ANKUNFT.
-			_fly_charge_to_capacitor(true, charges)
+			_fly_energy_to_capacitor(true, energys)
 		if cash > 0:
 			run.add_money(base_blind * cash)
 			_ledger_money("overflow", "Speicher voll", base_blind * cash)
 		minted += per_stage
 		if vein > 0:
-			run.add_money(vein)  # Goldader: je geräumter Stufe, nicht je Ladung
+			run.add_money(vein)  # Goldader: je geräumter Stufe, nicht je Energie
 			_ledger_money("gold_vein", "Goldader", vein)
 		await get_tree().create_timer(gap).timeout
 		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
@@ -13611,61 +13611,61 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 ## EINEN Kometen vom Hub zur Kondensator-Bank schicken: über die Hub-Cluster-Ader,
 ## an deren Eintritt die Bank steht. Gebucht wird bei der Ankunft (dort pulsen
 ## Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
-## amount = was DIESER Komet trägt: der Doppellader prägt zwei Ladungen je Stufe,
+## amount = was DIESER Komet trägt: der Doppellader prägt zwei ⚡ je Stufe,
 ## und die reisen in EINEM Licht - eine Stufe, ein Einschlag.
-## book = false: die Ladung ist schon gebucht (Sofort-Klausel), es fliegt nur
+## book = false: die Energie ist schon gebucht (Sofort-Klausel), es fliegt nur
 ## das Licht - sonst zählte dieselbe ⚡ zweimal.
-func _fly_charge_to_capacitor(book: bool = true, amount: int = 1) -> void:
+func _fly_energy_to_capacitor(book: bool = true, amount: int = 1) -> void:
 	var launched := run
 	var travel := 0.0
 	if table_screen != null and capacitor_bank != null:
-		travel = table_screen.charge_comet(
-			table_screen.world_to_pixel(capacitor_bank.global_position), CHARGE_COMET_COLOR)
+		travel = table_screen.energy_comet(
+			table_screen.world_to_pixel(capacitor_bank.global_position), ENERGY_COMET_COLOR)
 	if travel <= 0.0:
 		if book:
-			run.add_charge(amount)  # ohne Display still buchen, nichts verlieren
+			run.add_energy(amount)  # ohne Display still buchen, nichts verlieren
 		return
 	get_tree().create_timer(travel).timeout.connect(func() -> void:
 		if run != launched or (book and phase != Phase.PAYOUT):
 			return  # Lauf während des Flugs zurückgesetzt
 		if book:
-			run.add_charge(amount)
-			_ledger_charge(amount)  # book=false sind Sofort-Klauseln, nicht die Runde
+			run.add_energy(amount)
+			_ledger_energy(amount)  # book=false sind Sofort-Klauseln, nicht die Runde
 		if capacitor_bank != null:
 			capacitor_bank.pulse()
 		if table_screen != null and table_screen.hub != null:
-			table_screen.hub.pulse_charge())
+			table_screen.hub.pulse_energy())
 
-## Sofort-Ladung eines Vertrags (Startkapital & Co.): je ⚡ ein Komet, dicht
+## Sofort-Energie eines Vertrags (Startkapital & Co.): je ⚡ ein Komet, dicht
 ## gestaffelt wie die Frankiermaschinen-Salve. Reine Anzeige - gebucht hat
 ## GameRun mit der Unterschrift, hier wird NICHTS gebucht.
-func _play_deal_charge_volley(count: int) -> void:
+func _play_deal_energy_volley(count: int) -> void:
 	if count <= 0 or table_screen == null:
 		return
 	var launched := run
 	for i in count:
 		if i == 0:
-			_fly_deal_charge()
+			_fly_deal_energy()
 		else:
 			get_tree().create_timer(float(i) * STAMP_METEOR_GAP).timeout.connect(func() -> void:
 				if run == launched:
-					_fly_deal_charge())
+					_fly_deal_energy())
 
-## EINE unterschriebene Ladung: dieselben zwei Etappen wie die Überladungs-
+## EINE unterschriebene Energie: dieselben zwei Etappen wie die Überladungs-
 ## Auszahlung (Bank-Ader in den Hub, dann Hub-Cluster-Ader zur Bank) - jedes ⚡
 ## erreicht die Börse auf demselben Weg.
-func _fly_deal_charge() -> void:
+func _fly_deal_energy() -> void:
 	var launched := run
-	var travel := table_screen.bank_comet(CHARGE_COMET_COLOR)
+	var travel := table_screen.bank_comet(ENERGY_COMET_COLOR)
 	if travel <= 0.0:
-		_fly_charge_to_capacitor(false)
+		_fly_energy_to_capacitor(false)
 		return
 	get_tree().create_timer(travel).timeout.connect(func() -> void:
 		if run != launched:
 			return
 		if table_screen.hub != null:
-			table_screen.hub.flash_frame(CHARGE_COMET_COLOR)
-		_fly_charge_to_capacitor(false))
+			table_screen.hub.flash_frame(ENERGY_COMET_COLOR)
+		_fly_energy_to_capacitor(false))
 
 ## Auszahlung je noch ungezogenem Würfel, in STAPEL-Reihenfolge: normal überall
 ## per_die, mit Knallgas wächst der Satz hinter jedem Knallgas-Würfel.
@@ -13736,9 +13736,9 @@ func _on_debug_money_pressed() -> void:
 ## Debug-Energie, ohne Zeremonie: gebucht wird direkt in die Börse, denn der
 ## Komet gehört zu einer Wirkung, und hier gibt es keine. Der Deckel gilt weiter -
 ## was nicht mehr hineinpasst, verfällt (kein Überlauf-Geld wie beim Kupfer).
-func _on_debug_charge_pressed() -> void:
+func _on_debug_energy_pressed() -> void:
 	if run != null:
-		run.add_charge(10)
+		run.add_energy(10)
 
 ## Sichtbarkeit der Spiel-UI nach Spielzustand (false während Shop/GameOver).
 func _set_gameplay_ui_visible(is_visible: bool) -> void:
@@ -14032,8 +14032,8 @@ func _log_display_state() -> Dictionary:
 	var pool_start := next_draw_index + _queue_display_capacity()
 	return {
 		"money": run.money,
-		"charge": run.charge,
-		"charge_cap": run.charge_cap(),
+		"energy": run.energy,
+		"energy_cap": run.energy_cap(),
 		"hand_total": hand_total,
 		"round_number": run.round_number,
 		"goal": run.stage_progress(hand_total).duplicate(),
@@ -14283,10 +14283,10 @@ func _log_apply_display(state: Dictionary) -> void:
 		chip_stack.clear_mints()
 		chip_stack.seed_wallet(int(state.get("money", 0)))
 	if capacitor_bank != null:
-		capacitor_bank.set_charge(int(state.get("charge", 0)), int(state.get("charge_cap", 0)))
+		capacitor_bank.set_energy(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_run_info(int(state.get("round_number", 1)), int(state.get("money", 0)), _round_note())
-		table_screen.hub.set_charge_display(int(state.get("charge", 0)), int(state.get("charge_cap", 0)))
+		table_screen.hub.set_energy_display(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
 		var sides: Array[Dictionary] = []
 		sides.assign(state.get("deal_sides", []))
 		table_screen.hub.set_deal_tokens(sides)
@@ -14379,7 +14379,7 @@ func _close_round_log() -> void:
 		chip_stack.seed_wallet(run.money)
 	_refresh_hub_info()
 	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_charge_display(run.charge, run.charge_cap())
+		table_screen.hub.set_energy_display(run.energy, run.energy_cap())
 	_sync_capacitor()
 	for key: String in combo_labels:
 		_refresh_combo_display(key)

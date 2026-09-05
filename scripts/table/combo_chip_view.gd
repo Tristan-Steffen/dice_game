@@ -120,7 +120,7 @@ const BAND_SEAT_DROP := 0.5
 ## eigenen Pick-Körper über dem ganzen Chip.
 const UPGRADE_PICK_LAYER := 128
 const PREVIEW_COLOR := DieFaceDisplay.PREVIEW_NUMBER_COLOR
-const COST_COLOR := CasinoStyle.CHARGE    # bezahlbar - dieselbe ⚡-Signalfarbe
+const COST_COLOR := CasinoStyle.ENERGY    # bezahlbar - dieselbe ⚡-Signalfarbe
 const COST_DIM := Color(0.42, 0.5, 0.56)  # zu wenig Energie
 ## Eine gebankte Gratis-Stufe (GameRun.free_overclocks) ERSETZT den Preis, sie rechnet ihn
 ## nicht auf null: "kostet nichts" und "wird nicht bezahlt" sind zwei Zustände.

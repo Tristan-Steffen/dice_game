@@ -2,7 +2,7 @@ class_name PressPortalView
 extends Control
 ## Das GLÜHEN eines Serien-Slots. Ruhig, solange nichts steckt; beim GRIFF läuft
 ## die Serie kartenweise durch, und jede gesteckte Karte flammt an ihrer Stelle auf
-## (charge). Eine OPERATOR-Karte schlägt statt dessen perkussiv zu und schreibt
+## (energy). Eine OPERATOR-Karte schlägt statt dessen perkussiv zu und schreibt
 ## ihre Glyphe hinein (punch) - dieselbe Trennung, die auch die Rechnung macht:
 ## Addition leuchtet, Operator schlägt.
 ##
@@ -11,7 +11,7 @@ extends Control
 
 ## Dauer des Aufflammens einer Wert-Karte und des Operator-Schlags. scene_root
 ## bzw. das Fenster staffeln daran.
-const CHARGE_TIME := 0.34
+const ENERGY_TIME := 0.34
 const PUNCH_TIME := 0.42
 ## Der Ring des Schlags fährt bis hierhin nach außen, die Glyphe steht so groß.
 const PUNCH_RING := 1.15
@@ -20,7 +20,7 @@ const PUNCH_PEAK := 1.75
 
 var sort := ""
 ## Amber, sobald ein Operator im Slot steckt - Wert-Karten bleiben in ihrer Sorte.
-var accent := CasinoStyle.CHARGE
+var accent := CasinoStyle.ENERGY
 
 ## 0 = ruhig, 1 = Aufflammen, 2 = Operator-Schlag.
 var _state := 0
@@ -37,7 +37,7 @@ func _init() -> void:
 	set_process(false)
 
 ## Belegt den Slot mit der Farbe seiner Karte ("" = dunkel).
-func setup(pack_sort: String, tint: Color = CasinoStyle.CHARGE) -> void:
+func setup(pack_sort: String, tint: Color = CasinoStyle.ENERGY) -> void:
 	sort = pack_sort
 	accent = tint
 
@@ -68,7 +68,7 @@ func _process(delta: float) -> void:
 		_delay = maxf(_delay - delta, 0.0)
 		return
 	_time += delta
-	if _state == 1 and _time >= CHARGE_TIME:
+	if _state == 1 and _time >= ENERGY_TIME:
 		_state = 0
 		set_process(false)
 	elif _state == 2:
@@ -118,7 +118,7 @@ func _draw() -> void:
 			maxf(reach * 0.06, 1.0), true)
 		return
 	# Das Aufflammen: ein Kern geht auf und erlischt wieder.
-	var swell := clampf(_time / CHARGE_TIME, 0.0, 1.0)
+	var swell := clampf(_time / ENERGY_TIME, 0.0, 1.0)
 	var fade := 1.0 - swell
 	draw_circle(middle, reach * (0.2 + 0.8 * swell),
 		Color(accent.r, accent.g, accent.b, fade * fade * 0.55))

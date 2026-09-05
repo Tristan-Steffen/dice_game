@@ -4,7 +4,7 @@ extends Panel
 ## von Anfang an da, aber VERGITTERT - erst die Lizenzstufe hebt das Gitter
 ## (set_locked); solange bleibt die Bucht zu, denn die Auslage wird erst beim
 ## Freischalten gewürfelt.
-## Danach: bezahlt wird ausschließlich in Ladung (⚡) - drei Plätze, jeder EINMAL
+## Danach: bezahlt wird ausschließlich in Energie (⚡) - drei Plätze, jeder EINMAL
 ## kaufbar, "Neu mischen" tauscht alle drei zum immer gleichen Preis.
 ## Aufgeteilt ist das Fenster wie der Laden: Kopfstreifen und der feste
 ## KARTEN-SITZ (genau EINE Charm-Karte - Lizenzen sind digitale Ware) bleiben
@@ -20,11 +20,11 @@ extends Panel
 ## derselben Stelle (show_bay_annotation; seine Schlüsselwörter sind Klickziele).
 ## Zustands-Mutation läuft ausschließlich über GameRun (buy_secret_offer/
 ## reroll_secret_stock); die Anzeige folgt secret_stock_changed und
-## charge_changed. Geschlossen wird wie bei jedem Fenster per Rechtsklick.
+## energy_changed. Geschlossen wird wie bei jedem Fenster per Rechtsklick.
 
-## Ladung ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
+## Energie ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
 ## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
-signal charge_spent(amount: int)
+signal energy_spent(amount: int)
 ## Versiegelte Ware ist gekauft (Bündel oder Katalysator): sie liegt schon als
 ## Paket im Magazin, scene_root fährt sie nur noch dorthin.
 signal goods_purchased(uid: int)
@@ -40,7 +40,7 @@ signal lexikon_requested(entry_id: String)
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
 const VIOLET := Color(0.75, 0.35, 1.0)
-const CHARGE_COLOR := CasinoStyle.CHARGE
+const ENERGY_COLOR := CasinoStyle.ENERGY
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.72, 0.74, 0.86)
 const BACKROOM_BG := Color("#0b0918e6")
@@ -85,14 +85,14 @@ var run: GameRun:
 		if run != null:
 			if run.secret_stock_changed.is_connected(_on_run_changed):
 				run.secret_stock_changed.disconnect(_on_run_changed)
-			if run.charge_changed.is_connected(_on_charge_changed):
-				run.charge_changed.disconnect(_on_charge_changed)
+			if run.energy_changed.is_connected(_on_energy_changed):
+				run.energy_changed.disconnect(_on_energy_changed)
 			if run.charms_changed.is_connected(_on_run_changed):
 				run.charms_changed.disconnect(_on_run_changed)
 		run = value
 		if run != null:
 			run.secret_stock_changed.connect(_on_run_changed)
-			run.charge_changed.connect(_on_charge_changed)
+			run.energy_changed.connect(_on_energy_changed)
 			run.charms_changed.connect(_on_run_changed)  # der Charm-Platz sperrt am vollen Dock
 		_seen_rolls = -1  # frischer Lauf: die erste Auslage rollt wieder an
 		refresh()
@@ -241,7 +241,7 @@ func _build_layout() -> void:
 	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(rail)
-	wallet_label = _label("⚡ 0/0", u * 4.2, CHARGE_COLOR)
+	wallet_label = _label("⚡ 0/0", u * 4.2, ENERGY_COLOR)
 	wallet_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header.add_child(wallet_label)
 	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.6, Vector2(u * 24.0, u * 6.2))
@@ -548,7 +548,7 @@ func set_bay_plates(entries: Array) -> void:
 	for entry: Dictionary in entries:
 		var px: Vector2 = entry["px"]
 		# Der PREIS gehört in die Signatur: ein Hehlerware-Rabatt kann sich ändern,
-		# ohne dass Ladung oder Plätze sich rühren (Charm mit Geld gekauft).
+		# ohne dass Energie oder Plätze sich rühren (Charm mit Geld gekauft).
 		var index := int(entry["index"])
 		var price := -1
 		if run != null and index >= 0 and index < run.secret_stock.size():
@@ -556,7 +556,7 @@ func set_bay_plates(entries: Array) -> void:
 		signature += "%s:%d:%d,%d:%d;" % [String(entry["kind"]), index,
 			int(px.x), int(px.y), price]
 	if run != null:
-		signature += "|%d|%s|%s" % [run.charge, run.packs_full(), run.charms_full()]
+		signature += "|%d|%s|%s" % [run.energy, run.packs_full(), run.charms_full()]
 	if signature == _plate_signature:
 		return
 	_plate_signature = signature
@@ -586,7 +586,7 @@ func set_bay_plates(entries: Array) -> void:
 		var price := run.secret_offer_price(offer)
 		var blocked := _offer_blocked(offer)
 		var tag := ShopController.FULL_MARK if blocked else "⚡ %d" % price
-		var tint := CasinoStyle.RED if blocked or run.charge < price else CHARGE_COLOR
+		var tint := CasinoStyle.RED if blocked or run.energy < price else ENERGY_COLOR
 		var price_line := _label(tag, u * PLATE_PRICE_FONT, tint,
 			HORIZONTAL_ALIGNMENT_CENTER)
 		plate.add_child(price_line)
@@ -645,8 +645,8 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 		return {}
 	var data := {
 		"price": run.secret_offer_price(offer),
-		"money": run.charge,
-		"charge": true,
+		"money": run.energy,
+		"energy": true,
 		"blocked": ShopController.FULL_TAG if _offer_blocked(offer) else "",
 	}
 	match String(offer[GameRun.OFFER_KIND]):
@@ -682,7 +682,7 @@ func buy_offer(index: int) -> void:
 func _refresh_offers() -> void:
 	if not _built or run == null:
 		return
-	wallet_label.text = "⚡ %d/%d" % [run.charge, run.charge_cap()]
+	wallet_label.text = "⚡ %d/%d" % [run.energy, run.energy_cap()]
 	for child in card_seat.get_children():
 		card_seat.remove_child(child)
 		child.queue_free()
@@ -749,14 +749,14 @@ func _refresh_afford_state() -> void:
 		return
 	var cost := run.secret_reroll_cost()
 	reroll_button.text = "Neu mischen ⚡%d" % cost
-	reroll_button.disabled = run.charge < cost
+	reroll_button.disabled = run.energy < cost
 	for i in offer_buttons.size():
 		if i >= run.secret_stock.size() or offer_buttons[i] == null:
 			continue
 		var offer := run.secret_stock[i]
 		var sold: bool = offer[GameRun.OFFER_SOLD]
 		offer_buttons[i].disabled = sold or _offer_blocked(offer) \
-			or run.charge < run.secret_offer_price(offer)
+			or run.energy < run.secret_offer_price(offer)
 
 ## Ob ein Platz an einem vollen Lager hängt: der Charm am Dock, die versiegelte
 ## Ware am Magazin (buy_secret_offer prüft dasselbe VOR dem Zahlen). Der Würfel
@@ -828,7 +828,7 @@ func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 	var blocked := _offer_blocked(offer)
 	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
 	column.add_child(_label(tag, u * 3.0,
-		NEON_MUTED if sold or blocked else CHARGE_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	if not sold:
 		card.pressed.connect(_on_offer_pressed.bind(index))
@@ -885,7 +885,7 @@ func _on_offer_pressed(index: int) -> void:
 	var stashed := run.pending_dice.size()
 	if not run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
 		return
-	charge_spent.emit(price)
+	energy_spent.emit(price)
 	if run.owned_packs.size() > stocked:
 		goods_purchased.emit(run.owned_packs.back().pack_uid)
 	elif run.pending_dice.size() > stashed:
@@ -896,15 +896,15 @@ func _on_reroll_pressed() -> void:
 		return
 	var cost := run.secret_reroll_cost()
 	if run.reroll_secret_stock():
-		charge_spent.emit(cost)
+		energy_spent.emit(cost)
 
 func _on_run_changed() -> void:
 	_refresh_offers()
 
-## Ladung allein ändert die Auslage nicht - nur wer was bezahlen kann.
-func _on_charge_changed(_value: int) -> void:
+## Energie allein ändert die Auslage nicht - nur wer was bezahlen kann.
+func _on_energy_changed(_value: int) -> void:
 	if _built and run != null:
-		wallet_label.text = "⚡ %d/%d" % [run.charge, run.charge_cap()]
+		wallet_label.text = "⚡ %d/%d" % [run.energy, run.energy_cap()]
 		_refresh_afford_state()
 
 # --- Bausteine ----------------------------------------------------------------

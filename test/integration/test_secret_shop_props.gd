@@ -21,15 +21,15 @@ func test_grid_is_always_complete() -> void:
 	# Das Raster steht von Anfang an ganz da - der Ausbau ist ein Umfärben,
 	# nie ein Umbau (die Bank wächst nicht mehr).
 	var bank := _bank()
-	bank.set_charge(0, 5)
+	bank.set_energy(0, 5)
 	assert_eq(_cells(bank).size(), 25, "alle 25 Zellen, unabhängig vom Deckel")
-	bank.set_charge(0, 25)
+	bank.set_energy(0, 25)
 	assert_eq(_cells(bank).size(), 25)
 	assert_eq(bank.cap_count(), 25)
 
-func test_three_states_locked_awake_charged() -> void:
+func test_three_states_locked_awake_energyd() -> void:
 	var bank := _bank()
-	bank.set_charge(3, 10)
+	bank.set_energy(3, 10)
 	var cells := _cells(bank)
 	var awake: Material = cells[5].material_override
 	var locked: Material = cells[24].material_override
@@ -41,35 +41,35 @@ func test_three_states_locked_awake_charged() -> void:
 	for i in range(10, 25):
 		assert_eq(cells[i].material_override, locked, "Zelle %d ist stromlos" % i)
 
-func test_charged_cells_flicker_independently() -> void:
+func test_energyd_cells_flicker_independently() -> void:
 	# Jede geladene Zelle hat eine EIGENE Material-Instanz - nur so kann sie in
 	# ihrem eigenen Takt flackern statt als synchroner Block.
 	var bank := _bank()
-	bank.set_charge(2, 5)
+	bank.set_energy(2, 5)
 	var cells := _cells(bank)
 	assert_ne(cells[0].material_override, cells[1].material_override,
 		"zwei geladene Zellen teilen kein Material")
 	assert_true(bank.is_processing(), "geladen: der Puls-Takt läuft")
-	bank.set_charge(0, 5)
+	bank.set_energy(0, 5)
 	assert_false(bank.is_processing(), "leer: kein Takt nötig")
 
 func test_rising_cap_wakes_a_whole_row() -> void:
 	var bank := _bank()
-	bank.set_charge(0, 5)
+	bank.set_energy(0, 5)
 	var cells := _cells(bank)
 	var locked: Material = cells[24].material_override
 	assert_eq(cells[7].material_override, locked, "Reihe 2 schläft noch")
-	bank.set_charge(0, 10)  # Hub-Ausbau: die zweite Reihe erwacht
+	bank.set_energy(0, 10)  # Hub-Ausbau: die zweite Reihe erwacht
 	assert_ne(cells[7].material_override, locked, "Reihe 2 glimmt jetzt")
 	assert_eq(cells[12].material_override, locked, "Reihe 3 schläft weiter")
 
-func test_charge_is_clamped_into_the_cap() -> void:
+func test_energy_is_clamped_into_the_cap() -> void:
 	var bank := _bank()
-	bank.set_charge(99, 5)
-	assert_eq(bank.charge_count(), 5, "mehr als der Deckel geht nicht")
-	bank.set_charge(-4, 5)
-	assert_eq(bank.charge_count(), 0)
-	bank.set_charge(0, 99)
+	bank.set_energy(99, 5)
+	assert_eq(bank.energy_count(), 5, "mehr als der Deckel geht nicht")
+	bank.set_energy(-4, 5)
+	assert_eq(bank.energy_count(), 0)
+	bank.set_energy(0, 99)
 	assert_eq(bank.cap_count(), 25, "mehr als das Raster gibt es nicht")
 
 ## Der Chip-Platz ist 294×93 px (siehe TableScreen.free_cluster_slots), aber
@@ -114,7 +114,7 @@ func test_cell_parts_share_meshes_and_stay_static() -> void:
 	# Ring und Beine sind Kinder der Zelle, teilen sich aber Ressourcen über alle
 	# 25 Zellen - und kein Bauteil wirft Schatten oder bringt ein Licht mit.
 	var bank := _bank()
-	bank.set_charge(4, 25)
+	bank.set_energy(4, 25)
 	var cells := _cells(bank)
 	var first := cells[0].get_children()
 	var last := cells[24].get_children()

@@ -28,7 +28,7 @@ const TAG_OVERCHARGE := "überladung"
 const TAG_LEFTOVER := "übrig"
 const TAG_SHOP := "shop"
 const TAG_SLOT := "automat"
-const TAG_CHARGE := "ladung"
+const TAG_ENERGY := "energie"
 const TAG_THROTTLE := "drossel"
 const TAG_MONEY := "geld"
 ## Alles, was an der Serienlänge der Presse dreht - Bonus wie Malus tragen
@@ -109,7 +109,7 @@ const TAG_COLORS := {
 	TAG_LEFTOVER: "#ffa62b",
 	TAG_SHOP: "#bd93f9",
 	TAG_SLOT: "#8be9fd",
-	TAG_CHARGE: "#7ef9ff",
+	TAG_ENERGY: "#7ef9ff",
 	TAG_THROTTLE: "#ff8c42",
 	TAG_MONEY: "#ffd319",
 	TAG_SERIES: "#6effc7",
@@ -180,7 +180,7 @@ static func insurance_fraud() -> DealClause:
 
 static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 Energie sofort",
-		Scope.INSTANT, Tier.ONE, [TAG_CHARGE])
+		Scope.INSTANT, Tier.ONE, [TAG_ENERGY])
 
 ## Ein Serien-Slot mehr: eine Karte mehr in der Schaltung dieser Runde.
 static func chain_driver() -> DealClause:
@@ -213,7 +213,7 @@ static func free_spins() -> DealClause:
 
 static func double_loader() -> DealClause:
 	return _bonus(DOUBLE_LOADER, "Doppellader", "Überladungs-Stufen prägen 2 Energie",
-		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
+		Scope.ROUND, Tier.TWO, [TAG_ENERGY])
 
 static func calibration() -> DealClause:
 	return _bonus(CALIBRATION, "Eichung", "Benchmark −50%",
@@ -243,7 +243,7 @@ static func superconductor() -> DealClause:
 
 static func gold_vein() -> DealClause:
 	return _bonus(GOLD_VEIN, "Goldader", "+10$ je geräumter Überladungs-Stufe",
-		Scope.ROUND, Tier.THREE, [TAG_CHARGE, TAG_MONEY])
+		Scope.ROUND, Tier.THREE, [TAG_ENERGY, TAG_MONEY])
 
 # --- Malusklauseln ------------------------------------------------------------
 
@@ -293,7 +293,7 @@ static func mains_hum() -> DealClause:
 
 static func discharge() -> DealClause:
 	return _malus(DISCHARGE, "Entladung", "−2 Energie sofort",
-		Scope.INSTANT, Tier.TWO, [TAG_CHARGE])
+		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
 static func heat_warning() -> DealClause:
 	return _malus(HEAT_WARNING, "Hitzewarnung", "Die höchstgestufte Kombination wertet nicht",
@@ -322,7 +322,7 @@ static func blackout() -> DealClause:
 
 static func fuse_failure() -> DealClause:
 	return _malus(FUSE_FAILURE, "Sicherungsfall", "Überladungen skalieren ×4 statt ×2",
-		Scope.ROUND, Tier.THREE, [TAG_OVERCHARGE, TAG_CHARGE])
+		Scope.ROUND, Tier.THREE, [TAG_OVERCHARGE, TAG_ENERGY])
 
 static func heat_buildup() -> DealClause:
 	return _malus(HEAT_BUILDUP, "Hitzestau", "Jede gespielte Hand senkt ihre Stufe um 1",

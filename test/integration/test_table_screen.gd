@@ -491,7 +491,7 @@ func test_a_won_charm_rides_the_strip_up_into_the_hub():
 	for point in screen.slot_hub_strip.strip_path:
 		assert_true(route.has(point), "er fährt die Automaten-Ader")
 
-# --- Schwarzmarkt-Ader (Ladung fährt zum Hinterzimmer) --------------------------
+# --- Schwarzmarkt-Ader (Energie fährt zum Hinterzimmer) --------------------------
 
 ## Der Laden ist der Zwilling der Automaten eine Etage tiefer: rechte Kante wie
 ## der Automat, Unterkante bündig mit dem Hub (der spannt 2000..3200).
@@ -512,15 +512,15 @@ func test_the_secret_shop_strip_runs_through_the_gap_to_the_hub():
 		assert_eq(point.y, path[0].y, "gerade waagerecht durch die Lücke")
 	assert_between(path[0].y, 2900.0, 3200.0, "im Höhen-Überlapp von Laden und Hub")
 
-func test_the_charge_travels_from_the_hub_to_the_secret_shop():
+func test_the_energy_travels_from_the_hub_to_the_secret_shop():
 	_place_secret_corner()
 	# Verlegt ist die Ader Laden -> Hub; die Zahlung fährt dagegen (wie der
-	# Automaten-Einsatz), sonst käme die Ladung aus dem Laden heraus.
-	assert_gt(screen.secret_shop_pay_comet(CasinoStyle.CHARGE), 0.0,
+	# Automaten-Einsatz), sonst käme die Energie aus dem Laden heraus.
+	assert_gt(screen.secret_shop_pay_comet(CasinoStyle.ENERGY), 0.0,
 		"Eintrittsgeld, Kauf und Neuwurf bekommen eine Laufzeit")
 
-func test_without_a_placed_secret_shop_no_charge_comet_flies():
-	assert_eq(screen.secret_shop_pay_comet(CasinoStyle.CHARGE), 0.0, "ohne Ader kein Komet")
+func test_without_a_placed_secret_shop_no_energy_comet_flies():
+	assert_eq(screen.secret_shop_pay_comet(CasinoStyle.ENERGY), 0.0, "ohne Ader kein Komet")
 
 func test_a_won_die_flies_a_free_arc_to_the_tray():
 	# Zu den 3D-Ablagen führt keine Ader - der letzte Teil ist ein Bogen.

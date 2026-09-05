@@ -14,9 +14,9 @@ const GREEN := Color("46c46e")
 const GREEN_DARK := Color("2e8f4c")
 const PURPLE := Color("9b5de5")
 const PURPLE_DARK := Color("6f3bb0")
-## Ladung (⚡): überhelles Cyan - Börse am Hub, Preise im Schwarzmarkt und die
+## Energie (⚡): überhelles Cyan - Börse am Hub, Preise im Schwarzmarkt und die
 ## Ladungs-Kometen der Auszahlung teilen sich diese eine Signalfarbe.
-const CHARGE := Color(0.55, 1.9, 2.1)
+const ENERGY := Color(0.55, 1.9, 2.1)
 ## Vertragsstufen (DealClause.Tier): Standard, Risiko, Knebel, Werbegeschenk,
 ## Stresstest - die Akzentfarbe der Karte steigt mit der Gefahr.
 const CONTRACT_TIER_COLORS := [
@@ -26,7 +26,7 @@ const CONTRACT_TIER_COLORS := [
 static func contract_tier_color(tier: int) -> Color:
 	return CONTRACT_TIER_COLORS[clampi(tier, 0, CONTRACT_TIER_COLORS.size() - 1)]
 
-## Verweis-Blau des Lexikons: klar getrennt von GOLD (Geld) und CHARGE (⚡).
+## Verweis-Blau des Lexikons: klar getrennt von GOLD (Geld) und ENERGY (⚡).
 ## LDR mit Absicht - BBCode-Hex kennt kein HDR (siehe Lexikon.linkify).
 const LEXIKON_LINK := Color("7ec8ff")
 

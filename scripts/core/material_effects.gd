@@ -43,10 +43,10 @@ const GLASS_CRIT_DIVISOR := 2.0
 const GLASSBLOWER_LUNG_FLOOR := 6
 
 ## Kupfer speist je Zündung Energie; veredelt das Doppelte. Was über den Speicher
-## hinausläuft, zahlt bar (GameRun.book_copper_charge) - dieselbe Überlauf-
+## hinausläuft, zahlt bar (GameRun.book_copper_energy) - dieselbe Überlauf-
 ## Grammatik wie die Stufen-Auszahlung.
-const COPPER_CHARGE := 1
-const COPPER_CHARGE_DOPED := 2
+const COPPER_ENERGY := 1
+const COPPER_ENERGY_DOPED := 2
 const COPPER_OVERFLOW_MONEY := 2
 
 ## Bericht der Nehmen-Effekte für die UI.
@@ -62,14 +62,14 @@ class TakeReport:
 	## die Zeremonie zahlt es an jedem Einschlag, und nur sie kennt die Krits -
 	## der Aufrufer trägt die Summe aus der Schrittliste ein.
 	var tip_money: int = 0
-	var charge: int = 0  # Energie aus Funkenflug-Runenn (je Zug einmal je Seite)
+	var energy: int = 0  # Energie aus Funkenflug-Runenn (je Zug einmal je Seite)
 	## Energie, die der Tscherenkow-Krit verbrannt hat. Wie tip_money nur
 	## GEMELDET: nur die Schrittliste kennt die Schläge, der Aufrufer trägt die
 	## Summe ein und bucht sie negativ.
-	var charge_spent: int = 0
-	## Energie aus Kupfer-Seiten - JE ZÜNDUNG, darum getrennt von charge: nur sie
-	## läuft bei vollem Speicher in Geld über (GameRun.book_copper_charge).
-	var copper_charge: int = 0
+	var energy_spent: int = 0
+	## Energie aus Kupfer-Seiten - JE ZÜNDUNG, darum getrennt von energy: nur sie
+	## läuft bei vollem Speicher in Geld über (GameRun.book_copper_energy).
+	var copper_energy: int = 0
 	## Slots, deren Kupfer gezündet hat - je Eintrag eine Zündung.
 	var copper: Array[int] = []
 	var grown: Array[int] = []  # Slots, deren Seite gewachsen ist (Knochen/Helium)
@@ -421,8 +421,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var level := face_level(defs[i], face)
 		var rune_ids := defs[i].runes_on(face)
 		# Funkenflug speist EINEN Funken je Zug, nie je Zündung.
-		var spark := RuneEffects.charge_for_take(rune_ids, charm_ids)
-		report.charge += spark
+		var spark := RuneEffects.energy_for_take(rune_ids, charm_ids)
+		report.energy += spark
 		for _s in spark:
 			report.sparks.append(i)
 		# Retrigger prüft den VERWANDELTEN Wert - wie in der Wertung.
@@ -452,11 +452,11 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# genau diesen Trigger gewürfelten Pointer-Glieder.
 		var before: int = defs[i].faces[face]
 		var swelled := false
-		var copper_once := copper_charge_once_for(face_material, level, charm_ids)
+		var copper_once := copper_energy_once_for(face_material, level, charm_ids)
 		for t in die_triggers:
 			for _f in face_triggers:
 				if copper_once > 0:
-					report.copper_charge += copper_once
+					report.copper_energy += copper_once
 					report.copper.append(i)
 				defs[i].faces[face] = mutate_value_once(defs[i].faces[face], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 				# Strahlungsdruck bläht die GANZE Schale: die obere Seite ist über
@@ -628,10 +628,10 @@ static func gold_money_once_for(face_material: String, level: int, surplus: int,
 
 ## Energie EINER Zündung einer Seite: nur Kupfer speist, der Härteofen zweimal.
 ## EINE Quelle für obere Seite und Glied.
-static func copper_charge_once_for(face_material: String, level: int, charm_ids: Array[String]) -> int:
+static func copper_energy_once_for(face_material: String, level: int, charm_ids: Array[String]) -> int:
 	if face_material != DieMaterial.COPPER:
 		return 0
-	var amount := COPPER_CHARGE_DOPED if level >= DieMaterial.MAX_LEVEL else COPPER_CHARGE
+	var amount := COPPER_ENERGY_DOPED if level >= DieMaterial.MAX_LEVEL else COPPER_ENERGY
 	return amount * payoff_repeats(level, charm_ids)
 
 ## Trägt diese Seite Gold? Die Goldader zählt ZÜNDUNGEN, also auch die der
@@ -816,9 +816,9 @@ static func _fire_link(def: DieDefinition, link_face: int, charm_ids: Array[Stri
 	var link_material: String = def.materials[link_face] if link_face < def.materials.size() else ""
 	var link_level := face_level(def, link_face)
 	# Ein Glied ist eine Zündung wie jede andere - auch sein Kupfer speist.
-	var copper_once := copper_charge_once_for(link_material, link_level, charm_ids)
+	var copper_once := copper_energy_once_for(link_material, link_level, charm_ids)
 	if copper_once > 0:
-		report.copper_charge += copper_once
+		report.copper_energy += copper_once
 		report.copper.append(slot)
 	var before: int = def.faces[link_face]
 	def.faces[link_face] = mutate_link_value_once(before, link_material, charm_ids, link_level, essence_ids, clause_growth)

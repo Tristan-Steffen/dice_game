@@ -467,7 +467,7 @@ func test_protection_money_feeds_the_retrigger_charms():
 	assert_eq(shown, _d([13, 13]))
 	assert_eq(MaterialEffects.face_trigger_count(shown[0], ids), 1)
 
-func test_protection_money_charges_a_flat_fee_per_copy():
+func test_protection_money_energys_a_flat_fee_per_copy():
 	# Flach je Hand und Exemplar, unabhängig davon, wie viele Würfel zählen.
 	var one := _ids([Charm.PROTECTION_MONEY])
 	assert_eq(CharmEffects.charm_fee_at(0, one), CharmEffects.PROTECTION_FEE)
@@ -843,7 +843,7 @@ func test_round_end_income_combines_sources_with_caps():
 	assert_eq(CharmEffects.round_end_income(10000, 5, ids), 45, "Zinsen max. $20, Stufen 5×$5")
 
 func test_high_flyer_pays_per_cleared_overcharge_stage():
-	# Grundlage ist der BALKEN, nicht die geprägte Ladung: der Doppellader
+	# Grundlage ist der BALKEN, nicht die geprägte Energie: der Doppellader
 	# verdoppelt die ⚡ je Stufe, ändert am Überflieger aber nichts.
 	var ids := _ids([Charm.HIGH_FLYER])
 	assert_eq(CharmEffects.round_end_income(0, 1, ids), 5)

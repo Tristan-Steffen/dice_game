@@ -158,7 +158,7 @@ func test_debug_money_button_emits_and_keeps_menu_open() -> void:
 	assert_signal_emit_count(hub, "debug_money_requested", 2, "je Klick ein Signal")
 	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
 
-func test_debug_charge_button_emits_and_keeps_menu_open() -> void:
+func test_debug_energy_button_emits_and_keeps_menu_open() -> void:
 	watch_signals(hub)
 	hub.settings_button.pressed.emit()  # aufklappen
 	var box: VBoxContainer = hub.settings_menu.get_node("Box")
@@ -169,7 +169,7 @@ func test_debug_charge_button_emits_and_keeps_menu_open() -> void:
 			button.pressed.emit()
 			button.pressed.emit()  # zweimal für Mehrfach-Klick
 	assert_true(found, "der Energie-Knopf ist im Menü")
-	assert_signal_emit_count(hub, "debug_charge_requested", 2, "je Klick ein Signal")
+	assert_signal_emit_count(hub, "debug_energy_requested", 2, "je Klick ein Signal")
 	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
 
 func test_settings_menu_hides_when_a_page_takes_the_hub() -> void:

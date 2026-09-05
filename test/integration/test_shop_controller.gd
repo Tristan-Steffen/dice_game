@@ -299,7 +299,7 @@ func test_open_starts_on_first_spread():
 	assert_eq(shop.spreads.size(), 1, "eine Doppelseite beim Öffnen")
 	assert_eq(shop.current_spread_index, 0)
 
-func test_flip_to_new_page_charges_increasing_fee():
+func test_flip_to_new_page_energys_increasing_fee():
 	shop._on_page_next_pressed()  # neue Seite: -$2
 	assert_eq(run.money, 98)
 	assert_eq(shop.spreads.size(), 2)

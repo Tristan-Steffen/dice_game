@@ -47,15 +47,15 @@ const PLOT_LABEL_GAP_UNITS := 1.6
 var cashout_requested := false
 
 var round_label: Label
-var charge_label: Label
-var charge_value: Label
+var energy_label: Label
+var energy_value: Label
 var total_value: Label
 var cashout_button: Button
 
 var _u := 10.0
 var _built := false
 var _rows_box: VBoxContainer
-var _charge_row: Control
+var _energy_row: Control
 ## id -> {"host": Control, "value": Label, "amount": int, "shown": float, "tween": Tween}
 var _rows: Dictionary = {}
 var _order: Array[String] = []
@@ -67,11 +67,11 @@ var _plot_frames: Array[Control] = []
 ## Die gemessene Zeilenhöhe der Namen (einmal am echten Zeilen-Bauer genommen).
 var _name_height := 0.0
 var _money_total := 0
-var _charge_total := 0
-var _charge_tween: Tween
+var _energy_total := 0
+var _energy_tween: Tween
 var _total_tween: Tween
 var _total_shown := 0.0
-var _charge_shown := 0.0
+var _energy_shown := 0.0
 
 ## Baut die Seite einmalig aus der (vom Hub gesetzten) Größe.
 func layout() -> void:
@@ -118,11 +118,11 @@ func layout() -> void:
 	_rows_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(_rows_box)
 
-	_charge_row = _build_row("⚡ Energie", CasinoStyle.CHARGE)
-	_charge_row.visible = false
-	charge_label = _charge_row.get_child(0) as Label
-	charge_value = _charge_row.get_child(1) as Label
-	column.add_child(_charge_row)
+	_energy_row = _build_row("⚡ Energie", CasinoStyle.ENERGY)
+	_energy_row.visible = false
+	energy_label = _energy_row.get_child(0) as Label
+	energy_value = _energy_row.get_child(1) as Label
+	column.add_child(_energy_row)
 
 	column.add_child(_rule(u))
 
@@ -257,16 +257,16 @@ func add_money(id: String, caption: String, amount: int, note := "") -> void:
 
 ## Meldet ENERGIE (Bank-Entladung, Dynamo, ⚡-Wetten) - eigene Zeile, cyan, und
 ## sie fließt NICHT in die Geld-Summe.
-func add_charge(amount: int) -> void:
+func add_energy(amount: int) -> void:
 	if amount <= 0 or not _built:
 		return
-	_charge_total += amount
-	_charge_row.visible = true
-	if _charge_tween != null and _charge_tween.is_valid():
-		_charge_tween.kill()
-	_charge_tween = _tick_label(charge_value, "⚡ +%d", _charge_shown, _charge_total)
-	_charge_shown = float(_charge_total)
-	_flash(_charge_row)
+	_energy_total += amount
+	_energy_row.visible = true
+	if _energy_tween != null and _energy_tween.is_valid():
+		_energy_tween.kill()
+	_energy_tween = _tick_label(energy_value, "⚡ +%d", _energy_shown, _energy_total)
+	_energy_shown = float(_energy_total)
+	_flash(_energy_row)
 
 # --- Die ABLAGE der Gewinn-Körper ---------------------------------------------
 # ui/ faßt nie einen Körper an: die Seite malt EINE Fassung samt Namensliste und
@@ -413,15 +413,15 @@ func reset() -> void:
 	_order.clear()
 	set_plots([] as Array[Dictionary])
 	_money_total = 0
-	_charge_total = 0
+	_energy_total = 0
 	_total_shown = 0.0
-	_charge_shown = 0.0
-	if _charge_tween != null and _charge_tween.is_valid():
-		_charge_tween.kill()
+	_energy_shown = 0.0
+	if _energy_tween != null and _energy_tween.is_valid():
+		_energy_tween.kill()
 	if _total_tween != null and _total_tween.is_valid():
 		_total_tween.kill()
-	_charge_row.visible = false
-	charge_value.text = ""
+	_energy_row.visible = false
+	energy_value.text = ""
 	total_value.text = "0$"
 	cashout_button.visible = false
 	cashout_button.disabled = false
@@ -431,8 +431,8 @@ func reset() -> void:
 func money_total() -> int:
 	return _money_total
 
-func charge_total() -> int:
-	return _charge_total
+func energy_total() -> int:
+	return _energy_total
 
 func money_of(id: String) -> int:
 	var row: Dictionary = _rows.get(id, {})

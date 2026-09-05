@@ -16,16 +16,16 @@ func test_chips_build_real_denominations():
 	var stack: ChipStackView = prize.get_node("Body/Chips")
 	assert_eq(stack.wallet_total(), 26, "die Börse trägt genau den Preis")
 
-func test_charge_builds_one_elko_per_point():
+func test_energy_builds_one_elko_per_point():
 	var prize := _prize()
-	prize.setup_charge(6)
-	assert_eq(prize.kind, BetPrizeView.KIND_CHARGE)
+	prize.setup_energy(6)
+	assert_eq(prize.kind, BetPrizeView.KIND_ENERGY)
 	var body: Node3D = prize.get_node("Body")
 	assert_eq(body.get_child_count(), 6, "sechs Dosen für sechs Energie")
 
-func test_charge_caps_its_field():
+func test_energy_caps_its_field():
 	var prize := _prize()
-	prize.setup_charge(999)
+	prize.setup_energy(999)
 	var body: Node3D = prize.get_node("Body")
 	assert_eq(body.get_child_count(), BetPrizeView.ELKO_CAP,
 		"mehr als ELKO_CAP zeigt der Tresen nicht - die Zahl steht auf dem Knopf")
@@ -49,13 +49,13 @@ func test_the_tally_plate_is_gone_for_good():
 ## Nichts schrumpft mehr auf seinen Platz: jeder Körper liegt in ECHTER Größe da und
 ## meldet sie, damit der Schacht an IHM messen kann.
 func test_every_build_reports_its_real_size():
-	for build in ["chips", "charge", "token"]:
+	for build in ["chips", "energy", "token"]:
 		var prize := _prize()
 		match build:
 			"chips":
 				prize.setup_chips(180)
-			"charge":
-				prize.setup_charge(12)
+			"energy":
+				prize.setup_energy(12)
 			"token":
 				prize.setup_token("LVL+1", CasinoStyle.GOLD_INTENSE)
 		assert_gt(prize.natural_span().x, 0.0, "%s meldet seine Tiefe" % build)
@@ -118,9 +118,9 @@ func test_the_static_span_is_the_one_the_body_reports():
 			"Chip-Stapel %d: gemeldet wie gerechnet" % amount)
 	for count in [1, 3, 4, 8, 12, 16, 99]:
 		var prize := _prize()
-		prize.setup_charge(count)
+		prize.setup_energy(count)
 		assert_true(prize.natural_span().is_equal_approx(
-			BetPrizeView.span_for(BetPrizeView.KIND_CHARGE, count)),
+			BetPrizeView.span_for(BetPrizeView.KIND_ENERGY, count)),
 			"Elko-Feld %d: gemeldet wie gerechnet" % count)
 	var token := _prize()
 	token.setup_token("LVL+1", CasinoStyle.GOLD_INTENSE)
@@ -148,7 +148,7 @@ func test_an_unknown_build_reports_no_span():
 
 func test_rebuild_drops_the_old_body():
 	var prize := _prize()
-	prize.setup_charge(4)
+	prize.setup_energy(4)
 	prize.setup_token("PRESSE", CasinoStyle.GOLD_INTENSE)
 	assert_eq(prize.kind, BetPrizeView.KIND_TOKEN)
 	var body: Node3D = prize.get_node("Body")

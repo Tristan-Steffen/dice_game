@@ -38,7 +38,7 @@ const NONE := ""
 ## Einordnung für die Anzeige, die Wirkung hängt an der id.
 @export var kind: String = ""
 ## Tönung des Zeichens - die TÖNUNG IST die Wirkung. Funkenflug trägt das
-## Charge-Cyan der Energie, denselben Wert wie CasinoStyle.CHARGE, hier
+## Energy-Cyan der Energie, denselben Wert wie CasinoStyle.ENERGY, hier
 ## gespiegelt: data/ darf nie aus ui/ importieren.
 @export var tint: Color = Color.WHITE
 ## Zeichen dieser Rune (Schluessel in glyph_lines).
@@ -200,7 +200,7 @@ static func vacuum_profile() -> Rune:
 ## Naht-Farbe für den Shader: derselbe Farbton wie tint, aber auf max == 1
 ## normiert. So heißt "energy" in jedem Profil dasselbe (die hellste Komponente),
 ## und die Ruhe-Regel ist über alle vier Tönungen hinweg vergleichbar. Funkenflug
-## trägt HDR-Cyan (CasinoStyle.CHARGE) - erst die Normierung macht es messbar.
+## trägt HDR-Cyan (CasinoStyle.ENERGY) - erst die Normierung macht es messbar.
 func normalized_seam() -> Color:
 	var peak := maxf(tint.r, maxf(tint.g, tint.b))
 	if peak <= 0.0:

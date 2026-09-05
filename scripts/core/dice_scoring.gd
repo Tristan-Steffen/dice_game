@@ -211,7 +211,7 @@ const CTX_ROUND_CRITS := "round_crits"
 ## Hände dieser Runde (Mitternachtssonne), Fumbles der Runde plus der run-lange
 ## Vulkanblitz-Zähler (Aschewolke) und die Zahl der beseelten Würfel in der ABLAGE
 ## (Flaschenregal - gezählt werden Würfel, nicht Sorten).
-const CTX_CHARGE := "charge"
+const CTX_ENERGY := "energy"
 const CTX_ROUND := "round_number"
 const CTX_HANDS_TAKEN := "hands_taken"
 const CTX_FUMBLES := "round_fumbles"
@@ -733,7 +733,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Lauf- und Rundenzustand der dritten Welle: einmal je Hand gelesen, damit
 	# sich kein Krit mitten in der Zählung verschiebt.
 	# Laufender REST der Energie: der Tscherenkow verbrennt je Schlag eine.
-	var charge := maxi(0, int(ctx.get(CTX_CHARGE, 0)))
+	var energy := maxi(0, int(ctx.get(CTX_ENERGY, 0)))
 	var hands_taken := int(ctx.get(CTX_HANDS_TAKEN, 0))
 	var volcanic := volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := discard_values_in(ctx)
@@ -841,13 +841,13 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# nie einer im Quadrat (Härteofen-Grammatik). Ozon liest den Stand VOR
 				# der Salve, der Tscherenkow dagegen je Schlag den frischen Energierest.
 				var crits_before_essence := crits
-				var spends_charge := EssenceEffects.spends_charge(essence_ids, charm_ids)
+				var spends_energy := EssenceEffects.spends_energy(essence_ids, charm_ids)
 				for _e in essence_repeat:
 					var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
-						wild_eyes if i == wild else 0, charm_ids, charge,
+						wild_eyes if i == wild else 0, charm_ids, energy,
 						first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
-					if spends_charge and charge > 0:
-						charge -= 1
+					if spends_energy and energy > 0:
+						energy -= 1
 					if not is_equal_approx(ess_crit, 1.0):
 						crits += 1
 					mult *= ess_crit

@@ -42,10 +42,10 @@ func test_all_six_runes_are_registered_and_filled():
 		assert_ne(rune.kind, "", "Klasse fehlt bei %s" % rune.id)
 		assert_false(Rune.glyph_lines(rune.glyph).is_empty(), "Zeichen fehlt bei %s" % rune.id)
 
-func test_spark_flight_wears_the_charge_cyan():
+func test_spark_flight_wears_the_energy_cyan():
 	# Der Funke ist derselbe Stoff, den das Casino als Energie abfüllt - die
-	# Tönung muss der Ladungsfarbe entsprechen (CasinoStyle.CHARGE gespiegelt).
-	assert_eq(Rune.by_id(Rune.SPARK_FLIGHT).tint, CasinoStyle.CHARGE)
+	# Tönung muss der Ladungsfarbe entsprechen (CasinoStyle.ENERGY gespiegelt).
+	assert_eq(Rune.by_id(Rune.SPARK_FLIGHT).tint, CasinoStyle.ENERGY)
 
 func test_hint_and_tint_fall_back_without_a_rune():
 	assert_eq(Rune.hint(""), "")
@@ -200,9 +200,9 @@ func test_burn_in_skips_the_radon_decay():
 
 # --- Funkenflug: +1 ⚡ je Zug ---------------------------------------------------------
 
-func test_spark_flight_pays_one_charge():
-	assert_eq(RuneEffects.charge_for_take(_ids([Rune.SPARK_FLIGHT])), RuneEffects.SPARK_FLIGHT_CHARGE)
-	assert_eq(RuneEffects.charge_for_take(_ids([Rune.AFTERGLOW])), 0)
+func test_spark_flight_pays_one_energy():
+	assert_eq(RuneEffects.energy_for_take(_ids([Rune.SPARK_FLIGHT])), RuneEffects.SPARK_FLIGHT_ENERGY)
+	assert_eq(RuneEffects.energy_for_take(_ids([Rune.AFTERGLOW])), 0)
 
 func test_spark_flight_books_once_per_take_not_per_activation():
 	# Argon löst den Würfel zweimal aus - der Funke springt trotzdem einmal.
@@ -212,12 +212,12 @@ func test_spark_flight_books_once_per_take_not_per_activation():
 	var defs: Array[DieDefinition] = [def]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
 		NO_CHARMS, -1, {0: Essence.ARGON}, _p([0]))
-	assert_eq(report.charge, 1, "je Zug ein Funke, nicht je Auslösung")
+	assert_eq(report.energy, 1, "je Zug ein Funke, nicht je Auslösung")
 
-func test_a_take_without_a_spark_carries_no_charge():
+func test_a_take_without_a_spark_carries_no_energy():
 	var defs: Array[DieDefinition] = [DieDefinition.new()]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]))
-	assert_eq(report.charge, 0)
+	assert_eq(report.energy, 0)
 
 # --- Streulicht: das ungewertete Zugende ---------------------------------------------
 

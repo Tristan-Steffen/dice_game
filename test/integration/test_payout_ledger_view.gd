@@ -40,18 +40,18 @@ func test_the_total_is_the_sum_of_the_money_reports() -> void:
 	view.add_money("dice", "Übrige Würfel", 2)
 	assert_eq(view.money_total(), 12)
 
-func test_charge_stands_apart_and_never_enters_the_total() -> void:
+func test_energy_stands_apart_and_never_enters_the_total() -> void:
 	view.add_money("benchmark", "Benchmark", 5)
-	view.add_charge(3)
-	view.add_charge(2)
-	assert_eq(view.charge_total(), 5, "⚡ zählt für sich")
+	view.add_energy(3)
+	view.add_energy(2)
+	assert_eq(view.energy_total(), 5, "⚡ zählt für sich")
 	assert_eq(view.money_total(), 5, "⚡ fließt nicht in die Geld-Summe")
 	assert_eq(_rows(), 1, "die ⚡-Zeile ist keine Geld-Zeile")
-	assert_true(view._charge_row.visible, "sie erscheint mit der ersten Ladung")
+	assert_true(view._energy_row.visible, "sie erscheint mit der ersten Energie")
 
-func test_the_charge_row_stays_hidden_without_a_report() -> void:
+func test_the_energy_row_stays_hidden_without_a_report() -> void:
 	view.add_money("benchmark", "Benchmark", 5)
-	assert_false(view._charge_row.visible, "ohne ⚡ keine ⚡-Zeile")
+	assert_false(view._energy_row.visible, "ohne ⚡ keine ⚡-Zeile")
 
 func test_the_row_order_is_the_report_order() -> void:
 	view.add_money("benchmark", "Benchmark", 5)
@@ -62,15 +62,15 @@ func test_the_row_order_is_the_report_order() -> void:
 
 func test_reset_empties_everything() -> void:
 	view.add_money("benchmark", "Benchmark", 5)
-	view.add_charge(2)
+	view.add_energy(2)
 	view.show_cashout()
 	view.reset()
 	await wait_frames(2)
 	assert_eq(_rows(), 0, "keine Zeile überlebt")
 	assert_eq(view.money_total(), 0)
-	assert_eq(view.charge_total(), 0)
+	assert_eq(view.energy_total(), 0)
 	assert_eq(view.row_ids(), [] as Array[String])
-	assert_false(view._charge_row.visible)
+	assert_false(view._energy_row.visible)
 	assert_false(view.cashout_button.visible, "und der Knopf ist wieder fort")
 
 func test_the_cashout_button_shows_only_when_asked() -> void:
@@ -182,7 +182,7 @@ func test_the_platform_rect_is_byte_stable() -> void:
 	var cells := view.payout_local_cells()
 	view.add_money("benchmark", "Benchmark", 5)
 	view.add_money("bet_0", "Jackpot", 18, "Nimm ein Full House oder besser.")
-	view.add_charge(3)
+	view.add_energy(3)
 	view.show_cashout()
 	assert_eq(view.payout_local_platform(), before,
 		"keine Zeile verrückt die Plattform - sie hängt allein an der Seitengröße")
@@ -270,7 +270,7 @@ func test_the_counting_fires_no_target_light_any_more() -> void:
 	var code := FileAccess.get_file_as_string("res://scripts/scene_root.gd")
 	for dead in ["_fly_side_bet_payout", "_fly_side_bet_to_treasure",
 			"_fly_side_bet_to_hub", "_fly_side_bet_special", "_fly_side_bet_pack",
-			"_play_side_bet_charge_volley"]:
+			"_play_side_bet_energy_volley"]:
 		assert_false(code.contains(dead), "%s ist tot" % dead)
 
 ## Und die Körper der Ablage sind NIE Buchungsträger: kein Zeremonie-Pfad ruft eine
@@ -282,7 +282,7 @@ func test_the_payout_bodies_never_book() -> void:
 	var stop := code.find("## Die Magazin-Plätze der Pakete", start)
 	assert_gt(stop, start)
 	var region := code.substr(start, stop - start)
-	for booking in ["run.add_money", "run.add_charge", "run.spend_charge",
+	for booking in ["run.add_money", "run.add_energy", "run.spend_energy",
 			"run.grant_", "place_side_bet", "resolve_side_bets"]:
 		assert_false(region.contains(booking),
 			"die Ablage bucht nicht (%s)" % booking)

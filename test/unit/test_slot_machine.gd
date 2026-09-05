@@ -9,7 +9,7 @@ extends GutTest
 const M := SlotPrize.Kind.MATERIAL
 const S := SlotPrize.Kind.ENGRAVING
 const E := SlotPrize.Kind.DICE_ENGRAVING
-const C := SlotPrize.Kind.CHARGE
+const C := SlotPrize.Kind.ENERGY
 const D := SlotPrize.Kind.DIE
 const F := SlotPrize.Kind.FUMBLE
 const W := SlotPrize.Kind.WILD  # Joker
@@ -200,7 +200,7 @@ func test_pot_summary_empty_when_no_runs() -> void:
 	assert_eq(int(summary["materials"]), 0)
 	assert_eq(int(summary["edges"]), 0)
 	assert_true((summary["packs"] as Array).is_empty())
-	assert_eq(int(summary["charge"]), 0)
+	assert_eq(int(summary["energy"]), 0)
 	assert_eq(int(summary["dice"]), 0)
 
 func test_pot_summary_reports_the_sizes() -> void:
@@ -217,34 +217,34 @@ func test_pot_summary_reports_the_sizes() -> void:
 
 ## Erwartete Energie je Reihenlänge, ausgeschrieben - der Test darf die Regel nicht
 ## aus derselben Tabelle ableiten, die er prüft.
-const CHARGE_LADDER := {3: 1, 4: 2, 5: 3, 6: 4, 7: 4, 8: 4, 9: 4}
+const ENERGY_LADDER := {3: 1, 4: 2, 5: 3, 6: 4, 7: 4, 8: 4, 9: 4}
 
-func test_charge_ladder_at_every_length() -> void:
-	for length: int in CHARGE_LADDER:
-		assert_eq(SlotMachine.charge_payout(length), int(CHARGE_LADDER[length]),
+func test_energy_ladder_at_every_length() -> void:
+	for length: int in ENERGY_LADDER:
+		assert_eq(SlotMachine.energy_payout(length), int(ENERGY_LADDER[length]),
 			"Energie bei Länge %d" % length)
 
-func test_the_shortest_charge_run_pays_the_spin_back() -> void:
+func test_the_shortest_energy_run_pays_the_spin_back() -> void:
 	# Ein Dreh kostet 1⚡, die Mindestreihe zahlt ihn genau zurück - das ist der
 	# ganze Entwurf der flachen Leiter.
-	assert_eq(SlotMachine.charge_payout(SlotMachine.MIN_RUN),
-		int(SlotMachine.SPIN_CHARGES[0]))
+	assert_eq(SlotMachine.energy_payout(SlotMachine.MIN_RUN),
+		int(SlotMachine.SPIN_ENERGYS[0]))
 
-func test_a_charge_run_mints_energy_not_a_charm() -> void:
+func test_a_energy_run_mints_energy_not_a_charm() -> void:
 	var run: Variant = _find_run(_wall([_run_row(C, 5)]), [1, 0], C)
 	assert_not_null(run, "⚡-Reihe erkannt")
 	var spec: Dictionary = run["specs"][0]
-	assert_eq(String(spec["kind"]), "charge")
+	assert_eq(String(spec["kind"]), "energy")
 	assert_eq(int(spec["amount"]), 3, "5er-Reihe → 3⚡")
 	assert_eq(String(run["label"]), "⚡ ×5 → 3⚡")
 	var prize := SlotPrize.from_spec(spec)
-	assert_eq(prize.kind, SlotPrize.Kind.CHARGE)
-	assert_eq(prize.charge, 3)
+	assert_eq(prize.kind, SlotPrize.Kind.ENERGY)
+	assert_eq(prize.energy, 3)
 	assert_true(prize.packs.is_empty(), "Energie ist keine Ware")
 
-func test_pot_summary_sums_the_charge() -> void:
+func test_pot_summary_sums_the_energy() -> void:
 	var summary := _wall([_run_row(C, 4)]).pot_summary()
-	assert_eq(int(summary["charge"]), 2, "4er-Reihe → 2⚡ im Topf")
+	assert_eq(int(summary["energy"]), 2, "4er-Reihe → 2⚡ im Topf")
 	assert_true((summary["packs"] as Array).is_empty(), "und keine Ware")
 
 func test_the_wall_carries_only_ware_energy_and_fumble() -> void:
@@ -352,10 +352,10 @@ func test_run_label_names_the_pack_size() -> void:
 
 ## Der Einsatz ist Energie und für alle drei Automaten gleich: die Stufe entscheidet
 ## über den Gewinn, nicht über den Preis.
-func test_every_machine_costs_one_charge() -> void:
-	assert_eq(SlotMachine.SPIN_CHARGES.size(), SlotMachine.MACHINE_COUNT)
+func test_every_machine_costs_one_energy() -> void:
+	assert_eq(SlotMachine.SPIN_ENERGYS.size(), SlotMachine.MACHINE_COUNT)
 	for i in SlotMachine.MACHINE_COUNT:
-		assert_eq(int(SlotMachine.SPIN_CHARGES[i]), 1, "jeder Dreh kostet 1 Energie")
+		assert_eq(int(SlotMachine.SPIN_ENERGYS[i]), 1, "jeder Dreh kostet 1 Energie")
 
 # --- Der JOKER (★): mischt sich in jede Sorte ------------------------------------
 

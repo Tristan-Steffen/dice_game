@@ -66,7 +66,7 @@ func _rng_rolling(below: bool, chance: float) -> RandomNumberGenerator:
 
 # --- Supraleiter: Übertakten kostet eine Energie weniger ---------------------------
 
-func test_the_superconductor_shaves_a_charge_off_the_overclock_price():
+func test_the_superconductor_shaves_a_energy_off_the_overclock_price():
 	assert_eq(GameRun.overclock_cost_at(3), 4, "unverändert ohne Charm")
 	assert_eq(GameRun.overclock_cost_at(3, _ids([Charm.SUPERCONDUCTOR])), 3)
 	assert_eq(GameRun.overclock_cost_at(0, _ids([Charm.SUPERCONDUCTOR])), 1,
@@ -79,36 +79,36 @@ func test_the_overclock_price_the_chip_shows_carries_the_charm():
 	assert_eq(run.overclock_cost(PAIR), 3)
 	run.owned_charms.append(Charm.superconductor())
 	assert_eq(run.overclock_cost(PAIR), 2, "der Chip liest dieselbe Abfrage")
-	run.charge = 2
+	run.energy = 2
 	assert_true(run.can_overclock(PAIR))
 	assert_true(run.overclock_combo(PAIR))
-	assert_eq(run.charge, 0, "abgebucht wird der ermäßigte Preis")
+	assert_eq(run.energy, 0, "abgebucht wird der ermäßigte Preis")
 
 # --- Dynamo & Trostpreis: zwei neue ⚡-Quellen -------------------------------------
 
 func test_the_dynamo_mints_at_the_end_of_a_cleared_round():
 	var ids := _ids([Charm.DYNAMO, Charm.HORSESHOE])
-	assert_eq(CharmEffects.round_end_charge_at(0, ids), CharmEffects.DYNAMO_CHARGE)
-	assert_eq(CharmEffects.round_end_charge_at(1, ids), 0, "nur der Dynamo prägt")
+	assert_eq(CharmEffects.round_end_energy_at(0, ids), CharmEffects.DYNAMO_ENERGY)
+	assert_eq(CharmEffects.round_end_energy_at(1, ids), 0, "nur der Dynamo prägt")
 	# Je Exemplar ein eigener Schritt der Rundenende-Zeremonie, nie eine Summe.
 	var twins := _ids([Charm.DYNAMO, Charm.DYNAMO])
-	assert_eq(CharmEffects.round_end_charge_at(0, twins), CharmEffects.DYNAMO_CHARGE)
-	assert_eq(CharmEffects.round_end_charge_at(1, twins), CharmEffects.DYNAMO_CHARGE)
+	assert_eq(CharmEffects.round_end_energy_at(0, twins), CharmEffects.DYNAMO_ENERGY)
+	assert_eq(CharmEffects.round_end_energy_at(1, twins), CharmEffects.DYNAMO_ENERGY)
 
-func test_the_consolation_prize_books_its_charge_on_the_fumble():
+func test_the_consolation_prize_books_its_energy_on_the_fumble():
 	run.hub_level = 3  # zwei erwachte Reihen, der Deckel steht nicht im Weg
 	assert_eq(run.note_fumble(false), 0, "ohne Charm prägt der Fumble nichts")
-	assert_eq(run.charge, 0)
+	assert_eq(run.energy, 0)
 	run.owned_charms.append(Charm.consolation_prize())
 	assert_eq(run.note_fumble(false), 1, "gebucht wird in GameRun, geflogen erst danach")
-	assert_eq(run.charge, 1)
+	assert_eq(run.energy, 1)
 	assert_eq(run.round_fumbles, 2, "der Zähler läuft unabhängig weiter")
 
-func test_the_consolation_charge_respects_the_full_wallet():
+func test_the_consolation_energy_respects_the_full_wallet():
 	run.owned_charms.append(Charm.consolation_prize())
-	run.charge = run.charge_cap()
+	run.energy = run.energy_cap()
 	run.note_fumble(false)
-	assert_eq(run.charge, run.charge_cap(), "add_charge klemmt am Deckel")
+	assert_eq(run.energy, run.energy_cap(), "add_energy klemmt am Deckel")
 
 # --- Hehlerware: Schwarzmarkt-Angebote werden billiger ------------------------------
 
@@ -125,7 +125,7 @@ func test_the_reroll_price_stays_flat_under_the_fenced_goods():
 	run.owned_charms.append(Charm.fenced_goods())
 	assert_eq(run.secret_reroll_cost(), GameRun.SECRET_REROLL_BASE)
 
-func test_the_back_room_charges_the_discounted_price():
+func test_the_back_room_energys_the_discounted_price():
 	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
 	run.unlock_secret_shop()
 	run.owned_charms.append(Charm.fenced_goods())
@@ -135,21 +135,21 @@ func test_the_back_room_charges_the_discounted_price():
 	var index := 1
 	var price := run.secret_offer_price(run.secret_stock[index])
 	assert_eq(price, int(run.secret_stock[index][GameRun.OFFER_PRICE]) - 1)
-	run.charge = price
+	run.energy = price
 	assert_true(run.buy_secret_offer(index), "der ermäßigte Preis reicht")
-	assert_eq(run.charge, 0)
+	assert_eq(run.energy, 0)
 
 # --- Freispiel: der erste Dreh je Ladenbesuch ---------------------------------------
 
 func test_the_free_spin_pays_the_first_spin_of_a_visit():
 	run.hub_level = 3  # Automat I steht
-	run.charge = 0
+	run.energy = 0
 	run.owned_charms.append(Charm.free_spin())
-	assert_eq(run.slot_spin_charge(0), 0, "der erste Dreh geht aufs Haus")
+	assert_eq(run.slot_spin_energy(0), 0, "der erste Dreh geht aufs Haus")
 	assert_true(run.can_spin_slot(0), "ohne Energie drehbar")
 	assert_false(run.spin_slot(0).is_empty())
-	assert_eq(run.charge, 0, "nichts abgebucht")
-	assert_gt(run.slot_spin_charge(0), 0, "der zweite Dreh kostet wieder")
+	assert_eq(run.energy, 0, "nichts abgebucht")
+	assert_gt(run.slot_spin_energy(0), 0, "der zweite Dreh kostet wieder")
 	assert_false(run.can_spin_slot(0), "und ohne Energie geht er nicht")
 
 func test_the_free_spin_lives_up_again_when_the_shop_opens():
@@ -159,15 +159,15 @@ func test_the_free_spin_lives_up_again_when_the_shop_opens():
 	assert_true(run.free_spin_used_this_visit)
 	run.begin_shop_visit()
 	assert_false(run.free_spin_used_this_visit)
-	assert_eq(run.slot_spin_charge(0), 0)
+	assert_eq(run.slot_spin_energy(0), 0)
 
 func test_without_the_charm_the_spin_costs_as_before():
 	run.hub_level = 3
-	run.charge = 10
-	var price := run.slot_spin_charge(0)
+	run.energy = 10
+	var price := run.slot_spin_energy(0)
 	assert_gt(price, 0)
 	run.spin_slot(0)
-	assert_eq(run.charge, 10 - price)
+	assert_eq(run.energy, 10 - price)
 
 # --- Quotenblatt: Bargeld-Gewinne doppelt --------------------------------------------
 
@@ -194,14 +194,14 @@ func test_the_odds_sheet_stands_on_the_bet_button():
 		"$%d" % ceili(bet.payout_money * CharmEffects.ODDS_SHEET_FACTOR), "der Knopf verspricht, was die Abrechnung zahlt")
 	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
 
-func test_a_charge_payout_stays_untouched_by_the_odds_sheet():
+func test_a_energy_payout_stays_untouched_by_the_odds_sheet():
 	run.owned_charms.append(Charm.odds_sheet())
 	var bet := SideBet.new()
-	bet.payout_kind = SideBet.Payout.CHARGE
-	bet.payout_charge = 2
+	bet.payout_kind = SideBet.Payout.ENERGY
+	bet.payout_energy = 2
 	run.hub_level = 3
 	run._pay_side_bet(bet, 1)
-	assert_eq(run.charge, 2, "Energie ist keine Barauszahlung")
+	assert_eq(run.energy, 2, "Energie ist keine Barauszahlung")
 
 func _template(id: String) -> Dictionary:
 	for t in SideBet.TEMPLATES:
@@ -360,9 +360,9 @@ func test_the_burin_doubles_the_afterglow():
 
 func test_the_burin_doubles_the_spark_flight():
 	var runes := _ids([Rune.SPARK_FLIGHT])
-	assert_eq(RuneEffects.charge_for_take(runes), RuneEffects.SPARK_FLIGHT_CHARGE)
-	assert_eq(RuneEffects.charge_for_take(runes, _ids([Charm.BURIN])), 2)
-	assert_eq(RuneEffects.charge_for_take(_ids([Rune.STRAY_LIGHT]), _ids([Charm.BURIN])), 0)
+	assert_eq(RuneEffects.energy_for_take(runes), RuneEffects.SPARK_FLIGHT_ENERGY)
+	assert_eq(RuneEffects.energy_for_take(runes, _ids([Charm.BURIN])), 2)
+	assert_eq(RuneEffects.energy_for_take(_ids([Rune.STRAY_LIGHT]), _ids([Charm.BURIN])), 0)
 
 func test_the_burin_fires_the_reverse_twice():
 	var reverse := _ids([Rune.REVERSE])

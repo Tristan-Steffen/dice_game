@@ -47,7 +47,7 @@ func test_merge_orbs_returns_full_ceremony_duration() -> void:
 		+ TableScreen.MERGE_HITSTOP + TableScreen.MERGE_HOLD
 	assert_almost_eq(dur, expected, 0.001, "Gesamtdauer = Summe der vier Takte")
 
-func test_merge_orbs_slams_after_charge_orbit_hitstop() -> void:
+func test_merge_orbs_slams_after_energy_orbit_hitstop() -> void:
 	var ts := _screen()
 	ts.update_pit_score(240, 12)
 	ts.merge_orbs(2880, false)

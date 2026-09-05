@@ -17,7 +17,7 @@ signal deals_changed
 ## NIE getauscht (become), also reicht ein Signal ohne Index.
 signal pool_changed
 signal pending_dice_changed
-signal charge_changed(value: int)
+signal energy_changed(value: int)
 signal secret_shop_discovered
 signal secret_stock_changed
 ## Die Serie der Werkbank hat sich geändert (Griff, Slots, verbrauchte Karten).
@@ -55,8 +55,8 @@ const TREAT_TIER_WEIGHTS := [0.6, 0.3, 0.1]
 const ADVANCE_PAYMENT_MONEY := 12
 const BLANK_CHEQUE_MONEY := 40
 const SAVINGS_DIE_BONUS := 1
-const SEED_CAPITAL_CHARGE := 1
-const DISCHARGE_CHARGE := 2
+const SEED_CAPITAL_ENERGY := 1
+const DISCHARGE_ENERGY := 2
 const INSURANCE_FRAUD_MONEY := 15
 const SERVICE_FEE_MONEY := 3
 const RIP_OFF_PER_DIE := 1
@@ -914,7 +914,7 @@ func combo_level(combo_key: String) -> int:
 	return int(combo_levels.get(combo_key, 0))
 
 ## ⚡-Preis der Stufe level+1: eine Energie plus je bereits erklommener Stufe
-## eine weitere, gedeckelt bei 5. Kein Stufen-Limit - die Ladung ist die einzige
+## eine weitere, gedeckelt bei 5. Kein Stufen-Limit - die Energie ist die einzige
 ## Bremse. Bewusst OHNE Ladenpreis-Klauseln: ⚡-Preise sind überall flach; der
 ## Supraleiter ist der einzige Nachlass, und nie unter eine Energie.
 static func overclock_cost_at(level: int, charm_ids: Array[String] = []) -> int:
@@ -925,9 +925,9 @@ func overclock_cost(combo_key: String) -> int:
 	return overclock_cost_at(combo_level(combo_key), charm_ids())
 
 func can_overclock(combo_key: String) -> bool:
-	return free_overclocks > 0 or charge >= overclock_cost(combo_key)
+	return free_overclocks > 0 or energy >= overclock_cost(combo_key)
 
-## Kauft die nächste Stufe; false = weder Gutschrift noch Ladung reichen (dann
+## Kauft die nächste Stufe; false = weder Gutschrift noch Energie reichen (dann
 ## bleibt alles unverändert). Prüfen-dann-abbuchen wie buy_secret_offer. Die
 ## Presse-Gutschrift geht VOR der Energie - sonst verfiele sie ungenutzt.
 func overclock_combo(combo_key: String) -> bool:
@@ -936,7 +936,7 @@ func overclock_combo(combo_key: String) -> bool:
 	if free_overclocks > 0:
 		free_overclocks -= 1
 	else:
-		spend_charge(overclock_cost(combo_key))
+		spend_energy(overclock_cost(combo_key))
 	grant_combo_level(combo_key)
 	return true
 
@@ -1193,20 +1193,20 @@ func _apply_instant_clause(clause_id: String) -> void:
 		DealClause.BLANK_CHEQUE:
 			add_money(BLANK_CHEQUE_MONEY * boost)
 		DealClause.SEED_CAPITAL:
-			add_charge(instant_clause_charge(clause_id, boost))
+			add_energy(instant_clause_energy(clause_id, boost))
 		DealClause.DISCHARGE:
-			spend_charge(DISCHARGE_CHARGE)
+			spend_energy(DISCHARGE_ENERGY)
 		DealClause.FREE_CHARM:
 			free_charm_pending = true
 		DealClause.FREE_SPINS:
 			free_spins_used.clear()
 
-## Ladung, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
+## Energie, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
 ## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zur Bank.
-static func instant_clause_charge(clause_id: String, bonus_factor: int = 1) -> int:
+static func instant_clause_energy(clause_id: String, bonus_factor: int = 1) -> int:
 	match clause_id:
 		DealClause.SEED_CAPITAL:
-			return SEED_CAPITAL_CHARGE * bonus_factor
+			return SEED_CAPITAL_ENERGY * bonus_factor
 	return 0
 
 ## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
@@ -1350,8 +1350,8 @@ func interest_income() -> int:
 func gold_vein_income() -> int:
 	return GOLD_VEIN_MONEY * deal_bonus_factor() if _clause_active(DealClause.GOLD_VEIN) else 0
 
-## Doppellader: wie viele Ladungen eine geräumte Überladungs-Stufe prägt.
-func charge_per_stage() -> int:
+## Doppellader: wie viele ⚡ eine geräumte Überladungs-Stufe prägt.
+func energy_per_stage() -> int:
 	return 2 * deal_bonus_factor() if _clause_active(DealClause.DOUBLE_LOADER) else 1
 
 ## Ladenpreis-Faktor (Inflation ×1,25, Skonto ×0,8 - beide multiplikativ).
@@ -1411,8 +1411,8 @@ func side_bet_stake_packs(bet: SideBet) -> int:
 	return bet.stake_packs * side_bet_stake_factor()
 
 ## Fälliger Ladungs-Einsatz einer Wette (⚡).
-func side_bet_stake_charge(bet: SideBet) -> int:
-	return bet.stake_charge * side_bet_stake_factor()
+func side_bet_stake_energy(bet: SideBet) -> int:
+	return bet.stake_energy * side_bet_stake_factor()
 
 ## Frankiermaschine: so viele 1er-Pakete prägt sie am Rundenende - je eines pro
 ## Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
@@ -1619,9 +1619,9 @@ func note_fumble(volcanic: bool) -> int:
 	round_fumbles += 1
 	if volcanic:
 		ash_fumbles += 1
-	var minted := CharmEffects.fumble_charge(charm_ids())
+	var minted := CharmEffects.fumble_energy(charm_ids())
 	if minted > 0:
-		add_charge(minted)
+		add_energy(minted)
 	return minted
 
 ## Wertet dieses Würfel-Exemplar in dieser Runde zum ersten Mal? Die Marke hängt
@@ -1748,20 +1748,20 @@ func can_place_side_bet(bet: SideBet) -> bool:
 			# Der Knopf NENNT seine Ware, also wird genau sie geprüft - die Werkstatt
 			# kann sie mitten in der Wettannahme verbraucht haben.
 			return stake_packs_for(bet).size() >= side_bet_stake_packs(bet)
-		SideBet.Stake.CHARGE:
-			return charge >= side_bet_stake_charge(bet)
+		SideBet.Stake.ENERGY:
+			return energy >= side_bet_stake_energy(bet)
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
 			return true
 	return money >= side_bet_stake(bet)
 
 ## Platziert eine Nebenwette: Einsatz sofort fällig (Geld, geopferte Pakete
-## oder Ladung), Auswertung am Rundenende.
+## oder Energie), Auswertung am Rundenende.
 func place_side_bet(bet: SideBet) -> void:
 	match bet.stake_kind:
 		SideBet.Stake.PACKS:
 			_consume_packs(stake_packs_for(bet))
-		SideBet.Stake.CHARGE:
-			spend_charge(side_bet_stake_charge(bet))
+		SideBet.Stake.ENERGY:
+			spend_energy(side_bet_stake_energy(bet))
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
 			pass  # Steuerwette: die Rechnung kommt Hand für Hand
 		_:
@@ -1823,7 +1823,7 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	return won
 
 ## Schüttet EINEN gewonnenen Einsatz aus. Der Quotenbonus-Faktor greift auf
-## Geld, Ware und Ladung - Einzelstücke (Sonderposten, Paket, Chipstufe)
+## Geld, Ware und Energie - Einzelstücke (Sonderposten, Paket, Chipstufe)
 ## verdoppelt er nicht. JEDES gewährte Paket wird in awarded_packs GEMERKT
 ## (und jedes am vollen Magazin zerfallene gezählt): die Auszahlungs-Seite
 ## hält die Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
@@ -1832,12 +1832,12 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 	bet.awarded_fizzled = 0
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
-			# Quotenblatt hebt NUR das Bargeld - Ladung und Ware bleiben.
+			# Quotenblatt hebt NUR das Bargeld - Energie und Ware bleiben.
 			add_money(CharmEffects.side_bet_money(bet.payout_money * factor, charm_ids()))
-		SideBet.Payout.CHARGE:
-			var overflow := add_charge(bet.payout_charge * factor)
+		SideBet.Payout.ENERGY:
+			var overflow := add_energy(bet.payout_energy * factor)
 			if overflow > 0:
-				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # volle Börse zahlt bar
+				add_money(overflow * ENERGY_OVERFLOW_MONEY)  # volle Börse zahlt bar
 		SideBet.Payout.SPECIAL:
 			# Wie beim Paket-Gewinn gemerkt: die Zeremonie zielt auf SEINE uid.
 			bet.awarded_pack = grant_engraving_pack(bet.special_engraving())
@@ -1868,16 +1868,16 @@ func slots_unlocked() -> int:
 	return count
 
 ## Einsatz für einen Dreh an Automat machine in ⚡ (Freispiele drehen gratis).
-func slot_spin_charge(machine: int) -> int:
+func slot_spin_energy(machine: int) -> int:
 	if slot_spin_is_free(machine) or charm_free_spin_open():
 		return 0
-	return SlotMachine.SPIN_CHARGES[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
+	return SlotMachine.SPIN_ENERGYS[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
 
 ## Ob der Spieler Automat machine gerade drehen darf: freigeschaltet, nicht
 ## stromgesperrt, in der Sitzung noch frei und der Einsatz bezahlbar.
 func can_spin_slot(machine: int) -> bool:
 	return slots_enabled() and machine < slots_unlocked() and slot_bank.can_spin(machine) \
-		and charge >= slot_spin_charge(machine)
+		and energy >= slot_spin_energy(machine)
 
 ## Bezahlt den Einsatz und WÜRFELT Automat machine, schreibt das Ergebnis aber noch
 ## NICHT auf die Wand - das tut commit_slot erst nach der Walzen-Animation, damit
@@ -1891,7 +1891,7 @@ func spin_slot(machine: int) -> Array:
 	elif charm_free_spin_open():
 		free_spin_used_this_visit = true  # ein Freispiel je Besuch, nicht je Automat
 	else:
-		spend_charge(slot_spin_charge(machine))
+		spend_energy(slot_spin_energy(machine))
 	return slot_bank.roll(machine)
 
 ## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,
@@ -1924,10 +1924,10 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 			for i in mult:
 				for pack in prize.packs:
 					grant_pack(pack.duplicate())  # sonst teilte der Multiplikator eine Resource
-		SlotPrize.Kind.CHARGE:
-			var overflow := add_charge(prize.charge * mult)
+		SlotPrize.Kind.ENERGY:
+			var overflow := add_energy(prize.energy * mult)
 			if overflow > 0:
-				add_money(overflow * CHARGE_OVERFLOW_MONEY)  # voller Speicher zahlt bar
+				add_money(overflow * ENERGY_OVERFLOW_MONEY)  # voller Speicher zahlt bar
 		SlotPrize.Kind.DIE:
 			# EIN Weg für jeden Würfel: auch der Automaten-Gewinn liegt erst im
 			# Ausgabefach, bis der Spieler ihm selbst einen Pool-Platz gibt.
@@ -2025,23 +2025,23 @@ func stage_progress(points: int) -> Dictionary:
 	return {"stage": current, "cleared": cleared,
 		"into_stage": points - cumulative_threshold(cleared), "stage_size": stage_size(current)}
 
-## --- Ladung (⚡) & Schwarzmarkt -----------------------------------------------
-## Geräumte Überladungs-Stufen zahlen kein Geld mehr, sie prägen je eine Ladung in
+## --- Energie (⚡) & Schwarzmarkt -----------------------------------------------
+## Geräumte Überladungs-Stufen zahlen kein Geld mehr, sie prägen je eine Energie in
 ## eine GEDECKELTE Börse; was nicht mehr hineinpasst, fällt zum alten Satz als Geld
-## an. GameRun rechnet nur die Aufteilung (charge_split), gebucht wird in der
+## an. GameRun rechnet nur die Aufteilung (energy_split), gebucht wird in der
 ## Auszahlungs-Zeremonie.
 
 ## Die Börse ist die 5×5-Kondensator-Bank: der Deckel wächst NUR in ganzen
-## Reihen (Vielfache von CHARGE_ROW), damit ein Ausbau als "eine Reihe erwacht"
+## Reihen (Vielfache von ENERGY_ROW), damit ein Ausbau als "eine Reihe erwacht"
 ## lesbar ist - nie als krumme Zahl.
-const CHARGE_ROW := 5
-const CHARGE_ROWS_MAX := 5
+const ENERGY_ROW := 5
+const ENERGY_ROWS_MAX := 5
 
 ## Barwert einer ⚡, die nicht mehr in die Börse passt (Wett-Gewinn) - derselbe
 ## Satz wie eine übergelaufene Überladungs-Stufe.
-const CHARGE_OVERFLOW_MONEY := 5
+const ENERGY_OVERFLOW_MONEY := 5
 
-## Preise der Schwarzmarkt-Ware in Ladung. Der Charm kostet genau eine volle
+## Preise der Schwarzmarkt-Ware in Energie. Der Charm kostet genau eine volle
 ## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.
 const SECRET_CHARM_PRICE := 5
 
@@ -2086,22 +2086,22 @@ const KIND_DIE := "die"
 const KIND_CATALYST := "catalyst"
 
 ## Umrechnungskurs des Hinterzimmers: EIN Sonderposten kostet dort 3 ⚡, im Regal
-## $30 - zehn Dollar auf die Ladung. Jede Ware, die beide Läden führen (die
+## $30 - zehn Dollar auf die Energie. Jede Ware, die beide Läden führen (die
 ## Katalysatoren), preist sich danach, statt eine zweite Tabelle zu pflegen.
-const SECRET_MONEY_PER_CHARGE := 10
+const SECRET_MONEY_PER_ENERGY := 10
 ## Anteil der Katalysatoren am Sonderposten-Platz - die Gravur bleibt die Regel.
 const SECRET_CATALYST_CHANCE := 0.35
 
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
-static func secret_charge_price(money_price: int) -> int:
-	return maxi(1, ceili(float(money_price) / float(SECRET_MONEY_PER_CHARGE)))
+static func secret_energy_price(money_price: int) -> int:
+	return maxi(1, ceili(float(money_price) / float(SECRET_MONEY_PER_ENERGY)))
 
-var charge: int = 0:
+var energy: int = 0:
 	set(value):
-		if charge == value:
+		if energy == value:
 			return
-		charge = value
-		charge_changed.emit(charge)
+		energy = value
+		energy_changed.emit(energy)
 
 ## Freigeschaltet mit der Lizenzstufe (unlock_secret_shop), danach für den Rest
 ## des Laufs offen. Ein frischer Lauf startet wieder vergittert.
@@ -2110,13 +2110,13 @@ var secret_rerolls: int = 0
 var secret_stock: Array[Dictionary] = []
 
 ## Deckel der Börse; wächst mit der Hub-Stufe wie der Überladungs-Rahmen.
-func charge_cap() -> int:
-	return charge_cap_rows() * CHARGE_ROW
+func energy_cap() -> int:
+	return energy_cap_rows() * ENERGY_ROW
 
 ## Erwachte Reihen der Bank je Hub-Stufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
-func charge_cap_rows() -> int:
+func energy_cap_rows() -> int:
 	if hub_level >= 10:
-		return CHARGE_ROWS_MAX
+		return ENERGY_ROWS_MAX
 	if hub_level >= 7:
 		return 4
 	if hub_level >= 5:
@@ -2127,32 +2127,32 @@ func charge_cap_rows() -> int:
 
 ## Aufteilung von stages in Börse und Überlauf - reine Vorschau gegen den
 ## aktuellen Stand, damit die Zeremonie ihre Kometen vorab planen kann.
-## stages sind ÜBERLADUNGS-STUFEN, nicht Ladungen: der Doppellader prägt zwei je
-## Stufe. Was gebucht wird, zählt add_charge in Ladungen.
-func charge_split(stages: int) -> Dictionary:
-	return _split_charge(maxi(stages, 0) * charge_per_stage())
+## stages sind ÜBERLADUNGS-STUFEN, nicht ⚡: der Doppellader prägt zwei je
+## Stufe. Was gebucht wird, zählt add_energy in ⚡.
+func energy_split(stages: int) -> Dictionary:
+	return _split_energy(maxi(stages, 0) * energy_per_stage())
 
-func _split_charge(minted: int) -> Dictionary:
-	var stored := mini(minted, maxi(charge_cap() - charge, 0))
+func _split_energy(minted: int) -> Dictionary:
+	var stored := mini(minted, maxi(energy_cap() - energy, 0))
 	return {"stored": stored, "overflow": minted - stored}
 
-## Prägt count Ladungen bis zum Deckel und liefert, was nicht mehr hineinpasste -
+## Prägt count ⚡ bis zum Deckel und liefert, was nicht mehr hineinpasste -
 ## der Aufrufer zahlt diesen Überlauf als Geld aus.
-func add_charge(count: int) -> int:
-	var split := _split_charge(maxi(count, 0))
-	charge += int(split["stored"])
+func add_energy(count: int) -> int:
+	var split := _split_energy(maxi(count, 0))
+	energy += int(split["stored"])
 	return int(split["overflow"])
 
-func spend_charge(count: int) -> void:
-	charge = maxi(0, charge - count)
+func spend_energy(count: int) -> void:
+	energy = maxi(0, energy - count)
 
 ## Bucht die Kupfer-Energie eines Zuges: was in die Börse passt, wird geprägt;
 ## was darüber hinausläuft, zahlt bar. Liefert das ausgezahlte Geld - dieselbe
 ## Überlauf-Grammatik wie die Stufen-Auszahlung, nur zum Kupfer-Satz.
-func book_copper_charge(count: int) -> int:
+func book_copper_energy(count: int) -> int:
 	if count <= 0:
 		return 0
-	var overflow := add_charge(count)
+	var overflow := add_energy(count)
 	if overflow <= 0:
 		return 0
 	var paid := overflow * MaterialEffects.COPPER_OVERFLOW_MONEY
@@ -2183,13 +2183,13 @@ func secret_offer_price(offer: Dictionary) -> int:
 		return price
 	return maxi(1, price - CharmEffects.secret_price_cut(charm_ids()))
 
-## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Ladung
+## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Energie
 ## nicht reicht.
 func reroll_secret_stock() -> bool:
 	var cost := secret_reroll_cost()
-	if charge < cost:
+	if energy < cost:
 		return false
-	spend_charge(cost)
+	spend_energy(cost)
 	secret_rerolls += 1
 	_roll_secret_stock()
 	secret_stock_changed.emit()
@@ -2201,9 +2201,9 @@ func buy_secret_offer(index: int) -> bool:
 		return false
 	var offer := secret_stock[index]
 	var price := secret_offer_price(offer)
-	if bool(offer[OFFER_SOLD]) or charge < price:
+	if bool(offer[OFFER_SOLD]) or energy < price:
 		return false
-	# Voller Dock: der Charm-Platz bleibt liegen, die Ladung wird nicht abgebucht.
+	# Voller Dock: der Charm-Platz bleibt liegen, die Energie wird nicht abgebucht.
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
 	# Volles Magazin: alles VERSIEGELTE sperrt der Deckel wie eine knappe Börse -
@@ -2211,7 +2211,7 @@ func buy_secret_offer(index: int) -> bool:
 	# ins Ausgabefach und kennt darum keinen Deckel.
 	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE and packs_full():
 		return false
-	spend_charge(price)
+	spend_energy(price)
 	match offer[OFFER_KIND]:
 		KIND_CHARM:
 			var charm: Charm = offer[OFFER_ITEM]
@@ -2267,7 +2267,7 @@ func _secret_catalyst_offer() -> Dictionary:
 		return {}
 	var pick: String = pool.pick_random()
 	return _secret_offer(KIND_CATALYST, Pack.catalyst(pick),
-		secret_charge_price(Pack.catalyst_price(pick)))
+		secret_energy_price(Pack.catalyst_price(pick)))
 
 ## Der dritte Platz würfelt nur noch WARE: Essenzwürfel oder Sonderbestand. Der
 ## Würfel ist der EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel

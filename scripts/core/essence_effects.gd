@@ -314,8 +314,8 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 ## ball_bonus: Zuschlag des Blitzableiters auf den Kugelblitz.
 ## wild_value: die Zahl, zu der sich das Polarlicht macht - nur der Polarfilter
 ## setzt sie, sonst 0 (= kein Krit).
-## charge: die noch VERFÜGBARE Energie (Tscherenkow verbrennt je Schlag eine,
-## der Aufrufer zählt herunter - siehe spends_charge).
+## energy: die noch VERFÜGBARE Energie (Tscherenkow verbrennt je Schlag eine,
+## der Aufrufer zählt herunter - siehe spends_energy).
 ## first_scoring: erste Wertung dieses Würfels in der Runde (Sternschnuppe,
 ## Gammablitz - der Magnetar löst den Blitz davon).
 ## fumbles: Fumbles, mit denen der Vulkanblitz kritet (Runde + Aschewolke).
@@ -323,7 +323,7 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 ## 0) - nur die Sternschnuppe fragt danach, ihr Strich fällt genau einmal.
 static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
-		charge: int = 0, first_scoring: bool = false, fumbles: int = 0,
+		energy: int = 0, first_scoring: bool = false, fumbles: int = 0,
 		first_firing: bool = true) -> float:
 	match essence_id:
 		Essence.XENON:
@@ -339,8 +339,8 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		Essence.CHERENKOV:
 			# Mit Steuerstab kostet der Schlag nichts und schlägt ×(gelagerte Energie).
 			if charm_ids.has(Charm.MODERATOR):
-				return maxf(1.0, float(maxi(0, charge)))
-			return CHERENKOV_CRIT if charge > 0 else 1.0
+				return maxf(1.0, float(maxi(0, energy)))
+			return CHERENKOV_CRIT if energy > 0 else 1.0
 		Essence.SHOOTING_STAR:
 			# Ein Strich am Himmel: der Würfel löst normal aus, der Krit fällt aber
 			# genau EINMAL - beim ersten Zünden der ersten Wertung der Runde. Der
@@ -356,7 +356,7 @@ static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 
 ## Zahlt DIESER Schlag Energie? Nur der Tscherenkow, und nur ohne Steuerstab.
 ## Der Aufrufer führt den laufenden Rest und zieht je Schlag eine ab.
-static func spends_charge(essence_ids: Array[String], charm_ids: Array[String]) -> bool:
+static func spends_energy(essence_ids: Array[String], charm_ids: Array[String]) -> bool:
 	return essence_ids.has(Essence.CHERENKOV) and not charm_ids.has(Charm.MODERATOR)
 
 ## Geld EINER Auslösung: Neon je gezähltem Würfel, Natriumdampf je Mitwürfel.
@@ -723,12 +723,12 @@ static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
 ## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
 static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
-		charge: int = 0, first_scoring: bool = false, fumbles: int = 0,
+		energy: int = 0, first_scoring: bool = false, fumbles: int = 0,
 		first_firing: bool = true) -> float:
 	var factor := 1.0
 	for essence_id in essence_ids:
 		factor *= crit_once_for(essence_id, value, crits_before, ball_bonus, wild_value,
-			charm_ids, charge, first_scoring, fumbles, first_firing)
+			charm_ids, energy, first_scoring, fumbles, first_firing)
 	return maxf(1.0, factor)
 
 ## Essenz-id eines Slots aus dem ctx-Dictionary ("" = keine).

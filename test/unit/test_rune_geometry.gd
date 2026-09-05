@@ -140,7 +140,7 @@ func test_the_seam_color_is_normalized() -> void:
 		assert_almost_eq(maxf(seam.r, maxf(seam.g, seam.b)), 1.0, 0.001,
 			"%s: Naht-Farbe auf max == 1 normiert" % rune.display_name)
 
-func test_spark_flight_normalizes_to_the_charge_cyan() -> void:
+func test_spark_flight_normalizes_to_the_energy_cyan() -> void:
 	# Funkenflug trägt HDR-Cyan; die Normierung darf den Farbton nicht verdrehen,
 	# sonst liest der Funke nicht mehr als dieselbe Energie wie der Kondensator.
 	var seam := Rune.by_id(Rune.SPARK_FLIGHT).normalized_seam()

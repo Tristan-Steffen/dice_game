@@ -29,11 +29,11 @@ const MIN_RUN := 3          # ab so vielen gleichen nebeneinander zahlt eine Rei
 const BUST_RUN := 3         # so viele Fumbles nebeneinander beenden die Sitzung
 ## Einsatz je Dreh in ⚡ - für alle drei Automaten gleich: die Stufe entscheidet
 ## über den Gewinn, nicht über den Preis.
-const SPIN_CHARGES := [1, 1, 1]
+const SPIN_ENERGYS := [1, 1, 1]
 const MACHINE_NAMES := ["Kupfer", "Silber", "Gold"]
 ## Die vier auszahlenden Sorten - der Joker gehört NICHT dazu (er zahlt nie allein).
 const PAYOUT_KINDS := [SlotPrize.Kind.ENGRAVING, SlotPrize.Kind.MATERIAL,
-	SlotPrize.Kind.DICE_ENGRAVING, SlotPrize.Kind.CHARGE]
+	SlotPrize.Kind.DICE_ENGRAVING, SlotPrize.Kind.ENERGY]
 
 ## Reihen-Richtungen: waagerecht, senkrecht, Diagonale ↘, Diagonale ↗.
 const DIRECTIONS := [[1, 0], [0, 1], [1, 1], [1, -1]]
@@ -53,11 +53,11 @@ const PACK_LADDER := {
 ## Decke). Abgeleitet statt ausgeschrieben - die Fortsetzung ist eine Regel.
 const KOLOSSAL_FROM := 5
 
-## DIE AUSZAHLUNGSLEITER einer ⚡-Reihe: 3→1, 4→2, 5→3, ab 6 fest CHARGE_MAX (4).
+## DIE AUSZAHLUNGSLEITER einer ⚡-Reihe: 3→1, 4→2, 5→3, ab 6 fest ENERGY_MAX (4).
 ## Bewusst flach und bescheiden (Spieler-Entscheid) - ein Dreh kostet 1⚡, die
 ## Mindestreihe zahlt ihn also genau zurück.
-const CHARGE_LADDER := {3: 1, 4: 2, 5: 3}
-const CHARGE_MAX := 4
+const ENERGY_LADDER := {3: 1, 4: 2, 5: 3}
+const ENERGY_MAX := 4
 
 ## Aktuelle Wand: TOTAL_COLS Spalten, jede leer (ungedreht) oder ROWS Symbol-Kinds
 ## (SlotPrize.Kind als Symbol-Enum). Spalte c gehört Automat c / MACHINE_COLS.
@@ -177,7 +177,7 @@ func hit_count() -> int:
 func pot_summary() -> Dictionary:
 	var counts := {SlotPrize.Kind.ENGRAVING: 0, SlotPrize.Kind.MATERIAL: 0, SlotPrize.Kind.DICE_ENGRAVING: 0}
 	var tiers := {}       # Symbol → {Größe → Paketzahl}
-	var charge := 0
+	var energy := 0
 	var dice := 0
 	for run in runs():
 		for spec: Dictionary in run["specs"]:
@@ -190,14 +190,14 @@ func pot_summary() -> Dictionary:
 					if not tiers.has(symbol):
 						tiers[symbol] = {}
 					tiers[symbol][pack_tier] = int(tiers[symbol].get(pack_tier, 0)) + amount
-				"charge": charge += int(spec["amount"])
+				"energy": energy += int(spec["amount"])
 				"die": dice += 1
 	return {
 		"engravings": counts[SlotPrize.Kind.ENGRAVING],
 		"materials": counts[SlotPrize.Kind.MATERIAL],
 		"edges": counts[SlotPrize.Kind.DICE_ENGRAVING],
 		"packs": _pack_lines(tiers),
-		"charge": charge, "dice": dice,
+		"energy": energy, "dice": dice,
 	}
 
 ## Die Paketzeilen des Topfs, je Sorte und Größe eine: {symbol, tier, count}. Feste
@@ -276,8 +276,8 @@ func _run_specs(kind: int, length: int) -> Array:
 			var payout := pack_payout(length)
 			return [{"kind": "pack", "symbol": kind, "count": int(payout["count"]),
 				"tier": int(payout["tier"])}]
-		SlotPrize.Kind.CHARGE:
-			return [{"kind": "charge", "amount": charge_payout(length)}]
+		SlotPrize.Kind.ENERGY:
+			return [{"kind": "energy", "amount": energy_payout(length)}]
 		SlotPrize.Kind.DIE:
 			var specs: Array = [{"kind": "die"}]
 			if length >= 4:
@@ -294,10 +294,10 @@ static func pack_payout(length: int) -> Dictionary:
 
 ## Was eine ⚡-Reihe dieser Länge auswirft - der EINE Lesezugriff auf die Leiter
 ## (Spiegel von pack_payout).
-static func charge_payout(length: int) -> int:
+static func energy_payout(length: int) -> int:
 	if length <= MIN_RUN:
-		return int(CHARGE_LADDER[MIN_RUN])
-	return int(CHARGE_LADDER.get(length, CHARGE_MAX))
+		return int(ENERGY_LADDER[MIN_RUN])
+	return int(ENERGY_LADDER.get(length, ENERGY_MAX))
 
 func _run_label(kind: int, length: int, specs: Array) -> String:
 	var sym := SlotPrize.symbol_for(kind)
@@ -307,7 +307,7 @@ func _run_label(kind: int, length: int, specs: Array) -> String:
 			var pack_tier := int(specs[0].get("tier", Pack.TIER_NORMAL))
 			return "%s ×%d → %d %s" % [sym, length, n,
 				SlotPrize.pack_name_tiered(kind, n, pack_tier)]
-		SlotPrize.Kind.CHARGE:
+		SlotPrize.Kind.ENERGY:
 			return "%s ×%d → %d⚡" % [sym, length, int(specs[0]["amount"])]
 		SlotPrize.Kind.DIE:
 			var n := specs.size()
@@ -367,7 +367,7 @@ const W_JOKER := 1.0
 
 func _symbol_table(_machine: int) -> Array:
 	return [[SlotPrize.Kind.ENGRAVING, W_ZAHLEN], [SlotPrize.Kind.MATERIAL, W_MATERIAL],
-		[SlotPrize.Kind.DICE_ENGRAVING, W_GRAVUR], [SlotPrize.Kind.CHARGE, W_ENERGIE],
+		[SlotPrize.Kind.DICE_ENGRAVING, W_GRAVUR], [SlotPrize.Kind.ENERGY, W_ENERGIE],
 		[SlotPrize.Kind.WILD, W_JOKER], [SlotPrize.Kind.FUMBLE, W_FUMBLE]]
 
 func _fallback_rng() -> RandomNumberGenerator:

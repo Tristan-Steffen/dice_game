@@ -54,8 +54,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var wild_eyes := DiceScoring.wild_value(key, dice, ctx, charm_ids) if wild >= 0 else 0
 	# Lauf-/Rundenzustand wie in DiceScoring._base_and_mult - einmal je Hand gelesen.
 	# Laufender REST der Energie wie in DiceScoring - der Tscherenkow verbrennt sie.
-	var charge := maxi(0, int(ctx.get(DiceScoring.CTX_CHARGE, 0)))
-	var charge_spent := 0
+	var energy := maxi(0, int(ctx.get(DiceScoring.CTX_ENERGY, 0)))
+	var energy_spent := 0
 	var hands_taken := int(ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
 	var volcanic := DiceScoring.volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := DiceScoring.discard_values_in(ctx)
@@ -241,14 +241,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				# Manometer: je Wiederholung ein EIGENER Schlag, nie einer im Quadrat -
 				# und je Schlag der frische Energierest (Tscherenkow).
 				var crits_before_essence := crits
-				var spends_charge := EssenceEffects.spends_charge(essence_ids, charm_ids)
+				var spends_energy := EssenceEffects.spends_energy(essence_ids, charm_ids)
 				for _e in essence_repeat:
 					var essence_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
-						wild_eyes if i == wild else 0, charm_ids, charge,
+						wild_eyes if i == wild else 0, charm_ids, energy,
 						DiceScoring.first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
-					if spends_charge and charge > 0:
-						charge -= 1
-						charge_spent += 1
+					if spends_energy and energy > 0:
+						energy -= 1
+						energy_spent += 1
 					if is_equal_approx(essence_crit, 1.0):
 						continue
 					crits += 1
@@ -510,8 +510,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"triggers": triggers - trigger_offset,
 		"crits": crits - crit_offset,
 		# Energie, die der Tscherenkow in dieser Hand verbrannt hat - gebucht wird
-		# sie beim Nehmen (TakeReport.charge_spent), wie das Trinkgeld.
-		"charge_spent": charge_spent,
+		# sie beim Nehmen (TakeReport.energy_spent), wie das Trinkgeld.
+		"energy_spent": energy_spent,
 	}
 
 ## Hängt das Geld EINZELNER Zündungen an die Schrittliste: MaterialEffects plant
