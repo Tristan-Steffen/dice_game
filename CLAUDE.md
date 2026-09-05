@@ -20,18 +20,21 @@ The Godot binary lives outside the repo at `E:/Godot/Godot_v4.7-stable_win64_con
 # laufen die wait_frames/wait_seconds der Integrationstests CPU-schnell statt in Echtzeit.
 E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --fixed-fps 60 --path . -s addons/gut/gut_cmdln.gd -gconfig=res://.gutconfig.json -gexit
 
-# Run a single test SCRIPT (-gtest often falls through to the full suite; prefer -gdir on the file's folder + a unit script, or filter by directory):
-E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --fixed-fps 60 --path . -s addons/gut/gut_cmdln.gd -gdir=res://test/unit -gexit
+# Run ONE test script while working (gemessen 3 s statt 150 s für die Suite; -gselect filtert Skripte nach Namensteil).
+# -gtest fällt oft in die volle Suite durch, -gdir auf test/integration ist die halbe Suite - beides NICHT als Arbeitsschleife.
+E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --fixed-fps 60 --path . -s addons/gut/gut_cmdln.gd -gdir=res://test/integration -gselect=test_tower_view -gexit
 
-# Register newly added `class_name`s in the class cache (required after adding a new global class before it resolves in tests/probes):
+# Register newly added `class_name`s in the class cache (EINMAL nach einem Umbenennen/Anlegen einer globalen Klasse - nicht bei jedem Lauf):
 E:/Godot/Godot_v4.7-stable_win64_console.exe --headless --path . --import
 
-# Run the game:
+# Run the game (headless boot check: --quit-after 200):
 E:/Godot/Godot_v4.7-stable_win64_console.exe --path .
 
-# One-off visual/logic probe script (ad-hoc scene):
-E:/Godot/Godot_v4.7-stable_win64_console.exe --path . --resolution 1280x720 --script <path-to.gd>
+# One-off visual/logic probe script (ad-hoc scene), IMMER mit --quit-after (Frames; 600 = 10 s bei 60 fps) und off-screen:
+E:/Godot/Godot_v4.7-stable_win64_console.exe --path . --resolution 1280x720 --position 4000,2400 --quit-after 600 --script <path-to.gd>
 ```
+
+**Jeder Godot-Lauf endet von selbst, und keiner läuft im Hintergrund** (2026-09-05, nach einer 50-Minuten-Leiche): eine Probe, die VOR ihrem `quit()` auf einen Skriptfehler läuft, beendet sich nie — der Prozess lebt unsichtbar off-screen weiter. Darum trägt JEDE Probe und jeder Boot `--quit-after N` (gemessen: eine abgestürzte Probe endet damit nach 1–4 s statt nie), und jeder Godot-Start läuft im VORDERGRUND mit gesetztem Bash-`timeout` (Suite 600 s, Probe 120 s) — `run_in_background` hat keinen Timeout und ist für Godot verboten; `sleep`-Polling auf Logdateien ebenso. Test-Disziplin für Session UND Agenten: während der Arbeit nur EINZELNE Skripte per `-gselect`, die VOLLE Suite genau EINMAL am Ende (ein zweiter Vollpass nur nach einem echten Fehlschlag), keine `-gdir`-Teilsuiten, `--import` nur einmal nach einer Klassen-Umbenennung. Gemessen am 2026-09-05: sechs Agenten-Wellen zu 30–96 min, davon 3–10 Suiten-Läufe und 3–27 Sichtproben je Welle — die Testzeit allein war bis zu einem Drittel der Laufzeit.
 
 CI (`.github/workflows/tests.yml`) runs the same GUT command on Linux after a `--editor --quit` import pass — as **two parallel matrix jobs** (`-gdir=res://test/unit` / `res://test/integration`) on separate runners, with `.godot` restored from `actions/cache` (the import pass dominates the job at ~9 min cold; warm it only re-imports what changed). Locally never split the suite into two concurrent Godot processes: one instance already saturates the machine (measured: parallel 135 s vs. serial 65 s). Test config is `.gutconfig.json` (scans `res://test/`, prefix `test_`, suffix `.gd`).
 
@@ -69,7 +72,7 @@ Top-level `Node3D` (not in a subfolder). Owns exactly one `GameRun`, wires its s
 
 ## Arbeitsweise (Spieler-Entscheidung 2026-08-25)
 - **Delegiert wird nur bei echten FEATURE-WELLEN** (neue Mechanik, mehrere Subsysteme, Umbau einer Grammatik) — dann Plan-Datei + Opus-5-Subagent wie gehabt. **Kleine Änderungen macht die Session SELBST**: Ein-/Zwei-Datei-Fixes, Konstanten, Farben/Maße, visuelle Tweaks, Bugs mit bekannter Wurzel. Kein Plan-Dokument, kein Agenten-Aufsatz für so etwas.
-- **Getestet wird EINMAL AM ENDE**, nicht nach jedem Schritt: ein Suiten-Pass, wenn die Änderung steht (plus Boot, falls `scene_root.gd` angefasst wurde). Kein Wiederholen der Läufe, die ein Subagent gerade grün gefahren hat — sein Log prüfen genügt (immer mit dem `Ignoring|Parse Error`-Grep, siehe unten); der eigene Vollpass gehört vor den Commit.
+- **Getestet wird EINMAL AM ENDE**, nicht nach jedem Schritt: ein Suiten-Pass, wenn die Änderung steht (plus Boot, falls `scene_root.gd` angefasst wurde). Kein Wiederholen der Läufe, die ein Subagent gerade grün gefahren hat — sein Log prüfen genügt (immer mit dem `Ignoring|Parse Error`-Grep, siehe unten); der eigene Vollpass gehört vor den Commit. **Das gilt auch INNERHALB einer Agenten-Welle**: der Agent arbeitet mit `-gselect` auf dem einen Skript, das er gerade anfaßt, und fährt die Suite EINMAL ganz am Schluß — jeder Agenten-Brief sagt das ausdrücklich, samt `--quit-after`, Vordergrund-`timeout` und dem Verbot von `run_in_background` für Godot (siehe *Commands*).
 - **Beweis-Aufwand nach Anlass**: Kennfarben-Aufnahmen, Pixel-A/B und Frame-Serien gehören zur Artefakt-Jagd (dort haben sie dreimal die echte Ursache statt einer Vermutung geliefert) — nicht zu Geschmacks-Änderungen.
 
 ## Testing
