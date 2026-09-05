@@ -1871,17 +1871,28 @@ func test_the_series_length_is_six_on_every_licence_level():
 		run.hub_level = level
 		assert_eq(run.series_slots(), 6, "Stufe %d" % level)
 
-func test_the_chain_driver_lengthens_the_series():
+## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es
+## nie - auch nicht mit Taktgeber, Wett-Schub und Kettentreiber zusammen.
+func test_more_than_six_slots_never_exist():
+	run.hub_level = 10
+	run.series_slot_bonus = 4
+	run.grant_press_boost()
+	run.owned_charms.append(Charm.shyster())
+	_sign([DealClause.CHAIN_DRIVER])
+	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Karten sind der Block")
+	assert_eq(run.series_slots(), 6, "Taktgeber, Schub und Klausel heben ihn nicht")
+
+func test_the_chain_driver_no_longer_lengthens_the_series():
 	run.hub_level = 1
 	_sign([DealClause.CHAIN_DRIVER])
-	assert_eq(run.series_slots(), 7)
+	assert_eq(run.series_slots(), 6, "der Deckel klemmt ihn weg")
 
 func test_the_shyster_doubles_the_quantitative_series_bonus():
 	run.hub_level = 1
 	run.owned_charms.append(Charm.shyster())
 	_sign([DealClause.CHAIN_DRIVER])
-	assert_eq(run.deal_bonus_factor(), 2)
-	assert_eq(run.series_slots(), 8, "+1 wird +2")
+	assert_eq(run.deal_bonus_factor(), 2, "der Faktor lebt - nur der Deckel klemmt")
+	assert_eq(run.series_slots(), 6)
 
 func test_the_short_circuit_overrides_the_length_absolutely():
 	run.hub_level = 10
@@ -1894,10 +1905,10 @@ func test_the_length_is_capped():
 	run.series_slot_bonus = 99
 	assert_eq(run.series_slots(), GameRun.SERIES_SLOT_CAP)
 
-func test_the_press_boost_stacks_on_top_and_is_spent_by_one_series():
+func test_the_press_boost_is_spent_by_one_series():
 	run.hub_level = 1
 	run.grant_press_boost()
-	assert_eq(run.series_slots(), 6 + SeriesResolver.BOOST_SLOTS)
+	assert_eq(run.series_slots(), 6, "der Deckel klemmt den Schub weg")
 	var pack := run.grant_pack(Pack.number_pack())
 	run.apply_series([pack.pack_uid] as Array[int], run.owned_pool[0], null, _seeded(7))
 	assert_false(run.press_boost_pending, "ein Schub, eine Serie")
@@ -1914,10 +1925,13 @@ func test_a_round_clause_still_reaches_the_shop_of_its_round():
 	_sign([DealClause.CHAIN_DRIVER], 3)
 	assert_eq(run.round_number, 3)
 	# Der Laden öffnet nach der Auszahlung, die Runde rückt erst beim Schließen vor.
-	assert_eq(run.series_slots(), 6 + GameRun.CHAIN_DRIVER_SLOTS,
+	assert_true(run.active_deal_sides().any(func(entry: Dictionary) -> bool:
+		return String(entry["id"]) == DealClause.CHAIN_DRIVER),
 		"im Laden derselben Runde wirkt sie noch")
 	run.advance_round()
-	assert_eq(run.series_slots(), 6, "in der nächsten Runde ist sie tot")
+	assert_false(run.active_deal_sides().any(func(entry: Dictionary) -> bool:
+		return String(entry["id"]) == DealClause.CHAIN_DRIVER),
+		"in der nächsten Runde ist sie tot")
 
 func test_the_chain_reaction_bet_grants_the_boost_once():
 	var bet := SideBet._from_template(_template("chain_reaction"))
@@ -1938,7 +1952,8 @@ func test_the_press_boost_is_no_doubled_good():
 	run.resolve_side_bets({"cleared": true,
 		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
 	run.hub_level = 1
-	assert_eq(run.series_slots(), 6 + SeriesResolver.BOOST_SLOTS, "EIN Schub, nicht zwei")
+	assert_true(run.press_boost_pending, "EIN Schub, nicht zwei")
+	assert_eq(run.series_slots(), 6, "und der Deckel klemmt ihn ohnehin weg")
 
 func test_the_chain_reaction_button_states_its_prize():
 	var bet := SideBet._from_template(_template("chain_reaction"))

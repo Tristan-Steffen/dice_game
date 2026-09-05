@@ -240,10 +240,6 @@ var combo_levels: Dictionary = {}
 ## Quelle.
 var free_overclocks: int = 0
 
-## Pressungen dieser Werkstatt-Sitzung: eine ist frei, mehr gibt es nicht.
-## Zurückgesetzt wird erst bei der Unterschrift - EIN Bogen über Laden und
-## Vorrunde, nicht je Runde.
-var press_uses: int = 0
 ## Prämie der Nebenwette Kettenreaktion: die NÄCHSTE Serie bekommt einen Slot
 ## mehr. Sie wird von apply_series verbraucht - ein Einmal-Schub.
 var press_boost_pending: bool = false
@@ -740,11 +736,6 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 
 # --- Die SERIENSCHALTUNG: Kassetten in Reihe, EINE Projektion -----------------
 
-## Eine Pressung je Werkstatt-Sitzung, und sie kostet nichts. Zurück gibt sie erst
-## die Unterschrift (reset_press_cycle).
-func press_allowed() -> bool:
-	return press_uses == 0
-
 ## --- Die SERIENLÄNGE ----------------------------------------------------------
 ## SECHS Schächte ab Runde 1 (Spieler-Entscheid 2026-09-04): die Hub-Leiter der
 ## Werkstatt ist gefallen, der Sockel steht fest. Länger wird die Reihe nur noch
@@ -752,12 +743,14 @@ func press_allowed() -> bool:
 const SERIES_LADDER := [
 	{"hub": 1, "slots": 6},
 ]
-## Deckel: die sechs Leser plus zwei erkaufte Plätze.
-const SERIES_SLOT_CAP := 8
+## Deckel = BLOCK-GRÖSSE: der Block der Zeremonie ist sechs Karten, also gibt es
+## keine siebte (Spieler-Entscheid 2026-09-05).
+const SERIES_SLOT_CAP := 6
 
 ## Serienlänge dieses Laufs: der feste Sockel, dauerhaft erkaufte Plätze
 ## (Taktgeber), der Einmal-Schub der Nebenwette und die Klauseln. Der Kurzschluss
 ## setzt ABSOLUT - er überschreibt, was alles andere zusammengetragen hat.
+## Seit dem Deckel 6 heben Taktgeber, Schub und Kettentreiber nichts mehr.
 func series_slots() -> int:
 	var slots := int(SERIES_LADDER[0]["slots"])
 	for step: Dictionary in SERIES_LADDER:
@@ -780,8 +773,8 @@ const CATALYST_PROPELLANT_STEP := 1
 const CATALYST_TIMER_SLOTS := 1
 
 ## Was die Katalysatoren dieser Serie zulegen: {propellant, timer, matrix, free}.
-## "free" heißt: dieser Griff verbraucht die Pressung der Sitzung NICHT. Ein
-## Schalter, kein Zähler - eine zweite Erdungsklemme verpufft.
+## "free" ist seit dem unbegrenzten Griff (2026-09-05) WIRKUNGSLOS - es liest
+## niemand mehr; die Erdungsklemme bleibt im Katalog, ihre Wirkung ist OFFEN.
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 	var terms := {"propellant": 0, "timer": 0, "matrix": false, "free": false}
 	for pack in packs:
@@ -802,12 +795,6 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 ## nicht - ein zweiter Gewinn erneuert dieselbe Vormerkung.
 func grant_press_boost() -> void:
 	press_boost_pending = true
-
-## Die Unterschrift schließt die Werkstatt-Sitzung: die nächste Sitzung bekommt
-## ihre eine Pressung zurück. Bewusst NICHT im Rundenwechsel - ein Bogen spannt
-## vom Laden bis zur nächsten Unterschrift.
-func reset_press_cycle() -> void:
-	press_uses = 0
 
 ## Zusätzliche Runen-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
 ## dritten.
@@ -847,13 +834,14 @@ func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
 		catalyst_terms(parts["catalysts"]))
 
 ## DER GRIFF: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
-## Karten verbrauchen. Ist die Pressung der Sitzung verbraucht oder steht keine
-## prägende Karte in der Reihe, geschieht NICHTS (leeres Dictionary).
+## Karten verbrauchen. Er ist UNBEGRENZT (Spieler-Entscheid 2026-09-05); steht
+## keine prägende Karte in der Reihe, geschieht NICHTS (leeres Dictionary). Die
+## SECHSER-Pflicht ist eine Fenster-Regel, hier bucht auch eine kürzere Serie.
 ## second_die trägt die Doppelmatrize; ohne sie bleibt er unberührt.
 ## Liefert {"projection", "second", "cards", "kept"}.
 func apply_series(pack_uids: Array[int], die: DieDefinition,
 		second_die: DieDefinition = null, rng: RandomNumberGenerator = null) -> Dictionary:
-	if die == null or not press_allowed():
+	if die == null:
 		return {}
 	var chosen := _series_indices(pack_uids)
 	if chosen.is_empty():
@@ -863,8 +851,6 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	if nets.is_empty():
 		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
 	var terms := catalyst_terms(parts["catalysts"])
-	if not bool(terms["free"]):
-		press_uses += 1  # die Erdungsklemme bewahrt die Pressung der Sitzung
 	press_boost_pending = false  # der Schub galt genau dieser Serie
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)

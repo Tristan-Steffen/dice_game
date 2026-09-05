@@ -175,6 +175,14 @@ func apply_definition(shown: DieDefinition) -> void:
 	faces.apply_definition(def)
 	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
 
+## Malt einen HYBRID der Aufdeckung, OHNE def anzufassen: def bleibt die geteilte
+## Instanz, an der _rebuild_bench_stage den Körper wiedererkennt.
+func show_faces(shown: DieDefinition) -> void:
+	if faces == null or not is_instance_valid(faces) or shown == null:
+		return
+	faces.apply_definition(shown)
+	faces.set_tint(DiceController.KIND_TINTS.get(shown.style_id, Color.WHITE))
+
 ## Aus dem Zeichen wird der Körper: der Würfel wächst an Ort und Stelle ins Feld
 ## hinein - er fliegt nirgends her, sein Zeichen stand schon hier.
 ## delay: das Kleinwerden geschieht SOFORT, nur das Wachsen wartet - eine ganze

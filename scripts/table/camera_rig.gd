@@ -48,11 +48,11 @@ const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 ## seine kleinere CONTENT_UNITS zurück.
 const SECRET_SHOP_ZOOM_DISTANCE_CUT := 4.0
 
-## Die Werkbank rahmt Trays UND Fenster; darunter schneidet der obere Bildrand
-## die erste Tray-Reihe an, und die ist Klickziel. Untergrenze, kein Maß: seit die
-## Schürze unter das Fenster gewachsen ist, wird der Abstand GERECHNET (siehe
-## workshop_wide_distance) - eine feste Zahl schnitte die Buchten ab.
-const WORKSHOP_ZOOM_DISTANCE_BONUS := 1.0
+## Untergrenze der weiten Werkbank-Sicht. Sie ist seit der WELLE X eine reine
+## SICHERUNG, kein Maß: der Streifen ist zu EINER flachen Zeile geworden und paßt
+## weit unter ZOOM_DISTANCE ganz ins Bild - der alte Boden hielt ihn auf halber
+## Bildbreite fest. Gerechnet wird der Abstand in workshop_wide_distance.
+const WORKSHOP_MIN_DISTANCE := 7.0
 ## Zugabe der weiten Werkbank-Sicht: reine Rahmungs-Luft. Einst deckte sie den
 ## ±5°-Schwenk des Rundschauens - das ruht in den Stationen, die Rahmung bleibt.
 const WORKSHOP_WIDE_MARGIN := 1.14
@@ -463,19 +463,30 @@ func hub_distance() -> float:
 	return maxf(ZOOM_DISTANCE, tilted_fit_distance(hub_half, HUB_MARGIN))
 
 ## Abstand, bei dem ein Rechteck im GENEIGTEN Zoomblick ganz im Bild steht - die
-## EINE Rechnung dafür. Waagerecht liegt es parallel zur Bildebene (reine
-## Breitenrechnung), senkrecht steht seine untere Kante näher an der Kamera und
-## bildet sich größer ab. margin > 1 läßt Luft, sein Kehrwert IST die Bildfüllung.
+## EINE Rechnung dafür. BEIDE Achsen messen an den vier Ecken, denn im geneigten
+## Blick steht die untere Kante NÄHER an der Kamera und bildet sich größer ab -
+## auch in der BREITE (das schlug erst zu, als der Werkstatt-Streifen zu einer
+## flachen, breiten Zeile wurde und die Höhe nicht mehr band).
+## margin > 1 läßt Luft, sein Kehrwert IST die Bildfüllung.
 func tilted_fit_distance(half: Vector2, margin: float) -> float:
 	var need := _fit_distance(Vector2(half.x, 0.0), margin)
 	var half_fov := tan(deg_to_rad(fov * 0.5))
 	if half_fov <= 0.0:
 		return need
+	var aspect := 1.0
+	var viewport := get_viewport()
+	if viewport != null:
+		var vp_size := viewport.get_visible_rect().size
+		if vp_size.x > 0.0 and vp_size.y > 0.0:
+			aspect = vp_size.x / vp_size.y
 	var up := ZOOM_BASIS.y
 	var forward := -ZOOM_BASIS.z
+	var wide := half.x * margin / maxf(half_fov * aspect, 0.001)
 	for edge: Vector3 in [Vector3.RIGHT, Vector3.LEFT]:  # Bild-oben/-unten = Welt ±X
 		var to_edge := edge * half.y
-		need = maxf(need, absf(to_edge.dot(up)) * margin / half_fov - to_edge.dot(forward))
+		var depth := to_edge.dot(forward)
+		need = maxf(need, absf(to_edge.dot(up)) * margin / half_fov - depth)
+		need = maxf(need, wide - depth)
 	return need
 
 ## Beide Achsen getrennt gerechnet, weil sie bei der Werkbank fast gleichauf
@@ -491,7 +502,7 @@ func workshop_close_distance() -> float:
 ## Fenster und Schürze darunter. Der alte feste Abstand bleibt Untergrenze: näher
 ## als früher kommt sie nie.
 func workshop_wide_distance() -> float:
-	return maxf(ZOOM_DISTANCE + WORKSHOP_ZOOM_DISTANCE_BONUS,
+	return maxf(WORKSHOP_MIN_DISTANCE,
 		tilted_fit_distance(workshop_wide_half, WORKSHOP_WIDE_MARGIN))
 
 ## Kamerastandort der Nahsicht. Die Ecke passt immer ganz ins Bild (Zugabe ≥ 1),

@@ -1,6 +1,6 @@
 extends GutTest
-## Die Werkstatt-Sitzung an GameRun: EIN Griff, die atomare Buchung, der
-## Karten-Verbrauch und die vier Katalysatoren.
+## Die Werkstatt-Sitzung an GameRun: der unbegrenzte Griff, die atomare Buchung,
+## der Karten-Verbrauch und die vier Katalysatoren.
 
 var run: GameRun
 
@@ -30,30 +30,24 @@ func _card(cells: Dictionary) -> Pack:
 func _die() -> DieDefinition:
 	return run.owned_pool[0]
 
-# --- Ein Griff je Sitzung -----------------------------------------------------
+# --- Der Griff ist UNBEGRENZT -------------------------------------------------
+## Spieler-Entscheid 2026-09-05: die eine Pressung je Sitzung ist gestorben, und
+## mit ihr press_uses/press_allowed/reset_press_cycle.
 
-func test_a_fresh_run_may_press_once() -> void:
-	assert_true(run.press_allowed())
-	assert_eq(run.press_uses, 0)
+func test_the_session_has_no_press_counter_any_more() -> void:
+	assert_false(run.has_method("press_allowed"), "die Bremse ist fort")
+	assert_false(run.has_method("reset_press_cycle"))
 
-func test_the_grip_spends_the_session() -> void:
-	var card := _card({0: StampNet.value_cell(2)})
-	assert_false(run.apply_series(_uids([card]), _die(), null, _rng(1)).is_empty())
-	assert_false(run.press_allowed())
-
-func test_a_second_grip_does_nothing_at_all() -> void:
+func test_two_grips_in_a_row_both_book() -> void:
 	var first := _card({0: StampNet.value_cell(2)})
-	var second := _card({1: StampNet.value_cell(3)})
-	run.apply_series(_uids([first]), _die(), null, _rng(1))
-	var faces := _die().faces.duplicate()
-	assert_true(run.apply_series(_uids([second]), _die(), null, _rng(1)).is_empty())
-	assert_eq(_die().faces, faces, "kein Auge bewegt sich")
-	assert_eq(run.owned_packs.size(), 1, "und keine Karte brennt")
-
-func test_the_signature_gives_the_grip_back() -> void:
-	run.apply_series(_uids([_card({0: StampNet.value_cell(1)})]), _die(), null, _rng(1))
-	run.reset_press_cycle()
-	assert_true(run.press_allowed())
+	var second := _card({0: StampNet.value_cell(3)})
+	var die := _die()
+	var before := int(die.faces[0])
+	assert_false(run.apply_series(_uids([first]), die, null, _rng(1)).is_empty())
+	assert_false(run.apply_series(_uids([second]), die, null, _rng(1)).is_empty(),
+		"der zweite Griff bucht genauso")
+	assert_eq(int(die.faces[0]), before + 5, "beide Serien stehen auf dem Würfel")
+	assert_eq(run.owned_packs.size(), 0, "und beide Karten sind verbraucht")
 
 # --- Die Buchung --------------------------------------------------------------
 
@@ -90,7 +84,6 @@ func test_the_preview_mutates_nothing() -> void:
 	run.resolve_series(_uids([card]), _die())
 	assert_eq(_die().faces, faces)
 	assert_eq(run.owned_packs.size(), 1)
-	assert_true(run.press_allowed())
 
 func test_the_projection_reports_the_pool_change() -> void:
 	watch_signals(run)
@@ -133,7 +126,7 @@ func test_an_unknown_uid_is_skipped() -> void:
 func test_a_series_without_a_die_presses_nothing() -> void:
 	var card := _card({0: StampNet.value_cell(3)})
 	assert_true(run.apply_series(_uids([card]), null, null, _rng(1)).is_empty())
-	assert_true(run.press_allowed())
+	assert_eq(run.owned_packs.size(), 1, "und die Karte liegt noch da")
 
 # --- Karten-Verbrauch ---------------------------------------------------------
 
@@ -152,23 +145,24 @@ func test_cards_outside_the_series_stay() -> void:
 
 # --- Die vier Katalysatoren ---------------------------------------------------
 
-## Die Erdungsklemme bewahrt die Pressung der Sitzung - wörtlich wie zuvor.
-func test_the_ground_clamp_keeps_the_session() -> void:
-	var card := _card({0: StampNet.value_cell(1)})
-	var clamp := run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
-	run.hub_level = 3
-	run.apply_series(_uids([card, clamp]), _die(), null, _rng(1))
-	assert_true(run.press_allowed(), "der Griff hat sie nicht verbraucht")
+## Die Erdungsklemme legt ihren Term weiter bei - seit dem unbegrenzten Griff
+## liest ihn nur niemand mehr. OFFEN: ihre neue Wirkung.
+func test_the_ground_clamp_still_reports_its_term() -> void:
+	var clamp := Pack.catalyst(Pack.CATALYST_GROUND)
+	var packs: Array[Pack] = [clamp]
+	assert_true(bool(GameRun.catalyst_terms(packs)["free"]),
+		"der Term steht, wirkungslos")
 
-## Der Taktgeber ist der EINE Katalysator, dessen Wirkung die Serie überlebt.
+## Der Taktgeber bucht seinen Platz weiter - der Deckel der Welle U (sechs Karten
+## = ein Block) klemmt ihn nur noch weg. OFFEN: seine neue Wirkung.
 func test_the_timer_buys_a_permanent_slot() -> void:
 	var card := _card({0: StampNet.value_cell(1)})
 	var timer := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
 	run.hub_level = 3
 	var before := run.series_slots()
 	run.apply_series(_uids([card, timer]), _die(), null, _rng(1))
-	assert_eq(run.series_slot_bonus, 1)
-	assert_eq(run.series_slots(), before + 1, "und er bleibt für den Lauf")
+	assert_eq(run.series_slot_bonus, 1, "der Bonus bleibt für den Lauf gebucht")
+	assert_eq(run.series_slots(), before, "aber der Deckel gibt keinen Platz mehr her")
 
 func test_the_propellant_lifts_every_filled_number_cell() -> void:
 	var card := _card({0: StampNet.value_cell(2), 3: StampNet.value_cell(1)})
@@ -206,5 +200,4 @@ func test_without_the_matrix_the_second_die_is_untouched() -> void:
 func test_a_series_of_only_catalysts_does_nothing() -> void:
 	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
 	assert_true(run.apply_series(_uids([fuel]), _die(), null, _rng(1)).is_empty())
-	assert_true(run.press_allowed())
 	assert_eq(run.owned_packs.size(), 1, "und die Karte liegt noch da")

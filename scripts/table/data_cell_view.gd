@@ -142,6 +142,11 @@ const PIT_HOVER_LIFT := 0.78
 ## Derselbe Hub als Stellschraube der Zelle: ein Wirt darf ihn kappen, wenn über
 ## seiner Auslage kein Platz dafür ist. Im Magazin bleibt es beim vollen Maß.
 var hover_lift := HOVER_LIFT
+## Der ZWEITE Hover-Kanal (Welle X): die LIEGENDE Karte fährt längs ihrer eigenen
+## Achse nach Bild-LINKS heraus, statt zu steigen - so zieht der Turm sie unter dem
+## Zeiger aus ihrer Etage. Anteil der Kartenlänge; die Auslagen lassen ihn auf 0
+## und heben weiter. EIN Tween für beide Kanäle (_hover_share).
+var hover_slide := 0.0
 ## Wohin die ×n-Marke der LIEGENDEN Zelle gehört. Normal schwebt sie über dem
 ## Stapel; in einer Auslage steht die Karte dicht bei ihren Nachbarn - neben ihr
 ## läge die Marke im fremden Platz, also liegt sie AUF ihr. STEHEND liegt sie
@@ -415,7 +420,7 @@ func net_face_at(camera: Camera3D, screen_pos: Vector2) -> int:
 func bezel_lip() -> float:
 	return BEZEL_LIP * (1.0 + TIER_LIP_GAIN * float(mini(tier, Pack.TIER_KOLOSSAL)))
 
-## Die genannten Seiten sind AUFGENOMMEN (Schablonen-Fahrt) und dunkeln ab. Der
+## Die genannten Seiten sind AUFGENOMMEN (sie gehen im Block auf) und dunkeln ab. Der
 ## Endzustand steht zuerst: die Textur wird neu gebacken, nicht animiert.
 ## Idempotent - dieselbe Maske schreibt nichts.
 func set_net_drained(faces: Array) -> void:
@@ -914,6 +919,8 @@ func _apply_pose() -> void:
 	# stehende Akte heraus, in der Bucht hebt man die liegende Ware an; wie weit,
 	# sagt hover_lift, und das setzt der Wirt.
 	lift += STAND_HEIGHT * hover_lift * _hover_share * _body_scale
+	# ... und der ZWEITE Kanal zieht sie längs ihrer Achse nach Bild-links heraus.
+	var slide := STAND_HEIGHT * hover_slide * _hover_share * _body_scale
 	# Der ROLL sitzt VOR der Kippung (in der Karten-Ebene): er dreht das Blatt in
 	# sich, nicht seine Neigung zur Kamera. Er FOLGT der Lage - liegend quer
 	# (Läden, Wetten, Wurf), stehend ungedreht.
@@ -925,7 +932,7 @@ func _apply_pose() -> void:
 	_body.transform = Transform3D(
 		Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, angle)
 			.scaled(Vector3.ONE * _body_scale) * Basis(Vector3.BACK, roll),
-		Vector3(0.0, lift, 0.0))
+		Vector3(-slide, lift, 0.0))
 
 func _build_materials() -> void:
 	# EINE Quelle für alles Getönte: die Sortenfarbe in der Intensität ihrer Größe.

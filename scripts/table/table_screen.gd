@@ -201,7 +201,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 24
+const MAX_PITS := 21
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -238,13 +238,9 @@ const PIT_POOL := 16
 const PIT_SWALLOW0 := 17
 const SWALLOW_PIT_COUNT := 3
 
-## Die AUFSPANN-Wanderung: je Zwinge EIN eigener Schacht, denn die vier fahren
-## gestaffelt und ihre Fahrten überlappen (eine Maschine ist ein Loch). Derselbe
-## Schacht trägt beide Beine der Fahrt (Senken am Pool-Sitz, dann Heben an der Bank
-## - und umgekehrt bei der Rückwanderung). Hinten angehängt, damit kein Platz
-## umnummeriert wird.
-const PIT_CLAMP0 := 20
-const CLAMP_PIT_COUNT := 4
+## Die TURM-BUCHT: das zweite Rechteck der GEMEINSAMEN Grube. Sie berührt die
+## Magazin-Grube - im Glas sind es zwei Einträge, in der Welt EIN Raum.
+const PIT_TOWER := 20
 
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
@@ -262,9 +258,6 @@ static func queue_pit(index: int) -> int:
 static func swallow_pit(lane: int) -> int:
 	return PIT_SWALLOW0 + clampi(lane, 0, SWALLOW_PIT_COUNT - 1)
 
-## Der Löcher-Platz EINER wandernden Zwinge.
-static func clamp_pit(index: int) -> int:
-	return PIT_CLAMP0 + clampi(index, 0, CLAMP_PIT_COUNT - 1)
 var _pit_rects: Array[Rect2] = []
 var _pit_radii := PackedFloat32Array()
 ## Der Filzboden hinter den Löchern - er blendet dieselbe Liste aus, nur in Welt-XZ.
@@ -1123,11 +1116,12 @@ func set_lift_pit(slot: int, at: Vector3, half_extents: Vector2,
 func clear_pit(slot: int) -> void:
 	set_pit(slot, Rect2(), 0.0)
 
-## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die Magazin-Grube bleibt - sie ist
-## kein Auftritt, sondern Möbel.
+## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die GEMEINSAME Grube bleibt - sie
+## ist kein Auftritt, sondern Möbel.
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
-		clear_pit(slot)
+		if slot != PIT_TOWER:
+			clear_pit(slot)
 
 ## Steht dieses Loch offen? (Der Leck-Test fragt genau das.)
 func pit_open(slot: int) -> bool:

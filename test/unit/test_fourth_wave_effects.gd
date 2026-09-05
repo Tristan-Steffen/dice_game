@@ -264,7 +264,6 @@ func test_a_survivor_can_be_used_again():
 	run.grant_pack(Pack.material_pack())
 	_press(_press_seed(true))
 	assert_eq(run.owned_packs.size(), 1)
-	run.reset_press_cycle()  # eine Pressung je Sitzung - die Unterschrift gibt sie zurück
 	assert_false(_press(_rng(3)).is_empty(), "sie prägt ein zweites Mal")
 
 # --- Füllhorn: ab fünf geräumten Überladungs-Stufen ein Sonderposten ------------------

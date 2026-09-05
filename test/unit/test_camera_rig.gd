@@ -255,9 +255,8 @@ func test_stepping_back_returns_to_the_wide_workshop_not_the_overview() -> void:
 ## liegt näher an der geneigten Kamera und bildet sich darum größer ab.
 func test_the_wide_step_frames_the_whole_corner_including_the_near_edge() -> void:
 	_aim_at_workshop()
-	assert_gt(rig.workshop_wide_distance(),
-		CameraRig.ZOOM_DISTANCE + CameraRig.WORKSHOP_ZOOM_DISTANCE_BONUS,
-		"die gewachsene Ecke braucht mehr Abstand als der alte feste")
+	assert_gt(rig.workshop_wide_distance(), CameraRig.WORKSHOP_MIN_DISTANCE,
+		"die gerechnete Rahmung schlägt die bloße Untergrenze")
 	assert_lte(absf(_frame_height(WIDE_BOTTOM)), 1.0, "die Buchten stehen im Bild")
 	assert_lte(absf(_frame_height(WIDE_TOP)), 1.0, "und die Trays ebenso")
 	assert_gt(absf(_frame_height(WIDE_BOTTOM)), absf(_frame_height(WIDE_TOP)),

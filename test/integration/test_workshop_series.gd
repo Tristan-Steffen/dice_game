@@ -16,11 +16,16 @@ func before_each() -> void:
 	view.size = Vector2(PAGE_WIDTH, 540)
 	add_child_autofree(view)
 	view.run = run
-	# Die HÖHE wie am Tisch GELÖST (WELLE S): Kerf und Netz sind feste Pixel.
+	# Wie am Tisch: die EINHEIT wird GEMELDET (sie folgt dort der Würfelfläche), und
+	# BREITE wie HÖHE fallen daraus - die Zeile ist so groß, wie ihr Inhalt ist.
+	view.unit_px = PAGE_WIDTH / 100.0
 	var u := view.unit()
-	view.size.y = roundf(WorkshopView.bench_height_for(u, view.mouth_size(u).y,
-		view.net_span(u).y))
-	view.refresh()  # die neue Höhe will gebaut werden, sonst steht die alte Seite
+	view.size = Vector2(
+		roundf(WorkshopView.bench_width_for(u, view.net_span(u).x,
+			view.tower_span_px().x, view.stage_px(), view.eject_lane_px())),
+		roundf(WorkshopView.bench_height_for(u, view.net_span(u).y,
+			view.tower_span_px().y, view.stage_px())))
+	view.refresh()  # das neue Maß will gebaut werden, sonst steht die alte Seite
 
 ## Legt count Zahlen-Pakete ins Magazin und liefert ihre uids.
 func _stock(count: int) -> Array[int]:
@@ -29,6 +34,15 @@ func _stock(count: int) -> Array[int]:
 		var pack := run.grant_pack(Pack.number_pack())
 		uids.append(pack.pack_uid)
 	return uids
+
+## Fuellt die Reihe mit LEEREN Netzen auf sechs auf - der Griff verlangt eine VOLLE
+## Reihe, und eine leere Karte verschiebt keine Zelle und keinen Stand.
+func _fill_row() -> void:
+	while view.press_slot_uids().size() < GameRun.SERIES_SLOT_CAP:
+		var pack := run.grant_pack(Pack.number_pack())
+		pack.stamp_net = StampNet.empty_net()
+		if not view.slot_pack(pack.pack_uid):
+			return
 
 ## Ein Paket mit GARANTIERTEM Netz - ein leer gewürfeltes prägt nichts.
 func _valued_pack(face: int, amount: int) -> Pack:
@@ -44,24 +58,25 @@ func test_the_row_carries_exactly_the_series_slots() -> void:
 	assert_eq(view.slot_count(), run.series_slots(), "die Reihe IST die Serienlänge")
 	assert_eq(view._slot_buttons.size(), 6, "und die ist 6 ab Runde 1")
 	run.series_slot_bonus = 2
+	run.grant_press_boost()
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(view._slot_buttons.size(), run.series_slots(),
-		"der Taktgeber verlängert die Schaltung, und die Reihe zieht nach")
-	assert_eq(run.series_slots(), 8, "zwei erkaufte Plätze über dem Sockel")
+	assert_eq(view._slot_buttons.size(), 6,
+		"der Deckel ist die Block-Größe: eine siebte gibt es nicht")
 
+## Eine geschrumpfte Reihe (Kurzschluß) wirft trotzdem keine steckende Karte fort.
 func test_a_shrunken_ladder_never_drops_a_standing_card() -> void:
-	run.series_slot_bonus = 2
-	view.refresh()
-	var uids := _stock(8)
+	var uids := _stock(6)
 	for uid in uids:
 		view.slot_pack(uid)
 	await wait_frames(2)
-	run.series_slot_bonus = 0
+	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
+	run.sign_clauses(short_circuit)
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(view.press_slot_uids().size(), 8, "die gesteckten Karten bleiben stecken")
-	assert_eq(view.slot_count(), 8, "und die Reihe trägt sie alle")
+	assert_eq(run.series_slots(), 1, "der Kurzschluß setzt absolut")
+	assert_eq(view.press_slot_uids().size(), 6, "die gesteckten Karten bleiben stecken")
+	assert_eq(view.slot_count(), 6, "und die Reihe trägt sie alle")
 
 # --- Stecken, zurückwerfen, umsortieren -------------------------------------------
 
@@ -144,37 +159,48 @@ func test_set_target_die_selects_switches_and_clears() -> void:
 
 # --- Der GRIFF --------------------------------------------------------------------
 
-func test_the_grip_needs_a_target_and_a_stamping_card() -> void:
+func test_the_grip_needs_a_target_a_full_row_and_a_stamping_card() -> void:
 	var uids := _stock(1)
 	await wait_frames(2)
 	assert_false(view.can_pull(), "nackt greift nichts")
 	view.slot_pack(uids[0])
 	assert_false(view.can_pull(), "ohne Ziel auch nicht")
-	assert_true(view._action_button.disabled, "und der Sitz steht grau da")
 	view.choose_target(0)
-	assert_true(view.can_pull(), "Karte plus Ziel genügt")
+	assert_false(view.can_pull(), "und mit EINER Karte auch nicht - der Block ist sechs")
+	assert_true(view._action_button.disabled, "der Sitz steht grau da")
+	_fill_row()
+	await wait_frames(2)
+	assert_true(view.can_pull(), "Ziel plus volle Reihe genügt")
 
 func test_a_catalysts_only_series_never_stamps() -> void:
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
-	view.slot_pack(run.owned_packs[0].pack_uid)
+	for i in GameRun.SERIES_SLOT_CAP:
+		var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
+		view.slot_pack(fuel.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
 	assert_eq(view.stamping_card_count(), 0)
 	assert_false(view.can_pull(), "Katalysatoren verstärken eine Projektion, sie sind keine")
 	assert_true(view._action_button.disabled)
 
-func test_a_spent_grip_locks_the_seat() -> void:
-	run.press_uses = 1
-	var uids := _stock(1)
-	view.slot_pack(uids[0])
+## Der Griff ist UNBEGRENZT (2026-09-05): zwei hintereinander buchen beide.
+func test_two_grips_in_a_row_both_book() -> void:
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	assert_false(view.can_pull(), "der Griff dieser Runde ist verbraucht")
-	assert_true(view._action_button.disabled)
-	run.reset_press_cycle()
-	view.refresh()
+	var before: int = run.owned_pool[0].faces[0]
+	_fill_row()
+	view.pull_lever()
+	view.skip_ceremony()
 	await wait_frames(2)
-	assert_true(view.can_pull(), "die Unterschrift gibt ihn zurück")
+	assert_eq(run.owned_pool[0].faces[0], before + 3, "der erste bucht")
+	view.slot_pack(_valued_pack(0, 4).pack_uid)
+	_fill_row()
+	await wait_frames(2)
+	assert_true(view.can_pull(), "und der zweite steht bereit")
+	view.pull_lever()
+	view.skip_ceremony()
+	await wait_frames(2)
+	assert_eq(run.owned_pool[0].faces[0], before + 7, "auch der zweite bucht")
 
 ## Die Doppelmatrize ist diese Welle DEAKTIVIERT: sie verlangt keinen zweiten
 ## Würfel mehr, der Griff steht mit EINEM Ziel bereit, und apply_series bekommt null
@@ -188,8 +214,10 @@ func test_the_doppelmatrize_is_deactivated_this_wave() -> void:
 	await wait_frames(2)
 	assert_false(view.needs_second(), "sie mahnt keinen zweiten Würfel mehr an")
 	assert_null(view.second_die(), "und liefert nie einen")
+	_fill_row()
 	assert_true(view.can_pull(), "der Griff steht mit EINEM Ziel bereit")
 	var before: int = run.owned_pool[0].faces[0]
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	assert_eq(run.owned_pool[0].faces[0], before + 4,
 		"gebucht wird auf den EINEN Zielwürfel - die Matrix-Zweitprojektion ist inert")
@@ -201,9 +229,9 @@ func test_the_grip_books_and_burns_its_cards() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[0]
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	assert_eq(run.owned_pool[0].faces[0], before + 3, "gebucht ist sofort")
-	assert_eq(run.press_uses, 1, "und der Griff der Sitzung ist verbraucht")
 	assert_true(view.press_slot_uids().is_empty() or view.burning(),
 		"die Reihe gehört jetzt der Zeremonie")
 
@@ -215,6 +243,7 @@ func test_the_ceremony_reports_the_grip_at_its_end() -> void:
 	var seen: Array = []
 	view.series_applied.connect(func(result: Dictionary, _px: Vector2) -> void:
 		seen.append(result))
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	assert_true(view.burning(), "die Fahrt läuft")
 	assert_true(seen.is_empty(), "und meldet erst am Ende")
@@ -222,24 +251,25 @@ func test_the_ceremony_reports_the_grip_at_its_end() -> void:
 	await wait_frames(2)
 	assert_false(view.burning(), "übersprungen ist sie fertig")
 	assert_eq(seen.size(), 1, "und der Griff ist gemeldet")
-	assert_eq(int(Dictionary(seen[0]).get("cards", 0)), 1)
+	assert_eq(int(Dictionary(seen[0]).get("cards", 0)), GameRun.SERIES_SLOT_CAP)
 
-# --- DIE SCHABLONEN-FAHRT ----------------------------------------------------------
+# --- DIE LAWINE und der SCANNER -----------------------------------------------------
 
-## Alle Takt-Meldungen der Fahrt in Reihenfolge, als [Kennung, Nutzlast].
-func _record_stencil() -> Array:
+## Alle Takt-Meldungen der Zeremonie in Reihenfolge, als [Kennung, Nutzlast].
+func _record_press() -> Array:
 	var beats: Array = []
-	view.stencil_launched.connect(func(_t: float) -> void: beats.append(["born"]))
-	view.stencil_moved.connect(func(to: Vector2, _t: float) -> void:
-		beats.append(["move", to]))
-	view.stencil_read.connect(func(index: int, faces: Array, values: Array,
-			operator: String, _t: float) -> void:
-		beats.append(["read", index, faces, values, operator]))
-	view.stencil_landed.connect(func(_t: float) -> void: beats.append(["land"]))
-	view.stencil_folded.connect(func(_t: float) -> void: beats.append(["fold"]))
+	view.cards_latched.connect(func(time: float) -> void:
+		beats.append(["latched", time]))
+	view.die_raised.connect(func(time: float) -> void: beats.append(["raised", time]))
+	view.light_passed.connect(func(index: int, faces: Array, values: Array,
+			operator: String, time: float) -> void:
+		beats.append(["passed", index, faces, values, operator, time]))
+	view.light_struck.connect(func(time: float) -> void: beats.append(["struck", time]))
+	view.die_returned.connect(func(time: float) -> void:
+		beats.append(["returned", time]))
 	return beats
 
-## Es gibt genau EIN Netz, und es PARKT im Netz-Schirm der Würfel-Spalte: der
+## Es gibt genau EIN Netz, und es PARKT im Netz-Schirm der Netz-Spalte: der
 ## Schirm hält nur seinen Platz, das Netz selbst liegt genau darauf und fährt nie.
 func test_the_net_screen_parks_the_one_net() -> void:
 	await wait_frames(2)
@@ -249,29 +279,29 @@ func test_the_net_screen_parks_the_one_net() -> void:
 	assert_almost_eq(view._net.get_global_rect().get_center().y,
 		view.ist_net_center().y, 0.5)
 
-## Der Griff GEBIERT die Schablone (den Ort nennt scene_root - dort steht die
-## Info-Säule) und schickt sie dann auf die Schiene über der Reihe.
-func test_the_grip_births_the_stencil_before_the_rail() -> void:
+## Der Griff RASTET zuerst alle Karten EIN, dann hebt der Würfel ab - erst danach
+## steigt das Licht.
+func test_the_grip_latches_the_cards_and_raises_the_die_first() -> void:
 	var pack := _valued_pack(0, 3)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	var beats := _record_stencil()
+	var beats := _record_press()
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
-	await wait_seconds(WorkshopView.STENCIL_BIRTH_TIME
-		+ WorkshopView.STENCIL_TO_RAIL_TIME + 0.1)
-	assert_true(view.burning(), "die Fahrt läuft noch")
-	assert_eq(String(beats[0][0]), "born", "erst die Geburt")
-	assert_eq(String(beats[1][0]), "move", "dann die Auffahrt auf die Schiene")
-	var entry: Vector2 = beats[1][1]
-	assert_lt(entry.x, view.press_display_anchors()[0].x,
-		"sie setzt VOR der ersten Karte an")
-	assert_almost_eq(entry.y, view._rail_seat_y(), 0.5, "auf der Schienenhöhe")
+	await wait_frames(2)
+	assert_true(view.burning(), "die Zeremonie läuft noch")
+	assert_eq(String(beats[0][0]), "latched", "erst rasten alle Karten ein")
+	assert_almost_eq(float(beats[0][1]), view.latch_time(), 0.001,
+		"und zwar in der gemeldeten Gesamtdauer")
+	assert_almost_eq(view.latch_time(), WorkshopView.LATCH_TIME
+		+ WorkshopView.LATCH_STAGGER * float(GameRun.SERIES_SLOT_CAP - 1), 0.001,
+		"eine Karte plus die Staffel über die Etagen")
 	view.skip_ceremony()
 
-## Je Karte EINE Aufnahme-Meldung, in Serienfolge, mit ihren Zellen und dem
-## aufgelaufenen Stand - genau das, was die Kassette abdunkelt und die Schablone
-## tickt. Zuletzt Podest und Faltung.
+## Je Etage EINE Licht-Meldung, in Serienfolge, mit ihren Zellen und dem
+## aufgelaufenen Stand - genau das, was die Kassette abdunkelt und das Licht-Netz
+## tickt. Zuletzt der Einschlag und der Rückflug.
 func test_every_card_reports_its_cells_and_the_running_sum() -> void:
 	var first := _valued_pack(0, 2)
 	var second := _valued_pack(3, 5)
@@ -279,22 +309,23 @@ func test_every_card_reports_its_cells_and_the_running_sum() -> void:
 	view.slot_pack(second.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	var beats := _record_stencil()
+	var beats := _record_press()
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
 	var reads: Array = []
 	for beat in beats:
-		if String(beat[0]) == "read":
+		if String(beat[0]) == "passed":
 			reads.append(beat)
-	assert_eq(reads.size(), 2, "je Karte genau eine Aufnahme")
-	assert_eq(int(reads[0][1]), 0, "in Serienfolge")
+	assert_eq(reads.size(), GameRun.SERIES_SLOT_CAP, "je Etage genau ein Takt")
+	assert_eq(int(reads[0][1]), 0, "in Serienfolge - Index 0 liegt UNTEN")
 	assert_eq(reads[0][2], [0] as Array[int], "Karte 1 gibt ihre Seite her")
 	assert_eq(int(reads[0][3][0]), 2, "und der Stand danach ist ihr Wert")
 	assert_eq(reads[1][2], [3] as Array[int])
 	assert_eq(int(reads[1][3][0]), 2, "der Stand LÄUFT AUF - Karte 1 bleibt darin")
 	assert_eq(int(reads[1][3][3]), 5)
-	assert_eq(String(beats[-2][0]), "land", "dann das Podest")
-	assert_eq(String(beats[-1][0]), "fold", "und die Faltung hinein")
+	assert_eq(String(beats[-2][0]), "struck", "dann schlagen die Funken ein")
+	assert_eq(String(beats[-1][0]), "returned", "und der Würfel fliegt zurück")
 
 ## Ein OPERATOR meldet seine Kennung mit - er schlägt perkussiv zu, statt still
 ## aufzunehmen.
@@ -307,15 +338,17 @@ func test_an_operator_card_reports_its_operator() -> void:
 	view.slot_pack(doubler.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	var beats := _record_stencil()
+	var beats := _record_press()
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
 	var operators: Array[String] = []
 	for beat in beats:
-		if String(beat[0]) == "read":
+		if String(beat[0]) == "passed":
 			operators.append(String(beat[4]))
-	assert_eq(operators, ["", StampNet.OP_DOUBLER] as Array[String],
-		"nur die Operator-Karte nennt einen")
+	assert_eq(operators.size(), GameRun.SERIES_SLOT_CAP)
+	assert_eq(operators[0], "", "die Wert-Karte nennt keinen")
+	assert_eq(operators[1], StampNet.OP_DOUBLER, "nur die Operator-Karte nennt einen")
 
 ## Die Fahrt darf JEDERZEIT abbrechen: der EINE Aufräum-Pfad stellt das Netz auf
 ## seinen Endstand, die Reihe ist leer und der Griff genau einmal gemeldet.
@@ -328,9 +361,9 @@ func test_an_aborted_ride_owes_nothing() -> void:
 	var seen: Array = []
 	view.series_applied.connect(func(_result: Dictionary, _px: Vector2) -> void:
 		seen.append(true))
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
-	await wait_seconds(WorkshopView.STENCIL_BIRTH_TIME
-		+ WorkshopView.STENCIL_TO_RAIL_TIME + 0.1)
+	await wait_seconds(WorkshopView.LIGHT_STEP * 0.5)
 	view.skip_ceremony()
 	await wait_frames(2)
 	assert_almost_eq(view._net.get_global_rect().get_center().x, park.x, 0.5,
@@ -351,6 +384,7 @@ func test_the_full_ride_lands_in_the_same_end_state() -> void:
 	view.choose_target(1)
 	await wait_frames(2)
 	var park := view.ist_net_center()
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	var span := view.ceremony_time()
 	await wait_seconds(span + 0.35)
@@ -375,6 +409,7 @@ func test_the_preview_holds_the_before_state_until_the_end() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[0]
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	await wait_frames(2)
 	assert_eq(view.preview_target().faces[0], before,
@@ -391,6 +426,7 @@ func test_after_the_ride_the_net_shows_the_booked_result() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[0]
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -415,12 +451,18 @@ func test_the_beat_ramps_and_operators_get_their_moment() -> void:
 	view.slot_pack(doubler.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
-	assert_lt(view.card_beat(1), view.card_beat(0), "die Rampe zieht an")
+	assert_lt(view.card_beat(3), view.card_beat(1), "die Rampe zieht an")
 	assert_gt(view.card_beat(2), view.card_beat(1),
-		"der Operator bekommt seine %.1f s dazu" % WorkshopView.STENCIL_OPERATOR_EXTRA)
-	assert_gt(view.ceremony_time(), WorkshopView.STENCIL_FOLD_TIME,
-		"und die Faltung ist nur ihr letzter Schlag")
+		"der Operator bekommt seine %.2f s dazu" % WorkshopView.LIGHT_OPERATOR_EXTRA)
+	var span := view.latch_time() + WorkshopView.RAISE_TIME
+	for i in GameRun.SERIES_SLOT_CAP:
+		span += view.card_beat(i)
+	span += WorkshopView.STRIKE_TIME + WorkshopView.STRIKE_HOLD \
+		+ WorkshopView.RETURN_TIME
+	assert_almost_eq(view.ceremony_time(), span, 0.001,
+		"ceremony_time IST die Summe aller Takte")
 	view.skip_ceremony()
 
 # --- Die LIVE-VORSCHAU ------------------------------------------------------------
@@ -586,15 +628,15 @@ func test_the_row_reports_sorts_places_and_cards() -> void:
 	assert_eq(view.press_display_anchors().size(), view.slot_count())
 
 ## Die Körper gehören scene_root, den PLATZ meldet das Fenster - seit der WELLE S
-## ist es EIN Podest, und es steht auf der Zeilenhöhe der Schacht-Reihe.
+## ist es EIN Podest, und seit der WELLE Z steht es RECHTS vom Netz-Schirm.
 func test_the_window_reports_the_one_podium() -> void:
 	await wait_frames(2)
 	assert_true(view.bench_open(), "die Straße ist Möbel, kein Ablauf")
 	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seine Mitte")
 	assert_eq(view.target_projector_y(), view.target_net_center().y,
 		"Zeile und Mitte sind derselbe Platz")
-	assert_lt(view.target_net_center().y, view.ist_screen_rect().position.y
-		+ view.get_global_rect().position.y, "es steht ÜBER dem Netz-Schirm")
+	assert_gt(view.target_net_center().x, view.ist_screen_rect().end.x
+		+ view.get_global_rect().position.x, "es steht RECHTS vom Netz-Schirm")
 	assert_false(view.has_method("result_net_center"),
 		"und ein zweites Podest gibt es nicht mehr")
 
@@ -631,8 +673,8 @@ func test_the_row_carries_no_card_mockups() -> void:
 	await wait_frames(2)
 	assert_false("SlotCard" in _node_names(view), "keine Karten-Attrappe im Fenster")
 	assert_false("SlotCardSeat" in _node_names(view))
-	assert_eq(view._card_panels.size(), view.slot_count(),
-		"gemeldet werden die Karten-FLÄCHEN, nicht gemalte Karten")
+	assert_eq(view._slot_buttons.size(), view.step_count(),
+		"gemeldet werden die ETAGEN-FELDER, nicht gemalte Karten")
 
 ## Alle Namen im Fensterbaum - der Beweis, dass etwas NICHT mehr gebaut wird.
 func _node_names(root: Node) -> Array[String]:
@@ -642,17 +684,17 @@ func _node_names(root: Node) -> Array[String]:
 		names.append_array(_node_names(child))
 	return names
 
-## Mund und Karten-Fläche liegen auf demselben Platz (die Karte steht geneigt über
-## ihrem Schacht) - und beide Anker rühren sich beim Stecken keinen Byte weit.
-func test_the_shaft_anchors_stand_still_through_slotting() -> void:
+## Fach-Anker und Karten-Fläche sind derselbe Platz (die Karte LIEGT in ihrem
+## Fach) - und beide rühren sich beim Legen keinen Byte weit.
+func test_the_fach_anchors_stand_still_through_slotting() -> void:
 	var uids := _stock(2)
 	await wait_frames(2)
 	var mouths := view.press_slot_anchors()
 	var faces := view.press_display_anchors()
-	assert_eq(mouths, faces, "der Mund IST die Karten-Fläche")
+	assert_eq(mouths, faces, "das FACH IST die Karten-Fläche")
 	view.slot_pack(uids[0])
 	await wait_frames(2)
-	assert_eq(view.press_slot_anchors(), mouths, "gesteckt: die Münder stehen")
+	assert_eq(view.press_slot_anchors(), mouths, "gelegt: die Fächer stehen")
 	view.clear_press_slot(0)
 	await wait_frames(2)
 	assert_eq(view.press_slot_anchors(), mouths, "zurückgenommen: sie stehen weiter")
@@ -671,134 +713,84 @@ func test_reordering_keeps_the_anchors_and_swaps_the_uids() -> void:
 	await wait_frames(2)
 	assert_eq(view.press_slot_uids(), [uids[1], uids[0]] as Array[int],
 		"die Reihenfolge IST die Rechenreihenfolge")
-	assert_eq(view.press_slot_anchors(), anchors, "die Schächte selbst stehen still")
+	assert_eq(view.press_slot_anchors(), anchors, "der Turm selbst steht still")
 
-## WELLE L: die Schacht-Kassette steht in der EINEN Kartengröße - derselben wie im
-## Magazin. Das eigene Schacht-Maß (socket_cell_scale) ist gestorben.
-func test_a_shaft_cassette_stands_at_the_one_card_size() -> void:
-	view.data_cell_px = Vector2(60, 16)
+## WELLE L: die Karte in ihrer Etage LIEGT in der EINEN Kartengröße - derselben wie
+## im Magazin. Das eigene Schacht-Maß (socket_cell_scale) ist gestorben.
+func test_a_tower_cassette_lies_at_the_one_card_size() -> void:
+	view.data_cell_px = Vector2(16, 40)
 	await wait_frames(2)
-	assert_almost_eq(view.card_span_px(), 60.0 * PackDrawerView.CASSETTE_SCALE,
-		0.001, "die KAPPENBREITE der Karte in ihrer einen Größe")
+	assert_almost_eq(view.lie_span_px().y, 40.0 * PackDrawerView.CASSETTE_SCALE,
+		0.001, "die KARTENBREITE in ihrer einen Größe")
+	assert_almost_eq(view.lie_span_px().x,
+		40.0 * WorkshopView.CARD_ASPECT * PackDrawerView.CASSETTE_SCALE, 0.001,
+		"und ihre Langseite quer dazu")
 	assert_almost_eq(view.shelf_cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001,
-		"und das Magazin stellt sie in genau derselben - Slot == Magazin")
+		"und das Magazin stellt sie in genau derselben - Turm == Magazin")
 	assert_false(view.has_method("socket_cell_scale"),
 		"es gibt keinen kontext-eigenen Maßstab mehr")
 
-# --- WELLE L: EINE Kartengröße, die Reihe paßt sich an ----------------------------
+# --- WELLE X: EINE Kartengröße, der TURM paßt sich an -----------------------------
 
-## (3) Der MUND kommt aus der KARTE plus Fuge, nicht mehr aus dem Platz: er ist bei
-## zwei wie bei acht Schächten gleich groß.
-func test_the_mouth_is_the_card_plus_its_gap() -> void:
-	view.data_cell_px = Vector2(24, 8)
+## Der TURM-Fußabdruck kommt aus der KARTE plus Luft, nicht aus der Etagenzahl: er
+## ist bei einer wie bei sechs Etagen gleich groß - der Turm wächst nach OBEN.
+func test_the_tower_footprint_is_the_lying_card_plus_air() -> void:
+	view.data_cell_px = Vector2(8, 24)
 	view.refresh()
 	await wait_frames(2)
-	var short := view.mouth_width(view.unit())
-	assert_almost_eq(short, view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
-		"die Kappenbreite plus Luft")
-	run.hub_level = 10
-	run.series_slot_bonus = 4
+	var short := view.tower_span_px()
+	assert_almost_eq(short.y, view.lie_span_px().y * WorkshopView.TOWER_ROOM, 0.001,
+		"die Kartenbreite plus Luft")
+	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
+	run.sign_clauses(short_circuit)
 	view.refresh()
 	await wait_frames(2)
-	assert_gt(view.slot_count(), 5, "eine lange Serie")
-	assert_almost_eq(view.mouth_width(view.unit()), short, 0.001,
-		"und sie zerdrückt die Karte NICHT - der Mund bleibt der Karte treu")
+	assert_eq(view.step_count(), 1, "ein ganz kurzer Turm")
+	assert_almost_eq(view.tower_span_px().x, short.x, 0.001,
+		"und er zerdrückt die Karte NICHT - der Fußabdruck bleibt ihr treu")
 
-## Und im Bild steht die Fuge auch: zwischen zwei SLOTS klafft eine halbe
-## Mundbreite - deutlich mehr, als das alte u-Maß hergab.
-func test_two_shafts_stand_a_real_gap_apart() -> void:
-	view.data_cell_px = Vector2(24, 8)  # kleine Karte: die Reihe paßt bequem
-	run.hub_level = 10
-	# Der Streifen wird auf die Reihe GELÖST, wie scene_root ihn stellt - sonst kappt
-	# ihn schon das Rückfallmaß und die Fuge schließt sich.
-	var u0 := view.size.x / 100.0
-	view.size.x = WorkshopView.bench_width_for(run.series_slots(), u0,
-		24.0 * PackDrawerView.CASSETTE_SCALE)
-	view.unit_px = u0
+## Die ETAGEN-FELDER teilen sich EINE Spalte: mehr Etagen heißt schmalere Felder,
+## nicht eine breitere Leiste.
+func test_more_floors_split_the_same_strip() -> void:
+	view.data_cell_px = Vector2(8, 24)
 	view.refresh()
 	await wait_frames(2)
-	var u := view.unit()
 	assert_gt(view._slot_buttons.size(), 1)
 	var first: Rect2 = view._slot_buttons[0].get_global_rect()
 	var second: Rect2 = view._slot_buttons[1].get_global_rect()
-	var gap: float = second.position.x - first.end.x
-	assert_almost_eq(gap, view.mouth_width(u) * WorkshopView.MOUTH_GAP_SHARE, 0.5,
-		"die Münder stehen nicht mehr bündig aneinander")
-	assert_gte(gap, view.mouth_width(u) * 0.5 - 0.5,
-		"und die Luft ist mindestens eine halbe Mundbreite")
-	assert_lte(view.console_size(u).x, view.row_field_rect().size.x + 0.5,
-		"und die Reihe bleibt trotzdem im Feld")
+	assert_lt(second.position.y, first.position.y, "Etage 2 liegt HÖHER als Etage 1")
+	assert_almost_eq(second.position.x, first.position.x, 0.001, "in EINER Spalte")
+	assert_almost_eq(view.strip_rect().size.x,
+		view.unit() * WorkshopView.STRIP_WIDTH, 0.001, "die Leiste hat EINE Breite")
 
-## Der gemalte SCHLITZ ist der Kartenteil, der hineinfährt - schmaler als sein Slot
-## und mittig darin. Die KAPPE steht darüber, und der Knopf spannt sie.
-func test_the_slit_is_narrower_than_its_slot_and_sits_centred() -> void:
-	view.data_cell_px = Vector2(24, 8)
-	view.data_cell_body_px = Vector2(9, 8)
-	view.refresh()
-	await wait_frames(2)
-	var u := view.unit()
-	var slit := view.slit_size(u)
-	assert_lt(slit.x, view.mouth_size(u).x, "schmaler als der Slot")
-	assert_almost_eq(slit.x / slit.y, 9.0 / 8.0, 0.01,
-		"und in der Proportion des Körper-Fußabdrucks")
-	var seat: Rect2 = view._slot_buttons[0].get_global_rect()
-	var painted: Rect2 = view._slit_panels[0].get_global_rect()
-	assert_almost_eq(painted.get_center().x, seat.get_center().x, 0.5, "mittig im Slot")
-	assert_almost_eq(painted.get_center().y, seat.get_center().y, 0.5)
-	assert_almost_eq(painted.size.x, slit.x, 0.5)
-	assert_lt(painted.size.x, seat.size.x, "der Knopf bleibt der breitere Klickfang")
-
-## (3) Der STREIFEN wächst mit der Reihe, statt die Karten zu schrumpfen: je Slot
-## genau eine Kartenbreite plus eine Fuge mehr.
-func test_the_strip_grows_instead_of_shrinking_the_cards() -> void:
+## Der STREIFEN wächst mit dem TURM in die BREITE, statt die Karten zu schrumpfen -
+## und die Zeilenhöhe hängt nicht mehr an der Etagenzahl.
+func test_the_strip_grows_sideways_instead_of_shrinking_the_cards() -> void:
 	var u := 5.0
-	var card := 110.0
-	var mouth := card * WorkshopView.MOUTH_ROOM
-	assert_almost_eq(WorkshopView.row_span(6, u, mouth)
-		- WorkshopView.row_span(2, u, mouth),
-		4.0 * mouth * (1.0 + WorkshopView.MOUTH_GAP_SHARE), 0.001,
-		"je Karte eine Kartenbreite plus Fuge")
-	var six := WorkshopView.bench_width_for(6, u, card)
-	assert_gt(six, WorkshopView.bench_width_for(2, u, card),
-		"sechs Karten brauchen mehr Streifen als zwei")
-	assert_gt(WorkshopView.bench_width_for(8, u, card), six)
-	assert_gte(WorkshopView.bench_width_for(1, u, card), u * 100.0,
-		"und schmaler als seine 100 u wird der Streifen nie")
+	var net := 125.0
+	var stage := 94.0
+	assert_almost_eq(WorkshopView.bench_height_for(u, net, 97.0, stage),
+		WorkshopView.bench_height_for(u, net, 97.0, stage), 0.001,
+		"die Höhe kennt die Etagenzahl gar nicht")
+	var narrow := WorkshopView.bench_width_for(u, 168.3, 100.0, stage, 100.0)
+	var wide := WorkshopView.bench_width_for(u, 168.3, 160.0, stage, 160.0)
+	assert_gt(wide, narrow, "ein größerer Turm macht den Streifen breiter")
 
-## WELLE O: die Reihe mißt jetzt an der KAPPE, nicht mehr an der Langseite - der
-## Streifen wird bei JEDER Serienlänge schmaler. Die Kappe ist die BREITE der
-## Karte, die alte Bezugsgröße war ihre LANGSEITE - also zwei Drittel davon.
-func test_the_kerf_row_is_narrower_than_the_lying_row_was() -> void:
+## Der STREIFEN ist BREITER als die Treppen-Spalte war - dafür ist er FLACH, und
+## die Kamera kommt näher.
+func test_the_tower_strip_trades_height_for_width() -> void:
 	var u := 5.0
-	var lying := 140.0  # die Langseite, an der die Welle L maß
-	var cap := lying * DataCellView.WIDTH / DataCellView.HEIGHT  # 93,3 px Kappe
-	for slots in [2, 6]:
-		var was := WorkshopView.bench_width_for(slots, u, lying)
-		var now := WorkshopView.bench_width_for(slots, u, cap)
-		assert_lt(now, was,
-			"%d Schächte: %.1f px statt %.1f px" % [slots, now, was])
-
-## Und die Karte bleibt auch dann groß, wenn der TISCH den Streifen kappt: dann
-## rückt die TEILUNG zusammen, nie der Mund selbst.
-func test_a_capped_strip_closes_the_gap_before_it_shrinks_a_card() -> void:
-	view.data_cell_px = Vector2(60, 16)
-	run.hub_level = 10
-	run.series_slot_bonus = 4
-	view.refresh()
-	await wait_frames(2)
-	var u := view.unit()
-	assert_lt(view.mouth_step(u),
-		view.mouth_width(u) * (1.0 + WorkshopView.MOUTH_GAP_SHARE),
-		"die Fuge schließt sich")
-	assert_almost_eq(view.mouth_width(u),
-		view.card_span_px() * WorkshopView.MOUTH_ROOM, 0.001,
-		"aber der Mund - und damit die Karte - bleibt")
-	assert_gte(view.mouth_step(u), view.mouth_width(u) * WorkshopView.MOUTH_TIGHT,
-		"aber nie enger als der Boden - die Karten decken sich nie ganz zu")
+	var net := 125.0
+	var stage := 94.0
+	var now := WorkshopView.bench_height_for(u, net, 97.3, stage)
+	# Die Treppe war sechs liegende Karten hoch: 6 x 90 px plus Netz und u-Kette.
+	var was := 90.0 * 6.0 + net
+	assert_lt(now, was, "die Zeile ist %.1f px hoch statt %.1f px" % [now, was])
 
 ## Die MASSEINHEIT darf von außen vorgegeben werden: der Streifen ist breiter als
 ## seine 100 u, sonst zerrisse die gewachsene Reihe die senkrechte Rechnung.
 func test_the_reported_unit_beats_the_window_width() -> void:
+	view.unit_px = 0.0
 	await wait_frames(2)
 	var own := view.size.x / 100.0
 	assert_almost_eq(view.unit(), own, 0.001, "ohne Meldung die u-Konvention")
@@ -806,21 +798,18 @@ func test_the_reported_unit_beats_the_window_width() -> void:
 	await wait_frames(2)
 	assert_almost_eq(view.unit(), own * 0.5, 0.001, "gemeldet schlägt gerechnet")
 
-## (2) Die gemeldeten ANKER zeigen weiter auf Mund- bzw. Kartenflächen-Mitte - die
-## Schablonen-Fahrt fährt unverändert.
-func test_the_anchors_still_name_the_card_faces() -> void:
+## (2) Die gemeldeten ANKER zeigen alle auf den TURM-Platz: alle Karten liegen über
+## DEMSELBEN Fußabdruck, nur die HÖHE unterscheidet sie - und die rechnet der Körper.
+func test_the_anchors_all_name_the_tower_place() -> void:
 	await wait_frames(2)
-	var u := view.size.x / 100.0
-	var mouths := view.press_slot_anchors()
-	assert_eq(mouths, view.press_display_anchors(),
-		"Mund und Kartenfläche liegen aufeinander")
-	assert_eq(mouths.size(), view.slot_count())
-	for i in mouths.size():
-		var mouth: Rect2 = view._slit_panels[i].get_global_rect()
-		assert_almost_eq(mouths[i].x, mouth.get_center().x, 0.001)
-		assert_almost_eq(mouths[i].y, mouth.get_center().y, 0.001)
-	assert_almost_eq(mouths[0].y, view._rail_seat_y(), u * 0.5,
-		"und sie liegen auf der Zeile der Schiene")
+	var anchors := view.press_slot_anchors()
+	assert_eq(anchors, view.press_display_anchors(),
+		"Turm-Platz und Kartenfläche liegen aufeinander")
+	assert_eq(anchors.size(), view.step_count())
+	var centre := view.get_global_rect().position + view.tower_rect().get_center()
+	for i in anchors.size():
+		assert_almost_eq(anchors[i].x, centre.x, 0.001)
+		assert_almost_eq(anchors[i].y, centre.y, 0.001)
 
 # --- DER EINE NETZ-SCHIRM unter dem Podest (WELLE S) -------------------------------
 # Die Aufschlüsselungs-Zeilen sind tot, die dritte Spalte auch - der Schirm trägt
@@ -860,35 +849,87 @@ func test_the_net_screen_hangs_on_the_target_alone() -> void:
 	await wait_frames(2)
 	assert_null(view.preview_target(), "abgewählt ist er wieder dunkel")
 
-# --- WELLE S: die FAHRT ENDET, WO SIE GEBOREN WURDE --------------------------------
+# --- WELLE U: DER BLOCK und der SCANNER --------------------------------------------
 
-## Die ÜBERGABE ist tot: die Schablone kehrt zum EINEN Netz zurück, der Würfel
-## wechselt keine Seite mehr, und das Fenster kennt den Takt nicht mehr.
-func test_the_handover_is_gone_and_the_stencil_comes_home() -> void:
+## Die SCHABLONEN-FAHRT ist tot: kein Wechsel-Takt, keine Schiene, keine Faltung -
+## das Fenster meldet nur noch Abflug, Presshub und Scan.
+func test_the_stencil_ride_is_gone() -> void:
 	await wait_frames(2)
 	assert_false(view.has_signal("die_handover"), "kein Wechsel-Takt mehr")
-	assert_false(view.has_method("die_seat"), "und kein zweiter Landeplatz")
-	assert_false(view.has_method("handover_time"))
+	assert_false(view.has_signal("stencil_launched"), "und keine Schablone mehr")
+	assert_false(view.has_signal("stencil_folded"))
+	assert_false(view.has_method("dim_ist_net"), "das Netz gibt nichts mehr ab")
+	assert_false(view.has_signal("card_fused"), "und kein wachsender Block mehr")
+	assert_false(view.has_signal("block_travelled"))
+	assert_false(view.has_signal("stack_lifted"), "und keine LAWINE mehr")
+	assert_false(view.has_signal("stack_slid"))
+	assert_false(view.has_signal("stack_dropped"))
+	assert_false(view.has_signal("stack_scanned"))
+	assert_true(view.has_signal("cards_latched"))
+	assert_true(view.has_signal("die_raised"))
+	assert_true(view.has_signal("light_passed"))
+	assert_true(view.has_signal("light_struck"))
+	assert_true(view.has_signal("die_returned"))
 	var net := view.ist_net_center()
-	assert_gt(net.x, 0.0, "der Geburtsort steht")
-	assert_lt(net.x, view.row_field_rect().get_center().x
-		+ view.get_global_rect().position.x, "und liegt LINKS der Schacht-Reihe")
+	assert_gt(net.x, 0.0, "der Parkplatz des Netzes steht")
+	assert_gt(net.x, view.tower_rect().get_center().x
+		+ view.get_global_rect().position.x, "und liegt RECHTS des Turms")
 
-## Der Takt der letzten Etappe: Abfahrt, dann Faltung - dazwischen nichts.
-func test_the_last_leg_is_landing_then_folding() -> void:
+## Der Zielwürfel behält seine ALTEN Augen, bis der Scanner sie aufdeckt: held_faces
+## trägt den Stand VOR dem Griff und ist danach wieder leer.
+func test_the_window_holds_the_faces_before_the_grip() -> void:
+	var pack := _valued_pack(0, 4)
+	view.slot_pack(pack.pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_null(view.held_faces(), "ohne Zeremonie hält es nichts")
+	var before: int = run.owned_pool[0].faces[0]
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	view.pull_lever()
+	await wait_frames(2)
+	var held := view.held_faces()
+	assert_not_null(held, "während der Zeremonie steht der alte Stand")
+	assert_eq(held.faces[0], before)
+	assert_eq(run.owned_pool[0].faces[0], before + 4, "gebucht ist längst")
+	view.skip_ceremony()
+	await wait_frames(2)
+	assert_null(view.held_faces(), "danach hält es nichts mehr")
+
+## Die Kartendaten der Zeremonie tragen die PAKETGRÖSSE - daraus nimmt der Block
+## seine Intensität.
+func test_the_card_data_carries_the_tier() -> void:
+	var pack := _valued_pack(0, 2)
+	pack.tier = Pack.TIER_KOLOSSAL
+	assert_eq(int(WorkshopView.card_data(pack.pack_uid, pack).get("tier", -1)),
+		Pack.TIER_KOLOSSAL)
+	view.slot_pack(pack.pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	view.pull_lever()
+	await wait_frames(2)
+	var cards := view.burning_cards()
+	assert_eq(cards.size(), GameRun.SERIES_SLOT_CAP)
+	assert_eq(int(cards[0].get("tier", -1)), Pack.TIER_KOLOSSAL)
+	assert_false(view.burn_projection().is_empty(), "und die Projektion steht")
+	view.skip_ceremony()
+
+## Der Takt der letzten Etappe: der Einschlag, dann der Rückflug - dazwischen nichts.
+func test_the_last_leg_is_striking_then_returning() -> void:
 	var pack := _valued_pack(0, 3)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	var beats := _record_stencil()
+	var beats := _record_press()
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
-	assert_eq(String(beats[-2][0]), "land", "erst die Abfahrt zum Podest")
-	assert_eq(String(beats[-1][0]), "fold", "dann die Faltung hinein")
+	assert_eq(String(beats[-2][0]), "struck", "erst schlagen die Funken ein")
+	assert_eq(String(beats[-1][0]), "returned", "dann fliegt der Würfel zurück")
 
-## Skip MITTEN in der Faltung: das Ende ist genau einmal gemeldet, die Reihe leer,
-## und der Endstand ist derselbe wie bei der ausgefahrenen Fahrt.
-func test_a_skip_inside_the_folding_owes_nothing() -> void:
+## Skip MITTEN im LICHT: das Ende ist genau einmal gemeldet, die Reihe leer, und der
+## Endstand ist derselbe wie bei der ausgefahrenen Zeremonie.
+func test_a_skip_inside_the_light_owes_nothing() -> void:
 	var pack := _valued_pack(3, 4)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(2)
@@ -897,9 +938,11 @@ func test_a_skip_inside_the_folding_owes_nothing() -> void:
 	var seen: Array = []
 	view.series_applied.connect(func(_result: Dictionary, _px: Vector2) -> void:
 		seen.append(true))
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
-	await wait_seconds(view.ceremony_time() - WorkshopView.STENCIL_FOLD_TIME * 0.5)
-	assert_true(view.burning(), "die Faltung läuft noch")
+	await wait_seconds(view.latch_time() + WorkshopView.RAISE_TIME
+		+ WorkshopView.LIGHT_STEP * 1.5)
+	assert_true(view.burning(), "das Licht steigt noch")
 	view.skip_ceremony()
 	await wait_frames(2)
 	assert_eq(seen.size(), 1, "der Griff ist genau einmal gemeldet")
@@ -915,6 +958,7 @@ func test_the_result_stands_until_the_target_is_dropped() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[1]
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -933,6 +977,7 @@ func test_another_target_drops_the_standing_result() -> void:
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -952,11 +997,11 @@ func test_a_fresh_card_takes_the_screen_back_from_the_result() -> void:
 	view.slot_pack(first.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
+	_fill_row()  # der Griff verlangt eine VOLLE Reihe
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
 	assert_true(view.showing_result())
-	run.reset_press_cycle()
 	view.slot_pack(second.pack_uid)
 	await wait_frames(2)
 	assert_false(view.showing_result(), "die neue Karte rechnet, statt zu erinnern")
@@ -968,16 +1013,16 @@ func test_a_fresh_card_takes_the_screen_back_from_the_result() -> void:
 ## grauen Griff und keinen Grund. Die Caption nennt die ERSTE geschlossene.
 
 func test_a_ready_grip_says_nothing() -> void:
-	var pack := _valued_pack(0, 2)
 	view.set_target_die(run.owned_pool[0])
-	view.slot_pack(pack.pack_uid)
-	assert_true(view.can_pull(), "eine Karte reicht")
+	view.slot_pack(_valued_pack(0, 2).pack_uid)
+	_fill_row()
+	assert_true(view.can_pull(), "Ziel plus volle Reihe reicht")
 	assert_eq(view.grip_blocker(), "", "wer greifen darf, bekommt keine Mahnung")
 
 func test_a_zurred_round_names_itself() -> void:
-	var pack := _valued_pack(0, 2)
 	view.set_target_die(run.owned_pool[0])
-	view.slot_pack(pack.pack_uid)
+	view.slot_pack(_valued_pack(0, 2).pack_uid)
+	_fill_row()
 	view.editing_locked = true
 	assert_false(view.can_pull())
 	assert_true(view.grip_blocker().contains("gezurrt"),
@@ -990,15 +1035,27 @@ func test_a_missing_target_names_itself() -> void:
 	assert_true(view.grip_blocker().contains("Ziel"),
 		"das fehlende Ziel nennt sich: %s" % view.grip_blocker())
 
-func test_a_spent_grip_names_itself() -> void:
-	var pack := _valued_pack(0, 2)
+## Der KURZSCHLUSS deckelt die Reihe unter sechs - dann sagt der Griff das ehrlich.
+## OFFEN: unter dieser Klausel ist die Werkstatt unbenutzbar.
+func test_the_short_circuit_names_itself() -> void:
 	view.set_target_die(run.owned_pool[0])
-	view.slot_pack(pack.pack_uid)
-	view.pull_lever()
-	view.skip_ceremony()
-	var again := _valued_pack(1, 2)
-	view.slot_pack(again.pack_uid)  # das Ziel steht noch - ein zweiter Tipp wählte es AB
-	assert_not_null(view.target_die(), "das Ziel überlebt den Griff")
-	assert_false(run.press_allowed(), "der Griff der Sitzung ist weg")
-	assert_true(view.grip_blocker().contains("verbraucht"),
-		"der verbrauchte Griff nennt sich: %s" % view.grip_blocker())
+	view.slot_pack(_valued_pack(0, 2).pack_uid)
+	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
+	run.sign_clauses(short_circuit)
+	await wait_frames(2)
+	assert_lt(run.series_slots(), GameRun.SERIES_SLOT_CAP)
+	assert_false(view.can_pull())
+	assert_true(view.grip_blocker().contains("Kurzschlu"),
+		"der Kurzschluß nennt sich: %s" % view.grip_blocker())
+
+## Die halbleere Reihe nennt sich - der Block IST sechs Karten.
+func test_a_half_empty_row_names_itself() -> void:
+	view.set_target_die(run.owned_pool[0])
+	for i in GameRun.SERIES_SLOT_CAP - 1:
+		view.slot_pack(_valued_pack(0, 1).pack_uid)
+	assert_false(view.can_pull(), "fünf Karten greifen nicht")
+	assert_true(view.grip_blocker().contains("sechs Karten"),
+		"die halbleere Reihe nennt sich: %s" % view.grip_blocker())
+	view.slot_pack(_valued_pack(1, 1).pack_uid)
+	assert_true(view.can_pull(), "die sechste macht sie voll")
+	assert_eq(view.grip_blocker(), "")

@@ -107,8 +107,12 @@ func test_the_grip_label_counts_the_series() -> void:
 		"und der Knopf trägt genau diese Aufschrift")
 
 func test_the_running_ceremony_relabels_the_same_seat() -> void:
-	run.grant_pack(Pack.number_pack())
-	view.slot_pack(run.owned_packs[0].pack_uid)
+	# Der Griff verlangt eine VOLLE Reihe: der Block IST sechs Karten.
+	for i in GameRun.SERIES_SLOT_CAP:
+		var pack := run.grant_pack(Pack.number_pack())
+		pack.stamp_net = StampNet.empty_net()
+		pack.stamp_net[i] = StampNet.value_cell(1)
+		view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
 	view.pull_lever()

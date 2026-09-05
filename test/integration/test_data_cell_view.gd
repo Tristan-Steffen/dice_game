@@ -588,6 +588,46 @@ func test_the_magazine_grip_pulls_three_quarters_of_the_card_out() -> void:
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück in die Grube")
 
+## Der ZWEITE Hover-Kanal (Welle X): im TURM wird nicht gehoben, sondern LÄNGS
+## herausgezogen - nach Bild-links, damit das Netz frei liest. EIN Tween für beide.
+func test_hover_slide_pulls_the_lying_cell_along_its_own_axis() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
+	cell.lie_on_glass(Vector3.ZERO)
+	var body: Node3D = cell.get_node("Body")
+	var resting := body.position
+	assert_almost_eq(cell.hover_slide, 0.0, 0.001, "die Auslagen schieben nichts")
+	cell.hover_lift = 0.0
+	cell.hover_slide = TowerView.HOVER_SLIDE
+	cell.set_hovered(true)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.x, resting.x - DataCellView.STAND_HEIGHT
+		* TowerView.HOVER_SLIDE * PackDrawerView.CASSETTE_SCALE, 0.01,
+		"sie fährt längs ihrer Achse heraus")
+	assert_almost_eq(body.position.y, resting.y, 0.01, "und hebt sich dabei NICHT")
+	assert_true(cell.lying(), "sie bleibt liegen")
+	cell.set_hovered(false)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.x, resting.x, 0.01, "und rutscht zurück")
+
+## Und im FACH einer Auslage hebt derselbe Griff die LIEGENDE Karte weiter AN - der
+## Hub gilt in BEIDEN Lagen, gemessen an ihrer Standhöhe.
+func test_hovering_lifts_the_lying_cell_in_its_fach() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
+	cell.lie_on_glass(Vector3.ZERO)
+	var body: Node3D = cell.get_node("Body")
+	var resting: float = body.position.y
+	cell.set_hovered(true)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.y, resting + DataCellView.STAND_HEIGHT
+		* DataCellView.HOVER_LIFT * PackDrawerView.CASSETTE_SCALE, 0.01,
+		"sie hebt sich aus ihrem Fach")
+	assert_true(cell.lying(), "und bleibt dabei liegen")
+	cell.set_hovered(false)
+	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
+	assert_almost_eq(body.position.y, resting, 0.01, "und legt sich zurück")
+
 func test_a_lying_cell_is_deliberately_not_mirrored() -> void:
 	# Dieselbe Regel wie beim Phantomwürfel: sie LIEGT auf dem Glas, ihr
 	# Spiegelbild fiele neben sie und schmierte Stapel und Marke zu.
@@ -627,7 +667,7 @@ func test_gleiche_netze_teilen_EINE_backung() -> void:
 	assert_ne(other.net_texture(), first.net_texture(), "ein anderes Netz backt neu")
 
 func test_der_aufgenommene_zustand_dunkelt_die_zellen_und_kehrt_zurueck() -> void:
-	# Die Schablonen-Fahrt nimmt Zellen auf: sie verglimmen, sie verschwinden nicht.
+	# Der Block nimmt Zellen auf: sie verglimmen, sie verschwinden nicht.
 	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
 	var resting := cell.net_texture()
 	cell.set_net_drained([true, false, false, false, false, false])

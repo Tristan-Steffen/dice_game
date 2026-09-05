@@ -77,8 +77,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_POOL)
 	for lane in TableScreen.SWALLOW_PIT_COUNT:
 		slots.append(TableScreen.swallow_pit(lane))
-	for i in TableScreen.CLAMP_PIT_COUNT:
-		slots.append(TableScreen.clamp_pit(i))
+	slots.append(TableScreen.PIT_TOWER)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -91,17 +90,17 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.queue_pit(TableScreen.QUEUE_PIT_COUNT - 1) + 1,
 		TableScreen.PIT_POOL, "die Warteschlangen-Plätze liegen am Stück")
 	assert_eq(TableScreen.PIT_SWALLOW0, TableScreen.PIT_POOL + 1)
-	# Die vier Aufspann-Plätze hängen hinter den Schluck-Bahnen ans äußerste Ende.
-	assert_eq(TableScreen.PIT_CLAMP0,
+	# Die TURM-BUCHT hängt ganz hinten dran - die vier toten Aufspann-Plätze sind
+	# mit der Bühnen-Fahrt gestorben (Welle Y).
+	assert_eq(TableScreen.PIT_TOWER,
 		TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1) + 1)
-	assert_eq(TableScreen.clamp_pit(TableScreen.CLAMP_PIT_COUNT - 1),
-		TableScreen.MAX_PITS - 1)
-	# Jeder Warteschlangen-Platz, jede Schluck-Bahn und jede Zwinge hat SEIN Loch.
+	assert_eq(TableScreen.PIT_TOWER, TableScreen.MAX_PITS - 1)
+	var source: String = load("res://scripts/table/table_screen.gd").source_code
+	assert_false(source.contains("clamp_pit"), "clamp_pit ist tot")
+	# Jeder Warteschlangen-Platz und jede Schluck-Bahn hat SEIN Loch.
 	assert_eq(TableScreen.queue_pit(0), TableScreen.PIT_QUEUE0)
 	assert_eq(TableScreen.queue_pit(99), TableScreen.PIT_QUEUE0 + 5, "geklemmt")
 	assert_eq(TableScreen.swallow_pit(99), TableScreen.PIT_SWALLOW0 + 2, "geklemmt")
-	assert_eq(TableScreen.clamp_pit(0), TableScreen.PIT_CLAMP0)
-	assert_eq(TableScreen.clamp_pit(99), TableScreen.PIT_CLAMP0 + 3, "geklemmt")
 	# Die Ablage der Auszahlungs-Seite ist EINE Plattform, also EIN Loch - und ein
 	# eigenes: die drei Wett-Gruben dürfen derweil offen stehen.
 	for i in SideBetPanel.OFFER_COUNT:

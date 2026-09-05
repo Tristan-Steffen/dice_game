@@ -8,7 +8,7 @@ extends RefCounted
 ##
 ## Geteilt wird nach INHALT, nicht nach pack_uid: zwei gleiche Netze sind dasselbe
 ## Bild, und die uid sagt darüber nichts. Der ABGEDUNKELTE Zustand (die
-## Schablonen-Fahrt) gehört dagegen seiner Kassette - sie backt ihn selbst und gibt
+## Serien-Zeremonie) gehört dagegen seiner Kassette - sie backt ihn selbst und gibt
 ## ihn wieder frei, sonst wüchse der geteilte Ofen mit jeder Zeremonie.
 
 ## Zellkante der Backung in Pixeln. Aus der Werkstatt-Weitsicht liegt die ganze

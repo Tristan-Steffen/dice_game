@@ -39,7 +39,7 @@ func test_die_saeule_traegt_nur_das_netz() -> void:
 	assert_lte(net.position.y + net.size.y, column.size.y + 1.0, "und bleibt in der Säule")
 
 ## Sie MELDET nichts mehr: das Zellmaß der Werkstatt-Netze rechnet der Streifen
-## seit 2026-09-04 selbst, und der Geburtsort der Schablone liegt dort.
+## seit 2026-09-04 selbst, und der Parkplatz des Netzes liegt dort.
 func test_die_saeule_meldet_nichts_mehr() -> void:
 	assert_false(view.has_method("net_cell"), "kein Zellmaß-Melder mehr")
 	assert_false(view.has_method("net_center_px"), "und kein Geburtsort")

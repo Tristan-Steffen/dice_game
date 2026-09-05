@@ -6,8 +6,11 @@ extends Node3D
 ## dahinter) - dieser Körper ist, was man durch das Loch sieht: vier nach innen
 ## blickende Wände, ein Boden und ein Kragen, der die harte Schnittkante deckt.
 ## Rein per Code gebaut wie DataCellView und CapacitorBankView - kein .tscn.
-## Das Magazin ist ihr EINZIGER Kunde: die Verkaufs-Auslagen stehen flächig auf
-## dem Tisch, es gibt keine zweite Grube und keine Tore in dieser hier.
+## Seit der Welle Y (2026-09-05) baut sie ZWEI Körper: die MAGAZIN-Grube und die
+## TURM-BUCHT. Sie berühren sich und sind EIN Raum - die Bucht ist zum Magazin hin
+## ganz OFFEN, die Magazin-Wand hat dorthin genau EINEN DURCHBRUCH. Und seit der
+## Welle Z hat dieser EINE Raum auch EINEN Boden: das Magazin baut ihn über die
+## ganze L-Fläche (floor_area), die Bucht baut keinen (build_floor = false).
 ## Drei Tischregeln gelten auch hier: nur EMISSION (die Bodenkacheln vertragen
 ## 16 Lichter), das Ruhelicht bleibt unter Rune.IDLE_CEILING, und gespiegelt wird
 ## sie NICHT - ein Loch hat kein Spiegelbild.
@@ -104,16 +107,33 @@ var wall := WALL
 var floor_plate := FLOOR
 var glow_color := GLOW_COLOR
 var glow_energy := GLOW_ENERGY
+## EIN BODEN für die ganze L-Fläche (Welle Z): der Grundriß der Bodenplatte in
+## WELT-XZ (x = Welt-X, y = Welt-Z; leeres Rechteck = der eigene). Das MAGAZIN meldet
+## hier die GANZE Grube - sein Boden reicht durch den Durchbruch bis an die Rückwand
+## der Bucht -, die BUCHT baut mit build_floor = false gar keinen. Zwei Platten
+## stritten sonst im Tiefenpuffer und leuchteten verschieden.
+var floor_area := Rect2()
+var build_floor := true
+
+## Die Seite zur NACHBARGRUBE (-1 = keine). Ohne Durchbruch fehlt sie GANZ (die
+## Bucht ist zum Magazin hin offen), mit Durchbruch wird sie zu ZWEI Balken.
+var open_wall := -1
+## Der DURCHBRUCH in dieser Wand: x = Versatz in WELT-Koordinaten zur Grubenmitte
+## (längs der Wand), y = Breite. Es gibt genau EINEN - den zur Turm-Bucht.
+var breach := Vector2.ZERO
 
 func _init(pit_name := "PackPit") -> void:
 	name = pit_name
 
 ## Einziger Eingang: Mitte auf dem Glas, halbe Ausdehnung in Welt-X/Welt-Z und
 ## die Tiefe unter dem Glas. Baut die Grube neu - sie steht selten um.
-func setup(at: Vector3, half_extents: Vector2, pit_depth: float) -> void:
+func setup(at: Vector3, half_extents: Vector2, pit_depth: float,
+		side: int = -1, gap: Vector2 = Vector2.ZERO) -> void:
 	center = at
 	half = Vector2(maxf(half_extents.x, 0.01), maxf(half_extents.y, 0.01))
 	depth = maxf(pit_depth, 0.05)
+	open_wall = side
+	breach = gap
 	global_position = center
 	for child in get_children():
 		remove_child(child)
@@ -122,6 +142,13 @@ func setup(at: Vector3, half_extents: Vector2, pit_depth: float) -> void:
 		_build_materials()
 	_tune_lining()
 	_build_body()
+
+## Der Grundriß der BODENPLATTE in LOKALEN Koordinaten (x längs Welt-X, y längs
+## Welt-Z). Ohne gemeldete Fläche ist es der eigene.
+func _floor_plan() -> Rect2:
+	if floor_area.size.x <= 0.0 or floor_area.size.y <= 0.0:
+		return Rect2(-half, half * 2.0)
+	return Rect2(floor_area.position - Vector2(center.x, center.z), floor_area.size)
 
 ## Die Welt-XZ-Grenzen des Lochs (der Bodenshader blendet genau sie aus).
 func bounds_min() -> Vector2:
@@ -195,6 +222,12 @@ func _tune_lining() -> void:
 	_wall_material.set_shader_parameter("skin_field_energy", SKIN_FIELD_ENERGY)
 	_floor_material.set_shader_parameter("base_color", FLOOR_ALBEDO)
 	_floor_material.set_shader_parameter("field_energy", FLOOR_FIELD_ENERGY)
+	# Der Samt-Schimmer ist EIN Verlauf über die GANZE Bodenplatte - gemessen an der
+	# L-Fläche, nicht am eigenen Grundriß: sonst stünde an der Naht eine Helligkeitskante.
+	var plate := _floor_plan()
+	plate.position += Vector2(center.x, center.z)
+	_floor_material.set_shader_parameter("field_center", plate.get_center())
+	_floor_material.set_shader_parameter("field_half", plate.size * 0.5)
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -216,41 +249,81 @@ func _build_body() -> void:
 	# zeigt sonst nur weggekullte Rückseiten.
 	for wall_id: int in WALLS:
 		_build_wall(wall_id, top)
-	_box("Floor", Vector3(span.x + wall * 2.0, floor_plate, span.y + wall * 2.0),
-		Vector3(0.0, top - depth - floor_plate * 0.5, 0.0), _floor_material)
+	if build_floor:
+		var plate := _floor_plan()
+		_box("Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
+			plate.size.y + wall * 2.0),
+			Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
+				plate.get_center().y), _floor_material)
 
 	# Kragen: er greift RIM_IN über die Kante in die Öffnung hinein und deckt
-	# damit die harte Schnittkante des Shaders.
+	# damit die harte Schnittkante des Shaders. An der offenen Seite gibt es keine.
 	var rim_y := -RIM_H * 0.5 - RIM_SINK
 	var rim_x := half.x - RIM_IN * 0.5 + RIM_OUT * 0.5
 	var rim_z := half.y - RIM_IN * 0.5 + RIM_OUT * 0.5
 	var rim_bar := RIM_IN + RIM_OUT
-	_box("RimXPlus", Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
+	_side_box("RimXPlus", WALL_X_PLUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
 		Vector3(rim_x, rim_y, 0.0), _rim_material)
-	_box("RimXMinus", Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
+	_side_box("RimXMinus", WALL_X_MINUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
 		Vector3(-rim_x, rim_y, 0.0), _rim_material)
-	_box("RimZPlus", Vector3(span.x, RIM_H, rim_bar),
+	_side_box("RimZPlus", WALL_Z_PLUS, Vector3(span.x, RIM_H, rim_bar),
 		Vector3(0.0, rim_y, rim_z), _rim_material)
-	_box("RimZMinus", Vector3(span.x, RIM_H, rim_bar),
+	_side_box("RimZMinus", WALL_Z_MINUS, Vector3(span.x, RIM_H, rim_bar),
 		Vector3(0.0, rim_y, rim_z * -1.0), _rim_material)
 
 	var glow_y := -GLOW_DROP - GLOW_H * 0.5
 	var glow_in := RIM_IN * 0.5
-	_box("GlowXPlus", Vector3(glow_in, GLOW_H, span.y),
+	_side_box("GlowXPlus", WALL_X_PLUS, Vector3(glow_in, GLOW_H, span.y),
 		Vector3(half.x - glow_in * 0.5, glow_y, 0.0), _glow_material)
-	_box("GlowXMinus", Vector3(glow_in, GLOW_H, span.y),
+	_side_box("GlowXMinus", WALL_X_MINUS, Vector3(glow_in, GLOW_H, span.y),
 		Vector3(-half.x + glow_in * 0.5, glow_y, 0.0), _glow_material)
-	_box("GlowZPlus", Vector3(span.x, GLOW_H, glow_in),
+	_side_box("GlowZPlus", WALL_Z_PLUS, Vector3(span.x, GLOW_H, glow_in),
 		Vector3(0.0, glow_y, half.y - glow_in * 0.5), _glow_material)
-	_box("GlowZMinus", Vector3(span.x, GLOW_H, glow_in),
+	_side_box("GlowZMinus", WALL_Z_MINUS, Vector3(span.x, GLOW_H, glow_in),
 		Vector3(0.0, glow_y, -half.y + glow_in * 0.5), _glow_material)
 
-## EINE Wand ist EIN Balken - es gibt keine Tore mehr, durch die etwas hereinkäme.
-## Gerechnet wird in der GEDREHTEN Wandrichtung (wall_axis/wall_inward), damit
-## dieselbe Rechnung alle vier Wände baut.
+## EINE Wand ist EIN Balken - außer an der Seite zur Nachbargrube: dort fehlt sie
+## ganz oder steht als zwei Balken um den Durchbruch. Gerechnet wird in der
+## GEDREHTEN Wandrichtung (wall_axis/wall_inward), eine Rechnung für alle vier.
 func _build_wall(wall_id: int, top: float) -> void:
 	_wall_box(WALL_NAMES[wall_id], wall_id, 0.0, top - depth * 0.5,
 		_wall_run(wall_id), depth, wall, wall * 0.5, _wall_material)
+
+## Die Balken-Stücke einer Wandseite als [Länge, Mitte] längs ihrer Weltachse:
+## normalerweise EINES, an der offenen Seite KEINES, am Durchbruch ZWEI.
+func _bar_cuts(wall_id: int, run: float) -> Array:
+	if wall_id != open_wall:
+		return [[run, 0.0]]
+	if breach.y <= 0.0:
+		return []
+	var lo := breach.x - breach.y * 0.5
+	var hi := breach.x + breach.y * 0.5
+	var cuts: Array = []
+	if lo > -run * 0.5:
+		cuts.append([lo + run * 0.5, (lo - run * 0.5) * 0.5])
+	if hi < run * 0.5:
+		cuts.append([run * 0.5 - hi, (hi + run * 0.5) * 0.5])
+	return cuts
+
+## Ein Balken AUF einer Wandseite, durch dieselbe Zerlegung geschickt. An den
+## X-Wänden läuft er längs Welt-Z, an den Z-Wänden längs Welt-X.
+func _side_box(box_name: String, wall_id: int, box_size: Vector3, at: Vector3,
+		material: Material) -> void:
+	var lengthwise := absf(wall_inward(wall_id).x) > 0.5
+	var cuts := _bar_cuts(wall_id, box_size.z if lengthwise else box_size.x)
+	if cuts.size() == 1:
+		_box(box_name, box_size, at, material)
+		return
+	for i in cuts.size():
+		var size := box_size
+		var seat := at
+		if lengthwise:
+			size.z = float(cuts[i][0])
+			seat.z += float(cuts[i][1])
+		else:
+			size.x = float(cuts[i][0])
+			seat.x += float(cuts[i][1])
+		_box("%s%s" % [box_name, "AB"[i]], size, seat, material)
 
 ## Ein Kasten AUF einer Wand: along = Versatz längs der Wand, deep = Abstand
 ## seiner Mitte von der Innenfläche nach außen (negativ = eine Spur davor).
@@ -263,7 +336,7 @@ func _wall_box(box_name: String, wall_id: int, along: float, y: float,
 	var size := Vector3(length, height, thick)
 	if absf(inward.x) > 0.5:
 		size = Vector3(thick, height, length)
-	_box(box_name, size, wall_axis(wall_id) * along
+	_side_box(box_name, wall_id, size, wall_axis(wall_id) * along
 		- inward * (_wall_reach(wall_id) + deep) + Vector3.UP * y, material)
 
 func _box(box_name: String, box_size: Vector3, at: Vector3,

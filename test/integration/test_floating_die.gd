@@ -126,3 +126,19 @@ func test_a_carry_without_time_stands_hard_on_its_target() -> void:
 	assert_null(stage.carry_to(goal, 0.0, 1.2), "ohne Zeit gibt es keine Fahrt")
 	assert_almost_eq(stage.die.global_position, goal, Vector3.ONE * 0.001,
 		"er steht sofort da")
+
+## show_faces malt einen HYBRID der Aufdeckung, OHNE def anzufassen: def bleibt die
+## geteilte Instanz, an der ein Steady-State-Schreiber seinen Körper wiedererkennt.
+func test_show_faces_paints_without_touching_the_definition() -> void:
+	var held := stage.def
+	var other := DieDefinition.new()
+	var faces: Array[int] = [6, 6, 6, 6, 6, 6]
+	other.faces = faces
+	stage.show_faces(other)
+	assert_same(stage.def, held, "def bleibt die geteilte Instanz")
+	assert_eq(stage.def.faces[0], 1, "und ihr Inhalt auch")
+	var label: Label3D = stage.faces.labels["VORNE"]
+	assert_eq(label.text, "6", "gemalt ist trotzdem der gezeigte Stand")
+	stage.apply_definition(held)
+	assert_eq((stage.faces.labels["VORNE"] as Label3D).text, "1",
+		"und apply_definition holt den echten zurück")

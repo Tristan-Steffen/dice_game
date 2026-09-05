@@ -37,7 +37,7 @@ const VALUE_TINT := Color("#8be9fd")
 const OPERATOR_TINT := Color("#ffb347")
 const EMPTY_CELL := Color("#12101f")
 const EMPTY_RIM := Color("#2c2740")
-## Eine von der Schablone AUFGENOMMENE Zelle: sie verglimmt, sie verschwindet nicht.
+## Eine vom BLOCK AUFGENOMMENE Zelle: sie verglimmt, sie verschwindet nicht.
 const DRAINED_MODULATE := Color(0.34, 0.34, 0.40)
 
 ## Klartext der Verpuff-Gründe - EINE Quelle, die Vorschau nennt sie beim Namen.
@@ -296,7 +296,7 @@ func hint_for_face(face: int) -> String:
 
 ## Das Prägenetz einer Karte als Kreuz: je Zelle die Glyphe ihrer Sorte, leere
 ## Zellen bleiben dunkel. Reine Anzeige, ohne Maus. drained nennt die Seiten, die
-## eine Schablone schon AUFGENOMMEN hat - sie dunkeln ab.
+## der Block schon AUFGENOMMEN hat - sie dunkeln ab.
 static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT,
 		drained: Array = []) -> Control:
 	var span := DieNetView.net_size(cell)
