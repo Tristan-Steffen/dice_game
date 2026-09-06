@@ -146,9 +146,9 @@ func test_the_flash_lifts_the_lamp_and_falls_back() -> void:
 	assert_almost_eq(_peak(display.edge_material_res.emission), rest, 0.001,
 		"und fällt auf die Ruhe zurück")
 
-func test_only_the_glimmer_builds_its_heat_parts() -> void:
-	# Stufe 1 wabert: zwei Hitze-Lagen, lazy gebaut - kalt, heißer und Ruß
-	# tragen keine Hitze-Teile.
+func test_the_glimmer_builds_its_heat_parts_and_every_level_keeps_them() -> void:
+	# Stufe 1 wabert: zwei Hitze-Lagen, lazy gebaut. Jede Stufe trägt alle
+	# darunter, also wabern 2 und 3 weiter - kalt und Ruß tragen keine Hitze.
 	var glimmer := _display()
 	glimmer.apply_definition(_def(1))
 	assert_eq(glimmer.heat_parts.size(), 2, "zwei Lagen: Verzerrung und Glut")
@@ -169,7 +169,7 @@ func test_only_the_glimmer_builds_its_heat_parts() -> void:
 	for level in [2, 3]:
 		var hotter := _display()
 		hotter.apply_definition(_def(level))
-		assert_true(hotter.heat_parts.is_empty(), "Stufe %d flimmert nicht mehr" % level)
+		assert_eq(hotter.heat_parts.size(), 2, "Stufe %d wabert weiter" % level)
 	var burned := _display()
 	burned.apply_definition(_def(1, true))
 	assert_true(burned.heat_parts.is_empty(), "Ruß ist tot, nicht heiß")

@@ -854,7 +854,9 @@ static func _cap_channels(color: Color, ceiling: float) -> Color:
 func _refresh_charge() -> void:
 	var burned := shown_burned()
 	var level := shown_charge()
-	_sync_heat(level == 1 and not burned)
+	# Jede Stufe trägt alle darunter (Spieler-Entscheid 2026-09-07): die Hitze
+	# bleibt unter Blitzen und Überschlag stehen.
+	_sync_heat(level >= 1 and not burned)
 	_sync_bolts(level >= CHARGE_SPARK_LEVEL and not burned, level)
 	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
 	if not burned:

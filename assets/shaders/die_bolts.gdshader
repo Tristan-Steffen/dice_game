@@ -29,7 +29,7 @@ uniform vec3 core_color = vec3(1.0, 0.96, 1.0);
 const int SEGMENTS = 10;
 // Zellenlänge und Zünd-Chance je Zelle - die Dichte ist bewusst niedrig
 // (Spieler-Wunsch: weniger Blitze). Schlag und Nachglühen in Sekunden.
-const float CELL_LEN = 3.2;
+const float CELL_LEN = 1.6;  // 3,2 war dem Spieler zu selten (2026-09-07: verdoppelt)
 const float CHANCE = 0.6;
 const float STRIKE = 0.2;
 const float AFTERGLOW = 0.5;
