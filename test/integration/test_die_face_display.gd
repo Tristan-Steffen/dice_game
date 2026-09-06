@@ -130,3 +130,21 @@ func test_the_flash_lifts_the_lamp_and_falls_back() -> void:
 	display._refresh_face_colors()
 	assert_almost_eq(_peak(display.edge_material_res.emission), rest, 0.001,
 		"und fällt auf die Ruhe zurück")
+
+func test_only_the_glimmer_builds_its_heat_parts() -> void:
+	# Stufe 1 wabert: Schleier plus Fahne, lazy gebaut - kalt, heißer und Ruß
+	# tragen keine Hitze-Teile.
+	var glimmer := _display()
+	glimmer.apply_definition(_def(1))
+	assert_eq(glimmer.heat_parts.size(), 2, "Schleier und Fahne")
+	for part in glimmer.heat_parts:
+		assert_eq((part.material_override as ShaderMaterial).shader, DieFaceDisplay.HEAT_SHADER)
+	glimmer.apply_definition(_def(0))
+	assert_true(glimmer.heat_parts.is_empty(), "kalt: keine Hitze")
+	for level in [2, 3]:
+		var hotter := _display()
+		hotter.apply_definition(_def(level))
+		assert_true(hotter.heat_parts.is_empty(), "Stufe %d flimmert nicht mehr" % level)
+	var burned := _display()
+	burned.apply_definition(_def(1, true))
+	assert_true(burned.heat_parts.is_empty(), "Ruß ist tot, nicht heiß")

@@ -155,25 +155,21 @@ const CHARGE_POOL_GAIN := 1.25
 ## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
 var _charge_level := 0
 var _burned := false
-## GLUT-Variante der Stufe 1 (Autoren-Schalter, Auswahl des Spielers offen): die
-## Hitze wabert als Schleier um und als Fahne über dem Würfel (die_heat.gdshader),
-## und im Wabern liegt ein orange-roter Schimmer - 0 gleichmäßiger Hauch, 1 Glut am
-## Würfel (unten stark, oben aus), 2 Glut nur auf den Wellenkämmen, 3 roter Rand
-## (nur der Schleier), 4 Verlauf Rot unten nach Orange oben.
-var charge_style := 0
-const HEAT_STYLES := 5
+## Das GLIMMEN der Stufe 1 ist HITZE (Spieler-Wahl 2026-09-06, „Glutkern"): die
+## Luft wabert als Schleier um und als Fahne über dem Würfel (die_heat.gdshader),
+## und im Wabern liegt eine orange-rote Glut, am Würfel am stärksten, oben aus.
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
 const HEAT_PLUME_SIZE := Vector2(2.9, 3.3)
 const HEAT_PLUME_LIFT := 2.5  # Quad-Mitte über dem Würfel-Mittelpunkt
 const HEAT_SHELL_SCALE := 1.3
+## Versatz als Anteil der Bildbreite - darüber zerfließen die Würfel statt zu flimmern.
 const HEAT_SHELL_STRENGTH := 0.006
 const HEAT_PLUME_STRENGTH := 0.004
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
-const HEAT_ORANGE := Vector3(1.0, 0.58, 0.16)
-## Je Variante: [Glut-Anteil Schleier, Glut-Anteil Fahne]
-const HEAT_STYLE_AMOUNTS := [[0.22, 0.28], [0.3, 0.4], [0.35, 0.45], [0.5, 0.0], [0.28, 0.36]]
+## Glut-Anteile, gemessen: bei 0,3/0,4 las die Sichtprobe zu hell.
+const HEAT_SHELL_GLOW := 0.17
+const HEAT_PLUME_GLOW := 0.22
 var heat_parts: Array[MeshInstance3D] = []
-var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -1139,25 +1135,21 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt die Hitze-Teile; ein Stilwechsel baut neu.
+## Baut oder räumt die Hitze-Teile (lazy, wie die Teilchen des Überschlags).
 func _sync_heat(wanted: bool) -> void:
-	if not wanted or _heat_built_style != charge_style:
+	if not wanted:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
-		_heat_built_style = -1
-	if not wanted or not heat_parts.is_empty():
 		return
-	var amounts: Array = HEAT_STYLE_AMOUNTS[clampi(charge_style, 0, HEAT_STYLES - 1)]
-	var tint_mode := float(charge_style)
-	_add_heat_shell(HEAT_SHELL_STRENGTH, float(amounts[0]), tint_mode)
-	_add_heat_plume(HEAT_PLUME_SIZE, HEAT_PLUME_LIFT, HEAT_PLUME_STRENGTH, float(amounts[1]),
-		0.5, tint_mode)
-	_heat_built_style = charge_style
+	if not heat_parts.is_empty():
+		return
+	_add_heat_shell(HEAT_SHELL_STRENGTH, HEAT_SHELL_GLOW)
+	_add_heat_plume(HEAT_PLUME_SIZE, HEAT_PLUME_LIFT, HEAT_PLUME_STRENGTH, HEAT_PLUME_GLOW, 0.5)
 
 func _heat_material(mode: float, billboard: bool, strength: float, tint_amount: float,
-		phase_shift: float, scale := 8.0, tint_mode := 0.0) -> ShaderMaterial:
+		phase_shift: float, scale := 8.0) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
 	material.shader = HEAT_SHADER
 	material.set_shader_parameter("mode", mode)
@@ -1165,8 +1157,6 @@ func _heat_material(mode: float, billboard: bool, strength: float, tint_amount: 
 	material.set_shader_parameter("strength", strength)
 	material.set_shader_parameter("tint_amount", tint_amount)
 	material.set_shader_parameter("tint", HEAT_RED)
-	material.set_shader_parameter("tint2", HEAT_ORANGE)
-	material.set_shader_parameter("tint_mode", tint_mode)
 	material.set_shader_parameter("scale", scale)
 	material.set_shader_parameter("phase", _pulse_phase + phase_shift)
 	# VOR allen anderen Durchsichtigen: der Bildschirm-Abzug kennt Ziffern, Pucks
@@ -1186,15 +1176,15 @@ func _add_heat_part(mesh: Mesh, material: ShaderMaterial, offset: Vector3) -> vo
 
 ## Die FAHNE: ein Billboard-Quad über dem Würfel, Flimmern zieht nach oben.
 func _add_heat_plume(size: Vector2, lift: float, strength: float, tint_amount: float,
-		phase_shift: float, tint_mode := 0.0) -> void:
+		phase_shift: float) -> void:
 	var quad := QuadMesh.new()
 	quad.size = size
-	_add_heat_part(quad, _heat_material(0.0, true, strength, tint_amount, phase_shift, 8.0,
-		tint_mode), Vector3(0.0, lift, 0.0))
+	_add_heat_part(quad, _heat_material(0.0, true, strength, tint_amount, phase_shift),
+		Vector3(0.0, lift, 0.0))
 
 ## Der SCHLEIER: eine abgehobene Hülle, die nur am Silhouettenrand flimmert.
-func _add_heat_shell(strength: float, tint_amount: float, tint_mode := 0.0) -> void:
+func _add_heat_shell(strength: float, tint_amount: float) -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3.ONE * DieBuilder.HALF_EXTENT * 2.0 * HEAT_SHELL_SCALE
-	_add_heat_part(box, _heat_material(1.0, false, strength, tint_amount, 0.0, 5.0, tint_mode),
+	_add_heat_part(box, _heat_material(1.0, false, strength, tint_amount, 0.0, 5.0),
 		Vector3.ZERO)
