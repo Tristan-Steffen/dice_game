@@ -18,9 +18,14 @@ uniform float strength = 0.025;
 uniform float speed = 1.0;
 uniform float scale = 5.0;
 uniform float phase = 0.0;
-// Optionale Glut-Tönung im Flimmern (über dunklem Filz sonst unsichtbar).
-uniform vec3 tint = vec3(0.6, 0.32, 0.5);
+// Die GLUT im Flimmern: orange-rot, damit die Hitze als Hitze liest.
+// tint_mode: 0 gleichmäßiger Hauch, 1 Glut am Würfel (unten stark, oben aus),
+// 2 nur auf den Wellenkämmen des Rauschens, 3 nur am Rand (Schleier-Maske),
+// 4 Verlauf von tint (unten) nach tint2 (oben).
+uniform vec3 tint = vec3(0.95, 0.24, 0.08);
+uniform vec3 tint2 = vec3(1.0, 0.58, 0.16);
 uniform float tint_amount = 0.0;
+uniform float tint_mode = 0.0;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -71,6 +76,20 @@ void fragment() {
 	float n2 = vnoise(p2);
 	vec2 offset = (vec2(n1, n2) - 0.5) * 2.0 * strength * mask;
 	vec3 seen = texture(screen_texture, SCREEN_UV + offset).rgb;
-	ALBEDO = seen + tint * tint_amount * mask * (0.35 + 0.65 * n1);
+	// Nähe zum Würfel: die Fahne ist unten (UV.y -> 1) am heißesten, der
+	// Schleier überall gleich nah.
+	float near = mode < 0.5 ? UV.y * UV.y : 1.0;
+	vec3 glow = tint;
+	float amount = tint_amount * mask * (0.35 + 0.65 * n1);
+	if (tint_mode > 3.5) {
+		glow = mix(tint2, tint, mode < 0.5 ? UV.y : 0.6);
+	} else if (tint_mode > 2.5) {
+		amount = mode < 0.5 ? 0.0 : tint_amount * mask;
+	} else if (tint_mode > 1.5) {
+		amount = tint_amount * mask * pow(n1, 3.0) * 2.6;
+	} else if (tint_mode > 0.5) {
+		amount = tint_amount * mask * near * (0.5 + 0.5 * n1);
+	}
+	ALBEDO = seen + glow * amount;
 	ALPHA = 1.0;
 }
