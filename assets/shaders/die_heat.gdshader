@@ -29,9 +29,10 @@ uniform float reach = 1.9;
 // Rest-Verzerrung über dem Körper.
 uniform float inside = 0.25;
 uniform float strength = 0.0022;
-// Wellenzahl (Fronten je Modell-Einheit) und wie schnell sie auslaufen.
-uniform float wave_freq = 5.4;
-uniform float wave_speed = 0.6;
+// Wellenzahl (Fronten je Modell-Einheit) und wie schnell sie auslaufen - das
+// Tempo ist bewusst niedrig: eine Front braucht rund zehn Sekunden nach außen.
+uniform float wave_freq = 4.4;
+uniform float wave_speed = 0.15;
 // Zahl der Ballen rundum - ganzzahlig, damit das Winkel-Rauschen nahtlos schließt.
 uniform float blobs = 7.0;
 uniform float phase = 0.0;
@@ -106,8 +107,9 @@ void fragment() {
 	float amp = field * mix(inside, 1.0, body);
 	vec2 offset = vec2(dir.x, -dir.y) * wave * strength * amp;
 	vec3 seen = texture(screen_texture, SCREEN_UV + offset).rgb;
-	// Die Glut reitet auf den Kämmen - so sind die Wellen auch in der Farbe zu sehen.
-	float glow = field * body * (0.45 + 0.55 * wave);
+	// Die Glut reitet auf den Kämmen, aber nur noch schwach: sie ATMET, sie
+	// blinkt nicht (Spieler-Wunsch 2026-09-06 "langsamer und weniger auffällig").
+	float glow = field * body * (0.78 + 0.22 * wave);
 	ALBEDO = seen + tint * tint_amount * max(glow, 0.0);
 	// Durchsichtig, wo das Feld nichts tut - kein Quadrat.
 	ALPHA = clamp(field * 2.5 + max(glow, 0.0), 0.0, 1.0);

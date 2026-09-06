@@ -171,8 +171,9 @@ const HEAT_GLOW := 0.26
 ## 1 Schwaden, 2 Brandung.
 var charge_style := 0
 const HEAT_STYLES := 3
-## Je Fassung: Wellenzahl, Auslauf-Tempo, Ballen rundum.
-const HEAT_STYLE_PARAMS := [[5.4, 0.6, 7.0], [4.2, 0.5, 7.0], [4.6, 0.55, 5.0]]
+## Je Fassung: Wellenzahl, Auslauf-Tempo, Ballen rundum. Das Tempo ist bewusst
+## niedrig - schnellere Fronten lasen als Pulsieren statt als Hitze.
+const HEAT_STYLE_PARAMS := [[4.4, 0.15, 7.0], [3.6, 0.13, 7.0], [4.0, 0.14, 5.0]]
 var heat_parts: Array[MeshInstance3D] = []
 var _heat_built_style := -1
 var _charge_override := -1
