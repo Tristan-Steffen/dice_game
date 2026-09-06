@@ -167,17 +167,31 @@ const HEAT_QUAD := Vector2(7.0, 7.0)  # weit genug, dass das Feld vor dem Rand v
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
 const HEAT_REACH := 1.9
 const HEAT_INSIDE := 0.25
-const HEAT_STRENGTH := 0.0022  # Anteil der Bildbreite; 0,003 war dem Spieler zu viel
+## MODELL-Länge (Würfel-Halbmaß = 1), keine Bildbreite: der Shader rechnet sie
+## über die Ableitung um, damit das Flimmern aus der Ferne mitschrumpft.
+const HEAT_STRENGTH := 0.012
 const HEAT_GLOW := 0.26
 ## Wellenzahl und Auslauf-Tempo der Hitze. Das Tempo ist bewusst niedrig -
 ## schnellere Fronten lasen als Pulsieren statt als Hitze.
 const HEAT_WAVE_FREQ := 4.4
 const HEAT_WAVE_SPEED := 0.15
-## Fassung der ENTLADUNGEN der Stufe 2 (Autoren-Schalter, Spieler-Wahl offen):
-## 0 Zuckungen, 1 Kriechfunken, 2 Lichtbögen, 3 Prasseln, 4 Gewitter.
-var charge_style := 0
-const ARC_STYLES := 5
 var heat_parts: Array[MeshInstance3D] = []
+## Der KRIECHSTROM der Stufe 2 sind BLITZE, die über die Seiten springen
+## (die_bolts.gdshader): EIN Quad je Seite knapp über der Fläche, bis in die
+## Mitte der Kantenröhren reichend - die Blitze kommen aus den Kanten. Die Kante
+## selbst bleibt unverändert. Fassung (Autoren-Schalter, Spieler-Wahl offen):
+## 0 Sprung, 1 Kriecher, 2 Geäst, 3 Knistern, 4 Eckschlag.
+const BOLT_SHADER := preload("res://assets/shaders/die_bolts.gdshader")
+const BOLT_SPAN := DieBuilder.HALF_EXTENT * 2.0
+const BOLT_LIFT := 0.03  # über Ziffer (0,01) und Runen-Auflage
+const BOLT_CORE := Vector3(1.0, 0.96, 1.0)
+## Der Überschlag schlägt öfter und heißer.
+const BOLT_ARC_RATE := 1.7
+const BOLT_ARC_GAIN := 1.3
+var charge_style := 0
+const BOLT_STYLES := 5
+var bolt_parts: Dictionary = {}  # Achse -> MeshInstance3D
+var _bolt_seed := randf() * 100.0
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -837,23 +851,14 @@ static func _cap_channels(color: Color, ceiling: float) -> Color:
 	var k := ceiling / peak
 	return Color(color.r * k, color.g * k, color.b * k, color.a)
 
-## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Shader-Uniforms
-## der Kanten, die Teilchen des Überschlags und - beim Ruß - der flache dunkle
-## Rahmen samt entsättigten Flächen und gedimmter Ziffer.
+## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Hitze der
+## Stufe 1, die Blitze ab Stufe 2, die Teilchen des Überschlags und - beim Ruß -
+## der flache dunkle Rahmen samt entsättigten Flächen und gedimmter Ziffer.
 func _refresh_charge() -> void:
 	var burned := shown_burned()
 	var level := shown_charge()
-	for material: ShaderMaterial in [beam_material, cap_material]:
-		if material == null:
-			continue
-		material.set_shader_parameter("charge_level", 0.0 if burned else float(level))
-		material.set_shader_parameter("charge_color",
-			Vector3(CHARGE_COLOR.r, CHARGE_COLOR.g, CHARGE_COLOR.b))
-		material.set_shader_parameter("charge_core",
-			Vector3(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b))
-		material.set_shader_parameter("arc_style",
-			float(clampi(charge_style, 0, ARC_STYLES - 1)))
 	_sync_heat(level == 1 and not burned)
+	_sync_bolts(level >= CHARGE_SPARK_LEVEL and not burned, level)
 	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
 	if not burned:
 		return
@@ -1185,3 +1190,44 @@ func _add_heat_layer(quad: QuadMesh, shader: Shader, priority: int) -> void:
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
+
+# --- Die BLITZE der Stufen 2 und 3 (die_bolts.gdshader) --------------------------
+
+## Baut oder räumt die sechs Blitz-Quads (lazy, wie die Hitze) und stellt sie
+## auf die Stufe ein: der Überschlag schlägt öfter und heißer, mit orangem Hof.
+func _sync_bolts(wanted: bool, level: int) -> void:
+	if not wanted:
+		for axis in bolt_parts:
+			if is_instance_valid(bolt_parts[axis]):
+				bolt_parts[axis].queue_free()
+		bolt_parts.clear()
+		return
+	if bolt_parts.is_empty():
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE * BOLT_SPAN
+		var face_index := 0
+		for axis in quads:
+			var part := MeshInstance3D.new()
+			part.name = "ChargeBolts"
+			part.mesh = quad
+			part.position = Vector3(0, 0, BOLT_LIFT)
+			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var material := ShaderMaterial.new()
+			material.shader = BOLT_SHADER
+			material.set_shader_parameter("face_seed", _bolt_seed + float(face_index))
+			material.set_shader_parameter("phase", _pulse_phase)
+			material.render_priority = 9
+			part.material_override = material
+			quads[axis].add_child(part)
+			bolt_parts[axis] = part
+			face_index += 1
+	var arc := level >= CHARGE_ARC_LEVEL
+	var halo := CHARGE_COLOR.lerp(CHARGE_CORE_COLOR, 0.62) if arc else CHARGE_COLOR
+	for axis in bolt_parts:
+		var material: ShaderMaterial = bolt_parts[axis].material_override
+		material.set_shader_parameter("bolt_style",
+			float(clampi(charge_style, 0, BOLT_STYLES - 1)))
+		material.set_shader_parameter("halo_color", Vector3(halo.r, halo.g, halo.b))
+		material.set_shader_parameter("core_color", BOLT_CORE)
+		material.set_shader_parameter("rate", BOLT_ARC_RATE if arc else 1.0)
+		material.set_shader_parameter("gain", BOLT_ARC_GAIN if arc else 1.0)

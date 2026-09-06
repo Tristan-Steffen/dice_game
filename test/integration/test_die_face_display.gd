@@ -22,20 +22,35 @@ func _def(charge := 0, burned := false, essence_id := "") -> DieDefinition:
 	def.burned_out = burned
 	return def
 
-func _charge_uniform(display: DieFaceDisplay) -> float:
-	return display.beam_material.get_shader_parameter("charge_level")
-
 func _peak(color: Color) -> float:
 	return maxf(color.r, maxf(color.g, color.b))
 
 # --- Die Leiter ----------------------------------------------------------------
 
-func test_the_charge_level_travels_from_the_definition_into_the_edge_shader() -> void:
+func test_the_charge_level_travels_from_the_definition_into_the_bolts() -> void:
+	# Ab Stufe 2 trägt jede Seite ihr Blitz-Quad; der Überschlag schlägt öfter
+	# und heißer. Stufe 0 und 1 und der Ruß tragen keines - die Kante selbst
+	# bleibt unverändert, sie hat keinen Ladungs-Kanal mehr.
 	for level in [0, 1, 2, 3]:
 		var display := _display()
 		display.apply_definition(_def(level))
 		assert_eq(display.shown_charge(), level, "Stufe %d steht am Körper" % level)
-		assert_eq(_charge_uniform(display), float(level), "Uniform der Stufe %d" % level)
+		var wanted := 6 if level >= DieFaceDisplay.CHARGE_SPARK_LEVEL else 0
+		assert_eq(display.bolt_parts.size(), wanted, "Blitz-Quads der Stufe %d" % level)
+		if wanted == 0:
+			continue
+		var material: ShaderMaterial = display.bolt_parts.values()[0].material_override
+		assert_eq(material.shader, DieFaceDisplay.BOLT_SHADER)
+		var rate: float = material.get_shader_parameter("rate")
+		assert_eq(rate, DieFaceDisplay.BOLT_ARC_RATE if level >= 3 else 1.0,
+			"Häufigkeit der Stufe %d" % level)
+	var burned := _display()
+	burned.apply_definition(_def(2, true))
+	assert_true(burned.bolt_parts.is_empty(), "Ruß blitzt nicht")
+	var cooled := _display()
+	cooled.apply_definition(_def(3))
+	cooled.apply_definition(_def(0))
+	assert_true(cooled.bolt_parts.is_empty(), "entladen: die Quads sind weg")
 
 func test_only_the_flashover_builds_its_particles() -> void:
 	for level in [0, 1, 2]:
@@ -87,7 +102,7 @@ func test_burned_out_kills_pool_lamps_and_motion() -> void:
 	assert_false(display.glow_pool.visible, "keine Lache")
 	assert_false(display.corner_caps.visible, "keine Eck-Lampen")
 	assert_null(display.soul_motes, "die Seelen-Bewegung steht still")
-	assert_eq(_charge_uniform(display), 0.0, "und keine Funken")
+	assert_true(display.bolt_parts.is_empty(), "und keine Blitze")
 
 func test_burned_out_flattens_the_edges_and_dims_the_digit() -> void:
 	var display := _display()
