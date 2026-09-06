@@ -19,6 +19,7 @@ signal library_requested
 signal test_materials_requested
 signal test_pointers_requested
 signal test_engravings_requested
+signal test_charges_requested
 
 ## Aufschrift der Testlieferung - scene_root beschriftet seinen Zwilling damit.
 const TEST_PACKS_LABEL := "🧪 +20 Datenkarten je Sorte"
@@ -281,6 +282,9 @@ func _build_settings_menu(u: float) -> void:
 	# Kein Schalter, eine Lieferung - und sie bleibt offen fürs Nachlegen.
 	_test_engravings_button = _make_menu_button(box, TEST_PACKS_LABEL,
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_engravings_requested.emit, true)
+	# Würfelt die Ladung aller Vorrats-Würfel neu - Nachschlag-Knopf.
+	_make_menu_button(box, "🧪 Ladung würfeln", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+		u, test_charges_requested.emit, true)
 
 ## keep_open = true lässt das Menü nach dem Klick offen (für Mehrfach-Klick-Debug).
 func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color,

@@ -2705,3 +2705,15 @@ func clear_all_essences() -> void:
 	pool_changed.emit()
 
 
+
+## Test-Knopf: jede Ladung des Vorrats zufällig 0..CHARGE_MAX, Ruß gelöscht -
+## damit Bucht, Lampen und Wertung ohne lange Runden zu sehen sind.
+func randomize_charges(rng: RandomNumberGenerator = null) -> void:
+	for die in owned_pool:
+		if die == null:
+			continue
+		die.burned_out = false
+		die.charge = rng.randi_range(0, DieDefinition.CHARGE_MAX) if rng != null \
+			else randi_range(0, DieDefinition.CHARGE_MAX)
+	charge_logged.emit("Ladung des Vorrats gewürfelt")
+	note_pool_changed()

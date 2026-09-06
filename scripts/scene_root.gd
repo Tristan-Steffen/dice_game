@@ -1679,6 +1679,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
+		table_screen.hub.test_charges_requested.connect(_on_test_charges_pressed)
 		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
 		table_screen.hub.lexikon_requested.connect(func() -> void: open_lexikon())
@@ -1709,6 +1710,19 @@ func _setup_settings_ui() -> void:
 	test_engravings_button.pressed.connect(_on_test_engravings_pressed)
 	settings_menu.add_child(test_engravings_button)
 	CasinoStyle.style_button(test_engravings_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
+
+	var test_charges_button := Button.new()
+	test_charges_button.text = "🧪 Ladung würfeln"
+	test_charges_button.custom_minimum_size = Vector2(0, 48)
+	test_charges_button.pressed.connect(_on_test_charges_pressed)
+	settings_menu.add_child(test_charges_button)
+	CasinoStyle.style_button(test_charges_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
+
+## Test-Knopf: die Ladung aller Vorrats-Würfel zufällig neu setzen.
+func _on_test_charges_pressed() -> void:
+	if run == null:
+		return
+	run.randomize_charges()
 
 ## Casino-Look der verbliebenen 2D-Spiel-UI; der Shop stylt sich selbst.
 func _style_ui() -> void:

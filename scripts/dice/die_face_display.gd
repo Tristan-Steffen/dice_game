@@ -155,6 +155,14 @@ const CHARGE_POOL_GAIN := 1.25
 ## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
 var _charge_level := 0
 var _burned := false
+## GLIMMEN-Variante der Stufe 1 (Autoren-Schalter, Auswahl des Spielers offen):
+## 0 Tönung (statische Mischung in der Kante), 1 Atmen (die Kante atmet in der
+## Ladungsfarbe), 2 Ecken (nur die Eck-Lampen glimmen), 3 Ziffer (die Augenzahlen
+## glimmen), 4 Wabern (eine träge Wärmewelle zieht die Kante entlang).
+var charge_style := 0
+const GLIMMER_STYLES := 5
+const GLIMMER_CAP_MIX := 0.7
+const GLIMMER_NUMBER_MIX := 0.85
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -347,7 +355,8 @@ func _refresh_face_colors() -> void:
 	if corner_caps != null:
 		# Ab dem Kriechstrom brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
 		corner_caps.visible = not shown_burned() \
-			and (essence_id != "" or shown_charge() >= CHARGE_SPARK_LEVEL)
+			and (essence_id != "" or shown_charge() >= CHARGE_SPARK_LEVEL \
+			or (shown_charge() == 1 and charge_style == 2))
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
@@ -793,7 +802,9 @@ func _charged_lamp(lamp: Color) -> Color:
 	if level <= 0 and _charge_flash <= 0.0:
 		return lamp
 	var hot := lamp
-	if level > 0:
+	# Nur die Variante TÖNUNG mischt die Stufe 1 statisch in die Kante; die
+	# anderen vier lassen sie kahl und glimmen anderswo (Shader, Ecken, Lache).
+	if level > 0 and not (level == 1 and charge_style != 0):
 		hot = hot.lerp(CHARGE_COLOR, float(CHARGE_LAMP_MIX[mini(level, 3)]))
 		if level >= CHARGE_ARC_LEVEL:
 			hot = hot.lerp(CHARGE_CORE_COLOR, CHARGE_CORE_MIX)
@@ -828,6 +839,16 @@ func _refresh_charge() -> void:
 			Vector3(CHARGE_COLOR.r, CHARGE_COLOR.g, CHARGE_COLOR.b))
 		material.set_shader_parameter("charge_core",
 			Vector3(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b))
+		material.set_shader_parameter("glimmer_style", float(charge_style))
+	# Variante ECKEN: allein die Eck-Lampen tragen das Glimmen.
+	if level == 1 and charge_style == 2 and not burned and cap_material != null:
+		var cap := _cap_channels(_frame_glow_color().lerp(CHARGE_COLOR, GLIMMER_CAP_MIX),
+			CHARGE_REST_CEILING)
+		cap_material.set_shader_parameter("lamp_color", Vector3(cap.r, cap.g, cap.b))
+	# Variante ZIFFER: die Augenzahlen glimmen, die Kante bleibt kahl.
+	if level == 1 and charge_style == 3 and not burned:
+		for axis in labels:
+			(labels[axis] as Label3D).modulate = NUMBER_COLOR.lerp(CHARGE_COLOR, GLIMMER_NUMBER_MIX)
 	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
 	if not burned:
 		return
