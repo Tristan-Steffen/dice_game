@@ -321,3 +321,39 @@ func test_der_schriftgrad_der_ziffer_passt_in_ihre_zelle() -> void:
 	# Der Grad ist gedeckelt, damit die Ziffer nicht groesser wird als ihr Quadrat.
 	assert_lte(float(DieNetView.face_font_size(12.82)) * 1.5, 12.82 + 0.01)
 	assert_eq(DieNetView.face_font_size(40.0), 20, "sonst gilt die halbe Zelle")
+
+# --- Ladungs-Lampen (obere rechte Kreuz-Ecke) ------------------------------------
+
+func _lamps(net: Control) -> DieNetView.ChargeLamps:
+	for child in net.get_children():
+		if child is DieNetView.ChargeLamps:
+			return child
+	return null
+
+func test_jedes_netz_traegt_drei_ladungs_lampen_oben_rechts() -> void:
+	var def := _def_with_materials()
+	def.charge = 2
+	var cell := 40.0
+	var net := DieNetView.build(def, -1, cell)
+	add_child_autofree(net)
+	var lamps := _lamps(net)
+	assert_not_null(lamps, "die Lampen sitzen in jedem Netz")
+	assert_eq(lamps.lit, 2, "je Ladung eine brennende Lampe")
+	assert_false(lamps.burned)
+	assert_eq(DieNetView.ChargeLamps.COUNT, 3, "drei Lampen")
+	var gap := cell * DieNetView.GAP_FACTOR
+	assert_almost_eq(lamps.position.x, 2.0 * (cell + gap), 0.01, "rechts neben der oberen Seite")
+	assert_almost_eq(lamps.position.y, 0.0, 0.01, "in der obersten Zeile")
+	# Die Augensumme weicht in die untere rechte Ecke aus.
+	var total := DieNetView.total_badge(def, cell)
+	assert_almost_eq(total.position.y, 2.0 * (cell + gap), 0.01, "Augensumme unten rechts")
+
+func test_durchgebranntes_netz_zeigt_tote_lampen() -> void:
+	var def := _def_with_materials()
+	def.charge = 3
+	def.burn_out()
+	var net := DieNetView.build(def, -1, 40.0)
+	add_child_autofree(net)
+	var lamps := _lamps(net)
+	assert_true(lamps.burned, "Glut-Saum statt Licht")
+	assert_eq(lamps.lit, 0, "durchgebrannt trägt keine Ladung")

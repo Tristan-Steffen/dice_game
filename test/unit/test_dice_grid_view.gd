@@ -166,7 +166,9 @@ func test_the_eye_total_sits_in_the_free_cross_corner_opposite_the_essence_chip(
 		if child is Label and (child as Label).text == "21":
 			badge = child
 	assert_not_null(badge, "die Augensumme steht im Netz")
-	# Der Essenz-Chip sitzt in der Ecke oben LINKS, die Plakette gegenüber.
+	# Der Essenz-Chip sitzt in der Ecke oben LINKS; die obere rechte Ecke gehören
+	# den Ladungs-Lampen, die Augensumme weicht in die untere rechte aus.
 	assert_gt(badge.position.x, DieNetView.cell_position(3, cell).x,
 		"rechts neben der oberen Seite")
-	assert_almost_eq(badge.position.y, 0.0, 0.01, "in der obersten Zeile")
+	assert_almost_eq(badge.position.y, DieNetView.cell_position(2, cell).y, 0.01,
+		"in der untersten Zeile")

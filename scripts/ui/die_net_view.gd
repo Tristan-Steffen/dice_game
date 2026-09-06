@@ -78,6 +78,7 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 		root.add_child(badge)
 	for arrow in _pointer_arrows(def, cell):
 		root.add_child(arrow)
+	root.add_child(charge_lamps(def, cell))
 	return root
 
 ## Face-Index der Zelle unter local (Netz-Lokalkoordinaten, Zellgröße cell);
@@ -205,9 +206,22 @@ static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
 static func cell_position(face_index: int, cell: float) -> Vector2:
 	return _cell_pos(face_index, cell)
 
-## Augensumme in der leeren oberen RECHTEN Kreuz-Ecke: gegenüber dem Kanten-Chip
-## und rechts neben der oberen Seite - der einzige tote Raum im Kreuz, und damit
-## braucht die Kachel darüber keinen eigenen Streifen mehr.
+## Die drei LADUNGS-LAMPEN in der leeren oberen RECHTEN Kreuz-Ecke (Spieler-
+## Wunsch 2026-09-06): in JEDEM Netz, je Ladung eine brennt. Durchgebrannt: alle
+## drei tot, mit Glut-Saum.
+static func charge_lamps(def: DieDefinition, cell: float) -> Control:
+	var gap := cell * GAP_FACTOR
+	var lamps := ChargeLamps.new()
+	lamps.lit = clampi(def.charge, 0, DieDefinition.CHARGE_MAX)
+	lamps.burned = def.burned_out
+	lamps.position = Vector2(2.0 * (cell + gap), 0.0)
+	lamps.size = Vector2(2.0 * cell + gap, cell)
+	lamps.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return lamps
+
+## Augensumme in der leeren unteren RECHTEN Kreuz-Ecke (die obere gehört seit
+## 2026-09-06 den Ladungs-Lampen) - toter Raum im Kreuz, und damit braucht die
+## Kachel darüber keinen eigenen Streifen.
 static func total_badge(def: DieDefinition, cell: float) -> Label:
 	var gap := cell * GAP_FACTOR
 	var badge := Label.new()
@@ -219,7 +233,7 @@ static func total_badge(def: DieDefinition, cell: float) -> Label:
 		int(cell / 1.5))))
 	badge.clip_text = true
 	badge.text = str(DiceRowView.eye_total(def))
-	badge.position = Vector2(2.0 * (cell + gap), 0.0)
+	badge.position = Vector2(2.0 * (cell + gap), 2.0 * (cell + gap))
 	badge.size = Vector2(2.0 * cell + gap, cell)
 	return badge
 
@@ -340,6 +354,34 @@ class LevelBadge:
 		for b in BARS:
 			var cx: float = size.x * 0.5 + (float(b) - float(BARS - 1) * 0.5) * step - bar_w * 0.5
 			draw_rect(Rect2(Vector2(cx, top), Vector2(bar_w, bar_h)), mark, true)
+
+## Drei runde Lampen nebeneinander: dunkle Platte, brennend in der Ladungsfarbe -
+## dieselbe Sprache wie die Plakette. Kein Text: bei 17 px Zelle wäre er Matsch.
+class ChargeLamps:
+	extends Control
+	var lit := 0
+	var burned := false
+
+	const COUNT := DieDefinition.CHARGE_MAX
+	const ON := DieFaceDisplay.CHARGE_COLOR
+	const OFF := Color(0.03, 0.05, 0.12, 0.95)
+	const RIM := Color(0.42, 0.40, 0.55, 0.9)
+	const EMBER := Color(0.55, 0.22, 0.14, 0.95)
+
+	func _draw() -> void:
+		var radius := minf(size.y * 0.32, size.x / (COUNT * 2.6))
+		var step := size.x / (COUNT + 1.0)
+		var rim := maxf(1.0, radius * 0.22)
+		for i in COUNT:
+			var center := Vector2(step * (i + 1), size.y * 0.5)
+			draw_circle(center, radius, OFF)
+			if burned:
+				draw_arc(center, radius, 0.0, TAU, 24, EMBER, rim)
+			elif i < lit:
+				draw_circle(center, radius * 0.8, ON)
+				draw_arc(center, radius, 0.0, TAU, 24, ON, rim)
+			else:
+				draw_arc(center, radius, 0.0, TAU, 24, RIM, rim)
 
 ## Zellposition eines Seiten-Index im Kreuz.
 static func _cell_pos(face_index: int, cell: float) -> Vector2:

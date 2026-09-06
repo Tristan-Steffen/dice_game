@@ -30,7 +30,7 @@ const CYAN := Color("#8be9fd")
 ## Kachelgröße wird DARAUS abgeleitet (detail_tile_size), damit Netz und Kachel
 ## nie auseinanderlaufen. TOTAL_BAND ist die Zeile der Augensumme über dem Netz.
 ## Zellgröße des Würfelnetzes und der Rand der Kachel darum. Die Augensumme
-## braucht KEINEN eigenen Streifen mehr: sie sitzt in der leeren oberen rechten
+## braucht KEINEN eigenen Streifen mehr: sie sitzt in der leeren unteren rechten
 ## Kreuz-Ecke (DieNetView.total_badge), also wird die Kachel genau so groß wie
 ## das Netz - alle 30 Kacheln teilen sich eine feste Fläche, jeder gesparte
 ## Streifen wird zu größeren Zellen.
@@ -184,8 +184,8 @@ func _tile_size() -> Vector2:
 
 ## Detail-Kachel: das WÜRFELNETZ wie im Netzfeld der Grube, damit Materialien
 ## UND Pointer hier wie dort gelesen werden - die Augensumme sitzt in der
-## leeren oberen rechten Kreuz-Ecke. Keine oben liegende Seite: im Lager liegt
-## kein Würfel.
+## leeren unteren rechten Kreuz-Ecke, die Ladungs-Lampen oben rechts. Keine oben
+## liegende Seite: im Lager liegt kein Würfel.
 func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: int) -> void:
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)

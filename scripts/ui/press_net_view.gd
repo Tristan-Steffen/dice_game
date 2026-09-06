@@ -126,6 +126,7 @@ func build() -> void:
 		add_child(badge)
 	for arrow in DieNetView.pointer_arrows(ghost, cell):
 		add_child(arrow)
+	add_child(DieNetView.charge_lamps(ghost, cell))
 	if ticking:
 		_tick_span = takt
 		_tick_left = takt
