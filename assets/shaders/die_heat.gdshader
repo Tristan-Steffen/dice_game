@@ -27,8 +27,9 @@ uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_di
 uniform float mode = 0.0;
 // Kantenlänge des Quads in Modell-Einheiten (Würfel-Halbmaß = 1).
 uniform vec2 quad_size = vec2(7.0, 7.0);
-// Das Quad rückt der Kamera entgegen, damit es VOR dem Würfel liegt.
-uniform float lift = 1.6;
+// Vorziehen zur Kamera - 0, denn ohne Tiefentest braucht es das nicht, und ein
+// vorgezogenes Quad bildet sich perspektivisch GRÖSSER ab als der Würfel.
+uniform float lift = 0.0;
 // Die Silhouette (Würfel-Halbmaß) und wie schnell die Hitze mit dem Abstand fällt.
 uniform float inner = 1.0;
 uniform float reach = 1.9;

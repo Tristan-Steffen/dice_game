@@ -17,7 +17,7 @@ render_mode blend_add, depth_draw_never, depth_test_disabled, cull_back, unshade
 
 uniform float mode = 0.0;
 uniform vec2 quad_size = vec2(7.0, 7.0);
-uniform float lift = 1.6;
+uniform float lift = 0.0;
 uniform float inner = 1.0;
 uniform float reach = 1.9;
 uniform float wave_freq = 4.4;
@@ -26,6 +26,10 @@ uniform float blobs = 7.0;
 uniform float phase = 0.0;
 uniform vec3 tint = vec3(0.95, 0.24, 0.08);
 uniform float tint_amount = 0.26;
+
+// Wie schnell die Glut nach INNEN wegfällt. Ihr Höhepunkt liegt AUF der
+// Silhouette - sie beginnt an Flächen und Kanten und strahlt nach außen.
+const float INWARD = 3.2;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -59,9 +63,10 @@ void fragment() {
 	p.y = -p.y;
 	float r = length(p);
 	float d = mix(r, max(abs(p.x), abs(p.y)), 0.5) - inner;
-	// Über dem Körper glüht nichts - die Glut liegt in der Luft DAVOR.
-	float body = smoothstep(-0.05, 0.3, d);
-	float field = exp(-max(d, 0.0) * 2.0 / reach);
+	// Höhepunkt AUF der Silhouette (d = 0): nach außen mit reach, nach innen rasch.
+	// Eine Maske, die den Körper aussparte, ließ eine LÜCKE zwischen Würfel und
+	// Hitze - und dort, wo der Würfel im Bild weit reicht, fehlte sie ganz.
+	float field = exp(-max(d, 0.0) * 2.0 / reach) * exp(-max(-d, 0.0) * INWARD);
 	float half_span = min(quad_size.x, quad_size.y) * 0.5;
 	field *= 1.0 - smoothstep(half_span - 1.4, half_span - 0.2,
 		max(abs(p.x), abs(p.y)));
@@ -81,5 +86,5 @@ void fragment() {
 
 	ALBEDO = tint;
 	// Additiv: dest + tint × ALPHA. Sie hellt auf, sie ersetzt nie.
-	ALPHA = clamp(tint_amount * field * body * (0.78 + 0.22 * wave), 0.0, 1.0);
+	ALPHA = clamp(tint_amount * field * (0.78 + 0.22 * wave), 0.0, 1.0);
 }
