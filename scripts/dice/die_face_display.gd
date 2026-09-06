@@ -157,10 +157,11 @@ var _charge_level := 0
 var _burned := false
 ## Das GLIMMEN der Stufe 1 ist HITZE, die AUS dem Würfel kommt: EIN kamerazugewandtes
 ## Feld vor dem Würfel (die_heat.gdshader), dessen Schlieren rundum vom Körper weg
-## strömen und mit dem Abstand verlöschen; wo es nichts tut, ist es durchsichtig
+## strömen (in jede Richtung gleich) und mit dem Abstand verlöschen; wo es nichts
+## tut, ist es durchsichtig
 ## (Spieler-Wahl 2026-09-06 "Ausdünstung, etwas weniger Wabern").
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
-const HEAT_QUAD := Vector2(5.6, 5.6)
+const HEAT_QUAD := Vector2(7.0, 7.0)  # weit genug, dass das Feld vor dem Rand verlischt
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
 const HEAT_REACH := 1.9
 const HEAT_INSIDE := 0.25
