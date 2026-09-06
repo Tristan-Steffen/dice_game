@@ -176,11 +176,10 @@ const HEAT_GLOW := 0.26
 const HEAT_WAVE_FREQ := 4.4
 const HEAT_WAVE_SPEED := 0.15
 var heat_parts: Array[MeshInstance3D] = []
-## Der KRIECHSTROM der Stufe 2 sind BLITZE, die über die Seiten springen
+## Der KRIECHSTROM der Stufe 2 sind PLASMA-FÄDEN, die über die Seiten springen
 ## (die_bolts.gdshader): EIN Quad je Seite knapp über der Fläche, bis in die
-## Mitte der Kantenröhren reichend - die Blitze kommen aus den Kanten. Die Kante
-## selbst bleibt unverändert. Fassung (Autoren-Schalter, Spieler-Wahl offen):
-## 0 Neon, 1 Plasma, 2 Comic, 3 Pixel, 4 Lichtenberg.
+## Mitte der Kantenröhren reichend - die Fäden kommen aus den Kanten. Die Kante
+## selbst bleibt unverändert.
 const BOLT_SHADER := preload("res://assets/shaders/die_bolts.gdshader")
 const BOLT_SPAN := DieBuilder.HALF_EXTENT * 2.0
 const BOLT_LIFT := 0.03  # über Ziffer (0,01) und Runen-Auflage
@@ -188,8 +187,6 @@ const BOLT_CORE := Vector3(1.0, 0.96, 1.0)
 ## Der Überschlag schlägt öfter und heißer.
 const BOLT_ARC_RATE := 1.7
 const BOLT_ARC_GAIN := 1.3
-var charge_style := 0
-const BOLT_STYLES := 5
 var bolt_parts: Dictionary = {}  # Achse -> MeshInstance3D
 var _bolt_seed := randf() * 100.0
 var _charge_override := -1
@@ -1225,8 +1222,6 @@ func _sync_bolts(wanted: bool, level: int) -> void:
 	var halo := CHARGE_COLOR.lerp(CHARGE_CORE_COLOR, 0.62) if arc else CHARGE_COLOR
 	for axis in bolt_parts:
 		var material: ShaderMaterial = bolt_parts[axis].material_override
-		material.set_shader_parameter("bolt_style",
-			float(clampi(charge_style, 0, BOLT_STYLES - 1)))
 		material.set_shader_parameter("halo_color", Vector3(halo.r, halo.g, halo.b))
 		material.set_shader_parameter("core_color", BOLT_CORE)
 		material.set_shader_parameter("rate", BOLT_ARC_RATE if arc else 1.0)
