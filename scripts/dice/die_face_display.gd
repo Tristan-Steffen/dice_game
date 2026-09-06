@@ -155,20 +155,22 @@ const CHARGE_POOL_GAIN := 1.25
 ## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
 var _charge_level := 0
 var _burned := false
-## Das GLIMMEN der Stufe 1 ist HITZE: EIN kamerazugewandtes Feld vor dem Würfel
-## (die_heat.gdshader), dessen Flimmern samt orange-roter Glut an der Silhouette am
-## stärksten ist und nach außen verlöscht - wie ein gefilmter heißer Körper, nach
-## OBEN gestreckt, denn Hitze steigt (Spieler-Wahl 2026-09-06, „Aufsteigend").
+## Das GLIMMEN der Stufe 1 ist HITZE, die AUS dem Würfel kommt: EIN kamerazugewandtes
+## Feld vor dem Würfel (die_heat.gdshader), dessen Schlieren vom Körper weg getrieben
+## werden und mit dem Abstand verlöschen; wo es nichts tut, ist es durchsichtig.
+## charge_style ist der Autoren-Schalter der drei Fassungen (Spieler-Wahl offen):
+## 0 Aufstrom, 1 Ausdünstung, 2 Flammenzungen.
+var charge_style := 0
+const HEAT_STYLES := 3
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
-const HEAT_QUAD := Vector2(5.4, 5.4)
+const HEAT_QUAD := Vector2(5.6, 5.6)
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
-const HEAT_INNER := 1.05  # die Silhouette (Würfel-Halbmaß 1)
-const HEAT_OUTER := 1.8   # seitlich verloschen; nach oben um HEAT_RISE gestreckt
-const HEAT_RISE := 0.85
-const HEAT_INSIDE := 0.3  # Rest-Verzerrung über dem Körper
+const HEAT_REACH := 1.9
+const HEAT_INSIDE := 0.25
 const HEAT_STRENGTH := 0.003
-const HEAT_GLOW := 0.2
+const HEAT_GLOW := 0.26
 var heat_parts: Array[MeshInstance3D] = []
+var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -1134,22 +1136,22 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags).
+## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags); ein
+## Stilwechsel baut neu.
 func _sync_heat(wanted: bool) -> void:
-	if not wanted:
+	if not wanted or _heat_built_style != charge_style:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
-		return
-	if not heat_parts.is_empty():
+		_heat_built_style = -1
+	if not wanted or not heat_parts.is_empty():
 		return
 	var material := ShaderMaterial.new()
 	material.shader = HEAT_SHADER
+	material.set_shader_parameter("mode", float(clampi(charge_style, 0, HEAT_STYLES - 1)))
 	material.set_shader_parameter("quad_size", HEAT_QUAD)
-	material.set_shader_parameter("inner", HEAT_INNER)
-	material.set_shader_parameter("outer", HEAT_OUTER)
-	material.set_shader_parameter("rise", HEAT_RISE)
+	material.set_shader_parameter("reach", HEAT_REACH)
 	material.set_shader_parameter("inside", HEAT_INSIDE)
 	material.set_shader_parameter("strength", HEAT_STRENGTH)
 	material.set_shader_parameter("tint_amount", HEAT_GLOW)
@@ -1167,3 +1169,4 @@ func _sync_heat(wanted: bool) -> void:
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
+	_heat_built_style = charge_style

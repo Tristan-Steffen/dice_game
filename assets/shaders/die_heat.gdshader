@@ -1,34 +1,32 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_back, unshaded, shadows_disabled;
 
-// HITZE, die vom Würfel wegwabert, wie bei einem gefilmten heißen Körper: das
-// Bild HINTER dem Feld wird wie heiße Luft verzerrt (Screen-Refraktion), nach
-// oben ziehend, und eine orange-rote Glut liegt im Flimmern. EIN Billboard-Quad
-// vor dem Würfel, und die Maske ist eine ENTFERNUNG zur Silhouette: an der
-// Kante am stärksten (inner), nach außen weich verloschen (outer) - so hat das
-// Feld keinen sichtbaren Rand. Über dem Körper selbst nur ein Rest der
-// Verzerrung (inside) und keine Glut.
+// HITZE, die AUS dem Würfel kommt: das Bild HINTER dem Feld wird wie heiße Luft
+// verzerrt (Screen-Refraktion), die Schlieren werden vom Körper WEG getrieben,
+// und eine orange-rote Glut liegt darin. EIN Billboard-Quad vor dem Würfel; das
+// Feld beginnt an der Silhouette und verlöscht mit dem Abstand. Wo es nichts tut,
+// ist es DURCHSICHTIG (ALPHA folgt dem Feld) - der Bildschirm-Abzug hinkt einen
+// Frame nach, ein deckend geschriebener Rand zeichnete sich als Quadrat ab.
+// mode: 0 Aufstrom (steigt vom Deckel auf), 1 Ausdünstung (strömt rundum nach
+// außen), 2 Flammenzungen (einzelne Zungen vom Deckel).
 
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
+uniform float mode = 0.0;
 // Kantenlänge des Quads in Modell-Einheiten (Würfel-Halbmaß = 1).
-uniform vec2 quad_size = vec2(5.2, 5.2);
-// Das Quad rückt der Kamera entgegen, damit es VOR dem Würfel liegt und dessen
-// Kanten mitwabern.
+uniform vec2 quad_size = vec2(5.6, 5.6);
+// Das Quad rückt der Kamera entgegen, damit es VOR dem Würfel liegt.
 uniform float lift = 1.6;
-// Abstand vom Würfelmittelpunkt, ab dem die Hitze voll ist (die Silhouette) und
-// wo sie verloschen ist.
-uniform float inner = 1.05;
-uniform float outer = 2.1;
-// 0..1: nach oben gestreckt - Hitze steigt (Spieler-Wahl: 0,85).
-uniform float rise = 0.85;
+// Die Silhouette (Würfel-Halbmaß) und wie schnell die Hitze mit dem Abstand fällt.
+uniform float inner = 1.0;
+uniform float reach = 1.6;
 // Rest-Verzerrung über dem Körper.
-uniform float inside = 0.3;
+uniform float inside = 0.25;
 uniform float strength = 0.003;
-uniform float speed = 1.0;
-uniform float scale = 1.4;
+uniform float speed = 0.9;
+uniform float scale = 1.5;
 uniform float phase = 0.0;
 uniform vec3 tint = vec3(0.95, 0.24, 0.08);
-uniform float tint_amount = 0.2;
+uniform float tint_amount = 0.18;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -60,22 +58,51 @@ void fragment() {
 	// Lage im Quad in Modell-Einheiten, y nach OBEN.
 	vec2 p = (UV - 0.5) * quad_size;
 	p.y = -p.y;
-	vec2 q = p;
-	if (q.y > 0.0) {
-		q.y /= 1.0 + rise * 1.8;
+	// Abstand zur Silhouette: halb Kreis, halb Quadrat - der Würfel ist beides.
+	float d = mix(length(p), max(abs(p.x), abs(p.y)), 0.5) - inner;
+	// Über dem Körper (d < 0) nur der Rest, ab der Silhouette voll.
+	float body = smoothstep(-0.35, 0.05, d);
+	// Ein dünner Hauch, der rundum an der Oberfläche klebt.
+	float rim = exp(-max(d, 0.0) * 2.4 / reach);
+	float field;
+	vec2 drift;
+	if (mode < 0.5) {
+		// AUFSTROM: vom Deckel aufwärts, breiter und schwächer mit der Höhe.
+		float up = max(p.y - inner * 0.55, 0.0);
+		float width = 0.85 * inner + up * 0.55;
+		float lateral = exp(-pow(p.x / width, 2.0) * 2.2);
+		float plume = lateral * exp(-up / reach) * step(0.0, p.y - inner * 0.55);
+		field = max(plume, rim * 0.3);
+		drift = vec2(0.0, -t);
+	} else if (mode < 1.5) {
+		// AUSDÜNSTUNG: rundum nach außen, oben etwas weiter.
+		float lift_up = 1.0 + 0.5 * clamp(p.y / inner, 0.0, 1.0);
+		field = exp(-max(d, 0.0) * 2.0 / (reach * lift_up));
+		float a = atan(p.y, p.x);
+		// Polar: die Wellen laufen mit r - t nach AUSSEN.
+		drift = vec2(a * 2.2 - p.x * scale, -(length(p) - t * 0.8) * scale + p.y * scale);
+	} else {
+		// FLAMMENZUNGEN: der Aufstrom, in einzelne Zungen zerteilt, deren Spitzen
+		// verschieden hoch reichen und flackern.
+		float up = max(p.y - inner * 0.55, 0.0);
+		float width = 0.9 * inner + up * 0.4;
+		float lateral = exp(-pow(p.x / width, 2.0) * 2.0);
+		float tongue = 0.5 + 0.5 * sin(p.x * 4.2 + vnoise(vec2(p.x * 2.0, t * 0.6)) * 4.0 + t * 0.7);
+		float height = reach * (0.6 + 0.9 * tongue);
+		float plume = lateral * exp(-up / height) * pow(tongue, 1.3) * step(0.0, p.y - inner * 0.55);
+		field = max(plume, rim * 0.3);
+		drift = vec2(0.0, -t);
 	}
-	float r = length(q);
-	float fall = 1.0 - smoothstep(inner, outer, r);
-	float outside = smoothstep(inner - 0.3, inner + 0.12, r);
-	float mask = mix(inside, 1.0, outside) * fall;
-	float glow = outside * fall;
-	// Zwei Oktaven, beide nach OBEN ziehend.
-	vec2 p1 = vec2(p.x * scale, (p.y - t) * scale);
-	vec2 p2 = vec2(p.x * scale * 2.3 + 7.3, (p.y - t * 1.7) * scale * 2.3);
+	float mask = field * mix(inside, 1.0, body);
+	// Zwei Oktaven, mit der Drift vom Körper weg.
+	vec2 p1 = (p + drift) * scale;
+	vec2 p2 = (p + drift * 1.7) * scale * 2.3 + vec2(7.3, 1.9);
 	float n1 = vnoise(p1);
 	float n2 = vnoise(p2);
 	vec2 offset = (vec2(n1, n2) - 0.5) * 2.0 * strength * mask;
 	vec3 seen = texture(screen_texture, SCREEN_UV + offset).rgb;
-	ALBEDO = seen + tint * tint_amount * glow * (0.45 + 0.55 * n1);
-	ALPHA = 1.0;
+	float glow = field * body * (0.4 + 0.6 * n1);
+	ALBEDO = seen + tint * tint_amount * glow;
+	// Durchsichtig, wo das Feld nichts tut - kein Quadrat.
+	ALPHA = clamp(mask * 2.5 + glow, 0.0, 1.0);
 }
