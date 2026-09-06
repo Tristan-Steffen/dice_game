@@ -19,12 +19,10 @@ uniform float lift = 1.6;
 // wo sie verloschen ist.
 uniform float inner = 1.05;
 uniform float outer = 2.1;
-// 0..1: nach oben gestreckt - Hitze steigt.
-uniform float rise = 0.0;
+// 0..1: nach oben gestreckt - Hitze steigt (Spieler-Wahl: 0,85).
+uniform float rise = 0.85;
 // Rest-Verzerrung über dem Körper.
 uniform float inside = 0.3;
-// > 0: ein enges Glut-Band an der Silhouette (Breite in Modell-Einheiten).
-uniform float band = 0.0;
 uniform float strength = 0.003;
 uniform float speed = 1.0;
 uniform float scale = 1.4;
@@ -71,10 +69,6 @@ void fragment() {
 	float outside = smoothstep(inner - 0.3, inner + 0.12, r);
 	float mask = mix(inside, 1.0, outside) * fall;
 	float glow = outside * fall;
-	if (band > 0.0) {
-		float rim = exp(-pow((r - inner) / band, 2.0));
-		glow = max(glow * 0.35, rim);
-	}
 	// Zwei Oktaven, beide nach OBEN ziehend.
 	vec2 p1 = vec2(p.x * scale, (p.y - t) * scale);
 	vec2 p2 = vec2(p.x * scale * 2.3 + 7.3, (p.y - t * 1.7) * scale * 2.3);

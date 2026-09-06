@@ -157,22 +157,18 @@ var _charge_level := 0
 var _burned := false
 ## Das GLIMMEN der Stufe 1 ist HITZE: EIN kamerazugewandtes Feld vor dem Würfel
 ## (die_heat.gdshader), dessen Flimmern samt orange-roter Glut an der Silhouette am
-## stärksten ist und nach außen verlöscht - wie ein gefilmter heißer Körper.
-## charge_style ist der Autoren-Schalter der drei Fassungen (Spieler-Wahl offen):
-## 0 Aura (rundum), 1 Aufsteigend (nach oben gestreckt), 2 Glutkante (enges Band).
-var charge_style := 0
-const HEAT_STYLES := 3
+## stärksten ist und nach außen verlöscht - wie ein gefilmter heißer Körper, nach
+## OBEN gestreckt, denn Hitze steigt (Spieler-Wahl 2026-09-06, „Aufsteigend").
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
 const HEAT_QUAD := Vector2(5.4, 5.4)
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
-## Je Fassung: inner, outer, rise, inside, band, strength, tint_amount.
-const HEAT_STYLE_PARAMS := [
-	[1.05, 2.1, 0.0, 0.3, 0.0, 0.0028, 0.2],
-	[1.05, 1.8, 0.85, 0.3, 0.0, 0.003, 0.2],
-	[1.0, 1.7, 0.2, 0.25, 0.16, 0.0025, 0.3],
-]
+const HEAT_INNER := 1.05  # die Silhouette (Würfel-Halbmaß 1)
+const HEAT_OUTER := 1.8   # seitlich verloschen; nach oben um HEAT_RISE gestreckt
+const HEAT_RISE := 0.85
+const HEAT_INSIDE := 0.3  # Rest-Verzerrung über dem Körper
+const HEAT_STRENGTH := 0.003
+const HEAT_GLOW := 0.2
 var heat_parts: Array[MeshInstance3D] = []
-var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -1138,28 +1134,25 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags); ein
-## Stilwechsel baut neu.
+## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags).
 func _sync_heat(wanted: bool) -> void:
-	if not wanted or _heat_built_style != charge_style:
+	if not wanted:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
-		_heat_built_style = -1
-	if not wanted or not heat_parts.is_empty():
 		return
-	var params: Array = HEAT_STYLE_PARAMS[clampi(charge_style, 0, HEAT_STYLES - 1)]
+	if not heat_parts.is_empty():
+		return
 	var material := ShaderMaterial.new()
 	material.shader = HEAT_SHADER
 	material.set_shader_parameter("quad_size", HEAT_QUAD)
-	material.set_shader_parameter("inner", float(params[0]))
-	material.set_shader_parameter("outer", float(params[1]))
-	material.set_shader_parameter("rise", float(params[2]))
-	material.set_shader_parameter("inside", float(params[3]))
-	material.set_shader_parameter("band", float(params[4]))
-	material.set_shader_parameter("strength", float(params[5]))
-	material.set_shader_parameter("tint_amount", float(params[6]))
+	material.set_shader_parameter("inner", HEAT_INNER)
+	material.set_shader_parameter("outer", HEAT_OUTER)
+	material.set_shader_parameter("rise", HEAT_RISE)
+	material.set_shader_parameter("inside", HEAT_INSIDE)
+	material.set_shader_parameter("strength", HEAT_STRENGTH)
+	material.set_shader_parameter("tint_amount", HEAT_GLOW)
 	material.set_shader_parameter("tint", HEAT_RED)
 	material.set_shader_parameter("phase", _pulse_phase)
 	# VOR allen anderen Durchsichtigen: der Bildschirm-Abzug kennt Ziffern, Pucks
@@ -1174,4 +1167,3 @@ func _sync_heat(wanted: bool) -> void:
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
-	_heat_built_style = charge_style
