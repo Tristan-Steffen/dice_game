@@ -180,7 +180,7 @@ var heat_parts: Array[MeshInstance3D] = []
 ## (die_bolts.gdshader): EIN Quad je Seite knapp über der Fläche, bis in die
 ## Mitte der Kantenröhren reichend - die Blitze kommen aus den Kanten. Die Kante
 ## selbst bleibt unverändert. Fassung (Autoren-Schalter, Spieler-Wahl offen):
-## 0 Sprung, 1 Kriecher, 2 Geäst, 3 Knistern, 4 Eckschlag.
+## 0 Neon, 1 Plasma, 2 Comic, 3 Pixel, 4 Lichtenberg.
 const BOLT_SHADER := preload("res://assets/shaders/die_bolts.gdshader")
 const BOLT_SPAN := DieBuilder.HALF_EXTENT * 2.0
 const BOLT_LIFT := 0.03  # über Ziffer (0,01) und Runen-Auflage
