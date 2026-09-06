@@ -44,17 +44,6 @@ uniform vec4 flat_tint = vec4(0.0);
 uniform float charge_level = 0.0;
 uniform vec3 charge_color = vec3(0.86, 0.66, 1.35);
 uniform vec3 charge_core = vec3(1.45, 0.72, 0.30);
-// GLIMMEN-Variante der Stufe 1 (Autoren-Schalter, DieFaceDisplay.charge_style):
-// 1 = Atmen (die Kante atmet langsam in der Ladungsfarbe), 4 = Wabern (eine
-// breite, träge Wärmewelle zieht die Kante entlang). 0/2/3 zeichnen hier nichts.
-uniform float glimmer_style = 0.0;
-
-const float GLIMMER_BREATH_SPEED = 0.9;
-const float GLIMMER_BREATH_LOW = 0.12;
-const float GLIMMER_BREATH_HIGH = 0.5;
-const float GLIMMER_WAVE_SCALE = 1.3;
-const float GLIMMER_WAVE_SPEED = 1.2;
-const float GLIMMER_WAVE_GAIN = 0.8;
 
 const float BREATH_SPEED = 1.4;
 
@@ -119,7 +108,7 @@ void fragment() {
 		// Welcher Balken und wohin: dieselbe Laufrichtung tragen Seelen-Fluss und
 		// Ladungs-Funken - EINE Ableitung aus der Geometrie.
 		float run = 0.0;
-		if (flow_style > 0.5 || charge_level > 1.5 || glimmer_style > 3.5) {
+		if (flow_style > 0.5 || charge_level > 1.5) {
 			vec3 a = abs(local_pos);
 			if (a.x < a.y && a.x < a.z) {
 				run = local_pos.x * sign(local_pos.z);   // Riegel längs X: Zirkulation
@@ -134,16 +123,6 @@ void fragment() {
 			glow = lamp_color * (1.0 - FLOW_DIP * (1.0 - blob)) + flow_color * blob * FLOW_LIFT;
 		}
 		EMISSION = glow * pattern * breath;
-		if (charge_level > 0.5 && charge_level < 1.5) {
-			if (glimmer_style > 0.5 && glimmer_style < 1.5) {
-				float b = 0.5 + 0.5 * sin(TIME * GLIMMER_BREATH_SPEED + phase);
-				EMISSION = mix(EMISSION, charge_color * pattern * breath,
-					GLIMMER_BREATH_LOW + (GLIMMER_BREATH_HIGH - GLIMMER_BREATH_LOW) * b);
-			} else if (glimmer_style > 3.5) {
-				float w = 0.5 + 0.5 * sin(run * GLIMMER_WAVE_SCALE - TIME * GLIMMER_WAVE_SPEED + phase);
-				EMISSION += charge_color * pattern * pow(w, 3.0) * GLIMMER_WAVE_GAIN;
-			}
-		}
 		if (charge_level > 1.5) {
 			float head = max(sin(run * SPARK_SCALE - TIME * SPARK_SPEED + phase), 0.0);
 			float spark = pow(head, SPARK_SHARP);

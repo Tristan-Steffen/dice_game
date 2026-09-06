@@ -129,7 +129,7 @@ const BURNED_BODY := Color(0.035, 0.03, 0.035)
 const BURNED_EDGE := Color(0.14, 0.12, 0.12)
 const BURNED_NUMBER := Color(0.30, 0.28, 0.30)
 ## Wie stark die Ladung den Rahmen-Ton je Stufe einfärbt (Index = Stufe).
-const CHARGE_LAMP_MIX := [0.0, 0.35, 0.5, 0.72]
+const CHARGE_LAMP_MIX := [0.0, 0.0, 0.5, 0.72]  # Stufe 1 ist reines Flimmern, die Kante bleibt kahl
 ## Ab dieser Stufe kriechen Funken über die Kanten (Shader) und die Eck-Lampen an.
 const CHARGE_SPARK_LEVEL := 2
 ## Ab dieser Stufe springen Teilchen aus dem Würfel und der Kern wird orange.
@@ -155,14 +155,22 @@ const CHARGE_POOL_GAIN := 1.25
 ## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
 var _charge_level := 0
 var _burned := false
-## GLIMMEN-Variante der Stufe 1 (Autoren-Schalter, Auswahl des Spielers offen):
-## 0 Tönung (statische Mischung in der Kante), 1 Atmen (die Kante atmet in der
-## Ladungsfarbe), 2 Ecken (nur die Eck-Lampen glimmen), 3 Ziffer (die Augenzahlen
-## glimmen), 4 Wabern (eine träge Wärmewelle zieht die Kante entlang).
+## HITZE-Form der Stufe 1 (Autoren-Schalter, Auswahl des Spielers offen): das
+## Glimmen ist Luftflimmern, das vom Würfel wegwabert (die_heat.gdshader) -
+## 0 Fahne (über dem Würfel), 1 Schleier (Hülle, flimmert am Rand), 2 Glut-Fahne
+## (Fahne mit warmer Tönung), 3 Schlieren (drei schmale Strähnen), 4 Kranz und
+## Fahne (Schleier plus Fahne).
 var charge_style := 0
-const GLIMMER_STYLES := 5
-const GLIMMER_CAP_MIX := 0.7
-const GLIMMER_NUMBER_MIX := 0.85
+const HEAT_STYLES := 5
+const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
+const HEAT_PLUME_SIZE := Vector2(3.4, 3.8)
+const HEAT_PLUME_LIFT := 2.7  # Quad-Mitte über dem Würfel-Mittelpunkt
+const HEAT_SHELL_SCALE := 1.3
+const HEAT_STREAK_SIZE := Vector2(0.7, 3.4)
+const HEAT_STREAK_OFFSETS := [-0.62, 0.06, 0.66]
+const HEAT_TINT := Vector3(0.62, 0.30, 0.52)
+var heat_parts: Array[MeshInstance3D] = []
+var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -355,8 +363,7 @@ func _refresh_face_colors() -> void:
 	if corner_caps != null:
 		# Ab dem Kriechstrom brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
 		corner_caps.visible = not shown_burned() \
-			and (essence_id != "" or shown_charge() >= CHARGE_SPARK_LEVEL \
-			or (shown_charge() == 1 and charge_style == 2))
+			and (essence_id != "" or shown_charge() >= CHARGE_SPARK_LEVEL)
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
@@ -802,9 +809,7 @@ func _charged_lamp(lamp: Color) -> Color:
 	if level <= 0 and _charge_flash <= 0.0:
 		return lamp
 	var hot := lamp
-	# Nur die Variante TÖNUNG mischt die Stufe 1 statisch in die Kante; die
-	# anderen vier lassen sie kahl und glimmen anderswo (Shader, Ecken, Lache).
-	if level > 0 and not (level == 1 and charge_style != 0):
+	if level > 0:
 		hot = hot.lerp(CHARGE_COLOR, float(CHARGE_LAMP_MIX[mini(level, 3)]))
 		if level >= CHARGE_ARC_LEVEL:
 			hot = hot.lerp(CHARGE_CORE_COLOR, CHARGE_CORE_MIX)
@@ -839,16 +844,7 @@ func _refresh_charge() -> void:
 			Vector3(CHARGE_COLOR.r, CHARGE_COLOR.g, CHARGE_COLOR.b))
 		material.set_shader_parameter("charge_core",
 			Vector3(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b))
-		material.set_shader_parameter("glimmer_style", float(charge_style))
-	# Variante ECKEN: allein die Eck-Lampen tragen das Glimmen.
-	if level == 1 and charge_style == 2 and not burned and cap_material != null:
-		var cap := _cap_channels(_frame_glow_color().lerp(CHARGE_COLOR, GLIMMER_CAP_MIX),
-			CHARGE_REST_CEILING)
-		cap_material.set_shader_parameter("lamp_color", Vector3(cap.r, cap.g, cap.b))
-	# Variante ZIFFER: die Augenzahlen glimmen, die Kante bleibt kahl.
-	if level == 1 and charge_style == 3 and not burned:
-		for axis in labels:
-			(labels[axis] as Label3D).modulate = NUMBER_COLOR.lerp(CHARGE_COLOR, GLIMMER_NUMBER_MIX)
+	_sync_heat(level == 1 and not burned)
 	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
 	if not burned:
 		return
@@ -1137,3 +1133,78 @@ static func fit_label(label: Label3D) -> void:
 	var world_extent: float = maxf(size_px.x, size_px.y) * LABEL_PIXEL_SIZE
 	var shrink: float = maxf(1.0, world_extent / LABEL_FIT_EXTENT)
 	label.pixel_size = LABEL_PIXEL_SIZE / shrink
+
+# --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
+
+## Baut oder räumt die Hitze-Teile; ein Stilwechsel baut neu.
+func _sync_heat(wanted: bool) -> void:
+	if not wanted or _heat_built_style != charge_style:
+		for part in heat_parts:
+			if is_instance_valid(part):
+				part.queue_free()
+		heat_parts.clear()
+		_heat_built_style = -1
+	if not wanted or not heat_parts.is_empty():
+		return
+	match charge_style:
+		0:
+			_add_heat_plume(HEAT_PLUME_SIZE, HEAT_PLUME_LIFT, 0.005, 0.0, 0.0)
+		1:
+			_add_heat_shell(0.007, 0.0)
+		2:
+			_add_heat_plume(HEAT_PLUME_SIZE, HEAT_PLUME_LIFT, 0.005, 0.22, 0.0)
+		3:
+			for i in HEAT_STREAK_OFFSETS.size():
+				_add_heat_streak(float(HEAT_STREAK_OFFSETS[i]), float(i))
+		_:
+			_add_heat_shell(0.006, 0.0)
+			_add_heat_plume(HEAT_PLUME_SIZE * 0.85, HEAT_PLUME_LIFT, 0.004, 0.1, 0.5)
+	_heat_built_style = charge_style
+
+func _heat_material(mode: float, billboard: bool, strength: float, tint_amount: float,
+		phase_shift: float, scale := 8.0) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = HEAT_SHADER
+	material.set_shader_parameter("mode", mode)
+	material.set_shader_parameter("billboard", 1.0 if billboard else 0.0)
+	material.set_shader_parameter("strength", strength)
+	material.set_shader_parameter("tint_amount", tint_amount)
+	material.set_shader_parameter("tint", HEAT_TINT)
+	material.set_shader_parameter("scale", scale)
+	material.set_shader_parameter("phase", _pulse_phase + phase_shift)
+	# VOR allen anderen Durchsichtigen: der Bildschirm-Abzug kennt Ziffern, Pucks
+	# und Lachen nicht - zeichnet das Flimmern zuerst, liegen sie unversehrt darüber.
+	material.render_priority = -8
+	return material
+
+func _add_heat_part(mesh: Mesh, material: ShaderMaterial, offset: Vector3) -> void:
+	var part := MeshInstance3D.new()
+	part.name = "Heat%d" % heat_parts.size()
+	part.mesh = mesh
+	part.material_override = material
+	part.position = offset
+	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(part)
+	heat_parts.append(part)
+
+## Die FAHNE: ein Billboard-Quad über dem Würfel, Flimmern zieht nach oben.
+func _add_heat_plume(size: Vector2, lift: float, strength: float, tint_amount: float,
+		phase_shift: float) -> void:
+	var quad := QuadMesh.new()
+	quad.size = size
+	_add_heat_part(quad, _heat_material(0.0, true, strength, tint_amount, phase_shift),
+		Vector3(0.0, lift, 0.0))
+
+## Der SCHLEIER: eine abgehobene Hülle, die nur am Silhouettenrand flimmert.
+func _add_heat_shell(strength: float, tint_amount: float) -> void:
+	var box := BoxMesh.new()
+	box.size = Vector3.ONE * DieBuilder.HALF_EXTENT * 2.0 * HEAT_SHELL_SCALE
+	_add_heat_part(box, _heat_material(1.0, false, strength, tint_amount, 0.0, 5.0),
+		Vector3.ZERO)
+
+## Eine SCHLIERE: schmale Strähne über dem Würfel, kräftiger und mit Glut.
+func _add_heat_streak(x_offset: float, index: float) -> void:
+	var quad := QuadMesh.new()
+	quad.size = HEAT_STREAK_SIZE
+	_add_heat_part(quad, _heat_material(0.0, true, 0.0055, 0.16, index * 2.1, 6.0),
+		Vector3(x_offset, DieBuilder.HALF_EXTENT + HEAT_STREAK_SIZE.y * 0.42, 0.0))
