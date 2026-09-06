@@ -11400,7 +11400,7 @@ func _on_take_button_pressed() -> void:
 		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
 		GameRun.is_stress_round(run.round_number), sel_fires, hands_taken_this_round,
-		sel_participating, sel_burned, ScoreBreakdown.burn_stops(breakdown)))
+		sel_participating, sel_burned))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
 	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
@@ -11440,7 +11440,6 @@ func _on_take_button_pressed() -> void:
 	var burned_slots: Array[int] = []
 	for p in sel_burned:
 		burned_slots.append(slots[p])
-	var burn_stops := ScoreBreakdown.burn_stops(breakdown)
 	# Die engere KOMBINATIONS-Menge auf echte Slots: Vollzähler und Krypton weiten
 	# die gewertete Menge, gehören der Kombination aber nicht an (Zauberkarte).
 	var combination: Array[int] = []
@@ -11463,7 +11462,7 @@ func _on_take_button_pressed() -> void:
 		ids, echo_slot, _effective_essence_sets(), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires,
 		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
-		run.clause_face_growth(), burned_slots, burn_stops)
+		run.clause_face_growth(), burned_slots)
 	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
 	# seinem Krit losgeschickt, gebucht wird bei Ankunft.
 	report.tip_money = ScoreBreakdown.tip_money_total(breakdown)
@@ -11815,7 +11814,11 @@ func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vecto
 		if not await _play_die_links(group["links"], slot, die_px, gain_px, glow_by_slot):
 			return false
 	# Runen-Glieder (Kehrseite) zuletzt - sie hängen am ganzen Würfel.
-	return await _play_die_links(step.get("det_links", []), slot, die_px, gain_px, glow_by_slot)
+	if not await _play_die_links(step.get("det_links", []), slot, die_px, gain_px, glow_by_slot):
+		return false
+	# LADUNG: das Urteil des Würfels NACH seiner letzten Zündung, vor dem nächsten.
+	_play_charge_beat(step.get("charge_step", {}), slot)
+	return true
 
 ## Glieder-Pulse eines Würfel-Schritts: das Netz-Feld zeigt den Würfel mit dem
 ## GLIED im Gold-Rahmen - so wandert die Kette sichtbar. false = Abbruch (Reset).
@@ -11833,9 +11836,6 @@ func _play_die_links(links: Array, slot: int, die_px: Vector2, gain_px: Vector2,
 func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array) -> bool:
 	var die_charm_indices: Array = pulse.get("die_charm_indices", [])
 	_flash_scoring_die(slot)
-	# LADUNG: die Zündung, die lädt, hebt seine Stufe; die, die ihn durchbrennt,
-	# entlädt sich in die Grubenwände. Gebucht ist beides längst.
-	_play_charge_beat(pulse, slot)
 	# Geld, das DIESE Zündung erzeugt, fliegt sofort los - eine Neon-Seele mit
 	# zwei Auslösungen zahlt ihr erstes Paket vor ihrer zweiten Zündung.
 	_fire_die_money(die_px, int(pulse.get("money", 0)))
@@ -12041,17 +12041,20 @@ func _play_cooling_ceremony(defs: Array[DieDefinition]) -> void:
 		if is_instance_valid(display):
 			display.clear_charge_override()
 
-## Die LADUNG einer Zündung, rein visuell: der Override zeigt den Stand, den die
-## Aufschlüsselung an dieser Stelle hat - der GEBUCHTE Stand steht schon in der Def
-## und übernimmt am Ende der Zeremonie (clear_charge_override). Ein abgebrochener
-## Tween schuldet damit nichts.
-func _play_charge_beat(pulse: Dictionary, slot: int) -> void:
-	if slot < 0 or slot >= dice.count():
+## Das Ladungs-URTEIL eines Würfels nach seiner letzten Zündung (charge_step),
+## rein visuell: der Override zeigt den Stand der Aufschlüsselung - der GEBUCHTE
+## steht schon in der Def und übernimmt am Ende der Zeremonie
+## (clear_charge_override). Ein abgebrochener Tween schuldet damit nichts.
+func _play_charge_beat(beat: Dictionary, slot: int) -> void:
+	if beat.is_empty() or slot < 0 or slot >= dice.count():
 		return
 	var display: DieFaceDisplay = dice.face_displays[slot]
 	if display == null:
 		return
-	if bool(pulse.get("burned", false)):
+	# Lichtbogen: sein Pad blitzt mit dem Durchbrennen.
+	for charm_index: int in beat.get("charm_indices", []):
+		_flash_charm_and_pad(charm_index)
+	if bool(beat.get("burned", false)):
 		# DIE DURCHBRENN-ZEREMONIE: Einschlag in die Grubenwände, der Rundenpuls
 		# stottert wie beim Fumble, dann fällt der Würfel dunkel.
 		if dice_pit != null:
@@ -12060,9 +12063,7 @@ func _play_charge_beat(pulse: Dictionary, slot: int) -> void:
 			table_screen.pit_flinch()
 		display.set_charge_override(0, true)
 		return
-	if not bool(pulse.get("charge_up", false)):
-		return
-	display.set_charge_override(int(pulse.get("charge_after", 0)), false)
+	display.set_charge_override(int(beat.get("charge_after", 0)), false)
 	display.flash_charge(CHARGE_FLASH_STRENGTH)
 
 ## Nach der Zeremonie: der Def-Stand übernimmt an JEDEM Grubenwürfel.

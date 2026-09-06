@@ -182,10 +182,10 @@ func test_the_breakdown_mirrors_the_arc_flash():
 	var ids := _ids([Charm.ARC_FLASH])
 	var breakdown := _build(DiceScoring.TWO_KIND, _d([4, 4]), ctx, ids)
 	assert_eq(breakdown["merge_total"], _score(DiceScoring.TWO_KIND, _d([4, 4]), ctx, ids))
-	var firing: Dictionary = breakdown["die_steps"][0]["die_triggers"][0]["firings"][0]
-	assert_true(bool(firing["burned"]))
-	assert_eq(int(firing["charm_base_add"]), CharmEffects.ARC_FLASH_BASE)
-	assert_eq(firing["die_charm_indices"], _d([0]), "das Dock-Pad blitzt")
+	var verdict: Dictionary = breakdown["die_steps"][0]["charge_step"]
+	assert_true(bool(verdict["burned"]))
+	assert_eq(int(verdict["arc_base"]), CharmEffects.ARC_FLASH_BASE)
+	assert_eq(verdict["charm_indices"], _d([0]), "das Dock-Pad blitzt")
 
 # --- Erdung & Dauerbetrieb --------------------------------------------------------
 

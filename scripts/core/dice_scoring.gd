@@ -332,45 +332,50 @@ static func roll_charge_rolls(slots: Array[int], rng: RandomNumberGenerator = nu
 		rolls[slot] = pool
 	return rolls
 
-## EIN Ladungs-Schritt am Ende einer Zündung der oberen Seite. Mutiert running,
-## burned und used und liefert {"charged", "burned", "fuse"}. EINE Quelle für die
-## Wertung und ihre Spiegel - sonst driften Schrittliste und Rechnung auseinander.
-static func apply_charge_step(slot: int, running: Dictionary, entered_hot: Dictionary,
-		burned: Dictionary, rolls: Dictionary, used: Dictionary, rule: Dictionary,
+## Das Ladungs-URTEIL eines Würfels, EINMAL nach seiner letzten Zündung (Spieler-
+## Entscheid 2026-09-06): firings = seine Zündungen der oberen Seite, jede hat
+## gewürfelt, und erst jetzt fällt alles zusammen - vor dem nächsten Würfel.
+## Mutiert running und burned, liefert {"gained", "burned", "fuse"}. EINE Quelle
+## für die Wertung und ihre Spiegel.
+static func resolve_die_charge(slot: int, firings: int, running: Dictionary,
+		entered_hot: Dictionary, burned: Dictionary, rolls: Dictionary, rule: Dictionary,
 		immune: bool = false, fuse_ready: bool = false) -> Dictionary:
-	var result := {"charged": false, "burned": false, "fuse": false}
-	if bool(burned.get(slot, false)):
+	var result := {"gained": 0, "burned": false, "fuse": false}
+	if firings <= 0 or bool(burned.get(slot, false)):
 		return result
 	var step := int(rule.get("step", 1))
 	var cap := int(rule.get("cap", DieDefinition.CHARGE_MAX))
 	var before := int(running.get(slot, 0))
 	# Ableitung: jede Zündung SENKT, ohne Wurf.
 	if step < 0:
-		running[slot] = maxi(0, before + step)
-		result["charged"] = int(running[slot]) != before
+		running[slot] = maxi(0, before + step * firings)
+		result["gained"] = int(running[slot]) - before
 		return result
 	if not rolls.has(slot):
 		return result  # Vorschau: ohne Vorrat lädt nichts
 	var pool: Array = rolls[slot]
-	var index := int(used.get(slot, 0))
-	used[slot] = index + 1
-	if index >= pool.size() or float(pool[index]) >= float(rule.get("chance", CHARGE_CHANCE)):
+	var chance := float(rule.get("chance", CHARGE_CHANCE))
+	var hits := 0
+	for index in firings:
+		if index < pool.size() and float(pool[index]) < chance:
+			hits += 1
+	if hits == 0:
 		return result
-	# HEISS hereingekommen: der Wurf trifft das Durchbrennen statt der Stufe. Wer
-	# die Spitze erst in dieser Hand erreicht, ist bis zur nächsten sicher.
+	# HEISS hereingekommen: jeder Treffer meint das Durchbrennen statt der Stufe.
+	# Wer die Spitze erst in dieser Hand erreicht, ist bis zur nächsten sicher.
 	if bool(entered_hot.get(slot, false)) and before >= cap:
 		if immune or not bool(rule.get("can_burn", true)):
 			return result
 		running[slot] = 0
-		result["charged"] = before != 0
+		result["gained"] = -before
 		if fuse_ready:
 			result["fuse"] = true
 			return result
 		burned[slot] = true
 		result["burned"] = true
 		return result
-	running[slot] = mini(cap, before + step)
-	result["charged"] = int(running[slot]) != before
+	running[slot] = mini(cap, before + hits * step)
+	result["gained"] = int(running[slot]) - before
 	return result
 
 ## Stresstest-Flagge (ctx-Schlüssel): das Elmsfeuer glüht dort vierfach.
@@ -867,7 +872,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var charge_rule := charge_rule_in(ctx)
 	var charge_cap := int(charge_rule.get("cap", DieDefinition.CHARGE_MAX))
 	var charge_rolls: Dictionary = ctx.get(CTX_CHARGE_ROLLS, {})
-	var charge_used := {}
 	var running_charges := {}
 	var entered_hot := {}
 	var burned_now := {}
@@ -890,6 +894,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		# nichts - kein Phosphor, keine Trigger, keine Glieder.
 		if bool(burned_now.get(i, false)):
 			continue
+		var charge_firings := 0
 		var info := level_info_for(ctx, i)
 		var level := MaterialEffects.level_in(info)
 		var eye_sum := int(info.get("eye_sum", 0))
@@ -1002,21 +1007,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					# Bestrahlung: das Radon schiebt bei JEDER Zündung Augen auf jeden
 					# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
 					MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
-				# LADUNG: der Wurf sitzt am ENDE jeder Zündung der oberen Seite -
-				# die Zündung, die den Würfel durchbrennt, zählt noch voll.
-				var charge_hit := apply_charge_step(i, running_charges, entered_hot, burned_now,
-					charge_rolls, charge_used, charge_rule,
-					EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
-				if bool(charge_hit["fuse"]):
-					fuse_used = true
-				# Lichtbogen: NUR das Durchbrennen in der Wertung zahlt.
-				if bool(charge_hit["burned"]):
-					base += CharmEffects.burnout_base(charm_ids)
-				if bool(burned_now.get(i, false)):
-					break
-			# Durchgebrannt: die Glieder DIESES Antritts entfallen mit ihm.
-			if bool(burned_now.get(i, false)):
-				break
+				charge_firings += 1
 			# Glieder: je Würfel-Trigger erst der dafür gewürfelte Pointer, dann das
 			# Essenz-Glied (Röntgenlicht); im letzten Durchgang die Runen-Glieder.
 			# Jedes feuert EINMAL wie eine Zündung mit getauschter Seite (nie
@@ -1057,6 +1048,16 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					if not is_equal_approx(link_die_crit, 1.0):
 						crits += 1
 					mult *= link_die_crit
+		# LADUNG: der Würfel hat FERTIG gefeuert, jetzt fällt sein Urteil - vor dem
+		# nächsten Würfel. Alle seine Zündungen haben gezählt, auch wenn er brennt.
+		var charge_hit := resolve_die_charge(i, charge_firings, running_charges, entered_hot,
+			burned_now, charge_rolls, charge_rule,
+			EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
+		if bool(charge_hit["fuse"]):
+			fuse_used = true
+		# Lichtbogen: NUR das Durchbrennen in der Wertung zahlt.
+		if bool(charge_hit["burned"]):
+			base += CharmEffects.burnout_base(charm_ids)
 	# GRUNDREGEL: +1 Mult je Ladung der gewerteten Hand (END-Stand nach der
 	# Würfelphase; ein durchgebrannter Würfel zählt 0) - ein eigener Schritt VOR
 	# den statischen Charms.

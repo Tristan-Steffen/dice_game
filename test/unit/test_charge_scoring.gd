@@ -74,16 +74,35 @@ func test_a_hit_lifts_the_charge_by_one():
 	assert_eq(int(breakdown["charge_mult_step"]["mult_add"]), 1)
 	assert_eq(breakdown["merge_total"], 18 * 3, "Mult 2 + 1")
 
-func test_the_firing_reports_its_own_charge():
+func test_the_die_step_carries_its_charge_verdict():
+	# Das Urteil hängt am WÜRFEL-Schritt, nach seiner letzten Zündung - nicht an
+	# der Zündung. Ein Würfel, dem nichts geschieht, trägt keins.
 	var ctx := {
 		DiceScoring.CTX_CHARGES: {0: 0, 1: 0},
 		DiceScoring.CTX_CHARGE_ROLLS: {0: _pool([true]), 1: _pool([false])},
 	}
 	var breakdown := _build(DiceScoring.TWO_KIND, _d([4, 4]), ctx)
-	var firing: Dictionary = breakdown["die_steps"][0]["die_triggers"][0]["firings"][0]
-	assert_eq(int(firing["charge_after"]), 1)
-	assert_true(bool(firing["charge_up"]))
-	assert_false(bool(firing["burned"]))
+	var verdict: Dictionary = breakdown["die_steps"][0]["charge_step"]
+	assert_eq(int(verdict["charge_after"]), 1)
+	assert_eq(int(verdict["gained"]), 1)
+	assert_false(bool(verdict["burned"]))
+	assert_true((breakdown["die_steps"][1]["charge_step"] as Dictionary).is_empty(),
+		"Fehlwurf: kein Urteil")
+
+func test_a_die_charges_only_after_its_last_firing():
+	# Spieler-Entscheid 2026-09-06: erst FERTIG feuern, dann steigen. Argon auf 2
+	# trifft zweimal - seine eigenen Zündungen sehen noch die 2 (kein
+	# Transformator-Krit), am Ende steht er auf 3.
+	var ctx := {
+		DiceScoring.CTX_ESSENCES: {0: Essence.ARGON},
+		DiceScoring.CTX_CHARGES: {0: 2, 1: 0},
+		DiceScoring.CTX_CHARGE_ROLLS: {0: _pool([true, true]), 1: _pool([false])},
+	}
+	var plain := _score(DiceScoring.TWO_KIND, _d([4, 4]), ctx)
+	var with_transformer := _score(DiceScoring.TWO_KIND, _d([4, 4]), ctx, _ids([Charm.TRANSFORMER]))
+	assert_eq(with_transformer, plain, "die 3 kommt erst nach der letzten Zündung")
+	var breakdown := _build(DiceScoring.TWO_KIND, _d([4, 4]), ctx)
+	assert_eq(int(breakdown["charges_after"][0]), 3)
 
 func test_retriggers_charge_once_each():
 	# Quecksilberdampf tritt dreimal an - drei Würfe, also 0 auf 3 in EINER Hand.
@@ -108,21 +127,21 @@ func test_the_cap_holds_without_burning():
 
 # --- Durchbrennen ---------------------------------------------------------------
 
-func test_a_hot_die_burns_and_stops_firing():
-	# Argon tritt zweimal an; der erste Wurf brennt ihn durch, der zweite Antritt
-	# entfällt - die durchbrennende Zündung zählt aber noch voll.
+func test_a_hot_die_burns_after_its_last_firing():
+	# Argon tritt zweimal an und feuert FERTIG; erst dann fällt das Urteil - beide
+	# Zündungen zählen, danach ist er dunkel.
 	var ctx := {
 		DiceScoring.CTX_ESSENCES: {0: Essence.ARGON},
 		DiceScoring.CTX_CHARGES: {0: 3, 1: 0},
-		DiceScoring.CTX_CHARGE_ROLLS: {0: _pool([true, true]), 1: _pool([false])},
+		DiceScoring.CTX_CHARGE_ROLLS: {0: _pool([true, false]), 1: _pool([false])},
 	}
 	var breakdown := _build(DiceScoring.TWO_KIND, _d([4, 4]), ctx)
 	assert_eq(breakdown["burned_after"], [0] as Array[int])
 	assert_eq(int(breakdown["charges_after"][0]), 0, "durchgebrannt trägt keine Ladung")
 	var groups: Array = breakdown["die_steps"][0]["die_triggers"]
-	assert_eq(groups.size(), 1, "der zweite Antritt entfällt")
-	assert_eq(groups[0]["firings"].size(), 1)
-	assert_true(bool(groups[0]["firings"][0]["burned"]))
+	assert_eq(groups.size(), 2, "beide Antritte zählen")
+	assert_true(bool(breakdown["die_steps"][0]["charge_step"]["burned"]))
+	assert_eq(breakdown["merge_total"], (10 + 4 + 4 + 4) * 2, "alle drei Zündungen gezählt")
 
 func test_the_burning_firing_still_counts():
 	var ctx := {

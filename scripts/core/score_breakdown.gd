@@ -10,7 +10,8 @@ class_name ScoreBreakdown
 ## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
 ## Ergebnis: key, participating, eye_slots, combo, combo_factor_steps, die_steps,
 ## charge_mult_step, charges_after, burned_after, fuse_used, charm_steps, base,
-## mult, merge_total, post_steps, total (== score_category).
+## mult, merge_total, post_steps, total (== score_category). Jeder Würfel-Schritt
+## trägt sein Ladungs-Urteil als "charge_step" ({} = nichts geschehen).
 ## "combo" trägt die PUREN Kategorie-Werte; jede Doppelter-Boden-Kopie ist ein
 ## eigener "combo_factor_step" dahinter - sonst reiste die Verdopplung
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
@@ -90,7 +91,6 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var charge_rule := DiceScoring.charge_rule_in(ctx)
 	var charge_cap := int(charge_rule.get("cap", DieDefinition.CHARGE_MAX))
 	var charge_rolls: Dictionary = ctx.get(DiceScoring.CTX_CHARGE_ROLLS, {})
-	var charge_used := {}
 	var running_charges := {}
 	var entered_hot := {}
 	var burned_now := {}
@@ -118,6 +118,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# Durchgebrannt: kein Würfel-Schritt, wie in DiceScoring.
 		if bool(burned_now.get(i, false)):
 			continue
+		var charge_firings := 0
 		var info := DiceScoring.level_info_for(ctx, i)
 		var level := MaterialEffects.level_in(info)
 		var eye_sum := int(info.get("eye_sum", 0))
@@ -338,36 +339,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				# Physischer Wert NACH dieser Zündung: die Zahl auf dem Würfel wandert
 				# mit (dauerhafte Änderung, also normal gefärbt - kein Vorschau-Grün).
 				entry["value_after"] = running_values[i]
-				# LADUNG an derselben Stelle wie in DiceScoring: ganz am Ende der
-				# Zündung - die Zündung, die durchbrennt, zählt noch voll.
-				var charge_hit := DiceScoring.apply_charge_step(i, running_charges, entered_hot,
-					burned_now, charge_rolls, charge_used, charge_rule,
-					EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
-				if bool(charge_hit["fuse"]):
-					fuse_used = true
-				# Lichtbogen: sein Zuschlag reist als CHARM-Basis dieser Zündung,
-				# damit das Dock-Pad blitzt. Krits multiplizieren nur den Mult, die
-				# späte Addition ändert die Summe also nicht.
-				var arc_base := CharmEffects.burnout_base(charm_ids) if bool(charge_hit["burned"]) else 0
-				if arc_base > 0:
-					base += arc_base
-					charm_base_now += arc_base
-					entry["charm_base_add"] = charm_base_now
-					entry["charm_base_after"] = base
-					entry["base_after_crit"] = base
-					_merge_indices(charm_indices_now, CharmEffects.charm_indices_of(Charm.ARC_FLASH, charm_ids))
-				entry["charge_after"] = int(running_charges.get(i, 0))
-				entry["charge_up"] = bool(charge_hit["charged"])
-				entry["burned"] = bool(charge_hit["burned"])
+				charge_firings += 1
 				firings.append(entry)
-				if bool(charge_hit["burned"]):
-					burned_after.append(i)
-					break
-			# Durchgebrannt: die Glieder DIESES Antritts entfallen - die Gruppe
-			# trägt trotzdem ihre gezählten Zündungen.
-			if bool(burned_now.get(i, false)):
-				groups.append({"firings": firings, "links": []})
-				break
 			# Glieder feuern EINMAL wie eine Zündung mit getauschter Seite - exakt
 			# DiceScoring._base_and_mult.
 			var links: Array[Dictionary] = []
@@ -454,7 +427,32 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				groups.append({"firings": firings, "links": links})
 			else:
 				det_links = links
+		# LADUNG: das Urteil des Würfels nach seiner letzten Zündung, exakt wie in
+		# DiceScoring - ein eigener Schritt am Ende des Würfel-Schritts. Der
+		# Lichtbogen zahlt hier, mit den Dock-Indizes, damit das Pad blitzt.
+		var charge_hit := DiceScoring.resolve_die_charge(i, charge_firings, running_charges,
+			entered_hot, burned_now, charge_rolls, charge_rule,
+			EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
+		if bool(charge_hit["fuse"]):
+			fuse_used = true
+		var charge_step := {}
+		if int(charge_hit["gained"]) != 0 or bool(charge_hit["burned"]) or bool(charge_hit["fuse"]):
+			var arc_base := CharmEffects.burnout_base(charm_ids) if bool(charge_hit["burned"]) else 0
+			base += arc_base
+			charge_step = {
+				"charge_after": int(running_charges.get(i, 0)),
+				"gained": int(charge_hit["gained"]),
+				"burned": bool(charge_hit["burned"]),
+				"fuse": bool(charge_hit["fuse"]),
+				"arc_base": arc_base,
+				"charm_indices": CharmEffects.charm_indices_of(Charm.ARC_FLASH, charm_ids) if arc_base > 0 else [] as Array[int],
+				"base_after": base,
+				"mult_after": mult,
+			}
+			if bool(charge_hit["burned"]):
+				burned_after.append(i)
 		die_steps.append({
+			"charge_step": charge_step,
 			"slot": i,
 			"phosphor_add": phosphor,
 			"phosphor_mult_add": phosphor_mult,
@@ -625,26 +623,6 @@ static func attach_activation_money(breakdown: Dictionary, plan: Dictionary) -> 
 			_assign_money(trigger["firings"], group["firings"])
 			_assign_money(trigger["links"], group["links"])
 		_assign_money(step.get("det_links", []), entry["det_links"])
-
-## Slot -> Zahl der Zündungen, die noch gezählt haben, bevor der Würfel in DIESER
-## Hand durchgebrannt ist. Die Nehmen-Effekte brechen daran an genau derselben
-## Zündung ab wie die Wertung - EINE Quelle, keine zweite Rechnung.
-static func burn_stops(breakdown: Dictionary) -> Dictionary:
-	var stops := {}
-	for step: Dictionary in breakdown.get("die_steps", []):
-		var fired := 0
-		var burned := false
-		for group: Dictionary in step.get("die_triggers", []):
-			for firing: Dictionary in group.get("firings", []):
-				fired += 1
-				if bool(firing.get("burned", false)):
-					burned = true
-					break
-			if burned:
-				break
-		if burned:
-			stops[int(step.get("slot", -1))] = fired
-	return stops
 
 ## Das gesamte Trinkgeld einer Hand: die Summe aller "tip_money" der Schrittliste.
 ## NUR eine Bilanz - gebucht wird jedes Paket bei seiner Ankunft, und zwar genau

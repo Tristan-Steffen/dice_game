@@ -387,10 +387,9 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## gleich", was ohne diese beiden Erweiterungen immer stimmt. Nur die Zauberkarte
 ## fragt nach ihr.
 ## burned: Slots, die schon VOR der Hand durchgebrannt waren - sie feuern nichts.
-## burn_stops: Slot -> Zahl der Zündungen, die noch zählten, bevor der Würfel in
-## DIESER Hand durchbrannte (ScoreBreakdown.burn_stops) - hier bricht die
-## Verschachtelung an genau derselben Zündung ab wie die Wertung.
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}, hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0, burned: Array[int] = [], burn_stops: Dictionary = {}) -> TakeReport:
+## Wer erst in dieser Hand durchbrennt, hat vorher FERTIG gefeuert (sein Urteil
+## fällt nach der letzten Zündung), also läuft hier alles wie in der Wertung.
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], pointer_fires: Dictionary = {}, hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0, burned: Array[int] = []) -> TakeReport:
 	var combo_slots := participating if combination.is_empty() else combination
 	# Die GEZEIGTEN Werte und der Schluss der Reihe: beide Achsen müssen exakt so
 	# gezählt werden wie in der Wertung (Lichtsäule liest Gleichzahlen, das
@@ -413,7 +412,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	# Zündung - hier steht es nur noch als Summe, damit nichts doppelt bucht.
 	report.activation_money = activation_money_total(plan_activation_money(defs, face_indices,
 		materials, participating, charm_ids, echo_slot, essences, order, is_stress,
-		pointer_fires, hands_taken, combination, burned, burn_stops))
+		pointer_fires, hands_taken, combination, burned))
 	for i in _take_order(order, participating):
 		if i >= defs.size() or i >= face_indices.size():
 			continue
@@ -460,10 +459,6 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		var before: int = defs[i].faces[face]
 		var swelled := false
 		var copper_once := copper_energy_once_for(face_material, level, charm_ids)
-		# Der Würfel brennt in DIESER Hand durch: nach so vielen Zündungen ist
-		# Schluss (-1 = er brennt nicht durch).
-		var stop := int(burn_stops.get(i, -1))
-		var fired := 0
 		for t in die_triggers:
 			for _f in face_triggers:
 				if copper_once > 0:
@@ -478,12 +473,6 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 				_infect_from(defs, face_indices, participating, i, face, essence_ids, rune_ids, charm_ids, report)
 				# ...und direkt danach die Bestrahlung, in derselben Folge wie dort.
 				_irradiate_from(defs, face_indices, participating, i, essence_ids, charm_ids, report, essence_repeat)
-				fired += 1
-				if stop >= 0 and fired >= stop:
-					break
-			# Durchgebrannt: die Glieder DIESES Antritts entfallen mit ihm.
-			if stop >= 0 and fired >= stop:
-				break
 			for fire in (fires[t] if t < fires.size() else []):
 				_fire_link(defs[i], int(fire["face"]), charm_ids, essence_ids, report, i, clause_growth)
 			# Röntgenlicht: die Gegenseite belichtet bei JEDEM Antritt, hinter dem
@@ -500,12 +489,10 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 
 		# Runen-Glieder (Kehrseite): EINMAL nach allen Würfel-Triggern - anders als
 		# der gewürfelte Pointer und das Röntgen-Glied. Der Stichel lässt die
-		# Kehrseite zweimal zünden (det_link_fire_count). Ein in dieser Hand
-		# durchgebrannter Würfel kommt gar nicht mehr so weit.
-		if stop < 0:
-			for link_face in EssenceEffects.link_faces(defs[i], face, rune_ids):
-				for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
-					_fire_link(defs[i], link_face, charm_ids, essence_ids, report, i, clause_growth)
+		# Kehrseite zweimal zünden (det_link_fire_count).
+		for link_face in EssenceEffects.link_faces(defs[i], face, rune_ids):
+			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
+				_fire_link(defs[i], link_face, charm_ids, essence_ids, report, i, clause_growth)
 
 		# Kontrastmittel: das Röntgenlicht belichtet die Achse durch - obere Seite
 		# halbiert, Gegenseite verdreifacht, beides dauerhaft.
@@ -545,9 +532,8 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 ## Parameter wie apply_take_effects. Ergebnis je Slot:
 ##   {"groups": [{"firings": [int], "links": [int]}], "det_links": [int], "total": int}
 ## EINE Quelle: der Zug meldet die Summe als activation_money und bucht sie nicht.
-## burned/burn_stops wie in apply_take_effects: ein durchgebrannter Würfel zahlt
-## nichts, ein in dieser Hand durchbrennender nur bis zu seiner letzten Zündung.
-static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, pointer_fires: Dictionary = {}, hands_taken: int = 0, combination: Array[int] = [], burned: Array[int] = [], burn_stops: Dictionary = {}) -> Dictionary:
+## burned wie in apply_take_effects: ein durchgebrannter Würfel zahlt nichts.
+static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, pointer_fires: Dictionary = {}, hands_taken: int = 0, combination: Array[int] = [], burned: Array[int] = []) -> Dictionary:
 	var combo_slots := participating if combination.is_empty() else combination
 	# Der Goldschmied legt auf JEDEN Gold-Träger denselben Zuschlag - additiv über
 	# jedem Satz, nie als Faktor auf ihn. Die Goldader kommt je Zündung dazu.
@@ -592,9 +578,6 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 		var fires: Array = pointer_fires.get(i, [])
 		var groups: Array[Dictionary] = []
 		var total := 0
-		var stop := int(burn_stops.get(i, -1))
-		var burn_count := 0
-		var stopped := false
 		for t in die_triggers:
 			var firings: Array[int] = []
 			for f in face_triggers:
@@ -607,14 +590,6 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 					gold_so_far += 1
 				firings.append(amount)
 				total += amount
-				burn_count += 1
-				if stop >= 0 and burn_count >= stop:
-					stopped = true
-					break
-			# Durchgebrannt: die Glieder DIESES Antritts entfallen mit ihm.
-			if stopped:
-				groups.append({"firings": firings, "links": [] as Array[int]})
-				break
 			var links: Array[int] = []
 			for fire in (fires[t] if t < fires.size() else []):
 				var link_face := int(fire["face"])
@@ -635,15 +610,14 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 					total += lit
 			groups.append({"firings": firings, "links": links})
 		var det_links: Array[int] = []
-		if not stopped:
-			for link_face in EssenceEffects.link_faces(defs[i], face, rune_ids):
-				for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
-					var det := _link_money(defs[i], link_face, charm_ids,
-						gold_surplus + CharmEffects.gold_vein_rate(gold_so_far, charm_ids), gold_triggers)
-					if _face_is_gold(defs[i], link_face):
-						gold_so_far += 1
-					det_links.append(det)
-					total += det
+		for link_face in EssenceEffects.link_faces(defs[i], face, rune_ids):
+			for _s in EssenceEffects.det_link_fire_count(face, link_face, rune_ids, charm_ids) * essence_repeat:
+				var det := _link_money(defs[i], link_face, charm_ids,
+					gold_surplus + CharmEffects.gold_vein_rate(gold_so_far, charm_ids), gold_triggers)
+				if _face_is_gold(defs[i], link_face):
+					gold_so_far += 1
+				det_links.append(det)
+				total += det
 		plan[i] = {"groups": groups, "det_links": det_links, "total": total}
 	return plan
 

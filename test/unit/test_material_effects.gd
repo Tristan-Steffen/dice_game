@@ -929,11 +929,3 @@ func test_a_burned_slot_grows_no_bone():
 		_p([]), 0, _p([0]))
 	assert_eq(defs[0].faces[0], 5, "die Seite bleibt, wie sie war")
 
-func test_the_take_stops_at_the_burning_firing():
-	# Hasenpfote zündet die 6 zweimal; brennt der Würfel nach der ERSTEN Zündung
-	# durch, zahlt Gold auch nur einmal.
-	var defs: Array[DieDefinition] = [_die([6, 2, 3, 4, 5, 6])]
-	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GOLD]),
-		_p([0]), _ids([Charm.RABBITS_FOOT]), -1, {}, _p([]), false, _p([]), {}, 0, 0,
-		[] as Array[DieDefinition], _p([]), 0, _p([]), {0: 1})
-	assert_eq(report.total_money(), 3, "die durchbrennende Zündung zählt, keine weitere")
