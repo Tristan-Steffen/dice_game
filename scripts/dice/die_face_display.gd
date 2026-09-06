@@ -155,21 +155,24 @@ const CHARGE_POOL_GAIN := 1.25
 ## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
 var _charge_level := 0
 var _burned := false
-## Das GLIMMEN der Stufe 1 ist HITZE (Spieler-Wahl 2026-09-06, „Glutkern"): die
-## Luft wabert als Schleier um und als Fahne über dem Würfel (die_heat.gdshader),
-## und im Wabern liegt eine orange-rote Glut, am Würfel am stärksten, oben aus.
+## Das GLIMMEN der Stufe 1 ist HITZE: EIN kamerazugewandtes Feld vor dem Würfel
+## (die_heat.gdshader), dessen Flimmern samt orange-roter Glut an der Silhouette am
+## stärksten ist und nach außen verlöscht - wie ein gefilmter heißer Körper.
+## charge_style ist der Autoren-Schalter der drei Fassungen (Spieler-Wahl offen):
+## 0 Aura (rundum), 1 Aufsteigend (nach oben gestreckt), 2 Glutkante (enges Band).
+var charge_style := 0
+const HEAT_STYLES := 3
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
-const HEAT_PLUME_SIZE := Vector2(2.9, 3.3)
-const HEAT_PLUME_LIFT := 2.5  # Quad-Mitte über dem Würfel-Mittelpunkt
-const HEAT_SHELL_SCALE := 1.3
-## Versatz als Anteil der Bildbreite - darüber zerfließen die Würfel statt zu flimmern.
-const HEAT_SHELL_STRENGTH := 0.006
-const HEAT_PLUME_STRENGTH := 0.004
+const HEAT_QUAD := Vector2(5.4, 5.4)
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
-## Glut-Anteile, gemessen: bei 0,3/0,4 las die Sichtprobe zu hell.
-const HEAT_SHELL_GLOW := 0.17
-const HEAT_PLUME_GLOW := 0.22
+## Je Fassung: inner, outer, rise, inside, band, strength, tint_amount.
+const HEAT_STYLE_PARAMS := [
+	[1.05, 2.1, 0.0, 0.3, 0.0, 0.0028, 0.2],
+	[1.05, 1.8, 0.85, 0.3, 0.0, 0.003, 0.2],
+	[1.0, 1.7, 0.2, 0.25, 0.16, 0.0025, 0.3],
+]
 var heat_parts: Array[MeshInstance3D] = []
+var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -1135,56 +1138,40 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt die Hitze-Teile (lazy, wie die Teilchen des Überschlags).
+## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags); ein
+## Stilwechsel baut neu.
 func _sync_heat(wanted: bool) -> void:
-	if not wanted:
+	if not wanted or _heat_built_style != charge_style:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
+		_heat_built_style = -1
+	if not wanted or not heat_parts.is_empty():
 		return
-	if not heat_parts.is_empty():
-		return
-	_add_heat_shell(HEAT_SHELL_STRENGTH, HEAT_SHELL_GLOW)
-	_add_heat_plume(HEAT_PLUME_SIZE, HEAT_PLUME_LIFT, HEAT_PLUME_STRENGTH, HEAT_PLUME_GLOW, 0.5)
-
-func _heat_material(mode: float, billboard: bool, strength: float, tint_amount: float,
-		phase_shift: float, scale := 8.0) -> ShaderMaterial:
+	var params: Array = HEAT_STYLE_PARAMS[clampi(charge_style, 0, HEAT_STYLES - 1)]
 	var material := ShaderMaterial.new()
 	material.shader = HEAT_SHADER
-	material.set_shader_parameter("mode", mode)
-	material.set_shader_parameter("billboard", 1.0 if billboard else 0.0)
-	material.set_shader_parameter("strength", strength)
-	material.set_shader_parameter("tint_amount", tint_amount)
+	material.set_shader_parameter("quad_size", HEAT_QUAD)
+	material.set_shader_parameter("inner", float(params[0]))
+	material.set_shader_parameter("outer", float(params[1]))
+	material.set_shader_parameter("rise", float(params[2]))
+	material.set_shader_parameter("inside", float(params[3]))
+	material.set_shader_parameter("band", float(params[4]))
+	material.set_shader_parameter("strength", float(params[5]))
+	material.set_shader_parameter("tint_amount", float(params[6]))
 	material.set_shader_parameter("tint", HEAT_RED)
-	material.set_shader_parameter("scale", scale)
-	material.set_shader_parameter("phase", _pulse_phase + phase_shift)
+	material.set_shader_parameter("phase", _pulse_phase)
 	# VOR allen anderen Durchsichtigen: der Bildschirm-Abzug kennt Ziffern, Pucks
 	# und Lachen nicht - zeichnet das Flimmern zuerst, liegen sie unversehrt darüber.
 	material.render_priority = -8
-	return material
-
-func _add_heat_part(mesh: Mesh, material: ShaderMaterial, offset: Vector3) -> void:
+	var quad := QuadMesh.new()
+	quad.size = HEAT_QUAD
 	var part := MeshInstance3D.new()
-	part.name = "Heat%d" % heat_parts.size()
-	part.mesh = mesh
+	part.name = "Heat"
+	part.mesh = quad
 	part.material_override = material
-	part.position = offset
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
-
-## Die FAHNE: ein Billboard-Quad über dem Würfel, Flimmern zieht nach oben.
-func _add_heat_plume(size: Vector2, lift: float, strength: float, tint_amount: float,
-		phase_shift: float) -> void:
-	var quad := QuadMesh.new()
-	quad.size = size
-	_add_heat_part(quad, _heat_material(0.0, true, strength, tint_amount, phase_shift),
-		Vector3(0.0, lift, 0.0))
-
-## Der SCHLEIER: eine abgehobene Hülle, die nur am Silhouettenrand flimmert.
-func _add_heat_shell(strength: float, tint_amount: float) -> void:
-	var box := BoxMesh.new()
-	box.size = Vector3.ONE * DieBuilder.HALF_EXTENT * 2.0 * HEAT_SHELL_SCALE
-	_add_heat_part(box, _heat_material(1.0, false, strength, tint_amount, 0.0, 5.0),
-		Vector3.ZERO)
+	_heat_built_style = charge_style

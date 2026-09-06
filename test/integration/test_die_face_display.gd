@@ -132,11 +132,11 @@ func test_the_flash_lifts_the_lamp_and_falls_back() -> void:
 		"und fällt auf die Ruhe zurück")
 
 func test_only_the_glimmer_builds_its_heat_parts() -> void:
-	# Stufe 1 wabert: Schleier plus Fahne, lazy gebaut - kalt, heißer und Ruß
+	# Stufe 1 wabert: ein Hitze-Feld, lazy gebaut - kalt, heißer und Ruß
 	# tragen keine Hitze-Teile.
 	var glimmer := _display()
 	glimmer.apply_definition(_def(1))
-	assert_eq(glimmer.heat_parts.size(), 2, "Schleier und Fahne")
+	assert_eq(glimmer.heat_parts.size(), 1, "EIN Hitze-Feld")
 	for part in glimmer.heat_parts:
 		assert_eq((part.material_override as ShaderMaterial).shader, DieFaceDisplay.HEAT_SHADER)
 	glimmer.apply_definition(_def(0))

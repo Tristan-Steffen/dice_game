@@ -1,27 +1,36 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_back, unshaded, shadows_disabled;
 
-// HITZE, die vom Würfel wegwabert: das Bild HINTER dem Körper wird wie heiße
-// Luft verzerrt (Screen-Refraktion), nach oben ziehend. Kein Licht, keine Fläche -
-// nur das Flimmern. Zwei Formen: eine FAHNE (Billboard-Quad über dem Würfel,
-// Maske über die Quad-UV: seitlich weich, oben verlöschend) und ein SCHLEIER
-// (Box-Hülle um den Würfel, Maske am Silhouettenrand - Fresnel). Die Hülle liegt
-// abgehoben und zeigt kein eigenes Bild: sie ist unsichtbar, wo sie nicht verzerrt.
+// HITZE, die vom Würfel wegwabert, wie bei einem gefilmten heißen Körper: das
+// Bild HINTER dem Feld wird wie heiße Luft verzerrt (Screen-Refraktion), nach
+// oben ziehend, und eine orange-rote Glut liegt im Flimmern. EIN Billboard-Quad
+// vor dem Würfel, und die Maske ist eine ENTFERNUNG zur Silhouette: an der
+// Kante am stärksten (inner), nach außen weich verloschen (outer) - so hat das
+// Feld keinen sichtbaren Rand. Über dem Körper selbst nur ein Rest der
+// Verzerrung (inside) und keine Glut.
 
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
-// 0 = Fahne (Quad-Maske), 1 = Schleier (Fresnel-Maske)
-uniform float mode = 0.0;
-// Billboard: das Quad dreht sich zur Kamera, behält aber die Modell-Skalierung.
-uniform float billboard = 0.0;
-// Versatz im Bild (Anteil der Bildschirmbreite) - die Stärke des Flimmerns.
-uniform float strength = 0.025;
+// Kantenlänge des Quads in Modell-Einheiten (Würfel-Halbmaß = 1).
+uniform vec2 quad_size = vec2(5.2, 5.2);
+// Das Quad rückt der Kamera entgegen, damit es VOR dem Würfel liegt und dessen
+// Kanten mitwabern.
+uniform float lift = 1.6;
+// Abstand vom Würfelmittelpunkt, ab dem die Hitze voll ist (die Silhouette) und
+// wo sie verloschen ist.
+uniform float inner = 1.05;
+uniform float outer = 2.1;
+// 0..1: nach oben gestreckt - Hitze steigt.
+uniform float rise = 0.0;
+// Rest-Verzerrung über dem Körper.
+uniform float inside = 0.3;
+// > 0: ein enges Glut-Band an der Silhouette (Breite in Modell-Einheiten).
+uniform float band = 0.0;
+uniform float strength = 0.003;
 uniform float speed = 1.0;
-uniform float scale = 5.0;
+uniform float scale = 1.4;
 uniform float phase = 0.0;
-// Die GLUT im Flimmern: orange-rot, damit die Hitze als Hitze liest - am Würfel
-// am stärksten, nach oben verlöschend (Spieler-Wahl 2026-09-06, „Glutkern").
 uniform vec3 tint = vec3(0.95, 0.24, 0.08);
-uniform float tint_amount = 0.0;
+uniform float tint_amount = 0.2;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -37,44 +46,42 @@ float vnoise(vec2 p) {
 }
 
 void vertex() {
-	if (billboard > 0.5) {
-		MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1],
-			INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
-		MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(
-			vec4(length(MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0),
-			vec4(0.0, length(MODEL_MATRIX[1].xyz), 0.0, 0.0),
-			vec4(0.0, 0.0, length(MODEL_MATRIX[2].xyz), 0.0),
-			vec4(0.0, 0.0, 0.0, 1.0));
-		MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);
-	}
+	// Billboard mit Modell-Skalierung, dann der Kamera entgegen.
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1],
+		INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+	float s = length(MODEL_MATRIX[0].xyz);
+	MODELVIEW_MATRIX = MODELVIEW_MATRIX * mat4(
+		vec4(s, 0.0, 0.0, 0.0), vec4(0.0, s, 0.0, 0.0), vec4(0.0, 0.0, s, 0.0),
+		vec4(0.0, 0.0, 0.0, 1.0));
+	MODELVIEW_MATRIX[3].z += lift * s;
+	MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);
 }
 
 void fragment() {
 	float t = TIME * speed + phase;
-	float mask;
-	if (mode < 0.5) {
-		// Fahne: in der Mitte voll, seitlich weich, oben verlöschend, unten (am
-		// Würfel) ohne harte Kante.
-		float mx = 1.0 - abs(UV.x - 0.5) * 2.0;
-		float side = smoothstep(0.0, 0.6, mx);
-		float top = smoothstep(0.0, 0.65, UV.y);
-		float foot = smoothstep(1.0, 0.9, UV.y);
-		mask = side * top * foot;
-	} else {
-		// Schleier: nur am Silhouettenrand, wo die Hülle den Blick streift.
-		float fres = 1.0 - clamp(abs(dot(normalize(NORMAL), normalize(VIEW))), 0.0, 1.0);
-		mask = pow(fres, 1.6);
+	// Lage im Quad in Modell-Einheiten, y nach OBEN.
+	vec2 p = (UV - 0.5) * quad_size;
+	p.y = -p.y;
+	vec2 q = p;
+	if (q.y > 0.0) {
+		q.y /= 1.0 + rise * 1.8;
 	}
-	// Zwei Oktaven, beide nach OBEN ziehend (UV.y wächst nach unten).
-	vec2 p1 = vec2(UV.x * scale, UV.y * scale + t);
-	vec2 p2 = vec2(UV.x * scale * 2.3 + 7.3, UV.y * scale * 2.3 + t * 1.7);
+	float r = length(q);
+	float fall = 1.0 - smoothstep(inner, outer, r);
+	float outside = smoothstep(inner - 0.3, inner + 0.12, r);
+	float mask = mix(inside, 1.0, outside) * fall;
+	float glow = outside * fall;
+	if (band > 0.0) {
+		float rim = exp(-pow((r - inner) / band, 2.0));
+		glow = max(glow * 0.35, rim);
+	}
+	// Zwei Oktaven, beide nach OBEN ziehend.
+	vec2 p1 = vec2(p.x * scale, (p.y - t) * scale);
+	vec2 p2 = vec2(p.x * scale * 2.3 + 7.3, (p.y - t * 1.7) * scale * 2.3);
 	float n1 = vnoise(p1);
 	float n2 = vnoise(p2);
 	vec2 offset = (vec2(n1, n2) - 0.5) * 2.0 * strength * mask;
 	vec3 seen = texture(screen_texture, SCREEN_UV + offset).rgb;
-	// Nähe zum Würfel: die Fahne ist unten (UV.y -> 1) am heißesten, der
-	// Schleier überall gleich nah.
-	float near = mode < 0.5 ? UV.y * UV.y : 1.0;
-	ALBEDO = seen + tint * tint_amount * mask * near * (0.5 + 0.5 * n1);
+	ALBEDO = seen + tint * tint_amount * glow * (0.45 + 0.55 * n1);
 	ALPHA = 1.0;
 }
