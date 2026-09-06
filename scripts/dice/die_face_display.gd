@@ -167,7 +167,14 @@ const HEAT_REACH := 1.9
 const HEAT_INSIDE := 0.25
 const HEAT_STRENGTH := 0.0022  # Anteil der Bildbreite; 0,003 war dem Spieler zu viel
 const HEAT_GLOW := 0.26
+## Autoren-Schalter der drei Wellen-Fassungen (Spieler-Wahl offen): 0 Ringe,
+## 1 Schwaden, 2 Brandung.
+var charge_style := 0
+const HEAT_STYLES := 3
+## Je Fassung: Wellenzahl, Auslauf-Tempo, Ballen rundum.
+const HEAT_STYLE_PARAMS := [[5.4, 0.6, 7.0], [4.2, 0.5, 7.0], [4.6, 0.55, 5.0]]
 var heat_parts: Array[MeshInstance3D] = []
+var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -1133,18 +1140,24 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags).
+## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags); ein
+## Stilwechsel baut neu.
 func _sync_heat(wanted: bool) -> void:
-	if not wanted:
+	if not wanted or _heat_built_style != charge_style:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
+		_heat_built_style = -1
+	if not wanted or not heat_parts.is_empty():
 		return
-	if not heat_parts.is_empty():
-		return
+	var params: Array = HEAT_STYLE_PARAMS[clampi(charge_style, 0, HEAT_STYLES - 1)]
 	var material := ShaderMaterial.new()
 	material.shader = HEAT_SHADER
+	material.set_shader_parameter("mode", float(clampi(charge_style, 0, HEAT_STYLES - 1)))
+	material.set_shader_parameter("wave_freq", float(params[0]))
+	material.set_shader_parameter("wave_speed", float(params[1]))
+	material.set_shader_parameter("blobs", float(params[2]))
 	material.set_shader_parameter("quad_size", HEAT_QUAD)
 	material.set_shader_parameter("reach", HEAT_REACH)
 	material.set_shader_parameter("inside", HEAT_INSIDE)
@@ -1164,3 +1177,4 @@ func _sync_heat(wanted: bool) -> void:
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
+	_heat_built_style = charge_style
