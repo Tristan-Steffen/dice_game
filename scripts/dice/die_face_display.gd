@@ -156,21 +156,17 @@ const CHARGE_POOL_GAIN := 1.25
 var _charge_level := 0
 var _burned := false
 ## Das GLIMMEN der Stufe 1 ist HITZE, die AUS dem Würfel kommt: EIN kamerazugewandtes
-## Feld vor dem Würfel (die_heat.gdshader), dessen Schlieren vom Körper weg getrieben
-## werden und mit dem Abstand verlöschen; wo es nichts tut, ist es durchsichtig.
-## charge_style ist der Autoren-Schalter der drei Fassungen (Spieler-Wahl offen):
-## 0 Aufstrom, 1 Ausdünstung, 2 Flammenzungen.
-var charge_style := 0
-const HEAT_STYLES := 3
+## Feld vor dem Würfel (die_heat.gdshader), dessen Schlieren rundum vom Körper weg
+## strömen und mit dem Abstand verlöschen; wo es nichts tut, ist es durchsichtig
+## (Spieler-Wahl 2026-09-06 "Ausdünstung, etwas weniger Wabern").
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
 const HEAT_QUAD := Vector2(5.6, 5.6)
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
 const HEAT_REACH := 1.9
 const HEAT_INSIDE := 0.25
-const HEAT_STRENGTH := 0.003
+const HEAT_STRENGTH := 0.0022  # Anteil der Bildbreite; 0,003 war dem Spieler zu viel
 const HEAT_GLOW := 0.26
 var heat_parts: Array[MeshInstance3D] = []
-var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -1136,20 +1132,18 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags); ein
-## Stilwechsel baut neu.
+## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags).
 func _sync_heat(wanted: bool) -> void:
-	if not wanted or _heat_built_style != charge_style:
+	if not wanted:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
-		_heat_built_style = -1
-	if not wanted or not heat_parts.is_empty():
+		return
+	if not heat_parts.is_empty():
 		return
 	var material := ShaderMaterial.new()
 	material.shader = HEAT_SHADER
-	material.set_shader_parameter("mode", float(clampi(charge_style, 0, HEAT_STYLES - 1)))
 	material.set_shader_parameter("quad_size", HEAT_QUAD)
 	material.set_shader_parameter("reach", HEAT_REACH)
 	material.set_shader_parameter("inside", HEAT_INSIDE)
@@ -1169,4 +1163,3 @@ func _sync_heat(wanted: bool) -> void:
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
-	_heat_built_style = charge_style

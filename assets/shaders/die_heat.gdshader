@@ -7,11 +7,10 @@ render_mode blend_mix, depth_draw_never, cull_back, unshaded, shadows_disabled;
 // Feld beginnt an der Silhouette und verlöscht mit dem Abstand. Wo es nichts tut,
 // ist es DURCHSICHTIG (ALPHA folgt dem Feld) - der Bildschirm-Abzug hinkt einen
 // Frame nach, ein deckend geschriebener Rand zeichnete sich als Quadrat ab.
-// mode: 0 Aufstrom (steigt vom Deckel auf), 1 Ausdünstung (strömt rundum nach
-// außen), 2 Flammenzungen (einzelne Zungen vom Deckel).
+// Die Schlieren strömen RUNDUM nach außen, oben etwas weiter (Spieler-Wahl
+// 2026-09-06 "Ausdünstung" nach vier Runden Varianten).
 
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
-uniform float mode = 0.0;
 // Kantenlänge des Quads in Modell-Einheiten (Würfel-Halbmaß = 1).
 uniform vec2 quad_size = vec2(5.6, 5.6);
 // Das Quad rückt der Kamera entgegen, damit es VOR dem Würfel liegt.
@@ -21,7 +20,7 @@ uniform float inner = 1.0;
 uniform float reach = 1.6;
 // Rest-Verzerrung über dem Körper.
 uniform float inside = 0.25;
-uniform float strength = 0.003;
+uniform float strength = 0.0022;
 uniform float speed = 0.9;
 uniform float scale = 1.5;
 uniform float phase = 0.0;
@@ -62,37 +61,12 @@ void fragment() {
 	float d = mix(length(p), max(abs(p.x), abs(p.y)), 0.5) - inner;
 	// Über dem Körper (d < 0) nur der Rest, ab der Silhouette voll.
 	float body = smoothstep(-0.35, 0.05, d);
-	// Ein dünner Hauch, der rundum an der Oberfläche klebt.
-	float rim = exp(-max(d, 0.0) * 2.4 / reach);
-	float field;
-	vec2 drift;
-	if (mode < 0.5) {
-		// AUFSTROM: vom Deckel aufwärts, breiter und schwächer mit der Höhe.
-		float up = max(p.y - inner * 0.55, 0.0);
-		float width = 0.85 * inner + up * 0.55;
-		float lateral = exp(-pow(p.x / width, 2.0) * 2.2);
-		float plume = lateral * exp(-up / reach) * step(0.0, p.y - inner * 0.55);
-		field = max(plume, rim * 0.3);
-		drift = vec2(0.0, -t);
-	} else if (mode < 1.5) {
-		// AUSDÜNSTUNG: rundum nach außen, oben etwas weiter.
-		float lift_up = 1.0 + 0.5 * clamp(p.y / inner, 0.0, 1.0);
-		field = exp(-max(d, 0.0) * 2.0 / (reach * lift_up));
-		float a = atan(p.y, p.x);
-		// Polar: die Wellen laufen mit r - t nach AUSSEN.
-		drift = vec2(a * 2.2 - p.x * scale, -(length(p) - t * 0.8) * scale + p.y * scale);
-	} else {
-		// FLAMMENZUNGEN: der Aufstrom, in einzelne Zungen zerteilt, deren Spitzen
-		// verschieden hoch reichen und flackern.
-		float up = max(p.y - inner * 0.55, 0.0);
-		float width = 0.9 * inner + up * 0.4;
-		float lateral = exp(-pow(p.x / width, 2.0) * 2.0);
-		float tongue = 0.5 + 0.5 * sin(p.x * 4.2 + vnoise(vec2(p.x * 2.0, t * 0.6)) * 4.0 + t * 0.7);
-		float height = reach * (0.6 + 0.9 * tongue);
-		float plume = lateral * exp(-up / height) * pow(tongue, 1.3) * step(0.0, p.y - inner * 0.55);
-		field = max(plume, rim * 0.3);
-		drift = vec2(0.0, -t);
-	}
+	// Rundum nach außen, oben etwas weiter.
+	float lift_up = 1.0 + 0.5 * clamp(p.y / inner, 0.0, 1.0);
+	float field = exp(-max(d, 0.0) * 2.0 / (reach * lift_up));
+	float a = atan(p.y, p.x);
+	// Polar: die Wellen laufen mit r - t nach AUSSEN.
+	vec2 drift = vec2(a * 2.2 - p.x * scale, -(length(p) - t * 0.8) * scale + p.y * scale);
 	float mask = field * mix(inside, 1.0, body);
 	// Zwei Oktaven, mit der Drift vom Körper weg.
 	vec2 p1 = (p + drift) * scale;
