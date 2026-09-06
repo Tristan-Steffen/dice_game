@@ -19,12 +19,8 @@ render_mode blend_mix, depth_draw_never, depth_test_disabled, cull_back, unshade
 // die Ziffern. Dafür übermalen die Nachbar-Würfel sie; die GLUT trägt darum die
 // zweite Lage (die_heat_glow.gdshader, ADDITIV und zuoberst), und erst dadurch
 // steht die Hitze RUNDUM. Masken- und Wellen-Rechnung sind in beiden GLEICH.
-//
-// mode: 0 Ringe (klare, gleichmäßig auslaufende Fronten), 1 Schwaden (runde
-// Ballen, die nach außen treiben), 2 Brandung (Ringe mit verbeulten Fronten).
 
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear, repeat_disable;
-uniform float mode = 0.0;
 // Kantenlänge des Quads in Modell-Einheiten (Würfel-Halbmaß = 1).
 uniform vec2 quad_size = vec2(7.0, 7.0);
 // Vorziehen zur Kamera - 0, denn ohne Tiefentest braucht es das nicht, und ein
@@ -35,31 +31,15 @@ uniform float inner = 1.0;
 uniform float reach = 1.9;
 // Rest-Verzerrung über dem Körper.
 uniform float inside = 0.25;
-uniform float strength = 0.0022;
+// Versatz in MODELL-Einheiten (Würfel-Halbmaß = 1), nicht in Bildschirmbreite:
+// so schrumpft das Flimmern mit der scheinbaren Größe des Würfels mit, statt aus
+// der Ferne gleich stark stehen zu bleiben.
+uniform float strength = 0.012;
 // Wellenzahl (Fronten je Modell-Einheit) und wie schnell sie auslaufen - das
 // Tempo ist bewusst niedrig: eine Front braucht rund zehn Sekunden nach außen.
 uniform float wave_freq = 4.4;
 uniform float wave_speed = 0.15;
-// Zahl der Ballen rundum - ganzzahlig, damit das Winkel-Rauschen nahtlos schließt.
-uniform float blobs = 7.0;
 uniform float phase = 0.0;
-
-float hash21(vec2 p) {
-	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-}
-
-// Wert-Rauschen, das in x nahtlos schließt (Periode period): der Ring aus Ballen
-// hat damit keine Naht bei ±π.
-float ring_noise(vec2 p, float period) {
-	vec2 i = floor(p);
-	vec2 f = fract(p);
-	f = f * f * (3.0 - 2.0 * f);
-	float x0 = mod(i.x, period);
-	float x1 = mod(i.x + 1.0, period);
-	return mix(
-		mix(hash21(vec2(x0, i.y)), hash21(vec2(x1, i.y)), f.x),
-		mix(hash21(vec2(x0, i.y + 1.0)), hash21(vec2(x1, i.y + 1.0)), f.x), f.y);
-}
 
 void vertex() {
 	// Billboard mit Modell-Skalierung, dann der Kamera entgegen.
@@ -88,29 +68,16 @@ void fragment() {
 	field *= 1.0 - smoothstep(half_span - 1.4, half_span - 0.2,
 		max(abs(p.x), abs(p.y)));
 	vec2 dir = normalize(p + vec2(0.0001, 0.0002));
-	// Winkel als nahtlos schließende Achse: 0..blobs, ganzzahlige Periode.
-	float ang = (atan(p.y, p.x) / TAU + 0.5) * blobs;
-
 	// Die WELLE (-1..1) läuft mit r - t nach AUSSEN, in jede Richtung gleich.
-	float front = r - t * wave_speed;
-	float wave;
-	if (mode < 0.5) {
-		wave = sin(front * wave_freq);
-	} else if (mode < 1.5) {
-		// Schwaden: das Rauschen wandert MIT der Front, seine Ballen sind darum
-		// runde Wolken statt radialer Striche.
-		float n = ring_noise(vec2(ang, front * wave_freq * 0.16), blobs);
-		wave = smoothstep(0.28, 0.86, n) * 2.0 - 1.0;
-	} else {
-		// Brandung: Ringe, deren Fronten das Rauschen verbeult.
-		float wob = ring_noise(vec2(ang, t * 0.25), blobs) - 0.5;
-		wave = sin((front + wob * 1.1) * wave_freq);
-	}
+	float wave = sin((r - t * wave_speed) * wave_freq);
 
 	// Der Versatz zeigt RADIAL: eine auslaufende Front schiebt das Bild vor sich
 	// her. dir.y ist Modell-oben, SCREEN_UV.y läuft nach unten.
 	float amp = field * mix(inside, 1.0, body);
-	vec2 offset = vec2(dir.x, -dir.y) * wave * strength * amp;
+	// Modell-Einheiten in Bildschirm-UV: die Ableitung sagt, wie groß der Würfel
+	// gerade im Bild steht - aus der Ferne wird der Versatz damit kleiner.
+	float uv_per_model = abs(dFdx(SCREEN_UV.x) / max(abs(dFdx(p.x)), 1e-6));
+	vec2 offset = vec2(dir.x, -dir.y) * wave * strength * uv_per_model * amp;
 	ALBEDO = texture(screen_texture, SCREEN_UV + offset).rgb;
 	// Durchsichtig, wo das Feld nichts tut - kein Quadrat.
 	ALPHA = clamp(field * 2.5, 0.0, 1.0);

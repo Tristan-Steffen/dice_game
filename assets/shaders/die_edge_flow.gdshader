@@ -39,11 +39,14 @@ uniform float breath_amount = 0.08;
 // Nachfolger von set_edge_tint auf dem alten StandardMaterial.
 uniform vec4 flat_tint = vec4(0.0);
 // Die LADUNG des Würfels (0-3). Ein EIGENER Kanal neben flow_style, denn der
-// gehört der Seelen-Rarität: ab 2 kriechen Funken die Kanten entlang, ab 3
-// glüht ihr Kern orange. Stufe 1 sitzt allein im lamp_color (Glimmen).
+// gehört der Seelen-Rarität: ab 2 entladen sich Funken längs der Kanten, ab 3
+// glüht ihr Kern orange. Die Kanten-FARBE bleibt dabei unberührt (Spieler-Wunsch
+// 2026-09-06); Stufe 1 zeichnet hier gar nichts, sie ist die Hitze davor.
 uniform float charge_level = 0.0;
 uniform vec3 charge_color = vec3(0.86, 0.66, 1.35);
 uniform vec3 charge_core = vec3(1.45, 0.72, 0.30);
+// Fassung der Entladungen (Autoren-Schalter, Spieler-Wahl offen).
+uniform float arc_style = 0.0;
 
 const float BREATH_SPEED = 1.4;
 
@@ -56,13 +59,84 @@ const float BOIL_SPEED = 4.2;
 const float FLOW_DIP = 0.3;
 const float FLOW_LIFT = 0.5;
 
-// KRIECHSTROM: schmale, helle Köpfe, die die Kante entlanglaufen. Scharf statt
-// breit (SPARK_SHARP) - eine breite Welle läse als zweite Strömung, ein
-// schmaler Kopf als Funke.
-const float SPARK_SCALE = 3.4;
-const float SPARK_SPEED = 5.5;
-const float SPARK_SHARP = 14.0;
-const float SPARK_GAIN = 0.8;
+// KRIECHSTROM: kleine ELEKTRISCHE ENTLADUNGEN längs der Kanten - zufällig in
+// Ort und Zeit, nie ein umlaufender Takt (der las als Karussell). Die Kante
+// selbst wird davon NICHT eingefärbt; die Entladung legt sich nur darauf.
+// arc_style: 0 Zuckungen, 1 Kriechfunken, 2 Lichtbögen, 3 Prasseln, 4 Gewitter.
+const float ARC_GAIN = 1.15;
+const float ZUCK_CELLS = 6.0;
+const float ZUCK_RATE = 3.6;
+const float ZUCK_DENSITY = 0.34;
+const float KRIECH_WIDTH = 0.045;
+const float BOGEN_RATE = 2.0;
+const float BOGEN_DENSITY = 0.5;
+const float PRASSEL_CELLS = 15.0;
+const float PRASSEL_RATE = 8.0;
+const float PRASSEL_DENSITY = 0.15;
+const float GEWITTER_RATE = 0.85;
+const float GEWITTER_DENSITY = 0.34;
+
+float hash11(float x) {
+	return fract(sin(x * 12.9898 + 4.1414) * 43758.5453);
+}
+
+float hash21(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+// Die Entladung an dieser Stelle (0..1). s = 0..1 längs des Balkens, seed
+// unterscheidet die zwölf Kanten, damit sie nie im Gleichschritt zünden.
+float discharge(float s, float t, float seed, float style) {
+	if (style < 0.5) {
+		// ZUCKUNGEN: kurze Segmente springen an zufälligen Stellen an und aus.
+		float u = s * ZUCK_CELLS;
+		float cell = floor(u) + seed;
+		float k = t * ZUCK_RATE + hash11(cell) * 9.0;
+		float on = step(1.0 - ZUCK_DENSITY, hash21(vec2(cell, floor(k))));
+		float env = pow(max(1.0 - fract(k) * 2.6, 0.0), 2.0);
+		return on * env * smoothstep(0.5, 0.12, abs(fract(u) - 0.5));
+	}
+	if (style < 1.5) {
+		// KRIECHFUNKEN: drei Köpfe kriechen mit zufälligem Tempo und Richtung.
+		float sum = 0.0;
+		for (int i = 0; i < 3; i++) {
+			float id = seed + float(i) * 3.7;
+			float speed = mix(0.5, 1.8, hash11(id + 7.1));
+			float way = hash11(id + 11.3) < 0.5 ? -1.0 : 1.0;
+			float gap = abs(s - fract(hash11(id) + t * speed * way));
+			gap = min(gap, 1.0 - gap);
+			float flick = 0.6 + 0.4 * hash11(floor(t * 18.0) + id);
+			sum += exp(-pow(gap / KRIECH_WIDTH, 2.0)) * flick;
+		}
+		return min(sum, 1.0);
+	}
+	if (style < 2.5) {
+		// LICHTBÖGEN: ein zufälliger Abschnitt der Kante steht kurz unter Strom.
+		float k = t * BOGEN_RATE + hash11(seed) * 5.0;
+		float slot = floor(k);
+		float span = mix(0.1, 0.32, hash21(vec2(seed + 3.0, slot)));
+		float on = step(1.0 - BOGEN_DENSITY, hash21(vec2(seed + 9.0, slot)));
+		float body = smoothstep(span, span * 0.25, abs(s - hash21(vec2(seed, slot))));
+		float flick = 0.35 + 0.65 * hash11(floor(t * 30.0) + slot + seed);
+		return on * body * flick * pow(max(1.0 - fract(k) * 1.6, 0.0), 1.5);
+	}
+	if (style < 3.5) {
+		// PRASSELN: viele winzige, sehr kurze Punkte - statisches Knistern.
+		float u = s * PRASSEL_CELLS;
+		float cell = floor(u) + seed;
+		float k = t * PRASSEL_RATE + hash11(cell) * 13.0;
+		float on = step(1.0 - PRASSEL_DENSITY, hash21(vec2(cell, floor(k))));
+		return on * pow(max(1.0 - fract(k) * 4.0, 0.0), 3.0)
+			* smoothstep(0.5, 0.25, abs(fract(u) - 0.5));
+	}
+	// GEWITTER: selten, dafür schlägt die GANZE Kante auf einmal durch.
+	float k = t * GEWITTER_RATE + hash11(seed) * 3.0;
+	float slot = floor(k);
+	float on = step(1.0 - GEWITTER_DENSITY, hash21(vec2(seed + 21.0, slot)));
+	float flick = step(0.35, hash11(floor(t * 45.0) + slot));
+	return on * flick * pow(max(1.0 - fract(k) * 2.2, 0.0), 1.2)
+		* (0.7 + 0.3 * sin(s * 30.0 + slot));
+}
 
 varying vec3 local_pos;
 
@@ -108,14 +182,20 @@ void fragment() {
 		// Welcher Balken und wohin: dieselbe Laufrichtung tragen Seelen-Fluss und
 		// Ladungs-Funken - EINE Ableitung aus der Geometrie.
 		float run = 0.0;
+		// ...und WELCHE der zwölf Kanten: aus den beiden festgenagelten Achsen,
+		// damit jede ihren eigenen Zufall hat.
+		float seed = 0.0;
 		if (flow_style > 0.5 || charge_level > 1.5) {
 			vec3 a = abs(local_pos);
 			if (a.x < a.y && a.x < a.z) {
 				run = local_pos.x * sign(local_pos.z);   // Riegel längs X: Zirkulation
+				seed = sign(local_pos.y) * 2.0 + sign(local_pos.z) * 5.0;
 			} else if (a.z < a.y) {
 				run = -local_pos.z * sign(local_pos.x);  // Riegel längs Z: Zirkulation
+				seed = sign(local_pos.x) * 2.0 + sign(local_pos.y) * 5.0 + 30.0;
 			} else {
 				run = local_pos.y;                       // Pfosten: aufwärts
+				seed = sign(local_pos.x) * 2.0 + sign(local_pos.z) * 5.0 + 60.0;
 			}
 		}
 		if (flow_style > 0.5) {
@@ -124,10 +204,10 @@ void fragment() {
 		}
 		EMISSION = glow * pattern * breath;
 		if (charge_level > 1.5) {
-			float head = max(sin(run * SPARK_SCALE - TIME * SPARK_SPEED + phase), 0.0);
-			float spark = pow(head, SPARK_SHARP);
+			float arc = discharge(clamp(run * 0.5 + 0.5, 0.0, 1.0), TIME,
+				seed + phase * 3.0, arc_style);
 			vec3 tint = charge_level > 2.5 ? mix(charge_color, charge_core, 0.62) : charge_color;
-			EMISSION += tint * spark * SPARK_GAIN;
+			EMISSION += tint * arc * ARC_GAIN;
 		}
 	}
 }

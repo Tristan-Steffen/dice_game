@@ -129,7 +129,7 @@ const BURNED_BODY := Color(0.035, 0.03, 0.035)
 const BURNED_EDGE := Color(0.14, 0.12, 0.12)
 const BURNED_NUMBER := Color(0.30, 0.28, 0.30)
 ## Wie stark die Ladung den Rahmen-Ton je Stufe einfärbt (Index = Stufe).
-const CHARGE_LAMP_MIX := [0.0, 0.0, 0.5, 0.72]  # Stufe 1 ist reines Flimmern, die Kante bleibt kahl
+const CHARGE_LAMP_MIX := [0.0, 0.0, 0.0, 0.72]  # Stufe 1 ist reines Flimmern, die Kante bleibt kahl
 ## Ab dieser Stufe kriechen Funken über die Kanten (Shader) und die Eck-Lampen an.
 const CHARGE_SPARK_LEVEL := 2
 ## Ab dieser Stufe springen Teilchen aus dem Würfel und der Kern wird orange.
@@ -169,15 +169,15 @@ const HEAT_REACH := 1.9
 const HEAT_INSIDE := 0.25
 const HEAT_STRENGTH := 0.0022  # Anteil der Bildbreite; 0,003 war dem Spieler zu viel
 const HEAT_GLOW := 0.26
-## Autoren-Schalter der drei Wellen-Fassungen (Spieler-Wahl offen): 0 Ringe,
-## 1 Schwaden, 2 Brandung.
+## Wellenzahl und Auslauf-Tempo der Hitze. Das Tempo ist bewusst niedrig -
+## schnellere Fronten lasen als Pulsieren statt als Hitze.
+const HEAT_WAVE_FREQ := 4.4
+const HEAT_WAVE_SPEED := 0.15
+## Fassung der ENTLADUNGEN der Stufe 2 (Autoren-Schalter, Spieler-Wahl offen):
+## 0 Zuckungen, 1 Kriechfunken, 2 Lichtbögen, 3 Prasseln, 4 Gewitter.
 var charge_style := 0
-const HEAT_STYLES := 3
-## Je Fassung: Wellenzahl, Auslauf-Tempo, Ballen rundum. Das Tempo ist bewusst
-## niedrig - schnellere Fronten lasen als Pulsieren statt als Hitze.
-const HEAT_STYLE_PARAMS := [[4.4, 0.15, 7.0], [3.6, 0.13, 7.0], [4.0, 0.14, 5.0]]
+const ARC_STYLES := 5
 var heat_parts: Array[MeshInstance3D] = []
-var _heat_built_style := -1
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
@@ -370,7 +370,7 @@ func _refresh_face_colors() -> void:
 	if corner_caps != null:
 		# Ab dem Kriechstrom brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
 		corner_caps.visible = not shown_burned() \
-			and (essence_id != "" or shown_charge() >= CHARGE_SPARK_LEVEL)
+			and (essence_id != "" or shown_charge() >= CHARGE_ARC_LEVEL)
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
@@ -851,6 +851,8 @@ func _refresh_charge() -> void:
 			Vector3(CHARGE_COLOR.r, CHARGE_COLOR.g, CHARGE_COLOR.b))
 		material.set_shader_parameter("charge_core",
 			Vector3(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b))
+		material.set_shader_parameter("arc_style",
+			float(clampi(charge_style, 0, ARC_STYLES - 1)))
 	_sync_heat(level == 1 and not burned)
 	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
 	if not burned:
@@ -1143,35 +1145,29 @@ static func fit_label(label: Label3D) -> void:
 
 # --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
 
-## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags); ein
-## Stilwechsel baut neu.
+## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags).
 func _sync_heat(wanted: bool) -> void:
-	if not wanted or _heat_built_style != charge_style:
+	if not wanted:
 		for part in heat_parts:
 			if is_instance_valid(part):
 				part.queue_free()
 		heat_parts.clear()
-		_heat_built_style = -1
 	if not wanted or not heat_parts.is_empty():
 		return
-	var params: Array = HEAT_STYLE_PARAMS[clampi(charge_style, 0, HEAT_STYLES - 1)]
 	var quad := QuadMesh.new()
 	quad.size = HEAT_QUAD
 	# ZWEI Lagen: die Verzerrung zuunterst, die Glut ADDITIV zuoberst. Warum, steht
 	# im Kopf beider Shader - zuletzt gezeichnet löschte die Verzerrung die Ziffern,
 	# zuerst gezeichnet übermalten die Nachbar-Würfel sie.
-	_add_heat_layer(quad, HEAT_SHADER, params, -8)
-	_add_heat_layer(quad, HEAT_GLOW_SHADER, params, 8)
-	_heat_built_style = charge_style
+	_add_heat_layer(quad, HEAT_SHADER, -8)
+	_add_heat_layer(quad, HEAT_GLOW_SHADER, 8)
 
 ## EINE Lage des Hitze-Felds: gleiche Maße und Wellen, verschiedene Mischung.
-func _add_heat_layer(quad: QuadMesh, shader: Shader, params: Array, priority: int) -> void:
+func _add_heat_layer(quad: QuadMesh, shader: Shader, priority: int) -> void:
 	var material := ShaderMaterial.new()
 	material.shader = shader
-	material.set_shader_parameter("mode", float(clampi(charge_style, 0, HEAT_STYLES - 1)))
-	material.set_shader_parameter("wave_freq", float(params[0]))
-	material.set_shader_parameter("wave_speed", float(params[1]))
-	material.set_shader_parameter("blobs", float(params[2]))
+	material.set_shader_parameter("wave_freq", HEAT_WAVE_FREQ)
+	material.set_shader_parameter("wave_speed", HEAT_WAVE_SPEED)
 	material.set_shader_parameter("quad_size", HEAT_QUAD)
 	material.set_shader_parameter("reach", HEAT_REACH)
 	material.set_shader_parameter("phase", _pulse_phase)

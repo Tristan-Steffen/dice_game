@@ -49,13 +49,13 @@ func test_only_the_flashover_builds_its_particles() -> void:
 	arcing.apply_definition(_def(1))
 	assert_null(arcing.charge_motes, "gefallene Stufe gibt die Teilchen frei")
 
-func test_the_creeping_current_lights_the_corner_lamps_without_a_soul() -> void:
+func test_the_flashover_lights_the_corner_lamps_without_a_soul() -> void:
 	var cold := _display()
 	cold.apply_definition(_def(1))
-	assert_false(cold.corner_caps.visible, "Glimmen läßt die Ecken dunkel")
+	assert_false(cold.corner_caps.visible, "Glimmen und Kriechstrom lassen die Ecken dunkel")
 	var hot := _display()
-	hot.apply_definition(_def(2))
-	assert_true(hot.corner_caps.visible, "der Kriechstrom zündet die Eck-Lampen")
+	hot.apply_definition(_def(3))
+	assert_true(hot.corner_caps.visible, "der Überschlag zündet die Eck-Lampen")
 
 func test_the_first_step_stays_under_the_bloom_threshold_at_rest() -> void:
 	# Stufe 1 ist WÄRME, kein Strahlen: der kahle Würfel darf davon nicht bloomen.
