@@ -27,9 +27,10 @@ uniform float phase = 0.0;
 uniform vec3 tint = vec3(0.95, 0.24, 0.08);
 uniform float tint_amount = 0.26;
 
-// Wie schnell die Glut nach INNEN wegfällt. Ihr Höhepunkt liegt AUF der
-// Silhouette - sie beginnt an Flächen und Kanten und strahlt nach außen.
-const float INWARD = 3.2;
+// Wie stark die Mitte des Körpers glüht (1 = wie die Kante). Ein steiler Abfall
+// nach innen ließ den Würfel als DONUT lesen - dunkles Loch, glühender Rand;
+// ein heißer Körper strahlt aber überall, nur an der dünnen Kante etwas mehr.
+const float BODY_CORE = 0.82;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -63,10 +64,11 @@ void fragment() {
 	p.y = -p.y;
 	float r = length(p);
 	float d = mix(r, max(abs(p.x), abs(p.y)), 0.5) - inner;
-	// Höhepunkt AUF der Silhouette (d = 0): nach außen mit reach, nach innen rasch.
-	// Eine Maske, die den Körper aussparte, ließ eine LÜCKE zwischen Würfel und
-	// Hitze - und dort, wo der Würfel im Bild weit reicht, fehlte sie ganz.
-	float field = exp(-max(d, 0.0) * 2.0 / reach) * exp(-max(-d, 0.0) * INWARD);
+	// Der ganze Körper glüht (BODY_CORE in der Mitte, voll an der Silhouette), nach
+	// außen fällt die Glut mit reach. Eine Maske, die den Körper aussparte, ließ
+	// eine LÜCKE zwischen Würfel und Hitze; ein steiler Abfall zur Mitte einen DONUT.
+	float core = mix(BODY_CORE, 1.0, smoothstep(-1.1, -0.05, d));
+	float field = exp(-max(d, 0.0) * 2.0 / reach) * core;
 	float half_span = min(quad_size.x, quad_size.y) * 0.5;
 	field *= 1.0 - smoothstep(half_span - 1.4, half_span - 0.2,
 		max(abs(p.x), abs(p.y)));
