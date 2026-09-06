@@ -161,6 +161,8 @@ var _burned := false
 ## tut, ist es durchsichtig
 ## (Spieler-Wahl 2026-09-06 "Ausdünstung, etwas weniger Wabern").
 const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
+## Die GLUT ist eine ZWEITE, ADDITIVE Lage zuoberst - der Grund steht im Kopf beider Shader.
+const HEAT_GLOW_SHADER := preload("res://assets/shaders/die_heat_glow.gdshader")
 const HEAT_QUAD := Vector2(7.0, 7.0)  # weit genug, dass das Feld vor dem Rand verlischt
 const HEAT_RED := Vector3(0.95, 0.24, 0.08)
 const HEAT_REACH := 1.9
@@ -1153,29 +1155,37 @@ func _sync_heat(wanted: bool) -> void:
 	if not wanted or not heat_parts.is_empty():
 		return
 	var params: Array = HEAT_STYLE_PARAMS[clampi(charge_style, 0, HEAT_STYLES - 1)]
+	var quad := QuadMesh.new()
+	quad.size = HEAT_QUAD
+	# ZWEI Lagen: die Verzerrung zuunterst, die Glut ADDITIV zuoberst. Warum, steht
+	# im Kopf beider Shader - zuletzt gezeichnet löschte die Verzerrung die Ziffern,
+	# zuerst gezeichnet übermalten die Nachbar-Würfel sie.
+	_add_heat_layer(quad, HEAT_SHADER, params, -8)
+	_add_heat_layer(quad, HEAT_GLOW_SHADER, params, 8)
+	_heat_built_style = charge_style
+
+## EINE Lage des Hitze-Felds: gleiche Maße und Wellen, verschiedene Mischung.
+func _add_heat_layer(quad: QuadMesh, shader: Shader, params: Array, priority: int) -> void:
 	var material := ShaderMaterial.new()
-	material.shader = HEAT_SHADER
+	material.shader = shader
 	material.set_shader_parameter("mode", float(clampi(charge_style, 0, HEAT_STYLES - 1)))
 	material.set_shader_parameter("wave_freq", float(params[0]))
 	material.set_shader_parameter("wave_speed", float(params[1]))
 	material.set_shader_parameter("blobs", float(params[2]))
 	material.set_shader_parameter("quad_size", HEAT_QUAD)
 	material.set_shader_parameter("reach", HEAT_REACH)
-	material.set_shader_parameter("inside", HEAT_INSIDE)
-	material.set_shader_parameter("strength", HEAT_STRENGTH)
-	material.set_shader_parameter("tint_amount", HEAT_GLOW)
-	material.set_shader_parameter("tint", HEAT_RED)
 	material.set_shader_parameter("phase", _pulse_phase)
-	# VOR allen anderen Durchsichtigen: der Bildschirm-Abzug kennt Ziffern, Pucks
-	# und Lachen nicht - zeichnet das Flimmern zuerst, liegen sie unversehrt darüber.
-	material.render_priority = -8
-	var quad := QuadMesh.new()
-	quad.size = HEAT_QUAD
+	if shader == HEAT_SHADER:
+		material.set_shader_parameter("inside", HEAT_INSIDE)
+		material.set_shader_parameter("strength", HEAT_STRENGTH)
+	else:
+		material.set_shader_parameter("tint", HEAT_RED)
+		material.set_shader_parameter("tint_amount", HEAT_GLOW)
+	material.render_priority = priority
 	var part := MeshInstance3D.new()
-	part.name = "Heat"
+	part.name = "Heat%d" % heat_parts.size()
 	part.mesh = quad
 	part.material_override = material
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(part)
 	heat_parts.append(part)
-	_heat_built_style = charge_style

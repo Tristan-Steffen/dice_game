@@ -11,8 +11,14 @@ render_mode blend_mix, depth_draw_never, depth_test_disabled, cull_back, unshade
 //
 // KEIN Tiefentest (2026-09-06): das Feld ist eine flache Scheibe in KONSTANTER
 // Tiefe, die Tischfläche dagegen eine schräg weglaufende Ebene - UNTERHALB des
-// Würfels liegt sie näher an der Kamera und schnitt das Feld weg. Genau das war
-// der Grund, warum die Hitze nur oberhalb erschien.
+// Würfels liegt sie näher an der Kamera und schnitt das Feld weg.
+//
+// ZWEI LAGEN (2026-09-06, gemessen): diese hier ist die VERZERRUNG und liegt
+// ZUUNTERST (render_priority -8), denn sie liest den Bildschirm-Abzug, und der
+// wird VOR den durchsichtigen Dingen genommen - zuletzt gezeichnet löschte sie
+// die Ziffern. Dafür übermalen die Nachbar-Würfel sie; die GLUT trägt darum die
+// zweite Lage (die_heat_glow.gdshader, ADDITIV und zuoberst), und erst dadurch
+// steht die Hitze RUNDUM. Masken- und Wellen-Rechnung sind in beiden GLEICH.
 //
 // mode: 0 Ringe (klare, gleichmäßig auslaufende Fronten), 1 Schwaden (runde
 // Ballen, die nach außen treiben), 2 Brandung (Ringe mit verbeulten Fronten).
@@ -36,8 +42,6 @@ uniform float wave_speed = 0.15;
 // Zahl der Ballen rundum - ganzzahlig, damit das Winkel-Rauschen nahtlos schließt.
 uniform float blobs = 7.0;
 uniform float phase = 0.0;
-uniform vec3 tint = vec3(0.95, 0.24, 0.08);
-uniform float tint_amount = 0.26;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -106,11 +110,7 @@ void fragment() {
 	// her. dir.y ist Modell-oben, SCREEN_UV.y läuft nach unten.
 	float amp = field * mix(inside, 1.0, body);
 	vec2 offset = vec2(dir.x, -dir.y) * wave * strength * amp;
-	vec3 seen = texture(screen_texture, SCREEN_UV + offset).rgb;
-	// Die Glut reitet auf den Kämmen, aber nur noch schwach: sie ATMET, sie
-	// blinkt nicht (Spieler-Wunsch 2026-09-06 "langsamer und weniger auffällig").
-	float glow = field * body * (0.78 + 0.22 * wave);
-	ALBEDO = seen + tint * tint_amount * max(glow, 0.0);
+	ALBEDO = texture(screen_texture, SCREEN_UV + offset).rgb;
 	// Durchsichtig, wo das Feld nichts tut - kein Quadrat.
-	ALPHA = clamp(field * 2.5 + max(glow, 0.0), 0.0, 1.0);
+	ALPHA = clamp(field * 2.5, 0.0, 1.0);
 }
