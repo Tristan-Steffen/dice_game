@@ -493,8 +493,6 @@ var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var workshop_click_zone: StaticBody3D
 var repair_click_zone: StaticBody3D
-## Die zuletzt gestellte Höhe der Bucht - sie wächst mit der Fall-Liste.
-var _repair_bay_height := 0.0
 var chips_click_zone: StaticBody3D
 ## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
 ## Fläche, auf der ein Doppelklick sie öffnet.
@@ -1356,8 +1354,7 @@ func _place_workshop_strip() -> Rect2:
 
 ## Die REPARATUR-BUCHT steht RECHTS neben dem Streifen, in DERSELBEN Zeile: linke
 ## Kante eine Werkstatt-Einheit hinter seiner Schürze, Oberkante seine Oberkante,
-## Höhe seine Fensterhöhe - und sie darf nach unten wachsen, wenn die Liste es
-## braucht (bay_rect meldet es, wie bench_rect). Gekappt wird am freien Filz.
+## Höhe seine Fensterhöhe. Gekappt wird am freien Filz.
 func _place_repair_bay(bench_rect: Rect2, workshop_rect: Rect2) -> void:
 	if table_screen == null or table_screen.repair_bay_window == null:
 		return
@@ -1371,11 +1368,9 @@ func _place_repair_bay(bench_rect: Rect2, workshop_rect: Rect2) -> void:
 	var width := minf(RepairBayView.width_for(u), room)
 	table_screen.place_repair_bay(Rect2(Vector2(left, workshop_rect.position.y),
 		Vector2(width, workshop_rect.size.y)))
-	_repair_bay_height = table_screen.repair_bay_window.bay_rect().size.y
 	_place_repair_zone()
 
-## Klickzone und Kamera-Rahmen der Bucht - sie messen an bay_rect(), also an der
-## ECHTEN Liste: eine Zeile außerhalb der Region schluckte jeden Klick.
+## Klickzone und Kamera-Rahmen der Bucht - sie messen an bay_rect().
 func _place_repair_zone() -> void:
 	var bay: RepairBayView = table_screen.repair_bay_window
 	if bay == null or not bay.visible:
@@ -3472,6 +3467,7 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 func _seat_bench_place(die: DieDefinition) -> void:
 	_bench_die = die
 	_rebuild_target_stage()
+	_sync_repair_target()
 
 ## Der EINE Abgleich: auf der Bühne steht, was das Fenster als Ziel meldet - und nur
 ## an der Werkstatt-Station. Idempotent und überspringt eine laufende Fahrt; jede
@@ -9525,7 +9521,7 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 				is_click, camera_rig.mode == CameraRig.Mode.WORKSHOP, flying):
 		return true
 	# Die REPARATUR-BUCHT: SICHTBAR HEISST BEDIENBAR, keine Stations-Ausnahme -
-	# repariert wird aus jeder Kamera-Lage. Sie mißt an ihrer ECHTEN Liste.
+	# repariert wird aus jeder Kamera-Lage.
 	var bay: RepairBayView = table_screen.repair_bay_window
 	if bay != null and is_instance_valid(bay) \
 			and TableScreen.window_takes_pixel(bay, bay.bay_rect(), pixel, is_click,
@@ -11924,41 +11920,33 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 # Gebucht wird in GameRun, SOFORT beim Klick; erst danach fliegt das Licht
 # (Buchung vor dem Licht). Die Bucht selbst faßt nichts an und bucht nichts.
 
-## Zieht die Liste der Bucht nach (Vorrat, Börse, Sperre) - idempotent, das
-## Fenster baut nur bei echtem Wechsel neu.
+## Zieht die Bucht nach (Kunde, Börse, Sperre) - idempotent, das Fenster baut nur
+## bei echtem Wechsel neu.
 func _refresh_repair_bay() -> void:
 	var bay: RepairBayView = table_screen.repair_bay_window if table_screen != null else null
 	if bay == null or not is_instance_valid(bay):
 		return
 	bay.refresh()
-	# Die Liste wächst nach unten, also wandert das Rechteck: Klickzone und
-	# Kamera-Rahmen ziehen mit, sonst schluckte die unterste Zeile jeden Klick.
-	var height := bay.bay_rect().size.y
-	if is_equal_approx(height, _repair_bay_height):
-		return
-	_repair_bay_height = height
-	_place_repair_zone()
 
-## Der Zell-Platz eines Falls in Display-Pixeln (Ziel der Kometen); leer, wenn die
-## Bucht ihn nicht (mehr) führt.
-func _repair_case_px(die: DieDefinition) -> Vector2:
+## Die Bucht bekommt ihren Kunden vom Podest: wer dort STEHT (nicht wer gewählt ist
+## und noch fliegt), ist repariert, geladen oder abgeleitet.
+func _sync_repair_target() -> void:
+	if table_screen != null and table_screen.repair_bay_window != null:
+		table_screen.repair_bay_window.set_target(_bench_die)
+
+func _repair_bay() -> RepairBayView:
 	var bay: RepairBayView = table_screen.repair_bay_window if table_screen != null else null
-	if bay == null or not is_instance_valid(bay):
-		return Vector2.ZERO
-	var index := bay.cases().find(die)
-	var rects := bay.case_rects()
-	if index < 0 or index >= rects.size():
-		return bay.bay_rect().get_center()
-	return rects[index].get_center()
+	return bay if bay != null and is_instance_valid(bay) else null
 
 func _on_repair_requested(die: DieDefinition) -> void:
 	if run == null:
 		return
 	var price := run.repair_price()
-	var target := _repair_case_px(die)
+	var bay := _repair_bay()
+	var target := bay.ladder_px() if bay != null else Vector2.ZERO
 	if not run.repair_die(die):
 		return
-	# Der Ruß fällt bei der ANKUNFT des Lichts - gebucht ist er längst.
+	# Die Asche fällt bei der ANKUNFT des Lichts - gebucht ist sie längst.
 	if price.has("money"):
 		_fly_repair_money(die, target)
 	else:
@@ -11967,31 +11955,24 @@ func _on_repair_requested(die: DieDefinition) -> void:
 func _on_drain_requested(die: DieDefinition) -> void:
 	if run == null:
 		return
-	var target := _repair_case_px(die)
+	var bay := _repair_bay()
+	var target := bay.ladder_px() if bay != null else Vector2.ZERO
 	if not run.drain_die(die):
 		return
 	_fly_repair_money(die, target)
 
-func _on_discharge_all_requested() -> void:
+func _on_charge_requested(die: DieDefinition) -> void:
 	if run == null:
 		return
-	# Wer JETZT heiß steht, blitzt gleich - nach der Buchung steht alles auf 0.
-	var hot: Array[DieDefinition] = []
-	for die in run.owned_pool:
-		if die != null and not die.burned_out and die.charge > 0:
-			hot.append(die)
-	var target := Vector2.ZERO
-	var bay: RepairBayView = table_screen.repair_bay_window if table_screen != null else null
-	if bay != null and is_instance_valid(bay):
-		target = bay.bay_rect().get_center()
-	if not run.discharge_all():
+	var bay := _repair_bay()
+	var target := bay.ladder_px() if bay != null else Vector2.ZERO
+	if not run.charge_die(die):
 		return
-	_fly_repair_energy(null, target, hot)
+	_fly_repair_energy(die, target)
 
-## ⚡ aus der KONDENSATORBANK zur Bucht - dieselbe Börse, aus der das Übertakten
-## zahlt. Bei Ankunft pulst die Bank und die betroffenen Würfel blitzen.
-func _fly_repair_energy(die: DieDefinition, to_px: Vector2,
-		extra: Array[DieDefinition] = []) -> void:
+## ⚡ aus der KONDENSATORBANK zur Leiter der Bucht - dieselbe Börse, aus der das
+## Übertakten zahlt. Bei Ankunft pulst die Bank und der Würfel blitzt.
+func _fly_repair_energy(die: DieDefinition, to_px: Vector2) -> void:
 	var guard := run
 	var travel := table_screen.energy_comet(to_px, CasinoStyle.ENERGY) \
 		if table_screen != null else 0.0
@@ -12001,10 +11982,10 @@ func _fly_repair_energy(die: DieDefinition, to_px: Vector2,
 		return
 	if capacitor_bank != null and is_instance_valid(capacitor_bank):
 		capacitor_bank.pulse()
-	_flash_repaired_dice(die, extra)
+	_flash_repaired_die(die)
 
 ## Geld aus dem SCHATZ zur Bucht (Ableiten, Isolierband-Reparatur).
-func _fly_repair_money(die: DieDefinition, to_px: Vector2) -> void:
+func _fly_repair_money(die: DieDefinition, _to_px: Vector2) -> void:
 	var guard := run
 	var travel := table_screen.money_comet(false, TableScreen.SIDE_MONEY_COLOR) \
 		if table_screen != null else 0.0
@@ -12012,16 +11993,22 @@ func _fly_repair_money(die: DieDefinition, to_px: Vector2) -> void:
 		await get_tree().create_timer(travel).timeout
 	if run != guard:
 		return
-	_flash_repaired_dice(die, [])
+	_flash_repaired_die(die)
 
-## Der Blitz am Vorrats-Würfel: er zeigt den GEBUCHTEN Stand längst, das Licht
-## quittiert ihn nur. Ein Würfel ohne Körper (versenkter Vorrat) bleibt still.
-func _flash_repaired_dice(die: DieDefinition, extra: Array[DieDefinition]) -> void:
+## Der Blitz am Würfel: er zeigt den GEBUCHTEN Stand längst, das Licht quittiert
+## ihn nur. Der Kunde steht auf dem PODEST (sein Pool-Sitz ist leer); ein Würfel
+## ohne Körper bleibt still.
+func _flash_repaired_die(die: DieDefinition) -> void:
+	if die == null:
+		return
+	if bench_stage != null and is_instance_valid(bench_stage) and bench_stage.def == die \
+			and bench_stage.faces != null and is_instance_valid(bench_stage.faces):
+		bench_stage.faces.flash_charge(CHARGE_FLASH_STRENGTH)
+		return
 	if pool_tray_view == null:
 		return
 	for i in pool_tray_view.slot_defs.size():
-		var seated: DieDefinition = pool_tray_view.slot_defs[i]
-		if seated == null or (seated != die and not extra.has(seated)):
+		if pool_tray_view.slot_defs[i] != die:
 			continue
 		var display: DieFaceDisplay = pool_tray_view.slot_face_displays[i]
 		if display != null:
@@ -12852,7 +12839,7 @@ func _connect_run() -> void:
 		if not bay.repair_requested.is_connected(_on_repair_requested):
 			bay.repair_requested.connect(_on_repair_requested)
 			bay.drain_requested.connect(_on_drain_requested)
-			bay.discharge_all_requested.connect(_on_discharge_all_requested)
+			bay.charge_requested.connect(_on_charge_requested)
 		bay.set_run(run)
 	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
 	if shop_vitrine != null and is_instance_valid(shop_vitrine):

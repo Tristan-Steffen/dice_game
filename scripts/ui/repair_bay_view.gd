@@ -1,60 +1,57 @@
 class_name RepairBayView
 extends Panel
 ## Die REPARATUR-BUCHT - die Station RECHTS neben dem Werkstatt-Streifen, in
-## derselben Zeile. Sie zeigt KEINE Körper, sondern NETZ-ZELLEN: je Vorrats-Würfel,
-## der durchgebrannt ist oder Ladung trägt, eine Zeile in Vorrats-Reihenfolge -
-## gezeichnet wie die Kacheln der Glas-Ansicht (DiceGridView.tile_box, EINE Quelle
-## für Ladungs-Farbstufe und Ruß), daneben seine Vorrats-Nummer und EIN Knopf.
-## Die Fußzeile trägt "Alle entladen" und die CAPTION.
+## derselben Zeile. Sie hat EINEN Kunden: den ZIELWÜRFEL auf dem Podest
+## (Spieler-Entscheid 2026-09-07; die Liste aller Fälle ist tot). Sie zeigt KEINEN
+## Körper, sondern seine NETZ-ZELLE (gezeichnet wie die Kacheln der Glas-Ansicht,
+## DiceGridView.tile_box), seine Vorrats-Nummer und die LADUNGS-LEITER: die drei
+## Ladungs-Lampen des Netzes in groß, links "- $5" (Ableiten), rechts "+ 1 ⚡"
+## (Aufladen). Durchgebrannt tragen die Lampen den Glut-Saum, und an die Stelle
+## der zwei Knöpfe tritt EIN breiter "Reparieren 3 ⚡". Darunter die CAPTION.
 ##
 ## Grammatik wie FachNetView/WorkshopView: StyleBoxEmpty (die Bucht liegt auf dem
 ## Filz), unsichtbar geboren, statische Maß-Löser, idempotentes refresh per
 ## Signatur, sie MELDET Rechtecke - und sie faßt keinen Körper an und bucht nichts:
 ## jede Buchung liegt in GameRun, ausgelöst von scene_root.
 
-## Der Spieler will diesen Würfel reparieren (durchgebrannt -> Ladung 0).
+## Der Spieler will den Zielwürfel reparieren (durchgebrannt -> Ladung 0) ...
 signal repair_requested(die: DieDefinition)
-## ... oder ihn EINE Stufe ableiten.
+## ... ihn EINE Stufe ableiten ...
 signal drain_requested(die: DieDefinition)
-## ... oder den ganzen Vorrat entladen.
-signal discharge_all_requested
-## Der Zeiger liegt auf einer Fall-Zelle (null = auf keiner).
+## ... oder EINE Stufe aufladen.
+signal charge_requested(die: DieDefinition)
+## Der Zeiger liegt auf der Zelle des Kunden (null = nicht mehr).
 signal case_hovered(die: DieDefinition)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
 const GOLD := Color("#ffd319")
 const TITLE := "REPARATUR"
-const EMPTY_TEXT := "Keine Fälle"
+const EMPTY_TEXT := "Wähle einen Würfel im Vorrat"
+## Die Warnung vor der letzten Sprosse: wer auf 3 geht, spielt ums Durchbrennen.
+const WARN_TOP := "Bei 3 brennt die nächste Zündung durch"
 
-## Die u-Konvention des Fensters plus ein Boden, unter den die Bucht nie fällt.
-const UNIT_DIV := 100.0
+## Ein Boden, unter den die Einheit der Bucht nie fällt.
 const MIN_UNIT := 1.5
-## Ränder, Kopfzeile, Fuge zwischen den Zeilen.
+## Ränder, Kopfzeile, Fugen.
 const MARGIN := 4.0
 const HEADER_UNITS := 8.0
 const HEADER_GAP := 1.6
-const ROW_GAP := 1.6
-## Eine Fall-Zeile: die Netz-Zelle, die Vorrats-Nummer, der Knopf.
+const COLUMN_GAP := 1.4
+## Die Zeile des Kunden: Netz-Zelle, Vorrats-Nummer, Knopf, Leiter, Knopf.
 const NET_CELL := 4.0
 const NUMBER_WIDTH := 9.0
-const COLUMN_GAP := 1.4
-## GEMESSEN an der längsten Aufschrift ("Reparieren 1 ⚡"): schmaler schneidet
-## clip_text sie ab.
-const BUTTON_WIDTH := 58.0
+## GEMESSEN an "+ 1 ⚡" bzw. "- $5" (schmaler schneidet clip_text sie ab); der
+## Reparatur-Knopf spannt sich über Knopf, Leiter und Knopf.
+const STEP_BUTTON_WIDTH := 24.0
+const LADDER_WIDTH := 26.0
 const BUTTON_HEIGHT := 9.0
-## Fußzeile: der Entladen-Knopf und darunter die CAPTION.
-const FOOTER_GAP := 2.0
-const FOOTER_HEIGHT := 9.0
-const CAPTION_GAP := 1.0
+const CAPTION_GAP := 2.0
 const CAPTION_UNITS := 6.0
-## So viele Zeilen paßt die Bucht in ihr gegebenes Rechteck ein; mehr Fälle lassen
-## sie nach unten wachsen (bay_rect meldet es).
-const FIT_ROWS := 4
-## Schriftgrade (in u): Kopf, Zeilen-Nummer, Knopf, Caption.
+## Schriftgrade (in u): Kopf, Nummer, Knopf, Caption.
 const TITLE_STEP := 5.0
 const NUMBER_STEP := 3.6
-const BUTTON_STEP := 2.6
+const BUTTON_STEP := 2.8
 const CAPTION_STEP := 3.0
 
 ## Die GRÜNDE, aus denen ein Knopf grau steht - kurze Zeilen, sie teilen sich die
@@ -65,21 +62,19 @@ const BLOCK_ENERGY := "Nicht genug Energie"
 const BLOCK_MONEY := "Nicht genug Geld"
 
 var run: GameRun
+## Der Kunde: der Zielwürfel auf dem Podest (null = keiner).
+var target: DieDefinition
 ## Bedienbarkeit wie die Werkstatt (scene_root._dice_editing_locked() false).
 var enabled := true
 
 var _content: Control
 var _caption: Label
-var _cases: Array[DieDefinition] = []
-## Zell-Rechtecke in FENSTER-Koordinaten (case_rects rechnet sie global).
-var _case_rects: Array[Rect2] = []
+## Zelle und Leiter in FENSTER-Koordinaten (die Ziele der Kometen).
+var _case_rect := Rect2()
+var _ladder_rect := Rect2()
 ## Was zuletzt gebaut wurde - nur der WECHSEL baut neu.
 var _signature := ""
-## Der Würfel unter dem Zeiger (null = keiner): er schreibt die Caption.
-var _hovered: DieDefinition
-## Wie hoch der gebaute Inhalt WIRKLICH steht (Knöpfe klemmen sich hoch) - daran
-## mißt bay_rect, damit kein Klick unter der Kante durchfällt.
-var _content_height := 0.0
+var _hovered := false
 
 func _init() -> void:
 	name = "RepairBayWindow"
@@ -93,61 +88,53 @@ func _ready() -> void:
 
 # --- Maße ------------------------------------------------------------------------
 
-## Die u-Kette der festen Teile: Ränder, Kopfzeile samt Fuge, Fußzeile und Caption.
-static func chrome_units() -> float:
-	return MARGIN * 2.0 + HEADER_UNITS + HEADER_GAP + FOOTER_GAP + FOOTER_HEIGHT \
-		+ CAPTION_GAP + CAPTION_UNITS
-
-## Die Höhe EINER Fall-Zeile in u: das Netz oder der Knopf, was höher steht.
+## Die Höhe der Kunden-Zeile in u: das Netz oder der Knopf, was höher steht.
 static func row_units() -> float:
 	return maxf(DieNetView.net_size(NET_CELL).y, BUTTON_HEIGHT)
 
-## Wie BREIT die Bucht bei dieser Einheit sein muß: Ränder, Netz, Nummer, Knopf
-## und die beiden Fugen.
+## Die u-Kette der Höhe: Ränder, Kopfzeile, Zeile, Caption.
+static func height_units() -> float:
+	return MARGIN * 2.0 + HEADER_UNITS + HEADER_GAP + row_units() + CAPTION_GAP + CAPTION_UNITS
+
+## Wie BREIT die Bucht bei dieser Einheit sein muß: Ränder, Netz, Nummer, die
+## Leiter mit ihren zwei Knöpfen und die vier Fugen.
 static func width_for(unit: float) -> float:
-	return unit * (MARGIN * 2.0 + COLUMN_GAP * 2.0 + NUMBER_WIDTH + BUTTON_WIDTH) \
-		+ DieNetView.net_size(unit * NET_CELL).x
+	return unit * (MARGIN * 2.0 + COLUMN_GAP * 4.0 + NUMBER_WIDTH + STEP_BUTTON_WIDTH * 2.0
+		+ LADDER_WIDTH) + DieNetView.net_size(unit * NET_CELL).x
 
-## Wie HOCH die Bucht mit count Fällen steht (leer trägt sie EINE Zeile: den Satz
-## "Keine Fälle").
-static func height_for(unit: float, count: int) -> float:
-	var rows := maxi(count, 1)
-	return unit * (chrome_units() + row_units() * float(rows)
-		+ ROW_GAP * float(rows - 1))
+## Wie HOCH die Bucht steht - EIN Kunde, eine feste Höhe.
+static func height_for(unit: float) -> float:
+	return unit * height_units()
 
-## Die Maßeinheit, bei der Chrome plus FIT_ROWS Zeilen in rect passen - so liest
-## die Bucht in jedem Zuschnitt gleich, und eine längere Liste wächst nach unten.
+## Die Maßeinheit, bei der die Bucht in rect paßt - so liest sie in jedem
+## Zuschnitt gleich.
 static func unit_for(rect: Rect2) -> float:
-	var by_height := rect.size.y / (chrome_units() + row_units() * float(FIT_ROWS)
-		+ ROW_GAP * float(FIT_ROWS - 1))
-	var by_width := rect.size.x / UNIT_DIV
-	return maxf(minf(by_height, by_width), MIN_UNIT)
+	return maxf(minf(rect.size.y / height_units(), rect.size.x / width_for(1.0)), MIN_UNIT)
 
-## Die Maßeinheit dieses Fensters: die u-Konvention aus der eigenen Breite.
+## Die Maßeinheit dieses Fensters: die, bei der width_for die eigene Breite trifft -
+## sonst baute die Zeile breiter, als sie gestellt ist (der rechte Knopf lief über).
 func unit() -> float:
-	return maxf(size.x, MIN_UNIT * UNIT_DIV) / UNIT_DIV
+	return maxf(size.x / width_for(1.0), MIN_UNIT)
 
-## Fenster ODER Liste, was länger ist: genau wie WorkshopView.bench_rect streckt
-## sich die Bucht nach UNTEN, wenn die Fälle mehr Platz brauchen - sonst fiele ein
-## Klick auf die unterste Zeile durch die eine Weiterleitungs-Region.
+## Fenster ODER Inhalt, was höher steht (die Knöpfe klemmen sich an ihrer
+## Mindestgröße hoch) - so fällt kein Klick unter der Kante durch.
 func bay_rect() -> Rect2:
 	var rect := get_global_rect()
-	rect.size.y = maxf(rect.size.y, maxf(_content_height,
-		height_for(unit(), _cases.size())))
+	rect.size.y = maxf(rect.size.y, height_for(unit()))
 	return rect
 
-## Die Zell-Rechtecke in DISPLAY-Pixeln, in Vorrats-Reihenfolge - die Ziele der
-## Reparatur-Kometen.
-func case_rects() -> Array[Rect2]:
-	var out: Array[Rect2] = []
-	var at := global_position
-	for rect in _case_rects:
-		out.append(Rect2(at + rect.position, rect.size))
-	return out
+## Die Zelle des Kunden bzw. seine Leiter in DISPLAY-Pixeln - die Ziele der
+## Kometen (ohne Kunden die Mitte der Bucht).
+func case_px() -> Vector2:
+	return _px(_case_rect)
 
-## Die Fälle in der Reihenfolge, in der sie stehen (Vorrats-Reihenfolge).
-func cases() -> Array[DieDefinition]:
-	return _cases.duplicate()
+func ladder_px() -> Vector2:
+	return _px(_ladder_rect)
+
+func _px(rect: Rect2) -> Vector2:
+	if target == null or rect.size == Vector2.ZERO:
+		return bay_rect().get_center()
+	return global_position + rect.get_center()
 
 # --- Zustand ---------------------------------------------------------------------
 
@@ -156,47 +143,42 @@ func set_run(new_run: GameRun) -> void:
 	_signature = ""
 	refresh()
 
+## Der Zielwürfel des Podests - scene_root meldet ihn, wenn er dort steht.
+func set_target(die: DieDefinition) -> void:
+	if target == die:
+		return
+	target = die
+	refresh()
+
 func set_enabled(on: bool) -> void:
 	if enabled == on:
 		return
 	enabled = on
 	refresh()
 
-## Idempotent: nur der WECHSEL baut die Liste neu.
+## Idempotent: nur der WECHSEL baut neu.
 func refresh() -> void:
 	if not is_inside_tree():
 		return
-	var wanted := _collect_cases()
-	var signature := _signature_of(wanted)
+	if run != null and target != null and not run.owned_pool.has(target):
+		target = null  # der Kunde hat den Vorrat verlassen
+	var signature := _signature_of()
 	if signature == _signature and _content != null and is_instance_valid(_content):
 		return
 	_signature = signature
-	_cases = wanted
 	_build()
 
-## Die Fälle: jeder Vorrats-Würfel, der durchgebrannt ist oder Ladung trägt.
-func _collect_cases() -> Array[DieDefinition]:
-	var out: Array[DieDefinition] = []
-	if run == null:
-		return out
-	for die in run.owned_pool:
-		if die != null and (die.burned_out or die.charge > 0):
-			out.append(die)
-	return out
-
-func _signature_of(list: Array[DieDefinition]) -> String:
-	var parts := PackedStringArray()
-	for die in list:
-		parts.append("%d:%d:%d" % [die.get_instance_id(), die.charge,
-			1 if die.burned_out else 0])
+func _signature_of() -> String:
+	var who := "%d:%d:%d" % [target.get_instance_id(), target.charge,
+		1 if target.burned_out else 0] if target != null else "-"
 	var money := run.money if run != null else 0
 	var energy := run.energy if run != null else 0
 	var locked := run != null and run.repair_locked()
 	# Der PREIS gehört in die Signatur: das Isolierband tauscht ihn, ohne daß sich
-	# am Vorrat etwas ändert.
+	# am Würfel etwas ändert.
 	var price := str(run.repair_price()) if run != null else ""
-	return "%s|%d|%d|%d|%d|%s|%dx%d" % [",".join(parts), money, energy,
-		1 if locked else 0, 1 if enabled else 0, price, int(size.x), int(size.y)]
+	return "%s|%d|%d|%d|%d|%s|%dx%d" % [who, money, energy, 1 if locked else 0,
+		1 if enabled else 0, price, int(size.x), int(size.y)]
 
 # --- Aufbau ----------------------------------------------------------------------
 
@@ -206,11 +188,9 @@ func _build() -> void:
 		_content.queue_free()
 	_content = null
 	_caption = null
-	_case_rects.clear()
-	_content_height = 0.0
-	# Ein Neuaufbau tötet die Zelle unter dem Zeiger, ohne daß sie es meldet.
-	if _hovered != null and not _cases.has(_hovered):
-		_hovered = null
+	_case_rect = Rect2()
+	_ladder_rect = Rect2()
+	_hovered = false
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
 	var u := unit()
@@ -227,75 +207,87 @@ func _build() -> void:
 	_line(content, "Titel", Vector2(margin, y), Vector2(inner, u * HEADER_UNITS),
 		u * TITLE_STEP, GOLD, HORIZONTAL_ALIGNMENT_LEFT).text = TITLE
 	y += u * (HEADER_UNITS + HEADER_GAP)
-
-	if _cases.is_empty():
-		_line(content, "Leer", Vector2(margin, y), Vector2(inner, u * row_units()),
+	var row_h := u * row_units()
+	if target == null:
+		_line(content, "Leer", Vector2(margin, y), Vector2(inner, row_h),
 			u * NUMBER_STEP, MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT).text = EMPTY_TEXT
-		y += u * row_units()
 	else:
-		for i in _cases.size():
-			var row_h := u * row_units()
-			_build_case(content, _cases[i], Vector2(margin, y), Vector2(inner, row_h), u)
-			y += row_h + u * ROW_GAP
-		y -= u * ROW_GAP
-
-	y += u * FOOTER_GAP
-	var footer := _button(content, "Entladen", Vector2(margin, y),
-		Vector2(inner, u * FOOTER_HEIGHT), u, _discharge_label())
-	footer.disabled = not _discharge_live()
-	footer.pressed.connect(func() -> void: discharge_all_requested.emit())
-	# Ein Knopf klemmt sich an seiner Mindestgröße hoch: die CAPTION mißt an der
-	# ECHTEN Höhe, sonst läge sie auf ihm.
-	y += maxf(footer.size.y, u * FOOTER_HEIGHT) + u * CAPTION_GAP
+		_build_case(content, Vector2(margin, y), row_h, u)
+	y += row_h + u * CAPTION_GAP
 	_caption = _line(content, "Caption", Vector2(margin, y),
 		Vector2(inner, u * CAPTION_UNITS), u * CAPTION_STEP, MUTED_COLOR,
 		HORIZONTAL_ALIGNMENT_LEFT)
 	_write_caption()
-	_content_height = y + u * (CAPTION_UNITS + MARGIN)
 
-## EINE Fall-Zeile: Netz-Zelle (mit Ladungs-Farbstufe bzw. Ruß), Vorrats-Nummer und
-## der eine Knopf, den dieser Fall braucht.
-func _build_case(host: Control, die: DieDefinition, at: Vector2, span: Vector2,
-		u: float) -> void:
+## Die Zeile des Kunden: Netz-Zelle, Vorrats-Nummer, dann die Leiter mit ihren zwei
+## Knöpfen - oder, durchgebrannt, der eine Reparatur-Knopf über ihre ganze Breite.
+func _build_case(host: Control, at: Vector2, row_h: float, u: float) -> void:
+	var die := target
 	var cell := u * NET_CELL
 	var net_span := DieNetView.net_size(cell)
-	var index := _case_rects.size() + 1
 	var seat := Button.new()
-	seat.name = "Fall%d" % index
+	seat.name = "Fall"
 	seat.focus_mode = Control.FOCUS_NONE
 	seat.mouse_default_cursor_shape = Control.CURSOR_ARROW
 	var box := DiceGridView.tile_box(die, u, false)
 	for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
 		seat.add_theme_stylebox_override(state, box)
-	seat.position = at
+	seat.position = Vector2(at.x, at.y + (row_h - net_span.y) * 0.5)
 	seat.size = net_span
 	seat.tooltip_text = DieNetView.hint_for(die, DieNetView.EDGE)
-	seat.mouse_entered.connect(func() -> void: _set_hovered(die))
-	seat.mouse_exited.connect(func() -> void: _set_hovered(null))
+	seat.mouse_entered.connect(func() -> void: _set_hovered(true))
+	seat.mouse_exited.connect(func() -> void: _set_hovered(false))
 	host.add_child(seat)
 	var net := DieNetView.build(die, -1, cell)
 	if die.burned_out:
 		net.modulate = DiceGridView.BURNED_NET_DIM
 	seat.add_child(net)
-	_case_rects.append(Rect2(at, net_span))
+	_case_rect = Rect2(seat.position, net_span)
 
-	var number_at := Vector2(at.x + net_span.x + u * COLUMN_GAP, at.y)
+	var x := at.x + net_span.x + u * COLUMN_GAP
 	var seat_index := run.owned_pool.find(die) if run != null else -1
-	_line(host, "Nummer%d" % index, number_at, Vector2(u * NUMBER_WIDTH, span.y),
+	_line(host, "Nummer", Vector2(x, at.y), Vector2(u * NUMBER_WIDTH, row_h),
 		u * NUMBER_STEP, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER).text = \
 			"#%d" % (seat_index + 1) if seat_index >= 0 else "-"
+	x += u * (NUMBER_WIDTH + COLUMN_GAP)
 
-	var button_at := Vector2(number_at.x + u * (NUMBER_WIDTH + COLUMN_GAP),
-		at.y + (span.y - u * BUTTON_HEIGHT) * 0.5)
-	var burned := die.burned_out
-	var button := _button(host, "Aktion%d" % index, button_at,
-		Vector2(u * BUTTON_WIDTH, u * BUTTON_HEIGHT), u,
-		repair_label() if burned else drain_label())
-	button.disabled = not (repair_live(die) if burned else drain_live(die))
-	if burned:
-		button.pressed.connect(func() -> void: repair_requested.emit(die))
-	else:
-		button.pressed.connect(func() -> void: drain_requested.emit(die))
+	var button_y := at.y + (row_h - u * BUTTON_HEIGHT) * 0.5
+	var step_w := u * STEP_BUTTON_WIDTH
+	var ladder_w := u * LADDER_WIDTH
+	if die.burned_out:
+		# Die Leiter mit Glut-Saum, darüber der EINE Knopf, den dieser Fall braucht.
+		var ladder := _ladder(host, die, Vector2(x + step_w + u * COLUMN_GAP, at.y),
+			Vector2(ladder_w, row_h))
+		ladder.visible = false  # der Knopf spannt sich darüber
+		var repair := _button(host, "Reparieren", Vector2(x, button_y),
+			Vector2(step_w * 2.0 + ladder_w + u * COLUMN_GAP * 2.0, u * BUTTON_HEIGHT),
+			u, repair_label())
+		repair.disabled = not repair_live()
+		repair.pressed.connect(func() -> void: repair_requested.emit(die))
+		return
+	var drain := _button(host, "Ableiten", Vector2(x, button_y),
+		Vector2(step_w, u * BUTTON_HEIGHT), u, drain_label())
+	drain.tooltip_text = "Ableiten: eine Stufe herunter"
+	drain.disabled = not drain_live()
+	drain.pressed.connect(func() -> void: drain_requested.emit(die))
+	x += step_w + u * COLUMN_GAP
+	_ladder(host, die, Vector2(x, at.y), Vector2(ladder_w, row_h))
+	x += ladder_w + u * COLUMN_GAP
+	var charge := _button(host, "Aufladen", Vector2(x, button_y),
+		Vector2(step_w, u * BUTTON_HEIGHT), u, charge_label())
+	charge.tooltip_text = "Aufladen: eine Stufe hinauf"
+	charge.disabled = not charge_live()
+	charge.pressed.connect(func() -> void: charge_requested.emit(die))
+
+## Die LADUNGS-LEITER: die drei Lampen des Netzes (EINE Zeichnung), nur groß.
+func _ladder(host: Control, die: DieDefinition, at: Vector2, span: Vector2) -> Control:
+	var lamps := DieNetView.charge_lamps(die, span.y)
+	lamps.name = "Leiter"
+	lamps.position = at
+	lamps.size = span
+	host.add_child(lamps)
+	_ladder_rect = Rect2(at, span)
+	return lamps
 
 func _line(host: Control, line_name: String, at: Vector2, span: Vector2,
 		font_size: float, tint: Color, align: int) -> Label:
@@ -338,81 +330,78 @@ func repair_label() -> String:
 	return "Reparieren %d ⚡" % int(price["energy"])
 
 func drain_label() -> String:
-	return "Ableiten $%d" % GameRun.DRAIN_MONEY
+	return "- $%d" % GameRun.DRAIN_MONEY
 
-func _discharge_label() -> String:
-	return "Alle entladen %d ⚡" % GameRun.DISCHARGE_ALL_ENERGY
+func charge_label() -> String:
+	return "+ %d ⚡" % GameRun.CHARGE_UP_ENERGY
 
 ## Ist die Bucht überhaupt offen? Bedienbarkeit wie die Werkstatt, plus die Sperre
 ## des Wartungsvertrags.
 func bay_open() -> bool:
 	return run != null and enabled and not run.repair_locked()
 
-func repair_live(die: DieDefinition) -> bool:
-	if not bay_open() or die == null or not die.burned_out:
+func repair_live() -> bool:
+	if not bay_open() or target == null or not target.burned_out:
 		return false
 	var price := run.repair_price()
 	if price.has("money"):
 		return run.money >= int(price["money"])
 	return run.energy >= int(price["energy"])
 
-func drain_live(die: DieDefinition) -> bool:
-	if not bay_open() or die == null or die.burned_out or die.charge <= 0:
+func drain_live() -> bool:
+	if not bay_open() or target == null or target.burned_out or target.charge <= 0:
 		return false
 	return run.money >= GameRun.DRAIN_MONEY
 
-func _discharge_live() -> bool:
-	if not bay_open() or run.energy < GameRun.DISCHARGE_ALL_ENERGY:
+func charge_live() -> bool:
+	if not bay_open() or target == null or target.burned_out \
+			or target.charge >= DieDefinition.CHARGE_MAX:
 		return false
-	for die in run.owned_pool:
-		if die != null and not die.burned_out and die.charge > 0:
-			return true
-	return false
+	return run.energy >= GameRun.CHARGE_UP_ENERGY
 
-## WARUM ein FALL-Knopf schweigt ("" = keiner schweigt). Genannt wird die erste
-## geschlossene Bremse - erst die Sperren, dann das fehlende Guthaben. Der
-## Entladen-Knopf spricht bewußt NICHT mit: er steht grau da und nennt seinen
-## Preis in der eigenen Aufschrift, sonst stünde die Zeile fast immer voll.
+## WARUM ein Knopf schweigt ("" = keiner). Genannt wird die erste geschlossene
+## Bremse - erst die Sperren, dann das fehlende Guthaben; ein kalter oder voller
+## Würfel ist keine Bremse, sein Knopf steht einfach grau.
 func bay_blocker() -> String:
-	if run == null:
+	if run == null or target == null:
 		return ""
 	if not enabled:
 		return BLOCK_ROUND
 	if run.repair_locked():
 		return BLOCK_LOCKED
-	var wants_energy := false
-	var wants_money := false
-	var price := run.repair_price()
-	for die in _cases:
-		if die.burned_out:
-			if price.has("money"):
-				wants_money = wants_money or run.money < int(price["money"])
-			else:
-				wants_energy = wants_energy or run.energy < int(price["energy"])
-		elif run.money < GameRun.DRAIN_MONEY:
-			wants_money = true
-	if wants_money:
+	if target.burned_out:
+		var price := run.repair_price()
+		if price.has("money"):
+			return BLOCK_MONEY if run.money < int(price["money"]) else ""
+		return BLOCK_ENERGY if run.energy < int(price["energy"]) else ""
+	if target.charge > 0 and run.money < GameRun.DRAIN_MONEY:
 		return BLOCK_MONEY
-	if wants_energy:
+	if target.charge < DieDefinition.CHARGE_MAX and run.energy < GameRun.CHARGE_UP_ENERGY:
 		return BLOCK_ENERGY
 	return ""
 
 func caption_text() -> String:
 	return _caption.text if _caption != null and is_instance_valid(_caption) else ""
 
-## Der Zeiger schlägt den Grund: liegt er auf einer Zelle, spricht sie.
-func _set_hovered(die: DieDefinition) -> void:
-	if _hovered == die:
+## Der Zeiger schlägt den Grund: liegt er auf der Zelle, spricht sie.
+func _set_hovered(on: bool) -> void:
+	if _hovered == on:
 		return
-	_hovered = die
+	_hovered = on
 	_write_caption()
-	case_hovered.emit(die)
+	case_hovered.emit(target if on else null)
 
+## Zelle unter dem Zeiger > Bremse > die Warnung vor der letzten Sprosse.
 func _write_caption() -> void:
 	if _caption == null or not is_instance_valid(_caption):
 		return
-	var text := DieNetView.hint_for(_hovered, DieNetView.EDGE) if _hovered != null \
-		else bay_blocker()
-	if _caption.text == text:
-		return
-	_caption.text = text
+	var text := ""
+	if _hovered and target != null:
+		text = DieNetView.hint_for(target, DieNetView.EDGE)
+	else:
+		text = bay_blocker()
+		if text == "" and target != null and not target.burned_out \
+				and target.charge == DieDefinition.CHARGE_MAX - 1:
+			text = WARN_TOP
+	if _caption.text != text:
+		_caption.text = text

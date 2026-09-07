@@ -284,12 +284,13 @@ var round_bare_dice: int = 0
 var die_scored_this_round: Dictionary = {}
 
 ## --- LADUNG -------------------------------------------------------------------
-## Preise der Reparatur-Bucht.
-const REPAIR_ENERGY := 1
+## Preise der Reparatur-Bucht (Spieler-Entscheid 2026-09-07): Reparieren 3 ⚡,
+## Aufladen 1 ⚡ je Stufe, Ableiten $5 je Stufe.
+const REPAIR_ENERGY := 3
+const CHARGE_UP_ENERGY := 1
 const DRAIN_MONEY := 5
-const DISCHARGE_ALL_ENERGY := 5
-## Isolierband: die Reparatur kostet dann Geld statt Energie.
-const REPAIR_MONEY := 5
+## Isolierband: die Reparatur kostet Geld statt Energie.
+const REPAIR_MONEY := 15
 ## Kühlkörper: Deckel der Ladung, solange er im Dock liegt.
 const HEAT_SINK_CAP := 2
 ## Überlast/Netzausfall: der Ladungswurf trifft immer.
@@ -1887,23 +1888,19 @@ func drain_die(die: DieDefinition) -> bool:
 	note_pool_changed()
 	return true
 
-## Alle entladen: jede Ladung auf 0 für DISCHARGE_ALL_ENERGY ⚡. Durchgebrannte
-## bleiben durchgebrannt - das ist die Reparatur. Steht ohnehin alles kalt, wird
-## nichts gebucht.
-func discharge_all() -> bool:
-	if repair_locked() or energy < DISCHARGE_ALL_ENERGY:
+## Aufladen: EINE Stufe hinauf, für CHARGE_UP_ENERGY ⚡ - bis zur Spitze (die Wette
+## des Spielers: +3 Mult, aber jede Zündung würfelt aufs Durchbrennen). Der Deckel
+## des Kühlkörpers gilt auch hier.
+func charge_die(die: DieDefinition) -> bool:
+	if die == null or die.burned_out or repair_locked():
 		return false
-	var hot := 0
-	for die in owned_pool:
-		if die != null and not die.burned_out and die.charge > 0:
-			hot += 1
-	if hot == 0:
+	var cap := int(charge_rule().get("cap", DieDefinition.CHARGE_MAX))
+	if die.charge >= cap or energy < CHARGE_UP_ENERGY:
 		return false
-	spend_energy(DISCHARGE_ALL_ENERGY)
-	for die in owned_pool:
-		if die != null and not die.burned_out:
-			die.charge = 0
-	charge_logged.emit("%d Würfel entladen (%d ⚡)" % [hot, DISCHARGE_ALL_ENERGY])
+	spend_energy(CHARGE_UP_ENERGY)
+	die.charge += 1
+	charge_logged.emit("%s aufgeladen auf %d (%d ⚡)" % [_die_label(die), die.charge,
+		CHARGE_UP_ENERGY])
 	note_pool_changed()
 	return true
 

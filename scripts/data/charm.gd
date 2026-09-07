@@ -1015,7 +1015,7 @@ static func heat_sink() -> Charm:
 	return _make(HEAT_SINK, "Kühlkörper", "Kein Würfel steigt über Ladung 2.")
 
 static func insulation_tape() -> Charm:
-	return _make(INSULATION_TAPE, "Isolierband", "Reparaturen kosten $5 statt 1 ⚡.")
+	return _make(INSULATION_TAPE, "Isolierband", "Reparaturen kosten $15 statt 3 ⚡.")
 
 static func arc_flash() -> Charm:
 	return _make(ARC_FLASH, "Lichtbogen",
