@@ -282,20 +282,6 @@ func test_pit_window_shares_the_one_window_look():
 	assert_eq(pit_style.border_color, shared.border_color)
 	assert_eq(pit_style.border_width_top, shared.border_width_top)
 
-## Die REPARATUR-BUCHT wird gestellt wie jedes andere Fenster - aber sie ist,
-## wie der Werkstatt-Streifen, KEIN Glas-Fenster: sie liegt auf dem Filz.
-func test_the_repair_bay_is_placed_but_is_no_glass_window():
-	var material := mesh.material_override as ShaderMaterial
-	var before: int = material.get_shader_parameter("window_count")
-	var rect := Rect2(Vector2(1200, 900), Vector2(400, 500))
-	screen.place_repair_bay(rect)
-	assert_not_null(screen.repair_bay_window, "die Bucht steht im Baum")
-	assert_eq(screen.repair_bay_window.position, rect.position, "auf dem gemeldeten Platz")
-	assert_eq(screen.repair_bay_window.size, rect.size)
-	assert_true(screen.repair_bay_window.visible, "und sichtbar")
-	assert_eq(int(material.get_shader_parameter("window_count")), before,
-		"kein Glas-Fenster - ihre Teile liegen auf dem Filz")
-
 func test_glass_gets_the_window_rects_for_reflection_masking():
 	# NUR die Fenster spiegeln (der Filz dazwischen nicht): das Glas-Material
 	# muss die Fenster-Rechtecke kennen (siehe _sync_reflection_windows) -

@@ -153,7 +153,6 @@ var slot_bank_window: SlotBankView
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
-var repair_bay_window: RepairBayView
 ## Das Netz-Raster des Vorrats auf dem geschlossenen Gruben-Glas (Glas-Ansicht);
 ## es liegt auf dem Pool-Loch und steht nur, solange die Ansicht offen ist. Es
 ## wohnt in seinem EIGENEN SubViewport (siehe _build_content): nicht-HDR und
@@ -573,11 +572,6 @@ func _build_content() -> void:
 	workshop_window.name = "WorkshopWindow"
 	workshop_window.visible = false
 	add_child(workshop_window)
-
-	# Reparatur-Bucht: RECHTS neben dem Werkstatt-Streifen, in derselben Zeile.
-	# Position/Größe setzt scene_root über place_repair_bay.
-	repair_bay_window = RepairBayView.new()
-	add_child(repair_bay_window)
 
 	# Glas-Ansicht: Sie zieht in einen EIGENEN, NICHT-HDR-SubViewport mit
 	# transparent_bg - dort trägt sie echtes Per-Pixel-Alpha (der HDR-Haupt-Viewport
@@ -1063,16 +1057,6 @@ func place_workshop_window(rect: Rect2) -> void:
 	workshop_window.size = rect.size
 	workshop_window.visible = true
 	workshop_window.refresh()
-	_sync_reflection_windows()
-
-## Spannt die REPARATUR-BUCHT über rect auf (rechts vom Werkstatt-Streifen).
-func place_repair_bay(rect: Rect2) -> void:
-	if repair_bay_window == null:
-		return
-	repair_bay_window.position = rect.position
-	repair_bay_window.size = rect.size
-	repair_bay_window.visible = true
-	repair_bay_window.refresh()
 	_sync_reflection_windows()
 
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
