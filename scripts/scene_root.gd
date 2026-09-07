@@ -1610,13 +1610,13 @@ func _workshop_lane_px() -> float:
 	return _data_cell_lying_px().x * PackDrawerView.CASSETTE_SCALE \
 		* TowerView.eject_share(_wanted_strip_slots())
 
-## Die MINDESTTIEFE des Magazins in Display-Pixeln: ZWEI LANES der liegenden Karte,
-## dazwischen der SPALT, darunter die FUSSLUFT, plus die gemalte Fassung - dieselbe
-## Rechnung wie shelf_min_height im Fenster (ein Test hält beide gleich).
+## Die MINDESTTIEFE des Magazins in Display-Pixeln: ZWEI LANES der liegenden Karte
+## plus die DREI GLEICHEN Ränder und die gemalte Fassung - dieselbe Rechnung wie
+## shelf_min_height im Fenster (ein Test hält beide gleich).
 func _workshop_shelf_px(u: float) -> float:
 	return _data_cell_apparent_px().y * PackDrawerView.CASSETTE_SCALE \
 		* PackDrawerView.RANK_SPAN * float(PackDrawerView.LANES) \
-		+ PackDrawerView.ROW_GAP_PX + PackDrawerView.FOOT_GAP_PX \
+		+ PackDrawerView.LANE_GAP_PX * float(PackDrawerView.LANES + 1) \
 		+ PackDrawerView.rim_inset(u) * 2.0
 
 ## Die Maße EINES Würfelnetzes in Display-Pixeln, in der Zelle der echten

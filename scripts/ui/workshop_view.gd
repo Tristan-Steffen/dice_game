@@ -1709,14 +1709,15 @@ func shelf_strip_size() -> Vector2:
 	return Vector2(floorf(maxf(size.x, u * 20.0)),
 		maxf(apron_bottom_y() - shelf_top(), shelf_min_height()))
 
-## Die MINDESTTIEFE des Magazins: ZWEI LANES der LIEGENDEN Kassette, dazwischen der
-## SPALT und darunter die FUSSLUFT, plus die gemalte Fassung. Durch Spalt und Fußluft
-## sieht man in die Grube auf die geparkten Tabletts, also wächst sie um beides in den
-## freien Filz. Sie ist ein WELTMASS und steht als eigener Posten in der u-Rechnung.
+## Die MINDESTTIEFE des Magazins: ZWEI LANES der LIEGENDEN Kassette plus die DREI
+## GLEICHEN Ränder (über der hinteren Reihe, zwischen beiden, unter der vorderen) und
+## die gemalte Fassung. Durch die Ränder sieht man in die Grube auf die geparkten
+## Tabletts, also wächst sie um sie in den freien Filz. Sie ist ein WELTMASS und steht
+## als eigener Posten in der u-Rechnung.
 func shelf_min_height() -> float:
 	var card := shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE \
 		* PackDrawerView.RANK_SPAN * float(PackDrawerView.LANES)
-	return maxf(card + PackDrawerView.ROW_GAP_PX + PackDrawerView.FOOT_GAP_PX
+	return maxf(card + PackDrawerView.LANE_GAP_PX * float(PackDrawerView.LANES + 1)
 		+ PackDrawerView.rim_inset(shelf_unit()) * 2.0, unit() * SHELF_MIN_HEIGHT)
 
 ## Oberkante des Magazins: eine NAHT unter der Fensterkante (das Konsolen-Band ist

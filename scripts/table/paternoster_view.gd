@@ -300,26 +300,22 @@ func step(delta: int) -> void:
 		return
 	_ride = create_tween()
 	_ride.set_parallel(true)
+	# Der ganze Ring fährt ZUGLEICH - eine starre Kette: jedes Tablett räumt seinen
+	# Sitz genau so schnell, wie das nächste ihn füllt, darum überholt ein sinkendes
+	# nie das Tablett unter sich. Zwei Phasen (erst der Sinker, dann der Rest) ließen
+	# ihn kurz auf dem noch stehenden Nachbarn landen - beide waren dann zu sehen.
 	for row in ROWS:
 		var from := _tray_pose(row, before)
 		var to := _tray_pose(row, _head)
 		if from.is_equal_approx(to):
 			continue
 		_trays[row].position = from
-		var was := int(seat_of(row, before)["depth"])
 		# Der Park-Glanz gehört dem SITZ, nicht der Fahrt: unterwegs trägt ein Tablett
 		# den Ton seines ALTEN Platzes (settle_hard richtet ihn am Ende) - sonst
 		# flammte ein sinkendes noch in der Fläche auf.
-		_paint_tray(row, was != 0)
-		if was == 0 and not shows(row):
-			# Der SINKER fährt ZUERST - er räumt den Platz, in den gleich gegleitet wird.
-			_ride.tween_property(_trays[row], "position", to, SINK_TIME) \
-				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-			continue
-		# Alles andere folgt: Gleiten in der Fläche, Aufsteigen aus der Tiefe und
-		# das Nachrücken der Parkplätze - zugleich, hinter dem Sinken.
-		_ride.tween_property(_trays[row], "position", to, RIDE_TIME) \
-			.set_delay(SINK_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		_paint_tray(row, int(seat_of(row, before)["depth"]) != 0)
+		_ride.tween_property(_trays[row], "position", to, step_time()) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_ride.chain().tween_callback(settle_hard)
 
 ## Die Dauer eines Schritts.

@@ -67,18 +67,12 @@ const CARD_ASPECT := 1.5
 ## Blende an derselben Zahl). Eine LANE ist die halbe Grube: zwei liegen übereinander.
 const FRONT_SHARE := 0.09
 const LANES := 2
-## Der SPALT zwischen hinterer und vorderer Reihe: durch ihn sieht man in die Grube
-## auf die geparkten Tabletts. GEMESSEN an der Werkstatt-Weitsicht (1280 × 720):
-## 12,6 Anzeige-px lesen dort als ~16 Bildschirm-px (die geneigte Kamera bildet die
-## Grubentiefe größer ab, als die Anzeige sie mißt; Spieler-Entscheid: doppelt so
-## breit wie die ersten 6,3).
-const ROW_GAP_PX := 12.6
-## Die FUSSLUFT unter der vorderen Reihe bis zur Bild-unteren Grubenwand: durch sie
-## liest man von der Seite das PROFIL der fünf Ebenen der vorderen Lane. Sie liegt
-## NÄHER an der Kamera als der Spalt, bildet sich also je Anzeige-Pixel größer ab -
-## GEMESSEN lesen 51,5 Anzeige-px als ~74 Bildschirm-px (Spieler-Entscheid: fünfmal
-## die ersten 10,3 - erst so reicht der Blick unter das vordere Tablett).
-const FOOT_GAP_PX := 51.5
+## Der EINE RAND der Grube: GLEICH GROSS an allen drei Kanten - über der hinteren
+## Reihe, zwischen den beiden Reihen und unter der vorderen (Spieler-Entscheid
+## 2026-09-07). Durch die drei Ränder sieht man in die Grube auf die geparkten
+## Tabletts. GEMESSEN an der Werkstatt-Weitsicht (1280 × 720): 28 Anzeige-px lesen
+## dort als ~40 Bildschirm-px (die geneigte Kamera bildet die Grubentiefe größer ab).
+const LANE_GAP_PX := 28.0
 
 ## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette und die TIEFE einer Reihe.
 ## Es gibt genau EINE Reihe je Lane - RANK_SPAN ist ihre Luft, und der Streifen mißt
@@ -277,19 +271,22 @@ static func cell_of(index: int, columns: int) -> int:
 	return maxi(index, 0) % maxi(columns, 1)
 
 ## Die LANE-Geometrie EINER Grube, hinten zuerst: hintere Reihe an der Oberkante,
-## darunter der SPALT, dann die vordere, darunter die FUSSLUFT bis zur Wand. Es ist
-## die EINE Rechnung - Plätze, Mindesttiefe und der Körper lesen alle sie.
+## darunter der gleiche RAND, dann die vordere, darunter derselbe Rand bis zur Wand.
+## Es ist die EINE Rechnung - Plätze, Mindesttiefe und der Körper lesen alle sie.
 static func lane_rects(field_size: Vector2) -> Array[Rect2]:
 	var deep := lane_depth(field_size)
 	var rects: Array[Rect2] = []
+	# GLEICHE Ränder: LANE_GAP_PX steht vor der ersten Reihe, zwischen beiden und
+	# hinter der letzten - eine Reihe liegt also um je (deep + Rand) versetzt.
 	for lane in LANES:
-		rects.append(Rect2(Vector2(0.0, (deep + ROW_GAP_PX) * float(lane)),
+		rects.append(Rect2(Vector2(0.0, LANE_GAP_PX + (deep + LANE_GAP_PX) * float(lane)),
 			Vector2(field_size.x, deep)))
 	return rects
 
-## Die TIEFE einer Lane: was von der Grube bleibt, wenn Spalt und Fußluft ab sind.
+## Die TIEFE einer Lane: was von der Grube bleibt, wenn die (LANES + 1) gleichen
+## Ränder ab sind.
 static func lane_depth(field_size: Vector2) -> float:
-	return maxf((field_size.y - ROW_GAP_PX - FOOT_GAP_PX) / float(LANES), 1.0)
+	return maxf((field_size.y - LANE_GAP_PX * float(LANES + 1)) / float(LANES), 1.0)
 
 ## Platzmitte eines PLATZES im Feld (relativ zu dessen Ecke), in der LANE, die seine
 ## Reihe gerade belegt - hinten oben, vorn darunter.

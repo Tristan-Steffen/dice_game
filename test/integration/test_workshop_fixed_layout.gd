@@ -216,16 +216,18 @@ func test_the_drawer_height_is_two_lanes_of_the_lying_card() -> void:
 	var lane := view.shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE \
 		* PackDrawerView.RANK_SPAN
 	assert_almost_eq(view.shelf_min_height(),
-		lane * float(PackDrawerView.LANES) + PackDrawerView.ROW_GAP_PX
-			+ PackDrawerView.FOOT_GAP_PX
+		lane * float(PackDrawerView.LANES)
+			+ PackDrawerView.LANE_GAP_PX * float(PackDrawerView.LANES + 1)
 			+ PackDrawerView.rim_inset(view.shelf_unit()) * 2.0, 1.0,
-		"zwei Lanes, der Spalt, die Fußluft und die gemalte Fassung")
-	# Und die Grube trägt beide Lanes samt Spalt und Fußluft wirklich.
+		"zwei Lanes, drei gleiche Ränder und die gemalte Fassung")
+	# Und die Grube trägt beide Lanes samt der drei gleichen Ränder wirklich.
 	var lanes := PackDrawerView.lane_rects(view.shelf_pit_rect().size)
+	assert_almost_eq(lanes[0].position.y,
+		PackDrawerView.LANE_GAP_PX, 0.01, "der Rand über der hinteren Reihe")
 	assert_almost_eq(lanes[1].position.y - lanes[0].end.y,
-		PackDrawerView.ROW_GAP_PX, 0.01, "der Spalt steht in der Grube")
+		PackDrawerView.LANE_GAP_PX, 0.01, "derselbe zwischen den Reihen")
 	assert_almost_eq(view.shelf_pit_rect().size.y - lanes[1].end.y,
-		PackDrawerView.FOOT_GAP_PX, 0.01, "und die Fußluft darunter")
+		PackDrawerView.LANE_GAP_PX, 0.01, "und derselbe unter der vorderen Reihe")
 	# ... und die zwei Lanes liegen wirklich ÜBEREINANDER in der Grube.
 	var pit := view.shelf_pit_rect()
 	assert_gt(pit.size.y, lane * 1.9, "die Grube trägt beide Reihen")

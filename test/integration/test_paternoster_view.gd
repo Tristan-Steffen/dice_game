@@ -121,18 +121,20 @@ func test_die_lanes_liegen_auf_den_gemeldeten_mitten() -> void:
 	assert_gt(back.position.x - front.position.x, 1.8,
 		"ihre Kanten berühren sich nicht - dazwischen sieht man in die Grube")
 
-## Und der SPALT der Meldung kommt aus dem Fenster: dieselbe eine Rechnung.
+## Und die GLEICHEN Ränder der Meldung kommen aus dem Fenster: dieselbe eine Rechnung.
 func test_der_spalt_und_die_fussluft_stecken_in_den_lane_rechtecken() -> void:
 	var field := Vector2(900.0, 260.0)
 	var rects := PackDrawerView.lane_rects(field)
 	assert_eq(rects.size(), PackDrawerView.LANES)
+	assert_almost_eq(rects[0].position.y, PackDrawerView.LANE_GAP_PX, 0.001,
+		"der Rand über der hinteren Reihe")
 	assert_almost_eq(rects[1].position.y - rects[0].end.y,
-		PackDrawerView.ROW_GAP_PX, 0.001, "der Spalt liegt zwischen den Lanes")
-	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.FOOT_GAP_PX, 0.001,
-		"und darunter bleibt die Fußluft bis zur Wand")
+		PackDrawerView.LANE_GAP_PX, 0.001, "derselbe Rand zwischen den Lanes")
+	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.LANE_GAP_PX, 0.001,
+		"und derselbe unter der vorderen Reihe")
 	assert_almost_eq(rects[0].size.y, rects[1].size.y, 0.001, "beide gleich tief")
-	assert_almost_eq(rects[0].size.y * 2.0 + PackDrawerView.ROW_GAP_PX
-		+ PackDrawerView.FOOT_GAP_PX, field.y, 0.001, "und zusammen die Feldtiefe")
+	assert_almost_eq(rects[0].size.y * 2.0 + PackDrawerView.LANE_GAP_PX * 3.0,
+		field.y, 0.001, "zwei Lanes und drei Ränder sind die Feldtiefe")
 
 # --- Die Invariante: nichts über der Tischkante ------------------------------------
 

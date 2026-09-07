@@ -101,8 +101,8 @@ func test_spots_run_along_the_one_row_in_owner_order() -> void:
 		PaternosterView.LANE_FRONT)
 	assert_almost_eq(next_row.x, first.x, 0.01, "Reihe 2 beginnt wieder links")
 	assert_almost_eq(next_row.y - first.y,
-		PackDrawerView.lane_depth(field) + PackDrawerView.ROW_GAP_PX, 0.01,
-		"und liegt eine Lane plus den Spalt weiter vorn")
+		PackDrawerView.lane_depth(field) + PackDrawerView.LANE_GAP_PX, 0.01,
+		"und liegt eine Lane plus den Rand weiter vorn")
 
 func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_row() -> void:
 	# Der Magazin-Deckel formt das Raster NICHT: die Spaltenzahl folgt allein aus der
@@ -134,26 +134,27 @@ func test_the_row_lies_in_what_the_front_band_leaves() -> void:
 	var slot := PackDrawerView.slot_size(field, CELL)
 	assert_almost_eq(slot.y,
 		PackDrawerView.lane_depth(field) * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
-	assert_almost_eq(PackDrawerView.spot_for(0, field, CELL).y, slot.y * 0.5, 0.01,
-		"die Reihe liegt mittig darin")
+	assert_almost_eq(PackDrawerView.spot_for(0, field, CELL).y,
+		PackDrawerView.LANE_GAP_PX + slot.y * 0.5, 0.01,
+		"die Reihe liegt mittig darin, unter dem oberen Rand")
 
-## SPALT und FUSSLUFT sind die eine Lane-Rechnung: hinten oben, vorn darunter, der
-## Spalt dazwischen, die Fußluft unten - zusammen die ganze Feldtiefe.
+## DREI GLEICHE Ränder sind die eine Lane-Rechnung: über der hinteren Reihe, zwischen
+## beiden und unter der vorderen - jeder LANE_GAP_PX, zusammen mit den zwei Lanes die
+## ganze Feldtiefe.
 func test_the_lanes_leave_a_gap_between_them_and_air_below() -> void:
 	var field := _field().size
 	var rects := PackDrawerView.lane_rects(field)
 	assert_eq(rects.size(), PackDrawerView.LANES)
-	assert_eq(rects[0].position.y, 0.0, "die hintere Reihe liegt an der Oberkante")
+	assert_almost_eq(rects[0].position.y, PackDrawerView.LANE_GAP_PX, 0.001,
+		"über der hinteren Reihe steht der Rand")
 	assert_almost_eq(rects[1].position.y - rects[0].end.y,
-		PackDrawerView.ROW_GAP_PX, 0.001, "der SPALT")
-	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.FOOT_GAP_PX, 0.001,
-		"die FUSSLUFT bis zur Grubenwand")
+		PackDrawerView.LANE_GAP_PX, 0.001, "derselbe Rand zwischen den Reihen")
+	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.LANE_GAP_PX, 0.001,
+		"und derselbe unter der vorderen Reihe")
 	assert_almost_eq(rects[0].size.y * float(PackDrawerView.LANES)
-		+ PackDrawerView.ROW_GAP_PX + PackDrawerView.FOOT_GAP_PX, field.y, 0.001,
-		"und die Summe ist die Feldtiefe")
-	assert_gt(PackDrawerView.ROW_GAP_PX, 0.0)
-	assert_gt(PackDrawerView.FOOT_GAP_PX, PackDrawerView.ROW_GAP_PX,
-		"unter der vorderen Reihe bleibt mehr Luft als zwischen den beiden")
+		+ PackDrawerView.LANE_GAP_PX * float(PackDrawerView.LANES + 1), field.y, 0.001,
+		"zwei Lanes und drei Ränder sind die Feldtiefe")
+	assert_gt(PackDrawerView.LANE_GAP_PX, 0.0)
 
 func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 	# Der ganze Punkt: eine Kassette schrumpft NIE - auch nicht jenseits des
@@ -248,8 +249,8 @@ func test_both_lying_rows_carry_chips() -> void:
 	assert_almost_eq(drawer.pack_seat_px(columns + 1).x, drawer.pack_seat_px(1).x, 0.5,
 		"derselbe Platz in der Reihe")
 	assert_almost_eq(drawer.pack_seat_px(columns + 1).y - drawer.pack_seat_px(1).y,
-		PackDrawerView.lane_depth(drawer.field.size) + PackDrawerView.ROW_GAP_PX, 0.5,
-		"eine Lane plus den Spalt weiter vorn")
+		PackDrawerView.lane_depth(drawer.field.size) + PackDrawerView.LANE_GAP_PX, 0.5,
+		"eine Lane plus den Rand weiter vorn")
 	assert_eq(drawer.hover_uid_at(drawer.pack_button(1).get_global_rect().get_center()), 1)
 
 func test_a_step_of_the_circulation_shows_the_next_pair() -> void:
