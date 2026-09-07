@@ -98,11 +98,41 @@ func test_die_hintere_lane_liegt_weiter_hinten_als_die_vordere() -> void:
 	assert_almost_eq(back.global_position.x - front.global_position.x,
 		pater.lane_depth(), 0.0001, "eine Lane Abstand")
 
-func test_eine_lane_ist_die_halbe_grube() -> void:
-	assert_almost_eq(pater.lane_depth(), SPAN.x * 0.5, 0.0001)
+func test_ohne_meldung_ist_eine_lane_die_halbe_grube() -> void:
+	assert_almost_eq(pater.lane_depth(), SPAN.x * 0.5, 0.0001,
+		"der kopflose Rückfall")
 	assert_almost_eq(pater.band_depth(),
 		pater.lane_depth() * PackDrawerView.FRONT_SHARE, 0.0001,
 		"und die Blende nimmt den Anteil, den auch das Magazin für sie freihält")
+
+## GEMELDET liegen die Lanes auf den genannten Mitten mit der genannten Tiefe - der
+## SPALT dazwischen und die FUSSLUFT darunter stecken in dieser Meldung.
+func test_die_lanes_liegen_auf_den_gemeldeten_mitten() -> void:
+	var lanes: Array[Vector2] = [Vector2(1.6, 1.8), Vector2(-0.4, 1.8)]
+	pater.setup(Vector3.ZERO, SPAN, SCALE, lanes)
+	assert_almost_eq(pater.lane_depth(), 1.8, 0.0001, "die gemeldete Tiefe")
+	assert_almost_eq(pater.lane_x(PaternosterView.LANE_BACK), 1.6, 0.0001)
+	assert_almost_eq(pater.lane_x(PaternosterView.LANE_FRONT), -0.4, 0.0001)
+	var back := pater.get_node("Tablett1") as Node3D
+	var front := pater.get_node("Tablett2") as Node3D
+	assert_almost_eq(back.position.x, 1.6, 0.0001)
+	assert_almost_eq(front.position.x, -0.4, 0.0001)
+	# Zwischen den beiden liegenden Tabletts bleibt ein echter SPALT.
+	assert_gt(back.position.x - front.position.x, 1.8,
+		"ihre Kanten berühren sich nicht - dazwischen sieht man in die Grube")
+
+## Und der SPALT der Meldung kommt aus dem Fenster: dieselbe eine Rechnung.
+func test_der_spalt_und_die_fussluft_stecken_in_den_lane_rechtecken() -> void:
+	var field := Vector2(900.0, 260.0)
+	var rects := PackDrawerView.lane_rects(field)
+	assert_eq(rects.size(), PackDrawerView.LANES)
+	assert_almost_eq(rects[1].position.y - rects[0].end.y,
+		PackDrawerView.ROW_GAP_PX, 0.001, "der Spalt liegt zwischen den Lanes")
+	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.FOOT_GAP_PX, 0.001,
+		"und darunter bleibt die Fußluft bis zur Wand")
+	assert_almost_eq(rects[0].size.y, rects[1].size.y, 0.001, "beide gleich tief")
+	assert_almost_eq(rects[0].size.y * 2.0 + PackDrawerView.ROW_GAP_PX
+		+ PackDrawerView.FOOT_GAP_PX, field.y, 0.001, "und zusammen die Feldtiefe")
 
 # --- Die Invariante: nichts über der Tischkante ------------------------------------
 
@@ -194,16 +224,44 @@ func test_ein_wurf_waehrend_der_fahrt_wird_angenommen() -> void:
 	assert_false(pater.riding())
 	assert_eq(pater.rows_shown(), [ROWS - 2, ROWS - 1] as Array[int])
 
-func test_nur_die_zwei_liegenden_reihen_sind_zu_sehen() -> void:
+## ALLE zehn Reihen werden gerendert - vor, während und nach einem Schritt. Durch
+## Spalt und Fußluft sieht man die geparkten Tabletts in der Grube liegen.
+func test_alle_zehn_faecher_sind_sichtbar() -> void:
 	for row in ROWS:
 		var fach := pater.get_node("Tablett%d/Fach" % (row + 1)) as Node3D
-		assert_eq(fach.visible, row <= 1, "Reihe %d" % (row + 1))
+		assert_true(fach.visible, "Reihe %d steht vorher im Bild" % (row + 1))
 	pater.step(-1)
+	await wait_frames(2)
+	for row in ROWS:
+		var fach := pater.get_node("Tablett%d/Fach" % (row + 1)) as Node3D
+		assert_true(fach.visible, "Reihe %d auch mitten in der Fahrt" % (row + 1))
 	await wait_seconds(_ride_time())
 	for row in ROWS:
 		var fach := pater.get_node("Tablett%d/Fach" % (row + 1)) as Node3D
-		assert_eq(fach.visible, row == 1 or row == 2,
-			"nach dem Schritt: Reihe %d" % (row + 1))
+		assert_true(fach.visible, "Reihe %d auch danach" % (row + 1))
+	# shows() bleibt die LOGIK-Antwort - sie schaltet nur nichts mehr.
+	assert_true(pater.shows(1))
+	assert_false(pater.shows(4))
+
+## Ein GEPARKTES Tablett glüht heller: in der Grube trifft es kein Szenenlicht, und
+## durch den SPALT liest nur seine schmale Stirnfläche.
+func test_ein_geparktes_tablett_glueht_heller() -> void:
+	pater.set_head(0)
+	var lying := (pater.get_node("Tablett1/Platte") as MeshInstance3D).material_override
+	var parked := (pater.get_node("Tablett5/Platte") as MeshInstance3D).material_override
+	assert_ne(lying, parked, "zwei Materialien, nicht eins")
+	assert_almost_eq((parked as StandardMaterial3D).emission_energy_multiplier,
+		(lying as StandardMaterial3D).emission_energy_multiplier
+			* PaternosterView.PARK_GLOW, 0.0001)
+	assert_gt(PaternosterView.PARK_GLOW, 1.0, "heller, nicht dunkler")
+	# Und die Fahrt trägt den Ton ihres ALTEN Platzes, bis sie steht.
+	pater.step(1)
+	await wait_frames(2)
+	assert_eq((pater.get_node("Tablett2/Platte") as MeshInstance3D).material_override,
+		lying, "die sinkende Reihe flammt nicht schon in der Fläche auf")
+	await wait_seconds(_ride_time())
+	assert_eq((pater.get_node("Tablett2/Platte") as MeshInstance3D).material_override,
+		parked, "unten trägt sie den Park-Ton")
 
 # --- Die Karten sind Kinder ihres Faches -------------------------------------------
 

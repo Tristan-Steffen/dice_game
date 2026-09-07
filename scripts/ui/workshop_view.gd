@@ -1692,6 +1692,7 @@ func _build_drawer(u: float) -> void:
 	_drawer.pack_pressed.connect(_on_pack_pressed)
 	_drawer.packs_reordered.connect(_on_packs_reordered)
 	_drawer.tidy_requested.connect(_on_tidy_requested)
+	_drawer.pack_placed.connect(_on_pack_placed)
 	add_child(_drawer)  # direktes Kind: das Fach liegt AUSSERHALB des Fensters
 	var rect := shelf_rect()
 	_drawer.position = rect.position
@@ -1708,15 +1709,15 @@ func shelf_strip_size() -> Vector2:
 	return Vector2(floorf(maxf(size.x, u * 20.0)),
 		maxf(apron_bottom_y() - shelf_top(), shelf_min_height()))
 
-## Die MINDESTTIEFE des Magazins: ZWEI LANES der LIEGENDEN Kassette - ihre Breite
-## plus Rangluft, zweimal, und die gemalte Fassung. Der Kreislauf zeigt zwei Reihen
-## übereinander, also ist die Grube eine liegende Karte tiefer als vorher. Sie ist
-## ein WELTMASS und steht als eigener Posten in der u-Rechnung des Streifens.
+## Die MINDESTTIEFE des Magazins: ZWEI LANES der LIEGENDEN Kassette, dazwischen der
+## SPALT und darunter die FUSSLUFT, plus die gemalte Fassung. Durch Spalt und Fußluft
+## sieht man in die Grube auf die geparkten Tabletts, also wächst sie um beides in den
+## freien Filz. Sie ist ein WELTMASS und steht als eigener Posten in der u-Rechnung.
 func shelf_min_height() -> float:
 	var card := shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE \
 		* PackDrawerView.RANK_SPAN * float(PackDrawerView.LANES)
-	return maxf(card + PackDrawerView.rim_inset(shelf_unit()) * 2.0,
-		unit() * SHELF_MIN_HEIGHT)
+	return maxf(card + PackDrawerView.ROW_GAP_PX + PackDrawerView.FOOT_GAP_PX
+		+ PackDrawerView.rim_inset(shelf_unit()) * 2.0, unit() * SHELF_MIN_HEIGHT)
 
 ## Oberkante des Magazins: eine NAHT unter der Fensterkante (das Konsolen-Band ist
 ## mit der Welle W gestorben). Die HÖHE folgt daraus.
@@ -1800,15 +1801,23 @@ func _flush_queued_pops() -> void:
 ## Je Paket {uid, pack, withheld} in Magazin-Ordnung (= run.owned_packs). Was in
 ## einem Serien-Schacht steckt, fehlt ganz; was noch als Licht fliegt, hält seinen
 ## Platz und bleibt bis zur Landung verdeckt.
+## REIHE und PLATZ kommen aus dem Lauf: die Reihe ist Spielstand, der Platz ist der
+## Rang in ihr. Was in einer Turm-Etage steckt, zählt nicht mit - seine Reihe schließt
+## sich derweil.
 func drawer_entries() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	if run == null:
 		return entries
+	var fill: Dictionary = {}
 	for pack in run.owned_packs:
 		if _series.has(pack.pack_uid):
 			continue
+		var line := run.pack_row_of(pack.pack_uid)
+		var cell_index := int(fill.get(line, 0))
+		fill[line] = cell_index + 1
 		entries.append({"uid": pack.pack_uid, "pack": pack,
-			"withheld": _pending_arrivals.has(pack.pack_uid)})
+			"withheld": _pending_arrivals.has(pack.pack_uid),
+			"row": line, "cell": cell_index})
 	return entries
 
 ## Ein Paket ist unterwegs: sein Platz steht, sein Chip erscheint erst mit der
@@ -1838,8 +1847,8 @@ func pack_seat_px(uid: int) -> Vector2:
 		var seat := _drawer.pack_seat_px(uid)
 		if seat.x >= 0.0:
 			return seat
-	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), pack_index_of(uid),
-		drawer_entries().size(), shelf_cell_px(), shelf_lane_of(uid))
+	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), shelf_cell_of(uid),
+		shelf_cell_px(), shelf_lane_of(uid))
 	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
 
 ## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn ihre REIHE
@@ -1867,13 +1876,25 @@ func pack_index_of(uid: int) -> int:
 		index += 1
 	return -1
 
-## Die REIHE des Kreislaufs, in der diese Kassette liegt (0 = die erste).
+## Die REIHE des Kreislaufs, in der diese Kassette liegt (0 = die erste). Sie kommt
+## aus dem Lauf - die Reihe ist Spielstand, nicht Anzeige.
 func shelf_row_of(uid: int) -> int:
 	if _drawer != null and is_instance_valid(_drawer):
 		var line := _drawer.row_of_pack(uid)
 		if line >= 0:
 			return line
-	return PackDrawerView.row_of(maxi(pack_index_of(uid), 0), shelf_columns())
+	if run != null:
+		var line := run.pack_row_of(uid)
+		if line >= 0:
+			return line
+	return 0
+
+## Und ihr PLATZ in dieser Reihe (Rang unter den Karten derselben Reihe im Fach).
+func shelf_cell_of(uid: int) -> int:
+	for entry in drawer_entries():
+		if int(entry.get("uid", 0)) == uid:
+			return int(entry.get("cell", 0))
+	return 0
 
 ## Liegt ihre Reihe gerade in der Fläche (eine der zwei Lanes)?
 func shelf_shows(uid: int) -> bool:
@@ -1896,13 +1917,15 @@ func shelf_columns() -> int:
 func shelf_row_tints(line: int) -> Array[Color]:
 	var tints: Array[Color] = []
 	var columns := shelf_columns()
-	var entries := drawer_entries()
-	for i in columns:
-		var index := line * columns + i
-		if index >= entries.size():
-			tints.append(PaternosterView.TICK_EMPTY)
+	var packs: Array[Pack] = []
+	packs.resize(columns)
+	for entry in drawer_entries():
+		if int(entry.get("row", -1)) != line:
 			continue
-		var pack: Pack = entries[index].get("pack")
+		var cell_index := int(entry.get("cell", 0))
+		if cell_index >= 0 and cell_index < columns:
+			packs[cell_index] = entry.get("pack") as Pack
+	for pack in packs:
 		if pack == null:
 			tints.append(PaternosterView.TICK_EMPTY)
 			continue
@@ -1910,15 +1933,17 @@ func shelf_row_tints(line: int) -> Array[Color]:
 		tints.append(DataCellView.tier_shade(base, pack.tier))
 	return tints
 
-## Der Platz, auf dem die NÄCHSTE Lieferung landet (extra staffelt eine Salve).
+## Der Platz, auf dem die NÄCHSTE Lieferung landet (extra staffelt eine Salve): die
+## erste Reihe mit freiem Platz, gefragt beim Lauf.
 func arrival_anchor_px(extra: int = 0) -> Vector2:
-	var count := drawer_entries().size()
-	var line := PackDrawerView.row_of(count + extra, shelf_columns())
-	var seat := PaternosterView.seat_of(line, shelf_head)
+	var spot := run.next_pack_spot(extra) if run != null else Vector2i(-1, -1)
+	if spot.x < 0:
+		return shelf_rect_global().get_center()
+	var seat := PaternosterView.seat_of(spot.x, shelf_head)
 	if int(seat["depth"]) != 0 and shelf_lever_px.x >= 0.0:
 		return shelf_lever_px
-	return PackDrawerView.anchor_in(shelf_pit_rect(), count + extra,
-		count + extra + 1, shelf_cell_px(), int(seat["lane"]))
+	return PackDrawerView.anchor_in(shelf_pit_rect(), spot.y,
+		shelf_cell_px(), int(seat["lane"]))
 
 ## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Schacht.
 func _on_pack_pressed(uid: int) -> void:
@@ -1930,6 +1955,12 @@ func _on_packs_reordered(from_uid: int, to_uid: int) -> void:
 	if run == null or shelf_locked():
 		return
 	run.reorder_packs(run.pack_index_of(from_uid), run.pack_index_of(to_uid))
+
+## Kassette auf einen LEEREN Platz gezogen: sie hängt sich hinten an DIESE Reihe.
+func _on_pack_placed(uid: int, row: int) -> void:
+	if run == null or shelf_locked():
+		return
+	run.place_pack(uid, row)
 
 ## Doppelklick auf leere Fach-Fläche: aufräumen nach Sorte, Inhalt, uid.
 func _on_tidy_requested() -> void:

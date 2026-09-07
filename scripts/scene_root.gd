@@ -590,6 +590,8 @@ var page_lever: LeverView
 ## ihn jedem frischen Lauf herein (dasselbe Muster wie apron_bottom - core misst
 ## keine Fenster).
 var _pack_capacity := 0
+## ... und die SPALTEN, aus denen er fällt: so viele Kassetten liegen in EINE Reihe.
+var _pack_columns := 0
 ## Der Filzboden rings um die Anzeige. Er muss dort ausblenden, wo die Grube steht,
 ## sonst blickt man durch das Loch auf Filz statt in die Vertiefung.
 var table_ground: TableGround
@@ -1608,11 +1610,14 @@ func _workshop_lane_px() -> float:
 	return _data_cell_lying_px().x * PackDrawerView.CASSETTE_SCALE \
 		* TowerView.eject_share(_wanted_strip_slots())
 
-## Die MINDESTTIEFE des Magazins in Display-Pixeln: EIN Rang der stehenden Karte
-## plus der gemalten Fassung - dieselbe Rechnung wie shelf_min_height im Fenster.
+## Die MINDESTTIEFE des Magazins in Display-Pixeln: ZWEI LANES der liegenden Karte,
+## dazwischen der SPALT, darunter die FUSSLUFT, plus die gemalte Fassung - dieselbe
+## Rechnung wie shelf_min_height im Fenster (ein Test hält beide gleich).
 func _workshop_shelf_px(u: float) -> float:
 	return _data_cell_apparent_px().y * PackDrawerView.CASSETTE_SCALE \
-		* PackDrawerView.RANK_SPAN + PackDrawerView.rim_inset(u) * 2.0
+		* PackDrawerView.RANK_SPAN * float(PackDrawerView.LANES) \
+		+ PackDrawerView.ROW_GAP_PX + PackDrawerView.FOOT_GAP_PX \
+		+ PackDrawerView.rim_inset(u) * 2.0
 
 ## Die Maße EINES Würfelnetzes in Display-Pixeln, in der Zelle der echten
 ## Würfelfläche - Spaltenbreite und Bandhöhe des Streifens folgen ihnen.
@@ -3867,9 +3872,10 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	# Der DECKEL des Magazins wird an DIESER Grube gemessen: so viele Kassetten
 	# liegen darin in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
 	# entschieden werden - core misst keine Fenster.
-	_pack_capacity = PackDrawerView.capacity_for(rect.size, workshop.shelf_cell_px())
+	_pack_columns = PackDrawerView.columns_for(rect.size, workshop.shelf_cell_px(), 1)
+	_pack_capacity = _pack_columns * GameRun.PACK_ROWS
 	if run != null:
-		run.set_pack_capacity(_pack_capacity)
+		run.set_pack_grid(_pack_columns)
 	table_screen.set_apron_pit(rect, workshop.shelf_pit_radius())
 	var centre := table_screen.pixel_to_world(rect.get_center())
 	if pack_pit == null or not is_instance_valid(pack_pit):
@@ -3926,13 +3932,28 @@ func _sync_paternoster(workshop: WorkshopView) -> void:
 		paternoster = PaternosterView.new()
 		add_child(paternoster)
 	paternoster.setup(table_screen.pixel_to_world(rect.get_center()),
-		_world_span(rect.size), workshop.shelf_cell_scale())
+		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect))
 	# Nur ein echter Wechsel setzt hart: sonst risse dieser Abgleich jede laufende
 	# Fahrt ab (die schreibt ihren Endzustand ohnehin sofort ins Fenster).
 	if paternoster.head() != workshop.shelf_head:
 		paternoster.set_head(workshop.shelf_head)
 	for line in PackDrawerView.ROWS:
 		paternoster.set_ticks(line, workshop.shelf_row_tints(line))
+
+## Die LANE-Geometrie der Grube in WELT: je Lane ihre Mitte (Welt-X, relativ zur
+## Grubenmitte) und ihre Tiefe. Das FENSTER meldet die Rechtecke in Display-Pixeln
+## (Spalt und Fußluft stecken darin), scene_root rechnet sie um - ui/ faßt keine
+## Körper an. Bild-unten ist Welt -X, also kehrt sich die Richtung um.
+func _shelf_lanes(rect: Rect2) -> Array[Vector2]:
+	var lanes: Array[Vector2] = []
+	if rect.size.y <= 0.0:
+		return lanes
+	var span := _world_span(rect.size)
+	var k := span.x / rect.size.y
+	for lane_rect in PackDrawerView.lane_rects(rect.size):
+		lanes.append(Vector2((rect.size.y * 0.5 - lane_rect.get_center().y) * k,
+			lane_rect.size.y * k))
+	return lanes
 
 ## Die halbe Welt-Ausdehnung eines Display-Rechtecks (x quer, y längs).
 func _pit_half(rect: Rect2) -> Vector2:
@@ -13069,8 +13090,8 @@ func _reset_game() -> void:
 func _connect_run() -> void:
 	# Der gemessene Magazin-Deckel gehört dem TISCH: ein frischer Lauf bekommt ihn
 	# sofort, bevor ein Fenster ihn abliest.
-	if run != null and _pack_capacity > 0:
-		run.set_pack_capacity(_pack_capacity)
+	if run != null and _pack_columns > 0:
+		run.set_pack_grid(_pack_columns)
 	# Ein Laden, der noch abräumt, gibt seine Fläche JETZT ab - der run-Setter gleich
 	# darunter löscht seinen Abgangs-Zustand, danach weiß niemand mehr davon.
 	if charm_shop != null and is_instance_valid(charm_shop):

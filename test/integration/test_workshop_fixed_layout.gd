@@ -216,9 +216,16 @@ func test_the_drawer_height_is_two_lanes_of_the_lying_card() -> void:
 	var lane := view.shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE \
 		* PackDrawerView.RANK_SPAN
 	assert_almost_eq(view.shelf_min_height(),
-		lane * float(PackDrawerView.LANES)
+		lane * float(PackDrawerView.LANES) + PackDrawerView.ROW_GAP_PX
+			+ PackDrawerView.FOOT_GAP_PX
 			+ PackDrawerView.rim_inset(view.shelf_unit()) * 2.0, 1.0,
-		"zwei Lanes plus die gemalte Fassung")
+		"zwei Lanes, der Spalt, die Fußluft und die gemalte Fassung")
+	# Und die Grube trägt beide Lanes samt Spalt und Fußluft wirklich.
+	var lanes := PackDrawerView.lane_rects(view.shelf_pit_rect().size)
+	assert_almost_eq(lanes[1].position.y - lanes[0].end.y,
+		PackDrawerView.ROW_GAP_PX, 0.01, "der Spalt steht in der Grube")
+	assert_almost_eq(view.shelf_pit_rect().size.y - lanes[1].end.y,
+		PackDrawerView.FOOT_GAP_PX, 0.01, "und die Fußluft darunter")
 	# ... und die zwei Lanes liegen wirklich ÜBEREINANDER in der Grube.
 	var pit := view.shelf_pit_rect()
 	assert_gt(pit.size.y, lane * 1.9, "die Grube trägt beide Reihen")
@@ -294,8 +301,8 @@ func test_the_derived_pack_anchor_matches_the_measured_one() -> void:
 	for i in run.owned_packs.size():
 		var uid := run.owned_packs[i].pack_uid
 		var measured := view._drawer.pack_anchor_px(uid)
-		var derived := PackDrawerView.anchor_in(view.shelf_pit_rect(), i,
-			run.owned_packs.size(), view.shelf_cell_px())
+		var derived := PackDrawerView.anchor_in(view.shelf_pit_rect(),
+			view.shelf_cell_of(uid), view.shelf_cell_px(), view.shelf_lane_of(uid))
 		# Auf Pixelrundung genau - alles darüber wäre ein sichtbarer Sprung.
 		assert_almost_eq(derived.x, measured.x, 1.5, "uid %d: dieselbe Spalte" % uid)
 		assert_almost_eq(derived.y, measured.y, 1.5, "uid %d: dieselbe Höhe" % uid)
@@ -418,10 +425,13 @@ func test_the_tower_footprint_lies_crosswise() -> void:
 ## gewählt, dass eine randvolle Grube noch in voller Größe steht.
 func test_the_magazine_never_squeezes_its_cards_by_count() -> void:
 	await wait_frames(2)
+	var columns := PackDrawerView.columns_for(view.shelf_pit_rect().size,
+		view.shelf_cell_px(), 1)
 	var capacity := PackDrawerView.capacity_for(view.shelf_pit_rect().size,
 		view.shelf_cell_px())
 	assert_gt(capacity, 0, "die Grube hat einen GEMESSENEN Deckel")
-	run.set_pack_capacity(capacity)
+	assert_eq(capacity, columns * GameRun.PACK_ROWS, "Reihe mal Kreislauf-Reihen")
+	run.set_pack_grid(columns)
 	for i in capacity:
 		run.grant_pack(Pack.number_pack())
 	await wait_frames(2)

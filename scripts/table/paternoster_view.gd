@@ -15,8 +15,9 @@ extends Node3D
 ## Park-Tiefe), also ist der ganze Kreislauf prüfbar, ohne einen Körper zu fahren.
 ##
 ## Die Karten LIEGEN flach auf ihrem Tablett (Netz nach oben, wie im Turm) und sind
-## KINDER ihres Faches: eine Fahrt trägt sie mit, und die SICHTBARKEIT einer Reihe
-## ist die ihres Faches - EIN Schreiber, kein Sichtbarkeits-Bit je Karte.
+## KINDER ihres Faches: eine Fahrt trägt sie mit. ALLE ZEHN Reihen werden gerendert -
+## durch den SPALT zwischen den Lanes und die FUSSLUFT darunter liest man die
+## geparkten Tabletts als Treppe in der Grube.
 ##
 ## Jedes Tablett trägt an seiner Bild-UNTEREN Kante die FRONT-BLENDE mit der
 ## Reihen-Nummer und je Platz einem SORTEN-TICK, damit es als Schublade liest.
@@ -74,19 +75,33 @@ const PLATE_ENERGY := TowerView.FRAME_EMISSION_ENERGY
 const BAND_ALBEDO := TowerView.BAR_ALBEDO
 const BAND_EMISSION := TowerView.BAR_EMISSION
 const BAND_ENERGY := 0.35
+## Wie viel heller ein GEPARKTES Tablett glüht: in der dunklen Grube trifft es kein
+## Szenenlicht, und durch Spalt und Fußluft sieht man nur seine schmalen STIRNFLÄCHEN.
+## GEMESSEN am Bild - bei 1,0 liest der Parkstapel als schwarzer Schlitz, bei 3,0
+## steht die Treppe der Front-Blenden im Bild, ohne die liegenden Reihen zu überstrahlen
+## (Bloom-Schwelle 0,95: 0,42 × 3,0 = 1,26 trägt nur die winzigen Stirnflächen).
+const PARK_GLOW := 3.0
 
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
 var _scale := PackDrawerView.CASSETTE_SCALE
 var _head := 0
 var _built := false
+## Die gemeldete LANE-Geometrie in WELT: je Lane (Mitte relativ zur Grubenmitte in
+## Welt-X, Tiefe). Leer = der kopflose Rückfall, die halbe Grube je Lane.
+var _lanes: Array[Vector2] = []
 
 var _trays: Array[Node3D] = []
 var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
+var _plates: Array[MeshInstance3D] = []
+var _blechs: Array[MeshInstance3D] = []
 var _ticks: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
 var _plate_material: StandardMaterial3D
 var _band_material: StandardMaterial3D
+## Dieselben Materialien für den PARKSTAPEL, nur heller - siehe PARK_GLOW.
+var _plate_material_parked: StandardMaterial3D
+var _band_material_parked: StandardMaterial3D
 var _ride: Tween
 
 func _init() -> void:
@@ -145,14 +160,16 @@ static func stack_depth(cell_scale: float) -> float:
 ## GLASPUNKT der Grubenmitte, span = ihr Weltmaß (x quer/Bild-hoch, y längs/Bild-
 ## breit), cell_scale der Anzeige-Maßstab der Karten. Die Grube trägt ZWEI Lanes,
 ## ein Tablett ist also nur ihre halbe Tiefe.
-func setup(at: Vector3, span: Vector2, cell_scale: float) -> void:
+func setup(at: Vector3, span: Vector2, cell_scale: float,
+		lanes: Array[Vector2] = []) -> void:
 	var wanted := Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
 	if _built and _seat.is_equal_approx(at) and _span.is_equal_approx(wanted) \
-			and is_equal_approx(_scale, cell_scale):
+			and is_equal_approx(_scale, cell_scale) and _lanes == lanes:
 		return
 	_seat = at
 	_span = wanted
 	_scale = cell_scale
+	_lanes = lanes.duplicate()
 	global_position = at
 	_ensure_trays()
 	for row in ROWS:
@@ -175,6 +192,8 @@ func _ensure_trays() -> void:
 		tray.add_child(fach)
 		_fachs.append(fach)
 		_bands.append(null)
+		_plates.append(null)
+		_blechs.append(null)
 		_ticks.append([] as Array[Color])
 
 ## Platte und FRONT-BLENDE einer Reihe. Das Fach bleibt stehen - es trägt die Karten.
@@ -189,13 +208,14 @@ func _build_tray(row: int) -> void:
 	var plate := _box("Platte", Vector3(lane_depth(), PLATE, _span.y),
 		Vector3(0.0, -PLATE * 0.5, 0.0), _plate_material, tray)
 	plate.name = "Platte"
+	_plates[row] = plate
 	var band := Node3D.new()
 	band.name = "Blende"
 	# Bild-UNTEN ist Welt -X: dort steht die Blende, wie die Front einer Schublade.
 	band.position = Vector3(-lane_depth() * 0.5 + band_depth() * 0.5, 0.0, 0.0)
 	tray.add_child(band)
 	_bands[row] = band
-	_box("Blech", Vector3(band_depth(), BAND_RISE, _span.y),
+	_blechs[row] = _box("Blech", Vector3(band_depth(), BAND_RISE, _span.y),
 		Vector3(0.0, BAND_RISE * 0.5, 0.0), _band_material, band)
 	var label := Label3D.new()
 	label.name = "Nummer"
@@ -211,17 +231,23 @@ func _build_tray(row: int) -> void:
 	band.add_child(label)
 	_write_ticks(row)
 
-## Die Tiefe EINER Lane in Welt: die Grube trägt zwei übereinander in der Fläche.
+## Die Tiefe EINER Lane in Welt: sie wird GEMELDET (das Fenster schneidet Spalt und
+## Fußluft heraus); ohne Meldung bleibt die halbe Grube der kopflose Rückfall.
 func lane_depth() -> float:
-	return _span.x * 0.5
+	if _lanes.is_empty():
+		return _span.x * 0.5
+	return maxf(_lanes[0].y, 0.01)
 
 ## Die Tiefe der Blende in Welt.
 func band_depth() -> float:
 	return lane_depth() * FRONT_SHARE
 
-## Die Mitte einer Lane, quer zur Grube (Welt-X, relativ zur Grubenmitte).
+## Die Mitte einer Lane, quer zur Grube (Welt-X, relativ zur Grubenmitte) - gemeldet
+## wie ihre Tiefe.
 func lane_x(lane: int) -> float:
-	return lane_depth() * 0.5 * (1.0 if lane == LANE_BACK else -1.0)
+	if _lanes.is_empty():
+		return lane_depth() * 0.5 * (1.0 if lane == LANE_BACK else -1.0)
+	return _lanes[clampi(lane, 0, _lanes.size() - 1)].x
 
 # --- Der Zustand -------------------------------------------------------------------
 
@@ -247,8 +273,8 @@ func shows(row: int) -> bool:
 func riding() -> bool:
 	return _ride != null and _ride.is_valid()
 
-## Der EINE harte Schreiber: jedes Tablett auf seinem Sitz, nur die zwei sichtbaren
-## Fächer sichtbar. Jeder Abbruch und jeder Laufwechsel geht hier durch.
+## Der EINE harte Schreiber: jedes Tablett auf seinem Sitz. Jeder Abbruch und jeder
+## Laufwechsel geht hier durch.
 func settle_hard() -> void:
 	_kill()
 	_write_hard()
@@ -281,10 +307,12 @@ func step(delta: int) -> void:
 			continue
 		_trays[row].position = from
 		var was := int(seat_of(row, before)["depth"])
+		# Der Park-Glanz gehört dem SITZ, nicht der Fahrt: unterwegs trägt ein Tablett
+		# den Ton seines ALTEN Platzes (settle_hard richtet ihn am Ende) - sonst
+		# flammte ein sinkendes noch in der Fläche auf.
+		_paint_tray(row, was != 0)
 		if was == 0 and not shows(row):
-			# Der SINKER fährt ZUERST - er räumt den Platz, in den gleich gegleitet
-			# wird, und bleibt sichtbar, bis er unten ist.
-			_fachs[row].visible = true
+			# Der SINKER fährt ZUERST - er räumt den Platz, in den gleich gegleitet wird.
 			_ride.tween_property(_trays[row], "position", to, SINK_TIME) \
 				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 			continue
@@ -303,10 +331,25 @@ func _tray_pose(row: int, head_row: int) -> Vector3:
 	return Vector3(lane_x(int(seat["lane"])),
 		-drop_of(int(seat["depth"]), _scale), 0.0)
 
+## Alle ZEHN Reihen werden gerendert - durch Spalt, Fußluft und die Ritzen zwischen
+## den Schienen sieht man die geparkten Tabletts in der Grube liegen. `shows(row)`
+## bleibt die LOGIK-Antwort (Lese-Tiefe), sie schaltet nur nichts mehr.
 func _write_hard() -> void:
 	for row in _trays.size():
 		_trays[row].position = _tray_pose(row, _head)
-		_fachs[row].visible = shows(row)
+		_paint_tray(row, not shows(row))
+
+## Ein GEPARKTES Tablett glüht heller: in der Grube trifft es kein Szenenlicht, und
+## sichtbar ist durch den SPALT nur seine schmale Stirnfläche.
+func _paint_tray(row: int, parked: bool) -> void:
+	if row >= _plates.size():
+		return
+	if _plates[row] != null and is_instance_valid(_plates[row]):
+		_plates[row].material_override = \
+			_plate_material_parked if parked else _plate_material
+	if _blechs[row] != null and is_instance_valid(_blechs[row]):
+		_blechs[row].material_override = \
+			_band_material_parked if parked else _band_material
 
 func _kill() -> void:
 	if _ride != null and _ride.is_valid():
@@ -443,6 +486,10 @@ func _ensure_materials() -> void:
 	_band_material.emission_enabled = true
 	_band_material.emission = BAND_EMISSION
 	_band_material.emission_energy_multiplier = BAND_ENERGY
+	_plate_material_parked = _plate_material.duplicate()
+	_plate_material_parked.emission_energy_multiplier = PLATE_ENERGY * PARK_GLOW
+	_band_material_parked = _band_material.duplicate()
+	_band_material_parked.emission_energy_multiplier = BAND_ENERGY * PARK_GLOW
 
 func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,
 		host: Node3D) -> MeshInstance3D:

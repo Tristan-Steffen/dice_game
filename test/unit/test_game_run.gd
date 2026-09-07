@@ -379,6 +379,125 @@ func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
 	assert_lt(run.owned_packs[0].pack_uid, run.owned_packs[1].pack_uid,
 		"gleicher Inhalt: die uid bricht den Gleichstand")
 
+# --- Das REIHEN-MODELL des Magazins ------------------------------------------------
+
+## Das gemessene RASTER schiebt Spalten herein; der Deckel fällt daraus.
+func test_set_pack_grid_derives_the_capacity():
+	run.set_pack_grid(6)
+	assert_eq(run.pack_columns, 6)
+	assert_eq(run.pack_capacity, 6 * GameRun.PACK_ROWS, "Reihe mal Kreislauf-Reihen")
+	assert_eq(GameRun.PACK_ROWS, 10)
+
+## Eine Lieferung fällt auf die ERSTE Reihe mit freiem Platz - Reihe 1 zuerst.
+func test_a_delivery_falls_into_the_first_row_with_room():
+	run.set_pack_grid(2)
+	for i in 5:
+		run.grant_pack(Pack.number_pack())
+	var rows: Array[int] = []
+	for pack: Pack in run.owned_packs:
+		rows.append(pack.shelf_row)
+	assert_eq(rows, [0, 0, 1, 1, 2] as Array[int], "voll heißt: die nächste Reihe")
+	assert_eq(run.pack_cell_of(run.owned_packs[3].pack_uid), 1,
+		"und der Platz ist der Rang in SEINER Reihe")
+	assert_eq(run.next_pack_row(), 2, "der nächste fällt zu dem einen in Reihe 3")
+	assert_eq(run.next_pack_row(1), 3, "und der übernächste eröffnet Reihe 4")
+	assert_eq(run.next_pack_spot(1), Vector2i(3, 0))
+
+## Ein Verbrauch mitten in Reihe 1 schließt NUR Reihe 1 - Reihe 2 rührt sich nicht.
+func test_a_consumed_pack_closes_only_its_own_row():
+	run.set_pack_grid(3)
+	for i in 6:
+		run.grant_pack(Pack.number_pack())
+	var second: Array[int] = []
+	for i in range(3, 6):
+		second.append(run.pack_cell_of(run.owned_packs[i].pack_uid))
+	run._consume_packs([run.owned_packs[1]] as Array[Pack])
+	assert_eq(run.pack_cell_of(run.owned_packs[1].pack_uid), 1,
+		"Reihe 1 schließt sich um die verbrauchte Karte")
+	for i in range(2, 5):
+		assert_eq(run.owned_packs[i].shelf_row, 1, "Reihe 2 bleibt Reihe 2")
+		assert_eq(run.pack_cell_of(run.owned_packs[i].pack_uid), second[i - 2],
+			"und ihre Plätze stehen still")
+
+## Voll heißt: keine Reihe hat einen freien Platz - bei Spalten × Reihen dieselbe
+## Aussage wie der Deckel.
+func test_packs_full_means_no_row_has_room():
+	run.set_pack_grid(2)
+	assert_false(run.packs_full())
+	for i in run.pack_capacity:
+		assert_not_null(run.grant_pack(Pack.number_pack()), "Platz %d" % i)
+	assert_eq(run.owned_packs.size(), 2 * GameRun.PACK_ROWS)
+	assert_true(run.packs_full(), "jede Reihe ist voll")
+	assert_eq(run.next_pack_row(), -1, "und es gibt keine freie mehr")
+
+## Der ZUG darf die Reihe wechseln; eine VOLLE Zielreihe verweigert.
+func test_reorder_packs_may_change_the_row_but_not_into_a_full_one():
+	run.set_pack_grid(2)
+	for i in 4:
+		run.grant_pack(Pack.number_pack())
+	# Reihe 2 ist voll: der Zug aus Reihe 1 dorthin passiert nicht.
+	assert_false(run.reorder_packs(0, 2), "eine volle Zielreihe verweigert")
+	assert_eq(run.owned_packs[0].shelf_row, 0, "nichts hat sich bewegt")
+	run._consume_packs([run.owned_packs[3]] as Array[Pack])
+	var moved := run.owned_packs[0]
+	assert_true(run.reorder_packs(0, 2), "jetzt ist Platz")
+	assert_eq(moved.shelf_row, 1, "sie liegt in der Zielreihe")
+	assert_eq(run.owned_packs[2], moved, "und an DESSEN Platz in der Liste")
+
+## Der Zug auf einen LEEREN Platz hängt sie hinten an diese Reihe.
+func test_place_pack_appends_to_a_row():
+	run.set_pack_grid(2)
+	for i in 5:
+		run.grant_pack(Pack.number_pack())  # Reihen 0,0,1,1,2
+	var uid := run.owned_packs[0].pack_uid
+	assert_true(run.place_pack(uid, 2), "Reihe 3 hat noch Platz")
+	assert_eq(run.pack_row_of(uid), 2)
+	assert_eq(run.pack_cell_of(uid), 1, "hinten an die Reihe")
+	assert_eq(run.owned_packs[run.owned_packs.size() - 1].pack_uid, uid,
+		"in der Liste hinter das letzte Paket dieser Reihe")
+	assert_false(run.place_pack(uid, 2), "dieselbe Reihe ist kein Umzug")
+	assert_false(run.place_pack(uid, 1), "Reihe 2 ist voll")
+	assert_false(run.place_pack(999, 3), "unbekannte uid")
+	assert_false(run.place_pack(uid, GameRun.PACK_ROWS), "es gibt keine elfte Reihe")
+
+## Aufräumen packt ALLES neu: sortiert wie eh und je, Reihen kompakt vergeben.
+func test_tidy_packs_repacks_the_rows_compactly():
+	run.set_pack_grid(2)
+	for i in 5:
+		run.grant_pack(Pack.number_pack())
+	run.place_pack(run.owned_packs[0].pack_uid, 7)  # eine Karte weit hinten
+	run.tidy_packs()
+	for i in run.owned_packs.size():
+		assert_eq(run.owned_packs[i].shelf_row, i / 2,
+			"Platz %d liegt in Reihe %d" % [i, i / 2 + 1])
+
+## Schrumpfen die Spalten, werden überzählige Karten hart umgelegt.
+func test_a_smaller_grid_moves_the_surplus_to_free_rows():
+	run.set_pack_grid(4)
+	for i in 4:
+		run.grant_pack(Pack.number_pack())
+	assert_eq(run.owned_packs[3].shelf_row, 0, "alle vier liegen in Reihe 1")
+	run.set_pack_grid(2)
+	var rows: Array[int] = []
+	for pack: Pack in run.owned_packs:
+		rows.append(pack.shelf_row)
+	assert_eq(rows, [0, 0, 1, 1] as Array[int],
+		"die ersten behalten ihre Reihe, die überzähligen rücken weiter")
+
+## Direkt angehängte Pakete (Tests, Altbestand) bekommen ihre Reihe nachgereicht.
+func test_ensure_pack_rows_normalises_homeless_packs():
+	run.set_pack_grid(2)
+	for i in 3:
+		var pack := Pack.number_pack()
+		pack.pack_uid = 100 + i
+		run.owned_packs.append(pack)
+	assert_eq(run.owned_packs[0].shelf_row, -1, "noch heimatlos")
+	run.ensure_pack_rows()
+	assert_eq(run.owned_packs[0].shelf_row, 0)
+	assert_eq(run.owned_packs[1].shelf_row, 0)
+	assert_eq(run.owned_packs[2].shelf_row, 1, "die dritte eröffnet Reihe 2")
+	assert_eq(run.pack_row_of(102), 1, "und pack_row_of fragt defensiv nach")
+
 ## Der Deckel ist GEMESSEN und wird hereingeschoben: die Konstante trägt nur noch
 ## kopflos (Tests), und ein unbrauchbarer Wert lässt sie stehen.
 func test_the_pack_capacity_is_injected_and_idempotent():

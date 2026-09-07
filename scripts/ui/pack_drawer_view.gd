@@ -33,6 +33,9 @@ signal pack_pressed(uid: int)
 signal packs_reordered(from_uid: int, to_uid: int)
 ## Doppelklick auf leere Fach-Fläche: das Magazin soll sich aufräumen.
 signal tidy_requested
+## Kassette auf einen LEEREN Platz einer liegenden Reihe gezogen: sie soll sich
+## hinten an diese Reihe hängen (volle Reihe verweigert der Lauf).
+signal pack_placed(uid: int, row: int)
 
 const GOLD := Color("#ffd319")
 
@@ -53,8 +56,9 @@ const COLORS := {
 const CASSETTE_SCALE := 2.184
 
 ## Die REIHEN des Paternoster-Kreislaufs: zehn Tabletts, EINE Karten-Reihe je
-## Tablett, zwei davon zugleich sichtbar. Der Deckel ist Reihe mal ROWS.
-const ROWS := 10
+## Tablett, zwei davon zugleich sichtbar. Der Deckel ist Reihe mal ROWS. Die Zahl
+## wohnt im Lauf (die Reihe ist Spielstand), ui liest sie von dort.
+const ROWS := GameRun.PACK_ROWS
 ## Seitenverhältnis der Kassette (Höhe / Breite, 2 : 3): daraus folgt ihr LIEGENDER
 ## Fußabdruck aus dem gemeldeten STEHENDEN. EINE Quelle - WorkshopView liest sie mit.
 const CARD_ASPECT := 1.5
@@ -63,6 +67,16 @@ const CARD_ASPECT := 1.5
 ## Blende an derselben Zahl). Eine LANE ist die halbe Grube: zwei liegen übereinander.
 const FRONT_SHARE := 0.09
 const LANES := 2
+## Der SPALT zwischen hinterer und vorderer Reihe: durch ihn sieht man in die Grube
+## auf die geparkten Tabletts. GEMESSEN an der Werkstatt-Weitsicht (1280 × 720):
+## 6,3 Anzeige-px lesen dort als ~8 Bildschirm-px (die geneigte Kamera bildet die
+## Grubentiefe größer ab, als die Anzeige sie mißt).
+const ROW_GAP_PX := 6.3
+## Die FUSSLUFT unter der vorderen Reihe bis zur Bild-unteren Grubenwand: durch sie
+## liest man von der Seite das PROFIL der fünf Ebenen der vorderen Lane. Sie liegt
+## NÄHER an der Kamera als der Spalt, bildet sich also je Anzeige-Pixel größer ab -
+## GEMESSEN lesen 10,3 Anzeige-px als ~15 Bildschirm-px.
+const FOOT_GAP_PX := 10.3
 
 ## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette und die TIEFE einer Reihe.
 ## Es gibt genau EINE Reihe je Lane - RANK_SPAN ist ihre Luft, und der Streifen mißt
@@ -121,6 +135,8 @@ var _spots: Dictionary = {}
 var _rows: Dictionary = {}
 ## uid -> Chip-Knopf (nur sichtbare Einträge der zwei liegenden Reihen).
 var _chips: Dictionary = {}
+## Die freien Plätze der LIEGENDEN Reihen als Ablage-Ziele: [{rect, row}].
+var _empty_spots: Array[Dictionary] = []
 var _count := 0
 var _locked := false
 ## Die HINTERE Reihe (0-basiert; vorn liegt die nächste) und der Anker des HEBELS in
@@ -153,6 +169,7 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	_spots.clear()
 	_rows.clear()
 	_chips.clear()
+	_empty_spots.clear()
 	_drag_from = 0
 	_count = entries.size()
 	_head = posmod(head, ROWS)
@@ -161,22 +178,50 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	var columns := maxi(int(_grid.get("columns", 1)), 1)
 	add_child(_well())
 	add_child(_well_catch())
+	var filled: Dictionary = {}  # Reihe -> Array[int] belegter Plätze
 	for i in entries.size():
 		var uid := int(entries[i].get("uid", 0))
-		var line := row_of(i, columns)
+		# REIHE und PLATZ kommen aus dem Lauf (das Fenster rechnet die Ordnung nicht
+		# nach); ohne Meldung bleibt der kopflose Abschnitts-Rückfall.
+		var line := int(entries[i].get("row", -1))
+		if line < 0:
+			line = row_of(i, columns)
+		var cell_index := int(entries[i].get("cell", -1))
+		if cell_index < 0:
+			cell_index = cell_of(i, columns)
 		var seat := PaternosterView.seat_of(line, _head)
 		# Der PLATZ gilt IMMER - auch parkend liegt der Körper in der Lane seiner
 		# Reihe, nur eben darunter. Nur der CHIP hängt an der Sichtbarkeit.
 		var spot := field.position \
-			+ _spot_in(_grid, i, field.size, cell_px, int(seat["lane"]))
+			+ spot_for(cell_index, field.size, cell_px, int(seat["lane"]))
 		_spots[uid] = spot
 		_rows[uid] = line
+		if not filled.has(line):
+			filled[line] = []
+		(filled[line] as Array).append(cell_index)
 		if bool(entries[i].get("withheld", false)) or int(seat["depth"]) != 0:
 			continue
 		var chip := _chip(entries[i].get("pack") as Pack, uid, spot)
 		if chip != null:
 			add_child(chip)
 			_chips[uid] = chip
+	_lay_empty_spots(filled, columns)
+
+## Je LIEGENDER Reihe bekommt jeder freie Platz ein Ablage-Ziel: ein Zug darauf hängt
+## die Karte hinten an diese Reihe. Es sind reine RECHTECKE, kein Knopf - ein Knopf
+## läge über der Fach-Fläche und schluckte den Aufräum-Doppelklick.
+func _lay_empty_spots(filled: Dictionary, columns: int) -> void:
+	var grip := grip_for(field.size, cell_px)
+	for line in ROWS:
+		if int(PaternosterView.seat_of(line, _head)["depth"]) != 0:
+			continue
+		var taken: Array = filled.get(line, [])
+		var lane := int(PaternosterView.seat_of(line, _head)["lane"])
+		for cell_index in columns:
+			if taken.has(cell_index):
+				continue
+			var spot := field.position + spot_for(cell_index, field.size, cell_px, lane)
+			_empty_spots.append({"rect": Rect2(spot - grip * 0.5, grip), "row": line})
 
 ## Der LIEGENDE Fußabdruck einer Kassette in Display-Pixeln, aus dem gemeldeten
 ## STEHENDEN gerechnet: quer liegt ihre LANGSEITE, in der Tiefe ihre Breite. Es gibt
@@ -219,50 +264,53 @@ static func columns_for(field_size: Vector2, cell: Vector2, count: int) -> int:
 static func rows_for(field_size: Vector2, cell: Vector2, count: int) -> int:
 	return int(grid_for(field_size, cell, count)["rows"])
 
-## Die REIHE eines Eintrags (0 = die erste) ...
+## Die REIHE eines Eintrags (0 = die erste) - der KOPFLOSE RÜCKFALL, wenn kein Lauf
+## eine Reihe meldet. Die echte Ordnung wohnt als Pack.shelf_row im Lauf: eine Karte
+## rutscht nur INNERHALB ihrer Reihe nach.
 static func row_of(index: int, columns: int) -> int:
 	return floori(float(maxi(index, 0)) / float(maxi(columns, 1)))
 
-## ... und sein PLATZ in ihr. Zusammen sind sie die ganze Ordnung: die Reihen des
-## Kreislaufs sind ABSCHNITTE der einen Magazin-Liste.
+## ... und sein PLATZ in ihr, derselbe Rückfall.
 static func cell_of(index: int, columns: int) -> int:
 	return maxi(index, 0) % maxi(columns, 1)
 
-## Platzmitte des Eintrags index im Feld (relativ zu dessen Ecke), in der LANE, die
-## seine Reihe gerade belegt - hinten die obere Hälfte der Grube, vorn die untere.
-static func spot_for(index: int, count: int, field_size: Vector2,
-		cell: Vector2, lane := PaternosterView.LANE_BACK) -> Vector2:
-	return _spot_in(grid_for(field_size, cell, count), index, field_size, cell, lane)
+## Die LANE-Geometrie EINER Grube, hinten zuerst: hintere Reihe an der Oberkante,
+## darunter der SPALT, dann die vordere, darunter die FUSSLUFT bis zur Wand. Es ist
+## die EINE Rechnung - Plätze, Mindesttiefe und der Körper lesen alle sie.
+static func lane_rects(field_size: Vector2) -> Array[Rect2]:
+	var deep := lane_depth(field_size)
+	var rects: Array[Rect2] = []
+	for lane in LANES:
+		rects.append(Rect2(Vector2(0.0, (deep + ROW_GAP_PX) * float(lane)),
+			Vector2(field_size.x, deep)))
+	return rects
 
-static func _spot_in(grid: Dictionary, index: int, field_size: Vector2,
-		cell: Vector2, lane: int) -> Vector2:
-	var columns := maxi(int(grid.get("columns", 1)), 1)
-	var slot := _slot_in(grid, field_size, cell)
+## Die TIEFE einer Lane: was von der Grube bleibt, wenn Spalt und Fußluft ab sind.
+static func lane_depth(field_size: Vector2) -> float:
+	return maxf((field_size.y - ROW_GAP_PX - FOOT_GAP_PX) / float(LANES), 1.0)
+
+## Platzmitte eines PLATZES im Feld (relativ zu dessen Ecke), in der LANE, die seine
+## Reihe gerade belegt - hinten oben, vorn darunter.
+static func spot_for(cell_index: int, field_size: Vector2, cell: Vector2,
+		lane := PaternosterView.LANE_BACK) -> Vector2:
+	var slot := slot_size(field_size, cell)
+	var lane_top := lane_rects(field_size)[clampi(lane, 0, LANES - 1)].position.y
 	# Die Reihe liegt mittig in dem, was die FRONT-BLENDE ihres Tabletts übrig läßt -
 	# die sitzt an der Bild-unteren Kante IHRER Lane.
-	var lane_top := field_size.y / float(LANES) * float(clampi(lane, 0, LANES - 1))
-	return Vector2(slot.x * (float(cell_of(index, columns)) + 0.5),
-		lane_top + slot.y * 0.5)
+	return Vector2(slot.x * (float(maxi(cell_index, 0)) + 0.5), lane_top + slot.y * 0.5)
 
 ## Der PLATZ eines Eintrags. Quer teilt sich die Reihe die GANZE Feldbreite - die
 ## Karte behält ihr Maß, die Luft dazwischen wächst; in der Tiefe ist der Platz
-## seine LANE (die halbe Grube) ohne die Blende.
-static func slot_size(field_size: Vector2, cell: Vector2, count: int) -> Vector2:
-	return _slot_in(grid_for(field_size, cell, count), field_size, cell)
-
-static func _slot_in(grid: Dictionary, field_size: Vector2, _cell: Vector2) -> Vector2:
-	var columns := maxf(float(grid.get("columns", 1)), 1.0)
-	return Vector2(field_size.x / columns,
-		field_size.y / float(LANES) * (1.0 - FRONT_SHARE))
+## seine LANE ohne die Blende.
+static func slot_size(field_size: Vector2, cell: Vector2) -> Vector2:
+	return Vector2(field_size.x / float(_columns_at(field_size, cell)),
+		lane_depth(field_size) * (1.0 - FRONT_SHARE))
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft. Er ist
 ## bewusst größer als die Karte - in der Grube gäbe ein Knopf im Kartenmaß einen
 ## Streifen von wenigen Pixeln, und der Zeiger fände ihn nie.
-static func grip_for(field_size: Vector2, cell: Vector2, count: int) -> Vector2:
-	return _grip_in(grid_for(field_size, cell, count), field_size, cell)
-
-static func _grip_in(grid: Dictionary, field_size: Vector2, cell: Vector2) -> Vector2:
-	return _slot_in(grid, field_size, cell) * (1.0 - SLOT_INSET * 2.0)
+static func grip_for(field_size: Vector2, cell: Vector2) -> Vector2:
+	return slot_size(field_size, cell) * (1.0 - SLOT_INSET * 2.0)
 
 ## Die Grube selbst: das Rechteck INNERHALB des gemalten Rahmens - genau dort
 ## schneidet screen_glass sein Loch, und der Rahmen überlebt es rings herum.
@@ -321,11 +369,11 @@ func head() -> int:
 ## nicht steht (Presse, Paket-Wahl); dieselbe Formel wie oben, damit ein Komet
 ## nicht springt, sobald es zurückkommt. field_rect ist die GRUBE (pit_rect_in),
 ## nicht der Streifen: die Kassetten stehen im Loch, nicht unter der Fassung.
-static func anchor_in(field_rect: Rect2, index: int, count: int,
+static func anchor_in(field_rect: Rect2, cell_index: int,
 		cell: Vector2, lane := PaternosterView.LANE_BACK) -> Vector2:
-	if index < 0 or field_rect.size.x <= 0.0 or field_rect.size.y <= 0.0:
+	if cell_index < 0 or field_rect.size.x <= 0.0 or field_rect.size.y <= 0.0:
 		return Vector2(-1, -1)
-	return field_rect.position + spot_for(index, count, field_rect.size, cell, lane)
+	return field_rect.position + spot_for(cell_index, field_rect.size, cell, lane)
 
 ## Der Chip einer uid (null = keiner).
 func pack_button(uid: int) -> Button:
@@ -360,10 +408,24 @@ func _on_chip_input(event: InputEvent, uid: int) -> void:
 	if (event as InputEventMouseButton).pressed:
 		_drag_from = uid
 		return
-	var target := pack_at((event as InputEventMouseButton).global_position)
+	var at := (event as InputEventMouseButton).global_position
+	var target := pack_at(at)
 	if _drag_from > 0 and target > 0 and target != _drag_from:
 		packs_reordered.emit(_drag_from, target)
+	elif _drag_from > 0 and target <= 0:
+		var row := empty_row_at(at)
+		if row >= 0 and row != row_of_pack(_drag_from):
+			pack_placed.emit(_drag_from, row)
 	_drag_from = 0
+
+## Die REIHE des freien Platzes unter der globalen Position (-1 = keiner). Die
+## Rechtecke liegen lokal wie die Plätze; global wird hier gerechnet.
+func empty_row_at(global_point: Vector2) -> int:
+	var origin := get_global_rect().position
+	for spot in _empty_spots:
+		if (spot["rect"] as Rect2).has_point(global_point - origin):
+			return int(spot["row"])
+	return -1
 
 ## Name und Wirkung dessen, was unter pixel liegt ({} = nichts). Ein leeres Fach
 ## nennt sich selbst. GEFRAGT statt gemeldet: der Zeiger liegt auf dem Tisch, ein
@@ -463,7 +525,7 @@ func _chip(pack: Pack, uid: int, spot: Vector2) -> Button:
 	var chip := Button.new()
 	chip.name = "PackCell"
 	chip.focus_mode = Control.FOCUS_NONE
-	var grip := _grip_in(_grid, field.size, cell_px)
+	var grip := grip_for(field.size, cell_px)
 	chip.size = grip
 	chip.position = spot - grip * 0.5
 	chip.disabled = _locked

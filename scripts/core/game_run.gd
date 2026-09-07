@@ -213,7 +213,13 @@ const PACK_CAPACITY := 20
 ## eine Standard-Karte trägt ein bis zwei Zellen - ihr Zerfall ist Trostgeld, kein
 ## Ersatz.
 const PACK_FIZZLE_MONEY := 3
+## Die REIHEN des Paternoster-Kreislaufs - die EINE Quelle (core importiert nie ui,
+## also liest PackDrawerView.ROWS von hier).
+const PACK_ROWS := 10
 var pack_capacity: int = PACK_CAPACITY
+## Wie viele Kassetten in EINE Reihe liegen (gemessen, von scene_root hereingeschoben
+## über set_pack_grid). Der Rückfall folgt aus PACK_CAPACITY.
+var pack_columns: int = PACK_CAPACITY / PACK_ROWS
 var owned_packs: Array[Pack] = []
 ## Laufende Paket-Nummer: _stash_pack stempelt sie beim Einlagern. An ihr hängen
 ## Magazin-Platz, Vormerkung und Körper - Indizes brechen beim Umsortieren.
@@ -653,8 +659,12 @@ func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) ->
 func _stash_pack(pack: Pack) -> Pack:
 	if packs_full():
 		return null
+	var row := next_pack_row()
+	if row < 0:
+		return null
 	pack_serial += 1
 	pack.pack_uid = pack_serial
+	pack.shelf_row = row
 	owned_packs.append(pack)
 	return pack
 
@@ -665,8 +675,107 @@ func set_pack_capacity(value: int) -> void:
 		return
 	pack_capacity = value
 
+## Das gemessene RASTER: so viele Kassetten je Reihe, mal PACK_ROWS ist der Deckel.
+## Schrumpfen die Spalten, werden überzählige Karten einer Reihe im selben Zug hart
+## auf die ersten freien Reihen umgelegt.
+func set_pack_grid(columns: int) -> void:
+	if columns <= 0 or columns == pack_columns:
+		return
+	pack_columns = columns
+	pack_capacity = columns * PACK_ROWS
+	ensure_pack_rows()
+
+## Voll heißt: KEINE Reihe hat einen freien Platz mehr (und der Deckel ist erreicht -
+## bei pack_capacity = Spalten × Reihen sind beide Aussagen dieselbe).
 func packs_full() -> bool:
-	return owned_packs.size() >= pack_capacity
+	if owned_packs.size() >= pack_capacity:
+		return true
+	return next_pack_row() < 0
+
+# --- Das REIHEN-MODELL des Magazins ------------------------------------------------
+# Jede Kassette gehört FEST zu einer Reihe des Kreislaufs; ein Verbrauch schließt nur
+# SEINE Reihe, die anderen rühren sich nicht.
+
+## Die Belegung je Reihe (Index = Reihe). Heimatlose Karten zählen nicht mit.
+func _pack_row_fill() -> PackedInt32Array:
+	var fill := PackedInt32Array()
+	fill.resize(PACK_ROWS)
+	for pack in owned_packs:
+		if pack.shelf_row >= 0 and pack.shelf_row < PACK_ROWS:
+			fill[pack.shelf_row] += 1
+	return fill
+
+static func _first_free_row(fill: PackedInt32Array, columns: int) -> int:
+	for row in fill.size():
+		if fill[row] < columns:
+			return row
+	return -1
+
+## Jedes Paket der Liste hat eine gültige Reihe, und keine Reihe trägt mehr als
+## pack_columns. Idempotent, still (kein Signal) - gerufen aus jedem Lesepfad.
+func ensure_pack_rows() -> void:
+	var fill := PackedInt32Array()
+	fill.resize(PACK_ROWS)
+	var homeless: Array[Pack] = []
+	for pack in owned_packs:
+		var row := pack.shelf_row
+		if row < 0 or row >= PACK_ROWS or fill[row] >= pack_columns:
+			homeless.append(pack)
+			continue
+		fill[row] += 1
+	for pack in homeless:
+		var row := _first_free_row(fill, pack_columns)
+		if row < 0:
+			continue  # kein Platz mehr: die Karte behält, was sie hat
+		pack.shelf_row = row
+		fill[row] += 1
+
+## Wohin die NÄCHSTE Lieferung fällt: {Reihe, Platz}; extra staffelt eine Salve.
+## (-1, -1) = nirgends, das Magazin ist voll.
+func next_pack_spot(extra: int = 0) -> Vector2i:
+	ensure_pack_rows()
+	var fill := _pack_row_fill()
+	var steps := maxi(extra, 0)
+	for i in steps + 1:
+		var row := _first_free_row(fill, pack_columns)
+		if row < 0:
+			return Vector2i(-1, -1)
+		if i == steps:
+			return Vector2i(row, fill[row])
+		fill[row] += 1
+	return Vector2i(-1, -1)
+
+## Nur die Reihe davon - daran mißt WorkshopView den Ankunfts-Anker.
+func next_pack_row(extra: int = 0) -> int:
+	return next_pack_spot(extra).x
+
+## Die REIHE eines Pakets (-1 = liegt nicht im Lager).
+func pack_row_of(uid: int) -> int:
+	var index := pack_index_of(uid)
+	if index < 0:
+		return -1
+	ensure_pack_rows()
+	return owned_packs[index].shelf_row
+
+## Sein PLATZ in ihr: der Rang unter den Paketen DERSELBEN Reihe in Listenordnung.
+func pack_cell_of(uid: int) -> int:
+	var index := pack_index_of(uid)
+	if index < 0:
+		return -1
+	ensure_pack_rows()
+	var row := owned_packs[index].shelf_row
+	var cell := 0
+	for i in index:
+		if owned_packs[i].shelf_row == row:
+			cell += 1
+	return cell
+
+func _pack_row_count(row: int) -> int:
+	var count := 0
+	for pack in owned_packs:
+		if pack.shelf_row == row:
+			count += 1
+	return count
 
 ## Volles Magazin: die Prämie zerfällt zu Geld statt still zu verschwinden. Es ist
 ## EINKOMMEN wie die liegengebliebene Pressbeute, also add_money (Multiplikatoren
@@ -690,18 +799,52 @@ func pack_index_of(uid: int) -> int:
 ## Verschiebt EIN Paket in der Magazin-Ordnung: bei from heraus, bei to hinein,
 ## alles dazwischen rückt eine Stelle - dasselbe remove/insert wie reorder_pool,
 ## nie ein Tausch.
-func reorder_packs(from: int, to: int) -> void:
+## Der Zug darf die REIHE wechseln: die Karte tritt an TOs Platz in DESSEN Reihe.
+## Eine volle fremde Zielreihe verweigert (false, nichts passiert) - es gibt keinen
+## Umbruch in die nächste Reihe.
+func reorder_packs(from: int, to: int) -> bool:
 	if from < 0 or from >= owned_packs.size() or to < 0 or to >= owned_packs.size():
-		return
+		return false
 	if from == to:
-		return
+		return false
+	ensure_pack_rows()
 	var pack := owned_packs[from]
+	var target_row := owned_packs[to].shelf_row
+	if target_row != pack.shelf_row and _pack_row_count(target_row) >= pack_columns:
+		return false
 	owned_packs.remove_at(from)
 	owned_packs.insert(to, pack)
+	pack.shelf_row = target_row
 	packs_changed.emit()
+	return true
+
+## Ein Zug auf einen LEEREN Platz: die Karte hängt sich hinten an diese Reihe.
+## Volle Reihe = false, nichts passiert.
+func place_pack(uid: int, row: int) -> bool:
+	var index := pack_index_of(uid)
+	if index < 0 or row < 0 or row >= PACK_ROWS:
+		return false
+	ensure_pack_rows()
+	var pack := owned_packs[index]
+	if pack.shelf_row == row:
+		return false
+	if _pack_row_count(row) >= pack_columns:
+		return false
+	owned_packs.remove_at(index)
+	# Hinten an die Zielreihe heißt: hinter ihr letztes Paket in der Listenordnung.
+	var at := owned_packs.size()
+	for i in range(owned_packs.size() - 1, -1, -1):
+		if owned_packs[i].shelf_row == row:
+			at = i + 1
+			break
+	pack.shelf_row = row
+	owned_packs.insert(at, pack)
+	packs_changed.emit()
+	return true
 
 ## Räumt das Magazin auf: nach Sorte (SHELF_ORDER), dann Inhalt, dann uid - der
-## explizite Endvergleich, weil sort_custom nicht stabil ist.
+## explizite Endvergleich, weil sort_custom nicht stabil ist. Danach werden die
+## Reihen KOMPAKT neu vergeben: jede Lücke schließt sich.
 func tidy_packs() -> void:
 	if owned_packs.size() < 2:
 		return
@@ -709,6 +852,10 @@ func tidy_packs() -> void:
 		var key_a := _tidy_key(a)
 		var key_b := _tidy_key(b)
 		return key_a < key_b)
+	var columns := maxi(pack_columns, 1)
+	for i in owned_packs.size():
+		owned_packs[i].shelf_row = mini(i / columns, PACK_ROWS - 1)
+	ensure_pack_rows()
 	packs_changed.emit()
 
 ## Sortierschlüssel eines Pakets: Sorten-Rang, Inhalts-id, uid.

@@ -1018,7 +1018,7 @@ func test_stamp_machine_mints_sealed_packs_for_the_ceremony():
 
 func test_jewelry_box_grants_sealed_material_packs_and_leaves_the_dice_alone():
 	var run := GameRun.new_run()
-	run.set_pack_capacity(500)  # hier zählt der Fund, nicht der Magazin-Deckel
+	run.set_pack_grid(50)  # hier zählt der Fund, nicht der Magazin-Deckel (50 × 10)
 	run.owned_charms.append(Charm.jewelry_box())
 	# 10% je Würfel: bei 300 Würfeln ist "kein Fund" praktisch ausgeschlossen.
 	var many: Array[DieDefinition] = []

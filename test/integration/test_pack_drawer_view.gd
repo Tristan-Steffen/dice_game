@@ -8,9 +8,10 @@ extends GutTest
 ## der liegende (lie_cell).
 const CELL := Vector2(30, 12)
 
-func _entry(pack: Pack, uid: int, withheld := false) -> Dictionary:
+func _entry(pack: Pack, uid: int, withheld := false, row := -1,
+		cell := -1) -> Dictionary:
 	pack.pack_uid = uid
-	return {"uid": uid, "pack": pack, "withheld": withheld}
+	return {"uid": uid, "pack": pack, "withheld": withheld, "row": row, "cell": cell}
 
 func _drawer(entries: Array[Dictionary], locked := false,
 		row := Vector2(900, 260), head := 0,
@@ -21,11 +22,14 @@ func _drawer(entries: Array[Dictionary], locked := false,
 	drawer.build(entries, 8.0, locked, CELL, row, head, lever)
 	return drawer
 
-## So viele Einträge, wie auf eine Reihe passen, plus extra.
+## So viele Einträge, wie auf eine Reihe passen, plus extra - Reihe und Platz nach
+## dem alten Abschnitts-Muster, wie sie ein Lauf mit kompakter Belegung meldet.
 func _fill(count: int) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
+	var columns := PackDrawerView.columns_for(_field().size, CELL, 1)
 	for i in count:
-		entries.append(_entry(Pack.number_pack(), i + 1))
+		entries.append(_entry(Pack.number_pack(), i + 1, false,
+			i / columns, i % columns))
 	return entries
 
 ## Das FELD eines Streifens: die Grube, also der Streifen ohne seine Fassung -
@@ -86,18 +90,19 @@ func test_die_liegende_karte_folgt_aus_der_stehenden() -> void:
 func test_spots_run_along_the_one_row_in_owner_order() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 4)
-	var first := PackDrawerView.spot_for(0, 4, field, CELL)
-	var second := PackDrawerView.spot_for(1, 4, field, CELL)
+	var first := PackDrawerView.spot_for(0, field, CELL)
+	var second := PackDrawerView.spot_for(1, field, CELL)
 	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01,
 		"nebeneinander in derselben Reihe")
 	assert_almost_eq(second.y, first.y, 0.01)
-	# Was nicht mehr in die Reihe passt, liegt in der NÄCHSTEN Reihe - und die liegt
-	# nicht daneben, sondern in der VORDEREN Lane: derselbe Platz, eine Lane tiefer.
-	var next_row := PackDrawerView.spot_for(columns, columns + 1, field, CELL,
+	# Die NÄCHSTE Reihe liegt nicht daneben, sondern in der VORDEREN Lane: derselbe
+	# Platz, eine Lane plus den SPALT tiefer.
+	var next_row := PackDrawerView.spot_for(0, field, CELL,
 		PaternosterView.LANE_FRONT)
 	assert_almost_eq(next_row.x, first.x, 0.01, "Reihe 2 beginnt wieder links")
-	assert_almost_eq(next_row.y - first.y, field.y * 0.5, 0.01,
-		"und liegt eine Lane weiter vorn")
+	assert_almost_eq(next_row.y - first.y,
+		PackDrawerView.lane_depth(field) + PackDrawerView.ROW_GAP_PX, 0.01,
+		"und liegt eine Lane plus den Spalt weiter vorn")
 
 func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_row() -> void:
 	# Der Magazin-Deckel formt das Raster NICHT: die Spaltenzahl folgt allein aus der
@@ -110,7 +115,8 @@ func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_row() -> void:
 	assert_eq(PackDrawerView.rows_for(field, CELL, columns + 1), 2,
 		"die nächste Kassette eröffnet die nächste Etage")
 
-## Die Etagen sind ABSCHNITTE der einen Magazin-Liste - reine Rechnung.
+## Der kopflose RÜCKFALL bleibt die Abschnitts-Rechnung: ohne gemeldete Reihe teilt
+## das Fenster die Liste wie eh und je auf.
 func test_the_rows_are_sections_of_the_one_list() -> void:
 	for columns in [1, 6, 7, 13]:
 		for i in columns * PackDrawerView.ROWS:
@@ -122,14 +128,32 @@ func test_the_rows_are_sections_of_the_one_list() -> void:
 
 func test_the_row_lies_in_what_the_front_band_leaves() -> void:
 	# An der Bild-unteren Kante des Tabletts steht seine FRONT-BLENDE; die Karten
-	# liegen mittig in dem, was in SEINER Lane bleibt - und eine Lane ist die halbe
-	# Grube, denn zwei liegen übereinander.
+	# liegen mittig in dem, was in SEINER Lane bleibt - und eine Lane ist, was von der
+	# Grube nach Spalt und Fußluft bleibt, geteilt durch zwei.
 	var field := _field().size
-	var slot := PackDrawerView.slot_size(field, CELL, 1)
+	var slot := PackDrawerView.slot_size(field, CELL)
 	assert_almost_eq(slot.y,
-		field.y / float(PackDrawerView.LANES) * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
-	assert_almost_eq(PackDrawerView.spot_for(0, 1, field, CELL).y, slot.y * 0.5, 0.01,
+		PackDrawerView.lane_depth(field) * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
+	assert_almost_eq(PackDrawerView.spot_for(0, field, CELL).y, slot.y * 0.5, 0.01,
 		"die Reihe liegt mittig darin")
+
+## SPALT und FUSSLUFT sind die eine Lane-Rechnung: hinten oben, vorn darunter, der
+## Spalt dazwischen, die Fußluft unten - zusammen die ganze Feldtiefe.
+func test_the_lanes_leave_a_gap_between_them_and_air_below() -> void:
+	var field := _field().size
+	var rects := PackDrawerView.lane_rects(field)
+	assert_eq(rects.size(), PackDrawerView.LANES)
+	assert_eq(rects[0].position.y, 0.0, "die hintere Reihe liegt an der Oberkante")
+	assert_almost_eq(rects[1].position.y - rects[0].end.y,
+		PackDrawerView.ROW_GAP_PX, 0.001, "der SPALT")
+	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.FOOT_GAP_PX, 0.001,
+		"die FUSSLUFT bis zur Grubenwand")
+	assert_almost_eq(rects[0].size.y * float(PackDrawerView.LANES)
+		+ PackDrawerView.ROW_GAP_PX + PackDrawerView.FOOT_GAP_PX, field.y, 0.001,
+		"und die Summe ist die Feldtiefe")
+	assert_gt(PackDrawerView.ROW_GAP_PX, 0.0)
+	assert_gt(PackDrawerView.FOOT_GAP_PX, PackDrawerView.ROW_GAP_PX,
+		"unter der vorderen Reihe bleibt mehr Luft als zwischen den beiden")
 
 func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 	# Der ganze Punkt: eine Kassette schrumpft NIE - auch nicht jenseits des
@@ -156,7 +180,7 @@ func test_the_capacity_lays_out_without_shrinking_and_within_the_pit() -> void:
 	assert_eq(int(grid["rows"]), PackDrawerView.ROWS,
 		"und er füllt genau die Reihen, die der Kreislauf hat")
 	assert_lte(PackDrawerView.lie_cell(CELL).y,
-		PackDrawerView.slot_size(field, CELL, capacity).y + 0.001,
+		PackDrawerView.slot_size(field, CELL).y + 0.001,
 		"die Reihe bleibt in der Grube")
 
 func test_the_capacity_is_pure() -> void:
@@ -191,7 +215,7 @@ func test_the_derived_anchor_matches_the_measured_one() -> void:
 	for i in entries.size():
 		var uid := int(entries[i]["uid"])
 		var measured := drawer.pack_anchor_px(uid)
-		var derived := PackDrawerView.anchor_in(field, i, entries.size(), CELL)
+		var derived := PackDrawerView.anchor_in(field, i, CELL)
 		assert_almost_eq(measured.x, derived.x, 0.5, "uid %d: gleiche Spalte" % uid)
 		assert_almost_eq(measured.y, derived.y, 0.5, "uid %d: gleiche Höhe" % uid)
 
@@ -206,7 +230,7 @@ func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
 	assert_gt(drawer.pack_anchor_px(2).x, -1.0, "aber sein Platz steht")
 	var third := drawer.pack_anchor_px(3)
 	var derived := PackDrawerView.anchor_in(
-		PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0), 2, 3, CELL)
+		PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0), 2, CELL)
 	assert_almost_eq(third.x, derived.x, 0.5, "der Nachbar zählt es mit")
 
 # --- Der KREISLAUF: ZWEI Reihen liegen, der Rest parkt ----------------------------
@@ -224,7 +248,8 @@ func test_both_lying_rows_carry_chips() -> void:
 	assert_almost_eq(drawer.pack_seat_px(columns + 1).x, drawer.pack_seat_px(1).x, 0.5,
 		"derselbe Platz in der Reihe")
 	assert_almost_eq(drawer.pack_seat_px(columns + 1).y - drawer.pack_seat_px(1).y,
-		drawer.field.size.y * 0.5, 0.5, "eine Lane weiter vorn")
+		PackDrawerView.lane_depth(drawer.field.size) + PackDrawerView.ROW_GAP_PX, 0.5,
+		"eine Lane plus den Spalt weiter vorn")
 	assert_eq(drawer.hover_uid_at(drawer.pack_button(1).get_global_rect().get_center()), 1)
 
 func test_a_step_of_the_circulation_shows_the_next_pair() -> void:
@@ -238,6 +263,72 @@ func test_a_step_of_the_circulation_shows_the_next_pair() -> void:
 	assert_eq(drawer.head(), 1)
 	assert_true(drawer.shows_pack(columns + 1))
 	assert_false(drawer.shows_pack(1))
+
+## Die Plätze kommen aus REIHE und PLATZ der Einträge: eine LÜCKE in Reihe 1
+## verschiebt Reihe 2 nicht - jede Reihe schließt sich für sich.
+func test_a_gap_in_row_one_never_moves_row_two() -> void:
+	var field := _field().size
+	var columns := PackDrawerView.columns_for(field, CELL, 1)
+	var full := _drawer(_fill(columns * 2))
+	await wait_frames(2)
+	var second_row: Array[Vector2] = []
+	for i in columns:
+		second_row.append(full.pack_seat_px(columns + i + 1))
+	# Nun fehlt in Reihe 1 die mittlere Karte, die Reihe schließt sich um sie ...
+	var gapped: Array[Dictionary] = []
+	var cell_index := 0
+	for i in columns:
+		if i == columns / 2:
+			continue
+		gapped.append(_entry(Pack.number_pack(), i + 1, false, 0, cell_index))
+		cell_index += 1
+	for i in columns:
+		gapped.append(_entry(Pack.number_pack(), columns + i + 1, false, 1, i))
+	var drawer := _drawer(gapped)
+	await wait_frames(2)
+	for i in columns:
+		assert_almost_eq(drawer.pack_seat_px(columns + i + 1).x, second_row[i].x, 0.5,
+			"Reihe 2, Platz %d steht still" % (i + 1))
+		assert_almost_eq(drawer.pack_seat_px(columns + i + 1).y, second_row[i].y, 0.5)
+
+## Ein freier Platz einer LIEGENDEN Reihe ist ein Ablage-Ziel; ein Zug darauf meldet
+## die Zielreihe. Parkende Reihen tragen keins - was man nicht sieht, belegt man nicht.
+func test_an_empty_spot_of_a_lying_row_takes_a_drop() -> void:
+	var field := _field().size
+	var columns := PackDrawerView.columns_for(field, CELL, 1)
+	var drawer := _drawer([_entry(Pack.number_pack(), 1, false, 0, 0)] as Array[Dictionary])
+	await wait_frames(2)
+	var placed: Array = []
+	drawer.pack_placed.connect(func(uid: int, row: int) -> void: placed.append([uid, row]))
+	assert_gt(columns, 1, "die Grube trägt mehr als eine Karte je Reihe")
+	var origin := drawer.get_global_rect().position
+	var free_back := origin + PackDrawerView.anchor_in(drawer.field, 1, CELL)
+	assert_eq(drawer.empty_row_at(free_back), 0, "Platz 2 der hinteren Reihe ist frei")
+	var free_front := origin + PackDrawerView.anchor_in(drawer.field, 0, CELL,
+		PaternosterView.LANE_FRONT)
+	assert_eq(drawer.empty_row_at(free_front), 1, "und die vordere Reihe ist ganz frei")
+	drawer._on_chip_input(_click(true), 1)
+	drawer._on_chip_input(_click(false, free_front), 1)
+	assert_eq(placed, [[1, 1]], "gezogen auf den leeren Platz = in die vordere Reihe")
+	# Auf den EIGENEN freien Platz gelassen passiert nichts: dieselbe Reihe.
+	placed.clear()
+	drawer._on_chip_input(_click(true), 1)
+	drawer._on_chip_input(_click(false, free_back), 1)
+	assert_true(placed.is_empty(), "die eigene Reihe ist kein Umzug")
+
+func test_only_the_lying_rows_offer_drop_targets() -> void:
+	var columns := PackDrawerView.columns_for(_field().size, CELL, 1)
+	var drawer := _drawer(_fill(columns))
+	await wait_frames(2)
+	var origin := drawer.get_global_rect().position
+	for i in columns:
+		var at := origin + PackDrawerView.anchor_in(drawer.field, i, CELL,
+			PaternosterView.LANE_FRONT)
+		assert_eq(drawer.empty_row_at(at), 1,
+			"unter der vorderen Lane liegt IHRE Reihe, nie eine geparkte")
+		var back := origin + PackDrawerView.anchor_in(drawer.field, i, CELL)
+		assert_eq(drawer.empty_row_at(back), -1,
+			"und die hintere Reihe ist voll belegt")
 
 ## Der PLATZ bleibt der Platz - auch eine parkende Reihe liegt in der LANE, unter
 ## der sie parkt; nur das LICHT fliegt woanders hin.
@@ -370,7 +461,7 @@ func test_the_grip_is_the_whole_slot_minus_its_air() -> void:
 	# In der Grube gäbe ein Knopf im Kappenmaß einen Streifen von wenigen Pixeln.
 	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
 	await wait_frames(2)
-	var slot := PackDrawerView.slot_size(drawer.field.size, CELL, 1)
+	var slot := PackDrawerView.slot_size(drawer.field.size, CELL)
 	assert_almost_eq(drawer.pack_button(1).size.x,
 		slot.x * (1.0 - PackDrawerView.SLOT_INSET * 2.0), 0.5)
 	assert_gt(drawer.pack_button(1).size.y, CELL.y, "und er ist tiefer als die Kappe")
