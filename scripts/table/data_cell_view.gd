@@ -217,6 +217,14 @@ const PRIORITY_NET := 2
 ## die Backung.
 const PRIORITY_BADGE_OUTLINE := 3
 const PRIORITY_BADGE := 4
+## Die Scheibe lag bisher stillschweigend auf 0 - sie braucht die Zahl jetzt, weil
+## der EBENEN-VERSATZ auf jede Priorität rechnet.
+const PRIORITY_PANE := 0
+## Wie weit die Prioritäten je STAPEL-EBENE auseinanderliegen: eine Karte belegt
+## PRIORITY_BODY (−2) bis PRIORITY_BADGE (4) und die Tablett-Platte darunter (−3),
+## also acht Stufen - zehn geben Luft. Ohne den Versatz zeichnete das Netz einer
+## TIEFEN Karte (höchste Priorität) über das Glas der Reihe DARÜBER hinweg.
+const LAYER_SPAN := 10
 
 ## ×n-Marke über dem Stapel (Gold wie die Regal-Marke).
 const BADGE_FONT := 64
@@ -259,6 +267,8 @@ var stamp_net: Array = []
 var _body: Node3D
 var _cells: Array[Node3D] = []
 var _badge: Label3D
+## Der Prioritäts-Versatz dieser Karte: 0 = oberste Ebene, je tiefer desto negativer.
+var _layer_bias := 0
 ## LIEGEND ist die Grundlage: die Tischkameras blicken fast senkrecht nach unten,
 ## und stehend fällt die Kassette dort zu einem schwarzen Strich zusammen.
 var _lying := true
@@ -962,6 +972,41 @@ func _apply_pose() -> void:
 			.scaled(Vector3.ONE * _body_scale) * Basis(Vector3.BACK, roll),
 		Vector3(-slide, lift, 0.0))
 
+## Die STAPEL-EBENE dieser Karte (0 = oberste): je tiefer sie liegt, desto weiter
+## rutschen ALLE ihre Zeichen-Prioritäten nach unten. So zeichnet eine tiefe Karte
+## VOR dem Glas darüber und wird von ihm gedämpft, statt mit ihrem Netz
+## durchzustanzen - der Compatibility-Renderer sortiert nach Priorität, nicht nach
+## Tiefe, und ohne den Versatz gewönne das Netz jeder Karte gegen jedes Glas.
+func set_layer_depth(level: int) -> void:
+	var wanted := -LAYER_SPAN * maxi(level, 0)
+	if wanted == _layer_bias:
+		return
+	_layer_bias = wanted
+	_apply_layer_bias()
+
+func _prio(base: int) -> int:
+	return base + _layer_bias
+
+## Der EINE Schreiber der Prioritäten an den schon gebauten Materialien.
+func _apply_layer_bias() -> void:
+	if _shell_material != null:
+		_shell_material.render_priority = _prio(PRIORITY_BODY)
+	if _core_material != null:
+		_core_material.render_priority = _prio(PRIORITY_CORE)
+	if _glass_material != null:
+		_glass_material.render_priority = _prio(PRIORITY_PANE)
+	if _bezel_material != null:
+		_bezel_material.render_priority = _prio(PRIORITY_FRAME)
+	if _edge_material != null:
+		_edge_material.render_priority = _prio(PRIORITY_FRAME)
+	if _fin_material != null:
+		_fin_material.render_priority = _prio(PRIORITY_BODY)
+	if _net_material != null:
+		_net_material.render_priority = _prio(PRIORITY_NET)
+	if _badge != null and is_instance_valid(_badge):
+		_badge.render_priority = _prio(PRIORITY_BADGE)
+		_badge.outline_render_priority = _prio(PRIORITY_BADGE_OUTLINE)
+
 func _build_materials() -> void:
 	# EINE Quelle für alles Getönte: die Sortenfarbe in der Intensität ihrer Größe.
 	var shade := tier_tint()
@@ -970,10 +1015,6 @@ func _build_materials() -> void:
 	# seitenverkehrt. cull_mode BACK, sonst zählt jede Wand doppelt.
 	_shell_material = StandardMaterial3D.new()
 	_shell_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	# Tiefe schreiben, obwohl durchsichtig: so verdeckt eine vordere Karte die
-	# geparkten dahinter, statt deren Netz durchstanzen zu lassen (das Netz liest
-	# damit nur noch die Karte, auf der es liegt).
-	_shell_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 	_shell_material.albedo_color = Color(shade.r, shade.g, shade.b, GLASS_BODY_ALPHA)
 	_shell_material.metallic = 0.20
 	_shell_material.metallic_specular = 0.8
@@ -982,7 +1023,7 @@ func _build_materials() -> void:
 	_shell_material.emission = _scaled(shade, 1.0)
 	_shell_material.emission_energy_multiplier = GLASS_BODY_EMISSION * gain
 	_shell_material.cull_mode = BaseMaterial3D.CULL_BACK
-	_shell_material.render_priority = PRIORITY_BODY
+	_shell_material.render_priority = _prio(PRIORITY_BODY)
 
 	# Der Rahmen IST die Sortenmarke der Fläche, seit das Netz auf ihr liegt.
 	_bezel_material = StandardMaterial3D.new()
@@ -994,7 +1035,7 @@ func _build_materials() -> void:
 	_bezel_material.emission_energy_multiplier = CHASSIS_EMISSION_ENERGY * gain
 	_bezel_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_bezel_material.albedo_color.a = GLASS_FRAME_ALPHA
-	_bezel_material.render_priority = PRIORITY_FRAME
+	_bezel_material.render_priority = _prio(PRIORITY_FRAME)
 
 	_glass_material = StandardMaterial3D.new()
 	_glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -1006,6 +1047,7 @@ func _build_materials() -> void:
 	_glass_material.emission = _scaled(shade, 1.0)
 	_glass_material.emission_energy_multiplier = GLASS_EMISSION_ENERGY * gain
 	_glass_material.cull_mode = BaseMaterial3D.CULL_BACK
+	_glass_material.render_priority = _prio(PRIORITY_PANE)
 
 	_fin_material = StandardMaterial3D.new()
 	_fin_material.albedo_color = _scaled(PackDrawerView.GOLD, 0.85)
@@ -1016,7 +1058,7 @@ func _build_materials() -> void:
 	_fin_material.emission_energy_multiplier = FIN_EMISSION_ENERGY
 	_fin_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_fin_material.albedo_color.a = GLASS_FRAME_ALPHA
-	_fin_material.render_priority = PRIORITY_BODY
+	_fin_material.render_priority = _prio(PRIORITY_BODY)
 
 	_net_material = StandardMaterial3D.new()
 	_net_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -1024,7 +1066,7 @@ func _build_materials() -> void:
 	# Vor der Scheibe gezeichnet: zwei alphagemischte Flächen sortiert der
 	# Compatibility-Renderer sonst nach Laune. Seit der Körper Glas ist, hängt die
 	# ganze Kette daran (Körper < Kern < Scheibe < Netz).
-	_net_material.render_priority = PRIORITY_NET
+	_net_material.render_priority = _prio(PRIORITY_NET)
 	# Beidseitig: von hinten zeigt die Rückseite des Quads dieselbe Textur
 	# gespiegelt - genau das ehrliche Bild durch getöntes Glas.
 	_net_material.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -1036,7 +1078,7 @@ func _build_materials() -> void:
 	_edge_material.emission_energy_multiplier = EDGE_REST_ENERGY * gain
 	_edge_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_edge_material.albedo_color.a = GLASS_FRAME_ALPHA
-	_edge_material.render_priority = PRIORITY_FRAME
+	_edge_material.render_priority = _prio(PRIORITY_FRAME)
 
 	if sealed():
 		_band_material = _lit_material(shade)
@@ -1046,7 +1088,7 @@ func _build_materials() -> void:
 		_core_material = _lit_material(shade)
 		_core_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_core_material.albedo_color.a = CORE_ALPHA
-		_core_material.render_priority = PRIORITY_CORE
+		_core_material.render_priority = _prio(PRIORITY_CORE)
 
 func _lit_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -1188,8 +1230,8 @@ func _build_badge() -> Label3D:
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# Sie liegt VOR dem Netz: ohne diese Kette schluckt die Backung sie.
-	badge.render_priority = PRIORITY_BADGE
-	badge.outline_render_priority = PRIORITY_BADGE_OUTLINE
+	badge.render_priority = _prio(PRIORITY_BADGE)
+	badge.outline_render_priority = _prio(PRIORITY_BADGE_OUTLINE)
 	badge.text = ""
 	return badge
 

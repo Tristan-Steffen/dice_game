@@ -262,8 +262,14 @@ func test_ein_geparktes_tablett_glueht_heller() -> void:
 	assert_eq((pater.get_node("Tablett2/Platte") as MeshInstance3D).material_override,
 		lying, "die sinkende Reihe flammt nicht schon in der Fläche auf")
 	await wait_seconds(_ride_time())
-	assert_eq((pater.get_node("Tablett2/Platte") as MeshInstance3D).material_override,
-		parked, "unten trägt sie den Park-Ton")
+	# Je EBENE ein eigenes Material: verglichen wird der Ton, nicht die Instanz.
+	var sunk := (pater.get_node("Tablett2/Platte") as MeshInstance3D) \
+		.material_override as StandardMaterial3D
+	assert_almost_eq(sunk.emission_energy_multiplier,
+		(lying as StandardMaterial3D).emission_energy_multiplier
+			* PaternosterView.PARK_GLOW, 0.0001, "unten trägt sie den Park-Ton")
+	assert_lt(sunk.render_priority, (lying as StandardMaterial3D).render_priority,
+		"und sie zeichnet HINTER der liegenden Reihe")
 
 # --- Die Karten sind Kinder ihres Faches -------------------------------------------
 

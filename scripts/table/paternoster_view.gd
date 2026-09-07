@@ -72,10 +72,11 @@ const RIDE_TIME := 0.30
 const PLATE_ALBEDO := TowerView.FRAME_ALBEDO
 const PLATE_EMISSION := TowerView.FRAME_EMISSION
 const PLATE_ENERGY := TowerView.FRAME_EMISSION_ENERGY
-## Die Tabletts sind HALB DURCHSICHTIG (Spieler-Entscheid 2026-09-07): durch sie
-## sieht man in die Grube auf den Parkstapel. Eine tiefe Sortier-Priorität hält sie
-## HINTER den Karten - die zeichnen ihr Netz zuletzt und deckend darüber.
-const PLATE_ALPHA := 0.5
+## Die Tabletts sind DURCHSICHTIG (Spieler-Entscheid 2026-09-07): durch sie sieht man
+## in die Grube auf den Parkstapel, und die Karten darunter lesen gedaempft mit.
+## PLATE_PRIORITY haelt eine Platte hinter den Karten IHRER Ebene; der Versatz je
+## Ebene (layer_bias) haelt die ganze Ebene hinter der darueber.
+const PLATE_ALPHA := 0.3
 const PLATE_PRIORITY := -3
 ## Wie viel heller ein GEPARKTES Tablett glüht: in der dunklen Grube trifft es kein
 ## Szenenlicht, und durch Spalt und Fußluft sieht man nur seine schmalen STIRNFLÄCHEN.
@@ -98,9 +99,9 @@ var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
 var _plates: Array[MeshInstance3D] = []
 var _ticks: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
-var _plate_material: StandardMaterial3D
-## Dasselbe Material für den PARKSTAPEL, nur heller - siehe PARK_GLOW.
-var _plate_material_parked: StandardMaterial3D
+## Je STAPEL-EBENE ein Platten-Material: die tieferen glühen heller (PARK_GLOW) und
+## zeichnen in ihrer EIGENEN Priorität, damit sie wirklich hinten liegen.
+var _plate_materials: Array[StandardMaterial3D] = []
 var _ride: Tween
 
 func _init() -> void:
@@ -204,7 +205,7 @@ func _build_tray(row: int) -> void:
 		tray.remove_child(child)
 		child.queue_free()
 	var plate := _box("Platte", Vector3(lane_depth(), PLATE, _span.y),
-		Vector3(0.0, -PLATE * 0.5, 0.0), _plate_material, tray)
+		Vector3(0.0, -PLATE * 0.5, 0.0), _plate_materials[0], tray)
 	plate.name = "Platte"
 	_plates[row] = plate
 	var band := Node3D.new()
@@ -311,7 +312,7 @@ func step(delta: int) -> void:
 		# Der Park-Glanz gehört dem SITZ, nicht der Fahrt: unterwegs trägt ein Tablett
 		# den Ton seines ALTEN Platzes (settle_hard richtet ihn am Ende) - sonst
 		# flammte ein sinkendes noch in der Fläche auf.
-		_paint_tray(row, int(seat_of(row, before)["depth"]) != 0)
+		_paint_tray(row, int(seat_of(row, before)["depth"]))
 		_ride.tween_property(_trays[row], "position", to, step_time()) \
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_ride.chain().tween_callback(settle_hard)
@@ -331,20 +332,35 @@ func _tray_pose(row: int, head_row: int) -> Vector3:
 func _write_hard() -> void:
 	for row in _trays.size():
 		_trays[row].position = _tray_pose(row, _head)
-		_paint_tray(row, not shows(row))
+		var level := int(seat_of(row, _head)["depth"])
+		_paint_tray(row, level)
 		# Nummer und Ticks nur auf den zwei liegenden Reihen: die geparkten stanzen
 		# sonst durch das durchsichtige Glas nach oben (Transparenz-Sortierung).
 		if row < _bands.size() and _bands[row] != null and is_instance_valid(_bands[row]):
-			_bands[row].visible = shows(row)
+			_bands[row].visible = level == 0
+		_bias_cards(row, level)
 
 ## Ein GEPARKTES Tablett glüht heller: in der Grube trifft es kein Szenenlicht, und
 ## sichtbar ist durch den SPALT nur seine schmale Stirnfläche.
-func _paint_tray(row: int, parked: bool) -> void:
-	if row >= _plates.size():
+func _paint_tray(row: int, level: int) -> void:
+	if row >= _plates.size() or _plate_materials.is_empty():
 		return
 	if _plates[row] != null and is_instance_valid(_plates[row]):
 		_plates[row].material_override = \
-			_plate_material_parked if parked else _plate_material
+			_plate_materials[clampi(level, 0, _plate_materials.size() - 1)]
+
+## Der Prioritäts-Versatz einer STAPEL-EBENE: je tiefer, desto früher gezeichnet.
+static func layer_bias(level: int) -> int:
+	return -DataCellView.LAYER_SPAN * maxi(level, 0)
+
+## Die Karten einer Reihe zeichnen in der Priorität IHRER Ebene - sonst zeichnete das
+## Netz einer tiefen Karte (höchste Priorität) über das Glas der Reihe darüber.
+func _bias_cards(row: int, level: int) -> void:
+	if row >= _fachs.size() or _fachs[row] == null or not is_instance_valid(_fachs[row]):
+		return
+	for child in _fachs[row].get_children():
+		if child is DataCellView:
+			(child as DataCellView).set_layer_depth(level)
 
 func _kill() -> void:
 	if _ride != null and _ride.is_valid():
@@ -381,6 +397,9 @@ func host_card(cell: Node3D, row: int) -> void:
 	if cell.get_parent() != fach_node:
 		rehost(cell, fach_node)
 	cell.position.y = PROUD
+	if cell is DataCellView:
+		(cell as DataCellView).set_layer_depth(
+			int(seat_of(clampi(row, 0, ROWS - 1), _head)["depth"]))
 
 ## Liegt diese Karte schon auf ihrem Platz? Verglichen wird in der TISCHEBENE und
 ## am Fach - die Höhe gehört dem Tablett, und die fährt.
@@ -465,23 +484,22 @@ func _write_ticks(row: int) -> void:
 # --- Bausteine -----------------------------------------------------------------------
 
 func _ensure_materials() -> void:
-	if _plate_material != null:
+	if not _plate_materials.is_empty():
 		return
-	_plate_material = StandardMaterial3D.new()
-	_plate_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_plate_material.albedo_color = Color(PLATE_ALBEDO.r, PLATE_ALBEDO.g,
-		PLATE_ALBEDO.b, PLATE_ALPHA)
-	_plate_material.render_priority = PLATE_PRIORITY
-	# Tiefe schreiben, obwohl durchsichtig: so verdeckt ein vorderes Tablett den
-	# Parkstapel darunter, statt ihn durchstanzen zu lassen (Transparenz-Sortierung).
-	_plate_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
-	_plate_material.metallic = 0.35
-	_plate_material.roughness = 0.55
-	_plate_material.emission_enabled = true
-	_plate_material.emission = PLATE_EMISSION
-	_plate_material.emission_energy_multiplier = PLATE_ENERGY
-	_plate_material_parked = _plate_material.duplicate()
-	_plate_material_parked.emission_energy_multiplier = PLATE_ENERGY * PARK_GLOW
+	for level in MAX_DEPTH + 1:
+		var plate := StandardMaterial3D.new()
+		plate.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		plate.albedo_color = Color(PLATE_ALBEDO.r, PLATE_ALBEDO.g,
+			PLATE_ALBEDO.b, PLATE_ALPHA)
+		# JEDE Ebene zeichnet in ihrer eigenen Priorität: so liegt das Tiefe wirklich
+		# hinten und wird vom Glas darüber gedämpft, statt durchzustanzen.
+		plate.render_priority = PLATE_PRIORITY + layer_bias(level)
+		plate.metallic = 0.35
+		plate.roughness = 0.55
+		plate.emission_enabled = true
+		plate.emission = PLATE_EMISSION
+		plate.emission_energy_multiplier = PLATE_ENERGY * (PARK_GLOW if level > 0 else 1.0)
+		_plate_materials.append(plate)
 
 func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,
 		host: Node3D) -> MeshInstance3D:
