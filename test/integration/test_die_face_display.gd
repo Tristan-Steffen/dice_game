@@ -39,7 +39,7 @@ func test_the_charge_level_travels_from_the_definition_into_the_bolts() -> void:
 		assert_eq(display.bolt_parts.size(), wanted, "Blitz-Quads der Stufe %d" % level)
 		if wanted == 0:
 			continue
-		var material: ShaderMaterial = display.bolt_parts.values()[0].material_override
+		var material: ShaderMaterial = display.bolt_parts[0].material_override
 		assert_eq(material.shader, DieFaceDisplay.BOLT_SHADER)
 		var rate: float = material.get_shader_parameter("rate")
 		assert_eq(rate, DieFaceDisplay.BOLT_ARC_RATE if level >= 3 else 1.0,

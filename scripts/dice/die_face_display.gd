@@ -132,10 +132,10 @@ const BURNED_EDGE := Color(0.5, 0.48, 0.46)
 const BURNED_NUMBER := Color(0.2, 0.19, 0.19)
 const BURN_SHADER := preload("res://assets/shaders/die_burn.gdshader")
 const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer (0,01)
-var burn_parts: Dictionary = {}  # Achse -> MeshInstance3D
-## Ab dieser Stufe kriechen Funken über die Kanten (Shader) und die Eck-Lampen an.
+var burn_parts: Array[MeshInstance3D] = []
+## Ab dieser Stufe springen Blitze über die Seiten.
 const CHARGE_SPARK_LEVEL := 2
-## Ab dieser Stufe springen Teilchen aus dem Würfel und der Kern wird orange.
+## Ab dieser Stufe zünden die Eck-Lampen und Blitze schlagen aus den Kanten nach außen.
 const CHARGE_ARC_LEVEL := 3
 ## Der Blitz beim Aufladen/Entladen/Reparieren.
 const CHARGE_FLASH_TIME := 0.35
@@ -181,17 +181,17 @@ var heat_parts: Array[MeshInstance3D] = []
 const BOLT_SHADER := preload("res://assets/shaders/die_bolts.gdshader")
 const BOLT_SPAN := DieBuilder.HALF_EXTENT * 2.0
 const BOLT_LIFT := 0.03  # über Ziffer (0,01) und Runen-Auflage
-const BOLT_CORE := Vector3(1.0, 0.96, 1.0)
 ## Der Überschlag schlägt öfter und heißer.
 const BOLT_ARC_RATE := 1.7
 const BOLT_ARC_GAIN := 1.3
-var bolt_parts: Dictionary = {}  # Achse -> MeshInstance3D
+var bolt_parts: Array[MeshInstance3D] = []
+## Der Zufall der Blitze und Bruchlinien dieses Würfels (die Seiten zählen hoch).
 var _bolt_seed := randf() * 100.0
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
 var _charge_flash_tween: Tween
-## Überschlag-Teilchen (nur Stufe 3, faul gebaut wie die Seelenfunken).
+## Die Außen-Blitze des Überschlags (nur Stufe 3, lazy wie die Hitze).
 var charge_arcs: MeshInstance3D = null
 
 ## Pointer auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
@@ -825,9 +825,9 @@ func _charged_lamp(lamp: Color) -> Color:
 		return lamp
 	return lamp.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
 
-## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Hitze der
-## Stufe 1, die Blitze ab Stufe 2, die Teilchen des Überschlags und - beim Ruß -
-## der flache dunkle Rahmen samt entsättigten Flächen und gedimmter Ziffer.
+## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Hitze ab
+## Stufe 1, die Blitze ab Stufe 2, die Außen-Blitze des Überschlags und - bei
+## Asche - der flache helle Rahmen samt Aschen-Auflagen und dunkler Ziffer.
 func _refresh_charge() -> void:
 	var burned := shown_burned()
 	var level := shown_charge()
@@ -839,8 +839,8 @@ func _refresh_charge() -> void:
 	_sync_burn(burned)
 	if not burned:
 		return
-	# Ruß: flache dunkle Kanten (der set_edge_tint-Schalter), Körper und Flächen
-	# entsättigt, Ziffer gedimmt, keine Lache, keine Seelen-Bewegung.
+	# Asche: flache helle Kanten (der set_edge_tint-Schalter), grauer Körper,
+	# dunkle Ziffer, keine Lache, keine Seelen-Bewegung.
 	set_edge_tint(BURNED_EDGE)
 	for axis in quads:
 		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
@@ -860,60 +860,24 @@ func _refresh_charge() -> void:
 		soul_motes = null
 
 ## Die Außen-Blitze des Überschlags kommen und gehen mit der Stufe (lazy, wie
-## die Hitze); die Farben des Überschlags (oranger Hof) setzt _sync_bolts gleich mit.
+## die Hitze); den Ton setzt _sync_bolts für die Seiten-Blitze gleich mit.
 func _sync_charge_arcs(wanted: bool) -> void:
 	if not wanted:
 		if charge_arcs != null:
 			charge_arcs.queue_free()
 			charge_arcs = null
-		return
-	if charge_arcs == null:
-		var quad := QuadMesh.new()
-		quad.size = ARC_QUAD
-		var material := ShaderMaterial.new()
-		material.shader = ARC_SHADER
-		material.set_shader_parameter("quad_size", ARC_QUAD)
-		material.set_shader_parameter("seed_base", _bolt_seed + 7.0)
-		material.set_shader_parameter("phase", _pulse_phase)
-		material.render_priority = 10
-		charge_arcs = MeshInstance3D.new()
-		charge_arcs.name = "ChargeArcs"
-		charge_arcs.mesh = quad
-		charge_arcs.material_override = material
-		charge_arcs.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(charge_arcs)
-	var material: ShaderMaterial = charge_arcs.material_override
-	material.set_shader_parameter("halo_color",
-		Vector3(CHARGE_ARC_COLOR.r, CHARGE_ARC_COLOR.g, CHARGE_ARC_COLOR.b))
-	material.set_shader_parameter("core_color", BOLT_CORE)
+	elif charge_arcs == null:
+		charge_arcs = _overlay(self, "ChargeArcs", ARC_QUAD, 0.0, ARC_SHADER, 10, {
+			"quad_size": ARC_QUAD, "seed_base": _bolt_seed + 7.0, "phase": _pulse_phase,
+			"halo_color": _rgb(CHARGE_ARC_COLOR)})
 
 ## Die Aschen-Auflagen kommen und gehen mit dem Ruß (lazy, wie die Hitze).
 func _sync_burn(wanted: bool) -> void:
 	if not wanted:
-		for axis in burn_parts:
-			if is_instance_valid(burn_parts[axis]):
-				burn_parts[axis].queue_free()
-		burn_parts.clear()
-		return
-	if not burn_parts.is_empty():
-		return
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE * DieBuilder.FACE_SIZE
-	var face_index := 0
-	for axis in quads:
-		var part := MeshInstance3D.new()
-		part.name = "BurnOverlay"
-		part.mesh = quad
-		part.position = Vector3(0, 0, BURN_LIFT)
-		part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var material := ShaderMaterial.new()
-		material.shader = BURN_SHADER
-		material.set_shader_parameter("face_seed", _bolt_seed + float(face_index))
-		material.render_priority = -1  # vor der Ziffer gezeichnet, also unter ihr
-		part.material_override = material
-		quads[axis].add_child(part)
-		burn_parts[axis] = part
-		face_index += 1
+		_free_overlays(burn_parts)
+	elif burn_parts.is_empty():
+		_face_overlays(burn_parts, "BurnOverlay", DieBuilder.FACE_SIZE, BURN_LIFT,
+			BURN_SHADER, -1)  # vor der Ziffer gezeichnet, also unter ihr
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
 ## Unschattiert, damit exakt die flache Auswahl-Farbe erscheint - beleuchtet
@@ -1127,84 +1091,72 @@ static func fit_label(label: Label3D) -> void:
 	var shrink: float = maxf(1.0, world_extent / LABEL_FIT_EXTENT)
 	label.pixel_size = LABEL_PIXEL_SIZE / shrink
 
-# --- Die HITZE der Stufe 1 (Luftflimmern, die_heat.gdshader) --------------------
+# --- Die Auflagen der Ladung: Hitze, Blitze, Asche -----------------------------
 
-## Baut oder räumt das Hitze-Feld (lazy, wie die Teilchen des Überschlags).
-func _sync_heat(wanted: bool) -> void:
-	if not wanted:
-		for part in heat_parts:
-			if is_instance_valid(part):
-				part.queue_free()
-		heat_parts.clear()
-	if not wanted or not heat_parts.is_empty():
-		return
+## EIN Quad mit Shader-Material unter parent: die eine Bauweise aller Auflagen.
+func _overlay(parent: Node3D, part_name: String, size: Vector2, lift: float,
+		shader: Shader, priority: int, params: Dictionary) -> MeshInstance3D:
 	var quad := QuadMesh.new()
-	quad.size = HEAT_QUAD
-	# ZWEI Lagen: die Verzerrung zuunterst, die Glut ADDITIV zuoberst. Warum, steht
-	# im Kopf beider Shader - zuletzt gezeichnet löschte die Verzerrung die Ziffern,
-	# zuerst gezeichnet übermalten die Nachbar-Würfel sie.
-	_add_heat_layer(quad, HEAT_SHADER, -8)
-	_add_heat_layer(quad, HEAT_GLOW_SHADER, 8)
-
-## EINE Lage des Hitze-Felds: gleiche Maße und Wellen, verschiedene Mischung.
-func _add_heat_layer(quad: QuadMesh, shader: Shader, priority: int) -> void:
+	quad.size = size
 	var material := ShaderMaterial.new()
 	material.shader = shader
-	material.set_shader_parameter("wave_freq", HEAT_WAVE_FREQ)
-	material.set_shader_parameter("wave_speed", HEAT_WAVE_SPEED)
-	material.set_shader_parameter("quad_size", HEAT_QUAD)
-	material.set_shader_parameter("reach", HEAT_REACH)
-	material.set_shader_parameter("phase", _pulse_phase)
-	if shader == HEAT_SHADER:
-		material.set_shader_parameter("inside", HEAT_INSIDE)
-		material.set_shader_parameter("strength", HEAT_STRENGTH)
-	else:
-		material.set_shader_parameter("tint", HEAT_RED)
-		material.set_shader_parameter("tint_amount", HEAT_GLOW)
+	for key in params:
+		material.set_shader_parameter(key, params[key])
 	material.render_priority = priority
 	var part := MeshInstance3D.new()
-	part.name = "Heat%d" % heat_parts.size()
+	part.name = part_name
 	part.mesh = quad
+	part.position = Vector3(0, 0, lift)
 	part.material_override = material
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(part)
-	heat_parts.append(part)
+	parent.add_child(part)
+	return part
 
-# --- Die BLITZE der Stufen 2 und 3 (die_bolts.gdshader) --------------------------
+## Je Seite eine Auflage (Kind des Seiten-Quads, in dessen Ebene), mit eigenem
+## Zufall je Seite und der Phase des Würfels.
+func _face_overlays(store: Array[MeshInstance3D], part_name: String, span: float,
+		lift: float, shader: Shader, priority: int) -> void:
+	var face_index := 0
+	for axis in quads:
+		store.append(_overlay(quads[axis], part_name, Vector2.ONE * span, lift, shader, priority,
+			{"face_seed": _bolt_seed + float(face_index), "phase": _pulse_phase}))
+		face_index += 1
 
-## Baut oder räumt die sechs Blitz-Quads (lazy, wie die Hitze) und stellt sie
-## auf die Stufe ein: der Überschlag schlägt öfter und heißer, mit orangem Hof.
+func _free_overlays(store: Array[MeshInstance3D]) -> void:
+	for part in store:
+		if is_instance_valid(part):
+			part.queue_free()
+	store.clear()
+
+static func _rgb(color: Color) -> Vector3:
+	return Vector3(color.r, color.g, color.b)
+
+## Das Hitze-Feld der Stufe 1: ZWEI Lagen auf demselben Quad, die Verzerrung
+## zuunterst, die Glut ADDITIV zuoberst. Warum, steht im Kopf beider Shader -
+## zuletzt gezeichnet löschte die Verzerrung die Ziffern, zuerst gezeichnet
+## übermalten die Nachbar-Würfel sie.
+func _sync_heat(wanted: bool) -> void:
+	if not wanted:
+		_free_overlays(heat_parts)
+	elif heat_parts.is_empty():
+		var shared := {"wave_freq": HEAT_WAVE_FREQ, "wave_speed": HEAT_WAVE_SPEED,
+			"quad_size": HEAT_QUAD, "reach": HEAT_REACH, "phase": _pulse_phase}
+		heat_parts.append(_overlay(self, "Heat0", HEAT_QUAD, 0.0, HEAT_SHADER, -8,
+			shared.merged({"inside": HEAT_INSIDE, "strength": HEAT_STRENGTH})))
+		heat_parts.append(_overlay(self, "Heat1", HEAT_QUAD, 0.0, HEAT_GLOW_SHADER, 8,
+			shared.merged({"tint": HEAT_RED, "tint_amount": HEAT_GLOW})))
+
+## Die sechs Blitz-Quads der Stufen 2 und 3 (lazy, wie die Hitze), auf die Stufe
+## eingestellt: der Überschlag schlägt öfter, heißer und blauer.
 func _sync_bolts(wanted: bool, level: int) -> void:
 	if not wanted:
-		for axis in bolt_parts:
-			if is_instance_valid(bolt_parts[axis]):
-				bolt_parts[axis].queue_free()
-		bolt_parts.clear()
+		_free_overlays(bolt_parts)
 		return
 	if bolt_parts.is_empty():
-		var quad := QuadMesh.new()
-		quad.size = Vector2.ONE * BOLT_SPAN
-		var face_index := 0
-		for axis in quads:
-			var part := MeshInstance3D.new()
-			part.name = "ChargeBolts"
-			part.mesh = quad
-			part.position = Vector3(0, 0, BOLT_LIFT)
-			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var material := ShaderMaterial.new()
-			material.shader = BOLT_SHADER
-			material.set_shader_parameter("face_seed", _bolt_seed + float(face_index))
-			material.set_shader_parameter("phase", _pulse_phase)
-			material.render_priority = 9
-			part.material_override = material
-			quads[axis].add_child(part)
-			bolt_parts[axis] = part
-			face_index += 1
+		_face_overlays(bolt_parts, "ChargeBolts", BOLT_SPAN, BOLT_LIFT, BOLT_SHADER, 9)
 	var arc := level >= CHARGE_ARC_LEVEL
-	var halo := CHARGE_ARC_COLOR if arc else CHARGE_COLOR
-	for axis in bolt_parts:
-		var material: ShaderMaterial = bolt_parts[axis].material_override
-		material.set_shader_parameter("halo_color", Vector3(halo.r, halo.g, halo.b))
-		material.set_shader_parameter("core_color", BOLT_CORE)
+	for part in bolt_parts:
+		var material: ShaderMaterial = part.material_override
+		material.set_shader_parameter("halo_color", _rgb(CHARGE_ARC_COLOR if arc else CHARGE_COLOR))
 		material.set_shader_parameter("rate", BOLT_ARC_RATE if arc else 1.0)
 		material.set_shader_parameter("gain", BOLT_ARC_GAIN if arc else 1.0)
