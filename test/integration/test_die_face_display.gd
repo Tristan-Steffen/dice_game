@@ -80,11 +80,12 @@ func test_the_first_step_stays_under_the_bloom_threshold_at_rest() -> void:
 	display.apply_definition(_def(1))
 	assert_lt(_peak(display.edge_material_res.emission), BLOOM,
 		"das Glimmen bleibt unter der Bloom-Schwelle")
-	# Der Überschlag DARF blühen - sonst wäre die Leiter keine.
+	# Auch der Überschlag färbt die Kante NICHT (Spieler-Wunsch 2026-09-07): er
+	# lebt in seinen Blitzen und den Eck-Lampen, der Rahmen bleibt der kahle.
 	var arcing := _display()
 	arcing.apply_definition(_def(3))
-	assert_gt(_peak(arcing.edge_material_res.emission),
-		_peak(display.edge_material_res.emission), "der Überschlag steht heller")
+	assert_almost_eq(_peak(arcing.edge_material_res.emission),
+		_peak(display.edge_material_res.emission), 0.001, "die Kante bleibt, wie sie ist")
 
 func test_the_charge_warms_the_floor_pool() -> void:
 	var cold := _display()

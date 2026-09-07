@@ -121,35 +121,25 @@ const MOTE_EDGE_SAMPLES := 6
 
 ## --- Die LADUNG am Körper ------------------------------------------------------
 ## NIE das Energie-Cyan: ein Würfel mit Blitzen darf nicht aussehen, als präge er
-## ⚡. Weißviolett, in der Spitze der orange Kern des Überschlags.
+## ⚡. Weißviolett; der Überschlag blitzt BLAUER (Spieler-Wunsch 2026-09-07).
 const CHARGE_COLOR := Color(0.86, 0.66, 1.35)
-const CHARGE_CORE_COLOR := Color(1.45, 0.72, 0.30)
+const CHARGE_ARC_COLOR := Color(0.55, 0.65, 1.45)
 ## Durchgebrannt: Ruß statt Licht - flache dunkle Kanten, entsättigter Körper.
 const BURNED_BODY := Color(0.035, 0.03, 0.035)
 const BURNED_EDGE := Color(0.14, 0.12, 0.12)
 const BURNED_NUMBER := Color(0.30, 0.28, 0.30)
-## Wie stark die Ladung den Rahmen-Ton je Stufe einfärbt (Index = Stufe).
-const CHARGE_LAMP_MIX := [0.0, 0.0, 0.0, 0.72]  # Stufe 1 ist reines Flimmern, die Kante bleibt kahl
 ## Ab dieser Stufe kriechen Funken über die Kanten (Shader) und die Eck-Lampen an.
 const CHARGE_SPARK_LEVEL := 2
 ## Ab dieser Stufe springen Teilchen aus dem Würfel und der Kern wird orange.
 const CHARGE_ARC_LEVEL := 3
-## Wie weit der Überschlag vom Weißviolett in den ORANGEN Kern zieht - gemessen
-## an der Sichtprobe: darunter las Stufe 3 wie ein helleres Stufe 2.
-const CHARGE_CORE_MIX := 0.42
-## Ruhe-Deckel der Stufen unter dem Überschlag: der Rahmen bleibt unter der
-## Bloom-Schwelle (0,95) - Stufe 2 tritt erst in ihren FUNKEN darüber.
-const CHARGE_REST_CEILING := 0.92
 ## Der Blitz beim Aufladen/Entladen/Reparieren.
 const CHARGE_FLASH_TIME := 0.35
 const CHARGE_FLASH_GAIN := 2.2
-## Überschlag: Blitze, die aus den KANTEN nach AUSSEN schlagen (die_arcs.gdshader) -
-## EIN kamerazugewandtes Quad um den Würfel, wie die Hitze. Fassung (Autoren-
-## Schalter, Spieler-Wahl offen): 0 Funken, 1 Fahnen, 2 Eckstrahlen, 3 Krone, 4 Bogen.
+## Überschlag: FAHNEN, die aus den KANTEN nach AUSSEN schlagen (die_arcs.gdshader) -
+## EIN kamerazugewandtes Quad um den Würfel, wie die Hitze. Die Kante selbst bleibt
+## auch hier ungefärbt (Spieler-Wunsch 2026-09-07); nur die Eck-Lampen zünden.
 const ARC_SHADER := preload("res://assets/shaders/die_arcs.gdshader")
 const ARC_QUAD := Vector2(4.5, 4.5)
-var charge_style := 0
-const ARC_STYLES := 5
 ## Wie kräftig die Ladung die Boden-Lache einfärbt und hebt.
 const CHARGE_POOL_MIX := 0.65
 const CHARGE_POOL_GAIN := 1.25
@@ -823,33 +813,12 @@ func flash_charge(strength := 1.0) -> void:
 		_charge_flash = v
 		_refresh_face_colors(), _charge_flash, 0.0, CHARGE_FLASH_TIME)
 
-## Der Rahmen-Ton mit Ladung und Blitz. Unter dem Überschlag bleibt er in Ruhe
-## unter der Bloom-Schwelle - eine Material-Kante darf er dabei nie dimmen.
+## Der Rahmen-Ton mit dem Blitz. KEINE Stufe färbt die Kante (Spieler-Wunsch
+## 2026-09-06/07): die Ladung lebt in Hitze, Blitzen und Eck-Lampen.
 func _charged_lamp(lamp: Color) -> Color:
-	var level := shown_charge()
-	if level <= 0 and _charge_flash <= 0.0:
+	if _charge_flash <= 0.0:
 		return lamp
-	var hot := lamp
-	if level > 0:
-		hot = hot.lerp(CHARGE_COLOR, float(CHARGE_LAMP_MIX[mini(level, 3)]))
-		if level >= CHARGE_ARC_LEVEL:
-			hot = hot.lerp(CHARGE_CORE_COLOR, CHARGE_CORE_MIX)
-		else:
-			hot = _cap_channels(hot, maxf(CHARGE_REST_CEILING, _max_channel(lamp)))
-	if _charge_flash > 0.0:
-		hot = hot.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
-	return hot
-
-static func _max_channel(color: Color) -> float:
-	return maxf(color.r, maxf(color.g, color.b))
-
-## Skaliert alle Kanäle, bis der hellste den Deckel trifft - der TON bleibt.
-static func _cap_channels(color: Color, ceiling: float) -> Color:
-	var peak := _max_channel(color)
-	if peak <= ceiling or peak <= 0.0:
-		return color
-	var k := ceiling / peak
-	return Color(color.r * k, color.g * k, color.b * k, color.a)
+	return lamp.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
 
 ## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Hitze der
 ## Stufe 1, die Blitze ab Stufe 2, die Teilchen des Überschlags und - beim Ruß -
@@ -908,9 +877,8 @@ func _sync_charge_arcs(wanted: bool) -> void:
 		charge_arcs.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(charge_arcs)
 	var material: ShaderMaterial = charge_arcs.material_override
-	var halo := CHARGE_COLOR.lerp(CHARGE_CORE_COLOR, 0.62)
-	material.set_shader_parameter("arc_style", float(clampi(charge_style, 0, ARC_STYLES - 1)))
-	material.set_shader_parameter("halo_color", Vector3(halo.r, halo.g, halo.b))
+	material.set_shader_parameter("halo_color",
+		Vector3(CHARGE_ARC_COLOR.r, CHARGE_ARC_COLOR.g, CHARGE_ARC_COLOR.b))
 	material.set_shader_parameter("core_color", BOLT_CORE)
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
@@ -1199,7 +1167,7 @@ func _sync_bolts(wanted: bool, level: int) -> void:
 			bolt_parts[axis] = part
 			face_index += 1
 	var arc := level >= CHARGE_ARC_LEVEL
-	var halo := CHARGE_COLOR.lerp(CHARGE_CORE_COLOR, 0.62) if arc else CHARGE_COLOR
+	var halo := CHARGE_ARC_COLOR if arc else CHARGE_COLOR
 	for axis in bolt_parts:
 		var material: ShaderMaterial = bolt_parts[axis].material_override
 		material.set_shader_parameter("halo_color", Vector3(halo.r, halo.g, halo.b))
