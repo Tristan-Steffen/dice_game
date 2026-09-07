@@ -1,12 +1,16 @@
 class_name PackDrawerView
 extends Control
-## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze, in der jedes
-## versiegelte Paket als EIGENE Kassette STEHT - versenkt bis zur Kopfkante, wie Akten
-## im Archiv. Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Zeile fasst,
-## was in ihrer Breite Platz hat, alles Weitere fließt in den nächsten Rang nach
-## vorn. Eine Kassette SCHRUMPFT NIE - was nicht mehr in die Grube passt, kommt
-## gar nicht erst herein: capacity_for misst den Deckel an der Grube, GameRun
-## bekommt ihn hereingeschoben und sperrt Kauf wie Prämie daran.
+## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze - und seit dem
+## 2026-09-07 ein PATERNOSTER. Die Karten LIEGEN flach, Netz nach oben (lesbar ohne
+## Hover), in EINER Reihe je ETAGE; fünf Tabletts stehen übereinander in der Grube,
+## gezeigt wird immer genau EINES (PaternosterView fährt die Körper, diese Klasse
+## rechnet die Plätze). Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Reihe
+## fasst, was in ihrer Breite Platz hat, alles Weitere liegt auf der nächsten Etage.
+## Eine Kassette SCHRUMPFT NIE - was nicht mehr hineinpasst, kommt gar nicht erst
+## herein: capacity_for misst den Deckel an Reihe mal Etagen, GameRun bekommt ihn
+## hereingeschoben und sperrt Kauf wie Prämie daran.
+## Eine Karte auf einer PARKENDEN Etage hat keinen Chip und keinen Anker im Feld:
+## ihr Liefer-Licht endet am HEBEL (der Anker wird von scene_root gemeldet).
 ## Die Grube ist echt: screen_glass verwirft sein Bild darin, table_ground seinen
 ## Filz, und PackPitView stellt Wände und Boden. Diese Klasse malt nur noch die
 ## FASSUNG darum herum und trägt die Gesten. Sie ist die EINZIGE Grube des Tisches -
@@ -47,9 +51,20 @@ const COLORS := {
 ## plus noch einmal 20 % (Spieler-Entscheide 2026-09-04: die Schrift blieb zu klein).
 const CASSETTE_SCALE := 2.184
 
-## Greifluft quer zum Fußabdruck der HOCHKANTEN Kassette (ihre GRIFF-Zelle:
-## Grifftiefe × Kartenbreite) und die TIEFE eines Rangs. Seit der Welle P steht die Karte
-## hochkant und lehnt sich über niemanden mehr - der Rang rückt darum eng zusammen.
+## Die ETAGEN des Paternosters: fünf Tabletts, EINE Reihe je Tablett. Der Deckel ist
+## Reihe mal Etagen.
+const PAGES := 5
+## Seitenverhältnis der Kassette (Höhe / Breite, 2 : 3): daraus folgt ihr LIEGENDER
+## Fußabdruck aus dem gemeldeten STEHENDEN. EINE Quelle - WorkshopView liest sie mit.
+const CARD_ASPECT := 1.5
+## Der Anteil der Gruben-TIEFE, den die FRONT-BLENDE des Tabletts am Bild-unteren
+## Rand nimmt; die Karten liegen mittig in dem, was bleibt (PaternosterView baut die
+## Blende an derselben Zahl).
+const FRONT_SHARE := 0.09
+
+## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette und die TIEFE der Reihe.
+## Seit dem Paternoster gibt es nur EINEN Rang je Etage - RANK_SPAN ist die Luft
+## dieser einen Reihe, an der auch die Tiefe des Streifens hängt (shelf_min_height).
 const CELL_SPAN := 1.15
 const RANK_SPAN := 1.1
 ## Randluft im Platz.
@@ -100,10 +115,16 @@ var _grid: Dictionary = {}
 ## uid -> Platzmitte in LOKALEN Pixeln, für ALLE Einträge - auch zurückgehaltene:
 ## ihr Platz wartet auf die Landung ihres Lichts.
 var _spots: Dictionary = {}
-## uid -> Chip-Knopf (nur sichtbare Einträge).
+## uid -> ETAGE. Nur die GEZEIGTE liegt im Bild; alle anderen parken darunter.
+var _pages: Dictionary = {}
+## uid -> Chip-Knopf (nur sichtbare Einträge der gezeigten Etage).
 var _chips: Dictionary = {}
 var _count := 0
 var _locked := false
+## Die gezeigte ETAGE (0-basiert) und der Anker des HEBELS in Display-Pixeln
+## ((-1,-1) = er steht nicht) - dorthin fliegt, was auf einer parkenden Etage landet.
+var _page := 0
+var _lever := Vector2(-1, -1)
 ## Kassette, auf der die Zieh-Geste begann (0 = keine). Getippt bleibt getippt:
 ## das Loslassen auf sich selbst feuert den normalen pressed-Klick.
 var _drag_from := 0
@@ -114,9 +135,11 @@ func _init() -> void:
 
 ## Baut das Fach neu: entries = [{uid, pack, withheld}] in Magazin-Ordnung.
 ## Zurückgehaltene bekommen ihren PLATZ, aber keinen Chip - der Komet IST das
-## Paket, und erst seine Landung deckt es auf.
+## Paket, und erst seine Landung deckt es auf. Einen Chip bekommt ohnehin nur, was
+## auf der GEZEIGTEN Etage liegt: was parkt, sieht man nicht und greift man nicht.
 func build(entries: Array[Dictionary], unit: float, locked: bool,
-		footprint := Vector2.ZERO, row := Vector2.ZERO) -> void:
+		footprint := Vector2.ZERO, row := Vector2.ZERO, page := 0,
+		lever := Vector2(-1, -1)) -> void:
 	u = maxf(unit, 1.0)
 	_locked = locked
 	strip = row if row.x > 0.0 and row.y > 0.0 else size
@@ -126,67 +149,80 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 		remove_child(child)
 		child.queue_free()
 	_spots.clear()
+	_pages.clear()
 	_chips.clear()
 	_drag_from = 0
 	_count = entries.size()
+	_page = clampi(page, 0, PAGES - 1)
+	_lever = lever
 	_grid = grid_for(field.size, cell_px, _count)
+	var columns := maxi(int(_grid.get("columns", 1)), 1)
 	add_child(_well())
 	add_child(_well_catch())
 	for i in entries.size():
 		var uid := int(entries[i].get("uid", 0))
 		var spot := field.position + _spot_in(_grid, i, field.size, cell_px)
 		_spots[uid] = spot
-		if bool(entries[i].get("withheld", false)):
+		_pages[uid] = page_of(i, columns)
+		if bool(entries[i].get("withheld", false)) or _pages[uid] != _page:
 			continue
 		var chip := _chip(entries[i].get("pack") as Pack, uid, spot)
 		if chip != null:
 			add_child(chip)
 			_chips[uid] = chip
 
+## Der LIEGENDE Fußabdruck einer Kassette in Display-Pixeln, aus dem gemeldeten
+## STEHENDEN gerechnet: quer liegt ihre LANGSEITE, in der Tiefe ihre Breite. Es gibt
+## nur EINE Kartengröße, also folgt alles daraus.
+static func lie_cell(cell: Vector2) -> Vector2:
+	return Vector2(cell.y * CARD_ASPECT, cell.y) * CASSETTE_SCALE
+
 ## Das gelöste Raster eines FELDES (der Grube selbst, nicht des Streifens):
-## {"columns", "rows", "scale"}. EINE Rechnung, aus der Platz, Griff, Maßstab und
+## {"columns", "pages", "scale"}. EINE Rechnung, aus der Platz, Griff, Maßstab und
 ## Anker folgen - reine Funktion, damit ein Neuaufbau dasselbe Raster legt und ein
 ## Komet es RECHNEN kann.
-## Der Maßstab ist FEST: eine Kassette schrumpft nie. Die Zeile fasst, was in ihrer
-## Breite Platz hat, der Rest fließt in den nächsten Rang - und dass die Ränge nie
-## tiefer laufen als die Grube, sichert der Deckel (capacity_for), nicht das Raster.
+## Der Maßstab ist FEST: eine Kassette schrumpft nie. Die Reihe fasst, was in ihrer
+## Breite Platz hat, der Rest liegt auf der nächsten ETAGE - und dass es nie mehr
+## Etagen werden als PAGES, sichert der Deckel (capacity_for), nicht das Raster.
 static func grid_for(field_size: Vector2, cell: Vector2, count: int) -> Dictionary:
 	var columns := _columns_at(field_size, cell)
 	return {"columns": columns,
-		"rows": ceili(float(maxi(count, 1)) / float(columns)),
+		"pages": ceili(float(maxi(count, 1)) / float(columns)),
 		"scale": CASSETTE_SCALE}
 
 ## Wie viele Kassetten in ihrer festen Größe nebeneinander in die Grube liegen.
 static func _columns_at(field_size: Vector2, cell: Vector2) -> int:
-	var wide := cell.x * CELL_SPAN * CASSETTE_SCALE
+	var wide := lie_cell(cell).x * CELL_SPAN
 	if field_size.x <= 0.0 or wide <= 0.0:
 		return 1
 	return maxi(int(field_size.x / wide), 1)
 
-## Wie viele Ränge in ihrer festen Tiefe hintereinander in die Grube passen.
-static func _ranks_at(field_size: Vector2, cell: Vector2) -> int:
-	var deep := cell.y * RANK_SPAN * CASSETTE_SCALE
-	if field_size.y <= 0.0 or deep <= 0.0:
-		return 1
-	return maxi(int(field_size.y / deep), 1)
-
-## Der DECKEL des Magazins: so viele Kassetten liegen in voller Größe in dieser
-## Grube - Spalten mal Ränge, dieselbe Arithmetik wie das Raster. Gemessen, nicht
-## autoriert: scene_root schiebt die Zahl in GameRun, und dort sperrt sie Kauf wie
-## Prämie. Darüber hinaus legt das Raster nichts mehr an, weil nichts mehr kommt.
+## Der DECKEL des Magazins: eine Reihe mal den ETAGEN des Paternosters. Gemessen,
+## nicht autoriert: scene_root schiebt die Zahl in GameRun, und dort sperrt sie Kauf
+## wie Prämie. Darüber hinaus legt das Raster nichts mehr an, weil nichts mehr kommt.
 static func capacity_for(field_size: Vector2, cell: Vector2) -> int:
-	return _columns_at(field_size, cell) * _ranks_at(field_size, cell)
+	return _columns_at(field_size, cell) * PAGES
 
-## Spalten einer Zeile - wie viele Kassetten in ihrer festen Größe nebeneinander
+## Spalten einer Reihe - wie viele Kassetten in ihrer festen Größe nebeneinander
 ## liegen. Der Magazin-Deckel formt das Raster NICHT; er begrenzt den Bestand.
 static func columns_for(field_size: Vector2, cell: Vector2, count: int) -> int:
 	return int(grid_for(field_size, cell, count)["columns"])
 
-## Ränge, die dieser Bestand füllt.
-static func rows_for(field_size: Vector2, cell: Vector2, count: int) -> int:
-	return int(grid_for(field_size, cell, count)["rows"])
+## Etagen, die dieser Bestand füllt.
+static func pages_for(field_size: Vector2, cell: Vector2, count: int) -> int:
+	return int(grid_for(field_size, cell, count)["pages"])
 
-## Platzmitte des Eintrags index im Feld (relativ zu dessen Ecke).
+## Die ETAGE eines Eintrags (0 = die erste) ...
+static func page_of(index: int, columns: int) -> int:
+	return floori(float(maxi(index, 0)) / float(maxi(columns, 1)))
+
+## ... und sein PLATZ in ihrer Reihe. Zusammen sind sie die ganze Ordnung: die
+## Etagen sind ABSCHNITTE der einen Magazin-Liste.
+static func cell_of(index: int, columns: int) -> int:
+	return maxi(index, 0) % maxi(columns, 1)
+
+## Platzmitte des Eintrags index im Feld (relativ zu dessen Ecke). Sie nennt NUR
+## den Platz in der Reihe - auf welcher Etage er liegt, entscheidet der Wirt.
 static func spot_for(index: int, count: int, field_size: Vector2,
 		cell: Vector2) -> Vector2:
 	return _spot_in(grid_for(field_size, cell, count), index, field_size, cell)
@@ -195,22 +231,19 @@ static func _spot_in(grid: Dictionary, index: int, field_size: Vector2,
 		cell: Vector2) -> Vector2:
 	var columns := maxi(int(grid.get("columns", 1)), 1)
 	var slot := _slot_in(grid, field_size, cell)
-	var column := index % columns
-	var line := floori(float(index) / float(columns))
-	# Von OBEN angelegt: neue Ränge wachsen nach vorn in die leere Grube, und ein
-	# halbvolles Magazin liest als vordere Zeile Ware, nicht als schwebendes Band.
-	return Vector2(slot.x * (float(column) + 0.5), slot.y * (float(line) + 0.5))
+	# Die Reihe liegt mittig in dem, was die FRONT-BLENDE des Tabletts übrig läßt -
+	# die sitzt an der Bild-unteren Kante.
+	return Vector2(slot.x * (float(cell_of(index, columns)) + 0.5), slot.y * 0.5)
 
-## Der PLATZ eines Eintrags. Quer teilt sich die Zeile die GANZE Feldbreite - die
+## Der PLATZ eines Eintrags. Quer teilt sich die Reihe die GANZE Feldbreite - die
 ## Karte behält ihr Maß, die Luft dazwischen wächst; in der Tiefe ist der Platz
-## genau ein Rang, sonst rückten die Ränge mit jedem neuen Paket auseinander.
+## das Feld ohne die Blende, denn es gibt nur EINE Reihe.
 static func slot_size(field_size: Vector2, cell: Vector2, count: int) -> Vector2:
 	return _slot_in(grid_for(field_size, cell, count), field_size, cell)
 
-static func _slot_in(grid: Dictionary, field_size: Vector2, cell: Vector2) -> Vector2:
+static func _slot_in(grid: Dictionary, field_size: Vector2, _cell: Vector2) -> Vector2:
 	var columns := maxf(float(grid.get("columns", 1)), 1.0)
-	var scale := float(grid.get("scale", CASSETTE_SCALE))
-	return Vector2(field_size.x / columns, cell.y * RANK_SPAN * scale)
+	return Vector2(field_size.x / columns, field_size.y * (1.0 - FRONT_SHARE))
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft. Er ist
 ## bewusst größer als die Karte - in der Grube gäbe ein Knopf im Kartenmaß einen
@@ -241,15 +274,32 @@ func cell_scale() -> float:
 static func cell_scale_for(cell: Vector2, field_size: Vector2, count: int) -> float:
 	return float(grid_for(field_size, cell, count)["scale"])
 
-## Display-Pixel der Kassette dieser uid - Standplatz ihres Körpers und Ziel der
-## Liefer-Kometen. Antwortet auch für zurückgehaltene Einträge ((-1,-1) = liegt
-## nicht im Fach). Es IST die Platzmitte: die Kassette steht in der Grube, über
-## ihr schwebt nichts mehr.
-func pack_anchor_px(uid: int) -> Vector2:
+## Display-Pixel des PLATZES dieser uid in der Reihe - dort liegt ihr Körper auf
+## seinem Tablett, gleich welche Etage gerade oben ist ((-1,-1) = liegt nicht im
+## Fach). Es IST die Platzmitte: die Karte liegt in der Grube, über ihr schwebt
+## nichts.
+func pack_seat_px(uid: int) -> Vector2:
 	if not _spots.has(uid):
 		return Vector2(-1, -1)
 	var spot: Vector2 = _spots[uid]
 	return get_global_rect().position + spot
+
+## Und wohin ihr Liefer-Licht fliegt: auf den Platz, wenn ihre Etage GEZEIGT wird -
+## sonst an den HEBEL, denn eine Maschine, die keiner sieht, hat nicht gespielt.
+func pack_anchor_px(uid: int) -> Vector2:
+	if not _spots.has(uid):
+		return Vector2(-1, -1)
+	if int(_pages.get(uid, 0)) != _page:
+		return _lever if _lever.x >= 0.0 else get_global_rect().get_center()
+	return pack_seat_px(uid)
+
+## Die ETAGE einer Kassette (-1 = liegt nicht im Fach).
+func page_of_pack(uid: int) -> int:
+	return int(_pages.get(uid, -1))
+
+## Die gezeigte Etage.
+func page() -> int:
+	return _page
 
 ## Derselbe Standplatz, GERECHNET statt gemessen - der Weg, wenn das Fach gerade
 ## nicht steht (Presse, Paket-Wahl); dieselbe Formel wie oben, damit ein Komet

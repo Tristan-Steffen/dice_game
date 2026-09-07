@@ -1,9 +1,11 @@
 extends GutTest
 ## Tier-2-Tests des Magazins (PackDrawerView): EINE Grube in der Schürze, je Paket
-## seine eigene STEHENDE Kassette in Spieler-Ordnung. Gezählt und arbitriert wird
-## in WorkshopView - hier steht nur, was liegt.
+## seine eigene LIEGENDE Kassette in Spieler-Ordnung - EINE Reihe je ETAGE des
+## Paternosters. Gezählt und arbitriert wird in WorkshopView, gefahren in
+## PaternosterView; hier steht nur, was wo liegt.
 
-## Fußabdruck einer stehenden Kassette (Kappe: breit und flach).
+## Fußabdruck einer STEHENDEN Kassette (Grifftiefe × Kartenbreite) - daraus folgt
+## der liegende (lie_cell).
 const CELL := Vector2(30, 12)
 
 func _entry(pack: Pack, uid: int, withheld := false) -> Dictionary:
@@ -11,12 +13,20 @@ func _entry(pack: Pack, uid: int, withheld := false) -> Dictionary:
 	return {"uid": uid, "pack": pack, "withheld": withheld}
 
 func _drawer(entries: Array[Dictionary], locked := false,
-		row := Vector2(900, 150)) -> PackDrawerView:
+		row := Vector2(900, 150), page := 0,
+		lever := Vector2(-1, -1)) -> PackDrawerView:
 	var drawer := PackDrawerView.new()
 	add_child_autofree(drawer)
 	drawer.size = row
-	drawer.build(entries, 8.0, locked, CELL, row)
+	drawer.build(entries, 8.0, locked, CELL, row, page, lever)
 	return drawer
+
+## So viele Einträge, wie auf eine Etage passen, plus extra.
+func _fill(count: int) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for i in count:
+		entries.append(_entry(Pack.number_pack(), i + 1))
+	return entries
 
 ## Das FELD eines Streifens: die Grube, also der Streifen ohne seine Fassung -
 ## dort stehen die Kassetten, und daran misst sich jeder gerechnete Anker.
@@ -64,9 +74,16 @@ func test_every_shelf_order_key_has_a_colour() -> void:
 	for category: String in Pack.SHELF_ORDER:
 		assert_true(PackDrawerView.COLORS.has(category), "%s hat seine Farbe" % category)
 
-# --- Das Raster: feste Kartengröße, die Zeile fließt -------------------------------
+# --- Das Raster: feste Kartengröße, EINE Reihe je Etage ----------------------------
 
-func test_spots_run_row_major_in_owner_order() -> void:
+func test_die_liegende_karte_folgt_aus_der_stehenden() -> void:
+	# Es gibt nur EINE Kartengröße: liegend die Langseite quer, die Breite nach vorn.
+	var lie := PackDrawerView.lie_cell(CELL)
+	assert_almost_eq(lie.y, CELL.y * PackDrawerView.CASSETTE_SCALE, 0.001)
+	assert_almost_eq(lie.x, lie.y * PackDrawerView.CARD_ASPECT, 0.001,
+		"und quer ist sie anderthalbmal so lang")
+
+func test_spots_run_along_the_one_row_in_owner_order() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 4)
 	var first := PackDrawerView.spot_for(0, 4, field, CELL)
@@ -74,29 +91,41 @@ func test_spots_run_row_major_in_owner_order() -> void:
 	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01,
 		"nebeneinander in derselben Reihe")
 	assert_almost_eq(second.y, first.y, 0.01)
-	var below := PackDrawerView.spot_for(columns, columns + 1, field, CELL)
-	assert_almost_eq(below.x, first.x, 0.01, "der zweite Rang beginnt wieder links")
-	assert_gt(below.y, first.y)
+	# Was nicht mehr in die Reihe passt, liegt auf der NÄCHSTEN Etage - und die liegt
+	# nicht daneben, sondern DARUNTER: derselbe Platz in der Reihe.
+	var next_page := PackDrawerView.spot_for(columns, columns + 1, field, CELL)
+	assert_almost_eq(next_page.x, first.x, 0.01, "Etage 2 beginnt wieder links")
+	assert_almost_eq(next_page.y, first.y, 0.01, "und auf derselben Tiefe")
 
-func test_a_line_holds_what_fits_and_the_rest_flows_into_the_next_rank() -> void:
-	# Der Magazin-Deckel formt das Raster NICHT mehr: die Spaltenzahl folgt allein
-	# aus der Breite der Grube und dem festen Kartenmaß.
+func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_page() -> void:
+	# Der Magazin-Deckel formt das Raster NICHT: die Spaltenzahl folgt allein aus der
+	# Breite der Grube und dem festen LIEGENDEN Kartenmaß.
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var card := CELL.x * PackDrawerView.CELL_SPAN * PackDrawerView.CASSETTE_SCALE
+	var card := PackDrawerView.lie_cell(CELL).x * PackDrawerView.CELL_SPAN
 	assert_eq(columns, int(field.x / card), "so viele, wie in ihrer Größe hineinpassen")
-	assert_eq(PackDrawerView.rows_for(field, CELL, columns), 1, "eine volle Zeile")
-	assert_eq(PackDrawerView.rows_for(field, CELL, columns + 1), 2,
-		"die nächste Kassette eröffnet den nächsten Rang")
+	assert_eq(PackDrawerView.pages_for(field, CELL, columns), 1, "eine volle Reihe")
+	assert_eq(PackDrawerView.pages_for(field, CELL, columns + 1), 2,
+		"die nächste Kassette eröffnet die nächste Etage")
 
-func test_the_ranks_start_at_the_top_of_the_pit_and_grow_forward() -> void:
+## Die Etagen sind ABSCHNITTE der einen Magazin-Liste - reine Rechnung.
+func test_the_pages_are_sections_of_the_one_list() -> void:
+	for columns in [1, 6, 7, 13]:
+		for i in columns * PackDrawerView.PAGES:
+			assert_eq(PackDrawerView.page_of(i, columns), i / columns,
+				"%d bei %d Spalten" % [i, columns])
+			assert_eq(PackDrawerView.cell_of(i, columns), i % columns)
+	assert_eq(PackDrawerView.page_of(-3, 0), 0, "unsinnige Zahlen liegen vorn")
+	assert_eq(PackDrawerView.cell_of(-3, 0), 0)
+
+func test_the_row_lies_in_what_the_front_band_leaves() -> void:
+	# An der Bild-unteren Kante des Tabletts steht seine FRONT-BLENDE; die Karten
+	# liegen mittig in dem, was bleibt.
 	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var depth := PackDrawerView.slot_size(field, CELL, 1).y
-	assert_almost_eq(PackDrawerView.spot_for(0, 1, field, CELL).y, depth * 0.5, 0.01,
-		"der erste Rang liegt an der hinteren Kante")
-	assert_almost_eq(PackDrawerView.spot_for(columns, columns + 1, field, CELL).y,
-		depth * 1.5, 0.01, "und die neuen wachsen nach vorn in die leere Grube")
+	var slot := PackDrawerView.slot_size(field, CELL, 1)
+	assert_almost_eq(slot.y, field.y * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
+	assert_almost_eq(PackDrawerView.spot_for(0, 1, field, CELL).y, slot.y * 0.5, 0.01,
+		"die Reihe liegt mittig darin")
 
 func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 	# Der ganze Punkt: eine Kassette schrumpft NIE - auch nicht jenseits des
@@ -106,24 +135,25 @@ func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 		assert_almost_eq(PackDrawerView.cell_scale_for(CELL, field, count),
 			PackDrawerView.CASSETTE_SCALE, 0.001, "%d Pakete, dasselbe Maß" % count)
 
-func test_the_capacity_is_columns_times_the_ranks_that_fit() -> void:
+func test_the_capacity_is_one_row_times_the_pages() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var ranks := int(field.y / (CELL.y * PackDrawerView.RANK_SPAN * PackDrawerView.CASSETTE_SCALE))
-	assert_gt(ranks, 0)
-	assert_eq(PackDrawerView.capacity_for(field, CELL), columns * ranks,
-		"dieselbe Arithmetik wie das Raster")
+	assert_gt(columns, 0)
+	assert_eq(PackDrawerView.capacity_for(field, CELL),
+		columns * PackDrawerView.PAGES, "Reihe mal Etagen, sonst nichts")
 
 func test_the_capacity_lays_out_without_shrinking_and_within_the_pit() -> void:
-	# Der Deckel ist so gewählt, dass die volle Grube noch in voller Größe steht.
+	# Der Deckel ist so gewählt, dass das volle Magazin noch in voller Größe liegt.
 	var field := _field().size
 	var capacity := PackDrawerView.capacity_for(field, CELL)
 	var grid := PackDrawerView.grid_for(field, CELL, capacity)
 	assert_almost_eq(float(grid["scale"]), PackDrawerView.CASSETTE_SCALE, 0.001,
 		"am Deckel wird nichts gedrückt")
-	var depth := float(grid["rows"]) * CELL.y * PackDrawerView.RANK_SPAN \
-		* PackDrawerView.CASSETTE_SCALE
-	assert_lte(depth, field.y + 0.001, "und die Ränge bleiben in der Grube")
+	assert_eq(int(grid["pages"]), PackDrawerView.PAGES,
+		"und er füllt genau die Etagen, die der Paternoster hat")
+	assert_lte(PackDrawerView.lie_cell(CELL).y,
+		PackDrawerView.slot_size(field, CELL, capacity).y + 0.001,
+		"die Reihe bleibt in der Grube")
 
 func test_the_capacity_is_pure() -> void:
 	var field := _field().size
@@ -174,6 +204,50 @@ func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
 	var derived := PackDrawerView.anchor_in(
 		PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0), 2, 3, CELL)
 	assert_almost_eq(third.x, derived.x, 0.5, "der Nachbar zählt es mit")
+
+# --- Der PATERNOSTER: gezeigt wird EINE Etage -------------------------------------
+
+func test_only_the_shown_page_carries_chips() -> void:
+	var field := _field().size
+	var columns := PackDrawerView.columns_for(field, CELL, 1)
+	var drawer := _drawer(_fill(columns + 2))
+	await wait_frames(2)
+	assert_not_null(drawer.pack_button(1), "die gezeigte Etage ist greifbar")
+	assert_null(drawer.pack_button(columns + 1), "was parkt, greift man nicht")
+	assert_eq(drawer.page_of_pack(columns + 1), 1, "es liegt auf Etage 2")
+	assert_eq(drawer.hover_uid_at(drawer.pack_button(1).get_global_rect().get_center()), 1)
+
+func test_the_second_page_shows_when_it_is_turned_up() -> void:
+	var field := _field().size
+	var columns := PackDrawerView.columns_for(field, CELL, 1)
+	var drawer := _drawer(_fill(columns + 2), false, Vector2(900, 150), 1)
+	await wait_frames(2)
+	assert_null(drawer.pack_button(1), "jetzt parkt die erste")
+	assert_not_null(drawer.pack_button(columns + 1), "und die zweite liegt oben")
+	assert_eq(drawer.page(), 1)
+
+## Der PLATZ bleibt der Platz - auch auf einer parkenden Etage liegt der Körper
+## dort; nur das LICHT fliegt woanders hin.
+func test_a_parked_pack_keeps_its_seat_but_its_light_flies_to_the_lever() -> void:
+	var field := _field().size
+	var columns := PackDrawerView.columns_for(field, CELL, 1)
+	var lever := Vector2(1234, 77)
+	var drawer := _drawer(_fill(columns + 1), false, Vector2(900, 150), 0, lever)
+	await wait_frames(2)
+	var parked := columns + 1
+	assert_almost_eq(drawer.pack_seat_px(parked).x, drawer.pack_seat_px(1).x, 0.5,
+		"derselbe Platz in der Reihe wie der erste")
+	assert_eq(drawer.pack_anchor_px(parked), lever, "sein Licht endet am Hebel")
+	assert_eq(drawer.pack_anchor_px(1), drawer.pack_seat_px(1),
+		"die gezeigte Etage nimmt ihr Licht selbst an")
+
+func test_without_a_lever_a_parked_pack_aims_at_the_drawer() -> void:
+	var field := _field().size
+	var columns := PackDrawerView.columns_for(field, CELL, 1)
+	var drawer := _drawer(_fill(columns + 1))
+	await wait_frames(2)
+	assert_eq(drawer.pack_anchor_px(columns + 1), drawer.get_global_rect().get_center(),
+		"ohne gemeldeten Hebel bleibt das Fach der Rückfall")
 
 # --- Chip-Schalen-Regel: der Knopf zeichnet nichts --------------------------------
 

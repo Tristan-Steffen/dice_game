@@ -216,18 +216,18 @@ const CLAMP_MATERIALIZE_STAGGER := 0.07
 const BENCH_CARRY_TIME := 0.5
 const BENCH_CARRY_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 
-## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und
-## die drei Takte des Einsteckens - hingleiten, aufrichten, in den Tisch fahren.
+## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und der
+## Takt, in dem eine umsortierte Karte auf ihren neuen Platz gleitet.
 ## Luftzuschlag auf die Grubentiefe über der höchsten angezeigten Kassette.
 const PACK_PIT_DEPTH_ROOM := 1.3
 const DATA_CELL_STAGGER := 0.06
 const DATA_CELL_SLIDE_TIME := 0.32
-const DATA_CELL_PLUNGE_TIME := 0.28
 ## DER TRAGE-BOGEN (Welle O): was der SPIELER bewegt, fliegt ÜBER dem Tisch -
 ## Magazin <-> Etage ist ein Spieler-Zug. Seit der Welle Y liegen BEIDE Enden in
-## DERSELBEN Grube, also reist die Karte INNERHALB der Grube: erst legt sie sich im
-## Magazin um (LIFT), dann der flache Bogen durch den Durchbruch.
-const DATA_CELL_LIFT_TIME := 0.18
+## DERSELBEN Grube, also reist die Karte INNERHALB der Grube - und seit dem
+## PATERNOSTER liegt sie schon, wenn sie aufbricht: das Umlegen (DATA_CELL_LIFT_TIME)
+## und das Aufrichten daheim (DATA_CELL_PLUNGE_TIME) sind mit der stehenden Karte
+## gestorben, es bleibt der flache Bogen durch den Durchbruch.
 const CARRY_TIME := 0.45
 const CARRY_PEAK := DataCellView.HEIGHT * 1.2
 ## Die Luft, die der Gruben-Bogen unter der Tischkante freiläßt: eine halbe
@@ -237,6 +237,10 @@ const PIT_CARRY_CLEAR := TowerView.CARD_THICKNESS * 0.5
 ## harter Endzustand.
 const CARRY_SEAT_SOCKET := "socket"
 const CARRY_SEAT_PIT := "pit"
+
+## Die zwei Seiten des PATERNOSTER-Hebels: hinauf blättert vor, hinab zurück.
+const PAGE_UP := "page_up"
+const PAGE_DOWN := "page_down"
 ## DAS DURCHLICHT: der Zähl-Takt des Licht-Netzes und der flache Scheitel, mit dem
 ## ein LICHTFUNKE vom Turmkopf in die Seite des Würfels schlägt.
 const LIGHT_TICK_TIME := 0.22
@@ -529,8 +533,8 @@ var _bench_riding := false
 ## noch laufender Tween meldet dann nichts mehr zurück.
 var _bench_gen := 0
 
-## Die physischen Datenzellen der Werkbank: je Magazin-Paket (uid) seine STEHENDE
-## Kassette in der Grube und je belegtem Presse-Platz die, die darin steckt.
+## Die physischen Datenzellen der Werkbank: je Magazin-Paket (uid) seine LIEGENDE
+## Kassette auf ihrem Tablett und je belegter Turm-Etage die, die darin liegt.
 ## Weltkörper wie die Zwingen - reine ANZEIGE: sie tragen keine Kollision und
 ## fangen keinen Klick, der läuft weiter durch die leeren Knöpfe im Fenster
 ## (Chip-Schalen-Regel).
@@ -575,6 +579,12 @@ var pack_pit: PackPitView
 ## Und die TURM-BUCHT: derselbe Körper, dieselbe Tiefe, zum Magazin hin OFFEN - die
 ## beiden bilden EINEN L-förmigen Raum, in dem der Turm steht (Welle Y).
 var tower_pit: PackPitView
+## Der PATERNOSTER in der Magazin-Grube: fünf Tabletts übereinander, gezeigt wird
+## eines. Er TRÄGT die Karten (sie sind Kinder ihres Faches), also fahren sie mit.
+var paternoster: PaternosterView
+## Und der HEBEL auf dem Filz rechts neben der Grube, der blättert. Nur der SPIELER
+## bewegt den Paternoster - nichts blättert von selbst.
+var page_lever: LeverView
 ## Der an der Grube GEMESSENE Magazin-Deckel (0 = noch nicht gemessen). Er gehört
 ## dem Tisch, nicht dem Lauf: _sync_pack_pit liest ihn ab, _connect_run schiebt
 ## ihn jedem frischen Lauf herein (dasselbe Muster wie apron_bottom - core misst
@@ -1341,7 +1351,7 @@ func _place_workshop_strip() -> Rect2:
 	# Der Nahblick schaut GERADE nach unten: dort wächst ein hoher Körper radial vom
 	# Bildmittelpunkt weg. RECHTS steht seit der WELLE Z der Podest-Würfel, also bekommt
 	# diese Seite SEINEN Kopfraum, links der Turm den seinen.
-	var head := _tower_head_px() + _standing_card_head_px()
+	var head := _tower_head_px() + _lifted_card_head_px()
 	var close_frame := Rect2(
 		workshop_close_rect.position - Vector2(_tower_head_px(), head),
 		workshop_close_rect.size
@@ -1352,6 +1362,7 @@ func _place_workshop_strip() -> Rect2:
 		table_screen.pixel_to_world(close_frame.get_center()),
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
 	_place_charging_column(bench_rect, workshop_rect)
+	_place_page_lever(bench_rect)
 	return corner
 
 ## Die LADESÄULE steht RECHTS neben dem Streifen, auf der Zeilenhöhe des PODESTS:
@@ -1373,6 +1384,83 @@ func _place_charging_column(bench_rect: Rect2, workshop_rect: Rect2) -> void:
 	charging_column.setup(Vector3(at.x, 0.0, at.z))
 	_wire_charging_column()
 	_place_repair_zone()
+
+## Der HEBEL des PATERNOSTERS steht auf dem Filz RECHTS neben der Magazin-Grube - in
+## derselben Straße wie die Ladesäule, nur auf der Höhe des Magazins. Sein Platz ist
+## ein reiner ANKER, die Maße bringt der Hebel selbst mit; sein SCHILD meldet er als
+## Display-Pixel ans Fenster (dorthin fliegt, was auf einer parkenden Etage landet).
+func _place_page_lever(bench_rect: Rect2) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var pit := workshop.shelf_pit_rect()
+	if pit.size.x <= 0.0:
+		return
+	var left := bench_rect.end.x + _workshop_unit() * WorkshopView.STREET_GAP
+	if left >= float(TableScreen.RESOLUTION.x) - WORKSHOP_RIGHT_MARGIN:
+		return
+	if page_lever == null or not is_instance_valid(page_lever):
+		page_lever = LeverView.new("PageLever")
+		add_child(page_lever)
+		page_lever.setup(PAGE_UP, PAGE_DOWN)
+		page_lever.page_requested.connect(_on_page_requested)
+	var at := table_screen.pixel_to_world(Vector2(left, pit.get_center().y))
+	page_lever.global_position = Vector3(at.x, 0.0, at.z)
+	_write_page_sign()
+	workshop.shelf_lever_px = table_screen.world_to_pixel(page_lever.sign_point())
+
+## Die Aufschrift des Schildes: welche Etage gerade oben liegt.
+func _write_page_sign() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if page_lever == null or not is_instance_valid(page_lever) or workshop == null:
+		return
+	page_lever.set_sign("Etage %d/%d" % [workshop.shelf_page + 1, PackDrawerView.PAGES])
+
+## Geblättert wird NUR vom Spieler, und zyklisch: die letzte Etage folgt auf die
+## erste. Der Zustand ist ANZEIGE - er wohnt im Fenster, nicht im Lauf.
+func _on_page_requested(delta: int) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var wanted: int = posmod(workshop.shelf_page + delta, PackDrawerView.PAGES)
+	# Die FAHRT zuerst: das Fenster schiebt beim Umschreiben seinen Abgleich an, und
+	# der dürfte die eben begonnene Fahrt nicht gleich wieder hart setzen.
+	if paternoster != null and is_instance_valid(paternoster):
+		paternoster.show_page(wanted)
+	workshop.shelf_page = wanted
+	_write_page_sign()
+
+## Der GRIFF am Hebel je Bild: bedient wird, wo das Magazin zu SEHEN ist (eigene
+## Station und Freikamera - die Griff-Grammatik der Körper).
+func _sync_page_lever() -> void:
+	if page_lever == null or not is_instance_valid(page_lever):
+		return
+	page_lever.set_armed(_page_lever_live())
+	page_lever.set_hovered(_page_lever_part(get_viewport().get_mouse_position()))
+
+func _page_lever_live() -> bool:
+	return _table_operable() and not _deck_glass \
+		and _felt_pick_live(CameraRig.Mode.WORKSHOP)
+
+## Welche Seite des Hebels liegt unter dem Zeiger ("" = keine)? Auf derselben
+## Pick-Ebene steht auch die Ladesäule - darum entscheidet der NAME, nicht der Treffer.
+func _page_lever_part(screen_pos: Vector2) -> String:
+	if page_lever == null or not is_instance_valid(page_lever):
+		return LeverView.PART_NONE
+	var hit := _ray_pick(screen_pos, LeverView.PICK_LAYER)
+	if hit.is_empty():
+		return LeverView.PART_NONE
+	var part := LeverView.part_of(hit.collider)
+	return part if page_lever.direction_of(part) != 0 else LeverView.PART_NONE
+
+## Der Druck auf den Hebel (true = verbraucht).
+func _forward_page_lever_mouse(event: InputEventMouse) -> bool:
+	if page_lever == null or not is_instance_valid(page_lever) or not _page_lever_live():
+		return false
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	return page_lever.press(_page_lever_part(button.position))
 
 ## Das KABEL läuft von der Säule zum Podest-Puck - "die Säule lädt, der Würfel
 ## wird geladen".
@@ -1433,17 +1521,18 @@ func _hover_die_head_px() -> float:
 	var reach := _die_face_px() * DieBuilder.HALF_EXTENT / DieBuilder.FACE_SIZE * VitrineView.SILHOUETTE
 	return WorkshopView.BENCH_TILT_TRIM + reach
 
-## Wie weit eine im Magazin STEHENDE Karte über ihren Glaspunkt hinausragt, in
-## Display-Pixeln: ihre sichtbare Standhöhe im Kartenmaß, senkrecht projiziert. Der
-## Nahblick schaut gerade nach unten, also ist das genau der Kopfraum, den sein
-## Rahmen oben braucht.
-func _standing_card_head_px() -> float:
+## Wie weit eine Magazin-Karte über das Glas hinausragt, in Display-Pixeln: seit dem
+## PATERNOSTER liegt sie IN der Grube, also ist das allein ihr GRIFF-Hub (der Hover
+## ist die eine erlaubte Ausnahme von der Kante). Der Nahblick schaut gerade nach
+## unten, also ist das genau der Kopfraum, den sein Rahmen oben braucht - er ist
+## damit rund ein Viertel dessen, was die STEHENDE Karte verlangte.
+func _lifted_card_head_px() -> float:
 	if table_screen == null:
 		return 0.0
-	var stand := DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE \
-		* DataCellView.SUNK_SHOW
+	var over := DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE) \
+		+ PaternosterView.PROUD + PaternosterView.HOVER_PROUD
 	var origin := table_screen.world_to_pixel(Vector3.ZERO)
-	return absf(table_screen.world_to_pixel(Vector3(stand, 0.0, 0.0)).y - origin.y)
+	return absf(table_screen.world_to_pixel(Vector3(over, 0.0, 0.0)).y - origin.y)
 
 ## Wie viele Schächte die Reihe tragen soll: was das Fenster sagt, solange es
 ## steht (es zählt auch die steckenden Karten mit), sonst der Lauf.
@@ -3707,6 +3796,7 @@ func _sync_data_cells() -> void:
 		return
 	_sync_pack_pit(workshop)
 	_sync_tower_pit(workshop)
+	_sync_paternoster(workshop)
 	_data_cell_gen += 1
 	var generation := _data_cell_gen
 	var launched := run
@@ -3810,6 +3900,26 @@ func _sync_tower_pit(workshop: WorkshopView) -> void:
 	tower_pit.build_floor = false  # der Boden gehört dem Magazin - es ist EINER
 	tower_pit.setup(table_screen.pixel_to_world(rect.get_center()), _pit_half(rect),
 		_pack_pit_depth(), PackPitView.WALL_X_MINUS)
+
+## DER PATERNOSTER: die fünf Tabletts in der Magazin-Grube. Möbel, idempotent - die
+## FAHRT gehört dem Hebel, dieser Abgleich stellt nur und schreibt die Sorten-Ticks
+## der Front-Blenden nach.
+func _sync_paternoster(workshop: WorkshopView) -> void:
+	if table_screen == null:
+		return
+	var rect := workshop.shelf_pit_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	if paternoster == null or not is_instance_valid(paternoster):
+		paternoster = PaternosterView.new()
+		add_child(paternoster)
+	paternoster.setup(table_screen.pixel_to_world(rect.get_center()),
+		_world_span(rect.size), workshop.shelf_cell_scale())
+	# Nur ein echter Wechsel fährt: sonst risse dieser Abgleich jede laufende Fahrt ab.
+	if paternoster.shown() != workshop.shelf_page:
+		paternoster.show_page(workshop.shelf_page)
+	for page in PackDrawerView.PAGES:
+		paternoster.set_ticks(page, workshop.shelf_page_tints(page))
 
 ## Die halbe Welt-Ausdehnung eines Display-Rechtecks (x quer, y längs).
 func _pit_half(rect: Rect2) -> Vector2:
@@ -8144,9 +8254,10 @@ func _on_secret_goods_purchased(uid: int) -> void:
 		return
 	_land_pack_in_magazine(workshop, uid, tint)
 
-## Die Magazin-Kassetten: je stehendem Paket (uid) EIN Körper an seinem Platz.
-## Wer schon steht, bleibt derselbe Körper - ein neuer Platz (Umsortieren, die
-## Reihe schließt sich) ist ein GLEITEN, kein Neuaufbau.
+## Die Magazin-Kassetten: je Paket (uid) EIN Körper, LIEGEND auf dem Tablett seiner
+## ETAGE - Netz nach oben, lesbar ohne Hover. Wer schon liegt, bleibt derselbe
+## Körper; ein neuer Platz in derselben Reihe (Umsortieren) ist ein GLEITEN, ein
+## Etagenwechsel ein Umzug ins andere Fach.
 func _sync_shelf_cells(workshop: WorkshopView) -> void:
 	var entries := workshop.drawer_entries()
 	var reserved := workshop.press_slot_uids()
@@ -8168,44 +8279,85 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		if not wanted.has(uid):
 			continue
 		var pack: Pack = wanted[uid]
-		var target := _data_cell_seat(workshop.pack_anchor_px(uid))
+		var page := workshop.shelf_page_of(uid)
+		var target := _shelf_seat(workshop, uid, page)
 		var cell: DataCellView = shelf_cells.get(uid)
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net)
 			cell.set_body_scale(workshop.shelf_cell_scale())
 			shelf_cells[uid] = cell
-			_show_shelf_cell(cell, uid, target, fresh)
+			_show_shelf_cell(cell, uid, page, target, fresh)
 			fresh += 1
 		elif not cell.visible:
-			_show_shelf_cell(cell, uid, target, fresh)
+			_show_shelf_cell(cell, uid, page, target, fresh)
 			fresh += 1
 		elif cell.busy():
 			pass  # sie gleitet oder richtet sich gerade - nicht dazwischenfunken
-		elif cell.glass_position().distance_to(target) > 0.01:
-			cell.glide_to(target, DATA_CELL_SLIDE_TIME)
+		elif _shelf_seated(cell, page, target):
+			pass  # sie liegt schon dort - der Abgleich schreibt nichts um
+		elif paternoster != null and cell.get_parent() == paternoster.fach(page):
+			cell.glide_to(target, DATA_CELL_SLIDE_TIME)  # dieselbe Etage, neuer Platz
 		else:
-			cell.stand_in_pit(target)
+			_lay_shelf_hard(cell, page, target)  # ein Etagenwechsel zieht um
 		# Die ×n-Marke heißt jetzt BÜNDEL: mehrere Stücke in EINER Karte.
 		cell.set_count(maxi(pack.count, 1))
 		cell.set_dimmed(workshop.shelf_locked())
 		# Der Körper wächst mit seinem Platz - reine Anzeige, der Anker bleibt
 		# derselbe Glaspunkt.
 		cell.set_body_scale(workshop.shelf_cell_scale())
-		# Der GRIFF zieht die Akte im Magazin zu drei Vierteln heraus; den Hub setzt
-		# der Wirt, und ein Rückkehrer bekommt ihn in _finish_cell_return wieder.
-		cell.hover_lift = DataCellView.PIT_HOVER_LIFT
+		# Der GRIFF zieht die liegende Akte aus der Grube bis über die Tischkante;
+		# den Hub setzt der Wirt, ein Rückkehrer bekommt ihn in _finish_cell_return.
+		cell.hover_lift = PaternosterView.hover_lift(workshop.shelf_cell_scale())
 		cell.hover_slide = 0.0  # der Turm-Kanal gilt nur in seiner Etage
 
-## Eine Kassette tritt in ihrem Fach an: GELIEFERT steigt sie aus dem Grubenboden
+## Der PLATZ einer Kassette in der Welt: ihr Platz in der Reihe (Display-Pixel des
+## Fensters) auf der Höhe des Tabletts ihrer ETAGE - die gehört dem Paternoster.
+func _shelf_seat(workshop: WorkshopView, uid: int, page: int) -> Vector3:
+	var at := _data_cell_seat(workshop.pack_seat_px(uid))
+	if paternoster != null and is_instance_valid(paternoster):
+		at.y = paternoster.card_seat(page)
+	return at
+
+func _shelf_seated(cell: DataCellView, page: int, target: Vector3) -> bool:
+	if paternoster == null or not is_instance_valid(paternoster):
+		return cell.glass_position().distance_to(target) <= 0.01
+	return paternoster.seated(cell, page, target)
+
+## Der EINE harte Schreiber einer Kassette in ihrem MAGAZIN: sie LIEGT flach auf der
+## Trittfläche ihres Tabletts und ist dessen KIND - eine Fahrt trägt sie mit.
+func _lay_shelf_hard(cell: DataCellView, page: int, target: Vector3) -> void:
+	cell.badge_on_face = true  # liegend liegt die x-n-Marke AUF der Karte
+	cell.lie_on_glass(target)
+	if paternoster != null and is_instance_valid(paternoster):
+		paternoster.host_card(cell, page)
+
+## Eine Kassette tritt in ihrem Fach an: GELIEFERT steigt sie aus ihrem Tablett
 ## (und lodert oben selbst), sonst wächst sie an Ort und Stelle - ein Neuaufbau
-## des Fensters ist keine Lieferung.
-func _show_shelf_cell(cell: DataCellView, uid: int, target: Vector3, fresh: int) -> void:
-	if _rising_packs.erase(uid):
+## des Fensters ist keine Lieferung. Auf einer PARKENDEN Etage spielt gar nichts:
+## eine Maschine, die keiner sieht, hat nicht gespielt - dort quittiert das Schild
+## am Hebel.
+func _show_shelf_cell(cell: DataCellView, uid: int, page: int, target: Vector3,
+		fresh: int) -> void:
+	var delivered := _rising_packs.erase(uid)
+	var parked := paternoster != null and is_instance_valid(paternoster) \
+		and paternoster.shown() != page
+	if delivered:
 		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
-		cell.rise_into_pit(target, _pack_pit_depth(), float(fresh) * DATA_CELL_STAGGER)
+	if parked or not delivered:
+		_lay_shelf_hard(cell, page, target)
+		if delivered:
+			if page_lever != null and is_instance_valid(page_lever):
+				page_lever.flash_sign()
+		else:
+			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 		return
-	cell.stand_in_pit(target)
-	cell.materialize(float(fresh) * DATA_CELL_STAGGER)
+	# Die Ankunft auf der GEZEIGTEN Etage: erst der Wirt, dann der Weg - sie steigt
+	# aus ihrem Tablett heraus.
+	cell.badge_on_face = true
+	if paternoster != null and is_instance_valid(paternoster):
+		paternoster.host_card(cell, page)
+	cell.rise_through_glass(target, float(fresh) * DATA_CELL_STAGGER,
+		DataCellView.RISE_TIME, true, PaternosterView.PITCH)
 
 ## DER TURM: je belegter Etage eine Zelle, LIEGEND in ihr - die Fläche mit dem
 ## Prägenetz nach oben, Kontakte nach Bild-rechts. Solange die Zeremonie nicht
@@ -8261,11 +8413,12 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			shelf_cells.erase(uid)
 		else:
 			var slotted: Pack = run.pack_by_uid(uid) if run != null else null
-			var home := _data_cell_seat(workshop.pack_anchor_px(uid))
+			var home := _shelf_seat(workshop, uid, workshop.shelf_page_of(uid))
 			cell = _spawn_data_cell(sorts[i], slotted.tier if slotted != null else 0,
 				home, slotted.stamp_net if slotted != null else [])
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das Magazin-Maß
-			cell.stand_in_pit(home)  # sie startet IN der Grube, nicht auf dem Glas
+			cell.badge_on_face = true
+			cell.lie_on_glass(home)  # sie startet LIEGEND in der Grube, nicht auf dem Glas
 		cell.set_dimmed(workshop.shelf_locked())
 		_arm_tower_hover(cell)
 		socket_cells[i] = cell
@@ -8298,7 +8451,9 @@ func _on_pack_unslotted(slot_index: int, uid: int) -> void:
 ## der des Fensters auf sein Fach.
 func _on_pack_landed(uid: int) -> void:
 	var cell: DataCellView = shelf_cells.get(uid)
-	if cell == null or not is_instance_valid(cell) or not cell.visible:
+	# Sichtbar heißt HIER: im Baum sichtbar - eine Karte auf einer parkenden Etage
+	# hängt in einem unsichtbaren Fach, und dort lodert nichts.
+	if cell == null or not is_instance_valid(cell) or not cell.is_visible_in_tree():
 		if not _pending_cell_pops.has(uid):
 			_pending_cell_pops.append(uid)
 		return
@@ -8355,18 +8510,16 @@ func _spawn_data_cell(sort: String, tier: int, at: Vector3,
 	cell.global_position = at
 	return cell
 
-## DER GRUBEN-BOGEN aus dem Magazin in die ETAGE: die Kassette legt sich in ihrem
-## Loch um, gleitet flach durch den DURCHBRUCH in die Turm-Bucht und steigt dort auf
-## ihre Etage - alles UNTER der Tischkante. Der ENDZUSTAND (lie_on_glass) steht vor
-## dem Weg dorthin; angekommen rastet sie mit einem Ausbruch ein.
+## DER GRUBEN-BOGEN aus dem Magazin in die ETAGE: die Kassette gleitet flach von
+## ihrem Tablett durch den DURCHBRUCH in die Turm-Bucht und steigt dort auf ihre
+## Etage - alles UNTER der Tischkante. Sie LIEGT dabei schon (das Umlegen ist mit
+## dem Paternoster gestorben), verlässt aber ihr Fach: ein Bogen unter einem
+## fahrenden Tablett wäre kein Bogen.
 func _carry_data_cell(cell: DataCellView, target: Vector3) -> void:
 	var launched := run
 	cell.set_hovered(false)
+	PaternosterView.rehost(cell, self)  # sie gehört nicht mehr ihrem Tablett
 	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_SOCKET, "uid": 0}
-	cell.lay_over(DATA_CELL_LIFT_TIME)  # sie legt sich IN der Grube um, sie steigt nicht
-	await get_tree().create_timer(DATA_CELL_LIFT_TIME).timeout
-	if run != launched or not _still_carrying(cell):
-		return
 	# Der Bogen startet, wo sie LIEGT - nicht auf ihrem Glaspunkt über dem Loch.
 	cell.lie_on_glass(cell.global_position)
 	cell.arc_to(target, CARRY_TIME, _pit_carry_peak(cell.global_position, target))
@@ -8404,14 +8557,15 @@ func _settle_carries() -> void:
 		var ride: Dictionary = riding[cell]
 		var target: Vector3 = ride.get("to", cell.glass_position())
 		if String(ride.get("seat", "")) == CARRY_SEAT_PIT:
-			cell.stand_in_pit(target)
+			_lay_shelf_hard(cell, int(ride.get("page", 0)), target)
 		else:
 			_lay_cell_hard(cell, target)
 
 ## DER GRUBEN-BOGEN zurück ins Magazin: sie gleitet LIEGEND durch den Durchbruch
-## heim und richtet sich erst dort in ihrem Loch auf - auch heimwärts kommt nichts
-## über die Tischkante. Der Anker wird erst NACH dem Neuaufbau geholt: das Fach hat
-## sich eben neu gelegt.
+## heim auf ihr Tablett - auch heimwärts kommt nichts über die Tischkante, und
+## aufrichten muß sie sich nirgends mehr. Ist ihre Etage GEPARKT, fährt gar nichts:
+## sie liegt dort einfach wieder, unsichtbar. Der Anker wird erst NACH dem Neuaufbau
+## geholt: das Fach hat sich eben neu gelegt.
 func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	var launched := run
 	await get_tree().process_frame
@@ -8423,21 +8577,21 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 		return
 	cell.set_hovered(false)
 	cell.set_socketed(false)
-	var target := _data_cell_seat(workshop.pack_anchor_px(uid))
-	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_PIT, "uid": uid}
-	# Ihr Landeplatz IN der Grube - der Glaspunkt liegt eine Standhöhe darüber.
-	var sunk := target - Vector3.UP * cell.drop_for(DataCellView.PIT_SHOW)
-	cell.arc_to(sunk, CARRY_TIME, _pit_carry_peak(cell.global_position, sunk))
+	var page := workshop.shelf_page_of(uid)
+	var target := _shelf_seat(workshop, uid, page)
+	var landed := run != null and run.pack_by_uid(uid) != null
+	if paternoster != null and is_instance_valid(paternoster) \
+			and paternoster.shown() != page:
+		_lay_shelf_hard(cell, page, target)  # eine parkende Etage spielt nichts
+		_finish_cell_return(cell, uid, landed)
+		return
+	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_PIT, "uid": uid, "page": page}
+	cell.arc_to(target, CARRY_TIME, _pit_carry_peak(cell.global_position, target))
 	await get_tree().create_timer(CARRY_TIME).timeout
 	if run != launched or not _still_carrying(cell):
 		return
-	cell.stand_in_pit(target)  # Endzustand zuerst ...
-	cell.set_pose(0.0, 0.0)    # ... dann der Weg dorthin: sie richtet sich im Loch auf
-	cell.raise_upright(DATA_CELL_PLUNGE_TIME)
-	await get_tree().create_timer(DATA_CELL_PLUNGE_TIME).timeout
-	if run != launched or not _still_carrying(cell):
-		return
 	_carrying.erase(cell)
+	_lay_shelf_hard(cell, page, target)
 	_finish_cell_return(cell, uid, run != null and run.pack_by_uid(uid) != null)
 
 ## Angekommen: der Rückläufer WIRD wieder die Magazin-Kassette seines Pakets -
@@ -8452,7 +8606,8 @@ func _finish_cell_return(cell: DataCellView, uid: int, adopt: bool) -> void:
 	if standing != null and is_instance_valid(standing) and standing != cell:
 		_free_data_cell(standing)  # sollte nie stehen - der Abgleich meidet Rückkehrer
 	shelf_cells[uid] = cell
-	cell.hover_lift = DataCellView.PIT_HOVER_LIFT  # sie ist wieder Magazin-Kassette
+	# Sie ist wieder Magazin-Kassette: der GRIFF zieht sie liegend aus der Grube.
+	cell.hover_lift = PaternosterView.hover_lift(PackDrawerView.CASSETTE_SCALE)
 	cell.hover_slide = 0.0
 	if cell.visible:
 		cell.flare()
@@ -8475,6 +8630,14 @@ func _drop_data_cells() -> void:
 	_pending_cell_pops.clear()
 	_drop_tower()  # der Turm des alten Laufs steht nirgends mehr
 	_rising_packs.clear()  # eine Fahrt des alten Laufs endet nirgends mehr
+	# Der PATERNOSTER fährt hart auf Etage 1 zurück - ein neuer Lauf beginnt vorn.
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop != null and is_instance_valid(workshop):
+		workshop.shelf_page = 0
+	if paternoster != null and is_instance_valid(paternoster):
+		paternoster.show_page(0)
+		paternoster.settle_hard()
+	_write_page_sign()
 	_hovered_pack_uid = 0
 	_hovered_step = -1
 	_carrying.clear()  # kein Trage-Bogen überlebt den Laufwechsel
@@ -8483,7 +8646,10 @@ func _free_data_cell(cell: DataCellView) -> void:
 	if cell == null or not is_instance_valid(cell):
 		return
 	_carrying.erase(cell)  # der Bogen gehört einem Körper, den es nicht mehr gibt
-	remove_child(cell)
+	# Eine Magazin-Karte hängt an ihrem TABLETT, nicht an scene_root - sie geht dort
+	# fort, wo sie steht.
+	if cell.get_parent() != null:
+		cell.get_parent().remove_child(cell)
 	cell.queue_free()
 
 ## Fußabdruck einer STEHENDEN Datenzelle in Display-Pixeln: die GRIFF-Zelle, an der
@@ -9451,6 +9617,9 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	# wird per Strahl gepickt, nicht als Display-Pixel.
 	if _forward_charging_column_mouse(event):
 		return true
+	# ... und der HEBEL des Paternosters daneben, auf derselben Pick-Ebene.
+	if _forward_page_lever_mouse(event):
+		return true
 	# Die GLAS-ANSICHT wohnt in ihrem EIGENEN Viewport: sie bekommt den Zeiger
 	# umgerechnet, nicht die Anzeige darunter. Modal - unter ihr liegt keine Fläche.
 	if _deck_glass and pixel.x >= 0.0 and table_screen.push_deck_glass_input(event, pixel):
@@ -9775,6 +9944,7 @@ func _process(delta: float) -> void:
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_charging_column()  # und die Ladesäule, wen sie gerade bedient
+	_sync_page_lever()  # und der Hebel, welche Etage sein Druck heraufholt
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
@@ -9847,7 +10017,8 @@ func _stamp_cell_hint() -> String:
 ## Dieselbe Frage an EINEN Körper - der EINE Ort, an dem Treffer und Klartext
 ## zusammenkommen (auch der Laden fragt hier).
 func _cell_face_hint(cell: DataCellView, camera: Camera3D, screen: Vector2) -> String:
-	if cell == null or not is_instance_valid(cell):
+	# Was in einem parkenden Fach liegt, sieht man nicht - also fragt man es auch nicht.
+	if cell == null or not is_instance_valid(cell) or not cell.is_visible_in_tree():
 		return ""
 	var face := cell.net_face_at(camera, screen)
 	if face < 0:

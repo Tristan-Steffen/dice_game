@@ -335,9 +335,13 @@ func net_accent() -> Color:
 ## nach Stufe zum Grau GLEICHER Helligkeit hin entsättigt. Die EINE Farbquelle
 ## jeder getönten Fläche - Körper, Kern, Kopfkante, Rahmen und Netz-Backung.
 func tier_tint() -> Color:
-	var base := net_accent()
+	return tier_shade(net_accent(), tier)
+
+## Dieselbe Leiter für jeden, der die Karte NICHT ist (die Sorten-Ticks der
+## Tablett-Blende, die Felder der Etagen-Leiste): EINE Rechnung, ein Bild.
+static func tier_shade(base: Color, cell_tier: int) -> Color:
 	var grey := base.get_luminance()
-	var share: float = TIER_SATURATION[clampi(tier, 0, TIER_SATURATION.size() - 1)]
+	var share: float = TIER_SATURATION[clampi(cell_tier, 0, TIER_SATURATION.size() - 1)]
 	return Color(grey, grey, grey, base.a).lerp(base, share)
 
 ## ... und ihr Glühen. Der Faktor dämpft nur - die authored Energien stehen schon

@@ -113,8 +113,9 @@ const DIFF_NET_SHARE := 0.92
 
 ## --- DER TURM und die ETAGEN-LEISTE ----------------------------------------------
 ## Seitenverhältnis der KASSETTE selbst (Höhe / Breite, 2 : 3) - daraus folgt der
-## LIEGENDE Fußabdruck aus dem gemeldeten stehenden.
-const CARD_ASPECT := 1.5
+## LIEGENDE Fußabdruck aus dem gemeldeten stehenden. Es gibt nur EINE Kartengröße,
+## und die Zahl wohnt beim Magazin, das jetzt ebenfalls liegend rechnet.
+const CARD_ASPECT := PackDrawerView.CARD_ASPECT
 ## Luft um die liegende Karte im Turm - der Fußabdruck ist sie plus diesem Anteil,
 ## und darin steckt noch die KONTAKTLEISTE (TowerView.BAR_SHARE, EINE Quelle).
 const TOWER_ROOM := 1.10
@@ -231,6 +232,25 @@ var apron_bottom := 0.0:
 		if is_equal_approx(apron_bottom, value):
 			return
 		apron_bottom = value
+		refresh()
+## Die gezeigte ETAGE des Paternoster-Magazins. Sie ist ANZEIGE, kein Spielstand -
+## darum wohnt sie hier und nicht in GameRun; bewegt wird sie NUR vom Spieler (dem
+## Hebel am Grubenrand), nie von einer Runde und nie von einer Lieferung.
+var shelf_page := 0:
+	set(value):
+		var wanted := clampi(value, 0, PackDrawerView.PAGES - 1)
+		if shelf_page == wanted:
+			return
+		shelf_page = wanted
+		refresh()
+## Der Anker des HEBELS in Display-Pixeln ((-1,-1) = er steht nicht): dorthin fliegt
+## eine Lieferung, deren Etage gerade parkt. scene_root mißt ihn am Körper und
+## schiebt ihn herein (das apron_bottom-Muster - ui/ faßt keinen Körper an).
+var shelf_lever_px := Vector2(-1, -1):
+	set(value):
+		if shelf_lever_px.is_equal_approx(value):
+			return
+		shelf_lever_px = value
 		refresh()
 ## Paket-uids, deren Liefer-Licht noch fährt (der Komet IST das Paket).
 var _pending_arrivals: Dictionary = {}
@@ -856,8 +876,7 @@ func step_count() -> int:
 ## sie überall hat: Langseite waagerecht, Breite nach unten. Gemeldet wird nur die
 ## STEHENDE Zelle, die Langseite folgt aus dem Seitenverhältnis der Karte.
 func lie_span_px() -> Vector2:
-	var deep := shelf_cell_px().y
-	return Vector2(deep * CARD_ASPECT, deep) * PackDrawerView.CASSETTE_SCALE
+	return PackDrawerView.lie_cell(shelf_cell_px())
 
 ## Die Etagen-Felder in Fenster-Koordinaten, Etage 0 zuerst (unten).
 func floor_field_rects() -> Array[Rect2]:
@@ -1676,7 +1695,8 @@ func _build_drawer(u: float) -> void:
 	var rect := shelf_rect()
 	_drawer.position = rect.position
 	_drawer.size = rect.size
-	_drawer.build(drawer_entries(), u, shelf_locked(), data_cell_px, rect.size)
+	_drawer.build(drawer_entries(), u, shelf_locked(), data_cell_px, rect.size,
+		shelf_page, shelf_lever_px)
 	if not _queued_pops.is_empty():
 		_flush_queued_pops.call_deferred()  # der Pluster braucht das fertige Layout
 
@@ -1807,29 +1827,80 @@ func deliver_pack(uid: int) -> bool:
 	_queued_pops.append(uid)  # das Fach steht gerade nicht - er wartet auf es
 	return true
 
-## Display-Pixel eines Magazin-Platzes - Standplatz des Körpers und Ziel der
-## Liefer-Kometen. Steht das Fach gerade nicht, wird der Platz GERECHNET.
+## Der PLATZ einer Kassette in der Reihe (Display-Pixel) - dort liegt ihr Körper auf
+## seinem Tablett, gleich welche Etage gerade oben ist. Steht das Fach nicht, wird
+## der Platz GERECHNET (dieselbe Formel, damit nichts springt).
+func pack_seat_px(uid: int) -> Vector2:
+	if _drawer != null and is_instance_valid(_drawer):
+		var seat := _drawer.pack_seat_px(uid)
+		if seat.x >= 0.0:
+			return seat
+	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), pack_index_of(uid),
+		drawer_entries().size(), shelf_cell_px())
+	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
+
+## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn ihre ETAGE
+## gezeigt wird - sonst an den HEBEL, der sein Schild aufblitzen läßt.
 func pack_anchor_px(uid: int) -> Vector2:
 	if _drawer != null and is_instance_valid(_drawer):
 		var anchor := _drawer.pack_anchor_px(uid)
 		if anchor.x >= 0.0:
 			return anchor
-	var index := -1
-	var count := 0
-	if run != null:
-		for pack in run.owned_packs:
-			if _series.has(pack.pack_uid) and pack.pack_uid != uid:
-				continue
-			if pack.pack_uid == uid:
-				index = count
-			count += 1
-	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), index, count,
-		shelf_cell_px())
-	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
+	if shelf_page_of(uid) != shelf_page and shelf_lever_px.x >= 0.0:
+		return shelf_lever_px
+	return pack_seat_px(uid)
+
+## Der Platz eines Pakets in der Magazin-Ordnung (-1 = liegt nicht im Fach). Was in
+## einer Etage des Turms steckt, zählt nicht mit - es liegt nicht im Magazin.
+func pack_index_of(uid: int) -> int:
+	var index := 0
+	if run == null:
+		return -1
+	for pack in run.owned_packs:
+		if _series.has(pack.pack_uid) and pack.pack_uid != uid:
+			continue
+		if pack.pack_uid == uid:
+			return index
+		index += 1
+	return -1
+
+## Die ETAGE, auf der diese Kassette liegt (0 = die erste).
+func shelf_page_of(uid: int) -> int:
+	if _drawer != null and is_instance_valid(_drawer):
+		var page := _drawer.page_of_pack(uid)
+		if page >= 0:
+			return page
+	return PackDrawerView.page_of(maxi(pack_index_of(uid), 0), shelf_columns())
+
+## Wie viele Kassetten in EINE Reihe liegen - die Etagen sind Abschnitte dieser Länge.
+func shelf_columns() -> int:
+	return PackDrawerView.columns_for(shelf_pit_rect().size, shelf_cell_px(), 1)
+
+## Die Sortenfarben der Etage page, ein Eintrag je PLATZ (leere Plätze stumpf) - die
+## SORTEN-TICKS auf der Front-Blende des Tabletts lesen sie.
+func shelf_page_tints(page: int) -> Array[Color]:
+	var tints: Array[Color] = []
+	var columns := shelf_columns()
+	var entries := drawer_entries()
+	for i in columns:
+		var index := page * columns + i
+		if index >= entries.size():
+			tints.append(PaternosterView.TICK_EMPTY)
+			continue
+		var pack: Pack = entries[index].get("pack")
+		if pack == null:
+			tints.append(PaternosterView.TICK_EMPTY)
+			continue
+		var base: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), PackDrawerView.GOLD)
+		tints.append(DataCellView.tier_shade(base, pack.tier))
+	return tints
 
 ## Der Platz, auf dem die NÄCHSTE Lieferung landet (extra staffelt eine Salve).
 func arrival_anchor_px(extra: int = 0) -> Vector2:
 	var count := drawer_entries().size()
+	if PackDrawerView.page_of(count + extra, shelf_columns()) != shelf_page \
+			and shelf_lever_px.x >= 0.0:
+		return shelf_lever_px
 	return PackDrawerView.anchor_in(shelf_pit_rect(), count + extra,
 		count + extra + 1, shelf_cell_px())
 

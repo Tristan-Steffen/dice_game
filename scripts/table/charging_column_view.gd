@@ -8,7 +8,8 @@ extends Node3D
 ##  - DREI ELKO-DOSEN übereinander (die Bauform der Kondensatorbank, nicht
 ##    nachgeschnitzt): je Ladung eine leuchtet im Ladungston, durchgebrannt tragen
 ##    alle den Glut-Saum, ohne Kunden sind alle aus.
-##  - ZWEI KIPPHEBEL: oben nach OBEN = Aufladen, unten nach UNTEN = Ableiten.
+##  - ZWEI KIPPHEBEL aus dem Baustein LeverView (seit 2026-09-07 - der Paternoster
+##    benutzt denselben): oben nach OBEN = Aufladen, unten nach UNTEN = Ableiten.
 ##  - Am Fuß der SICHERUNGSSOCKEL: durchgebrannt steht die geschwärzte Sicherung
 ##    heraus, die Reparatur drückt sie hinein.
 ## Je Bedienelement ein SCHILD mit seinem Preis. Sie bucht NICHTS und meldet nur
@@ -56,17 +57,6 @@ const CELL_AT := 2.15
 const CELL_PITCH := 0.65
 const CHARGE_AT := 3.92
 
-## Ein Kipphebel: Sockel, Griffstange, Knauf.
-const SOCKET_SIZE := Vector3(0.18, 0.34, 0.34)
-const ARM_LENGTH := 0.52
-const ARM_RADIUS := 0.05
-const KNOB_RADIUS := 0.13
-## Ruhe waagerecht, geschaltet um diesen Winkel gekippt (der obere hinauf, der
-## untere hinab).
-const LEVER_TILT := 0.62
-const LEVER_TIME := 0.13
-const LEVER_HOLD := 0.35
-
 ## Die Sicherung im Sockel: heil bündig, durchgebrannt um FUSE_POP heraus.
 const FUSE_SOCKET := Vector3(0.22, 0.36, 0.62)
 const FUSE_RADIUS := 0.12
@@ -93,7 +83,7 @@ const MAST_ALBEDO := Color(0.085, 0.082, 0.118)
 const MAST_EMISSION := Color(0.18, 0.20, 0.32)
 const MAST_ENERGY := 0.5
 const BASE_ALBEDO := Color(0.06, 0.058, 0.086)
-const METAL_ALBEDO := Color(0.34, 0.37, 0.44)
+const METAL_ALBEDO := LeverView.METAL_ALBEDO
 const CABLE_ALBEDO := Color(0.09, 0.09, 0.12)
 
 ## Die Dose trägt die LADUNGS-Farbe, nie das Energie-Cyan (EINE Quelle: der Würfel).
@@ -102,14 +92,16 @@ const CELL_ON_ENERGY := 1.0
 const CELL_BURNED := DieNetView.ChargeLamps.EMBER
 const CELL_BURNED_ENERGY := 0.9
 
-const LIVE_TINT := CasinoStyle.GOLD_INTENSE
-const DEAD_TINT := CasinoStyle.MUTED
-const LIVE_ENERGY := 0.85
-const DEAD_ENERGY := 0.12
-const HOVER_GAIN := 2.1
+## Die Griff-Grammatik der Bedienelemente wohnt im HEBEL - er ist der Baustein,
+## die Sicherung liest sie mit (EINE Quelle, kein zweiter Satz Zahlen).
+const LIVE_TINT := LeverView.LIVE_TINT
+const DEAD_TINT := LeverView.DEAD_TINT
+const LIVE_ENERGY := LeverView.LIVE_ENERGY
+const DEAD_ENERGY := LeverView.DEAD_ENERGY
+const HOVER_GAIN := LeverView.HOVER_GAIN
 ## Der Griff hebt das Bedienelement eine Spur nach vorn (Bildschirm-unten).
-const HOVER_NUDGE := 0.09
-const HOVER_TIME := 0.13
+const HOVER_NUDGE := LeverView.NUDGE
+const HOVER_TIME := LeverView.NUDGE_TIME
 
 const PULSE_GAIN := 2.6
 const PULSE_TIME := 0.35
@@ -125,7 +117,7 @@ var _hovered := PART_NONE
 
 var _cells: Array[MeshInstance3D] = []
 var _cell_materials: Array[StandardMaterial3D] = []
-var _levers := {}          # Teil -> {pivot, arm, knob, material, body}
+var _levers := {}          # Teil -> LeverView (der Baustein baut, sie stellt nur)
 var _fuse: Node3D
 var _fuse_material: StandardMaterial3D
 ## Steht die Sicherung heraus? Der Wechsel heraus->hinein IST die Reparatur-Fahrt.
@@ -136,7 +128,6 @@ var _cable: Node3D
 ## Die geneigte KONSOLE - jedes Bedienelement hängt in ihrem System.
 var _face: Node3D
 var _built := false
-var _lever_tweens := {}
 var _fuse_tween: Tween
 var _pulse_tween: Tween
 
@@ -275,11 +266,8 @@ func pick_armed(part: String) -> bool:
 	if part == PART_FUSE:
 		return _fuse_body != null and is_instance_valid(_fuse_body) \
 			and _fuse_body.collision_layer == PICK_LAYER
-	var lever: Dictionary = _levers.get(part, {})
-	if lever.is_empty():
-		return false
-	var body: StaticBody3D = lever["body"]
-	return body != null and is_instance_valid(body) and body.collision_layer == PICK_LAYER
+	var lever: LeverView = _levers.get(part)
+	return lever != null and is_instance_valid(lever) and lever.pick_armed(part)
 
 ## Die Aufschrift eines Preisschildes (leer = keines).
 func plate_text(part: String) -> String:
@@ -311,26 +299,12 @@ func press(part: String) -> bool:
 			return false
 	return true
 
-## Der Hebel schlägt um und fällt zurück. Ein toter Hebel rührt sich nicht.
+## Der Hebel schlägt um und fällt zurück - der obere hinauf, der untere hinab.
 func throw_lever(part: String) -> void:
-	var lever: Dictionary = _levers.get(part, {})
-	if lever.is_empty():
+	var lever: LeverView = _levers.get(part)
+	if lever == null or not is_instance_valid(lever):
 		return
-	var pivot: Node3D = lever["pivot"]
-	if pivot == null or not is_instance_valid(pivot):
-		return
-	var old: Tween = _lever_tweens.get(part)
-	if old != null and old.is_valid():
-		old.kill()
-	pivot.rotation.z = 0.0  # der Endzustand steht, bevor die Fahrt beginnt
-	var tilt: float = LEVER_TILT * (-1.0 if part == PART_CHARGE else 1.0)
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(pivot, "rotation:z", tilt, LEVER_TIME)
-	tween.tween_interval(LEVER_HOLD)
-	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(pivot, "rotation:z", 0.0, LEVER_TIME * 1.6)
-	_lever_tweens[part] = tween
+	lever.flip(part == PART_CHARGE)
 
 ## Die Sicherung fährt in ihren Sockel (die Reparatur). Endzustand zuerst.
 func seat_fuse() -> void:
@@ -370,7 +344,6 @@ func _build() -> void:
 	_cell_materials.clear()
 	_levers.clear()
 	_plates.clear()
-	_lever_tweens.clear()
 	_fuse = null
 	_fuse_body = null
 	_cable = null
@@ -419,39 +392,14 @@ func _build_cells() -> void:
 		_cells.append(cell)
 		_cell_materials.append(material)
 
+## Ein EINSEITIGER Kipphebel aus dem Baustein (LeverView): sein Knauf zeigt aus der
+## Konsolenfläche heraus, und der Wurf kippt ihn die Achse hinauf bzw. hinab.
 func _build_lever(part: String, at_y: float) -> void:
-	var host := Node3D.new()
-	host.name = "Hebel_%s" % part
-	host.position = Vector3(-MAST_HALF.x, at_y, 0.0)
-	_face.add_child(host)
-	var material := _metal(METAL_ALBEDO, LIVE_TINT, LIVE_ENERGY)
-	_box("Fassung", SOCKET_SIZE, Vector3(-SOCKET_SIZE.x * 0.5, 0.0, 0.0),
-		_metal(MAST_ALBEDO, MAST_EMISSION, 0.35), host)
-	var pivot := Node3D.new()
-	pivot.name = "Achse"
-	pivot.position = Vector3(-SOCKET_SIZE.x, 0.0, 0.0)
-	host.add_child(pivot)
-	# Die Stange zeigt aus der Konsolenfläche heraus, also kippt eine Drehung um Z
-	# ihre Spitze die Achse hinauf (negativ) bzw. hinab (positiv).
-	var arm := _cylinder("Stange", ARM_RADIUS, ARM_LENGTH, material, pivot)
-	arm.rotation = Vector3(0.0, 0.0, PI * 0.5)
-	arm.position = Vector3(-ARM_LENGTH * 0.5, 0.0, 0.0)
-	var knob := MeshInstance3D.new()
-	knob.name = "Knauf"
-	var sphere := SphereMesh.new()
-	sphere.radius = KNOB_RADIUS
-	sphere.height = KNOB_RADIUS * 2.0
-	sphere.radial_segments = 12
-	sphere.rings = 6
-	knob.mesh = sphere
-	knob.material_override = material
-	knob.position = Vector3(-ARM_LENGTH, 0.0, 0.0)
-	knob.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	pivot.add_child(knob)
-	var body := _pick_body(part, host,
-		Vector3(ARM_LENGTH + KNOB_RADIUS, SOCKET_SIZE.y, SOCKET_SIZE.z),
-		Vector3(-(ARM_LENGTH + KNOB_RADIUS) * 0.5, 0.0, 0.0))
-	_levers[part] = {"host": host, "pivot": pivot, "material": material, "body": body}
+	var lever := LeverView.new("Hebel_%s" % part)
+	lever.position = Vector3(-MAST_HALF.x, at_y, 0.0)
+	_face.add_child(lever)
+	lever.setup(part)
+	_levers[part] = lever
 	_build_plate(part, at_y)
 
 ## Der SICHERUNGSSOCKEL am Fuß: ein Sockel mit einem Zylinder samt Metallkappen.
@@ -602,24 +550,11 @@ func _write_live() -> void:
 	if not _built:
 		return
 	for part: String in [PART_CHARGE, PART_DRAIN]:
-		var lever: Dictionary = _levers.get(part, {})
-		if lever.is_empty():
+		var lever: LeverView = _levers.get(part)
+		if lever == null or not is_instance_valid(lever):
 			continue
-		var live := live_for(part)
-		var material: StandardMaterial3D = lever["material"]
-		material.albedo_color = METAL_ALBEDO if live else BASE_ALBEDO
-		material.emission = LIVE_TINT if live else DEAD_TINT
-		if live:
-			material.emission_energy_multiplier = \
-				LIVE_ENERGY * (HOVER_GAIN if _hovered == part else 1.0)
-		else:
-			material.emission_energy_multiplier = DEAD_ENERGY
-		var body: StaticBody3D = lever["body"]
-		if body != null and is_instance_valid(body):
-			body.collision_layer = PICK_LAYER if live else 0
-		var host: Node3D = lever["host"]
-		if host != null and is_instance_valid(host):
-			_nudge(host, _hovered == part)
+		lever.set_armed(live_for(part))
+		lever.set_hovered(part if _hovered == part else LeverView.PART_NONE)
 	if _fuse_material != null:
 		if _repair_live:
 			_fuse_material.emission_energy_multiplier = \
@@ -633,7 +568,8 @@ func _write_live() -> void:
 	if _fuse != null and is_instance_valid(_fuse):
 		_nudge(_fuse.get_parent() as Node3D, _hovered == PART_FUSE)
 
-## Der Griff: das Bedienelement rückt eine Spur nach vorn. Nur der Wechsel fährt.
+## Der Griff der SICHERUNG: sie rückt eine Spur nach vorn. Nur der Wechsel fährt -
+## die Hebel bringen denselben Griff im Baustein mit.
 func _nudge(host: Node3D, on: bool) -> void:
 	if host == null or not is_instance_valid(host):
 		return
