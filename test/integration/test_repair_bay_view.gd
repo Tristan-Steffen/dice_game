@@ -1,9 +1,9 @@
 extends GutTest
 ## Die REPARATUR-BUCHT hat EINEN Kunden: den Zielwürfel des Podests (set_target).
-## Sie zeigt seine Netz-Zelle, seine Vorrats-Nummer und die Ladungs-Leiter mit
-## "- $5" und "+ 1 ⚡" - durchgebrannt statt dessen EINEN Reparatur-Knopf. Sie
-## bucht NICHTS (die Signale gehen an scene_root, GameRun bucht), sie sagt in der
-## Caption, warum ein Knopf schweigt, und ohne Kunden bittet sie um die Wahl.
+## Sie zeigt seine Vorrats-Nummer im Kopf, die Ladungs-Leiter und SENKRECHT die
+## drei Handlungen - IMMER alle drei, grau, was der Kunde nicht braucht. Sie bucht
+## NICHTS (die Signale gehen an scene_root, GameRun bucht), sie sagt in der Caption,
+## warum ein Knopf schweigt, und ohne Kunden bittet sie um die Wahl.
 
 var view: RepairBayView
 var run: GameRun
@@ -32,24 +32,36 @@ func _burn(index: int) -> DieDefinition:
 func _button(button_name: String) -> Button:
 	return view.get_node_or_null("BayContent/" + button_name) as Button
 
+func _rich(money: int = 50, energy: int = 5) -> void:
+	run.money = money
+	run.energy = energy
+	view.refresh()
+
 # --- Der Kunde --------------------------------------------------------------------
 
 func test_ohne_ziel_bittet_die_bucht_um_die_wahl() -> void:
 	assert_null(view.target, "kein Kunde")
-	assert_null(_button("Fall"), "also keine Zelle")
 	assert_eq((view.get_node("BayContent/Leer") as Label).text, RepairBayView.EMPTY_TEXT)
-	assert_null(_button("Aufladen"), "und keine Knöpfe")
+	assert_null(view.get_node_or_null("BayContent/Leiter"), "keine Leiter")
+	for name in ["Aufladen", "Ableiten", "Reparieren"]:
+		assert_true(_button(name).disabled, "%s steht grau" % name)
 
-func test_der_zielwuerfel_ist_der_kunde_auch_kalt() -> void:
-	var die := _hot(2, 0)
-	assert_eq(view.target, die)
-	assert_not_null(_button("Fall"), "seine Zelle steht da")
-	assert_eq((view.get_node("BayContent/Nummer") as Label).text, "#3", "mit seiner Vorrats-Nummer")
-	assert_not_null(view.get_node_or_null("BayContent/Leiter"), "und der Leiter")
-	assert_true(_button("Ableiten").disabled, "kalt läßt sich nichts ableiten")
-	run.add_energy(GameRun.CHARGE_UP_ENERGY)
-	view.refresh()
-	assert_false(_button("Aufladen").disabled, "aber aufladen")
+func test_die_drei_handlungen_stehen_immer_untereinander() -> void:
+	_hot(2, 1)
+	_rich()
+	var charge := _button("Aufladen")
+	var drain := _button("Ableiten")
+	var repair := _button("Reparieren")
+	assert_not_null(charge)
+	assert_not_null(drain)
+	assert_not_null(repair)
+	assert_lt(charge.position.y, drain.position.y, "hinauf steht oben")
+	assert_lt(drain.position.y, repair.position.y, "die Reparatur zuunterst")
+	assert_eq(charge.position.x, drain.position.x, "eine Spalte")
+	assert_eq(drain.position.x, repair.position.x)
+	assert_string_contains((view.get_node("BayContent/Titel") as Label).text, "#3",
+		"der Kopf nennt die Vorrats-Nummer")
+	assert_not_null(view.get_node_or_null("BayContent/Leiter"), "und die Leiter steht")
 
 func test_der_kunde_folgt_dem_podest() -> void:
 	var first := _hot(0, 1)
@@ -57,7 +69,7 @@ func test_der_kunde_folgt_dem_podest() -> void:
 	var second := _hot(1, 2)
 	assert_eq(view.target, second, "das Podest wechselt, die Bucht mit")
 	view.set_target(null)
-	assert_null(_button("Fall"), "leer, wenn keiner dort steht")
+	assert_null(view.get_node_or_null("BayContent/Leiter"), "leer, wenn keiner dort steht")
 
 func test_ein_verkaufter_kunde_verlaesst_die_bucht() -> void:
 	var die := _hot(0, 1)
@@ -67,41 +79,41 @@ func test_ein_verkaufter_kunde_verlaesst_die_bucht() -> void:
 
 # --- Die Knöpfe ---------------------------------------------------------------------
 
-func test_geladen_stehen_leiter_und_zwei_knoepfe() -> void:
+func test_geladen_leben_aufladen_und_ableiten_nicht_die_reparatur() -> void:
 	_hot(0, 2)
-	run.add_energy(5)
-	run.add_money(50)
-	view.refresh()
-	assert_eq(_button("Ableiten").text, view.drain_label())
+	_rich()
+	assert_false(_button("Aufladen").disabled)
+	assert_false(_button("Ableiten").disabled)
+	assert_true(_button("Reparieren").disabled, "heil wird nicht repariert")
 	assert_string_contains(_button("Ableiten").text, str(GameRun.DRAIN_MONEY))
-	assert_eq(_button("Aufladen").text, view.charge_label())
 	assert_string_contains(_button("Aufladen").text, str(GameRun.CHARGE_UP_ENERGY))
-	assert_null(_button("Reparieren"), "heil wird nicht repariert")
 
-func test_durchgebrannt_steht_der_eine_reparatur_knopf() -> void:
+func test_durchgebrannt_lebt_nur_die_reparatur() -> void:
 	_burn(0)
-	run.add_energy(GameRun.REPAIR_ENERGY)
-	view.refresh()
-	assert_eq(_button("Reparieren").text, view.repair_label())
-	assert_null(_button("Ableiten"), "kein Ableiten")
-	assert_null(_button("Aufladen"), "kein Aufladen - erst reparieren")
+	_rich()
 	assert_false(_button("Reparieren").disabled)
+	assert_true(_button("Aufladen").disabled, "erst reparieren")
+	assert_true(_button("Ableiten").disabled)
 
-func test_voll_geladen_schweigt_das_aufladen() -> void:
+func test_kalt_schweigt_das_ableiten_voll_das_aufladen() -> void:
+	_hot(0, 0)
+	_rich()
+	assert_true(_button("Ableiten").disabled, "kalt läßt sich nichts ableiten")
+	assert_false(_button("Aufladen").disabled)
 	_hot(0, DieDefinition.CHARGE_MAX)
-	run.add_energy(5)
-	run.add_money(50)
-	view.refresh()
+	_rich()
 	assert_true(_button("Aufladen").disabled, "über 3 gibt es nichts")
 	assert_false(_button("Ableiten").disabled)
-	assert_eq(view.caption_text(), "", "voll ist keine Bremse")
 
 func test_vor_der_letzten_sprosse_warnt_die_caption() -> void:
 	_hot(0, DieDefinition.CHARGE_MAX - 1)
-	run.add_energy(5)
-	run.add_money(50)
-	view.refresh()
+	_rich()
 	assert_eq(view.caption_text(), RepairBayView.WARN_TOP)
+
+func test_sonst_nennt_die_caption_den_zustand() -> void:
+	_hot(0, 1)
+	_rich()
+	assert_eq(view.caption_text(), DieNetView.hint_for(run.owned_pool[0], DieNetView.EDGE))
 
 ## Das Isolierband macht aus der ⚡-Reparatur eine GELD-Reparatur - der Knopf sagt
 ## es, denn repair_price() ist die eine Quelle.
@@ -117,9 +129,7 @@ func test_das_isolierband_schreibt_den_preis_um() -> void:
 
 func test_die_knoepfe_melden_nur_und_buchen_nichts() -> void:
 	var die := _hot(0, 1)
-	run.add_energy(5)
-	run.add_money(50)
-	view.refresh()
+	_rich()
 	var drained: Array[DieDefinition] = []
 	var charged: Array[DieDefinition] = []
 	view.drain_requested.connect(func(d: DieDefinition) -> void: drained.append(d))
@@ -132,8 +142,7 @@ func test_die_knoepfe_melden_nur_und_buchen_nichts() -> void:
 
 func test_der_reparatur_knopf_meldet_den_kunden() -> void:
 	var die := _burn(0)
-	run.add_energy(GameRun.REPAIR_ENERGY)
-	view.refresh()
+	_rich()
 	var repaired: Array[DieDefinition] = []
 	view.repair_requested.connect(func(d: DieDefinition) -> void: repaired.append(d))
 	_button("Reparieren").pressed.emit()
@@ -144,36 +153,28 @@ func test_der_reparatur_knopf_meldet_den_kunden() -> void:
 
 func test_ohne_energie_steht_die_reparatur_grau() -> void:
 	_burn(0)
-	run.energy = 0
-	view.refresh()
+	_rich(50, 0)
 	assert_true(_button("Reparieren").disabled, "unbezahlbar heißt grau")
 	assert_eq(view.caption_text(), RepairBayView.BLOCK_ENERGY, "und die Caption sagt warum")
-	run.add_energy(GameRun.REPAIR_ENERGY)
-	view.refresh()
+	_rich(50, GameRun.REPAIR_ENERGY)
 	assert_false(_button("Reparieren").disabled, "bezahlbar heißt bedienbar")
-	assert_eq(view.caption_text(), "", "und die Caption schweigt")
+	assert_ne(view.caption_text(), RepairBayView.BLOCK_ENERGY, "und die Bremse ist fort")
 
 func test_ohne_geld_steht_das_ableiten_grau() -> void:
 	_hot(0, 1)
-	run.money = 0
-	run.add_energy(5)
-	view.refresh()
+	_rich(0, 5)
 	assert_true(_button("Ableiten").disabled, "$5 hat er nicht")
 	assert_eq(view.caption_text(), RepairBayView.BLOCK_MONEY, "und die Caption sagt es")
 
 func test_ohne_energie_steht_das_aufladen_grau() -> void:
 	_hot(0, 1)
-	run.energy = 0
-	run.add_money(50)
-	view.refresh()
+	_rich(50, 0)
 	assert_true(_button("Aufladen").disabled)
 	assert_eq(view.caption_text(), RepairBayView.BLOCK_ENERGY)
 
 func test_der_wartungsvertrag_schliesst_die_bucht() -> void:
 	_hot(0, 1)
-	run.add_energy(10)
-	run.add_money(50)
-	view.refresh()
+	_rich()
 	assert_false(_button("Aufladen").disabled, "offen steht sie")
 	run.repair_lock_round = run.round_number
 	view.refresh()
@@ -183,7 +184,7 @@ func test_der_wartungsvertrag_schliesst_die_bucht() -> void:
 
 func test_die_gezurrte_runde_schliesst_sie_ebenso() -> void:
 	_burn(0)
-	run.add_energy(10)
+	_rich()
 	view.set_enabled(false)
 	assert_true(_button("Reparieren").disabled, "während der Runde wird nicht repariert")
 	assert_eq(view.caption_text(), RepairBayView.BLOCK_ROUND, "und sie sagt es")
@@ -196,7 +197,7 @@ func test_die_breite_ist_eine_reine_funktion_der_einheit() -> void:
 	assert_almost_eq(RepairBayView.width_for(4.0) / RepairBayView.width_for(2.0), 2.0,
 		0.001, "doppelte Einheit, doppelte Bucht")
 
-## EIN Kunde, eine feste Höhe: die Bucht wächst nicht mehr mit einer Liste.
+## EIN Kunde, eine feste Höhe: die Bucht wächst nicht mit einer Liste.
 func test_die_bucht_hat_eine_feste_hoehe() -> void:
 	await wait_frames(2)
 	var empty_rect := view.bay_rect()
