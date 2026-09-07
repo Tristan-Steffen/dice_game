@@ -48,8 +48,8 @@ func test_an_open_sort_shows_its_core_and_no_band() -> void:
 		"der Kern hinterleuchtet das Netz")
 	assert_null(cell.get_node_or_null("Body/Cell0/Seal"))
 
-## Die Karte ist aus GETÖNTEM GLAS - der Körper in seiner Sortenfarbe, Kopfkante,
-## Blende, Kragen und Finnen dagegen massiv.
+## Die Karte ist GANZ aus GETÖNTEM GLAS - Körper, Kopfkante, Blende, Kragen und
+## Finnen alle halb durchsichtig; nur das Netz (die "die-view") bleibt deckend.
 func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	var shade := cell.tier_tint()
@@ -62,10 +62,12 @@ func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
 	assert_lt(DataCellView.GLASS_BODY_EMISSION, Rune.IDLE_CEILING, "kein Ruhe-Bloom")
 	assert_eq(cell.get_node("Body/Cell0/BarLeft").material_override, shell,
 		"die Gehäusebalken teilen dasselbe Glas")
-	for solid in ["EdgeStrip", "BezelLeft", "CollarLeft", "Fin0"]:
-		var part: StandardMaterial3D = cell.get_node("Body/Cell0/%s" % solid).material_override
-		assert_eq(part.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED,
-			"%s bleibt massiv" % solid)
+	for glassy in ["EdgeStrip", "BezelLeft", "CollarLeft", "Fin0"]:
+		var part: StandardMaterial3D = cell.get_node("Body/Cell0/%s" % glassy).material_override
+		assert_eq(part.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA,
+			"%s ist jetzt halb durchsichtig" % glassy)
+		assert_almost_eq(part.albedo_color.a, DataCellView.GLASS_FRAME_ALPHA, 0.001,
+			"%s auf halber Deckkraft" % glassy)
 
 ## Und darum liest das Netz auch von HINTEN: EINE Backung, beidseitig gezeigt, mit
 ## einem durchscheinenden Kern dahinter und einer festen Zeichen-Reihenfolge.

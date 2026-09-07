@@ -169,6 +169,10 @@ const DEMATERIALIZE_TIME := 0.16
 ## Massiv bleiben Kopfkante, Blende, Kragen, Finnen und das Siegelband.
 const GLASS_BODY_ALPHA := 0.32
 const GLASS_BODY_EMISSION := 0.34
+## Rahmen, Kragen, Kopfkante und Finnen sind seit dem 2026-09-07 ebenfalls halb
+## durchsichtig (Spieler-Entscheid): die ganze Karte ist Glas, nur das NETZ (die
+## "die-view") bleibt deckend.
+const GLASS_FRAME_ALPHA := 0.5
 ## Chassis: gebürstetes Hellmetall. Es zeichnet zweierlei - die Blende um das
 ## Fenster (aus einem Loch wird eine eingelassene Scheibe) und einen schmalen
 ## Kragen rings um den Körper. Der Kragen ist das, was die Kassette auf dunklem
@@ -205,6 +209,9 @@ const CORE_ALPHA := 0.45
 ## verschwindet das Netz hinter dem Körper-Glas.
 const PRIORITY_BODY := -2
 const PRIORITY_CORE := -1
+## Rahmen, Kragen und Kopfkante: durchsichtig, aber VOR Körper/Kern/Scheibe und
+## HINTER dem Netz - so liest das deckende Netz zuletzt und klar.
+const PRIORITY_FRAME := 1
 const PRIORITY_NET := 2
 ## Die Marke liegt VOR dem Netz - ihr Umriß eine Stufe darunter, sonst schluckt ihn
 ## die Backung.
@@ -981,6 +988,9 @@ func _build_materials() -> void:
 	_bezel_material.emission_enabled = true
 	_bezel_material.emission = CHASSIS_EMISSION.lerp(shade, FRAME_TINT_SHARE)
 	_bezel_material.emission_energy_multiplier = CHASSIS_EMISSION_ENERGY * gain
+	_bezel_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_bezel_material.albedo_color.a = GLASS_FRAME_ALPHA
+	_bezel_material.render_priority = PRIORITY_FRAME
 
 	_glass_material = StandardMaterial3D.new()
 	_glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -1000,6 +1010,9 @@ func _build_materials() -> void:
 	_fin_material.emission_enabled = true
 	_fin_material.emission = _scaled(PackDrawerView.GOLD, 1.0)
 	_fin_material.emission_energy_multiplier = FIN_EMISSION_ENERGY
+	_fin_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_fin_material.albedo_color.a = GLASS_FRAME_ALPHA
+	_fin_material.render_priority = PRIORITY_BODY
 
 	_net_material = StandardMaterial3D.new()
 	_net_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -1017,6 +1030,9 @@ func _build_materials() -> void:
 	# Sorte und Intensität mit.
 	_edge_material = _lit_material(shade)
 	_edge_material.emission_energy_multiplier = EDGE_REST_ENERGY * gain
+	_edge_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_edge_material.albedo_color.a = GLASS_FRAME_ALPHA
+	_edge_material.render_priority = PRIORITY_FRAME
 
 	if sealed():
 		_band_material = _lit_material(shade)

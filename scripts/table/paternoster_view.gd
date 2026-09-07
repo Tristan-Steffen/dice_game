@@ -72,9 +72,11 @@ const RIDE_TIME := 0.30
 const PLATE_ALBEDO := TowerView.FRAME_ALBEDO
 const PLATE_EMISSION := TowerView.FRAME_EMISSION
 const PLATE_ENERGY := TowerView.FRAME_EMISSION_ENERGY
-const BAND_ALBEDO := TowerView.BAR_ALBEDO
-const BAND_EMISSION := TowerView.BAR_EMISSION
-const BAND_ENERGY := 0.35
+## Die Tabletts sind HALB DURCHSICHTIG (Spieler-Entscheid 2026-09-07): durch sie
+## sieht man in die Grube auf den Parkstapel. Eine tiefe Sortier-Priorität hält sie
+## HINTER den Karten - die zeichnen ihr Netz zuletzt und deckend darüber.
+const PLATE_ALPHA := 0.5
+const PLATE_PRIORITY := -3
 ## Wie viel heller ein GEPARKTES Tablett glüht: in der dunklen Grube trifft es kein
 ## Szenenlicht, und durch Spalt und Fußluft sieht man nur seine schmalen STIRNFLÄCHEN.
 ## GEMESSEN am Bild - bei 1,0 liest der Parkstapel als schwarzer Schlitz, bei 3,0
@@ -95,13 +97,10 @@ var _trays: Array[Node3D] = []
 var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
 var _plates: Array[MeshInstance3D] = []
-var _blechs: Array[MeshInstance3D] = []
 var _ticks: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
 var _plate_material: StandardMaterial3D
-var _band_material: StandardMaterial3D
-## Dieselben Materialien für den PARKSTAPEL, nur heller - siehe PARK_GLOW.
+## Dasselbe Material für den PARKSTAPEL, nur heller - siehe PARK_GLOW.
 var _plate_material_parked: StandardMaterial3D
-var _band_material_parked: StandardMaterial3D
 var _ride: Tween
 
 func _init() -> void:
@@ -193,7 +192,6 @@ func _ensure_trays() -> void:
 		_fachs.append(fach)
 		_bands.append(null)
 		_plates.append(null)
-		_blechs.append(null)
 		_ticks.append([] as Array[Color])
 
 ## Platte und FRONT-BLENDE einer Reihe. Das Fach bleibt stehen - es trägt die Karten.
@@ -215,8 +213,8 @@ func _build_tray(row: int) -> void:
 	band.position = Vector3(-lane_depth() * 0.5 + band_depth() * 0.5, 0.0, 0.0)
 	tray.add_child(band)
 	_bands[row] = band
-	_blechs[row] = _box("Blech", Vector3(band_depth(), BAND_RISE, _span.y),
-		Vector3(0.0, BAND_RISE * 0.5, 0.0), _band_material, band)
+	# Kein gelber Blech-Balken mehr (Spieler-Entscheid): die Nummer und die Sorten-
+	# Ticks liegen jetzt direkt vor der Platte.
 	var label := Label3D.new()
 	label.name = "Nummer"
 	label.text = number_text(row)
@@ -343,9 +341,6 @@ func _paint_tray(row: int, parked: bool) -> void:
 	if _plates[row] != null and is_instance_valid(_plates[row]):
 		_plates[row].material_override = \
 			_plate_material_parked if parked else _plate_material
-	if _blechs[row] != null and is_instance_valid(_blechs[row]):
-		_blechs[row].material_override = \
-			_band_material_parked if parked else _band_material
 
 func _kill() -> void:
 	if _ride != null and _ride.is_valid():
@@ -439,7 +434,7 @@ func _write_ticks(row: int) -> void:
 	if band == null or not is_instance_valid(band):
 		return
 	for child in band.get_children():
-		if child.name == "Blech" or child.name == "Nummer":
+		if child.name == "Nummer":
 			continue
 		band.remove_child(child)
 		child.queue_free()
@@ -469,23 +464,17 @@ func _ensure_materials() -> void:
 	if _plate_material != null:
 		return
 	_plate_material = StandardMaterial3D.new()
-	_plate_material.albedo_color = PLATE_ALBEDO
+	_plate_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_plate_material.albedo_color = Color(PLATE_ALBEDO.r, PLATE_ALBEDO.g,
+		PLATE_ALBEDO.b, PLATE_ALPHA)
+	_plate_material.render_priority = PLATE_PRIORITY
 	_plate_material.metallic = 0.35
 	_plate_material.roughness = 0.55
 	_plate_material.emission_enabled = true
 	_plate_material.emission = PLATE_EMISSION
 	_plate_material.emission_energy_multiplier = PLATE_ENERGY
-	_band_material = StandardMaterial3D.new()
-	_band_material.albedo_color = BAND_ALBEDO
-	_band_material.metallic = 0.6
-	_band_material.roughness = 0.35
-	_band_material.emission_enabled = true
-	_band_material.emission = BAND_EMISSION
-	_band_material.emission_energy_multiplier = BAND_ENERGY
 	_plate_material_parked = _plate_material.duplicate()
 	_plate_material_parked.emission_energy_multiplier = PLATE_ENERGY * PARK_GLOW
-	_band_material_parked = _band_material.duplicate()
-	_band_material_parked.emission_energy_multiplier = BAND_ENERGY * PARK_GLOW
 
 func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,
 		host: Node3D) -> MeshInstance3D:
