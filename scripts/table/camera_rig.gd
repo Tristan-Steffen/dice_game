@@ -321,12 +321,15 @@ func felt_pick_live(station: int) -> bool:
 		return false
 	return free_camera or mode == station
 
-## Hub, Titel und WERKSTATT stehen STILL: ihr Fenster füllt das Bild, ein Schwenk
-## verschöbe es nur. Das Rundschauen an der Werkstatt ist am 2026-09-04 wieder
-## gefallen (Spieler: es erschwert das Arbeiten) - Nahsicht und Werkstück-Sicht
-## bleiben WORKSHOP und stehen damit mit still. WASD bleibt: das ist Absicht.
+## Hub, Titel, WERKSTATT und REPARATUR-BUCHT stehen STILL: ihr Fenster füllt das
+## Bild, ein Schwenk verschöbe es nur. Das Rundschauen an der Werkstatt ist am
+## 2026-09-04 wieder gefallen (Spieler: es erschwert das Arbeiten) - Nahsicht und
+## Werkstück-Sicht bleiben WORKSHOP und stehen damit mit still. Die Bucht folgt
+## seit 2026-09-07 (gemessen: der Maus-Schwenk schob ihre breite, flache Zeile um
+## 40 % über den Bildrand - der Rahmen ist an der ruhenden ZOOM_BASIS gerechnet).
+## WASD bleibt: das ist Absicht.
 func _tilt_frozen_mode() -> bool:
-	return mode == Mode.HUB or mode == Mode.TITLE or mode == Mode.WORKSHOP
+	return mode == Mode.HUB or mode == Mode.TITLE or mode == Mode.WORKSHOP 		or mode == Mode.REPAIR
 
 func _process(delta: float) -> void:
 	if is_animating or tilt_locked or _tilt_frozen_mode():
@@ -446,6 +449,7 @@ func configure_repair_target(target: Vector3, half_extent := Vector2.ZERO) -> vo
 ## ihre untere Kante steht näher an der Kamera und bildet sich größer ab.
 func repair_distance() -> float:
 	return maxf(WORKSHOP_MIN_DISTANCE, tilted_fit_distance(repair_half, WORKSHOP_WIDE_MARGIN))
+
 
 func configure_workshop_close_target(center: Vector3, half_extent: Vector2) -> void:
 	workshop_close_target = center
