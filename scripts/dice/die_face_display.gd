@@ -124,10 +124,30 @@ const MOTE_EDGE_SAMPLES := 6
 ## ⚡. Weißviolett; der Überschlag blitzt BLAUER (Spieler-Wunsch 2026-09-07).
 const CHARGE_COLOR := Color(0.86, 0.66, 1.35)
 const CHARGE_ARC_COLOR := Color(0.55, 0.65, 1.45)
-## Durchgebrannt: Ruß statt Licht - flache dunkle Kanten, entsättigter Körper.
+## Durchgebrannt: Ruß statt Licht - flache dunkle Kanten, entsättigter Körper,
+## dazu eine Auflage je Seite UNTER der Ziffer (die_burn.gdshader; der Wert bleibt
+## lesbar, der Würfel zählt für die Hand). Fassung (Autoren-Schalter, Spieler-Wahl
+## offen): 0 Ruß, 1 Risse, 2 Asche, 3 Verkohlt (mit Rauch), 4 Geschmolzen.
 const BURNED_BODY := Color(0.035, 0.03, 0.035)
 const BURNED_EDGE := Color(0.14, 0.12, 0.12)
 const BURNED_NUMBER := Color(0.30, 0.28, 0.30)
+const BURN_SHADER := preload("res://assets/shaders/die_burn.gdshader")
+const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer (0,01)
+const BURN_STYLES := 5
+## Körper, Kante und Ziffer je Fassung.
+const BURN_LOOKS := [
+	{"body": BURNED_BODY, "edge": BURNED_EDGE, "number": BURNED_NUMBER},
+	{"body": Color(0.03, 0.025, 0.03), "edge": Color(0.11, 0.09, 0.09), "number": Color(0.34, 0.26, 0.22)},
+	{"body": Color(0.42, 0.41, 0.4), "edge": Color(0.5, 0.48, 0.46), "number": Color(0.2, 0.19, 0.19)},
+	{"body": Color(0.02, 0.02, 0.02), "edge": Color(0.07, 0.06, 0.06), "number": Color(0.3, 0.24, 0.2)},
+	{"body": Color(0.08, 0.05, 0.03), "edge": Color(0.2, 0.13, 0.07), "number": Color(0.36, 0.28, 0.2)},
+]
+var burn_style := 0
+var burn_parts: Dictionary = {}  # Achse -> MeshInstance3D
+var burn_smoke: CPUParticles3D = null
+## Rauch der verkohlten Fassung: wenige, langsam steigend, wachsend, grau.
+const SMOKE_COUNT := 6
+const SMOKE_LIFETIME := 2.6
 ## Ab dieser Stufe kriechen Funken über die Kanten (Shader) und die Eck-Lampen an.
 const CHARGE_SPARK_LEVEL := 2
 ## Ab dieser Stufe springen Teilchen aus dem Würfel und der Kern wird orange.
@@ -831,22 +851,25 @@ func _refresh_charge() -> void:
 	_sync_heat(level >= 1 and not burned)
 	_sync_bolts(level >= CHARGE_SPARK_LEVEL and not burned, level)
 	_sync_charge_arcs(level >= CHARGE_ARC_LEVEL and not burned)
+	_sync_burn(burned)
 	if not burned:
 		return
 	# Ruß: flache dunkle Kanten (der set_edge_tint-Schalter), Körper und Flächen
 	# entsättigt, Ziffer gedimmt, keine Lache, keine Seelen-Bewegung.
-	set_edge_tint(BURNED_EDGE)
+	var look: Dictionary = BURN_LOOKS[clampi(burn_style, 0, BURN_STYLES - 1)]
+	var edge: Color = look["edge"]
+	set_edge_tint(edge)
 	for axis in quads:
 		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		material.albedo_color = BURNED_BODY
-		material.emission = BURNED_EDGE * FACE_GLOW
+		material.albedo_color = look["body"]
+		material.emission = edge * FACE_GLOW
 		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 		var frame: MeshInstance3D = frames.get(axis)
 		if frame != null and frame.visible:
-			(frame.material_override as StandardMaterial3D).emission = BURNED_EDGE * FACE_GLOW
+			(frame.material_override as StandardMaterial3D).emission = edge * FACE_GLOW
 		var label: Label3D = labels.get(axis)
 		if label != null:
-			label.modulate = BURNED_NUMBER
+			label.modulate = look["number"]
 	if glow_pool != null:
 		glow_pool.visible = false
 	if soul_motes != null:
@@ -880,6 +903,90 @@ func _sync_charge_arcs(wanted: bool) -> void:
 	material.set_shader_parameter("halo_color",
 		Vector3(CHARGE_ARC_COLOR.r, CHARGE_ARC_COLOR.g, CHARGE_ARC_COLOR.b))
 	material.set_shader_parameter("core_color", BOLT_CORE)
+
+## Die Ruß-Auflagen und der Rauch kommen und gehen mit dem Ruß (lazy, wie die Hitze).
+func _sync_burn(wanted: bool) -> void:
+	if not wanted:
+		for axis in burn_parts:
+			if is_instance_valid(burn_parts[axis]):
+				burn_parts[axis].queue_free()
+		burn_parts.clear()
+		if burn_smoke != null:
+			burn_smoke.queue_free()
+			burn_smoke = null
+		return
+	var style := clampi(burn_style, 0, BURN_STYLES - 1)
+	if burn_parts.is_empty():
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE * DieBuilder.FACE_SIZE
+		var face_index := 0
+		for axis in quads:
+			var part := MeshInstance3D.new()
+			part.name = "BurnOverlay"
+			part.mesh = quad
+			part.position = Vector3(0, 0, BURN_LIFT)
+			part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var material := ShaderMaterial.new()
+			material.shader = BURN_SHADER
+			material.set_shader_parameter("face_seed", _bolt_seed + float(face_index))
+			material.set_shader_parameter("phase", _pulse_phase)
+			material.render_priority = -1  # vor der Ziffer gezeichnet, also unter ihr
+			part.material_override = material
+			quads[axis].add_child(part)
+			burn_parts[axis] = part
+			face_index += 1
+	for axis in burn_parts:
+		(burn_parts[axis].material_override as ShaderMaterial).set_shader_parameter(
+			"burn_style", float(style))
+	var smoking := style == 3
+	if smoking and burn_smoke == null:
+		burn_smoke = _build_burn_smoke()
+		add_child(burn_smoke)
+	elif not smoking and burn_smoke != null:
+		burn_smoke.queue_free()
+		burn_smoke = null
+
+## Träger Rauch aus dem verkohlten Würfel: steigt in Welt-Richtung, wächst und
+## verblasst - alphagemischt, nicht additiv, denn Rauch dunkelt.
+func _build_burn_smoke() -> CPUParticles3D:
+	var smoke := CPUParticles3D.new()
+	smoke.name = "BurnSmoke"
+	smoke.amount = SMOKE_COUNT
+	smoke.lifetime = SMOKE_LIFETIME
+	smoke.preprocess = SMOKE_LIFETIME
+	smoke.local_coords = false
+	smoke.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	smoke.emission_box_extents = Vector3(0.5, 0.2, 0.5)
+	smoke.direction = Vector3.UP
+	smoke.spread = 12.0
+	smoke.gravity = Vector3.ZERO
+	smoke.initial_velocity_min = 0.35
+	smoke.initial_velocity_max = 0.6
+	smoke.scale_amount_min = 0.5
+	smoke.scale_amount_max = 0.9
+	var grow := Curve.new()
+	grow.add_point(Vector2(0.0, 0.4))
+	grow.add_point(Vector2(1.0, 1.0))
+	smoke.scale_amount_curve = grow
+	var ramp := Gradient.new()
+	ramp.offsets = PackedFloat32Array([0.0, 0.3, 1.0])
+	ramp.colors = PackedColorArray([Color(0.3, 0.28, 0.28, 0.0), Color(0.3, 0.28, 0.28, 0.4),
+		Color(0.35, 0.33, 0.33, 0.0)])
+	smoke.color_ramp = ramp
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE * 0.9
+	smoke.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.vertex_color_use_as_albedo = true
+	material.albedo_texture = _mote_texture()
+	smoke.material_override = material
+	smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if not quads.is_empty():
+		smoke.layers = (quads.values()[0] as VisualInstance3D).layers
+	return smoke
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
 ## Unschattiert, damit exakt die flache Auswahl-Farbe erscheint - beleuchtet
