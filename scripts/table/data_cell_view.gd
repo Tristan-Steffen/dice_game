@@ -858,7 +858,9 @@ func arc_to(glass_target: Vector3, time: float, peak: float) -> void:
 	_arc_to = glass_target
 	global_position = _arc_from  # sie hebt sich sofort aufs Glas, dann fliegt sie
 	var chord := (_arc_from.y + glass_target.y) * 0.5
-	_arc_hump = maxf(maxf(_arc_from.y, glass_target.y) + maxf(peak, 0.0) - chord, 0.0)
+	var high := maxf(_arc_from.y, glass_target.y) + maxf(peak, 0.0)
+	_arc_hump = minf(maxf(high - chord, 0.0),
+		arc_hump_cap(_arc_from.y, glass_target.y, maxf(peak, 0.0)))
 	if time <= 0.0:
 		global_position = glass_target
 		return
@@ -866,6 +868,21 @@ func arc_to(glass_target: Vector3, time: float, peak: float) -> void:
 	var fly := _glide_tween.tween_method(_set_arc_share, 0.0, 1.0, time)
 	fly.set_trans(Tween.TRANS_CUBIC)
 	fly.set_ease(Tween.EASE_IN_OUT)
+
+## Der größte HUB, mit dem der Bogen sein Versprechen hält: sein höchster Punkt
+## liegt `peak` über dem höheren Ende. Bei SCHRÄGER Sehne liegt der Scheitel der
+## Summe (Sehne + Parabel) nicht in der Mitte, sondern zur hohen Seite hin - ein
+## voller Hub schöbe ihn also ÜBER das höhere Ende hinaus (gemessen: 0,47 Welt bei
+## einer Fahrt vom Magazin in die unterste Turm-Etage, also 0,31 über den Tisch).
+## Gelöst aus y(s) = a + (b-a)s + 4h·s(1-s): der Scheitel steht auf
+## a + (d+4h)²/(16h), und die größte Wurzel von 16h² + 8h(d-2k) + d² = 0 (k = Ziel
+## über a) ist der gesuchte Deckel.
+static func arc_hump_cap(from_y: float, to_y: float, peak: float) -> float:
+	var d := to_y - from_y
+	var k := maxf(from_y, to_y) + maxf(peak, 0.0) - from_y
+	if k <= 0.0:
+		return absf(d) * 0.25
+	return maxf((2.0 * k - d + 2.0 * sqrt(k * (k - d))) * 0.25, 0.0)
 
 func _set_arc_share(share: float) -> void:
 	var seat := _arc_from.lerp(_arc_to, share)

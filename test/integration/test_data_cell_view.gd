@@ -787,6 +787,35 @@ func test_der_trage_bogen_endet_auf_dem_glaspunkt_und_bleibt_ueber_dem_glas() ->
 	assert_true(cell.glass_position().is_equal_approx(target),
 		"und ihr Glaspunkt IST das genannte Ziel")
 
+## Und er hält sein Versprechen auch bei SCHRÄGER Sehne: der höchste Punkt liegt
+## `peak` über dem HÖHEREN Ende, nie darüber hinaus - sonst stiege eine Karte auf
+## dem Weg vom Magazin in die unterste Turm-Etage über die Tischkante (gemessen
+## 0,31 Welt, bevor der Hub gekappt wurde).
+func test_der_trage_bogen_steigt_nie_ueber_sein_hoeheres_ende() -> void:
+	# Die reine Rechnung, für jede Neigung und beide Richtungen.
+	for pair in [[-0.55, -4.35], [-4.35, -0.55], [-0.55, -0.55], [0.0, -2.0]]:
+		var a: float = pair[0]
+		var b: float = pair[1]
+		for peak in [0.0, 0.4]:
+			var hump := minf(maxf(maxf(a, b) + peak - (a + b) * 0.5, 0.0),
+				DataCellView.arc_hump_cap(a, b, peak))
+			var top := -99.0
+			for i in 201:
+				var s := float(i) / 200.0
+				top = maxf(top, lerpf(a, b, s) + 4.0 * hump * s * (1.0 - s))
+			assert_lte(top, maxf(a, b) + peak + 0.001,
+				"%.2f -> %.2f, Scheitel %.2f: hoechster Punkt %.3f" % [a, b, peak, top])
+	# ... und die FAHRT selbst: aus dem Magazin tief in den Turm bleibt sie unter
+	# ihrem Startpunkt.
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	cell.lie_on_glass(Vector3(0.0, -0.55, 0.0))
+	cell.arc_to(Vector3(2.0, -4.35, 0.0), 0.3, 0.0)
+	var highest := cell.global_position.y
+	for step in 6:
+		await wait_seconds(0.05)
+		highest = maxf(highest, cell.global_position.y)
+	assert_lte(highest, -0.55 + 0.001, "sie steigt auf dem Weg nach unten nicht")
+
 func test_ein_trage_bogen_ohne_zeit_landet_hart() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
 	cell.stand_in_pit(Vector3.ZERO)

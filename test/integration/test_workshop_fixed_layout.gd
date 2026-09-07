@@ -203,15 +203,27 @@ func test_the_drawer_spans_only_the_strip_at_window_width() -> void:
 		"und beginnt an der LINKEN Fensterkante - kein Pool-Überhang mehr")
 	assert_almost_eq(row.size.x, window.size.x, 2.0, "genau die Streifen-Breite")
 
-## Der Abstand zur Fensterkante ist gesetzt, die TIEFE des Fachs ist EIN Rang.
-func test_the_drawer_height_is_one_rank_of_the_standing_card() -> void:
+## Der Abstand zur Fensterkante ist gesetzt, die TIEFE des Fachs sind ZWEI LANES -
+## der Kreislauf zeigt zwei Reihen übereinander in der Fläche.
+func test_the_drawer_height_is_two_lanes_of_the_lying_card() -> void:
 	await wait_frames(2)
 	var u := view.unit()
 	var gap := _drawer_rect().position.y - view.get_global_rect().end.y
 	assert_almost_eq(gap, u * WorkshopView.CONSOLE_SHELF_GAP, 1.0,
 		"eine Naht unter der Fensterkante")
 	assert_almost_eq(_drawer_rect().size.y, view.shelf_min_height(), 1.0,
-		"und die Tiefe ist EIN Rang der stehenden Karte")
+		"und die Tiefe ist die gemeldete Mindesttiefe")
+	var lane := view.shelf_cell_px().y * PackDrawerView.CASSETTE_SCALE \
+		* PackDrawerView.RANK_SPAN
+	assert_almost_eq(view.shelf_min_height(),
+		lane * float(PackDrawerView.LANES)
+			+ PackDrawerView.rim_inset(view.shelf_unit()) * 2.0, 1.0,
+		"zwei Lanes plus die gemalte Fassung")
+	# ... und die zwei Lanes liegen wirklich ÜBEREINANDER in der Grube.
+	var pit := view.shelf_pit_rect()
+	assert_gt(pit.size.y, lane * 1.9, "die Grube trägt beide Reihen")
+	assert_true(view.bench_rect().encloses(pit),
+		"und bench_rect streckt sich mit - sonst schluckt sie jeden Chip-Tap")
 
 ## Fenster PLUS Schürze - daran messen sich Klick-Weiterleitung und Kamera.
 func test_the_bench_rect_covers_window_and_apron() -> void:

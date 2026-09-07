@@ -1,22 +1,36 @@
 class_name PaternosterView
 extends Node3D
-## Das MAGAZIN als PATERNOSTER (2026-09-07): FÜNF TABLETTS übereinander in der
-## Magazin-Grube. GEZEIGT wird immer genau EINES, knapp unter dem Glas; die anderen
-## parken darunter in der Tiefe, jedes auf SEINER festen Park-Höhe. Blättern heißt
-## darum: das gezeigte SINKT, danach STEIGT das gewählte - zwei Tabletts fahren,
-## alle anderen stehen, und nichts durchdringt sich.
+## Das MAGAZIN als PATERNOSTER (2026-09-07, zweite Fassung): ein KREISLAUF aus ZEHN
+## REIHEN, von dem immer ZWEI zugleich in der Fläche liegen - eine HINTERE (Bild-oben,
+## Welt +X) und eine VORDERE (Bild-unten, Welt -X). Beide liegen auf Lese-Tiefe, jede
+## eine liegende Karte tief; die acht übrigen parken darunter, gestapelt nach Abstand.
+##
+## EIN Hebelwurf bewegt den Kreislauf um EINE Reihe. Vorwärts (Hebel nach OBEN):
+## die vordere Reihe VERSINKT, die hintere GLEITET in der Fläche nach vorn, und
+## hinten TAUCHT die nächste aus der Tiefe AUF. Rückwärts ist das Spiegelbild.
+## Ein echter Paternoster von oben gesehen: hinten hoch, oben nach vorn, vorn
+## hinunter, unten zurück - zehn Würfe sind ein voller Umlauf.
+##
+## Der SITZ jeder Reihe ist eine reine Funktion von `head` (seat_of -> Lane und
+## Park-Tiefe), also ist der ganze Kreislauf prüfbar, ohne einen Körper zu fahren.
 ##
 ## Die Karten LIEGEN flach auf ihrem Tablett (Netz nach oben, wie im Turm) und sind
-## KINDER ihres Faches: eine Fahrt trägt sie mit, und die SICHTBARKEIT einer Etage
+## KINDER ihres Faches: eine Fahrt trägt sie mit, und die SICHTBARKEIT einer Reihe
 ## ist die ihres Faches - EIN Schreiber, kein Sichtbarkeits-Bit je Karte.
 ##
 ## Jedes Tablett trägt an seiner Bild-UNTEREN Kante die FRONT-BLENDE mit der
-## Etagen-Nummer und je Platz einem SORTEN-TICK, damit es als Schublade liest.
+## Reihen-Nummer und je Platz einem SORTEN-TICK, damit es als Schublade liest.
 ##
 ## Die Maße kommen von außen (scene_root rechnet die gemeldete Grube in Welt), die
-## HÖHEN gehören dem Paternoster. seat/settle_hard schreiben den Endzustand hart.
+## HÖHEN gehören dem Paternoster. step/settle_hard schreiben den Endzustand hart.
 
-const PAGES := PackDrawerView.PAGES
+const ROWS := PackDrawerView.ROWS
+
+## Die zwei sichtbaren Lanes: HINTEN ist Bild-oben (Welt +X), VORN Bild-unten.
+const LANE_BACK := 0
+const LANE_FRONT := 1
+## Wie tief der Parkstapel je Lane reicht: eine sichtbare Reihe plus vier geparkte.
+const MAX_DEPTH := ROWS / 2 - 1
 
 ## Ein Tablett ist eine Platte; die Karte liegt eine Spur darüber (koplanar
 ## stritten sie im Tiefenpuffer - dieselbe Zahl wie im Turm).
@@ -36,20 +50,23 @@ const RIM_CLEAR := TowerView.CARD_THICKNESS * 0.5
 ## Kartendicke über das Glas - nur der Hover darf über die Kante.
 const HOVER_PROUD := TowerView.CARD_THICKNESS
 
-## Der Anteil der Gruben-TIEFE, den die FRONT-BLENDE am Bild-unteren Rand nimmt;
+## Der Anteil der LANE-Tiefe, den die FRONT-BLENDE am Bild-unteren Rand nimmt;
 ## die Karten liegen in dem, was bleibt (PackDrawerView schneidet ihre Plätze an
 ## derselben Zahl - EINE Quelle).
 const FRONT_SHARE := PackDrawerView.FRONT_SHARE
 const BAND_RISE := 0.05
 const NUMBER_FONT := 48
+## Wie weit die (mittig gesetzte) Nummer von der linken Blenden-Kante einrückt, in
+## Blenden-Tiefen: GEMESSEN an "10/10" - bündig gesetzt schnitt die Grubenwand sie an.
+const NUMBER_INSET := 2.2
 ## Ein Sorten-TICK: ein flacher Block auf der Blende, Anteil ihrer Maße.
 const TICK_SHARE := Vector2(0.55, 0.34)
 const TICK_RISE := 0.02
 const TICK_EMPTY := Color(0.16, 0.155, 0.22)
 
-## Die Fahrt: erst sinkt das gezeigte, dann steigt das gewählte.
+## Die Fahrt: erst sinkt die vordere Reihe, dann gleiten und steigen die anderen.
 const SINK_TIME := 0.30
-const RISE_TIME := 0.30
+const RIDE_TIME := 0.30
 
 const PLATE_ALBEDO := TowerView.FRAME_ALBEDO
 const PLATE_EMISSION := TowerView.FRAME_EMISSION
@@ -61,14 +78,13 @@ const BAND_ENERGY := 0.35
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
 var _scale := PackDrawerView.CASSETTE_SCALE
-var _shown := 0
-var _leaving := -1
+var _head := 0
 var _built := false
 
 var _trays: Array[Node3D] = []
 var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
-var _ticks: Array = []          # Etage -> Array[Color], zuletzt geschrieben
+var _ticks: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
 var _plate_material: StandardMaterial3D
 var _band_material: StandardMaterial3D
 var _ride: Tween
@@ -76,21 +92,42 @@ var _ride: Tween
 func _init() -> void:
 	name = "Paternoster"
 
-# --- Die reine Höhen-Rechnung ------------------------------------------------------
+# --- Die reine SITZ-Rechnung -------------------------------------------------------
 
-## Wie weit die Trittfläche des GEZEIGTEN Tabletts unter dem Glas liegt: so tief,
+## Wo Reihe `row` liegt, wenn `head` hinten liegt: {"lane", "depth"}. Tiefe 0 heißt
+## SICHTBAR (die zwei Lanes in der Fläche), alles darüber ist ein Parkplatz.
+## Der Ring läuft: hinten unten -> hinten oben -> vorn oben -> vorn unten -> hinten
+## unten. Was gerade vorn versunken ist (head+2 …), parkt darum unter der VORDEREN
+## Lane; was als nächstes hinten auftaucht (head-1 …), unter der HINTEREN.
+static func seat_of(row: int, head: int) -> Dictionary:
+	var offset := posmod(row - head, ROWS)
+	if offset == 0:
+		return {"lane": LANE_BACK, "depth": 0}
+	if offset == 1:
+		return {"lane": LANE_FRONT, "depth": 0}
+	if offset <= ROWS / 2:
+		return {"lane": LANE_FRONT, "depth": offset - 1}
+	return {"lane": LANE_BACK, "depth": ROWS - offset}
+
+## Wie weit die Trittfläche einer SICHTBAREN Reihe unter dem Glas liegt: so tief,
 ## daß die flach darauf liegende Karte mit ihrer Oberseite unter der Tischkante
 ## bleibt.
 static func read_drop(cell_scale: float) -> float:
 	return DataCellView.lying_over(cell_scale) + PROUD + RIM_CLEAR
 
-## Und wie weit die des Tabletts von Etage page: gezeigt die Lese-Tiefe, sonst sein
-## FESTER Platz im Parkstapel - so fahren beim Blättern nur zwei Tabletts.
-static func drop_for(page: int, shown: int, cell_scale: float) -> float:
-	if page == shown:
+## Der erste Parkplatz unter einer Lane: unter der Karte, die dort liegt.
+static func park_drop(cell_scale: float) -> float:
+	return read_drop(cell_scale) + DataCellView.lying_over(cell_scale) + PLATE + AIR
+
+## Die Tiefe einer Park-Stufe (0 = die Lese-Tiefe).
+static func drop_of(depth: int, cell_scale: float) -> float:
+	if depth <= 0:
 		return read_drop(cell_scale)
-	return read_drop(cell_scale) + DataCellView.lying_over(cell_scale) + PLATE + AIR \
-		+ PITCH * float(maxi(page, 0))
+	return park_drop(cell_scale) + PITCH * float(depth - 1)
+
+## ... und dieselbe Tiefe für Reihe `row` bei `head`.
+static func drop_for(row: int, head: int, cell_scale: float) -> float:
+	return drop_of(int(seat_of(row, head)["depth"]), cell_scale)
 
 ## Der GRIFF im Magazin, als Anteil der Standhöhe (DataCellView.hover_lift): er
 ## zieht die liegende Karte aus der Grube bis eine Kartendicke über das Glas.
@@ -100,13 +137,14 @@ static func hover_lift(cell_scale: float) -> float:
 
 ## Wie tief der Parkstapel insgesamt reicht - daran mißt, ob die Grube ihn trägt.
 static func stack_depth(cell_scale: float) -> float:
-	return drop_for(PAGES - 1, -1, cell_scale) + PLATE
+	return drop_of(MAX_DEPTH, cell_scale) + PLATE
 
 # --- Aufbau ------------------------------------------------------------------------
 
 ## Stellt den Paternoster (idempotent - dieselben Maße bauen nichts neu). at = der
 ## GLASPUNKT der Grubenmitte, span = ihr Weltmaß (x quer/Bild-hoch, y längs/Bild-
-## breit), cell_scale der Anzeige-Maßstab der Karten.
+## breit), cell_scale der Anzeige-Maßstab der Karten. Die Grube trägt ZWEI Lanes,
+## ein Tablett ist also nur ihre halbe Tiefe.
 func setup(at: Vector3, span: Vector2, cell_scale: float) -> void:
 	var wanted := Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
 	if _built and _seat.is_equal_approx(at) and _span.is_equal_approx(wanted) \
@@ -117,8 +155,8 @@ func setup(at: Vector3, span: Vector2, cell_scale: float) -> void:
 	_scale = cell_scale
 	global_position = at
 	_ensure_trays()
-	for page in PAGES:
-		_build_tray(page)
+	for row in ROWS:
+		_build_tray(row)
 	_built = true
 	settle_hard()
 
@@ -127,9 +165,9 @@ func setup(at: Vector3, span: Vector2, cell_scale: float) -> void:
 func _ensure_trays() -> void:
 	if not _trays.is_empty():
 		return
-	for page in PAGES:
+	for row in ROWS:
 		var tray := Node3D.new()
-		tray.name = "Tablett%d" % (page + 1)
+		tray.name = "Tablett%d" % (row + 1)
 		add_child(tray)
 		_trays.append(tray)
 		var fach := Node3D.new()
@@ -139,97 +177,136 @@ func _ensure_trays() -> void:
 		_bands.append(null)
 		_ticks.append([] as Array[Color])
 
-## Platte und FRONT-BLENDE einer Etage. Das Fach bleibt stehen - es trägt die Karten.
-func _build_tray(page: int) -> void:
+## Platte und FRONT-BLENDE einer Reihe. Das Fach bleibt stehen - es trägt die Karten.
+func _build_tray(row: int) -> void:
 	_ensure_materials()
-	var tray := _trays[page]
+	var tray := _trays[row]
 	for child in tray.get_children():
-		if child == _fachs[page]:
+		if child == _fachs[row]:
 			continue
 		tray.remove_child(child)
 		child.queue_free()
-	var plate := _box("Platte", Vector3(_span.x, PLATE, _span.y),
+	var plate := _box("Platte", Vector3(lane_depth(), PLATE, _span.y),
 		Vector3(0.0, -PLATE * 0.5, 0.0), _plate_material, tray)
 	plate.name = "Platte"
 	var band := Node3D.new()
 	band.name = "Blende"
 	# Bild-UNTEN ist Welt -X: dort steht die Blende, wie die Front einer Schublade.
-	band.position = Vector3(-_span.x * 0.5 + band_depth() * 0.5, 0.0, 0.0)
+	band.position = Vector3(-lane_depth() * 0.5 + band_depth() * 0.5, 0.0, 0.0)
 	tray.add_child(band)
-	_bands[page] = band
+	_bands[row] = band
 	_box("Blech", Vector3(band_depth(), BAND_RISE, _span.y),
 		Vector3(0.0, BAND_RISE * 0.5, 0.0), _band_material, band)
 	var label := Label3D.new()
 	label.name = "Nummer"
-	label.text = number_text(page)
+	label.text = number_text(row)
 	label.font_size = NUMBER_FONT
 	# Flach in Tisch-Leserichtung wie jede Aufschrift auf dem Filz.
 	label.transform.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
 	label.pixel_size = band_depth() * 0.7 / (float(NUMBER_FONT) * 0.62)
-	label.position = Vector3(0.0, BAND_RISE + 0.01, -_span.y * 0.5 + band_depth())
+	label.position = Vector3(0.0, BAND_RISE + 0.01,
+		-_span.y * 0.5 + band_depth() * NUMBER_INSET)
 	label.outline_size = 12
 	label.outline_modulate = Color(0.03, 0.03, 0.05)
 	band.add_child(label)
-	_write_ticks(page)
+	_write_ticks(row)
+
+## Die Tiefe EINER Lane in Welt: die Grube trägt zwei übereinander in der Fläche.
+func lane_depth() -> float:
+	return _span.x * 0.5
 
 ## Die Tiefe der Blende in Welt.
 func band_depth() -> float:
-	return _span.x * FRONT_SHARE
+	return lane_depth() * FRONT_SHARE
+
+## Die Mitte einer Lane, quer zur Grube (Welt-X, relativ zur Grubenmitte).
+func lane_x(lane: int) -> float:
+	return lane_depth() * 0.5 * (1.0 if lane == LANE_BACK else -1.0)
 
 # --- Der Zustand -------------------------------------------------------------------
 
-func shown() -> int:
-	return _shown
+## Die Reihe, die HINTEN liegt; vorn liegt die nächste.
+func head() -> int:
+	return _head
 
-func page_count() -> int:
-	return PAGES
+func front() -> int:
+	return posmod(_head + 1, ROWS)
+
+func row_count() -> int:
+	return ROWS
+
+## Die zwei sichtbaren Reihen, hinten zuerst.
+func rows_shown() -> Array[int]:
+	return [_head, front()] as Array[int]
+
+## Liegt diese Reihe in der Fläche?
+func shows(row: int) -> bool:
+	return int(seat_of(row, _head)["depth"]) == 0
 
 ## Fährt gerade ein Tablett?
 func riding() -> bool:
 	return _ride != null and _ride.is_valid()
 
-## Der EINE harte Schreiber: jedes Tablett auf seiner Ruhehöhe, nur das gezeigte
-## Fach sichtbar. Jeder Abbruch und jeder Laufwechsel geht hier durch.
+## Der EINE harte Schreiber: jedes Tablett auf seinem Sitz, nur die zwei sichtbaren
+## Fächer sichtbar. Jeder Abbruch und jeder Laufwechsel geht hier durch.
 func settle_hard() -> void:
 	_kill()
-	_leaving = -1
 	_write_hard()
 
-## Blättern: das gezeigte Tablett SINKT, danach STEIGT das gewählte. Endzustand
-## zuerst - ein abgebrochener Tween schuldet nichts.
-func show_page(index: int) -> void:
-	var wanted := clampi(index, 0, PAGES - 1)
-	if _trays.is_empty():
+## Der Kreislauf springt HART auf diese Reihe (Laufwechsel, Neuaufbau) - keine Fahrt.
+func set_head(row: int) -> void:
+	_head = posmod(row, ROWS)
+	settle_hard()
+
+## EIN Schritt des Kreislaufs. delta > 0 = VORWÄRTS (Hebel nach oben): vorn versinkt,
+## hinten gleitet nach vorn, hinten taucht die nächste auf. Endzustand zuerst - ein
+## Wurf mitten in einer Fahrt beendet sie hart und fährt neu, er schuldet nichts.
+func step(delta: int) -> void:
+	if _trays.is_empty() or delta == 0:
 		return
-	# Wer schon oben liegt, fährt nicht - und eine LAUFENDE Fahrt dorthin bleibt
-	# unberührt (sonst risse ein zweiter Aufruf im selben Bild sie ab).
-	if wanted == _shown:
-		return
-	var leaving := _shown
-	_shown = wanted
+	var before := _head
+	# Vorwärts läuft der Ring gegen die Numerierung: die Reihe, die hinten auftaucht,
+	# ist head-1 (siehe seat_of).
+	_head = posmod(_head - signi(delta), ROWS)
 	_kill()
 	_write_hard()
 	if not is_inside_tree():
 		return
-	# ... und dann der Weg dorthin: beide Tabletts stehen zunächst wieder, wo sie
-	# herkommen, und fahren NACHEINANDER.
-	_leaving = leaving
-	var down := _trays[leaving]
-	var up := _trays[wanted]
-	down.position.y = -drop_for(leaving, leaving, _scale)
-	up.position.y = -drop_for(wanted, leaving, _scale)
-	_fachs[leaving].visible = true  # solange es sinkt, ist es zu sehen
 	_ride = create_tween()
-	_ride.tween_property(down, "position:y", -drop_for(leaving, wanted, _scale),
-		SINK_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	_ride.tween_property(up, "position:y", -drop_for(wanted, wanted, _scale),
-		RISE_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	_ride.tween_callback(settle_hard)
+	_ride.set_parallel(true)
+	for row in ROWS:
+		var from := _tray_pose(row, before)
+		var to := _tray_pose(row, _head)
+		if from.is_equal_approx(to):
+			continue
+		_trays[row].position = from
+		var was := int(seat_of(row, before)["depth"])
+		if was == 0 and not shows(row):
+			# Der SINKER fährt ZUERST - er räumt den Platz, in den gleich gegleitet
+			# wird, und bleibt sichtbar, bis er unten ist.
+			_fachs[row].visible = true
+			_ride.tween_property(_trays[row], "position", to, SINK_TIME) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+			continue
+		# Alles andere folgt: Gleiten in der Fläche, Aufsteigen aus der Tiefe und
+		# das Nachrücken der Parkplätze - zugleich, hinter dem Sinken.
+		_ride.tween_property(_trays[row], "position", to, RIDE_TIME) \
+			.set_delay(SINK_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_ride.chain().tween_callback(settle_hard)
+
+## Die Dauer eines Schritts.
+static func step_time() -> float:
+	return SINK_TIME + RIDE_TIME
+
+func _tray_pose(row: int, head_row: int) -> Vector3:
+	var seat := seat_of(row, head_row)
+	return Vector3(lane_x(int(seat["lane"])),
+		-drop_of(int(seat["depth"]), _scale), 0.0)
 
 func _write_hard() -> void:
-	for page in _trays.size():
-		_trays[page].position.y = -drop_for(page, _shown, _scale)
-		_fachs[page].visible = page == _shown
+	for row in _trays.size():
+		_trays[row].position = _tray_pose(row, _head)
+		_fachs[row].visible = shows(row)
 
 func _kill() -> void:
 	if _ride != null and _ride.is_valid():
@@ -238,39 +315,39 @@ func _kill() -> void:
 
 # --- Die Plätze --------------------------------------------------------------------
 
-## Welt-y der Trittfläche einer Etage (ihre RUHEHÖHE, nicht ihr Stand in der Fahrt).
-func tray_top(page: int) -> float:
-	return _seat.y - drop_for(clampi(page, 0, PAGES - 1), _shown, _scale)
+## Welt-y der Trittfläche einer Reihe (ihr RUHE-Sitz, nicht ihr Stand in der Fahrt).
+func tray_top(row: int) -> float:
+	return _seat.y - drop_for(clampi(row, 0, ROWS - 1), _head, _scale)
 
-## ... und die Höhe, auf der die Karte dieser Etage LIEGT.
-func card_seat(page: int) -> float:
-	return tray_top(page) + PROUD
+## ... und die Höhe, auf der die Karte dieser Reihe LIEGT.
+func card_seat(row: int) -> float:
+	return tray_top(row) + PROUD
 
-## Der höchste Punkt einer Karte dieser Etage - daran mißt die Invariante.
-func card_top(page: int) -> float:
-	return card_seat(page) + DataCellView.lying_over(_scale)
+## Der höchste Punkt einer Karte dieser Reihe - daran mißt die Invariante.
+func card_top(row: int) -> float:
+	return card_seat(row) + DataCellView.lying_over(_scale)
 
-## Das FACH einer Etage - der Wirt ihrer Karten (null = noch nicht gebaut).
-func fach(page: int) -> Node3D:
+## Das FACH einer Reihe - der Wirt ihrer Karten (null = noch nicht gebaut).
+func fach(row: int) -> Node3D:
 	if _fachs.is_empty():
 		return null
-	return _fachs[clampi(page, 0, PAGES - 1)]
+	return _fachs[clampi(row, 0, ROWS - 1)]
 
 ## Die Karte wird KIND ihres Faches - eine Fahrt trägt sie mit. Ihren Platz nennt
 ## der Sitz-Schreiber, die HÖHE gehört dem Tablett: lokal liegt sie IMMER PROUD
 ## über der Trittfläche, auch mitten in einer Fahrt.
-func host_card(cell: Node3D, page: int) -> void:
+func host_card(cell: Node3D, row: int) -> void:
 	if _fachs.is_empty():
 		return
-	var fach := _fachs[clampi(page, 0, PAGES - 1)]
-	if cell.get_parent() != fach:
-		rehost(cell, fach)
+	var fach_node := _fachs[clampi(row, 0, ROWS - 1)]
+	if cell.get_parent() != fach_node:
+		rehost(cell, fach_node)
 	cell.position.y = PROUD
 
 ## Liegt diese Karte schon auf ihrem Platz? Verglichen wird in der TISCHEBENE und
 ## am Fach - die Höhe gehört dem Tablett, und die fährt.
-func seated(cell: Node3D, page: int, at: Vector3) -> bool:
-	if _fachs.is_empty() or cell.get_parent() != _fachs[clampi(page, 0, PAGES - 1)]:
+func seated(cell: Node3D, row: int, at: Vector3) -> bool:
+	if _fachs.is_empty() or cell.get_parent() != _fachs[clampi(row, 0, ROWS - 1)]:
 		return false
 	if not is_equal_approx(cell.position.y, PROUD):
 		return false
@@ -292,34 +369,34 @@ static func rehost(node: Node3D, host: Node) -> void:
 
 # --- Die FRONT-BLENDE ----------------------------------------------------------------
 
-func number_text(page: int) -> String:
-	return "%d/%d" % [page + 1, PAGES]
+func number_text(row: int) -> String:
+	return "%d/%d" % [row + 1, ROWS]
 
 ## Je Platz ein TICK in der Sortenfarbe (leer = stumpf). Idempotent: dieselbe Liste
 ## schreibt nichts neu.
-func set_ticks(page: int, tints: Array) -> void:
-	if page < 0 or page >= PAGES or _ticks.is_empty():
+func set_ticks(row: int, tints: Array) -> void:
+	if row < 0 or row >= ROWS or _ticks.is_empty():
 		return
-	if _ticks[page] == tints:
+	if _ticks[row] == tints:
 		return
-	_ticks[page] = tints.duplicate()
-	_write_ticks(page)
+	_ticks[row] = tints.duplicate()
+	_write_ticks(row)
 
-func tick_count(page: int) -> int:
-	if page < 0 or page >= _ticks.size():
+func tick_count(row: int) -> int:
+	if row < 0 or row >= _ticks.size():
 		return 0
-	return (_ticks[page] as Array).size()
+	return (_ticks[row] as Array).size()
 
-func tick_color(page: int, index: int) -> Color:
-	if page < 0 or page >= _ticks.size():
+func tick_color(row: int, index: int) -> Color:
+	if row < 0 or row >= _ticks.size():
 		return TICK_EMPTY
-	var row: Array = _ticks[page]
-	if index < 0 or index >= row.size():
+	var line: Array = _ticks[row]
+	if index < 0 or index >= line.size():
 		return TICK_EMPTY
-	return row[index]
+	return line[index]
 
-func _write_ticks(page: int) -> void:
-	var band: Node3D = _bands[page] if page < _bands.size() else null
+func _write_ticks(row: int) -> void:
+	var band: Node3D = _bands[row] if row < _bands.size() else null
 	if band == null or not is_instance_valid(band):
 		return
 	for child in band.get_children():
@@ -327,16 +404,16 @@ func _write_ticks(page: int) -> void:
 			continue
 		band.remove_child(child)
 		child.queue_free()
-	var row: Array = _ticks[page]
-	if row.is_empty():
+	var line: Array = _ticks[row]
+	if line.is_empty():
 		return
 	# Die Ticks teilen sich, was die Nummer übrig läßt - ein Tick je Platz, mittig
 	# in seiner Teilung, in derselben Reihenfolge wie die Karten darüber.
-	var start := -_span.y * 0.5 + band_depth() * 1.6  # die Nummer steht links davor
+	var start := -_span.y * 0.5 + band_depth() * (NUMBER_INSET + 1.6)  # Nummer links davor
 	var room := _span.y * 0.5 - start
-	var pitch := room / float(row.size())
-	for i in row.size():
-		var tint: Color = row[i]
+	var pitch := room / float(line.size())
+	for i in line.size():
+		var tint: Color = line[i]
 		var material := StandardMaterial3D.new()
 		material.albedo_color = tint
 		material.emission_enabled = true

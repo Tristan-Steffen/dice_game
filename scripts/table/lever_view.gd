@@ -57,8 +57,8 @@ const SOCKET_ENERGY := 0.35
 const SIGN_SPAN := Vector2(0.7, 2.4)
 const SIGN_HEIGHT := 0.05
 const SIGN_FONT := 64
-## Die längste Aufschrift ("Etage 5/5") - an ihr hängt der Schriftgrad.
-const SIGN_CHARS := 9.5
+## Die längste Aufschrift ("Reihe 10+1") - an ihr hängt der Schriftgrad.
+const SIGN_CHARS := 10.5
 ## Das Blech ist DUNKEL wie jedes Schild des Tisches, die Schrift trägt es - ein
 ## volles Gold läse lauter als der Hebel selbst.
 const SIGN_ENERGY := 0.30
@@ -198,7 +198,7 @@ func sign_point() -> Vector3:
 	return host.global_position if host != null else global_position
 
 ## Das Schild blitzt auf - so quittiert es eine Lieferung, die auf einer PARKENDEN
-## Etage gelandet ist (eine Maschine, die keiner sieht, hat nicht gespielt).
+## Reihe gelandet ist (eine Maschine, die keiner sieht, hat nicht gespielt).
 func flash_sign() -> void:
 	if _sign_material == null:
 		return

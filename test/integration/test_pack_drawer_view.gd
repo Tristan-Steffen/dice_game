@@ -13,15 +13,15 @@ func _entry(pack: Pack, uid: int, withheld := false) -> Dictionary:
 	return {"uid": uid, "pack": pack, "withheld": withheld}
 
 func _drawer(entries: Array[Dictionary], locked := false,
-		row := Vector2(900, 150), page := 0,
+		row := Vector2(900, 260), head := 0,
 		lever := Vector2(-1, -1)) -> PackDrawerView:
 	var drawer := PackDrawerView.new()
 	add_child_autofree(drawer)
 	drawer.size = row
-	drawer.build(entries, 8.0, locked, CELL, row, page, lever)
+	drawer.build(entries, 8.0, locked, CELL, row, head, lever)
 	return drawer
 
-## So viele Einträge, wie auf eine Etage passen, plus extra.
+## So viele Einträge, wie auf eine Reihe passen, plus extra.
 func _fill(count: int) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	for i in count:
@@ -30,7 +30,7 @@ func _fill(count: int) -> Array[Dictionary]:
 
 ## Das FELD eines Streifens: die Grube, also der Streifen ohne seine Fassung -
 ## dort stehen die Kassetten, und daran misst sich jeder gerechnete Anker.
-func _field(row := Vector2(900, 150)) -> Rect2:
+func _field(row := Vector2(900, 260)) -> Rect2:
 	return PackDrawerView.pit_rect_in(Rect2(Vector2.ZERO, row), 8.0)
 
 # --- Taxonomie: sie wohnt jetzt in data/ (Pack), die Farben hier ------------------
@@ -91,39 +91,43 @@ func test_spots_run_along_the_one_row_in_owner_order() -> void:
 	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01,
 		"nebeneinander in derselben Reihe")
 	assert_almost_eq(second.y, first.y, 0.01)
-	# Was nicht mehr in die Reihe passt, liegt auf der NÄCHSTEN Etage - und die liegt
-	# nicht daneben, sondern DARUNTER: derselbe Platz in der Reihe.
-	var next_page := PackDrawerView.spot_for(columns, columns + 1, field, CELL)
-	assert_almost_eq(next_page.x, first.x, 0.01, "Etage 2 beginnt wieder links")
-	assert_almost_eq(next_page.y, first.y, 0.01, "und auf derselben Tiefe")
+	# Was nicht mehr in die Reihe passt, liegt in der NÄCHSTEN Reihe - und die liegt
+	# nicht daneben, sondern in der VORDEREN Lane: derselbe Platz, eine Lane tiefer.
+	var next_row := PackDrawerView.spot_for(columns, columns + 1, field, CELL,
+		PaternosterView.LANE_FRONT)
+	assert_almost_eq(next_row.x, first.x, 0.01, "Reihe 2 beginnt wieder links")
+	assert_almost_eq(next_row.y - first.y, field.y * 0.5, 0.01,
+		"und liegt eine Lane weiter vorn")
 
-func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_page() -> void:
+func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_row() -> void:
 	# Der Magazin-Deckel formt das Raster NICHT: die Spaltenzahl folgt allein aus der
 	# Breite der Grube und dem festen LIEGENDEN Kartenmaß.
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
 	var card := PackDrawerView.lie_cell(CELL).x * PackDrawerView.CELL_SPAN
 	assert_eq(columns, int(field.x / card), "so viele, wie in ihrer Größe hineinpassen")
-	assert_eq(PackDrawerView.pages_for(field, CELL, columns), 1, "eine volle Reihe")
-	assert_eq(PackDrawerView.pages_for(field, CELL, columns + 1), 2,
+	assert_eq(PackDrawerView.rows_for(field, CELL, columns), 1, "eine volle Reihe")
+	assert_eq(PackDrawerView.rows_for(field, CELL, columns + 1), 2,
 		"die nächste Kassette eröffnet die nächste Etage")
 
 ## Die Etagen sind ABSCHNITTE der einen Magazin-Liste - reine Rechnung.
-func test_the_pages_are_sections_of_the_one_list() -> void:
+func test_the_rows_are_sections_of_the_one_list() -> void:
 	for columns in [1, 6, 7, 13]:
-		for i in columns * PackDrawerView.PAGES:
-			assert_eq(PackDrawerView.page_of(i, columns), i / columns,
+		for i in columns * PackDrawerView.ROWS:
+			assert_eq(PackDrawerView.row_of(i, columns), i / columns,
 				"%d bei %d Spalten" % [i, columns])
 			assert_eq(PackDrawerView.cell_of(i, columns), i % columns)
-	assert_eq(PackDrawerView.page_of(-3, 0), 0, "unsinnige Zahlen liegen vorn")
+	assert_eq(PackDrawerView.row_of(-3, 0), 0, "unsinnige Zahlen liegen vorn")
 	assert_eq(PackDrawerView.cell_of(-3, 0), 0)
 
 func test_the_row_lies_in_what_the_front_band_leaves() -> void:
 	# An der Bild-unteren Kante des Tabletts steht seine FRONT-BLENDE; die Karten
-	# liegen mittig in dem, was bleibt.
+	# liegen mittig in dem, was in SEINER Lane bleibt - und eine Lane ist die halbe
+	# Grube, denn zwei liegen übereinander.
 	var field := _field().size
 	var slot := PackDrawerView.slot_size(field, CELL, 1)
-	assert_almost_eq(slot.y, field.y * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
+	assert_almost_eq(slot.y,
+		field.y / float(PackDrawerView.LANES) * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
 	assert_almost_eq(PackDrawerView.spot_for(0, 1, field, CELL).y, slot.y * 0.5, 0.01,
 		"die Reihe liegt mittig darin")
 
@@ -135,12 +139,12 @@ func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 		assert_almost_eq(PackDrawerView.cell_scale_for(CELL, field, count),
 			PackDrawerView.CASSETTE_SCALE, 0.001, "%d Pakete, dasselbe Maß" % count)
 
-func test_the_capacity_is_one_row_times_the_pages() -> void:
+func test_the_capacity_is_one_row_times_the_rows() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
 	assert_gt(columns, 0)
 	assert_eq(PackDrawerView.capacity_for(field, CELL),
-		columns * PackDrawerView.PAGES, "Reihe mal Etagen, sonst nichts")
+		columns * PackDrawerView.ROWS, "Reihe mal Kreislauf-Reihen, sonst nichts")
 
 func test_the_capacity_lays_out_without_shrinking_and_within_the_pit() -> void:
 	# Der Deckel ist so gewählt, dass das volle Magazin noch in voller Größe liegt.
@@ -149,8 +153,8 @@ func test_the_capacity_lays_out_without_shrinking_and_within_the_pit() -> void:
 	var grid := PackDrawerView.grid_for(field, CELL, capacity)
 	assert_almost_eq(float(grid["scale"]), PackDrawerView.CASSETTE_SCALE, 0.001,
 		"am Deckel wird nichts gedrückt")
-	assert_eq(int(grid["pages"]), PackDrawerView.PAGES,
-		"und er füllt genau die Etagen, die der Paternoster hat")
+	assert_eq(int(grid["rows"]), PackDrawerView.ROWS,
+		"und er füllt genau die Reihen, die der Kreislauf hat")
 	assert_lte(PackDrawerView.lie_cell(CELL).y,
 		PackDrawerView.slot_size(field, CELL, capacity).y + 0.001,
 		"die Reihe bleibt in der Grube")
@@ -174,7 +178,7 @@ func test_a_rebuild_lays_the_same_drawer() -> void:
 	var drawer := _drawer(entries)
 	await wait_frames(2)
 	var first := drawer.pack_anchor_px(7)
-	drawer.build(entries, 8.0, false, CELL, Vector2(900, 150))
+	drawer.build(entries, 8.0, false, CELL, Vector2(900, 260))
 	await wait_frames(2)
 	assert_eq(drawer.pack_anchor_px(7), first, "derselbe Platz, byteweise")
 
@@ -205,48 +209,60 @@ func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
 		PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0), 2, 3, CELL)
 	assert_almost_eq(third.x, derived.x, 0.5, "der Nachbar zählt es mit")
 
-# --- Der PATERNOSTER: gezeigt wird EINE Etage -------------------------------------
+# --- Der KREISLAUF: ZWEI Reihen liegen, der Rest parkt ----------------------------
 
-func test_only_the_shown_page_carries_chips() -> void:
+func test_both_lying_rows_carry_chips() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer(_fill(columns + 2))
+	var drawer := _drawer(_fill(columns * 2 + 1))
 	await wait_frames(2)
-	assert_not_null(drawer.pack_button(1), "die gezeigte Etage ist greifbar")
-	assert_null(drawer.pack_button(columns + 1), "was parkt, greift man nicht")
-	assert_eq(drawer.page_of_pack(columns + 1), 1, "es liegt auf Etage 2")
+	assert_not_null(drawer.pack_button(1), "die hintere Reihe ist greifbar")
+	assert_not_null(drawer.pack_button(columns + 1), "und die vordere auch")
+	assert_null(drawer.pack_button(columns * 2 + 1), "was parkt, greift man nicht")
+	assert_eq(drawer.row_of_pack(columns * 2 + 1), 2, "es liegt in Reihe 3")
+	# Die zwei Lanes liegen ÜBEREINANDER in der Grube, nicht nebeneinander.
+	assert_almost_eq(drawer.pack_seat_px(columns + 1).x, drawer.pack_seat_px(1).x, 0.5,
+		"derselbe Platz in der Reihe")
+	assert_almost_eq(drawer.pack_seat_px(columns + 1).y - drawer.pack_seat_px(1).y,
+		drawer.field.size.y * 0.5, 0.5, "eine Lane weiter vorn")
 	assert_eq(drawer.hover_uid_at(drawer.pack_button(1).get_global_rect().get_center()), 1)
 
-func test_the_second_page_shows_when_it_is_turned_up() -> void:
+func test_a_step_of_the_circulation_shows_the_next_pair() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer(_fill(columns + 2), false, Vector2(900, 150), 1)
+	var drawer := _drawer(_fill(columns * 3), false, Vector2(900, 260), 1)
 	await wait_frames(2)
-	assert_null(drawer.pack_button(1), "jetzt parkt die erste")
-	assert_not_null(drawer.pack_button(columns + 1), "und die zweite liegt oben")
-	assert_eq(drawer.page(), 1)
+	assert_null(drawer.pack_button(1), "jetzt parkt die erste Reihe")
+	assert_not_null(drawer.pack_button(columns + 1), "Reihe 2 liegt hinten")
+	assert_not_null(drawer.pack_button(columns * 2 + 1), "Reihe 3 vorn")
+	assert_eq(drawer.head(), 1)
+	assert_true(drawer.shows_pack(columns + 1))
+	assert_false(drawer.shows_pack(1))
 
-## Der PLATZ bleibt der Platz - auch auf einer parkenden Etage liegt der Körper
-## dort; nur das LICHT fliegt woanders hin.
+## Der PLATZ bleibt der Platz - auch eine parkende Reihe liegt in der LANE, unter
+## der sie parkt; nur das LICHT fliegt woanders hin.
 func test_a_parked_pack_keeps_its_seat_but_its_light_flies_to_the_lever() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
 	var lever := Vector2(1234, 77)
-	var drawer := _drawer(_fill(columns + 1), false, Vector2(900, 150), 0, lever)
+	var drawer := _drawer(_fill(columns * 2 + 1), false, Vector2(900, 260), 0, lever)
 	await wait_frames(2)
-	var parked := columns + 1
+	var parked := columns * 2 + 1
 	assert_almost_eq(drawer.pack_seat_px(parked).x, drawer.pack_seat_px(1).x, 0.5,
 		"derselbe Platz in der Reihe wie der erste")
 	assert_eq(drawer.pack_anchor_px(parked), lever, "sein Licht endet am Hebel")
 	assert_eq(drawer.pack_anchor_px(1), drawer.pack_seat_px(1),
-		"die gezeigte Etage nimmt ihr Licht selbst an")
+		"eine liegende Reihe nimmt ihr Licht selbst an")
+	assert_eq(drawer.pack_anchor_px(columns + 1), drawer.pack_seat_px(columns + 1),
+		"und die vordere Lane genauso")
 
 func test_without_a_lever_a_parked_pack_aims_at_the_drawer() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer(_fill(columns + 1))
+	var drawer := _drawer(_fill(columns * 2 + 1))
 	await wait_frames(2)
-	assert_eq(drawer.pack_anchor_px(columns + 1), drawer.get_global_rect().get_center(),
+	assert_eq(drawer.pack_anchor_px(columns * 2 + 1),
+		drawer.get_global_rect().get_center(),
 		"ohne gemeldeten Hebel bleibt das Fach der Rückfall")
 
 # --- Chip-Schalen-Regel: der Knopf zeichnet nichts --------------------------------
@@ -297,7 +313,7 @@ func test_the_well_paints_only_its_frame() -> void:
 	assert_gt(box.border_width_left, 0)
 
 func test_the_pit_is_the_strip_minus_its_painted_frame() -> void:
-	var strip := Rect2(Vector2(40, 200), Vector2(900, 150))
+	var strip := Rect2(Vector2(40, 200), Vector2(900, 260))
 	var inset := PackDrawerView.rim_inset(8.0)
 	assert_gt(inset, 0.0)
 	assert_eq(PackDrawerView.pit_rect_in(strip, 8.0), strip.grow(-inset),
