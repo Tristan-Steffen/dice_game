@@ -11943,7 +11943,7 @@ func _on_repair_requested(die: DieDefinition) -> void:
 		return
 	var price := run.repair_price()
 	var bay := _repair_bay()
-	var target := bay.ladder_px() if bay != null else Vector2.ZERO
+	var target := bay.comet_px() if bay != null else Vector2.ZERO
 	if not run.repair_die(die):
 		return
 	# Die Asche fällt bei der ANKUNFT des Lichts - gebucht ist sie längst.
@@ -11956,7 +11956,7 @@ func _on_drain_requested(die: DieDefinition) -> void:
 	if run == null:
 		return
 	var bay := _repair_bay()
-	var target := bay.ladder_px() if bay != null else Vector2.ZERO
+	var target := bay.comet_px() if bay != null else Vector2.ZERO
 	if not run.drain_die(die):
 		return
 	_fly_repair_money(die, target)
@@ -11965,12 +11965,12 @@ func _on_charge_requested(die: DieDefinition) -> void:
 	if run == null:
 		return
 	var bay := _repair_bay()
-	var target := bay.ladder_px() if bay != null else Vector2.ZERO
+	var target := bay.comet_px() if bay != null else Vector2.ZERO
 	if not run.charge_die(die):
 		return
 	_fly_repair_energy(die, target)
 
-## ⚡ aus der KONDENSATORBANK zur Leiter der Bucht - dieselbe Börse, aus der das
+## ⚡ aus der KONDENSATORBANK zur Bucht - dieselbe Börse, aus der das
 ## Übertakten zahlt. Bei Ankunft pulst die Bank und der Würfel blitzt.
 func _fly_repair_energy(die: DieDefinition, to_px: Vector2) -> void:
 	var guard := run
