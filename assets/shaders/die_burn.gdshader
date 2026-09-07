@@ -1,28 +1,19 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_never, cull_back, unshaded, shadows_disabled;
 
-// DURCHGEBRANNT: die Auflage einer Seite. EIN Quad je Seite zwischen Runen-
-// Auflage und Ziffer (die Ziffer bleibt lesbar - der Würfel zählt für die Hand),
-// in SEITEN-Koordinaten -1..1. Alphagemischt: sie DECKT und DUNKELT, sie leuchtet
-// nur dort, wo Glut sitzt.
-//
-// burn_style ist der Autoren-Schalter der fünf Fassungen (Spieler-Wahl offen):
-// 0 RUSS       - ungleichmäßige Rußflecken, matt, tot
-// 1 RISSE      - der Körper ist geborsten, in den Rissen glimmt Restglut
-// 2 ASCHE      - ausgebrannt zu hellgrauer Asche mit Flocken
-// 3 VERKOHLT   - schwarz verkohlt, an den Kanten sprühen letzte Funken (+ Rauch)
-// 4 GESCHMOLZEN - die Fläche ist versengt und verglast, dunkel zur Mitte
+// DURCHGEBRANNT = ASCHE (Spieler-Wahl 2026-09-07 aus fünf Fassungen: Ruß, Risse,
+// Asche, Verkohlt, Geschmolzen): die Seite ist zu hellgrauer Asche ausgebrannt,
+// flockig, mit dunklen Bruchlinien. EIN Quad je Seite zwischen Runen-Auflage und
+// Ziffer (die Ziffer bleibt lesbar - der Würfel zählt für die Hand), in
+// SEITEN-Koordinaten -1..1. Alphagemischt: sie DECKT, sie leuchtet nicht.
+// Die Bruchlinien sind die Blitz-Maschine der Ladung, EINGEFROREN.
 
-uniform float burn_style = 0.0;
 uniform float face_seed = 0.0;
-uniform float phase = 0.0;
 
 const int SEGMENTS = 8;
-const vec3 SOOT = vec3(0.03, 0.025, 0.03);
-const vec3 DUST = vec3(0.16, 0.15, 0.15);
-const vec3 EMBER = vec3(1.0, 0.36, 0.08);
 const vec3 ASH = vec3(0.64, 0.62, 0.6);
-const vec3 SCORCH = vec3(0.34, 0.19, 0.09);
+const vec3 DUST = vec3(0.16, 0.15, 0.15);
+const float COVER = 0.78;
 
 float hash11(float x) {
 	return fract(sin(x * 12.9898 + 4.1414) * 43758.5453);
@@ -57,7 +48,7 @@ vec2 rim_point(float u, float v) {
 	return vec2(-1.0, -s);
 }
 
-// Abstand zu einer gezackten Bahn (die Blitz-Maschine, hier EINGEFROREN: ein Riss).
+// Abstand zu einer gezackten Bahn (Zufallsweg als Brücke, ohne Zittern).
 float crack_dist(vec2 p, vec2 a, vec2 b, float amp, float seed, int k, out vec2 knot) {
 	vec2 dir = b - a;
 	float len = max(length(dir), 1e-4);
@@ -83,7 +74,7 @@ float crack_dist(vec2 p, vec2 a, vec2 b, float amp, float seed, int k, out vec2 
 	return best;
 }
 
-// Die Risse der Seite: zwei Bahnen von Kante zu Kante, je ein Ast.
+// Die Bruchlinien der Seite: zwei Bahnen von Kante zu Kante, je ein Ast.
 float cracks(vec2 p, float seed) {
 	float best = 1e9;
 	for (int c = 0; c < 2; c++) {
@@ -107,63 +98,12 @@ void fragment() {
 	vec2 p = (UV - 0.5) * 2.0;
 	p.y = -p.y;
 	float px = length(fwidth(p));
-	float t = TIME + phase;
-	int style = int(burn_style + 0.5);
 	vec2 q = p * 2.4 + vec2(face_seed * 1.7, face_seed * 0.9);
 	float grain = fbm(q);
 	float fine = noise(p * 40.0 + face_seed);
-	float rim = 1.0 - min(min(1.0 - abs(p.x), 1.0 - abs(p.y)), 1.0);  // 1 an der Kante
-	vec3 col = SOOT;
-	float alpha = 0.0;
-
-	if (style == 1) {
-		// RISSE: Ruß dazu, und in den Rissen glimmt Restglut, langsam wandernd.
-		float cd = cracks(p, face_seed * 13.7);
-		float soot = smoothstep(0.3, 0.7, grain) * 0.55;
-		col = mix(DUST, SOOT, smoothstep(0.4, 0.8, grain));
-		alpha = soot;
-		float pulse = 0.5 + 0.5 * sin(t * 0.9 + p.x * 2.0 + p.y * 1.3);
-		float ember = exp(-cd / max(0.035, px * 1.5)) * (0.35 + 0.65 * pulse);
-		float dark = 1.0 - smoothstep(0.0, max(0.05, px * 2.5), cd);
-		col = mix(col, SOOT, dark);
-		alpha = max(alpha, dark * 0.9);
-		col = mix(col, EMBER, ember);
-		alpha = max(alpha, ember);
-	} else if (style == 2) {
-		// ASCHE: hellgrau, flockig, mit dunklen Bruchlinien.
-		float cd = cracks(p, face_seed * 13.7);
-		col = ASH * (0.8 + 0.4 * grain) * (0.9 + 0.2 * fine);
-		float flake = 1.0 - smoothstep(0.0, max(0.03, px * 2.0), cd);
-		col = mix(col, DUST, flake * 0.8);
-		alpha = 0.78;
-	} else if (style == 3) {
-		// VERKOHLT: schwerer Ruß, und an den Kanten sprühen letzte Funken.
-		float soot = smoothstep(0.15, 0.6, grain) * 0.85;
-		col = mix(DUST * 0.7, SOOT, smoothstep(0.3, 0.7, grain));
-		alpha = soot;
-		vec2 cell = floor(p * 14.0);
-		float spark = hash21(cell + face_seed);
-		float lit = step(0.9, spark) * smoothstep(0.45, 0.85, rim);
-		float flick = 0.3 + 0.7 * hash21(cell + floor(t * (2.0 + spark * 6.0)));
-		float dot_glow = 1.0 - smoothstep(0.0, 0.5, length(fract(p * 14.0) - 0.5) * 2.0);
-		float ember = lit * flick * dot_glow;
-		col = mix(col, EMBER, ember);
-		alpha = max(alpha, ember);
-	} else if (style == 4) {
-		// GESCHMOLZEN: versengt und verglast - dunkel zur Mitte, braun zur Kante,
-		// die Wellen der Schmelze schimmern schwach.
-		vec2 warp = vec2(noise(q * 1.5), noise(q * 1.5 + 7.0)) - 0.5;
-		float r = length(p + warp * 0.35);
-		col = mix(SOOT, SCORCH, smoothstep(0.25, 1.0, r));
-		float sheen = pow(noise(p * 6.0 + warp * 4.0 + face_seed), 6.0) * 0.5;
-		col += vec3(0.55, 0.42, 0.3) * sheen;
-		alpha = 0.82;
-	} else {
-		// RUSS: ungleichmäßige Flecken, dazwischen Staub.
-		float soot = smoothstep(0.3, 0.75, grain);
-		col = mix(DUST, SOOT, soot);
-		alpha = mix(0.35, 0.8, soot) * (0.85 + 0.15 * fine);
-	}
-	ALBEDO = col;
-	ALPHA = clamp(alpha, 0.0, 1.0);
+	float cd = cracks(p, face_seed * 13.7);
+	vec3 col = ASH * (0.8 + 0.4 * grain) * (0.9 + 0.2 * fine);
+	float flake = 1.0 - smoothstep(0.0, max(0.03, px * 2.0), cd);
+	ALBEDO = mix(col, DUST, flake * 0.8);
+	ALPHA = COVER;
 }
