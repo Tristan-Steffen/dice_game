@@ -52,17 +52,19 @@ func test_the_charge_level_travels_from_the_definition_into_the_bolts() -> void:
 	cooled.apply_definition(_def(0))
 	assert_true(cooled.bolt_parts.is_empty(), "entladen: die Quads sind weg")
 
-func test_only_the_flashover_builds_its_particles() -> void:
+func test_only_the_flashover_builds_its_outer_arcs() -> void:
 	for level in [0, 1, 2]:
 		var display := _display()
 		display.apply_definition(_def(level))
-		assert_null(display.charge_motes, "Stufe %d springt nicht über" % level)
+		assert_null(display.charge_arcs, "Stufe %d springt nicht über" % level)
 	var arcing := _display()
 	arcing.apply_definition(_def(3))
-	assert_not_null(arcing.charge_motes, "der Überschlag springt")
-	# Fällt die Stufe, werden sie wieder freigegeben (das soul_motes-Muster).
+	assert_not_null(arcing.charge_arcs, "der Überschlag springt")
+	assert_eq((arcing.charge_arcs.material_override as ShaderMaterial).shader,
+		DieFaceDisplay.ARC_SHADER)
+	# Fällt die Stufe, wird das Quad wieder freigegeben (wie die Hitze).
 	arcing.apply_definition(_def(1))
-	assert_null(arcing.charge_motes, "gefallene Stufe gibt die Teilchen frei")
+	assert_null(arcing.charge_arcs, "gefallene Stufe gibt die Außen-Blitze frei")
 
 func test_the_flashover_lights_the_corner_lamps_without_a_soul() -> void:
 	var cold := _display()
@@ -124,7 +126,7 @@ func test_the_override_shows_the_running_state_and_the_definition_takes_it_back(
 	display.apply_definition(def)
 	display.set_charge_override(3, false)
 	assert_eq(display.shown_charge(), 3, "die Zeremonie zeigt ihren Stand")
-	assert_not_null(display.charge_motes, "samt seinen Teilchen")
+	assert_not_null(display.charge_arcs, "samt seinen Außen-Blitzen")
 	display.clear_charge_override()
 	assert_eq(display.shown_charge(), 1, "danach steht wieder der Def-Stand")
 	# Der HARTE Weg: apply_definition löscht den Override ebenfalls.

@@ -143,10 +143,13 @@ const CHARGE_REST_CEILING := 0.92
 ## Der Blitz beim Aufladen/Entladen/Reparieren.
 const CHARGE_FLASH_TIME := 0.35
 const CHARGE_FLASH_GAIN := 2.2
-## Überschlag-Teilchen: wenige, kurz, nach außen von den Kanten weg.
-const ARC_COUNT := 12
-const ARC_LIFETIME := 0.55
-const ARC_GLOW := 1.8
+## Überschlag: Blitze, die aus den KANTEN nach AUSSEN schlagen (die_arcs.gdshader) -
+## EIN kamerazugewandtes Quad um den Würfel, wie die Hitze. Fassung (Autoren-
+## Schalter, Spieler-Wahl offen): 0 Funken, 1 Fahnen, 2 Eckstrahlen, 3 Krone, 4 Bogen.
+const ARC_SHADER := preload("res://assets/shaders/die_arcs.gdshader")
+const ARC_QUAD := Vector2(4.5, 4.5)
+var charge_style := 0
+const ARC_STYLES := 5
 ## Wie kräftig die Ladung die Boden-Lache einfärbt und hebt.
 const CHARGE_POOL_MIX := 0.65
 const CHARGE_POOL_GAIN := 1.25
@@ -194,7 +197,7 @@ var _burned_override := false
 var _charge_flash := 0.0
 var _charge_flash_tween: Tween
 ## Überschlag-Teilchen (nur Stufe 3, faul gebaut wie die Seelenfunken).
-var charge_motes: CPUParticles3D = null
+var charge_arcs: MeshInstance3D = null
 
 ## Pointer auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
 ## Band je Zeiger - Pad auf der Quellseite, über den Kantenbalken hinweg, bis
@@ -858,7 +861,7 @@ func _refresh_charge() -> void:
 	# bleibt unter Blitzen und Überschlag stehen.
 	_sync_heat(level >= 1 and not burned)
 	_sync_bolts(level >= CHARGE_SPARK_LEVEL and not burned, level)
-	_sync_charge_motes(level >= CHARGE_ARC_LEVEL and not burned)
+	_sync_charge_arcs(level >= CHARGE_ARC_LEVEL and not burned)
 	if not burned:
 		return
 	# Ruß: flache dunkle Kanten (der set_edge_tint-Schalter), Körper und Flächen
@@ -881,59 +884,34 @@ func _refresh_charge() -> void:
 		soul_motes.queue_free()
 		soul_motes = null
 
-## Die Teilchen des Überschlags kommen und gehen mit der Stufe (wie soul_motes).
-func _sync_charge_motes(wanted: bool) -> void:
+## Die Außen-Blitze des Überschlags kommen und gehen mit der Stufe (lazy, wie
+## die Hitze); die Farben des Überschlags (oranger Hof) setzt _sync_bolts gleich mit.
+func _sync_charge_arcs(wanted: bool) -> void:
 	if not wanted:
-		if charge_motes != null:
-			charge_motes.queue_free()
-			charge_motes = null
+		if charge_arcs != null:
+			charge_arcs.queue_free()
+			charge_arcs = null
 		return
-	if charge_motes == null:
-		charge_motes = _build_charge_motes()
-		add_child(charge_motes)
-	var tint := CHARGE_COLOR * body_tint * ARC_GLOW
-	tint.a = 1.0
-	charge_motes.color = tint
-
-## Kurze Funken, die von den KANTEN nach außen springen - dasselbe Muster wie die
-## Seelenfunken, nur schneller, kürzer und ohne Auftrieb (der Überschlag fällt
-## nicht, er schießt).
-func _build_charge_motes() -> CPUParticles3D:
-	var motes := CPUParticles3D.new()
-	motes.name = "ChargeArcs"
-	motes.amount = ARC_COUNT
-	motes.lifetime = ARC_LIFETIME
-	motes.preprocess = ARC_LIFETIME
-	motes.local_coords = false
-	motes.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
-	motes.emission_points = _edge_emission_points()
-	motes.direction = Vector3.UP
-	motes.spread = 180.0  # nach außen, in jede Richtung von der Kante weg
-	motes.gravity = Vector3.ZERO
-	motes.initial_velocity_min = 1.2
-	motes.initial_velocity_max = 2.6
-	motes.scale_amount_min = 0.35
-	motes.scale_amount_max = 0.8
-	var ramp := Gradient.new()
-	ramp.offsets = PackedFloat32Array([0.0, 0.25, 1.0])
-	# Weiß in den Kern der Stufe 3: der Funke kühlt im Flug ins Orange aus.
-	ramp.colors = PackedColorArray([Color(1, 1, 1, 0), Color.WHITE,
-		Color(CHARGE_CORE_COLOR.r, CHARGE_CORE_COLOR.g, CHARGE_CORE_COLOR.b, 0.0)])
-	motes.color_ramp = ramp
-	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE * 0.12
-	motes.mesh = quad
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	material.vertex_color_use_as_albedo = true
-	material.albedo_texture = _mote_texture()
-	motes.material_override = material
-	motes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	if not quads.is_empty():
-		motes.layers = (quads.values()[0] as VisualInstance3D).layers
-	return motes
+	if charge_arcs == null:
+		var quad := QuadMesh.new()
+		quad.size = ARC_QUAD
+		var material := ShaderMaterial.new()
+		material.shader = ARC_SHADER
+		material.set_shader_parameter("quad_size", ARC_QUAD)
+		material.set_shader_parameter("seed_base", _bolt_seed + 7.0)
+		material.set_shader_parameter("phase", _pulse_phase)
+		material.render_priority = 10
+		charge_arcs = MeshInstance3D.new()
+		charge_arcs.name = "ChargeArcs"
+		charge_arcs.mesh = quad
+		charge_arcs.material_override = material
+		charge_arcs.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(charge_arcs)
+	var material: ShaderMaterial = charge_arcs.material_override
+	var halo := CHARGE_COLOR.lerp(CHARGE_CORE_COLOR, 0.62)
+	material.set_shader_parameter("arc_style", float(clampi(charge_style, 0, ARC_STYLES - 1)))
+	material.set_shader_parameter("halo_color", Vector3(halo.r, halo.g, halo.b))
+	material.set_shader_parameter("core_color", BOLT_CORE)
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
 ## Unschattiert, damit exakt die flache Auswahl-Farbe erscheint - beleuchtet
