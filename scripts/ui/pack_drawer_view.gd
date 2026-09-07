@@ -69,14 +69,16 @@ const FRONT_SHARE := 0.09
 const LANES := 2
 ## Der SPALT zwischen hinterer und vorderer Reihe: durch ihn sieht man in die Grube
 ## auf die geparkten Tabletts. GEMESSEN an der Werkstatt-Weitsicht (1280 × 720):
-## 6,3 Anzeige-px lesen dort als ~8 Bildschirm-px (die geneigte Kamera bildet die
-## Grubentiefe größer ab, als die Anzeige sie mißt).
-const ROW_GAP_PX := 6.3
+## 12,6 Anzeige-px lesen dort als ~16 Bildschirm-px (die geneigte Kamera bildet die
+## Grubentiefe größer ab, als die Anzeige sie mißt; Spieler-Entscheid: doppelt so
+## breit wie die ersten 6,3).
+const ROW_GAP_PX := 12.6
 ## Die FUSSLUFT unter der vorderen Reihe bis zur Bild-unteren Grubenwand: durch sie
 ## liest man von der Seite das PROFIL der fünf Ebenen der vorderen Lane. Sie liegt
 ## NÄHER an der Kamera als der Spalt, bildet sich also je Anzeige-Pixel größer ab -
-## GEMESSEN lesen 10,3 Anzeige-px als ~15 Bildschirm-px.
-const FOOT_GAP_PX := 10.3
+## GEMESSEN lesen 51,5 Anzeige-px als ~74 Bildschirm-px (Spieler-Entscheid: fünfmal
+## die ersten 10,3 - erst so reicht der Blick unter das vordere Tablett).
+const FOOT_GAP_PX := 51.5
 
 ## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette und die TIEFE einer Reihe.
 ## Es gibt genau EINE Reihe je Lane - RANK_SPAN ist ihre Luft, und der Streifen mißt
