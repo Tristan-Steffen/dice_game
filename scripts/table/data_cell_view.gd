@@ -970,6 +970,10 @@ func _build_materials() -> void:
 	# seitenverkehrt. cull_mode BACK, sonst zählt jede Wand doppelt.
 	_shell_material = StandardMaterial3D.new()
 	_shell_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	# Tiefe schreiben, obwohl durchsichtig: so verdeckt eine vordere Karte die
+	# geparkten dahinter, statt deren Netz durchstanzen zu lassen (das Netz liest
+	# damit nur noch die Karte, auf der es liegt).
+	_shell_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 	_shell_material.albedo_color = Color(shade.r, shade.g, shade.b, GLASS_BODY_ALPHA)
 	_shell_material.metallic = 0.20
 	_shell_material.metallic_specular = 0.8

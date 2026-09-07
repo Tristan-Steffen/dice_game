@@ -332,6 +332,10 @@ func _write_hard() -> void:
 	for row in _trays.size():
 		_trays[row].position = _tray_pose(row, _head)
 		_paint_tray(row, not shows(row))
+		# Nummer und Ticks nur auf den zwei liegenden Reihen: die geparkten stanzen
+		# sonst durch das durchsichtige Glas nach oben (Transparenz-Sortierung).
+		if row < _bands.size() and _bands[row] != null and is_instance_valid(_bands[row]):
+			_bands[row].visible = shows(row)
 
 ## Ein GEPARKTES Tablett glüht heller: in der Grube trifft es kein Szenenlicht, und
 ## sichtbar ist durch den SPALT nur seine schmale Stirnfläche.
@@ -468,6 +472,9 @@ func _ensure_materials() -> void:
 	_plate_material.albedo_color = Color(PLATE_ALBEDO.r, PLATE_ALBEDO.g,
 		PLATE_ALBEDO.b, PLATE_ALPHA)
 	_plate_material.render_priority = PLATE_PRIORITY
+	# Tiefe schreiben, obwohl durchsichtig: so verdeckt ein vorderes Tablett den
+	# Parkstapel darunter, statt ihn durchstanzen zu lassen (Transparenz-Sortierung).
+	_plate_material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 	_plate_material.metallic = 0.35
 	_plate_material.roughness = 0.55
 	_plate_material.emission_enabled = true
