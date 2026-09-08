@@ -14,6 +14,10 @@ var run: GameRun
 const CLUSTER_WIDTH := 996.0
 ## Und die echten Fenstermaße daraus: die Knopf-Spalte, 298,80 x 453,18 px.
 const WINDOW_SIZE := Vector2(298.8, 453.18)
+## Deckel für die Hover-Blende: LiftShaftView.COVER_HOVER_TIME (0,18 s) sind bei
+## 60 fps elf Bilder. Gewartet wird bis zur Ankunft, der Deckel ist nur die Reißleine
+## - blind 60 Bilder zu zählen kostete die Suite 7,6 s.
+const FADE_FRAMES := 30
 
 func before_each() -> void:
 	run = GameRun.new_run()
@@ -1575,16 +1579,20 @@ func test_the_hover_line_arrives_even_when_asked_every_frame():
 	shaft.order_cover("2 Pakete", Color.GOLD)
 	shaft.park_hard()
 	var last := 0.0
-	for frame in 60:
+	for frame in FADE_FRAMES:
 		shaft.set_cover_hovered(true)  # dieselbe Frage wie _sync_bet_counter je Bild
 		await wait_frames(1)
 		var seen := shaft.cover_text_share()
 		assert_gte(seen, last - 0.0001, "die Zeile läuft monoton auf (%.3f)" % seen)
 		last = seen
+		if is_equal_approx(last, 1.0):
+			break
 	assert_almost_eq(last, 1.0, 0.0001, "und steht am Ende ganz da")
-	for frame in 60:
+	for frame in FADE_FRAMES:
 		shaft.set_cover_hovered(false)
 		await wait_frames(1)
+		if is_zero_approx(shaft.cover_text_share()):
+			break
 	assert_almost_eq(shaft.cover_text_share(), 0.0, 0.0001, "ohne Zeiger schweigt sie")
 
 ## Und der harte Park-Schreiber, den _sync_bet_counter je Bild führt, friert sie nicht
@@ -1594,9 +1602,11 @@ func test_a_hard_park_does_not_freeze_the_fade():
 	var shaft := _bet_shaft(holes, TableScreen.PIT_SIDE_BET0, PARK_DEPTH)
 	shaft.order_cover("2 Pakete", Color.GOLD)
 	shaft.park_hard()
-	for frame in 60:
+	for frame in FADE_FRAMES:
 		shaft.set_cover_hovered(true)
 		shaft.park_hard()  # der EINE Schreiber des Park-Endzustands, je Bild
 		await wait_frames(1)
+		if is_equal_approx(shaft.cover_text_share(), 1.0):
+			break
 	assert_almost_eq(shaft.cover_text_share(), 1.0, 0.0001,
 		"der Park schreibt die Platte, nicht die Zeile")

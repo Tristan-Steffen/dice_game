@@ -191,22 +191,50 @@ func _load_model(charm: Charm) -> Node3D:
 		model = model_scene(path).instantiate()
 	return model
 
-## Geladene Charm-Modelle bleiben im Prozess liegen: ein GLB kostet KALT ~0,8 s,
+## Geladene Charm-Modelle bleiben im Prozess liegen: ein GLB kostet KALT ~0,1 s,
 ## warm 0 ms, und Bibliothek wie Tischkarten bauen ihre Modelle laufend neu auf.
 static var _model_scenes := {}   # Pfad -> PackedScene (Cache)
 static var _model_requests := {}  # Pfad -> true (Ladeauftrag läuft im Ladethread)
+static var _model_queue: Array[String] = []  # angefordert, wartet auf einen freien Platz
 static var _model_failures := {}  # Pfad -> true (Laden endgültig fehlgeschlagen)
+
+## Deckel für gleichzeitige Ladeaufträge: die Bibliothek fordert beim Öffnen ALLE
+## Charm-Modelle an, und ein blockierendes model_scene() musste sich sonst durch die
+## ganze Schlange warten - gemessen 35 s statt 0,2 s für die Charm-Reihe.
+const MAX_IN_FLIGHT := 4
 
 ## Einzige Ladestelle der Charm-Modelle - CharmThumb greift hier mit ab.
 ## Blockiert; ein laufender Ladeauftrag wird zu Ende geholt statt doppelt geladen.
+## Wer nur in der Schlange steht, wird hier selbst geladen statt abgewartet.
 static func model_scene(path: String) -> PackedScene:
 	if not _model_scenes.has(path):
 		if _model_requests.has(path):
 			_model_requests.erase(path)
 			_model_scenes[path] = ResourceLoader.load_threaded_get(path) as PackedScene
 		else:
+			_model_queue.erase(path)
 			_model_scenes[path] = load(path) as PackedScene
+		_pump_model_queue()
 	return _model_scenes[path]
+
+## Läuft ein Platz frei, rückt der nächste Wartende in den Ladethread nach.
+static func _pump_model_queue() -> void:
+	while not _model_queue.is_empty() and _model_requests.size() < MAX_IN_FLIGHT:
+		_start_model_request(_model_queue.pop_front())
+
+static func _start_model_request(path: String) -> void:
+	if ResourceLoader.load_threaded_request(path) == OK:
+		_model_requests[path] = true
+	else:
+		_model_failures[path] = true
+
+## Wie viele Modelle gerade wirklich im Ladethread stecken (Diagnose und Test).
+static func models_in_flight() -> int:
+	return _model_requests.size()
+
+## Wie viele nur auf einen freien Platz warten (Diagnose und Test).
+static func models_queued() -> int:
+	return _model_queue.size()
 
 static func cached_model_scene(path: String) -> PackedScene:
 	return _model_scenes.get(path)
@@ -214,19 +242,24 @@ static func cached_model_scene(path: String) -> PackedScene:
 static func model_failed(path: String) -> bool:
 	return _model_failures.has(path)
 
-## Stößt das Laden im Ladethread an - der Hauptfaden blockiert nie.
+## Stößt das Laden im Ladethread an - der Hauptfaden blockiert nie. Über dem
+## Deckel wandert der Auftrag in die Schlange statt in den Ladethread.
 static func request_model_scene(path: String) -> void:
-	if _model_scenes.has(path) or _model_requests.has(path) or _model_failures.has(path):
+	if _model_scenes.has(path) or _model_requests.has(path) \
+			or _model_failures.has(path) or _model_queue.has(path):
 		return
-	if ResourceLoader.load_threaded_request(path) == OK:
-		_model_requests[path] = true
+	if _model_requests.size() < MAX_IN_FLIGHT:
+		_start_model_request(path)
 	else:
-		_model_failures[path] = true
+		_model_queue.append(path)
 
 ## null solange geladen wird; bei Fehlschlag bleibt es null und model_failed steht.
+## Jeder Fragende hält die Schlange in Bewegung - sonst stünde sie still, sobald
+## das Fenster mit den wartenden Vorschauen geschlossen wird.
 static func poll_model_scene(path: String) -> PackedScene:
 	if _model_scenes.has(path):
 		return _model_scenes[path]
+	_pump_model_queue()
 	if not _model_requests.has(path):
 		return null
 	match ResourceLoader.load_threaded_get_status(path):
