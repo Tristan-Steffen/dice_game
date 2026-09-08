@@ -73,9 +73,12 @@ func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
 ## einem durchscheinenden Kern dahinter und einer festen Zeichen-Reihenfolge.
 func test_the_net_reads_from_behind_through_the_body() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var net: StandardMaterial3D = cell.get_node("Body/Cell0/StampNet").material_override
-	assert_eq(net.cull_mode, BaseMaterial3D.CULL_DISABLED,
+	var net: ShaderMaterial = cell.get_node("Body/Cell0/StampNet").material_override
+	# Beidseitig steht jetzt im Shader (cull_disabled) - dieselbe Backung, gespiegelt.
+	assert_true(net.shader.code.contains("cull_disabled"),
 		"die Rückseite des Quads zeigt dieselbe Textur gespiegelt")
+	assert_ne(net.get_shader_parameter("cull_back"), true,
+		"und das Netz verwirft sie nicht")
 	var core: StandardMaterial3D = cell.get_node("Body/Cell0/Core").material_override
 	assert_eq(core.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA)
 	assert_almost_eq(core.albedo_color.a, DataCellView.CORE_ALPHA, 0.001,
@@ -681,6 +684,32 @@ func test_der_aufgenommene_zustand_dunkelt_die_zellen_und_kehrt_zurueck() -> voi
 	cell.clear_net_drained()
 	assert_eq(cell.net_texture(), resting, "und der Ruhestand ist wieder der geteilte")
 	assert_true(cell.net_drained().is_empty())
+
+## Die STAPEL-EBENE trägt den TIEFEN-NEBEL: was tiefer im Paternoster liegt, liest
+## dunkler und milchiger - aber mit unveränderter Alpha.
+func test_die_stapel_ebene_legt_den_tiefen_nebel_auf() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	var net := cell.net_material()
+	var glass := cell.glow_material()
+	assert_not_null(net, "die Netz-Fläche trägt den Nebel-Shader")
+	assert_almost_eq(float(net.get_shader_parameter("depth_fade")), 0.0, 0.0001,
+		"auf Lese-Tiefe steht kein Nebel")
+	var bright := glass.emission_energy_multiplier
+	var alpha := glass.albedo_color.a
+	var logical := cell.glow_energy()
+	cell.set_layer_depth(3)
+	assert_almost_eq(cell.depth_fade(), 0.75, 0.0001, "Ebene 3 von vier")
+	assert_almost_eq(float(net.get_shader_parameter("depth_fade")), 0.75, 0.0001,
+		"und das Netz liest sie mit")
+	assert_lt(glass.emission_energy_multiplier, bright, "das Glas steht gedämpft")
+	assert_almost_eq(glass.albedo_color.a, alpha, 0.0001, "die Alpha bleibt exakt")
+	assert_almost_eq(cell.glow_energy(), logical, 0.0001,
+		"das LOGISCHE Licht kennt den Nebel nicht")
+	cell.set_layer_depth(0)
+	assert_almost_eq(float(net.get_shader_parameter("depth_fade")), 0.0, 0.0001)
+	assert_almost_eq(glass.emission_energy_multiplier, bright, 0.0001,
+		"und zurück ist alles, wie es war")
+	assert_almost_eq(glass.albedo_color.a, alpha, 0.0001)
 
 func test_eine_kassette_ohne_paket_zeigt_das_leere_kreuz_ihrer_sorte() -> void:
 	# Der Wett-Gewinn kennt Sorte und Größe, aber noch kein Netz.

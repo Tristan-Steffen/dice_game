@@ -249,6 +249,10 @@ var depth := 0.0
 ## weiß der Wirt, nicht der Schacht - und ein Hohlraum unter einem fremden Loch läse
 ## sich dort als schwarzer Balken.
 var cavity_reach := 0.0
+## Und dasselbe NUR für die VORDERE Seite (0 = so weit wie der allgemeine Reach).
+## Der Pool-Schacht meldet hier die Fuge zur Turm-Bucht: hinten schiebt die Ablage
+## herein und braucht die volle Länge, vorn steht ein fremdes, IMMER offenes Loch.
+var front_cavity_reach := 0.0
 ## Wieviel TIEFER als der Parkstand die Maschine zum EIN- und AUSFAHREN sinkt (1 = gar
 ## nicht). GEMELDET von draußen wie cavity_reach: nur eine Grube, die OFFEN stehen
 ## bleibt, hat eine Nachbarin, in deren Loch die wartende Ware sonst erscheint - der
@@ -261,6 +265,7 @@ var _platform: Node3D
 ## Mit welcher Reichweite und welcher Fahrt-Tiefe der stehende Körper gebaut wurde -
 ## sonst bliebe eine geänderte Meldung unbeachtet.
 var _built_reach := -1.0
+var _built_front_reach := -1.0
 var _built_travel := -1.0
 ## Der EINE Tween des Zyklus - Platte und Ware fahren darin gemeinsam.
 var _tween: Tween
@@ -338,12 +343,14 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	if center.is_equal_approx(at) and half.is_equal_approx(wanted) \
 			and is_equal_approx(depth, travel) and _platform != null \
 			and is_equal_approx(_built_reach, cavity_reach) \
+			and is_equal_approx(_built_front_reach, front_cavity_reach) \
 			and is_equal_approx(_built_travel, travel_share):
 		return
 	center = at
 	half = wanted
 	depth = travel
 	_built_reach = cavity_reach
+	_built_front_reach = front_cavity_reach
 	_built_travel = travel_share
 	global_position = center
 	for child in get_children():
@@ -366,22 +373,25 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	_build_body()
 
 ## Wie tief ein Hohlraum wirklich wird: sein Wunschmaß, aber nie weiter als die
-## gemeldete Reichweite - und die schöpft er nie ganz aus (REACH_CLEAR).
-func cavity_span() -> float:
+## gemeldete Reichweite - und die schöpft er nie ganz aus (REACH_CLEAR). Die
+## VORDERE Seite (dir = -1) hört zusätzlich auf ihre eigene Meldung.
+func cavity_span(dir := 1.0) -> float:
 	var wanted := depth * CAVITY_SHARE
-	if cavity_reach <= 0.0:
+	var reach := front_cavity_reach if dir < 0.0 and front_cavity_reach > 0.0 \
+		else cavity_reach
+	if reach <= 0.0:
 		return wanted
-	return minf(wanted, maxf(cavity_reach - REACH_CLEAR, 0.01))
+	return minf(wanted, maxf(reach - REACH_CLEAR, 0.01))
 
 ## Wie weit ein wartendes Stück HINTER der Rückwand steht: am Ende des Hohlraums,
 ## außerhalb des Blickwinkels durch das Öffnungsband.
 func waiting_offset() -> float:
-	return half.x + cavity_span()
+	return half.x + cavity_span(1.0)
 
-## Und wie weit ein abgehendes Stück VOR die Vorderwand fährt - der Spiegel davon.
-## Ein Band, das einen Schritt weiterfährt: derselbe Weg für beide Fuhren.
+## Und wie weit ein abgehendes Stück VOR die Vorderwand fährt - der Spiegel davon,
+## am VORDEREN Hohlraum gemessen (der darf kürzer sein als der hintere).
 func exit_offset() -> float:
-	return waiting_offset()
+	return half.x + cavity_span(-1.0)
 
 ## Wie hoch ein Öffnungsband ist - darüber bleibt der Sturz stehen, und genau dieses
 ## Maß füllt die Blende, wenn sie zu ist. Es mißt am STÜCK (der Anzeige-Tiefe), sitzt
@@ -1316,7 +1326,8 @@ func _build_body() -> void:
 	var span := Vector2(half.x * 2.0, half.y * 2.0)
 	var top := -WALL_SINK
 	var mouth := mouth_height()
-	var cavity := cavity_span()
+	var back_cavity := cavity_span(1.0)
+	var front_cavity := cavity_span(-1.0)
 	# Der ganze Kasten reicht bis auf die BAND-EBENE: Öffnungsband, Hohlraum und Sohle
 	# sitzen dort, oberhalb steht die Wand geschlossen. Was man im Park sieht, deckt
 	# ohnehin die Platte.
@@ -1337,14 +1348,15 @@ func _build_body() -> void:
 
 	# Je Band ein Hohlraum: Stirnwand, zwei Flanken und eine Decke, damit der Blick
 	# durch keines der beiden Öffnungsbänder ins Freie fällt.
-	_build_cavity("Back", 1.0, span, top, mouth, cavity)
-	_build_cavity("Front", -1.0, span, top, mouth, cavity)
+	_build_cavity("Back", 1.0, span, top, mouth, back_cavity)
+	_build_cavity("Front", -1.0, span, top, mouth, front_cavity)
 
-	# Die SOHLE unter Schacht und BEIDEN Hohlräumen: der Blick in den offenen Schacht
-	# darf nie auf den Raumboden fallen (der Filz ist dort weggeblendet).
-	_box("Sole", Vector3(span.x + WALL * 2.0 + cavity * 2.0, DECK,
+	# Die SOHLE unter Schacht und BEIDEN Hohlräumen - und die sind seit der
+	# Turm-Bucht verschieden lang, also steht sie außermittig.
+	_box("Sole", Vector3(span.x + WALL * 2.0 + back_cavity + front_cavity, DECK,
 		span.y + WALL * 2.0),
-		Vector3(0.0, sole_y + DECK * 0.5, 0.0), _cavity_material)
+		Vector3((back_cavity - front_cavity) * 0.5, sole_y + DECK * 0.5, 0.0),
+		_cavity_material)
 
 	var glow_y := -GLOW_DROP - GLOW_H * 0.5
 	# Rundum, denn beide Stürze stehen hoch genug: der Saum liegt auf ihnen, nicht

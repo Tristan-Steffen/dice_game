@@ -4867,6 +4867,23 @@ func _field_of(lo: Vector2, hi: Vector2) -> Dictionary:
 			(hi.y - lo.y) * 0.5 + TRAY_PIT_SEAM.y),
 	}
 
+## Wie weit der Pool-Schacht VORN Platz nehmen darf: bis an die TURM-BUCHT, die nur
+## eine Naht unter dem Pool-Loch beginnt und IMMER offen steht - ein Hohlraum unter
+## ihr läse sich dort als schwarzer Balken quer durch die Bucht. 0 = keine Werkstatt,
+## also kein fremdes Loch. Zwilling von _bet_cavity_reach.
+func _pool_cavity_reach(field: Dictionary) -> float:
+	if table_screen == null or field.is_empty():
+		return 0.0
+	var bay := table_screen.pit_rect(TableScreen.PIT_TOWER)
+	if bay.size.x <= 0.0 or bay.size.y <= 0.0:
+		return 0.0
+	var at: Vector3 = field["at"]
+	var front := at.x - (field["half"] as Vector2).x
+	# Bild-oben ist Welt +X: die Oberkante der Bucht liegt dem Pool am nächsten.
+	var edge := table_screen.pixel_to_world(bay.position).x
+	# Vor und hinter dem Hohlraum steht je eine Wand - die zählen mit.
+	return maxf(front - edge - LiftShaftView.WALL * 2.0, 0.05)
+
 ## Die Sektion des Vorrats, gestellt und verdrahtet - der EINE Schreiber ihrer
 ## Konfiguration, und sie kennt ZWEI: für die RUNDE flach (POOL_PARK_DEPTH) und ohne
 ## Schirm (der Vorrat ragt aus dem Pit, ein Glas darüber wäre durchstoßen), für die
@@ -4884,6 +4901,7 @@ func _pool_shaft_on(field: Dictionary) -> LiftShaftView:
 			table_screen.clear_pit(TableScreen.PIT_POOL))
 	pool_shaft.deck_skin = table_screen.display_skin()
 	pool_shaft.order_skin(PIT_SKIN)
+	pool_shaft.front_cavity_reach = _pool_cavity_reach(field)
 	if _deck_glass:
 		pool_shaft.order_cover("", DECK_GLASS_TINT)
 		pool_shaft.order_cover_skin(table_screen.deck_glass_skin())

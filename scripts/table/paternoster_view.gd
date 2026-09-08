@@ -78,12 +78,9 @@ const PLATE_ENERGY := TowerView.FRAME_EMISSION_ENERGY
 ## Ebene (layer_bias) haelt die ganze Ebene hinter der darueber.
 const PLATE_ALPHA := 0.3
 const PLATE_PRIORITY := -3
-## Wie viel heller ein GEPARKTES Tablett glüht: in der dunklen Grube trifft es kein
-## Szenenlicht, und durch Spalt und Fußluft sieht man nur seine schmalen STIRNFLÄCHEN.
-## GEMESSEN am Bild - bei 1,0 liest der Parkstapel als schwarzer Schlitz, bei 3,0
-## steht die Treppe der Front-Blenden im Bild, ohne die liegenden Reihen zu überstrahlen
-## (Bloom-Schwelle 0,95: 0,42 × 3,0 = 1,26 trägt nur die winzigen Stirnflächen).
-const PARK_GLOW := 3.0
+## Der TIEFEN-NEBEL: ein geparktes Tablett liest DUNKLER und MILCHIGER, nicht heller
+## (Spieler-Entscheid 2026-09-08, PARK_GLOW ist damit gestorben). Die Zahlen wohnen
+## bei der Karte (DataCellView.DEPTH_*) - Platte und Netz tragen denselben Nebel.
 
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
@@ -99,9 +96,9 @@ var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
 var _plates: Array[MeshInstance3D] = []
 var _ticks: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
-## Je STAPEL-EBENE ein Platten-Material: die tieferen glühen heller (PARK_GLOW) und
+## Je STAPEL-EBENE ein Platten-Material: die tieferen stehen tiefer im Nebel und
 ## zeichnen in ihrer EIGENEN Priorität, damit sie wirklich hinten liegen.
-var _plate_materials: Array[StandardMaterial3D] = []
+var _plate_materials: Array[ShaderMaterial] = []
 var _ride: Tween
 
 func _init() -> void:
@@ -340,8 +337,7 @@ func _write_hard() -> void:
 			_bands[row].visible = level == 0
 		_bias_cards(row, level)
 
-## Ein GEPARKTES Tablett glüht heller: in der Grube trifft es kein Szenenlicht, und
-## sichtbar ist durch den SPALT nur seine schmale Stirnfläche.
+## Ein GEPARKTES Tablett steht im Nebel: je tiefer, desto dunkler und milchiger.
 func _paint_tray(row: int, level: int) -> void:
 	if row >= _plates.size() or _plate_materials.is_empty():
 		return
@@ -486,19 +482,28 @@ func _write_ticks(row: int) -> void:
 func _ensure_materials() -> void:
 	if not _plate_materials.is_empty():
 		return
+	var shader: Shader = load(DataCellView.DEPTH_SHADER)
 	for level in MAX_DEPTH + 1:
-		var plate := StandardMaterial3D.new()
-		plate.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		plate.albedo_color = Color(PLATE_ALBEDO.r, PLATE_ALBEDO.g,
-			PLATE_ALBEDO.b, PLATE_ALPHA)
+		var plate := ShaderMaterial.new()
+		plate.shader = shader
+		plate.set_shader_parameter("albedo", PLATE_ALBEDO)
+		plate.set_shader_parameter("emission", PLATE_EMISSION)
+		plate.set_shader_parameter("emission_energy", PLATE_ENERGY)
+		plate.set_shader_parameter("alpha", PLATE_ALPHA)
+		plate.set_shader_parameter("metallic", 0.35)
+		plate.set_shader_parameter("roughness", 0.55)
+		plate.set_shader_parameter("cull_back", true)  # die Platte ist ein Kasten
+		plate.set_shader_parameter("depth_fade",
+			float(level) / float(maxi(MAX_DEPTH, 1)))
+		plate.set_shader_parameter("fog_strength", DataCellView.DEPTH_FOG)
+		plate.set_shader_parameter("fog_gamma", DataCellView.DEPTH_FOG_GAMMA)
+		plate.set_shader_parameter("frost_strength", DataCellView.DEPTH_FROST)
+		plate.set_shader_parameter("frost_gamma", DataCellView.DEPTH_FROST_GAMMA)
+		plate.set_shader_parameter("frost_gain", DataCellView.DEPTH_FROST_GAIN)
+		plate.set_shader_parameter("frost_tint", DataCellView.FROST_TINT)
 		# JEDE Ebene zeichnet in ihrer eigenen Priorität: so liegt das Tiefe wirklich
 		# hinten und wird vom Glas darüber gedämpft, statt durchzustanzen.
 		plate.render_priority = PLATE_PRIORITY + layer_bias(level)
-		plate.metallic = 0.35
-		plate.roughness = 0.55
-		plate.emission_enabled = true
-		plate.emission = PLATE_EMISSION
-		plate.emission_energy_multiplier = PLATE_ENERGY * (PARK_GLOW if level > 0 else 1.0)
 		_plate_materials.append(plate)
 
 func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,

@@ -285,6 +285,44 @@ func test_ohne_gemeldete_reichweite_bleibt_der_hohlraum_unveraendert() -> void:
 	assert_almost_eq(shaft.cavity_span(), 0.4 - LiftShaftView.REACH_CLEAR, 0.0001,
 		"gemeldet heißt eingehalten - und nie ganz bis an die Nachbarwand")
 
+## Der Pool-Schacht meldet NUR VORN: dort beginnt eine Naht unter ihm die Turm-Bucht,
+## hinten schiebt die Ablage herein und braucht die volle Länge.
+func test_die_vordere_meldung_kuerzt_nur_die_vordere_seite() -> void:
+	var shaft := LiftShaftView.new()
+	add_child_autofree(shaft)
+	shaft.front_cavity_reach = 0.5
+	shaft.setup(Vector3.ZERO, Vector2(1.0, 3.0), 2.0)
+	var wanted := 2.0 * LiftShaftView.CAVITY_SHARE
+	assert_almost_eq(shaft.cavity_span(1.0), wanted, 0.0001,
+		"hinten bleibt der Hohlraum unbegrenzt")
+	assert_almost_eq(shaft.cavity_span(-1.0), 0.5 - LiftShaftView.REACH_CLEAR, 0.0001,
+		"vorn hält er die Meldung ein")
+	assert_almost_eq(shaft.exit_offset(), 1.5 - LiftShaftView.REACH_CLEAR, 0.0001,
+		"und das abgehende Stück fährt nur bis an das neue Ende")
+	# Kein Bauteil - Hohlraum wie Sohle - reicht VORN über Wand plus Meldung hinaus.
+	var front_limit := 1.0 + 0.5 + LiftShaftView.WALL * 2.0
+	var back_reach := 0.0
+	for child in shaft.get_children():
+		if not (child is MeshInstance3D) or not ((child as MeshInstance3D).mesh is BoxMesh):
+			continue
+		var box: BoxMesh = (child as MeshInstance3D).mesh
+		var near: float = -(child.position.x - box.size.x * 0.5)
+		assert_lte(near, front_limit + 0.0001,
+			"%s bleibt vorn in der gemeldeten Reichweite" % child.name)
+		back_reach = maxf(back_reach, child.position.x + box.size.x * 0.5)
+	assert_almost_eq(back_reach, 1.0 + LiftShaftView.WALL * 2.0 + wanted, 0.0001,
+		"hinten steht die Stirnwand am vollen Wunschmaß")
+
+## Ohne die vordere Meldung ist der Schacht symmetrisch wie eh und je.
+func test_ohne_vordere_meldung_bleibt_der_schacht_symmetrisch() -> void:
+	var shaft := LiftShaftView.new()
+	add_child_autofree(shaft)
+	shaft.setup(Vector3.ZERO, Vector2(1.0, 3.0), 2.0)
+	assert_almost_eq(shaft.cavity_span(-1.0), shaft.cavity_span(1.0), 0.0001,
+		"beide Hohlräume sind gleich tief")
+	var sole: MeshInstance3D = shaft.get_node("Sole")
+	assert_almost_eq(sole.position.x, 0.0, 0.0001, "und die Sohle steht mittig")
+
 func test_die_zonen_fahren_gleichzeitig() -> void:
 	# Regal und Schale starten im selben Augenblick und stehen im selben - in JEDER
 	# Zeremonie. Gemessen an derselben Stelle beider Fahrpläne, dem Deckel.

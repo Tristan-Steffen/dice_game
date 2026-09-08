@@ -245,30 +245,47 @@ func test_alle_zehn_faecher_sind_sichtbar() -> void:
 	assert_true(pater.shows(1))
 	assert_false(pater.shows(4))
 
-## Ein GEPARKTES Tablett glüht heller: in der Grube trifft es kein Szenenlicht, und
-## durch den SPALT liest nur seine schmale Stirnfläche.
-func test_ein_geparktes_tablett_glueht_heller() -> void:
+## Ein GEPARKTES Tablett liest DUNKLER und MILCHIGER (Spieler-Entscheid 2026-09-08):
+## der Tiefen-Nebel staffelt den Parkstapel, statt ihn heller zu glühen.
+func test_ein_geparktes_tablett_liest_dunkler_und_milchiger() -> void:
 	pater.set_head(0)
-	var lying := (pater.get_node("Tablett1/Platte") as MeshInstance3D).material_override
-	var parked := (pater.get_node("Tablett5/Platte") as MeshInstance3D).material_override
+	var lying := (pater.get_node("Tablett1/Platte") as MeshInstance3D) \
+		.material_override as ShaderMaterial
+	var parked := (pater.get_node("Tablett5/Platte") as MeshInstance3D) \
+		.material_override as ShaderMaterial
+	assert_not_null(lying, "die Platte trägt den Nebel-Shader")
 	assert_ne(lying, parked, "zwei Materialien, nicht eins")
-	assert_almost_eq((parked as StandardMaterial3D).emission_energy_multiplier,
-		(lying as StandardMaterial3D).emission_energy_multiplier
-			* PaternosterView.PARK_GLOW, 0.0001)
-	assert_gt(PaternosterView.PARK_GLOW, 1.0, "heller, nicht dunkler")
+	assert_almost_eq(float(lying.get_shader_parameter("depth_fade")), 0.0, 0.0001,
+		"die liegende Reihe steht nicht im Nebel")
+	assert_gt(float(parked.get_shader_parameter("depth_fade")), 0.0,
+		"die geparkte schon")
+	# Der Nebel steigt STRENG mit der Ebene, und die Alpha bleibt exakt die alte.
+	var last := -1.0
+	for level in PaternosterView.MAX_DEPTH + 1:
+		# head 0: Reihe 2 liegt vorn, die Reihen 3..6 parken darunter (Ebene 1..4).
+		var row := level + 1
+		var plate := (pater.get_node("Tablett%d/Platte" % (row + 1)) as MeshInstance3D) \
+			.material_override as ShaderMaterial
+		var fade := float(plate.get_shader_parameter("depth_fade"))
+		assert_gt(fade, last, "Ebene %d steht tiefer im Nebel" % level)
+		last = fade
+		assert_almost_eq(float(plate.get_shader_parameter("alpha")),
+			PaternosterView.PLATE_ALPHA, 0.0001, "die Alpha bleibt, wie sie war")
+	assert_almost_eq(last, 1.0, 0.0001, "unten steht der Nebel ganz")
+	assert_eq(DataCellView.DEPTH_LEVELS, PaternosterView.MAX_DEPTH,
+		"Karte und Tablett messen an derselben Stapel-Tiefe")
 	# Und die Fahrt trägt den Ton ihres ALTEN Platzes, bis sie steht.
 	pater.step(1)
 	await wait_frames(2)
 	assert_eq((pater.get_node("Tablett2/Platte") as MeshInstance3D).material_override,
-		lying, "die sinkende Reihe flammt nicht schon in der Fläche auf")
+		lying, "die sinkende Reihe versinkt nicht schon in der Fläche im Nebel")
 	await wait_seconds(_ride_time())
 	# Je EBENE ein eigenes Material: verglichen wird der Ton, nicht die Instanz.
 	var sunk := (pater.get_node("Tablett2/Platte") as MeshInstance3D) \
-		.material_override as StandardMaterial3D
-	assert_almost_eq(sunk.emission_energy_multiplier,
-		(lying as StandardMaterial3D).emission_energy_multiplier
-			* PaternosterView.PARK_GLOW, 0.0001, "unten trägt sie den Park-Ton")
-	assert_lt(sunk.render_priority, (lying as StandardMaterial3D).render_priority,
+		.material_override as ShaderMaterial
+	assert_gt(float(sunk.get_shader_parameter("depth_fade")), 0.0,
+		"unten trägt sie den Park-Ton")
+	assert_lt(sunk.render_priority, lying.render_priority,
 		"und sie zeichnet HINTER der liegenden Reihe")
 
 # --- Die Karten sind Kinder ihres Faches -------------------------------------------
