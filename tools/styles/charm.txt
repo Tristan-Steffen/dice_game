@@ -4,6 +4,7 @@ saturated colors, chunky slightly exaggerated proportions - the object itself
 pristine and factory-new: polished spotless surfaces, crisp edges, one glowing
 neon accent, no dirt, rust, damage or clutter. Single object, centered, strong
 readable silhouette, plain neutral mid-grey background, no text, no lettering,
-no shadow cast on the ground, full object visible with margin on all sides.
+no numbers, no logos or brand emblems, no shadow cast on the ground, full object
+visible with margin on all sides.
 Reference sheet for image-to-3D conversion: three-quarter view from slightly
 above.

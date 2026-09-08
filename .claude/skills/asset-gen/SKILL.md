@@ -37,8 +37,10 @@ prüfbar, „schön“ ist es nicht. Die Auswahl unter den brauchbaren Kandidate
   `assets/textures/engravings/<engraving_id>.jpg`) — siehe CLAUDE.md.
 - Charm-Prompts stehen gesammelt in `assets/models/CHARM_PROMPTS.md`; ein neuer
   Prompt gehört dort hinein, ✔ markiert die fertigen.
-- Ein Charm-Bild ist **Zwischenschritt**, kein Asset: es geht in Tripo (Bild→3D),
-  das `.glb` ist das Ergebnis. Das Bild selbst nicht einchecken.
+- Ein Charm-Bild ist **Zwischenschritt**, kein Asset: es geht in Tripo oder Meshy (Bild→3D),
+  das `.glb` ist das Ergebnis. Das Bild selbst nicht einchecken. Meshy-Exporte vor dem
+  Kopieren durch `tools/shrink_glb.py <quelle> assets/models/<id>.glb --ground` ziehen
+  (4096er-Karten → 1024er, 15–30 MB → ~1 MB; Fuß auf Y = 0 wie bei Tripo).
 - **Jedes erzeugte Bild wird in `E:/Generated Images/<Projekt>/<Lauf>/` abgelegt**
   (neben dem Obsidian-Vault, Lauf-Ordner mit Datum, z. B.
   `E:/Generated Images/Fumble/gruben_wand_2026-08-25/`) — auch die verworfenen
@@ -51,9 +53,16 @@ prüfbar, „schön“ ist es nicht. Die Auswahl unter den brauchbaren Kandidate
 Standardmodell ist `gemini-3.1-flash-lite-image` (~$0.034/Bild, nur 1K, keine
 Stil-Referenzen). Läufe mit `--ref` brauchen `--model gemini-3.1-flash-image`
 (dann `--size 512` nehmen, $0.045/Bild). Nie 2K/4K für Icons oder
-Tripo-Vorlagen. Für Massenläufe (z. B. alle fehlenden Charm-Bilder) die
-Batch API erwähnen: 50 % Rabatt, bis 24 h Wartezeit — lohnt ab ~50 Bildern,
-ist aber nicht in imagegen.py verdrahtet.
+Tripo-Vorlagen. **Massenläufe** (z. B. alle fehlenden Charm-Bilder) gehen über
+`tools/imagegen_batch.py` in EINEM Batch-Job (50 % Rabatt, Ergebnis nach Minuten
+bis 24 h): `submit` nimmt ein Manifest `[{"id", "prompt"}]` plus `--style`/`--n`,
+`poll` wartet (Vordergrund mit `timeout`, oder ein Bash-Hintergrundlauf - das ist
+kein Godot), `fetch` schreibt `<id>_<k>.png` in den Lauf-Ordner, `sheets` legt je
+Motiv einen Kontaktbogen der Kandidaten an, `winners` kopiert die in `picks.json`
+gewählten Kandidaten nach `winners/<id>.png` und baut Übersichts-Raster. `--dry-run`
+zeigt Anzahl und Kosten,
+bevor etwas gesendet wird; die Bilder zählen nicht gegen das Tages-Budget des
+Einzelaufrufs, sondern werden im Zähler unter `batch` gebucht.
 
 ## Grenzen
 
