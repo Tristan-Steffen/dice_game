@@ -245,48 +245,67 @@ func test_alle_zehn_faecher_sind_sichtbar() -> void:
 	assert_true(pater.shows(1))
 	assert_false(pater.shows(4))
 
-## Ein GEPARKTES Tablett liest DUNKLER und MILCHIGER (Spieler-Entscheid 2026-09-08):
-## der Tiefen-Nebel staffelt den Parkstapel, statt ihn heller zu glühen.
-func test_ein_geparktes_tablett_liest_dunkler_und_milchiger() -> void:
+## Ein GEPARKTES Tablett trägt DENSELBEN Glaston wie ein liegendes (Spieler-Entscheid
+## 2026-09-08): nur das Glas darüber dämpft es - kein Nebel, kein Park-Glühen. Was
+## die Ebene unterscheidet, ist allein die Zeichen-Priorität.
+func test_ein_geparktes_tablett_traegt_denselben_glaston() -> void:
 	pater.set_head(0)
 	var lying := (pater.get_node("Tablett1/Platte") as MeshInstance3D) \
-		.material_override as ShaderMaterial
+		.material_override as StandardMaterial3D
 	var parked := (pater.get_node("Tablett5/Platte") as MeshInstance3D) \
-		.material_override as ShaderMaterial
-	assert_not_null(lying, "die Platte trägt den Nebel-Shader")
+		.material_override as StandardMaterial3D
+	assert_not_null(lying, "die Platte ist schlichtes Glas")
 	assert_ne(lying, parked, "zwei Materialien, nicht eins")
-	assert_almost_eq(float(lying.get_shader_parameter("depth_fade")), 0.0, 0.0001,
-		"die liegende Reihe steht nicht im Nebel")
-	assert_gt(float(parked.get_shader_parameter("depth_fade")), 0.0,
-		"die geparkte schon")
-	# Der Nebel steigt STRENG mit der Ebene, und die Alpha bleibt exakt die alte.
-	var last := -1.0
-	for level in PaternosterView.MAX_DEPTH + 1:
-		# head 0: Reihe 2 liegt vorn, die Reihen 3..6 parken darunter (Ebene 1..4).
-		var row := level + 1
-		var plate := (pater.get_node("Tablett%d/Platte" % (row + 1)) as MeshInstance3D) \
-			.material_override as ShaderMaterial
-		var fade := float(plate.get_shader_parameter("depth_fade"))
-		assert_gt(fade, last, "Ebene %d steht tiefer im Nebel" % level)
-		last = fade
-		assert_almost_eq(float(plate.get_shader_parameter("alpha")),
-			PaternosterView.PLATE_ALPHA, 0.0001, "die Alpha bleibt, wie sie war")
-	assert_almost_eq(last, 1.0, 0.0001, "unten steht der Nebel ganz")
-	assert_eq(DataCellView.DEPTH_LEVELS, PaternosterView.MAX_DEPTH,
-		"Karte und Tablett messen an derselben Stapel-Tiefe")
-	# Und die Fahrt trägt den Ton ihres ALTEN Platzes, bis sie steht.
+	assert_eq(parked.albedo_color, lying.albedo_color, "derselbe Ton")
+	assert_almost_eq(parked.emission_energy_multiplier,
+		lying.emission_energy_multiplier, 0.0001, "dasselbe Licht")
+	assert_almost_eq(lying.albedo_color.a, PaternosterView.PLATE_ALPHA, 0.0001,
+		"die Alpha bleibt, wie sie war")
+	assert_lt(parked.render_priority, lying.render_priority,
+		"die geparkte zeichnet HINTER der liegenden Reihe")
+	# Die Fahrt trägt die Priorität ihres ALTEN Platzes, bis sie steht.
 	pater.step(1)
 	await wait_frames(2)
 	assert_eq((pater.get_node("Tablett2/Platte") as MeshInstance3D).material_override,
-		lying, "die sinkende Reihe versinkt nicht schon in der Fläche im Nebel")
+		lying, "die sinkende Reihe wechselt nicht schon in der Fläche")
 	await wait_seconds(_ride_time())
-	# Je EBENE ein eigenes Material: verglichen wird der Ton, nicht die Instanz.
 	var sunk := (pater.get_node("Tablett2/Platte") as MeshInstance3D) \
-		.material_override as ShaderMaterial
-	assert_gt(float(sunk.get_shader_parameter("depth_fade")), 0.0,
-		"unten trägt sie den Park-Ton")
+		.material_override as StandardMaterial3D
 	assert_lt(sunk.render_priority, lying.render_priority,
-		"und sie zeichnet HINTER der liegenden Reihe")
+		"unten zeichnet sie hinter der liegenden")
+
+## Jedes Tablett trägt einen RAND in SEINER Reihenfarbe (Spieler-Entscheid
+## 2026-09-08): vier massive Leisten an den Kanten, keine zwei Reihen im selben Ton,
+## Nachbarn weit auseinander - und die Nummer spricht dieselbe Farbe.
+func test_jedes_tablett_traegt_seinen_reihen_rand() -> void:
+	var seen: Array[Color] = []
+	for row in ROWS:
+		var rim := pater.get_node("Tablett%d/Rand" % (row + 1)) as Node3D
+		assert_eq(rim.get_child_count(), 4, "vier Leisten an Reihe %d" % (row + 1))
+		var tint := PaternosterView.row_color(row)
+		for leaf in rim.get_children():
+			var material := (leaf as MeshInstance3D).material_override as StandardMaterial3D
+			assert_eq(material.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED,
+				"massiv, nicht Alpha - sonst stanzte er durch das Glas")
+			assert_eq(material.emission, tint, "in der Reihenfarbe")
+			assert_lt(material.emission_energy_multiplier, 0.95, "unter der Bloom-Schwelle")
+		for other in seen:
+			assert_ne(other, tint, "keine zwei Reihen im selben Ton")
+		seen.append(tint)
+		var number := pater.get_node("Tablett%d/Blende/Nummer" % (row + 1)) as Label3D
+		assert_eq(number.modulate, tint, "die Nummer trägt die Farbe ihres Rands")
+	# Nachbarreihen liegen im Farbkreis weit auseinander (mehr als eine Viertel-
+	# drehung), damit die zwei liegenden Reihen sich auf einen Blick trennen.
+	for row in ROWS - 1:
+		var a := PaternosterView.row_color(row).h
+		var b := PaternosterView.row_color(row + 1).h
+		var gap := absf(a - b)
+		gap = minf(gap, 1.0 - gap)
+		assert_gt(gap, 0.25, "Reihe %d und %d" % [row + 1, row + 2])
+	# Und der Rand liegt AUF der Platte: seine Oberkante steht über der Trittfläche.
+	var leaf := pater.get_node("Tablett1/Rand/Rand0") as MeshInstance3D
+	var top := leaf.position.y + (leaf.mesh as BoxMesh).size.y * 0.5
+	assert_almost_eq(top, PaternosterView.RIM_RISE, 0.0001)
 
 # --- Die Karten sind Kinder ihres Faches -------------------------------------------
 

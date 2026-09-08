@@ -69,18 +69,26 @@ const TICK_EMPTY := Color(0.16, 0.155, 0.22)
 const SINK_TIME := 0.30
 const RIDE_TIME := 0.30
 
-const PLATE_ALBEDO := TowerView.FRAME_ALBEDO
+## Die Tabletts sind DURCHSICHTIGES, DUNKLES Glas (Spieler-Entscheide 2026-09-07/08):
+## durch sie sieht man auf den Parkstapel, und NUR die Glasfarbe dämpft, was darunter
+## liegt - je Platte darüber eine Stufe dunkler. Die Karten selbst tragen keinen
+## Ton nach Ebene (der Tiefen-Nebel färbte schon ab, bevor das Glas sie deckte).
+## PLATE_PRIORITY hält eine Platte hinter den Karten IHRER Ebene; der Versatz je
+## Ebene (layer_bias) hält die ganze Ebene hinter der darüber.
+const PLATE_ALBEDO := Color(0.05, 0.045, 0.08)
 const PLATE_EMISSION := TowerView.FRAME_EMISSION
-const PLATE_ENERGY := TowerView.FRAME_EMISSION_ENERGY
-## Die Tabletts sind DURCHSICHTIG (Spieler-Entscheid 2026-09-07): durch sie sieht man
-## in die Grube auf den Parkstapel, und die Karten darunter lesen gedaempft mit.
-## PLATE_PRIORITY haelt eine Platte hinter den Karten IHRER Ebene; der Versatz je
-## Ebene (layer_bias) haelt die ganze Ebene hinter der darueber.
+const PLATE_ENERGY := 0.1
 const PLATE_ALPHA := 0.3
 const PLATE_PRIORITY := -3
-## Der TIEFEN-NEBEL: ein geparktes Tablett liest DUNKLER und MILCHIGER, nicht heller
-## (Spieler-Entscheid 2026-09-08, PARK_GLOW ist damit gestorben). Die Zahlen wohnen
-## bei der Karte (DataCellView.DEPTH_*) - Platte und Netz tragen denselben Nebel.
+## Der REIHEN-RAND: jedes Tablett trägt an seinen vier Kanten einen leuchtenden Rand
+## in SEINER Reihenfarbe, damit die Reihen sich unterscheiden - auch durch das Glas.
+## Der Farbton springt in Dritteln um den Kreis, damit Nachbarreihen weit auseinander
+## liegen; die Energie bleibt unter der Bloom-Schwelle (0,95).
+const RIM_WIDTH := 0.07
+const RIM_RISE := 0.03
+const RIM_HUE_STRIDE := 3
+const RIM_SATURATION := 0.8
+const RIM_ENERGY := 0.8
 
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
@@ -96,9 +104,9 @@ var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
 var _plates: Array[MeshInstance3D] = []
 var _ticks: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
-## Je STAPEL-EBENE ein Platten-Material: die tieferen stehen tiefer im Nebel und
-## zeichnen in ihrer EIGENEN Priorität, damit sie wirklich hinten liegen.
-var _plate_materials: Array[ShaderMaterial] = []
+## Je STAPEL-EBENE ein Platten-Material - derselbe Glaston, aber jede Ebene zeichnet
+## in ihrer EIGENEN Priorität, damit sie wirklich hinten liegt.
+var _plate_materials: Array[StandardMaterial3D] = []
 var _ride: Tween
 
 func _init() -> void:
@@ -205,6 +213,7 @@ func _build_tray(row: int) -> void:
 		Vector3(0.0, -PLATE * 0.5, 0.0), _plate_materials[0], tray)
 	plate.name = "Platte"
 	_plates[row] = plate
+	_build_rim(row, tray)
 	var band := Node3D.new()
 	band.name = "Blende"
 	# Bild-UNTEN ist Welt -X: dort steht die Blende, wie die Front einer Schublade.
@@ -224,8 +233,38 @@ func _build_tray(row: int) -> void:
 		-_span.y * 0.5 + band_depth() * NUMBER_INSET)
 	label.outline_size = 12
 	label.outline_modulate = Color(0.03, 0.03, 0.05)
+	label.modulate = row_color(row)  # die Nummer spricht die Farbe ihres Rands
 	band.add_child(label)
 	_write_ticks(row)
+
+## Die Reihenfarbe: Farbton in Dritteln um den Kreis, so liegen Nachbarn weit
+## auseinander und keine zwei Reihen teilen einen Ton.
+static func row_color(row: int) -> Color:
+	var hue := float(posmod(row * RIM_HUE_STRIDE, ROWS)) / float(ROWS)
+	return Color.from_hsv(hue, RIM_SATURATION, 1.0)
+
+## Der Rand: vier MASSIVE Leisten bündig an den Kanten der Platte, eine Spur über
+## ihrer Trittfläche. Massiv, damit er nicht wie eine Alpha-Fläche durch das Glas
+## darüber stanzt - das Glas deckt ihn ehrlich ab.
+func _build_rim(row: int, tray: Node3D) -> void:
+	var rim := Node3D.new()
+	rim.name = "Rand"
+	tray.add_child(rim)
+	var tint := row_color(row)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = tint * 0.5
+	material.emission_enabled = true
+	material.emission = tint
+	material.emission_energy_multiplier = RIM_ENERGY
+	var depth := lane_depth()
+	var height := PLATE + RIM_RISE
+	var y := (RIM_RISE - PLATE) * 0.5
+	var along := Vector3(RIM_WIDTH, height, _span.y)
+	var across := Vector3(depth, height, RIM_WIDTH)
+	_box("Rand0", along, Vector3(depth * 0.5 - RIM_WIDTH * 0.5, y, 0.0), material, rim)
+	_box("Rand1", along, Vector3(-depth * 0.5 + RIM_WIDTH * 0.5, y, 0.0), material, rim)
+	_box("Rand2", across, Vector3(0.0, y, _span.y * 0.5 - RIM_WIDTH * 0.5), material, rim)
+	_box("Rand3", across, Vector3(0.0, y, -_span.y * 0.5 + RIM_WIDTH * 0.5), material, rim)
 
 ## Die Tiefe EINER Lane in Welt: sie wird GEMELDET (das Fenster schneidet Spalt und
 ## Fußluft heraus); ohne Meldung bleibt die halbe Grube der kopflose Rückfall.
@@ -337,7 +376,7 @@ func _write_hard() -> void:
 			_bands[row].visible = level == 0
 		_bias_cards(row, level)
 
-## Ein GEPARKTES Tablett steht im Nebel: je tiefer, desto dunkler und milchiger.
+## Die Platte einer Reihe zeichnet in der Priorität ihrer Ebene.
 func _paint_tray(row: int, level: int) -> void:
 	if row >= _plates.size() or _plate_materials.is_empty():
 		return
@@ -482,25 +521,17 @@ func _write_ticks(row: int) -> void:
 func _ensure_materials() -> void:
 	if not _plate_materials.is_empty():
 		return
-	var shader: Shader = load(DataCellView.DEPTH_SHADER)
 	for level in MAX_DEPTH + 1:
-		var plate := ShaderMaterial.new()
-		plate.shader = shader
-		plate.set_shader_parameter("albedo", PLATE_ALBEDO)
-		plate.set_shader_parameter("emission", PLATE_EMISSION)
-		plate.set_shader_parameter("emission_energy", PLATE_ENERGY)
-		plate.set_shader_parameter("alpha", PLATE_ALPHA)
-		plate.set_shader_parameter("metallic", 0.35)
-		plate.set_shader_parameter("roughness", 0.55)
-		plate.set_shader_parameter("cull_back", true)  # die Platte ist ein Kasten
-		plate.set_shader_parameter("depth_fade",
-			float(level) / float(maxi(MAX_DEPTH, 1)))
-		plate.set_shader_parameter("fog_strength", DataCellView.DEPTH_FOG)
-		plate.set_shader_parameter("fog_gamma", DataCellView.DEPTH_FOG_GAMMA)
-		plate.set_shader_parameter("frost_strength", DataCellView.DEPTH_FROST)
-		plate.set_shader_parameter("frost_gamma", DataCellView.DEPTH_FROST_GAMMA)
-		plate.set_shader_parameter("frost_gain", DataCellView.DEPTH_FROST_GAIN)
-		plate.set_shader_parameter("frost_tint", DataCellView.FROST_TINT)
+		var plate := StandardMaterial3D.new()
+		var tint := PLATE_ALBEDO
+		tint.a = PLATE_ALPHA
+		plate.albedo_color = tint
+		plate.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		plate.metallic = 0.35
+		plate.roughness = 0.55
+		plate.emission_enabled = true
+		plate.emission = PLATE_EMISSION
+		plate.emission_energy_multiplier = PLATE_ENERGY
 		# JEDE Ebene zeichnet in ihrer eigenen Priorität: so liegt das Tiefe wirklich
 		# hinten und wird vom Glas darüber gedämpft, statt durchzustanzen.
 		plate.render_priority = PLATE_PRIORITY + layer_bias(level)

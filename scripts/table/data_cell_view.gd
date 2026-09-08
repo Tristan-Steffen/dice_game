@@ -225,24 +225,6 @@ const PRIORITY_PANE := 0
 ## also acht Stufen - zehn geben Luft. Ohne den Versatz zeichnete das Netz einer
 ## TIEFEN Karte (höchste Priorität) über das Glas der Reihe DARÜBER hinweg.
 const LAYER_SPAN := 10
-## So viele PARK-Ebenen tief ist der Stapel des Paternosters (PaternosterView.MAX_DEPTH,
-## ein Test hält beide gleich) - daran mißt der TIEFEN-NEBEL.
-const DEPTH_LEVELS := 4
-## Der TIEFEN-NEBEL: je tiefer die Ebene, desto dunkler und milchiger liest die Karte.
-## Ohne ihn stanzt das scharfe Netz einer geparkten Reihe aus der Grube herauf und
-## läßt sich von der liegenden nicht unterscheiden. Dieselben Zahlen stehen im
-## depth_glass.gdshader, der Netz und Tablett-Platte trägt.
-const DEPTH_FOG := 0.8
-## Die erste Stufe fällt HART ab, die letzten sammeln sich: 1,00 / 0,57 / 0,42 /
-## 0,30 / 0,20.
-const DEPTH_FOG_GAMMA := 0.45
-const DEPTH_FROST := 0.9
-## Das Milchglas steigt SANFTER, als der Nebel fällt: 0,34 / 0,55 / 0,74 / 0,90.
-const DEPTH_FROST_GAMMA := 0.7
-## Wie hell das Milchglas gegen den Nebel anleuchtet - es hellt nie über ihn hinaus.
-const DEPTH_FROST_GAIN := 0.35
-const FROST_TINT := Color(0.60, 0.62, 0.70)
-const DEPTH_SHADER := "res://assets/shaders/depth_glass.gdshader"
 
 ## ×n-Marke über dem Stapel (Gold wie die Regal-Marke).
 const BADGE_FONT := 64
@@ -287,12 +269,6 @@ var _cells: Array[Node3D] = []
 var _badge: Label3D
 ## Der Prioritäts-Versatz dieser Karte: 0 = oberste Ebene, je tiefer desto negativer.
 var _layer_bias := 0
-## Und ihr Stand im TIEFEN-NEBEL (0 = Lese-Tiefe, 1 = unterste Park-Ebene).
-var _depth_fade := 0.0
-## Die LOGISCHEN Lichter von Kern und Kopfkante - ohne Nebel. Der Nebel wird erst
-## beim Schreiben ins Material multipliziert, sonst frißt er sich selbst.
-var _glow_energy := 0.0
-var _edge_glow := 0.0
 ## LIEGEND ist die Grundlage: die Tischkameras blicken fast senkrecht nach unten,
 ## und stehend fällt die Kassette dort zu einem schwarzen Strich zusammen.
 var _lying := true
@@ -335,7 +311,7 @@ var _edge_material: StandardMaterial3D
 var _fin_material: StandardMaterial3D
 ## Die Netz-Fläche und ihr EIGENER Ofen (nur für den abgedunkelten Zustand bzw.
 ## als Rückfall, wenn der geteilte gerade fehlt).
-var _net_material: ShaderMaterial
+var _net_material: StandardMaterial3D
 var _net_oven: SubViewport
 var _drained: Array[bool] = []
 var _band_material: StandardMaterial3D
@@ -481,14 +457,8 @@ func clear_net_drained() -> void:
 func net_drained() -> Array:
 	return _drained.duplicate()
 
-## Das Material der Netz-Fläche (es trägt Textur UND Tiefen-Nebel).
-func net_material() -> ShaderMaterial:
-	return _net_material
-
 func net_texture() -> Texture2D:
-	if _net_material == null:
-		return null
-	return _net_material.get_shader_parameter("net_tex") as Texture2D
+	return _net_material.albedo_texture if _net_material != null else null
 
 static func _drain_mask(faces: Array) -> Array[bool]:
 	var mask: Array[bool] = []
@@ -507,12 +477,12 @@ func _apply_net_texture() -> void:
 		var shared := StampNetOven.texture(stamp_net, tier_tint())
 		if shared != null:
 			_drop_net_oven()
-			_net_material.set_shader_parameter("net_tex", shared)
+			_net_material.albedo_texture = shared
 			return
 	_drop_net_oven()
 	_net_oven = StampNetOven.bake(stamp_net, tier_tint(), _drained)
 	add_child(_net_oven)
-	_net_material.set_shader_parameter("net_tex", _net_oven.get_texture())
+	_net_material.albedo_texture = _net_oven.get_texture()
 
 func _drop_net_oven() -> void:
 	if _net_oven == null:
@@ -830,9 +800,8 @@ func edge_rest_energy() -> float:
 		return EDGE_DIM_ENERGY
 	return (EDGE_LIVE_ENERGY if _socketed else EDGE_REST_ENERGY) * tier_energy()
 
-## Das LOGISCHE Licht der Kopfkante - ohne den Tiefen-Nebel, der erst im Material sitzt.
 func edge_energy() -> float:
-	return _edge_glow if _edge_material != null else 0.0
+	return _edge_material.emission_energy_multiplier if _edge_material != null else 0.0
 
 func _tween_pose(target: float, time: float) -> void:
 	_kill(_pose_tween)
@@ -955,7 +924,8 @@ func glow_color() -> Color:
 	return material.emission if material != null else Color.BLACK
 
 func glow_energy() -> float:
-	return _glow_energy if glow_material() != null else 0.0
+	var material := glow_material()
+	return material.emission_energy_multiplier if material != null else 0.0
 
 func has_core() -> bool:
 	return _core_material != null
@@ -1007,43 +977,12 @@ func _apply_pose() -> void:
 ## VOR dem Glas darüber und wird von ihm gedämpft, statt mit ihrem Netz
 ## durchzustanzen - der Compatibility-Renderer sortiert nach Priorität, nicht nach
 ## Tiefe, und ohne den Versatz gewönne das Netz jeder Karte gegen jedes Glas.
-## Sie trägt zugleich den TIEFEN-NEBEL: was tiefer liegt, liest dunkler und milchiger.
 func set_layer_depth(level: int) -> void:
 	var wanted := -LAYER_SPAN * maxi(level, 0)
-	var fade := clampf(float(maxi(level, 0)) / float(DEPTH_LEVELS), 0.0, 1.0)
-	if wanted == _layer_bias and is_equal_approx(fade, _depth_fade):
+	if wanted == _layer_bias:
 		return
 	_layer_bias = wanted
-	_depth_fade = fade
 	_apply_layer_bias()
-	_paint_depth()
-
-func depth_fade() -> float:
-	return _depth_fade
-
-## Wie hell eine Ebene noch liest (1 = Lese-Tiefe) und wie milchig sie steht.
-static func depth_dim(fade: float) -> float:
-	return 1.0 - DEPTH_FOG * pow(clampf(fade, 0.0, 1.0), DEPTH_FOG_GAMMA)
-
-static func depth_frost(fade: float) -> float:
-	return DEPTH_FROST * pow(clampf(fade, 0.0, 1.0), DEPTH_FROST_GAMMA)
-
-## Ein ANSTRICH im Nebel: gedämpft und ins Milchglas gezogen. Das ALPHA bleibt exakt.
-func _toned(color: Color) -> Color:
-	var dim := depth_dim(_depth_fade)
-	var out := Color(color.r * dim, color.g * dim, color.b * dim) \
-		.lerp(FROST_TINT * (DEPTH_FROST_GAIN * dim), depth_frost(_depth_fade))
-	out.a = color.a
-	return out
-
-## Eine EMISSIONS-Farbe: nur das Milchglas - die Dämpfung trägt ihre Energie.
-func _frosted(color: Color) -> Color:
-	var out := color.lerp(FROST_TINT * DEPTH_FROST_GAIN, depth_frost(_depth_fade))
-	out.a = color.a
-	return out
-
-func _fogged(energy: float) -> float:
-	return energy * depth_dim(_depth_fade)
 
 func _prio(base: int) -> int:
 	return base + _layer_bias
@@ -1067,58 +1006,6 @@ func _apply_layer_bias() -> void:
 	if _badge != null and is_instance_valid(_badge):
 		_badge.render_priority = _prio(PRIORITY_BADGE)
 		_badge.outline_render_priority = _prio(PRIORITY_BADGE_OUTLINE)
-
-## Der EINE Schreiber des TIEFEN-NEBELS an den schon gebauten Materialien: er
-## rechnet jede getönte Fläche aus ihrer Quelle neu, statt zu addieren - so trägt
-## jeder Aufruf denselben Ton, und keine Alpha wandert.
-func _paint_depth() -> void:
-	var shade := tier_tint()
-	var gain := tier_energy()
-	if _shell_material != null:
-		_shell_material.albedo_color = _toned(
-			Color(shade.r, shade.g, shade.b, GLASS_BODY_ALPHA))
-		_shell_material.emission = _frosted(_scaled(shade, 1.0))
-		_shell_material.emission_energy_multiplier = _fogged(GLASS_BODY_EMISSION * gain)
-	if _bezel_material != null:
-		var bezel := CHASSIS_ALBEDO.lerp(shade, FRAME_TINT_SHARE)
-		bezel.a = GLASS_FRAME_ALPHA
-		_bezel_material.albedo_color = _toned(bezel)
-		_bezel_material.emission = _frosted(CHASSIS_EMISSION.lerp(shade, FRAME_TINT_SHARE))
-		_bezel_material.emission_energy_multiplier = _fogged(CHASSIS_EMISSION_ENERGY * gain)
-	if _glass_material != null:
-		_glass_material.albedo_color = _toned(GLASS_ALBEDO)
-		_glass_material.emission = _frosted(_scaled(shade, 1.0))
-		_glass_material.emission_energy_multiplier = _fogged(GLASS_EMISSION_ENERGY * gain)
-	if _fin_material != null:
-		var fin := _scaled(PackDrawerView.GOLD, 0.85)
-		fin.a = GLASS_FRAME_ALPHA
-		_fin_material.albedo_color = _toned(fin)
-		_fin_material.emission = _frosted(_scaled(PackDrawerView.GOLD, 1.0))
-		_fin_material.emission_energy_multiplier = _fogged(FIN_EMISSION_ENERGY)
-	if _edge_material != null:
-		var edge := _scaled(shade, CORE_ALBEDO_SHARE)
-		edge.a = GLASS_FRAME_ALPHA
-		_edge_material.albedo_color = _toned(edge)
-		_edge_material.emission = _frosted(_scaled(shade, 1.0))
-		_edge_material.emission_energy_multiplier = _fogged(_edge_glow)
-	var lit := glow_material()
-	if lit != null:
-		var core := _scaled(shade, CORE_ALBEDO_SHARE)
-		core.a = CORE_ALPHA if lit == _core_material else 1.0
-		lit.albedo_color = _toned(core)
-		lit.emission = _frosted(_scaled(shade, 1.0))
-		lit.emission_energy_multiplier = _fogged(_glow_energy)
-	if _net_material != null:
-		_net_material.set_shader_parameter("depth_fade", _depth_fade)
-		_net_material.set_shader_parameter("fog_strength", DEPTH_FOG)
-		_net_material.set_shader_parameter("fog_gamma", DEPTH_FOG_GAMMA)
-		_net_material.set_shader_parameter("frost_strength", DEPTH_FROST)
-		_net_material.set_shader_parameter("frost_gamma", DEPTH_FROST_GAMMA)
-		_net_material.set_shader_parameter("frost_gain", DEPTH_FROST_GAIN)
-		_net_material.set_shader_parameter("frost_tint", FROST_TINT)
-	if _badge != null and is_instance_valid(_badge):
-		_badge.modulate = _toned(PackDrawerView.GOLD)
-		_badge.outline_modulate = _toned(CasinoStyle.INK)
 
 func _build_materials() -> void:
 	# EINE Quelle für alles Getönte: die Sortenfarbe in der Intensität ihrer Größe.
@@ -1173,22 +1060,16 @@ func _build_materials() -> void:
 	_fin_material.albedo_color.a = GLASS_FRAME_ALPHA
 	_fin_material.render_priority = _prio(PRIORITY_BODY)
 
-	# Die Netz-Backung trägt den TIEFEN-NEBEL: sie ist der lauteste Verwechsler,
-	# also muß gerade sie in der Tiefe dunkel und UNSCHARF lesen. Unschattiert wie
-	# zuvor (ALBEDO schwarz, alles in der Emission), beidseitig (das Quad liest von
-	# hinten dieselbe Backung, gespiegelt), Alpha aus der Backung.
-	_net_material = ShaderMaterial.new()
-	_net_material.shader = load(DEPTH_SHADER)
-	_net_material.set_shader_parameter("albedo", Color(0.0, 0.0, 0.0, 1.0))
-	_net_material.set_shader_parameter("emission", Color.WHITE)
-	_net_material.set_shader_parameter("emission_energy", 1.0)
-	_net_material.set_shader_parameter("alpha", 1.0)
-	_net_material.set_shader_parameter("specular", 0.0)
-	_net_material.set_shader_parameter("use_tex", true)
+	_net_material = StandardMaterial3D.new()
+	_net_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_net_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	# Vor der Scheibe gezeichnet: zwei alphagemischte Flächen sortiert der
 	# Compatibility-Renderer sonst nach Laune. Seit der Körper Glas ist, hängt die
 	# ganze Kette daran (Körper < Kern < Scheibe < Netz).
 	_net_material.render_priority = _prio(PRIORITY_NET)
+	# Beidseitig: von hinten zeigt die Rückseite des Quads dieselbe Textur
+	# gespiegelt - genau das ehrliche Bild durch getöntes Glas.
+	_net_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_apply_net_texture()
 
 	# Die KOPFKANTE ist von oben die einzige massive Fläche der Karte: sie trägt
@@ -1208,10 +1089,6 @@ func _build_materials() -> void:
 		_core_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_core_material.albedo_color.a = CORE_ALPHA
 		_core_material.render_priority = _prio(PRIORITY_CORE)
-
-	_glow_energy = REST_ENERGY * gain
-	_edge_glow = EDGE_REST_ENERGY * gain
-	_paint_depth()
 
 func _lit_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -1347,9 +1224,9 @@ func _build_badge() -> Label3D:
 	badge.name = "CountBadge"
 	badge.font_size = BADGE_FONT
 	badge.pixel_size = BADGE_HEIGHT / float(BADGE_FONT)
-	badge.modulate = _toned(PackDrawerView.GOLD)
+	badge.modulate = PackDrawerView.GOLD
 	badge.outline_size = 10
-	badge.outline_modulate = _toned(CasinoStyle.INK)
+	badge.outline_modulate = CasinoStyle.INK
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	# Sie liegt VOR dem Netz: ohne diese Kette schluckt die Backung sie.
@@ -1405,10 +1282,9 @@ func _sync_stack() -> void:
 		_cells[i].visible = not single or i == 0
 
 func _set_glow(energy: float) -> void:
-	_glow_energy = energy
 	var material := glow_material()
 	if material != null:
-		material.emission_energy_multiplier = _fogged(energy)
+		material.emission_energy_multiplier = energy
 	_sync_edge(energy)
 
 ## Die Kopfkante steht auf ihrem eigenen Zustand und reißt bei einem Kern-Ausbruch
@@ -1417,8 +1293,8 @@ func _sync_edge(core_energy: float) -> void:
 	if _edge_material == null:
 		return
 	var over := maxf(core_energy - rest_energy(), 0.0)
-	_edge_glow = edge_rest_energy() + over * EDGE_FLARE_SHARE
-	_edge_material.emission_energy_multiplier = _fogged(_edge_glow)
+	_edge_material.emission_energy_multiplier = (edge_rest_energy()
+		+ over * EDGE_FLARE_SHARE)
 
 func _hide_body() -> void:
 	visible = false
