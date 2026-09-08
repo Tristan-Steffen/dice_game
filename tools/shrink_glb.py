@@ -77,6 +77,7 @@ def ground(gltf: dict, binary: bytes) -> None:
 
 
 def shrink(src: Path, dst: Path, max_size: int, quality: int, do_ground: bool) -> tuple:
+    before = src.stat().st_size  # vor dem Schreiben, sonst zaehlt src==dst zweimal neu
     gltf, binary = read_glb(src)
     image_views = {img["bufferView"]: i for i, img in enumerate(gltf.get("images", [])) if "bufferView" in img}
     new_bin = bytearray()
@@ -93,7 +94,7 @@ def shrink(src: Path, dst: Path, max_size: int, quality: int, do_ground: bool) -
     if do_ground:
         ground(gltf, bytes(new_bin))
     write_glb(dst, gltf, bytes(new_bin))
-    return src.stat().st_size, dst.stat().st_size
+    return before, dst.stat().st_size
 
 
 def main() -> None:
