@@ -57,21 +57,15 @@ func test_factory_id_matches_constant():
 	assert_eq(Charm.collectors_amulet().id, Charm.COLLECTORS_AMULET)
 	assert_eq(Charm.con_artist_cuff().id, Charm.CON_ARTIST_CUFF)
 
-func test_mapped_models_exist_on_disk():
-	# Jeder Charm mit gesetztem model_path (Konvention: MODEL_DIR + id + ".glb",
-	# siehe Charm._make) muss auf eine real vorhandene GLB-Datei zeigen.
+func test_model_path_follows_the_file_on_disk():
+	# _make verdrahtet ein Modell GENAU DANN, wenn MODEL_DIR + id + ".glb" da ist;
+	# sonst bleibt model_path leer und CharmRowView zeigt die Platzhalter-Karte.
+	# Kein Charm wird namentlich als modelllos festgeschrieben - die Datei entscheidet.
 	for charm in Charm.all():
-		if charm.model_path != "":
-			assert_true(FileAccess.file_exists(charm.model_path),
-				"Modell fehlt: %s (%s)" % [charm.model_path, charm.id])
-
-func test_original_charms_have_models():
-	# Die 19 ursprünglichen Modelle bleiben verdrahtet; alle Effektkatalog-Charms
-	# (und der Glücksgroschen) fallen bewusst auf die Platzhalter-Karte zurück
-	# (siehe CharmRowView.placeholder_model).
+		var expected := Charm.MODEL_DIR + charm.id + ".glb"
+		assert_eq(charm.model_path != "", FileAccess.file_exists(expected),
+			"model_path folgt der Datei: %s" % charm.id)
 	assert_ne(Charm.rabbits_foot().model_path, "", "Hasenpfote hat ihr Modell")
-	assert_ne(Charm.horseshoe().model_path, "", "Hufeisen hat sein Modell")
-	assert_eq(Charm.old_penny().model_path, "", "Glücksgroschen nutzt den Platzhalter")
 
 func test_placeholder_model_is_a_colored_card():
 	var model: Node3D = autofree(CharmRowView.placeholder_model(Charm.PENDULUM))
