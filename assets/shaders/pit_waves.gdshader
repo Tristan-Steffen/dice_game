@@ -23,6 +23,13 @@ uniform float impulse_radius = 420.0;    // Endradius in px (setzt place_pit_win
 uniform float impulse_width = 60.0;      // Ringdicke (Gauß-Sigma, px)
 uniform float impulse_gain : hint_range(0.0, 4.0) = 1.5;
 
+// HITZEFLIMMERN: EIN Schleier steigt von der Bild-Unterkante zur Oberkante
+// (Ladungsstufe 2). progress außerhalb (0,1) = keine Bahn (pit_heat_wave).
+uniform float heat_progress = 0.0;
+uniform vec4 heat_color = vec4(1.0, 0.35, 0.12, 1.0);
+uniform float heat_gain : hint_range(0.0, 4.0) = 0.0; // TableScreen.PIT_HEAT_GAIN setzt ihn
+uniform float heat_width : hint_range(0.02, 1.0) = 0.12; // Bandbreite als Anteil der Höhe
+
 const int WAVES = 8;
 // Kalte Neon-Familie des Tischs; Violett bleibt der seltene Ausreißer.
 const vec3 COL_A = vec3(0.15, 0.85, 1.00);
@@ -78,6 +85,20 @@ void fragment() {
 		imp += impulse_color[i].rgb * (ring * env * impulse_color[i].a);
 	}
 
+	// Hitzeschleier: weiches Gauß-Band um die Bandmitte, dessen Kante seitlich
+	// verrauscht ist - so flimmert es, statt zu wischen. Klingt zum Ende aus.
+	vec3 heat = vec3(0.0);
+	if (heat_progress > 0.0 && heat_progress < 1.0) {
+		float band = 1.0 - heat_progress;  // UV.y: 0 = oben, 1 = unten
+		// Zwei Sinus plus ein je Zwölftelsekunde neu gewürfelter Spaltenversatz:
+		// die Kante zappelt, statt als starres Streifenmuster zu stehen.
+		float wob = sin(UV.x * 13.0 + TIME * 5.0) * 0.030
+			+ sin(UV.x * 31.0 - TIME * 3.3) * 0.018
+			+ (hash1(floor(UV.x * 23.0) + floor(TIME * 12.0) * 0.37) - 0.5) * 0.035;
+		float dy = (UV.y - band + wob) / heat_width;
+		heat = heat_color.rgb * (exp(-0.5 * dy * dy) * sin(heat_progress * PI) * heat_color.a);
+	}
+
 	float mask = step(0.0, depth);
-	COLOR = vec4((acc * gain * intensity + imp * impulse_gain) * mask, 1.0);
+	COLOR = vec4((acc * gain * intensity + imp * impulse_gain + heat * heat_gain) * mask, 1.0);
 }

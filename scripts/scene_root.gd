@@ -275,6 +275,8 @@ const CRIT_HOLD := 0.45
 ## des Durchbrenners in die Grubenwände und der gedimmte Blitz des Entladens.
 const CHARGE_FLASH_STRENGTH := 0.9
 const CHARGE_BURN_SLAM := 1.0
+## Überschlag (Stufe 3): der Wand-Blitz bleibt deutlich unter dem Durchbrenner.
+const CHARGE_OVERSLAG_SLAM := 0.4
 const COOLING_FLASH_STRENGTH := 0.45
 ## Das Entladen am Rundenende: alle betroffenen Würfel zugleich, kurz gehalten.
 const COOLING_TIME := 0.6
@@ -849,6 +851,10 @@ var charge_rng := RandomNumberGenerator.new()
 ## Was die letzte Buchung der Ladung bewegt hat (Zug, Fumble, Rundenende) - die
 ## Zeremonien der Welle 3 hängen daran, heute liest sie niemand.
 var _last_charge_results: Array[Dictionary] = []
+## Der ALTE Ladungsstand jedes Würfels, dessen Urteil in der Zeremonie noch
+## aussteht (Slot -> {"level", "burned"}): gebucht ist längst, gezeigt wird der
+## Stand von vorher, bis _play_charge_beat den Würfel freigibt.
+var _charge_holds: Dictionary = {}
 var _last_fumble_charges: Array[Dictionary] = []
 var _last_cooled_dice: Array[DieDefinition] = []
 ## Vom Spieler gelegte Zählreihenfolge der liegenden Würfel (Slot-Indizes).
@@ -11653,6 +11659,12 @@ func _on_take_button_pressed() -> void:
 	for p in sel_scored:
 		scored_slots.append(slots[p])
 	_last_charge_results = run.book_charge_results(active_kinds, breakdown, scored_slots)
+	# ... und die Grube hält den ALTEN Stand fest, bis der Würfel sein Urteil hat:
+	# die Buchung hat gerade jeden Grubenwürfel neu gezeichnet.
+	_charge_holds.clear()
+	for change: Dictionary in _last_charge_results:
+		_charge_holds[int(change["slot"])] = {"level": int(change["before"]), "burned": false}
+	_apply_charge_holds()
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
 	# Verluste zahlen an ihrem Auslöser: Servicegebühr und Steuerwetten hängen an
@@ -12059,7 +12071,7 @@ func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vecto
 	if not await _play_die_links(step.get("det_links", []), slot, die_px, gain_px, glow_by_slot):
 		return false
 	# LADUNG: das Urteil des Würfels NACH seiner letzten Zündung, vor dem nächsten.
-	_play_charge_beat(step.get("charge_step", {}), slot)
+	_play_charge_beat(step.get("charge_step", {}), slot, die_px)
 	return true
 
 ## Glieder-Pulse eines Würfel-Schritts: das Netz-Feld zeigt den Würfel mit dem
@@ -12351,7 +12363,8 @@ func _play_cooling_ceremony(defs: Array[DieDefinition]) -> void:
 ## rein visuell: der Override zeigt den Stand der Aufschlüsselung - der GEBUCHTE
 ## steht schon in der Def und übernimmt am Ende der Zeremonie
 ## (clear_charge_override). Ein abgebrochener Tween schuldet damit nichts.
-func _play_charge_beat(beat: Dictionary, slot: int) -> void:
+func _play_charge_beat(beat: Dictionary, slot: int, die_px: Vector2) -> void:
+	_charge_holds.erase(slot)  # der Würfel ist frei: ab jetzt gilt sein Urteil
 	if beat.is_empty() or slot < 0 or slot >= dice.count():
 		return
 	var display: DieFaceDisplay = dice.face_displays[slot]
@@ -12369,8 +12382,25 @@ func _play_charge_beat(beat: Dictionary, slot: int) -> void:
 			table_screen.pit_flinch()
 		display.set_charge_override(0, true)
 		return
-	display.set_charge_override(int(beat.get("charge_after", 0)), false)
+	var level := int(beat.get("charge_after", 0))
+	display.set_charge_override(level, false)
 	display.flash_charge(CHARGE_FLASH_STRENGTH)
+	# Nur ein STEIGEN heizt die Grube; die Ableitung senkt still.
+	if int(beat.get("gained", 0)) > 0:
+		_play_charge_heat(level, die_px)
+
+## Der HITZE-PULS der Grube, gestaffelt nach der erreichten Stufe: warmer Ring
+## (Glimmen), dazu der aufsteigende Hitzeschleier (Kriechstrom), dazu ein
+## gedämpfter Blitz in alle Wände (Überschlag). Rein visuell; das Zucken bleibt
+## dem Durchbrenner und dem Fumble.
+func _play_charge_heat(level: int, die_px: Vector2) -> void:
+	if level <= 0 or table_screen == null:
+		return
+	table_screen.pit_impulse(die_px, "charge")
+	if level >= 2:
+		table_screen.pit_heat_wave()
+	if level >= 3 and dice_pit != null:
+		dice_pit.slam(CHARGE_OVERSLAG_SLAM)
 
 ## Nach der Zeremonie: der Def-Stand übernimmt an JEDEM Grubenwürfel.
 func _clear_charge_overrides() -> void:
@@ -12378,6 +12408,18 @@ func _clear_charge_overrides() -> void:
 		var display: DieFaceDisplay = dice.face_displays[i]
 		if display != null:
 			display.clear_charge_override()
+
+## Schreibt die gehaltenen ALTEN Stände auf die Grubenwürfel - der EINE Schreiber
+## dieses Orts, idempotent und nach jedem Refresh wiederholbar.
+func _apply_charge_holds() -> void:
+	for slot: int in _charge_holds:
+		if slot < 0 or slot >= dice.count():
+			continue
+		var display: DieFaceDisplay = dice.face_displays[slot]
+		if display == null:
+			continue
+		var hold: Dictionary = _charge_holds[slot]
+		display.set_charge_override(int(hold["level"]), bool(hold["burned"]))
 
 ## Augen-Pips einer Zündung. Drei Volleys im PHYSISCHEN Bereich: erst die eigene
 ## Wandlung (Knochen wächst, Glas schrumpft, Helium hebt), dann der Miasma-
@@ -12771,6 +12813,7 @@ func _cleanup_take_animation() -> void:
 	_score_pending = 0
 	_eye_tick_applied.clear()
 	_eye_planned.clear()
+	_charge_holds.clear()  # der EINE Aufräum-Pfad: kein Halt überlebt die Zeremonie
 	_clear_charge_overrides()
 	table_screen.reset_pit_score()
 
@@ -14454,6 +14497,10 @@ func _on_pool_changed() -> void:
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
 	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
+	# refresh_faces hat gerade den gebuchten Ladungsstand zurückgemalt - in der
+	# Zeremonie gehört er dem Urteil, nicht dem Zählbeginn.
+	if phase == Phase.SCORING and not _charge_holds.is_empty():
+		_apply_charge_holds()
 	_refresh_bench_stage_faces()  # die Bühne hält eine geteilte Instanz
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
 	# Die Info-Säule hält eine GETEILTE Instanz: die Signatur sähe die Gravur nicht.

@@ -107,7 +107,15 @@ const FUMBLE_FADE := 0.6
 const FUMBLE_WAVE_TIME := 2.0
 const FUMBLE_WAVE_WIDTH := 55.0 * SUPERSAMPLE
 ## Punkt-Puls-Farbe je Punktart - dieselbe Sprache wie Kometen und Zuwachs-Zahlen.
-const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR, "crit": CRIT_COLOR}
+## Die Glut des Würfel-Glimmens (DieFaceDisplay.HEAT_RED), überbright für blend_add -
+## Hitze ist WARM, nie das Energie-Cyan und nie das Violett der Ladungsfarbe.
+const CHARGE_HEAT_COLOR := Color(2.28, 0.58, 0.19, 0.95)
+const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR,
+	"crit": CRIT_COLOR, "charge": CHARGE_HEAT_COLOR}
+## Der Hitzeschleier steigt einmal durch die ganze Grube - gedämpft, er soll die
+## Würfel überhauchen, nicht die Grube fluten (gemessen an der überbright Glut).
+const PIT_HEAT_TIME := 0.6
+const PIT_HEAT_GAIN := 0.35
 const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE
 const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE
 ## Erster senkrechter Hub aus der Quelle (~2.4 Weltmeter): hebt die Querstrecke
@@ -143,6 +151,8 @@ var _pit_impulse_colors := PackedColorArray()
 var _pit_impulse_progress := PackedFloat32Array()
 var _pit_impulse_tweens: Array = []
 var _pit_impulse_next := 0
+## Der Hitzeschleier hat genau EINE Bahn - ein zweiter Ruf startet sie neu.
+var _pit_heat_tween: Tween
 ## Nebenwetten-Fenster rechts vom Becher (eigenständige Anzeige, kein Hub-Panel).
 var side_bet_window: SideBetPanel
 ## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
@@ -503,6 +513,9 @@ func _build_content() -> void:
 	waves_material.set_shader_parameter("impulse_pos", _pit_impulse_pos)
 	waves_material.set_shader_parameter("impulse_color", _pit_impulse_colors)
 	waves_material.set_shader_parameter("impulse_progress", _pit_impulse_progress)
+	waves_material.set_shader_parameter("heat_progress", 0.0)  # keine Bahn
+	waves_material.set_shader_parameter("heat_color", CHARGE_HEAT_COLOR)
+	waves_material.set_shader_parameter("heat_gain", PIT_HEAT_GAIN)
 	pit_waves.material = waves_material
 	pit_window.add_child(pit_waves)
 
@@ -713,6 +726,23 @@ func pit_impulse(screen_px: Vector2, kind: String, color := Color(0, 0, 0, 0)) -
 		waves_material.set_shader_parameter("impulse_progress", _pit_impulse_progress),
 		0.0, 1.0, PIT_IMPULSE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_pit_impulse_tweens[slot] = tween
+
+## HITZEFLIMMERN: EIN Schleier steigt von der Bild-Unterkante der Grube zur
+## Oberkante (Ladungsstufe 2 aufwärts). Ein zweiter Ruf setzt die Bahn neu;
+## ohne sichtbares Fenster passiert nichts.
+func pit_heat_wave(strength := 1.0) -> void:
+	if pit_waves == null or pit_window == null or not pit_window.visible:
+		return
+	var waves_material: ShaderMaterial = pit_waves.material
+	waves_material.set_shader_parameter("heat_color", CHARGE_HEAT_COLOR)
+	waves_material.set_shader_parameter("heat_gain", PIT_HEAT_GAIN * clampf(strength, 0.0, 3.0))
+	if _pit_heat_tween != null and _pit_heat_tween.is_valid():
+		_pit_heat_tween.kill()
+	waves_material.set_shader_parameter("heat_progress", 0.0)
+	_pit_heat_tween = create_tween()
+	_pit_heat_tween.tween_method(func(v: float) -> void:
+		waves_material.set_shader_parameter("heat_progress", v),
+		0.0, 1.0, PIT_HEAT_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 ## Schaltet den Rundenpuls der Grube ein/aus (weich über PIT_WAVES_FADE).
 func set_round_pulse(active: bool) -> void:

@@ -180,6 +180,41 @@ func test_pit_impulse_claims_a_lane_and_frees_it():
 	var done: PackedFloat32Array = material.get_shader_parameter("impulse_progress")
 	assert_almost_eq(done[0], 1.0, 0.001, "ausgelaufen: die Bahn ist wieder frei")
 
+func test_the_charge_impulse_is_warm():
+	# Stufe 1 der Ladung schickt einen WARMEN Ring durch die Grube - Hitze, nie
+	# das Energie-Cyan und nie das Violett der Ladungsfarbe.
+	assert_true(TableScreen.PIT_IMPULSE_COLORS.has("charge"), "die Ladung hat ihre eigene Impuls-Art")
+	var warm: Color = TableScreen.PIT_IMPULSE_COLORS["charge"]
+	assert_gt(warm.r, warm.b, "Glut: Rot schlägt Blau")
+	assert_gt(warm.r, warm.g, "und Rot schlägt Grün")
+
+func test_pit_heat_wave_rises_once_and_frees_its_lane():
+	# Hitzeflimmern (Ladungsstufe 2): EIN Schleier steigt durch die Grube,
+	# heat_progress läuft von 0 nach 1 und gibt die Bahn danach wieder frei.
+	screen.place_pit_window(Rect2(Vector2(100, 200), Vector2(800, 400)), 75.0)
+	var material: ShaderMaterial = screen.pit_waves.material
+	screen.pit_heat_wave()
+	assert_eq(material.get_shader_parameter("heat_color"), TableScreen.CHARGE_HEAT_COLOR,
+		"der Schleier trägt dieselbe Glut wie der Ring")
+	await wait_seconds(TableScreen.PIT_HEAT_TIME * 0.5)
+	var running := float(material.get_shader_parameter("heat_progress"))
+	assert_between(running, 0.001, 0.999, "mitten im Lauf steigt der Schleier")
+	# Ein zweiter Ruf startet die EINE Bahn neu, statt eine zweite zu öffnen.
+	screen.pit_heat_wave()
+	assert_almost_eq(float(material.get_shader_parameter("heat_progress")), 0.0, 0.001,
+		"neu gestartet: der Schleier steht wieder unten")
+	await wait_seconds(TableScreen.PIT_HEAT_TIME + 0.3)
+	assert_almost_eq(float(material.get_shader_parameter("heat_progress")), 1.0, 0.001,
+		"ausgelaufen: die Bahn ist wieder frei")
+
+func test_pit_heat_wave_stays_dark_without_a_window():
+	# Eine Maschine, die keiner sieht, hat nicht gespielt: ohne gesetztes
+	# Gruben-Fenster startet keine Bahn.
+	var material: ShaderMaterial = screen.pit_waves.material
+	screen.pit_heat_wave()
+	assert_almost_eq(float(material.get_shader_parameter("heat_progress")), 0.0, 0.001,
+		"kein Fenster, kein Schleier")
+
 func test_fumble_flashes_the_red_word_and_a_table_wide_wave():
 	# Ein echter Farkle quittiert: rotes Neon-"FUMBLE" quer über die Grube und
 	# EINE Stoßwelle aus der Grubenmitte, die bis über die entfernteste
