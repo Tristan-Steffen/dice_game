@@ -36,29 +36,18 @@ const RING_FLASH_ENERGY := 2.2
 ## Der Hologramm-Look (`charm_hologram.gdshader`): ein MASSIVES, beleuchtetes
 ## Modell in GESÄTTIGTEN Farben (der Tisch ist dunkel und blau-ambient, roh lasen
 ## die Charms ausgegraut; das Eigenlicht liegt auf der gesättigten Farbe, sonst
-## wird es milchig), darüber der Effekt, den das PRESET wählt. Nie additiv - der
-## additive Ersatz war viel zu hell (Spieler-Entscheid 2026-09-09).
+## wird es milchig), darüber die LICHTKANTE: ein kräftiger blauer Fresnel-Saum und
+## breite, langsam steigende Bänder. Nie additiv - der additive Ersatz war viel zu
+## hell. Spieler-Wahl 2026-09-09 aus fünf Varianten: Lichtkante plus Emitter-Kegel.
 const HOLO_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
 const HOLO_SATURATION := 1.6
 const HOLO_SELF_GLOW := 0.45
+const HOLO_RIM := 1.0
+const HOLO_BAND := 0.18
 const HOLO_FLASH := 1.0
-## FÜNF Varianten des Hologramm-Effekts zur Auswahl (2026-09-09); holo_variant
-## wählt, ein Neuaufbau (set_charms) wendet an. Nach der Wahl bleibt EINE.
-static var holo_variant := 0
-const HOLO_PRESETS: Array[Dictionary] = [
-	{"name": "Scanlines", "scan_gain": 0.35, "rim_gain": 0.25, "band_gain": 0.0,
-		"tint_mix": 0.0, "alpha": 1.0, "cone": false, "bob": false},
-	{"name": "Lichtkante", "scan_gain": 0.0, "rim_gain": 1.0, "band_gain": 0.18,
-		"tint_mix": 0.0, "alpha": 1.0, "cone": false, "bob": false},
-	{"name": "Halbtransparent", "scan_gain": 0.0, "rim_gain": 0.6, "band_gain": 0.1,
-		"tint_mix": 0.05, "alpha": 0.7, "cone": false, "bob": false},
-	{"name": "Blaustich", "scan_gain": 0.12, "rim_gain": 0.6, "band_gain": 0.14,
-		"tint_mix": 0.45, "alpha": 1.0, "cone": false, "bob": false},
-	{"name": "Emitter-Kegel", "scan_gain": 0.0, "rim_gain": 0.4, "band_gain": 0.1,
-		"tint_mix": 0.0, "alpha": 1.0, "cone": true, "bob": true},
-]
-## Der Emitter-Kegel (nur Preset 4): kurz und schwach, damit er unter der
-## 15°-Kamera nicht als Splitter aus dem Ring lehnt.
+## Der EMITTER-KEGEL: ein kurzer, schwacher Lichtkegel aus dem Ring - kurz, damit
+## er unter der 15°-Kamera nicht als Splitter aus dem Ring lehnt -, und das
+## Modell SCHWEBT sichtbar auf und ab: das Signal kommt aus der Projektion.
 const CONE_HEIGHT := 2.2
 const CONE_ALPHA := 0.07
 const BOB_HEIGHT := 0.15
@@ -104,6 +93,7 @@ const ROTATION_SPEED := 0.15  # rad/s, ruhiger Spin - die Silhouette bleibt lesb
 ## Platz seine Instanz zieht.
 var _ring_materials: Dictionary = {}  # Rarität -> StandardMaterial3D
 var _ring_mesh: TorusMesh
+var _cone_mesh: CylinderMesh
 
 ## Baut die Hologramme neu: je Charm eines auf dem nächsten Platz; mehr Charms
 ## als Plätze werden abgeschnitten.
@@ -132,16 +122,11 @@ func set_charms(charms: Array[Charm]) -> void:
 
 func _process(delta: float) -> void:
 	_bob_time += delta
-	var bob := bool(preset().get("bob", false))
+	# Lokal im skalierten Pivot, darum durch MODEL_SCALE.
+	var lift := sin(_bob_time * BOB_SPEED) * BOB_HEIGHT / MODEL_SCALE
 	for model in charm_models:
 		model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
-		if bob:
-			# Lokal im skalierten Pivot, darum durch MODEL_SCALE.
-			model.position.y = sin(_bob_time * BOB_SPEED) * BOB_HEIGHT / MODEL_SCALE
-
-## Das gewählte Preset (außerhalb der Liste: das erste).
-static func preset() -> Dictionary:
-	return HOLO_PRESETS[clampi(holo_variant, 0, HOLO_PRESETS.size() - 1)]
+		model.position.y = lift
 
 ## Emitter-Ring und Hologramm des Platzes i.
 func _build_spot(i: int) -> void:
@@ -181,28 +166,21 @@ func _build_spot(i: int) -> void:
 	add_child(light)
 	spot_lights.append(light)
 
-	if bool(preset().get("cone", false)):
-		var cone := MeshInstance3D.new()
-		var mesh := CylinderMesh.new()
-		mesh.bottom_radius = EMITTER_RADIUS
-		mesh.top_radius = EMITTER_RADIUS * 0.55
-		mesh.height = CONE_HEIGHT
-		mesh.cap_top = false
-		mesh.cap_bottom = false
-		cone.mesh = mesh
-		var cone_material := StandardMaterial3D.new()
-		cone_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		cone_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		cone_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		cone_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		var tint := ring_color(charm.rarity, 1.0)
-		tint.a = CONE_ALPHA
-		cone_material.albedo_color = tint
-		cone.material_override = cone_material
-		cone.position = spot + Vector3(0.0, CONE_HEIGHT * 0.5, 0.0)
-		cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(cone)
-		cone_nodes.append(cone)
+	var cone := MeshInstance3D.new()
+	cone.mesh = _cone_mesh
+	var cone_material := StandardMaterial3D.new()
+	cone_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cone_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cone_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	cone_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var tint := ring_color(charm.rarity, 1.0)
+	tint.a = CONE_ALPHA
+	cone_material.albedo_color = tint
+	cone.material_override = cone_material
+	cone.position = spot + Vector3(0.0, CONE_HEIGHT * 0.5, 0.0)
+	cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(cone)
+	cone_nodes.append(cone)
 
 func _ensure_resources() -> void:
 	if _ring_mesh != null:
@@ -212,6 +190,13 @@ func _ensure_resources() -> void:
 	_ring_mesh.outer_radius = EMITTER_RADIUS + RING_HEIGHT * 0.5
 	_ring_mesh.rings = 32
 	_ring_mesh.ring_segments = 8
+	# Der Kegel: unten am Ring, oben enger, ohne Deckel - nur die Wand leuchtet.
+	_cone_mesh = CylinderMesh.new()
+	_cone_mesh.bottom_radius = EMITTER_RADIUS
+	_cone_mesh.top_radius = EMITTER_RADIUS * 0.55
+	_cone_mesh.height = CONE_HEIGHT
+	_cone_mesh.cap_top = false
+	_cone_mesh.cap_bottom = false
 
 ## Ring-Vorlage einer Rarität: unshaded in der Raritätsfarbe, Ruhe-Energie unter
 ## der Bloom-Schwelle - einmal gebaut, je Platz dupliziert.
@@ -265,9 +250,8 @@ static func _holo_material(source: BaseMaterial3D, out_materials: Array) -> Shad
 	holo.set_shader_parameter("roughness_value", source.roughness)
 	holo.set_shader_parameter("saturation", HOLO_SATURATION)
 	holo.set_shader_parameter("self_glow", HOLO_SELF_GLOW)
-	var chosen := preset()
-	for key in ["scan_gain", "rim_gain", "band_gain", "tint_mix", "alpha"]:
-		holo.set_shader_parameter(key, float(chosen[key]))
+	holo.set_shader_parameter("rim_gain", HOLO_RIM)
+	holo.set_shader_parameter("band_gain", HOLO_BAND)
 	holo.set_shader_parameter("flash", 0.0)  # Ruhestand explizit: ungesetzt liest er null
 	out_materials.append(holo)
 	return holo

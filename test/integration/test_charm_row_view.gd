@@ -166,17 +166,21 @@ func test_the_hologram_is_not_additive():
 	assert_false(code.contains("unshaded"), "beleuchtet")
 	assert_false(code.contains("flicker"), "kein Flackern - clean, nicht CRT")
 
-## Jedes Preset ist vollständig und wendet sich auf die Flächen an.
-func test_every_preset_applies():
-	for i in CharmRowView.HOLO_PRESETS.size():
-		CharmRowView.holo_variant = i
-		row.set_charms(_charms(1))
-		var first: ShaderMaterial = row.charm_materials[0][0]
-		var chosen: Dictionary = CharmRowView.HOLO_PRESETS[i]
-		assert_almost_eq(float(first.get_shader_parameter("alpha")), float(chosen["alpha"]), 0.001,
-			chosen["name"])
-		assert_eq(row.cone_nodes.size(), 1 if bool(chosen["cone"]) else 0, chosen["name"])
-	CharmRowView.holo_variant = 0
+## Lichtkante plus Emitter-Kegel (Spieler-Wahl 2026-09-09): je Platz ein kurzer
+## Kegel aus dem Ring, das Modell schwebt auf und ab, der Saum trägt das Blau.
+func test_emitter_cone_and_hover_bob():
+	row.set_charms(_charms(2))
+	assert_eq(row.cone_nodes.size(), 2, "je Platz ein Kegel")
+	var cone := row.cone_nodes[0].mesh as CylinderMesh
+	assert_almost_eq(cone.height, CharmRowView.CONE_HEIGHT, 0.001)
+	assert_lt(cone.height, 3.0, "kurz - kein Splitter unter der 15°-Kamera")
+	var first: ShaderMaterial = row.charm_materials[0][0]
+	assert_almost_eq(float(first.get_shader_parameter("rim_gain")), CharmRowView.HOLO_RIM, 0.001)
+	var before: float = row.charm_models[0].position.y
+	await wait_seconds(0.6)
+	assert_ne(row.charm_models[0].position.y, before, "das Modell schwebt auf und ab")
+	assert_lte(absf(row.charm_models[0].position.y) * CharmRowView.MODEL_SCALE,
+		CharmRowView.BOB_HEIGHT + 0.001, "und bleibt im Hub")
 
 func test_flash_charm_lifts_the_holo_sheen():
 	row.set_charms(_charms(1))
