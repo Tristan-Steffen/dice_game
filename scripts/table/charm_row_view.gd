@@ -39,21 +39,31 @@ const PODIUM_ALBEDO := TowerView.FRAME_ALBEDO
 const PODIUM_EMISSION := TowerView.FRAME_EMISSION
 const PODIUM_EMISSION_ENERGY := 0.42
 
-## Museums-Eigenlicht der Modelle: jede Fläche strahlt ihre eigene Albedo schwach
-## zurück, sonst stünde das PBR-Modell im dunklen Raum als schwarzer Klumpen.
-const MODEL_EMISSION_ENERGY := 0.42
+## Der Modell-Look (`charm_vitrine.gdshader`): kräftige Farben plus ein
+## zurückgenommener Hologramm-Schimmer. Die SÄTTIGUNG hebt die Modellfarbe gegen
+## den dunklen, blau-ambienten Raum an (ohne sie lasen die Charms ausgegraut); das
+## Eigenlicht bleibt niedrig, denn zu viel davon hebt die Tiefen an und macht alles
+## milchig - genau das war das Grau. Der Schimmer ist der wiederbelebte Hologramm-
+## Effekt (Spieler-Entscheid 2026-09-09: „wieder da, nur nicht so stark"), diesmal
+## als Saum und Bänder ÜBER dem massiven Modell statt als durchscheinender Ersatz.
+const MODEL_SHADER := preload("res://assets/shaders/charm_vitrine.gdshader")
+const MODEL_SATURATION := 1.6
+const MODEL_SELF_GLOW := 0.45
+const HOLO_RIM := 0.5
+const HOLO_BAND := 0.14
+const HOLO_FLASH := 1.0
 
-## Vitrinen-Strahler je besetztem Platz, frei über dem offenen Sockel. Er
-## leuchtet AUSSCHLIESSLICH die Modelle
-## an (eigene Lichtebene): die Filzfläche ist EIN Mesh und der Compatibility-
-## Renderer deckelt die Lichter je Mesh - TableLight plus sechs Spill-Omnis
-## stehen dort schon.
+## Vitrinen-Strahler je besetztem Platz, frei über dem offenen Sockel. Er leuchtet
+## AUSSCHLIESSLICH die Modelle an (eigene Lichtebene): die Filzfläche ist EIN Mesh
+## und der Compatibility-Renderer deckelt die Lichter je Mesh - TableLight plus
+## sechs Spill-Omnis stehen dort schon. Sein Ton ist fast neutral: das frühere Creme
+## legte über jeden Charm denselben beigen Schleier.
 const MODEL_LIGHT_LAYER := 1 << 19
 const SPOT_LIGHT_HEIGHT := 8.5
-const SPOT_LIGHT_ENERGY := 1.6
+const SPOT_LIGHT_ENERGY := 2.8
 const SPOT_LIGHT_RANGE := 14.0
 const SPOT_LIGHT_ANGLE := 34.0
-const SPOT_LIGHT_COLOR := Color(1.0, 0.96, 0.9)
+const SPOT_LIGHT_COLOR := Color(1.0, 0.99, 0.97)
 
 ## Hover-Toleranz um die projizierte Charm-Mitte - die Charms liegen in der
 ## Grubenansicht klein am oberen Bildrand, daher großzügig.
@@ -73,6 +83,8 @@ var spot_lights: Array[SpotLight3D] = []
 ## Je Platz eine EIGENE Ring-Instanz - geteilt blitzten sonst alle Sockel
 ## derselben Rarität mit.
 var ring_materials: Array[StandardMaterial3D] = []
+## Je Platz die Modell-Materialien (ein Array je Platz) - der Schimmer blitzt mit.
+var charm_materials: Array = []
 
 const ROTATION_SPEED := 0.15  # rad/s, ruhiger Spin - die Silhouette bleibt lesbar
 
@@ -101,6 +113,7 @@ func set_charms(charms: Array[Charm]) -> void:
 		light.queue_free()
 	spot_lights.clear()
 	ring_materials.clear()
+	charm_materials.clear()
 	current_charms = []
 	var count := mini(charms.size(), SPOT_COUNT)
 	for i in count:
@@ -137,9 +150,11 @@ func _build_spot(i: int) -> void:
 	pivot.transform = _spot_transform(i)
 	var model := _load_model(charm)
 	pivot.add_child(model)
-	apply_vitrine_lighting(model)
+	var materials: Array[ShaderMaterial] = []
+	apply_vitrine_lighting(model, materials)
 	charm_nodes.append(pivot)
 	charm_models.append(model)
+	charm_materials.append(materials)
 
 	# Strahler NICHT als Kind des Pivots: dessen MODEL_SCALE zöge seinen Versatz mit.
 	var light := SpotLight3D.new()
@@ -196,12 +211,13 @@ static func ring_color(rarity: String, energy: float) -> Color:
 ## GLB-Ressource liegt im geteilten Cache und darf nie verändert werden.
 ## STATISCH, weil der Laden dieselben Modelle zeigt und zwei Rezepte für einen
 ## Look auseinanderliefen.
-static func apply_vitrine_lighting(node: Node) -> void:
+static func apply_vitrine_lighting(node: Node, out_materials: Array = []) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
 		mesh_instance.layers |= MODEL_LIGHT_LAYER
 		if mesh_instance.material_override is BaseMaterial3D:
-			mesh_instance.material_override = _lit_material(mesh_instance.material_override)
+			mesh_instance.material_override = _lit_material(
+				mesh_instance.material_override, out_materials)
 		else:
 			var surface_count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
 			for s in surface_count:
@@ -210,25 +226,47 @@ static func apply_vitrine_lighting(node: Node) -> void:
 				var base: BaseMaterial3D = mesh_instance.get_active_material(s) as BaseMaterial3D
 				if base == null:
 					base = StandardMaterial3D.new()
-				mesh_instance.set_surface_override_material(s, _lit_material(base))
+				mesh_instance.set_surface_override_material(s,
+					_lit_material(base, out_materials))
 	for child in node.get_children():
-		apply_vitrine_lighting(child)
+		apply_vitrine_lighting(child, out_materials)
 
-## Kopie einer Fläche, die ihre eigene Farbe schwach zurückstrahlt.
-static func _lit_material(source: BaseMaterial3D) -> BaseMaterial3D:
-	var lit: BaseMaterial3D = source.duplicate()
-	lit.emission_enabled = true
-	lit.emission = lit.albedo_color
-	if lit.albedo_texture != null:
-		lit.emission_texture = lit.albedo_texture
-	lit.emission_energy_multiplier = MODEL_EMISSION_ENERGY
+## Der Vitrinen-Look einer Fläche: Originalfarbe und -textur wandern in den
+## Shader, der sie sättigt, schwach zurückstrahlen läßt und den Schimmer darüber
+## legt. Ein NEUES Material - die GLB-Ressource liegt im geteilten Cache.
+static func _lit_material(source: BaseMaterial3D, out_materials: Array) -> ShaderMaterial:
+	var lit := ShaderMaterial.new()
+	lit.shader = MODEL_SHADER
+	lit.set_shader_parameter("albedo_color", source.albedo_color)
+	if source.albedo_texture != null:
+		lit.set_shader_parameter("albedo_tex", source.albedo_texture)
+		lit.set_shader_parameter("use_texture", true)
+	lit.set_shader_parameter("metallic_value", source.metallic)
+	lit.set_shader_parameter("roughness_value", source.roughness)
+	lit.set_shader_parameter("saturation", MODEL_SATURATION)
+	lit.set_shader_parameter("self_glow", MODEL_SELF_GLOW)
+	lit.set_shader_parameter("holo_rim", HOLO_RIM)
+	lit.set_shader_parameter("holo_band", HOLO_BAND)
+	lit.set_shader_parameter("flash", 0.0)  # Ruhestand explizit: ungesetzt liest er null
+	out_materials.append(lit)
 	return lit
 
-## Lässt die Vitrine auf Platz index kurz aufblitzen ("dieser Charm feuert"):
-## das Kantenlicht des Sockels pulst über die Bloom-Schwelle, das Modell poppt.
+## Lässt die Vitrine auf Platz index kurz aufblitzen ("dieser Charm feuert"): das
+## Kantenlicht des Sockels pulst über die Bloom-Schwelle, der Schimmer des Modells
+## zieht mit, und das Modell poppt.
 func flash_charm(index: int) -> void:
 	if index < 0 or index >= charm_models.size():
 		return
+	var materials: Array = charm_materials[index]
+	var set_flash := func(value: float) -> void:
+		for material: ShaderMaterial in materials:
+			material.set_shader_parameter("flash", value)
+	var holo_tween := create_tween()
+	holo_tween.tween_method(set_flash, 0.0, HOLO_FLASH, 0.08) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	holo_tween.tween_method(set_flash, HOLO_FLASH, 0.0, 0.4) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
 	var material := ring_materials[index]
 	var rarity := current_charms[index].rarity
 	var set_energy := func(value: float) -> void:

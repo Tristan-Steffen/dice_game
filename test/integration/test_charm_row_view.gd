@@ -144,7 +144,9 @@ func _surfaces_of(node: Node, out: Array) -> void:
 	for child in node.get_children():
 		_surfaces_of(child, out)
 
-func test_model_keeps_real_materials_with_self_light():
+func test_model_wears_the_vitrine_look():
+	# Jede Fläche trägt den Vitrinen-Shader: Originalfarbe/-textur gesättigt,
+	# schwaches Eigenlicht, darüber der zurückgenommene Schimmer.
 	row.set_charms(_charms(1))
 	var meshes: Array = []
 	_surfaces_of(row.charm_models[0], meshes)
@@ -155,25 +157,47 @@ func test_model_keeps_real_materials_with_self_light():
 			"die Fläche hängt in der Lichtebene der Vitrinen-Strahler")
 		var count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
 		for s in count:
-			var material := mesh_instance.get_active_material(s)
-			assert_false(material is ShaderMaterial, "kein Hologramm-Override mehr")
-			assert_true(material is BaseMaterial3D, "die Originalmaterialien bleiben")
-			assert_true((material as BaseMaterial3D).emission_enabled,
-				"jede Fläche trägt ihr Museums-Eigenlicht")
+			var material := mesh_instance.get_active_material(s) as ShaderMaterial
+			assert_not_null(material, "die Fläche trägt den Vitrinen-Shader")
+			assert_gt(float(material.get_shader_parameter("saturation")), 1.0,
+				"die Farbe wird gesättigt, nicht ausgegraut")
+			assert_gt(float(material.get_shader_parameter("holo_rim")), 0.0,
+				"der Schimmer liegt darüber")
 			checked += 1
 	assert_gt(checked, 0, "mindestens eine Fläche geprüft")
 
+## Das Modell bleibt MASSIV: der Shader schreibt keine Alpha, es steht also im
+## Tiefenpuffer statt als durchscheinende Lichtgestalt (der alte Hologramm-Ersatz).
+func test_the_model_stays_solid():
+	var code: String = CharmRowView.MODEL_SHADER.code
+	assert_false(code.contains("ALPHA ="), "keine Alpha - das Modell ist undurchsichtig")
+	assert_false(code.contains("blend_add"), "kein additiver Ersatz mehr")
+	assert_false(code.contains("unshaded"), "es wird echt beleuchtet")
+
+func test_flash_charm_lifts_the_holo_sheen():
+	row.set_charms(_charms(1))
+	var materials: Array = row.charm_materials[0]
+	assert_gt(materials.size(), 0, "die Flächen sind gemerkt")
+	var first: ShaderMaterial = materials[0]
+	assert_almost_eq(float(first.get_shader_parameter("flash")), 0.0, 0.001)
+	row.flash_charm(0)
+	await wait_seconds(0.09)
+	assert_gt(float(first.get_shader_parameter("flash")), 0.0, "der Schimmer zieht mit")
+	await wait_seconds(0.6)
+	assert_almost_eq(float(first.get_shader_parameter("flash")), 0.0, 0.02,
+		"und fällt zurück")
+
 func test_cached_model_resource_stays_untouched():
-	# Die Materialien liegen im geteilten GLB-Cache - die Vitrine DUPLIZIERT sie.
+	# Die Materialien liegen im geteilten GLB-Cache - die Vitrine legt ihren Shader
+	# als Flächen-Override DARÜBER, statt die Ressource anzufassen.
 	var path := Charm.rabbits_foot().model_path
 	var probe: Node3D = autofree(CharmRowView.model_scene(path).instantiate())
 	var meshes: Array = []
 	_surfaces_of(probe, meshes)
 	var first: MeshInstance3D = meshes[0]
-	var before: bool = (first.get_active_material(0) as BaseMaterial3D).emission_enabled
 	row.set_charms(_charms(1))
-	assert_eq((first.get_active_material(0) as BaseMaterial3D).emission_enabled, before,
-		"die gecachte Ressource bleibt unverändert")
+	assert_true(first.get_active_material(0) is BaseMaterial3D,
+		"die gecachte Ressource bleibt ein Originalmaterial")
 
 func test_the_loader_caps_how_many_models_are_in_flight():
 	# Die Bibliothek fordert beim Öffnen ALLE Charm-Modelle an. Ohne Deckel musste
