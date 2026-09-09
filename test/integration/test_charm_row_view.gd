@@ -1,9 +1,9 @@
 extends GutTest
 ## Tier-2-Tests der Charm-Reihe (CharmRowView). Prüft, dass je Charm eine
-## VITRINE (Sockel, Kantenlicht, Strahler) auf einem festen Platz landet, die Plätze
+## HOLOGRAMM (Emitter-Ring, Lichtgestalt) auf einem festen Platz landet, die Plätze
 ## bei mehr Charms als Plätzen gekappt werden, die sechs Plätze eine gleichmäßige,
-## spiegelsymmetrische Reihe auf der Tischfläche bilden - und dass das Modell
-## massiv bleibt (Originalmaterialien plus Eigenlicht, kein Hologramm-Shader).
+## spiegelsymmetrische Reihe auf der Tischfläche bilden - und dass das Modell als
+## additive Lichtgestalt in gesättigten Originalfarben liest.
 
 var row: CharmRowView
 
@@ -51,11 +51,11 @@ func test_spots_mirror_across_z_axis():
 	assert_almost_eq(t0.origin.x, t5.origin.x, 0.001)
 	assert_almost_eq(t0.origin.z, -t5.origin.z, 0.001)
 
-func test_models_stand_on_the_podium():
-	# Das Modell steht auf der Trittfläche des Sockels, nicht mehr auf dem Tisch.
+func test_models_hover_over_the_emitter():
+	# Das Hologramm schwebt über seinem Emitter - eine Projektion steht nicht auf.
 	for i in CharmRowView.SPOT_COUNT:
 		assert_almost_eq(row._spot_transform(i).origin.y,
-			CharmRowView.SPOT_Y + CharmRowView.PODIUM_HEIGHT, 0.001)
+			CharmRowView.SPOT_Y + CharmRowView.HOVER_HEIGHT, 0.001)
 
 func test_reported_spot_stays_on_the_table():
 	# Der gemeldete Platz (Sockelring des Docks, Drop-Ziel) bleibt die Tischfläche.
@@ -70,30 +70,27 @@ func test_row_evenly_spaced_in_z():
 	for i in range(1, CharmRowView.SPOT_COUNT):
 		assert_almost_eq(z[i] - z[i - 1], CharmRowView.LINE_SPACING, 0.001)
 
-# --- Vitrinen-Körper ------------------------------------------------------------
+# --- Emitter-Körper -------------------------------------------------------------
 
-func test_one_vitrine_per_occupied_spot():
+func test_one_emitter_per_occupied_spot():
 	row.set_charms(_charms(2))
-	assert_eq(row.podium_nodes.size(), 2, "je besetztem Platz genau ein Sockel")
-	assert_eq(row.ring_nodes.size(), 2, "je besetztem Platz genau ein Kantenlicht")
-	assert_eq(row.spot_lights.size(), 2, "je besetztem Platz genau ein Strahler")
+	assert_eq(row.ring_nodes.size(), 2, "je besetztem Platz genau ein Emitter-Ring")
 
-func test_vitrines_cleared_with_charms():
+func test_emitters_cleared_with_charms():
 	row.set_charms(_charms(3))
 	row.set_charms([])
-	assert_eq(row.podium_nodes.size(), 0, "leere Reihe hat keine Sockel mehr")
-	assert_eq(row.ring_nodes.size(), 0)
-	assert_eq(row.spot_lights.size(), 0)
+	assert_eq(row.ring_nodes.size(), 0, "leere Reihe hat keine Emitter mehr")
 
-## Die Vitrine ist oben OFFEN (Spieler-Entscheid 2026-09-09): keine Haube, und
-## über der Trittfläche steht nur noch das Modell.
-func test_the_vitrine_is_open_on_top():
+## Kein Sockel, kein Strahler (Spieler-Entscheid 2026-09-09): der Emitter liegt
+## flach auf dem Filz, sonst steht dort kein Körper.
+func test_the_emitter_lies_flat_on_the_felt():
 	row.set_charms(_charms(1))
 	for child in row.get_children():
-		if child is MeshInstance3D and child.mesh is CylinderMesh:
-			var mesh := child.mesh as CylinderMesh
-			assert_almost_eq(mesh.height, CharmRowView.PODIUM_HEIGHT, 0.001,
-				"der einzige Zylinder ist der Sockel")
+		assert_false(child is Light3D, "kein Strahler - ein Hologramm ist unshaded")
+		if child is MeshInstance3D:
+			assert_true((child as MeshInstance3D).mesh is TorusMesh, "nur der Ring")
+	assert_almost_eq(row.ring_nodes[0].position.y, CharmRowView.RING_HEIGHT * 0.5, 0.001,
+		"der Ring liegt auf der Tischfläche")
 
 func test_ring_color_follows_rarity():
 	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) leuchten
@@ -106,7 +103,7 @@ func test_ring_color_follows_rarity():
 		"gleiche Rarität teilt dieselbe Kantenlicht-Farbe")
 
 func test_every_spot_owns_its_ring_material():
-	# Geteilt blitzten beim Feuern alle Sockel derselben Rarität mit.
+	# Geteilt blitzten beim Feuern alle Emitter derselben Rarität mit.
 	row.set_charms(_charms(3))
 	assert_ne(row.ring_materials[0], row.ring_materials[1],
 		"je Platz eine eigene Ring-Instanz")
@@ -136,7 +133,7 @@ func test_flash_charm_tolerates_invalid_index():
 	row.flash_charm(5)  # außerhalb - darf nicht abstürzen
 	assert_eq(row.charm_nodes.size(), 1)
 
-# --- Massives Modell ------------------------------------------------------------
+# --- Lichtgestalt ---------------------------------------------------------------
 
 func _surfaces_of(node: Node, out: Array) -> void:
 	if node is MeshInstance3D:
@@ -144,35 +141,33 @@ func _surfaces_of(node: Node, out: Array) -> void:
 	for child in node.get_children():
 		_surfaces_of(child, out)
 
-func test_model_wears_the_vitrine_look():
-	# Jede Fläche trägt den Vitrinen-Shader: Originalfarbe/-textur gesättigt,
-	# schwaches Eigenlicht, darüber der zurückgenommene Schimmer.
+func test_model_wears_the_hologram():
+	# Jede Fläche trägt den Hologramm-Shader mit gesättigter Originalfarbe/-textur.
 	row.set_charms(_charms(1))
 	var meshes: Array = []
 	_surfaces_of(row.charm_models[0], meshes)
 	assert_gt(meshes.size(), 0, "das Modell bringt Flächen mit")
 	var checked := 0
 	for mesh_instance: MeshInstance3D in meshes:
-		assert_true(bool(mesh_instance.layers & CharmRowView.MODEL_LIGHT_LAYER),
-			"die Fläche hängt in der Lichtebene der Vitrinen-Strahler")
 		var count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
 		for s in count:
 			var material := mesh_instance.get_active_material(s) as ShaderMaterial
-			assert_not_null(material, "die Fläche trägt den Vitrinen-Shader")
+			assert_not_null(material, "die Fläche trägt den Hologramm-Shader")
+			assert_eq(material.shader, CharmRowView.HOLO_SHADER)
 			assert_gt(float(material.get_shader_parameter("saturation")), 1.0,
 				"die Farbe wird gesättigt, nicht ausgegraut")
-			assert_gt(float(material.get_shader_parameter("holo_rim")), 0.0,
-				"der Schimmer liegt darüber")
 			checked += 1
 	assert_gt(checked, 0, "mindestens eine Fläche geprüft")
 
-## Das Modell bleibt MASSIV: der Shader schreibt keine Alpha, es steht also im
-## Tiefenpuffer statt als durchscheinende Lichtgestalt (der alte Hologramm-Ersatz).
-func test_the_model_stays_solid():
-	var code: String = CharmRowView.MODEL_SHADER.code
-	assert_false(code.contains("ALPHA ="), "keine Alpha - das Modell ist undurchsichtig")
-	assert_false(code.contains("blend_add"), "kein additiver Ersatz mehr")
-	assert_false(code.contains("unshaded"), "es wird echt beleuchtet")
+## Ein Hologramm ist LICHT: additiv, unbeleuchtet, durchscheinend, und die
+## Rückseiten addieren durch das Modell hindurch (kein Tiefen-Schreiben).
+func test_the_hologram_is_additive_light():
+	var code: String = CharmRowView.HOLO_SHADER.code
+	assert_true(code.contains("blend_add"), "additiv")
+	assert_true(code.contains("unshaded"), "unbeleuchtet")
+	assert_true(code.contains("depth_draw_never"), "die Rückseiten scheinen durch")
+	assert_true(code.contains("ALPHA ="), "durchscheinend")
+	assert_false(code.contains("flicker"), "kein Flackern - clean, nicht CRT")
 
 func test_flash_charm_lifts_the_holo_sheen():
 	row.set_charms(_charms(1))
@@ -188,7 +183,7 @@ func test_flash_charm_lifts_the_holo_sheen():
 		"und fällt zurück")
 
 func test_cached_model_resource_stays_untouched():
-	# Die Materialien liegen im geteilten GLB-Cache - die Vitrine legt ihren Shader
+	# Die Materialien liegen im geteilten GLB-Cache - die Reihe legt ihren Shader
 	# als Flächen-Override DARÜBER, statt die Ressource anzufassen.
 	var path := Charm.rabbits_foot().model_path
 	var probe: Node3D = autofree(CharmRowView.model_scene(path).instantiate())

@@ -1136,15 +1136,15 @@ func _setup_table_screen() -> void:
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
-	# Charm-Konsolen unter der 3D-Charm-Reihe: je Charm ein Sockelring dort, wo die
-	# Vitrine auf dem Screen steht (= projizierter Platz), Karte darunter. Die
+	# Charm-Konsolen unter der 3D-Charm-Reihe: je Charm ein Sockelring dort, wo der
+	# Emitter des Hologramms auf dem Screen liegt (= projizierter Platz), Karte darunter. Die
 	# übergebenen Pixel sind die Ringmitten; die Karten legt das Dock ab.
 	var aperture_centers := PackedVector2Array()
 	for i in CharmRowView.SPOT_COUNT:
 		aperture_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
 	var pad_spacing := aperture_centers[0].distance_to(aperture_centers[1]) if aperture_centers.size() > 1 else 200.0
-	# Sockelring = Fußabdruck der Vitrine: Sockelradius (Welt) -> Screen-Pixel.
-	var proj_radius := CharmRowView.PODIUM_RADIUS * table_screen.pixels_per_world()
+	# Sockelring = Emitter-Ring des Hologramms: Radius (Welt) -> Screen-Pixel.
+	var proj_radius := CharmRowView.EMITTER_RADIUS * table_screen.pixels_per_world()
 	table_screen.place_charm_dock(aperture_centers, Vector2(pad_spacing * 0.66, pad_spacing * 0.66), proj_radius)
 	if run != null:
 		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
@@ -9471,8 +9471,8 @@ func _try_start_charm_reorder(screen_pos: Vector2) -> bool:
 		return false
 	if not (is_pit_focused or _felt_pick_live(CameraRig.Mode.CHARMS)):
 		return false
-	# Konsolen-Karte ODER die 3D-Vitrine treffen denselben Charm - so
-	# recentert/zieht ein Klick auf beides (die Vitrine steht über der Karte).
+	# Konsolen-Karte ODER das 3D-Hologramm treffen denselben Charm - so
+	# recentert/zieht ein Klick auf beides (das Hologramm schwebt über der Karte).
 	var index := -1
 	var pixel := _screen_pixel(screen_pos)
 	if pixel.x >= 0.0:
@@ -10342,7 +10342,7 @@ func _update_selection_glows() -> void:
 			_select_glows[i].queue_free()
 			_select_glows.erase(i)
 
-## Hover-Info der Charms ins Dock-Band: Index erst über die 3D-Vitrine
+## Hover-Info der Charms ins Dock-Band: Index erst über das 3D-Hologramm
 ## (Projektions-Nähe), sonst über die Dock-Karte unter der Maus - so leuchtet die
 ## Konsole aus jeder Sicht auf. Nicht während Kamerafahrt oder Drag.
 func _update_charm_hover() -> void:
@@ -12781,7 +12781,7 @@ func _charm_slot(resolved_index: int) -> int:
 		return -1
 	return slots[resolved_index]
 
-## Blitzt die 3D-Vitrine eines Charms UND sein Dock-Pad ("dieser Charm feuert").
+## Blitzt das 3D-Hologramm eines Charms UND sein Dock-Pad ("dieser Charm feuert").
 ## index ist eine WIRKUNGS-Position, keine Besitz-Position.
 func _flash_charm_and_pad(index: int) -> void:
 	var slot := _charm_slot(index)

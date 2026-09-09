@@ -23,9 +23,9 @@ const THUMB_INSET := 0.82  # Bild-Anteil an der Karten-Kante (Rest = Rahmen)
 const DRAG_SCALE := 1.12    # gezogene Karte hebt sich leicht ab
 
 ## Konsolen-Maße relativ zur Kartengröße (_pad_size). Der Sockelring sitzt exakt
-## auf der Platzmitte und hat GENAU den Fußabdruck der Vitrine (scene_root setzt
-## projector_radius aus CharmRowView.PODIUM_RADIUS) - der massive Sockel deckt ihn
-## darum. Karten-Abstand + Konsolen-Höhe folgen dem Ringradius.
+## auf der Platzmitte und hat GENAU den Radius des Emitter-Rings (scene_root setzt
+## projector_radius aus CharmRowView.EMITTER_RADIUS), der 3D-Ring liegt genau
+## darauf. Karten-Abstand + Konsolen-Höhe folgen dem Ringradius.
 const PROJECTOR_GAP := 0.18       # Abstand Ring-Unterkante -> Kartenoberkante
 const PROJECTOR_FALLBACK := 0.24  # Ringradius (Kartenhöhen), bis scene_root ihn meldet
 const CONSOLE_PAD_X := 0.09       # seitlicher Mindest-Rand der Konsole um die Karte
