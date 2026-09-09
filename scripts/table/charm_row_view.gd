@@ -1,9 +1,10 @@
 class_name CharmRowView
 extends Node3D
-## Zeigt die besessenen Charms als Hologramme auf dem Tisch: sechs feste
-## Plätze in einer Reihe am hinteren Tischrand, Reihenfolge = Besitz-
-## Reihenfolge. set_charms() baut bei jeder Änderung neu auf; zusätzlich löst
-## der Knoten den Hover/Drag der Grubenansicht auf (charm_*_at_screen_pos).
+## Zeigt die besessenen Charms als VITRINEN auf dem Tisch: sechs feste Plätze in
+## einer Reihe am hinteren Tischrand, Reihenfolge = Besitz-Reihenfolge. Je Platz
+## ein massives Modell auf einem Glas-Sockel mit Raritäts-Kantenlicht unter einer
+## Glashaube. set_charms() baut bei jeder Änderung neu auf; zusätzlich löst der
+## Knoten den Hover/Drag der Grubenansicht auf (charm_*_at_screen_pos).
 
 const LINE_X := 31.0  # Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-oben)
 const LINE_SPACING := 9.0
@@ -14,12 +15,47 @@ const MODEL_SCALE := 4.0
 ## Laden und Tisch nie auseinanderlaufen.
 const SPOT_COUNT := GameRun.CHARM_CAPACITY
 
-## Hologramm-Look: Modell bekommt den Hologramm-Shader, aus der Tischfläche
-## steigt je Charm ein Lichtzylinder auf.
-const HOLOGRAM_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
-const BEAM_SHADER := preload("res://assets/shaders/hologram_beam.gdshader")
-const BEAM_RADIUS := 3.6
-const BEAM_HEIGHT := 9.0
+## Sockelmaße. PODIUM_RADIUS trägt zugleich den Sockelring der 2D-Konsole
+## (scene_root meldet ihn als Blenden-Radius ans Charm-Dock).
+const PODIUM_RADIUS := 3.6
+const PODIUM_HEIGHT := 0.7
+## Kantenlicht: ein RING (Torus) in der oberen Sockelkante, kein Zylinder-Kragen -
+## dessen Deckel läge auf der Trittfläche und stritte mit ihr im Tiefenpuffer
+## (gemessen: die Sockelfläche stand als Stippel-Muster in der Raritätsfarbe).
+const RING_HEIGHT := 0.16
+
+## Haube: gemessen ragt kein Charm-Modell höher als 4,01 Welt (bei MODEL_SCALE 4
+## stehen drei Viertel aller Modelle bei 3,9-4,0), 4,6 läßt allen Luft.
+const DOME_HEIGHT := 4.6
+const DOME_SHADER := preload("res://assets/shaders/vitrine_dome.gdshader")
+
+## Kantenlicht: die Ruhe-Energie bleibt unter der Bloom-Schwelle (0,95 mal dem
+## stärksten Kanal jeder Raritätsfarbe), der Puls des Feuerns geht deutlich darüber.
+## 0,62 statt 0,88 ist GEMESSEN: dicht unter der Schwelle stand der Ring schon in
+## Ruhe fast weiß, und der Puls war im Bild nicht zu unterscheiden.
+const RING_REST_ENERGY := 0.62
+const RING_FLASH_ENERGY := 2.2
+
+## Sockel im Ton der Tisch-Requisiten (Turm-Gestell), massiv statt Glas - unter
+## gl_compatibility spart das jede Sortierfrage.
+const PODIUM_ALBEDO := TowerView.FRAME_ALBEDO
+const PODIUM_EMISSION := TowerView.FRAME_EMISSION
+const PODIUM_EMISSION_ENERGY := 0.42
+
+## Museums-Eigenlicht der Modelle: jede Fläche strahlt ihre eigene Albedo schwach
+## zurück, sonst stünde das PBR-Modell im dunklen Raum als schwarzer Klumpen.
+const MODEL_EMISSION_ENERGY := 0.42
+
+## Vitrinen-Strahler je besetztem Platz. Er leuchtet AUSSCHLIESSLICH die Modelle
+## an (eigene Lichtebene): die Filzfläche ist EIN Mesh und der Compatibility-
+## Renderer deckelt die Lichter je Mesh - TableLight plus sechs Spill-Omnis
+## stehen dort schon.
+const MODEL_LIGHT_LAYER := 1 << 19
+const SPOT_LIGHT_HEIGHT := 8.5
+const SPOT_LIGHT_ENERGY := 1.6
+const SPOT_LIGHT_RANGE := 14.0
+const SPOT_LIGHT_ANGLE := 34.0
+const SPOT_LIGHT_COLOR := Color(1.0, 0.96, 0.9)
 
 ## Hover-Toleranz um die projizierte Charm-Mitte - die Charms liegen in der
 ## Grubenansicht klein am oberen Bildrand, daher großzügig.
@@ -31,118 +67,211 @@ const PICK_RADIUS_PX := 70.0
 var charm_nodes: Array[Node3D] = []
 var charm_models: Array[Node3D] = []
 var current_charms: Array[Charm] = []
-var beam_nodes: Array[MeshInstance3D] = []
-var charm_materials: Array = []  # je Charm die Hologramm-Materialien (für flash_charm)
+
+## Vitrinen-Körper je besetztem Platz, index-parallel zu charm_nodes.
+var podium_nodes: Array[MeshInstance3D] = []
+var ring_nodes: Array[MeshInstance3D] = []
+var dome_nodes: Array[MeshInstance3D] = []
+var spot_lights: Array[SpotLight3D] = []
+## Je Platz eine EIGENE Ring-Instanz - geteilt blitzten sonst alle Sockel
+## derselben Rarität mit.
+var ring_materials: Array[StandardMaterial3D] = []
 
 const ROTATION_SPEED := 0.15  # rad/s, ruhiger Spin - die Silhouette bleibt lesbar
 
-## Geteilte Beam-Ressourcen: EIN Material je Rarität (Kegel schimmert in der
-## Raritätsfarbe); der Hologramm-Shader wird je Fläche instanziiert.
-var _beam_materials: Dictionary = {}  # Rarität -> ShaderMaterial
-var _beam_mesh: CylinderMesh
+## Geteilte Vitrinen-Ressourcen: EIN Ring-Material je Rarität als Vorlage, aus
+## der jeder Platz seine Instanz zieht.
+var _ring_materials: Dictionary = {}  # Rarität -> StandardMaterial3D
+var _dome_materials: Dictionary = {}  # Rarität -> ShaderMaterial (Saumfarbe)
+var _podium_mesh: CylinderMesh
+var _ring_mesh: TorusMesh
+var _dome_mesh: CylinderMesh
+var _podium_material: StandardMaterial3D
 
-## Wie stark die Raritätsfarbe in den Kegel mischt (dezent - der Kegel soll
-## weiter als Lichtprojektion lesen, nicht jeden Charm gleich einfärben).
-const BEAM_RARITY_MIX := 0.35
-
-## Baut die Charm-Modelle neu: je Charm ein Modell auf dem nächsten Platz;
-## mehr Charms als Plätze werden abgeschnitten.
+## Baut die Charm-Vitrinen neu: je Charm eine auf dem nächsten Platz; mehr Charms
+## als Plätze werden abgeschnitten.
 func set_charms(charms: Array[Charm]) -> void:
-	_ensure_holo_resources()
+	_ensure_vitrine_resources()
 	for node in charm_nodes:
 		node.queue_free()
 	charm_nodes.clear()
 	charm_models.clear()
-	for beam in beam_nodes:
-		beam.queue_free()
-	beam_nodes.clear()
+	for body in podium_nodes:
+		body.queue_free()
+	podium_nodes.clear()
+	for body in ring_nodes:
+		body.queue_free()
+	ring_nodes.clear()
+	for body in dome_nodes:
+		body.queue_free()
+	dome_nodes.clear()
+	for light in spot_lights:
+		light.queue_free()
+	spot_lights.clear()
+	ring_materials.clear()
 	current_charms = []
-	charm_materials.clear()
 	var count := mini(charms.size(), SPOT_COUNT)
 	for i in count:
-		var pivot := Node3D.new()
-		add_child(pivot)
-		pivot.transform = _spot_transform(i)
-		var model := _load_model(charms[i])
-		pivot.add_child(model)
-		var materials: Array[ShaderMaterial] = []
-		apply_hologram(model, materials)
-		charm_nodes.append(pivot)
-		charm_models.append(model)
 		current_charms.append(charms[i])
-		charm_materials.append(materials)
-		_add_beam(i)
+		_build_spot(i)
 
 func _process(delta: float) -> void:
 	for model in charm_models:
 		model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
 
-func _ensure_holo_resources() -> void:
-	if _beam_mesh != null:
-		return
-	_beam_mesh = CylinderMesh.new()
-	_beam_mesh.top_radius = BEAM_RADIUS
-	_beam_mesh.bottom_radius = BEAM_RADIUS
-	_beam_mesh.height = BEAM_HEIGHT
-	_beam_mesh.radial_segments = 24
+## Sockel, Kantenlicht, Haube, Strahler und das Modell des Platzes i.
+func _build_spot(i: int) -> void:
+	var spot := _spot_position(i)
+	var charm := current_charms[i]
 
-## Kegel-Material einer Rarität: Shader-Grundton, dezent Richtung
-## Raritätsfarbe gemischt - einmal gebaut, dann wiederverwendet.
-func _beam_material_for(rarity: String) -> ShaderMaterial:
-	if _beam_materials.has(rarity):
-		return _beam_materials[rarity]
-	var material := ShaderMaterial.new()
-	material.shader = BEAM_SHADER
-	material.set_shader_parameter("bottom_y", SPOT_Y)
-	material.set_shader_parameter("top_y", SPOT_Y + BEAM_HEIGHT)
-	var base_color := Color(0.3, 0.68, 1.0)  # beam_color-Default des Shaders
-	var rarity_color: Color = Charm.RARITY_COLORS.get(rarity, Charm.RARITY_COLORS[Charm.RARITY_COMMON])
-	var tinted := base_color.lerp(rarity_color, BEAM_RARITY_MIX)
-	material.set_shader_parameter("beam_color", Vector3(tinted.r, tinted.g, tinted.b))
-	_beam_materials[rarity] = material
+	var podium := MeshInstance3D.new()
+	podium.mesh = _podium_mesh
+	podium.material_override = _podium_material
+	podium.position = spot + Vector3(0.0, PODIUM_HEIGHT * 0.5, 0.0)
+	add_child(podium)
+	podium_nodes.append(podium)
+
+	var ring_material: StandardMaterial3D = _ring_material_for(charm.rarity).duplicate()
+	var ring := MeshInstance3D.new()
+	ring.mesh = _ring_mesh
+	ring.material_override = ring_material
+	ring.position = spot + Vector3(0.0, PODIUM_HEIGHT - RING_HEIGHT * 0.5, 0.0)
+	add_child(ring)
+	ring_nodes.append(ring)
+	ring_materials.append(ring_material)
+
+	var dome := MeshInstance3D.new()
+	dome.mesh = _dome_mesh
+	dome.material_override = _dome_material_for(charm.rarity)
+	dome.position = spot + Vector3(0.0, PODIUM_HEIGHT + DOME_HEIGHT * 0.5, 0.0)
+	add_child(dome)
+	dome_nodes.append(dome)
+
+	var pivot := Node3D.new()
+	add_child(pivot)
+	pivot.transform = _spot_transform(i)
+	var model := _load_model(charm)
+	pivot.add_child(model)
+	apply_vitrine_lighting(model)
+	charm_nodes.append(pivot)
+	charm_models.append(model)
+
+	# Strahler NICHT als Kind des Pivots: dessen MODEL_SCALE zöge seinen Versatz mit.
+	var light := SpotLight3D.new()
+	light.position = spot + Vector3(0.0, SPOT_LIGHT_HEIGHT, 0.0)
+	light.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
+	light.light_color = SPOT_LIGHT_COLOR
+	light.light_energy = SPOT_LIGHT_ENERGY
+	light.light_cull_mask = MODEL_LIGHT_LAYER
+	light.spot_range = SPOT_LIGHT_RANGE
+	light.spot_angle = SPOT_LIGHT_ANGLE
+	light.shadow_enabled = false
+	add_child(light)
+	spot_lights.append(light)
+
+func _ensure_vitrine_resources() -> void:
+	if _podium_mesh != null:
+		return
+	_podium_mesh = CylinderMesh.new()
+	_podium_mesh.top_radius = PODIUM_RADIUS
+	_podium_mesh.bottom_radius = PODIUM_RADIUS
+	_podium_mesh.height = PODIUM_HEIGHT
+	_podium_mesh.radial_segments = 32
+	_ring_mesh = TorusMesh.new()
+	_ring_mesh.inner_radius = PODIUM_RADIUS - RING_HEIGHT * 0.5
+	_ring_mesh.outer_radius = PODIUM_RADIUS + RING_HEIGHT * 0.5
+	_ring_mesh.rings = 32
+	_ring_mesh.ring_segments = 8
+	# Haube: unten offener Zylinder mit Deckel, Radius = Sockel - der Ring liegt
+	# in dessen Kante, die Haube steht also bündig darauf.
+	_dome_mesh = CylinderMesh.new()
+	_dome_mesh.top_radius = PODIUM_RADIUS
+	_dome_mesh.bottom_radius = PODIUM_RADIUS
+	_dome_mesh.height = DOME_HEIGHT
+	_dome_mesh.radial_segments = 32
+	_dome_mesh.cap_bottom = false
+	_podium_material = StandardMaterial3D.new()
+	_podium_material.albedo_color = PODIUM_ALBEDO
+	_podium_material.metallic = 0.35
+	_podium_material.roughness = 0.3
+	_podium_material.emission_enabled = true
+	_podium_material.emission = PODIUM_EMISSION
+	_podium_material.emission_energy_multiplier = PODIUM_EMISSION_ENERGY
+
+## Ring-Vorlage einer Rarität: unshaded in der Raritätsfarbe, Ruhe-Energie unter
+## der Bloom-Schwelle - einmal gebaut, je Platz dupliziert.
+func _ring_material_for(rarity: String) -> StandardMaterial3D:
+	if _ring_materials.has(rarity):
+		return _ring_materials[rarity]
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = ring_color(rarity, RING_REST_ENERGY)
+	_ring_materials[rarity] = material
 	return material
 
-## Stülpt je Fläche ein Hologramm-Material über, das die Originalfarbe
-## (Textur + albedo_color) übernimmt; out_materials sammelt sie für flash_charm.
-## STATISCH, weil der Laden dieselbe Sprache spricht: seine Karten tragen dieselben
-## Modelle, und zwei Rezepte für einen Look liefen auseinander.
-static func apply_hologram(node: Node, out_materials: Array[ShaderMaterial]) -> void:
+## Hauben-Material einer Rarität: nur der Fresnel-Saum trägt ihre Farbe, die
+## Fläche bleibt fast klar - geteilt, es wird nichts daran animiert.
+func _dome_material_for(rarity: String) -> ShaderMaterial:
+	if _dome_materials.has(rarity):
+		return _dome_materials[rarity]
+	var material := ShaderMaterial.new()
+	material.shader = DOME_SHADER
+	var tint := ring_color(rarity, 1.0)
+	material.set_shader_parameter("edge_color", Vector3(tint.r, tint.g, tint.b))
+	_dome_materials[rarity] = material
+	return material
+
+## Kantenlicht-Farbe: Raritätsfarbe mal Energie, Alpha bleibt voll.
+static func ring_color(rarity: String, energy: float) -> Color:
+	var tint: Color = Charm.RARITY_COLORS.get(rarity, Charm.RARITY_COLORS[Charm.RARITY_COMMON])
+	return Color(tint.r * energy, tint.g * energy, tint.b * energy)
+
+## Gibt jeder Modell-Fläche ihr Museums-Eigenlicht und hängt sie in die
+## Lichtebene der Vitrinen-Strahler. Die Materialien werden DUPLIZIERT - die
+## GLB-Ressource liegt im geteilten Cache und darf nie verändert werden.
+## STATISCH, weil der Laden dieselben Modelle zeigt und zwei Rezepte für einen
+## Look auseinanderliefen.
+static func apply_vitrine_lighting(node: Node) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
-		var surface_count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
-		# Originalmaterialien zuerst lesen und den Voll-Override lösen, damit
-		# die Flächen-Hologramme greifen.
-		var originals: Array = []
-		for s in surface_count:
-			originals.append(mesh_instance.get_active_material(s))
-		mesh_instance.material_override = null
-		for s in surface_count:
-			var material := ShaderMaterial.new()
-			material.shader = HOLOGRAM_SHADER
-			if originals[s] is BaseMaterial3D:
-				var base := originals[s] as BaseMaterial3D
-				material.set_shader_parameter("albedo_color", base.albedo_color)
-				if base.albedo_texture != null:
-					material.set_shader_parameter("albedo_tex", base.albedo_texture)
-					material.set_shader_parameter("use_texture", true)
-			mesh_instance.set_surface_override_material(s, material)
-			out_materials.append(material)
+		mesh_instance.layers |= MODEL_LIGHT_LAYER
+		if mesh_instance.material_override is BaseMaterial3D:
+			mesh_instance.material_override = _lit_material(mesh_instance.material_override)
+		else:
+			var surface_count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
+			for s in surface_count:
+				# Eine Fläche OHNE Material bekommt eine neutrale - sonst rendert
+				# der Renderer sie mit einem Null-Material und schimpft je Bild.
+				var base: BaseMaterial3D = mesh_instance.get_active_material(s) as BaseMaterial3D
+				if base == null:
+					base = StandardMaterial3D.new()
+				mesh_instance.set_surface_override_material(s, _lit_material(base))
 	for child in node.get_children():
-		apply_hologram(child, out_materials)
+		apply_vitrine_lighting(child)
 
-## Lässt den Charm auf Platz index kurz aufblitzen ("dieser Charm feuert"):
-## Helligkeits-Puls über den flash-Parameter plus kleiner Größen-Pop.
+## Kopie einer Fläche, die ihre eigene Farbe schwach zurückstrahlt.
+static func _lit_material(source: BaseMaterial3D) -> BaseMaterial3D:
+	var lit: BaseMaterial3D = source.duplicate()
+	lit.emission_enabled = true
+	lit.emission = lit.albedo_color
+	if lit.albedo_texture != null:
+		lit.emission_texture = lit.albedo_texture
+	lit.emission_energy_multiplier = MODEL_EMISSION_ENERGY
+	return lit
+
+## Lässt die Vitrine auf Platz index kurz aufblitzen ("dieser Charm feuert"):
+## das Kantenlicht des Sockels pulst über die Bloom-Schwelle, das Modell poppt.
 func flash_charm(index: int) -> void:
 	if index < 0 or index >= charm_models.size():
 		return
-	var materials: Array = charm_materials[index]
-	var set_flash := func(value: float) -> void:
-		for material: ShaderMaterial in materials:
-			material.set_shader_parameter("flash", value)
-	var flash_tween := create_tween()
-	flash_tween.tween_method(set_flash, 0.0, 1.0, 0.08) \
+	var material := ring_materials[index]
+	var rarity := current_charms[index].rarity
+	var set_energy := func(value: float) -> void:
+		material.albedo_color = ring_color(rarity, value)
+	var ring_tween := create_tween()
+	ring_tween.tween_method(set_energy, RING_REST_ENERGY, RING_FLASH_ENERGY, 0.08) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	flash_tween.tween_method(set_flash, 1.0, 0.0, 0.4) \
+	ring_tween.tween_method(set_energy, RING_FLASH_ENERGY, RING_REST_ENERGY, 0.4) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 	var model := charm_models[index]
@@ -151,15 +280,6 @@ func flash_charm(index: int) -> void:
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	scale_tween.tween_property(model, "scale", Vector3.ONE, 0.4) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-func _add_beam(i: int) -> void:
-	var beam := MeshInstance3D.new()
-	beam.mesh = _beam_mesh
-	beam.material_override = _beam_material_for(current_charms[i].rarity)
-	var spot := _spot_position(i)
-	beam.position = Vector3(spot.x, SPOT_Y + BEAM_HEIGHT * 0.5, spot.z)
-	add_child(beam)
-	beam_nodes.append(beam)
 
 ## Charm-Index (Position in current_charms = Besitz-Reihenfolge), dessen Modell
 ## screen_pos am nächsten liegt (innerhalb PICK_RADIUS_PX), oder -1.
@@ -178,9 +298,10 @@ func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
 			best = i
 	return best
 
-## Globale Position des festen Platzes i (Drop-Ziel/Rückgleit-Anker).
+## Globale Position des festen Platzes i auf der Tischfläche (Drop-Ziel,
+## Rückgleit-Anker und Mitte des 2D-Sockelrings).
 func spot_global_position(i: int) -> Vector3:
-	return to_global(_spot_transform(i).origin)
+	return to_global(_spot_position(i))
 
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path
@@ -298,9 +419,9 @@ func _spot_position(i: int) -> Vector3:
 	var z := (float(i) - float(SPOT_COUNT - 1) * 0.5) * LINE_SPACING
 	return Vector3(LINE_X, SPOT_Y, z)
 
-## Transform des Platzes i: auf der Tischfläche, zur Mitte gedreht.
+## Transform des Platzes i: auf der Trittfläche des Sockels, zur Mitte gedreht.
 func _spot_transform(i: int) -> Transform3D:
-	var pos := _spot_position(i)
+	var pos := _spot_position(i) + Vector3(0.0, PODIUM_HEIGHT, 0.0)
 	var to_center := Vector3(-pos.x, 0.0, -pos.z).normalized()
 	var basis := Basis.looking_at(to_center, Vector3.UP).scaled(Vector3.ONE * MODEL_SCALE)
 	return Transform3D(basis, pos)

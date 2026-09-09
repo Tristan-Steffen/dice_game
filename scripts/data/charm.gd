@@ -266,8 +266,8 @@ static func offerable(pool: Array[Charm], owned_essence_ids: Array[String],
 ## Datei, bleibt model_path leer und CharmRowView zeigt den Platzhalter.
 const MODEL_DIR := "res://assets/models/"
 
-# Raritäten: steuern Shop-Häufigkeit (rarity_weight/pick_weighted) und die
-# Lichtkegel-Farbe auf dem Tisch (rarity_color/CharmRowView).
+# Raritäten: steuern Shop-Häufigkeit (rarity_weight/pick_weighted) und das
+# Kantenlicht der Tisch-Vitrine (rarity_color/CharmRowView).
 const RARITY_COMMON := "common"
 const RARITY_UNCOMMON := "uncommon"
 const RARITY_RARE := "rare"

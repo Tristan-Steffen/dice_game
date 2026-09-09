@@ -329,7 +329,7 @@ func charm_ids() -> Array[String]:
 
 ## Besitz-Slot je Position aus charm_ids(). Ein Totem ohne Nachbarn fällt aus
 ## der Wirkungsliste heraus, dadurch verschieben sich die Positionen gegen die
-## Besitz-Slots - wer einen Charm ANZEIGEN will (Hologramm, Dock-Pad), muss
+## Besitz-Slots - wer einen Charm ANZEIGEN will (Vitrine, Dock-Pad), muss
 ## hierüber umrechnen.
 func charm_slots() -> Array[int]:
 	var slots: Array[int] = []
@@ -338,7 +338,7 @@ func charm_slots() -> Array[int]:
 	return slots
 
 ## Wirkende Charms als {id, slot}: ein Totem übernimmt die WIRKUNG des Nachbarn,
-## behält aber SEINEN Besitz-Slot - dort sitzt sein Hologramm.
+## behält aber SEINEN Besitz-Slot - dort steht seine Vitrine.
 func _resolved_charms() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	for i in owned_charms.size():

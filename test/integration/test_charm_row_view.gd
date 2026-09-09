@@ -1,8 +1,9 @@
 extends GutTest
-## Tier-2-Tests der Charm-Reihe (CharmRowView). Prüft, dass je Charm ein
-## Hologramm-Modell samt Lichtzylinder auf einem festen Platz landet, die Plätze
-## bei mehr Charms als Plätzen gekappt werden, und dass die sechs Plätze einen
-## gleichmäßigen, spiegelsymmetrischen Bogen auf der Tischfläche bilden.
+## Tier-2-Tests der Charm-Reihe (CharmRowView). Prüft, dass je Charm eine
+## VITRINE (Sockel, Kantenlicht, Haube) auf einem festen Platz landet, die Plätze
+## bei mehr Charms als Plätzen gekappt werden, die sechs Plätze eine gleichmäßige,
+## spiegelsymmetrische Reihe auf der Tischfläche bilden - und dass das Modell
+## massiv bleibt (Originalmaterialien plus Eigenlicht, kein Hologramm-Shader).
 
 var row: CharmRowView
 
@@ -50,10 +51,16 @@ func test_spots_mirror_across_z_axis():
 	assert_almost_eq(t0.origin.x, t5.origin.x, 0.001)
 	assert_almost_eq(t0.origin.z, -t5.origin.z, 0.001)
 
-func test_all_spots_share_table_height():
-	# Kein Podest mehr: die Charms sitzen direkt auf der Tischfläche (SPOT_Y).
+func test_models_stand_on_the_podium():
+	# Das Modell steht auf der Trittfläche des Sockels, nicht mehr auf dem Tisch.
 	for i in CharmRowView.SPOT_COUNT:
-		assert_almost_eq(row._spot_transform(i).origin.y, CharmRowView.SPOT_Y, 0.001)
+		assert_almost_eq(row._spot_transform(i).origin.y,
+			CharmRowView.SPOT_Y + CharmRowView.PODIUM_HEIGHT, 0.001)
+
+func test_reported_spot_stays_on_the_table():
+	# Der gemeldete Platz (Sockelring des Docks, Drop-Ziel) bleibt die Tischfläche.
+	for i in CharmRowView.SPOT_COUNT:
+		assert_almost_eq(row.spot_global_position(i).y, CharmRowView.SPOT_Y, 0.001)
 
 func test_row_evenly_spaced_in_z():
 	# Benachbarte Plätze haben in Z stets denselben Abstand (LINE_SPACING).
@@ -63,26 +70,109 @@ func test_row_evenly_spaced_in_z():
 	for i in range(1, CharmRowView.SPOT_COUNT):
 		assert_almost_eq(z[i] - z[i - 1], CharmRowView.LINE_SPACING, 0.001)
 
-# --- Lichtzylinder --------------------------------------------------------------
+# --- Vitrinen-Körper ------------------------------------------------------------
 
-func test_one_beam_per_occupied_spot():
+func test_one_vitrine_per_occupied_spot():
 	row.set_charms(_charms(2))
-	assert_eq(row.beam_nodes.size(), 2, "je besetztem Platz genau ein Lichtzylinder")
+	assert_eq(row.podium_nodes.size(), 2, "je besetztem Platz genau ein Sockel")
+	assert_eq(row.ring_nodes.size(), 2, "je besetztem Platz genau ein Kantenlicht")
+	assert_eq(row.dome_nodes.size(), 2, "je besetztem Platz genau eine Haube")
+	assert_eq(row.spot_lights.size(), 2, "je besetztem Platz genau ein Strahler")
 
-func test_beams_cleared_with_charms():
+func test_vitrines_cleared_with_charms():
 	row.set_charms(_charms(3))
 	row.set_charms([])
-	assert_eq(row.beam_nodes.size(), 0, "leere Reihe hat keine Lichtzylinder mehr")
+	assert_eq(row.podium_nodes.size(), 0, "leere Reihe hat keine Sockel mehr")
+	assert_eq(row.ring_nodes.size(), 0)
+	assert_eq(row.dome_nodes.size(), 0)
+	assert_eq(row.spot_lights.size(), 0)
 
-func test_beam_color_follows_rarity():
-	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) bekommen
-	# unterschiedlich getönte Kegel-Materialien; gleiche Rarität teilt ihres.
+func test_dome_sits_over_the_podium():
+	row.set_charms(_charms(1))
+	var podium_top: float = CharmRowView.SPOT_Y + CharmRowView.PODIUM_HEIGHT
+	assert_almost_eq(row.dome_nodes[0].position.y,
+		podium_top + CharmRowView.DOME_HEIGHT * 0.5, 0.001,
+		"die Haube steht auf der Trittfläche")
+
+func test_ring_color_follows_rarity():
+	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) leuchten
+	# verschieden; gleiche Rarität teilt ihre Farbe.
 	var charms: Array[Charm] = [Charm.rabbits_foot(), Charm.broken_mirror(), Charm.lucky_cigarettes()]
 	row.set_charms(charms)
-	assert_ne(row.beam_nodes[0].material_override, row.beam_nodes[1].material_override,
-		"Gewöhnlich und Legendär schimmern verschieden")
-	assert_eq(row.beam_nodes[0].material_override, row.beam_nodes[2].material_override,
-		"gleiche Rarität teilt dasselbe Kegel-Material")
+	assert_ne(row.ring_materials[0].albedo_color, row.ring_materials[1].albedo_color,
+		"Gewöhnlich und Legendär leuchten verschieden")
+	assert_eq(row.ring_materials[0].albedo_color, row.ring_materials[2].albedo_color,
+		"gleiche Rarität teilt dieselbe Kantenlicht-Farbe")
+
+func test_every_spot_owns_its_ring_material():
+	# Geteilt blitzten beim Feuern alle Sockel derselben Rarität mit.
+	row.set_charms(_charms(3))
+	assert_ne(row.ring_materials[0], row.ring_materials[1],
+		"je Platz eine eigene Ring-Instanz")
+
+func test_ring_rests_below_the_bloom_threshold():
+	# Ruhe darf nicht dauerhaft bloomen (Schwelle 0,95), das Feuern muss darüber.
+	row.set_charms(_charms(1))
+	var rest: Color = row.ring_materials[0].albedo_color
+	assert_lt(maxf(maxf(rest.r, rest.g), rest.b), 0.95, "Ruhe bleibt unter der Schwelle")
+	var flash := CharmRowView.ring_color(Charm.rabbits_foot().rarity,
+		CharmRowView.RING_FLASH_ENERGY)
+	assert_gt(maxf(maxf(flash.r, flash.g), flash.b), 0.95, "der Puls bloomt")
+
+func test_flash_charm_lifts_the_ring_and_falls_back():
+	row.set_charms(_charms(1))
+	var material: StandardMaterial3D = row.ring_materials[0]
+	var rest: Color = material.albedo_color
+	row.flash_charm(0)
+	await wait_seconds(0.09)
+	assert_gt(material.albedo_color.b, rest.b, "das Kantenlicht steigt")
+	await wait_seconds(0.6)
+	assert_almost_eq(material.albedo_color.b, rest.b, 0.02, "und fällt zurück")
+
+func test_flash_charm_tolerates_invalid_index():
+	row.set_charms(_charms(1))
+	row.flash_charm(-1)
+	row.flash_charm(5)  # außerhalb - darf nicht abstürzen
+	assert_eq(row.charm_nodes.size(), 1)
+
+# --- Massives Modell ------------------------------------------------------------
+
+func _surfaces_of(node: Node, out: Array) -> void:
+	if node is MeshInstance3D:
+		out.append(node)
+	for child in node.get_children():
+		_surfaces_of(child, out)
+
+func test_model_keeps_real_materials_with_self_light():
+	row.set_charms(_charms(1))
+	var meshes: Array = []
+	_surfaces_of(row.charm_models[0], meshes)
+	assert_gt(meshes.size(), 0, "das Modell bringt Flächen mit")
+	var checked := 0
+	for mesh_instance: MeshInstance3D in meshes:
+		assert_true(bool(mesh_instance.layers & CharmRowView.MODEL_LIGHT_LAYER),
+			"die Fläche hängt in der Lichtebene der Vitrinen-Strahler")
+		var count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
+		for s in count:
+			var material := mesh_instance.get_active_material(s)
+			assert_false(material is ShaderMaterial, "kein Hologramm-Override mehr")
+			assert_true(material is BaseMaterial3D, "die Originalmaterialien bleiben")
+			assert_true((material as BaseMaterial3D).emission_enabled,
+				"jede Fläche trägt ihr Museums-Eigenlicht")
+			checked += 1
+	assert_gt(checked, 0, "mindestens eine Fläche geprüft")
+
+func test_cached_model_resource_stays_untouched():
+	# Die Materialien liegen im geteilten GLB-Cache - die Vitrine DUPLIZIERT sie.
+	var path := Charm.rabbits_foot().model_path
+	var probe: Node3D = autofree(CharmRowView.model_scene(path).instantiate())
+	var meshes: Array = []
+	_surfaces_of(probe, meshes)
+	var first: MeshInstance3D = meshes[0]
+	var before: bool = (first.get_active_material(0) as BaseMaterial3D).emission_enabled
+	row.set_charms(_charms(1))
+	assert_eq((first.get_active_material(0) as BaseMaterial3D).emission_enabled, before,
+		"die gecachte Ressource bleibt unverändert")
 
 func test_the_loader_caps_how_many_models_are_in_flight():
 	# Die Bibliothek fordert beim Öffnen ALLE Charm-Modelle an. Ohne Deckel musste
@@ -103,9 +193,3 @@ func test_the_loader_caps_how_many_models_are_in_flight():
 	# Wer nur wartet, wird selbst geladen statt abgewartet - das ist der Ausweg.
 	for path in paths:
 		assert_not_null(CharmRowView.model_scene(path), "auch ein Wartender wird geliefert")
-
-func test_flash_charm_tolerates_invalid_index():
-	row.set_charms(_charms(1))
-	row.flash_charm(-1)
-	row.flash_charm(5)  # außerhalb - darf nicht abstürzen
-	assert_eq(row.charm_nodes.size(), 1)

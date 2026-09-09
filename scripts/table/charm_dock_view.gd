@@ -1,9 +1,9 @@
 class_name CharmDockView
 extends Control
 ## Charm-Terminal unter der (3D-)Charm-Reihe: je Platz EIN eigener, senkrechter
-## Konsolen-Screen mit runden Ecken - OBEN ein runder Projektor (dort tritt der
-## 3D-Strahl aus dem Screen), DARUNTER der Bild-Screen mit gerendertem Charm
-## (CharmThumb) im Raritätsrahmen. Beim Überfahren (Karte ODER Hologramm) wechselt
+## Konsolen-Screen mit runden Ecken - OBEN ein runder Sockelring (dort steht die
+## 3D-Vitrine auf dem Screen), DARUNTER der Bild-Screen mit gerendertem Charm
+## (CharmThumb) im Raritätsrahmen. Beim Überfahren (Karte ODER Vitrine) wechselt
 ## der Bild-Screen dieser EINEN Konsole auf Name + Wirkung - kein geteiltes
 ## Info-Band, jeder Charm bleibt gekapselt. Umsortieren läuft in 2D über die
 ## Konsolen (scene_root steuert den Zieh-Automaten über
@@ -15,29 +15,29 @@ extends Control
 const PLATINUM := Color(0.75, 0.79, 0.9)               # poliertes Platin (Haarlinie)
 const GLASS_FILL := Color(0.02, 0.02, 0.055, 0.9)      # dunkles Glas des Chassis
 const CARD_FILL := Color(0.014, 0.014, 0.03, 0.95)     # Bild-Screen, noch dunkler
-const LENS_CORE := Color(0.008, 0.008, 0.02, 0.96)     # Linsen-Tiefe
+const LENS_CORE := Color(0.008, 0.008, 0.02, 0.96)     # Ringtiefe
 const HAIRLINE_ALPHA := 0.22   # Deckkraft der Platin-Haarlinie
 const EDGE_ALPHA := 0.5        # Grund-Deckkraft des Raritäts-Kantenlichts
 const RARITY_TINT := 0.06      # winziger Raritäts-Anteil im Karten-Glas
 const THUMB_INSET := 0.82  # Bild-Anteil an der Karten-Kante (Rest = Rahmen)
 const DRAG_SCALE := 1.12    # gezogene Karte hebt sich leicht ab
 
-## Konsolen-Maße relativ zur Kartengröße (_pad_size). Der Projektor sitzt exakt
-## auf der Blenden-Mitte (= Auftreffpunkt des 3D-Strahls) und hat GENAU den
-## Durchmesser des Hologramm-Kraftfelds (scene_root setzt projector_radius aus
-## dem Beam-Radius). Karten-Abstand + Konsolen-Höhe folgen dem Projektorradius.
-const PROJECTOR_GAP := 0.18       # Abstand Projektor-Unterkante -> Kartenoberkante
-const PROJECTOR_FALLBACK := 0.24  # Projektor-Radius (Kartenhöhen), bis scene_root den Beam meldet
+## Konsolen-Maße relativ zur Kartengröße (_pad_size). Der Sockelring sitzt exakt
+## auf der Platzmitte und hat GENAU den Fußabdruck der Vitrine (scene_root setzt
+## projector_radius aus CharmRowView.PODIUM_RADIUS) - der massive Sockel deckt ihn
+## darum. Karten-Abstand + Konsolen-Höhe folgen dem Ringradius.
+const PROJECTOR_GAP := 0.18       # Abstand Ring-Unterkante -> Kartenoberkante
+const PROJECTOR_FALLBACK := 0.24  # Ringradius (Kartenhöhen), bis scene_root ihn meldet
 const CONSOLE_PAD_X := 0.09       # seitlicher Mindest-Rand der Konsole um die Karte
-const CONSOLE_PAD_Y := 0.14       # Rand über dem Projektor
+const CONSOLE_PAD_Y := 0.14       # Rand über dem Sockelring
 const CONSOLE_PAD_BOTTOM := 0.3   # Rand unter der Karte - trägt den Dauer-Chip
 const BADGE_GAP := 0.03           # Abstand Kartenunterkante -> Dauer-Chip
 
-## Projektor-Radius in Viewport-Pixeln (= Beam-Radius). Fallback bis scene_root
+## Sockelring-Radius in Viewport-Pixeln (= Sockelradius). Fallback bis scene_root
 ## ihn setzt: knapp ein Viertel der Kartenhöhe.
 var projector_radius := 0.0
 
-## Projektor- und Kartenmitten als lokale Offsets (Fenster-relativ), je Platz
+## Sockelring- und Kartenmitten als lokale Offsets (Fenster-relativ), je Platz
 ## Konsolen-Rect, Rarität und Flash.
 var _aperture_offsets: PackedVector2Array = PackedVector2Array()
 var _pad_offsets: PackedVector2Array = PackedVector2Array()
@@ -75,8 +75,8 @@ func _ready() -> void:
 	_ensure_labels()
 
 ## Spannt das Dock über die (Viewport-)Blenden-Mitten auf (dort münden die
-## 3D-Strahlen); je Mitte entsteht eine Konsole, die Karte liegt darunter.
-## pad_size = Kartengröße, proj_radius = Beam-/Kraftfeld-Radius in px (Projektor).
+## 3D-Vitrinen); je Mitte entsteht eine Konsole, die Karte liegt darunter.
+## pad_size = Kartengröße, proj_radius = Sockelradius in px (Sockelring).
 ## NACH dem Platzieren rufen.
 func place(aperture_centers_px: PackedVector2Array, pad_size: Vector2, proj_radius := 0.0) -> void:
 	if aperture_centers_px.is_empty():
@@ -105,16 +105,16 @@ func place(aperture_centers_px: PackedVector2Array, pad_size: Vector2, proj_radi
 	_update_badges()
 	queue_redraw()
 
-## Projektor-Radius (Beam-Radius, sonst Fallback aus der Kartenhöhe).
+## Sockelring-Radius (Sockelradius, sonst Fallback aus der Kartenhöhe).
 func _projector_r() -> float:
 	return projector_radius if projector_radius > 0.0 else _pad_size.y * PROJECTOR_FALLBACK
 
-## Pixel-Abstand Blendenmitte -> Kartenmitte (Projektor + Lücke + halbe Karte).
+## Pixel-Abstand Ringmitte -> Kartenmitte (Sockelring + Lücke + halbe Karte).
 func _card_drop_px() -> float:
 	return _projector_r() + _pad_size.y * PROJECTOR_GAP + _pad_size.y * 0.5
 
 ## Konsolen-Rect (Viewport-Koordinaten) um eine Blenden-Mitte; breit genug für
-## Projektor UND Karte, hoch genug für beide.
+## Sockelring UND Karte, hoch genug für beide.
 func _console_rect_for(aperture: Vector2) -> Rect2:
 	var pr := _projector_r()
 	var margin := _pad_size.x * CONSOLE_PAD_X
@@ -134,8 +134,8 @@ func console_rects() -> Array[Rect2]:
 func console_corner_radius() -> float:
 	return _pad_size.x * 0.16
 
-## Bild-Screen füllt die Konsole unter dem Projektor - Kanten decken sich mit dem
-## Chassis (links/rechts/unten bündig), nur die Linse bleibt oben frei. Bild und
+## Bild-Screen füllt die Konsole unter dem Sockelring - Kanten decken sich mit dem
+## Chassis (links/rechts/unten bündig), nur der Ring bleibt oben frei. Bild und
 ## Text sitzen darin, also wachsen sie mit der Konsole.
 func _card_rect(i: int) -> Rect2:
 	var console := _console_rects[i]
@@ -212,7 +212,7 @@ func pad_center(i: int) -> Vector2:
 		return position + size / 2.0
 	return position + _pad_offsets[i]
 
-## Belegter Platz, dessen KONSOLE unter dem (Viewport-)Pixel liegt (Projektor
+## Belegter Platz, dessen KONSOLE unter dem (Viewport-)Pixel liegt (Sockelring
 ## zählt mit - dieselbe Einheit), oder -1.
 func pad_index_at(pixel: Vector2) -> int:
 	for i in _occupied:
@@ -228,7 +228,7 @@ func sell_index_at(pixel: Vector2) -> int:
 	return _hover if Rect2(position + _sell_rect.position, _sell_rect.size).has_point(pixel) else -1
 
 ## Konsole i hervorheben und ihren Bild-Screen auf Name + Wirkung umschalten
-## (Hover über Karte ODER Hologramm); -1 stellt das Bild zurück. Kein Effekt
+## (Hover über Karte ODER Vitrine); -1 stellt das Bild zurück. Kein Effekt
 ## während eines Drags (dort führt das Ablageziel).
 func set_hover(i: int) -> void:
 	if _drag_index >= 0 or i == _hover:
@@ -253,7 +253,7 @@ func set_hover(i: int) -> void:
 	_update_badges()
 	queue_redraw()
 
-## Kurzer Helligkeits-Puls auf Konsole i ("dieser Charm feuert") - Projektor UND
+## Kurzer Helligkeits-Puls auf Konsole i ("dieser Charm feuert") - Sockelring UND
 ## Karte überstrahlen kurz (bloomt auf dem HDR-Screen), synchron zum
 ## 3D-flash_charm.
 func flash_pad(i: int) -> void:
@@ -427,8 +427,8 @@ func _edge_light(rarity: Color, lit: bool, flash: float) -> Color:
 	var a := EDGE_ALPHA + flash * 0.4 + (0.18 if lit else 0.0)
 	return Color(rarity.r * b, rarity.g * b, rarity.b * b, clampf(a, 0.0, 1.0))
 
-## Projektor als Glaslinse: dunkler Kern (Tiefe), Platin-Linsenringe, innen ein
-## überhelles Raritäts-Ringlicht - dort tritt der Strahl aus.
+## Sockelring als Glasscheibe: dunkler Kern (Tiefe), Platin-Ringe, innen ein
+## überhelles Raritäts-Ringlicht - dort steht die Vitrine.
 func _draw_lens(c: Vector2, pr: float, rarity: Color, occupied: bool, lit: bool,
 		flash: float, hair: Color, hair_w: float, edge_w: float) -> void:
 	draw_circle(c, pr, GLASS_FILL)
@@ -453,8 +453,8 @@ func _draw() -> void:
 		var card_rect := _card_rect(i)
 		var card_radius := int(console_corner_radius())  # deckt sich mit dem Chassis-Radius
 
-		# Chassis: gleicher Fenster-Grund wie alle Screens; Linse und Karte bleiben
-		# dunkler (Kraftfeld-Generator bzw. Bild/Text). Platin-Haarlinie.
+		# Chassis: gleicher Fenster-Grund wie alle Screens; Ring und Karte bleiben
+		# dunkler (Sockelfläche bzw. Bild/Text). Platin-Haarlinie.
 		var chassis := StyleBoxFlat.new()
 		chassis.bg_color = TableScreen.FRAME_BG
 		chassis.border_color = hair
