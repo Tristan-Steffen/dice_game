@@ -81,16 +81,15 @@ func test_emitters_cleared_with_charms():
 	row.set_charms([])
 	assert_eq(row.ring_nodes.size(), 0, "leere Reihe hat keine Emitter mehr")
 
-## Kein Sockel, kein Strahler (Spieler-Entscheid 2026-09-09): der Emitter liegt
-## flach auf dem Filz, sonst steht dort kein Körper.
+## Kein Sockel (Spieler-Entscheid 2026-09-09): der Emitter liegt flach auf dem
+## Filz, das Modell schwebt darüber, und der Strahler sieht nur die Modelle.
 func test_the_emitter_lies_flat_on_the_felt():
 	row.set_charms(_charms(1))
-	for child in row.get_children():
-		assert_false(child is Light3D, "kein Strahler - ein Hologramm ist unshaded")
-		if child is MeshInstance3D:
-			assert_true((child as MeshInstance3D).mesh is TorusMesh, "nur der Ring")
 	assert_almost_eq(row.ring_nodes[0].position.y, CharmRowView.RING_HEIGHT * 0.5, 0.001,
 		"der Ring liegt auf der Tischfläche")
+	assert_eq(row.spot_lights.size(), 1, "je Platz ein Strahler")
+	assert_eq(row.spot_lights[0].light_cull_mask, CharmRowView.MODEL_LIGHT_LAYER,
+		"der Filz sieht ihn nicht")
 
 func test_ring_color_follows_rarity():
 	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) leuchten
@@ -159,15 +158,25 @@ func test_model_wears_the_hologram():
 			checked += 1
 	assert_gt(checked, 0, "mindestens eine Fläche geprüft")
 
-## Ein Hologramm ist LICHT: additiv, unbeleuchtet, durchscheinend, und die
-## Rückseiten addieren durch das Modell hindurch (kein Tiefen-Schreiben).
-func test_the_hologram_is_additive_light():
+## Das Modell bleibt MASSIV und beleuchtet: der Effekt liegt darüber, nie additiv
+## (der additive Ersatz war viel zu hell).
+func test_the_hologram_is_not_additive():
 	var code: String = CharmRowView.HOLO_SHADER.code
-	assert_true(code.contains("blend_add"), "additiv")
-	assert_true(code.contains("unshaded"), "unbeleuchtet")
-	assert_true(code.contains("depth_draw_never"), "die Rückseiten scheinen durch")
-	assert_true(code.contains("ALPHA ="), "durchscheinend")
+	assert_false(code.contains("blend_add"), "nicht additiv")
+	assert_false(code.contains("unshaded"), "beleuchtet")
 	assert_false(code.contains("flicker"), "kein Flackern - clean, nicht CRT")
+
+## Jedes Preset ist vollständig und wendet sich auf die Flächen an.
+func test_every_preset_applies():
+	for i in CharmRowView.HOLO_PRESETS.size():
+		CharmRowView.holo_variant = i
+		row.set_charms(_charms(1))
+		var first: ShaderMaterial = row.charm_materials[0][0]
+		var chosen: Dictionary = CharmRowView.HOLO_PRESETS[i]
+		assert_almost_eq(float(first.get_shader_parameter("alpha")), float(chosen["alpha"]), 0.001,
+			chosen["name"])
+		assert_eq(row.cone_nodes.size(), 1 if bool(chosen["cone"]) else 0, chosen["name"])
+	CharmRowView.holo_variant = 0
 
 func test_flash_charm_lifts_the_holo_sheen():
 	row.set_charms(_charms(1))

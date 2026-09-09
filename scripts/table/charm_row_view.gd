@@ -33,18 +33,48 @@ const RING_HEIGHT := 0.16
 const RING_REST_ENERGY := 0.62
 const RING_FLASH_ENERGY := 2.2
 
-## Der Hologramm-Look (`charm_hologram.gdshader`): additiv und durchscheinend,
-## aber in GESÄTTIGTEN Modellfarben (der Tisch ist dunkel und blau-ambient, roh
-## lasen die Charms ausgegraut); der Saum trägt das kühle Blau, breite Bänder
-## steigen langsam, kein Flackern.
+## Der Hologramm-Look (`charm_hologram.gdshader`): ein MASSIVES, beleuchtetes
+## Modell in GESÄTTIGTEN Farben (der Tisch ist dunkel und blau-ambient, roh lasen
+## die Charms ausgegraut; das Eigenlicht liegt auf der gesättigten Farbe, sonst
+## wird es milchig), darüber der Effekt, den das PRESET wählt. Nie additiv - der
+## additive Ersatz war viel zu hell (Spieler-Entscheid 2026-09-09).
 const HOLO_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
 const HOLO_SATURATION := 1.6
-const HOLO_BRIGHTNESS := 1.25
-const HOLO_ALPHA := 0.6
-const HOLO_RIM := 0.9
-const HOLO_BAND_MIN := 0.7
-const HOLO_TINT_MIX := 0.12
+const HOLO_SELF_GLOW := 0.45
 const HOLO_FLASH := 1.0
+## FÜNF Varianten des Hologramm-Effekts zur Auswahl (2026-09-09); holo_variant
+## wählt, ein Neuaufbau (set_charms) wendet an. Nach der Wahl bleibt EINE.
+static var holo_variant := 0
+const HOLO_PRESETS: Array[Dictionary] = [
+	{"name": "Scanlines", "scan_gain": 0.35, "rim_gain": 0.25, "band_gain": 0.0,
+		"tint_mix": 0.0, "alpha": 1.0, "cone": false, "bob": false},
+	{"name": "Lichtkante", "scan_gain": 0.0, "rim_gain": 1.0, "band_gain": 0.18,
+		"tint_mix": 0.0, "alpha": 1.0, "cone": false, "bob": false},
+	{"name": "Halbtransparent", "scan_gain": 0.0, "rim_gain": 0.6, "band_gain": 0.1,
+		"tint_mix": 0.05, "alpha": 0.7, "cone": false, "bob": false},
+	{"name": "Blaustich", "scan_gain": 0.12, "rim_gain": 0.6, "band_gain": 0.14,
+		"tint_mix": 0.45, "alpha": 1.0, "cone": false, "bob": false},
+	{"name": "Emitter-Kegel", "scan_gain": 0.0, "rim_gain": 0.4, "band_gain": 0.1,
+		"tint_mix": 0.0, "alpha": 1.0, "cone": true, "bob": true},
+]
+## Der Emitter-Kegel (nur Preset 4): kurz und schwach, damit er unter der
+## 15°-Kamera nicht als Splitter aus dem Ring lehnt.
+const CONE_HEIGHT := 2.2
+const CONE_ALPHA := 0.07
+const BOB_HEIGHT := 0.15
+const BOB_SPEED := 1.3
+
+## Strahler je besetztem Platz, frei über dem Emitter. Er leuchtet AUSSCHLIESSLICH
+## die Modelle an (eigene Lichtebene): die Filzfläche ist EIN Mesh und der
+## Compatibility-Renderer deckelt die Lichter je Mesh - TableLight plus sechs
+## Spill-Omnis stehen dort schon. Fast neutral getönt (Creme legte einen beigen
+## Schleier über jeden Charm).
+const MODEL_LIGHT_LAYER := 1 << 19
+const SPOT_LIGHT_HEIGHT := 8.5
+const SPOT_LIGHT_ENERGY := 2.8
+const SPOT_LIGHT_RANGE := 14.0
+const SPOT_LIGHT_ANGLE := 34.0
+const SPOT_LIGHT_COLOR := Color(1.0, 0.99, 0.97)
 
 ## Hover-Toleranz um die projizierte Charm-Mitte - die Charms liegen in der
 ## Grubenansicht klein am oberen Bildrand, daher großzügig.
@@ -57,8 +87,11 @@ var charm_nodes: Array[Node3D] = []
 var charm_models: Array[Node3D] = []
 var current_charms: Array[Charm] = []
 
-## Emitter-Ringe je besetztem Platz, index-parallel zu charm_nodes.
+## Emitter-Ringe, Strahler und Kegel je besetztem Platz, index-parallel zu charm_nodes.
 var ring_nodes: Array[MeshInstance3D] = []
+var spot_lights: Array[SpotLight3D] = []
+var cone_nodes: Array[MeshInstance3D] = []
+var _bob_time := 0.0
 ## Je Platz eine EIGENE Ring-Instanz - geteilt blitzten sonst alle Emitter
 ## derselben Rarität mit.
 var ring_materials: Array[StandardMaterial3D] = []
@@ -83,6 +116,12 @@ func set_charms(charms: Array[Charm]) -> void:
 	for body in ring_nodes:
 		body.queue_free()
 	ring_nodes.clear()
+	for light in spot_lights:
+		light.queue_free()
+	spot_lights.clear()
+	for cone in cone_nodes:
+		cone.queue_free()
+	cone_nodes.clear()
 	ring_materials.clear()
 	charm_materials.clear()
 	current_charms = []
@@ -92,8 +131,17 @@ func set_charms(charms: Array[Charm]) -> void:
 		_build_spot(i)
 
 func _process(delta: float) -> void:
+	_bob_time += delta
+	var bob := bool(preset().get("bob", false))
 	for model in charm_models:
 		model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
+		if bob:
+			# Lokal im skalierten Pivot, darum durch MODEL_SCALE.
+			model.position.y = sin(_bob_time * BOB_SPEED) * BOB_HEIGHT / MODEL_SCALE
+
+## Das gewählte Preset (außerhalb der Liste: das erste).
+static func preset() -> Dictionary:
+	return HOLO_PRESETS[clampi(holo_variant, 0, HOLO_PRESETS.size() - 1)]
 
 ## Emitter-Ring und Hologramm des Platzes i.
 func _build_spot(i: int) -> void:
@@ -119,6 +167,42 @@ func _build_spot(i: int) -> void:
 	charm_nodes.append(pivot)
 	charm_models.append(model)
 	charm_materials.append(materials)
+
+	# Strahler NICHT als Kind des Pivots: dessen MODEL_SCALE zöge seinen Versatz mit.
+	var light := SpotLight3D.new()
+	light.position = spot + Vector3(0.0, SPOT_LIGHT_HEIGHT, 0.0)
+	light.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
+	light.light_color = SPOT_LIGHT_COLOR
+	light.light_energy = SPOT_LIGHT_ENERGY
+	light.light_cull_mask = MODEL_LIGHT_LAYER
+	light.spot_range = SPOT_LIGHT_RANGE
+	light.spot_angle = SPOT_LIGHT_ANGLE
+	light.shadow_enabled = false
+	add_child(light)
+	spot_lights.append(light)
+
+	if bool(preset().get("cone", false)):
+		var cone := MeshInstance3D.new()
+		var mesh := CylinderMesh.new()
+		mesh.bottom_radius = EMITTER_RADIUS
+		mesh.top_radius = EMITTER_RADIUS * 0.55
+		mesh.height = CONE_HEIGHT
+		mesh.cap_top = false
+		mesh.cap_bottom = false
+		cone.mesh = mesh
+		var cone_material := StandardMaterial3D.new()
+		cone_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		cone_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		cone_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		cone_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var tint := ring_color(charm.rarity, 1.0)
+		tint.a = CONE_ALPHA
+		cone_material.albedo_color = tint
+		cone.material_override = cone_material
+		cone.position = spot + Vector3(0.0, CONE_HEIGHT * 0.5, 0.0)
+		cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(cone)
+		cone_nodes.append(cone)
 
 func _ensure_resources() -> void:
 	if _ring_mesh != null:
@@ -153,6 +237,7 @@ static func ring_color(rarity: String, energy: float) -> Color:
 static func apply_hologram(node: Node, out_materials: Array = []) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
+		mesh_instance.layers |= MODEL_LIGHT_LAYER
 		if mesh_instance.material_override is BaseMaterial3D:
 			mesh_instance.material_override = _holo_material(
 				mesh_instance.material_override, out_materials)
@@ -176,12 +261,13 @@ static func _holo_material(source: BaseMaterial3D, out_materials: Array) -> Shad
 	if source.albedo_texture != null:
 		holo.set_shader_parameter("albedo_tex", source.albedo_texture)
 		holo.set_shader_parameter("use_texture", true)
+	holo.set_shader_parameter("metallic_value", source.metallic)
+	holo.set_shader_parameter("roughness_value", source.roughness)
 	holo.set_shader_parameter("saturation", HOLO_SATURATION)
-	holo.set_shader_parameter("brightness", HOLO_BRIGHTNESS)
-	holo.set_shader_parameter("base_alpha", HOLO_ALPHA)
-	holo.set_shader_parameter("rim_gain", HOLO_RIM)
-	holo.set_shader_parameter("band_min", HOLO_BAND_MIN)
-	holo.set_shader_parameter("tint_mix", HOLO_TINT_MIX)
+	holo.set_shader_parameter("self_glow", HOLO_SELF_GLOW)
+	var chosen := preset()
+	for key in ["scan_gain", "rim_gain", "band_gain", "tint_mix", "alpha"]:
+		holo.set_shader_parameter(key, float(chosen[key]))
 	holo.set_shader_parameter("flash", 0.0)  # Ruhestand explizit: ungesetzt liest er null
 	out_materials.append(holo)
 	return holo
