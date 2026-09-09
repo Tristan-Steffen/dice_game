@@ -2,8 +2,10 @@ class_name CharmRowView
 extends Node3D
 ## Zeigt die besessenen Charms als VITRINEN auf dem Tisch: sechs feste Plätze in
 ## einer Reihe am hinteren Tischrand, Reihenfolge = Besitz-Reihenfolge. Je Platz
-## ein massives Modell auf einem Glas-Sockel mit Raritäts-Kantenlicht unter einer
-## Glashaube. set_charms() baut bei jeder Änderung neu auf; zusätzlich löst der
+## ein massives Modell auf einem Sockel mit Raritäts-Kantenlicht, oben OFFEN
+## (Spieler-Entscheid 2026-09-09: die Glashaube ist gestorben - unter der
+## 15°-Kamera lehnte ihre Wand aus dem Sockelkreis und las als heller Splitter).
+## set_charms() baut bei jeder Änderung neu auf; zusätzlich löst der
 ## Knoten den Hover/Drag der Grubenansicht auf (charm_*_at_screen_pos).
 
 const LINE_X := 31.0  # Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-oben)
@@ -24,11 +26,6 @@ const PODIUM_HEIGHT := 0.7
 ## (gemessen: die Sockelfläche stand als Stippel-Muster in der Raritätsfarbe).
 const RING_HEIGHT := 0.16
 
-## Haube: gemessen ragt kein Charm-Modell höher als 4,01 Welt (bei MODEL_SCALE 4
-## stehen drei Viertel aller Modelle bei 3,9-4,0), 4,6 läßt allen Luft.
-const DOME_HEIGHT := 4.6
-const DOME_SHADER := preload("res://assets/shaders/vitrine_dome.gdshader")
-
 ## Kantenlicht: die Ruhe-Energie bleibt unter der Bloom-Schwelle (0,95 mal dem
 ## stärksten Kanal jeder Raritätsfarbe), der Puls des Feuerns geht deutlich darüber.
 ## 0,62 statt 0,88 ist GEMESSEN: dicht unter der Schwelle stand der Ring schon in
@@ -46,7 +43,8 @@ const PODIUM_EMISSION_ENERGY := 0.42
 ## zurück, sonst stünde das PBR-Modell im dunklen Raum als schwarzer Klumpen.
 const MODEL_EMISSION_ENERGY := 0.42
 
-## Vitrinen-Strahler je besetztem Platz. Er leuchtet AUSSCHLIESSLICH die Modelle
+## Vitrinen-Strahler je besetztem Platz, frei über dem offenen Sockel. Er
+## leuchtet AUSSCHLIESSLICH die Modelle
 ## an (eigene Lichtebene): die Filzfläche ist EIN Mesh und der Compatibility-
 ## Renderer deckelt die Lichter je Mesh - TableLight plus sechs Spill-Omnis
 ## stehen dort schon.
@@ -71,7 +69,6 @@ var current_charms: Array[Charm] = []
 ## Vitrinen-Körper je besetztem Platz, index-parallel zu charm_nodes.
 var podium_nodes: Array[MeshInstance3D] = []
 var ring_nodes: Array[MeshInstance3D] = []
-var dome_nodes: Array[MeshInstance3D] = []
 var spot_lights: Array[SpotLight3D] = []
 ## Je Platz eine EIGENE Ring-Instanz - geteilt blitzten sonst alle Sockel
 ## derselben Rarität mit.
@@ -82,10 +79,8 @@ const ROTATION_SPEED := 0.15  # rad/s, ruhiger Spin - die Silhouette bleibt lesb
 ## Geteilte Vitrinen-Ressourcen: EIN Ring-Material je Rarität als Vorlage, aus
 ## der jeder Platz seine Instanz zieht.
 var _ring_materials: Dictionary = {}  # Rarität -> StandardMaterial3D
-var _dome_materials: Dictionary = {}  # Rarität -> ShaderMaterial (Saumfarbe)
 var _podium_mesh: CylinderMesh
 var _ring_mesh: TorusMesh
-var _dome_mesh: CylinderMesh
 var _podium_material: StandardMaterial3D
 
 ## Baut die Charm-Vitrinen neu: je Charm eine auf dem nächsten Platz; mehr Charms
@@ -102,9 +97,6 @@ func set_charms(charms: Array[Charm]) -> void:
 	for body in ring_nodes:
 		body.queue_free()
 	ring_nodes.clear()
-	for body in dome_nodes:
-		body.queue_free()
-	dome_nodes.clear()
 	for light in spot_lights:
 		light.queue_free()
 	spot_lights.clear()
@@ -119,7 +111,7 @@ func _process(delta: float) -> void:
 	for model in charm_models:
 		model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
 
-## Sockel, Kantenlicht, Haube, Strahler und das Modell des Platzes i.
+## Sockel, Kantenlicht, Strahler und das Modell des Platzes i.
 func _build_spot(i: int) -> void:
 	var spot := _spot_position(i)
 	var charm := current_charms[i]
@@ -139,13 +131,6 @@ func _build_spot(i: int) -> void:
 	add_child(ring)
 	ring_nodes.append(ring)
 	ring_materials.append(ring_material)
-
-	var dome := MeshInstance3D.new()
-	dome.mesh = _dome_mesh
-	dome.material_override = _dome_material_for(charm.rarity)
-	dome.position = spot + Vector3(0.0, PODIUM_HEIGHT + DOME_HEIGHT * 0.5, 0.0)
-	add_child(dome)
-	dome_nodes.append(dome)
 
 	var pivot := Node3D.new()
 	add_child(pivot)
@@ -182,14 +167,6 @@ func _ensure_vitrine_resources() -> void:
 	_ring_mesh.outer_radius = PODIUM_RADIUS + RING_HEIGHT * 0.5
 	_ring_mesh.rings = 32
 	_ring_mesh.ring_segments = 8
-	# Haube: unten offener Zylinder mit Deckel, Radius = Sockel - der Ring liegt
-	# in dessen Kante, die Haube steht also bündig darauf.
-	_dome_mesh = CylinderMesh.new()
-	_dome_mesh.top_radius = PODIUM_RADIUS
-	_dome_mesh.bottom_radius = PODIUM_RADIUS
-	_dome_mesh.height = DOME_HEIGHT
-	_dome_mesh.radial_segments = 32
-	_dome_mesh.cap_bottom = false
 	_podium_material = StandardMaterial3D.new()
 	_podium_material.albedo_color = PODIUM_ALBEDO
 	_podium_material.metallic = 0.35
@@ -207,18 +184,6 @@ func _ring_material_for(rarity: String) -> StandardMaterial3D:
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.albedo_color = ring_color(rarity, RING_REST_ENERGY)
 	_ring_materials[rarity] = material
-	return material
-
-## Hauben-Material einer Rarität: nur der Fresnel-Saum trägt ihre Farbe, die
-## Fläche bleibt fast klar - geteilt, es wird nichts daran animiert.
-func _dome_material_for(rarity: String) -> ShaderMaterial:
-	if _dome_materials.has(rarity):
-		return _dome_materials[rarity]
-	var material := ShaderMaterial.new()
-	material.shader = DOME_SHADER
-	var tint := ring_color(rarity, 1.0)
-	material.set_shader_parameter("edge_color", Vector3(tint.r, tint.g, tint.b))
-	_dome_materials[rarity] = material
 	return material
 
 ## Kantenlicht-Farbe: Raritätsfarbe mal Energie, Alpha bleibt voll.

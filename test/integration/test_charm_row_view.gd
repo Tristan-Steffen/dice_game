@@ -1,6 +1,6 @@
 extends GutTest
 ## Tier-2-Tests der Charm-Reihe (CharmRowView). Prüft, dass je Charm eine
-## VITRINE (Sockel, Kantenlicht, Haube) auf einem festen Platz landet, die Plätze
+## VITRINE (Sockel, Kantenlicht, Strahler) auf einem festen Platz landet, die Plätze
 ## bei mehr Charms als Plätzen gekappt werden, die sechs Plätze eine gleichmäßige,
 ## spiegelsymmetrische Reihe auf der Tischfläche bilden - und dass das Modell
 ## massiv bleibt (Originalmaterialien plus Eigenlicht, kein Hologramm-Shader).
@@ -76,7 +76,6 @@ func test_one_vitrine_per_occupied_spot():
 	row.set_charms(_charms(2))
 	assert_eq(row.podium_nodes.size(), 2, "je besetztem Platz genau ein Sockel")
 	assert_eq(row.ring_nodes.size(), 2, "je besetztem Platz genau ein Kantenlicht")
-	assert_eq(row.dome_nodes.size(), 2, "je besetztem Platz genau eine Haube")
 	assert_eq(row.spot_lights.size(), 2, "je besetztem Platz genau ein Strahler")
 
 func test_vitrines_cleared_with_charms():
@@ -84,15 +83,17 @@ func test_vitrines_cleared_with_charms():
 	row.set_charms([])
 	assert_eq(row.podium_nodes.size(), 0, "leere Reihe hat keine Sockel mehr")
 	assert_eq(row.ring_nodes.size(), 0)
-	assert_eq(row.dome_nodes.size(), 0)
 	assert_eq(row.spot_lights.size(), 0)
 
-func test_dome_sits_over_the_podium():
+## Die Vitrine ist oben OFFEN (Spieler-Entscheid 2026-09-09): keine Haube, und
+## über der Trittfläche steht nur noch das Modell.
+func test_the_vitrine_is_open_on_top():
 	row.set_charms(_charms(1))
-	var podium_top: float = CharmRowView.SPOT_Y + CharmRowView.PODIUM_HEIGHT
-	assert_almost_eq(row.dome_nodes[0].position.y,
-		podium_top + CharmRowView.DOME_HEIGHT * 0.5, 0.001,
-		"die Haube steht auf der Trittfläche")
+	for child in row.get_children():
+		if child is MeshInstance3D and child.mesh is CylinderMesh:
+			var mesh := child.mesh as CylinderMesh
+			assert_almost_eq(mesh.height, CharmRowView.PODIUM_HEIGHT, 0.001,
+				"der einzige Zylinder ist der Sockel")
 
 func test_ring_color_follows_rarity():
 	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) leuchten
