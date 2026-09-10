@@ -238,9 +238,6 @@ const PIT_CARRY_CLEAR := TowerView.CARD_THICKNESS * 0.5
 const CARRY_SEAT_SOCKET := "socket"
 const CARRY_SEAT_PIT := "pit"
 
-## Die zwei Seiten des PATERNOSTER-Hebels: hinauf blättert vor, hinab zurück.
-const PAGE_UP := "page_up"
-const PAGE_DOWN := "page_down"
 ## DAS DURCHLICHT: der Zähl-Takt des Licht-Netzes und der flache Scheitel, mit dem
 ## ein LICHTFUNKE vom Turmkopf in die Seite des Würfels schlägt.
 const LIGHT_TICK_TIME := 0.22
@@ -581,12 +578,12 @@ var pack_pit: PackPitView
 ## Und die TURM-BUCHT: derselbe Körper, dieselbe Tiefe, zum Magazin hin OFFEN - die
 ## beiden bilden EINEN L-förmigen Raum, in dem der Turm steht (Welle Y).
 var tower_pit: PackPitView
-## Der PATERNOSTER in der Magazin-Grube: fünf Tabletts übereinander, gezeigt wird
+## Der REGALSTAPEL in der Magazin-Grube: fünf Tabletts übereinander, gezeigt wird
 ## eines. Er TRÄGT die Karten (sie sind Kinder ihres Faches), also fahren sie mit.
-var paternoster: PaternosterView
-## Und der HEBEL auf dem Filz rechts neben der Grube, der blättert. Nur der SPIELER
-## bewegt den Paternoster - nichts blättert von selbst.
-var page_lever: LeverView
+var shelf_stack: ShelfStackView
+## Und die KNOPFLEISTE auf dem Filz rechts neben der Grube, die wählt. Nur der
+## SPIELER bewegt den Stapel - nichts fährt von selbst.
+var shelf_selector: ShelfSelectorView
 ## Der an der Grube GEMESSENE Magazin-Deckel (0 = noch nicht gemessen). Er gehört
 ## dem Tisch, nicht dem Lauf: _sync_pack_pit liest ihn ab, _connect_run schiebt
 ## ihn jedem frischen Lauf herein (dasselbe Muster wie apron_bottom - core misst
@@ -1370,7 +1367,7 @@ func _place_workshop_strip() -> Rect2:
 		table_screen.pixel_to_world(close_frame.get_center()),
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
 	_place_fuse_socket(bench_rect, workshop_rect)
-	_place_page_lever(bench_rect)
+	_place_shelf_selector(bench_rect)
 	return corner
 
 ## Die SICHERUNGS-FASSUNG liegt RECHTS neben dem Streifen, auf der Zeilenhöhe des
@@ -1394,11 +1391,11 @@ func _place_fuse_socket(bench_rect: Rect2, workshop_rect: Rect2) -> void:
 	_wire_fuse_socket()
 	_place_repair_zone()
 
-## Der HEBEL des PATERNOSTERS steht auf dem Filz RECHTS neben der Magazin-Grube - in
-## derselben Straße wie die Ladesäule, nur auf der Höhe des Magazins. Sein Platz ist
-## ein reiner ANKER, die Maße bringt der Hebel selbst mit; sein SCHILD meldet er als
-## Display-Pixel ans Fenster (dorthin fliegt, was auf einer parkenden Etage landet).
-func _place_page_lever(bench_rect: Rect2) -> void:
+## Die KNOPFLEISTE des REGALSTAPELS steht auf dem Filz RECHTS neben der Magazin-Grube -
+## in derselben Straße wie die Sicherungs-Fassung, nur auf der Höhe des Magazins, und
+## genau so hoch wie die Grube tief ist. Ihr Platz ist ein reiner ANKER; ihre TASTEN
+## meldet sie als Display-Pixel ans Fenster (dorthin fliegt, was verdeckt landet).
+func _place_shelf_selector(bench_rect: Rect2) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
@@ -1408,80 +1405,77 @@ func _place_page_lever(bench_rect: Rect2) -> void:
 	var left := bench_rect.end.x + _workshop_unit() * WorkshopView.STREET_GAP
 	if left >= float(TableScreen.RESOLUTION.x) - WORKSHOP_RIGHT_MARGIN:
 		return
-	if page_lever == null or not is_instance_valid(page_lever):
-		page_lever = LeverView.new("PageLever")
-		add_child(page_lever)
-		page_lever.setup(PAGE_UP, PAGE_DOWN)
-		page_lever.page_requested.connect(_on_page_requested)
+	if shelf_selector == null or not is_instance_valid(shelf_selector):
+		shelf_selector = ShelfSelectorView.new()
+		add_child(shelf_selector)
+		shelf_selector.tray_requested.connect(_on_tray_requested)
 	var at := table_screen.pixel_to_world(Vector2(left, pit.get_center().y))
-	page_lever.global_position = Vector3(at.x, 0.0, at.z)
-	_write_page_sign()
-	workshop.shelf_lever_px = table_screen.world_to_pixel(page_lever.sign_point())
+	# Welt +Z ist Bildschirm-rechts: die Leiste beginnt an der Fuge, ihre Mitte
+	# liegt eine halbe Breite weiter. Ihre Höhe IST die Tiefe der Grube.
+	shelf_selector.setup(Vector3(at.x, 0.0, at.z + ShelfSelectorView.half_width()),
+		_pit_half(pit).x * 2.0)
+	shelf_selector.set_selected(workshop.shelf_tray)
+	var keys: Array[Vector2] = []
+	for tray in PackDrawerView.TRAYS:
+		keys.append(table_screen.world_to_pixel(shelf_selector.key_point(tray)))
+	workshop.shelf_key_px = keys
 
-## Die Aufschrift des Schildes: welche Etage gerade oben liegt.
-func _write_page_sign() -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if page_lever == null or not is_instance_valid(page_lever) or workshop == null:
-		return
-	var rows := workshop.shelf_rows_shown()
-	page_lever.set_sign("Reihe %d+%d" % [rows[0] + 1, rows[1] + 1])
-
-## Der Kreislauf läuft NUR auf Spielerwunsch, und zyklisch: nach zehn Würfen steht
-## wieder dieselbe Reihe hinten. Der Zustand ist ANZEIGE - er wohnt im Fenster,
-## nicht im Lauf.
-func _on_page_requested(delta: int) -> void:
+## Der Spieler hat ein Tablett gewählt: der Stapel fährt, das Fenster schreibt um.
+## Der Zustand ist ANZEIGE - er wohnt im Fenster, nicht im Lauf.
+func _on_tray_requested(tray: int) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) \
-			or paternoster == null or not is_instance_valid(paternoster):
+			or shelf_stack == null or not is_instance_valid(shelf_stack):
 		return
 	# Die FAHRT zuerst: das Fenster schiebt beim Umschreiben seinen Abgleich an, und
-	# der dürfte die eben begonnene Fahrt nicht gleich wieder hart setzen. Der
-	# Kreislauf sagt selbst, welche Reihe danach hinten liegt.
-	paternoster.step(delta)
-	workshop.shelf_head = paternoster.head()
-	_write_page_sign()
+	# der dürfte die eben begonnene Fahrt nicht gleich wieder hart setzen.
+	shelf_stack.select(tray)
+	workshop.shelf_tray = tray
+	if shelf_selector != null and is_instance_valid(shelf_selector):
+		shelf_selector.set_selected(workshop.shelf_tray)
 	_settle_shelf_ride()
 
 ## Nach der Fahrt gleicht der Sitz-Schreiber EINMAL ab: währenddessen hält er still
 ## (die Tabletts tragen ihre Karten), danach steht jede wieder auf ihrem Platz.
 func _settle_shelf_ride() -> void:
 	var launched := run
-	await get_tree().create_timer(PaternosterView.step_time() + 0.05).timeout
+	await get_tree().create_timer(ShelfStackView.step_time() + 0.05).timeout
 	if run != launched or table_screen == null:
 		return
 	_sync_data_cells()
 
-## Der GRIFF am Hebel je Bild: bedient wird, wo das Magazin zu SEHEN ist (eigene
+## Der GRIFF an der Leiste je Bild: bedient wird, wo das Magazin zu SEHEN ist (eigene
 ## Station und Freikamera - die Griff-Grammatik der Körper).
-func _sync_page_lever() -> void:
-	if page_lever == null or not is_instance_valid(page_lever):
+func _sync_shelf_selector() -> void:
+	if shelf_selector == null or not is_instance_valid(shelf_selector):
 		return
-	page_lever.set_armed(_page_lever_live())
-	page_lever.set_hovered(_page_lever_part(get_viewport().get_mouse_position()))
+	shelf_selector.set_live(_shelf_selector_live())
+	shelf_selector.set_hovered(_shelf_selector_part(get_viewport().get_mouse_position()))
 
-func _page_lever_live() -> bool:
+func _shelf_selector_live() -> bool:
 	return _table_operable() and not _deck_glass \
 		and _felt_pick_live(CameraRig.Mode.WORKSHOP)
 
-## Welche Seite des Hebels liegt unter dem Zeiger ("" = keine)? Auf derselben
-## Pick-Ebene steht auch die Ladesäule - darum entscheidet der NAME, nicht der Treffer.
-func _page_lever_part(screen_pos: Vector2) -> String:
-	if page_lever == null or not is_instance_valid(page_lever):
-		return LeverView.PART_NONE
-	var hit := _ray_pick(screen_pos, LeverView.PICK_LAYER)
+## Welche Taste liegt unter dem Zeiger ("" = keine)? Auf derselben Pick-Ebene liegt
+## auch die Sicherungs-Fassung - darum entscheidet der NAME, nicht der Treffer.
+func _shelf_selector_part(screen_pos: Vector2) -> String:
+	if shelf_selector == null or not is_instance_valid(shelf_selector):
+		return ShelfSelectorView.PART_NONE
+	var hit := _ray_pick(screen_pos, ShelfSelectorView.PICK_LAYER)
 	if hit.is_empty():
-		return LeverView.PART_NONE
-	var part := LeverView.part_of(hit.collider)
-	return part if page_lever.direction_of(part) != 0 else LeverView.PART_NONE
+		return ShelfSelectorView.PART_NONE
+	var part := ShelfSelectorView.part_of(hit.collider)
+	return part if ShelfSelectorView.knows(part) else ShelfSelectorView.PART_NONE
 
-## Der Druck auf den Hebel (true = verbraucht).
-func _forward_page_lever_mouse(event: InputEventMouse) -> bool:
-	if page_lever == null or not is_instance_valid(page_lever) or not _page_lever_live():
+## Der Druck auf eine Taste (true = verbraucht).
+func _forward_shelf_selector_mouse(event: InputEventMouse) -> bool:
+	if shelf_selector == null or not is_instance_valid(shelf_selector) \
+			or not _shelf_selector_live():
 		return false
 	var button := event as InputEventMouseButton
 	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
 		return false
-	return page_lever.press(_page_lever_part(button.position))
+	return shelf_selector.press(_shelf_selector_part(button.position))
 
 ## Das KABEL läuft von der Fassung zum Podest-Puck - die Sicherung sichert den
 ## Kreis des Podests.
@@ -1550,7 +1544,7 @@ func _lifted_card_head_px() -> float:
 	if table_screen == null:
 		return 0.0
 	var over := DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE) \
-		+ PaternosterView.PROUD + PaternosterView.HOVER_PROUD
+		+ ShelfStackView.PROUD + ShelfStackView.HOVER_PROUD
 	var origin := table_screen.world_to_pixel(Vector3.ZERO)
 	return absf(table_screen.world_to_pixel(Vector3(over, 0.0, 0.0)).y - origin.y)
 
@@ -3819,7 +3813,7 @@ func _sync_data_cells() -> void:
 		return
 	_sync_pack_pit(workshop)
 	_sync_tower_pit(workshop)
-	_sync_paternoster(workshop)
+	_sync_shelf_stack(workshop)
 	_data_cell_gen += 1
 	var generation := _data_cell_gen
 	var launched := run
@@ -3900,6 +3894,15 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 		gap = Vector2(bay_world.get_center().y - centre.z, bay_world.size.y)
 		plate = plate.merge(bay_world)
 	pack_pit.floor_area = plate
+	# Die Bild-RECHTE Wand (Welt +Z) bekommt den SCHLITZ, durch den die Tabletts in
+	# die Wand fahren: von der OBERKANTE der obersten Karte bis unter die unterste
+	# Platte, mit derselben schmalen Luft an beiden Kanten. Über ihm bleibt ein
+	# Sturz - viel ist es nicht, denn die oberste Karte liegt dicht unter der Kante.
+	var scale := workshop.shelf_cell_scale()
+	var air := ShelfStackView.RIM_CLEAR * 0.5
+	pack_pit.slot_wall = PackPitView.WALL_Z_PLUS
+	pack_pit.slot = Vector2(maxf(ShelfStackView.RIM_CLEAR - air, 0.0),
+		ShelfStackView.stack_depth(scale) + air)
 	pack_pit.setup(centre, _pit_half(rect), _pack_pit_depth(),
 		PackPitView.WALL_X_PLUS, gap)
 
@@ -3925,26 +3928,26 @@ func _sync_tower_pit(workshop: WorkshopView) -> void:
 	tower_pit.setup(table_screen.pixel_to_world(rect.get_center()), _pit_half(rect),
 		_pack_pit_depth(), PackPitView.WALL_X_MINUS)
 
-## DER PATERNOSTER: die zehn Tabletts in der Magazin-Grube, zwei davon in der
-## Fläche. Möbel, idempotent - die FAHRT gehört dem Hebel, dieser Abgleich stellt
-## nur und schreibt die Sorten-Ticks der Front-Blenden nach.
-func _sync_paternoster(workshop: WorkshopView) -> void:
+## DER REGALSTAPEL: die fünf Tabletts in der Magazin-Grube, EINES in der Fläche.
+## Möbel, idempotent - die FAHRT gehört der Knopfleiste, dieser Abgleich stellt nur
+## und schreibt die Sorten-Ticks der Front-Blenden nach.
+func _sync_shelf_stack(workshop: WorkshopView) -> void:
 	if table_screen == null:
 		return
 	var rect := workshop.shelf_pit_rect()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	if paternoster == null or not is_instance_valid(paternoster):
-		paternoster = PaternosterView.new()
-		add_child(paternoster)
-	paternoster.setup(table_screen.pixel_to_world(rect.get_center()),
+	if shelf_stack == null or not is_instance_valid(shelf_stack):
+		shelf_stack = ShelfStackView.new()
+		add_child(shelf_stack)
+	shelf_stack.setup(table_screen.pixel_to_world(rect.get_center()),
 		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect))
 	# Nur ein echter Wechsel setzt hart: sonst risse dieser Abgleich jede laufende
 	# Fahrt ab (die schreibt ihren Endzustand ohnehin sofort ins Fenster).
-	if paternoster.head() != workshop.shelf_head:
-		paternoster.set_head(workshop.shelf_head)
+	if shelf_stack.selected() != workshop.shelf_tray:
+		shelf_stack.set_selected(workshop.shelf_tray)
 	for line in PackDrawerView.ROWS:
-		paternoster.set_ticks(line, workshop.shelf_row_tints(line))
+		shelf_stack.set_bay_tints(line, workshop.shelf_row_tints(line))
 
 ## Die LANE-Geometrie der Grube in WELT: je Lane ihre Mitte (Welt-X, relativ zur
 ## Grubenmitte) und ihre Tiefe. Das FENSTER meldet die Rechtecke in Display-Pixeln
@@ -8332,10 +8335,10 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 			_free_data_cell(shelf_cells[uid])
 			shelf_cells.erase(uid)
 	var fresh := 0
-	# Fährt der Kreislauf gerade, gehören die Karten IHM: sie hängen an ihren
+	# Fährt der Stapel gerade, gehören die Karten IHM: sie hängen an ihren
 	# Tabletts und reisen mit. Der Sitz-Schreiber gleicht danach ab (_settle_shelf_ride).
-	var riding := paternoster != null and is_instance_valid(paternoster) \
-		and paternoster.riding()
+	var riding := shelf_stack != null and is_instance_valid(shelf_stack) \
+		and shelf_stack.riding()
 	for entry in entries:
 		var uid := int(entry.get("uid", 0))
 		if not wanted.has(uid):
@@ -8359,7 +8362,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 			pass  # der KREISLAUF trägt sie; ein Gleiten daneben führe sie doppelt
 		elif _shelf_seated(cell, line, target):
 			pass  # sie liegt schon dort - der Abgleich schreibt nichts um
-		elif paternoster != null and cell.get_parent() == paternoster.fach(line):
+		elif shelf_stack != null and cell.get_parent() == shelf_stack.fach(line):
 			cell.glide_to(target, DATA_CELL_SLIDE_TIME)  # dieselbe Reihe, neuer Platz
 		else:
 			_lay_shelf_hard(cell, line, target)  # ein Reihenwechsel zieht um
@@ -8371,58 +8374,68 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		cell.set_body_scale(workshop.shelf_cell_scale())
 		# Der GRIFF zieht die liegende Akte aus der Grube bis über die Tischkante;
 		# den Hub setzt der Wirt, ein Rückkehrer bekommt ihn in _finish_cell_return.
-		cell.hover_lift = PaternosterView.hover_lift(workshop.shelf_cell_scale())
+		cell.hover_lift = ShelfStackView.hover_lift(workshop.shelf_cell_scale(),
+			ShelfStackView.tray_of(line))
 		cell.hover_slide = 0.0  # der Turm-Kanal gilt nur in seiner Etage
+
+## Die REIHE einer Kassette, gefragt beim Fenster (0 = die erste, wenn keines steht).
+func _shelf_row_of_uid(uid: int) -> int:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return 0
+	return workshop.shelf_row_of(uid)
 
 ## Der PLATZ einer Kassette in der Welt: ihr Platz in der LANE ihrer Reihe
 ## (Display-Pixel des Fensters) auf der Höhe des Tabletts - die gehört dem
-## Paternoster.
+## Regalstapel.
 func _shelf_seat(workshop: WorkshopView, uid: int, line: int) -> Vector3:
 	var at := _data_cell_seat(workshop.pack_seat_px(uid))
-	if paternoster != null and is_instance_valid(paternoster):
-		at.y = paternoster.card_seat(line)
+	if shelf_stack != null and is_instance_valid(shelf_stack):
+		at.y = shelf_stack.card_seat(line)
+		# ... und mit dem SCHUB ihres Tabletts: eingefahren liegt sie in der Wand.
+		at.z += shelf_stack.retract_offset(line)
 	return at
 
 func _shelf_seated(cell: DataCellView, line: int, target: Vector3) -> bool:
-	if paternoster == null or not is_instance_valid(paternoster):
+	if shelf_stack == null or not is_instance_valid(shelf_stack):
 		return cell.glass_position().distance_to(target) <= 0.01
-	return paternoster.seated(cell, line, target)
+	return shelf_stack.seated(cell, line, target)
 
 ## Der EINE harte Schreiber einer Kassette in ihrem MAGAZIN: sie LIEGT flach auf der
 ## Trittfläche ihres Tabletts und ist dessen KIND - eine Fahrt trägt sie mit.
 func _lay_shelf_hard(cell: DataCellView, line: int, target: Vector3) -> void:
 	cell.badge_on_face = true  # liegend liegt die x-n-Marke AUF der Karte
 	cell.lie_on_glass(target)
-	if paternoster != null and is_instance_valid(paternoster):
-		paternoster.host_card(cell, line)
+	if shelf_stack != null and is_instance_valid(shelf_stack):
+		shelf_stack.host_card(cell, line)
 
 ## Eine Kassette tritt in ihrem Fach an: GELIEFERT steigt sie aus ihrem Tablett
 ## (und lodert oben selbst), sonst wächst sie an Ort und Stelle - ein Neuaufbau
-## des Fensters ist keine Lieferung. Auf einer PARKENDEN Reihe spielt gar nichts:
-## eine Maschine, die keiner sieht, hat nicht gespielt - dort quittiert das Schild
-## am Hebel.
+## des Fensters ist keine Lieferung. Auf einem VERDECKTEN Tablett spielt gar nichts:
+## eine Maschine, die keiner sieht, hat nicht gespielt - dort quittiert die TASTE
+## seines Tabletts.
 func _show_shelf_cell(cell: DataCellView, uid: int, line: int, target: Vector3,
 		fresh: int) -> void:
 	var delivered := _rising_packs.erase(uid)
-	var parked := paternoster != null and is_instance_valid(paternoster) \
-		and not paternoster.shows(line)
+	var hidden := shelf_stack != null and is_instance_valid(shelf_stack) \
+		and not shelf_stack.shows(line)
 	if delivered:
 		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
-	if parked or not delivered:
+	if hidden or not delivered:
 		_lay_shelf_hard(cell, line, target)
 		if delivered:
-			if page_lever != null and is_instance_valid(page_lever):
-				page_lever.flash_sign()
+			if shelf_selector != null and is_instance_valid(shelf_selector):
+				shelf_selector.flash_key(ShelfStackView.tray_of(line))
 		else:
 			cell.materialize(float(fresh) * DATA_CELL_STAGGER)
 		return
 	# Die Ankunft auf einer LIEGENDEN Reihe: erst der Wirt, dann der Weg - sie steigt
 	# aus ihrem Tablett heraus.
 	cell.badge_on_face = true
-	if paternoster != null and is_instance_valid(paternoster):
-		paternoster.host_card(cell, line)
+	if shelf_stack != null and is_instance_valid(shelf_stack):
+		shelf_stack.host_card(cell, line)
 	cell.rise_through_glass(target, float(fresh) * DATA_CELL_STAGGER,
-		DataCellView.RISE_TIME, true, PaternosterView.PITCH)
+		DataCellView.RISE_TIME, true, ShelfStackView.PITCH)
 
 ## DER TURM: je belegter Etage eine Zelle, LIEGEND in ihr - die Fläche mit dem
 ## Prägenetz nach oben, Kontakte nach Bild-rechts. Solange die Zeremonie nicht
@@ -8516,7 +8529,7 @@ func _on_pack_unslotted(slot_index: int, uid: int) -> void:
 ## der des Fensters auf sein Fach.
 func _on_pack_landed(uid: int) -> void:
 	var cell: DataCellView = shelf_cells.get(uid)
-	# Sichtbar heißt HIER: im Baum sichtbar - eine Karte auf einer parkenden Etage
+	# Sichtbar heißt HIER: im Baum sichtbar - eine Karte auf einem verdeckten Tablett
 	# hängt in einem unsichtbaren Fach, und dort lodert nichts.
 	if cell == null or not is_instance_valid(cell) or not cell.is_visible_in_tree():
 		if not _pending_cell_pops.has(uid):
@@ -8577,13 +8590,13 @@ func _spawn_data_cell(sort: String, tier: int, at: Vector3,
 
 ## DER GRUBEN-BOGEN aus dem Magazin in die ETAGE: die Kassette gleitet flach von
 ## ihrem Tablett durch den DURCHBRUCH in die Turm-Bucht und steigt dort auf ihre
-## Etage - alles UNTER der Tischkante. Sie LIEGT dabei schon (das Umlegen ist mit
-## dem Paternoster gestorben), verlässt aber ihr Fach: ein Bogen unter einem
+## Etage - alles UNTER der Tischkante. Sie LIEGT dabei schon (das Umlegen ist
+## 2026-09-07 gestorben), verlässt aber ihr Fach: ein Bogen unter einem
 ## fahrenden Tablett wäre kein Bogen.
 func _carry_data_cell(cell: DataCellView, target: Vector3) -> void:
 	var launched := run
 	cell.set_hovered(false)
-	PaternosterView.rehost(cell, self)  # sie gehört nicht mehr ihrem Tablett
+	ShelfStackView.rehost(cell, self)  # sie gehört nicht mehr ihrem Tablett
 	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_SOCKET, "uid": 0}
 	# Der Bogen startet, wo sie LIEGT - nicht auf ihrem Glaspunkt über dem Loch.
 	cell.lie_on_glass(cell.global_position)
@@ -8645,9 +8658,9 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	var line := workshop.shelf_row_of(uid)
 	var target := _shelf_seat(workshop, uid, line)
 	var landed := run != null and run.pack_by_uid(uid) != null
-	if paternoster != null and is_instance_valid(paternoster) \
-			and not paternoster.shows(line):
-		_lay_shelf_hard(cell, line, target)  # eine parkende Reihe spielt nichts
+	if shelf_stack != null and is_instance_valid(shelf_stack) \
+			and not shelf_stack.shows(line):
+		_lay_shelf_hard(cell, line, target)  # ein verdecktes Tablett spielt nichts
 		_finish_cell_return(cell, uid, landed)
 		return
 	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_PIT, "uid": uid, "row": line}
@@ -8671,8 +8684,10 @@ func _finish_cell_return(cell: DataCellView, uid: int, adopt: bool) -> void:
 	if standing != null and is_instance_valid(standing) and standing != cell:
 		_free_data_cell(standing)  # sollte nie stehen - der Abgleich meidet Rückkehrer
 	shelf_cells[uid] = cell
-	# Sie ist wieder Magazin-Kassette: der GRIFF zieht sie liegend aus der Grube.
-	cell.hover_lift = PaternosterView.hover_lift(PackDrawerView.CASSETTE_SCALE)
+	# Sie ist wieder Magazin-Kassette: der GRIFF zieht sie liegend aus der Grube -
+	# aus JEDEM Tablett gleich weit über das Glas.
+	cell.hover_lift = ShelfStackView.hover_lift(PackDrawerView.CASSETTE_SCALE,
+		ShelfStackView.tray_of(_shelf_row_of_uid(uid)))
 	cell.hover_slide = 0.0
 	if cell.visible:
 		cell.flare()
@@ -8695,13 +8710,14 @@ func _drop_data_cells() -> void:
 	_pending_cell_pops.clear()
 	_drop_tower()  # der Turm des alten Laufs steht nirgends mehr
 	_rising_packs.clear()  # eine Fahrt des alten Laufs endet nirgends mehr
-	# Der PATERNOSTER fährt hart auf Reihe 1+2 zurück - ein neuer Lauf beginnt vorn.
+	# Der REGALSTAPEL springt hart auf Tablett 1 zurück - ein neuer Lauf beginnt oben.
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop != null and is_instance_valid(workshop):
-		workshop.shelf_head = 0
-	if paternoster != null and is_instance_valid(paternoster):
-		paternoster.set_head(0)
-	_write_page_sign()
+		workshop.shelf_tray = 0
+	if shelf_stack != null and is_instance_valid(shelf_stack):
+		shelf_stack.set_selected(0)
+	if shelf_selector != null and is_instance_valid(shelf_selector):
+		shelf_selector.set_selected(0)
 	_hovered_pack_uid = 0
 	_hovered_step = -1
 	_carrying.clear()  # kein Trage-Bogen überlebt den Laufwechsel
@@ -9681,8 +9697,8 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	# ihr Griff wird per Strahl gepickt, nicht als Display-Pixel.
 	if _forward_fuse_socket_mouse(event):
 		return true
-	# ... und der HEBEL des Paternosters daneben, auf derselben Pick-Ebene.
-	if _forward_page_lever_mouse(event):
+	# ... und die KNOPFLEISTE des Regalstapels daneben, auf derselben Pick-Ebene.
+	if _forward_shelf_selector_mouse(event):
 		return true
 	# Die GLAS-ANSICHT wohnt in ihrem EIGENEN Viewport: sie bekommt den Zeiger
 	# umgerechnet, nicht die Anzeige darunter. Modal - unter ihr liegt keine Fläche.
@@ -10008,7 +10024,7 @@ func _process(delta: float) -> void:
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_fuse_socket()  # und die Sicherungs-Fassung, wen sie gerade bedient
-	_sync_page_lever()  # und der Hebel, welche Etage sein Druck heraufholt
+	_sync_shelf_selector()  # und die Knopfleiste, welches Tablett gewählt ist
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
@@ -10081,7 +10097,7 @@ func _stamp_cell_hint() -> String:
 ## Dieselbe Frage an EINEN Körper - der EINE Ort, an dem Treffer und Klartext
 ## zusammenkommen (auch der Laden fragt hier).
 func _cell_face_hint(cell: DataCellView, camera: Camera3D, screen: Vector2) -> String:
-	# Was in einem parkenden Fach liegt, sieht man nicht - also fragt man es auch nicht.
+	# Was auf einem verdeckten Tablett liegt, sieht man nicht - also fragt man es nicht.
 	if cell == null or not is_instance_valid(cell) or not cell.is_visible_in_tree():
 		return ""
 	var face := cell.net_face_at(camera, screen)

@@ -71,7 +71,8 @@ const PLATE_EMISSION := Color(0.20, 0.22, 0.34)
 const PLATE_ENERGY := 0.55
 const CHANNEL_ALBEDO := Color(0.035, 0.033, 0.055)
 const CHANNEL_ENERGY := 0.25
-const METAL_ALBEDO := LeverView.METAL_ALBEDO
+## Das Blech der Klemmen und Kappen (bis 2026-09-10 aus dem gestorbenen LeverView).
+const METAL_ALBEDO := Color(0.34, 0.37, 0.44)
 const CABLE_ALBEDO := Color(0.09, 0.09, 0.12)
 
 ## Die heile Sicherung: Glas mit einem ruhigen Gold-Faden. Durchgebrannt Ruß und

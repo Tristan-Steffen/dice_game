@@ -1,17 +1,20 @@
 class_name PackDrawerView
 extends Control
 ## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze - und seit dem
-## 2026-09-07 ein PATERNOSTER mit ZEHN REIHEN, von denen ZWEI zugleich in der Fläche
-## liegen (die HINTERE in der oberen Hälfte der Grube, die VORDERE in der unteren).
+## 2026-09-10 ein REGALSTAPEL aus FÜNF TABLETTS zu je ZWEI REIHEN, von denen genau
+## EINES in der Fläche liegt (seine HINTERE Reihe in der oberen Hälfte der Grube,
+## seine VORDERE in der unteren).
 ## Die Karten LIEGEN flach, Netz nach oben (lesbar ohne Hover), in EINER Reihe je
-## Kreislauf-Reihe; PaternosterView fährt die Körper, diese Klasse rechnet die Plätze.
+## Lane; ShelfStackView fährt die Körper, diese Klasse rechnet die Plätze - und die
+## reine TABLETT-Rechnung (tray_of/lane_of/state_of/shows_row) wohnt hier, damit
+## table/ sie liest statt umgekehrt.
 ## Die Karte hat ihr FESTES Maß (CASSETTE_SCALE): eine Reihe fasst, was in ihrer
 ## Breite Platz hat, alles Weitere liegt auf der nächsten Reihe.
 ## Eine Kassette SCHRUMPFT NIE - was nicht mehr hineinpasst, kommt gar nicht erst
 ## herein: capacity_for misst den Deckel an Reihe mal ROWS, GameRun bekommt ihn
 ## hereingeschoben und sperrt Kauf wie Prämie daran.
-## Eine Karte auf einer PARKENDEN Reihe hat keinen Chip und keinen Anker im Feld:
-## ihr Liefer-Licht endet am HEBEL (der Anker wird von scene_root gemeldet).
+## Eine Karte auf einem verdeckten TABLETT hat keinen Chip und keinen Anker im Feld:
+## ihr Liefer-Licht endet an der TASTE ihres Tabletts (gemeldet von scene_root).
 ## Die Grube ist echt: screen_glass verwirft sein Bild darin, table_ground seinen
 ## Filz, und PackPitView stellt Wände und Boden. Diese Klasse malt nur noch die
 ## FASSUNG darum herum und trägt die Gesten. Sie ist die EINZIGE Grube des Tisches -
@@ -55,22 +58,59 @@ const COLORS := {
 ## plus noch einmal 20 % (Spieler-Entscheide 2026-09-04: die Schrift blieb zu klein).
 const CASSETTE_SCALE := 2.184
 
-## Die REIHEN des Paternoster-Kreislaufs: zehn Tabletts, EINE Karten-Reihe je
-## Tablett, zwei davon zugleich sichtbar. Der Deckel ist Reihe mal ROWS. Die Zahl
-## wohnt im Lauf (die Reihe ist Spielstand), ui liest sie von dort.
+## Die REIHEN des Regalstapels: zehn, je zwei auf einem Tablett. Der Deckel ist
+## Reihe mal ROWS. Die Zahl wohnt im Lauf (die Reihe ist Spielstand), ui liest sie
+## von dort.
 const ROWS := GameRun.PACK_ROWS
 ## Seitenverhältnis der Kassette (Höhe / Breite, 2 : 3): daraus folgt ihr LIEGENDER
 ## Fußabdruck aus dem gemeldeten STEHENDEN. EINE Quelle - WorkshopView liest sie mit.
 const CARD_ASPECT := 1.5
 ## Der Anteil der LANE-Tiefe, den die FRONT-BLENDE des Tabletts am Bild-unteren
-## Rand nimmt; die Karten liegen mittig in dem, was bleibt (PaternosterView baut die
+## Rand nimmt; die Karten liegen mittig in dem, was bleibt (ShelfStackView baut die
 ## Blende an derselben Zahl). Eine LANE ist die halbe Grube: zwei liegen übereinander.
 const FRONT_SHARE := 0.09
 const LANES := 2
+## Die zwei Lanes eines Tabletts: HINTEN ist Bild-oben (Welt +X), VORN Bild-unten.
+const LANE_BACK := 0
+const LANE_FRONT := 1
+## ... und so viele TABLETTS trägt der Stapel: je Tablett beide Lanes.
+const TRAYS := ROWS / LANES
+
+## Die drei Zustände eines Tabletts (state_of): das GEWÄHLTE liegt in der Fläche,
+## die darüber sind seitlich in die Grubenwand gefahren, die darunter liegen unter
+## seiner Platte und sind darum unsichtbar.
+const SHOWN := 0
+const RETRACTED := 1
+const BURIED := 2
+
+## Die reine TABLETT-Rechnung. Sie wohnt im Fenster, nicht im Körper: so bleibt
+## table/ -> ui/ die einzige Richtung, und der Stapel liest dieselbe eine Quelle.
+static func tray_of(row: int) -> int:
+	return clampi(row, 0, ROWS - 1) / LANES
+
+## Die LANE einer Reihe: 0 = hinten (Bild-oben, Welt +X), 1 = vorn.
+static func lane_of(row: int) -> int:
+	return clampi(row, 0, ROWS - 1) % LANES
+
+## Die zwei Reihen eines Tabletts, hinten zuerst.
+static func rows_of(tray: int) -> Array[int]:
+	var first := clampi(tray, 0, TRAYS - 1) * LANES
+	return [first, first + 1] as Array[int]
+
+## Wo die Reihe steckt, wenn Tablett `selected` gewählt ist.
+static func state_of(row: int, selected: int) -> int:
+	var tray := tray_of(row)
+	if tray == clampi(selected, 0, TRAYS - 1):
+		return SHOWN
+	return RETRACTED if tray < selected else BURIED
+
+## Liegt sie damit in der Fläche?
+static func shows_row(row: int, selected: int) -> bool:
+	return state_of(row, selected) == SHOWN
+
 ## Der EINE RAND der Grube: GLEICH GROSS an allen drei Kanten - über der hinteren
 ## Reihe, zwischen den beiden Reihen und unter der vorderen (Spieler-Entscheid
-## 2026-09-07). Durch die drei Ränder sieht man in die Grube auf die geparkten
-## Tabletts. GEMESSEN an der Werkstatt-Weitsicht (1280 × 720): 28 Anzeige-px lesen
+## 2026-09-07). GEMESSEN an der Werkstatt-Weitsicht (1280 × 720): 28 Anzeige-px lesen
 ## dort als ~40 Bildschirm-px (die geneigte Kamera bildet die Grubentiefe größer ab).
 const LANE_GAP_PX := 28.0
 
@@ -127,7 +167,7 @@ var _grid: Dictionary = {}
 ## uid -> Platzmitte in LOKALEN Pixeln, für ALLE Einträge - auch zurückgehaltene:
 ## ihr Platz wartet auf die Landung ihres Lichts.
 var _spots: Dictionary = {}
-## uid -> REIHE des Kreislaufs. Nur ZWEI liegen im Bild; die anderen parken darunter.
+## uid -> REIHE des Stapels. Nur die zwei des gewählten Tabletts liegen im Bild.
 var _rows: Dictionary = {}
 ## uid -> Chip-Knopf (nur sichtbare Einträge der zwei liegenden Reihen).
 var _chips: Dictionary = {}
@@ -135,10 +175,10 @@ var _chips: Dictionary = {}
 var _empty_spots: Array[Dictionary] = []
 var _count := 0
 var _locked := false
-## Die HINTERE Reihe (0-basiert; vorn liegt die nächste) und der Anker des HEBELS in
-## Display-Pixeln ((-1,-1) = er steht nicht) - dorthin fliegt, was parkend landet.
-var _head := 0
-var _lever := Vector2(-1, -1)
+## Das gewählte TABLETT (0-basiert) und die Anker der TASTEN in Display-Pixeln, je
+## Tablett eine (leer = die Leiste steht nicht) - dorthin fliegt, was verdeckt landet.
+var _tray := 0
+var _keys: Array[Vector2] = []
 ## Kassette, auf der die Zieh-Geste begann (0 = keine). Getippt bleibt getippt:
 ## das Loslassen auf sich selbst feuert den normalen pressed-Klick.
 var _drag_from := 0
@@ -150,10 +190,10 @@ func _init() -> void:
 ## Baut das Fach neu: entries = [{uid, pack, withheld}] in Magazin-Ordnung.
 ## Zurückgehaltene bekommen ihren PLATZ, aber keinen Chip - der Komet IST das
 ## Paket, und erst seine Landung deckt es auf. Einen Chip bekommt ohnehin nur, was
-## in einer der ZWEI liegenden Reihen liegt: was parkt, sieht man nicht.
+## auf dem GEWÄHLTEN Tablett liegt: was verdeckt ist, sieht man nicht.
 func build(entries: Array[Dictionary], unit: float, locked: bool,
-		footprint := Vector2.ZERO, row := Vector2.ZERO, head := 0,
-		lever := Vector2(-1, -1)) -> void:
+		footprint := Vector2.ZERO, row := Vector2.ZERO, tray := 0,
+		keys: Array[Vector2] = []) -> void:
 	u = maxf(unit, 1.0)
 	_locked = locked
 	strip = row if row.x > 0.0 and row.y > 0.0 else size
@@ -168,8 +208,8 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	_empty_spots.clear()
 	_drag_from = 0
 	_count = entries.size()
-	_head = posmod(head, ROWS)
-	_lever = lever
+	_tray = clampi(tray, 0, TRAYS - 1)
+	_keys = keys.duplicate()
 	_grid = grid_for(field.size, cell_px, _count)
 	var columns := maxi(int(_grid.get("columns", 1)), 1)
 	add_child(_well())
@@ -185,17 +225,16 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 		var cell_index := int(entries[i].get("cell", -1))
 		if cell_index < 0:
 			cell_index = cell_of(i, columns)
-		var seat := PaternosterView.seat_of(line, _head)
-		# Der PLATZ gilt IMMER - auch parkend liegt der Körper in der Lane seiner
-		# Reihe, nur eben darunter. Nur der CHIP hängt an der Sichtbarkeit.
+		# Der PLATZ gilt IMMER - auch verdeckt liegt der Körper in der Lane seiner
+		# Reihe, nur eben tiefer. Nur der CHIP hängt an der Sichtbarkeit.
 		var spot := field.position \
-			+ spot_for(cell_index, field.size, cell_px, int(seat["lane"]))
+			+ spot_for(cell_index, field.size, cell_px, lane_of(line))
 		_spots[uid] = spot
 		_rows[uid] = line
 		if not filled.has(line):
 			filled[line] = []
 		(filled[line] as Array).append(cell_index)
-		if bool(entries[i].get("withheld", false)) or int(seat["depth"]) != 0:
+		if bool(entries[i].get("withheld", false)) or not shows_row(line, _tray):
 			continue
 		var chip := _chip(entries[i].get("pack") as Pack, uid, spot)
 		if chip != null:
@@ -208,11 +247,9 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 ## läge über der Fach-Fläche und schluckte den Aufräum-Doppelklick.
 func _lay_empty_spots(filled: Dictionary, columns: int) -> void:
 	var grip := grip_for(field.size, cell_px)
-	for line in ROWS:
-		if int(PaternosterView.seat_of(line, _head)["depth"]) != 0:
-			continue
+	for line in rows_of(_tray):
 		var taken: Array = filled.get(line, [])
-		var lane := int(PaternosterView.seat_of(line, _head)["lane"])
+		var lane := lane_of(line)
 		for cell_index in columns:
 			if taken.has(cell_index):
 				continue
@@ -245,7 +282,7 @@ static func _columns_at(field_size: Vector2, cell: Vector2) -> int:
 		return 1
 	return maxi(int(field_size.x / wide), 1)
 
-## Der DECKEL des Magazins: eine Reihe mal die REIHEN des Kreislaufs. Gemessen,
+## Der DECKEL des Magazins: eine Reihe mal die REIHEN des Stapels. Gemessen,
 ## nicht autoriert: scene_root schiebt die Zahl in GameRun, und dort sperrt sie Kauf
 ## wie Prämie. Darüber hinaus legt das Raster nichts mehr an, weil nichts mehr kommt.
 static func capacity_for(field_size: Vector2, cell: Vector2) -> int:
@@ -291,7 +328,7 @@ static func lane_depth(field_size: Vector2) -> float:
 ## Platzmitte eines PLATZES im Feld (relativ zu dessen Ecke), in der LANE, die seine
 ## Reihe gerade belegt - hinten oben, vorn darunter.
 static func spot_for(cell_index: int, field_size: Vector2, cell: Vector2,
-		lane := PaternosterView.LANE_BACK) -> Vector2:
+		lane := LANE_BACK) -> Vector2:
 	var slot := slot_size(field_size, cell)
 	var lane_top := lane_rects(field_size)[clampi(lane, 0, LANES - 1)].position.y
 	# Die Reihe liegt mittig in dem, was die FRONT-BLENDE ihres Tabletts übrig läßt -
@@ -341,35 +378,42 @@ func pack_seat_px(uid: int) -> Vector2:
 	var spot: Vector2 = _spots[uid]
 	return get_global_rect().position + spot
 
-## Und wohin ihr Liefer-Licht fliegt: auf den Platz, wenn ihre Reihe LIEGT - sonst
-## an den HEBEL, denn eine Maschine, die keiner sieht, hat nicht gespielt.
+## Und wohin ihr Liefer-Licht fliegt: auf den Platz, wenn ihr TABLETT liegt - sonst
+## an dessen TASTE, denn eine Maschine, die keiner sieht, hat nicht gespielt.
 func pack_anchor_px(uid: int) -> Vector2:
 	if not _spots.has(uid):
 		return Vector2(-1, -1)
 	if not shows_pack(uid):
-		return _lever if _lever.x >= 0.0 else get_global_rect().get_center()
+		return key_px(tray_of(row_of_pack(uid)))
 	return pack_seat_px(uid)
+
+## Die gemeldete TASTE eines Tabletts (ohne Leiste: die Fach-Mitte).
+func key_px(tray: int) -> Vector2:
+	var index := clampi(tray, 0, TRAYS - 1)
+	if index < _keys.size() and _keys[index].x >= 0.0:
+		return _keys[index]
+	return get_global_rect().get_center()
 
 ## Die REIHE einer Kassette (-1 = liegt nicht im Fach).
 func row_of_pack(uid: int) -> int:
 	return int(_rows.get(uid, -1))
 
-## Liegt ihre Reihe gerade in der Fläche?
+## Liegt ihr Tablett gerade in der Fläche?
 func shows_pack(uid: int) -> bool:
 	if not _rows.has(uid):
 		return false
-	return int(PaternosterView.seat_of(int(_rows[uid]), _head)["depth"]) == 0
+	return shows_row(int(_rows[uid]), _tray)
 
-## Die HINTERE der beiden liegenden Reihen.
-func head() -> int:
-	return _head
+## Das gewählte Tablett.
+func tray() -> int:
+	return _tray
 
 ## Derselbe Standplatz, GERECHNET statt gemessen - der Weg, wenn das Fach gerade
 ## nicht steht (Presse, Paket-Wahl); dieselbe Formel wie oben, damit ein Komet
 ## nicht springt, sobald es zurückkommt. field_rect ist die GRUBE (pit_rect_in),
 ## nicht der Streifen: die Kassetten stehen im Loch, nicht unter der Fassung.
 static func anchor_in(field_rect: Rect2, cell_index: int,
-		cell: Vector2, lane := PaternosterView.LANE_BACK) -> Vector2:
+		cell: Vector2, lane := LANE_BACK) -> Vector2:
 	if cell_index < 0 or field_rect.size.x <= 0.0 or field_rect.size.y <= 0.0:
 		return Vector2(-1, -1)
 	return field_rect.position + spot_for(cell_index, field_rect.size, cell, lane)

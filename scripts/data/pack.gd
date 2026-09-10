@@ -93,7 +93,7 @@ const TYPE_NAMES := {
 ## fix - es reist mit der Kassette und ist im Laden schon lesbar. Katalysatoren
 ## tragen ein leeres Netz.
 @export var stamp_net: Array = []
-## Die REIHE des Paternoster-Kreislaufs, in der die Kassette liegt (-1 = noch nicht
+## Die REIHE des Regalstapels, in der die Kassette liegt (-1 = noch nicht
 ## eingelagert). Sie ist Teil der Magazin-Ordnung, also Spielstand: eine Karte
 ## rutscht nur INNERHALB ihrer Reihe nach, ein Zug darf die Reihe wechseln.
 @export var shelf_row: int = -1

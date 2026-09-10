@@ -233,25 +233,25 @@ var apron_bottom := 0.0:
 			return
 		apron_bottom = value
 		refresh()
-## Die HINTERE der beiden liegenden Reihen des Paternoster-Magazins (vorn liegt die
-## nächste). Sie ist ANZEIGE, kein Spielstand - darum wohnt sie hier und nicht in
-## GameRun; bewegt wird sie NUR vom Spieler (dem Hebel am Grubenrand), nie von einer
-## Runde und nie von einer Lieferung.
-var shelf_head := 0:
+## Das GEWÄHLTE TABLETT des Regalstapel-Magazins (0-basiert; es zeigt seine zwei
+## Reihen). Es ist ANZEIGE, kein Spielstand - darum wohnt es hier und nicht in
+## GameRun; gewählt wird NUR vom Spieler (an der Knopfleiste am Grubenrand), nie von
+## einer Runde und nie von einer Lieferung.
+var shelf_tray := 0:
 	set(value):
-		var wanted := posmod(value, PackDrawerView.ROWS)
-		if shelf_head == wanted:
+		var wanted := clampi(value, 0, PackDrawerView.TRAYS - 1)
+		if shelf_tray == wanted:
 			return
-		shelf_head = wanted
+		shelf_tray = wanted
 		refresh()
-## Der Anker des HEBELS in Display-Pixeln ((-1,-1) = er steht nicht): dorthin fliegt
-## eine Lieferung, deren Reihe gerade parkt. scene_root mißt ihn am Körper und
-## schiebt ihn herein (das apron_bottom-Muster - ui/ faßt keinen Körper an).
-var shelf_lever_px := Vector2(-1, -1):
+## Die Anker der TASTEN in Display-Pixeln, je Tablett einer (leer = die Leiste steht
+## nicht): dorthin fliegt eine Lieferung auf ein verdecktes Tablett. scene_root mißt
+## sie am Körper und schiebt sie herein (das apron_bottom-Muster).
+var shelf_key_px: Array[Vector2] = []:
 	set(value):
-		if shelf_lever_px.is_equal_approx(value):
+		if shelf_key_px == value:
 			return
-		shelf_lever_px = value
+		shelf_key_px = value.duplicate()
 		refresh()
 ## Paket-uids, deren Liefer-Licht noch fährt (der Komet IST das Paket).
 var _pending_arrivals: Dictionary = {}
@@ -1698,7 +1698,7 @@ func _build_drawer(u: float) -> void:
 	_drawer.position = rect.position
 	_drawer.size = rect.size
 	_drawer.build(drawer_entries(), u, shelf_locked(), data_cell_px, rect.size,
-		shelf_head, shelf_lever_px)
+		shelf_tray, shelf_key_px)
 	if not _queued_pops.is_empty():
 		_flush_queued_pops.call_deferred()  # der Pluster braucht das fertige Layout
 
@@ -1852,16 +1852,23 @@ func pack_seat_px(uid: int) -> Vector2:
 		shelf_cell_px(), shelf_lane_of(uid))
 	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
 
-## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn ihre REIHE
-## liegt - sonst an den HEBEL, der sein Schild aufblitzen läßt.
+## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn ihr TABLETT
+## liegt - sonst an dessen TASTE, die kurz aufblitzt.
 func pack_anchor_px(uid: int) -> Vector2:
 	if _drawer != null and is_instance_valid(_drawer):
 		var anchor := _drawer.pack_anchor_px(uid)
 		if anchor.x >= 0.0:
 			return anchor
-	if not shelf_shows(uid) and shelf_lever_px.x >= 0.0:
-		return shelf_lever_px
+	if not shelf_shows(uid):
+		return shelf_key_point(PackDrawerView.tray_of(shelf_row_of(uid)))
 	return pack_seat_px(uid)
+
+## Der gemeldete Weltpunkt-Pixel einer TASTE (ohne Leiste: die Fach-Mitte).
+func shelf_key_point(tray: int) -> Vector2:
+	var index := clampi(tray, 0, PackDrawerView.TRAYS - 1)
+	if index < shelf_key_px.size() and shelf_key_px[index].x >= 0.0:
+		return shelf_key_px[index]
+	return shelf_rect_global().get_center()
 
 ## Der Platz eines Pakets in der Magazin-Ordnung (-1 = liegt nicht im Fach). Was in
 ## einer Etage des Turms steckt, zählt nicht mit - es liegt nicht im Magazin.
@@ -1877,7 +1884,7 @@ func pack_index_of(uid: int) -> int:
 		index += 1
 	return -1
 
-## Die REIHE des Kreislaufs, in der diese Kassette liegt (0 = die erste). Sie kommt
+## Die REIHE des Stapels, in der diese Kassette liegt (0 = die erste). Sie kommt
 ## aus dem Lauf - die Reihe ist Spielstand, nicht Anzeige.
 func shelf_row_of(uid: int) -> int:
 	if _drawer != null and is_instance_valid(_drawer):
@@ -1897,17 +1904,17 @@ func shelf_cell_of(uid: int) -> int:
 			return int(entry.get("cell", 0))
 	return 0
 
-## Liegt ihre Reihe gerade in der Fläche (eine der zwei Lanes)?
+## Liegt ihr TABLETT gerade in der Fläche?
 func shelf_shows(uid: int) -> bool:
-	return int(PaternosterView.seat_of(shelf_row_of(uid), shelf_head)["depth"]) == 0
+	return PackDrawerView.shows_row(shelf_row_of(uid), shelf_tray)
 
-## ... und in welcher LANE sie dabei liegt (parkend: unter welcher).
+## ... und in welcher LANE ihres Tabletts sie liegt.
 func shelf_lane_of(uid: int) -> int:
-	return int(PaternosterView.seat_of(shelf_row_of(uid), shelf_head)["lane"])
+	return PackDrawerView.lane_of(shelf_row_of(uid))
 
-## Die zwei liegenden Reihen, hinten zuerst.
+## Die zwei Reihen des gewählten Tabletts, hinten zuerst.
 func shelf_rows_shown() -> Array[int]:
-	return [shelf_head, posmod(shelf_head + 1, PackDrawerView.ROWS)] as Array[int]
+	return PackDrawerView.rows_of(shelf_tray)
 
 ## Wie viele Kassetten in EINE Reihe liegen - die Reihen sind Abschnitte dieser Länge.
 func shelf_columns() -> int:
@@ -1928,7 +1935,7 @@ func shelf_row_tints(line: int) -> Array[Color]:
 			packs[cell_index] = entry.get("pack") as Pack
 	for pack in packs:
 		if pack == null:
-			tints.append(PaternosterView.TICK_EMPTY)
+			tints.append(ShelfStackView.BAY_EMPTY)
 			continue
 		var base: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), PackDrawerView.GOLD)
 		tints.append(DataCellView.tier_shade(base, pack.tier))
@@ -1940,11 +1947,10 @@ func arrival_anchor_px(extra: int = 0) -> Vector2:
 	var spot := run.next_pack_spot(extra) if run != null else Vector2i(-1, -1)
 	if spot.x < 0:
 		return shelf_rect_global().get_center()
-	var seat := PaternosterView.seat_of(spot.x, shelf_head)
-	if int(seat["depth"]) != 0 and shelf_lever_px.x >= 0.0:
-		return shelf_lever_px
+	if not PackDrawerView.shows_row(spot.x, shelf_tray):
+		return shelf_key_point(PackDrawerView.tray_of(spot.x))
 	return PackDrawerView.anchor_in(shelf_pit_rect(), spot.y,
-		shelf_cell_px(), int(seat["lane"]))
+		shelf_cell_px(), PackDrawerView.lane_of(spot.x))
 
 ## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Schacht.
 func _on_pack_pressed(uid: int) -> void:

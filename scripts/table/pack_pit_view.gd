@@ -122,6 +122,13 @@ var open_wall := -1
 ## (längs der Wand), y = Breite. Es gibt genau EINEN - den zur Turm-Bucht.
 var breach := Vector2.ZERO
 
+## Die Seite mit dem SCHLITZ (-1 = keine): durch ihn fahren die Tabletts des
+## Regalstapels seitlich in die Wand. Ihre Platte wird dafür zu ZWEI Balken -
+## Sturz darüber, Sockel darunter; Kragen und Lichtsaum bleiben ungeteilt.
+var slot_wall := -1
+## Seine Lage: x = Tiefe der OBERKANTE unter der Schnittkante, y = die der Unterkante.
+var slot := Vector2.ZERO
+
 func _init(pit_name := "PackPit") -> void:
 	name = pit_name
 
@@ -285,9 +292,22 @@ func _build_body() -> void:
 ## EINE Wand ist EIN Balken - außer an der Seite zur Nachbargrube: dort fehlt sie
 ## ganz oder steht als zwei Balken um den Durchbruch. Gerechnet wird in der
 ## GEDREHTEN Wandrichtung (wall_axis/wall_inward), eine Rechnung für alle vier.
+## Trägt sie den SCHLITZ, wird sie waagerecht in Sturz und Sockel geteilt.
 func _build_wall(wall_id: int, top: float) -> void:
-	_wall_box(WALL_NAMES[wall_id], wall_id, 0.0, top - depth * 0.5,
-		_wall_run(wall_id), depth, wall, wall * 0.5, _wall_material)
+	var run := _wall_run(wall_id)
+	if wall_id != slot_wall or slot.y <= slot.x:
+		_wall_box(WALL_NAMES[wall_id], wall_id, 0.0, top - depth * 0.5,
+			run, depth, wall, wall * 0.5, _wall_material)
+		return
+	var high := clampf(slot.x, 0.0, depth)
+	var low := clampf(slot.y, 0.0, depth)
+	if high > 0.001:
+		_wall_box("%sSturz" % WALL_NAMES[wall_id], wall_id, 0.0, top - high * 0.5,
+			run, high, wall, wall * 0.5, _wall_material)
+	if low < depth - 0.001:
+		_wall_box("%sSockel" % WALL_NAMES[wall_id], wall_id, 0.0,
+			top - (low + depth) * 0.5, run, depth - low, wall, wall * 0.5,
+			_wall_material)
 
 ## Die Balken-Stücke einer Wandseite als [Länge, Mitte] längs ihrer Weltachse:
 ## normalerweise EINES, an der offenen Seite KEINES, am Durchbruch ZWEI.
