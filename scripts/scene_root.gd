@@ -499,8 +499,8 @@ var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var workshop_click_zone: StaticBody3D
 var repair_click_zone: StaticBody3D
-## Die LADESÄULE: der Körper der Reparatur-Station, rechts neben dem Podest.
-var charging_column: ChargingColumnView
+## Die SICHERUNGS-FASSUNG: der Körper der Reparatur-Station, rechts neben dem Podest.
+var fuse_socket: FuseSocketView
 var chips_click_zone: StaticBody3D
 ## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
 ## Fläche, auf der ein Doppelklick sie öffnet.
@@ -1369,28 +1369,29 @@ func _place_workshop_strip() -> Rect2:
 	camera_rig.configure_workshop_close_target(
 		table_screen.pixel_to_world(close_frame.get_center()),
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
-	_place_charging_column(bench_rect, workshop_rect)
+	_place_fuse_socket(bench_rect, workshop_rect)
 	_place_page_lever(bench_rect)
 	return corner
 
-## Die LADESÄULE steht RECHTS neben dem Streifen, auf der Zeilenhöhe des PODESTS:
-## eine Streifen-Fuge hinter seiner Kante, mittig zur Podest-Zeile. Ihr Fußabdruck
-## ist ein WELTMASS (die Elko-Dosen haben ihre eine Größe), also wird hier nur der
-## ANKER geschnitten - die Säule mißt sich selbst.
-func _place_charging_column(bench_rect: Rect2, workshop_rect: Rect2) -> void:
+## Die SICHERUNGS-FASSUNG liegt RECHTS neben dem Streifen, auf der Zeilenhöhe des
+## PODESTS: ihre linke Kante eine Streifen-Fuge hinter seiner Kante. Ihr Fußabdruck
+## ist ein WELTMASS, also wird hier nur der ANKER geschnitten - sie mißt sich selbst.
+func _place_fuse_socket(bench_rect: Rect2, workshop_rect: Rect2) -> void:
 	if table_screen == null:
 		return
 	var left := bench_rect.end.x + _workshop_unit() * WorkshopView.STREET_GAP
 	if left >= float(TableScreen.RESOLUTION.x) - WORKSHOP_RIGHT_MARGIN:
 		return
-	if charging_column == null or not is_instance_valid(charging_column):
-		charging_column = ChargingColumnView.new()
-		add_child(charging_column)
-		_connect_charging_column()
+	if fuse_socket == null or not is_instance_valid(fuse_socket):
+		fuse_socket = FuseSocketView.new()
+		add_child(fuse_socket)
+		_connect_fuse_socket()
 	var row := workshop_rect.position.y + workshop_rect.size.y * 0.5
 	var at := table_screen.pixel_to_world(Vector2(left, row))
-	charging_column.setup(Vector3(at.x, 0.0, at.z))
-	_wire_charging_column()
+	# Welt +Z ist Bildschirm-rechts: die Klappe beginnt an der Fuge, ihre Mitte
+	# liegt eine halbe Breite weiter.
+	fuse_socket.setup(Vector3(at.x, 0.0, at.z + FuseSocketView.HALF.y))
+	_wire_fuse_socket()
 	_place_repair_zone()
 
 ## Der HEBEL des PATERNOSTERS steht auf dem Filz RECHTS neben der Magazin-Grube - in
@@ -1482,31 +1483,30 @@ func _forward_page_lever_mouse(event: InputEventMouse) -> bool:
 		return false
 	return page_lever.press(_page_lever_part(button.position))
 
-## Das KABEL läuft von der Säule zum Podest-Puck - "die Säule lädt, der Würfel
-## wird geladen".
-func _wire_charging_column() -> void:
+## Das KABEL läuft von der Fassung zum Podest-Puck - die Sicherung sichert den
+## Kreis des Podests.
+func _wire_fuse_socket() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
 	var podium := _bench_podium_target(workshop)
 	if podium == Vector3.ZERO:
 		return
-	charging_column.set_cable_to(Vector3(podium.x, 0.0, podium.z))
+	fuse_socket.set_cable_to(Vector3(podium.x, 0.0, podium.z))
 
-## Klickzone und Kamera-Rahmen der Station - sie messen am Fußabdruck der Säule
-## plus ihrem KOPFRAUM (sie ist HOCH, und ein hoher Körper projiziert an der
-## geneigten Station nach oben).
+## Klickzone und Kamera-Rahmen der Station - sie messen am Fußabdruck der Fassung
+## plus dem kleinen KOPFRAUM der gesprungenen Sicherung (ein Körper projiziert an
+## der geneigten Station nach oben).
 func _place_repair_zone() -> void:
-	if charging_column == null or not is_instance_valid(charging_column):
+	if fuse_socket == null or not is_instance_valid(fuse_socket):
 		return
-	var lo := charging_column.bounds_min()  # (Welt-x, Welt-z)
-	var hi := charging_column.bounds_max()
+	var lo := fuse_socket.bounds_min()  # (Welt-x, Welt-z)
+	var hi := fuse_socket.bounds_max()
 	# Welt +X ist Bildschirm-oben, Welt +Z Bildschirm-rechts.
 	var rect_a := table_screen.world_to_pixel(Vector3(hi.x, 0.0, lo.y))
 	var rect_b := table_screen.world_to_pixel(Vector3(lo.x, 0.0, hi.y))
 	var rect := Rect2(rect_a, rect_b - rect_a)
-	var head := ChargingColumnView.column_height() \
-		* (WorkshopView.BENCH_TILT_TRIM / CLAMP_HOVER)
+	var head := FuseSocketView.height() * (WorkshopView.BENCH_TILT_TRIM / CLAMP_HOVER)
 	var frame := Rect2(rect.position - Vector2(0.0, head), rect.size + Vector2(0.0, head))
 	_free_own_child("RepairClickZone")  # eine Neuplatzierung ersetzt sie
 	repair_click_zone = _screen_zoom_zone("RepairClickZone", rect,
@@ -2241,7 +2241,7 @@ func _on_money_changed(new_money: int) -> void:
 	_shown_money = new_money
 	_refresh_hub_info()
 	_refresh_side_bet_affordability()
-	_refresh_charging_column()  # Ableiten und Reparieren kosten Geld
+	_refresh_fuse_socket()  # mit Isolierband kostet die Reparatur Geld
 	# Eine offene Umtausch-Geste/-Zeremonie abbrechen: Token entwerten, Geist
 	# verwerfen - die Börse ist bereits endgültig gebucht.
 	_exchange_token += 1
@@ -3603,7 +3603,7 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 func _seat_bench_place(die: DieDefinition) -> void:
 	_bench_die = die
 	_rebuild_target_stage()
-	_refresh_charging_column()
+	_refresh_fuse_socket()
 
 ## Der EINE Abgleich: auf der Bühne steht, was das Fenster als Ziel meldet - und nur
 ## an der Werkstatt-Station. Idempotent und überspringt eine laufende Fahrt; jede
@@ -9677,9 +9677,9 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	# auch während das Raster liegt - er kommt darum VOR dessen Modalität.
 	if _forward_raster_switch_mouse(event, pixel):
 		return true
-	# Die LADESÄULE ist ein KÖRPER auf blankem Filz neben dem Streifen - ihr Griff
-	# wird per Strahl gepickt, nicht als Display-Pixel.
-	if _forward_charging_column_mouse(event):
+	# Die SICHERUNGS-FASSUNG ist ein KÖRPER auf blankem Filz neben dem Streifen -
+	# ihr Griff wird per Strahl gepickt, nicht als Display-Pixel.
+	if _forward_fuse_socket_mouse(event):
 		return true
 	# ... und der HEBEL des Paternosters daneben, auf derselben Pick-Ebene.
 	if _forward_page_lever_mouse(event):
@@ -10007,7 +10007,7 @@ func _process(delta: float) -> void:
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
-	_sync_charging_column()  # und die Ladesäule, wen sie gerade bedient
+	_sync_fuse_socket()  # und die Sicherungs-Fassung, wen sie gerade bedient
 	_sync_page_lever()  # und der Hebel, welche Etage sein Druck heraufholt
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 
@@ -10460,8 +10460,8 @@ func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 func _sync_editing_lock() -> void:
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.editing_locked = _dice_editing_locked()
-	# Die LADESÄULE ist bedienbar, solange die Werkstatt es ist.
-	_refresh_charging_column()
+	# Die SICHERUNGS-FASSUNG ist bedienbar, solange die Werkstatt es ist.
+	_refresh_fuse_socket()
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -12178,76 +12178,71 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		_play_eye_pips(pulse, slot, die_px)
 	return true
 
-# --- Die LADESÄULE ----------------------------------------------------------------
-# Die Reparatur-Station ist ein KÖRPER (ChargingColumnView, 2026-09-07; die 2D-Bucht
-# RepairBayView ist mit ihr gestorben). Gebucht wird in GameRun, SOFORT beim Klick;
-# erst danach fliegt das Licht. Die Säule selbst bucht nichts - sie MELDET.
+# --- Die SICHERUNGS-FASSUNG -------------------------------------------------------
+# Die Reparatur-Station ist ein flacher KÖRPER (FuseSocketView, 2026-09-10; die
+# Ladesäule ChargingColumnView ist mit ihr gestorben, Aufladen und Ableiten auch).
+# Gebucht wird in GameRun, SOFORT beim Klick; erst danach fliegt das Licht. Die
+# Fassung selbst bucht nichts - sie MELDET.
 
-## Zieht die Säule nach (Kunde, Bremsen, Preise) - idempotent, sie schreibt nur bei
+## Zieht die Fassung nach (Kunde, Bremse, Preis) - idempotent, sie schreibt nur bei
 ## echtem Wechsel um.
-func _refresh_charging_column() -> void:
-	if charging_column == null or not is_instance_valid(charging_column):
+func _refresh_fuse_socket() -> void:
+	if fuse_socket == null or not is_instance_valid(fuse_socket):
 		return
 	# Der Kunde kommt vom PODEST: wer dort STEHT (nicht wer gewählt ist und noch
-	# fliegt), wird repariert, geladen oder abgeleitet - und wer den Vorrat verlassen
-	# hat, ist keiner mehr.
+	# fliegt), wird repariert - und wer den Vorrat verlassen hat, ist keiner mehr.
 	var die := _bench_die
 	if run != null and die != null and not run.owned_pool.has(die):
 		die = null
-	charging_column.set_customer(die)
-	var open := not _dice_editing_locked()
-	charging_column.set_live(RepairRules.charge_live(run, die, open),
-		RepairRules.drain_live(run, die, open),
-		RepairRules.repair_live(run, die, open))
-	charging_column.set_prices(run)
+	fuse_socket.set_customer(die)
+	fuse_socket.set_live(RepairRules.repair_live(run, die, not _dice_editing_locked()))
+	fuse_socket.set_prices(run)
 
-func _connect_charging_column() -> void:
-	if charging_column == null \
-			or charging_column.repair_requested.is_connected(_on_repair_requested):
+func _connect_fuse_socket() -> void:
+	if fuse_socket == null \
+			or fuse_socket.repair_requested.is_connected(_on_repair_requested):
 		return
-	charging_column.repair_requested.connect(_on_repair_requested)
-	charging_column.drain_requested.connect(_on_drain_requested)
-	charging_column.charge_requested.connect(_on_charge_requested)
+	fuse_socket.repair_requested.connect(_on_repair_requested)
 
 ## Der GRIFF je Bild: der Zeiger liegt auf dem Tisch, ein mouse_entered erreicht
-## einen Körper nie. Bedient wird, wo die Säule zu SEHEN ist - eigene Station und
+## einen Körper nie. Bedient wird, wo die Fassung zu SEHEN ist - eigene Station und
 ## Freikamera (die Griff-Grammatik der Körper).
-func _sync_charging_column() -> void:
-	if charging_column == null or not is_instance_valid(charging_column):
+func _sync_fuse_socket() -> void:
+	if fuse_socket == null or not is_instance_valid(fuse_socket):
 		return
-	_refresh_charging_column()
-	if not _charging_column_live():
-		charging_column.set_hovered(ChargingColumnView.PART_NONE)
+	_refresh_fuse_socket()
+	if not _fuse_socket_live():
+		fuse_socket.set_hovered(FuseSocketView.PART_NONE)
 		return
-	charging_column.set_hovered(
-		_charging_column_part(get_viewport().get_mouse_position()))
+	fuse_socket.set_hovered(_fuse_socket_part(get_viewport().get_mouse_position()))
 
-func _charging_column_live() -> bool:
+## Bedienbar an der eigenen Station, in der Freikamera UND an der WERKSTATT-Station
+## (Spieler-Entscheid 2026-09-10): die Fassung steht dort im Bild, und der Klick
+## soll reparieren, nicht erst heranfliegen.
+func _fuse_socket_live() -> bool:
 	return _table_operable() and not _deck_glass \
-		and _felt_pick_live(CameraRig.Mode.REPAIR)
+		and (_felt_pick_live(CameraRig.Mode.REPAIR)
+			or _felt_pick_live(CameraRig.Mode.WORKSHOP))
 
-## Welches Bedienelement liegt unter dem Zeiger ("" = keines)? Ein totes Element hat
-## seine Kollision abgeschaltet, fängt den Strahl also gar nicht erst.
-func _charging_column_part(screen_pos: Vector2) -> String:
-	var hit := _ray_pick(screen_pos, ChargingColumnView.PICK_LAYER)
+## Liegt die Sicherung unter dem Zeiger ("" = nein)? Tot hat sie ihre Kollision
+## abgeschaltet, fängt den Strahl also gar nicht erst.
+func _fuse_socket_part(screen_pos: Vector2) -> String:
+	var hit := _ray_pick(screen_pos, FuseSocketView.PICK_LAYER)
 	if hit.is_empty():
-		return ChargingColumnView.PART_NONE
-	return ChargingColumnView.part_of(hit.collider)
+		return FuseSocketView.PART_NONE
+	return FuseSocketView.part_of(hit.collider)
 
-## Der Druck auf Hebel oder Sicherung (true = verbraucht). Aus der Übersicht fällt er
-## durch und wird zum FLUG auf die Station (die Klickzone darunter).
-func _forward_charging_column_mouse(event: InputEventMouse) -> bool:
-	if charging_column == null or not is_instance_valid(charging_column) \
-			or not _charging_column_live():
+## Der Druck auf die Sicherung (true = verbraucht). Aus der Übersicht fällt er durch
+## und wird zum FLUG auf die Station (die Klickzone darunter).
+func _forward_fuse_socket_mouse(event: InputEventMouse) -> bool:
+	if fuse_socket == null or not is_instance_valid(fuse_socket) \
+			or not _fuse_socket_live():
 		return false
 	var button := event as InputEventMouseButton
 	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
 		return false
-	var part := _charging_column_part(button.position)
-	if part == ChargingColumnView.PART_NONE or not charging_column.press(part):
-		return false
-	charging_column.throw_lever(part)  # das Kippen ist Anzeige, gebucht ist längst
-	return true
+	var part := _fuse_socket_part(button.position)
+	return part != FuseSocketView.PART_NONE and fuse_socket.press(part)
 
 func _on_repair_requested(die: DieDefinition) -> void:
 	if run == null:
@@ -12261,28 +12256,17 @@ func _on_repair_requested(die: DieDefinition) -> void:
 	else:
 		_fly_repair_energy(die)
 
-func _on_drain_requested(die: DieDefinition) -> void:
-	if run == null or not run.drain_die(die):
-		return
-	_fly_repair_money(die)
-
-func _on_charge_requested(die: DieDefinition) -> void:
-	if run == null or not run.charge_die(die):
-		return
-	_fly_repair_energy(die)
-
-## Die SPITZE der Säule in Display-Pixeln - dort schlägt das Licht ein.
-func _charging_column_px() -> Vector2:
-	if charging_column == null or not is_instance_valid(charging_column) \
-			or table_screen == null:
+## Die SICHERUNG in Display-Pixeln - dort schlägt das Licht ein.
+func _fuse_socket_px() -> Vector2:
+	if fuse_socket == null or not is_instance_valid(fuse_socket) or table_screen == null:
 		return Vector2.ZERO
-	return table_screen.world_to_pixel(charging_column.head_point())
+	return table_screen.world_to_pixel(fuse_socket.fuse_point())
 
-## ⚡ aus der KONDENSATORBANK zur Säule - dieselbe Börse, aus der das Übertakten
+## ⚡ aus der KONDENSATORBANK zur Fassung - dieselbe Börse, aus der das Übertakten
 ## zahlt. Bei Ankunft pulst die Bank, dann läuft das Licht das KABEL entlang.
 func _fly_repair_energy(die: DieDefinition) -> void:
 	var guard := run
-	var travel := table_screen.energy_comet(_charging_column_px(), CasinoStyle.ENERGY) \
+	var travel := table_screen.energy_comet(_fuse_socket_px(), CasinoStyle.ENERGY) \
 		if table_screen != null else 0.0
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
@@ -12290,9 +12274,9 @@ func _fly_repair_energy(die: DieDefinition) -> void:
 		return
 	if capacitor_bank != null and is_instance_valid(capacitor_bank):
 		capacitor_bank.pulse()
-	await _fly_column_to_die(die, CasinoStyle.ENERGY)
+	await _fly_socket_to_die(die, CasinoStyle.ENERGY)
 
-## Geld aus dem SCHATZ zur Säule (Ableiten, Isolierband-Reparatur).
+## Geld aus dem SCHATZ zur Fassung (Isolierband-Reparatur).
 func _fly_repair_money(die: DieDefinition) -> void:
 	var guard := run
 	var travel := table_screen.money_comet(false, TableScreen.SIDE_MONEY_COLOR) \
@@ -12301,15 +12285,15 @@ func _fly_repair_money(die: DieDefinition) -> void:
 		await get_tree().create_timer(travel).timeout
 	if run != guard:
 		return
-	await _fly_column_to_die(die, TableScreen.SIDE_MONEY_COLOR)
+	await _fly_socket_to_die(die, TableScreen.SIDE_MONEY_COLOR)
 
-## Die zweite Etappe: ein kurzer Lauf über das KABEL von der Säule zum Podest-
+## Die zweite Etappe: ein kurzer Lauf über das KABEL von der Fassung zum Podest-
 ## Würfel. Bei SEINER Ankunft blitzt der Würfel - der Stand steht längst.
-func _fly_column_to_die(die: DieDefinition, color: Color) -> void:
+func _fly_socket_to_die(die: DieDefinition, color: Color) -> void:
 	var guard := run
-	if charging_column != null and is_instance_valid(charging_column):
-		charging_column.pulse()
-	var from_px := _charging_column_px()
+	if fuse_socket != null and is_instance_valid(fuse_socket):
+		fuse_socket.pulse()
+	var from_px := _fuse_socket_px()
 	var to_px := _bench_die_px()
 	var travel := 0.0
 	if table_screen != null and from_px != Vector2.ZERO and to_px != Vector2.ZERO:
@@ -13199,9 +13183,9 @@ func _connect_run() -> void:
 			table_screen.workshop_window.die_returned.connect(_on_die_returned)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
-	# Die LADESÄULE liest denselben Lauf - sie bucht nichts, scene_root tut es.
-	_connect_charging_column()
-	_refresh_charging_column()
+	# Die SICHERUNGS-FASSUNG liest denselben Lauf - sie bucht nichts, scene_root tut es.
+	_connect_fuse_socket()
+	_refresh_fuse_socket()
 	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
 	if shop_vitrine != null and is_instance_valid(shop_vitrine):
 		shop_vitrine.clear()
@@ -13290,7 +13274,7 @@ func _on_energy_changed(value: int) -> void:
 	_sync_capacitor()
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 	_refresh_side_bet_affordability()
-	_refresh_charging_column()  # die Hebel der Säule dimmen sich mit
+	_refresh_fuse_socket()  # die Sicherung dimmt sich mit
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.refresh_if_idle()  # der Einsatz kostet ⚡
 
@@ -14528,7 +14512,7 @@ func _on_pool_changed() -> void:
 		_sync_fach_nets()
 	if _deck_glass:
 		_show_deck_glass_window()  # das Raster auf dem Glas folgt der Buchung
-	_refresh_charging_column()
+	_refresh_fuse_socket()
 
 ## Shop geschlossen. Beim ERSTEN Mal beginnt damit die nächste Runde; ein
 ## Wieder-Eintritt (Hub-Knopf) macht beim Schließen nur die Anzeige zu. Nur der

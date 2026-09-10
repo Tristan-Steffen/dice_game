@@ -2162,48 +2162,6 @@ func test_repairing_refuses_a_whole_die():
 	assert_false(run.repair_die(run.owned_pool[0]))
 	assert_eq(run.energy, 5, "nichts gebucht")
 
-func test_draining_costs_money_and_takes_one_step():
-	run.owned_pool[0].charge = 2
-	run.money = GameRun.DRAIN_MONEY
-	assert_true(run.drain_die(run.owned_pool[0]))
-	assert_eq(run.owned_pool[0].charge, 1)
-	assert_eq(run.money, 0)
-
-func test_draining_refuses_a_cold_die():
-	run.money = 50
-	assert_false(run.drain_die(run.owned_pool[0]))
-	assert_eq(run.money, 50)
-
-func test_charging_costs_energy_and_takes_one_step_up():
-	run.owned_pool[0].charge = 1
-	run.energy = GameRun.CHARGE_UP_ENERGY
-	assert_true(run.charge_die(run.owned_pool[0]))
-	assert_eq(run.owned_pool[0].charge, 2)
-	assert_eq(run.energy, 0)
-
-func test_charging_reaches_the_top_but_not_beyond():
-	run.owned_pool[0].charge = 2
-	run.energy = 5
-	assert_true(run.charge_die(run.owned_pool[0]), "auf 3 darf er - das ist die Wette")
-	assert_eq(run.owned_pool[0].charge, 3)
-	assert_false(run.charge_die(run.owned_pool[0]), "ueber 3 gibt es nichts")
-	assert_eq(run.energy, 5 - GameRun.CHARGE_UP_ENERGY, "nur die eine Stufe gebucht")
-
-func test_charging_refuses_a_burned_die_and_an_empty_bank():
-	run.owned_pool[0].burn_out()
-	run.energy = 5
-	assert_false(run.charge_die(run.owned_pool[0]), "erst reparieren")
-	run.energy = 0
-	assert_false(run.charge_die(run.owned_pool[1]), "pruefen, dann abbuchen")
-	assert_eq(run.owned_pool[1].charge, 0)
-
-func test_charging_respects_the_heat_sink_cap():
-	run.owned_charms.append(Charm.heat_sink())
-	run.owned_pool[0].charge = GameRun.HEAT_SINK_CAP
-	run.energy = 5
-	assert_false(run.charge_die(run.owned_pool[0]), "der Kuehlkoerper deckelt auch die Bucht")
-	assert_eq(run.energy, 5)
-
 func test_the_maintenance_contract_bars_the_bay():
 	run.owned_pool[0].burn_out()
 	run.energy = 5
@@ -2211,9 +2169,7 @@ func test_the_maintenance_contract_bars_the_bay():
 	run.repair_lock_round = run.round_number
 	assert_true(run.repair_locked())
 	assert_false(run.repair_die(run.owned_pool[0]))
-	assert_false(run.charge_die(run.owned_pool[1]))
-	run.owned_pool[1].charge = 1
-	assert_false(run.drain_die(run.owned_pool[1]))
+	assert_eq(run.energy, 5, "nichts gebucht")
 
 func test_committing_the_round_clears_the_lock():
 	run.repair_lock_round = run.round_number

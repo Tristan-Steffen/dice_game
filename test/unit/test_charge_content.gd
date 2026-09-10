@@ -407,8 +407,6 @@ func test_a_locked_bay_books_nothing():
 	_sign([DealClause.MAINTENANCE_CONTRACT])
 	var energy_before := run.energy
 	assert_false(run.repair_die(burned))
-	assert_false(run.drain_die(run.owned_pool[1]))
-	assert_false(run.charge_die(run.owned_pool[1]))
 	assert_eq(run.energy, energy_before)
 
 func test_the_power_failure_lies_in_the_boss_pool():

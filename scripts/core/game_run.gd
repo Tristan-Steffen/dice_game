@@ -213,7 +213,7 @@ const PACK_CAPACITY := 20
 ## eine Standard-Karte trägt ein bis zwei Zellen - ihr Zerfall ist Trostgeld, kein
 ## Ersatz.
 const PACK_FIZZLE_MONEY := 3
-## Die REIHEN des Paternoster-Kreislaufs - die EINE Quelle (core importiert nie ui,
+## Die REIHEN des Regalstapel-Magazins - die EINE Quelle (core importiert nie ui,
 ## also liest PackDrawerView.ROWS von hier).
 const PACK_ROWS := 10
 var pack_capacity: int = PACK_CAPACITY
@@ -290,11 +290,9 @@ var round_bare_dice: int = 0
 var die_scored_this_round: Dictionary = {}
 
 ## --- LADUNG -------------------------------------------------------------------
-## Preise der Reparatur-Bucht (Spieler-Entscheid 2026-09-07): Reparieren 3 ⚡,
-## Aufladen 1 ⚡ je Stufe, Ableiten $5 je Stufe.
+## Preis der Reparatur (Spieler-Entscheid 2026-09-07): 3 ⚡. Aufladen und Ableiten
+## sind am 2026-09-10 gestorben - die Sicherungs-Fassung repariert nur noch.
 const REPAIR_ENERGY := 3
-const CHARGE_UP_ENERGY := 1
-const DRAIN_MONEY := 5
 ## Isolierband: die Reparatur kostet Geld statt Energie.
 const REPAIR_MONEY := 15
 ## Kühlkörper: Deckel der Ladung, solange er im Dock liegt.
@@ -693,7 +691,7 @@ func packs_full() -> bool:
 	return next_pack_row() < 0
 
 # --- Das REIHEN-MODELL des Magazins ------------------------------------------------
-# Jede Kassette gehört FEST zu einer Reihe des Kreislaufs; ein Verbrauch schließt nur
+# Jede Kassette gehört FEST zu einer Reihe des Magazins; ein Verbrauch schließt nur
 # SEINE Reihe, die anderen rühren sich nicht.
 
 ## Die Belegung je Reihe (Index = Reihe). Heimatlose Karten zählen nicht mit.
@@ -2020,34 +2018,6 @@ func repair_die(die: DieDefinition) -> bool:
 		note = "(%d ⚡)" % spark
 	die.repair()
 	charge_logged.emit("%s repariert %s" % [_die_label(die), note])
-	note_pool_changed()
-	return true
-
-## Ableiten: EINE Stufe herunter, für DRAIN_MONEY $.
-func drain_die(die: DieDefinition) -> bool:
-	if die == null or die.burned_out or die.charge <= 0 or repair_locked():
-		return false
-	if money < DRAIN_MONEY:
-		return false
-	add_money(-DRAIN_MONEY)
-	die.charge_down()
-	charge_logged.emit("%s abgeleitet auf %d ($%d)" % [_die_label(die), die.charge, DRAIN_MONEY])
-	note_pool_changed()
-	return true
-
-## Aufladen: EINE Stufe hinauf, für CHARGE_UP_ENERGY ⚡ - bis zur Spitze (die Wette
-## des Spielers: +3 Mult, aber jede Zündung würfelt aufs Durchbrennen). Der Deckel
-## des Kühlkörpers gilt auch hier.
-func charge_die(die: DieDefinition) -> bool:
-	if die == null or die.burned_out or repair_locked():
-		return false
-	var cap := int(charge_rule().get("cap", DieDefinition.CHARGE_MAX))
-	if die.charge >= cap or energy < CHARGE_UP_ENERGY:
-		return false
-	spend_energy(CHARGE_UP_ENERGY)
-	die.charge += 1
-	charge_logged.emit("%s aufgeladen auf %d (%d ⚡)" % [_die_label(die), die.charge,
-		CHARGE_UP_ENERGY])
 	note_pool_changed()
 	return true
 
