@@ -335,6 +335,13 @@ class RuneGlyph:
 	var tint := Color.WHITE
 	var core := Color.WHITE
 	var flare: float = 0.0
+	## Der Kasten, auf den die Figur gezogen wird (leer = sie bleibt, wo sie ist).
+	## Gesetzt wird er NUR auf der Karte: dort steht keine Ziffer in der Zelle,
+	## also gehört der Figur auch die Mitte (Rune.glyph_bounds).
+	var bounds := Rect2()
+	## Rand, den die gezogene Figur in der Zelle frei lässt - er trägt die halbe
+	## Strichbreite samt Unterzug, sonst liefe sie über den Zellsaum hinaus.
+	const FILL_INSET := 0.10
 
 	func _draw() -> void:
 		for index in lines.size():
@@ -343,7 +350,10 @@ class RuneGlyph:
 				continue
 			var points := PackedVector2Array()
 			for point in line:
-				points.append(Rune.place(point, slot) * size)
+				var seat := Rune.fit_to_bounds(point, bounds)
+				if bounds.size.x > 0.0 and bounds.size.y > 0.0:
+					seat = seat * (1.0 - FILL_INSET * 2.0) + Vector2.ONE * FILL_INSET
+				points.append(Rune.place(seat, slot) * size)
 			# Strich-Boden: bei 17 px Kachel wäre ein Beistrich sonst weg.
 			var weight: float = weights[index] if index < weights.size() else 1.0
 			var width := maxf(1.2, size.x * 0.07 * weight) * (1.0 + 0.8 * flare)

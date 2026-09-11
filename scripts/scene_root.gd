@@ -521,6 +521,12 @@ var last_screen_pixel := Vector2(-1, -1)
 ## des Spiels (das Podest am Ausgabefach ist mit der Bühnen-Straße gestorben). Er
 ## schwebt über dem EINEN Netz der Würfel-Spalte (null = es steht keiner).
 var bench_stage: FloatingDie
+## Der Träger, der gerade vom Podest HEIM in den Pool fliegt (null = keiner), und
+## der Würfel darin. Er ist ein ZWEITER Körper neben bench_stage: seit dem
+## 2026-09-11 fliegen Heimkehr und Abholung ZUGLEICH, also braucht jede ihren.
+## Sein Pool-Sitz bleibt leer, bis er landet (_tray_shows) - wie beim TAUSCH.
+var bench_home_stage: FloatingDie
+var _bench_homing: DieDefinition = null
 ## Sein ORT: er LIEGT im Pool, bis er zur Bühne WANDERT. Steht er hier, bleibt sein
 ## Pool-Sitz leer - ein Würfel wird nie zweimal gezeigt. Geschrieben wird er allein
 ## von _seat_bench_place.
@@ -1268,7 +1274,7 @@ func _setup_table_screen() -> void:
 	_place_ausgabefach()
 	_pool_row_px = pool_bounds
 	var corner := _place_workshop_strip()
-	_place_raster_switch()  # auf dem freien Filz über der Pool-Grube
+	_place_raster_switch()  # unter der Die-View-Säule rechts des Pools
 	_setup_deck_glass()
 	_setup_screen_spill_lights(corner)
 
@@ -3632,11 +3638,16 @@ func _sync_bench_migration() -> void:
 	var wanted := _wanted_bench_die()
 	if wanted == _bench_die:
 		return
-	# Erst räumen, dann holen: es steht immer höchstens EINER auf der Bühne.
+	# Räumen und Holen ZUGLEICH (Spieler-Wunsch 2026-09-11): der Alte fliegt heim,
+	# während der Neue schon kommt - ein Wechsel dauert EINE Fahrt, nicht zwei.
 	if _bench_die != null:
+		if _bench_homing != null:
+			return  # es fliegt schon einer heim; seine Landung gleicht erneut ab
 		_ride_bench_to_pool(_bench_die)
-		return
-	_ride_bench_from_pool(wanted)
+	# Wer gerade heimfliegt, wird nicht im selben Zug wieder geholt - er stünde
+	# zweimal da. Seine Landung ruft den Abgleich erneut.
+	if wanted != null and wanted != _bench_homing:
+		_ride_bench_from_pool(wanted)
 
 ## Pool -> Bühne: der Würfel HEBT AB. Sein Sitz wird in demselben Bild leer, in dem
 ## der fliegende Körper an dessen Platz entsteht (nie zweimal gezeigt), und der
@@ -3695,27 +3706,31 @@ func _ride_bench_from_pool(die: DieDefinition) -> void:
 		if generation == _bench_gen and run == launched:
 			_sync_bench_migration())  # wer derweil umwählte, kehrt um
 
-## Der Ruhe-Punkt des Bühnen-Würfels: er wippt, sein Feld nicht - also mißt das Feld
-## (Emitter plus Schwebehöhe). ZERO = kein Körper da.
-func _bench_stage_rest() -> Vector3:
-	if bench_stage == null or not is_instance_valid(bench_stage):
+## Der Ruhe-Punkt eines Bühnen-Würfels: er wippt, sein Feld nicht - also mißt das
+## Feld (Emitter plus Schwebehöhe). ZERO = kein Körper da.
+func _stage_rest(stage: FloatingDie) -> Vector3:
+	if stage == null or not is_instance_valid(stage):
 		return Vector3.ZERO
-	return bench_stage.emitter.global_position + Vector3.UP * bench_stage.hover_height
+	return stage.emitter.global_position + Vector3.UP * stage.hover_height
 
 ## Bühne -> Pool: derselbe Bogen rückwärts. Der Träger fliegt über den Tisch auf
-## den Sitz zurück, den er verlassen hat; erst bei der ANKUNFT fällt er weg und der
-## Sitz zeigt wieder seinen Würfel. Ohne Körper (Bühne nie gelegt) entfällt der Flug.
+## den Sitz zurück, den er verlassen hat. Das PODEST ist sofort frei (Endzustand
+## zuerst - der Neue darf im selben Bild aufbrechen), sein Pool-Sitz bleibt leer,
+## bis er landet. Ohne Körper (Bühne nie gelegt) entfällt der Flug.
 func _ride_bench_to_pool(die: DieDefinition) -> void:
 	if die == null:
 		return
-	_bench_riding = true
 	var generation := _bench_gen
 	var launched := run
 	var stage := bench_stage
+	bench_stage = null
+	bench_home_stage = stage
+	_bench_homing = die
+	_seat_bench_place(null)  # das Podest gehört ab jetzt dem Nächsten
+	_refresh_deck_trays()
 	var seat := _pool_tray_source().find(die)
 	var flew := false
-	if stage != null and is_instance_valid(stage) and _bench_stage_rest() != Vector3.ZERO \
-			and seat >= 0 and pool_tray_view != null \
+	if _stage_rest(stage) != Vector3.ZERO and seat >= 0 and pool_tray_view != null \
 			and seat < pool_tray_view.slot_roots.size():
 		stage.set_process(false)  # kein Eigen-Wippen, solange der Bogen ihn führt
 		var tween := stage.carry_to(pool_tray_view.slot_home_position(seat, true),
@@ -3723,22 +3738,23 @@ func _ride_bench_to_pool(die: DieDefinition) -> void:
 		if tween != null:
 			flew = true
 			tween.finished.connect(func() -> void:
-				_finish_bench_sink(die, generation, launched))
+				_finish_bench_sink(die, stage, generation, launched))
 	if not flew:
-		_finish_bench_sink(die, generation, launched)
+		_finish_bench_sink(die, stage, generation, launched)
 
 ## Der Bogen ist ANGEKOMMEN: der Träger fällt weg und im selben Zug zeigt sein Sitz
-## den Würfel wieder - kein Bild lang stehen beide da. Der Ort kippt auf POOL.
-func _finish_bench_sink(die: DieDefinition, generation: int, launched: GameRun) -> void:
-	_free_stage(bench_stage)
-	bench_stage = null
+## den Würfel wieder - kein Bild lang stehen beide da.
+func _finish_bench_sink(die: DieDefinition, stage: FloatingDie, generation: int,
+		launched: GameRun) -> void:
+	_free_stage(stage)
+	if bench_home_stage == stage:
+		bench_home_stage = null
+	if _bench_homing == die:
+		_bench_homing = null
 	if generation != _bench_gen or run != launched:
-		_bench_riding = false
 		return
-	_seat_bench_place(null)  # ab jetzt liegt er im Pool
 	_seat_bench_pool_hard(_pool_tray_source().find(die))
 	_refresh_deck_trays()
-	_bench_riding = false
 	_sync_bench_migration()
 
 ## Der Sitz steht wieder: an seinem Platz, spiegelnd, dem Schwebe-Takt zurückgegeben.
@@ -3765,6 +3781,7 @@ func _migrate_bench_to_pool() -> void:
 	_free_stage(bench_stage)
 	bench_stage = null
 	_seat_bench_place(null)
+	_refresh_deck_trays()  # der Heimflieger ist mit fort, sein Sitz zeigt ihn wieder
 
 ## Der EINE harte Aufräum-Pfad der Fahrt: ein abgebrochener Bogen steht sofort auf
 ## seinem Ziel (Endzustand zuerst - er schuldet nichts), jeder ridende Pool-Sitz
@@ -3775,8 +3792,15 @@ func _migrate_bench_to_pool() -> void:
 func _reset_bench_migration_hard() -> void:
 	_bench_gen += 1
 	if bench_stage != null and is_instance_valid(bench_stage) and bench_stage.is_flying():
-		bench_stage.land_at(_bench_stage_rest(), 0.0)
+		bench_stage.land_at(_stage_rest(bench_stage), 0.0)
 		bench_stage.set_process(true)
+	# Der HEIMFLIEGER endet hart AN seinem Sitz: Körper fort, der Sitz zeigt ihn
+	# wieder (der Aufrufer frischt die Trays gleich auf).
+	if _bench_homing != null:
+		_seat_bench_pool_hard(_pool_tray_source().find(_bench_homing))
+	_free_stage(bench_home_stage)
+	bench_home_stage = null
+	_bench_homing = null
 	if pool_tray_view != null:
 		for i in pool_tray_view.slot_roots.size():
 			if i < pool_tray_view.slot_riding.size() and pool_tray_view.slot_riding[i]:
@@ -5895,8 +5919,9 @@ func _deck_glass_target() -> int:
 ## ÖFFNEN: der Vorrat sinkt TIEF und mit bestelltem Schirm, und erst wenn das Glas
 ## GESCHLOSSEN steht, geht das Raster darauf auf. Fire-and-forget mit Lauf- und
 ## Generationsmarke; jeder Abbruch landet hart.
-## pinned = der DAUER-Modus des Umschalters: er rahmt NICHT um (an der Werkstatt-
-## Station soll die Straße im Bild bleiben) und merkt sich darum auch keine Station.
+## BEIDE Wege hinein fahren ENG heran (Spieler-Wunsch 2026-09-11): das Raster ist zu
+## lesen, nicht zu erahnen. pinned sagt seither nur noch, ob die Ansicht sich nach
+## der letzten Wahl selbst schließt.
 func _open_deck_glass(pinned: bool) -> void:
 	if _deck_glass or run == null or not _fach_swap_live():
 		return
@@ -5913,12 +5938,11 @@ func _open_deck_glass(pinned: bool) -> void:
 	_deck_glass_gen += 1
 	var generation := _deck_glass_gen
 	var launched := run
-	# Die enge Tausch-Frage ist eine eigene kleine Station: eng gerahmt und STILL,
-	# und die Lage davor wird gemerkt, denn dorthin geht es beim Schließen zurück.
-	if not pinned:
-		_deck_glass_home = camera_rig.camera_pose()
-		camera_rig.set_tilt_locked(true)
-		_frame_deck_glass()
+	# Die Ansicht ist eine eigene kleine Station: eng gerahmt und STILL, und die Lage
+	# davor wird gemerkt, denn dorthin geht es beim Schließen zurück.
+	_deck_glass_home = camera_rig.camera_pose()
+	camera_rig.set_tilt_locked(true)
+	_frame_deck_glass()
 	_pool_standing = false
 	_pool_parked_field = field
 	# Versenkt spiegelt der Vorrat nicht - sein Bild geisterte sonst über der Fläche.
@@ -6050,12 +6074,38 @@ func _settle_deck_glass_hard() -> void:
 		_pool_shaft_on(_pool_parked_field)
 	_stand_pool_tray_hard()
 
+## Die AUFLAGEN der versenkten Würfel (Hitze, Blitze, Seelen-Funken, Lichtlache)
+## sind stumm, solange das Raster LIEGT: unter dem halb durchsichtigen Schirm zögen
+## sie quer über die Kacheln (Spieler-Wunsch 2026-09-11). Sobald der Vorrat wieder
+## STEIGT, sind sie zurück - darum zählt auch das Schließen schon als offen vorbei.
+func _sync_pool_die_effects() -> void:
+	if pool_tray_view == null:
+		return
+	pool_tray_view.set_effects_muted(_deck_glass and not _deck_glass_closing)
+
+## Der EINE Schreiber der HINWEIS-ZEILE des Rasters (je Bild): was der Zeiger im
+## Glas-Viewport berührt - die Netz-Zelle vor der Kachel, sonst nichts. Der Zeiger
+## liegt auf dem TISCH, ein mouse_entered erreicht das Fenster nie.
+func _sync_deck_glass_hint() -> void:
+	var window := _deck_glass_window()
+	if window == null:
+		return
+	if not _deck_glass or not _table_operable():
+		window.set_hint("")
+		return
+	var at := table_screen.deck_glass_pixel(
+		_screen_pixel(get_viewport().get_mouse_position()))
+	window.set_hint("" if at.x < 0.0 else window.grid().hint_at(at))
+
 ## Tipp auf ein Netz - die Zelle bedeutet zweierlei, und der Neuzugang entscheidet:
 ## WARTET einer im Ausgabefach, ist die Zelle sein Tausch-Ziel (gebucht SOFORT,
 ## Buchung vor dem Licht; der Alte kommt schlicht nicht mehr mit herauf, seine Instanz
 ## trägt per become längst den neuen Inhalt). Wartet KEINER, wählt sie wie der Tipp
-## auf den Pool-Körper das Ziel der Serie - die Bühnen-Fahrt holt es, sobald der
-## Vorrat wieder steht.
+## auf den Pool-Körper das Ziel der Serie - und dann GEHT ES MIT (Spieler-Wunsch
+## 2026-09-11): das Raster schließt, und die Kamera fährt an die WERKSTATT, wo der
+## Würfel gleich aufs Podest steigt (die Bühnen-Fahrt wartet ohnehin auf den
+## stehenden Vorrat). Die gemerkte Station wird dabei VERGESSEN - wer selbst wegfährt,
+## ist schon unterwegs.
 ## Liegen nach einem Tausch noch weitere Neuzugänge, SCHLIESST die enge Frage nicht:
 ## der nächste rückt per Boden-Lieferung ins Fach nach (die SERIE). Der DAUER-Modus
 ## schließt ohnehin nie von selbst.
@@ -6067,7 +6117,11 @@ func _on_deck_glass_cell_pressed(index: int) -> void:
 	var pending := _deck_glass_pending()
 	if pending < 0:
 		_choose_workshop_target(run.owned_pool[index])
-		_show_deck_glass_window()
+		_deck_glass_home = {}
+		_close_deck_glass()
+		# again: wer das Raster AN der Werkstatt aufschlug, steht schon im Modus
+		# WORKSHOP - ohne die Marke bliebe die Kamera im engen Rahmen stehen.
+		_zoom_to_mode(CameraRig.Mode.WORKSHOP, true)
 		return
 	if not run.exchange_pending_die(pending, index):
 		return
@@ -6091,15 +6145,23 @@ func _on_deck_glass_reordered(from_index: int, to_index: int) -> void:
 ## Die Taste an den Grubenrand stellen (idempotent). Ihr Ort ist aus der POOL-
 ## Geometrie gerechnet wie der der Schale, nie an einer Fensterkante gemessen.
 func _place_raster_switch() -> void:
-	if table_screen == null or pool_tray_view == null:
+	if table_screen == null:
 		return
-	var field := _pool_field()
-	if field.is_empty():
+	var column := _raster_switch_column()
+	if column.size.x <= 0.0:
 		return
 	if raster_switch == null or not is_instance_valid(raster_switch):
 		raster_switch = RasterSwitchView.new()
 		add_child(raster_switch)
-	raster_switch.setup(RasterSwitchView.spot_beside(field["at"], field["half"]))
+	raster_switch.setup(RasterSwitchView.spot_under(table_screen.pixel_to_world(
+		Vector2(column.get_center().x, column.end.y))))
+
+## Woran die Taste hängt, in Display-Pixeln: die DIE-VIEW-SÄULE rechts des Vorrats -
+## ohne Platz für sie die Schale selbst (leer = es steht keine Schale). Beide melden
+## Pixel, der Körper gehört hierher.
+func _raster_switch_column() -> Rect2:
+	var column := _fach_net_rect()
+	return column if column.size.x > 0.0 else _fach_rect_px()
 
 ## Ihr Rechteck in Display-Pixeln (leer = sie steht nicht).
 func _raster_switch_rect_px() -> Rect2:
@@ -9925,7 +9987,21 @@ func _workshop_interactive_at(pixel: Vector2) -> bool:
 ## Klick auf eine Zoom-Zone (Layer 8): Kamera fährt heran. Der Grubenklick zoomt
 ## nur noch (kein Wurf mehr - dafür Energie-Hülle oder der "Würfeln"-Knopf).
 func _try_zoom_click(screen_pos: Vector2) -> void:
-	_zoom_to_mode(_zone_mode_at(screen_pos))
+	var target := _zone_mode_at(screen_pos)
+	# An der WERKSTATT führt der Tisch-Klick zum VORRAT (Spieler-Wunsch 2026-09-11):
+	# der Streifen liegt unter dem Pool, das ist sein Weg zurück. Die EIGENE Zone
+	# zählt mit - ein Zoom auf die Station, an der man schon steht, ist kein Ziel.
+	if (target == -1 or target == CameraRig.Mode.WORKSHOP) and _workshop_exits_to_pool():
+		target = CameraRig.Mode.POOL
+	_zoom_to_mode(target)
+
+## Fährt ein Klick auf den blanken Tisch gerade von der Werkstatt zum Vorrat? Nicht
+## aus den modalen Bildern (Glas-Ansicht, Inspektion) und nicht aus der Nahsicht -
+## dort geht es eine Stufe zurück, nicht an eine andere Station.
+func _workshop_exits_to_pool() -> bool:
+	return camera_rig != null and camera_rig.mode == CameraRig.Mode.WORKSHOP \
+		and not camera_rig.workshop_close and not camera_rig.die_focus \
+		and not _deck_glass and _station_available(CameraRig.Mode.POOL)
 
 ## Zoom-Ziel unter einem Bildschirmpunkt (Klickzonen-Layer 8); -1 = keines.
 ## Ein noch gesperrtes Fenster liefert -1, seine Zone steht aber schon da.
@@ -9985,11 +10061,13 @@ func _table_operable() -> bool:
 func _felt_pick_live(station: int) -> bool:
 	return camera_rig != null and camera_rig.felt_pick_live(station)
 
-## Fährt auf ein Zoom-Ziel aus _zone_mode_at; -1 tut nichts.
-func _zoom_to_mode(target: int) -> void:
+## Fährt auf ein Zoom-Ziel aus _zone_mode_at; -1 tut nichts. again = auch dann
+## fahren, wenn die Station schon die eigene ist (aus einem temporären Rahmen).
+func _zoom_to_mode(target: int, again := false) -> void:
 	if target == -1:
 		return
-	camera_rig.zoom_to(target as CameraRig.Mode)
+	camera_rig.zoom_to(target as CameraRig.Mode, CameraRig.ZOOM_DURATION,
+		Tween.EASE_IN_OUT, again)
 	# Beim Wechsel auf den Automaten die Dreh-Knöpfe auf den aktuellen Geldstand
 	# bringen (er kann sich seit dem letzten Aufbau geändert haben).
 	if target == CameraRig.Mode.SLOTS and table_screen.slot_bank_window != null:
@@ -10079,6 +10157,8 @@ func _process(delta: float) -> void:
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
+	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
+	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
 	_sync_fuse_socket()  # und die Sicherungs-Fassung, wen sie gerade bedient
 	_sync_shelf_selector()  # und die Knopfleiste, welches Tablett gewählt ist
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
@@ -11067,6 +11147,9 @@ func _tray_shows(def: DieDefinition) -> bool:
 	# Eintrag trägt schon den neuen Inhalt, aber gezeigt wird er erst danach.
 	if def != null and def == _exchange_hidden:
 		return false
+	# Und wer gerade vom Podest HEIMfliegt, ist auch noch nicht da.
+	if def != null and def == _bench_homing:
+		return false
 	return DiceTrayView.seat_shows(def, null, def != null and def == _bench_die)
 
 ## Dieselbe Liste mit LÜCKEN statt Auslassungen: der Platz eines abwesenden
@@ -11841,11 +11924,6 @@ func _on_take_button_pressed() -> void:
 	# Lasurpinsel: läuft die Firnis-Schicht auf einer Stufe-III-Seite ins Leere,
 	# fällt stattdessen eine Material-Kopie in den Vorrat.
 	run.apply_glaze_brush(active_kinds, dice.face_indices, participating)
-	# Abguss-Rune: VOR Midashandschuh und Goldenem Handschlag - sie gießt das
-	# Material ab, mit dem die Hand gezählt hat, nicht das frisch vergoldete.
-	var cast_copies := run.apply_rune_cast(active_kinds, dice.face_indices, participating)
-	if cast_copies > 0:
-		hand_note = "Abguss: %d Material-Gravuren abgeformt." % cast_copies
 	# Funkenflug ist die VIERTE ⚡-Quelle: sofort buchen, der Komet fliegt nur
 	# hinterher (wie die Nebenwetten-Energie).
 	if report.energy > 0:
@@ -14516,13 +14594,12 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
-	# Wer von der ENGEN Tausch-Frage wegfährt, hat abgebrochen gemeint: der Vorrat
-	# steigt unverändert wieder herauf - und die gemerkte Station wird VERGESSEN,
-	# sonst risse der Rückflug eine schon laufende Fahrt zurück. Der eigene enge
-	# Rahmen meldet keinen Wechsel und kommt hier gar nicht an. Der DAUER-Modus des
-	# Umschalters überlebt den Wechsel: das Raster gehört dem Vorrat, nicht der
-	# Station - es geht durch die Taste oder den Rechtsklick wieder zu.
-	if _deck_glass and not _deck_glass_pinned:
+	# Wer aus der GLAS-ANSICHT wegfährt, hat abgebrochen gemeint: der Vorrat steigt
+	# unverändert wieder herauf - und die gemerkte Station wird VERGESSEN, sonst
+	# risse der Rückflug eine schon laufende Fahrt zurück. Das gilt seit dem
+	# 2026-09-11 für BEIDE Wege hinein, denn beide rahmen eng; der eigene enge
+	# Rahmen meldet keinen Wechsel und kommt hier gar nicht an.
+	if _deck_glass:
 		_deck_glass_home = {}
 		_close_deck_glass()
 	# Wer aus der INSPEKTION wegzoomt, hat sie zugeklappt gemeint - das Zuhause wird

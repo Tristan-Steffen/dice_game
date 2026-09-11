@@ -1104,8 +1104,7 @@ func _build_cover_wing(wing_name: String, dir: float, reach: float) -> Node3D:
 ## keinen neuen Schirm.
 func _write_cover() -> void:
 	if _cover_material != null:
-		_cover_material.albedo_color = Color(cover_tint.r * 0.5, cover_tint.g * 0.5,
-			cover_tint.b * 0.5, COVER_ALPHA)
+		_cover_material.albedo_color = _cover_albedo()
 		_cover_material.emission = Color(cover_tint.r, cover_tint.g, cover_tint.b, 1.0)
 	if _cover_label == null or not is_instance_valid(_cover_label):
 		return
@@ -1180,18 +1179,25 @@ func _cover_font_scale(text: String) -> float:
 		best = maxf(best, minf(wide, high))
 	return maxf(best, 0.0002)
 
+## Die Scheibenfarbe des Schirms.
+func _cover_albedo() -> Color:
+	return Color(cover_tint.r * 0.5, cover_tint.g * 0.5, cover_tint.b * 0.5, COVER_ALPHA)
+
 ## Das GLAS des Schirms: fast durchsichtig, nur ein Saum Emission - der Blick fällt
 ## weiter auf die Ware darunter. Kein Tiefen-Schreiben, sonst verdeckte er sie.
 func _glass_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = Color(cover_tint.r * 0.5, cover_tint.g * 0.5,
-		cover_tint.b * 0.5, COVER_ALPHA)
+	material.albedo_color = _cover_albedo()
 	material.metallic = 0.0
 	material.roughness = 0.25
 	material.emission_enabled = true
 	material.emission = Color(cover_tint.r, cover_tint.g, cover_tint.b, 1.0)
 	material.emission_energy_multiplier = COVER_EMISSION_ENERGY
+	# Die Scheibe liegt HINTER ihrer Anzeige-Haut: zwei fast gleichebene
+	# durchsichtige Flächen sortiert die Tiefe sonst je Flügel anders, und der
+	# milchige halbe Schirm wüsche sein halbes Raster aus (gemessene Sichtprobe).
+	material.render_priority = -1
 	return material
 
 ## Der Weg vom Band zurück auf den PARKSTAND (im Hub-Takt) und der hinunter (im

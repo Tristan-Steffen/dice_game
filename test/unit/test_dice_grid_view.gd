@@ -95,6 +95,31 @@ func test_a_soulless_tile_says_nothing() -> void:
 	assert_eq(grid.hint_at(grid.tiles[0].get_global_rect().get_center()), "",
 		"ohne Seele gibt es nichts zu sagen")
 
+## Die DETAIL-Kachel (die Glas-Ansicht) schweigt nie - sie trägt die Hinweis-Zeile,
+## und eine leere Zeile läse sich dort als Fehler.
+func test_a_soulless_detail_tile_still_names_the_die() -> void:
+	grid.place(3, grid.u, true)
+	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6])]))
+	await wait_frames(2)
+	var hint := grid.hint_at(grid.tiles[0].get_global_rect().get_center())
+	assert_string_contains(hint, WorkshopInfoView.SOULLESS)
+	assert_string_contains(hint, WorkshopInfoView.PLAIN_DIE)
+
+## Und eine NETZ-ZELLE erklärt sich selbst - dieselbe Quelle wie Grube und Werkbank.
+func test_a_detail_cell_explains_itself() -> void:
+	var die := _die([1, 2, 3, 4, 5, 6])
+	die.set_face_material(0, DieMaterial.GOLD)
+	grid.place(3, grid.u, true)
+	grid.fill(_defs([die]))
+	await wait_frames(2)
+	var net: Control = grid._nets[0]
+	var cell := grid.u * DiceGridView.DETAIL_CELL
+	var at := net.get_global_rect().position + DieNetView.cell_position(0, cell) 		+ Vector2.ONE * cell * 0.5
+	assert_eq(grid.face_at(at, 0), 0, "die Zelle liegt unter dem Zeiger")
+	assert_eq(grid.hint_at(at), DieNetView.hint_for(die, 0),
+		"und sie sagt, was das Netz überall sagt")
+	assert_string_contains(grid.hint_at(at), DieMaterial.by_id(DieMaterial.GOLD).display_name)
+
 func test_empty_slots_and_the_space_outside_stay_silent() -> void:
 	grid.fill(_defs([null, _die([1, 2, 3, 4, 5, 6], "normal", Essence.NEON)]))
 	await wait_frames(2)

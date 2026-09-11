@@ -255,6 +255,20 @@ var cap_material: ShaderMaterial = null
 var beam_material: ShaderMaterial = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
+## STUMM: der Würfel trägt seine AUFLAGEN nicht - Hitze, Blitze, Überschlag,
+## Seelen-Funken und Lichtlache bleiben fort, Körper und Ziffern nicht. Die
+## GLAS-ANSICHT schaltet die versenkten Vorrats-Würfel so (Spieler-Wunsch
+## 2026-09-11): unter dem halb durchsichtigen Schirm zögen ihre Effekte quer über
+## das Raster. Setzen genügt - die drei Schreiber fragen selbst.
+var effects_muted := false:
+	set(value):
+		if effects_muted == value:
+			return
+		effects_muted = value
+		_refresh_charge()
+		_refresh_soul_motion()
+		_refresh_pool()
+
 ## Lache an? Standard JA - jeder Würfel wirft seinen Schein auf den Tisch,
 ## in der Grube wie im Tray. Aus nur dort, wo kein Tisch darunter liegt
 ## (Inspektor-Vorschau, Listen-Miniaturen, Taumel-Würfel in der Hülle).
@@ -440,7 +454,7 @@ func _refresh_soul_motion() -> void:
 		cap_material.set_shader_parameter("body_color", Vector3(body.r, body.g, body.b))
 		cap_material.set_shader_parameter("phase", _pulse_phase)
 		cap_material.set_shader_parameter("flat_tint", Vector4.ZERO)
-	if essence_rarity < Essence.Rarity.LEGENDARY:
+	if effects_muted or essence_rarity < Essence.Rarity.LEGENDARY:
 		if soul_motes != null:
 			soul_motes.queue_free()
 			soul_motes = null
@@ -738,8 +752,8 @@ func _die_scale() -> float:
 func _refresh_pool() -> void:
 	if glow_pool == null:
 		return
-	glow_pool.visible = pool_allowed
-	if not pool_allowed:
+	glow_pool.visible = pool_allowed and not effects_muted
+	if not glow_pool.visible:
 		return
 	var color: Color
 	var strength: float
@@ -828,10 +842,12 @@ func _refresh_charge() -> void:
 	var burned := shown_burned()
 	var level := shown_charge()
 	# Jede Stufe trägt alle darunter (Spieler-Entscheid 2026-09-07): die Hitze
-	# bleibt unter Blitzen und Überschlag stehen.
-	_sync_heat(level >= 1 and not burned)
-	_sync_bolts(level >= CHARGE_SPARK_LEVEL and not burned, level)
-	_sync_charge_arcs(level >= CHARGE_ARC_LEVEL and not burned)
+	# bleibt unter Blitzen und Überschlag stehen. STUMM bleibt alles drei fort -
+	# der RUSS nicht, der ist Zustand des Körpers, keine Auflage darüber.
+	var live := not effects_muted
+	_sync_heat(live and level >= 1 and not burned)
+	_sync_bolts(live and level >= CHARGE_SPARK_LEVEL and not burned, level)
+	_sync_charge_arcs(live and level >= CHARGE_ARC_LEVEL and not burned)
 	_sync_burn(burned)
 	if not burned:
 		return

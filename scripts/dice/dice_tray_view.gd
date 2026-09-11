@@ -191,6 +191,14 @@ func fill(defs: Array[DieDefinition]) -> void:
 		slot_face_displays[i].apply_definition(def)
 		slot_face_displays[i].set_tint(_style_tint(def))
 
+## Alle Anzeigen des Trays STUMM schalten: ihre Auflagen (Hitze, Blitze, Seelen-
+## Funken, Lichtlache) bleiben fort, Körper und Ziffern nicht. Idempotent - die
+## Anzeige selbst prüft den Wechsel.
+func set_effects_muted(muted: bool) -> void:
+	for display in slot_face_displays:
+		if display != null and is_instance_valid(display):
+			display.effects_muted = muted
+
 ## Leert das Tray (z.B. zu Rundenbeginn).
 func clear() -> void:
 	for i in slot_roots.size():

@@ -5,8 +5,7 @@ class_name RuneEffects
 ##
 ## Zwei Klassen: WERTUNGS-Runen feuern, wenn die Seite gewertet wird
 ## (Nachglühen, Funkenflug, Kehrseite); ÖKONOMIE-/SCHUTZ-Runen hängen an anderen
-## Ereignissen (Streulicht am Zugende, Abguss beim Werten in den Vorrat, Einbrand
-## als Dauerzustand der Seite).
+## Ereignissen (Streulicht am Zugende, Einbrand als Dauerzustand der Seite).
 ##
 ## Die Kehrseite steht bewusst NICHT hier: sie ist ein deterministisches Glied
 ## und wohnt darum in EssenceEffects.link_faces - sie feuert EINMAL nach allen
@@ -19,9 +18,8 @@ const STRAY_LIGHT_MONEY := 1
 ## Argon-Würfel die Bank doppelt füllen.
 const SPARK_FLIGHT_ENERGY := 1
 
-## Stichel: JEDE Rune wirkt doppelt - Nachglühen, Funkenflug, Streulicht und der
-## Abguss (GameRun.apply_rune_cast); die Kehrseite zündet über
-## EssenceEffects.det_link_fire_count zweimal. Nur der Einbrand kennt keine
+## Stichel: JEDE Rune wirkt doppelt - Nachglühen, Funkenflug und Streulicht; die
+## Kehrseite zündet über EssenceEffects.det_link_fire_count zweimal. Nur der Einbrand kennt keine
 ## Verdopplung, er ist ein Dauerzustand und kein Betrag.
 static func burin_factor(charm_ids: Array[String]) -> int:
 	return 2 if charm_ids.has(Charm.BURIN) else 1
@@ -47,12 +45,6 @@ static func energy_for_take(rune_ids: Array[String], charm_ids: Array[String] = 
 	if not rune_ids.has(Rune.SPARK_FLIGHT):
 		return 0
 	return SPARK_FLIGHT_ENERGY * burin_factor(charm_ids)
-
-## Abguss: nimmt die gewertete Seite eine Kopie ihrer Material-Gravur mit in den
-## Vorrat? Nur das Prädikat - gebucht wird in GameRun (die fünfte Wirkungsform:
-## sie greift in den Vorrat, nicht in die Wertung).
-static func casts_material(rune_ids: Array[String]) -> bool:
-	return rune_ids.has(Rune.CAST)
 
 ## Geld einer LIEGENDEN, aber ungewerteten Seite am Zugende (Streulicht) - das
 ## bewusste Gegen-Ereignis zum Gold-Material.

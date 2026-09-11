@@ -424,8 +424,9 @@ static func _stamp_label(text: String, cell: float, tint: Color) -> Label:
 	label.text = text
 	return label
 
-## Der Runen-Linienzug FÜLLT hier die Zelle (Platz 0 ist die ganze Kachel) - im
-## Mini-Netz gibt es keine Ziffer, die er umgehen müßte.
+## Der Runen-Linienzug FÜLLT hier die Zelle: im Prägenetz gibt es keine Ziffer,
+## die er umgehen müßte, also zieht er sich auf seinen eigenen Kasten (2026-09-11 -
+## davor stand Streulicht als 3-px-Strich am Rand einer 34-px-Zelle).
 static func _stamp_rune(rune_id: String, cell: float) -> Control:
 	var rune := Rune.by_id(rune_id)
 	var mark := DieNetView.RuneGlyph.new()
@@ -435,6 +436,7 @@ static func _stamp_rune(rune_id: String, cell: float) -> Control:
 		return mark
 	mark.lines = Rune.glyph_lines(rune.glyph)
 	mark.weights = Rune.glyph_weights(rune.glyph)
+	mark.bounds = Rune.glyph_bounds(rune.glyph)
 	mark.tint = rune.tint
 	mark.core = rune.core
 	return mark
@@ -526,6 +528,7 @@ static func _sum_rune(rune_id: String, cell: float, slot: int) -> Control:
 		return mark
 	mark.lines = Rune.glyph_lines(rune.glyph)
 	mark.weights = Rune.glyph_weights(rune.glyph)
+	mark.bounds = Rune.glyph_bounds(rune.glyph)
 	mark.tint = rune.tint
 	mark.core = rune.core
 	return mark

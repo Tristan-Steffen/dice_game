@@ -4,36 +4,41 @@ extends GutTest
 ## Geometrie), ihre Aufschrift (sie nennt, was der Druck LIEFERT) und der blinde
 ## Zustand - sie verschwindet nie, sie antwortet nur nicht.
 
-## Der Fußabdruck des Vorrats-Platzes: sein Slotraster plus einen halben Platz Saum
-## (dieselbe Zahl wie in test_pit_carrier_stage).
-const POOL_HALF := Vector2(4.5, 5.4)
+## Der ANKER der Taste: die Unterkante der Die-View-Säule rechts des Vorrats, als
+## Weltpunkt (scene_root rechnet ihn aus dem gemeldeten Display-Rechteck).
+const ANCHOR := Vector3(-11.0, 0.0, 26.5)
 
 func _switch() -> RasterSwitchView:
 	var view := RasterSwitchView.new()
 	add_child_autofree(view)
-	view.setup(RasterSwitchView.spot_beside(Vector3.ZERO, POOL_HALF))
+	view.setup(RasterSwitchView.spot_under(ANCHOR))
 	return view
 
 # --- Ihr Platz -------------------------------------------------------------------
 
-func test_die_taste_steht_UEBER_dem_loch_und_beruehrt_es_nie() -> void:
+func test_die_taste_haengt_eine_fuge_UNTER_ihrem_anker() -> void:
 	var view := _switch()
-	assert_gt(view.bounds_min().x, POOL_HALF.x,
-		"sie liegt ganz jenseits der Bildschirm-oberen Lochkante")
-	assert_almost_eq(view.bounds_min().x - POOL_HALF.x, RasterSwitchView.GAP, 0.0001,
-		"und zwar um genau die Fuge zurückgesetzt")
+	# Bildschirm-unten ist Welt -X: ihre Oberkante liegt um die Fuge unter dem Anker.
+	assert_almost_eq(ANCHOR.x - view.bounds_max().x, RasterSwitchView.GAP, 0.0001,
+		"um genau die Fuge zurückgesetzt")
+	assert_lt(view.bounds_max().x, ANCHOR.x, "und ganz unterhalb")
 
-func test_sie_steht_buendig_mit_dem_bildschirm_rechten_ende_der_grube() -> void:
+func test_sie_steht_mittig_unter_ihrem_anker() -> void:
 	var view := _switch()
-	assert_almost_eq(view.bounds_max().y, POOL_HALF.y, 0.0001,
-		"ihre rechte Kante ist die rechte Lochkante")
-	assert_gt(view.bounds_max().y - view.bounds_min().y, 0.0,
-		"und sie hat eine Breite")
+	assert_almost_eq((view.bounds_min().y + view.bounds_max().y) * 0.5, ANCHOR.z,
+		0.0001, "ihre Mitte ist die Mitte der Säule")
+	assert_gt(view.bounds_max().y - view.bounds_min().y, 0.0, "und sie hat eine Breite")
 
-func test_der_platz_folgt_dem_loch() -> void:
-	# Reine Funktion: verschiebt sich das Loch, verschiebt sich die Taste mit.
-	var moved := RasterSwitchView.spot_beside(Vector3(3.0, 0.0, -2.0), POOL_HALF)
-	var home := RasterSwitchView.spot_beside(Vector3.ZERO, POOL_HALF)
+## Sie paßt UNTER die Säule (gemessen 4,37 Welt breit) - sonst stünde sie breiter
+## da als das, woran sie hängt.
+func test_sie_bleibt_schmaler_als_die_saeule_ueber_ihr() -> void:
+	assert_lt(RasterSwitchView.HALF.y * 2.0, 4.37, "schmaler als die Säule")
+	assert_gt(RasterSwitchView.HALF.y * 2.0, 3.0, "aber breit genug für die Aufschrift")
+
+func test_der_platz_folgt_dem_anker() -> void:
+	# Reine Funktion: verschiebt sich die Säule, verschiebt sich die Taste mit.
+	var moved := RasterSwitchView.spot_under(ANCHOR + Vector3(3.0, 0.0, -2.0))
+	var home := RasterSwitchView.spot_under(ANCHOR)
 	assert_almost_eq(moved.x - home.x, 3.0, 0.0001)
 	assert_almost_eq(moved.z - home.z, -2.0, 0.0001)
 	assert_almost_eq(home.y, 0.0, 0.0001, "sie liegt auf der Tischfläche")
@@ -41,7 +46,7 @@ func test_der_platz_folgt_dem_loch() -> void:
 func test_dieselben_masse_bauen_nichts_neu() -> void:
 	var view := _switch()
 	var plate := view.get_node("Taste")
-	view.setup(RasterSwitchView.spot_beside(Vector3.ZERO, POOL_HALF))
+	view.setup(RasterSwitchView.spot_under(ANCHOR))
 	assert_eq(view.get_node("Taste"), plate, "idempotent")
 
 # --- Ihre Aufschrift -------------------------------------------------------------

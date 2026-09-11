@@ -137,7 +137,7 @@ func test_the_rune_count_is_one_two_three() -> void:
 				tier, _rng(seed_value))), tier + 1, "Größe %d" % tier)
 
 ## Rune wie Material fallen nach der SELTENHEIT ihrer Gravur - das häufige
-## Streulicht muss öfter kommen als der seltene Abguss.
+## Streulicht muss öfter kommen als die seltene Kehrseite.
 func test_rarity_still_steers_the_draw() -> void:
 	var counts := {}
 	for seed_value in 600:
@@ -148,7 +148,7 @@ func test_rarity_still_steers_the_draw() -> void:
 			if StampNet.kind_of(cell) == StampNet.KIND_RUNE:
 				var id := String(cell["id"])
 				counts[id] = int(counts.get(id, 0)) + 1
-	assert_gt(int(counts.get(Rune.STRAY_LIGHT, 0)), int(counts.get(Rune.CAST, 0)),
+	assert_gt(int(counts.get(Rune.STRAY_LIGHT, 0)), int(counts.get(Rune.REVERSE, 0)),
 		"häufig fällt öfter als selten")
 
 # --- Sonderformen ---------------------------------------------------------------

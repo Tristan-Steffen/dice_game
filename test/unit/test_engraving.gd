@@ -2,8 +2,8 @@ extends GutTest
 ## Tier-1-Tests des Gravur-Datensatzes (Kategorien, Materialien, Sonderposten).
 
 func test_all_returns_specials_materials_and_runes():
-	# Pointer + Veredelung + 6 Material-Gravuren + 6 Runen.
-	assert_eq(Engraving.all().size(), 14)
+	# Pointer + Veredelung + 6 Material-Gravuren + 5 Runen.
+	assert_eq(Engraving.all().size(), 13)
 
 ## Die sechs Zahl-Verben sind mit der Serienschaltung gestorben: eine Zahl-Zelle
 ## im Prägenetz ist ein nackter Bonus, kein Archetyp.
@@ -26,7 +26,7 @@ func test_no_engraving_targets_the_edges_anymore():
 	for engraving in Engraving.all():
 		if engraving.category == Engraving.CATEGORY_DICE:
 			dice_ids.append(engraving.id)
-	assert_eq(dice_ids.size(), 7, "Pointer + sechs Runen")
+	assert_eq(dice_ids.size(), 6, "Pointer + fünf Runen")
 	assert_true(dice_ids.has(Engraving.POINTER))
 	for rune in Rune.all():
 		assert_true(dice_ids.has(Engraving.RUNE_PREFIX + rune.id), "Rune für %s" % rune.id)

@@ -127,7 +127,7 @@ func test_a_dope_cell_on_an_already_doped_face_fizzles() -> void:
 # --- Der Runen-Kanal ---------------------------------------------------------------
 
 func test_the_later_rune_wins_the_first_slot() -> void:
-	var out := _resolve([_net({0: StampNet.rune_cell(Rune.CAST)}),
+	var out := _resolve([_net({0: StampNet.rune_cell(Rune.AFTERGLOW)}),
 		_net({0: StampNet.rune_cell(Rune.AFTERGLOW)})], _die())
 	assert_eq(Array(out["runes"][0]), [Rune.AFTERGLOW])
 
@@ -136,19 +136,19 @@ func test_the_later_rune_wins_the_first_slot() -> void:
 func test_a_duplicate_rune_moves_into_the_second_slot() -> void:
 	var die := _die()
 	die.essence_id = Essence.VACUUM
-	var cast := _net({0: StampNet.rune_cell(Rune.CAST)})
-	var out := _resolve([cast, cast], die)
-	assert_eq(Array(out["runes"][0]), [Rune.CAST, Rune.CAST])
+	var glow := _net({0: StampNet.rune_cell(Rune.AFTERGLOW)})
+	var out := _resolve([glow, glow], die)
+	assert_eq(Array(out["runes"][0]), [Rune.AFTERGLOW, Rune.AFTERGLOW])
 
 func test_a_duplicate_rune_without_a_free_slot_changes_nothing() -> void:
-	var cast := _net({0: StampNet.rune_cell(Rune.CAST)})
-	var out := _resolve([cast, cast], _die())
-	assert_eq(Array(out["runes"][0]), [Rune.CAST], "einmal gesetzt bleibt einmal gesetzt")
+	var glow := _net({0: StampNet.rune_cell(Rune.AFTERGLOW)})
+	var out := _resolve([glow, glow], _die())
+	assert_eq(Array(out["runes"][0]), [Rune.AFTERGLOW], "einmal gesetzt bleibt einmal gesetzt")
 
 func test_a_rune_the_die_already_carries_is_no_change() -> void:
 	var die := _die()
-	die.set_rune(0, Rune.CAST)
-	var out := _resolve([_net({0: StampNet.rune_cell(Rune.CAST)})], die)
+	die.set_rune(0, Rune.AFTERGLOW)
+	var out := _resolve([_net({0: StampNet.rune_cell(Rune.AFTERGLOW)})], die)
 	assert_true(Array(out["runes"][0]).is_empty(), "die Projektion meldet nur Änderungen")
 
 # --- Der Pointer-Kanal --------------------------------------------------------------
@@ -178,7 +178,7 @@ func test_the_propellant_lifts_every_filled_number_cell_once() -> void:
 func test_the_secondary_halves_the_numbers_and_drops_every_other_channel() -> void:
 	var out := _resolve([_net({0: StampNet.value_cell(5),
 		1: StampNet.material_cell(DieMaterial.GOLD),
-		2: StampNet.rune_cell(Rune.CAST)})], _die())
+		2: StampNet.rune_cell(Rune.AFTERGLOW)})], _die())
 	var second := SeriesResolver.secondary(out, _die())
 	assert_eq(int(second["bonus"][0]), 2, "5 / 2 abgerundet")
 	assert_eq(String(second["materials"][1]), "", "Material bleibt beim ersten Würfel")

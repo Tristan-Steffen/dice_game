@@ -272,8 +272,6 @@ var golden_handshake_used_this_round: bool = false
 ## den ganzen Run - sie sterben erst mit dem Run, nicht mit der Runde.
 var essence_phosphor_store: Dictionary = {}
 var essence_phosphor_mult: Dictionary = {}
-## Würfel, die diese Runde schon einen Abguss genommen haben (Rune.CAST).
-var rune_cast_used: Dictionary = {}
 ## Auslösungen und Krits der bisherigen Hände DIESER Runde - Dunkelkammer und
 ## Gewitterfront schleppen sie in die nächste Hand mit.
 var round_trigger_count: int = 0
@@ -618,7 +616,7 @@ func sell_charm(index: int) -> void:
 
 ## Legt ein Fixinhalt-Paket mit genau dieser Gravur ins Lager - der Weg, den seit
 ## dem Werkstatt-Umbau JEDE Quelle geht, die früher lose Gravuren lieferte
-## (Abguss, Schmuckkästchen, Ernte, Schwarzmarkt).
+## (Schmuckkästchen, Ernte, Schwarzmarkt).
 func grant_engraving_pack(engraving: Engraving) -> Pack:
 	if engraving == null:
 		return null
@@ -1732,42 +1730,10 @@ func apply_glaze_brush(defs: Array[DieDefinition], face_indices: Array[int],
 		copied += 1
 	return copied
 
-## Abguss-Rune: trägt die gewertete Seite eine Material-Gravur, wandert eine
-## frische Kopie davon als versiegeltes Fixinhalt-Paket ins Lager - der Abguss
-## erbt die Veredelung nicht. Der Stichel verdoppelt. Liefert die Zahl der Kopien.
-## Einmal je Runde und Würfel: ohne diese Grenze druckt ein Argon-Würfel
-## Materialgravuren am Fließband. Die Marke hängt am Würfel-Exemplar.
-func apply_rune_cast(defs: Array[DieDefinition], faces: Array[int],
-		participating: Array[int]) -> int:
-	var granted := 0
-	for i in participating:
-		if i >= defs.size() or defs[i] == null or i >= faces.size():
-			continue
-		var face: int = faces[i]
-		if face < 0 or face >= defs[i].materials.size():
-			continue
-		if not RuneEffects.casts_material(defs[i].runes_on(face)):
-			continue
-		# Ohne Material auf der Seite gibt es nichts abzugießen.
-		var material := DieMaterial.by_id(defs[i].materials[face])
-		if material == null:
-			continue
-		var key := defs[i].get_instance_id()
-		if rune_cast_used.has(key):
-			continue
-		rune_cast_used[key] = true
-		var copies := RuneEffects.burin_factor(charm_ids())
-		for _c in copies:
-			grant_material_pack(material)
-			granted += 1
-	return granted
-
-## Rundenzustand der Essenzen: die Abguss-Marken und die Hand-Zähler der Runde
-## fangen neu an. Der Phosphor-Speicher NICHT - er sammelt über den ganzen Run.
+## Rundenzustand der Essenzen: die Hand-Zähler der Runde fangen neu an. Der Phosphor-Speicher NICHT - er sammelt über den ganzen Run.
 ## Alles hängt am Würfel-Exemplar, also an seiner Instanz-id - eine Def wandert
 ## nie zwischen Pool-Plätzen.
 func roll_essence_round_state() -> void:
-	rune_cast_used.clear()
 	die_scored_this_round.clear()
 	round_trigger_count = 0
 	round_crit_count = 0

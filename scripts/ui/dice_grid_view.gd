@@ -54,6 +54,8 @@ var _highlights: Array[int] = []
 ## Augensummen der Detail-Kacheln (nach Index) - so wechselt die Hervorhebung
 ## ihre Farbe, ohne das teure Raster neu zu bauen.
 var _totals: Array[Label] = []
+## Je Kachel ihr Würfelnetz - daran mißt face_at die Zelle unter dem Zeiger.
+var _nets: Array[Control] = []
 
 func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -83,16 +85,36 @@ func slot_at(global_point: Vector2) -> int:
 			return i
 	return -1
 
-## Erklärzeile zur Kachel unter pixel ("" = leerer Platz, keine Kachel oder ein
-## Würfel ohne Seele). Die Seele ist das EINZIGE, was die Kachel nicht selbst
-## zeigt: Materialien, Stufen und Pointer stehen im Netz, aber das Glühen
-## des Saums nennt keinen Namen. GEFRAGT statt gemeldet - dieselbe Lösung wie am
-## Netzfeld der Grube, und dieselbe Quelle wie der Essenz-Chip (Essence.hint).
+## Erklärzeile zu dem, was unter pixel liegt ("" = leerer Platz oder keine Kachel).
+## ZWEI Auskünfte, und die feinere gewinnt (Spieler-Wunsch 2026-09-11): liegt der
+## Zeiger auf einer NETZ-ZELLE, erklärt sich DIESE (DieNetView.hint_for - dieselbe
+## Quelle wie Grube und Werkbank), sonst nennt die Kachel die SEELE ihres Würfels.
+## GEFRAGT statt gemeldet - dieselbe Lösung wie am Netzfeld der Grube.
 func hint_at(pixel: Vector2) -> String:
 	var index := slot_at(pixel)
 	if index < 0 or index >= _defs.size() or _defs[index] == null:
 		return ""
-	return Essence.hint(_defs[index].essence_id)
+	var def := _defs[index]
+	var cell := DieNetView.hint_for(def, face_at(pixel, index))
+	if cell != "":
+		return cell
+	var soul := Essence.hint(def.essence_id)
+	if soul != "" or not detailed:
+		return soul
+	# Die DETAIL-Kachel schweigt NIE: sie trägt die Hinweis-Zeile der Glas-Ansicht,
+	# und eine leere Zeile läse sich dort als Fehler. Die Worte kommen aus der
+	# bestehenden Quelle für genau diesen Fall (der Info-Schirm der Werkstatt).
+	return "%s  ·  %s" % [WorkshopInfoView.SOULLESS, WorkshopInfoView.PLAIN_DIE]
+
+## Die NETZ-ZELLE unter pixel auf Kachel index (-1 = keine, EDGE = der Kanten-Chip).
+## Das Netz liegt mittig in seiner Kachel, also wird an SEINEM Rechteck gemessen.
+func face_at(pixel: Vector2, index: int) -> int:
+	if not detailed or index < 0 or index >= _nets.size():
+		return -1
+	var net: Control = _nets[index]
+	if net == null or not is_instance_valid(net):
+		return -1
+	return DieNetView.face_at(pixel - net.get_global_rect().position, u * DETAIL_CELL)
 
 ## Maße einer detaillierten Kachel bei Einheit unit: das Würfelnetz plus Rand.
 static func detail_tile_size(unit: float) -> Vector2:
@@ -128,6 +150,8 @@ func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 	tiles.clear()
 	_totals.clear()
 	_totals.resize(defs.size())
+	_nets.clear()
+	_nets.resize(defs.size())
 	for child in get_children():
 		remove_child(child)  # erst abhängen: queue_free zählt sonst noch ins Mindestmaß
 		child.queue_free()
@@ -197,6 +221,8 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: 
 	if def.burned_out:
 		net.modulate = BURNED_NET_DIM  # tot, nicht heiß
 	center.add_child(net)
+	if index < _nets.size():
+		_nets[index] = net
 
 	var total := DieNetView.total_badge(def, cell)
 	total.modulate = GOLD if highlighted else TEXT_COLOR

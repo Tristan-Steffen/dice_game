@@ -80,7 +80,7 @@ const TYPE_NAMES := {
 ## Identität im Lager: GameRun stempelt sie beim Einlagern (_stash_pack). 0 = noch
 ## nie eingelagert. An ihr hängen Magazin-Platz, Liefer-Vormerkung und Körper.
 @export var pack_uid: int = 0
-## Genau DIESE Gravur liegt im Paket (Abguss, Schmuckkästchen, Schwarzmarkt-
+## Genau DIESE Gravur liegt im Paket (Schmuckkästchen, Schwarzmarkt-
 ## Sonderposten). Ihr Phantomwürfel landet FEST auf diesem Icon und lässt sich
 ## nicht nachwürfeln - er spielt in der Hand trotzdem mit.
 @export var fixed_engraving: Engraving = null

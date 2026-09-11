@@ -94,6 +94,39 @@ func test_every_rune_owns_exactly_one_glyph() -> void:
 		assert_true(Rune.all_glyphs().has(rune.glyph), "%s: Zeichen ist registriert" % rune.id)
 	assert_eq(seen.size(), Rune.all_glyphs().size(), "kein Zeichen ohne Rune")
 
+# --- Der Kasten der Figur: ihr Weg auf die KARTE -----------------------------------
+# Auf dem Würfel läuft die Figur um eine Ziffer herum, also gehört ihr die Mitte
+# nicht. In einer Prägenetz-Zelle steht keine Ziffer - dort zieht sie sich auf ihren
+# eigenen Kasten, sonst verschenkte sie den leeren Kranz.
+
+func test_every_glyph_reports_a_box_that_holds_all_of_it() -> void:
+	for glyph in Rune.all_glyphs():
+		var box := Rune.glyph_bounds(glyph)
+		assert_gt(box.size.x, 0.0, "%s: der Kasten hat eine Breite" % glyph)
+		assert_gt(box.size.y, 0.0, "%s: der Kasten hat eine Höhe" % glyph)
+		for line: PackedVector2Array in Rune.glyph_lines(glyph):
+			for point in line:
+				assert_between(point.x, box.position.x - EPS, box.end.x + EPS,
+					"%s: der Kasten hält jeden Punkt (x)" % glyph)
+				assert_between(point.y, box.position.y - EPS, box.end.y + EPS,
+					"%s: der Kasten hält jeden Punkt (y)" % glyph)
+
+func test_fitting_a_glyph_to_its_box_fills_the_card_cell() -> void:
+	# Der Kasten wird auf 0..1 gezogen - erst das macht die Figur auf der Karte groß.
+	for glyph in Rune.all_glyphs():
+		var box := Rune.glyph_bounds(glyph)
+		var low := Rune.fit_to_bounds(box.position, box)
+		var high := Rune.fit_to_bounds(box.end, box)
+		assert_almost_eq(low.x, 0.0, 0.001, "%s: linke Kante auf 0" % glyph)
+		assert_almost_eq(low.y, 0.0, 0.001, "%s: obere Kante auf 0" % glyph)
+		assert_almost_eq(high.x, 1.0, 0.001, "%s: rechte Kante auf 1" % glyph)
+		assert_almost_eq(high.y, 1.0, 0.001, "%s: untere Kante auf 1" % glyph)
+
+func test_a_flat_box_leaves_the_point_alone() -> void:
+	# Keine Division durch null: ein Kasten ohne Höhe lässt die Figur, wo sie ist.
+	var flat := Rect2(0.2, 0.5, 0.6, 0.0)
+	assert_eq(Rune.fit_to_bounds(Vector2(0.4, 0.5), flat), Vector2(0.4, 0.5))
+
 # --- Die Ruhe-Regel (Schritt 13 der Umsetzungsliste) --------------------------------
 
 func test_every_idle_profile_blooms_at_rest() -> void:

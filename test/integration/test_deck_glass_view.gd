@@ -188,3 +188,81 @@ func test_der_tooltip_nennt_die_ladung_und_die_seele_genau_einmal() -> void:
 	var soul: String = Essence.by_id(Essence.NEON).display_name
 	assert_eq(text.count(soul), 1, "der Seelen-Name steht genau einmal")
 	assert_string_contains(text, DieDefinition.charge_name(2), "und die Ladungs-Stufe dabei")
+
+# --- Die HINWEIS-ZEILE am unteren Rand (2026-09-11) ---------------------------
+
+## Ihr Band ist RESERVIERT, auch wenn sie schweigt - sonst spränge das Raster bei
+## jedem Überfahren. Dafür sitzt das Raster HÖHER als die Fenstermitte.
+func test_das_band_der_hinweis_zeile_bleibt_frei_und_hebt_das_raster() -> void:
+	await wait_frames(2)
+	var foot: Label = view.get_node("Hinweis")
+	var host: Control = view.get_node("RasterHost")
+	var u := view.size.x / DeckGlassView.UNIT_DIV
+	assert_almost_eq(foot.position.y + foot.size.y,
+		view.size.y - u * DeckGlassView.MARGIN_UNITS, 0.5, "sie steht am unteren Rand")
+	assert_lte(host.position.y + host.size.y, foot.position.y + 0.5,
+		"und das Raster endet über ihr")
+	var grid := view.grid()
+	var below := view.size.y - (host.position.y + grid.position.y + grid.size.y)
+	assert_gte(below, u * (DeckGlassView.FOOT_UNITS + DeckGlassView.FOOT_GAP_UNITS) - 0.5,
+		"unter dem Raster bleibt das ganze Band frei - um so viel sitzt es höher")
+
+## Sie sagt, was der Zeiger berührt - und schweigt, wo nichts liegt.
+func test_die_hinweis_zeile_traegt_was_ihr_gereicht_wird() -> void:
+	await wait_frames(2)
+	var foot: Label = view.get_node("Hinweis")
+	assert_eq(view.hint(), "", "ohne Zeiger schweigt sie")
+	view.set_hint("Gold: zahlt beim Nehmen")
+	assert_eq(view.hint(), "Gold: zahlt beim Nehmen")
+	assert_eq(foot.text, "Gold: zahlt beim Nehmen", "und die Zeile trägt sie")
+	view.set_hint("")
+	assert_eq(foot.text, "", "leer heißt still")
+
+## Und sie kommt aus dem RASTER: die Kachel unter dem Zeiger erklärt sich selbst.
+func test_das_raster_beantwortet_den_zeiger_fuer_die_zeile() -> void:
+	await wait_frames(2)
+	var grid := view.grid()
+	var at := grid.tiles[0].get_global_rect().get_center()
+	assert_ne(grid.hint_at(at), "", "die Detail-Kachel schweigt nie")
+	assert_eq(grid.hint_at(Vector2(-100, -100)), "", "außerhalb des Rasters schon")
+
+## Der SCHIRM bleibt halb durchsichtig wie jeder andere - DECKEND ist allein der
+## Grund unter der Hinweis-Zeile (Spieler-Wunsch 2026-09-11: der Vorrat darf
+## durchschimmern, nur nicht durch den Text).
+func test_nur_der_grund_der_hinweis_zeile_deckt() -> void:
+	await wait_frames(2)
+	var back: StyleBoxFlat = view.get_node("Schirm").get_theme_stylebox("panel")
+	var foot_back: Panel = view.get_node("HinweisGrund")
+	var solid: StyleBoxFlat = foot_back.get_theme_stylebox("panel")
+	assert_lt(back.bg_color.a, 1.0, "der Schirm scheint durch")
+	assert_eq(back.bg_color, TableScreen.window_style().bg_color,
+		"und zwar in der Farbe jedes anderen Schirms")
+	assert_eq(solid.bg_color.a, 1.0, "sein Zeilen-Grund deckt")
+	assert_eq(solid.bg_color, TableScreen.BACKGROUND_COLOR.blend(TableScreen.FRAME_BG),
+		"dieselbe Farbe, einmal über den Anzeige-Grund gemischt")
+
+## Und er liegt WIRKLICH unter der Zeile: sie steht ganz in ihm.
+func test_der_grund_traegt_die_ganze_zeile() -> void:
+	await wait_frames(2)
+	var foot_back: Panel = view.get_node("HinweisGrund")
+	var foot: Label = view.get_node("Hinweis")
+	assert_true(Rect2(foot_back.position, foot_back.size).encloses(
+		Rect2(foot.position, foot.size)), "die Zeile liegt ganz auf ihrem Grund")
+	assert_lt(foot_back.position.y, foot.position.y, "er beginnt über der Zeile")
+
+## Er steht FREI: ringsum eingerückt wie der Rest des Schirms, an allen vier Ecken
+## gerundet - er berührt weder Wand noch Boden (Spieler-Wunsch 2026-09-11).
+func test_der_grund_steht_frei_und_ist_rundum_gerundet() -> void:
+	await wait_frames(2)
+	var foot_back: Panel = view.get_node("HinweisGrund")
+	var margin := view.size.x / DeckGlassView.UNIT_DIV * DeckGlassView.MARGIN_UNITS
+	assert_almost_eq(foot_back.position.x, margin, 0.5, "links eingerückt")
+	assert_almost_eq(foot_back.position.x + foot_back.size.x, view.size.x - margin,
+		0.5, "rechts ebenso")
+	assert_almost_eq(foot_back.position.y + foot_back.size.y, view.size.y - margin,
+		0.5, "und er endet über dem Boden")
+	var style: StyleBoxFlat = foot_back.get_theme_stylebox("panel")
+	assert_gt(style.corner_radius_top_left, 0, "oben links gerundet")
+	assert_eq(style.corner_radius_top_right, style.corner_radius_top_left)
+	assert_eq(style.corner_radius_bottom_left, style.corner_radius_top_left)
+	assert_eq(style.corner_radius_bottom_right, style.corner_radius_top_left)

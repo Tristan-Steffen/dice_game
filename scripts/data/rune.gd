@@ -16,7 +16,6 @@ const GLYPH_AFTERGLOW := "glyph_afterglow"
 const GLYPH_STRAY_LIGHT := "glyph_stray_light"
 const GLYPH_BURN_IN := "glyph_burn_in"
 const GLYPH_SPARK_FLIGHT := "glyph_spark_flight"
-const GLYPH_CAST := "glyph_cast"
 const GLYPH_REVERSE := "glyph_reverse"
 
 # --- Runen-ids (Single Source of Truth) ---
@@ -24,7 +23,6 @@ const AFTERGLOW := "afterglow"        # Nachglühen: +1 Auslösung
 const STRAY_LIGHT := "stray_light"    # Streulicht: +$1 je ungewertetem Zugende
 const BURN_IN := "burn_in"            # Einbrand: Seitenwert eingebrannt
 const SPARK_FLIGHT := "spark_flight"  # Funkenflug: +1 ⚡ beim Werten
-const CAST := "cast"                  # Abguss: Material-Gravur in den Vorrat
 const REVERSE := "reverse"            # Kehrseite: Gegenseite löst mit aus
 
 const NONE := ""
@@ -168,21 +166,6 @@ static func spark_flight() -> Rune:
 	rune.halo_flare = 3.5
 	return rune
 
-static func cast() -> Rune:
-	var rune := _make(CAST, "Abguss", "Material-Gravur je Zug",
-		"Wird diese Seite gewertet, nimmt die Rune einen Abguss ihres Materials: eine Kopie dieser Material-Gravur wandert in die Werkstatt. Einmal je Runde und Würfel.",
-		"Ökonomie", Color(0.48, 1.0, 0.42), GLYPH_CAST)
-	rune.motion = MOTION_SCATTER
-	rune.core = Color(0.86, 1.0, 0.78)
-	rune.idle_low = 1.20
-	rune.idle_high = 2.40
-	rune.idle_period = 3.6
-	rune.flare_peak = 5.6
-	rune.core_share = 0.45
-	rune.halo_width = 0.78
-	rune.halo_flare = 2.5
-	return rune
-
 static func reverse() -> Rune:
 	var rune := _make(REVERSE, "Kehrseite", "Gegenseite löst mit aus",
 		"Wird diese Seite gewertet, löst die gegenüberliegende Seite zusätzlich einmal voll mit aus.",
@@ -233,7 +216,7 @@ static func profile_for(rune_id: String, essence_id: String) -> Rune:
 
 ## Kanonische Registrierung aller Runen.
 static func all() -> Array[Rune]:
-	return [afterglow(), stray_light(), burn_in(), spark_flight(), cast(), reverse()]
+	return [afterglow(), stray_light(), burn_in(), spark_flight(), reverse()]
 
 static func by_id(rune_id: String) -> Rune:
 	for rune in all():
@@ -353,14 +336,6 @@ static func glyph_lines(glyph_id: String) -> Array[PackedVector2Array]:
 				PackedVector2Array([Vector2(0.90, 0.70), Vector2(0.90, 0.90), Vector2(0.70, 0.90)]),
 				PackedVector2Array([Vector2(0.30, 0.90), Vector2(0.10, 0.90), Vector2(0.10, 0.70)]),
 			]
-		GLYPH_CAST:
-			# Schale: der Bogen unter der Ziffer, die Seitenwände doppelt. Sie hören
-			# VOR dem Tiefpunkt auf - unter der Ziffer ist kein Platz für zwei Striche.
-			return [
-				_arc(Vector2(0.5, 0.55), Vector2(0.42, 0.38), 270.0, 90.0, 16),
-				_arc(Vector2(0.5, 0.55), Vector2(0.32, 0.29), 270.0, 220.0, 6),
-				_arc(Vector2(0.5, 0.55), Vector2(0.32, 0.29), 90.0, 140.0, 6),
-			]
 		GLYPH_REVERSE:
 			# Gegen-Pfeile: oben nach rechts, unten nach links. Punktsymmetrisch -
 			# die Seite gedreht zeigt dasselbe Zeichen.
@@ -387,13 +362,39 @@ static func glyph_weights(glyph_id: String) -> PackedFloat32Array:
 			return PackedFloat32Array([1.0, 0.8, 1.0, 1.0, 0.8, 1.0])
 		GLYPH_BURN_IN:
 			return PackedFloat32Array([1.0, 1.0, 1.0, 1.0])
-		GLYPH_CAST:
-			return PackedFloat32Array([1.0, 0.55, 0.55])
 		GLYPH_REVERSE:
 			return PackedFloat32Array([1.0, 0.85, 1.0, 0.85])
 	return PackedFloat32Array()
 
+## Der Kasten, in dem eine Figur WIRKLICH liegt (Seiten-Koordinaten, leer =
+## unbekanntes Zeichen). Auf dem WÜRFEL und im Würfelnetz zählt er nicht - dort
+## läuft die Figur um eine Ziffer herum, und die Mitte gehört ihr. Auf der KARTE
+## gibt es keine Ziffer: dort zieht der Kasten sich auf die ganze Kachel, sonst
+## verschenkte eine Prägenetz-Zelle den leeren Kranz (gemessen: Streulicht stand
+## als 3-px-Strich am Rand einer 34-px-Zelle).
+static func glyph_bounds(glyph_id: String) -> Rect2:
+	if _bounds_cache.has(glyph_id):
+		return _bounds_cache[glyph_id]
+	var box := Rect2()
+	var first := true
+	for line: PackedVector2Array in glyph_lines(glyph_id):
+		for point in line:
+			box = Rect2(point, Vector2.ZERO) if first else box.expand(point)
+			first = false
+	_bounds_cache[glyph_id] = box
+	return box
+
+static var _bounds_cache: Dictionary = {}
+
+## Ein Figur-Punkt, auf seinen eigenen Kasten normiert (0..1 je Achse) - der Weg
+## auf die Karte. Ein platter Kasten wird dabei gestreckt: die Figuren, die das
+## trifft, bestehen ohnehin nur aus Strichen längs dieser Achse.
+static func fit_to_bounds(point: Vector2, box: Rect2) -> Vector2:
+	if box.size.x <= 0.0 or box.size.y <= 0.0:
+		return point
+	return (point - box.position) / box.size
+
 ## Alle Zeichenschlüssel - der Bake und der Geometrie-Test laufen darüber.
 static func all_glyphs() -> Array[String]:
 	return [GLYPH_AFTERGLOW, GLYPH_STRAY_LIGHT, GLYPH_BURN_IN, GLYPH_SPARK_FLIGHT,
-		GLYPH_CAST, GLYPH_REVERSE]
+		GLYPH_REVERSE]

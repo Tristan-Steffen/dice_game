@@ -1,9 +1,10 @@
 class_name RasterSwitchView
 extends Node3D
-## Der RASTER-UMSCHALTER am Grubenrand: eine flache Taste auf dem Filz neben dem
-## Vorrats-Loch, die zwischen den beiden Ansichten des Vorrats umlegt - KÖRPER
-## (die schwebenden Würfel, wie eh und je) und RASTER (die Glas-Ansicht, das
-## Netz-Raster auf dem geschlossenen Gruben-Glas).
+## Der RASTER-UMSCHALTER: eine flache Taste auf dem Filz RECHTS neben dem
+## Vorrats-Loch, UNTER der Die-View-Säule des Ausgabefachs (Spieler-Wunsch
+## 2026-09-11; bis dahin lag sie über der Grube). Sie legt zwischen den beiden
+## Ansichten des Vorrats um - KÖRPER (die schwebenden Würfel, wie eh und je) und
+## RASTER (die Glas-Ansicht, das Netz-Raster auf dem geschlossenen Gruben-Glas).
 ## Ihre Aufschrift nennt, was der Druck LIEFERT, nicht was gerade steht - darum
 ## steht "RASTER" auf ihr, solange die Körper stehen, und "KÖRPER", solange das
 ## Raster liegt. Ist gerade nicht umzulegen (Runde gezurrt), bleibt sie stehen und
@@ -12,10 +13,10 @@ extends Node3D
 ## daneben (dieselbe Regel wie Ausgabefach und Datenzellen).
 
 ## Halbmaße der Taste (Welt): x = Bildschirm-Höhe, y = Welt-z = Bildschirm-Breite.
-## Breit genug, daß die Aufschrift in einer Zeile lesbar bleibt, und flach genug für
-## den schmalen Filz-Streifen über der Grube.
-const HALF := Vector2(1.15, 2.55)
-## Fuge zur Lochkante.
+## Sie paßt UNTER die Die-View-Säule (gemessen 4,37 Welt breit) und läßt an beiden
+## Seiten Luft; die Aufschrift wächst mit (siehe _write_face), bleibt also lesbar.
+const HALF := Vector2(0.92, 2.04)
+## Fuge zum Anker über ihr.
 const GAP := 0.45
 
 const PLATE_HEIGHT := 0.10
@@ -57,13 +58,11 @@ var _hover_tween: Tween
 func _init(switch_name := "RasterSwitch") -> void:
 	name = switch_name
 
-## Ihr Platz am Grubenrand (reine Funktion): auf dem freien Filz über der Bildschirm-
-## OBEREN Kante des Lochs (Welt +X) und bündig mit dessen Bildschirm-rechtem Ende.
-## Die Bildschirm-rechte Kante gehört Schale und Info-Säule, unten beginnt sofort die
-## Werkbank - dieser Streifen ist der eine freie Rand, und er steht an BEIDEN
-## Stationen im Bild. at/half = Mitte und Halbmaße des Lochs in Welt-XZ.
-static func spot_beside(at: Vector3, half: Vector2) -> Vector3:
-	return Vector3(at.x + half.x + GAP + HALF.x, 0.0, at.z + half.y - HALF.y)
+## Ihr Platz (reine Funktion): eine Fuge UNTER dem Anker, mittig auf ihm. Der Anker
+## ist die Unterkante der Die-View-Säule rechts des Vorrats - scene_root reicht ihn
+## als Weltpunkt herein, denn die Säule meldet sich in Display-Pixeln.
+static func spot_under(anchor: Vector3, half_extents := HALF) -> Vector3:
+	return Vector3(anchor.x - GAP - half_extents.x, 0.0, anchor.z)
 
 ## Aufschrift zu einem Zustand (rein, damit sie prüfbar ist).
 static func caption_for(grid_open: bool) -> String:

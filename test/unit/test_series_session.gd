@@ -54,7 +54,7 @@ func test_two_grips_in_a_row_both_book() -> void:
 func test_the_projection_is_written_through_the_real_write_paths() -> void:
 	var card := _card({0: StampNet.value_cell(4),
 		1: StampNet.material_cell(DieMaterial.GOLD),
-		2: StampNet.rune_cell(Rune.CAST),
+		2: StampNet.rune_cell(Rune.AFTERGLOW),
 		3: StampNet.pointer_cell(1)})
 	var die := _die()
 	var before := int(die.faces[0])
@@ -62,7 +62,7 @@ func test_the_projection_is_written_through_the_real_write_paths() -> void:
 	assert_eq(int(die.faces[0]), before + 4)
 	assert_eq(String(die.materials[1]), DieMaterial.GOLD)
 	assert_eq(int(die.levels[1]), 1, "frische Farbe liegt unveredelt")
-	assert_eq(String(die.runes[2]), Rune.CAST)
+	assert_eq(String(die.runes[2]), Rune.AFTERGLOW)
 	assert_eq(int(die.pointers[3]), 1)
 
 func test_the_double_material_lands_doped_on_the_die() -> void:

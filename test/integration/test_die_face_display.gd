@@ -176,3 +176,46 @@ func test_the_glimmer_builds_its_heat_parts_and_every_level_keeps_them() -> void
 	var burned := _display()
 	burned.apply_definition(_def(1, true))
 	assert_true(burned.heat_parts.is_empty(), "Ruß ist tot, nicht heiß")
+
+# --- STUMM: die Auflagen bleiben fort, der Zustand nicht ------------------------
+# Die GLAS-ANSICHT schaltet die versenkten Vorrats-Würfel so (Spieler-Wunsch
+# 2026-09-11): unter dem halb durchsichtigen Schirm zögen ihre Effekte quer über
+# das Raster.
+
+func test_stumm_nimmt_hitze_blitze_funken_und_lache_fort() -> void:
+	var legendary := ""
+	for essence in Essence.all():
+		if essence.rarity == Essence.Rarity.LEGENDARY:
+			legendary = essence.id
+			break
+	assert_ne(legendary, "", "es gibt eine legendäre Seele")
+	var display := _display()
+	display.apply_definition(_def(DieDefinition.CHARGE_MAX, false, legendary))
+	assert_gt(display.heat_parts.size(), 0, "geladen wabert er")
+	assert_gt(display.bolt_parts.size(), 0, "und blitzt")
+	assert_not_null(display.charge_arcs, "und schlägt über")
+	assert_not_null(display.soul_motes, "die legendäre Seele funkt")
+	assert_true(display.glow_pool.visible, "und wirft ihre Lache")
+
+	display.effects_muted = true
+	assert_eq(display.heat_parts.size(), 0, "stumm wabert nichts")
+	assert_eq(display.bolt_parts.size(), 0, "und blitzt nichts")
+	assert_null(display.charge_arcs, "und schlägt nichts über")
+	assert_null(display.soul_motes, "und funkt nichts")
+	assert_false(display.glow_pool.visible, "und keine Lache")
+	assert_eq(display.shown_charge(), DieDefinition.CHARGE_MAX,
+		"die LADUNG selbst bleibt - nur ihre Auflagen schweigen")
+
+	display.effects_muted = false
+	assert_gt(display.heat_parts.size(), 0, "und alles kommt zurück")
+	assert_not_null(display.soul_motes)
+	assert_true(display.glow_pool.visible)
+
+## Ein STUMMER Würfel behält seine Stummheit über einen Neuaufbau der Anzeige -
+## das Tray schreibt bei jeder Änderung neu.
+func test_stumm_ueberlebt_ein_neues_apply_definition() -> void:
+	var display := _display()
+	display.effects_muted = true
+	display.apply_definition(_def(DieDefinition.CHARGE_MAX))
+	assert_eq(display.heat_parts.size(), 0, "auch frisch gesetzt bleibt er stumm")
+	assert_eq(display.bolt_parts.size(), 0)

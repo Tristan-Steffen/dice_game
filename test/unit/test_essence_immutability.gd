@@ -133,7 +133,6 @@ func test_the_round_state_never_rewrites_a_soul():
 	var run := _souled_run()
 	var before := _souls_of(run)
 	run.roll_essence_round_state()
-	run.apply_rune_cast(run.owned_pool, _p([0, 0]), _p([0, 1]))
 	assert_eq(_souls_of(run), before, "Rundenmarken hängen neben der Seele, nicht darin")
 
 # --- Der EINE legale Schreibweg: der ganze Würfel wird ersetzt ---------------------

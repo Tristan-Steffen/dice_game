@@ -24,7 +24,25 @@ const HEAD_UNITS := 6.0
 const HEAD_FONT_UNITS := 3.4
 const HEAD_GAP_UNITS := 1.6
 
+## Die HINWEIS-ZEILE am UNTEREN Rand (Spieler-Wunsch 2026-09-11): sie nennt, was der
+## Zeiger berührt - die Seele des Würfels unter ihm oder die Wirkung seiner
+## Netz-Zelle. Ihr Band ist RESERVIERT, auch wenn sie schweigt: sonst spränge das
+## Raster bei jedem Überfahren. Dafür sitzt das Raster ein Stück höher.
+const FOOT_UNITS := 5.6
+const FOOT_FONT_UNITS := 3.0
+const FOOT_GAP_UNITS := 1.4
+## Ihr Grund ist DECKEND, der Schirm ringsum nicht: Text braucht einen ruhigen
+## Grund, sonst schienen die versenkten Würfel mitten durch die Zeile. Er ist eine
+## FREISTEHENDE Tafel (Spieler-Wunsch 2026-09-11): ringsum um den Fensterrand
+## eingerückt - er berührt weder Wand noch Boden - und an ALLEN vier Ecken gerundet.
+const FOOT_RADIUS_UNITS := 1.6
+## Luft zwischen Tafelrand und Schrift, damit die Zeile nicht an der Rundung klebt.
+const FOOT_PAD_UNITS := 2.0
+
+var _back: Panel
+var _foot_back: Panel
 var _head: Label
+var _foot: Label
 var _host: Control
 var _grid: DiceGridView
 var _columns := 6
@@ -35,6 +53,8 @@ var _signature: Array = []
 var _title := ""
 ## Der GESÄUMTE Sitz (-1 = keiner): das aktuelle Ziel der Werkstatt.
 var _target := -1
+## Was die Hinweis-Zeile gerade sagt ("" = sie schweigt).
+var _hint := ""
 
 func _init() -> void:
 	name = "DeckGlassWindow"
@@ -43,7 +63,30 @@ func _init() -> void:
 	_build()
 	resized.connect(_relayout)
 
+## Der HINTERGRUND ist der NORMALE Schirm - Farbe, Rahmen, Radius und seine halb
+## durchsichtige Füllung (Spieler-Wunsch 2026-09-11): der Vorrat darunter darf
+## durchschimmern, er soll nur nicht mehr die Kacheln stören. Deckend ist allein
+## der Grund der Hinweis-Zeile (foot_style).
+static func background_style() -> StyleBoxFlat:
+	return TableScreen.window_style()
+
+## Der Grund der HINWEIS-ZEILE: dieselbe Schirmfarbe, aber EINMAL über den
+## Anzeige-Grund gemischt und fest gesetzt - so liegt der Text auf ruhigem Grund,
+## während der Schirm ringsum durchscheinend bleibt.
+static func foot_style(radius: int) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = TableScreen.BACKGROUND_COLOR.blend(TableScreen.FRAME_BG)
+	style.set_corner_radius_all(maxi(radius, 0))
+	return style
+
 func _build() -> void:
+	_back = Panel.new()
+	_back.name = "Schirm"
+	_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_back.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_back.add_theme_stylebox_override("panel", background_style())
+	add_child(_back)
+
 	_head = Label.new()
 	_head.name = "Frage"
 	_head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -52,6 +95,21 @@ func _build() -> void:
 	_head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_head.add_theme_color_override("font_color", CasinoStyle.GOLD_INTENSE)
 	add_child(_head)
+
+	_foot_back = Panel.new()
+	_foot_back.name = "HinweisGrund"
+	_foot_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_foot_back.add_theme_stylebox_override("panel", foot_style(FOOT_RADIUS_UNITS))
+	add_child(_foot_back)
+
+	_foot = Label.new()
+	_foot.name = "Hinweis"
+	_foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_foot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_foot.clip_text = true
+	_foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_foot.add_theme_color_override("font_color", DiceGridView.MUTED_COLOR)
+	add_child(_foot)
 
 	_host = Control.new()
 	_host.name = "RasterHost"
@@ -100,6 +158,18 @@ func show_pool(title: String, defs: Array[DieDefinition], columns: int,
 	_relayout()
 	_grid.set_highlight(_target)
 
+## Die HINWEIS-ZEILE schreiben ("" = schweigen). Idempotent - der Zeiger fragt je
+## Bild, gesetzt wird nur der Wechsel.
+func set_hint(text: String) -> void:
+	if text == _hint:
+		return
+	_hint = text
+	if _foot != null and is_instance_valid(_foot):
+		_foot.text = text
+
+func hint() -> String:
+	return _hint
+
 ## Der gesäumte Sitz (-1 = keiner).
 func target_index() -> int:
 	return _target
@@ -123,10 +193,24 @@ func _relayout() -> void:
 	_head.position = Vector2(margin, margin)
 	_head.size = Vector2(maxf(size.x - margin * 2.0, 1.0), u * HEAD_UNITS)
 	_head.add_theme_font_size_override("font_size", maxi(8, int(u * HEAD_FONT_UNITS)))
+	var foot := u * FOOT_UNITS
+	# Die deckende Tafel steht FREI: ringsum um den Rand eingerückt, oben eine halbe
+	# Fuge über der Zeile. Die Schrift bekommt darin noch ihre Luft.
+	var band := maxf(size.y - margin - foot - u * FOOT_GAP_UNITS * 0.5, 0.0)
+	_foot_back.position = Vector2(margin, band)
+	_foot_back.size = Vector2(maxf(size.x - margin * 2.0, 1.0),
+		maxf(size.y - margin - band, 1.0))
+	_foot_back.add_theme_stylebox_override("panel",
+		foot_style(int(u * FOOT_RADIUS_UNITS)))
+	var pad := u * FOOT_PAD_UNITS
+	_foot.position = Vector2(margin + pad, maxf(size.y - margin - foot, 0.0))
+	_foot.size = Vector2(maxf(size.x - (margin + pad) * 2.0, 1.0), foot)
+	_foot.add_theme_font_size_override("font_size", maxi(8, int(u * FOOT_FONT_UNITS)))
 	var top := margin + u * (HEAD_UNITS + HEAD_GAP_UNITS)
 	_host.position = Vector2(margin, top)
+	# Das Band der Hinweis-Zeile bleibt frei: das Raster sitzt dadurch HÖHER.
 	_host.size = Vector2(maxf(size.x - margin * 2.0, 1.0),
-		maxf(size.y - top - margin, 1.0))
+		maxf(size.y - top - margin - foot - u * FOOT_GAP_UNITS, 1.0))
 	_fit_grid()
 
 func _fit_grid() -> void:

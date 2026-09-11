@@ -603,9 +603,12 @@ func station_target(target_mode: Mode) -> Vector3:
 	return Vector3.ZERO
 
 ## Fährt zum Zoom-Ziel; No-Op, wenn schon dort.
+## again = DIESELBE Station noch einmal anfliegen: aus einem TEMPORÄREN Rahmen
+## (Glas-Ansicht, Inspektion) führt sonst kein Weg zurück - der Modus steht ja schon
+## richtig, und ohne die Marke wäre der Ruf ein Nichts.
 func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
-		ease_mode := Tween.EASE_IN_OUT) -> void:
-	if mode == target_mode or not is_station(target_mode):
+		ease_mode := Tween.EASE_IN_OUT, again := false) -> void:
+	if not is_station(target_mode) or (mode == target_mode and not again):
 		return
 	var target_point := station_target(target_mode)
 	var distance := ZOOM_DISTANCE

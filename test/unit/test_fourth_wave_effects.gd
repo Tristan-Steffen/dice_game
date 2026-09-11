@@ -344,13 +344,6 @@ func test_the_doubled_stray_light_lands_in_the_take():
 	assert_eq(report.money, 2, "Streulicht zahlt doppelt")
 	assert_eq(report.stray, _p([1]))
 
-func test_the_burin_casts_two_copies():
-	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY)
-	def.runes[0] = Rune.CAST
-	run.owned_charms.append(Charm.burin())
-	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 2, "der Abguss gießt zweimal")
-	assert_eq(_pack_stock(run, DieMaterial.RUBY), 2)
-
 func test_the_burin_doubles_the_afterglow():
 	var runes := _ids([Rune.AFTERGLOW])
 	assert_eq(RuneEffects.extra_activations(runes), 1)
@@ -395,26 +388,6 @@ func test_the_doubled_reverse_pays_its_gold_link_twice():
 	var doubled := MaterialEffects.apply_take_effects(_defs([twin]), _p([0]), _m([""]), _p([0]),
 		_ids([Charm.BURIN]), -1, {}, _p([0]), false, _p([0]))
 	assert_eq(doubled.total_money(), 2 * MaterialEffects.GOLD_PAYOUT, "die Kehrseite zündet zweimal")
-
-# --- Abguss: eine Kopie ins Lager, der Stichel verdoppelt ----------------------------
-
-func test_the_cast_grants_one_copy_and_the_burin_two():
-	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
-	def.runes[0] = Rune.CAST
-	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1, "ohne Charm eine Kopie")
-	assert_eq(_pack_stock(run, DieMaterial.RUBY), 1)
-	var twin := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
-	twin.runes[0] = Rune.CAST
-	var burin := GameRun.new_run()
-	burin.owned_charms.append(Charm.burin())
-	assert_eq(burin.apply_rune_cast(_defs([twin]), _p([0]), _p([0])), 2)
-	assert_eq(_pack_stock(burin, DieMaterial.RUBY), 2)
-
-func test_the_cast_stays_once_per_round_and_die():
-	var def := _die([1, 2, 3, 4, 5, 6], DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
-	def.runes[0] = Rune.CAST
-	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 1)
-	assert_eq(run.apply_rune_cast(_defs([def]), _p([0]), _p([0])), 0, "die Marke hält")
 
 # --- Härteofen: veredelte Materialien zahlen doppelt ----------------------------------
 

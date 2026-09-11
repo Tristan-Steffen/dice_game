@@ -77,14 +77,13 @@ static func _make(engraving_id: String, name: String, desc: String, rarity: Rari
 
 
 ## Runen-Seltenheit: Streulicht ist Alltagsware, der Einbrand eine Stufe
-## darüber, die übrigen vier sind die begehrten Zeichen - Abguss und Kehrseite
-## sind beide stark, keines davon ist Alltagsware.
+## darüber, die übrigen drei sind die begehrten Zeichen - keines davon ist
+## Alltagsware.
 const RUNE_RARITY := {
 	Rune.STRAY_LIGHT: Rarity.COMMON,
 	Rune.BURN_IN: Rarity.UNCOMMON,
 	Rune.AFTERGLOW: Rarity.RARE,
 	Rune.SPARK_FLIGHT: Rarity.RARE,
-	Rune.CAST: Rarity.RARE,
 	Rune.REVERSE: Rarity.RARE,
 }
 
