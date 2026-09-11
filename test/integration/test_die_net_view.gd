@@ -22,6 +22,18 @@ func _cells(net: Control) -> Array:
 func _digit(cell: Control) -> String:
 	return (cell.get_child(0) as Label).text
 
+## Die Ziffer liegt ÜBER dem Runen-Zeichen, das die Zelle füllt.
+func test_die_ziffer_liegt_ueber_dem_runen_zeichen() -> void:
+	var def := _def_with_materials()
+	def.set_rune(0, Rune.AFTERGLOW)
+	var net := DieNetView.build(def, -1, 40.0)
+	add_child_autofree(net)
+	for cell in _cells(net):
+		assert_eq((cell.get_child(0) as Label).z_index, 1, "die Ziffer zeichnet zuletzt")
+	var glyphs := net.get_children().filter(func(c): return c is DieNetView.RuneGlyph)
+	assert_eq(glyphs.size(), 1)
+	assert_eq((glyphs[0] as Control).size, Vector2.ONE * 40.0, "das Zeichen hat die ganze Zelle")
+
 func test_net_zeigt_alle_sechs_seiten_im_kreuz() -> void:
 	var def := _def_with_materials()
 	var net := DieNetView.build(def, -1, 40.0)

@@ -175,6 +175,8 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	digit.add_theme_color_override("font_outline_color", fill)
 	digit.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
 	digit.text = str(value)
+	# Über den Runen-Zeichen, die als Geschwister NACH der Platte kommen.
+	digit.z_index = 1
 	chip.add_child(digit)
 	digit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	return chip
@@ -286,8 +288,10 @@ static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 		badges.append(badge)
 	return badges
 
-## Je beschrifteter Seite ihr Zeichen, als KRANZ über die ganze Kachel wie am
-## 3D-Würfel. Die Zeichnung selbst kommt aus derselben EINEN Quelle wie der Bake,
+## Je beschrifteter Seite ihr Zeichen, auf seinen Kasten gezogen und damit die
+## Kachel FÜLLEND - genau wie auf der Karte (Spieler-Wunsch 2026-09-11: im Kranz
+## las die Figur als kleines Zeichen in der Ecke). Die Ziffer liegt darüber
+## (z_index). Die Zeichnung selbst kommt aus derselben EINEN Quelle wie der Bake,
 ## sonst zeigt die Werkbank ein anderes Zeichen als der Tisch. Geometrie statt
 ## Typo: bei ~17 px Zelle liest sich ein Linienzug, eine Ziffer nicht. Das Vakuum
 ## steht schwarz.
@@ -305,6 +309,7 @@ static func rune_glyphs(def: DieDefinition, cell: float) -> Array[Control]:
 			mark.lines = Rune.glyph_lines(rune.glyph)
 			mark.weights = Rune.glyph_weights(rune.glyph)
 			mark.slot = slot
+			mark.bounds = Rune.glyph_bounds(rune.glyph)
 			mark.tint = RuneEffects.glyph_color(rune_id, def.essence_id)
 			mark.core = rune.core
 			mark.size = Vector2.ONE * cell
@@ -336,8 +341,8 @@ class RuneGlyph:
 	var core := Color.WHITE
 	var flare: float = 0.0
 	## Der Kasten, auf den die Figur gezogen wird (leer = sie bleibt, wo sie ist).
-	## Gesetzt wird er NUR auf der Karte: dort steht keine Ziffer in der Zelle,
-	## also gehört der Figur auch die Mitte (Rune.glyph_bounds).
+	## Karte UND Würfelnetz setzen ihn (Rune.glyph_bounds) - im Netz liegt die
+	## Ziffer über der Figur, nur die 3D-Seite lässt sie im Kranz.
 	var bounds := Rect2()
 	## Rand, den die gezogene Figur in der Zelle frei lässt - er trägt die halbe
 	## Strichbreite samt Unterzug, sonst liefe sie über den Zellsaum hinaus.
@@ -361,29 +366,32 @@ class RuneGlyph:
 			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
 			draw_polyline(points, tint.lerp(core, flare), width)
 
-## Die Plakette selbst: dunkle Platte mit drei hellen Balken in der Materialfarbe -
-## dieselbe Sprache wie die Zeiger-Pfeile (heller Strich auf dunklem Unterzug).
-## Die dunkle Platte trägt allein, wenn die Balken bei winzigen Zellen zu Textur
-## zerfallen: jede Material-Zelle ist hell.
+## Die Plakette selbst: dunkle Platte mit einem DOPPEL-CHEVRON in der Materialfarbe
+## (Spieler-Wahl 2026-09-11 aus fünf Fassungen - drei Balken sagten nichts, zwei
+## Winkel nach oben lesen als "aufgewertet"). Heller Strich auf dunklem Unterzug wie
+## die Zeiger-Pfeile; die Platte trägt allein, wenn der Winkel bei winzigen Zellen
+## zerfällt: jede Material-Zelle ist hell.
 class LevelBadge:
 	extends Control
 	var tint := Color.WHITE
 
-	const BARS := 3
+	const CHEVRONS := 2
 
 	func _draw() -> void:
 		var mark := tint.lightened(0.35)
 		mark.a = 1.0
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.12, 0.95), true)
 		draw_rect(Rect2(Vector2.ZERO, size), mark, false, maxf(1.0, size.x * 0.09))
-		# Drei Balken brauchen schmale Striche, sonst laufen sie zusammen.
-		var bar_w := maxf(1.0, size.x * 0.11)
-		var bar_h := size.y * 0.46
-		var top := (size.y - bar_h) * 0.5
-		var step := size.x * 0.26
-		for b in BARS:
-			var cx: float = size.x * 0.5 + (float(b) - float(BARS - 1) * 0.5) * step - bar_w * 0.5
-			draw_rect(Rect2(Vector2(cx, top), Vector2(bar_w, bar_h)), mark, true)
+		# Strich-Boden: im 30er-Raster misst die Plakette nur ~6 px, ein dünnerer
+		# Winkel wäre dort weg.
+		var width := maxf(1.2, size.x * 0.13)
+		var half := size.x * 0.27
+		var rise := size.y * 0.17
+		for i in CHEVRONS:
+			var y: float = size.y * (0.64 - float(i) * 0.26)
+			draw_polyline(PackedVector2Array([
+				Vector2(size.x * 0.5 - half, y), Vector2(size.x * 0.5, y - rise),
+				Vector2(size.x * 0.5 + half, y)]), mark, width)
 
 ## Drei runde Lampen nebeneinander: dunkle Platte, brennend in der Ladungsfarbe -
 ## dieselbe Sprache wie die Plakette. Kein Text: bei 17 px Zelle wäre er Matsch.

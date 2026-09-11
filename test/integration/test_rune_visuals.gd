@@ -194,6 +194,14 @@ func test_the_net_carries_the_branch_weights() -> void:
 	assert_eq(crack.weights.size(), crack.lines.size(), "je Linie ein Gewicht")
 	assert_lt(crack.weights[1], crack.weights[0], "der Beistrich ist dünner als der Hauptstrich")
 
+func test_the_net_glyph_fills_its_cell_like_the_card() -> void:
+	# Spieler-Wunsch 2026-09-11: im Netz dieselbe Größe und Lage wie auf der Karte -
+	# der Kranz las als kleines Zeichen in der Ecke.
+	var crack := DieNetView.rune_glyphs(_die([Rune.AFTERGLOW]), 40.0)[0] as DieNetView.RuneGlyph
+	var rune := Rune.by_id(Rune.AFTERGLOW)
+	assert_eq(crack.bounds, Rune.glyph_bounds(rune.glyph), "auf den eigenen Kasten gezogen")
+	assert_gt(crack.bounds.size.x, 0.0, "der Kasten ist nicht leer")
+
 func test_a_net_crack_rests_without_flare() -> void:
 	# Das 30-Würfel-Raster ist eine Lesefläche, keine Bühne: dort steht das Zeichen
 	# still, weil er nie eine andere Flare-Quelle als die Grubenkarte bekommt.

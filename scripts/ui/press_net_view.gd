@@ -246,6 +246,7 @@ func _face_chip(face: int, ghost: DieDefinition) -> Panel:
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.clip_text = true
+	label.z_index = 1  # über den Runen-Zeichen (Geschwister nach der Platte)
 	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var tint := CasinoStyle.INK
 	if dim:
@@ -424,9 +425,9 @@ static func _stamp_label(text: String, cell: float, tint: Color) -> Label:
 	label.text = text
 	return label
 
-## Der Runen-Linienzug FÜLLT hier die Zelle: im Prägenetz gibt es keine Ziffer,
-## die er umgehen müßte, also zieht er sich auf seinen eigenen Kasten (2026-09-11 -
-## davor stand Streulicht als 3-px-Strich am Rand einer 34-px-Zelle).
+## Der Runen-Linienzug FÜLLT die Zelle, auf seinen eigenen Kasten gezogen -
+## dieselbe Größe und Lage wie im Würfelnetz (2026-09-11; davor stand Streulicht
+## als 3-px-Strich am Rand einer 34-px-Zelle).
 static func _stamp_rune(rune_id: String, cell: float) -> Control:
 	var rune := Rune.by_id(rune_id)
 	var mark := DieNetView.RuneGlyph.new()

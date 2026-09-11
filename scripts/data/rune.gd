@@ -367,9 +367,10 @@ static func glyph_weights(glyph_id: String) -> PackedFloat32Array:
 	return PackedFloat32Array()
 
 ## Der Kasten, in dem eine Figur WIRKLICH liegt (Seiten-Koordinaten, leer =
-## unbekanntes Zeichen). Auf dem WÜRFEL und im Würfelnetz zählt er nicht - dort
-## läuft die Figur um eine Ziffer herum, und die Mitte gehört ihr. Auf der KARTE
-## gibt es keine Ziffer: dort zieht der Kasten sich auf die ganze Kachel, sonst
+## unbekanntes Zeichen). Auf dem 3D-WÜRFEL zählt er nicht - dort läuft die Figur
+## um eine Ziffer herum, und die Mitte gehört ihr. Auf KARTE und WÜRFELNETZ zieht
+## der Kasten sich auf die ganze Kachel (das Netz seit 2026-09-11, die Ziffer
+## liegt dort über der Figur), sonst
 ## verschenkte eine Prägenetz-Zelle den leeren Kranz (gemessen: Streulicht stand
 ## als 3-px-Strich am Rand einer 34-px-Zelle).
 static func glyph_bounds(glyph_id: String) -> Rect2:
