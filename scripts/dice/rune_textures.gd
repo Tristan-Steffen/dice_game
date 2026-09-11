@@ -1,7 +1,7 @@
 class_name RuneTextures
-## Backt EIN Zeichen je Rune - FARBLOS, und in ZELLEN-Koordinaten: die Textur
-## bildet die Ankerzelle ab, nicht die ganze Seite, also trägt dieselbe Maske
-## jeden Runen-Platz. Die Tönung ist ein Shader-Uniform, kein Pixel: vorher
+## Backt EIN Zeichen je Rune - FARBLOS, und in SEITEN-Koordinaten: die Textur
+## bildet die ganze Seite ab, und dieselbe Maske trägt jeden Runen-Platz, weil der
+## Shader sie nur spiegelt. Die Tönung ist ein Shader-Uniform, kein Pixel: vorher
 ## entstand je Kombination aus Runen und Essenz eine eigene Textur (bis zu ~30).
 ## Jetzt gibt es sechs Texturen im ganzen Spiel, für immer - eine je Zeichen.
 ##
@@ -17,22 +17,22 @@ class_name RuneTextures
 ## das 2,5- bis 3,5-fache, ohne dass irgendetwas neu erzeugt wird.
 
 ## Kantenlänge der Textur - reiner Qualitätsregler, gemessen am Bake-Preis:
-## alle Zeichen zusammen, einmalig beim Start. Gemessen bei SIZE 192: ~39 ms JE
-## ZEICHEN, 234 ms für alle sechs. Je Maske ist das billiger als ein randläufiger
-## Riss (der lag bei ~48 ms), in der Summe aber teurer - sechs statt vier, und
-## FIELD ist gewachsen. Bleibt hinter dem Titelbild unsichtbar.
-const SIZE := 192
-## Kernbreite als Anteil der ZELLE bei Gewicht 1.0. Die Textur bildet die
-## ANKERZELLE ab, nicht die ganze Seite (siehe Rune.ANCHOR_CELLS), also sind das
-## 0.14 × 0.26 ≈ 0.036 Seitenbreiten - bewusst KRÄFTIGER als der alte Riss
-## (0.031): ein Zeichen sitzt in einer Ecke statt über die ganze Seite zu laufen,
-## also muss der Strich die verlorene Länge über Stärke zurückholen.
-const STROKE := 0.14
-## Reichweite des Abstandsfelds als Anteil der Zelle. Es ist zugleich der Rand,
+## alle Zeichen zusammen, einmalig beim Start. Gemessen beim KRANZ (SIZE 256):
+## 12-43 ms JE ZEICHEN (der lange Umlauf-Bogen ist der teuerste), 141 ms für alle
+## sechs - in derselben Größenordnung wie die alte Eckzelle bei 192 (~39 ms je
+## Zeichen, 234 ms gesamt), obwohl die Fläche 1,8-mal so groß ist: das schmalere
+## FIELD schrumpft jeden Segment-Kasten. Bleibt hinter dem Titelbild unsichtbar.
+const SIZE := 256
+## Kernbreite als Anteil der SEITENbreite bei Gewicht 1.0. Der Kranz läuft über
+## die ganze Seite, also misst der Strich auch daran; 0.052 gegen die 0.036
+## Seitenbreiten der alten Eckzelle - er wächst um knapp die Hälfte. Mehr geht
+## nicht: die halbe Breite muss unter FIELD bleiben, sonst frisst der Kern den Hof.
+const STROKE := 0.052
+## Reichweite des Abstandsfelds als Anteil der Seite. Es ist zugleich der Rand,
 ## den Rune.GLYPH_MARGIN um jede Figur frei lässt: der Ausbruch weitet nur das
-## angenommene Band INNERHALB des gebackenen Felds, also endet der Hof genau an
-## der Zellkante und wird dort nie abgeschnitten.
-const FIELD := 0.19
+## angenommene Band INNERHALB des gebackenen Felds, also endet der Hof genau am
+## Seitenrand und wird dort nie abgeschnitten.
+const FIELD := 0.055
 ## Anteil der Linie, über den ein freies Ende schmaler wird. Ein geätzter Strich
 ## hat konstante Tiefe - das hier ist nur die Auslaufzone gegen einen abrupten
 ## Antialias-Bruch, keine Riss-Verjüngung mehr.

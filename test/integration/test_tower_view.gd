@@ -101,15 +101,17 @@ func test_the_head_stands_above_the_top_floor() -> void:
 	assert_almost_eq(TowerView.tower_height(6),
 		TowerView.floor_top(5) + TowerView.CARD_THICKNESS, 0.001)
 
-## DER TURM STEHT IN DER GRUBE (Welle Y): auf ihrem Boden gesetzt bleibt sein KOPF
-## unter dem Glas - also ragt auch die oberste Karte nicht über die Tischkante.
-func test_the_tower_fits_under_the_glass_when_it_stands_on_the_pit_floor() -> void:
-	# Dieselbe Tiefe, die scene_root schneidet: die Standhöhe einer Kassette plus Luft.
-	var depth := DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE * 1.3
-	assert_lt(TowerView.tower_height(6), depth,
-		"sechs Etagen passen in die Grube")
+## DER TURM STEHT IN DER FLACHEN BUCHT (2026-09-11): sie ist genau so tief, dass
+## die OBERSTE KARTE gerade noch unter dem Glas liegt - flacher als die Hälfte der
+## Magazin-Grube geht nicht, ohne dass ein Upgrade über den Tisch ragt.
+func test_the_bay_is_just_deep_enough_for_the_top_card() -> void:
+	# Dieselbe Tiefe, die scene_root schneidet: Turmhöhe plus TOWER_PIT_HEADROOM.
+	var depth := TowerView.tower_height(6) + 0.06
+	assert_lt(depth, DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE * 1.3 * 0.6,
+		"nicht tiefer als gut die Hälfte der Magazin-Grube")
 	tower.seat(Vector3(SEAT.x, -depth, SEAT.z), SPAN, 6)
-	assert_lt(tower.top_point().y, 0.0, "der Turmkopf steht unter dem Glas")
+	assert_almost_eq(tower.top_point().y, -0.06, 0.001,
+		"der Turmkopf liegt um die Luft unter dem Glas")
 	assert_lt(tower.floor_point(5).y + TowerView.CARD_THICKNESS, 0.0,
 		"und die oberste Karte mit ihm")
 

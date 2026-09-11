@@ -171,25 +171,33 @@ func test_every_operator_is_named_and_priced() -> void:
 		assert_ne(StampNet.operator_effect(op_id), "", op_id)
 		assert_gt(StampNet.operator_price(op_id), 0, op_id)
 
-## Ein Fixinhalt trägt je Kopie eine Zelle - ein Bündel ist eine dichtere Karte,
-## kein Stapel.
-func test_a_fixed_net_has_one_cell_per_copy() -> void:
-	var net := StampNet.fixed_net(Engraving.doping(), 3, _rng(9))
-	assert_eq(StampNet.filled_count(net), 3)
-	assert_eq(_kinds(net), [StampNet.KIND_DOPE, StampNet.KIND_DOPE, StampNet.KIND_DOPE])
+## Ein Fixinhalt trägt GENAU EINE Zelle - ein Bündel sind mehrere Karten, keine
+## dichtere (Spieler-Entscheid 2026-09-11).
+func test_a_fixed_net_has_exactly_one_cell() -> void:
+	var net := StampNet.fixed_net(Engraving.doping(), _rng(9))
+	assert_eq(StampNet.filled_count(net), 1)
+	assert_eq(_kinds(net), [StampNet.KIND_DOPE])
 
 func test_a_fixed_pointer_net_always_points_at_a_neighbour() -> void:
 	var die := DieDefinition.new()
 	for seed_value in 40:
-		var net := StampNet.fixed_net(Engraving.pointer_engraving(), 6, _rng(seed_value))
+		var net := StampNet.fixed_net(Engraving.pointer_engraving(), _rng(seed_value))
 		for face in StampNet.FACES:
 			var cell := StampNet.cell_at(net, face)
+			if not StampNet.is_filled(cell):
+				continue
 			assert_true(die.can_point(face, int(cell["to"])),
 				"Seite %d zeigt auf einen Nachbarn" % face)
 
-func test_a_fixed_net_never_exceeds_the_six_faces() -> void:
-	assert_eq(StampNet.filled_count(StampNet.fixed_net(Engraving.doping(), 99,
-		_rng(1))), StampNet.FACES)
+## Die Seite der einen Zelle wird gewürfelt - über die Seeds fällt jede einmal.
+func test_a_fixed_net_lands_on_every_face() -> void:
+	var seen := {}
+	for seed_value in 60:
+		var net := StampNet.fixed_net(Engraving.doping(), _rng(seed_value))
+		for face in StampNet.FACES:
+			if StampNet.is_filled(StampNet.cell_at(net, face)):
+				seen[face] = true
+	assert_eq(seen.size(), StampNet.FACES)
 
 # --- Was EINE Zelle tut, im Klartext (2026-09-04) ---------------------------------
 # Der Zeiger auf einer Netz-Zelle soll DEREN Wirkung lesen, nicht die des ganzen

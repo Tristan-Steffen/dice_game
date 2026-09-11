@@ -244,6 +244,27 @@ static func edge_chip(def: DieDefinition, cell: float) -> Panel:
 static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	return _pointer_arrows(def, cell)
 
+## Der Pfeil EINER Seite in NETZ-Koordinaten: mittig auf dem Zellrand zur
+## Nachbarseite, also HALB über ihn hinaus, und ins Netz geklemmt (ein Pfeil auf
+## einer Außenkante ragte sonst um ein Viertel Zelle über net_size - das Netz
+## wirkte zu hoch für seine Kachel). Kassetten- und Summen-Netz setzen ihn
+## genauso. null für einen Nicht-Nachbarn: ein ungültiger Zeiger bleibt stumm.
+static func net_pointer(face: int, target: int, cell: float) -> PointerArrow:
+	var sides: Dictionary = POINTER_SIDES.get(face, {})
+	if not sides.has(target):
+		return null
+	var dir: Vector2 = sides[target]
+	var arrow := PointerArrow.new()
+	arrow.name = "PointerMark%d" % face
+	arrow.dir = dir
+	var side := cell * 0.5
+	arrow.size = Vector2(side, side)
+	arrow.position = (_cell_pos(face, cell) + Vector2(cell, cell) * 0.5
+		+ dir * cell * 0.5 - Vector2(side, side) * 0.5) \
+		.clamp(Vector2.ZERO, net_size(cell) - Vector2(side, side))
+	arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return arrow
+
 ## Je veredelter Seite eine Plakette in ihrer unteren rechten Zellecke. Der normale
 ## Zustand bleibt unmarkiert - er ist der Regelfall, und eine Marke auf jeder
 ## Material-Zelle wäre Rauschen. Geometrie statt Schrift: im 30er-Raster misst
@@ -265,11 +286,11 @@ static func level_badges(def: DieDefinition, cell: float) -> Array[Control]:
 		badges.append(badge)
 	return badges
 
-## Je beschrifteter Seite ihr Zeichen, in derselben Ankerzelle wie am 3D-Würfel
-## (Rune.ANCHOR_CELLS) - eine Schulter außerhalb der Ziffern-Sperrzone. Die
-## Zeichnung selbst kommt aus derselben EINEN Quelle wie der Bake, sonst zeigt die
-## Werkbank ein anderes Zeichen als der Tisch. Geometrie statt Typo: bei ~17 px
-## Zelle liest sich ein Linienzug, eine Ziffer nicht. Das Vakuum steht schwarz.
+## Je beschrifteter Seite ihr Zeichen, als KRANZ über die ganze Kachel wie am
+## 3D-Würfel. Die Zeichnung selbst kommt aus derselben EINEN Quelle wie der Bake,
+## sonst zeigt die Werkbank ein anderes Zeichen als der Tisch. Geometrie statt
+## Typo: bei ~17 px Zelle liest sich ein Linienzug, eine Ziffer nicht. Das Vakuum
+## steht schwarz.
 static func rune_glyphs(def: DieDefinition, cell: float) -> Array[Control]:
 	var glyphs: Array[Control] = []
 	for face in mini(6, def.runes.size()):
@@ -309,8 +330,7 @@ class RuneGlyph:
 	var face: int = -1
 	var lines: Array[PackedVector2Array] = []
 	var weights := PackedFloat32Array()
-	## Runen-Platz = Ankerzelle. Zwei Zeichen einer Vakuum-Seite nehmen so
-	## gegenüberliegende Schultern, genau wie am 3D-Würfel.
+	## Runen-Platz = Spiegelung (Rune.SLOT_FLIPS), genau wie am 3D-Würfel.
 	var slot: int = 0
 	var tint := Color.WHITE
 	var core := Color.WHITE
@@ -323,10 +343,10 @@ class RuneGlyph:
 				continue
 			var points := PackedVector2Array()
 			for point in line:
-				points.append(Rune.cell_to_net(point, slot) * size)
-			# 1-px-Boden: bei 17 px Kachel wäre ein Beistrich sonst weg.
+				points.append(Rune.place(point, slot) * size)
+			# Strich-Boden: bei 17 px Kachel wäre ein Beistrich sonst weg.
 			var weight: float = weights[index] if index < weights.size() else 1.0
-			var width := maxf(1.0, size.x * 0.07 * weight) * (1.0 + 0.8 * flare)
+			var width := maxf(1.2, size.x * 0.07 * weight) * (1.0 + 0.8 * flare)
 			# Unterzug zuerst, dann die Kernlinie darüber.
 			draw_polyline(points, Color(0.03, 0.05, 0.12, 0.9), width * 2.0)
 			draw_polyline(points, tint.lerp(core, flare), width)
@@ -396,25 +416,9 @@ static func _cell_pos(face_index: int, cell: float) -> Vector2:
 static func _pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
 	var arrows: Array[Control] = []
 	for face in def.pointers.size():
-		var target: int = def.pointers[face]
-		if target < 0:
-			continue
-		var sides: Dictionary = POINTER_SIDES.get(face, {})
-		if not sides.has(target):
-			continue  # keine Nachbarseite - ungültiger Zeiger bleibt stumm
-		var dir: Vector2 = sides[target]
-		var arrow := PointerArrow.new()
-		arrow.dir = dir
-		var side := cell * 0.5
-		arrow.size = Vector2(side, side)
-		# Ein Pfeil auf einer AUSSEN-Kante ragte sonst um ein Viertel Zelle über das
-		# Netz hinaus (das Netz wirkte zu hoch für seine Kachel) - er wird ins Netz
-		# geklemmt, damit das gebaute Rechteck nie über net_size steht.
-		arrow.position = (_cell_pos(face, cell) + Vector2(cell, cell) * 0.5
-			+ dir * cell * 0.5 - Vector2(side, side) * 0.5) \
-			.clamp(Vector2.ZERO, net_size(cell) - Vector2(side, side))
-		arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		arrows.append(arrow)
+		var arrow := net_pointer(face, def.pointers[face], cell)
+		if arrow != null:
+			arrows.append(arrow)
 	return arrows
 
 ## Der Pfeil selbst: Schaft + Spitze mit dunklem Unterzug, damit er auch auf

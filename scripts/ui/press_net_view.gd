@@ -312,6 +312,18 @@ static func stamp_net(net: Array, cell: float, accent: Color = VALUE_TINT,
 		chip.position = DieNetView.cell_position(face, cell)
 		chip.size = Vector2.ONE * cell
 		root.add_child(chip)
+	# Die Pointer-Pfeile liegen ÜBER den Zellen wie am Würfel-Netz: halb über den
+	# Rand, also über der Nachbarzelle - unter ihr gezeichnet, verschwänden sie.
+	for face in StampNet.FACES:
+		var entry := StampNet.cell_at(net, face)
+		if StampNet.kind_of(entry) != StampNet.KIND_POINTER:
+			continue
+		var arrow := DieNetView.net_pointer(face, int(entry.get("to", -1)), cell)
+		if arrow == null:
+			continue
+		if face < drained.size() and bool(drained[face]):
+			arrow.modulate = DRAINED_MODULATE
+		root.add_child(arrow)
 	return root
 
 ## Dasselbe Kreuz in seinem HOCHKANTEN Rahmen - die EINE Ausrichtung, in der eine
@@ -349,7 +361,8 @@ static func upright_face_at(share: Vector2) -> int:
 
 ## EINE Zelle des Mini-Netzes. Die Sorte entscheidet Füllung und Zeichen: Zahl
 ## "+n", Material seine Farbe, Rune ihr Linienzug (dieselbe Quelle wie am Würfel),
-## Operator seine Glyphe, Veredelung ihre Plakette, Pointer ein Pfeil.
+## Operator seine Glyphe, Veredelung ihre Plakette - der Pointer nur den Saum,
+## seinen Pfeil legt stamp_net über die Zellen.
 static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 		dim := false) -> Panel:
 	var kind := StampNet.kind_of(entry)
@@ -374,9 +387,7 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 		StampNet.KIND_RUNE:
 			rim = accent
 		StampNet.KIND_POINTER:
-			text = "→%d" % (int(entry.get("to", 0)) + 1)
 			rim = DieNetView.POINTER_COLOR
-			tint = DieNetView.POINTER_COLOR
 	var chip := Panel.new()
 	chip.name = "StampCell"
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -453,12 +464,17 @@ static func sum_net(projection: Dictionary, cell: float) -> Control:
 		chip.position = DieNetView.cell_position(face, cell)
 		chip.size = Vector2.ONE * cell
 		root.add_child(chip)
+	for face in StampNet.FACES:
+		var arrow := DieNetView.net_pointer(face,
+			_sum_int(projection, "pointers", face, -1), cell)
+		if arrow != null:
+			root.add_child(arrow)
 	return root
 
 ## EINE Zelle der Summe. Sie trägt MEHRERE Kanäle zugleich (anders als eine
 ## Karten-Zelle): Material füllt sie, die Zahl steht darin, Runen sitzen als kleine
-## Glyphen in den unteren Ecken - und ein Pointer, den die Zahl verdrängt, färbt
-## wenigstens den Saum.
+## Glyphen in den unteren Ecken; den Pointer-Pfeil legt sum_net über die Zellen,
+## hier färbt er nur den Saum.
 static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 	var material := _sum_string(projection, "materials", face)
 	var bonus := _sum_int(projection, "bonus", face, 0)
@@ -467,7 +483,6 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 	var fill := EMPTY_CELL
 	var rim := EMPTY_RIM
 	var text := ""
-	var tint := VALUE_TINT
 	if material != "":
 		var level := DieMaterial.MAX_LEVEL if _sum_flag(projection, "doped", face) else 1
 		fill = DieMaterial.tint_for(material, level)
@@ -476,11 +491,8 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 		text = "%+d" % bonus
 		if material == "":
 			rim = VALUE_TINT
-	elif pointer >= 0:
-		text = "→%d" % (pointer + 1)
-		tint = DieNetView.POINTER_COLOR
-	if pointer >= 0 and bonus != 0:
-		rim = DieNetView.POINTER_COLOR  # der Pfeil steht im Saum, die Zahl im Feld
+	if pointer >= 0:
+		rim = DieNetView.POINTER_COLOR
 	var chip := Panel.new()
 	chip.name = "SumCell"
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -491,13 +503,14 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 	box.set_corner_radius_all(maxi(1, int(cell * 0.2)))
 	chip.add_theme_stylebox_override("panel", box)
 	if text != "":
-		chip.add_child(_stamp_label(text, cell, tint))
+		chip.add_child(_stamp_label(text, cell, VALUE_TINT))
 	for slot in mini(runes.size(), SUM_RUNE_CAP):
 		chip.add_child(_sum_rune(String(runes[slot]), cell, slot))
 	return chip
 
 ## Bis so viele Runen zeigt eine Summen-Zelle; mehr passten in die Ecken nicht.
 const SUM_RUNE_CAP := 2
+
 ## Kantenlänge einer Ecken-Glyphe, als Anteil der Zelle.
 const SUM_RUNE_SHARE := 0.42
 

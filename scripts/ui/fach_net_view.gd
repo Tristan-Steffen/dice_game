@@ -1,12 +1,12 @@
 class_name FachNetView
 extends Control
 ## Die INFO-SÄULE des Ausgabefachs, seit der KORREKTUR-WELLE I KOMPAKT: über ihr
-## LIEGT der eine offene Neuzugang (oder der gewählte Zielwürfel) als Körper, und sie
-## trägt darunter ALLEIN sein Würfelnetz - DIREKT unter dem Würfel. Name, Seele und
-## Wirkung sind in den Info-Schirm der Werkstatt gewandert; hier steht nur noch das
-## Netz, dafür deutlich GRÖSSER (es füllt die ganze Spalte, statt sich mit Text zu
-## teilen).
-## Ohne Zeiger und ohne Rahmen: sie steht, wann immer das Fach etwas trägt, und ist
+## LIEGT der eine offene Neuzugang als Körper, und sie trägt darunter ALLEIN ein
+## Würfelnetz - DIREKT unter dem Würfel. Seit dem 2026-09-11 zeigt sie ZUERST den
+## VORRATS-Würfel unter dem Zeiger, sonst den Neuzugang (scene_root._sync_fach_nets
+## entscheidet). Name, Seele und Wirkung sind in den Info-Schirm der Werkstatt
+## gewandert; hier steht nur noch das Netz, dafür deutlich GRÖSSER.
+## Ohne Zeiger und ohne Rahmen: sie steht, wann immer sie einen Würfel hat, und ist
 ## sonst gar nicht da (die Laden-Grammatik).
 ## Sie MELDET nichts und faßt nichts an - scene_root reicht ihr den Würfel herein
 ## und schneidet ihr Rechteck unter der Schale zu (das apron_bottom-Muster).

@@ -768,18 +768,9 @@ func set_slit_hover(seat: int, cell_hint := "") -> void:
 	slit_info.size = flank.size
 	slit_info_name.text = pack.display_name
 	slit_info_name.modulate = PackDrawerView.COLORS.get(Pack.shelf_of(pack), NEON_TEXT)
-	slit_info_body.text = cell_hint if cell_hint != "" else _pack_info_body(pack)
+	slit_info_body.text = cell_hint if cell_hint != "" else Pack.info_body(pack)
 	_fit_slit_info(flank.size)
 	slit_info.visible = true
-
-## Was der Schirm über eine Kassette sagt: ihre Wirkung UND die Zeile ihres
-## Prägenetzes - im Laden liegt das Netz offen, der Kauf ist informiert. Die
-## Namensquelle ist Pack, hier wird nichts zweitformuliert.
-static func _pack_info_body(pack: Pack) -> String:
-	var net := Pack.net_line(pack)
-	if net == "" or pack.description.contains(net):
-		return pack.description
-	return "%s\n%s" % [pack.description, net]
 
 ## Beide Zeilen passen sich in die Flanke ein: erst der Name in seinen Anteil,
 ## dann die Beschreibung in den Rest. Der Block bleibt in der Reihenhöhe und

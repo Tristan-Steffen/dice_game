@@ -379,21 +379,39 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 	var price := run.secret_offer_price(run.secret_stock[1])
 	assert_true(run.buy_secret_offer(1))
 	assert_eq(run.energy, 99 - price)
-	assert_eq(run.owned_packs.size(), 1, "der Sonderposten liegt versiegelt im Lager")
-	assert_not_null(run.owned_packs[0].fixed_engraving)
-	assert_eq(run.owned_packs[0].fixed_engraving.id, engraving.id)
-	assert_eq(run.owned_packs[0].count, count, "ein Bündel ist EINE Karte mit n Stücken")
+	assert_eq(run.owned_packs.size(), count, "je Stück des Bündels EINE Karte im Lager")
+	for pack in run.owned_packs:
+		assert_not_null(pack.fixed_engraving)
+		assert_eq(pack.fixed_engraving.id, engraving.id)
+		assert_eq(pack.count, 1, "und keine Karte zählt mehr als sich selbst")
 
-## Ein Bündel ist eine Karte, aber sein Netz trägt n Zellen - darin liegt sein Wert.
-func test_a_bundle_carries_a_cell_per_piece() -> void:
+## Ein Bündel sind n EINZELNE Karten mit je einer Zelle (Spieler-Entscheid
+## 2026-09-11) - der Wert liegt in der Zahl der Karten, nicht in einer dichteren.
+func test_a_bundle_is_n_single_cards() -> void:
 	var run := _discovered()
 	_force_engraving_slot(run)
+	run.secret_stock[1][GameRun.OFFER_COUNT] = 3
 	run.energy = 99
-	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
 	assert_true(run.buy_secret_offer(1))
-	assert_eq(run.owned_packs.size(), 1, "eine Karte, nicht n Karten")
-	assert_eq(StampNet.filled_count(run.owned_packs[0].stamp_net), count,
-		"je Stück im Bündel eine Netz-Zelle")
+	assert_eq(run.owned_packs.size(), 3, "drei Karten, nicht eine Dreier")
+	for pack in run.owned_packs:
+		assert_eq(StampNet.filled_count(pack.stamp_net), 1, "eine Zelle je Karte")
+
+## Ein Bündel braucht Platz für JEDE Karte: zwei freie Plätze reichen für drei
+## nicht, und die Energie bleibt in der Börse (check-then-spend).
+func test_a_bundle_needs_room_for_every_card() -> void:
+	var run := _discovered()
+	_force_engraving_slot(run)
+	run.secret_stock[1][GameRun.OFFER_COUNT] = 3
+	run.energy = 99
+	while run.pack_room() > 2:
+		run.grant_pack(Pack.number_pack())
+	assert_false(run.packs_full(), "zwei Plätze sind noch frei")
+	assert_false(run.buy_secret_offer(1), "aber drei Karten passen nicht")
+	assert_eq(run.energy, 99, "nichts abgebucht")
+	run.secret_stock[1][GameRun.OFFER_COUNT] = 2
+	assert_true(run.buy_secret_offer(1), "zwei passen genau")
+	assert_true(run.packs_full())
 
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()

@@ -8,9 +8,10 @@ extends Node3D
 ## Rein per Code gebaut wie DataCellView und CapacitorBankView - kein .tscn.
 ## Seit der Welle Y (2026-09-05) baut sie ZWEI Körper: die MAGAZIN-Grube und die
 ## TURM-BUCHT. Sie berühren sich und sind EIN Raum - die Bucht ist zum Magazin hin
-## ganz OFFEN, die Magazin-Wand hat dorthin genau EINEN DURCHBRUCH. Und seit der
-## Welle Z hat dieser EINE Raum auch EINEN Boden: das Magazin baut ihn über die
-## ganze L-Fläche (floor_area), die Bucht baut keinen (build_floor = false).
+## ganz OFFEN, die Magazin-Wand hat dorthin genau EINEN DURCHBRUCH. Seit dem
+## 2026-09-11 ist die Bucht viel FLACHER (Spieler-Entscheid): jede Grube baut ihren
+## eigenen Boden, und unter dem Durchbruch schließt eine SCHWELLE (breach_floor)
+## die Magazin-Wand vom Bucht-Boden bis zum eigenen.
 ## Drei Tischregeln gelten auch hier: nur EMISSION (die Bodenkacheln vertragen
 ## 16 Lichter), das Ruhelicht bleibt unter Rune.IDLE_CEILING, und gespiegelt wird
 ## sie NICHT - ein Loch hat kein Spiegelbild.
@@ -107,20 +108,15 @@ var wall := WALL
 var floor_plate := FLOOR
 var glow_color := GLOW_COLOR
 var glow_energy := GLOW_ENERGY
-## EIN BODEN für die ganze L-Fläche (Welle Z): der Grundriß der Bodenplatte in
-## WELT-XZ (x = Welt-X, y = Welt-Z; leeres Rechteck = der eigene). Das MAGAZIN meldet
-## hier die GANZE Grube - sein Boden reicht durch den Durchbruch bis an die Rückwand
-## der Bucht -, die BUCHT baut mit build_floor = false gar keinen. Zwei Platten
-## stritten sonst im Tiefenpuffer und leuchteten verschieden.
-var floor_area := Rect2()
-var build_floor := true
-
 ## Die Seite zur NACHBARGRUBE (-1 = keine). Ohne Durchbruch fehlt sie GANZ (die
 ## Bucht ist zum Magazin hin offen), mit Durchbruch wird sie zu ZWEI Balken.
 var open_wall := -1
 ## Der DURCHBRUCH in dieser Wand: x = Versatz in WELT-Koordinaten zur Grubenmitte
 ## (längs der Wand), y = Breite. Es gibt genau EINEN - den zur Turm-Bucht.
 var breach := Vector2.ZERO
+## Die Tiefe des Nachbar-Bodens unter der Kante (0 = so tief wie der eigene): ist
+## er flacher, steht unter dem Durchbruch eine SCHWELLE bis zum eigenen Boden.
+var breach_floor := 0.0
 
 ## Die Seite mit dem SCHLITZ (-1 = keine): durch ihn fahren die Tabletts des
 ## Regalstapels seitlich in die Wand. Ihre Platte wird dafür zu ZWEI Balken -
@@ -151,11 +147,9 @@ func setup(at: Vector3, half_extents: Vector2, pit_depth: float,
 	_build_body()
 
 ## Der Grundriß der BODENPLATTE in LOKALEN Koordinaten (x längs Welt-X, y längs
-## Welt-Z). Ohne gemeldete Fläche ist es der eigene.
+## Welt-Z).
 func _floor_plan() -> Rect2:
-	if floor_area.size.x <= 0.0 or floor_area.size.y <= 0.0:
-		return Rect2(-half, half * 2.0)
-	return Rect2(floor_area.position - Vector2(center.x, center.z), floor_area.size)
+	return Rect2(-half, half * 2.0)
 
 ## Die Welt-XZ-Grenzen des Lochs (der Bodenshader blendet genau sie aus).
 func bounds_min() -> Vector2:
@@ -229,8 +223,7 @@ func _tune_lining() -> void:
 	_wall_material.set_shader_parameter("skin_field_energy", SKIN_FIELD_ENERGY)
 	_floor_material.set_shader_parameter("base_color", FLOOR_ALBEDO)
 	_floor_material.set_shader_parameter("field_energy", FLOOR_FIELD_ENERGY)
-	# Der Samt-Schimmer ist EIN Verlauf über die GANZE Bodenplatte - gemessen an der
-	# L-Fläche, nicht am eigenen Grundriß: sonst stünde an der Naht eine Helligkeitskante.
+	# Der Samt-Schimmer ist EIN Verlauf über die ganze Bodenplatte.
 	var plate := _floor_plan()
 	plate.position += Vector2(center.x, center.z)
 	_floor_material.set_shader_parameter("field_center", plate.get_center())
@@ -256,12 +249,11 @@ func _build_body() -> void:
 	# zeigt sonst nur weggekullte Rückseiten.
 	for wall_id: int in WALLS:
 		_build_wall(wall_id, top)
-	if build_floor:
-		var plate := _floor_plan()
-		_box("Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
-			plate.size.y + wall * 2.0),
-			Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
-				plate.get_center().y), _floor_material)
+	var plate := _floor_plan()
+	_box("Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
+		plate.size.y + wall * 2.0),
+		Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
+			plate.get_center().y), _floor_material)
 
 	# Kragen: er greift RIM_IN über die Kante in die Öffnung hinein und deckt
 	# damit die harte Schnittkante des Shaders. An der offenen Seite gibt es keine.
@@ -295,6 +287,14 @@ func _build_body() -> void:
 ## Trägt sie den SCHLITZ, wird sie waagerecht in Sturz und Sockel geteilt.
 func _build_wall(wall_id: int, top: float) -> void:
 	var run := _wall_run(wall_id)
+	# Die SCHWELLE unter dem Durchbruch: sie beginnt eine Bodenplatte unter dem
+	# flacheren Nachbar-Boden (deren Rand greift in die Wand, zwei Deckflächen
+	# stritten sonst) und reicht bis zum eigenen. UNGETEILT - sie steht IM Durchbruch.
+	var sill := breach_floor + floor_plate
+	if wall_id == open_wall and breach.y > 0.0 and breach_floor > 0.001 and sill < depth:
+		_wall_box("%sSchwelle" % WALL_NAMES[wall_id], wall_id, breach.x,
+			top - (sill + depth) * 0.5, breach.y, depth - sill, wall, wall * 0.5,
+			_wall_material, true)
 	if wall_id != slot_wall or slot.y <= slot.x:
 		_wall_box(WALL_NAMES[wall_id], wall_id, 0.0, top - depth * 0.5,
 			run, depth, wall, wall * 0.5, _wall_material)
@@ -347,17 +347,22 @@ func _side_box(box_name: String, wall_id: int, box_size: Vector3, at: Vector3,
 
 ## Ein Kasten AUF einer Wand: along = Versatz längs der Wand, deep = Abstand
 ## seiner Mitte von der Innenfläche nach außen (negativ = eine Spur davor).
+## uncut = ohne die Zerlegung am Durchbruch (für die Schwelle, die darin steht).
 func _wall_box(box_name: String, wall_id: int, along: float, y: float,
 		length: float, height: float, thick: float, deep: float,
-		material: Material) -> void:
+		material: Material, uncut := false) -> void:
 	if length <= 0.001 or height <= 0.001:
 		return
 	var inward := wall_inward(wall_id)
 	var size := Vector3(length, height, thick)
 	if absf(inward.x) > 0.5:
 		size = Vector3(thick, height, length)
-	_side_box(box_name, wall_id, size, wall_axis(wall_id) * along
-		- inward * (_wall_reach(wall_id) + deep) + Vector3.UP * y, material)
+	var at := wall_axis(wall_id) * along - inward * (_wall_reach(wall_id) + deep) \
+		+ Vector3.UP * y
+	if uncut:
+		_box(box_name, size, at, material)
+		return
+	_side_box(box_name, wall_id, size, at, material)
 
 func _box(box_name: String, box_size: Vector3, at: Vector3,
 		material: Material) -> void:

@@ -786,9 +786,8 @@ func test_the_sum_screen_stands_first_in_the_row() -> void:
 	assert_lte(info.end.x, view.strip_rect().position.x + 0.5,
 		"und links von der Leiste")
 	assert_almost_eq(info.size.y, view.net_span(u).y
-		+ u * (WorkshopView.INFO_MARGIN * 2.0 + WorkshopView.CAPTION_UNITS
-			+ WorkshopView.CAPTION_GAP), 0.5,
-		"seine Höhe ist das Netz plus Fassung und Caption")
+		+ u * WorkshopView.INFO_MARGIN * 2.0, 0.5,
+		"seine Höhe ist das Netz plus seiner Fassung - die Caption ist tot")
 
 ## (3) Das EINE NETZ steht RECHTS vom Turm und links vom Podest - und IMMER: ohne
 ## Ziel als leeres Kreuz.
@@ -870,8 +869,7 @@ func test_the_height_is_the_tallest_column_plus_the_margins() -> void:
 	var net := 125.28
 	var tower := 97.3
 	var stage := 94.0
-	var nets := net + u * (WorkshopView.INFO_MARGIN * 2.0 + WorkshopView.CAPTION_UNITS
-		+ WorkshopView.CAPTION_GAP)
+	var nets := net + u * WorkshopView.INFO_MARGIN * 2.0
 	assert_almost_eq(WorkshopView.bench_height_for(u, net, tower, stage),
 		nets + u * WorkshopView.height_units(), 0.001,
 		"hier bindet der Summen-Schirm")

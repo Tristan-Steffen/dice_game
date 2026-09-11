@@ -8,8 +8,8 @@ extends Resource
 ##
 ## Nur Anzeige-Infos; die Wirkung löst RuneEffects über die id auf. Max. 1 Rune
 ## je Seite - Ausnahme ist der Vakuum-Würfel (siehe DieDefinition.second_runes).
-## Zeitliche Signatur: die Essenz glüht DAUERND, eine Rune schimmert in Ruhe nur
-## schwach und flammt im Moment ihres Feuerns auf.
+## Zeitliche Signatur: die Essenz glüht DAUERND und gleichmäßig, eine Rune ATMET in
+## Ruhe und flammt im Moment ihres Feuerns um ein Vielfaches auf.
 
 # --- Zeichen (die Figur IST die Erkennungsmarke) - je Rune eines ---
 const GLYPH_AFTERGLOW := "glyph_afterglow"
@@ -51,18 +51,28 @@ const MOTION_EMBER := 2     # Einbrand: Glut kriecht die Strahlen hoch und zurü
 const MOTION_SPARK := 3     # Funkenflug: ein Kopf läuft die Bahn und verlässt sie
 const MOTION_INTAKE := 4    # Vakuum: die Naht saugt sich zu, statt zu strahlen
 
-## DIE RUHE-REGEL: kein Ruhe-Schimmern darf die Bloom-Schwelle erreichen. Das ist
-## es, was sechs beschriftete Würfel in der Grube mechanisch davon abhält, eine Disco
-## zu werden - nicht Geschmack, nicht Tuning. Ruhelicht gibt es, Ruhe-Bloom nicht.
+## Die BLOOM-SCHWELLE des Renderers. Data-Cells und Gruben-Licht messen ihr
+## Ruhelicht daran - der Wert ist gemeinsames Gut, keine Runen-Zahl.
 const IDLE_CEILING := 0.95
+
+## DIE RUHE-REGEL, gekippt am 2026-09-11 (Spieler: "viel zu schwach, es sollte von
+## der Distanz einfach zu erkennen sein"): eine Rune DARF in Ruhe blühen. Bis dahin
+## galt das Gegenteil - der Preis war eine Naht, die auf Grubendistanz gar nicht
+## existierte. Was sie jetzt bändigt, ist kein Deckel, sondern der ABSTAND: der
+## Ausbruch überstrahlt die Ruhespitze um FLARE_RATIO, sonst liest das Feuern nicht
+## mehr als Ereignis. Unter IDLE_GLOW bleibt keine Naht.
+const IDLE_GLOW := 0.90
+const FLARE_RATIO := 2.2
 
 ## Bewegungsart im Shader.
 @export var motion: int = MOTION_ECHO
 ## Kernfarbe im heißen Faden (die Naht selbst trägt tint).
 @export var core: Color = Color.WHITE
-## Ruhe-Schimmern: Grundwert und Spitze. idle_high MUSS unter IDLE_CEILING bleiben.
-@export var idle_low: float = 0.22
-@export var idle_high: float = 0.62
+## Ruhe-Schimmern: Grundwert und Spitze. Beide liegen ÜBER der Bloom-Schwelle -
+## bei ECHO und SPARK trägt idle_low fast die ganze Naht, also entscheidet ER, ob
+## die Rune auf Distanz liest.
+@export var idle_low: float = 1.20
+@export var idle_high: float = 2.40
 ## Sekunden für einen vollen Ruhe-Durchlauf.
 @export var idle_period: float = 4.2
 ## Spitzenwert im Ausbruch. Weit über 1: der Ausbruch SOLL bloomen.
@@ -73,7 +83,7 @@ const IDLE_CEILING := 0.95
 ## Angenommenes Hof-Band in Ruhe und sein Faktor im Ausbruch. Der Ausbruch liest
 ## auf Übersichts-Distanz über BREITE, nicht über Helligkeit: eine Naht ist dort
 ## ~1 px, und Helligkeit allein bleibt ein Subpixel-Punkt.
-@export var halo_width: float = 0.35
+@export var halo_width: float = 0.70
 @export var halo_flare: float = 2.8
 ## Gerichtetes Ausbluten des Hofs in UV (Streulicht: nach unten aufs Filz).
 @export var halo_bias: Vector2 = Vector2.ZERO
@@ -93,28 +103,31 @@ static func _make(rune_id: String, name: String, short_text: String, desc: Strin
 static func afterglow() -> Rune:
 	var rune := _make(AFTERGLOW, "Nachglühen", "+1 Auslösung",
 		"Wird diese Seite gewertet, glüht sie einmal nach: der Würfel löst einmal zusätzlich aus.",
-		"Wertung", Color(0.88, 0.9, 0.95), GLYPH_AFTERGLOW)
+		"Wertung", Color(1.0, 1.0, 1.0), GLYPH_AFTERGLOW)
 	rune.motion = MOTION_ECHO
 	rune.core = Color(1.0, 1.0, 1.0)
-	rune.idle_low = 0.22
-	rune.idle_high = 0.62
+	# Die farblose der sechs: sie liest über Helligkeit, nicht über den Ton.
+	rune.idle_low = 1.30
+	rune.idle_high = 2.50
 	rune.idle_period = 4.2
-	rune.flare_peak = 3.0
+	rune.flare_peak = 6.0
 	rune.core_share = 0.55
+	rune.halo_width = 0.70
 	rune.halo_flare = 3.0
 	return rune
 
 static func stray_light() -> Rune:
 	var rune := _make(STRAY_LIGHT, "Streulicht", "+$1 ungewertet",
 		"Liegt der Würfel am Zugende ungewertet auf dem Tisch und zeigt diese Seite: +$1. Er streut sein Licht ungenutzt aufs Filz.",
-		"Ökonomie", Color(1.0, 0.82, 0.45), GLYPH_STRAY_LIGHT)
+		"Ökonomie", Color(1.0, 0.74, 0.26), GLYPH_STRAY_LIGHT)
 	rune.motion = MOTION_SCATTER
-	rune.core = Color(1.0, 0.93, 0.72)
-	rune.idle_low = 0.20
-	rune.idle_high = 0.70
+	rune.core = Color(1.0, 0.92, 0.66)
+	rune.idle_low = 1.20
+	rune.idle_high = 2.40
 	rune.idle_period = 3.1
-	rune.flare_peak = 2.2
+	rune.flare_peak = 5.4
 	rune.core_share = 0.35
+	rune.halo_width = 0.78
 	rune.halo_flare = 2.5
 	# Das Licht fällt vom Würfel aufs Filz - die Fiktion der Wirkung.
 	rune.halo_bias = Vector2(0.0, 1.0)
@@ -123,15 +136,16 @@ static func stray_light() -> Rune:
 static func burn_in() -> Rune:
 	var rune := _make(BURN_IN, "Einbrand", "Seite eingebrannt",
 		"Der Wert dieser Seite ist eingebrannt: er kann nicht schrumpfen, und ihr Material lässt sich nicht übermalen.",
-		"Schutz", Color(1.0, 0.5, 0.15), GLYPH_BURN_IN)
+		"Schutz", Color(1.0, 0.38, 0.08), GLYPH_BURN_IN)
 	rune.motion = MOTION_EMBER
-	rune.core = Color(1.0, 0.86, 0.62)
-	# Höchster Ruhe-Boden der vier: Einbrand ist ein Zustand, kein Ereignis.
-	rune.idle_low = 0.30
-	rune.idle_high = 0.66
+	rune.core = Color(1.0, 0.84, 0.55)
+	# Höchster Ruhe-Boden der sechs: Einbrand ist ein Zustand, kein Ereignis.
+	rune.idle_low = 1.45
+	rune.idle_high = 2.60
 	rune.idle_period = 2.4
-	rune.flare_peak = 2.8
+	rune.flare_peak = 6.0
 	rune.core_share = 0.25
+	rune.halo_width = 0.80
 	rune.halo_flare = 2.6
 	return rune
 
@@ -141,43 +155,46 @@ static func spark_flight() -> Rune:
 		"Wertung", Color(0.55, 1.9, 2.1), GLYPH_SPARK_FLIGHT)
 	rune.motion = MOTION_SPARK
 	rune.core = Color(0.80, 1.0, 1.0)
-	# Der Körper liegt fast dunkel - bei Funkenflug ist nicht die Naht die
-	# Erkennungsmarke, sondern der laufende Punkt.
-	rune.idle_low = 0.15
-	rune.idle_high = 0.88
+	# Die Naht glüht mit, seit die Rune auf Distanz lesen muss - der laufende Punkt
+	# bleibt trotzdem die Erkennungsmarke, er hebt sich um die volle Spanne ab.
+	rune.idle_low = 1.15
+	rune.idle_high = 2.70
 	rune.idle_period = 2.6
 	# Der hellste der vier, mit Absicht: Cyan-Bloom IST die Energie-Sprache des
 	# Tisches, und dieser Ausbruch muss quer über den Tisch als dasselbe Licht lesen.
-	rune.flare_peak = 4.0
+	rune.flare_peak = 7.0
 	rune.core_share = 0.80
+	rune.halo_width = 0.68
 	rune.halo_flare = 3.5
 	return rune
 
 static func cast() -> Rune:
 	var rune := _make(CAST, "Abguss", "Material-Gravur je Zug",
 		"Wird diese Seite gewertet, nimmt die Rune einen Abguss ihres Materials: eine Kopie dieser Material-Gravur wandert in die Werkstatt. Einmal je Runde und Würfel.",
-		"Ökonomie", Color(0.72, 0.86, 0.62), GLYPH_CAST)
+		"Ökonomie", Color(0.48, 1.0, 0.42), GLYPH_CAST)
 	rune.motion = MOTION_SCATTER
-	rune.core = Color(0.90, 1.0, 0.82)
-	rune.idle_low = 0.22
-	rune.idle_high = 0.64
+	rune.core = Color(0.86, 1.0, 0.78)
+	rune.idle_low = 1.20
+	rune.idle_high = 2.40
 	rune.idle_period = 3.6
-	rune.flare_peak = 2.4
+	rune.flare_peak = 5.6
 	rune.core_share = 0.45
+	rune.halo_width = 0.78
 	rune.halo_flare = 2.5
 	return rune
 
 static func reverse() -> Rune:
 	var rune := _make(REVERSE, "Kehrseite", "Gegenseite löst mit aus",
 		"Wird diese Seite gewertet, löst die gegenüberliegende Seite zusätzlich einmal voll mit aus.",
-		"Wertung", Color(0.82, 0.62, 1.0), GLYPH_REVERSE)
+		"Wertung", Color(0.66, 0.36, 1.0), GLYPH_REVERSE)
 	rune.motion = MOTION_ECHO
-	rune.core = Color(0.96, 0.90, 1.0)
-	rune.idle_low = 0.24
-	rune.idle_high = 0.66
+	rune.core = Color(0.92, 0.82, 1.0)
+	rune.idle_low = 1.30
+	rune.idle_high = 2.50
 	rune.idle_period = 4.6
-	rune.flare_peak = 3.0
+	rune.flare_peak = 6.0
 	rune.core_share = 0.60
+	rune.halo_width = 0.72
 	rune.halo_flare = 3.0
 	return rune
 
@@ -246,51 +263,6 @@ static func hint(rune_id: String) -> String:
 ## 0.07 Bloom-Saum je Achse.
 const DIGIT_KEEPOUT := Vector2(0.26, 0.38)
 
-## Ankerzellen in Seiten-Koordinaten (min.xy, max.xy), eine je Runen-Platz. Ein
-## Zeichen ist kompakt - anders als ein Riss hält es sich nicht von selbst von
-## der Ziffer frei, also tut es die ZELLE: jede liegt ganz außerhalb von
-## DIGIT_KEEPOUT (test_rune_geometry wacht darüber). Die Plätze nehmen
-## gegenüberliegende Schultern, damit zwei Zeichen einer Vakuum-Seite sich nie
-## in die Quere kommen; der dritte Platz (Glasglocke) bekommt die untere rechte.
-## Die Zellen sind so GROSS wie die Sperrzone es zulässt - eine kleinere wäre auf
-## Grubendistanz nicht mehr zu erkennen, eine größere liefe in die Ziffer.
-const ANCHOR_CELLS: Array[Vector4] = [
-	Vector4(0.01, 0.72, 0.27, 0.98),  # unten links
-	Vector4(0.73, 0.02, 0.99, 0.28),  # oben rechts (punktsymmetrisch)
-	Vector4(0.73, 0.72, 0.99, 0.98),  # unten rechts
-]
-
-## Ankerzelle eines Platzes - außerhalb der Liste fällt sie auf den ersten Platz
-## zurück, damit ein unbekannter Platz nichts an eine falsche Stelle zeichnet.
-static func anchor_cell(slot: int) -> Vector4:
-	return ANCHOR_CELLS[slot] if slot >= 0 and slot < ANCHOR_CELLS.size() else ANCHOR_CELLS[0]
-
-## Dieselben Schultern fürs Würfelnetz, aber als QUADRANT statt als knappe Zelle.
-## Das Netz zeichnet keine leuchtende 3D-Ziffer und hat keinen Bloom, den die
-## Sperrzone abhalten müsste - seine Not ist die Größe: bei 17-40 px Kachel wäre
-## die Ankerzelle des Würfels ein 5-px-Gekritzel. Die FIGUR ist dieselbe, nur ihr
-## Kasten ist größer; die Reihenfolge der Plätze bleibt die des Würfels, damit
-## Tisch und Werkbank dieselbe Rune an derselben Ecke zeigen.
-const NET_CELLS: Array[Vector4] = [
-	Vector4(0.02, 0.50, 0.50, 0.98),  # unten links
-	Vector4(0.50, 0.02, 0.98, 0.50),  # oben rechts
-	Vector4(0.50, 0.50, 0.98, 0.98),  # unten rechts
-]
-
-static func net_cell(slot: int) -> Vector4:
-	return NET_CELLS[slot] if slot >= 0 and slot < NET_CELLS.size() else NET_CELLS[0]
-
-## Ein Punkt aus ZELLEN-Koordinaten (0..1) in Seiten-Koordinaten.
-static func cell_to_face(point: Vector2, slot: int) -> Vector2:
-	return _place(point, anchor_cell(slot))
-
-## Derselbe Punkt, aber in die Netz-Kachel gesetzt.
-static func cell_to_net(point: Vector2, slot: int) -> Vector2:
-	return _place(point, net_cell(slot))
-
-static func _place(point: Vector2, cell: Vector4) -> Vector2:
-	return Vector2(cell.x + point.x * (cell.z - cell.x), cell.y + point.y * (cell.w - cell.y))
-
 ## Ellipsen-Wert eines Punktes: >= 1 heißt "außerhalb der Sperrzone". Eine Quelle
 ## für die Geometrie-Prüfung im Test und den Shader-Wächter.
 static func digit_clearance(point: Vector2, half := DIGIT_KEEPOUT) -> float:
@@ -298,70 +270,107 @@ static func digit_clearance(point: Vector2, half := DIGIT_KEEPOUT) -> float:
 	var dy := (point.y - 0.5) / half.y
 	return dx * dx + dy * dy
 
-## Rand, den jedes Zeichen in seiner Zelle frei lässt - er trägt den Hof
-## (RuneTextures.FIELD), damit der Ausbruch nicht an der Zellkante abgeschnitten
-## wird. Alle Figuren leben deshalb in [MARGIN, 1 - MARGIN]².
-const GLYPH_MARGIN := 0.20
+## Wie ein zweiter/dritter Rune derselben Seite seinen Platz findet: dieselbe
+## Figur, gespiegelt. Die Sperr-Ellipse ist punkt- UND achsensymmetrisch, also
+## hält JEDE dieser Spiegelungen den Abstand zur Ziffer exakt ein - anders als
+## eine Verschiebung.
+const SLOT_FLIPS: Array[Vector2] = [
+	Vector2(1.0, 1.0),    # Platz 0: die Figur, wie sie gezeichnet ist
+	Vector2(-1.0, -1.0),  # Platz 1: punktgespiegelt
+	Vector2(-1.0, 1.0),   # Platz 2: an der Hochachse gespiegelt
+]
 
-## Das Zeichen als normierte Polylinien in ZELLEN-Koordinaten (0..1), NICHT in
-## Seiten-Koordinaten: die Zeichnung wird so nicht mit ihrer Platzierung
-## vermischt - wohin sie kommt, sagt ANCHOR_CELLS. EINE Quelle für Würfelnetz und
-## 3D-Auflage, sonst zeigt der Tisch ein anderes Zeichen als die Werkbank.
+## Spiegelung eines Platzes - ein unbekannter Platz fällt auf den ersten zurück.
+static func slot_flip(slot: int) -> Vector2:
+	return SLOT_FLIPS[slot] if slot >= 0 and slot < SLOT_FLIPS.size() else SLOT_FLIPS[0]
+
+## Ein Figur-Punkt an seinem Platz. EINE Funktion für Seite UND Netz: der Kasten
+## ist beide Male die volle Fläche.
+static func place(point: Vector2, slot: int) -> Vector2:
+	var flip := slot_flip(slot)
+	return Vector2(point.x if flip.x > 0.0 else 1.0 - point.x,
+		point.y if flip.y > 0.0 else 1.0 - point.y)
+
+## Rand, den jedes Zeichen auf der SEITE frei lässt - er trägt den Hof
+## (RuneTextures.FIELD), damit der Ausbruch nicht am Seitenrand abgeschnitten
+## wird. Alle Figuren leben deshalb in [MARGIN, 1 - MARGIN]².
+const GLYPH_MARGIN := 0.06
+
+## Punkte auf einer Ellipse um center, Winkel in Grad, 0 = OBEN, im Uhrzeigersinn.
+## steps ist die Zahl der SEGMENTE, also steps + 1 Punkte.
+static func _arc(center: Vector2, radius: Vector2, from_deg: float, to_deg: float,
+		steps: int) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for i in steps + 1:
+		var phi := deg_to_rad(lerpf(from_deg, to_deg, float(i) / float(steps)))
+		points.append(center + Vector2(radius.x * sin(phi), -radius.y * cos(phi)))
+	return points
+
+## Das Zeichen als normierte Polylinien in SEITEN-Koordinaten (0..1 über die ganze
+## Seite), x nach rechts, y nach UNTEN. DER KRANZ: jede Figur liegt im Ring
+## zwischen Ziffern-Sperrzone und Seitenrand, nicht mehr in einer Eckzelle. EINE
+## Quelle für Würfelnetz und 3D-Auflage, sonst zeigt der Tisch ein anderes Zeichen
+## als die Werkbank; wohin ein zweiter Rune derselben Seite kommt, sagt SLOT_FLIPS.
 ##
-## Jede Figur ist ein ZEICHEN, kein Schaden: wenige gerade Striche, geschlossen
-## oder gerichtet, je Wirkung eine erkennbare Idee. Die Figur ist NIE eine
-## Funktion des Seitenwerts - Knochen lässt Werte wachsen, und eine Rune, die
-## sich dabei neu zeichnet, liest als Fehler.
+## Jede Figur ist ein ZEICHEN, kein Schaden: je Wirkung eine erkennbare Idee. Die
+## Figur ist NIE eine Funktion des Seitenwerts - Knochen lässt Werte wachsen, und
+## eine Rune, die sich dabei neu zeichnet, liest als Fehler.
 static func glyph_lines(glyph_id: String) -> Array[PackedVector2Array]:
 	match glyph_id:
 		GLYPH_AFTERGLOW:
-			# Doppelstrich mit versetztem Echo: dieselbe Figur zweimal, die zweite
-			# kleiner und nach hinten geschoben - die Wirkung als Bild.
+			# Umlauf-Pfeil: ein Dreiviertelkreis, der in einer Pfeilspitze endet -
+			# die Seite läuft noch einmal um.
 			return [
-				PackedVector2Array([Vector2(0.28, 0.80), Vector2(0.28, 0.20), Vector2(0.55, 0.42)]),
-				PackedVector2Array([Vector2(0.50, 0.80), Vector2(0.50, 0.30), Vector2(0.76, 0.50)]),
+				_arc(Vector2(0.5, 0.5), Vector2(0.42, 0.42), 0.0, 250.0, 18),
+				PackedVector2Array([Vector2(0.093, 0.728), Vector2(0.105, 0.644),
+					Vector2(0.168, 0.701)]),
 			]
 		GLYPH_SPARK_FLIGHT:
-			# Aufsteigender Zickzack mit Austrittsstrich: der Funke klettert und
-			# verlässt das Zeichen oben rechts.
+			# Blitzbahn: der Zickzack klettert rechts hoch und schießt oben hinaus.
 			return [
-				PackedVector2Array([Vector2(0.24, 0.80), Vector2(0.46, 0.56),
-					Vector2(0.30, 0.48), Vector2(0.54, 0.22)]),
-				PackedVector2Array([Vector2(0.54, 0.22), Vector2(0.76, 0.30)]),
+				PackedVector2Array([Vector2(0.80, 0.90), Vector2(0.77, 0.71),
+					Vector2(0.88, 0.57), Vector2(0.79, 0.42), Vector2(0.90, 0.27)]),
+				PackedVector2Array([Vector2(0.90, 0.27), Vector2(0.94, 0.09)]),
 			]
 		GLYPH_STRAY_LIGHT:
-			# Strahlenfächer nach unten: ein Balken, unter dem das Licht wegfällt.
+			# Lichtsaum: sechs Tropfen an der Unterkante. Unter der Ziffer bleibt
+			# eine Lücke - dort ist im Kranz kein Platz, und das Licht sickert
+			# ohnehin seitlich weg.
 			return [
-				PackedVector2Array([Vector2(0.24, 0.30), Vector2(0.76, 0.30)]),
-				PackedVector2Array([Vector2(0.32, 0.30), Vector2(0.26, 0.78)]),
-				PackedVector2Array([Vector2(0.50, 0.30), Vector2(0.50, 0.80)]),
-				PackedVector2Array([Vector2(0.68, 0.30), Vector2(0.74, 0.78)]),
+				PackedVector2Array([Vector2(0.10, 0.834), Vector2(0.10, 0.924)]),
+				PackedVector2Array([Vector2(0.22, 0.834), Vector2(0.22, 0.924)]),
+				PackedVector2Array([Vector2(0.34, 0.834), Vector2(0.34, 0.924)]),
+				PackedVector2Array([Vector2(0.66, 0.834), Vector2(0.66, 0.924)]),
+				PackedVector2Array([Vector2(0.78, 0.834), Vector2(0.78, 0.924)]),
+				PackedVector2Array([Vector2(0.90, 0.834), Vector2(0.90, 0.924)]),
 			]
 		GLYPH_BURN_IN:
-			# Geschlossener Riegel: das einzige Zeichen ohne freies Ende - was
-			# eingebrannt ist, hat keinen Ausgang.
-			# Der Riegel nimmt die volle Zelle: enger gezogen wachsen seine vier
-			# Striche zu einem Block zusammen und der Riegel ist nicht mehr zu sehen.
+			# Brandklammern: vier L-Winkel in den Ecken - was eingebrannt ist, ist
+			# festgeklammert und hat keinen Ausgang.
 			return [
-				PackedVector2Array([Vector2(0.20, 0.20), Vector2(0.80, 0.20),
-					Vector2(0.80, 0.80), Vector2(0.20, 0.80), Vector2(0.20, 0.20)]),
-				PackedVector2Array([Vector2(0.20, 0.50), Vector2(0.80, 0.50)]),
+				PackedVector2Array([Vector2(0.10, 0.30), Vector2(0.10, 0.10), Vector2(0.30, 0.10)]),
+				PackedVector2Array([Vector2(0.70, 0.10), Vector2(0.90, 0.10), Vector2(0.90, 0.30)]),
+				PackedVector2Array([Vector2(0.90, 0.70), Vector2(0.90, 0.90), Vector2(0.70, 0.90)]),
+				PackedVector2Array([Vector2(0.30, 0.90), Vector2(0.10, 0.90), Vector2(0.10, 0.70)]),
 			]
 		GLYPH_CAST:
-			# Schale mit Abdruckstrich: der Strich fällt von oben in die Schale -
-			# ein Abguss entsteht, indem etwas hineingedrückt wird.
+			# Schale: der Bogen unter der Ziffer, die Seitenwände doppelt. Sie hören
+			# VOR dem Tiefpunkt auf - unter der Ziffer ist kein Platz für zwei Striche.
 			return [
-				PackedVector2Array([Vector2(0.24, 0.34), Vector2(0.24, 0.62),
-					Vector2(0.50, 0.78), Vector2(0.76, 0.62), Vector2(0.76, 0.34)]),
-				PackedVector2Array([Vector2(0.50, 0.20), Vector2(0.50, 0.56)]),
+				_arc(Vector2(0.5, 0.55), Vector2(0.42, 0.38), 270.0, 90.0, 16),
+				_arc(Vector2(0.5, 0.55), Vector2(0.32, 0.29), 270.0, 220.0, 6),
+				_arc(Vector2(0.5, 0.55), Vector2(0.32, 0.29), 90.0, 140.0, 6),
 			]
 		GLYPH_REVERSE:
-			# Punktsymmetrisches Doppel-V: dieselbe Figur, um die Zellmitte
-			# gedreht - die Kehrseite als Geometrie.
+			# Gegen-Pfeile: oben nach rechts, unten nach links. Punktsymmetrisch -
+			# die Seite gedreht zeigt dasselbe Zeichen.
 			return [
-				PackedVector2Array([Vector2(0.24, 0.24), Vector2(0.50, 0.44), Vector2(0.76, 0.24)]),
-				PackedVector2Array([Vector2(0.24, 0.76), Vector2(0.50, 0.56), Vector2(0.76, 0.76)]),
-				PackedVector2Array([Vector2(0.50, 0.44), Vector2(0.50, 0.56)]),
+				PackedVector2Array([Vector2(0.20, 0.095), Vector2(0.80, 0.095)]),
+				PackedVector2Array([Vector2(0.735, 0.065), Vector2(0.80, 0.095),
+					Vector2(0.735, 0.125)]),
+				PackedVector2Array([Vector2(0.80, 0.905), Vector2(0.20, 0.905)]),
+				PackedVector2Array([Vector2(0.265, 0.875), Vector2(0.20, 0.905),
+					Vector2(0.265, 0.935)]),
 			]
 	return []
 
@@ -371,17 +380,17 @@ static func glyph_lines(glyph_id: String) -> Array[PackedVector2Array]:
 static func glyph_weights(glyph_id: String) -> PackedFloat32Array:
 	match glyph_id:
 		GLYPH_AFTERGLOW:
-			return PackedFloat32Array([1.0, 0.62])
+			return PackedFloat32Array([1.0, 0.8])
 		GLYPH_SPARK_FLIGHT:
 			return PackedFloat32Array([1.0, 0.55])
 		GLYPH_STRAY_LIGHT:
-			return PackedFloat32Array([1.0, 0.70, 0.85, 0.70])
+			return PackedFloat32Array([1.0, 0.8, 1.0, 1.0, 0.8, 1.0])
 		GLYPH_BURN_IN:
-			return PackedFloat32Array([1.0, 0.80])
+			return PackedFloat32Array([1.0, 1.0, 1.0, 1.0])
 		GLYPH_CAST:
-			return PackedFloat32Array([1.0, 0.75])
+			return PackedFloat32Array([1.0, 0.55, 0.55])
 		GLYPH_REVERSE:
-			return PackedFloat32Array([1.0, 1.0, 0.55])
+			return PackedFloat32Array([1.0, 0.85, 1.0, 0.85])
 	return PackedFloat32Array()
 
 ## Alle Zeichenschlüssel - der Bake und der Geometrie-Test laufen darüber.

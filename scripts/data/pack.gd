@@ -22,7 +22,8 @@ const TYPE_MATERIAL := "material"
 const TYPE_DICE_MOD := "dice_mod"
 
 ## Ein Gravur-Paket = ein Prägenetz. Die Zahl steht als Konstante, damit niemand
-## sie an einer Fabrik wieder aufbläht; > 1 heißt Bündel (ein Fixinhalt mehrfach).
+## sie an einer Fabrik wieder aufbläht; > 1 heißt Bündel: so viele EINZELNE Karten
+## (nur die Hinterzimmer-Auslage), nie mehr Zellen auf einer.
 const ENGRAVING_PACK_COUNT := 1
 
 ## Die drei PAKETGRÖSSEN. Standard ist die unmarkierte Norm, Groß und Kolossal
@@ -172,6 +173,16 @@ static func net_line(pack: Pack) -> String:
 		return catalyst_effect(pack.catalyst_id)
 	return StampNet.line(pack.stamp_net)
 
+## Was eine Kassette WIRKT, in voller Länge: ihre Beschreibung und die Zeile ihres
+## Prägenetzes. EINE Quelle - Laden-Flanke wie Werkstatt-Info lesen sie.
+static func info_body(pack: Pack) -> String:
+	if pack == null:
+		return ""
+	var net := net_line(pack)
+	if net == "" or pack.description.contains(net):
+		return pack.description
+	return "%s\n%s" % [pack.description, net]
+
 static func number_pack(rng: RandomNumberGenerator = null) -> Pack:
 	var pack := _make(TYPE_NUMBER, ENGRAVING_PACK_COUNT, NUMBER_PRICE,
 		"Ein Prägenetz aus Zahl-Zellen, versiegelt.")
@@ -194,21 +205,22 @@ static func dice_mod_pack(rng: RandomNumberGenerator = null) -> Pack:
 ## weder an der Sorte noch an der Lizenz. Bündel gibt es nur im Hinterzimmer.
 const SPECIAL_PRICE := 30
 
-## Fixinhalt-Paket: sein Netz trägt genau diesen Inhalt, je Kopie eine Zelle auf
-## eigener Seite. amount > 1 legt mehrere Kopien in DIESELBE Karte - ein Bündel ist
-## eine Datenkarte, kein Stapel. Preis 0 ist der Regelfall: so etwas wird gefunden
-## oder abgegossen; nur der Handel setzt einen.
+## Fixinhalt-Paket: sein Netz trägt GENAU EINE Zelle dieses Inhalts. amount > 1 ist
+## das BÜNDEL der Hinterzimmer-Auslage - so viele Karten, jede mit einer Zelle; der
+## Kauf legt sie einzeln ins Magazin, die Auslage zeigt den Stapel mit seiner Zahl.
+## Preis 0 ist der Regelfall: so etwas wird gefunden oder abgegossen; nur der
+## Handel setzt einen.
 static func fixed_engraving_pack(engraving: Engraving, amount := ENGRAVING_PACK_COUNT,
 		cost := 0, rng: RandomNumberGenerator = null) -> Pack:
 	if engraving == null:
 		return number_pack(rng)
 	var many := maxi(amount, 1)
 	var text := "%s, versiegelt." % engraving.display_name if many == 1 \
-		else "%d× %s auf EINER Karte, versiegelt." % [many, engraving.display_name]
+		else "%d Karten %s, versiegelt." % [many, engraving.display_name]
 	var pack := _make(pack_type_for_category(engraving.category), many, cost, text)
 	pack.display_name = engraving.display_name
 	pack.fixed_engraving = engraving
-	pack.stamp_net = StampNet.fixed_net(engraving, many, rng)
+	pack.stamp_net = StampNet.fixed_net(engraving, rng)
 	return pack
 
 ## --- Die OPERATOR-KASSETTEN ---------------------------------------------------

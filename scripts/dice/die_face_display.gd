@@ -569,14 +569,13 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 ## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_runes). Genau
 ## diese zeitliche Signatur trennt sie vom DAUERND glühenden Essenz-Rand.
 ## Der Vakuum-Würfel trägt bis zu drei Zeichen je Seite; jedes weitere bekommt
-## seine eigene Auflage, erst bei Bedarf gebaut, und seine eigene Ankerzelle -
-## so nehmen die Zeichen gegenüberliegende Schultern, statt sich zu überlagern.
+## seine eigene Auflage, erst bei Bedarf gebaut, und seine eigene Spiegelung.
 func _refresh_rune_overlays(def: DieDefinition) -> void:
 	for axis in rune_overlays:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var on_face := def.runes_on(face_index)
 		_apply_rune_overlay(rune_overlays[axis], on_face, 0, def)
-		for slot in range(1, Rune.ANCHOR_CELLS.size()):
+		for slot in range(1, Rune.SLOT_FLIPS.size()):
 			var extra: MeshInstance3D = _extra_overlays(slot).get(axis)
 			if on_face.size() > slot:
 				if extra == null:
@@ -621,11 +620,8 @@ func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index:
 	material.set_shader_parameter("halo_bias", profile.halo_bias)
 	# Je Würfel eine eigene Phase - 30 Tray-Würfel atmen nie im Gleichschritt.
 	material.set_shader_parameter("phase", _pulse_phase)
-	var cell := Rune.anchor_cell(index)
-	material.set_shader_parameter("cell", cell)
-	# Der Schutz-Ring des Einbrands geht von der Zellmitte aus.
-	material.set_shader_parameter("impact",
-		Vector2((cell.x + cell.z) * 0.5, (cell.y + cell.w) * 0.5))
+	# Der Platz ist eine Spiegelung derselben Maske - der KRANZ füllt die Seite.
+	material.set_shader_parameter("glyph_flip", Rune.slot_flip(index))
 	material.set_shader_parameter("flare", 0.0)
 	material.set_shader_parameter("block_flare", false)
 

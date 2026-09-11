@@ -690,6 +690,14 @@ func packs_full() -> bool:
 		return true
 	return next_pack_row() < 0
 
+## Freie Plätze im Magazin über alle Reihen - ein Bündel braucht so viele auf einmal.
+func pack_room() -> int:
+	ensure_pack_rows()
+	var room := 0
+	for taken in _pack_row_fill():
+		room += maxi(pack_columns - taken, 0)
+	return maxi(mini(room, pack_capacity - owned_packs.size()), 0)
+
 # --- Das REIHEN-MODELL des Magazins ------------------------------------------------
 # Jede Kassette gehört FEST zu einer Reihe des Magazins; ein Verbrauch schließt nur
 # SEINE Reihe, die anderen rühren sich nicht.
@@ -2427,8 +2435,9 @@ const ENERGY_OVERFLOW_MONEY := 5
 const SECRET_CHARM_PRICE := 5
 
 ## Bündel des Sonderposten-Platzes: Menge, ⚡-Preis und Ziehgewicht. Ein Bündel
-## ist EINE Datenkarte mit mehreren Stücken darin - je größer, desto seltener,
-## aber der Stückpreis fällt (3 / 2,33 / 2 ⚡).
+## sind so viele EINZELNE Karten mit je einer Zelle (Spieler-Entscheid 2026-09-11;
+## davor eine Karte mit n Zellen) - je größer, desto seltener, aber der Stückpreis
+## fällt (3 / 2,33 / 2 ⚡).
 const SECRET_SPECIAL_BUNDLES := [
 	{"count": 1, "price": 3, "weight": 3},
 	{"count": 3, "price": 7, "weight": 2},
@@ -2456,7 +2465,7 @@ const SECRET_DIE_PRICES := {
 const OFFER_KIND := "kind"
 const OFFER_ITEM := "item"
 const OFFER_PRICE := "price"
-## Stückzahl EINER Karte (Sonderposten-Bündel); alles andere liegt einzeln.
+## Kartenzahl des Sonderposten-Bündels; alles andere liegt einzeln.
 const OFFER_COUNT := "count"
 const OFFER_SOLD := "sold"
 const KIND_CHARM := "charm"
@@ -2476,6 +2485,11 @@ const SECRET_CATALYST_CHANCE := 0.35
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
 static func secret_energy_price(money_price: int) -> int:
 	return maxi(1, ceili(float(money_price) / float(SECRET_MONEY_PER_ENERGY)))
+
+## Wie viele Karten ein versiegeltes Angebot ins Magazin legt (das Bündel seine
+## Zahl, alles andere eine).
+static func offer_cards(offer: Dictionary) -> int:
+	return maxi(int(offer.get(OFFER_COUNT, 1)), 1)
 
 var energy: int = 0:
 	set(value):
@@ -2588,9 +2602,11 @@ func buy_secret_offer(index: int) -> bool:
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
 	# Volles Magazin: alles VERSIEGELTE sperrt der Deckel wie eine knappe Börse -
-	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3. Der Würfel geht
-	# ins Ausgabefach und kennt darum keinen Deckel.
-	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE and packs_full():
+	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3; ein Bündel braucht
+	# Platz für JEDE seiner Karten. Der Würfel geht ins Ausgabefach und kennt darum
+	# keinen Deckel.
+	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE \
+			and pack_room() < offer_cards(offer):
 		return false
 	spend_energy(price)
 	match offer[OFFER_KIND]:
@@ -2607,9 +2623,11 @@ func buy_secret_offer(index: int) -> bool:
 			grant_pack(offer[OFFER_ITEM] as Pack)
 		_:
 			# Auch der Sonderposten geht versiegelt raus - offen darf nichts warten.
-			# Ein Bündel bleibt dabei EINE Karte mit mehreren Stücken darin.
-			grant_pack(Pack.fixed_engraving_pack(offer[OFFER_ITEM] as Engraving,
-				int(offer.get(OFFER_COUNT, 1))))
+			# Das Bündel sind EINZELNE Karten, als EINE Lieferung gemeldet.
+			var cards: Array[Pack] = []
+			for i in offer_cards(offer):
+				cards.append(Pack.fixed_engraving_pack(offer[OFFER_ITEM] as Engraving))
+			grant_packs(cards)
 	offer[OFFER_SOLD] = true
 	secret_stock_changed.emit()
 	return true

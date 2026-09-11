@@ -31,19 +31,23 @@ func test_the_tint_comes_from_the_single_shelf_table() -> void:
 		assert_almost_eq(glow.g, expected.g, 0.001)
 		assert_almost_eq(glow.b, expected.b, 0.001)
 
-func test_the_sealed_sort_shows_a_band_and_no_core() -> void:
-	var sealed := _cell(Pack.SHELF_SPECIAL)
-	assert_true(sealed.sealed())
-	assert_false(sealed.has_core(), "Fixinhalt: es gibt nichts zu sehen")
-	assert_true(sealed.has_band(), "stattdessen das Siegelband")
-	assert_null(sealed.get_node_or_null("Body/Cell0/Core"))
-	assert_not_null(sealed.get_node_or_null("Body/Cell0/Seal"))
+## Das SIEGELBAND des Sonderbestands ist am 2026-09-11 gestorben (Spieler-Entscheid:
+## der Querbalken verkleinerte sein Netz) - er trägt Kern und Netz wie jede Sorte.
+func test_the_special_sort_carries_core_and_net_like_any_other() -> void:
+	var special := _cell(Pack.SHELF_SPECIAL, _number_net())
+	var plain := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	assert_true(special.has_core(), "der Kern hinterleuchtet auch den Sonderbestand")
+	assert_not_null(special.get_node_or_null("Body/Cell0/Core"))
+	assert_null(special.get_node_or_null("Body/Cell0/Seal"), "kein Band mehr")
+	assert_null(special.get("has_band"), "und keine Vokabel dafür")
+	assert_eq(special.net_size(), plain.net_size(), "das Netz ist GENAU so groß")
+	assert_eq((special.get_node("Body/Cell0/StampNet") as Node3D).position,
+		(plain.get_node("Body/Cell0/StampNet") as Node3D).position,
+		"und liegt an derselben Stelle")
 
-func test_an_open_sort_shows_its_core_and_no_band() -> void:
+func test_an_open_sort_shows_its_core() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	assert_false(cell.sealed())
 	assert_true(cell.has_core())
-	assert_false(cell.has_band())
 	assert_not_null(cell.get_node_or_null("Body/Cell0/Core"),
 		"der Kern hinterleuchtet das Netz")
 	assert_null(cell.get_node_or_null("Body/Cell0/Seal"))
@@ -835,12 +839,11 @@ func test_das_gedrehte_netz_fuellt_die_karte_fast_ganz() -> void:
 		"und bleibt an der Kartenbreite")
 	assert_eq(_quad(cell).size, net, "die Fläche folgt dem Maß")
 
-func test_ein_versiegeltes_stueck_haelt_sein_netz_ueber_dem_band() -> void:
-	# Das Siegelband liegt vor der Fläche; quer gedreht wird das Netz darum gedeckelt.
+func test_ein_sonderbestands_stueck_fuellt_sein_fenster_wie_jedes_andere() -> void:
 	var cell := _cell(Pack.SHELF_SPECIAL, _number_net())
 	var opening := DataCellView.opening_size()
-	assert_lte(cell.net_size().y * 0.5 + opening.y * DataCellView.NET_SEALED_LIFT,
-		opening.y * 0.5 + 0.001, "es bleibt im Fenster")
+	assert_lte(cell.net_size().y * 0.5, opening.y * 0.5 + 0.001, "es bleibt im Fenster")
+	assert_gt(cell.net_size().y / opening.y, 0.9, "und deckt es fast ganz")
 
 # --- Die Karte beantwortet den Zeiger SELBST (2026-09-04) -------------------------
 # Sie schneidet den Zeigerstrahl gegen die Ebene ihrer Netz-Platte, statt dass

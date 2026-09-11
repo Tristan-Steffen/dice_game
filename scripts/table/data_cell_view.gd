@@ -25,7 +25,7 @@ extends Node3D
 ## Reihenfolge als Kette fest (PRIORITY_*).
 
 ## Zulage über die Würfelkante hinaus: auf Bankdistanz las die Kassette als Karte
-## zu klein, Siegel und Kern verschwammen. Ein Drittel mehr ist die Größe, bei der
+## zu klein, Netz und Kern verschwammen. Ein Drittel mehr ist die Größe, bei der
 ## beides steht - Möbel neben den Würfeln, immer noch kein Klotz.
 const SIZE_FACTOR := 1.35
 ## Standhöhe, aus der Würfelkante abgeleitet: alles andere hängt an ihr.
@@ -166,7 +166,6 @@ const DEMATERIALIZE_TIME := 0.16
 ## Gehäuse: GETÖNTES GLAS in der Sortenfarbe (Spieler-Entscheid 2026-09-04). Der
 ## Körper ist durchscheinend, also liest das Prägenetz auch von HINTEN - durch ihn
 ## hindurch, gespiegelt, physikalisch ehrlich; einen zweiten Druck gibt es nicht.
-## Massiv bleiben Kopfkante, Blende, Kragen, Finnen und das Siegelband.
 const GLASS_BODY_ALPHA := 0.32
 const GLASS_BODY_EMISSION := 0.34
 ## Rahmen, Kragen, Kopfkante und Finnen sind seit dem 2026-09-07 ebenfalls halb
@@ -243,8 +242,6 @@ const FACE_BADGE_SHARE := Vector2(0.5 / 3.2, 0.5 / 4.3)
 ## Rauchglas seine Ziffern.
 const NET_WIDTH_SHARE := 1.0
 const NET_PROUD := 0.004
-## Beim versiegelten Stück rückt es hoch: darunter liegt das Siegelband.
-const NET_SEALED_LIFT := 0.16
 
 ## Der RAHMEN trägt die Sorte: die Blende mischt so viel Sortenfarbe ins Chassis.
 const FRAME_TINT_SHARE := 0.62
@@ -314,7 +311,6 @@ var _fin_material: StandardMaterial3D
 var _net_material: StandardMaterial3D
 var _net_oven: SubViewport
 var _drained: Array[bool] = []
-var _band_material: StandardMaterial3D
 
 func _init() -> void:
 	name = "DataCell"
@@ -335,10 +331,6 @@ func setup(cell_sort: String, cell_tier: int = 0, net: Array = []) -> void:
 	_body.add_child(_badge)
 	_apply_pose()
 	set_count(_count)
-
-## Der Sonderbestand ist versiegelt: Band quer über das Fenster, kein Kern.
-func sealed() -> bool:
-	return sort == Pack.SHELF_SPECIAL
 
 # --- Das PRÄGENETZ auf der Fläche -------------------------------------------------
 
@@ -383,13 +375,11 @@ static func net_span(cell_scale: float) -> Vector2:
 
 ## Das Netz DIESER Karte: sie liegt überall QUER und trägt darum die hochkante
 ## Backung, und die füllt den Rahmen fast ganz - also wird sie an der Fensterhöhe
-## gedeckelt. Ein VERSIEGELTES Stück rückt sein Netz über das Band, ihm bleibt
-## entsprechend weniger Platz.
+## gedeckelt. Der Sonderbestand trägt es GENAU SO groß wie jede andere Sorte
+## (Spieler-Entscheid 2026-09-11 - sein Siegelband ist gestorben).
 func net_size() -> Vector2:
 	var span := net_span(1.0)
 	var room := opening_size().y * NET_WIDTH_SHARE
-	if sealed():
-		room -= opening_size().y * NET_SEALED_LIFT * 2.0
 	if span.y > room and span.y > 0.0:
 		span *= room / span.y
 	return span
@@ -399,8 +389,7 @@ func net_size() -> Vector2:
 ## ohnehin schon mit.
 func _apply_net_layout() -> void:
 	var span := net_size()
-	var mid := opening_center_y() \
-		+ (opening_size().y * NET_SEALED_LIFT if sealed() else 0.0)
+	var mid := opening_center_y()
 	for cell: Node3D in _cells:
 		var plate := cell.get_node_or_null("StampNet") as MeshInstance3D
 		if plate != null and plate.mesh is QuadMesh:
@@ -915,9 +904,9 @@ func rest_energy() -> float:
 	# Intensität der Stufe.
 	return HOVER_ENERGY if _hovered else REST_ENERGY * tier_energy()
 
-## Der leuchtende Teil: Kern, beim Sonderbestand das Siegelband.
+## Der leuchtende Teil: der Kern.
 func glow_material() -> StandardMaterial3D:
-	return _band_material if sealed() else _core_material
+	return _core_material
 
 func glow_color() -> Color:
 	var material := glow_material()
@@ -929,9 +918,6 @@ func glow_energy() -> float:
 
 func has_core() -> bool:
 	return _core_material != null
-
-func has_band() -> bool:
-	return _band_material != null
 
 # --- Aufbau ---------------------------------------------------------------------
 
@@ -1080,15 +1066,12 @@ func _build_materials() -> void:
 	_edge_material.albedo_color.a = GLASS_FRAME_ALPHA
 	_edge_material.render_priority = _prio(PRIORITY_FRAME)
 
-	if sealed():
-		_band_material = _lit_material(shade)
-	else:
-		# Die Hinterleuchtung ist selbst durchscheinend - deckend stünde sie dem
-		# Blick von hinten aufs Netz im Weg.
-		_core_material = _lit_material(shade)
-		_core_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_core_material.albedo_color.a = CORE_ALPHA
-		_core_material.render_priority = _prio(PRIORITY_CORE)
+	# Die Hinterleuchtung ist selbst durchscheinend - deckend stünde sie dem
+	# Blick von hinten aufs Netz im Weg.
+	_core_material = _lit_material(shade)
+	_core_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_core_material.albedo_color.a = CORE_ALPHA
+	_core_material.render_priority = _prio(PRIORITY_CORE)
 
 func _lit_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -1146,8 +1129,7 @@ func _build_cell() -> Node3D:
 	if _core_material != null:
 		var lit := net_size() * CORE_NET_MARGIN
 		_add_box(cell, "Core", Vector3(lit.x, lit.y, DEPTH * 0.30),
-			Vector3(0.0, mid + (opening.y * NET_SEALED_LIFT if sealed() else 0.0),
-				DEPTH * 0.02), _core_material)
+			Vector3(0.0, mid, DEPTH * 0.02), _core_material)
 
 	# Die Blende steht vor der Gehäusefläche, die Scheibe liegt in ihrem Ring.
 	var lip := bezel_lip()
@@ -1174,22 +1156,16 @@ func _build_cell() -> Node3D:
 	cell.add_child(glass)
 
 	# Das PRÄGENETZ: die ganze Auskunft der Fläche, quer in die Fensterbreite
-	# gesetzt. Beim versiegelten Stück rückt es hoch - darunter liegt das Band.
+	# gesetzt.
 	var net_plate := MeshInstance3D.new()
 	net_plate.name = "StampNet"
 	var quad := QuadMesh.new()
 	quad.size = net_size()
 	net_plate.mesh = quad
 	net_plate.material_override = _net_material
-	net_plate.position = Vector3(0.0,
-		mid + (opening.y * NET_SEALED_LIFT if sealed() else 0.0),
-		DEPTH * 0.5 + NET_PROUD)
+	net_plate.position = Vector3(0.0, mid, DEPTH * 0.5 + NET_PROUD)
 	net_plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	cell.add_child(net_plate)
-
-	if _band_material != null:
-		_add_box(cell, "Seal", Vector3(WIDTH * 1.04, HEIGHT * 0.16, DEPTH * 1.12),
-			Vector3(0.0, mid - opening.y * 0.30, 0.0), _band_material)
 
 	# Der Lichtsaum SITZT auf der Kopfkante, seit die Kappe tot ist: von oben ist er
 	# die einzige massive Fläche der Karte. Eine Spur proud, sonst zerschneidet ihn
@@ -1240,8 +1216,7 @@ func _build_badge() -> Label3D:
 ## Fläche nach vorn - also auch von hinten durchs Glas, gespiegelt.
 func _face_badge_spot() -> Vector3:
 	var span := net_size()
-	var mid := opening_center_y() \
-		+ (opening_size().y * NET_SEALED_LIFT if sealed() else 0.0)
+	var mid := opening_center_y()
 	return Vector3((FACE_BADGE_SHARE.x - 0.5) * span.x,
 		mid + (0.5 - FACE_BADGE_SHARE.y) * span.y, DEPTH * 0.5 + NET_PROUD * 2.0)
 

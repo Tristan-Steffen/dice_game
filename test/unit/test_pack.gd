@@ -82,13 +82,15 @@ func test_a_fixed_pack_holds_one_piece_by_default() -> void:
 	assert_eq(pack.fixed_engraving.id, Engraving.DOPING)
 	assert_eq(pack.type, Pack.TYPE_MATERIAL, "die Kategorie entscheidet die Sorte")
 
-## Ein Bündel ist EINE Karte mit n Stücken - nicht n Karten.
-func test_a_bundle_is_one_card_with_several_pieces() -> void:
+## Ein Bündel sind n KARTEN (Spieler-Entscheid 2026-09-11): die Auslage-Kassette
+## zählt sie, ihr Netz trägt trotzdem nur die EINE Zelle einer Karte.
+func test_a_bundle_counts_cards_and_carries_one_cell() -> void:
 	var pack := Pack.fixed_engraving_pack(Engraving.pointer_engraving(), 5, 10)
 	assert_eq(pack.count, 5)
 	assert_eq(pack.price, 10)
 	assert_eq(pack.fixed_engraving.id, Engraving.POINTER)
-	assert_true(pack.description.contains("5×"), "die Menge steht auf der Karte")
+	assert_eq(StampNet.filled_count(pack.stamp_net), 1, "eine Zelle je Karte")
+	assert_true(pack.description.contains("5 Karten"), "die Menge steht auf der Karte")
 	assert_eq(pack.type, Pack.TYPE_DICE_MOD)
 
 ## Der Sonderposten-Platz führt zwei Familien: das Gravur-Einzelstück zum flachen

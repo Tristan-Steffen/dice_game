@@ -525,8 +525,8 @@ func test_the_series_screen_is_gone_and_the_sum_screen_stands() -> void:
 		"und im Band steht er auch nicht")
 	assert_not_null(view.get_node_or_null("Street/SumScreen"),
 		"der Summen-Schirm steht in Zeile 2 der Straße")
-	assert_not_null(view.get_node_or_null("Street/SumScreen/Caption"),
-		"mit EINER Zeile darunter")
+	assert_null(view.get_node_or_null("Street/SumScreen/Caption"),
+		"die Caption darunter ist am 2026-09-11 gestorben")
 
 # --- WELLE O: der SUMMEN-SCHIRM ---------------------------------------------------
 # Zeile 2 trägt DREI Netze. Das mittlere zeigt die REINE Summe der gesteckten
@@ -576,23 +576,23 @@ func test_hovering_a_card_shows_its_own_net() -> void:
 	assert_eq(_sum_view().name, "SeriesSum", "weg vom Zeiger steht wieder die Summe")
 	assert_eq(view.hover_pack_name(), "", "und niemand wird genannt")
 
-## Die CAPTION ist EINE Zeile, sie schreibt nur beim WECHSEL, und der Schacht
-## schlägt das Magazin.
-func test_the_caption_writes_on_change_and_names_the_shaft_first() -> void:
+## Die CAPTION ist am 2026-09-11 gestorben - der Info-Schirm fragt statt dessen
+## nach dem PAKET unter dem Zeiger, und die ETAGE schlägt das Magazin.
+func test_hover_pack_names_the_floor_before_the_magazine() -> void:
 	var slotted := _valued_pack(0, 3)
 	var spare := _valued_pack(1, 2)
 	view.slot_pack(slotted.pack_uid)
 	await wait_frames(2)
-	assert_eq(view.caption_text(), "", "sie startet leer")
-	view.set_caption("Zahlen-Paket")
-	assert_eq(view.caption_text(), "Zahlen-Paket")
-	view.set_caption("Zahlen-Paket")
-	assert_eq(view.caption_text(), "Zahlen-Paket", "derselbe Text ändert nichts")
-	view.set_caption("")
-	assert_eq(view.caption_text(), "", "und die leere Zeile räumt sie")
+	assert_null(view.hover_pack(), "ohne Zeiger liegt keine Karte da")
+	view.sync_hover_at(view.pack_anchor_px(spare.pack_uid))
+	assert_eq(view.hover_pack(), spare, "die Magazin-Kassette unter dem Zeiger")
 	view.sync_hover_at(view._slot_buttons[0].get_global_rect().get_center())
-	view._hover_pack_uid = spare.pack_uid  # beides zugleich: der Schacht gewinnt
-	assert_eq(view.hover_pack_name(), slotted.display_name)
+	view._hover_pack_uid = spare.pack_uid  # beides zugleich: die Etage gewinnt
+	assert_eq(view.hover_pack(), slotted)
+	assert_false(view.get_script().get_script_constant_map().has("CAPTION_STEPS"),
+		"die Konstanten der Caption sind fort")
+	assert_false(view.has_method("set_caption"), "und ihr Schreiber ebenso")
+	assert_false(view.has_method("caption_text"))
 
 ## Und eine Zelle des Summen-Netzes erklärt sich selbst: Zahl und Material im
 ## Klartext, aus denselben Quellen wie jedes andere Netz.

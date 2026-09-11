@@ -3,8 +3,10 @@ extends Panel
 ## Der STATIONS-STREIFEN UNTER dem Pool. Er hat KEINEN Schirm-Hintergrund - seine
 ## Teile liegen auf dem Filz - und ist seit der WELLE X (2026-09-05) EINE BREITE,
 ## FLACHE ZEILE. Von links nach rechts:
-##   PODEST (der Zielwürfel) | ZIEL-NETZ | SUMMEN-NETZ samt CAPTION |
+##   PODEST (der Zielwürfel) | ZIEL-NETZ | SUMMEN-NETZ |
 ##   ETAGEN-LEISTE | TURM | GRIFF-Knopf,   darunter das MAGAZIN über die volle Breite.
+## Über ihm, in der Lücke zur Pool-Reihe, liegt der INFO-SCHIRM (WorkshopInfoView):
+## er trägt seit dem 2026-09-11 jede Auskunft der Station.
 ##  - DER TURM ist ein Körper (TowerView): sechs ETAGEN übereinander, Etage 1 UNTEN.
 ##    Das Fenster MALT ihn nicht - es meldet nur sein Rechteck und hält die
 ##    ETAGEN-LEISTE, sechs Felder, die Klick, Zug und Zeiger tragen (der Turm selbst
@@ -68,6 +70,9 @@ const GOLD := Color("#ffd319")
 ## Operator-Karten stehen amber ab - die eine Farbtrennung der Serie (Wert-Karten
 ## behalten ihre Sortenfarbe). Die Quelle ist das Netz, nicht dieses Fenster.
 const OPERATOR_TINT := PressNetView.OPERATOR_TINT
+## Wem eine Netz-Zelle gehört, wenn kein Name dahintersteht (Info-Schirm-Titel).
+const SUM_OWNER := "Summe der Serie"
+const TARGET_OWNER := "Zielwürfel"
 
 ## Die Bühne des schwebenden Zielwürfels ist ein WELTMASS: ihre Spanne ist die
 ## Würfelfläche mal diesem Faktor (Würfel plus seine Stasis-Station, die durch die
@@ -139,17 +144,10 @@ const CONSOLE_SHELF_GAP := 2.1
 ## Er steht ganz links in der Zeile, vor der ETAGEN-LEISTE. Er trägt die
 ## REINE Summe aller gesteckten Prägenetze, zielunabhängig - und beim Hover statt
 ## dessen das Prägenetz DER überfahrenen Karte (Stufe vor Magazin). Ohne beides
-## steht dort dasselbe leere Kreuz wie unten. Darunter läuft EINE Zeile (die
-## CAPTION), die scene_root schreibt. Ränder/Grade in u.
+## steht dort dasselbe leere Kreuz wie unten. Die CAPTION darunter ist am
+## 2026-09-11 gestorben - jede Auskunft trägt der INFO-SCHIRM in der Lücke über
+## dem Streifen (WorkshopInfoView). Ränder in u.
 const INFO_MARGIN := 1.2
-## Die CAPTION unter dem Netz: Kartenname beim Karten-Hover, Zell-Klartext beim
-## Zell-Hover, sonst leer. EINE Zeile, geklippt.
-const CAPTION_UNITS := 3.0
-const CAPTION_GAP := 0.4
-## Ihr Grad PASST SICH EIN: der Schirm ist so breit wie die Schacht-Reihe, also mal
-## schmal (zwei Schächte) und mal sehr breit (acht). Genommen wird die größte Stufe,
-## die noch in die Restbreite paßt.
-const CAPTION_STEPS := [2.6, 2.2, 1.9, 1.6, 1.4, 1.2, 1.0]
 ## Absolute Mindesthöhe des Magazin-Streifens (Einheiten u) - der Boden unter dem
 ## gemessenen Kartenmaß (siehe shelf_min_height).
 const SHELF_MIN_HEIGHT := 6.0
@@ -352,14 +350,10 @@ var _result_projection: Dictionary = {}
 ## Das Blech der Schacht-Reihe (null = steht gerade nicht).
 ## Der Knopf des Handlungs-Sitzes.
 var _action_button: Button
-## Der SUMMEN-SCHIRM (null = steht gerade nicht): sein Netz-Platz, das darin
-## hängende Netz und die Caption darunter.
+## Der SUMMEN-SCHIRM (null = steht gerade nicht): sein Netz-Platz und das darin
+## hängende Netz.
 var _sum_host: Control
 var _sum_net_view: Control
-var _caption: Label
-## Die Restbreite der Caption und die Einheit, in der ihre Leiter mißt.
-var _caption_span := Vector2.ZERO
-var _caption_unit := 0.0
 ## Was das Summen-Netz gerade zeigt - Signatur (nur der WECHSEL baut neu), Quelle
 ## ("card"/"sum"/"empty") und ihr Inhalt, damit die Zell-Frage sie beantworten kann.
 var _sum_signature := ""
@@ -423,7 +417,6 @@ func _refresh_content() -> void:
 	_drawer = null
 	_sum_host = null  # der Summen-Schirm hing am Inhalt
 	_sum_net_view = null
-	_caption = null
 	_sum_signature = ""  # ein Neuaufbau baut das Netz frisch
 	_prune_series()
 	var u := unit()
@@ -836,11 +829,11 @@ static func unit_for(die_face: float) -> float:
 	return maxf(die_face / U_PER_FACE, 0.5)
 
 ## Die FENSTERHÖHE: die höchste der drei Spalten plus die beiden Ränder. Der SUMMEN-
-## Schirm trägt sein Netz plus Caption, der Turm seinen Fußabdruck, die Bühne ihre
+## Schirm trägt sein Netz plus Fassung, der Turm seinen Fußabdruck, die Bühne ihre
 ## Spanne - jede ist ein Weltmaß, die Ränder sind die u-Kette.
 static func bench_height_for(u: float, net_px: float, tower_px: float,
 		stage_px_now: float) -> float:
-	var nets := net_px + u * (INFO_MARGIN * 2.0 + CAPTION_UNITS + CAPTION_GAP)
+	var nets := net_px + u * INFO_MARGIN * 2.0
 	return maxf(maxf(nets, tower_px), stage_px_now) + u * height_units()
 
 ## Die Maßeinheit u dieses Fensters: die vorgegebene, sonst die u-Konvention
@@ -1223,11 +1216,11 @@ func _seat_fit(button: Button, u: float) -> Button:
 func action_size(u: float) -> Vector2:
 	return Vector2(u * ACTION_WIDTH, u * ACTION_HEIGHT)
 
-## Der Platz des SUMMEN-SCHIRMS: die ERSTE Spalte der Zeile (Welle Z) - das Netz plus
-## seiner Fassung und der CAPTION darunter.
+## Der Platz des SUMMEN-SCHIRMS: die ERSTE Spalte der Zeile (Welle Z) - das Netz
+## plus seiner Fassung. Die CAPTION darunter ist am 2026-09-11 gestorben.
 func sum_screen_rect(u: float) -> Rect2:
 	var row := row_rect()
-	var height := net_span(u).y + u * (INFO_MARGIN * 2.0 + CAPTION_UNITS + CAPTION_GAP)
+	var height := net_span(u).y + u * INFO_MARGIN * 2.0
 	return Rect2(Vector2(row.position.x, row.get_center().y - height * 0.5),
 		Vector2(net_column_width(u), height))
 
@@ -1237,13 +1230,11 @@ func sum_screen_rect(u: float) -> Rect2:
 func sum_net_cell(u: float) -> float:
 	var rect := sum_screen_rect(u)
 	var pad := u * INFO_MARGIN
-	var room := Vector2(maxf(rect.size.x - pad * 2.0, 1.0),
-		maxf(rect.size.y - u * (CAPTION_UNITS + CAPTION_GAP), 1.0))
+	var room := Vector2(maxf(rect.size.x - pad * 2.0, 1.0), maxf(rect.size.y, 1.0))
 	return minf(net_cell(u), DieNetView.cell_for(room))
 
-## Der SUMMEN-SCHIRM: eine Fassung mit dem dritten NETZ der Zeile und EINER Zeile
-## darunter. Gefüllt wird die Zeile von scene_root (set_caption), das Netz vom
-## Fenster selbst (_refresh_sum_net).
+## Der SUMMEN-SCHIRM: eine Fassung mit dem zweiten NETZ der Zeile, sonst nichts.
+## Gefüllt wird es vom Fenster selbst (_refresh_sum_net).
 func _build_info_screen(u: float) -> void:
 	var rect := sum_screen_rect(u)
 	var screen := Panel.new()
@@ -1253,59 +1244,17 @@ func _build_info_screen(u: float) -> void:
 	screen.position = rect.position
 	screen.size = rect.size
 	_content.add_child(screen)
-	var pad := u * INFO_MARGIN
-	var inner := maxf(rect.size.x - pad * 2.0, 1.0)
-	var caption_h := u * CAPTION_UNITS
 	var span := DieNetView.net_size(sum_net_cell(u))
 	var host := Control.new()
 	host.name = "SumNet"
 	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	host.position = Vector2((rect.size.x - span.x) * 0.5,
-		maxf((rect.size.y - caption_h - u * CAPTION_GAP - span.y) * 0.5, 0.0))
+		maxf((rect.size.y - span.y) * 0.5, 0.0))
 	host.size = span
 	screen.add_child(host)
 	_sum_host = host
-	_caption_span = Vector2(inner, caption_h)
-	_caption_unit = u
-	# Die Zeile steht DIREKT unter dem Netz, nicht am Schirmboden - sie gehört ihm.
-	_caption = _info_line(screen, "Caption",
-		Vector2(pad, minf(host.position.y + span.y + u * CAPTION_GAP,
-			maxf(rect.size.y - caption_h, 0.0))), _caption_span,
-		u * float(CAPTION_STEPS[0]), MUTED_COLOR, false)
-	_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_sum_signature = ""
 	_refresh_sum_net()
-
-## Eine Zeile des Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst klemmt
-## die Mindestgröße die Zeile hoch.
-func _info_line(host: Control, line_name: String, at: Vector2, span: Vector2,
-		font_size: float, tint: Color, wrap: bool) -> Label:
-	var label := Label.new()
-	label.name = line_name
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.add_theme_color_override("font_color", tint)
-	if wrap:
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.clip_text = true
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	host.add_child(label)
-	label.position = at
-	label.size = span
-	return label
-
-## Der EINE Schreiber der CAPTION (scene_root, je Bild). Nur der WECHSEL schreibt.
-func set_caption(text: String) -> void:
-	if _caption == null or not is_instance_valid(_caption):
-		return
-	if _caption.text == text:
-		return
-	_caption.text = text
-	_fit_caption()
-
-func caption_text() -> String:
-	return _caption.text if _caption != null and is_instance_valid(_caption) else ""
 
 ## WARUM der Griff nicht zünden darf ("" = er darf). Die Bremsen stehen sonst
 ## stumm im Knopf: eine gesperrte Werkstatt, ein fehlendes Ziel, eine halbleere
@@ -1314,7 +1263,6 @@ func caption_text() -> String:
 func grip_blocker() -> String:
 	if run == null or can_pull() or burning():
 		return ""
-	# KURZ: die Zeile ist EINE Netz-Spalte breit, ein längerer Satz wird geklippt.
 	if editing_locked:
 		return "Runde gezurrt - erst im Laden wieder."
 	if target_die() == null:
@@ -1329,21 +1277,6 @@ func grip_blocker() -> String:
 	if stamping_card_count() <= 0:
 		return "Nur Katalysatoren - eine Netz-Karte fehlt."
 	return ""
-
-## Der Grad der Caption: die größte Stufe, die noch in die Restbreite paßt.
-func _fit_caption() -> void:
-	var font := ThemeDB.fallback_font
-	if font == null or _caption == null or not is_instance_valid(_caption) \
-			or _caption_span.x <= 0.0:
-		return
-	var px := maxi(8, int(_caption_unit * float(CAPTION_STEPS[CAPTION_STEPS.size() - 1])))
-	for step: float in CAPTION_STEPS:
-		var wanted := maxi(8, int(_caption_unit * step))
-		if font.get_string_size(_caption.text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
-				wanted).x <= _caption_span.x:
-			px = wanted
-			break
-	_caption.add_theme_font_size_override("font_size", px)
 
 # --- Das SUMMEN-NETZ ------------------------------------------------------------
 
@@ -1432,8 +1365,22 @@ func _sum_hint_at(pixel: Vector2) -> String:
 		return PressNetView.projection_hint(_sum_projection, face)
 	return ""
 
-## Der NAME der überfahrenen Karte ("" = keine) - Schacht vor Magazin, dieselbe
-## Reihenfolge wie beim Netz. scene_root schreibt ihn in die Caption.
+## Die überfahrene KARTE selbst (null = keine) - Etage vor Magazin, dieselbe
+## Reihenfolge wie beim Netz. Der Info-Schirm braucht das PAKET, nicht den Namen.
+func hover_pack() -> Pack:
+	if run == null:
+		return null
+	var cards := _slot_cards()
+	if _hover_slot >= 0 and _hover_slot < cards.size():
+		var slotted := run.pack_by_uid(int(cards[_hover_slot].get("uid", 0)))
+		if slotted != null:
+			return slotted
+	if _hover_pack_uid > 0:
+		return run.pack_by_uid(_hover_pack_uid)
+	return null
+
+## Der NAME der überfahrenen Karte ("" = keine) - während der Zeremonie ist ihr
+## Paket längst verbraucht, die Kartendaten kennen ihn trotzdem.
 func hover_pack_name() -> String:
 	var cards := _slot_cards()
 	if _hover_slot >= 0 and _hover_slot < cards.size():
@@ -1998,15 +1945,33 @@ func _set_hover_slot(index: int) -> void:
 ## gemeldet: Godot reicht die erste Bewegung über einem Knopf nicht als gui_input
 ## durch, und wer genau dort stehen bleibt, bekäme nie einen Text.
 func net_hint_at(pixel: Vector2) -> String:
-	var summed := _sum_hint_at(pixel)  # der Summen-Schirm liegt vor dem Netz
+	return String(_net_hint_info(pixel).get("hint", ""))
+
+## WEM die getroffene Zelle gehört ("" = keine getroffen): am Summen-Netz die
+## überfahrene Karte bzw. die Summe, am Ziel-Netz der Zielwürfel. Der Info-Schirm
+## setzt das in seinen Titel - geraten wird im Schreiber nichts.
+func net_hint_owner_at(pixel: Vector2) -> String:
+	return String(_net_hint_info(pixel).get("owner", ""))
+
+## EIN Entscheider für beide Fragen: der Summen-Schirm liegt vor dem Ziel-Netz.
+func _net_hint_info(pixel: Vector2) -> Dictionary:
+	var summed := _sum_hint_at(pixel)
 	if summed != "":
-		return summed
+		var pack := hover_pack()
+		var name_hint := hover_pack_name()
+		var owner := pack.display_name if pack != null else name_hint
+		return {"hint": summed, "owner": owner if owner != "" else SUM_OWNER}
 	if _net == null or not is_instance_valid(_net):
-		return ""
+		return {}
 	var face := _net.face_at_pixel(pixel)
 	if face == -1:
-		return ""
-	return _net.hint_for_face(face)
+		return {}
+	var hint := _net.hint_for_face(face)
+	if hint == "":
+		return {}
+	var die := target_die()
+	return {"hint": hint,
+		"owner": die.display_name if die != null else TARGET_OWNER}
 
 func _action_button_new(text: String, accent: Color, u: float,
 		handler: Callable) -> Button:

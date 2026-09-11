@@ -430,6 +430,16 @@ func test_packs_full_means_no_row_has_room():
 	assert_true(run.packs_full(), "jede Reihe ist voll")
 	assert_eq(run.next_pack_row(), -1, "und es gibt keine freie mehr")
 
+## Der freie Platz zählt über alle Reihen und fällt mit jeder Lieferung um eins.
+func test_pack_room_counts_every_free_seat():
+	run.set_pack_grid(2)
+	assert_eq(run.pack_room(), 2 * GameRun.PACK_ROWS)
+	run.grant_pack(Pack.number_pack())
+	assert_eq(run.pack_room(), 2 * GameRun.PACK_ROWS - 1)
+	while not run.packs_full():
+		run.grant_pack(Pack.number_pack())
+	assert_eq(run.pack_room(), 0)
+
 ## Der ZUG darf die Reihe wechseln; eine VOLLE Zielreihe verweigert.
 func test_reorder_packs_may_change_the_row_but_not_into_a_full_one():
 	run.set_pack_grid(2)

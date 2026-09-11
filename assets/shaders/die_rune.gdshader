@@ -1,8 +1,8 @@
 // Runen der Würfelschale: EIN Shader für alle sechs Zeichen und die Vakuum-
 // Umkehrung. Die Maske ist FARBLOS (R Kern, G Bogenlänge, B Abstand zur
-// Mittellinie, A Deckung) und in ZELLEN-Koordinaten gebacken; die Tönung kommt
-// als Uniform, die Platzierung als cell - darum gibt es sechs Texturen im Spiel
-// und nicht dreißig.
+// Mittellinie, A Deckung) und in SEITEN-Koordinaten gebacken, liegt also
+// deckungsgleich auf der Seite; die Tönung kommt als Uniform, der Runen-Platz als
+// glyph_flip - darum gibt es sechs Texturen im Spiel und nicht dreißig.
 //
 // unshaded verwirft EMISSION - die Helligkeit muss über ALBEDO raus. Genau daran
 // ist die alte Auflage gescheitert: sie animierte emission_energy_multiplier auf
@@ -33,16 +33,25 @@ uniform float halo_width = 0.35;
 uniform float halo_flare = 2.8;
 uniform vec2 halo_bias = vec2(0.0);    // gerichtetes Ausbluten (Streulicht: nach unten)
 uniform vec2 digit_half = vec2(0.26, 0.38);
-uniform vec2 impact = vec2(0.14, 0.84);  // Zellmitte: Ursprung des Schutz-Rings
-// Ankerzelle in SEITEN-Koordinaten (min.xy, max.xy). Die Maske ist in ZELLEN-
-// Koordinaten gebacken, also setzt erst dieses Rechteck das Zeichen auf die
-// Seite - und ein zweites Zeichen derselben Seite bekommt schlicht eine andere
-// Zelle, statt gespiegelt zu werden.
-uniform vec4 cell = vec4(0.0, 0.0, 1.0, 1.0);
+// Runen-Platz als Spiegelung (Rune.SLOT_FLIPS): eine negative Komponente klappt
+// die Figur an dieser Achse um. Mehrere Runen einer Seite sind Spiegelungen
+// derselben Maske - die Sperr-Ellipse ist symmetrisch, also hält jede den
+// Ziffern-Abstand exakt ein.
+uniform vec2 glyph_flip = vec2(1.0, 1.0);
 uniform bool block_flare = false;      // Einbrand: Schutz-Blitz statt Wertungswelle
 
 // Länge der wandernden Bande als Anteil der Naht (TAU ist eingebaut).
 const float BAND = 0.12;
+
+// DISTANZ-AUSGLEICH (2026-09-11). Auf Grubendistanz ist eine Seite ~25 px breit,
+// die Naht also gut EIN Pixel - und ein Subpixel-Strich verschwindet, gleich wie
+// hell er ist. Darum weitet sich mit der Entfernung das angenommene Hof-Band, bis
+// das ganze gebackene Feld trägt: aus dem Strich wird eine Marke. Gemessen wird an
+// den Texeln je Pixel, nicht an einer Kameradistanz - so gilt dieselbe Regel für
+// Grube, Vorrat, Podest und Netz.
+const float FAR_REF = 1.5;    // darunter ist der Strich dick genug
+const float FAR_MAX = 7.0;    // weiter aufgeweitet wird nicht
+const float FAR_GAIN = 2.2;   // und so viel heller wird die Marke dabei
 
 // Bande hinter einem Kopf auf der Bogenlänge, umlaufend.
 float trail(float s, float head, float width) {
@@ -56,10 +65,9 @@ float swept(float s, float head, float soft) {
 
 void fragment() {
 	vec2 face_uv = UV;
-	vec2 uv = (face_uv - cell.xy) / max(cell.zw - cell.xy, vec2(0.0001));
-	// Außerhalb der Zelle wird nichts gezeichnet: repeat_disable klemmt sonst den
-	// Randwert über die halbe Seite.
-	float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+	// Der Platz ist eine Spiegelung, keine Verschiebung - ohne if-Zweig.
+	vec2 mirror = step(glyph_flip, vec2(0.0));
+	vec2 uv = mix(face_uv, 1.0 - face_uv, mirror);
 	vec4 mask = texture(glyph_map, uv);
 	float core = mask.r;
 	float s = mask.g;
@@ -116,9 +124,9 @@ void fragment() {
 			// Der Schutz-Blitz: der einzige Moment, in dem die Wirkung überhaupt
 			// sichtbar wird - hart weiß, plus ein Ring über die ganze Seite.
 			float env = clamp(u / 0.111, 0.0, 1.0) * (1.0 - clamp((u - 0.111) / 0.889, 0.0, 1.0));
-			// Der Ring läuft über die ganze SEITE, nicht nur durch die Zelle:
-			// er ist die Schutz-Geste des Würfels, nicht die des Zeichens.
-			ring = (1.0 - smoothstep(0.0, 0.10, abs(length(face_uv - impact) - u * 0.9))) * env;
+			// Der Ring geht von der SEITENMITTE aus: er ist die Schutz-Geste des
+			// Würfels, nicht die des Zeichens.
+			ring = (1.0 - smoothstep(0.0, 0.10, abs(length(face_uv - vec2(0.5)) - u * 0.9))) * env;
 			energy += flare_peak * 1.21 * env;
 			tint = mix(tint, core_color, env);
 			widen = 1.0 + (halo_flare - 1.0) * env;
@@ -145,9 +153,16 @@ void fragment() {
 
 	// Ziffern-Wächter: das Zeichen DIMMT, wo es hinter einer breiten Zahl liegt.
 	// Es ändert nie seine Form - Knochen lässt Werte wachsen, und eine Rune, die
-	// sich dabei neu zeichnet, liest als Fehler. Gemessen wird in SEITEN-Koordinaten:
-	// die Ziffer sitzt auf der Seite, nicht in der Zelle.
-	energy *= smoothstep(0.85, 1.15, length((face_uv - 0.5) / digit_half));
+	// sich dabei neu zeichnet, liest als Fehler.
+	// Gelockert am 2026-09-11: die FIGUR hält den Abstand seit dem KRANZ selbst ein
+	// (ein Test bewacht ihn), also dimmt der Wächter nur noch, was wirklich
+	// hereinragt - sonst kostete er jede Rune ein Fünftel ihrer Helligkeit.
+	energy *= smoothstep(0.70, 1.00, length((face_uv - 0.5) / digit_half));
+
+	float texels = max(fwidth(uv).x, fwidth(uv).y) * float(textureSize(glyph_map, 0).x);
+	float far = clamp(texels / FAR_REF, 1.0, FAR_MAX);
+	widen *= far;
+	energy *= mix(1.0, FAR_GAIN, clamp((far - 1.0) / (FAR_MAX - 1.0), 0.0, 1.0));
 
 	float band = halo_width * widen;
 	float halo = clamp(1.0 - radial / max(band, 0.001), 0.0, 1.0);
@@ -155,7 +170,9 @@ void fragment() {
 	// Gerichtetes Ausbluten: eine zweite Probe gegen die Bias-Richtung schiebt den
 	// Hof zur Bias-Seite - bei Streulicht fällt das Licht so vom Würfel aufs Filz.
 	float spill = 0.05 * (widen - 1.0) / max(halo_flare - 1.0, 0.001);
-	float shifted = clamp(1.0 - texture(glyph_map, uv - halo_bias * spill).b / max(band, 0.001), 0.0, 1.0);
+	// Die Bias-Richtung ist in SEITEN-Koordinaten gemeint, also klappt sie mit.
+	float shifted = clamp(1.0 - texture(glyph_map, uv - halo_bias * glyph_flip * spill).b
+		/ max(band, 0.001), 0.0, 1.0);
 	halo = max(halo, shifted * shifted);
 
 	float bright = clamp(energy, 0.0, 1.0);
@@ -187,5 +204,5 @@ void fragment() {
 	}
 
 	ALBEDO = out_albedo;
-	ALPHA = out_alpha * inside;
+	ALPHA = out_alpha;
 }

@@ -91,8 +91,8 @@ func test_a_face_with_a_rune_carries_the_shader() -> void:
 	assert_not_null(material, "ShaderMaterial statt StandardMaterial3D")
 	assert_same(material.shader, DieBuilder.RUNE_SHADER, "EIN Shader, ein Compile")
 	assert_eq(material.get_shader_parameter("motion"), Rune.MOTION_ECHO)
-	assert_eq(material.get_shader_parameter("cell"), Rune.anchor_cell(0),
-		"der erste Platz zeichnet in die erste Ankerzelle")
+	assert_eq(material.get_shader_parameter("glyph_flip"), Rune.slot_flip(0),
+		"der erste Platz zeichnet die Figur ungespiegelt")
 
 func test_an_unbroken_face_shows_nothing() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW]))
@@ -105,7 +105,7 @@ func test_the_seam_colour_reaches_the_shader_normalized() -> void:
 		"energy heißt in jedem Profil dasselbe")
 	assert_almost_eq(seam.z, 1.0, 0.01, "und es bleibt das Energie-Cyan")
 
-func test_the_vacuum_swallows_every_rune_and_moves_the_second_to_its_own_cell() -> void:
+func test_the_vacuum_swallows_every_rune_and_mirrors_the_second() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))
 	assert_eq(_material(faces, 0).get_shader_parameter("motion"), Rune.MOTION_INTAKE,
 		"auf einem Vakuum-Würfel saugt auch das Nachglühen")
@@ -113,9 +113,9 @@ func test_the_vacuum_swallows_every_rune_and_moves_the_second_to_its_own_cell() 
 	assert_not_null(second, "das zweite Zeichen bekommt seine eigene Auflage")
 	assert_true(second.visible)
 	var second_material := second.material_override as ShaderMaterial
-	assert_eq(second_material.get_shader_parameter("cell"), Rune.anchor_cell(1),
-		"eigene Schulter - sonst liegen beide Zeichen übereinander")
-	assert_ne(Rune.anchor_cell(1), Rune.anchor_cell(0))
+	assert_eq(second_material.get_shader_parameter("glyph_flip"), Rune.slot_flip(1),
+		"eigene Spiegelung - sonst liegen beide Zeichen deckungsgleich")
+	assert_ne(Rune.slot_flip(1), Rune.slot_flip(0))
 	assert_eq(second_material.get_shader_parameter("motion"), Rune.MOTION_INTAKE)
 
 func test_a_single_rune_builds_no_second_overlay() -> void:

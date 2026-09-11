@@ -70,47 +70,55 @@ func test_the_four_walls_and_the_floor_close_the_box() -> void:
 	var floor_mesh := _mesh("Floor")
 	assert_lt(floor_mesh.position.y, -DEPTH, "und zwar unter der ganzen Tiefe")
 
-## EIN BODEN für die ganze L-Fläche (Welle Z): die BUCHT baut keinen, das MAGAZIN
-## einen, der über den eigenen Grundriß hinaus bis an ihre Rückwand reicht - eine
-## Platte, ein Material, EINE Höhe.
-func test_the_bay_builds_no_floor_at_all() -> void:
-	pit.build_floor = false
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_MINUS)
-	assert_null(_mesh("Floor"), "die Bucht hat kein Boden-Kind")
-	for wall_name: String in ["WallXPlus", "WallZPlus", "WallZMinus"]:
-		assert_not_null(_mesh(wall_name), "ihre Wände stehen weiter")
-
-func test_a_reported_floor_area_covers_the_neighbour_too() -> void:
-	# Die Nachbargrube liegt jenseits der eigenen +X-Wand; die gemeldete Fläche
-	# umschließt beide Grundrisse.
-	var mine := Rect2(Vector2(3.0 - HALF.x, -2.0 - HALF.y), HALF * 2.0)
-	var bay := Rect2(Vector2(3.0 + HALF.x, -2.0), Vector2(4.0, 1.0))
-	pit.floor_area = mine.merge(bay)
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH)
+## JEDE Grube baut ihren eigenen Boden auf ihrer eigenen Tiefe (2026-09-11: die
+## Bucht ist nur halb so tief, der eine L-Boden ist damit gestorben) - auch die
+## offene Bucht.
+func test_the_open_bay_builds_its_own_floor() -> void:
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH * 0.5, PackPitView.WALL_X_MINUS)
 	var plate := _mesh("Floor")
-	var span: Vector3 = (plate.mesh as BoxMesh).size
-	var lo := Vector2(plate.global_position.x - span.x * 0.5,
-		plate.global_position.z - span.z * 0.5)
-	var hi := Vector2(plate.global_position.x + span.x * 0.5,
-		plate.global_position.z + span.z * 0.5)
-	assert_true(Rect2(lo, hi - lo).encloses(bay),
-		"der EINE Boden deckt auch die Nachbargrube")
-	assert_true(Rect2(lo, hi - lo).encloses(mine), "und den eigenen Grundriß")
-	# EINE Höhe: die Oberkante liegt auf der Grubentiefe, ohne Absatz.
+	assert_not_null(plate, "die Bucht hat ihren Boden")
 	assert_almost_eq(plate.position.y + PackPitView.FLOOR * 0.5,
-		-PackPitView.WALL_SINK - DEPTH, 0.001, "keine abgesenkte zweite Platte")
-	assert_null(pit.get("floor_sink"), "das Absenken ist gestorben")
+		-PackPitView.WALL_SINK - DEPTH * 0.5, 0.001, "auf ihrer eigenen Tiefe")
+	assert_null(pit.get("floor_area"), "die gemeldete L-Fläche ist gestorben")
+	assert_null(pit.get("build_floor"), "und der Boden-Schalter mit ihr")
 
-## Der Samt-Schimmer mißt sich an der GANZEN Platte - sonst stünde an der Naht
-## zwischen den beiden Löchern eine Helligkeitskante.
-func test_the_velvet_field_spans_the_whole_plate() -> void:
-	var area := Rect2(Vector2(-9.0, -6.0), Vector2(30.0, 9.0))
-	pit.floor_area = area
+## Unter dem Durchbruch steht eine SCHWELLE, wenn der Nachbar flacher ist: sie
+## beginnt eine Bodenplatte unter dessen Boden und reicht bis zum eigenen, so breit
+## wie der Durchbruch - und sie ist UNGETEILT, sie steht ja im Durchbruch.
+func test_a_shallower_neighbour_gets_a_sill_under_the_breach() -> void:
+	var offset := 0.5
+	var width := 1.0
+	pit.breach_floor = DEPTH * 0.5
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
+		Vector2(offset, width))
+	var sill := _mesh("WallXPlusSchwelle")
+	assert_not_null(sill, "die Schwelle steht")
+	var span: Vector3 = (sill.mesh as BoxMesh).size
+	assert_almost_eq(span.z, width, 0.001, "so breit wie der Durchbruch")
+	assert_almost_eq(sill.position.z, offset, 0.001, "und auf seinem Versatz")
+	var top := sill.position.y + span.y * 0.5
+	assert_almost_eq(top, -PackPitView.WALL_SINK - DEPTH * 0.5 - PackPitView.FLOOR,
+		0.001, "ihre Oberkante liegt eine Platte unter dem Nachbar-Boden")
+	assert_almost_eq(sill.position.y - span.y * 0.5, -PackPitView.WALL_SINK - DEPTH,
+		0.001, "und sie reicht bis zum eigenen")
+	assert_almost_eq(sill.position.x, _mesh("WallXPlusA").position.x, 0.001,
+		"in der Flucht der Wand")
+
+func test_an_equally_deep_neighbour_needs_no_sill() -> void:
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
+		Vector2(1.5, 2.0))
+	assert_null(_mesh("WallXPlusSchwelle"), "ohne breach_floor keine Schwelle")
+
+## Der Samt-Schimmer mißt sich an der eigenen Platte.
+func test_the_velvet_field_spans_the_plate() -> void:
 	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH)
 	var lining: ShaderMaterial = _mesh("Floor").material_override
-	assert_eq(Vector2(lining.get_shader_parameter("field_center")),
-		area.get_center(), "das Feld steht auf der Mitte der ganzen Fläche")
-	assert_eq(Vector2(lining.get_shader_parameter("field_half")), area.size * 0.5)
+	var centre := Vector2(lining.get_shader_parameter("field_center"))
+	assert_almost_eq(centre.x, 3.0, 0.001, "das Feld steht auf der Grubenmitte")
+	assert_almost_eq(centre.y, -2.0, 0.001)
+	var half := Vector2(lining.get_shader_parameter("field_half"))
+	assert_almost_eq(half.x, HALF.x, 0.001)
+	assert_almost_eq(half.y, HALF.y, 0.001)
 
 func test_rim_and_walls_end_UNDER_the_glass() -> void:
 	# Lägen ihre Deckflächen auf der Glasebene, kämpften sie im Tiefenpuffer und

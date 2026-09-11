@@ -1,10 +1,10 @@
 extends GutTest
-## Der Dauerwächter der Runenzeichen. Die Platzierung trägt jetzt die Regel, die
-## früher die Figur trug: ein Riss lief von Rand zu Rand und hielt sich damit von
-## selbst von der Ziffer frei, ein Zeichen ist kompakt und tut das nicht. Also
-## prüfen wir beides getrennt - die ZELLE meidet die Ziffer, die FIGUR bleibt in
-## ihrer Zelle. Billig zu prüfen und teuer zu übersehen: eine Figur über der
-## Ziffer macht den Würfel unlesbar, und das fällt headless sonst niemandem auf.
+## Der Dauerwächter der Runenzeichen. Seit dem KRANZ (2026-09-11) liegt jede Figur
+## auf der GANZEN Seite, im Ring zwischen Ziffern-Sperrzone und Seitenrand - die
+## Ankerzelle, die die Ziffer früher freihielt, ist gestorben. Also trägt die FIGUR
+## die Regel wieder selbst, und der Hauptwächter prüft sie auf jedem Platz.
+## Billig zu prüfen und teuer zu übersehen: eine Figur über der Ziffer macht den
+## Würfel unlesbar, und das fällt headless sonst niemandem auf.
 
 ## Stützstellen JE SEGMENT. Nur die Eckpunkte zu prüfen reicht nicht: zwei freie
 ## Endpunkte können die Sperr-Ellipse trotzdem als Sehne durchschneiden.
@@ -12,77 +12,55 @@ const SAMPLES := 32
 ## float32-Toleranz der PackedVector2Array-Speicherung.
 const EPS := 0.0001
 
-func test_every_anchor_cell_clears_the_digit_keepout() -> void:
-	# Geprüft wird der ganze Zellrand: die Ellipse ist konvex, also genügt es,
-	# dass keine Kante sie schneidet.
-	for slot in Rune.ANCHOR_CELLS.size():
-		var cell := Rune.anchor_cell(slot)
-		var corners := [
-			Vector2(cell.x, cell.y), Vector2(cell.z, cell.y),
-			Vector2(cell.z, cell.w), Vector2(cell.x, cell.w),
-		]
-		for i in corners.size():
-			var worst := _worst_clearance(corners[i], corners[(i + 1) % corners.size()])
-			assert_gt(worst, 1.0,
-				"Ankerzelle %d schneidet die Ziffern-Sperrzone (%.3f)" % [slot, worst])
-
-func test_the_anchor_cells_never_overlap() -> void:
-	# Zwei Zeichen einer Vakuum-Seite müssen getrennte Schultern nehmen.
-	for a in Rune.ANCHOR_CELLS.size():
-		for b in range(a + 1, Rune.ANCHOR_CELLS.size()):
-			var one := Rune.anchor_cell(a)
-			var two := Rune.anchor_cell(b)
-			var overlaps := one.x < two.z and two.x < one.z and one.y < two.w and two.y < one.w
-			assert_false(overlaps, "Ankerzellen %d und %d überlappen" % [a, b])
-
-func test_the_net_cells_share_the_shoulders_but_never_overlap() -> void:
-	# Das Netz platziert dieselbe Figur groesser (kein Bloom, keine 3D-Ziffer),
-	# aber an DENSELBEN Ecken - sonst zeigt die Werkbank die Rune woanders als
-	# der Tisch. Ueberlappen duerfen sie trotzdem nicht.
-	assert_eq(Rune.NET_CELLS.size(), Rune.ANCHOR_CELLS.size(), "je Platz eine Kachel")
-	for slot in Rune.NET_CELLS.size():
-		var net := Rune.net_cell(slot)
-		var face := Rune.anchor_cell(slot)
-		assert_eq((net.x + net.z) < 1.0, (face.x + face.z) < 1.0,
-			"Platz %d bleibt auf seiner Seite" % slot)
-		assert_eq((net.y + net.w) < 1.0, (face.y + face.w) < 1.0,
-			"Platz %d bleibt auf seiner Höhe" % slot)
-		assert_gt((net.z - net.x) * (net.w - net.y), (face.z - face.x) * (face.w - face.y),
-			"im Netz ist die Kachel größer als die Ankerzelle")
-	for a in Rune.NET_CELLS.size():
-		for b in range(a + 1, Rune.NET_CELLS.size()):
-			var one := Rune.net_cell(a)
-			var two := Rune.net_cell(b)
-			var overlaps := one.x < two.z and two.x < one.z and one.y < two.w and two.y < one.w
-			assert_false(overlaps, "Netz-Kacheln %d und %d überlappen" % [a, b])
-
-func test_every_glyph_stays_inside_its_cell() -> void:
+func test_every_glyph_stays_inside_the_face() -> void:
 	# Der Rand trägt den Hof (RuneTextures.FIELD): läuft die Figur bis an die
-	# Zellkante, schneidet der Shader ihren Ausbruch als Rechteck ab.
+	# Seitenkante, schneidet der Shader ihren Ausbruch als Rechteck ab.
 	for glyph in Rune.all_glyphs():
 		var lines := Rune.glyph_lines(glyph)
 		assert_false(lines.is_empty(), "%s hat überhaupt eine Figur" % glyph)
 		for line_index in lines.size():
 			var line: PackedVector2Array = lines[line_index]
 			for point in line:
-				# EPS: PackedVector2Array speichert float32, ein glattes 0.8 landet
-				# knapp darüber.
+				# EPS: PackedVector2Array speichert float32, ein glattes 0.94 landet
+				# knapp daneben.
 				assert_between(point.x, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
-					"%s Linie %d: x verlässt den Zellrand" % [glyph, line_index])
+					"%s Linie %d: x verlässt den Seitenrand" % [glyph, line_index])
 				assert_between(point.y, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
-					"%s Linie %d: y verlässt den Zellrand" % [glyph, line_index])
+					"%s Linie %d: y verlässt den Seitenrand" % [glyph, line_index])
 
-func test_a_glyph_in_its_cell_never_touches_the_digit() -> void:
-	# Die eigentliche Zusage, beide Regeln zusammengenommen: die FERTIG platzierte
-	# Figur liegt außerhalb der Ziffern-Sperrzone, auf jedem Platz.
-	for slot in Rune.ANCHOR_CELLS.size():
+func test_the_halo_field_fits_inside_the_margin() -> void:
+	assert_lte(RuneTextures.FIELD, Rune.GLYPH_MARGIN,
+		"sonst schneidet der Seitenrand den Hof ab")
+
+func test_a_placed_glyph_never_touches_the_digit() -> void:
+	# Die eigentliche Zusage des KRANZES: die FERTIG platzierte Figur liegt auf
+	# JEDEM Platz außerhalb der Ziffern-Sperrzone.
+	for slot in Rune.SLOT_FLIPS.size():
 		for glyph in Rune.all_glyphs():
 			for line in Rune.glyph_lines(glyph):
 				for i in range(line.size() - 1):
-					var worst := _worst_clearance(Rune.cell_to_face(line[i], slot),
-						Rune.cell_to_face(line[i + 1], slot))
+					var worst := _worst_clearance(Rune.place(line[i], slot),
+						Rune.place(line[i + 1], slot))
 					assert_gt(worst, 1.0,
 						"%s auf Platz %d schneidet die Ziffer (%.3f)" % [glyph, slot, worst])
+
+func test_every_flip_keeps_the_clearance_exactly() -> void:
+	# DAS ist der Grund, warum gespiegelt und nicht verschoben wird: die
+	# Sperr-Ellipse ist punkt- UND achsensymmetrisch.
+	var probes := [Vector2(0.10, 0.10), Vector2(0.5, 0.08), Vector2(0.94, 0.62),
+		Vector2(0.34, 0.834), Vector2(0.08, 0.55)]
+	for slot in Rune.SLOT_FLIPS.size():
+		for probe: Vector2 in probes:
+			assert_almost_eq(Rune.digit_clearance(Rune.place(probe, slot)),
+				Rune.digit_clearance(Rune.place(probe, 0)), 0.0001,
+				"Platz %d verschiebt den Ziffern-Abstand" % slot)
+
+func test_the_slot_flips_are_pairwise_distinct() -> void:
+	# Zwei Runen einer Seite liegen nie deckungsgleich.
+	for a in Rune.SLOT_FLIPS.size():
+		for b in range(a + 1, Rune.SLOT_FLIPS.size()):
+			assert_ne(Rune.slot_flip(a), Rune.slot_flip(b),
+				"Plätze %d und %d teilen ihre Spiegelung" % [a, b])
 
 ## Schlechtester Ellipsen-Wert entlang eines Segments (kleinster = engster).
 func _worst_clearance(from: Vector2, to: Vector2) -> float:
@@ -118,18 +96,23 @@ func test_every_rune_owns_exactly_one_glyph() -> void:
 
 # --- Die Ruhe-Regel (Schritt 13 der Umsetzungsliste) --------------------------------
 
-func test_no_idle_profile_reaches_the_bloom_threshold() -> void:
-	# Der mechanische Grund, warum sechs beschriftete Würfel keine Disco werden.
+func test_every_idle_profile_blooms_at_rest() -> void:
+	# Seit dem 2026-09-11 die Zusage: eine Rune, die man auf Grubendistanz nicht
+	# sieht, ist keine. Gemessen am BODEN - bei ECHO und SPARK liegt fast die ganze
+	# Naht dort, die Spitze wandert nur als Bande darüber.
 	for rune in Rune.all():
-		assert_lt(rune.idle_high, Rune.IDLE_CEILING,
-			"%s glüht in Ruhe bis an die Bloom-Schwelle" % rune.display_name)
+		assert_gt(rune.idle_low, Rune.IDLE_GLOW,
+			"%s glimmt unter der Lesbarkeitsschwelle" % rune.display_name)
+		assert_gt(rune.idle_low, Rune.IDLE_CEILING,
+			"%s blüht in Ruhe nicht" % rune.display_name)
 		assert_lt(rune.idle_low, rune.idle_high, "%s: Boden unter Spitze" % rune.display_name)
-		assert_gt(rune.idle_low, 0.0, "%s: die Naht ist nie ganz aus" % rune.display_name)
 
 func test_every_flare_outshines_its_own_idle() -> void:
+	# Der Deckel ist weg, also trägt der ABSTAND die Regel: ein Ausbruch, der die
+	# Ruhe nicht um ein Vielfaches überstrahlt, liest nicht mehr als Ereignis.
 	for rune in Rune.all():
-		assert_gt(rune.flare_peak, Rune.IDLE_CEILING,
-			"%s: der Ausbruch SOLL bloomen" % rune.display_name)
+		assert_gte(rune.flare_peak, rune.idle_high * Rune.FLARE_RATIO,
+			"%s: der Ausbruch verschwindet in der eigenen Ruhe" % rune.display_name)
 		assert_gt(rune.halo_flare, 1.0,
 			"%s: der Ausbruch liest über Breite, nicht über Helligkeit" % rune.display_name)
 

@@ -165,7 +165,8 @@ func test_a_bought_slot_stays_as_an_empty_place() -> void:
 	await wait_frames(2)
 	view.buy_offer(1)
 	await wait_frames(2)
-	assert_eq(run.owned_packs.size(), 1, "Ware versiegelt im Magazin")
+	assert_eq(run.owned_packs.size(), GameRun.offer_cards(run.secret_stock[1]),
+		"Ware versiegelt im Magazin - je Karte des Bündels eine")
 	var stock: Dictionary = view.vitrine_stock()
 	assert_eq(stock[ShopController.KIND_ENGRAVING_PACK].size(), run.secret_stock.size(),
 		"der Platz verschwindet nicht, er wird leer")
@@ -185,18 +186,22 @@ func test_row_kinds_survive_a_sale() -> void:
 	assert_eq(after, before, "der Verkauf ändert keine Sorte - die Lücke behält ihren Ort")
 	assert_ne(String(after[1]), "", "auch der verkaufte Platz nennt seine Sorte")
 
-func test_a_purchase_reports_the_pack_it_booked() -> void:
+func test_a_purchase_reports_every_pack_it_booked() -> void:
 	await wait_frames(2)
-	var seen: Array[int] = []
-	view.goods_purchased.connect(func(uid: int) -> void: seen.append(uid))
+	var reports: Array = []  # ein Array, denn die Lambda fängt Zahlen nur als Kopie
+	view.goods_purchased.connect(func(uids: Array[int]) -> void: reports.append(uids))
+	var stocked := run.owned_packs.size()
 	view.buy_offer(1)
-	assert_eq(seen.size(), 1, "genau eine Meldung")
-	assert_eq(seen[0], run.owned_packs.back().pack_uid, "und sie meint dieses Paket")
+	assert_eq(reports.size(), 1, "genau eine Meldung")
+	var seen: Array[int] = reports[0]
+	assert_eq(seen.size(), run.owned_packs.size() - stocked, "und sie nennt jede neue Karte")
+	for i in seen.size():
+		assert_eq(seen[i], run.owned_packs[stocked + i].pack_uid, "in Lager-Reihenfolge")
 
 func test_a_charm_purchase_reports_no_goods() -> void:
 	await wait_frames(2)
 	var seen: Array[int] = []
-	view.goods_purchased.connect(func(uid: int) -> void: seen.append(uid))
+	view.goods_purchased.connect(func(uids: Array[int]) -> void: seen.append_array(uids))
 	_card().pressed.emit()
 	assert_eq(seen.size(), 0, "eine Lizenz fährt nicht ins Magazin")
 

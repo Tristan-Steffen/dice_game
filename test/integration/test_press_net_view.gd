@@ -140,6 +140,39 @@ func test_an_operator_cell_writes_its_glyph() -> void:
 	assert_eq(label.text, StampNet.operator_glyph(StampNet.OP_DOUBLER),
 		"die Glyphe kommt aus StampNet, hier wird nichts zweitgezeichnet")
 
+## Der Pointer liest wie am Würfel-Netz: DER Pfeil am Zellrand zur Zielseite,
+## keine Ziffer (Spieler-Entscheid 2026-09-11).
+func test_a_pointer_cell_carries_the_die_arrow() -> void:
+	var card := StampNet.empty_net()
+	card[0] = StampNet.pointer_cell(DieDefinition.adjacent_faces(0)[0])
+	var mini := PressNetView.stamp_net(card, 12.0)
+	add_child_autofree(mini)
+	var arrow: Control = mini.get_node_or_null("PointerMark0")
+	assert_not_null(arrow, "die Pointer-Zelle trägt den Pfeil")
+	assert_true(arrow is DieNetView.PointerArrow, "derselbe Pfeil wie am Würfel-Netz")
+	assert_null(mini.get_child(0).get_node_or_null("CellMark"), "und keine Ziffer")
+	assert_gt(arrow.get_index(), StampNet.FACES - 1, "er liegt ÜBER den Zellen")
+
+func test_the_arrow_straddles_the_rim_towards_its_target() -> void:
+	var card := StampNet.empty_net()
+	card[0] = StampNet.pointer_cell(4)  # Seite 4 liegt in POINTER_SIDES rechts von 0
+	var mini := PressNetView.stamp_net(card, 12.0)
+	add_child_autofree(mini)
+	var arrow: Control = mini.get_node("PointerMark0")
+	var rim := DieNetView.cell_position(0, 12.0) + Vector2(12.0, 6.0)
+	var mid := arrow.position + arrow.size * 0.5
+	assert_almost_eq(mid.x, rim.x, 0.01, "seine Mitte liegt auf der rechten Kante")
+	assert_almost_eq(mid.y, rim.y, 0.01, "mittig auf ihr - halb drüber, wie am Würfel")
+
+func test_the_sum_net_draws_the_pointer_beside_the_number() -> void:
+	var projection := {"bonus": [3, 0, 0, 0, 0, 0], "pointers": [4, -1, -1, -1, -1, -1]}
+	var sum := PressNetView.sum_net(projection, 12.0)
+	add_child_autofree(sum)
+	var chip: Panel = sum.get_child(0)
+	assert_eq((chip.get_node("CellMark") as Label).text, "+3", "die Zahl bleibt im Feld")
+	assert_not_null(sum.get_node_or_null("PointerMark0"), "und der Pfeil steht auf dem Rand")
+	assert_null(sum.get_node_or_null("PointerMark1"), "ohne Pointer kein Pfeil")
+
 func test_an_empty_cell_stays_dark_and_bare() -> void:
 	var mini := PressNetView.stamp_net(StampNet.empty_net(), 12.0)
 	add_child_autofree(mini)

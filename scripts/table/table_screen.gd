@@ -163,6 +163,9 @@ var slot_bank_window: SlotBankView
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
+## Der INFO-SCHIRM in der Lücke über dem Streifen: er trägt jede Auskunft der
+## Werkstatt-Station und des Pools (2026-09-11, er ersetzt die CAPTION).
+var workshop_info_window: WorkshopInfoView
 ## Das Netz-Raster des Vorrats auf dem geschlossenen Gruben-Glas (Glas-Ansicht);
 ## es liegt auf dem Pool-Loch und steht nur, solange die Ansicht offen ist. Es
 ## wohnt in seinem EIGENEN SubViewport (siehe _build_content): nicht-HDR und
@@ -585,6 +588,11 @@ func _build_content() -> void:
 	workshop_window.name = "WorkshopWindow"
 	workshop_window.visible = false
 	add_child(workshop_window)
+
+	# Der INFO-SCHIRM der Werkstatt: er liegt in der Lücke über dem Streifen,
+	# Position/Größe setzt scene_root über place_workshop_info_window.
+	workshop_info_window = WorkshopInfoView.new()
+	add_child(workshop_info_window)
 
 	# Glas-Ansicht: Sie zieht in einen EIGENEN, NICHT-HDR-SubViewport mit
 	# transparent_bg - dort trägt sie echtes Per-Pixel-Alpha (der HDR-Haupt-Viewport
@@ -1088,6 +1096,15 @@ func place_workshop_window(rect: Rect2) -> void:
 	workshop_window.visible = true
 	workshop_window.refresh()
 	_sync_reflection_windows()
+
+## Spannt den INFO-SCHIRM über rect auf (die Lücke zwischen Pool und Streifen).
+## Er steht NICHT in den window_*-Uniformen des Glases: er gehört zum Streifen, und
+## der hat keinen Schirm-Hintergrund.
+func place_workshop_info_window(rect: Rect2, unit_px: float) -> void:
+	workshop_info_window.unit_px = unit_px
+	workshop_info_window.position = rect.position
+	workshop_info_window.size = rect.size
+	workshop_info_window.visible = rect.size.x > 0.0 and rect.size.y > 0.0
 
 ## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
 func place_treasure_window(rect: Rect2) -> void:

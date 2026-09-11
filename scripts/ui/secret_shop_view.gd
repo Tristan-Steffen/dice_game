@@ -25,9 +25,9 @@ extends Panel
 ## Energie ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
 ## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
 signal energy_spent(amount: int)
-## Versiegelte Ware ist gekauft (Bündel oder Katalysator): sie liegt schon als
-## Paket im Magazin, scene_root fährt sie nur noch dorthin.
-signal goods_purchased(uid: int)
+## Versiegelte Ware ist gekauft (Bündel-Karten oder Katalysator): sie liegt schon
+## als Pakete im Magazin, scene_root fährt sie nur noch dorthin - je Karte eine.
+signal goods_purchased(uids: Array[int])
 ## Ein Seelenwürfel ist gekauft: er liegt schon im Ausgabefach, scene_root fährt
 ## ihn nur noch dorthin. Kein Paket - ein Würfel wird nie versiegelt.
 signal die_purchased(def: DieDefinition)
@@ -556,7 +556,7 @@ func set_bay_plates(entries: Array) -> void:
 		signature += "%s:%d:%d,%d:%d;" % [String(entry["kind"]), index,
 			int(px.x), int(px.y), price]
 	if run != null:
-		signature += "|%d|%s|%s" % [run.energy, run.packs_full(), run.charms_full()]
+		signature += "|%d|%d|%s" % [run.energy, run.pack_room(), run.charms_full()]
 	if signature == _plate_signature:
 		return
 	_plate_signature = signature
@@ -662,12 +662,12 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 			data["body"] = card_pack.description
 		_:
 			var engraving: Engraving = offer[GameRun.OFFER_ITEM]
-			# Die Bündelgröße steht auf der Fläche der Kassette - hier nennt sie die
-			# Beschriftung noch einmal, damit Zahl und Wirkung beieinander stehen.
-			var bundle := int(offer.get(GameRun.OFFER_COUNT, 1))
+			# Die Bündelgröße steht auf dem Stapel - hier nennt sie die Beschriftung
+			# noch einmal, damit Zahl und Wirkung beieinander stehen.
+			var bundle := GameRun.offer_cards(offer)
 			data["title"] = engraving.display_name
 			data["body"] = engraving.description if bundle == 1 \
-				else "%s\nEine Datenkarte mit %d Stücken darin." % [engraving.description, bundle]
+				else "%s\n%d einzelne Karten im Bündel." % [engraving.description, bundle]
 	return data
 
 ## Der Griff in der Bucht kauft: derselbe Weg wie die Karte am Sitz.
@@ -717,8 +717,8 @@ func _refresh_offers() -> void:
 	vitrine_changed.emit()
 
 ## Ein Auslage-Platz wird zur körperlichen Ware: der Essenzwürfel liegt offen, der
-## Sonderbestand steht versiegelt als seine Kassette (das Bündel trägt sein ×n auf
-## seiner Fläche). Verkauft, vergeben oder Karte heißt: dieser Platz bleibt leer - die
+## Sonderbestand liegt versiegelt als seine Kassette (das Bündel als Stapel mit
+## seiner Zahl). Verkauft, vergeben oder Karte heißt: dieser Platz bleibt leer - die
 ## SORTE des Platzes bleibt trotzdem gemeldet (row_kinds), damit die Lücke ihren
 ## Ort behält.
 func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
@@ -738,7 +738,7 @@ func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
 				pack = offer[GameRun.OFFER_ITEM]
 			GameRun.KIND_ENGRAVING:
 				pack = Pack.fixed_engraving_pack(offer[GameRun.OFFER_ITEM] as Engraving,
-					int(offer.get(GameRun.OFFER_COUNT, 1)))
+					GameRun.offer_cards(offer))
 	_bay_packs.append(pack)
 	_bay_dice.append(die)
 
@@ -768,7 +768,7 @@ func _offer_blocked(offer: Dictionary) -> bool:
 		return run.charms_full()
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
 		return false
-	return run.packs_full()
+	return run.pack_room() < GameRun.offer_cards(offer)
 
 ## Die EINE Karte am Sitz: der legendäre Charm, in der Laden-Grammatik - oben der
 ## NAME, in der Mitte das MODELL, unten der PREIS. Die volle Wirkung zeigt der
@@ -887,7 +887,10 @@ func _on_offer_pressed(index: int) -> void:
 		return
 	energy_spent.emit(price)
 	if run.owned_packs.size() > stocked:
-		goods_purchased.emit(run.owned_packs.back().pack_uid)
+		var uids: Array[int] = []
+		for i in range(stocked, run.owned_packs.size()):
+			uids.append(run.owned_packs[i].pack_uid)
+		goods_purchased.emit(uids)
 	elif run.pending_dice.size() > stashed:
 		die_purchased.emit(run.pending_dice.back())
 

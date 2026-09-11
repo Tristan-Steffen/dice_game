@@ -190,26 +190,26 @@ static func operator_net(op_id: String, rng: RandomNumberGenerator = null) -> Ar
 	net[_range(rng, 0, FACES - 1)] = operator_cell(op_id)
 	return net
 
-## Netz eines FIXINHALTS: so viele Zellen, wie das Bündel Kopien trägt - jede auf
-## eigener Seite (mehr als sechs passen nicht auf einen Würfel).
-static func fixed_net(engraving: Engraving, amount: int = 1,
-		rng: RandomNumberGenerator = null) -> Array:
+## Netz eines FIXINHALTS: GENAU EINE Zelle auf einer gewürfelten Seite. Ein Bündel
+## sind mehrere solcher Karten (Spieler-Entscheid 2026-09-11), nie mehr Zellen auf
+## einer.
+static func fixed_net(engraving: Engraving, rng: RandomNumberGenerator = null) -> Array:
 	var net := empty_net()
 	if engraving == null:
 		return net
-	for face in _pick_faces(clampi(amount, 1, FACES), rng):
-		match engraving.id:
-			Engraving.DOPING:
-				net[face] = dope_cell()
-			Engraving.POINTER:
-				var neighbours := DieDefinition.adjacent_faces(face)
-				net[face] = pointer_cell(neighbours[_range(rng, 0, neighbours.size() - 1)])
-			_:
-				var rune_id := Engraving.rune_id_of(engraving.id)
-				if rune_id != "":
-					net[face] = rune_cell(rune_id)
-				elif engraving.material_id() != "":
-					net[face] = material_cell(engraving.material_id())
+	var face := _range(rng, 0, FACES - 1)
+	match engraving.id:
+		Engraving.DOPING:
+			net[face] = dope_cell()
+		Engraving.POINTER:
+			var neighbours := DieDefinition.adjacent_faces(face)
+			net[face] = pointer_cell(neighbours[_range(rng, 0, neighbours.size() - 1)])
+		_:
+			var rune_id := Engraving.rune_id_of(engraving.id)
+			if rune_id != "":
+				net[face] = rune_cell(rune_id)
+			elif engraving.material_id() != "":
+				net[face] = material_cell(engraving.material_id())
 	return net
 
 ## --- Anzeige -------------------------------------------------------------------
