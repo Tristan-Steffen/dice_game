@@ -120,8 +120,8 @@ const MOTE_GLOW := 1.5
 const MOTE_EDGE_SAMPLES := 6
 
 ## --- Die LADUNG am Körper ------------------------------------------------------
-## NIE das Energie-Cyan: ein Würfel mit Blitzen darf nicht aussehen, als präge er
-## ⚡. Weißviolett; der Überschlag blitzt BLAUER (Spieler-Wunsch 2026-09-07).
+## NIE das Energie-Cyan: ein geladener Würfel darf nicht aussehen, als präge er
+## ⚡. Weißviolett für Blitz und Lache; der Überschlag ist BLAUER (Spieler-Wunsch 2026-09-07).
 const CHARGE_COLOR := Color(0.86, 0.66, 1.35)
 const CHARGE_ARC_COLOR := Color(0.55, 0.65, 1.45)
 ## Durchgebrannt ist ASCHE (Spieler-Wahl 2026-09-07): hellgrauer Körper, helle
@@ -133,18 +133,25 @@ const BURNED_NUMBER := Color(0.2, 0.19, 0.19)
 const BURN_SHADER := preload("res://assets/shaders/die_burn.gdshader")
 const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer (0,01)
 var burn_parts: Array[MeshInstance3D] = []
-## Ab dieser Stufe springen Blitze über die Seiten.
-const CHARGE_SPARK_LEVEL := 2
-## Ab dieser Stufe zünden die Eck-Lampen und Blitze schlagen aus den Kanten nach außen.
+## Ab dieser Stufe BRENNT der Würfel.
+const CHARGE_FIRE_LEVEL := 2
+## Ab dieser Stufe brennt er BLAU und die Eck-Lampen zünden.
 const CHARGE_ARC_LEVEL := 3
 ## Der Blitz beim Aufladen/Entladen/Reparieren.
 const CHARGE_FLASH_TIME := 0.35
 const CHARGE_FLASH_GAIN := 2.2
-## Überschlag: FAHNEN, die aus den KANTEN nach AUSSEN schlagen (die_arcs.gdshader) -
-## EIN kamerazugewandtes Quad um den Würfel, wie die Hitze. Die Kante selbst bleibt
-## auch hier ungefärbt (Spieler-Wunsch 2026-09-07); nur die Eck-Lampen zünden.
-const ARC_SHADER := preload("res://assets/shaders/die_arcs.gdshader")
-const ARC_QUAD := Vector2(4.5, 4.5)
+## Der BRAND der Stufen 2 und 3 (Spieler-Wahl 2026-09-11; die Blitze sind tot):
+## ein Neon-FLAMMENSAUM, der vom Rahmen in die SEITEN brennt - der Rahmen trägt
+## die Essenz-Farbe und bleibt frei. EIN Quad je Seite auf dem Aschen-Platz unter der
+## Ziffer (Brand und Asche schließen sich aus). Stufe 3 brennt BLAU und höher.
+const FIRE_SHADER := preload("res://assets/shaders/die_fire.gdshader")
+const FIRE_LIFT := BURN_LIFT
+const FIRE_MID := Color(1.35, 0.45, 0.08)
+const FIRE_CORE := Color(1.45, 1.15, 0.55)
+const BLUE_FIRE_MID := Color(0.45, 0.62, 1.55)
+const BLUE_FIRE_CORE := Color(1.1, 1.25, 1.75)
+const FIRE_ARC_GAIN := 1.25
+var fire_parts: Array[MeshInstance3D] = []
 ## Wie kräftig die Ladung die Boden-Lache einfärbt und hebt.
 const CHARGE_POOL_MIX := 0.65
 const CHARGE_POOL_GAIN := 1.25
@@ -174,25 +181,12 @@ const HEAT_GLOW := 0.26
 const HEAT_WAVE_FREQ := 4.4
 const HEAT_WAVE_SPEED := 0.15
 var heat_parts: Array[MeshInstance3D] = []
-## Der KRIECHSTROM der Stufe 2 sind PLASMA-FÄDEN, die über die Seiten springen
-## (die_bolts.gdshader): EIN Quad je Seite knapp über der Fläche, bis in die
-## Mitte der Kantenröhren reichend - die Fäden kommen aus den Kanten. Die Kante
-## selbst bleibt unverändert.
-const BOLT_SHADER := preload("res://assets/shaders/die_bolts.gdshader")
-const BOLT_SPAN := DieBuilder.HALF_EXTENT * 2.0
-const BOLT_LIFT := 0.03  # über Ziffer (0,01) und Runen-Auflage
-## Der Überschlag schlägt öfter und heißer.
-const BOLT_ARC_RATE := 1.7
-const BOLT_ARC_GAIN := 1.3
-var bolt_parts: Array[MeshInstance3D] = []
-## Der Zufall der Blitze und Bruchlinien dieses Würfels (die Seiten zählen hoch).
-var _bolt_seed := randf() * 100.0
+## Der Zufall der Zungen und Bruchlinien dieses Würfels (die Seiten zählen hoch).
+var _overlay_seed := randf() * 100.0
 var _charge_override := -1
 var _burned_override := false
 var _charge_flash := 0.0
 var _charge_flash_tween: Tween
-## Die Außen-Blitze des Überschlags (nur Stufe 3, lazy wie die Hitze).
-var charge_arcs: MeshInstance3D = null
 
 ## Pointer auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
 ## Band je Zeiger - Pad auf der Quellseite, über den Kantenbalken hinweg, bis
@@ -255,8 +249,8 @@ var cap_material: ShaderMaterial = null
 var beam_material: ShaderMaterial = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
-## STUMM: der Würfel trägt seine AUFLAGEN nicht - Hitze, Blitze, Überschlag,
-## Seelen-Funken und Lichtlache bleiben fort, Körper und Ziffern nicht. Die
+## STUMM: der Würfel trägt seine AUFLAGEN nicht - Hitze, Brand, Seelen-Funken
+## und Lichtlache bleiben fort, Körper und Ziffern nicht. Die
 ## GLAS-ANSICHT schaltet die versenkten Vorrats-Würfel so (Spieler-Wunsch
 ## 2026-09-11): unter dem halb durchsichtigen Schirm zögen ihre Effekte quer über
 ## das Raster. Setzen genügt - die drei Schreiber fragen selbst.
@@ -391,7 +385,7 @@ func _refresh_face_colors() -> void:
 		_refresh_frame(axis, profile, level)
 	_apply_essence_edge()
 	if corner_caps != null:
-		# Ab dem Kriechstrom brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
+		# Ab dem Überschlag brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
 		corner_caps.visible = not shown_burned() \
 			and (essence_id != "" or shown_charge() >= CHARGE_ARC_LEVEL)
 	_has_material = edge_base != EDGE_COLOR
@@ -836,18 +830,17 @@ func _charged_lamp(lamp: Color) -> Color:
 	return lamp.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
 
 ## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Hitze ab
-## Stufe 1, die Blitze ab Stufe 2, die Außen-Blitze des Überschlags und - bei
-## Asche - der flache helle Rahmen samt Aschen-Auflagen und dunkler Ziffer.
+## Stufe 1, der Brand ab Stufe 2 (blau ab 3) und - bei Asche - der flache helle
+## Rahmen samt Aschen-Auflagen und dunkler Ziffer.
 func _refresh_charge() -> void:
 	var burned := shown_burned()
 	var level := shown_charge()
 	# Jede Stufe trägt alle darunter (Spieler-Entscheid 2026-09-07): die Hitze
-	# bleibt unter Blitzen und Überschlag stehen. STUMM bleibt alles drei fort -
-	# der RUSS nicht, der ist Zustand des Körpers, keine Auflage darüber.
+	# bleibt unter dem Brand stehen. STUMM bleiben beide fort - der RUSS nicht,
+	# der ist Zustand des Körpers, keine Auflage darüber.
 	var live := not effects_muted
 	_sync_heat(live and level >= 1 and not burned)
-	_sync_bolts(live and level >= CHARGE_SPARK_LEVEL and not burned, level)
-	_sync_charge_arcs(live and level >= CHARGE_ARC_LEVEL and not burned)
+	_sync_fire(live and level >= CHARGE_FIRE_LEVEL and not burned, level)
 	_sync_burn(burned)
 	if not burned:
 		return
@@ -870,18 +863,6 @@ func _refresh_charge() -> void:
 	if soul_motes != null:
 		soul_motes.queue_free()
 		soul_motes = null
-
-## Die Außen-Blitze des Überschlags kommen und gehen mit der Stufe (lazy, wie
-## die Hitze); den Ton setzt _sync_bolts für die Seiten-Blitze gleich mit.
-func _sync_charge_arcs(wanted: bool) -> void:
-	if not wanted:
-		if charge_arcs != null:
-			charge_arcs.queue_free()
-			charge_arcs = null
-	elif charge_arcs == null:
-		charge_arcs = _overlay(self, "ChargeArcs", ARC_QUAD, 0.0, ARC_SHADER, 10, {
-			"quad_size": ARC_QUAD, "seed_base": _bolt_seed + 7.0, "phase": _pulse_phase,
-			"halo_color": _rgb(CHARGE_ARC_COLOR)})
 
 ## Die Aschen-Auflagen kommen und gehen mit dem Ruß (lazy, wie die Hitze).
 func _sync_burn(wanted: bool) -> void:
@@ -1103,7 +1084,7 @@ static func fit_label(label: Label3D) -> void:
 	var shrink: float = maxf(1.0, world_extent / LABEL_FIT_EXTENT)
 	label.pixel_size = LABEL_PIXEL_SIZE / shrink
 
-# --- Die Auflagen der Ladung: Hitze, Blitze, Asche -----------------------------
+# --- Die Auflagen der Ladung: Hitze, Brand, Asche -----------------------------
 
 ## EIN Quad mit Shader-Material unter parent: die eine Bauweise aller Auflagen.
 func _overlay(parent: Node3D, part_name: String, size: Vector2, lift: float,
@@ -1131,7 +1112,7 @@ func _face_overlays(store: Array[MeshInstance3D], part_name: String, span: float
 	var face_index := 0
 	for axis in quads:
 		store.append(_overlay(quads[axis], part_name, Vector2.ONE * span, lift, shader, priority,
-			{"face_seed": _bolt_seed + float(face_index), "phase": _pulse_phase}))
+			{"face_seed": _overlay_seed + float(face_index), "phase": _pulse_phase}))
 		face_index += 1
 
 func _free_overlays(store: Array[MeshInstance3D]) -> void:
@@ -1158,17 +1139,18 @@ func _sync_heat(wanted: bool) -> void:
 		heat_parts.append(_overlay(self, "Heat1", HEAT_QUAD, 0.0, HEAT_GLOW_SHADER, 8,
 			shared.merged({"tint": HEAT_RED, "tint_amount": HEAT_GLOW})))
 
-## Die sechs Blitz-Quads der Stufen 2 und 3 (lazy, wie die Hitze), auf die Stufe
-## eingestellt: der Überschlag schlägt öfter, heißer und blauer.
-func _sync_bolts(wanted: bool, level: int) -> void:
+## Die sechs Brand-Quads der Stufen 2 und 3 (lazy, wie die Hitze), auf die Stufe
+## eingestellt: der Überschlag brennt blau und höher. Unter der Ziffer gezeichnet -
+## der Wert bleibt lesbar.
+func _sync_fire(wanted: bool, level: int) -> void:
 	if not wanted:
-		_free_overlays(bolt_parts)
+		_free_overlays(fire_parts)
 		return
-	if bolt_parts.is_empty():
-		_face_overlays(bolt_parts, "ChargeBolts", BOLT_SPAN, BOLT_LIFT, BOLT_SHADER, 9)
+	if fire_parts.is_empty():
+		_face_overlays(fire_parts, "ChargeFire", DieBuilder.FACE_SIZE, FIRE_LIFT, FIRE_SHADER, -1)
 	var arc := level >= CHARGE_ARC_LEVEL
-	for part in bolt_parts:
+	for part in fire_parts:
 		var material: ShaderMaterial = part.material_override
-		material.set_shader_parameter("halo_color", _rgb(CHARGE_ARC_COLOR if arc else CHARGE_COLOR))
-		material.set_shader_parameter("rate", BOLT_ARC_RATE if arc else 1.0)
-		material.set_shader_parameter("gain", BOLT_ARC_GAIN if arc else 1.0)
+		material.set_shader_parameter("mid_color", _rgb(BLUE_FIRE_MID if arc else FIRE_MID))
+		material.set_shader_parameter("core_color", _rgb(BLUE_FIRE_CORE if arc else FIRE_CORE))
+		material.set_shader_parameter("gain", FIRE_ARC_GAIN if arc else 1.0)

@@ -1,9 +1,9 @@
 extends GutTest
 ## Die LADUNG am KÖRPER: vier Zustände auf EINEM Weg (apply_definition), dazu der
-## transiente Zeremonie-Stand. Glimmen sitzt allein im Kantenlicht und in der Lache
-## und bleibt in Ruhe UNTER der Bloom-Schwelle, Kriechstrom schaltet die Funken des
-## Shaders und die Eck-Lampen an, der Überschlag baut seine Teilchen, und Ruß nimmt
-## Lache, Lampen und Seelen-Bewegung fort.
+## transiente Zeremonie-Stand. Glimmen sitzt allein in Hitze und Lache und bleibt
+## in Ruhe UNTER der Bloom-Schwelle, Kriechstrom entzündet den BRAND auf den Seiten,
+## der Überschlag brennt BLAU und zündet die Eck-Lampen, und Ruß nimmt Lache,
+## Lampen und Seelen-Bewegung fort.
 
 ## Die Bloom-Schwelle des Tisches (glow_hdr_threshold) - der kahle Würfel bleibt
 ## darunter, und Stufe 1 darf ihn nicht darüber heben.
@@ -27,44 +27,46 @@ func _peak(color: Color) -> float:
 
 # --- Die Leiter ----------------------------------------------------------------
 
-func test_the_charge_level_travels_from_the_definition_into_the_bolts() -> void:
-	# Ab Stufe 2 trägt jede Seite ihr Blitz-Quad; der Überschlag schlägt öfter
-	# und heißer. Stufe 0 und 1 und der Ruß tragen keines - die Kante selbst
-	# bleibt unverändert, sie hat keinen Ladungs-Kanal mehr.
+func test_the_charge_level_travels_from_the_definition_into_the_fire() -> void:
+	# Ab Stufe 2 trägt jede Seite ihr Brand-Quad; der Überschlag brennt blau und
+	# höher. Stufe 0 und 1 und der Ruß tragen keines - die Kante selbst bleibt
+	# unverändert, sie hat keinen Ladungs-Kanal.
 	for level in [0, 1, 2, 3]:
 		var display := _display()
 		display.apply_definition(_def(level))
 		assert_eq(display.shown_charge(), level, "Stufe %d steht am Körper" % level)
-		var wanted := 6 if level >= DieFaceDisplay.CHARGE_SPARK_LEVEL else 0
-		assert_eq(display.bolt_parts.size(), wanted, "Blitz-Quads der Stufe %d" % level)
+		var wanted := 6 if level >= DieFaceDisplay.CHARGE_FIRE_LEVEL else 0
+		assert_eq(display.fire_parts.size(), wanted, "Brand-Quads der Stufe %d" % level)
 		if wanted == 0:
 			continue
-		var material: ShaderMaterial = display.bolt_parts[0].material_override
-		assert_eq(material.shader, DieFaceDisplay.BOLT_SHADER)
-		var rate: float = material.get_shader_parameter("rate")
-		assert_eq(rate, DieFaceDisplay.BOLT_ARC_RATE if level >= 3 else 1.0,
-			"Häufigkeit der Stufe %d" % level)
+		var material: ShaderMaterial = display.fire_parts[0].material_override
+		assert_eq(material.shader, DieFaceDisplay.FIRE_SHADER)
+		var gain: float = material.get_shader_parameter("gain")
+		assert_eq(gain, DieFaceDisplay.FIRE_ARC_GAIN if level >= 3 else 1.0,
+			"Höhe der Stufe %d" % level)
+		var blue: bool = level >= DieFaceDisplay.CHARGE_ARC_LEVEL
+		var mid: Vector3 = material.get_shader_parameter("mid_color")
+		var want := DieFaceDisplay.BLUE_FIRE_MID if blue else DieFaceDisplay.FIRE_MID
+		assert_almost_eq(mid, Vector3(want.r, want.g, want.b), Vector3.ONE * 0.001,
+			"Stufe %d brennt %s" % [level, "blau" if blue else "orange"])
 	var burned := _display()
 	burned.apply_definition(_def(2, true))
-	assert_true(burned.bolt_parts.is_empty(), "Ruß blitzt nicht")
+	assert_true(burned.fire_parts.is_empty(), "Ruß brennt nicht")
 	var cooled := _display()
 	cooled.apply_definition(_def(3))
 	cooled.apply_definition(_def(0))
-	assert_true(cooled.bolt_parts.is_empty(), "entladen: die Quads sind weg")
+	assert_true(cooled.fire_parts.is_empty(), "entladen: die Quads sind weg")
 
-func test_only_the_flashover_builds_its_outer_arcs() -> void:
-	for level in [0, 1, 2]:
-		var display := _display()
-		display.apply_definition(_def(level))
-		assert_null(display.charge_arcs, "Stufe %d springt nicht über" % level)
-	var arcing := _display()
-	arcing.apply_definition(_def(3))
-	assert_not_null(arcing.charge_arcs, "der Überschlag springt")
-	assert_eq((arcing.charge_arcs.material_override as ShaderMaterial).shader,
-		DieFaceDisplay.ARC_SHADER)
-	# Fällt die Stufe, wird das Quad wieder freigegeben (wie die Hitze).
-	arcing.apply_definition(_def(1))
-	assert_null(arcing.charge_arcs, "gefallene Stufe gibt die Außen-Blitze frei")
+func test_the_fire_sits_under_the_digit_and_leaves_the_frame_alone() -> void:
+	# Der Rahmen trägt die Essenz-Farbe (Spieler-Sorge 2026-09-11): der Brand ist
+	# eine SEITEN-Auflage auf dem Aschen-Platz, unter der Ziffer gezeichnet.
+	var display := _display()
+	display.apply_definition(_def(2))
+	for part in display.fire_parts:
+		assert_almost_eq(part.position.z, DieFaceDisplay.FIRE_LIFT, 0.0001, "auf dem Aschen-Platz")
+		assert_eq((part.material_override as ShaderMaterial).render_priority, -1, "vor der Ziffer gezeichnet")
+		assert_true(part.get_parent() in display.quads.values(), "Kind eines Seiten-Quads")
+	assert_eq(display.get_node_or_null("ChargeArcs"), null, "kein Körper-Quad um den Würfel")
 
 func test_the_flashover_lights_the_corner_lamps_without_a_soul() -> void:
 	var cold := _display()
@@ -105,7 +107,7 @@ func test_burned_out_kills_pool_lamps_and_motion() -> void:
 	assert_false(display.glow_pool.visible, "keine Lache")
 	assert_false(display.corner_caps.visible, "keine Eck-Lampen")
 	assert_null(display.soul_motes, "die Seelen-Bewegung steht still")
-	assert_true(display.bolt_parts.is_empty(), "und keine Blitze")
+	assert_true(display.fire_parts.is_empty(), "und kein Brand")
 
 func test_burned_out_flattens_the_edges_and_dims_the_digit() -> void:
 	var display := _display()
@@ -127,7 +129,7 @@ func test_the_override_shows_the_running_state_and_the_definition_takes_it_back(
 	display.apply_definition(def)
 	display.set_charge_override(3, false)
 	assert_eq(display.shown_charge(), 3, "die Zeremonie zeigt ihren Stand")
-	assert_not_null(display.charge_arcs, "samt seinen Außen-Blitzen")
+	assert_eq(display.fire_parts.size(), 6, "samt seinem Brand")
 	display.clear_charge_override()
 	assert_eq(display.shown_charge(), 1, "danach steht wieder der Def-Stand")
 	# Der HARTE Weg: apply_definition löscht den Override ebenfalls.
@@ -182,7 +184,7 @@ func test_the_glimmer_builds_its_heat_parts_and_every_level_keeps_them() -> void
 # 2026-09-11): unter dem halb durchsichtigen Schirm zögen ihre Effekte quer über
 # das Raster.
 
-func test_stumm_nimmt_hitze_blitze_funken_und_lache_fort() -> void:
+func test_stumm_nimmt_hitze_brand_funken_und_lache_fort() -> void:
 	var legendary := ""
 	for essence in Essence.all():
 		if essence.rarity == Essence.Rarity.LEGENDARY:
@@ -192,15 +194,13 @@ func test_stumm_nimmt_hitze_blitze_funken_und_lache_fort() -> void:
 	var display := _display()
 	display.apply_definition(_def(DieDefinition.CHARGE_MAX, false, legendary))
 	assert_gt(display.heat_parts.size(), 0, "geladen wabert er")
-	assert_gt(display.bolt_parts.size(), 0, "und blitzt")
-	assert_not_null(display.charge_arcs, "und schlägt über")
+	assert_gt(display.fire_parts.size(), 0, "und brennt")
 	assert_not_null(display.soul_motes, "die legendäre Seele funkt")
 	assert_true(display.glow_pool.visible, "und wirft ihre Lache")
 
 	display.effects_muted = true
 	assert_eq(display.heat_parts.size(), 0, "stumm wabert nichts")
-	assert_eq(display.bolt_parts.size(), 0, "und blitzt nichts")
-	assert_null(display.charge_arcs, "und schlägt nichts über")
+	assert_eq(display.fire_parts.size(), 0, "und brennt nichts")
 	assert_null(display.soul_motes, "und funkt nichts")
 	assert_false(display.glow_pool.visible, "und keine Lache")
 	assert_eq(display.shown_charge(), DieDefinition.CHARGE_MAX,
@@ -218,4 +218,4 @@ func test_stumm_ueberlebt_ein_neues_apply_definition() -> void:
 	display.effects_muted = true
 	display.apply_definition(_def(DieDefinition.CHARGE_MAX))
 	assert_eq(display.heat_parts.size(), 0, "auch frisch gesetzt bleibt er stumm")
-	assert_eq(display.bolt_parts.size(), 0)
+	assert_eq(display.fire_parts.size(), 0)
