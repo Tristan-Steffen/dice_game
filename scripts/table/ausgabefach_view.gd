@@ -104,18 +104,6 @@ var _shown: Dictionary = {}
 static func body_key(def: Object) -> int:
 	return def.get_instance_id() if def != null else 0
 
-## Plätze EINER Reihe: count Punkte, mittig über span verteilt, feste Teilung,
-## solange sie passt - sonst rückt die Reihe zusammen. Reine Funktion.
-static func row_spots(count: int, span: float, pitch: float) -> PackedFloat32Array:
-	var out := PackedFloat32Array()
-	if count <= 0 or span <= 0.0:
-		return out
-	var step := minf(maxf(pitch, 0.01), span / float(count))
-	var first := -step * float(count - 1) * 0.5
-	for i in count:
-		out.append(first + step * float(i))
-	return out
-
 ## Wie viele Felder eine Strecke fasst (mindestens eines).
 static func fits(span: float) -> int:
 	return maxi(int(floorf(span / CELL)), 1)
@@ -182,8 +170,8 @@ func open_spot() -> Vector3:
 		return global_position
 	var span := inner()
 	var grid := grid_for(span, 1)
-	var lanes := row_spots(grid.x, span.x, CELL)
-	var ranks := row_spots(maxi(grid.y, 1), span.y, CELL)
+	var lanes := TableProps.row_spots(grid.x, span.x, CELL)
+	var ranks := TableProps.row_spots(maxi(grid.y, 1), span.y, CELL)
 	if lanes.is_empty() or ranks.is_empty():
 		return global_position
 	return Vector3(center.x - ranks[0],
@@ -247,16 +235,7 @@ func awaiting(def: DieDefinition) -> bool:
 ## Der Würfel unter diesem WELT-Punkt der Glasebene ({} = keiner). Gefragt, nicht
 ## gemeldet - der Zeiger liegt auf dem Tisch (die Magazin-Grammatik).
 func item_at(world: Vector3) -> Dictionary:
-	var best := {}
-	var best_distance := INF
-	for item in items:
-		var spot: Vector3 = item["spot"]
-		var radius: float = item["radius"]
-		var distance := Vector2(world.x - spot.x, world.z - spot.z).length()
-		if distance <= radius and distance < best_distance:
-			best_distance = distance
-			best = item
-	return best
+	return TableProps.nearest_item(items, world)
 
 ## Der Zeiger liegt auf einem Würfel (0 = keiner): er hebt sich und schwillt an.
 ## Nur der WECHSEL wird gefahren.
@@ -313,19 +292,19 @@ func _build_shell() -> void:
 	_hover_tweens.clear()
 	_shown.clear()  # kein Körper steht mehr, also ist nichts mehr offen gelegen
 	_hovered = 0
-	var floor_material := _metal(FLOOR_ALBEDO, FLOOR_EMISSION, FLOOR_ENERGY)
-	var rim_material := _metal(RIM_ALBEDO, RIM_EMISSION, RIM_ENERGY)
+	var floor_material := TableProps.metal(FLOOR_ALBEDO, FLOOR_EMISSION, FLOOR_ENERGY)
+	var rim_material := TableProps.metal(RIM_ALBEDO, RIM_EMISSION, RIM_ENERGY)
 	global_position = center
-	floor_plate = _box("Floor", Vector3(half.x * 2.0, FLOOR_HEIGHT, half.y * 2.0),
+	floor_plate = TableProps.box(self, "Floor", Vector3(half.x * 2.0, FLOOR_HEIGHT, half.y * 2.0),
 		Vector3(0.0, FLOOR_LIFT + FLOOR_HEIGHT * 0.5, 0.0), floor_material)
 	var rim_y := FLOOR_LIFT + RIM_HEIGHT * 0.5
-	_box("RimXPlus", Vector3(RIM, RIM_HEIGHT, half.y * 2.0),
+	TableProps.box(self, "RimXPlus", Vector3(RIM, RIM_HEIGHT, half.y * 2.0),
 		Vector3(half.x - RIM * 0.5, rim_y, 0.0), rim_material)
-	_box("RimXMinus", Vector3(RIM, RIM_HEIGHT, half.y * 2.0),
+	TableProps.box(self, "RimXMinus", Vector3(RIM, RIM_HEIGHT, half.y * 2.0),
 		Vector3(-half.x + RIM * 0.5, rim_y, 0.0), rim_material)
-	_box("RimZPlus", Vector3(half.x * 2.0 - RIM * 2.0, RIM_HEIGHT, RIM),
+	TableProps.box(self, "RimZPlus", Vector3(half.x * 2.0 - RIM * 2.0, RIM_HEIGHT, RIM),
 		Vector3(0.0, rim_y, half.y - RIM * 0.5), rim_material)
-	_box("RimZMinus", Vector3(half.x * 2.0 - RIM * 2.0, RIM_HEIGHT, RIM),
+	TableProps.box(self, "RimZMinus", Vector3(half.x * 2.0 - RIM * 2.0, RIM_HEIGHT, RIM),
 		Vector3(0.0, rim_y, -half.y + RIM * 0.5), rim_material)
 
 ## Der eine Schreiber: Plätze rechnen, Körper nachstellen, Eingelöstes versenken.
@@ -339,8 +318,8 @@ func _layout(arriving := 0) -> void:
 	# Nur die OFFENEN Plätze werden ausgelegt - der Rest wartet unter dem Boden.
 	var open := mini(_dice.size(), visible_cap())
 	var grid := grid_for(span, open)
-	var lanes := row_spots(grid.x, span.x, CELL)
-	var ranks := row_spots(maxi(grid.y, 1), span.y, CELL)
+	var lanes := TableProps.row_spots(grid.x, span.x, CELL)
+	var ranks := TableProps.row_spots(maxi(grid.y, 1), span.y, CELL)
 	var wanted: Dictionary = {}
 	var lift := DieBuilder.HALF_EXTENT * DIE_SCALE
 	var rest_y := center.y + FLOOR_LIFT + FLOOR_HEIGHT + lift
@@ -458,26 +437,3 @@ func _free_body(body: Node3D) -> void:
 	if body.get_parent() == self:
 		remove_child(body)
 	body.queue_free()
-
-func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = albedo
-	material.metallic = 0.5
-	material.roughness = 0.44
-	material.emission_enabled = true
-	material.emission = emission
-	material.emission_energy_multiplier = energy
-	return material
-
-func _box(box_name: String, box_size: Vector3, at: Vector3,
-		material: Material) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)
-	return instance

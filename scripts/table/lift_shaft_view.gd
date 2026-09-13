@@ -433,13 +433,7 @@ func run_cycle(bodies: Array, seats: Array, delay: float,
 	if riders.size() != rider_seats.size():
 		riders = []
 		rider_seats = []
-	var behind := waiting_offset()
-	# Wartestellung: hinter der Rückwand auf der Band-Ebene - dort deckt das opake
-	# Display jedes Stück, bis es hereinschiebt.
-	for i in bodies.size():
-		var body: Node3D = bodies[i]
-		if body != null and is_instance_valid(body):
-			body.global_position = (seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
+	_stage_behind(bodies, seats)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
@@ -450,6 +444,22 @@ func run_cycle(bodies: Array, seats: Array, delay: float,
 	_lift_and_seat(bodies + riders, seats + rider_seats, BAND_BACK)
 	_tween.tween_callback(_shut)
 	return _tween
+
+## Wartestellung hinter der Rückwand auf der Band-Ebene: dort deckt das opake
+## Display jedes Stück, bis es hereinschiebt.
+func _stage_behind(bodies: Array, seats: Array) -> void:
+	var behind := waiting_offset()
+	for i in bodies.size():
+		var body: Node3D = bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = (seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
+
+## Die Ware steht am Grubenboden auf ihrem Parkstand.
+func _stage_parked(bodies: Array, seats: Array) -> void:
+	for i in bodies.size():
+		var body: Node3D = bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = (seats[i] as Vector3) - Vector3.UP * park_y()
 
 ## Der WARENUMSCHLAG als EIN Förderband-Schritt: Loch auf, Platte und ALTE Ware
 ## GEMEINSAM senken, dann fährt das Band einen Schritt weiter - die alten Stücke
@@ -471,14 +481,8 @@ func run_swap(old_bodies: Array, old_seats: Array, new_bodies: Array,
 	if riders.size() != rider_seats.size():
 		riders = []
 		rider_seats = []
-	var behind := waiting_offset()
 	var ahead := exit_offset()
-	# Wartestellung der NEUEN: hinter der Rückwand auf der Band-Ebene - dort deckt das
-	# opake Display jedes Stück, bis es hereinschiebt. Die alten stehen schon.
-	for i in new_bodies.size():
-		var body: Node3D = new_bodies[i]
-		if body != null and is_instance_valid(body):
-			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
+	_stage_behind(new_bodies, new_seats)  # die alten stehen schon
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
@@ -564,11 +568,7 @@ func run_park(old_bodies: Array, old_seats: Array, new_bodies: Array,
 	# stehende Ware mit hinab und bleibt dort - der Band-Schritt fährt dann leer.
 	if old_bodies.is_empty() and new_bodies.is_empty() and riders.is_empty():
 		return null
-	var behind := waiting_offset()
-	for i in new_bodies.size():
-		var body: Node3D = new_bodies[i]
-		if body != null and is_instance_valid(body):
-			body.global_position = (new_seats[i] as Vector3) + Vector3(behind, -drop(), 0.0)
+	_stage_behind(new_bodies, new_seats)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_tween.tween_callback(_open)
@@ -595,10 +595,7 @@ func run_rise(bodies: Array, seats: Array, delay: float) -> Tween:
 	if _platform == null or bodies.size() != seats.size() or bodies.is_empty():
 		return null
 	park_hard()
-	for i in bodies.size():
-		var body: Node3D = bodies[i]
-		if body != null and is_instance_valid(body):
-			body.global_position = (seats[i] as Vector3) - Vector3.UP * park_y()
+	_stage_parked(bodies, seats)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_cover_step(1.0, 0.0)  # erst der Deckel, dann die Ware - nichts durchstößt ihn
@@ -618,10 +615,7 @@ func run_leave_park(bodies: Array, seats: Array, delay: float,
 		riders = []
 		rider_seats = []
 	park_hard()
-	for i in bodies.size():
-		var body: Node3D = bodies[i]
-		if body != null and is_instance_valid(body):
-			body.global_position = (seats[i] as Vector3) - Vector3.UP * park_y()
+	_stage_parked(bodies, seats)
 	_tween = create_tween()
 	_tween.tween_interval(maxf(delay, 0.0))
 	_cover_step(1.0, 0.0)
@@ -1317,14 +1311,7 @@ func _apply_deck_skin() -> void:
 		_deck_top.material_override = deck_skin if deck_skin != null else _deck_side_material
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(albedo.r, albedo.g, albedo.b, 1.0)
-	material.metallic = 0.45
-	material.roughness = 0.5
-	material.emission_enabled = true
-	material.emission = Color(emission.r, emission.g, emission.b, 1.0)
-	material.emission_energy_multiplier = energy
-	return material
+	return TableProps.metal(albedo, emission, energy, 0.45, 0.5)
 
 ## Alles in LOKALEN Koordinaten um die Schachtmitte auf dem Glas (y = 0 ist die
 ## Tischfläche, +X ist hinten).
@@ -1342,14 +1329,14 @@ func _build_body() -> void:
 
 	# Zwei geschlossene Flanken; vorn und hinten steht je ein Sturz über einem
 	# Öffnungsband - hinten schiebt die Ware herein, vorn hinaus.
-	_box("WallLeft", Vector3(span.x, deep, WALL),
+	TableProps.box(self, "WallLeft", Vector3(span.x, deep, WALL),
 		Vector3(0.0, top - deep * 0.5, -half.y - WALL * 0.5), _wall_material)
-	_box("WallRight", Vector3(span.x, deep, WALL),
+	TableProps.box(self, "WallRight", Vector3(span.x, deep, WALL),
 		Vector3(0.0, top - deep * 0.5, half.y + WALL * 0.5), _wall_material)
 	var lintel := maxf(deep - mouth, 0.01)
-	_box("BackLintel", Vector3(WALL, lintel, span.y + WALL * 2.0),
+	TableProps.box(self, "BackLintel", Vector3(WALL, lintel, span.y + WALL * 2.0),
 		Vector3(half.x + WALL * 0.5, top - lintel * 0.5, 0.0), _wall_material)
-	_box("FrontLintel", Vector3(WALL, lintel, span.y + WALL * 2.0),
+	TableProps.box(self, "FrontLintel", Vector3(WALL, lintel, span.y + WALL * 2.0),
 		Vector3(-half.x - WALL * 0.5, top - lintel * 0.5, 0.0), _wall_material)
 
 	# Je Band ein Hohlraum: Stirnwand, zwei Flanken und eine Decke, damit der Blick
@@ -1359,7 +1346,7 @@ func _build_body() -> void:
 
 	# Die SOHLE unter Schacht und BEIDEN Hohlräumen - und die sind seit der
 	# Turm-Bucht verschieden lang, also steht sie außermittig.
-	_box("Sole", Vector3(span.x + WALL * 2.0 + back_cavity + front_cavity, DECK,
+	TableProps.box(self, "Sole", Vector3(span.x + WALL * 2.0 + back_cavity + front_cavity, DECK,
 		span.y + WALL * 2.0),
 		Vector3((back_cavity - front_cavity) * 0.5, sole_y + DECK * 0.5, 0.0),
 		_cavity_material)
@@ -1367,13 +1354,13 @@ func _build_body() -> void:
 	var glow_y := -GLOW_DROP - GLOW_H * 0.5
 	# Rundum, denn beide Stürze stehen hoch genug: der Saum liegt auf ihnen, nicht
 	# im Öffnungsband - und er liegt IM Schacht, er umrandet die Fläche nicht.
-	_box("GlowFront", Vector3(GLOW_IN, GLOW_H, span.y),
+	TableProps.box(self, "GlowFront", Vector3(GLOW_IN, GLOW_H, span.y),
 		Vector3(-half.x + GLOW_IN * 0.5, glow_y, 0.0), _glow_material)
-	_box("GlowBack", Vector3(GLOW_IN, GLOW_H, span.y),
+	TableProps.box(self, "GlowBack", Vector3(GLOW_IN, GLOW_H, span.y),
 		Vector3(half.x - GLOW_IN * 0.5, glow_y, 0.0), _glow_material)
-	_box("GlowLeft", Vector3(span.x, GLOW_H, GLOW_IN),
+	TableProps.box(self, "GlowLeft", Vector3(span.x, GLOW_H, GLOW_IN),
 		Vector3(0.0, glow_y, -half.y + GLOW_IN * 0.5), _glow_material)
-	_box("GlowRight", Vector3(span.x, GLOW_H, GLOW_IN),
+	TableProps.box(self, "GlowRight", Vector3(span.x, GLOW_H, GLOW_IN),
 		Vector3(0.0, glow_y, half.y - GLOW_IN * 0.5), _glow_material)
 
 	_build_platform(span)
@@ -1397,14 +1384,14 @@ func _build_cavity(cavity_name: String, dir: float, span: Vector2, top: float,
 	var mid := dir * (half.x + WALL + cavity * 0.5)
 	var deep := drop()
 	var lid := maxf(deep - mouth, 0.01)
-	_box("Cavity%sEnd" % cavity_name, Vector3(WALL, deep, span.y + WALL * 2.0),
+	TableProps.box(self, "Cavity%sEnd" % cavity_name, Vector3(WALL, deep, span.y + WALL * 2.0),
 		Vector3(dir * (half.x + WALL * 1.5 + cavity), top - deep * 0.5, 0.0),
 		_cavity_material)
-	_box("Cavity%sLeft" % cavity_name, Vector3(cavity, deep, WALL),
+	TableProps.box(self, "Cavity%sLeft" % cavity_name, Vector3(cavity, deep, WALL),
 		Vector3(mid, top - deep * 0.5, -half.y - WALL * 0.5), _cavity_material)
-	_box("Cavity%sRight" % cavity_name, Vector3(cavity, deep, WALL),
+	TableProps.box(self, "Cavity%sRight" % cavity_name, Vector3(cavity, deep, WALL),
 		Vector3(mid, top - deep * 0.5, half.y + WALL * 0.5), _cavity_material)
-	_box("Cavity%sLid" % cavity_name, Vector3(cavity, lid, span.y + WALL * 2.0),
+	TableProps.box(self, "Cavity%sLid" % cavity_name, Vector3(cavity, lid, span.y + WALL * 2.0),
 		Vector3(mid, top - lid * 0.5, 0.0), _cavity_material)
 
 ## Die Plattform: eine Platte über die volle Schachtbreite. Ihr Ursprung liegt in
@@ -1436,17 +1423,3 @@ func _build_platform(span: Vector2) -> void:
 	plate.position = Vector3(0.0, -skin_h - DECK * 0.5, 0.0)
 	plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_platform.add_child(plate)
-
-func _box(box_name: String, box_size: Vector3, at: Vector3,
-		material: Material) -> void:
-	if box_size.x <= 0.001 or box_size.y <= 0.001 or box_size.z <= 0.001:
-		return
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)

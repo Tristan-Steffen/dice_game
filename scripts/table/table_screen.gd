@@ -91,9 +91,8 @@ const PIT_ACTION_FONT := 12 * SUPERSAMPLE
 ## Abstand der wandnahen Knöpfe (Beenden, Rückblick) zur Grubenwand.
 const PIT_WALL_MARGIN := 5.0 * SUPERSAMPLE
 
-## Licht-Trails: LEITERBAHNEN (rein achsenparallel, siehe ScoreTraceView) -
+## Licht-Trails: LEITERBAHNEN (rein achsenparallel) -
 ## Cyan in die Basis, Gold in Mult/Gesamtzahl.
-const TRAIL_MARGIN := 26.0 * SUPERSAMPLE  # Rand-Klemmung für Quellen außerhalb
 const TRAIL_BASE_COLOR := Color(0.5, 2.0, 2.0, 0.9)
 const TRAIL_MULT_COLOR := Color(2.0, 1.6, 0.3, 0.9)
 ## Fumble-Zeremonie: heißes Rot (bloomt) für das Neon-Wort und die EINE
@@ -116,8 +115,6 @@ const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR,
 ## Würfel überhauchen, nicht die Grube fluten (gemessen an der überbright Glut).
 const PIT_HEAT_TIME := 0.6
 const PIT_HEAT_GAIN := 0.35
-const TRACE_CORE_WIDTH := 5.0 * SUPERSAMPLE
-const TRACE_GLOW_WIDTH := 16.0 * SUPERSAMPLE
 ## Erster senkrechter Hub aus der Quelle (~2.4 Weltmeter): hebt die Querstrecke
 ## über Nachbar-Würfel, hält sie unter Zählern und Punktebalken.
 const TRACE_RISE := 30.0 * SUPERSAMPLE
@@ -254,7 +251,6 @@ const SWALLOW_PIT_COUNT := 3
 ## Die TURM-BUCHT: das zweite Rechteck der GEMEINSAMEN Grube. Sie berührt die
 ## Magazin-Grube - im Glas sind es zwei Einträge, in der Welt EIN Raum.
 const PIT_TOWER := 20
-
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -2137,13 +2133,6 @@ func score_comet(from_px: Vector2, source: String, target: String, color_overrid
 	add_child(pulse)
 	pulse.setup(path, color, SCORE_PULSE_CORE, SCORE_PULSE_GLOW, travel, SCORE_COMET)
 	return travel
-
-## Allgemeine Leiterbahn zwischen zwei Display-Punkten (achsenparallele Treppe).
-func spawn_trace(from_px: Vector2, to_px: Vector2, color: Color, duration: float) -> void:
-	from_px = from_px.clamp(Vector2.ONE * TRAIL_MARGIN, Vector2(size) - Vector2.ONE * TRAIL_MARGIN)
-	var trace := ScoreTraceView.new()
-	add_child(trace)
-	trace.setup(_orthogonal_path(from_px, to_px), color, TRACE_CORE_WIDTH, TRACE_GLOW_WIDTH, duration)
 
 ## Treppe in drei Stufen: senkrecht aus der Quelle (TRACE_RISE, über die
 ## Nachbar-Würfel), waagerecht auf die Ziel-Spalte, senkrecht ins Ziel.

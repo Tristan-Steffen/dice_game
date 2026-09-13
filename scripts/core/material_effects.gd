@@ -715,15 +715,7 @@ static func _infect_from(defs: Array[DieDefinition], face_indices: Array[int], p
 	if amount <= 0:
 		return
 	defs[slot].faces[face] -= miasma_self_loss(amount, charm_ids)
-	for other in participating:
-		if other == slot or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
-			continue
-		var other_face: int = face_indices[other]
-		if other_face < 0 or other_face >= defs[other].faces.size():
-			continue
-		defs[other].faces[other_face] += amount
-		if not report.grown.has(other):
-			report.grown.append(other)
+	_grow_others(defs, face_indices, participating, slot, amount, report)
 
 ## Bestrahlung EINER Zündung auf die Defs: die oberen Seiten aller ANDEREN
 ## gewerteten Würfel wachsen dauerhaft. Gegenstück zu _infect_from und an
@@ -735,6 +727,12 @@ static func _irradiate_from(defs: Array[DieDefinition], face_indices: Array[int]
 	var amount := EssenceEffects.radon_eye_gift(essence_ids, charm_ids) * maxi(1, repeat)
 	if amount <= 0:
 		return
+	_grow_others(defs, face_indices, participating, slot, amount, report)
+
+## Die oberen Seiten aller ANDEREN gewerteten Würfel wachsen um amount - Miasma
+## und Bestrahlung teilen diesen Schritt; die Empfänger stehen in report.grown.
+static func _grow_others(defs: Array[DieDefinition], face_indices: Array[int],
+		participating: Array[int], slot: int, amount: int, report: TakeReport) -> void:
 	for other in participating:
 		if other == slot or other >= defs.size() or other >= face_indices.size() or defs[other] == null:
 			continue

@@ -179,10 +179,6 @@ static func stack_depth(cell_scale: float) -> float:
 static func step_time() -> float:
 	return SLIDE_TIME
 
-## Der Prioritäts-Versatz einer STAPEL-EBENE: je tiefer, desto früher gezeichnet.
-static func layer_bias(level: int) -> int:
-	return -DataCellView.LAYER_SPAN * maxi(level, 0)
-
 # --- Aufbau ------------------------------------------------------------------------
 
 ## Stellt den Stapel (idempotent - dieselben Maße bauen nichts neu). at = der
@@ -242,8 +238,8 @@ func _build_tray(tray: int) -> void:
 	# hinteren bis zur Unterkante der vorderen.
 	var top := lane_x(LANE_BACK) + lane_depth() * 0.5
 	var bottom := lane_x(LANE_FRONT) - lane_depth() * 0.5
-	var plate := _box("Platte", Vector3(maxf(top - bottom, 0.05), PLATE, _span.y),
-		Vector3((top + bottom) * 0.5, -PLATE * 0.5, 0.0), _plate_material, node)
+	var plate := TableProps.box(node, "Platte", Vector3(maxf(top - bottom, 0.05), PLATE, _span.y),
+		Vector3((top + bottom) * 0.5, -PLATE * 0.5, 0.0), _plate_material)
 	_plates[tray] = plate
 	for row in rows_of(tray):
 		_build_band(node, row)
@@ -300,18 +296,18 @@ func _build_pocket() -> void:
 	var wide := _span.x + POCKET_WALL * 2.0
 	var mid_x := 0.0
 	var mid_z := near + deep * 0.5
-	_box("Decke", Vector3(wide, POCKET_WALL, deep),
-		Vector3(mid_x, top - POCKET_WALL * 0.5, mid_z), material, host)
-	_box("Boden", Vector3(wide, POCKET_WALL, deep),
-		Vector3(mid_x, bottom - POCKET_WALL * 0.5, mid_z), material, host)
-	_box("Rueckwand", Vector3(wide, high, POCKET_WALL),
+	TableProps.box(host, "Decke", Vector3(wide, POCKET_WALL, deep),
+		Vector3(mid_x, top - POCKET_WALL * 0.5, mid_z), material)
+	TableProps.box(host, "Boden", Vector3(wide, POCKET_WALL, deep),
+		Vector3(mid_x, bottom - POCKET_WALL * 0.5, mid_z), material)
+	TableProps.box(host, "Rueckwand", Vector3(wide, high, POCKET_WALL),
 		Vector3(mid_x, (top + bottom) * 0.5, near + deep + POCKET_WALL * 0.5),
-		material, host)
+		material)
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
-		_box("Flanke%d" % side, Vector3(POCKET_WALL, high, deep),
+		TableProps.box(host, "Flanke%d" % side, Vector3(POCKET_WALL, high, deep),
 			Vector3(mid_x + dir * (wide * 0.5 - POCKET_WALL * 0.5),
-				(top + bottom) * 0.5, mid_z), material, host)
+				(top + bottom) * 0.5, mid_z), material)
 
 ## Die Tiefe EINER Lane in Welt: sie wird GEMELDET (das Fenster schneidet die drei
 ## Ränder heraus); ohne Meldung bleibt die halbe Grube der kopflose Rückfall.
@@ -594,8 +590,8 @@ func _build_bays(host: Node3D, row: int) -> void:
 	var rib := pitch - bay.y
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
-		_box("Lippe%d" % side, Vector3(rail, BAY_LIP, _span.y),
-			Vector3(dir * (bay.x + rail) * 0.5, BAY_LIP * 0.5, 0.0), _lip_material, bays)
+		TableProps.box(bays, "Lippe%d" % side, Vector3(rail, BAY_LIP, _span.y),
+			Vector3(dir * (bay.x + rail) * 0.5, BAY_LIP * 0.5, 0.0), _lip_material)
 	for i in columns + 1:
 		var z := -_span.y * 0.5 + pitch * float(i)
 		var width := rib
@@ -606,8 +602,8 @@ func _build_bays(host: Node3D, row: int) -> void:
 		elif i == columns:
 			width = rib * 0.5
 			z -= width * 0.5
-		_box("Rippe%d" % i, Vector3(bay.x, BAY_LIP, width),
-			Vector3(0.0, BAY_LIP * 0.5, z), _lip_material, bays)
+		TableProps.box(bays, "Rippe%d" % i, Vector3(bay.x, BAY_LIP, width),
+			Vector3(0.0, BAY_LIP * 0.5, z), _lip_material)
 	var seams: Array = []
 	for i in columns:
 		var node := Node3D.new()
@@ -618,15 +614,15 @@ func _build_bays(host: Node3D, row: int) -> void:
 		seam.metallic = 0.2
 		seam.roughness = 0.5
 		seam.emission_enabled = true
-		_box("Saum", Vector3(bay.x, SEAM_RISE, bay.y),
-			Vector3(0.0, SEAM_RISE * 0.5, 0.0), seam, node)
-		_box("Boden", Vector3(bay.x - SEAM_WIDTH * 2.0, FLOOR_RISE, bay.y - SEAM_WIDTH * 2.0),
-			Vector3(0.0, FLOOR_RISE * 0.5, 0.0), _floor_material, node)
+		TableProps.box(node, "Saum", Vector3(bay.x, SEAM_RISE, bay.y),
+			Vector3(0.0, SEAM_RISE * 0.5, 0.0), seam)
+		TableProps.box(node, "Boden", Vector3(bay.x - SEAM_WIDTH * 2.0, FLOOR_RISE, bay.y - SEAM_WIDTH * 2.0),
+			Vector3(0.0, FLOOR_RISE * 0.5, 0.0), _floor_material)
 		var tongue := Vector3(bay.x * TONGUE_SHARE.x, TONGUE_RISE, bay.y * TONGUE_SHARE.y)
-		_box("Zunge", tongue,
+		TableProps.box(node, "Zunge", tongue,
 			Vector3(0.0, FLOOR_RISE + TONGUE_RISE * 0.5,
 				bay.y * 0.5 - SEAM_WIDTH - TONGUE_INSET - tongue.z * 0.5),
-			_tongue_material, node)
+			_tongue_material)
 		seams.append(seam)
 	_seams[row] = seams
 	_write_bays(row)
@@ -659,24 +655,4 @@ func _ensure_materials() -> void:
 		TowerView.BAR_EMISSION_ENERGY)
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = albedo
-	material.metallic = 0.35
-	material.roughness = 0.55
-	material.emission_enabled = true
-	material.emission = emission
-	material.emission_energy_multiplier = energy
-	return material
-
-func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,
-		host: Node3D) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	host.add_child(instance)
-	return instance
+	return TableProps.metal(albedo, emission, energy, 0.35, 0.55)

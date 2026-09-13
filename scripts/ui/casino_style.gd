@@ -75,27 +75,103 @@ static func style_primary_button(button: Button, accent: Color, u: float) -> voi
 	button.add_theme_constant_override("outline_size", 0)
 
 static func _filled_box(fill: Color, border: Color, u: float) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = fill
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.22)))
-	box.set_corner_radius_all(int(u * 0.9))
-	box.set_content_margin_all(int(u * 0.8))
+	var box := flat_box(fill, border, u * 0.22, u * 0.9, u * 0.8)
 	box.shadow_color = Color(fill.r, fill.g, fill.b, 0.3)
 	box.shadow_size = maxi(1, int(u * 0.8))
 	return box
 
 static func _button_box(fill: Color, border: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = fill
-	box.border_color = border
-	box.set_border_width_all(3)
-	box.set_corner_radius_all(10)
-	box.set_content_margin_all(9)
+	var box := flat_box(fill, border, 3, 10, 9)
 	box.shadow_color = SHADOW
 	box.shadow_size = 5
 	box.shadow_offset = Vector2(0, 3)
 	return box
+
+## Flacher Neon-Kasten: Füllung, Saum, dazu Rand, Radius und Innenmaß in Pixeln -
+## der eine Baustein hinter jedem Knopf- und Kartenrahmen der Fenster.
+static func flat_box(fill: Color, border: Color, border_px: float, radius_px: float,
+		margin_px: float) -> StyleBoxFlat:
+	var box := StyleBoxFlat.new()
+	box.bg_color = fill
+	box.border_color = border
+	box.set_border_width_all(maxi(1, int(border_px)))
+	box.set_corner_radius_all(int(radius_px))
+	box.set_content_margin_all(int(margin_px))
+	return box
+
+## Schlichtes Textlabel der Fenster (fängt keine Eingaben); outline > 0 legt einen
+## Schatten-Umriss darunter.
+static func label(text: String, font_size: float, color: Color,
+		align: int = HORIZONTAL_ALIGNMENT_LEFT, outline := 0) -> Label:
+	var out := Label.new()
+	out.text = text
+	out.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
+	if outline > 0:
+		out.add_theme_color_override("font_outline_color", SHADOW)
+		out.add_theme_constant_override("outline_size", outline)
+	out.modulate = color
+	out.horizontal_alignment = align
+	out.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return out
+
+## Dünne Lichtschiene, die nach rechts ausläuft (Neon-Zierlinie).
+static func rail(accent: Color, u: float) -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(accent.r, accent.g, accent.b, 0.7), Color(accent.r, accent.g, accent.b, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.width = 64
+	texture.height = 4
+	var out := TextureRect.new()
+	out.texture = texture
+	out.stretch_mode = TextureRect.STRETCH_SCALE
+	out.custom_minimum_size = Vector2(u * 4.0, u * 0.35)
+	out.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return out
+
+## Weicher radialer Lichtfleck (peak/mid = Alpha in der Mitte und auf halbem Weg).
+## side > 0 ist sein Mindestmaß; sonst füllt er den Platz, den ihm sein Wirt gibt.
+static func glow_disc(tint: Color, side: float, peak := 0.38, mid := 0.14) -> TextureRect:
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(tint.r, tint.g, tint.b, peak), Color(tint.r, tint.g, tint.b, mid),
+		Color(tint.r, tint.g, tint.b, 0.0)])
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(1.0, 0.5)
+	texture.width = 96
+	texture.height = 96
+	var disc := TextureRect.new()
+	disc.texture = texture
+	disc.stretch_mode = TextureRect.STRETCH_SCALE
+	if side > 0.0:
+		disc.custom_minimum_size = Vector2(side, side)
+	else:
+		disc.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return disc
+
+## Die SPERR-BLENDE eines Fensters: dunkles Panel über allem, das jede Eingabe
+## schluckt; sein EINES Kind ist der CenterContainer für die Sperr-Notiz.
+static func lock_overlay(radius_px: float) -> Panel:
+	var overlay := Panel.new()
+	overlay.name = "LockOverlay"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
+	box.set_corner_radius_all(int(radius_px))
+	overlay.add_theme_stylebox_override("panel", box)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+	return overlay
 
 ## Dunkler oder heller Text je nach Hintergrund-Helligkeit.
 static func _readable_text(bg: Color) -> Color:

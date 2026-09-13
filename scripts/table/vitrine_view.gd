@@ -188,19 +188,6 @@ static func content_depth() -> float:
 static func sink_drop() -> float:
 	return content_depth()
 
-## Plätze EINER Reihe: count Punkte, mittig über span verteilt. Die Teilung ist
-## fest (pitch), solange sie passt - sonst rückt die Reihe zusammen. Reine
-## Funktion: die Auslage rechnet ihre Plätze, sie misst keine Körper.
-static func row_spots(count: int, span: float, pitch: float) -> PackedFloat32Array:
-	var out := PackedFloat32Array()
-	if count <= 0 or span <= 0.0:
-		return out
-	var step := minf(maxf(pitch, 0.01), span / float(count))
-	var first := -step * float(count - 1) * 0.5
-	for i in count:
-		out.append(first + step * float(i))
-	return out
-
 ## Der Schlüssel eines Platzes - Gattung und Index sind zusammen der Kaufweg, und
 ## in der Auslage ist der Platz zugleich der Schlüssel des KÖRPERS.
 static func slot_key(kind: String, index: int) -> String:
@@ -379,16 +366,7 @@ func clear() -> void:
 ## Das Stück über diesem WELT-Punkt der Tischebene ({} = keins). Gefragt, nicht
 ## gemeldet: der Zeiger liegt auf dem Tisch, mouse_entered erreicht ihn nie.
 func item_at(world: Vector3) -> Dictionary:
-	var best := {}
-	var best_distance := INF
-	for item in items:
-		var spot: Vector3 = item["spot"]
-		var radius: float = item["radius"]
-		var distance := Vector2(world.x - spot.x, world.z - spot.z).length()
-		if distance <= radius and distance < best_distance:
-			best_distance = distance
-			best = item
-	return best
+	return TableProps.nearest_item(items, world)
 
 ## Der Ankerpunkt eines Stücks in der Tischebene (die Beschriftung hängt darüber).
 func spot_of(kind: String, index: int) -> Vector3:
@@ -527,7 +505,7 @@ func _lay_shelf(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	# QUER: die liegende Karte reicht mit ihrer LANGSEITE quer durch die Bucht
 	# (Welt-Z), nicht mit ihrer Breite - Teilung und Greifradius messen daran.
 	var pitch := DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PackDrawerView.CELL_SPAN
-	var offsets := row_spots(entries.size(), _field_width(), pitch)
+	var offsets := TableProps.row_spots(entries.size(), _field_width(), pitch)
 	var radius := pick_radius(
 		DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PICK_FACTOR, offsets)
 	var x := _band_depths().x
@@ -567,7 +545,7 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	# Wunschteilung zu drängen: unter jedem Würfel steht sein Netz, und das
 	# braucht die Breite. row_spots deckelt ohnehin auf span/count.
 	var pitch := _field_width()
-	var offsets := row_spots(entries.size(), _field_width(), pitch)
+	var offsets := TableProps.row_spots(entries.size(), _field_width(), pitch)
 	var radius := pick_radius(bowl_reach() * PICK_FACTOR, offsets)
 	var x := _band_depths().y
 	for i in entries.size():
@@ -620,7 +598,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			if String(kinds[i]) == ShopController.KIND_DIE:
 				entries.append({"kind": ShopController.KIND_DIE, "index": i,
 					"value": dice[i] if i < dice.size() else null})
-	var offsets := row_spots(entries.size(), _field_width(), _field_width())
+	var offsets := TableProps.row_spots(entries.size(), _field_width(), _field_width())
 	_row_pitch = absf(offsets[1] - offsets[0]) if offsets.size() >= 2 else 0.0
 	var x := center.x
 	var pack_radius := pick_radius(

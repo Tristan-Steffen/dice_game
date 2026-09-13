@@ -236,12 +236,12 @@ func _build_layout() -> void:
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_theme_constant_override("separation", int(u * 1.2))
 	root.add_child(header)
-	header.add_child(_label("SCHWARZMARKT", u * 4.2, Color(1.35, 0.7, 1.7)))
-	var rail := _rail(VIOLET)
+	header.add_child(CasinoStyle.label("SCHWARZMARKT", u * 4.2, Color(1.35, 0.7, 1.7)))
+	var rail := CasinoStyle.rail(VIOLET, u)
 	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(rail)
-	wallet_label = _label("⚡ 0/0", u * 4.2, ENERGY_COLOR)
+	wallet_label = CasinoStyle.label("⚡ 0/0", u * 4.2, ENERGY_COLOR)
 	wallet_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header.add_child(wallet_label)
 	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.6, Vector2(u * 24.0, u * 6.2))
@@ -348,7 +348,7 @@ func _build_info_foot(root: Container) -> void:
 	foot_net.visible = false
 	foot.add_child(foot_net)
 
-	foot_title = _label("", u * FOOT_TITLE_FONT, CasinoStyle.GOLD)
+	foot_title = CasinoStyle.label("", u * FOOT_TITLE_FONT, CasinoStyle.GOLD)
 	foot_title.clip_text = true
 	foot_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	foot_title.visible = false
@@ -580,14 +580,14 @@ func set_bay_plates(entries: Array) -> void:
 		if String(entry["kind"]) == ShopController.KIND_DIE:
 			var die: DieDefinition = offer[GameRun.OFFER_ITEM]
 			if die != null and die.essence_id != "":
-				plate.add_child(_label(Essence.by_id(die.essence_id).display_name,
+				plate.add_child(CasinoStyle.label(Essence.by_id(die.essence_id).display_name,
 					u * PLATE_SOUL_FONT, ShopController.soul_tint(die.essence_id),
 					HORIZONTAL_ALIGNMENT_CENTER))
 		var price := run.secret_offer_price(offer)
 		var blocked := _offer_blocked(offer)
 		var tag := ShopController.FULL_MARK if blocked else "⚡ %d" % price
 		var tint := CasinoStyle.RED if blocked or run.energy < price else ENERGY_COLOR
-		var price_line := _label(tag, u * PLATE_PRICE_FONT, tint,
+		var price_line := CasinoStyle.label(tag, u * PLATE_PRICE_FONT, tint,
 			HORIZONTAL_ALIGNMENT_CENTER)
 		plate.add_child(price_line)
 		_plate_layer.add_child(plate)
@@ -806,7 +806,7 @@ func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 
 	# Der NAME steht oben - eine Ware ohne Namen ist keine Ware.
 	var name_px := maxi(8, int(u * 2.6))
-	var name_line := _label(charm.display_name, name_px,
+	var name_line := CasinoStyle.label(charm.display_name, name_px,
 		NEON_MUTED if sold else NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
 	name_line.clip_text = true
 	name_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -817,7 +817,7 @@ func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 	var stage := CenterContainer.new()
 	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(_glow_disc(tint, thumb_px * 1.5))
+	stage.add_child(CasinoStyle.glow_disc(tint, thumb_px * 1.5, 0.34, 0.12))
 	var face: Control = CharmThumb.new(charm, thumb_px)
 	if sold:
 		face.modulate = Color(1, 1, 1, 0.3)  # die Ware ist weg, der Platz bleibt
@@ -827,7 +827,7 @@ func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 	# Volles Dock: der Sitz zeigt das statt seines Preises.
 	var blocked := _offer_blocked(offer)
 	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
-	column.add_child(_label(tag, u * 3.0,
+	column.add_child(CasinoStyle.label(tag, u * 3.0,
 		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
 
 	if not sold:
@@ -843,8 +843,8 @@ func _build_shadow_card(thumb_px: int) -> Control:
 	card.add_theme_stylebox_override("panel", _card_box(Color("#100c2266"), VIOLET, 0.3, 0.0))
 	var stage := CenterContainer.new()
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(_glow_disc(VIOLET, thumb_px))
-	stage.add_child(_label("?", u * 8.0, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.6),
+	stage.add_child(CasinoStyle.glow_disc(VIOLET, thumb_px, 0.34, 0.12))
+	stage.add_child(CasinoStyle.label("?", u * 8.0, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.6),
 		HORIZONTAL_ALIGNMENT_CENTER))
 	card.add_child(stage)
 	return card
@@ -854,23 +854,11 @@ func _build_shadow_card(thumb_px: int) -> Control:
 ## Dunkler Schleier über der ganzen Tasche, in seiner Mitte die Bedingung.
 ## Liegt als LETZTES Kind auf allem anderen.
 func _build_lock_overlay() -> void:
-	lock_overlay = Panel.new()
-	lock_overlay.name = "LockOverlay"
-	lock_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	lock_overlay.mouse_filter = Control.MOUSE_FILTER_STOP  # nichts darunter ist anfassbar
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
-	box.set_corner_radius_all(int(u * 1.2))
-	lock_overlay.add_theme_stylebox_override("panel", box)
+	lock_overlay = CasinoStyle.lock_overlay(u * 1.2)  # nichts darunter ist anfassbar
 	add_child(lock_overlay)
-
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lock_overlay.add_child(center)
-	lock_notice = _label("Ab Lizenzstufe %d" % GameRun.SECRET_UNLOCK_HUB_LEVEL,
+	lock_notice = CasinoStyle.label("Ab Lizenzstufe %d" % GameRun.SECRET_UNLOCK_HUB_LEVEL,
 		u * 4.6, VIOLET, HORIZONTAL_ALIGNMENT_CENTER)
-	center.add_child(lock_notice)
+	lock_overlay.get_child(0).add_child(lock_notice)
 
 # --- Käufe --------------------------------------------------------------------
 
@@ -912,23 +900,9 @@ func _on_energy_changed(_value: int) -> void:
 
 # --- Bausteine ----------------------------------------------------------------
 
-func _label(text: String, font_size: float, color: Color,
-		align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.modulate = color
-	label.horizontal_alignment = align
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return label
-
 func _card_box(fill: Color, border: Color, border_alpha: float, glow_alpha: float) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = fill
-	box.border_color = Color(border.r, border.g, border.b, border_alpha)
-	box.set_border_width_all(maxi(1, int(u * 0.22)))
-	box.set_corner_radius_all(int(u * 1.2))
-	box.set_content_margin_all(int(u * 0.8))
+	var box := CasinoStyle.flat_box(fill, Color(border.r, border.g, border.b, border_alpha),
+		u * 0.22, u * 1.2, u * 0.8)
 	if glow_alpha > 0.0:
 		box.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
 		box.shadow_size = int(u * 1.0)
@@ -955,48 +929,4 @@ func _neon_button(text: String, accent: Color, font_size: float, min_size: Vecto
 	return button
 
 func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.22)))
-	box.set_corner_radius_all(int(u * 0.9))
-	box.set_content_margin_all(int(u * 0.8))
-	return box
-
-## Dünne Lichtschiene, die nach rechts ausläuft.
-func _rail(accent: Color) -> TextureRect:
-	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 1.0])
-	gradient.colors = PackedColorArray([
-		Color(accent.r, accent.g, accent.b, 0.7), Color(accent.r, accent.g, accent.b, 0.0)])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.width = 64
-	texture.height = 4
-	var rail := TextureRect.new()
-	rail.texture = texture
-	rail.stretch_mode = TextureRect.STRETCH_SCALE
-	rail.custom_minimum_size = Vector2(u * 4.0, u * 0.35)
-	rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return rail
-
-## Weicher radialer Lichtfleck hinter der Ware.
-func _glow_disc(tint: Color, side: float) -> TextureRect:
-	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
-	gradient.colors = PackedColorArray([
-		Color(tint.r, tint.g, tint.b, 0.34), Color(tint.r, tint.g, tint.b, 0.12),
-		Color(tint.r, tint.g, tint.b, 0.0)])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_RADIAL
-	texture.fill_from = Vector2(0.5, 0.5)
-	texture.fill_to = Vector2(1.0, 0.5)
-	texture.width = 96
-	texture.height = 96
-	var disc := TextureRect.new()
-	disc.texture = texture
-	disc.stretch_mode = TextureRect.STRETCH_SCALE
-	disc.custom_minimum_size = Vector2(side, side)
-	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return disc
+	return CasinoStyle.flat_box(bg, border, u * 0.22, u * 0.9, u * 0.8)

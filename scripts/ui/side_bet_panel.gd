@@ -484,7 +484,7 @@ func _build_seat(index: int) -> Button:
 	return button
 
 func _wrapped_label(color: Color) -> Label:
-	var label := _label("", 10.0, color)
+	var label := CasinoStyle.label("", 10.0, color)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return label
@@ -595,42 +595,23 @@ func set_locked(is_locked: bool) -> void:
 		_lock_overlay.visible = locked
 
 func _build_lock_overlay() -> void:
-	_lock_overlay = Panel.new()
-	_lock_overlay.name = "LockOverlay"
-	_lock_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_lock_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
-	box.set_corner_radius_all(int(_unit() * 1.2))
-	_lock_overlay.add_theme_stylebox_override("panel", box)
+	_lock_overlay = CasinoStyle.lock_overlay(_unit() * 1.2)
 	add_child(_lock_overlay)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_lock_overlay.add_child(center)
 	var col := VBoxContainer.new()
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	center.add_child(col)
+	_lock_overlay.get_child(0).add_child(col)
 	var u := _unit()
-	var title := _label("Ab Lizenzstufe %d" % GameRun.HUB_SIDE_BETS_LEVEL, u * 2.8, GOLD)
+	var title := CasinoStyle.label("Ab Lizenzstufe %d" % GameRun.HUB_SIDE_BETS_LEVEL, u * 2.8, GOLD)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
-	var name_lbl := _label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SIDE_BETS_LEVEL - 1],
+	var name_lbl := CasinoStyle.label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SIDE_BETS_LEVEL - 1],
 		u * 2.2, MUTED_COLOR)
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(name_lbl)
 	_lock_overlay.visible = locked
 
 # --- Bausteine -----------------------------------------------------------------
-
-func _label(text: String, font_size: float, color: Color) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.modulate = color
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return label
 
 func _style_button(button: Button, accent: Color) -> void:
 	button.add_theme_color_override("font_color", TEXT_COLOR)
@@ -645,10 +626,4 @@ func _style_button(button: Button, accent: Color) -> void:
 
 func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 	var u := _unit()
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.2)))
-	box.set_corner_radius_all(int(u * 0.8))
-	box.set_content_margin_all(int(u * 0.6))
-	return box
+	return CasinoStyle.flat_box(bg, border, u * 0.2, u * 0.8, u * 0.6)

@@ -230,14 +230,7 @@ func _tune_lining() -> void:
 	_floor_material.set_shader_parameter("field_half", plate.size * 0.5)
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(albedo.r, albedo.g, albedo.b, 1.0)
-	material.metallic = 0.5
-	material.roughness = 0.46
-	material.emission_enabled = true
-	material.emission = Color(emission.r, emission.g, emission.b, 1.0)
-	material.emission_energy_multiplier = energy
-	return material
+	return TableProps.metal(albedo, emission, energy, 0.5, 0.46)
 
 ## Wände, Boden, Kragen und Lichtsaum - alles in LOKALEN Koordinaten um die
 ## Grubenmitte auf dem Glas (y = 0 ist die Tischfläche).
@@ -250,7 +243,7 @@ func _build_body() -> void:
 	for wall_id: int in WALLS:
 		_build_wall(wall_id, top)
 	var plate := _floor_plan()
-	_box("Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
+	TableProps.box(self, "Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
 		plate.size.y + wall * 2.0),
 		Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
 			plate.get_center().y), _floor_material)
@@ -332,7 +325,7 @@ func _side_box(box_name: String, wall_id: int, box_size: Vector3, at: Vector3,
 	var lengthwise := absf(wall_inward(wall_id).x) > 0.5
 	var cuts := _bar_cuts(wall_id, box_size.z if lengthwise else box_size.x)
 	if cuts.size() == 1:
-		_box(box_name, box_size, at, material)
+		TableProps.box(self, box_name, box_size, at, material)
 		return
 	for i in cuts.size():
 		var size := box_size
@@ -343,7 +336,7 @@ func _side_box(box_name: String, wall_id: int, box_size: Vector3, at: Vector3,
 		else:
 			size.x = float(cuts[i][0])
 			seat.x += float(cuts[i][1])
-		_box("%s%s" % [box_name, "AB"[i]], size, seat, material)
+		TableProps.box(self, "%s%s" % [box_name, "AB"[i]], size, seat, material)
 
 ## Ein Kasten AUF einer Wand: along = Versatz längs der Wand, deep = Abstand
 ## seiner Mitte von der Innenfläche nach außen (negativ = eine Spur davor).
@@ -360,18 +353,6 @@ func _wall_box(box_name: String, wall_id: int, along: float, y: float,
 	var at := wall_axis(wall_id) * along - inward * (_wall_reach(wall_id) + deep) \
 		+ Vector3.UP * y
 	if uncut:
-		_box(box_name, size, at, material)
+		TableProps.box(self, box_name, size, at, material)
 		return
 	_side_box(box_name, wall_id, size, at, material)
-
-func _box(box_name: String, box_size: Vector3, at: Vector3,
-		material: Material) -> void:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)

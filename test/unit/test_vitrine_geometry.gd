@@ -131,7 +131,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 # --- Die Plätze der Ware (reine Mathematik, keine Körper) ----------------------
 
 func test_eine_reihe_steht_mittig_und_in_fester_teilung() -> void:
-	var spots := VitrineView.row_spots(3, 100.0, 10.0)
+	var spots := TableProps.row_spots(3, 100.0, 10.0)
 	assert_eq(spots.size(), 3)
 	assert_almost_eq(spots[0] + spots[2], 0.0, 0.0001, "mittig um die Feldmitte")
 	assert_almost_eq(spots[1], 0.0, 0.0001)
@@ -139,14 +139,14 @@ func test_eine_reihe_steht_mittig_und_in_fester_teilung() -> void:
 
 func test_eine_volle_reihe_rueckt_zusammen_statt_ueberzulaufen() -> void:
 	var span := 30.0
-	var spots := VitrineView.row_spots(6, span, 10.0)
+	var spots := TableProps.row_spots(6, span, 10.0)
 	assert_eq(spots.size(), 6)
 	assert_lte(spots[5] - spots[0], span, "die Reihe bleibt im Feld")
 	assert_lt(spots[1] - spots[0], 10.0, "sie rückt zusammen")
 
 func test_eine_leere_reihe_hat_keine_plaetze() -> void:
-	assert_eq(VitrineView.row_spots(0, 100.0, 10.0).size(), 0)
-	assert_eq(VitrineView.row_spots(3, 0.0, 10.0).size(), 0)
+	assert_eq(TableProps.row_spots(0, 100.0, 10.0).size(), 0)
+	assert_eq(TableProps.row_spots(3, 0.0, 10.0).size(), 0)
 
 func test_gattung_und_index_sind_zusammen_der_platz() -> void:
 	assert_eq(VitrineView.slot_key(ShopController.KIND_DIE, 2), "die:2")

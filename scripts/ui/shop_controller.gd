@@ -421,9 +421,9 @@ func _build_layout() -> void:
 	header.name = "Header"
 	header.add_theme_constant_override("separation", int(u * 2.0))
 	root.add_child(header)
-	var title := _label("S H O P", u * 4.5, Color(1.5, 0.72, 1.2))
+	var title := CasinoStyle.label("S H O P", u * 4.5, Color(1.5, 0.72, 1.2))
 	header.add_child(title)
-	var title_rail := _rail(NEON_MAGENTA)
+	var title_rail := CasinoStyle.rail(NEON_MAGENTA, u)
 	title_rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(title_rail)
@@ -433,12 +433,12 @@ func _build_layout() -> void:
 	lock_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lock_button.pressed.connect(_on_lock_pressed)
 	header.add_child(lock_button)
-	money_label = _label("$0", u * 4.0, Color(1.5, 1.24, 0.15))
+	money_label = CasinoStyle.label("$0", u * 4.0, Color(1.5, 1.24, 0.15))
 	header.add_child(money_label)
 
 	# Nebenwetten-Ergebnis der letzten Runde (einmalig, dann verbraucht).
 	if pending_bet_notice != "":
-		var notice := _label(pending_bet_notice, u * 2.3, NEON_GREEN)
+		var notice := CasinoStyle.label(pending_bet_notice, u * 2.3, NEON_GREEN)
 		notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		root.add_child(notice)
 		pending_bet_notice = ""
@@ -516,7 +516,7 @@ func _build_layout() -> void:
 	page_back_button = _neon_button("‹", NEON_CYAN, u * 3.2, Vector2(u * 7.0, u * 5.0))
 	page_back_button.pressed.connect(_on_page_back_pressed)
 	footer.add_child(page_back_button)
-	page_label = _label("Seite 1", u * 2.8, NEON_MUTED)
+	page_label = CasinoStyle.label("Seite 1", u * 2.8, NEON_MUTED)
 	page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	footer.add_child(page_label)
 	page_next_button = _neon_button("›", NEON_CYAN, u * 3.2, Vector2(u * 12.0, u * 5.0))
@@ -625,7 +625,7 @@ func _slit_seat(seat: int) -> Button:
 	pad.add_theme_stylebox_override("panel", _slit_box())
 	button.add_child(pad)
 	_slit_pads.append(pad)
-	var tag := _label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 	tag.name = "Price"
 	tag.position = Vector2(0.0, top + pad_size.y + u * WARE_PRICE_GAP)
 	tag.size = Vector2(pad_size.x, price_height)
@@ -804,7 +804,7 @@ func _lay_wrapped(label: Label, px: int, at: Vector2, span: Vector2) -> void:
 ## Rechteck selbst. clip_text nimmt ihr die autowrap-Mindesthöhe (und ist zugleich
 ## das Netz, falls eine Leiter je zu kurz wäre).
 func _wrapped_line(font_size: float, color: Color, align: int) -> Label:
-	var label := _label("", font_size, color, align)
+	var label := CasinoStyle.label("", font_size, color, align)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.clip_text = true
 	return label
@@ -961,13 +961,13 @@ func set_die_nets(entries: Array, cell: float, grow := false) -> void:
 		# in ihr steckt und was sie kostet. Beide Zeilen stehen immer, damit die
 		# Reihe nicht je Würfel anders hoch wird.
 		var essence := Essence.by_id(def.essence_id)
-		var soul := _label(essence.display_name if essence != null else "",
+		var soul := CasinoStyle.label(essence.display_name if essence != null else "",
 			u * WARE_SOUL_FONT, soul_tint(def.essence_id), HORIZONTAL_ALIGNMENT_CENTER)
 		soul.position = Vector2(0.0, span.y + gap)
 		soul.size = Vector2(span.x, soul_height)
 		block.add_child(soul)
 		_net_souls.append(soul)
-		var tag := _label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+		var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 		tag.position = Vector2(0.0, span.y + gap * 2.0 + soul_height)
 		tag.size = Vector2(span.x, price_height)
 		block.add_child(tag)
@@ -1440,12 +1440,7 @@ func _clear_pages() -> void:
 ## darunter. Die Karten füllen die Breite UND das feste Band: schrumpfen darf die
 ## Karte, das Band nie.
 func _rebuild_content(spread: MenuSpread) -> void:
-	for child in content_root.get_children():
-		child.queue_free()
-	charm_buttons.clear()
-	charm_thumbs.clear()
-	charm_stages.clear()
-	charm_effects.clear()
+	_clear_pages()
 
 	var charm_zone := _make_zone(content_root, NEON_MAGENTA, "CHARM-REGAL",
 		"je $%d" % _charm_price(), true)
@@ -1621,15 +1616,15 @@ func _heading_row(text: String, accent: Color, right_hint: String) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", int(u * 1.2))
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(_label("◆", u * 2.2, accent))
-	row.add_child(_label(_spaced(text), u * HEADING_FONT,
+	row.add_child(CasinoStyle.label("◆", u * 2.2, accent))
+	row.add_child(CasinoStyle.label(_spaced(text), u * HEADING_FONT,
 		Color(accent.r * 1.3, accent.g * 1.3, accent.b * 1.3)))
-	var rail := _rail(accent)
+	var rail := CasinoStyle.rail(accent, u)
 	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(rail)
 	if right_hint != "":
-		row.add_child(_label(right_hint, u * 2.2, NEON_GOLD))
+		row.add_child(CasinoStyle.label(right_hint, u * 2.2, NEON_GOLD))
 	return row
 
 ## Gesperrte Schrift ("CHARMS" -> "C H A R M S") - Premium-Look der Zonen-Titel.
@@ -1638,43 +1633,6 @@ func _spaced(text: String) -> String:
 	for i in text.length():
 		chars.append(text[i])
 	return " ".join(chars)
-
-## Dünne Lichtschiene, die nach rechts ausläuft (Neon-Zierlinie).
-func _rail(accent: Color) -> TextureRect:
-	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 1.0])
-	gradient.colors = PackedColorArray([
-		Color(accent.r, accent.g, accent.b, 0.7), Color(accent.r, accent.g, accent.b, 0.0)])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.width = 64
-	texture.height = 4
-	var rail := TextureRect.new()
-	rail.texture = texture
-	rail.stretch_mode = TextureRect.STRETCH_SCALE
-	rail.custom_minimum_size = Vector2(u * 4.0, u * 0.35)
-	rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return rail
-
-## Weicher radialer Lichtfleck (liegt hinter Charm-Modellen).
-func _glow_disc(tint: Color, side: float) -> TextureRect:
-	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
-	gradient.colors = PackedColorArray([
-		Color(tint.r, tint.g, tint.b, 0.38), Color(tint.r, tint.g, tint.b, 0.14), Color(tint.r, tint.g, tint.b, 0.0)])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_RADIAL
-	texture.fill_from = Vector2(0.5, 0.5)
-	texture.fill_to = Vector2(1.0, 0.5)
-	texture.width = 96
-	texture.height = 96
-	var disc := TextureRect.new()
-	disc.texture = texture
-	disc.stretch_mode = TextureRect.STRETCH_SCALE
-	disc.custom_minimum_size = Vector2(side, side)
-	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return disc
 
 ## Charm-Karte: oben der NAME, in der Mitte das MODELL, unten der PREIS - und beim
 ## Hover tritt an die Stelle des Modells die volle Wirkung. Rahmen und Lichtfleck
@@ -1736,7 +1694,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	halo.custom_minimum_size = Vector2(thumb_px, thumb_px)
 	halo.size = halo.custom_minimum_size
-	var disc := _glow_disc(glow, disc_side)
+	var disc := CasinoStyle.glow_disc(glow, disc_side)
 	disc.position = Vector2.ONE * ((thumb_px - disc_side) * 0.5)
 	disc.size = Vector2.ONE * disc_side
 	halo.add_child(disc)
@@ -1760,7 +1718,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 
 	var tag := "gekauft" if bought else ("voll" if full else \
 		("gratis" if _charm_price() <= 0 else "$%d" % _charm_price()))
-	column.add_child(_label(tag, u * CARD_PRICE_FONT,
+	column.add_child(CasinoStyle.label(tag, u * CARD_PRICE_FONT,
 		NEON_MUTED if bought or full else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
 	# Der Zeiger liegt auf dem Tisch, aber die Bewegung wird in den SubViewport
@@ -1827,7 +1785,7 @@ func _card_block_font(text: String, width: float, block: float) -> int:
 ## Eine einzeilige Kartenzeile im gesetzten Grad (der Name) - sie wird notfalls
 ## beschnitten, denn ein Name bricht nicht um.
 func _card_line(text: String, px: int, color: Color) -> Label:
-	var label := _label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
+	var label := CasinoStyle.label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
 	label.clip_text = true
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	return label
@@ -1836,7 +1794,7 @@ func _card_line(text: String, px: int, color: Color) -> Label:
 ## die ganze Beschreibung - das ist die Auskunft, für die es früher einen Schirm
 ## gab, und beim Hover steht sie an der Stelle des Modells.
 func _card_effect(text: String, width: float, block: float, px: int, color: Color) -> Label:
-	var label := _label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
+	var label := CasinoStyle.label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.custom_minimum_size = Vector2(width, block)
@@ -1887,15 +1845,6 @@ func _on_single_die_pressed(index: int) -> void:
 
 # --- Neon-Bausteine --------------------------------------------------------------
 
-func _label(text: String, font_size: float, color: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.modulate = color
-	label.horizontal_alignment = align
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return label
-
 # --- Die Preiszeile ------------------------------------------------------------
 
 ## Preiszeile und ihre Farbe - reine Funktionen, damit die Entscheidung
@@ -1926,13 +1875,7 @@ func _neon_button(text: String, accent: Color, font_size: float, min_size: Vecto
 	return button
 
 func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.22)))
-	box.set_corner_radius_all(int(u * 0.9))
-	box.set_content_margin_all(int(u * 0.8))
-	return box
+	return CasinoStyle.flat_box(bg, border, u * 0.22, u * 0.9, u * 0.8)
 
 # --- Käufe ----------------------------------------------------------------------
 

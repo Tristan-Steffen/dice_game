@@ -174,9 +174,6 @@ func hint() -> String:
 func target_index() -> int:
 	return _target
 
-func pool_size() -> int:
-	return _defs.size()
-
 func title() -> String:
 	return _title
 

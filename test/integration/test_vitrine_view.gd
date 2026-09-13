@@ -42,7 +42,6 @@ func test_in_der_auslage_liegt_alles_das_regal_hinten() -> void:
 	# HINTEN ist Welt-+X (der Bildschirm-oben der Anzeigefläche).
 	assert_gt(shelf.x, bowl.x, "die Kassette liegt hinter der offenen Ware")
 	var cell: DataCellView = bay.item_at(shelf)["cell"]
-	assert_true(cell.lying(), "sie LIEGT - in der Auslage steht nichts")
 	assert_almost_eq(shelf.y, bay.cell_y(), 0.0001, "und ruht auf der Tischfläche")
 	assert_almost_eq(bowl.y,
 		bay.lie_y(DieBuilder.HALF_EXTENT * VitrineView.DIE_SCALE), 0.0001,
@@ -365,7 +364,7 @@ func test_die_sektion_ist_schmaler_als_die_ganze_buehne() -> void:
 	await wait_seconds(LiftShaftView.SINK_TIME * 0.5)
 	assert_eq(holes.size(), 1, "genau ein Loch geht auf")
 	var band := VitrineView.pick_radius(VitrineView.bowl_reach() * VitrineView.PICK_FACTOR,
-		VitrineView.row_spots(3, HALF.y * 2.0 * (1.0 - VitrineView.EDGE_MARGIN * 2.0),
+		TableProps.row_spots(3, HALF.y * 2.0 * (1.0 - VitrineView.EDGE_MARGIN * 2.0),
 			HALF.y * 2.0))
 	assert_lt(holes[0].y, HALF.y, "die Sektion nimmt nicht die ganze Breite")
 	assert_gt(holes[0].y, band * 0.5, "aber sie fasst ihr Stück")

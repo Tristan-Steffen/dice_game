@@ -399,7 +399,7 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 	box.set_corner_radius_all(maxi(1, int(cell * 0.2)))
 	chip.add_theme_stylebox_override("panel", box)
 	if kind == StampNet.KIND_RUNE:
-		chip.add_child(_stamp_rune(String(entry.get("id", "")), cell))
+		chip.add_child(_rune_glyph(String(entry.get("id", "")), cell))
 	elif kind == StampNet.KIND_DOPE:
 		chip.add_child(_stamp_dope(cell))
 	elif text != "":
@@ -425,14 +425,14 @@ static func _stamp_label(text: String, cell: float, tint: Color) -> Label:
 	label.text = text
 	return label
 
-## Der Runen-Linienzug FÜLLT die Zelle, auf seinen eigenen Kasten gezogen -
-## dieselbe Größe und Lage wie im Würfelnetz (2026-09-11; davor stand Streulicht
-## als 3-px-Strich am Rand einer 34-px-Zelle).
-static func _stamp_rune(rune_id: String, cell: float) -> Control:
-	var rune := Rune.by_id(rune_id)
+## Der Runen-Linienzug FÜLLT sein Quadrat (Kante side), auf seinen eigenen Kasten
+## gezogen - dieselbe Größe und Lage wie im Würfelnetz (2026-09-11; davor stand
+## Streulicht als 3-px-Strich am Rand einer 34-px-Zelle). Unbekannte Rune: leer.
+static func _rune_glyph(rune_id: String, side: float) -> Control:
 	var mark := DieNetView.RuneGlyph.new()
 	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mark.size = Vector2.ONE * cell
+	mark.size = Vector2.ONE * side
+	var rune := Rune.by_id(rune_id)
 	if rune == null:
 		return mark
 	mark.lines = Rune.glyph_lines(rune.glyph)
@@ -519,19 +519,9 @@ const SUM_RUNE_SHARE := 0.42
 
 static func _sum_rune(rune_id: String, cell: float, slot: int) -> Control:
 	var side := cell * SUM_RUNE_SHARE
-	var mark := DieNetView.RuneGlyph.new()
-	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mark.size = Vector2.ONE * side
+	var mark := _rune_glyph(rune_id, side)
 	mark.position = Vector2(cell * 0.04 if slot == 0 else cell - side - cell * 0.04,
 		cell - side - cell * 0.04)
-	var rune := Rune.by_id(rune_id)
-	if rune == null:
-		return mark
-	mark.lines = Rune.glyph_lines(rune.glyph)
-	mark.weights = Rune.glyph_weights(rune.glyph)
-	mark.bounds = Rune.glyph_bounds(rune.glyph)
-	mark.tint = rune.tint
-	mark.core = rune.core
 	return mark
 
 ## Der Klartext einer Summen-Zelle ("" = sie trägt nichts): Material, Zahl, Runen

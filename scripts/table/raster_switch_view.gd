@@ -130,14 +130,14 @@ func _build() -> void:
 	position.y = 0.0
 	scale = Vector3.ONE
 	_hovered = false
-	_box("Sockel", Vector3(half.x * 2.0, PLATE_HEIGHT, half.y * 2.0),
+	TableProps.box(self, "Sockel", Vector3(half.x * 2.0, PLATE_HEIGHT, half.y * 2.0),
 		Vector3(0.0, PLATE_LIFT + PLATE_HEIGHT * 0.5, 0.0),
-		_metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY))
-	_key = _box("Taste",
+		TableProps.metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY))
+	_key = TableProps.box(self, "Taste",
 		Vector3(maxf(half.x * 2.0 - KEY_INSET * 2.0, 0.05), KEY_HEIGHT,
 			maxf(half.y * 2.0 - KEY_INSET * 2.0, 0.05)),
 		Vector3(0.0, PLATE_LIFT + PLATE_HEIGHT + KEY_HEIGHT * 0.5, 0.0),
-		_metal(KEY_ALBEDO, LIVE_TINT, 0.7))
+		TableProps.metal(KEY_ALBEDO, LIVE_TINT, 0.7))
 	_label = Label3D.new()
 	_label.name = "Aufschrift"
 	_label.font_size = FONT_SIZE
@@ -168,26 +168,3 @@ func _write_face() -> void:
 		if material != null:
 			material.emission = tint
 			material.emission_energy_multiplier = 0.7 if _live else 0.22
-
-func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = albedo
-	material.metallic = 0.5
-	material.roughness = 0.44
-	material.emission_enabled = true
-	material.emission = emission
-	material.emission_energy_multiplier = energy
-	return material
-
-func _box(box_name: String, box_size: Vector3, at: Vector3,
-		material: Material) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(instance)
-	return instance

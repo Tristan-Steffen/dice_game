@@ -32,18 +32,7 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 		SubViewport.UPDATE_ALWAYS if rotatable else SubViewport.UPDATE_ONCE
 	add_child(_viewport)
 
-	var env := Environment.new()
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1, 1, 1)
-	env.ambient_light_energy = 0.9
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	_viewport.add_child(world_env)
-
-	var key_light := DirectionalLight3D.new()
-	key_light.rotation_degrees = Vector3(-50, 35, 0)
-	key_light.light_energy = 1.1
-	_viewport.add_child(key_light)
+	light_stage(_viewport)
 
 	camera = Camera3D.new()
 	camera.fov = 30.0
@@ -66,6 +55,21 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 			_pending_path = path
 			CharmRowView.request_model_scene(path)
 	set_process(_pending_path != "")
+
+## Die Bühne einer Vorschau: weißes Umgebungslicht und EIN Schlüssellicht -
+## Charm- und Würfel-Vorschauen teilen sie.
+static func light_stage(viewport: SubViewport) -> void:
+	var env := Environment.new()
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(1, 1, 1)
+	env.ambient_light_energy = 0.9
+	var world_env := WorldEnvironment.new()
+	world_env.environment = env
+	viewport.add_child(world_env)
+	var key_light := DirectionalLight3D.new()
+	key_light.rotation_degrees = Vector3(-50, 35, 0)
+	key_light.light_energy = 1.1
+	viewport.add_child(key_light)
 
 func _process(_delta: float) -> void:
 	if _pending_path == "":

@@ -120,10 +120,8 @@ const MOTE_GLOW := 1.5
 const MOTE_EDGE_SAMPLES := 6
 
 ## --- Die LADUNG am Körper ------------------------------------------------------
-## NIE das Energie-Cyan: ein geladener Würfel darf nicht aussehen, als präge er
-## ⚡. Weißviolett für Blitz und Lache; der Überschlag ist BLAUER (Spieler-Wunsch 2026-09-07).
+## NIE das Energie-Cyan: ein geladener Würfel darf nicht aussehen, als präge er ⚡.
 const CHARGE_COLOR := Color(0.86, 0.66, 1.35)
-const CHARGE_ARC_COLOR := Color(0.55, 0.65, 1.45)
 ## Durchgebrannt ist ASCHE (Spieler-Wahl 2026-09-07): hellgrauer Körper, helle
 ## flache Kante, dunkle Ziffer, dazu eine Aschen-Auflage je Seite UNTER der Ziffer
 ## (die_burn.gdshader; der Wert bleibt lesbar, der Würfel zählt für die Hand).
@@ -930,21 +928,16 @@ func edge_distance(camera: Camera3D, screen_pos: Vector2, radius: float) -> floa
 	var best_dist := INF
 	if camera == null:
 		return best_dist
-	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
-	for i in directions.size():
-		for j in range(i + 1, directions.size()):
-			var a: Vector3 = directions[i]
-			var b: Vector3 = directions[j]
-			if not is_zero_approx(a.dot(b)):
-				continue
-			var mid_global: Vector3 = global_transform * ((a + b) * DieBuilder.HALF_EXTENT)
-			var to_cam: Vector3 = (camera.global_position - mid_global).normalized()
-			var normal: Vector3 = (global_transform.basis * (a + b)).normalized()
-			if normal.dot(to_cam) <= FACE_FRONT_MIN_DOT:
-				continue
-			var dist := camera.unproject_position(mid_global).distance_to(screen_pos)
-			if dist < best_dist and dist < radius:
-				best_dist = dist
+	for pair in DieBuilder.edge_axis_pairs():
+		var across: Vector3 = pair[0] + pair[1]
+		var mid_global: Vector3 = global_transform * (across * DieBuilder.HALF_EXTENT)
+		var to_cam: Vector3 = (camera.global_position - mid_global).normalized()
+		var normal: Vector3 = (global_transform.basis * across).normalized()
+		if normal.dot(to_cam) <= FACE_FRONT_MIN_DOT:
+			continue
+		var dist := camera.unproject_position(mid_global).distance_to(screen_pos)
+		if dist < best_dist and dist < radius:
+			best_dist = dist
 	return best_dist
 
 # --- Pointer-Spuren --------------------------------------------------------

@@ -122,14 +122,14 @@ func _build_list() -> void:
 	head.add_theme_constant_override("separation", int(u * 1.0))
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(head)
-	var title := _line(TITLE, u * 4.0, TEXT_COLOR)
+	var title := CasinoStyle.label(TITLE, u * 4.0, TEXT_COLOR, HORIZONTAL_ALIGNMENT_LEFT, 3)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
-	head.add_child(_line(SUBTITLE, u * 2.4, MUTED_COLOR))
+	head.add_child(CasinoStyle.label(SUBTITLE, u * 2.4, MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT, 3))
 	head.add_child(_make_button("Schließen", u, func() -> void: close_requested.emit()))
 
 	if rows.is_empty():
-		column.add_child(_line(EMPTY_TEXT, u * 2.6, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+		column.add_child(CasinoStyle.label(EMPTY_TEXT, u * 2.6, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3))
 		return
 
 	var scroll := ScrollContainer.new()
@@ -146,7 +146,7 @@ func _build_list() -> void:
 	for i in rows.size():
 		var hand := int(rows[i].get("hand_index", 0))
 		if hand != last_hand:
-			list.add_child(_line("Hand %d" % (hand + 1), u * 2.2, MUTED_COLOR))
+			list.add_child(CasinoStyle.label("Hand %d" % (hand + 1), u * 2.2, MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT, 3))
 			last_hand = hand
 		var row_button := _make_row(i, u)
 		list.add_child(row_button)
@@ -169,9 +169,9 @@ func _build_bar() -> void:
 	texts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	texts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(texts)
-	_title_label = _line(_entry_title(current_entry), u * 1.9, MUTED_COLOR)
+	_title_label = CasinoStyle.label(_entry_title(current_entry), u * 1.9, MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT, 3)
 	texts.add_child(_title_label)
-	_step_label = _line("", u * 2.6, TEXT_COLOR)
+	_step_label = CasinoStyle.label("", u * 2.6, TEXT_COLOR, HORIZONTAL_ALIGNMENT_LEFT, 3)
 	texts.add_child(_step_label)
 
 	row.add_child(_make_button("▶", u, func() -> void: step_requested.emit(1)))
@@ -225,18 +225,6 @@ func _make_button(text: String, u: float, on_press: Callable) -> Button:
 	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	button.pressed.connect(on_press)
 	return button
-
-func _line(text: String, font_size: float, color: Color,
-		align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
-	label.add_theme_constant_override("outline_size", 3)
-	label.modulate = color
-	label.horizontal_alignment = align
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return label
 
 func _box(accent: Color, strength: float, u: float) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()

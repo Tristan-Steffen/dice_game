@@ -459,6 +459,16 @@ func configure_title_target(center: Vector3, half_extent: Vector2) -> void:
 	title_target = center
 	title_half = half_extent
 
+## Seitenverhältnis des laufenden Viewports (1, solange keiner mißt).
+func _viewport_aspect() -> float:
+	var viewport := get_viewport()
+	if viewport == null:
+		return 1.0
+	var vp_size := viewport.get_visible_rect().size
+	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
+		return 1.0
+	return vp_size.x / vp_size.y
+
 ## Abstand, bei dem ein Rechteck der halben Ausmaße half ganz im Bild steht
 ## (Maximum der beiden Achsen; Seitenverhältnis aus dem laufenden Viewport).
 ## margin < 1 überfüllt bewusst, > 1 lässt Luft.
@@ -466,12 +476,7 @@ func _fit_distance(half: Vector2, margin: float) -> float:
 	var half_fov := tan(deg_to_rad(fov * 0.5))
 	if half_fov <= 0.0:
 		return ZOOM_DISTANCE
-	var aspect := 1.0
-	var viewport := get_viewport()
-	if viewport != null:
-		var vp_size := viewport.get_visible_rect().size
-		if vp_size.x > 0.0 and vp_size.y > 0.0:
-			aspect = vp_size.x / vp_size.y
+	var aspect := _viewport_aspect()
 	return maxf(half.y / half_fov, half.x / (half_fov * aspect)) * margin
 
 func title_distance() -> float:
@@ -493,12 +498,7 @@ func tilted_fit_distance(half: Vector2, margin: float) -> float:
 	var half_fov := tan(deg_to_rad(fov * 0.5))
 	if half_fov <= 0.0:
 		return need
-	var aspect := 1.0
-	var viewport := get_viewport()
-	if viewport != null:
-		var vp_size := viewport.get_visible_rect().size
-		if vp_size.x > 0.0 and vp_size.y > 0.0:
-			aspect = vp_size.x / vp_size.y
+	var aspect := _viewport_aspect()
 	var up := ZOOM_BASIS.y
 	var forward := -ZOOM_BASIS.z
 	var wide := half.x * margin / maxf(half_fov * aspect, 0.001)

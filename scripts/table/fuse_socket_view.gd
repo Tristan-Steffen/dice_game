@@ -298,15 +298,15 @@ func _build_plate() -> void:
 	var y := PLATE_LIFT + PLATE_HEIGHT * 0.5
 	var left := CHANNEL_AT - CHANNEL_HALF.y   # Welt-z der Rinnenkanten
 	var right := CHANNEL_AT + CHANNEL_HALF.y
-	_box("PlatteLinks", Vector3(HALF.x * 2.0, PLATE_HEIGHT, left + HALF.y),
-		Vector3(0.0, y, (left - HALF.y) * 0.5), material, self)
-	_box("PlatteRechts", Vector3(HALF.x * 2.0, PLATE_HEIGHT, HALF.y - right),
-		Vector3(0.0, y, (right + HALF.y) * 0.5), material, self)
+	TableProps.box(self, "PlatteLinks", Vector3(HALF.x * 2.0, PLATE_HEIGHT, left + HALF.y),
+		Vector3(0.0, y, (left - HALF.y) * 0.5), material)
+	TableProps.box(self, "PlatteRechts", Vector3(HALF.x * 2.0, PLATE_HEIGHT, HALF.y - right),
+		Vector3(0.0, y, (right + HALF.y) * 0.5), material)
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
-		_box("PlatteRand%d" % side,
+		TableProps.box(self, "PlatteRand%d" % side,
 			Vector3(HALF.x - CHANNEL_HALF.x, PLATE_HEIGHT, CHANNEL_HALF.y * 2.0),
-			Vector3(dir * (CHANNEL_HALF.x + HALF.x) * 0.5, y, CHANNEL_AT), material, self)
+			Vector3(dir * (CHANNEL_HALF.x + HALF.x) * 0.5, y, CHANNEL_AT), material)
 
 ## Die RINNE: ihr Boden liegt um CHANNEL_DEPTH unter der Platte und glüht beim
 ## Durchbrenner; an jedem Ende eine KLEMME.
@@ -315,14 +315,14 @@ func _build_channel() -> void:
 	_channel_material.metallic = 0.2
 	_channel_material.roughness = 0.7
 	var floor_height := PLATE_HEIGHT - CHANNEL_DEPTH
-	_box("Rinne", Vector3(CHANNEL_HALF.x * 2.0, floor_height, CHANNEL_HALF.y * 2.0),
+	TableProps.box(self, "Rinne", Vector3(CHANNEL_HALF.x * 2.0, floor_height, CHANNEL_HALF.y * 2.0),
 		Vector3(0.0, PLATE_LIFT + floor_height * 0.5, CHANNEL_AT),
-		_channel_material, self)
+		_channel_material)
 	for side in 2:
-		_box("Klemme%d" % side, CLAMP_SIZE,
+		TableProps.box(self, "Klemme%d" % side, CLAMP_SIZE,
 			Vector3(0.0, plate_top() + CLAMP_SIZE.y * 0.5 - CHANNEL_DEPTH,
 				CHANNEL_AT + (float(side) * 2.0 - 1.0) * (FUSE_LENGTH * 0.5 - FUSE_CAP * 0.5)),
-			_metal(METAL_ALBEDO, PLATE_EMISSION, 0.45), self)
+			_metal(METAL_ALBEDO, PLATE_EMISSION, 0.45))
 
 ## Die SICHERUNG in ihrem Halter: ein Glaszylinder mit zwei Metallkappen, quer in
 ## der Rinne. Der Halter fährt den Griff, die Sicherung den Sprung.
@@ -484,27 +484,7 @@ func _pick_body(part: String, host: Node3D, box_size: Vector3,
 	return body
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = albedo
-	material.metallic = 0.55
-	material.roughness = 0.4
-	material.emission_enabled = true
-	material.emission = emission
-	material.emission_energy_multiplier = energy
-	return material
-
-func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,
-		host: Node3D) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	host.add_child(instance)
-	return instance
+	return TableProps.metal(albedo, emission, energy, 0.55, 0.4)
 
 func _cylinder(cylinder_name: String, radius: float, length: float,
 		material: Material, host: Node3D) -> MeshInstance3D:

@@ -148,7 +148,7 @@ func _build() -> void:
 	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_content)
 
-	_content.add_child(_label("FUMBLE-AUTOMATEN", u * 5.0, TITLE_COLOR))
+	_content.add_child(CasinoStyle.label("FUMBLE-AUTOMATEN", u * 5.0, TITLE_COLOR))
 
 	# Zellen von Gewinn-Reihen leuchten, Fumble-Reihen (2+) drohen rot.
 	var run_set := {}
@@ -252,7 +252,7 @@ func _machine_column(i: int, u: float, run_set: Dictionary, fumble_set: Dictiona
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var roman: String = ["I", "II", "III"][i]
-	var head := _label("Automat %s · %s" % [roman, SlotMachine.MACHINE_NAMES[i]], u * 2.4,
+	var head := CasinoStyle.label("Automat %s · %s" % [roman, SlotMachine.MACHINE_NAMES[i]], u * 2.4,
 		tier if unlocked else MUTED_COLOR)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(head)
@@ -415,7 +415,7 @@ func _pot_tray(u: float) -> Control:
 
 	box.add_child(_cash_out_button(u, busted, runs.size()))
 	box.add_child(_legend_row(u))
-	box.add_child(_label("3+ gleiche nebeneinander = Gewinn. 3 Fumble nebeneinander = Topf weg.",
+	box.add_child(CasinoStyle.label("3+ gleiche nebeneinander = Gewinn. 3 Fumble nebeneinander = Topf weg.",
 		u * 2.0, MUTED_COLOR))
 	return box
 
@@ -435,8 +435,8 @@ func _legend_row(u: float) -> Control:
 		var entry := HBoxContainer.new()
 		entry.add_theme_constant_override("separation", int(u * 0.4))
 		entry.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		entry.add_child(_label(SlotPrize.symbol_for(kind), u * 2.4, _kind_color(kind)))
-		var word := _label(names[kind], u * 2.0, MUTED_COLOR)
+		entry.add_child(CasinoStyle.label(SlotPrize.symbol_for(kind), u * 2.4, _kind_color(kind)))
+		var word := CasinoStyle.label(names[kind], u * 2.0, MUTED_COLOR)
 		word.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		entry.add_child(word)
 		flow.add_child(entry)
@@ -790,7 +790,7 @@ func _present_token(plan: Dictionary, gen: int) -> void:
 	box.set_content_margin_all(int(u * 1.0))
 	token.add_theme_stylebox_override("panel", box)
 	token.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	token.add_child(_label("%s %s" % [plan["glyph"], plan["caption"]], u * 2.6, TEXT_COLOR))
+	token.add_child(CasinoStyle.label("%s %s" % [plan["glyph"], plan["caption"]], u * 2.6, TEXT_COLOR))
 	token.scale = Vector2.ZERO  # unsichtbar, bis er vermessen und gesetzt ist
 	token.z_index = 6
 	add_child(token)
@@ -903,29 +903,18 @@ func set_locked(is_locked: bool) -> void:
 func _build_lock_overlay() -> void:
 	if _lock_overlay != null and is_instance_valid(_lock_overlay):
 		_lock_overlay.queue_free()
-	_lock_overlay = Panel.new()
-	_lock_overlay.name = "LockOverlay"
-	_lock_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_lock_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
 	var u := _unit()
-	box.set_corner_radius_all(int(u * 1.2))
-	_lock_overlay.add_theme_stylebox_override("panel", box)
+	_lock_overlay = CasinoStyle.lock_overlay(u * 1.2)
 	add_child(_lock_overlay)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_lock_overlay.add_child(center)
 	var col := VBoxContainer.new()
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	center.add_child(col)
-	var title := _label("Ab Lizenzstufe %d" % GameRun.HUB_SLOT_LEVELS[0],
+	_lock_overlay.get_child(0).add_child(col)
+	var title := CasinoStyle.label("Ab Lizenzstufe %d" % GameRun.HUB_SLOT_LEVELS[0],
 		u * 4.6, TITLE_COLOR)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(title)
-	var name_lbl := _label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SLOT_LEVELS[0] - 1],
+	var name_lbl := CasinoStyle.label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SLOT_LEVELS[0] - 1],
 		u * 3.4, MUTED_COLOR)
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(name_lbl)
@@ -947,14 +936,6 @@ func _kind_color(kind: int) -> Color:
 		SlotPrize.Kind.WILD: return GOLD
 	return RED  # Fumble
 
-func _label(text: String, font_size: float, color: Color) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.modulate = color
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return label
-
 func _style_button(button: Button, accent: Color) -> void:
 	button.add_theme_color_override("font_color", TEXT_COLOR)
 	button.add_theme_color_override("font_hover_color", GOLD)
@@ -967,13 +948,7 @@ func _style_button(button: Button, accent: Color) -> void:
 
 func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 	var u := maxf(size.x, 200.0) / 100.0
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.2)))
-	box.set_corner_radius_all(int(u * 0.9))
-	box.set_content_margin_all(int(u * 0.6))
-	return box
+	return CasinoStyle.flat_box(bg, border, u * 0.2, u * 0.9, u * 0.6)
 
 ## Zeichnet die Verbindungslinien aktiver Kombinationen als Neon-Polylinien (breit-
 ## blass darunter, schmal-hell darüber). Reine Anzeige, fängt keine Eingaben.

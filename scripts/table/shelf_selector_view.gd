@@ -256,9 +256,9 @@ func _build() -> void:
 	global_position = center
 	var span := field_span()
 	var pitch := span + KEY_GAP
-	_box("Sockel", Vector3(height, PLATE_HEIGHT, KEY_WIDTH),
+	TableProps.box(self, "Sockel", Vector3(height, PLATE_HEIGHT, KEY_WIDTH),
 		Vector3(0.0, PLATE_LIFT + PLATE_HEIGHT * 0.5, 0.0),
-		_metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY), self)
+		TableProps.metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY))
 	for i in FIELDS:
 		# Feld 0 steht Bild-OBEN (Welt +X): oben ▲, dann 1 … 5, unten ▼.
 		var at := Vector3(height * 0.5 - span * 0.5 - pitch * float(i), 0.0, 0.0)
@@ -289,10 +289,10 @@ func _build_field(index: int, part: String, at: Vector3, span: float) -> void:
 	host.name = "Feld_%s" % part
 	host.position = at
 	add_child(host)
-	var material := _metal(KEY_ALBEDO, REST_TINT, REST_ENERGY)
-	var key := _box("Taste", Vector3(maxf(span - KEY_INSET * 2.0, 0.05), KEY_HEIGHT,
+	var material := TableProps.metal(KEY_ALBEDO, REST_TINT, REST_ENERGY)
+	var key := TableProps.box(host, "Taste", Vector3(maxf(span - KEY_INSET * 2.0, 0.05), KEY_HEIGHT,
 		maxf(KEY_WIDTH - KEY_INSET * 2.0, 0.05)),
-		Vector3(0.0, PLATE_LIFT + PLATE_HEIGHT + KEY_HEIGHT * 0.5, 0.0), material, host)
+		Vector3(0.0, PLATE_LIFT + PLATE_HEIGHT + KEY_HEIGHT * 0.5, 0.0), material)
 	var label := Label3D.new()
 	label.name = "Aufschrift"
 	label.text = _text_at(index)
@@ -370,28 +370,3 @@ func _lift(index: int, on: bool) -> void:
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tween.tween_property(host, "position:y", wanted, HOVER_TIME)
 	_hover_tweens[index] = tween
-
-# --- Bausteine ---------------------------------------------------------------------
-
-func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = albedo
-	material.metallic = 0.5
-	material.roughness = 0.44
-	material.emission_enabled = true
-	material.emission = emission
-	material.emission_energy_multiplier = energy
-	return material
-
-func _box(box_name: String, box_size: Vector3, at: Vector3, material: Material,
-		host: Node3D) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = box_size
-	var instance := MeshInstance3D.new()
-	instance.name = box_name
-	instance.mesh = mesh
-	instance.material_override = material
-	instance.position = at
-	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	host.add_child(instance)
-	return instance

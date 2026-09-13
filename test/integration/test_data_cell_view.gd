@@ -144,18 +144,12 @@ func test_a_dimmed_cell_flares_back_to_its_own_rest() -> void:
 	await wait_seconds(DataCellView.FLARE_TIME + 0.15)
 	assert_almost_eq(cell.glow_energy(), DataCellView.DIM_ENERGY, 0.001)
 
-func test_the_cell_lies_by_default_and_stands_only_on_demand() -> void:
-	# Die Tischkameras blicken fast senkrecht nach unten - liegend ist die Lage,
-	# stehend nur noch das Schaufenster.
+func test_the_cell_lies_by_default() -> void:
+	# Die Tischkameras blicken fast senkrecht nach unten - liegend ist die Lage.
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	var body: Node3D = cell.get_node("Body")
-	assert_true(cell.lying(), "sie liegt, ohne dass jemand sie hinlegt")
 	assert_almost_eq(body.position.y, DataCellView.DEPTH * 0.5, 0.001,
 		"liegend hebt der Ursprung auf halbe Dicke")
-	cell.lay_flat(false)
-	assert_false(cell.lying())
-	assert_almost_eq(body.position.y, DataCellView.STAND_HEIGHT * 0.5, 0.001,
-		"stehend auf halbe STANDHÖHE - kappe-oben ist das ihre Höhe")
 
 func test_the_standing_height_grows_out_of_the_die_edge() -> void:
 	# Sie bleibt Möbel neben den Würfeln - nur ein Drittel größer, damit sie im
@@ -168,7 +162,7 @@ func test_the_standing_height_grows_out_of_the_die_edge() -> void:
 	assert_lt(DataCellView.WIDTH, DataCellView.HEIGHT, "Streichholzschachtel, kein Quadrat")
 	assert_lt(DataCellView.DEPTH, DataCellView.WIDTH)
 	assert_almost_eq(DataCellView.STAND_HEIGHT, DataCellView.HEIGHT, 0.001,
-		"stehend ist sie ungedreht und kappe-oben - ihr aufrechtes Maß ist ihre Höhe")
+		"ihr aufrechtes Maß ist ihre Höhe")
 
 # --- Die leuchtende Kopfkante -----------------------------------------------------
 # Tief im Leseschlitz steht NUR sie über dem Glas - sie ist dort die ganze Anzeige.
@@ -233,89 +227,6 @@ func test_the_body_scale_lifts_the_body_and_leaves_the_seat_alone() -> void:
 	assert_almost_eq(cell.global_position.y, 0.0, 0.001)
 	assert_almost_eq(cell.global_position.z, -2.0, 0.001)
 
-func test_the_socket_stands_on_the_one_cassette_scale() -> void:
-	# Eine Karte behält ihre Größe ihr ganzes Leben lang: der Leseschlitz ist auf
-	# genau das Maß geschnitten, in dem sie auch im Magazin steht.
-	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	cell.set_body_scale(1.0)
-	cell.seat_hard(Vector3.ZERO)
-	assert_almost_eq(cell.body_scale(), PackDrawerView.CASSETTE_SCALE, 0.001)
-	assert_almost_eq(cell.global_position.y,
-		-cell.drop_for(DataCellView.SUNK_SHOW), 0.001,
-		"und hängt so tief darunter, wie sie groß ist")
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001, "ihr Glaspunkt bleibt")
-
-# --- Der Steckplatz (tief im Tisch) -----------------------------------------------
-
-func test_the_socket_pose_stands_upright_and_sinks_to_its_share() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	assert_gte(DataCellView.SUNK_SHOW, 0.7,
-		"drei Viertel stehen heraus - sonst läse die Karte im Kerf gar nicht")
-	assert_lt(DataCellView.SUNK_SHOW, 1.0, "aber sie STECKT, sie steht nicht daneben")
-	cell.seat_hard(Vector3(2.0, 0.0, -1.0))
-	assert_false(cell.lying(), "im Schlitz steht sie senkrecht")
-	assert_true(cell.sunk())
-	assert_almost_eq(cell.show_share(), DataCellView.SUNK_SHOW, 0.001)
-	assert_almost_eq(cell.global_position.y,
-		-cell.drop_for(DataCellView.SUNK_SHOW), 0.001,
-		"der Rest hängt unter dem Glas")
-	assert_almost_eq(cell.global_position.x, 2.0, 0.001, "über ihrem Schlitz")
-	assert_almost_eq(cell.global_position.z, -1.0, 0.001)
-	assert_true(cell.socketed(), "und ihre Kopfkante brennt")
-
-func test_the_drop_is_the_hidden_part_of_the_height() -> void:
-	assert_almost_eq(DataCellView.sunk_drop(1.0), 0.0, 0.001, "ganz oben: kein Versatz")
-	assert_almost_eq(DataCellView.sunk_drop(0.0), DataCellView.STAND_HEIGHT, 0.001)
-	assert_almost_eq(DataCellView.sunk_drop(DataCellView.SUNK_SHOW),
-		DataCellView.STAND_HEIGHT * (1.0 - DataCellView.SUNK_SHOW), 0.001)
-	assert_lt(DataCellView.SUNK_GONE, 0.0,
-		"ganz geschluckt liegt sie eine Spur UNTER dem Glas")
-
-func test_a_plunge_without_time_lands_hard() -> void:
-	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	cell.raise_upright(0.0)
-	assert_false(cell.lying())
-	cell.plunge(DataCellView.SUNK_SHOW, 0.0)
-	assert_almost_eq(cell.global_position.y,
-		-DataCellView.sunk_drop(DataCellView.SUNK_SHOW), 0.001)
-	cell.plunge(1.0, 0.0)
-	assert_almost_eq(cell.global_position.y, 0.0, 0.001, "und wieder ganz heraus")
-	assert_false(cell.sunk())
-
-func test_a_sunk_cell_carries_its_badge_on_the_face() -> void:
-	# Seit dem Kappen-Tod steht die Zahl auf der FLÄCHE - dort ragt sie nirgends
-	# heraus und liest im Kerf, wo drei Viertel der Karte über dem Blech stehen.
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.set_count(4)
-	var badge: Label3D = cell.get_node("Body/CountBadge")
-	assert_true(badge.visible)
-	cell.seat_hard(Vector3.ZERO)
-	assert_true(badge.visible, "sie steht weiter da")
-	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5,
-		"und zwar VOR der Kartenfläche")
-	assert_gt(badge.position.y, 0.0, "in der oberen Hälfte, über dem Blech")
-
-func test_a_glide_target_is_always_a_glass_point() -> void:
-	# Wie tief sie unter ihrem Platz hängt, weiß die Zelle selbst - der Aufrufer
-	# nennt nur den Punkt auf dem Glas.
-	var cell := _cell(Engraving.CATEGORY_DICE)
-	cell.seat_hard(Vector3.ZERO)
-	cell.glide_to(Vector3(1.0, 0.0, 4.0), 0.0)
-	assert_almost_eq(cell.global_position.x, 1.0, 0.001)
-	assert_almost_eq(cell.global_position.z, 4.0, 0.001)
-	assert_almost_eq(cell.global_position.y,
-		-cell.drop_for(DataCellView.SUNK_SHOW), 0.001,
-		"sie behält ihre Steck-Tiefe")
-
-func test_raising_and_laying_over_are_the_two_ends_of_one_blend() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var body: Node3D = cell.get_node("Body")
-	cell.raise_upright(0.0)
-	assert_almost_eq(body.position.y, DataCellView.STAND_HEIGHT * 0.5, 0.001)
-	cell.lay_over(0.0)
-	assert_almost_eq(body.position.y, DataCellView.DEPTH * 0.5, 0.001)
-	assert_true(cell.lying())
-
 func test_a_full_stack_stays_a_flat_pile() -> void:
 	# Wofür die Zelle dünn ist: fünf davon sollen als Haufen lesen, nicht als Turm -
 	# der volle Stapel bleibt flacher als eine einzelne Kassette lang ist.
@@ -333,72 +244,41 @@ func test_the_body_grows_in_and_shrinks_out_without_being_freed() -> void:
 	assert_true(cell.visible)
 	assert_almost_eq(cell.scale.x, 1.0, 0.01, "und wieder in voller Größe")
 
-## Die Ankunft im MAGAZIN: die Kassette steigt aus dem Grubenboden. Geprüft wird
-## nur der Endzustand - er ist derselbe wie stand_in_pit, sonst hinge die
-## Richtigkeit des Magazins an einem Tween.
-func test_the_pit_arrival_rises_onto_the_exact_standing_spot() -> void:
+## Die Ankunft AUF der Fläche - so kommt Ware in einem Laden an, wo es kein Loch
+## gibt. Geprüft wird nur der Endzustand - er ist derselbe wie lie_on_glass.
+func test_the_arrival_rises_onto_the_exact_lying_spot() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	var spot := Vector3(2.0, 0.0, -1.5)
-	cell.stand_in_pit(spot)
-	var standing := cell.global_position
-	cell.rise_into_pit(spot, 3.0)
-	assert_lt(cell.global_position.y, standing.y - 2.9, "sie startet unter dem Boden")
-	assert_true(cell.gliding(), "und ist unterwegs - der Abgleich lässt sie in Ruhe")
-	await wait_seconds(DataCellView.RISE_TIME + 0.2)
-	assert_true(cell.global_position.is_equal_approx(standing),
-		"am Ende steht sie genau da, wo stand_in_pit sie hingestellt hätte")
-	assert_true(cell.glass_position().is_equal_approx(spot), "auf ihrem Glaspunkt")
-
-func test_a_pit_arrival_without_time_stands_hard() -> void:
-	# Ein übersprungener Tween darf nichts schuldig bleiben (harter End-Schreiber).
-	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	var spot := Vector3(-1.0, 0.0, 4.0)
-	cell.stand_in_pit(spot)
-	var standing := cell.global_position
-	cell.rise_into_pit(spot, 3.0, 0.0, 0.0)
-	assert_eq(cell.global_position, standing, "byteweise derselbe Stand")
-	assert_false(cell.gliding())
-	assert_true(cell.visible)
-
-## Dieselbe Ankunft AUF der Fläche - so kommt Ware in einem Laden an, wo es kein
-## Loch gibt.
-func test_the_arrival_rises_onto_the_exact_standing_spot() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var spot := Vector3(2.0, 0.0, -1.5)
-	cell.stand_on_glass(spot)
-	var standing := cell.global_position
+	cell.lie_on_glass(spot)
+	var lying := cell.global_position
 	cell.rise_through_glass(spot)
-	assert_lt(cell.global_position.y, standing.y - cell.rise_depth() * 0.99,
+	assert_lt(cell.global_position.y, lying.y - cell.rise_depth() * 0.99,
 		"sie startet unter der Fläche")
 	assert_true(cell.gliding(), "und ist unterwegs - der Abgleich lässt sie in Ruhe")
 	await wait_seconds(DataCellView.RISE_TIME + 0.2)
-	assert_true(cell.global_position.is_equal_approx(standing),
-		"am Ende steht sie genau da, wo stand_on_glass sie hingestellt hätte")
+	assert_true(cell.global_position.is_equal_approx(lying),
+		"am Ende liegt sie genau da, wo lie_on_glass sie hingelegt hätte")
 	assert_true(cell.glass_position().is_equal_approx(spot), "auf ihrem Glaspunkt")
 
 ## Der Aufstiegsweg ist ihr EIGENES Körpermaß: darunter ist nichts von ihr mehr
 ## über dem Glas, und das opake Display testet sie weg.
 func test_the_rise_depth_is_the_cells_own_body() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.stand_on_glass(Vector3.ZERO)
-	assert_almost_eq(cell.rise_depth(), DataCellView.STAND_HEIGHT, 0.001,
-		"stehend ihre ganze Standhöhe")
 	cell.lie_on_glass(Vector3.ZERO)
 	assert_almost_eq(cell.rise_depth(), DataCellView.lying_over(1.0), 0.001,
 		"liegend nur, was sie über der Fläche einnimmt")
-	cell.stand_on_glass(Vector3.ZERO)
 	cell.set_body_scale(2.0)
-	assert_almost_eq(cell.rise_depth(), DataCellView.STAND_HEIGHT * 2.0, 0.001,
+	assert_almost_eq(cell.rise_depth(), DataCellView.lying_over(2.0), 0.001,
 		"und der Anzeige-Maßstab fährt mit")
 
-func test_an_arrival_without_time_stands_hard() -> void:
+func test_an_arrival_without_time_lands_hard() -> void:
 	# Ein übersprungener Tween darf nichts schuldig bleiben (harter End-Schreiber).
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
 	var spot := Vector3(-1.0, 0.0, 4.0)
-	cell.stand_on_glass(spot)
-	var standing := cell.global_position
+	cell.lie_on_glass(spot)
+	var lying := cell.global_position
 	cell.rise_through_glass(spot, 0.0, 0.0)
-	assert_eq(cell.global_position, standing, "byteweise derselbe Stand")
+	assert_eq(cell.global_position, lying, "byteweise dieselbe Lage")
 	assert_false(cell.gliding())
 	assert_true(cell.visible)
 
@@ -448,89 +328,33 @@ func test_die_groesse_sagt_die_intensitaet() -> void:
 # Kappe; nichts ruht über dem Rand. AUF der Fläche liegt sie nur dort, wo es kein
 # Loch gibt - in den Läden.
 
-func test_standing_in_the_pit_puts_the_cap_at_the_glass_point() -> void:
+func test_lying_on_the_glass_puts_the_whole_body_above_it() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.stand_in_pit(Vector3(3.0, 0.0, -1.5))
-	assert_false(cell.lying(), "im Magazin STEHT sie - nur die Kappe schaut heraus")
-	assert_false(cell.socketed(), "und sie steckt in keinem Leser")
-	assert_almost_eq(cell.show_share(), DataCellView.PIT_SHOW, 0.001)
-	assert_lte(DataCellView.PIT_SHOW, 0.0,
-		"bündig oder eine Spur darunter - nichts ragt über den Rand")
-	assert_almost_eq(cell.global_position.x, 3.0, 0.001)
-	assert_almost_eq(cell.global_position.z, -1.5, 0.001)
-	assert_almost_eq(cell.global_position.y, -cell.drop_for(DataCellView.PIT_SHOW), 0.001)
-	# Und wieder zurückgerechnet ist es genau ihr Glaspunkt.
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001)
-
-## Und sie rechnet dort STEHEND: EIN aufrechtes Maß für Grube wie Kerf, nur der
-## sichtbare Anteil unterscheidet sie.
-func test_the_pit_measures_the_standing_card() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.set_body_scale(1.0)
-	cell.stand_in_pit(Vector3.ZERO)
-	assert_almost_eq(-cell.global_position.y,
-		DataCellView.STAND_HEIGHT * (1.0 - DataCellView.PIT_SHOW), 0.0001,
-		"ihre Standhöhe hängt unter dem Glaspunkt, bis auf den sichtbaren Rest")
-	cell.seat_hard(Vector3.ZERO)
-	assert_almost_eq(-cell.global_position.y,
-		DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE
-			* (1.0 - DataCellView.SUNK_SHOW), 0.0001,
-		"im KERF steckt sie tiefer - dieselbe Standhöhe im Kartenmaß, anderer Anteil")
-
-func test_a_grown_cell_hangs_deeper_so_its_card_stays_flush() -> void:
-	# Der Anzeige-Maßstab verändert das aufrechte Maß: ohne Ausgleich ragte eine
-	# große Kassette aus der Grube.
-	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	cell.set_body_scale(1.8)
-	cell.stand_in_pit(Vector3.ZERO)
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001)
-	cell.set_body_scale(1.0)
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001,
-		"und beim Schrumpfen ebenso - der Glaspunkt bleibt")
-
-func test_standing_on_the_glass_puts_the_whole_body_above_it() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.stand_on_glass(Vector3(3.0, 0.0, -1.5))
-	assert_false(cell.lying(), "auf der Fläche STEHT sie")
-	assert_false(cell.socketed(), "aber sie steckt in keinem Leser")
-	assert_almost_eq(cell.show_share(), 1.0, 0.001, "und zwar mit voller Höhe")
-	assert_false(cell.sunk(), "nichts von ihr steckt im Tisch")
+	cell.lie_on_glass(Vector3(3.0, 0.0, -1.5))
+	assert_false(cell.socketed(), "sie steckt in keinem Kontakt")
 	assert_almost_eq(cell.global_position.x, 3.0, 0.001)
 	assert_almost_eq(cell.global_position.z, -1.5, 0.001)
 	assert_almost_eq(cell.global_position.y, 0.0, 0.001,
 		"ihr Ursprung IST der genannte Platz")
-	# Und wieder zurückgerechnet ist es genau ihr Glaspunkt.
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001)
-
-func test_a_grown_cell_keeps_standing_on_its_glass_point() -> void:
-	# Der Anzeige-Maßstab verändert die Standhöhe: sie wächst nach OBEN, ihr
-	# Standplatz bleibt.
-	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	assert_true(cell.glass_position().is_equal_approx(cell.global_position),
+		"und zugleich ihr Glaspunkt")
 	cell.set_body_scale(1.8)
-	cell.stand_on_glass(Vector3.ZERO)
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001)
-	cell.set_body_scale(1.0)
-	assert_almost_eq(cell.glass_position().y, 0.0, 0.001,
-		"und beim Schrumpfen ebenso - der Glaspunkt bleibt")
+	assert_almost_eq(cell.global_position.y, 0.0, 0.001,
+		"der Anzeige-Maßstab wächst nach oben - der Platz bleibt")
 
-## Ein Bündel ist stehend EINE Karte, und seine Zahl liegt WIE LIEGEND auf der
-## FLÄCHE - die Kappe, die sie früher trug, gibt es nicht mehr.
-func test_a_bundle_carries_its_count_on_the_face_standing_and_lying() -> void:
+## Ein Bündel liegt als Stapel da, und in einer Auslage trägt seine FLÄCHE die
+## Zahl - die Kappe, die sie früher trug, gibt es nicht mehr.
+func test_a_bundle_carries_its_count_on_the_face() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
 	var badge: Label3D = cell.get_node("Body/CountBadge")
 	cell.set_count(4)
-	assert_eq(cell.shown_cells(), 4, "liegend liegt der Stapel da")
+	assert_eq(cell.stack_size(), 4, "liegend liegt der Stapel da")
 	assert_eq(cell.badge_text(), "×4")
+	assert_gt(badge.position.y, DataCellView.HEIGHT * 0.5, "frei: über dem Stapel")
 	cell.badge_on_face = true
 	cell.lie_on_glass(Vector3.ZERO)
-	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5, "liegend auf der Fläche")
-	cell.stand_in_pit(Vector3.ZERO)
-	assert_eq(cell.shown_cells(), 1, "in der Grube ist das Bündel EINE Karte")
-	assert_eq(cell.badge_text(), "×4", "und ihre FLÄCHE trägt die Zahl")
+	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5, "in der Auslage AUF der Fläche")
 	assert_true(badge.visible)
-	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5, "stehend ebenso")
-	cell.seat_hard(Vector3.ZERO)
-	assert_eq(cell.badge_text(), "×4", "im Kerf ebenso")
 	cell.set_count(1)
 	assert_eq(cell.badge_text(), "", "ein Einzelstück zählt nichts")
 
@@ -553,9 +377,9 @@ func test_no_cell_carries_a_cap_any_more() -> void:
 	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.FIN_DEPTH,
 		"und bleibt die Greifluft um den steckenden Körper")
 
-func test_hovering_lifts_the_cell_out_of_the_pit_and_lets_it_sink_back() -> void:
+func test_hovering_lifts_the_cell_and_lets_it_sink_back() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.stand_in_pit(Vector3.ZERO)
+	cell.lie_on_glass(Vector3.ZERO)
 	var body: Node3D = cell.get_node("Body")
 	var resting: float = body.position.y
 	cell.set_hovered(true)
@@ -563,7 +387,7 @@ func test_hovering_lifts_the_cell_out_of_the_pit_and_lets_it_sink_back() -> void
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.y,
 		resting + DataCellView.STAND_HEIGHT * DataCellView.HOVER_LIFT, 0.01,
-		"sie zieht sich um einen Teil ihrer Standhöhe aus der Grube")
+		"sie hebt sich um einen Teil ihrer Standhöhe")
 	assert_almost_eq(cell.glow_energy(), DataCellView.HOVER_ENERGY, 0.001,
 		"und hellt auf")
 	assert_lt(DataCellView.HOVER_ENERGY, DataCellView.FLARE_ENERGY,
@@ -572,27 +396,6 @@ func test_hovering_lifts_the_cell_out_of_the_pit_and_lets_it_sink_back() -> void
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück")
 	assert_almost_eq(cell.glow_energy(), cell.rest_energy(), 0.001)
-
-## Im MAGAZIN zieht der Griff sie auf DREI VIERTEL über die Grubenkante - dort
-## setzt der Wirt PIT_HOVER_LIFT statt des kleinen Auslagen-Hubs.
-func test_the_magazine_grip_pulls_three_quarters_of_the_card_out() -> void:
-	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	cell.hover_lift = DataCellView.PIT_HOVER_LIFT
-	cell.stand_in_pit(Vector3.ZERO)
-	var body: Node3D = cell.get_node("Body")
-	var resting: float = body.position.y
-	assert_almost_eq(DataCellView.PIT_SHOW + DataCellView.PIT_HOVER_LIFT, 0.75, 0.001,
-		"gehoben stehen drei Viertel der Karte über der Kante")
-	assert_gt(DataCellView.PIT_HOVER_LIFT, DataCellView.HOVER_LIFT,
-		"und das ist mehr als der Hub einer Auslage")
-	cell.set_hovered(true)
-	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
-	assert_almost_eq(body.position.y,
-		resting + DataCellView.STAND_HEIGHT * DataCellView.PIT_HOVER_LIFT, 0.01,
-		"gemessen an ihrer Standhöhe")
-	cell.set_hovered(false)
-	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
-	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück in die Grube")
 
 ## Der ZWEITE Hover-Kanal (Welle X): im TURM wird nicht gehoben, sondern LÄNGS
 ## herausgezogen - nach Bild-links, damit das Netz frei liest. EIN Tween für beide.
@@ -611,7 +414,6 @@ func test_hover_slide_pulls_the_lying_cell_along_its_own_axis() -> void:
 		* TowerView.HOVER_SLIDE * PackDrawerView.CASSETTE_SCALE, 0.01,
 		"sie fährt längs ihrer Achse heraus")
 	assert_almost_eq(body.position.y, resting.y, 0.01, "und hebt sich dabei NICHT")
-	assert_true(cell.lying(), "sie bleibt liegen")
 	cell.set_hovered(false)
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.x, resting.x, 0.01, "und rutscht zurück")
@@ -629,7 +431,6 @@ func test_hovering_lifts_the_lying_cell_in_its_fach() -> void:
 	assert_almost_eq(body.position.y, resting + DataCellView.STAND_HEIGHT
 		* DataCellView.HOVER_LIFT * PackDrawerView.CASSETTE_SCALE, 0.01,
 		"sie hebt sich aus ihrem Fach")
-	assert_true(cell.lying(), "und bleibt dabei liegen")
 	cell.set_hovered(false)
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.y, resting, 0.01, "und legt sich zurück")
@@ -730,36 +531,27 @@ func _quad(cell: DataCellView) -> QuadMesh:
 
 # --- WELLE O/P: ROLL und YAW folgen der LAGE --------------------------------------
 
-## LIEGEND ist die Karte quer (Läden, Wetten, Wurf), STEHEND kappe-oben und seit
-## der Welle P HOCHKANT: ihre Fläche zeigt nach Bild-links (lokal -X), ihre Breite
-## läuft in die Bild-Tiefe. Die EINE hochkante Backung bleibt.
-func test_liegend_quer_stehend_hochkant() -> void:
+## LIEGEND ist die Karte quer gerollt und flach gekippt: ihre Breite zeigt nach
+## Bild-oben (lokal -Z), ihre Fläche nach oben. Die EINE hochkante Backung bleibt.
+func test_liegend_quer() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
 	var body: Node3D = cell.get_node("Body")
-	# STEHEND: kein Roll, aber die Vierteldrehung um die Hochachse.
-	for hard in ["stand_on_glass", "seat_hard", "stand_in_pit"]:
-		cell.call(hard, Vector3.ZERO)
-		assert_almost_eq(body.transform.basis.y.normalized().y, 1.0, 0.001,
-			"%s: ungedreht - die Kappe steht oben" % hard)
-		assert_almost_eq(body.transform.basis.x.normalized().z, 1.0, 0.001,
-			"%s: hochkant - ihre Breite läuft in die Tiefe" % hard)
-		assert_almost_eq(body.transform.basis.z.normalized().x, -1.0, 0.001,
-			"%s: ... und ihre Fläche zeigt nach Bild-links" % hard)
-	# LIEGEND bleibt die Vierteldrehung, die Kippung legt sie nach hinten: ihre
-	# Breite zeigt dann nach Bild-oben (lokal -Z).
 	cell.lie_on_glass(Vector3.ZERO)
 	assert_almost_eq(body.transform.basis.x.normalized().z, -1.0, 0.001,
 		"lie_on_glass: quer gerollt und flach gelegt")
+	assert_almost_eq(body.transform.basis.z.normalized().y, 1.0, 0.001,
+		"ihre Fläche zeigt nach oben")
 	assert_gt(_quad(cell).size.y, _quad(cell).size.x,
 		"die EINE Backung bleibt hochkant - liegend liest sie darum aufrecht")
 
 ## Die Bündelzahl schaut MIT der Fläche: sie ist ein Kind des Körpers und dreht mit
-## ihm, also steht sie stehend wie liegend richtig herum auf der Karte - und liest
-## von hinten durchs Glas gespiegelt mit.
+## ihm, also liegt sie in der Auslage richtig herum auf der Karte - und liest von
+## hinten durchs Glas gespiegelt mit.
 func test_die_marke_schaut_mit_der_flaeche() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER, _number_net())
 	cell.set_count(3)
-	cell.stand_in_pit(Vector3.ZERO)
+	cell.badge_on_face = true
+	cell.lie_on_glass(Vector3.ZERO)
 	var badge: Node3D = cell.get_node("Body/CountBadge")
 	var plate: Node3D = cell.get_node("Body/Cell0/StampNet")
 	var into := cell.global_transform.affine_inverse()
@@ -767,18 +559,17 @@ func test_die_marke_schaut_mit_der_flaeche() -> void:
 	var plate_normal := (into.basis * plate.global_transform.basis).z.normalized()
 	assert_almost_eq(badge_normal.dot(plate_normal), 1.0, 0.001,
 		"sie schaut in dieselbe Richtung wie das Netz")
-	assert_gt(badge.position.y, 0.0, "in der oberen Hälfte der Karte")
-	assert_lt(badge.position.x, 0.0, "in der freien LINKEN Netz-Ecke")
+	assert_lt(badge.position.y, 0.0, "auf der Fußhälfte der Karte")
+	assert_gt(badge.position.z, DataCellView.DEPTH * 0.5, "und VOR ihrer Fläche")
 
 ## DER TRAGE-BOGEN: was der SPIELER bewegt, fliegt ÜBER dem Tisch. Er endet exakt
 ## auf dem genannten Glaspunkt und unterschreitet das Glas nie.
 func test_der_trage_bogen_endet_auf_dem_glaspunkt_und_bleibt_ueber_dem_glas() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.stand_in_pit(Vector3.ZERO)
+	cell.lie_on_glass(Vector3.ZERO)
 	var target := Vector3(4.0, 0.0, -2.0)
 	cell.arc_to(target, 0.3, 1.0)
 	assert_true(cell.busy(), "während des Bogens hält sie jeden Schreiber fern")
-	assert_almost_eq(cell.show_share(), 1.0, 0.001, "sie fliegt ganz über dem Glas")
 	var lowest := cell.global_position.y
 	var highest := cell.global_position.y
 	for step in 5:
@@ -824,7 +615,7 @@ func test_der_trage_bogen_steigt_nie_ueber_sein_hoeheres_ende() -> void:
 
 func test_ein_trage_bogen_ohne_zeit_landet_hart() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
-	cell.stand_in_pit(Vector3.ZERO)
+	cell.lie_on_glass(Vector3.ZERO)
 	cell.arc_to(Vector3(1.0, 0.0, 2.0), 0.0, 1.0)
 	assert_false(cell.gliding(), "kein Tween, der etwas schuldig bliebe")
 	assert_true(cell.glass_position().is_equal_approx(Vector3(1.0, 0.0, 2.0)))

@@ -41,20 +41,30 @@ const FRICTION := 0.4
 ## Pfosten stellt die drei Eckflächen selbst.
 static func beam_boxes() -> Array:
 	var boxes := []
+	for pair in edge_axis_pairs():
+		var a: Vector3 = pair[0]
+		var b: Vector3 = pair[1]
+		var long_axis: Vector3 = a.cross(b).abs()
+		var reach := HALF_EXTENT * 2.0
+		if long_axis != Vector3.UP:
+			reach -= EDGE_THICKNESS * 2.0  # Riegel enden an den Pfosten
+		boxes.append([(a + b) * HALF_EXTENT,
+			Vector3.ONE * EDGE_THICKNESS + long_axis * reach])
+	return boxes
+
+## Alle zwölf Kanten als Paare SENKRECHTER Achsrichtungen [a, b] ((anti)parallel
+## teilt keine Kante); die Kantenmitte liegt bei (a + b) * HALF_EXTENT. Rahmen-Bau
+## und Kanten-Pick lesen dieselbe Liste.
+static func edge_axis_pairs() -> Array:
+	var pairs := []
 	var directions: Array = DiceController.AXIS_DIRECTIONS.values()
 	for i in directions.size():
 		for j in range(i + 1, directions.size()):
 			var a: Vector3 = directions[i]
 			var b: Vector3 = directions[j]
-			if not is_zero_approx(a.dot(b)):
-				continue  # (anti)parallel = keine gemeinsame Kante
-			var long_axis: Vector3 = a.cross(b).abs()
-			var reach := HALF_EXTENT * 2.0
-			if long_axis != Vector3.UP:
-				reach -= EDGE_THICKNESS * 2.0  # Riegel enden an den Pfosten
-			boxes.append([(a + b) * HALF_EXTENT,
-				Vector3.ONE * EDGE_THICKNESS + long_axis * reach])
-	return boxes
+			if is_zero_approx(a.dot(b)):
+				pairs.append([a, b])
+	return pairs
 
 ## Der ganze Kantenrahmen in EINEM Mesh, einmal für alle Würfel: die Vertizes
 ## liegen schon an ihrem Balken, der Fluss-Shader liest die Kante aus der

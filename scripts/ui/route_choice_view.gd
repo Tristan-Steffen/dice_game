@@ -76,8 +76,8 @@ func _build() -> void:
 	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(column)
 
-	column.add_child(_line(TITLE if not stress_round else STRESS_TITLE,
-		u * 4.4, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(CasinoStyle.label(TITLE if not stress_round else STRESS_TITLE,
+		u * 4.4, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3))
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", int(u * 1.4))
@@ -122,12 +122,12 @@ func _make_card(offer: Dictionary, index: int, u: float) -> Control:
 	# umbrechen: Umbruch nur an Leerzeichen, und je länger der Name, desto
 	# kleiner die Schrift.
 	var tier_name := DealClause.tier_label(tier)
-	var title := _line(tier_name, u * _title_scale(tier_name), accent)
+	var title := CasinoStyle.label(tier_name, u * _title_scale(tier_name), accent, HORIZONTAL_ALIGNMENT_LEFT, 3)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(title)
-	column.add_child(_line("§ %d" % _section_for(offer), u * 2.0,
-		MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(CasinoStyle.label("§ %d" % _section_for(offer), u * 2.0,
+		MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3))
 	_add_clause_block(column, String(offer.get(GameRun.CARD_BONUS, "")), BONUS_COLOR, u, bonus_factor)
 	_add_clause_block(column, String(offer.get(GameRun.CARD_MALUS, "")), MALUS_COLOR, u)
 	return card
@@ -143,7 +143,7 @@ func _add_clause_block(column: VBoxContainer, clause_id: String, color: Color, u
 		return
 	# Nur die Wirkung, mittig (die Karte ist breiter als hoch). Die Laufzeit steht
 	# nicht mehr auf der Karte - sie lebt an den Deal-Marken (Größe = Dauer).
-	var body := _line(DealClause.text_for(clause_id, factor), u * 2.8, color, HORIZONTAL_ALIGNMENT_CENTER)
+	var body := CasinoStyle.label(DealClause.text_for(clause_id, factor), u * 2.8, color, HORIZONTAL_ALIGNMENT_CENTER, 3)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	column.add_child(body)
 
@@ -160,18 +160,6 @@ func _title_scale(name_text: String) -> float:
 	if longest >= 11:
 		return 3.7
 	return 4.2
-
-func _line(text: String, font_size: float, color: Color,
-		align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	label.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
-	label.add_theme_constant_override("outline_size", 3)
-	label.modulate = color
-	label.horizontal_alignment = align
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return label
 
 func _style_card(card: Button, accent: Color, u: float) -> void:
 	card.add_theme_stylebox_override("normal", _card_box(accent, 0.75, u))

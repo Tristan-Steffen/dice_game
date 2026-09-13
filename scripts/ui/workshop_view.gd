@@ -80,9 +80,6 @@ const TARGET_OWNER := "Zielwürfel"
 ## kopflos.
 const STAGE_FACES := 2.4
 const STAGE_HEIGHT := 9.3
-## Zellgröße des Summen-Netzes: die Kachel, in der ein Würfel gezeigt wird, wenn
-## man ÜBER ihn entscheidet.
-const CHOICE_CELL := DieNetView.TRAY_TILE
 ## Die MASSEINHEIT u folgt seit der WELLE X der WÜRFELFLÄCHE: im Streifen ist fast
 ## alles ein Weltmaß (Netze, Karten, Turm), also mißt auch die u-Kette daran statt
 ## an einem Höhen-Budget. So viele u ist eine Würfelfläche breit.
@@ -106,7 +103,6 @@ const BENCH_TILT_TRIM := 18.8
 ## Ränder und Zeilenabstand des Fensterinhalts (Einheiten u).
 const CONTENT_MARGIN_X := 2.4
 const CONTENT_MARGIN_Y := 1.4
-const CONTENT_GAP := 1.0
 
 ## --- Der EINE NETZ-SCHIRM unter dem Podest ---------------------------------------
 ## Er trägt NUR sein Netz (der physische Würfel steht über ihm auf dem Podest), auf
@@ -1859,10 +1855,6 @@ func shelf_shows(uid: int) -> bool:
 func shelf_lane_of(uid: int) -> int:
 	return PackDrawerView.lane_of(shelf_row_of(uid))
 
-## Die zwei Reihen des gewählten Tabletts, hinten zuerst.
-func shelf_rows_shown() -> Array[int]:
-	return PackDrawerView.rows_of(shelf_tray)
-
 ## Wie viele Kassetten in EINE Reihe liegen - die Reihen sind Abschnitte dieser Länge.
 func shelf_columns() -> int:
 	return PackDrawerView.columns_for(shelf_pit_rect().size, shelf_cell_px(), 1)
@@ -2001,10 +1993,4 @@ func _style_button(button: Button, accent: Color) -> void:
 
 func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 	var u := unit()
-	var box := StyleBoxFlat.new()
-	box.bg_color = bg
-	box.border_color = border
-	box.set_border_width_all(maxi(1, int(u * 0.2)))
-	box.set_corner_radius_all(int(u * 0.9))
-	box.set_content_margin_all(int(u * 0.6))
-	return box
+	return CasinoStyle.flat_box(bg, border, u * 0.2, u * 0.9, u * 0.6)

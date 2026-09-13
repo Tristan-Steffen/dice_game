@@ -187,7 +187,7 @@ func test_das_raster_faellt_aus_der_innenflaeche() -> void:
 	assert_eq(AusgabefachView.grid_for(inner, 5), Vector2i(2, 3))
 
 func test_eine_volle_reihe_rueckt_zusammen_statt_ueberzulaufen() -> void:
-	var spots := AusgabefachView.row_spots(6, 30.0, 10.0)
+	var spots := TableProps.row_spots(6, 30.0, 10.0)
 	assert_eq(spots.size(), 6)
 	assert_lte(spots[5] - spots[0], 30.0, "die Reihe bleibt im Feld")
 	assert_lt(spots[1] - spots[0], 10.0, "sie rückt zusammen")

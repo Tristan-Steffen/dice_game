@@ -139,18 +139,8 @@ const WELL_SHADOW := Color(0.0, 0.0, 0.0, 0.72)
 const WELL_SHEEN := Color(0.66, 0.64, 0.76, 0.4)
 const LOCK_DIM := Color(0.55, 0.55, 0.6)
 
-## Schlagschatten-Rezept, geteilt mit dem Konsolen-Blech (siehe edge_band).
-const LIP_DROP := Color(0.0, 0.0, 0.0, 0.55)
-const LIP_DROP_SIZE := 0.34
-const LIP_DROP_DOWN := 0.22
-
 const EMPTY_TITLE := "Magazin"
 const EMPTY_BODY := "Das Magazin ist leer."
-## Auskunft der Fach-Fläche: der Bestand steht IM Titel, damit der Deckel dort
-## sichtbar ist, wo die Karten liegen.
-const STOCK_TITLE := "Magazin (%d/%d)"
-const STOCK_BODY := "Platz für %d weitere Kassetten."
-const FULL_BODY := "Voll - jede weitere Prämie zerfällt zu Geld."
 
 ## Gemeinsame Maßeinheit der Werkbank (setzt WorkshopView über build).
 var u := 8.0

@@ -169,15 +169,9 @@ const CLUSTER_SPILL_FACTOR := 2.6
 ## fetter schwarzer Ring zwischen Glas und Filz.
 const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Underglow", "LEDStrip", "ChromeTrim"]
 
-
 ## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.ENERGY), Ware und
 ## Würfel zyan - dieselbe Farbe trägt jede Lieferung zur Werkbank.
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
-
-## Das Fußmaß des abgebauten Hüllen-Projektors (ehemals DiceShell.PUCK_RADIUS):
-## es lebt allein als Layout-Zahl weiter und hält die Lücke zwischen Grube,
-## Schatz-Screen und Nebenwetten-Fenster stabil.
-const SHELL_FOOT_RADIUS := 1.4
 
 ## Wuchs-Faktor des Wett-Tresens (Spieler-Entscheid 2026-08-27): die Fenster-
 ## EINHEIT ist seine eigene Breite (SideBetPanel: size.x/UNIT_DIV), also wachsen
@@ -194,9 +188,6 @@ const REVEAL_FLASH_COLOR := DieFaceDisplay.PREVIEW_NUMBER_COLOR
 const ENGRAVE_HOVER := DiceTrayView.FLOAT_HEIGHT
 ## Ab hier ist die Geste ein Drehen und kein Klick mehr (Bildschirmpixel).
 const ENGRAVE_DRAG_THRESHOLD := 6.0
-## Feldfarbe eines Würfels, der zur Auskunft über der Werkbank schwebt (Dossier):
-## das Cyan der Werkstatt.
-const PACK_EMITTER_TINT := Color(0.2, 0.65, 0.9)
 ## Feldfarbe der Zwingen: das Blau der Trays - sie sind Bestand, keine Zeremonie.
 const CLAMP_EMITTER_TINT := Color(0.15, 0.35, 0.75)
 ## Schwebehöhe NUR der Zwingen: sie stehen als einzige über einem Diagramm, und
@@ -208,8 +199,6 @@ const CLAMP_EMITTER_TINT := Color(0.15, 0.35, 0.75)
 const CLAMP_HOVER := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 ## Wechselt das Dossier den Würfel, WANDERT sein Körper - er verschwindet nicht.
 const PACK_MOVE_TIME := 0.4
-## Staffel, mit der eine frische Aufspannung in ihren Feldern entsteht.
-const CLAMP_MATERIALIZE_STAGGER := 0.07
 ## Der TRAGE-BOGEN des ZIELWÜRFELS (Pool <-> Podest): die Zielwahl ist ein
 ## Spieler-Zug, er fliegt also ÜBER dem Tisch. Der Scheitel ist eine Würfelkante -
 ## sichtbar ein Bogen, aber kein Wurf.
@@ -1277,7 +1266,6 @@ func _setup_table_screen() -> void:
 	_place_raster_switch()  # unter der Die-View-Säule rechts des Pools
 	_setup_deck_glass()
 	_setup_screen_spill_lights(corner)
-
 
 ## Die POOL-REIHE in Display-Pixeln - das Höhen- und Ortsbudget des Streifens.
 ## Gemessen in _setup_panels, gemerkt, damit eine Neuplatzierung nicht neu messen
@@ -3381,14 +3369,6 @@ func _take_socket_cell(index: int) -> DataCellView:
 # ZWEITE holt ihn heran (die INSPEKTION), und dort dreht ihn das Ziehen. Getroffen
 # wird über die Bildschirm-Projektion; die Würfel tragen keine Kollisionsform.
 
-## Alle gerade schwebenden Würfel, die man anfassen darf - seit der BÜHNEN-STRASSE
-## (2026-09-03) ist das genau EINER: der Würfel auf dem WERKSTATT-PODEST.
-func _floating_stages() -> Array[FloatingDie]:
-	var stages: Array[FloatingDie] = []
-	if bench_stage != null and is_instance_valid(bench_stage):
-		stages.append(bench_stage)
-	return stages
-
 ## Der schwebende Würfel unter dem Bildschirmpunkt (null = keiner). In der
 ## Inspektion kommt nur der herangeholte in Frage - die anderen stehen außerhalb.
 func _stage_under(screen_pos: Vector2) -> FloatingDie:
@@ -4024,10 +4004,6 @@ func _pit_world_rect(rect: Rect2) -> Rect2:
 ## ankommende Zelle steigt, und die Höhe, um die der Turm tiefer sitzt.
 func _pack_pit_depth() -> float:
 	return DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
-
-## Wie weit der BODEN der Magazin-Grube unter dem Glas liegt.
-func _pit_floor_drop() -> float:
-	return _pack_pit_depth() + PackPitView.WALL_SINK
 
 ## Die Tiefe der TURM-BUCHT: so FLACH, dass die oberste Karte gerade noch unter
 ## dem Glas liegt (Spieler-Entscheid 2026-09-11, "halb so tief wie das Magazin" -
@@ -5037,11 +5013,6 @@ func _carrier_park() -> Vector3:
 		at.y -= pool_shaft.park_y()
 	return at
 
-## Der WELT-Sitz eines Träger-Platzes (Pool-Sitz = Deck-Index, die Ablage hängt
-## dahinter). Gerechnet aus dem Raster, nie am fahrenden Körper gemessen.
-func _carrier_seat(seat: int) -> Vector3:
-	return _carrier_park() + pool_tray_view.slot_offset(seat)
-
 ## Der erste Sitz der ABLAGE: gleich hinter dem letzten Pool-Sitz.
 func _ablage_base() -> int:
 	return round_pool_kinds.size()
@@ -5826,9 +5797,6 @@ var _deck_glass_closing := false
 ## Die Kamera-Lage VOR dem Tipp ({} = keine gemerkt): dorthin kehrt sie beim
 ## Schließen zurück. Wer selbst wegfährt, vergißt sie - er ist schon unterwegs.
 var _deck_glass_home: Dictionary = {}
-
-func deck_glass_open() -> bool:
-	return _deck_glass
 
 ## Trägt das Pool-Tray seine STEHENDE Sitzordnung? In der Glas-Ansicht ist es bloß
 ## abgesenkt - sein Sitz-Plan bleibt der des stehenden Vorrats, nicht der des Trägers.
@@ -8549,7 +8517,7 @@ func _show_shelf_cell(cell: DataCellView, uid: int, line: int, target: Vector3,
 	if shelf_stack != null and is_instance_valid(shelf_stack):
 		shelf_stack.host_card(cell, line)
 	cell.rise_through_glass(target, float(fresh) * DATA_CELL_STAGGER,
-		DataCellView.RISE_TIME, true, ShelfStackView.PITCH)
+		DataCellView.RISE_TIME, ShelfStackView.PITCH)
 
 ## DER TURM: je belegter Etage eine Zelle, LIEGEND in ihr - die Fläche mit dem
 ## Prägenetz nach oben, Kontakte nach Bild-rechts. Solange die Zeremonie nicht
@@ -8874,9 +8842,8 @@ func _data_cell_lying_px() -> Vector2:
 		Vector3(DataCellView.WIDTH, 0.0, 0.0)).y - origin.y)
 	return Vector2(wide, deep)
 
-## Der Bühnen-Würfel unter dem Bildschirmpunkt (null = keiner). Bewusst NICHT in
-## _floating_stages: der Projektor ist Anzeige, kein Griff - ein Klick auf ihn
-## bleibt folgenlos.
+## Der Bühnen-Würfel unter dem Bildschirmpunkt (null = keiner). Sein Projektor ist
+## Anzeige, kein Griff - ein Klick auf ihn bleibt folgenlos.
 func _bench_stage_under(screen_pos: Vector2) -> FloatingDie:
 	var camera := get_viewport().get_camera_3d()
 	if camera == null or bench_stage == null or not is_instance_valid(bench_stage) \
@@ -9158,7 +9125,7 @@ func _build_hub_reward_overlay(groups: Array[Dictionary]) -> Array[Control]:
 		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tile.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
 
-		var disc := _reward_glow_disc(tint)
+		var disc := CasinoStyle.glow_disc(tint, 0.0)
 		disc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		disc.offset_left = -side * 0.175
 		disc.offset_top = -side * 0.175
@@ -9183,26 +9150,6 @@ func _build_hub_reward_overlay(groups: Array[Dictionary]) -> Array[Control]:
 		row.add_child(tile)
 		icons.append(tile)
 	return icons
-
-## Weiche Farbscheibe hinter einem Siegel (Vorbild: ShopController._glow_disc).
-func _reward_glow_disc(tint: Color) -> TextureRect:
-	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
-	gradient.colors = PackedColorArray([
-		Color(tint.r, tint.g, tint.b, 0.38), Color(tint.r, tint.g, tint.b, 0.14),
-		Color(tint.r, tint.g, tint.b, 0.0)])
-	var texture := GradientTexture2D.new()
-	texture.gradient = gradient
-	texture.fill = GradientTexture2D.FILL_RADIAL
-	texture.fill_from = Vector2(0.5, 0.5)
-	texture.fill_to = Vector2(1.0, 0.5)
-	texture.width = 96
-	texture.height = 96
-	var disc := TextureRect.new()
-	disc.texture = texture
-	disc.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return disc
 
 ## Mitte einer Siegel-Kachel in Display-Pixeln (Start des Kometen). Die Kachel
 ## sitzt in verschachtelten Containern, also über die Viewport-Koordinaten.
@@ -11594,14 +11541,7 @@ func _on_roll_finished() -> void:
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
 			hand_note = "Anker: Der erste Neuwurf kann nicht fumblen – die Hand läuft weiter."
 			_flash_charm_and_pad(run.charm_ids().find(Charm.ANCHOR))
-			dice.clear_selection()
-			_auto_select_best_combo()
-			_line_up_settled_dice()
-			has_rolled_current_hand = true
-			last_throw_was_reroll = false
-			_log_record_throw()
-			_refresh_deck_trays()
-			_refresh_ui()
+			_resume_hand(true)
 			return
 		# Löschgas: ein beteiligter CO2-Würfel schluckt den Fumble - ohne Limit
 		# und ohne Preis. Der Anker geht trotzdem vor: er ist enger.
@@ -11609,14 +11549,7 @@ func _on_roll_finished() -> void:
 		if smother >= 0:
 			hand_note = "Löschgas: Der Fumble verpufft."
 			_flash_scoring_die(smother)
-			dice.clear_selection()
-			_auto_select_best_combo()
-			_line_up_settled_dice()
-			has_rolled_current_hand = true
-			last_throw_was_reroll = false
-			_log_record_throw()
-			_refresh_deck_trays()
-			_refresh_ui()
+			_resume_hand(true)
 			return
 		_on_farkle()
 		return
@@ -11640,6 +11573,19 @@ func _on_roll_finished() -> void:
 	_refresh_deck_trays()
 	_refresh_ui()
 
+## Die Hand läuft nach einem VERZIEHENEN Fumble weiter: beste Kombination neu
+## vorschlagen, wahlweise aufreihen, den Wurf buchen und alles neu zeichnen.
+func _resume_hand(line_up: bool) -> void:
+	dice.clear_selection()
+	_auto_select_best_combo()
+	if line_up:
+		_line_up_settled_dice()
+	has_rolled_current_hand = true
+	last_throw_was_reroll = false
+	_log_record_throw()
+	_refresh_deck_trays()
+	_refresh_ui()
+
 ## Farkle: die Hand wird normalerweise ohne Punkte verworfen. Charms mildern:
 ## Schornsteinfeger verzeiht den ersten je Runde, Phönixfeder schickt die
 ## Würfel zurück in den Stapel, Kristallkugel zahlt fürs Überleben.
@@ -11652,13 +11598,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	if forgivable and CharmEffects.forgives_first_farkle(ids) and not chimney_sweep_used_this_round:
 		chimney_sweep_used_this_round = true
 		hand_note = "Schornsteinfeger: Fumble verziehen – die Hand darf weiterlaufen."
-		dice.clear_selection()
-		_auto_select_best_combo()
-		has_rolled_current_hand = true
-		last_throw_was_reroll = false
-		_log_record_throw()
-		_refresh_deck_trays()
-		_refresh_ui()
+		_resume_hand(false)
 		return
 
 	# Ankerklausel: der erste Farkle JEDER Runde ist verziehen - dieselbe
@@ -11666,13 +11606,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	if forgivable and run.deal_anchor_active() and not anchor_clause_used_this_round:
 		anchor_clause_used_this_round = true
 		hand_note = "Ankerklausel: Der erste Fumble dieser Runde zählt nicht."
-		dice.clear_selection()
-		_auto_select_best_combo()
-		has_rolled_current_hand = true
-		last_throw_was_reroll = false
-		_log_record_throw()
-		_refresh_deck_trays()
-		_refresh_ui()
+		_resume_hand(false)
 		return
 
 	# Flickenteppich: statt die Hand zu verlieren, bleibt der Würfel mit der

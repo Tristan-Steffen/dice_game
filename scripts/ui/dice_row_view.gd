@@ -159,18 +159,7 @@ static func build_thumb(def: DieDefinition, size: int = DEFAULT_THUMB_SIZE,
 		else SubViewport.UPDATE_ALWAYS
 	container.add_child(viewport)
 
-	var env := Environment.new()
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1, 1, 1)
-	env.ambient_light_energy = 0.9
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	viewport.add_child(world_env)
-
-	var key_light := DirectionalLight3D.new()
-	key_light.rotation_degrees = Vector3(-50, 35, 0)
-	key_light.light_energy = 1.1
-	viewport.add_child(key_light)
+	CharmThumb.light_stage(viewport)
 
 	var camera := Camera3D.new()
 	camera.fov = THUMB_FOV

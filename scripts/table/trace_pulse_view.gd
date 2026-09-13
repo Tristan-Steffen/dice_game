@@ -1,7 +1,7 @@
 class_name TracePulseView
 extends Control
 ## Kurzer, gedämpfter Lichtkopf, der EINEN festen Pfad entlangläuft: statt der
-## ganzen Bahn (ScoreTraceView) leuchtet nur ein Kometen-Fenster fester Länge,
+## ganzen Bahn leuchtet nur ein Kometen-Fenster fester Länge,
 ## das von Anfang bis Ende wandert. Dünn und dim - räumt sich selbst weg.
 
 const FADE_TIME := 0.16
