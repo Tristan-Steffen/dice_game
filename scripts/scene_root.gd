@@ -478,6 +478,8 @@ var _shown_money := 0
 
 var dice: DiceController
 var dice_audio: DiceAudio
+var score_audio: ScoreAudio
+var music_director: MusicDirector
 var table_screen: TableScreen
 var screen_reflection: ScreenReflection
 var combos_click_zone: StaticBody3D
@@ -1046,10 +1048,59 @@ func _setup_dice() -> void:
 
 ## Tisch-Display: ViewportTexture aufs "Screen"-Mesh. Fehlt das Mesh, läuft
 ## das Spiel einfach ohne Anzeige weiter.
+## Wertungs-Klang hört nur während der Zeremonie zu - das Protokoll-Nachspiel bleibt stumm.
+func _setup_score_audio() -> void:
+	score_audio = ScoreAudio.new()
+	score_audio.name = "ScoreAudio"
+	add_child(score_audio)
+	var scoring := func() -> bool: return phase == Phase.SCORING
+	table_screen.pit_score_raised.connect(func(base_up: bool, mult_up: bool) -> void:
+		if scoring.call(): score_audio.on_score_raised(base_up, mult_up))
+	table_screen.pit_crit.connect(func() -> void:
+		if scoring.call(): score_audio.on_crit())
+	table_screen.pit_merge_started.connect(func() -> void:
+		if scoring.call(): score_audio.on_merge_started())
+	table_screen.pit_total_slammed.connect(func(clears_goal: bool) -> void:
+		if scoring.call(): score_audio.on_total_slammed(clears_goal))
+	table_screen.pit_total_raised.connect(func() -> void:
+		if scoring.call(): score_audio.on_total_raised())
+
+## Die Musik läuft durch; welche Schicht zu hören ist, sagt _sync_music je Bild.
+func _setup_music() -> void:
+	music_director = MusicDirector.new()
+	music_director.name = "MusicDirector"
+	add_child(music_director)
+	music_director.apply_hard(_music_mood())
+
+## Die Phasen-Zuordnung der Musik - set_mood ist idempotent und blendet selbst
+## erst an der nächsten Taktgrenze, hier wird nur gefragt.
+func _sync_music() -> void:
+	if music_director == null:
+		return
+	music_director.set_mood(_music_mood())
+
+func _music_mood() -> MusicDirector.Mood:
+	if camera_rig != null and camera_rig.mode == CameraRig.Mode.TITLE:
+		return MusicDirector.Mood.TITLE
+	match phase:
+		Phase.GAME_OVER:
+			return MusicDirector.Mood.OVER
+		Phase.SHOP:
+			return MusicDirector.Mood.SHOP
+		Phase.PAYOUT:
+			return MusicDirector.Mood.PAYOUT
+		Phase.SCORING:
+			return MusicDirector.Mood.SCORE
+		Phase.ROLLING, Phase.SHELL_ANIMATING:
+			return MusicDirector.Mood.ROLL
+	return MusicDirector.Mood.HUB
+
 func _setup_table_screen() -> void:
 	table_screen = TableScreen.new()
 	table_screen.name = "TableScreen"
 	add_child(table_screen)
+	_setup_score_audio()
+	_setup_music()
 	# Der Filzboden muss hinter jedem Loch ausblenden - sonst blickt man durch die
 	# Grube (oder einen offenen Schacht) auf Filz statt in die Vertiefung. Die
 	# Löcherliste führt TableScreen; hier wird ihm nur der Boden gemeldet.
@@ -2860,6 +2911,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("ui_cancel"):
 		_toggle_title()
+		return
+
+	# DER ZWANG ist MODAL: solange ein Neuzugang seinen Platz schuldet, gehört jede
+	# Geste dem Raster - Rad, Zoom-Klick und jedes andere Fenster schweigen.
+	if _exchange_forced():
+		_handle_forced_exchange_input(event)
 		return
 
 	# Die Freikamera hat KEINEN eigenen Zweig mehr: sie durchläuft dieselbe Kette
@@ -5877,6 +5934,38 @@ func _deck_glass_die() -> DieDefinition:
 	var pending := _deck_glass_pending()
 	return run.pending_dice[pending] if pending >= 0 else null
 
+## DER ZWANG: liegt ein Neuzugang in der Schale, waehrend das Raster steht, fuehrt
+## hier KEIN Weg hinaus - es gibt kein Zwischenlager, der Wuerfel wird jetzt
+## eingesetzt. Rechtsklick, Rad, WASD, Umschalter und jedes andere Fenster schweigen
+## solange (das Bit ist gerechnet, nicht gesetzt: es faellt mit dem letzten Tausch).
+func _exchange_forced() -> bool:
+	return _deck_glass and not _deck_glass_closing and _deck_glass_pending() >= 0
+
+## Je Bild: ein gebuchter Neuzugang zieht das Raster von selbst auf - an jeder
+## Station, denn die Ansicht rahmt sich eng auf die Grube und bringt den Spieler
+## beim Einsetzen dorthin zurueck, wo er gekauft hat. Gewartet wird auf NICHTS
+## (Spieler-Wunsch 2026-09-13): die Kamera bricht im Bild der Buchung auf, sein
+## Komet fliegt derweil in die Schale - die liegt im Rahmen, also sieht der Spieler
+## ihn ankommen, waehrend der Vorrat noch versinkt.
+func _sync_forced_exchange() -> void:
+	if _deck_glass or run == null or _deck_glass_pending() < 0:
+		return
+	if not _table_operable() or camera_rig.die_focus or not _pool_editable():
+		return
+	_open_deck_glass(false, true)
+
+## Und die Kehrseite: solange der Zwang steht, geht NUR das Raster. Der Rechtsklick
+## wird geschluckt statt abgebrochen - hinaus führt allein der Tipp auf eine Zelle.
+func _handle_forced_exchange_input(event: InputEvent) -> void:
+	var mouse := event as InputEventMouse
+	if mouse == null or table_screen == null or camera_rig.is_animating:
+		return
+	if mouse is InputEventMouseButton 			and (mouse as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
+		return
+	var pixel := _screen_pixel(mouse.position)
+	if pixel.x >= 0.0:
+		table_screen.push_deck_glass_input(mouse, pixel)
+
 ## Der gesäumte Sitz des Rasters: das aktuelle Ziel der Werkstatt (-1 = keins).
 func _deck_glass_target() -> int:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
@@ -5890,8 +5979,12 @@ func _deck_glass_target() -> int:
 ## BEIDE Wege hinein fahren ENG heran (Spieler-Wunsch 2026-09-11): das Raster ist zu
 ## lesen, nicht zu erahnen. pinned sagt seither nur noch, ob die Ansicht sich nach
 ## der letzten Wahl selbst schließt.
-func _open_deck_glass(pinned: bool) -> void:
-	if _deck_glass or run == null or not _fach_swap_live():
+func _open_deck_glass(pinned: bool, forced := false) -> void:
+	if _deck_glass or run == null:
+		return
+	# Der ZWANG fragt nur nach dem ZUSTAND des Vorrats, nicht nach der Station: er
+	# holt den Spieler vom Laden ab und setzt ihn dort wieder ab.
+	if not (_pool_editable() if forced else _fach_swap_live()):
 		return
 	if not pinned and _deck_glass_pending() < 0:
 		return
@@ -5952,7 +6045,7 @@ func _show_deck_glass_window() -> void:
 		return
 	table_screen.place_deck_glass_window(rect, _deck_glass_resolution(rect))
 	var die := _deck_glass_die()
-	var head := "Wohin mit %s?" % die.display_name if die != null else DECK_GLASS_TITLE
+	var head := "Wohin mit %s? Kein Zwischenlager." % die.display_name 		if die != null else DECK_GLASS_TITLE
 	window.show_pool(head, run.owned_pool, pool_tray_view.columns, _deck_glass_target())
 
 ## Die Auflösung des Glas-Viewports: GEMESSEN an der stehenden Kamera. Die vier
@@ -5998,6 +6091,8 @@ func _hide_deck_glass_window() -> void:
 func _close_deck_glass() -> void:
 	if not _deck_glass or _deck_glass_closing:
 		return
+	if _exchange_forced():
+		return  # der Neuzugang MUSS auf seinen Platz - erst der Tipp macht auf
 	_deck_glass_closing = true
 	_deck_glass_gen += 1
 	var generation := _deck_glass_gen
@@ -6150,9 +6245,10 @@ func _raster_switch_rect() -> Rect2:
 	return _raster_switch_rect_px()
 
 ## Darf jetzt umgelegt werden? Hinein nur, wo auch getauscht werden dürfte
-## (_fach_swap_live); hinaus immer - ein stehendes Raster muß man loswerden.
+## (_fach_swap_live); hinaus immer - ein stehendes Raster muß man loswerden. Die
+## eine Ausnahme ist der ZWANG: wer einen Neuzugang schuldet, kommt nicht heraus.
 func _raster_switch_live() -> bool:
-	return _deck_glass or _fach_swap_live()
+	return not _exchange_forced() and (_deck_glass or _fach_swap_live())
 
 ## Aufschrift, Ton und Griff je Bild - der Zeiger liegt auf dem Tisch.
 func _sync_raster_switch() -> void:
@@ -8001,15 +8097,18 @@ func _forward_fach_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
 	# weiter mit der Maus - der Ghost hängt an _mouse_on_plane und folgt je Bild.
 	return true
 
+## Darf am Vorrat überhaupt gerührt werden? Der reine ZUSTAND, ohne die Frage nach
+## der Station - der ZWANG (siehe _sync_forced_exchange) braucht nur ihn.
+func _pool_editable() -> bool:
+	if run == null or _dice_editing_locked() or not _pool_standing:
+		return false
+	return _exchange_hidden == null  # ein Tausch fährt noch - er hat den Sitz
+
 ## Darf jetzt getauscht werden? Dasselbe Fenster wie das Umlegen im Tray: der
 ## Vorrat steht, die Runde ist noch nicht unterschrieben, und das Tray ist die
 ## lokale Bühne (oder die Freikamera). Hover und Dossier antworten überall.
 func _fach_swap_live() -> bool:
-	if run == null or _dice_editing_locked() or not _pool_standing:
-		return false
-	if _exchange_hidden != null:
-		return false  # ein Tausch fährt noch - er hat den Sitz
-	return _felt_pick_live(CameraRig.Mode.WORKSHOP) or _felt_pick_live(CameraRig.Mode.POOL)
+	return _pool_editable() 		and (_felt_pick_live(CameraRig.Mode.WORKSHOP) or _felt_pick_live(CameraRig.Mode.POOL))
 
 func _handle_fach_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed \
@@ -8352,7 +8451,7 @@ func _on_secret_die_purchased(def: DieDefinition) -> void:
 		return
 	var rect := _fach_rect_px()
 	var target := rect.get_center() if rect.size.x > 0.0 else depart
-	var travel := table_screen.secret_delivery_comet(depart, target, SLOT_DIE_COLOR)
+	var travel := table_screen.secret_delivery_comet(depart, target, SLOT_DIE_COLOR, true)
 	if travel > 0.0:
 		await get_tree().create_timer(travel).timeout
 	if run != launched or not is_instance_valid(ausgabefach):
@@ -9234,10 +9333,9 @@ func _try_start_pool_tray_drag(screen_pos: Vector2) -> bool:
 	# Und nur, solange das Tray überhaupt STEHT - versenkt gibt es nichts zu greifen.
 	if run == null or _dice_editing_locked() or not _pool_standing:
 		return false
-	# Nur dort, wo das Tray die lokale Bühne ist (und in der Freikamera): aus der
-	# ruhenden Übersicht muss der Druck zu den Zoom-Zonen durchfallen, sonst frisst
-	# die Geste den Klick.
-	if not _felt_pick_live(CameraRig.Mode.WORKSHOP) and not _felt_pick_live(CameraRig.Mode.POOL):
+	# Nur an der POOL-Station (und in der Freikamera): von überall sonst, auch von
+	# der Werkstatt, fällt der Druck zum Zoom-Klick durch und fährt erst zum Vorrat.
+	if not _felt_pick_live(CameraRig.Mode.POOL):
 		return false
 	var index := _pool_tray_slot_at(screen_pos)
 	if index < 0:
@@ -9274,8 +9372,6 @@ func _handle_tray_drag_input(event: InputEvent) -> void:
 		# Bühnen-Fahrt auf das Podest der Werkbank.
 		var tapped: DieDefinition = pool_tray_view.slot_defs[tray_drag_index]
 		_end_tray_drag()
-		# Seit der BÜHNEN-STRASSE gibt es EIN Podest: der Tipp wählt IMMER den
-		# Zielwürfel der Serie, an der Pool- wie an der Werkstatt-Station.
 		_choose_workshop_target(tapped)
 
 ## Tray-Platz unter screen_pos - über DIESELBE Maske wie Klick und Hover.
@@ -9827,6 +9923,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# zufällig hinter ihm liegt, ist kein Klickziel.
 	if camera_rig.die_focus:
 		return false
+	# Und der ZWANG auch: wer einen Neuzugang schuldet, bedient nur das Raster.
+	if _exchange_forced():
+		return false
 	var flying := camera_rig.is_animating
 	# Die GLAS-ANSICHT wird VOR dieser Kette bedient (_forward_screen_mouse reicht sie
 	# in ihren eigenen Viewport) - hier taucht sie darum nicht mehr auf.
@@ -10070,6 +10169,8 @@ func _free_camera_allowed() -> bool:
 	# Werkstatt-Kamera soll sich bewegen wie die Übersicht).
 	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.die_focus:
 		return false
+	if _exchange_forced():
+		return false  # der Neuzugang hält die Kamera am Raster fest
 	return tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
 		and charm_drag_index == -1 and chip_drag_value == -1 and not shell_drag_active \
 		and grabbed_stage == null
@@ -10104,11 +10205,13 @@ func _process(delta: float) -> void:
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
+	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
 	_sync_fuse_socket()  # und die Sicherungs-Fassung, wen sie gerade bedient
 	_sync_shelf_selector()  # und die Knopfleiste, welches Tablett gewählt ist
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
+	_sync_music()  # und die Musik-Schichten folgen der Phase
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
 ## Würfel in der Schale, stellt das Hover-Highlight der Serie (Karte <-> Netz-Zellen)
@@ -11976,6 +12079,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	_eye_tick_applied.clear()
 	_eye_planned.clear()
 	_cancel_lineup()
+	score_audio.begin_hand()
 
 	# 1) Schwebende Reihe: zählende Würfel zuerst, unbeteiligte rechts daneben.
 	var counting: Array[int] = []
@@ -14533,7 +14637,7 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# risse der Rückflug eine schon laufende Fahrt zurück. Das gilt seit dem
 	# 2026-09-11 für BEIDE Wege hinein, denn beide rahmen eng; der eigene enge
 	# Rahmen meldet keinen Wechsel und kommt hier gar nicht an.
-	if _deck_glass:
+	if _deck_glass and not _exchange_forced():
 		_deck_glass_home = {}
 		_close_deck_glass()
 	# Wer aus der INSPEKTION wegzoomt, hat sie zugeklappt gemeint - das Zuhause wird

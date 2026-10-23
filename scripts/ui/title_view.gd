@@ -29,6 +29,10 @@ var settings: GameSettings = GameSettings.new()
 var resume_button: Button
 var volume_slider: HSlider
 var volume_value: Label
+var music_slider: HSlider
+var music_value: Label
+var sfx_slider: HSlider
+var sfx_value: Label
 var fullscreen_check: BaseButton
 var game_over_result: Label
 var game_over_round: Label
@@ -57,6 +61,8 @@ func set_settings(loaded: GameSettings) -> void:
 	settings = loaded
 	if volume_slider != null:
 		volume_slider.set_value_no_signal(settings.master_volume)
+		music_slider.set_value_no_signal(settings.music_volume)
+		sfx_slider.set_value_no_signal(settings.sfx_volume)
 		_refresh_volume_value()
 	if fullscreen_check != null:
 		fullscreen_check.set_pressed_no_signal(settings.fullscreen)
@@ -157,22 +163,15 @@ func _build_settings(u: float) -> Control:
 	column.add_child(_make_heading("Einstellungen", u))
 	column.add_child(_make_gap(u * 1.5))
 
-	volume_slider = HSlider.new()
-	volume_slider.min_value = 0.0
-	volume_slider.max_value = 1.0
-	volume_slider.step = 0.05
-	volume_slider.value = settings.master_volume
-	volume_slider.custom_minimum_size = Vector2(u * 34.0, u * 4.5)
-	volume_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	volume_slider.modulate = ACCENT
-	volume_slider.value_changed.connect(_on_volume_changed)
-	volume_value = Label.new()
-	volume_value.custom_minimum_size = Vector2(u * 9.0, 0)
-	volume_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	volume_value.add_theme_font_size_override("font_size", int(u * 3.6))
-	volume_value.modulate = TEXT_COLOR
-	volume_value.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	volume_slider = _make_volume_slider(u, settings.master_volume, _on_volume_changed)
+	volume_value = _make_volume_value(u)
 	column.add_child(_make_row("Lautstärke", u, [volume_slider, volume_value]))
+	music_slider = _make_volume_slider(u, settings.music_volume, _on_music_changed)
+	music_value = _make_volume_value(u)
+	column.add_child(_make_row("Musik", u, [music_slider, music_value]))
+	sfx_slider = _make_volume_slider(u, settings.sfx_volume, _on_sfx_changed)
+	sfx_value = _make_volume_value(u)
+	column.add_child(_make_row("Effekte", u, [sfx_slider, sfx_value]))
 	_refresh_volume_value()
 
 	# Schalt-Knopf statt CheckButton: dessen Theme-Symbol wüchse nicht mit u und
@@ -277,6 +276,27 @@ func _make_row(text: String, u: float, controls: Array) -> Control:
 		row.add_child(control)
 	return row
 
+func _make_volume_slider(u: float, value: float, on_changed: Callable) -> HSlider:
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.05
+	slider.value = value
+	slider.custom_minimum_size = Vector2(u * 34.0, u * 4.5)
+	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slider.modulate = ACCENT
+	slider.value_changed.connect(on_changed)
+	return slider
+
+func _make_volume_value(u: float) -> Label:
+	var label := Label.new()
+	label.custom_minimum_size = Vector2(u * 9.0, 0)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	label.add_theme_font_size_override("font_size", int(u * 3.6))
+	label.modulate = TEXT_COLOR
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
+
 func _make_button(parent: Control, text: String, accent: Color, dark: Color,
 		u: float, on_pressed: Callable) -> Button:
 	var button := Button.new()
@@ -297,6 +317,16 @@ func _on_volume_changed(value: float) -> void:
 	_refresh_volume_value()
 	settings_changed.emit()
 
+func _on_music_changed(value: float) -> void:
+	settings.music_volume = value
+	_refresh_volume_value()
+	settings_changed.emit()
+
+func _on_sfx_changed(value: float) -> void:
+	settings.sfx_volume = value
+	_refresh_volume_value()
+	settings_changed.emit()
+
 func _on_fullscreen_toggled(pressed: bool) -> void:
 	settings.fullscreen = pressed
 	_refresh_fullscreen_label()
@@ -307,5 +337,11 @@ func _refresh_fullscreen_label() -> void:
 		fullscreen_check.text = "an" if fullscreen_check.button_pressed else "aus"
 
 func _refresh_volume_value() -> void:
-	if volume_value != null:
-		volume_value.text = "%d%%" % roundi(settings.master_volume * 100.0)
+	if volume_value == null:
+		return
+	volume_value.text = _percent(settings.master_volume)
+	music_value.text = _percent(settings.music_volume)
+	sfx_value.text = _percent(settings.sfx_volume)
+
+func _percent(linear: float) -> String:
+	return "%d%%" % roundi(linear * 100.0)

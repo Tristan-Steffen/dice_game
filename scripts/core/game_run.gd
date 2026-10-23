@@ -453,8 +453,8 @@ func _grant_hub_rewards(level: int) -> int:
 	return last_hub_reward_packs.size()
 
 ## Der EINE Weg an einen Prämien-Würfel: frisch gewürfelt, Seele garantiert,
-## gratis ins Ausgabefach. Liefert das HINTERLEGTE Exemplar - die Zeremonie fliegt
-## genau dieses an. null = keine Vorlage (dann fährt nichts).
+## gratis ins Ausgabefach - und von dort SOFORT auf einen Vorrats-Platz. Liefert das
+## HINTERLEGTE Exemplar - die Zeremonie fliegt genau dieses an. null = keine Vorlage.
 func _grant_reward_die() -> DieDefinition:
 	var die := DiceOffer.roll_reward_die(charm_ids(), owned_essence_ids(), hub_level)
 	if die == null:
@@ -531,9 +531,10 @@ func shop_special_chance() -> float:
 		return 0.0
 	return float(SHOP_SPECIAL_CHANCE.get(mini(hub_level, HUB_MAX_LEVEL), 0.0))
 
-## Kauf aus der Chip-Schale: bezahlt, aber NICHT eingesetzt - der Würfel bleibt
-## beim Händler liegen, bis der Spieler selbst den Platz wählt. Hinterlegt wird
-## eine eigene Instanz, denn die Auslage hält das Original weiter (Referenz-Regel).
+## Kauf aus der Chip-Schale: bezahlt und SOFORT einzusetzen - pending_dice ist kein
+## Zwischenlager, sondern die Strecke bis zum Raster (scene_root erzwingt die Wahl,
+## siehe *Der ZWANG*). Hinterlegt wird eine eigene Instanz, denn die Auslage hält
+## das Original weiter (Referenz-Regel).
 func stash_die(def: DieDefinition, price: int) -> void:
 	add_money(-price)
 	pending_dice.append(def.instantiate())
@@ -541,12 +542,12 @@ func stash_die(def: DieDefinition, price: int) -> void:
 
 ## Bestandener Stresstest: EIN frisch gewürfelter Würfel mit Seelengarantie, gratis
 ## ins Ausgabefach - derselbe Weg wie die Hub-Prämie. Liefert das hinterlegte
-## Exemplar (null = keine Vorlage); zerfallen kann er nicht, pending_dice ist
-## unbegrenzt.
+## Exemplar (null = keine Vorlage); zerfallen kann er nicht.
 func grant_stress_reward() -> DieDefinition:
 	return _grant_reward_die()
 
-## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein. Der Pool-Eintrag
+## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein - der EINE Weg, auf dem
+## ein Würfel den Vorrat je erreicht, und der Spieler geht ihn SOFORT. Der Pool-Eintrag
 ## wird IN SEINER Instanz überschrieben (become), nie getauscht - Rundendeck,
 ## Trays und Raster halten dieselbe Referenz. Gewarnt wird nicht: der Essenz-Chip
 ## im Raster zeigt vorher, welche Seele hier überschrieben würde.

@@ -131,25 +131,11 @@ const BURNED_NUMBER := Color(0.2, 0.19, 0.19)
 const BURN_SHADER := preload("res://assets/shaders/die_burn.gdshader")
 const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer (0,01)
 var burn_parts: Array[MeshInstance3D] = []
-## Ab dieser Stufe BRENNT der Würfel.
-const CHARGE_FIRE_LEVEL := 2
-## Ab dieser Stufe brennt er BLAU und die Eck-Lampen zünden.
+## Ab dieser Stufe zünden die Eck-Lampen.
 const CHARGE_ARC_LEVEL := 3
 ## Der Blitz beim Aufladen/Entladen/Reparieren.
 const CHARGE_FLASH_TIME := 0.35
 const CHARGE_FLASH_GAIN := 2.2
-## Der BRAND der Stufen 2 und 3 (Spieler-Wahl 2026-09-11; die Blitze sind tot):
-## ein Neon-FLAMMENSAUM, der vom Rahmen in die SEITEN brennt - der Rahmen trägt
-## die Essenz-Farbe und bleibt frei. EIN Quad je Seite auf dem Aschen-Platz unter der
-## Ziffer (Brand und Asche schließen sich aus). Stufe 3 brennt BLAU und höher.
-const FIRE_SHADER := preload("res://assets/shaders/die_fire.gdshader")
-const FIRE_LIFT := BURN_LIFT
-const FIRE_MID := Color(1.35, 0.45, 0.08)
-const FIRE_CORE := Color(1.45, 1.15, 0.55)
-const BLUE_FIRE_MID := Color(0.45, 0.62, 1.55)
-const BLUE_FIRE_CORE := Color(1.1, 1.25, 1.75)
-const FIRE_ARC_GAIN := 1.25
-var fire_parts: Array[MeshInstance3D] = []
 ## Wie kräftig die Ladung die Boden-Lache einfärbt und hebt.
 const CHARGE_POOL_MIX := 0.65
 const CHARGE_POOL_GAIN := 1.25
@@ -158,27 +144,20 @@ const CHARGE_POOL_GAIN := 1.25
 ## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
 var _charge_level := 0
 var _burned := false
-## Das GLIMMEN der Stufe 1 ist HITZE, die AUS dem Würfel kommt: EIN kamerazugewandtes
-## Feld vor dem Würfel (die_heat.gdshader), dessen Schlieren rundum vom Körper weg
-## strömen (in jede Richtung gleich) und mit dem Abstand verlöschen; wo es nichts
-## tut, ist es durchsichtig
-## (Spieler-Wahl 2026-09-06 "Ausdünstung, etwas weniger Wabern").
-const HEAT_SHADER := preload("res://assets/shaders/die_heat.gdshader")
-## Die GLUT ist eine ZWEITE, ADDITIVE Lage zuoberst - der Grund steht im Kopf beider Shader.
-const HEAT_GLOW_SHADER := preload("res://assets/shaders/die_heat_glow.gdshader")
-const HEAT_QUAD := Vector2(7.0, 7.0)  # weit genug, dass das Feld vor dem Rand verlischt
-const HEAT_RED := Vector3(0.95, 0.24, 0.08)
-const HEAT_REACH := 1.9
-const HEAT_INSIDE := 0.25
-## MODELL-Länge (Würfel-Halbmaß = 1), keine Bildbreite: der Shader rechnet sie
-## über die Ableitung um, damit das Flimmern aus der Ferne mitschrumpft.
-const HEAT_STRENGTH := 0.012
-const HEAT_GLOW := 0.26
-## Wellenzahl und Auslauf-Tempo der Hitze. Das Tempo ist bewusst niedrig -
-## schnellere Fronten lasen als Pulsieren statt als Hitze.
-const HEAT_WAVE_FREQ := 4.4
-const HEAT_WAVE_SPEED := 0.15
-var heat_parts: Array[MeshInstance3D] = []
+## Die LADUNG lebt in der ZIFFER (Spieler-Wahl 2026-10-23; Hitze-Aura, Brand und
+## Marken sind gestorben - jede Auflage machte den Würfel noch voller): sie glüht wie
+## ein Glühfaden von Weiß über Gelb und Orange nach Rot, und durchgebrannt ist sie
+## schon immer dunkel. Index = Stufe.
+const HEAT_NUMBER_COLORS: Array[Color] = [
+	NUMBER_COLOR, Color(1.25, 1.12, 0.22), Color(1.6, 0.52, 0.05), Color(3.0, 0.24, 0.1)]
+## Stufe 3 FLACKERT (Ziffer) und ZITTERT (Körper) - dort droht das Durchbrennen.
+const HEAT_FLICKER := 0.22
+const HEAT_TREMOR := 0.022
+const HEAT_TREMOR_TILT := 0.02
+## Schlüssel der zuletzt geschriebenen Ziffernfarbe (-1 Ruß, -2 = neu schreiben).
+var _digit_key := -2
+## Eine Auswahl- oder Vorschau-Tönung hält die Ziffer - das Flackern schweigt dann.
+var _digits_tinted := false
 ## Der Zufall der Zungen und Bruchlinien dieses Würfels (die Seiten zählen hoch).
 var _overlay_seed := randf() * 100.0
 var _charge_override := -1
@@ -227,6 +206,10 @@ const LABEL_FIT_EXTENT := 1.5
 ## Trennband gegen auslaufendie Runen-Bloom. Mehr macht die Zahl fett, weniger
 ## trennt bei voller Naht-Breite nicht mehr.
 const LABEL_OUTLINE_SIZE := 20
+## Auf einer MATERIAL-Seite ist der Grund hell und farbig (Rubin, Bernstein, Gold
+## teilen die Töne der Hitze-Ziffer): dort bekommt die Ziffer einen breiten dunklen
+## Hof, damit sie immer auf eigenem Dunkel glüht.
+const LABEL_OUTLINE_MATERIAL := 34
 
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
@@ -247,7 +230,7 @@ var cap_material: ShaderMaterial = null
 var beam_material: ShaderMaterial = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
-## STUMM: der Würfel trägt seine AUFLAGEN nicht - Hitze, Brand, Seelen-Funken
+## STUMM: der Würfel trägt seine AUFLAGEN nicht - Zittern, Seelen-Funken
 ## und Lichtlache bleiben fort, Körper und Ziffern nicht. Die
 ## GLAS-ANSICHT schaltet die versenkten Vorrats-Würfel so (Spieler-Wunsch
 ## 2026-09-11): unter dem halb durchsichtigen Schirm zögen ihre Effekte quer über
@@ -320,9 +303,7 @@ func apply_definition(def: DieDefinition) -> void:
 		face_levels[axis] = level
 		# Die Lache erbt die Sättigung von hier.
 		face_base[axis] = DieMaterial.tint_for(material_id, level)
-		# Ziffern bleiben neutral-weiß, egal welches Material - Materialfarben
-		# machten die Zahl schwer lesbar (die Identität tragen Fläche/Rahmen/Kanten).
-		labels[axis].modulate = NUMBER_COLOR
+		(labels[axis] as Label3D).outline_size = LABEL_OUTLINE_MATERIAL if material_id != "" else LABEL_OUTLINE_SIZE
 		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
 		_set_textures(quad_material, material_id)
 	# Die LADUNG kommt aus der Def - jeder Ort des Würfels bekommt sie damit über
@@ -331,6 +312,8 @@ func apply_definition(def: DieDefinition) -> void:
 	_burned = def.burned_out
 	_charge_override = -1
 	_burned_override = false
+	_digit_key = -2
+	_digits_tinted = false
 	# Ein Zugriff statt is_valid_id + glow_for; die Rarität entscheidet die
 	# Animationsstufen der Seele.
 	var essence := Essence.by_id(def.essence_id)
@@ -699,6 +682,7 @@ func set_pool_enabled(on: bool) -> void:
 ## Boden-Lache folgt dem Würfel und verblasst mit seiner Flughöhe.
 func _process(delta: float) -> void:
 	_pulse_phase = fmod(_pulse_phase + delta * PULSE_SPEED, TAU)
+	_tick_heat()
 	if edge_material_res != null:
 		var amount := PULSE_AMOUNT_MATERIAL if _has_material else PULSE_AMOUNT
 		edge_material_res.emission_energy_multiplier = 1.0 + sin(_pulse_phase) * amount
@@ -776,11 +760,9 @@ func _refresh_pool() -> void:
 	_pool_color = Color(color.r, color.g, color.b, POOL_ALPHA_PER_STRENGTH * strength)
 
 # --- Die LADUNG am Körper ------------------------------------------------------
-# Vier Zustände auf EINEM Weg: Glimmen (warmer Atem in Kante und Lache),
-# Kriechstrom (Funken laufen die Kanten entlang, Eck-Lampen an), Überschlag
-# (dazu Teilchen und der orange Kern) und Ruß (flach, dunkel, kein Licht).
-# Alles Licht sitzt an Kanten, Ecken, Ziffern, Lache und in den Teilchen - über
-# den Flächen liegt bewusst KEINE Hülle.
+# Vier Zustände auf EINEM Weg: die Ziffer glüht gelb, orange, rot (Stufe 3 flackert,
+# der Körper zittert, die Eck-Lampen zünden), Ruß ist flach und dunkel. Über den
+# Flächen liegt bewusst KEINE Auflage.
 
 ## Die gezeigte Stufe: der Zeremonie-Stand schlägt den Def-Stand.
 func shown_charge() -> int:
@@ -821,24 +803,18 @@ func flash_charge(strength := 1.0) -> void:
 		_refresh_face_colors(), _charge_flash, 0.0, CHARGE_FLASH_TIME)
 
 ## Der Rahmen-Ton mit dem Blitz. KEINE Stufe färbt die Kante (Spieler-Wunsch
-## 2026-09-06/07): die Ladung lebt in Hitze, Blitzen und Eck-Lampen.
+## 2026-09-06/07): die Ladung lebt in Ziffer, Zittern und Eck-Lampen.
 func _charged_lamp(lamp: Color) -> Color:
 	if _charge_flash <= 0.0:
 		return lamp
 	return lamp.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
 
-## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Hitze ab
-## Stufe 1, der Brand ab Stufe 2 (blau ab 3) und - bei Asche - der flache helle
-## Rahmen samt Aschen-Auflagen und dunkler Ziffer.
+## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Ziffernfarbe der
+## Stufe und - bei Asche - der flache helle Rahmen samt Aschen-Auflagen.
 func _refresh_charge() -> void:
 	var burned := shown_burned()
 	var level := shown_charge()
-	# Jede Stufe trägt alle darunter (Spieler-Entscheid 2026-09-07): die Hitze
-	# bleibt unter dem Brand stehen. STUMM bleiben beide fort - der RUSS nicht,
-	# der ist Zustand des Körpers, keine Auflage darüber.
-	var live := not effects_muted
-	_sync_heat(live and level >= 1 and not burned)
-	_sync_fire(live and level >= CHARGE_FIRE_LEVEL and not burned, level)
+	_sync_digit_heat(level, burned)
 	_sync_burn(burned)
 	if not burned:
 		return
@@ -853,16 +829,13 @@ func _refresh_charge() -> void:
 		var frame: MeshInstance3D = frames.get(axis)
 		if frame != null and frame.visible:
 			(frame.material_override as StandardMaterial3D).emission = BURNED_EDGE * FACE_GLOW
-		var label: Label3D = labels.get(axis)
-		if label != null:
-			label.modulate = BURNED_NUMBER
 	if glow_pool != null:
 		glow_pool.visible = false
 	if soul_motes != null:
 		soul_motes.queue_free()
 		soul_motes = null
 
-## Die Aschen-Auflagen kommen und gehen mit dem Ruß (lazy, wie die Hitze).
+## Die Aschen-Auflagen kommen und gehen mit dem Ruß (lazy).
 func _sync_burn(wanted: bool) -> void:
 	if not wanted:
 		_free_overlays(burn_parts)
@@ -891,11 +864,13 @@ func set_face_number_tint(face_index: int, color: Color) -> void:
 	for axis in labels:
 		if DiceController.AXIS_FACE_INDEX[axis] == face_index:
 			(labels[axis] as Label3D).modulate = color
+			_digits_tinted = true
 			return
 
 func reset_number_tints() -> void:
+	_digits_tinted = false
 	for axis in labels:
-		(labels[axis] as Label3D).modulate = NUMBER_COLOR
+		(labels[axis] as Label3D).modulate = _resting_number_color()
 
 # --- Zeigen auf den Würfel ------------------------------------------------------
 # Getroffen wird über die BILDSCHIRM-Projektion der Seiten-/Kantenmitten, nicht
@@ -1077,7 +1052,7 @@ static func fit_label(label: Label3D) -> void:
 	var shrink: float = maxf(1.0, world_extent / LABEL_FIT_EXTENT)
 	label.pixel_size = LABEL_PIXEL_SIZE / shrink
 
-# --- Die Auflagen der Ladung: Hitze, Brand, Asche -----------------------------
+# --- Die Ladung: Ziffer, Zittern, Asche ---------------------------------------
 
 ## EIN Quad mit Shader-Material unter parent: die eine Bauweise aller Auflagen.
 func _overlay(parent: Node3D, part_name: String, size: Vector2, lift: float,
@@ -1114,36 +1089,35 @@ func _free_overlays(store: Array[MeshInstance3D]) -> void:
 			part.queue_free()
 	store.clear()
 
-static func _rgb(color: Color) -> Vector3:
-	return Vector3(color.r, color.g, color.b)
-
-## Das Hitze-Feld der Stufe 1: ZWEI Lagen auf demselben Quad, die Verzerrung
-## zuunterst, die Glut ADDITIV zuoberst. Warum, steht im Kopf beider Shader -
-## zuletzt gezeichnet löschte die Verzerrung die Ziffern, zuerst gezeichnet
-## übermalten die Nachbar-Würfel sie.
-func _sync_heat(wanted: bool) -> void:
-	if not wanted:
-		_free_overlays(heat_parts)
-	elif heat_parts.is_empty():
-		var shared := {"wave_freq": HEAT_WAVE_FREQ, "wave_speed": HEAT_WAVE_SPEED,
-			"quad_size": HEAT_QUAD, "reach": HEAT_REACH, "phase": _pulse_phase}
-		heat_parts.append(_overlay(self, "Heat0", HEAT_QUAD, 0.0, HEAT_SHADER, -8,
-			shared.merged({"inside": HEAT_INSIDE, "strength": HEAT_STRENGTH})))
-		heat_parts.append(_overlay(self, "Heat1", HEAT_QUAD, 0.0, HEAT_GLOW_SHADER, 8,
-			shared.merged({"tint": HEAT_RED, "tint_amount": HEAT_GLOW})))
-
-## Die sechs Brand-Quads der Stufen 2 und 3 (lazy, wie die Hitze), auf die Stufe
-## eingestellt: der Überschlag brennt blau und höher. Unter der Ziffer gezeichnet -
-## der Wert bleibt lesbar.
-func _sync_fire(wanted: bool, level: int) -> void:
-	if not wanted:
-		_free_overlays(fire_parts)
+## Ziffern nach Ladung (Ruß dunkel); geschrieben nur bei Wechsel, damit eine
+## Auswahl-Tönung einen Neuanstrich des Körpers übersteht.
+func _sync_digit_heat(level: int, burned: bool) -> void:
+	var key := -1 if burned else level
+	if key == _digit_key:
 		return
-	if fire_parts.is_empty():
-		_face_overlays(fire_parts, "ChargeFire", DieBuilder.FACE_SIZE, FIRE_LIFT, FIRE_SHADER, -1)
-	var arc := level >= CHARGE_ARC_LEVEL
-	for part in fire_parts:
-		var material: ShaderMaterial = part.material_override
-		material.set_shader_parameter("mid_color", _rgb(BLUE_FIRE_MID if arc else FIRE_MID))
-		material.set_shader_parameter("core_color", _rgb(BLUE_FIRE_CORE if arc else FIRE_CORE))
-		material.set_shader_parameter("gain", FIRE_ARC_GAIN if arc else 1.0)
+	_digit_key = key
+	_digits_tinted = false
+	for axis in labels:
+		(labels[axis] as Label3D).modulate = _resting_number_color()
+
+func _resting_number_color() -> Color:
+	return BURNED_NUMBER if _digit_key == -1 else HEAT_NUMBER_COLORS[maxi(_digit_key, 0)]
+
+## Flackern und Zittern der Stufe 3; darunter ruht der Körper auf seinem Platz.
+func _tick_heat() -> void:
+	if _digit_key < DieDefinition.CHARGE_MAX or effects_muted:
+		if position != Vector3.ZERO or rotation != Vector3.ZERO:
+			position = Vector3.ZERO
+			rotation = Vector3.ZERO
+		return
+	var t := Time.get_ticks_msec() * 0.001 + _overlay_seed
+	# Nervöse SCHÜBE statt Dauerzittern: ein Rauschen, das alle ~2 s hochschießt.
+	var burst := pow(maxf(0.0, sin(t * 2.9) * sin(t * 1.3 + 0.7)), 3.0)
+	var shake := 0.25 + 0.75 * burst
+	position = Vector3(sin(t * 61.0), sin(t * 47.0 + 1.3), sin(t * 53.0 + 2.1)) * HEAT_TREMOR * shake
+	rotation = Vector3(sin(t * 43.0), 0.0, sin(t * 57.0 + 0.4)) * HEAT_TREMOR_TILT * shake
+	if _digits_tinted:
+		return
+	var flicker := 1.0 - HEAT_FLICKER * burst * (0.5 + 0.5 * sin(t * 37.0))
+	for axis in labels:
+		(labels[axis] as Label3D).modulate = HEAT_NUMBER_COLORS[_digit_key] * flicker

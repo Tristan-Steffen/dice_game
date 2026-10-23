@@ -7,6 +7,8 @@ extends Node3D
 ## damit Glas-/Metallwürfel später eigene Bänke bekommen können.
 
 const SFX_DIR := "res://assets/sfx/dice/plastic/"
+## Eigener Bus aus default_bus_layout.tres; fehlt er, bleibt es beim Master.
+const BUS_NAME := &"Dice"
 
 const _BANKS := {
 	"click": ["click_1.mp3", "click_2.mp3", "click_3.mp3", "click_4.mp3", "click_5.mp3", "click_6.mp3"],
@@ -71,6 +73,7 @@ func setup(p_bodies: Array[RigidBody3D], p_controller: DiceController) -> void:
 		var player := AudioStreamPlayer3D.new()
 		player.name = "Voice%d" % i
 		player.unit_size = UNIT_SIZE
+		player.bus = BUS_NAME if AudioServer.get_bus_index(BUS_NAME) != -1 else &"Master"
 		add_child(player)
 		_players.append(player)
 		_player_started_ms.append(0)

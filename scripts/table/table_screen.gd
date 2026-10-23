@@ -6,6 +6,13 @@ extends SubViewport
 ## Sicht der Grubenkamera; u wächst entlang Welt+Z, v entlang Welt−X
 ## ("Bildschirm-oben" = +X). Weltgrenzen kommen aus der AABB des Meshs.
 
+## Wertungs-Momente für den Klang (ScoreAudio); gefeuert wird beim Anzeigen, nicht beim Buchen.
+signal pit_score_raised(base_up: bool, mult_up: bool)
+signal pit_crit
+signal pit_merge_started
+signal pit_total_slammed(clears_goal: bool)
+signal pit_total_raised
+
 ## Überabtastung: beim Heranzoomen wird die Textur stark vergrößert; alle
 ## Layout-Maße wachsen mit demselben Faktor mit.
 const SUPERSAMPLE := 3
@@ -106,8 +113,8 @@ const FUMBLE_FADE := 0.6
 const FUMBLE_WAVE_TIME := 2.0
 const FUMBLE_WAVE_WIDTH := 55.0 * SUPERSAMPLE
 ## Punkt-Puls-Farbe je Punktart - dieselbe Sprache wie Kometen und Zuwachs-Zahlen.
-## Die Glut des Würfel-Glimmens (DieFaceDisplay.HEAT_RED), überbright für blend_add -
-## Hitze ist WARM, nie das Energie-Cyan und nie das Violett der Ladungsfarbe.
+## Die Glut der Ladung, überbright für blend_add - Hitze ist WARM, nie das
+## Energie-Cyan und nie das Violett der Ladungsfarbe.
 const CHARGE_HEAT_COLOR := Color(2.28, 0.58, 0.19, 0.95)
 const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR,
 	"crit": CRIT_COLOR, "charge": CHARGE_HEAT_COLOR}
@@ -1573,6 +1580,8 @@ func update_pit_score(base: int, mult: float) -> void:
 	if base_counter.visible and is_equal_approx(base_counter.value, float(base)) \
 			and is_equal_approx(mult_counter.value, mult):
 		return
+	var base_up := float(base) > base_counter.value
+	var mult_up := mult > mult_counter.value
 	total_orb.visible = false
 	base_counter.position = _base_home
 	mult_counter.position = _mult_home
@@ -1580,6 +1589,8 @@ func update_pit_score(base: int, mult: float) -> void:
 	mult_counter.visible = true
 	base_counter.set_value(base)
 	mult_counter.set_value(mult)
+	if base_up or mult_up:
+		pit_score_raised.emit(base_up, mult_up)
 
 ## Nimmt die Wertungs-Orbs vom Grubenboden (die Vertragswahl braucht die Fläche).
 ## Der nächste update_pit_score holt sie von selbst zurück.
@@ -1609,6 +1620,7 @@ func crit_pit_mult(base: int, mult_after: float, crit_x: float) -> float:
 	_crit_tween.tween_callback(func() -> void:
 		mult_counter.scale = Vector2.ONE
 		mult_counter.set_value(mult_after)
+		pit_crit.emit()
 		_spawn_crit_wave(center, 1.1, 0.45, 1.0)
 		pit_impulse(center, "crit")  # die Stoßwelle wäscht durch die Grube
 		spawn_gain_number(center, ScoreBreakdown.format_mult(crit_x), CRIT_COLOR, 1.5))
@@ -1641,6 +1653,7 @@ func merge_orbs(total: int, clears_goal: bool) -> float:
 	var base_start := base_counter.position
 	var mult_start := mult_counter.position
 	var tween := create_tween()
+	pit_merge_started.emit()
 	# 1) Aufladen: beide Orbs leuchten heller, schwellen an und zittern.
 	tween.tween_method(_apply_merge_charge, 0.0, 1.0, MERGE_CHARGE_TIME)
 	# 2) Umkreisen: hart eingeblendet -> sichtbar in den Einschlag beschleunigen.
@@ -1694,6 +1707,7 @@ func _slam_total(total: int, clears_goal: bool) -> void:
 	total_orb.visible = true
 	total_orb.set_value(total)     # eigener Squash-Pop
 	total_orb.pop()
+	pit_total_slammed.emit(clears_goal)
 	var wave := ScoreShockwave.new()
 	add_child(wave)
 	var wave_color := Color(2.4, 2.2, 1.6, 0.9) if clears_goal else Color(2.0, 1.6, 0.3, 0.85)
@@ -1701,6 +1715,8 @@ func _slam_total(total: int, clears_goal: bool) -> void:
 
 ## Aktualisiert die Gesamtzahl (Nach-Schritte auf der Summe) - kein neuer Merge.
 func update_pit_total(total: int, clears_goal: bool) -> void:
+	if float(total) > total_orb.value:
+		pit_total_raised.emit()
 	total_orb.set_overbright(clears_goal)
 	total_orb.set_value(total)
 
@@ -2367,8 +2383,9 @@ func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2, pro
 
 ## --- Kauf-Lichtlauf einer Übertaktung ------------------------------------------
 
-## EINE Licht-Geschwindigkeit für ALLE Leisten-Läufe zwischen Screens (px/s):
-## die Dauer folgt aus der Pfadlänge, damit jede Verbindung gleich schnell wirkt.
+## EINE Licht-Geschwindigkeit für alle Leisten-Läufe zwischen Screens (px/s): die
+## Dauer folgt aus der Pfadlänge, damit jede Verbindung gleich schnell wirkt. Die
+## einzige Ausnahme ist der Weg eines NEUZUGANGS in die Schale (DIE_COMET_GAIN).
 const PULSE_SPEED := 680.0 * SUPERSAMPLE
 ## Kurzer, gedämpfter Komet (deutlich dünner/dunkler als die Wertungs-Trails).
 const OVERCLOCK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
@@ -2540,26 +2557,28 @@ func pack_delivery_comet(from_px: Vector2, color: Color,
 	return travel
 
 ## Liefer-Komet ins AUSGABEFACH: der gekaufte oder gewonnene Würfel fliegt als
-## reiner METEOR-BOGEN auf die Schale (an die Schale reicht keine Ader). Liefert die
-## Laufzeit.
+## reiner METEOR-BOGEN auf die Schale (an die Schale reicht keine Ader) - und als
+## einziger im SCHNELLGANG (DIE_COMET_GAIN). Liefert die Laufzeit.
 func fach_delivery_comet(from_px: Vector2, color: Color, to_px: Vector2,
 		spread_index := 0) -> float:
 	var path := _meteor_launch(from_px, to_px, spread_index)
-	var travel := _travel_time(path)
+	var travel := _die_travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
 ## Hehlerware Hinterzimmer -> Werkbank/Ausgabefach: die Schwarzmarkt-Ader in den
 ## Hub, von dort als reiner METEOR-BOGEN aufs Ziel (Magazin-Platz oder Schale) - die
 ## Hub->Magazin-Ader ist gefallen. Liefert die Laufzeit.
-func secret_delivery_comet(from_px: Vector2, to_px: Vector2, color: Color) -> float:
+## to_die = die Ware ist ein Würfel und fährt darum im Schnellgang in die Schale.
+func secret_delivery_comet(from_px: Vector2, to_px: Vector2, color: Color,
+		to_die := false) -> float:
 	var launch := from_px
 	if secret_hub_strip != null and secret_hub_strip.strip_path.size() >= 2:
 		launch = secret_hub_strip.strip_path[secret_hub_strip.strip_path.size() - 1]
 	var path := _route_via_strips(from_px, [secret_hub_strip], launch)
 	for p in _meteor_launch(launch, to_px, 0):
 		path.append(p)
-	var travel := _travel_time(path)
+	var travel := _die_travel_time(path) if to_die else _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
@@ -2660,7 +2679,7 @@ func tray_comet(from_px: Vector2, to_px: Vector2, color: Color, spread_index: in
 	var path := _route_via_strips(from_px, [slot_hub_strip], launch)
 	for p in _meteor_launch(launch, to_px, spread_index):
 		path.append(p)
-	var travel := _travel_time(path)
+	var travel := _die_travel_time(path)  # ein Neuzugang fährt im Schnellgang
 	_pulse_along(path, travel, color)
 	return travel
 
@@ -2719,6 +2738,15 @@ func _path_length(path: PackedVector2Array) -> float:
 ## Laufzeit eines Pfads bei der einheitlichen Licht-Geschwindigkeit.
 func _travel_time(path: PackedVector2Array) -> float:
 	return maxf(0.12, _path_length(path) / PULSE_SPEED)
+
+## Die EINE benannte Ausnahme von der einheitlichen Licht-Geschwindigkeit
+## (Spieler-Wunsch 2026-09-13): ein NEUZUGANG fliegt schneller, denn seit dem ZWANG
+## steht der Spieler schon am Raster und wartet auf ihn - nur der Weg in die SCHALE
+## zählt dazu, jede andere Lieferung behält ihr Tempo.
+const DIE_COMET_GAIN := 3.5
+
+func _die_travel_time(path: PackedVector2Array) -> float:
+	return maxf(0.12, _path_length(path) / (PULSE_SPEED * DIE_COMET_GAIN))
 
 ## Laufzeit der Geld-Leiste (Schatz <-> Hub) für die Ablauf-Planung außen.
 func money_travel_time() -> float:

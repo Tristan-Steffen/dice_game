@@ -1,5 +1,5 @@
 // Die BLITZ-MASCHINE - seit dem 2026-09-11 nur noch EINGEFROREN in die_burn
-// (Bruchlinien der Asche); die Ladung selbst BRENNT (die_fire.gdshader).
+// (Bruchlinien der Asche).
 // Eine Bahn ist ein Zufallsweg quer zur Strecke als BRÜCKE (endet wieder auf b)
 // plus feinem Zittern; ein Schlag ist kurz und glimmt eingefroren nach.
 
