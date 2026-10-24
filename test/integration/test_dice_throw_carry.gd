@@ -38,8 +38,18 @@ func test_der_wurf_setzt_das_berst_tempo_fort() -> void:
 	dice.throw_slots(_p([0]), 50.0, 3.0, Vector3.ZERO, carry)
 	assert_lt(dice.bodies[0].linear_velocity.distance_to(vel), 0.01,
 		"das Tempo des Berst-Moments reist unverändert mit")
-	assert_lt(dice.bodies[0].angular_velocity.distance_to(spin), 0.001,
-		"die Eigendrehung reist mit - kein Zufalls-Drall obendrauf")
+	assert_almost_eq(dice.bodies[0].angular_velocity.distance_to(spin),
+		DiceController.CARRY_SPIN_KICK, 0.001,
+		"die Eigendrehung reist mit, plus ein fester Betrag Zufalls-Drall")
+
+func test_gleiche_berst_staende_werfen_verschieden() -> void:
+	var carry: Array[Dictionary] = [_carry(Vector3(1.0, 1.0, 2.0), Vector3(2.0, -3.0, 1.0))]
+	dice.start_transforms[0] = Transform3D(Basis.IDENTITY, Vector3(0.0, 8.0, 0.0))
+	dice.throw_slots(_p([0]), 50.0, 3.0, Vector3.ZERO, carry)
+	var first := dice.bodies[0].angular_velocity
+	dice.throw_slots(_p([0]), 50.0, 3.0, Vector3.ZERO, carry)
+	assert_gt(dice.bodies[0].angular_velocity.distance_to(first), 0.01,
+		"derselbe Wirbel darf nicht zweimal denselben Wurf liefern")
 
 func test_die_tangente_wird_ins_wurffeld_geklemmt() -> void:
 	# Eine Tangente, die aus der Grube schösse, landet am Feldrand - Richtung

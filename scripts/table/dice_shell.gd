@@ -8,7 +8,8 @@ extends Node3D
 ## taumeln um die eigene Achse. Die Choreographie ist DETERMINISTISCH
 ## (Spieler-Wunsch 2026-08-26): keine Zufalls-Phase, kein Zufalls-Drall,
 ## keine Rempler-Kollisionen, und jede Mischung beginnt auf derselben
-## Bahnebene - dasselbe Mischen sieht jedes Mal gleich aus. Die Bahn-Anker
+## Bahnebene - dasselbe Mischen sieht jedes Mal gleich aus (den Zufall bringt
+## erst der Wurf, DiceController.CARRY_SPIN_KICK). Die Bahn-Anker
 ## liegen im
 ## LOKALRAUM von shell_root: die bestehende Handgelenk-Kippe neigt damit die
 ## ganze Bahn und die Schüttel-Strokes verschieben sie - der Kessel schwenkt
@@ -101,10 +102,10 @@ const VEL_SMOOTH := 10.0      # 1/s: Nachlauf der geglätteten Wirbel-Geschwindi
 ## Randabstand des Zieh-Ziels zur Grubenwand: > RADIUS, damit die Bahn samt
 ## Ring innerhalb der Wände bleibt.
 const SHAKE_MARGIN := 4.0
-const TRAVEL_TIME := 0.6      # Anlauf des Wirbels (Heimat = Rüttel-Anker)
+const TRAVEL_TIME := 0.3      # Anlauf des Wirbels (Heimat = Rüttel-Anker)
 ## Ungepackt kippt der Wirbel nach dieser Zeit aus - knapp, aber lang genug,
 ## dass die Bahn als Bewegung lesbar wird.
-const SHUFFLE_MIN_TIME := 0.8
+const SHUFFLE_MIN_TIME := 0.4
 
 ## Der kurze Tangenten-Flug zwischen Bahn-Abriss und Auskippen - der
 ## Berst-Moment, der Taktgeber von poured_out.

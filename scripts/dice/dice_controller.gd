@@ -180,7 +180,7 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 			var land: Dictionary = carry_lands[ordinal]
 			body.linear_velocity = _throw_velocity(
 				start_transform.origin, land["to"], g_eff, throw_force, land["time"])
-			body.angular_velocity = carry[ordinal]["spin"]
+			body.angular_velocity = carry[ordinal]["spin"] + _spin_kick()
 		else:
 			body.linear_velocity = _throw_velocity(
 				start_transform.origin, target + targets[ordinal], g_eff, throw_force,
@@ -191,6 +191,14 @@ func throw_slots(indices: Array[int], throw_force: float, spin_strength: float, 
 				randf_range(-spin_strength, spin_strength)
 			))
 	pit_contents_changed.emit()
+
+## Zufalls-Drall auf den übernommenen: die Wirbel-Choreographie ist fest, ohne ihn
+## lieferte derselbe Vorrat Wurf für Wurf dieselbe Hand (Spieler-Befund 2026-10-24).
+const CARRY_SPIN_KICK := 6.0
+
+static func _spin_kick() -> Vector3:
+	return Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0),
+		randf_range(-1.0, 1.0)).normalized() * CARRY_SPIN_KICK
 
 ## Flugzeit des Wurfbogens; je Würfel wächst sie um THROW_STAGGER, damit die
 ## Würfel NACHEINANDER einschlagen - gleichzeitig ankommende Würfel schoben sich
