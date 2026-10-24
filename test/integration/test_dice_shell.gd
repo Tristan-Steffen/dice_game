@@ -45,9 +45,9 @@ func test_capture_die_baut_taumel_wuerfel_auf_privatem_layer() -> void:
 	shell.clear_ghosts()
 	assert_false(shell.has_ghosts(), "clear_ghosts räumt ab")
 
-func test_die_choreographie_ist_deterministisch() -> void:
-	# Kein Würfel würfelt beim Mischen: zwei getrennte Wirbel bauen für dieselben
-	# Plätze exakt dieselben Bahnen, denselben Drall und dieselbe Bahnebene.
+func test_die_bahnen_sind_choreographie_nur_die_lage_wuerfelt() -> void:
+	# Radius, Tempo und Abstand der Bahnen sind fest je Platz; gewürfelt wird nur,
+	# wie der ganze Schwarm liegt - sonst fiel jeder Wurf in dieselbe Ecke.
 	var a := _shell()
 	var b := _shell()
 	var def := DieDefinition.new()
@@ -56,13 +56,28 @@ func test_die_choreographie_ist_deterministisch() -> void:
 		a.capture_die(def, a.mouth_position())
 		b.capture_die(def, b.mouth_position())
 	for i in 3:
-		assert_eq(a._orbits[i], b._orbits[i], "Bahn %d ist Choreographie" % i)
-		var body_a: RigidBody3D = a.ghosts[i].get_node("RigidBody3D")
-		var body_b: RigidBody3D = b.ghosts[i].get_node("RigidBody3D")
-		assert_lt(body_a.angular_velocity.distance_to(body_b.angular_velocity),
-			0.0001, "Drall %d ist fest, kein Zufall" % i)
+		assert_eq(a._orbits[i]["radius"], b._orbits[i]["radius"], "Radius %d ist fest" % i)
+		assert_eq(a._orbits[i]["speed"], b._orbits[i]["speed"], "Tempo %d ist fest" % i)
+		assert_almost_eq(
+			fmod(float(a._orbits[i]["phase"]) - a._phase_offset, TAU),
+			fmod(float(b._orbits[i]["phase"]) - b._phase_offset, TAU), 0.0001,
+			"Abstand der Bahn %d im Schwarm ist fest" % i)
 	assert_eq(a.shell_root.basis, Basis.IDENTITY,
 		"jeder Schwarm beginnt auf derselben Bahnebene")
+
+func test_jede_mischung_wuerfelt_drehsinn_und_schlag_diagonale() -> void:
+	var shell := _shell()
+	var def := DieDefinition.new()
+	def.faces = [1, 2, 3, 4, 5, 6]
+	var signs := {}
+	var mirrors := {}
+	for n in 40:
+		shell.capture_die(def, shell.mouth_position())
+		signs[shell._orbit_sign] = true
+		mirrors[shell._stroke_mirror.x] = true
+		shell.clear_ghosts()
+	assert_eq(signs.size(), 2, "beide Drehrichtungen kommen vor")
+	assert_eq(mirrors.size(), 2, "beide Schlag-Diagonalen kommen vor")
 
 func test_der_griff_lebt_nur_am_vollen_schwarm() -> void:
 	# Sichtbar heißt bedienbar: ohne taumelnde Würfel ist nichts zu sehen, also

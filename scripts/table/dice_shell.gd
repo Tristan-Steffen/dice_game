@@ -5,11 +5,10 @@ extends Node3D
 ## Lichtring - sichtbar ist NUR der kreisende Schwarm selbst). Gemischt wird
 ## als ORBIT: jeder gezogene Würfel jagt auf seiner eigenen Kreisbahn um das
 ## Wirbel-Zentrum - eigener Radius, eigenes Tempo, sie überholen einander und
-## taumeln um die eigene Achse. Die Choreographie ist DETERMINISTISCH
-## (Spieler-Wunsch 2026-08-26): keine Zufalls-Phase, kein Zufalls-Drall,
-## keine Rempler-Kollisionen, und jede Mischung beginnt auf derselben
-## Bahnebene - dasselbe Mischen sieht jedes Mal gleich aus (den Zufall bringt
-## erst der Wurf, DiceController.CARRY_SPIN_KICK). Die Bahn-Anker
+## taumeln um die eigene Achse. Die Choreographie ist fest (Bahnen, Takt, keine
+## Rempler-Kollisionen), nur vier Dinge würfelt jede Mischung neu: Drehlage,
+## Drehsinn, Schlag-Diagonale und den Auskipp-Moment - feste ließen jeden Wurf
+## in dieselbe Ecke fallen (2026-10-24, gemessen 97 % rechts). Die Bahn-Anker
 ## liegen im
 ## LOKALRAUM von shell_root: die bestehende Handgelenk-Kippe neigt damit die
 ## ganze Bahn und die Schüttel-Strokes verschieben sie - der Kessel schwenkt
@@ -39,7 +38,7 @@ const TUMBLE_RATE := 6.0
 
 ## DIE BAHNEN: Radien und Tempi je Würfel gestaffelt (Goldener Schnitt statt
 ## Zufall - deterministisch verschieden, nie zwei gleiche), alle in DERSELBEN
-## Drehrichtung: wer schneller ist, überholt - das ist der Roulette-Kessel.
+## Drehrichtung (welche, würfelt jede Mischung): wer schneller ist, überholt.
 const ORBIT_RADIUS_MIN := 1.5
 const ORBIT_RADIUS_MAX := 2.55
 ## Tempo-Band der Bahnen: 2,4-4,2 las sich träge (Spieler-Wort "sluggish"),
@@ -106,6 +105,9 @@ const TRAVEL_TIME := 0.3      # Anlauf des Wirbels (Heimat = Rüttel-Anker)
 ## Ungepackt kippt der Wirbel nach dieser Zeit aus - knapp, aber lang genug,
 ## dass die Bahn als Bewegung lesbar wird.
 const SHUFFLE_MIN_TIME := 0.4
+## Das Auskippen streut um ±einen halben Schlag: ein fester Zeitpunkt ließ den
+## Schwarm immer an derselben Stelle des Schlags los (Rechts-Bias, gemessen 97 %).
+const SHUFFLE_JITTER := PI / SHAKE_RATE
 
 ## Der kurze Tangenten-Flug zwischen Bahn-Abriss und Auskippen - der
 ## Berst-Moment, der Taktgeber von poured_out.
@@ -126,6 +128,11 @@ var ghosts: Array[Node3D] = []  # Taumel-Würfel (Wurzelknoten, Kinder von self)
 ## bob_phase, prev_anchor.
 var _orbits: Array[Dictionary] = []
 var _orbit_t := 0.0             # gemeinsame Bahn-Zeit (das Tempo pulst darauf)
+var _phase_offset := 0.0        # Drehlage des ganzen Schwarms, je Mischung neu gewürfelt
+## Drehsinn des Schwarms und Diagonale des Schlags, je Mischung neu: feste legten
+## die Würfe schräg (gemessen: zwei Diagonal-Quadranten deutlich häufiger).
+var _orbit_sign := 1.0
+var _stroke_mirror := Vector3.ONE
 var _click_zone: StaticBody3D   # Griff am Schwarm - scharf nur mit Würfeln darin
 
 var state := State.HOME
@@ -209,11 +216,11 @@ func release_states() -> Array[Dictionary]:
 func _stroke_offset(phase: float) -> Vector3:
 	var wave := sin(phase)
 	var triangle := asin(wave) * 2.0 / PI
-	return SHAKE_STROKE * lerpf(wave, triangle, SHAKE_SNAP) + SHAKE_ARC * sin(phase * 2.0)
+	return (SHAKE_STROKE * lerpf(wave, triangle, SHAKE_SNAP) + SHAKE_ARC * sin(phase * 2.0)) * _stroke_mirror
 
 ## Kipp-Achse des Handgelenks: waagerecht und quer zur Schlagrichtung.
 func _rock_axis() -> Vector3:
-	var axis := SHAKE_STROKE.cross(Vector3.UP)
+	var axis := (SHAKE_STROKE * _stroke_mirror).cross(Vector3.UP)
 	return axis.normalized() if axis.length() > 0.01 else Vector3.RIGHT
 
 ## Rüttel-Anker: lokaler Ort des Wirbel-Zentrums über der Grube, etwas
@@ -224,17 +231,18 @@ func _pit_anchor() -> Vector3:
 ## Nimmt einen gezogenen Würfel auf: baut einen Taumel-Würfel in Tray-Größe
 ## (Optik über Faces skaliert, Kollisionsbox direkt - ein skalierter
 ## RigidBody wäre in Jolt tabu) und setzt ihn auf SEINE Bahn: Radius und Tempo
-## über den Goldenen Schnitt gestaffelt, Phase, Bob und Eigendrall FEST aus
-## dem Bahn-Platz - kein Würfel würfelt hier, die Mischung ist Choreographie
-## und sieht jedes Mal gleich aus.
+## über den Goldenen Schnitt gestaffelt, Phase, Bob und Eigendrall aus dem
+## Bahn-Platz; der erste Würfel eines Schwarms würfelt dessen Lage und Drehsinn.
 func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 	if ghosts.is_empty():
-		# Jeder Schwarm beginnt auf DERSELBEN Bahnebene und am selben Bahn-Stand:
-		# frei akkumulierte Ruhe-Drehung und weiterlaufende Bahn-Zeit sind die
-		# zwei Zufallsquellen, die kein Platz-Schlüssel deckt.
+		# Jeder Schwarm beginnt auf derselben Bahnebene; Lage, Drehsinn und
+		# Schlag-Diagonale würfelt er hier neu.
 		shell_root.basis = Basis.IDENTITY
 		angular_velocity = Vector3.ZERO
 		_orbit_t = 0.0
+		_phase_offset = randf() * TAU
+		_orbit_sign = 1.0 if randf() < 0.5 else -1.0
+		_stroke_mirror = Vector3(1.0 if randf() < 0.5 else -1.0, 1.0, 1.0)
 	var die := DieBuilder.build()
 	add_child(die)
 	ScreenReflection.mark_reflective(die)
@@ -246,7 +254,7 @@ func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 			fmod(float(slot) * 0.6180339887, 1.0)),
 		"speed": lerpf(ORBIT_SPEED_MIN, ORBIT_SPEED_MAX,
 			fmod(float(slot) * 0.3819660113 + 0.19, 1.0)),
-		"phase": spread,
+		"phase": spread + _phase_offset,
 		"bob_phase": TAU * fmod(float(slot) * 0.6180339887, 1.0),
 	})
 
@@ -271,7 +279,7 @@ func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 
 	body.global_position = world_pos
 	# Fester Taumel: die Drehachse wandert mit dem Bahn-Platz um den Kreis.
-	body.angular_velocity = Vector3(cos(spread), 0.7, sin(spread)).normalized() * TUMBLE_RATE
+	body.angular_velocity = Vector3(cos(spread), 0.7 * _orbit_sign, sin(spread)).normalized() * TUMBLE_RATE
 	_sync_zone()
 
 func clear_ghosts() -> void:
@@ -373,7 +381,7 @@ func _physics_process(delta: float) -> void:
 			shell_root.position = move_from.lerp(_pit_anchor(), k)
 			if move_t >= TRAVEL_TIME:
 				state = State.SHAKE
-				shuffle_time_left = SHUFFLE_MIN_TIME
+				shuffle_time_left = SHUFFLE_MIN_TIME + randf_range(-SHUFFLE_JITTER, SHUFFLE_JITTER)
 				shake_pos = shell_root.position
 				shake_t = 0.0  # Takt bei 0 - der erste Schlag startet aus der Ruhe
 				_lag_avg = 0.0
@@ -455,7 +463,7 @@ func _drive_orbit(delta: float) -> void:
 		if body.freeze:
 			continue
 		var o: Dictionary = _orbits[g]
-		var th: float = float(o["phase"]) + _orbit_t * float(o["speed"])
+		var th: float = float(o["phase"]) + _orbit_t * float(o["speed"]) * _orbit_sign
 		var local := Vector3(cos(th) * float(o["radius"]),
 			sin(th * 2.0 + float(o["bob_phase"])) * ORBIT_BOB,
 			sin(th) * float(o["radius"]))

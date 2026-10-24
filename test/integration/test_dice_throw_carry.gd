@@ -85,3 +85,14 @@ func test_ohne_carry_bleibt_der_klassische_wurf() -> void:
 	dice.throw_slots(_p([0]), 10.0, 1.0)
 	assert_gt(dice.bodies[0].linear_velocity.length(), 0.0, "der Wurf startet")
 	assert_false(dice.settled[0])
+
+func test_landungen_zielen_auf_die_grubenmitte_nicht_auf_den_wirbel() -> void:
+	# Der Wirbel kreist rechts der Mitte und driftet: gelandet wird relativ zu
+	# Ort und Drift des Schwarms, sonst fiele jeder Wurf zur Seite.
+	dice.start_transforms[0] = Transform3D(Basis.IDENTITY, Vector3(0.0, 8.0, 2.0))
+	dice.start_transforms[1] = Transform3D(Basis.IDENTITY, Vector3(0.0, 8.0, 6.0))
+	var drift := Vector3(0.0, 0.0, 3.0)
+	var carry: Array[Dictionary] = [_carry(drift, Vector3.ZERO), _carry(drift, Vector3.ZERO)]
+	var lands := dice._carry_landings(_p([0, 1]), carry, Vector3.ZERO)
+	var mid: float = (lands[0]["to"].z + lands[1]["to"].z) * 0.5
+	assert_almost_eq(mid, 0.0, 0.001, "die Schwarm-Mitte landet auf der Grubenmitte")

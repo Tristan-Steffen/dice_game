@@ -245,21 +245,34 @@ const CARRY_HALF_Z := 12.5
 ## Fallzeit löst sich aus dem Berst-Steigtempo unter Schwerkraft, der
 ## Landepunkt ist der natürliche Auftreffpunkt der Tangente - ins Wurffeld
 ## geklemmt und auf der langen Achse entzerrt (Mindestabstand wie zwischen
-## zwei Bahnen von _spread_targets). Ungeklemmt reproduziert _throw_velocity
+## zwei Bahnen von _spread_targets). Ungeklemmt, mit dem Schwarm über der Mitte, trifft _throw_velocity
 ## damit exakt das Berst-Tempo: der Wurf setzt die losgelassene Bewegung fort.
 func _carry_landings(indices: Array[int], carry: Array[Dictionary], target: Vector3) -> Array[Dictionary]:
 	var lands: Array[Dictionary] = []
-	for k in mini(indices.size(), carry.size()):
+	# Der Wirbel kreist rechts der Grubenmitte und driftet beim Loslassen: gelandet
+	# wird relativ zu Ort UND Drift des Schwarms, sonst fiele jeder Wurf zur Seite.
+	var mean := Vector3.ZERO
+	var drift := Vector3.ZERO
+	var carried := mini(indices.size(), carry.size())
+	for k in carried:
+		mean += start_transforms[indices[k]].origin
+		drift += carry[k]["velocity"]
+	var shift := target - mean / float(maxi(carried, 1))
+	shift.y = 0.0
+	drift = drift / float(carried) if carried > 1 else Vector3.ZERO
+	drift.y = 0.0
+	for k in carried:
 		var body := bodies[indices[k]]
 		var from := start_transforms[indices[k]].origin
-		var v: Vector3 = carry[k]["velocity"]
+		var aim := from + shift
+		var v: Vector3 = carry[k]["velocity"] - drift
 		var g := maxf(9.8 * body.gravity_scale, 0.01)
 		var h := maxf(from.y - target.y, 0.5)
 		var t := (v.y + sqrt(v.y * v.y + 2.0 * g * h)) / g
 		lands.append({"time": t, "to": Vector3(
-			clampf(from.x + v.x * t, target.x - CARRY_HALF_X, target.x + CARRY_HALF_X),
+			clampf(aim.x + v.x * t, target.x - CARRY_HALF_X, target.x + CARRY_HALF_X),
 			target.y,
-			clampf(from.z + v.z * t, target.z - CARRY_HALF_Z, target.z + CARRY_HALF_Z))})
+			clampf(aim.z + v.z * t, target.z - CARRY_HALF_Z, target.z + CARRY_HALF_Z))})
 	# Entzerren: sortiert nach z, vorwärts den Mindestabstand aufbauen, rückwärts
 	# über den Rand Geschobene wieder hereinholen - so bleibt jede Verschiebung
 	# minimal und kein Paar kann sich beim Aufschlag überlappen.
