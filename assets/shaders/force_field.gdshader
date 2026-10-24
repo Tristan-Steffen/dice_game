@@ -19,6 +19,11 @@ uniform float stripe_speed = 0.6;    // Streifen-Wanderung nach oben (Einheiten/
 uniform float bottom_y = 0.0;        // Filz-Oberkante (Feld-Unterkante) - wird zur Laufzeit gesetzt (DicePit)
 uniform float top_y = 5.3;           // sichtbare Feldhöhe (nicht die Kollisionshöhe) - wird zur Laufzeit gesetzt
 uniform float top_fade : hint_range(0.0, 1.0) = 0.0; // Restdeckkraft an der Oberkante
+// Der LOCKRUF vor dem ersten Wurf der Runde (DicePit.set_beckon): die Wand atmet.
+uniform float beckon : hint_range(0.0, 1.0) = 0.0;      // Stärke - färbt das Feld
+uniform float beckon_glow : hint_range(0.0, 1.0) = 0.0; // Stärke × Atem - vom Skript geführt
+uniform vec3 beckon_color : source_color = vec3(0.27, 0.77, 0.43);
+uniform float beckon_alpha : hint_range(0.0, 1.0) = 0.35;
 
 varying vec3 world_pos;
 
@@ -35,6 +40,7 @@ void fragment() {
 	// In Ruhe nur ein Hauch Fresnel; beim Aufprall die volle Feld-Optik plus Blitz.
 	float energy = base_alpha + stripe_alpha * stripes + fresnel_alpha * fresnel;
 	float a = idle_alpha * fresnel + impact * (energy + impact_alpha);
-	ALBEDO = field_color;
+	a += beckon_glow * (energy + beckon_alpha);
+	ALBEDO = mix(field_color, beckon_color, clamp(beckon - impact, 0.0, 1.0));
 	ALPHA = clamp(a * fade, 0.0, 1.0);
 }

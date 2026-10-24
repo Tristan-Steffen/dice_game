@@ -10252,6 +10252,24 @@ func _process(delta: float) -> void:
 	_sync_shelf_selector()  # und die Knopfleiste, welches Tablett gewählt ist
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 	_sync_music()  # und die Musik-Schichten folgen der Phase
+	_sync_pit_beckon(delta)  # und die Grube ruft, solange die Runde auf ihren ersten Wurf wartet
+
+## Der LOCKRUF der Grube: vor dem ersten Wurf der Runde atmen ihre Wände grün und
+## im leeren Boden steht WÜRFELN (Spieler-Wunsch 2026-10-24 - Tester fanden nach
+## dem Laden und nach Starten nicht weiter). Gefragt je Bild, linear geführt.
+const PIT_BECKON_FADE := 2.5  # Anteil/s
+var _pit_beckon_share := 0.0
+
+func _pit_beckons() -> bool:
+	return run != null and phase == Phase.IDLE and gameplay_ui_state_visible 		and camera_rig.mode != CameraRig.Mode.TITLE 		and next_draw_index == 0 and not has_rolled_current_hand 		and _remaining_in_pool() > 0 and not log_open 		and not _route_choice_open() and not _exchange_forced()
+
+func _sync_pit_beckon(delta: float) -> void:
+	var target := 1.0 if _pit_beckons() else 0.0
+	_pit_beckon_share = move_toward(_pit_beckon_share, target, PIT_BECKON_FADE * delta)
+	var breath := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * DicePit.BECKON_RATE)
+	table_screen.set_pit_beckon(_pit_beckon_share, breath,
+		"" if is_pit_focused else "Klick auf die Grube")
+	dice_pit.set_beckon(_pit_beckon_share, breath, CasinoStyle.GREEN)
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
 ## Würfel in der Schale, stellt das Hover-Highlight der Serie (Karte <-> Netz-Zellen)

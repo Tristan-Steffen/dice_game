@@ -139,6 +139,10 @@ var led_strip: LedStripView
 var treasure_window: TreasureChestView
 var treasure_strip: LedStripView
 var pit_window: Panel
+var pit_beckon: VBoxContainer
+## Schriftgrade des Lockruf-Schilds als Anteil der Grubenhöhe.
+const PIT_BECKON_TITLE_SHARE := 0.16
+const PIT_BECKON_SUB_SHARE := 0.08
 ## Rundenpuls: Wellen-Overlay im Gruben-Fenster (siehe pit_waves.gdshader).
 var pit_waves: ColorRect
 var _pit_waves_tween: Tween
@@ -524,6 +528,7 @@ func _build_content() -> void:
 	waves_material.set_shader_parameter("heat_gain", PIT_HEAT_GAIN)
 	pit_waves.material = waves_material
 	pit_window.add_child(pit_waves)
+	_build_pit_beckon()
 
 	# Zellpositionen vorab berechnen - der Neon-Rahmen muss hinter die Zellen.
 	var total := DiceScoring.HAND_PRIORITY.size()
@@ -710,8 +715,49 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	# Punkt-Pulse skalieren mit der Grubenhöhe (auflösungsunabhängig).
 	waves_material.set_shader_parameter("impulse_radius", pit_waves.size.y * 0.75)
 	waves_material.set_shader_parameter("impulse_width", pit_waves.size.y * 0.1)
+	_fit_pit_beckon()
 	pit_window.visible = true
 	_sync_reflection_windows()
+
+## Das LOCKRUF-Schild im leeren Grubenboden: WÜRFELN, darunter wie man hinkommt.
+func _build_pit_beckon() -> void:
+	pit_beckon = VBoxContainer.new()
+	pit_beckon.name = "PitBeckon"
+	pit_beckon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_beckon.alignment = BoxContainer.ALIGNMENT_CENTER
+	pit_beckon.visible = false
+	for line in ["WÜRFELN", ""]:
+		var label := Label.new()
+		label.text = line
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.add_theme_color_override("font_color", CasinoStyle.GREEN)
+		label.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
+		pit_beckon.add_child(label)
+	pit_window.add_child(pit_beckon)
+
+func _fit_pit_beckon() -> void:
+	var h := pit_window.size.y
+	pit_beckon.position = Vector2.ZERO
+	pit_beckon.size = pit_window.size
+	var title: Label = pit_beckon.get_child(0)
+	title.add_theme_font_size_override("font_size", int(h * PIT_BECKON_TITLE_SHARE))
+	title.add_theme_constant_override("outline_size", int(h * 0.02))
+	var sub: Label = pit_beckon.get_child(1)
+	sub.add_theme_font_size_override("font_size", int(h * PIT_BECKON_SUB_SHARE))
+	sub.add_theme_constant_override("outline_size", int(h * 0.012))
+
+## share 0..1 blendet das Schild, breath 0..1 ist der Atem der Wände; leere
+## Unterzeile heißt: man steht schon an der Grube.
+func set_pit_beckon(share: float, breath: float, sub_text: String) -> void:
+	if pit_beckon == null:
+		return
+	pit_beckon.visible = share > 0.001
+	if not pit_beckon.visible:
+		return
+	pit_beckon.modulate.a = share * lerpf(0.55, 1.0, breath)
+	var sub: Label = pit_beckon.get_child(1)
+	sub.text = sub_text
 
 ## Punkt-Puls: schnelle Stoßwelle vom Würfel (screen_px) in der Farbe der
 ## Punktart - "base" (Cyan), "mult" (Gold), "crit" (Magenta). Hell bei Geburt,

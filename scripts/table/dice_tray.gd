@@ -34,6 +34,9 @@ const FIELD_VISIBLE_HEIGHT := WALL_HEIGHT / 3.0
 const FIELD_SHADER := preload("res://assets/shaders/force_field.gdshader")
 const FIELD_FLASH_DECAY := 0.5
 
+## Der LOCKRUF: Atemtempo der Wände (rad/s), das Schild im Grubenboden atmet mit.
+const BECKON_RATE := 2.4
+
 ## Je Segment ein EIGENES Material, damit nur das getroffene aufblitzt.
 var field_materials: Array[ShaderMaterial] = []
 var _field_tweens: Array[Tween] = []
@@ -125,6 +128,14 @@ func flash_segment(index: int, strength: float) -> void:
 func slam(strength: float) -> void:
 	for i in field_materials.size():
 		flash_segment(i, strength)
+
+## Lockruf auf allen Wänden: share 0..1 färbt, breath 0..1 ist der Atem dazu -
+## geführt vom Aufrufer, damit Wand und Schild im selben Takt atmen.
+func set_beckon(share: float, breath: float, color: Color) -> void:
+	for material in field_materials:
+		material.set_shader_parameter("beckon", share)
+		material.set_shader_parameter("beckon_glow", share * lerpf(0.35, 1.0, breath))
+		material.set_shader_parameter("beckon_color", color)
 
 ## group unterscheidet Boden- und Wandkontakte für den Würfel-Sound.
 func _add_box(node_name: String, box_position: Vector3, box_basis: Basis, size: Vector3, material: PhysicsMaterial, group: String) -> void:
