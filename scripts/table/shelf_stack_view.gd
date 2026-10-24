@@ -1,9 +1,10 @@
 class_name ShelfStackView
 extends Node3D
-## Das MAGAZIN als REGALSTAPEL (2026-09-10; der PATERNOSTER-Kreislauf ist damit
-## gefallen - er verwirrte, weil jede Karte beim Blättern ihren Platz wechselte):
-## FÜNF TABLETTS liegen gestapelt in der Magazin-Grube, jedes trägt ZWEI REIHEN auf
-## EINER Platte - eine HINTERE (Bild-oben, Welt +X) und eine VORDERE (Bild-unten).
+## Das MAGAZIN als REGALSTAPEL (2026-09-10): seit der Welle 29 VIER TABLETTS, eines
+## je SORTE, gestapelt in der Magazin-Grube; jedes trägt ZWEI LANES auf EINER Platte -
+## eine HINTERE (Bild-oben, Welt +X) und eine VORDERE (Bild-unten) - und ROLLT: ein
+## Zug schiebt sein FACH waagerecht, die vorderen Spalten verschwinden durch den
+## Schlitz der linken Wand in ihre Wandtasche.
 ##
 ## Tablett 1 liegt zuoberst auf Lese-Tiefe, jedes weitere eine Teilung tiefer, und
 ## KEIN Tablett wechselt je seine Höhe: die Tiefe IST die Position im Stapel.
@@ -64,9 +65,9 @@ const RETRACT_CLEAR := 0.3
 const FRONT_SHARE := PackDrawerView.FRONT_SHARE
 const BAND_RISE := 0.05
 const NUMBER_FONT := 48
-## Wie weit die (mittig gesetzte) Nummer von der linken Blenden-Kante einrückt, in
-## Blenden-Tiefen: bündig gesetzt schnitt die Grubenwand sie an.
-const NUMBER_INSET := 2.2
+## Wie weit das (linksbündige) Kürzel von der linken Blenden-Kante einrückt, in
+## Blenden-Tiefen: bündig gesetzt schnitt die Grubenwand es an.
+const NUMBER_INSET := 1.0
 ## Die MULDE je Stellplatz (Spieler-Entscheid 2026-09-10, Kontakt-Schacht plus
 ## Mulde): die PLATTE ist ihr Boden, die LIPPEN stehen darauf, am Boden ein
 ## LICHTSAUM in der Sortenfarbe (leer kühl und stumpf) und am Bild-rechten Ende
@@ -90,6 +91,16 @@ const FLOOR_ENERGY := 0.45
 
 ## Die SCHUBFAHRT eines Tabletts in die Wand und zurück.
 const SLIDE_TIME := 0.35
+## Das EINRASTEN nach einem Zug auf die nächste ganze Spalte.
+const SNAP_TIME := 0.16
+## Die linke Wandtasche faßt die hinausgerollte Spalte samt Luft (in Kartenlängen).
+const LEFT_POCKET_SHARE := 1.2
+## Das GLIMMEN an der Wand, hinter der noch Karten liegen: ein schmaler Lichtbalken
+## auf Kartenhöhe des gewählten Tabletts.
+const HINT_WIDTH := 0.05
+const HINT_HEIGHT := 0.05
+const HINT_COLOR := Color(1.0, 0.83, 0.1)
+const HINT_ENERGY := 1.2
 
 ## Die WANDTASCHE hinter dem Schlitz: ein fast schwarzer Kasten, zur Grube hin
 ## offen - durch den Schlitz sieht man in eine ehrliche Tiefe, nicht in den Raum.
@@ -128,6 +139,12 @@ var _tongue_material: StandardMaterial3D
 var _plate_material: StandardMaterial3D
 var _pocket: Node3D
 var _ride: Tween
+## Der ROLL-Zug: läuft gerade einer (vom Zeiger geführt), und das Einrasten danach.
+var _scrolling := false
+var _snap: Tween
+## Die beiden Glimm-Balken (links, rechts) und ob sie stehen sollen.
+var _hints: Array[MeshInstance3D] = []
+var _overflow := Vector2i.ZERO
 
 func _init() -> void:
 	name = "ShelfStack"
@@ -200,6 +217,7 @@ func setup(at: Vector3, span: Vector2, cell_scale: float,
 	for tray in TRAYS:
 		_build_tray(tray)
 	_build_pocket()
+	_build_hints()
 	_built = true
 	settle_hard()
 
@@ -263,6 +281,8 @@ func _build_band(host: Node3D, row: int) -> void:
 		# Flach in Tisch-Leserichtung wie jede Aufschrift auf dem Filz.
 		label.transform.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
 		label.pixel_size = band_depth() * 0.7 / (float(NUMBER_FONT) * 0.62)
+		# Linksbündig: das Kürzel ist unterschiedlich lang, sein Anfang steht fest.
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		label.position = Vector3(0.0, BAND_RISE + 0.01,
 			-_span.y * 0.5 + band_depth() * NUMBER_INSET)
 		label.outline_size = 12
@@ -278,12 +298,26 @@ func _build_pocket() -> void:
 		remove_child(_pocket)
 		_pocket.queue_free()
 	var host := Node3D.new()
-	host.name = "Wandtasche"
+	host.name = "Wandtaschen"
 	add_child(host)
 	_pocket = host
+	# Rechts fahren die Tabletts ein, links rollen die vorderen Spalten hinaus.
+	_build_pocket_side(host, 1.0, retract_span() + RETRACT_CLEAR)
+	_build_pocket_side(host, -1.0, left_pocket_depth())
+
+## Wie tief die LINKE Wandtasche reicht: die hinausgerollte Spalte samt Luft - was
+## weiter rollt, liegt unter dem Filz und hinter ihrer Rückwand.
+func left_pocket_depth() -> float:
+	return DataCellView.HEIGHT * _scale * LEFT_POCKET_SHARE + RETRACT_CLEAR
+
+## EINE Wandtasche, außen an der Wand der Seite side (+1 = Bild-rechts, Welt +Z).
+func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
+	var host := Node3D.new()
+	host.name = "Wandtasche" if side > 0.0 else "WandtascheLinks"
+	host.scale = Vector3(1.0, 1.0, side)
+	parent.add_child(host)
 	var material := _metal(POCKET_ALBEDO, POCKET_EMISSION, POCKET_ENERGY)
 	var near := _span.y * 0.5
-	var deep := retract_span() + RETRACT_CLEAR
 	# Die DECKE hängt UNTER der Tischfläche (auf der Höhe der Wandoberkante) und reicht
 	# bis unter den Sturz des Schlitzes: über ihr deckt die opake Anzeige, unter ihr
 	# sieht man durch den Schlitz nicht an ihr vorbei. Auf der Glasebene selbst läge
@@ -303,9 +337,9 @@ func _build_pocket() -> void:
 	TableProps.box(host, "Rueckwand", Vector3(wide, high, POCKET_WALL),
 		Vector3(mid_x, (top + bottom) * 0.5, near + deep + POCKET_WALL * 0.5),
 		material)
-	for side in 2:
-		var dir := float(side) * 2.0 - 1.0
-		TableProps.box(host, "Flanke%d" % side, Vector3(POCKET_WALL, high, deep),
+	for flank in 2:
+		var dir := float(flank) * 2.0 - 1.0
+		TableProps.box(host, "Flanke%d" % flank, Vector3(POCKET_WALL, high, deep),
 			Vector3(mid_x + dir * (wide * 0.5 - POCKET_WALL * 0.5),
 				(top + bottom) * 0.5, mid_z), material)
 
@@ -359,9 +393,120 @@ func rows_shown() -> Array[int]:
 func shows(row: int) -> bool:
 	return shows_row(row, _selected)
 
-## Fährt gerade ein Tablett?
+## Fährt gerade ein Tablett - in die Wand, unter dem Zeiger oder ins Einrasten?
 func riding() -> bool:
-	return _ride != null and _ride.is_valid()
+	return (_ride != null and _ride.is_valid()) or _scrolling \
+		or (_snap != null and _snap.is_valid())
+
+# --- Das ROLLEN --------------------------------------------------------------------
+
+## Der Zeiger führt das Fach des Tabletts: um z (Welt, + = Bild-rechts) gegen seinen
+## Roll-Stand versetzt. Die Karten hängen am Fach und reisen mit.
+func drag_scroll(tray: int, z: float) -> void:
+	if tray < 0 or tray >= _fachs.size():
+		return
+	_kill_snap()
+	_scrolling = true
+	_fachs[tray].position.z = z
+	# Die Mulden rollen nicht mit - unter fahrenden Karten läsen sie als Doppelbild.
+	for row in rows_of(tray):
+		if _bays[row] != null and is_instance_valid(_bays[row]):
+			_bays[row].visible = false
+
+## Der Versatz des Fachs (0 = es liegt auf seinem Roll-Stand).
+func scroll_offset(tray: int) -> float:
+	if tray < 0 or tray >= _fachs.size():
+		return 0.0
+	return _fachs[tray].position.z
+
+## Losgelassen: das Fach fährt von from auf to und RASTET dort ein - danach wird
+## der Versatz in die Karten übernommen (der Roll-Stand ist längst gebucht, ihre
+## Plätze stehen schon dort). on_done läuft danach, auch bei Zeit 0.
+func snap_scroll(tray: int, from: float, to: float, on_done: Callable) -> void:
+	if tray < 0 or tray >= _fachs.size():
+		return
+	_kill_snap()
+	_scrolling = false
+	_fachs[tray].position.z = from
+	if not is_inside_tree() or is_equal_approx(from, to):
+		_fachs[tray].position.z = to
+		bake_scroll(tray)
+		on_done.call()
+		return
+	_snap = create_tween()
+	_snap.tween_property(_fachs[tray], "position:z", to, SNAP_TIME) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_snap.tween_callback(func() -> void:
+		bake_scroll(tray)
+		on_done.call())
+
+## Der Versatz des Fachs geht in seine Karten über, das Fach steht wieder auf 0 -
+## die Welt-Plätze bleiben byteweise, wo sie sind.
+func bake_scroll(tray: int) -> void:
+	if tray < 0 or tray >= _fachs.size():
+		return
+	var fach_node := _fachs[tray]
+	var offset := fach_node.position.z
+	fach_node.position.z = 0.0
+	_write_bands()  # die Mulden stehen wieder
+	if is_zero_approx(offset):
+		return
+	for child in fach_node.get_children():
+		(child as Node3D).position.z += offset
+
+## Der harte Weg: jedes Fach auf 0, jede Fahrt aus (Laufwechsel, Abbruch).
+func settle_scroll_hard() -> void:
+	_kill_snap()
+	_scrolling = false
+	for tray in _fachs.size():
+		bake_scroll(tray)
+
+func _kill_snap() -> void:
+	if _snap != null and _snap.is_valid():
+		_snap.kill()
+	_snap = null
+
+## Das GLIMMEN an den Wänden: links stehen noch hinausgerollte Spalten, rechts noch
+## ungezeigte. Idempotent.
+func set_overflow(left: bool, right: bool) -> void:
+	_overflow = Vector2i(1 if left else 0, 1 if right else 0)
+	_write_hints()
+
+func overflow() -> Vector2i:
+	return _overflow
+
+func _build_hints() -> void:
+	for hint in _hints:
+		if is_instance_valid(hint):
+			remove_child(hint)
+			hint.queue_free()
+	_hints.clear()
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = HINT_COLOR * HINT_ENERGY
+	for side in 2:
+		var bar := MeshInstance3D.new()
+		bar.name = "Glimmen%s" % ("Links" if side == 0 else "Rechts")
+		var box := BoxMesh.new()
+		box.size = Vector3(plate_span(), HINT_HEIGHT, HINT_WIDTH)
+		bar.mesh = box
+		bar.material_override = material
+		bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(bar)
+		_hints.append(bar)
+	_write_hints()
+
+## Die Balken sitzen an den Innenkanten der Grube, auf der Kartenhöhe der Wahl.
+func _write_hints() -> void:
+	for side in _hints.size():
+		var bar := _hints[side]
+		if not is_instance_valid(bar):
+			continue
+		var dir := -1.0 if side == 0 else 1.0
+		bar.position = Vector3(plate_center(),
+			-drop_of(_selected, _scale) + PROUD + HINT_HEIGHT * 0.5,
+			dir * (_span.y * 0.5 - HINT_WIDTH * 0.5))
+		bar.visible = (_overflow.x if side == 0 else _overflow.y) > 0
 
 ## Der EINE harte Schreiber: jedes Tablett auf seinem Sitz. Jeder Abbruch und jeder
 ## Laufwechsel geht hier durch.
@@ -423,6 +568,7 @@ func _write_hard() -> void:
 		_trays[tray].position = tray_pose(tray, _selected)
 		_bias_cards(tray)
 	_write_bands()
+	_write_hints()
 
 ## Nummer und Mulden nur auf dem GEWÄHLTEN Tablett: Alpha-Flächen stanzten sonst
 ## durch die Platte darüber, und verdeckt liest sie ohnehin keiner.
@@ -516,10 +662,10 @@ static func rehost(node: Node3D, host: Node) -> void:
 
 # --- Die FRONT-BLENDE ----------------------------------------------------------------
 
-## Die Aufschrift der vorderen Blende: die TABLETT-Nummer, dieselbe Zahl wie auf der
+## Die Aufschrift der vorderen Blende: das KÜRZEL der Sorte, dasselbe wie auf der
 ## Taste der Knopfleiste.
 func number_text(row: int) -> String:
-	return "%d" % (tray_of(row) + 1)
+	return Pack.shelf_short(String(Pack.SHELF_ORDER[tray_of(row)]))
 
 ## Je Platz ein TICK in der Sortenfarbe (leer = stumpf). Idempotent: dieselbe Liste
 ## schreibt nichts neu.

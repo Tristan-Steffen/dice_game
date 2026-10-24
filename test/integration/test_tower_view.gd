@@ -115,19 +115,49 @@ func test_the_bay_is_just_deep_enough_for_the_top_card() -> void:
 	assert_lt(tower.floor_point(5).y + TowerView.CARD_THICKNESS, 0.0,
 		"und die oberste Karte mit ihm")
 
-## Der ZUG einer Karte: unten am weitesten heraus, oben am wenigsten - und der
-## HOVER legt seinen vollen Weg obendrauf.
-func test_the_pull_peeks_the_lower_floors_furthest_out() -> void:
+## Die STUMMEL (Welle 29): unten ragt die Karte am weitesten aus der Tasche, oben am
+## wenigsten; eingerastet bleibt ein kürzerer stehen, und der HOVER zieht jede Etage
+## an DENSELBEN Platz ganz in die Auswurf-Bahn.
+func test_the_stubs_peek_the_lower_floors_furthest_out() -> void:
 	for i in range(1, 6):
 		assert_lt(TowerView.pull_share(i, 6), TowerView.pull_share(i - 1, 6),
-			"Etage %d steckt tiefer im Turm als die darunter" % i)
-	assert_almost_eq(TowerView.pull_share(5, 6), TowerView.UNLATCHED_PULL, 0.001,
-		"die oberste hat nur den Grundzug")
-	assert_almost_eq(TowerView.eject_share(6),
-		TowerView.pull_share(0, 6) + TowerView.HOVER_SLIDE, 0.001,
-		"die AUSWURF-BAHN mißt den vollen Zug der untersten")
-	assert_gte(TowerView.eject_share(6), 1.0,
-		"und der zieht die Karte ganz aus dem Turm")
+			"Etage %d steckt tiefer in der Tasche als die darunter" % i)
+	assert_almost_eq(TowerView.pull_share(5, 6) - TowerView.HOME_INSET,
+		TowerView.STUB_SHARE, 0.001, "die oberste zeigt genau ihren Stummel")
+	assert_lt(TowerView.latched_share(), TowerView.pull_share(5, 6),
+		"eingerastet steckt sie tiefer ...")
+	assert_gt(TowerView.latched_share(), TowerView.HOME_INSET,
+		"... aber nicht ganz - am Stummel sieht man das Licht")
+	for i in 6:
+		assert_almost_eq(TowerView.pull_share(i, 6) + TowerView.hover_slide_for(i, 6),
+			TowerView.HOME_INSET + TowerView.EJECT_PULL, 0.001,
+			"Etage %d landet am selben Platz in der Bahn" % i)
+	assert_almost_eq(TowerView.eject_share(6), TowerView.EJECT_PULL, 0.001)
+	assert_gte(TowerView.EJECT_PULL, 1.0, "der Hover zieht die Karte ganz heraus")
+
+## Mit gemeldeter Tischkante steht der Turm in seiner geschlossenen TASCHE: die Decke
+## unter dem Filz, offen nur zur Auswurf-Bahn (Bild-links).
+func test_the_pocket_closes_the_tower_under_the_felt() -> void:
+	tower.seat(SEAT, SPAN, 6, SEAT.y + 3.0, SPAN.x * 1.5)
+	var ceiling := tower.get_node_or_null("Tasche/Decke") as MeshInstance3D
+	assert_not_null(ceiling, "die Tasche hat eine Decke")
+	assert_almost_eq(ceiling.position.y + TowerView.POCKET_WALL * 0.5,
+		SEAT.y + 3.0 - PackPitView.WALL_SINK, 0.001, "knapp unter der Tischkante")
+	assert_not_null(tower.get_node_or_null("Tasche/Rueckwand"))
+	assert_null(tower.get_node_or_null("Tasche/Vorderwand"), "zur Bahn hin offen")
+	var back := tower.get_node("Tasche/Rueckwand") as MeshInstance3D
+	assert_gt(back.position.z, SEAT.z + SPAN.y * 0.5, "hinter der Kontaktleiste")
+	tower.seat(SEAT, SPAN, 6)
+	assert_null(tower.get_node_or_null("Tasche"), "ohne Tischkante keine Tasche")
+
+## Die LICHT-EBENE liegt nur über den Stummeln, links vor der offenen Turmkante.
+func test_the_light_plane_lies_over_the_stubs() -> void:
+	tower.seat(SEAT, SPAN, 6)
+	var plane := tower.get_node("Light/Plane") as MeshInstance3D
+	var reach := tower.card_length() * (TowerView.pull_share(0, 6) - TowerView.HOME_INSET)
+	assert_almost_eq(tower.light_plane_size().y, reach, 0.001, "so tief wie der längste Stummel")
+	assert_almost_eq(plane.position.z, -SPAN.y * 0.5 - reach * 0.5, 0.001,
+		"links vor der offenen Seite")
 
 ## seat() ist IDEMPOTENT: dieselbe Liste baut denselben Turm, kein zweiter Leib.
 func test_seat_is_idempotent() -> void:

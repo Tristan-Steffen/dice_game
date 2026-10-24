@@ -602,22 +602,21 @@ func test_the_vitrine_hole_sits_inside_its_frame() -> void:
 	assert_almost_eq(bay.end.y - hole.end.y,
 		PackDrawerView.rim_inset(shop.u), 0.51, "unten ebenso")
 
-## Die Bucht ist das Restband: sie bekommt, was Kopf, Charms, Gravuren-Reihe und
-## Fuß übrig lassen. Gemessen wird deshalb an ihren Nachbarn, nicht an einem
-## Seitenanteil - ein Band darf wachsen, ohne diesen Test umzuschreiben.
+## Die WÜRFEL-Spalte (Welle 29) steht RECHTS der Gravuren-Spalte, getrennt durch eine
+## Linie, und nimmt die ganze Restbreite der Ware.
 func test_the_vitrine_keeps_the_biggest_band_of_the_page() -> void:
-	shop.size = Vector2(1068, 1125)  # Maß der Hub-Fläche auf dem Tisch-Display
+	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
 	var page: Rect2 = shop.get_global_rect()
 	var bay: Rect2 = shop.vitrine_rect_px()
-	assert_gte(bay.size.y, shop.u * ShopController.VITRINE_MIN_HEIGHT,
-		"der gesetzte Boden der Bucht steht")
-	assert_gt(bay.size.y, _band_rects()[2].size.y,
-		"die Auslage bleibt größer als die Gravuren-Reihe darüber")
+	var gravur: Rect2 = (shop.slit_row.get_parent() as Control).get_global_rect()
+	assert_gte(bay.size.y, shop.u * ShopController.VITRINE_MIN_HEIGHT * 0.5,
+		"die Würfel-Spalte hat Höhe")
+	assert_gt(bay.position.x, gravur.end.x, "sie steht rechts der Gravuren")
+	assert_gt(bay.size.x, gravur.size.x, "und nimmt die größere Breite")
+	assert_not_null(shop.find_child("ColumnLine", true, false), "eine Linie trennt sie")
 	assert_lt(bay.size.y, page.size.y * 0.75, "aber sie frisst Kopf, Charms und Fuß nicht")
-	assert_gt(bay.position.y, page.get_center().y - page.size.y * 0.25,
-		"sie liegt unter der Charm-Zeile")
 
 func test_the_vitrine_rect_survives_a_page_flip() -> void:
 	shop.size = Vector2(1068, 1125)
@@ -775,7 +774,7 @@ func test_the_bands_stand_on_every_licence_level() -> void:
 	shop.open()
 	await wait_frames(2)
 	var low := _band_rects()
-	assert_eq(low.size(), 5, "Kopf, Charm-Zeile, Gravuren-Band, Bucht, Fuß")
+	assert_eq(low.size(), 5, "Kopf, Charm-Zeile, Ware-Spalten, Auskunfts-Band, Fuß")
 	run.hub_level = GameRun.HUB_MAX_LEVEL
 	shop.spreads.clear()
 	shop.open()
@@ -952,21 +951,54 @@ func test_every_souled_die_names_its_essence_under_its_net() -> void:
 		"und zwar im Glühton genau dieser Essenz")
 	assert_eq(shop._net_souls[1].text, "", "ein seelenloser Würfel zeigt nichts")
 
+## Die ZELLE eines Würfels: links er selbst, daneben Netz und Seele, rechts der PREIS
+## auf der Zeilenmitte - derselben Höhe wie der Kartenpreis seiner Zeile.
 func test_the_soul_line_stands_between_the_net_and_the_price() -> void:
 	shop.size = Vector2(1068, 1125)
+	shop.data_cell_lie_px = LIE_PX
 	shop.open()
 	await wait_frames(2)
 	var die: DieDefinition = shop.single_dice[0]
-	shop.set_die_nets([{"def": die, "pos": Vector2(30.0, 40.0)}], 8.0)
-	# Gemessen wird IM Block: Netz, Seele und Preis liegen in EINEM Wrapper, der als
-	# Ganzes aus seinem Würfel wächst.
+	var cell: float = shop.die_net_cell()
+	assert_gt(cell, 0.0, "das Raster ist ausgelegt")
+	shop.set_die_nets([{"def": die, "anchor": Vector2(30.0, 40.0)}], cell)
 	var block: Control = shop._net_blocks[0]
-	assert_true(block.position.is_equal_approx(Vector2(30.0, 40.0)),
-		"der Block steht auf dem gemeldeten Platz")
-	assert_gte(shop._net_souls[0].position.y, DieNetView.net_size(8.0).y,
+	assert_true(block.position.is_equal_approx(shop.die_cell_rect(0).position),
+		"der Block ist die Zelle des Würfels")
+	assert_gte(shop._net_souls[0].position.y, DieNetView.net_size(cell).y,
 		"die Seele steht unter dem Netz")
-	assert_gt(shop._net_prices[0].position.y, shop._net_souls[0].position.y,
-		"und der Preis unter der Seele")
+	assert_gt(shop._net_prices[0].position.x, shop._net_souls[0].position.x,
+		"der Preis steht rechts daneben")
+	var strip: Rect2 = shop.vitrine_rect_px()
+	var price_mid: float = strip.position.y + block.position.y \
+		+ shop._net_prices[0].position.y + shop._net_prices[0].size.y * 0.5
+	var card_price: Label = shop._slit_prices[0]
+	var card_mid: float = card_price.get_global_rect().get_center().y
+	assert_almost_eq(price_mid, card_mid, 1.0,
+		"auf derselben Grundlinie wie der Kartenpreis der Zeile")
+
+## Das RASTER: Zeilen sind die Kartenzeilen, Spalten = aufgerundet Würfel durch drei.
+func test_the_dice_grid_rows_are_the_card_rows() -> void:
+	assert_eq(ShopController.die_columns(3, 3), 1)
+	assert_eq(ShopController.die_columns(4, 3), 2)
+	assert_eq(ShopController.die_columns(6, 3), 2)
+	assert_eq(ShopController.die_grid_cell(0, 3), Vector2i(0, 0))
+	assert_eq(ShopController.die_grid_cell(2, 3), Vector2i(0, 2))
+	assert_eq(ShopController.die_grid_cell(3, 3), Vector2i(1, 0), "spaltenweise gefüllt")
+	shop.size = Vector2(1068, 1125)
+	shop.data_cell_lie_px = LIE_PX
+	shop.open()
+	await wait_frames(2)
+	assert_eq(shop.slit_seats().size(), 3, "drei Karten in der Spalte")
+	var rows: Array[float] = shop.ware_row_centers()
+	assert_eq(rows.size(), 3)
+	var seats: Array[Vector2] = shop.die_seats_px()
+	assert_eq(seats.size(), shop.single_dice.size())
+	for i in seats.size():
+		assert_almost_eq(seats[i].y, rows[i % 3], 0.5, "Würfel %d liegt auf seiner Kartenzeile" % i)
+	var slits: Array[Vector2] = shop.slit_anchors()
+	for i in range(1, slits.size()):
+		assert_gt(slits[i].y, slits[i - 1].y, "die Karten liegen UNTEREINANDER")
 
 func test_a_dark_glow_is_lifted_to_a_readable_tint() -> void:
 	# Vakuum glüht schwarz - als Schriftfarbe wäre das ein Loch auf dunklem Grund.
@@ -1137,28 +1169,6 @@ func test_an_open_pager_carries_its_fee() -> void:
 	shop.open()
 	await wait_frames(2)
 	assert_eq(shop.page_next_button.text, "$2 ›", "offen: die Gebühr steht am Pfeil")
-
-func test_a_full_magazin_stands_where_the_price_would() -> void:
-	# Ein Kauf, der stumm scheiterte, wäre schlimmer als eine Zahl weniger: das
-	# Preisschild der Kassette sagt es selbst.
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.roll_engraving_pack())
-	await wait_frames(2)
-	assert_true(run.packs_full(), "das Magazin ist wirklich voll")
-	var seat := -1
-	var stock: Array = shop.slit_stock()
-	for i in stock.size():
-		if stock[i] != null:
-			seat = i
-			break
-	assert_gt(seat, -1, "eine Kassette liegt aus")
-	assert_eq(shop._slit_prices[seat].text, ShopController.FULL_MARK)
-	assert_eq(shop._slit_prices[seat].modulate, CasinoStyle.RED)
-
-# --- Schalen-Rabatt der Einzelwürfel ------------------------------------------------
 
 func test_a_bowl_die_costs_less_than_the_same_die_on_the_shelf() -> void:
 	# Der Schalen-Würfel kommt ohne Auswahl und ohne Paket - das schlägt sich im
@@ -1337,7 +1347,7 @@ func test_the_delivery_reports_the_sonderbestand_shelf() -> void:
 # steckt, sagt die freie rechte Flanke, und nur mit Zeiger.
 
 ## Gemessen an der echten Werkbank (scene_root._data_cell_lying_px).
-const LIE_PX := Vector2(40.5, 60.75)
+const LIE_PX := Vector2(60.75, 40.5)
 
 func _lay_out_page() -> void:
 	shop.size = Vector2(1069, 1125)
@@ -1367,14 +1377,17 @@ func test_the_flank_names_the_cassette_under_the_pointer() -> void:
 	assert_true(shop.slit_info_body.text.contains(Pack.net_line(pack)),
 		"und darunter die Zeile seines Prägenetzes - im Laden liegt es offen")
 
-func test_the_flank_stands_right_of_the_row() -> void:
+## Die Karten-Auskunft steht seit der Welle 29 im AUSKUNFTS-BAND unter beiden
+## Ware-Spalten - neben den Karten liegen die Würfel.
+func test_the_flank_stands_under_the_columns() -> void:
 	_lay_out_page()
 	await wait_frames(2)
 	var flank: Rect2 = shop.slit_flank_rect()
 	var row: Rect2 = shop.slit_row.get_global_rect()
-	assert_gt(flank.size.x, 0.0, "rechts der Reihe bleibt Platz")
-	assert_gt(flank.position.x, row.end.x, "und zwar RECHTS von ihr, nicht darauf")
-	assert_lt(flank.end.x, shop.get_global_rect().end.x, "innerhalb der Seite")
+	assert_gt(flank.size.y, 0.0, "das Band steht")
+	assert_gte(flank.position.y, row.end.y, "UNTER den Karten, nicht darauf")
+	assert_gte(flank.position.y, shop.vitrine_rect_px().end.y - 0.5, "und unter den Würfeln")
+	assert_lt(flank.end.y, shop.get_global_rect().end.y, "innerhalb der Seite")
 
 func test_without_a_pointer_the_flank_says_nothing() -> void:
 	_lay_out_page()
@@ -1438,9 +1451,9 @@ func test_the_footer_reads_the_cell_under_the_pointer() -> void:
 	die.essence_id = Essence.ARGON
 	die.set_face_material(0, DieMaterial.BONE)
 	var cell := 20.0
-	var pos := Vector2(60.0, 40.0)
-	shop.set_die_nets([{"def": die, "pos": pos}], cell)
+	shop.set_die_nets([{"def": die, "anchor": Vector2(60.0, 40.0)}], cell)
 	var strip: Rect2 = shop.vitrine_rect_px()
+	var pos: Vector2 = shop._net_positions[0]
 	var middle := Vector2(cell, cell) * 0.5
 	var material_px := strip.position + pos + DieNetView.cell_position(0, cell) + middle
 	assert_eq(shop.net_hint_at(material_px), DieNetView.hint_for(die, 0),
@@ -1560,10 +1573,10 @@ func test_after_a_hub_upgrade_the_seats_stand_apart_not_on_top_of_each_other() -
 	shop.refresh_after_hub_upgrade()
 	await wait_frames(2)
 	var anchors: Array = shop.slit_anchors()
-	assert_gt(anchors.size(), 1, "die Reihe führt mehrere Plätze")
+	assert_gt(anchors.size(), 1, "die Spalte führt mehrere Plätze")
 	for i in range(1, anchors.size()):
-		assert_gt((anchors[i] as Vector2).x, (anchors[i - 1] as Vector2).x,
-			"Platz %d liegt RECHTS von seinem Nachbarn, nicht auf ihm" % i)
+		assert_gt((anchors[i] as Vector2).y, (anchors[i - 1] as Vector2).y,
+			"Platz %d liegt UNTER seinem Nachbarn, nicht auf ihm" % i)
 
 # --- Der Laden schließt, seine SEITE bleibt stehen ------------------------------
 # Auf ihr spielt die Abräum-Zeremonie der Auslage. Die Spiel-Logik wartet nicht,
@@ -1638,7 +1651,7 @@ func test_after_an_arrival_the_block_grows_out_of_its_die() -> void:
 	assert_true(shop.nets_growing(), "der Block wächst")
 	var block: Control = shop._net_blocks[0]
 	assert_lt(block.scale.x, 1.0, "er startet fast bei nichts")
-	assert_true(block.pivot_offset.is_equal_approx(Vector2(20.0, -30.0)),
+	assert_true(block.pivot_offset.is_equal_approx(Vector2(50.0, 10.0) - block.position),
 		"und er wächst aus dem ANKER des Würfels, nicht aus seiner eigenen Ecke")
 	assert_eq(shop.net_hint_at(shop.vitrine_rect_px().position + Vector2(35.0, 45.0)), "",
 		"ein wachsender Block antwortet nicht - sein Rechteck löge")

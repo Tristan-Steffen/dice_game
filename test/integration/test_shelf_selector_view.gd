@@ -38,12 +38,14 @@ func test_ein_fremdes_teil_gehoert_ihr_nicht() -> void:
 	assert_false(ShelfSelectorView.knows("key99"), "kein Tablett 100")
 	assert_false(ShelfSelectorView.knows(""))
 
-func test_die_aufschriften_nennen_pfeil_und_zahl() -> void:
+func test_die_aufschriften_nennen_pfeil_und_sorte() -> void:
 	assert_eq(bar.label_of(ShelfSelectorView.PART_UP), ShelfSelectorView.TEXT_UP)
 	assert_eq(bar.label_of(ShelfSelectorView.PART_DOWN), ShelfSelectorView.TEXT_DOWN)
+	assert_eq(TRAYS, 4, "vier Tasten, eine je Sorte")
 	for tray in TRAYS:
-		assert_eq(bar.label_of(ShelfSelectorView.part_key(tray)), "%d" % (tray + 1),
-			"Taste %d nennt ihre Tablett-Nummer" % (tray + 1))
+		assert_eq(bar.label_of(ShelfSelectorView.part_key(tray)),
+			Pack.shelf_short(String(Pack.SHELF_ORDER[tray])),
+			"Taste %d nennt ihre Sorte" % (tray + 1))
 
 # --- Der Platz ---------------------------------------------------------------------
 
@@ -115,17 +117,17 @@ func test_der_zeiger_antwortet_nur_auf_lebenden_teilen() -> void:
 	bar.set_live(false)
 	assert_eq(bar.hovered(), ShelfSelectorView.PART_NONE, "grau vergißt den Zeiger")
 
-## Die GEWÄHLTE Taste leuchtet Gold, die übrigen stehen dunkel.
-func test_die_gewaehlte_taste_leuchtet_gold() -> void:
+## Jede Taste trägt ihre SORTENFARBE; die gewählte leuchtet heller.
+func test_die_gewaehlte_taste_leuchtet_in_ihrer_sorte() -> void:
 	bar.set_selected(2)
 	var chosen := bar.get_node("Feld_%s/Taste" % ShelfSelectorView.part_key(2)) \
 		as MeshInstance3D
-	var other := bar.get_node("Feld_%s/Taste" % ShelfSelectorView.part_key(4)) \
+	var other := bar.get_node("Feld_%s/Taste" % ShelfSelectorView.part_key(3)) \
 		as MeshInstance3D
 	var gold := chosen.material_override as StandardMaterial3D
 	var rest := other.material_override as StandardMaterial3D
-	assert_eq(gold.emission, ShelfSelectorView.LIVE_TINT)
-	assert_eq(rest.emission, ShelfSelectorView.REST_TINT)
+	assert_eq(gold.emission, PackDrawerView.COLORS[Pack.SHELF_ORDER[2]])
+	assert_eq(rest.emission, PackDrawerView.COLORS[Pack.SHELF_ORDER[3]])
 	assert_gt(gold.emission_energy_multiplier, rest.emission_energy_multiplier)
 	bar.set_live(false)
 	assert_eq((chosen.material_override as StandardMaterial3D).emission,

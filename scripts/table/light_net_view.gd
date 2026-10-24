@@ -41,6 +41,7 @@ var _oven: SubViewport
 ## Die Glyphe des Operator-Schlags - erst beim ersten Schlag gebaut.
 var _glyph: MeshInstance3D
 var _glyph_material: StandardMaterial3D
+var _depth_tested := false
 var _glyph_oven: SubViewport
 var _glyph_label: Label
 
@@ -74,6 +75,14 @@ func setup(body_tint: Color, energy: float) -> void:
 	_goal = _zeros()
 	_apply_body()
 	_bake()
+
+## Steigt das Netz verdeckt (der Turm unter dem Ziel-Netz, Welle 29), liest es nur,
+## wo nichts davor liegt - sonst malte es sich über das Ziel-Netz der Anzeige.
+func set_depth_tested(on: bool) -> void:
+	_depth_tested = on
+	for material: StandardMaterial3D in [_net_material, _glyph_material]:
+		if material != null:
+			material.no_depth_test = not on
 
 ## Der aufgelaufene Stand, wie er auf ihm STEHT.
 func values() -> Array[int]:
@@ -211,7 +220,7 @@ func _build_net() -> void:
 	_net_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	# Es liest IMMER: die noch ungelesenen Karten liegen ÜBER der Licht-Ebene und
 	# verdeckten das Hologramm sonst von oben.
-	_net_material.no_depth_test = true
+	_net_material.no_depth_test = not _depth_tested
 	_net_material.render_priority = DataCellView.PRIORITY_NET
 	_net_material.albedo_color = Color(NET_ENERGY * accent_energy,
 		NET_ENERGY * accent_energy, NET_ENERGY * accent_energy, NET_ALPHA)
@@ -277,7 +286,7 @@ func _build_glyph() -> void:
 	_glyph_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_glyph_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_glyph_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_glyph_material.no_depth_test = true
+	_glyph_material.no_depth_test = not _depth_tested
 	_glyph_material.render_priority = DataCellView.PRIORITY_BADGE
 	_glyph_material.albedo_texture = _glyph_oven.get_texture()
 	_glyph = MeshInstance3D.new()

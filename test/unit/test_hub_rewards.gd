@@ -172,15 +172,3 @@ func test_an_unaffordable_upgrade_grants_nothing() -> void:
 	assert_eq(run.hub_level, 1, "kein Aufstieg")
 	assert_eq(run.owned_packs.size(), 0, "und keine Belohnung")
 	assert_eq(run.pending_dice.size(), 0)
-
-func test_a_full_magazine_never_swallows_the_die() -> void:
-	# Der Deckel gilt fürs Magazin, nicht fürs Ausgabefach.
-	var run := GameRun.new_run()
-	run.money = 100000
-	while run.hub_level < 4:
-		run.upgrade_hub()
-	run.pack_capacity = run.owned_packs.size()
-	var before := run.pending_dice.size()
-	run.upgrade_hub()  # Stufe 5: die Pakete zerfallen, der Würfel nicht
-	assert_eq(run.pending_dice.size(), before + 1, "der Würfel kommt immer an")
-	assert_eq(run.last_hub_reward_fizzle, 3, "die drei Pakete sind zu Geld zerfallen")

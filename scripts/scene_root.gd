@@ -207,8 +207,10 @@ const BENCH_CARRY_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und der
 ## Takt, in dem eine umsortierte Karte auf ihren neuen Platz gleitet.
-## Luftzuschlag auf die Grubentiefe über der höchsten angezeigten Kassette.
-const PACK_PIT_DEPTH_ROOM := 1.3
+## Die Tiefe der Magazin-Grube: das alte Maß (Standhöhe der Karte der Welle Q plus
+## Luft), tiefer nur, wenn der Regalstapel sie braucht (_pack_pit_depth).
+const PACK_PIT_DEPTH := 4.6
+const PACK_PIT_FLOOR_AIR := 0.3
 ## Luft zwischen der obersten Turm-Karte und dem Glas: die TURM-BUCHT ist genau so
 ## flach, dass sie noch darunter bleibt.
 const TOWER_PIT_HEADROOM := 0.06
@@ -238,11 +240,6 @@ const SPARK_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
 ## dichter darüber deckt er an der geneigten Station das Licht-Netz zu und die
 ## Funken hätten keinen sichtbaren Weg, höher läuft er aus dem Rahmen.
 const TOWER_DIE_CLEAR := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 4.0
-## Wieviel der Kopfraum-Projektion der Turm SEITLICH abgibt: er steht am rechten
-## Rand des Streifens, und ein hoher Körper wächst vom Bildmittelpunkt weg.
-## GEMESSEN an der Weitsicht: bei 0,55 deckte die oberste Karte den GRIFF-Knopf
-## noch halb zu, bei 1,0 steht er frei.
-const TOWER_LEAN_SHARE := 1.0
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation).
 const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
 const SCORE_ROW_SPACING := 2.9
@@ -584,13 +581,6 @@ var shelf_stack: ShelfStackView
 ## Und die KNOPFLEISTE auf dem Filz rechts neben der Grube, die wählt. Nur der
 ## SPIELER bewegt den Stapel - nichts fährt von selbst.
 var shelf_selector: ShelfSelectorView
-## Der an der Grube GEMESSENE Magazin-Deckel (0 = noch nicht gemessen). Er gehört
-## dem Tisch, nicht dem Lauf: _sync_pack_pit liest ihn ab, _connect_run schiebt
-## ihn jedem frischen Lauf herein (dasselbe Muster wie apron_bottom - core misst
-## keine Fenster).
-var _pack_capacity := 0
-## ... und die SPALTEN, aus denen er fällt: so viele Kassetten liegen in EINE Reihe.
-var _pack_columns := 0
 ## Der Filzboden rings um die Anzeige. Er muss dort ausblenden, wo die Grube steht,
 ## sonst blickt man durch das Loch auf Filz statt in die Vertiefung.
 var table_ground: TableGround
@@ -1358,7 +1348,6 @@ func _place_workshop_strip() -> Rect2:
 	# ziehen (siehe WorkshopView.unit).
 	if table_screen.workshop_window != null:
 		table_screen.workshop_window.unit_px = _workshop_unit()
-		table_screen.workshop_window.tower_lean = _tower_lean_px()
 		table_screen.workshop_window.die_lean = _hover_die_head_px()
 	var workshop_rect := _fit_workshop_rect(workshop_left, workshop_top, workshop_room)
 	table_screen.place_workshop_window(workshop_rect)
@@ -1372,7 +1361,7 @@ func _place_workshop_strip() -> Rect2:
 	# Datenzelle - sie muss sie also kennen, bevor sie auslegt (wie beim Wurf).
 	if table_screen.workshop_window != null:
 		table_screen.workshop_window.data_cell_px = _data_cell_apparent_px()
-		# Und die NETZ-ZELLE ist die FLÄCHE eines echten Würfels (WELLE S).
+		# Die Würfelfläche mißt die Podest-Bühne; die Netz-Zelle hängt an der Karte.
 		table_screen.workshop_window.die_face_px = _die_face_px()
 		# Die Hub->Magazin-Ader ist gefallen: Lieferungen fliegen als Meteor-Bogen.
 		# Die Grube steht ab jetzt: das Loch im Glas, der ausgeblendete Boden und
@@ -1497,6 +1486,50 @@ func _on_tray_requested(tray: int) -> void:
 		shelf_selector.set_selected(workshop.shelf_tray)
 	_settle_shelf_ride()
 
+## Ein ZUG rollt das gewählte Tablett: das Fach folgt dem Zeiger (Display-px in
+## Welt-Z, Bild-rechts = +Z); der Sitz-Schreiber hält derweil still.
+func _on_shelf_scrolling(tray: int, offset_px: float) -> void:
+	if shelf_stack == null or not is_instance_valid(shelf_stack):
+		return
+	shelf_stack.drag_scroll(tray, _display_dx_to_world(offset_px))
+
+## Losgelassen: der Roll-Stand ist gebucht, das Fach rastet ein - und danach gleicht
+## der Sitz-Schreiber EINMAL ab (die Karten stehen dann schon auf ihren Plätzen).
+func _on_shelf_scroll_snapped(tray: int, from_px: float, to_px: float) -> void:
+	if shelf_stack == null or not is_instance_valid(shelf_stack):
+		return
+	var launched := run
+	shelf_stack.snap_scroll(tray, _display_dx_to_world(from_px),
+		_display_dx_to_world(to_px), func() -> void:
+			if run == launched and table_screen != null:
+				_sync_data_cells())
+
+## Ein waagerechter Weg in Display-Pixeln als Welt-Z.
+func _display_dx_to_world(dx: float) -> float:
+	if table_screen == null:
+		return 0.0
+	return table_screen.pixel_to_world(Vector2(dx, 0.0)).z \
+		- table_screen.pixel_to_world(Vector2.ZERO).z
+
+## Solange ein Zug über das Magazin rollt, bekommt das Fenster JEDE Bewegung und
+## das Loslassen - auch jenseits seines Rechtecks, sonst bliebe der Zug hängen.
+func _forward_shelf_drag_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or not workshop.shelf_dragging():
+		return false
+	var at := pixel if pixel.x >= 0.0 else last_screen_pixel
+	if at.x < 0.0:
+		return false
+	var forwarded := event.duplicate() as InputEventMouse
+	forwarded.position = at
+	forwarded.global_position = at
+	if forwarded is InputEventMouseMotion:
+		forwarded.relative = (at - last_screen_pixel) if last_screen_pixel.x >= 0.0 \
+			else Vector2.ZERO
+	last_screen_pixel = at
+	table_screen.push_input(forwarded)
+	return true
+
 ## Nach der Fahrt gleicht der Sitz-Schreiber EINMAL ab: währenddessen hält er still
 ## (die Tabletts tragen ihre Karten), danach steht jede wieder auf ihrem Platz.
 func _settle_shelf_ride() -> void:
@@ -1582,12 +1615,6 @@ func _tower_head_px() -> float:
 		+ DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE - _tower_floor_drop()
 	return maxf(head, 0.0) * tilt
 
-## Wie weit der Würfel ÜBER dem Turm sich im Bild nach RECHTS über dessen Grundriß
-## hinauslehnt: die Kopfraum-Projektion. Seit der WELLE Z hält sie das ZIEL-NETZ auf
-## Abstand (davor den GRIFF-Knopf).
-func _tower_lean_px() -> float:
-	return _tower_head_px() * TOWER_LEAN_SHARE
-
 ## Wie weit der schwebende PODEST-Würfel über seinen Platz hinaus projiziert: sein
 ## Schwebe-Versatz plus die REICHWEITE des gekippten Würfels (`VitrineView.SILHOUETTE`,
 ## die eine Quelle dafür). Er steht seit der WELLE Z als vorletzte Spalte, also braucht
@@ -1636,9 +1663,10 @@ func _fit_workshop_rect(left: float, top: float, room_below: float) -> Rect2:
 	var u := _workshop_unit()
 	var height := WorkshopView.bench_height_for(u, _workshop_net_px().y,
 		_workshop_tower_px().y, _workshop_stage_px())
+	# Mindestens so breit, daß das Magazin seine Spalten zeigt (Welle 29).
 	var width := WorkshopView.bench_width_for(u, _workshop_net_px().x,
 		_workshop_tower_px().x, _workshop_stage_px(), _workshop_lane_px(),
-		_tower_lean_px(), _hover_die_head_px())
+		_hover_die_head_px(), WorkshopView.shelf_min_width(_data_cell_apparent_px(), u))
 	# Der Tisch ist endlich: passt die gelöste Breite nicht mehr auf die Anzeige,
 	# wird gekappt - die Karten stehen dann enger, sie schrumpfen aber nicht.
 	var room := float(TableScreen.RESOLUTION.x) - left - WORKSHOP_RIGHT_MARGIN
@@ -1667,7 +1695,7 @@ func _workshop_tower_px() -> Vector2:
 func _workshop_stage_px() -> float:
 	return _die_face_px() * WorkshopView.STAGE_FACES
 
-## Die AUSWURF-BAHN links des Turms - dieselbe Rechnung wie eject_lane_px.
+## Die AUSWURF-BAHN vor dem Turm - dieselbe Rechnung wie eject_lane_px.
 func _workshop_lane_px() -> float:
 	return _data_cell_lying_px().x * PackDrawerView.CASSETTE_SCALE \
 		* TowerView.eject_share(_wanted_strip_slots())
@@ -1681,10 +1709,10 @@ func _workshop_shelf_px(u: float) -> float:
 		+ PackDrawerView.LANE_GAP_PX * float(PackDrawerView.LANES + 1) \
 		+ PackDrawerView.rim_inset(u) * 2.0
 
-## Die Maße EINES Würfelnetzes in Display-Pixeln, in der Zelle der echten
-## Würfelfläche - Spaltenbreite und Bandhöhe des Streifens folgen ihnen.
+## Die Maße EINES Werkstatt-Netzes in Display-Pixeln, in der Zelle des PRÄGENETZES
+## auf der Karte (Welle 29) - Spaltenbreite und Bandhöhe folgen ihnen.
 func _workshop_net_px() -> Vector2:
-	return DieNetView.net_size(_die_face_px())
+	return DieNetView.net_size(WorkshopView.card_net_cell(_data_cell_apparent_px()))
 
 ## Die FLÄCHE eines Würfels in Display-Pixeln, im Spielmaß und in derselben
 ## Projektion wie die Kartenmaße: das Zellmaß der Werkstatt-Netze (WELLE S).
@@ -3134,7 +3162,7 @@ func _latch_cards(time: float, generation: int, launched: GameRun) -> void:
 		var cell := _socket_cell(i)
 		if cell != null:
 			cell.set_hovered(false)
-			cell.glide_to(_tower_seat(i), span)
+			cell.glide_to(_tower_latched(i), span)
 			_flash_latch(i, cell, span, generation, launched)  # nicht erwartet
 		if i < count - 1:
 			await get_tree().create_timer(WorkshopView.LATCH_STAGGER).timeout
@@ -3321,6 +3349,9 @@ func _spawn_light_net() -> void:
 	var net := LightNetView.new()
 	add_child(net)
 	net.setup(_series_tint(workshop), _series_energy(workshop))
+	# Der Turm liegt UNTER dem Ziel-Netz: das Netz steigt verdeckt mit, seine Funken
+	# brechen aus der Anzeige hervor.
+	net.set_depth_tested(true)
 	tower.attach_to_light(net)
 	net.position = Vector3.ZERO
 	_light_net = net
@@ -3923,8 +3954,13 @@ func _sync_tower(workshop: WorkshopView) -> void:
 		add_child(tower)
 	var origin := workshop.get_global_rect().position
 	var seat := _data_cell_seat(origin + rect.get_center())
+	var glass := seat.y
 	seat.y -= _tower_floor_drop()
-	tower.seat(seat, _world_span(rect.size), workshop.step_count())
+	# Seine TASCHE ist so breit wie das Loch daneben: durch dessen offene Seite sieht
+	# man hinein, und an einer schmaleren Tasche vorbei in den Raum.
+	var bay := workshop.tower_pit_rect()
+	var width := _pit_half(bay).x * 2.0 if bay.size.x > 0.0 else 0.0
+	tower.seat(seat, _world_span(rect.size), workshop.step_count(), glass, width)
 
 ## Ein Display-Rechteck in WELT-Spannen: x quer (Bild-hoch), y längs (Bild-breit).
 func _world_span(px: Vector2) -> Vector2:
@@ -3951,13 +3987,6 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	var rect := workshop.shelf_pit_rect()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	# Der DECKEL des Magazins wird an DIESER Grube gemessen: so viele Kassetten
-	# liegen darin in voller Größe. Er geht in den Lauf, weil dort Kauf und Prämie
-	# entschieden werden - core misst keine Fenster.
-	_pack_columns = PackDrawerView.columns_for(rect.size, workshop.shelf_cell_px(), 1)
-	_pack_capacity = _pack_columns * GameRun.PACK_ROWS
-	if run != null:
-		run.set_pack_grid(_pack_columns)
 	table_screen.set_apron_pit(rect, workshop.shelf_pit_radius())
 	var centre := table_screen.pixel_to_world(rect.get_center())
 	if pack_pit == null or not is_instance_valid(pack_pit):
@@ -3974,12 +4003,11 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 	# Die Bucht ist FLACHER: unter dem Durchbruch schließt eine Schwelle die Wand.
 	pack_pit.breach_floor = _tower_pit_depth()
 	# Die Bild-RECHTE Wand (Welt +Z) bekommt den SCHLITZ, durch den die Tabletts in
-	# die Wand fahren: von der OBERKANTE der obersten Karte bis unter die unterste
-	# Platte, mit derselben schmalen Luft an beiden Kanten. Über ihm bleibt ein
-	# Sturz - viel ist es nicht, denn die oberste Karte liegt dicht unter der Kante.
+	# die Wand fahren, die LINKE einen gleichen, durch den die Spalten hinausrollen:
+	# von der OBERKANTE der obersten Karte bis unter die unterste Platte.
 	var scale := workshop.shelf_cell_scale()
 	var air := ShelfStackView.RIM_CLEAR * 0.5
-	pack_pit.slot_wall = PackPitView.WALL_Z_PLUS
+	pack_pit.slot_walls = [PackPitView.WALL_Z_PLUS, PackPitView.WALL_Z_MINUS] as Array[int]
 	pack_pit.slot = Vector2(maxf(ShelfStackView.RIM_CLEAR - air, 0.0),
 		ShelfStackView.stack_depth(scale) + air)
 	pack_pit.setup(centre, _pit_half(rect), _pack_pit_depth(),
@@ -4004,6 +4032,10 @@ func _sync_tower_pit(workshop: WorkshopView) -> void:
 		tower_pit = PackPitView.new("TowerPit")
 		tower_pit.wall_skin = PIT_SKIN
 		add_child(tower_pit)
+	# Zur Ziel-Spalte hin (Bild-rechts) hat die Bucht keine Wand: dort schließt die
+	# Tasche des Turms an, deren Decke unter dem Filz die Kante deckt.
+	tower_pit.slot_walls = [PackPitView.WALL_Z_PLUS] as Array[int]
+	tower_pit.slot = Vector2(0.0, _tower_pit_depth())
 	tower_pit.setup(table_screen.pixel_to_world(rect.get_center()), _pit_half(rect),
 		_tower_pit_depth(), PackPitView.WALL_X_MINUS)
 
@@ -4027,6 +4059,8 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 		shelf_stack.set_selected(workshop.shelf_tray)
 	for line in PackDrawerView.ROWS:
 		shelf_stack.set_bay_tints(line, workshop.shelf_row_tints(line))
+	var spill := workshop.shelf_overflow(workshop.shelf_tray)
+	shelf_stack.set_overflow(spill.x > 0, spill.y > 0)
 
 ## Die LANE-Geometrie der Grube in WELT: je Lane ihre Mitte (Welt-X, relativ zur
 ## Grubenmitte) und ihre Tiefe. Das FENSTER meldet die Rechtecke in Display-Pixeln
@@ -4056,11 +4090,11 @@ func _pit_world_rect(rect: Rect2) -> Rect2:
 	var lo := Vector2(minf(a.x, b.x), minf(a.z, b.z))
 	return Rect2(lo, Vector2(maxf(a.x, b.x), maxf(a.z, b.z)) - lo)
 
-## Die Tiefe der GEMEINSAMEN Grube: die STANDHÖHE einer Kassette plus Luft - dort
-## steht sie bis zur Kopfkante im Loch. Sie ist zugleich die Strecke, die eine
-## ankommende Zelle steigt, und die Höhe, um die der Turm tiefer sitzt.
+## Die Tiefe der Magazin-Grube: das feste Maß, tiefer nur, wenn der Regalstapel
+## sonst nicht hineinpaßt.
 func _pack_pit_depth() -> float:
-	return DataCellView.STAND_HEIGHT * PackDrawerView.CASSETTE_SCALE * PACK_PIT_DEPTH_ROOM
+	return maxf(PACK_PIT_DEPTH,
+		ShelfStackView.stack_depth(PackDrawerView.CASSETTE_SCALE) + PACK_PIT_FLOOR_AIR)
 
 ## Die Tiefe der TURM-BUCHT: so FLACH, dass die oberste Karte gerade noch unter
 ## dem Glas liegt (Spieler-Entscheid 2026-09-11, "halb so tief wie das Magazin" -
@@ -4332,8 +4366,19 @@ func _sync_vitrine_stock(grade := ShopController.GRADE_STAND) -> void:
 	# Erst die Reserve, dann die Ware: die Auslage soll ihre Plätze gleich richtig
 	# rechnen, statt sie hinterher noch einmal zu verschieben.
 	shop_vitrine.label_reserve = _vitrine_label_reserve()
-	shop_vitrine.present_graded(charm_shop.vitrine_stock(), grade)
+	shop_vitrine.present_graded(_shop_vitrine_stock(), grade)
 	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
+
+## Der Bestand der Ladenbucht samt den Plätzen seines Würfel-RASTERS in Welt: der
+## Laden meldet sie in Display-Pixeln (Zeilen = Kartenzeilen), umgerechnet wird hier.
+func _shop_vitrine_stock() -> Dictionary:
+	var stock := charm_shop.vitrine_stock()
+	var spots: Array = []
+	for px in charm_shop.die_seats_px():
+		spots.append(table_screen.pixel_to_world(px))
+	if not spots.is_empty():
+		stock[VitrineView.STOCK_DIE_SPOTS] = spots
+	return stock
 
 ## Der Laden zeigt eine Seite. Bei ZUGEDECKTER Bucht wird lautlos umgebaut und der
 ## Grad fürs Aufdecken aufgehoben; bei offener ist das Blättern ein sichtbarer
@@ -4382,7 +4427,7 @@ func _swap_vitrine_stock(grade: String, lead := 0.0) -> void:
 		return
 	_vitrine_swap += 1
 	shop_vitrine.label_reserve = _vitrine_label_reserve()
-	shop_vitrine.swap_to(charm_shop.vitrine_stock(), lead)
+	shop_vitrine.swap_to(_shop_vitrine_stock(), lead)
 	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
 
 # --- Die Kassetten-Schlitze der Ladenseite -------------------------------------
@@ -7591,36 +7636,15 @@ func _sync_vitrine_nets(arrived := false) -> void:
 	if defs.is_empty():
 		_clear_vitrine_nets()
 		return
-	var unit := maxf(rect.size.x, 1.0) / 100.0
-	var gap := unit * VITRINE_NET_GAP
-	var margin := unit * VITRINE_NET_MARGIN
-	# Die Teilung ist GEMESSEN, nicht getippt: sie ist der Abstand, den die
-	# aufgereihten Würfel wirklich halten.
-	var pitch := rect.size.x
-	if anchors.size() >= 2:
-		pitch = absf(anchors[1].x - anchors[0].x)
-	# Und das Band davor ist, was zwischen dem tiefsten Würfel und der Buchtkante
-	# frei bleibt.
-	var deepest := 0.0
-	for anchor in anchors:
-		deepest = maxf(deepest, anchor.y)
-	# Seelen-Zeile, Preisschild und der Info-Fuß hängen unter dem Netz und zählen
-	# zum Band.
-	var band := rect.size.y - deepest - gap - margin - unit * _vitrine_label_units()
-	# Derselbe Deckel wie in der Reserve: sonst zeichnete die Seite ein anderes
-	# Netz, als die Auslage beim Stellen der Würfel eingeplant hat.
-	band = minf(band, rect.size.y * VITRINE_NET_BAND_SHARE)
-	var cell := _vitrine_net_cell(pitch, band)
-	var span := DieNetView.net_size(cell)
+	# Das Raster nennt der Laden selbst: Zeilen sind die Kartenzeilen, das Netz steht
+	# rechts neben seinem Würfel, der Preis auf der gemeinsamen Grundlinie.
+	var cell := charm_shop.die_net_cell()
+	if cell <= 0.0:
+		_clear_vitrine_nets()
+		return
 	var entries: Array = []
 	for i in defs.size():
-		var pos := Vector2(anchors[i].x - span.x * 0.5, anchors[i].y + gap)
-		pos.x = clampf(pos.x, margin, maxf(margin, rect.size.x - span.x - margin))
-		pos.y = clampf(pos.y, margin,
-			maxf(margin, rect.size.y - span.y - margin - unit * _vitrine_label_units()))
-		# Der ANKER reist mit: der Block wächst aus dem Würfel, nicht aus seinem
-		# eigenen Rechteck - und das steht nach dem Klemmen woanders.
-		entries.append({"def": defs[i], "pos": pos, "anchor": anchors[i]})
+		entries.append({"def": defs[i], "anchor": anchors[i]})
 	charm_shop.set_die_nets(entries, cell, arrived)
 
 ## Die Netze abräumen. Eine laufende ABSORPTION ist die Ausnahme: sie IST das
@@ -8559,6 +8583,11 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 			ShelfStackView.tray_of(line))
 		cell.hover_slide = 0.0  # der Turm-Kanal gilt nur in seiner Etage
 
+## Liegt die Kassette im FENSTER ihres Tabletts (nicht hinausgerollt)?
+func _shelf_in_window(uid: int) -> bool:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	return workshop != null and is_instance_valid(workshop) and workshop.shelf_in_window(uid)
+
 ## Die REIHE einer Kassette, gefragt beim Fenster (0 = die erste, wenn keines steht).
 func _shelf_row_of_uid(uid: int) -> int:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
@@ -8600,11 +8629,13 @@ func _show_shelf_cell(cell: DataCellView, uid: int, line: int, target: Vector3,
 	var delivered := _rising_packs.erase(uid)
 	var hidden := shelf_stack != null and is_instance_valid(shelf_stack) \
 		and not shelf_stack.shows(line)
+	# Hinausgerollt liegt sie unter dem Filz - auch dort steigt nichts.
+	var rolled_out := not hidden and not _shelf_in_window(uid)
 	if delivered:
 		_pending_cell_pops.erase(uid)  # das Steigen bringt seinen Ausbruch mit
-	if hidden or not delivered:
+	if hidden or rolled_out or not delivered:
 		_lay_shelf_hard(cell, line, target)
-		if delivered:
+		if delivered and hidden:
 			if shelf_selector != null and is_instance_valid(shelf_selector):
 				shelf_selector.flash_key(ShelfStackView.tray_of(line))
 		else:
@@ -8656,7 +8687,7 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			# sie liegen hell da, bis das Licht sie verbraucht.
 			cell.set_dimmed(workshop.editing_locked)
 			cell.set_body_scale(scale)
-			_arm_tower_hover(cell)
+			_arm_tower_hover(cell, i, anchors.size())
 			if cell.busy() or workshop.burning():
 				continue  # die Zeremonie fährt sie selbst - der Abgleich rührt sie nicht
 			if cell.glass_position().distance_to(target) > 0.01:
@@ -8679,16 +8710,16 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			cell.badge_on_face = true
 			cell.lie_on_glass(home)  # sie startet LIEGEND in der Grube, nicht auf dem Glas
 		cell.set_dimmed(workshop.shelf_locked())
-		_arm_tower_hover(cell)
+		_arm_tower_hover(cell, i, anchors.size())
 		socket_cells[i] = cell
 		socket_uids[i] = uid
 		_carry_data_cell(cell, target)  # nicht erwartet: der Körper folgt der Buchung
 
-## Im TURM wird nicht GEHOBEN, sondern HERAUSGEZOGEN: der zweite Hover-Kanal
-## verschiebt die Karte längs ihrer Achse nach Bild-links, damit ihr Netz frei liest.
-func _arm_tower_hover(cell: DataCellView) -> void:
+## Im TURM wird nicht GEHOBEN, sondern HERAUSGEZOGEN: der zweite Hover-Kanal zieht
+## die Karte vom Stummel ganz in die Auswurf-Bahn, damit ihr Netz frei liest.
+func _arm_tower_hover(cell: DataCellView, index: int, count: int) -> void:
 	cell.hover_lift = 0.0
-	cell.hover_slide = TowerView.HOVER_SLIDE
+	cell.hover_slide = TowerView.hover_slide_for(index, count)
 
 ## Ein Paket ist aus seinem Schlitz zurück ins Magazin gegangen: seine Zelle
 ## fliegt heim auf ihren Platz und WIRD dort wieder die Magazin-Kassette.
@@ -8739,15 +8770,21 @@ func _tower_seat(index: int) -> Vector3:
 		return Vector3.ZERO
 	return tower.floor_point(index)
 
-## Und ihr RUHEPLATZ: nicht eingerastet liegt sie um UNLATCHED_PULL nach Bild-links
-## herausgezogen, plus den BUCHRÜCKEN-Versatz ihrer Etage (unten am weitesten
-## heraus) - so schauen die unteren Sorten unter der obersten hervor.
+## Und ihr RUHEPLATZ: nicht eingerastet ragt sie als STUMMEL aus der Tasche in die
+## Auswurf-Bahn, gestaffelt je Etage (unten am weitesten heraus).
 func _tower_rest(index: int, count: int) -> Vector3:
+	return _tower_pulled(index, TowerView.pull_share(index, count))
+
+## Eingerastet bleibt ein kürzerer Stummel stehen - an ihm sieht man das Licht.
+func _tower_latched(index: int) -> Vector3:
+	return _tower_pulled(index, TowerView.latched_share())
+
+func _tower_pulled(index: int, share: float) -> Vector3:
 	var seat := _tower_seat(index)
 	if seat == Vector3.ZERO:
 		return seat
 	var length := DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE
-	return seat - Vector3(0.0, 0.0, length * TowerView.pull_share(index, count))
+	return seat - Vector3(0.0, 0.0, length * share)
 
 ## Der EINE harte Schreiber einer Karte in ihrem FACH: sie LIEGT dort auf der
 ## Trittfläche, die große Fläche mit dem Prägenetz nach oben.
@@ -8839,9 +8876,8 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 	var line := workshop.shelf_row_of(uid)
 	var target := _shelf_seat(workshop, uid, line)
 	var landed := run != null and run.pack_by_uid(uid) != null
-	if shelf_stack != null and is_instance_valid(shelf_stack) \
-			and not shelf_stack.shows(line):
-		_lay_shelf_hard(cell, line, target)  # ein verdecktes Tablett spielt nichts
+	if not workshop.shelf_in_window(uid):
+		_lay_shelf_hard(cell, line, target)  # verdeckt oder hinausgerollt spielt nichts
 		_finish_cell_return(cell, uid, landed)
 		return
 	_carrying[cell] = {"to": target, "seat": CARRY_SEAT_PIT, "uid": uid, "row": line}
@@ -8895,7 +8931,9 @@ func _drop_data_cells() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop != null and is_instance_valid(workshop):
 		workshop.shelf_tray = 0
+		workshop.reset_shelf_scroll()
 	if shelf_stack != null and is_instance_valid(shelf_stack):
+		shelf_stack.settle_scroll_hard()
 		shelf_stack.set_selected(0)
 	if shelf_selector != null and is_instance_valid(shelf_selector):
 		shelf_selector.set_selected(0)
@@ -9861,6 +9899,8 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	# umgerechnet, nicht die Anzeige darunter. Modal - unter ihr liegt keine Fläche.
 	if _deck_glass and pixel.x >= 0.0 and table_screen.push_deck_glass_input(event, pixel):
 		last_screen_pixel = Vector2(-1, -1)
+		return true
+	if _forward_shelf_drag_mouse(event, pixel):
 		return true
 	if pixel.x < 0.0 or not _screen_forwards_pixel(pixel, event is InputEventMouseButton):
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
@@ -13341,10 +13381,6 @@ func _reset_game() -> void:
 ## gereicht, seine Signale halten die Anzeigen aktuell. Der alte Run wird
 ## mitsamt Verbindungen freigegeben (RefCounted).
 func _connect_run() -> void:
-	# Der gemessene Magazin-Deckel gehört dem TISCH: ein frischer Lauf bekommt ihn
-	# sofort, bevor ein Fenster ihn abliest.
-	if run != null and _pack_columns > 0:
-		run.set_pack_grid(_pack_columns)
 	# Ein Laden, der noch abräumt, gibt seine Fläche JETZT ab - der run-Setter gleich
 	# darunter löscht seinen Abgangs-Zustand, danach weiß niemand mehr davon.
 	if charm_shop != null and is_instance_valid(charm_shop):
@@ -13389,6 +13425,10 @@ func _connect_run() -> void:
 			table_screen.workshop_window.light_passed.connect(_on_light_passed)
 			table_screen.workshop_window.light_struck.connect(_on_light_struck)
 			table_screen.workshop_window.die_returned.connect(_on_die_returned)
+		# Das ROLLEN des Magazins: das Fenster rechnet, scene_root fährt das Fach.
+		if not table_screen.workshop_window.shelf_scrolling.is_connected(_on_shelf_scrolling):
+			table_screen.workshop_window.shelf_scrolling.connect(_on_shelf_scrolling)
+			table_screen.workshop_window.shelf_scroll_snapped.connect(_on_shelf_scroll_snapped)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
 	# Die SICHERUNGS-FASSUNG liest denselben Lauf - sie bucht nichts, scene_root tut es.
@@ -14431,7 +14471,7 @@ func _fire_charm_pack(pack: Pack, from_px: Vector2, index := -1) -> float:
 	# Das Paket entsteht erst bei der Ankunft, hat also noch keine uid: gezielt wird
 	# auf den Platz, auf dem die NÄCHSTE Lieferung landet.
 	var travel := table_screen.pack_delivery_comet(from_px, tint,
-		workshop.arrival_anchor_px())
+		workshop.arrival_anchor_px(pack))
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if run != launched or phase != Phase.PAYOUT or table_screen == null:
 			return

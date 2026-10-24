@@ -2,23 +2,21 @@ class_name WorkshopView
 extends Panel
 ## Der STATIONS-STREIFEN UNTER dem Pool. Er hat KEINEN Schirm-Hintergrund - seine
 ## Teile liegen auf dem Filz - und ist seit der WELLE X (2026-09-05) EINE BREITE,
-## FLACHE ZEILE. Von links nach rechts:
-##   PODEST (der Zielwürfel) | ZIEL-NETZ | SUMMEN-NETZ |
-##   ETAGEN-LEISTE | TURM | GRIFF-Knopf,   darunter das MAGAZIN über die volle Breite.
-## Über ihm, in der Lücke zur Pool-Reihe, liegt der INFO-SCHIRM (WorkshopInfoView):
-## er trägt seit dem 2026-09-11 jede Auskunft der Station.
-##  - DER TURM ist ein Körper (TowerView): sechs ETAGEN übereinander, Etage 1 UNTEN.
+## FLACHE ZEILE. Von links nach rechts (Welle 29):
+##   SUMMEN-NETZ | ETAGEN-LEISTE | AUSWURF-BAHN | [Stummel] ZIEL-NETZ | PODEST | GRIFF,
+## darunter das MAGAZIN über die volle Breite. Über ihm, in der Lücke zur Pool-Reihe,
+## liegt der INFO-SCHIRM (WorkshopInfoView), der jede Auskunft der Station trägt.
+##  - DER TURM ist ein Körper (TowerView) in einer GESCHLOSSENEN Tasche UNTER dem
+##    Ziel-Netz; offen ist nur die Auswurf-Bahn, in die die Karten-STUMMEL ragen.
 ##    Das Fenster MALT ihn nicht - es meldet nur sein Rechteck und hält die
-##    ETAGEN-LEISTE, sechs Felder, die Klick, Zug und Zeiger tragen (der Turm selbst
-##    trägt keinen Klick). Die Körper gehören scene_root, das Podest ebenso.
+##    ETAGEN-LEISTE, die Klick, Zug und Zeiger trägt.
 ##  - Das EINE NETZ ist der PressNetView: ohne Serie zeigt er den Zielwürfel
 ##    schlicht, mit gesteckten Karten die Live-Vorschau und nach dem Griff das
-##    Ergebnis mit den grünen Deltas; ohne Ziel steht dort das leere Kreuz. Eine
-##    Netz-ZELLE ist so groß wie die FLÄCHE eines echten Würfels (scene_root meldet
-##    sie als die_face_px), und der Summen-Schirm teilt dieses Maß.
+##    Ergebnis mit den grünen Deltas; ohne Ziel steht dort das leere Kreuz. Alle Netze
+##    der Werkstatt teilen die Zelle des PRÄGENETZES auf der Karte (card_net_cell).
 ##
-## Unter der Fensterkante liegt die SCHÜRZE: eine Naht, dann das MAGAZIN. Seine
-## Tiefe ist EIN Rang der stehenden Kassette - ein Weltmaß.
+## Unter der Fensterkante liegt die SCHÜRZE: eine Naht, dann das MAGAZIN - je Sorte
+## ein Tablett, das ein Zug rollt (siehe PackDrawerView).
 ##
 ## Die ETAGEN-LEISTE IST die Rechnung: getippt geht eine Kassette auf die nächste
 ## freie Etage, gezogen sortiert sie um (Reihenfolge = Höhe: was höher liegt, wirkt
@@ -63,6 +61,12 @@ signal light_passed(index: int, faces: Array, values: Array, operator: String,
 signal light_struck(time: float)
 ## Und der Würfel fliegt denselben Bogen zurück aufs Podest.
 signal die_returned(time: float)
+## Ein ZUG rollt das gewählte Tablett: so weit (Display-px, schon in den Grenzen)
+## steht es gerade gegen seinen Roll-Stand versetzt.
+signal shelf_scrolling(tray: int, offset_px: float)
+## Losgelassen: der Roll-Stand ist schon gebucht, der Körper fährt von from_px auf
+## to_px (beides gegen den ALTEN Stand) und rastet dort ein.
+signal shelf_scroll_snapped(tray: int, from_px: float, to_px: float)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -91,8 +95,6 @@ const U_PER_FACE := 11.0
 const DIFF_WIDTH_UNITS := 18.0
 ## Die Fuge zwischen zwei Spalten.
 const STREET_GAP := 1.8
-## MINDEST-Höhe einer Netz-Spalte in u; die ECHTE Höhe ist das Netz plus Rändern.
-const DIFF_HEIGHT_UNITS := 24.0
 ## Der VERSATZ des Podest-Ankers gegen die Zeilenmitte, in DISPLAY-Pixeln: der
 ## Würfel schwebt CLAMP_HOVER über dem Glas und projiziert an der geneigten Station
 ## darum nach oben. Der Anker rückt um genau diesen Betrag tiefer, damit der Körper
@@ -108,9 +110,6 @@ const CONTENT_MARGIN_Y := 1.4
 ## Er trägt NUR sein Netz (der physische Würfel steht über ihm auf dem Podest), auf
 ## BLANKEM Filz - ohne eigenen Hintergrund und ohne Aufschlüsselungs-Zeilen.
 const DIFF_PAD := 0.9
-## Anteil des Schirms, den ein Netz höchstens nimmt - nur noch der kopflose
-## Rückfall, solange keine Würfelfläche gemeldet ist.
-const DIFF_NET_SHARE := 0.92
 
 ## --- DER TURM und die ETAGEN-LEISTE ----------------------------------------------
 ## Seitenverhältnis der KASSETTE selbst (Höhe / Breite, 2 : 3) - daraus folgt der
@@ -119,7 +118,7 @@ const DIFF_NET_SHARE := 0.92
 const CARD_ASPECT := PackDrawerView.CARD_ASPECT
 ## Luft um die liegende Karte im Turm - der Fußabdruck ist sie plus diesem Anteil,
 ## und darin steckt noch die KONTAKTLEISTE (TowerView.BAR_SHARE, EINE Quelle).
-const TOWER_ROOM := 1.10
+const TOWER_ROOM := TowerView.CARD_ROOM
 ## Die ETAGEN-LEISTE links neben dem Turm: Breite eines Feldes und die Fuge dazwischen.
 const STRIP_WIDTH := 11.0
 const STRIP_GAP := 0.5
@@ -129,8 +128,7 @@ const SOCKET_LIVE_RIM := Color("#8be9fdcc")
 ## Das leere Feld und der Grad seiner Nummer (Anteil der Feldhöhe).
 const FIELD_EMPTY := Color("#141227cc")
 const FIELD_NUMBER_SHARE := 0.52
-## Luft rings um die TURM-BUCHT (in u): das Loch deckt Turm UND Auswurf-Bahn, damit
-## keine Karte je über die Tischkante steigt.
+## Luft rings um die AUSWURF-BAHN (in u) - sie ist das einzige Loch des Turms.
 const PIT_ROOM := 2.0
 
 ## Die NAHT der Schürze: Fensterkante zu Magazin.
@@ -191,6 +189,7 @@ var run: GameRun:
 		_pending_arrivals.clear()  # Lieferungen des alten Laufs verfallen
 		_queued_pops.clear()
 		_drop_series()  # eine Serie des alten Laufs schuldet nichts mehr
+		_shelf_scroll.fill(0)  # ein neuer Lauf beginnt in der ersten Spalte
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
@@ -227,10 +226,9 @@ var apron_bottom := 0.0:
 			return
 		apron_bottom = value
 		refresh()
-## Das GEWÄHLTE TABLETT des Regalstapel-Magazins (0-basiert; es zeigt seine zwei
-## Reihen). Es ist ANZEIGE, kein Spielstand - darum wohnt es hier und nicht in
-## GameRun; gewählt wird NUR vom Spieler (an der Knopfleiste am Grubenrand), nie von
-## einer Runde und nie von einer Lieferung.
+## Das GEWÄHLTE TABLETT des Regalstapel-Magazins (0-basiert, eines je Sorte). Es ist
+## ANZEIGE, kein Spielstand - darum wohnt es hier und nicht in GameRun; gewählt wird
+## NUR vom Spieler (an der Knopfleiste am Grubenrand), nie von einer Lieferung.
 var shelf_tray := 0:
 	set(value):
 		var wanted := clampi(value, 0, PackDrawerView.TRAYS - 1)
@@ -238,6 +236,10 @@ var shelf_tray := 0:
 			return
 		shelf_tray = wanted
 		refresh()
+## Der ROLL-STAND je Tablett in ganzen Spalten - ebenfalls ANZEIGE.
+var _shelf_scroll: Array[int] = [0, 0, 0, 0]
+## Der letzte gemeldete Versatz des laufenden Zugs.
+var _last_drag_px := 0.0
 ## Die Anker der TASTEN in Display-Pixeln, je Tablett einer (leer = die Leiste steht
 ## nicht): dorthin fliegt eine Lieferung auf ein verdecktes Tablett. scene_root mißt
 ## sie am Körper und schiebt sie herein (das apron_bottom-Muster).
@@ -281,27 +283,16 @@ var unit_px := 0.0:
 			return
 		unit_px = value
 		refresh()
-## Die FLÄCHE eines echten Würfels in Display-Pixeln (0 = noch nicht gemeldet, dann
-## trägt der kopflose Fit). Sie IST das Zellmaß der Netze: eine Zelle zeigt eine
-## Würfelseite in ihrer wahren Größe. scene_root mißt sie an derselben Projektion
-## wie die Kartenmaße.
+## Die FLÄCHE eines echten Würfels in Display-Pixeln (0 = noch nicht gemeldet): an
+## ihr mißt die Podest-Bühne. Die Netz-Zelle hängt seit der Welle 29 an der KARTE.
 var die_face_px := 0.0:
 	set(value):
 		if is_equal_approx(die_face_px, value):
 			return
 		die_face_px = value
 		refresh()
-## Wie weit der Würfel ÜBER dem Turm sich im Bild nach RECHTS über den Turm-Grundriß
-## hinauslehnt: so viel Luft bleibt rechts von ihm frei, sonst deckte er das ZIEL-NETZ
-## zu. scene_root mißt es an der Projektion.
-var tower_lean := 0.0:
-	set(value):
-		if is_equal_approx(tower_lean, value):
-			return
-		tower_lean = value
-		refresh()
-## Dasselbe für den PODEST-Würfel: er steht am rechten Zeilenende und lehnt sich
-## darum am weitesten hinaus - ohne diese Luft deckte er den GRIFF-Knopf zu.
+## Wie weit der PODEST-Würfel sich im Bild nach rechts hinauslehnt - ohne diese Luft
+## deckte er den GRIFF-Knopf zu.
 var die_lean := 0.0:
 	set(value):
 		if is_equal_approx(die_lean, value):
@@ -409,6 +400,9 @@ func _refresh_content() -> void:
 	_ist_screen = null
 	_net_host = null
 	_empty_net = null
+	# Ein Neuaufbau mitten im Zug läßt ihn einrasten, statt ihn hängen zu lassen.
+	if shelf_dragging():
+		_on_scroll_released.call_deferred(_last_drag_px)
 	_free_own(_drawer)  # das Magazin hängt am Panel, nicht am Inhalt
 	_drawer = null
 	_sum_host = null  # der Summen-Schirm hing am Inhalt
@@ -508,33 +502,42 @@ func net_column_width(u: float) -> float:
 	return maxf(net_span(u).x + u * maxf(DIFF_PAD, INFO_MARGIN) * 2.0,
 		u * DIFF_WIDTH_UNITS)
 
-## Der NETZ-SCHIRM des Ziels: rechts des TURMS - hinter der Luft, die die LEHNE des
-## Würfels über ihm braucht -, mittig in der Zeile.
+## Die ZIEL-SPALTE: direkt hinter der AUSWURF-BAHN - ihre linke Kante IST die Kante
+## des Lochs, unter ihr steht der Turm. Sie ist so breit wie das Netz samt Rändern,
+## mindestens aber wie der Turm, der unter ihr liegt.
+func target_column_width(u: float) -> float:
+	return maxf(net_column_width(u), tower_span_px().x)
+
+## Der NETZ-SCHIRM des Ziels: die Ziel-Spalte, mittig in der Zeile.
 func ist_screen_rect() -> Rect2:
 	var u := unit()
 	var row := row_rect()
 	var height := net_span(u).y + u * band_units()
-	return Rect2(Vector2(tower_rect().end.x + u * STREET_GAP + tower_lean,
-		row.get_center().y - height * 0.5), Vector2(net_column_width(u), height))
+	return Rect2(Vector2(eject_lane_rect().end.x, row.get_center().y - height * 0.5),
+		Vector2(target_column_width(u), height))
 
-## Der TURM: rechts der ETAGEN-LEISTE, mittig in der Zeile. Sein Fußabdruck ist die
-## liegende Karte plus Luft, und darin steckt die KONTAKTLEISTE (TowerView.BAR_SHARE).
+## Der TURM liegt UNTER dem Ziel-Netz, in einer geschlossenen Tasche: seine offene
+## Seite steht bündig an der Lochkante. Sein Fußabdruck ist die liegende Karte plus
+## Luft, und darin steckt die KONTAKTLEISTE (TowerView.BAR_SHARE).
 func tower_span_px() -> Vector2:
 	var lie := lie_span_px() * TOWER_ROOM
 	return Vector2(lie.x / maxf(1.0 - TowerView.BAR_SHARE, 0.1), lie.y)
 
 func tower_rect() -> Rect2:
-	var u := unit()
 	var row := row_rect()
 	var span := tower_span_px()
-	var left := strip_rect().end.x + u * STREET_GAP + eject_lane_px()
-	return Rect2(Vector2(left, row.get_center().y - span.y * 0.5), span)
+	return Rect2(Vector2(eject_lane_rect().end.x, row.get_center().y - span.y * 0.5), span)
 
-## Die AUSWURF-BAHN links des Turms: blanker Filz, in den die überfahrene Karte
-## herausfährt - so liest ihr Netz frei, ohne Leiste oder Netz zu verdecken. Ihr
-## Maß ist der volle Zug der untersten Karte (TowerView, die EINE Quelle).
+## Die AUSWURF-BAHN: das einzige Loch des Turms. Aus ihm ragen die STUMMEL, und der
+## Hover zieht die Karte ganz hinein - ihr Maß ist dieser volle Zug (TowerView).
 func eject_lane_px() -> float:
 	return lie_span_px().x * TowerView.eject_share(step_count())
+
+func eject_lane_rect() -> Rect2:
+	var u := unit()
+	var row := row_rect()
+	return Rect2(Vector2(strip_rect().end.x + u * STREET_GAP, row.position.y),
+		Vector2(eject_lane_px(), row.size.y))
 
 ## Die ETAGEN-LEISTE: die Klick-Spalte des Turms. Sie nimmt die GANZE Zeilenhöhe -
 ## sechs Felder auf dem Turm-Fußabdruck lesen als Splitter.
@@ -641,17 +644,18 @@ func _sync_empty_net() -> void:
 		return
 	_empty_net.visible = preview_target() == null
 
-## Das EINE Zellmaß der Netze: die FLÄCHE eines echten Würfels, sobald scene_root
-## sie gemeldet hat - eine Netz-Zelle zeigt eine Würfelseite in ihrer wahren Größe
-## (WELLE S). Ohne Meldung (kopfloser Aufbau, Tests) bleibt der alte Fit, und der
-## mißt an den KONSTANTEN der Spalte, nicht an ihrem Rechteck: sonst hinge die
-## Zelle an einer Höhe, die selbst aus ihr folgt.
-func net_cell(u: float) -> float:
-	if die_face_px > 0.0:
-		return die_face_px
-	return DieNetView.cell_for(Vector2(
-		maxf(u * (DIFF_WIDTH_UNITS - DIFF_PAD * 2.0), 1.0),
-		maxf(u * DIFF_HEIGHT_UNITS * DIFF_NET_SHARE, 1.0)))
+## Das EINE Zellmaß der Netze (Welle 29): die Zelle des PRÄGENETZES auf der Karte -
+## Summen-, Ziel- und Licht-Netz lesen damit wie die Karte selbst.
+func net_cell(_u: float) -> float:
+	return card_net_cell(shelf_cell_px())
+
+## Die Netz-Zelle einer Karte in Display-Pixeln, aus der gemeldeten STEHENDEN Zelle:
+## das Netz füllt die Öffnung quer, und quer liegen drei Zellen samt zwei Fugen.
+static func card_net_cell(cell: Vector2) -> float:
+	var width := cell.y * PackDrawerView.CASSETTE_SCALE
+	var share := DataCellView.opening_size().x * DataCellView.NET_WIDTH_SHARE \
+		/ DataCellView.WIDTH
+	return maxf(width * share / DieNetView.net_size(1.0).y, 1.0)
 
 ## Die Maße des Netzes in dieser Zelle - Spaltenbreite und Bandhöhe folgen ihm.
 func net_span(u: float) -> Vector2:
@@ -875,17 +879,24 @@ func floor_field_rects() -> Array[Rect2]:
 		rects.append(floor_field_rect(i))
 	return rects
 
-## Wie BREIT das Fenster sein muß: Ränder, zwei Netz-Spalten, die Leiste, die
-## Auswurf-Bahn, der Turm samt LEHNE, die Bühne samt IHRER Lehne, die Griff-Spalte
-## und die fünf Fugen.
+## Wie BREIT das Fenster sein muß: Ränder, die Summen-Spalte, die Leiste, die
+## Auswurf-Bahn, die Ziel-Spalte (mindestens so breit wie der Turm darunter), die
+## Bühne samt ihrer Lehne, die Griff-Spalte und die vier Fugen - und mindestens so
+## breit, daß das Magazin seine COLUMNS Karten trägt (shelf_px).
 static func bench_width_for(u: float, net_px: float, tower_px: float,
-		stage_px_now: float, lane_px: float = 0.0, lean_px: float = 0.0,
-		die_lean_px: float = 0.0) -> float:
+		stage_px_now: float, lane_px: float = 0.0, die_lean_px: float = 0.0,
+		shelf_px: float = 0.0) -> float:
 	var column := maxf(net_px + u * maxf(DIFF_PAD, INFO_MARGIN) * 2.0,
 		u * DIFF_WIDTH_UNITS)
-	return u * (CONTENT_MARGIN_X * 2.0 + STRIP_WIDTH + STREET_GAP * 5.0
-		+ ACTION_WIDTH) + column * 2.0 + lane_px + tower_px + lean_px + stage_px_now \
+	var row := u * (CONTENT_MARGIN_X * 2.0 + STRIP_WIDTH + STREET_GAP * 4.0
+		+ ACTION_WIDTH) + column + maxf(column, tower_px) + lane_px + stage_px_now \
 		+ die_lean_px
+	return maxf(row, shelf_px)
+
+## Die MINDESTBREITE des Streifens, damit das Magazin genau COLUMNS Karten zeigt:
+## die Grube plus ihrer gemalten Fassung.
+static func shelf_min_width(cell: Vector2, u: float) -> float:
+	return PackDrawerView.min_field_width(cell) + PackDrawerView.rim_inset(u) * 2.0
 
 ## DIE ETAGEN-LEISTE BAUEN: sechs Felder, unten "1". Sie SIND die Klick-, Zug- und
 ## Zeiger-Ziele des Turms - er selbst ist ein Körper und trägt keinen Klick.
@@ -951,8 +962,7 @@ func _arm_slot(slot: Button, index: int, card: Dictionary) -> void:
 	if card.is_empty() or burning():
 		return
 	slot.disabled = editing_locked
-	slot.tooltip_text = "%s
-%s" % [String(card.get("name", "")), String(card.get("body", ""))]
+	slot.tooltip_text = "%s\n%s" % [String(card.get("name", "")), String(card.get("body", ""))]
 	slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	slot.pressed.connect(clear_press_slot.bind(index))
 	slot.gui_input.connect(_on_slot_input.bind(index))
@@ -1618,8 +1628,7 @@ func _refresh_preview_net(tick: float = 0.0) -> void:
 	_net.build()
 	_sync_empty_net()
 
-## Display-Pixel des TURMS - dort liegt die Serie, und von dort geht das Licht
-## des Griffs aus.
+## Display-Pixel des TURMS (unter dem Ziel-Netz) - von dort geht das Licht aus.
 func hand_anchor_px() -> Vector2:
 	var tower := tower_rect()
 	if tower.size.x > 0.0:
@@ -1633,15 +1642,15 @@ func hand_anchor_px() -> Vector2:
 func _build_drawer(u: float) -> void:
 	_drawer = PackDrawerView.new()
 	_drawer.pack_pressed.connect(_on_pack_pressed)
-	_drawer.packs_reordered.connect(_on_packs_reordered)
 	_drawer.tidy_requested.connect(_on_tidy_requested)
-	_drawer.pack_placed.connect(_on_pack_placed)
+	_drawer.scroll_dragged.connect(_on_scroll_dragged)
+	_drawer.scroll_released.connect(_on_scroll_released)
 	add_child(_drawer)  # direktes Kind: das Fach liegt AUSSERHALB des Fensters
 	var rect := shelf_rect()
 	_drawer.position = rect.position
 	_drawer.size = rect.size
 	_drawer.build(drawer_entries(), u, shelf_locked(), data_cell_px, rect.size,
-		shelf_tray, shelf_key_px)
+		shelf_tray, shelf_key_px, _shelf_scroll)
 	if not _queued_pops.is_empty():
 		_flush_queued_pops.call_deferred()  # der Pluster braucht das fertige Layout
 
@@ -1684,19 +1693,17 @@ func shelf_rect_global() -> Rect2:
 func shelf_pit_rect() -> Rect2:
 	return PackDrawerView.pit_rect_in(shelf_rect_global(), shelf_unit())
 
-## Die TURM-BUCHT in Display-Pixeln: das zweite Loch der GEMEINSAMEN Grube. Es deckt
-## den Turm samt seiner AUSWURF-BAHN und reicht nach unten BÜNDIG an die Magazin-
-## Grube - beide berühren sich, in der Welt ist es EIN Raum. Die ETAGEN-LEISTE bleibt
-## links davon auf dem Glas: im Loch wird kein Display gezeichnet.
+## Die TURM-BUCHT in Display-Pixeln: das zweite Loch der GEMEINSAMEN Grube - seit der
+## Welle 29 NUR die AUSWURF-BAHN samt den Stummeln. Rechts endet sie an der Ziel-
+## Spalte (darunter die geschlossene Tasche des Turms), nach unten reicht sie BÜNDIG
+## an die Magazin-Grube. Die ETAGEN-LEISTE bleibt links davon auf dem Glas.
 func tower_pit_rect() -> Rect2:
 	var room := unit() * PIT_ROOM
-	var tower := tower_rect()
-	# Links endet sie an der ETAGEN-LEISTE: die bleibt auf dem Glas, im Loch wird
-	# kein Display gezeichnet.
-	var left := maxf(tower.position.x - eject_lane_px() - room, strip_rect().end.x)
+	var lane := eject_lane_rect()
+	var left := maxf(lane.position.x - room, strip_rect().end.x)
 	# Oben endet sie an der Fensterkante - über ihr liegt die Naht zur Pool-Reihe.
 	var top := maxf(row_rect().position.y - room, 0.0)
-	var rect := Rect2(Vector2(left, top), Vector2(tower.end.x + room - left, 1.0))
+	var rect := Rect2(Vector2(left, top), Vector2(lane.end.x - left, 1.0))
 	rect.position += get_global_rect().position
 	rect.size.y = maxf(shelf_pit_rect().position.y - rect.position.y, 1.0)
 	return rect
@@ -1742,12 +1749,10 @@ func _flush_queued_pops() -> void:
 		pack_landed.emit(uid)
 	_queued_pops.clear()
 
-## Je Paket {uid, pack, withheld} in Magazin-Ordnung (= run.owned_packs). Was in
-## einem Serien-Schacht steckt, fehlt ganz; was noch als Licht fliegt, hält seinen
-## Platz und bleibt bis zur Landung verdeckt.
-## REIHE und PLATZ kommen aus dem Lauf: die Reihe ist Spielstand, der Platz ist der
-## Rang in ihr. Was in einer Turm-Etage steckt, zählt nicht mit - seine Reihe schließt
-## sich derweil.
+## Je Paket {uid, pack, withheld, tray, cell} in Magazin-Ordnung (= run.owned_packs).
+## Was in einer Turm-Etage steckt, fehlt ganz - sein Tablett schließt sich derweil;
+## was noch als Licht fliegt, hält seinen Platz und bleibt bis zur Landung verdeckt.
+## Das TABLETT ist die Sorte, der PLATZ der Rang darin (das SORTEN-MODELL des Laufs).
 func drawer_entries() -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	if run == null:
@@ -1756,12 +1761,12 @@ func drawer_entries() -> Array[Dictionary]:
 	for pack in run.owned_packs:
 		if _series.has(pack.pack_uid):
 			continue
-		var line := run.pack_row_of(pack.pack_uid)
-		var cell_index := int(fill.get(line, 0))
-		fill[line] = cell_index + 1
+		var tray := Pack.shelf_rank(pack)
+		var cell_index := int(fill.get(tray, 0))
+		fill[tray] = cell_index + 1
 		entries.append({"uid": pack.pack_uid, "pack": pack,
 			"withheld": _pending_arrivals.has(pack.pack_uid),
-			"row": line, "cell": cell_index})
+			"tray": tray, "cell": cell_index})
 	return entries
 
 ## Ein Paket ist unterwegs: sein Platz steht, sein Chip erscheint erst mit der
@@ -1783,28 +1788,40 @@ func deliver_pack(uid: int) -> bool:
 	_queued_pops.append(uid)  # das Fach steht gerade nicht - er wartet auf es
 	return true
 
-## Der PLATZ einer Kassette (Display-Pixel) - dort liegt ihr Körper auf dem Tablett
-## ihrer Reihe, in der LANE, die diese Reihe gerade belegt. Steht das Fach nicht,
-## wird der Platz GERECHNET (dieselbe Formel, damit nichts springt).
+## Der PLATZ einer Kassette (Display-Pixel) - auch hinausgerollt, dann eben unter
+## dem Filz. Steht das Fach nicht, wird er GERECHNET (dieselbe Formel).
 func pack_seat_px(uid: int) -> Vector2:
 	if _drawer != null and is_instance_valid(_drawer):
 		var seat := _drawer.pack_seat_px(uid)
 		if seat.x >= 0.0:
 			return seat
-	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), shelf_cell_of(uid),
+	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), shelf_window_column_of(uid),
 		shelf_cell_px(), shelf_lane_of(uid))
 	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
 
-## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn ihr TABLETT
-## liegt - sonst an dessen TASTE, die kurz aufblitzt.
+## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn er im Fenster
+## liegt - sonst an den Grubenrand seiner Seite bzw. an die TASTE ihres Tabletts.
 func pack_anchor_px(uid: int) -> Vector2:
 	if _drawer != null and is_instance_valid(_drawer):
 		var anchor := _drawer.pack_anchor_px(uid)
 		if anchor.x >= 0.0:
 			return anchor
-	if not shelf_shows(uid):
-		return shelf_key_point(PackDrawerView.tray_of(shelf_row_of(uid)))
-	return pack_seat_px(uid)
+	return _anchor_for(shelf_row_of(uid) / PackDrawerView.LANES,
+		shelf_window_column_of(uid), shelf_lane_of(uid))
+
+## Der Anker einer Spalte (im Fenster gezählt) eines Tabletts - die EINE Regel für
+## gelandete wie für noch nicht eingelagerte Karten.
+func _anchor_for(tray: int, column: int, lane: int) -> Vector2:
+	if tray != shelf_tray:
+		return shelf_key_point(tray)
+	var pit := shelf_pit_rect()
+	var at := PackDrawerView.anchor_in(pit, clampi(column, 0, shelf_columns() - 1),
+		shelf_cell_px(), lane)
+	if column < 0:
+		return Vector2(pit.position.x, at.y)
+	if column >= shelf_columns():
+		return Vector2(pit.end.x, at.y)
+	return at
 
 ## Der gemeldete Weltpunkt-Pixel einer TASTE (ohne Leiste: die Fach-Mitte).
 func shelf_key_point(tray: int) -> Vector2:
@@ -1827,51 +1844,117 @@ func pack_index_of(uid: int) -> int:
 		index += 1
 	return -1
 
-## Die REIHE des Stapels, in der diese Kassette liegt (0 = die erste). Sie kommt
-## aus dem Lauf - die Reihe ist Spielstand, nicht Anzeige.
+## Der Eintrag einer Kassette im Fach ({} = keiner).
+func _entry_of(uid: int) -> Dictionary:
+	for entry in drawer_entries():
+		if int(entry.get("uid", 0)) == uid:
+			return entry
+	return {}
+
+## Die REIHE des Stapels (Tablett mal Lane), in der diese Kassette liegt.
 func shelf_row_of(uid: int) -> int:
 	if _drawer != null and is_instance_valid(_drawer):
 		var line := _drawer.row_of_pack(uid)
 		if line >= 0:
 			return line
-	if run != null:
-		var line := run.pack_row_of(uid)
-		if line >= 0:
-			return line
-	return 0
+	var entry := _entry_of(uid)
+	if entry.is_empty():
+		var pack := run.pack_by_uid(uid) if run != null else null
+		return PackDrawerView.row_for(Pack.shelf_rank(pack), 0) if pack != null else 0
+	return PackDrawerView.row_for(int(entry["tray"]),
+		PackDrawerView.lane_of_cell(int(entry["cell"])))
 
-## Und ihr PLATZ in dieser Reihe (Rang unter den Karten derselben Reihe im Fach).
+## Ihr PLATZ im Tablett (Rang unter den Karten derselben Sorte im Fach).
 func shelf_cell_of(uid: int) -> int:
-	for entry in drawer_entries():
-		if int(entry.get("uid", 0)) == uid:
-			return int(entry.get("cell", 0))
-	return 0
+	return int(_entry_of(uid).get("cell", 0))
+
+## Ihre SPALTE im Fenster - der Roll-Stand ihres Tabletts ist schon abgezogen.
+func shelf_window_column_of(uid: int) -> int:
+	if _drawer != null and is_instance_valid(_drawer) and _drawer.row_of_pack(uid) >= 0:
+		return _drawer.column_of_pack(uid)
+	var tray := shelf_row_of(uid) / PackDrawerView.LANES
+	return PackDrawerView.column_of_cell(shelf_cell_of(uid)) - shelf_scroll_of(tray)
 
 ## Liegt ihr TABLETT gerade in der Fläche?
 func shelf_shows(uid: int) -> bool:
 	return PackDrawerView.shows_row(shelf_row_of(uid), shelf_tray)
 
+## ... und liegt sie im FENSTER (nicht hinausgerollt)?
+func shelf_in_window(uid: int) -> bool:
+	if not shelf_shows(uid):
+		return false
+	var column := shelf_window_column_of(uid)
+	return column >= 0 and column < shelf_columns()
+
 ## ... und in welcher LANE ihres Tabletts sie liegt.
 func shelf_lane_of(uid: int) -> int:
 	return PackDrawerView.lane_of(shelf_row_of(uid))
 
-## Wie viele Kassetten in EINE Reihe liegen - die Reihen sind Abschnitte dieser Länge.
+## Wie viele Spalten das Fenster des Magazins zeigt.
 func shelf_columns() -> int:
 	return PackDrawerView.columns_for(shelf_pit_rect().size, shelf_cell_px(), 1)
 
-## Die Sortenfarben der Reihe, ein Eintrag je PLATZ (leere Plätze stumpf) - die
-## SORTEN-TICKS auf der Front-Blende des Tabletts lesen sie.
+## Die Breite EINER Spalte in Display-Pixeln - der Schritt, um den ein Tablett rollt.
+func shelf_slot_px() -> float:
+	return PackDrawerView.slot_size(shelf_pit_rect().size, shelf_cell_px()).x
+
+## Wie viele Karten im Fach eines Tabletts liegen (ohne die gesteckten).
+func shelf_tray_count(tray: int) -> int:
+	var count := 0
+	for entry in drawer_entries():
+		if int(entry.get("tray", -1)) == tray:
+			count += 1
+	return count
+
+## Der ROLL-STAND eines Tabletts in Spalten.
+func shelf_scroll_of(tray: int) -> int:
+	if tray < 0 or tray >= _shelf_scroll.size():
+		return 0
+	return _shelf_scroll[tray]
+
+## Setzt den Roll-Stand, in den Grenzen 0 .. max(0, Spalten - Fenster).
+func set_shelf_scroll(tray: int, columns: int) -> void:
+	if tray < 0 or tray >= _shelf_scroll.size():
+		return
+	var wanted := PackDrawerView.clamp_scroll(columns, shelf_tray_count(tray),
+		shelf_columns())
+	if _shelf_scroll[tray] == wanted:
+		return
+	_shelf_scroll[tray] = wanted
+	refresh()
+
+## Der Laufwechsel: jedes Tablett steht wieder auf seiner ersten Spalte.
+func reset_shelf_scroll() -> void:
+	for tray in _shelf_scroll.size():
+		_shelf_scroll[tray] = 0
+	refresh()
+
+## Gibt es links bzw. rechts hinausgerollte Karten? (x = links, y = rechts)
+func shelf_overflow(tray: int) -> Vector2i:
+	var scroll := shelf_scroll_of(tray)
+	var used := PackDrawerView.columns_used(shelf_tray_count(tray))
+	return Vector2i(1 if scroll > 0 else 0,
+		1 if used - scroll > shelf_columns() else 0)
+
+## Die Sortenfarben der Reihe, ein Eintrag je SPALTE im Fenster (leer stumpf) - die
+## MULDEN der Tablett-Platte lesen sie.
 func shelf_row_tints(line: int) -> Array[Color]:
 	var tints: Array[Color] = []
 	var columns := shelf_columns()
+	var tray := PackDrawerView.tray_of(line)
+	var lane := PackDrawerView.lane_of(line)
+	var scroll := shelf_scroll_of(tray)
 	var packs: Array[Pack] = []
 	packs.resize(columns)
 	for entry in drawer_entries():
-		if int(entry.get("row", -1)) != line:
+		if int(entry.get("tray", -1)) != tray:
 			continue
 		var cell_index := int(entry.get("cell", 0))
-		if cell_index >= 0 and cell_index < columns:
-			packs[cell_index] = entry.get("pack") as Pack
+		if PackDrawerView.lane_of_cell(cell_index) != lane:
+			continue
+		var column := PackDrawerView.column_of_cell(cell_index) - scroll
+		if column >= 0 and column < columns:
+			packs[column] = entry.get("pack") as Pack
 	for pack in packs:
 		if pack == null:
 			tints.append(ShelfStackView.BAY_EMPTY)
@@ -1880,33 +1963,50 @@ func shelf_row_tints(line: int) -> Array[Color]:
 		tints.append(DataCellView.tier_shade(base, pack.tier))
 	return tints
 
-## Der Platz, auf dem die NÄCHSTE Lieferung landet (extra staffelt eine Salve): die
-## erste Reihe mit freiem Platz, gefragt beim Lauf.
-func arrival_anchor_px(extra: int = 0) -> Vector2:
-	var spot := run.next_pack_spot(extra) if run != null else Vector2i(-1, -1)
-	if spot.x < 0:
+## Der Platz, auf dem die NÄCHSTE Lieferung DIESES Pakets landet (extra staffelt eine
+## Salve): sein Tablett ist seine Sorte, gefragt beim Lauf.
+func arrival_anchor_px(pack: Pack, extra: int = 0) -> Vector2:
+	if run == null or pack == null:
 		return shelf_rect_global().get_center()
-	if not PackDrawerView.shows_row(spot.x, shelf_tray):
-		return shelf_key_point(PackDrawerView.tray_of(spot.x))
-	return PackDrawerView.anchor_in(shelf_pit_rect(), spot.y,
-		shelf_cell_px(), PackDrawerView.lane_of(spot.x))
+	var spot := run.next_pack_spot(pack, extra)
+	var tray := spot.x
+	# Gesteckte Karten liegen nicht im Fach - der Platz zählt nur, was dort liegt.
+	var cell_index := shelf_tray_count(tray) + maxi(extra, 0)
+	return _anchor_for(tray,
+		PackDrawerView.column_of_cell(cell_index) - shelf_scroll_of(tray),
+		PackDrawerView.lane_of_cell(cell_index))
 
 ## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Schacht.
 func _on_pack_pressed(uid: int) -> void:
 	slot_pack(uid)
 
-## Kassette auf Kassette gezogen: das Magazin legt um - dieselbe remove/insert-
-## Semantik wie reorder_pool.
-func _on_packs_reordered(from_uid: int, to_uid: int) -> void:
-	if run == null or shelf_locked():
-		return
-	run.reorder_packs(run.pack_index_of(from_uid), run.pack_index_of(to_uid))
+## Ein Zug rollt das Tablett: gemeldet wird der Versatz, schon in den Grenzen - am
+## Ende liegt nichts außerhalb des Roll-Bereichs.
+func _on_scroll_dragged(offset_px: float) -> void:
+	_last_drag_px = offset_px
+	shelf_scrolling.emit(shelf_tray, _clamp_scroll_px(shelf_tray, offset_px))
 
-## Kassette auf einen LEEREN Platz gezogen: sie hängt sich hinten an DIESE Reihe.
-func _on_pack_placed(uid: int, row: int) -> void:
-	if run == null or shelf_locked():
-		return
-	run.place_pack(uid, row)
+## Losgelassen: der Roll-Stand rastet auf die nächste ganze Spalte und wird SOFORT
+## gebucht (Endzustand zuerst) - der Körper fährt den Rest des Weges.
+func _on_scroll_released(offset_px: float) -> void:
+	var tray := shelf_tray
+	var before := shelf_scroll_of(tray)
+	var from := _clamp_scroll_px(tray, offset_px)
+	var after := PackDrawerView.snap_scroll(before, from, shelf_slot_px(),
+		shelf_tray_count(tray), shelf_columns())
+	set_shelf_scroll(tray, after)
+	shelf_scroll_snapped.emit(tray, from, float(before - after) * shelf_slot_px())
+
+## Ein Versatz in den Grenzen des Roll-Bereichs (nach links rollt es weiter).
+func _clamp_scroll_px(tray: int, offset_px: float) -> float:
+	var scroll := shelf_scroll_of(tray)
+	var limit := PackDrawerView.max_scroll(shelf_tray_count(tray), shelf_columns())
+	var slot := shelf_slot_px()
+	return clampf(offset_px, -float(limit - scroll) * slot, float(scroll) * slot)
+
+## Rollt gerade ein Zug über das Magazin?
+func shelf_dragging() -> bool:
+	return _drawer != null and is_instance_valid(_drawer) and _drawer.dragging()
 
 ## Doppelklick auf leere Fach-Fläche: aufräumen nach Sorte, Inhalt, uid.
 func _on_tidy_requested() -> void:

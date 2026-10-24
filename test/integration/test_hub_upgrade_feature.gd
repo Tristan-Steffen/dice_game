@@ -111,7 +111,7 @@ func test_level_one_shop_is_smaller() -> void:
 	var shop := _shop(1)
 	assert_eq(shop.charm_options.size(), 2, "Stufe 1: 2 Charms")
 	assert_eq(shop.single_dice.size(), 3, "Stufe 1: 3 Einzelwürfel")
-	assert_eq(shop.engraving_packs.size(), 4, "die Kassetten-Reihe ist immer voll")
+	assert_eq(shop.engraving_packs.size(), 3, "die Gravuren-Spalte ist immer voll")
 
 func test_level_one_locks_the_pager_instead_of_hiding_it() -> void:
 	# Die Pfeile BLEIBEN stehen und tragen Schloss samt nötiger Stufe - erklärt
@@ -125,7 +125,7 @@ func test_level_one_locks_the_pager_instead_of_hiding_it() -> void:
 
 func test_level_two_unlocks_flipping() -> void:
 	var shop := _shop(2)
-	assert_eq(shop.engraving_packs.size(), 4, "Stufe 2: die Reihe war schon voll")
+	assert_eq(shop.engraving_packs.size(), 3, "Stufe 2: die Spalte war schon voll")
 	assert_eq(shop.single_dice.size(), 3, "Stufe 2: der 4. Würfel kommt erst später")
 	assert_true(shop.page_next_button.visible, "Stufe 2: Blättern frei")
 
@@ -133,12 +133,12 @@ func test_level_three_grows_the_shop() -> void:
 	var shop := _shop(3)
 	assert_eq(shop.charm_options.size(), 3, "Stufe 3: 3 Charms")
 	assert_eq(shop.single_dice.size(), 4, "Stufe 3: 4 Einzelwürfel")
-	assert_eq(shop.engraving_packs.size(), 4, "Stufe 3: die Reihe bleibt voll")
+	assert_eq(shop.engraving_packs.size(), 3, "Stufe 3: die Spalte bleibt voll")
 
 func test_level_seven_grows_the_bowl_not_the_slit_row() -> void:
 	var shop := _shop(7)
 	assert_eq(shop.single_dice.size(), 5, "Suite: 5 Einzelwürfel")
-	assert_eq(shop.engraving_packs.size(), 4, "die Reihe wächst nicht mit - sie steht")
+	assert_eq(shop.engraving_packs.size(), 3, "die Spalte wächst nicht mit - sie steht")
 
 func test_level_ten_lays_out_six_dice() -> void:
 	var shop := _shop(10)

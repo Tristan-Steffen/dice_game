@@ -407,11 +407,11 @@ func test_hover_slide_pulls_the_lying_cell_along_its_own_axis() -> void:
 	var resting := body.position
 	assert_almost_eq(cell.hover_slide, 0.0, 0.001, "die Auslagen schieben nichts")
 	cell.hover_lift = 0.0
-	cell.hover_slide = TowerView.HOVER_SLIDE
+	cell.hover_slide = TowerView.hover_slide_for(0, 6)
 	cell.set_hovered(true)
 	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
 	assert_almost_eq(body.position.x, resting.x - DataCellView.STAND_HEIGHT
-		* TowerView.HOVER_SLIDE * PackDrawerView.CASSETTE_SCALE, 0.01,
+		* TowerView.hover_slide_for(0, 6) * PackDrawerView.CASSETTE_SCALE, 0.01,
 		"sie fährt längs ihrer Achse heraus")
 	assert_almost_eq(body.position.y, resting.y, 0.01, "und hebt sich dabei NICHT")
 	cell.set_hovered(false)

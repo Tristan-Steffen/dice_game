@@ -118,10 +118,11 @@ var breach := Vector2.ZERO
 ## er flacher, steht unter dem Durchbruch eine SCHWELLE bis zum eigenen Boden.
 var breach_floor := 0.0
 
-## Die Seite mit dem SCHLITZ (-1 = keine): durch ihn fahren die Tabletts des
-## Regalstapels seitlich in die Wand. Ihre Platte wird dafür zu ZWEI Balken -
+## Die Seiten mit einem SCHLITZ: durch ihn fahren die Tabletts des Regalstapels
+## seitlich in die Wand (rechts) bzw. rollen ihre Spalten hinaus (links), und der
+## Turm schaut aus seiner Tasche in die Bucht. Die Platte wird dafür zu ZWEI Balken -
 ## Sturz darüber, Sockel darunter; Kragen und Lichtsaum bleiben ungeteilt.
-var slot_wall := -1
+var slot_walls: Array[int] = []
 ## Seine Lage: x = Tiefe der OBERKANTE unter der Schnittkante, y = die der Unterkante.
 var slot := Vector2.ZERO
 
@@ -288,7 +289,7 @@ func _build_wall(wall_id: int, top: float) -> void:
 		_wall_box("%sSchwelle" % WALL_NAMES[wall_id], wall_id, breach.x,
 			top - (sill + depth) * 0.5, breach.y, depth - sill, wall, wall * 0.5,
 			_wall_material, true)
-	if wall_id != slot_wall or slot.y <= slot.x:
+	if not slot_walls.has(wall_id) or slot.y <= slot.x:
 		_wall_box(WALL_NAMES[wall_id], wall_id, 0.0, top - depth * 0.5,
 			run, depth, wall, wall * 0.5, _wall_material)
 		return

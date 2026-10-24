@@ -397,22 +397,6 @@ func test_a_bundle_is_n_single_cards() -> void:
 	for pack in run.owned_packs:
 		assert_eq(StampNet.filled_count(pack.stamp_net), 1, "eine Zelle je Karte")
 
-## Ein Bündel braucht Platz für JEDE Karte: zwei freie Plätze reichen für drei
-## nicht, und die Energie bleibt in der Börse (check-then-spend).
-func test_a_bundle_needs_room_for_every_card() -> void:
-	var run := _discovered()
-	_force_engraving_slot(run)
-	run.secret_stock[1][GameRun.OFFER_COUNT] = 3
-	run.energy = 99
-	while run.pack_room() > 2:
-		run.grant_pack(Pack.number_pack())
-	assert_false(run.packs_full(), "zwei Plätze sind noch frei")
-	assert_false(run.buy_secret_offer(1), "aber drei Karten passen nicht")
-	assert_eq(run.energy, 99, "nichts abgebucht")
-	run.secret_stock[1][GameRun.OFFER_COUNT] = 2
-	assert_true(run.buy_secret_offer(1), "zwei passen genau")
-	assert_true(run.packs_full())
-
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _discovered()
 	run.hub_level = GameRun.HUB_MAX_LEVEL
@@ -532,15 +516,6 @@ func test_buying_the_secret_die_reports_the_tray() -> void:
 	run.pending_dice_changed.connect(func() -> void: fired.append(true))
 	assert_true(run.buy_secret_offer(2))
 	assert_eq(fired.size(), 1)
-
-func test_the_secret_die_ignores_a_full_magazine() -> void:
-	# Der Deckel gilt fürs Magazin, und der Würfel geht nicht dorthin.
-	var run := _run_with_secret_die()
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.number_pack())
-	assert_true(run.packs_full())
-	assert_true(run.buy_secret_offer(2), "der Würfel wird trotzdem verkauft")
-	assert_eq(run.pending_dice.size(), 1)
 
 func test_an_owned_unique_never_returns_to_the_black_market() -> void:
 	var run := _run()

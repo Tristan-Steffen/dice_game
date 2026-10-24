@@ -94,10 +94,6 @@ const TYPE_NAMES := {
 ## fix - es reist mit der Kassette und ist im Laden schon lesbar. Katalysatoren
 ## tragen ein leeres Netz.
 @export var stamp_net: Array = []
-## Die REIHE des Regalstapels, in der die Kassette liegt (-1 = noch nicht
-## eingelagert). Sie ist Teil der Magazin-Ordnung, also Spielstand: eine Karte
-## rutscht nur INNERHALB ihrer Reihe nach, ein Zug darf die Reihe wechseln.
-@export var shelf_row: int = -1
 
 static func _make(pack_type: String, amount: int, cost: int, desc: String) -> Pack:
 	var pack := Pack.new()
@@ -403,6 +399,12 @@ static func shelf_of(pack: Pack) -> String:
 			return shelf
 	return ""
 
+## Ihr RANG in SHELF_ORDER - zugleich das TABLETT des Magazins (eine Sorte, ein
+## Tablett). Ohne Sorte das letzte.
+static func shelf_rank(pack: Pack) -> int:
+	var rank := SHELF_ORDER.find(shelf_of(pack))
+	return rank if rank >= 0 else SHELF_ORDER.size() - 1
+
 ## Die Umkehrung: der Pakettyp, dessen Siegel diese Sorte zeichnet ("" = der
 ## Sonderbestand, dessen Zeichen der Eckrahmen ist). EINE Zuordnung, in beide
 ## Richtungen gelesen - eine zweite Tabelle liefe auseinander.
@@ -425,6 +427,17 @@ static func shelf_for_pack_type(pack_type: String) -> String:
 ## Name einer Magazin-Sorte: die Paketsorte, die dort wohnt - der Sonderbestand
 ## trägt keine und nennt sich selbst.
 const SHELF_NAME_SPECIAL := "Sonderbestand"
+
+## Das KÜRZEL einer Sorte - die Aufschrift ihrer Taste an der Knopfleiste.
+const SHELF_SHORT := {
+	Engraving.CATEGORY_NUMBER: "Zahl",
+	Engraving.CATEGORY_MATERIAL: "Mat",
+	Engraving.CATEGORY_DICE: "Rune",
+	SHELF_SPECIAL: "Sonder",
+}
+
+static func shelf_short(shelf: String) -> String:
+	return String(SHELF_SHORT.get(shelf, shelf))
 
 static func shelf_name(shelf: String) -> String:
 	if shelf == SHELF_SPECIAL:

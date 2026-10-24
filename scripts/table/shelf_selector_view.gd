@@ -2,7 +2,8 @@ class_name ShelfSelectorView
 extends Node3D
 ## Die KNOPFLEISTE des REGALSTAPELS (2026-09-10; sie ersetzt den Paternoster-Hebel,
 ## der mit dem Kreislauf gestorben ist): eine senkrechte Reihe flacher Tasten auf dem
-## Filz RECHTS neben der Magazin-Grube - oben ▲, darunter 1 … 5, unten ▼.
+## Filz RECHTS neben der Magazin-Grube - oben ▲, darunter je SORTE eine Taste in
+## ihrer Farbe und mit ihrem Kürzel (Zahl / Mat / Rune / Sonder), unten ▼.
 ## Taste n wählt Tablett n, ▲ das darüber (die kleinere Nummer), ▼ das darunter;
 ## an den Enden ist die Pfeiltaste blind, es gibt keinen Umlauf.
 ## Sie bucht und setzt NICHTS - sie MELDET (tray_requested); den Stapel fährt und
@@ -23,11 +24,11 @@ const PART_UP := "up"
 const PART_DOWN := "down"
 
 const TRAYS := PackDrawerView.TRAYS
-## Sieben Felder: die zwei Pfeile und je Tablett eine Zahl.
+## Die zwei Pfeile und je Tablett eine Taste.
 const FIELDS := TRAYS + 2
 
 ## Breite der Leiste (Welt-z = Bildschirm-Breite) und die Fuge zwischen zwei Feldern.
-const KEY_WIDTH := 1.30
+const KEY_WIDTH := 1.60
 const KEY_GAP := 0.10
 ## Ein Feld wird nie flacher als das - sonst verschwände die Aufschrift.
 const KEY_MIN := 0.45
@@ -42,8 +43,9 @@ const PLATE_EMISSION := Color(0.20, 0.22, 0.34)
 const PLATE_ENERGY := 0.55
 const KEY_ALBEDO := Color(0.17, 0.165, 0.215)
 
-## Die GEWÄHLTE Taste leuchtet Gold, die übrigen stehen dunkel, blinde grau.
-const LIVE_TINT := CasinoStyle.GOLD_INTENSE
+## Die GEWÄHLTE Taste leuchtet hell in ihrer Sortenfarbe, die übrigen glimmen darin,
+## die Pfeile stehen neutral, blinde grau.
+const CHOSEN_LABEL := Color(0.95, 0.95, 0.95)
 const REST_TINT := Color(0.42, 0.46, 0.62)
 const DEAD_TINT := CasinoStyle.MUTED
 const SELECTED_ENERGY := 0.95
@@ -260,7 +262,7 @@ func _build() -> void:
 		Vector3(0.0, PLATE_LIFT + PLATE_HEIGHT * 0.5, 0.0),
 		TableProps.metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY))
 	for i in FIELDS:
-		# Feld 0 steht Bild-OBEN (Welt +X): oben ▲, dann 1 … 5, unten ▼.
+		# Feld 0 steht Bild-OBEN (Welt +X): oben ▲, dann die Sorten, unten ▼.
 		var at := Vector3(height * 0.5 - span * 0.5 - pitch * float(i), 0.0, 0.0)
 		_build_field(i, _part_at(i), at, span)
 	_built = true
@@ -279,7 +281,14 @@ static func _text_at(index: int) -> String:
 		return TEXT_UP
 	if index == FIELDS - 1:
 		return TEXT_DOWN
-	return str(index)
+	return Pack.shelf_short(String(Pack.SHELF_ORDER[index - 1]))
+
+## Die Sortenfarbe eines Teils (die Pfeile tragen den neutralen Ton).
+static func tint_of(part: String) -> Color:
+	var tray := tray_of_part(part)
+	if tray < 0:
+		return REST_TINT
+	return PackDrawerView.COLORS.get(String(Pack.SHELF_ORDER[tray]), REST_TINT)
 
 func _index_of_tray(tray: int) -> int:
 	return tray + 1
@@ -301,7 +310,10 @@ func _build_field(index: int, part: String, at: Vector3, span: float) -> void:
 	label.transform.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
 	label.position = Vector3(0.0,
 		PLATE_LIFT + PLATE_HEIGHT + KEY_HEIGHT + LABEL_LIFT, 0.0)
-	label.pixel_size = maxf(span * 0.55, 0.05) / float(FONT_SIZE)
+	# Das längste Kürzel muß quer in die Taste passen, nicht nur ein Pfeil.
+	var chars := maxf(float(label.text.length()), 1.0)
+	label.pixel_size = minf(maxf(span * 0.55, 0.05),
+		KEY_WIDTH * 0.7 / (chars * 0.8)) / float(FONT_SIZE)
 	label.outline_size = 14
 	label.outline_modulate = Color(0.03, 0.03, 0.05)
 	host.add_child(label)
@@ -334,10 +346,11 @@ func _write_live() -> void:
 		var alive := live_for(part)
 		var chosen := tray_of_part(part) == _selected
 		var material := _materials[i]
-		material.emission = DEAD_TINT if not alive else (LIVE_TINT if chosen else REST_TINT)
+		material.emission = DEAD_TINT if not alive else tint_of(part)
 		material.emission_energy_multiplier = _energy_of(i)
 		if is_instance_valid(_labels[i]):
-			var tint: Color = material.emission
+			# Die Wahl schreibt ihr Kürzel hell - Gold läse auf der Sortenfarbe nicht.
+			var tint: Color = CHOSEN_LABEL if alive and chosen else material.emission
 			_labels[i].modulate = Color(tint.r * 1.3 + 0.2, tint.g * 1.3 + 0.2,
 				tint.b * 1.3 + 0.2)
 		if is_instance_valid(_bodies[i]):

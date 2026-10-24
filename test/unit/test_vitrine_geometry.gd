@@ -428,7 +428,7 @@ func test_eine_enge_auslage_rueckt_ihre_baender_an_die_kanten() -> void:
 	var shelf := {ShopController.KIND_ENGRAVING_PACK: [Pack.roll_engraving_pack()]}
 	var narrow := VitrineView.new()
 	narrow.center = Vector3.ZERO
-	narrow.half = Vector2(2.5, 3.8)
+	narrow.half = Vector2(3.2, 3.8)
 	narrow.stock = shelf
 	var bands: Vector2 = narrow._band_depths()
 	var margin := narrow.half.x * 2.0 * VitrineView.EDGE_MARGIN

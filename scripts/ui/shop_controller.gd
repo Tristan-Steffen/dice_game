@@ -112,13 +112,21 @@ static func pager_lock_text() -> String:
 ## keine Not mehr - die Stellluft steht auf einem bequemen Maß. Die Höhe ist die
 ## verbliebene Fessel: sie bestimmt das Band, und was das Band nimmt, fehlt der
 ## Bucht (gemessen: 1,3 kostet die Auslage 15 px).
-const SLIT_ROOM := 1.3
+const SLIT_ROOM := 1.15
 const SLIT_MIN_WIDTH := 5.4
 const SLIT_MIN_HEIGHT := 8.0
 ## Sitzhöhe eines Platzes und die Luft zwischen zwei Stellplätzen. Die Reihe steht
 ## jetzt über der vollen Seitenbreite, die Fuge darf also atmen.
 const SLIT_SEAT_HEIGHT := 4.2
-const SLIT_GAP := 2.4
+const SLIT_GAP := 1.6
+## Die PREISSPALTE rechts der Karten (rechtsbündig, "$999" paßt) und die Fuge
+## zwischen Gravuren- und Würfel-Spalte samt ihrer Linie.
+const PRICE_COLUMN_UNITS := 6.0
+const COLUMN_GAP := 2.0
+## Im Würfel-Raster: Platz des Würfels selbst am linken Rand seiner Zelle (in u)
+## und die Luft zwischen Würfel, Netz und Preis.
+const DIE_ROOM_UNITS := 7.0
+const DIE_CELL_GAP := 1.0
 
 ## Die FLANKE der Schlitzreihe: die Reihe steht mittig, links wie rechts bleiben
 ## gemessene ~317 px frei. Die rechte davon ist der feste Platz der Auskunft -
@@ -126,6 +134,7 @@ const SLIT_GAP := 2.4
 ## Luft zwischen Name und Beschreibung.
 const FLANK_GAP := 2.0
 const FLANK_MIN_WIDTH := 14.0
+const FLANK_MIN_HEIGHT := 4.0
 const FLANK_SEPARATION := 0.7
 ## Wieviel der Reihenhöhe der NAME höchstens nimmt - der Rest gehört der
 ## Beschreibung, die als einzige umbricht.
@@ -133,11 +142,9 @@ const FLANK_NAME_SHARE := 0.38
 const FLANK_NAME_STEPS := [2.4, 2.2, 2.0, 1.8, 1.6]
 const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
 
-## Die Tiefe des INFO-FUSSES am unteren Buchtrand, in BUCHTEN-Einheiten
-## (Streifenbreite/100) - dieselbe Einheit, in der scene_root seine Reserve
-## rechnet, damit Reserve und wirklicher Aufbau nicht driften. Gemessen: die
-## längste reale hint_for-Kette steht darin umgebrochen auf zwei Zeilen.
-const VITRINE_FOOTER_UNITS := 4.4
+## Die Höhe des AUSKUNFTS-BANDES unter beiden Ware-Spalten, in u der Seite. Gemessen:
+## die längste hint_for-Kette wie die längste Paket-Beschreibung stehen darin ungekürzt.
+const VITRINE_FOOTER_UNITS := 5.2
 const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
 
@@ -234,6 +241,10 @@ var vitrine_nets: Control
 ## einer Netz-Zelle deren hint_for-Zeile trägt und beim Hover des Würfelkörpers
 ## seine Seelen-Zeile. Ohne Hover unsichtbar - kein Kasten, kein Leerlauf.
 var net_footer: Label
+## Das AUSKUNFTS-BAND unter beiden Ware-Spalten (Welle 29): dort spricht die
+## Netz-Zelle (net_footer) ODER die gegriffene Karte (slit_info) - nie beide, denn es
+## gibt nur einen Zeiger.
+var ware_foot: Control
 ## Die Auskunft der Schlitzreihe in ihrer rechten Flanke (Name + Beschreibung).
 ## Absolut positioniertes Overlay der SEITE, kein Layout-Kind - die Bandhöhen
 ## bleiben davon unberührt.
@@ -252,7 +263,7 @@ var lock_button: Button
 ## Die KASSETTEN-PLÄTZE unter der Charm-Zeile: der Laden markiert die Stellplätze
 ## und meldet ihre Mitten, die Zellen stellt scene_root. NACKT - kein
 ## Anzeigefeld, kein Preisschild: die Karte trägt Sorte und Größe in ihrer Farbe.
-var slit_row: HBoxContainer
+var slit_row: VBoxContainer
 var _slit_pads: Array[Panel] = []
 ## Je Platz sein Preisschild - es steht unter der liegenden Karte und ist leer,
 ## wo nichts liegt. Der Platz behält es: ein verkaufter Schlitz baut nichts um.
@@ -454,38 +465,39 @@ func _build_layout() -> void:
 	content_root.custom_minimum_size = Vector2(0.0, u * BAND_CHARM_UNITS)
 	root.add_child(content_root)
 
-	# EIN Band unter den Karten, und es gehört ganz der GRAVUREN-Reihe. Sie steht
-	# LINKS in ihm (Spieler-Entscheid 2026-09-04): mittig teilte sie den freien Rand
-	# auf beide Seiten auf, und seit die Karte gewachsen ist, blieb rechts zu wenig
-	# für die FLANKE - links gebunden fällt der ganze Rest ihr zu. Sie steht
-	# UNABHÄNGIG von der Doppelseite - ein Kauf baut sie nicht um.
+	# Unter den Karten ZWEI SPALTEN (Welle 29): links die GRAVUREN - drei liegende
+	# Karten untereinander, der Preis rechts daneben in EINER Preisspalte -, rechts
+	# die WÜRFEL in einem Raster, dessen Zeilen die Kartenzeilen sind. Eine
+	# senkrechte Linie trennt sie. Die Spalten stehen UNABHÄNGIG von der Doppelseite.
+	var ware := HBoxContainer.new()
+	ware.name = "WareColumns"
+	ware.add_theme_constant_override("separation", int(u * COLUMN_GAP))
+	ware.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ware.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	ware.custom_minimum_size = Vector2(0.0, u * VITRINE_MIN_HEIGHT)
+	root.add_child(ware)
 	var gravur_band := VBoxContainer.new()
 	gravur_band.name = "GravurBand"
 	gravur_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
 	gravur_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gravur_band.add_child(_heading_row("GRAVUREN", _tinted(NEON_CYAN), ""))
-	var slit_lane := HBoxContainer.new()
-	slit_lane.name = "SlitLane"
-	slit_lane.alignment = BoxContainer.ALIGNMENT_BEGIN
-	slit_lane.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slit_lane.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	slit_row = _build_slit_row()
-	# Die Reihe hält ihre eigene Höhe und steht senkrecht mittig in der Bahn - wie
-	# im alten CenterContainer, nur eben nicht mehr waagerecht zentriert.
-	slit_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	slit_lane.add_child(slit_row)
-	gravur_band.add_child(slit_lane)
-	root.add_child(gravur_band)
+	gravur_band.add_child(slit_row)
+	ware.add_child(gravur_band)
+	var divider := ColorRect.new()
+	divider.name = "ColumnLine"
+	divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	divider.color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.35)
+	divider.custom_minimum_size = Vector2(maxf(1.0, u * 0.18), 0.0)
+	ware.add_child(divider)
 
-	# Die Bucht bekommt die ganze Resthöhe: sie ist die Auslage, nicht ein Fach
-	# darin. Gemalt wird allein die FASSUNG - die Ware steht körperlich darauf.
-	# Der Zonentitel wohnt IM Band, über dem gemeldeten Feld: das Band steht fest,
-	# nur die Auslage darunter wird um seine Höhe kürzer.
+	# Die WÜRFEL-Spalte bekommt die ganze Restbreite. Gemalt wird allein die
+	# FASSUNG - die Ware steht körperlich darauf.
 	vitrine_slot = Control.new()
 	vitrine_slot.name = "Vitrine"
 	vitrine_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitrine_slot.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vitrine_slot.custom_minimum_size = Vector2(0.0, u * VITRINE_MIN_HEIGHT)
+	vitrine_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var bay_column := VBoxContainer.new()
 	bay_column.name = "BayColumn"
 	bay_column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -502,10 +514,15 @@ func _build_layout() -> void:
 	vitrine_nets.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vitrine_nets.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	vitrine_field.add_child(vitrine_nets)
-	_build_net_footer()
 	bay_column.add_child(vitrine_field)
 	vitrine_slot.add_child(bay_column)
-	root.add_child(vitrine_slot)
+	ware.add_child(vitrine_slot)
+	ware_foot = Control.new()
+	ware_foot.name = "WareFoot"
+	ware_foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ware_foot.custom_minimum_size = Vector2(0.0, u * VITRINE_FOOTER_UNITS)
+	root.add_child(ware_foot)
+	_build_net_footer()
 
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
@@ -564,12 +581,13 @@ func slit_size() -> Vector2:
 	var card := data_cell_lie_px * PackDrawerView.CASSETTE_SCALE * SLIT_ROOM
 	return Vector2(maxf(u * SLIT_MIN_WIDTH, card.x), maxf(u * SLIT_MIN_HEIGHT, card.y))
 
-func _build_slit_row() -> HBoxContainer:
-	var row := HBoxContainer.new()
+## Die Karten-SPALTE: drei liegende Karten untereinander, oben gebunden - ihre
+## Zeilen sind zugleich die Zeilen des Würfel-Rasters daneben.
+func _build_slit_row() -> VBoxContainer:
+	var row := VBoxContainer.new()
 	row.name = "SlitRow"
 	row.alignment = BoxContainer.ALIGNMENT_BEGIN
 	row.add_theme_constant_override("separation", int(u * SLIT_GAP))
-	row.custom_minimum_size = Vector2(0.0, u * SLIT_SEAT_HEIGHT)
 	_slit_pads.clear()
 	_slit_prices.clear()
 	_slit_seats = slit_seats()
@@ -588,7 +606,6 @@ func rebuild_slit_row() -> void:
 	for child in slit_row.get_children():
 		child.queue_free()
 	slit_row.add_theme_constant_override("separation", int(u * SLIT_GAP))
-	slit_row.custom_minimum_size = Vector2(0.0, u * SLIT_SEAT_HEIGHT)
 	_slit_pads.clear()
 	_slit_prices.clear()
 	_slit_seats = slit_seats()
@@ -601,19 +618,21 @@ func rebuild_slit_row() -> void:
 	_refresh_ware_prices()
 
 ## Ein Platz: der leere KNOPF fängt Klick und Zeiger, gezeichnet wird allein der
-## flache Stellplatz darin - unter einem physischen Ding steht kein Panel.
+## flache Stellplatz darin - unter einem physischen Ding steht kein Panel. Der PREIS
+## steht RECHTS daneben in der Preisspalte, auf der Zeilenmitte - dieselbe Höhe, auf
+## der die Würfelpreise derselben Zeile stehen.
 func _slit_seat(seat: int) -> Button:
 	var pad_size := slit_size()
-	# Der Platz trägt Stellfläche UND Preisschild - der Schilderplatz bleibt auch
-	# leer stehen, sonst wäre jeder Kauf ein Umbau der Reihe.
 	var price_height := ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
-	var block := pad_size.y + u * WARE_PRICE_GAP + price_height
-	var seat_height := maxf(u * SLIT_SEAT_HEIGHT, block)
-	var top := (seat_height - block) * 0.5
+	var seat_height := maxf(u * SLIT_SEAT_HEIGHT, pad_size.y)
+	var top := (seat_height - pad_size.y) * 0.5
+	var price_width := u * PRICE_COLUMN_UNITS
 	var button := Button.new()
 	button.name = "SlitSeat"
 	button.focus_mode = Control.FOCUS_NONE
-	button.custom_minimum_size = Vector2(pad_size.x, seat_height)
+	button.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	button.custom_minimum_size = Vector2(pad_size.x + u * WARE_PRICE_GAP + price_width,
+		seat_height)
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
@@ -625,10 +644,11 @@ func _slit_seat(seat: int) -> Button:
 	pad.add_theme_stylebox_override("panel", _slit_box())
 	button.add_child(pad)
 	_slit_pads.append(pad)
-	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
 	tag.name = "Price"
-	tag.position = Vector2(0.0, top + pad_size.y + u * WARE_PRICE_GAP)
-	tag.size = Vector2(pad_size.x, price_height)
+	tag.position = Vector2(pad_size.x + u * WARE_PRICE_GAP,
+		seat_height * 0.5 - price_height * 0.5)
+	tag.size = Vector2(price_width, price_height)
 	button.add_child(tag)
 	_slit_prices.append(tag)
 	# Nur der KLICK hängt hier: das Anheben der liegenden Kassette und ihre
@@ -724,21 +744,18 @@ func _build_slit_info() -> void:
 	add_child(slit_info)
 	_slit_info_key = ""
 
-## Die freie RECHTE Flanke in globalen Pixeln: von der Kante der Reihe plus Fuge
-## bis zum Seitenrand, senkrecht auf der Reihe. Seit die Reihe LINKS steht
-## (2026-09-04), fällt ihr der ganze Rest der Seite zu. GEMESSEN - ein leeres
-## Rechteck heißt, dass die Seite noch nicht ausgelegt ist oder zu wenig bleibt.
+## Der Platz der Karten-Auskunft in globalen Pixeln: das AUSKUNFTS-BAND unter beiden
+## Ware-Spalten (Welle 29 - neben den Karten liegen jetzt die Würfel). GEMESSEN -
+## leer heißt, die Seite ist noch nicht ausgelegt.
 func slit_flank_rect() -> Rect2:
-	if slit_row == null or not is_instance_valid(slit_row):
+	if ware_foot == null or not is_instance_valid(ware_foot):
 		return Rect2()
-	var row := slit_row.get_global_rect()
-	if row.size.x <= 0.0 or row.size.y <= 0.0:
+	var band := ware_foot.get_global_rect()
+	var margin := u * FOOTER_MARGIN
+	if band.size.x - margin * 2.0 < u * FLANK_MIN_WIDTH or band.size.y < u * FLANK_MIN_HEIGHT:
 		return Rect2()
-	var left := row.end.x + u * FLANK_GAP
-	var right := get_global_rect().end.x - u * PAGE_MARGIN
-	if right - left < u * FLANK_MIN_WIDTH:
-		return Rect2()
-	return Rect2(Vector2(left, row.position.y), Vector2(right - left, row.size.y))
+	return Rect2(band.position + Vector2(margin, 0.0),
+		Vector2(band.size.x - margin * 2.0, band.size.y))
 
 ## Der EINE Schreiber der Flanke (-1 = kein Platz gegriffen). Ein verkaufter oder
 ## nie gewürfelter Platz zeigt NICHTS - dort liegt keine Ware, die etwas sagen
@@ -842,12 +859,12 @@ func _build_net_footer() -> void:
 	net_footer.name = "NetFooter"
 	net_footer.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	net_footer.visible = false
-	vitrine_field.add_child(net_footer)
+	ware_foot.add_child(net_footer)
 	_net_hint = ""
 
 func set_net_hint(text: String) -> void:
 	if net_footer == null or not is_instance_valid(net_footer) \
-			or vitrine_field == null or not is_instance_valid(vitrine_field):
+			or ware_foot == null or not is_instance_valid(ware_foot):
 		return
 	if text == _net_hint:
 		return
@@ -856,16 +873,15 @@ func set_net_hint(text: String) -> void:
 	net_footer.visible = text != ""
 	if text == "":
 		return
-	# Der Platz wird beim ANZEIGEN gerechnet: erst dann steht das Feld gemessen da.
-	var field := vitrine_field.size
-	var bay_u := maxf(field.x, 1.0) / 100.0
-	var margin := bay_u * FOOTER_MARGIN
-	var room := Vector2(maxf(field.x - margin * 2.0, 1.0), bay_u * VITRINE_FOOTER_UNITS)
+	# Der Platz wird beim ANZEIGEN gerechnet: erst dann steht das Band gemessen da.
+	var field := ware_foot.size
+	var margin := u * FOOTER_MARGIN
+	var room := Vector2(maxf(field.x - margin * 2.0, 1.0), maxf(field.y, 1.0))
 	var font := ThemeDB.fallback_font
-	var px := maxi(8, int(bay_u * float(FOOTER_STEPS[FOOTER_STEPS.size() - 1])))
+	var px := maxi(8, int(u * float(FOOTER_STEPS[FOOTER_STEPS.size() - 1])))
 	if font != null:
-		px = _footer_font(font, text, room, bay_u)
-	_lay_wrapped(net_footer, px, Vector2(margin, maxf(field.y - room.y, 0.0)), room)
+		px = _footer_font(font, text, room, u)
+	_lay_wrapped(net_footer, px, Vector2(margin, 0.0), room)
 
 ## Der Grad der Fußzeile: der größte, in dem die Zeile umgebrochen noch in den
 ## Fuß paßt. Gemessen in BUCHTEN-Einheiten, nicht in denen der Seite - der Fuß
@@ -914,18 +930,77 @@ func vitrine_pit_rect() -> Rect2:
 		return Rect2()
 	return PackDrawerView.pit_rect_in(strip, u)
 
-## Die WÜRFELNETZE der Auslage stellen: je Eintrag {def, pos, anchor} in Pixeln des
-## Buchten-Streifens, cell = Zellmaß. Idempotent - dieselbe Auslage baut nichts
-## neu. Gefüllt von scene_root, das die Weltposition der Würfel kennt.
-## Je Würfel steht der ganze BLOCK (Netz, Seelen-Zeile, Preisschild) in EINEM
-## Wrapper: nach einer echten ANKUNFT (grow) projiziert er sich aus seinem Würfel,
-## sonst steht er sofort da - liegen geblieben ist nirgends angekommen.
+## Das WÜRFEL-RASTER (Welle 29): seine ZEILEN sind die Kartenzeilen der Gravuren-
+## Spalte, seine Spalten ⌈Würfel / Zeilen⌉ - gefüllt spaltenweise, erst alle Zeilen
+## der ersten Spalte. Rein und prüfbar.
+static func die_columns(count: int, rows: int) -> int:
+	return maxi(ceili(float(maxi(count, 1)) / float(maxi(rows, 1))), 1)
+
+## (Spalte, Zeile) des Würfels index.
+static func die_grid_cell(index: int, rows: int) -> Vector2i:
+	var line := maxi(rows, 1)
+	return Vector2i(maxi(index, 0) / line, maxi(index, 0) % line)
+
+## Die Mitten der Kartenzeilen in globalen Pixeln - die GEMEINSAME Grundlinie: der
+## Kartenpreis und die Würfelpreise derselben Zeile stehen auf dieser Höhe.
+func ware_row_centers() -> Array[float]:
+	var out: Array[float] = []
+	for pad in _slit_pads:
+		if is_instance_valid(pad):
+			out.append(pad.get_global_rect().get_center().y)
+	return out
+
+## Die ZELLE des Würfels index in Pixeln des Buchten-Streifens: Spaltenbreite mal
+## Kartenhöhe, mittig auf ihrer Zeile (leer = noch nicht ausgelegt).
+func die_cell_rect(index: int) -> Rect2:
+	var strip := vitrine_rect_px()
+	var centers := ware_row_centers()
+	if strip.size.x <= 0.0 or centers.is_empty():
+		return Rect2()
+	var columns := die_columns(single_dice.size(), centers.size())
+	var cell := die_grid_cell(index, centers.size())
+	var width := strip.size.x / float(columns)
+	var height := slit_size().y
+	var middle := centers[mini(cell.y, centers.size() - 1)] - strip.position.y
+	return Rect2(Vector2(width * float(cell.x), middle - height * 0.5),
+		Vector2(width, height))
+
+## Die PLÄTZE der Würfel in globalen Display-Pixeln, je Angebot einer (verkaufte
+## eingeschlossen): links in ihrer Zelle, auf der Zeilenmitte. Leer = noch nicht
+## ausgelegt - dann rechnet die Schale ihre Reihe selbst.
+func die_seats_px() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	var strip := vitrine_rect_px()
+	for i in single_dice.size():
+		var rect := die_cell_rect(i)
+		if rect.size.x <= 0.0:
+			return [] as Array[Vector2]
+		out.append(strip.position + Vector2(rect.position.x + u * DIE_ROOM_UNITS * 0.5,
+			rect.get_center().y))
+	return out
+
+## Das Zellmaß der Würfelnetze: Netz samt Seelen-Zeile passen zwischen Würfel und
+## Preisspalte in die Zelle.
+func die_net_cell() -> float:
+	var rect := die_cell_rect(0)
+	if rect.size.x <= 0.0:
+		return 0.0
+	var soul := ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
+	var room := Vector2(rect.size.x - u * (DIE_ROOM_UNITS + PRICE_COLUMN_UNITS
+		+ DIE_CELL_GAP * 2.0), rect.size.y - soul - u * WARE_PRICE_GAP)
+	return DieNetView.cell_for(Vector2(maxf(room.x, 1.0), maxf(room.y, 1.0)))
+
+## Die WÜRFELNETZE der Auslage stellen: je Eintrag {def, anchor} (anchor = der
+## Würfel in Pixeln des Buchten-Streifens), cell = Zellmaß. Idempotent - dieselbe
+## Auslage baut nichts neu. Je Würfel steht der ganze BLOCK seiner Zelle (Netz,
+## Seelen-Zeile, Preis rechts auf der Zeilenmitte) in EINEM Wrapper: nach einer
+## echten ANKUNFT (grow) projiziert er sich aus seinem Würfel, sonst steht er sofort.
 func set_die_nets(entries: Array, cell: float, grow := false) -> void:
 	var signature := "%d|%.1f" % [entries.size(), cell]
 	for entry in entries:
 		var def: DieDefinition = entry["def"]
-		var pos: Vector2 = entry["pos"]
-		signature += "|%d@%.1f,%.1f" % [def.get_instance_id(), pos.x, pos.y]
+		var anchor: Vector2 = entry.get("anchor", Vector2.ZERO)
+		signature += "|%d@%.1f,%.1f" % [def.get_instance_id(), anchor.x, anchor.y]
 	if signature == _net_signature:
 		return  # derselbe Stand: ein Abgleich mitten im Wachstum stört es nicht
 	_net_signature = signature
@@ -938,38 +1013,44 @@ func set_die_nets(entries: Array, cell: float, grow := false) -> void:
 	var soul_height := font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
 	var price_height := font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
 	var gap := u * WARE_PRICE_GAP
+	var price_width := u * PRICE_COLUMN_UNITS
 	for entry in entries:
 		var def: DieDefinition = entry["def"]
-		var pos: Vector2 = entry["pos"]
-		# Der BLOCK: alles, was zu diesem Würfel gehört, in EINEM Control - nur so
-		# kann es als ein Stück aus ihm wachsen.
+		var rect := die_cell_rect(single_dice.find(def))
+		if rect.size.x <= 0.0:
+			continue
+		var anchor: Vector2 = entry.get("anchor", rect.position)
+		# Der BLOCK ist die ganze Zelle - nur so wächst alles als ein Stück aus ihm.
 		var block := Control.new()
 		block.name = "NetBlock"
 		block.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		block.position = pos
-		block.size = Vector2(span.x, span.y + gap * 2.0 + soul_height + price_height)
-		# Der ANKER ist der Würfel selbst: dort steht er, dorthin schrumpft der Block.
-		var anchor: Vector2 = entry.get("anchor", pos)
-		block.pivot_offset = anchor - pos
+		block.position = rect.position
+		block.size = rect.size
+		block.pivot_offset = anchor - rect.position
 		vitrine_nets.add_child(block)
 		_net_blocks.append(block)
+		var net_at := Vector2(u * (DIE_ROOM_UNITS + DIE_CELL_GAP),
+			(rect.size.y - span.y - gap - soul_height) * 0.5)
 		var net := DieNetView.build(def, VitrineView.die_up_face(), cell)
+		net.position = net_at
 		block.add_child(net)
 		_net_dice.append(def)
-		_net_positions.append(pos)
-		# Unter dem Netz die SEELE, darunter der PREIS - die Ware sagt selbst, was
-		# in ihr steckt und was sie kostet. Beide Zeilen stehen immer, damit die
-		# Reihe nicht je Würfel anders hoch wird.
+		_net_positions.append(rect.position + net_at)
+		# Unter dem Netz die SEELE - beide Zeilen stehen immer, damit keine Zelle je
+		# Würfel anders hoch wird.
 		var essence := Essence.by_id(def.essence_id)
 		var soul := CasinoStyle.label(essence.display_name if essence != null else "",
 			u * WARE_SOUL_FONT, soul_tint(def.essence_id), HORIZONTAL_ALIGNMENT_CENTER)
-		soul.position = Vector2(0.0, span.y + gap)
+		soul.position = net_at + Vector2(0.0, span.y + gap)
 		soul.size = Vector2(span.x, soul_height)
 		block.add_child(soul)
 		_net_souls.append(soul)
-		var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-		tag.position = Vector2(0.0, span.y + gap * 2.0 + soul_height)
-		tag.size = Vector2(span.x, price_height)
+		# Der PREIS rechts auf der Zeilenmitte - dieselbe Grundlinie wie der Kartenpreis.
+		var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD,
+			HORIZONTAL_ALIGNMENT_RIGHT)
+		tag.position = Vector2(rect.size.x - price_width - u * DIE_CELL_GAP,
+			(rect.size.y - price_height) * 0.5)
+		tag.size = Vector2(price_width, price_height)
 		block.add_child(tag)
 		_net_prices.append(tag)
 	_refresh_ware_prices()

@@ -31,9 +31,10 @@ const NOTE_FONT_UNITS := 2.8
 ## die Ware selbst - NEBENEINANDER auf EINER knappen Plattform, je Stück eine Zelle.
 ## Gemalt werden hier nur die NAMEN: die Ablage hat keine Fassung, und ist die Ware
 ## erst oben, steht kein Rest der Maschine mehr da. Die Körper gehören scene_root.
-## Je Stück eine Zelle - so knapp, dass die Kassette hineinpaßt und sonst nichts.
-const PLOT_CELL_UNITS := 9.0
-const PLOT_HEIGHT_UNITS := 11.0
+## Je Stück eine Zelle - so knapp, dass die Kassette hineinpaßt und sonst nichts
+## (seit der Welle 29 um die große Karte gewachsen, ×1,47).
+const PLOT_CELL_UNITS := 13.2
+const PLOT_HEIGHT_UNITS := 16.0
 ## Unterkante der Ablage über der Seitenunterkante - darunter steht der Knopf.
 const PLOT_BOTTOM_UNITS := 17.0
 const PLOT_RADIUS_UNITS := 0.7

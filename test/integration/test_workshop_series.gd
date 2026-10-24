@@ -826,13 +826,15 @@ func test_the_breakdown_rows_are_dead() -> void:
 	assert_false(view.has_method("diff_rows"), "keine Aufschlüsselungs-Zeilen mehr")
 	assert_false(view.has_method("diff_row_slot_at"), "und kein Zeilen-Hover")
 
-## Das Zellmaß ist die gemeldete WÜRFELFLÄCHE, und Netz wie Summen-Schirm teilen es.
-func test_both_nets_share_the_die_face_cell() -> void:
+## Das Zellmaß ist das des PRÄGENETZES auf der Karte (Welle 29), und Netz wie
+## Summen-Schirm teilen es - die Würfelfläche rührt es nicht.
+func test_both_nets_share_the_card_net_cell() -> void:
 	view.die_face_px = 28.0
 	view.choose_target(0)
 	await wait_frames(2)
-	assert_almost_eq(view._net.cell, 28.0, 0.001, "das Netz trägt die Würfelfläche")
-	assert_almost_eq(view.sum_net_cell(view.unit()), 28.0, 0.001,
+	var card := WorkshopView.card_net_cell(view.shelf_cell_px())
+	assert_almost_eq(view._net.cell, card, 0.001, "das Netz trägt die Karten-Zelle")
+	assert_almost_eq(view.sum_net_cell(view.unit()), card, 0.001,
 		"und der Summen-Schirm dasselbe Maß")
 
 ## OHNE Ziel rechnet der Netz-Schirm nichts - er hängt allein am gewählten
@@ -872,8 +874,8 @@ func test_the_stencil_ride_is_gone() -> void:
 	assert_true(view.has_signal("die_returned"))
 	var net := view.ist_net_center()
 	assert_gt(net.x, 0.0, "der Parkplatz des Netzes steht")
-	assert_gt(net.x, view.tower_rect().get_center().x
-		+ view.get_global_rect().position.x, "und liegt RECHTS des Turms")
+	assert_almost_eq(net.x, view.ist_screen_rect().get_center().x
+		+ view.get_global_rect().position.x, 1.0, "und liegt über dem Turm")
 
 ## Der Zielwürfel behält seine ALTEN Augen, bis der Scanner sie aufdeckt: held_faces
 ## trägt den Stand VOR dem Griff und ist danach wieder leer.

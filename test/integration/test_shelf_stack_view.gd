@@ -29,9 +29,9 @@ func _tray_node(tray: int) -> Node3D:
 
 # --- Die reine STAPEL-Rechnung -----------------------------------------------------
 
-func test_zehn_reihen_liegen_auf_fuenf_tabletts() -> void:
+func test_acht_reihen_liegen_auf_vier_tabletts() -> void:
 	assert_eq(stack.row_count(), ROWS, "so viele wie das Magazin zählt")
-	assert_eq(stack.tray_count(), 5, "fünf Tabletts zu je zwei Reihen")
+	assert_eq(stack.tray_count(), 4, "vier Tabletts, eines je Sorte")
 	assert_eq(TRAYS * PackDrawerView.LANES, ROWS)
 	for row in ROWS:
 		assert_eq(ShelfStackView.tray_of(row), row / 2, "Reihe %d" % (row + 1))
@@ -183,7 +183,7 @@ func test_eine_wahl_faehrt_die_tabletts_darueber_in_die_wand() -> void:
 		assert_almost_eq(_tray_node(tray).position.z, stack.tray_pose(tray, 2).z,
 			0.0001, "Tablett %d steht auf seinem Sitz" % (tray + 1))
 	assert_gt(_tray_node(0).position.z, SPAN.y, "Tablett 1 steckt in der Wand")
-	assert_almost_eq(_tray_node(4).position.z, 0.0, 0.0001, "Tablett 5 blieb liegen")
+	assert_almost_eq(_tray_node(3).position.z, 0.0, 0.0001, "Tablett 4 blieb liegen")
 
 func test_dieselbe_wahl_tut_nichts() -> void:
 	stack.select(0)
@@ -283,8 +283,8 @@ func test_der_umzug_behaelt_den_weltplatz() -> void:
 
 # --- Die FRONT-BLENDE ---------------------------------------------------------------
 
-## Die NUMMER steht nur an der VORDEREN Blende und nennt die TABLETT-Nummer - dieselbe
-## Zahl wie auf der Taste der Knopfleiste.
+## Die Aufschrift steht nur an der VORDEREN Blende und nennt das KÜRZEL der Sorte -
+## dasselbe wie auf der Taste der Knopfleiste.
 func test_die_nummer_steht_nur_am_vorderen_band_und_nennt_das_tablett() -> void:
 	for tray in TRAYS:
 		var rows := ShelfStackView.rows_of(tray)
@@ -292,8 +292,8 @@ func test_die_nummer_steht_nur_am_vorderen_band_und_nennt_das_tablett() -> void:
 			% [tray + 1, rows[0] + 1]), "die hintere Blende trägt keine")
 		var label := stack.get_node("Tablett%d/Blende%d/Nummer"
 			% [tray + 1, rows[1] + 1]) as Label3D
-		assert_eq(label.text, "%d" % (tray + 1),
-			"Tablett %d nennt sich selbst: '%s'" % [tray + 1, label.text])
+		assert_eq(label.text, Pack.shelf_short(String(Pack.SHELF_ORDER[tray])),
+			"Tablett %d nennt seine Sorte: '%s'" % [tray + 1, label.text])
 		assert_eq(label.text, stack.number_text(rows[0]), "beide Reihen dieselbe Zahl")
 
 ## Nur das GEWÄHLTE Tablett zeigt seine Blenden - sonst stanzte ein Text durch die
@@ -370,7 +370,7 @@ func test_die_blenden_liegen_an_der_bild_unteren_kante_ihrer_lane() -> void:
 func test_die_tabletts_sind_undurchsichtig_und_ohne_rand() -> void:
 	var top := (stack.get_node("Tablett1/Platte") as MeshInstance3D) \
 		.material_override as StandardMaterial3D
-	var deep := (stack.get_node("Tablett5/Platte") as MeshInstance3D) \
+	var deep := (stack.get_node("Tablett4/Platte") as MeshInstance3D) \
 		.material_override as StandardMaterial3D
 	assert_not_null(top, "die Platte ist schlichtes Material")
 	assert_eq(top.transparency, BaseMaterial3D.TRANSPARENCY_DISABLED, "undurchsichtig")
@@ -383,15 +383,68 @@ func test_die_tabletts_sind_undurchsichtig_und_ohne_rand() -> void:
 ## Die WANDTASCHE hinter dem Schlitz: sie liegt AUSSERHALB der Grube (Welt +Z) und
 ## deckt die Tiefe des Stapels - durch den Schlitz sieht man in sie, nicht in den Raum.
 func test_die_wandtasche_liegt_hinter_der_grubenwand() -> void:
-	var back := stack.get_node("Wandtasche/Rueckwand") as MeshInstance3D
+	var back := stack.get_node("Wandtaschen/Wandtasche/Rueckwand") as MeshInstance3D
 	assert_gt(back.position.z, SPAN.y * 0.5 + stack.retract_span() * 0.5,
 		"ihre Rückwand steht hinter dem eingefahrenen Tablett")
-	var floor_plate := stack.get_node("Wandtasche/Boden") as MeshInstance3D
+	var floor_plate := stack.get_node("Wandtaschen/Wandtasche/Boden") as MeshInstance3D
 	assert_lt(floor_plate.position.y, -ShelfStackView.stack_depth(SCALE),
 		"ihr Boden liegt unter dem untersten Tablett")
-	assert_not_null(stack.get_node_or_null("Wandtasche/Decke"))
-	assert_null(stack.get_node_or_null("Wandtasche/Vorderwand"),
+	assert_not_null(stack.get_node_or_null("Wandtaschen/Wandtasche/Decke"))
+	assert_null(stack.get_node_or_null("Wandtaschen/Wandtasche/Vorderwand"),
 		"zur Grube hin ist sie offen")
+	# Die LINKE Tasche spiegelt sie: dorthin rollen die vorderen Spalten.
+	var left := stack.get_node("Wandtaschen/WandtascheLinks") as Node3D
+	assert_not_null(left, "die linke Wandtasche steht")
+	var left_back := left.get_node("Rueckwand") as MeshInstance3D
+	assert_lt(left_back.global_position.z, -SPAN.y * 0.5, "links hinter der Grubenwand")
+
+# --- Das ROLLEN -----------------------------------------------------------------------
+
+## Der Zeiger führt das FACH; die Karten reisen mit, und der Stapel gilt als fahrend.
+func test_ein_zug_fuehrt_das_fach_und_die_karten() -> void:
+	var cell := Node3D.new()
+	add_child_autofree(cell)
+	stack.host_card(cell, 0)
+	var before := cell.global_position.z
+	stack.drag_scroll(0, -0.8)
+	assert_true(stack.riding(), "solange der Zug läuft, hält der Sitz-Schreiber still")
+	assert_almost_eq(stack.scroll_offset(0), -0.8, 0.0001)
+	assert_almost_eq(cell.global_position.z, before - 0.8, 0.0001, "die Karte reist mit")
+
+## Eingerastet geht der Versatz in die Karten über: Welt-Platz unverändert, Fach auf 0.
+func test_das_einrasten_uebernimmt_den_versatz_in_die_karten() -> void:
+	var cell := Node3D.new()
+	add_child_autofree(cell)
+	stack.host_card(cell, 0)
+	var before := cell.global_position.z
+	var done: Array[int] = []
+	stack.drag_scroll(0, -0.5)
+	stack.snap_scroll(0, -0.5, -1.0, func() -> void: done.append(1))
+	await wait_seconds(ShelfStackView.SNAP_TIME + 0.1)
+	assert_eq(done.size(), 1, "das Einrasten meldet sich")
+	assert_almost_eq(stack.scroll_offset(0), 0.0, 0.0001, "das Fach steht wieder auf 0")
+	assert_almost_eq(cell.global_position.z, before - 1.0, 0.0001,
+		"und die Karte liegt eine Spalte weiter")
+	assert_false(stack.riding())
+
+func test_der_harte_weg_nimmt_jeden_zug_zurueck() -> void:
+	stack.drag_scroll(0, -0.4)
+	stack.settle_scroll_hard()
+	assert_false(stack.riding())
+	assert_almost_eq(stack.scroll_offset(0), 0.0, 0.0001)
+
+## Das GLIMMEN an der Wand sagt, wo noch Karten liegen.
+func test_das_glimmen_steht_an_der_seite_mit_weiteren_karten() -> void:
+	stack.set_overflow(false, true)
+	assert_eq(stack.overflow(), Vector2i(0, 1))
+	var left := stack.get_node("GlimmenLinks") as MeshInstance3D
+	var right := stack.get_node("GlimmenRechts") as MeshInstance3D
+	assert_false(left.visible)
+	assert_true(right.visible, "rechts liegen noch Spalten")
+	assert_gt(right.position.z, 0.0, "an der rechten Wand")
+	stack.set_overflow(true, false)
+	assert_true(left.visible)
+	assert_lt(left.position.z, 0.0)
 
 # --- Möbel, keine Fahrt --------------------------------------------------------------
 

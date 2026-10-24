@@ -1,10 +1,11 @@
 class_name TowerView
 extends Node3D
 ## DER TURM der Werkstatt (Welle X, 2026-09-05): ein gerades Gestell aus sechs
-## ETAGEN auf dem Filz. Etage 0 ist die UNTERSTE und wirkt zuerst - die Reihenfolge
-## IST die Höhe, und das DURCHLICHT steigt darum von unten. In jeder Etage LIEGT
-## eine Karte flach, ihre Kontakte nach Bild-RECHTS in der KONTAKTLEISTE; links ist
-## der Turm offen, dort fährt die Karte unter dem Zeiger heraus.
+## ETAGEN, seit der Welle 29 in einer geschlossenen TASCHE unter dem Ziel-Netz. Etage
+## 0 ist die UNTERSTE und wirkt zuerst - die Reihenfolge IST die Höhe, und das
+## DURCHLICHT steigt darum von unten. In jeder Etage LIEGT eine Karte flach, ihre
+## Kontakte nach Bild-RECHTS in der KONTAKTLEISTE; links ist der Turm offen, und dort
+## ragt sie als STUMMEL in die Auswurf-Bahn.
 ##
 ## Die Maße kommen von außen (scene_root rechnet die gemeldeten Rechtecke in Welt).
 ## seat() ist idempotent - Endzustand zuerst, es gibt keinen Tween außer dem Licht.
@@ -39,24 +40,41 @@ const BAR_SHARE := 0.07
 ## sieht man von oben durch den Turm hindurch und das DURCHLICHT in ihm.
 const RAIL_SHARE := 0.13
 
-## Wie weit eine NICHT eingerastete Karte nach Bild-links herausgezogen liegt -
-## Anteil ihrer LÄNGE -, dazu der BUCHRÜCKEN-Versatz je Etage (unten am weitesten
-## heraus) und der HOVER, der sie ganz herauszieht. Die EINE Quelle: der Körper
-## fährt danach, das Fenster schneidet seine Auswurf-Bahn danach.
-const UNLATCHED_PULL := 0.25
-const PEEK_SHARE := 0.045
-const HOVER_SLIDE := 0.75
+## Der Turm steht seit der Welle 29 in einer GESCHLOSSENEN Tasche unter dem Ziel-Netz;
+## offen ist nur die Auswurf-Bahn links davon. Daraus ragt jede Karte mit einem
+## STUMMEL (Anteil ihrer LÄNGE über die Lochkante hinaus), gestaffelt je Etage (unten
+## am weitesten heraus). Eingerastet bleibt ein kürzerer Stummel stehen - an ihm
+## sieht man das Licht steigen -, und der HOVER zieht sie ganz in die Bahn. Die EINE
+## Quelle: der Körper fährt danach, das Fenster schneidet seine Bahn danach.
+const STUB_SHARE := 0.2
+const STUB_LATCHED := 0.1
+const PEEK_SHARE := 0.03
+## Der volle Zug unter dem Zeiger: die ganze Karte samt einer Spur Luft in der Bahn.
+const EJECT_PULL := 1.05
+## Der Fußabdruck einer Etage ist die liegende Karte mal CARD_ROOM (WorkshopView
+## schneidet seinen Turm-Platz danach), und die DAHEIM liegende Karte beginnt die
+## halbe Luft hinter der offenen Turmkante.
+const CARD_ROOM := 1.10
+const HOME_INSET := (CARD_ROOM - 1.0) * 0.5
 
 ## Der Ruhe-Versatz der Karte von Etage index, als Anteil ihrer Länge. count ist
 ## die ETAGENZAHL des Turms, nie die Zahl der gesteckten Karten - sonst rückten
 ## alle gemeinsam heraus, sobald eine dazukommt.
 static func pull_share(index: int, count: int) -> float:
-	return UNLATCHED_PULL + PEEK_SHARE * float(maxi(count - 1 - index, 0))
+	return HOME_INSET + STUB_SHARE + PEEK_SHARE * float(maxi(count - 1 - index, 0))
 
-## Und wie weit die unterste unter dem Zeiger insgesamt herausfährt - so breit ist
-## die AUSWURF-BAHN links des Turms.
-static func eject_share(count: int) -> float:
-	return pull_share(0, count) + HOVER_SLIDE
+## Eingerastet: der kurze Stummel, an dem das Licht vorbeizieht.
+static func latched_share() -> float:
+	return HOME_INSET + STUB_LATCHED
+
+## Der Hover-Zug der Karte von Etage index (DataCellView.hover_slide): von ihrer Ruhe
+## bis ganz in die Bahn - jede Etage landet am selben Platz.
+static func hover_slide_for(index: int, count: int) -> float:
+	return maxf(HOME_INSET + EJECT_PULL - pull_share(index, count), 0.0)
+
+## So breit ist die AUSWURF-BAHN, in Kartenlängen - für jede Etagenzahl dieselbe.
+static func eject_share(_count: int) -> float:
+	return EJECT_PULL
 
 ## Die KAMMER glimmt, bevor sie zündet, und die LICHT-EBENE ist ein additives Quad
 ## in Kartengröße.
@@ -65,6 +83,12 @@ const CHAMBER_EMISSION_ENERGY := 0.5
 ## GEMESSEN am dunklen Filz: darüber überstrahlt die Ebene das Licht-Netz auf ihr.
 const LIGHT_ALPHA := 0.30
 const LIGHT_ENERGY := 1.25
+
+## Die TASCHE unter dem Filz - der Ton der Wandtasche des Regalstapels.
+const POCKET_WALL := 0.06
+const POCKET_ALBEDO := Color(0.028, 0.026, 0.042)
+const POCKET_EMISSION := Color(0.10, 0.11, 0.17)
+const POCKET_ENERGY := 0.35
 
 var _frame_material: StandardMaterial3D
 var _bar_material: StandardMaterial3D
@@ -75,6 +99,7 @@ var _count := 0
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
 var _chamber: Node3D
+var _pocket: Node3D
 var _floors: Array[Node3D] = []
 var _mouths: Array[MeshInstance3D] = []
 var _mouth_flashes: Array[Tween] = []
@@ -98,25 +123,65 @@ static func floor_seat(index: int) -> float:
 static func tower_height(count: int) -> float:
 	return floor_top(maxi(count, 1) - 1) + CARD_THICKNESS
 
-## Der TURM HART setzen: at = Glaspunkt seiner Mitte, span = Weltmaß seines
-## Fußabdrucks (x quer, y längs = Welt-Z), count = Etagen. Idempotent.
-func seat(at: Vector3, span: Vector2, count: int) -> void:
+## Der TURM HART setzen: at = Fußpunkt seiner Mitte, span = Weltmaß seines
+## Fußabdrucks (x quer, y längs = Welt-Z), count = Etagen. Mit glass_y steht er in
+## seiner geschlossenen TASCHE unter dem Filz (pocket_width = ihre Breite quer, so
+## breit wie das Loch daneben). Idempotent.
+func seat(at: Vector3, span: Vector2, count: int, glass_y := NAN,
+		pocket_width := 0.0) -> void:
 	_ensure_materials()
 	_seat = at
 	_span = Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
 	_count = maxi(count, 1)
-	for old in _floors + ([_chamber] if _chamber != null else []):
+	for old in _floors + ([_chamber] if _chamber != null else []) \
+			+ ([_pocket] if _pocket != null else []):
 		if is_instance_valid(old):
 			remove_child(old)
 			old.queue_free()
 	_floors.clear()
 	_mouths.clear()
 	_mouth_flashes.clear()
+	_pocket = null
 	_build_chamber()
 	for i in _count:
 		_floors.append(_build_floor(i))
+	if not is_nan(glass_y):
+		_build_pocket(glass_y, maxf(pocket_width, _span.x))
 	_ensure_light()
+	_fit_light_plane()
 	_light.global_position = Vector3(_seat.x, _seat.y + chamber_top(), _seat.z)
+
+## Die Länge einer liegenden Karte in Welt, aus dem Fußabdruck zurückgerechnet.
+func card_length() -> float:
+	return _span.y * (1.0 - BAR_SHARE) / CARD_ROOM
+
+## Die TASCHE: ein dunkler Kasten um den Turm, zur Auswurf-Bahn hin offen - durch
+## das Loch sieht man unter dem Filz in eine ehrliche Tiefe, nie in den Raum.
+func _build_pocket(glass_y: float, width: float) -> void:
+	var host := Node3D.new()
+	host.name = "Tasche"
+	add_child(host)
+	_pocket = host
+	var material := TableProps.metal(POCKET_ALBEDO, POCKET_EMISSION, POCKET_ENERGY,
+		0.35, 0.55)
+	var top := glass_y - PackPitView.WALL_SINK
+	var bottom := _seat.y - POCKET_WALL
+	var high := maxf(top - bottom, 0.05)
+	var near := _seat.z - _span.y * 0.5
+	var deep := _span.y + POCKET_WALL
+	var wide := width + POCKET_WALL * 2.0
+	var mid := Vector3(_seat.x, (top + bottom) * 0.5, near + deep * 0.5)
+	TableProps.box(host, "Decke", Vector3(wide, POCKET_WALL, deep),
+		Vector3(mid.x, top - POCKET_WALL * 0.5, mid.z), material)
+	TableProps.box(host, "Boden", Vector3(wide, POCKET_WALL, deep),
+		Vector3(mid.x, bottom - POCKET_WALL * 0.5, mid.z), material)
+	TableProps.box(host, "Rueckwand", Vector3(wide, high, POCKET_WALL),
+		Vector3(mid.x, mid.y, near + deep + POCKET_WALL * 0.5), material)
+	for side in 2:
+		var dir := float(side) * 2.0 - 1.0
+		TableProps.box(host, "Flanke%d" % side, Vector3(POCKET_WALL, high, deep),
+			Vector3(mid.x + dir * (wide * 0.5 - POCKET_WALL * 0.5), mid.y, mid.z),
+			material)
 
 func floor_count() -> int:
 	return _count
@@ -320,13 +385,26 @@ func _ensure_light() -> void:
 		LIGHT_ALPHA)
 	_light_plane = MeshInstance3D.new()
 	_light_plane.name = "Plane"
-	var quad := QuadMesh.new()
-	quad.size = _span
-	_light_plane.mesh = quad
+	_light_plane.mesh = QuadMesh.new()
 	_light_plane.material_override = _light_material
 	_light_plane.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
 	_light_plane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_light.add_child(_light_plane)
+
+## Die LICHT-EBENE liegt nur über den STUMMELN - unter dem Filz sähe sie keiner, und
+## über dem Ziel-Netz malte sie sich (sie liest ohne Tiefentest) auf die Anzeige.
+func _fit_light_plane() -> void:
+	if _light_plane == null or not is_instance_valid(_light_plane):
+		return
+	var reach := card_length() * (pull_share(0, _count) - HOME_INSET)
+	var quad := _light_plane.mesh as QuadMesh
+	quad.size = Vector2(_span.x, maxf(reach, 0.01))
+	_light_plane.position = Vector3(0.0, 0.0, -_span.y * 0.5 - reach * 0.5)
+
+func light_plane_size() -> Vector2:
+	if _light_plane == null or not is_instance_valid(_light_plane):
+		return Vector2.ZERO
+	return (_light_plane.mesh as QuadMesh).size
 
 func _ensure_materials() -> void:
 	if _frame_material != null:

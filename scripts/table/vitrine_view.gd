@@ -110,6 +110,10 @@ var single_row := false
 ## Bestands-Schlüssel der Sorten-Meldung je Platz (auch für Verkauftes): die
 ## Reihe rechnet ihre Plätze darüber, damit ein Kauf nur eine Lücke lässt.
 const STOCK_ROW_KINDS := "row_kinds"
+## Die PLÄTZE der Würfel in WELT, je Angebot einer (Welle 29): der Laden legt seine
+## Würfel in ein Raster, dessen Zeilen die Kartenzeilen sind - dann rechnet die Schale
+## keine Reihe mehr, sie stellt auf diese Plätze.
+const STOCK_DIE_SPOTS := "die_spots"
 ## Die gemessene Teilung der EINEN Reihe (0 = keine zwei Stücke): sie deckelt die
 ## Spannweite jedes Einzel-Loches.
 var _row_pitch := 0.0
@@ -548,12 +552,17 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var offsets := TableProps.row_spots(entries.size(), _field_width(), pitch)
 	var radius := pick_radius(bowl_reach() * PICK_FACTOR, offsets)
 	var x := _band_depths().y
+	var spots := _die_spots()
+	if not spots.is_empty():
+		radius = minf(bowl_reach() * PICK_FACTOR, _closest_pair(spots) * 0.5)
 	for i in entries.size():
 		var entry := entries[i]
 		if entry["value"] == null:
 			continue  # verkauft: der Platz bleibt leer
 		var lift := DieBuilder.HALF_EXTENT * DIE_SCALE
 		var spot := Vector3(x, lie_y(lift), _field_center_z() + offsets[i])
+		if i < spots.size():
+			spot = Vector3(spots[i].x, lie_y(lift), spots[i].z)
 		var key := slot_key(entry["kind"], entry["index"])
 		wanted[key] = true
 		var body: Node3D = _bodies.get(key)
@@ -697,8 +706,10 @@ func _band_depths() -> Vector2:
 	var need := shelf_reach() + bowl_reach()
 	if shelf - bowl >= need:
 		return Vector2(shelf, bowl)
-	if need > back - front:
-		var squeeze := (back - front) / need
+	# Auf Anschlag reicht, solange beide ganz nebeneinander passen - ihre Mitten liegen
+	# dann je eine Reichweite vor ihrer Kante.
+	if need * 2.0 > back - front:
+		var squeeze := (back - front) / (need * 2.0)
 		return Vector2(back - shelf_reach() * squeeze, front + bowl_reach() * squeeze)
 	return Vector2(back - shelf_reach(), front + bowl_reach())
 
@@ -842,6 +853,8 @@ func _run_machine(zone: int, entries: Array, leaving: Array, delay: float) -> bo
 ## Stücks. Er bleibt IM Buchtenrechteck - ein Loch daneben fräße die Seite an.
 ## track sagt die Tiefe an, wenn sie nicht aus dem Bestand kommt (reiner Abgang).
 func _shaft_for(zone: int, track := INF) -> LiftShaftView:
+	if zone == ZONE_BOWL and not _die_spots().is_empty():
+		return _grid_shaft(zone)
 	var bands := _band_depths()
 	var depth_x := bands.x if zone == ZONE_SHELF else bands.y
 	if not is_inf(track):
@@ -856,6 +869,41 @@ func _shaft_for(zone: int, track := INF) -> LiftShaftView:
 	var shaft := _shaft_node(zone)
 	shaft.setup(Vector3((back + front) * 0.5, center.y, _field_center_z()),
 		Vector2((back - front) * 0.5, span), shaft_depth())
+	return shaft
+
+## Die gemeldeten Würfel-Plätze (leer = die Schale rechnet ihre Reihe selbst).
+func _die_spots() -> Array:
+	return stock.get(STOCK_DIE_SPOTS, [])
+
+## Der kleinste Abstand zweier Plätze in der Tischebene - daran deckelt der Griff.
+static func _closest_pair(spots: Array) -> float:
+	var best := INF
+	for i in spots.size():
+		for j in range(i + 1, spots.size()):
+			var a: Vector3 = spots[i]
+			var b: Vector3 = spots[j]
+			best = minf(best, Vector2(a.x - b.x, a.z - b.z).length())
+	return best if not is_inf(best) else bowl_reach() * PICK_FACTOR * 2.0
+
+## Der Schacht des RASTERS: er deckt alle gemeldeten Plätze samt Reichweite.
+func _grid_shaft(zone: int) -> LiftShaftView:
+	var spots := _die_spots()
+	var reach := _zone_reach(zone)
+	var margin := reach * SHAFT_MARGIN_SHARE
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for spot: Vector3 in spots:
+		lo = Vector2(minf(lo.x, spot.x), minf(lo.y, spot.z))
+		hi = Vector2(maxf(hi.x, spot.x), maxf(hi.y, spot.z))
+	var back := minf(hi.x + reach + margin, center.x + half.x)
+	var front := maxf(lo.x - reach - margin, center.x - half.x)
+	var right := minf(hi.y + reach + margin, center.z + half.y)
+	var left := maxf(lo.y - reach - margin, center.z - half.y)
+	if back - front <= 0.0 or right - left <= 0.0:
+		return null
+	var shaft := _shaft_node(zone)
+	shaft.setup(Vector3((back + front) * 0.5, center.y, (right + left) * 0.5),
+		Vector2((back - front) * 0.5, (right - left) * 0.5), shaft_depth())
 	return shaft
 
 ## Der SEKTIONS-Schacht EINES Platzes: dieselbe Maschine der Zone, nur auf den

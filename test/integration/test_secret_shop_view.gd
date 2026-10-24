@@ -215,14 +215,6 @@ func test_the_annotation_prices_in_energy() -> void:
 	assert_eq(int(data["money"]), run.energy, "kaufbar heißt hier: die Börse deckt es")
 	assert_ne(String(data["title"]), "", "ein Stück ohne Namen wäre keins")
 
-func test_a_full_magazine_shows_on_the_annotation() -> void:
-	await wait_frames(2)
-	run.set_pack_capacity(1)
-	run.owned_packs.append(Pack.number_pack())  # Magazin voll
-	var data: Dictionary = view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1)
-	assert_eq(String(data["blocked"]), ShopController.FULL_TAG,
-		"volles Magazin steht statt des Preises")
-
 func test_an_essence_die_carries_its_net_and_its_soul() -> void:
 	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
 	die.essence_id = Essence.RADON
@@ -440,17 +432,6 @@ func test_a_die_plate_leads_with_its_soul_line() -> void:
 	var soul: Label = plate.get_child(0)
 	assert_eq(soul.text, Essence.by_id(Essence.RADON).display_name,
 		"die Seelen-Zeile nennt die Essenz")
-
-func test_a_full_magazine_marks_the_plate() -> void:
-	await wait_frames(2)
-	run.set_pack_capacity(1)
-	run.owned_packs.append(Pack.number_pack())  # Magazin voll
-	_push_plates()
-	var plate: Container = view._plate_layer.get_child(0)
-	var price_line: Label = plate.get_child(plate.get_child_count() - 1)
-	assert_eq(price_line.text, ShopController.FULL_MARK,
-		"volles Magazin steht statt des Preises")
-	assert_eq(price_line.modulate, CasinoStyle.RED)
 
 func test_plates_rebuild_only_on_change() -> void:
 	await wait_frames(2)

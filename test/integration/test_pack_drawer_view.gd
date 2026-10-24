@@ -1,47 +1,40 @@
 extends GutTest
 ## Tier-2-Tests des Magazins (PackDrawerView): EINE Grube in der Schürze, je Paket
-## seine eigene LIEGENDE Kassette in Spieler-Ordnung - ZWEI Reihen je TABLETT des
-## REGALSTAPELS, und genau EIN Tablett liegt in der Fläche. Gezählt und arbitriert
-## wird in WorkshopView, gefahren in ShelfStackView; hier steht nur, was wo liegt.
+## seine eigene LIEGENDE Kassette - VIER Tabletts, eines je SORTE, zu je zwei Lanes,
+## spaltenweise gefüllt, und jedes ROLLT. Genau EIN Tablett liegt in der Fläche.
+## Gezählt und arbitriert wird in WorkshopView, gefahren in ShelfStackView.
 
 ## Fußabdruck einer STEHENDEN Kassette (Grifftiefe × Kartenbreite) - daraus folgt
 ## der liegende (lie_cell).
 const CELL := Vector2(30, 12)
 
-func _entry(pack: Pack, uid: int, withheld := false, row := -1,
-		cell := -1) -> Dictionary:
+func _entry(pack: Pack, uid: int, withheld := false, cell := -1) -> Dictionary:
 	pack.pack_uid = uid
-	return {"uid": uid, "pack": pack, "withheld": withheld, "row": row, "cell": cell}
+	return {"uid": uid, "pack": pack, "withheld": withheld,
+		"tray": Pack.shelf_rank(pack), "cell": cell}
 
 func _drawer(entries: Array[Dictionary], locked := false,
 		row := Vector2(900, 260), tray := 0,
-		keys: Array[Vector2] = []) -> PackDrawerView:
+		keys: Array[Vector2] = [], scrolls: Array[int] = []) -> PackDrawerView:
 	var drawer := PackDrawerView.new()
 	add_child_autofree(drawer)
 	drawer.size = row
-	drawer.build(entries, 8.0, locked, CELL, row, tray, keys)
+	drawer.build(entries, 8.0, locked, CELL, row, tray, keys, scrolls)
 	return drawer
 
-## So viele Einträge, wie auf eine Reihe passen, plus extra - Reihe und Platz nach
-## dem alten Abschnitts-Muster, wie sie ein Lauf mit kompakter Belegung meldet.
+## So viele Zahlen-Karten wie gewünscht, Platz k = k (spaltenweise).
 func _fill(count: int) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
-	var columns := PackDrawerView.columns_for(_field().size, CELL, 1)
 	for i in count:
-		entries.append(_entry(Pack.number_pack(), i + 1, false,
-			i / columns, i % columns))
+		entries.append(_entry(Pack.number_pack(), i + 1, false, i))
 	return entries
 
-## Das FELD eines Streifens: die Grube, also der Streifen ohne seine Fassung -
-## dort stehen die Kassetten, und daran misst sich jeder gerechnete Anker.
 func _field(row := Vector2(900, 260)) -> Rect2:
 	return PackDrawerView.pit_rect_in(Rect2(Vector2.ZERO, row), 8.0)
 
-# --- Taxonomie: sie wohnt jetzt in data/ (Pack), die Farben hier ------------------
+# --- Taxonomie: sie wohnt in data/ (Pack), die Farben hier -----------------------
 
 func test_the_magazine_has_no_dice_shelf_any_more() -> void:
-	# Würfel werden nie versiegelt: die Taxonomie führt nur noch die drei
-	# Gravur-Sorten und den Sonderbestand.
 	assert_eq(Pack.SHELF_ORDER.size(), 4)
 	assert_false(Pack.SHELF_ORDER.has("dice_pack"))
 
@@ -56,14 +49,6 @@ func test_a_fixed_special_pack_lies_on_the_stockpile() -> void:
 	var pack := Pack.fixed_engraving_pack(Engraving.pointer_engraving())
 	assert_eq(Pack.shelf_of(pack), Pack.SHELF_SPECIAL)
 
-func test_an_engraving_pack_lies_on_its_category() -> void:
-	assert_eq(Pack.shelf_of(Pack.number_pack()), Engraving.CATEGORY_NUMBER)
-	assert_eq(Pack.shelf_of(Pack.material_pack()), Engraving.CATEGORY_MATERIAL)
-
-func test_the_delivery_route_reads_the_pack_type() -> void:
-	assert_eq(Pack.shelf_for_pack_type(Pack.TYPE_NUMBER), Engraving.CATEGORY_NUMBER)
-	assert_eq(Pack.shelf_for_pack_type(Pack.TYPE_MATERIAL), Engraving.CATEGORY_MATERIAL)
-
 func test_the_pack_type_map_reads_both_ways() -> void:
 	for pack_type: String in [Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL,
 			Pack.TYPE_DICE_MOD]:
@@ -72,134 +57,165 @@ func test_the_pack_type_map_reads_both_ways() -> void:
 	assert_eq(Pack.pack_type_of_shelf(Pack.SHELF_SPECIAL), "",
 		"der Sonderbestand nennt seine Sorte nicht")
 
-func test_every_shelf_order_key_has_a_colour() -> void:
-	# Die Taxonomie wohnt in data/, die Farben in ui/ - ein fehlender Schlüssel
-	# wäre ein stiller Rückfall auf Gold.
+func test_every_shelf_order_key_has_a_colour_and_a_short_name() -> void:
 	for category: String in Pack.SHELF_ORDER:
 		assert_true(PackDrawerView.COLORS.has(category), "%s hat seine Farbe" % category)
+		assert_ne(Pack.shelf_short(category), category, "%s hat ein Kürzel" % category)
 
-# --- Das Raster: feste Kartengröße, EINE Reihe je Etage ----------------------------
+# --- Sorte -> Tablett ---------------------------------------------------------------
+
+## Je SORTE ein Tablett: TRAYS ist SHELF_ORDER, und shelf_rank ordnet zu.
+func test_one_tray_per_sort() -> void:
+	assert_eq(PackDrawerView.TRAYS, Pack.SHELF_ORDER.size(), "vier Tabletts, eines je Sorte")
+	assert_eq(PackDrawerView.ROWS, PackDrawerView.TRAYS * PackDrawerView.LANES)
+	assert_eq(Pack.shelf_rank(Pack.number_pack()), 0)
+	assert_eq(Pack.shelf_rank(Pack.material_pack()), 1)
+	assert_eq(Pack.shelf_rank(Pack.dice_mod_pack()), 2)
+	assert_eq(Pack.shelf_rank(Pack.catalyst(Pack.CATALYST_TIMER)), 3)
+	assert_eq(Pack.shelf_rank(Pack.fixed_engraving_pack(Engraving.pointer_engraving())), 3)
+
+## Spaltenweise: Platz k liegt in Spalte k/2, Lane k%2 - hinten, vorn, nächste Spalte.
+func test_cells_fill_column_wise() -> void:
+	for k in 9:
+		assert_eq(PackDrawerView.column_of_cell(k), k / 2, "Platz %d" % k)
+		assert_eq(PackDrawerView.lane_of_cell(k), k % 2)
+	assert_eq(PackDrawerView.columns_used(0), 0)
+	assert_eq(PackDrawerView.columns_used(5), 3)
+
+## Die Tablett-Rechnung: Reihe = Tablett mal Lane, genau EINES liegt in der Fläche.
+func test_exactly_one_tray_lies_in_the_surface() -> void:
+	for row in PackDrawerView.ROWS:
+		assert_eq(PackDrawerView.tray_of(row), row / 2)
+		assert_eq(PackDrawerView.lane_of(row), row % 2)
+		assert_eq(PackDrawerView.row_for(row / 2, row % 2), row)
+	for chosen in PackDrawerView.TRAYS:
+		var shown: Array[int] = []
+		for row in PackDrawerView.ROWS:
+			if PackDrawerView.shows_row(row, chosen):
+				shown.append(row)
+		assert_eq(shown, PackDrawerView.rows_of(chosen) as Array[int])
+		assert_eq(PackDrawerView.state_of(0, chosen),
+			PackDrawerView.SHOWN if chosen == 0 else PackDrawerView.RETRACTED)
+
+# --- Das Raster: feste Kartengröße, ein Fenster aus COLUMNS Spalten ----------------
 
 func test_die_liegende_karte_folgt_aus_der_stehenden() -> void:
-	# Es gibt nur EINE Kartengröße: liegend die Langseite quer, die Breite nach vorn.
 	var lie := PackDrawerView.lie_cell(CELL)
 	assert_almost_eq(lie.y, CELL.y * PackDrawerView.CASSETTE_SCALE, 0.001)
-	assert_almost_eq(lie.x, lie.y * PackDrawerView.CARD_ASPECT, 0.001,
-		"und quer ist sie anderthalbmal so lang")
+	assert_almost_eq(lie.x, lie.y * PackDrawerView.CARD_ASPECT, 0.001)
 
-func test_spots_run_along_the_one_row_in_owner_order() -> void:
+## Die MINDESTBREITE der Grube trägt genau COLUMNS Karten - nie eine weniger.
+func test_the_min_field_carries_exactly_the_window_columns() -> void:
+	var width := PackDrawerView.min_field_width(CELL)
+	assert_eq(PackDrawerView.columns_for(Vector2(width, 200), CELL, 1),
+		PackDrawerView.COLUMNS)
+	assert_eq(PackDrawerView.COLUMNS, 4, "vier liegende Karten je Reihe")
+
+func test_spots_run_along_the_lane_and_the_front_lane_lies_below() -> void:
 	var field := _field().size
 	var columns := PackDrawerView.columns_for(field, CELL, 4)
 	var first := PackDrawerView.spot_for(0, field, CELL)
 	var second := PackDrawerView.spot_for(1, field, CELL)
-	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01,
-		"nebeneinander in derselben Reihe")
-	assert_almost_eq(second.y, first.y, 0.01)
-	# Die NÄCHSTE Reihe liegt nicht daneben, sondern in der VORDEREN Lane: derselbe
-	# Platz, eine Lane plus den SPALT tiefer.
-	var next_row := PackDrawerView.spot_for(0, field, CELL,
-		PackDrawerView.LANE_FRONT)
-	assert_almost_eq(next_row.x, first.x, 0.01, "Reihe 2 beginnt wieder links")
-	assert_almost_eq(next_row.y - first.y,
-		PackDrawerView.lane_depth(field) + PackDrawerView.LANE_GAP_PX, 0.01,
-		"und liegt eine Lane plus den Rand weiter vorn")
+	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01)
+	var front := PackDrawerView.spot_for(0, field, CELL, PackDrawerView.LANE_FRONT)
+	assert_almost_eq(front.x, first.x, 0.01)
+	assert_almost_eq(front.y - first.y,
+		PackDrawerView.lane_depth(field) + PackDrawerView.LANE_GAP_PX, 0.01)
 
-func test_a_row_holds_what_fits_and_the_rest_lies_on_the_next_row() -> void:
-	# Der Magazin-Deckel formt das Raster NICHT: die Spaltenzahl folgt allein aus der
-	# Breite der Grube und dem festen LIEGENDEN Kartenmaß.
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var card := PackDrawerView.lie_cell(CELL).x * PackDrawerView.CELL_SPAN
-	assert_eq(columns, int(field.x / card), "so viele, wie in ihrer Größe hineinpassen")
-	assert_eq(PackDrawerView.rows_for(field, CELL, columns), 1, "eine volle Reihe")
-	assert_eq(PackDrawerView.rows_for(field, CELL, columns + 1), 2,
-		"die nächste Kassette eröffnet die nächste Etage")
-
-## Der kopflose RÜCKFALL bleibt die Abschnitts-Rechnung: ohne gemeldete Reihe teilt
-## das Fenster die Liste wie eh und je auf.
-func test_the_rows_are_sections_of_the_one_list() -> void:
-	for columns in [1, 6, 7, 13]:
-		for i in columns * PackDrawerView.ROWS:
-			assert_eq(PackDrawerView.row_of(i, columns), i / columns,
-				"%d bei %d Spalten" % [i, columns])
-			assert_eq(PackDrawerView.cell_of(i, columns), i % columns)
-	assert_eq(PackDrawerView.row_of(-3, 0), 0, "unsinnige Zahlen liegen vorn")
-	assert_eq(PackDrawerView.cell_of(-3, 0), 0)
-
-func test_the_row_lies_in_what_the_front_band_leaves() -> void:
-	# An der Bild-unteren Kante des Tabletts steht seine FRONT-BLENDE; die Karten
-	# liegen mittig in dem, was in SEINER Lane bleibt - und eine Lane ist, was von der
-	# Grube nach Spalt und Fußluft bleibt, geteilt durch zwei.
-	var field := _field().size
-	var slot := PackDrawerView.slot_size(field, CELL)
-	assert_almost_eq(slot.y,
-		PackDrawerView.lane_depth(field) * (1.0 - PackDrawerView.FRONT_SHARE), 0.01)
-	assert_almost_eq(PackDrawerView.spot_for(0, field, CELL).y,
-		PackDrawerView.LANE_GAP_PX + slot.y * 0.5, 0.01,
-		"die Reihe liegt mittig darin, unter dem oberen Rand")
-
-## DREI GLEICHE Ränder sind die eine Lane-Rechnung: über der hinteren Reihe, zwischen
-## beiden und unter der vorderen - jeder LANE_GAP_PX, zusammen mit den zwei Lanes die
-## ganze Feldtiefe.
-func test_the_lanes_leave_a_gap_between_them_and_air_below() -> void:
+func test_the_lanes_leave_three_equal_gaps() -> void:
 	var field := _field().size
 	var rects := PackDrawerView.lane_rects(field)
-	assert_eq(rects.size(), PackDrawerView.LANES)
-	assert_almost_eq(rects[0].position.y, PackDrawerView.LANE_GAP_PX, 0.001,
-		"über der hinteren Reihe steht der Rand")
-	assert_almost_eq(rects[1].position.y - rects[0].end.y,
-		PackDrawerView.LANE_GAP_PX, 0.001, "derselbe Rand zwischen den Reihen")
-	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.LANE_GAP_PX, 0.001,
-		"und derselbe unter der vorderen Reihe")
-	assert_almost_eq(rects[0].size.y * float(PackDrawerView.LANES)
-		+ PackDrawerView.LANE_GAP_PX * float(PackDrawerView.LANES + 1), field.y, 0.001,
-		"zwei Lanes und drei Ränder sind die Feldtiefe")
-	assert_gt(PackDrawerView.LANE_GAP_PX, 0.0)
+	assert_almost_eq(rects[0].position.y, PackDrawerView.LANE_GAP_PX, 0.001)
+	assert_almost_eq(rects[1].position.y - rects[0].end.y, PackDrawerView.LANE_GAP_PX, 0.001)
+	assert_almost_eq(field.y - rects[1].end.y, PackDrawerView.LANE_GAP_PX, 0.001)
 
 func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
-	# Der ganze Punkt: eine Kassette schrumpft NIE - auch nicht jenseits des
-	# Deckels, den es nur gibt, damit es dort nie so weit kommt.
 	var field := _field().size
-	for count in [1, 12, 20, 40, 400]:
+	for count in [1, 12, 40, 400]:
 		assert_almost_eq(PackDrawerView.cell_scale_for(CELL, field, count),
 			PackDrawerView.CASSETTE_SCALE, 0.001, "%d Pakete, dasselbe Maß" % count)
 
-func test_the_capacity_is_one_row_times_the_rows() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	assert_gt(columns, 0)
-	assert_eq(PackDrawerView.capacity_for(field, CELL),
-		columns * PackDrawerView.ROWS, "Reihe mal Stapel-Reihen, sonst nichts")
+# --- Das ROLLEN --------------------------------------------------------------------
 
-func test_the_capacity_lays_out_without_shrinking_and_within_the_pit() -> void:
-	# Der Deckel ist so gewählt, dass das volle Magazin noch in voller Größe liegt.
-	var field := _field().size
-	var capacity := PackDrawerView.capacity_for(field, CELL)
-	var grid := PackDrawerView.grid_for(field, CELL, capacity)
-	assert_almost_eq(float(grid["scale"]), PackDrawerView.CASSETTE_SCALE, 0.001,
-		"am Deckel wird nichts gedrückt")
-	assert_eq(int(grid["rows"]), PackDrawerView.ROWS,
-		"und er füllt genau die Reihen, die der Stapel hat")
-	assert_lte(PackDrawerView.lie_cell(CELL).y,
-		PackDrawerView.slot_size(field, CELL).y + 0.001,
-		"die Reihe bleibt in der Grube")
+## Grenzen 0 .. max(0, Spalten - Fenster); losgelassen rastet es auf ganze Spalten.
+func test_the_scroll_clamps_and_snaps_to_whole_columns() -> void:
+	assert_eq(PackDrawerView.max_scroll(8, 4), 0, "acht Karten füllen genau vier Spalten")
+	assert_eq(PackDrawerView.max_scroll(9, 4), 1)
+	assert_eq(PackDrawerView.max_scroll(20, 4), 6)
+	assert_eq(PackDrawerView.clamp_scroll(-2, 20, 4), 0)
+	assert_eq(PackDrawerView.clamp_scroll(99, 20, 4), 6)
+	assert_eq(PackDrawerView.snap_scroll(0, -100.0, 100.0, 20, 4), 1,
+		"eine Spalte nach links gezogen rollt eine weiter")
+	assert_eq(PackDrawerView.snap_scroll(0, -140.0, 100.0, 20, 4), 1, "abgerundet")
+	assert_eq(PackDrawerView.snap_scroll(0, -160.0, 100.0, 20, 4), 2, "aufgerundet")
+	assert_eq(PackDrawerView.snap_scroll(2, 900.0, 100.0, 20, 4), 0, "nie unter 0")
+	assert_eq(PackDrawerView.snap_scroll(5, -900.0, 100.0, 20, 4), 6, "nie über das Ende")
 
-func test_the_capacity_is_pure() -> void:
-	var field := _field().size
-	assert_eq(PackDrawerView.capacity_for(field, CELL),
-		PackDrawerView.capacity_for(field, CELL), "dieselbe Rechnung")
-	assert_gt(PackDrawerView.capacity_for(field * 2.0, CELL),
-		PackDrawerView.capacity_for(field, CELL), "eine größere Grube fasst mehr")
+## Ein gerolltes Tablett legt die vorderen Spalten unter den Filz: kein Chip, aber
+## der Platz steht weiter - links neben dem Fenster.
+func test_a_rolled_out_card_keeps_its_place_but_carries_no_chip() -> void:
+	var columns := PackDrawerView.columns_for(_field().size, CELL, 1)
+	var count := columns * 2 + 4
+	var drawer := _drawer(_fill(count), false, Vector2(900, 260), 0, [],
+		[2, 0, 0, 0] as Array[int])
+	await wait_frames(2)
+	assert_null(drawer.pack_button(1), "Spalte 1 ist hinausgerollt")
+	assert_lt(drawer.column_of_pack(1), 0)
+	assert_lt(drawer.pack_seat_px(1).x, drawer.get_global_rect().position.x
+		+ drawer.field.position.x, "sie liegt links unter der Wand")
+	assert_not_null(drawer.pack_button(5), "Platz 5 (Spalte 3) liegt jetzt vorn im Fenster")
+	assert_eq(drawer.column_of_pack(5), 0)
+	assert_false(drawer.shows_pack(1))
+	assert_true(drawer.shows_pack(5))
 
-func test_the_grid_is_deterministic() -> void:
-	var field := _field().size
-	for count in [3, 17, 55, 130]:
-		assert_eq(PackDrawerView.grid_for(field, CELL, count),
-			PackDrawerView.grid_for(field, CELL, count), "%d: dieselbe Rechnung" % count)
+## Das Liefer-Licht einer hinausgerollten Karte endet am GRUBENRAND ihrer Seite.
+func test_a_rolled_out_card_aims_at_the_pit_edge() -> void:
+	var columns := PackDrawerView.columns_for(_field().size, CELL, 1)
+	var drawer := _drawer(_fill(columns * 2 * 3), false, Vector2(900, 260), 0, [],
+		[1, 0, 0, 0] as Array[int])
+	await wait_frames(2)
+	var origin := drawer.get_global_rect().position
+	assert_almost_eq(drawer.pack_anchor_px(1).x, origin.x + drawer.field.position.x, 0.5,
+		"links hinaus: der linke Rand")
+	var far := columns * 2 * 3
+	assert_almost_eq(drawer.pack_anchor_px(far).x, origin.x + drawer.field.end.x, 0.5,
+		"rechts noch nicht gezeigt: der rechte Rand")
+
+## Die Sorte wählt das Tablett: was auf einem verdeckten liegt, trägt keinen Chip,
+## und sein Licht fliegt an die TASTE seines Tabletts.
+func test_a_hidden_tray_has_no_chips_and_aims_at_its_key() -> void:
+	var keys: Array[Vector2] = [Vector2(1200, 10), Vector2(1200, 40),
+		Vector2(1200, 70), Vector2(1200, 100)]
+	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 1, false, 0),
+		_entry(Pack.material_pack(), 2, false, 0)]
+	var drawer := _drawer(entries, false, Vector2(900, 260), 0, keys)
+	await wait_frames(2)
+	assert_not_null(drawer.pack_button(1), "die Zahl liegt im gewählten Tablett")
+	assert_null(drawer.pack_button(2), "das Material liegt verdeckt")
+	assert_eq(drawer.row_of_pack(2), 2, "Tablett 2, hintere Lane")
+	assert_eq(drawer.pack_anchor_px(2), keys[1])
+	assert_almost_eq(drawer.pack_seat_px(2).x, drawer.pack_seat_px(1).x, 0.5,
+		"derselbe Platz wie die erste Karte des gewählten")
+
+func test_both_lanes_of_the_chosen_tray_carry_chips() -> void:
+	var drawer := _drawer(_fill(3))
+	await wait_frames(2)
+	assert_not_null(drawer.pack_button(1), "hinten")
+	assert_not_null(drawer.pack_button(2), "vorn in derselben Spalte")
+	assert_almost_eq(drawer.pack_seat_px(2).x, drawer.pack_seat_px(1).x, 0.5)
+	assert_gt(drawer.pack_seat_px(3).x, drawer.pack_seat_px(1).x, "die dritte eröffnet Spalte 2")
+
+func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
+	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 1, false, 0),
+		_entry(Pack.number_pack(), 2, true, 1), _entry(Pack.number_pack(), 3, false, 2)]
+	var drawer := _drawer(entries)
+	await wait_frames(2)
+	assert_null(drawer.pack_button(2))
+	assert_gt(drawer.pack_anchor_px(2).x, -1.0, "aber sein Platz steht")
 
 func test_a_rebuild_lays_the_same_drawer() -> void:
-	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 7),
-		_entry(Pack.material_pack(), 9)]
+	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 7, false, 0),
+		_entry(Pack.number_pack(), 9, false, 1)]
 	var drawer := _drawer(entries)
 	await wait_frames(2)
 	var first := drawer.pack_anchor_px(7)
@@ -208,308 +224,92 @@ func test_a_rebuild_lays_the_same_drawer() -> void:
 	assert_eq(drawer.pack_anchor_px(7), first, "derselbe Platz, byteweise")
 
 func test_the_derived_anchor_matches_the_measured_one() -> void:
-	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 3),
-		_entry(Pack.dice_mod_pack(), 5)]
-	var drawer := _drawer(entries)
+	var drawer := _drawer(_fill(4))
 	await wait_frames(2)
 	var field := PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0)
-	for i in entries.size():
-		var uid := int(entries[i]["uid"])
-		var measured := drawer.pack_anchor_px(uid)
-		var derived := PackDrawerView.anchor_in(field, i, CELL)
-		assert_almost_eq(measured.x, derived.x, 0.5, "uid %d: gleiche Spalte" % uid)
-		assert_almost_eq(measured.y, derived.y, 0.5, "uid %d: gleiche Höhe" % uid)
+	for k in 4:
+		var measured := drawer.pack_anchor_px(k + 1)
+		var derived := PackDrawerView.anchor_in(field, PackDrawerView.column_of_cell(k),
+			CELL, PackDrawerView.lane_of_cell(k))
+		assert_almost_eq(measured.x, derived.x, 0.5)
+		assert_almost_eq(measured.y, derived.y, 0.5)
 
-func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
-	# Der Komet IST das Paket: sein Platz wartet, sein Chip erscheint erst mit der
-	# Landung - und die Plätze der Nachbarn stehen, als läge es schon da.
-	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 1),
-		_entry(Pack.material_pack(), 2, true), _entry(Pack.dice_mod_pack(), 3)]
-	var drawer := _drawer(entries)
-	await wait_frames(2)
-	assert_null(drawer.pack_button(2), "kein Chip für das fliegende Paket")
-	assert_gt(drawer.pack_anchor_px(2).x, -1.0, "aber sein Platz steht")
-	var third := drawer.pack_anchor_px(3)
-	var derived := PackDrawerView.anchor_in(
-		PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0), 2, CELL)
-	assert_almost_eq(third.x, derived.x, 0.5, "der Nachbar zählt es mit")
-
-# --- Der REGALSTAPEL: EIN Tablett liegt, die anderen sind verdeckt ----------------
-
-## Die reine TABLETT-Rechnung wohnt hier: Reihe r liegt auf Tablett r/2, Lane r%2.
-func test_a_row_belongs_to_its_tray_and_lane() -> void:
-	assert_eq(PackDrawerView.TRAYS, 5, "fünf Tabletts zu je zwei Reihen")
-	assert_eq(PackDrawerView.TRAYS * PackDrawerView.LANES, PackDrawerView.ROWS)
-	for row in PackDrawerView.ROWS:
-		assert_eq(PackDrawerView.tray_of(row), row / 2, "Reihe %d" % (row + 1))
-		assert_eq(PackDrawerView.lane_of(row), row % 2)
-	for tray in PackDrawerView.TRAYS:
-		assert_eq(PackDrawerView.rows_of(tray),
-			[tray * 2, tray * 2 + 1] as Array[int], "Tablett %d" % (tray + 1))
-
-## Gewählt ist genau EINES: darüber eingefahren, darunter vergraben.
-func test_exactly_one_tray_lies_in_the_surface() -> void:
-	for chosen in PackDrawerView.TRAYS:
-		var shown: Array[int] = []
-		for row in PackDrawerView.ROWS:
-			if PackDrawerView.shows_row(row, chosen):
-				shown.append(row)
-		assert_eq(shown, PackDrawerView.rows_of(chosen) as Array[int],
-			"Wahl %d" % (chosen + 1))
-		assert_eq(PackDrawerView.state_of(0, chosen),
-			PackDrawerView.SHOWN if chosen == 0 else PackDrawerView.RETRACTED)
-		assert_eq(PackDrawerView.state_of(PackDrawerView.ROWS - 1, chosen),
-			PackDrawerView.SHOWN if chosen == PackDrawerView.TRAYS - 1
-				else PackDrawerView.BURIED)
-
-func test_both_lanes_of_the_chosen_tray_carry_chips() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer(_fill(columns * 2 + 1))
-	await wait_frames(2)
-	assert_eq(drawer.tray(), 0)
-	assert_not_null(drawer.pack_button(1), "die hintere Reihe ist greifbar")
-	assert_not_null(drawer.pack_button(columns + 1), "und die vordere auch")
-	assert_null(drawer.pack_button(columns * 2 + 1),
-		"was auf Tablett 2 liegt, greift man nicht")
-	assert_eq(drawer.row_of_pack(columns * 2 + 1), 2, "es liegt in Reihe 3")
-	# Die zwei Lanes liegen ÜBEREINANDER in der Grube, nicht nebeneinander.
-	assert_almost_eq(drawer.pack_seat_px(columns + 1).x, drawer.pack_seat_px(1).x, 0.5,
-		"derselbe Platz in der Reihe")
-	assert_almost_eq(drawer.pack_seat_px(columns + 1).y - drawer.pack_seat_px(1).y,
-		PackDrawerView.lane_depth(drawer.field.size) + PackDrawerView.LANE_GAP_PX, 0.5,
-		"eine Lane plus den Rand weiter vorn")
-	assert_eq(drawer.hover_uid_at(drawer.pack_button(1).get_global_rect().get_center()), 1)
-
-## Tablett 2 zeigt die Reihen 3 und 4 - und nur die.
-func test_choosing_a_tray_shows_its_two_rows() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer(_fill(columns * 4), false, Vector2(900, 260), 1)
-	await wait_frames(2)
-	assert_eq(drawer.tray(), 1)
-	assert_null(drawer.pack_button(1), "Reihe 1 liegt auf Tablett 1, jetzt verdeckt")
-	assert_null(drawer.pack_button(columns + 1), "Reihe 2 ebenso")
-	assert_not_null(drawer.pack_button(columns * 2 + 1), "Reihe 3 liegt hinten")
-	assert_not_null(drawer.pack_button(columns * 3 + 1), "Reihe 4 vorn")
-	assert_true(drawer.shows_pack(columns * 2 + 1))
-	assert_false(drawer.shows_pack(1))
-
-## Die Plätze kommen aus REIHE und PLATZ der Einträge: eine LÜCKE in Reihe 1
-## verschiebt Reihe 2 nicht - jede Reihe schließt sich für sich.
-func test_a_gap_in_row_one_never_moves_row_two() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var full := _drawer(_fill(columns * 2))
-	await wait_frames(2)
-	var second_row: Array[Vector2] = []
-	for i in columns:
-		second_row.append(full.pack_seat_px(columns + i + 1))
-	# Nun fehlt in Reihe 1 die mittlere Karte, die Reihe schließt sich um sie ...
-	var gapped: Array[Dictionary] = []
-	var cell_index := 0
-	for i in columns:
-		if i == columns / 2:
-			continue
-		gapped.append(_entry(Pack.number_pack(), i + 1, false, 0, cell_index))
-		cell_index += 1
-	for i in columns:
-		gapped.append(_entry(Pack.number_pack(), columns + i + 1, false, 1, i))
-	var drawer := _drawer(gapped)
-	await wait_frames(2)
-	for i in columns:
-		assert_almost_eq(drawer.pack_seat_px(columns + i + 1).x, second_row[i].x, 0.5,
-			"Reihe 2, Platz %d steht still" % (i + 1))
-		assert_almost_eq(drawer.pack_seat_px(columns + i + 1).y, second_row[i].y, 0.5)
-
-## Ein freier Platz einer LIEGENDEN Reihe ist ein Ablage-Ziel; ein Zug darauf meldet
-## die Zielreihe. Verdeckte Tabletts tragen keins - was man nicht sieht, belegt man nicht.
-func test_an_empty_spot_of_a_lying_row_takes_a_drop() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer([_entry(Pack.number_pack(), 1, false, 0, 0)] as Array[Dictionary])
-	await wait_frames(2)
-	var placed: Array = []
-	drawer.pack_placed.connect(func(uid: int, row: int) -> void: placed.append([uid, row]))
-	assert_gt(columns, 1, "die Grube trägt mehr als eine Karte je Reihe")
-	var origin := drawer.get_global_rect().position
-	var free_back := origin + PackDrawerView.anchor_in(drawer.field, 1, CELL)
-	assert_eq(drawer.empty_row_at(free_back), 0, "Platz 2 der hinteren Reihe ist frei")
-	var free_front := origin + PackDrawerView.anchor_in(drawer.field, 0, CELL,
-		PackDrawerView.LANE_FRONT)
-	assert_eq(drawer.empty_row_at(free_front), 1, "und die vordere Reihe ist ganz frei")
-	drawer._on_chip_input(_click(true), 1)
-	drawer._on_chip_input(_click(false, free_front), 1)
-	assert_eq(placed, [[1, 1]], "gezogen auf den leeren Platz = in die vordere Reihe")
-	# Auf den EIGENEN freien Platz gelassen passiert nichts: dieselbe Reihe.
-	placed.clear()
-	drawer._on_chip_input(_click(true), 1)
-	drawer._on_chip_input(_click(false, free_back), 1)
-	assert_true(placed.is_empty(), "die eigene Reihe ist kein Umzug")
-
-func test_only_the_chosen_trays_rows_offer_drop_targets() -> void:
-	var columns := PackDrawerView.columns_for(_field().size, CELL, 1)
-	var drawer := _drawer(_fill(columns), false, Vector2(900, 260), 1)
-	await wait_frames(2)
-	var origin := drawer.get_global_rect().position
-	for i in columns:
-		var front := origin + PackDrawerView.anchor_in(drawer.field, i, CELL,
-			PackDrawerView.LANE_FRONT)
-		assert_eq(drawer.empty_row_at(front), 3,
-			"unter der vorderen Lane liegt Reihe 4 des gewählten Tabletts")
-		var back := origin + PackDrawerView.anchor_in(drawer.field, i, CELL)
-		assert_eq(drawer.empty_row_at(back), 2, "und hinten Reihe 3 - nie eine verdeckte")
-
-## Der PLATZ bleibt der Platz - auch eine verdeckte Reihe liegt in ihrer LANE; nur
-## das LICHT fliegt woanders hin: an die TASTE ihres Tabletts.
-func test_a_hidden_pack_keeps_its_seat_but_its_light_flies_to_its_key() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var keys: Array[Vector2] = [Vector2(1200, 10), Vector2(1200, 40),
-		Vector2(1200, 70), Vector2(1200, 100), Vector2(1200, 130)]
-	var drawer := _drawer(_fill(columns * 3 + 1), false, Vector2(900, 260), 0, keys)
-	await wait_frames(2)
-	var hidden := columns * 2 + 1     # Reihe 3 = Tablett 2
-	var deeper := columns * 3 + 1     # Reihe 4 = Tablett 2
-	assert_almost_eq(drawer.pack_seat_px(hidden).x, drawer.pack_seat_px(1).x, 0.5,
-		"derselbe Platz in der Reihe wie der erste")
-	assert_eq(drawer.pack_anchor_px(hidden), keys[1], "sein Licht endet an Taste 2")
-	assert_eq(drawer.pack_anchor_px(deeper), keys[1], "beide Reihen desselben Tabletts")
-	assert_eq(drawer.pack_anchor_px(1), drawer.pack_seat_px(1),
-		"ein liegendes Tablett nimmt sein Licht selbst an")
-	assert_eq(drawer.pack_anchor_px(columns + 1), drawer.pack_seat_px(columns + 1),
-		"und die vordere Lane genauso")
-
-func test_without_keys_a_hidden_pack_aims_at_the_drawer() -> void:
-	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL, 1)
-	var drawer := _drawer(_fill(columns * 2 + 1))
-	await wait_frames(2)
-	assert_eq(drawer.pack_anchor_px(columns * 2 + 1),
-		drawer.get_global_rect().get_center(),
-		"ohne gemeldete Leiste bleibt das Fach der Rückfall")
-
-# --- Chip-Schalen-Regel: der Knopf zeichnet nichts --------------------------------
+# --- Chip-Schalen-Regel -------------------------------------------------------------
 
 func test_a_chip_draws_nothing_at_all() -> void:
-	# Kein gemalter Schein mehr: er läge unter dem Loch. Gegriffen wird die
-	# Kassette selbst, indem sie sich aus der Grube zieht.
-	var drawer := _drawer([_entry(Pack.number_pack(), 4)] as Array[Dictionary])
+	var drawer := _drawer([_entry(Pack.number_pack(), 4, false, 0)] as Array[Dictionary])
 	var chip := drawer.pack_button(4)
 	assert_not_null(chip)
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
-		assert_true(chip.get_theme_stylebox(state) is StyleBoxEmpty,
-			"%s zeichnet nichts" % state)
-	assert_null(chip.get_node_or_null("Halo"), "der Schein ist fort")
+		assert_true(chip.get_theme_stylebox(state) is StyleBoxEmpty, "%s zeichnet nichts" % state)
 
 func test_the_drawer_names_the_pack_under_the_pointer() -> void:
-	# GEFRAGT statt gemeldet: der Zeiger liegt auf dem Tisch, ein mouse_entered
-	# käme nie an - scene_root hebt daran den Körper aus der Grube.
-	var drawer := _drawer([_entry(Pack.number_pack(), 4),
-		_entry(Pack.material_pack(), 5)] as Array[Dictionary])
+	var drawer := _drawer(_fill(2))
 	await wait_frames(2)
-	assert_eq(drawer.hover_uid_at(drawer.pack_button(5).get_global_rect().get_center()), 5)
-	assert_eq(drawer.hover_uid_at(Vector2(-500, -500)), 0, "daneben greift niemand")
+	assert_eq(drawer.hover_uid_at(drawer.pack_button(2).get_global_rect().get_center()), 2)
+	assert_eq(drawer.hover_uid_at(Vector2(-500, -500)), 0)
 
 func test_a_chip_reports_its_uid_when_pressed() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 11)] as Array[Dictionary])
+	var drawer := _drawer([_entry(Pack.number_pack(), 11, false, 0)] as Array[Dictionary])
 	var pressed: Array[int] = []
 	drawer.pack_pressed.connect(func(uid: int) -> void: pressed.append(uid))
 	drawer.pack_button(11).pressed.emit()
 	assert_eq(pressed, [11] as Array[int])
 
 func test_the_lock_bars_every_chip_and_dims_the_well() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 6)] as Array[Dictionary], true)
+	var drawer := _drawer([_entry(Pack.number_pack(), 6, false, 0)] as Array[Dictionary], true)
 	await wait_frames(2)
-	assert_true(drawer.pack_button(6).disabled, "unterschrieben wird nicht gegriffen")
+	assert_true(drawer.pack_button(6).disabled)
 	var well: Panel = drawer.get_node("DrawerWell")
 	assert_eq(well.modulate, PackDrawerView.LOCK_DIM)
-	assert_eq(drawer.hover_uid_at(drawer.pack_button(6).get_global_rect().get_center()), 0,
-		"und die Sperre schlägt das Überfahren")
+	assert_eq(drawer.hover_uid_at(drawer.pack_button(6).get_global_rect().get_center()), 0)
 
 func test_the_well_paints_only_its_frame() -> void:
-	# Die Mitte ist ein echtes Loch (screen_glass.pit_rect) - ein gemalter Grund
-	# läge hinter nichts.
 	var drawer := _drawer([] as Array[Dictionary])
 	var well: Panel = drawer.get_node("DrawerWell")
 	var box: StyleBoxFlat = well.get_theme_stylebox("panel")
-	assert_false(box.draw_center, "die Fassung, nicht der Grund")
+	assert_false(box.draw_center)
 	assert_gt(box.border_width_left, 0)
 
 func test_the_pit_is_the_strip_minus_its_painted_frame() -> void:
 	var strip := Rect2(Vector2(40, 200), Vector2(900, 260))
 	var inset := PackDrawerView.rim_inset(8.0)
-	assert_gt(inset, 0.0)
-	assert_eq(PackDrawerView.pit_rect_in(strip, 8.0), strip.grow(-inset),
-		"das Loch endet, wo der Rahmen beginnt")
+	assert_eq(PackDrawerView.pit_rect_in(strip, 8.0), strip.grow(-inset))
 
-# --- Auskunft ---------------------------------------------------------------------
+# --- Auskunft -----------------------------------------------------------------------
 
 func test_a_chip_explains_itself_on_hover() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 8)] as Array[Dictionary])
+	var drawer := _drawer([_entry(Pack.number_pack(), 8, false, 0)] as Array[Dictionary])
 	await wait_frames(2)
 	var hint := drawer.hint_at(drawer.pack_button(8).get_global_rect().get_center())
 	assert_eq(String(hint.get("title", "")), Pack.number_pack().display_name)
-	assert_ne(String(hint.get("body", "")), "", "und seine Wirkung")
-	assert_true(drawer.hint_at(Vector2(-500, -500)).is_empty(), "daneben schweigt es")
+	assert_ne(String(hint.get("body", "")), "")
+	assert_true(drawer.hint_at(Vector2(-500, -500)).is_empty())
 
 func test_a_bundle_carries_its_count_in_the_title() -> void:
 	var bundle := Pack.fixed_engraving_pack(Engraving.pointer_engraving(), 5)
-	var drawer := _drawer([_entry(bundle, 12)] as Array[Dictionary])
+	var drawer := _drawer([_entry(bundle, 12, false, 0)] as Array[Dictionary], false,
+		Vector2(900, 260), 3)
 	await wait_frames(2)
 	var hint := drawer.hint_at(drawer.pack_button(12).get_global_rect().get_center())
-	assert_true(String(hint.get("title", "")).begins_with("5×"),
-		"das Bündel nennt seine Zahl: '%s'" % hint.get("title", ""))
+	assert_true(String(hint.get("title", "")).begins_with("5×"))
 
 func test_an_empty_drawer_names_itself() -> void:
 	var drawer := _drawer([] as Array[Dictionary])
 	await wait_frames(2)
 	var hint := drawer.hint_at(drawer.get_global_rect().get_center())
 	assert_eq(String(hint.get("title", "")), PackDrawerView.EMPTY_TITLE)
-	assert_eq(String(hint.get("body", "")), PackDrawerView.EMPTY_BODY,
-		"Auskunft, keine Anweisung")
-	assert_true(bool(hint.get("stock", false)),
-		"die Marke, an der WorkshopView den Füllstand einsetzt")
-
-func test_the_surface_answers_even_with_cards_lying_there() -> void:
-	# Der Bestand am Deckel steht auf der FLÄCHE, nicht auf den Karten - eine
-	# Kassette nennt ihren Inhalt, das Fach seinen Füllstand.
-	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
-	await wait_frames(2)
-	var corner := drawer.get_global_rect().position + Vector2(2, 2)
-	assert_true(bool(drawer.hint_at(corner).get("stock", false)))
-	var on_chip := drawer.hint_at(drawer.pack_button(1).get_global_rect().get_center())
-	assert_false(on_chip.has("stock"), "auf der Kassette spricht die Kassette")
-
-# --- Maßstab ----------------------------------------------------------------------
-
-func test_the_drawer_reports_the_scale_it_built_with() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
-	assert_almost_eq(drawer.cell_scale(), PackDrawerView.CASSETTE_SCALE, 0.001)
-	assert_almost_eq(drawer.cell_scale(),
-		PackDrawerView.cell_scale_for(CELL, drawer.field.size, 1), 0.001,
-		"gemessen und gerechnet sind dasselbe Maß")
+	assert_eq(String(hint.get("body", "")), PackDrawerView.EMPTY_BODY)
+	assert_true(bool(hint.get("stock", false)))
 
 func test_the_grip_is_the_whole_slot_minus_its_air() -> void:
-	# In der Grube gäbe ein Knopf im Kappenmaß einen Streifen von wenigen Pixeln.
-	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
+	var drawer := _drawer([_entry(Pack.number_pack(), 1, false, 0)] as Array[Dictionary])
 	await wait_frames(2)
 	var slot := PackDrawerView.slot_size(drawer.field.size, CELL)
 	assert_almost_eq(drawer.pack_button(1).size.x,
 		slot.x * (1.0 - PackDrawerView.SLOT_INSET * 2.0), 0.5)
-	assert_gt(drawer.pack_button(1).size.y, CELL.y, "und er ist tiefer als die Kappe")
 
-func test_the_anchor_is_the_centre_of_its_spot() -> void:
-	# In der Grube STEHT die Kassette mittig auf ihrem Platz - über ihr schwebt
-	# nichts mehr, für das Kopfraum abzuziehen wäre.
-	var drawer := _drawer([_entry(Pack.number_pack(), 2)] as Array[Dictionary])
-	await wait_frames(2)
-	var chip := drawer.pack_button(2)
-	var anchor := drawer.pack_anchor_px(2)
-	assert_almost_eq(anchor.x, chip.get_global_rect().get_center().x, 0.01)
-	assert_almost_eq(anchor.y, chip.get_global_rect().get_center().y, 0.01)
-
-# --- Gesten: getippt wählt, gezogen sortiert, Doppelklick räumt auf ----------------
+# --- Gesten: getippt wählt, gezogen rollt, Doppelklick räumt auf -------------------
 
 func _click(pressed: bool, at := Vector2.ZERO, double := false) -> InputEventMouseButton:
 	var event := InputEventMouseButton.new()
@@ -519,60 +319,71 @@ func _click(pressed: bool, at := Vector2.ZERO, double := false) -> InputEventMou
 	event.double_click = double
 	return event
 
-func test_a_drag_onto_another_cell_reorders_and_never_presses() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 1),
-		_entry(Pack.material_pack(), 2)] as Array[Dictionary])
-	await wait_frames(2)
-	var moves: Array = []
-	drawer.packs_reordered.connect(func(from_uid: int, to_uid: int) -> void:
-		moves.append([from_uid, to_uid]))
-	drawer._on_chip_input(_click(true), 1)
-	drawer._on_chip_input(_click(false,
-		drawer.pack_button(2).get_global_rect().get_center()), 1)
-	assert_eq(moves, [[1, 2]], "losgelassen über der anderen Kassette = umgelegt")
+func _motion(at: Vector2) -> InputEventMouseMotion:
+	var event := InputEventMouseMotion.new()
+	event.global_position = at
+	event.button_mask = MOUSE_BUTTON_MASK_LEFT
+	return event
 
-func test_a_release_on_the_same_cell_stays_a_tap() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 1),
-		_entry(Pack.material_pack(), 2)] as Array[Dictionary])
+## Ein Zug über die Schwelle ROLLT: gemeldet wird der Weg, losgelassen das Einrasten
+## - und der Knopf-Klick danach wird geschluckt.
+func test_a_drag_scrolls_and_swallows_the_press() -> void:
+	var drawer := _drawer(_fill(2))
 	await wait_frames(2)
-	var moves: Array = []
-	drawer.packs_reordered.connect(func(from_uid: int, to_uid: int) -> void:
-		moves.append([from_uid, to_uid]))
-	drawer._on_chip_input(_click(true), 1)
-	drawer._on_chip_input(_click(false,
-		drawer.pack_button(1).get_global_rect().get_center()), 1)
-	assert_true(moves.is_empty(), "auf sich selbst gelassen ist kein Umlegen - der Klick feuert am Knopf")
+	var dragged: Array[float] = []
+	var released: Array[float] = []
+	var pressed: Array[int] = []
+	drawer.scroll_dragged.connect(func(px: float) -> void: dragged.append(px))
+	drawer.scroll_released.connect(func(px: float) -> void: released.append(px))
+	drawer.pack_pressed.connect(func(uid: int) -> void: pressed.append(uid))
+	var start := drawer.pack_button(1).get_global_rect().get_center()
+	drawer._track_drag(_click(true, start))
+	drawer._track_drag(_motion(start + Vector2(-3, 0)))
+	assert_true(dragged.is_empty(), "unter der Schwelle rollt nichts")
+	drawer._track_drag(_motion(start + Vector2(-60, 0)))
+	assert_eq(dragged, [-60.0] as Array[float])
+	assert_true(drawer.dragging())
+	drawer._track_drag(_click(false, start + Vector2(-60, 0)))
+	drawer.pack_button(1).pressed.emit()
+	assert_true(pressed.is_empty(), "ein Zug ist kein Tipp")
+	await wait_frames(1)
+	assert_eq(released, [-60.0] as Array[float], "gemeldet nach dem Ereignis")
+	assert_false(drawer.dragging())
 
-func test_a_release_over_nothing_drops_the_drag() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
+func test_a_tap_stays_a_tap() -> void:
+	var drawer := _drawer(_fill(1))
 	await wait_frames(2)
-	var moves: Array = []
-	drawer.packs_reordered.connect(func(from_uid: int, to_uid: int) -> void:
-		moves.append([from_uid, to_uid]))
-	drawer._on_chip_input(_click(true), 1)
-	drawer._on_chip_input(_click(false, Vector2(-999, -999)), 1)
-	assert_true(moves.is_empty(), "ins Leere gelassen passiert nichts")
+	var pressed: Array[int] = []
+	drawer.pack_pressed.connect(func(uid: int) -> void: pressed.append(uid))
+	var at := drawer.pack_button(1).get_global_rect().get_center()
+	drawer._track_drag(_click(true, at))
+	drawer._track_drag(_click(false, at))
+	drawer.pack_button(1).pressed.emit()
+	assert_eq(pressed, [1] as Array[int])
+
+func test_a_drag_on_the_well_scrolls_too() -> void:
+	var drawer := _drawer(_fill(1))
+	await wait_frames(2)
+	var dragged: Array[float] = []
+	drawer.scroll_dragged.connect(func(px: float) -> void: dragged.append(px))
+	drawer._on_well_input(_click(true, Vector2(100, 100)))
+	drawer._on_well_input(_motion(Vector2(140, 100)))
+	assert_eq(dragged, [40.0] as Array[float], "über dem Tablett rollt es ebenso")
 
 func test_a_double_click_on_the_empty_well_requests_a_tidy() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 1)] as Array[Dictionary])
+	var drawer := _drawer(_fill(1))
 	await wait_frames(2)
-	var tidies: Array[int] = []  # Lambda-Fänge kopieren ints - ein Array trägt die Referenz
+	var tidies: Array[int] = []
 	drawer.tidy_requested.connect(func() -> void: tidies.append(1))
-	assert_not_null(drawer.get_node("WellCatch"), "die Fläche fängt selbst")
 	drawer._on_well_input(_click(true, Vector2.ZERO, true))
-	assert_eq(tidies.size(), 1, "der Doppelklick auf die Fläche räumt auf")
+	assert_eq(tidies.size(), 1)
 	drawer._on_well_input(_click(true))
 	assert_eq(tidies.size(), 1, "ein einfacher Klick nicht")
 
-func test_the_lock_bars_drag_and_tidy() -> void:
-	var drawer := _drawer([_entry(Pack.number_pack(), 1),
-		_entry(Pack.material_pack(), 2)] as Array[Dictionary], true)
+func test_the_lock_bars_the_tidy() -> void:
+	var drawer := _drawer(_fill(2), true)
 	await wait_frames(2)
 	var fired: Array[int] = []
-	drawer.packs_reordered.connect(func(_a: int, _b: int) -> void: fired.append(1))
 	drawer.tidy_requested.connect(func() -> void: fired.append(1))
-	drawer._on_chip_input(_click(true), 1)
-	drawer._on_chip_input(_click(false,
-		drawer.pack_button(2).get_global_rect().get_center()), 1)
 	drawer._on_well_input(_click(true, Vector2.ZERO, true))
-	assert_eq(fired.size(), 0, "gesperrt wird weder gezogen noch aufgeräumt")
+	assert_eq(fired.size(), 0)

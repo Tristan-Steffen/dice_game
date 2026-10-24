@@ -344,27 +344,14 @@ func test_reorder_pool_full_weist_luecken_und_doppel_zurueck():
 	assert_false(run.reorder_pool_full(doubled), "und keiner steht zweimal")
 	assert_eq(run.owned_pool, before)
 
-func test_pack_by_uid_finds_its_pack_and_survives_reorder():
-	run.grant_pack(Pack.number_pack())
+func test_pack_by_uid_finds_its_pack_and_survives_tidy():
 	run.grant_pack(Pack.material_pack())
+	run.grant_pack(Pack.number_pack())
 	var uid := run.owned_packs[0].pack_uid
-	run.reorder_packs(0, 1)
+	run.tidy_packs()
 	assert_eq(run.pack_index_of(uid), 1, "die uid folgt dem Paket, nicht dem Platz")
-	assert_eq(run.pack_by_uid(uid).type, Pack.TYPE_NUMBER)
+	assert_eq(run.pack_by_uid(uid).type, Pack.TYPE_MATERIAL)
 	assert_null(run.pack_by_uid(999), "unbekannte uid = kein Paket")
-
-func test_reorder_packs_moves_one_and_closes_the_row():
-	# remove/insert wie reorder_pool: das Gezogene landet GENAU am Ziel, alles
-	# dazwischen rückt eine Stelle - nie ein Tausch.
-	run.grant_packs([Pack.number_pack(), Pack.material_pack(), Pack.dice_mod_pack()] as Array[Pack])
-	var first := run.owned_packs[0]
-	watch_signals(run)
-	run.reorder_packs(0, 2)
-	assert_eq(run.owned_packs[2], first, "das gezogene Paket steht am Ziel")
-	assert_eq(run.owned_packs[0].type, Pack.TYPE_MATERIAL, "die Reihe schließt sich")
-	assert_signal_emitted(run, "packs_changed")
-	run.reorder_packs(5, 0)  # außerhalb: nichts passiert
-	assert_eq(run.owned_packs[2], first)
 
 func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
 	run.grant_packs([Pack.dice_mod_pack(), Pack.number_pack(),
@@ -379,234 +366,83 @@ func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
 	assert_lt(run.owned_packs[0].pack_uid, run.owned_packs[1].pack_uid,
 		"gleicher Inhalt: die uid bricht den Gleichstand")
 
-# --- Das REIHEN-MODELL des Magazins ------------------------------------------------
+# --- Das SORTEN-MODELL des Magazins (Welle 29) -------------------------------------
 
-## Das gemessene RASTER schiebt Spalten herein; der Deckel fällt daraus.
-func test_set_pack_grid_derives_the_capacity():
-	run.set_pack_grid(6)
-	assert_eq(run.pack_columns, 6)
-	assert_eq(run.pack_capacity, 6 * GameRun.PACK_ROWS, "Reihe mal Kreislauf-Reihen")
-	assert_eq(GameRun.PACK_ROWS, 10)
+## Die Sorte IST das Tablett: je Pack.SHELF_ORDER-Eintrag eines.
+func test_the_sort_decides_the_tray():
+	var number := run.grant_pack(Pack.number_pack())
+	var material := run.grant_pack(Pack.material_pack())
+	var runes := run.grant_pack(Pack.dice_mod_pack())
+	var special := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
+	assert_eq(run.pack_tray_of(number.pack_uid), 0, "Zahlen liegen im ersten Tablett")
+	assert_eq(run.pack_tray_of(material.pack_uid), 1)
+	assert_eq(run.pack_tray_of(runes.pack_uid), 2)
+	assert_eq(run.pack_tray_of(special.pack_uid), 3, "der Sonderbestand im letzten")
+	assert_eq(run.pack_tray_of(999), -1, "ein unbekanntes Paket liegt nirgends")
 
-## Eine Lieferung fällt auf die ERSTE Reihe mit freiem Platz - Reihe 1 zuerst.
-func test_a_delivery_falls_into_the_first_row_with_room():
-	run.set_pack_grid(2)
-	for i in 5:
-		run.grant_pack(Pack.number_pack())
-	var rows: Array[int] = []
+## Der PLATZ ist der Rang unter den Paketen DERSELBEN Sorte, in Listenordnung.
+func test_the_cell_counts_only_the_same_sort():
+	run.grant_packs([Pack.number_pack(), Pack.material_pack(), Pack.number_pack(),
+		Pack.material_pack(), Pack.number_pack()] as Array[Pack])
+	var cells: Array[int] = []
 	for pack: Pack in run.owned_packs:
-		rows.append(pack.shelf_row)
-	assert_eq(rows, [0, 0, 1, 1, 2] as Array[int], "voll heißt: die nächste Reihe")
-	assert_eq(run.pack_cell_of(run.owned_packs[3].pack_uid), 1,
-		"und der Platz ist der Rang in SEINER Reihe")
-	assert_eq(run.next_pack_row(), 2, "der nächste fällt zu dem einen in Reihe 3")
-	assert_eq(run.next_pack_row(1), 3, "und der übernächste eröffnet Reihe 4")
-	assert_eq(run.next_pack_spot(1), Vector2i(3, 0))
+		cells.append(run.pack_cell_of(pack.pack_uid))
+	assert_eq(cells, [0, 0, 1, 1, 2] as Array[int])
+	assert_eq(run.pack_tray_count(0), 3)
+	assert_eq(run.pack_tray_count(1), 2)
 
-## Ein Verbrauch mitten in Reihe 1 schließt NUR Reihe 1 - Reihe 2 rührt sich nicht.
-func test_a_consumed_pack_closes_only_its_own_row():
-	run.set_pack_grid(3)
-	for i in 6:
-		run.grant_pack(Pack.number_pack())
-	var second: Array[int] = []
-	for i in range(3, 6):
-		second.append(run.pack_cell_of(run.owned_packs[i].pack_uid))
-	run._consume_packs([run.owned_packs[1]] as Array[Pack])
-	assert_eq(run.pack_cell_of(run.owned_packs[1].pack_uid), 1,
-		"Reihe 1 schließt sich um die verbrauchte Karte")
-	for i in range(2, 5):
-		assert_eq(run.owned_packs[i].shelf_row, 1, "Reihe 2 bleibt Reihe 2")
-		assert_eq(run.pack_cell_of(run.owned_packs[i].pack_uid), second[i - 2],
-			"und ihre Plätze stehen still")
+## Ein Verbrauch schließt nur das Tablett seiner Sorte.
+func test_a_consumed_pack_closes_only_its_own_tray():
+	run.grant_packs([Pack.number_pack(), Pack.material_pack(), Pack.number_pack(),
+		Pack.material_pack()] as Array[Pack])
+	var last_material := run.owned_packs[3].pack_uid
+	run._consume_packs([run.owned_packs[0]] as Array[Pack])
+	assert_eq(run.pack_cell_of(run.owned_packs[1].pack_uid), 0,
+		"die zweite Zahl rückt auf den freien Platz")
+	assert_eq(run.pack_cell_of(last_material), 1, "das Material-Tablett rührt sich nicht")
 
-## Voll heißt: keine Reihe hat einen freien Platz - bei Spalten × Reihen dieselbe
-## Aussage wie der Deckel.
-func test_packs_full_means_no_row_has_room():
-	run.set_pack_grid(2)
-	assert_false(run.packs_full())
-	for i in run.pack_capacity:
+## Die NÄCHSTE Lieferung fällt ans Ende ihres Tabletts; extra staffelt eine Salve.
+func test_the_next_spot_is_the_end_of_the_sort():
+	run.grant_packs([Pack.number_pack(), Pack.number_pack(), Pack.material_pack()]
+		as Array[Pack])
+	assert_eq(run.next_pack_spot(Pack.number_pack()), Vector2i(0, 2))
+	assert_eq(run.next_pack_spot(Pack.material_pack(), 2), Vector2i(1, 3))
+	assert_eq(run.next_pack_spot(Pack.operator_pack(StampNet.OP_DOUBLER)), Vector2i(3, 0),
+		"ein Operator ist Sonderbestand")
+
+## UNBEGRENZT: nichts zerfällt mehr, keine Kasse blockiert am Magazin.
+func test_the_magazine_is_unbounded():
+	for i in 120:
 		assert_not_null(run.grant_pack(Pack.number_pack()), "Platz %d" % i)
-	assert_eq(run.owned_packs.size(), 2 * GameRun.PACK_ROWS)
-	assert_true(run.packs_full(), "jede Reihe ist voll")
-	assert_eq(run.next_pack_row(), -1, "und es gibt keine freie mehr")
-
-## Der freie Platz zählt über alle Reihen und fällt mit jeder Lieferung um eins.
-func test_pack_room_counts_every_free_seat():
-	run.set_pack_grid(2)
-	assert_eq(run.pack_room(), 2 * GameRun.PACK_ROWS)
-	run.grant_pack(Pack.number_pack())
-	assert_eq(run.pack_room(), 2 * GameRun.PACK_ROWS - 1)
-	while not run.packs_full():
-		run.grant_pack(Pack.number_pack())
-	assert_eq(run.pack_room(), 0)
-
-## Der ZUG darf die Reihe wechseln; eine VOLLE Zielreihe verweigert.
-func test_reorder_packs_may_change_the_row_but_not_into_a_full_one():
-	run.set_pack_grid(2)
-	for i in 4:
-		run.grant_pack(Pack.number_pack())
-	# Reihe 2 ist voll: der Zug aus Reihe 1 dorthin passiert nicht.
-	assert_false(run.reorder_packs(0, 2), "eine volle Zielreihe verweigert")
-	assert_eq(run.owned_packs[0].shelf_row, 0, "nichts hat sich bewegt")
-	run._consume_packs([run.owned_packs[3]] as Array[Pack])
-	var moved := run.owned_packs[0]
-	assert_true(run.reorder_packs(0, 2), "jetzt ist Platz")
-	assert_eq(moved.shelf_row, 1, "sie liegt in der Zielreihe")
-	assert_eq(run.owned_packs[2], moved, "und an DESSEN Platz in der Liste")
-
-## Der Zug auf einen LEEREN Platz hängt sie hinten an diese Reihe.
-func test_place_pack_appends_to_a_row():
-	run.set_pack_grid(2)
-	for i in 5:
-		run.grant_pack(Pack.number_pack())  # Reihen 0,0,1,1,2
-	var uid := run.owned_packs[0].pack_uid
-	assert_true(run.place_pack(uid, 2), "Reihe 3 hat noch Platz")
-	assert_eq(run.pack_row_of(uid), 2)
-	assert_eq(run.pack_cell_of(uid), 1, "hinten an die Reihe")
-	assert_eq(run.owned_packs[run.owned_packs.size() - 1].pack_uid, uid,
-		"in der Liste hinter das letzte Paket dieser Reihe")
-	assert_false(run.place_pack(uid, 2), "dieselbe Reihe ist kein Umzug")
-	assert_false(run.place_pack(uid, 1), "Reihe 2 ist voll")
-	assert_false(run.place_pack(999, 3), "unbekannte uid")
-	assert_false(run.place_pack(uid, GameRun.PACK_ROWS), "es gibt keine elfte Reihe")
-
-## Aufräumen packt ALLES neu: sortiert wie eh und je, Reihen kompakt vergeben.
-func test_tidy_packs_repacks_the_rows_compactly():
-	run.set_pack_grid(2)
-	for i in 5:
-		run.grant_pack(Pack.number_pack())
-	run.place_pack(run.owned_packs[0].pack_uid, 7)  # eine Karte weit hinten
-	run.tidy_packs()
-	for i in run.owned_packs.size():
-		assert_eq(run.owned_packs[i].shelf_row, i / 2,
-			"Platz %d liegt in Reihe %d" % [i, i / 2 + 1])
-
-## Schrumpfen die Spalten, werden überzählige Karten hart umgelegt.
-func test_a_smaller_grid_moves_the_surplus_to_free_rows():
-	run.set_pack_grid(4)
-	for i in 4:
-		run.grant_pack(Pack.number_pack())
-	assert_eq(run.owned_packs[3].shelf_row, 0, "alle vier liegen in Reihe 1")
-	run.set_pack_grid(2)
-	var rows: Array[int] = []
-	for pack: Pack in run.owned_packs:
-		rows.append(pack.shelf_row)
-	assert_eq(rows, [0, 0, 1, 1] as Array[int],
-		"die ersten behalten ihre Reihe, die überzähligen rücken weiter")
-
-## Direkt angehängte Pakete (Tests, Altbestand) bekommen ihre Reihe nachgereicht.
-func test_ensure_pack_rows_normalises_homeless_packs():
-	run.set_pack_grid(2)
-	for i in 3:
-		var pack := Pack.number_pack()
-		pack.pack_uid = 100 + i
-		run.owned_packs.append(pack)
-	assert_eq(run.owned_packs[0].shelf_row, -1, "noch heimatlos")
-	run.ensure_pack_rows()
-	assert_eq(run.owned_packs[0].shelf_row, 0)
-	assert_eq(run.owned_packs[1].shelf_row, 0)
-	assert_eq(run.owned_packs[2].shelf_row, 1, "die dritte eröffnet Reihe 2")
-	assert_eq(run.pack_row_of(102), 1, "und pack_row_of fragt defensiv nach")
-
-## Der Deckel ist GEMESSEN und wird hereingeschoben: die Konstante trägt nur noch
-## kopflos (Tests), und ein unbrauchbarer Wert lässt sie stehen.
-func test_the_pack_capacity_is_injected_and_idempotent():
-	assert_eq(run.pack_capacity, GameRun.PACK_CAPACITY, "ohne Grube der Rückfall")
-	run.set_pack_capacity(51)
-	assert_eq(run.pack_capacity, 51)
-	run.set_pack_capacity(51)
-	assert_eq(run.pack_capacity, 51, "dieselbe Zahl noch einmal ändert nichts")
-	run.set_pack_capacity(0)
-	run.set_pack_capacity(-3)
-	assert_eq(run.pack_capacity, 51, "ungemessen überschreibt nichts")
-
-func test_the_magazine_cap_is_hard_and_a_grant_fizzles_to_money():
+	assert_false(run.packs_full(), "voll wird es nie")
+	assert_gt(run.pack_room(), 1000, "ein Bündel findet immer Platz")
 	run.money = 500
-	run.set_pack_capacity(4)
-	for _i in 4:
-		assert_not_null(run.grant_pack(Pack.number_pack()))
-	assert_true(run.packs_full())
 	var before := run.money
-	assert_eq(run.purchase_pack(Pack.number_pack(), 5), 0)
-	assert_eq(run.money, before, "ein voller Kauf zahlt nichts und liefert nichts")
-	assert_eq(run.owned_packs.size(), 4)
-	# Gewähr-Ware verdampft nicht, sie zerfällt zu Geld - eine Karte schrumpft nie.
-	assert_null(run.grant_pack(Pack.material_pack()), "kein Platz, kein Paket")
-	assert_eq(run.owned_packs.size(), 4, "der Deckel ist hart")
-	assert_eq(run.money, before + GameRun.PACK_FIZZLE_MONEY, "dafür Geld")
+	run.purchase_pack(Pack.number_pack(), 5)
+	assert_eq(run.money, before - 5, "der Kauf geht durch")
+	assert_eq(run.owned_packs.size(), 121)
 
-func test_stash_pack_refuses_when_full():
-	run.set_pack_capacity(1)
-	assert_not_null(run._stash_pack(Pack.number_pack()))
-	assert_null(run._stash_pack(Pack.material_pack()), "der EINE Engpass sagt nein")
-	assert_eq(run.owned_packs.size(), 1)
-
-func test_a_multi_grant_lands_what_fits_and_fizzles_the_rest():
-	run.set_pack_capacity(2)
-	var before := run.money
+func test_a_multi_grant_lands_everything():
 	var landed := run.grant_packs([Pack.number_pack(), Pack.material_pack(),
 		Pack.dice_mod_pack(), Pack.number_pack()] as Array[Pack])
-	assert_eq(landed.size(), 4, "je übergebenem Paket sein Platz in der Antwort")
-	assert_not_null(landed[0])
-	assert_not_null(landed[1])
-	assert_null(landed[2], "ab hier ist das Magazin voll")
-	assert_null(landed[3])
-	assert_eq(run.owned_packs.size(), 2)
-	assert_eq(run.money, before + 2 * GameRun.PACK_FIZZLE_MONEY,
-		"je zerfallenem Paket einmal gebucht")
-
-func test_every_grant_kind_fizzles_at_the_cap():
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.number_pack())
-	var before := run.money
-	assert_null(run.grant_engraving_pack(Engraving.pointer_engraving()))
-	assert_null(run.grant_material_pack(DieMaterial.by_id(DieMaterial.GOLD)))
-	run.owned_charms.append(Charm.encore())
-	var encore := run.apply_encore(GameRun.ENCORE_STAGES)
-	assert_eq(encore.size(), 1, "der Platz des Exemplars bleibt stehen")
-	assert_null(encore[0], "aber leer")
-	assert_eq(run.owned_packs.size(), 1, "nichts kam dazu")
-	assert_eq(run.money, before + 3 * GameRun.PACK_FIZZLE_MONEY,
-		"drei Prämien, drei Zerfälle")
+	assert_eq(landed.size(), 4)
+	for pack in landed:
+		assert_not_null(pack, "nichts zerfällt")
+	assert_eq(run.owned_packs.size(), 4)
 
 func test_the_stress_reward_never_fizzles():
-	# Der Deckel gilt fürs Magazin; ein Würfel geht ins Ausgabefach.
-	run.set_pack_capacity(1)
 	run.grant_pack(Pack.number_pack())
 	var before := run.money
 	assert_not_null(run.grant_stress_reward(), "der Preis kommt immer an")
 	assert_eq(run.pending_dice.size(), 1)
 	assert_eq(run.money, before, "und zerfällt nie zu Geld")
 
-func test_the_hub_reward_remembers_what_fizzled():
+func test_the_hub_reward_lands_every_pack():
 	run.money = 10000
-	while run.hub_level < 4:
-		run.upgrade_hub()  # bis kurz vor Stufe 5, die als erste Pakete gewährt
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.number_pack())  # der eine Platz ist weg
-	var price := run.hub_upgrade_price()
-	var before := run.money
-	run.upgrade_hub()
-	assert_eq(run.owned_packs.size(), 1, "der Ausbau drückt nichts hinein")
-	assert_true(run.last_hub_reward_packs.is_empty(), "die Merkliste kennt nur Gelandetes")
-	assert_eq(run.last_hub_reward_fizzle, 3, "und zählt, wofür Geld fliegen muss")
-	assert_eq(run.money, before - price
-		+ run.last_hub_reward_fizzle * GameRun.PACK_FIZZLE_MONEY)
-
-func test_a_secret_buy_checks_the_magazine_before_paying():
-	run.secret_shop_unlocked = true
-	run._roll_secret_stock()
-	run.set_pack_capacity(1)
-	run.grant_pack(Pack.number_pack())
-	run.energy = 99
-	for i in run.secret_stock.size():
-		var kind := String(run.secret_stock[i][GameRun.OFFER_KIND])
-		# Charm und Würfel hängen nicht am Magazin - der eine am Dock, der andere
-		# am Ausgabefach, das keinen Deckel hat.
-		if kind == GameRun.KIND_CHARM or kind == GameRun.KIND_DIE:
-			continue
-		assert_false(run.buy_secret_offer(i), "volles Magazin sperrt versiegelte Ware")
-		assert_false(bool(run.secret_stock[i][GameRun.OFFER_SOLD]), "und der Platz bleibt")
+	while run.hub_level < 5:
+		run.upgrade_hub()
+	assert_eq(run.last_hub_reward_fizzle, 0, "am unbegrenzten Magazin zerfällt nichts")
+	assert_false(run.last_hub_reward_packs.is_empty())
 
 ## Der Einsatz verzehrt GENAU die benannte Sorte und Größe - und von hinten, wo die
 ## Neuzugänge liegen: was der Spieler nach vorn sortiert hat, bleibt ihm.
@@ -756,20 +592,6 @@ func test_booking_carries_the_pack_size_into_the_magazine():
 	for pack: Pack in run.owned_packs:
 		assert_eq(pack.tier, Pack.TIER_KOLOSSAL, "die Größe überlebt die Buchung")
 		assert_eq(pack.display_name, "Kolossales Material-Paket")
-
-func test_a_full_magazine_turns_a_slot_prize_into_money():
-	# Auch die dickste Reihe zerfällt am vollen Magazin Paket für Paket zu Geld -
-	# der Automat kennt dafür keine eigene Zeremonie, aber verschlucken darf er nichts.
-	run.set_pack_capacity(2)
-	run.grant_pack(Pack.number_pack())
-	run.grant_pack(Pack.number_pack())
-	var money_before := run.money
-	var prize := SlotPrize.from_spec({"kind": "pack", "symbol": SlotPrize.Kind.ENGRAVING,
-		"count": 3, "tier": Pack.TIER_KOLOSSAL})
-	run.book_slot_prize(prize)
-	assert_eq(run.owned_packs.size(), 2, "das Magazin bleibt voll")
-	assert_eq(run.money, money_before + 3 * GameRun.PACK_FIZZLE_MONEY,
-		"je zerfallenem Paket eine Münze")
 
 func test_a_slot_pack_is_a_plain_sealed_pack():
 	# Der Raritäts-Boden ist gestorben: alle sechs Seiten sind gleich wahrscheinlich,
@@ -1018,21 +840,6 @@ func test_resolve_pack_payout_grants_packs_and_clears():
 		assert_gt(pack.pack_uid, 0, "und jeder trägt seine Magazin-uid")
 	assert_eq(win.awarded_fizzled, 0, "nichts zerfallen")
 
-func test_resolve_pack_payout_counts_fizzles_at_full_magazine():
-	run.money = 50
-	var win := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
-	run.place_side_bet(win)
-	while not run.packs_full():
-		run.grant_pack(Pack.roll_engraving_pack())
-	var money_before := run.money
-	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
-		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
-	run.resolve_side_bets(result)
-	assert_eq(win.awarded_packs.size(), 0, "volles Magazin: nichts gewährt")
-	assert_eq(win.awarded_fizzled, win.reward_packs, "jeder Zerfall ist gezählt")
-	assert_eq(run.money, money_before + win.reward_packs * GameRun.PACK_FIZZLE_MONEY,
-		"und zahlt sein Fizzle-Geld")
-
 func test_resolve_money_payout_adds_cash():
 	run.money = 50
 	var bet := SideBet._from_template(_template("jackpot"))  # Geld-Gewinn
@@ -1152,7 +959,6 @@ func test_the_jewelry_box_never_touches_a_die():
 	# Sie füllt den Vorrat, nicht den Würfel - Seiten und Zustände bleiben, wie
 	# sie waren, egal wie oft sie zuschlägt.
 	run.owned_charms.append(Charm.jewelry_box())
-	run.pack_capacity = 500  # der Magazin-Deckel ist hier nicht das Thema
 	var many: Array[DieDefinition] = []
 	for i in 200:
 		var die := DieDefinition.standard()
