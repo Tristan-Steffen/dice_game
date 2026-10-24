@@ -78,3 +78,24 @@ func test_mark_reflective_layers_every_visual_part_of_a_die() -> void:
 			"%s fehlt der Spiegel-Layer" % visual.name)
 		assert_true((visual.layers & 1) != 0,
 			"%s muss für die Hauptkamera auf Layer 1 bleiben" % visual.name)
+
+func test_late_built_die_parts_inherit_the_reflection_layer() -> void:
+	# mark_reflective läuft nur EINMAL beim Aufbau; Pointer-Bahnen, weitere Runen-
+	# Plätze, Asche und das Größen-Band entstehen erst mit apply_definition.
+	var die := DieBuilder.build()
+	add_child_autofree(die)
+	ScreenReflection.mark_reflective(die)
+	var def := DieDefinition.standard()
+	def.essence_id = Essence.VACUUM
+	def.pointers[0] = 1
+	def.set_rune(2, Rune.AFTERGLOW, 0, 1)
+	def.set_rune(2, Rune.SPARK_FLIGHT, 1, 1)
+	def.faces[3] = 12547
+	def.burn_out()
+	var faces: DieFaceDisplay = die.find_children("*", "DieFaceDisplay", true, false)[0]
+	faces.apply_definition(def)
+	assert_gt(faces.pointer_traces.size(), 0, "die Pointer-Bahn muss gebaut worden sein")
+	assert_gt(faces.rune_overlays_second.size(), 0, "der zweite Runen-Platz muss gebaut worden sein")
+	for visual in die.find_children("*", "VisualInstance3D", true, false):
+		assert_true((visual.layers & ScreenReflection.LAYER) != 0,
+			"%s fehlt der Spiegel-Layer" % visual.name)

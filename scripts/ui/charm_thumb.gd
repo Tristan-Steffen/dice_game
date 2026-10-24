@@ -51,6 +51,8 @@ func _init(charm: Charm, size: int, rotatable: bool = false) -> void:
 		var cached := CharmRowView.cached_model_scene(path)
 		if cached != null:
 			_mount_model(cached.instantiate() as Node3D)
+		elif not CharmRowView.threaded_loads():
+			_mount_placeholder()  # kopflos zeigt niemand das Modell
 		else:
 			_pending_path = path
 			CharmRowView.request_model_scene(path)

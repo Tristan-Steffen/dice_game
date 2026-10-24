@@ -499,9 +499,7 @@ func _build_soul_motes() -> CPUParticles3D:
 	material.albedo_texture = _mote_texture()
 	motes.material_override = material
 	motes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# Spät gebaut - das Spiegel-Bit der beim Aufbau markierten Geschwister erben.
-	if not quads.is_empty():
-		motes.layers = (quads.values()[0] as VisualInstance3D).layers
+	_inherit_layers(motes)
 	return motes
 
 ## Stützpunkte auf den 12 Kanten (Halbkante 1, siehe FACE_RIDE): je Achse vier
@@ -590,6 +588,7 @@ func _refresh_rune_overlays(def: DieDefinition) -> void:
 				if extra == null:
 					extra = DieBuilder.build_rune_overlay(RUNE_LIFT + SECOND_RUNE_STEP * float(slot))
 					quads[axis].add_child(extra)
+					_inherit_layers(extra)
 					_extra_overlays(slot)[axis] = extra
 				_apply_rune_overlay(extra, on_face, slot, def)
 			elif extra != null:
@@ -951,6 +950,7 @@ func _rebuild_pointer_traces(def: DieDefinition) -> void:
 		trace.material_override = _pointer_material()
 		trace.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(trace)
+		_inherit_layers(trace)
 		pointer_traces.append(trace)
 
 ## Gemeinsames Material aller Bahnen dieses Würfels. phase versetzt die
@@ -1070,6 +1070,7 @@ static func write_value(label: Label3D, value: int) -> void:
 		mag.outline_size = label.outline_size
 		mag.outline_modulate = label.outline_modulate
 		mag.modulate = MAGNITUDE_COLOR
+		mag.layers = label.layers  # spät gebaut: Spiegel-Bit der Ziffer erben
 		label.add_child(mag)
 	mag.text = FaceValue.magnitude(value)
 	mag.position = Vector3(0.0, BIG_DIGIT_DROP + MAGNITUDE_RISE, 0.0)
@@ -1078,6 +1079,13 @@ static func write_value(label: Label3D, value: int) -> void:
 		mag.font_size).x
 	mag.pixel_size = minf(LABEL_PIXEL_SIZE * MAGNITUDE_SHARE,
 		LABEL_FIT_EXTENT * 0.9 / maxf(wide, 1.0))
+
+## Spät gebaute Teile erben die Render-Layer eines Seiten-Quads: das Spiegel-Bit des
+## Tischglases setzt ScreenReflection nur EINMAL beim Aufbau über den Baum, sonst
+## fehlen sie im Spiegelbild. Geerbt statt importiert - dice/ kennt table/ nicht.
+func _inherit_layers(part: VisualInstance3D) -> void:
+	if not quads.is_empty():
+		part.layers = (quads.values()[0] as VisualInstance3D).layers
 
 ## Skaliert pixel_size so, dass label.text in LABEL_FIT_EXTENT passt -
 ## mehrstellige Werte werden proportional verkleinert.
@@ -1108,6 +1116,7 @@ func _overlay(parent: Node3D, part_name: String, size: Vector2, lift: float,
 	part.material_override = material
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(part)
+	_inherit_layers(part)
 	return part
 
 ## Je Seite eine Auflage (Kind des Seiten-Quads, in dessen Ebene), mit eigenem

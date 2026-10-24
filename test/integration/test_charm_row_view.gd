@@ -207,22 +207,17 @@ func test_cached_model_resource_stays_untouched():
 	assert_true(first.get_active_material(0) is BaseMaterial3D,
 		"die gecachte Ressource bleibt ein Originalmaterial")
 
-func test_the_loader_caps_how_many_models_are_in_flight():
-	# Die Bibliothek fordert beim Öffnen ALLE Charm-Modelle an. Ohne Deckel musste
-	# sich das blockierende model_scene() durch die ganze Schlange warten - gemessen
-	# 35 s für dieses Skript statt 0,2 s.
-	var paths: Array[String] = []
+func test_headless_starts_no_load_thread():
+	# Kopflos ist der Texturspeicher der Renderer-Attrappe nicht fadensicher: kein
+	# Ladeauftrag darf laufen, model_scene() liefert trotzdem blockierend.
+	assert_false(CharmRowView.threaded_loads(), "die Suite läuft kopflos")
+	var path := ""
 	for charm in Charm.all():
 		if charm.model_path != "" and CharmRowView.cached_model_scene(charm.model_path) == null:
-			paths.append(charm.model_path)
-		if paths.size() == CharmRowView.MAX_IN_FLIGHT * 3:
+			path = charm.model_path
 			break
-	assert_gt(paths.size(), CharmRowView.MAX_IN_FLIGHT, "genug ungeladene Modelle für die Probe")
-	for path in paths:
-		CharmRowView.request_model_scene(path)
-	assert_eq(CharmRowView.models_in_flight(), CharmRowView.MAX_IN_FLIGHT,
-		"nie mehr als der Deckel im Ladethread")
-	assert_gt(CharmRowView.models_queued(), 0, "der Rest wartet in der Schlange")
-	# Wer nur wartet, wird selbst geladen statt abgewartet - das ist der Ausweg.
-	for path in paths:
-		assert_not_null(CharmRowView.model_scene(path), "auch ein Wartender wird geliefert")
+	assert_ne(path, "", "ein ungeladenes Modell für die Probe")
+	CharmRowView.request_model_scene(path)
+	assert_eq(CharmRowView.models_in_flight(), 0, "kein Ladethread")
+	assert_eq(CharmRowView.models_queued(), 0, "und keine Schlange")
+	assert_not_null(CharmRowView.model_scene(path), "geliefert wird trotzdem")

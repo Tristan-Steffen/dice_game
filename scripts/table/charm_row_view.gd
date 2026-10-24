@@ -370,9 +370,20 @@ static func cached_model_scene(path: String) -> PackedScene:
 static func model_failed(path: String) -> bool:
 	return _model_failures.has(path)
 
+## Der Ladethread läuft nur mit ECHTEM Renderer: die Kopflos-Attrappe führt ihren
+## Texturspeicher ohne Sperre, Ladethread und Hauptfaden griffen dort sporadisch
+## ins Leere ('Parameter "t" is null' - ein Engine-Fehler, der irgendeinen gerade
+## laufenden Test kippt). Kopflos lädt nur noch model_scene(), blockierend.
+static var _threaded_loads := DisplayServer.get_name() != "headless"
+
+static func threaded_loads() -> bool:
+	return _threaded_loads
+
 ## Stößt das Laden im Ladethread an - der Hauptfaden blockiert nie. Über dem
 ## Deckel wandert der Auftrag in die Schlange statt in den Ladethread.
 static func request_model_scene(path: String) -> void:
+	if not _threaded_loads:
+		return
 	if _model_scenes.has(path) or _model_requests.has(path) \
 			or _model_failures.has(path) or _model_queue.has(path):
 		return
