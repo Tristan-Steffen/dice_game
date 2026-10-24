@@ -780,6 +780,25 @@ func test_the_one_net_stands_over_the_tower() -> void:
 	assert_almost_eq(ist.get_center().y, origin.y + view.row_rect().get_center().y, 0.5)
 	assert_true(screen.get_theme_stylebox("panel") is StyleBoxEmpty)
 
+## Das ZIEL-Netz füllt seine Spalte: höchstens so hoch wie die Zeile, so breit wie
+## die Spalte, und nie kleiner als die Karten-Zelle.
+func test_the_target_net_fills_its_column() -> void:
+	view.data_cell_px = Vector2(16.4, 40.5)
+	view.choose_target(0)
+	await wait_frames(2)
+	var u := view.unit()
+	var span := DieNetView.net_size(view.target_net_cell(u))
+	assert_gte(view.target_net_cell(u), view.net_cell(u))
+	if view.target_net_cell(u) > view.net_cell(u):
+		var room := view.row_rect().size.y - u * WorkshopView.DIFF_PAD * 2.0
+		assert_lte(span.y, room + 0.5, "es paßt in die Zeile")
+		assert_lte(span.x, view.target_column_width(u) + 0.5, "und in seine Spalte")
+	# Groß genug, daß es wächst: dann füllt es eine der beiden Kanten.
+	view.size = Vector2(view.size.x, view.size.y * 2.0)
+	await wait_frames(2)
+	u = view.unit()
+	assert_gt(view.target_net_cell(u), view.net_cell(u), "mehr Zeile, größeres Netz")
+
 ## (D) ALLE Netze gleich groß: die Zelle IST die des Prägenetzes auf der Karte -
 ## Summen-, Ziel- und Licht-Netz teilen sie, die Würfelfläche rührt sie nicht.
 func test_every_net_shares_the_card_net_cell() -> void:
@@ -793,8 +812,9 @@ func test_every_net_shares_the_card_net_cell() -> void:
 	var on_card := DataCellView.net_span(PackDrawerView.CASSETTE_SCALE).x * per_world \
 		/ DieNetView.net_size(1.0).y
 	assert_almost_eq(card, on_card, 0.01, "die Zelle auf der Karte")
-	assert_almost_eq(view.net_cell(u), card, 0.001, "das Ziel-Netz")
-	assert_almost_eq(view._net.cell, card, 0.001)
+	assert_almost_eq(view.net_cell(u), card, 0.001, "das Zellmaß der Werkstatt")
+	assert_gte(view._net.cell, card, "das Ziel-Netz ist nie kleiner als die Karte")
+	assert_almost_eq(view._net.cell, view.target_net_cell(u), 0.001)
 	assert_almost_eq(view.sum_net_cell(u), card, 0.001, "das Summen-Netz")
 	assert_almost_eq(LightNetView.net_quad_size().x * per_world / DieNetView.net_size(1.0).y,
 		card, 0.01, "und das Licht-Netz")

@@ -1,16 +1,14 @@
 extends GutTest
-## Der Dauerwächter der Runenzeichen. Seit dem KRANZ (2026-09-11) liegt jede Figur
-## auf der GANZEN Seite, im Ring zwischen Ziffern-Sperrzone und Seitenrand - die
-## Ankerzelle, die die Ziffer früher freihielt, ist gestorben. Also trägt die FIGUR
-## die Regel wieder selbst, und der Hauptwächter prüft sie auf jedem Platz.
-## Billig zu prüfen und teuer zu übersehen: eine Figur über der Ziffer macht den
-## Würfel unlesbar, und das fällt headless sonst niemandem auf.
+## Der Dauerwächter der Runenzeichen. Seit den GRUNDFORMEN (2026-10-24) ist jede
+## Figur EINE geschlossene, zur Hochachse symmetrische Grundform um die Seitenmitte;
+## sie weicht der Ziffer nicht mehr aus, sondern läuft hinter ihr durch. Was hier
+## geprüft wird, ist darum die FORM selbst - billig zu prüfen und teuer zu übersehen,
+## denn eine schiefe oder offene Figur fällt headless sonst niemandem auf.
 
-## Stützstellen JE SEGMENT. Nur die Eckpunkte zu prüfen reicht nicht: zwei freie
-## Endpunkte können die Sperr-Ellipse trotzdem als Sehne durchschneiden.
-const SAMPLES := 32
 ## float32-Toleranz der PackedVector2Array-Speicherung.
 const EPS := 0.0001
+## Abstand, unter dem zwei Figur-Punkte als derselbe gelten (Sinus-Rundung).
+const SAME_POINT := 0.001
 
 func test_every_glyph_stays_inside_the_face() -> void:
 	# Der Rand trägt den Hof (RuneTextures.FIELD): läuft die Figur bis an die
@@ -32,57 +30,85 @@ func test_the_halo_field_fits_inside_the_margin() -> void:
 	assert_lte(RuneTextures.FIELD, Rune.GLYPH_MARGIN,
 		"sonst schneidet der Seitenrand den Hof ab")
 
-func test_a_placed_glyph_never_touches_the_digit() -> void:
-	# Die eigentliche Zusage des KRANZES: die FERTIG platzierte Figur liegt auf
-	# JEDEM Platz außerhalb der Ziffern-Sperrzone.
-	for slot in Rune.SLOT_FLIPS.size():
+func test_every_glyph_is_one_closed_figure() -> void:
+	# Geschlossen heißt: die Bogenlänge läuft im Kreis, und keine Bewegung zeigt
+	# ein freies Ende. Mehr als eine Linie wäre ein zweites Zeichen.
+	for glyph in Rune.all_glyphs():
+		var lines := Rune.glyph_lines(glyph)
+		assert_eq(lines.size(), 1, "%s ist EINE Figur" % glyph)
+		var line: PackedVector2Array = lines[0]
+		assert_gt(line.size(), 3, "%s hat eine Figur, keinen Strich" % glyph)
+		assert_lt(line[0].distance_to(line[line.size() - 1]), SAME_POINT,
+			"%s schließt sich" % glyph)
+
+func test_every_glyph_is_symmetric_about_the_upright_axis() -> void:
+	# Eine Grundform liest auf Grubendistanz als SILHOUETTE - eine schiefe Figur
+	# läse dort als Fleck.
+	for glyph in Rune.all_glyphs():
+		var line: PackedVector2Array = Rune.glyph_lines(glyph)[0]
+		for point in line:
+			var mirrored := Vector2(1.0 - point.x, point.y)
+			var nearest := INF
+			for other in line:
+				nearest = minf(nearest, other.distance_to(mirrored))
+			assert_lt(nearest, SAME_POINT,
+				"%s: %v hat kein Gegenstück an der Hochachse" % [glyph, point])
+
+func test_every_glyph_reaches_the_authored_radius() -> void:
+	# EINE Größe je Ding: eine Grundform, die kleiner ausfällt als ihre Nachbarin,
+	# liest als zweite Größe statt als zweites Zeichen. Nach OBEN hält der Seitenrand
+	# (test_every_glyph_stays_inside_the_face) - die Ecken eines Quadrats reichen
+	# weiter als sein Radius, und das sollen sie.
+	for glyph in Rune.all_glyphs():
+		var reach := 0.0
+		for point in Rune.glyph_lines(glyph)[0]:
+			reach = maxf(reach, point.distance_to(Rune.CENTER))
+		assert_gte(reach, Rune.GLYPH_RADIUS - 0.001,
+			"%s bleibt hinter dem authored Radius zurück" % glyph)
+
+# --- Der Platz: ineinander statt gespiegelt ---------------------------------------
+
+func test_the_first_slot_leaves_the_figure_alone() -> void:
+	var probe := Vector2(0.5, 0.06)
+	assert_lt(Rune.place(probe, 0).distance_to(probe), SAME_POINT,
+		"Platz 0 IST die gezeichnete Figur")
+	assert_almost_eq(Rune.slot_scale(0), 1.0, 0.001)
+
+func test_each_further_slot_nests_inside_the_one_before() -> void:
+	for slot in range(1, Rune.SLOT_SCALES.size()):
+		assert_lt(Rune.slot_scale(slot), Rune.slot_scale(slot - 1),
+			"Platz %d liegt INNERHALB seines Vorgängers" % slot)
+
+func test_the_slots_never_coincide() -> void:
+	# DAS ist der Grund, warum gestaffelt und nicht gespiegelt wird: eine
+	# symmetrische Grundform ist ihr eigenes Spiegelbild.
+	var probe := Vector2(0.5, 0.06)
+	for a in Rune.SLOT_SCALES.size():
+		for b in range(a + 1, Rune.SLOT_SCALES.size()):
+			assert_gt(Rune.place(probe, a).distance_to(Rune.place(probe, b)), 0.05,
+				"Plätze %d und %d lägen deckungsgleich" % [a, b])
+
+func test_a_placed_glyph_stays_inside_the_face() -> void:
+	for slot in Rune.SLOT_SCALES.size():
 		for glyph in Rune.all_glyphs():
-			for line in Rune.glyph_lines(glyph):
-				for i in range(line.size() - 1):
-					var worst := _worst_clearance(Rune.place(line[i], slot),
-						Rune.place(line[i + 1], slot))
-					assert_gt(worst, 1.0,
-						"%s auf Platz %d schneidet die Ziffer (%.3f)" % [glyph, slot, worst])
-
-func test_every_flip_keeps_the_clearance_exactly() -> void:
-	# DAS ist der Grund, warum gespiegelt und nicht verschoben wird: die
-	# Sperr-Ellipse ist punkt- UND achsensymmetrisch.
-	var probes := [Vector2(0.10, 0.10), Vector2(0.5, 0.08), Vector2(0.94, 0.62),
-		Vector2(0.34, 0.834), Vector2(0.08, 0.55)]
-	for slot in Rune.SLOT_FLIPS.size():
-		for probe: Vector2 in probes:
-			assert_almost_eq(Rune.digit_clearance(Rune.place(probe, slot)),
-				Rune.digit_clearance(Rune.place(probe, 0)), 0.0001,
-				"Platz %d verschiebt den Ziffern-Abstand" % slot)
-
-func test_the_slot_flips_are_pairwise_distinct() -> void:
-	# Zwei Runen einer Seite liegen nie deckungsgleich.
-	for a in Rune.SLOT_FLIPS.size():
-		for b in range(a + 1, Rune.SLOT_FLIPS.size()):
-			assert_ne(Rune.slot_flip(a), Rune.slot_flip(b),
-				"Plätze %d und %d teilen ihre Spiegelung" % [a, b])
-
-## Schlechtester Ellipsen-Wert entlang eines Segments (kleinster = engster).
-func _worst_clearance(from: Vector2, to: Vector2) -> float:
-	var worst := INF
-	for step in SAMPLES + 1:
-		var point := from.lerp(to, float(step) / float(SAMPLES))
-		worst = minf(worst, Rune.digit_clearance(point))
-	return worst
+			for point in Rune.glyph_lines(glyph)[0]:
+				var seat := Rune.place(point, slot)
+				assert_between(seat.x, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
+					"%s auf Platz %d verlässt den Seitenrand (x)" % [glyph, slot])
+				assert_between(seat.y, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
+					"%s auf Platz %d verlässt den Seitenrand (y)" % [glyph, slot])
 
 func test_every_polyline_carries_a_weight() -> void:
 	for glyph in Rune.all_glyphs():
 		assert_eq(Rune.glyph_weights(glyph).size(), Rune.glyph_lines(glyph).size(),
 			"%s: je Linie genau ein Gewicht" % glyph)
 
-func test_side_strokes_stay_below_the_main_stroke() -> void:
+func test_every_glyph_is_a_single_full_stroke() -> void:
+	# Ein Beistrich wäre ein zweites Zeichen - die Grundform trägt genau einen.
 	for glyph in Rune.all_glyphs():
 		var weights := Rune.glyph_weights(glyph)
-		var heaviest := 0.0
-		for weight in weights:
-			assert_between(weight, 0.3, 1.0, "%s: Gewichte bleiben im Rahmen" % glyph)
-			heaviest = maxf(heaviest, weight)
-		assert_almost_eq(heaviest, 1.0, 0.001, "%s: mindestens ein Hauptstrich" % glyph)
+		assert_eq(weights.size(), 1, "%s: EIN Strich" % glyph)
+		assert_almost_eq(weights[0], 1.0, 0.001, "%s: in voller Stärke" % glyph)
 
 func test_every_rune_owns_exactly_one_glyph() -> void:
 	# Je Wirkung eine erkennbare Idee - zwei Runen mit derselben Figur wären

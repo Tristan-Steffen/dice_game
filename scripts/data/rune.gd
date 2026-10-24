@@ -240,131 +240,101 @@ static func hint(rune_id: String) -> String:
 		return ""
 	return "%s (%s): %s" % [rune.display_name, rune.kind, rune.short]
 
-## Sperrzone der Ziffer: halbe Achsen einer mittigen Ellipse in normierten
-## Seiten-Koordinaten. Die Ziffer frisst 86 % der Seitenhöhe, also ist die Mitte
-## der UNFREIESTE Platz der Seite. Maß: einstellige 3D-Schwärze (0.19, 0.31) plus
-## 0.07 Bloom-Saum je Achse.
-const DIGIT_KEEPOUT := Vector2(0.26, 0.38)
-
-## Ellipsen-Wert eines Punktes: >= 1 heißt "außerhalb der Sperrzone". Eine Quelle
-## für die Geometrie-Prüfung im Test und den Shader-Wächter.
-static func digit_clearance(point: Vector2, half := DIGIT_KEEPOUT) -> float:
-	var dx := (point.x - 0.5) / half.x
-	var dy := (point.y - 0.5) / half.y
-	return dx * dx + dy * dy
-
 ## Wie ein zweiter/dritter Rune derselben Seite seinen Platz findet: dieselbe
-## Figur, gespiegelt. Die Sperr-Ellipse ist punkt- UND achsensymmetrisch, also
-## hält JEDE dieser Spiegelungen den Abstand zur Ziffer exakt ein - anders als
-## eine Verschiebung.
-const SLOT_FLIPS: Array[Vector2] = [
-	Vector2(1.0, 1.0),    # Platz 0: die Figur, wie sie gezeichnet ist
-	Vector2(-1.0, -1.0),  # Platz 1: punktgespiegelt
-	Vector2(-1.0, 1.0),   # Platz 2: an der Hochachse gespiegelt
-]
+## Figur, INEINANDER. Eine Grundform gespiegelt wäre sie selbst - der Platz
+## staffelt darum die GRÖSSE statt der Lage. Mehr als eine trägt nur das Vakuum.
+## Weiter nach innen geht es nicht: die Ziffer deckt die Mitte, und was ganz hinter
+## ihr liegt, ist kein Zeichen mehr - der dritte Platz zeigt darum nur noch, was
+## links und rechts der Zahl vorbeiläuft.
+const SLOT_SCALES: Array[float] = [1.0, 0.72, 0.48]
 
-## Spiegelung eines Platzes - ein unbekannter Platz fällt auf den ersten zurück.
-static func slot_flip(slot: int) -> Vector2:
-	return SLOT_FLIPS[slot] if slot >= 0 and slot < SLOT_FLIPS.size() else SLOT_FLIPS[0]
+## Maßstab eines Platzes - ein unbekannter Platz fällt auf den ersten zurück.
+static func slot_scale(slot: int) -> float:
+	return SLOT_SCALES[slot] if slot >= 0 and slot < SLOT_SCALES.size() else SLOT_SCALES[0]
 
 ## Ein Figur-Punkt an seinem Platz. EINE Funktion für Seite UND Netz: der Kasten
-## ist beide Male die volle Fläche.
+## ist beide Male die volle Fläche, und der Platz schrumpft um ihre Mitte.
 static func place(point: Vector2, slot: int) -> Vector2:
-	var flip := slot_flip(slot)
-	return Vector2(point.x if flip.x > 0.0 else 1.0 - point.x,
-		point.y if flip.y > 0.0 else 1.0 - point.y)
+	return CENTER + (point - CENTER) * slot_scale(slot)
 
 ## Rand, den jedes Zeichen auf der SEITE frei lässt - er trägt den Hof
 ## (RuneTextures.FIELD), damit der Ausbruch nicht am Seitenrand abgeschnitten
 ## wird. Alle Figuren leben deshalb in [MARGIN, 1 - MARGIN]².
 const GLYPH_MARGIN := 0.06
 
-## Punkte auf einer Ellipse um center, Winkel in Grad, 0 = OBEN, im Uhrzeigersinn.
-## steps ist die Zahl der SEGMENTE, also steps + 1 Punkte.
-static func _arc(center: Vector2, radius: Vector2, from_deg: float, to_deg: float,
-		steps: int) -> PackedVector2Array:
+## Mitte der Seite - jede Grundform liegt um sie.
+const CENTER := Vector2(0.5, 0.5)
+
+## Geschlossener Linienzug aus steps Ecken auf einem Kreis um CENTER. turn dreht
+## die Figur (Grad, 0 = erste Ecke OBEN); der letzte Punkt IST der erste.
+static func _ring(radius: float, steps: int, turn := 0.0) -> PackedVector2Array:
 	var points := PackedVector2Array()
 	for i in steps + 1:
-		var phi := deg_to_rad(lerpf(from_deg, to_deg, float(i) / float(steps)))
-		points.append(center + Vector2(radius.x * sin(phi), -radius.y * cos(phi)))
+		var phi := deg_to_rad(turn) + TAU * float(i % steps) / float(steps)
+		points.append(CENTER + Vector2(radius * sin(phi), -radius * cos(phi)))
 	return points
 
+## Stern mit spikes Zacken: die Ecken wechseln zwischen outer und inner.
+static func _star(spikes: int, outer: float, inner: float) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	var corners := spikes * 2
+	for i in corners + 1:
+		var step := i % corners
+		var radius := outer if step % 2 == 0 else inner
+		var phi := TAU * float(step) / float(corners)
+		points.append(CENTER + Vector2(radius * sin(phi), -radius * cos(phi)))
+	return points
+
+## Achsenparalleles Quadrat um CENTER (half = halbe Kantenlänge).
+static func _box(half: float) -> PackedVector2Array:
+	return PackedVector2Array([CENTER + Vector2(-half, -half), CENTER + Vector2(half, -half),
+		CENTER + Vector2(half, half), CENTER + Vector2(-half, half),
+		CENTER + Vector2(-half, -half)])
+
 ## Das Zeichen als normierte Polylinien in SEITEN-Koordinaten (0..1 über die ganze
-## Seite), x nach rechts, y nach UNTEN. DER KRANZ: jede Figur liegt im Ring
-## zwischen Ziffern-Sperrzone und Seitenrand, nicht mehr in einer Eckzelle. EINE
-## Quelle für Würfelnetz und 3D-Auflage, sonst zeigt der Tisch ein anderes Zeichen
-## als die Werkbank; wohin ein zweiter Rune derselben Seite kommt, sagt SLOT_FLIPS.
+## Seite), x nach rechts, y nach UNTEN. Seit den GRUNDFORMEN (2026-10-24) ist jede
+## Figur EINE geschlossene, zur Hochachse symmetrische Grundform um die Seitenmitte:
+## auf Grubendistanz ist eine Seite ~25 px breit, und dort liest eine SILHOUETTE,
+## wo ein Linienzug zu Matsch wird. Sie läuft HINTER der Ziffer durch - die schreibt
+## Tiefe und deckt mitsamt ihrem dunklen Saum, was sie überschneidet. EINE Quelle
+## für Würfelnetz und 3D-Auflage; wohin ein zweiter Rune kommt, sagt SLOT_SCALES.
 ##
-## Jede Figur ist ein ZEICHEN, kein Schaden: je Wirkung eine erkennbare Idee. Die
-## Figur ist NIE eine Funktion des Seitenwerts - Knochen lässt Werte wachsen, und
-## eine Rune, die sich dabei neu zeichnet, liest als Fehler.
+## RADIUS ist für alle derselbe (1 - GLYPH_MARGIN - Seitenmitte): eine Grundform,
+## die kleiner ausfällt als ihre Nachbarin, liest als zweite Größe statt als zweites
+## Zeichen. Die Figur ist NIE eine Funktion des Seitenwerts - Knochen lässt Werte
+## wachsen, und eine Rune, die sich dabei neu zeichnet, liest als Fehler.
+const GLYPH_RADIUS := 0.44
+## Halbe Kantenlänge des QUADRATS - die eine Figur, die nicht auf dem Radius
+## sitzt, sondern auf ihrer SEITE (Spieler-Entscheid 2026-10-24): auf voller Größe
+## liefe sie 0,88 der Seite breit, und der Leuchtrahmen einer Material-Seite liegt
+## auf 0,03 - zwei fast gleiche Linien mit 0,03 Luft dazwischen lasen als EINE.
+## Hereingezogen auf 0,80 ist die Fuge mehr als doppelt so breit (0,07).
+const SQUARE_HALF := 0.40
+
 static func glyph_lines(glyph_id: String) -> Array[PackedVector2Array]:
 	match glyph_id:
 		GLYPH_AFTERGLOW:
-			# Umlauf-Pfeil: ein Dreiviertelkreis, der in einer Pfeilspitze endet -
-			# die Seite läuft noch einmal um.
-			return [
-				_arc(Vector2(0.5, 0.5), Vector2(0.42, 0.42), 0.0, 250.0, 18),
-				PackedVector2Array([Vector2(0.093, 0.728), Vector2(0.105, 0.644),
-					Vector2(0.168, 0.701)]),
-			]
-		GLYPH_SPARK_FLIGHT:
-			# Blitzbahn: der Zickzack klettert rechts hoch und schießt oben hinaus.
-			return [
-				PackedVector2Array([Vector2(0.80, 0.90), Vector2(0.77, 0.71),
-					Vector2(0.88, 0.57), Vector2(0.79, 0.42), Vector2(0.90, 0.27)]),
-				PackedVector2Array([Vector2(0.90, 0.27), Vector2(0.94, 0.09)]),
-			]
+			# RING: der geschlossene Umlauf - die Seite läuft noch einmal um.
+			return [_ring(GLYPH_RADIUS, 48)]
 		GLYPH_STRAY_LIGHT:
-			# Lichtsaum: sechs Tropfen an der Unterkante. Unter der Ziffer bleibt
-			# eine Lücke - dort ist im Kranz kein Platz, und das Licht sickert
-			# ohnehin seitlich weg.
-			return [
-				PackedVector2Array([Vector2(0.10, 0.834), Vector2(0.10, 0.924)]),
-				PackedVector2Array([Vector2(0.22, 0.834), Vector2(0.22, 0.924)]),
-				PackedVector2Array([Vector2(0.34, 0.834), Vector2(0.34, 0.924)]),
-				PackedVector2Array([Vector2(0.66, 0.834), Vector2(0.66, 0.924)]),
-				PackedVector2Array([Vector2(0.78, 0.834), Vector2(0.78, 0.924)]),
-				PackedVector2Array([Vector2(0.90, 0.834), Vector2(0.90, 0.924)]),
-			]
+			# DREIECK nach UNTEN: das Licht fällt vom Würfel aufs Filz.
+			return [_ring(GLYPH_RADIUS, 3, 180.0)]
 		GLYPH_BURN_IN:
-			# Brandklammern: vier L-Winkel in den Ecken - was eingebrannt ist, ist
-			# festgeklammert und hat keinen Ausgang.
-			return [
-				PackedVector2Array([Vector2(0.10, 0.30), Vector2(0.10, 0.10), Vector2(0.30, 0.10)]),
-				PackedVector2Array([Vector2(0.70, 0.10), Vector2(0.90, 0.10), Vector2(0.90, 0.30)]),
-				PackedVector2Array([Vector2(0.90, 0.70), Vector2(0.90, 0.90), Vector2(0.70, 0.90)]),
-				PackedVector2Array([Vector2(0.30, 0.90), Vector2(0.10, 0.90), Vector2(0.10, 0.70)]),
-			]
+			# QUADRAT: eingebrannt ist festgeklammert und hat keinen Ausgang.
+			return [_box(SQUARE_HALF)]
+		GLYPH_SPARK_FLIGHT:
+			# STERN: der übergesprungene Funke.
+			return [_star(6, GLYPH_RADIUS, 0.19)]
 		GLYPH_REVERSE:
-			# Gegen-Pfeile: oben nach rechts, unten nach links. Punktsymmetrisch -
-			# die Seite gedreht zeigt dasselbe Zeichen.
-			return [
-				PackedVector2Array([Vector2(0.20, 0.095), Vector2(0.80, 0.095)]),
-				PackedVector2Array([Vector2(0.735, 0.065), Vector2(0.80, 0.095),
-					Vector2(0.735, 0.125)]),
-				PackedVector2Array([Vector2(0.80, 0.905), Vector2(0.20, 0.905)]),
-				PackedVector2Array([Vector2(0.265, 0.875), Vector2(0.20, 0.905),
-					Vector2(0.265, 0.935)]),
-			]
+			# RAUTE: das Quadrat auf die andere Seite gedreht.
+			return [_ring(GLYPH_RADIUS, 4)]
 	return []
 
-## Strichstärke je Polylinie - 1.0 für den Hauptstrich, weniger für einen
-## Beistrich. Ein geätztes Zeichen hat konstante Tiefe; die Stärke unterscheidet
-## nur, was Figur und was Beiwerk ist.
+## Strichstärke je Polylinie. Eine Grundform ist EIN Strich konstanter Tiefe -
+## seit den GRUNDFORMEN trägt jedes Zeichen genau eine 1.0, und ein Beistrich
+## wäre ein zweites Zeichen.
 static func glyph_weights(glyph_id: String) -> PackedFloat32Array:
-	match glyph_id:
-		GLYPH_AFTERGLOW:
-			return PackedFloat32Array([1.0, 0.8])
-		GLYPH_SPARK_FLIGHT:
-			return PackedFloat32Array([1.0, 0.55])
-		GLYPH_STRAY_LIGHT:
-			return PackedFloat32Array([1.0, 0.8, 1.0, 1.0, 0.8, 1.0])
-		GLYPH_BURN_IN:
-			return PackedFloat32Array([1.0, 1.0, 1.0, 1.0])
-		GLYPH_REVERSE:
-			return PackedFloat32Array([1.0, 0.85, 1.0, 0.85])
-	return PackedFloat32Array()
+	return PackedFloat32Array([1.0]) if not glyph_lines(glyph_id).is_empty() 		else PackedFloat32Array()
 
 ## Der Kasten, in dem eine Figur WIRKLICH liegt (Seiten-Koordinaten, leer =
 ## unbekanntes Zeichen). Auf dem 3D-WÜRFEL zählt er nicht - dort läuft die Figur

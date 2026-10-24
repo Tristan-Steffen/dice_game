@@ -59,3 +59,8 @@ rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 limits/opengl/max_lights_per_object=16
+; MSAA 4x gegen die TREPPEN an den Wuerfelkanten (Spieler-Befund 2026-10-24: die
+; Silhouette lief gerade, brach um ein Pixel und lief weiter). Gemessen auf der
+; GTX 750 Ti mit 30 beschrifteten Wuerfeln und Glow: aus 10,17 ms/Bild, 2x 9,92,
+; 4x 9,44, 8x 10,77 - die Szene haengt an der CPU, 4x ist also umsonst zu haben.
+rendering/anti_aliasing/quality/msaa_3d=2

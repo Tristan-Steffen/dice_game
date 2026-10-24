@@ -437,7 +437,7 @@ func _ensure_sum_net(u: float) -> void:
 	if _net == null or not is_instance_valid(_net):
 		_net = PressNetView.new()
 		add_child(_net)
-	_net.cell = net_cell(u)
+	_net.cell = target_net_cell(u)
 	move_child(_net, get_child_count() - 1)
 	if not burning():
 		_refresh_preview_net()
@@ -512,7 +512,7 @@ func target_column_width(u: float) -> float:
 func ist_screen_rect() -> Rect2:
 	var u := unit()
 	var row := row_rect()
-	var height := net_span(u).y + u * band_units()
+	var height := DieNetView.net_size(target_net_cell(u)).y + u * band_units()
 	return Rect2(Vector2(eject_lane_rect().end.x, row.get_center().y - height * 0.5),
 		Vector2(target_column_width(u), height))
 
@@ -598,7 +598,7 @@ func _build_ist_screen(u: float) -> void:
 	screen.size = rect.size
 	_content.add_child(screen)
 	_ist_screen = screen
-	var cell := net_cell(u)
+	var cell := target_net_cell(u)
 	var span := DieNetView.net_size(cell)
 	# Der PARKPLATZ des Netzes: ein leerer Platz in Netzgröße. Das Netz fährt, dieser
 	# Platz nie.
@@ -648,6 +648,13 @@ func _sync_empty_net() -> void:
 ## Summen-, Ziel- und Licht-Netz lesen damit wie die Karte selbst.
 func net_cell(_u: float) -> float:
 	return card_net_cell(shelf_cell_px())
+
+## Die Ausnahme ist das ZIEL-NETZ (Spieler-Wunsch 2026-10-24): es füllt die Zeilenhöhe
+## und die Breite seiner Spalte, nie kleiner als die Karten-Zelle.
+func target_net_cell(u: float) -> float:
+	var room := Vector2(target_column_width(u), row_rect().size.y) \
+		- Vector2.ONE * u * DIFF_PAD * 2.0
+	return maxf(net_cell(u), DieNetView.cell_for(room))
 
 ## Die Netz-Zelle einer Karte in Display-Pixeln, aus der gemeldeten STEHENDEN Zelle:
 ## das Netz füllt die Öffnung quer, und quer liegen drei Zellen samt zwei Fugen.

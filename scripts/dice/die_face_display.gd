@@ -199,17 +199,40 @@ const TRACE_START := 0.51
 ## Interne Glyphen-Auflösung (Font-Atlas-Pixel) - Weltgröße steuert pixel_size.
 const LABEL_FONT_SIZE := 160
 ## Basis-Umrechnung Font-Pixel -> Welteinheiten (Höhe einer einstelligen Ziffer).
-const LABEL_PIXEL_SIZE := 0.0085
+## Seit den GRUNDFORMEN (2026-10-24) um DIGIT_SHARE kleiner als die 0.0085 davor:
+## die Figur läuft hinter der Ziffer durch, und eine kleinere Zahl gibt mehr von
+## ihr frei. EINE Zahl für beide Maße - LABEL_FIT_EXTENT trägt denselben Faktor,
+## sonst schrumpfte die einstellige Ziffer stärker als die dreistellige.
+const DIGIT_SHARE := 0.72
+const LABEL_PIXEL_SIZE := 0.0085 * DIGIT_SHARE
+## Ab vier Stellen (FaceValue): Ziffer etwas kleiner und tiefer, die Größe darüber.
+const MAGNITUDE_NAME := "Magnitude"
+const BIG_DIGIT_SHARE := 0.8
+const BIG_DIGIT_DROP := 0.16
+const MAGNITUDE_RISE := 0.62
+const MAGNITUDE_SHARE := 0.34
+const MAGNITUDE_COLOR := Color(0.82, 0.84, 0.9)
+const BIG_GUARD_DIGITS := 4
 ## Nutzbare Kantenlänge des Ziffernfelds (< DieBuilder.FACE_SIZE).
-const LABEL_FIT_EXTENT := 1.5
-## Dunkler Saum der Ziffer in Font-Pixeln (12.5 % von LABEL_FONT_SIZE): das
-## Trennband gegen auslaufendie Runen-Bloom. Mehr macht die Zahl fett, weniger
-## trennt bei voller Naht-Breite nicht mehr.
-const LABEL_OUTLINE_SIZE := 20
+const LABEL_FIT_EXTENT := 1.5 * DIGIT_SHARE
+## SCHWARZER Saum der Ziffer in Font-Pixeln (15 % von LABEL_FONT_SIZE) - das
+## UNTERTITEL-Band (Spieler-Wunsch 2026-10-24): es trennt die Zahl von der Rune
+## dahinter, und weil es im Tiefen-Prepass mitschreibt, SCHNEIDET es die Figur um
+## die Ziffer herum weg. Die erste Fassung stand auf 48 und las im Spiel als fetter
+## Klotz - halbiert trennt es immer noch, weil nicht die BREITE schneidet, sondern
+## der Prepass (LABEL_ALPHA_SCISSOR).
+const LABEL_OUTLINE_SIZE := 24
 ## Auf einer MATERIAL-Seite ist der Grund hell und farbig (Rubin, Bernstein, Gold
-## teilen die Töne der Hitze-Ziffer): dort bekommt die Ziffer einen breiten dunklen
-## Hof, damit sie immer auf eigenem Dunkel glüht.
-const LABEL_OUTLINE_MATERIAL := 34
+## teilen die Töne der Hitze-Ziffer): dort ist das Band breiter, damit die Ziffer
+## immer auf eigenem Dunkel glüht.
+const LABEL_OUTLINE_MATERIAL := 32
+## Der Saum ist SCHWARZ, nicht körperfarben: auf einer schwarzen Seite sieht man
+## ihn ohnehin nicht, auf einer hellen Material-Seite ist er das Band.
+const LABEL_OUTLINE_COLOR := Color(0, 0, 0)
+## Ab dieser Deckung schreibt die Ziffer Tiefe (ALPHA_CUT_OPAQUE_PREPASS). Tiefer
+## als Godots 0.5, damit auch der weiche Rand des Bandes die Rune noch wegschneidet
+## - sonst schimmert sie im Antialias-Saum durch.
+const LABEL_ALPHA_SCISSOR := 0.25
 
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
@@ -255,11 +278,11 @@ var _pool_color := Color(0, 0, 0, 0)
 ## Spanne, über die das Polarlicht seinen Farbton wandern lässt (Grün -> Violett).
 const AURORA_HUE_SPAN := 0.22
 
-## Tiefenstufe je weiterem Runen-Platz: knapp vor dem vorigen, hinter der Ziffer.
-const SECOND_RUNE_DEPTH := 0.0085
-## Verbreiterung der Ziffern-Sperrzone je zusätzlicher Stelle (§2.4): eine
-## zweistellige Zahl beansprucht ~0.375 statt 0.26 halbe Breite.
-const DIGIT_GUARD_WIDEN := 0.115
+## Tiefe der Runen-Auflage und der Schritt je weiterem Platz. Beide Zusatz-Plätze
+## müssen UNTER der Asche (BURN_LIFT 0.0092) und der Ziffer (0.01) bleiben - sonst
+## läge der dritte Rune eines Vakuum-Würfels VOR der Zahl.
+const RUNE_LIFT := 0.008
+const SECOND_RUNE_STEP := 0.0004
 
 ## Lebendiges Licht: das Kanten-Neon atmet langsam - Material-Würfel stärker.
 var _pulse_phase := randf() * TAU
@@ -338,10 +361,7 @@ func _set_textures(material: StandardMaterial3D, material_id: String) -> void:
 	material.uv1_offset = Vector3.ZERO
 
 func _set_face_value(axis: String, value: int) -> void:
-	var label: Label3D = labels[axis]
-	label.text = str(value)
-	DieFaceDisplay.fit_label(label)
-	_sync_digit_guard(axis)
+	DieFaceDisplay.write_value(labels[axis], value)
 
 ## Schreibt die Ziffer EINER Seite abweichend von der Def (Anzeige-
 ## Überschreibung: Verwandlungs-Charm, Wertwandel während des Zählens).
@@ -564,17 +584,16 @@ func _refresh_rune_overlays(def: DieDefinition) -> void:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var on_face := def.runes_on(face_index)
 		_apply_rune_overlay(rune_overlays[axis], on_face, 0, def)
-		for slot in range(1, Rune.SLOT_FLIPS.size()):
+		for slot in range(1, Rune.SLOT_SCALES.size()):
 			var extra: MeshInstance3D = _extra_overlays(slot).get(axis)
 			if on_face.size() > slot:
 				if extra == null:
-					extra = DieBuilder.build_rune_overlay(SECOND_RUNE_DEPTH * float(slot))
+					extra = DieBuilder.build_rune_overlay(RUNE_LIFT + SECOND_RUNE_STEP * float(slot))
 					quads[axis].add_child(extra)
 					_extra_overlays(slot)[axis] = extra
 				_apply_rune_overlay(extra, on_face, slot, def)
 			elif extra != null:
 				extra.visible = false
-		_sync_digit_guard(axis)
 
 ## Auflagen-Ablage eines Runen-Platzes > 0 (faul gebaut, nur am Vakuum belegt).
 func _extra_overlays(slot: int) -> Dictionary:
@@ -609,26 +628,10 @@ func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index:
 	material.set_shader_parameter("halo_bias", profile.halo_bias)
 	# Je Würfel eine eigene Phase - 30 Tray-Würfel atmen nie im Gleichschritt.
 	material.set_shader_parameter("phase", _pulse_phase)
-	# Der Platz ist eine Spiegelung derselben Maske - der KRANZ füllt die Seite.
-	material.set_shader_parameter("glyph_flip", Rune.slot_flip(index))
+	# Der Platz ist ein Maßstab derselben Maske - die Grundformen liegen ineinander.
+	material.set_shader_parameter("glyph_scale", Rune.slot_scale(index))
 	material.set_shader_parameter("flare", 0.0)
 	material.set_shader_parameter("block_flare", false)
-
-## Ziffern-Wächter (§2.4): eine zweistellige Zahl ist breiter, also wird die
-## SPERRZONE breiter - nie die Figur. Knochen lässt Werte wachsen, und eine Rune,
-## der sich beim Wachsen neu zeichnet, liest als Fehler.
-func _sync_digit_guard(axis: String) -> void:
-	var label: Label3D = labels.get(axis)
-	if label == null:
-		return
-	var digits := maxi(1, label.text.length())
-	var half := Vector2(Rune.DIGIT_KEEPOUT.x + DIGIT_GUARD_WIDEN * float(digits - 1),
-		Rune.DIGIT_KEEPOUT.y)
-	for store in [rune_overlays, rune_overlays_second, rune_overlays_third]:
-		var overlay: MeshInstance3D = store.get(axis)
-		if overlay == null or not overlay.visible:
-			continue
-		(overlay.material_override as ShaderMaterial).set_shader_parameter("digit_half", half)
 
 ## Lässt die Runen EINER Seite auflodern (0 = Ruhe, 1 = voller Ausbruch) -
 ## scene_root ruft das im Aktivierungs-Puls der Zählanimation. face_index < 0
@@ -1041,6 +1044,40 @@ static func trace_mesh(src_axis: String, tgt_axis: String) -> ArrayMesh:
 	var mesh: ArrayMesh = st.commit()
 	_trace_mesh_cache[key] = mesh
 	return mesh
+
+## Schreibt eine Augenzahl (FaceValue): ab vier Stellen groß die Kombinationsziffer,
+## klein darüber die Größe als Kind-Label - es folgt der Ziffer in Lage und Drehung.
+static func write_value(label: Label3D, value: int) -> void:
+	label.text = FaceValue.main_text(value)
+	var mag := label.get_node_or_null(MAGNITUDE_NAME) as Label3D
+	if not FaceValue.is_big(value):
+		if mag != null:
+			label.remove_child(mag)
+			mag.queue_free()
+		label.position.y = 0.0
+		fit_label(label)
+		return
+	label.pixel_size = LABEL_PIXEL_SIZE * BIG_DIGIT_SHARE
+	label.position.y = -BIG_DIGIT_DROP
+	if mag == null:
+		mag = Label3D.new()
+		mag.name = MAGNITUDE_NAME
+		mag.font_size = LABEL_FONT_SIZE
+		mag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		mag.alpha_cut = label.alpha_cut
+		mag.alpha_scissor_threshold = label.alpha_scissor_threshold
+		mag.outline_size = label.outline_size
+		mag.outline_modulate = label.outline_modulate
+		mag.modulate = MAGNITUDE_COLOR
+		label.add_child(mag)
+	mag.text = FaceValue.magnitude(value)
+	mag.position = Vector3(0.0, BIG_DIGIT_DROP + MAGNITUDE_RISE, 0.0)
+	var font: Font = mag.font if mag.font != null else ThemeDB.fallback_font
+	var wide := font.get_string_size(mag.text, HORIZONTAL_ALIGNMENT_CENTER, -1.0,
+		mag.font_size).x
+	mag.pixel_size = minf(LABEL_PIXEL_SIZE * MAGNITUDE_SHARE,
+		LABEL_FIT_EXTENT * 0.9 / maxf(wide, 1.0))
 
 ## Skaliert pixel_size so, dass label.text in LABEL_FIT_EXTENT passt -
 ## mehrstellige Werte werden proportional verkleinert.

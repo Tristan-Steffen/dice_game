@@ -3,7 +3,7 @@ class_name RuneTextures
 ## bildet die ganze Seite ab, und dieselbe Maske trägt jeden Runen-Platz, weil der
 ## Shader sie nur spiegelt. Die Tönung ist ein Shader-Uniform, kein Pixel: vorher
 ## entstand je Kombination aus Runen und Essenz eine eigene Textur (bis zu ~30).
-## Jetzt gibt es sechs Texturen im ganzen Spiel, für immer - eine je Zeichen.
+## Jetzt gibt es fünf Texturen im ganzen Spiel, für immer - eine je Zeichen.
 ##
 ## Kanäle (RGBA8, Datentextur - NICHT source_color, sonst zerrt die sRGB-Kurve
 ## Bogenlänge und Abstand krumm):
@@ -23,23 +23,15 @@ class_name RuneTextures
 ## Zeichen, 234 ms gesamt), obwohl die Fläche 1,8-mal so groß ist: das schmalere
 ## FIELD schrumpft jeden Segment-Kasten. Bleibt hinter dem Titelbild unsichtbar.
 const SIZE := 256
-## Kernbreite als Anteil der SEITENbreite bei Gewicht 1.0. Der Kranz läuft über
-## die ganze Seite, also misst der Strich auch daran; 0.052 gegen die 0.036
-## Seitenbreiten der alten Eckzelle - er wächst um knapp die Hälfte. Mehr geht
-## nicht: die halbe Breite muss unter FIELD bleiben, sonst frisst der Kern den Hof.
+## Kernbreite als Anteil der SEITENbreite bei Gewicht 1.0. Die Grundform läuft über
+## die ganze Seite, also misst der Strich auch daran. Mehr geht nicht: die halbe
+## Breite muss unter FIELD bleiben, sonst frisst der Kern den Hof.
 const STROKE := 0.052
 ## Reichweite des Abstandsfelds als Anteil der Seite. Es ist zugleich der Rand,
 ## den Rune.GLYPH_MARGIN um jede Figur frei lässt: der Ausbruch weitet nur das
 ## angenommene Band INNERHALB des gebackenen Felds, also endet der Hof genau am
 ## Seitenrand und wird dort nie abgeschnitten.
 const FIELD := 0.055
-## Anteil der Linie, über den ein freies Ende schmaler wird. Ein geätzter Strich
-## hat konstante Tiefe - das hier ist nur die Auslaufzone gegen einen abrupten
-## Antialias-Bruch, keine Riss-Verjüngung mehr.
-const TAPER_SPAN := 0.08
-## Restbreite am freien Ende (Anteil der vollen Breite).
-const TAPER_FLOOR := 0.82
-
 static var _cache := {}  # glyph_id -> ImageTexture
 
 ## Maske eines Zeichens ("" oder unbekannt -> null). Gecacht je ZEICHEN, also
@@ -145,9 +137,8 @@ static func _bake(glyph_id: String) -> ImageTexture:
 					nearest[index] = gap_sq
 					var distance := sqrt(gap_sq)
 					var run := walked + t * span_length
-					var along := run / maxf(line_length, 0.001)
 					var arc := (before + run) / arc_span
-					var half := _half_width(along, weight)
+					var half := _half_width(weight)
 					var radial := clampf(distance / field, 0.0, 1.0)
 					var core := 1.0 - smoothstep(half * 0.55, half * 1.25, distance)
 					var cover := 1.0 - smoothstep(0.86, 1.0, radial)
@@ -165,10 +156,8 @@ static func _bake(glyph_id: String) -> ImageTexture:
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
 
-## Halbe Kernbreite an der Stelle along (0..1 auf DIESER Linie). Konstant: ein
-## geätzter Strich hat überall dieselbe Tiefe. Nur die freien Enden laufen ein
-## Stück schmaler aus, damit der Antialias dort nicht abrupt bricht.
-static func _half_width(along: float, weight: float) -> float:
-	var ends := minf(smoothstep(0.0, TAPER_SPAN, along),
-		smoothstep(0.0, TAPER_SPAN, 1.0 - along))
-	return 0.5 * STROKE * float(SIZE) * weight * (TAPER_FLOOR + (1.0 - TAPER_FLOOR) * ends)
+## Halbe Kernbreite: konstant, ein geätzter Strich hat überall dieselbe Tiefe.
+## Die Auslaufzone der freien Enden ist mit den GRUNDFORMEN gestorben - jede Figur
+## ist geschlossen, und ein schmaler werdendes "Ende" säße mitten auf der Linie.
+static func _half_width(weight: float) -> float:
+	return 0.5 * STROKE * float(SIZE) * weight

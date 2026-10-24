@@ -382,8 +382,10 @@ static func _build_label(value: int) -> Label3D:
 	# der Prepass auch für den Saum Tiefe schreibt, VERDECKT der Ring die Rune
 	# dahinter - ein Trennband, das Bloom nicht überqueren kann.
 	label.outline_size = DieFaceDisplay.LABEL_OUTLINE_SIZE
-	label.outline_modulate = DieFaceDisplay.BODY_COLOR
+	label.outline_modulate = DieFaceDisplay.LABEL_OUTLINE_COLOR
+	label.alpha_scissor_threshold = DieFaceDisplay.LABEL_ALPHA_SCISSOR
 	label.position = Vector3(0, 0, 0.01)
+	DieFaceDisplay.write_value(label, value)
 	return label
 
 ## Quad-Orientierung: z (Normale) nach außen, y (Ziffern-"oben") entlang up;

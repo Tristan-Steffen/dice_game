@@ -826,14 +826,16 @@ func test_the_breakdown_rows_are_dead() -> void:
 	assert_false(view.has_method("diff_rows"), "keine Aufschlüsselungs-Zeilen mehr")
 	assert_false(view.has_method("diff_row_slot_at"), "und kein Zeilen-Hover")
 
-## Das Zellmaß ist das des PRÄGENETZES auf der Karte (Welle 29), und Netz wie
-## Summen-Schirm teilen es - die Würfelfläche rührt es nicht.
+## Das Zellmaß ist das des PRÄGENETZES auf der Karte (Welle 29); das Ziel-Netz
+## füllt seine Spalte und wird dabei nie kleiner - die Würfelfläche rührt beides nicht.
 func test_both_nets_share_the_card_net_cell() -> void:
 	view.die_face_px = 28.0
 	view.choose_target(0)
 	await wait_frames(2)
 	var card := WorkshopView.card_net_cell(view.shelf_cell_px())
-	assert_almost_eq(view._net.cell, card, 0.001, "das Netz trägt die Karten-Zelle")
+	assert_almost_eq(view._net.cell, view.target_net_cell(view.unit()), 0.001,
+		"das Ziel-Netz füllt seine Spalte")
+	assert_gte(view._net.cell, card, "und ist nie kleiner als die Karten-Zelle")
 	assert_almost_eq(view.sum_net_cell(view.unit()), card, 0.001,
 		"und der Summen-Schirm dasselbe Maß")
 

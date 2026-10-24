@@ -91,8 +91,8 @@ func test_a_face_with_a_rune_carries_the_shader() -> void:
 	assert_not_null(material, "ShaderMaterial statt StandardMaterial3D")
 	assert_same(material.shader, DieBuilder.RUNE_SHADER, "EIN Shader, ein Compile")
 	assert_eq(material.get_shader_parameter("motion"), Rune.MOTION_ECHO)
-	assert_eq(material.get_shader_parameter("glyph_flip"), Rune.slot_flip(0),
-		"der erste Platz zeichnet die Figur ungespiegelt")
+	assert_eq(material.get_shader_parameter("glyph_scale"), Rune.slot_scale(0),
+		"der erste Platz zeichnet die Figur in voller Größe")
 
 func test_an_unbroken_face_shows_nothing() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW]))
@@ -105,7 +105,7 @@ func test_the_seam_colour_reaches_the_shader_normalized() -> void:
 		"energy heißt in jedem Profil dasselbe")
 	assert_almost_eq(seam.z, 1.0, 0.01, "und es bleibt das Energie-Cyan")
 
-func test_the_vacuum_swallows_every_rune_and_mirrors_the_second() -> void:
+func test_the_vacuum_swallows_every_rune_and_nests_the_second() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))
 	assert_eq(_material(faces, 0).get_shader_parameter("motion"), Rune.MOTION_INTAKE,
 		"auf einem Vakuum-Würfel saugt auch das Nachglühen")
@@ -113,9 +113,9 @@ func test_the_vacuum_swallows_every_rune_and_mirrors_the_second() -> void:
 	assert_not_null(second, "das zweite Zeichen bekommt seine eigene Auflage")
 	assert_true(second.visible)
 	var second_material := second.material_override as ShaderMaterial
-	assert_eq(second_material.get_shader_parameter("glyph_flip"), Rune.slot_flip(1),
-		"eigene Spiegelung - sonst liegen beide Zeichen deckungsgleich")
-	assert_ne(Rune.slot_flip(1), Rune.slot_flip(0))
+	assert_eq(second_material.get_shader_parameter("glyph_scale"), Rune.slot_scale(1),
+		"eigener Maßstab - eine Grundform gespiegelt wäre sie selbst")
+	assert_lt(Rune.slot_scale(1), Rune.slot_scale(0))
 	assert_eq(second_material.get_shader_parameter("motion"), Rune.MOTION_INTAKE)
 
 func test_a_single_rune_builds_no_second_overlay() -> void:
@@ -143,24 +143,46 @@ func test_the_block_flare_is_its_own_gesture() -> void:
 	faces.flare_runes(1.0, 0, false)
 	assert_false(bool(_material(faces, 0).get_shader_parameter("block_flare")))
 
-# --- Der Ziffern-Wächter ------------------------------------------------------------
+# --- Die Ziffer liegt VOR der Figur -------------------------------------------------
 
-func test_a_two_digit_value_widens_the_guard_not_the_crack() -> void:
-	var def := _die([Rune.AFTERGLOW])
-	def.faces[0] = 12
+func test_the_digit_sits_in_front_of_every_rune_slot() -> void:
+	# Spieler-Entscheid 2026-10-24: überschneiden sich Zahl und Grundform, gewinnt
+	# die ZAHL. Sie schreibt Tiefe (ALPHA_CUT_OPAQUE_PREPASS), also deckt sie mitsamt
+	# ihrem dunklen Saum, was hinter ihr liegt - auch eine dreistellige.
+	var def := _die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM)
+	def.faces[0] = 800
 	var faces := _display(def)
-	var half: Vector2 = _material(faces, 0).get_shader_parameter("digit_half")
-	assert_almost_eq(half.x, Rune.DIGIT_KEEPOUT.x + DieFaceDisplay.DIGIT_GUARD_WIDEN, 0.001,
-		"zwei Stellen -> breitere Sperrzone")
-	assert_almost_eq(half.y, Rune.DIGIT_KEEPOUT.y, 0.001, "die Höhe bleibt")
-	# Die Figur selbst ist NIE eine Funktion des Werts - Knochen lässt Werte
-	# wachsen, und eine Rune, der sich dabei neu zeichnet, liest als Fehler.
-	assert_eq(Rune.glyph_lines(Rune.GLYPH_AFTERGLOW), Rune.glyph_lines(Rune.GLYPH_AFTERGLOW))
+	var axis := _axis_of(faces, 0)
+	var label: Label3D = faces.labels[axis]
+	assert_eq(label.alpha_cut, Label3D.ALPHA_CUT_OPAQUE_PREPASS, "die Ziffer schreibt Tiefe")
+	# Das UNTERTITEL-Band: schwarz, breit, und es schreibt bis in seinen weichen
+	# Rand hinein Tiefe - sonst schimmert die Rune im Antialias-Saum durch.
+	assert_eq(label.outline_modulate, DieFaceDisplay.LABEL_OUTLINE_COLOR,
+		"der Saum ist SCHWARZ, nicht körperfarben")
+	assert_almost_eq(label.outline_modulate.v, 0.0, 0.001)
+	assert_eq(label.outline_size, DieFaceDisplay.LABEL_OUTLINE_SIZE,
+		"die Ziffer trägt das Band der Konstante")
+	assert_gt(label.outline_size, 0, "ohne Band steht die Zahl nackt im Zeichen")
+	assert_lt(label.alpha_scissor_threshold, 0.5, "tiefer als Godots Vorgabe")
+	assert_almost_eq(label.alpha_scissor_threshold, DieFaceDisplay.LABEL_ALPHA_SCISSOR, 0.001)
+	for store in [faces.rune_overlays, faces.rune_overlays_second, faces.rune_overlays_third]:
+		var overlay: MeshInstance3D = (store as Dictionary).get(axis)
+		if overlay == null:
+			continue
+		assert_lt(overlay.position.z, label.position.z,
+			"%s liegt hinter der Ziffer" % overlay.name)
 
-func test_a_single_digit_keeps_the_authored_keepout() -> void:
-	var faces := _display(_die([Rune.AFTERGLOW]))
-	var half: Vector2 = _material(faces, 0).get_shader_parameter("digit_half")
-	assert_almost_eq(half.x, Rune.DIGIT_KEEPOUT.x, 0.001)
+func test_even_the_last_rune_slot_stays_under_the_digit() -> void:
+	# Der dritte Platz entsteht erst unter der Glasglocke - seine Tiefe steht
+	# trotzdem fest, und sie muss unter Asche UND Ziffer bleiben.
+	var deepest := DieFaceDisplay.RUNE_LIFT 		+ DieFaceDisplay.SECOND_RUNE_STEP * float(Rune.SLOT_SCALES.size() - 1)
+	assert_lt(deepest, DieFaceDisplay.BURN_LIFT, "unter der Asche")
+	assert_lt(deepest, 0.01, "und unter der Ziffer")
+
+func test_the_figure_never_follows_the_value() -> void:
+	# Knochen lässt Werte wachsen, und eine Rune, die sich dabei neu zeichnet,
+	# liest als Fehler.
+	assert_eq(Rune.glyph_lines(Rune.GLYPH_AFTERGLOW), Rune.glyph_lines(Rune.GLYPH_AFTERGLOW))
 
 # --- Helfer -------------------------------------------------------------------------
 
@@ -188,11 +210,11 @@ func test_the_net_draws_one_glyph_per_rune_and_knows_its_face() -> void:
 		faces[(crack as DieNetView.RuneGlyph).face] = true
 	assert_true(faces.has(0) and faces.has(4), "jede Rune kennt ihre Zelle")
 
-func test_the_net_carries_the_branch_weights() -> void:
+func test_the_net_carries_one_full_stroke() -> void:
 	var cracks := DieNetView.rune_glyphs(_die([Rune.SPARK_FLIGHT]), 40.0)
 	var crack := cracks[0] as DieNetView.RuneGlyph
 	assert_eq(crack.weights.size(), crack.lines.size(), "je Linie ein Gewicht")
-	assert_lt(crack.weights[1], crack.weights[0], "der Beistrich ist dünner als der Hauptstrich")
+	assert_almost_eq(crack.weights[0], 1.0, 0.001, "eine Grundform ist EIN Strich")
 
 func test_the_net_glyph_fills_its_cell_like_the_card() -> void:
 	# Spieler-Wunsch 2026-09-11: im Netz dieselbe Größe und Lage wie auf der Karte -

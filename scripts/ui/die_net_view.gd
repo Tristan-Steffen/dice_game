@@ -46,6 +46,11 @@ const POINTER_SIDES := {
 }
 
 ## Gesamtgröße des Netzes bei Zellgröße cell (4 Spalten × 3 Zeilen + Lücken).
+## Ab vier Stellen (FaceValue): Höhe des Größen-Bands je Zelle und Grad der Ziffer.
+const MAGNITUDE_NAME := "Magnitude"
+const MAGNITUDE_BAND := 0.3
+const BIG_DIGIT_SHARE := 0.82
+
 static func net_size(cell: float) -> Vector2:
 	var gap := cell * GAP_FACTOR
 	return Vector2(4.0 * cell + 3.0 * gap, 3.0 * cell + 2.0 * gap)
@@ -136,6 +141,54 @@ static func charge_hint(def: DieDefinition) -> String:
 ## Größter Schriftgrad, der samt Saum noch IN eine Zelle der Kantenlänge cell paßt.
 ## Gemessen: die Mindesthöhe eines Labels ist ~1,42 × Grad, der Saum kommt beidseits
 ## dazu - ohne diesen Deckel klemmte eine kleine Zelle sich selbst hochkant.
+## Schreibt eine Augenzahl in ihr Label (FaceValue): ab vier Stellen groß die
+## Kombinationsziffer, klein darüber die Größe. Farben und Saum erbt die Größe vom
+## Label, darum NACH dessen Farb-Overrides rufen.
+static func write_value(digit: Label, value: int, cell: float, font_size: int = -1) -> void:
+	var top := face_font_size(cell) if font_size < 0 else font_size
+	digit.text = FaceValue.main_text(value)
+	var mag := digit.get_node_or_null(MAGNITUDE_NAME) as Label
+	if not FaceValue.is_big(value):
+		if mag != null:
+			digit.remove_child(mag)
+			mag.queue_free()
+		digit.remove_theme_stylebox_override("normal")
+		digit.add_theme_font_size_override("font_size", top)
+		return
+	if mag == null:
+		mag = Label.new()
+		mag.name = MAGNITUDE_NAME
+		mag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		digit.add_child(mag)
+	var band := cell * MAGNITUDE_BAND
+	# Die Ziffer rückt per Innenrand unter das Größen-Band; die Größe bleibt IM
+	# Label-Rechteck, sonst schneidet clip_text sie ab.
+	var room := StyleBoxEmpty.new()
+	room.content_margin_top = band * 0.7
+	digit.add_theme_stylebox_override("normal", room)
+	digit.add_theme_font_size_override("font_size", int(top * BIG_DIGIT_SHARE))
+	mag.text = FaceValue.magnitude(value)
+	mag.anchor_left = 0.0
+	mag.anchor_right = 1.0
+	mag.anchor_top = 0.0
+	mag.anchor_bottom = 0.0
+	mag.offset_left = 0.0
+	mag.offset_right = 0.0
+	mag.offset_top = cell * 0.05
+	mag.offset_bottom = mag.offset_top + band
+	var size := maxi(4, int(band * 0.85))
+	var font := digit.get_theme_font("font")
+	if font != null:
+		var wide := font.get_string_size(mag.text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		if wide > cell * 0.86:
+			size = maxi(4, int(size * cell * 0.86 / wide))
+	mag.add_theme_font_size_override("font_size", size)
+	mag.add_theme_color_override("font_color", digit.get_theme_color("font_color"))
+	mag.add_theme_color_override("font_outline_color", digit.get_theme_color("font_outline_color"))
+	mag.add_theme_constant_override("outline_size", maxi(1, digit.get_theme_constant("outline_size") / 2))
+
 static func face_font_size(cell: float) -> int:
 	var outline := maxi(1, int(cell * 0.06))
 	return maxi(4, mini(int(cell * 0.5), int((cell - float(outline) * 2.0) / 1.5)))
@@ -174,11 +227,11 @@ static func _face_cell(def: DieDefinition, face_index: int, pos: Vector2, cell: 
 	# 3D-Würfel, nur trennt es hier gegen die Linie statt gegen den Bloom.
 	digit.add_theme_color_override("font_outline_color", fill)
 	digit.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
-	digit.text = str(value)
 	# Über den Runen-Zeichen, die als Geschwister NACH der Platte kommen.
 	digit.z_index = 1
 	chip.add_child(digit)
 	digit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	write_value(digit, value, cell)
 	return chip
 
 ## Essenz-Chip in der leeren oberen linken Kreuz-Ecke: eine auf die Spitze
@@ -335,7 +388,8 @@ class RuneGlyph:
 	var face: int = -1
 	var lines: Array[PackedVector2Array] = []
 	var weights := PackedFloat32Array()
-	## Runen-Platz = Spiegelung (Rune.SLOT_FLIPS), genau wie am 3D-Würfel.
+	## Runen-Platz = Maßstab (Rune.SLOT_SCALES), genau wie am 3D-Würfel: mehrere
+	## Runen einer Zelle liegen ineinander.
 	var slot: int = 0
 	var tint := Color.WHITE
 	var core := Color.WHITE

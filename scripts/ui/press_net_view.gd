@@ -21,13 +21,16 @@ const TOUCHED_BORDER := CasinoStyle.GOLD
 ## Verpuffte Zelle: Füllung und Ziffer dimmen aus.
 const DIM_ALPHA := 0.30
 const DIM_NUMBER := Color(0.35, 0.35, 0.42)
-## Vorschau: steigt GRÜN, sinkt warm-rot - dieselbe Lesart wie am liegenden
-## Würfel, aber für HELLEN Grund gemischt. Die Netz-Zelle trägt die Materialfarbe,
-## und ohne Material ist sie WEISS: das helle Grün des 3D-Würfels
-## (DieFaceDisplay.PREVIEW_NUMBER_COLOR) verschwand darauf samt seinem weißen Saum
-## (Spieler-Meldung 2026-09-04). Gleicher Farbton, dunkler Wert.
-const PREVIEW_UP := Color(0.07, 0.42, 0.16)
-const PREVIEW_DOWN := Color(0.62, 0.13, 0.08)
+## Vorschau: steigt GRÜN, sinkt ROT - grelle Ziffer mit DUNKLEM Umriß, damit sie
+## auf Weiß wie auf jeder Materialfarbe steht (dunkles Grün ohne Umriß ging auf
+## Weiß unter, Spieler-Meldung 2026-10-24).
+const PREVIEW_UP := DieFaceDisplay.PREVIEW_NUMBER_COLOR
+const PREVIEW_UP_RIM := Color(0.022, 0.22, 0.062)
+const PREVIEW_DOWN := Color("#ff6b5a")
+const PREVIEW_DOWN_RIM := Color("#3d0a05")
+## Anteil der Zellbreite, den eine Ziffernzeile füllen darf, und ihr kleinster Grad.
+const FIT_SHARE := 0.82
+const MIN_FONT := 6
 ## Was ein Beitrag der überfahrenen Karte NICHT ist, verblaßt (Hover-Highlight).
 const GHOST_ALPHA := 0.35
 
@@ -169,9 +172,18 @@ func _write_face(face: int) -> void:
 	var label: Label = _labels[face]
 	if label == null or not is_instance_valid(label):
 		return
-	var shown: int = _shown[face]
-	var before: int = _before[face]
-	label.text = "%d→%d" % [before, shown] if shown != before else str(before)
+	write_cell(label, _before[face], _shown[face], cell)
+
+## Eine Vorschau-Zelle: "3→7", solange beide Zahlen dreistellig bleiben; ab vier
+## Stellen paßt das nicht mehr - dann steht nur der NEUE Wert (FaceValue), und den
+## Weg dorthin nennt der Info-Schirm.
+static func write_cell(label: Label, before: int, after: int, cell: float) -> void:
+	if after == before or FaceValue.is_big(before) or FaceValue.is_big(after):
+		DieNetView.write_value(label, after, cell)
+		return
+	DieNetView.write_value(label, after, cell)  # räumt ein altes Größen-Band fort
+	label.text = "%d→%d" % [before, after]
+	label.add_theme_font_size_override("font_size", fit_font_size(label, label.text, cell))
 
 ## Der GEISTER-Würfel: der Zielwürfel, wie die Serie ihn zurückließe. Er geht durch
 ## dieselben DieDefinition-Schreibwege wie die Buchung, damit Veredelung, Runen-
@@ -249,26 +261,37 @@ func _face_chip(face: int, ghost: DieDefinition) -> Panel:
 	label.z_index = 1  # über den Runen-Zeichen (Geschwister nach der Platte)
 	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var tint := CasinoStyle.INK
+	var rim := fill
+	var rim_size := maxi(1, int(cell * 0.06))
 	if dim:
 		tint = DIM_NUMBER
-		label.text = str(before)
-		label.add_theme_font_size_override("font_size", DieNetView.face_font_size(cell))
 	elif after != before:
 		tint = PREVIEW_UP if after > before else PREVIEW_DOWN
-		label.text = "%d→%d" % [before, after]
-		label.add_theme_font_size_override("font_size", maxi(6, int(cell * 0.28)))
-	else:
-		label.text = str(after)
-		label.add_theme_font_size_override("font_size", DieNetView.face_font_size(cell))
+		rim = PREVIEW_UP_RIM if after > before else PREVIEW_DOWN_RIM
+		rim_size = maxi(2, int(cell * 0.12))
 	label.add_theme_color_override("font_color", tint)
-	label.add_theme_color_override("font_outline_color", fill)
-	label.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.06)))
+	label.add_theme_color_override("font_outline_color", rim)
+	label.add_theme_constant_override("outline_size", rim_size)
+	write_cell(label, before, before if dim else after, cell)
 	chip.add_child(label)
 	if face < _labels.size():
 		_labels[face] = label  # der Zähl-Takt schreibt nur noch diese Zeile
 	if faded:
 		chip.modulate = Color(1.0, 1.0, 1.0, GHOST_ALPHA)
 	return chip
+
+## Der größte Grad bis zur Ziffern-Größe, bei dem der Text in die Zelle paßt -
+## "3→7" wie "120→1450" bleiben einzeilig und ungeschnitten.
+static func fit_font_size(label: Label, text: String, cell: float) -> int:
+	var top := DieNetView.face_font_size(cell)
+	var font := label.get_theme_font("font")
+	if font == null:
+		return top
+	var wide := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, top).x
+	var room := cell * FIT_SHARE
+	if wide <= room:
+		return top
+	return maxi(MIN_FONT, int(float(top) * room / wide))
 
 func _chip_box(fill: Color, border: Color, width: int) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()

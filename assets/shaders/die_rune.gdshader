@@ -2,16 +2,18 @@
 // Umkehrung. Die Maske ist FARBLOS (R Kern, G Bogenlänge, B Abstand zur
 // Mittellinie, A Deckung) und in SEITEN-Koordinaten gebacken, liegt also
 // deckungsgleich auf der Seite; die Tönung kommt als Uniform, der Runen-Platz als
-// glyph_flip - darum gibt es sechs Texturen im Spiel und nicht dreißig.
+// glyph_scale - darum gibt es fünf Texturen im Spiel und nicht dreißig.
 //
 // unshaded verwirft EMISSION - die Helligkeit muss über ALBEDO raus. Genau daran
 // ist die alte Auflage gescheitert: sie animierte emission_energy_multiplier auf
 // einem unschattierten Material, also passierte sichtbar nie etwas.
 //
-// Zwei Regeln formen jede Bewegung. In Ruhe darf nichts die Bloom-Schwelle (0.95)
-// erreichen - das hält sechs beschriftete Würfel in der Grube mechanisch davon ab,
-// eine Disco zu werden. Und ein Ausbruch liest auf Übersichts-Distanz über
-// BREITE: eine Naht ist dort ~1 px, Helligkeit allein bliebe ein Subpixel-Punkt.
+// Ein Ausbruch liest auf Übersichts-Distanz über BREITE: eine Naht ist dort ~1 px,
+// Helligkeit allein bliebe ein Subpixel-Punkt.
+//
+// Seit den GRUNDFORMEN (2026-10-24) hat der Shader keinen Ziffern-Wächter mehr:
+// die Figur läuft HINTER der Ziffer durch, und die deckt sie mitsamt ihrem dunklen
+// Saum selbst (Label3D mit ALPHA_CUT_OPAQUE_PREPASS schreibt Tiefe).
 
 shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never, blend_mix;
@@ -32,12 +34,10 @@ uniform float core_share = 0.55;       // Kern gegen Hof - unser Gegenstück zur
 uniform float halo_width = 0.35;
 uniform float halo_flare = 2.8;
 uniform vec2 halo_bias = vec2(0.0);    // gerichtetes Ausbluten (Streulicht: nach unten)
-uniform vec2 digit_half = vec2(0.26, 0.38);
-// Runen-Platz als Spiegelung (Rune.SLOT_FLIPS): eine negative Komponente klappt
-// die Figur an dieser Achse um. Mehrere Runen einer Seite sind Spiegelungen
-// derselben Maske - die Sperr-Ellipse ist symmetrisch, also hält jede den
-// Ziffern-Abstand exakt ein.
-uniform vec2 glyph_flip = vec2(1.0, 1.0);
+// Runen-Platz als MASSSTAB (Rune.SLOT_SCALES): mehrere Runen einer Seite liegen
+// INEINANDER, denn eine Grundform gespiegelt wäre sie selbst. Kleiner heißt hier,
+// die Maske weiter aussen abzutasten - ausserhalb steht sie auf "kein Feld".
+uniform float glyph_scale = 1.0;
 uniform bool block_flare = false;      // Einbrand: Schutz-Blitz statt Wertungswelle
 
 // Länge der wandernden Bande als Anteil der Naht (TAU ist eingebaut).
@@ -65,9 +65,8 @@ float swept(float s, float head, float soft) {
 
 void fragment() {
 	vec2 face_uv = UV;
-	// Der Platz ist eine Spiegelung, keine Verschiebung - ohne if-Zweig.
-	vec2 mirror = step(glyph_flip, vec2(0.0));
-	vec2 uv = mix(face_uv, 1.0 - face_uv, mirror);
+	// Der Platz ist ein Massstab um die Seitenmitte, keine Verschiebung.
+	vec2 uv = (face_uv - 0.5) / max(glyph_scale, 0.001) + 0.5;
 	vec4 mask = texture(glyph_map, uv);
 	float core = mask.r;
 	float s = mask.g;
@@ -99,8 +98,11 @@ void fragment() {
 	} else if (motion == 1) {
 		// SCATTER - kein Lauf, nur Glitzern an Ort und Stelle. Der einzige Rune,
 		// dessen Ruhe seine Hauptvorstellung ist: er bezahlt fürs Nichtstun.
-		float crawl = 0.5 + 0.5 * sin(ts * 0.65 + s * 11.0);
-		float glint = pow(max(0.0, sin(ts * 0.43 + s * 23.0)), 8.0);
+		// Die Bogenlänge läuft im Kreis, also stehen die Frequenzen auf ganzen
+		// Umläufen - sonst stösst bei s = 0 == 1 Berg auf Tal, und die Naht der
+		// geschlossenen Figur flimmert als stehender Strich.
+		float crawl = 0.5 + 0.5 * sin(ts * 0.65 + s * TAU * 2.0);
+		float glint = pow(max(0.0, sin(ts * 0.43 + s * TAU * 4.0)), 8.0);
 		// max statt Summe: so IST idle_high die Obergrenze und nicht nur der
 		// Regelfall - sonst könnten beide Terme zusammen darüber hinausschießen.
 		energy = idle_low + amp * max(0.44 * crawl, glint);
@@ -117,7 +119,9 @@ void fragment() {
 		// einzige Rune mit einem Farbverlauf ENTLANG der Naht: weißglühend am
 		// Einschlag, orange auf halbem Weg, tiefrot an den Spitzen.
 		float k = 3.2 + 1.4 * sin(ts * 0.60);
-		float heat = exp(-s * k);
+		// Von der Naht aus in BEIDE Richtungen: auf der geschlossenen Figur
+		// lägen Anfang und Ende sonst nebeneinander und zeigten eine Kante.
+		float heat = exp(-min(s, 1.0 - s) * 2.0 * k);
 		energy = idle_low + amp * heat;
 		tint = mix(seam_color, core_color, heat * heat);
 		if (block_flare) {
@@ -151,14 +155,6 @@ void fragment() {
 		widen = 1.0 + (halo_flare - 1.0) * env;
 	}
 
-	// Ziffern-Wächter: das Zeichen DIMMT, wo es hinter einer breiten Zahl liegt.
-	// Es ändert nie seine Form - Knochen lässt Werte wachsen, und eine Rune, die
-	// sich dabei neu zeichnet, liest als Fehler.
-	// Gelockert am 2026-09-11: die FIGUR hält den Abstand seit dem KRANZ selbst ein
-	// (ein Test bewacht ihn), also dimmt der Wächter nur noch, was wirklich
-	// hereinragt - sonst kostete er jede Rune ein Fünftel ihrer Helligkeit.
-	energy *= smoothstep(0.70, 1.00, length((face_uv - 0.5) / digit_half));
-
 	float texels = max(fwidth(uv).x, fwidth(uv).y) * float(textureSize(glyph_map, 0).x);
 	float far = clamp(texels / FAR_REF, 1.0, FAR_MAX);
 	widen *= far;
@@ -170,8 +166,7 @@ void fragment() {
 	// Gerichtetes Ausbluten: eine zweite Probe gegen die Bias-Richtung schiebt den
 	// Hof zur Bias-Seite - bei Streulicht fällt das Licht so vom Würfel aufs Filz.
 	float spill = 0.05 * (widen - 1.0) / max(halo_flare - 1.0, 0.001);
-	// Die Bias-Richtung ist in SEITEN-Koordinaten gemeint, also klappt sie mit.
-	float shifted = clamp(1.0 - texture(glyph_map, uv - halo_bias * glyph_flip * spill).b
+	float shifted = clamp(1.0 - texture(glyph_map, uv - halo_bias * spill).b
 		/ max(band, 0.001), 0.0, 1.0);
 	halo = max(halo, shifted * shifted);
 
