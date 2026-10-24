@@ -32,9 +32,8 @@ enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, ENERGY }
 ## Serie (ein Slot mehr), kein Bestand.
 enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, COMBO_LEVEL, PRESS_BOOST }
 
-## Hub-Stufe, ab der eine Wette ohne eigenen "unlock" ausliegt (= die Stufe, die
-## die Nebenwetten überhaupt installiert, GameRun.HUB_SIDE_BETS_LEVEL).
-const UNLOCK_BASE := 2
+## Fortschrittsstufe, ab der eine Wette ohne eigenen "unlock" ausliegt: ab Runde 1.
+const UNLOCK_BASE := 1
 
 ## Eine "volle" Hand nutzt alle sechs Würfel der Grube.
 const FULL_HAND_DICE := 6
@@ -261,17 +260,17 @@ static func _from_template(t: Dictionary, benchmark: int = 0) -> SideBet:
 static func pack_stock_key(pack_type: String, pack_tier: int) -> String:
 	return "%s|%d" % [pack_type, pack_tier]
 
-## Würfelt count verschiedene Wett-Angebote aus (ohne Zurücklegen). hub_level
+## Würfelt count verschiedene Wett-Angebote aus (ohne Zurücklegen). tier
 ## filtert die Auslage (jede Vorlage hat ihre Freischalt-Stufe), benchmark füllt
 ## die skalierten Punktziele - beide werden HIER eingefroren. stock ist die
 ## Inventar-Sicht des Magazins (GameRun.pack_stock, reine Daten): eine
 ## Paket-Einsatz-Vorlage liegt nur aus, wenn der Spieler die genannte Ware WIRKLICH
 ## besitzt - sonst rückt die nächste Vorlage nach.
-static func roll_offers(count: int, hub_level: int, benchmark: int,
+static func roll_offers(count: int, tier: int, benchmark: int,
 		stock: Dictionary = {}) -> Array[SideBet]:
 	var templates: Array = []
 	for t: Dictionary in TEMPLATES:
-		if int(t.get("unlock", UNLOCK_BASE)) <= hub_level:
+		if int(t.get("unlock", UNLOCK_BASE)) <= tier:
 			templates.append(t)
 	templates.shuffle()
 	var bets: Array[SideBet] = []

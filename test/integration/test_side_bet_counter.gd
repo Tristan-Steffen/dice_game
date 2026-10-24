@@ -22,7 +22,6 @@ const FADE_FRAMES := 30
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.hub_level = GameRun.HUB_SIDE_BETS_LEVEL
 	panel = SideBetPanel.new()
 	panel.size = WINDOW_SIZE
 	add_child_autofree(panel)

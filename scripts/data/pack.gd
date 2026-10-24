@@ -198,7 +198,7 @@ static func dice_mod_pack(rng: RandomNumberGenerator = null) -> Pack:
 	return pack
 
 ## Fester Goldpreis eines Sonderposten-Einzelstücks im normalen Regal - er hängt
-## weder an der Sorte noch an der Lizenz. Bündel gibt es nur im Hinterzimmer.
+## weder an der Sorte noch an der Fortschrittsstufe. Bündel gibt es nur im Hinterzimmer.
 const SPECIAL_PRICE := 30
 
 ## Fixinhalt-Paket: sein Netz trägt GENAU EINE Zelle dieses Inhalts. amount > 1 ist
@@ -357,7 +357,7 @@ static func pack_type_for_category(category: String) -> String:
 static func all_engraving_packs() -> Array[Pack]:
 	return [number_pack(), material_pack(), dice_mod_pack()]
 
-## Frisches Gravur-Paket zur Sorte - damit Tabellen (Hub-Belohnung) mit Typ-ids
+## Frisches Gravur-Paket zur Sorte - damit Tabellen mit Typ-ids
 ## arbeiten können statt mit Fabrik-Referenzen.
 static func by_type(pack_type: String) -> Pack:
 	match pack_type:
@@ -469,9 +469,9 @@ func is_operator() -> bool:
 func press_sort() -> String:
 	return engraving_category()
 
-## Zufällige Gravur-Paketsorte für einen Auslage-Platz. Bewusst OHNE Hub-Stufe:
+## Zufällige Gravur-Paketsorte für einen Auslage-Platz. Bewusst OHNE Fortschrittsstufe:
 ## die Sorte entscheiden allein die Regal-Gewichte - stark wird eine Kassette an
-## ihrem Netz (Größe, Seltenheits-Gewichte), nicht an der Lizenz.
+## ihrem Netz (Größe, Seltenheits-Gewichte).
 ## Die GRÖSSE kommt von außen: der Laden würfelt sie, jede Prämie prägt Standard.
 static func roll_engraving_pack(pack_tier: int = TIER_NORMAL,
 		rng: RandomNumberGenerator = null) -> Pack:

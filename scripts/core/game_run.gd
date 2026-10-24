@@ -9,7 +9,6 @@ signal charms_changed
 signal packs_changed
 signal combo_upgraded(combo_key: String, new_level: int)
 signal side_bets_changed
-signal hub_level_changed(level: int)
 signal deals_changed
 ## Ein Pool-Würfel hat seinen Inhalt geändert (Kauf, Paket, Gravur, Nehmen-
 ## Effekt, Testmodus). EINZIGER Auffrischungs-Weg der Würfel-Anzeigen: die Trays,
@@ -18,7 +17,6 @@ signal deals_changed
 signal pool_changed
 signal pending_dice_changed
 signal energy_changed(value: int)
-signal secret_shop_discovered
 signal secret_stock_changed
 ## Die Serie der Werkbank hat sich geändert (Griff, Slots, verbrauchte Karten).
 signal press_changed
@@ -91,52 +89,23 @@ const BENCHMARK_MALUS := {
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
 ## jede Stufe fordert die doppelte Punktzahl der vorigen (150 / 300 / 600 / …).
 ## Der Punktestand ist kumulativ, Überschuss trägt automatisch weiter. Wie viele
-## Stufen tatsächlich zählen, deckelt die Hub-Stufe (max_overcharge_stages).
+## Stufen tatsächlich zählen, deckelt max_overcharge_stages.
 const OVERCHARGE_STAGES := 5
 ## Supraleiter hebt den Deckel ganz auf; die Stufengrößen verdoppeln sich, ein
 ## großer Platzhalter begrenzt sich also von selbst.
 const UNLIMITED_OVERCHARGE_STAGES := 99
 
-## Ausbaustufen des Hubs (Casino-Lizenz): gegen Gold jederzeit im Shop bzw. am
-## Hub kaufbar. Jede Stufe schaltet STRUKTUR frei (Shop-Plätze, Blättern,
-## Nebenwetten, Rarität, Überladungs-Deckel) - Zahlen-Boni bleiben Sache der Charms.
-## Zehn Stufen; die oberen sind bewusst teuer (Langzeit-Ziel eines Laufs).
-const HUB_MAX_LEVEL := 10
-## Preise für die Aufstiege 1→2 … 9→10 (steil steigend zum High Roller).
-const HUB_UPGRADE_PRICES := [8, 12, 18, 25, 35, 55, 80, 120, 170]
+## FORTSCHRITTSSTUFE: aus der Runde gerechnet, kein Zustand (progress_tier).
+## Sie trägt jede Leiter, die mit dem Lauf wächst - Laden, Wetten, Automaten, Börse.
+const ROUNDS_PER_TIER := 3
+const TIER_MAX := 10
 
-## ZUSÄTZLICHE Gravur-Pakete je frisch erreichter Stufe - eine Datentabelle, das
-## Stellen daran ist eine Zahlenänderung, kein Code. Der beseelte Würfel kommt bei
-## JEDER Stufe ab 2 obendrauf und steht darum nicht hier drin; nicht gelistete
-## Stufen bekommen nur ihn. Seit ein Paket EIN Phantomwürfel ist, entscheiden die
-## Stückzahlen hier, wie lang eine Reihe werden kann.
-const HUB_REWARD_PACKS := {
-	5: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL],
-	10: [Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_NUMBER, Pack.TYPE_MATERIAL,
-		Pack.TYPE_MATERIAL, Pack.TYPE_DICE_MOD],
-}
-## Lizenz-Namen je Stufe (1-basiert), aufsteigende Casino-Prestige-Tiers.
-const HUB_LEVEL_NAMES := ["Hinterzimmer", "Spielecke", "Lizenz", "Parkett", "Salon",
-	"VIP-Lounge", "Suite", "Penthouse", "Privatclub", "High Roller"]
-## Kurzbeschreibung, was der jeweilige AUFSTIEG (auf Stufe = Index+2) freischaltet.
-const HUB_UPGRADE_UNLOCKS := [
-	"Blättern + mehr Chips",    # → 2 Spielecke
-	"Größerer Laden + Automat I",  # → 3 Lizenz
-	"Nebenwetten",              # → 4 Parkett
-	"Größerer Energie-Speicher", # → 5 Salon
-	"Bessere Ware + Automat II",   # → 6 VIP-Lounge
-	"Größerer Energie-Speicher + 3. Bündel",# → 7 Suite
-	"Günstiges Blättern",       # → 8 Penthouse
-	"Erlesene Ware + Automat III", # → 9 Privatclub
-	"Legendäre Ware",           # → 10 High Roller
-]
-
-## Shop-Platzzahlen je Hub-Stufe (1-basiert). Der Laden wächst nicht sprunghaft,
+## Shop-Platzzahlen je Fortschrittsstufe (1-basiert). Der Laden wächst nicht sprunghaft,
 ## sondern füllt sich: Stufe 1 zeigt WENIGE, dafür große Angebote; höhere Stufen
 ## tauschen Kartengröße gegen Anzahl.
 ## SHOP_DICE_SLOTS zählt EINZELWÜRFEL, keine Pakete mehr: der Laden legt sie offen
 ## in die Schale. Dieselben Sprungstellen wie die beiden anderen Leitern (3/6/9),
-## damit ein Ausbau alle drei Rubriken zugleich wachsen lässt - 3 auf Stufe 1,
+## damit eine Stufe alle drei Rubriken zugleich wachsen lässt - 3 auf Stufe 1,
 ## 6 auf Stufe 10.
 ## SHOP_PACK_SLOTS ist bewusst FLACH: die Gravuren-Spalte trägt auf jeder Stufe drei
 ## Karten - ihre Zeilen sind zugleich die Zeilen des Würfel-Rasters (Welle 29).
@@ -144,24 +113,18 @@ const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
 const SHOP_DICE_SLOTS  := [3, 3, 4, 4, 4, 5, 5, 5, 6, 6]
 const SHOP_PACK_SLOTS  := [3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
 
-## Ab dieser Lizenzstufe führt auch das normale Regal Sonderposten - vorher gibt
-## es sie einzig im Hinterzimmer.
-const SHOP_SPECIAL_LEVEL := 8
-## Chance je Auslage, dass einer dabei ist. Sie wächst mit der Lizenz: auf der
-## letzten Stufe liegt öfter einer aus als nicht.
+## Ab dieser Fortschrittsstufe führt auch das normale Regal Sonderposten - vorher
+## gibt es sie einzig im Hinterzimmer.
+const SHOP_SPECIAL_TIER := 8
+## Chance je Auslage, dass einer dabei ist; auf der letzten Stufe liegt öfter
+## einer aus als nicht.
 const SHOP_SPECIAL_CHANCE := {8: 0.25, 9: 0.4, 10: 0.55}
 
-## Schwellen der Struktur-Freischaltungen (1-basierte Hub-Stufe).
-const HUB_FLIPPING_LEVEL := 2      # Shop-Blättern
-const HUB_SIDE_BETS_LEVEL := 2     # Nebenwetten installiert
-const HUB_RARITY_UNCOMMON_LEVEL := 6
-const HUB_CHEAP_FLIP_LEVEL := 8    # halbierte Blätter-Gebühr
-const HUB_RARITY_RARE_LEVEL := 9
-const HUB_RARITY_LEGENDARY_LEVEL := 10
-
-## Freischaltung der drei Fumble-Automaten (nacheinander): I ab Lizenz, II ab
-## VIP-Lounge, III ab Privatclub.
-const HUB_SLOT_LEVELS := [3, 6, 9]
+## Schwellen der Fortschrittsstufe.
+const TIER_RARITY_UNCOMMON := 6
+const TIER_CHEAP_FLIP := 8    # halbierte Blätter-Gebühr
+const TIER_RARITY_RARE := 9
+const TIER_RARITY_LEGENDARY := 10
 
 var money: int = 0:
 	set(value):
@@ -191,10 +154,6 @@ var free_spins_used: Array[int] = []
 ## am Besuch, nicht an der Runde - begin_shop_visit setzt ihn zurück.
 var free_spin_used_this_visit: bool = false
 
-## Aktuelle Hub-Ausbaustufe (1..HUB_MAX_LEVEL). Steuert Shop-Umfang, Nebenwetten,
-## Rarität und den Überladungs-Deckel (siehe die shop_*/hub_*-Abfragen unten).
-var hub_level: int = 1
-
 ## Immer genau POOL_SIZE Einträge, jeder eine EIGENE DieDefinition-Instanz,
 ## damit eine Ätzung nie mehrere Würfel zugleich verändert.
 var owned_pool: Array[DieDefinition] = []
@@ -208,16 +167,6 @@ var owned_packs: Array[Pack] = []
 ## Laufende Paket-Nummer: _stash_pack stempelt sie beim Einlagern. An ihr hängen
 ## Magazin-Platz, Vormerkung und Körper - Indizes brechen beim Umsortieren.
 var pack_serial: int = 0
-## Die Pakete des JÜNGSTEN Hub-Ausbaus, in Gewähr-Reihenfolge - Vorlage der
-## Reveal-Zeremonie. Gebucht sind sie längst (upgrade_hub); das hier ist nur die
-## Merkliste, wovon die Zeremonie erzählt.
-var last_hub_reward_packs: Array[Pack] = []
-## Wie viele Pakete desselben Ausbaus am vollen Magazin zu Geld zerfallen sind -
-## die Zeremonie schickt dafür Geld statt einer Kassette los.
-var last_hub_reward_fizzle: int = 0
-## Der beseelte Würfel desselben Ausbaus (null = keiner). Er liegt längst im
-## Ausgabefach; das hier ist die Merkliste für die Zeremonie.
-var last_hub_reward_die: DieDefinition = null
 ## Beim Händler hinterlegte Würfel: in der Chip-Schale gekauft, aber noch nicht
 ## eingetauscht. Sie liegen im Laden, bis der Spieler selbst bestimmt, welchen
 ## Pool-Platz sie übernehmen - der Automat sucht ihn sonst allein aus, und eine
@@ -297,6 +246,7 @@ static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
+	run._roll_secret_stock()  # der Schwarzmarkt steht ab Runde 1 offen
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -373,83 +323,26 @@ func money_gain_factor() -> float:
 func refund_money(amount: int) -> void:
 	money += maxi(0, amount)
 
-# --- Hub-Ausbau ---------------------------------------------------------------
+# --- Fortschrittsstufe ---------------------------------------------------------
 
-## Preis des nächsten Aufstiegs; 0, wenn die Maximalstufe erreicht ist.
-func hub_upgrade_price() -> int:
-	if hub_level >= HUB_MAX_LEVEL:
-		return 0
-	return HUB_UPGRADE_PRICES[hub_level - 1]
-
-## Name der nächsten Stufe (leer bei Maximalstufe).
-func hub_next_level_name() -> String:
-	if hub_level >= HUB_MAX_LEVEL:
-		return ""
-	return HUB_LEVEL_NAMES[hub_level]
-
-## Freischaltung des nächsten Aufstiegs als Kurztext (leer bei Maximalstufe).
-func hub_next_unlock() -> String:
-	if hub_level >= HUB_MAX_LEVEL:
-		return ""
-	return HUB_UPGRADE_UNLOCKS[hub_level - 1]
-
-## Name der AKTUELLEN Stufe.
-func hub_level_name() -> String:
-	return HUB_LEVEL_NAMES[clampi(hub_level, 1, HUB_MAX_LEVEL) - 1]
-
-func can_upgrade_hub() -> bool:
-	return hub_level < HUB_MAX_LEVEL and money >= hub_upgrade_price()
-
-## Kauft den nächsten Aufstieg: Preis abziehen, Stufe heben, Signal. No-op, wenn
-## nicht bezahlbar oder bereits max.
-func upgrade_hub() -> void:
-	if not can_upgrade_hub():
-		return
-	add_money(-hub_upgrade_price())
-	hub_level += 1
-	_grant_hub_rewards(hub_level)
-	# >=, nicht ==: ein direkt gesetzter Stand darf nicht daran vorbeilaufen.
-	if hub_level >= SECRET_UNLOCK_HUB_LEVEL:
-		unlock_secret_shop()
-	hub_level_changed.emit(hub_level)
-
-## Belohnung einer frisch erreichten Stufe. JEDE Stufe ab 2 bringt EINEN beseelten
-## Würfel - direkt gewürfelt und ins Ausgabefach gelegt, nicht versiegelt: ein
-## Würfel ist Ware, kein Blindkauf. HUB_REWARD_PACKS legt je Stufe noch
-## Gravur-Pakete obendrauf; die gehen als Kassetten ins Magazin und werden an der
-## Presse geöffnet.
-## Ist das Magazin voll, landen die vorderen Pakete und der Rest zerfällt zu Geld -
-## last_hub_reward_fizzle merkt sich, wie viele, damit die Zeremonie statt einer
-## Kassette Geld fliegen lässt. Der Würfel zerfällt nie: pending_dice hat keinen
-## Deckel.
-func _grant_hub_rewards(level: int) -> int:
-	last_hub_reward_packs.clear()
-	last_hub_reward_fizzle = 0
-	last_hub_reward_die = _grant_reward_die()
-	var delivery: Array[Pack] = []
-	for pack_type: String in HUB_REWARD_PACKS.get(level, []):
-		delivery.append(Pack.by_type(pack_type))
-	for stashed in grant_packs(delivery):
-		if stashed == null:
-			last_hub_reward_fizzle += 1
-		else:
-			last_hub_reward_packs.append(stashed)
-	return last_hub_reward_packs.size()
+## 1..TIER_MAX, zwei Stufen je Block zu sechs Runden.
+func progress_tier() -> int:
+	return clampi(1 + (round_number - 1) / ROUNDS_PER_TIER, 1, TIER_MAX)
 
 ## Der EINE Weg an einen Prämien-Würfel: frisch gewürfelt, Seele garantiert,
 ## gratis ins Ausgabefach - und von dort SOFORT auf einen Vorrats-Platz. Liefert das
 ## HINTERLEGTE Exemplar - die Zeremonie fliegt genau dieses an. null = keine Vorlage.
 func _grant_reward_die() -> DieDefinition:
-	var die := DiceOffer.roll_reward_die(charm_ids(), owned_essence_ids(), hub_level)
+	var die := DiceOffer.roll_reward_die(charm_ids(), owned_essence_ids(), progress_tier())
 	if die == null:
 		return null
 	stash_die(die, 0)
 	return pending_dice[pending_dice.size() - 1]
 
-## --- Aus der Hub-Stufe abgeleitete Struktur-Freischaltungen -------------------
+## --- Aus der Fortschrittsstufe abgeleitete Leitern ----------------------------
 ## Alles läuft über diese Abfragen, damit Aufrufer nie rohe Stufen vergleichen.
 
-## Wirksame Zahl an Überladungs-Stufen: die Hub-Stufe setzt den Rahmen, Klauseln
+## Wirksame Zahl an Überladungs-Stufen: der Rahmen steht fest, Klauseln
 ## verschieben ihn. Erst der Deckel, dann der Bonus - Stufendeckel UND
 ## Hochspannung zusammen ergeben also Stufe 5, nicht 2. Hochspannung wird
 ## bewusst NICHT auf OVERCHARGE_STAGES geklemmt; die Stufengrößen bremsen selbst.
@@ -463,37 +356,31 @@ func max_overcharge_stages() -> int:
 		stages = UNLIMITED_OVERCHARGE_STAGES
 	return stages
 
-## Rahmen OHNE Klausel-Wirkungen: fünf Stufen ab der ersten Lizenz - der Rahmen
-## ist keine Hub-Belohnung mehr, nur Klauseln verschieben ihn.
+## Rahmen OHNE Klausel-Wirkungen: fünf Stufen ab Runde 1, nur Klauseln
+## verschieben ihn.
 func overcharge_frame() -> int:
 	return 5
 
-func side_bets_unlocked() -> bool:
-	return hub_level >= HUB_SIDE_BETS_LEVEL
-
-func shop_flipping_unlocked() -> bool:
-	return hub_level >= HUB_FLIPPING_LEVEL
-
-## Halbierte Blätter-Gebühr ab Penthouse (stapelt mit dem Wechselgeld-Charm).
+## Halbierte Blätter-Gebühr ab TIER_CHEAP_FLIP (stapelt mit dem Wechselgeld-Charm).
 func shop_flip_fee_factor() -> float:
-	return 0.5 if hub_level >= HUB_CHEAP_FLIP_LEVEL else 1.0
+	return 0.5 if progress_tier() >= TIER_CHEAP_FLIP else 1.0
 
-## Raritäts-Stufe der Shop-Ware: 0 keine, 1 ungewöhnlich (VIP-Lounge), 2 selten
-## (Privatclub), 3 legendär (High Roller). Steuert den garantierten Premium-Charm
-## + die Gravur-Mindestrarität.
+## Raritäts-Stufe der Shop-Ware: 0 keine, 1 ungewöhnlich, 2 selten, 3 legendär.
+## Steuert den garantierten Premium-Charm + die Gravur-Mindestrarität.
 func shop_rarity_tier() -> int:
-	if hub_level >= HUB_RARITY_LEGENDARY_LEVEL:
+	var tier := progress_tier()
+	if tier >= TIER_RARITY_LEGENDARY:
 		return 3
-	if hub_level >= HUB_RARITY_RARE_LEVEL:
+	if tier >= TIER_RARITY_RARE:
 		return 2
-	if hub_level >= HUB_RARITY_UNCOMMON_LEVEL:
+	if tier >= TIER_RARITY_UNCOMMON:
 		return 1
 	return 0
 
-## Shop-Platzzahlen je Hub-Stufe (siehe SHOP_*_SLOTS): wenige, große Angebote am
-## Anfang; mehr, kleinere später. Rarität kommt zusätzlich obendrauf (shop_rarity_tier).
+## Shop-Platzzahlen je Fortschrittsstufe (siehe SHOP_*_SLOTS): wenige, große
+## Angebote am Anfang; mehr, kleinere später.
 func _slot_at(ladder: Array, default_top: int) -> int:
-	var idx := clampi(hub_level, 1, HUB_MAX_LEVEL) - 1
+	var idx := progress_tier() - 1
 	return ladder[idx] if idx < ladder.size() else default_top
 
 func shop_charm_slots() -> int:
@@ -511,9 +398,10 @@ func shop_pack_slots() -> int:
 ## Doppelseite: er belegt einen der Paket-Plätze, statt einen dazuzustellen -
 ## das Regal bleibt gleich breit, und er kostet einen normalen Wurf.
 func shop_special_chance() -> float:
-	if hub_level < SHOP_SPECIAL_LEVEL:
+	var tier := progress_tier()
+	if tier < SHOP_SPECIAL_TIER:
 		return 0.0
-	return float(SHOP_SPECIAL_CHANCE.get(mini(hub_level, HUB_MAX_LEVEL), 0.0))
+	return float(SHOP_SPECIAL_CHANCE.get(tier, 0.0))
 
 ## Kauf aus der Chip-Schale: bezahlt und SOFORT einzusetzen - pending_dice ist kein
 ## Zwischenlager, sondern die Strecke bis zum Raster (scene_root erzwingt die Wahl,
@@ -525,7 +413,7 @@ func stash_die(def: DieDefinition, price: int) -> void:
 	pending_dice_changed.emit()
 
 ## Bestandener Stresstest: EIN frisch gewürfelter Würfel mit Seelengarantie, gratis
-## ins Ausgabefach - derselbe Weg wie die Hub-Prämie. Liefert das hinterlegte
+## ins Ausgabefach. Liefert das hinterlegte
 ## Exemplar (null = keine Vorlage); zerfallen kann er nicht.
 func grant_stress_reward() -> DieDefinition:
 	return _grant_reward_die()
@@ -772,7 +660,7 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 ## Werkstatt ist gefallen, der Sockel steht fest. Länger wird die Reihe nur noch
 ## über Taktgeber, Kettentreiber und den Schub der Nebenwette.
 const SERIES_LADDER := [
-	{"hub": 1, "slots": 6},
+	{"tier": 1, "slots": 6},
 ]
 ## Deckel = BLOCK-GRÖSSE: der Block der Zeremonie ist sechs Karten, also gibt es
 ## keine siebte (Spieler-Entscheid 2026-09-05).
@@ -785,7 +673,7 @@ const SERIES_SLOT_CAP := 6
 func series_slots() -> int:
 	var slots := int(SERIES_LADDER[0]["slots"])
 	for step: Dictionary in SERIES_LADDER:
-		if hub_level >= int(step["hub"]):
+		if progress_tier() >= int(step["tier"]):
 			slots = int(step["slots"])
 	slots += series_slot_bonus
 	if press_boost_pending:
@@ -1867,8 +1755,8 @@ func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
 ## Schwarzmarkt und Automat.
 func charm_offer_features() -> Dictionary:
 	return {
-		Charm.FEATURE_SECRET_SHOP: secret_shop_unlocked,
-		Charm.FEATURE_SLOT_MACHINE: slots_unlocked() > 0,
+		Charm.FEATURE_SECRET_SHOP: true,
+		Charm.FEATURE_SLOT_MACHINE: true,
 	}
 
 ## Alle Essenzen im Besitz - Grundlage der Unikat-Sperre im Angebot.
@@ -2071,24 +1959,16 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 
-## Zahl freigeschalteter Automaten (0..3), abgeleitet aus der Hub-Stufe.
-func slots_unlocked() -> int:
-	var count := 0
-	for level in HUB_SLOT_LEVELS:
-		if hub_level >= level:
-			count += 1
-	return count
-
 ## Einsatz für einen Dreh an Automat machine in ⚡ (Freispiele drehen gratis).
 func slot_spin_energy(machine: int) -> int:
 	if slot_spin_is_free(machine) or charm_free_spin_open():
 		return 0
 	return SlotMachine.SPIN_ENERGYS[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
 
-## Ob der Spieler Automat machine gerade drehen darf: freigeschaltet, nicht
-## stromgesperrt, in der Sitzung noch frei und der Einsatz bezahlbar.
+## Ob der Spieler Automat machine gerade drehen darf: nicht stromgesperrt, in der
+## Sitzung noch frei und der Einsatz bezahlbar.
 func can_spin_slot(machine: int) -> bool:
-	return slots_enabled() and machine < slots_unlocked() and slot_bank.can_spin(machine) \
+	return slots_enabled() and slot_bank.can_spin(machine) \
 		and energy >= slot_spin_energy(machine)
 
 ## Bezahlt den Einsatz und WÜRFELT Automat machine, schreibt das Ergebnis aber noch
@@ -2122,7 +2002,7 @@ func redeem_slots() -> Dictionary:
 	var prizes: Array[SlotPrize] = []
 	for run in runs:
 		for spec: Dictionary in run["specs"]:
-			prizes.append(SlotPrize.from_spec(spec, hub_level))
+			prizes.append(SlotPrize.from_spec(spec, progress_tier()))
 	slot_bank.reset_session()
 	return {"prizes": prizes, "runs": runs}
 
@@ -2244,7 +2124,7 @@ func stage_progress(points: int) -> Dictionary:
 ## Auszahlungs-Zeremonie.
 
 ## Die Börse ist die 5×5-Kondensator-Bank: der Deckel wächst NUR in ganzen
-## Reihen (Vielfache von ENERGY_ROW), damit ein Ausbau als "eine Reihe erwacht"
+## Reihen (Vielfache von ENERGY_ROW), damit eine neue Stufe als "eine Reihe erwacht"
 ## lesbar ist - nie als krumme Zahl.
 const ENERGY_ROW := 5
 const ENERGY_ROWS_MAX := 5
@@ -2266,9 +2146,6 @@ const SECRET_SPECIAL_BUNDLES := [
 	{"count": 3, "price": 7, "weight": 2},
 	{"count": 5, "price": 10, "weight": 1},
 ]
-## Lizenzstufe, ab der das Gitter fällt - der Zutritt ist Teil des Ausbaus,
-## nicht der erste Energie-Posten des Laufs.
-const SECRET_UNLOCK_HUB_LEVEL := 5
 ## Preis des Neuwurfs - FLACH, jedes Mal derselbe. Die alte Fibonacci-Leiter
 ## machte den zweiten Wurf eines Besuchs unbezahlbar; der Laden soll benutzbar
 ## bleiben, die ⚡ selbst ist die Schranke.
@@ -2321,25 +2198,23 @@ var energy: int = 0:
 		energy = value
 		energy_changed.emit(energy)
 
-## Freigeschaltet mit der Lizenzstufe (unlock_secret_shop), danach für den Rest
-## des Laufs offen. Ein frischer Lauf startet wieder vergittert.
-var secret_shop_unlocked: bool = false
 var secret_rerolls: int = 0
 var secret_stock: Array[Dictionary] = []
 
-## Deckel der Börse; wächst mit der Hub-Stufe wie der Überladungs-Rahmen.
+## Deckel der Börse; wächst mit der Fortschrittsstufe.
 func energy_cap() -> int:
 	return energy_cap_rows() * ENERGY_ROW
 
-## Erwachte Reihen der Bank je Hub-Stufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
+## Erwachte Reihen der Bank je Fortschrittsstufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
 func energy_cap_rows() -> int:
-	if hub_level >= 10:
+	var tier := progress_tier()
+	if tier >= 10:
 		return ENERGY_ROWS_MAX
-	if hub_level >= 7:
+	if tier >= 7:
 		return 4
-	if hub_level >= 5:
+	if tier >= 5:
 		return 3
-	if hub_level >= 3:
+	if tier >= 3:
 		return 2
 	return 1
 
@@ -2376,17 +2251,6 @@ func book_copper_energy(count: int) -> int:
 	var paid := overflow * MaterialEffects.COPPER_OVERFLOW_MONEY
 	add_money(paid)
 	return paid
-
-## Freischalten des Schwarzmarkts: der Laden steht von Anfang an auf dem Tisch,
-## aber vergittert - die Lizenzstufe hebt das Gitter, dann liegt die erste
-## Auslage gratis. false, wenn er schon offen ist.
-func unlock_secret_shop() -> bool:
-	if secret_shop_unlocked:
-		return false
-	secret_shop_unlocked = true
-	_roll_secret_stock()
-	secret_shop_discovered.emit()
-	return true
 
 ## Preis des nächsten Neuwurfs - immer derselbe. Die Hehlerware drückt ihn NICHT:
 ## ein Neuwurf ist keine Ware.
@@ -2515,7 +2379,7 @@ func _secret_die_offer() -> Dictionary:
 	if pool.is_empty():
 		return {}
 	var essence: Essence = pool.pick_random()
-	var die := DiceOffer.make_die(DiceOffer.TEMPLATES.pick_random(), hub_level)
+	var die := DiceOffer.make_die(DiceOffer.TEMPLATES.pick_random(), progress_tier())
 	die.essence_id = essence.id
 	die.display_name = essence.display_name
 	return _secret_offer(KIND_DIE, die, int(SECRET_DIE_PRICES.get(essence.rarity, SECRET_CHARM_PRICE)))

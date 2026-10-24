@@ -105,7 +105,6 @@ func test_clicking_a_filled_slot_reports_its_place_and_returns_it() -> void:
 	assert_true(view.press_slot_uids().is_empty())
 
 func test_the_row_is_cap_and_reorder_is_move_not_swap() -> void:
-	run.hub_level = 10
 	view.refresh()
 	var uids := _stock(3)
 	for uid in uids:
@@ -443,7 +442,6 @@ func test_the_beat_ramps_and_operators_get_their_moment() -> void:
 	var doubler := run.grant_pack(Pack.operator_pack(StampNet.OP_DOUBLER))
 	doubler.stamp_net = StampNet.empty_net()
 	doubler.stamp_net[0] = StampNet.operator_cell(StampNet.OP_DOUBLER)
-	run.hub_level = 10
 	view.refresh()
 	var third := _valued_pack(1, 1)
 	view.slot_pack(value.pack_uid)
@@ -702,7 +700,6 @@ func test_the_fach_anchors_stand_still_through_slotting() -> void:
 ## Umsortieren tauscht die uids der Plätze - der KÖRPER fährt um, das Fenster
 ## meldet dafür nur die neue Reihenfolge auf denselben Ankern.
 func test_reordering_keeps_the_anchors_and_swaps_the_uids() -> void:
-	run.hub_level = 10
 	view.refresh()
 	var uids := _stock(2)
 	view.slot_pack(uids[0])
@@ -994,7 +991,6 @@ func test_another_target_drops_the_standing_result() -> void:
 ## Eine frisch gesteckte Karte übernimmt den Schirm sofort wieder als VORSCHAU -
 ## das stehende Ergebnis ist ein Nachklang, kein Zustand.
 func test_a_fresh_card_takes_the_screen_back_from_the_result() -> void:
-	run.hub_level = 10
 	view.refresh()
 	var first := _valued_pack(0, 2)
 	var second := _valued_pack(4, 1)

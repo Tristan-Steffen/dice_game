@@ -11,14 +11,12 @@ var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
-	run.hub_level = GameRun.HUB_MAX_LEVEL  # volle Börse (25) - reicht für jeden Kauf
-	run.unlock_secret_shop()  # Schwarzmarkt freigeschaltet
+	run.round_number = 1 + (GameRun.TIER_MAX - 1) * GameRun.ROUNDS_PER_TIER  # volle Börse (25)
 	run.energy = run.energy_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
 	view.size = Vector2(786, 437)  # gemessene Tasche seit dem TOPF-Rückbau der Automaten
 	view.run = run
-	view.set_locked(false)
 	view.refresh()
 
 ## Die eine Karte am Sitz (null = der legendäre Topf war erschöpft).
@@ -55,7 +53,7 @@ func test_exactly_one_card_sits_on_the_seat() -> void:
 func test_the_seat_carries_the_legendary_charm() -> void:
 	await wait_frames(2)
 	assert_eq(run.secret_stock[view.card_slot_index()][GameRun.OFFER_KIND],
-		GameRun.KIND_CHARM, "Lizenzen sind digitale Ware und bleiben Bildschirm")
+		GameRun.KIND_CHARM, "Charms sind digitale Ware und bleiben Bildschirm")
 
 ## Die Tasche ist flach: der Inhalt muss IN das Fenster passen, sonst schneidet
 ## der Rahmen ihn ab.
@@ -203,7 +201,7 @@ func test_a_charm_purchase_reports_no_goods() -> void:
 	var seen: Array[int] = []
 	view.goods_purchased.connect(func(uids: Array[int]) -> void: seen.append_array(uids))
 	_card().pressed.emit()
-	assert_eq(seen.size(), 0, "eine Lizenz fährt nicht ins Magazin")
+	assert_eq(seen.size(), 0, "ein Charm fährt nicht ins Magazin")
 
 # --- Die Beschriftung auf der Scheibe -------------------------------------------
 
@@ -448,16 +446,16 @@ func test_a_fresh_stock_raises_its_goods() -> void:
 	# Der ERSTE Bericht einer frisch gewürfelten Auslage lässt sie aufsteigen; ein
 	# zweiter Bericht derselben Ware lässt sie liegen - scene_root sammelt den
 	# lauteren Grad, solange die Auslage noch abgedeckt ist.
-	var barred := _barred()
-	await wait_frames(2)
+	var fresh := SecretShopView.new()
+	add_child_autofree(fresh)
+	fresh.size = Vector2(786, 437)
 	var grades: Array[String] = []
-	barred.vitrine_changed.connect(func() -> void: grades.append(barred.vitrine_grade()))
-	assert_true(barred.run.unlock_secret_shop())
-	barred.set_locked(false)
+	fresh.vitrine_changed.connect(func() -> void: grades.append(fresh.vitrine_grade()))
+	fresh.run = GameRun.new_run()  # der Setter baut die erste Auslage
 	assert_gt(grades.size(), 0, "die neue Auslage meldet sich")
 	assert_eq(grades[0], ShopController.GRADE_RISE, "die erste Auslage steigt auf")
-	barred.refresh()
-	assert_eq(barred.vitrine_grade(), ShopController.GRADE_STAND,
+	fresh.refresh()
+	assert_eq(fresh.vitrine_grade(), ShopController.GRADE_STAND,
 		"dieselbe Ware ein zweites Mal gemeldet wurde nicht neu gewürfelt")
 
 func test_a_purchase_leaves_the_rest_lying() -> void:
@@ -499,46 +497,16 @@ func test_every_change_of_the_bay_is_reported() -> void:
 	assert_true(run.reroll_secret_stock())
 	assert_gt(beats.size(), 0, "und der Neuwurf auch")
 
-# --- Vergittert: der Laden steht da, aber zu -----------------------------------
+# --- Offen ab Runde 1 -----------------------------------------------------------
 
-## Frischer Lauf: das Fenster steht, das Gitter liegt davor.
-func _barred() -> SecretShopView:
-	var barred_run := GameRun.new_run()
-	var barred := SecretShopView.new()
-	add_child_autofree(barred)
-	barred.size = Vector2(786, 437)
-	barred.run = barred_run
-	barred.set_locked(true)
-	barred.refresh()
-	return barred
-
-func test_locked_window_names_the_condition_under_the_veil() -> void:
-	var barred := _barred()
+func test_a_fresh_run_lays_out_its_stock_at_once() -> void:
+	var fresh := SecretShopView.new()
+	add_child_autofree(fresh)
+	fresh.size = Vector2(786, 437)
+	fresh.run = GameRun.new_run()
+	fresh.refresh()
 	await wait_frames(2)
-	assert_true(barred.lock_overlay.visible, "der Schleier liegt über der Auslage")
-	assert_string_contains(barred.lock_notice.text, str(GameRun.SECRET_UNLOCK_HUB_LEVEL))
-	assert_false("unlock_button" in barred, "nichts zu kaufen: der Zutritt kommt mit der Lizenz")
-	assert_eq(barred.offer_buttons.size(), 0, "vergittert ist nichts kaufbar")
-	assert_false(barred.reroll_button.visible, "es gibt noch nichts zu mischen")
-
-func test_a_locked_market_keeps_its_bay_empty() -> void:
-	var barred := _barred()
-	await wait_frames(2)
-	var stock: Dictionary = barred.vitrine_stock()
-	assert_eq(stock[ShopController.KIND_ENGRAVING_PACK].size(), 0,
-		"vergittert liegt keine Ware in der Bucht")
-	assert_eq(stock[ShopController.KIND_DIE].size(), 0)
-	assert_eq(barred.card_slot_index(), -1, "und keine Karte auf dem Sitz")
-
-func test_unlocking_lifts_the_veil_and_lays_out_the_stock() -> void:
-	var barred := _barred()
-	await wait_frames(2)
-	assert_true(barred.run.unlock_secret_shop())
-	barred.set_locked(false)
-	await wait_frames(2)
-	assert_false(barred.lock_overlay.visible)
-	assert_eq(barred.offer_buttons.size(), 3, "die Plätze liegen index-treu")
-	assert_eq(barred.card_slot_index(), 0, "und der Sitz trägt seine Karte")
-	assert_true(barred.reroll_button.visible)
-	assert_eq(barred.vitrine_grade(), ShopController.GRADE_RISE,
-		"die erste Auslage steigt auf")
+	assert_eq(fresh.offer_buttons.size(), 3, "die Plätze liegen index-treu")
+	assert_eq(fresh.card_slot_index(), 0, "und der Sitz trägt seine Karte")
+	assert_true(fresh.reroll_button.visible)
+	assert_null(fresh.get_node_or_null("LockOverlay"), "kein Gitter, kein Schleier")

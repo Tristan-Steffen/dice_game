@@ -23,8 +23,6 @@ signal test_charges_requested
 
 ## Aufschrift der Testlieferung - scene_root beschriftet seinen Zwilling damit.
 const TEST_PACKS_LABEL := "🧪 +20 Datenkarten je Sorte"
-## Aufstieg-Knopf am Hub gedrückt (scene_root bucht den Ausbau über GameRun).
-signal hub_upgrade_requested
 ## Der Laden soll noch einmal aufmachen (Vorlauf der Runde, siehe scene_root).
 signal shop_reopen_requested
 ## Das Lexikon soll aufschlagen (scene_root öffnet die Seite am Index).
@@ -38,20 +36,20 @@ const TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
 const GOLD_COLOR := Color("#ffd319")
 const ENERGY_COLOR := CasinoStyle.ENERGY
 
-## Signaturfarbe je Hub-Stufe (1..10): der ganze Hub wechselt Rahmen-, Hintergrund-
-## und Lizenz-Farbe, damit die Ausbaustufe schon aus der Ferne ablesbar ist. Kühl
-## (Hinterzimmer) über warm bis zur überhellen High-Roller-Krone (blüht).
-const HUB_TIER_COLORS := [
-	Color("#6478a8"),  # 1 Hinterzimmer - Schiefer
-	Color("#8be9fd"),  # 2 Spielecke - Cyan
-	Color("#2dd4bf"),  # 3 Lizenz - Türkis
-	Color("#50fa7b"),  # 4 Parkett - Grün
-	Color("#b6f24a"),  # 5 Salon - Limette
-	Color("#ffd319"),  # 6 VIP-Lounge - Gold
-	Color("#ff9e3d"),  # 7 Suite - Bernstein
-	Color("#ff79c6"),  # 8 Penthouse - Rosa
-	Color("#b06bff"),  # 9 Privatclub - Violett
-	Color("#ffe6a0"),  # 10 High Roller - Weißgold (wird überhell)
+## Signaturfarbe je Fortschrittsstufe (1..10): der ganze Hub wechselt Rahmen- und
+## Hintergrund-Farbe, damit die Stufe schon aus der Ferne ablesbar ist. Kühl über
+## warm bis zur überhellen Krone der letzten Stufe (blüht).
+const TIER_COLORS := [
+	Color("#6478a8"),  # 1 Schiefer
+	Color("#8be9fd"),  # 2 Cyan
+	Color("#2dd4bf"),  # 3 Türkis
+	Color("#50fa7b"),  # 4 Grün
+	Color("#b6f24a"),  # 5 Limette
+	Color("#ffd319"),  # 6 Gold
+	Color("#ff9e3d"),  # 7 Bernstein
+	Color("#ff79c6"),  # 8 Rosa
+	Color("#b06bff"),  # 9 Violett
+	Color("#ffe6a0"),  # 10 Weißgold (wird überhell)
 ]
 
 var round_label: Label
@@ -59,15 +57,12 @@ var money_label: Label
 ## Ladungs-Börse (⚡ N/Deckel). Steht ab Lauf-Beginn da - vor der Entdeckung des
 ## Schwarzmarkts bewusst unerklärt.
 var energy_label: Label
-## Lizenz-Zeile + nächste Freischaltung als Plan + Aufstieg-Knopf.
-var hub_level_label: Label
-var hub_next_label: Label
-var upgrade_button: Button
 var shop_button: Button
 var lexikon_button: Button
-var _hub_level := 1
+var _tier := 1
+var _tier_shown := 0  # 0 = noch nie angewandt
 
-## Roulette-Rim: die Fahrplan-Stationen liegen auf einem Rad-Rand, die Lizenz-
+## Roulette-Rim: die Fahrplan-Stationen liegen auf einem Rad-Rand, die Stufen-
 ## Plakette in der Nabe. roadmap_stage trägt alles frei-positioniert; roadmap_row
 ## sammelt die Stationen (Tests + Advance-Animation laufen dagegen).
 var roadmap_stage: Control
@@ -92,7 +87,7 @@ var _rim_center := Vector2.ZERO
 var _rim_radius := 0.0
 ## Wieder-anwendbarer Stil für den Stufen-Re-Skin des Medaillons.
 var _medallion_style: StyleBoxFlat
-## Lizenz-Nabe (frei auf die Radmitte gesetzt).
+## Stufen-Nabe (frei auf die Radmitte gesetzt).
 var _medallion_cluster: VBoxContainer
 
 var info_page: Control  # Alias auf roadmap_stage (Rückwärts-Bezug)
@@ -118,8 +113,8 @@ var _built := false
 
 var _frame_style: StyleBoxFlat
 var _frame_tween: Tween
-## Rahmen-Grundzustand je Hub-Stufe: flash_frame/Gold-Ladung kehren HIERHIN zurück
-## (nicht zum Stufe-1-Neon), damit der Ausbau am Rahmen sichtbar bleibt.
+## Rahmen-Grundzustand je Fortschrittsstufe: flash_frame/Gold-Ladung kehren HIERHIN
+## zurück (nicht zum Stufe-1-Neon), damit die Stufe am Rahmen sichtbar bleibt.
 var _frame_base_color := FRAME_COLOR
 var _frame_bg := FRAME_BG
 var _frame_base_width_u := 0.3
@@ -192,7 +187,7 @@ func layout() -> void:
 	header.add_child(energy_label)
 
 	# Roulette-Rad: eine freie Bühne trägt den Rad-Rand (Fahrplan-Stationen), die
-	# Lizenz-Nabe in der Mitte und die Bonus-Chips seitlich. Kein Raster mehr - der
+	# Stufen-Nabe in der Mitte und die Bonus-Chips seitlich. Kein Raster mehr - der
 	# Filz selbst ist der Hintergrund. Hier oben treffen die Bank-Kometen ein.
 	roadmap_stage = Control.new()
 	roadmap_stage.name = "RimStage"
@@ -204,7 +199,7 @@ func layout() -> void:
 	roadmap_stage.resized.connect(_on_stage_resized)
 	_build_rim_stage(u)
 
-	# Fußzeile: nur der Einstellungen-Knopf (der Aufstieg wohnt jetzt in der Plakette).
+	# Fußzeile: nur der Einstellungen-Knopf.
 	var footer := HBoxContainer.new()
 	footer.name = "Footer"
 	footer.add_theme_constant_override("separation", int(u * 2.0))
@@ -568,23 +563,15 @@ func pulse_energy() -> void:
 	tween.tween_property(energy_label, "scale", Vector2.ONE, 0.22) \
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
-## Setzt die Hub-Ausbaustufe: Lizenz-Zeile, Aufstieg-Knopf (nächste Freischaltung
-## als Plan) und die Rahmen-Stufe (dicker + eine Spur goldener je Stufe). next_name
-## leer = Maximalstufe (Knopf verschwindet).
-func set_hub_level(level: int, level_name: String, next_name: String, unlock: String, price: int) -> void:
-	if not _built:
+## Setzt die Fortschrittsstufe: Medaillon, Pips und Rahmen-Stufe (dicker + eine
+## Spur goldener je Stufe).
+func set_progress_tier(tier: int) -> void:
+	if not _built or tier == _tier_shown:
 		return
-	_hub_level = level
-	hub_level_label.text = level_name  # nur der Lizenzname; die Stufe trägt das Medaillon
+	_tier = tier
+	_tier_shown = tier
 	if medallion_label != null:
-		medallion_label.text = str(level)
-	if next_name == "":
-		upgrade_button.visible = false
-		hub_next_label.text = "voll ausgebaut"
-	else:
-		upgrade_button.visible = true
-		upgrade_button.text = "⬆ Ausbau  (%d$)" % price
-		hub_next_label.text = "→ %s: %s" % [next_name, unlock]
+		medallion_label.text = str(tier)
 	_apply_frame_tier()
 
 ## Zeigt den Laden-Knopf. Er steht NUR im Vorlauf der Runde: nach dem Schließen
@@ -594,28 +581,21 @@ func set_shop_reopen_visible(shown: bool) -> void:
 	if _built and shop_button != null:
 		shop_button.visible = shown
 
-## Graut den Aufstieg-Knopf aus, wenn der Preis (noch) nicht bezahlbar ist.
-func set_hub_upgrade_affordable(affordable: bool) -> void:
-	if _built and upgrade_button != null and upgrade_button.visible:
-		upgrade_button.disabled = not affordable
-
 ## Voller Re-Skin des Hubs aus der Stufe: Rahmenfarbe = Signaturfarbe der Stufe,
-## Rahmen dicker, Hintergrund leicht in die Farbe getönt (Fern-Erkennung) und die
-## Lizenz-Zeile in derselben Farbe. Höchststufe blüht überhell (Krone).
+## Rahmen dicker, Hintergrund leicht in die Farbe getönt (Fern-Erkennung).
+## Höchststufe blüht überhell (Krone).
 func _apply_frame_tier() -> void:
 	if _frame_style == null:
 		return
-	var last := HUB_TIER_COLORS.size() - 1
-	var tier: Color = HUB_TIER_COLORS[clampi(_hub_level - 1, 0, last)]
-	if _hub_level > last:  # High Roller: überheller Rahmen (Bloom = Krone)
+	var last := TIER_COLORS.size() - 1
+	var tier: Color = TIER_COLORS[clampi(_tier - 1, 0, last)]
+	if _tier > last:  # letzte Stufe: überheller Rahmen (Bloom = Krone)
 		tier = Color(tier.r * 1.7, tier.g * 1.6, tier.b * 1.25)
 	_frame_base_color = tier
-	var t := clampf(float(_hub_level - 1) / float(maxi(1, last)), 0.0, 1.0)
+	var t := clampf(float(_tier - 1) / float(maxi(1, last)), 0.0, 1.0)
 	_frame_base_width_u = 0.3 + t * 0.5
 	# Panel-Hintergrund eine Spur in die Tier-Farbe (dezent, damit Text lesbar bleibt).
 	_frame_bg = FRAME_BG.lerp(Color(tier.r, tier.g, tier.b, FRAME_BG.a), 0.16)
-	if hub_level_label != null:
-		hub_level_label.modulate = tier
 	if _charge <= 0.0:  # nicht mitten in einer Gold-Ladung übermalen
 		_frame_style.border_color = _frame_base_color
 		_frame_style.bg_color = _frame_bg
@@ -634,16 +614,16 @@ func _apply_tier_to_medallion(tier: Color, last: int) -> void:
 		var ps := _pips[i].get_theme_stylebox("panel") as StyleBoxFlat
 		if ps == null:
 			continue
-		if i < _hub_level:
-			var pc: Color = HUB_TIER_COLORS[clampi(i, 0, last)]
+		if i < _tier:
+			var pc: Color = TIER_COLORS[clampi(i, 0, last)]
 			ps.bg_color = Color(pc.r, pc.g, pc.b, 0.95)
 		else:
 			ps.bg_color = Color(1, 1, 1, 0.12)
-	_layout_rim()  # Nabe neu zentrieren (Höhe ändert sich, z.B. Knopf weg bei Max)
+	_layout_rim()  # Nabe neu zentrieren
 	if not _roadmap_goals.is_empty():
 		_rebuild_roadmap()
 
-# --- Fahrplan + Lizenz-Plakette (Home-Bänder) --------------------------------
+# --- Fahrplan + Stufen-Plakette (Home-Bänder) --------------------------------
 
 ## Setzt den Fahrplan-BLOCK + die Position des aktuellen Ziels darin. Der Block
 ## bleibt stehen, bis sein letztes Ziel geschafft ist: geschaffte Stationen sind
@@ -866,7 +846,7 @@ class RimArc:
 			var col := Color(base_color.r, base_color.g, base_color.b, a)
 			draw_arc(center, radius, angles[i], angles[i + 1], 32, col, width, true)
 
-## Baut die Rad-Bühne: Rand-Zeichner (hinten), Stationen-Sammler, Lizenz-Nabe,
+## Baut die Rad-Bühne: Rand-Zeichner (hinten), Stationen-Sammler, Stufen-Nabe,
 ## Bonus-Chips. Positioniert wird erst, wenn die Bühne ihre Größe kennt (_on_stage_resized).
 func _build_rim_stage(u: float) -> void:
 	rim_arc = RimArc.new()
@@ -941,7 +921,7 @@ func _hide_marker_hint() -> void:
 	if marker_hint != null:
 		marker_hint.hide_card()
 
-## Lizenz-Nabe: Medaillon (Stufe) + Lizenzname + 10 Pips + Plan-Zeile + Aufstieg.
+## Stufen-Nabe: Medaillon (Fortschrittsstufe) + 10 Pips.
 ## Frei auf die Radmitte gesetzt (_layout_rim); trägt die Signaturfarbe der Stufe.
 func _build_medallion_cluster(u: float) -> void:
 	_medallion_cluster = VBoxContainer.new()
@@ -973,15 +953,6 @@ func _build_medallion_cluster(u: float) -> void:
 	medallion_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	medallion.add_child(medallion_label)
 
-	# Lizenzname - behält den bisherigen Node (Payout/Tests referenzieren ihn).
-	hub_level_label = Label.new()
-	hub_level_label.text = "Hinterzimmer"
-	hub_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hub_level_label.add_theme_font_size_override("font_size", int(u * 4.2))
-	hub_level_label.modulate = GOLD_COLOR
-	hub_level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_medallion_cluster.add_child(hub_level_label)
-
 	# 10 Stufen-Pips (gefüllt bis zur aktuellen Stufe in _apply_tier_to_medallion).
 	var pip_row := HBoxContainer.new()
 	pip_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -989,7 +960,7 @@ func _build_medallion_cluster(u: float) -> void:
 	pip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_medallion_cluster.add_child(pip_row)
 	_pips.clear()
-	for i in HUB_TIER_COLORS.size():
+	for i in TIER_COLORS.size():
 		var pip := Panel.new()
 		pip.custom_minimum_size = Vector2(u * 1.6, u * 1.6)
 		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -999,27 +970,6 @@ func _build_medallion_cluster(u: float) -> void:
 		pip.add_theme_stylebox_override("panel", ps)
 		pip_row.add_child(pip)
 		_pips.append(pip)
-
-	# Plan-Zeile: begrenzte Breite (bricht um), damit die Nabe schmal bleibt.
-	hub_next_label = Label.new()
-	hub_next_label.text = ""
-	hub_next_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hub_next_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hub_next_label.custom_minimum_size = Vector2(u * 34.0, 0)
-	hub_next_label.add_theme_font_size_override("font_size", int(u * 2.6))
-	hub_next_label.modulate = FRAME_COLOR
-	hub_next_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_medallion_cluster.add_child(hub_next_label)
-
-	upgrade_button = Button.new()
-	upgrade_button.name = "UpgradeButton"
-	upgrade_button.text = "⬆ Ausbau"
-	upgrade_button.focus_mode = Control.FOCUS_NONE
-	upgrade_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	upgrade_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	CasinoStyle.style_button(upgrade_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 3.0))
-	upgrade_button.pressed.connect(func() -> void: hub_upgrade_requested.emit())
-	_medallion_cluster.add_child(upgrade_button)
 
 ## Radgeometrie aus der Bühnengröße: Mitte etwas unter der geometrischen Mitte,
 ## Radius aus der kleineren Kante. false, solange die Bühne noch keine Größe hat.

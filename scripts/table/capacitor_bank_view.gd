@@ -1,8 +1,8 @@
 class_name CapacitorBankView
 extends Node3D
 ## Die Kondensator-Bank: der physische ⚡-Speicher im freien Chip-Platz. Ein
-## FESTES 5×5-Raster - alle 25 Zellen stehen von Anfang an da, denn der Ausbau
-## soll als "eine Reihe erwacht" lesbar sein, nicht als wachsendes Bauteil.
+## FESTES 5×5-Raster - alle 25 Zellen stehen von Anfang an da, denn eine neue
+## Stufe soll als "eine Reihe erwacht" lesbar sein, nicht als wachsendes Bauteil.
 ## Jede Zelle IST ein liegender Radial-Elko: dunkle Dose, Crimpring an der
 ## Fußseite, zwei Drahtbeine, die schräg auf die Grundplatte auslaufen - die
 ## Platte liest sich damit als Platine. LIEGEND, weil vom Tisch fast senkrecht

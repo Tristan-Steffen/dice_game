@@ -6,7 +6,7 @@ extends Control
 ## Ware, die als Karte bleibt und ihren VOLLEN Wirkungstext beim Hover zeigt), das
 ## GRAVUREN-Band mit den KASSETTEN-PLÄTZEN, auf denen die versiegelte Ware LIEGT,
 ## darunter die VITRINE mit den offenen Würfeln und zuletzt der Fuß. Kein Band
-## wächst mit Lizenzstufe oder Bestand. Körper zeichnet dieser Laden nie selbst;
+## wächst mit Fortschrittsstufe oder Bestand. Körper zeichnet dieser Laden nie selbst;
 ## er MELDET Rechtecke und Inhalte nach oben (vitrine_rect_px/vitrine_stock,
 ## slit_anchors/slit_stock), aufgestellt wird alles von scene_root.
 ## DIE WARE TRÄGT IHRE AUSKUNFT SELBST: es gibt keinen Hinweis-Schirm mehr. Die
@@ -82,27 +82,14 @@ const SINGLE_DIE_DISCOUNT := 0.8
 const VITRINE_MIN_HEIGHT := 18.0
 
 ## FESTE PROPORTIONEN: die vier Bänder der Seite (Charm-Zeile, Info-Band,
-## Bucht, Fuß) stehen in u, unabhängig von Lizenzstufe und Bestand. Was in ein
+## Bucht, Fuß) stehen in u, unabhängig von Fortschrittsstufe und Bestand. Was in ein
 ## Band nicht paßt, schrumpft - das Band selbst nie. Die Bucht ist das einzige
 ## Band mit EXPAND_FILL: sie bekommt, was die anderen übriglassen.
 const BAND_CHARM_UNITS := 26.0
 ## Der Fuß trägt die höchsten Knöpfe der Seite (gemessen: die Blätter-Pfeile mit
 ## ihrem Grad 3,2 u brauchen 5,9 u) - die Zahl steht bewußt darüber, sonst
-## bestimmte die Lizenzstufe über ihre Knöpfe die Bandhöhe.
+## bestimmten die Knöpfe die Bandhöhe.
 const BAND_FOOTER_UNITS := 6.2
-
-## Der Fuß trägt eine HIERARCHIE: das gefüllte Fertig, darunter der Aufstiegs-KAUF
-## mit gedimmtem Saum, und ganz unten die Blätter-Pfeile. Der Aufstieg leiht sich
-## das Gold nur halb - gefüllt ist auf dieser Seite genau ein Knopf.
-const HUB_BUTTON_ACCENT := Color(NEON_GOLD.r, NEON_GOLD.g, NEON_GOLD.b, 0.5)
-## Das Schloss auf einem gesperrten Blätter-Pfeil - dasselbe Zeichen wie an der
-## Sortiment-Sperre.
-const PAGER_LOCK := "🔒"
-
-## Der gesperrte Pfeil ERKLÄRT SICH SELBST: Schloss plus die Stufe, ab der er
-## aufgeht. Kein Hover, kein zweites Element - die Aufschrift IST die Auskunft.
-static func pager_lock_text() -> String:
-	return "%s %d" % [PAGER_LOCK, GameRun.HUB_FLIPPING_LEVEL]
 
 ## Der STELLPLATZ eines Kassetten-Schlitzes: die Ware LIEGT dort flach auf der
 ## Fläche, gemessen wird also ihr liegender Grundriß (Breite × Höhe der Karte)
@@ -255,8 +242,6 @@ var page_label: Label
 var done_button: Button
 var page_back_button: Button
 var page_next_button: Button
-## Hub-Aufstieg-Knopf im Shop-Fuß.
-var hub_upgrade_button: Button
 ## Umschalter der Sortiment-Sperre (Shop-Fuß).
 var lock_button: Button
 
@@ -268,7 +253,7 @@ var _slit_pads: Array[Panel] = []
 ## Je Platz sein Preisschild - es steht unter der liegenden Karte und ist leer,
 ## wo nichts liegt. Der Platz behält es: ein verkaufter Schlitz baut nichts um.
 var _slit_prices: Array[Label] = []
-## Je Platz {kind, index} - die Zahl hängt an der LIZENZ, nicht an der Auslage.
+## Je Platz {kind, index} - die Zahl hängt an der STUFE, nicht an der Auslage.
 var _slit_seats: Array[Dictionary] = []
 ## Eine eben gebaute Reihe hat noch KEIN Rechteck: der Container sortiert erst im
 ## nächsten Layout-Durchgang, bis dahin liegen alle Stellplätze auf dem Ursprung
@@ -358,11 +343,6 @@ var single_special_bought: Array[bool] = []
 
 var flip_tween: Tween
 
-## Nach einem Hub-Aufstieg mitten im Shop: ab diesem Index flackern die NEUEN
-## Charm-Karten wie eine zündende Neonröhre auf (-1 = kein Flackern). Die Ware in
-## der Bucht flackert nicht - sie ROLLT an (Grad-Regel der Bucht).
-var _flicker_charm_from: int = -1
-
 ## Einmalige Meldung, die beim nächsten Öffnen oben erscheint (Nebenwetten-
 ## Ergebnis der geräumten Runde); von scene_root vor open() gesetzt.
 var pending_bet_notice: String = ""
@@ -439,7 +419,7 @@ func _build_layout() -> void:
 	title_rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(title_rail)
 	# Sortiment-Sperre: steht in der Kopfzeile neben dem Geld - im Fuß hätte sie
-	# die Blätter-/Aufstiegs-Knöpfe auf hohen Hub-Stufen aus dem Panel geschoben.
+	# die Blätter-Knöpfe aus dem Panel geschoben.
 	lock_button = _neon_button("", NEON_CYAN, u * 2.4, Vector2(u * 22.0, u * 4.6))
 	lock_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lock_button.pressed.connect(_on_lock_pressed)
@@ -454,9 +434,9 @@ func _build_layout() -> void:
 		root.add_child(notice)
 		pending_bet_notice = ""
 
-	# Bildschirm-Zone: nur noch die Charm-Zeile - Lizenzen sind digitale Ware,
+	# Bildschirm-Zone: nur noch die Charm-Zeile - Charms sind digitale Ware,
 	# alles Körperliche liegt darunter. Ihre Höhe ist FEST: über den Karten
-	# schweben die echten Charm-Modelle, und ein Band, das mit der Lizenzstufe
+	# schweben die echten Charm-Modelle, und ein Band, das mit der Stufe
 	# wüchse, verschöbe jedes Stück Ware unter sich.
 	content_root = VBoxContainer.new()
 	content_root.name = "Content"
@@ -543,24 +523,16 @@ func _build_layout() -> void:
 	footer_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	footer.add_child(footer_spacer)
-	# Hub-Aufstieg direkt im Shop (der Hub-Rahmen ist von der Shop-Seite verdeckt).
-	# Er ist ein KAUF, kein Abschluss: Umriss statt Fläche, gedimmter Saum und ein
-	# Grad kleiner als das Fertig - seinen Preis färbt die Preis-Grammatik.
-	hub_upgrade_button = _neon_button("⬆ Hub", HUB_BUTTON_ACCENT, u * 2.5,
-		Vector2(u * 20.0, u * 5.0))
-	hub_upgrade_button.pressed.connect(_on_hub_upgrade_pressed)
-	footer.add_child(hub_upgrade_button)
 	# Fertig ist die primäre Aktion der Seite - und ihr EINZIGER gefüllter Knopf.
 	done_button = _neon_button("Fertig", NEON_GOLD, u * 3.0, Vector2(u * 18.0, u * 5.0))
 	CasinoStyle.style_primary_button(done_button, NEON_GOLD, u)
 	done_button.pressed.connect(_on_done_pressed)
 	footer.add_child(done_button)
-	_refresh_hub_footer()
 	_refresh_lock_button()
 
 # --- Die Kassetten-Schlitze (gemeldete Geometrie, kein Inhalt) -----------------
 
-## Die Plätze der Reihe: die Paket-Plätze der Lizenz, und die ist FLACH - vier,
+## Die Plätze der Reihe: die Paket-Plätze der Stufe, und die Leiter ist FLACH,
 ## auf jeder Stufe. Der Sonderposten BELEGT den letzten davon, er stellt keinen
 ## dazu; die Zahl der Plätze ändert sich also nie, nur die Gattung des letzten.
 ## Ein verkaufter oder nie gewürfelter Platz behält seinen Stellplatz, sonst wäre
@@ -598,8 +570,8 @@ func _build_slit_row() -> VBoxContainer:
 	row.sort_children.connect(func() -> void: _slit_row_fresh = false)
 	return row
 
-## Ein Hub-Aufstieg mitten im Besuch gibt neue Paket-Plätze - die müssen sichtbar
-## werden, das sticht die Rechteck-Treue.
+## Neue Paket-Plätze mitten im Besuch müssen sichtbar werden - das sticht die
+## Rechteck-Treue.
 func rebuild_slit_row() -> void:
 	if slit_row == null or not is_instance_valid(slit_row):
 		return
@@ -666,7 +638,7 @@ func _slit_box() -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 0.8))
 	return box
 
-## STEHT die Reihe wirklich? Eine eben gebaute (open, Hub-Aufstieg, neuer
+## STEHT die Reihe wirklich? Eine eben gebaute (open, neuer
 ## Kartengrundriß) hat bis zum nächsten Layout keine Rechtecke - ihre Anker lägen
 ## alle aufeinander. Wer stellt, mißt erst, wenn es soweit ist.
 func slit_row_laid_out() -> bool:
@@ -1235,8 +1207,8 @@ func buy_single_special(index: int) -> void:
 
 # --- Blättern ------------------------------------------------------------------
 
-## Gebühr für die nächste NEUE Doppelseite; Wechselgeld-Charm UND ein hoher
-## Hub-Ausbau (Penthouse) senken sie.
+## Gebühr für die nächste NEUE Doppelseite; Wechselgeld-Charm UND eine hohe
+## Fortschrittsstufe (TIER_CHEAP_FLIP) senken sie.
 func _next_flip_fee() -> int:
 	var base := maxi(1, FLIP_FEE_BASE + spreads.size() - 1)
 	return maxi(0, roundi(base * run.shop_flip_fee_factor()))
@@ -1246,8 +1218,6 @@ func _next_flip_is_new() -> bool:
 	return current_spread_index == spreads.size() - 1
 
 func _on_page_next_pressed() -> void:
-	if not run.shop_flipping_unlocked():
-		return  # Blättern erst ab Hub-Stufe 2
 	if _next_flip_is_new():
 		var fee := _next_flip_fee()
 		if run.money < fee:
@@ -1257,78 +1227,6 @@ func _on_page_next_pressed() -> void:
 	current_spread_index += 1
 	_show_spread()
 	_play_flip_animation()
-
-## Hub-Aufstieg im Shop gedrückt: Ausbau über GameRun buchen (No-op wenn nicht
-## bezahlbar/max). Die Zeremonie + refresh_after_hub_upgrade folgen aus dem
-## hub_level_changed-Signal (scene_root).
-func _on_hub_upgrade_pressed() -> void:
-	if run != null:
-		run.upgrade_hub()
-
-## Fuß-Zeile an die Hub-Stufe anpassen: Blätter-Schloss und Aufstiegs-Knopf.
-func _refresh_hub_footer() -> void:
-	if run == null or page_back_button == null:
-		return
-	_refresh_pager_lock()
-	if run.hub_level >= GameRun.HUB_MAX_LEVEL:
-		hub_upgrade_button.visible = false
-	else:
-		hub_upgrade_button.visible = true
-		var price := run.hub_upgrade_price()
-		hub_upgrade_button.text = "⬆ %s ($%d)" % [run.hub_next_level_name(), price]
-		hub_upgrade_button.disabled = not run.can_upgrade_hub()
-		_tint_hub_price(price)
-
-## Der Aufstieg trägt seinen Preis in der Preis-Grammatik der Seite: gelb, wenn die
-## Börse ihn deckt, rot wenn nicht - auch gesperrt, sonst schluckte das Grau die
-## Auskunft, die den Knopf überhaupt sperrt.
-func _tint_hub_price(price: int) -> void:
-	var tint := price_tint(price, run.money)
-	hub_upgrade_button.add_theme_color_override("font_color", tint)
-	hub_upgrade_button.add_theme_color_override("font_disabled_color",
-		Color(tint.r, tint.g, tint.b, 0.75))
-
-## Blättern gesperrt (Hub-Stufe 1): die Pfeile BLEIBEN stehen und tragen Schloss
-## UND die nötige Stufe ("🔒 2") - eine gesperrte Funktion erklärt sich in ihrer
-## eigenen Aufschrift, nicht in einem Hover woanders.
-func _refresh_pager_lock() -> void:
-	var locked := not run.shop_flipping_unlocked()
-	var pagers: Array[Button] = [page_back_button, page_next_button]
-	for button in pagers:
-		if button == null or not is_instance_valid(button):
-			continue
-		button.visible = true
-		if locked:
-			button.text = pager_lock_text()
-			button.disabled = true
-			# Gesperrt tragen beide dieselbe Aufschrift - dann stehen sie auch gleich
-			# breit; die Gebühren-Breite des Vorwärts-Pfeils braucht hier niemand.
-			button.custom_minimum_size = Vector2(u * 12.0, u * 5.0)
-			button.add_theme_stylebox_override("normal",
-				_button_box(Color("#1a183666"), Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.22)))
-		else:
-			button.add_theme_stylebox_override("normal", _button_box(Color("#221e46cc"), NEON_CYAN))
-	if not locked:
-		page_back_button.text = "‹"
-		page_back_button.custom_minimum_size = Vector2(u * 7.0, u * 5.0)
-		page_next_button.text = "›"
-		page_next_button.custom_minimum_size = Vector2(u * 12.0, u * 5.0)
-	page_label.visible = true
-
-## Nach einem Hub-Aufstieg mitten im Shop: aktuelle Doppelseite an die neue Stufe
-## anpassen (mehr Plätze/Blättern werden sofort sichtbar) und Fuß-Zeile neu.
-func refresh_after_hub_upgrade() -> void:
-	if not visible or run == null:
-		return
-	# Aktuelle Seite neu auswürfeln, damit die zusätzlichen Plätze erscheinen; die
-	# alten Platzzahlen merken, damit nur die NEUEN Karten aufflackern.
-	if not spreads.is_empty():
-		var old := spreads[current_spread_index]
-		_flicker_charm_from = old.charm_options.size()
-		spreads[current_spread_index] = _build_spread()
-	_refresh_hub_footer()
-	rebuild_slit_row()  # die neuen Paket-Plätze müssen sichtbar werden
-	_show_spread()
 
 # --- Sortiment-Sperre ----------------------------------------------------------
 
@@ -1415,10 +1313,10 @@ func _build_spread() -> MenuSpread:
 
 	# Die Einzelwürfel der Schale - der EINZIGE Würfelweg des Ladens. Sie werden
 	# HIER ausgewürfelt und vollständig gezeigt: kein Blindkauf, das ist ihr ganzer
-	# Zweck. Wie viele, sagt die Lizenz (shop_dice_slots).
+	# Zweck. Wie viele, sagt die Fortschrittsstufe (shop_dice_slots).
 	var owned_souls := run.owned_essence_ids()
 	for i in run.shop_dice_slots():
-		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.hub_level)
+		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.progress_tier())
 		if offers.is_empty() or offers[0].dice.is_empty():
 			continue
 		var die: DieDefinition = offers[0].dice[0]
@@ -1433,7 +1331,7 @@ func _build_spread() -> MenuSpread:
 	spread.single_dice_bought.resize(spread.single_dice.size())
 	spread.single_dice_bought.fill(false)
 
-	# Sonderposten ab der achten Lizenz: er BELEGT den letzten Paket-Platz, statt
+	# Sonderposten ab Stufe SHOP_SPECIAL_TIER: er BELEGT den letzten Paket-Platz, statt
 	# einen dazuzustellen - die Reihe bleibt gleich voll, und er kostet einen
 	# normalen Wurf.
 	if randf() < run.shop_special_chance():
@@ -1550,18 +1448,14 @@ func _rebuild_content(spread: MenuSpread) -> void:
 		var ccard := _build_charm_card(spread.charm_options[i], i, cm.x, int(cm.y),
 			card_w, name_px, podest)
 		charm_row.add_child(ccard)
-		_maybe_flicker(ccard, i, _flicker_charm_from)
 
-	# Das Flackern gilt nur für DIESEN Aufbau (direkt nach einem Aufstieg).
-	_flicker_charm_from = -1
-
-## Signaturfarbe der aktuellen Hub-Stufe (wie der Hub-Rahmen); der Laden trägt sie
-## dezent auf seinen Segment-Säumen, damit er zur Hub-Stufe passt.
+## Signaturfarbe der aktuellen Fortschrittsstufe (wie der Hub-Rahmen); der Laden
+## trägt sie dezent auf seinen Segment-Säumen.
 func _tier_color() -> Color:
 	if run == null:
 		return Color.WHITE
-	var last := HubView.HUB_TIER_COLORS.size() - 1
-	return HubView.HUB_TIER_COLORS[clampi(run.hub_level - 1, 0, last)]
+	var last := HubView.TIER_COLORS.size() - 1
+	return HubView.TIER_COLORS[clampi(run.progress_tier() - 1, 0, last)]
 
 ## Akzentfarbe leicht zur Stufenfarbe ziehen (Zusammenhalt ohne die Rubrik-Farbe
 ## zu verfälschen).
@@ -1569,16 +1463,6 @@ func _tinted(accent: Color) -> Color:
 	return accent.lerp(_tier_color(), 0.15)
 
 ## Neonröhren-Zündung einer frisch freigeschalteten Karte (ab index >= from).
-func _maybe_flicker(card: Control, index: int, from: int) -> void:
-	if from < 0 or index < from:
-		return
-	card.modulate = Color(1, 1, 1, 0)
-	var tw := create_tween()
-	tw.tween_interval(0.05 * (index - from))
-	tw.tween_property(card, "modulate:a", 0.9, 0.04)
-	tw.tween_property(card, "modulate:a", 0.15, 0.05)
-	tw.tween_property(card, "modulate:a", 1.0, 0.14).set_trans(Tween.TRANS_SINE)
-
 # --- Elastische Maße (Karten wachsen, wenn es wenige Plätze gibt) ---------------
 
 ## Die Zahlen, aus denen das Charm-Band besteht - EINE Quelle für den Aufbau und
@@ -2023,22 +1907,15 @@ func _refresh_afford_state() -> void:
 	for i in charm_buttons.size():
 		if not charm_bought[i]:
 			charm_buttons[i].disabled = run.charms_full() or money < _charm_price()
-	# Ein gesperrter Pager trägt sein Schloss - Gebühr und Seitenstand hätte er
-	# sonst über das Zeichen geschrieben, das die Sperre überhaupt erklärt.
-	if run.shop_flipping_unlocked():
-		if page_back_button != null and is_instance_valid(page_back_button):
-			page_back_button.disabled = current_spread_index == 0
-		if page_next_button != null and is_instance_valid(page_next_button):
-			if _next_flip_is_new():
-				page_next_button.text = "$%d ›" % _next_flip_fee()
-				page_next_button.disabled = money < _next_flip_fee()
-			else:
-				page_next_button.text = "›"
-				page_next_button.disabled = false
-	# Hub-Aufstieg-Knopf folgt dem Geldstand - Sperre wie Preisfarbe.
-	if hub_upgrade_button != null and is_instance_valid(hub_upgrade_button) and hub_upgrade_button.visible:
-		hub_upgrade_button.disabled = not run.can_upgrade_hub()
-		_tint_hub_price(run.hub_upgrade_price())
+	if page_back_button != null and is_instance_valid(page_back_button):
+		page_back_button.disabled = current_spread_index == 0
+	if page_next_button != null and is_instance_valid(page_next_button):
+		if _next_flip_is_new():
+			page_next_button.text = "$%d ›" % _next_flip_fee()
+			page_next_button.disabled = money < _next_flip_fee()
+		else:
+			page_next_button.text = "›"
+			page_next_button.disabled = false
 	_refresh_ware_prices()
 
 ## Die Preisschilder AN der Ware - Kassette wie Würfel. Sie rechnen nichts nach:

@@ -1,6 +1,6 @@
 extends GutTest
-## Die Würfel wachsen mit dem Casino: eine höhere Lizenz legt größere Augen ins
-## Angebot. Stufe 1 bleibt unangetastet - dort ist ein Würfel exakt der von
+## Die Würfel wachsen mit dem Lauf: eine höhere Fortschrittsstufe legt größere
+## Augen ins Angebot. Stufe 1 bleibt unangetastet - dort ist ein Würfel exakt der von
 ## früher. Gepinnt sind nur die RELATIONEN, die Kurve selbst ist ein Stellknopf.
 
 func _max_face(def: DieDefinition) -> int:
@@ -9,17 +9,17 @@ func _max_face(def: DieDefinition) -> int:
 		top = maxi(top, value)
 	return top
 
-func _roll_max(hub_level: int, rolls: int = 240) -> int:
+func _roll_max(tier: int, rolls: int = 240) -> int:
 	var top := 0
 	for _i in rolls:
 		for t in DiceOffer.TEMPLATES:
-			top = maxi(top, _max_face(DiceOffer.make_die(t, hub_level)))
+			top = maxi(top, _max_face(DiceOffer.make_die(t, tier)))
 	return top
 
 # --- Stufe 1 ändert nichts ----------------------------------------------------------
 
 func test_level_one_is_the_identity() -> void:
-	assert_almost_eq(DiceOffer.hub_face_factor(1), 1.0, 0.0001)
+	assert_almost_eq(DiceOffer.tier_face_factor(1), 1.0, 0.0001)
 
 func test_level_one_rolls_stay_inside_the_templates() -> void:
 	# Was die Vorlage erlaubt, ist auf Stufe 1 auch die Obergrenze.
@@ -31,7 +31,7 @@ func test_level_one_rolls_stay_inside_the_templates() -> void:
 			for value in def.faces:
 				assert_gte(value, 1, "und nie unter 1")
 
-func test_an_unset_hub_level_defaults_to_one() -> void:
+func test_an_unset_tier_defaults_to_one() -> void:
 	# Jeder alte Aufrufer, der die Stufe nicht kennt, bekommt den alten Würfel.
 	for _i in 60:
 		for t in DiceOffer.TEMPLATES:
@@ -39,13 +39,13 @@ func test_an_unset_hub_level_defaults_to_one() -> void:
 
 # --- Die Kurve steigt ---------------------------------------------------------------
 
-func test_the_frame_grows_monotonically_with_the_hub_level() -> void:
+func test_the_frame_grows_monotonically_with_the_tier() -> void:
 	for level in range(1, 10):
-		assert_gt(DiceOffer.hub_face_factor(level + 1), DiceOffer.hub_face_factor(level),
+		assert_gt(DiceOffer.tier_face_factor(level + 1), DiceOffer.tier_face_factor(level),
 			"Stufe %d -> %d" % [level, level + 1])
 		assert_gt(DiceOffer.max_face_for(level + 1), DiceOffer.max_face_for(level))
 
-func test_the_rolled_maximum_grows_with_the_hub_level() -> void:
+func test_the_rolled_maximum_grows_with_the_tier() -> void:
 	# Nicht nur die Rechnung, auch die echten Würfe steigen.
 	var low := _roll_max(1)
 	var mid := _roll_max(5)
@@ -67,8 +67,8 @@ func test_no_level_ever_rolls_past_its_own_ceiling() -> void:
 					"Stufe %d bleibt unter ihrer Decke %d" % [level, ceiling])
 
 func test_the_level_is_clamped_at_both_ends() -> void:
-	assert_almost_eq(DiceOffer.hub_face_factor(0), DiceOffer.hub_face_factor(1), 0.0001)
-	assert_almost_eq(DiceOffer.hub_face_factor(99), DiceOffer.hub_face_factor(10), 0.0001)
+	assert_almost_eq(DiceOffer.tier_face_factor(0), DiceOffer.tier_face_factor(1), 0.0001)
+	assert_almost_eq(DiceOffer.tier_face_factor(99), DiceOffer.tier_face_factor(10), 0.0001)
 
 func test_a_face_never_shrinks_below_its_template_value() -> void:
 	# Die Streuung bricht runde Zahlen auf, sie darf aber nie nach unten wirken.
@@ -79,7 +79,7 @@ func test_a_face_never_shrinks_below_its_template_value() -> void:
 
 # --- Der Weg durch die Angebote -----------------------------------------------------
 
-func test_offers_carry_the_hub_level_through() -> void:
+func test_offers_carry_the_tier_through() -> void:
 	var top := 0
 	for _i in 40:
 		for offer in DiceOffer.roll_offers(3, [], [], 10):
@@ -88,7 +88,7 @@ func test_offers_carry_the_hub_level_through() -> void:
 	assert_gt(top, DiceOffer.MAX_TEMPLATE_FACE, "die Auslage reicht die Stufe durch")
 
 func test_reward_dice_route_through_the_same_scaling() -> void:
-	# Prämien-Würfel (Hub, Stresstest) kommen aus derselben Quelle.
+	# Prämien-Würfel (Stresstest) kommen aus derselben Quelle.
 	var top := 0
 	for _i in 40:
 		top = maxi(top, _max_face(DiceOffer.roll_reward_die([], [], 10)))

@@ -99,8 +99,6 @@ var _pending: Array[Dictionary] = []
 ## Tweens und Geister (Token) des Perlenzugs - der Abbruch räumt beide.
 var _payout_tweens: Array[Tween] = []
 var _payout_ghosts: Array = []
-var locked := true
-var _lock_overlay: Panel
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
@@ -113,7 +111,7 @@ func _reset_landed() -> void:
 	for i in SlotMachine.MACHINE_COUNT:
 		_landed.append([])
 
-## scene_root nach Zustandswechseln (Hub-Aufstieg, Panel-Anzeige). Eine laufende
+## scene_root nach Zustandswechseln (Laufwechsel, Panel-Anzeige). Eine laufende
 ## Auszahlung wird vorher hart zu Ende gebracht - sonst verlöre ein Neuaufbau Gewinne.
 func refresh() -> void:
 	finish_payout_now()
@@ -185,7 +183,6 @@ func _build() -> void:
 		_just_landed = -1
 		_pop_reel(idx, block)
 
-	_build_lock_overlay()
 	_update_overlay()
 
 ## Zeichnet je aktive Kombination eine Neon-Linie durch ihre Zellen. Läuft nach
@@ -240,7 +237,6 @@ func _label_for_cell(col: int, row: int) -> Label:
 
 ## Eine Automaten-Spalte: Name, Walzenfenster (MACHINE_COLS×ROWS Symbole), Dreh-Knopf.
 func _machine_column(i: int, u: float, run_set: Dictionary, fumble_set: Dictionary) -> Control:
-	var unlocked := run != null and i < run.slots_unlocked()
 	var spinning := _spinning and i == _spinning_index
 	var block: Array = _landed[i]
 	var tier: Color = TIER_COLORS[i]
@@ -253,16 +249,16 @@ func _machine_column(i: int, u: float, run_set: Dictionary, fumble_set: Dictiona
 
 	var roman: String = ["I", "II", "III"][i]
 	var head := CasinoStyle.label("Automat %s · %s" % [roman, SlotMachine.MACHINE_NAMES[i]], u * 2.4,
-		tier if unlocked else MUTED_COLOR)
+		tier)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(head)
 
-	col.add_child(_reel_window(i, u, tier, unlocked, spinning, block, run_set, fumble_set))
-	col.add_child(_spin_button(i, u, tier, unlocked, spinning, block))
+	col.add_child(_reel_window(i, u, tier, spinning, block, run_set, fumble_set))
+	col.add_child(_spin_button(i, u, tier, spinning, block))
 	return col
 
 ## Walzenfenster: geklammertes Panel mit MACHINE_COLS Spalten à ROWS Symbolen.
-func _reel_window(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
+func _reel_window(i: int, u: float, tier: Color, spinning: bool,
 		block: Array, run_set: Dictionary, fumble_set: Dictionary) -> Control:
 	var window := Panel.new()
 	window.custom_minimum_size = Vector2(0, u * 13.0)  # Untergrenze; EXPAND_FILL füllt den Rest
@@ -271,8 +267,8 @@ func _reel_window(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 	window.clip_contents = true
 	window.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
-	box.bg_color = BAR_BG if unlocked else Color(0.06, 0.05, 0.11, 0.9)
-	box.border_color = Color(tier.r, tier.g, tier.b, 0.9 if unlocked else 0.3)
+	box.bg_color = BAR_BG
+	box.border_color = Color(tier.r, tier.g, tier.b, 0.9)
 	box.set_border_width_all(maxi(2, int(u * 0.4)))
 	box.set_corner_radius_all(int(u * 1.4))
 	window.add_theme_stylebox_override("panel", box)
@@ -305,7 +301,7 @@ func _reel_window(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 				cell.modulate = _cell_color(kind, i * SlotMachine.MACHINE_COLS + lc, r, run_set, fumble_set)
 			else:
 				cell.text = READY_GLYPH
-				cell.modulate = Color(tier.r, tier.g, tier.b, 0.55 if unlocked else 0.22)
+				cell.modulate = Color(tier.r, tier.g, tier.b, 0.55)
 			vb.add_child(cell)
 			labels.append(cell)
 		slot.add_child(vb)
@@ -367,7 +363,7 @@ func _window_shade() -> TextureRect:
 	shade.texture = tex
 	return shade
 
-func _spin_button(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
+func _spin_button(i: int, u: float, tier: Color, spinning: bool,
 		block: Array) -> Button:
 	var button := Button.new()
 	button.focus_mode = Control.FOCUS_NONE
@@ -376,23 +372,21 @@ func _spin_button(i: int, u: float, tier: Color, unlocked: bool, spinning: bool,
 	button.add_theme_font_size_override("font_size", maxi(8, int(u * 2.5)))
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	var accent := tier
-	if not unlocked:
-		button.text = "ab %s" % GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SLOT_LEVELS[i] - 1]
-		button.disabled = true
-		accent = MUTED_COLOR
-	elif spinning:
+	if spinning:
 		button.text = "dreht…"
 		button.disabled = true
 	elif not block.is_empty():
 		button.text = "gedreht"
 		button.disabled = true
-	elif run != null and not run.slots_enabled():
+	elif run == null:
+		button.disabled = true
+	elif not run.slots_enabled():
 		button.text = "Strom aus"  # Stromsperre: kein Preis, der Automat ist tot
 		button.disabled = true
 		accent = MUTED_COLOR
 	else:
 		button.text = "gratis" if run.slot_spin_energy(i) <= 0 else "Drehen  %d⚡" % run.slot_spin_energy(i)
-		var can := not _spinning and run != null and run.can_spin_slot(i)
+		var can := not _spinning and run.can_spin_slot(i)
 		button.disabled = not can
 		if can:
 			button.pressed.connect(_on_spin_pressed.bind(i))
@@ -890,37 +884,6 @@ func _kill_spin_tweens() -> void:
 		if tween != null and tween.is_valid():
 			tween.kill()
 	_spin_tweens.clear()
-
-# --- Sperre (Fenster vor Freischaltung) ----------------------------------------
-
-func set_locked(is_locked: bool) -> void:
-	locked = is_locked
-	if _lock_overlay != null and is_instance_valid(_lock_overlay):
-		_lock_overlay.visible = locked
-	if _content != null and is_instance_valid(_content):
-		_content.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
-
-func _build_lock_overlay() -> void:
-	if _lock_overlay != null and is_instance_valid(_lock_overlay):
-		_lock_overlay.queue_free()
-	var u := _unit()
-	_lock_overlay = CasinoStyle.lock_overlay(u * 1.2)
-	add_child(_lock_overlay)
-	var col := VBoxContainer.new()
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_lock_overlay.get_child(0).add_child(col)
-	var title := CasinoStyle.label("Ab Lizenzstufe %d" % GameRun.HUB_SLOT_LEVELS[0],
-		u * 4.6, TITLE_COLOR)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(title)
-	var name_lbl := CasinoStyle.label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SLOT_LEVELS[0] - 1],
-		u * 3.4, MUTED_COLOR)
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(name_lbl)
-	_lock_overlay.visible = locked
-	if _content != null and is_instance_valid(_content):
-		_content.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
 # --- Bausteine -----------------------------------------------------------------
 

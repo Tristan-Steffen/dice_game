@@ -18,25 +18,25 @@ const TEMPLATES := [
 
 ## Größte Augenzahl, die eine Vorlage von sich aus hergibt.
 const MAX_TEMPLATE_FACE := 6
-## Wachstum des Augen-Rahmens je Hub-Stufe: bis Stufe 10 verachtfacht er sich,
-## aus einer 6 wird also eine ~48. Stufe 1 lässt den Würfel EXAKT so, wie er
-## immer war - die besseren Würfel SIND die Belohnung für den Ausbau, deshalb
-## bleibt der Preis, wo er ist. Für die Erkennung ändert sich nichts: die
+## Wachstum des Augen-Rahmens je Fortschrittsstufe: bis Stufe 10 verachtfacht er
+## sich, aus einer 6 wird also eine ~48. Stufe 1 lässt den Würfel EXAKT so, wie er
+## immer war - die besseren Würfel SIND der Fortschritt, deshalb bleibt der Preis,
+## wo er ist. Für die Erkennung ändert sich nichts: die
 ## Kombinationsziffer ist seit jeher Wert % 10, eine 50 paart also als 0.
-const HUB_FACE_GROWTH := 7.0 / 9.0
+const TIER_FACE_GROWTH := 7.0 / 9.0
 ## Streuung um den Rahmen, damit nicht jeder Würfel dieselben runden Zahlen trägt.
 const FACE_JITTER := 0.12
 
-## Rahmen-Faktor der Augenzahlen auf dieser Hub-Stufe (Stufe 1 = 1.0).
-static func hub_face_factor(hub_level: int) -> float:
-	return 1.0 + HUB_FACE_GROWTH * float(clampi(hub_level, 1, 10) - 1)
+## Rahmen-Faktor der Augenzahlen auf dieser Fortschrittsstufe (Stufe 1 = 1.0).
+static func tier_face_factor(tier: int) -> float:
+	return 1.0 + TIER_FACE_GROWTH * float(clampi(tier, 1, GameRun.TIER_MAX) - 1)
 
 ## Größte Augenzahl, die auf dieser Stufe überhaupt fallen kann - die Obergrenze
 ## der Kurve, nicht ihr Regelfall. Kein Aufrufer im Spiel: sie ist das Orakel, an
 ## dem die Testreihe die echten Würfe misst, ohne die Formel nachzubauen.
-static func max_face_for(hub_level: int) -> int:
+static func max_face_for(tier: int) -> int:
 	return maxi(MAX_TEMPLATE_FACE,
-		int(round(float(MAX_TEMPLATE_FACE) * hub_face_factor(hub_level) * (1.0 + FACE_JITTER))))
+		int(round(float(MAX_TEMPLATE_FACE) * tier_face_factor(tier) * (1.0 + FACE_JITTER))))
 
 # Material-Chancen; jede belegte Seite schlägt je Würfel auf den Preis auf.
 const FACE_MATERIAL_CHANCE := 0.35
@@ -76,10 +76,10 @@ func size() -> int:
 
 ## Würfelt count verschiedene Angebote aus. Gütesiegel erzwingt mindestens
 ## eine Material-Seite, und eine davon veredelt.
-static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> Array[DiceOffer]:
+static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = [], tier: int = 1) -> Array[DiceOffer]:
 	var offers: Array[DiceOffer] = []
 	for t in pick_templates(count):
-		offers.append(_from_template(t, charm_ids, owned_essences, hub_level))
+		offers.append(_from_template(t, charm_ids, owned_essences, tier))
 	return offers
 
 ## Zieht count verschiedene Vorlagen (auch die Paket-Auslage nutzt das).
@@ -93,11 +93,11 @@ static func pick_templates(count: int) -> Array[Dictionary]:
 
 ## Ein Angebot bündelt immer nur EINEN Würfeltyp: ein Würfel wird ausgewürfelt
 ## und count-mal als unabhängige Kopie ins Bündel gelegt.
-static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_essences: Array[String] = [], hub_level: int = 1) -> DiceOffer:
+static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_essences: Array[String] = [], tier: int = 1) -> DiceOffer:
 	var offer := DiceOffer.new()
 	offer.display_name = t["name"]
 	offer.dice = []
-	var base := make_die(t, hub_level)
+	var base := make_die(t, tier)
 	var surcharge := roll_refinements(base)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite - und
 	# mindestens eine ist veredelt. Die Veredelung kostet wie das Material, das sie
@@ -119,16 +119,16 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 		offer.dice.append(base.instantiate())
 	return offer
 
-## EIN Prämien-Würfel (Hub-Ausbau, Stresstest): frisch gewürfelt, mit dem
+## EIN Prämien-Würfel (Stresstest): frisch gewürfelt, mit dem
 ## Gütesiegel wie jedes Angebot veredelt und mit GARANTIERTER Seele - die
 ## Unikat-/Geheim-Ausschlüsse und der Nicht-Unikat-Rückfall stehen in roll_essence.
 ## Preis kennt er keinen: er wird gewonnen, nie verkauft.
 static func roll_reward_die(charm_ids: Array[String] = [],
-		owned_essences: Array[String] = [], hub_level: int = 1) -> DieDefinition:
+		owned_essences: Array[String] = [], tier: int = 1) -> DieDefinition:
 	var templates := pick_templates(1)
 	if templates.is_empty():
 		return null
-	var die := make_die(templates[0], hub_level)
+	var die := make_die(templates[0], tier)
 	roll_refinements(die)
 	# Gütesiegel: ging der Würfel leer aus, garantiert eine Material-Seite - und
 	# mindestens eine ist veredelt. Aufpreis gibt es hier keinen.
@@ -163,7 +163,7 @@ static func roll_refinements(def: DieDefinition) -> int:
 
 ## Einzelner Würfel gemäß Vorlage: Seiten aus values, oder bei pasch=true
 ## 3..4 gleiche hohe Seiten plus Rest zufällig.
-static func make_die(t: Dictionary, hub_level: int = 1) -> DieDefinition:
+static func make_die(t: Dictionary, tier: int = 1) -> DieDefinition:
 	var def := DieDefinition.new()
 	var faces: Array[int] = []
 	if t.get("pasch", false):
@@ -178,7 +178,7 @@ static func make_die(t: Dictionary, hub_level: int = 1) -> DieDefinition:
 			faces.append(int(values.pick_random()))
 	# Der Laden wächst mit dem Casino. Auf Stufe 1 greift das gar nicht - der
 	# Würfel ist dort Zeichen für Zeichen der von früher.
-	var factor := hub_face_factor(hub_level)
+	var factor := tier_face_factor(tier)
 	if factor > 1.0:
 		for i in faces.size():
 			faces[i] = _scaled_face(faces[i], factor)
@@ -187,7 +187,7 @@ static func make_die(t: Dictionary, hub_level: int = 1) -> DieDefinition:
 	def.display_name = t["name"]
 	return def
 
-## Eine Seite auf den Hub-Rahmen heben. Der Faktor gibt den Rahmen, die Streuung
+## Eine Seite auf den Stufen-Rahmen heben. Der Faktor gibt den Rahmen, die Streuung
 ## bricht die runden Zahlen auf; kleiner als vorher wird eine Seite nie.
 static func _scaled_face(value: int, factor: float) -> int:
 	var grown := float(value) * factor
@@ -196,8 +196,8 @@ static func _scaled_face(value: int, factor: float) -> int:
 ## Würfelt die Essenz eines Angebots-Würfels aus ("" = essenzlos). Schwarzmarkt-
 ## Essenzen liegen NIE im normalen Handel; Unikate nur einzeln und nur, solange
 ## der Spieler keins besitzt (dieselbe Ausschluss-Regel wie bei den Charms).
-## guaranteed überspringt den Chancen-Wurf (Hub-Belohnung: alle Auswahl-Würfel
-## tragen eine Seele). Die Unikat-Sperre gilt weiter - läuft der Topf dadurch
+## guaranteed überspringt den Chancen-Wurf (Prämien-Würfel tragen immer eine
+## Seele). Die Unikat-Sperre gilt weiter - läuft der Topf dadurch
 ## leer, rückt ein NICHT-Unikat nach, statt den Würfel seelenlos zu lassen.
 static func roll_essence(owned_essences: Array[String] = [], allow_unique: bool = true,
 		guaranteed: bool = false) -> String:

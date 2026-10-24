@@ -70,8 +70,6 @@ const SECRET_SHOP_TOP_GAP := 30.0
 ## der ganze Inhalt bei GLEICHEM Verhältnis mit (~786×437 statt 452×251, u ~7,9
 ## statt 4,5) - flach ist er nicht mehr, nur breiter als hoch.
 const SECRET_SHOP_ASPECT := 1.8
-## Violett der legendären Rarität - die Signaturfarbe des Schwarzmarkts.
-const VIOLET_REVEAL_COLOR := Color(0.75, 0.35, 1.0)
 
 ## Würfel-Blitz beim Auszahlen: schneller Anstieg auf überstrahltes Gold plus
 ## Größen-Pop, langsameres Abklingen - die Blitze überlappen wie eine Welle.
@@ -1895,7 +1893,6 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.test_charges_requested.connect(_on_test_charges_pressed)
-		table_screen.hub.hub_upgrade_requested.connect(_on_hub_upgrade_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
 		table_screen.hub.lexikon_requested.connect(func() -> void: open_lexikon())
 
@@ -2363,63 +2360,26 @@ func _apply_wallet_delta(delta: int) -> void:
 		chip_stack.remove_chips(plan["spend"])
 		chip_stack.add_chips(ChipStackView.split_gain(int(plan["change"])))
 
-## Aufstieg-Knopf am Hub gedrückt: Ausbau über GameRun buchen (No-op wenn nicht
-## bezahlbar oder max). Die Zeremonie folgt aus hub_level_changed.
-func _on_hub_upgrade_pressed() -> void:
-	if run == null:
-		return
-	run.upgrade_hub()
-
-## Hub-Stufe gestiegen: Struktur-Freischaltungen anwenden + Aufstiegs-Zeremonie
-## (Rahmen blitzt golden, Stoßwelle am Hub).
-func _on_hub_level_changed(level: int) -> void:
-	_sync_hub_level_state()
-	_sync_secret_shop_state()  # der Börsen-Deckel wächst mit der Stufe
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	# Prämien-Würfel und Belohnungs-Pakete sind schon gebucht (upgrade_hub) - die
-	# Zeremonie zeigt nur, WAS die Stufe gebracht hat und wohin es gegangen ist.
-	# Nicht awaiten: der Shop-Refresh darunter läuft parallel weiter.
-	_play_hub_reward_ceremony(run.last_hub_reward_packs, run.last_hub_reward_fizzle,
-		run.last_hub_reward_die)
-	if charm_shop != null and charm_shop.visible:
-		charm_shop.refresh_after_hub_upgrade()
-	# Nebenwetten frisch installiert: Zeremonie + die Wettannahme sofort öffnen, damit
-	# sich der Kauf noch in DIESER Runde auszahlt.
-	if level == GameRun.HUB_SIDE_BETS_LEVEL and table_screen != null:
-		table_screen.celebrate_side_bet_install(CasinoStyle.GOLD_INTENSE)
-		if _side_bets_open_now():
-			_open_side_bet_betting()
-	# Ein frisch freigeschalteter Fumble-Automat feiert mit einer Stoßwelle.
-	if level in GameRun.HUB_SLOT_LEVELS and table_screen != null:
-		table_screen.celebrate_slot_bank_install(CasinoStyle.GOLD_INTENSE)
-
-## Wendet den aktuellen Hub-Stufen-Zustand überall an: Plakette + Knopf am Hub,
-## Shop-Knopf, und die Installation des Nebenwetten-Fensters. Idempotent - auch
-## bei Spielstart und nach Reset aufgerufen.
-func _sync_hub_level_state() -> void:
+## Installiert die Nebenwetten- und Automaten-Fenster und zeigt die
+## Fortschrittsstufe am Hub. Idempotent - bei Spielstart und nach Reset gerufen.
+func _sync_installed_windows() -> void:
 	if run == null:
 		return
 	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_hub_level(run.hub_level, run.hub_level_name(),
-			run.hub_next_level_name(), run.hub_next_unlock(), run.hub_upgrade_price())
-		table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
+		table_screen.hub.set_progress_tier(run.progress_tier())
 	if table_screen != null:
 		table_screen.set_side_bet_installed(true)
-		if table_screen.side_bet_window != null:
-			table_screen.side_bet_window.set_locked(not run.side_bets_unlocked())
 		table_screen.set_slot_bank_installed(true)
 		if table_screen.slot_bank_window != null:
-			table_screen.slot_bank_window.set_locked(run.slots_unlocked() <= 0)
 			table_screen.slot_bank_window.refresh()
 
 ## Laufende Nummer der Meteore eines Pakets - sie steuert die Ausbruch-Richtung,
 ## damit mehrere Stücke sichtbar auseinanderfliegen.
 var _meteor_index := 0
 
-## Temporäre Reveal-Auslage über der Hub-Mitte (Hub-Belohnung, Stresstest-Preis).
-## Sie liegt im Feld, damit ein Lauf-Reset sie sicher wegräumen kann.
-var _hub_reward_overlay: Control = null
+## Temporäre Reveal-Auslage über der Hub-Mitte (Stresstest-Preis). Sie liegt im
+## Feld, damit ein Lauf-Reset sie sicher wegräumen kann.
+var _reward_overlay: Control = null
 
 ## Welche Material-Gravuren das Schmuckkästchen an diesem Rundenende gefunden
 ## hat - gebucht beim Rundenabschluss, gezeigt an seinem Dock-Platz in der
@@ -2851,8 +2811,8 @@ func _refresh_hub_info() -> void:
 	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
 		run.goal_roadmap_markers(6), GameRun.block_of_round(run.round_number))
 	_refresh_deal_tokens()
-	# Aufstieg-Knopf folgt dem Geldstand (ausgegraut, wenn nicht bezahlbar).
-	table_screen.hub.set_hub_upgrade_affordable(run.can_upgrade_hub())
+	# Medaillon und Pips folgen der Runde.
+	table_screen.hub.set_progress_tier(run.progress_tier())
 
 ## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
 ## Grubenrand. Gespiegelt aus EINER Hand, damit die Wirkung auch dort steht, wo
@@ -4461,7 +4421,7 @@ func _write_slit_cells(grade := ShopController.GRADE_STAND, swap := false,
 		return
 	if _vitrine_leaving:
 		return  # die Maschine schluckt: der Abgleich stellt nichts nach
-	# Eine eben gebaute Stellplatz-Reihe (Hub-Aufstieg im offenen Laden) hat noch
+	# Eine eben gebaute Stellplatz-Reihe (frisch geöffneter Laden) hat noch
 	# kein Rechteck: gemessen wird, WENN ES SOWEIT IST - sonst lägen alle Anker
 	# aufeinander und die ganze Reihe stapelte sich auf dem linkesten Platz.
 	if not charm_shop.slit_row_laid_out():
@@ -6375,7 +6335,7 @@ func _bet_rects() -> Array[Rect2]:
 	return panel.counter_rects() if panel != null else empty
 
 ## Der Tresen zeigt nur, solange sein Fenster wirklich auf dem Tisch steht: ein
-## abgebautes Fenster (Hub-Stufe zu niedrig, Laufwechsel) läßt nichts liegen - und
+## abgebautes Fenster (Laufwechsel) läßt nichts liegen - und
 ## ohne Sicht fährt auch keine Maschine, denn ihr Loch säße auf fremder Anzeige.
 func _bet_counter_visible() -> bool:
 	var panel := _side_bet_panel()
@@ -8384,8 +8344,7 @@ func _set_secret_shown(shown: bool) -> void:
 ## Weg. GEKAUFT wird trotzdem nur an der eigenen Station (_forward_vitrine_mouse).
 func _sync_secret_curtain() -> void:
 	var market := _secret_window()
-	var want := market != null and market.visible and run != null \
-		and run.secret_shop_unlocked
+	var want := market != null and market.visible and run != null
 	if want == _secret_curtain:
 		return
 	_secret_curtain = want
@@ -9061,121 +9020,57 @@ func _fly_pack_fizzle(from_px: Vector2, amount: int, round_end := false) -> floa
 		table_screen.treasure_window.flash_receive_slot(chip_color))
 	return travel
 
-## Takt der Hub-Belohnung: Siegel ploppen gestaffelt auf, stehen kurz, dann fährt
-## je Paket ein Komet zur Werkbank.
-const HUB_REWARD_POP_STAGGER := 0.06
-const HUB_REWARD_POP_TIME := 0.32
-const HUB_REWARD_HOLD := 0.7
-const HUB_REWARD_SHRINK_TIME := 0.18
+## Takt der Würfel-Prämie: das Siegel ploppt auf, steht kurz, dann fährt der Komet.
+const REWARD_POP_TIME := 0.32
+const REWARD_HOLD := 0.7
+const REWARD_SHRINK_TIME := 0.18
 
-## Reveal des Hub-Ausbaus: über der Hub-Mitte steht je PAKETSORTE ein Siegel (bei
-## mehreren ein "×n"), vorneweg das Würfel-Siegel der Prämie; danach fährt je
-## PAKET ein Komet die Werkstatt-Ader hinunter, und der Würfel fährt dieselbe Ader
-## bis ins AUSGABEFACH, wo er durch den Fachboden steigt.
-## Rein visuell - Pakete wie Würfel sind längst gebucht.
-## fizzled: so viele Pakete fanden im vollen Magazin keinen Platz mehr und sind zu
-## Geld zerfallen - für sie fährt ein Geld-Komet in die Truhe statt einer Kassette
-## zur Werkbank (gebucht hat GameRun beim Gewähren). Ein Würfel zerfällt nie.
-func _play_hub_reward_ceremony(packs: Array[Pack], fizzled := 0,
-		die: DieDefinition = null) -> void:
-	if table_screen == null or table_screen.hub == null or (packs.is_empty() and die == null):
+## Reveal einer Würfel-Prämie (Stresstest): über der Hub-Mitte steht das Würfel-
+## Siegel, dann fährt der Würfel bis ins AUSGABEFACH, wo er durch den Fachboden
+## steigt. Rein visuell - der Würfel ist längst gebucht.
+func _play_reward_die_ceremony(die: DieDefinition) -> void:
+	if table_screen == null or table_screen.hub == null or die == null:
 		if table_screen != null:
-			if fizzled > 0 and table_screen.hub != null:
-				_fly_pack_fizzle(table_screen.hub.position + table_screen.hub.size * 0.5,
-					fizzled * GameRun.PACK_FIZZLE_MONEY)
 			table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
 		return
 	var launched := run
-	_clear_hub_reward_overlay()  # ein zweiter Ausbau überholt den ersten nie
-	var groups := _group_packs_by_type(packs, die)
-	# Der Würfel wird ZURÜCKGEHALTEN wie eine Kassette: er liegt schon im Fach,
-	# aber sein Körper wartet auf seinen Kometen.
-	if die != null and ausgabefach != null and is_instance_valid(ausgabefach):
+	_clear_reward_overlay()  # eine zweite Prämie überholt die erste nie
+	# Der Würfel wird ZURÜCKGEHALTEN: er liegt schon im Fach, aber sein Körper
+	# wartet auf seinen Kometen.
+	if ausgabefach != null and is_instance_valid(ausgabefach):
 		ausgabefach.expect_arrival(die)
-	var icons := _build_hub_reward_overlay(groups)
-	# Die Prämie liegt längst im Lager - also wird sie hier ZURÜCKGEHALTEN, bis ihr
-	# Komet auf ihrem Platz ankommt. Angemeldet wird VOR dem ersten Bild, damit
-	# der Zellen-Abgleich sie gar nicht erst aufstellt.
-	var workshop: WorkshopView = table_screen.workshop_window
-	var waiting: Array[int] = []
-	if workshop != null and is_instance_valid(workshop):
-		for pack in packs:
-			workshop.expect_pack_delivery(pack.pack_uid)
-			waiting.append(pack.pack_uid)
-	# Ab hier gehört die Zeremonie DIESER Auslage: ein späterer Ausbau setzt das
-	# Feld neu, und dann räumt der alte Ablauf nur noch sich selbst weg.
-	var overlay := _hub_reward_overlay
-	if icons.is_empty():
-		_drop_hub_reward_overlay(overlay)
-		_land_pending_packs(workshop, waiting)
-		_land_pending_die(die)
-		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
-		return
+	var icon := _build_reward_overlay()
+	var overlay := _reward_overlay
 
 	await get_tree().process_frame  # Pivot braucht das fertige Layout
 	if run != launched or not is_instance_valid(overlay):
-		_drop_hub_reward_overlay(overlay)
-		_land_pending_packs(workshop, waiting)
+		_drop_reward_overlay(overlay)
 		_land_pending_die(die)
 		return
-	for i in icons.size():
-		var icon: Control = icons[i]
-		icon.pivot_offset = icon.size * 0.5
-		var pop := create_tween()
-		pop.tween_interval(float(i) * HUB_REWARD_POP_STAGGER)
-		var grow := pop.tween_property(icon, "scale", Vector2.ONE, HUB_REWARD_POP_TIME)
-		grow.set_trans(Tween.TRANS_BACK)
-		grow.set_ease(Tween.EASE_OUT)
-	var pop_done := float(icons.size()) * HUB_REWARD_POP_STAGGER + HUB_REWARD_POP_TIME
-	await get_tree().create_timer(pop_done + HUB_REWARD_HOLD).timeout
+	icon.pivot_offset = icon.size * 0.5
+	var pop := create_tween()
+	var grow := pop.tween_property(icon, "scale", Vector2.ONE, REWARD_POP_TIME)
+	grow.set_trans(Tween.TRANS_BACK)
+	grow.set_ease(Tween.EASE_OUT)
+	await get_tree().create_timer(REWARD_POP_TIME + REWARD_HOLD).timeout
 	if run != launched or not is_instance_valid(overlay) or table_screen == null:
-		_drop_hub_reward_overlay(overlay)
-		_land_pending_packs(workshop, waiting)
+		_drop_reward_overlay(overlay)
 		_land_pending_die(die)
 		return
 
-	# Je Sorte: das Siegel schrumpft weg, seine Pakete fahren einzeln los - jedes
-	# auf seinen Magazin-Platz, wo es als Kassette aufsteigt. Das
-	# Würfel-Siegel schickt stattdessen EINEN Kometen ins Ausgabefach.
-	var travel := 0.0
-	for i in icons.size():
-		var icon: Control = icons[i]
-		var tint: Color = PackIconRenderer.COLORS.get(String(groups[i]["type"]), CasinoStyle.GOLD_INTENSE)
-		var from_px := _hub_reward_icon_center(overlay, icon)
-		var shrink := create_tween()
-		var fade := shrink.tween_property(icon, "scale", Vector2.ZERO, HUB_REWARD_SHRINK_TIME)
-		fade.set_trans(Tween.TRANS_BACK)
-		fade.set_ease(Tween.EASE_IN)
-		if bool(groups[i].get("die", false)):
-			travel = maxf(travel, _fly_reward_die_to_fach(from_px, die))
-			die = null  # gefahren ist gefahren - der Nachlauf holt ihn nicht noch einmal
-			continue
-		var uids: Array = groups[i].get("uids", [])
-		for k in int(groups[i]["count"]):
-			var uid: int = int(uids[k]) if k < uids.size() else 0
-			travel = maxf(travel, _fly_hub_reward_pack(workshop, uid, from_px, tint))
-			waiting.erase(uid)
-			if k + 1 < int(groups[i]["count"]):
-				await get_tree().create_timer(STAMP_METEOR_GAP).timeout
-				if run != launched or table_screen == null or not is_instance_valid(overlay):
-					_drop_hub_reward_overlay(overlay)
-					_land_pending_packs(workshop, waiting)
-					_land_pending_die(die)
-					return
-	# Was im vollen Magazin keinen Platz mehr fand, fährt als Geld in die Truhe.
-	if fizzled > 0 and table_screen.hub != null:
-		travel = maxf(travel, _fly_pack_fizzle(
-			table_screen.hub.position + table_screen.hub.size * 0.5,
-			fizzled * GameRun.PACK_FIZZLE_MONEY))
+	var from_px := _reward_icon_center(overlay, icon)
+	var shrink := create_tween()
+	var fade := shrink.tween_property(icon, "scale", Vector2.ZERO, REWARD_SHRINK_TIME)
+	fade.set_trans(Tween.TRANS_BACK)
+	fade.set_ease(Tween.EASE_IN)
+	var travel := _fly_reward_die_to_fach(from_px, die)
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
-	_drop_hub_reward_overlay(overlay)
-	_land_pending_packs(workshop, waiting)  # was noch schwebt, ist jetzt da
-	_land_pending_die(die)
+	_drop_reward_overlay(overlay)
 	if run == launched and table_screen != null:
 		table_screen.celebrate_workshop_delivery(CasinoStyle.GOLD_INTENSE)
 
-## Der Prämien-Würfel: Siegel -> Hub-Ader bis zum Magazin -> Meteor-Bogen in die
-## Schale, wo er durch den Fachboden steigt. Liefert die Flugzeit. Ohne Schale fährt nichts - der Würfel
+## Der Prämien-Würfel: Siegel -> Meteor-Bogen in die Schale, wo er durch den
+## Fachboden steigt. Liefert die Flugzeit. Ohne Schale fährt nichts - der Würfel
 ## liegt trotzdem längst hinterlegt (gebucht vor dem Licht).
 func _fly_reward_die_to_fach(from_px: Vector2, def: DieDefinition) -> float:
 	if table_screen == null or def == null \
@@ -9197,118 +9092,61 @@ func _land_pending_die(def: DieDefinition) -> void:
 	if def != null and ausgabefach != null and is_instance_valid(ausgabefach):
 		ausgabefach.deliver(def)
 
-## EIN Paket der Prämie: Siegel -> Magazin-Platz -> Aufstieg. Liefert die Flugzeit.
-## Ohne Werkbank fährt der Komet trotzdem (Fenstermitte), nur ohne Kassette am Ende.
-func _fly_hub_reward_pack(workshop: WorkshopView, uid: int, from_px: Vector2,
-		tint: Color) -> float:
-	if workshop == null or not is_instance_valid(workshop) or uid <= 0:
-		return table_screen.pack_delivery_comet(from_px, tint, Vector2(-1, -1))
-	var launched := run
-	var travel := table_screen.pack_delivery_comet(from_px, tint,
-		_pack_arrival_px(workshop, uid))
-	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-		if run == launched:
-			_land_pack_in_magazine(workshop, uid, tint))
-	return travel
-
-## Pakete zu {type, count, uids} je Sorte, in der Reihenfolge ihres ersten
-## Auftretens. Die uids reisen mit: je Komet muss GENAU EIN Paket ankommen.
-## Ein Prämien-Würfel steht als eigene Gruppe VORNE - er ist die Schlagzeile der
-## Stufe, und sein Siegel fährt in eine andere Richtung als die Kassetten.
-func _group_packs_by_type(packs: Array[Pack], die: DieDefinition = null) -> Array[Dictionary]:
-	var groups: Array[Dictionary] = []
-	if die != null:
-		groups.append({"type": PackIconRenderer.SEAL_DIE, "count": 1, "uids": [], "die": true})
-	for pack in packs:
-		var found := false
-		for group in groups:
-			if String(group["type"]) == pack.type:
-				group["count"] = int(group["count"]) + 1
-				(group["uids"] as Array).append(pack.pack_uid)
-				found = true
-				break
-		if not found:
-			groups.append({"type": pack.type, "count": 1, "uids": [pack.pack_uid]})
-	return groups
-
-## Baut die Siegel-Reihe über der Hub-Mitte; liefert die Siegel-Kacheln in
-## Gruppen-Reihenfolge. Alles ignoriert die Maus - der Tisch leitet Klicks weiter.
-func _build_hub_reward_overlay(groups: Array[Dictionary]) -> Array[Control]:
+## Baut das Würfel-Siegel über der Hub-Mitte und liefert seine Kachel. Alles
+## ignoriert die Maus - der Tisch leitet Klicks weiter.
+func _build_reward_overlay() -> Control:
 	var hub := table_screen.hub
 	var u := maxf(hub.size.x, 200.0) / 100.0
-	_hub_reward_overlay = Control.new()
-	_hub_reward_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hub_reward_overlay.position = hub.position
-	_hub_reward_overlay.size = hub.size
-	table_screen.add_child(_hub_reward_overlay)
+	_reward_overlay = Control.new()
+	_reward_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reward_overlay.position = hub.position
+	_reward_overlay.size = hub.size
+	table_screen.add_child(_reward_overlay)
 
 	var center := CenterContainer.new()
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hub_reward_overlay.add_child(center)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(u * 3.0))
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	center.add_child(row)
+	_reward_overlay.add_child(center)
 
 	var side := u * 13.0
-	var icons: Array[Control] = []
-	for group in groups:
-		var pack_type := String(group["type"])
-		var tint: Color = PackIconRenderer.COLORS.get(pack_type, CasinoStyle.GOLD_INTENSE)
-		var tile := Control.new()
-		tile.custom_minimum_size = Vector2(side, side)
-		tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tile.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
+	var tint: Color = PackIconRenderer.COLORS.get(PackIconRenderer.SEAL_DIE, CasinoStyle.GOLD_INTENSE)
+	var tile := Control.new()
+	tile.custom_minimum_size = Vector2(side, side)
+	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.scale = Vector2.ZERO  # unsichtbar bis zum Pop (kein Aufblitzen)
 
-		var disc := CasinoStyle.glow_disc(tint, 0.0)
-		disc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		disc.offset_left = -side * 0.175
-		disc.offset_top = -side * 0.175
-		disc.offset_right = side * 0.175
-		disc.offset_bottom = side * 0.175
-		tile.add_child(disc)
+	var disc := CasinoStyle.glow_disc(tint, 0.0)
+	disc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	disc.offset_left = -side * 0.175
+	disc.offset_top = -side * 0.175
+	disc.offset_right = side * 0.175
+	disc.offset_bottom = side * 0.175
+	tile.add_child(disc)
 
-		var seal := PackIconRenderer.for_type(pack_type)
-		seal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		tile.add_child(seal)
+	var seal := PackIconRenderer.for_type(PackIconRenderer.SEAL_DIE)
+	seal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	tile.add_child(seal)
+	center.add_child(tile)
+	return tile
 
-		if int(group["count"]) > 1:
-			var badge := Label.new()
-			badge.text = "×%d" % int(group["count"])
-			badge.add_theme_font_size_override("font_size", maxi(10, int(u * 4.0)))
-			badge.add_theme_color_override("font_color", CasinoStyle.GOLD_INTENSE)
-			badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-			badge.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-			badge.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			tile.add_child(badge)
-		row.add_child(tile)
-		icons.append(tile)
-	return icons
-
-## Mitte einer Siegel-Kachel in Display-Pixeln (Start des Kometen). Die Kachel
-## sitzt in verschachtelten Containern, also über die Viewport-Koordinaten.
-## Untypisiert aus demselben Grund wie _drop_hub_reward_overlay: die Auslage kann
-## zwischen zwei Kometen freigegeben worden sein.
-func _hub_reward_icon_center(overlay, icon) -> Vector2:
+## Mitte der Siegel-Kachel in Display-Pixeln (Start des Kometen). Untypisiert aus
+## demselben Grund wie _drop_reward_overlay.
+func _reward_icon_center(overlay, icon) -> Vector2:
 	if not is_instance_valid(overlay) or not is_instance_valid(icon):
 		return table_screen.hub.position + table_screen.hub.size * 0.5
 	return overlay.position + icon.global_position - overlay.global_position + icon.size * 0.5
 
 ## Räumt NUR die übergebene Auslage weg - eine inzwischen aufgebaute neue bleibt.
-## Das Argument ist bewusst untypisiert: ein zweiter Ausbau gibt die alte Auslage
-## frei, und ein freigegebenes Objekt scheitert schon an der Typprüfung des
-## Parameters - is_instance_valid im Rumpf käme nie zum Zug.
-func _drop_hub_reward_overlay(overlay) -> void:
+## Das Argument ist bewusst untypisiert: ein freigegebenes Objekt scheitert schon
+## an der Typprüfung des Parameters - is_instance_valid käme nie zum Zug.
+func _drop_reward_overlay(overlay) -> void:
 	if is_instance_valid(overlay):
 		overlay.queue_free()
-	if _hub_reward_overlay == overlay:
-		_hub_reward_overlay = null
+	if _reward_overlay == overlay:
+		_reward_overlay = null
 
-func _clear_hub_reward_overlay() -> void:
-	_drop_hub_reward_overlay(_hub_reward_overlay)
+func _clear_reward_overlay() -> void:
+	_drop_reward_overlay(_reward_overlay)
 
 ## Räumt einen schwebenden Würfel ab und löst alles, was noch auf ihn zeigt. War
 ## er herangeholt, fährt die Kamera mit zurück - sie stünde sonst vor nichts.
@@ -10087,10 +9925,9 @@ func _try_zoom_click(screen_pos: Vector2) -> void:
 func _workshop_exits_to_pool() -> bool:
 	return camera_rig != null and camera_rig.mode == CameraRig.Mode.WORKSHOP \
 		and not camera_rig.workshop_close and not camera_rig.die_focus \
-		and not _deck_glass and _station_available(CameraRig.Mode.POOL)
+		and not _deck_glass
 
 ## Zoom-Ziel unter einem Bildschirmpunkt (Klickzonen-Layer 8); -1 = keines.
-## Ein noch gesperrtes Fenster liefert -1, seine Zone steht aber schon da.
 ## EINE Quelle für Klick und Mausrad - sonst driften die beiden Wege auseinander.
 func _zone_mode_at(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 8)
@@ -10123,21 +9960,7 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		station = CameraRig.Mode.CHIPS
 	elif collider == secret_shop_click_zone:
 		station = CameraRig.Mode.SECRET_SHOP
-	return station if station != -1 and _station_available(station) else -1
-
-## Ob eine Station offen steht. Die Klickzonen liegen zwar auch vergittert schon
-## da (der Schwarzmarkt schaltet seine Kollision sogar ab), aber ein gesperrtes
-## Fenster ist kein Ziel - EINE Wahrheit für den Fokus-Klick, gleich aus welchem
-## System er kommt.
-func _station_available(station: int) -> bool:
-	match station:
-		CameraRig.Mode.SIDE_BETS:
-			return run != null and run.side_bets_unlocked()
-		CameraRig.Mode.SLOTS:
-			return run != null and run.slots_unlocked() > 0
-		CameraRig.Mode.SECRET_SHOP:
-			return run != null and run.secret_shop_unlocked
-	return true
+	return station
 
 ## Nimmt der Tisch Bedienung an bzw. antwortet ein Griff auf dem Filz? Die Regel
 ## steht in CameraRig (takes_input/felt_pick_live) - hier nur die Null-Sicherung.
@@ -13366,7 +13189,7 @@ func _reset_game() -> void:
 	_connect_run()
 	# Reveal-Auslage des alten Laufs abräumen; ihr Ablauf merkt den Lauf-Wechsel
 	# erst an seiner nächsten await-Grenze.
-	_clear_hub_reward_overlay()
+	_clear_reward_overlay()
 	_jewelry_box_upgrades.clear()  # Funde des alten Laufs sind fort
 	_encore_packs.clear()
 	last_thrown_slots.clear()
@@ -13495,8 +13318,6 @@ func _connect_run() -> void:
 	run.pending_dice_changed.connect(_on_pending_dice_changed)
 	# Die Zwingen stehen auf der Bank und fehlen darum in den Trays daneben.
 	run.combo_upgraded.connect(_on_combo_upgraded)
-	run.hub_level_changed.connect(_on_hub_level_changed)
-	run.secret_shop_discovered.connect(_on_secret_shop_discovered)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
 	run.energy_changed.connect(_on_energy_changed)
@@ -13508,12 +13329,12 @@ func _connect_run() -> void:
 	_on_money_changed(run.money)
 	_on_charms_changed()
 	_refresh_combo_label_texts()
-	_sync_hub_level_state()  # Hub-Plakette, Shop-Gate, Nebenwetten-Installation
+	_sync_installed_windows()  # Stufen-Plakette, Nebenwetten- und Automaten-Fenster
 	_sync_secret_shop_state()  # Börse + Eintrag (frischer Lauf: leer und verborgen)
 	_sync_ausgabefach()  # und die Schale zeigt, was dieser Lauf hinterlegt hat
 
-## Idempotenter Gesamtzustand: Bank = Bestand/Deckel. Das Schwarzmarkt-Fenster
-## steht immer, vor der Lizenz als gesperrt markiert.
+## Idempotenter Gesamtzustand: Bank = Bestand/Deckel, das Schwarzmarkt-Fenster
+## steht immer.
 func _sync_secret_shop_state() -> void:
 	if run == null:
 		return
@@ -13521,8 +13342,6 @@ func _sync_secret_shop_state() -> void:
 		table_screen.hub.set_energy_display(run.energy, run.energy_cap())
 	if table_screen != null:
 		table_screen.set_secret_shop_installed(true)
-		if table_screen.secret_shop_window != null:
-			table_screen.secret_shop_window.set_locked(not run.secret_shop_unlocked)
 	_sync_capacitor()
 	if secret_shop_click_zone != null:
 		secret_shop_click_zone.collision_layer = 8
@@ -13543,23 +13362,6 @@ func _on_energy_changed(value: int) -> void:
 	_refresh_fuse_socket()  # die Sicherung dimmt sich mit
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.refresh_if_idle()  # der Einsatz kostet ⚡
-
-## Die Lizenz hat das Gitter gehoben: der Hub quittiert golden, ein Licht fährt
-## die Hinterzimmer-Ader hinüber und das Fenster meldet sich mit einer Stoßwelle -
-## dieselbe Sprache wie ein neu installierter Automat. Gebucht ist längst.
-func _on_secret_shop_discovered() -> void:
-	var opening_run := run
-	_sync_secret_shop_state()
-	if table_screen == null:
-		return
-	if table_screen.hub != null:
-		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	var travel := table_screen.secret_shop_pay_comet(CasinoStyle.ENERGY)
-	if travel > 0.0:
-		await get_tree().create_timer(travel).timeout
-	if run != opening_run or table_screen == null:
-		return  # Reset während des Kometen
-	table_screen.celebrate_secret_shop_install(VIOLET_REVEAL_COLOR)
 
 ## Energie für Ware oder Neuwurf: sie fährt dieselbe Ader wie das Eintrittsgeld.
 func _on_secret_shop_energy_spent(_amount: int) -> void:
@@ -13939,7 +13741,7 @@ func _on_round_complete() -> void:
 		# Erst jetzt steht der Hub im Bild - der Preis zeigt sich darüber. Nicht
 		# awaiten: der Spieler soll den Laden sofort bedienen können.
 		if stress_reward != null:
-			_play_hub_reward_ceremony([] as Array[Pack], 0, stress_reward)
+			_play_reward_die_ceremony(stress_reward)
 	else:
 		phase = Phase.GAME_OVER
 		shop_reopen_allowed = false
@@ -14064,18 +13866,10 @@ func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
 		plan.append({"money": money, "energy": energy})
 	return plan
 
-## Darf eine frisch freigeschaltete Wettannahme SOFORT aufmachen? Gewettet wird vor
-## dem ersten Wurf, also überall dort, wo die laufende Runde noch nicht festgezurrt
-## ist - im Laden wie an jeder anderen Station. Nach dem Zurren wartet sie auf den
-## nächsten Rundenbeginn. Und über eine schon offene Auslage geht nichts: ihre
-## Angebote würden neu gewürfelt und die gesetzten Einsätze wären verwettet.
-func _side_bets_open_now() -> bool:
-	return not betting_open and (phase == Phase.SHOP or not round_committed)
-
 ## Öffnet die Wettannahme im Tisch-Fenster mit frischer Auslage.
 func _open_side_bet_betting() -> void:
-	if run == null or not run.side_bets_unlocked():
-		return  # Nebenwetten erst ab Hub-Stufe 4 (Parkett) installiert
+	if run == null:
+		return
 	betting_open = true
 	if table_screen != null and table_screen.side_bet_window != null:
 		# Ziele frieren HIER ein: der GESPEICHERTE Benchmark, nicht der wirksame -
@@ -14083,7 +13877,7 @@ func _open_side_bet_betting() -> void:
 		# Und das MAGAZIN reicht seine Inventar-Sicht mit: eine Paket-Einsatz-Vorlage
 		# liegt nur aus, wenn der Spieler die genannte Ware wirklich besitzt.
 		table_screen.side_bet_window.open_betting(
-			SideBet.roll_offers(SideBetPanel.OFFER_COUNT, run.hub_level, run.round_goal,
+			SideBet.roll_offers(SideBetPanel.OFFER_COUNT, run.progress_tier(), run.round_goal,
 				run.pack_stock()))
 		# Vor dem Setzen liegt NICHTS: der Tresen ist leer und die Knöpfe nennen die
 		# Preise. Eine laufende Abrechnung bricht dabei ab - EIN Aufräum-Pfad, und

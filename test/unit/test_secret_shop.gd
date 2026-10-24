@@ -1,16 +1,14 @@
 extends GutTest
 ## Tests der Ladungs-Ökonomie (⚡) und des Schwarzmarkts in GameRun: Börsendeckel,
-## Aufteilung in Börse und Überlauf, Freischalten, Auslage samt Ausschlüssen,
+## Aufteilung in Börse und Überlauf, erste Auslage samt Ausschlüssen,
 ## Neuwurf-Preise und Kauf.
 
 func _run() -> GameRun:
 	return GameRun.new_run()
 
-## Frischer Lauf mit freigeschaltetem Schwarzmarkt (erste Auslage liegt).
-func _discovered() -> GameRun:
-	var run := _run()
-	run.unlock_secret_shop()
-	return run
+## Erste Runde der gewünschten Fortschrittsstufe.
+func _at_tier(run: GameRun, tier: int) -> void:
+	run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
 
 ## Die legendären Charms, die ein frischer Lauf überhaupt angeboten bekommt -
 ## Essenz-Charms fallen raus, solange ihre Seele nicht im Pool steckt.
@@ -24,33 +22,23 @@ func _legendaries() -> Array[Charm]:
 
 # --- Börse ---------------------------------------------------------------------
 
-func test_fresh_run_starts_empty() -> void:
+func test_fresh_run_starts_with_an_empty_wallet() -> void:
 	var run := _run()
 	assert_eq(run.energy, 0)
-	assert_false(run.secret_shop_unlocked)
 	assert_eq(run.secret_rerolls, 0)
-	assert_eq(run.secret_stock.size(), 0)
 
 func test_energy_cap_wakes_one_row_per_milestone() -> void:
 	# Die Bank ist ein 5×5-Raster: der Deckel ist IMMER eine ganze Reihenzahl
 	# (Vielfaches von ENERGY_ROW), eine Reihe je Meilenstein 1/3/5/7/10.
 	var run := _run()
-	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "Hinterzimmer: eine Reihe")
-	run.hub_level = 2
-	assert_eq(run.energy_cap_rows(), 1)
-	run.hub_level = 3
-	assert_eq(run.energy_cap_rows(), 2)
-	run.hub_level = 4
-	assert_eq(run.energy_cap_rows(), 2)
-	run.hub_level = 5
-	assert_eq(run.energy_cap_rows(), 3)
-	run.hub_level = 7
-	assert_eq(run.energy_cap_rows(), 4)
-	run.hub_level = 9
-	assert_eq(run.energy_cap_rows(), 4)
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "Stufe 1: eine Reihe")
+	var rows := {2: 1, 3: 2, 4: 2, 5: 3, 7: 4, 9: 4}
+	for tier: int in rows:
+		_at_tier(run, tier)
+		assert_eq(run.energy_cap_rows(), int(rows[tier]), "Stufe %d" % tier)
+	_at_tier(run, GameRun.TIER_MAX)
 	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW * GameRun.ENERGY_ROWS_MAX,
-		"High Roller: das volle 5×5-Raster")
+		"letzte Stufe: das volle 5×5-Raster")
 
 func test_add_energy_stores_to_cap_and_returns_overflow() -> void:
 	var run := _run()  # Deckel 5 (eine Reihe)
@@ -99,49 +87,12 @@ func test_energy_split_on_empty_wallet_stores_everything() -> void:
 	assert_eq(stored, 5)
 	assert_eq(overflow, 0)
 
-# --- Freischalten --------------------------------------------------------------
+# --- Offen ab Runde 1 ---------------------------------------------------------
 
-func test_fresh_run_starts_barred() -> void:
+func test_a_fresh_run_lays_out_its_first_stock_for_free() -> void:
 	var run := _run()
-	assert_false(run.secret_shop_unlocked)
-	assert_eq(run.secret_stock.size(), 0, "die Auslage wird erst beim Öffnen gewürfelt")
-	assert_lt(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL)
-
-func test_unlocking_costs_no_energy_and_fires_once() -> void:
-	var run := _run()
-	run.hub_level = GameRun.HUB_MAX_LEVEL  # Deckel 25, damit der Rest liegen bleibt
-	run.energy = 7
-	var fired: Array = []
-	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
-	assert_true(run.unlock_secret_shop())
-	assert_true(run.secret_shop_unlocked)
-	assert_eq(run.energy, 7, "der Zutritt kostet keine Energie mehr")
-	assert_eq(run.secret_stock.size(), 3, "erste Auslage gratis gewürfelt")
-	assert_eq(fired.size(), 1)
-	assert_false(run.unlock_secret_shop(), "ein zweites Mal gibt es nichts zu öffnen")
-	assert_eq(fired.size(), 1, "kein zweites Signal")
-
-func test_hub_upgrade_opens_the_market_at_its_level() -> void:
-	var run := _run()
-	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL - 1
-	run.money = 100000
-	var fired: Array = []
-	run.secret_shop_discovered.connect(func() -> void: fired.append(true))
-	run.upgrade_hub()
-	assert_eq(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL)
-	assert_true(run.secret_shop_unlocked, "die Lizenz hebt das Gitter")
-	assert_eq(fired.size(), 1)
-	assert_eq(run.secret_stock.size(), 3)
-	run.upgrade_hub()
-	assert_eq(fired.size(), 1, "spätere Stufen öffnen nicht noch einmal")
-
-func test_market_stays_barred_below_its_hub_level() -> void:
-	var run := _run()
-	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL - 2
-	run.money = 100000
-	run.upgrade_hub()
-	assert_eq(run.hub_level, GameRun.SECRET_UNLOCK_HUB_LEVEL - 1)
-	assert_false(run.secret_shop_unlocked, "eine Stufe zu früh bleibt vergittert")
+	assert_eq(run.secret_stock.size(), 3, "die erste Auslage liegt ab Runde 1")
+	assert_eq(run.energy, 0, "und sie hat nichts gekostet")
 
 # --- Auslage -------------------------------------------------------------------
 
@@ -152,7 +103,7 @@ func _force_engraving_slot(run: GameRun) -> void:
 	run.secret_stock[1] = run._secret_engraving_offer()
 
 func test_stock_slots_are_charm_special_wildcard() -> void:
-	var run := _discovered()
+	var run := _run()
 	assert_eq(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_CHARM)
 	# Der Sonderposten-Platz führt beide Familien des Sonderbestands.
 	var special: String = run.secret_stock[1][GameRun.OFFER_KIND]
@@ -179,7 +130,7 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 func test_the_special_slot_also_lists_catalysts() -> void:
 	var seen := {}
 	for i in 60:
-		var run := _discovered()
+		var run := _run()
 		for offer in run.secret_stock:
 			if offer[GameRun.OFFER_KIND] != GameRun.KIND_CATALYST:
 				continue
@@ -195,7 +146,7 @@ func test_the_special_slot_also_lists_catalysts() -> void:
 ## Sonderposten.
 func test_the_stock_never_lists_a_catalyst_twice() -> void:
 	for i in 40:
-		var run := _discovered()
+		var run := _run()
 		var ids: Array[String] = []
 		for offer in run.secret_stock:
 			if offer[GameRun.OFFER_KIND] != GameRun.KIND_CATALYST:
@@ -205,7 +156,7 @@ func test_the_stock_never_lists_a_catalyst_twice() -> void:
 			ids.append(pack.catalyst_id)
 
 func test_buying_a_catalyst_stocks_the_sealed_cassette() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.secret_stock[1] = run._secret_catalyst_offer()
 	run.energy = 99
 	var pack: Pack = run.secret_stock[1][GameRun.OFFER_ITEM]
@@ -226,7 +177,7 @@ func test_the_energy_price_follows_the_house_rate() -> void:
 
 func test_stock_never_lists_a_charm_twice() -> void:
 	for i in 10:
-		var run := _discovered()
+		var run := _run()
 		var ids: Array[String] = []
 		for offer in run.secret_stock:
 			if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
@@ -242,7 +193,7 @@ func test_stock_never_lists_a_special_twice() -> void:
 		if Engraving.is_special_id(engraving.id):
 			specials += 1
 	for i in 20:
-		var run := _discovered()
+		var run := _run()
 		var ids: Array[String] = []
 		for offer in run.secret_stock:
 			if offer[GameRun.OFFER_KIND] != GameRun.KIND_ENGRAVING:
@@ -258,7 +209,7 @@ func test_owned_legendaries_are_excluded_from_the_roll() -> void:
 	var spared: Charm = pool.pop_back()
 	for charm in pool:
 		run.owned_charms.append(charm)
-	run.unlock_secret_shop()
+	run._roll_secret_stock()
 	var offered: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(offered.id, spared.id, "nur der noch nicht besessene Legendäre bleibt übrig")
 	assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_CHARM,
@@ -277,7 +228,7 @@ func _charm_count(run: GameRun) -> int:
 	return seen
 
 func test_every_stock_lays_out_exactly_one_card() -> void:
-	var run := _discovered()
+	var run := _run()
 	for i in 120:
 		run._roll_secret_stock()
 		assert_eq(_charm_count(run), 1,
@@ -285,11 +236,11 @@ func test_every_stock_lays_out_exactly_one_card() -> void:
 
 func test_the_wildcard_never_deals_a_card() -> void:
 	# Der Charm-Zweig der Wildcard ist tot: der dritte Platz würfelt nur Ware.
-	var run := _discovered()
+	var run := _run()
 	for i in 120:
 		run._roll_secret_stock()
 		assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_CHARM,
-			"der Wildcard-Platz trägt Ware, keine Lizenz")
+			"der Wildcard-Platz trägt Ware, keine Karte")
 
 func test_an_exhausted_legendary_pot_leaves_the_seat_empty() -> void:
 	# Der EINE erlaubte Ausfall: ist der Topf leer, rückt eine Sonder-Gravur nach -
@@ -297,7 +248,7 @@ func test_an_exhausted_legendary_pot_leaves_the_seat_empty() -> void:
 	var run := _run()
 	for charm in _legendaries():
 		run.owned_charms.append(charm)
-	run.unlock_secret_shop()
+	run._roll_secret_stock()
 	for i in 20:
 		run._roll_secret_stock()
 		assert_eq(_charm_count(run), 0, "keine Karte mehr zu vergeben")
@@ -307,7 +258,7 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 	var run := _run()
 	for charm in _legendaries():
 		run.owned_charms.append(charm)
-	run.unlock_secret_shop()
+	run._roll_secret_stock()
 	assert_eq(run.secret_stock.size(), 3)
 	for offer in run.secret_stock:
 		# Ohne Charms bleiben Sonderposten und Essenzwürfel - tot wird die
@@ -318,8 +269,8 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 
 func test_the_reroll_costs_the_same_every_time() -> void:
 	# Flach statt Leiter: der zweite Neuwurf eines Besuchs kostet wie der erste.
-	var run := _discovered()
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	var run := _run()
+	_at_tier(run, GameRun.TIER_MAX)
 	run.energy = 25
 	assert_eq(run.secret_reroll_cost(), 3)
 	assert_true(run.reroll_secret_stock())
@@ -333,7 +284,7 @@ func test_the_reroll_costs_the_same_every_time() -> void:
 	assert_eq(run.secret_rerolls, 3, "der Zähler läuft weiter - er kostet nur nichts mehr")
 
 func test_reroll_replaces_the_whole_stock() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.energy = 3
 	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_true(run.reroll_secret_stock())
@@ -342,7 +293,7 @@ func test_reroll_replaces_the_whole_stock() -> void:
 	assert_ne(after, before, "frisch gewürfelte Instanzen")
 
 func test_reroll_without_energy_changes_nothing() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.energy = 2  # Neuwurf kostet 3
 	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_false(run.reroll_secret_stock())
@@ -354,7 +305,7 @@ func test_reroll_without_energy_changes_nothing() -> void:
 # --- Kauf ----------------------------------------------------------------------
 
 func test_buying_a_charm_spends_energy_and_docks_it() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.energy = GameRun.SECRET_CHARM_PRICE
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_true(run.buy_secret_offer(0))
@@ -371,7 +322,7 @@ func _is_bundle_price(price: int, count: int) -> bool:
 	return false
 
 func test_buying_a_special_engraving_stocks_it() -> void:
-	var run := _discovered()
+	var run := _run()
 	_force_engraving_slot(run)
 	run.energy = 99
 	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
@@ -388,7 +339,7 @@ func test_buying_a_special_engraving_stocks_it() -> void:
 ## Ein Bündel sind n EINZELNE Karten mit je einer Zelle (Spieler-Entscheid
 ## 2026-09-11) - der Wert liegt in der Zahl der Karten, nicht in einer dichteren.
 func test_a_bundle_is_n_single_cards() -> void:
-	var run := _discovered()
+	var run := _run()
 	_force_engraving_slot(run)
 	run.secret_stock[1][GameRun.OFFER_COUNT] = 3
 	run.energy = 99
@@ -398,8 +349,8 @@ func test_a_bundle_is_n_single_cards() -> void:
 		assert_eq(StampNet.filled_count(pack.stamp_net), 1, "eine Zelle je Karte")
 
 func test_sold_slot_cannot_be_bought_twice() -> void:
-	var run := _discovered()
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	var run := _run()
+	_at_tier(run, GameRun.TIER_MAX)
 	run.energy = 99  # reicht für jedes Bündel
 	assert_true(run.buy_secret_offer(1))
 	var energy_after := run.energy
@@ -409,21 +360,21 @@ func test_sold_slot_cannot_be_bought_twice() -> void:
 	assert_eq(run.owned_packs.size(), owned)
 
 func test_buying_without_energy_is_rejected() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.energy = GameRun.SECRET_CHARM_PRICE - 1
 	assert_false(run.buy_secret_offer(0))
 	assert_eq(run.owned_charms.size(), 0)
 	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
 func test_invalid_index_is_rejected() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.energy = GameRun.SECRET_CHARM_PRICE
 	assert_false(run.buy_secret_offer(-1))
 	assert_false(run.buy_secret_offer(run.secret_stock.size()))
 	assert_eq(run.energy, GameRun.SECRET_CHARM_PRICE)
 
 func test_buy_emits_stock_changed() -> void:
-	var run := _discovered()
+	var run := _run()
 	run.energy = GameRun.SECRET_CHARM_PRICE
 	var fired: Array = []
 	run.secret_stock_changed.connect(func() -> void: fired.append(true))
@@ -439,6 +390,7 @@ func test_rag_collector_rolls_its_number_on_either_path() -> void:
 
 	var market := _run()
 	market.energy = 8
+	market.secret_stock.clear()
 	market.secret_stock.append({
 		GameRun.OFFER_KIND: GameRun.KIND_CHARM,
 		GameRun.OFFER_ITEM: Charm.rag_collector(),
@@ -454,7 +406,7 @@ func test_the_wildcard_can_offer_an_essence_die() -> void:
 	# Über viele Auslagen muss der Würfel-Platz vorkommen - er ist die einzige
 	# Quelle der geheimen Essenzen. 50 Würfe verfehlen bei 34 % nur mit ~1e-9.
 	var run := _run()
-	run.unlock_secret_shop()
+	run._roll_secret_stock()
 	var seen_die := false
 	for i in 50:
 		run._roll_secret_stock()
@@ -478,7 +430,7 @@ func test_the_die_price_climbs_with_the_rarity() -> void:
 func _run_with_secret_die() -> GameRun:
 	var run := _run()
 	run.energy = 40
-	run.unlock_secret_shop()
+	run._roll_secret_stock()
 	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
 	die.essence_id = Essence.RADON
 	run.secret_stock[2] = {
@@ -519,7 +471,7 @@ func test_buying_the_secret_die_reports_the_tray() -> void:
 
 func test_an_owned_unique_never_returns_to_the_black_market() -> void:
 	var run := _run()
-	run.unlock_secret_shop()
+	run._roll_secret_stock()
 	run.owned_pool[0].essence_id = Essence.ANTIMATTER
 	for i in 50:
 		run._roll_secret_stock()

@@ -245,7 +245,7 @@ static func _build_concepts() -> void:
 		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) rechnet auf der bis dahin aufgelaufenen Summe - die Reihenfolge ist darum die Entscheidung. Die Reihe hat von Anfang an SECHS Slots; Taktgeber, Klauseln und der Schub der Nebenwette verschieben die Länge.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
-		"Das Hinterzimmer des Casinos, freigeschaltet mit Lizenzstufe 5. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",
+		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",
 		CAT_BEGRIFFE)
 	_add(UEBERTAKTEN, "Übertakten",
 		"Der Ausbau einer Kombination direkt an ihrem Chip: die nächste Stufe kostet Energie (1 + Stufe, höchstens 5 ⚡) und hebt Basispunkte und Mult. Es gibt kein Stufen-Limit - die Kondensatorbank ist die einzige Bremse.",

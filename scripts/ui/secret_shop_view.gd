@@ -1,13 +1,10 @@
 class_name SecretShopView
 extends Panel
-## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten. Es steht
-## von Anfang an da, aber VERGITTERT - erst die Lizenzstufe hebt das Gitter
-## (set_locked); solange bleibt die Bucht zu, denn die Auslage wird erst beim
-## Freischalten gewürfelt.
-## Danach: bezahlt wird ausschließlich in Energie (⚡) - drei Plätze, jeder EINMAL
+## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten, offen ab
+## Runde 1. Bezahlt wird ausschließlich in Energie (⚡) - drei Plätze, jeder EINMAL
 ## kaufbar, "Neu mischen" tauscht alle drei zum immer gleichen Preis.
 ## Aufgeteilt ist das Fenster wie der Laden: Kopfstreifen und der feste
-## KARTEN-SITZ (genau EINE Charm-Karte - Lizenzen sind digitale Ware) bleiben
+## KARTEN-SITZ (genau EINE Charm-Karte - Charms sind digitale Ware) bleiben
 ## Bildschirm, die WARE liegt körperlich in der Bucht daneben. Die zeichnet dieses
 ## Fenster nie selbst; es meldet nur ihr Rechteck und ihren Inhalt, aufgestellt
 ## wird sie von scene_root. Das löst nebenbei das Auflösungs-Problem der kleinen
@@ -100,9 +97,6 @@ var run: GameRun:
 ## Einheit aus BEIDEN Achsen (in refresh gesetzt).
 var u := 4.0
 
-## Vergittert: Schatten-Plätze unter einem dunklen Schleier mit der Bedingung.
-var locked := true
-
 var wallet_label: Label
 ## Der feste Sitz der EINEN Karte (Bildschirm) und daneben das Feld der Bucht.
 var card_seat: Control
@@ -111,9 +105,6 @@ var reroll_button: Button
 ## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
 ## Bucht liegt, hat auf dem Bildschirm keinen (die Lücken halten die Indizes).
 var offer_buttons: Array[Button] = []
-var lock_overlay: Panel
-## Auf dem Schleier steht, was das Gitter hebt - kein Knopf, nichts zu kaufen.
-var lock_notice: Label
 
 ## Ob der Zeiger auf der Charm-Karte liegt (gemeldet je Bild von scene_root):
 ## dann trägt der INFO-FUSS ihren Text, wie bei der Bucht-Ware. Die Karte selbst
@@ -141,7 +132,7 @@ var _plate_layer: Control
 var _plate_signature := ""
 
 var _built := false
-## Zuletzt gesehener Wurf-Stand (-1 = vergittert/noch keiner). Ein WURF rollt die
+## Zuletzt gesehener Wurf-Stand (-1 = noch keiner). Ein WURF rollt die
 ## Ware an, ein Kauf lässt sie liegen - mehr entscheidet den Grad nicht.
 var _seen_rolls := -1
 var _vitrine_grade := ShopController.GRADE_STAND
@@ -172,26 +163,6 @@ func refresh() -> void:
 		return
 	_build_layout()
 	_refresh_offers()
-	_apply_lock_state()
-
-## Gitter-Zustand von scene_root (einziger Schreiber): locked = die Lizenzstufe
-## reicht noch nicht.
-func set_locked(is_locked: bool) -> void:
-	var was_locked := locked
-	locked = is_locked
-	if not _built:
-		return
-	if was_locked != locked:
-		_refresh_offers()  # Schatten <-> echte Ware ist ein Neuaufbau
-	_apply_lock_state()
-
-## Schleier, Knopf und Dimmung des Sitzes am Gitter-Zustand ausrichten.
-func _apply_lock_state() -> void:
-	if not _built:
-		return
-	lock_overlay.visible = locked
-	reroll_button.visible = not locked
-	card_seat.modulate = Color(1, 1, 1, 0.35) if locked else Color.WHITE
 
 # --- Gerüst -------------------------------------------------------------------
 
@@ -274,13 +245,12 @@ func _build_layout() -> void:
 
 	_build_info_foot(root)
 	# Die stehenden Schilder liegen als eigene Schicht ÜBER der Bucht (absolut
-	# gestellt, außerhalb des Layouts) - der Schleier des Gitters deckt sie mit.
+	# gestellt, außerhalb des Layouts).
 	_plate_layer = Control.new()
 	_plate_layer.name = "BayPlates"
 	_plate_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_plate_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_plate_layer)
-	_build_lock_overlay()  # und ganz oben das Gitter
 
 # --- Die Bucht (gemeldete Geometrie, nie gezeichneter Inhalt) ------------------
 
@@ -692,13 +662,6 @@ func _refresh_offers() -> void:
 	_bay_dice.clear()
 	_bay_kinds.clear()
 	var thumb_px := int(u * 13.0)
-	if locked:
-		# Vergittert wird nichts gewürfelt: der Sitz verspricht eine Karte, die
-		# Bucht bleibt dunkel - ein besserer Köder als Platzhalter-Ware.
-		card_seat.add_child(_build_shadow_card(thumb_px))
-		_vitrine_grade = ShopController.GRADE_STAND
-		vitrine_changed.emit()
-		return
 	offer_buttons.resize(run.secret_stock.size())
 	var seat := card_slot_index()
 	if seat >= 0:
@@ -709,7 +672,7 @@ func _refresh_offers() -> void:
 	for i in run.secret_stock.size():
 		_sort_into_bay(run.secret_stock[i], i == seat)
 	# Ein WURF lässt die neue Ware aufsteigen, ein Kauf lässt sie liegen.
-	var rolls := run.secret_rerolls if run.secret_shop_unlocked else -1
+	var rolls := run.secret_rerolls
 	_vitrine_grade = ShopController.GRADE_STAND if rolls == _seen_rolls \
 		else ShopController.GRADE_RISE
 	_seen_rolls = rolls
@@ -773,7 +736,7 @@ func _offer_blocked(offer: Dictionary) -> bool:
 ## Die EINE Karte am Sitz: der legendäre Charm, in der Laden-Grammatik - oben der
 ## NAME, in der Mitte das MODELL, unten der PREIS. Die volle Wirkung zeigt der
 ## INFO-FUSS beim Hover (hover_charm), wie bei der Bucht-Ware - das Modell BLEIBT,
-## nichts schwebt über der Karte. Lizenzen sind digitale Ware und bleiben Bildschirm.
+## nichts schwebt über der Karte. Charms sind digitale Ware und bleiben Bildschirm.
 ## price kommt fertig vom Aufrufer (GameRun.secret_offer_price) - die Hehlerware
 ## soll auf dem Schild stehen, nicht erst an der Kasse auffallen.
 func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int) -> Button:
@@ -833,32 +796,6 @@ func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 	if not sold:
 		card.pressed.connect(_on_offer_pressed.bind(index))
 	return card
-
-## Schatten-Sitz des vergitterten Ladens: dieselbe Kartenform, aber leer - er
-## verspricht einen Platz, nicht eine bestimmte Ware.
-func _build_shadow_card(thumb_px: int) -> Control:
-	var card := PanelContainer.new()
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	card.add_theme_stylebox_override("panel", _card_box(Color("#100c2266"), VIOLET, 0.3, 0.0))
-	var stage := CenterContainer.new()
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(CasinoStyle.glow_disc(VIOLET, thumb_px, 0.34, 0.12))
-	stage.add_child(CasinoStyle.label("?", u * 8.0, Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.6),
-		HORIZONTAL_ALIGNMENT_CENTER))
-	card.add_child(stage)
-	return card
-
-# --- Gitter -------------------------------------------------------------------
-
-## Dunkler Schleier über der ganzen Tasche, in seiner Mitte die Bedingung.
-## Liegt als LETZTES Kind auf allem anderen.
-func _build_lock_overlay() -> void:
-	lock_overlay = CasinoStyle.lock_overlay(u * 1.2)  # nichts darunter ist anfassbar
-	add_child(lock_overlay)
-	lock_notice = CasinoStyle.label("Ab Lizenzstufe %d" % GameRun.SECRET_UNLOCK_HUB_LEVEL,
-		u * 4.6, VIOLET, HORIZONTAL_ALIGNMENT_CENTER)
-	lock_overlay.get_child(0).add_child(lock_notice)
 
 # --- Käufe --------------------------------------------------------------------
 

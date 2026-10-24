@@ -68,7 +68,6 @@ func test_the_projection_is_written_through_the_real_write_paths() -> void:
 func test_the_double_material_lands_doped_on_the_die() -> void:
 	var first := _card({2: StampNet.material_cell(DieMaterial.RUBY)})
 	var second := _card({2: StampNet.material_cell(DieMaterial.RUBY)})
-	run.hub_level = 3
 	run.apply_series(_uids([first, second]), _die(), null, _rng(1))
 	assert_eq(int(_die().levels[2]), DieMaterial.MAX_LEVEL)
 
@@ -98,7 +97,6 @@ func test_the_projection_reports_the_pool_change() -> void:
 func test_the_order_of_the_uids_is_the_order_of_the_series() -> void:
 	var value := _card({0: StampNet.value_cell(4)})
 	var doubler := _card({0: StampNet.operator_cell(StampNet.OP_DOUBLER)})
-	run.hub_level = 3
 	var late := run.resolve_series(_uids([value, doubler]), _die())
 	var early := run.resolve_series(_uids([doubler, value]), _die())
 	assert_eq(int(late["bonus"][0]), 8)
@@ -108,7 +106,6 @@ func test_the_series_stops_at_the_slot_count() -> void:
 	var cards: Array[Pack] = []
 	for i in 8:
 		cards.append(_card({0: StampNet.value_cell(1)}))
-	run.hub_level = 1
 	assert_eq(run.series_slots(), 6, "sechs Schächte ab Runde 1")
 	assert_eq(int(run.resolve_series(_uids(cards), _die())["bonus"][0]), 6,
 		"nur die ersten sechs Karten rechnen mit")
@@ -133,7 +130,6 @@ func test_a_series_without_a_die_presses_nothing() -> void:
 func test_every_card_of_the_series_is_consumed() -> void:
 	var cards: Array[Pack] = [_card({0: StampNet.value_cell(1)}),
 		_card({1: StampNet.value_cell(1)})]
-	run.hub_level = 3
 	run.apply_series(_uids(cards), _die(), null, _rng(1))
 	assert_eq(run.owned_packs.size(), 0)
 
@@ -158,7 +154,6 @@ func test_the_ground_clamp_still_reports_its_term() -> void:
 func test_the_timer_buys_a_permanent_slot() -> void:
 	var card := _card({0: StampNet.value_cell(1)})
 	var timer := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
-	run.hub_level = 3
 	var before := run.series_slots()
 	run.apply_series(_uids([card, timer]), _die(), null, _rng(1))
 	assert_eq(run.series_slot_bonus, 1, "der Bonus bleibt für den Lauf gebucht")
@@ -167,7 +162,6 @@ func test_the_timer_buys_a_permanent_slot() -> void:
 func test_the_propellant_lifts_every_filled_number_cell() -> void:
 	var card := _card({0: StampNet.value_cell(2), 3: StampNet.value_cell(1)})
 	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
-	run.hub_level = 3
 	var die := _die()
 	var before := die.faces.duplicate()
 	run.apply_series(_uids([card, fuel]), die, null, _rng(1))
@@ -179,7 +173,6 @@ func test_the_matrix_hits_a_second_die_with_halved_numbers() -> void:
 	var card := _card({0: StampNet.value_cell(5),
 		1: StampNet.material_cell(DieMaterial.GOLD)})
 	var matrix := run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
-	run.hub_level = 3
 	var first := run.owned_pool[0]
 	var second := run.owned_pool[1]
 	var before := int(second.faces[0])

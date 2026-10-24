@@ -167,7 +167,7 @@ var side_bet_window: SideBetPanel
 ## eigenständig, sichtbar erst ab der ersten Automaten-Freischaltung.
 var slot_bank_window: SlotBankView
 ## Schwarzmarkt UNTER den Automaten (in der Glas-Tasche links unten); steht
-## immer da, vergittert bis zum Eintrittsgeld (SecretShopView.set_locked).
+## immer da und ist ab Runde 1 offen.
 var secret_shop_window: SecretShopView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
@@ -1102,7 +1102,7 @@ func _link_secret_shop_to_hub() -> void:
 	secret_hub_strip.link_horizontal(secret_shop_window.position.x + secret_shop_window.size.x,
 		hub.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
 
-## Stellt sicher, dass der Schwarzmarkt sichtbar ist (Sperre über set_locked).
+## Stellt sicher, dass der Schwarzmarkt sichtbar ist.
 func set_secret_shop_installed(_installed: bool) -> void:
 	if secret_shop_window == null or secret_shop_window.size.x <= 0.0:
 		return  # noch nicht platziert
@@ -1114,7 +1114,7 @@ func set_secret_shop_installed(_installed: bool) -> void:
 	secret_shop_window.refresh()
 	_sync_reflection_windows()
 
-## Stellt sicher, dass das Automaten-Fenster sichtbar ist (Sperre über set_locked).
+## Stellt sicher, dass das Automaten-Fenster sichtbar ist.
 func set_slot_bank_installed(_installed: bool) -> void:
 	if slot_bank_window == null or slot_bank_window.size.x <= 0.0:
 		return  # noch nicht platziert
@@ -2253,7 +2253,7 @@ func link_hub_to_cluster() -> void:
 	led_strip.link_edges(hub.position.y, _hub_strip_exit_x(false),
 		cluster_rect.end.y, enter_x, _hub_strip_lane_y(), HUB_STRIP_WIDTH)
 
-## Stellt sicher, dass das Nebenwetten-Fenster sichtbar ist (Sperre über set_locked).
+## Stellt sicher, dass das Nebenwetten-Fenster sichtbar ist.
 func set_side_bet_installed(_installed: bool) -> void:
 	if side_bet_window == null or side_bet_window.size.x <= 0.0:
 		return  # noch nicht platziert
@@ -2263,40 +2263,7 @@ func set_side_bet_installed(_installed: bool) -> void:
 	_sync_reflection_windows()
 	link_hub_to_treasure()
 
-## Installations-Zeremonie (Hub-Stufe 3): Stoßwelle am frisch installierten
-## Nebenwetten-Fenster + ein Komet vom Hub die Schatz-Ader entlang zur neuen
-## Hardware. Liefert die Kometen-Laufzeit.
-func celebrate_side_bet_install(color: Color) -> float:
-	if side_bet_window == null or not side_bet_window.visible:
-		return 0.0
-	var center := side_bet_window.position + side_bet_window.size * 0.5
-	var wave := ScoreShockwave.new()
-	add_child(wave)
-	wave.setup(center, Color(color.r, color.g, color.b, 0.9), side_bet_window.size.x * 0.6, 0.6)
-	return side_bet_stake_comet(color)
-
-## Freischaltungs-Zeremonie eines Automaten: Stoßwelle am Automaten-Fenster.
-func celebrate_slot_bank_install(color: Color) -> void:
-	if slot_bank_window == null or not slot_bank_window.visible:
-		return
-	var center := slot_bank_window.position + slot_bank_window.size * 0.5
-	var wave := ScoreShockwave.new()
-	add_child(wave)
-	wave.setup(center, Color(color.r, color.g, color.b, 0.9), slot_bank_window.size.x * 0.6, 0.6)
-
-## Entdeckung des Schwarzmarkts: der frisch aufgedeckte Laden meldet sich mit
-## einer Stoßwelle - dieselbe Sprache wie ein neu installierter Automat.
-func celebrate_secret_shop_install(color: Color) -> float:
-	if secret_shop_window == null or not secret_shop_window.visible:
-		return 0.0
-	var center := secret_shop_window.position + secret_shop_window.size * 0.5
-	var wave := ScoreShockwave.new()
-	add_child(wave)
-	wave.setup(center, Color(color.r, color.g, color.b, 0.9), secret_shop_window.size.x * 0.9, 0.9)
-	return 0.9
-
-## Lieferung ins Lager (Hub-Belohnung): eine Stoßwelle über der Werkbank, in
-## derselben Sprache wie ein frisch installierter Automat. Bewusst KEIN Komet:
+## Lieferung ins Lager (Prämie): eine Stoßwelle über der Werkbank. Bewusst KEIN Komet:
 ## die Paket-Ablage hat keinen Adern-Anschluss, und eine neue Ader nur für diesen
 ## Moment zu legen wäre teurer als die Geste wert ist.
 func celebrate_workshop_delivery(color: Color) -> void:
@@ -2675,7 +2642,7 @@ func slot_pay_comet(color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Zahlungs-Komet Hub -> Schwarzmarkt: Eintrittsgeld, Kauf und Neuwurf fahren als
+## Zahlungs-Komet Hub -> Schwarzmarkt: Kauf und Neuwurf fahren als
 ## Energie die Hinterzimmer-Ader hinüber (verlegt ist sie Laden -> Hub, die Zahlung
 ## fährt dagegen - wie der Automaten-Einsatz). Liefert die Laufzeit.
 func secret_shop_pay_comet(color: Color) -> float:
@@ -2949,17 +2916,6 @@ func _hub_to_side_path() -> PackedVector2Array:
 	if trunk.size() < 4 or branch.size() < 3:
 		return PackedVector2Array()
 	return PackedVector2Array([trunk[0], trunk[1], trunk[2], branch[1], branch[2]])
-
-## Komet vom Hub ZUM Nebenwetten-Fenster. Der Einsatz fliegt als KÖRPER, seit der
-## Tresen ihn schluckt - dies ist die Ader der Installations-Zeremonie.
-## Liefert die Laufzeit.
-func side_bet_stake_comet(color: Color) -> float:
-	var path := _hub_to_side_path()
-	if path.size() < 2:
-		return 0.0
-	var travel := _travel_time(path)
-	_pulse_along(path, travel, color)
-	return travel
 
 ## Komet vom SCHATZ zum Nebenwetten-Fenster: die laufende Steuer einer Steuerwette,
 ## je Buchung einer. Die benannte AUSNAHME des Bewegungs-Gesetzes - was der Spieler

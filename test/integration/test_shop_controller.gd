@@ -10,10 +10,14 @@ const ShopPanelScene := preload("res://scenes/shop_panel.tscn")
 var shop
 var run: GameRun
 
+## Erste Runde der gewünschten Fortschrittsstufe.
+static func _round_of(tier: int) -> int:
+	return 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.hub_level = 7  # Suite: großer Laden (4 Charms / 5 Einzelwürfel / 3 Gravur-Pakete)
+	run.round_number = _round_of(7)  # großer Laden (4 Charms / 5 Einzelwürfel / 3 Gravur-Pakete)
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
@@ -33,7 +37,7 @@ func _count_special() -> int:
 func test_open_shows_panel_and_offers_up_to_four_charms():
 	assert_true(shop.visible)
 	assert_gt(shop.charm_options.size(), 0, "mindestens ein Charm im Angebot")
-	assert_true(shop.charm_options.size() <= run.shop_charm_slots(), "höchstens so viele wie die Hub-Stufe erlaubt")
+	assert_true(shop.charm_options.size() <= run.shop_charm_slots(), "höchstens so viele wie die Stufe erlaubt")
 
 func test_owned_charms_never_appear_again():
 	# Besitz SPERRT: was im Dock steht, liegt nicht wieder aus.
@@ -51,12 +55,12 @@ func test_the_shop_never_lays_out_a_dice_pack_again():
 	assert_eq(shop.vitrine_stock().has("dice_pack"), false,
 		"die Bucht kennt keine Würfel-Kassetten mehr")
 
-func test_the_dice_ladder_follows_the_licence():
-	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "Suite: 5 Würfel")
+func test_the_dice_ladder_follows_the_tier():
+	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "Stufe 7: 5 Würfel")
 	assert_eq(GameRun.new_run().shop_dice_slots(), 3, "Stufe 1: drei")
 	var top := GameRun.new_run()
-	top.hub_level = GameRun.HUB_MAX_LEVEL
-	assert_eq(top.shop_dice_slots(), 6, "High Roller: sechs")
+	top.round_number = _round_of(GameRun.TIER_MAX)
+	assert_eq(top.shop_dice_slots(), 6, "Stufe 10: sechs")
 
 # --- Paketkauf ----------------------------------------------------------------
 # Gekaufte Pakete wandern VERSIEGELT ins Lager; erst die Presse öffnet sie.
@@ -215,7 +219,7 @@ func test_charm_buttons_disabled_when_broke():
 
 func test_spread_offers_packs():
 	# Auslage = Gravur-Kassetten auf ihren Stellplätzen, Einzelwürfel in der Schale,
-	# Charms auf dem Bildschirm; die Würfelzahl liefert die Hub-Stufe (hier Suite:
+	# Charms auf dem Bildschirm; die Würfelzahl liefert die Fortschrittsstufe (hier 7:
 	# 5 Würfel), die Kassetten-Reihe ist auf jeder Stufe gleich voll.
 	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "Einzelwürfel in der Schale")
 	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots(), "Gravur-Pakete in der Reihe")
@@ -468,12 +472,12 @@ func test_next_corner_is_free_on_already_seen_page():
 
 # --- Kein Überlauf (der Fuß mit "Fertig" bleibt auf JEDER Stufe im Panel) -------
 
-func test_the_footer_stays_inside_the_panel_on_every_hub_level() -> void:
+func test_the_footer_stays_inside_the_panel_on_every_tier() -> void:
 	# Regression: auf hohen Stufen schob das Lager (bis zu 7 Pakete) den Fuß aus
 	# dem Panel - der Shop war ohne "Fertig" nicht mehr verlassbar.
 	shop.size = Vector2(1068, 1125)  # Maß der Hub-Fläche auf dem Tisch-Display
-	for level in range(1, GameRun.HUB_MAX_LEVEL + 1):
-		run.hub_level = level
+	for level in range(1, GameRun.TIER_MAX + 1):
+		run.round_number = _round_of(level)
 		shop.open()
 		await wait_frames(2)
 		var vroot: Control = shop.done_button.get_parent().get_parent()  # Footer -> Root
@@ -502,7 +506,7 @@ func test_done_hides_panel_and_emits_closed():
 
 func test_the_bowl_offers_open_dice_only() -> void:
 	assert_eq(shop.single_dice.size(), run.shop_dice_slots(),
-		"die Lizenz sagt, wie viele offene Würfel ausliegen")
+		"die Stufe sagt, wie viele offene Würfel ausliegen")
 	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size(), "je Würfel ein Preis")
 
 func test_a_single_die_is_fully_rolled_before_the_purchase() -> void:
@@ -669,7 +673,6 @@ func test_a_fresh_shop_raises_its_goods() -> void:
 		"die erste Auslage steigt auf")
 
 func test_every_page_change_raises_its_goods() -> void:
-	run.hub_level = 7  # Blättern ist freigeschaltet
 	shop._on_page_next_pressed()  # frische Doppelseite
 	assert_eq(shop.spreads.size(), 2, "eine zweite Seite liegt auf")
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_RISE,
@@ -710,11 +713,6 @@ func test_an_unlocked_visit_raises_again() -> void:
 	shop.close()
 	shop.open()  # ohne Sperre würfelt jeder Besuch frisch
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_RISE)
-
-func test_a_hub_upgrade_mid_visit_raises_the_whole_page() -> void:
-	shop.refresh_after_hub_upgrade()
-	assert_eq(shop.vitrine_grade(), ShopController.GRADE_RISE,
-		"die neue Auslage tritt wirklich auf")
 
 func test_a_purchase_leaves_the_page_lying() -> void:
 	run.money = 500
@@ -764,18 +762,18 @@ func _band_rects() -> Array[Rect2]:
 		out.append((band as Control).get_global_rect())
 	return out
 
-func test_the_bands_stand_on_every_licence_level() -> void:
+func test_the_bands_stand_on_every_tier() -> void:
 	# Feste Proportionen: nur die INHALTE unterscheiden sich zwischen Stufe 1 und
 	# Stufe 10, kein Band rückt.
 	shop.size = Vector2(1068, 1125)
-	run.hub_level = 1
+	run.round_number = _round_of(1)
 	shop.sortiment_locked = false
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
 	var low := _band_rects()
 	assert_eq(low.size(), 5, "Kopf, Charm-Zeile, Ware-Spalten, Auskunfts-Band, Fuß")
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.round_number = _round_of(GameRun.TIER_MAX)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
@@ -788,11 +786,11 @@ func test_the_bands_stand_on_every_licence_level() -> void:
 
 # --- Die Kassetten-Schlitze -----------------------------------------------------
 
-func test_the_slit_row_has_one_seat_per_licence_slot() -> void:
+func test_the_slit_row_has_one_seat_per_shelf_slot() -> void:
 	await wait_frames(2)
 	var seats: Array[Dictionary] = shop.slit_seats()
 	assert_eq(seats.size(), run.shop_pack_slots(),
-		"die Zahl hängt an der Lizenz, nicht an der Auslage - und die ist flach")
+		"die Zahl hängt an der Stufe, nicht an der Auslage - und die Leiter ist flach")
 	assert_eq(shop.slit_anchors().size(), seats.size(), "je Platz eine Kerbe")
 
 func test_the_slit_stock_stays_index_true_across_a_purchase() -> void:
@@ -822,7 +820,6 @@ func test_the_slit_seats_are_byte_stable_across_purchase_and_flip() -> void:
 	for i in before.size():
 		assert_true(bought[i].is_equal_approx(before[i]),
 			"eine verkaufte Kerbe bleibt stehen (%d)" % i)
-	run.hub_level = 7  # Blättern freigeschaltet
 	shop._on_page_next_pressed()
 	await wait_frames(2)
 	shop._on_page_back_pressed()
@@ -1090,10 +1087,10 @@ func test_every_card_reports_its_own_hover() -> void:
 			"und der Knopf sieht die Maus überhaupt (%d)" % i)
 
 func test_the_longest_real_description_fits_the_narrowest_card() -> void:
-	# Gemessen an den echten Beschreibungen und der SCHMALSTEN Karte (Hub 10):
+	# Gemessen an den echten Beschreibungen und der SCHMALSTEN Karte (Stufe 10):
 	# der unterste Grad der Leiter muß jede von ihnen umgebrochen tragen.
 	shop.size = Vector2(1068, 1125)
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.round_number = _round_of(GameRun.TIER_MAX)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
@@ -1118,22 +1115,6 @@ func test_the_mid_area_is_the_same_on_every_card() -> void:
 		assert_almost_eq(shop.charm_effects[i].custom_minimum_size.y, block, 0.01,
 			"die Mittelfläche ist fix - die Karten bleiben bündig (%d)" % i)
 
-# --- Der gesperrte Pager --------------------------------------------------------
-
-func test_the_locked_pager_explains_itself_in_its_own_label() -> void:
-	run.hub_level = 1
-	shop.spreads.clear()
-	shop.open()
-	await wait_frames(2)
-	assert_eq(shop.page_next_button.text, ShopController.pager_lock_text(),
-		"gesperrt heißt Schloss PLUS die nötige Stufe, nicht Verschwinden")
-	assert_string_contains(shop.page_next_button.text, ShopController.PAGER_LOCK)
-	assert_string_contains(shop.page_next_button.text, str(GameRun.HUB_FLIPPING_LEVEL),
-		"der Pfeil sagt selbst, ab wann er aufgeht")
-	assert_true(shop.page_next_button.disabled)
-	assert_eq(shop.page_back_button.text, shop.page_next_button.text,
-		"und beide stehen gleich - dann auch gleich breit")
-
 # --- Die Hierarchie des Fußes ---------------------------------------------------
 
 func test_done_is_the_one_filled_button_of_the_page() -> void:
@@ -1143,28 +1124,10 @@ func test_done_is_the_one_filled_button_of_the_page() -> void:
 		"Fertig steht auf sattem Gold")
 	assert_eq(shop.done_button.get_theme_color("font_color"), CasinoStyle.INK,
 		"und trägt dunkle Schrift - die Umkehr IST der Rang")
-	var hub: StyleBoxFlat = shop.hub_upgrade_button.get_theme_stylebox("normal")
-	assert_lt(hub.bg_color.r, 0.5, "der Aufstieg bleibt Umriss auf dunklem Grund")
-	assert_lt(hub.border_color.a, done.border_color.a,
-		"und sein Saum steht eine Stufe darunter")
-
-func test_the_hub_price_reads_as_a_price() -> void:
-	await wait_frames(2)
-	run.money = 9999
-	shop._refresh_afford_state()
-	assert_eq(shop.hub_upgrade_button.get_theme_color("font_color"), ShopController.NEON_GOLD,
-		"bezahlbar: gelb wie jeder Preis der Seite")
-	run.money = 0
-	shop._refresh_afford_state()
-	assert_eq(shop.hub_upgrade_button.get_theme_color("font_color"), CasinoStyle.RED,
-		"unbezahlbar: rot - dieselbe Preis-Grammatik wie an der Ware")
-	assert_true(shop.hub_upgrade_button.disabled)
-	assert_almost_eq(shop.hub_upgrade_button.get_theme_color("font_disabled_color").r,
-		CasinoStyle.RED.r, 0.01, "auch gesperrt bleibt der Preis rot")
 
 func test_an_open_pager_carries_its_fee() -> void:
-	# Ab Stufe 2 tragen die Pfeile ihre Gebühr selbst - mehr sagt niemand dazu.
-	run.hub_level = 2
+	# Die Pfeile tragen ihre Gebühr selbst - mehr sagt niemand dazu.
+	run.round_number = _round_of(1)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
@@ -1256,7 +1219,7 @@ func test_a_fresh_run_has_an_empty_shelf() -> void:
 
 ## Der Sonderposten BELEGT einen Paket-Platz - die Reihe bleibt gleich voll.
 func test_a_special_lies_in_the_bowl_not_in_the_pack_row() -> void:
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.round_number = _round_of(GameRun.TIER_MAX)
 	var seen := 0
 	for i in 60:
 		var spread = shop._build_spread()
@@ -1269,7 +1232,7 @@ func test_a_special_lies_in_the_bowl_not_in_the_pack_row() -> void:
 
 ## Und wenn, dann als Einzelstück zum festen Preis - Bündel bleiben Hehlerware.
 func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.round_number = _round_of(GameRun.TIER_MAX)
 	for i in 60:
 		var spread = shop._build_spread()
 		assert_lte(spread.single_specials.size(), 1, "höchstens einer je Auslage")
@@ -1285,17 +1248,17 @@ func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
 			assert_true(Engraving.is_special_id(pack.fixed_engraving.id))
 			assert_eq(pack.price, Pack.SPECIAL_PRICE)
 
-## Unter der Schwelle nie - der Sonderposten ist die Belohnung für die Lizenz.
-func test_a_low_licence_bowl_never_carries_one() -> void:
-	run.hub_level = GameRun.SHOP_SPECIAL_LEVEL - 1
+## Unter der Schwelle nie - der Sonderposten kommt erst mit der Stufe.
+func test_a_low_tier_bowl_never_carries_one() -> void:
+	run.round_number = _round_of(GameRun.SHOP_SPECIAL_TIER - 1)
 	for i in 60:
 		assert_true(shop._build_spread().single_specials.is_empty(),
-			"vor Stufe %d kein Sonderposten" % GameRun.SHOP_SPECIAL_LEVEL)
+			"vor Stufe %d kein Sonderposten" % GameRun.SHOP_SPECIAL_TIER)
 
 ## Der Kauf zahlt und liefert die VERSIEGELTE Karte - offen wartet keine
 ## Aufwertung, auch nicht die aus der Schale.
 func test_a_bowl_special_is_bought_sealed() -> void:
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.round_number = _round_of(GameRun.TIER_MAX)
 	run.money = 999
 	var spread = shop._build_spread()
 	if spread.single_specials.is_empty():
@@ -1324,7 +1287,7 @@ func test_a_bowl_special_is_bought_sealed() -> void:
 ## Runen-Bucht: ein Sonderposten ist zwar ein Material-/Runen-Paket, liegt aber
 ## in seiner eigenen Bucht.
 func test_the_delivery_reports_the_sonderbestand_shelf() -> void:
-	run.hub_level = GameRun.HUB_MAX_LEVEL
+	run.round_number = _round_of(GameRun.TIER_MAX)
 	run.money = 999
 	var spread = shop._build_spread()
 	spread.single_specials.clear()
@@ -1565,12 +1528,10 @@ func test_a_freshly_built_slit_row_says_it_does_not_stand_yet() -> void:
 	await wait_frames(2)
 	assert_true(shop.slit_row_laid_out(), "und im nächsten Layout steht sie wieder")
 
-func test_after_a_hub_upgrade_the_seats_stand_apart_not_on_top_of_each_other() -> void:
+func test_after_a_rebuild_the_seats_stand_apart_not_on_top_of_each_other() -> void:
 	_lay_out_page()
 	await wait_frames(2)
-	run.money = 999
-	run.upgrade_hub()
-	shop.refresh_after_hub_upgrade()
+	shop.rebuild_slit_row()
 	await wait_frames(2)
 	var anchors: Array = shop.slit_anchors()
 	assert_gt(anchors.size(), 1, "die Spalte führt mehrere Plätze")

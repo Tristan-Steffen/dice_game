@@ -96,7 +96,6 @@ func test_the_dynamo_mints_at_the_end_of_a_cleared_round():
 	assert_eq(CharmEffects.round_end_energy_at(1, twins), CharmEffects.DYNAMO_ENERGY)
 
 func test_the_consolation_prize_books_its_energy_on_the_fumble():
-	run.hub_level = 3  # zwei erwachte Reihen, der Deckel steht nicht im Weg
 	assert_eq(run.note_fumble(false), 0, "ohne Charm prägt der Fumble nichts")
 	assert_eq(run.energy, 0)
 	run.owned_charms.append(Charm.consolation_prize())
@@ -126,8 +125,6 @@ func test_the_reroll_price_stays_flat_under_the_fenced_goods():
 	assert_eq(run.secret_reroll_cost(), GameRun.SECRET_REROLL_BASE)
 
 func test_the_back_room_energys_the_discounted_price():
-	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
-	run.unlock_secret_shop()
 	run.owned_charms.append(Charm.fenced_goods())
 	# Der Sonderposten-Platz führt seit den Katalysatoren zwei Familien - für diesen
 	# Test muss die Gravur darin liegen.
@@ -142,7 +139,6 @@ func test_the_back_room_energys_the_discounted_price():
 # --- Freispiel: der erste Dreh je Ladenbesuch ---------------------------------------
 
 func test_the_free_spin_pays_the_first_spin_of_a_visit():
-	run.hub_level = 3  # Automat I steht
 	run.energy = 0
 	run.owned_charms.append(Charm.free_spin())
 	assert_eq(run.slot_spin_energy(0), 0, "der erste Dreh geht aufs Haus")
@@ -153,7 +149,6 @@ func test_the_free_spin_pays_the_first_spin_of_a_visit():
 	assert_false(run.can_spin_slot(0), "und ohne Energie geht er nicht")
 
 func test_the_free_spin_lives_up_again_when_the_shop_opens():
-	run.hub_level = 3
 	run.owned_charms.append(Charm.free_spin())
 	run.spin_slot(0)
 	assert_true(run.free_spin_used_this_visit)
@@ -162,7 +157,6 @@ func test_the_free_spin_lives_up_again_when_the_shop_opens():
 	assert_eq(run.slot_spin_energy(0), 0)
 
 func test_without_the_charm_the_spin_costs_as_before():
-	run.hub_level = 3
 	run.energy = 10
 	var price := run.slot_spin_energy(0)
 	assert_gt(price, 0)
@@ -199,7 +193,6 @@ func test_a_energy_payout_stays_untouched_by_the_odds_sheet():
 	var bet := SideBet.new()
 	bet.payout_kind = SideBet.Payout.ENERGY
 	bet.payout_energy = 2
-	run.hub_level = 3
 	run._pay_side_bet(bet, 1)
 	assert_eq(run.energy, 2, "Energie ist keine Barauszahlung")
 
@@ -481,20 +474,14 @@ func test_the_offer_gate_stays_permissive_without_features():
 	assert_true(_has_id(pool, Charm.FENCED_GOODS), "wer den Stand nicht kennt, verliert nichts")
 	assert_true(_has_id(pool, Charm.FREE_SPIN))
 
-func test_the_run_reports_what_stands_on_the_table():
+func test_the_run_reports_that_everything_stands_from_round_one():
 	var features := run.charm_offer_features()
-	assert_false(bool(features[Charm.FEATURE_SECRET_SHOP]))
-	assert_false(bool(features[Charm.FEATURE_SLOT_MACHINE]))
-	run.hub_level = 3
-	assert_true(bool(run.charm_offer_features()[Charm.FEATURE_SLOT_MACHINE]), "Automat I steht")
-	run.unlock_secret_shop()
-	assert_true(bool(run.charm_offer_features()[Charm.FEATURE_SECRET_SHOP]))
+	assert_true(bool(features[Charm.FEATURE_SECRET_SHOP]), "der Schwarzmarkt steht offen")
+	assert_true(bool(features[Charm.FEATURE_SLOT_MACHINE]), "alle Automaten stehen")
 
 func test_the_back_room_charm_slot_passes_the_gate():
 	# Der Schwarzmarkt würfelt seine Charms durch dieselbe Schleuse - sein eigener
 	# Stand ist beim Würfeln längst offen.
-	run.hub_level = GameRun.SECRET_UNLOCK_HUB_LEVEL
-	run.unlock_secret_shop()
 	assert_eq(run.secret_stock.size(), 3, "die Auslage steht")
 
 ## Versiegelte Fixinhalt-Pakete dieser Gravur im Lager - lose wartet nichts mehr.

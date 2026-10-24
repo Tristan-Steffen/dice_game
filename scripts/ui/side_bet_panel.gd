@@ -98,8 +98,6 @@ const ENERGY_COLOR := CasinoStyle.ENERGY
 
 var run: GameRun
 var mode: int = Mode.PROGRESS
-var locked := true
-var _lock_overlay: Panel
 
 ## Wett-Auslage dieser Runde (nur im BETTING-Modus).
 var offers: Array[SideBet] = []
@@ -445,8 +443,6 @@ func _lay_counter() -> void:
 		note.offset_top = -rects[i].size.y * NOTE_BAND_SHARE
 		note.offset_bottom = -pad.y
 	_sync_seats()
-	if _lock_overlay == null or not is_instance_valid(_lock_overlay):
-		_build_lock_overlay()
 
 ## EIN Sitz: der Knopf selbst, darin sein ANGEBOT (Bedingung über Handel) und, an der
 ## Plot-Unterkante, sein MELDER. Beide fangen nichts ab - der Klick gehört dem Knopf.
@@ -586,30 +582,6 @@ func _plot_box(accent: Color, u: float, strong := false) -> StyleBoxFlat:
 	box.set_border_width_all(maxi(1, int(u * (0.3 if strong else 0.18))))
 	box.set_corner_radius_all(int(counter_plot_radius()))
 	return box
-
-# --- Sperre (Fenster vor Freischaltung) ----------------------------------------
-
-func set_locked(is_locked: bool) -> void:
-	locked = is_locked
-	if _lock_overlay != null and is_instance_valid(_lock_overlay):
-		_lock_overlay.visible = locked
-
-func _build_lock_overlay() -> void:
-	_lock_overlay = CasinoStyle.lock_overlay(_unit() * 1.2)
-	add_child(_lock_overlay)
-	var col := VBoxContainer.new()
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_lock_overlay.get_child(0).add_child(col)
-	var u := _unit()
-	var title := CasinoStyle.label("Ab Lizenzstufe %d" % GameRun.HUB_SIDE_BETS_LEVEL, u * 2.8, GOLD)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(title)
-	var name_lbl := CasinoStyle.label(GameRun.HUB_LEVEL_NAMES[GameRun.HUB_SIDE_BETS_LEVEL - 1],
-		u * 2.2, MUTED_COLOR)
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(name_lbl)
-	_lock_overlay.visible = locked
 
 # --- Bausteine -----------------------------------------------------------------
 

@@ -20,7 +20,6 @@ func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 200
 	run.energy = 20  # Einsatz ist Energie
-	run.hub_level = 9  # alle drei Automaten frei
 	view = SlotBankView.new()
 	view.size = WINDOW_SIZE
 	add_child_autofree(view)
@@ -50,12 +49,12 @@ func test_shows_three_by_three_symbol_labels() -> void:
 	assert_eq(view._face_labels[0].size(), SlotMachine.MACHINE_COLS, "drei Spalten")
 	assert_eq(view._face_labels[0][0].size(), SlotMachine.ROWS, "vier Zeilen je Spalte")
 
-func test_locked_machines_cannot_be_spun() -> void:
-	run.hub_level = 1  # kein Automat frei
+func test_every_machine_spins_from_round_one() -> void:
 	view.refresh()
 	await wait_frames(2)
-	assert_eq(run.slots_unlocked(), 0)
-	assert_false(run.can_spin_slot(0), "gesperrter Automat nicht drehbar")
+	for machine in SlotMachine.MACHINE_COUNT:
+		assert_true(run.can_spin_slot(machine), "Automat %d steht offen" % machine)
+		assert_false(view._spin_buttons[machine].disabled, "und sein Knopf dreht")
 
 func test_a_run_fills_the_pot() -> void:
 	_set_wall([[M, M, M, S, C, S, C, S, C]])  # 3er-Reihe
@@ -144,7 +143,6 @@ func test_each_engraving_symbol_pays_its_own_pack_kind() -> void:
 			[SlotPrize.Kind.DICE_ENGRAVING, Pack.TYPE_DICE_MOD]]:
 		var symbol: int = entry[0]
 		var fresh := GameRun.new_run()
-		fresh.hub_level = 9
 		run = fresh          # _set_wall schreibt in die Wand von run
 		view.run = fresh
 		_set_wall([[symbol, symbol, symbol, C, F, C, F, C, F]])

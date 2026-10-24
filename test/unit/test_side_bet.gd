@@ -1,10 +1,10 @@
 extends GutTest
-## Tier-1-Tests der Nebenwetten (SideBet): Auslage-Erzeugung samt Hub-Filter und
+## Tier-1-Tests der Nebenwetten (SideBet): Auslage-Erzeugung samt Stufen-Filter und
 ## Benchmark-Skalierung, Bedingungs-Auswertung gegen eine Rundenbilanz,
 ## Rang-Vergleich, Verfall und Etiketten.
 
 ## Höchste Freischalt-Stufe im Katalog - damit rollt jede Vorlage.
-const TOP_HUB := 10
+const TOP_TIER := 10
 
 func _result(overrides: Dictionary = {}) -> Dictionary:
 	var base := {
@@ -24,7 +24,7 @@ func _bet(id: String, benchmark: int = 0) -> SideBet:
 			return SideBet._from_template(t, benchmark)
 	return null
 
-# --- Auslage: Hub-Filter, Benchmark-Skalierung und das echte Inventar ----------
+# --- Auslage: Stufen-Filter, Benchmark-Skalierung und das echte Inventar ----------
 
 ## Ein Magazin, das jede Paket-Einsatz-Vorlage tragen kann (die teuerste nimmt 2).
 func _full_stock() -> Dictionary:
@@ -35,7 +35,7 @@ func _full_stock() -> Dictionary:
 	return stock
 
 func test_roll_offers_returns_distinct_bets():
-	var bets := SideBet.roll_offers(3, TOP_HUB, 400, _full_stock())
+	var bets := SideBet.roll_offers(3, TOP_TIER, 400, _full_stock())
 	assert_eq(bets.size(), 3)
 	var ids := {}
 	for bet in bets:
@@ -43,26 +43,26 @@ func test_roll_offers_returns_distinct_bets():
 	assert_eq(ids.size(), 3, "keine Dubletten in der Auslage")
 
 func test_roll_offers_caps_at_template_count():
-	assert_eq(SideBet.roll_offers(99, TOP_HUB, 400, _full_stock()).size(),
+	assert_eq(SideBet.roll_offers(99, TOP_TIER, 400, _full_stock()).size(),
 		SideBet.TEMPLATES.size())
 
-func test_roll_offers_filters_by_hub_level():
+func test_roll_offers_filters_by_tier():
 	var bets := SideBet.roll_offers(99, SideBet.UNLOCK_BASE, 400, _full_stock())
 	assert_gt(bets.size(), 3, "die Grundstufe trägt genug Vorlagen")
 	for bet in bets:
 		assert_eq(bet.unlock_level, SideBet.UNLOCK_BASE, "keine höhere Stufe in der Auslage")
 
-func test_roll_offers_opens_up_with_hub_level():
+func test_roll_offers_opens_up_with_the_tier():
 	var ids := {}
-	for bet in SideBet.roll_offers(99, TOP_HUB, 400, _full_stock()):
+	for bet in SideBet.roll_offers(99, TOP_TIER, 400, _full_stock()):
 		ids[bet.id] = true
 	assert_true(ids.has("circuit_contract"), "Sonderposten-Wette ab Stufe 10 dabei")
-	assert_true(ids.has("quick_start"), "Salon-Wette dabei")
+	assert_true(ids.has("quick_start"), "Stufe-5-Wette dabei")
 
 ## OHNE passende Pakete erscheint keine Paket-Einsatz-Vorlage: der Tresen verlangt
 ## nichts, was der Spieler nicht hat.
 func test_pack_stakes_stay_off_the_shelf_without_the_ware():
-	for bet in SideBet.roll_offers(99, TOP_HUB, 400):
+	for bet in SideBet.roll_offers(99, TOP_TIER, 400):
 		assert_ne(bet.stake_kind, SideBet.Stake.PACKS,
 			"%s dürfte ohne Magazin nicht ausliegen" % bet.id)
 
@@ -71,7 +71,7 @@ func test_pack_stakes_stay_off_the_shelf_without_the_ware():
 func test_a_pack_stake_needs_enough_of_ONE_named_sort():
 	var thin: Dictionary = {SideBet.pack_stock_key(Pack.TYPE_NUMBER, Pack.TIER_NORMAL): 1}
 	var seen := {}
-	for bet in SideBet.roll_offers(99, TOP_HUB, 400, thin):
+	for bet in SideBet.roll_offers(99, TOP_TIER, 400, thin):
 		if bet.stake_kind == SideBet.Stake.PACKS:
 			seen[bet.id] = bet
 			assert_eq(bet.stake_packs, 1, "nur die Ein-Paket-Vorlagen liegen aus")
@@ -80,7 +80,7 @@ func test_a_pack_stake_needs_enough_of_ONE_named_sort():
 	assert_gt(seen.size(), 0, "ein passendes Paket genügt für die kleinen Vorlagen")
 	var fat: Dictionary = {SideBet.pack_stock_key(Pack.TYPE_MATERIAL, Pack.TIER_GROSS): 2}
 	var big := false
-	for bet in SideBet.roll_offers(99, TOP_HUB, 400, fat):
+	for bet in SideBet.roll_offers(99, TOP_TIER, 400, fat):
 		if bet.stake_kind == SideBet.Stake.PACKS and bet.stake_packs == 2:
 			big = true
 			assert_eq(bet.stake_pack_type, Pack.TYPE_MATERIAL)
@@ -91,7 +91,7 @@ func test_a_pack_stake_needs_enough_of_ONE_named_sort():
 ## Paket-Vorlage schiebt die nächste nach.
 func test_a_skipped_pack_template_lets_the_next_one_move_up():
 	for i in 20:
-		assert_eq(SideBet.roll_offers(3, TOP_HUB, 400).size(), 3,
+		assert_eq(SideBet.roll_offers(3, TOP_TIER, 400).size(), 3,
 			"drei Angebote, auch ganz ohne Pakete im Magazin")
 
 func test_nice_target_rounds_to_readable_numbers():
@@ -112,7 +112,7 @@ func test_scaled_description_carries_the_number():
 	assert_false(bet.description.contains("%"), "Formatstring ist gefüllt")
 
 func test_offer_targets_are_frozen_at_roll_time():
-	for bet in SideBet.roll_offers(99, TOP_HUB, 300):
+	for bet in SideBet.roll_offers(99, TOP_TIER, 300):
 		if bet.target_factor > 0.0:
 			assert_eq(bet.target, SideBet._nice_target(300.0 * bet.target_factor))
 

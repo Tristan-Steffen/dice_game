@@ -156,23 +156,6 @@ static func glow_disc(tint: Color, side: float, peak := 0.38, mid := 0.14) -> Te
 	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return disc
 
-## Die SPERR-BLENDE eines Fensters: dunkles Panel über allem, das jede Eingabe
-## schluckt; sein EINES Kind ist der CenterContainer für die Sperr-Notiz.
-static func lock_overlay(radius_px: float) -> Panel:
-	var overlay := Panel.new()
-	overlay.name = "LockOverlay"
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	var box := StyleBoxFlat.new()
-	box.bg_color = Color(0.02, 0.01, 0.06, 0.72)
-	box.set_corner_radius_all(int(radius_px))
-	overlay.add_theme_stylebox_override("panel", box)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	overlay.add_child(center)
-	return overlay
-
 ## Dunkler oder heller Text je nach Hintergrund-Helligkeit.
 static func _readable_text(bg: Color) -> Color:
 	var luma := bg.r * 0.299 + bg.g * 0.587 + bg.b * 0.114

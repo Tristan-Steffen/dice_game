@@ -1,10 +1,9 @@
 extends GutTest
-## Integrationstests des Hub-Ausbaus über die Ansichten: HubView-Plakette/Knopf +
-## Rahmen-Stufe, TableScreen.set_side_bet_installed (Fenster + Fork), und die
-## Shop-Gating (kleiner Laden + verstecktes Blättern auf Stufe 1, Raritäts-Schub
-## auf Stufe 4).
+## Integrationstests der Fortschrittsstufe über die Ansichten: HubView-Plakette +
+## Rahmen-Stufe, TableScreen.set_side_bet_installed (Fenster + Fork), und der
+## Laden, der mit der Stufe wächst.
 
-# --- HubView-Plakette + Aufstieg-Knopf ---------------------------------------
+# --- HubView-Plakette ----------------------------------------------------------
 
 func _hub() -> HubView:
 	var hub: HubView = add_child_autofree(HubView.new())
@@ -12,51 +11,21 @@ func _hub() -> HubView:
 	hub.layout()
 	return hub
 
-func test_hub_plate_and_button_show_next_unlock() -> void:
+func test_hub_frame_thickens_with_the_tier() -> void:
 	var hub := _hub()
-	hub.set_hub_level(1, "Hinterzimmer", "Lizenz", "Voller Shop + Blättern", 10)
-	assert_string_contains(hub.hub_level_label.text, "Hinterzimmer")
-	# Plan-Zeile trägt die nächste Stufe + Freischaltung, der Knopf nur den Preis.
-	assert_string_contains(hub.hub_next_label.text, "Lizenz")
-	assert_string_contains(hub.hub_next_label.text, "Voller Shop")
-	assert_true(hub.upgrade_button.visible, "Aufstieg-Knopf sichtbar unter Max")
-	assert_string_contains(hub.upgrade_button.text, "10")
-
-func test_hub_button_hidden_at_max_level() -> void:
-	var hub := _hub()
-	hub.set_hub_level(10, "High Roller", "", "", 0)
-	assert_false(hub.upgrade_button.visible, "auf Maximalstufe kein Aufstieg-Knopf")
-
-func test_hub_upgrade_button_emits_signal() -> void:
-	var hub := _hub()
-	hub.set_hub_level(1, "Hinterzimmer", "Lizenz", "x", 10)
-	watch_signals(hub)
-	hub.upgrade_button.pressed.emit()
-	assert_signal_emitted(hub, "hub_upgrade_requested")
-
-func test_hub_frame_thickens_with_level() -> void:
-	var hub := _hub()
-	hub.set_hub_level(1, "Hinterzimmer", "Spielecke", "x", 8)
+	hub.set_progress_tier(1)
 	var thin: int = hub._frame_style.border_width_left
-	hub.set_hub_level(10, "High Roller", "", "", 0)
+	hub.set_progress_tier(10)
 	var thick: int = hub._frame_style.border_width_left
 	assert_gt(thick, thin, "höhere Stufe -> dickerer Rahmen")
 
 func test_hub_frame_recolors_per_tier() -> void:
 	var hub := _hub()
-	hub.set_hub_level(1, "Hinterzimmer", "Spielecke", "x", 8)
+	hub.set_progress_tier(1)
 	var low: Color = hub._frame_style.border_color
-	hub.set_hub_level(6, "VIP-Lounge", "Suite", "x", 55)
+	hub.set_progress_tier(6)
 	var high: Color = hub._frame_style.border_color
 	assert_ne(low, high, "jede Stufe hat eine eigene Signaturfarbe")
-
-func test_hub_affordable_toggles_button_disabled() -> void:
-	var hub := _hub()
-	hub.set_hub_level(1, "Hinterzimmer", "Lizenz", "x", 10)
-	hub.set_hub_upgrade_affordable(false)
-	assert_true(hub.upgrade_button.disabled, "nicht bezahlbar -> ausgegraut")
-	hub.set_hub_upgrade_affordable(true)
-	assert_false(hub.upgrade_button.disabled)
 
 # --- Nebenwetten-Installation (TableScreen) ----------------------------------
 
@@ -75,83 +44,70 @@ func _screen() -> TableScreen:
 
 func test_side_bet_window_always_visible() -> void:
 	var ts := _screen()
-	# Das Fenster steht immer, auch vor der Freischaltung.
+	# Das Fenster steht immer.
 	assert_true(ts.side_bet_window.visible, "Fenster immer sichtbar")
 	ts.set_side_bet_installed(false)
 	assert_true(ts.side_bet_window.visible, "auch nach false bleibt es sichtbar")
-
-func test_side_bet_lock_overlay() -> void:
-	var ts := _screen()
-	var panel: SideBetPanel = ts.side_bet_window
-	panel.set_locked(true)
-	assert_true(panel.locked, "gesperrt")
-	panel.set_locked(false)
-	assert_false(panel.locked, "entsperrt")
 
 func test_side_bet_fork_always_present() -> void:
 	var ts := _screen()
 	# Der Fork liegt immer, weil das Fenster immer sichtbar ist.
 	assert_true(ts.treasure_strip.branch_path.size() >= 2, "Fork immer vorhanden")
 
-# --- Shop-Gating (ShopController) --------------------------------------------
+# --- Der Laden wächst mit der Stufe (ShopController) ---------------------------
 
 const ShopPanelScene := preload("res://scenes/shop_panel.tscn")
 
-func _shop(level: int) -> ShopController:
+func _shop(tier: int) -> ShopController:
 	var run := GameRun.new_run()
 	run.money = 999
-	run.hub_level = level
+	run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
 	var shop: ShopController = ShopPanelScene.instantiate()
 	add_child_autofree(shop)
 	shop.run = run
 	shop.open()
 	return shop
 
-func test_level_one_shop_is_smaller() -> void:
+func test_tier_one_shop_is_smaller() -> void:
 	var shop := _shop(1)
 	assert_eq(shop.charm_options.size(), 2, "Stufe 1: 2 Charms")
 	assert_eq(shop.single_dice.size(), 3, "Stufe 1: 3 Einzelwürfel")
 	assert_eq(shop.engraving_packs.size(), 3, "die Gravuren-Spalte ist immer voll")
 
-func test_level_one_locks_the_pager_instead_of_hiding_it() -> void:
-	# Die Pfeile BLEIBEN stehen und tragen Schloss samt nötiger Stufe - erklärt
-	# wird die Sperre in ihrer eigenen Aufschrift, nicht anderswo.
+func test_flipping_is_open_from_round_one() -> void:
 	var shop := _shop(1)
-	assert_true(shop.page_next_button.visible, "Stufe 1: der Pfeil steht trotzdem")
-	assert_true(shop.page_back_button.visible)
-	assert_eq(shop.page_next_button.text, ShopController.pager_lock_text(), "mit Schloss")
-	assert_eq(shop.page_back_button.text, ShopController.pager_lock_text())
-	assert_true(shop.page_next_button.disabled, "und gesperrt")
+	assert_true(shop.page_next_button.visible, "Stufe 1: Blättern frei")
+	assert_false(shop.page_next_button.disabled, "und bezahlbar")
+	assert_string_contains(shop.page_next_button.text, "›")
 
-func test_level_two_unlocks_flipping() -> void:
+func test_tier_two_keeps_the_small_bowl() -> void:
 	var shop := _shop(2)
 	assert_eq(shop.engraving_packs.size(), 3, "Stufe 2: die Spalte war schon voll")
 	assert_eq(shop.single_dice.size(), 3, "Stufe 2: der 4. Würfel kommt erst später")
-	assert_true(shop.page_next_button.visible, "Stufe 2: Blättern frei")
 
-func test_level_three_grows_the_shop() -> void:
+func test_tier_three_grows_the_shop() -> void:
 	var shop := _shop(3)
 	assert_eq(shop.charm_options.size(), 3, "Stufe 3: 3 Charms")
 	assert_eq(shop.single_dice.size(), 4, "Stufe 3: 4 Einzelwürfel")
 	assert_eq(shop.engraving_packs.size(), 3, "Stufe 3: die Spalte bleibt voll")
 
-func test_level_seven_grows_the_bowl_not_the_slit_row() -> void:
+func test_tier_seven_grows_the_bowl_not_the_slit_row() -> void:
 	var shop := _shop(7)
-	assert_eq(shop.single_dice.size(), 5, "Suite: 5 Einzelwürfel")
+	assert_eq(shop.single_dice.size(), 5, "Stufe 7: 5 Einzelwürfel")
 	assert_eq(shop.engraving_packs.size(), 3, "die Spalte wächst nicht mit - sie steht")
 
-func test_level_ten_lays_out_six_dice() -> void:
+func test_tier_ten_lays_out_six_dice() -> void:
 	var shop := _shop(10)
-	assert_eq(shop.single_dice.size(), 6, "High Roller: die Schale ist voll")
+	assert_eq(shop.single_dice.size(), 6, "Stufe 10: die Schale ist voll")
 
-func test_level_six_spread_contains_a_non_common_charm() -> void:
+func test_tier_six_spread_contains_a_non_common_charm() -> void:
 	# Über mehrere Läufe stabil: der erste Platz ist garantiert nicht-gewöhnlich.
 	var shop := _shop(6)
 	var has_premium := false
 	for charm in shop.charm_options:
 		if charm.rarity != Charm.RARITY_COMMON:
 			has_premium = true
-	assert_true(has_premium, "VIP-Lounge garantiert einen besseren Charm")
+	assert_true(has_premium, "Stufe 6 garantiert einen besseren Charm")
 
 # --- Elastisches Layout (wenige, große Karten -> viele, kleine) --------------
 
@@ -178,7 +134,7 @@ func test_charm_cards_are_capped_instead_of_stretching() -> void:
 		"zwei Karten stehen auf dem Deckel, nicht über die halbe Seite")
 	assert_lt(shop._charm_card_width(5), wide, "fünf teilen sich die Zeile")
 
-# --- Roulette-Rim: Rad-Rand (Fahrplan) + Lizenz-Nabe -------------------------
+# --- Roulette-Rim: Rad-Rand (Fahrplan) + Stufen-Nabe -------------------------
 
 func _stations(hub: HubView) -> Array:
 	# Stationen tragen ein Label-Kind (das Ziel); der Rand/Chips nicht.
@@ -456,11 +412,11 @@ func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
 	assert_eq(hub._roadmap_block, 0, "immer noch derselbe Block")
 	assert_eq(hub._roadmap_goals, [188, 250, 313] as Array[int], "aber neue Zahlen")
 
-func test_plaque_medallion_and_pips_track_level() -> void:
+func test_plaque_medallion_and_pips_track_the_tier() -> void:
 	var hub := _hub()
-	hub.set_hub_level(3, "Lizenz", "Parkett", "Nebenwetten", 25)
+	hub.set_progress_tier(3)
 	assert_eq(hub.medallion_label.text, "3", "das Medaillon zeigt die Stufe")
 	assert_eq(_filled_pips(hub), 3, "genau 3 Pips gefüllt")
-	hub.set_hub_level(10, "High Roller", "", "", 0)
+	hub.set_progress_tier(10)
 	assert_eq(hub.medallion_label.text, "10")
-	assert_eq(_filled_pips(hub), 10, "auf Maximalstufe alle Pips gefüllt")
+	assert_eq(_filled_pips(hub), 10, "auf der letzten Stufe alle Pips gefüllt")

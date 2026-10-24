@@ -154,6 +154,7 @@ func test_selling_frees_a_slot_again():
 func test_secret_market_charm_slot_is_barred_at_capacity():
 	# Der Schwarzmarkt geht denselben Weg: voller Dock, keine Energie abgebucht.
 	run.energy = GameRun.SECRET_CHARM_PRICE
+	run.secret_stock.clear()
 	run.secret_stock.append({
 		GameRun.OFFER_KIND: GameRun.KIND_CHARM,
 		GameRun.OFFER_ITEM: Charm.horseshoe(),
@@ -436,13 +437,6 @@ func test_the_stress_reward_never_fizzles():
 	assert_not_null(run.grant_stress_reward(), "der Preis kommt immer an")
 	assert_eq(run.pending_dice.size(), 1)
 	assert_eq(run.money, before, "und zerfällt nie zu Geld")
-
-func test_the_hub_reward_lands_every_pack():
-	run.money = 10000
-	while run.hub_level < 5:
-		run.upgrade_hub()
-	assert_eq(run.last_hub_reward_fizzle, 0, "am unbegrenzten Magazin zerfällt nichts")
-	assert_false(run.last_hub_reward_packs.is_empty())
 
 ## Der Einsatz verzehrt GENAU die benannte Sorte und Größe - und von hinten, wo die
 ## Neuzugänge liegen: was der Spieler nach vorn sortiert hat, bleibt ihm.
@@ -1491,7 +1485,6 @@ func test_double_loader_mints_two_energys_per_stage():
 ## zusammenpassen, sonst plant die Vorschau anders, als gebucht wird.
 func test_the_stage_arithmetic_behind_one_comet_per_stage():
 	_sign([DealClause.DOUBLE_LOADER])
-	run.hub_level = 1  # Deckel 5
 	assert_eq(run.energy_cap(), 5)
 	var stages := 4
 	var split := run.energy_split(stages)
@@ -1532,7 +1525,6 @@ func test_the_first_charm_of_the_block_is_free():
 	assert_false(run.charm_is_free(), "der Gutschein verbraucht sich")
 
 func test_free_spins_are_one_per_machine():
-	run.hub_level = 10  # alle drei Automaten frei
 	_sign([DealClause.FREE_SPINS])
 	assert_eq(run.slot_spin_energy(0), 0)
 	run.energy = 0
@@ -1542,7 +1534,6 @@ func test_free_spins_are_one_per_machine():
 	assert_eq(run.slot_spin_energy(1), 0, "der nächste Automat hat seinen noch")
 
 func test_power_cut_switches_the_slots_off():
-	run.hub_level = 10
 	run.energy = 9
 	assert_true(run.can_spin_slot(0))
 	_sign([DealClause.POWER_CUT])
@@ -1800,16 +1791,15 @@ func test_the_odds_bonus_spares_unique_goods():
 
 # --- Die SERIENLÄNGE: fester Sockel, Klauseln, Wett-Schub -------------------------
 
-func test_the_series_length_is_six_on_every_licence_level():
-	# Die Hub-Leiter ist gefallen (2026-09-04): SECHS Schächte ab Runde 1.
-	for level: int in range(1, 11):
-		run.hub_level = level
-		assert_eq(run.series_slots(), 6, "Stufe %d" % level)
+func test_the_series_length_is_six_on_every_tier():
+	# Die Stufen-Leiter ist gefallen (2026-09-04): SECHS Schächte ab Runde 1.
+	for tier: int in range(1, GameRun.TIER_MAX + 1):
+		run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+		assert_eq(run.series_slots(), 6, "Stufe %d" % tier)
 
 ## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es
 ## nie - auch nicht mit Taktgeber, Wett-Schub und Kettentreiber zusammen.
 func test_more_than_six_slots_never_exist():
-	run.hub_level = 10
 	run.series_slot_bonus = 4
 	run.grant_press_boost()
 	run.owned_charms.append(Charm.shyster())
@@ -1818,30 +1808,25 @@ func test_more_than_six_slots_never_exist():
 	assert_eq(run.series_slots(), 6, "Taktgeber, Schub und Klausel heben ihn nicht")
 
 func test_the_chain_driver_no_longer_lengthens_the_series():
-	run.hub_level = 1
 	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(run.series_slots(), 6, "der Deckel klemmt ihn weg")
 
 func test_the_shyster_doubles_the_quantitative_series_bonus():
-	run.hub_level = 1
 	run.owned_charms.append(Charm.shyster())
 	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(run.deal_bonus_factor(), 2, "der Faktor lebt - nur der Deckel klemmt")
 	assert_eq(run.series_slots(), 6)
 
 func test_the_short_circuit_overrides_the_length_absolutely():
-	run.hub_level = 10
 	run.grant_press_boost()
 	_sign([DealClause.CHAIN_DRIVER, DealClause.SHORT_CIRCUIT])
 	assert_eq(run.series_slots(), 1, "Kurzschluss schlägt Sockel, Klausel und Schub")
 
 func test_the_length_is_capped():
-	run.hub_level = 10
 	run.series_slot_bonus = 99
 	assert_eq(run.series_slots(), GameRun.SERIES_SLOT_CAP)
 
 func test_the_press_boost_is_spent_by_one_series():
-	run.hub_level = 1
 	run.grant_press_boost()
 	assert_eq(run.series_slots(), 6, "der Deckel klemmt den Schub weg")
 	var pack := run.grant_pack(Pack.number_pack())
@@ -1856,7 +1841,6 @@ func test_a_fresh_run_carries_no_press_boost():
 ## Die Presse steht im LADEN der Runde - eine ROUND-Klausel muss dort noch leben,
 ## sonst wären die Serien-Klauseln tote Buchstaben.
 func test_a_round_clause_still_reaches_the_shop_of_its_round():
-	run.hub_level = 1
 	_sign([DealClause.CHAIN_DRIVER], 3)
 	assert_eq(run.round_number, 3)
 	# Der Laden öffnet nach der Auszahlung, die Runde rückt erst beim Schließen vor.
@@ -1886,7 +1870,6 @@ func test_the_press_boost_is_no_doubled_good():
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true,
 		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
-	run.hub_level = 1
 	assert_true(run.press_boost_pending, "EIN Schub, nicht zwei")
 	assert_eq(run.series_slots(), 6, "und der Deckel klemmt ihn ohnehin weg")
 
