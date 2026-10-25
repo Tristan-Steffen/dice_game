@@ -295,9 +295,13 @@ var edge_base: Color = EDGE_COLOR
 var body_tint: Color = Color.WHITE
 ## Material-id je Achse ("" = ohne) - Schlüssel ins Shading-Profil.
 var face_ids: Dictionary = {}
-## Material-Zustand je Achse (1 normal, 2 veredelt). Er färbt NUR - satter statt
-## heller, damit er neben dem Essenzglühen als eigenes Signal lesbar bleibt.
+## Material-Zustand je Achse (1 normal, 2 veredelt). Normal färbt nur satter;
+## VEREDELT hängt das Gitter des Materials an die Seite (siehe _dress_face).
 var face_levels: Dictionary = {}
+## Die zwei Materialien EINER Seite: die glatte Standard-Oberfläche vom Bau und
+## das veredelte Gitter (faul). _dress_face entscheidet, welches hängt.
+var face_plain: Dictionary = {}    # Achse -> StandardMaterial3D
+var face_lattice: Dictionary = {}  # Achse -> ShaderMaterial
 ## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
 var essence_id: String = ""
 ## Rarität der Essenz (-1 = seelenlos) - entscheidet die Animationsstufen.
@@ -327,8 +331,7 @@ func apply_definition(def: DieDefinition) -> void:
 		# Die Lache erbt die Sättigung von hier.
 		face_base[axis] = DieMaterial.tint_for(material_id, level)
 		(labels[axis] as Label3D).outline_size = LABEL_OUTLINE_MATERIAL if material_id != "" else LABEL_OUTLINE_SIZE
-		var quad_material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		_set_textures(quad_material, material_id)
+		_set_textures(_plain_face(axis), material_id)
 	# Die LADUNG kommt aus der Def - jeder Ort des Würfels bekommt sie damit über
 	# den EINEN Refresh-Pfad; der Zeremonie-Stand tritt hier ab.
 	_charge_level = clampi(def.charge, 0, DieDefinition.CHARGE_MAX)
@@ -381,8 +384,7 @@ func _refresh_face_colors() -> void:
 	for axis in quads:
 		var profile := DieMaterial.by_id(face_ids.get(axis, ""))
 		var level: int = face_levels.get(axis, 1)
-		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
-		_apply_profile(material, profile, false, level)
+		_dress_face(axis, profile, level)
 		_refresh_frame(axis, profile, level)
 	_apply_essence_edge()
 	if corner_caps != null:
@@ -571,6 +573,66 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 	material.emission = intense(DieMaterial.saturated(profile.tint, level)) * glow * body_tint
 	material.metallic = profile.metallic
 	material.roughness = profile.roughness
+
+# --- Die VEREDELUNG am Körper --------------------------------------------------
+# Veredelt trägt eine Seite das GITTER ihres Materials (Spieler-Entscheid
+# 2026-10-25): eine eigene, gleichmäßige Geometrie, prozedural gerechnet und
+# darum texturlos. Alle Werte dazu stehen in DieMaterial - hier hängt nur das
+# Material an der Seite.
+const DOPE_SHADER := preload("res://assets/shaders/die_dope_lattice.gdshader")
+## Glas bleibt durchscheinend; ein geschriebenes ALPHA braucht eigene Variante.
+const DOPE_SHADER_SHEER := preload("res://assets/shaders/die_dope_lattice_sheer.gdshader")
+
+## Die glatte Standard-Oberfläche einer Seite - vom Bau, auch wenn gerade das
+## Gitter hängt (EIN Ort kennt beide Materialien einer Seite).
+func _plain_face(axis: String) -> StandardMaterial3D:
+	if not face_plain.has(axis):
+		face_plain[axis] = quads[axis].get_surface_override_material(0)
+	return face_plain[axis]
+
+## Was an einer Seite hängt: veredelt ihr Gitter, sonst die glatte Oberfläche.
+## Ruß löscht das Gitter - Asche hat keine Figur.
+func _dress_face(axis: String, profile: DieMaterial, level: int) -> void:
+	var quad: MeshInstance3D = quads[axis]
+	if profile != null and level >= DieMaterial.MAX_LEVEL and not shown_burned():
+		var lattice := _lattice_face(axis, profile)
+		_apply_lattice(lattice, profile)
+		if quad.get_surface_override_material(0) != lattice:
+			quad.set_surface_override_material(0, lattice)
+		return
+	var plain := _plain_face(axis)
+	_apply_profile(plain, profile, false, level)
+	if quad.get_surface_override_material(0) != plain:
+		quad.set_surface_override_material(0, plain)
+
+## Das Gitter-Material einer Seite, faul gebaut wie die Runen-Auflagen.
+func _lattice_face(axis: String, profile: DieMaterial) -> ShaderMaterial:
+	var material: ShaderMaterial = face_lattice.get(axis)
+	if material == null:
+		material = ShaderMaterial.new()
+		face_lattice[axis] = material
+	var shader := DOPE_SHADER_SHEER if profile.lattice_alpha < 1.0 else DOPE_SHADER
+	if material.shader != shader:
+		material.shader = shader
+	return material
+
+## body_tint moduliert Feld und Linien wie bei der glatten Oberfläche, damit
+## Auswahl- und Stil-Tints auch über dem Gitter lesen.
+func _apply_lattice(material: ShaderMaterial, profile: DieMaterial) -> void:
+	var field := profile.lattice_body * body_tint
+	var line := profile.lattice_light * body_tint
+	material.set_shader_parameter("kind", profile.lattice)
+	material.set_shader_parameter("body", Vector3(field.r, field.g, field.b))
+	material.set_shader_parameter("light", Vector3(line.r, line.g, line.b))
+	material.set_shader_parameter("cells", profile.lattice_cells)
+	material.set_shader_parameter("width", profile.lattice_width)
+	material.set_shader_parameter("gain", profile.lattice_gain)
+	material.set_shader_parameter("shade_amount", profile.lattice_shade)
+	material.set_shader_parameter("field_glow", profile.lattice_field)
+	material.set_shader_parameter("dark_lines", 1.0 if profile.lattice_dark else 0.0)
+	material.set_shader_parameter("metallic_amount", profile.lattice_metallic)
+	material.set_shader_parameter("roughness_amount", profile.lattice_roughness)
+	material.set_shader_parameter("alpha_amount", profile.lattice_alpha)
 
 ## Runen der Seiten: sichtbar nur, wo eine Rune sitzt. In Ruhe schimmern sie
 ## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_runes). Genau
@@ -824,7 +886,7 @@ func _refresh_charge() -> void:
 	# dunkle Ziffer, keine Lache, keine Seelen-Bewegung.
 	set_edge_tint(BURNED_EDGE)
 	for axis in quads:
-		var material: StandardMaterial3D = quads[axis].get_surface_override_material(0)
+		var material := _plain_face(axis)
 		material.albedo_color = BURNED_BODY
 		material.emission = BURNED_EDGE * FACE_GLOW
 		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
