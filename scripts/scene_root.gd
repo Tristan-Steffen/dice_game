@@ -95,9 +95,6 @@ const QUEUE_TRAY_PIT_POSITION := Vector3(-9.3, 0.0, 0.0)
 
 ## Der SAUM eines Hebebühnen-Lochs um das Slotraster: ein halber Platz ringsum.
 const TRAY_PIT_SEAM := DiceTrayView.SPACING * 0.5
-## Der ABLAGE-Abschnitt des Trägers trägt das Dunkelrot des toten Ablage-Trays; der
-## Vorrats-Abschnitt bleibt beim Tray-Blau seiner Pucks.
-const ABLAGE_TINT := Color(0.55, 0.08, 0.08)
 ## Der Fußabdruck des SCHLUCK-Lochs: ein liegender Würfel plus einen schmalen Saum.
 const SWALLOW_HALF := Vector2.ONE * (DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 1.55)
 ## Wie tief der VORRAT im Pit parkt (Spieler-Entscheid 2026-08-31): flach genug, dass
@@ -111,7 +108,6 @@ const POOL_PARK_DEPTH := DiceTrayView.FLOAT_HEIGHT
 ## Plattform, eine Ablage-Reihe schiebt von hinten ein, und der Träger rückt eine
 ## Reihen-Teilung vor.
 const CARRIER_SINK_TIME := 0.34
-const ABLAGE_SLIDE_TIME := 0.55
 const CARRIER_SHIFT_TIME := 0.5
 ## Die Warteschlangen-Fahrten laufen DOPPELT so schnell und dicht GESTAFFELT statt
 ## nacheinander (Spieler-Entscheid 2026-08-30): je Platz eine eigene Maschine, der
@@ -697,14 +693,12 @@ var _carrier_tween: Tween = null
 ## Fahrt steht; sonst verschwände der Körper im Bild seines Aufbruchs.
 var _carrier_leaving: Dictionary = {}
 var _carrier_sinks: Array[Tween] = []
-## Die ABLAGE im Träger: je Eintrag {def, face, seat, body}, in Pit-Ordnung. Sie ist
-## am Rundenende der Schwanz des neuen Pools.
+## Die ABLAGE: je Eintrag {def, face, seat}, in Pit-Ordnung, UNSICHTBAR im Tisch
+## (Spieler-Wunsch 2026-10-25: der Vorrat zeigt nur Ungenutzte). Sie ist am
+## Rundenende der Schwanz des neuen Pools.
 var _ablage_seats: Array[Dictionary] = []
 ## Was geschluckt ist, aber noch keine volle Reihe füllt (unsichtbar gepuffert).
 var _ablage_buffer: Array[Dictionary] = []
-## Wieviele Reihen gerade einfahren - das hintere Band schließt erst mit der letzten.
-var _ablage_entering := 0
-var _ablage_root: Node3D = null
 ## Die Abgänge, die noch geschluckt werden wollen, und je Bahn der fahrende Körper
 ## (null = die Bahn ist frei). Ein getöteter Tween meldet nie fertig - der harte
 ## Pfad räumt die Körper selbst.
@@ -4857,10 +4851,9 @@ func _clear_thrown(bodies: Array) -> void:
 # einzeln nach - und ist die vorderste Pool-Reihe leer, fährt der GANZE Träger eine
 # Reihen-Teilung vor: das Loch steht fest, der Träger bewegt sich darunter.
 # Abgelegte Würfel SCHLUCKT der Tisch an ihrem Liegeplatz in der Wurfgrube (eine
-# würfelgroße Sektion, PIT_SWALLOW) und sammelt sie unsichtbar; je voller Reihe
-# fahren sie EINMAL GEMISCHT von hinten in den Träger ein und LIEGEN dort mit der
-# gemerkten Seite oben, im roten Ablage-Abschnitt hinter dem Teiler.
-# Am Rundenende fährt der Träger schlicht herauf: sein Inhalt IST der neue Pool.
+# würfelgroße Sektion, PIT_SWALLOW) und behält sie VERBORGEN: je voller Reihe EINMAL
+# gemischt gebucht, sichtbar im Vorrat bleiben nur Ungenutzte (Spieler-Wunsch 2026-10-25).
+# Am Rundenende fährt der Träger herauf: Rest plus Ablage IST der neue Pool.
 # Die WARTESCHLANGE fährt je Würfel eine eigene Plattform-Fahrt auf.
 
 ## Wie tief eine Würfel-Hebebühne fährt: der schwebende Würfel muß durch sein
@@ -4977,6 +4970,7 @@ func _queue_shaft_for(slot: int) -> LiftShaftView:
 	var shaft := _queue_shafts[slot]
 	if shaft == null or not is_instance_valid(shaft):
 		shaft = LiftShaftView.new("QueueShaft%d" % slot)
+		shaft.glow_rim = false
 		add_child(shaft)
 		var pit := TableScreen.queue_pit(slot)
 		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
@@ -5002,6 +4996,7 @@ func _swallow_shaft_for(lane: int, at: Vector3, half := SWALLOW_HALF,
 	var shaft := _swallow_shafts[lane]
 	if shaft == null or not is_instance_valid(shaft):
 		shaft = LiftShaftView.new("SwallowShaft%d" % lane)
+		shaft.glow_rim = false
 		add_child(shaft)
 		var pit := TableScreen.swallow_pit(lane)
 		shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
@@ -5296,11 +5291,11 @@ func _drop_stage_body(body: Node3D) -> void:
 	body.get_parent().remove_child(body)
 	body.queue_free()
 
-# --- Die ABLAGE: Reihen erscheinen im Träger ------------------------------------
+# --- Die ABLAGE: verborgene Reihen im Tisch -------------------------------------
 
-## Volle Reihen erscheinen erst, wenn ihre Würfel wirklich UNTEN sind ("landed",
-## gesetzt von der Schluck-Fahrt) - ein noch fahrender Würfel stünde sonst doppelt
-## im Bild. Der Puffer hält die Schluck-ORDNUNG, gelandet wird auch quer dazu.
+## Volle Reihen werden erst gebucht, wenn ihre Würfel wirklich UNTEN sind ("landed",
+## gesetzt von der Schluck-Fahrt). Der Puffer hält die Schluck-ORDNUNG, gelandet wird
+## auch quer dazu.
 func _flush_ablage_rows() -> void:
 	if pool_tray_view == null or _pool_standing:
 		return
@@ -5319,14 +5314,6 @@ func _row_landed(width: int) -> bool:
 			return false
 	return true
 
-## Der Halter der Ablage - ein Kind des TRÄGERS, damit sie jede Fahrt mitmacht.
-func _ablage_stage() -> Node3D:
-	if _ablage_root == null or not is_instance_valid(_ablage_root):
-		_ablage_root = Node3D.new()
-		_ablage_root.name = "Ablage"
-		pool_tray_view.add_child(_ablage_root)
-	return _ablage_root
-
 ## Ein LIEGENDER Würfel in Tray-Lage: die gemerkte Seite oben, die Ziffer aufrecht.
 func _lying_die_body(def: DieDefinition, face: int) -> Node3D:
 	var die := DieBuilder.build()
@@ -5342,106 +5329,19 @@ func _lying_die_body(def: DieDefinition, face: int) -> Node3D:
 	display.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
 	return die
 
-## Eine volle Ablage-Reihe erscheint: EINMAL gemischt (die eine Reststreuung der
-## Runde), dann schiebt sie durch das hintere Öffnungsband auf ihre Träger-Sitze.
-## Endzustand zuerst - die Sitze stehen, bevor die Fahrt läuft.
+## Eine volle Ablage-Reihe wird gebucht: EINMAL gemischt (die eine Reststreuung der
+## Runde), ohne Körper - sie liegt verborgen im Tisch.
 func _play_ablage_row(items: Array) -> void:
 	if items.is_empty() or pool_tray_view == null or _pool_standing:
 		return
-	var row := DiceTrayView.shuffle_row(items)
-	var lie := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
-	var behind := _ablage_entry_x()
-	var tween := create_tween()
-	tween.set_parallel(true)
-	for k in row.size():
-		var item: Dictionary = row[k]
-		var seat := _ablage_base() + _ablage_seats.size()
-		var body := _lying_die_body(item["def"], int(item["face"]))
-		_ablage_stage().add_child(body)
-		var home := pool_tray_view.slot_offset(seat) + Vector3.UP * lie
-		body.position = Vector3(behind, home.y, home.z)
+	for item: Dictionary in DiceTrayView.shuffle_row(items):
 		_ablage_seats.append({"def": item["def"], "face": int(item["face"]),
-			"seat": seat, "body": body})
-		tween.tween_property(body, "position", home, ABLAGE_SLIDE_TIME) \
-			.set_trans(Tween.TRANS_LINEAR)
-	_ablage_entering += 1
-	if pool_shaft != null and is_instance_valid(pool_shaft):
-		pool_shaft.run_band(LiftShaftView.BAND_BACK, true)
-	var generation := _tray_stage_gen
-	var launched := run
-	tween.chain().tween_callback(func() -> void:
-		_ablage_entering = maxi(_ablage_entering - 1, 0)
-		if generation != _tray_stage_gen or run != launched:
-			return
-		if _ablage_entering == 0 and pool_shaft != null and is_instance_valid(pool_shaft):
-			pool_shaft.run_band(LiftShaftView.BAND_BACK, false))
-	_sync_ablage_decor()
-
-## Wo eine einfahrende Reihe wartet: im hinteren HOHLRAUM der Maschine, träger-lokal
-## gerechnet - dort ist es dunkel, und das Band gibt den Weg frei.
-func _ablage_entry_x() -> float:
-	if pool_shaft == null or not is_instance_valid(pool_shaft) or _pool_parked_field.is_empty():
-		return 0.0
-	var at: Vector3 = _pool_parked_field["at"]
-	var half: Vector2 = _pool_parked_field["half"]
-	var world := at.x + half.x + LiftShaftView.WALL + pool_shaft.cavity_span() * 0.6
-	return world - _carrier_home().x
-
-## Der Ablage-Abschnitt liest sich als eigener Block: je Reihe eine dunkelrote
-## Leuchtplatte unter den liegenden Würfeln, und davor der TEILER - ein heller Steg
-## quer über den Träger. Ganz neu gebaut, nie geflickt (höchstens sechs Platten).
-func _sync_ablage_decor() -> void:
-	if pool_tray_view == null:
-		return
-	var stage := _ablage_stage()
-	for child in stage.get_children():
-		if child.name.begins_with("Ablagestreifen") or child.name == "Teiler":
-			stage.remove_child(child)
-			child.queue_free()
-	if _ablage_seats.is_empty():
-		return
-	var width := maxi(pool_tray_view.columns, 1)
-	var base := _ablage_base()
-	var rows := int(ceil(float(_ablage_seats.size()) / float(width)))
-	var span := Vector3(DiceTrayView.SPACING.x * 0.86, 0.03,
-		float(width) * DiceTrayView.SPACING.y)
-	for r in rows:
-		var at := pool_tray_view.slot_offset(base + r * width)
-		_stage_plate("Ablagestreifen%d" % r, stage, span,
-			Vector3(at.x, 0.02, 0.0), ABLAGE_TINT, 1.4)
-	var edge := pool_tray_view.slot_offset(base).x + DiceTrayView.SPACING.x * 0.5
-	_stage_plate("Teiler", stage,
-		Vector3(DiceTrayView.SPACING.x * 0.12, 0.05, span.z),
-		Vector3(edge, 0.03, 0.0), LiftShaftView.GLOW_COLOR, 2.2)
-
-func _stage_plate(plate_name: String, parent: Node3D, span: Vector3, at: Vector3,
-		tint: Color, energy: float) -> void:
-	var mesh := BoxMesh.new()
-	mesh.size = span
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(tint.r * 0.4, tint.g * 0.4, tint.b * 0.4, 1.0)
-	material.metallic = 0.0
-	material.roughness = 0.5
-	material.emission_enabled = true
-	material.emission = Color(tint.r, tint.g, tint.b, 1.0)
-	material.emission_energy_multiplier = energy
-	var plate := MeshInstance3D.new()
-	plate.name = plate_name
-	plate.mesh = mesh
-	plate.material_override = material
-	plate.position = at
-	plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(plate)
+			"seat": _ablage_base() + _ablage_seats.size()})
 
 ## Die Ablage fort - der EINE Aufräum-Pfad ihrer Körper.
 func _reset_ablage_hard() -> void:
 	_ablage_seats.clear()
 	_ablage_buffer.clear()
-	_ablage_entering = 0
-	if _ablage_root != null and is_instance_valid(_ablage_root):
-		_ablage_root.get_parent().remove_child(_ablage_root)
-		_ablage_root.queue_free()
-	_ablage_root = null
 
 # --- Die Warteschlange fährt je Würfel eine eigene Plattform auf ----------------
 
@@ -5653,8 +5553,8 @@ func _drawn_carrier_seats(before: int) -> Array[int]:
 
 # --- Das Rundenende: der Pit-Inhalt IST der neue Pool ---------------------------
 
-## Erst wenn der letzte Schluck liegt, fährt die letzte TEIL-Reihe ein - sonst
-## erschiene im Pit ein Würfel, den der Tisch noch schluckt. Gewartet wird per
+## Erst wenn der letzte Schluck liegt, wird die letzte TEIL-Reihe gebucht - sonst
+## stiege ein Würfel mit auf, den der Tisch noch schluckt. Gewartet wird per
 ## Polling mit Lauf-Wache: ein Reset darf nicht auf ein Signal warten, das nie kommt.
 func _flush_ablage_tail(generation: int, launched: GameRun) -> void:
 	while _swallow_busy():
@@ -5665,10 +5565,6 @@ func _flush_ablage_tail(generation: int, launched: GameRun) -> void:
 		var rest := _ablage_buffer.duplicate()
 		_ablage_buffer.clear()
 		_play_ablage_row(rest)
-	while _ablage_entering > 0:
-		await get_tree().process_frame
-		if generation != _tray_stage_gen or run != launched:
-			return
 
 ## Der KREISLAUF: was im Pit steht, IST der neue Pool - [Warteschlangen-Rest]
 ## [ungezogener Rest][Ablage], alles in Pit-Ordnung. Gemischt wurde nur jede
@@ -5682,7 +5578,7 @@ func _reorder_pool_from_pit() -> void:
 		order.append(item["def"])
 	run.reorder_pool_full(order)
 
-## Das Rundenende ist ein VIER-Schlag: die letzte Ablage-Reihe fährt ein, die
+## Das Rundenende ist ein VIER-Schlag: die letzte Ablage-Reihe wird gebucht, die
 ## Warteschlange geht ab, der Pit-Inhalt wird zum neuen Pool - und dann hebt die
 ## Plattform den Träger schlicht herauf. Kein blindes Glas, kein Tausch dahinter.
 ## Fire-and-forget mit Lauf- und Generationsmarke; jeder Abbruch landet hart.

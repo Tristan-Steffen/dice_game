@@ -253,6 +253,8 @@ var cavity_reach := 0.0
 ## Der Pool-Schacht meldet hier die Fuge zur Turm-Bucht: hinten schiebt die Ablage
 ## herein und braucht die volle Länge, vorn steht ein fremdes, IMMER offenes Loch.
 var front_cavity_reach := 0.0
+## Trägt der Schacht den türkisen Saum? Schluck und Warteschlange nicht (Spieler-Wunsch 2026-10-25).
+var glow_rim := true
 ## Wieviel TIEFER als der Parkstand die Maschine zum EIN- und AUSFAHREN sinkt (1 = gar
 ## nicht). GEMELDET von draußen wie cavity_reach: nur eine Grube, die OFFEN stehen
 ## bleibt, hat eine Nachbarin, in deren Loch die wartende Ware sonst erscheint - der
@@ -1351,17 +1353,18 @@ func _build_body() -> void:
 		Vector3((back_cavity - front_cavity) * 0.5, sole_y + DECK * 0.5, 0.0),
 		_cavity_material)
 
-	var glow_y := -GLOW_DROP - GLOW_H * 0.5
-	# Rundum, denn beide Stürze stehen hoch genug: der Saum liegt auf ihnen, nicht
-	# im Öffnungsband - und er liegt IM Schacht, er umrandet die Fläche nicht.
-	TableProps.box(self, "GlowFront", Vector3(GLOW_IN, GLOW_H, span.y),
-		Vector3(-half.x + GLOW_IN * 0.5, glow_y, 0.0), _glow_material)
-	TableProps.box(self, "GlowBack", Vector3(GLOW_IN, GLOW_H, span.y),
-		Vector3(half.x - GLOW_IN * 0.5, glow_y, 0.0), _glow_material)
-	TableProps.box(self, "GlowLeft", Vector3(span.x, GLOW_H, GLOW_IN),
-		Vector3(0.0, glow_y, -half.y + GLOW_IN * 0.5), _glow_material)
-	TableProps.box(self, "GlowRight", Vector3(span.x, GLOW_H, GLOW_IN),
-		Vector3(0.0, glow_y, half.y - GLOW_IN * 0.5), _glow_material)
+	if glow_rim:
+		var glow_y := -GLOW_DROP - GLOW_H * 0.5
+		# Rundum, denn beide Stürze stehen hoch genug: der Saum liegt auf ihnen, nicht
+		# im Öffnungsband - und er liegt IM Schacht, er umrandet die Fläche nicht.
+		TableProps.box(self, "GlowFront", Vector3(GLOW_IN, GLOW_H, span.y),
+			Vector3(-half.x + GLOW_IN * 0.5, glow_y, 0.0), _glow_material)
+		TableProps.box(self, "GlowBack", Vector3(GLOW_IN, GLOW_H, span.y),
+			Vector3(half.x - GLOW_IN * 0.5, glow_y, 0.0), _glow_material)
+		TableProps.box(self, "GlowLeft", Vector3(span.x, GLOW_H, GLOW_IN),
+			Vector3(0.0, glow_y, -half.y + GLOW_IN * 0.5), _glow_material)
+		TableProps.box(self, "GlowRight", Vector3(span.x, GLOW_H, GLOW_IN),
+			Vector3(0.0, glow_y, half.y - GLOW_IN * 0.5), _glow_material)
 
 	_build_platform(span)
 
