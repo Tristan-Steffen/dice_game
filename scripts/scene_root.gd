@@ -4266,9 +4266,6 @@ func _play_vitrine_exit() -> void:
 func _sync_vitrine_stock(grade := ShopController.GRADE_STAND) -> void:
 	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or charm_shop == null:
 		return
-	# Erst die Reserve, dann die Ware: die Auslage soll ihre Plätze gleich richtig
-	# rechnen, statt sie hinterher noch einmal zu verschieben.
-	shop_vitrine.label_reserve = _vitrine_label_reserve()
 	shop_vitrine.present_graded(_shop_vitrine_stock(), grade)
 	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
 
@@ -4329,7 +4326,6 @@ func _swap_vitrine_stock(grade: String, lead := 0.0) -> void:
 		_sync_vitrine_stock()  # Kauf, Tausch, Sperre: dieselbe Seite bleibt liegen
 		return
 	_vitrine_swap += 1
-	shop_vitrine.label_reserve = _vitrine_label_reserve()
 	shop_vitrine.swap_to(_shop_vitrine_stock(), lead)
 	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
 
@@ -7339,72 +7335,10 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 						+ ChipStackView.stack_lift(i))})
 	return _throw_bodies(entries, on_land, true)
 
-# --- Die Würfelnetze unter der Auslage -----------------------------------------
-# Steht die Schale, liegen unter jedem Würfel sein NETZ, seine SEELEN-ZEILE und
-# sein PREIS auf der Ladenseite: dieselbe Zeichnung wie überall, nur als reine
-# Auskunft ohne Maus - die Ware trägt, was der Spieler wissen muß. Sie sind fort,
-# solange etwas steigt oder sinkt - eine Beschriftung unter einem fahrenden Würfel
-# wäre eine Lüge - und fort, solange die Auslage abgedeckt ist.
-
-## Luft zwischen Würfel und seinem Netz und der Rand zur Kante der Auslage, beide
-## in Buchten-Einheiten (Breite/100).
-## Die Luft zwischen Würfel und seinem Netz - nach Werkstatt-Vorbild großzügig:
-## dort trennt spürbare Luft den schwebenden Würfel von seinem Diagramm.
-const VITRINE_NET_GAP := 6.0
-const VITRINE_NET_MARGIN := 2.5
-## Wie viel der gemessenen Teilung ein Netz höchstens beansprucht - die Reihe
-## steht sonst Kante an Kante.
-const VITRINE_NET_SHARE := 0.9
-## Und wie viel des Bandes: der Deckel ist die ZWEITE Quelle des Zellmaßes, und
-## er muß in der Reserve und im wirklichen Aufbau derselbe sein - sonst rechnete
-## die Auslage mit einem anderen Netz, als die Seite später zeichnet.
-const VITRINE_NET_BAND_SHARE := 0.5
-## Der Platz der BESCHRIFTUNG unter dem Netz, in Einheiten: Luft, Seelen-Zeile,
-## Luft, Preisschild. Die Ware sagt hier selbst, was in ihr steckt und was sie
-## kostet - dafür gibt der Beschriftungs-Streifen die Tiefe her.
-const VITRINE_NET_LABELS := 6.4
-
-## Was Beschriftung UND Info-Fuß zusammen vom Band nehmen. EINE Rechnung für die
-## Reserve und den wirklichen Aufbau - drifteten die beiden, stünde die Ware auf
-## anderen Plätzen, als die Seite später zeichnet. Die Fußzahl gehört dem Laden,
-## der den Fuß auch baut.
-static func _vitrine_label_units() -> float:
-	return VITRINE_NET_LABELS + ShopController.VITRINE_FOOTER_UNITS
-
-## Das Zellmaß der Buchten-Netze - EINE Quelle: die gemessene Teilung deckelt es,
-## das freie Band ebenfalls.
-static func _vitrine_net_cell(pitch: float, band: float) -> float:
-	return DieNetView.cell_for(Vector2(pitch * VITRINE_NET_SHARE, band))
-
-## Was die Beschriftung VOR der Schale beansprucht, in Welt-Tiefe: Luft, Netz,
-## Seelen-Zeile und Preisschild - gemessen ab dem ANKER des Würfels, denn dort
-## hängt sie an.
-## Gerechnet aus der TEILUNG allein: so hängt der Platz der Würfel nicht an dem
-## Band, das er selbst erst freiläßt.
-func _vitrine_label_reserve() -> float:
-	if charm_shop == null or not is_instance_valid(charm_shop) or table_screen == null:
-		return 0.0
-	var rect := charm_shop.vitrine_rect_px()
-	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-		return 0.0
-	var count := 0
-	for die in charm_shop.vitrine_stock().get(ShopController.KIND_DIE, []):
-		if die != null:
-			count += 1
-	if count <= 0:
-		return 0.0
-	var unit := maxf(rect.size.x, 1.0) / 100.0
-	var pitch := rect.size.x * (1.0 - VitrineView.EDGE_MARGIN * 2.0) / float(count)
-	var cell := _vitrine_net_cell(pitch, rect.size.y * VITRINE_NET_BAND_SHARE)
-	var block := unit * VITRINE_NET_GAP + DieNetView.net_size(cell).y \
-		+ unit * _vitrine_label_units()
-	return block * _vitrine_depth_per_pixel(rect)
-
-## Wieviel Welt-TIEFE ein Display-Pixel der Bucht wert ist (Pixel-y = Welt-x).
-func _vitrine_depth_per_pixel(rect: Rect2) -> float:
-	var a := table_screen.pixel_to_world(rect.position)
-	var b := table_screen.pixel_to_world(rect.end)
-	return absf(a.x - b.x) / maxf(rect.size.y, 1.0)
+# --- Die Schilder unter der Auslage ---------------------------------------------
+# Steht die Schale, liegt unter jedem Würfel sein Block aus Name/Seele und Preis auf
+# der Ladenseite. Er ist fort, solange etwas steigt oder sinkt - eine Beschriftung
+# unter einem fahrenden Würfel wäre eine Lüge - und solange die Auslage abgedeckt ist.
 
 ## Die Schale STEHT nach einer echten Fahrt (Auftritt oder Umschlag): erst das ist
 ## eine ANKUNFT, und nur dort projizieren sich die Blöcke aus ihren Würfeln.
@@ -7436,18 +7370,12 @@ func _sync_vitrine_nets(arrived := false) -> void:
 	if defs.is_empty():
 		_clear_vitrine_nets()
 		return
-	# Das Raster nennt der Laden selbst: Zeilen sind die Kartenzeilen, das Netz steht
-	# rechts neben seinem Würfel, der Preis auf der gemeinsamen Grundlinie.
-	var cell := charm_shop.die_net_cell()
-	if cell <= 0.0:
-		_clear_vitrine_nets()
-		return
 	var entries: Array = []
 	for i in defs.size():
 		entries.append({"def": defs[i], "anchor": anchors[i]})
-	charm_shop.set_die_nets(entries, cell, arrived)
+	charm_shop.set_die_nets(entries, arrived)
 
-## Die Netze abräumen. Eine laufende ABSORPTION ist die Ausnahme: sie IST das
+## Die Schilder abräumen. Eine laufende ABSORPTION ist die Ausnahme: sie IST das
 ## Abräumen und legt am Ende selbst ab - ihr dazwischenzufahren risse die Blöcke
 ## mitten im Einsaugen weg.
 func _clear_vitrine_nets() -> void:
@@ -7457,49 +7385,33 @@ func _clear_vitrine_nets() -> void:
 
 ## Der harte Weg: was schrumpft, ist sofort fort (Verdrängung, Laufwechsel).
 func _drop_vitrine_nets() -> void:
-	_vitrine_soul_hints.clear()
 	if charm_shop != null and is_instance_valid(charm_shop):
 		charm_shop.clear_die_nets()
 
-## Die Seelen-Zeile je Würfel-Instanz - Essence.by_id baut je Aufruf den ganzen
-## Katalog, und gefragt wird je Bild (die Grammatik der Grubenkarte).
-var _vitrine_soul_hints: Dictionary = {}
-
-## Der EINE Schreiber des Info-Fusses: die Netz-Zelle unter dem Zeiger gewinnt,
-## sonst antwortet der Würfelkörper mit seiner Seele, sonst steht dort nichts.
-## Beides in EINER Hand, damit Zelle und Körper sich nicht gegenseitig löschen.
+## Der EINE Schreiber der Würfel-Auskunft im Auskunfts-Band: der gegriffene Würfel
+## spricht (Name, Seele, Wirkung und Netz), sonst steht dort nichts.
 func _sync_vitrine_net_hover() -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop):
 		return
 	var rect := _shop_bay_rect()
 	if not _vitrine_curtain or rect.size.x <= 0.0 or charm_shop.net_count() <= 0:
-		charm_shop.set_net_hint("")
+		charm_shop.set_die_hover(null)
 		return
 	var pixel := _screen_pixel(get_viewport().get_mouse_position())
 	if pixel.x < 0.0:
-		charm_shop.set_net_hint("")
+		charm_shop.set_die_hover(null)
 		return
-	var hint := charm_shop.net_hint_at(pixel)
-	if hint == "":
-		hint = _vitrine_soul_hint(_bay_item_at(shop_vitrine, rect, pixel))
-	charm_shop.set_net_hint(hint)
+	charm_shop.set_die_hover(_vitrine_die_at(_bay_item_at(shop_vitrine, rect, pixel)))
 
-## Die Seele des gegriffenen Würfels ("" für alles andere) - dieselbe Zeile, die
-## der Essenz-Chip im Netz erklärt.
-func _vitrine_soul_hint(item: Dictionary) -> String:
+## Der gegriffene Würfel der Ladenbucht (null für alles andere).
+func _vitrine_die_at(item: Dictionary) -> DieDefinition:
 	if item.is_empty() or String(item["kind"]) != ShopController.KIND_DIE:
-		return ""
+		return null
 	var lying: Array = charm_shop.vitrine_stock().get(ShopController.KIND_DIE, [])
 	var index := int(item["index"])
 	if index < 0 or index >= lying.size():
-		return ""
-	var def: DieDefinition = lying[index]
-	if def == null:
-		return ""
-	var key := def.get_instance_id()
-	if not _vitrine_soul_hints.has(key):
-		_vitrine_soul_hints[key] = DieNetView.hint_for(def, DieNetView.EDGE)
-	return String(_vitrine_soul_hints[key])
+		return null
+	return lying[index]
 
 # --- Griff und Beschriftung in der Auslage -------------------------------------
 

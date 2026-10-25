@@ -41,26 +41,13 @@ func test_cheap_flipping_from_tier_eight() -> void:
 	assert_eq(_run_at(7).shop_flip_fee_factor(), 1.0)
 	assert_eq(_run_at(8).shop_flip_fee_factor(), 0.5, "Stufe 8 halbiert die Blätter-Gebühr")
 
-func test_shop_slots_scale_with_the_tier() -> void:
-	var run := _run_at(1)
-	# Stufe 1: wenige, große Angebote (2 Charms / 3 Einzelwürfel).
-	# Charm- und Würfel-Leiter springen auf denselben Stufen (3/6/9); die
-	# Gravuren-Spalte ist FLACH - drei Plätze auf jeder Stufe.
-	assert_eq(run.shop_charm_slots(), 2)
-	assert_eq(run.shop_dice_slots(), 3)
-	assert_eq(run.shop_pack_slots(), 3)
-	run = _run_at(2)  # noch kein 4. Würfel
-	assert_eq(run.shop_dice_slots(), 3)
-	run = _run_at(3)  # größerer Laden
-	assert_eq(run.shop_charm_slots(), 3)
-	assert_eq(run.shop_dice_slots(), 4)
-	run = _run_at(7)
-	assert_eq(run.shop_dice_slots(), 5)
-	assert_eq(run.shop_pack_slots(), 3, "die Reihe war schon auf Stufe 1 voll")
-	run = _run_at(10)  # voller Laden
-	assert_eq(run.shop_charm_slots(), 5)
-	assert_eq(run.shop_dice_slots(), 6, "die Schale trägt sechs")
-	assert_eq(run.shop_pack_slots(), 3)
+func test_shop_slots_are_fixed_on_every_tier() -> void:
+	# Drei Regale zu je drei Plätzen - die Stufe hebt nur die Qualität.
+	for tier in [1, 2, 3, 7, 10]:
+		var run := _run_at(tier)
+		assert_eq(run.shop_charm_slots(), 3, "Stufe %d: drei Charms" % tier)
+		assert_eq(run.shop_dice_slots(), 3, "Stufe %d: drei Würfel" % tier)
+		assert_eq(run.shop_pack_slots(), 3, "Stufe %d: drei Gravuren" % tier)
 
 func test_overcharge_frame_is_five_from_the_first_tier() -> void:
 	var run := _run()

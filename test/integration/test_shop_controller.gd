@@ -17,7 +17,7 @@ static func _round_of(tier: int) -> int:
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.round_number = _round_of(7)  # großer Laden (4 Charms / 5 Einzelwürfel / 3 Gravur-Pakete)
+	run.round_number = _round_of(7)  # drei Regale zu je drei Plätzen
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
@@ -34,7 +34,7 @@ func _count_special() -> int:
 
 # --- Angebot ------------------------------------------------------------------
 
-func test_open_shows_panel_and_offers_up_to_four_charms():
+func test_open_shows_panel_and_offers_up_to_three_charms():
 	assert_true(shop.visible)
 	assert_gt(shop.charm_options.size(), 0, "mindestens ein Charm im Angebot")
 	assert_true(shop.charm_options.size() <= run.shop_charm_slots(), "höchstens so viele wie die Stufe erlaubt")
@@ -55,12 +55,14 @@ func test_the_shop_never_lays_out_a_dice_pack_again():
 	assert_eq(shop.vitrine_stock().has("dice_pack"), false,
 		"die Bucht kennt keine Würfel-Kassetten mehr")
 
-func test_the_dice_ladder_follows_the_tier():
-	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "Stufe 7: 5 Würfel")
-	assert_eq(GameRun.new_run().shop_dice_slots(), 3, "Stufe 1: drei")
-	var top := GameRun.new_run()
-	top.round_number = _round_of(GameRun.TIER_MAX)
-	assert_eq(top.shop_dice_slots(), 6, "Stufe 10: sechs")
+func test_every_shelf_carries_three_places_on_every_tier():
+	for tier in [1, 7, GameRun.TIER_MAX]:
+		run.round_number = _round_of(tier)
+		shop.spreads.clear()
+		shop.open()
+		assert_eq(shop.charm_options.size(), 3, "Stufe %d: drei Charms" % tier)
+		assert_eq(shop.single_dice.size(), 3, "Stufe %d: drei Würfel" % tier)
+		assert_eq(shop.slit_seats().size(), 3, "Stufe %d: drei Gravuren" % tier)
 
 # --- Paketkauf ----------------------------------------------------------------
 # Gekaufte Pakete wandern VERSIEGELT ins Lager; erst die Presse öffnet sie.
@@ -606,21 +608,21 @@ func test_the_vitrine_hole_sits_inside_its_frame() -> void:
 	assert_almost_eq(bay.end.y - hole.end.y,
 		PackDrawerView.rim_inset(shop.u), 0.51, "unten ebenso")
 
-## Die WÜRFEL-Spalte (Welle 29) steht RECHTS der Gravuren-Spalte, getrennt durch eine
-## Linie, und nimmt die ganze Restbreite der Ware.
-func test_the_vitrine_keeps_the_biggest_band_of_the_page() -> void:
+## Die drei REGALE stehen übereinander: Charms, Gravuren, Würfel - jede Zeile über
+## die volle Innenbreite.
+func test_the_three_shelves_stand_one_under_the_other() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	var page: Rect2 = shop.get_global_rect()
+	var charms: Rect2 = shop.content_root.get_global_rect()
+	var gravur: Rect2 = shop.slit_row.get_global_rect()
 	var bay: Rect2 = shop.vitrine_rect_px()
-	var gravur: Rect2 = (shop.slit_row.get_parent() as Control).get_global_rect()
-	assert_gte(bay.size.y, shop.u * ShopController.VITRINE_MIN_HEIGHT * 0.5,
-		"die Würfel-Spalte hat Höhe")
-	assert_gt(bay.position.x, gravur.end.x, "sie steht rechts der Gravuren")
-	assert_gt(bay.size.x, gravur.size.x, "und nimmt die größere Breite")
-	assert_not_null(shop.find_child("ColumnLine", true, false), "eine Linie trennt sie")
-	assert_lt(bay.size.y, page.size.y * 0.75, "aber sie frisst Kopf, Charms und Fuß nicht")
+	assert_lte(charms.end.y, gravur.position.y, "die Charms stehen über den Gravuren")
+	assert_lte(gravur.end.y, bay.position.y, "die Gravuren über den Würfeln")
+	assert_almost_eq(bay.size.x, gravur.size.x, 0.5, "beide Zeilen sind gleich breit")
+	assert_almost_eq(bay.size.x, charms.size.x, 0.5, "und die Charm-Zeile auch")
+	assert_gte(bay.size.y, shop.u * ShopController.DIE_ROOM_UNITS - 0.5, "die Bucht hat Höhe")
+	assert_null(shop.find_child("ColumnLine", true, false), "keine Spaltenlinie mehr")
 
 func test_the_vitrine_rect_survives_a_page_flip() -> void:
 	shop.size = Vector2(1068, 1125)
@@ -772,7 +774,7 @@ func test_the_bands_stand_on_every_tier() -> void:
 	shop.open()
 	await wait_frames(2)
 	var low := _band_rects()
-	assert_eq(low.size(), 5, "Kopf, Charm-Zeile, Ware-Spalten, Auskunfts-Band, Fuß")
+	assert_eq(low.size(), 6, "Kopf, Charms, Gravuren, Würfel, Auskunfts-Band, Fuß")
 	run.round_number = _round_of(GameRun.TIER_MAX)
 	shop.spreads.clear()
 	shop.open()
@@ -782,15 +784,14 @@ func test_the_bands_stand_on_every_tier() -> void:
 	for i in low.size():
 		assert_true(high[i].is_equal_approx(low[i]),
 			"Band %d steht auf jeder Stufe gleich (%s vs %s)" % [i, low[i], high[i]])
-	assert_gt(shop.charm_options.size(), 2, "auf Stufe 10 liegen mehr Charms aus")
+	assert_eq(shop.charm_options.size(), 3, "auch auf Stufe 10 liegen drei Charms aus")
 
 # --- Die Kassetten-Schlitze -----------------------------------------------------
 
-func test_the_slit_row_has_one_seat_per_shelf_slot() -> void:
+func test_the_slit_row_has_one_seat_per_place() -> void:
 	await wait_frames(2)
 	var seats: Array[Dictionary] = shop.slit_seats()
-	assert_eq(seats.size(), run.shop_pack_slots(),
-		"die Zahl hängt an der Stufe, nicht an der Auslage - und die Leiter ist flach")
+	assert_eq(seats.size(), ShopController.COLUMNS, "drei Plätze, auf jeder Stufe")
 	assert_eq(shop.slit_anchors().size(), seats.size(), "je Platz eine Kerbe")
 
 func test_the_slit_stock_stays_index_true_across_a_purchase() -> void:
@@ -903,14 +904,14 @@ func test_the_ware_price_turns_red_when_the_purse_is_short() -> void:
 	assert_eq(shop._slit_prices[seat].modulate, CasinoStyle.RED,
 		"und der Geldstand färbt es nach, ohne daß jemand pollt")
 
-func test_every_die_net_carries_the_price_of_its_die() -> void:
+func test_every_die_block_carries_the_price_of_its_die() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
 	var entries: Array = []
 	for i in shop.single_dice.size():
 		entries.append({"def": shop.single_dice[i], "pos": Vector2(i * 40.0, 0.0)})
-	shop.set_die_nets(entries, 8.0)
+	shop.set_die_nets(entries)
 	assert_eq(shop._net_prices.size(), entries.size(), "je Netz ein Schild")
 	for i in entries.size():
 		assert_eq(shop._net_prices[i].text,
@@ -921,7 +922,7 @@ func test_every_die_net_carries_the_price_of_its_die() -> void:
 # Die Ware trägt ihre Auskunft selbst: unter jedem Netz steht der Name der Essenz
 # in ihrem Glühton. Kein Hover, kein Schirm - sie steht einfach da.
 
-func test_every_souled_die_names_its_essence_under_its_net() -> void:
+func test_every_souled_die_names_its_essence_under_it() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
@@ -939,63 +940,56 @@ func test_every_souled_die_names_its_essence_under_its_net() -> void:
 	shop.set_die_nets([
 		{"def": souled, "pos": Vector2(0.0, 0.0)},
 		{"def": bare, "pos": Vector2(120.0, 0.0)},
-	], 8.0)
+	])
 	assert_eq(shop._net_souls.size(), 2, "je Netz eine Seelen-Zeile")
 	var essence := Essence.by_id(Essence.ARGON)
 	assert_eq(shop._net_souls[0].text, essence.display_name,
 		"der beseelte Würfel nennt seine Seele")
 	assert_eq(shop._net_souls[0].modulate, ShopController.soul_tint(Essence.ARGON),
 		"und zwar im Glühton genau dieser Essenz")
-	assert_eq(shop._net_souls[1].text, "", "ein seelenloser Würfel zeigt nichts")
+	assert_eq(shop._net_souls[1].text, bare.display_name, "ein seelenloser nennt seinen Namen")
 
-## Die ZELLE eines Würfels: links er selbst, daneben Netz und Seele, rechts der PREIS
-## auf der Zeilenmitte - derselben Höhe wie der Kartenpreis seiner Zeile.
-func test_the_soul_line_stands_between_the_net_and_the_price() -> void:
+## Der Block eines Würfels steht in SEINEM Platz unter der Bucht: Name oben, der
+## Preis direkt darunter.
+func test_the_price_hangs_directly_under_its_die() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.data_cell_lie_px = LIE_PX
 	shop.open()
 	await wait_frames(2)
-	var die: DieDefinition = shop.single_dice[0]
-	var cell: float = shop.die_net_cell()
-	assert_gt(cell, 0.0, "das Raster ist ausgelegt")
-	shop.set_die_nets([{"def": die, "anchor": Vector2(30.0, 40.0)}], cell)
-	var block: Control = shop._net_blocks[0]
-	assert_true(block.position.is_equal_approx(shop.die_cell_rect(0).position),
-		"der Block ist die Zelle des Würfels")
-	assert_gte(shop._net_souls[0].position.y, DieNetView.net_size(cell).y,
-		"die Seele steht unter dem Netz")
-	assert_gt(shop._net_prices[0].position.x, shop._net_souls[0].position.x,
-		"der Preis steht rechts daneben")
+	var die: DieDefinition = shop.single_dice[1]
+	var seat: Vector2 = shop.die_seats_px()[1]
 	var strip: Rect2 = shop.vitrine_rect_px()
-	var price_mid: float = strip.position.y + block.position.y \
-		+ shop._net_prices[0].position.y + shop._net_prices[0].size.y * 0.5
-	var card_price: Label = shop._slit_prices[0]
-	var card_mid: float = card_price.get_global_rect().get_center().y
-	assert_almost_eq(price_mid, card_mid, 1.0,
-		"auf derselben Grundlinie wie der Kartenpreis der Zeile")
+	shop.set_die_nets([{"def": die, "anchor": seat - strip.position}])
+	var block: Control = shop._net_blocks[0]
+	var global_block := Rect2(strip.position + block.position, block.size)
+	assert_gte(global_block.position.y, strip.end.y - 0.5, "der Block steht unter der Bucht")
+	assert_almost_eq(global_block.get_center().x, seat.x, 0.5, "mittig unter seinem Würfel")
+	assert_gt(shop._net_prices[0].position.y, shop._net_souls[0].position.y,
+		"der Preis steht unter dem Namen")
+	assert_eq(block.get_child_count(), 3, "Name, Preis und das Netz darunter")
+	var net: Control = block.get_child(2)
+	assert_gt(net.position.y, shop._net_prices[0].position.y, "das Netz steht unter dem Preis")
+	assert_lte(net.position.y + net.size.y, block.size.y + 0.5, "und ganz im Block")
 
-## Das RASTER: Zeilen sind die Kartenzeilen, Spalten = aufgerundet Würfel durch drei.
-func test_the_dice_grid_rows_are_the_card_rows() -> void:
-	assert_eq(ShopController.die_columns(3, 3), 1)
-	assert_eq(ShopController.die_columns(4, 3), 2)
-	assert_eq(ShopController.die_columns(6, 3), 2)
-	assert_eq(ShopController.die_grid_cell(0, 3), Vector2i(0, 0))
-	assert_eq(ShopController.die_grid_cell(2, 3), Vector2i(0, 2))
-	assert_eq(ShopController.die_grid_cell(3, 3), Vector2i(1, 0), "spaltenweise gefüllt")
+## Das SPALTENRASTER: drei gleiche Plätze, in allen drei Regalen dieselben Kanten.
+func test_the_three_shelves_share_one_column_grid() -> void:
+	assert_almost_eq(ShopController.column_width_in(320.0, 10.0), 100.0, 0.001)
+	assert_almost_eq(ShopController.column_x(320.0, 10.0, 2), 220.0, 0.001)
 	shop.size = Vector2(1068, 1125)
 	shop.data_cell_lie_px = LIE_PX
 	shop.open()
 	await wait_frames(2)
-	assert_eq(shop.slit_seats().size(), 3, "drei Karten in der Spalte")
-	var rows: Array[float] = shop.ware_row_centers()
-	assert_eq(rows.size(), 3)
-	var seats: Array[Vector2] = shop.die_seats_px()
-	assert_eq(seats.size(), shop.single_dice.size())
-	for i in seats.size():
-		assert_almost_eq(seats[i].y, rows[i % 3], 0.5, "Würfel %d liegt auf seiner Kartenzeile" % i)
 	var slits: Array[Vector2] = shop.slit_anchors()
-	for i in range(1, slits.size()):
-		assert_gt(slits[i].y, slits[i - 1].y, "die Karten liegen UNTEREINANDER")
+	var dice: Array[Vector2] = shop.die_seats_px()
+	assert_eq(slits.size(), 3)
+	assert_eq(dice.size(), 3)
+	for i in 3:
+		var card: Rect2 = shop.charm_buttons[i].get_global_rect()
+		assert_almost_eq(slits[i].x, dice[i].x, 0.5, "Gravur %d steht über Würfel %d" % [i, i])
+		assert_almost_eq(card.get_center().x, dice[i].x, 0.5, "Charm %d über Würfel %d" % [i, i])
+		var price: Rect2 = shop._slit_prices[i].get_global_rect()
+		assert_almost_eq(price.get_center().x, slits[i].x, 0.5, "der Preis mittig unter der Karte")
+		assert_gte(price.position.y, shop.slit_rects()[i].end.y - 0.5, "und direkt darunter")
 
 func test_a_dark_glow_is_lifted_to_a_readable_tint() -> void:
 	# Vakuum glüht schwarz - als Schriftfarbe wäre das ein Loch auf dunklem Grund.
@@ -1087,7 +1081,7 @@ func test_every_card_reports_its_own_hover() -> void:
 			"und der Knopf sieht die Maus überhaupt (%d)" % i)
 
 func test_the_longest_real_description_fits_the_narrowest_card() -> void:
-	# Gemessen an den echten Beschreibungen und der SCHMALSTEN Karte (Stufe 10):
+	# Gemessen an den echten Beschreibungen und der normalen (nicht Podest-) Karte:
 	# der unterste Grad der Leiter muß jede von ihnen umgebrochen tragen.
 	shop.size = Vector2(1068, 1125)
 	run.round_number = _round_of(GameRun.TIER_MAX)
@@ -1095,7 +1089,7 @@ func test_the_longest_real_description_fits_the_narrowest_card() -> void:
 	shop.open()
 	await wait_frames(2)
 	var font := ThemeDB.fallback_font
-	var card_w: float = shop._charm_card_width(shop.charm_options.size())
+	var card_w: float = shop._charm_card_width()
 	var text_w: float = card_w - shop.u * ShopController.CARD_MARGIN * 2.0
 	var block: float = shop.card_mid_height()
 	var steps: Array = ShopController.CARD_EFFECT_STEPS
@@ -1340,8 +1334,7 @@ func test_the_flank_names_the_cassette_under_the_pointer() -> void:
 	assert_true(shop.slit_info_body.text.contains(Pack.net_line(pack)),
 		"und darunter die Zeile seines Prägenetzes - im Laden liegt es offen")
 
-## Die Karten-Auskunft steht seit der Welle 29 im AUSKUNFTS-BAND unter beiden
-## Ware-Spalten - neben den Karten liegen die Würfel.
+## Die Karten-Auskunft steht im AUSKUNFTS-BAND unter den Regalen.
 func test_the_flank_stands_under_the_columns() -> void:
 	_lay_out_page()
 	await wait_frames(2)
@@ -1349,7 +1342,8 @@ func test_the_flank_stands_under_the_columns() -> void:
 	var row: Rect2 = shop.slit_row.get_global_rect()
 	assert_gt(flank.size.y, 0.0, "das Band steht")
 	assert_gte(flank.position.y, row.end.y, "UNTER den Karten, nicht darauf")
-	assert_gte(flank.position.y, shop.vitrine_rect_px().end.y - 0.5, "und unter den Würfeln")
+	assert_gte(flank.position.y, shop.die_labels.get_global_rect().end.y - 0.5,
+		"und unter den Würfeln samt ihren Schildern")
 	assert_lt(flank.end.y, shop.get_global_rect().end.y, "innerhalb der Seite")
 
 func test_without_a_pointer_the_flank_says_nothing() -> void:
@@ -1407,25 +1401,16 @@ func _longest_pack() -> Pack:
 
 # --- Der INFO-FUSS der Bucht ----------------------------------------------------
 
-func test_the_footer_reads_the_cell_under_the_pointer() -> void:
+func test_a_hovered_die_shows_its_info_in_the_band() -> void:
 	_lay_out_page()
 	await wait_frames(2)
 	var die := DieDefinition.standard()
 	die.essence_id = Essence.ARGON
-	die.set_face_material(0, DieMaterial.BONE)
-	var cell := 20.0
-	shop.set_die_nets([{"def": die, "anchor": Vector2(60.0, 40.0)}], cell)
-	var strip: Rect2 = shop.vitrine_rect_px()
-	var pos: Vector2 = shop._net_positions[0]
-	var middle := Vector2(cell, cell) * 0.5
-	var material_px := strip.position + pos + DieNetView.cell_position(0, cell) + middle
-	assert_eq(shop.net_hint_at(material_px), DieNetView.hint_for(die, 0),
-		"die Material-Zelle liefert ihre eigene Zeile - EINE Quelle")
-	var edge_px := strip.position + pos + middle
-	assert_eq(shop.net_hint_at(edge_px), Essence.hint(die.essence_id),
-		"der Essenz-Chip erklärt die Seele")
-	assert_eq(shop.net_hint_at(strip.position + Vector2(4.0, 4.0)), "",
-		"neben den Netzen steht nichts")
+	shop.set_die_hover(die)
+	assert_true(shop.net_footer.visible, "der gegriffene Würfel spricht")
+	assert_eq(shop.net_footer.text, ShopController.die_foot_text(die))
+	shop.set_die_hover(null)
+	assert_false(shop.net_footer.visible, "losgelassen: nichts")
 
 func test_the_footer_is_invisible_without_a_hint() -> void:
 	_lay_out_page()
@@ -1534,10 +1519,10 @@ func test_after_a_rebuild_the_seats_stand_apart_not_on_top_of_each_other() -> vo
 	shop.rebuild_slit_row()
 	await wait_frames(2)
 	var anchors: Array = shop.slit_anchors()
-	assert_gt(anchors.size(), 1, "die Spalte führt mehrere Plätze")
+	assert_gt(anchors.size(), 1, "die Reihe führt mehrere Plätze")
 	for i in range(1, anchors.size()):
-		assert_gt((anchors[i] as Vector2).y, (anchors[i - 1] as Vector2).y,
-			"Platz %d liegt UNTER seinem Nachbarn, nicht auf ihm" % i)
+		assert_gt((anchors[i] as Vector2).x, (anchors[i - 1] as Vector2).x,
+			"Platz %d liegt NEBEN seinem Nachbarn, nicht auf ihm" % i)
 
 # --- Der Laden schließt, seine SEITE bleibt stehen ------------------------------
 # Auf ihr spielt die Abräum-Zeremonie der Auslage. Die Spiel-Logik wartet nicht,
@@ -1599,7 +1584,7 @@ func test_a_closing_shop_stops_pulling_anything_after() -> void:
 	await wait_frames(2)
 	assert_eq(pages.size(), 0, "eine abräumende Seite baut nichts mehr um")
 
-# --- Die Netz-Blöcke wachsen aus ihren Würfeln ----------------------------------
+# --- Die Schilder-Blöcke wachsen aus ihren Würfeln ----------------------------------
 
 func _net_entries(at: Vector2) -> Array:
 	var die: DieDefinition = shop.single_dice[0]
@@ -1608,14 +1593,12 @@ func _net_entries(at: Vector2) -> Array:
 func test_after_an_arrival_the_block_grows_out_of_its_die() -> void:
 	_lay_out_page()
 	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0, true)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), true)
 	assert_true(shop.nets_growing(), "der Block wächst")
 	var block: Control = shop._net_blocks[0]
 	assert_lt(block.scale.x, 1.0, "er startet fast bei nichts")
 	assert_true(block.pivot_offset.is_equal_approx(Vector2(50.0, 10.0) - block.position),
 		"und er wächst aus dem ANKER des Würfels, nicht aus seiner eigenen Ecke")
-	assert_eq(shop.net_hint_at(shop.vitrine_rect_px().position + Vector2(35.0, 45.0)), "",
-		"ein wachsender Block antwortet nicht - sein Rechteck löge")
 	await wait_seconds(ShopController.NET_GROW_TIME
 		+ ShopController.NET_GROW_STAGGER * float(shop._net_blocks.size()) + 0.2)
 	assert_false(shop.nets_growing(), "danach steht er")
@@ -1625,7 +1608,7 @@ func test_after_an_arrival_the_block_grows_out_of_its_die() -> void:
 func test_without_an_arrival_the_block_stands_at_once() -> void:
 	_lay_out_page()
 	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)))
 	assert_false(shop.nets_growing(), "liegen geblieben ist nirgends angekommen")
 	var block: Control = shop._net_blocks[0]
 	assert_true(block.scale.is_equal_approx(Vector2.ONE))
@@ -1635,11 +1618,11 @@ func test_an_idempotent_resync_does_not_restart_the_growth() -> void:
 	_lay_out_page()
 	await wait_frames(2)
 	var entries := _net_entries(Vector2(30.0, 40.0))
-	shop.set_die_nets(entries, 8.0, true)
+	shop.set_die_nets(entries, true)
 	var block: Control = shop._net_blocks[0]
 	await wait_seconds(ShopController.NET_GROW_TIME * 0.5)
 	var grown := block.scale.x
-	shop.set_die_nets(entries, 8.0, true)  # dieselbe Unterschrift
+	shop.set_die_nets(entries, true)  # dieselbe Unterschrift
 	assert_eq(shop._net_blocks[0], block, "derselbe Block bleibt stehen")
 	assert_almost_eq(block.scale.x, grown, 0.05,
 		"und sein Wachstum läuft weiter, statt neu anzufangen")
@@ -1647,9 +1630,9 @@ func test_an_idempotent_resync_does_not_restart_the_growth() -> void:
 func test_a_rebuild_mid_growth_lays_the_finished_block_down_hard() -> void:
 	_lay_out_page()
 	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0, true)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), true)
 	await wait_seconds(ShopController.NET_GROW_TIME * 0.4)
-	shop.set_die_nets(_net_entries(Vector2(31.0, 41.0)), 8.0)
+	shop.set_die_nets(_net_entries(Vector2(31.0, 41.0)))
 	assert_false(shop.nets_growing(), "der Abbruch endet das Wachstum")
 	var block: Control = shop._net_blocks[0]
 	assert_true(block.scale.is_equal_approx(Vector2.ONE), "und legt fertig hin")
@@ -1663,15 +1646,13 @@ func test_before_a_teardown_the_block_shrinks_back_into_its_die() -> void:
 	# Würfel steht dabei noch, denn die Maschine fährt erst nach dem Vorlauf.
 	_lay_out_page()
 	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)))
 	var block: Control = shop._net_blocks[0]
 	var lead: float = shop.absorb_die_nets()
 	assert_almost_eq(lead, ShopController.absorb_time(1), 0.0001,
 		"der gemeldete Vorlauf ist der ehrliche Deckel")
 	assert_true(shop.nets_absorbing(), "der Block wird eingesogen")
-	assert_true(shop.nets_growing(), "und schweigt dabei")
-	assert_eq(shop.net_hint_at(shop.vitrine_rect_px().position + Vector2(35.0, 45.0)), "",
-		"ein schrumpfender Block antwortet nicht")
+	assert_true(shop.nets_growing(), "und ist in Bewegung")
 	await wait_seconds(ShopController.NET_GROW_TIME * 0.5)
 	assert_lt(block.scale.x, 0.9, "auf halbem Weg ist er schon kleiner")
 	assert_gt(block.scale.x, ShopController.NET_GROW_FROM, "aber noch nicht fort")
@@ -1689,7 +1670,7 @@ func test_an_empty_bay_absorbs_nothing_and_waits_for_nothing() -> void:
 func test_a_hard_abort_mid_absorption_clears_the_shrinking_blocks() -> void:
 	_lay_out_page()
 	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), 8.0)
+	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)))
 	shop.absorb_die_nets()
 	await wait_seconds(ShopController.NET_GROW_TIME * 0.4)
 	shop.clear_die_nets()  # Verdrängung, Laufwechsel: der harte Weg

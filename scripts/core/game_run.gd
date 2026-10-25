@@ -100,18 +100,11 @@ const UNLIMITED_OVERCHARGE_STAGES := 99
 const ROUNDS_PER_TIER := 3
 const TIER_MAX := 10
 
-## Shop-Platzzahlen je Fortschrittsstufe (1-basiert). Der Laden wächst nicht sprunghaft,
-## sondern füllt sich: Stufe 1 zeigt WENIGE, dafür große Angebote; höhere Stufen
-## tauschen Kartengröße gegen Anzahl.
-## SHOP_DICE_SLOTS zählt EINZELWÜRFEL, keine Pakete mehr: der Laden legt sie offen
-## in die Schale. Dieselben Sprungstellen wie die beiden anderen Leitern (3/6/9),
-## damit eine Stufe alle drei Rubriken zugleich wachsen lässt - 3 auf Stufe 1,
-## 6 auf Stufe 10.
-## SHOP_PACK_SLOTS ist bewusst FLACH: die Gravuren-Spalte trägt auf jeder Stufe drei
-## Karten - ihre Zeilen sind zugleich die Zeilen des Würfel-Rasters (Welle 29).
-const SHOP_CHARM_SLOTS := [2, 2, 3, 3, 3, 4, 4, 4, 5, 5]
-const SHOP_DICE_SLOTS  := [3, 3, 4, 4, 4, 5, 5, 5, 6, 6]
-const SHOP_PACK_SLOTS  := [3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+## Feste Shop-Platzzahlen (Spieler-Entscheid 2026-10-25): drei Regale zu je drei
+## Plätzen, jede Runde gleich. Mit der Stufe wächst nur die Qualität.
+const SHOP_CHARM_SLOTS := 3
+const SHOP_DICE_SLOTS := 3
+const SHOP_PACK_SLOTS := 3
 
 ## Ab dieser Fortschrittsstufe führt auch das normale Regal Sonderposten - vorher
 ## gibt es sie einzig im Hinterzimmer.
@@ -369,22 +362,14 @@ func shop_rarity_tier() -> int:
 		return 1
 	return 0
 
-## Shop-Platzzahlen je Fortschrittsstufe (siehe SHOP_*_SLOTS): wenige, große
-## Angebote am Anfang; mehr, kleinere später.
-func _slot_at(ladder: Array, default_top: int) -> int:
-	var idx := progress_tier() - 1
-	return ladder[idx] if idx < ladder.size() else default_top
-
 func shop_charm_slots() -> int:
-	return _slot_at(SHOP_CHARM_SLOTS, 5)
+	return SHOP_CHARM_SLOTS
 
 func shop_dice_slots() -> int:
-	return _slot_at(SHOP_DICE_SLOTS, 3)
+	return SHOP_DICE_SLOTS
 
-## Gravur-Pakete im Regal. Deutlich weniger Plätze als früher Einzel-Gravuren -
-## ein Paket ersetzt drei bis vier davon.
 func shop_pack_slots() -> int:
-	return _slot_at(SHOP_PACK_SLOTS, 4)
+	return SHOP_PACK_SLOTS
 
 ## Chance auf EINEN Sonderposten in der Auslage (0 = keiner). Höchstens einer je
 ## Doppelseite: er belegt einen der Paket-Plätze, statt einen dazuzustellen -
