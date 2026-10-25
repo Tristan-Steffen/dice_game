@@ -109,15 +109,12 @@ const POOL_PARK_DEPTH := DiceTrayView.FLOAT_HEIGHT
 ## Reihen-Teilung vor.
 const CARRIER_SINK_TIME := 0.34
 const CARRIER_SHIFT_TIME := 0.5
-## Die Warteschlangen-Fahrten laufen DOPPELT so schnell und dicht GESTAFFELT statt
-## nacheinander (Spieler-Entscheid 2026-08-30): je Platz eine eigene Maschine, der
-## Versatz ist der Abstand zweier Starts von links nach rechts - der Abgang vom
-## Träger taktet mit derselben Staffel.
+## Die Warteschlangen-Fahrten laufen DOPPELT so schnell und ZUGLEICH (Spieler-Wunsch
+## 2026-10-25): je Platz eine eigene Maschine, kein Versatz - der Abgang vom Träger
+## taktet mit derselben Staffel.
 const QUEUE_RIDE_SPEED := 2.0
-const QUEUE_RIDE_STAGGER := 0.12
-## Und der SCHLUCK ebenso: doppelt schnell, links nach rechts gestaffelt über drei
-## Bahnen. Der Staffel-Versatz ist GERECHNET (Fahrtdauer durch Bahnenzahl), damit
-## Salve und Bahnen genau ineinandergreifen.
+const QUEUE_RIDE_STAGGER := 0.0
+## Und der SCHLUCK ebenso: doppelt schnell, alle Würfel zugleich, je Würfel eine Bahn.
 const SWALLOW_SPEED := 2.0
 
 ## Die POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern
@@ -5235,15 +5232,11 @@ func _swallow_busy() -> bool:
 			return true
 	return false
 
-## Die STAFFEL der Abgänge: drei Bahnen, jede ist eine Maschine mit eigenem Loch.
-## Ein Schub startet seine Fahrten dicht versetzt; danach hält die frei werdende
-## Bahn den Takt von selbst (der Versatz ist Fahrtdauer durch Bahnenzahl).
+## Die Abgänge: je Würfel eine Bahn, jede eine Maschine mit eigenem Loch - ein Schub
+## geht ZUGLEICH; wer keine Bahn findet, wartet auf die frei werdende.
 func _pump_swallow() -> void:
 	while _swallow_bodies.size() < TableScreen.SWALLOW_PIT_COUNT:
 		_swallow_bodies.append(null)
-	var stagger := LiftShaftView.take_cycle_time() / SWALLOW_SPEED \
-		/ float(TableScreen.SWALLOW_PIT_COUNT)
-	var burst := 0
 	while not _swallow_queue.is_empty():
 		var lane := _swallow_bodies.find(null)
 		if lane == -1:
@@ -5254,15 +5247,13 @@ func _pump_swallow() -> void:
 		var shaft := _swallow_shaft_for(lane, item["seat"])
 		var tween: Tween = null
 		if shaft != null:
-			tween = shaft.run_take([body], [item["seat"]],
-				float(burst) * stagger * SWALLOW_SPEED)
+			tween = shaft.run_take([body], [item["seat"]], 0.0)
 		if tween == null:
 			_drop_stage_body(body)
 			entry["landed"] = true
 			_flush_ablage_rows()
 			continue
 		tween.set_speed_scale(SWALLOW_SPEED)
-		burst += 1
 		_swallow_bodies[lane] = body
 		var generation := _tray_stage_gen
 		var launched := run

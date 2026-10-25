@@ -222,7 +222,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 21
+const MAX_PITS := 24
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -251,17 +251,18 @@ const PIT_SECRET_THIRD := 9
 ## wird. Die Warteschlange fährt je Platz eine EIGENE Maschine (sechs Fahrten dürfen
 ## überlappen - eine Maschine ist ein Loch), der Vorrat hat seinen einen Platz (dessen
 ## PARK-Zustand ist das offene PIT, in dem der Träger steht), und der SCHLUCK zieht
-## abgelegte Würfel an ihren Liegeplätzen ein - drei BAHNEN, damit eine gestaffelte
-## Salve überlappen kann; wer mehr schluckt, wartet auf die frei werdende Bahn.
+## abgelegte Würfel an ihren Liegeplätzen ein - je Grubenwürfel eine BAHN, damit
+## alle ZUGLEICH gehen (Spieler-Wunsch 2026-10-25); die Bahnen 3-5 hängen hinten an.
 const PIT_QUEUE0 := 10
 const QUEUE_PIT_COUNT := 6
 const PIT_POOL := 16
 const PIT_SWALLOW0 := 17
-const SWALLOW_PIT_COUNT := 3
+const SWALLOW_PIT_COUNT := 6
 
 ## Die TURM-BUCHT: das zweite Rechteck der GEMEINSAMEN Grube. Sie berührt die
 ## Magazin-Grube - im Glas sind es zwei Einträge, in der Welt EIN Raum.
 const PIT_TOWER := 20
+const PIT_SWALLOW_TAIL0 := 21
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -276,7 +277,10 @@ static func queue_pit(index: int) -> int:
 	return PIT_QUEUE0 + clampi(index, 0, QUEUE_PIT_COUNT - 1)
 
 static func swallow_pit(lane: int) -> int:
-	return PIT_SWALLOW0 + clampi(lane, 0, SWALLOW_PIT_COUNT - 1)
+	var clamped := clampi(lane, 0, SWALLOW_PIT_COUNT - 1)
+	if clamped < PIT_TOWER - PIT_SWALLOW0:
+		return PIT_SWALLOW0 + clamped
+	return PIT_SWALLOW_TAIL0 + clamped - (PIT_TOWER - PIT_SWALLOW0)
 
 var _pit_rects: Array[Rect2] = []
 var _pit_radii := PackedFloat32Array()

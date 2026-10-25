@@ -34,6 +34,8 @@ var music_value: Label
 var sfx_slider: HSlider
 var sfx_value: Label
 var fullscreen_check: BaseButton
+var speed_slider: HSlider
+var speed_value: Label
 var game_over_result: Label
 var game_over_round: Label
 
@@ -67,6 +69,9 @@ func set_settings(loaded: GameSettings) -> void:
 	if fullscreen_check != null:
 		fullscreen_check.set_pressed_no_signal(settings.fullscreen)
 		_refresh_fullscreen_label()
+	if speed_slider != null:
+		speed_slider.set_value_no_signal(settings.animation_speed)
+		_refresh_speed_value()
 
 ## "Weiterspielen" gibt es nur, wenn hinter dem Menü ein Lauf wartet.
 func set_resumable(on: bool) -> void:
@@ -186,6 +191,15 @@ func _build_settings(u: float) -> Control:
 	fullscreen_check.toggled.connect(_on_fullscreen_toggled)
 	_refresh_fullscreen_label()
 	column.add_child(_make_row("Vollbild", u, [fullscreen_check]))
+
+	speed_slider = _make_volume_slider(u, settings.animation_speed, _on_speed_changed)
+	speed_slider.min_value = GameSettings.SPEED_MIN
+	speed_slider.max_value = GameSettings.SPEED_MAX
+	speed_slider.step = 0.25
+	speed_slider.set_value_no_signal(settings.animation_speed)
+	speed_value = _make_volume_value(u)
+	column.add_child(_make_row("Tempo", u, [speed_slider, speed_value]))
+	_refresh_speed_value()
 
 	column.add_child(_make_gap(u * 2.0))
 	_make_button(column, "Zurück", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK, u,
@@ -331,6 +345,15 @@ func _on_fullscreen_toggled(pressed: bool) -> void:
 	settings.fullscreen = pressed
 	_refresh_fullscreen_label()
 	settings_changed.emit()
+
+func _on_speed_changed(value: float) -> void:
+	settings.animation_speed = value
+	_refresh_speed_value()
+	settings_changed.emit()
+
+func _refresh_speed_value() -> void:
+	if speed_value != null:
+		speed_value.text = String.num(settings.animation_speed, 2).replace(".", ",") + "×"
 
 func _refresh_fullscreen_label() -> void:
 	if fullscreen_check != null:

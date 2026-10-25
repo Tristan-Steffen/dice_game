@@ -32,3 +32,14 @@ func test_a_broken_volume_gets_clamped() -> void:
 	config.set_value(GameSettings.SECTION, "master_volume", 4.2)
 	config.save(TEST_PATH)
 	assert_eq(GameSettings.load_saved(TEST_PATH).master_volume, 1.0)
+
+func test_tempo_kommt_zurueck_und_wird_geklemmt() -> void:
+	assert_eq(GameSettings.new().animation_speed, 1.0, "frisch installiert normales Tempo")
+	var settings := GameSettings.new()
+	settings.animation_speed = 2.5
+	settings.save(TEST_PATH)
+	assert_almost_eq(GameSettings.load_saved(TEST_PATH).animation_speed, 2.5, 0.0001)
+	var config := ConfigFile.new()
+	config.set_value(GameSettings.SECTION, "animation_speed", 9.0)
+	config.save(TEST_PATH)
+	assert_eq(GameSettings.load_saved(TEST_PATH).animation_speed, GameSettings.SPEED_MAX)
