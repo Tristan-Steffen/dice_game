@@ -8,15 +8,14 @@ extends Node3D
 ## an den Enden ist die Pfeiltaste blind, es gibt keinen Umlauf.
 ## Sie bucht und setzt NICHTS - sie MELDET (tray_requested); den Stapel fährt und
 ## das Fenster schreibt scene_root. Kein mark_reflective: sie liegt auf Filz.
-## Die Grammatik ist die des Raster-Umschalters und der Sicherungs-Fassung: dunkler
+## Die Grammatik ist die des Raster-Umschalters: dunkler
 ## Sockel, Tastenfläche darauf, flache Aufschrift in Tisch-Leserichtung, blind heißt
 ## grau und ohne Kollision.
 
 ## Der Spieler will dieses Tablett sehen (0-basiert).
 signal tray_requested(tray: int)
 
-## Dieselbe Pick-Ebene wie die Sicherungs-Fassung - die TEILE heißen verschieden,
-## und wer fragt, prüft den Namen (tray_of_part/direction_of).
+## Wer auf dieser Pick-Ebene fragt, prüft den Namen (tray_of_part/direction_of).
 const PICK_LAYER := 256
 
 const PART_NONE := ""
@@ -114,8 +113,7 @@ static func direction_of(part: String) -> int:
 		return 1
 	return 0
 
-## Kennt die Leiste dieses Teil überhaupt? (Auf ihrer Pick-Ebene liegt auch die
-## Sicherungs-Fassung - darum entscheidet der NAME, nicht der Treffer.)
+## Kennt die Leiste dieses Teil überhaupt? Entscheidet der NAME, nicht der Treffer.
 static func knows(part: String) -> bool:
 	return tray_of_part(part) >= 0 or direction_of(part) != 0
 

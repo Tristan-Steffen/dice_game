@@ -259,8 +259,8 @@ func _style_tile(tile: Button, def: DieDefinition, highlighted: bool) -> void:
 	tile.add_theme_stylebox_override("pressed", box(u, Color("#3a2f66"), GOLD))
 	tile.add_theme_stylebox_override("focus", tile_box(def, u, highlighted))
 
-## Die FASSUNG einer Würfel-Kachel als reine Funktion - EINE Quelle für das
-## Raster der Glas-Ansicht UND für die Zellen der Reparatur-Bucht.
+## Die FASSUNG einer Würfel-Kachel als reine Funktion - die Quelle für das Raster
+## der Glas-Ansicht.
 static func tile_box(def: DieDefinition, unit: float, highlighted: bool) -> StyleBoxFlat:
 	var accent := CYAN
 	var souled := def.essence_id != ""

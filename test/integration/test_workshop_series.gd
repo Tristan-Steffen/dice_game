@@ -35,8 +35,8 @@ func _stock(count: int) -> Array[int]:
 		uids.append(pack.pack_uid)
 	return uids
 
-## Fuellt die Reihe mit LEEREN Netzen auf sechs auf - der Griff verlangt eine VOLLE
-## Reihe, und eine leere Karte verschiebt keine Zelle und keinen Stand.
+## Fuellt die Reihe mit LEEREN Netzen auf sechs auf - der volle Turm, und eine leere
+## Karte verschiebt keine Zelle und keinen Stand.
 func _fill_row() -> void:
 	while view.press_slot_uids().size() < GameRun.SERIES_SLOT_CAP:
 		var pack := run.grant_pack(Pack.number_pack())
@@ -141,7 +141,6 @@ func test_another_tap_switches_the_target() -> void:
 	view.choose_target(1)
 	view.choose_target(4)
 	assert_eq(view.target_die(), run.owned_pool[4])
-	assert_eq(view.second_index(), -1, "ohne Doppelmatrize gibt es keinen zweiten")
 
 ## scene_root meldet den angetippten PHYSISCHEN Würfel per set_target_die; ein
 ## anderer Würfel wechselt das Ziel, null wählt ab.
@@ -158,18 +157,39 @@ func test_set_target_die_selects_switches_and_clears() -> void:
 
 # --- Der GRIFF --------------------------------------------------------------------
 
-func test_the_grip_needs_a_target_a_full_row_and_a_stamping_card() -> void:
+func test_the_grip_needs_a_target_and_one_stamping_card() -> void:
 	var uids := _stock(1)
 	await wait_frames(2)
 	assert_false(view.can_pull(), "nackt greift nichts")
 	view.slot_pack(uids[0])
 	assert_false(view.can_pull(), "ohne Ziel auch nicht")
 	view.choose_target(0)
-	assert_false(view.can_pull(), "und mit EINER Karte auch nicht - der Block ist sechs")
-	assert_true(view._action_button.disabled, "der Sitz steht grau da")
-	_fill_row()
 	await wait_frames(2)
-	assert_true(view.can_pull(), "Ziel plus volle Reihe genügt")
+	assert_true(view.can_pull(), "Ziel plus EINE Karte genügt")
+	assert_false(view._action_button.disabled, "der Sitz steht bereit")
+
+## Die Reparatur-Karte allein greift - auch auf einen durchgebrannten Würfel.
+func test_a_lone_repair_card_pulls_on_a_burned_die() -> void:
+	run.owned_pool[0].burn_out()
+	var card := run.grant_pack(Pack.catalyst(Pack.CATALYST_REPAIR))
+	view.slot_pack(card.pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_eq(view.stamping_card_count(), 0)
+	assert_true(view.series_repairs())
+	assert_true(view.can_pull(), "eine Reparatur ist eine Wirkung")
+	var seen: Array = []
+	view.series_applied.connect(func(result: Dictionary, _px: Vector2) -> void:
+		seen.append(result))
+	view.pull_lever()
+	assert_false(run.owned_pool[0].burned_out, "gebucht vor dem Licht")
+	assert_eq(run.owned_pool[0].charge, 0)
+	assert_true(view.burning(), "das Durchlicht läuft auch mit einer Karte")
+	assert_true(view.burn_repaired())
+	await wait_seconds(view.ceremony_time() + 0.2)
+	assert_false(view.burning(), "und läuft zu Ende")
+	assert_eq(seen.size(), 1)
+	assert_true(bool(Dictionary(seen[0]).get("repaired", false)))
 
 func test_a_catalysts_only_series_never_stamps() -> void:
 	for i in GameRun.SERIES_SLOT_CAP:
@@ -201,34 +221,13 @@ func test_two_grips_in_a_row_both_book() -> void:
 	await wait_frames(2)
 	assert_eq(run.owned_pool[0].faces[0], before + 7, "auch der zweite bucht")
 
-## Die Doppelmatrize ist diese Welle DEAKTIVIERT: sie verlangt keinen zweiten
-## Würfel mehr, der Griff steht mit EINEM Ziel bereit, und apply_series bekommt null
-## als zweiten - die Matrix-Karte bleibt gesteckt, ihre Zweitprojektion ist inert.
-func test_the_doppelmatrize_is_deactivated_this_wave() -> void:
-	_valued_pack(0, 4)
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
-	for pack in run.owned_packs:
-		view.slot_pack(pack.pack_uid)
-	view.choose_target(0)
-	await wait_frames(2)
-	assert_false(view.needs_second(), "sie mahnt keinen zweiten Würfel mehr an")
-	assert_null(view.second_die(), "und liefert nie einen")
-	_fill_row()
-	assert_true(view.can_pull(), "der Griff steht mit EINEM Ziel bereit")
-	var before: int = run.owned_pool[0].faces[0]
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
-	view.pull_lever()
-	assert_eq(run.owned_pool[0].faces[0], before + 4,
-		"gebucht wird auf den EINEN Zielwürfel - die Matrix-Zweitprojektion ist inert")
-	view.skip_ceremony()
-
 func test_the_grip_books_and_burns_its_cards() -> void:
 	var pack := _valued_pack(0, 3)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[0]
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	assert_eq(run.owned_pool[0].faces[0], before + 3, "gebucht ist sofort")
 	assert_true(view.press_slot_uids().is_empty() or view.burning(),
@@ -242,7 +241,7 @@ func test_the_ceremony_reports_the_grip_at_its_end() -> void:
 	var seen: Array = []
 	view.series_applied.connect(func(result: Dictionary, _px: Vector2) -> void:
 		seen.append(result))
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	assert_true(view.burning(), "die Fahrt läuft")
 	assert_true(seen.is_empty(), "und meldet erst am Ende")
@@ -286,7 +285,7 @@ func test_the_grip_latches_the_cards_and_raises_the_die_first() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var beats := _record_press()
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_frames(2)
 	assert_true(view.burning(), "die Zeremonie läuft noch")
@@ -309,7 +308,7 @@ func test_every_card_reports_its_cells_and_the_running_sum() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var beats := _record_press()
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
 	var reads: Array = []
@@ -326,19 +325,23 @@ func test_every_card_reports_its_cells_and_the_running_sum() -> void:
 	assert_eq(String(beats[-2][0]), "struck", "dann schlagen die Funken ein")
 	assert_eq(String(beats[-1][0]), "returned", "und der Würfel fliegt zurück")
 
-## Ein OPERATOR meldet seine Kennung mit - er schlägt perkussiv zu, statt still
-## aufzunehmen.
-func test_an_operator_card_reports_its_operator() -> void:
+## Ein OPERATOR und ein MULTIPLIKATOR melden ihre Glyphe mit - sie schlagen
+## perkussiv zu, statt still aufzunehmen.
+func test_operator_and_multiplier_cards_report_their_glyph() -> void:
 	var value := _valued_pack(0, 2)
 	var doubler := run.grant_pack(Pack.operator_pack(StampNet.OP_DOUBLER))
 	doubler.stamp_net = StampNet.empty_net()
 	doubler.stamp_net[0] = StampNet.operator_cell(StampNet.OP_DOUBLER)
+	var times := run.grant_pack(Pack.multiplier_pack())
+	times.stamp_net = StampNet.empty_net()
+	times.stamp_net[0] = StampNet.factor_cell(4)
 	view.slot_pack(value.pack_uid)
 	view.slot_pack(doubler.pack_uid)
+	view.slot_pack(times.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
 	var beats := _record_press()
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
 	var operators: Array[String] = []
@@ -347,7 +350,8 @@ func test_an_operator_card_reports_its_operator() -> void:
 			operators.append(String(beat[4]))
 	assert_eq(operators.size(), GameRun.SERIES_SLOT_CAP)
 	assert_eq(operators[0], "", "die Wert-Karte nennt keinen")
-	assert_eq(operators[1], StampNet.OP_DOUBLER, "nur die Operator-Karte nennt einen")
+	assert_eq(operators[1], StampNet.operator_glyph(StampNet.OP_DOUBLER))
+	assert_eq(operators[2], "×4", "das Multiplikator-Netz schlägt mit seinem Faktor zu")
 
 ## Die Fahrt darf JEDERZEIT abbrechen: der EINE Aufräum-Pfad stellt das Netz auf
 ## seinen Endstand, die Reihe ist leer und der Griff genau einmal gemeldet.
@@ -360,7 +364,7 @@ func test_an_aborted_ride_owes_nothing() -> void:
 	var seen: Array = []
 	view.series_applied.connect(func(_result: Dictionary, _px: Vector2) -> void:
 		seen.append(true))
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_seconds(WorkshopView.LIGHT_STEP * 0.5)
 	view.skip_ceremony()
@@ -383,15 +387,15 @@ func test_the_full_ride_lands_in_the_same_end_state() -> void:
 	view.choose_target(1)
 	await wait_frames(2)
 	var park := view.ist_net_center()
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	var span := view.ceremony_time()
 	await wait_seconds(span + 0.35)
 	assert_false(view.burning(), "die Fahrt ist von selbst durch")
 	assert_true(view.press_slot_uids().is_empty(), "die Reihe ist leer")
-	assert_eq(view._action_button.text, "Griff 0/%d" % run.series_slots(),
+	assert_eq(view._action_button.text, "Prägen 0/%d" % run.series_slots(),
 		"und der Zähler in der Aufschrift steht wieder auf null")
-	assert_true(String(view._action_button.text).begins_with("Griff"),
+	assert_true(String(view._action_button.text).begins_with("Prägen"),
 		"der Sitz trägt wieder den Griff, nicht das Fertig")
 	assert_almost_eq(view._net.get_global_rect().get_center().x, park.x, 0.5,
 		"das Netz steht auf seinem Parkplatz")
@@ -408,7 +412,7 @@ func test_the_preview_holds_the_before_state_until_the_end() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[0]
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_frames(2)
 	assert_eq(view.preview_target().faces[0], before,
@@ -425,7 +429,7 @@ func test_after_the_ride_the_net_shows_the_booked_result() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[0]
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -449,7 +453,7 @@ func test_the_beat_ramps_and_operators_get_their_moment() -> void:
 	view.slot_pack(doubler.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	assert_lt(view.card_beat(3), view.card_beat(1), "die Rampe zieht an")
 	assert_gt(view.card_beat(2), view.card_beat(1),
@@ -501,16 +505,16 @@ func test_the_order_of_the_row_changes_the_result() -> void:
 # --- Der GRIFF trägt den Zähler ---------------------------------------------------
 
 ## Der Serien-Schirm ist tot: wie voll die Reihe ist, steht in der Aufschrift des
-## Knopfs - "Griff gesteckt/Serienlänge".
-func test_the_grip_label_counts_the_slots() -> void:
+## Knopfs - "Prägen gesteckt/Serienlänge".
+func test_the_stamp_label_counts_the_slots() -> void:
 	var uids := _stock(1)
 	await wait_frames(2)
-	assert_eq(view.grip_label(), "Griff 0/%d" % run.series_slots())
+	assert_eq(view.stamp_label(), "Prägen 0/%d" % run.series_slots())
 	assert_false(view._action_button.visible, "leer zeigt sich kein Knopf")
 	view.slot_pack(uids[0])
 	await wait_frames(2)
 	assert_true(view._action_button.visible, "gesteckt steht er da")
-	assert_eq(view._action_button.text, "Griff 1/%d" % run.series_slots())
+	assert_eq(view._action_button.text, "Prägen 1/%d" % run.series_slots())
 
 ## Der SERIEN-Schirm ist tot (der Zähler steht in der Griff-Aufschrift), und an der
 ## Stelle des dreizeiligen Tooltips steht seit der Welle O der SUMMEN-Schirm.
@@ -885,7 +889,7 @@ func test_the_window_holds_the_faces_before_the_grip() -> void:
 	await wait_frames(2)
 	assert_null(view.held_faces(), "ohne Zeremonie hält es nichts")
 	var before: int = run.owned_pool[0].faces[0]
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_frames(2)
 	var held := view.held_faces()
@@ -906,7 +910,7 @@ func test_the_card_data_carries_the_tier() -> void:
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_frames(2)
 	var cards := view.burning_cards()
@@ -922,7 +926,7 @@ func test_the_last_leg_is_striking_then_returning() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var beats := _record_press()
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
 	assert_eq(String(beats[-2][0]), "struck", "erst schlagen die Funken ein")
@@ -939,7 +943,7 @@ func test_a_skip_inside_the_light_owes_nothing() -> void:
 	var seen: Array = []
 	view.series_applied.connect(func(_result: Dictionary, _px: Vector2) -> void:
 		seen.append(true))
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	await wait_seconds(view.latch_time() + WorkshopView.RAISE_TIME
 		+ WorkshopView.LIGHT_STEP * 1.5)
@@ -959,7 +963,7 @@ func test_the_result_stands_until_the_target_is_dropped() -> void:
 	view.choose_target(0)
 	await wait_frames(2)
 	var before: int = run.owned_pool[0].faces[1]
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -978,7 +982,7 @@ func test_another_target_drops_the_standing_result() -> void:
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -997,7 +1001,7 @@ func test_a_fresh_card_takes_the_screen_back_from_the_result() -> void:
 	view.slot_pack(first.pack_uid)
 	view.choose_target(0)
 	await wait_frames(2)
-	_fill_row()  # der Griff verlangt eine VOLLE Reihe
+	_fill_row()
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -1016,8 +1020,8 @@ func test_a_ready_grip_says_nothing() -> void:
 	view.set_target_die(run.owned_pool[0])
 	view.slot_pack(_valued_pack(0, 2).pack_uid)
 	_fill_row()
-	assert_true(view.can_pull(), "Ziel plus volle Reihe reicht")
-	assert_eq(view.grip_blocker(), "", "wer greifen darf, bekommt keine Mahnung")
+	assert_true(view.can_pull(), "Ziel plus Karten reichen")
+	assert_eq(view.stamp_blocker(), "", "wer greifen darf, bekommt keine Mahnung")
 
 func test_a_zurred_round_names_itself() -> void:
 	view.set_target_die(run.owned_pool[0])
@@ -1025,37 +1029,44 @@ func test_a_zurred_round_names_itself() -> void:
 	_fill_row()
 	view.editing_locked = true
 	assert_false(view.can_pull())
-	assert_true(view.grip_blocker().contains("gezurrt"),
-		"die gesperrte Werkstatt nennt sich: %s" % view.grip_blocker())
+	assert_true(view.stamp_blocker().contains("gezurrt"),
+		"die gesperrte Werkstatt nennt sich: %s" % view.stamp_blocker())
 
 func test_a_missing_target_names_itself() -> void:
 	var pack := _valued_pack(0, 2)
 	view.slot_pack(pack.pack_uid)
 	assert_null(view.target_die(), "ohne Tipp auf den Vorrat steht kein Ziel")
-	assert_true(view.grip_blocker().contains("Ziel"),
-		"das fehlende Ziel nennt sich: %s" % view.grip_blocker())
+	assert_true(view.stamp_blocker().contains("Ziel"),
+		"das fehlende Ziel nennt sich: %s" % view.stamp_blocker())
 
-## Der KURZSCHLUSS deckelt die Reihe unter sechs - dann sagt der Griff das ehrlich.
-## OFFEN: unter dieser Klausel ist die Werkstatt unbenutzbar.
-func test_the_short_circuit_names_itself() -> void:
+## Der KURZSCHLUSS läßt eine Karte - und eine genügt dem Prägen.
+func test_the_short_circuit_leaves_the_grip_usable() -> void:
 	view.set_target_die(run.owned_pool[0])
 	view.slot_pack(_valued_pack(0, 2).pack_uid)
 	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
 	run.sign_clauses(short_circuit)
 	await wait_frames(2)
-	assert_lt(run.series_slots(), GameRun.SERIES_SLOT_CAP)
-	assert_false(view.can_pull())
-	assert_true(view.grip_blocker().contains("Kurzschlu"),
-		"der Kurzschluß nennt sich: %s" % view.grip_blocker())
+	assert_eq(run.series_slots(), 1)
+	assert_true(view.can_pull())
+	assert_eq(view.stamp_blocker(), "")
 
-## Die halbleere Reihe nennt sich - der Block IST sechs Karten.
-func test_a_half_empty_row_names_itself() -> void:
+## Ein durchgebrannter Würfel nennt die fehlende Reparatur-Karte.
+func test_a_burned_target_names_the_missing_repair_card() -> void:
+	run.owned_pool[0].burn_out()
 	view.set_target_die(run.owned_pool[0])
-	for i in GameRun.SERIES_SLOT_CAP - 1:
-		view.slot_pack(_valued_pack(0, 1).pack_uid)
-	assert_false(view.can_pull(), "fünf Karten greifen nicht")
-	assert_true(view.grip_blocker().contains("sechs Karten"),
-		"die halbleere Reihe nennt sich: %s" % view.grip_blocker())
-	view.slot_pack(_valued_pack(1, 1).pack_uid)
-	assert_true(view.can_pull(), "die sechste macht sie voll")
-	assert_eq(view.grip_blocker(), "")
+	view.slot_pack(_valued_pack(0, 1).pack_uid)
+	assert_false(view.can_pull(), "ohne Reparatur-Karte greift er nicht")
+	assert_true(view.stamp_blocker().contains(Pack.catalyst_name(Pack.CATALYST_REPAIR)),
+		"das Prägen nennt sie: %s" % view.stamp_blocker())
+	view.slot_pack(run.grant_pack(Pack.catalyst(Pack.CATALYST_REPAIR)).pack_uid)
+	assert_true(view.can_pull(), "mit ihr prägt und repariert er")
+	assert_eq(view.stamp_blocker(), "")
+
+## Eine Kühl-Karte allein trägt das Prägen - einen Durchgebrannten schaltet sie nicht frei.
+func test_a_cooling_card_alone_may_press_but_never_unlocks_a_burned_die() -> void:
+	view.set_target_die(run.owned_pool[0])
+	view.slot_pack(run.grant_pack(Pack.catalyst(Pack.CATALYST_COOL)).pack_uid)
+	assert_true(view.can_pull(), "kühlen ist ein Prägen ohne Netz")
+	run.owned_pool[0].burn_out()
+	assert_false(view.can_pull(), "Ruß kühlt man nicht weg")
+	assert_true(view.stamp_blocker().contains(Pack.catalyst_name(Pack.CATALYST_REPAIR)))

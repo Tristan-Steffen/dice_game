@@ -30,11 +30,9 @@ func test_jedes_feld_kennt_sich_selbst() -> void:
 	assert_eq(ShelfSelectorView.direction_of(ShelfSelectorView.PART_DOWN), 1)
 	assert_eq(ShelfSelectorView.tray_of_part(ShelfSelectorView.PART_UP), -1)
 
-## Auf ihrer Pick-Ebene liegt auch die Sicherungs-Fassung: der NAME entscheidet.
+## Der NAME entscheidet, nicht der Treffer.
 func test_ein_fremdes_teil_gehoert_ihr_nicht() -> void:
-	assert_eq(ShelfSelectorView.PICK_LAYER, FuseSocketView.PICK_LAYER,
-		"dieselbe Ebene ...")
-	assert_false(ShelfSelectorView.knows(FuseSocketView.PART_FUSE), "... anderer Name")
+	assert_false(ShelfSelectorView.knows("fuse"), "ein fremder Name")
 	assert_false(ShelfSelectorView.knows("key99"), "kein Tablett 100")
 	assert_false(ShelfSelectorView.knows(""))
 

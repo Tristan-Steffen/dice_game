@@ -219,7 +219,7 @@ static func pack_info(pack: Pack) -> Dictionary:
 	var tier := Pack.tier_label(pack.tier)
 	return {"title": pack.display_name,
 		"sub": tier if sort == pack.display_name else "%s%s%s" % [tier, JOIN, sort],
-		"sub_tint": PackDrawerView.COLORS.get(shelf, WorkshopView.MUTED_COLOR),
+		"sub_tint": PackDrawerView.pack_tint(pack),
 		"body": Pack.info_body(pack)}
 
 ## Eine NETZ-ZELLE: sie gehört jemandem, und der steht im Titel.
@@ -228,7 +228,7 @@ static func cell_info(owner_title: String, hint: String) -> Dictionary:
 		"sub_tint": WorkshopView.MUTED_COLOR, "body": hint}
 
 ## RUHE: steht ein Ziel, erklärt der Schirm den Zielwürfel - sonst sagt er, warum
-## der Griff schweigt, und sonst, was zu tun ist.
+## das Prägen schweigt, und sonst, was zu tun ist.
 static func idle_info(target: DieDefinition, blocker: String) -> Dictionary:
 	if target != null:
 		return die_info(target)

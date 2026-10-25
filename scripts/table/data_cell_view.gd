@@ -281,12 +281,14 @@ func _init() -> void:
 
 ## Einziger Eingang: baut die Zelle einer Sorte (Pack.SHELF_ORDER) in ihrer
 ## Paketgröße (Pack.TIER_*) mit dem Prägenetz ihres Pakets - die Größe zeichnet
-## Intensität und Rahmenstärke, nie den Körper.
-func setup(cell_sort: String, cell_tier: int = 0, net: Array = []) -> void:
+## Intensität und Rahmenstärke, nie den Körper. gilded = die Reparatur-Karte:
+## Gold statt Sortenfarbe, in voller Stärke.
+func setup(cell_sort: String, cell_tier: int = 0, net: Array = [],
+		gilded := false) -> void:
 	sort = cell_sort
-	tier = maxi(cell_tier, 0)
+	tier = Pack.TIER_KOLOSSAL if gilded else maxi(cell_tier, 0)
 	stamp_net = net.duplicate() if not net.is_empty() else StampNet.empty_net()
-	tint = PackDrawerView.COLORS.get(sort, PackDrawerView.GOLD)
+	tint = PackDrawerView.REPAIR_TINT if gilded else PackDrawerView.tint_of(sort, "", stamp_net)
 	_build_materials()
 	_body = Node3D.new()
 	_body.name = "Body"

@@ -127,31 +127,6 @@ func test_the_heat_sink_also_caps_the_noise_filter():
 	_sign([DealClause.NOISE_FILTER])
 	assert_eq(run.owned_pool[0].charge, 1, "min(1, cap)")
 
-# --- Isolierband -----------------------------------------------------------------
-
-func test_the_tape_swaps_the_repair_price_for_money():
-	var burned := run.owned_pool[0]
-	burned.burn_out()
-	assert_eq(run.repair_price(), {"energy": GameRun.REPAIR_ENERGY})
-	run.owned_charms.append(Charm.insulation_tape())
-	assert_eq(run.repair_price(), {"money": GameRun.REPAIR_MONEY})
-	run.money = 20
-	var money_before := run.money
-	var energy_before := run.energy
-	assert_true(run.repair_die(burned))
-	assert_eq(run.money, money_before - GameRun.REPAIR_MONEY)
-	assert_eq(run.energy, energy_before, "Energie bleibt liegen")
-	assert_false(burned.burned_out)
-
-func test_the_tape_repair_checks_before_it_spends():
-	var burned := run.owned_pool[0]
-	burned.burn_out()
-	run.owned_charms.append(Charm.insulation_tape())
-	run.money = GameRun.REPAIR_MONEY - 1
-	assert_false(run.repair_die(burned), "zu wenig Geld")
-	assert_eq(run.money, GameRun.REPAIR_MONEY - 1, "nichts gebucht")
-	assert_true(burned.burned_out)
-
 # --- Lichtbogen ------------------------------------------------------------------
 
 func test_the_arc_flash_pays_per_copy():
@@ -388,27 +363,6 @@ func test_the_standing_current_keeps_the_spares_hot():
 	assert_true(run.cool_unplayed_dice().is_empty())
 	assert_eq(spare.charge, 2)
 
-func test_the_maintenance_contract_locks_the_bay_until_the_next_round_is_committed():
-	run.round_number = 3
-	_sign([DealClause.MAINTENANCE_CONTRACT])
-	assert_eq(run.repair_lock_round, 4)
-	assert_true(run.repair_locked(), "schon in der Runde der Unterschrift")
-	run.note_round_committed()
-	assert_true(run.repair_locked(), "das Zurren von Runde 3 löst sie nicht")
-	run.round_number = 4
-	assert_true(run.repair_locked(), "auch im Fenster davor")
-	run.note_round_committed()
-	assert_false(run.repair_locked(), "das Zurren von Runde 4 macht sie frei")
-
-func test_a_locked_bay_books_nothing():
-	var burned := run.owned_pool[0]
-	burned.burn_out()
-	_hot(run.owned_pool[1], 2)
-	_sign([DealClause.MAINTENANCE_CONTRACT])
-	var energy_before := run.energy
-	assert_false(run.repair_die(burned))
-	assert_eq(run.energy, energy_before)
-
 func test_the_power_failure_lies_in_the_boss_pool():
 	var boss := DealClause.ids_for(DealClause.Tier.BOSS, DealClause.Kind.MALUS)
 	assert_true(boss.has(DealClause.POWER_FAILURE))
@@ -417,7 +371,7 @@ func test_the_power_failure_lies_in_the_boss_pool():
 
 func test_every_charge_clause_carries_the_charge_tag():
 	for clause_id in [DealClause.DRAIN, DealClause.COOLING_BREAK, DealClause.NOISE_FILTER,
-			DealClause.OVERLOAD, DealClause.STANDING_CURRENT, DealClause.MAINTENANCE_CONTRACT,
+			DealClause.OVERLOAD, DealClause.STANDING_CURRENT,
 			DealClause.POWER_FAILURE]:
 		assert_true(DealClause.tags_of(clause_id).has(DealClause.TAG_CHARGE), clause_id)
 	assert_true(DealClause.TAG_COLORS.has(DealClause.TAG_CHARGE), "eigene Farbe")

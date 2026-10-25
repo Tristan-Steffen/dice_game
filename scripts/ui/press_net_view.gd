@@ -399,6 +399,10 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 			text = "+%d" % int(entry.get("value", 0))
 			rim = VALUE_TINT
 			tint = VALUE_TINT
+		StampNet.KIND_FACTOR:
+			text = StampNet.factor_glyph(int(entry.get("value", 1)))
+			rim = PackDrawerView.MULTIPLIER_TINT
+			tint = PackDrawerView.MULTIPLIER_TINT.lightened(0.35)
 		StampNet.KIND_OPERATOR:
 			text = StampNet.operator_glyph(String(entry.get("id", "")))
 			rim = OPERATOR_TINT
@@ -506,9 +510,11 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 	var bonus := _sum_int(projection, "bonus", face, 0)
 	var pointer := _sum_int(projection, "pointers", face, -1)
 	var runes := _sum_runes(projection, face)
+	var factor := _sum_int(projection, "factors", face, 1)
 	var fill := EMPTY_CELL
 	var rim := EMPTY_RIM
 	var text := ""
+	var ink := VALUE_TINT
 	if material != "":
 		var level := DieMaterial.MAX_LEVEL if _sum_flag(projection, "doped", face) else 1
 		fill = DieMaterial.tint_for(material, level)
@@ -517,6 +523,12 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 		text = "%+d" % bonus
 		if material == "":
 			rim = VALUE_TINT
+	# Eine Faktor-Seite trägt den lila Saum; ohne aufgelaufenen Bonus steht ihr Faktor da.
+	if factor > 1:
+		rim = PackDrawerView.MULTIPLIER_TINT
+		if bonus == 0:
+			text = StampNet.factor_glyph(factor)
+			ink = PackDrawerView.MULTIPLIER_TINT.lightened(0.35)
 	if pointer >= 0:
 		rim = DieNetView.POINTER_COLOR
 	var chip := Panel.new()
@@ -529,7 +541,7 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 	box.set_corner_radius_all(maxi(1, int(cell * 0.2)))
 	chip.add_theme_stylebox_override("panel", box)
 	if text != "":
-		chip.add_child(_stamp_label(text, cell, VALUE_TINT))
+		chip.add_child(_stamp_label(text, cell, ink))
 	for slot in mini(runes.size(), SUM_RUNE_CAP):
 		chip.add_child(_sum_rune(String(runes[slot]), cell, slot))
 	return chip
@@ -560,6 +572,9 @@ static func projection_hint(projection: Dictionary, face: int) -> String:
 	var bonus := _sum_int(projection, "bonus", face, 0)
 	if bonus != 0:
 		parts.append("%+d Augen" % bonus)
+	var factor := _sum_int(projection, "factors", face, 1)
+	if factor > 1:
+		parts.append("%s auf die Zahl-Boni" % StampNet.factor_glyph(factor))
 	for rune_id in _sum_runes(projection, face):
 		var rune_hint := Rune.hint(String(rune_id))
 		if rune_hint != "":

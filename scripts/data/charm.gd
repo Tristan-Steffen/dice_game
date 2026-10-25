@@ -143,7 +143,6 @@ const INVENTORY := "inventory"
 const VOLTMETER := "voltmeter"
 const SAFETY_FUSE := "safety_fuse"
 const HEAT_SINK := "heat_sink"
-const INSULATION_TAPE := "insulation_tape"
 const ARC_FLASH := "arc_flash"
 const GROUNDING := "grounding"
 const CONTINUOUS_DUTY := "continuous_duty"
@@ -409,7 +408,6 @@ const RARITIES := {
 	VOLTMETER: RARITY_UNCOMMON,
 	SAFETY_FUSE: RARITY_UNCOMMON,
 	HEAT_SINK: RARITY_RARE,
-	INSULATION_TAPE: RARITY_COMMON,
 	ARC_FLASH: RARITY_RARE,
 	GROUNDING: RARITY_UNCOMMON,
 	CONTINUOUS_DUTY: RARITY_RARE,
@@ -1014,9 +1012,6 @@ static func safety_fuse() -> Charm:
 static func heat_sink() -> Charm:
 	return _make(HEAT_SINK, "Kühlkörper", "Kein Würfel steigt über Ladung 2.")
 
-static func insulation_tape() -> Charm:
-	return _make(INSULATION_TAPE, "Isolierband", "Reparaturen kosten $15 statt 3 ⚡.")
-
 static func arc_flash() -> Charm:
 	return _make(ARC_FLASH, "Lichtbogen",
 		"Brennt ein Würfel beim Werten durch, gibt er seiner Hand +230 Basispunkte.")
@@ -1085,6 +1080,6 @@ static func all() -> Array[Charm]:
 		tail_light(), strobe(), metronome(),
 		zahnluecke(), drop_height(), inventory(),
 		# Ladung
-		voltmeter(), safety_fuse(), heat_sink(), insulation_tape(), arc_flash(),
+		voltmeter(), safety_fuse(), heat_sink(), arc_flash(),
 		grounding(), continuous_duty(), transformer(), ember_core(), spark_plug(),
 	]

@@ -90,7 +90,6 @@ const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
 const SHORT_CIRCUIT := "short_circuit"
 const OVERLOAD := "overload"
-const MAINTENANCE_CONTRACT := "maintenance_contract"
 
 # Malus, Stufe 3
 const BENCHMARK_SHOCK := "benchmark_shock"
@@ -330,7 +329,7 @@ static func rip_off() -> DealClause:
 	return _malus(RIP_OFF, "Abzocke", "Jeder gewertete Würfel kostet 1$",
 		Scope.ROUND, Tier.TWO, [TAG_SIDEBET])
 
-## Die Schaltung reißt: nur EINE Karte je Griff, wie voll das Magazin auch steht.
+## Die Schaltung reißt: nur EINE Karte je Prägen, wie voll das Magazin auch steht.
 static func short_circuit() -> DealClause:
 	return _malus(SHORT_CIRCUIT, "Kurzschluss", "Serienlänge ist 1",
 		Scope.ROUND, Tier.TWO, [TAG_SERIES])
@@ -338,12 +337,6 @@ static func short_circuit() -> DealClause:
 ## Überlast: der Ladungswurf trifft immer - bei 3 also sicheres Durchbrennen.
 static func overload() -> DealClause:
 	return _malus(OVERLOAD, "Überlast", "Jede Zündung eines gewerteten Würfels hebt seine Ladung sicher um 1",
-		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
-
-## Sperrt die Bucht erst im Fenster NACH dieser Runde - darum eine Runden-Klausel.
-static func maintenance_contract() -> DealClause:
-	return _malus(MAINTENANCE_CONTRACT, "Wartungsvertrag",
-		"Die Reparatur-Bucht bleibt vor der nächsten Runde geschlossen",
 		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
 
 static func benchmark_shock() -> DealClause:
@@ -408,7 +401,7 @@ static func all() -> Array[DealClause]:
 		service_fee(), inflation(), power_cut(), standing_current(),
 		benchmark_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
 		discharge(), heat_warning(), rip_off(), short_circuit(),
-		overload(), maintenance_contract(),
+		overload(),
 		benchmark_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
 		tilted_floor(), balanced_scales(), power_failure(),

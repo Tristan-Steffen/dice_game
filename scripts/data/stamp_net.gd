@@ -3,7 +3,7 @@ extends Resource
 ## Das PRÄGENETZ einer Kassette: sechs Zellen, eine je Würfelseite. Es wird bei
 ## der ERZEUGUNG gewürfelt, steht ab da fest und liegt im Laden offen - der Zufall
 ## lebt im Nachschub, nicht mehr an der Presse. Jede Zelle trägt GENAU EINES:
-## Zahl-Bonus, Material, Rune, Operator, Veredelung oder Pointer.
+## Zahl-Bonus, Faktor, Material, Rune, Operator, Veredelung oder Pointer.
 ##
 ## Hier stehen nur Daten und der Wurf. Wie sich mehrere Netze zu einer Serie
 ## verrechnen, weiß allein der SeriesResolver.
@@ -12,6 +12,7 @@ const FACES := 6
 
 ## Zell-Sorten - "kind" entscheidet, welche weiteren Felder eine Zelle trägt.
 const KIND_VALUE := "value"        # {"value": int}
+const KIND_FACTOR := "factor"      # {"value": int} - vervielfacht die aufgelaufenen Zahl-Boni
 const KIND_MATERIAL := "material"  # {"id": DieMaterial-id}
 const KIND_RUNE := "rune"          # {"id": Rune-id}
 const KIND_OPERATOR := "operator"  # {"id": OP_*}
@@ -76,6 +77,10 @@ const MATERIAL_MONOLITH_CHANCE := [0.0, 0.0, 0.3]
 ## Runen: eine, zwei, drei.
 const RUNE_CELLS := [[1, 1], [2, 2], [3, 3]]
 
+## MULTIPLIKATOR-NETZE: so viele Faktor-Zellen [min, max] und ihr Faktor je Größe.
+const FACTOR_CELLS := [[1, 2], [1, 2], [1, 3]]
+const FACTOR_VALUES := [2, 3, 4]
+
 ## --- Zellen --------------------------------------------------------------------
 
 static func empty_net() -> Array:
@@ -86,6 +91,9 @@ static func empty_net() -> Array:
 
 static func value_cell(amount: int) -> Dictionary:
 	return {"kind": KIND_VALUE, "value": amount}
+
+static func factor_cell(factor: int) -> Dictionary:
+	return {"kind": KIND_FACTOR, "value": factor}
 
 static func material_cell(material_id: String) -> Dictionary:
 	return {"kind": KIND_MATERIAL, "id": material_id}
@@ -126,6 +134,31 @@ static func filled_count(net: Array) -> int:
 ## Trägt das Netz überhaupt etwas? Katalysatoren tragen keins.
 static func is_blank(net: Array) -> bool:
 	return filled_count(net) == 0
+
+## Der höchste Faktor des Netzes (0 = keine Faktor-Zelle) - daran erkennt sich ein
+## Multiplikator-Netz.
+static func top_factor(net: Array) -> int:
+	var top := 0
+	for face in FACES:
+		var cell := cell_at(net, face)
+		if kind_of(cell) == KIND_FACTOR:
+			top = maxi(top, int(cell.get("value", 0)))
+	return top
+
+static func is_factor_net(net: Array) -> bool:
+	return top_factor(net) > 0
+
+## Die Glyphe, mit der die Karte im Durchlicht zuschlägt ("" = sie prägt still).
+static func net_glyph(net: Array) -> String:
+	for face in FACES:
+		var cell := cell_at(net, face)
+		if kind_of(cell) == KIND_OPERATOR:
+			return operator_glyph(String(cell.get("id", "")))
+	var factor := top_factor(net)
+	return factor_glyph(factor) if factor > 0 else ""
+
+static func factor_glyph(factor: int) -> String:
+	return "×%d" % factor
 
 ## --- Der WURF ------------------------------------------------------------------
 
@@ -184,6 +217,15 @@ static func _roll_rune(tier: int, rng: RandomNumberGenerator) -> Array:
 		net[face] = rune_cell(_pick_rune(rng))
 	return net
 
+## Multiplikator-Netz: wenige Seiten mit dem Faktor seiner Größe.
+static func roll_factor(tier: int, rng: RandomNumberGenerator = null) -> Array:
+	var net := empty_net()
+	var step := _tier(tier)
+	var span: Array = FACTOR_CELLS[step]
+	for face in _pick_faces(_range(rng, int(span[0]), int(span[1])), rng):
+		net[face] = factor_cell(int(FACTOR_VALUES[step]))
+	return net
+
 ## Operator-Karte: genau EINE Zelle, auf einer gewürfelten Seite.
 static func operator_net(op_id: String, rng: RandomNumberGenerator = null) -> Array:
 	var net := empty_net()
@@ -231,6 +273,9 @@ static func line(net: Array) -> String:
 				op = operator_name(String(cell.get("id", "")))
 	if op != "":
 		return op
+	var factor := top_factor(net)
+	if factor > 0:
+		return "%s auf %d Seite%s" % [factor_glyph(factor), cells, "n" if cells > 1 else ""]
 	if sum > 0:
 		return "%d Zellen, +%d gesamt" % [cells, sum] if cells > 1 else "1 Zelle, +%d" % sum
 	return "%d Zellen" % cells if cells > 1 else "1 Zelle"
@@ -242,6 +287,9 @@ static func cell_hint(cell: Dictionary) -> String:
 	match kind_of(cell):
 		KIND_VALUE:
 			return "Zahl: +%d auf diese Seite" % int(cell.get("value", 0))
+		KIND_FACTOR:
+			var factor := factor_glyph(int(cell.get("value", 0)))
+			return "Multiplikator: %s auf die bisher aufgelaufenen Zahl-Boni dieser Seite" % factor
 		KIND_MATERIAL:
 			return DieMaterial.face_hint(String(cell.get("id", "")))
 		KIND_RUNE:

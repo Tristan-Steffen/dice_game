@@ -34,10 +34,10 @@ func test_all_returns_all_charms():
 	# −3 mit dem Essenz-Rework: Sumpflaterne, Sonnenfinsternis und Druckerpresse
 	# starben mit Irrlicht, Korona und Ethylen.
 	# +3: Zahnlücke, Fallhöhe und Inventur.
-	# +10 mit der LADUNG: Spannungsmesser, Sicherung, Kühlkörper, Isolierband,
-	# Lichtbogen, Erdung, Dauerbetrieb, Transformator, Glutkern und die Zündkerze
-	# als Essenz-Charm der Funkenstrecke.
-	assert_eq(Charm.all().size(), 155)
+	# +9 mit der LADUNG: Spannungsmesser, Sicherung, Kühlkörper, Lichtbogen, Erdung,
+	# Dauerbetrieb, Transformator, Glutkern und die Zündkerze als Essenz-Charm der
+	# Funkenstrecke.
+	assert_eq(Charm.all().size(), 154)
 
 func test_all_ids_are_unique():
 	var seen := {}

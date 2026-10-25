@@ -3,7 +3,7 @@ extends Panel
 ## Der STATIONS-STREIFEN UNTER dem Pool. Er hat KEINEN Schirm-Hintergrund - seine
 ## Teile liegen auf dem Filz - und ist seit der WELLE X (2026-09-05) EINE BREITE,
 ## FLACHE ZEILE. Von links nach rechts (Welle 29):
-##   SUMMEN-NETZ | ETAGEN-LEISTE | AUSWURF-BAHN | [Stummel] ZIEL-NETZ | PODEST | GRIFF,
+##   SUMMEN-NETZ | ETAGEN-LEISTE | AUSWURF-BAHN | [Stummel] ZIEL-NETZ | PODEST | PRÄGEN,
 ## darunter das MAGAZIN über die volle Breite. Über ihm, in der Lücke zur Pool-Reihe,
 ## liegt der INFO-SCHIRM (WorkshopInfoView), der jede Auskunft der Station trägt.
 ##  - DER TURM ist ein Körper (TowerView) in einer GESCHLOSSENEN Tasche UNTER dem
@@ -11,7 +11,7 @@ extends Panel
 ##    Das Fenster MALT ihn nicht - es meldet nur sein Rechteck und hält die
 ##    ETAGEN-LEISTE, die Klick, Zug und Zeiger trägt.
 ##  - Das EINE NETZ ist der PressNetView: ohne Serie zeigt er den Zielwürfel
-##    schlicht, mit gesteckten Karten die Live-Vorschau und nach dem Griff das
+##    schlicht, mit gesteckten Karten die Live-Vorschau und nach dem Prägen das
 ##    Ergebnis mit den grünen Deltas; ohne Ziel steht dort das leere Kreuz. Alle Netze
 ##    der Werkstatt teilen die Zelle des PRÄGENETZES auf der Karte (card_net_cell).
 ##
@@ -23,14 +23,14 @@ extends Panel
 ## später), geklickt kommt sie zurück ins Magazin.
 ##
 ## Zustands-Mutation läuft ausschließlich über GameRun (resolve_series als
-## Vorschau, apply_series als Griff); die Vorschau ist buchstäblich dieselbe
+## Vorschau, apply_series als Prägen); die Vorschau ist buchstäblich dieselbe
 ## Rechnung wie die Buchung.
 
 ## Der Zielwürfel wurde gewählt, gewechselt oder abgewählt (null = keiner) -
 ## scene_root holt ihn per Hebebühne aus dem Pool auf das Podest und fährt ihn
 ## denselben Weg zurück.
 signal target_chosen(die: DieDefinition)
-## Der GRIFF ist durch: gebucht hat GameRun schon beim Auslösen, hier ist die
+## Das PRÄGEN ist durch: gebucht hat GameRun schon beim Auslösen, hier ist die
 ## Zeremonie zu Ende und scene_root läßt den Zielwürfel aufblitzen. Der Anker
 ## reist MIT - das Fenster ist inzwischen neu gebaut.
 signal series_applied(result: Dictionary, from_px: Vector2)
@@ -43,7 +43,7 @@ signal pack_landed(uid: int)
 ## Eine Karte ist aus ihrem Serien-Schacht zurück ins Magazin gegangen - die Zelle
 ## dieses Platzes fliegt heim auf ihren Platz. Gebucht ist da längst.
 signal pack_unslotted(slot_index: int, uid: int)
-## Der Griff beginnt: die Reihe gehört ab jetzt der Zeremonie. Gemeldet wird VOR
+## Das Prägen beginnt: die Reihe gehört ab jetzt der Zeremonie. Gemeldet wird VOR
 ## dem Buchen, solange die Sockel noch stehen.
 signal press_started
 ## DAS DURCHLICHT, im Takt gemeldet - GEFAHREN wird das von scene_root, das Fenster
@@ -53,8 +53,9 @@ signal cards_latched(time: float)
 ## Der Zielwürfel fliegt vom Podest ÜBER den Turm - derselbe Körper, ein Trage-Bogen.
 signal die_raised(time: float)
 ## Das Licht hat Etage index durchlaufen: welche Zellen sie hergibt, der Stand
-## danach, ihr Operator; time ist der Takt bis zur nächsten Etage.
-signal light_passed(index: int, faces: Array, values: Array, operator: String,
+## danach, die Glyphe, mit der sie zuschlägt ("" = still); time ist der Takt bis
+## zur nächsten Etage.
+signal light_passed(index: int, faces: Array, values: Array, glyph: String,
 	time: float)
 ## Oben angekommen zerfällt das Licht-Netz in seine LICHTFUNKEN - sie lösen sich
 ## GLEICHZEITIG und schlagen in die Seiten des Würfels ein.
@@ -89,7 +90,7 @@ const STAGE_HEIGHT := 9.3
 ## an einem Höhen-Budget. So viele u ist eine Würfelfläche breit.
 const U_PER_FACE := 11.0
 
-## --- DIE SPALTEN: Summen-Netz, Leiste, Turm, Ziel-Netz, Podest, Griff -------------
+## --- DIE SPALTEN: Summen-Netz, Leiste, Turm, Ziel-Netz, Podest, Prägen -------------
 ## MINDEST-Breite einer Netz-Spalte in u; die ECHTE Breite ist das Netz plus seinen
 ## beiden Rändern - die Zelle ist eine Würfelfläche und damit ein Weltmaß.
 const DIFF_WIDTH_UNITS := 18.0
@@ -147,13 +148,13 @@ const INFO_MARGIN := 1.2
 const SHELF_MIN_HEIGHT := 6.0
 
 ## Der EINE Handlungs-Sitz am RECHTEN Ende der Zeile, neben dem Podest: er trägt
-## "Griff n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
+## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
 ## steht fest, nur seine Aufschrift wechselt, und die Grundseite fließt nie um.
-## Bemessen an der breitesten Aufschrift ("Griff 8/8") plus Rand.
+## Bemessen an der breitesten Aufschrift ("Prägen 6/6") plus Rand.
 const ACTION_WIDTH := 15.0
 const ACTION_HEIGHT := 4.0
 
-## DAS DURCHLICHT - die Zeremonie des Griffs (Welle X, 2026-09-05). Alle Karten
+## DAS DURCHLICHT - die Zeremonie des Prägens (Welle X, 2026-09-05). Alle Karten
 ## rasten ein, der Zielwürfel fliegt über den Turm, ein Licht steigt aus der Kammer
 ## durch alle Etagen und nimmt dabei ihre Zellen auf, und oben schlagen seine
 ## Funken GLEICHZEITIG in den Würfel ein. Klick überspringt jederzeit.
@@ -200,7 +201,7 @@ var run: GameRun:
 var _content: Control
 ## Das EINE Summen-Netz des Fensters. Es überlebt jeden Neuaufbau (es ist kein Kind
 ## des Inhalts): sein ZÄHL-Takt darf nicht daran zerbrechen, daß eine Kassette
-## umsortiert wird - nur so tickt es beim Griff von der Vorschau herunter.
+## umsortiert wird - nur so tickt es beim Prägen von der Vorschau herunter.
 var _net: PressNetView
 ## Sein PARKPLATZ im Netz-Schirm: ein leerer Platz in Netzgröße, auf den es je
 ## Bild zurückgesetzt wird. Der Platz ist die gemeldete Netzmitte.
@@ -292,7 +293,7 @@ var die_face_px := 0.0:
 		die_face_px = value
 		refresh()
 ## Wie weit der PODEST-Würfel sich im Bild nach rechts hinauslehnt - ohne diese Luft
-## deckte er den GRIFF-Knopf zu.
+## deckte er den PRÄGEN-Knopf zu.
 var die_lean := 0.0:
 	set(value):
 		if is_equal_approx(die_lean, value):
@@ -303,9 +304,8 @@ var die_lean := 0.0:
 ## DIE SERIE: die uids der gesteckten Karten in STECKREIHENFOLGE - sie SIND die
 ## Rechnung. uids, nicht Indizes: das Magazin darf darunter umsortiert werden.
 var _series: Array[int] = []
-## Plätze im Pool: der Zielwürfel und (nur mit Doppelmatrize) der zweite.
+## Platz des Zielwürfels im Pool.
 var _target_index := -1
-var _second_index := -1
 ## Die Karte unter dem Zeiger (-1 = keine): ihre Beitrags-Zellen leuchten im
 ## Netz auf, und der Summen-Schirm zeigt IHR Prägenetz.
 var _hover_slot := -1
@@ -315,9 +315,9 @@ var _hover_pack_uid := 0
 ## Der Slot, auf dem ein Zug begonnen hat (-1 = keiner).
 var _drag_from := -1
 
-## DIE LAUFENDE ZEREMONIE. _burning trägt die Kartendaten des Griffs (die Karten
+## DIE LAUFENDE ZEREMONIE. _burning trägt die Kartendaten des Prägens (die Karten
 ## selbst sind da längst verbraucht), _burn_step, wie viele davon die Welle schon
-## erfaßt hat, und _burn_die den Zielwürfel, wie er VOR dem Griff aussah - nur so
+## erfaßt hat, und _burn_die den Zielwürfel, wie er VOR dem Prägen aussah - nur so
 ## kann das Summen-Netz von 0 hochticken.
 var _burning: Array[Dictionary] = []
 var _burn_step := -1
@@ -329,7 +329,7 @@ var _burn_anchor := Vector2.ZERO
 
 ## DAS ERGEBNIS DER LETZTEN BUCHUNG - es bleibt im Netz STEHEN, bis ein
 ## anderes Ziel gewählt oder abgewählt wird (siehe showing_result). _result_die ist
-## der Stand VOR dem Griff: erst der Vergleich mit der Projektion macht die grünen
+## der Stand VOR dem Prägen: erst der Vergleich mit der Projektion macht die grünen
 ## Deltas.
 var _result_die: DieDefinition
 var _result_projection: Dictionary = {}
@@ -463,7 +463,7 @@ func _free_own(node: Node) -> void:
 		node.queue_free()
 
 # --- DIE ZEILE (Welle Z): Summen-Netz | Leiste + Bahn + Turm | Ziel-Netz | Podest |
-# --- Griff. Die GRUBE liegt links, der WÜRFEL rechts. -----------------------------
+# --- Prägen. Die GRUBE liegt links, der WÜRFEL rechts. -----------------------------
 
 ## Der Innenraum des Fensters in Fenster-Koordinaten - alles liegt darin.
 func street_rect() -> Rect2:
@@ -558,9 +558,9 @@ func floor_field_rect(index: int) -> Rect2:
 		strip.position.y + float(count - 1 - index) * (height + gap)),
 		Vector2(strip.size.x, height))
 
-## Der GRIFF-SITZ: das rechte Ende der Zeile, hinter der Luft, die die LEHNE des
+## Der PRÄGE-SITZ: das rechte Ende der Zeile, hinter der Luft, die die LEHNE des
 ## Podest-Würfels braucht.
-func grip_seat_rect() -> Rect2:
+func stamp_seat_rect() -> Rect2:
 	var u := unit()
 	var span := action_size(u)
 	return Rect2(Vector2(target_podium_rect().end.x + u * STREET_GAP + die_lean,
@@ -683,23 +683,8 @@ func target_die() -> DieDefinition:
 		return null
 	return defs[_target_index]
 
-## Der zweite Würfel der Doppelmatrize. DEAKTIVIERT diese Welle (das Podest trägt
-## nur EIN Ziel): apply_series bekommt immer null, die Zweitprojektion der
-## Matrix-Karte ist inert - eine Folge-Welle löst sie.
-func second_die() -> DieDefinition:
-	return null
-
 func target_index() -> int:
 	return _target_index
-
-func second_index() -> int:
-	return _second_index
-
-## Steckt eine Doppelmatrize in der Reihe? DEAKTIVIERT diese Welle - sie verlangt
-## keinen zweiten Würfel mehr (siehe second_die), also mahnt der Serien-Schirm
-## auch keinen an und der Griff steht ohne ihn bereit.
-func needs_second() -> bool:
-	return false
 
 ## Die ZIELWAHL per Pool-Klick: scene_root meldet den angetippten physischen
 ## Würfel. Derselbe wählt ab, ein anderer wechselt (die Bühnen-Fahrt räumt und
@@ -716,10 +701,9 @@ func set_target_die(die: DieDefinition) -> void:
 
 ## Wählt ab (kein Ziel mehr) - der Podest-Würfel fährt in seinen Pool-Sitz zurück.
 func clear_target() -> void:
-	if _target_index < 0 and _second_index < 0:
+	if _target_index < 0:
 		return
 	_target_index = -1
-	_second_index = -1
 	_announce_target()
 
 ## Wählt den Zielwürfel programmatisch (Tests, Debug) - am Tisch tippt der Spieler
@@ -734,7 +718,7 @@ func _announce_target() -> void:
 	target_chosen.emit(target_die())
 
 ## Der Zielwürfel, den das Summen-Netz zeigt: während der Zeremonie der Stand VOR
-## dem Griff (nur so kann das Netz von 0 hochticken), danach der ERGEBNIS-Stand
+## dem Prägen (nur so kann das Netz von 0 hochticken), danach der ERGEBNIS-Stand
 ## (auch der Stand davor - die grünen Deltas leben vom Vergleich), sonst der echte.
 func preview_target() -> DieDefinition:
 	if burning():
@@ -755,7 +739,7 @@ func _drop_result() -> void:
 	_result_projection = {}
 
 ## DIE LIVE-VORSCHAU: was die gesteckte Serie auf dem Zielwürfel ergäbe. Sie ist
-## buchstäblich dieselbe Rechnung, die der Griff bucht ({} = keine).
+## buchstäblich dieselbe Rechnung, die das Prägen bucht ({} = keine).
 ## Während der Zeremonie zählt sie nur die Karten, die die Welle schon erfaßt hat.
 func preview() -> Dictionary:
 	if burning():
@@ -888,7 +872,7 @@ func floor_field_rects() -> Array[Rect2]:
 
 ## Wie BREIT das Fenster sein muß: Ränder, die Summen-Spalte, die Leiste, die
 ## Auswurf-Bahn, die Ziel-Spalte (mindestens so breit wie der Turm darunter), die
-## Bühne samt ihrer Lehne, die Griff-Spalte und die vier Fugen - und mindestens so
+## Bühne samt ihrer Lehne, die Präge-Spalte und die vier Fugen - und mindestens so
 ## breit, daß das Magazin seine COLUMNS Karten trägt (shelf_px).
 static func bench_width_for(u: float, net_px: float, tower_px: float,
 		stage_px_now: float, lane_px: float = 0.0, die_lean_px: float = 0.0,
@@ -980,13 +964,10 @@ func _arm_slot(slot: Button, index: int, card: Dictionary) -> void:
 func _slot_tint(card: Dictionary) -> Color:
 	if card.is_empty():
 		return SOCKET_RIM
-	var base: Color = OPERATOR_TINT if String(card.get("operator", "")) != "" \
-		else PackDrawerView.COLORS.get(String(card.get("sort", "")), SOCKET_LIVE_RIM)
-	var tier := clampi(int(card.get("tier", 0)), 0,
-		DataCellView.TIER_SATURATION.size() - 1)
-	var grey := base.get_luminance()
-	return Color(grey, grey, grey, base.a).lerp(base,
-		float(DataCellView.TIER_SATURATION[tier]))
+	if String(card.get("operator", "")) != "":
+		return DataCellView.tier_shade(OPERATOR_TINT, int(card.get("tier", 0)))
+	return PackDrawerView.card_shade(String(card.get("sort", "")),
+		int(card.get("tier", 0)), String(card.get("catalyst", "")), card.get("net", []))
 
 ## Die Sorten der belegten Schächte, in Reihenfolge - scene_root legt daran seine
 ## Zellen ab.
@@ -1104,7 +1085,7 @@ func slot_at(global_point: Vector2) -> int:
 	return -1
 
 ## Die Karten der Reihe in Steckreihenfolge, als reine Anzeigedaten. Während der
-## Zeremonie sind es die des Griffs - die Karten selbst sind da längst verbraucht.
+## Zeremonie sind es die des Prägens - die Karten selbst sind da längst verbraucht.
 func _slot_cards() -> Array[Dictionary]:
 	if burning():
 		return _burning
@@ -1121,6 +1102,7 @@ func _slot_cards() -> Array[Dictionary]:
 static func card_data(uid: int, pack: Pack) -> Dictionary:
 	return {"uid": uid, "name": pack.display_name, "sort": Pack.shelf_of(pack),
 		"tier": pack.tier, "net": pack.stamp_net, "operator": pack.operator_id,
+		"glyph": StampNet.net_glyph(pack.stamp_net),
 		"catalyst": pack.catalyst_id, "line": Pack.net_line(pack),
 		"body": pack.description}
 
@@ -1145,6 +1127,22 @@ func stamping_card_count() -> int:
 			count += 1
 	return count
 
+## Steckt die Reparatur-Karte in der Reihe? Dann nimmt das Prägen auch einen
+## durchgebrannten Würfel an.
+func series_repairs() -> bool:
+	for pack in slotted_packs():
+		if pack.is_repair():
+			return true
+	return false
+
+## Steckt eine Kühl- oder Reparatur-Karte darin? Dann wirkt das Prägen auch ohne
+## Netz-Karte.
+func series_tends() -> bool:
+	for pack in slotted_packs():
+		if pack.tends_die():
+			return true
+	return false
+
 ## Wirft uids aus der Reihe, hinter denen keine Karte mehr liegt (Wett-Einsatz,
 ## Laufwechsel), und einen Zielwürfel, den der Pool nicht mehr hergibt.
 func _prune_series() -> void:
@@ -1156,10 +1154,8 @@ func _prune_series() -> void:
 	var pool := pool_defs().size()
 	if _target_index >= pool:
 		_target_index = -1
-	if _second_index >= pool or not needs_second():
-		_second_index = -1
 
-# --- Der GRIFF -------------------------------------------------------------------
+# --- Das PRÄGEN -------------------------------------------------------------------
 
 ## Der EINE Handlungs-Sitz am rechten Ende der Zeile. Sein Rechteck ist in JEDEM
 ## Zustand dasselbe - der Sitz ist ein fester Platz, die Aufschrift wechselt.
@@ -1168,7 +1164,7 @@ func _build_action_seat(u: float) -> void:
 	seat.name = "ActionSeat"
 	seat.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_content.add_child(seat)
-	var rect := grip_seat_rect()
+	var rect := stamp_seat_rect()
 	var button := _seat_button(u)
 	if button != null:
 		button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1180,43 +1176,39 @@ func _build_action_seat(u: float) -> void:
 		# Ankerabständen heraus und weicht um ein Bit von action_size ab.
 		button.custom_minimum_size = Vector2.ZERO
 	seat.position = Vector2(rect.position.x,
-		grip_seat_rect().get_center().y - rect.size.y * 0.5)
+		stamp_seat_rect().get_center().y - rect.size.y * 0.5)
 	seat.size = rect.size
 
-## Die AUFSCHRIFT des Griffs: gesteckte Karten und Serienlänge - der Zähler wohnt
+## Die AUFSCHRIFT des Prägens: gesteckte Karten und Serienlänge - der Zähler wohnt
 ## seit dem Tod des Serien-Schirms hier.
-func grip_label() -> String:
-	return "Griff %d/%d" % [_series.size(), slot_count()]
+func stamp_label() -> String:
+	return "Prägen %d/%d" % [_series.size(), slot_count()]
 
-## Der Knopf auf dem Sitz. Zwei Zustände: der GRIFF und, solange die Serie sich
+## Der Knopf auf dem Sitz. Zwei Zustände: das PRÄGEN und, solange die Serie sich
 ## entlädt, das Überspringen.
 func _seat_button(u: float) -> Button:
 	if burning():
 		_action_button = _seat_fit(_action_button_new("Fertig", GOLD, u,
 			skip_ceremony), u)
 		return _action_button
-	_action_button = _seat_fit(_action_button_new(grip_label(), GOLD, u, pull_lever), u)
+	_action_button = _seat_fit(_action_button_new(stamp_label(), GOLD, u, pull_lever), u)
 	_action_button.disabled = not can_pull()
 	_action_button.visible = not _series.is_empty()
 	return _action_button
 
-## Darf jetzt gegriffen werden? Vier Bremsen: ein gewählter, nicht durchgebrannter
-## Zielwürfel, eine VOLLE Reihe (der Block IST sechs Karten) und mindestens eine
-## Karte, die prägt.
-## Griffe selbst sind unbegrenzt (Spieler-Entscheid 2026-09-05).
+## Darf jetzt geprägt werden? Ein gewählter Zielwürfel, mindestens EINE Karte
+## (Spieler-Wunsch 2026-10-25) und darunter eine, die prägt, kühlt oder repariert; ein
+## durchgebrannter Würfel nur mit der Reparatur-Karte.
+## Prägen selbst ist unbegrenzt (Spieler-Entscheid 2026-09-05).
 func can_pull() -> bool:
 	if run == null or editing_locked or burning():
 		return false
-	if target_die() == null:
+	if target_die() == null or _series.is_empty():
 		return false
-	# Auf einen durchgebrannten Würfel prägt der Griff nicht.
-	if target_die().burned_out:
+	var repairs := series_repairs()
+	if target_die().burned_out and not repairs:
 		return false
-	if _series.size() < GameRun.SERIES_SLOT_CAP:
-		return false
-	if stamping_card_count() <= 0:
-		return false
-	return not (needs_second() and second_die() == null)
+	return stamping_card_count() > 0 or series_tends()
 
 ## Zwingt einen Knopf auf das Sitzmaß: clip_text nimmt der Aufschrift das Recht,
 ## das Rechteck zu verbreitern.
@@ -1269,25 +1261,22 @@ func _build_info_screen(u: float) -> void:
 	_sum_signature = ""
 	_refresh_sum_net()
 
-## WARUM der Griff nicht zünden darf ("" = er darf). Die Bremsen stehen sonst
-## stumm im Knopf: eine gesperrte Werkstatt, ein fehlendes Ziel, eine halbleere
-## Reihe, eine Serie aus lauter Katalysatoren. Gefragt wird sie in der Reihenfolge,
-## in der can_pull prüft - genannt wird die ERSTE geschlossene Bremse.
-func grip_blocker() -> String:
+## WARUM das Prägen nicht zünden darf ("" = es darf). Die Bremsen stehen sonst
+## stumm im Knopf: eine gesperrte Werkstatt, ein fehlendes Ziel, eine leere Reihe,
+## eine Serie aus lauter Katalysatoren. Gefragt wird sie in der Reihenfolge, in der
+## can_pull prüft - genannt wird die ERSTE geschlossene Bremse.
+func stamp_blocker() -> String:
 	if run == null or can_pull() or burning():
 		return ""
 	if editing_locked:
 		return "Runde gezurrt - erst im Laden wieder."
 	if target_die() == null:
 		return "Kein Ziel: einen Vorrats-Würfel antippen."
-	if target_die().burned_out:
-		return "Würfel durchgebrannt - erst reparieren."
-	if _series.size() < GameRun.SERIES_SLOT_CAP:
-		# Der Kurzschluß deckelt die Reihe unter sechs - dann geht der Griff nie.
-		if run.series_slots() < GameRun.SERIES_SLOT_CAP:
-			return "Kurzschluß: keine sechs Karten."
-		return "Reihe nicht voll: sechs Karten."
-	if stamping_card_count() <= 0:
+	if _series.is_empty():
+		return "Keine Karte in der Reihe."
+	if target_die().burned_out and not series_repairs():
+		return "Durchgebrannt - die %s fehlt." % Pack.catalyst_name(Pack.CATALYST_REPAIR)
+	if stamping_card_count() <= 0 and not series_tends():
 		return "Nur Katalysatoren - eine Netz-Karte fehlt."
 	return ""
 
@@ -1404,7 +1393,7 @@ func hover_pack_name() -> String:
 			return pack.display_name
 	return ""
 
-## DER GRIFF: EINE atomare Buchung in GameRun, dann die Zeremonie. Gemeldet wird
+## DAS PRÄGEN: EINE atomare Buchung in GameRun, dann die Zeremonie. Gemeldet wird
 ## press_started VOR dem Buchen (die Dekompression der Zellen braucht sie noch in
 ## ihren Schächten); series_applied kommt am ENDE der Zeremonie - gebucht ist da
 ## längst, es ist nur noch das Licht.
@@ -1419,8 +1408,7 @@ func pull_lever() -> void:
 	# VOR der Buchung: ihr synchrones pool_changed fragt held_faces() schon, und der
 	# Podest-Würfel soll die ALTEN Augen behalten, bis der Scanner sie aufdeckt.
 	_burn_die = before
-	# Immer OHNE zweiten Würfel: die Doppelmatrize ist diese Welle deaktiviert.
-	var result := run.apply_series(_series.duplicate(), target_die(), null)
+	var result := run.apply_series(_series.duplicate(), target_die())
 	if result.is_empty():
 		_burn_die = null
 		refresh()  # nichts gebucht: die Karten bleiben in ihren Schächten
@@ -1442,7 +1430,7 @@ func pull_lever() -> void:
 func burning() -> bool:
 	return _burn_step >= 0
 
-## Der Stand des Zielwürfels VOR dem Griff (null = keine Zeremonie). scene_root malt
+## Der Stand des Zielwürfels VOR dem Prägen (null = keine Zeremonie). scene_root malt
 ## ihn auf den Podest-Würfel zurück, solange der Scanner ihn noch nicht aufgedeckt
 ## hat - sonst zeigte die Buchung die neuen Augen sofort.
 func held_faces() -> DieDefinition:
@@ -1452,10 +1440,14 @@ func held_faces() -> DieDefinition:
 func burning_cards() -> Array[Dictionary]:
 	return _burning.duplicate()
 
-## Die Projektion des laufenden Griffs (leer = keine) - der Scanner liest daraus,
+## Die Projektion des laufenden Prägens (leer = keine) - der Scanner liest daraus,
 ## welche Seite einen Bonus bekommen hat und darum grün aufblitzt.
 func burn_projection() -> Dictionary:
 	return _burn_result.get("projection", {}) if not _burn_result.is_empty() else {}
+
+## Hat das laufende Prägen repariert? Dann blitzt der Würfel beim Einschlag golden.
+func burn_repaired() -> bool:
+	return bool(_burn_result.get("repaired", false))
 
 ## Wie lange das EINRASTEN dauert: eine Karte plus die Staffel über die Etagen.
 func latch_time() -> float:
@@ -1476,7 +1468,7 @@ func card_beat(index: int) -> float:
 	var share := 0.0 if count <= 1 else float(index) / float(count - 1)
 	var beat := LIGHT_STEP * lerpf(1.0, LIGHT_RAMP, share)
 	var card: Dictionary = _burning[index] if index >= 0 and index < _burning.size() else {}
-	if String(card.get("operator", "")) != "":
+	if String(card.get("glyph", "")) != "":
 		beat += LIGHT_OPERATOR_EXTRA
 	return beat
 
@@ -1493,7 +1485,7 @@ func _burn_nets_so_far() -> Array:
 ## DAS DURCHLICHT: alle Karten rasten ein, der Zielwürfel fliegt über den Turm, das
 ## Licht steigt Etage um Etage (jede flammt auf, ihre Zellen dunkeln ab, die Summe
 ## tickt hoch, ein Operator schlägt perkussiv zu), oben schlagen die Funken ein, und
-## der Würfel fliegt zurück. Am Ende meldet das Fenster den Griff, und scene_root
+## der Würfel fliegt zurück. Am Ende meldet das Fenster das Prägen, und scene_root
 ## räumt. GEFAHREN wird das von scene_root - hier steht der TAKT.
 func _play_series_ceremony(generation: int) -> void:
 	var launched := run
@@ -1531,11 +1523,11 @@ func _scan_wait(time: float, generation: int, launched: GameRun) -> bool:
 ## wie der Stand danach aussieht und wie lange das Licht zur nächsten Etage braucht.
 func _read_card(index: int, tick: float, time: float) -> void:
 	var card: Dictionary = _burning[index]
-	var operator := String(card.get("operator", ""))
+	var glyph := String(card.get("glyph", ""))
 	var portal: PressPortalView = _portals[index] if index < _portals.size() else null
 	if portal != null and is_instance_valid(portal):
-		if operator != "":
-			portal.punch(StampNet.operator_glyph(operator))
+		if glyph != "":
+			portal.punch(glyph)
 		else:
 			portal.charge()
 	var before := preview()
@@ -1545,7 +1537,7 @@ func _read_card(index: int, tick: float, time: float) -> void:
 	_refresh_sum_net()  # die Summe in der Mitte tickt mit der Fahrt
 	var faces := _moved_faces(before, after, card.get("net", []))
 	var values: Array = after.get("bonus", [])
-	light_passed.emit(index, faces, values, operator, time)
+	light_passed.emit(index, faces, values, glyph, time)
 
 ## Welche Seiten diese Karte BEWEGT hat - der Vergleich zweier Zwischenstände. So
 ## bekommt jeder Operator seinen Einschlag, ohne dass die Anzeige seine Regel noch
@@ -1578,14 +1570,14 @@ func skip_ceremony() -> void:
 ## Der EINE Aufräum-Pfad der Zeremonie: die Ziffern stehen auf ihrem Ziel, der
 ## Netz-Schirm zeigt sein ERGEBNIS (grüne
 ## Deltas, die stehen bleiben), die Reihe ist leer, das Netz steht auf seinem
-## Parkplatz - und ERST DANN wird der Griff gemeldet (scene_root tötet daraufhin den
+## Parkplatz - und ERST DANN wird das Prägen gemeldet (scene_root tötet daraufhin den
 ## Block und gibt jede noch fliegende Karte frei). Egal, wo die Zeremonie abbrach.
 func _end_ceremony() -> void:
 	if not burning():
 		return
 	var result := _burn_result
 	var anchor := _burn_anchor
-	# Das ERGEBNIS bleibt stehen: Stand VOR dem Griff und die ganze Projektion - noch
+	# Das ERGEBNIS bleibt stehen: Stand VOR dem Prägen und die ganze Projektion - noch
 	# aus der laufenden Zeremonie geholt, sie ist die Quelle. Das Netz zeigt daraus
 	# die grünen Deltas.
 	_result_die = _burn_die
@@ -1615,7 +1607,6 @@ func _drop_series() -> void:
 	_burn_terms = {}
 	_burn_result = {}
 	_target_index = -1
-	_second_index = -1
 	_hover_slot = -1
 	_hover_pack_uid = 0
 	_drag_from = -1
@@ -1966,8 +1957,8 @@ func shelf_row_tints(line: int) -> Array[Color]:
 		if pack == null:
 			tints.append(ShelfStackView.BAY_EMPTY)
 			continue
-		var base: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), PackDrawerView.GOLD)
-		tints.append(DataCellView.tier_shade(base, pack.tier))
+		tints.append(PackDrawerView.card_shade(Pack.shelf_of(pack), pack.tier,
+			pack.catalyst_id, pack.stamp_net))
 	return tints
 
 ## Der Platz, auf dem die NÄCHSTE Lieferung DIESES Pakets landet (extra staffelt eine

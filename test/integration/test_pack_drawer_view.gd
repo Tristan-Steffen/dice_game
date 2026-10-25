@@ -387,3 +387,32 @@ func test_the_lock_bars_the_tidy() -> void:
 	drawer.tidy_requested.connect(func() -> void: fired.append(1))
 	drawer._on_well_input(_click(true, Vector2.ZERO, true))
 	assert_eq(fired.size(), 0)
+
+## Das MULTIPLIKATOR-NETZ trägt Lila statt Zahlen-Grün, gestuft wie jede Sorte.
+func test_a_multiplier_card_is_purple() -> void:
+	var pack := Pack.multiplier_pack()
+	assert_eq(PackDrawerView.pack_tint(pack), PackDrawerView.MULTIPLIER_TINT)
+	assert_ne(PackDrawerView.pack_tint(Pack.number_pack()), PackDrawerView.MULTIPLIER_TINT)
+	assert_eq(PackDrawerView.card_shade(Pack.shelf_of(pack), Pack.TIER_NORMAL, "",
+		pack.stamp_net), DataCellView.tier_shade(PackDrawerView.MULTIPLIER_TINT, Pack.TIER_NORMAL))
+	assert_ne(PackDrawerView.MULTIPLIER_TINT, PackDrawerView.COLORS[Pack.SHELF_SPECIAL],
+		"und liest nicht als Sonderbestand")
+
+## Die Faktor-Zelle schreibt ihren Faktor, im Karten-Netz wie in der Summe.
+func test_a_factor_cell_reads_as_its_factor() -> void:
+	var net := StampNet.empty_net()
+	net[2] = StampNet.factor_cell(4)
+	var card := PressNetView.stamp_net(net, 30.0)
+	add_child_autofree(card)
+	assert_true(_texts(card).has("×4"), "die Karte zeigt ×4")
+	var sum := PressNetView.sum_net(SeriesResolver.resolve([net], null), 30.0)
+	add_child_autofree(sum)
+	assert_true(_texts(sum).has("×4"), "die Summe ohne Bonus zeigt den Faktor")
+
+func _texts(node: Node) -> Array[String]:
+	var out: Array[String] = []
+	if node is Label:
+		out.append((node as Label).text)
+	for child in node.get_children():
+		out.append_array(_texts(child))
+	return out

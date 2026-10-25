@@ -95,19 +95,19 @@ func test_every_rebuild_reports_the_stages() -> void:
 # --- Der GRIFF trägt den Zähler in seiner Aufschrift ----------------------------
 # Der Serien-Schirm ist tot: wie voll die Reihe ist, sagt der Knopf selbst.
 
-func test_the_grip_label_counts_the_series() -> void:
+func test_the_stamp_label_counts_the_series() -> void:
 	await wait_frames(2)
-	assert_eq(view.grip_label(), "Griff 0/%d" % run.series_slots(),
+	assert_eq(view.stamp_label(), "Prägen 0/%d" % run.series_slots(),
 		"leer steht der Zähler auf null")
 	run.grant_pack(Pack.number_pack())
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
-	assert_eq(view.grip_label(), "Griff 1/%d" % run.series_slots())
-	assert_eq(view._action_button.text, view.grip_label(),
+	assert_eq(view.stamp_label(), "Prägen 1/%d" % run.series_slots())
+	assert_eq(view._action_button.text, view.stamp_label(),
 		"und der Knopf trägt genau diese Aufschrift")
 
 func test_the_running_ceremony_relabels_the_same_seat() -> void:
-	# Der Griff verlangt eine VOLLE Reihe: der Block IST sechs Karten.
+	# Ein voller Turm: sechs Karten.
 	for i in GameRun.SERIES_SLOT_CAP:
 		var pack := run.grant_pack(Pack.number_pack())
 		pack.stamp_net = StampNet.empty_net()

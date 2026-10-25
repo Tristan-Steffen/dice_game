@@ -155,6 +155,27 @@ func test_the_stock_never_lists_a_catalyst_twice() -> void:
 			assert_false(ids.has(pack.catalyst_id), "kein Katalysator doppelt")
 			ids.append(pack.catalyst_id)
 
+## Die Reparatur-Karte läuft im Sonderbestand-Platz mit eigener Chance - und nie
+## über den Katalysator-Zweig.
+func test_the_special_slot_lists_the_repair_card() -> void:
+	var seen := false
+	for i in 80:
+		var run := _run()
+		for offer in run.secret_stock:
+			if offer[GameRun.OFFER_KIND] != GameRun.KIND_CATALYST:
+				continue
+			var pack: Pack = offer[GameRun.OFFER_ITEM]
+			if not pack.is_repair():
+				continue
+			seen = true
+			assert_eq(int(offer[GameRun.OFFER_PRICE]),
+				GameRun.secret_energy_price(Pack.catalyst_price(Pack.CATALYST_REPAIR)))
+	assert_true(seen, "das Hinterzimmer führt sie")
+	var run := _run()
+	for i in 40:
+		var card := run._secret_catalyst_offer()
+		assert_false((card[GameRun.OFFER_ITEM] as Pack).is_repair(), "nicht als Katalysator")
+
 func test_buying_a_catalyst_stocks_the_sealed_cassette() -> void:
 	var run := _run()
 	run.secret_stock[1] = run._secret_catalyst_offer()

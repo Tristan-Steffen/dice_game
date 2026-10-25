@@ -72,10 +72,10 @@ const EXTRA_SURFACES := {
 	"Fumbles": FUMBLE,
 	"Verträge": VERTRAG, "Klausel": VERTRAG, "Klauseln": VERTRAG,
 	"Nebenwetten": NEBENWETTE,
-	"Pressung": PRESSE, "Griff": PRESSE,
+	"Pressung": PRESSE, "Prägen": PRESSE,
 	"Prägenetz": PRAEGENETZ, "Prägenetze": PRAEGENETZ, "Prägenetzes": PRAEGENETZ,
 	"Serien": SERIE, "Serienschaltung": SERIE, "Serienlänge": SERIE,
-	"Operator": SERIE, "Operatoren": SERIE,
+	"Operator": SERIE, "Operatoren": SERIE, "Multiplikator-Netz": SERIE,
 	"übertakten": UEBERTAKTEN, "Übertaktung": UEBERTAKTEN, "Übertaktungen": UEBERTAKTEN,
 	# Längste Form gewinnt: der Voll-Kompositum schlägt das nackte "Krit(s)".
 	"Tscherenkow-Krit": "essence:cherenkov", "Tscherenkow-Krits": "essence:cherenkov",
@@ -185,7 +185,7 @@ static func _build_concepts() -> void:
 		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert in der Kondensatorbank. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie fürs Übertakten, für die Presse und im Schwarzmarkt.",
 		CAT_BEGRIFFE)
 	_add(LADUNG, "Ladung",
-		"Jeder Würfel trägt eine Ladung von 0 bis 3 (Glimmen, Kriechstrom, Überschlag), und jede Ladung ist +1 Mult für seine Hand. Jede Auslösung eines gewerteten Würfels würfelt auf +1; wer mit Überschlag in eine Hand geht, würfelt statt dessen aufs Durchbrennen. Ein durchgebrannter Würfel zählt weiter für die Kombination, liefert aber keine Augen und feuert nichts - die Reparatur-Bucht holt ihn zurück. Wer eine Runde lang nicht gewertet hat, verliert eine Stufe.",
+		"Jeder Würfel trägt eine Ladung von 0 bis 3 (Glimmen, Kriechstrom, Überschlag), und jede Ladung ist +1 Mult für seine Hand. Jede Auslösung eines gewerteten Würfels würfelt auf +1; wer mit Überschlag in eine Hand geht, würfelt statt dessen aufs Durchbrennen. Ein durchgebrannter Würfel zählt weiter für die Kombination, liefert aber keine Augen und feuert nichts - erst die goldene Generalüberholung aus dem Schwarzmarkt holt ihn beim Prägen in der Werkstatt zurück; Kühlrippe und Kältebad senken die Ladung nach dem Prägen, durchgebrannte Würfel retten sie nicht. Wer eine Runde lang nicht gewertet hat, verliert eine Stufe.",
 		CAT_BEGRIFFE)
 	_add(AUSLOESUNG, "Auslösung",
 		"Ein volles Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal. Essenzen wie Argon lassen den ganzen Würfel mehrfach auslösen, die Rune Nachglühen legt je Seite eine Auslösung obendrauf - Würfel-Faktor und Seiten-Faktor multiplizieren sich.",
@@ -236,16 +236,16 @@ static func _build_concepts() -> void:
 		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
 		CAT_BEGRIFFE)
 	_add(PRESSE, "Presse",
-		"Die Maschine der Werkstatt: die gesteckten Kassetten bilden eine Serie, und EIN Griff projiziert ihr Summen-Netz auf einen selbst gewählten Würfel. Es wird nichts mehr gewürfelt - die Vorschau zeigt vorher genau das Ergebnis. Je Runde greift die Werkstatt genau einmal, und es kostet nichts; nur ein Griff mit Erdungsklemme verbraucht den Griff nicht.",
+		"Die Maschine der Werkstatt: die gesteckten Kassetten bilden eine Serie, und EIN Prägen projiziert ihr Summen-Netz auf einen selbst gewählten Würfel. Es wird nichts mehr gewürfelt - die Vorschau zeigt vorher genau das Ergebnis. Geprägt wird so oft man will, aber jedes Prägen heizt den Zielwürfel um eine Ladung auf.",
 		CAT_BEGRIFFE)
 	_add(PRAEGENETZ, "Prägenetz",
 		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Paketgröße.",
 		CAT_BEGRIFFE)
 	_add(SERIE, "Serie",
-		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) rechnet auf der bis dahin aufgelaufenen Summe - die Reihenfolge ist darum die Entscheidung. Die Reihe hat von Anfang an SECHS Slots; Taktgeber, Klauseln und der Schub der Nebenwette verschieben die Länge.",
+		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) und ein lilanes Multiplikator-Netz rechnen auf der bis dahin aufgelaufenen Summe - die Grundzahl des Würfels vervielfachen sie nie, die Reihenfolge ist darum die Entscheidung. Die Reihe hat von Anfang an SECHS Slots, und das Prägen zündet schon mit einer Karte; Taktgeber, Klauseln und der Schub der Nebenwette verschieben die Länge.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
-		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",
+		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",
 		CAT_BEGRIFFE)
 	_add(UEBERTAKTEN, "Übertakten",
 		"Der Ausbau einer Kombination direkt an ihrem Chip: die nächste Stufe kostet Energie (1 + Stufe, höchstens 5 ⚡) und hebt Basispunkte und Mult. Es gibt kein Stufen-Limit - die Kondensatorbank ist die einzige Bremse.",

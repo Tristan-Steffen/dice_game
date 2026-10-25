@@ -110,8 +110,8 @@ func test_the_shop_special_is_a_single_at_the_flat_price() -> void:
 			"im Regal liegen nur Sonderposten: %s" % pack.fixed_engraving.id)
 		assert_eq(pack.price, Pack.SPECIAL_PRICE, "ein Sonderposten kostet immer dasselbe")
 
-## Über viele Würfe kommen BEIDE Sonderposten und ALLE VIER Katalysatoren vor -
-## sonst wäre einer unerreichbar.
+## Über viele Würfe kommen BEIDE Sonderposten und ALLE VIER Regal-Katalysatoren
+## vor - sonst wäre einer unerreichbar. Die Reparatur-Karte NIE.
 func test_both_specials_reach_the_shelf() -> void:
 	var seen := {}
 	for i in 400:
@@ -125,14 +125,17 @@ func test_both_specials_reach_the_shelf() -> void:
 	for special_id: String in Engraving.SPECIAL_IDS:
 		assert_true(seen.has(special_id), "%s liegt irgendwann aus" % special_id)
 	for catalyst_id in Pack.catalyst_ids():
-		assert_true(seen.has(catalyst_id), "%s liegt irgendwann aus" % catalyst_id)
+		if Pack.catalyst_secret_only(catalyst_id):
+			assert_false(seen.has(catalyst_id), "%s nur im Schwarzmarkt" % catalyst_id)
+		else:
+			assert_true(seen.has(catalyst_id), "%s liegt irgendwann aus" % catalyst_id)
 	for op_id: String in StampNet.OPERATOR_IDS:
 		assert_true(seen.has(op_id), "%s liegt irgendwann aus" % op_id)
 
 # --- Die Katalysator-Kassetten -------------------------------------------------
 
 func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
-	assert_eq(Pack.catalyst_ids().size(), 4, "vier Karten, nicht mehr")
+	assert_eq(Pack.catalyst_ids().size(), 6, "sechs Karten, nicht mehr")
 	for id in Pack.catalyst_ids():
 		var pack := Pack.catalyst(id)
 		assert_not_null(pack, "%s baut sich" % id)
@@ -145,13 +148,23 @@ func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
 		assert_true(pack.description.contains(Pack.catalyst_effect(id)),
 			"die Wirkung steht auf der Karte")
 		assert_true(pack.description.contains("verbraucht"),
-			"und dass sie mit ihrem Griff verbraucht wird")
+			"und dass sie beim Prägen verbraucht wird")
 
 func test_the_catalyst_prices_are_the_authored_ones() -> void:
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_PROPELLANT), 14)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_TIMER), 14)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_MATRIX), 18)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_COOL), 10)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_CHILL), 18)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_GROUND), 8)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_REPAIR), 30)
+
+## Die Reparatur-Karte ist Schwarzmarkt-Ware und die einzige ihrer Art.
+func test_the_repair_card_is_secret_only() -> void:
+	for id in Pack.catalyst_ids():
+		assert_eq(Pack.catalyst_secret_only(id), id == Pack.CATALYST_REPAIR, id)
+	assert_true(Pack.catalyst(Pack.CATALYST_REPAIR).is_repair())
+	assert_false(Pack.catalyst(Pack.CATALYST_TIMER).is_repair())
+	assert_false(Pack.SPECIAL_ROLL_WEIGHTS.has(Pack.CATALYST_REPAIR), "nie im Regal")
 
 func test_an_unknown_catalyst_builds_nothing() -> void:
 	assert_null(Pack.catalyst("gibtsnicht"), "lieber keine Karte als eine namenlose")
@@ -167,19 +180,69 @@ func test_a_catalyst_is_never_tierable() -> void:
 		assert_eq(pack.display_name, before, "und der Name unangetastet")
 
 func test_a_catalyst_carries_no_engraving() -> void:
-	var pack := Pack.catalyst(Pack.CATALYST_MATRIX)
+	var pack := Pack.catalyst(Pack.CATALYST_GROUND)
 	assert_null(pack.fixed_engraving, "der Sonderbestand hat zwei Familien")
 	assert_ne(pack.catalyst_id, "")
 
-## Die Gewichtstabelle IST die Regel: 30 % Gravur, der Rest gleichmäßig auf
-## Katalysatoren und Operatoren.
+## Die Gewichtstabelle IST die Regel: Gravur 30, je 10 für jeden Katalysator des
+## Regals und jeden Operator.
 func test_the_special_roll_weights_are_the_documented_table() -> void:
 	assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[Pack.SPECIAL_ENGRAVING]), 30)
 	var rest := 0
 	for id in Pack.catalyst_ids() + StampNet.OPERATOR_IDS:
+		if Pack.catalyst_secret_only(id):
+			continue
 		assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[id]), 10, "%s" % id)
 		rest += int(Pack.SPECIAL_ROLL_WEIGHTS[id])
-	assert_eq(rest, 70, "und zusammen genau der Rest")
+	assert_eq(rest, 80, "fünf Katalysatoren und drei Operatoren")
+
+# --- Die KÜHL-Karten ------------------------------------------------------------
+
+func test_the_cooling_cards_tend_the_die_and_are_shop_goods() -> void:
+	for id in [Pack.CATALYST_COOL, Pack.CATALYST_CHILL]:
+		var pack := Pack.catalyst(id)
+		assert_true(pack.is_cooling(), id)
+		assert_true(pack.tends_die(), id)
+		assert_false(Pack.catalyst_secret_only(id), "auch im Laden")
+		assert_true(Pack.SPECIAL_ROLL_WEIGHTS.has(id), "als Sonderposten")
+	assert_true(Pack.catalyst(Pack.CATALYST_REPAIR).tends_die())
+	assert_false(Pack.catalyst(Pack.CATALYST_PROPELLANT).tends_die())
+
+# --- Das MULTIPLIKATOR-NETZ -----------------------------------------------------
+
+func test_the_multiplier_factor_and_faces_follow_the_size() -> void:
+	var rng := RandomNumberGenerator.new()
+	var spans := {Pack.TIER_NORMAL: [2, 1, 2], Pack.TIER_GROSS: [3, 1, 2],
+		Pack.TIER_KOLOSSAL: [4, 1, 3]}
+	for tier: int in spans:
+		var rule: Array = spans[tier]
+		for seed_value in 40:
+			rng.seed = seed_value
+			var pack := Pack.tiered(Pack.multiplier_pack(rng), tier, rng)
+			assert_true(pack.is_multiplier())
+			assert_eq(StampNet.top_factor(pack.stamp_net), int(rule[0]))
+			var cells := StampNet.filled_count(pack.stamp_net)
+			assert_between(cells, int(rule[1]), int(rule[2]))
+
+func test_the_multiplier_is_a_number_card_priced_above_one() -> void:
+	var pack := Pack.multiplier_pack()
+	assert_eq(Pack.shelf_of(pack), Engraving.CATEGORY_NUMBER, "liegt im Zahlen-Tablett")
+	assert_gt(pack.price, Pack.NUMBER_PRICE)
+	assert_false(Pack.number_pack().is_multiplier())
+	assert_true(Pack.net_line(pack).begins_with("×2"))
+
+func test_the_shop_roll_turns_number_cards_into_multipliers_on_demand() -> void:
+	var always := 0
+	var never := 0
+	for i in 60:
+		var pack := Pack.roll_engraving_pack(Pack.TIER_NORMAL, null, 1.0)
+		if pack.type == Pack.TYPE_NUMBER:
+			assert_true(pack.is_multiplier(), "Chance 1 macht jede Zahlen-Karte lila")
+			always += 1
+		if Pack.roll_engraving_pack().is_multiplier():
+			never += 1
+	assert_gt(always, 0)
+	assert_eq(never, 0, "ohne Chance bleibt das Regal grün")
 
 # --- Die drei Paketgrößen -------------------------------------------------------
 

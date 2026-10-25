@@ -132,7 +132,7 @@ static func charge_hint(def: DieDefinition) -> String:
 	if def == null:
 		return ""
 	if def.burned_out:
-		return "Durchgebrannt - Reparatur %d ⚡" % GameRun.REPAIR_ENERGY
+		return "Durchgebrannt - die %s repariert" % Pack.catalyst_name(Pack.CATALYST_REPAIR)
 	if def.charge <= 0:
 		return ""
 	return "Ladung %d/%d - %s" % [def.charge, DieDefinition.CHARGE_MAX,

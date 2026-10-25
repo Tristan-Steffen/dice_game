@@ -115,6 +115,18 @@ func test_the_rest_glow_stays_under_the_bloom_threshold() -> void:
 			DataCellView.REST_ENERGY * cell.tier_energy(), 0.001)
 		assert_lt(cell.glow_energy(), Rune.IDLE_CEILING, "Stufe %d bleibt darunter" % tier)
 
+## Die Reparatur-Karte glüht GOLD statt in ihrer Sortenfarbe - voll gesättigt, und
+## ihr Ruhelicht bleibt unter der Bloom-Schwelle wie jede Karte.
+func test_the_repair_card_glows_gold_under_the_bloom_threshold() -> void:
+	var cell := DataCellView.new()
+	add_child_autofree(cell)
+	cell.setup(Pack.SHELF_SPECIAL, Pack.TIER_NORMAL, [], true)
+	assert_eq(cell.tint, PackDrawerView.REPAIR_TINT)
+	var glow := cell.glow_color()
+	assert_almost_eq(glow.r, PackDrawerView.REPAIR_TINT.r, 0.001)
+	assert_almost_eq(glow.g, PackDrawerView.REPAIR_TINT.g, 0.001)
+	assert_lt(cell.glow_energy(), Rune.IDLE_CEILING)
+
 func test_dimming_lowers_the_core_but_keeps_the_body() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	cell.set_count(2)

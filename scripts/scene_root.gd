@@ -484,9 +484,6 @@ var side_bets_click_zone: StaticBody3D
 var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var workshop_click_zone: StaticBody3D
-var repair_click_zone: StaticBody3D
-## Die SICHERUNGS-FASSUNG: der Körper der Reparatur-Station, rechts neben dem Podest.
-var fuse_socket: FuseSocketView
 var chips_click_zone: StaticBody3D
 ## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
 ## Fläche, auf der ein Doppelklick sie öffnet.
@@ -1415,33 +1412,10 @@ func _place_workshop_strip() -> Rect2:
 	camera_rig.configure_workshop_close_target(
 		table_screen.pixel_to_world(close_frame.get_center()),
 		Vector2(absf(close_a.z - close_b.z), absf(close_a.x - close_b.x)) * 0.5)
-	_place_fuse_socket(bench_rect, workshop_rect)
 	_place_shelf_selector(bench_rect)
 	return corner
 
-## Die SICHERUNGS-FASSUNG liegt RECHTS neben dem Streifen, auf der Zeilenhöhe des
-## PODESTS: ihre linke Kante eine Streifen-Fuge hinter seiner Kante. Ihr Fußabdruck
-## ist ein WELTMASS, also wird hier nur der ANKER geschnitten - sie mißt sich selbst.
-func _place_fuse_socket(bench_rect: Rect2, workshop_rect: Rect2) -> void:
-	if table_screen == null:
-		return
-	var left := bench_rect.end.x + _workshop_unit() * WorkshopView.STREET_GAP
-	if left >= float(TableScreen.RESOLUTION.x) - WORKSHOP_RIGHT_MARGIN:
-		return
-	if fuse_socket == null or not is_instance_valid(fuse_socket):
-		fuse_socket = FuseSocketView.new()
-		add_child(fuse_socket)
-		_connect_fuse_socket()
-	var row := workshop_rect.position.y + workshop_rect.size.y * 0.5
-	var at := table_screen.pixel_to_world(Vector2(left, row))
-	# Welt +Z ist Bildschirm-rechts: die Klappe beginnt an der Fuge, ihre Mitte
-	# liegt eine halbe Breite weiter.
-	fuse_socket.setup(Vector3(at.x, 0.0, at.z + FuseSocketView.HALF.y))
-	_wire_fuse_socket()
-	_place_repair_zone()
-
-## Die KNOPFLEISTE des REGALSTAPELS steht auf dem Filz RECHTS neben der Magazin-Grube -
-## in derselben Straße wie die Sicherungs-Fassung, nur auf der Höhe des Magazins, und
+## Die KNOPFLEISTE des REGALSTAPELS steht auf dem Filz RECHTS neben der Magazin-Grube,
 ## genau so hoch wie die Grube tief ist. Ihr Platz ist ein reiner ANKER; ihre TASTEN
 ## meldet sie als Display-Pixel ans Fenster (dorthin fliegt, was verdeckt landet).
 func _place_shelf_selector(bench_rect: Rect2) -> void:
@@ -1549,8 +1523,8 @@ func _shelf_selector_live() -> bool:
 	return _table_operable() and not _deck_glass \
 		and _felt_pick_live(CameraRig.Mode.WORKSHOP)
 
-## Welche Taste liegt unter dem Zeiger ("" = keine)? Auf derselben Pick-Ebene liegt
-## auch die Sicherungs-Fassung - darum entscheidet der NAME, nicht der Treffer.
+## Welche Taste liegt unter dem Zeiger ("" = keine)? Entschieden wird am NAMEN des
+## Treffers, nicht am Treffer allein.
 func _shelf_selector_part(screen_pos: Vector2) -> String:
 	if shelf_selector == null or not is_instance_valid(shelf_selector):
 		return ShelfSelectorView.PART_NONE
@@ -1569,39 +1543,6 @@ func _forward_shelf_selector_mouse(event: InputEventMouse) -> bool:
 	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
 		return false
 	return shelf_selector.press(_shelf_selector_part(button.position))
-
-## Das KABEL läuft von der Fassung zum Podest-Puck - die Sicherung sichert den
-## Kreis des Podests.
-func _wire_fuse_socket() -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return
-	var podium := _bench_podium_target(workshop)
-	if podium == Vector3.ZERO:
-		return
-	fuse_socket.set_cable_to(Vector3(podium.x, 0.0, podium.z))
-
-## Klickzone und Kamera-Rahmen der Station - sie messen am Fußabdruck der Fassung
-## plus dem kleinen KOPFRAUM der gesprungenen Sicherung (ein Körper projiziert an
-## der geneigten Station nach oben).
-func _place_repair_zone() -> void:
-	if fuse_socket == null or not is_instance_valid(fuse_socket):
-		return
-	var lo := fuse_socket.bounds_min()  # (Welt-x, Welt-z)
-	var hi := fuse_socket.bounds_max()
-	# Welt +X ist Bildschirm-oben, Welt +Z Bildschirm-rechts.
-	var rect_a := table_screen.world_to_pixel(Vector3(hi.x, 0.0, lo.y))
-	var rect_b := table_screen.world_to_pixel(Vector3(lo.x, 0.0, hi.y))
-	var rect := Rect2(rect_a, rect_b - rect_a)
-	var head := FuseSocketView.height() * (WorkshopView.BENCH_TILT_TRIM / CLAMP_HOVER)
-	var frame := Rect2(rect.position - Vector2(0.0, head), rect.size + Vector2(0.0, head))
-	_free_own_child("RepairClickZone")  # eine Neuplatzierung ersetzt sie
-	repair_click_zone = _screen_zoom_zone("RepairClickZone", rect,
-		camera_rig.configure_repair_target)
-	var corner_a := table_screen.pixel_to_world(frame.position)
-	var corner_b := table_screen.pixel_to_world(frame.end)
-	camera_rig.configure_repair_target(table_screen.pixel_to_world(frame.get_center()),
-		Vector2(absf(corner_a.z - corner_b.z), absf(corner_a.x - corner_b.x)) * 0.5)
 
 ## Wie weit der Würfel über dem TURMKOPF nach oben projiziert, in Display-Pixeln:
 ## seine Welthöhe mal dem GEMESSENEN Aufwärts-Versatz der geneigten Station
@@ -2322,7 +2263,6 @@ func _on_money_changed(new_money: int) -> void:
 	_shown_money = new_money
 	_refresh_hub_info()
 	_refresh_side_bet_affordability()
-	_refresh_fuse_socket()  # mit Isolierband kostet die Reparatur Geld
 	# Eine offene Umtausch-Geste/-Zeremonie abbrechen: Token entwerten, Geist
 	# verwerfen - die Börse ist bereits endgültig gebucht.
 	_exchange_token += 1
@@ -3075,7 +3015,7 @@ func _bench_hover_target(px: Vector2, height: float = ENGRAVE_HOVER) -> Vector3:
 ## DIE SERIE IST DURCH: der Würfel steht wieder auf dem Podest. Hier steht der EINE
 ## Aufräum-Pfad der Zeremonie - Endzustand zuerst (Licht, Netz und Funken fort, der
 ## gebuchte Stand auf dem Würfel), dann der SCHLAG auf den Körper auf dem Podest.
-## Rein visuell; GameRun hat beim Griff gebucht.
+## Rein visuell; GameRun hat beim Prägen gebucht.
 func _on_series_applied(result: Dictionary, _from_px: Vector2) -> void:
 	_settle_durchlicht()
 	if result.is_empty() or bench_stage == null or not is_instance_valid(bench_stage):
@@ -3083,7 +3023,7 @@ func _on_series_applied(result: Dictionary, _from_px: Vector2) -> void:
 	bench_stage.pulse()
 
 #region DAS DURCHLICHT
-# Die Zeremonie des Griffs als KÖRPER: alle Karten rasten in ihre Kontaktzungen ein,
+# Die Zeremonie des Prägens als KÖRPER: alle Karten rasten in ihre Kontaktzungen ein,
 # der Zielwürfel fliegt vom Podest ÜBER den Turm, und aus der KAMMER am Turmfuß steigt
 # ein LICHT durch alle Etagen. Jede Karte, die es passiert, flammt auf, gibt ihre
 # Zellen an das mitreitende LICHT-NETZ ab und BRENNT AUS. Oben zerfällt das Netz in
@@ -3098,7 +3038,7 @@ func _on_series_applied(result: Dictionary, _from_px: Vector2) -> void:
 ## sie mitnimmt.
 var _burning_cards: Array[DataCellView] = []
 
-## Der Griff beginnt: Licht, Netz und Funken der vorigen Zeremonie fahren nie mit.
+## Das Prägen beginnt: Licht, Netz und Funken der vorigen Zeremonie fahren nie mit.
 func _on_press_started() -> void:
 	_press_gen += 1
 	_drop_light_net()
@@ -3170,7 +3110,7 @@ func _ride_die_over_tower(target: Vector3, time: float, generation: int,
 
 ## Das Licht hat Etage index erreicht: ihre Karte flammt auf, gibt ihre Zellen ab und
 ## BRENNT AUS, das LICHT-NETZ tickt auf den neuen Stand - und die Ebene steigt weiter.
-func _on_light_passed(index: int, faces: Array, values: Array, operator: String,
+func _on_light_passed(index: int, faces: Array, values: Array, glyph: String,
 		time: float) -> void:
 	var cell := _take_socket_cell(index)
 	if cell != null:
@@ -3181,10 +3121,10 @@ func _on_light_passed(index: int, faces: Array, values: Array, operator: String,
 		_spawn_light_net()
 	if _light_net != null and is_instance_valid(_light_net):
 		_light_net.tick_to(values, LIGHT_TICK_TIME)
-		if operator == "":
+		if glyph == "":
 			_light_net.strike()
 		else:
-			_light_net.punch(StampNet.operator_glyph(operator))
+			_light_net.punch(glyph)
 	if tower != null and is_instance_valid(tower):
 		tower.light_to(_light_stop(index + 1), time)
 
@@ -3233,14 +3173,23 @@ func _on_light_struck(time: float) -> void:
 		spark.seat_at(origin)
 		_sparks.append(spark)
 		spark.fly_to(_die_face_point(stage, face), time, SPARK_PEAK)
+	# Die Reparatur-Karte schickt EINEN goldenen Funken in die Würfelmitte.
+	var repaired := workshop != null and is_instance_valid(workshop) and workshop.burn_repaired()
+	if repaired and stage != null and is_instance_valid(stage):
+		var gold := LightSparkView.new()
+		add_child(gold)
+		gold.setup(PackDrawerView.REPAIR_TINT)
+		gold.seat_at(origin)
+		_sparks.append(gold)
+		gold.fly_to(stage.center(), time, SPARK_PEAK)
 	_drop_light_net()  # es IST in die Funken zerfallen
 	if tower != null and is_instance_valid(tower):
 		tower.light_off()
-	_strike_die(hits, time, _press_gen, run)  # nicht erwartet: der Einschlag ist Licht
+	_strike_die(hits, repaired, time, _press_gen, run)  # nicht erwartet: der Einschlag ist Licht
 
 ## Beim Einschlag steht der gebuchte Stand da - ALLE Seiten auf einmal -, die
-## getroffenen blitzen grün, und der Würfel pulst.
-func _strike_die(hits: Array[int], delay: float, generation: int,
+## getroffenen blitzen grün, und der Würfel pulst - repariert blitzt er golden.
+func _strike_die(hits: Array[int], repaired: bool, delay: float, generation: int,
 		launched: GameRun) -> void:
 	await get_tree().create_timer(maxf(delay, 0.0)).timeout
 	if run != launched or generation != _press_gen:
@@ -3255,6 +3204,8 @@ func _strike_die(hits: Array[int], delay: float, generation: int,
 		stage.emitter.ripple()
 	if stage.faces == null or not is_instance_valid(stage.faces):
 		return
+	if repaired:
+		_flash_die_tint(stage.faces, stage.faces.body_tint, stage.faces.scale)
 	for face in hits:
 		stage.faces.set_face_number_tint(face, REVEAL_FLASH_COLOR)
 	await get_tree().create_timer(SERIES_FLASH_TIME).timeout
@@ -3322,8 +3273,10 @@ func _series_tint(workshop: WorkshopView) -> Color:
 	for card: Dictionary in workshop.burning_cards():
 		if String(card.get("operator", "")) != "" or String(card.get("catalyst", "")) != "":
 			continue
-		return PackDrawerView.COLORS.get(String(card.get("sort", "")),
-			PressNetView.VALUE_TINT)
+		return PackDrawerView.tint_of(String(card.get("sort", "")), "", card.get("net", []))
+	# Ohne Wert-Karte trägt eine Reparatur-Reihe ihr Gold durch den Turm.
+	if workshop.burn_repaired():
+		return PackDrawerView.REPAIR_TINT
 	return PressNetView.VALUE_TINT
 
 ## ... und seine INTENSITÄT: die höchste Paketgröße der Serie, dieselbe Leiter, die
@@ -3652,7 +3605,6 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 func _seat_bench_place(die: DieDefinition) -> void:
 	_bench_die = die
 	_rebuild_target_stage()
-	_refresh_fuse_socket()
 
 ## Der EINE Abgleich: auf der Bühne steht, was das Fenster als Ziel meldet - und nur
 ## an der Werkstatt-Station. Idempotent und überspringt eine laufende Fahrt; jede
@@ -3857,7 +3809,7 @@ func _bench_pool_field(seat: int) -> Dictionary:
 
 ## Zieht die Augenzahlen des Bühnen-Würfels nach (geteilte Instanzen: eine
 ## Projektion ändert den Würfel, nicht seinen Platz). WÄHREND einer Zeremonie hält
-## das Fenster den Stand VOR dem Griff - erst der Scanner deckt die neuen auf.
+## das Fenster den Stand VOR dem Prägen - erst der Scanner deckt die neuen auf.
 func _refresh_bench_stage_faces() -> void:
 	if bench_stage == null or not is_instance_valid(bench_stage) or bench_stage.def == null:
 		return
@@ -4461,7 +4413,8 @@ func _write_slit_cells(grade := ShopController.GRADE_STAND, swap := false,
 		var target := _data_cell_seat(anchors[seat])
 		var cell: DataCellView = slit_cells.get(seat)
 		if cell == null or not is_instance_valid(cell):
-			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net)
+			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
+				pack.is_repair())
 			slit_cells[seat] = cell
 			_slit_keys[seat] = pack.get_instance_id()
 			cell.set_count(maxi(pack.count, 1))
@@ -8470,7 +8423,7 @@ func _on_secret_goods_purchased(uids: Array[int]) -> void:
 		var pack := run.pack_by_uid(uid)
 		if pack == null:
 			continue
-		var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), Color.WHITE)
+		var tint := PackDrawerView.pack_tint(pack)
 		var travel := table_screen.secret_delivery_comet(
 			depart, _pack_arrival_px(workshop, uid), tint)
 		get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
@@ -8512,7 +8465,8 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		var target := _shelf_seat(workshop, uid, line)
 		var cell: DataCellView = shelf_cells.get(uid)
 		if cell == null or not is_instance_valid(cell):
-			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net)
+			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
+				pack.is_repair())
 			cell.set_body_scale(workshop.shelf_cell_scale())
 			shelf_cells[uid] = cell
 			_show_shelf_cell(cell, uid, line, target, fresh)
@@ -8664,7 +8618,8 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			var slotted: Pack = run.pack_by_uid(uid) if run != null else null
 			var home := _shelf_seat(workshop, uid, workshop.shelf_row_of(uid))
 			cell = _spawn_data_cell(sorts[i], slotted.tier if slotted != null else 0,
-				home, slotted.stamp_net if slotted != null else [])
+				home, slotted.stamp_net if slotted != null else [],
+				slotted != null and slotted.is_repair())
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das Magazin-Maß
 			cell.badge_on_face = true
 			cell.lie_on_glass(home)  # sie startet LIEGEND in der Grube, nicht auf dem Glas
@@ -8754,11 +8709,11 @@ func _lay_cell_hard(cell: DataCellView, at: Vector3) -> void:
 	cell.set_socketed(true)  # die Kopfkante brennt: sie ist Teil der Rechnung
 
 func _spawn_data_cell(sort: String, tier: int, at: Vector3,
-		net: Array = []) -> DataCellView:
+		net: Array = [], gilded := false) -> DataCellView:
 	var cell := DataCellView.new()
 	cell.name = "DataCell"
 	add_child(cell)
-	cell.setup(sort, tier, net)
+	cell.setup(sort, tier, net, gilded)
 	# Dieselbe Vierteldrehung wie ein Tray-Würfel: erst damit steht das Siegel
 	# aufrecht im Bild (Bildschirm-oben = Welt+X).
 	cell.rotation.y = -PI / 2.0
@@ -8960,7 +8915,7 @@ func _on_pack_purchased(from_px: Vector2, uid: int) -> void:
 		return
 	var launched := run
 	workshop.expect_pack_delivery(uid)
-	var tint: Color = PackDrawerView.COLORS.get(Pack.shelf_of(pack), Color.WHITE)
+	var tint := PackDrawerView.pack_tint(pack)
 	var depart := _vitrine_depart_px if _vitrine_depart_px.x >= 0.0 else from_px
 	_vitrine_depart_px = Vector2(-1, -1)
 	# Erst ist die Ware unten, dann fliegt sie: der Komet startet nicht, bevor das
@@ -9726,11 +9681,7 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	# auch während das Raster liegt - er kommt darum VOR dessen Modalität.
 	if _forward_raster_switch_mouse(event, pixel):
 		return true
-	# Die SICHERUNGS-FASSUNG ist ein KÖRPER auf blankem Filz neben dem Streifen -
-	# ihr Griff wird per Strahl gepickt, nicht als Display-Pixel.
-	if _forward_fuse_socket_mouse(event):
-		return true
-	# ... und die KNOPFLEISTE des Regalstapels daneben, auf derselben Pick-Ebene.
+	# Die KNOPFLEISTE des Regalstapels ist ein KÖRPER - gepickt per Strahl.
 	if _forward_shelf_selector_mouse(event):
 		return true
 	# Die GLAS-ANSICHT wohnt in ihrem EIGENEN Viewport: sie bekommt den Zeiger
@@ -9952,8 +9903,6 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		station = CameraRig.Mode.SLOTS
 	elif collider == workshop_click_zone:
 		station = CameraRig.Mode.WORKSHOP
-	elif collider == repair_click_zone:
-		station = CameraRig.Mode.REPAIR
 	elif collider == score_click_zone:
 		station = CameraRig.Mode.SCORE
 	elif collider == chips_click_zone:
@@ -10071,7 +10020,6 @@ func _process(delta: float) -> void:
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
-	_sync_fuse_socket()  # und die Sicherungs-Fassung, wen sie gerade bedient
 	_sync_shelf_selector()  # und die Knopfleiste, welches Tablett gewählt ist
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 	_sync_music()  # und die Musik-Schichten folgen der Phase
@@ -10136,7 +10084,7 @@ func _write_workshop_info(workshop: WorkshopView, pixel: Vector2) -> void:
 ## die Ruhe-Auskunft. Die Glas-Ansicht und die Inspektion haben ihr eigenes Bild.
 func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
 	var idle := WorkshopInfoView.idle_info(workshop.target_die(),
-		workshop.grip_blocker())
+		workshop.stamp_blocker())
 	if pixel.x < 0.0 or _deck_glass or camera_rig.die_focus:
 		return idle
 	var cell_hint := workshop.net_hint_at(pixel)
@@ -10563,8 +10511,6 @@ func _dice_editing_locked(_def: DieDefinition = null) -> bool:
 func _sync_editing_lock() -> void:
 	if table_screen != null and table_screen.workshop_window != null:
 		table_screen.workshop_window.editing_locked = _dice_editing_locked()
-	# Die SICHERUNGS-FASSUNG ist bedienbar, solange die Werkstatt es ist.
-	_refresh_fuse_socket()
 
 func _pick_die_index(screen_pos: Vector2) -> int:
 	var result := _ray_pick(screen_pos, 2)
@@ -12267,161 +12213,6 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		_play_eye_pips(pulse, slot, die_px)
 	return true
 
-# --- Die SICHERUNGS-FASSUNG -------------------------------------------------------
-# Die Reparatur-Station ist ein flacher KÖRPER (FuseSocketView, 2026-09-10; die
-# Ladesäule ChargingColumnView ist mit ihr gestorben, Aufladen und Ableiten auch).
-# Gebucht wird in GameRun, SOFORT beim Klick; erst danach fliegt das Licht. Die
-# Fassung selbst bucht nichts - sie MELDET.
-
-## Zieht die Fassung nach (Kunde, Bremse, Preis) - idempotent, sie schreibt nur bei
-## echtem Wechsel um.
-func _refresh_fuse_socket() -> void:
-	if fuse_socket == null or not is_instance_valid(fuse_socket):
-		return
-	# Der Kunde kommt vom PODEST: wer dort STEHT (nicht wer gewählt ist und noch
-	# fliegt), wird repariert - und wer den Vorrat verlassen hat, ist keiner mehr.
-	var die := _bench_die
-	if run != null and die != null and not run.owned_pool.has(die):
-		die = null
-	fuse_socket.set_customer(die)
-	fuse_socket.set_live(RepairRules.repair_live(run, die, not _dice_editing_locked()))
-	fuse_socket.set_prices(run)
-
-func _connect_fuse_socket() -> void:
-	if fuse_socket == null \
-			or fuse_socket.repair_requested.is_connected(_on_repair_requested):
-		return
-	fuse_socket.repair_requested.connect(_on_repair_requested)
-
-## Der GRIFF je Bild: der Zeiger liegt auf dem Tisch, ein mouse_entered erreicht
-## einen Körper nie. Bedient wird, wo die Fassung zu SEHEN ist - eigene Station und
-## Freikamera (die Griff-Grammatik der Körper).
-func _sync_fuse_socket() -> void:
-	if fuse_socket == null or not is_instance_valid(fuse_socket):
-		return
-	_refresh_fuse_socket()
-	if not _fuse_socket_live():
-		fuse_socket.set_hovered(FuseSocketView.PART_NONE)
-		return
-	fuse_socket.set_hovered(_fuse_socket_part(get_viewport().get_mouse_position()))
-
-## Bedienbar an der eigenen Station, in der Freikamera UND an der WERKSTATT-Station
-## (Spieler-Entscheid 2026-09-10): die Fassung steht dort im Bild, und der Klick
-## soll reparieren, nicht erst heranfliegen.
-func _fuse_socket_live() -> bool:
-	return _table_operable() and not _deck_glass \
-		and (_felt_pick_live(CameraRig.Mode.REPAIR)
-			or _felt_pick_live(CameraRig.Mode.WORKSHOP))
-
-## Liegt die Sicherung unter dem Zeiger ("" = nein)? Tot hat sie ihre Kollision
-## abgeschaltet, fängt den Strahl also gar nicht erst.
-func _fuse_socket_part(screen_pos: Vector2) -> String:
-	var hit := _ray_pick(screen_pos, FuseSocketView.PICK_LAYER)
-	if hit.is_empty():
-		return FuseSocketView.PART_NONE
-	return FuseSocketView.part_of(hit.collider)
-
-## Der Druck auf die Sicherung (true = verbraucht). Aus der Übersicht fällt er durch
-## und wird zum FLUG auf die Station (die Klickzone darunter).
-func _forward_fuse_socket_mouse(event: InputEventMouse) -> bool:
-	if fuse_socket == null or not is_instance_valid(fuse_socket) \
-			or not _fuse_socket_live():
-		return false
-	var button := event as InputEventMouseButton
-	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
-		return false
-	var part := _fuse_socket_part(button.position)
-	return part != FuseSocketView.PART_NONE and fuse_socket.press(part)
-
-func _on_repair_requested(die: DieDefinition) -> void:
-	if run == null:
-		return
-	var price := run.repair_price()
-	if not run.repair_die(die):
-		return
-	# Die Asche fällt bei der ANKUNFT des Lichts - gebucht ist sie längst.
-	if price.has("money"):
-		_fly_repair_money(die)
-	else:
-		_fly_repair_energy(die)
-
-## Die SICHERUNG in Display-Pixeln - dort schlägt das Licht ein.
-func _fuse_socket_px() -> Vector2:
-	if fuse_socket == null or not is_instance_valid(fuse_socket) or table_screen == null:
-		return Vector2.ZERO
-	return table_screen.world_to_pixel(fuse_socket.fuse_point())
-
-## ⚡ aus der KONDENSATORBANK zur Fassung - dieselbe Börse, aus der das Übertakten
-## zahlt. Bei Ankunft pulst die Bank, dann läuft das Licht das KABEL entlang.
-func _fly_repair_energy(die: DieDefinition) -> void:
-	var guard := run
-	var travel := table_screen.energy_comet(_fuse_socket_px(), CasinoStyle.ENERGY) \
-		if table_screen != null else 0.0
-	if travel > 0.0:
-		await get_tree().create_timer(travel).timeout
-	if run != guard:
-		return
-	if capacitor_bank != null and is_instance_valid(capacitor_bank):
-		capacitor_bank.pulse()
-	await _fly_socket_to_die(die, CasinoStyle.ENERGY)
-
-## Geld aus dem SCHATZ zur Fassung (Isolierband-Reparatur).
-func _fly_repair_money(die: DieDefinition) -> void:
-	var guard := run
-	var travel := table_screen.money_comet(false, TableScreen.SIDE_MONEY_COLOR) \
-		if table_screen != null else 0.0
-	if travel > 0.0:
-		await get_tree().create_timer(travel).timeout
-	if run != guard:
-		return
-	await _fly_socket_to_die(die, TableScreen.SIDE_MONEY_COLOR)
-
-## Die zweite Etappe: ein kurzer Lauf über das KABEL von der Fassung zum Podest-
-## Würfel. Bei SEINER Ankunft blitzt der Würfel - der Stand steht längst.
-func _fly_socket_to_die(die: DieDefinition, color: Color) -> void:
-	var guard := run
-	if fuse_socket != null and is_instance_valid(fuse_socket):
-		fuse_socket.pulse()
-	var from_px := _fuse_socket_px()
-	var to_px := _bench_die_px()
-	var travel := 0.0
-	if table_screen != null and from_px != Vector2.ZERO and to_px != Vector2.ZERO:
-		travel = table_screen.press_meteor(from_px, to_px, color)
-	if travel > 0.0:
-		await get_tree().create_timer(travel).timeout
-	if run != guard:
-		return
-	_flash_repaired_die(die)
-
-## Der Podest-Würfel in Display-Pixeln (Vector2.ZERO = keiner steht dort).
-func _bench_die_px() -> Vector2:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return Vector2.ZERO
-	var center := workshop.target_net_center()
-	if center.x < 0.0:
-		return Vector2.ZERO
-	return Vector2(center.x, workshop.target_projector_y())
-
-## Der Blitz am Würfel: er zeigt den GEBUCHTEN Stand längst, das Licht quittiert
-## ihn nur. Der Kunde steht auf dem PODEST (sein Pool-Sitz ist leer); ein Würfel
-## ohne Körper bleibt still.
-func _flash_repaired_die(die: DieDefinition) -> void:
-	if die == null:
-		return
-	if bench_stage != null and is_instance_valid(bench_stage) and bench_stage.def == die \
-			and bench_stage.faces != null and is_instance_valid(bench_stage.faces):
-		bench_stage.faces.flash_charge(CHARGE_FLASH_STRENGTH)
-		return
-	if pool_tray_view == null:
-		return
-	for i in pool_tray_view.slot_defs.size():
-		if pool_tray_view.slot_defs[i] != die:
-			continue
-		var display: DieFaceDisplay = pool_tray_view.slot_face_displays[i]
-		if display != null:
-			display.flash_charge(CHARGE_FLASH_STRENGTH)
-
 ## Das ENTLADEN am Rundenende: die betroffenen Vorrats-Würfel zeigen kurz ihre
 ## ALTE Stufe (gebucht ist die neue längst), blitzen gedimmt in Ladungsfarbe und
 ## fallen dann auf den gebuchten Stand zurück. Steht der Vorrat nicht im Bild,
@@ -13272,9 +13063,6 @@ func _connect_run() -> void:
 			table_screen.workshop_window.shelf_scroll_snapped.connect(_on_shelf_scroll_snapped)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
-	# Die SICHERUNGS-FASSUNG liest denselben Lauf - sie bucht nichts, scene_root tut es.
-	_connect_fuse_socket()
-	_refresh_fuse_socket()
 	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
 	if shop_vitrine != null and is_instance_valid(shop_vitrine):
 		shop_vitrine.clear()
@@ -13359,7 +13147,6 @@ func _on_energy_changed(value: int) -> void:
 	_sync_capacitor()
 	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 	_refresh_side_bet_affordability()
-	_refresh_fuse_socket()  # die Sicherung dimmt sich mit
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.refresh_if_idle()  # der Einsatz kostet ⚡
 
@@ -13417,8 +13204,8 @@ func _on_route_chosen(index: int) -> void:
 	_refresh_round_hud()  # ein Benchmark-Aufschlag verschiebt den Balken sofort
 	_refresh_ui()
 
-## Rundenbeginn-Wirkungen (Charms UND Deals): Glückszahl, Drossel, Rampenlicht,
-## Wartungsvertrag. Läuft entweder direkt beim Rundenstart (Runde 1, ohne
+## Rundenbeginn-Wirkungen (Charms UND Deals): Glückszahl, Drossel, Rampenlicht.
+## Läuft entweder direkt beim Rundenstart (Runde 1, ohne
 ## Auslage) oder mit der Unterschrift.
 func _apply_round_start_effects() -> void:
 	run.apply_round_start_charms()
@@ -13465,7 +13252,7 @@ func _start_new_round() -> void:
 
 	# Liegt eine Auslage bereit, warten die Rundenbeginn-Wirkungen auf die
 	# Unterschrift: sonst stünde die Drossel fest, bevor die Boss-Kondition
-	# gewählt ist, und der Wartungsvertrag käme eine Runde zu spät.
+	# gewählt ist.
 	route_pending = not run.route_offers.is_empty()
 	if not route_pending:
 		_apply_round_start_effects()
@@ -13502,8 +13289,6 @@ func _commit_round() -> void:
 	if round_committed:
 		return
 	round_committed = true
-	# Das Zurren löscht die Sperre des Wartungsvertrags, für die sie galt.
-	run.note_round_committed()
 	# Mit der Unterschrift ist die Ladenzeit vorbei - der Knopf geht mit.
 	shop_reopen_allowed = false
 	_sync_shop_reopen_button()
@@ -13616,7 +13401,7 @@ func _on_round_complete() -> void:
 			if phase != Phase.PAYOUT:
 				return  # Spiel wurde während des Aufdeckens zurückgesetzt
 		var ids := run.charm_ids()
-		# Deal-Faktor auf die ganze Auszahlung; der Wartungsvertrag streicht die
+		# Deal-Faktor auf die ganze Auszahlung; Leergut/Blackout streichen die
 		# Würfel-Zeile ganz, die Sparprämie legt auf sie drauf (wie das Sparschwein).
 		var factor := run.round_payout_factor()
 		var base_blind := roundi(MONEY_PER_ROUND_CLEAR * factor)
@@ -13628,7 +13413,7 @@ func _on_round_complete() -> void:
 		# liegenden (Beenden vor dem Nehmen) - EINMAL erfasst, dann geteilt.
 		var leftover_dice := _unused_die_entries()
 		# Knallgas: die Kettenreaktion im Stapel - je übrigem Würfel ein eigener
-		# Satz. Der Wartungsvertrag streicht die Zeile ganz, also auch sie.
+		# Satz. Leergut/Blackout streichen die Zeile ganz, also auch sie.
 		var per_die_row := _leftover_die_payouts(per_die, ids, leftover_dice)
 		# Schmuckkästchen: je übrigem Würfel 10% Chance auf eine Material-Gravur.
 		# Gebucht HIER, gezeigt erst an seinem Dock-Platz in der Charm-Zeremonie.
@@ -14571,7 +14356,6 @@ func _on_pool_changed() -> void:
 		_sync_fach_nets()
 	if _deck_glass:
 		_show_deck_glass_window()  # das Raster auf dem Glas folgt der Buchung
-	_refresh_fuse_socket()
 
 ## Shop geschlossen. Beim ERSTEN Mal beginnt damit die nächste Runde; ein
 ## Wieder-Eintritt (Hub-Knopf) macht beim Schließen nur die Anzeige zu. Nur der

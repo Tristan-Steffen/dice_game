@@ -18,9 +18,9 @@ signal pool_changed
 signal pending_dice_changed
 signal energy_changed(value: int)
 signal secret_stock_changed
-## Die Serie der Werkbank hat sich geändert (Griff, Slots, verbrauchte Karten).
+## Die Serie der Werkbank hat sich geändert (Prägen, Slots, verbrauchte Karten).
 signal press_changed
-## Ein Ladungs-Ereignis in Klartext (Aufladen, Durchbrennen, Entladen, Bucht) -
+## Ein Ladungs-Ereignis in Klartext (Aufladen, Durchbrennen, Entladen, Reparatur) -
 ## die Chronik hängt daran; gebucht ist es hier schon.
 signal charge_logged(text: String)
 
@@ -221,20 +221,12 @@ var round_bare_dice: int = 0
 var die_scored_this_round: Dictionary = {}
 
 ## --- LADUNG -------------------------------------------------------------------
-## Preis der Reparatur (Spieler-Entscheid 2026-09-07): 3 ⚡. Aufladen und Ableiten
-## sind am 2026-09-10 gestorben - die Sicherungs-Fassung repariert nur noch.
-const REPAIR_ENERGY := 3
-## Isolierband: die Reparatur kostet Geld statt Energie.
-const REPAIR_MONEY := 15
 ## Kühlkörper: Deckel der Ladung, solange er im Dock liegt.
 const HEAT_SINK_CAP := 2
 ## Überlast/Netzausfall: der Ladungswurf trifft immer.
 const FORCED_CHARGE_CHANCE := 1.0
 ## Entstörung: auf diese Stufe fällt der ganze Vorrat sofort.
 const NOISE_FILTER_CHARGE := 1
-## Wartungsvertrag (Welle 2): die Runde, BIS zu der die Bucht geschlossen bleibt
-## (0 = offen). Das Zurren löscht sie wieder.
-var repair_lock_round: int = 0
 ## Die Sicherung hat in dieser Runde schon einen Durchbrenner abgefangen.
 var fuse_used_this_round: bool = false
 
@@ -402,6 +394,16 @@ func shop_special_chance() -> float:
 	if tier < SHOP_SPECIAL_TIER:
 		return 0.0
 	return float(SHOP_SPECIAL_CHANCE.get(tier, 0.0))
+
+## Chance, daß eine Zahlen-Karte im Regal als MULTIPLIKATOR-NETZ ausliegt: selten am
+## Anfang, mit jeder Fortschrittsstufe häufiger.
+const MULTIPLIER_CHANCE_BASE := 0.04
+const MULTIPLIER_CHANCE_STEP := 0.02
+const MULTIPLIER_CHANCE_CAP := 0.25
+
+func shop_multiplier_chance() -> float:
+	return minf(MULTIPLIER_CHANCE_BASE
+		+ MULTIPLIER_CHANCE_STEP * float(maxi(progress_tier() - 1, 0)), MULTIPLIER_CHANCE_CAP)
 
 ## Kauf aus der Chip-Schale: bezahlt und SOFORT einzusetzen - pending_dice ist kein
 ## Zwischenlager, sondern die Strecke bis zum Raster (scene_root erzwingt die Wahl,
@@ -617,6 +619,8 @@ func _tidy_key(pack: Pack) -> Array:
 		content = pack.catalyst_id
 	elif pack.is_operator():
 		content = pack.operator_id
+	elif pack.is_multiplier():
+		content = Pack.MULTIPLIER_NAME
 	elif pack.fixed_engraving != null:
 		content = pack.fixed_engraving.id
 	return [shelf_rank, content, pack.pack_uid]
@@ -691,11 +695,14 @@ func series_slots() -> int:
 const CATALYST_PROPELLANT_STEP := 1
 const CATALYST_TIMER_SLOTS := 1
 
-## Was die Katalysatoren dieser Serie zulegen: {propellant, timer, matrix, free}.
-## "free" ist seit dem unbegrenzten Griff (2026-09-05) WIRKUNGSLOS - es liest
-## niemand mehr; die Erdungsklemme bleibt im Katalog, ihre Wirkung ist OFFEN.
+## Was die Katalysatoren dieser Serie zulegen: {propellant, timer, free, repair,
+## aftercare}. "free" ist seit dem unbegrenzten Prägen (2026-09-05) WIRKUNGSLOS - es
+## liest niemand mehr; die Erdungsklemme bleibt im Katalog, ihre Wirkung ist OFFEN.
+## aftercare = die Kühl- und Reparatur-Karten in Steckreihenfolge.
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
-	var terms := {"propellant": 0, "timer": 0, "matrix": false, "free": false}
+	var aftercare: Array[String] = []
+	var terms := {"propellant": 0, "timer": 0, "free": false, "repair": false,
+		"aftercare": aftercare}
 	for pack in packs:
 		if pack == null:
 			continue
@@ -704,10 +711,12 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 				terms["propellant"] = int(terms["propellant"]) + CATALYST_PROPELLANT_STEP
 			Pack.CATALYST_TIMER:
 				terms["timer"] = int(terms["timer"]) + CATALYST_TIMER_SLOTS
-			Pack.CATALYST_MATRIX:
-				terms["matrix"] = true
 			Pack.CATALYST_GROUND:
 				terms["free"] = true
+			Pack.CATALYST_REPAIR:
+				terms["repair"] = true
+		if pack.tends_die():
+			aftercare.append(pack.catalyst_id)
 	return terms
 
 ## Die Prämie der Nebenwette: der nächsten Serie einen Slot mehr. Sie stapelt sich
@@ -752,43 +761,57 @@ func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
 	return SeriesResolver.resolve(parts["nets"], die,
 		catalyst_terms(parts["catalysts"]))
 
-## DER GRIFF: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
-## Karten verbrauchen. Er ist UNBEGRENZT (Spieler-Entscheid 2026-09-05); steht
-## keine prägende Karte in der Reihe, geschieht NICHTS (leeres Dictionary). Die
-## SECHSER-Pflicht ist eine Fenster-Regel, hier bucht auch eine kürzere Serie.
-## second_die trägt die Doppelmatrize; ohne sie bleibt er unberührt.
-## Ein DURCHGEBRANNTER Zielwürfel wird verweigert - erst reparieren.
-## Liefert {"projection", "second", "cards", "kept", "burned"}.
+## DAS PRÄGEN: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
+## Karten verbrauchen. Es ist UNBEGRENZT (Spieler-Entscheid 2026-09-05) und geht
+## mit jeder Kartenzahl ab 1; ohne prägende Karte UND ohne Kühl- oder
+## Reparatur-Karte geschieht NICHTS (leeres Dictionary).
+## Ein DURCHGEBRANNTER Zielwürfel wird nur mit Reparatur-Karte angenommen.
+## Liefert {"projection", "cards", "kept", "burned", "repaired", "cooled"}.
 func apply_series(pack_uids: Array[int], die: DieDefinition,
-		second_die: DieDefinition = null, rng: RandomNumberGenerator = null) -> Dictionary:
-	if die == null or die.burned_out:
+		rng: RandomNumberGenerator = null) -> Dictionary:
+	if die == null:
 		return {}
 	var chosen := _series_indices(pack_uids)
 	if chosen.is_empty():
 		return {}
 	var parts := _series_parts(chosen)
 	var nets: Array = parts["nets"]
-	if nets.is_empty():
-		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
 	var terms := catalyst_terms(parts["catalysts"])
+	var repairs := bool(terms["repair"])
+	var aftercare: Array[String] = terms["aftercare"]
+	if die.burned_out and not repairs:
+		return {}
+	if nets.is_empty() and aftercare.is_empty():
+		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
 	press_boost_pending = false  # der Schub galt genau dieser Serie
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)
-	# Der Griff HEIZT: erzwungenes +1 auf den Zielwürfel. Brennt er dabei durch,
+	# Das Prägen HEIZT: erzwungenes +1 auf den Zielwürfel. Brennt er dabei durch,
 	# bleibt die Prägung trotzdem stehen - sie wirkt nach der Reparatur wieder.
 	var burned_target := charge_up_forced(die)
-	var second: Dictionary = {}
-	if bool(terms["matrix"]) and second_die != null and second_die != die:
-		second = SeriesResolver.secondary(projection, second_die)
-		_project(second_die, second)
+	# Kühl- und Reparatur-Karten wirken NACH der Hitze, in Steckreihenfolge.
+	var cooled := false
+	for id in aftercare:
+		match id:
+			Pack.CATALYST_REPAIR:
+				die.repair()
+				charge_logged.emit("%s generalüberholt" % _die_label(die))
+			Pack.CATALYST_COOL:
+				cooled = die.charge_down(1) or cooled
+			Pack.CATALYST_CHILL:
+				cooled = die.charge_down(die.charge) or cooled
+	if cooled:
+		charge_logged.emit("%s gekühlt: %s" % [_die_label(die),
+			DieDefinition.charge_name(die.charge)])
 	# Der Taktgeber ist der eine Katalysator, dessen Wirkung die Serie überlebt.
 	series_slot_bonus = mini(series_slot_bonus + int(terms["timer"]), SERIES_SLOT_CAP)
 	var kept := _consume_series_cards(chosen, rng)
 	packs_changed.emit()
 	press_changed.emit()
 	note_pool_changed()
-	return {"projection": projection, "second": second,
-		"cards": chosen.size(), "kept": kept, "burned": burned_target}
+	return {"projection": projection, "cards": chosen.size(), "kept": kept,
+		"burned": die.burned_out and burned_target, "repaired": repairs,
+		"cooled": cooled}
 
 ## Der EINE Schreibweg einer Projektion: über die vorhandenen DieDefinition-Wege,
 ## damit Veredelung, Runen-Plätze und Einbrand-Regel gelten wie überall.
@@ -1125,8 +1148,6 @@ func _apply_instant_clause(clause_id: String) -> void:
 			free_spins_used.clear()
 		DealClause.NOISE_FILTER:
 			_apply_noise_filter()
-		DealClause.MAINTENANCE_CONTRACT:
-			repair_lock_round = round_number + 1
 
 ## Entstörung: der ganze Vorrat fällt sofort auf Ladung 1 (der Kühlkörper-Deckel
 ## gilt auch hier). Durchgebrannte bleiben dunkel - sie werden repariert.
@@ -1551,7 +1572,7 @@ func note_dice_scored(defs: Array[DieDefinition], participating: Array[int]) -> 
 func note_bare_dice(count: int) -> void:
 	round_bare_dice += maxi(0, count)
 
-# --- LADUNG: Regel, Buchungen und die Reparatur-Bucht ---------------------------
+# --- LADUNG: Regel und Buchungen ------------------------------------------------
 
 ## Die Ladungs-Regel dieser Runde als EIN Dictionary - die EINE Stelle, an der
 ## Charms und Klauseln zusammenkommen:
@@ -1575,13 +1596,6 @@ func charge_rule() -> Dictionary:
 	rule["fuse_armed"] = ids.has(Charm.SAFETY_FUSE) and not fuse_used_this_round
 	return rule
 
-## Was eine Reparatur kostet - {"energy": n} oder mit Isolierband {"money": n}.
-## EINE Quelle für Buchung und Knopf-Beschriftung.
-func repair_price() -> Dictionary:
-	if charm_ids().has(Charm.INSULATION_TAPE):
-		return {"money": REPAIR_MONEY}
-	return {"energy": REPAIR_ENERGY}
-
 ## "Würfel N" - die Vorrats-Position, an der die Chronik ihn nennt.
 func _die_label(die: DieDefinition) -> String:
 	var index := owned_pool.find(die)
@@ -1593,7 +1607,7 @@ func _log_charge(die: DieDefinition, burned: bool) -> void:
 	else:
 		charge_logged.emit("%s lädt auf %d" % [_die_label(die), die.charge])
 
-## Das EINE erzwungene +1 (Fumble, Griff, Klausel): kein Wurf, sondern sicher -
+## Das EINE erzwungene +1 (Fumble, Prägen, Klausel): kein Wurf, sondern sicher -
 ## und an der Spitze sicher durchgebrannt, sofern nicht die Seele immun ist, die
 ## Regel das Brennen verbietet oder die Sicherung es abfängt.
 ## true = der Würfel ist dabei durchgebrannt.
@@ -1707,39 +1721,6 @@ func cool_unplayed_dice() -> Array[DieDefinition]:
 		note_pool_changed()
 	return cooled
 
-## Der Wartungsvertrag sperrt die Bucht für das Fenster VOR der nächsten Runde.
-func repair_locked() -> bool:
-	return repair_lock_round > 0 and round_number <= repair_lock_round
-
-## Das Zurren der Runde löscht die Sperre, für die sie galt.
-func note_round_committed() -> void:
-	if repair_lock_round > 0 and round_number >= repair_lock_round:
-		repair_lock_round = 0
-
-## Reparatur: durchgebrannt -> Ladung 0, zum Preis aus repair_price(). Prüfen-
-## dann-abbuchen wie overclock_combo, in BEIDEN Zweigen; false = nichts gebucht.
-func repair_die(die: DieDefinition) -> bool:
-	if die == null or not die.burned_out or repair_locked():
-		return false
-	var price := repair_price()
-	var note := ""
-	if price.has("money"):
-		var cost := int(price["money"])
-		if money < cost:
-			return false
-		add_money(-cost)
-		note = "($%d)" % cost
-	else:
-		var spark := int(price["energy"])
-		if energy < spark:
-			return false
-		spend_energy(spark)
-		note = "(%d ⚡)" % spark
-	die.repair()
-	charge_logged.emit("%s repariert %s" % [_die_label(die), note])
-	note_pool_changed()
-	return true
-
 ## Erster beteiligter Löschgas-Würfel (-1 = keiner). Er schluckt JEDEN Fumble,
 ## an dem er beteiligt war - kein Rundenlimit, kein Preis.
 func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
@@ -1817,11 +1798,16 @@ func reorder_pool_full(order: Array[DieDefinition]) -> bool:
 func pack_stock() -> Dictionary:
 	var out: Dictionary = {}
 	for pack in owned_packs:
-		if not Pack.tierable(pack):
+		if not _stakeable(pack):
 			continue
 		var key := SideBet.pack_stock_key(pack.type, pack.tier)
 		out[key] = int(out.get(key, 0)) + 1
 	return out
+
+## Was ein Paket-Einsatz nehmen darf: Regalware mit Größe - ein Multiplikator-Netz
+## ist kein Zahlen-Paket, das man verwettet.
+static func _stakeable(pack: Pack) -> bool:
+	return Pack.tierable(pack) and not pack.is_multiplier()
 
 ## Welche Pakete ein Paket-Einsatz WIRKLICH verzehrt: die letzten passenden, typ- und
 ## größengenau. EINE Auswahl - die Buchung nimmt sie, und die Wurf-Anker der Zeremonie
@@ -1835,7 +1821,7 @@ func stake_packs_for(bet: SideBet) -> Array[Pack]:
 		if out.size() >= wanted:
 			break
 		var pack := owned_packs[i]
-		if Pack.tierable(pack) and pack.type == bet.stake_pack_type \
+		if _stakeable(pack) and pack.type == bet.stake_pack_type \
 				and pack.tier == bet.stake_pack_tier:
 			out.append(pack)
 	return out
@@ -2181,6 +2167,8 @@ const KIND_CATALYST := "catalyst"
 const SECRET_MONEY_PER_ENERGY := 10
 ## Anteil der Katalysatoren am Sonderposten-Platz - die Gravur bleibt die Regel.
 const SECRET_CATALYST_CHANCE := 0.35
+## Eigene Ziehchance der Reparatur-Karte - sie wird VOR den Katalysatoren gezogen.
+const SECRET_REPAIR_CHANCE := 0.2
 
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
 static func secret_energy_price(money_price: int) -> int:
@@ -2327,9 +2315,11 @@ func _roll_secret_stock() -> void:
 	secret_stock.append(_secret_wildcard_offer())
 
 ## Der Sonderposten-Platz führt beide Familien des Sonderbestands: meist ein
-## Gravur-Bündel, manchmal eine Katalysator-Kassette. EIN Eingang, damit der
-## Wildcard-Platz dieselbe Auswahl bekommt.
+## Gravur-Bündel, manchmal eine Katalysator-Kassette, selten die Reparatur-Karte.
+## EIN Eingang, damit der Wildcard-Platz dieselbe Auswahl bekommt.
 func _secret_special_offer() -> Dictionary:
+	if randf() < SECRET_REPAIR_CHANCE and not _secret_catalyst_listed().has(Pack.CATALYST_REPAIR):
+		return _secret_catalyst_card(Pack.CATALYST_REPAIR)
 	if randf() < SECRET_CATALYST_CHANCE:
 		var card := _secret_catalyst_offer()
 		if not card.is_empty():
@@ -2337,23 +2327,30 @@ func _secret_special_offer() -> Dictionary:
 	return _secret_engraving_offer()
 
 ## Eine Katalysator-Kassette, die nicht schon in der Auslage liegt - zwei gleiche
-## Plätze lesen sich als Fehler. Liegen alle vier, weicht der Platz auf eine
-## Gravur aus statt leer zu bleiben.
+## Plätze lesen sich als Fehler. Liegen alle, weicht der Platz auf eine
+## Gravur aus statt leer zu bleiben. Die Reparatur-Karte hat ihre eigene Chance.
 func _secret_catalyst_offer() -> Dictionary:
+	var listed := _secret_catalyst_listed()
+	var pool: Array[String] = []
+	for id in Pack.catalyst_ids():
+		if not listed.has(id) and not Pack.catalyst_secret_only(id):
+			pool.append(id)
+	if pool.is_empty():
+		return {}
+	return _secret_catalyst_card(String(pool.pick_random()))
+
+## Die Katalysator-ids, die schon in der Auslage liegen.
+func _secret_catalyst_listed() -> Array[String]:
 	var listed: Array[String] = []
 	for offer in secret_stock:
 		if offer[OFFER_KIND] == KIND_CATALYST:
 			var shown: Pack = offer[OFFER_ITEM]
 			listed.append(shown.catalyst_id)
-	var pool: Array[String] = []
-	for id in Pack.catalyst_ids():
-		if not listed.has(id):
-			pool.append(id)
-	if pool.is_empty():
-		return {}
-	var pick: String = pool.pick_random()
-	return _secret_offer(KIND_CATALYST, Pack.catalyst(pick),
-		secret_energy_price(Pack.catalyst_price(pick)))
+	return listed
+
+func _secret_catalyst_card(id: String) -> Dictionary:
+	return _secret_offer(KIND_CATALYST, Pack.catalyst(id),
+		secret_energy_price(Pack.catalyst_price(id)))
 
 ## Der dritte Platz würfelt nur noch WARE: Essenzwürfel oder Sonderbestand. Der
 ## Würfel ist der EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel

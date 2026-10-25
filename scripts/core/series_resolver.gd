@@ -7,8 +7,9 @@ extends RefCounted
 ## Buchung.
 ##
 ## Gelesen wird strikt LINKS NACH RECHTS, je Seite und je Kanal:
-##  - Zahl:     Wert-Zellen addieren; ein OPERATOR rechnet auf der bis dahin
-##              aufgelaufenen SUMME (nie auf dem Seitenwert des Würfels).
+##  - Zahl:     Wert-Zellen addieren; ein OPERATOR und eine FAKTOR-Zelle rechnen
+##              auf der bis dahin aufgelaufenen SUMME (nie auf dem Seitenwert des
+##              Würfels).
 ##  - Material: Schichtung - die spätere Karte übermalt die frühere; ZWEIMAL
 ##              dasselbe Material auf dieselbe Seite projiziert VEREDELT.
 ##  - Rune:     die spätere gewinnt; ein Duplikat weicht in einen freien Slot aus.
@@ -31,17 +32,21 @@ const FIZZLE_POINTER := "pointer"    # Pointer auf keine Nachbarseite
 ## Leere Projektion - auch der Rückgabewert jeder Serie ohne Karten.
 static func blank(die: DieDefinition = null) -> Dictionary:
 	var bonus: Array[int] = []
+	var factors: Array[int] = []
 	var materials: Array[String] = []
 	var doped: Array[bool] = []
 	var pointers: Array[int] = []
 	var runes: Array = []
 	for i in FACES:
 		bonus.append(0)
+		factors.append(1)
 		materials.append("")
 		doped.append(false)
 		pointers.append(-1)
 		runes.append([] as Array[String])
-	return {"bonus": bonus, "materials": materials, "doped": doped,
+	# factors: das Produkt der Faktor-Zellen je Seite - nur Anzeige, gerechnet ist es
+	# längst im Bonus.
+	return {"bonus": bonus, "factors": factors, "materials": materials, "doped": doped,
 		"runes": runes, "pointers": pointers, "fizzled": [] as Array[Dictionary],
 		"faces_after": faces_after(die, bonus)}
 
@@ -63,6 +68,7 @@ static func resolve(nets: Array, die: DieDefinition,
 		terms: Dictionary = {}) -> Dictionary:
 	var out := blank(die)
 	var bonus: Array[int] = out["bonus"]
+	var factors: Array[int] = out["factors"]
 	var materials: Array[String] = out["materials"]
 	var doped: Array[bool] = out["doped"]
 	var pointers: Array[int] = out["pointers"]
@@ -79,6 +85,9 @@ static func resolve(nets: Array, die: DieDefinition,
 			match StampNet.kind_of(cell):
 				StampNet.KIND_VALUE:
 					bonus[face] += int(cell.get("value", 0))
+				StampNet.KIND_FACTOR:
+					bonus[face] *= int(cell.get("value", 1))
+					factors[face] *= int(cell.get("value", 1))
 				StampNet.KIND_OPERATOR:
 					_apply_operator(bonus, face, String(cell.get("id", "")))
 				StampNet.KIND_MATERIAL:
@@ -116,18 +125,6 @@ static func resolve(nets: Array, die: DieDefinition,
 				bonus[face] += propellant
 	for face in FACES:
 		runes[face] = _rune_changes(die, rune_slots_state, face, slots)
-	out["faces_after"] = faces_after(die, bonus)
-	return out
-
-## Die Zweitprojektion der Doppelmatrize: NUR der Zahl-Kanal, halbiert und
-## abgerundet. Material, Rune, Veredelung und Pointer bleiben beim ersten Würfel.
-static func secondary(projection: Dictionary, die: DieDefinition) -> Dictionary:
-	var out := blank(die)
-	var bonus: Array[int] = out["bonus"]
-	var source: Array[int] = projection.get("bonus", [])
-	for face in FACES:
-		if face < source.size():
-			bonus[face] = int(floor(float(source[face]) / 2.0))
 	out["faces_after"] = faces_after(die, bonus)
 	return out
 

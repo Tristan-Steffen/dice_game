@@ -39,6 +39,33 @@ const COLORS := {
 	Pack.SHELF_SPECIAL: Color("#bd93f9"),
 }
 
+## Die Reparatur-Karte trägt GOLD statt ihrer Sortenfarbe, und zwar in voller Stärke.
+const REPAIR_TINT := CasinoStyle.GOLD_INTENSE
+## Das MULTIPLIKATOR-NETZ trägt LILA ("episch") statt Zahlen-Grün - tiefer und
+## satter als das Lavendel des Sonderbestands. Die Größe stuft es wie jede Sorte.
+const MULTIPLIER_TINT := Color("#9a4dff")
+
+## Die Farbe einer Kassette - die Sortenfarbe, die Reparatur-Karte golden, ein Netz
+## mit Faktor-Zellen lila.
+static func tint_of(shelf: String, catalyst_id := "", net: Array = []) -> Color:
+	if catalyst_id == Pack.CATALYST_REPAIR:
+		return REPAIR_TINT
+	if catalyst_id == "" and StampNet.is_factor_net(net):
+		return MULTIPLIER_TINT
+	return COLORS.get(shelf, GOLD)
+
+static func pack_tint(pack: Pack) -> Color:
+	if pack == null:
+		return GOLD
+	return tint_of(Pack.shelf_of(pack), pack.catalyst_id, pack.stamp_net)
+
+## ... nach Größe getönt (DataCellView.tier_shade); das Gold kennt keine Stufe.
+static func card_shade(shelf: String, tier: int, catalyst_id := "",
+		net: Array = []) -> Color:
+	if catalyst_id == Pack.CATALYST_REPAIR:
+		return REPAIR_TINT
+	return DataCellView.tier_shade(tint_of(shelf, catalyst_id, net), tier)
+
 ## Der EINE Anzeige-Maßstab einer Kassette - ÜBERALL (Welle L). 3,2 = das alte Maß
 ## 2,184 mal ~1,47 (Welle 29): genau VIER liegende Karten je Magazin-Reihe.
 const CASSETTE_SCALE := 3.2

@@ -1,6 +1,6 @@
 class_name PressPortalView
 extends Control
-## Das GLÜHEN eines Serien-Slots. Ruhig, solange nichts steckt; beim GRIFF läuft
+## Das GLÜHEN eines Serien-Slots. Ruhig, solange nichts steckt; beim PRÄGEN läuft
 ## die Serie kartenweise durch, und jede gesteckte Karte flammt an ihrer Stelle auf
 ## (energy). Eine OPERATOR-Karte schlägt statt dessen perkussiv zu und schreibt
 ## ihre Glyphe hinein (punch) - dieselbe Trennung, die auch die Rechnung macht:

@@ -175,11 +175,17 @@ func test_the_propellant_lifts_every_filled_number_cell_once() -> void:
 	assert_eq(int(out["bonus"][1]), 2)
 	assert_eq(int(out["bonus"][2]), 0, "leere Zellen bleiben leer")
 
-func test_the_secondary_halves_the_numbers_and_drops_every_other_channel() -> void:
-	var out := _resolve([_net({0: StampNet.value_cell(5),
-		1: StampNet.material_cell(DieMaterial.GOLD),
-		2: StampNet.rune_cell(Rune.AFTERGLOW)})], _die())
-	var second := SeriesResolver.secondary(out, _die())
-	assert_eq(int(second["bonus"][0]), 2, "5 / 2 abgerundet")
-	assert_eq(String(second["materials"][1]), "", "Material bleibt beim ersten Würfel")
-	assert_true(Array(second["runes"][2]).is_empty())
+func test_a_factor_cell_multiplies_the_accumulated_sum_of_its_face() -> void:
+	var out := _resolve([_net({0: StampNet.value_cell(2), 1: StampNet.value_cell(1)}),
+		_net({0: StampNet.factor_cell(3), 2: StampNet.factor_cell(3)}),
+		_net({0: StampNet.value_cell(1)})], _die())
+	assert_eq(int(out["bonus"][0]), 7, "2 × 3, dann +1")
+	assert_eq(int(out["bonus"][1]), 1, "ohne Faktor-Zelle unberührt")
+	assert_eq(int(out["bonus"][2]), 0, "nichts aufgelaufen, nichts vervielfacht")
+	assert_eq(int(out["factors"][2]), 3, "die Anzeige kennt den Faktor trotzdem")
+	assert_eq(int(out["factors"][1]), 1)
+
+func test_the_propellant_comes_after_the_factor() -> void:
+	var out := _resolve([_net({0: StampNet.value_cell(2)}),
+		_net({0: StampNet.factor_cell(4)})], _die(), {"propellant": 1})
+	assert_eq(int(out["bonus"][0]), 9, "2 × 4, dann +1")

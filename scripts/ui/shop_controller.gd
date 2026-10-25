@@ -756,7 +756,7 @@ func set_slit_hover(seat: int, cell_hint := "") -> void:
 	slit_info.position = flank.position - get_global_rect().position
 	slit_info.size = flank.size
 	slit_info_name.text = pack.display_name
-	slit_info_name.modulate = PackDrawerView.COLORS.get(Pack.shelf_of(pack), NEON_TEXT)
+	slit_info_name.modulate = PackDrawerView.pack_tint(pack)
 	slit_info_body.text = cell_hint if cell_hint != "" else Pack.info_body(pack)
 	_fit_slit_info(flank.size)
 	slit_info.visible = true
@@ -1305,9 +1305,12 @@ func _build_spread() -> MenuSpread:
 	# Gravur-Pakete: die Sorte entscheidet die Häufigkeit (viele Zahlen, wenige
 	# Kanten), die Mindest-Seltenheit im Inhalt zieht GameRun beim Öffnen.
 	# Die GRÖSSE würfelt jeder Platz einzeln (60/30/10) - der Laden ist der EINE
-	# Weg zu Groß und Kolossal, jede Prämie prägt Standard.
+	# Weg zu Groß und Kolossal, jede Prämie prägt Standard - und der EINE Weg zum
+	# Multiplikator-Netz.
+	var multiplier_chance := run.shop_multiplier_chance()
 	for i in run.shop_pack_slots():
-		spread.engraving_packs.append(Pack.roll_engraving_pack(Pack.roll_tier()))
+		spread.engraving_packs.append(
+			Pack.roll_engraving_pack(Pack.roll_tier(), null, multiplier_chance))
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 

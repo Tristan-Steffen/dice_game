@@ -53,6 +53,9 @@ const TIER_WEIGHTS := [0.6, 0.3, 0.1]
 ## Preise je 1er-Paket - Runen sind die teuerste Sorte, sechs Zahlen-Pakete sind
 ## der Lauf auf den Sechserpasch.
 const NUMBER_PRICE := 5
+## Das MULTIPLIKATOR-NETZ ist die seltene, teurere Spielart der Zahlen-Karte.
+const MULTIPLIER_PRICE := 9
+const MULTIPLIER_NAME := "Multiplikator-Paket"
 const MATERIAL_PRICE := 6
 const DICE_MOD_PRICE := 7
 
@@ -148,7 +151,10 @@ static func tiered(pack: Pack, pack_tier: int, rng: RandomNumberGenerator = null
 	pack.tier = pack_tier
 	pack.display_name = "%s %s" % [tier_adjective(pack_tier), pack.display_name]
 	pack.price = int(roundf(float(pack.price) * tier_price_factor(pack_tier)))
-	pack.stamp_net = StampNet.roll(pack.engraving_category(), pack_tier, rng)
+	if pack.is_multiplier():
+		pack.stamp_net = StampNet.roll_factor(pack_tier, rng)
+	else:
+		pack.stamp_net = StampNet.roll(pack.engraving_category(), pack_tier, rng)
 	return pack
 
 ## Gewichteter Griff in die Größen-Tabelle (60 / 30 / 10 %).
@@ -183,6 +189,15 @@ static func number_pack(rng: RandomNumberGenerator = null) -> Pack:
 	var pack := _make(TYPE_NUMBER, ENGRAVING_PACK_COUNT, NUMBER_PRICE,
 		"Ein Prägenetz aus Zahl-Zellen, versiegelt.")
 	pack.stamp_net = StampNet.roll(Engraving.CATEGORY_NUMBER, TIER_NORMAL, rng)
+	return pack
+
+## Ein Zahlen-Paket, dessen Netz Faktoren trägt: es vervielfacht, was die Serie bis
+## zu ihm aufgetürmt hat - nie die Grundzahl des Würfels.
+static func multiplier_pack(rng: RandomNumberGenerator = null) -> Pack:
+	var pack := _make(TYPE_NUMBER, ENGRAVING_PACK_COUNT, MULTIPLIER_PRICE,
+		"Ein Multiplikator-Netz: vervielfacht auf seinen Seiten die bis dahin aufgelaufenen Zahl-Boni, versiegelt.")
+	pack.display_name = MULTIPLIER_NAME
+	pack.stamp_net = StampNet.roll_factor(TIER_NORMAL, rng)
 	return pack
 
 static func material_pack(rng: RandomNumberGenerator = null) -> Pack:
@@ -243,22 +258,39 @@ static func operator_pack(op_id: String, rng: RandomNumberGenerator = null) -> P
 
 const CATALYST_PROPELLANT := "propellant"
 const CATALYST_TIMER := "timer"
-const CATALYST_MATRIX := "matrix"
 const CATALYST_GROUND := "ground"
+## Die KÜHL-Karten: sie wirken nach der Hitze des Prägens und holen nie einen
+## durchgebrannten Würfel zurück.
+const CATALYST_COOL := "cool"
+const CATALYST_CHILL := "chill"
+## Die goldene REPARATUR-KARTE: nur im Schwarzmarkt, nie im Regal (Spieler-Entscheid
+## 2026-10-25).
+const CATALYST_REPAIR := "repair"
 
-## Die EINE Tabelle der vier Karten: Name, Wirkzeile und Ladenpreis. Die Wirkung
+## Der Zusatz der Kühl-Karten - Ruß kühlt keine weg.
+const AFTER_HEAT_SCOPE := "Wirkt nach der Hitze des Prägens und wird mit ihm verbraucht - einen durchgebrannten Würfel holt sie nicht zurück."
+
+## Die EINE Tabelle der sechs Karten: Name, Wirkzeile und Geldpreis. Die Wirkung
 ## selbst liegt in GameRun.catalyst_terms - hier steht nur, was auf dem Schild
-## steht (und die Reihenfolge, in der sie ausgewürfelt werden).
+## steht (und die Reihenfolge, in der sie ausgewürfelt werden). "secret" = nur im
+## Schwarzmarkt.
 const CATALYSTS := {
 	CATALYST_PROPELLANT: {"name": "Treibladung", "price": 14,
 		"effect": "+1 auf jede gefüllte Zahl-Zelle des Summen-Netzes"},
 	CATALYST_TIMER: {"name": "Taktgeber", "price": 14,
 		"effect": "Serienlänge dauerhaft +1",
-		"scope": "Wirkt für den ganzen Lauf und wird beim Griff verbraucht."},
-	CATALYST_MATRIX: {"name": "Doppelmatrize", "price": 18,
-		"effect": "Die Projektion trifft einen zweiten Würfel mit halbierten Zahl-Boni"},
+		"scope": "Wirkt für den ganzen Lauf und wird beim Prägen verbraucht."},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
-		"effect": "Dieser Griff verbraucht die Pressung der Runde nicht"},
+		"effect": "Dieses Prägen verbraucht die Pressung der Runde nicht"},
+	CATALYST_COOL: {"name": "Kühlrippe", "price": 10,
+		"effect": "Senkt die Ladung des Zielwürfels um 1",
+		"scope": AFTER_HEAT_SCOPE},
+	CATALYST_CHILL: {"name": "Kältebad", "price": 18,
+		"effect": "Setzt die Ladung des Zielwürfels auf 0",
+		"scope": AFTER_HEAT_SCOPE},
+	CATALYST_REPAIR: {"name": "Generalüberholung", "price": 30, "secret": true,
+		"effect": "Repariert den Zielwürfel und setzt seine Ladung auf 0",
+		"scope": "Wirkt nach der Hitze des Prägens und wird mit ihm verbraucht."},
 }
 
 ## Der Satz, der jede Katalysator-Karte beschließt - eine Quelle, damit Regal,
@@ -273,6 +305,10 @@ static func catalyst_ids() -> Array[String]:
 	var ids: Array[String] = []
 	ids.assign(CATALYSTS.keys())
 	return ids
+
+## Nur im Schwarzmarkt zu haben (die Reparatur-Karte)?
+static func catalyst_secret_only(id: String) -> bool:
+	return bool(Dictionary(CATALYSTS.get(id, {})).get("secret", false))
 
 static func catalyst_name(id: String) -> String:
 	return String(Dictionary(CATALYSTS.get(id, {})).get("name", ""))
@@ -298,15 +334,16 @@ static func catalyst(id: String) -> Pack:
 ## Schlüssel des Sonderposten-Wurfs, der KEIN Katalysator und kein Operator ist.
 const SPECIAL_ENGRAVING := "engraving"
 
-## Gewichte des Sonderposten-Platzes (Prozent). Die beiden Gravur-Sonderposten
-## bleiben mit 30 % die Schlagzeile, Katalysatoren und Operatoren teilen sich den
-## Rest zu gleichen Teilen - EINE Tabelle, an der Wurf und Test hängen.
+## Gewichte des Sonderposten-Platzes (relativ). Die Gravur-Sonderposten bleiben die
+## Schlagzeile, Katalysatoren und Operatoren teilen sich den Rest zu gleichen
+## Teilen - EINE Tabelle, an der Wurf und Test hängen.
 const SPECIAL_ROLL_WEIGHTS := {
 	SPECIAL_ENGRAVING: 30,
 	CATALYST_PROPELLANT: 10,
 	CATALYST_TIMER: 10,
-	CATALYST_MATRIX: 10,
 	CATALYST_GROUND: 10,
+	CATALYST_COOL: 10,
+	CATALYST_CHILL: 10,
 	StampNet.OP_DOUBLER: 10,
 	StampNet.OP_MIRROR: 10,
 	StampNet.OP_COLLECTOR: 10,
@@ -460,6 +497,24 @@ func engraving_category() -> String:
 func is_catalyst() -> bool:
 	return catalyst_id != ""
 
+## Die goldene Reparatur-Karte? Sie trägt statt der Sortenfarbe Gold.
+func is_repair() -> bool:
+	return catalyst_id == CATALYST_REPAIR
+
+## Eine Kühl-Karte?
+func is_cooling() -> bool:
+	return catalyst_id == CATALYST_COOL or catalyst_id == CATALYST_CHILL
+
+## Wirkt sie NACH der Hitze des Prägens auf den Zielwürfel (Kühlen, Reparatur)?
+## Solche Karten tragen ein Prägen auch ohne Netz-Karte.
+func tends_die() -> bool:
+	return is_cooling() or is_repair()
+
+## Ein Multiplikator-Netz? Die Identität IST das Netz - kein zweites Feld, das ihm
+## widersprechen könnte.
+func is_multiplier() -> bool:
+	return not is_catalyst() and not is_operator() and StampNet.is_factor_net(stamp_net)
+
 ## Eine Operator-Kassette? Ihr Netz trägt genau eine Rechen-Zelle.
 func is_operator() -> bool:
 	return operator_id != ""
@@ -473,9 +528,16 @@ func press_sort() -> String:
 ## die Sorte entscheiden allein die Regal-Gewichte - stark wird eine Kassette an
 ## ihrem Netz (Größe, Seltenheits-Gewichte).
 ## Die GRÖSSE kommt von außen: der Laden würfelt sie, jede Prämie prägt Standard.
+## multiplier_chance macht eine Zahlen-Karte zum Multiplikator-Netz (nur der Laden).
 static func roll_engraving_pack(pack_tier: int = TIER_NORMAL,
-		rng: RandomNumberGenerator = null) -> Pack:
-	return tiered(by_type(roll_engraving_type()), pack_tier, rng)
+		rng: RandomNumberGenerator = null, multiplier_chance := 0.0) -> Pack:
+	var pack := by_type(roll_engraving_type())
+	if pack.type == TYPE_NUMBER and multiplier_chance > 0.0 and _roll_unit(rng) < multiplier_chance:
+		pack = multiplier_pack(rng)
+	return tiered(pack, pack_tier, rng)
+
+static func _roll_unit(rng: RandomNumberGenerator) -> float:
+	return rng.randf() if rng != null else randf()
 
 ## Nur die SORTE, ohne ein Paket zu bauen - dieselben Regal-Gewichte. Der Wett-Tresen
 ## würfelt sie beim Auslegen und NENNT seinen Gewinn danach beim Namen.

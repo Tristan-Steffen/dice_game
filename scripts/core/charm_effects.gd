@@ -317,7 +317,7 @@ static func charge_crit_at(j: int, charge: int, charm_ids: Array[String]) -> flo
 	return 1.0
 
 ## Lichtbogen: Basispunkte, die eine IN der Wertung durchgebrannte Zündung der
-## Hand schenkt - je Exemplar erneut. Fumble, Griff und Klausel zahlen nichts.
+## Hand schenkt - je Exemplar erneut. Fumble, Prägen und Klausel zahlen nichts.
 const ARC_FLASH_BASE := 230
 
 static func burnout_base(charm_ids: Array[String]) -> int:

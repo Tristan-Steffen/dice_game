@@ -218,7 +218,7 @@ func _press_seed(keeps: bool) -> RandomNumberGenerator:
 		probe.owned_charms.append(Charm.bench_clamp())
 		var pack := probe.grant_pack(Pack.material_pack())
 		var result := probe.apply_series([pack.pack_uid] as Array[int],
-			probe.owned_pool[0], null, _rng(seed_value))
+			probe.owned_pool[0], _rng(seed_value))
 		if (int(result.get("kept", 0)) > 0) == keeps:
 			return _rng(seed_value)
 	return _rng(0)
@@ -227,7 +227,7 @@ func _press(rng: RandomNumberGenerator) -> Dictionary:
 	var uids: Array[int] = []
 	for pack in run.owned_packs:
 		uids.append(pack.pack_uid)
-	return run.apply_series(uids, run.owned_pool[0], null, rng)
+	return run.apply_series(uids, run.owned_pool[0], rng)
 
 func test_a_surviving_cell_stays_in_the_shelf_and_still_pays():
 	run.owned_charms.append(Charm.bench_clamp())

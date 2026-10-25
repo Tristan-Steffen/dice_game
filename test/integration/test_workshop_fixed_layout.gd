@@ -348,14 +348,14 @@ func test_the_seat_still_carries_its_widest_label() -> void:
 	var button := view._action_button
 	var font: Font = button.get_theme_font("font")
 	var px: int = button.get_theme_font_size("font_size")
-	var text := font.get_string_size("Griff 8/8", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var text := font.get_string_size("Prägen 6/6", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 	assert_lte(text + u * 1.2, _seat_rect().size.x,
 		"die breiteste Aufschrift paßt samt Rand in den Sitz")
 
 ## Der SITZ rührt sich auch mit Katalysatoren keinen Byte weit.
 func test_the_seat_rect_survives_a_catalyst() -> void:
 	var seat := _seat_rect()
-	run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
+	run.grant_pack(Pack.catalyst(Pack.CATALYST_CHILL))
 	run.grant_pack(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL))
 	await wait_frames(2)
 	for pack in run.owned_packs:
@@ -372,7 +372,7 @@ func test_the_seat_rect_is_byte_stable_through_the_cycle() -> void:
 	view.slot_pack(run.owned_packs[0].pack_uid)
 	await wait_frames(2)
 	assert_eq(_seat_rect(), seat, "gesteckt")
-	assert_eq(view._action_button.text, "Griff 1/%d" % run.series_slots(),
+	assert_eq(view._action_button.text, "Prägen 1/%d" % run.series_slots(),
 		"nur die Aufschrift zählt mit")
 	view.choose_target(0)
 	await wait_frames(2)
@@ -443,7 +443,7 @@ func test_the_whole_grip_cycle_never_reflows_the_page() -> void:
 	var net := view._net.get_global_rect()
 	var park := view.ist_net_center()
 
-	# Der Griff verlangt eine VOLLE Reihe: der Turm IST sechs Etagen.
+	# Ein voller Turm: sechs Etagen.
 	while view.press_slot_uids().size() < GameRun.SERIES_SLOT_CAP:
 		var filler := run.grant_pack(Pack.number_pack())
 		if not view.slot_pack(filler.pack_uid):
@@ -577,7 +577,7 @@ func test_the_page_reads_left_to_right() -> void:
 	var strip := view.strip_rect()
 	var lane := view.eject_lane_rect()
 	var tower := view.tower_rect()
-	var grip := view.grip_seat_rect()
+	var grip := view.stamp_seat_rect()
 	assert_almost_eq(sum.position.x, u * WorkshopView.CONTENT_MARGIN_X, 0.5)
 	assert_almost_eq(strip.position.x - sum.end.x, u * WorkshopView.STREET_GAP, 0.5)
 	assert_almost_eq(lane.position.x - strip.end.x, u * WorkshopView.STREET_GAP, 0.5,
@@ -642,7 +642,7 @@ func test_the_podium_stands_right_of_the_target_net() -> void:
 	assert_gte(view.target_podium_rect().position.x,
 		view.ist_screen_rect().end.x - 0.5, "und rechts vom Ziel-Netz")
 	assert_lte(view.target_podium_rect().end.x,
-		view.grip_seat_rect().position.x + 0.5, "vor dem Griff")
+		view.stamp_seat_rect().position.x + 0.5, "vor dem Griff")
 
 ## Die BÜHNE ist ein WELTMASS: die Würfelfläche mal ihrem Faktor.
 func test_the_stage_span_is_a_world_measure() -> void:
@@ -922,7 +922,7 @@ func test_the_solved_width_really_carries_the_row() -> void:
 	assert_eq(view.slot_count(), 6)
 	assert_gte(view.tower_rect().position.x, view.strip_rect().end.x - 0.5,
 		"der Turm steht rechts der Leiste")
-	assert_lte(view.grip_seat_rect().end.x,
+	assert_lte(view.stamp_seat_rect().end.x,
 		view.size.x - u0 * WorkshopView.CONTENT_MARGIN_X + 0.5,
 		"und der Griff bleibt im Rand")
 

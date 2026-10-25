@@ -30,7 +30,7 @@ func _card(cells: Dictionary) -> Pack:
 func _die() -> DieDefinition:
 	return run.owned_pool[0]
 
-# --- Der Griff ist UNBEGRENZT -------------------------------------------------
+# --- Das Prägen ist UNBEGRENZT -------------------------------------------------
 ## Spieler-Entscheid 2026-09-05: die eine Pressung je Sitzung ist gestorben, und
 ## mit ihr press_uses/press_allowed/reset_press_cycle.
 
@@ -43,8 +43,8 @@ func test_two_grips_in_a_row_both_book() -> void:
 	var second := _card({0: StampNet.value_cell(3)})
 	var die := _die()
 	var before := int(die.faces[0])
-	assert_false(run.apply_series(_uids([first]), die, null, _rng(1)).is_empty())
-	assert_false(run.apply_series(_uids([second]), die, null, _rng(1)).is_empty(),
+	assert_false(run.apply_series(_uids([first]), die, _rng(1)).is_empty())
+	assert_false(run.apply_series(_uids([second]), die, _rng(1)).is_empty(),
 		"der zweite Griff bucht genauso")
 	assert_eq(int(die.faces[0]), before + 5, "beide Serien stehen auf dem Würfel")
 	assert_eq(run.owned_packs.size(), 0, "und beide Karten sind verbraucht")
@@ -58,7 +58,7 @@ func test_the_projection_is_written_through_the_real_write_paths() -> void:
 		3: StampNet.pointer_cell(1)})
 	var die := _die()
 	var before := int(die.faces[0])
-	run.apply_series(_uids([card]), die, null, _rng(1))
+	run.apply_series(_uids([card]), die, _rng(1))
 	assert_eq(int(die.faces[0]), before + 4)
 	assert_eq(String(die.materials[1]), DieMaterial.GOLD)
 	assert_eq(int(die.levels[1]), 1, "frische Farbe liegt unveredelt")
@@ -68,13 +68,13 @@ func test_the_projection_is_written_through_the_real_write_paths() -> void:
 func test_the_double_material_lands_doped_on_the_die() -> void:
 	var first := _card({2: StampNet.material_cell(DieMaterial.RUBY)})
 	var second := _card({2: StampNet.material_cell(DieMaterial.RUBY)})
-	run.apply_series(_uids([first, second]), _die(), null, _rng(1))
+	run.apply_series(_uids([first, second]), _die(), _rng(1))
 	assert_eq(int(_die().levels[2]), DieMaterial.MAX_LEVEL)
 
 func test_the_preview_is_the_same_calculation_as_the_booking() -> void:
 	var card := _card({0: StampNet.value_cell(3), 5: StampNet.value_cell(2)})
 	var preview := run.resolve_series(_uids([card]), _die())
-	run.apply_series(_uids([card]), _die(), null, _rng(1))
+	run.apply_series(_uids([card]), _die(), _rng(1))
 	assert_eq(_die().faces, preview["faces_after"])
 
 func test_the_preview_mutates_nothing() -> void:
@@ -86,7 +86,7 @@ func test_the_preview_mutates_nothing() -> void:
 
 func test_the_projection_reports_the_pool_change() -> void:
 	watch_signals(run)
-	run.apply_series(_uids([_card({0: StampNet.value_cell(1)})]), _die(), null, _rng(1))
+	run.apply_series(_uids([_card({0: StampNet.value_cell(1)})]), _die(), _rng(1))
 	assert_signal_emitted(run, "pool_changed")
 	assert_signal_emitted(run, "packs_changed")
 
@@ -122,7 +122,7 @@ func test_an_unknown_uid_is_skipped() -> void:
 
 func test_a_series_without_a_die_presses_nothing() -> void:
 	var card := _card({0: StampNet.value_cell(3)})
-	assert_true(run.apply_series(_uids([card]), null, null, _rng(1)).is_empty())
+	assert_true(run.apply_series(_uids([card]), null, _rng(1)).is_empty())
 	assert_eq(run.owned_packs.size(), 1, "und die Karte liegt noch da")
 
 # --- Karten-Verbrauch ---------------------------------------------------------
@@ -130,16 +130,16 @@ func test_a_series_without_a_die_presses_nothing() -> void:
 func test_every_card_of_the_series_is_consumed() -> void:
 	var cards: Array[Pack] = [_card({0: StampNet.value_cell(1)}),
 		_card({1: StampNet.value_cell(1)})]
-	run.apply_series(_uids(cards), _die(), null, _rng(1))
+	run.apply_series(_uids(cards), _die(), _rng(1))
 	assert_eq(run.owned_packs.size(), 0)
 
 func test_cards_outside_the_series_stay() -> void:
 	var used := _card({0: StampNet.value_cell(1)})
 	_card({1: StampNet.value_cell(1)})
-	run.apply_series(_uids([used]), _die(), null, _rng(1))
+	run.apply_series(_uids([used]), _die(), _rng(1))
 	assert_eq(run.owned_packs.size(), 1, "die ungesteckte Karte bleibt liegen")
 
-# --- Die vier Katalysatoren ---------------------------------------------------
+# --- Die Katalysatoren ---------------------------------------------------
 
 ## Die Erdungsklemme legt ihren Term weiter bei - seit dem unbegrenzten Griff
 ## liest ihn nur niemand mehr. OFFEN: ihre neue Wirkung.
@@ -155,7 +155,7 @@ func test_the_timer_buys_a_permanent_slot() -> void:
 	var card := _card({0: StampNet.value_cell(1)})
 	var timer := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
 	var before := run.series_slots()
-	run.apply_series(_uids([card, timer]), _die(), null, _rng(1))
+	run.apply_series(_uids([card, timer]), _die(), _rng(1))
 	assert_eq(run.series_slot_bonus, 1, "der Bonus bleibt für den Lauf gebucht")
 	assert_eq(run.series_slots(), before, "aber der Deckel gibt keinen Platz mehr her")
 
@@ -164,45 +164,108 @@ func test_the_propellant_lifts_every_filled_number_cell() -> void:
 	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
 	var die := _die()
 	var before := die.faces.duplicate()
-	run.apply_series(_uids([card, fuel]), die, null, _rng(1))
+	run.apply_series(_uids([card, fuel]), die, _rng(1))
 	assert_eq(int(die.faces[0]), int(before[0]) + 3)
 	assert_eq(int(die.faces[3]), int(before[3]) + 2)
 	assert_eq(int(die.faces[1]), int(before[1]), "leere Zellen bleiben leer")
 
-func test_the_matrix_hits_a_second_die_with_halved_numbers() -> void:
-	var card := _card({0: StampNet.value_cell(5),
-		1: StampNet.material_cell(DieMaterial.GOLD)})
-	var matrix := run.grant_pack(Pack.catalyst(Pack.CATALYST_MATRIX))
-	var first := run.owned_pool[0]
-	var second := run.owned_pool[1]
-	var before := int(second.faces[0])
-	run.apply_series(_uids([card, matrix]), first, second, _rng(1))
-	assert_eq(int(second.faces[0]), before + 2, "5 / 2 abgerundet")
-	assert_eq(String(second.materials[1]), "", "nur der Zahl-Kanal reist mit")
-	assert_eq(String(first.materials[1]), DieMaterial.GOLD)
+# --- Die KÜHL-Karten: sie wirken nach der Hitze des Prägens -------------------
 
-func test_without_the_matrix_the_second_die_is_untouched() -> void:
-	var card := _card({0: StampNet.value_cell(5)})
-	var second := run.owned_pool[1]
-	var before := second.faces.duplicate()
-	run.apply_series(_uids([card]), run.owned_pool[0], second, _rng(1))
-	assert_eq(second.faces, before)
+func test_the_cooling_fin_takes_one_charge_after_the_heat() -> void:
+	var card := _card({0: StampNet.value_cell(1)})
+	var fin := run.grant_pack(Pack.catalyst(Pack.CATALYST_COOL))
+	var die := _die()
+	die.charge = 2
+	var result := run.apply_series(_uids([card, fin]), die, _rng(1))
+	assert_eq(die.charge, 2, "+1 Hitze, dann -1")
+	assert_true(bool(result["cooled"]))
+
+func test_the_cold_bath_sets_the_charge_to_zero() -> void:
+	var card := _card({0: StampNet.value_cell(1)})
+	var bath := run.grant_pack(Pack.catalyst(Pack.CATALYST_CHILL))
+	var die := _die()
+	die.charge = 2
+	run.apply_series(_uids([card, bath]), die, _rng(1))
+	assert_eq(die.charge, 0)
+
+func test_a_lone_cooling_card_presses_without_a_net() -> void:
+	var bath := run.grant_pack(Pack.catalyst(Pack.CATALYST_CHILL))
+	var die := _die()
+	die.charge = 1
+	assert_false(run.apply_series(_uids([bath]), die, _rng(1)).is_empty())
+	assert_eq(die.charge, 0)
+
+## An der Spitze brennt das Prägen den Würfel durch - die Kühlung kommt danach und
+## holt ihn nicht zurück.
+func test_cooling_never_revives_a_die_the_heat_burned() -> void:
+	var card := _card({0: StampNet.value_cell(1)})
+	var bath := run.grant_pack(Pack.catalyst(Pack.CATALYST_CHILL))
+	var die := _die()
+	die.charge = DieDefinition.CHARGE_MAX
+	var result := run.apply_series(_uids([card, bath]), die, _rng(1))
+	assert_true(die.burned_out)
+	assert_true(bool(result["burned"]))
+
+func test_cooling_alone_does_not_unlock_a_burned_target() -> void:
+	var bath := run.grant_pack(Pack.catalyst(Pack.CATALYST_CHILL))
+	var die := _die()
+	die.burn_out()
+	assert_true(run.apply_series(_uids([bath]), die, _rng(1)).is_empty())
+
+func test_two_fins_and_a_repair_all_act_and_stop_at_zero() -> void:
+	var fins := [run.grant_pack(Pack.catalyst(Pack.CATALYST_COOL)),
+		run.grant_pack(Pack.catalyst(Pack.CATALYST_COOL))]
+	var die := _die()
+	die.charge = 1
+	run.apply_series(_uids(fins), die, _rng(1))
+	assert_eq(die.charge, 0, "1 + 1 - 2, nie darunter")
+	var burned := _die()
+	burned.burn_out()
+	var repair := run.grant_pack(Pack.catalyst(Pack.CATALYST_REPAIR))
+	var fin := run.grant_pack(Pack.catalyst(Pack.CATALYST_COOL))
+	assert_false(run.apply_series(_uids([repair, fin]), burned, _rng(1)).is_empty())
+	assert_false(burned.burned_out)
+	assert_eq(burned.charge, 0)
+
+func test_the_terms_list_the_aftercare_in_slot_order() -> void:
+	var packs: Array[Pack] = [Pack.catalyst(Pack.CATALYST_CHILL),
+		Pack.catalyst(Pack.CATALYST_PROPELLANT), Pack.catalyst(Pack.CATALYST_REPAIR)]
+	var terms := GameRun.catalyst_terms(packs)
+	assert_eq(Array(terms["aftercare"]), [Pack.CATALYST_CHILL, Pack.CATALYST_REPAIR])
+
+# --- Das MULTIPLIKATOR-NETZ ------------------------------------------------------
+
+func test_a_multiplier_scales_only_the_upgrades_before_it() -> void:
+	var value := _card({0: StampNet.value_cell(3)})
+	var times := _card({0: StampNet.factor_cell(4)})
+	var die := _die()
+	var base: int = die.faces[0]
+	run.apply_series(_uids([value, times]), die, _rng(1))
+	assert_eq(int(die.faces[0]), base + 12, "die Grundzahl bleibt, der Bonus wird ×4")
+
+func test_a_multiplier_before_the_upgrade_multiplies_nothing() -> void:
+	var times := _card({0: StampNet.factor_cell(4)})
+	var value := _card({0: StampNet.value_cell(3)})
+	var die := _die()
+	var base: int = die.faces[0]
+	run.apply_series(_uids([times, value]), die, _rng(1))
+	assert_eq(int(die.faces[0]), base + 3)
 
 ## Eine Serie aus lauter Katalysatoren prägt nicht - sie verstärkt eine Serie,
 ## sie ist keine.
 func test_a_series_of_only_catalysts_does_nothing() -> void:
 	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
-	assert_true(run.apply_series(_uids([fuel]), _die(), null, _rng(1)).is_empty())
+	assert_true(run.apply_series(_uids([fuel]), _die(), _rng(1)).is_empty())
 	assert_eq(run.owned_packs.size(), 1, "und die Karte liegt noch da")
 
-# --- Der Griff HEIZT ------------------------------------------------------------
+# --- Das Prägen HEIZT ------------------------------------------------------------
 ## Er ist ein erzwungenes +1 auf den Zielwürfel; an der Spitze brennt der Würfel
 ## sicher durch, und ein durchgebrannter Würfel wird gar nicht erst geprägt.
 
 func test_the_grip_lifts_the_target_by_one() -> void:
 	var card := _card({0: StampNet.value_cell(3)})
 	var die := _die()
-	var result := run.apply_series(_uids([card]), die, null, _rng(1))
+	var result := run.apply_series(_uids([card]), die, _rng(1))
 	assert_eq(die.charge, 1)
 	assert_false(bool(result["burned"]))
 
@@ -211,7 +274,7 @@ func test_the_grip_burns_a_die_at_the_cap_but_still_stamps_it() -> void:
 	var die := _die()
 	var before: int = die.faces[0]
 	die.charge = DieDefinition.CHARGE_MAX
-	var result := run.apply_series(_uids([card]), die, null, _rng(1))
+	var result := run.apply_series(_uids([card]), die, _rng(1))
 	assert_true(bool(result["burned"]))
 	assert_true(die.burned_out)
 	assert_eq(die.faces[0], before + 3, "die Prägung bleibt stehen")
@@ -221,6 +284,6 @@ func test_the_grip_refuses_a_burned_die() -> void:
 	var die := _die()
 	var before: int = die.faces[0]
 	die.burn_out()
-	assert_true(run.apply_series(_uids([card]), die, null, _rng(1)).is_empty())
+	assert_true(run.apply_series(_uids([card]), die, _rng(1)).is_empty())
 	assert_eq(die.faces[0], before, "nichts geprägt")
 	assert_eq(run.owned_packs.size(), 1, "und nichts verbraucht")

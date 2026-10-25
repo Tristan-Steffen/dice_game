@@ -296,7 +296,7 @@ func test_a_pack_leaves_the_stock_only_through_the_press():
 	run.purchase_pack(Pack.number_pack(), 0)
 	assert_eq(run.owned_packs.size(), 1)
 	var uids: Array[int] = [run.owned_packs[0].pack_uid]
-	run.apply_series(uids, run.owned_pool[0], null, _seeded(4))
+	run.apply_series(uids, run.owned_pool[0], _seeded(4))
 	assert_eq(run.owned_packs.size(), 0, "die Pressung verbraucht es")
 
 # --- Das Magazin: uid, Ordnung, Deckel -------------------------------------------
@@ -1830,7 +1830,7 @@ func test_the_press_boost_is_spent_by_one_series():
 	run.grant_press_boost()
 	assert_eq(run.series_slots(), 6, "der Deckel klemmt den Schub weg")
 	var pack := run.grant_pack(Pack.number_pack())
-	run.apply_series([pack.pack_uid] as Array[int], run.owned_pool[0], null, _seeded(7))
+	run.apply_series([pack.pack_uid] as Array[int], run.owned_pool[0], _seeded(7))
 	assert_false(run.press_boost_pending, "ein Schub, eine Serie")
 	assert_eq(run.series_slots(), 6)
 
@@ -1943,50 +1943,11 @@ func test_the_round_end_spares_burned_dice():
 	assert_eq(run.cool_unplayed_dice().size(), 0, "durchgebrannt entlädt nicht")
 	assert_true(run.owned_pool[0].burned_out)
 
-func test_repairing_costs_energy_and_clears_the_soot():
-	run.owned_pool[0].burn_out()
-	run.energy = GameRun.REPAIR_ENERGY
-	assert_true(run.repair_die(run.owned_pool[0]))
-	assert_false(run.owned_pool[0].burned_out)
-	assert_eq(run.energy, 0)
-
-func test_repairing_refuses_without_energy():
-	run.owned_pool[0].burn_out()
-	run.energy = 0
-	assert_false(run.repair_die(run.owned_pool[0]), "prüfen, dann abbuchen")
-	assert_true(run.owned_pool[0].burned_out)
-
-func test_repairing_refuses_a_whole_die():
-	run.energy = 5
-	assert_false(run.repair_die(run.owned_pool[0]))
-	assert_eq(run.energy, 5, "nichts gebucht")
-
-func test_the_maintenance_contract_bars_the_bay():
-	run.owned_pool[0].burn_out()
-	run.energy = 5
-	run.money = 50
-	run.repair_lock_round = run.round_number
-	assert_true(run.repair_locked())
-	assert_false(run.repair_die(run.owned_pool[0]))
-	assert_eq(run.energy, 5, "nichts gebucht")
-
-func test_committing_the_round_clears_the_lock():
-	run.repair_lock_round = run.round_number
-	run.note_round_committed()
-	assert_eq(run.repair_lock_round, 0)
-	assert_false(run.repair_locked())
-
-func test_the_lock_survives_until_its_own_round():
-	run.repair_lock_round = run.round_number + 1
-	run.note_round_committed()
-	assert_eq(run.repair_lock_round, run.round_number + 1, "sie gilt erst der nächsten")
-	assert_true(run.repair_locked())
-
 func test_the_grip_heats_its_target():
 	run.purchase_pack(Pack.number_pack(), 0)
 	var uids: Array[int] = [run.owned_packs[0].pack_uid]
 	var die := run.owned_pool[0]
-	var result := run.apply_series(uids, die, null, _seeded(4))
+	var result := run.apply_series(uids, die, _seeded(4))
 	assert_false(result.is_empty())
 	assert_eq(die.charge, 1, "der Griff hebt sicher um eins")
 	assert_false(bool(result["burned"]))
@@ -1996,7 +1957,7 @@ func test_the_grip_burns_a_die_that_stands_at_the_cap():
 	var uids: Array[int] = [run.owned_packs[0].pack_uid]
 	var die := run.owned_pool[0]
 	die.charge = DieDefinition.CHARGE_MAX
-	var result := run.apply_series(uids, die, null, _seeded(4))
+	var result := run.apply_series(uids, die, _seeded(4))
 	assert_true(bool(result["burned"]))
 	assert_true(die.burned_out, "die Prägung bleibt trotzdem stehen")
 
@@ -2005,8 +1966,48 @@ func test_the_grip_refuses_a_burned_die():
 	var uids: Array[int] = [run.owned_packs[0].pack_uid]
 	var die := run.owned_pool[0]
 	die.burn_out()
-	assert_true(run.apply_series(uids, die, null, _seeded(4)).is_empty())
+	assert_true(run.apply_series(uids, die, _seeded(4)).is_empty())
 	assert_eq(run.owned_packs.size(), 1, "keine Karte verbraucht")
+
+# --- Die REPARATUR-KARTE -------------------------------------------------------------
+
+func _repair_card() -> int:
+	return run.grant_pack(Pack.catalyst(Pack.CATALYST_REPAIR)).pack_uid
+
+func test_the_repair_card_alone_mends_a_burned_die():
+	var die := run.owned_pool[0]
+	die.burn_out()
+	var uids: Array[int] = [_repair_card()]
+	var result := run.apply_series(uids, die, _seeded(4))
+	assert_false(result.is_empty(), "eine Karte genügt dem Griff")
+	assert_true(bool(result["repaired"]))
+	assert_false(die.burned_out)
+	assert_eq(die.charge, 0)
+	assert_true(run.owned_packs.is_empty(), "verbraucht wie ein Katalysator")
+
+func test_the_repair_card_acts_after_the_grip_heat():
+	var die := run.owned_pool[0]
+	die.charge = 2
+	var uids: Array[int] = [_repair_card()]
+	run.apply_series(uids, die, _seeded(4))
+	assert_eq(die.charge, 0, "die Hitze des Griffs kommt vorher")
+	assert_false(die.burned_out)
+
+func test_the_repair_card_lets_the_stamps_land_on_a_burned_die():
+	var die := run.owned_pool[0]
+	die.burn_out()
+	var before := die.faces.duplicate()
+	run.purchase_pack(Pack.number_pack(), 0)
+	var uids: Array[int] = [run.owned_packs[0].pack_uid, _repair_card()]
+	var result := run.apply_series(uids, die, _seeded(4))
+	assert_false(result.is_empty())
+	assert_ne(die.faces, before, "die Prägung wirkt mit")
+	assert_false(die.burned_out)
+
+func test_a_plain_catalyst_alone_still_does_nothing():
+	var uid := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER)).pack_uid
+	var uids: Array[int] = [uid]
+	assert_true(run.apply_series(uids, run.owned_pool[0], _seeded(4)).is_empty())
 
 func test_a_fresh_round_rearms_the_fuse():
 	run.fuse_used_this_round = true
@@ -2031,3 +2032,19 @@ func _count_style(style_id: String) -> int:
 		if def.style_id == style_id:
 			count += 1
 	return count
+
+# --- Das MULTIPLIKATOR-NETZ im Regal ---------------------------------------------
+
+func test_the_multiplier_chance_grows_with_the_progress_tier() -> void:
+	run.round_number = 1
+	var first := run.shop_multiplier_chance()
+	run.round_number = 1 + GameRun.ROUNDS_PER_TIER * (GameRun.TIER_MAX - 1)
+	var last := run.shop_multiplier_chance()
+	assert_gt(first, 0.0, "selten, aber ab Runde 1 möglich")
+	assert_gt(last, first, "und mit jeder Stufe häufiger")
+	assert_lte(last, GameRun.MULTIPLIER_CHANCE_CAP)
+
+func test_a_bet_never_takes_a_multiplier_as_its_number_stake() -> void:
+	run.grant_pack(Pack.multiplier_pack())
+	assert_false(run.pack_stock().has(SideBet.pack_stock_key(Pack.TYPE_NUMBER,
+		Pack.TIER_NORMAL)), "das lila Netz ist kein Zahlen-Paket zum Verwetten")
