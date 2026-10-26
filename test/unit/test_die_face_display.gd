@@ -558,13 +558,23 @@ func test_doping_hangs_the_lattice_of_the_material_on_the_face():
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
 	assert_true(_face_material(display, 0) is StandardMaterial3D, "und wieder zurück")
 
-func test_every_material_has_its_own_geometry():
-	# Die Veredelung soll man AM MUSTER erkennen - zwei Materialien mit
-	# derselben Figur wären keine Identität.
-	var seen := {}
+func test_no_two_materials_look_alike_when_doped():
+	# Die Veredelung soll man AM MUSTER erkennen. Rubin und Knochen teilen sich
+	# als EINZIGE eine Geometrie (die Voronoi ist Schliff wie Spongiosa) - dann
+	# muss die Einfärbung sie trennen, und sie tut es deutlich: der eine ist
+	# eine Lampe, der andere leuchtet nie.
+	var by_geometry := {}
 	for material in DieMaterial.all():
-		seen[material.lattice] = material.id
-	assert_eq(seen.size(), DieMaterial.all().size(), "sechs Materialien, sechs Figuren")
+		by_geometry.get_or_add(material.lattice, []).append(material)
+	for geometry: int in by_geometry:
+		var sharing: Array = by_geometry[geometry]
+		assert_lte(sharing.size(), 2, "eine Figur trägt höchstens zwei Materialien")
+		if sharing.size() < 2:
+			continue
+		var a: DieMaterial = sharing[0]
+		var b: DieMaterial = sharing[1]
+		assert_gt(absf(a.lattice_gain - b.lattice_gain), 1.0,
+			"%s und %s teilen die Figur, also nicht das Licht" % [a.id, b.id])
 
 func test_the_lattice_carries_the_tint_like_the_plain_surface():
 	var display := _display()
@@ -623,7 +633,7 @@ func test_the_plain_face_never_lifts_over_the_bloom_threshold():
 			"%s: ohne Glühen bleibt auch der Rahmen dunkel" % material.id)
 
 func test_only_the_lattice_lines_may_bloom():
-	# Die LINIEN tragen das Licht; das Feld dazwischen bleibt unter der
+	# Die LINIEN tragen das Licht; die Fläche dazwischen bleibt unter der
 	# Bloom-Schwelle, sonst wäscht die veredelte Seite die Ziffer aus.
 	for material in DieMaterial.all():
 		var field := material.lattice_body * material.lattice_field
@@ -631,12 +641,13 @@ func test_only_the_lattice_lines_may_bloom():
 			"%s: das Feld der Veredelung blüht nie" % material.id)
 
 func test_bone_stays_dead_matte_when_doped():
-	# Das EINZIGE Material ohne Leuchten: keine seiner Linien glüht, sie liegen
-	# dunkel eingeritzt im Elfenbein, und sein Rahmen bleibt schwarz.
+	# Das EINZIGE Material ohne Leuchten: seine Streben tragen keine Lampe,
+	# nur ihr Eigenlicht - und das bleibt unter der Bloom-Schwelle.
 	var display := _display()
 	var bone := DieMaterial.by_id(DieMaterial.BONE)
 	assert_eq(bone.lattice_gain, 0.0, "Knochen glüht nie")
-	assert_true(bone.lattice_dark, "seine Schraffur ist eingeritzt, nicht aufgelegt")
+	assert_lt(_peak(bone.lattice_light * bone.lattice_field), BLOOM_THRESHOLD,
+		"auch seine hellen Streben blühen nicht")
 	display.apply_definition(_leveled(0, DieMaterial.BONE, DieMaterial.MAX_LEVEL))
 	assert_eq(_peak(display.frames[_axis_for(0)].material_override.emission), 0.0,
 		"und sein Rahmen auch nicht")

@@ -237,9 +237,6 @@ const LABEL_ALPHA_SCISSOR := 0.25
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
 var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
-## Achse -> Node3D (dunkle Fassung): die Dichtung gegen das Kantenbloom. Sie
-## kommt und geht mit dem Rahmen - ohne Einlage gibt es nichts abzudichten.
-var gaskets: Dictionary = {}
 var rune_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Runen-Auflage)
 ## Zweite und dritte Auflage NUR für Vakuum-Würfel (bis zu drei Zeichen je
 ## Seite, die dritte erst unter der Glasglocke), beide faul gebaut.
@@ -629,7 +626,7 @@ func _apply_lattice(material: ShaderMaterial, profile: DieMaterial) -> void:
 	material.set_shader_parameter("gain", profile.lattice_gain)
 	material.set_shader_parameter("shade_amount", profile.lattice_shade)
 	material.set_shader_parameter("field_glow", profile.lattice_field)
-	material.set_shader_parameter("dark_lines", 1.0 if profile.lattice_dark else 0.0)
+	material.set_shader_parameter("extra_gain", profile.lattice_extra)
 	material.set_shader_parameter("metallic_amount", profile.lattice_metallic)
 	material.set_shader_parameter("roughness_amount", profile.lattice_roughness)
 	material.set_shader_parameter("alpha_amount", profile.lattice_alpha)
@@ -712,9 +709,6 @@ func flare_runes(strength: float, face_index := -1, block := false) -> void:
 
 ## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
 func _refresh_frame(axis: String, profile: DieMaterial, level := 1) -> void:
-	var gasket: Node3D = gaskets.get(axis)
-	if gasket != null:
-		gasket.visible = profile != null
 	var frame: MeshInstance3D = frames.get(axis)
 	if frame == null:
 		return
