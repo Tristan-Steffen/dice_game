@@ -46,7 +46,7 @@ var id: String = ""
 var condition: int = Condition.COMBO
 var target: int = 0             # HAND_SCORE: Punkte; FEW_DICE: max. Würfel; ...
 var target_combo: String = ""   # COMBO/COMBO_LEVEL: DiceScoring-Kategorie-Key
-## > 0: target wird beim Auslegen aus dem Benchmark gerechnet (siehe _nice_target).
+## > 0: target wird beim Auslegen aus der Quota gerechnet (siehe _nice_target).
 var target_factor: float = 0.0
 var stake_kind: int = Stake.MONEY
 var stake: int = 0              # Geld-Einsatz (einmalig bzw. je Hand/Würfel)
@@ -90,7 +90,7 @@ func note_awarded(pack: Pack) -> void:
 ## Vorlagen der Auslage (id -> Parameter). Fehlende Schlüssel = Standard
 ## (Geld-Einsatz, Gravur-Gewinn, unlock UNLOCK_BASE).
 ## desc = NUR die Gewinnbedingung; Einsatz und Gewinn stehen bereits auf dem Knopf.
-## Mit target_factor ist desc ein Formatstring: der Benchmark füllt die Zahl.
+## Mit target_factor ist desc ein Formatstring: die Quota füllt die Zahl.
 const TEMPLATES := [
 	# --- Grundstock (ab UNLOCK_BASE) ---
 	{"id": "two_pair", "condition": Condition.COMBO, "combo": DiceScoring.TWO_PAIR,
@@ -216,17 +216,17 @@ const TEMPLATES := [
 ## Kleinstes ausgelegtes Punktziel.
 const MIN_TARGET := 25
 
-## Rundet ein aus dem Benchmark gerechnetes Punktziel auf eine lesbare Zahl:
+## Rundet ein aus der Quota gerechnetes Punktziel auf eine lesbare Zahl:
 ## unter 1000 auf 25er, darüber auf 100er - eine "1137" auf dem Knopf sähe aus
 ## wie ein Rechenfehler.
 static func _nice_target(raw: float) -> int:
 	var step := 100 if raw >= 1000.0 else MIN_TARGET
 	return maxi(MIN_TARGET, roundi(raw / float(step)) * step)
 
-## benchmark = der GESPEICHERTE Rundenbenchmark (nicht effective_goal): eine
+## quota = die GESPEICHERTE Rundenquota (nicht effective_goal): eine
 ## erst nach der Wettannahme unterschriebene Klausel darf ein aufgedrucktes Ziel
 ## nicht mehr verschieben.
-static func _from_template(t: Dictionary, benchmark: int = 0) -> SideBet:
+static func _from_template(t: Dictionary, quota: int = 0) -> SideBet:
 	var bet := SideBet.new()
 	bet.id = t["id"]
 	bet.condition = t["condition"]
@@ -246,7 +246,7 @@ static func _from_template(t: Dictionary, benchmark: int = 0) -> SideBet:
 	bet.display_name = t["name"]
 	bet.description = t["desc"]
 	if bet.target_factor > 0.0:
-		bet.target = _nice_target(float(benchmark) * bet.target_factor)
+		bet.target = _nice_target(float(quota) * bet.target_factor)
 		bet.description = t["desc"] % bet.target
 	# Sorte und Größe des Paket-Gewinns stehen ab HIER fest - er wirbt mit dem, was er
 	# wirklich ausschüttet.
@@ -261,12 +261,12 @@ static func pack_stock_key(pack_type: String, pack_tier: int) -> String:
 	return "%s|%d" % [pack_type, pack_tier]
 
 ## Würfelt count verschiedene Wett-Angebote aus (ohne Zurücklegen). tier
-## filtert die Auslage (jede Vorlage hat ihre Freischalt-Stufe), benchmark füllt
+## filtert die Auslage (jede Vorlage hat ihre Freischalt-Stufe), quota füllt
 ## die skalierten Punktziele - beide werden HIER eingefroren. stock ist die
 ## Inventar-Sicht des Magazins (GameRun.pack_stock, reine Daten): eine
 ## Paket-Einsatz-Vorlage liegt nur aus, wenn der Spieler die genannte Ware WIRKLICH
 ## besitzt - sonst rückt die nächste Vorlage nach.
-static func roll_offers(count: int, tier: int, benchmark: int,
+static func roll_offers(count: int, tier: int, quota: int,
 		stock: Dictionary = {}) -> Array[SideBet]:
 	var templates: Array = []
 	for t: Dictionary in TEMPLATES:
@@ -277,7 +277,7 @@ static func roll_offers(count: int, tier: int, benchmark: int,
 	for t: Dictionary in templates:
 		if bets.size() >= count:
 			break
-		var bet := _from_template(t, benchmark)
+		var bet := _from_template(t, quota)
 		if bet.stake_kind == Stake.PACKS and not _name_stake_packs(bet, stock):
 			continue
 		bets.append(bet)

@@ -416,6 +416,25 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 			rim = accent
 		StampNet.KIND_POINTER:
 			rim = DieNetView.POINTER_COLOR
+		StampNet.KIND_COMPOUND:
+			# Sie trägt MEHRERE Kanäle zugleich - dieselbe Grammatik wie die
+			# Summen-Zelle: Material füllt, die Rechnung steht darin, die Rune in der Ecke.
+			var material := String(entry.get("id", ""))
+			if material != "":
+				var level := DieMaterial.MAX_LEVEL if bool(entry.get("dope", false)) else 1
+				fill = DieMaterial.tint_for(material, level)
+				rim = fill.lightened(0.3)
+			text = StampNet.compound_glyph(entry)
+			if int(entry.get("factor", 1)) > 1:
+				if material == "":
+					rim = PackDrawerView.MULTIPLIER_TINT
+				tint = PackDrawerView.MULTIPLIER_TINT.lightened(0.35)
+			else:
+				if material == "":
+					rim = VALUE_TINT
+				tint = VALUE_TINT
+			if int(entry.get("to", -1)) >= 0:
+				rim = DieNetView.POINTER_COLOR
 	var chip := Panel.new()
 	chip.name = "StampCell"
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -429,8 +448,12 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 		chip.add_child(_rune_glyph(String(entry.get("id", "")), cell))
 	elif kind == StampNet.KIND_DOPE:
 		chip.add_child(_stamp_dope(cell))
-	elif text != "":
-		chip.add_child(_stamp_label(text, cell, tint))
+	else:
+		if text != "":
+			chip.add_child(_stamp_label(text, cell, tint))
+		var rune := String(entry.get("rune", ""))
+		if rune != "":
+			chip.add_child(_sum_rune(rune, cell, 0))
 	# AUFGENOMMEN: Füllung, Saum und Zeichen fallen zugleich - ein Ton, keine
 	# zweite Farbtabelle.
 	if dim:
@@ -445,12 +468,26 @@ static func _stamp_label(text: String, cell: float, tint: Color) -> Label:
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.clip_text = true
 	label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	label.add_theme_font_size_override("font_size", maxi(6, int(cell * 0.44)))
+	label.add_theme_font_size_override("font_size", _mark_font_size(label, text, cell))
 	label.add_theme_color_override("font_color", tint)
 	label.add_theme_color_override("font_outline_color", CasinoStyle.INK)
 	label.add_theme_constant_override("outline_size", maxi(1, int(cell * 0.07)))
 	label.text = text
 	return label
+
+## Der Grad einer Zell-Aufschrift: der gewohnte, solange der Text in die Zelle paßt -
+## und sonst so weit herunter, daß er UNGESCHNITTEN steht. "+9" bleibt damit, wo es war;
+## die verdichtete "4x+9" braucht es, denn das Label clippt stumm.
+static func _mark_font_size(label: Label, text: String, cell: float) -> int:
+	var top := maxi(MIN_FONT, int(cell * 0.44))
+	var font := label.get_theme_font("font")
+	if font == null:
+		return top
+	var wide := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, top).x
+	var room := cell * FIT_SHARE
+	if wide <= room:
+		return top
+	return maxi(MIN_FONT, int(float(top) * room / wide))
 
 ## Der Runen-Linienzug FÜLLT sein Quadrat (Kante side), auf seinen eigenen Kasten
 ## gezogen - dieselbe Größe und Lage wie im Würfelnetz (2026-09-11; davor stand

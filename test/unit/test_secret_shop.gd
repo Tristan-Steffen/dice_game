@@ -105,14 +105,16 @@ func _force_engraving_slot(run: GameRun) -> void:
 func test_stock_slots_are_charm_special_wildcard() -> void:
 	var run := _run()
 	assert_eq(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_CHARM)
-	# Der Sonderposten-Platz führt beide Familien des Sonderbestands.
+	# Der Sonderposten-Platz führt alle DREI Familien des Sonderbestands (der ROHLING
+	# ist seit dem 2026-10-26 die dritte).
 	var special: String = run.secret_stock[1][GameRun.OFFER_KIND]
-	assert_true(special == GameRun.KIND_ENGRAVING or special == GameRun.KIND_CATALYST,
-		"unbekannte Sonderbestands-Ware: %s" % special)
+	assert_true(special == GameRun.KIND_ENGRAVING or special == GameRun.KIND_CATALYST
+		or special == GameRun.KIND_BLANK, "unbekannte Sonderbestands-Ware: %s" % special)
 	# Der dritte Platz ist die Wildcard - und sie würfelt nur noch WARE.
 	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
 	assert_true(wildcard == GameRun.KIND_ENGRAVING or wildcard == GameRun.KIND_CATALYST
-		or wildcard == GameRun.KIND_DIE, "unbekannte Wildcard-Ware: %s" % wildcard)
+		or wildcard == GameRun.KIND_BLANK or wildcard == GameRun.KIND_DIE,
+		"unbekannte Wildcard-Ware: %s" % wildcard)
 
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
 	assert_eq(charm.rarity, Charm.RARITY_LEGENDARY)

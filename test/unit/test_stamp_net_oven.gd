@@ -84,3 +84,32 @@ func test_ein_leeres_netz_wird_in_seinem_ton_gebacken() -> void:
 	autofree(filled)
 	assert_eq((filled.get_child(0) as Control).modulate, Color.WHITE,
 		"ein gefülltes Netz spricht für sich")
+
+## Der Schluessel haengt am INHALT - und eine verdichtete Zelle hat mehr Inhalt als
+## kind:id:value. Ohne ihre uebrigen Kanaele teilten zwei verschiedene verdichtete
+## Karten EINE gebackene Textur.
+func test_zwei_verdichtete_zellen_teilen_keinen_schluessel() -> void:
+	var a := StampNet.empty_net()
+	a[0] = StampNet.compound_cell(4, 9)
+	var b := StampNet.empty_net()
+	b[0] = StampNet.compound_cell(8, 9)
+	assert_ne(StampNetOven.signature(a, Color.WHITE, []),
+		StampNetOven.signature(b, Color.WHITE, []), "der Faktor zaehlt")
+	var c := StampNet.empty_net()
+	c[0] = StampNet.compound_cell(4, 9, "", false, Rune.AFTERGLOW)
+	assert_ne(StampNetOven.signature(a, Color.WHITE, []),
+		StampNetOven.signature(c, Color.WHITE, []), "die Rune auch")
+	var d := StampNet.empty_net()
+	d[0] = StampNet.compound_cell(4, 9, DieMaterial.RUBY, true)
+	var e := StampNet.empty_net()
+	e[0] = StampNet.compound_cell(4, 9, DieMaterial.RUBY, false)
+	assert_ne(StampNetOven.signature(d, Color.WHITE, []),
+		StampNetOven.signature(e, Color.WHITE, []), "und die Veredelung")
+
+func test_dieselbe_verdichtete_zelle_teilt_ihren_schluessel() -> void:
+	var a := StampNet.empty_net()
+	a[0] = StampNet.compound_cell(4, 9, DieMaterial.GOLD, true, Rune.AFTERGLOW, 2)
+	var b := StampNet.empty_net()
+	b[0] = StampNet.compound_cell(4, 9, DieMaterial.GOLD, true, Rune.AFTERGLOW, 2)
+	assert_eq(StampNetOven.signature(a, Color.WHITE, []),
+		StampNetOven.signature(b, Color.WHITE, []), "gleicher Inhalt, eine Backung")

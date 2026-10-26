@@ -45,11 +45,18 @@ const REPAIR_TINT := CasinoStyle.GOLD_INTENSE
 ## satter als das Lavendel des Sonderbestands. Die Größe stuft es wie jede Sorte.
 const MULTIPLIER_TINT := Color("#9a4dff")
 
-## Die Farbe einer Kassette - die Sortenfarbe, die Reparatur-Karte golden, ein Netz
-## mit Faktor-Zellen lila.
-static func tint_of(shelf: String, catalyst_id := "", net: Array = []) -> Color:
+## Der ROHLING und die verdichtete Karte: ein kühles Stahlblau - sie gehören keiner
+## Sorte, denn ihr Inhalt kommt aus mehreren.
+const BLANK_TINT := Color("#5fa8c8")
+
+## Die Farbe einer Kassette - die Sortenfarbe, die Reparatur-Karte golden, der Rohling
+## stahlblau, ein Netz mit Faktor-Zellen lila.
+static func tint_of(shelf: String, catalyst_id := "", net: Array = [],
+		blank_id := "") -> Color:
 	if catalyst_id == Pack.CATALYST_REPAIR:
 		return REPAIR_TINT
+	if blank_id != "":
+		return BLANK_TINT
 	if catalyst_id == "" and StampNet.is_factor_net(net):
 		return MULTIPLIER_TINT
 	return COLORS.get(shelf, GOLD)
@@ -57,7 +64,7 @@ static func tint_of(shelf: String, catalyst_id := "", net: Array = []) -> Color:
 static func pack_tint(pack: Pack) -> Color:
 	if pack == null:
 		return GOLD
-	return tint_of(Pack.shelf_of(pack), pack.catalyst_id, pack.stamp_net)
+	return tint_of(Pack.shelf_of(pack), pack.catalyst_id, pack.stamp_net, pack.blank_id)
 
 ## ... nach Größe getönt (DataCellView.tier_shade); das Gold kennt keine Stufe.
 static func card_shade(shelf: String, tier: int, catalyst_id := "",
@@ -333,6 +340,12 @@ static func cell_scale_for(_cell: Vector2, _field_size: Vector2, _count_now: int
 	return CASSETTE_SCALE
 
 ## Display-Pixel des PLATZES dieser uid ((-1,-1) = liegt nicht im Fach).
+## KENNT das Fach den Platz dieser Karte? Die Frage ist nötig, weil ein Platz
+## LEGITIM negativ sein darf (weit hinausgerollt liegt er links der Anzeige) - ein
+## Koordinaten-Test taugt darum nicht als Gültigkeits-Probe.
+func knows_pack(uid: int) -> bool:
+	return _spots.has(uid)
+
 func pack_seat_px(uid: int) -> Vector2:
 	if not _spots.has(uid):
 		return Vector2(-1, -1)

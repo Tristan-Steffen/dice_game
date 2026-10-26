@@ -367,13 +367,13 @@ func test_a_fresh_block_restores_swept_tokens() -> void:
 	hub.set_deal_tokens(_sides([_side(DealClause.HAPPY_HOUR)]))
 	assert_eq(hub.deal_token_row.modulate.a, 1.0)
 
-func test_a_benchmark_deal_lifts_the_current_station() -> void:
+func test_a_quota_deal_lifts_the_current_station() -> void:
 	# Der Fahrplan zeigt die WIRKSAMEN Ziele: unterschreibt der Spieler einen
 	# Aufschlag, springt seine Station sofort mit - und nur sie, denn kein Deal
 	# überlebt seine Runde.
 	var run := GameRun.new_run()
 	var before := run.goal_roadmap(GameRun.GOAL_BLOCK)
-	run.sign_clauses([DealClause.BENCHMARK_SURCHARGE] as Array[String])
+	run.sign_clauses([DealClause.QUOTA_SURCHARGE] as Array[String])
 	var after := run.goal_roadmap(GameRun.GOAL_BLOCK)
 	var here := run.goal_roadmap_index(GameRun.GOAL_BLOCK)
 	for i in before.size():
@@ -383,7 +383,7 @@ func test_a_benchmark_deal_lifts_the_current_station() -> void:
 			assert_eq(after[i], before[i], "Station %d bleibt frei" % i)
 
 func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
-	# Sonst gälte ein mitten im Block unterschriebener Benchmark-Malus als
+	# Sonst gälte ein mitten im Block unterschriebener Quota-Malus als
 	# frischer Block und der Fahrplan spielte die falsche Animation.
 	var hub := _hub()
 	await wait_frames(2)

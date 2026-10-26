@@ -1332,17 +1332,17 @@ func test_offers_never_repeat_a_clause_taken_this_block():
 		seen.append(offer)
 		run.take_route(0)
 
-func test_offers_gate_a_second_benchmark_malus():
+func test_offers_gate_a_second_quota_malus():
 	# Ein zweiter Aufschlag könnte ein unerreichbares Ziel bauen (geprüft in der
 	# Runde der Unterschrift - länger wirkt keine Klausel).
-	_sign([DealClause.BENCHMARK_SURCHARGE])
+	_sign([DealClause.QUOTA_SURCHARGE])
 	for i in 20:
 		run.route_offers.clear()
 		run.roll_route_offers()
 		for card in run.route_offers:
 			for clause_id in _card_ids(card):
-				assert_false(GameRun.BENCHMARK_MALUS.has(clause_id),
-					"%s hebt den Benchmark ein zweites Mal" % clause_id)
+				assert_false(GameRun.QUOTA_MALUS.has(clause_id),
+					"%s hebt die Quota ein zweites Mal" % clause_id)
 
 func test_the_boss_pool_gates_high_expectations_too():
 	_sign([DealClause.USURY_CLAUSE], GameRun.GOAL_BLOCK)
@@ -1352,8 +1352,8 @@ func test_the_boss_pool_gates_high_expectations_too():
 		for card in run.route_offers:
 			assert_ne(String(card[GameRun.CARD_MALUS]), DealClause.HIGH_EXPECTATIONS)
 
-func test_a_round_benchmark_malus_stops_gating_next_round():
-	_sign([DealClause.BENCHMARK_SHOCK])  # nur diese Runde
+func test_a_round_quota_malus_stops_gating_next_round():
+	_sign([DealClause.QUOTA_SHOCK])  # nur diese Runde
 	run.advance_round()
 	var found := false
 	for i in 40:
@@ -1361,7 +1361,7 @@ func test_a_round_benchmark_malus_stops_gating_next_round():
 		run.roll_route_offers()
 		for card in run.route_offers:
 			for clause_id in _card_ids(card):
-				found = found or GameRun.BENCHMARK_MALUS.has(clause_id)
+				found = found or GameRun.QUOTA_MALUS.has(clause_id)
 	assert_true(found, "nach Ablauf des Malus sind Aufschläge wieder möglich")
 
 func test_stress_round_offers_the_boss_conditions():
@@ -1391,31 +1391,31 @@ func test_exhausted_pool_falls_back_to_repeats():
 
 # --- Klausel-Wirkungen -------------------------------------------------------------
 
-func test_benchmark_malus_inflates_the_whole_bar():
+func test_quota_malus_inflates_the_whole_bar():
 	var base := run.effective_goal()
-	_sign([DealClause.BENCHMARK_SURCHARGE])
+	_sign([DealClause.QUOTA_SURCHARGE])
 	assert_eq(run.effective_goal(), roundi(base * 1.5))
 	assert_eq(run.stage_size(1), run.effective_goal(), "der Balken zieht mit")
 	assert_eq(run.cumulative_threshold(2), run.effective_goal() * 3)
 
-func test_calibration_halves_the_benchmark():
+func test_calibration_halves_the_quota():
 	var base := run.effective_goal()
 	_sign([DealClause.CALIBRATION])
 	assert_eq(run.effective_goal(), roundi(base * GameRun.CALIBRATION_FACTOR))
 
-func test_benchmark_surcharge_and_calibration_cancel_out():
-	_sign([DealClause.BENCHMARK_SURCHARGE_II, DealClause.CALIBRATION])
+func test_quota_surcharge_and_calibration_cancel_out():
+	_sign([DealClause.QUOTA_SURCHARGE_II, DealClause.CALIBRATION])
 	assert_eq(run.effective_goal(), run.round_goal, "×2 und ×0,5 heben sich auf")
 
 func test_the_roadmap_only_lifts_the_signing_round():
-	_sign([DealClause.BENCHMARK_SURCHARGE], 2)
+	_sign([DealClause.QUOTA_SURCHARGE], 2)
 	assert_eq(run.effective_goal_for_round(2), roundi(GameRun.goal_for_round(2) * 1.5),
 		"die Station der laufenden Runde zeigt den Aufschlag")
 	assert_eq(run.effective_goal_for_round(3), GameRun.goal_for_round(3),
 		"die kommenden Stationen bleiben frei - kein Deal überlebt seine Runde")
 
 func test_a_round_malus_only_inflates_its_own_round():
-	_sign([DealClause.BENCHMARK_SHOCK], 2)
+	_sign([DealClause.QUOTA_SHOCK], 2)
 	assert_eq(run.effective_goal_for_round(2), roundi(GameRun.goal_for_round(2) * 3.5))
 	assert_eq(run.effective_goal_for_round(3), GameRun.goal_for_round(3))
 
@@ -1589,7 +1589,7 @@ func test_the_spotlight_clause_lights_a_combo_without_the_charm():
 
 ## --- Goldener Handschlag ------------------------------------------------------
 
-func test_golden_handshake_needs_a_hand_that_clears_the_benchmark():
+func test_golden_handshake_needs_a_hand_that_clears_the_quota():
 	_sign([DealClause.GOLDEN_HANDSHAKE])
 	run.round_goal = 300
 	var die := DieDefinition.standard()

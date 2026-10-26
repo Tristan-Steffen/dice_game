@@ -17,7 +17,7 @@ const DOUBLED := {
 	DealClause.ALL_ON_RED: "Alles Geld dieser Runde sechsfach",
 	DealClause.INTEREST: "Rundenende: +2$ je vollen 10$ Guthaben",
 	DealClause.DOUBLE_LOADER: "Überladungs-Stufen prägen 4 Energie",
-	DealClause.CALIBRATION: "Benchmark −75%",
+	DealClause.CALIBRATION: "Quota −75%",
 	DealClause.CASH_DISCOUNT: "Ladenware 36% günstiger",
 	DealClause.GOLD_VEIN: "+20$ je geräumter Überladungs-Stufe",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite wächst dauerhaft um +2 Augen",

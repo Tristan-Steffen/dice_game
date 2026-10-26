@@ -373,6 +373,25 @@ func plate_center() -> float:
 func retract_span() -> float:
 	return _span.y + RETRACT_CLEAR
 
+## Wie viele GRUBEN-BREITEN das Einfahren zurücklegt. Ein Tablett mit mehr Karten,
+## als ins Fenster passen, ist LÄNGER als die Grube - mit nur EINER Breite lägen
+## seine ersten Spalten wieder über dem Loch (gemessen 2026-10-26: vier Karten des
+## verdeckten Tabletts standen über dem gewählten). Was weiter fährt, liegt unter
+## dem Filz, genau wie eine hinausgerollte Karte. Gemeldet vom Fenster, das die
+## Kartenzahl kennt; die WANDTASCHE bleibt bei ihrer einen Breite - sie ist die
+## sichtbare Nähe, nicht der ganze Weg.
+var _retract_windows := 1
+
+func set_retract_windows(windows: int) -> void:
+	var wanted := maxi(windows, 1)
+	if _retract_windows == wanted:
+		return
+	_retract_windows = wanted
+	_write_hard()
+
+func retract_reach() -> float:
+	return retract_span() * float(_retract_windows)
+
 # --- Der Zustand -------------------------------------------------------------------
 
 ## Das gewählte Tablett.
@@ -554,7 +573,7 @@ func select(tray: int) -> void:
 ## Wo ein Tablett liegt: seine Höhe ist seine Stapel-Position und ändert sich NIE;
 ## eingefahren steht es um seine ganze Länge nach Bild-rechts (Welt +Z) versetzt.
 func tray_pose(tray: int, chosen: int) -> Vector3:
-	var out := retract_span() if tray_state(tray, chosen) == RETRACTED else 0.0
+	var out := retract_reach() if tray_state(tray, chosen) == RETRACTED else 0.0
 	return Vector3(0.0, -drop_of(tray, _scale), out)
 
 ## Der Zustand eines TABLETTS - dieselbe Regel wie die seiner Reihen.

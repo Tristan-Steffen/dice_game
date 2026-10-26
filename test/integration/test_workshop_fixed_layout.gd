@@ -348,7 +348,8 @@ func test_the_seat_still_carries_its_widest_label() -> void:
 	var button := view._action_button
 	var font: Font = button.get_theme_font("font")
 	var px: int = button.get_theme_font_size("font_size")
-	var text := font.get_string_size("Prägen 6/6", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	# Die breiteste ist seit dem 2026-10-26 "Verdichten 6/6", nicht mehr "Prägen 6/6".
+	var text := font.get_string_size("Verdichten 6/6", HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
 	assert_lte(text + u * 1.2, _seat_rect().size.x,
 		"die breiteste Aufschrift paßt samt Rand in den Sitz")
 

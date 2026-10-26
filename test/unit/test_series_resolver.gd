@@ -189,3 +189,131 @@ func test_the_propellant_comes_after_the_factor() -> void:
 	var out := _resolve([_net({0: StampNet.value_cell(2)}),
 		_net({0: StampNet.factor_cell(4)})], _die(), {"propellant": 1})
 	assert_eq(int(out["bonus"][0]), 9, "2 × 4, dann +1")
+
+# --- DIE VERDICHTUNG --------------------------------------------------------------
+## Sie ist eine ANDERE Rechnung als das Prägen: Faktoren ADDIEREN, und darum ist die
+## Reihenfolge hier gleichgültig. Verdichten sammelt ein, die Serie wertet aus.
+
+## Der Fall, den der Spieler genannt hat (2026-10-26): ×4, +5 und +4 werden 4x+9.
+func test_verdichten_schreibt_zahl_und_faktor_als_mathematische_notation() -> void:
+	var out := SeriesResolver.compress([
+		_net({0: StampNet.factor_cell(4)}),
+		_net({0: StampNet.value_cell(5)}),
+		_net({0: StampNet.value_cell(4)})])
+	var cell: Dictionary = StampNet.cell_at(out["net"], 0)
+	assert_eq(StampNet.kind_of(cell), StampNet.KIND_COMPOUND)
+	assert_eq(int(cell["factor"]), 4)
+	assert_eq(int(cell["value"]), 9, "die Summanden addieren")
+	assert_eq(StampNet.compound_glyph(cell), "4x+9", "und so steht es auf der Karte")
+
+## Der Balance-Anker: zwei Multiplikatoren ADDIEREN, sie multiplizieren nicht. Damit
+## waechst die Macht linear mit der Zahl ausgegebener Mult-Karten.
+func test_zwei_multiplikatoren_addieren_sich_beim_verdichten() -> void:
+	var out := SeriesResolver.compress([
+		_net({0: StampNet.factor_cell(4)}),
+		_net({0: StampNet.factor_cell(4)})])
+	assert_eq(int(StampNet.cell_at(out["net"], 0)["factor"]), 8, "×4 + ×4 = ×8, nicht ×16")
+
+## Und darum ist die Reihenfolge beim Verdichten gleichgueltig - anders als beim
+## Praegen, wo genau dieselben zwei Karten 20 oder 5 ergeben.
+func test_die_reihenfolge_entscheidet_beim_praegen_aber_nicht_beim_verdichten() -> void:
+	var value := _net({0: StampNet.value_cell(5)})
+	var factor := _net({0: StampNet.factor_cell(4)})
+	assert_eq(int(_resolve([value, factor], _die())["bonus"][0]), 20, "prägen: 5 × 4")
+	assert_eq(int(_resolve([factor, value], _die())["bonus"][0]), 5, "prägen: 0 × 4 + 5")
+	var a: Dictionary = StampNet.cell_at(SeriesResolver.compress([value, factor])["net"], 0)
+	var b: Dictionary = StampNet.cell_at(SeriesResolver.compress([factor, value])["net"], 0)
+	assert_eq(a, b, "verdichten: dieselbe Karte, wie man sie auch stapelt")
+
+## Spieler-Entscheid 2026-10-26: Material und Rune schliessen sich NICHT mehr aus.
+func test_material_und_rune_liegen_verdichtet_auf_derselben_seite() -> void:
+	var out := SeriesResolver.compress([
+		_net({0: StampNet.material_cell(DieMaterial.RUBY)}),
+		_net({0: StampNet.rune_cell(Rune.AFTERGLOW)}),
+		_net({0: StampNet.value_cell(3)})])
+	var cell: Dictionary = StampNet.cell_at(out["net"], 0)
+	assert_eq(String(cell["id"]), DieMaterial.RUBY, "das Material bleibt")
+	assert_eq(String(cell["rune"]), Rune.AFTERGLOW, "die Rune auch")
+	assert_eq(int(cell["value"]), 3, "und die Zahl daneben")
+	assert_eq(out["fizzled"], [], "hier verpufft nichts")
+
+## Zweimal dieselbe Farbe ist die Veredelung - genau wie beim Prägen.
+func test_zweimal_dasselbe_material_verdichtet_zur_veredelung() -> void:
+	var paint := _net({0: StampNet.material_cell(DieMaterial.GOLD)})
+	var out := SeriesResolver.compress([paint, paint])
+	var cell: Dictionary = StampNet.cell_at(out["net"], 0)
+	assert_true(bool(cell["dope"]), "dieselbe Farbe doppelt sättigt die Glasur")
+	assert_eq(out["fizzled"], [], "sie verdrängt sich nicht selbst")
+
+## Eine Seite traegt EIN Material - so viel wie ein Wuerfel. Der letzte gewinnt, der
+## fruehere verpufft und sagt es.
+func test_zwei_materialien_auf_einer_seite_lassen_das_fruehere_verpuffen() -> void:
+	var out := SeriesResolver.compress([
+		_net({0: StampNet.material_cell(DieMaterial.RUBY)}),
+		_net({0: StampNet.material_cell(DieMaterial.GOLD)})])
+	assert_eq(String(StampNet.cell_at(out["net"], 0)["id"]), DieMaterial.GOLD,
+		"der letzte gewinnt")
+	assert_eq(out["fizzled"].size(), 1, "und der frühere meldet sich")
+	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_CROWDED)
+	assert_eq(int(out["fizzled"][0]["face"]), 0)
+
+## Operatoren sind nicht verdichtbar: sie rechnen auf der aufgelaufenen Summe und
+## schreiben auf FREMDE Seiten.
+func test_ein_operator_laesst_sich_nicht_verdichten() -> void:
+	var nets := [_net({0: StampNet.operator_cell(StampNet.OP_MIRROR)})]
+	assert_false(SeriesResolver.compressible(nets), "die Reihe ist gesperrt")
+	var out := SeriesResolver.compress(nets)
+	assert_true(StampNet.is_blank(out["net"]), "er traegt nichts in die Karte")
+	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_OPERATOR)
+
+func test_eine_reihe_ohne_operator_ist_verdichtbar() -> void:
+	assert_true(SeriesResolver.compressible([
+		_net({0: StampNet.value_cell(3)}),
+		_net({1: StampNet.factor_cell(2)})]))
+
+## Leere Seiten bleiben leer - eine verdichtete Karte traegt keine Null-Zellen.
+func test_verdichten_laesst_leere_seiten_leer() -> void:
+	var out := SeriesResolver.compress([_net({2: StampNet.value_cell(4)})])
+	assert_eq(StampNet.filled_count(out["net"]), 1, "nur die eine Seite")
+	assert_eq(int(StampNet.cell_at(out["net"], 2)["value"]), 4)
+
+# --- Die verdichtete Karte im PRÄGEN ----------------------------------------------
+
+## Angewandt rechnet sie AFFIN: Summe × factor + value. Das ist genau, was "4x+9"
+## liest - und es laeuft durch dieselben Kanalregeln wie jede andere Zelle.
+func test_eine_verdichtete_zelle_praegt_affin() -> void:
+	var packed := _net({0: StampNet.compound_cell(4, 9)})
+	assert_eq(int(_resolve([packed], _die())["bonus"][0]), 9, "0 × 4 + 9")
+	var out := _resolve([_net({0: StampNet.value_cell(5)}), packed], _die())
+	assert_eq(int(out["bonus"][0]), 29, "5 × 4 + 9")
+	assert_eq(int(out["factors"][0]), 4, "und die Anzeige kennt den Faktor")
+
+## Ihre uebrigen Kanaele wirken wie die der Einzelkarten, inklusive Verpuffen.
+func test_eine_verdichtete_zelle_traegt_ihre_kanaele_ins_praegen() -> void:
+	var die := _die()
+	var packed := _net({0: StampNet.compound_cell(1, 2, DieMaterial.RUBY, true,
+		Rune.AFTERGLOW)})
+	var out := _resolve([packed], die)
+	assert_eq(int(out["bonus"][0]), 2)
+	assert_eq(String(out["materials"][0]), DieMaterial.RUBY)
+	assert_true(bool(out["doped"][0]), "die Veredelung der Zelle greift")
+	assert_eq(Array(out["runes"][0]), [Rune.AFTERGLOW] as Array[String])
+
+## Verdichten einer schon verdichteten Karte bleibt LINEAR - das ist der Grund, warum
+## es keinen Verdichtungs-Deckel braucht.
+func test_verdichten_einer_verdichteten_karte_waechst_linear() -> void:
+	var once: Array = SeriesResolver.compress([
+		_net({0: StampNet.factor_cell(4)}), _net({0: StampNet.value_cell(5)})])["net"]
+	var twice: Array = SeriesResolver.compress([once, _net({0: StampNet.factor_cell(4)})])["net"]
+	var cell: Dictionary = StampNet.cell_at(twice, 0)
+	assert_eq(int(cell["factor"]), 8, "4 + 4, nicht 4 × 4")
+	assert_eq(int(cell["value"]), 5, "der Summand bleibt")
+
+## Eine verdichtete Karte OHNE Faktor erfindet beim erneuten Verdichten keinen.
+func test_zwei_faktorlose_verdichtete_karten_erfinden_keinen_faktor() -> void:
+	var plain: Array = SeriesResolver.compress([_net({0: StampNet.value_cell(3)})])["net"]
+	var out: Array = SeriesResolver.compress([plain, plain])["net"]
+	var cell: Dictionary = StampNet.cell_at(out, 0)
+	assert_eq(int(cell["factor"]), 1, "1 heißt: kein Multiplikator")
+	assert_eq(int(cell["value"]), 6)
+	assert_eq(StampNet.compound_glyph(cell), "+6", "und so steht es auch da")

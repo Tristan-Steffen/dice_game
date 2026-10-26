@@ -32,7 +32,7 @@ const POINTER := "pointer"
 const ESSENZ := "essenz"
 const CHARM := "charm"
 const KOMBINATION := "kombination"
-const BENCHMARK := "benchmark"
+const QUOTA := "quota"
 const UEBERLADUNG := "ueberladung"
 const FUMBLE := "fumble"
 const STRESSTEST := "stresstest"
@@ -42,14 +42,15 @@ const MAGAZIN := "magazin"
 const PRESSE := "presse"
 const PRAEGENETZ := "praegenetz"
 const SERIE := "serie"
+const VERDICHTUNG := "verdichtung"
 const SCHWARZMARKT := "schwarzmarkt"
 const UEBERTAKTEN := "uebertakten"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
-	BENCHMARK, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, PRAEGENETZ, SERIE, SCHWARZMARKT, UEBERTAKTEN]
+	QUOTA, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
+	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, UEBERTAKTEN]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -73,6 +74,7 @@ const EXTRA_SURFACES := {
 	"Verträge": VERTRAG, "Klausel": VERTRAG, "Klauseln": VERTRAG,
 	"Nebenwetten": NEBENWETTE,
 	"Pressung": PRESSE, "Prägen": PRESSE,
+	"Verdichten": VERDICHTUNG, "verdichtet": VERDICHTUNG, "Rohling": VERDICHTUNG,
 	"Prägenetz": PRAEGENETZ, "Prägenetze": PRAEGENETZ, "Prägenetzes": PRAEGENETZ,
 	"Serien": SERIE, "Serienschaltung": SERIE, "Serienlänge": SERIE,
 	"Operator": SERIE, "Operatoren": SERIE, "Multiplikator-Netz": SERIE,
@@ -214,23 +216,23 @@ static func _build_concepts() -> void:
 	_add(KOMBINATION, "Kombination",
 		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und lässt sich dort mit Energie übertakten.",
 		CAT_BEGRIFFE)
-	_add(BENCHMARK, "Benchmark",
-		"Das Rundenziel: die Punktzahl, die die Runde besteht. Der Benchmark wächst von Runde zu Runde, und jede sechste Runde endet im Stresstest. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
+	_add(QUOTA, "Quota",
+		"Das Rundenziel: die Punktzahl, die die Runde besteht. Die Quota wächst von Runde zu Runde, und jede sechste Runde endet im Stresstest. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
 		CAT_BEGRIFFE)
 	_add(UEBERLADUNG, "Überladung",
-		"Die Stufen über dem Benchmark: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in die Kondensatorbank; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
+		"Die Stufen über der Quota: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in die Kondensatorbank; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
 		CAT_BEGRIFFE)
 	_add(FUMBLE, "Fumble",
 		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Manche Charms und Klauseln federn den ersten Fumble ab, einige zahlen sogar darauf.",
 		CAT_BEGRIFFE)
 	_add(STRESSTEST, "Stresstest",
-		"Die letzte Runde jedes Benchmark-Blocks (Runde 6, 12, ...). Statt der üblichen Verträge liegen nur Malus-Konditionen aus - die Wahl ist, WIE gekämpft wird, nicht wofür. Wer besteht, bekommt ein versiegeltes Würfel-Paket mit garantierter Essenz.",
+		"Die letzte Runde jedes Quota-Blocks (Runde 6, 12, ...). Statt der üblichen Verträge liegen nur Malus-Konditionen aus - die Wahl ist, WIE gekämpft wird, nicht wofür. Wer besteht, bekommt ein versiegeltes Würfel-Paket mit garantierter Essenz.",
 		CAT_BEGRIFFE)
 	_add(VERTRAG, "Vertrag",
 		"Ab Runde 2 bietet das Haus drei Verträge: Standardvertrag, Risikovertrag, Knebelvertrag - je eine Bonus- und eine Malusklausel derselben Stufe. Kein Vertrag überlebt seine Runde. Gelegentlich ersetzt ein Werbegeschenk (nur Bonus, kein Malus) einen der Plätze.",
 		CAT_BEGRIFFE)
 	_add(NEBENWETTE, "Nebenwette",
-		"Eine Wette neben dem Rundenziel: ein Einsatz auf eine Bedingung dieser Runde, die Punktziele skalieren mit dem Benchmark. Manche Einsätze kosten nichts im Voraus und besteuern stattdessen jede Hand oder jeden Würfel - reicht das Geld nicht mehr, platzt die Wette.",
+		"Eine Wette neben dem Rundenziel: ein Einsatz auf eine Bedingung dieser Runde, die Punktziele skalieren mit der Quota. Manche Einsätze kosten nichts im Voraus und besteuern stattdessen jede Hand oder jeden Würfel - reicht das Geld nicht mehr, platzt die Wette.",
 		CAT_BEGRIFFE)
 	_add(MAGAZIN, "Magazin",
 		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
@@ -242,7 +244,10 @@ static func _build_concepts() -> void:
 		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Paketgröße.",
 		CAT_BEGRIFFE)
 	_add(SERIE, "Serie",
-		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) und ein lilanes Multiplikator-Netz rechnen auf der bis dahin aufgelaufenen Summe - die Grundzahl des Würfels vervielfachen sie nie, die Reihenfolge ist darum die Entscheidung. Die Reihe hat von Anfang an SECHS Slots, und das Prägen zündet schon mit einer Karte; Taktgeber, Klauseln und der Schub der Nebenwette verschieben die Länge.",
+		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) und ein lilanes Multiplikator-Netz rechnen auf der bis dahin aufgelaufenen Summe - die Grundzahl des Würfels vervielfachen sie nie, die Reihenfolge ist darum die Entscheidung. Die Reihe hat SECHS Slots, und das Prägen zündet schon mit einer Karte. Liegt statt eines Würfels ein Rohling auf dem Podest, VERDICHTET dieselbe Reihe statt zu prägen.",
+		CAT_BEGRIFFE)
+	_add(VERDICHTUNG, "Verdichtung",
+		"Mehrere Kassetten werden zu EINER dichteren gepresst. Das Ziel ist ein ROHLING - eine leere Kassette, die es nur im Schwarzmarkt gibt; er liegt dabei auf dem Podest und WIRD die neue Karte, das Futter ist verbraucht. Zahlen und Multiplikatoren ADDIEREN sich dabei (×4 und ×4 werden ×8) und stehen danach als Rechnung auf der Zelle, etwa \"4x+9\": vier mal die aufgelaufene Summe, plus neun. Material und Rune dürfen zusammen auf einer Seite liegen; ein zweites Material verdrängt das erste. Operatoren lassen sich nicht verdichten.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
 		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",

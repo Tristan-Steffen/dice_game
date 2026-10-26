@@ -151,7 +151,7 @@ const SHELF_MIN_HEIGHT := 6.0
 ## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
 ## steht fest, nur seine Aufschrift wechselt, und die Grundseite fließt nie um.
 ## Bemessen an der breitesten Aufschrift ("Prägen 6/6") plus Rand.
-const ACTION_WIDTH := 15.0
+const ACTION_WIDTH := 21.0
 const ACTION_HEIGHT := 4.0
 
 ## DAS DURCHLICHT - die Zeremonie des Prägens (Welle X, 2026-09-05). Alle Karten
@@ -236,6 +236,14 @@ var shelf_tray := 0:
 		if shelf_tray == wanted:
 			return
 		shelf_tray = wanted
+		# Nur das SICHTBARE Tablett rollt: jedes andere steht wieder auf seiner
+		# ersten Spalte (Spieler-Wunsch 2026-10-26). Das ist nicht nur Ordnung -
+		# das Einfahren in die Wand ist ein FESTER z-Versatz, und ein Roll-Stand
+		# konnte ihn genau aufheben; dann lag eine eingefahrene Karte wieder über
+		# der offenen Grube.
+		for tray in _shelf_scroll.size():
+			if tray != shelf_tray:
+				_shelf_scroll[tray] = 0
 		refresh()
 ## Der ROLL-STAND je Tablett in ganzen Spalten - ebenfalls ANZEIGE.
 var _shelf_scroll: Array[int] = [0, 0, 0, 0]
@@ -306,6 +314,10 @@ var die_lean := 0.0:
 var _series: Array[int] = []
 ## Platz des Zielwürfels im Pool.
 var _target_index := -1
+## Der ROHLING auf dem Podest (0 = keiner) - das Ziel des VERDICHTENS. Er und der
+## Zielwürfel schließen sich aus: das Podest trägt EIN Ziel, und welche Art dort
+## liegt, entscheidet, was der Knopf tut.
+var _target_pack := 0
 ## Die Karte unter dem Zeiger (-1 = keine): ihre Beitrags-Zellen leuchten im
 ## Netz auf, und der Summen-Schirm zeigt IHR Prägenetz.
 var _hover_slot := -1
@@ -323,6 +335,8 @@ var _burning: Array[Dictionary] = []
 var _burn_step := -1
 var _burn_gen := 0
 var _burn_die: DieDefinition
+## Der Rohling, in den die laufende Zeremonie verdichtet (0 = sie prägt).
+var _burn_blank := 0
 var _burn_terms: Dictionary = {}
 var _burn_result: Dictionary = {}
 var _burn_anchor := Vector2.ZERO
@@ -696,14 +710,44 @@ func set_target_die(die: DieDefinition) -> void:
 	if index < 0 or index == _target_index:
 		clear_target()
 		return
+	_target_pack = 0  # das Podest trägt EIN Ziel
 	_target_index = index
+	_announce_target()
+
+## Der gewählte ROHLING (null = keiner). Gefüllt ist er keiner mehr, also fällt die
+## Wahl von selbst, sobald das Verdichten gebucht hat.
+func target_pack() -> Pack:
+	if run == null or _target_pack == 0:
+		return null
+	var pack := run.pack_by_uid(_target_pack)
+	return pack if pack != null and pack.is_blank_card() else null
+
+## VERDICHTET das Podest gerade, statt zu prägen? Die Art des Ziels entscheidet - und
+## während der Zeremonie die Art, mit der sie aufbrach (der Rohling ist dann längst
+## gefüllt und wäre keiner mehr).
+func compressing() -> bool:
+	if burning():
+		return _burn_blank != 0
+	return target_pack() != null
+
+## Die ZIELWAHL eines Rohlings: derselbe wählt ab, ein anderer wechselt. Sie räumt den
+## Zielwürfel mit fort - das Podest trägt EIN Ziel.
+func set_target_pack(pack: Pack) -> void:
+	if editing_locked or burning():
+		return
+	if pack == null or not pack.is_blank_card() or pack.pack_uid == _target_pack:
+		clear_target()
+		return
+	_target_index = -1
+	_target_pack = pack.pack_uid
 	_announce_target()
 
 ## Wählt ab (kein Ziel mehr) - der Podest-Würfel fährt in seinen Pool-Sitz zurück.
 func clear_target() -> void:
-	if _target_index < 0:
+	if _target_index < 0 and _target_pack == 0:
 		return
 	_target_index = -1
+	_target_pack = 0
 	_announce_target()
 
 ## Wählt den Zielwürfel programmatisch (Tests, Debug) - am Tisch tippt der Spieler
@@ -1154,6 +1198,11 @@ func _prune_series() -> void:
 	var pool := pool_defs().size()
 	if _target_index >= pool:
 		_target_index = -1
+	# Der Ziel-Rohling steckt NIE in der Reihe - sonst wäre er sein eigenes Futter.
+	if _target_pack > 0:
+		_series.erase(_target_pack)
+		if target_pack() == null:
+			_target_pack = 0
 
 # --- Das PRÄGEN -------------------------------------------------------------------
 
@@ -1182,7 +1231,8 @@ func _build_action_seat(u: float) -> void:
 ## Die AUFSCHRIFT des Prägens: gesteckte Karten und Serienlänge - der Zähler wohnt
 ## seit dem Tod des Serien-Schirms hier.
 func stamp_label() -> String:
-	return "Prägen %d/%d" % [_series.size(), slot_count()]
+	var verb := "Verdichten" if compressing() else "Prägen"
+	return "%s %d/%d" % [verb, _series.size(), slot_count()]
 
 ## Der Knopf auf dem Sitz. Zwei Zustände: das PRÄGEN und, solange die Serie sich
 ## entlädt, das Überspringen.
@@ -1203,7 +1253,11 @@ func _seat_button(u: float) -> Button:
 func can_pull() -> bool:
 	if run == null or editing_locked or burning():
 		return false
-	if target_die() == null or _series.is_empty():
+	if _series.is_empty():
+		return false
+	if compressing():
+		return not run.compressible_series(_series, _target_pack).has("blocker")
+	if target_die() == null:
 		return false
 	var repairs := series_repairs()
 	if target_die().burned_out and not repairs:
@@ -1270,10 +1324,20 @@ func stamp_blocker() -> String:
 		return ""
 	if editing_locked:
 		return "Runde gezurrt - erst im Laden wieder."
-	if target_die() == null:
-		return "Kein Ziel: einen Vorrats-Würfel antippen."
+	# Die ART des Ziels sagt, was der Knopf überhaupt tut - darum steht sie zuerst.
+	if target_die() == null and not compressing():
+		return "Kein Ziel: einen Vorrats-Würfel antippen oder einen %s auflegen." 			% Pack.BLANK_NAME
 	if _series.is_empty():
 		return "Keine Karte in der Reihe."
+	if compressing():
+		match String(run.compressible_series(_series, _target_pack).get("blocker", "")):
+			"empty":
+				return "Keine Netz-Karte in der Reihe."
+			"operator":
+				return "Operatoren lassen sich nicht verdichten."
+			"catalyst":
+				return "Katalysatoren verdichten nicht - sie wirken auf einen Würfel."
+		return ""
 	if target_die().burned_out and not series_repairs():
 		return "Durchgebrannt - die %s fehlt." % Pack.catalyst_name(Pack.CATALYST_REPAIR)
 	if stamping_card_count() <= 0 and not series_tends():
@@ -1296,6 +1360,10 @@ func _sum_view_source() -> Dictionary:
 	var nets := _sum_nets()
 	if nets.is_empty():
 		return {"mode": "empty"}
+	# Verdichten ist eine ANDERE Rechnung als Prägen (Faktoren addieren), also zeigt
+	# der Schirm sie auch anders - als die KARTE, die dabei herauskäme.
+	if compressing():
+		return {"mode": "card", "net": SeriesResolver.compress(nets)["net"]}
 	return {"mode": "sum",
 		"projection": SeriesResolver.resolve(nets, null, _sum_terms())}
 
@@ -1400,6 +1468,9 @@ func hover_pack_name() -> String:
 func pull_lever() -> void:
 	if not can_pull():
 		return
+	if compressing():
+		_pull_compress()
+		return
 	var cards := _slot_cards()
 	var before := target_die().instantiate()
 	var terms := GameRun.catalyst_terms(slotted_packs())
@@ -1459,6 +1530,8 @@ func ceremony_time() -> float:
 	var beats := 0.0
 	for i in _burning.size():
 		beats += card_beat(i)
+	if compressing():
+		return latch_time() + beats  # beim Verdichten fliegt nichts
 	return latch_time() + RAISE_TIME + beats + STRIKE_TIME + STRIKE_HOLD + RETURN_TIME
 
 ## Der Takt EINER Etage - er IST die Steigzeit des Lichts zur nächsten: die RAMPE
@@ -1489,25 +1562,55 @@ func _burn_nets_so_far() -> Array:
 ## räumt. GEFAHREN wird das von scene_root - hier steht der TAKT.
 func _play_series_ceremony(generation: int) -> void:
 	var launched := run
+	var packing := compressing()
 	var latch := latch_time()
 	cards_latched.emit(latch)
 	if not await _scan_wait(latch, generation, launched):
 		return
-	die_raised.emit(RAISE_TIME)
-	if not await _scan_wait(RAISE_TIME, generation, launched):
-		return
+	# Beim VERDICHTEN fliegt nichts: der Rohling LIEGT auf dem Podest, und das Licht
+	# steigt durch die Etagen in ihn hinein. Die drei Würfel-Takte entfallen darum.
+	if not packing:
+		die_raised.emit(RAISE_TIME)
+		if not await _scan_wait(RAISE_TIME, generation, launched):
+			return
 	for i in _burning.size():
 		var beat := card_beat(i)
 		_read_card(i, beat, beat)
 		if not await _scan_wait(beat, generation, launched):
 			return
-	light_struck.emit(STRIKE_TIME)
-	if not await _scan_wait(STRIKE_TIME + STRIKE_HOLD, generation, launched):
-		return
-	die_returned.emit(RETURN_TIME)
-	if not await _scan_wait(RETURN_TIME, generation, launched):
-		return
+	if not packing:
+		light_struck.emit(STRIKE_TIME)
+		if not await _scan_wait(STRIKE_TIME + STRIKE_HOLD, generation, launched):
+			return
+		die_returned.emit(RETURN_TIME)
+		if not await _scan_wait(RETURN_TIME, generation, launched):
+			return
 	_end_ceremony()
+
+## DAS VERDICHTEN: EINE atomare Buchung in GameRun, dann die Zeremonie - dieselbe
+## Grammatik wie das Prägen. Gebucht ist vor dem Licht, und weil kein Würfel im Spiel
+## ist, braucht es keinen Augen-Schnappschuß: der Rohling war leer.
+func _pull_compress() -> void:
+	var cards := _slot_cards()
+	var anchor := hand_anchor_px()
+	var blank := _target_pack
+	press_started.emit()
+	var result := run.compress_series(_series.duplicate(), blank)
+	if result.is_empty():
+		refresh()  # nichts gebucht: die Karten bleiben in ihren Schächten
+		return
+	_series.clear()
+	_target_pack = 0  # gefüllt ist er kein Rohling mehr - die Wahl fällt mit
+	_burning = cards
+	_burn_blank = blank
+	_burn_terms = {}
+	_burn_result = result
+	_burn_anchor = anchor
+	_burn_step = 0
+	_burn_gen += 1
+	refresh()
+	_refresh_preview_net(DRAIN_TIME)
+	_play_series_ceremony(_burn_gen)
 
 ## Ein Takt der Fahrt. false = die Zeremonie gehört nicht mehr uns (übersprungen,
 ## Laufwechsel, Fenster fort) - der Aufrufer steigt dann sofort aus, und der EINE
@@ -1586,6 +1689,7 @@ func _end_ceremony() -> void:
 	_burning = []
 	_burn_step = -1
 	_burn_die = null
+	_burn_blank = 0
 	_burn_terms = {}
 	_burn_result = {}
 	if _net != null and is_instance_valid(_net):
@@ -1604,9 +1708,11 @@ func _drop_series() -> void:
 	_burning = []
 	_burn_step = -1
 	_burn_die = null
+	_burn_blank = 0
 	_burn_terms = {}
 	_burn_result = {}
 	_target_index = -1
+	_target_pack = 0
 	_hover_slot = -1
 	_hover_pack_uid = 0
 	_drag_from = -1
@@ -1762,8 +1868,11 @@ func drawer_entries() -> Array[Dictionary]:
 		var tray := Pack.shelf_rank(pack)
 		var cell_index := int(fill.get(tray, 0))
 		fill[tray] = cell_index + 1
+		# Der ROHLING auf dem Podest hat im Fach KEINEN Körper - sein Platz bleibt
+		# stehen, wie der Pool-Sitz des Zielwürfels: ein Ding wird nie zweimal gezeigt.
 		entries.append({"uid": pack.pack_uid, "pack": pack,
-			"withheld": _pending_arrivals.has(pack.pack_uid),
+			"withheld": _pending_arrivals.has(pack.pack_uid)
+				or pack.pack_uid == _target_pack,
 			"tray": tray, "cell": cell_index})
 	return entries
 
@@ -1789,13 +1898,17 @@ func deliver_pack(uid: int) -> bool:
 ## Der PLATZ einer Kassette (Display-Pixel) - auch hinausgerollt, dann eben unter
 ## dem Filz. Steht das Fach nicht, wird er GERECHNET (dieselbe Formel).
 func pack_seat_px(uid: int) -> Vector2:
-	if _drawer != null and is_instance_valid(_drawer):
-		var seat := _drawer.pack_seat_px(uid)
-		if seat.x >= 0.0:
-			return seat
-	var derived := PackDrawerView.anchor_in(shelf_pit_rect(), shelf_window_column_of(uid),
-		shelf_cell_px(), shelf_lane_of(uid))
-	return derived if derived.x >= 0.0 else shelf_rect_global().get_center()
+	# Gefragt wird, ob das Fach den Platz KENNT - nicht, ob er positiv ist. Weit nach
+	# links gerollt ist ein Platz legitim NEGATIV (er liegt unter dem Filz), und der
+	# alte Koordinaten-Test verwarf genau die als ungültig: sie landeten dann auf der
+	# nackten Grubenmitte, mitten im Bild (Bug 2026-10-26, gemessen ab Spalte -13).
+	if _drawer != null and is_instance_valid(_drawer) and _drawer.knows_pack(uid):
+		return _drawer.pack_seat_px(uid)
+	var pit := shelf_pit_rect()
+	if pit.size.x > 0.0 and pit.size.y > 0.0:
+		return PackDrawerView.anchor_in(pit, shelf_window_column_of(uid),
+			shelf_cell_px(), shelf_lane_of(uid))
+	return shelf_rect_global().get_center()  # ohne Grube bleibt nur die Mitte
 
 ## Wohin das Liefer-Licht einer Kassette fliegt: auf ihren Platz, wenn er im Fenster
 ## liegt - sonst an den Grubenrand seiner Seite bzw. an die TASTE ihres Tabletts.
@@ -1910,6 +2023,16 @@ func shelf_scroll_of(tray: int) -> int:
 		return 0
 	return _shelf_scroll[tray]
 
+## Wie viele FENSTER-Breiten das längste Tablett belegt - so weit muß ein verdecktes
+## einfahren, damit keine seiner Spalten über dem gewählten liegen bleibt.
+func shelf_retract_windows() -> int:
+	var window := maxi(shelf_columns(), 1)
+	var widest := 1
+	for tray in PackDrawerView.TRAYS:
+		var columns := PackDrawerView.columns_used(shelf_tray_count(tray))
+		widest = maxi(widest, ceili(float(columns) / float(window)))
+	return widest
+
 ## Setzt den Roll-Stand, in den Grenzen 0 .. max(0, Spalten - Fenster).
 func set_shelf_scroll(tray: int, columns: int) -> void:
 	if tray < 0 or tray >= _shelf_scroll.size():
@@ -1974,8 +2097,15 @@ func arrival_anchor_px(pack: Pack, extra: int = 0) -> Vector2:
 		PackDrawerView.column_of_cell(cell_index) - shelf_scroll_of(tray),
 		PackDrawerView.lane_of_cell(cell_index))
 
-## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Schacht.
+## Eine Kassette wurde angetippt: sie wandert in den nächsten freien Serien-Schacht -
+## ein ROHLING dagegen auf das PODEST. Die Karte entscheidet, was der Tipp tut, genau
+## wie das Ziel entscheidet, was der Knopf tut: ein Rohling als Futter trüge nichts bei.
 func _on_pack_pressed(uid: int) -> void:
+	var pack := run.pack_by_uid(uid) if run != null else null
+	if pack != null and pack.is_blank_card():
+		if not shelf_locked():
+			set_target_pack(pack)
+		return
 	slot_pack(uid)
 
 ## Ein Zug rollt das Tablett: gemeldet wird der Versatz, schon in den Grenzen - am

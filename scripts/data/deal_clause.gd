@@ -22,7 +22,7 @@ enum Tier { ONE, TWO, THREE, TREAT, BOSS }
 ## Themen-Etiketten. Bonus und Malus einer Karte dürfen kein Tag teilen - das
 ## verhindert Nullsummen-Paare ("Auszahlung ×2" gegen "Auszahlung ×0,5").
 const TAG_PAYOUT := "auszahlung"
-const TAG_BENCHMARK := "benchmark"
+const TAG_QUOTA := "quota"
 const TAG_SIDEBET := "nebenwette"
 const TAG_OVERCHARGE := "überladung"
 const TAG_LEFTOVER := "übrig"
@@ -71,7 +71,7 @@ const SUPERCONDUCTOR := "superconductor"
 const GOLD_VEIN := "gold_vein"
 
 # Malus, Stufe 1
-const BENCHMARK_SURCHARGE := "benchmark_surcharge"
+const QUOTA_SURCHARGE := "quota_surcharge"
 const BETTING_TAX := "betting_tax"
 const EMPTIES := "empties"
 const DEDUCTION := "deduction"
@@ -81,7 +81,7 @@ const POWER_CUT := "power_cut"
 const STANDING_CURRENT := "standing_current"
 
 # Malus, Stufe 2
-const BENCHMARK_SURCHARGE_II := "benchmark_surcharge_ii"
+const QUOTA_SURCHARGE_II := "quota_surcharge_ii"
 const HALF_PAYOUT := "half_payout"
 const STAGE_CAP := "stage_cap"
 const MAINS_HUM := "mains_hum"
@@ -92,7 +92,7 @@ const SHORT_CIRCUIT := "short_circuit"
 const OVERLOAD := "overload"
 
 # Malus, Stufe 3
-const BENCHMARK_SHOCK := "benchmark_shock"
+const QUOTA_SHOCK := "quota_shock"
 const USURY_CLAUSE := "usury_clause"
 const BLACKOUT := "blackout"
 const FUSE_FAILURE := "fuse_failure"
@@ -111,7 +111,7 @@ const POWER_FAILURE := "power_failure"
 ## gleich aussehen. Tag-lose Klauseln erben die Stufenfarbe.
 const TAG_COLORS := {
 	TAG_PAYOUT: "#ffd319",
-	TAG_BENCHMARK: "#ff5555",
+	TAG_QUOTA: "#ff5555",
 	TAG_SIDEBET: "#ff79c6",
 	TAG_OVERCHARGE: "#50fa7b",
 	TAG_LEFTOVER: "#ffa62b",
@@ -238,12 +238,12 @@ static func double_loader() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_ENERGY])
 
 static func calibration() -> DealClause:
-	return _bonus(CALIBRATION, "Eichung", "Benchmark −50%",
-		Scope.ROUND, Tier.TWO, [TAG_BENCHMARK])
+	return _bonus(CALIBRATION, "Eichung", "Quota −50%",
+		Scope.ROUND, Tier.TWO, [TAG_QUOTA])
 
 static func golden_handshake() -> DealClause:
 	return _bonus(GOLDEN_HANDSHAKE, "Goldener Handschlag",
-		"Erfüllt EINE Hand den Benchmark allein: ihr erster Würfel wird pures Gold",
+		"Erfüllt EINE Hand die Quota allein: ihr erster Würfel wird pures Gold",
 		Scope.ROUND, Tier.TWO)
 
 ## Ein Knochen auf Zeit: solange die Klausel steht, wächst jede ausgelöste Seite.
@@ -269,9 +269,9 @@ static func gold_vein() -> DealClause:
 
 # --- Malusklauseln ------------------------------------------------------------
 
-static func benchmark_surcharge() -> DealClause:
-	return _malus(BENCHMARK_SURCHARGE, "Benchmark-Aufschlag", "Benchmark +50%",
-		Scope.ROUND, Tier.ONE, [TAG_BENCHMARK])
+static func quota_surcharge() -> DealClause:
+	return _malus(QUOTA_SURCHARGE, "Quota-Aufschlag", "Quota +50%",
+		Scope.ROUND, Tier.ONE, [TAG_QUOTA])
 
 static func betting_tax() -> DealClause:
 	return _malus(BETTING_TAX, "Wettsteuer", "Wett-Einsätze kosten doppelt",
@@ -301,9 +301,9 @@ static func standing_current() -> DealClause:
 	return _malus(STANDING_CURRENT, "Dauerstrom", "Nicht gespielte Würfel entladen diese Runde nicht",
 		Scope.ROUND, Tier.ONE, [TAG_CHARGE])
 
-static func benchmark_surcharge_ii() -> DealClause:
-	return _malus(BENCHMARK_SURCHARGE_II, "Benchmark-Aufschlag II", "Benchmark +100%",
-		Scope.ROUND, Tier.TWO, [TAG_BENCHMARK])
+static func quota_surcharge_ii() -> DealClause:
+	return _malus(QUOTA_SURCHARGE_II, "Quota-Aufschlag II", "Quota +100%",
+		Scope.ROUND, Tier.TWO, [TAG_QUOTA])
 
 static func half_payout() -> DealClause:
 	return _malus(HALF_PAYOUT, "Halbe Auszahlung", "Rundenauszahlung ×0,5",
@@ -339,13 +339,13 @@ static func overload() -> DealClause:
 	return _malus(OVERLOAD, "Überlast", "Jede Zündung eines gewerteten Würfels hebt seine Ladung sicher um 1",
 		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
 
-static func benchmark_shock() -> DealClause:
-	return _malus(BENCHMARK_SHOCK, "Benchmark-Schock", "Benchmark +250%",
-		Scope.ROUND, Tier.THREE, [TAG_BENCHMARK])
+static func quota_shock() -> DealClause:
+	return _malus(QUOTA_SHOCK, "Quota-Schock", "Quota +250%",
+		Scope.ROUND, Tier.THREE, [TAG_QUOTA])
 
 static func usury_clause() -> DealClause:
-	return _malus(USURY_CLAUSE, "Wucherklausel", "Benchmark +400%",
-		Scope.ROUND, Tier.THREE, [TAG_BENCHMARK])
+	return _malus(USURY_CLAUSE, "Wucherklausel", "Quota +400%",
+		Scope.ROUND, Tier.THREE, [TAG_QUOTA])
 
 static func blackout() -> DealClause:
 	return _malus(BLACKOUT, "Blackout", "Übrige Würfel zahlen nichts",
@@ -362,8 +362,8 @@ static func heat_buildup() -> DealClause:
 # --- Stresstest-Konditionen ---------------------------------------------------
 
 static func high_expectations() -> DealClause:
-	return _malus(HIGH_EXPECTATIONS, "Hohe Erwartungen", "Benchmark +500%",
-		Scope.ROUND, Tier.BOSS, [TAG_BENCHMARK])
+	return _malus(HIGH_EXPECTATIONS, "Hohe Erwartungen", "Quota +500%",
+		Scope.ROUND, Tier.BOSS, [TAG_QUOTA])
 
 static func all_in() -> DealClause:
 	return _malus(ALL_IN, "All in", "Nur EINE Hand diese Runde",
@@ -397,12 +397,12 @@ static func all() -> Array[DealClause]:
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
 		golden_handshake(), work_hardening(), cooling_break(), noise_filter(),
 		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
-		benchmark_surcharge(), betting_tax(), empties(), deduction(),
+		quota_surcharge(), betting_tax(), empties(), deduction(),
 		service_fee(), inflation(), power_cut(), standing_current(),
-		benchmark_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
+		quota_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
 		discharge(), heat_warning(), rip_off(), short_circuit(),
 		overload(),
-		benchmark_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
+		quota_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
 		tilted_floor(), balanced_scales(), power_failure(),
 	]
@@ -463,7 +463,7 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		DOUBLE_LOADER:
 			return "Überladungs-Stufen prägen 4 Energie"
 		CALIBRATION:
-			return "Benchmark −75%"
+			return "Quota −75%"
 		CASH_DISCOUNT:
 			return "Ladenware 36% günstiger"
 		GOLD_VEIN:

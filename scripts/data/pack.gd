@@ -93,6 +93,12 @@ const TYPE_NAMES := {
 ## OPERATOR-Kassette (StampNet.OP_*, "" = keine). Ihr Netz trägt genau eine
 ## Operator-Zelle; sie ist Sonderbestand, kein Regal-Paket.
 @export var operator_id: String = ""
+
+## Der ROHLING der VERDICHTUNG (Spieler-Entscheid 2026-10-26): eine leere Kassette,
+## die das ZIEL des Verdichtens ist - sie nimmt das zusammengepresste Netz mehrerer
+## gewöhnlicher Karten auf und ist danach eine ganz normale Kassette. Nur im
+## Schwarzmarkt zu haben, nie im Regal. "" = kein Rohling.
+@export var blank_id: String = ""
 ## Das PRÄGENETZ: sechs Zellen (StampNet), bei der Erzeugung gewürfelt und ab da
 ## fix - es reist mit der Kassette und ist im Laden schon lesbar. Katalysatoren
 ## tragen ein leeres Netz.
@@ -136,11 +142,11 @@ static func tier_price_factor(pack_tier: int) -> float:
 	return float(TIER_PRICE_FACTORS[pack_tier])
 
 ## Darf dieses Paket überhaupt eine Größe tragen? Ein Fixinhalt trägt genau seinen
-## Inhalt, ein Katalysator gar keinen und ein Operator genau eine Zelle - alle drei
-## sind größenlos.
+## Inhalt, ein Katalysator gar keinen, ein Operator genau eine Zelle und ein
+## Rohling noch gar nichts - alle vier sind größenlos.
 static func tierable(pack: Pack) -> bool:
 	return pack != null and pack.fixed_engraving == null and pack.catalyst_id == "" \
-		and pack.operator_id == ""
+		and pack.operator_id == "" and pack.blank_id == ""
 
 ## Setzt einem Gravur-Paket seine Größe auf: Name, Preis UND Prägenetz wachsen mit.
 ## Der eine Weg - ein anderswo gesetztes tier bliebe ohne Aufschrift, ohne Preis
@@ -173,6 +179,8 @@ static func net_line(pack: Pack) -> String:
 		return ""
 	if pack.is_catalyst():
 		return catalyst_effect(pack.catalyst_id)
+	if pack.is_blank_card():
+		return BLANK_EFFECT
 	return StampNet.line(pack.stamp_net)
 
 ## Was eine Kassette WIRKT, in voller Länge: ihre Beschreibung und die Zeile ihres
@@ -331,6 +339,22 @@ static func catalyst(id: String) -> Pack:
 	pack.catalyst_id = id
 	return pack
 
+## --- Der ROHLING ---------------------------------------------------------------
+
+const BLANK := "blank"
+const BLANK_NAME := "Rohling"
+const BLANK_PRICE := 24
+const BLANK_EFFECT := "Nimmt beim Verdichten das Netz mehrerer Karten auf"
+const BLANK_SCOPE := "Liegt beim Verdichten auf dem Podest und wird dabei zur neuen Karte - Operatoren nimmt er nicht auf."
+
+## Eine Rohling-Kassette. Ihr Netz bleibt LEER, bis die Verdichtung es füllt.
+static func blank_card() -> Pack:
+	var pack := _make(TYPE_NUMBER, 1, BLANK_PRICE,
+		"%s. %s" % [BLANK_EFFECT, BLANK_SCOPE])
+	pack.display_name = BLANK_NAME
+	pack.blank_id = BLANK
+	return pack
+
 ## Schlüssel des Sonderposten-Wurfs, der KEIN Katalysator und kein Operator ist.
 const SPECIAL_ENGRAVING := "engraving"
 
@@ -422,7 +446,7 @@ const SHELF_ORDER := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
 static func pack_belongs(pack: Pack, shelf: String) -> bool:
 	if pack == null:
 		return false
-	if pack.is_catalyst() or pack.is_operator():
+	if pack.is_catalyst() or pack.is_operator() or pack.blank_id != "":
 		return shelf == SHELF_SPECIAL
 	var fixed := pack.fixed_engraving
 	if fixed != null and Engraving.is_special_id(fixed.id):
@@ -514,6 +538,16 @@ func tends_die() -> bool:
 ## widersprechen könnte.
 func is_multiplier() -> bool:
 	return not is_catalyst() and not is_operator() and StampNet.is_factor_net(stamp_net)
+
+## Ein ROHLING - das Ziel des Verdichtens, solange sein Netz noch leer ist? Gefüllt
+## ist er eine gewöhnliche Kassette (StampNet.is_blank fragt das NETZ, dies die KARTE).
+func is_blank_card() -> bool:
+	return blank_id != "" and StampNet.is_blank(stamp_net)
+
+## Eine VERDICHTETE Karte - ein Rohling, der sein Netz schon bekommen hat. Sie bleibt
+## im Sonderbestand: ihr Inhalt stammt aus mehreren Sorten, sie hat keine eigene.
+func is_compressed() -> bool:
+	return blank_id != "" and not StampNet.is_blank(stamp_net)
 
 ## Eine Operator-Kassette? Ihr Netz trägt genau eine Rechen-Zelle.
 func is_operator() -> bool:

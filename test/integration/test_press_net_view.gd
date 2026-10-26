@@ -173,6 +173,45 @@ func test_the_sum_net_draws_the_pointer_beside_the_number() -> void:
 	assert_not_null(sum.get_node_or_null("PointerMark0"), "und der Pfeil steht auf dem Rand")
 	assert_null(sum.get_node_or_null("PointerMark1"), "ohne Pointer kein Pfeil")
 
+## Eine SUMMEN-Zelle traegt MEHRERE Kanaele zugleich - anders als eine Karten-Zelle,
+## die genau eines traegt. Das ist das Vorbild fuer jede dichtere Zelle, also steht es
+## hier fest: Material fuellt, die Zahl steht darin, die Runen sitzen in den Ecken.
+func test_eine_summen_zelle_traegt_material_zahl_und_runen_zugleich() -> void:
+	var projection := {
+		"bonus": [3, 0, 0, 0, 0, 0],
+		"materials": [DieMaterial.RUBY, "", "", "", "", ""],
+		"doped": [true, false, false, false, false, false],
+		"runes": [[Rune.AFTERGLOW, Rune.SPARK_FLIGHT], [], [], [], [], []],
+	}
+	var sum := PressNetView.sum_net(projection, 24.0)
+	add_child_autofree(sum)
+	var chip: Panel = sum.get_child(0)
+	var label: Label = chip.get_node_or_null("CellMark")
+	assert_not_null(label, "die Zahl steht in der Zelle")
+	assert_eq(label.text, "+3", "und zwar als Bonus, nicht als Faktor")
+	var box: StyleBoxFlat = chip.get_theme_stylebox("panel")
+	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
+		"das VEREDELTE Material fuellt sie")
+	var glyphs := 0
+	for child in chip.get_children():
+		if child is DieNetView.RuneGlyph:
+			glyphs += 1
+	assert_eq(glyphs, 2, "beide Runen sitzen als Ecken-Glyphe darin")
+
+## Der Deckel der Ecken: mehr als zwei Runen passen nicht, und die Zelle wirft den
+## Rest fort statt sie uebereinander zu legen.
+func test_eine_summen_zelle_zeigt_hoechstens_zwei_runen() -> void:
+	var projection := {
+		"runes": [[Rune.AFTERGLOW, Rune.SPARK_FLIGHT, Rune.REVERSE], [], [], [], [], []],
+	}
+	var sum := PressNetView.sum_net(projection, 24.0)
+	add_child_autofree(sum)
+	var glyphs := 0
+	for child in sum.get_child(0).get_children():
+		if child is DieNetView.RuneGlyph:
+			glyphs += 1
+	assert_eq(glyphs, PressNetView.SUM_RUNE_CAP, "zwei Ecken, zwei Runen")
+
 func test_an_empty_cell_stays_dark_and_bare() -> void:
 	var mini := PressNetView.stamp_net(StampNet.empty_net(), 12.0)
 	add_child_autofree(mini)
@@ -294,3 +333,62 @@ func test_outside_the_net_nothing_is_hit() -> void:
 	# Die Ecken des Kreuzes sind LEER - dort liegt keine Seite.
 	assert_eq(PressNetView.upright_face_at(Vector2(0.02, 0.02)), -1,
 		"die tote Ecke des Kreuzes trifft keine Zelle")
+
+# --- Die VERDICHTETE Zelle --------------------------------------------------------
+## Sie ist die EINE Ausnahme von "je Zelle genau eines": sie traegt die Rechnung,
+## das Material und die Rune zugleich - dieselbe Grammatik wie die Summen-Zelle.
+
+func test_eine_verdichtete_zelle_traegt_rechnung_material_und_rune() -> void:
+	var card := StampNet.empty_net()
+	card[0] = StampNet.compound_cell(4, 9, DieMaterial.RUBY, true, Rune.AFTERGLOW)
+	var mini := PressNetView.stamp_net(card, 24.0)
+	add_child_autofree(mini)
+	var chip: Panel = mini.get_child(0)
+	var label: Label = chip.get_node_or_null("CellMark")
+	assert_not_null(label, "die Rechnung steht in der Zelle")
+	assert_eq(label.text, "4x+9", "in mathematischer Notation")
+	var box: StyleBoxFlat = chip.get_theme_stylebox("panel")
+	assert_eq(box.bg_color, DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
+		"das veredelte Material fuellt sie")
+	var glyphs := 0
+	for child in chip.get_children():
+		if child is DieNetView.RuneGlyph:
+			glyphs += 1
+	assert_eq(glyphs, 1, "und die Rune sitzt in der Ecke")
+
+## Ohne Faktor steht nur der Summand da - "1x" waere eine Lüge.
+func test_eine_verdichtete_zelle_ohne_faktor_zeigt_nur_den_summanden() -> void:
+	var card := StampNet.empty_net()
+	card[0] = StampNet.compound_cell(1, 6)
+	var mini := PressNetView.stamp_net(card, 24.0)
+	add_child_autofree(mini)
+	assert_eq((mini.get_child(0).get_node("CellMark") as Label).text, "+6")
+
+## Der GRAD: eine lange Aufschrift wird KLEINER, nicht abgeschnitten. Das Label clippt
+## stumm, also muss der Grad vorher passen - gemessen an der echten Schrift, und am
+## echten Zellmass der Werkstatt (35,09 px, die Zelle des Praegenetzes auf der Karte).
+## EHRLICHE GRENZE: unter MIN_FONT geht es nicht weiter, eine sehr kleine Zelle kann
+## eine sehr lange Rechnung also nicht tragen - dafuer steht der Summen-Schirm.
+func test_eine_lange_aufschrift_schrumpft_statt_zu_clippen() -> void:
+	var cell := 35.09
+	var long_net := StampNet.empty_net()
+	long_net[0] = StampNet.compound_cell(16, 480)  # "16x+480", die lange Form
+	var short_net := StampNet.empty_net()
+	short_net[0] = StampNet.value_cell(9)
+	var long_mini := PressNetView.stamp_net(long_net, cell)
+	var short_mini := PressNetView.stamp_net(short_net, cell)
+	add_child_autofree(long_mini)
+	add_child_autofree(short_mini)
+	await wait_frames(2)
+	var long_label: Label = long_mini.get_child(0).get_node("CellMark")
+	var short_label: Label = short_mini.get_child(0).get_node("CellMark")
+	var long_size := long_label.get_theme_font_size("font_size")
+	assert_eq(short_label.get_theme_font_size("font_size"), maxi(6, int(cell * 0.44)),
+		"die kurze Aufschrift behaelt ihren gewohnten Grad")
+	assert_lt(long_size, short_label.get_theme_font_size("font_size"),
+		"die lange wird kleiner")
+	var font := long_label.get_theme_font("font")
+	var wide := font.get_string_size(long_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+		long_size).x
+	assert_lte(wide, cell * PressNetView.FIT_SHARE,
+		"und passt damit wirklich in die Zelle")

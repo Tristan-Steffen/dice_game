@@ -31,7 +31,9 @@ const LINE_BOX := 1.6
 
 ## Was der Schirm sagt, wenn nichts unter dem Zeiger liegt und kein Ziel steht.
 const IDLE_TITLE := "Werkstatt"
-const IDLE_BODY := "Einen Vorrats-Würfel antippen: er wird das Ziel der Serie."
+const IDLE_BODY := "Einen Vorrats-Würfel antippen: er wird das Ziel der Serie. Ein Rohling aus dem Schwarzmarkt legt sich statt dessen aufs Podest und VERDICHTET."
+## Liegt ein Rohling auf dem Podest, sagt der Schirm, was dort geschieht.
+const PACKING_BODY := "Verdichten: die Karten der Reihe werden zu EINER. Zahlen und Multiplikatoren addieren sich, Material und Rune liegen danach auf derselben Seite."
 ## Der Würfel ohne Seele und der Würfel ohne alles.
 const SOULLESS := "Ohne Seele"
 const PLAIN_DIE := "Ein schlichter Würfel."
@@ -229,12 +231,14 @@ static func cell_info(owner_title: String, hint: String) -> Dictionary:
 
 ## RUHE: steht ein Ziel, erklärt der Schirm den Zielwürfel - sonst sagt er, warum
 ## das Prägen schweigt, und sonst, was zu tun ist.
-static func idle_info(target: DieDefinition, blocker: String) -> Dictionary:
+static func idle_info(target: DieDefinition, blocker: String,
+		packing := false) -> Dictionary:
 	if target != null:
 		return die_info(target)
+	var idle := PACKING_BODY if packing else IDLE_BODY
 	return {"title": IDLE_TITLE, "sub": "",
 		"sub_tint": WorkshopView.MUTED_COLOR,
-		"body": blocker if blocker != "" else IDLE_BODY}
+		"body": blocker if blocker != "" else idle}
 
 ## Name, Ton und Wirkung einer Seele - gecacht, denn Essence.by_id baut jedesmal
 ## den ganzen Katalog.

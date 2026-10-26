@@ -1,6 +1,6 @@
 extends GutTest
 ## Tier-1-Tests der Nebenwetten (SideBet): Auslage-Erzeugung samt Stufen-Filter und
-## Benchmark-Skalierung, Bedingungs-Auswertung gegen eine Rundenbilanz,
+## Quota-Skalierung, Bedingungs-Auswertung gegen eine Rundenbilanz,
 ## Rang-Vergleich, Verfall und Etiketten.
 
 ## Höchste Freischalt-Stufe im Katalog - damit rollt jede Vorlage.
@@ -18,13 +18,13 @@ func _result(overrides: Dictionary = {}) -> Dictionary:
 		base[key] = overrides[key]
 	return base
 
-func _bet(id: String, benchmark: int = 0) -> SideBet:
+func _bet(id: String, quota: int = 0) -> SideBet:
 	for t in SideBet.TEMPLATES:
 		if t["id"] == id:
-			return SideBet._from_template(t, benchmark)
+			return SideBet._from_template(t, quota)
 	return null
 
-# --- Auslage: Stufen-Filter, Benchmark-Skalierung und das echte Inventar ----------
+# --- Auslage: Stufen-Filter, Quota-Skalierung und das echte Inventar ----------
 
 ## Ein Magazin, das jede Paket-Einsatz-Vorlage tragen kann (die teuerste nimmt 2).
 func _full_stock() -> Dictionary:
@@ -100,7 +100,7 @@ func test_nice_target_rounds_to_readable_numbers():
 	assert_eq(SideBet._nice_target(1137.0), 1100, "ab 1000 auf 100er")
 	assert_eq(SideBet._nice_target(5.0), 25, "Mindestziel")
 
-func test_scaled_target_follows_benchmark():
+func test_scaled_target_follows_quota():
 	var bet := _bet("big_hand", 525)  # Faktor 1.0
 	assert_eq(bet.target, SideBet._nice_target(525.0))
 	var whale := _bet("whale", 600)  # Faktor 2.5

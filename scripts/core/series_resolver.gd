@@ -28,6 +28,35 @@ const FIZZLE_NAKED := "naked"        # Veredelung auf einer Seite ohne Material
 const FIZZLE_DOPED := "doped"        # Veredelung auf einer schon veredelten Seite
 const FIZZLE_BURNED := "burned"      # Einbrand sperrt das Übermalen
 const FIZZLE_POINTER := "pointer"    # Pointer auf keine Nachbarseite
+const FIZZLE_CROWDED := "crowded"    # Verdichtung: eine spätere Karte nahm den Platz
+const FIZZLE_OPERATOR := "operator"  # Verdichtung: ein Operator lässt sich nicht pressen
+
+## Eine Zelle in ihre KANÄLE zerlegt. Eine gewöhnliche bleibt sie selbst; eine
+## VERDICHTETE fällt in ihre Teile, in Rechenreihenfolge - erst der Faktor, dann der
+## Summand. Damit laufen beide durch DIESELBEN Kanalregeln, und "Summe × factor +
+## value" ist keine zweite Rechnung, sondern die vorhandene.
+static func _expand(cell: Dictionary) -> Array[Dictionary]:
+	if StampNet.kind_of(cell) != StampNet.KIND_COMPOUND:
+		return [cell] as Array[Dictionary]
+	var parts: Array[Dictionary] = []
+	var factor := int(cell.get("factor", 1))
+	if factor > 1:
+		parts.append(StampNet.factor_cell(factor))
+	var value := int(cell.get("value", 0))
+	if value != 0:
+		parts.append(StampNet.value_cell(value))
+	var material := String(cell.get("id", ""))
+	if material != "":
+		parts.append(StampNet.material_cell(material))
+	if bool(cell.get("dope", false)):
+		parts.append(StampNet.dope_cell())
+	var rune := String(cell.get("rune", ""))
+	if rune != "":
+		parts.append(StampNet.rune_cell(rune))
+	var to := int(cell.get("to", -1))
+	if to >= 0:
+		parts.append(StampNet.pointer_cell(to))
+	return parts
 
 ## Leere Projektion - auch der Rückgabewert jeder Serie ohne Karten.
 static func blank(die: DieDefinition = null) -> Dictionary:
@@ -81,40 +110,40 @@ static func resolve(nets: Array, die: DieDefinition,
 	for card in nets.size():
 		var net: Array = nets[card]
 		for face in FACES:
-			var cell := StampNet.cell_at(net, face)
-			match StampNet.kind_of(cell):
-				StampNet.KIND_VALUE:
-					bonus[face] += int(cell.get("value", 0))
-				StampNet.KIND_FACTOR:
-					bonus[face] *= int(cell.get("value", 1))
-					factors[face] *= int(cell.get("value", 1))
-				StampNet.KIND_OPERATOR:
-					_apply_operator(bonus, face, String(cell.get("id", "")))
-				StampNet.KIND_MATERIAL:
-					var id := String(cell.get("id", ""))
-					if _burned(die, face) and _material_on(die, materials, face) != "":
-						fizzled.append(_fizzle(card, face, FIZZLE_BURNED))
-					elif _material_on(die, materials, face) == id:
-						doped[face] = true  # zweimal dieselbe Farbe = Veredelung
-						materials[face] = id
-					else:
-						materials[face] = id
-						doped[face] = false
-				StampNet.KIND_RUNE:
-					_place_rune(rune_slots_state, face, String(cell.get("id", "")), slots)
-				StampNet.KIND_DOPE:
-					if _material_on(die, materials, face) == "":
-						fizzled.append(_fizzle(card, face, FIZZLE_NAKED))
-					elif _doped_on(die, materials, doped, face):
-						fizzled.append(_fizzle(card, face, FIZZLE_DOPED))
-					else:
-						doped[face] = true
-				StampNet.KIND_POINTER:
-					var target := int(cell.get("to", -1))
-					if die != null and not die.can_point(face, target):
-						fizzled.append(_fizzle(card, face, FIZZLE_POINTER))
-					else:
-						pointers[face] = target
+			for cell in _expand(StampNet.cell_at(net, face)):
+				match StampNet.kind_of(cell):
+					StampNet.KIND_VALUE:
+						bonus[face] += int(cell.get("value", 0))
+					StampNet.KIND_FACTOR:
+						bonus[face] *= int(cell.get("value", 1))
+						factors[face] *= int(cell.get("value", 1))
+					StampNet.KIND_OPERATOR:
+						_apply_operator(bonus, face, String(cell.get("id", "")))
+					StampNet.KIND_MATERIAL:
+						var id := String(cell.get("id", ""))
+						if _burned(die, face) and _material_on(die, materials, face) != "":
+							fizzled.append(_fizzle(card, face, FIZZLE_BURNED))
+						elif _material_on(die, materials, face) == id:
+							doped[face] = true  # zweimal dieselbe Farbe = Veredelung
+							materials[face] = id
+						else:
+							materials[face] = id
+							doped[face] = false
+					StampNet.KIND_RUNE:
+						_place_rune(rune_slots_state, face, String(cell.get("id", "")), slots)
+					StampNet.KIND_DOPE:
+						if _material_on(die, materials, face) == "":
+							fizzled.append(_fizzle(card, face, FIZZLE_NAKED))
+						elif _doped_on(die, materials, doped, face):
+							fizzled.append(_fizzle(card, face, FIZZLE_DOPED))
+						else:
+							doped[face] = true
+					StampNet.KIND_POINTER:
+						var target := int(cell.get("to", -1))
+						if die != null and not die.can_point(face, target):
+							fizzled.append(_fizzle(card, face, FIZZLE_POINTER))
+						else:
+							pointers[face] = target
 	# Treibladung: EIN Zuschlag ganz am Ende, auf jede gefüllte Zahl-Zelle des
 	# fertigen Summen-Netzes - nie zwischen den Karten, sonst verdoppelte ihn ein
 	# später gesteckter Verdoppler.
@@ -127,6 +156,84 @@ static func resolve(nets: Array, die: DieDefinition,
 		runes[face] = _rune_changes(die, rune_slots_state, face, slots)
 	out["faces_after"] = faces_after(die, bonus)
 	return out
+
+## DIE VERDICHTUNG (Spieler-Entscheide 2026-10-26): mehrere Netze werden zu EINEM
+## neuen Netz aus verdichteten Zellen. Sie ist bewusst eine ANDERE Rechnung als das
+## Prägen: Faktoren und Zahlen ADDIEREN (×4 + ×4 = ×8, nicht ×16), darum ist die
+## Reihenfolge hier GLEICHGÜLTIG - sie entscheidet erst wieder, wo die fertige Karte
+## später im Turm steckt. Verdichten ist ein Einsammeln, die Serie eine Auswertung.
+##
+## Material, Rune, Pointer und Veredelung passen je Seite nur EINMAL - so viel trägt
+## auch ein Würfel: der letzte gewinnt, die früheren verpuffen (FIZZLE_CROWDED).
+## Zweimal dasselbe Material ergibt die Veredelung, genau wie beim Prägen.
+## OPERATOREN lassen sich nicht verdichten (FIZZLE_OPERATOR): sie rechnen auf der
+## aufgelaufenen Summe und schreiben auf FREMDE Seiten - auf einer Karte mit mehreren
+## Zellen würde die Seitennummer zur versteckten Rechenreihenfolge.
+static func compress(nets: Array) -> Dictionary:
+	var fizzled: Array[Dictionary] = []
+	var factors: Array[int] = []
+	var values: Array[int] = []
+	var materials: Array[String] = []
+	var dopes: Array[bool] = []
+	var runes: Array[String] = []
+	var pointers: Array[int] = []
+	for i in FACES:
+		factors.append(0)
+		values.append(0)
+		materials.append("")
+		dopes.append(false)
+		runes.append("")
+		pointers.append(-1)
+	for card in nets.size():
+		var net: Array = nets[card]
+		for face in FACES:
+			for cell in _expand(StampNet.cell_at(net, face)):
+				match StampNet.kind_of(cell):
+					StampNet.KIND_VALUE:
+						values[face] += int(cell.get("value", 0))
+					StampNet.KIND_FACTOR:
+						factors[face] += int(cell.get("value", 0))
+					StampNet.KIND_MATERIAL:
+						var id := String(cell.get("id", ""))
+						if materials[face] == id:
+							dopes[face] = true  # zweimal dieselbe Farbe = Veredelung
+						else:
+							if materials[face] != "":
+								fizzled.append(_fizzle(card, face, FIZZLE_CROWDED))
+							materials[face] = id
+							dopes[face] = false
+					StampNet.KIND_DOPE:
+						if materials[face] == "":
+							fizzled.append(_fizzle(card, face, FIZZLE_NAKED))
+						else:
+							dopes[face] = true
+					StampNet.KIND_RUNE:
+						var rune := String(cell.get("id", ""))
+						if runes[face] != "" and runes[face] != rune:
+							fizzled.append(_fizzle(card, face, FIZZLE_CROWDED))
+						runes[face] = rune
+					StampNet.KIND_POINTER:
+						var target := int(cell.get("to", -1))
+						if pointers[face] >= 0 and pointers[face] != target:
+							fizzled.append(_fizzle(card, face, FIZZLE_CROWDED))
+						pointers[face] = target
+					StampNet.KIND_OPERATOR:
+						fizzled.append(_fizzle(card, face, FIZZLE_OPERATOR))
+	var out := StampNet.empty_net()
+	for face in FACES:
+		if factors[face] == 0 and values[face] == 0 and materials[face] == "" 				and not dopes[face] and runes[face] == "" and pointers[face] < 0:
+			continue
+		out[face] = StampNet.compound_cell(factors[face], values[face],
+			materials[face], dopes[face], runes[face], pointers[face])
+	return {"net": out, "fizzled": fizzled}
+
+## Lässt sich diese Serie überhaupt verdichten? Ein Operator sperrt sie.
+static func compressible(nets: Array) -> bool:
+	for net in nets:
+		for face in FACES:
+			if StampNet.kind_of(StampNet.cell_at(net, face)) == StampNet.KIND_OPERATOR:
+				return false
+	return true
 
 ## Trägt die Projektion überhaupt etwas ein?
 static func is_empty(projection: Dictionary) -> bool:

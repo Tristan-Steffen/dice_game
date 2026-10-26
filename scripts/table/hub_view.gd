@@ -632,7 +632,7 @@ func _apply_tier_to_medallion(tier: Color, last: int) -> void:
 ## Block zündet alle Stationen im Lauf des Bogens.
 ## block_id: laufender Ziel-Block (GameRun.block_of_round). Er entscheidet, ob
 ## ein Block WEITERläuft - die Zielzahlen taugen dafür nicht mehr, seit ein
-## unterschriebener Benchmark-Malus sie mitten im Block anhebt.
+## unterschriebener Quota-Malus sie mitten im Block anhebt.
 func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String] = [],
 		block_id: int = -1) -> void:
 	if not _built:

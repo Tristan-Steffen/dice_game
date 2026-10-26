@@ -626,7 +626,7 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 			data["title"] = "%s-Würfel" % essence.display_name
 			data["body"] = "%s\n%s" % [essence.short, essence.description]
 			data["net"] = die
-		GameRun.KIND_CATALYST:
+		GameRun.KIND_CATALYST, GameRun.KIND_BLANK:
 			var card_pack: Pack = offer[GameRun.OFFER_ITEM]
 			data["title"] = card_pack.display_name
 			data["body"] = card_pack.description
@@ -697,7 +697,7 @@ func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
 		match String(offer[GameRun.OFFER_KIND]):
 			GameRun.KIND_DIE:
 				die = offer[GameRun.OFFER_ITEM]
-			GameRun.KIND_CATALYST:
+			GameRun.KIND_CATALYST, GameRun.KIND_BLANK:
 				pack = offer[GameRun.OFFER_ITEM]
 			GameRun.KIND_ENGRAVING:
 				pack = Pack.fixed_engraving_pack(offer[GameRun.OFFER_ITEM] as Engraving,

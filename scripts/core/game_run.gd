@@ -76,12 +76,12 @@ const FUSE_FAILURE_SCALE := 4.0
 const MAINS_HUM_SCALE := 3.0
 const SHOP_INFLATION_FACTOR := 1.25
 const SHOP_DISCOUNT_FACTOR := 0.8
-## Benchmark-Aufschläge je Malusklausel. Die Eichung (Bonus) zieht separat ab -
-## der Aufschlag-Wächter darf sie nicht als "Benchmark schon gehoben" lesen.
-const BENCHMARK_MALUS := {
-	DealClause.BENCHMARK_SURCHARGE: 0.5,
-	DealClause.BENCHMARK_SURCHARGE_II: 1.0,
-	DealClause.BENCHMARK_SHOCK: 2.5,
+## Quota-Aufschläge je Malusklausel. Die Eichung (Bonus) zieht separat ab -
+## der Aufschlag-Wächter darf sie nicht als "Quota schon gehoben" lesen.
+const QUOTA_MALUS := {
+	DealClause.QUOTA_SURCHARGE: 0.5,
+	DealClause.QUOTA_SURCHARGE_II: 1.0,
+	DealClause.QUOTA_SHOCK: 2.5,
 	DealClause.USURY_CLAUSE: 4.0,
 	DealClause.HIGH_EXPECTATIONS: 5.0,
 }
@@ -604,6 +604,8 @@ func _tidy_key(pack: Pack) -> Array:
 		content = pack.catalyst_id
 	elif pack.is_operator():
 		content = pack.operator_id
+	elif pack.blank_id != "":
+		content = Pack.BLANK
 	elif pack.is_multiplier():
 		content = Pack.MULTIPLIER_NAME
 	elif pack.fixed_engraving != null:
@@ -745,6 +747,69 @@ func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
 	var parts := _series_parts(_series_indices(pack_uids))
 	return SeriesResolver.resolve(parts["nets"], die,
 		catalyst_terms(parts["catalysts"]))
+
+## --- DIE VERDICHTUNG (2026-10-26) ----------------------------------------------
+## Mehrere gewöhnliche Karten werden zu EINER dichteren gepresst. Der ROHLING aus dem
+## Schwarzmarkt liegt dabei auf dem Podest und WIRD die neue Karte; das Futter wird
+## verbraucht. Sie ist das Gegenstück zum Prägen und teilt dessen Grammatik - prüfen,
+## rechnen, schreiben, Karten verbrauchen -, aber nicht dessen Rechnung: beim
+## Verdichten ADDIEREN die Faktoren (siehe SeriesResolver.compress).
+
+## Die Futter-Netze einer Verdichtung, plus was sie SPERRT. Verdichtet wird nur, was
+## ein Netz trägt: Katalysatoren wirken auf einen WÜRFEL und würden hier bloß
+## verbraucht, Operatoren rechnen auf der aufgelaufenen Summe und lassen sich darum
+## gar nicht auf eine Zelle zusammenlegen.
+func _compress_parts(indices: Array[int]) -> Dictionary:
+	var nets: Array = []
+	var blocker := ""
+	for index in indices:
+		var pack: Pack = owned_packs[index]
+		if pack.is_catalyst():
+			blocker = "catalyst"
+		elif pack.is_operator():
+			blocker = "operator"
+		elif not StampNet.is_blank(pack.stamp_net):
+			nets.append(pack.stamp_net)
+	return {"nets": nets, "blocker": blocker}
+
+## VORSCHAU: was diese Serie in einem Rohling ergäbe. Mutiert nichts.
+## Liefert {"net", "fizzled", "cards"} - oder {} mit "blocker", wenn nichts geht.
+func compressible_series(pack_uids: Array[int], blank_uid: int) -> Dictionary:
+	var blank := pack_by_uid(blank_uid)
+	if blank == null or not blank.is_blank_card():
+		return {"blocker": "blank"}
+	var chosen := _series_indices(pack_uids)
+	chosen.erase(pack_index_of(blank_uid))  # der Rohling ist das ZIEL, nie sein Futter
+	var parts := _compress_parts(chosen)
+	var blocker := String(parts["blocker"])
+	if blocker != "":
+		return {"blocker": blocker}
+	var nets: Array = parts["nets"]
+	if nets.is_empty():
+		return {"blocker": "empty"}
+	var out := SeriesResolver.compress(nets)
+	out["cards"] = nets.size()
+	return out
+
+## DAS VERDICHTEN: EINE atomare Buchung. Der Rohling nimmt das zusammengepresste Netz
+## auf und ist danach eine gewöhnliche Kassette; das Futter wird verbraucht (mit
+## demselben Überlebens-Wurf der Zwinge wie beim Prägen). Kein Würfel wird angefasst,
+## also heizt hier nichts. Liefert {"net", "fizzled", "cards", "kept", "uid"} oder {}.
+func compress_series(pack_uids: Array[int], blank_uid: int,
+		rng: RandomNumberGenerator = null) -> Dictionary:
+	var preview := compressible_series(pack_uids, blank_uid)
+	if preview.has("blocker"):
+		return {}
+	var blank := pack_by_uid(blank_uid)
+	var chosen := _series_indices(pack_uids)
+	chosen.erase(pack_index_of(blank_uid))
+	# Der Rohling steckt NIE in chosen (erase oben), wird also nie sein eigenes Futter.
+	blank.stamp_net = preview["net"]
+	var kept := _consume_series_cards(chosen, rng)
+	packs_changed.emit()
+	press_changed.emit()
+	return {"net": preview["net"], "fizzled": preview["fizzled"],
+		"cards": int(preview["cards"]), "kept": kept, "uid": blank_uid}
 
 ## DAS PRÄGEN: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
 ## Karten verbrauchen. Es ist UNBEGRENZT (Spieler-Entscheid 2026-09-05) und geht
@@ -1029,11 +1094,11 @@ func _roll_treat_slot() -> int:
 			return i
 	return 0
 
-## Drei der sechs Stresstest-Konditionen, ohne einen zweiten Benchmark-Aufschlag.
+## Drei der sechs Stresstest-Konditionen, ohne einen zweiten Quota-Aufschlag.
 func _roll_boss_offers() -> void:
 	var pool: Array[String] = []
 	for clause_id in DealClause.ids_for(DealClause.Tier.BOSS, DealClause.Kind.MALUS):
-		if not _benchmark_blocked(clause_id):
+		if not _quota_blocked(clause_id):
 			pool.append(clause_id)
 	pool.shuffle()
 	for i in mini(ROUTE_OFFER_COUNT, pool.size()):
@@ -1053,7 +1118,7 @@ func _draw_card(tier: DealClause.Tier, treat: bool = false) -> Dictionary:
 
 ## Zieht eine Klausel des Topfes: nie eine, die schon in der Auslage liegt oder in
 ## diesem Block unterschrieben wurde, nie eine mit einem verbotenen Tag, nie einen
-## ZWEITEN Benchmark-Malus (sonst baut sich der Spieler ein unerreichbares Ziel).
+## ZWEITEN Quota-Malus (sonst baut sich der Spieler ein unerreichbares Ziel).
 ## Läuft der Topf dadurch leer, sind Wiederholungen erlaubt - ein leerer Platz
 ## wäre schlimmer als eine bekannte Klausel.
 func _draw_clause(tier: DealClause.Tier, kind: DealClause.Kind,
@@ -1064,7 +1129,7 @@ func _draw_clause(tier: DealClause.Tier, kind: DealClause.Kind,
 	for clause_id in all_ids:
 		if listed.has(clause_id) or _taken_this_block(clause_id):
 			continue
-		if _shares_tag(clause_id, taboo_tags) or _benchmark_blocked(clause_id):
+		if _shares_tag(clause_id, taboo_tags) or _quota_blocked(clause_id):
 			continue
 		pool.append(clause_id)
 	if pool.is_empty():
@@ -1087,9 +1152,9 @@ func _shares_tag(clause_id: String, taboo_tags: Array[String]) -> bool:
 			return true
 	return false
 
-## Ob die Klausel als zweiter Benchmark-Aufschlag ausgeschlossen ist.
-func _benchmark_blocked(clause_id: String) -> bool:
-	return BENCHMARK_MALUS.has(clause_id) and _benchmark_already_raised()
+## Ob die Klausel als zweiter Quota-Aufschlag ausgeschlossen ist.
+func _quota_blocked(clause_id: String) -> bool:
+	return QUOTA_MALUS.has(clause_id) and _quota_already_raised()
 
 ## Unterschreibt die Vertragskarte index der Auslage.
 func take_route(index: int) -> void:
@@ -1174,8 +1239,8 @@ func _taken_this_block(clause_id: String) -> bool:
 			return true
 	return false
 
-func _benchmark_already_raised() -> bool:
-	for clause_id: String in BENCHMARK_MALUS:
+func _quota_already_raised() -> bool:
+	for clause_id: String in QUOTA_MALUS:
 		if _clause_active(clause_id):
 			return true
 	return false
@@ -1222,27 +1287,27 @@ func active_deal_sides() -> Array[Dictionary]:
 
 # --- Klausel-Wirkungen (einzige Auflösung der ids) ----------------------------
 
-## Tatsächliches Rundenziel: das GESETZTE Grundziel × aller wirkenden Benchmark-
+## Tatsächliches Rundenziel: das GESETZTE Grundziel × aller wirkenden Quota-
 ## Klauseln. Bewusst über round_goal statt goal_for_round - wer das Ziel direkt
 ## setzt (Test, Debug), muss den Balken auch verschieben können.
 func effective_goal() -> int:
-	return roundi(round_goal * _benchmark_factor(round_number))
+	return roundi(round_goal * _quota_factor(round_number))
 
 ## Wie effective_goal, aber für eine beliebige Runde des Fahrplans - so zeigt die
-## Station der laufenden Runde sofort, was ein Benchmark-Malus sie kostet.
+## Station der laufenden Runde sofort, was ein Quota-Malus sie kostet.
 func effective_goal_for_round(n: int) -> int:
-	return roundi(goal_for_round(n) * _benchmark_factor(n))
+	return roundi(goal_for_round(n) * _quota_factor(n))
 
-## Faktor der in Runde n wirkenden Benchmark-Klauseln: Aufschläge multiplizieren
+## Faktor der in Runde n wirkenden Quota-Klauseln: Aufschläge multiplizieren
 ## sich, die Eichung halbiert.
-func _benchmark_factor(n: int) -> float:
+func _quota_factor(n: int) -> float:
 	var factor := 1.0
 	for entry in active_deals:
 		var clause := DealClause.find(entry["id"])
 		if clause == null or not _scope_reaches(entry, clause.scope, n):
 			continue
-		if BENCHMARK_MALUS.has(clause.id):
-			factor *= 1.0 + float(BENCHMARK_MALUS[clause.id])
+		if QUOTA_MALUS.has(clause.id):
+			factor *= 1.0 + float(QUOTA_MALUS[clause.id])
 		elif clause.id == DealClause.CALIBRATION:
 			# Nachlass: der Winkeladvokat wendet ihn ein zweites Mal an, statt die
 			# Zahl zu verdoppeln - sonst hübe "−50%" auf "−100%" das Ziel ganz auf.
@@ -1443,7 +1508,7 @@ func apply_midas_glove(defs: Array[DieDefinition], face_indices: Array[int], par
 		pool_changed.emit()
 	return gilded
 
-## Goldener Handschlag: schafft EINE Hand den Benchmark im Alleingang, wird ihr
+## Goldener Handschlag: schafft EINE Hand die Quota im Alleingang, wird ihr
 ## erster Würfel ganz Gold - je Runde einmal. Eingebrannte Seiten mit Material
 ## bleiben, wie sie sind (Einbrand sperrt das Übermalen).
 func apply_golden_handshake(def: DieDefinition, hand_points: int) -> bool:
@@ -2035,7 +2100,7 @@ func goal_roadmap_index(count: int) -> int:
 ## --- Überladung (Overcharge) --------------------------------------------------
 
 ## Punktebedarf der Stufe (1-basiert): Basisziel × Skalierung^(stufe-1) → 150,
-## 300, 600 … Basis ist das WIRKSAME Ziel, damit ein Benchmark-Malus den ganzen
+## 300, 600 … Basis ist das WIRKSAME Ziel, damit ein Quota-Malus den ganzen
 ## Balken mitzieht (Stufen, Schwellen, Sieg-Prüfung).
 func stage_size(stage: int) -> int:
 	return roundi(effective_goal() * pow(stage_scale(), stage - 1))
@@ -2145,6 +2210,7 @@ const KIND_DIE := "die"
 ## Katalysator-Kassette: die zweite Familie des Sonderbestands, also auch die
 ## zweite Ware des Sonderposten-Platzes.
 const KIND_CATALYST := "catalyst"
+const KIND_BLANK := "blank"
 
 ## Umrechnungskurs des Hinterzimmers: EIN Sonderposten kostet dort 3 ⚡, im Regal
 ## $30 - zehn Dollar auf die Energie. Jede Ware, die beide Läden führen (die
@@ -2154,6 +2220,9 @@ const SECRET_MONEY_PER_ENERGY := 10
 const SECRET_CATALYST_CHANCE := 0.35
 ## Eigene Ziehchance der Reparatur-Karte - sie wird VOR den Katalysatoren gezogen.
 const SECRET_REPAIR_CHANCE := 0.2
+## Eigene Ziehchance des ROHLINGS - er wird nach der Reparatur-Karte gezogen und ist
+## wie sie NUR hier zu haben (nie in Pack.SPECIAL_ROLL_WEIGHTS).
+const SECRET_BLANK_CHANCE := 0.25
 
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
 static func secret_energy_price(money_price: int) -> int:
@@ -2278,7 +2347,7 @@ func buy_secret_offer(index: int) -> bool:
 			# sucht der Spieler selbst - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
 			stash_die(die, 0)
-		KIND_CATALYST:
+		KIND_CATALYST, KIND_BLANK:
 			# Die Kassette liegt fertig im Angebot - sie geht, wie sie ist.
 			grant_pack(offer[OFFER_ITEM] as Pack)
 		_:
@@ -2305,6 +2374,8 @@ func _roll_secret_stock() -> void:
 func _secret_special_offer() -> Dictionary:
 	if randf() < SECRET_REPAIR_CHANCE and not _secret_catalyst_listed().has(Pack.CATALYST_REPAIR):
 		return _secret_catalyst_card(Pack.CATALYST_REPAIR)
+	if randf() < SECRET_BLANK_CHANCE and not _secret_blank_listed():
+		return _secret_blank_card()
 	if randf() < SECRET_CATALYST_CHANCE:
 		var card := _secret_catalyst_offer()
 		if not card.is_empty():
@@ -2336,6 +2407,19 @@ func _secret_catalyst_listed() -> Array[String]:
 func _secret_catalyst_card(id: String) -> Dictionary:
 	return _secret_offer(KIND_CATALYST, Pack.catalyst(id),
 		secret_energy_price(Pack.catalyst_price(id)))
+
+## Ein ROHLING als Angebot. Er reist wie eine Katalysator-Kassette (KIND_CATALYST
+## trägt ein fertiges Pack, das buy_secret_offer unverändert durchreicht).
+func _secret_blank_card() -> Dictionary:
+	return _secret_offer(KIND_BLANK, Pack.blank_card(),
+		secret_energy_price(Pack.BLANK_PRICE))
+
+## Liegt schon ein Rohling in der Auslage? Zwei gleiche Plätze lesen sich als Fehler.
+func _secret_blank_listed() -> bool:
+	for offer in secret_stock:
+		if offer.get(OFFER_KIND) == KIND_BLANK:
+			return true
+	return false
 
 ## Der dritte Platz würfelt nur noch WARE: Essenzwürfel oder Sonderbestand. Der
 ## Würfel ist der EINZIGE Weg an eine Schwarzmarkt-Seele - im normalen Handel

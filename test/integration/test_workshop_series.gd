@@ -191,6 +191,42 @@ func test_a_lone_repair_card_pulls_on_a_burned_die() -> void:
 	assert_eq(seen.size(), 1)
 	assert_true(bool(Dictionary(seen[0]).get("repaired", false)))
 
+## Warum der Knopf grau steht, sagt der INFO-SCHIRM - der Sitz selbst schweigt. Die
+## Klartexte sind die EINE Begruendung, und ihre Reihenfolge ist die von can_pull:
+## gezurrt vor Ziel vor Karte vor Durchbrand vor Katalysator.
+func test_der_knopf_nennt_seine_bremse_in_der_reihenfolge_von_can_pull() -> void:
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(),
+		"Kein Ziel: einen Vorrats-Würfel antippen oder einen %s auflegen." % Pack.BLANK_NAME,
+		"nackt fehlt zuerst das Ziel - und es gibt seit 2026-10-26 zwei Arten davon")
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(), "Keine Karte in der Reihe.", "dann die Karte")
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
+	assert_eq(view.stamp_blocker(), "", "fertig: der Knopf schweigt")
+
+func test_ein_durchgebrannter_wuerfel_nennt_die_fehlende_karte() -> void:
+	run.owned_pool[0].burn_out()
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(),
+		"Durchgebrannt - die %s fehlt." % Pack.catalyst_name(Pack.CATALYST_REPAIR),
+		"sie wird beim Namen genannt, nicht umschrieben")
+
+func test_eine_reine_katalysator_reihe_nennt_die_fehlende_netz_karte() -> void:
+	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
+	view.slot_pack(fuel.pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(), "Nur Katalysatoren - eine Netz-Karte fehlt.")
+
+func test_die_gezurrte_runde_schlaegt_jede_andere_bremse() -> void:
+	view.editing_locked = true
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(), "Runde gezurrt - erst im Laden wieder.",
+		"sie steht vor dem fehlenden Ziel")
+
 func test_a_catalysts_only_series_never_stamps() -> void:
 	for i in GameRun.SERIES_SLOT_CAP:
 		var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
@@ -1070,3 +1106,309 @@ func test_a_cooling_card_alone_may_press_but_never_unlocks_a_burned_die() -> voi
 	run.owned_pool[0].burn_out()
 	assert_false(view.can_pull(), "Ruß kühlt man nicht weg")
 	assert_true(view.stamp_blocker().contains(Pack.catalyst_name(Pack.CATALYST_REPAIR)))
+
+# --- DIE VERDICHTUNG am Podest ----------------------------------------------------
+## Dasselbe Podest, dieselbe Reihe, derselbe Knopf - nur die ART des Ziels entscheidet,
+## ob geprägt oder verdichtet wird.
+
+func _blank() -> Pack:
+	return run.grant_pack(Pack.blank_card())
+
+func test_ein_rohling_als_ziel_schaltet_den_knopf_auf_verdichten() -> void:
+	var blank := _blank()
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	assert_true(view.compressing(), "das Podest verdichtet")
+	assert_eq(view.stamp_label(), "Verdichten 1/6", "und der Knopf sagt es")
+	assert_true(view.can_pull())
+	assert_eq(view.stamp_blocker(), "")
+
+## Das Podest traegt EIN Ziel: ein Rohling raeumt den Wuerfel fort und umgekehrt.
+func test_das_podest_traegt_ein_ziel() -> void:
+	var blank := _blank()
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_not_null(view.target_die())
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	assert_null(view.target_die(), "der Rohling räumt den Würfel fort")
+	assert_not_null(view.target_pack())
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_null(view.target_pack(), "und der Würfel den Rohling")
+	assert_not_null(view.target_die())
+
+func test_derselbe_rohling_waehlt_ab() -> void:
+	var blank := _blank()
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	assert_null(view.target_pack(), "derselbe wählt ab")
+	assert_false(view.compressing())
+
+## Der ZIEL-Rohling steckt nie in seiner eigenen Reihe.
+func test_der_ziel_rohling_faellt_aus_der_reihe() -> void:
+	var blank := _blank()
+	view.slot_pack(blank.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.press_slot_uids(), [blank.pack_uid] as Array[int], "erst steckt er")
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	assert_false(view.press_slot_uids().has(blank.pack_uid),
+		"als Ziel ist er kein Futter mehr")
+
+func test_der_knopf_nennt_die_bremsen_des_verdichtens() -> void:
+	var blank := _blank()
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(), "Keine Karte in der Reihe.")
+	var op := run.grant_pack(Pack.operator_pack(StampNet.OP_MIRROR))
+	view.slot_pack(op.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(), "Operatoren lassen sich nicht verdichten.")
+	assert_false(view.can_pull())
+
+func test_ein_katalysator_sperrt_das_verdichten_mit_klartext() -> void:
+	var blank := _blank()
+	view.slot_pack(run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT)).pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	assert_eq(view.stamp_blocker(),
+		"Katalysatoren verdichten nicht - sie wirken auf einen Würfel.")
+
+## Die ganze Fahrt: buchen vor dem Licht, und die drei WUERFEL-Takte entfallen - beim
+## Verdichten fliegt nichts.
+func test_das_verdichten_bucht_vor_dem_licht_und_laesst_die_wuerfel_takte_fort() -> void:
+	var blank := _blank()
+	var fuel := _valued_pack(0, 5)
+	view.slot_pack(fuel.pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	var beats: Array[String] = []
+	view.die_raised.connect(func(_t: float) -> void: beats.append("raised"))
+	view.light_struck.connect(func(_t: float) -> void: beats.append("struck"))
+	view.die_returned.connect(func(_t: float) -> void: beats.append("returned"))
+	var latched: Array[float] = []
+	view.cards_latched.connect(func(t: float) -> void: latched.append(t))
+	var applied: Array = []
+	view.series_applied.connect(func(result: Dictionary, _px: Vector2) -> void:
+		applied.append(result))
+	view.pull_lever()
+	assert_eq(int(StampNet.cell_at(blank.stamp_net, 0)["value"]), 5,
+		"gebucht vor dem Licht")
+	assert_true(view.burning(), "und die Fahrt läuft")
+	assert_true(view.compressing(), "sie weiß noch, daß sie verdichtet")
+	assert_eq(latched.size(), 1, "die Karten rasten ein")
+	await wait_seconds(view.ceremony_time() + 0.3)
+	assert_false(view.burning(), "sie läuft zu Ende")
+	assert_eq(beats, [] as Array[String], "kein Würfel-Takt - hier fliegt nichts")
+	assert_eq(applied.size(), 1, "und sie meldet das Verdichten")
+
+func test_nach_dem_verdichten_ist_das_podest_leer() -> void:
+	var blank := _blank()
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	view.pull_lever()
+	view.skip_ceremony()
+	await wait_frames(2)
+	assert_null(view.target_pack(), "gefüllt ist er kein Rohling mehr")
+	assert_false(view.compressing())
+	assert_true(blank.is_compressed(), "sondern eine verdichtete Karte")
+
+## Der Summen-Schirm zeigt beim Verdichten die KARTE, die herauskaeme - nicht die
+## Praege-Summe, denn das ist eine andere Rechnung.
+func test_der_summen_schirm_zeigt_die_verdichtete_karte() -> void:
+	var blank := _blank()
+	var mult := run.grant_pack(Pack.number_pack())
+	mult.stamp_net = StampNet.empty_net()
+	mult.stamp_net[0] = StampNet.factor_cell(4)
+	view.slot_pack(mult.pack_uid)
+	view.slot_pack(_valued_pack(0, 5).pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	var source := view._sum_view_source()
+	assert_eq(String(source["mode"]), "card", "als KARTE, nicht als Summe")
+	var cell: Dictionary = StampNet.cell_at(source["net"], 0)
+	assert_eq(StampNet.compound_glyph(cell), "4x+5", "und zwar als die, die herauskäme")
+
+## Die KARTE entscheidet, was der Tipp tut: eine Netz-Karte steckt, ein ROHLING legt
+## sich aufs Podest. Als Futter traege er ohnehin nichts bei.
+func test_ein_tipp_auf_einen_rohling_legt_ihn_aufs_podest() -> void:
+	var blank := _blank()
+	var card := _valued_pack(0, 3)
+	view._on_pack_pressed(card.pack_uid)
+	view._on_pack_pressed(blank.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.press_slot_uids(), [card.pack_uid] as Array[int],
+		"die Netz-Karte steckt in der Reihe")
+	assert_eq(view.target_pack(), blank, "der Rohling liegt auf dem Podest")
+	assert_true(view.compressing())
+
+## Eine VERDICHTETE Karte ist kein Rohling mehr - sie steckt wieder wie jede andere.
+func test_ein_tipp_auf_eine_verdichtete_karte_steckt_sie() -> void:
+	var blank := _blank()
+	blank.stamp_net[0] = StampNet.compound_cell(4, 9)
+	view._on_pack_pressed(blank.pack_uid)
+	await wait_frames(2)
+	assert_eq(view.press_slot_uids(), [blank.pack_uid] as Array[int],
+		"gefüllt ist sie Futter wie jede andere")
+	assert_null(view.target_pack())
+
+## EIN DING WIRD NIE ZWEIMAL GEZEIGT: liegt der Rohling auf dem Podest, hat er im
+## Magazin KEINEN Koerper - sein Platz bleibt stehen, wie der Pool-Sitz des
+## Zielwuerfels. (Bug 2026-10-26: er stand doppelt da.)
+func test_der_rohling_auf_dem_podest_hat_im_magazin_keinen_koerper() -> void:
+	var blank := _blank()
+	await wait_frames(2)
+	var before := _entry_of(blank.pack_uid)
+	assert_false(before.is_empty(), "er liegt im Magazin")
+	assert_false(bool(before["withheld"]), "und wird dort gezeigt")
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	var during := _entry_of(blank.pack_uid)
+	assert_false(during.is_empty(), "sein PLATZ bleibt stehen")
+	assert_true(bool(during["withheld"]), "aber sein Körper steht auf dem Podest")
+
+## Und nach dem Verdichten kommt er zurueck ins Fach - sonst waere die fertige Karte
+## nirgends zu finden.
+func test_nach_dem_verdichten_steht_die_karte_wieder_im_fach() -> void:
+	var blank := _blank()
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	view.pull_lever()
+	view.skip_ceremony()
+	await wait_frames(2)
+	var entry := _entry_of(blank.pack_uid)
+	assert_false(entry.is_empty(), "die verdichtete Karte liegt im Magazin")
+	assert_false(bool(entry["withheld"]), "und wird dort auch gezeigt")
+	assert_eq(int(entry["tray"]), Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL),
+		"im Sonderbestand, wie der Rohling vorher")
+
+## Der Eintrag einer Karte im Magazin ({} = sie liegt nicht dort).
+func _entry_of(uid: int) -> Dictionary:
+	for entry in view.drawer_entries():
+		if int(entry.get("uid", 0)) == uid:
+			return entry
+	return {}
+
+
+# --- Der PLATZ einer weit hinausgerollten Karte -----------------------------------
+## Bug 2026-10-26 (20 Karten je Sorte, ans Ende gerollt): ein Platz darf LEGITIM
+## negativ sein - weit nach links gerollt liegt er unter dem Filz. Der alte
+## Gueltigkeits-Test "x >= 0" verwarf ihn und parkte die Karte auf der nackten
+## GRUBENMITTE, mitten im Bild. Gemessen brach die Reihe ab Spalte -13 ab.
+func test_eine_weit_hinausgerollte_karte_landet_nie_auf_der_grubenmitte() -> void:
+	var uids: Array[int] = []
+	for i in 40:
+		uids.append(run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping())).pack_uid)
+	var tray := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
+	view.shelf_tray = tray
+	view.set_shelf_scroll(tray, PackDrawerView.max_scroll(run.pack_tray_count(tray)))
+	await wait_frames(2)
+	var mitte := view.shelf_rect_global().get_center()
+	# Die kritischen sind die mit NEGATIVER Anzeige-x: genau die verwarf der alte
+	# Gueltigkeits-Test als ungueltig.
+	var negativ := 0
+	for uid in uids:
+		var seat := view.pack_seat_px(uid)
+		if seat.x < 0.0:
+			negativ += 1
+		assert_gt(seat.distance_to(mitte), 1.0,
+			"uid %d (Spalte %d) liegt auf der Grubenmitte"
+				% [uid, view.shelf_window_column_of(uid)])
+	assert_gt(negativ, 0, "es gibt wirklich Karten links der Anzeige")
+
+## Und die Plaetze bleiben eine GERADE: gleiche Spaltendifferenz, gleicher Abstand.
+func test_die_plaetze_der_hinausgerollten_karten_bleiben_linear() -> void:
+	var uids: Array[int] = []
+	for i in 40:
+		uids.append(run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping())).pack_uid)
+	var tray := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
+	view.shelf_tray = tray
+	view.set_shelf_scroll(tray, PackDrawerView.max_scroll(run.pack_tray_count(tray)))
+	await wait_frames(2)
+	var by_column: Dictionary = {}
+	for uid in uids:
+		if view.shelf_lane_of(uid) == 0:
+			by_column[view.shelf_window_column_of(uid)] = view.pack_seat_px(uid)
+	var columns: Array = by_column.keys()
+	columns.sort()
+	assert_gt(columns.size(), 3, "genug Spalten für eine Gerade")
+	var step: Vector2 = by_column[columns[1]] - by_column[columns[0]]
+	for i in range(1, columns.size()):
+		if int(columns[i]) - int(columns[i - 1]) != 1:
+			continue
+		var delta: Vector2 = by_column[columns[i]] - by_column[columns[i - 1]]
+		assert_almost_eq(delta.x, step.x, 0.5, "Spalte %d" % columns[i])
+
+# --- Der Roll-Stand gehoert dem SICHTBAREN Tablett -------------------------------
+## Spieler-Wunsch 2026-10-26: nur das gewaehlte Tablett rollt. Beim Wechsel stehen
+## alle anderen wieder auf ihrer ersten Spalte.
+func test_der_tablett_wechsel_setzt_die_uebrigen_roll_staende_zurueck() -> void:
+	for i in 40:
+		run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping()))
+	for i in 20:
+		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
+	var sonder := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
+	var runen := Pack.SHELF_ORDER.find(Engraving.CATEGORY_DICE)
+	view.shelf_tray = sonder
+	view.set_shelf_scroll(sonder, 5)
+	await wait_frames(2)
+	assert_eq(view.shelf_scroll_of(sonder), 5, "das gewählte Tablett rollt")
+	view.shelf_tray = runen
+	await wait_frames(2)
+	assert_eq(view.shelf_scroll_of(sonder), 0,
+		"beim Wechsel steht das verlassene wieder auf Spalte 0")
+	view.set_shelf_scroll(runen, 3)
+	await wait_frames(2)
+	view.shelf_tray = sonder
+	await wait_frames(2)
+	assert_eq(view.shelf_scroll_of(runen), 0, "und umgekehrt genauso")
+	assert_eq(view.shelf_scroll_of(sonder), 0, "das zurueckgekehrte steht vorn")
+
+## Die Folge davon ist der eigentliche FEHLER-Fix: das Einfahren in die Wand ist ein
+## FESTER z-Versatz, und ein Roll-Stand konnte ihn genau aufheben - dann lag eine
+## eingefahrene Karte wieder ueber der offenen Grube. Ohne Roll-Stand kann das nicht
+## mehr passieren: alle Karten eines verdeckten Tabletts liegen auf EINER Spalte je Rang.
+func test_ein_verdecktes_tablett_liegt_geschlossen_auf_seinen_spalten() -> void:
+	for i in 20:
+		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
+	for i in 8:
+		run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping()))
+	var runen := Pack.SHELF_ORDER.find(Engraving.CATEGORY_DICE)
+	view.shelf_tray = runen
+	view.set_shelf_scroll(runen, 4)
+	await wait_frames(2)
+	view.shelf_tray = Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
+	await wait_frames(2)
+	var columns: Array[int] = []
+	for pack in run.owned_packs:
+		if Pack.shelf_rank(pack) != runen:
+			continue
+		columns.append(view.shelf_window_column_of(pack.pack_uid))
+	columns.sort()
+	assert_eq(columns[0], 0, "die erste Karte des verdeckten Tabletts steht auf Spalte 0")
+	assert_gt(columns[columns.size() - 1], 0, "und die Reihe laeuft von dort aufwaerts")
+
+## Ein verdecktes Tablett faehrt so weit ein, wie sein INHALT reicht - mit nur EINER
+## Grubenbreite laegen seine ersten Spalten wieder ueber dem gewaehlten (gemessen
+## 2026-10-26: vier Karten standen darueber).
+func test_ein_langes_tablett_faehrt_mehrere_grubenbreiten_ein() -> void:
+	await wait_frames(2)
+	assert_eq(view.shelf_retract_windows(), 1, "leer reicht EINE Breite")
+	for i in 8:
+		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
+	await wait_frames(2)
+	assert_eq(view.shelf_retract_windows(), 1, "ein volles Fenster auch noch")
+	for i in 20:
+		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
+	await wait_frames(2)
+	var columns := PackDrawerView.columns_used(28)
+	var wanted := ceili(float(columns) / float(view.shelf_columns()))
+	assert_eq(view.shelf_retract_windows(), wanted,
+		"%d Spalten brauchen %d Fensterbreiten" % [columns, wanted])
+	assert_gt(view.shelf_retract_windows(), 1, "und das sind mehr als eine")

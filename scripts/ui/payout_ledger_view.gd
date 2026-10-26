@@ -357,7 +357,7 @@ func payout_plot_radius() -> float:
 	return float(int(maxf(size.x, 1.0) / 100.0 * PLOT_RADIUS_UNITS))
 
 ## Malt allein die Waren-NAMEN, links neben der Ware: dasselbe Zeilenmaß und derselbe
-## linke Rand wie "Benchmark" und "Übrige Würfel", damit die Seite EIN Schriftbild hat.
+## linke Rand wie "Quota" und "Übrige Würfel", damit die Seite EIN Schriftbild hat.
 ## KEINE Fassung: was da steht, ist der Körper, und ist er oben, steht nichts mehr da.
 func _lay_plots() -> void:
 	if _plot_layer == null or not is_instance_valid(_plot_layer):

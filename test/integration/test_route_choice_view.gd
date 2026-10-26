@@ -32,7 +32,7 @@ func _collect(node: Node, out: Array) -> void:
 
 func _three_offers() -> Array[Dictionary]:
 	return _cards_in([
-		_card(DealClause.Tier.ONE, DealClause.SAVINGS_BONUS, DealClause.BENCHMARK_SURCHARGE),
+		_card(DealClause.Tier.ONE, DealClause.SAVINGS_BONUS, DealClause.QUOTA_SURCHARGE),
 		_card(DealClause.Tier.TWO, DealClause.HIGH_VOLTAGE, DealClause.HALF_PAYOUT),
 		_card(DealClause.Tier.TREAT, DealClause.HAPPY_HOUR),
 	])

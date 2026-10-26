@@ -23,7 +23,7 @@ extends Node3D
 
 const HAND_SIZE := 6
 
-## Einmal für den geschafften Benchmark - und erneut je Überladungs-Stufe, die
+## Einmal für die geschaffte Quota - und erneut je Überladungs-Stufe, die
 ## nicht mehr in die Ladungs-Börse passt (siehe GameRun.energy_split).
 const MONEY_PER_ROUND_CLEAR := 5
 const MONEY_PER_UNUSED_DIE := 1  # je noch nicht gezogenem Würfel im Rundenpool
@@ -1551,6 +1551,9 @@ func _tower_head_px() -> float:
 ## der Rahmen dort seinen Kopfraum - und der GRIFF-Knopf dahinter dieselbe Luft (die
 ## LEHNE der Bühne, gemeldet als die_lean); mit der halben FLÄCHE gerechnet deckte er ihn.
 func _hover_die_head_px() -> float:
+	# Sie gilt auch für den liegenden ROHLING: GEMESSEN am 2026-10-26 ragt der nur
+	# 28 Display-px über die Podest-Spanne, die Lehne des schwebenden Würfels ist
+	# 46,9 - sie deckt den Überhang schon ab. Eine eigene Lehne machte es ENGER.
 	var reach := _die_face_px() * DieBuilder.HALF_EXTENT / DieBuilder.FACE_SIZE * VitrineView.SILHOUETTE
 	return WorkshopView.BENCH_TILT_TRIM + reach
 
@@ -2738,7 +2741,7 @@ func _refresh_hub_info() -> void:
 	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
 	# Fahrplan-Block (6 Ziele, bleibt stehen bis das letzte geschafft ist) + Position
 	# samt Markern (rot = Stresstest). Die Ziele sind die WIRKSAMEN: ein Deal mit
-	# Benchmark-Aufschlag hebt die kommenden Stationen sichtbar an.
+	# Quota-Aufschlag hebt die kommenden Stationen sichtbar an.
 	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
 		run.goal_roadmap_markers(6), GameRun.block_of_round(run.round_number))
 	_refresh_deal_tokens()
@@ -3557,14 +3560,54 @@ func _bench_podium_target(workshop: WorkshopView) -> Vector3:
 ## Zielposition baut nichts neu, sie folgt nur dem Layout.
 var target_stage: StasisEmitter
 
+## Der ROHLING, der beim VERDICHTEN auf dem Podest LIEGT, und seine uid als
+## Schlüssel - dasselbe Ziel baut nichts neu.
+var bench_blank_cell: DataCellView
+var _bench_blank_uid := 0
+
 func _rebuild_target_stage() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
+	_seat_bench_blank(workshop)
 	# Während des DURCHLICHTS steht der Würfel über dem Turm - das Podest zeigt
-	# derweil seinen leeren Puck.
+	# derweil seinen leeren Puck. Ein liegender ROHLING verdrängt ihn dagegen: zwei
+	# Leiber an einem Platz wären einer zu viel.
 	target_stage = _seat_podium_puck(target_stage, "TargetStage",
-		_bench_podium_target(workshop), _bench_die == null or _durchlicht)
+		_bench_podium_target(workshop),
+		(_bench_die == null or _durchlicht) and bench_blank_cell == null)
+
+## Der EINE Schreiber des ROHLINGS auf dem Podest. Er wird NICHT getragen: er LIEGT
+## schon dort, wo er hin gehört, und das Licht kommt zu ihm - anders als der
+## Zielwürfel, der über den Turm fliegt. Er liegt FLACH auf dem Glas, nicht
+## schwebend, darum ohne CLAMP_HOVER und ohne den Projektions-Trim des Würfels.
+func _seat_bench_blank(workshop: WorkshopView) -> void:
+	var pack := workshop.target_pack()
+	var uid := pack.pack_uid if pack != null else 0
+	var standing := bench_blank_cell != null and is_instance_valid(bench_blank_cell)
+	if uid == _bench_blank_uid and standing == (uid != 0):
+		return
+	if standing:
+		bench_blank_cell.queue_free()
+	bench_blank_cell = null
+	_bench_blank_uid = uid
+	if pack == null:
+		return
+	var center := workshop.target_net_center()
+	if center.x < 0.0:
+		return
+	var at := table_screen.pixel_to_world(Vector2(center.x,
+		workshop.target_projector_y() - WorkshopView.BENCH_TILT_TRIM))
+	bench_blank_cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at,
+		pack.stamp_net)
+	_lay_cell_hard(bench_blank_cell, at)
+
+## Der harte Weg: der Rohling verläßt das Podest (Laufwechsel, Zurren).
+func _drop_bench_blank() -> void:
+	if bench_blank_cell != null and is_instance_valid(bench_blank_cell):
+		bench_blank_cell.queue_free()
+	bench_blank_cell = null
+	_bench_blank_uid = 0
 
 ## Der EINE Schreiber des Pucks. Die Station steht auf der Fläche (Y=0) - der
 ## Anker ist der Projektor, nicht ein schwebender Körper (_bench_hover_target).
@@ -3762,6 +3805,7 @@ func _migrate_bench_to_pool() -> void:
 ## Ort-Zustand (_bench_die) unberührt - der ist Sache von _migrate_bench_to_pool.
 func _reset_bench_migration_hard() -> void:
 	_bench_gen += 1
+	_drop_bench_blank()
 	if bench_stage != null and is_instance_valid(bench_stage) and bench_stage.is_flying():
 		bench_stage.land_at(_stage_rest(bench_stage), 0.0)
 		bench_stage.set_process(true)
@@ -3956,6 +4000,7 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 		add_child(shelf_stack)
 	shelf_stack.setup(table_screen.pixel_to_world(rect.get_center()),
 		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect))
+	shelf_stack.set_retract_windows(workshop.shelf_retract_windows())
 	# Nur ein echter Wechsel setzt hart: sonst risse dieser Abgleich jede laufende
 	# Fahrt ab (die schreibt ihren Endzustand ohnehin sofort ins Fenster).
 	if shelf_stack.selected() != workshop.shelf_tray:
@@ -8263,6 +8308,14 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 		var line := workshop.shelf_row_of(uid)
 		var target := _shelf_seat(workshop, uid, line)
 		var cell: DataCellView = shelf_cells.get(uid)
+		# Das PRÄGENETZ einer Karte stand bisher ab ihrer Geburt fest; seit der
+		# VERDICHTUNG (2026-10-26) ändert es sich im Magazin. DataCellView.setup ist
+		# der EINE Eingang und BAUT den Körper - ein zweiter Aufruf hinge einen
+		# zweiten Leib an -, also wird sie neu gebaut statt umgeschrieben.
+		if cell != null and is_instance_valid(cell) and cell.stamp_net != pack.stamp_net:
+			_free_data_cell(cell)
+			shelf_cells.erase(uid)
+			cell = null
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
 				pack.is_repair())
@@ -9883,7 +9936,7 @@ func _write_workshop_info(workshop: WorkshopView, pixel: Vector2) -> void:
 ## die Ruhe-Auskunft. Die Glas-Ansicht und die Inspektion haben ihr eigenes Bild.
 func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
 	var idle := WorkshopInfoView.idle_info(workshop.target_die(),
-		workshop.stamp_blocker())
+		workshop.stamp_blocker(), workshop.compressing())
 	if pixel.x < 0.0 or _deck_glass or camera_rig.die_focus:
 		return idle
 	var cell_hint := workshop.net_hint_at(pixel)
@@ -13000,7 +13053,7 @@ func _on_route_chosen(index: int) -> void:
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()
 	_apply_round_start_effects()
-	_refresh_round_hud()  # ein Benchmark-Aufschlag verschiebt den Balken sofort
+	_refresh_round_hud()  # ein Quota-Aufschlag verschiebt den Balken sofort
 	_refresh_ui()
 
 ## Rundenbeginn-Wirkungen (Charms UND Deals): Glückszahl, Drossel, Rampenlicht.
@@ -13144,7 +13197,7 @@ func _round_should_end() -> bool:
 		or hands_taken_this_round >= run.max_hands_this_round() \
 		or _remaining_in_pool() <= 0
 
-## Rundenende: MONEY_PER_ROUND_CLEAR EINMAL für den geschafften Benchmark, je
+## Rundenende: MONEY_PER_ROUND_CLEAR EINMAL für die geschaffte Quota, je
 ## ungezogenem Würfel MONEY_PER_UNUSED_DIE - und je gefüllter Überladungs-Stufe
 ## eine Energie (⚡). Was nicht mehr in die Börse passt, fällt zum alten Satz als
 ## Geld an. Die Auszahlung läuft als Tisch-Animation, bevor der Shop aufgeht; die
@@ -13234,7 +13287,7 @@ func _on_round_complete() -> void:
 		# Kometen und bucht sie einzeln bei Ankunft.
 		var split := run.energy_split(stages)
 		# Zinsen rechnen auf demselben Stand - Wett-Geld verzinst also mit - und
-		# reisen mit dem Benchmark-Kometen: ein eigener Komet für ein paar Dollar
+		# reisen mit dem Quota-Kometen: ein eigener Komet für ein paar Dollar
 		# wäre Zeremonie um ihrer selbst willen.
 		var interest := run.interest_income()
 		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split, leftover_dice)
@@ -13456,7 +13509,7 @@ func _open_side_bet_betting() -> void:
 		return
 	betting_open = true
 	if table_screen != null and table_screen.side_bet_window != null:
-		# Ziele frieren HIER ein: der GESPEICHERTE Benchmark, nicht der wirksame -
+		# Ziele frieren HIER ein: die GESPEICHERTE Quota, nicht die wirksame -
 		# eine später unterschriebene Klausel darf kein gedrucktes Ziel verschieben.
 		# Und das MAGAZIN reicht seine Inventar-Sicht mit: eine Paket-Einsatz-Vorlage
 		# liegt nur aus, wenn der Spieler die genannte Ware wirklich besitzt.
@@ -13550,7 +13603,7 @@ func _is_high_dice_hand(values: Array[int], scored: Array[int]) -> bool:
 
 ## Zählt die Rundenposten nacheinander ab und MELDET jeden an die Auszahlungs-
 ## Seite; die übrigen Tray-Würfel blitzen im selben Takt mit (überzählige zahlen
-## ohne eigenes Aufblitzen). Drei Posten: Benchmark (einmal Geld), Überladung
+## ohne eigenes Aufblitzen). Drei Posten: Quota (einmal Geld), Überladung
 ## (je Stufe ⚡ bzw. Überlauf-Geld nach split), übrige Würfel.
 func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array[int], stages: int,
 		split: Dictionary, leftover_dice: Array) -> void:
@@ -13560,7 +13613,7 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 	await get_tree().create_timer(CameraRig.ZOOM_DURATION).timeout
 
 	var hub := table_screen.hub
-	# 1) Der geschaffte Benchmark zahlt EINMAL - ein goldener Komet, eine Buchung.
+	# 1) Die geschaffte Quota zahlt EINMAL - ein goldener Komet, eine Buchung.
 	var travel := table_screen.bank_comet(table_screen.stage_fill_color(1))
 	await get_tree().create_timer(maxf(travel, 0.05)).timeout
 	if phase != Phase.PAYOUT:
@@ -13568,7 +13621,7 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 	if hub != null:
 		hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 	run.add_money(base_blind + interest)
-	_ledger_money("benchmark", "Benchmark", base_blind)
+	_ledger_money("quota", "Quota", base_blind)
 	if interest > 0:
 		_ledger_money("interest", "Zinsen", interest)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
@@ -14251,7 +14304,7 @@ func _close_lexikon() -> void:
 func _show_game_over(total: int) -> void:
 	_set_gameplay_ui_visible(false)
 	if title_view == null:
-		game_over_label.text = "Benchmark verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.effective_goal()]
+		game_over_label.text = "Quota verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.effective_goal()]
 		game_over_panel.visible = true
 		return
 	title_view.show_game_over(total, run.effective_goal(), run.round_number)

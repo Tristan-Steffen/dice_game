@@ -3,7 +3,8 @@ extends Resource
 ## Das PRÄGENETZ einer Kassette: sechs Zellen, eine je Würfelseite. Es wird bei
 ## der ERZEUGUNG gewürfelt, steht ab da fest und liegt im Laden offen - der Zufall
 ## lebt im Nachschub, nicht mehr an der Presse. Jede Zelle trägt GENAU EINES:
-## Zahl-Bonus, Faktor, Material, Rune, Operator, Veredelung oder Pointer.
+## Zahl-Bonus, Faktor, Material, Rune, Operator, Veredelung oder Pointer - die EINE
+## Ausnahme ist die VERDICHTETE Zelle, die mehrere Kanäle zugleich trägt.
 ##
 ## Hier stehen nur Daten und der Wurf. Wie sich mehrere Netze zu einer Serie
 ## verrechnen, weiß allein der SeriesResolver.
@@ -18,6 +19,10 @@ const KIND_RUNE := "rune"          # {"id": Rune-id}
 const KIND_OPERATOR := "operator"  # {"id": OP_*}
 const KIND_DOPE := "dope"          # sättigt das Material dieser Seite
 const KIND_POINTER := "pointer"    # {"to": Nachbarseite}
+## Die VERDICHTETE Zelle (2026-10-26): sie trägt mehrere Kanäle zugleich, denn sie
+## ist aus mehreren Karten zusammengepresst. Nur die VERDICHTUNG erzeugt sie, kein
+## Wurf - darum steht sie in keiner Wurftabelle.
+const KIND_COMPOUND := "compound"  # {"factor": int, "value": int, "id", "dope", "rune", "to"}
 
 ## --- Die OPERATOREN ------------------------------------------------------------
 ## Sonderbestand: genau eine Operator-Zelle je Karte. Sie rechnen ausschließlich im
@@ -110,6 +115,38 @@ static func dope_cell() -> Dictionary:
 static func pointer_cell(to_face: int) -> Dictionary:
 	return {"kind": KIND_POINTER, "to": to_face}
 
+## Eine VERDICHTETE Zelle. factor 1 heißt "kein Multiplikator" (Identität), denn beim
+## Prägen rechnet sie affin: Summe × factor + value.
+static func compound_cell(factor: int, value: int, material := "", dope := false,
+		rune := "", to := -1) -> Dictionary:
+	return {"kind": KIND_COMPOUND, "factor": maxi(factor, 1), "value": value,
+		"id": material, "dope": dope, "rune": rune, "to": to}
+
+## Die Aufschrift einer verdichteten Zelle in MATHEMATISCHER Notation (Spieler-Entscheid
+## 2026-10-26): "4x+9" heißt "vier mal die aufgelaufene Summe, plus neun". Das x ist die
+## Variable, nicht das Malzeichen - darum nicht das × der Faktor-Zelle. "" = sie rechnet
+## nicht und trägt nur Material, Rune oder Pointer.
+static func compound_glyph(cell: Dictionary) -> String:
+	var factor := int(cell.get("factor", 1))
+	var value := int(cell.get("value", 0))
+	var text := "%dx" % factor if factor > 1 else ""
+	if value > 0:
+		text += "+%d" % value
+	elif value < 0:
+		text += str(value)
+	return text
+
+## Der höchste Faktor der verdichteten Zellen (0 = keiner). Bewusst NICHT in
+## top_factor: dessen Antwort IST die Identität des Multiplikator-Pakets, und eine
+## verdichtete Karte ist keines.
+static func top_compound_factor(net: Array) -> int:
+	var top := 0
+	for face in FACES:
+		var cell := cell_at(net, face)
+		if kind_of(cell) == KIND_COMPOUND:
+			top = maxi(top, int(cell.get("factor", 1)))
+	return top
+
 ## Sorte einer Zelle ("" = leer).
 static func kind_of(cell: Dictionary) -> String:
 	return String(cell.get("kind", ""))
@@ -155,7 +192,10 @@ static func net_glyph(net: Array) -> String:
 		if kind_of(cell) == KIND_OPERATOR:
 			return operator_glyph(String(cell.get("id", "")))
 	var factor := top_factor(net)
-	return factor_glyph(factor) if factor > 0 else ""
+	if factor > 0:
+		return factor_glyph(factor)
+	var compound := top_compound_factor(net)
+	return factor_glyph(compound) if compound > 1 else ""
 
 static func factor_glyph(factor: int) -> String:
 	return "×%d" % factor
@@ -269,10 +309,17 @@ static func line(net: Array) -> String:
 		match kind_of(cell):
 			KIND_VALUE:
 				sum += int(cell.get("value", 0))
+			KIND_COMPOUND:
+				sum += int(cell.get("value", 0))
 			KIND_OPERATOR:
 				op = operator_name(String(cell.get("id", "")))
 	if op != "":
 		return op
+	var compound := top_compound_factor(net)
+	if compound > 0:
+		if compound > 1:
+			return "Verdichtet: %s, +%d gesamt" % [factor_glyph(compound), sum]
+		return "Verdichtet: %d Zellen, +%d gesamt" % [cells, sum]
 	var factor := top_factor(net)
 	if factor > 0:
 		return "%s auf %d Seite%s" % [factor_glyph(factor), cells, "n" if cells > 1 else ""]
@@ -301,7 +348,35 @@ static func cell_hint(cell: Dictionary) -> String:
 			return "Veredelung: sättigt das Material dieser Seite"
 		KIND_POINTER:
 			return "Pointer: verdrahtet diese Seite auf Seite %d" % (int(cell.get("to", 0)) + 1)
+		KIND_COMPOUND:
+			return _compound_hint(cell)
 	return ""
+
+## Die Auskunft einer verdichteten Zelle: jeder ihrer Kanäle, in Rechenreihenfolge
+## (erst der Faktor, dann der Summand) und JEDER aus seiner bestehenden Quelle - hier
+## wird nichts zweitformuliert.
+static func _compound_hint(cell: Dictionary) -> String:
+	var parts: Array[String] = []
+	var factor := int(cell.get("factor", 1))
+	if factor > 1:
+		parts.append(cell_hint(factor_cell(factor)))
+	var value := int(cell.get("value", 0))
+	if value != 0:
+		parts.append(cell_hint(value_cell(value)))
+	var material := String(cell.get("id", ""))
+	if material != "":
+		parts.append(cell_hint(material_cell(material)))
+	if bool(cell.get("dope", false)):
+		parts.append(cell_hint(dope_cell()))
+	var rune := String(cell.get("rune", ""))
+	if rune != "":
+		parts.append(cell_hint(rune_cell(rune)))
+	var to := int(cell.get("to", -1))
+	if to >= 0:
+		parts.append(cell_hint(pointer_cell(to)))
+	if parts.is_empty():
+		return ""
+	return "Verdichtet - %s" % " · ".join(parts)
 
 ## --- Wurf-Werkzeug -------------------------------------------------------------
 

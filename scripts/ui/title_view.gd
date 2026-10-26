@@ -100,7 +100,7 @@ func go_back() -> bool:
 
 ## Partie verloren: die Ende-Karte wird zur Heimat, "Weiterspielen" fällt weg.
 func show_game_over(total: int, goal: int, round_number: int) -> void:
-	game_over_result.text = "Benchmark verfehlt: %d / %d Punkte" % [total, goal]
+	game_over_result.text = "Quota verfehlt: %d / %d Punkte" % [total, goal]
 	game_over_round.text = "in Runde %d" % round_number
 	set_resumable(false)
 	_home_card = Card.GAME_OVER

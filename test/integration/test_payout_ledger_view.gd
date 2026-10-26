@@ -17,9 +17,9 @@ func _rows() -> int:
 
 func test_a_row_is_born_with_its_first_report() -> void:
 	assert_eq(_rows(), 0, "vor der ersten Meldung steht keine Zeile")
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	assert_eq(_rows(), 1, "die erste Meldung legt ihre Zeile an")
-	assert_eq(view.money_of("benchmark"), 5)
+	assert_eq(view.money_of("quota"), 5)
 
 func test_a_second_report_counts_the_same_row_up() -> void:
 	view.add_money("dice", "Übrige Würfel", 1)
@@ -34,14 +34,14 @@ func test_zero_reports_open_no_row() -> void:
 	assert_eq(view.money_total(), 0)
 
 func test_the_total_is_the_sum_of_the_money_reports() -> void:
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.add_money("interest", "Zinsen", 3)
 	view.add_money("dice", "Übrige Würfel", 2)
 	view.add_money("dice", "Übrige Würfel", 2)
 	assert_eq(view.money_total(), 12)
 
 func test_energy_stands_apart_and_never_enters_the_total() -> void:
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.add_energy(3)
 	view.add_energy(2)
 	assert_eq(view.energy_total(), 5, "⚡ zählt für sich")
@@ -50,18 +50,18 @@ func test_energy_stands_apart_and_never_enters_the_total() -> void:
 	assert_true(view._energy_row.visible, "sie erscheint mit der ersten Energie")
 
 func test_the_energy_row_stays_hidden_without_a_report() -> void:
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	assert_false(view._energy_row.visible, "ohne ⚡ keine ⚡-Zeile")
 
 func test_the_row_order_is_the_report_order() -> void:
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.add_money("charm_2", "Zinsgroschen", 4)
 	view.add_money("dice", "Übrige Würfel", 1)
-	view.add_money("benchmark", "Benchmark", 1)  # ändert die Reihenfolge nicht
-	assert_eq(view.row_ids(), ["benchmark", "charm_2", "dice"] as Array[String])
+	view.add_money("quota", "Quota", 1)  # ändert die Reihenfolge nicht
+	assert_eq(view.row_ids(), ["quota", "charm_2", "dice"] as Array[String])
 
 func test_reset_empties_everything() -> void:
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.add_energy(2)
 	view.show_cashout()
 	view.reset()
@@ -124,10 +124,10 @@ func test_a_bet_row_carries_its_condition_under_the_name() -> void:
 	assert_eq(String(host.get_child(1).text), "+18$", "der Betrag steht rechts wie überall")
 
 func test_a_row_without_a_note_keeps_the_old_single_line_shape() -> void:
-	view.add_money("benchmark", "Benchmark", 5)
-	var host: Control = view._rows["benchmark"]["host"]
+	view.add_money("quota", "Quota", 5)
+	var host: Control = view._rows["quota"]["host"]
 	assert_true(host.get_child(0) is Label, "ohne Untertitel bleibt es EIN Label")
-	assert_eq(String(host.get_child(0).text), "Benchmark")
+	assert_eq(String(host.get_child(0).text), "Quota")
 
 func test_a_second_report_keeps_the_condition() -> void:
 	var bet := _bet("jackpot")
@@ -180,7 +180,7 @@ func test_the_platform_rect_is_byte_stable() -> void:
 	view.set_plots(_plots(["bet_0", "bet_1"]))
 	var before := view.payout_local_platform()
 	var cells := view.payout_local_cells()
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.add_money("bet_0", "Jackpot", 18, "Nimm ein Full House oder besser.")
 	view.add_energy(3)
 	view.show_cashout()
@@ -198,16 +198,16 @@ func test_the_ablage_draws_no_frame_at_all() -> void:
 		assert_false(child is Panel, "kein gemalter Rahmen auf der Ablage: %s" % child.name)
 
 ## Die Namen stehen KOMPAKT LINKS NEBEN der Ware: dasselbe Zeilenmaß und derselbe
-## linke Rand wie "Benchmark" - EIN Schriftbild auf der ganzen Seite.
+## linke Rand wie "Quota" - EIN Schriftbild auf der ganzen Seite.
 func test_the_goods_names_share_the_spacing_of_the_money_rows() -> void:
 	view.set_plots(_plots(["bet_0", "bet_1", "bet_2"]))
 	# ZWEI Geld-Zeilen, damit ihr Takt wirklich GEMESSEN wird statt gerechnet.
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.add_money("dice", "Übrige Würfel", 22)
 	await wait_frames(2)
 	assert_eq(view.plot_labels(),
 		["Ware bet_0", "Ware bet_1", "Ware bet_2"] as Array[String])
-	var first: Control = view._rows["benchmark"]["host"]
+	var first: Control = view._rows["quota"]["host"]
 	var second: Control = view._rows["dice"]["host"]
 	var row_pitch := second.global_position.y - first.global_position.y
 	var row_left := first.global_position.x - view.global_position.x
@@ -225,7 +225,7 @@ func test_the_goods_names_share_the_spacing_of_the_money_rows() -> void:
 ## Die Ablage liegt in der LEERZONE: unter GESAMT und über dem Kassieren-Knopf.
 func test_the_strip_lies_between_the_total_and_the_button() -> void:
 	view.set_plots(_plots(["bet_0", "bet_1"]))
-	view.add_money("benchmark", "Benchmark", 5)
+	view.add_money("quota", "Quota", 5)
 	view.show_cashout()
 	await wait_frames(2)
 	var deck := view.payout_local_platform()
