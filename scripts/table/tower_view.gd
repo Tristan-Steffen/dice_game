@@ -84,7 +84,7 @@ const CHAMBER_EMISSION_ENERGY := 0.5
 const LIGHT_ALPHA := 0.30
 const LIGHT_ENERGY := 1.25
 
-## Die TASCHE unter dem Filz - der Ton der Wandtasche des Regalstapels.
+## Die TASCHE unter dem Filz: fast schwarz, sie ist nur der Grund hinter den Stummeln.
 const POCKET_WALL := 0.06
 const POCKET_ALBEDO := Color(0.028, 0.026, 0.042)
 const POCKET_EMISSION := Color(0.10, 0.11, 0.17)
@@ -155,6 +155,17 @@ func seat(at: Vector3, span: Vector2, count: int, glass_y := NAN,
 func card_length() -> float:
 	return _span.y * (1.0 - BAR_SHARE) / CARD_ROOM
 
+## Die TASCHE ist auch zur MAGAZIN-Grube hin offen (Spieler-Wunsch 2026-10-27): die
+## Oberwand des Magazins hat dort einen Durchbruch von EINER Kartenlänge, und durch
+## ihn sieht man aus der Grube auf die ETAGEN. Von außen bestellt, VOR dem seat.
+## Was neben dem Durchbruch liegt, deckt die Grubenwand selbst - sie steht eine
+## Wandstärke dahinter, also sieht man auch so nie in den Raum.
+var pit_open := false
+
+## Und ihr DECKEL fällt, sobald es bestellt ist (Spieler-Wunsch 2026-10-27): die
+## TISCHSEKTION darüber ist GLAS, also soll dort der Turm stehen und keine Decke.
+var lid_open := false
+
 ## Die TASCHE: ein dunkler Kasten um den Turm, zur Auswurf-Bahn hin offen - durch
 ## das Loch sieht man unter dem Filz in eine ehrliche Tiefe, nie in den Raum.
 func _build_pocket(glass_y: float, width: float) -> void:
@@ -171,14 +182,19 @@ func _build_pocket(glass_y: float, width: float) -> void:
 	var deep := _span.y + POCKET_WALL
 	var wide := width + POCKET_WALL * 2.0
 	var mid := Vector3(_seat.x, (top + bottom) * 0.5, near + deep * 0.5)
-	TableProps.box(host, "Decke", Vector3(wide, POCKET_WALL, deep),
-		Vector3(mid.x, top - POCKET_WALL * 0.5, mid.z), material)
+	if not lid_open:
+		TableProps.box(host, "Decke", Vector3(wide, POCKET_WALL, deep),
+			Vector3(mid.x, top - POCKET_WALL * 0.5, mid.z), material)
 	TableProps.box(host, "Boden", Vector3(wide, POCKET_WALL, deep),
 		Vector3(mid.x, bottom - POCKET_WALL * 0.5, mid.z), material)
 	TableProps.box(host, "Rueckwand", Vector3(wide, high, POCKET_WALL),
 		Vector3(mid.x, mid.y, near + deep + POCKET_WALL * 0.5), material)
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
+		# Zur MAGAZIN-Grube (Welt -X, Bild-unten) steht die Flanke offen, sobald es
+		# bestellt ist - sonst schaut der Durchbruch nur auf eine zweite Wand.
+		if pit_open and dir < 0.0:
+			continue
 		TableProps.box(host, "Flanke%d" % side, Vector3(POCKET_WALL, high, deep),
 			Vector3(mid.x + dir * (wide * 0.5 - POCKET_WALL * 0.5), mid.y, mid.z),
 			material)

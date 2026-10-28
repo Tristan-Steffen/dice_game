@@ -940,3 +940,43 @@ func test_the_grip_keeps_a_visible_seat_above_the_magazine() -> void:
 	assert_lte(seat.end.y, _drawer_rect().position.y + 0.5,
 		"und über dem Magazin - nie darunter")
 	assert_true(view.bench_rect().encloses(seat), "und in der Weiterleitungs-Region")
+
+## DIE GLAS-SCHEIBE (Spieler-Wunsch 2026-10-27): der Tisch ueber dem TURM ist Glas,
+## also zieht das EINE NETZ samt seinem leeren Kreuz in einen EIGENEN, durchsichtigen
+## Viewport um - nur dort traegt es das Per-Pixel-Alpha, das die Zellen DECKEND und
+## alles dazwischen KLAR laesst. Ohne gemeldete Scheibe bleibt alles im Fenster.
+func test_the_net_moves_into_the_reported_glass_pane() -> void:
+	await wait_frames(2)
+	assert_eq(view._net.get_parent(), view, "ohne Scheibe haengt es im Fenster")
+	assert_eq(view._empty_net.get_parent(), view._ist_screen)
+	var pane := Control.new()
+	pane.size = Vector2(240, 150)
+	add_child_autofree(pane)
+	view.net_pane = pane
+	await wait_frames(2)
+	assert_eq(view._net.get_parent(), pane, "gemeldet zieht es in die Scheibe")
+	assert_eq(view._empty_net.get_parent(), pane, "und sein leeres Kreuz mit")
+	assert_almost_eq(view._net.position.x, (pane.size.x - view._net.size.x) * 0.5, 0.5,
+		"mittig in der Scheibe")
+	assert_almost_eq(view._empty_net.position.y,
+		(pane.size.y - view._empty_net.size.y) * 0.5, 0.5)
+	assert_eq(view._ist_screen.get_child_count(), 1,
+		"im Fenster bleibt nur der Parkplatz")
+	view.net_pane = null
+	await wait_frames(2)
+	assert_eq(view._net.get_parent(), view, "abbestellt kommt es zurueck")
+	assert_eq(view._empty_net.get_parent(), view._ist_screen)
+
+## Und sie VERLISCHT mit der Sektion: ihre Haut rechnet aus der Weltposition, eine
+## fahrende Scheibe schoebe ihr Bild sonst ueber sich hinweg.
+func test_the_glass_pane_fades_with_the_section() -> void:
+	var pane := Control.new()
+	pane.size = Vector2(240, 150)
+	add_child_autofree(pane)
+	view.net_pane = pane
+	await wait_frames(2)
+	assert_almost_eq(pane.modulate.a, 1.0, 0.001, "buendig steht sie ganz da")
+	var blank := run.grant_pack(Pack.blank_card())
+	view.set_target_pack(blank)
+	await wait_frames(40)
+	assert_almost_eq(pane.modulate.a, 0.0, 0.001, "gesunken ist sie fort")

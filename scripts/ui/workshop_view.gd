@@ -103,6 +103,18 @@ const STREET_GAP := 1.8
 ## die Nahsicht steht steiler (8,75 px) und weicht bewußt ab.
 const BENCH_TILT_TRIM := 18.8
 
+## --- DIE TISCHSEKTION WEICHT DEM ROHLING (Spieler-Wünsche 2026-10-26) -------------
+## Beim VERDICHTEN liegt der Rohling auf der ZIEL-SPALTE - über dem Turm, wo das Licht
+## ankommt -, und das STÜCK TISCH unter der Die-View weicht ihm, wie eine Ware im Laden
+## in den Tisch fährt: erst SINKT die Sektion ganz unter die Schnittkante, dann FÄHRT
+## sie nach Bild-rechts in ihre Tasche. Was bleibt, ist die VERTIEFUNG, in die sich der
+## Rohling legt. Zurück geht derselbe Weg rückwärts.
+const IST_ASIDE_TIME := 0.42
+## Welcher Anteil der Fahrt das Sinken ist - der Rest ist das Gleiten.
+const IST_DIP_SHARE := 0.3
+## Wie dunkel der Schirm beim Sinken wird, bevor er ganz verlischt.
+const IST_SUNK_SHADE := 0.4
+
 ## Ränder und Zeilenabstand des Fensterinhalts (Einheiten u).
 const CONTENT_MARGIN_X := 2.4
 const CONTENT_MARGIN_Y := 1.4
@@ -327,6 +339,26 @@ var _hover_pack_uid := 0
 ## Der Slot, auf dem ein Zug begonnen hat (-1 = keiner).
 var _drag_from := -1
 
+## Die GLAS-SCHEIBE der Tischsektion (null = keine): ein Control in einem EIGENEN,
+## durchsichtigen SubViewport, in dem das EINE NETZ und sein leeres Kreuz wohnen.
+## Seit dem 2026-10-27 ist der Tisch über dem TURM aus Glas (Spieler-Wunsch), und nur
+## ein Viewport mit transparent_bg trägt das Per-Pixel-Alpha, das die Netz-Zellen
+## DECKEND und alles dazwischen KLAR läßt. Ohne gemeldete Scheibe (kopfloser Aufbau,
+## Tests) bleibt alles wie zuvor: dann hängt das Netz im Fenster auf dem Filz.
+var net_pane: Control = null:
+	set(value):
+		if net_pane == value:
+			return
+		net_pane = value
+		refresh()
+## Wie weit die DIE-VIEW schon beiseite gefahren ist (0 = sie steht, 1 = sie liegt
+## unter dem Filz neben dem Podest). Je Bild nachgezogen, nicht getweent: ein
+## Neuaufbau des Schirms darf keine Fahrt schulden.
+var _ist_aside := 0.0
+## Ob die Ziel-Spalte beim letzten Bild schon frei war - nur ihr WECHSEL legt den
+## Rohling um (Fach ⇄ Spalte).
+var _ist_seat_free := false
+
 ## DIE LAUFENDE ZEREMONIE. _burning trägt die Kartendaten des Prägens (die Karten
 ## selbst sind da längst verbraucht), _burn_step, wie viele davon die Welle schon
 ## erfaßt hat, und _burn_die den Zielwürfel, wie er VOR dem Prägen aussah - nur so
@@ -376,8 +408,54 @@ func _ready() -> void:
 
 ## Das Summen-Netz PARKT auf seinem Platz - es folgt damit jedem Neuaufbau des
 ## Schirms, ohne daß irgendwer es zurückschreiben müßte.
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_drive_ist_aside(delta)
 	_sync_sum_net_park()
+
+## Die Fahrt der DIE-VIEW, je Bild nachgezogen: beim Verdichten weicht sie, sonst
+## kommt sie zurück. EIN Schreiber, idempotent - wer den Schirm neu baut, bekommt
+## im nächsten Bild denselben Stand wieder aufgelegt.
+func _drive_ist_aside(delta: float) -> void:
+	var want := 1.0 if compressing() else 0.0
+	if not is_equal_approx(_ist_aside, want):
+		var step := delta / maxf(IST_ASIDE_TIME, 0.01)
+		_ist_aside = clampf(_ist_aside + (step if want > _ist_aside else -step), 0.0, 1.0)
+	_apply_ist_aside()
+	# Der Platz wechselt den Besitzer: bis dahin liegt der Rohling in seinem Fach,
+	# ab hier auf der Ziel-Spalte. EIN Umschlag je Wahl, nicht je Bild.
+	var free := blank_seat_free()
+	if free != _ist_seat_free:
+		_ist_seat_free = free
+		refresh()
+
+## Die ZIEL-SPALTE ist FREI: die Die-View liegt ganz unter dem Filz. Erst dann legt
+## sich der Rohling hin - er soll nicht in einen Schirm fallen, der noch weicht.
+func blank_seat_free() -> bool:
+	return is_equal_approx(_ist_aside, 1.0)
+
+## Der TAKT der Fahrt, beide 0..1: erst SINKT die Sektion, dann FÄHRT sie. Die
+## TISCHSEKTION unter dem Schirm liest sie (gestellt wird sie von scene_root) - das
+## Fenster malt nur, es faßt keinen Körper an.
+func ist_dip() -> float:
+	return minf(_ist_aside / IST_DIP_SHARE, 1.0)
+
+func ist_slide() -> float:
+	return clampf((_ist_aside - IST_DIP_SHARE) / (1.0 - IST_DIP_SHARE), 0.0, 1.0)
+
+## Der Schirm BLEIBT, wo er ist, und VERLISCHT beim Sinken: die Platte trägt genau
+## dieses Bild unter die Kante (ihre Deckhaut rechnet aus der Weltposition - der
+## Mahjong-Deckel), und unter dem Filz liegt kein Licht mehr.
+func _apply_ist_aside() -> void:
+	if _ist_screen == null or not is_instance_valid(_ist_screen):
+		return
+	var dip := ist_dip()
+	var shade := lerpf(1.0, IST_SUNK_SHADE, dip)
+	var tint := Color(shade, shade, shade, 1.0 - dip)
+	_ist_screen.modulate = tint
+	# Wohnt das Netz in der GLAS-SCHEIBE, verlischt DIE: ihre Haut rechnet aus der
+	# Weltposition, eine fahrende Scheibe schöbe ihr Bild sonst über sich hinweg.
+	if net_pane != null and is_instance_valid(net_pane):
+		net_pane.modulate = tint
 
 ## Wie hoch ein umbrochener Block WIRKLICH steht. Die nackte Schriftmessung
 ## unterschlägt zwei Dinge, und beide zusammen kosteten fast die Hälfte: sie
@@ -413,7 +491,7 @@ func _refresh_content() -> void:
 	_target_stage_host = null
 	_ist_screen = null
 	_net_host = null
-	_empty_net = null
+	_free_own_net_cross()  # es kann in der Glas-Scheibe wohnen, nicht nur im Fenster
 	# Ein Neuaufbau mitten im Zug läßt ihn einrasten, statt ihn hängen zu lassen.
 	if shelf_dragging():
 		_on_scroll_released.call_deferred(_last_drag_px)
@@ -448,19 +526,29 @@ func _refresh_content() -> void:
 ## Das SUMMEN-NETZ wird nie neu gebaut, nur neu ausgelegt - sonst risse jeder
 ## Neuaufbau des Fensters seinen laufenden Zähl-Takt ab.
 func _ensure_sum_net(u: float) -> void:
+	var host: Node = net_pane if net_pane != null and is_instance_valid(net_pane) else self
+	if _net != null and is_instance_valid(_net) and _net.get_parent() != host:
+		_net.get_parent().remove_child(_net)
+		_net.queue_free()
+		_net = null
 	if _net == null or not is_instance_valid(_net):
 		_net = PressNetView.new()
-		add_child(_net)
+		host.add_child(_net)
 	_net.cell = target_net_cell(u)
-	move_child(_net, get_child_count() - 1)
+	if host == self:
+		move_child(_net, get_child_count() - 1)
 	if not burning():
 		_refresh_preview_net()
 	_sync_empty_net()
 	_sync_sum_net_park()
 
-## Sein Platz: die Mitte des Parkplatzes im Diff-Schirm.
+## Sein Platz: die Mitte des Parkplatzes im Diff-Schirm - oder, wenn er in der
+## GLAS-SCHEIBE der Tischsektion wohnt, deren Mitte.
 func _sync_sum_net_park() -> void:
 	if _net == null or not is_instance_valid(_net):
+		return
+	if net_pane != null and is_instance_valid(net_pane):
+		_net.position = (net_pane.size - _net.size) * 0.5
 		return
 	if _net_host == null or not is_instance_valid(_net_host):
 		return
@@ -468,6 +556,16 @@ func _sync_sum_net_park() -> void:
 	if host.size.x <= 0.0:
 		return
 	_net.position = host.get_center() - _net.size * 0.5 - get_global_rect().position
+
+## Das leere Kreuz lebt je nach Wirt im Fenster ODER in der Glas-Scheibe - der
+## Neuaufbau des Fensters räumt nur das erste von selbst fort.
+func _free_own_net_cross() -> void:
+	if _empty_net != null and is_instance_valid(_empty_net):
+		var host := _empty_net.get_parent()
+		if host != null:
+			host.remove_child(_empty_net)
+		_empty_net.queue_free()
+	_empty_net = null
 
 ## Hängt ein eigenes Kind aus und gibt es frei; queue_free wirkt erst am
 ## Bildende, ein Neuaufbau träfe sonst auf seinen eigenen Vorgänger.
@@ -625,11 +723,18 @@ func _build_ist_screen(u: float) -> void:
 	_net_host = host
 	# Es steht IMMER: ohne Ziel und ohne Karten malt PressNetView nichts, dann steht
 	# das leere Kreuz an seiner Stelle. Es hängt NEBEN dem Parkplatz, nicht darin -
-	# der bleibt ein leerer Platz.
+	# der bleibt ein leerer Platz. Wohnt das Netz in der GLAS-SCHEIBE, zieht das
+	# Kreuz mit: beide gehören zusammen, und auf dem Filz bliebe es allein zurück.
+	_free_own_net_cross()
 	_empty_net = _empty_net_cross(cell)
-	_empty_net.position = host.position
-	screen.add_child(_empty_net)
+	if net_pane != null and is_instance_valid(net_pane):
+		_empty_net.position = (net_pane.size - _empty_net.size) * 0.5
+		net_pane.add_child(_empty_net)
+	else:
+		_empty_net.position = host.position
+		screen.add_child(_empty_net)
 	_sync_empty_net()
+	_apply_ist_aside()  # Endzustand zuerst: der neue Schirm steht gleich da, wo er steht
 
 ## Das LEERE Kreuz: sechs dunkle Zellen an den Netz-Plätzen, sonst nichts - der
 ## Platzhalter des EINEN Netzes.
@@ -829,6 +934,24 @@ func target_projector_y() -> float:
 	if _target_stage_host != null and is_instance_valid(_target_stage_host):
 		return _target_stage_host.get_global_rect().get_center().y
 	return get_global_rect().get_center().y
+
+## Display-Pixel des ROHLING-PLATZES: die Mitte der ZIEL-SPALTE, also dort, wo sonst
+## die Die-View steht und wo das Licht aus dem Turm ankommt ((-1,-1) = sie steht
+## gerade nicht). Die Karte LIEGT flach, darum ohne den Neigungs-Versatz des Würfels.
+func blank_seat_center() -> Vector2:
+	if _ist_screen == null or not is_instance_valid(_ist_screen):
+		return Vector2(-1, -1)
+	return get_global_rect().position + ist_screen_rect().get_center()
+
+## Der ROHLING, der gerade auf der Ziel-Spalte LIEGT - während der Zeremonie der, in
+## den sie verdichtet (er ist da längst gefüllt und wäre keiner mehr, liegt aber
+## weiter dort, denn das Licht steigt in IHN).
+func seated_blank() -> Pack:
+	if run == null:
+		return null
+	if burning():
+		return run.pack_by_uid(_burn_blank) if _burn_blank != 0 else null
+	return target_pack() if blank_seat_free() else null
 
 ## Display-Pixel des EINEN NETZES ((-1,-1) = es steht gerade nicht) - der Parkplatz
 ## des Netzes.
@@ -1719,6 +1842,7 @@ func _drop_series() -> void:
 	_hover_slot = -1
 	_hover_pack_uid = 0
 	_drag_from = -1
+	_ist_aside = 0.0  # die Die-View steht wieder, ohne Fahrt
 	if _net != null and is_instance_valid(_net):
 		_net.reset_ticks()  # der Stand des alten Laufs tickt nirgends hin
 
@@ -1875,7 +1999,8 @@ func drawer_entries() -> Array[Dictionary]:
 		# stehen, wie der Pool-Sitz des Zielwürfels: ein Ding wird nie zweimal gezeigt.
 		entries.append({"uid": pack.pack_uid, "pack": pack,
 			"withheld": _pending_arrivals.has(pack.pack_uid)
-				or pack.pack_uid == _target_pack,
+				or (pack.pack_uid == _target_pack and blank_seat_free())
+				or pack.pack_uid == _burn_blank,
 			"tray": tray, "cell": cell_index})
 	return entries
 

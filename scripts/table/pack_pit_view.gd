@@ -117,7 +117,19 @@ var breach := Vector2.ZERO
 ## Die Tiefe des Nachbar-Bodens unter der Kante (0 = so tief wie der eigene): ist
 ## er flacher, steht unter dem Durchbruch eine SCHWELLE bis zum eigenen Boden.
 var breach_floor := 0.0
+## Wo längs des Durchbruchs das NACHBARLOCH offen ist (Versatz, Breite in Welt): nur
+## dort fehlt auch der Kragen. 0 = er läuft über den ganzen Durchbruch.
+var rim_gap := Vector2.ZERO
 
+## Trägt die Grube einen KRAGEN über ihrer Schnittkante? Die Vertiefung unter der
+## Tischsektion trägt keinen: dort deckt die bündige Platte die Kante selbst, und ein
+## Kragen stünde ihr im Weg (die Schacht-Grammatik, LiftShaftView - "die Schnittkante
+## steht NACKT").
+var rimmed := true
+## Hat die Grube einen BODEN? Die Vertiefung unter der Tischsektion hat keinen: sie
+## ist nur der Hals zwischen der Glas-Scheibe und der Tasche des Turms darunter, und
+## ein Boden wäre genau der Deckel, den man dort fortnehmen will.
+var floored := true
 ## Die Seiten mit einem SCHLITZ: durch ihn fahren die Tabletts des Regalstapels
 ## seitlich in die Wand (rechts) bzw. rollen ihre Spalten hinaus (links), und der
 ## Turm schaut aus seiner Tasche in die Bucht. Die Platte wird dafür zu ZWEI Balken -
@@ -196,39 +208,49 @@ func _build_materials() -> void:
 	_rim_material = _metal(RIM_ALBEDO, RIM_EMISSION, RIM_EMISSION_ENERGY)
 	_glow_material = _metal(glow_color * 0.3, glow_color, glow_energy)
 
-## Die Auskleidung misst sich an der Grube, in der sie steckt - Paneelbreite und
-## Tiefenverlauf sind gerechnet, nicht getippt.
-func _tune_lining() -> void:
-	var panel := maxf(maxf(half.x, half.y) * 2.0 * PANEL_SHARE, PANEL_MIN)
-	for pair: Array in [[_wall_material, 0.0], [_floor_material, 1.0]]:
-		var material: ShaderMaterial = pair[0]
-		material.set_shader_parameter("velvet", pair[1])
-		material.set_shader_parameter("seam_color", glow_color)
-		material.set_shader_parameter("seam_energy", SEAM_ENERGY)
-		material.set_shader_parameter("panel_width", panel)
-		material.set_shader_parameter("pit_depth", depth)
-		material.set_shader_parameter("glass_y", center.y)
-		material.set_shader_parameter("field_center", Vector2(center.x, center.z))
-		material.set_shader_parameter("field_half", half)
-		material.set_shader_parameter("emission_cap", EMISSION_CAP)
-	_wall_material.set_shader_parameter("base_color", WALL_ALBEDO)
-	_wall_material.set_shader_parameter("field_energy", WALL_FIELD_ENERGY)
+## Die AUSKLEIDUNG als EINE Hand - auch für einen ANBAU. Was an die Grube grenzt
+## (die Wandtaschen des Regalstapels hinter den Schlitzen), kleidet sich damit aus:
+## sonst endet der Raum an der Wand und dahinter liegt ein Loch im Nichts.
+## velvet = 1 ist der BODEN, 0 die WAND; rect = die Fläche in Welt-XZ, an der sich
+## Paneelbreite und Samt-Schimmer messen.
+static func tune_lining(material: ShaderMaterial, velvet: float, base: Color,
+		field_energy: float, rect: Rect2, glass_y: float, pit_depth: float,
+		seam: Color, skin: Texture2D) -> void:
+	material.set_shader_parameter("velvet", velvet)
+	material.set_shader_parameter("base_color", base)
+	material.set_shader_parameter("field_energy", field_energy)
+	material.set_shader_parameter("seam_color", seam)
+	material.set_shader_parameter("seam_energy", SEAM_ENERGY)
+	material.set_shader_parameter("panel_width", panel_width(rect.size))
+	material.set_shader_parameter("pit_depth", pit_depth)
+	material.set_shader_parameter("glass_y", glass_y)
+	material.set_shader_parameter("field_center", rect.get_center())
+	material.set_shader_parameter("field_half", rect.size * 0.5)
+	material.set_shader_parameter("emission_cap", EMISSION_CAP)
 	# Die WANDHAUT, sofern bestellt - dieselben Werte wie in den Schacht-Gruben
 	# (LiftShaftView.SKIN_*), damit keine Vertiefung anders liest als die nächste.
-	_wall_material.set_shader_parameter("wall_tex", wall_skin)
-	_wall_material.set_shader_parameter("skin_on", 1.0 if wall_skin != null else 0.0)
-	_wall_material.set_shader_parameter("skin_tile", LiftShaftView.SKIN_TILE)
-	_wall_material.set_shader_parameter("skin_albedo", LiftShaftView.SKIN_ALBEDO)
-	_wall_material.set_shader_parameter("skin_emission", LiftShaftView.SKIN_EMISSION)
-	_wall_material.set_shader_parameter("skin_energy", LiftShaftView.SKIN_EMISSION_ENERGY)
-	_wall_material.set_shader_parameter("skin_field_energy", SKIN_FIELD_ENERGY)
-	_floor_material.set_shader_parameter("base_color", FLOOR_ALBEDO)
-	_floor_material.set_shader_parameter("field_energy", FLOOR_FIELD_ENERGY)
-	# Der Samt-Schimmer ist EIN Verlauf über die ganze Bodenplatte.
-	var plate := _floor_plan()
-	plate.position += Vector2(center.x, center.z)
-	_floor_material.set_shader_parameter("field_center", plate.get_center())
-	_floor_material.set_shader_parameter("field_half", plate.size * 0.5)
+	material.set_shader_parameter("wall_tex", skin)
+	material.set_shader_parameter("skin_on", 1.0 if skin != null else 0.0)
+	material.set_shader_parameter("skin_tile", LiftShaftView.SKIN_TILE)
+	material.set_shader_parameter("skin_albedo", LiftShaftView.SKIN_ALBEDO)
+	material.set_shader_parameter("skin_emission", LiftShaftView.SKIN_EMISSION)
+	material.set_shader_parameter("skin_energy", LiftShaftView.SKIN_EMISSION_ENERGY)
+	material.set_shader_parameter("skin_field_energy", SKIN_FIELD_ENERGY)
+
+## Paneelbreite an der LÄNGSTEN Kante - an der kurzen gemessen bekäme eine flache,
+## breite Grube ein dichtes Streifenmuster auf ihrer langen Wand.
+static func panel_width(span: Vector2) -> float:
+	return maxf(maxf(span.x, span.y) * PANEL_SHARE, PANEL_MIN)
+
+## Die Auskleidung misst sich an der Grube, in der sie steckt - Paneelbreite und
+## Tiefenverlauf sind gerechnet, nicht getippt. Boden und Wand messen an DERSELBEN
+## Fläche: der Samt-Schimmer ist EIN Verlauf über die ganze Bodenplatte.
+func _tune_lining() -> void:
+	var rect := Rect2(Vector2(center.x, center.z) - half, half * 2.0)
+	tune_lining(_wall_material, 0.0, WALL_ALBEDO, WALL_FIELD_ENERGY, rect,
+		center.y, depth, glow_color, wall_skin)
+	tune_lining(_floor_material, 1.0, FLOOR_ALBEDO, FLOOR_FIELD_ENERGY, rect,
+		center.y, depth, glow_color, null)
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
 	return TableProps.metal(albedo, emission, energy, 0.5, 0.46)
@@ -243,26 +265,32 @@ func _build_body() -> void:
 	# zeigt sonst nur weggekullte Rückseiten.
 	for wall_id: int in WALLS:
 		_build_wall(wall_id, top)
-	var plate := _floor_plan()
-	TableProps.box(self, "Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
-		plate.size.y + wall * 2.0),
-		Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
-			plate.get_center().y), _floor_material)
+	if floored:
+		var plate := _floor_plan()
+		TableProps.box(self, "Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
+			plate.size.y + wall * 2.0),
+			Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
+				plate.get_center().y), _floor_material)
 
 	# Kragen: er greift RIM_IN über die Kante in die Öffnung hinein und deckt
 	# damit die harte Schnittkante des Shaders. An der offenen Seite gibt es keine.
-	var rim_y := -RIM_H * 0.5 - RIM_SINK
-	var rim_x := half.x - RIM_IN * 0.5 + RIM_OUT * 0.5
-	var rim_z := half.y - RIM_IN * 0.5 + RIM_OUT * 0.5
-	var rim_bar := RIM_IN + RIM_OUT
-	_side_box("RimXPlus", WALL_X_PLUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
-		Vector3(rim_x, rim_y, 0.0), _rim_material)
-	_side_box("RimXMinus", WALL_X_MINUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
-		Vector3(-rim_x, rim_y, 0.0), _rim_material)
-	_side_box("RimZPlus", WALL_Z_PLUS, Vector3(span.x, RIM_H, rim_bar),
-		Vector3(0.0, rim_y, rim_z), _rim_material)
-	_side_box("RimZMinus", WALL_Z_MINUS, Vector3(span.x, RIM_H, rim_bar),
-		Vector3(0.0, rim_y, rim_z * -1.0), _rim_material)
+	if rimmed:
+		var rim_y := -RIM_H * 0.5 - RIM_SINK
+		var rim_x := half.x - RIM_IN * 0.5 + RIM_OUT * 0.5
+		var rim_z := half.y - RIM_IN * 0.5 + RIM_OUT * 0.5
+		var rim_bar := RIM_IN + RIM_OUT
+		# Über einem DURCHBRUCH trägt die SCHNITTKANTE des Tisches den Kragen weiter
+		# (Spieler-Wunsch 2026-10-27) - geteilt nur, wo das Nachbarloch offen ist
+		# (rim_gap), sonst läge er als Brücke quer über der Öffnung.
+		var rim_whole := true
+		_side_box("RimXPlus", WALL_X_PLUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
+			Vector3(rim_x, rim_y, 0.0), _rim_material, rim_whole)
+		_side_box("RimXMinus", WALL_X_MINUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
+			Vector3(-rim_x, rim_y, 0.0), _rim_material, rim_whole)
+		_side_box("RimZPlus", WALL_Z_PLUS, Vector3(span.x, RIM_H, rim_bar),
+			Vector3(0.0, rim_y, rim_z), _rim_material, rim_whole)
+		_side_box("RimZMinus", WALL_Z_MINUS, Vector3(span.x, RIM_H, rim_bar),
+			Vector3(0.0, rim_y, rim_z * -1.0), _rim_material, rim_whole)
 
 	var glow_y := -GLOW_DROP - GLOW_H * 0.5
 	var glow_in := RIM_IN * 0.5
@@ -310,8 +338,21 @@ func _bar_cuts(wall_id: int, run: float) -> Array:
 		return [[run, 0.0]]
 	if breach.y <= 0.0:
 		return []
-	var lo := breach.x - breach.y * 0.5
-	var hi := breach.x + breach.y * 0.5
+	return _cuts_around(run, breach)
+
+## Der KRAGEN am Durchbruch: geteilt nur, wo das NACHBARLOCH offen ist (rim_gap) -
+## über dem Rest des Durchbruchs liegt Tisch, und dessen Kante trägt ihn weiter.
+func _rim_cuts(wall_id: int, run: float) -> Array:
+	if wall_id != open_wall or breach.y <= 0.0:
+		return _bar_cuts(wall_id, run)
+	if rim_gap.y <= 0.0:
+		return [[run, 0.0]]
+	return _cuts_around(run, rim_gap)
+
+## Ein Balken der Länge run, um die Lücke gap (Versatz, Breite) geteilt.
+func _cuts_around(run: float, gap: Vector2) -> Array:
+	var lo := gap.x - gap.y * 0.5
+	var hi := gap.x + gap.y * 0.5
 	var cuts: Array = []
 	if lo > -run * 0.5:
 		cuts.append([lo + run * 0.5, (lo - run * 0.5) * 0.5])
@@ -321,11 +362,13 @@ func _bar_cuts(wall_id: int, run: float) -> Array:
 
 ## Ein Balken AUF einer Wandseite, durch dieselbe Zerlegung geschickt. An den
 ## X-Wänden läuft er längs Welt-Z, an den Z-Wänden längs Welt-X.
+## rim = der KRAGEN, nur um das offene Nachbarloch geteilt (_rim_cuts).
 func _side_box(box_name: String, wall_id: int, box_size: Vector3, at: Vector3,
-		material: Material) -> void:
+		material: Material, rim := false) -> void:
 	var lengthwise := absf(wall_inward(wall_id).x) > 0.5
-	var cuts := _bar_cuts(wall_id, box_size.z if lengthwise else box_size.x)
-	if cuts.size() == 1:
+	var run := box_size.z if lengthwise else box_size.x
+	var cuts := _rim_cuts(wall_id, run) if rim else _bar_cuts(wall_id, run)
+	if cuts.size() == 1 and is_equal_approx(float(cuts[0][0]), run):
 		TableProps.box(self, box_name, box_size, at, material)
 		return
 	for i in cuts.size():

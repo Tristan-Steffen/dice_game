@@ -58,12 +58,47 @@ func test_a_breach_splits_the_wall_into_two_bars() -> void:
 	var hi: float = right.position.z - (right.mesh as BoxMesh).size.z * 0.5
 	assert_almost_eq(hi - lo, width, 0.001, "die Lücke IST die Breite")
 	assert_almost_eq((lo + hi) * 0.5, offset, 0.001, "und sie sitzt auf dem Versatz")
-	# Kragen und Lichtsaum folgen der Wand - kein Kragen quer durch die Öffnung.
-	for name: String in ["RimXPlus", "GlowXPlus"]:
-		assert_null(_mesh(name), "%s ist geteilt" % name)
-		assert_not_null(_mesh(name + "A"))
-		assert_not_null(_mesh(name + "B"))
+	# Der Lichtsaum folgt der Wand - er liegt IM Raum und bricht am Durchbruch ab.
+	assert_null(_mesh("GlowXPlus"), "der Lichtsaum ist geteilt")
+	assert_not_null(_mesh("GlowXPlusA"))
+	assert_not_null(_mesh("GlowXPlusB"))
 	assert_not_null(_mesh("WallXMinus"), "die Gegenseite bleibt zu")
+
+## Der KRAGEN dagegen läuft über den Durchbruch hinweg (Spieler-Wunsch 2026-10-27):
+## die Wand fehlt dort, die SCHNITTKANTE des Tisches aber nicht - ohne ihn bricht
+## die graue Linie der Tischkante mitten im Streifen ab.
+func test_the_collar_runs_across_a_breach() -> void:
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
+		Vector2(0.4, 1.0))
+	var rim := _mesh("RimXPlus")
+	assert_not_null(rim, "der Kragen steht als EIN Balken")
+	assert_null(_mesh("RimXPlusA"), "und ist nicht geteilt")
+	assert_almost_eq((rim.mesh as BoxMesh).size.z,
+		HALF.y * 2.0 + (PackPitView.RIM_IN + PackPitView.RIM_OUT) * 2.0, 0.001,
+		"über die ganze Seite")
+
+## Aber NICHT über dem offenen Nachbarloch: dort ist kein Tisch, ein Kragen läge
+## als Brücke quer über der Öffnung. Geteilt wird er genau um rim_gap.
+func test_the_collar_opens_over_the_neighbours_hole() -> void:
+	pit.rim_gap = Vector2(-0.2, 0.6)
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
+		Vector2(0.0, 1.4))
+	assert_null(_mesh("RimXPlus"), "kein durchgehender Kragen")
+	var left := _mesh("RimXPlusA")
+	var right := _mesh("RimXPlusB")
+	assert_not_null(left)
+	assert_not_null(right)
+	var lo: float = left.position.z + (left.mesh as BoxMesh).size.z * 0.5
+	var hi: float = right.position.z - (right.mesh as BoxMesh).size.z * 0.5
+	assert_almost_eq(hi - lo, 0.6, 0.001, "die Lücke ist das Nachbarloch, nicht der Durchbruch")
+	assert_almost_eq((lo + hi) * 0.5, -0.2, 0.001)
+
+## Eine GANZ offene Seite behält dagegen keinen Kragen: dort ist es EIN Raum, keine
+## Kante - ein Balken läge quer durch das Loch.
+func test_a_fully_open_side_keeps_no_collar() -> void:
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS)
+	assert_null(_mesh("RimXPlus"), "kein Kragen quer durch die offene Seite")
+	assert_null(_mesh("RimXPlusA"))
 
 func test_the_four_walls_and_the_floor_close_the_box() -> void:
 	assert_not_null(_mesh("Floor"), "der Boden liegt unter allem")
@@ -159,3 +194,27 @@ func test_the_pit_casts_no_shadow_and_is_never_mirrored() -> void:
 		assert_eq(mesh.cast_shadow, GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
 		assert_eq(mesh.layers & ScreenReflection.LAYER, 0,
 			"%s spiegelt nicht" % mesh.name)
+
+## Eine Grube OHNE Kragen (die Vertiefung unter der Tischsektion): dort deckt die
+## buendige Platte die Schnittkante selbst, und ein Kragen staende ihr im Weg -
+## dieselbe Grammatik wie die Schacht-Gruben ("die Schnittkante steht NACKT").
+func test_a_rimless_pit_wears_no_collar() -> void:
+	pit.rimmed = false
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH * 0.5)
+	for bar in ["RimXPlus", "RimXMinus", "RimZPlus", "RimZMinus"]:
+		assert_null(_mesh(bar), "%s steht nicht mehr" % bar)
+	for wall_name: String in PackPitView.WALL_NAMES:
+		assert_not_null(_mesh(wall_name), "%s aber schon" % wall_name)
+	assert_not_null(_mesh("Floor"), "und ihr Boden auch")
+	assert_not_null(_mesh("GlowZPlus"), "der Lichtsaum bleibt - er liegt IN der Grube")
+
+## Eine Grube OHNE Boden (die Vertiefung unter der Tischsektion): sie ist nur der
+## Hals zwischen der GLAS-Scheibe und der Tasche des Turms darunter - ein Boden waere
+## genau der Deckel, den man dort fortnimmt (Spieler-Wunsch 2026-10-27).
+func test_a_floorless_pit_keeps_its_walls_but_has_no_plate() -> void:
+	pit.floored = false
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH * 0.5)
+	assert_null(_mesh("Floor"), "sie hat keinen Boden mehr")
+	for wall_name: String in PackPitView.WALL_NAMES:
+		assert_not_null(_mesh(wall_name), "%s steht weiter" % wall_name)
+	assert_not_null(_mesh("RimZPlus"), "und ihr Kragen auch")

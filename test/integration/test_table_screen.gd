@@ -742,12 +742,24 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 			"und die Grube von Plot %d auch" % i)
 	assert_true(screen.pit_open(TableScreen.PIT_MAGAZIN))
 	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL), "was nie auffuhr")
-	# Der EINE Aufräum-Pfad: jeder Schacht zu, die Grube unberührt.
+	# Möbel: Turm-Bucht und die Vertiefung unter der Tischsektion stehen dauerhaft.
+	var bucht := Rect2(640, 480, 210, 164)
+	var sektion := Rect2(880, 300, 204, 142)
+	screen.set_pit(TableScreen.PIT_TOWER, bucht)
+	screen.set_pit(TableScreen.PIT_SECTION, sektion)
+	# Der EINE Aufräum-Pfad: jeder Schacht zu, die Möbel-Gruben unberührt.
 	screen.clear_lift_pits()
 	for slot in range(TableScreen.PIT_MAGAZIN + 1, TableScreen.MAX_PITS):
+		if TableScreen.PERMANENT_PITS.has(slot):
+			continue
 		assert_false(screen.pit_open(slot), "Platz %d ist zu" % slot)
 	assert_eq(screen.pit_rect(TableScreen.PIT_MAGAZIN), magazin,
 		"die Magazin-Grube ist Möbel, kein Auftritt")
+	assert_eq(screen.pit_rect(TableScreen.PIT_TOWER), bucht, "die Turm-Bucht ebenso")
+	# Gemessen 2026-10-27: geschlossen stand unter der Glas-Scheibe wieder Filz, denn
+	# ihr Loch schreibt nur der Fenster-Neuaufbau - der Aufräum-Pfad räumte es weg.
+	assert_eq(screen.pit_rect(TableScreen.PIT_SECTION), sektion,
+		"und die Vertiefung der Tischsektion auch")
 
 func test_ein_schacht_wird_in_weltmassen_genannt():
 	# Der Körper steht in der Welt, das Loch wird in Pixeln geschnitten - die
@@ -833,3 +845,13 @@ func test_die_schirm_haut_bildet_genau_das_glas_rechteck_ab():
 func test_das_filz_loch_der_vorwelle_ist_gestorben():
 	assert_false(screen.has_method("set_felt_hole"),
 	"der Schirm liest echtes Alpha - der Filz muss seinen Grund nicht mehr schwaerzen")
+
+## Die Glas-Haut der Die-View zeichnet ÜBER jeder Karte: Durchsichtiges sortiert nach
+## Priorität, nicht nach Tiefe - sonst malten die Turm-Karten darunter über sie.
+func test_die_view_glas_zeichnet_ueber_jeder_karte():
+	var skin := screen.net_glass_skin()
+	for prio: int in [DataCellView.PRIORITY_BODY, DataCellView.PRIORITY_CORE,
+			DataCellView.PRIORITY_FRAME, DataCellView.PRIORITY_NET,
+			DataCellView.PRIORITY_BADGE_OUTLINE, DataCellView.PRIORITY_BADGE,
+			DataCellView.PRIORITY_PANE]:
+		assert_gt(skin.render_priority, prio)

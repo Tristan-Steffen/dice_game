@@ -78,9 +78,14 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	for lane in TableScreen.SWALLOW_PIT_COUNT:
 		slots.append(TableScreen.swallow_pit(lane))
 	slots.append(TableScreen.PIT_TOWER)
+	slots.append(TableScreen.PIT_SECTION)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
+	# Die VERTIEFUNG der Tischsektion haengt hinter den Schluck-Bahnen an - dafuer
+	# ist das Budget 2026-10-26 von 24 auf 25 gewachsen.
+	assert_eq(TableScreen.PIT_SECTION,
+		TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1) + 1)
 	# Die Würfel-Hebebühnen hängen ans ENDE, damit kein bestehender Platz
 	# umnummeriert wird - und keine teilt ihr Loch mit einer anderen: die
 	# Warteschlange fährt je Platz eine eigene Maschine (Fahrten überlappen),
@@ -96,14 +101,14 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	# Die Bahnen 3-5 hängen hinter der Bucht an (Spieler-Wunsch 2026-10-25: alle zugleich).
 	assert_eq(TableScreen.swallow_pit(3), TableScreen.PIT_TOWER + 1)
 	assert_eq(TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1),
-		TableScreen.MAX_PITS - 1)
+		TableScreen.MAX_PITS - 2)
 	assert_eq(TableScreen.SWALLOW_PIT_COUNT, TableScreen.QUEUE_PIT_COUNT, "je Grubenwürfel eine Bahn")
 	var source: String = load("res://scripts/table/table_screen.gd").source_code
 	assert_false(source.contains("clamp_pit"), "clamp_pit ist tot")
 	# Jeder Warteschlangen-Platz und jede Schluck-Bahn hat SEIN Loch.
 	assert_eq(TableScreen.queue_pit(0), TableScreen.PIT_QUEUE0)
 	assert_eq(TableScreen.queue_pit(99), TableScreen.PIT_QUEUE0 + 5, "geklemmt")
-	assert_eq(TableScreen.swallow_pit(99), TableScreen.MAX_PITS - 1, "geklemmt")
+	assert_eq(TableScreen.swallow_pit(99), TableScreen.PIT_SECTION - 1, "geklemmt")
 	# Die Ablage der Auszahlungs-Seite ist EINE Plattform, also EIN Loch - und ein
 	# eigenes: die drei Wett-Gruben dürfen derweil offen stehen.
 	for i in SideBetPanel.OFFER_COUNT:

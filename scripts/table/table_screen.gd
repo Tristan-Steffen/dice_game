@@ -180,6 +180,13 @@ var workshop_info_window: WorkshopInfoView
 ## transparent, damit sein Alpha echt ist und seine Auflösung an der
 ## Bildschirm-Pixeldichte des Gruben-Schirms hängt statt an dieser Anzeige.
 var deck_glass_window: DeckGlassView
+## Die GLAS-SCHEIBE der Tischsektion: ihr eigener durchsichtiger Viewport und das
+## Control darin, in dem das EINE NETZ der Werkstatt wohnt (WorkshopView.net_pane).
+const NET_GLASS_PRIORITY := DataCellView.PRIORITY_BADGE + 1
+var net_glass_viewport: SubViewport
+var net_glass_pane: Control
+var _net_glass_rect := Rect2()
+var _net_glass_skin: ShaderMaterial
 var deck_glass_viewport: SubViewport
 ## Sein Rechteck auf der ANZEIGE (leer = die Ansicht steht nicht): daraus fällt die
 ## Welt-Abbildung der Haut und die Umrechnung jedes weitergereichten Zeigers.
@@ -222,7 +229,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 24
+const MAX_PITS := 25
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -263,6 +270,12 @@ const SWALLOW_PIT_COUNT := 6
 ## Magazin-Grube - im Glas sind es zwei Einträge, in der Welt EIN Raum.
 const PIT_TOWER := 20
 const PIT_SWALLOW_TAIL0 := 21
+
+## Die VERTIEFUNG unter der TISCHSEKTION des Ziel-Netzes: sie steht offen, sobald die
+## Sektion dem Rohling weicht, und ist sonst ein leeres Rechteck (die Sektion liegt
+## dann bündig darin und IST die Anzeige). Ans Ende gehängt, damit keine Nummer
+## umzieht - dafür ist das Löcher-Budget auf 25 gewachsen.
+const PIT_SECTION := 24
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -623,6 +636,26 @@ func _build_content() -> void:
 	add_child(deck_glass_viewport)
 	deck_glass_window = DeckGlassView.new()
 	deck_glass_viewport.add_child(deck_glass_window)
+
+	# Die GLAS-SCHEIBE der Tischsektion: derselbe Kniff noch einmal, für das EINE
+	# NETZ über dem Turm. Der Tisch ist dort GLAS (Spieler-Wunsch 2026-10-27), also
+	# muß sein Bild Per-Pixel-Alpha tragen - die Netz-Zellen decken, alles dazwischen
+	# bleibt klar. Gezeichnet wird es NIE hier: das Loch der Sektion schneidet die
+	# Anzeige fort, gezeigt wird es auf der Scheibe selbst.
+	net_glass_viewport = SubViewport.new()
+	net_glass_viewport.name = "NetGlassViewport"
+	net_glass_viewport.transparent_bg = true
+	net_glass_viewport.use_hdr_2d = false
+	net_glass_viewport.disable_3d = true
+	net_glass_viewport.gui_embed_subwindows = false
+	net_glass_viewport.size = Vector2i(64, 64)
+	net_glass_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(net_glass_viewport)
+	net_glass_pane = Control.new()
+	net_glass_pane.name = "NetPane"
+	net_glass_pane.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	net_glass_viewport.add_child(net_glass_pane)
+	workshop_window.net_pane = net_glass_pane
 
 	# Info-Säule unter dem Ausgabefach: Position/Größe setzt scene_root über
 	# place_fach_net_window; leer heißt unsichtbar.
@@ -1009,6 +1042,63 @@ func place_deck_glass_window(rect: Rect2, resolution: Vector2i) -> void:
 	deck_glass_window.visible = true
 	_sync_deck_glass_skin()
 
+## Spannt die GLAS-SCHEIBE der Tischsektion über rect auf (in Display-Pixeln) -
+## dieselbe Grammatik wie place_deck_glass_window: resolution ist die ECHTE
+## Pixelzahl ihres Viewports und kommt von draußen, denn nur der Aufrufer kennt die
+## Kamera, die die Scheibe abbildet.
+func place_net_glass_pane(rect: Rect2, resolution: Vector2i) -> void:
+	if net_glass_pane == null or rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		hide_net_glass_pane()
+		return
+	_net_glass_rect = rect
+	var wanted := Vector2i(maxi(resolution.x, 16), maxi(resolution.y, 16))
+	if net_glass_viewport.size != wanted:
+		net_glass_viewport.size = wanted
+	net_glass_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# Die Scheibe wird in DISPLAY-Pixeln gezeichnet und nur FEINER gerastert: ihr
+	# Inhalt (das Netz) mißt in denselben Pixeln wie der Streifen, der Viewport zieht
+	# ihn bloß mit mehr Texeln. Ohne diese Skalierung läge das Netz halb so groß
+	# mitten in der Scheibe.
+	net_glass_pane.position = Vector2.ZERO
+	net_glass_pane.size = rect.size
+	net_glass_pane.scale = Vector2(wanted) / rect.size
+	net_glass_pane.visible = true
+	_sync_net_glass_skin()
+
+## Das Rechteck der Glas-Scheibe auf der ANZEIGE (leer = sie steht nicht).
+func net_glass_rect_px() -> Rect2:
+	return _net_glass_rect
+
+func hide_net_glass_pane() -> void:
+	_net_glass_rect = Rect2()
+	if net_glass_pane != null:
+		net_glass_pane.visible = false
+	if net_glass_viewport != null:
+		net_glass_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+
+## Die ANZEIGE-HAUT der Glas-Scheibe: dasselbe Rezept wie deck_glass_skin, nur zieht
+## sie aus dem Netz-Viewport. Ihre Zellen decken, alles dazwischen bleibt klar - so
+## bleibt die Die-View, wie sie war, und der Tisch darum herum ist Glas.
+func net_glass_skin() -> ShaderMaterial:
+	if _net_glass_skin == null:
+		_net_glass_skin = ShaderMaterial.new()
+		_net_glass_skin.shader = load("res://assets/shaders/display_skin_sheer.gdshader")
+		# Durchsichtiges sortiert nach PRIORITÄT, nicht nach Tiefe: über der ganzen
+		# Kartenkette, sonst malten die Turm-Karten DARUNTER über die Die-View.
+		_net_glass_skin.render_priority = NET_GLASS_PRIORITY
+	_sync_net_glass_skin()
+	return _net_glass_skin
+
+func _sync_net_glass_skin() -> void:
+	if _net_glass_skin == null or _net_glass_rect.size.x <= 0.0:
+		return
+	var a := pixel_to_world(_net_glass_rect.position)
+	var b := pixel_to_world(_net_glass_rect.end)
+	_net_glass_skin.set_shader_parameter("screen_texture", net_glass_viewport.get_texture())
+	_net_glass_skin.set_shader_parameter("display_map",
+		Vector4(a.z, b.z - a.z, a.x, a.x - b.x))
+	_net_glass_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
+
 func hide_deck_glass_window() -> void:
 	_deck_glass_rect = Rect2()
 	deck_glass_window.visible = false
@@ -1231,11 +1321,15 @@ func set_lift_pit(slot: int, at: Vector3, half_extents: Vector2,
 func clear_pit(slot: int) -> void:
 	set_pit(slot, Rect2(), 0.0)
 
-## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die GEMEINSAME Grube bleibt - sie
-## ist kein Auftritt, sondern Möbel.
+## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die GEMEINSAME Grube und die
+## VERTIEFUNG der Tischsektion bleiben - sie sind kein Auftritt, sondern Möbel, und
+## ihre Löcher werden nur beim Fenster-Neuaufbau geschrieben (gemessen 2026-10-27:
+## nach einem Ladenbesuch stand sonst wieder Filz unter der Glas-Scheibe).
+const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_TOWER, PIT_SECTION]
+
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
-		if slot != PIT_TOWER:
+		if not PERMANENT_PITS.has(slot):
 			clear_pit(slot)
 
 ## Steht dieses Loch offen? (Der Leck-Test fragt genau das.)

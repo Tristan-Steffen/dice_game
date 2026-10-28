@@ -150,6 +150,23 @@ func test_the_pocket_closes_the_tower_under_the_felt() -> void:
 	tower.seat(SEAT, SPAN, 6)
 	assert_null(tower.get_node_or_null("Tasche"), "ohne Tischkante keine Tasche")
 
+## Und zur MAGAZIN-Grube (Welt -X) steht sie OFFEN, sobald es bestellt ist
+## (Spieler-Wunsch 2026-10-27): deren Oberwand hat dort ihren Durchbruch, und erst
+## beide zusammen geben den Blick auf die Etagen frei.
+func test_the_pocket_opens_to_the_magazine_when_ordered() -> void:
+	tower.seat(SEAT, SPAN, 6, SEAT.y + 3.0, SPAN.x * 1.5)
+	assert_not_null(tower.get_node_or_null("Tasche/Flanke0"),
+		"unbestellt steht die Flanke zur Grube")
+	assert_not_null(tower.get_node_or_null("Tasche/Flanke1"))
+	tower.pit_open = true
+	tower.seat(SEAT, SPAN * 1.01, 6, SEAT.y + 3.0, SPAN.x * 1.5)
+	assert_null(tower.get_node_or_null("Tasche/Flanke0"),
+		"bestellt fehlt sie - man sieht aus der Grube hinein")
+	assert_not_null(tower.get_node_or_null("Tasche/Flanke1"),
+		"die andere Flanke bleibt, dahinter liegt kein Loch")
+	assert_not_null(tower.get_node_or_null("Tasche/Decke"), "Decke und Boden bleiben")
+	assert_not_null(tower.get_node_or_null("Tasche/Boden"))
+
 ## Die LICHT-EBENE liegt nur über den Stummeln, links vor der offenen Turmkante.
 func test_the_light_plane_lies_over_the_stubs() -> void:
 	tower.seat(SEAT, SPAN, 6)

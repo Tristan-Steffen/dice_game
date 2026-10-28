@@ -205,6 +205,14 @@ const PACK_PIT_FLOOR_AIR := 0.3
 ## Luft zwischen der obersten Turm-Karte und dem Glas: die TURM-BUCHT ist genau so
 ## flach, dass sie noch darunter bleibt.
 const TOWER_PIT_HEADROOM := 0.06
+## Luft über der liegenden Karte in der VERTIEFUNG der Tischsektion: die Platte fährt
+## darüber hinweg, die Karte liegt darunter auf dem Boden.
+const SECTION_PIT_AIR := 0.12
+## Wie fein die GLAS-SCHEIBE der Sektion zieht: ihre Display-Pixel mal diesem
+## Faktor. Fest statt kameraabhängig wie die Glas-Ansicht - die Scheibe ist klein
+## und steht IMMER, eine Neumessung je Kamerafahrt legte ihren Viewport neu an.
+## GEMESSEN: an der Werkstatt-Station deckt sie ~400 Bildschirm-px, 2,0 liefert 460.
+const NET_GLASS_OVERSAMPLE := 2.0
 const DATA_CELL_STAGGER := 0.06
 const DATA_CELL_SLIDE_TIME := 0.32
 ## DER TRAGE-BOGEN (Welle O): was der SPIELER bewegt, fliegt ÜBER dem Tisch -
@@ -3578,12 +3586,14 @@ func _rebuild_target_stage() -> void:
 		_bench_podium_target(workshop),
 		(_bench_die == null or _durchlicht) and bench_blank_cell == null)
 
-## Der EINE Schreiber des ROHLINGS auf dem Podest. Er wird NICHT getragen: er LIEGT
-## schon dort, wo er hin gehört, und das Licht kommt zu ihm - anders als der
-## Zielwürfel, der über den Turm fliegt. Er liegt FLACH auf dem Glas, nicht
-## schwebend, darum ohne CLAMP_HOVER und ohne den Projektions-Trim des Würfels.
+## Der EINE Schreiber des ROHLINGS. Er liegt auf der ZIEL-SPALTE - dort, wo sonst die
+## Die-View steht und wo das Licht aus dem Turm ankommt (Spieler-Wunsch 2026-10-26);
+## die Die-View weicht ihm und fährt unter den Filz. Getragen wird er NICHT: er LIEGT
+## schon dort, und das Licht kommt zu ihm - anders als der Zielwürfel, der über den
+## Turm fliegt. Er liegt FLACH auf dem Glas, also ohne CLAMP_HOVER und ohne den
+## Projektions-Trim des schwebenden Würfels.
 func _seat_bench_blank(workshop: WorkshopView) -> void:
-	var pack := workshop.target_pack()
+	var pack := workshop.seated_blank()
 	var uid := pack.pack_uid if pack != null else 0
 	var standing := bench_blank_cell != null and is_instance_valid(bench_blank_cell)
 	if uid == _bench_blank_uid and standing == (uid != 0):
@@ -3594,13 +3604,16 @@ func _seat_bench_blank(workshop: WorkshopView) -> void:
 	_bench_blank_uid = uid
 	if pack == null:
 		return
-	var center := workshop.target_net_center()
+	var center := workshop.blank_seat_center()
 	if center.x < 0.0:
 		return
-	var at := table_screen.pixel_to_world(Vector2(center.x,
-		workshop.target_projector_y() - WorkshopView.BENCH_TILT_TRIM))
+	var at := table_screen.pixel_to_world(center)
+	# Er LIEGT in der VERTIEFUNG, auf deren Boden: er FÜLLT die Lücke, die die
+	# Tischsektion hinterlassen hat, und ragt nicht über die Schnittkante.
+	at.y -= PackPitView.WALL_SINK + _section_pit_depth()
+	at.y += DataCellView.lying_under(PackDrawerView.CASSETTE_SCALE)
 	bench_blank_cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at,
-		pack.stamp_net)
+		pack.stamp_net, false, true)
 	_lay_cell_hard(bench_blank_cell, at)
 
 ## Der harte Weg: der Rohling verläßt das Podest (Laufwechsel, Zurren).
@@ -3874,6 +3887,7 @@ func _sync_data_cells() -> void:
 		return
 	_sync_pack_pit(workshop)
 	_sync_tower_pit(workshop)
+	_sync_table_section(workshop)
 	_sync_shelf_stack(workshop)
 	_data_cell_gen += 1
 	var generation := _data_cell_gen
@@ -3908,7 +3922,22 @@ func _sync_tower(workshop: WorkshopView) -> void:
 	# man hinein, und an einer schmaleren Tasche vorbei in den Raum.
 	var bay := workshop.tower_pit_rect()
 	var width := _pit_half(bay).x * 2.0 if bay.size.x > 0.0 else 0.0
-	tower.seat(seat, _world_span(rect.size), workshop.step_count(), glass, width)
+	# Die DECKE seiner Tasche liegt unter der VERTIEFUNG der Tischsektion - sonst
+	# stünde sie mitten in ihr. Der Turm selbst ist mit _tower_pit_depth längst
+	# mitgerückt; hier zieht nur noch der Deckel nach.
+	# Und zur MAGAZIN-Grube steht sie OFFEN: deren Oberwand hat dort ihren
+	# Durchbruch, und durch beide zusammen sieht man auf die Etagen.
+	tower.pit_open = true
+	# Ihr DECKEL fällt ebenfalls (Spieler-Wunsch 2026-10-27): die Tischsektion
+	# darüber ist Glas, und dahinter soll der Turm stehen, nicht eine Blechdecke.
+	tower.lid_open = true
+	tower.seat(seat, _world_span(rect.size), workshop.step_count(),
+		glass - _section_pit_depth() - PackPitView.FLOOR, width)
+
+## Die Gegenrichtung: wie viele Display-Pixel ein Weltmaß LÄNGS (Bild-breit) ist.
+func _pixels_for_world(span: float) -> float:
+	var step := _world_span(Vector2.ONE).y
+	return span / step if step > 0.0001 else 0.0
 
 ## Ein Display-Rechteck in WELT-Spannen: x quer (Bild-hoch), y längs (Bild-breit).
 func _world_span(px: Vector2) -> Vector2:
@@ -3942,12 +3971,25 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 		pack_pit.wall_skin = PIT_SKIN
 		add_child(pack_pit)
 	# Die Wand zur BUCHT (Bild-oben = Welt +X) bekommt ihren DURCHBRUCH: Versatz und
-	# Breite in Welt-Z, gemessen an der gemeldeten Bucht.
+	# Breite in Welt-Z. Er deckt seit dem 2026-10-27 BUCHT **und** TURM-Fußabdruck
+	# (Spieler-Wunsch): dahinter liegt die TASCHE des Turms, und erst wenn der
+	# Durchbruch bis an deren fernes Ende reicht, sieht man aus der Grube die ganzen
+	# ETAGEN samt der KONTAKTLEISTE, an der die Karten einrasten.
 	var bay := workshop.tower_pit_rect()
 	var gap := Vector2.ZERO
+	pack_pit.rim_gap = Vector2.ZERO
 	if bay.size.x > 0.0:
+		# Über der BUCHT selbst ist kein Tisch - dort fehlt auch der Kragen; über dem
+		# Rest des Durchbruchs (unter der Tischsektion) trägt die Kante ihn weiter.
 		var bay_world := _pit_world_rect(bay)
-		gap = Vector2(bay_world.get_center().y - centre.z, bay_world.size.y)
+		pack_pit.rim_gap = Vector2(bay_world.get_center().y - centre.z, bay_world.size.y)
+		# tower_rect() ist FENSTER-lokal, tower_pit_rect() schon global - erst beide
+		# in derselben Rechnung, dann vereinigen.
+		var tower_global := workshop.tower_rect()
+		tower_global.position += workshop.get_global_rect().position
+		var span := _pit_world_rect(bay.merge(tower_global))
+		gap = Vector2(span.get_center().y - centre.z,
+			span.size.y + TowerView.POCKET_WALL * 2.0)
 	# Die Bucht ist FLACHER: unter dem Durchbruch schließt eine Schwelle die Wand.
 	pack_pit.breach_floor = _tower_pit_depth()
 	# Die Bild-RECHTE Wand (Welt +Z) bekommt den SCHLITZ, durch den die Tabletts in
@@ -3986,6 +4028,73 @@ func _sync_tower_pit(workshop: WorkshopView) -> void:
 	tower_pit.slot = Vector2(0.0, _tower_pit_depth())
 	tower_pit.setup(table_screen.pixel_to_world(rect.get_center()), _pit_half(rect),
 		_tower_pit_depth(), PackPitView.WALL_X_MINUS)
+
+#region DIE TISCHSEKTION des Ziel-Netzes
+# Das Stück Tisch unter der Die-View ist ein eigener Körper (TableSectionView):
+# bündig IST es die Anzeige, beim VERDICHTEN sinkt es und fährt nach Bild-rechts in
+# seine Tasche. Darunter liegt die VERTIEFUNG - eine flache Grube in Archiv-
+# Auskleidung, in die sich der Rohling legt. Den TAKT gibt das Fenster (ist_dip/
+# ist_slide), gestellt wird hier: ui/ faßt nie Körper an.
+
+## Die Vertiefung und ihre Platte - Möbel der Werkstatt, idempotent gestellt.
+var section_pit: PackPitView
+var table_section: TableSectionView
+
+func _sync_table_section(workshop: WorkshopView) -> void:
+	if table_screen == null:
+		return
+	var rect := workshop.ist_screen_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		return
+	var origin := workshop.get_global_rect().position
+	var cut := Rect2(origin + rect.position, rect.size)
+	# BEIDE Längskanten rücken um den KRAGEN der Nachbargrube ein: er greift RIM_OUT
+	# über ihre Kante hinaus, und eine bündige Platte stritte sich dort mit ihm im
+	# Tiefenpuffer (gemessen als Kamm-Muster längs der Naht). Beidseitig gleich,
+	# damit die Vertiefung auf der Spalte MITTIG bleibt - der Rohling liegt mittig.
+	var inset := _pixels_for_world(PackPitView.RIM_OUT)
+	cut = cut.grow_individual(-inset, 0.0, -inset, 0.0)
+	table_screen.set_pit(TableScreen.PIT_SECTION, cut, 0.0)
+	var centre := table_screen.pixel_to_world(cut.get_center())
+	var depth := _section_pit_depth()
+	if section_pit == null or not is_instance_valid(section_pit):
+		section_pit = PackPitView.new("SectionPit")
+		section_pit.wall_skin = PIT_SKIN
+		# KEIN Kragen: die bündige Platte deckt die Schnittkante selbst, und ein
+		# Kragen stünde ihr im Weg (die Schacht-Grammatik, LiftShaftView).
+		section_pit.rimmed = false
+		# Und KEIN Boden (Spieler-Wunsch 2026-10-27): die Sektion ist GLAS, darunter
+		# soll der TURM stehen - ein Boden wäre genau der Deckel, den wir fortnehmen.
+		section_pit.floored = false
+		add_child(section_pit)
+	# Zur Bild-RECHTEN Seite (Welt +Z) steht die Wand offen, so weit die Platte
+	# reicht: durch diesen Schlitz fährt sie in ihre Tasche.
+	section_pit.slot_walls = [PackPitView.WALL_Z_PLUS] as Array[int]
+	section_pit.slot = Vector2(0.0, minf(TableSectionView.SINK + TableSectionView.DECK,
+		depth))
+	section_pit.setup(centre, _pit_half(cut), depth)
+	if table_section == null or not is_instance_valid(table_section):
+		table_section = TableSectionView.new()
+		add_child(table_section)
+	# Die Haut der Scheibe ist das NETZ in seinem eigenen, durchsichtigen Viewport -
+	# nicht die opake Anzeige: nur so decken die Zellen und bleibt alles dazwischen
+	# klar. Die Scheibe trägt damit die Die-View, der Rest ist Glas.
+	table_screen.place_net_glass_pane(cut,
+		Vector2i((cut.size * NET_GLASS_OVERSAMPLE).round()))
+	table_section.deck_skin = table_screen.net_glass_skin()
+	table_section.seat(centre, _world_span(cut.size))
+	_place_table_section()
+
+## Ihr Stand je Bild: das Fenster sagt, wie weit gesunken und gefahren ist.
+func _place_table_section() -> void:
+	if table_section == null or not is_instance_valid(table_section):
+		return
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	table_section.place(workshop.ist_dip(), workshop.ist_slide())
+
+#endregion
 
 ## DER REGALSTAPEL: die fünf Tabletts in der Magazin-Grube, EINES in der Fläche.
 ## Möbel, idempotent - die FAHRT gehört der Knopfleiste, dieser Abgleich stellt nur
@@ -4049,7 +4158,15 @@ func _pack_pit_depth() -> float:
 ## dem Glas liegt (Spieler-Entscheid 2026-09-11, "halb so tief wie das Magazin" -
 ## gemessen 57 %; genau die Hälfte schöbe die oberste Karte 0,22 über den Tisch).
 func _tower_pit_depth() -> float:
-	return TowerView.tower_height(_wanted_strip_slots()) + TOWER_PIT_HEADROOM
+	return TowerView.tower_height(_wanted_strip_slots()) + TOWER_PIT_HEADROOM \
+		+ _section_pit_depth()
+
+## Die VERTIEFUNG unter der TISCHSEKTION: so tief, dass die liegende Karte darin
+## GANZ unter der Schnittkante steht - sie FÜLLT die Lücke, sie ragt nicht heraus.
+## Der TURM rückt um genau diesen Betrag tiefer (seine Taschendecke stand sonst
+## mitten in der Vertiefung), und mit ihm die Bucht - beides hängt an dieser Zahl.
+func _section_pit_depth() -> float:
+	return TowerView.CARD_THICKNESS + SECTION_PIT_AIR
 
 ## Wie weit der Boden der Bucht unter dem Glas liegt - darauf steht der Turm.
 func _tower_floor_drop() -> float:
@@ -8567,7 +8684,7 @@ func _spawn_data_cell(sort: String, tier: int, at: Vector3,
 	var cell := DataCellView.new()
 	cell.name = "DataCell"
 	add_child(cell)
-	cell.setup(sort, tier, net, gilded)
+	cell.setup(sort, tier, net, gilded, blank)
 	# Dieselbe Vierteldrehung wie ein Tray-Würfel: erst damit steht das Siegel
 	# aufrecht im Bild (Bildschirm-oben = Welt+X).
 	cell.rotation.y = -PI / 2.0
@@ -9878,6 +9995,7 @@ func _process(delta: float) -> void:
 	_sync_workshop_strip()  # und der Streifen wächst, wenn die Serie länger wird
 	_sync_music()  # und die Musik-Schichten folgen der Phase
 	_sync_pit_beckon(delta)  # und die Grube ruft, solange die Runde auf ihren ersten Wurf wartet
+	_place_table_section()  # und die Tischsektion weicht dem Rohling bzw. kommt zurück
 
 ## Der LOCKRUF der Grube: vor dem ersten Wurf der Runde atmen ihre Wände grün und
 ## im leeren Boden steht WÜRFELN (Spieler-Wunsch 2026-10-24 - Tester fanden nach

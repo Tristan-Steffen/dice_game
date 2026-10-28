@@ -1269,9 +1269,12 @@ func test_der_rohling_auf_dem_podest_hat_im_magazin_keinen_koerper() -> void:
 	assert_false(bool(before["withheld"]), "und wird dort gezeigt")
 	view.set_target_pack(blank)
 	await wait_frames(2)
+	assert_false(bool(_entry_of(blank.pack_uid)["withheld"]),
+		"solange die Die-View noch weicht, liegt er in seinem Fach")
+	await wait_frames(40)
 	var during := _entry_of(blank.pack_uid)
 	assert_false(during.is_empty(), "sein PLATZ bleibt stehen")
-	assert_true(bool(during["withheld"]), "aber sein Körper steht auf dem Podest")
+	assert_true(bool(during["withheld"]), "aber sein Körper liegt auf der Ziel-Spalte")
 
 ## Und nach dem Verdichten kommt er zurueck ins Fach - sonst waere die fertige Karte
 ## nirgends zu finden.
@@ -1288,6 +1291,67 @@ func test_nach_dem_verdichten_steht_die_karte_wieder_im_fach() -> void:
 	assert_false(bool(entry["withheld"]), "und wird dort auch gezeigt")
 	assert_eq(int(entry["tray"]), Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL),
 		"im Sonderbestand, wie der Rohling vorher")
+
+## DIE TISCHSEKTION WEICHT (Spieler-Wuensche 2026-10-26): der Rohling liegt auf der
+## ZIEL-SPALTE - ueber dem Turm, wo das Licht ankommt -, und das Stueck Tisch unter
+## der Die-View weicht ihm in ZWEI Takten (erst SINKEN, dann FAHREN). Das Fenster
+## gibt den Takt, den KOERPER stellt scene_root - hier steht der Takt und der
+## Schirm, der beim Sinken verlischt (die Platte traegt sein Bild unter die Kante).
+func test_die_tischsektion_weicht_dem_rohling() -> void:
+	await wait_frames(2)
+	var home := view.ist_screen_rect().position
+	assert_almost_eq(view.ist_dip(), 0.0, 0.001, "ohne Rohling steht sie buendig")
+	assert_almost_eq(view.ist_slide(), 0.0, 0.001)
+	assert_almost_eq(view._ist_screen.modulate.a, 1.0, 0.001, "und der Schirm ist ganz da")
+	var blank := _blank()
+	view.set_target_pack(blank)
+	await wait_frames(4)
+	assert_gt(view.ist_dip(), 0.0, "erst SINKT sie")
+	assert_almost_eq(view.ist_slide(), 0.0, 0.001, "noch ohne zu fahren")
+	assert_lt(view._ist_screen.modulate.a, 1.0, "und der Schirm verlischt mit ihr")
+	await wait_frames(40)
+	assert_almost_eq(view.ist_dip(), 1.0, 0.001, "dann steht sie ganz unter der Kante")
+	assert_almost_eq(view.ist_slide(), 1.0, 0.001, "und ganz in ihrer Tasche")
+	assert_almost_eq(view._ist_screen.modulate.a, 0.0, 0.001, "der Schirm ist fort")
+	assert_eq(view._ist_screen.position, home, "sein PLATZ hat sich nie geruehrt")
+	view.clear_target()
+	await wait_frames(40)
+	assert_almost_eq(view.ist_dip(), 0.0, 0.001, "abgewaehlt kommt sie denselben Weg zurueck")
+	assert_almost_eq(view.ist_slide(), 0.0, 0.001)
+	assert_almost_eq(view._ist_screen.modulate.a, 1.0, 0.001)
+
+## Sein PLATZ ist die Mitte der Ziel-Spalte - links vom Podest, das beim Verdichten
+## leer steht, und ueber dem Turm.
+func test_der_rohling_liegt_auf_der_ziel_spalte() -> void:
+	var blank := _blank()
+	view.set_target_pack(blank)
+	await wait_frames(2)
+	var seat := view.blank_seat_center()
+	var origin := view.get_global_rect().position
+	assert_eq(seat, origin + view.ist_screen_rect().get_center(),
+		"die Mitte der Ziel-Spalte")
+	assert_almost_eq(seat.x, origin.x + view.tower_rect().get_center().x, 0.5,
+		"und damit ueber dem Turm")
+	assert_lt(seat.x, origin.x + view.target_podium_rect().get_center().x,
+		"links vom Podest")
+
+## Waehrend der Zeremonie LIEGT er weiter dort - das Licht steigt in IHN, und im
+## Magazin steht er darum auch nicht schon wieder.
+func test_der_rohling_liegt_auch_waehrend_der_zeremonie() -> void:
+	var blank := _blank()
+	view.slot_pack(_valued_pack(0, 3).pack_uid)
+	view.set_target_pack(blank)
+	await wait_frames(40)
+	assert_eq(view.seated_blank(), blank, "er liegt auf der freien Ziel-Spalte")
+	view.pull_lever()
+	await wait_frames(2)
+	assert_true(view.burning(), "die Zeremonie laeuft")
+	assert_eq(view.seated_blank(), blank, "und er liegt noch dort")
+	assert_true(bool(_entry_of(blank.pack_uid)["withheld"]),
+		"im Magazin steht er derweil nicht")
+	view.skip_ceremony()
+	await wait_frames(2)
+	assert_null(view.seated_blank(), "danach ist der Platz frei")
 
 ## Der Eintrag einer Karte im Magazin ({} = sie liegt nicht dort).
 func _entry_of(uid: int) -> Dictionary:
