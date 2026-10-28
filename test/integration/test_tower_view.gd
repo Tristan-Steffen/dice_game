@@ -20,10 +20,10 @@ func test_it_seats_one_floor_per_slot() -> void:
 	for i in 6:
 		assert_not_null(tower.get_node_or_null("Floor%d/Mouth" % (i + 1)),
 			"Etage %d hat ihren Mund" % (i + 1))
-	# Die unterste steht auf der Kammer, jede weitere auf zwei Schienen.
-	assert_null(tower.get_node_or_null("Floor1/RailA"), "Etage 1 steht auf der Kammer")
-	assert_not_null(tower.get_node_or_null("Floor2/RailA"))
-	assert_not_null(tower.get_node_or_null("Floor2/RailB"))
+	# Keine Etage trägt Schienen (Spieler-Wunsch 2026-10-27): die Karte hängt im Mund.
+	for i in 6:
+		assert_null(tower.get_node_or_null("Floor%d/RailA" % (i + 1)))
+		assert_null(tower.get_node_or_null("Floor%d/RailB" % (i + 1)))
 
 ## Jede Etage steigt um genau EINE Teilung - und Etage 1 ist die UNTERSTE, denn das
 ## Licht steigt von unten.
@@ -57,14 +57,17 @@ func test_floor_points_climb_and_lie_before_the_contact_bar() -> void:
 		SEAT.y + TowerView.floor_seat(0), 0.001)
 	assert_eq(tower.floor_point(6), Vector3.ZERO, "eine siebte gibt es nicht")
 
-## Die KONTAKTLEISTE steht am Bild-RECHTEN Rand - das ist WELT +Z - und IM
-## gemeldeten Rechteck, nicht daneben.
+## Die RÜCKWAND steht am Bild-RECHTEN Rand - das ist WELT +Z - und IM gemeldeten
+## Rechteck, nicht daneben.
 func test_the_contact_bar_stands_right_inside_the_footprint() -> void:
 	tower.seat(SEAT, SPAN, 6)
 	var bar: MeshInstance3D = tower.get_node("Chamber/ContactBar")
 	assert_gt(bar.position.z, SEAT.z, "sie steht auf der +Z-Seite (Bild-rechts)")
-	assert_lte(bar.position.z + tower.bar_depth() * 0.5, SEAT.z + SPAN.y * 0.5 + 0.001,
+	assert_lte(bar.position.z + tower.backplane_depth() * 0.5, SEAT.z + SPAN.y * 0.5 + 0.001,
 		"und bleibt im Fußabdruck")
+	assert_lte(tower.backplane_depth(), tower.bar_depth(), "nie tiefer als ihr Platz")
+	for i in TowerView.BUS_LINES:
+		assert_not_null(tower.get_node_or_null("Chamber/Bus%d" % i), "eine Busbahn je Stift")
 	assert_almost_eq((bar.mesh as BoxMesh).size.y, TowerView.tower_height(6), 0.001,
 		"sie geht über die ganze Höhe")
 
@@ -192,3 +195,56 @@ func test_a_shorter_tower_keeps_its_chamber() -> void:
 	assert_eq(tower.floor_count(), 2)
 	assert_almost_eq(TowerView.floor_top(0), TowerView.CHAMBER_HEIGHT, 0.001)
 	assert_lt(TowerView.tower_height(2), TowerView.tower_height(6))
+
+## Und ihr DECKEL faellt, sobald es bestellt ist (Spieler-Wunsch 2026-10-27): die
+## TISCHSEKTION darueber ist GLAS, also steht dort der Turm und keine Blechdecke.
+func test_the_pocket_lid_opens_when_ordered() -> void:
+	tower.seat(SEAT, SPAN, 6, SEAT.y + 3.0, SPAN.x * 1.5)
+	assert_not_null(tower.get_node_or_null("Tasche/Decke"), "unbestellt steht sie")
+	tower.lid_open = true
+	tower.seat(SEAT, SPAN * 1.01, 6, SEAT.y + 3.0, SPAN.x * 1.5)
+	assert_null(tower.get_node_or_null("Tasche/Decke"), "bestellt faellt sie")
+	assert_not_null(tower.get_node_or_null("Tasche/Boden"), "der Boden bleibt")
+	assert_not_null(tower.get_node_or_null("Tasche/Rueckwand"))
+
+## Je Etage eine BUCHSE (2026-10-27): ihr Mund ist der Fuß der EINGERASTETEN Karte -
+## eingerastet stecken die Stifte darin, in Ruhe stehen sie frei davor.
+func test_every_floor_has_its_socket_at_the_latched_foot() -> void:
+	tower.seat(SEAT, SPAN, 6)
+	var length := tower.card_length()
+	var latched_foot := tower.floor_point(0).z - TowerView.latched_share() * length 		+ length * 0.5
+	assert_almost_eq(tower.socket_mouth_z(), latched_foot, 0.0001)
+	var rest_foot := tower.floor_point(0).z - TowerView.pull_share(0, 6) * length 		+ length * 0.5
+	var pins := DataCellView.PIN_LENGTH * PackDrawerView.CASSETTE_SCALE
+	assert_lt(rest_foot + pins, tower.socket_mouth_z(), "in Ruhe steckt keine Karte")
+	for i in 6:
+		var socket := tower.get_node_or_null("Floor%d/Buchse" % (i + 1)) as Node3D
+		assert_not_null(socket, "Etage %d hat ihre Buchse" % (i + 1))
+		assert_almost_eq(socket.position.z, tower.socket_mouth_z(), 0.0001)
+		assert_almost_eq(socket.position.y,
+			SEAT.y + TowerView.floor_seat(i) + TowerView.CARD_THICKNESS * 0.5, 0.0001,
+			"auf Stifthöhe der Karte")
+		assert_not_null(tower.get_node_or_null("Floor%d/Steg" % (i + 1)),
+			"ein Steg trägt sie bis an die Rückwand")
+
+## Das GESTELL: vier Pfosten außerhalb der Kartenbreite, und ab Etage 2 je zwei
+## Winkel, deren Auflage genau unter der Kartenebene endet.
+func test_the_rack_carries_every_upper_card_by_its_edges() -> void:
+	tower.seat(SEAT, SPAN, 6)
+	var posts := 0
+	for child in tower.get_node("Gestell").get_children():
+		if String(child.name).begins_with("Pfosten"):
+			posts += 1
+			assert_gt(absf((child as Node3D).position.x - SEAT.x),
+				tower.card_width() * 0.5, "ein Pfosten steht neben der Karte, nie in ihrer Bahn")
+	assert_eq(posts, 4)
+	assert_null(tower.get_node_or_null("Floor1/AuflageA"), "Etage 1 liegt auf der Kammer")
+	for i in range(1, 6):
+		var ledge := tower.get_node("Floor%d/AuflageA" % (i + 1)) as MeshInstance3D
+		var size := (ledge.mesh as BoxMesh).size
+		assert_almost_eq(ledge.position.y + size.y * 0.5, SEAT.y + TowerView.floor_top(i),
+			0.0001, "die Auflage trägt die Karte von Etage %d" % (i + 1))
+		assert_lt(absf(ledge.position.x - SEAT.x) - size.x * 0.5, tower.card_width() * 0.5,
+			"und greift unter ihre Kante")
+		assert_lt(TowerView.RACK_RAIL, TowerView.FLOOR_PLATE,
+			"und paßt zwischen zwei Karten")

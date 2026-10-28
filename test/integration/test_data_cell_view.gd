@@ -52,8 +52,26 @@ func test_an_open_sort_shows_its_core() -> void:
 		"der Kern hinterleuchtet das Netz")
 	assert_null(cell.get_node_or_null("Body/Cell0/Seal"))
 
-## Die Karte ist GANZ aus GETÖNTEM GLAS - Körper, Kopfkante, Blende, Kragen und
-## Finnen alle halb durchsichtig; nur das Netz (die "die-view") bleibt deckend.
+## STECKER am Fuß (2026-10-27): das Modell sitzt mittig auf der Fußkante, die Stifte
+## zeigen aus der Karte hinaus - die alten Finnen sind fort.
+func test_the_foot_carries_the_connector_model() -> void:
+	var cell := _cell(Engraving.CATEGORY_NUMBER)
+	var connector := cell.get_node_or_null("Body/Cell0/Connector") as Node3D
+	assert_not_null(connector, "der Stecker steckt am Fuß")
+	assert_almost_eq(connector.position.y, -DataCellView.HEIGHT * 0.5, 0.0001)
+	assert_null(cell.get_node_or_null("Body/Cell0/Fin0"), "keine Finnen mehr")
+	var reach := AABB()
+	for mesh in connector.find_children("*", "MeshInstance3D", true, false):
+		var box: AABB = (mesh as MeshInstance3D).get_aabb()
+		box.position += (mesh as MeshInstance3D).position
+		reach = box if reach.size == Vector3.ZERO else reach.merge(box)
+	assert_almost_eq(-reach.position.y, DataCellView.PIN_LENGTH, 0.004,
+		"die Stifte ragen genau PIN_LENGTH über die Kante")
+	assert_almost_eq(reach.size.z, DataCellView.CONNECTOR_DEPTH, 0.004,
+		"und der Kragen ist so dick wie gemeldet")
+
+## Die Karte ist GANZ aus GETÖNTEM GLAS - Körper, Kopfkante, Blende und Kragen alle
+## halb durchsichtig; nur das Netz (die "die-view") bleibt deckend.
 func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
 	var shade := cell.tier_tint()
@@ -66,7 +84,7 @@ func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
 	assert_lt(DataCellView.GLASS_BODY_EMISSION, Rune.IDLE_CEILING, "kein Ruhe-Bloom")
 	assert_eq(cell.get_node("Body/Cell0/BarLeft").material_override, shell,
 		"die Gehäusebalken teilen dasselbe Glas")
-	for glassy in ["EdgeStrip", "BezelLeft", "CollarLeft", "Fin0"]:
+	for glassy in ["EdgeStrip", "BezelLeft", "CollarLeft"]:
 		var part: StandardMaterial3D = cell.get_node("Body/Cell0/%s" % glassy).material_override
 		assert_eq(part.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA,
 			"%s ist jetzt halb durchsichtig" % glassy)
@@ -386,7 +404,7 @@ func test_no_cell_carries_a_cap_any_more() -> void:
 	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.DEPTH,
 		"die Griff-Zelle ist breiter als die Karte dick - sonst fände der Zeiger sie nie")
 	assert_almost_eq(DataCellView.GRIP_DEPTH, DataCellView.DEPTH * 2.9, 0.000001)
-	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.FIN_DEPTH,
+	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.CONNECTOR_DEPTH,
 		"und bleibt die Greifluft um den steckenden Körper")
 
 func test_hovering_lifts_the_cell_and_lets_it_sink_back() -> void:

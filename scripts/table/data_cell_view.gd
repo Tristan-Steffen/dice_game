@@ -54,12 +54,21 @@ const FOOT_BAR := HEIGHT * 0.135
 ## Rückwand: der Ausschnitt ist ein Loch im Rahmen, sie schließt ihn nach hinten.
 const BACK_DEPTH := DEPTH * 0.42
 
-## Kontaktfinnen an der Unterkante. Sie stehen vorn UND hinten ein Stück vor -
-## echte Steckkontakte sitzen nicht auf einer Seite.
-const FIN_COUNT := 5
-const FIN_WIDTH := WIDTH * 0.105
-const FIN_SPREAD := WIDTH * 0.74
-const FIN_DEPTH := DEPTH * 1.10
+## Der STECKER am Fuß (Spieler-Entscheid 2026-10-27, Modell aus
+## tools/blender_hardware.py): Gehäuse in der Fußkante, acht Goldstifte nach außen.
+## Ursprung des Modells = Mitte der Fußkante, gebaut im ROH-Maß dieser Karte.
+const CONNECTOR_SCENE := "res://assets/models/hardware/card_connector.glb"
+## Sein Kragen steht auf beiden Flächen ein Stück vor - daran mißt die Liegehöhe.
+const CONNECTOR_DEPTH := DEPTH * 1.12
+## So weit ragen die Stifte über die Fußkante hinaus (roh, samt Spitze).
+const PIN_LENGTH := 0.042
+static var _connector_scene: PackedScene
+## Die BUCHSE, sein Gegenstück in Mulde und Turm - im WELT-Maß der Karte bei
+## CASSETTE_SCALE gebaut. Ursprung = Mitte des Mundes auf Stifthöhe, der Körper
+## reicht SOCKET_DEPTH nach +Z (weg von der Karte).
+const SOCKET_SCENE := "res://assets/models/hardware/card_socket.glb"
+const SOCKET_DEPTH := 0.15
+static var _socket_scene: PackedScene
 
 ## Sichtbarer Stapel und sein Achsabstand; darüber zählt allein die Marke. Der
 ## Stapel wächst entlang der DICKE, liegend also als Chip-Turm nach oben. Der
@@ -147,7 +156,7 @@ const DEMATERIALIZE_TIME := 0.16
 ## hindurch, gespiegelt, physikalisch ehrlich; einen zweiten Druck gibt es nicht.
 const GLASS_BODY_ALPHA := 0.32
 const GLASS_BODY_EMISSION := 0.34
-## Rahmen, Kragen, Kopfkante und Finnen sind seit dem 2026-09-07 ebenfalls halb
+## Rahmen, Kragen und Kopfkante sind seit dem 2026-09-07 ebenfalls halb
 ## durchsichtig (Spieler-Entscheid): die ganze Karte ist Glas, nur das NETZ (die
 ## "die-view") bleibt deckend.
 const GLASS_FRAME_ALPHA := 0.5
@@ -168,8 +177,6 @@ const CHASSIS_EMISSION_ENERGY := 0.30
 ## Runen ins Olive - die Scheibe soll dämpfen, nicht umfärben.
 const GLASS_ALBEDO := Color(0.16, 0.16, 0.19, 0.24)
 const GLASS_EMISSION_ENERGY := 0.09
-## Kontaktgold - dieselbe Marken-Goldquelle wie die ×n-Marke im Regal.
-const FIN_EMISSION_ENERGY := 0.30
 
 ## Anteil der Sortenfarbe im Albedo des Kerns: er ist ein Leuchtkörper, seine
 ## Farbe soll aus der Emission kommen, nicht aus dem Anstrich.
@@ -269,7 +276,6 @@ var _bezel_material: StandardMaterial3D
 var _glass_material: StandardMaterial3D
 var _core_material: StandardMaterial3D
 var _edge_material: StandardMaterial3D
-var _fin_material: StandardMaterial3D
 ## Die Netz-Fläche und ihr EIGENER Ofen (nur für den abgedunkelten Zustand bzw.
 ## als Rückfall, wenn der geteilte gerade fehlt).
 var _net_material: StandardMaterial3D
@@ -533,11 +539,11 @@ func lie_on_glass(at: Vector3) -> void:
 	set_socketed(false)
 	global_position = at
 
-## Wie weit eine LIEGENDE Kassette unter ihren Ursprung reicht: die Kontaktfinnen
-## stehen hinten eine Spur über die Karte hinaus. Wer sie auf einen Boden legt,
-## hebt sie um genau dieses Maß an.
+## Wie weit eine LIEGENDE Kassette unter ihren Ursprung reicht: der Stecker steht
+## hinten eine Spur über die Karte hinaus. Wer sie auf einen Boden legt, hebt sie um
+## genau dieses Maß an.
 static func lying_under(cell_scale: float) -> float:
-	return maxf(FIN_DEPTH - DEPTH, 0.0) * 0.5 * cell_scale
+	return maxf(CONNECTOR_DEPTH - DEPTH, 0.0) * 0.5 * cell_scale
 
 ## Und wie hoch sie über ihm liegt. Seit dem Kappen-Tod ist ihr höchster Punkt die
 ## BLENDE - liegende Ware sitzt entsprechend flacher. Daran mißt jede Auslage.
@@ -769,8 +775,6 @@ func _apply_layer_bias() -> void:
 		_bezel_material.render_priority = _prio(PRIORITY_FRAME)
 	if _edge_material != null:
 		_edge_material.render_priority = _prio(PRIORITY_FRAME)
-	if _fin_material != null:
-		_fin_material.render_priority = _prio(PRIORITY_BODY)
 	if _net_material != null:
 		_net_material.render_priority = _prio(PRIORITY_NET)
 	if _badge != null and is_instance_valid(_badge):
@@ -818,17 +822,6 @@ func _build_materials() -> void:
 	_glass_material.emission_energy_multiplier = GLASS_EMISSION_ENERGY * gain
 	_glass_material.cull_mode = BaseMaterial3D.CULL_BACK
 	_glass_material.render_priority = _prio(PRIORITY_PANE)
-
-	_fin_material = StandardMaterial3D.new()
-	_fin_material.albedo_color = _scaled(PackDrawerView.GOLD, 0.85)
-	_fin_material.metallic = 1.0
-	_fin_material.roughness = 0.24
-	_fin_material.emission_enabled = true
-	_fin_material.emission = _scaled(PackDrawerView.GOLD, 1.0)
-	_fin_material.emission_energy_multiplier = FIN_EMISSION_ENERGY
-	_fin_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_fin_material.albedo_color.a = GLASS_FRAME_ALPHA
-	_fin_material.render_priority = _prio(PRIORITY_BODY)
 
 	_net_material = StandardMaterial3D.new()
 	_net_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -959,13 +952,32 @@ func _build_cell() -> Node3D:
 		Vector3(0.0, HEIGHT * 0.5 + EDGE_STRIP_PROUD - EDGE_STRIP_H * 0.5, 0.0),
 		_edge_material)
 
-	var fin_y := -(HEIGHT * 0.5) + FOOT_BAR * 0.34
-	for i in FIN_COUNT:
-		var t := 0.0 if FIN_COUNT < 2 else float(i) / float(FIN_COUNT - 1) - 0.5
-		TableProps.box(cell, "Fin%d" % i, Vector3(FIN_WIDTH, FOOT_BAR * 0.44, FIN_DEPTH),
-			Vector3(t * FIN_SPREAD, fin_y, 0.0), _fin_material)
+	var connector := _connector()
+	if connector != null:
+		connector.position = Vector3(0.0, -HEIGHT * 0.5, 0.0)
+		cell.add_child(connector)
 
 	return cell
+
+## Der STECKER als Modell; ohne Datei (kaputter Import) bleibt die Karte ohne ihn.
+static func _connector() -> Node3D:
+	if _connector_scene == null:
+		_connector_scene = load(CONNECTOR_SCENE) as PackedScene
+	if _connector_scene == null:
+		return null
+	var node := _connector_scene.instantiate() as Node3D
+	node.name = "Connector"
+	return node
+
+## Die BUCHSE als Modell (null = kein Import).
+static func socket_model() -> Node3D:
+	if _socket_scene == null:
+		_socket_scene = load(SOCKET_SCENE) as PackedScene
+	if _socket_scene == null:
+		return null
+	var node := _socket_scene.instantiate() as Node3D
+	node.name = "Buchse"
+	return node
 
 func _build_badge() -> Label3D:
 	var badge := Label3D.new()

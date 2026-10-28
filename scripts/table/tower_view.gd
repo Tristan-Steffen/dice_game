@@ -36,9 +36,20 @@ const MOUTH_FLASH_TIME := 0.3
 ## gemeldeten Rechteck, am Bild-rechten Rand - der Rest gehört der Karte. Das
 ## Fenster schneidet seinen Turm-Platz an derselben Zahl.
 const BAR_SHARE := 0.07
-## Ein Etagenboden ist kein Blech, sondern ZWEI SCHIENEN an den Längskanten: nur so
-## sieht man von oben durch den Turm hindurch und das DURCHLICHT in ihm.
-const RAIL_SHARE := 0.13
+## Seit dem 2026-10-27 ist sie eine RÜCKWAND mit BUCHSEN (Spieler-Entscheid): ihr
+## Blech, die goldenen Busbahnen (eine je Stift) und der Rand der Buchse über und
+## unter der Karte.
+const BACKPLANE := 0.1
+const BUS_LINES := 8
+const BUS_WIDTH := 0.03
+const SOCKET_LIP := 0.05
+const SOCKET_ALBEDO := Color(0.08, 0.08, 0.11)
+## Das GESTELL wie im Serverschrank: vier Pfosten, und je Etage zwei Winkel unter den
+## Längskanten der Karte - eine liegende Auflage und eine stehende Wange.
+const RACK_POST := 0.08
+const RACK_RAIL := 0.035
+const RACK_LEDGE := 0.14
+const RACK_CHEEK := 0.025
 
 ## Der Turm steht seit der Welle 29 in einer GESCHLOSSENEN Tasche unter dem Ziel-Netz;
 ## offen ist nur die Auswurf-Bahn links davon. Daraus ragt jede Karte mit einem
@@ -92,6 +103,7 @@ const POCKET_ENERGY := 0.35
 
 var _frame_material: StandardMaterial3D
 var _bar_material: StandardMaterial3D
+var _socket_material: StandardMaterial3D
 var _chamber_material: StandardMaterial3D
 var _light_material: StandardMaterial3D
 
@@ -100,6 +112,7 @@ var _span := Vector2.ONE
 var _seat := Vector3.ZERO
 var _chamber: Node3D
 var _pocket: Node3D
+var _rack: Node3D
 var _floors: Array[Node3D] = []
 var _mouths: Array[MeshInstance3D] = []
 var _mouth_flashes: Array[Tween] = []
@@ -134,7 +147,7 @@ func seat(at: Vector3, span: Vector2, count: int, glass_y := NAN,
 	_span = Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
 	_count = maxi(count, 1)
 	for old in _floors + ([_chamber] if _chamber != null else []) \
-			+ ([_pocket] if _pocket != null else []):
+			+ ([_pocket] if _pocket != null else []) + ([_rack] if _rack != null else []):
 		if is_instance_valid(old):
 			remove_child(old)
 			old.queue_free()
@@ -145,6 +158,7 @@ func seat(at: Vector3, span: Vector2, count: int, glass_y := NAN,
 	_build_chamber()
 	for i in _count:
 		_floors.append(_build_floor(i))
+	_rack = _build_rack()
 	if not is_nan(glass_y):
 		_build_pocket(glass_y, maxf(pocket_width, _span.x))
 	_ensure_light()
@@ -205,6 +219,34 @@ func floor_count() -> int:
 ## Tiefe der Kontaktleiste in Welt - so weit weicht der Kartenplatz nach Bild-links.
 func bar_depth() -> float:
 	return _span.y * BAR_SHARE
+
+## Das Blech der RÜCKWAND - nie tiefer als der Leisten-Platz.
+func backplane_depth() -> float:
+	return minf(BACKPLANE, bar_depth())
+
+## Der MUND jeder Buchse in Welt-Z: der Fuß der EINGERASTETEN Karte.
+func socket_mouth_z() -> float:
+	return floor_point_z() - latched_share() * card_length() + card_length() * 0.5
+
+func floor_point_z() -> float:
+	return _seat.z - bar_depth() * 0.5
+
+## Breite der liegenden Karte quer, aus dem Fußabdruck zurückgerechnet.
+func card_width() -> float:
+	return _span.x / CARD_ROOM
+
+## Querschnitt der Buchse - das Modell in tools/blender_hardware.py spiegelt dieselben
+## Zahlen (Breite 0,92 der Karte, je LIP über und unter ihr).
+static func socket_width() -> float:
+	return DataCellView.WIDTH * PackDrawerView.CASSETTE_SCALE * 0.92
+
+static func socket_height() -> float:
+	return CARD_THICKNESS + SOCKET_LIP * 2.0
+
+## Die Querlage des Stifts i über der Kartenmitte (dieselbe Teilung wie im Modell).
+static func pin_x(i: int) -> float:
+	var spread := DataCellView.WIDTH * PackDrawerView.CASSETTE_SCALE * 0.74
+	return -spread * 0.5 + spread * float(i) / float(BUS_LINES - 1)
 
 ## Der Weltpunkt, auf dem die Karte der Etage index LIEGT (ZERO = keine solche).
 ## Sie liegt vor der Leiste, nicht in ihr.
@@ -322,47 +364,52 @@ func _build_chamber() -> void:
 	vent.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	vent.position = Vector3(_seat.x, _seat.y + CHAMBER_HEIGHT + FLOOR_PROUD, _seat.z)
 	host.add_child(vent)
-	# Die KONTAKTLEISTE: die Rückwand am Bild-rechten Rand (Welt +Z), in die der
-	# Kartenfuß rastet - links bleibt der Turm offen.
+	# Die RÜCKWAND am Bild-rechten Rand (Welt +Z, Spieler-Entscheid 2026-10-27): ein
+	# dunkles Blech mit goldenen Busbahnen, auf dem die Buchsen der Etagen sitzen -
+	# links bleibt der Turm offen.
 	var bar := MeshInstance3D.new()
 	bar.name = "ContactBar"
 	var wall := BoxMesh.new()
-	var depth := bar_depth()
-	wall.size = Vector3(_span.x, tower_height(_count), depth)
+	var depth := backplane_depth()
+	var high := tower_height(_count)
+	wall.size = Vector3(_span.x, high, depth)
 	bar.mesh = wall
-	bar.material_override = _bar_material
+	bar.material_override = _frame_material
 	bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	bar.position = Vector3(_seat.x, _seat.y + tower_height(_count) * 0.5,
+	bar.position = Vector3(_seat.x, _seat.y + high * 0.5,
 		_seat.z + _span.y * 0.5 - depth * 0.5)
 	host.add_child(bar)
+	for i in BUS_LINES:
+		var x := pin_x(i)
+		TableProps.box(host, "Bus%d" % i, Vector3(BUS_WIDTH, high, BUS_WIDTH),
+			Vector3(_seat.x + x, _seat.y + high * 0.5,
+				_seat.z + _span.y * 0.5 - depth - BUS_WIDTH * 0.5), _bar_material)
 
 func _build_floor(index: int) -> Node3D:
 	var host := Node3D.new()
 	host.name = "Floor%d" % (index + 1)
 	add_child(host)
-	# Die unterste Etage steht auf der Kammer, jede weitere auf ZWEI SCHIENEN an den
-	# Längskanten - dazwischen ist der Turm offen, und das Licht steigt sichtbar
-	# hindurch.
-	if index > 0:
-		var rail_width := _span.x * RAIL_SHARE
-		for side in [-1.0, 1.0]:
-			var rail := MeshInstance3D.new()
-			rail.name = "Rail%s" % ("A" if side < 0.0 else "B")
-			var box := BoxMesh.new()
-			box.size = Vector3(rail_width, FLOOR_PLATE, _span.y)
-			rail.mesh = box
-			rail.material_override = _frame_material
-			rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			rail.position = Vector3(
-				_seat.x + side * (_span.x - rail_width) * 0.5,
-				_seat.y + floor_top(index) - FLOOR_PLATE * 0.5, _seat.z)
-			host.add_child(rail)
+	# Die BUCHSE der Etage (Spieler-Entscheid 2026-10-27): ihr Mund sitzt dort, wo der
+	# Fuß der EINGERASTETEN Karte steht - beim Einrasten stecken die Stifte darin, in
+	# Ruhe stehen sie frei davor. Ein STEG trägt sie bis an die Rückwand.
+	var mid_y := _seat.y + floor_seat(index) + CARD_THICKNESS * 0.5
+	var mouth_z := socket_mouth_z()
+	var socket := DataCellView.socket_model()
+	if socket != null:
+		socket.position = Vector3(_seat.x, mid_y, mouth_z)
+		host.add_child(socket)
+	var back := _seat.z + _span.y * 0.5 - backplane_depth()
+	var riser_from := mouth_z + DataCellView.SOCKET_DEPTH
+	if back - riser_from > 0.001:
+		TableProps.box(host, "Steg", Vector3(socket_width(), socket_height(),
+			back - riser_from), Vector3(_seat.x, mid_y, (riser_from + back) * 0.5),
+			_socket_material)
+	# Der MUND ist die Goldlippe oben am Buchsenmund: sie blitzt beim Einrasten.
 	var mouth := MeshInstance3D.new()
 	mouth.name = "Mouth"
-	var tongue := BoxMesh.new()
-	var depth := bar_depth()
-	tongue.size = Vector3(_span.x * 0.6, CARD_THICKNESS * 0.55, depth * 0.6)
-	mouth.mesh = tongue
+	var lip := BoxMesh.new()
+	lip.size = Vector3(socket_width() * 0.9, 0.014, 0.05)
+	mouth.mesh = lip
 	var material := StandardMaterial3D.new()
 	material.albedo_color = BAR_ALBEDO
 	material.metallic = 0.6
@@ -372,12 +419,58 @@ func _build_floor(index: int) -> Node3D:
 	material.emission_energy_multiplier = MOUTH_EMISSION_ENERGY
 	mouth.material_override = material
 	mouth.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mouth.position = Vector3(_seat.x,
-		_seat.y + floor_seat(index) + CARD_THICKNESS * 0.5,
-		_seat.z + _span.y * 0.5 - depth * 1.2)
+	mouth.position = Vector3(_seat.x, mid_y + socket_height() * 0.5 + 0.007,
+		mouth_z + 0.03)
 	host.add_child(mouth)
+	if index > 0:
+		_build_rails(host, index)
 	_mouths.append(mouth)
 	_mouth_flashes.append(null)
+	return host
+
+## Die zwei WINKEL einer Etage: die Auflage greift RACK_LEDGE unter die Kartenkante,
+## die Wange steht außen daneben. Sie reichen von der offenen Kante bis zur Buchse -
+## die Karte fährt über sie hinaus in die Bahn.
+func _build_rails(host: Node3D, index: int) -> void:
+	var top := _seat.y + floor_top(index)
+	var near := _seat.z - _span.y * 0.5
+	var far := socket_mouth_z()
+	var length := far - near
+	if length <= 0.01:
+		return
+	var edge := card_width() * 0.5
+	var outer := _span.x * 0.5 - RACK_POST
+	for side in [-1.0, 1.0]:
+		var inner := edge - RACK_LEDGE
+		TableProps.box(host, "Auflage%s" % ("A" if side < 0.0 else "B"),
+			Vector3(outer - inner, RACK_RAIL, length),
+			Vector3(_seat.x + side * (inner + outer) * 0.5, top - RACK_RAIL * 0.5,
+				near + length * 0.5), _frame_material)
+		var cheek_x := edge + (outer - edge) * 0.5
+		TableProps.box(host, "Wange%s" % ("A" if side < 0.0 else "B"),
+			Vector3(RACK_CHEEK, CARD_THICKNESS * 0.6, length),
+			Vector3(_seat.x + side * cheek_x, top + CARD_THICKNESS * 0.3, near + length * 0.5),
+			_frame_material)
+
+## Die vier PFOSTEN und der Kopfrahmen. Vorn (zur Bahn) läuft kein Querträger: dort
+## fahren die Karten hinaus.
+func _build_rack() -> Node3D:
+	var host := Node3D.new()
+	host.name = "Gestell"
+	add_child(host)
+	var high := tower_height(_count)
+	var x := _span.x * 0.5 - RACK_POST * 0.5
+	var near := _seat.z - _span.y * 0.5 + RACK_POST * 0.5
+	var back := _seat.z + _span.y * 0.5 - backplane_depth() - RACK_POST * 0.5
+	for side in [-1.0, 1.0]:
+		var tag := "A" if side < 0.0 else "B"
+		for z in [near, back]:
+			TableProps.box(host, "Pfosten%s%s" % [tag, "V" if z == near else "H"],
+				Vector3(RACK_POST, high, RACK_POST),
+				Vector3(_seat.x + side * x, _seat.y + high * 0.5, z), _frame_material)
+		TableProps.box(host, "Holm%s" % tag, Vector3(RACK_POST, RACK_POST, back - near),
+			Vector3(_seat.x + side * x, _seat.y + high - RACK_POST * 0.5, (near + back) * 0.5),
+			_frame_material)
 	return host
 
 func _ensure_light() -> void:
@@ -439,6 +532,10 @@ func _ensure_materials() -> void:
 	_bar_material.emission_enabled = true
 	_bar_material.emission = BAR_EMISSION
 	_bar_material.emission_energy_multiplier = BAR_EMISSION_ENERGY
+	_socket_material = StandardMaterial3D.new()
+	_socket_material.albedo_color = SOCKET_ALBEDO
+	_socket_material.metallic = 0.3
+	_socket_material.roughness = 0.4
 	_chamber_material = StandardMaterial3D.new()
 	_chamber_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_chamber_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
