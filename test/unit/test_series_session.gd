@@ -149,15 +149,12 @@ func test_the_ground_clamp_still_reports_its_term() -> void:
 	assert_true(bool(GameRun.catalyst_terms(packs)["free"]),
 		"der Term steht, wirkungslos")
 
-## Der Taktgeber bucht seinen Platz weiter - der Deckel der Welle U (sechs Karten
-## = ein Block) klemmt ihn nur noch weg. OFFEN: seine neue Wirkung.
-func test_the_timer_buys_a_permanent_slot() -> void:
-	var card := _card({0: StampNet.value_cell(1)})
-	var timer := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
-	var before := run.series_slots()
-	run.apply_series(_uids([card, timer]), _die(), _rng(1))
-	assert_eq(run.series_slot_bonus, 1, "der Bonus bleibt für den Lauf gebucht")
-	assert_eq(run.series_slots(), before, "aber der Deckel gibt keinen Platz mehr her")
+## Der TAKTGEBER ist am 2026-10-26 gestrichen (Spieler-Entscheid) - er hob seit dem
+## harten Deckel 6 nichts mehr, und eine Karte ohne Wirkung ist keine.
+func test_the_timer_is_gone() -> void:
+	assert_false(Pack.CATALYSTS.has("timer"), "er steht in keinem Katalog mehr")
+	assert_false(Pack.SPECIAL_ROLL_WEIGHTS.has("timer"), "und wird nirgends gewuerfelt")
+	assert_null(Pack.catalyst("timer"), "seine Kassette gibt es nicht")
 
 func test_the_propellant_lifts_every_filled_number_cell() -> void:
 	var card := _card({0: StampNet.value_cell(2), 3: StampNet.value_cell(1)})

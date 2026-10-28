@@ -3267,7 +3267,8 @@ func _series_tint(workshop: WorkshopView) -> Color:
 	for card: Dictionary in workshop.burning_cards():
 		if String(card.get("operator", "")) != "" or String(card.get("catalyst", "")) != "":
 			continue
-		return PackDrawerView.tint_of(String(card.get("sort", "")), "", card.get("net", []))
+		return PackDrawerView.tint_of(String(card.get("sort", "")), "",
+			card.get("net", []), bool(card.get("blank", false)))
 	# Ohne Wert-Karte trägt eine Reparatur-Reihe ihr Gold durch den Turm.
 	if workshop.burn_repaired():
 		return PackDrawerView.REPAIR_TINT
@@ -4446,7 +4447,7 @@ func _write_slit_cells(grade := ShopController.GRADE_STAND, swap := false,
 		var cell: DataCellView = slit_cells.get(seat)
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
-				pack.is_repair())
+				pack.is_repair(), pack.from_blank())
 			slit_cells[seat] = cell
 			_slit_keys[seat] = pack.get_instance_id()
 			cell.set_count(maxi(pack.count, 1))
@@ -8318,7 +8319,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 			cell = null
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
-				pack.is_repair())
+				pack.is_repair(), pack.from_blank())
 			cell.set_body_scale(workshop.shelf_cell_scale())
 			shelf_cells[uid] = cell
 			_show_shelf_cell(cell, uid, line, target, fresh)
@@ -8471,7 +8472,8 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			var home := _shelf_seat(workshop, uid, workshop.shelf_row_of(uid))
 			cell = _spawn_data_cell(sorts[i], slotted.tier if slotted != null else 0,
 				home, slotted.stamp_net if slotted != null else [],
-				slotted != null and slotted.is_repair())
+				slotted != null and slotted.is_repair(),
+				slotted != null and slotted.from_blank())
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das Magazin-Maß
 			cell.badge_on_face = true
 			cell.lie_on_glass(home)  # sie startet LIEGEND in der Grube, nicht auf dem Glas
@@ -8561,7 +8563,7 @@ func _lay_cell_hard(cell: DataCellView, at: Vector3) -> void:
 	cell.set_socketed(true)  # die Kopfkante brennt: sie ist Teil der Rechnung
 
 func _spawn_data_cell(sort: String, tier: int, at: Vector3,
-		net: Array = [], gilded := false) -> DataCellView:
+		net: Array = [], gilded := false, blank := false) -> DataCellView:
 	var cell := DataCellView.new()
 	cell.name = "DataCell"
 	add_child(cell)

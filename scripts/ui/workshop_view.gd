@@ -1011,7 +1011,8 @@ func _slot_tint(card: Dictionary) -> Color:
 	if String(card.get("operator", "")) != "":
 		return DataCellView.tier_shade(OPERATOR_TINT, int(card.get("tier", 0)))
 	return PackDrawerView.card_shade(String(card.get("sort", "")),
-		int(card.get("tier", 0)), String(card.get("catalyst", "")), card.get("net", []))
+		int(card.get("tier", 0)), String(card.get("catalyst", "")), card.get("net", []),
+		bool(card.get("blank", false)))
 
 ## Die Sorten der belegten Schächte, in Reihenfolge - scene_root legt daran seine
 ## Zellen ab.
@@ -1148,7 +1149,7 @@ static func card_data(uid: int, pack: Pack) -> Dictionary:
 		"tier": pack.tier, "net": pack.stamp_net, "operator": pack.operator_id,
 		"glyph": StampNet.net_glyph(pack.stamp_net),
 		"catalyst": pack.catalyst_id, "line": Pack.net_line(pack),
-		"body": pack.description}
+		"blank": pack.from_blank(), "body": pack.description}
 
 ## Die gesteckten Karten als Pakete, in Reihenfolge - was inzwischen aus dem Lager
 ## verschwand, fehlt.
@@ -1337,6 +1338,8 @@ func stamp_blocker() -> String:
 				return "Operatoren lassen sich nicht verdichten."
 			"catalyst":
 				return "Katalysatoren verdichten nicht - sie wirken auf einen Würfel."
+			"compressed":
+				return "Ein %s verdichtet nicht in den nächsten." % Pack.BLANK_NAME
 		return ""
 	if target_die().burned_out and not series_repairs():
 		return "Durchgebrannt - die %s fehlt." % Pack.catalyst_name(Pack.CATALYST_REPAIR)
@@ -2081,7 +2084,7 @@ func shelf_row_tints(line: int) -> Array[Color]:
 			tints.append(ShelfStackView.BAY_EMPTY)
 			continue
 		tints.append(PackDrawerView.card_shade(Pack.shelf_of(pack), pack.tier,
-			pack.catalyst_id, pack.stamp_net))
+			pack.catalyst_id, pack.stamp_net, pack.from_blank()))
 	return tints
 
 ## Der Platz, auf dem die NÄCHSTE Lieferung DIESES Pakets landet (extra staffelt eine

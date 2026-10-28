@@ -178,10 +178,6 @@ var free_overclocks: int = 0
 ## Prämie der Nebenwette Kettenreaktion: die NÄCHSTE Serie bekommt einen Slot
 ## mehr. Sie wird von apply_series verbraucht - ein Einmal-Schub.
 var press_boost_pending: bool = false
-## Dauerhaft erkaufte Serien-Slots (Taktgeber). Sie überleben die Serie, in der
-## die Kassette steckte, und sterben erst mit dem Lauf.
-var series_slot_bonus: int = 0
-
 # Zustand der Effektkatalog-Charms:
 var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
@@ -649,7 +645,7 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 ## --- Die SERIENLÄNGE ----------------------------------------------------------
 ## SECHS Schächte ab Runde 1 (Spieler-Entscheid 2026-09-04): die Hub-Leiter der
 ## Werkstatt ist gefallen, der Sockel steht fest. Länger wird die Reihe nur noch
-## über Taktgeber, Kettentreiber und den Schub der Nebenwette.
+## über Kettentreiber und den Schub der Nebenwette.
 const SERIES_LADDER := [
 	{"tier": 1, "slots": 6},
 ]
@@ -657,16 +653,14 @@ const SERIES_LADDER := [
 ## keine siebte (Spieler-Entscheid 2026-09-05).
 const SERIES_SLOT_CAP := 6
 
-## Serienlänge dieses Laufs: der feste Sockel, dauerhaft erkaufte Plätze
-## (Taktgeber), der Einmal-Schub der Nebenwette und die Klauseln. Der Kurzschluss
-## setzt ABSOLUT - er überschreibt, was alles andere zusammengetragen hat.
-## Seit dem Deckel 6 heben Taktgeber, Schub und Kettentreiber nichts mehr.
+## Serienlänge dieses Laufs: der feste Sockel, der Einmal-Schub der Nebenwette und
+## die Klauseln. Der Kurzschluss setzt ABSOLUT - er überschreibt, was alles andere
+## zusammengetragen hat. Seit dem Deckel 6 heben Schub und Kettentreiber nichts mehr.
 func series_slots() -> int:
 	var slots := int(SERIES_LADDER[0]["slots"])
 	for step: Dictionary in SERIES_LADDER:
 		if progress_tier() >= int(step["tier"]):
 			slots = int(step["slots"])
-	slots += series_slot_bonus
 	if press_boost_pending:
 		slots += SeriesResolver.BOOST_SLOTS
 	if _clause_active(DealClause.CHAIN_DRIVER):
@@ -680,7 +674,6 @@ func series_slots() -> int:
 ## und legt der EINEN Serie, in der sie steckt, ihre Terme bei.
 
 const CATALYST_PROPELLANT_STEP := 1
-const CATALYST_TIMER_SLOTS := 1
 
 ## Was die Katalysatoren dieser Serie zulegen: {propellant, timer, free, repair,
 ## aftercare}. "free" ist seit dem unbegrenzten Prägen (2026-09-05) WIRKUNGSLOS - es
@@ -688,7 +681,7 @@ const CATALYST_TIMER_SLOTS := 1
 ## aftercare = die Kühl- und Reparatur-Karten in Steckreihenfolge.
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 	var aftercare: Array[String] = []
-	var terms := {"propellant": 0, "timer": 0, "free": false, "repair": false,
+	var terms := {"propellant": 0, "free": false, "repair": false,
 		"aftercare": aftercare}
 	for pack in packs:
 		if pack == null:
@@ -696,8 +689,6 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 		match pack.catalyst_id:
 			Pack.CATALYST_PROPELLANT:
 				terms["propellant"] = int(terms["propellant"]) + CATALYST_PROPELLANT_STEP
-			Pack.CATALYST_TIMER:
-				terms["timer"] = int(terms["timer"]) + CATALYST_TIMER_SLOTS
 			Pack.CATALYST_GROUND:
 				terms["free"] = true
 			Pack.CATALYST_REPAIR:
@@ -768,6 +759,10 @@ func _compress_parts(indices: Array[int]) -> Dictionary:
 			blocker = "catalyst"
 		elif pack.is_operator():
 			blocker = "operator"
+		elif pack.from_blank():
+			# Ein Rohling verdichtet nicht in den nächsten - sonst wüchse EINE Karte
+			# ohne Grenze weiter (Spieler-Entscheid 2026-10-26).
+			blocker = "compressed"
 		elif not StampNet.is_blank(pack.stamp_net):
 			nets.append(pack.stamp_net)
 	return {"nets": nets, "blocker": blocker}
@@ -853,8 +848,6 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	if cooled:
 		charge_logged.emit("%s gekühlt: %s" % [_die_label(die),
 			DieDefinition.charge_name(die.charge)])
-	# Der Taktgeber ist der eine Katalysator, dessen Wirkung die Serie überlebt.
-	series_slot_bonus = mini(series_slot_bonus + int(terms["timer"]), SERIES_SLOT_CAP)
 	var kept := _consume_series_cards(chosen, rng)
 	packs_changed.emit()
 	press_changed.emit()

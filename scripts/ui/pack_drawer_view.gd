@@ -52,10 +52,10 @@ const BLANK_TINT := Color("#5fa8c8")
 ## Die Farbe einer Kassette - die Sortenfarbe, die Reparatur-Karte golden, der Rohling
 ## stahlblau, ein Netz mit Faktor-Zellen lila.
 static func tint_of(shelf: String, catalyst_id := "", net: Array = [],
-		blank_id := "") -> Color:
+		blank := false) -> Color:
 	if catalyst_id == Pack.CATALYST_REPAIR:
 		return REPAIR_TINT
-	if blank_id != "":
+	if blank:
 		return BLANK_TINT
 	if catalyst_id == "" and StampNet.is_factor_net(net):
 		return MULTIPLIER_TINT
@@ -64,14 +64,17 @@ static func tint_of(shelf: String, catalyst_id := "", net: Array = [],
 static func pack_tint(pack: Pack) -> Color:
 	if pack == null:
 		return GOLD
-	return tint_of(Pack.shelf_of(pack), pack.catalyst_id, pack.stamp_net, pack.blank_id)
+	return tint_of(Pack.shelf_of(pack), pack.catalyst_id, pack.stamp_net, pack.from_blank())
 
-## ... nach Größe getönt (DataCellView.tier_shade); das Gold kennt keine Stufe.
+## ... nach Größe getönt (DataCellView.tier_shade); Gold und Stahlblau kennen keine
+## Stufe - ihre Karten sind GRÖSSENLOS, und die Entsättigung wüsche ihren Ton zu Grau.
 static func card_shade(shelf: String, tier: int, catalyst_id := "",
-		net: Array = []) -> Color:
+		net: Array = [], blank := false) -> Color:
 	if catalyst_id == Pack.CATALYST_REPAIR:
 		return REPAIR_TINT
-	return DataCellView.tier_shade(tint_of(shelf, catalyst_id, net), tier)
+	if blank:
+		return BLANK_TINT
+	return DataCellView.tier_shade(tint_of(shelf, catalyst_id, net, blank), tier)
 
 ## Der EINE Anzeige-Maßstab einer Kassette - ÜBERALL (Welle L). 3,2 = das alte Maß
 ## 2,184 mal ~1,47 (Welle 29): genau VIER liegende Karten je Magazin-Reihe.

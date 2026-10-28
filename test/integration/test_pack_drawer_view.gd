@@ -71,7 +71,7 @@ func test_one_tray_per_sort() -> void:
 	assert_eq(Pack.shelf_rank(Pack.number_pack()), 0)
 	assert_eq(Pack.shelf_rank(Pack.material_pack()), 1)
 	assert_eq(Pack.shelf_rank(Pack.dice_mod_pack()), 2)
-	assert_eq(Pack.shelf_rank(Pack.catalyst(Pack.CATALYST_TIMER)), 3)
+	assert_eq(Pack.shelf_rank(Pack.catalyst(Pack.CATALYST_GROUND)), 3)
 	assert_eq(Pack.shelf_rank(Pack.fixed_engraving_pack(Engraving.pointer_engraving())), 3)
 
 ## Spaltenweise: Platz k liegt in Spalte k/2, Lane k%2 - hinten, vorn, nächste Spalte.
@@ -397,6 +397,25 @@ func test_a_multiplier_card_is_purple() -> void:
 		pack.stamp_net), DataCellView.tier_shade(PackDrawerView.MULTIPLIER_TINT, Pack.TIER_NORMAL))
 	assert_ne(PackDrawerView.MULTIPLIER_TINT, PackDrawerView.COLORS[Pack.SHELF_SPECIAL],
 		"und liest nicht als Sonderbestand")
+
+## Der ROHLING traegt STAHLBLAU - leer wie gefuellt, und auch am KOERPER: die Farbe
+## ist das einzige, woran der Spieler ihn im Magazin erkennt (Spieler-Wunsch
+## 2026-10-26; bis dahin las er als Sonderbestand).
+func test_a_blank_card_is_steel_blue() -> void:
+	var blank := Pack.blank_card()
+	assert_eq(PackDrawerView.pack_tint(blank), PackDrawerView.BLANK_TINT)
+	blank.stamp_net[0] = StampNet.compound_cell(4, 9)
+	assert_eq(PackDrawerView.pack_tint(blank), PackDrawerView.BLANK_TINT,
+		"verdichtet bleibt sie es")
+	assert_eq(PackDrawerView.card_shade(Pack.shelf_of(blank), blank.tier, "",
+		blank.stamp_net, true), PackDrawerView.BLANK_TINT,
+		"groessenlos wie das Gold: keine Stufe wuescht den Ton zu Grau")
+	assert_ne(PackDrawerView.BLANK_TINT, PackDrawerView.COLORS[Pack.SHELF_SPECIAL],
+		"und liest nicht als Sonderbestand")
+	var cell := DataCellView.new()
+	add_child_autofree(cell)
+	cell.setup(Pack.shelf_of(blank), blank.tier, blank.stamp_net, false, true)
+	assert_eq(cell.tint, PackDrawerView.BLANK_TINT, "der Koerper traegt denselben Ton")
 
 ## Die Faktor-Zelle schreibt ihren Faktor, im Karten-Netz wie in der Summe.
 func test_a_factor_cell_reads_as_its_factor() -> void:

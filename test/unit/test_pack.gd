@@ -135,7 +135,7 @@ func test_both_specials_reach_the_shelf() -> void:
 # --- Die Katalysator-Kassetten -------------------------------------------------
 
 func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
-	assert_eq(Pack.catalyst_ids().size(), 6, "sechs Karten, nicht mehr")
+	assert_eq(Pack.catalyst_ids().size(), 5, "fuenf Karten, nicht mehr")
 	for id in Pack.catalyst_ids():
 		var pack := Pack.catalyst(id)
 		assert_not_null(pack, "%s baut sich" % id)
@@ -152,7 +152,6 @@ func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
 
 func test_the_catalyst_prices_are_the_authored_ones() -> void:
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_PROPELLANT), 14)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_TIMER), 14)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_COOL), 10)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_CHILL), 18)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_GROUND), 8)
@@ -163,7 +162,7 @@ func test_the_repair_card_is_secret_only() -> void:
 	for id in Pack.catalyst_ids():
 		assert_eq(Pack.catalyst_secret_only(id), id == Pack.CATALYST_REPAIR, id)
 	assert_true(Pack.catalyst(Pack.CATALYST_REPAIR).is_repair())
-	assert_false(Pack.catalyst(Pack.CATALYST_TIMER).is_repair())
+	assert_false(Pack.catalyst(Pack.CATALYST_GROUND).is_repair())
 	assert_false(Pack.SPECIAL_ROLL_WEIGHTS.has(Pack.CATALYST_REPAIR), "nie im Regal")
 
 func test_an_unknown_catalyst_builds_nothing() -> void:
@@ -194,7 +193,7 @@ func test_the_special_roll_weights_are_the_documented_table() -> void:
 			continue
 		assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[id]), 10, "%s" % id)
 		rest += int(Pack.SPECIAL_ROLL_WEIGHTS[id])
-	assert_eq(rest, 80, "fünf Katalysatoren und drei Operatoren")
+	assert_eq(rest, 70, "vier Katalysatoren und drei Operatoren")
 
 # --- Die KÜHL-Karten ------------------------------------------------------------
 
@@ -266,7 +265,7 @@ func test_the_price_climbs_with_the_size() -> void:
 	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_KOLOSSAL).price, 40)
 
 func test_only_pressable_packs_carry_a_size() -> void:
-	var catalyst := Pack.catalyst(Pack.CATALYST_TIMER)
+	var catalyst := Pack.catalyst(Pack.CATALYST_GROUND)
 	var before := catalyst.display_name
 	assert_false(Pack.tierable(catalyst), "ein Katalysator wirft gar nichts aus")
 	assert_eq(Pack.tiered(catalyst, Pack.TIER_KOLOSSAL).display_name, before)

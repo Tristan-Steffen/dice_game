@@ -687,10 +687,9 @@ func test_a_longer_series_splits_the_strip_not_the_columns() -> void:
 	for station in ["TargetStage", "IstScreen", "ActionSeat", "SumScreen"]:
 		assert_true(station in _row_names(), "%s steht weiter" % station)
 
-## Und der DECKEL steht hart auf SECHS: Taktgeber, Wett-Schub und Kettentreiber
-## heben ihn nicht mehr - der Turm IST sechs Etagen.
+## Und der DECKEL steht hart auf SECHS: Wett-Schub und Kettentreiber heben ihn
+## nicht mehr - der Turm IST sechs Etagen.
 func test_six_floors_are_the_hard_cap() -> void:
-	run.series_slot_bonus = 2
 	run.grant_press_boost()
 	view.refresh()
 	await wait_frames(2)

@@ -57,7 +57,6 @@ func test_the_row_carries_exactly_the_series_slots() -> void:
 	await wait_frames(2)
 	assert_eq(view.slot_count(), run.series_slots(), "die Reihe IST die Serienlänge")
 	assert_eq(view._slot_buttons.size(), 6, "und die ist 6 ab Runde 1")
-	run.series_slot_bonus = 2
 	run.grant_press_boost()
 	view.refresh()
 	await wait_frames(2)
@@ -1247,7 +1246,9 @@ func test_ein_tipp_auf_einen_rohling_legt_ihn_aufs_podest() -> void:
 	assert_eq(view.target_pack(), blank, "der Rohling liegt auf dem Podest")
 	assert_true(view.compressing())
 
-## Eine VERDICHTETE Karte ist kein Rohling mehr - sie steckt wieder wie jede andere.
+## Eine VERDICHTETE Karte ist kein Rohling mehr - sie steckt wieder in die Reihe
+## (praegen darf sie; Futter einer zweiten Verdichtung ist sie nicht, siehe
+## test_compression).
 func test_ein_tipp_auf_eine_verdichtete_karte_steckt_sie() -> void:
 	var blank := _blank()
 	blank.stamp_net[0] = StampNet.compound_cell(4, 9)

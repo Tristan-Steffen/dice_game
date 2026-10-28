@@ -284,11 +284,14 @@ func _init() -> void:
 ## Intensität und Rahmenstärke, nie den Körper. gilded = die Reparatur-Karte:
 ## Gold statt Sortenfarbe, in voller Stärke.
 func setup(cell_sort: String, cell_tier: int = 0, net: Array = [],
-		gilded := false) -> void:
+		gilded := false, blank := false) -> void:
 	sort = cell_sort
-	tier = Pack.TIER_KOLOSSAL if gilded else maxi(cell_tier, 0)
+	# Reparatur-Karte und ROHLING sind GRÖSSENLOS: volle Stufe, damit die
+	# Größen-Entsättigung ihren Ton nicht zu Grau wäscht - er IST ihr Erkennungszeichen.
+	tier = Pack.TIER_KOLOSSAL if gilded or blank else maxi(cell_tier, 0)
 	stamp_net = net.duplicate() if not net.is_empty() else StampNet.empty_net()
-	tint = PackDrawerView.REPAIR_TINT if gilded else PackDrawerView.tint_of(sort, "", stamp_net)
+	tint = PackDrawerView.REPAIR_TINT if gilded \
+		else PackDrawerView.tint_of(sort, "", stamp_net, blank)
 	_build_materials()
 	_body = Node3D.new()
 	_body.name = "Body"

@@ -265,7 +265,8 @@ static func operator_pack(op_id: String, rng: RandomNumberGenerator = null) -> P
 ## gibt es keinen eigenen Katalysator-Schacht.
 
 const CATALYST_PROPELLANT := "propellant"
-const CATALYST_TIMER := "timer"
+## Der TAKTGEBER ist am 2026-10-26 gestrichen (Spieler-Entscheid): seit der Deckel
+## hart auf sechs steht, hob er nichts mehr, und eine Karte ohne Wirkung ist keine.
 const CATALYST_GROUND := "ground"
 ## Die KÜHL-Karten: sie wirken nach der Hitze des Prägens und holen nie einen
 ## durchgebrannten Würfel zurück.
@@ -278,16 +279,13 @@ const CATALYST_REPAIR := "repair"
 ## Der Zusatz der Kühl-Karten - Ruß kühlt keine weg.
 const AFTER_HEAT_SCOPE := "Wirkt nach der Hitze des Prägens und wird mit ihm verbraucht - einen durchgebrannten Würfel holt sie nicht zurück."
 
-## Die EINE Tabelle der sechs Karten: Name, Wirkzeile und Geldpreis. Die Wirkung
+## Die EINE Tabelle der fünf Karten: Name, Wirkzeile und Geldpreis. Die Wirkung
 ## selbst liegt in GameRun.catalyst_terms - hier steht nur, was auf dem Schild
 ## steht (und die Reihenfolge, in der sie ausgewürfelt werden). "secret" = nur im
 ## Schwarzmarkt.
 const CATALYSTS := {
 	CATALYST_PROPELLANT: {"name": "Treibladung", "price": 14,
 		"effect": "+1 auf jede gefüllte Zahl-Zelle des Summen-Netzes"},
-	CATALYST_TIMER: {"name": "Taktgeber", "price": 14,
-		"effect": "Serienlänge dauerhaft +1",
-		"scope": "Wirkt für den ganzen Lauf und wird beim Prägen verbraucht."},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
 		"effect": "Dieses Prägen verbraucht die Pressung der Runde nicht"},
 	CATALYST_COOL: {"name": "Kühlrippe", "price": 10,
@@ -302,8 +300,7 @@ const CATALYSTS := {
 }
 
 ## Der Satz, der jede Katalysator-Karte beschließt - eine Quelle, damit Regal,
-## Magazin und Hinterzimmer dieselbe Zusage geben. Der Taktgeber schreibt ihn um:
-## seine Wirkung überlebt die Serie.
+## Magazin und Hinterzimmer dieselbe Zusage geben.
 const CATALYST_SCOPE := "Wirkt auf die Serie, in der sie steckt, und wird mit ihr verbraucht."
 
 static func catalyst_scope(id: String) -> String:
@@ -364,7 +361,6 @@ const SPECIAL_ENGRAVING := "engraving"
 const SPECIAL_ROLL_WEIGHTS := {
 	SPECIAL_ENGRAVING: 30,
 	CATALYST_PROPELLANT: 10,
-	CATALYST_TIMER: 10,
 	CATALYST_GROUND: 10,
 	CATALYST_COOL: 10,
 	CATALYST_CHILL: 10,
@@ -548,6 +544,11 @@ func is_blank_card() -> bool:
 ## im Sonderbestand: ihr Inhalt stammt aus mehreren Sorten, sie hat keine eigene.
 func is_compressed() -> bool:
 	return blank_id != "" and not StampNet.is_blank(stamp_net)
+
+## AUS EINEM ROHLING - leer oder schon verdichtet. Beide tragen das Stahlblau, und
+## beide taugen nicht als Futter: ein Rohling verdichtet nicht in den nächsten.
+func from_blank() -> bool:
+	return blank_id != ""
 
 ## Eine Operator-Kassette? Ihr Netz trägt genau eine Rechen-Zelle.
 func is_operator() -> bool:

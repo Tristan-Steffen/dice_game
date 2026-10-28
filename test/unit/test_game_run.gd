@@ -356,7 +356,7 @@ func test_pack_by_uid_finds_its_pack_and_survives_tidy():
 
 func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
 	run.grant_packs([Pack.dice_mod_pack(), Pack.number_pack(),
-		Pack.catalyst(Pack.CATALYST_TIMER), Pack.number_pack()] as Array[Pack])
+		Pack.catalyst(Pack.CATALYST_GROUND), Pack.number_pack()] as Array[Pack])
 	run.tidy_packs()
 	var shelves: Array[String] = []
 	for pack in run.owned_packs:
@@ -374,7 +374,7 @@ func test_the_sort_decides_the_tray():
 	var number := run.grant_pack(Pack.number_pack())
 	var material := run.grant_pack(Pack.material_pack())
 	var runes := run.grant_pack(Pack.dice_mod_pack())
-	var special := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER))
+	var special := run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
 	assert_eq(run.pack_tray_of(number.pack_uid), 0, "Zahlen liegen im ersten Tablett")
 	assert_eq(run.pack_tray_of(material.pack_uid), 1)
 	assert_eq(run.pack_tray_of(runes.pack_uid), 2)
@@ -481,7 +481,7 @@ func test_a_pack_stake_checks_the_named_type_not_the_shelf_size():
 func test_the_pack_stock_counts_by_type_and_tier():
 	run.grant_packs([Pack.number_pack(),
 		Pack.roll_engraving_pack(Pack.TIER_GROSS)] as Array[Pack])
-	run.grant_packs([Pack.catalyst(Pack.CATALYST_TIMER)] as Array[Pack])
+	run.grant_packs([Pack.catalyst(Pack.CATALYST_GROUND)] as Array[Pack])
 	var stock := run.pack_stock()
 	var plain := 0
 	for key: String in stock:
@@ -1798,14 +1798,13 @@ func test_the_series_length_is_six_on_every_tier():
 		assert_eq(run.series_slots(), 6, "Stufe %d" % tier)
 
 ## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es
-## nie - auch nicht mit Taktgeber, Wett-Schub und Kettentreiber zusammen.
+## nie - auch nicht mit Wett-Schub und Kettentreiber zusammen.
 func test_more_than_six_slots_never_exist():
-	run.series_slot_bonus = 4
 	run.grant_press_boost()
 	run.owned_charms.append(Charm.shyster())
 	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Karten sind der Block")
-	assert_eq(run.series_slots(), 6, "Taktgeber, Schub und Klausel heben ihn nicht")
+	assert_eq(run.series_slots(), 6, "Schub und Klausel heben ihn nicht")
 
 func test_the_chain_driver_no_longer_lengthens_the_series():
 	_sign([DealClause.CHAIN_DRIVER])
@@ -1823,7 +1822,9 @@ func test_the_short_circuit_overrides_the_length_absolutely():
 	assert_eq(run.series_slots(), 1, "Kurzschluss schlägt Sockel, Klausel und Schub")
 
 func test_the_length_is_capped():
-	run.series_slot_bonus = 99
+	run.grant_press_boost()
+	run.owned_charms.append(Charm.shyster())
+	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(run.series_slots(), GameRun.SERIES_SLOT_CAP)
 
 func test_the_press_boost_is_spent_by_one_series():
@@ -2005,7 +2006,7 @@ func test_the_repair_card_lets_the_stamps_land_on_a_burned_die():
 	assert_false(die.burned_out)
 
 func test_a_plain_catalyst_alone_still_does_nothing():
-	var uid := run.grant_pack(Pack.catalyst(Pack.CATALYST_TIMER)).pack_uid
+	var uid := run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND)).pack_uid
 	var uids: Array[int] = [uid]
 	assert_true(run.apply_series(uids, run.owned_pool[0], _seeded(4)).is_empty())
 

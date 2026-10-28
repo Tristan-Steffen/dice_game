@@ -146,6 +146,28 @@ func test_ein_katalysator_sperrt_die_verdichtung() -> void:
 	assert_eq(run.compress_series(_uids(fuel), blank.pack_uid, _rng(1)), {})
 	assert_not_null(run.pack_by_uid(fuel[1].pack_uid), "und er bleibt liegen")
 
+## KEINE unendliche Karte: eine schon verdichtete Karte taugt nicht als Futter einer
+## zweiten Verdichtung (Spieler-Entscheid 2026-10-26) - sonst wuechse EINE Karte ohne
+## Grenze weiter. Pressen auf einen WUERFEL darf sie weiterhin.
+func test_eine_verdichtete_karte_ist_kein_futter() -> void:
+	var first := _blank()
+	assert_false(run.compress_series(_uids([_card({0: StampNet.value_cell(3)})]),
+		first.pack_uid, _rng(1)).is_empty(), "die erste Verdichtung geht")
+	assert_true(first.is_compressed(), "und sie ist jetzt verdichtet")
+	var second := _blank()
+	var fuel := [_card({1: StampNet.value_cell(4)}), first]
+	assert_eq(String(run.compressible_series(_uids(fuel), second.pack_uid)["blocker"]),
+		"compressed")
+	assert_eq(run.compress_series(_uids(fuel), second.pack_uid, _rng(1)), {})
+	assert_true(second.is_blank_card(), "der zweite Rohling bleibt leer")
+
+## Auch ein LEERER Rohling ist kein Futter - ein Rohling verdichtet nicht in den naechsten.
+func test_ein_leerer_rohling_ist_kein_futter() -> void:
+	var target := _blank()
+	var fuel := [_card({0: StampNet.value_cell(3)}), _blank()]
+	assert_eq(String(run.compressible_series(_uids(fuel), target.pack_uid)["blocker"]),
+		"compressed")
+
 ## Der Rohling wird nie sein eigenes Futter, auch wenn er in der Reihe steckte.
 func test_der_rohling_verdichtet_sich_nicht_selbst() -> void:
 	var blank := _blank()
