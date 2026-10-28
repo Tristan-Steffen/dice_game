@@ -346,9 +346,10 @@ func test_reorder_pool_full_weist_luecken_und_doppel_zurueck():
 	assert_eq(run.owned_pool, before)
 
 func test_pack_by_uid_finds_its_pack_and_survives_tidy():
-	run.grant_pack(Pack.material_pack())
+	var material := run.grant_pack(Pack.material_pack())
+	var uid := material.pack_uid
+	assert_eq(run.pack_index_of(uid), 0)
 	run.grant_pack(Pack.number_pack())
-	var uid := run.owned_packs[0].pack_uid
 	run.tidy_packs()
 	assert_eq(run.pack_index_of(uid), 1, "die uid folgt dem Paket, nicht dem Platz")
 	assert_eq(run.pack_by_uid(uid).type, Pack.TYPE_MATERIAL)
@@ -366,6 +367,41 @@ func test_tidy_packs_sorts_by_shelf_then_content_then_uid():
 		"Sortenfolge = SHELF_ORDER")
 	assert_lt(run.owned_packs[0].pack_uid, run.owned_packs[1].pack_uid,
 		"gleicher Inhalt: die uid bricht den Gleichstand")
+
+## Das Magazin ist IMMER nach Typ sortiert (Spieler-Wunsch 2026-10-28): eine
+## Lieferung landet unter ihresgleichen, ohne Aufräum-Doppelklick - Material- und
+## Runen-Karten nach dem häufigsten Material bzw. der häufigsten Rune ihres Netzes.
+func test_a_delivery_lands_among_its_own_type():
+	var glass_a := _material_card(DieMaterial.GLASS)
+	var bone := _material_card(DieMaterial.BONE)
+	var glass_b := _material_card(DieMaterial.GLASS)
+	run.grant_pack(glass_a)
+	run.grant_pack(bone)
+	var spot := run.next_pack_spot(glass_b)
+	run.grant_pack(glass_b)
+	var order: Array[int] = []
+	for pack in run.owned_packs:
+		order.append(pack.pack_uid)
+	assert_eq(order, [bone.pack_uid, glass_a.pack_uid, glass_b.pack_uid] as Array[int],
+		"Knochen vor Glas, und die zweite Glas-Karte hinter die erste")
+	assert_eq(spot, Vector2i(Pack.shelf_rank(glass_b), run.pack_cell_of(glass_b.pack_uid)),
+		"die Vorhersage trifft den Platz, auf dem sie landet")
+
+func test_the_number_tray_keeps_multipliers_apart():
+	run.grant_packs([Pack.multiplier_pack(), Pack.number_pack(), Pack.multiplier_pack(),
+		Pack.number_pack()] as Array[Pack])
+	var kinds: Array[bool] = []
+	for pack in run.owned_packs:
+		kinds.append(pack.is_multiplier())
+	assert_eq(kinds, [true, true, false, false] as Array[bool], "je Typ ein Block")
+
+func _material_card(material_id: String) -> Pack:
+	var pack := Pack.material_pack()
+	var net := StampNet.empty_net()
+	net[0] = StampNet.material_cell(material_id)
+	net[3] = StampNet.material_cell(material_id)
+	pack.stamp_net = net
+	return pack
 
 # --- Das SORTEN-MODELL des Magazins (Welle 29) -------------------------------------
 
@@ -388,7 +424,9 @@ func test_the_cell_counts_only_the_same_sort():
 	var cells: Array[int] = []
 	for pack: Pack in run.owned_packs:
 		cells.append(run.pack_cell_of(pack.pack_uid))
-	assert_eq(cells, [0, 0, 1, 1, 2] as Array[int])
+	# Die Liste ist sortiert (2026-10-28): erst die drei Zahlen, dann die zwei
+	# Materialien - und jede Sorte zählt ihre Plätze für sich.
+	assert_eq(cells, [0, 1, 2, 0, 1] as Array[int])
 	assert_eq(run.pack_tray_count(0), 3)
 	assert_eq(run.pack_tray_count(1), 2)
 
@@ -403,11 +441,15 @@ func test_a_consumed_pack_closes_only_its_own_tray():
 	assert_eq(run.pack_cell_of(last_material), 1, "das Material-Tablett rührt sich nicht")
 
 ## Die NÄCHSTE Lieferung fällt ans Ende ihres Tabletts; extra staffelt eine Salve.
-func test_the_next_spot_is_the_end_of_the_sort():
-	run.grant_packs([Pack.number_pack(), Pack.number_pack(), Pack.material_pack()]
-		as Array[Pack])
+## Die nächste Lieferung landet hinter ihresgleichen - am Ende ihres TYPS, nicht
+## zwingend am Ende der Sorte (das Magazin ist sortiert, 2026-10-28).
+func test_the_next_spot_is_the_end_of_its_type():
+	run.grant_packs([Pack.number_pack(), Pack.number_pack(),
+		_material_card(DieMaterial.GLASS)] as Array[Pack])
 	assert_eq(run.next_pack_spot(Pack.number_pack()), Vector2i(0, 2))
-	assert_eq(run.next_pack_spot(Pack.material_pack(), 2), Vector2i(1, 3))
+	assert_eq(run.next_pack_spot(_material_card(DieMaterial.GLASS), 2), Vector2i(1, 3))
+	assert_eq(run.next_pack_spot(_material_card(DieMaterial.BONE)), Vector2i(1, 0),
+		"Knochen sortiert vor Glas")
 	assert_eq(run.next_pack_spot(Pack.operator_pack(StampNet.OP_DOUBLER)), Vector2i(3, 0),
 		"ein Operator ist Sonderbestand")
 

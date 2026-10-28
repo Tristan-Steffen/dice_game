@@ -36,9 +36,10 @@ const BURIED := PackDrawerView.BURIED
 ## Ein Tablett ist eine Platte; die Karte liegt eine Spur darüber (koplanar
 ## stritten sie im Tiefenpuffer - dieselbe Zahl wie im Turm).
 const PLATE := 0.06
-## Die Karte liegt in ihrer MULDE ÜBER Boden-Einlage, Kontaktzunge UND Lippe (der
-## Stellplatz ist genau kartenbreit, die Karte deckt die Lippen quer) - also um
-## BAY_FLOOR über der Platte; PROUD mißt vom Muldenboden aus, wie im Turm.
+## Die Karte liegt in ihrer MULDE auf der Boden-Einlage - um BAY_FLOOR über der
+## Platte; PROUD mißt vom Muldenboden aus, wie im Turm. Seit dem 2026-10-28 ist die
+## Mulde eine VERTIEFUNG: Lippen, Rippen und Deck reichen bis Kartenoberkante
+## (deck_height), die liegende Karte ist bündig mit dem Tablett.
 const BAY_FLOOR := 0.05
 const PROUD := BAY_FLOOR + TowerView.FLOOR_PROUD
 ## Luft zwischen zwei gestapelten Tabletts, über der liegenden Karte des unteren.
@@ -63,31 +64,31 @@ const RETRACT_CLEAR := 0.3
 ## die Karten liegen in dem, was bleibt (PackDrawerView schneidet ihre Plätze an
 ## derselben Zahl - EINE Quelle).
 const FRONT_SHARE := PackDrawerView.FRONT_SHARE
-const BAND_RISE := 0.05
 const NUMBER_FONT := 48
 ## Wie weit das (linksbündige) Kürzel von der linken Blenden-Kante einrückt, in
 ## Blenden-Tiefen: bündig gesetzt schnitt die Grubenwand es an.
 const NUMBER_INSET := 1.0
 ## Die MULDE je Stellplatz (Spieler-Entscheid 2026-09-10, Kontakt-Schacht plus
-## Mulde): die PLATTE ist ihr Boden, die LIPPEN stehen darauf, am Boden ein
-## LICHTSAUM in der Sortenfarbe (leer kühl und stumpf) und am Bild-rechten Ende
-## die goldene KONTAKTZUNGE, auf der die Karte einrastet - wie in der Kontaktleiste
-## des Turms. Die Ticks der Blende sind damit gestorben.
+## Mulde): die PLATTE ist ihr Boden, Lippen und Rippen ihr Rand bis Kartenhöhe, am
+## Boden ein LICHTSAUM in der Sortenfarbe (leer kühl und stumpf) und am Bild-rechten
+## Ende die BUCHSE, in der die Karte steckt.
 const BAY_ROOM := 1.06
-const BAY_LIP := 0.045
 const LIP_MIN := 0.06
 const SEAM_WIDTH := 0.05
 const SEAM_RISE := 0.006
 const FLOOR_RISE := 0.010
-const TONGUE_RISE := 0.008
-const TONGUE_SHARE := Vector2(0.42, 0.09)
-const TONGUE_INSET := 0.03
 const BAY_EMPTY := Color(0.34, 0.38, 0.58)
+## Ein Vorrats-Block ist ein Fenster plus so viele Mulden lang.
+const SPARE_EXTRA := 2
+const SNAP_TIME_MAX := 0.45
+## So weit liegt die mitrollende Platte unter der festen.
+const UNDERPLATE_SINK := 0.01
+## Die Wand-Auskleidung einer Mulde: Stärke, Abstand zur Lippe, Luft unter dem Deck.
+const WALL_LINING := 0.012
+const WALL_INSET := 0.004
+const WALL_TOP_GAP := 0.003
 const SEAM_EMPTY_ENERGY := 0.85
 const SEAM_FILLED_ENERGY := 0.9
-const FLOOR_ALBEDO := Color(0.055, 0.052, 0.082)
-const FLOOR_EMISSION := Color(0.12, 0.13, 0.20)
-const FLOOR_ENERGY := 0.45
 
 ## Die SCHUBFAHRT eines Tabletts in die Wand und zurück.
 const SLIDE_TIME := 0.35
@@ -102,12 +103,28 @@ const HINT_HEIGHT := 0.05
 const HINT_COLOR := Color(1.0, 0.83, 0.1)
 const HINT_ENERGY := 1.2
 
-## Die WANDTASCHE hinter dem Schlitz: ein fast schwarzer Kasten, zur Grube hin
-## offen - durch den Schlitz sieht man in eine ehrliche Tiefe, nicht in den Raum.
+## Die WANDTASCHE hinter dem Schlitz ist der Raum NEBEN der Grube, nicht ihr Ende
+## (Spieler-Entscheid 2026-10-26; der fast schwarze Kasten davor las sich als Loch
+## ins Nichts): sie trägt dieselbe Archiv-Auskleidung wie die Grube selbst
+## (PackPitView.tune_lining) - Samtboden, Paneelwände mit der bestellten Haut -,
+## und ihre Flanken setzen die Grubenwände in Weltmaß fort, also läuft deren
+## Linienmuster ohne Versatz hinein.
 const POCKET_WALL := 0.06
-const POCKET_ALBEDO := Color(0.028, 0.026, 0.042)
-const POCKET_EMISSION := Color(0.10, 0.11, 0.17)
-const POCKET_ENERGY := 0.35
+## Ihre FLANKEN tragen die Werte der Grubenwand unverändert - ein Helligkeitssprung
+## an der Naht verriete, dass dort zwei Körper stoßen.
+## Ihr BODEN dagegen ist HELLER als der der Grube: in die Grube sieht man von oben,
+## in die Tasche nur durch einen flachen Schlitz, und mit dem Samt-Ton der Grube
+## bliebe sie das schwarze Loch, das sie war (gemessen 2026-10-26: 0,046 las sich
+## auch mit voller Auskleidung noch als Nichts).
+const POCKET_FLOOR_ALBEDO := Color(0.125, 0.115, 0.18)
+const POCKET_FLOOR_ENERGY := 2.4
+
+## Der BODEN einer MULDE bekommt DIESELBE Auskleidung (flach schwarz las ein leerer
+## Stellplatz als Loch statt als Fach), aber DUNKLER als die Tasche: in ein Kartenfach
+## sieht die Station fast senkrecht hinein, in die Tasche nur durch einen flachen
+## Schlitz. GEMESSEN 2026-10-26 an der Werkstatt-Weitsicht.
+const BAY_FLOOR_ALBEDO := Color(0.095, 0.088, 0.14)
+const BAY_FLOOR_ENERGY := 1.8
 
 ## Die Tabletts sind UNDURCHSICHTIG (Spieler-Entscheid 2026-09-09; das halbdurchsichtige
 ## Glas und der farbige Reihen-Rand sind gestorben): im Ton des Turm-Gestells, ohne
@@ -115,6 +132,15 @@ const POCKET_ENERGY := 0.35
 const PLATE_ALBEDO := TowerView.FRAME_ALBEDO
 const PLATE_EMISSION := TowerView.FRAME_EMISSION
 const PLATE_ENERGY := TowerView.FRAME_EMISSION_ENERGY
+
+## Die WANDHAUT der Wandtaschen: von draußen GEMELDET wie die der Grube selbst
+## (PackPitView.wall_skin) - dieselbe Textur, damit der Raum neben der Grube nicht
+## anders liest als sie.
+var wall_skin: Texture2D = null:
+	set(value):
+		wall_skin = value
+		if _built:
+			_build_pocket()
 
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
@@ -131,11 +157,15 @@ var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
 var _plates: Array[MeshInstance3D] = []
 var _tints: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
+var _rolled := {}               # Reihe -> schon nach rechts gerollt (Vorrat links)
+var _wall_material: ShaderMaterial
+var _spare_right := {}           # Reihe -> Vorrats-Block rechts
+var _spare_left := {}            # Reihe -> Vorrats-Block links (nur gerollt)
+var _pitch := {}                 # Reihe -> Muldenteilung
 var _bays: Array[Node3D] = []    # Reihe -> Mulden-Knoten
 var _seams: Array = []          # Reihe -> Array[StandardMaterial3D], je Mulde
 var _lip_material: StandardMaterial3D
-var _floor_material: StandardMaterial3D
-var _tongue_material: StandardMaterial3D
+var _floor_material: ShaderMaterial
 var _plate_material: StandardMaterial3D
 var _pocket: Node3D
 var _ride: Tween
@@ -213,6 +243,7 @@ func setup(at: Vector3, span: Vector2, cell_scale: float,
 	_scale = cell_scale
 	_lanes = lanes.duplicate()
 	global_position = at
+	_tune_bay_floor()  # das Samt-Feld hängt an der Grube, nicht am Tablett
 	_ensure_trays()
 	for tray in TRAYS:
 		_build_tray(tray)
@@ -269,8 +300,8 @@ func _build_band(host: Node3D, row: int) -> void:
 	var lane := lane_of(row)
 	var band := Node3D.new()
 	band.name = "Blende%d" % (row + 1)
-	band.position = Vector3(lane_x(lane) - lane_depth() * 0.5 + band_depth() * 0.5,
-		0.0, 0.0)
+	band.position = Vector3(lane_x(lane) + band_side(lane)
+		* (lane_depth() * 0.5 - band_depth() * 0.5), 0.0, 0.0)
 	host.add_child(band)
 	_bands[row] = band
 	if lane == LANE_FRONT:
@@ -283,7 +314,7 @@ func _build_band(host: Node3D, row: int) -> void:
 		label.pixel_size = band_depth() * 0.7 / (float(NUMBER_FONT) * 0.62)
 		# Linksbündig: das Kürzel ist unterschiedlich lang, sein Anfang steht fest.
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		label.position = Vector3(0.0, BAND_RISE + 0.01,
+		label.position = Vector3(0.0, deck_height() + 0.01,
 			-_span.y * 0.5 + band_depth() * NUMBER_INSET)
 		label.outline_size = 12
 		label.outline_modulate = Color(0.03, 0.03, 0.05)
@@ -316,7 +347,6 @@ func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
 	host.name = "Wandtasche" if side > 0.0 else "WandtascheLinks"
 	host.scale = Vector3(1.0, 1.0, side)
 	parent.add_child(host)
-	var material := _metal(POCKET_ALBEDO, POCKET_EMISSION, POCKET_ENERGY)
 	var near := _span.y * 0.5
 	# Die DECKE hängt UNTER der Tischfläche (auf der Höhe der Wandoberkante) und reicht
 	# bis unter den Sturz des Schlitzes: über ihr deckt die opake Anzeige, unter ihr
@@ -330,18 +360,55 @@ func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
 	var wide := _span.x + POCKET_WALL * 2.0
 	var mid_x := 0.0
 	var mid_z := near + deep * 0.5
+	# Die Auskleidung misst sich an DIESER Tasche in WELT: ihre Flanken liegen auf
+	# den Innenflächen der Grubenwände, also setzt die Haut deren Linien fort.
+	var reach := near + deep
+	var rect := Rect2(Vector2(_seat.x - wide * 0.5,
+		_seat.z + (near if side > 0.0 else -reach)), Vector2(wide, deep))
+	var skin := _lining(0.0, rect, high)
+	var velvet := _lining(1.0, rect, high)
 	TableProps.box(host, "Decke", Vector3(wide, POCKET_WALL, deep),
-		Vector3(mid_x, top - POCKET_WALL * 0.5, mid_z), material)
+		Vector3(mid_x, top - POCKET_WALL * 0.5, mid_z), skin)
 	TableProps.box(host, "Boden", Vector3(wide, POCKET_WALL, deep),
-		Vector3(mid_x, bottom - POCKET_WALL * 0.5, mid_z), material)
+		Vector3(mid_x, bottom - POCKET_WALL * 0.5, mid_z), velvet)
 	TableProps.box(host, "Rueckwand", Vector3(wide, high, POCKET_WALL),
 		Vector3(mid_x, (top + bottom) * 0.5, near + deep + POCKET_WALL * 0.5),
-		material)
+		skin)
 	for flank in 2:
 		var dir := float(flank) * 2.0 - 1.0
 		TableProps.box(host, "Flanke%d" % flank, Vector3(POCKET_WALL, high, deep),
 			Vector3(mid_x + dir * (wide * 0.5 - POCKET_WALL * 0.5),
-				(top + bottom) * 0.5, mid_z), material)
+				(top + bottom) * 0.5, mid_z), skin)
+
+## Die Grube in WELT-XZ - das Feld, an dem sich jede Auskleidung des Stapels mißt.
+func _pit_field() -> Rect2:
+	return Rect2(Vector2(_seat.x, _seat.z) - _span * 0.5, _span)
+
+## Der BODEN einer MULDE trägt dieselbe ARCHIV-Auskleidung wie die Grube selbst
+## (Spieler-Wunsch 2026-10-26): flach schwarz las ein leerer Stellplatz als LOCH,
+## nicht als Fach - derselbe Befund wie an den Wandtaschen, also dieselben Werte.
+## Sein Samt-Feld ist die GANZE Grube, nicht die einzelne Mulde: das Licht gehört
+## der Grube, also wandert kein Muster mit, wenn ein Tablett fährt.
+func _tune_bay_floor() -> void:
+	if _floor_material == null:
+		return
+	PackPitView.tune_lining(_floor_material, 1.0, BAY_FLOOR_ALBEDO,
+		BAY_FLOOR_ENERGY, _pit_field(), _seat.y, stack_depth(_scale),
+		PackPitView.GLOW_COLOR, null)
+	# Der Flor fährt mit der Mulde, wenn das Tablett rollt (Spieler-Wunsch 2026-10-28).
+	_floor_material.set_shader_parameter("pattern_local", 1.0)
+
+## EINE Fläche der Tasche, ausgekleidet von derselben Hand wie die Grube: velvet = 1
+## der Boden, 0 die Wand. Die Haut bekommt NUR die Wand - auf dem Samt läge sie quer.
+func _lining(velvet: float, rect: Rect2, high: float) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = load("res://assets/shaders/pit_lining.gdshader")
+	var wall := velvet <= 0.5
+	var base := PackPitView.WALL_ALBEDO if wall else POCKET_FLOOR_ALBEDO
+	var field := PackPitView.WALL_FIELD_ENERGY if wall else POCKET_FLOOR_ENERGY
+	PackPitView.tune_lining(material, velvet, base, field, rect,
+		_seat.y, high, PackPitView.GLOW_COLOR, wall_skin if wall else null)
+	return material
 
 ## Die Tiefe EINER Lane in Welt: sie wird GEMELDET (das Fenster schneidet die drei
 ## Ränder heraus); ohne Meldung bleibt die halbe Grube der kopflose Rückfall.
@@ -353,6 +420,12 @@ func lane_depth() -> float:
 ## Die Tiefe der Blende in Welt.
 func band_depth() -> float:
 	return lane_depth() * FRONT_SHARE
+
+## Auf welcher Seite ihrer Lane die Blende liegt (Welt-X): die hintere OBEN (+X), die
+## vordere UNTEN (-X) - gespiegelt, damit das Tablett oben wie unten gleich breit
+## gerandet ist (PackDrawerView.band_before, Spieler-Wunsch 2026-10-28).
+static func band_side(lane: int) -> float:
+	return 1.0 if lane == LANE_BACK else -1.0
 
 ## Die Mitte einer Lane, quer zur Grube (Welt-X, relativ zur Grubenmitte) - gemeldet
 ## wie ihre Tiefe.
@@ -426,11 +499,22 @@ func drag_scroll(tray: int, z: float) -> void:
 		return
 	_kill_snap()
 	_scrolling = true
+	_roll_to(tray, z)
+
+## Fach UND Mulden fahren gemeinsam (Spieler-Wunsch 2026-10-28): ausgeblendet ließen
+## die Mulden eine graue Platte stehen, und die leeren Vorrats-Mulden rücken nach.
+func _roll_to(tray: int, z: float) -> void:
 	_fachs[tray].position.z = z
-	# Die Mulden rollen nicht mit - unter fahrenden Karten läsen sie als Doppelbild.
 	for row in rows_of(tray):
-		if _bays[row] != null and is_instance_valid(_bays[row]):
-			_bays[row].visible = false
+		if row < _bays.size() and _bays[row] != null and is_instance_valid(_bays[row]):
+			_bays[row].position.z = z
+			_place_spares(row, z)
+
+## Die Dauer des Einrastens: eine Spalte in SNAP_TIME, ein weiter Rückweg länger -
+## mit der Wurzel der Strecke, gedeckelt (sonst spränge ein langer Zug zurück).
+func snap_time_for(distance: float) -> float:
+	var columns := distance / maxf(_span.y / float(PackDrawerView.COLUMNS), 0.001)
+	return minf(SNAP_TIME * sqrt(maxf(columns, 1.0)), SNAP_TIME_MAX)
 
 ## Der Versatz des Fachs (0 = es liegt auf seinem Roll-Stand).
 func scroll_offset(tray: int) -> float:
@@ -446,14 +530,15 @@ func snap_scroll(tray: int, from: float, to: float, on_done: Callable) -> void:
 		return
 	_kill_snap()
 	_scrolling = false
-	_fachs[tray].position.z = from
+	_roll_to(tray, from)
 	if not is_inside_tree() or is_equal_approx(from, to):
-		_fachs[tray].position.z = to
+		_roll_to(tray, to)
 		bake_scroll(tray)
 		on_done.call()
 		return
 	_snap = create_tween()
-	_snap.tween_property(_fachs[tray], "position:z", to, SNAP_TIME) \
+	_snap.tween_method(func(z: float) -> void: _roll_to(tray, z), from, to,
+		snap_time_for(absf(to - from))) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_snap.tween_callback(func() -> void:
 		bake_scroll(tray)
@@ -466,8 +551,10 @@ func bake_scroll(tray: int) -> void:
 		return
 	var fach_node := _fachs[tray]
 	var offset := fach_node.position.z
-	fach_node.position.z = 0.0
-	_write_bands()  # die Mulden stehen wieder
+	# Die Mulden springen zurück auf ihre Fensterplätze - das Fenster färbt sie gleich
+	# für den neuen Roll-Stand um, also liegt jede wieder unter ihrer Karte.
+	_roll_to(tray, 0.0)
+	_write_bands()
 	if is_zero_approx(offset):
 		return
 	for child in fach_node.get_children():
@@ -545,9 +632,16 @@ func select(tray: int) -> void:
 	var wanted := clampi(tray, 0, TRAYS - 1)
 	if _trays.is_empty() or wanted == _selected:
 		return
+	var previous := _selected
 	_selected = wanted
 	_kill()
 	_write_bands()
+	# Das ALTE Tablett behält seine Mulden, bis seine Fahrt zu Ende ist - nackt fuhr es
+	# als graue Fläche davon (Spieler-Befund 2026-10-28). Sie sind deckend, stanzen
+	# also durch keine Platte; die Aufschrift (Alpha) folgt weiter der Regel.
+	for row in rows_of(previous):
+		if row < _bays.size() and _bays[row] != null and is_instance_valid(_bays[row]):
+			_bays[row].visible = true
 	for i in _trays.size():
 		_bias_cards(i)
 	if not is_inside_tree():
@@ -691,12 +785,16 @@ func number_text(row: int) -> String:
 ## Die Sortenfarben einer Reihe, je Stellplatz eine (BAY_EMPTY = leer). Sie färben
 ## den Lichtsaum der Mulden; ändert sich die Platzzahl, werden die Mulden neu gebaut,
 ## sonst nur umgefärbt. Idempotent.
-func set_bay_tints(row: int, tints: Array) -> void:
+## rolled = das Tablett ist schon nach rechts gerollt: erst dann liegen links
+## Vorrats-Mulden (Spieler-Wunsch 2026-10-28 - auf Stand 0 endet es an der ersten).
+func set_bay_tints(row: int, tints: Array, rolled := false) -> void:
 	if row < 0 or row >= ROWS or _tints.is_empty():
 		return
-	if _tints[row] == tints:
+	var was_rolled: bool = _rolled.get(row, false)
+	if _tints[row] == tints and was_rolled == rolled:
 		return
-	var rebuild := (_tints[row] as Array).size() != tints.size()
+	var rebuild := (_tints[row] as Array).size() != tints.size() or was_rolled != rolled
+	_rolled[row] = rolled
 	_tints[row] = tints.duplicate()
 	if rebuild and row < _trays.size() * LANES:
 		_build_bays(_trays[tray_of(row)], row)
@@ -725,7 +823,7 @@ func bay_size(columns: int) -> Vector2:
 		minf(DataCellView.WIDTH * _scale * BAY_ROOM, slot_depth - LIP_MIN * 2.0),
 		minf(DataCellView.HEIGHT * _scale * BAY_ROOM, pitch - LIP_MIN))
 
-## Die MULDEN einer Reihe: Lippen auf der Platte, je Platz Saum, Boden und Zunge.
+## Die MULDEN einer Reihe: Lippen auf der Platte, je Platz Saum, Boden und Buchse.
 func _build_bays(host: Node3D, row: int) -> void:
 	var old: Node3D = _bays[row] if row < _bays.size() else null
 	if old != null and is_instance_valid(old):
@@ -739,12 +837,15 @@ func _build_bays(host: Node3D, row: int) -> void:
 	if tints.is_empty():
 		return
 	_ensure_materials()
+	# Der Verlauf mißt an der Wandhöhe - die hängt am Kartenmaß.
+	_wall_material.set_shader_parameter("height", deck_height() - WALL_TOP_GAP)
 	var lane := lane_of(row)
 	var slot_depth := lane_depth() * (1.0 - FRONT_SHARE)
 	var bays := Node3D.new()
 	bays.name = "Mulden%d" % (row + 1)
 	# Die Karten liegen mittig in dem Teil der Lane, den die Blende übrig läßt.
-	bays.position = Vector3(lane_x(lane) + lane_depth() * 0.5 - slot_depth * 0.5, 0.0, 0.0)
+	bays.position = Vector3(lane_x(lane) - band_side(lane)
+		* (lane_depth() * 0.5 - slot_depth * 0.5), 0.0, 0.0)
 	bays.visible = shows_row(row, _selected)
 	host.add_child(bays)
 	_bays[row] = bays
@@ -753,44 +854,161 @@ func _build_bays(host: Node3D, row: int) -> void:
 	var bay := bay_size(columns)
 	var rail := (slot_depth - bay.x) * 0.5
 	var rib := pitch - bay.y
+	var rolled: bool = _rolled.get(row, false)
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
-		TableProps.box(bays, "Lippe%d" % side, Vector3(rail, BAY_LIP, _span.y),
-			Vector3(dir * (bay.x + rail) * 0.5, BAY_LIP * 0.5, 0.0), _lip_material)
+		TableProps.box(bays, "Lippe%d" % side, Vector3(rail, deck_height(), _span.y),
+			Vector3(dir * (bay.x + rail) * 0.5, deck_height() * 0.5, 0.0), _lip_material)
 	for i in columns + 1:
 		var z := -_span.y * 0.5 + pitch * float(i)
 		var width := rib
-		# Die Randrippen stehen halb so breit INNEN an der Plattenkante.
-		if i == 0:
+		# Ohne Vorrat links steht die Randrippe halb so breit INNEN an der Kante.
+		if i == 0 and not rolled:
 			width = rib * 0.5
 			z += width * 0.5
-		elif i == columns:
-			width = rib * 0.5
-			z -= width * 0.5
-		TableProps.box(bays, "Rippe%d" % i, Vector3(bay.x, BAY_LIP, width),
-			Vector3(0.0, BAY_LIP * 0.5, z), _lip_material)
+		TableProps.box(bays, "Rippe%d" % i, Vector3(bay.x, deck_height(), width),
+			Vector3(0.0, deck_height() * 0.5, z), _lip_material)
+	# Die hintere Reihe trägt die PLATTE mit, über die volle Tablett-Breite: die feste
+	# Platte endet an der Grubenwand, und rollen die Mulden darüber hinaus, sah man
+	# zwischen den Reihen in die Wandtasche (Spieler-Befund 2026-10-28).
+	var under := Vector2.ZERO
+	if lane == LANE_BACK:
+		under = Vector2(plate_center() - bays.position.x, plate_span())
+		_build_underplate(bays, under, _span.y, 0.0)
 	var seams: Array = []
 	for i in columns:
 		var node := Node3D.new()
 		node.name = "Mulde%d" % i
 		node.position = Vector3(0.0, 0.0, -_span.y * 0.5 + pitch * (float(i) + 0.5))
 		bays.add_child(node)
-		var seam := StandardMaterial3D.new()
-		seam.metallic = 0.2
-		seam.roughness = 0.5
-		seam.emission_enabled = true
-		TableProps.box(node, "Saum", Vector3(bay.x, SEAM_RISE, bay.y),
-			Vector3(0.0, SEAM_RISE * 0.5, 0.0), seam)
-		TableProps.box(node, "Boden", Vector3(bay.x - SEAM_WIDTH * 2.0, FLOOR_RISE, bay.y - SEAM_WIDTH * 2.0),
-			Vector3(0.0, FLOOR_RISE * 0.5, 0.0), _floor_material)
-		var tongue := Vector3(bay.x * TONGUE_SHARE.x, TONGUE_RISE, bay.y * TONGUE_SHARE.y)
-		TableProps.box(node, "Zunge", tongue,
-			Vector3(0.0, FLOOR_RISE + TONGUE_RISE * 0.5,
-				bay.y * 0.5 - SEAM_WIDTH - TONGUE_INSET - tongue.z * 0.5),
-			_tongue_material)
+		var seam := _seam_material(BAY_EMPTY)
+		_build_bay(node, bay, seam)
 		seams.append(seam)
+	# Die VORRATS-Mulden: rechts immer, links erst nach dem Rollen. Sie rollen mit,
+	# und weil sie alle gleich sind, springen sie beim Zug um ganze Teilungen nach -
+	# so ist das Fenster bei jedem Zug voll, wie weit er auch geht (Spieler-Wunsch
+	# 2026-10-28), ohne je mehr als ein Fenster voll zu bauen.
+	_spare_right[row] = _build_spares(bays, "VorratRechts", 1.0, columns, pitch, bay, rail,
+		rib, under)
+	_spare_left[row] = _build_spares(bays, "VorratLinks", -1.0, columns, pitch, bay, rail,
+		rib, under) if rolled else null
+	_pitch[row] = pitch
 	_seams[row] = seams
 	_write_bays(row)
+
+## EINE Mulde: Saum, Boden und die BUCHSE am Bild-rechten Ende (Spieler-Entscheid
+## 2026-10-27) - ihr Mund sitzt auf dem Kartenfuß, die Stifte stecken darin.
+func _build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D) -> void:
+	TableProps.box(node, "Saum", Vector3(bay.x, SEAM_RISE, bay.y),
+		Vector3(0.0, SEAM_RISE * 0.5, 0.0), seam)
+	# Die WÄNDE der Vertiefung tragen ihr EIGENES Material (Spieler-Wunsch 2026-10-28):
+	# im Ton des Decks las sie flach. Eine Spur in die Mulde gerückt und unter der
+	# Oberkante, damit sie mit Lippe und Rippe nie eine Fläche teilen.
+	var high := deck_height() - WALL_TOP_GAP
+	var lining := WALL_LINING
+	for side in [-1.0, 1.0]:
+		TableProps.box(node, "WandL%s" % ("A" if side < 0.0 else "B"),
+			Vector3(lining, high, bay.y), Vector3(side * (bay.x - lining) * 0.5 - side
+				* WALL_INSET, high * 0.5, 0.0), _wall_material)
+		TableProps.box(node, "WandQ%s" % ("A" if side < 0.0 else "B"),
+			Vector3(bay.x - WALL_INSET * 2.0, high, lining), Vector3(0.0, high * 0.5,
+				side * (bay.y - lining) * 0.5 - side * WALL_INSET), _wall_material)
+	TableProps.box(node, "Boden",
+		Vector3(bay.x - SEAM_WIDTH * 2.0, FLOOR_RISE, bay.y - SEAM_WIDTH * 2.0),
+		Vector3(0.0, FLOOR_RISE * 0.5, 0.0), _floor_material)
+	var socket := DataCellView.socket_model()
+	if socket != null:
+		socket.position = Vector3(0.0,
+			PROUD + DataCellView.DEPTH * _scale * 0.5,
+			DataCellView.HEIGHT * _scale * 0.5)
+		# In der Mulde trägt sie keinen Rand über der Karte - sie endet bündig im Deck.
+		var thick := DataCellView.DEPTH * _scale
+		socket.scale.y = thick / (thick + TowerView.SOCKET_LIP * 2.0)
+		node.add_child(socket)
+
+## Die mitrollende PLATTE (under = Mitte quer, Breite): eine Spur UNTER der festen,
+## also sichtbar nur, wo die fehlt - jenseits der Grubenwand. Koplanar stritten sie.
+func _build_underplate(host: Node3D, under: Vector2, length: float, mid_z: float) -> void:
+	TableProps.box(host, "Unterplatte", Vector3(under.y, PLATE - UNDERPLATE_SINK, length),
+		Vector3(under.x, -(PLATE + UNDERPLATE_SINK) * 0.5, mid_z), _plate_material)
+	# Das DECK auf Kartenhöhe außerhalb der Mulden-Lanes: beide Blenden-Streifen und der
+	# Steg zwischen den Lanes. Mit Lippen und Rippen ist die ganze Oberfläche eben, und
+	# die Mulden sind Vertiefungen darin (Spieler-Wunsch 2026-10-28).
+	var offset := under.x - plate_center()
+	for strip: Vector2 in _deck_strips():
+		TableProps.box(host, "Deck", Vector3(strip.y - strip.x, deck_height(), length),
+			Vector3(offset + (strip.x + strip.y) * 0.5, deck_height() * 0.5, mid_z),
+			_lip_material)
+
+## Die DECK-Streifen in Tablett-X (von, bis): Blende hinten, Steg, Blende vorn.
+func _deck_strips() -> Array[Vector2]:
+	var half := lane_depth() * 0.5
+	var back := lane_x(LANE_BACK)
+	var front := lane_x(LANE_FRONT)
+	var strips: Array[Vector2] = [
+		Vector2(back + half - band_depth(), back + half),
+		Vector2(front + half, back - half),
+		Vector2(front - half, front - half + band_depth())]
+	return strips.filter(func(strip: Vector2) -> bool: return strip.y - strip.x > 0.001)
+
+## Die Oberfläche des Tabletts: genau Kartenoberkante - eine Karte in ihrer Mulde liegt
+## bündig (Spieler-Wunsch 2026-10-28).
+func deck_height() -> float:
+	return PROUD + DataCellView.DEPTH * _scale
+
+func _seam_material(tint: Color) -> StandardMaterial3D:
+	var seam := StandardMaterial3D.new()
+	seam.metallic = 0.2
+	seam.roughness = 0.5
+	seam.emission_enabled = true
+	seam.albedo_color = tint
+	seam.emission = tint
+	seam.emission_energy_multiplier = SEAM_EMPTY_ENERGY
+	return seam
+
+## Ein Block leerer Mulden, ein Fenster plus SPARE_EXTRA lang, ab der Kante der
+## Fenster-Mulden nach dir (+1 Bild-rechts, -1 Bild-links). Seine Lage schreibt
+## _place_spares.
+func _build_spares(bays: Node3D, block_name: String, dir: float, columns: int,
+		pitch: float, bay: Vector2, rail: float, rib: float, under: Vector2) -> Node3D:
+	var block := Node3D.new()
+	block.name = block_name
+	bays.add_child(block)
+	var count := columns + SPARE_EXTRA
+	var reach := pitch * float(count)
+	if under.y > 0.0:
+		_build_underplate(block, under, reach, dir * reach * 0.5)
+	for side in 2:
+		var across := float(side) * 2.0 - 1.0
+		TableProps.box(block, "Lippe%d" % side, Vector3(rail, deck_height(), reach),
+			Vector3(across * (bay.x + rail) * 0.5, deck_height() * 0.5, dir * reach * 0.5),
+			_lip_material)
+	for i in count:
+		TableProps.box(block, "Rippe%d" % i, Vector3(bay.x, deck_height(), rib),
+			Vector3(0.0, deck_height() * 0.5, dir * pitch * float(i + 1)), _lip_material)
+		var node := Node3D.new()
+		node.name = "Vorrat%d" % i
+		node.position = Vector3(0.0, 0.0, dir * pitch * (float(i) + 0.5))
+		block.add_child(node)
+		_build_bay(node, bay, _seam_material(BAY_EMPTY))
+	block.position.z = dir * _span.y * 0.5
+	return block
+
+## Die Vorrats-Blöcke einer Reihe bei Zug-Versatz z: am Rand der Fenster-Mulden, und
+## wo der schon aus dem Fenster gerollt ist, um ganze Teilungen nachgerückt.
+func _place_spares(row: int, z: float) -> void:
+	var pitch: float = _pitch.get(row, 0.0)
+	if pitch <= 0.0:
+		return
+	var half := _span.y * 0.5
+	var right: Node3D = _spare_right.get(row)
+	if right != null and is_instance_valid(right):
+		var lag := ceili(((-half - pitch) - (z + half)) / pitch)
+		right.position.z = half + pitch * float(maxi(lag, 0))
+	var left: Node3D = _spare_left.get(row)
+	if left != null and is_instance_valid(left):
+		var lead := ceili(((z - half) - (half + pitch)) / pitch)
+		left.position.z = -half - pitch * float(maxi(lead, 0))
 
 ## Der EINE Schreiber der Saum-Farben: Sortenfarbe hell, leer kühl und stumpf.
 func _write_bays(row: int) -> void:
@@ -812,12 +1030,13 @@ func _ensure_materials() -> void:
 	if _plate_material != null:
 		return
 	_plate_material = _metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY)
-	# Die Lippe ist Platte; der Muldenboden liegt dunkler, die Zunge trägt das Gold
-	# der Turm-Kontaktleiste (EINE Quelle).
+	# Die Lippe ist Platte; der Muldenboden liegt dunkler.
 	_lip_material = _plate_material
-	_floor_material = _metal(FLOOR_ALBEDO, FLOOR_EMISSION, FLOOR_ENERGY)
-	_tongue_material = _metal(TowerView.BAR_ALBEDO, TowerView.BAR_EMISSION,
-		TowerView.BAR_EMISSION_ENERGY)
+	_wall_material = ShaderMaterial.new()
+	_wall_material.shader = load("res://assets/shaders/bay_wall.gdshader")
+	_floor_material = ShaderMaterial.new()
+	_floor_material.shader = load("res://assets/shaders/pit_lining.gdshader")
+	_tune_bay_floor()
 
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
 	return TableProps.metal(albedo, emission, energy, 0.35, 0.55)

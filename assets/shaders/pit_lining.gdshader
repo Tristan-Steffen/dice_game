@@ -42,9 +42,14 @@ uniform float skin_energy = 1.3;
 // allein aus der Map), aber diese Grube ist flach und wird fast von oben gesehen -
 // ein wenig Grundton haelt ihre schmalen Waende lesbar. Am Bild entschieden.
 uniform float skin_field_energy = 0.0;
+// Das MUSTER des Samts haengt am KOERPER statt an der Welt (1 = die Mulden der
+// Tabletts, Spieler-Wunsch 2026-10-28): rollt das Tablett, faehrt der Flor mit.
+// Schimmer und Auslauf bleiben am Feld der Grube - sie sind Licht, kein Stoff.
+uniform float pattern_local = 0.0;
 
 varying vec3 world_pos;
 varying vec3 world_normal;
+varying vec2 local_xz;
 
 float hash21(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -64,6 +69,7 @@ float value_noise(vec2 p) {
 void vertex() {
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	local_xz = VERTEX.xz;
 }
 
 void fragment() {
@@ -90,8 +96,9 @@ void fragment() {
 		// dazu EIN diagonaler Schimmer ueber die ganze Flaeche - der Stoff hat eine
 		// Strichrichtung - und ein Auslaufen zu den Waenden hin, damit der Boden als
 		// Grund einer Vertiefung liest und nicht als Platte.
-		float pile = value_noise(p * 24.0) * 0.6 + value_noise(p * 61.0 + vec2(9.0, 4.0)) * 0.4;
-		float clouds = value_noise(p * 3.4 + vec2(3.0, 7.0));
+		vec2 q = pattern_local > 0.5 ? local_xz : p;
+		float pile = value_noise(q * 24.0) * 0.6 + value_noise(q * 61.0 + vec2(9.0, 4.0)) * 0.4;
+		float clouds = value_noise(q * 3.4 + vec2(3.0, 7.0));
 		float sheen = smoothstep(-0.9, 1.1, n.x * 0.55 + n.y * 0.85);
 		float trough = 1.0 - 0.45 * smoothstep(0.35, 1.0, max(abs(n.x), abs(n.y)));
 		field = base_color * (0.86 + 0.28 * clouds);

@@ -148,7 +148,9 @@ static func lane_of_cell(cell: int) -> int:
 static func columns_used(count: int) -> int:
 	return ceili(float(maxi(count, 0)) / float(LANES))
 
-## Der Roll-Stand reicht von 0 bis max(0, Spalten - Fenster).
+## Wo das Tablett RASTEN darf: 0 bis zur Stellung, in der die letzte belegte Spalte
+## am rechten Fensterrand steht (leer: nur 0). GEZOGEN wird beliebig weit - beim
+## Loslassen federt es hierher zurück (Spieler-Wunsch 2026-10-28).
 static func max_scroll(count: int, window: int = COLUMNS) -> int:
 	return maxi(columns_used(count) - maxi(window, 1), 0)
 
@@ -313,7 +315,14 @@ static func spot_for(column: int, field_size: Vector2, cell: Vector2,
 		lane := LANE_BACK) -> Vector2:
 	var slot := slot_size(field_size, cell)
 	var lane_top := lane_rects(field_size)[clampi(lane, 0, LANES - 1)].position.y
-	return Vector2(slot.x * (float(column) + 0.5), lane_top + slot.y * 0.5)
+	return Vector2(slot.x * (float(column) + 0.5),
+		lane_top + band_before(lane, field_size) + slot.y * 0.5)
+
+## Wieviel Blende OBERHALB der Plätze einer Lane liegt: die hintere trägt ihre Blende
+## OBEN, die vordere UNTEN - so ist das Tablett oben wie unten gleich breit gerandet
+## (Spieler-Wunsch 2026-10-28; bis dahin lagen beide Blenden unten).
+static func band_before(lane: int, field_size: Vector2) -> float:
+	return lane_depth(field_size) * FRONT_SHARE if lane == LANE_BACK else 0.0
 
 ## Der PLATZ einer Spalte: die Feldbreite geteilt durch die Spalten im Fenster, in der
 ## Tiefe die LANE ohne die Blende.

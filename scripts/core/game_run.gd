@@ -504,14 +504,16 @@ func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) ->
 	refund_money(price)
 	return price
 
-## Der EINE Einlagerungsweg: stempelt die uid und hängt das Paket ans ENDE der
-## Magazin-Ordnung - eine Lieferung verrückt nie, was der Spieler sortiert hat.
+## Der EINE Einlagerungsweg: stempelt die uid und legt das Paket an seinen Platz
+## in der Magazin-Ordnung - die ist seit dem 2026-10-28 IMMER nach Typ sortiert
+## (Spieler-Wunsch), eine Lieferung landet also mitten unter ihresgleichen.
 ## Bewusst ohne Signal: das setzt der Aufrufer, damit eine Sammellieferung nur
 ## einmal meldet. Das Magazin ist unbegrenzt - null kommt hier nie mehr zurück.
 func _stash_pack(pack: Pack) -> Pack:
 	pack_serial += 1
 	pack.pack_uid = pack_serial
 	owned_packs.append(pack)
+	_sort_packs()
 	return pack
 
 ## Das Magazin ist UNBEGRENZT (Welle 29) - die Frage bleibt für ihre Aufrufer stehen.
@@ -557,7 +559,13 @@ func pack_tray_count(tray: int) -> int:
 ## eine Salve derselben Sorte.
 func next_pack_spot(pack: Pack, extra: int = 0) -> Vector2i:
 	var tray := Pack.shelf_rank(pack)
-	return Vector2i(tray, pack_tray_count(tray) + maxi(extra, 0))
+	# Sortiert: sie landet HINTER allen ihres Typs (ihre uid ist die größte).
+	var type_key := _type_key(pack)
+	var before := 0
+	for owned in owned_packs:
+		if Pack.shelf_rank(owned) == tray and _type_key(owned) <= type_key:
+			before += 1
+	return Vector2i(tray, before + maxi(extra, 0))
 
 ## Volles Magazin: die Prämie zerfällt zu Geld statt still zu verschwinden. Es ist
 ## EINKOMMEN wie die liegengebliebene Pressbeute, also add_money (Multiplikatoren
@@ -578,20 +586,28 @@ func pack_index_of(uid: int) -> int:
 			return i
 	return -1
 
-## Räumt das Magazin auf: nach Sorte (SHELF_ORDER), dann Inhalt, dann uid - der
-## explizite Endvergleich, weil sort_custom nicht stabil ist. Die Sorte IST das
-## Tablett, also sortiert das nur INNERHALB jeder Sorte um.
+## Räumt das Magazin auf: nach Typ (_type_key), dann uid. Seit die Ordnung immer
+## sortiert ist (2026-10-28), ändert das nur noch etwas, wenn sich ein Netz geändert
+## hat - die Verdichtung sortiert ihren Rohling selbst nach.
 func tidy_packs() -> void:
 	if owned_packs.size() < 2:
 		return
-	owned_packs.sort_custom(func(a: Pack, b: Pack) -> bool:
-		var key_a := _tidy_key(a)
-		var key_b := _tidy_key(b)
-		return key_a < key_b)
+	_sort_packs()
 	packs_changed.emit()
 
-## Sortierschlüssel eines Pakets: Sorten-Rang, Inhalts-id, uid.
+func _sort_packs() -> void:
+	owned_packs.sort_custom(func(a: Pack, b: Pack) -> bool:
+		return _tidy_key(a) < _tidy_key(b))
+
+## Sortierschlüssel eines Pakets: Typ, dann uid - der explizite Endvergleich, weil
+## sort_custom nicht stabil ist.
 func _tidy_key(pack: Pack) -> Array:
+	return _type_key(pack) + [pack.pack_uid]
+
+## Der TYP eines Pakets: Sorten-Rang, Inhalts-id und - für Material- und Runen-Karten,
+## deren Inhalt sonst gleich hieße - das häufigste Material bzw. die häufigste Rune
+## ihres Netzes. So liegen Glas-Karten bei Glas-Karten.
+func _type_key(pack: Pack) -> Array:
 	var shelf_rank := Pack.SHELF_ORDER.find(Pack.shelf_of(pack))
 	if shelf_rank < 0:
 		shelf_rank = Pack.SHELF_ORDER.size()
@@ -606,7 +622,25 @@ func _tidy_key(pack: Pack) -> Array:
 		content = Pack.MULTIPLIER_NAME
 	elif pack.fixed_engraving != null:
 		content = pack.fixed_engraving.id
-	return [shelf_rank, content, pack.pack_uid]
+	return [shelf_rank, content, _dominant_id(pack.stamp_net)]
+
+## Die häufigste Material- bzw. Runen-id eines Netzes ("" = keine); gleich häufige
+## entscheidet die id selbst, damit der Schlüssel fest steht.
+static func _dominant_id(net: Array) -> String:
+	var counts := {}
+	for cell in net:
+		if cell is Dictionary and (cell.get("kind") == StampNet.KIND_MATERIAL
+				or cell.get("kind") == StampNet.KIND_RUNE):
+			var id := String(cell.get("id", ""))
+			counts[id] = int(counts.get(id, 0)) + 1
+	var best := ""
+	var most := 0
+	for id: String in counts:
+		var count := int(counts[id])
+		if count > most or (count == most and id < best):
+			best = id
+			most = count
+	return best
 
 ## Legt ein Paket ohne Zahlung ins Lager (Wett-Gewinn). null = das Magazin war
 ## voll, das Paket ist zu Geld zerfallen (gebucht) - der Aufrufer fliegt dann Geld
@@ -801,6 +835,7 @@ func compress_series(pack_uids: Array[int], blank_uid: int,
 	# Der Rohling steckt NIE in chosen (erase oben), wird also nie sein eigenes Futter.
 	blank.stamp_net = preview["net"]
 	var kept := _consume_series_cards(chosen, rng)
+	_sort_packs()  # sein neues Netz kann ihn unter einen anderen Typ legen
 	packs_changed.emit()
 	press_changed.emit()
 	return {"net": preview["net"], "fizzled": preview["fizzled"],

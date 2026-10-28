@@ -2178,11 +2178,12 @@ func reset_shelf_scroll() -> void:
 		_shelf_scroll[tray] = 0
 	refresh()
 
-## Gibt es links bzw. rechts hinausgerollte Karten? (x = links, y = rechts)
+## Gibt es links bzw. rechts hinausgerollte Karten? (x = links, y = rechts) - seit
+## auch ein leeres Tablett rollt, zählt links, was dort wirklich LIEGT.
 func shelf_overflow(tray: int) -> Vector2i:
 	var scroll := shelf_scroll_of(tray)
 	var used := PackDrawerView.columns_used(shelf_tray_count(tray))
-	return Vector2i(1 if scroll > 0 else 0,
+	return Vector2i(1 if mini(scroll, used) > 0 else 0,
 		1 if used - scroll > shelf_columns() else 0)
 
 ## Die Sortenfarben der Reihe, ein Eintrag je SPALTE im Fenster (leer stumpf) - die
@@ -2253,12 +2254,10 @@ func _on_scroll_released(offset_px: float) -> void:
 	set_shelf_scroll(tray, after)
 	shelf_scroll_snapped.emit(tray, from, float(before - after) * shelf_slot_px())
 
-## Ein Versatz in den Grenzen des Roll-Bereichs (nach links rollt es weiter).
+## Der Zug-Versatz: nach links (weiter) unbegrenzt - das Tablett läuft ins Leere und
+## federt beim Loslassen zurück -, nach rechts nie vor den Anfang.
 func _clamp_scroll_px(tray: int, offset_px: float) -> float:
-	var scroll := shelf_scroll_of(tray)
-	var limit := PackDrawerView.max_scroll(shelf_tray_count(tray), shelf_columns())
-	var slot := shelf_slot_px()
-	return clampf(offset_px, -float(limit - scroll) * slot, float(scroll) * slot)
+	return minf(offset_px, float(shelf_scroll_of(tray)) * shelf_slot_px())
 
 ## Rollt gerade ein Zug über das Magazin?
 func shelf_dragging() -> bool:

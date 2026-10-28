@@ -4107,6 +4107,8 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 		return
 	if shelf_stack == null or not is_instance_valid(shelf_stack):
 		shelf_stack = ShelfStackView.new()
+		# Die Wandtaschen sind der Raum NEBEN der Grube und tragen darum DEREN Haut.
+		shelf_stack.wall_skin = PIT_SKIN
 		add_child(shelf_stack)
 	shelf_stack.setup(table_screen.pixel_to_world(rect.get_center()),
 		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect))
@@ -4116,7 +4118,8 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 	if shelf_stack.selected() != workshop.shelf_tray:
 		shelf_stack.set_selected(workshop.shelf_tray)
 	for line in PackDrawerView.ROWS:
-		shelf_stack.set_bay_tints(line, workshop.shelf_row_tints(line))
+		shelf_stack.set_bay_tints(line, workshop.shelf_row_tints(line),
+			workshop.shelf_scroll_of(PackDrawerView.tray_of(line)) > 0)
 	var spill := workshop.shelf_overflow(workshop.shelf_tray)
 	shelf_stack.set_overflow(spill.x > 0, spill.y > 0)
 

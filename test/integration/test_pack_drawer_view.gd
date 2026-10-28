@@ -119,8 +119,11 @@ func test_spots_run_along_the_lane_and_the_front_lane_lies_below() -> void:
 	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01)
 	var front := PackDrawerView.spot_for(0, field, CELL, PackDrawerView.LANE_FRONT)
 	assert_almost_eq(front.x, first.x, 0.01)
-	assert_almost_eq(front.y - first.y,
-		PackDrawerView.lane_depth(field) + PackDrawerView.LANE_GAP_PX, 0.01)
+	# Die hintere Lane trägt ihre Blende OBEN, die vordere unten (gespiegelt): die
+	# Reihen rücken um die Blende zusammen.
+	assert_almost_eq(front.y - first.y, PackDrawerView.lane_depth(field)
+		+ PackDrawerView.LANE_GAP_PX - PackDrawerView.band_before(PackDrawerView.LANE_BACK,
+			field), 0.01)
 
 func test_the_lanes_leave_three_equal_gaps() -> void:
 	var field := _field().size
@@ -137,13 +140,17 @@ func test_the_card_keeps_its_size_however_many_packs_lie_there() -> void:
 
 # --- Das ROLLEN --------------------------------------------------------------------
 
-## Grenzen 0 .. max(0, Spalten - Fenster); losgelassen rastet es auf ganze Spalten.
+## RASTEN darf es nur 0 .. bis die letzte belegte Spalte am Fensterrand steht (leer:
+## nur 0) - gezogen wird beliebig weit, losgelassen federt es dorthin zurück.
 func test_the_scroll_clamps_and_snaps_to_whole_columns() -> void:
+	assert_eq(PackDrawerView.max_scroll(0, 4), 0, "leer rastet es am Anfang")
 	assert_eq(PackDrawerView.max_scroll(8, 4), 0, "acht Karten füllen genau vier Spalten")
 	assert_eq(PackDrawerView.max_scroll(9, 4), 1)
 	assert_eq(PackDrawerView.max_scroll(20, 4), 6)
 	assert_eq(PackDrawerView.clamp_scroll(-2, 20, 4), 0)
 	assert_eq(PackDrawerView.clamp_scroll(99, 20, 4), 6)
+	assert_eq(PackDrawerView.snap_scroll(0, -900.0, 100.0, 0, 4), 0,
+		"ein leeres Tablett federt nach jedem Zug an den Anfang zurück")
 	assert_eq(PackDrawerView.snap_scroll(0, -100.0, 100.0, 20, 4), 1,
 		"eine Spalte nach links gezogen rollt eine weiter")
 	assert_eq(PackDrawerView.snap_scroll(0, -140.0, 100.0, 20, 4), 1, "abgerundet")

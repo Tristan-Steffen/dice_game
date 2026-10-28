@@ -324,7 +324,7 @@ func test_je_platz_eine_mulde_mit_saum_in_der_sortenfarbe() -> void:
 	for child in bays.get_children():
 		if String(child.name).begins_with("Mulde"):
 			count += 1
-			for part in ["Saum", "Boden", "Zunge"]:
+			for part in ["Saum", "Boden", "Buchse"]:
 				assert_not_null(child.get_node_or_null(part), "%s trägt %s" % [child.name, part])
 	assert_eq(count, 3, "je Platz eine Mulde auf dem Tablett IHRER Reihe")
 	var lit := (bays.get_node("Mulde0/Saum") as MeshInstance3D).material_override \
@@ -335,16 +335,57 @@ func test_je_platz_eine_mulde_mit_saum_in_der_sortenfarbe() -> void:
 	assert_gt(lit.emission_energy_multiplier, dull.emission_energy_multiplier,
 		"belegt leuchtet heller als leer")
 
-## Die Karte liegt AUF Boden und Zunge der Mulde, nie in ihnen: alles unter ihr bleibt
-## unter BAY_FLOOR, und die Lippe bleibt unter der Kartendicke.
-func test_die_mulde_bleibt_unter_der_karte() -> void:
+## Die Mulde ist eine VERTIEFUNG (Spieler-Wunsch 2026-10-28): die Karte liegt auf
+## ihrem Boden, und Lippen, Rippen und Deck reichen genau bis Kartenoberkante - die
+## Karte ist bündig mit dem Tablett, die Buchse endet im Deck.
+func test_die_mulde_ist_eine_vertiefung_und_die_karte_buendig() -> void:
 	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
-	assert_lt(ShelfStackView.FLOOR_RISE + ShelfStackView.TONGUE_RISE, ShelfStackView.BAY_FLOOR)
-	assert_gt(ShelfStackView.PROUD, ShelfStackView.BAY_LIP, "die Karte liegt über der Lippe")
+	stack.set_bay_tints(1, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	assert_lt(ShelfStackView.FLOOR_RISE, ShelfStackView.BAY_FLOOR)
+	var top := ShelfStackView.PROUD + DataCellView.DEPTH * SCALE
+	assert_almost_eq(stack.deck_height(), top, 0.0001, "das Deck ist Kartenoberkante")
+	var bays := stack.get_node("Tablett1/Mulden1") as Node3D
+	for part in ["Lippe0", "Rippe1"]:
+		var box := bays.get_node(part) as MeshInstance3D
+		assert_almost_eq(box.position.y + (box.mesh as BoxMesh).size.y * 0.5, top, 0.0001,
+			"%s reicht bis an die Oberfläche" % part)
+	var deck := bays.get_node_or_null("Deck") as MeshInstance3D
+	assert_not_null(deck, "Blenden und Steg liegen ebenfalls auf Kartenhöhe")
+	var socket := bays.get_node("Mulde0/Buchse") as Node3D
+	var socket_top := socket.position.y + socket.scale.y 		* (DataCellView.DEPTH * SCALE * 0.5 + TowerView.SOCKET_LIP)
+	assert_almost_eq(socket_top, top, 0.0001, "die Buchse endet bündig im Deck")
+	# Und das Deck paßt unter das nächste Tablett.
+	assert_lt(top, ShelfStackView.PITCH - ShelfStackView.PLATE)
+	# Die WÄNDE der Vertiefung tragen ihr eigenes Material - im Ton des Decks las sie
+	# flach (Spieler-Wunsch 2026-10-28) -, und sie bleiben unter der Oberfläche.
+	for wall in ["WandLA", "WandLB", "WandQA", "WandQB"]:
+		var lining := bays.get_node_or_null("Mulde0/%s" % wall) as MeshInstance3D
+		assert_not_null(lining, "die Mulde trägt %s" % wall)
+		var shader := (lining.material_override as ShaderMaterial).shader
+		assert_eq(shader.resource_path, "res://assets/shaders/bay_wall.gdshader")
+		assert_lt(lining.position.y + (lining.mesh as BoxMesh).size.y * 0.5, top,
+			"%s bleibt unter dem Deck" % wall)
 	var bay := stack.bay_size(2)
 	assert_gt(bay.x, 0.0, "quer bleibt eine Mulde")
 	assert_gt(bay.y, DataCellView.HEIGHT * SCALE, "längs weiter als die Karte")
 	assert_lt(bay.y, stack._span.y * 0.5, "und zwei passen mit Lippe nebeneinander")
+
+## Der BODEN einer Mulde ist AUSGEKLEIDET wie die Grube (Spieler-Wunsch 2026-10-26):
+## flach schwarz las ein leerer Stellplatz als Loch. Sein Samt-Feld ist die GANZE
+## Grube - fährt ein Tablett, wandert kein Muster mit.
+func test_der_muldenboden_traegt_die_auskleidung_der_grube() -> void:
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	var ground_node := stack.get_node("Tablett1/Mulden1/Mulde0/Boden") as MeshInstance3D
+	var ground := ground_node.material_override as ShaderMaterial
+	assert_not_null(ground, "der Muldenboden ist ausgekleidet")
+	assert_almost_eq(float(ground.get_shader_parameter("velvet")), 1.0, 0.001,
+		"als BODEN, wie der der Grube")
+	var tone: Color = ground.get_shader_parameter("base_color")
+	assert_gt(tone.v, PackPitView.FLOOR_ALBEDO.v, "heller als der Grubenboden")
+	assert_lt(tone.v, ShelfStackView.POCKET_FLOOR_ALBEDO.v,
+		"aber dunkler als die Tasche: hier sieht die Station fast senkrecht hinein")
+	assert_eq(ground.get_shader_parameter("field_center"), stack._pit_field().get_center(),
+		"das Samt-Feld ist die GANZE Grube, nicht die einzelne Mulde")
 
 ## Ändert sich nur die Farbe, wird nichts neu gebaut; ändert sich die Platzzahl, schon.
 func test_umfaerben_baut_nichts_neu_umzaehlen_schon() -> void:
@@ -356,14 +397,31 @@ func test_umfaerben_baut_nichts_neu_umzaehlen_schon() -> void:
 	assert_eq(stack.bay_count(1), 3)
 	assert_ne(stack.get_node("Tablett1/Mulden2"), before, "drei Plätze sind ein neuer Bau")
 
-func test_die_blenden_liegen_an_der_bild_unteren_kante_ihrer_lane() -> void:
+## Die Blenden liegen GESPIEGELT (Spieler-Wunsch 2026-10-28): die hintere an der
+## OBERkante ihrer Lane (Welt +X), die vordere an der UNTERkante (Welt -X) - so ist
+## das Tablett über der oberen Reihe genau so breit gerandet wie unter der unteren.
+func test_die_blenden_liegen_gespiegelt_an_den_aussenkanten() -> void:
 	var back := stack.get_node("Tablett1/Blende1") as Node3D
 	var front := stack.get_node("Tablett1/Blende2") as Node3D
-	# Bild-UNTEN ist Welt -X: die Blende sitzt an der Unterkante IHRER Lane.
 	assert_almost_eq(back.position.x,
-		stack.lane_x(ShelfStackView.LANE_BACK) - stack.lane_depth() * 0.5
-			+ stack.band_depth() * 0.5, 0.0001)
-	assert_lt(front.position.x, back.position.x, "die vordere liegt weiter unten")
+		stack.lane_x(ShelfStackView.LANE_BACK) + stack.lane_depth() * 0.5
+			- stack.band_depth() * 0.5, 0.0001, "hinten: oben")
+	assert_almost_eq(front.position.x,
+		stack.lane_x(ShelfStackView.LANE_FRONT) - stack.lane_depth() * 0.5
+			+ stack.band_depth() * 0.5, 0.0001, "vorn: unten")
+
+## Und darum liegt über der oberen Mulden-Reihe genau so viel Tablett wie unter der
+## unteren.
+func test_das_tablett_ist_oben_wie_unten_gleich_gerandet() -> void:
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY])
+	stack.set_bay_tints(1, [ShelfStackView.BAY_EMPTY])
+	var back := stack.get_node("Tablett1/Mulden1") as Node3D
+	var front := stack.get_node("Tablett1/Mulden2") as Node3D
+	var half := stack.bay_size(1).x * 0.5
+	var plate_top := stack.plate_center() + stack.plate_span() * 0.5
+	var plate_bottom := stack.plate_center() - stack.plate_span() * 0.5
+	assert_almost_eq(plate_top - (back.position.x + half),
+		(front.position.x - half) - plate_bottom, 0.0001, "oben wie unten")
 
 ## Die Tabletts sind UNDURCHSICHTIG und tragen keinen Rand (Spieler-Entscheid
 ## 2026-09-09): EIN massives Material für jedes.
@@ -397,6 +455,33 @@ func test_die_wandtasche_liegt_hinter_der_grubenwand() -> void:
 	assert_not_null(left, "die linke Wandtasche steht")
 	var left_back := left.get_node("Rueckwand") as MeshInstance3D
 	assert_lt(left_back.global_position.z, -SPAN.y * 0.5, "links hinter der Grubenwand")
+
+## Sie ist der Raum NEBEN der Grube, nicht ihr Ende: dieselbe Auskleidung, die
+## Flanken mit den Werten der Grubenwand (sonst verriete ein Helligkeitssprung die
+## Naht), der Boden heller als der der Grube - durch den flachen Schlitz sieht man
+## sonst nur Schwarz.
+func test_die_wandtasche_traegt_die_auskleidung_der_grube() -> void:
+	var skin := PlaceholderTexture2D.new()
+	stack.wall_skin = skin
+	for side in ["Wandtasche", "WandtascheLinks"]:
+		var ground_node := stack.get_node("Wandtaschen/%s/Boden" % side) as MeshInstance3D
+		var ground := ground_node.material_override as ShaderMaterial
+		assert_not_null(ground, "%s: der Boden ist ausgekleidet" % side)
+		assert_almost_eq(float(ground.get_shader_parameter("velvet")), 1.0, 0.001,
+			"%s: der Boden ist Samt wie der der Grube" % side)
+		var tone: Color = ground.get_shader_parameter("base_color")
+		assert_gt(tone.v, PackPitView.FLOOR_ALBEDO.v, "%s: heller als die Grube" % side)
+		assert_null(ground.get_shader_parameter("wall_tex"), "%s: Samt ohne Haut" % side)
+		var flank_node := stack.get_node("Wandtaschen/%s/Flanke0" % side) as MeshInstance3D
+		var flank := flank_node.material_override as ShaderMaterial
+		assert_almost_eq(float(flank.get_shader_parameter("velvet")), 0.0, 0.001,
+			"%s: die Flanke ist Wand" % side)
+		assert_eq(flank.get_shader_parameter("base_color"), PackPitView.WALL_ALBEDO,
+			"%s: der Ton der Grubenwand" % side)
+		assert_almost_eq(float(flank.get_shader_parameter("field_energy")),
+			PackPitView.WALL_FIELD_ENERGY, 0.001, "%s: ihre Helligkeit" % side)
+		assert_eq(flank.get_shader_parameter("wall_tex"), skin,
+			"%s: die bestellte Haut läuft weiter" % side)
 
 # --- Das ROLLEN -----------------------------------------------------------------------
 
@@ -457,3 +542,98 @@ func test_dieselben_masse_bauen_nichts_neu() -> void:
 	stack.setup(Vector3.ZERO, SPAN * 1.2, SCALE)
 	assert_eq(cell.get_parent().name, "Fach",
 		"auch einen mit neuen Maßen - das Fach gehört nicht der Platte")
+
+## Die BUCHSE (2026-10-27): ihr Mund sitzt genau am Fuß der liegenden Karte und auf
+## Stifthöhe, und sie bleibt in der Mulde - die Stifte stecken darin.
+func test_die_buchse_sitzt_am_kartenfuss() -> void:
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY])
+	var socket := stack.get_node("Tablett1/Mulden1/Mulde0/Buchse") as Node3D
+	assert_not_null(socket)
+	var scale := PackDrawerView.CASSETTE_SCALE
+	assert_almost_eq(socket.position.z, DataCellView.HEIGHT * scale * 0.5, 0.0001,
+		"der Mund ist der Kartenfuß")
+	assert_almost_eq(socket.position.y,
+		ShelfStackView.PROUD + DataCellView.DEPTH * scale * 0.5, 0.0001, "auf Stifthöhe")
+	assert_gte(DataCellView.SOCKET_DEPTH, DataCellView.PIN_LENGTH * scale,
+		"die Stifte verschwinden ganz in ihr")
+	assert_lte(socket.position.z + DataCellView.SOCKET_DEPTH,
+		stack.bay_size(1).y * 0.5 + 0.0001, "und sie bleibt in ihrer Mulde")
+
+## Die MULDEN rollen mit dem Fach (Spieler-Wunsch 2026-10-28) - ausgeblendet ließen sie
+## beim Zug eine graue Platte stehen. Jenseits des Fensters liegen leere auf Vorrat,
+## und eingerastet springen sie zurück auf ihre Fensterplätze.
+func test_die_mulden_rollen_mit_dem_fach() -> void:
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	var bays := stack.get_node("Tablett1/Mulden1") as Node3D
+	assert_null(bays.get_node_or_null("VorratLinks"),
+		"auf Stand 0 endet das Tablett links an seiner ersten Mulde")
+	assert_not_null(bays.get_node_or_null("VorratRechts"),
+		"rechts liegt Vorrat, der beim Zug hereinrollt")
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY], true)
+	bays = stack.get_node("Tablett1/Mulden1") as Node3D
+	assert_not_null(bays.get_node_or_null("VorratLinks"), "gerollt liegt auch links Vorrat")
+	stack.drag_scroll(0, -0.8)
+	assert_true(bays.visible, "beim Zug bleiben sie stehen")
+	assert_almost_eq(bays.position.z, -0.8, 0.0001, "und rollen mit")
+	stack.settle_scroll_hard()
+	assert_almost_eq(bays.position.z, 0.0, 0.0001, "eingerastet zurück auf ihrem Platz")
+
+## Gezogen wird BELIEBIG weit (Spieler-Wunsch 2026-10-28): der rechte Vorrat rückt
+## um ganze Teilungen nach, so daß das Fenster nie leer läuft - auch zehn Fenster weit.
+func test_der_vorrat_fuellt_das_fenster_bei_jedem_zug() -> void:
+	var tints := [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY,
+		ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY]
+	stack.set_bay_tints(0, tints)
+	var bays := stack.get_node("Tablett1/Mulden1") as Node3D
+	var block := bays.get_node("VorratRechts") as Node3D
+	var pitch := SPAN.y / 4.0
+	var reach := pitch * float(4 + ShelfStackView.SPARE_EXTRA)
+	for z: float in [-0.5, -SPAN.y, -SPAN.y * 3.7, -SPAN.y * 10.0]:
+		stack.drag_scroll(0, z)
+		var start: float = z + block.position.z
+		var real_end: float = z + SPAN.y * 0.5
+		assert_lte(start, maxf(real_end, -SPAN.y * 0.5) + 0.001,
+			"bei z = %.1f schließt der Vorrat ohne Lücke an" % z)
+		assert_gte(start + reach, SPAN.y * 0.5 - 0.001,
+			"und reicht bis an den rechten Fensterrand (z = %.1f)" % z)
+	stack.settle_scroll_hard()
+	assert_almost_eq(block.position.z, SPAN.y * 0.5, 0.0001, "eingerastet wieder am Rand")
+
+## Ein weiter Rückweg federt länger als eine Spalte, aber nie träge.
+func test_ein_weiter_rueckweg_federt_laenger() -> void:
+	var pitch := SPAN.y / float(PackDrawerView.COLUMNS)
+	assert_almost_eq(stack.snap_time_for(pitch), ShelfStackView.SNAP_TIME, 0.0001)
+	assert_gt(stack.snap_time_for(pitch * 3.0), ShelfStackView.SNAP_TIME)
+	assert_almost_eq(stack.snap_time_for(pitch * 100.0), ShelfStackView.SNAP_TIME_MAX, 0.0001)
+
+## Die PLATTE rollt mit (Spieler-Befund 2026-10-28): unter den Mulden der HINTEREN
+## Reihe liegt sie über die volle Tablett-Breite, eine Spur unter der festen - so ist
+## das Tablett auch jenseits der Grubenwand zwischen den Reihen geschlossen.
+func test_die_platte_rollt_mit_den_mulden() -> void:
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	stack.set_bay_tints(1, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	var back := PackDrawerView.row_for(0, ShelfStackView.LANE_BACK)
+	var front := PackDrawerView.row_for(0, ShelfStackView.LANE_FRONT)
+	var back_bays := stack.get_node("Tablett1/Mulden%d" % (back + 1)) as Node3D
+	var front_bays := stack.get_node("Tablett1/Mulden%d" % (front + 1)) as Node3D
+	var under := back_bays.get_node_or_null("Unterplatte") as MeshInstance3D
+	assert_not_null(under, "die hintere Reihe trägt sie")
+	assert_null(front_bays.get_node_or_null("Unterplatte"), "die vordere nicht - sonst doppelt")
+	assert_not_null(back_bays.get_node_or_null("VorratRechts/Unterplatte"),
+		"und der Vorrat rollt sie mit")
+	var size := (under.mesh as BoxMesh).size
+	assert_almost_eq(size.x, stack.plate_span(), 0.0001, "volle Tablett-Breite")
+	assert_almost_eq(back_bays.position.x + under.position.x, stack.plate_center(), 0.0001)
+	assert_lt(under.position.y + size.y * 0.5, 0.0, "und eine Spur unter der festen Platte")
+
+## Beim WECHSEL fährt das alte Tablett MIT seinen Mulden davon (Spieler-Befund
+## 2026-10-28: nackt fuhr es als graue Fläche) - erst am Ende der Fahrt verschwinden sie.
+func test_das_alte_tablett_behaelt_seine_mulden_bis_zum_ende_der_fahrt() -> void:
+	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY])
+	var bays := stack.get_node("Tablett1/Mulden1") as Node3D
+	assert_true(bays.visible)
+	stack.select(3)
+	assert_true(stack.riding(), "es fährt")
+	assert_true(bays.visible, "und trägt seine Mulden mit in die Wand")
+	await wait_seconds(ShelfStackView.SLIDE_TIME + 0.1)
+	assert_false(bays.visible, "angekommen sind sie fort")
