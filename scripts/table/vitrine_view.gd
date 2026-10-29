@@ -42,6 +42,9 @@ const FLOOR_CLEAR := 0.03
 const SHELF_DEPTH_SHARE := 0.42
 ## Rand, den die Ware zur Kante der Auslage hält.
 const EDGE_MARGIN := 0.10
+## Die EINE Reihe des Schwarzmarkts nutzt die Breite fast ganz: ihre Kassetten liegen
+## in Mulden, und zwischen zwei Mulden muß ein Steg stehen (2026-10-29).
+const ROW_EDGE_MARGIN := 0.02
 
 ## Greifen: das Stück hebt sich ein Stück und wird eine Spur größer (die
 ## Magazin-Geste - eine Akte, die man aus der Schublade zieht). Über der Auslage
@@ -158,6 +161,15 @@ var _zone_tweens: Dictionary = {}
 ## bei jedem Abbruch, denn ein Stück in dieser Liste, das niemand mehr kennt, wäre
 ## der zweite denkbare Rest neben einem offenen Loch.
 var _leaving: Array[Node3D] = []
+## Liegen die Kassetten in VERTIEFUNGEN (der Schwarzmarkt, Spieler-Wunsch
+## 2026-10-29)? Dann RUHT jede bündig unter der Fläche; GEFAHREN wird weiter auf
+## ihr, denn auf der Plattform läge eine versenkte Karte im Deckel.
+var recessed := false
+## Je Kassetten-Platz der Reihe {point (Glaspunkt), pack (null = verkauft)} - auch
+## der verkaufte Platz behält seine Mulde.
+var _recess_slots: Array[Dictionary] = []
+## Wie schnell eine Karte nach einer Fahrt in ihre Mulde sinkt.
+const RECESS_SETTLE_TIME := 0.14
 ## Die HAUT, die die Plattformen tragen: das echte Bild der Anzeige an ihrer Stelle
 ## (TableScreen.display_skin). Gemeldet von draußen - die Auslage greift nicht in
 ## die Szene.
@@ -344,7 +356,7 @@ func settle() -> void:
 		var spot := _spot_for_key(key)
 		var cell := body as DataCellView
 		if cell != null:
-			cell.lie_on_glass(spot)
+			cell.lie_on_glass(pack_rest(spot))
 			continue
 		body.global_position = _rest_position(key, spot)
 	_move_tweens.clear()
@@ -396,6 +408,31 @@ func set_hovered(kind: String, index: int) -> void:
 
 func hovered_key() -> String:
 	return _hovered
+
+## Wo eine Kassette RUHT: auf ihrem Platz, oder bündig in ihrer Mulde.
+func pack_rest(spot: Vector3) -> Vector3:
+	if not recessed:
+		return spot
+	return Vector3(spot.x, floor_y() - DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE,
+		spot.z)
+
+func recess_slots() -> Array[Dictionary]:
+	return _recess_slots
+
+## Je Bild gefragt: steht die Fahrt einer Kassette still, sinkt sie in ihre Mulde.
+func sync_recessed() -> void:
+	if not recessed:
+		return
+	for item in items:
+		var cell := item.get("cell") as DataCellView
+		if cell == null or not is_instance_valid(cell) or cell.busy():
+			continue
+		var shaft: LiftShaftView = _shafts.get(_zone_of_key(String(item["key"])))
+		if shaft != null and is_instance_valid(shaft) and shaft.riding():
+			continue
+		var rest := pack_rest(item["spot"])
+		if cell.glass_position().distance_to(rest) > 0.001:
+			cell.glide_to(rest, RECESS_SETTLE_TIME)
 
 ## Steht die Schale? Solange sie fährt, hängt keine Beschriftung unter ihr.
 func bowl_settled() -> bool:
@@ -610,6 +647,11 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var offsets := TableProps.row_spots(entries.size(), _field_width(), _field_width())
 	_row_pitch = absf(offsets[1] - offsets[0]) if offsets.size() >= 2 else 0.0
 	var x := center.x
+	_recess_slots.clear()
+	for i in entries.size():
+		if entries[i]["kind"] == ShopController.KIND_ENGRAVING_PACK:
+			_recess_slots.append({"point": Vector3(x, floor_y(), _field_center_z() + offsets[i]),
+				"pack": entries[i].get("pack"), "pitch": _row_pitch})
 	var pack_radius := pick_radius(
 		DataCellView.HEIGHT * PackDrawerView.CASSETTE_SCALE * PICK_FACTOR, offsets)
 	var die_radius := pick_radius(bowl_reach() * PICK_FACTOR, offsets)
@@ -635,7 +677,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 			cell.hover_lift = DataCellView.HOVER_LIFT
 			_hover_head[key] = DataCellView.STAND_HEIGHT * cell.body_scale() * cell.hover_lift
-			cell.lie_on_glass(spot)
+			cell.lie_on_glass(pack_rest(spot))
 			items.append({"kind": entry["kind"], "index": entry["index"], "key": key,
 				"spot": spot, "node": cell, "cell": cell, "radius": pack_radius})
 			_stage(key, cell, spot, grade, zone, stage, pack_radius)
@@ -723,7 +765,8 @@ func _depth_at(share_start: float, share_end: float) -> float:
 
 ## Nutzbare Breite der Auslage: die ganze Fläche ohne ihren Rand.
 func _field_width() -> float:
-	return maxf(half.y * 2.0 * (1.0 - EDGE_MARGIN * 2.0), 0.01)
+	var margin := ROW_EDGE_MARGIN if single_row else EDGE_MARGIN
+	return maxf(half.y * 2.0 * (1.0 - margin * 2.0), 0.01)
 
 func _field_center_z() -> float:
 	return center.z
@@ -999,6 +1042,7 @@ func _detach_bodies() -> Dictionary:
 		var cell := body as DataCellView
 		if cell != null:
 			cell.set_hovered(false)  # der Griff sitzt am Körper, nicht am Ort
+			cell.lie_on_glass(pack_rest(_spot_for_key(key)))  # auch das Einsinken endet
 		else:
 			body.scale = Vector3.ONE * float(_rest_scale.get(key, 1.0))
 		var zone := _zone_of_key(key)
@@ -1075,7 +1119,10 @@ func _take_out(key: String, body: Node3D, place: Dictionary) -> void:
 		cell.set_hovered(false)  # der Griff sitzt am Körper, nicht am Ort
 	else:
 		body.scale = Vector3.ONE * float(_rest_scale.get(key, 1.0))
-	body.global_position = seat
+	if cell != null:
+		cell.lie_on_glass(seat)  # auch das Einsinken in die Mulde endet hier
+	else:
+		body.global_position = seat
 	var shaft := _section_shaft(_zone_of_key(key), seat, float(place["radius"]))
 	if shaft == null:
 		_free_body(body)

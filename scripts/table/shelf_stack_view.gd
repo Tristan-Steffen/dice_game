@@ -899,32 +899,49 @@ func _build_bays(host: Node3D, row: int) -> void:
 ## EINE Mulde: Saum, Boden und die BUCHSE am Bild-rechten Ende (Spieler-Entscheid
 ## 2026-10-27) - ihr Mund sitzt auf dem Kartenfuß, die Stifte stecken darin.
 func _build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D) -> void:
+	build_bay(node, bay, seam, _scale, _wall_material, _floor_material)
+
+## Die EINE Bauregel einer Mulde - auch der Laden legt seine Kassetten so hinein
+## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden.
+static func build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D,
+		cell_scale: float, wall_material: Material, floor_material: Material) -> void:
 	TableProps.box(node, "Saum", Vector3(bay.x, SEAM_RISE, bay.y),
 		Vector3(0.0, SEAM_RISE * 0.5, 0.0), seam)
 	# Die WÄNDE der Vertiefung tragen ihr EIGENES Material (Spieler-Wunsch 2026-10-28):
 	# im Ton des Decks las sie flach. Eine Spur in die Mulde gerückt und unter der
 	# Oberkante, damit sie mit Lippe und Rippe nie eine Fläche teilen.
-	var high := deck_height() - WALL_TOP_GAP
+	var high := deck_height_for(cell_scale) - WALL_TOP_GAP
 	var lining := WALL_LINING
 	for side in [-1.0, 1.0]:
 		TableProps.box(node, "WandL%s" % ("A" if side < 0.0 else "B"),
 			Vector3(lining, high, bay.y), Vector3(side * (bay.x - lining) * 0.5 - side
-				* WALL_INSET, high * 0.5, 0.0), _wall_material)
+				* WALL_INSET, high * 0.5, 0.0), wall_material)
 		TableProps.box(node, "WandQ%s" % ("A" if side < 0.0 else "B"),
 			Vector3(bay.x - WALL_INSET * 2.0, high, lining), Vector3(0.0, high * 0.5,
-				side * (bay.y - lining) * 0.5 - side * WALL_INSET), _wall_material)
+				side * (bay.y - lining) * 0.5 - side * WALL_INSET), wall_material)
 	TableProps.box(node, "Boden",
 		Vector3(bay.x - SEAM_WIDTH * 2.0, FLOOR_RISE, bay.y - SEAM_WIDTH * 2.0),
-		Vector3(0.0, FLOOR_RISE * 0.5, 0.0), _floor_material)
+		Vector3(0.0, FLOOR_RISE * 0.5, 0.0), floor_material)
 	var socket := DataCellView.socket_model()
 	if socket != null:
 		socket.position = Vector3(0.0,
-			PROUD + DataCellView.DEPTH * _scale * 0.5,
-			DataCellView.HEIGHT * _scale * 0.5)
+			PROUD + DataCellView.DEPTH * cell_scale * 0.5,
+			DataCellView.HEIGHT * cell_scale * 0.5)
 		# In der Mulde trägt sie keinen Rand über der Karte - sie endet bündig im Deck.
-		var thick := DataCellView.DEPTH * _scale
+		var thick := DataCellView.DEPTH * cell_scale
 		socket.scale.y = thick / (thick + TowerView.SOCKET_LIP * 2.0)
 		node.add_child(socket)
+
+## Das Wand-Material einer Mulde: sein Verlauf mißt an der Wandhöhe.
+static func bay_wall_material(cell_scale: float) -> ShaderMaterial:
+	var wall := ShaderMaterial.new()
+	wall.shader = load("res://assets/shaders/bay_wall.gdshader")
+	wall.set_shader_parameter("height", deck_height_for(cell_scale) - WALL_TOP_GAP)
+	return wall
+
+## Das Maß EINER Mulde für eine Karte dieses Maßstabs, ohne Deckel durch die Teilung.
+static func bay_size_for(cell_scale: float) -> Vector2:
+	return Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * cell_scale * BAY_ROOM
 
 ## Die mitrollende PLATTE (under = Mitte quer, Breite): eine Spur UNTER der festen,
 ## also sichtbar nur, wo die fehlt - jenseits der Grubenwand. Koplanar stritten sie.
@@ -954,7 +971,10 @@ func _deck_strips() -> Array[Vector2]:
 ## Die Oberfläche des Tabletts: genau Kartenoberkante - eine Karte in ihrer Mulde liegt
 ## bündig (Spieler-Wunsch 2026-10-28).
 func deck_height() -> float:
-	return PROUD + DataCellView.DEPTH * _scale
+	return deck_height_for(_scale)
+
+static func deck_height_for(cell_scale: float) -> float:
+	return PROUD + DataCellView.DEPTH * cell_scale
 
 func _seam_material(tint: Color) -> StandardMaterial3D:
 	var seam := StandardMaterial3D.new()

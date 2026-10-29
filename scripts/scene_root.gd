@@ -621,6 +621,13 @@ var _slit_leaving: Array[DataCellView] = []
 ## Die HEBEBÜHNE der Reihe: dieselbe Maschine wie in einer Bucht, nur gehört ihr
 ## Schacht scene_root - die Schlitzreihe ist Tischmöbel, keine Auslage.
 var slit_shaft: LiftShaftView
+## Die VERTIEFUNG je Kassetten-Platz (Spieler-Wunsch 2026-10-29): die Mulde des
+## Magazins in der Tischfläche, die liegende Karte darin bündig.
+var _slit_recesses: Array[CardRecessView] = []
+## Und dieselben Mulden unter der Schwarzmarkt-Reihe.
+var _secret_recesses: Array[CardRecessView] = []
+## Wie schnell eine Karte nach einer Fahrt in ihre Mulde sinkt.
+const SLIT_SETTLE_TIME := 0.14
 
 ## Der WETT-TRESEN unter dem Nebenwetten-Fenster: je Angebot EIN Plot - das
 ## Rechteck seines Setzen-Knopfes - und darauf sein GEWINN.
@@ -2879,17 +2886,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _try_workshop_close_zoom(event):
 		return
 
-	# Display-UI: Mausereignisse über der Hub-Fläche gehen an die Controls AUF
-	# dem Display - ein weitergereichter Klick löst keine 3D-Aktion mehr aus.
-	if event is InputEventMouse and _forward_screen_mouse(event):
-		return
-
 	# Das Raster füllt eng gerahmt das ganze Bild: sein Rechtsklick muß VOR die
 	# Weiterleitung, sonst schluckt ihn der Glas-Viewport, und der Umschalter liegt
 	# außer Sicht - Rechtsklick ist der Weg hinaus.
 	if _deck_glass and event is InputEventMouseButton and event.pressed \
 			and event.button_index == MOUSE_BUTTON_RIGHT:
 		_close_deck_glass()
+		return
+
+	# Display-UI: Mausereignisse über der Hub-Fläche gehen an die Controls AUF
+	# dem Display - ein weitergereichter Klick löst keine 3D-Aktion mehr aus.
+	if event is InputEventMouse and _forward_screen_mouse(event):
 		return
 
 	if not (event is InputEventMouseButton) or not event.pressed:
@@ -4567,6 +4574,7 @@ func _write_slit_cells(grade := ShopController.GRADE_STAND, swap := false,
 	for seat: int in wanted.keys():
 		var pack: Pack = wanted[seat]
 		var target := _data_cell_seat(anchors[seat])
+		var rest := _slit_rest(target)
 		var cell: DataCellView = slit_cells.get(seat)
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
@@ -4579,14 +4587,14 @@ func _write_slit_cells(grade := ShopController.GRADE_STAND, swap := false,
 				_lay_slit_cell(cell, target)
 				lift.append({"cell": cell, "target": target})
 			else:
-				_lay_fresh_slit_cell(cell, target)
+				_lay_fresh_slit_cell(cell, rest)
 			continue
 		cell.set_count(maxi(pack.count, 1))
 		if rising:
 			_lay_slit_cell(cell, target)
 			lift.append({"cell": cell, "target": target})
 		elif not cell.busy():
-			_lay_slit_cell(cell, target)
+			_lay_slit_cell(cell, rest)
 		cell.visible = show
 	_run_slit_machine(lift if rising else [], outgoing, lead if swap else 0.0)
 
@@ -4786,6 +4794,91 @@ func _sync_slit_visibility() -> void:
 		var cell: DataCellView = slit_cells[seat]
 		if cell != null and is_instance_valid(cell) and cell.visible != show:
 			cell.visible = show
+	_sync_slit_recesses(show)
+
+## Der Ruheplatz einer Kassette in ihrer Mulde: die Oberkante bündig mit der Fläche.
+## Gefahren wird auf der Fläche (die Hebebühne trägt sie dort), gelegen wird tiefer.
+func _slit_rest(glass_point: Vector3) -> Vector3:
+	return glass_point - Vector3.UP * DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
+
+## Die Mulden der Kassetten-Plätze: je Platz Körper, Saumfarbe und Loch; ist die
+## Fahrt durch, sinkt jede Karte in ihre Mulde.
+func _sync_slit_recesses(show: bool) -> void:
+	if table_screen == null:
+		return
+	var slots: Array[Dictionary] = []
+	if show and charm_shop.slit_row_laid_out():
+		var anchors := charm_shop.slit_anchors()
+		var stock := charm_shop.slit_stock()
+		for i in anchors.size():
+			slots.append({"point": _data_cell_seat(anchors[i]),
+				"pack": stock[i] if i < stock.size() else null})
+	_sync_recess_row(_slit_recesses, TableScreen.PIT_SHOP_BAY0, TableScreen.SHOP_BAY_PIT_COUNT,
+		slots, [TableScreen.PIT_SHOP_SLITS])
+	if slit_shaft != null and is_instance_valid(slit_shaft) and slit_shaft.riding():
+		return
+	for i in slots.size():
+		var cell: DataCellView = slit_cells.get(i)
+		if cell == null or not is_instance_valid(cell) or cell.busy():
+			continue
+		var rest := _slit_rest(slots[i]["point"])
+		if cell.glass_position().distance_to(rest) > 0.001:
+			cell.glide_to(rest, SLIT_SETTLE_TIME)
+
+## Die Mulden der Schwarzmarkt-Reihe: dieselben Körper und Löcher; das Einsinken
+## der Karten gehört der Auslage selbst (VitrineView.sync_recessed).
+func _sync_secret_recesses() -> void:
+	if table_screen == null:
+		return
+	var slots: Array[Dictionary] = []
+	var bay := secret_vitrine
+	if bay != null and is_instance_valid(bay) and _secret_curtain:
+		slots = bay.recess_slots()
+		bay.sync_recessed()
+	_sync_recess_row(_secret_recesses, TableScreen.PIT_SECRET_BAY0,
+		TableScreen.SECRET_BAY_PIT_COUNT, slots, TableScreen.secret_pits())
+
+## Der EINE Schreiber einer Mulden-Reihe: slots = {point (Glaspunkt), pack}. Wo ein
+## Schacht offen steht, weicht die Mulde ihm - sein Loch deckt sie, seine Plattform
+## trägt die Ware.
+func _sync_recess_row(recesses: Array[CardRecessView], pit_base: int, pit_count: int,
+		slots: Array[Dictionary], covering: Array[int]) -> void:
+	for i in pit_count:
+		var pit := pit_base + i
+		var recess: CardRecessView = recesses[i] if i < recesses.size() else null
+		var wanted := i < slots.size()
+		var glass: Vector3 = slots[i]["point"] if wanted else Vector3.ZERO
+		if wanted:
+			if recess == null or not is_instance_valid(recess):
+				recess = CardRecessView.new()
+				add_child(recess)
+				while recesses.size() <= i:
+					recesses.append(null)
+				recesses[i] = recess
+			recess.seat(glass, PackDrawerView.CASSETTE_SCALE, float(slots[i].get("pitch", 0.0)))
+			wanted = not _recess_covered(_recess_rect(glass, recess.opening_half()), covering)
+		if not wanted:
+			table_screen.clear_pit(pit)
+			if recess != null and is_instance_valid(recess):
+				recess.visible = false
+			continue
+		recess.visible = true
+		var pack: Pack = slots[i]["pack"]
+		recess.set_tint(ShelfStackView.BAY_EMPTY if pack == null else PackDrawerView.card_shade(
+			Pack.shelf_of(pack), pack.tier, pack.catalyst_id, pack.stamp_net, pack.from_blank()))
+		table_screen.set_lift_pit(pit, glass, recess.opening_half())
+
+## Das Display-Rechteck einer Mulde.
+func _recess_rect(glass: Vector3, half: Vector2) -> Rect2:
+	var a := table_screen.world_to_pixel(glass - Vector3(half.x, 0.0, half.y))
+	var b := table_screen.world_to_pixel(glass + Vector3(half.x, 0.0, half.y))
+	return Rect2(a, b - a).abs()
+
+func _recess_covered(rect: Rect2, covering: Array[int]) -> bool:
+	for pit: int in covering:
+		if table_screen.pit_open(pit) and table_screen.pit_rect(pit).intersects(rect):
+			return true
+	return false
 
 ## Der Griff auf einen Stellplatz: die liegende Kassette hebt sich an und leuchtet
 ## auf - dieselbe Geste wie im Magazin -, und in der freien RECHTEN Flanke der
@@ -4824,6 +4917,9 @@ func _drop_slit_cells() -> void:
 	slit_cells.clear()
 	_slit_keys.clear()
 	_settle_slit_shaft()  # auch, was noch hinausfuhr, gehört dem alten Laden
+	if table_screen != null:
+		for i in TableScreen.SHOP_BAY_PIT_COUNT:
+			table_screen.clear_pit(TableScreen.shop_bay_pit(i))
 
 #region Der WURF
 # Das Bewegungs-Gesetz liest sich nach URHEBER: was der SPIELER ZAHLT, fliegt als
@@ -5840,6 +5936,10 @@ const DECK_GLASS_TINT := LiftShaftView.GLOW_COLOR
 ## Kante (1,08 ≈ 93 %, Saum ~7 %); der geneigte Blick bildet die fernere Kante
 ## kleiner ab, gemessen füllt der ganze Rahmen darum ~81 % der Bildhöhe.
 const DECK_GLASS_FRAME_MARGIN := 1.08
+## Die Draufsicht füllt fast randlos - das Raster steht unverzerrt im Bild.
+const DECK_GLASS_TOP_MARGIN := 1.01
+## Anteil der Lochhöhe, den die Kopfzeile oben belegt - er bleibt außerhalb des Bildes.
+const DECK_GLASS_TOP_CROP := 0.13
 
 ## Zugabe auf die gemessene Bildschirm-Pixelzahl des Lochs (Texel je Bildschirmpixel
 ## soll deutlich über 1 liegen, auch wenn der Spieler noch etwas näher kommt), und
@@ -5897,10 +5997,6 @@ func _deck_glass_rect() -> Rect2:
 	var a := table_screen.world_to_pixel(Vector3(at.x + half.x, 0.0, at.z - half.y))
 	var b := table_screen.world_to_pixel(Vector3(at.x - half.x, 0.0, at.z + half.y))
 	return Rect2(a, b - a)
-## Die Draufsicht füllt fast randlos - das Raster steht unverzerrt im Bild.
-const DECK_GLASS_TOP_MARGIN := 1.01
-## Anteil der Lochhöhe, den die Kopfzeile oben belegt - er bleibt außerhalb des Bildes.
-const DECK_GLASS_TOP_CROP := 0.13
 
 ## Der Rahmen der Ansicht in Welt-XZ: das Pool-Loch VEREINIGT mit dem Neuzugangs-
 ## Bereich (der Schale) - gefragt wird nach einem Platz für den Würfel, also
@@ -5923,7 +6019,19 @@ func _deck_glass_frame() -> Dictionary:
 		"half": Vector2((hi.y - lo.y) * 0.5, (hi.x - lo.x) * 0.5)}
 
 ## Die Kamera eng auf diesen Rahmen (kein Moduswechsel - die Station bleibt).
+## Der UMSCHALTER schaut senkrecht von oben allein aufs Raster (Spieler-Wunsch
+## 2026-10-29); der Zwang braucht die Schale mit im Bild und bleibt geneigt.
 func _frame_deck_glass() -> void:
+	if _deck_glass_pinned and _deck_glass_pending() < 0:
+		var field := _pool_parked_field if not _pool_parked_field.is_empty() else _pool_field()
+		if field.is_empty():
+			return
+		var half: Vector2 = field["half"]
+		# Die Kopfzeile darf aus dem Bild fallen: oben (Welt +X) wird ihr Band abgeschnitten.
+		var at: Vector3 = field["at"] - Vector3(half.x * DECK_GLASS_TOP_CROP, 0.0, 0.0)
+		camera_rig.frame_rect_top(at, Vector2(half.y, half.x * (1.0 - DECK_GLASS_TOP_CROP)),
+			DECK_GLASS_TOP_MARGIN)
+		return
 	var frame := _deck_glass_frame()
 	if frame.is_empty():
 		return
@@ -5980,19 +6088,7 @@ func _handle_forced_exchange_input(event: InputEvent) -> void:
 	if pixel.x >= 0.0:
 		table_screen.push_deck_glass_input(mouse, pixel)
 
-## Der UMSCHALTER schaut senkrecht von oben allein aufs Raster (Spieler-Wunsch
-## 2026-10-29); der Zwang braucht die Schale mit im Bild und bleibt geneigt.
 ## Der gesäumte Sitz des Rasters: das aktuelle Ziel der Werkstatt (-1 = keins).
-	if _deck_glass_pinned and _deck_glass_pending() < 0:
-		var field := _pool_parked_field if not _pool_parked_field.is_empty() else _pool_field()
-		if field.is_empty():
-			return
-		var half: Vector2 = field["half"]
-		# Die Kopfzeile darf aus dem Bild fallen: oben (Welt +X) wird ihr Band abgeschnitten.
-		var at: Vector3 = field["at"] - Vector3(half.x * DECK_GLASS_TOP_CROP, 0.0, 0.0)
-		camera_rig.frame_rect_top(at, Vector2(half.y, half.x * (1.0 - DECK_GLASS_TOP_CROP)),
-			DECK_GLASS_TOP_MARGIN)
-		return
 func _deck_glass_target() -> int:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
@@ -7611,6 +7707,7 @@ func _sync_vitrine_hover() -> void:
 	_sync_vitrine_curtain()
 	_sync_secret_curtain()
 	_sync_slit_visibility()
+	_sync_secret_recesses()
 	_sync_slit_hover()
 	_sync_bet_counter()
 	_sync_payout_bodies()
@@ -8264,6 +8361,8 @@ func _place_secret_vitrine() -> void:
 		secret_vitrine = VitrineView.new("SecretVitrine")
 		# EINE Reihe auf gleicher Tiefe, aber je Stück eine eigene Sektion.
 		secret_vitrine.single_row = true
+		# Und jede Kassette liegt bündig in ihrer Mulde (Spieler-Wunsch 2026-10-29).
+		secret_vitrine.recessed = true
 		add_child(secret_vitrine)
 		_wire_shafts(secret_vitrine, TableScreen.secret_pits())
 	secret_vitrine.deck_skin = table_screen.display_skin()

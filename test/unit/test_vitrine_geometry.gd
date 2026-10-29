@@ -79,6 +79,10 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		slots.append(TableScreen.swallow_pit(lane))
 	slots.append(TableScreen.PIT_TOWER)
 	slots.append(TableScreen.PIT_SECTION)
+	for i in TableScreen.SHOP_BAY_PIT_COUNT:
+		slots.append(TableScreen.shop_bay_pit(i))
+	for i in TableScreen.SECRET_BAY_PIT_COUNT:
+		slots.append(TableScreen.PIT_SECRET_BAY0 + i)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -101,7 +105,13 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	# Die Bahnen 3-5 hängen hinter der Bucht an (Spieler-Wunsch 2026-10-25: alle zugleich).
 	assert_eq(TableScreen.swallow_pit(3), TableScreen.PIT_TOWER + 1)
 	assert_eq(TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1),
-		TableScreen.MAX_PITS - 2)
+		TableScreen.PIT_SECTION - 1)
+	# Die Mulden der Kassetten-Plätze hängen ganz hinten an (2026-10-29).
+	assert_eq(TableScreen.shop_bay_pit(0), TableScreen.PIT_SECTION + 1)
+	assert_eq(TableScreen.PIT_SECRET_BAY0,
+		TableScreen.shop_bay_pit(TableScreen.SHOP_BAY_PIT_COUNT - 1) + 1)
+	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT,
+		TableScreen.MAX_PITS)
 	assert_eq(TableScreen.SWALLOW_PIT_COUNT, TableScreen.QUEUE_PIT_COUNT, "je Grubenwürfel eine Bahn")
 	var source: String = load("res://scripts/table/table_screen.gd").source_code
 	assert_false(source.contains("clamp_pit"), "clamp_pit ist tot")

@@ -229,7 +229,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 25
+const MAX_PITS := 31
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -276,6 +276,18 @@ const PIT_SWALLOW_TAIL0 := 21
 ## dann bündig darin und IST die Anzeige). Ans Ende gehängt, damit keine Nummer
 ## umzieht - dafür ist das Löcher-Budget auf 25 gewachsen.
 const PIT_SECTION := 24
+
+## Die VERTIEFUNGEN der Kassetten-Plätze im Laden, je Platz eine (Spieler-Wunsch
+## 2026-10-29) - offen, solange die Ladenseite steht; ans Ende gehängt.
+const PIT_SHOP_BAY0 := 25
+const SHOP_BAY_PIT_COUNT := 3
+
+static func shop_bay_pit(index: int) -> int:
+	return PIT_SHOP_BAY0 + clampi(index, 0, SHOP_BAY_PIT_COUNT - 1)
+
+## Und dieselben Mulden unter den Kassetten der Schwarzmarkt-Reihe.
+const PIT_SECRET_BAY0 := 28
+const SECRET_BAY_PIT_COUNT := 3
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -1325,7 +1337,9 @@ func clear_pit(slot: int) -> void:
 ## VERTIEFUNG der Tischsektion bleiben - sie sind kein Auftritt, sondern Möbel, und
 ## ihre Löcher werden nur beim Fenster-Neuaufbau geschrieben (gemessen 2026-10-27:
 ## nach einem Ladenbesuch stand sonst wieder Filz unter der Glas-Scheibe).
-const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_TOWER, PIT_SECTION]
+const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_TOWER, PIT_SECTION,
+	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2,
+	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):

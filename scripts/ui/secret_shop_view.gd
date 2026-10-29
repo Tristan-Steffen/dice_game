@@ -72,8 +72,9 @@ const FOOT_BODY_STEPS := [2.2, 1.9, 1.65, 1.4]
 ## Gehängt wird die PREISZEILE, nicht der Kopf des Schildes (Spieler-Entscheid
 ## 2026-09-04): so steht der Preis bei Würfel wie Kassette auf DERSELBEN Höhe, und
 ## er steht tief genug, dass die liegende Karte ihn nicht mehr verdeckt (gemessen:
-## halbe Kartentiefe 44,3 px = 5,6 u).
-const PLATE_PRICE_DROP_UNITS := 7.4
+## halbe Kartentiefe 44,3 px = 5,6 u). Seit die Karte in einer Mulde liegt
+## (2026-10-29), hängt er eine Spur tiefer - das Loch ist breiter als die Karte.
+const PLATE_PRICE_DROP_UNITS := 8.4
 const PLATE_SOUL_FONT := 2.2
 const PLATE_PRICE_FONT := 2.6
 
