@@ -272,27 +272,35 @@ static func operator_net(op_id: String, rng: RandomNumberGenerator = null) -> Ar
 	net[_range(rng, 0, FACES - 1)] = operator_cell(op_id)
 	return net
 
-## Netz eines FIXINHALTS: GENAU EINE Zelle auf einer gewürfelten Seite. Ein Bündel
-## sind mehrere solcher Karten (Spieler-Entscheid 2026-09-11), nie mehr Zellen auf
-## einer.
-static func fixed_net(engraving: Engraving, rng: RandomNumberGenerator = null) -> Array:
+## Netz eines FIXINHALTS: cells Zellen auf verschiedenen, gewürfelten Seiten - in
+## der Regel eine, die starke Karte des Schwarzmarkts mehr (Spieler-Entscheid
+## 2026-10-29: statt eines Bündels einzelner Karten).
+static func fixed_net(engraving: Engraving, rng: RandomNumberGenerator = null,
+		cells := 1) -> Array:
 	var net := empty_net()
 	if engraving == null:
 		return net
-	var face := _range(rng, 0, FACES - 1)
+	var free: Array[int] = []
+	for face in FACES:
+		free.append(face)
+	for i in clampi(cells, 1, FACES):
+		var face: int = free.pop_at(_range(rng, 0, free.size() - 1))
+		net[face] = _fixed_cell(engraving, face, rng)
+	return net
+
+static func _fixed_cell(engraving: Engraving, face: int, rng: RandomNumberGenerator) -> Dictionary:
 	match engraving.id:
 		Engraving.DOPING:
-			net[face] = dope_cell()
+			return dope_cell()
 		Engraving.POINTER:
 			var neighbours := DieDefinition.adjacent_faces(face)
-			net[face] = pointer_cell(neighbours[_range(rng, 0, neighbours.size() - 1)])
-		_:
-			var rune_id := Engraving.rune_id_of(engraving.id)
-			if rune_id != "":
-				net[face] = rune_cell(rune_id)
-			elif engraving.material_id() != "":
-				net[face] = material_cell(engraving.material_id())
-	return net
+			return pointer_cell(neighbours[_range(rng, 0, neighbours.size() - 1)])
+	var rune_id := Engraving.rune_id_of(engraving.id)
+	if rune_id != "":
+		return rune_cell(rune_id)
+	if engraving.material_id() != "":
+		return material_cell(engraving.material_id())
+	return {}
 
 ## --- Anzeige -------------------------------------------------------------------
 

@@ -171,17 +171,26 @@ func test_every_operator_is_named_and_priced() -> void:
 		assert_ne(StampNet.operator_effect(op_id), "", op_id)
 		assert_gt(StampNet.operator_price(op_id), 0, op_id)
 
-## Ein Fixinhalt trägt GENAU EINE Zelle - ein Bündel sind mehrere Karten, keine
-## dichtere (Spieler-Entscheid 2026-09-11).
+## Ein Fixinhalt trägt in der Regel GENAU EINE Zelle.
 func test_a_fixed_net_has_exactly_one_cell() -> void:
 	var net := StampNet.fixed_net(Engraving.doping(), _rng(9))
 	assert_eq(StampNet.filled_count(net), 1)
 	assert_eq(_kinds(net), [StampNet.KIND_DOPE])
 
+## Die STARKE Karte des Schwarzmarkts (2026-10-29) trägt mehrere Zellen, jede auf
+## ihrer eigenen Seite.
+func test_a_strong_fixed_net_fills_distinct_faces() -> void:
+	for cells in range(1, StampNet.FACES + 1):
+		var net := StampNet.fixed_net(Engraving.doping(), _rng(cells), cells)
+		assert_eq(StampNet.filled_count(net), cells)
+	assert_eq(StampNet.filled_count(StampNet.fixed_net(Engraving.doping(), _rng(1), 99)),
+		StampNet.FACES, "nie mehr Zellen als Seiten")
+
 func test_a_fixed_pointer_net_always_points_at_a_neighbour() -> void:
 	var die := DieDefinition.new()
 	for seed_value in 40:
-		var net := StampNet.fixed_net(Engraving.pointer_engraving(), _rng(seed_value))
+		var net := StampNet.fixed_net(Engraving.pointer_engraving(), _rng(seed_value),
+			1 + seed_value % 4)
 		for face in StampNet.FACES:
 			var cell := StampNet.cell_at(net, face)
 			if not StampNet.is_filled(cell):

@@ -224,22 +224,24 @@ static func dice_mod_pack(rng: RandomNumberGenerator = null) -> Pack:
 ## weder an der Sorte noch an der Fortschrittsstufe. Bündel gibt es nur im Hinterzimmer.
 const SPECIAL_PRICE := 30
 
-## Fixinhalt-Paket: sein Netz trägt GENAU EINE Zelle dieses Inhalts. amount > 1 ist
-## das BÜNDEL der Hinterzimmer-Auslage - so viele Karten, jede mit einer Zelle; der
-## Kauf legt sie einzeln ins Magazin, die Auslage zeigt den Stapel mit seiner Zahl.
-## Preis 0 ist der Regelfall: so etwas wird gefunden oder abgegossen; nur der
-## Handel setzt einen.
+## Fixinhalt-Paket: sein Netz trägt cells Zellen dieses Inhalts - in der Regel
+## eine, die STARKE Karte des Hinterzimmers mehr. amount > 1 ist nur noch ein
+## Anzeige-Stapel. Preis 0 ist der Regelfall: so etwas wird gefunden oder
+## abgegossen; nur der Handel setzt einen.
 static func fixed_engraving_pack(engraving: Engraving, amount := ENGRAVING_PACK_COUNT,
-		cost := 0, rng: RandomNumberGenerator = null) -> Pack:
+		cost := 0, rng: RandomNumberGenerator = null, cells := 1) -> Pack:
 	if engraving == null:
 		return number_pack(rng)
 	var many := maxi(amount, 1)
-	var text := "%s, versiegelt." % engraving.display_name if many == 1 \
-		else "%d Karten %s, versiegelt." % [many, engraving.display_name]
+	var faces := clampi(cells, 1, StampNet.FACES)
+	var piece := engraving.display_name if faces == 1 \
+		else "%s auf %d Seiten" % [engraving.display_name, faces]
+	var text := "%s, versiegelt." % piece if many == 1 \
+		else "%d Karten %s, versiegelt." % [many, piece]
 	var pack := _make(pack_type_for_category(engraving.category), many, cost, text)
 	pack.display_name = engraving.display_name
 	pack.fixed_engraving = engraving
-	pack.stamp_net = StampNet.fixed_net(engraving, rng)
+	pack.stamp_net = StampNet.fixed_net(engraving, rng, faces)
 	return pack
 
 ## --- Die OPERATOR-KASSETTEN ---------------------------------------------------

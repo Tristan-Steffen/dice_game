@@ -163,8 +163,7 @@ func test_a_bought_slot_stays_as_an_empty_place() -> void:
 	await wait_frames(2)
 	view.buy_offer(1)
 	await wait_frames(2)
-	assert_eq(run.owned_packs.size(), GameRun.offer_cards(run.secret_stock[1]),
-		"Ware versiegelt im Magazin - je Karte des Bündels eine")
+	assert_eq(run.owned_packs.size(), 1, "Ware versiegelt im Magazin - genau EINE Karte")
 	var stock: Dictionary = view.vitrine_stock()
 	assert_eq(stock[ShopController.KIND_ENGRAVING_PACK].size(), run.secret_stock.size(),
 		"der Platz verschwindet nicht, er wird leer")
@@ -218,7 +217,7 @@ func test_an_essence_die_carries_its_net_and_its_soul() -> void:
 	die.essence_id = Essence.RADON
 	run.secret_stock[2] = {
 		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_COUNT: 1, GameRun.OFFER_SOLD: false,
+		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
 	}
 	view.refresh()
 	await wait_frames(2)
@@ -340,7 +339,7 @@ func test_a_die_annotation_carries_its_net_into_the_foot() -> void:
 	die.essence_id = Essence.RADON
 	run.secret_stock[2] = {
 		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_COUNT: 1, GameRun.OFFER_SOLD: false,
+		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
 	}
 	view.refresh()
 	await wait_frames(2)
@@ -355,7 +354,7 @@ func _die_in_foot() -> DieDefinition:
 	die.essence_id = Essence.RADON
 	run.secret_stock[2] = {
 		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_COUNT: 1, GameRun.OFFER_SOLD: false,
+		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
 	}
 	view.refresh()
 	return die
@@ -419,7 +418,7 @@ func test_a_die_plate_leads_with_its_soul_line() -> void:
 	die.essence_id = Essence.RADON
 	run.secret_stock[2] = {
 		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_COUNT: 1, GameRun.OFFER_SOLD: false,
+		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
 	}
 	view.refresh()
 	await wait_frames(2)

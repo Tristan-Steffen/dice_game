@@ -73,7 +73,7 @@ func test_press_sort_is_the_engraving_category() -> void:
 	assert_eq(Pack.number_pack().press_sort(), Engraving.CATEGORY_NUMBER)
 	assert_eq(Pack.dice_mod_pack().press_sort(), Engraving.CATEGORY_DICE)
 
-# --- Sonderposten: Einzelstueck im Regal, Buendel im Hinterzimmer --------------
+# --- Sonderposten: Einzelstueck im Regal, starke Karte im Hinterzimmer ---------
 
 func test_a_fixed_pack_holds_one_piece_by_default() -> void:
 	var pack := Pack.fixed_engraving_pack(Engraving.doping())
@@ -82,15 +82,13 @@ func test_a_fixed_pack_holds_one_piece_by_default() -> void:
 	assert_eq(pack.fixed_engraving.id, Engraving.DOPING)
 	assert_eq(pack.type, Pack.TYPE_MATERIAL, "die Kategorie entscheidet die Sorte")
 
-## Ein Bündel sind n KARTEN (Spieler-Entscheid 2026-09-11): die Auslage-Kassette
-## zählt sie, ihr Netz trägt trotzdem nur die EINE Zelle einer Karte.
-func test_a_bundle_counts_cards_and_carries_one_cell() -> void:
-	var pack := Pack.fixed_engraving_pack(Engraving.pointer_engraving(), 5, 10)
-	assert_eq(pack.count, 5)
-	assert_eq(pack.price, 10)
+## Die STARKE Karte des Schwarzmarkts (2026-10-29): EINE Karte, mehrere Zellen.
+func test_a_strong_fixed_pack_is_one_card_with_several_cells() -> void:
+	var pack := Pack.fixed_engraving_pack(Engraving.pointer_engraving(), 1, 0, null, 3)
+	assert_eq(pack.count, 1)
 	assert_eq(pack.fixed_engraving.id, Engraving.POINTER)
-	assert_eq(StampNet.filled_count(pack.stamp_net), 1, "eine Zelle je Karte")
-	assert_true(pack.description.contains("5 Karten"), "die Menge steht auf der Karte")
+	assert_eq(StampNet.filled_count(pack.stamp_net), 3)
+	assert_true(pack.description.contains("3 Seiten"), "die Stärke steht auf der Karte")
 	assert_eq(pack.type, Pack.TYPE_DICE_MOD)
 
 ## Der Sonderposten-Platz führt zwei Familien: das Gravur-Einzelstück zum flachen

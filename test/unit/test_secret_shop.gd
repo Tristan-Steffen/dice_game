@@ -97,8 +97,8 @@ func test_a_fresh_run_lays_out_its_first_stock_for_free() -> void:
 # --- Auslage -------------------------------------------------------------------
 
 ## Setzt den Sonderposten-Platz auf ein GRAVUR-Angebot: er führt seit den
-## Katalysatoren beide Familien des Sonderbestands, und ein Test, der den Bündel-
-## Kauf meint, braucht das Bündel.
+## Katalysatoren beide Familien des Sonderbestands, und ein Test, der die Gravur-
+## Karte meint, braucht sie.
 func _force_engraving_slot(run: GameRun) -> void:
 	run.secret_stock[1] = run._secret_engraving_offer()
 
@@ -120,10 +120,10 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 	assert_eq(charm.rarity, Charm.RARITY_LEGENDARY)
 	assert_eq(int(run.secret_stock[0][GameRun.OFFER_PRICE]), GameRun.SECRET_CHARM_PRICE)
 	_force_engraving_slot(run)
-	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
-	assert_true(Engraving.is_special_id(engraving.id), "Sonderbestand statt Regalware")
-	assert_true(_is_bundle_price(int(run.secret_stock[1][GameRun.OFFER_PRICE]),
-		int(run.secret_stock[1][GameRun.OFFER_COUNT])), "Menge und Preis kommen als Paar")
+	var card: Pack = run.secret_stock[1][GameRun.OFFER_ITEM]
+	assert_true(Engraving.is_special_id(card.fixed_engraving.id), "Sonderbestand statt Regalware")
+	assert_true(_is_grade_price(int(run.secret_stock[1][GameRun.OFFER_PRICE]),
+		StampNet.filled_count(card.stamp_net)), "Stärke und Preis kommen als Paar")
 	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
 # --- Katalysatoren im Hinterzimmer ---------------------------------------------
@@ -221,7 +221,7 @@ func test_stock_never_lists_a_special_twice() -> void:
 		for offer in run.secret_stock:
 			if offer[GameRun.OFFER_KIND] != GameRun.KIND_ENGRAVING:
 				continue
-			var engraving: Engraving = offer[GameRun.OFFER_ITEM]
+			var engraving: Engraving = (offer[GameRun.OFFER_ITEM] as Pack).fixed_engraving
 			if ids.size() < specials:
 				assert_false(ids.has(engraving.id), "kein Sonderposten doppelt in der Auslage")
 			ids.append(engraving.id)
@@ -336,45 +336,41 @@ func test_buying_a_charm_spends_energy_and_docks_it() -> void:
 	assert_true(run.owned_charm_ids().has(charm.id))
 	assert_true(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
 
-## Menge und Preis eines Angebots müssen aus DERSELBEN Zeile der Bündel-Tabelle
-## stammen - ein 5er zum 1er-Preis wäre ein stiller Fehler.
-func _is_bundle_price(price: int, count: int) -> bool:
-	for bundle: Dictionary in GameRun.SECRET_SPECIAL_BUNDLES:
-		if int(bundle["count"]) == count and int(bundle["price"]) == price:
+## Stärke und Preis eines Angebots stammen aus DERSELBEN Zeile der Tabelle - eine
+## Vierer-Karte zum Zweier-Preis wäre ein stiller Fehler.
+func _is_grade_price(price: int, cells: int) -> bool:
+	for grade: Dictionary in GameRun.SECRET_SPECIAL_GRADES:
+		if int(grade["cells"]) == cells and int(grade["price"]) == price:
 			return true
 	return false
 
-func test_buying_a_special_engraving_stocks_it() -> void:
+## Der Schwarzmarkt verkauft nie mehr als EINE Karte auf einmal (Spieler-Entscheid
+## 2026-10-29): statt eines Bündels eine starke Karte mit mehreren Zellen.
+func test_buying_a_special_engraving_stocks_one_strong_card() -> void:
 	var run := _run()
 	_force_engraving_slot(run)
 	run.energy = 99
-	var engraving: Engraving = run.secret_stock[1][GameRun.OFFER_ITEM]
-	var count := int(run.secret_stock[1][GameRun.OFFER_COUNT])
+	var shown: Pack = run.secret_stock[1][GameRun.OFFER_ITEM]
 	var price := run.secret_offer_price(run.secret_stock[1])
 	assert_true(run.buy_secret_offer(1))
 	assert_eq(run.energy, 99 - price)
-	assert_eq(run.owned_packs.size(), count, "je Stück des Bündels EINE Karte im Lager")
-	for pack in run.owned_packs:
-		assert_not_null(pack.fixed_engraving)
-		assert_eq(pack.fixed_engraving.id, engraving.id)
-		assert_eq(pack.count, 1, "und keine Karte zählt mehr als sich selbst")
+	assert_eq(run.owned_packs.size(), 1, "genau EINE Karte im Lager")
+	var pack: Pack = run.owned_packs[0]
+	assert_eq(pack, shown, "gekauft wird die Karte, die ausliegt - samt ihrem Netz")
+	assert_eq(pack.count, 1)
+	assert_gt(StampNet.filled_count(pack.stamp_net), 1, "und sie ist STARK: mehrere Zellen")
 
-## Ein Bündel sind n EINZELNE Karten mit je einer Zelle (Spieler-Entscheid
-## 2026-09-11) - der Wert liegt in der Zahl der Karten, nicht in einer dichteren.
-func test_a_bundle_is_n_single_cards() -> void:
-	var run := _run()
-	_force_engraving_slot(run)
-	run.secret_stock[1][GameRun.OFFER_COUNT] = 3
-	run.energy = 99
-	assert_true(run.buy_secret_offer(1))
-	assert_eq(run.owned_packs.size(), 3, "drei Karten, nicht eine Dreier")
-	for pack in run.owned_packs:
-		assert_eq(StampNet.filled_count(pack.stamp_net), 1, "eine Zelle je Karte")
+func test_every_grade_is_one_card_with_distinct_faces() -> void:
+	for grade: Dictionary in GameRun.SECRET_SPECIAL_GRADES:
+		for engraving in [Engraving.pointer_engraving(), Engraving.doping()]:
+			var card := Pack.fixed_engraving_pack(engraving, 1, 0, null, int(grade["cells"]))
+			assert_eq(StampNet.filled_count(card.stamp_net), int(grade["cells"]),
+				"so viele Seiten, wie die Stärke sagt - nie zwei Zellen auf einer")
 
 func test_sold_slot_cannot_be_bought_twice() -> void:
 	var run := _run()
 	_at_tier(run, GameRun.TIER_MAX)
-	run.energy = 99  # reicht für jedes Bündel
+	run.energy = 99  # reicht für jede Stärke
 	assert_true(run.buy_secret_offer(1))
 	var energy_after := run.energy
 	var owned := run.owned_packs.size()

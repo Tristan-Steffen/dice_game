@@ -2201,14 +2201,14 @@ const ENERGY_OVERFLOW_MONEY := 5
 ## Reihe: schon der Grunddeckel (5) deckt den ganzen Laden ab.
 const SECRET_CHARM_PRICE := 5
 
-## Bündel des Sonderposten-Platzes: Menge, ⚡-Preis und Ziehgewicht. Ein Bündel
-## sind so viele EINZELNE Karten mit je einer Zelle (Spieler-Entscheid 2026-09-11;
-## davor eine Karte mit n Zellen) - je größer, desto seltener, aber der Stückpreis
-## fällt (3 / 2,33 / 2 ⚡).
-const SECRET_SPECIAL_BUNDLES := [
-	{"count": 1, "price": 3, "weight": 3},
-	{"count": 3, "price": 7, "weight": 2},
-	{"count": 5, "price": 10, "weight": 1},
+## Stärken der Sonderposten-Karte: Zellen auf EINER Karte, ⚡-Preis und
+## Ziehgewicht. Der Schwarzmarkt verkauft nie mehr als eine Karte auf einmal
+## (Spieler-Entscheid 2026-10-29, statt der Bündel einzelner Karten) - je stärker,
+## desto seltener.
+const SECRET_SPECIAL_GRADES := [
+	{"cells": 2, "price": 4, "weight": 3},
+	{"cells": 3, "price": 6, "weight": 2},
+	{"cells": 4, "price": 8, "weight": 1},
 ]
 ## Preis des Neuwurfs - FLACH, jedes Mal derselbe. Die alte Fibonacci-Leiter
 ## machte den zweiten Wurf eines Besuchs unbezahlbar; der Laden soll benutzbar
@@ -2229,8 +2229,6 @@ const SECRET_DIE_PRICES := {
 const OFFER_KIND := "kind"
 const OFFER_ITEM := "item"
 const OFFER_PRICE := "price"
-## Kartenzahl des Sonderposten-Bündels; alles andere liegt einzeln.
-const OFFER_COUNT := "count"
 const OFFER_SOLD := "sold"
 const KIND_CHARM := "charm"
 const KIND_ENGRAVING := "engraving"
@@ -2255,11 +2253,6 @@ const SECRET_BLANK_CHANCE := 0.25
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
 static func secret_energy_price(money_price: int) -> int:
 	return maxi(1, ceili(float(money_price) / float(SECRET_MONEY_PER_ENERGY)))
-
-## Wie viele Karten ein versiegeltes Angebot ins Magazin legt (das Bündel seine
-## Zahl, alles andere eine).
-static func offer_cards(offer: Dictionary) -> int:
-	return maxi(int(offer.get(OFFER_COUNT, 1)), 1)
 
 var energy: int = 0:
 	set(value):
@@ -2359,11 +2352,10 @@ func buy_secret_offer(index: int) -> bool:
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
 	# Volles Magazin: alles VERSIEGELTE sperrt der Deckel wie eine knappe Börse -
-	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3; ein Bündel braucht
-	# Platz für JEDE seiner Karten. Der Würfel geht ins Ausgabefach und kennt darum
-	# keinen Deckel.
+	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3. Der Würfel geht ins
+	# Ausgabefach und kennt darum keinen Deckel.
 	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE \
-			and pack_room() < offer_cards(offer):
+			and pack_room() < 1:
 		return false
 	spend_energy(price)
 	match offer[OFFER_KIND]:
@@ -2375,16 +2367,10 @@ func buy_secret_offer(index: int) -> bool:
 			# sucht der Spieler selbst - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
 			stash_die(die, 0)
-		KIND_CATALYST, KIND_BLANK:
-			# Die Kassette liegt fertig im Angebot - sie geht, wie sie ist.
-			grant_pack(offer[OFFER_ITEM] as Pack)
 		_:
-			# Auch der Sonderposten geht versiegelt raus - offen darf nichts warten.
-			# Das Bündel sind EINZELNE Karten, als EINE Lieferung gemeldet.
-			var cards: Array[Pack] = []
-			for i in offer_cards(offer):
-				cards.append(Pack.fixed_engraving_pack(offer[OFFER_ITEM] as Engraving))
-			grant_packs(cards)
+			# Jede versiegelte Ware liegt als fertige Kassette im Angebot - sie geht,
+			# wie sie ist, also bekommt der Spieler genau das gezeigte Netz.
+			grant_pack(offer[OFFER_ITEM] as Pack)
 	offer[OFFER_SOLD] = true
 	secret_stock_changed.emit()
 	return true
@@ -2397,7 +2383,7 @@ func _roll_secret_stock() -> void:
 	secret_stock.append(_secret_wildcard_offer())
 
 ## Der Sonderposten-Platz führt beide Familien des Sonderbestands: meist ein
-## Gravur-Bündel, manchmal eine Katalysator-Kassette, selten die Reparatur-Karte.
+## starke Gravur-Karte, manchmal eine Katalysator-Kassette, selten die Reparatur-Karte.
 ## EIN Eingang, damit der Wildcard-Platz dieselbe Auswahl bekommt.
 func _secret_special_offer() -> Dictionary:
 	if randf() < SECRET_REPAIR_CHANCE and not _secret_catalyst_listed().has(Pack.CATALYST_REPAIR):
@@ -2504,8 +2490,8 @@ func _secret_engraving_offer() -> Dictionary:
 	var listed: Array[String] = []
 	for offer in secret_stock:
 		if offer[OFFER_KIND] == KIND_ENGRAVING:
-			var shown: Engraving = offer[OFFER_ITEM]
-			listed.append(shown.id)
+			var shown: Pack = offer[OFFER_ITEM]
+			listed.append(shown.fixed_engraving.id)
 	var pool: Array[Engraving] = []
 	var all_specials: Array[Engraving] = []
 	for engraving in Engraving.all():
@@ -2516,26 +2502,26 @@ func _secret_engraving_offer() -> Dictionary:
 			pool.append(engraving)
 	if pool.is_empty():
 		pool = all_specials
-	var bundle := _roll_special_bundle()
-	return _secret_offer(KIND_ENGRAVING, pool.pick_random(), int(bundle["price"]),
-		int(bundle["count"]))
+	# Das Netz wird HIER gewürfelt, nicht beim Kauf: gekauft wird, was ausliegt.
+	var grade := _roll_special_grade()
+	var card := Pack.fixed_engraving_pack(pool.pick_random(), 1, 0, null, int(grade["cells"]))
+	return _secret_offer(KIND_ENGRAVING, card, int(grade["price"]))
 
-## Gewichteter Griff in SECRET_SPECIAL_BUNDLES - das große Bündel ist der Fund,
+## Gewichteter Griff in SECRET_SPECIAL_GRADES - die stärkste Karte ist der Fund,
 ## nicht der Regelfall.
-func _roll_special_bundle() -> Dictionary:
+func _roll_special_grade() -> Dictionary:
 	var total := 0
-	for bundle: Dictionary in SECRET_SPECIAL_BUNDLES:
-		total += int(bundle["weight"])
+	for grade: Dictionary in SECRET_SPECIAL_GRADES:
+		total += int(grade["weight"])
 	var pick := randi() % maxi(total, 1)
-	for bundle: Dictionary in SECRET_SPECIAL_BUNDLES:
-		pick -= int(bundle["weight"])
+	for grade: Dictionary in SECRET_SPECIAL_GRADES:
+		pick -= int(grade["weight"])
 		if pick < 0:
-			return bundle
-	return SECRET_SPECIAL_BUNDLES[0]
+			return grade
+	return SECRET_SPECIAL_GRADES[0]
 
-func _secret_offer(kind: String, item: Resource, price: int, count := 1) -> Dictionary:
-	return {OFFER_KIND: kind, OFFER_ITEM: item, OFFER_PRICE: price,
-		OFFER_COUNT: count, OFFER_SOLD: false}
+func _secret_offer(kind: String, item: Resource, price: int) -> Dictionary:
+	return {OFFER_KIND: kind, OFFER_ITEM: item, OFFER_PRICE: price, OFFER_SOLD: false}
 
 # --- Testhilfen (Testmodus im Einstellungs-Menü) -----------------------------
 
