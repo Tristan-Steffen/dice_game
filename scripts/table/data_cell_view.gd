@@ -128,6 +128,8 @@ const RISE_TIME := 0.35
 ## der Grube überhaupt zu sehen - ein gemalter Schein läge unter dem Loch.
 const HOVER_LIFT := 0.42
 const HOVER_TIME := 0.16
+## Der Spielraum, den eine gehoverte Karte den Zeiger noch hält (holds_pointer).
+const HOVER_HOLD_SLACK := 0.3
 ## Derselbe Hub als Stellschraube der Zelle: der Wirt setzt ihn (die Läden lassen
 ## HOVER_LIFT stehen, der Regalstapel rechnet seinen eigenen).
 var hover_lift := HOVER_LIFT
@@ -383,6 +385,27 @@ func net_face_at(camera: Camera3D, screen_pos: Vector2) -> int:
 	# oben links - beides hier geradegerückt.
 	return PressNetView.upright_face_at(Vector2(local.x / span.x + 0.5,
 		0.5 - local.y / span.y))
+
+## Hält die GEHOVERTE Karte den Zeiger noch? Ihr Netz plus slack je Seite (Anteil
+## der Netzspanne): wer beim Lesen der Zellen knapp über den Rand rutscht, verliert
+## die Karte nicht gleich (Spieler-Wunsch 2026-10-29). Gemessen an der Lage, in der
+## sie GERADE liegt - auch angehoben oder ausgezogen.
+func holds_pointer(camera: Camera3D, screen_pos: Vector2, slack := HOVER_HOLD_SLACK) -> bool:
+	if camera == null or not is_visible_in_tree() or _cells.is_empty():
+		return false
+	var plate := _cells[0].get_node_or_null("StampNet") as MeshInstance3D
+	if plate == null or not (plate.mesh is QuadMesh):
+		return false
+	var span := (plate.mesh as QuadMesh).size
+	if span.x <= 0.0 or span.y <= 0.0:
+		return false
+	var world := plate.global_transform
+	var hit = Plane(world.basis.z.normalized(), world.origin).intersects_ray(
+		camera.project_ray_origin(screen_pos), camera.project_ray_normal(screen_pos))
+	if hit == null:
+		return false
+	var local := world.affine_inverse() * (hit as Vector3)
+	return absf(local.x / span.x) <= 0.5 + slack and absf(local.y / span.y) <= 0.5 + slack
 
 ## Rahmenstärke dieser Größe - die eine Größen-Marke der Fläche.
 func bezel_lip() -> float:

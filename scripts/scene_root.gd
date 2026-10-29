@@ -4893,13 +4893,19 @@ func _sync_slit_hover() -> void:
 	var rects := charm_shop.slit_rects()
 	var hovered := -1
 	for seat: int in slit_cells:
-		var cell: DataCellView = slit_cells[seat]
-		if cell == null or not is_instance_valid(cell):
-			continue
-		var on := pixel.x >= 0.0 and seat < rects.size() and rects[seat].has_point(pixel)
-		cell.set_hovered(on)
-		if on and hovered < 0:
+		if pixel.x >= 0.0 and seat < rects.size() and rects[seat].has_point(pixel):
 			hovered = seat
+			break
+	# Der SPIELRAUM: ohne neuen Platz hält die gehoverte Karte den Zeiger noch.
+	if hovered < 0 and pixel.x >= 0.0:
+		for seat: int in slit_cells:
+			if _cell_holds_pointer(slit_cells[seat], get_viewport().get_mouse_position()):
+				hovered = seat
+				break
+	for seat: int in slit_cells:
+		var cell: DataCellView = slit_cells[seat]
+		if cell != null and is_instance_valid(cell):
+			cell.set_hovered(seat == hovered)
 	# Dieselbe Zell-Auskunft wie in der Werkstatt: liegt der Zeiger auf einer Zelle
 	# des Prägenetzes, nennt die Flanke DEREN Wirkung statt der des ganzen Pakets.
 	var cell_hint := ""
@@ -7790,6 +7796,12 @@ func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
 			hold_hover.call(pixel)
 		return
 	var item := _bay_item_at(bay, rect, pixel)
+	if item.is_empty() and pixel.x >= 0.0:
+		# Der SPIELRAUM: die gehoverte Karte hält den Zeiger noch knapp neben sich.
+		var held := bay.hovered_item()
+		if not held.is_empty() and _cell_holds_pointer(held.get("cell") as DataCellView,
+				get_viewport().get_mouse_position()):
+			item = held
 	if item.is_empty():
 		bay.set_hovered("", -1)
 		if hide.is_valid():
@@ -10153,13 +10165,28 @@ func _update_workshop_hover() -> void:
 		_sync_step_hover(-1)
 		_write_workshop_info(workshop, Vector2(-1, -1))
 		return
-	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	var mouse := get_viewport().get_mouse_position()
+	var pixel := _screen_pixel(mouse)
 	var hover_uid := workshop.shelf_hover_uid_at(pixel)
+	var step := workshop.slot_at(pixel)
+	# Der SPIELRAUM: findet der Zeiger keine Karte, hält die gehoverte ihn noch, solange
+	# er knapp neben ihr steht - sonst fiele sie beim Lesen ihrer Randzellen zurück.
+	if hover_uid == 0 and step < 0:
+		if _cell_holds_pointer(shelf_cells.get(_hovered_pack_uid), mouse):
+			hover_uid = _hovered_pack_uid
+		elif _cell_holds_pointer(_socket_cell(_hovered_step), mouse):
+			step = _hovered_step
 	_sync_pack_hover(hover_uid)
 	_sync_fach_hover()
-	workshop.sync_hover_at(pixel)
-	_sync_step_hover(workshop.slot_at(pixel))
+	workshop.sync_hover_at(pixel, hover_uid, step)
+	_sync_step_hover(step)
 	_write_workshop_info(workshop, pixel)
+
+## Hält die gehoverte Karte den Zeiger noch (ihr Spielraum, DataCellView.holds_pointer)?
+func _cell_holds_pointer(cell: DataCellView, mouse: Vector2) -> bool:
+	if cell == null or not is_instance_valid(cell) or not cell.hovered():
+		return false
+	return cell.holds_pointer(get_viewport().get_camera_3d(), mouse)
 
 ## Der EINE Schreiber des INFO-SCHIRMS (je Bild). Nur der Wechsel schreibt
 ## (set_info ist idempotent).

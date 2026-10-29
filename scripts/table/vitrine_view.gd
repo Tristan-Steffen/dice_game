@@ -434,6 +434,13 @@ func sync_recessed() -> void:
 		if cell.glass_position().distance_to(rest) > 0.001:
 			cell.glide_to(rest, RECESS_SETTLE_TIME)
 
+## Der Datensatz des gehoverten Stücks ({} = keins).
+func hovered_item() -> Dictionary:
+	for item in items:
+		if item["key"] == _hovered and _hovered != "":
+			return item
+	return {}
+
 ## Steht die Schale? Solange sie fährt, hängt keine Beschriftung unter ihr.
 func bowl_settled() -> bool:
 	return _bowl_settled

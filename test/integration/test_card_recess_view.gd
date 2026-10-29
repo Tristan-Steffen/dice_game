@@ -1,5 +1,6 @@
 extends GutTest
-## Die Mulde eines Kassetten-Platzes in Laden und Schwarzmarkt (2026-10-29).
+## Die Mulde eines Kassetten-Platzes in Laden und Schwarzmarkt (2026-10-29) und der
+## Hover-Spielraum der Karte darin.
 
 const SCALE := PackDrawerView.CASSETTE_SCALE
 
@@ -31,3 +32,28 @@ func test_a_tight_row_keeps_a_lip_between_bays() -> void:
 	var recess := _recess(card + 0.02)
 	assert_lt(recess.opening_half().y * 2.0, card + 0.02, "zwischen zwei Mulden steht ein Steg")
 	assert_true(recess.opening_half().y * 2.0 >= card - 0.0001, "die Karte paßt trotzdem")
+
+## Der SPIELRAUM: die gehoverte Karte hält den Zeiger noch knapp neben ihrem Netz.
+func test_a_card_holds_the_pointer_a_little_beyond_its_net() -> void:
+	var cell := DataCellView.new()
+	add_child_autofree(cell)
+	cell.setup(Engraving.CATEGORY_NUMBER, Pack.TIER_NORMAL, StampNet.empty_net())
+	cell.set_body_scale(SCALE)
+	cell.lie_on_glass(Vector3.ZERO)
+	var camera := Camera3D.new()
+	add_child_autofree(camera)
+	camera.look_at_from_position(Vector3(0.0, 12.0, 0.0), Vector3.ZERO, Vector3.FORWARD)
+	camera.current = true
+	await wait_frames(1)
+	var mid := camera.unproject_position(cell.global_position)
+	var edge := 0
+	var held := 0
+	for step in 600:
+		var probe := mid + Vector2(step, 0)
+		if cell.holds_pointer(camera, probe, 0.0):
+			edge = step
+		if cell.holds_pointer(camera, probe):
+			held = step
+	assert_gt(edge, 0, "die Karte liegt im Bild")
+	assert_gt(held, edge, "über den Netzrand hinaus hält sie noch")
+	assert_lt(held, edge * 3, "aber nicht beliebig weit")

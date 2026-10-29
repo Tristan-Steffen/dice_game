@@ -2275,9 +2275,11 @@ func _on_tidy_requested() -> void:
 ## ihre Beitrags-Zellen im Netz hervor und zeigt ihr eigenes Prägenetz im
 ## Summen-Schirm. GEFRAGT statt gemeldet - der Zeiger liegt auf dem Tisch, kein
 ## mouse_entered erreicht das Fenster.
-func sync_hover_at(pixel: Vector2) -> void:
-	_hover_pack_uid = shelf_hover_uid_at(pixel)
-	_set_hover_slot(slot_at(pixel))
+## pack_uid/slot: wer schon weiß, welche Karte gehalten wird (der Spielraum des
+## Zeigers, scene_root), meldet sie mit; -1 heißt: am Pixel nachsehen.
+func sync_hover_at(pixel: Vector2, pack_uid := -1, slot := -1) -> void:
+	_hover_pack_uid = pack_uid if pack_uid >= 0 else shelf_hover_uid_at(pixel)
+	_set_hover_slot(slot if slot >= 0 else slot_at(pixel))
 	_refresh_sum_net()  # nur der WECHSEL der Quelle baut neu
 
 ## Nur der WECHSEL baut das Netz neu - sync_hover_at läuft je Bild.
