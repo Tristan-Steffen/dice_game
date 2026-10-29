@@ -658,6 +658,18 @@ func frame_rect(center: Vector3, half: Vector2, margin: float,
 	_tilt_resume_time = -1.0
 	_animate_to(target_origin, ZOOM_BASIS, duration)
 
+## Derselbe temporäre Rahmen, aber SENKRECHT von oben (TITLE_BASIS): ohne Neigung
+## bildet sich das Rechteck unverzerrt ab und darf darum bis an den Rand füllen.
+func frame_rect_top(center: Vector3, half: Vector2, margin: float,
+		duration := ZOOM_DURATION) -> void:
+	var target_origin := center + Vector3.UP * _fit_distance(half, margin)
+	anchor_basis = TITLE_BASIS
+	anchor_origin = target_origin
+	tilt_offset = Vector2.ZERO
+	_applied_offset = Vector2.ZERO
+	_tilt_resume_time = -1.0
+	_animate_to(target_origin, TITLE_BASIS, duration)
+
 ## Die WERKSTÜCK-Sicht: der schwebende Würfel allein im Bild. center ist seine
 ## Weltmitte, half seine halbe Raumdiagonale - so passt er in JEDER Drehung ins
 ## Bild, und der Ausschnitt springt beim Drehen nicht. Wie frame_rect ein

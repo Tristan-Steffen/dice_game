@@ -2884,6 +2884,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouse and _forward_screen_mouse(event):
 		return
 
+	# Das Raster füllt eng gerahmt das ganze Bild: sein Rechtsklick muß VOR die
+	# Weiterleitung, sonst schluckt ihn der Glas-Viewport, und der Umschalter liegt
+	# außer Sicht - Rechtsklick ist der Weg hinaus.
+	if _deck_glass and event is InputEventMouseButton and event.pressed \
+			and event.button_index == MOUSE_BUTTON_RIGHT:
+		_close_deck_glass()
+		return
+
 	if not (event is InputEventMouseButton) or not event.pressed:
 		return
 
@@ -2893,11 +2901,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		if camera_rig.mode == CameraRig.Mode.TITLE:
 			if title_view.visible:
 				title_view.go_back()
-			return
-		# Die Glas-Ansicht ist modal: Rechtsklick bricht sie ab, der Vorrat steigt
-		# unverändert - die Kamera bleibt, wo sie steht.
-		if _deck_glass:
-			_close_deck_glass()
 			return
 		# Im Lexikon geht Rechtsklick den Verweis-Weg zurück: Historie, dann
 		# Eintrag -> Index, und erst am Index klappt die Seite zu.
@@ -5894,6 +5897,10 @@ func _deck_glass_rect() -> Rect2:
 	var a := table_screen.world_to_pixel(Vector3(at.x + half.x, 0.0, at.z - half.y))
 	var b := table_screen.world_to_pixel(Vector3(at.x - half.x, 0.0, at.z + half.y))
 	return Rect2(a, b - a)
+## Die Draufsicht füllt fast randlos - das Raster steht unverzerrt im Bild.
+const DECK_GLASS_TOP_MARGIN := 1.01
+## Anteil der Lochhöhe, den die Kopfzeile oben belegt - er bleibt außerhalb des Bildes.
+const DECK_GLASS_TOP_CROP := 0.13
 
 ## Der Rahmen der Ansicht in Welt-XZ: das Pool-Loch VEREINIGT mit dem Neuzugangs-
 ## Bereich (der Schale) - gefragt wird nach einem Platz für den Würfel, also
@@ -5973,7 +5980,19 @@ func _handle_forced_exchange_input(event: InputEvent) -> void:
 	if pixel.x >= 0.0:
 		table_screen.push_deck_glass_input(mouse, pixel)
 
+## Der UMSCHALTER schaut senkrecht von oben allein aufs Raster (Spieler-Wunsch
+## 2026-10-29); der Zwang braucht die Schale mit im Bild und bleibt geneigt.
 ## Der gesäumte Sitz des Rasters: das aktuelle Ziel der Werkstatt (-1 = keins).
+	if _deck_glass_pinned and _deck_glass_pending() < 0:
+		var field := _pool_parked_field if not _pool_parked_field.is_empty() else _pool_field()
+		if field.is_empty():
+			return
+		var half: Vector2 = field["half"]
+		# Die Kopfzeile darf aus dem Bild fallen: oben (Welt +X) wird ihr Band abgeschnitten.
+		var at: Vector3 = field["at"] - Vector3(half.x * DECK_GLASS_TOP_CROP, 0.0, 0.0)
+		camera_rig.frame_rect_top(at, Vector2(half.y, half.x * (1.0 - DECK_GLASS_TOP_CROP)),
+			DECK_GLASS_TOP_MARGIN)
+		return
 func _deck_glass_target() -> int:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
