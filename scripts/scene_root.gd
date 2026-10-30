@@ -7688,7 +7688,9 @@ func _sync_vitrine_net_hover() -> void:
 	if pixel.x < 0.0:
 		charm_shop.set_die_hover(null)
 		return
-	charm_shop.set_die_hover(_vitrine_die_at(_bay_item_at(shop_vitrine, rect, pixel)))
+	# Der Würfel spricht, ob man ihn selbst oder sein Netz darunter berührt.
+	var die := _vitrine_die_at(_bay_item_at(shop_vitrine, rect, pixel))
+	charm_shop.set_die_hover(die if die != null else charm_shop.die_at_net(pixel))
 
 ## Der gegriffene Würfel der Ladenbucht (null für alles andere).
 func _vitrine_die_at(item: Dictionary) -> DieDefinition:

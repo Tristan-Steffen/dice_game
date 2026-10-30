@@ -104,15 +104,11 @@ func test_every_offer_has_its_own_charm_card() -> void:
 		"jedes Paket steckt in seinem Schlitz, nicht auf dem Bildschirm")
 	assert_eq(shop.vitrine_stock()[ShopController.KIND_DIE].size(), shop.single_dice.size())
 
-## Die Karte ist GEDECKELT und steht in ihrem Platz: auch das breitere Podest
-## paßt in die Spalte, und das Modell hängt an der festen Bandhöhe.
-func test_charm_cards_are_capped_and_fit_their_column() -> void:
+## Die Karte füllt ihren Platz - zwischen den Karten bleibt nur die Spaltenfuge.
+func test_charm_cards_fill_their_column() -> void:
 	var shop := _shop(1)
 	shop.size = Vector2(1068, 1125)
-	var wide: float = shop._charm_card_width()
-	assert_lte(wide, shop.u * ShopController.CARD_MAX_UNITS + 0.01, "der Deckel hält")
-	assert_lte(wide * ShopController.PODEST_WIDTH, shop.column_width() + 0.01,
-		"auch das Podest steht in seinem Platz")
+	assert_almost_eq(shop._charm_card_width(), shop.column_width(), 0.01)
 
 # --- Roulette-Rim: Rad-Rand (Fahrplan) + Stufen-Nabe -------------------------
 

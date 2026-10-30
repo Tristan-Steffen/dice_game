@@ -84,8 +84,6 @@ const SLIT_MIN_WIDTH := 5.4
 const SLIT_MIN_HEIGHT := 8.0
 ## Höhe der Würfel-Bucht: der liegende Würfel samt Griff-Hub und Schacht.
 const DIE_ROOM_UNITS := 10.0
-## Das PODEST (garantierter Premium-Charm) ist so viel breiter - es bleibt in seinem Platz.
-const PODEST_WIDTH := 1.4
 
 const FLANK_MIN_WIDTH := 14.0
 const FLANK_MIN_HEIGHT := 4.0
@@ -189,11 +187,13 @@ var vitrine_slot: Control
 ## Die BUCHT: der Streifen, auf dem die Würfel liegen - der Laden meldet ihn nur
 ## (apron_bottom-Muster), aufgestellt wird von scene_root.
 var vitrine_field: Control
-## Der Schilder-Layer: je Würfel Name/Seele und Preis unter seinem Platz. Reine
-## Anzeige; die Anker kennt allein scene_root.
+## Der Schilder-Layer: je Würfel ein Block aus Name/Preis darüber und Netz darunter.
+## Reine Anzeige; die Anker kennt allein scene_root.
 var vitrine_nets: Control
-## Die Zeile unter der Bucht, die die Schilder reserviert.
+## Die Zeile unter der Bucht, die das Netz reserviert.
 var die_labels: Control
+## Die Zeile ÜBER der Bucht: Name/Seele und Preis je Würfel.
+var die_head: Control
 ## Die Auskunftszeile im AUSKUNFTS-BAND - ohne Hover unsichtbar.
 var net_footer: Label
 ## Das AUSKUNFTS-BAND unter den Regalen: dort spricht der gegriffene Würfel
@@ -422,6 +422,12 @@ func _build_layout() -> void:
 	shelf.add_theme_constant_override("separation", 0)
 	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_net_signature = ""  # ein frischer Layer trägt nichts, was schon stünde
+	# Name und Preis stehen ÜBER dem Würfel, das Netz darunter (Spieler-Wunsch 2026-10-29).
+	die_head = Control.new()
+	die_head.name = "DieHead"
+	die_head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	die_head.custom_minimum_size = Vector2(0.0, _die_head_height())
+	shelf.add_child(die_head)
 	vitrine_field = Control.new()
 	vitrine_field.name = "VitrineField"
 	vitrine_field.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -769,8 +775,7 @@ func _wrapped_line(font_size: float, color: Color, align: int) -> Label:
 	return label
 
 ## Der größte Grad einer Leiter, in dem der umgebrochene Text noch in den Block
-## paßt - sonst der kleinste. Dieselbe Grammatik wie _card_block_font, nur mit
-## der Leiter als Parameter.
+## paßt - sonst der kleinste.
 func _block_font(font: Font, text: String, width: float, block: float, steps: Array,
 		spacing: int) -> int:
 	var smallest := maxi(8, int(u * float(steps[steps.size() - 1])))
@@ -881,26 +886,50 @@ func die_seats_px() -> Array[Vector2]:
 			strip.size.y * 0.5))
 	return out
 
-## Das SCHILD des Würfels index in Pixeln der Bucht: sein Platz in der Zeile unter ihr.
+## Der BLOCK des Würfels index in Pixeln der Bucht: seine Spalte von der Kopfzeile
+## über der Bucht bis unter das Netz - der Würfel liegt mitten darin.
 func die_label_rect(index: int) -> Rect2:
 	var strip := vitrine_rect_px()
-	if strip.size.x <= 0.0 or die_labels == null or not is_instance_valid(die_labels):
+	if strip.size.x <= 0.0 or die_head == null or not is_instance_valid(die_head) \
+			or die_labels == null or not is_instance_valid(die_labels):
 		return Rect2()
-	var row := die_labels.get_global_rect()
+	var top := die_head.get_global_rect().position.y
+	var bottom := die_labels.get_global_rect().end.y
 	var gap := u * COLUMN_GAP
-	return Rect2(Vector2(column_x(strip.size.x, gap, index), row.position.y - strip.position.y),
-		Vector2(column_width_in(strip.size.x, gap), _die_label_height()))
+	return Rect2(Vector2(column_x(strip.size.x, gap, index), top - strip.position.y),
+		Vector2(column_width_in(strip.size.x, gap), bottom - top))
 
-## Name/Seele, Preis und Netz - die Höhe, die die Schilder-Zeile reserviert.
-func _die_label_height() -> float:
-	var soul := ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
+func _soul_height() -> float:
+	return ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
+
+## Name/Seele und Preis - die Kopfzeile über der Bucht.
+func _die_head_height() -> float:
 	var gap := u * WARE_PRICE_GAP
-	return gap + soul + gap * 0.5 + _price_height() + gap + u * DIE_NET_UNITS
+	return _soul_height() + gap * 0.5 + _price_height() + gap * 0.5
+
+## Das Netz - die Zeile unter der Bucht.
+func _die_label_height() -> float:
+	return u * WARE_PRICE_GAP + u * DIE_NET_UNITS
+
+## Der Würfel, über dessen NETZ der Zeiger liegt (globaler Display-Pixel; null =
+## keiner). Solange die Blöcke wachsen oder schrumpfen, lögen ihre Rechtecke.
+func die_at_net(pixel: Vector2) -> DieDefinition:
+	if _net_growing:
+		return null
+	for i in mini(_net_blocks.size(), _net_dice.size()):
+		var block := _net_blocks[i]
+		if block == null or not is_instance_valid(block):
+			continue
+		var net := block.get_node_or_null("Net") as Control
+		if net != null and net.get_global_rect().has_point(pixel):
+			return _net_dice[i]
+	return null
 
 ## Die SCHILDER der Auslage stellen: je Eintrag {def, anchor} (anchor = der Würfel
 ## in Pixeln der Bucht). Idempotent - dieselbe Auslage baut nichts neu. Je Würfel
-## steht sein Block (Name/Seele, Preis) in seinem Platz unter der Bucht: nach einer
-## echten ANKUNFT (grow) wächst er aus seinem Würfel, sonst steht er sofort.
+## steht sein Block in seiner Spalte: Name/Seele und Preis über der Bucht, das Netz
+## darunter. Nach einer echten ANKUNFT (grow) wächst er aus seinem Würfel, sonst
+## steht er sofort.
 func set_die_nets(entries: Array, grow := false) -> void:
 	var signature := "%d" % entries.size()
 	for entry in entries:
@@ -913,9 +942,9 @@ func set_die_nets(entries: Array, grow := false) -> void:
 	_drop_die_nets()
 	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
 		return
-	var font := ThemeDB.fallback_font
-	var soul_height := font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
+	var soul_height := _soul_height()
 	var gap := u * WARE_PRICE_GAP
+	var net_top := _die_head_height() + vitrine_rect_px().size.y + gap
 	for entry in entries:
 		var def: DieDefinition = entry["def"]
 		var rect := die_label_rect(single_dice.find(def))
@@ -939,21 +968,21 @@ func set_die_nets(entries: Array, grow := false) -> void:
 			HORIZONTAL_ALIGNMENT_CENTER)
 		soul.clip_text = true
 		soul.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		soul.position = Vector2(0.0, gap)
+		soul.position = Vector2.ZERO
 		soul.size = Vector2(rect.size.x, soul_height)
 		block.add_child(soul)
 		_net_souls.append(soul)
 		var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD,
 			HORIZONTAL_ALIGNMENT_CENTER)
-		tag.position = Vector2(0.0, gap + soul_height + gap * 0.5)
+		tag.position = Vector2(0.0, soul_height + gap * 0.5)
 		tag.size = Vector2(rect.size.x, _price_height())
 		block.add_child(tag)
 		_net_prices.append(tag)
 		var cell := DieNetView.cell_for(Vector2(rect.size.x * DIE_NET_WIDTH_SHARE,
 			u * DIE_NET_UNITS))
 		var net := DieNetView.build(def, VitrineView.die_up_face(), cell)
-		net.position = Vector2((rect.size.x - net.size.x) * 0.5,
-			tag.position.y + _price_height() + gap)
+		net.name = "Net"
+		net.position = Vector2((rect.size.x - net.size.x) * 0.5, net_top)
 		block.add_child(net)
 	_refresh_ware_prices()
 	if grow:
@@ -1357,13 +1386,7 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	content_root.add_child(charm_row)
 	var cm := _charm_metrics()
 	var card_w := _charm_card_width()
-	# Der NAMENS-Grad gilt für die GANZE Zeile: Namen nebeneinander, jeder in seinem
-	# eigenen Grad, lasen sich als Flickenteppich.
-	var text_w := card_w - u * CARD_MARGIN * 2.0
-	var names: Array[String] = []
-	for charm in spread.charm_options:
-		names.append(charm.display_name)
-	var name_px := _row_font(names, text_w, CARD_NAME_STEPS)
+	var name_px := card_name_px()
 	var podest_index := 0 if run.shop_rarity_tier() >= 1 else -1
 	var places := charm_row.get_children()
 	for i in mini(spread.charm_options.size(), places.size()):
@@ -1391,15 +1414,11 @@ const HEADING_FONT := 2.2
 const CARD_MARGIN := 0.7
 const CARD_SEPARATION := 0.3
 const CARD_PRICE_FONT := 2.0
-## Der NAME steht IMMER auf der Karte - eine Ware ohne Namen ist keine Ware. Er
-## walkt sich ein wie jede andere Zeile des Ladens und wird notfalls beschnitten.
-const CARD_NAME_STEPS := [2.1, 1.9, 1.7, 1.5, 1.35]
-## Die WIRKUNG steht VOLLSTÄNDIG auf der Karte, aber erst beim HOVER: sie nimmt
-## den Platz des Modells ein. Jede Karte sucht sich ihren Grad selbst; der letzte
-## trägt nachweislich jede echte Beschreibung.
-const CARD_EFFECT_STEPS := [1.8, 1.65, 1.5, 1.35, 1.2, 1.1, 1.0, 0.95, 0.85]
-## Breiten-Deckel EINER Karte: sie steht kompakt in ihrem Platz statt als Panorama.
-const CARD_MAX_UNITS := 17.0
+## Name und Wirkung tragen auf JEDER Karte denselben Grad (Spieler-Wunsch
+## 2026-10-29): gewählt wird der größte, in dem der GANZE Katalog paßt - der
+## Name einzeilig, die Wirkung umgebrochen in die Mittelfläche.
+const CARD_NAME_STEPS := [2.8, 2.6, 2.4, 2.2, 2.0, 1.8, 1.6, 1.4]
+const CARD_EFFECT_STEPS := [2.4, 2.2, 2.0, 1.85, 1.7, 1.55, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9]
 ## Seitenrand der Seite (Margin) - die Plätze messen sich daran.
 const PAGE_MARGIN := 3.0
 
@@ -1442,14 +1461,61 @@ func card_mid_height() -> float:
 	if font == null:
 		return maxf(_charm_card_height() * 0.5, u * THUMB_MIN)
 	var price := font.get_height(maxi(8, int(u * CARD_PRICE_FONT)))
-	var name_h := font.get_height(maxi(8, int(u * float(CARD_NAME_STEPS[0]))))
+	var name_h := font.get_height(card_name_px())
 	return maxf(_charm_card_height() - u * CARD_MARGIN * 2.0 - price - name_h \
 		- u * CARD_SEPARATION * 2.0, u * THUMB_MIN)
 
-## Die Breite EINER Karte: höchstens CARD_MAX_UNITS, und auch das breitere Podest
-## bleibt in seinem Platz.
+## Die Breite EINER Karte: sie füllt ihren Platz - die Luft zwischen den Karten
+## ist allein die Spaltenfuge.
 func _charm_card_width() -> float:
-	return minf(column_width() / PODEST_WIDTH, u * CARD_MAX_UNITS)
+	return column_width()
+
+func _card_text_width() -> float:
+	return _charm_card_width() - u * CARD_MARGIN * 2.0
+
+## Namen und Wirkungen des ganzen Katalogs, EINMAL gebaut (Charm.all baut jede
+## Instanz neu).
+static var _catalog_names: Array[String] = []
+static var _catalog_texts: Array[String] = []
+
+static func _charm_catalog() -> void:
+	if not _catalog_names.is_empty():
+		return
+	for charm in Charm.all():
+		_catalog_names.append(charm.display_name)
+		_catalog_texts.append(charm.description)
+
+## Der EINE Namens-Grad aller Karten: jeder Katalog-Name einzeilig.
+func card_name_px() -> int:
+	_charm_catalog()
+	return _row_font(_catalog_names, _card_text_width(), CARD_NAME_STEPS)
+
+## Der EINE Wirkungs-Grad aller Karten: jede Katalog-Beschreibung umgebrochen in
+## die Mittelfläche. Gecacht je Seitenmaß - die Frage kommt bei jedem Aufbau.
+var _effect_px_key := Vector2.ZERO
+var _effect_px := 0
+
+func card_effect_px() -> int:
+	var key := Vector2(_card_text_width(), card_mid_height())
+	if key == _effect_px_key and _effect_px > 0:
+		return _effect_px
+	_charm_catalog()
+	var font := ThemeDB.fallback_font
+	var px := maxi(8, int(u * float(CARD_EFFECT_STEPS[CARD_EFFECT_STEPS.size() - 1])))
+	if font != null:
+		for step in CARD_EFFECT_STEPS:
+			var try_px := maxi(8, int(u * float(step)))
+			var fits := true
+			for text in _catalog_texts:
+				if WorkshopView.text_block_height(font, text, key.x, try_px, 0) > key.y:
+					fits = false
+					break
+			if fits:
+				px = try_px
+				break
+	_effect_px_key = key
+	_effect_px = px
+	return px
 
 ## Regal-Titel: Akzent-Raute, gesperrter Titel, auslaufende Lichtschiene - für
 ## alle drei Regale derselbe Stil.
@@ -1488,9 +1554,9 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	# Alle Karten sind gleich hoch: das Podest bekommt BREITE, keine Sonderhöhe -
-	# eine höhere Karte spränge aus dem festen Band. Sie steht mittig in ihrem Platz.
-	var width := card_w * (PODEST_WIDTH if podest else 1.0)
+	# Alle Karten sind gleich groß und füllen ihren Platz; das Podest trägt nur den
+	# stärkeren Saum und Lichtfleck.
+	var width := card_w
 	card.custom_minimum_size = Vector2(width, card_h)
 	_center_in_place(card, width, card_h)
 	var seam_alpha := 0.9 if podest else 0.65
@@ -1543,11 +1609,11 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	charm_thumbs.append(thumb)
 	mid.add_child(stage)
 
-	# Hover: an SEINER Stelle die volle Wirkung - ungekürzt, umbrechend, im größten
-	# Grad, den DIESE Mittelfläche hergibt. Auch eine gekaufte oder gesperrte Karte
-	# tauscht: der Text ist dann erst recht die einzige Auskunft.
-	var effect := _card_effect(charm.description, text_width, mid_h,
-		_card_block_font(charm.description, text_width, mid_h), NEON_MUTED)
+	# Hover: an SEINER Stelle die volle Wirkung - ungekürzt, umbrechend, im EINEN
+	# Grad aller Karten. Auch eine gekaufte oder gesperrte Karte tauscht: der Text
+	# ist dann erst recht die einzige Auskunft.
+	var effect := _card_effect(charm.description, text_width, mid_h, card_effect_px(),
+		NEON_MUTED)
 	effect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	effect.visible = false
 	mid.add_child(effect)
@@ -1601,22 +1667,6 @@ func _row_font(texts: Array[String], width: float, steps: Array) -> int:
 				fits = false
 				break
 		if fits:
-			return px
-	return smallest
-
-## Der Grad des WIRKUNGSTEXTES EINER Karte: der erste, in dem er umgebrochen noch
-## in ihre Mittelfläche paßt. Je Karte gefunden, denn gehovert ist immer nur eine -
-## eine Karte darf so groß schreiben, wie ihre eigene Fläche hergibt. Der letzte
-## Schritt der Leiter trägt nachweislich alle 145 Beschreibungen; abgeschnitten
-## wird nie.
-func _card_block_font(text: String, width: float, block: float) -> int:
-	var font := ThemeDB.fallback_font
-	var smallest := maxi(8, int(u * float(CARD_EFFECT_STEPS[CARD_EFFECT_STEPS.size() - 1])))
-	if font == null:
-		return smallest
-	for step in CARD_EFFECT_STEPS:
-		var px := maxi(8, int(u * float(step)))
-		if WorkshopView.text_block_height(font, text, width, px, 0) <= block:
 			return px
 	return smallest
 

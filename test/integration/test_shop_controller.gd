@@ -949,9 +949,9 @@ func test_every_souled_die_names_its_essence_under_it() -> void:
 		"und zwar im Glühton genau dieser Essenz")
 	assert_eq(shop._net_souls[1].text, bare.display_name, "ein seelenloser nennt seinen Namen")
 
-## Der Block eines Würfels steht in SEINEM Platz unter der Bucht: Name oben, der
-## Preis direkt darunter.
-func test_the_price_hangs_directly_under_its_die() -> void:
+## Der Block eines Würfels steht in SEINER Spalte: Name und Preis ÜBER der Bucht,
+## das Netz darunter (Spieler-Wunsch 2026-10-29).
+func test_name_and_price_stand_over_the_die_and_the_net_under_it() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.data_cell_lie_px = LIE_PX
 	shop.open()
@@ -961,15 +961,30 @@ func test_the_price_hangs_directly_under_its_die() -> void:
 	var strip: Rect2 = shop.vitrine_rect_px()
 	shop.set_die_nets([{"def": die, "anchor": seat - strip.position}])
 	var block: Control = shop._net_blocks[0]
-	var global_block := Rect2(strip.position + block.position, block.size)
-	assert_gte(global_block.position.y, strip.end.y - 0.5, "der Block steht unter der Bucht")
-	assert_almost_eq(global_block.get_center().x, seat.x, 0.5, "mittig unter seinem Würfel")
+	var origin := strip.position + block.position
+	assert_almost_eq(origin.x + block.size.x * 0.5, seat.x, 0.5, "mittig über seinem Würfel")
+	var price_bottom: float = origin.y + shop._net_prices[0].position.y + shop._net_prices[0].size.y
+	assert_lte(price_bottom, strip.position.y + 0.5, "Name und Preis stehen über der Bucht")
 	assert_gt(shop._net_prices[0].position.y, shop._net_souls[0].position.y,
 		"der Preis steht unter dem Namen")
-	assert_eq(block.get_child_count(), 3, "Name, Preis und das Netz darunter")
-	var net: Control = block.get_child(2)
-	assert_gt(net.position.y, shop._net_prices[0].position.y, "das Netz steht unter dem Preis")
+	assert_eq(block.get_child_count(), 3, "Name, Preis und das Netz")
+	var net: Control = block.get_node("Net")
+	assert_gte(origin.y + net.position.y, strip.end.y - 0.5, "das Netz steht unter der Bucht")
 	assert_lte(net.position.y + net.size.y, block.size.y + 0.5, "und ganz im Block")
+
+## Auch das NETZ eines Würfels nennt ihn (Spieler-Wunsch 2026-10-29).
+func test_the_net_answers_with_its_die() -> void:
+	shop.size = Vector2(1068, 1125)
+	shop.data_cell_lie_px = LIE_PX
+	shop.open()
+	await wait_frames(2)
+	var die: DieDefinition = shop.single_dice[2]
+	var strip: Rect2 = shop.vitrine_rect_px()
+	shop.set_die_nets([{"def": die, "anchor": shop.die_seats_px()[2] - strip.position}])
+	await wait_frames(1)
+	var net: Control = shop._net_blocks[0].get_node("Net")
+	assert_eq(shop.die_at_net(net.get_global_rect().get_center()), die, "das Netz meint seinen Würfel")
+	assert_null(shop.die_at_net(strip.position - Vector2(5.0, 5.0)), "daneben meint es niemand")
 
 ## Das SPALTENRASTER: drei gleiche Plätze, in allen drei Regalen dieselben Kanten.
 func test_the_three_shelves_share_one_column_grid() -> void:
@@ -1080,25 +1095,31 @@ func test_every_card_reports_its_own_hover() -> void:
 		assert_ne(shop.charm_buttons[i].mouse_filter, Control.MOUSE_FILTER_IGNORE,
 			"und der Knopf sieht die Maus überhaupt (%d)" % i)
 
-func test_the_longest_real_description_fits_the_narrowest_card() -> void:
-	# Gemessen an den echten Beschreibungen und der normalen (nicht Podest-) Karte:
-	# der unterste Grad der Leiter muß jede von ihnen umgebrochen tragen.
+func test_every_real_description_fits_the_one_card_grade() -> void:
+	# Der EINE Grad aller Karten muß jede echte Beschreibung umgebrochen tragen.
 	shop.size = Vector2(1068, 1125)
 	run.round_number = _round_of(GameRun.TIER_MAX)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
 	var font := ThemeDB.fallback_font
-	var card_w: float = shop._charm_card_width()
-	var text_w: float = card_w - shop.u * ShopController.CARD_MARGIN * 2.0
+	var text_w: float = shop._card_text_width()
 	var block: float = shop.card_mid_height()
-	var steps: Array = ShopController.CARD_EFFECT_STEPS
-	var floor_px := maxi(8, int(shop.u * float(steps[steps.size() - 1])))
+	var px: int = shop.card_effect_px()
 	var worst := ""
 	for charm in Charm.all():
-		if WorkshopView.text_block_height(font, charm.description, text_w, floor_px, 0) > block:
+		if WorkshopView.text_block_height(font, charm.description, text_w, px, 0) > block:
 			worst = charm.description
 	assert_eq(worst, "", "keine einzige Beschreibung fällt aus der Mittelfläche")
+
+func test_every_card_writes_the_same_grade() -> void:
+	shop.size = Vector2(1068, 1125)
+	shop.open()
+	await wait_frames(2)
+	var effect_px: int = shop.card_effect_px()
+	for effect in shop.charm_effects:
+		assert_eq(effect.get_theme_font_size("font_size"), effect_px,
+			"die Wirkung steht auf jeder Karte gleich groß")
 
 func test_the_mid_area_is_the_same_on_every_card() -> void:
 	shop.size = Vector2(1068, 1125)
