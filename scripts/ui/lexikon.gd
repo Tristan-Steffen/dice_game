@@ -196,7 +196,7 @@ static func _build_concepts() -> void:
 		"Ein in die Würfelschale geätztes Zeichen, das den Kernlicht-Funken des Würfels anzapft - die Tönung ist die Wirkung. Jede Seite trägt höchstens eine Rune; nur das Vakuum erlaubt zwei. Runen kommen als Gravur aus Runen-Paketen über die Presse.",
 		CAT_BEGRIFFE)
 	_add(GRAVUR, "Gravur",
-		"Die Aufwertungs-Art der Werkstatt. Zahl-Gravuren verändern Augen, Material-Gravuren belegen eine Seite, Würfel-Gravuren (Pointer, Runen) verdrahten den ganzen Würfel. Eine Gravur existiert nur versiegelt im Paket oder angewendet - gepresst in der Presse und von Hand auf die eingespannten Würfel gesetzt.",
+		"Die Aufwertungs-Art der Werkstatt. Zahl-Gravuren verändern Augen, Material-Gravuren belegen eine Seite, Würfel-Gravuren (Pointer, Runen) wirken über die Seite hinaus. Eine Gravur existiert nur versiegelt im Paket oder angewendet - gepresst in der Presse und von Hand auf die eingespannten Würfel gesetzt.",
 		CAT_BEGRIFFE)
 	_add(MATERIAL, "Material",
 		"Die Belegung einer einzelnen Würfelseite: Rubin, Bernstein, Gold, Knochen, Glas oder Kupfer. Ein Material wirkt, wenn seine Seite in der Kombination liegt. Die Veredelung hebt es in seine starke Form.",
@@ -205,7 +205,7 @@ static func _build_concepts() -> void:
 		"Der starke Zustand eines Materials: die Veredelung sättigt die Glasur einer Seite, die schon ein Material trägt - es wirkt fortan in seiner starken Form (Rubin etwa kritet ×2, statt Mult zu addieren). Nackte und schon veredelte Seiten sind kein Ziel. Zu haben als Sonderposten im Laden und im Schwarzmarkt.",
 		CAT_BEGRIFFE)
 	_add(POINTER, "Pointer",
-		"Ein Draht von einer Würfelseite über eine Kante zur Nachbarseite: Wird die Seite gewertet, löst die Zielseite mit 50 % Chance einmal voll mit aus - und von dort geht die Kette weiter. Geätzt als epische Würfel-Gravur, zu haben als Sonderposten.",
+		"Eine Zelle im Prägenetz, die über eine Kante zur Nachbarseite zeigt: Beim Prägen kopiert sie alles, was die Serie bis zu ihrer Etage auf ihre Seite gelegt hat - Zahl, Material, Runen, Veredelung, nie die Grundaugen - auf die Zielseite und überdeckt dort. Alle Pointer einer Karte lesen den Stand vor der Karte; über mehrere Etagen lassen sie sich zu Ketten legen. Trägt die Seite noch nichts, verpufft er. Zu haben als epischer Sonderposten.",
 		CAT_BEGRIFFE)
 	_add(ESSENZ, "Essenz",
 		"Die Seele eines Würfels: ein Leuchtgas, beim Guss in der Schale versiegelt. Sie ist angeboren - kein Auftragen, kein Entfernen, kein Tauschen. Die Essenz ist der einzige Faktor auf der Würfel-Achse der Auslösungen, und ihr Glühen färbt die Kanten. Geheime Seelen führt nur der Schwarzmarkt.",

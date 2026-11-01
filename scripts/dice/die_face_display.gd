@@ -165,37 +165,6 @@ var _burned_override := false
 var _charge_flash := 0.0
 var _charge_flash_tween: Tween
 
-## Pointer auf dem Würfel (PCB-Grammatik des Tisches): EIN durchgehendes
-## Band je Zeiger - Pad auf der Quellseite, über den Kantenbalken hinweg, bis
-## zur Pfeilspitze auf der Zielseite. Überall gleich breit: die gequerte Kante
-## darf keine dickere Stelle sein, sonst zerfällt das Kabel in Einzelteile.
-## Kräftiger als das UI-Cyan #8be9fd (Netz/Siegel): auf den fast weißen
-## Kantenbalken ginge das blasse Cyan unter - dieselbe Regel wie DIE_SATURATION.
-const POINTER_COLOR := Color("#00d9ff")
-## Kamm der Chevrons: ÜBER der Bloom-Schwelle (0.95), aber unter dem Boden der
-## Material-Kanten - die Material-Kante bleibt die hellste Lampe des Würfels.
-const POINTER_GLOW := 1.08
-## Rille zwischen den Chevrons: deutlich UNTER der Schwelle. Der Kontrast nach
-## unten IST die Lesbarkeit der Strömung - liegt schon der Grund am Klemmwert,
-## säuft die Bewegung in Weiß ab.
-const POINTER_TROUGH := 0.3
-const TRACE_WIDTH := 0.18
-## Führung in der Ebene, die Quell- und Zielrichtung aufspannen; Anteile der
-## Halbkante (DieBuilder.HALF_EXTENT = 1). FACE_RIDE liegt über der Ziffer
-## (Quad 1.02 + Label 0.01), BEAM_RIDE über dem Kantenbalken (1.13), WALL_B am
-## Rand des Seiten-Quads (0.87). Die Werte sind bewusst hier und nicht aus
-## DieBuilder importiert - das ergäbe eine zirkuläre class_name-Referenz.
-const FACE_RIDE := 1.035
-const BEAM_RIDE := 1.17
-const WALL_B := 0.86
-const FILLET := 0.05
-const FILLET_STEPS := 5
-## Bahn-Ende auf der Seite: das Band greift nur ein FÜNFTEL der Seitenfläche
-## hinter den Quad-Rand (WALL_B − FACE_SIZE/5 ≈ 0.51) - kein Pfeil, keine
-## lange Zunge bis zur Ziffer. Die Richtung trägt allein die Strömung im
-## Shader (Chevron-Wellen zur Zielseite, siehe die_pointer_trace.gdshader).
-const TRACE_START := 0.51
-
 ## Interne Glyphen-Auflösung (Font-Atlas-Pixel) - Weltgröße steuert pixel_size.
 const LABEL_FONT_SIZE := 160
 ## Basis-Umrechnung Font-Pixel -> Welteinheiten (Höhe einer einstelligen Ziffer).
@@ -312,8 +281,6 @@ static var _mote_tex: GradientTexture2D = null
 ## zwei Seiten). Alle teilen ein Material: der Lichtlauf des Würfels ist EIN
 ## Takt, und ein Zeiger kennt seine Stellung in der Kette ohnehin nicht (die
 ## obere Seite bestimmt erst die Physik).
-var pointer_traces: Array[MeshInstance3D] = []
-var pointer_material: ShaderMaterial = null
 
 ## Stellt alle 6 Seiten gemäß def ein (Werte, Material-Farben, Texturen).
 func apply_definition(def: DieDefinition) -> void:
@@ -346,7 +313,6 @@ func apply_definition(def: DieDefinition) -> void:
 	if edge_material_res != null:
 		_set_textures(edge_material_res, "")
 	_refresh_rune_overlays(def)
-	_rebuild_pointer_traces(def)
 	_refresh_face_colors()
 
 ## Muster + Relief einer Oberfläche; Emission teilt die Albedo-Textur, damit
@@ -756,8 +722,6 @@ func _process(delta: float) -> void:
 			for material: ShaderMaterial in [beam_material, cap_material]:
 				if material != null:
 					material.set_shader_parameter("lamp_color", Vector3(lamp.r, lamp.g, lamp.b))
-	# Die Pointer-Strömung braucht hier nichts: sie läuft über TIME im
-	# Shader, versetzt um die einmalig gesetzte phase (siehe _pointer_material).
 	# Ohne Baum gibt es keine Welttransformation - die Lache braucht beides.
 	if glow_pool == null or not glow_pool.visible or not is_inside_tree():
 		return
@@ -972,134 +936,6 @@ func edge_distance(camera: Camera3D, screen_pos: Vector2, radius: float) -> floa
 		if dist < best_dist and dist < radius:
 			best_dist = dist
 	return best_dist
-
-# --- Pointer-Spuren --------------------------------------------------------
-
-## Achse eines Seiten-Index (Umkehrung von DiceController.AXIS_FACE_INDEX).
-static func axis_of_face(face_index: int) -> String:
-	for axis in DiceController.AXIS_FACE_INDEX:
-		if DiceController.AXIS_FACE_INDEX[axis] == face_index:
-			return axis
-	return ""
-
-## Baut alle Pointer aus def.pointers neu. Ein Zeiger auf eine
-## Nicht-Nachbarseite (sollte nie vorkommen) bleibt stumm.
-func _rebuild_pointer_traces(def: DieDefinition) -> void:
-	for trace in pointer_traces:
-		if is_instance_valid(trace):
-			trace.queue_free()
-	pointer_traces.clear()
-	for face in def.pointers.size():
-		var target: int = def.pointers[face]
-		if target < 0:
-			continue
-		var src_axis := axis_of_face(face)
-		var tgt_axis := axis_of_face(target)
-		if src_axis == "" or tgt_axis == "":
-			continue
-		var d: Vector3 = DiceController.AXIS_DIRECTIONS[src_axis]
-		var t: Vector3 = DiceController.AXIS_DIRECTIONS[tgt_axis]
-		if not is_zero_approx(d.dot(t)):
-			continue
-		var trace := MeshInstance3D.new()
-		trace.mesh = trace_mesh(src_axis, tgt_axis)
-		trace.material_override = _pointer_material()
-		trace.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(trace)
-		_inherit_layers(trace)
-		pointer_traces.append(trace)
-
-## Gemeinsames Material aller Bahnen dieses Würfels. phase versetzt die
-## Strömung je Würfel (aus _pulse_phase) - danach läuft alles über TIME im
-## Shader, ohne einen einzigen Frame-Aufruf von hier.
-func _pointer_material() -> ShaderMaterial:
-	if pointer_material == null:
-		pointer_material = ShaderMaterial.new()
-		pointer_material.shader = load("res://assets/shaders/die_pointer_trace.gdshader")
-		var color := intense(POINTER_COLOR)
-		pointer_material.set_shader_parameter("trace_color",
-			Vector3(color.r, color.g, color.b))
-		pointer_material.set_shader_parameter("crest_energy", POINTER_GLOW)
-		pointer_material.set_shader_parameter("base_energy", POINTER_TROUGH)
-		pointer_material.set_shader_parameter("phase", _pulse_phase / TAU)
-	return pointer_material
-
-## Stützstellen EINER Bahn in der Ebene (d, t): je [Vector2(Anteil d, Anteil t),
-## halbe Bandbreite]. Ein kurzer Riegel über die Kante: ein Fünftel in die
-## Quellseite, die Wand des Kantenbalkens hinauf, über dessen Außenseite,
-## herunter und ein Fünftel in die Zielseite - immer knapp AUSSERHALB des
-## Balkenquerschnitts, nie hindurch, und ÜBERALL gleich breit.
-static func trace_samples() -> Array:
-	var half := TRACE_WIDTH * 0.5
-	# Ecken der Führung, danach verrundet - scharfe Knicke sähen wie Blech aus.
-	var corners: Array[Vector2] = [
-		Vector2(FACE_RIDE, TRACE_START),
-		Vector2(FACE_RIDE, WALL_B),   # bis an die Balkenwand
-		Vector2(BEAM_RIDE, WALL_B),   # die Wand hinauf
-		Vector2(BEAM_RIDE, BEAM_RIDE),  # über die Außenecke
-		Vector2(WALL_B, BEAM_RIDE),   # die andere Wand hinunter
-		Vector2(WALL_B, FACE_RIDE),   # auf die Zielseite
-		Vector2(TRACE_START, FACE_RIDE),
-	]
-	var samples: Array = []
-	for point in _fillet(corners, FILLET, FILLET_STEPS):
-		samples.append([point, half])
-	return samples
-
-## Verrundet die Ecken eines Polygonzugs (quadratische Bezier je Ecke).
-static func _fillet(points: Array[Vector2], radius: float, steps: int) -> Array[Vector2]:
-	var out: Array[Vector2] = [points[0]]
-	for i in range(1, points.size() - 1):
-		var p := points[i]
-		var a := p + (points[i - 1] - p).normalized() * radius
-		var b := p + (points[i + 1] - p).normalized() * radius
-		out.append(a)
-		for s in range(1, steps):
-			var k := float(s) / float(steps)
-			out.append(a.lerp(p, k).lerp(p.lerp(b, k), k))
-		out.append(b)
-	out.append(points[points.size() - 1])
-	return out
-
-# Ein Band je Achsenpaar - alle Würfel teilen sie (24 Paare, einmal gebaut).
-static var _trace_mesh_cache := {}
-
-## Band der Bahn von src_axis nach tgt_axis. UV.y ist die BOGENLÄNGE (0 = Pad,
-## 1 = Spitze) - daraus fährt der Shader den Lichtkopf.
-static func trace_mesh(src_axis: String, tgt_axis: String) -> ArrayMesh:
-	var key := "%s>%s" % [src_axis, tgt_axis]
-	if _trace_mesh_cache.has(key):
-		return _trace_mesh_cache[key]
-	var d: Vector3 = DiceController.AXIS_DIRECTIONS[src_axis]
-	var t: Vector3 = DiceController.AXIS_DIRECTIONS[tgt_axis]
-	# Der ganze Weg liegt in der Ebene (d, t) - die Bandbreite steht konstant
-	# senkrecht darauf, das Band liegt also überall flach auf dem Würfel.
-	var w := d.cross(t).normalized()
-	var samples := trace_samples()
-	var lengths: Array[float] = [0.0]
-	var total := 0.0
-	for i in range(1, samples.size()):
-		total += (samples[i][0] as Vector2).distance_to(samples[i - 1][0])
-		lengths.append(total)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for i in range(samples.size() - 1):
-		var s0 := lengths[i] / total
-		var s1 := lengths[i + 1] / total
-		var c0: Vector2 = samples[i][0]
-		var c1: Vector2 = samples[i + 1][0]
-		var p0 := c0.x * d + c0.y * t
-		var p1 := c1.x * d + c1.y * t
-		var h0: float = samples[i][1]
-		var h1: float = samples[i + 1][1]
-		for corner in [[p0 - w * h0, 0.0, s0], [p0 + w * h0, 1.0, s0],
-				[p1 + w * h1, 1.0, s1], [p0 - w * h0, 0.0, s0],
-				[p1 + w * h1, 1.0, s1], [p1 - w * h1, 0.0, s1]]:
-			st.set_uv(Vector2(corner[1], corner[2]))
-			st.add_vertex(corner[0])
-	var mesh: ArrayMesh = st.commit()
-	_trace_mesh_cache[key] = mesh
-	return mesh
 
 ## Schreibt eine Augenzahl (FaceValue): ab vier Stellen groß die Kombinationsziffer,
 ## klein darüber die Größe als Kind-Label - es folgt der Ziffer in Lage und Drehung.

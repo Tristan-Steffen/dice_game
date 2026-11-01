@@ -482,7 +482,7 @@ func test_the_magic_card_grows_only_the_combination_bone():
 	# (Vollzähler/Krypton) nicht - sonst liefen Simulation und Def auseinander.
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m([DieMaterial.BONE, DieMaterial.BONE]),
-		_p([0, 1]), _ids([Charm.MAGIC_CARD]), -1, {}, _p([0, 1]), false, _p([0, 1]), {}, 0, 0,
+		_p([0, 1]), _ids([Charm.MAGIC_CARD]), -1, {}, _p([0, 1]), false, _p([0, 1]), 0, 0,
 		[] as Array[DieDefinition], _p([0]))
 	assert_eq(defs[0].faces[0], 9, "Kombinations-Würfel: zwei Auslösungen à +2")
 	assert_eq(defs[1].faces[0], 7, "nur mitgewertet: eine Auslösung")
@@ -799,7 +799,7 @@ func _plan_sum(plan: Dictionary) -> int:
 			total += amount
 	return total
 
-## Fälle: [Name, Seiten-Material, Zustand, Charms, Seelen, Pointer-Zündungen].
+## Fälle: [Name, Seiten-Material, Zustand, Charms, Seelen, Rest].
 func _activation_money_cases() -> Array:
 	return [
 		["Neon einfach", "", 1, [], [Essence.NEON], {}],
@@ -809,8 +809,6 @@ func _activation_money_cases() -> Array:
 		["Gold veredelt", DieMaterial.GOLD, 2, [], [], {}],
 		["Gold im Härteofen", DieMaterial.GOLD, 2, [Charm.KILN], [], {}],
 		["Gold + Seele", DieMaterial.GOLD, 1, [], [Essence.NEON], {}],
-		["Gold-Glied", "", 1, [], [],
-			{0: [[{"face": 2, "value": 3, "material": DieMaterial.GOLD, "level": 1}]]}],
 	]
 
 func test_activation_money_is_planned_exactly_as_the_take_reports_it():
@@ -821,11 +819,10 @@ func test_activation_money_is_planned_exactly_as_the_take_reports_it():
 		var ids := _ids(case[3])
 		var souls := _ids(case[4])
 		var essences := {0: souls} if not souls.is_empty() else {}
-		var fires: Dictionary = case[5]
 		var plan := MaterialEffects.plan_activation_money([def] as Array[DieDefinition], _p([0]),
-			_m([case[1]]), _p([0]), ids, -1, essences, _p([0]), false, fires)
+			_m([case[1]]), _p([0]), ids, -1, essences, _p([0]), false)
 		var report := MaterialEffects.apply_take_effects([def] as Array[DieDefinition], _p([0]),
-			_m([case[1]]), _p([0]), ids, -1, essences, _p([0]), false, _p([0]), fires)
+			_m([case[1]]), _p([0]), ids, -1, essences, _p([0]), false, _p([0]))
 		assert_eq(report.activation_money, _plan_sum(plan), "%s: Plan == Bericht" % label)
 		assert_eq(report.money, 0, "%s: nichts davon bleibt in money" % label)
 		assert_gt(report.total_money(), 0, "%s: es floss überhaupt Geld" % label)
@@ -899,7 +896,7 @@ func test_work_hardening_lands_in_sim_and_def_alike():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	var no_defs: Array[DieDefinition] = []
 	var report := MaterialEffects.apply_take_effects(defs, _p([0]), _m([""]), _p([0]),
-		NO_CHARMS, -1, {}, _p([0]), false, _p([]), {}, 0, 0, no_defs, _p([]), 1)
+		NO_CHARMS, -1, {}, _p([0]), false, _p([]), 0, 0, no_defs, _p([]), 1)
 	assert_eq(defs[0].faces[0], 6, "eine Zündung, ein Auge")
 	assert_true(report.grown.has(0), "die Seite meldet sich als gewachsen")
 	# Die Wertung zählt dieselbe Folge: Argon lässt Slot 0 zweimal zünden, die
@@ -919,13 +916,13 @@ func test_a_burned_slot_fires_nothing_in_the_take():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]),
 		_m([DieMaterial.GOLD, DieMaterial.GOLD]), _p([0, 1]), NO_CHARMS, -1, {}, _p([]),
-		false, _p([]), {}, 0, 0, [] as Array[DieDefinition], _p([]), 0, _p([1]))
+		false, _p([]), 0, 0, [] as Array[DieDefinition], _p([]), 0, _p([1]))
 	assert_eq(report.total_money(), 3, "nur der heile Würfel zahlt")
 
 func test_a_burned_slot_grows_no_bone():
 	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]),
-		NO_CHARMS, -1, {}, _p([]), false, _p([]), {}, 0, 0, [] as Array[DieDefinition],
+		NO_CHARMS, -1, {}, _p([]), false, _p([]), 0, 0, [] as Array[DieDefinition],
 		_p([]), 0, _p([0]))
 	assert_eq(defs[0].faces[0], 5, "die Seite bleibt, wie sie war")
 

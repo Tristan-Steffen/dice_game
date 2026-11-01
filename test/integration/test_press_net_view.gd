@@ -55,12 +55,11 @@ func test_the_net_carries_edge_chip_runes_and_badges() -> void:
 	die.set_face_material(1, DieMaterial.GOLD)
 	die.dope(1)
 	die.set_rune(2, Rune.AFTERGLOW)
-	die.pointers[0] = DieDefinition.adjacent_faces(0)[0]
 	_build()
 	var kinds := {}
 	for child in net.get_children():
 		kinds[child.get_class()] = true
-	assert_gt(net.get_child_count(), 6, "über den Zellen liegen Chip, Rune und Pfeil")
+	assert_gt(net.get_child_count(), 6, "über den Zellen liegen Chip, Rune und Plakette")
 
 # --- Die Vorschau: das Netz zeigt den Zustand NACH der Serie -----------------------
 
@@ -73,7 +72,7 @@ func test_a_raised_face_reads_as_an_arrow() -> void:
 	assert_true(net.touches(3))
 	assert_false(net.touches(0))
 
-func test_the_preview_die_carries_material_rune_and_pointer() -> void:
+func test_the_preview_die_carries_material_and_rune() -> void:
 	var card := StampNet.empty_net()
 	card[1] = StampNet.material_cell(DieMaterial.RUBY)
 	card[2] = StampNet.rune_cell(Rune.AFTERGLOW)
@@ -164,14 +163,27 @@ func test_the_arrow_straddles_the_rim_towards_its_target() -> void:
 	assert_almost_eq(mid.x, rim.x, 0.01, "seine Mitte liegt auf der rechten Kante")
 	assert_almost_eq(mid.y, rim.y, 0.01, "mittig auf ihr - halb drüber, wie am Würfel")
 
-func test_the_sum_net_draws_the_pointer_beside_the_number() -> void:
-	var projection := {"bonus": [3, 0, 0, 0, 0, 0], "pointers": [4, -1, -1, -1, -1, -1]}
+## Die Summe zeigt das ERGEBNIS: eine Kopie steht schon in der Zelle, ohne Pfeil,
+## und die Zelle nennt ihre Herkunft.
+func test_the_sum_net_shows_a_copy_as_its_result() -> void:
+	var values := StampNet.empty_net()
+	values[0] = StampNet.value_cell(3)
+	var pointer := StampNet.empty_net()
+	pointer[0] = StampNet.pointer_cell(4)
+	var projection := SeriesResolver.resolve([values, pointer], null)
 	var sum := PressNetView.sum_net(projection, 12.0)
 	add_child_autofree(sum)
-	var chip: Panel = sum.get_child(0)
-	assert_eq((chip.get_node("CellMark") as Label).text, "+3", "die Zahl bleibt im Feld")
-	assert_not_null(sum.get_node_or_null("PointerMark0"), "und der Pfeil steht auf dem Rand")
-	assert_null(sum.get_node_or_null("PointerMark1"), "ohne Pointer kein Pfeil")
+	assert_null(sum.get_node_or_null("PointerMark0"), "kein Pfeil im Summen-Netz")
+	assert_eq(PressNetView.projection_hint(projection, 4), "+3 Augen  ·  kopiert von Seite 1")
+	assert_eq(PressNetView.copied_from(projection, 4), 0)
+	assert_eq(PressNetView.copied_from(projection, 0), -1)
+
+func test_an_empty_source_names_its_fizzle() -> void:
+	var pointer := StampNet.empty_net()
+	pointer[0] = StampNet.pointer_cell(1)
+	net.projection = SeriesResolver.resolve([pointer], die)
+	_build()
+	assert_eq(net.hint_for_face(0), "verpufft: Ursprungsseite trägt noch nichts")
 
 ## Eine SUMMEN-Zelle traegt MEHRERE Kanaele zugleich - anders als eine Karten-Zelle,
 ## die genau eines traegt. Das ist das Vorbild fuer jede dichtere Zelle, also steht es

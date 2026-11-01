@@ -55,14 +55,14 @@ func test_offerable_hides_charms_whose_soul_is_missing():
 	assert_eq(without.size(), Charm.all().size() - Charm.ESSENCE_REQUIREMENT.size())
 
 func test_offerable_lets_the_owned_soul_through():
-	var owned := _ids([Essence.PLASMA])
+	var owned := _ids([Essence.OZONE])
 	var pool := Charm.offerable(Charm.all(), owned)
 	var found := false
 	for charm in pool:
-		if charm.id == Charm.IGNITION_COIL:
+		if charm.id == Charm.STORM_FRONT:
 			found = true
 		assert_ne(charm.id, Charm.BELL_JAR, "das Vakuum fehlt im Pool")
-	assert_true(found, "die Zündspule liegt zum Plasma-Würfel")
+	assert_true(found, "die Gewitterfront liegt zum Ozon-Würfel")
 
 func test_the_shop_pool_follows_the_pool_of_dice():
 	var run := GameRun.new_run()
@@ -302,26 +302,6 @@ func test_the_censer_spreads_without_paying():
 		_ids([Charm.CENSER]), -1, {0: Essence.MIASMA}, _p([0, 1]))
 	assert_eq(miasma.faces[0], 10, "die Quelle verliert nichts mehr")
 	assert_eq(mate.faces[0], 1 + 5, "angesteckt wird trotzdem")
-
-func test_the_ignition_coil_fires_every_plasma_link_twice():
-	var die := _die_with(Essence.PLASMA)
-	die.pointers[0] = 2
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	var groups := DiceScoring.roll_pointer_fires(die, 0, 1, 1, _ids([Charm.IGNITION_COIL]),
-		_ids([Essence.PLASMA]), rng)
-	var fires: Array = groups[0]
-	assert_gt(fires.size(), 0, "die doppelte Chance zündet")
-	assert_eq(fires.size() % 2, 0, "jedes Glied steht zweimal in der Liste")
-	assert_eq(int(fires[0]["face"]), 2)
-	assert_eq(int(fires[1]["face"]), 2)
-
-func test_plasma_gives_the_pointer_a_second_shot():
-	# Aggregiert, nicht mal zwei: 1 − (1−p)². Die 100 % bleiben unerreichbar.
-	assert_almost_eq(EssenceEffects.pointer_chance(Essence.PLASMA, 0.5), 0.75, 0.0001)
-	assert_almost_eq(EssenceEffects.pointer_chance(Essence.PLASMA, 0.25), 0.4375, 0.0001)
-	assert_lt(EssenceEffects.pointer_chance(Essence.PLASMA, 0.99), 1.0)
-	assert_almost_eq(EssenceEffects.pointer_chance(Essence.NEON, 0.25), 0.25, 0.0001)
 
 # --- Speicher & Vorrat ------------------------------------------------------------
 

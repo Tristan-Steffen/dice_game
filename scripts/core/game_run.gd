@@ -731,6 +731,13 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 			aftercare.append(pack.catalyst_id)
 	return terms
 
+## Die EINE Quelle der Serien-Terme für Vorschau, Buchung und Durchlicht: die
+## Katalysatoren plus der Lötkolben aus dem Dock (pointer_add).
+func series_terms(catalysts: Array[Pack]) -> Dictionary:
+	var terms := catalyst_terms(catalysts)
+	terms["pointer_add"] = charm_ids().has(Charm.SOLDERING_IRON)
+	return terms
+
 ## Die Prämie der Nebenwette: der nächsten Serie einen Slot mehr. Sie stapelt sich
 ## nicht - ein zweiter Gewinn erneuert dieselbe Vormerkung.
 func grant_press_boost() -> void:
@@ -771,7 +778,7 @@ func _series_parts(indices: Array[int]) -> Dictionary:
 func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
 	var parts := _series_parts(_series_indices(pack_uids))
 	return SeriesResolver.resolve(parts["nets"], die,
-		catalyst_terms(parts["catalysts"]))
+		series_terms(parts["catalysts"]))
 
 ## --- DIE VERDICHTUNG (2026-10-26) ----------------------------------------------
 ## Mehrere gewöhnliche Karten werden zu EINER dichteren gepresst. Der ROHLING aus dem
@@ -782,7 +789,7 @@ func resolve_series(pack_uids: Array[int], die: DieDefinition) -> Dictionary:
 
 ## Die Futter-Netze einer Verdichtung, plus was sie SPERRT. Verdichtet wird nur, was
 ## ein Netz trägt: Katalysatoren wirken auf einen WÜRFEL und würden hier bloß
-## verbraucht, Operatoren rechnen auf der aufgelaufenen Summe und lassen sich darum
+## verbraucht, Operatoren und Pointer schreiben auf FREMDE Seiten und lassen sich darum
 ## gar nicht auf eine Zelle zusammenlegen.
 func _compress_parts(indices: Array[int]) -> Dictionary:
 	var nets: Array = []
@@ -797,6 +804,8 @@ func _compress_parts(indices: Array[int]) -> Dictionary:
 			# Ein Rohling verdichtet nicht in den nächsten - sonst wüchse EINE Karte
 			# ohne Grenze weiter (Spieler-Entscheid 2026-10-26).
 			blocker = "compressed"
+		elif not SeriesResolver.compressible([pack.stamp_net]):
+			blocker = "pointer"
 		elif not StampNet.is_blank(pack.stamp_net):
 			nets.append(pack.stamp_net)
 	return {"nets": nets, "blocker": blocker}
@@ -856,7 +865,7 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 		return {}
 	var parts := _series_parts(chosen)
 	var nets: Array = parts["nets"]
-	var terms := catalyst_terms(parts["catalysts"])
+	var terms := series_terms(parts["catalysts"])
 	var repairs := bool(terms["repair"])
 	var aftercare: Array[String] = terms["aftercare"]
 	if die.burned_out and not repairs:
@@ -906,9 +915,6 @@ func _project(die: DieDefinition, projection: Dictionary) -> void:
 		for slot in runes.size():
 			if String(runes[slot]) != "":
 				die.set_rune(face, String(runes[slot]), slot, extra)
-		var target := int(projection["pointers"][face])
-		if target >= 0:
-			die.pointers[face] = target
 
 ## Karten verbrauchen: je Karte ein Überlebens-Wurf der Zwinge - eine Überlebende
 ## hat trotzdem voll gewirkt und bleibt im Magazin. Gilt für JEDE Karte der Serie,
@@ -1358,7 +1364,7 @@ func deal_unused_die_bonus() -> int:
 	return SAVINGS_DIE_BONUS * deal_bonus_factor() if _clause_active(DealClause.SAVINGS_BONUS) else 0
 
 ## Kaltverfestigung: ein Knochen auf Zeit - jede ausgelöste Seite (obere Seite
-## wie gezündetes Pointer-Glied) wächst dauerhaft um so viele Augen.
+## wie deterministisches Glied) wächst dauerhaft um so viele Augen.
 func clause_face_growth() -> int:
 	return WORK_HARDENING_GROWTH * deal_bonus_factor() if _clause_active(DealClause.WORK_HARDENING) else 0
 
@@ -2557,24 +2563,6 @@ func clear_all_materials() -> void:
 			levels.append(0)  # ohne Material kein Zustand
 		die.materials = mats
 		die.levels = levels
-	pool_changed.emit()
-
-## Legt jedem Pool-Würfel 1-5 zufällige Pointer (je Seite höchstens eine,
-## nur zu Nachbarn). Jeder Würfel bekommt ein frisches pointers-Array.
-func randomize_all_pointers() -> void:
-	for die in owned_pool:
-		var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
-		var faces: Array[int] = [0, 1, 2, 3, 4, 5]
-		faces.shuffle()
-		for i in randi_range(1, 5):
-			var face: int = faces[i]
-			pointers[face] = DieDefinition.adjacent_faces(face).pick_random()
-		die.pointers = pointers
-	pool_changed.emit()
-
-func clear_all_pointers() -> void:
-	for die in owned_pool:
-		die.pointers = [-1, -1, -1, -1, -1, -1] as Array[int]
 	pool_changed.emit()
 
 ## Verteilt Seelen über den ganzen Pool. Der EINZIGE Weg im Spiel, der eine

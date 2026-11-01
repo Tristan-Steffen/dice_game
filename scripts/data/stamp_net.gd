@@ -22,7 +22,7 @@ const KIND_POINTER := "pointer"    # {"to": Nachbarseite}
 ## Die VERDICHTETE Zelle (2026-10-26): sie trägt mehrere Kanäle zugleich, denn sie
 ## ist aus mehreren Karten zusammengepresst. Nur die VERDICHTUNG erzeugt sie, kein
 ## Wurf - darum steht sie in keiner Wurftabelle.
-const KIND_COMPOUND := "compound"  # {"factor": int, "value": int, "id", "dope", "rune", "to"}
+const KIND_COMPOUND := "compound"  # {"factor": int, "value": int, "id", "dope", "rune"}
 
 ## --- Die OPERATOREN ------------------------------------------------------------
 ## Sonderbestand: genau eine Operator-Zelle je Karte. Sie rechnen ausschließlich im
@@ -118,14 +118,14 @@ static func pointer_cell(to_face: int) -> Dictionary:
 ## Eine VERDICHTETE Zelle. factor 1 heißt "kein Multiplikator" (Identität), denn beim
 ## Prägen rechnet sie affin: Summe × factor + value.
 static func compound_cell(factor: int, value: int, material := "", dope := false,
-		rune := "", to := -1) -> Dictionary:
+		rune := "") -> Dictionary:
 	return {"kind": KIND_COMPOUND, "factor": maxi(factor, 1), "value": value,
-		"id": material, "dope": dope, "rune": rune, "to": to}
+		"id": material, "dope": dope, "rune": rune}
 
 ## Die Aufschrift einer verdichteten Zelle in MATHEMATISCHER Notation (Spieler-Entscheid
 ## 2026-10-26): "4x+9" heißt "vier mal die aufgelaufene Summe, plus neun". Das x ist die
 ## Variable, nicht das Malzeichen - darum nicht das × der Faktor-Zelle. "" = sie rechnet
-## nicht und trägt nur Material, Rune oder Pointer.
+## nicht und trägt nur Material oder Rune.
 static func compound_glyph(cell: Dictionary) -> String:
 	var factor := int(cell.get("factor", 1))
 	var value := int(cell.get("value", 0))
@@ -355,7 +355,7 @@ static func cell_hint(cell: Dictionary) -> String:
 		KIND_DOPE:
 			return "Veredelung: sättigt das Material dieser Seite"
 		KIND_POINTER:
-			return "Pointer: verdrahtet diese Seite auf Seite %d" % (int(cell.get("to", 0)) + 1)
+			return "Pointer: kopiert diese Seite auf Seite %d" % (int(cell.get("to", 0)) + 1)
 		KIND_COMPOUND:
 			return _compound_hint(cell)
 	return ""
@@ -379,9 +379,6 @@ static func _compound_hint(cell: Dictionary) -> String:
 	var rune := String(cell.get("rune", ""))
 	if rune != "":
 		parts.append(cell_hint(rune_cell(rune)))
-	var to := int(cell.get("to", -1))
-	if to >= 0:
-		parts.append(cell_hint(pointer_cell(to)))
 	if parts.is_empty():
 		return ""
 	return "Verdichtet - %s" % " · ".join(parts)

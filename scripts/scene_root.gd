@@ -365,11 +365,6 @@ enum Phase { IDLE, SHELL_ANIMATING, ROLLING, SCORING, PAYOUT, SHOP, GAME_OVER }
 var test_materials_button: Button
 var test_materials_enabled: bool = false
 
-## Zweiter Testmodus: 1-5 zufällige Pointer auf ALLEN Würfeln an/aus -
-## getrennt von den Materialien, damit die Kette allein prüfbar bleibt.
-var test_pointers_button: Button
-var test_pointers_enabled: bool = false
-
 ## Dritter Testmodus, kein Schalter sondern eine LIEFERUNG: je Datenkarten-Sorte
 ## außer den Würfel-Paketen ein voller Stapel ins Regal, damit die Presse ohne
 ## Einkaufsrunden geprüft werden kann.
@@ -831,10 +826,7 @@ var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfe
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
 var pre_reroll_first_scoring: Dictionary = {}  # Erstwertungs-Marken VOR dem Neu-Würfeln
-## Der einzige Zufall der Wertung: der Pointer. Ein eigener Generator, damit
-## der Wurf je Zug genau EINMAL fällt und danach im ctx eingefroren steht.
-var pointer_rng := RandomNumberGenerator.new()
-## Eigener Würfelbecher der LADUNG - so verschiebt sie die Pointer-Würfe nicht.
+## Eigener Würfelbecher der LADUNG - der einzige Zufall der Wertung.
 var charge_rng := RandomNumberGenerator.new()
 ## Was die letzte Buchung der Ladung bewegt hat (Zug, Fumble, Rundenende) - die
 ## Zeremonien der Welle 3 hängen daran, heute liest sie niemand.
@@ -1840,7 +1832,6 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.debug_energy_requested.connect(_on_debug_energy_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
-		table_screen.hub.test_pointers_requested.connect(_on_test_pointers_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.test_charges_requested.connect(_on_test_charges_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
@@ -1858,13 +1849,6 @@ func _setup_settings_ui() -> void:
 	settings_menu.add_child(test_materials_button)
 	CasinoStyle.style_button(test_materials_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
 	_refresh_test_materials_button()
-
-	test_pointers_button = Button.new()
-	test_pointers_button.custom_minimum_size = Vector2(0, 48)
-	test_pointers_button.pressed.connect(_on_test_pointers_pressed)
-	settings_menu.add_child(test_pointers_button)
-	CasinoStyle.style_button(test_pointers_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
-	_refresh_test_pointers_button()
 
 	test_engravings_button = Button.new()
 	test_engravings_button.text = HubView.TEST_PACKS_LABEL
@@ -10676,7 +10660,7 @@ func _shown_pit_values() -> Array[int]:
 		{DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets()})
 
 ## Runen je Wurf-Slot (Slot -> Liste der Runen auf der OBEN liegenden Seite).
-## Einmal HIER aufgelöst, wie die Pointer-Ketten - das Nachglühen ändert
+## Einmal HIER aufgelöst - das Nachglühen ändert
 ## Auslösungen, also muss auch der Farkle-Vergleich dieselben Runen sehen.
 func _slot_runes() -> Dictionary:
 	var out := {}
@@ -10763,8 +10747,7 @@ func _effective_essence_sets() -> Dictionary:
 
 ## Runen-Glieder je Wurf-Slot (Kehrseite): einmal HIER aufgelöst, damit
 ## Vorschau, Nehmen und Farkle-Vergleich dieselben Glieder sehen - über
-## dieselbe Quelle wie die Nehmen-Effekte. Der Pointer steht NICHT hier: er
-## wird beim Nehmen ausgewürfelt.
+## dieselbe Quelle wie die Nehmen-Effekte.
 func _det_links() -> Dictionary:
 	return _link_map(false)
 
@@ -10797,7 +10780,7 @@ func _link_map(essence: bool) -> Dictionary:
 			var level := MaterialEffects.face_level(def, link_face)
 			var running: int = def.faces[link_face]
 			# Der Stichel lässt die Kehrseite zweimal zünden; der Wert wandert dabei
-			# mit wie beim Pointer-Wurf (Knochen wächst zwischen den Zündungen).
+			# mit (Knochen wächst zwischen den Zündungen).
 			var fires := 1 if essence else EssenceEffects.det_link_fire_count(face, link_face, rune_ids, ids)
 			for _s in fires:
 				entries.append({
@@ -10813,41 +10796,6 @@ func _link_map(essence: bool) -> Dictionary:
 					level, essence_ids, run.clause_face_growth())
 		links[i] = entries
 	return links
-
-## Würfelt die Pointer aller gewerteten Würfel aus - GENAU EINMAL je Zug, im
-## Moment des Nehmens, wenn Kategorie, Zählreihenfolge und Echo-Slot feststehen.
-## Auswahl-indiziert wie der übrige Zug-ctx; das Ergebnis wird eingefroren, nie
-## neu gewürfelt (sonst zahlte der Zug andere Glieder, als er gezählt hat).
-func _roll_pointer_fires(key: String, sel_values: Array[int], slots: Array[int], ids: Array[String], sel_ctx: Dictionary) -> Dictionary:
-	var shape := DiceScoring.hand_shape(key, sel_values, ids, sel_ctx)
-	var order: Array[int] = shape["order"]
-	var echo_slot: int = shape["echo_slot"]
-	var tail_slot: int = shape["tail_slot"]
-	var combination: Array[int] = shape["participating"]
-	var essences := DiceScoring.essence_sets_in(sel_ctx)
-	var runes := DiceScoring.runes_in(sel_ctx)
-	var is_stress := GameRun.is_stress_round(run.round_number)
-	var shown := DiceScoring.shown_values(sel_values, ids, sel_ctx)
-	var hands_taken := int(sel_ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
-	var fires := {}
-	for k in order:
-		var slot: int = slots[k]
-		var def: DieDefinition = dice.slot_defs[slot]
-		var face: int = dice.face_indices[slot]
-		if def == null or face < 0 or def.pointer_target(face) < 0:
-			continue
-		var essence_ids := EssenceEffects.set_at(essences, k)
-		var rune_ids := RuneEffects.runes_at(runes, k)
-		var die_triggers := MaterialEffects.die_trigger_count(k, ids, echo_slot, essence_ids, is_stress,
-			EssenceEffects.extra_activations(k, order, essences, ids, shown, hands_taken), order.size(), tail_slot,
-			hands_taken == 0, combination.has(k))
-		var face_triggers := MaterialEffects.face_trigger_count(shown[k], ids, RuneEffects.extra_activations(rune_ids, ids), essence_ids)
-		# Auch der reine Fehlwurf wird eingefroren: das Erdungskabel zählt genau die
-		# leeren Gruppen, und im ctx stehen nur Würfel MIT Pointer.
-		fires[k] = DiceScoring.roll_pointer_fires(def, face, die_triggers, face_triggers,
-			ids, essence_ids, pointer_rng,
-			EssenceEffects.essence_repeat_count(k, order, essences, ids), run.clause_face_growth())
-	return fires
 
 ## Material-Infos je Wurf-Slot: der Zustand des Materials der OBEREN Seite, dazu
 ## die Augensumme (Bernstein zahlt sie in beiden Zuständen).
@@ -11019,7 +10967,7 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	# Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl umschlüsseln,
 	# sonst feuern sie am falschen Würfel (gilt für beide Glieder-Schlüssel).
 	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_ESSENCE_LINKS,
-			DiceScoring.CTX_POINTER_FIRES, DiceScoring.CTX_CHARGE_ROLLS]:
+			DiceScoring.CTX_CHARGE_ROLLS]:
 		var mapped_links := {}
 		var links: Dictionary = ctx.get(link_key, {})
 		for s in links:
@@ -11796,19 +11744,15 @@ func _on_take_button_pressed() -> void:
 	# is_first_hand VOR dem Hochzählen von hands_taken_this_round auswerten.
 	var sel_ctx := _score_ctx_for_slots(slots)
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
-	# Die Kategorie steht - jetzt die Pointer EINMAL auswürfeln und einfrieren.
-	# Ab hier lesen Wertung, Schrittliste und Nehmen-Effekte dasselbe Ergebnis;
-	# hand["score"] ist damit veraltet, gezahlt wird breakdown["total"].
-	var sel_fires := _roll_pointer_fires(String(hand["key"]), sel_values, slots, ids, sel_ctx)
-	sel_ctx[DiceScoring.CTX_POINTER_FIRES] = sel_fires
 	# EINE Quelle wie in der Wertung - sonst nähme der Zug einen anderen Echo-Kopf
 	# als die Punkte, die er gerade gezeigt hat.
 	var sel_shape := DiceScoring.hand_shape(hand["key"], sel_values, ids, sel_ctx)
 	var sel_participating: Array[int] = sel_shape["participating"]
 	var sel_scored: Array[int] = sel_shape["scored"]
 	var sel_order: Array[int] = sel_shape["order"]
-	# LADUNG: die Würfe der Zündungen EINMAL je Zug auswürfeln und einfrieren, wie
-	# die Pointer - danach ist die Wertung wieder rein.
+	# LADUNG: die Würfe der Zündungen EINMAL je Zug auswürfeln und einfrieren -
+	# danach ist die Wertung wieder rein; hand["score"] ist damit veraltet,
+	# gezahlt wird breakdown["total"].
 	sel_ctx[DiceScoring.CTX_CHARGE_ROLLS] = DiceScoring.roll_charge_rolls(sel_scored, charge_rng)
 	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
 	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
@@ -11826,7 +11770,7 @@ func _on_take_button_pressed() -> void:
 	ScoreBreakdown.attach_activation_money(breakdown, MaterialEffects.plan_activation_money(
 		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
-		GameRun.is_stress_round(run.round_number), sel_fires, hands_taken_this_round,
+		GameRun.is_stress_round(run.round_number), hands_taken_this_round,
 		sel_participating, sel_burned))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
@@ -11886,14 +11830,9 @@ func _on_take_button_pressed() -> void:
 	var echo_sel: int = sel_shape["echo_slot"]
 	var echo_slot := slots[echo_sel] if echo_sel >= 0 else -1
 	var take_order := DiceScoring.trigger_order(participating, _shown_pit_values(), player_order, combination)
-	# Der gezündete Pointer zurück auf echte Slots - der ctx sprach in Auswahl-
-	# Indizes, die Nehmen-Effekte arbeiten am Pool.
-	var slot_fires := {}
-	for k in sel_fires:
-		slot_fires[slots[int(k)]] = sel_fires[k]
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, _effective_essence_sets(), take_order,
-		GameRun.is_stress_round(run.round_number), _visible_pit_slots(), slot_fires,
+		GameRun.is_stress_round(run.round_number), _visible_pit_slots(),
 		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
 		run.clause_face_growth(), burned_slots)
 	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
@@ -12233,8 +12172,7 @@ func _pay_die_fees(die_fee: int) -> void:
 ## (Quecksilber, Retrigger-Charms, Echo-Kammer) als Verzahnung sichtbar.
 ## false = Abbruch (Reset).
 func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary) -> bool:
-	# Je Würfel-Trigger erst seine Seiten-Zündungen, dann die Pointer, die für
-	# ihn gezündet hat - ein danebengegangener Wurf zeigt schlicht nichts.
+	# Je Würfel-Trigger erst seine Seiten-Zündungen, dann sein Röntgen-Glied.
 	for group: Dictionary in step["die_triggers"]:
 		for pulse: Dictionary in group["firings"]:
 			if not await _play_die_pulse(pulse, slot, die_px, gain_px, glow_by_slot,
@@ -12259,7 +12197,7 @@ func _play_die_links(links: Array, slot: int, die_px: Vector2, gain_px: Vector2,
 			return false
 	return true
 
-## Eine Auslösung des Würfel-Schritts - Aktivierung ODER Pointer-Glied:
+## Eine Auslösung des Würfel-Schritts - Aktivierung ODER Glied:
 ## Augen+Material-Komet, dann Charm-Anteil vom Dock-Pad, dann JEDER Krit als
 ## eigener Schlag (crit_steps). false = Abbruch (Reset).
 func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vector2, glow_by_slot: Dictionary, eye_charm_indices: Array) -> bool:
@@ -12778,7 +12716,7 @@ func _flash_charm_and_pad(index: int) -> void:
 		table_screen.charm_dock.flash_pad(slot)
 
 ## Zuwachs eines Zählschritts als schwebende Zahl aus der Quelle: "+N" bzw.
-## "×N"; Basis cyan, Mult gold. Rein schmückend, zusätzlich zu den Pointern.
+## "×N"; Basis cyan, Mult gold. Rein schmückend.
 func _spawn_score_gains(source_px: Vector2, base_add: int, mult_add: int, base_x: int = 1, mult_x: float = 1.0) -> void:
 	if base_add != 0:
 		table_screen.spawn_gain_number(source_px, "+%d" % base_add, table_screen.TRAIL_BASE_COLOR)
@@ -13044,22 +12982,6 @@ func _refresh_test_materials_button() -> void:
 		test_materials_button.text = label
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_test_materials_label(label)
-
-## Pointer-Testmodus umschalten: An = 1-5 zufällige Pointer auf allen
-## Würfeln; Aus = alle entfernen. Wie die Materialien startet es die Runde neu.
-func _on_test_pointers_pressed() -> void:
-	test_pointers_enabled = not test_pointers_enabled
-	if not test_pointers_enabled:
-		run.clear_all_pointers()
-	_refresh_test_pointers_button()
-	_start_new_round()
-
-func _refresh_test_pointers_button() -> void:
-	var label := "🧪 Testpointer: %s" % ("AN" if test_pointers_enabled else "aus")
-	if test_pointers_button != null:
-		test_pointers_button.text = label
-	if table_screen != null and table_screen.hub != null:
-		table_screen.hub.set_test_pointers_label(label)
 
 ## Testlieferung: TEST_PACK_COUNT Datenkarten je Sorte ins Regal - Zahlen,
 ## Material, Runen und der Sonderbestand, aber KEINE Würfel-Pakete (die ändern
@@ -13382,8 +13304,6 @@ func _start_new_round() -> void:
 	if test_materials_enabled:
 		run.randomize_all_materials()
 		run.randomize_all_essences()
-	if test_pointers_enabled:
-		run.randomize_all_pointers()
 
 	# Der Stapel liegt bis zur Unterschrift in der POOL-Reihenfolge: das ganze
 	# Werkbank-Fenster über weiß der Spieler, wo ein Würfel steht (und ordnet ihn
@@ -14695,7 +14615,7 @@ func _log_display_state() -> Dictionary:
 	}
 
 ## Die liegende Grube als Chronik-Zeilen. Aufgezeichnet wird die SEITE, nicht nur
-## der Wert: Material, Rune und Pointer hängen an ihr, und ein Wert kann auf
+## der Wert: Material und Rune hängen an ihr, und ein Wert kann auf
 ## mehreren Seiten stehen.
 func _log_pit_state() -> Array[Dictionary]:
 	var pit: Array[Dictionary] = []

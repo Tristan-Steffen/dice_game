@@ -1459,6 +1459,8 @@ func stamp_blocker() -> String:
 				return "Keine Netz-Karte in der Reihe."
 			"operator":
 				return "Operatoren lassen sich nicht verdichten."
+			"pointer":
+				return "Pointer lassen sich nicht verdichten."
 			"catalyst":
 				return "Katalysatoren verdichten nicht - sie wirken auf einen Würfel."
 			"compressed":
@@ -1508,7 +1510,9 @@ func _sum_nets() -> Array:
 func _sum_terms() -> Dictionary:
 	if burning():
 		return _burn_terms
-	return GameRun.catalyst_terms(slotted_packs())
+	if run == null:
+		return GameRun.catalyst_terms(slotted_packs())
+	return run.series_terms(slotted_packs())
 
 ## Die Signatur der Quelle - nur ihr WECHSEL baut das Netz neu (gefragt je Bild).
 func _sum_view_signature() -> String:
@@ -1599,7 +1603,7 @@ func pull_lever() -> void:
 		return
 	var cards := _slot_cards()
 	var before := target_die().instantiate()
-	var terms := GameRun.catalyst_terms(slotted_packs())
+	var terms := run.series_terms(slotted_packs())
 	var anchor := hand_anchor_px()
 	press_started.emit()
 	# VOR der Buchung: ihr synchrones pool_changed fragt held_faces() schon, und der

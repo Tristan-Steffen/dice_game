@@ -136,6 +136,15 @@ func test_ein_operator_sperrt_die_verdichtung() -> void:
 	assert_eq(run.compress_series(_uids(fuel), blank.pack_uid, _rng(1)), {})
 	assert_true(blank.is_blank_card(), "der Rohling bleibt unberuehrt")
 
+## Ein Pointer schreibt ebenso auf eine FREMDE Seite.
+func test_ein_pointer_sperrt_die_verdichtung() -> void:
+	var blank := _blank()
+	var fuel := [_card({0: StampNet.value_cell(3)}), _card({0: StampNet.pointer_cell(1)})]
+	assert_eq(String(run.compressible_series(_uids(fuel), blank.pack_uid)["blocker"]),
+		"pointer")
+	assert_eq(run.compress_series(_uids(fuel), blank.pack_uid, _rng(1)), {})
+	assert_true(blank.is_blank_card(), "der Rohling bleibt unberuehrt")
+
 ## Ein Katalysator wirkt auf einen WUERFEL - hier wuerde er bloss verbraucht.
 func test_ein_katalysator_sperrt_die_verdichtung() -> void:
 	var blank := _blank()

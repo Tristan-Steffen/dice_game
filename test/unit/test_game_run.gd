@@ -741,47 +741,6 @@ func test_clear_all_materials_also_clears_the_levels():
 		for level: int in die.levels:
 			assert_eq(level, 0, "ohne Material keine Stufe")
 
-# --- Testhilfen: Zufalls-Pointer (Testmodus) --------------------------------
-
-func test_randomize_all_pointers_gives_every_die_one_to_five_valid_links():
-	run.randomize_all_pointers()
-	for die in run.owned_pool:
-		assert_eq(die.pointers.size(), 6, "weiterhin 6 Seiten")
-		var count := 0
-		for face in 6:
-			var target: int = die.pointers[face]
-			if target < 0:
-				continue
-			count += 1
-			assert_true(die.can_point(face, target),
-				"Seite %d zeigt auf einen Nachbarn (%d)" % [face, target])
-		assert_between(count, 1, 5, "1-5 Pointer je Würfel")
-
-func test_randomize_pointers_gives_each_die_an_independent_array():
-	run.randomize_all_pointers()
-	run.owned_pool[0].pointers[0] = 99
-	for i in range(1, run.owned_pool.size()):
-		assert_ne(run.owned_pool[i].pointers[0], 99, "Würfel %d teilt kein Array mit Würfel 0" % i)
-
-func test_randomize_pointers_varies_between_dice():
-	# Zufällig heißt: nicht alle 30 Würfel bekommen dieselbe Anzahl.
-	run.randomize_all_pointers()
-	var counts := {}
-	for die in run.owned_pool:
-		var count := 0
-		for target: int in die.pointers:
-			if target >= 0:
-				count += 1
-		counts[count] = true
-	assert_gt(counts.size(), 1, "die Anzahl streut über den Pool")
-
-func test_clear_all_pointers_removes_every_link():
-	run.randomize_all_pointers()
-	run.clear_all_pointers()
-	for die in run.owned_pool:
-		for target: int in die.pointers:
-			assert_eq(target, -1, "Pointer entfernt")
-
 # --- Testhilfen: Zufalls-Seelen (Testmodus) -------------------------------------
 
 func test_randomize_all_essences_gives_every_die_a_real_soul():

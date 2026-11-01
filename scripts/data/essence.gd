@@ -47,7 +47,6 @@ const BALL_LIGHTNING := "ball_lightning"
 const SOLAR_WIND := "solar_wind"
 const PHOTON_GAS := "photon_gas"
 const OZONE := "ozone"
-const PLASMA := "plasma"
 const VACUUM := "vacuum"
 const QUINTESSENCE := "quintessence"
 const AURORA := "aurora"
@@ -64,7 +63,6 @@ const SHOOTING_STAR := "shooting_star"
 const FOXFIRE := "foxfire"
 const BLACK_LIGHT := "black_light"
 const VOLCANIC_LIGHTNING := "volcanic_lightning"
-const OPTICAL_FIBER := "optical_fiber"
 const LIGHT_PILLAR := "light_pillar"
 const MIDNIGHT_SUN := "midnight_sun"
 const GAMMA_BURST := "gamma_burst"
@@ -207,11 +205,6 @@ static func ozone() -> Essence:
 		"Krit in der Höhe aller bisherigen Krits dieser Hand.",
 		"Krit ×(1 + Krits davor)", Rarity.EPIC, Color(0.78, 0.65, 0.95))
 
-static func plasma() -> Essence:
-	return _make(PLASMA, "Plasma",
-		"Pointer bekommen zwei Zündversuche statt einem.",
-		"Pointer zündet zweimal so wahrscheinlich", Rarity.EPIC, Color(0.78, 0.72, 1.0))
-
 ## Quintessenz: der fünfte Stoff - sie borgt sich die Seelen aller anderen
 ## liegenden Würfel. Legendär und damit Unikat, also gibt es nie den Fall
 ## "Quintessenz kopiert Quintessenz".
@@ -290,11 +283,6 @@ static func volcanic_lightning() -> Essence:
 		"Gewitter in der Aschewolke: jede seiner Auslösungen kritet ×(1 + Fumbles dieser Runde).",
 		"kritet ×(1 + Fumbles der Runde)", Rarity.EPIC, Color(1.0, 0.5, 0.15))
 
-static func optical_fiber() -> Essence:
-	return _make(OPTICAL_FIBER, "Glasfaser",
-		"Zündet einer seiner Pointer, feuert die Zielseite zweimal.",
-		"Pointer-Ziel feuert 2×", Rarity.EPIC, Color(0.6, 1.0, 0.95))
-
 static func light_pillar() -> Essence:
 	return _make(LIGHT_PILLAR, "Lichtsäule",
 		"Jeder andere gewertete Würfel mit gleicher Augenzahl löst +2× aus.",
@@ -333,11 +321,11 @@ static func all() -> Array[Essence]:
 		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(), acetylene(),
 		arc_lamp(),
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
-		solar_wind(), photon_gas(), ozone(), plasma(), vacuum(),
+		solar_wind(), photon_gas(), ozone(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), varnish(),
 		phosphorescence(), detonating_gas(), aurora(), quintessence(), antimatter(),
 		cherenkov(), shooting_star(), foxfire(), black_light(), volcanic_lightning(),
-		optical_fiber(), light_pillar(), midnight_sun(), background_radiation(), gamma_burst(),
+		light_pillar(), midnight_sun(), background_radiation(), gamma_burst(),
 		spark_gap(),
 	]
 

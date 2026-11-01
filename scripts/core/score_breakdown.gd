@@ -17,7 +17,7 @@ class_name ScoreBreakdown
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
 ## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" dieses
-## Triggers (gezündete Pointer und das Röntgen-Glied); die Runen-Glieder stehen
+## Triggers (das Röntgen-Glied); die Runen-Glieder stehen
 ## als "det_links" ganz zuletzt. Ein Puls ist Würfel-Puls -> Charm-Anteil
 ## -> Krit-Schläge, mit After-Ständen je Teilschritt; "crit_steps" listet JEDEN
 ## Krit einzeln (Material, Essenz, dann je Charm-Position), damit zwei Kopien auch
@@ -169,8 +169,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var once_mult := 0
 		var step_crit := 1.0
 		var first_firing := true
-		# Gruppen der WÜRFEL-Achse: je Trigger seine Seiten-Zündungen, die für ihn
-		# gewürfelten Pointer und das Röntgen-Glied. Ein Durchgang mehr - der
+		# Gruppen der WÜRFEL-Achse: je Trigger seine Seiten-Zündungen und das
+		# Röntgen-Glied. Ein Durchgang mehr - der
 		# letzte trägt nur die Runen-Glieder (Kehrseite).
 		var groups: Array[Dictionary] = []
 		var det_links: Array[Dictionary] = []
@@ -346,7 +346,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			var links: Array[Dictionary] = []
 			var links_now: Array = []
 			if t < die_count:
-				links_now = DiceScoring.pointer_fires_at(ctx, i, t) + DiceScoring.essence_links_at(essence_links, t)
+				links_now = DiceScoring.essence_links_at(essence_links, t)
 			else:
 				links_now = DiceScoring.repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)
 			for link in links_now:

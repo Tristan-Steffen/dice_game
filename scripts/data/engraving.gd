@@ -15,7 +15,7 @@ const CATEGORY_NUMBER := "number"
 const CATEGORY_MATERIAL := "material"
 const CATEGORY_DICE := "dice"
 
-# --- Würfel-Gravur ohne Material: der Pointer (Zeiger-Mechanik) ---
+# --- Würfel-Gravur ohne Material: der Pointer (die Kopie im Prägenetz) ---
 const POINTER := "pointer"
 
 # --- Material-Gravur ohne eigenes Material: die Veredelung ---
@@ -103,9 +103,9 @@ static func rune_id_of(engraving_id: String) -> String:
 static func is_rune_id(engraving_id: String) -> bool:
 	return rune_id_of(engraving_id) != ""
 
-## Pointer: die Würfel-Gravur, die Seiten miteinander verdrahtet.
+## Pointer: die Netz-Zelle, die den Serien-Stand ihrer Seite auf die Nachbarseite kopiert.
 static func pointer_engraving() -> Engraving:
-	return _make(POINTER, "Pointer", "Ätze einen Pointer von einer Seite über eine Kante: Die Zielseite löst mit 50 % Chance einmal voll mit aus (Augen, Material, Charms) - und von dort geht es weiter.", Rarity.EPIC, CATEGORY_DICE)
+	return _make(POINTER, "Pointer", "Kopiert beim Prägen alles, was die Serie bis hierhin auf diese Seite gelegt hat (Zahl, Material, Runen, Veredelung - nie die Grundaugen), auf die Nachbarseite, auf die er zeigt. Die Kopie überdeckt.", Rarity.EPIC, CATEGORY_DICE)
 
 ## Veredelung: die einzige Material-Gravur, die selbst kein Material belegt - sie
 ## sättigt eins, das schon auf der Seite liegt.

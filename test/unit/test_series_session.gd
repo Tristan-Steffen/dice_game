@@ -54,8 +54,7 @@ func test_two_grips_in_a_row_both_book() -> void:
 func test_the_projection_is_written_through_the_real_write_paths() -> void:
 	var card := _card({0: StampNet.value_cell(4),
 		1: StampNet.material_cell(DieMaterial.GOLD),
-		2: StampNet.rune_cell(Rune.AFTERGLOW),
-		3: StampNet.pointer_cell(1)})
+		2: StampNet.rune_cell(Rune.AFTERGLOW)})
 	var die := _die()
 	var before := int(die.faces[0])
 	run.apply_series(_uids([card]), die, _rng(1))
@@ -63,7 +62,27 @@ func test_the_projection_is_written_through_the_real_write_paths() -> void:
 	assert_eq(String(die.materials[1]), DieMaterial.GOLD)
 	assert_eq(int(die.levels[1]), 1, "frische Farbe liegt unveredelt")
 	assert_eq(String(die.runes[2]), Rune.AFTERGLOW)
-	assert_eq(int(die.pointers[3]), 1)
+
+## Der Lötkolben reist als EINE Quelle (series_terms) - Vorschau und Buchung
+## lesen sie beide.
+func test_the_soldering_iron_preview_matches_the_booking() -> void:
+	run.owned_charms.append(Charm.soldering_iron())
+	var values := _card({0: StampNet.value_cell(6), 1: StampNet.value_cell(4)})
+	var pointer := _card({0: StampNet.pointer_cell(1)})
+	var die := _die()
+	var uids := _uids([values, pointer])
+	var preview := run.resolve_series(uids, die)
+	assert_eq(int(preview["bonus"][1]), 10, "dazugelötet: 4 + 6")
+	var before := int(die.faces[1])
+	var booked: Dictionary = run.apply_series(uids, die, _rng(1))["projection"]
+	assert_eq(booked["bonus"], preview["bonus"], "Vorschau == Buchung")
+	assert_eq(int(die.faces[1]), before + 10)
+
+func test_without_the_soldering_iron_the_copy_overwrites() -> void:
+	var values := _card({0: StampNet.value_cell(6), 1: StampNet.value_cell(4)})
+	var pointer := _card({0: StampNet.pointer_cell(1)})
+	assert_eq(int(run.resolve_series(_uids([values, pointer]), _die())["bonus"][1]), 6)
+	assert_false(bool(run.series_terms([] as Array[Pack])["pointer_add"]))
 
 func test_the_double_material_lands_doped_on_the_die() -> void:
 	var first := _card({2: StampNet.material_cell(DieMaterial.RUBY)})

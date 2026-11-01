@@ -27,7 +27,7 @@ const EDGE := -2
 ## Kreuz-Ecke des Kanten-Chips (Zeile, Spalte) - leer im NET_LAYOUT.
 const EDGE_CELL := Vector2i(0, 0)
 
-## Pointer-Pfeile: Farbe wie das Siegel (Ätzungs-Cyan).
+## Pointer-Pfeile der Karten-Netze: Farbe wie das Siegel (Ätzungs-Cyan).
 const POINTER_COLOR := Color("#8be9fd")
 
 ## Veredelungs-Plakette in der unteren RECHTEN Zellecke - Kantenanteil.
@@ -81,8 +81,6 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 		root.add_child(crack)
 	for badge in level_badges(def, cell):
 		root.add_child(badge)
-	for arrow in _pointer_arrows(def, cell):
-		root.add_child(arrow)
 	root.add_child(charge_lamps(def, cell))
 	return root
 
@@ -102,7 +100,7 @@ static func face_at(local: Vector2, cell: float) -> int:
 	return NET_LAYOUT[row][col]
 
 ## Kurz-Erklärzeile zu einer Netz-Zelle: Materialname + Kurzwirkung (face_hint),
-## dazu die Pointer und die Runen dieser Seite; der Kanten-Chip (EDGE) erklärt
+## dazu die Runen dieser Seite; der Kanten-Chip (EDGE) erklärt
 ## die Seele des Würfels. "" für eine nackte Seite oder außerhalb des Kreuzes.
 ## EINE Quelle für alle Netze - Grube wie Werkbank.
 static func hint_for(def: DieDefinition, face: int) -> String:
@@ -117,10 +115,6 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 	if face < 0 or face >= def.materials.size():
 		return ""
 	var hint := DieMaterial.face_hint(def.materials[face], MaterialEffects.face_level(def, face))
-	var target: int = def.pointers[face] if face < def.pointers.size() else -1
-	if target >= 0:
-		var pointer_hint := "Pointer: löst die Seite mit Wert %d zu 50 %% einmal mit aus" % def.faces[target]
-		hint = "%s  ·  %s" % [hint, pointer_hint] if hint != "" else pointer_hint
 	for rune_id in def.runes_on(face):
 		var rune_hint := Rune.hint(rune_id)
 		hint = "%s  ·  %s" % [hint, rune_hint] if hint != "" else rune_hint
@@ -292,12 +286,9 @@ static func total_badge(def: DieDefinition, cell: float) -> Label:
 	badge.size = Vector2(2.0 * cell + gap, cell)
 	return badge
 
-## Kanten-Chip und Pointer-Pfeile einzeln, für denselben Zweck.
+## Der Kanten-Chip einzeln, für denselben Zweck.
 static func edge_chip(def: DieDefinition, cell: float) -> Panel:
 	return _edge_chip(def, cell)
-
-static func pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
-	return _pointer_arrows(def, cell)
 
 ## Der Pfeil EINER Seite in NETZ-Koordinaten: mittig auf dem Zellrand zur
 ## Nachbarseite, also HALB über ihn hinaus, und ins Netz geklemmt (ein Pfeil auf
@@ -483,15 +474,6 @@ static func _cell_pos(face_index: int, cell: float) -> Vector2:
 			if NET_LAYOUT[row][col] == face_index:
 				return Vector2(col * (cell + gap), row * (cell + gap))
 	return Vector2.ZERO
-
-## Je Pointer ein Pfeil auf dem Zellrand der gequerten Kante, nach außen zeigend.
-static func _pointer_arrows(def: DieDefinition, cell: float) -> Array[Control]:
-	var arrows: Array[Control] = []
-	for face in def.pointers.size():
-		var arrow := net_pointer(face, def.pointers[face], cell)
-		if arrow != null:
-			arrows.append(arrow)
-	return arrows
 
 ## Der Pfeil selbst: Schaft + Spitze mit dunklem Unterzug, damit er auch auf
 ## hellen Material-Zellen lesbar bleibt.

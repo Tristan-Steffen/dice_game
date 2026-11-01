@@ -155,25 +155,6 @@ func test_detail_tiles_draw_the_die_net() -> void:
 	assert_almost_eq(net.size, DieNetView.net_size(detail.u * DiceGridView.DETAIL_CELL),
 		Vector2.ONE * 0.5, "in Netzmaßen - dieselbe Geometrie wie in der Grube")
 
-func test_detail_tiles_show_pointers() -> void:
-	# Der eigentliche Zweck des Wechsels: Pointer sind im Lager sichtbar.
-	var detail := _detail_grid()
-	var plain := _die([1, 2, 3, 4, 5, 6])
-	var wired := _die([1, 2, 3, 4, 5, 6])
-	var pointers: Array[int] = [4, -1, -1, -1, -1, -1]
-	wired.pointers = pointers
-	detail.fill(_defs([plain, wired]))
-	await wait_frames(2)
-	assert_eq(_arrow_count(_net_of(detail.tiles[0])), 0, "ohne Pointer kein Pfeil")
-	assert_eq(_arrow_count(_net_of(detail.tiles[1])), 1, "je Pointer ein Pfeil")
-
-func _arrow_count(net: Control) -> int:
-	var count := 0
-	for child in net.get_children():
-		if child is DieNetView.PointerArrow:
-			count += 1
-	return count
-
 func test_the_tile_is_derived_from_the_net_not_guessed() -> void:
 	var tile := DiceGridView.detail_tile_size(10.0)
 	var net := DieNetView.net_size(10.0 * DiceGridView.DETAIL_CELL)

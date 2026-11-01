@@ -93,12 +93,6 @@ const FOXFIRE_PER_PAIR := 10
 ## Würfels, je Wertung.
 const BACKGROUND_GROWTH := 5
 
-## Glasfaser: wie oft ein gezündetes Pointer-Glied seine Zielseite feuert -
-## die Rückkopplung legt eine dritte Zündung drauf.
-const LINK_FIRES_DEFAULT := 1
-const OPTICAL_FIBER_FIRES := 2
-const OPTICAL_FIBER_FIRES_FEEDBACK := 3
-
 ## Faktor der WÜRFEL-Achse - die einzige Stelle, an der auf ihr ein Faktor
 ## entsteht. Quecksilberdampf (Charm) legt +1 auf jeden Faktor, der überhaupt
 ## einer ist: das verbannte Material lebt als Verstärker weiter.
@@ -199,18 +193,6 @@ static func _midnight_sun_activations(slot: int, sets: Dictionary, charm_ids: Ar
 		return 0
 	var rate := MIDNIGHT_SUN_ACTIVATIONS_POLAR if charm_ids.has(Charm.POLAR_DAY) else MIDNIGHT_SUN_ACTIVATIONS
 	return rate * maxi(0, hands_taken)
-
-## Wie oft ein GEZÜNDETES Pointer-Glied seine Zielseite feuert: die Glasfaser
-## verstärkt das Licht im Glas (Rückkopplung dreifach), die Zündspule tut
-## dasselbe am Plasma. Das MAXIMUM, nie das Produkt - zwei Verstärker sind kein
-## Faktor übereinander.
-static func link_fire_count(essence_ids: Array[String], charm_ids: Array[String] = []) -> int:
-	var shots := LINK_FIRES_DEFAULT
-	if essence_ids.has(Essence.OPTICAL_FIBER):
-		shots = maxi(shots, OPTICAL_FIBER_FIRES_FEEDBACK if charm_ids.has(Charm.FEEDBACK) else OPTICAL_FIBER_FIRES)
-	if essence_ids.has(Essence.PLASMA) and charm_ids.has(Charm.IGNITION_COIL):
-		shots = maxi(shots, OPTICAL_FIBER_FIRES)
-	return shots
 
 ## Fuchsfeuer: +10 Augen je ZWEI Würfeln in der Ablage, je Auslösung. Das
 ## Pilzgeflecht legt zusätzlich die Summe der oben liegenden Ablage-Seiten drauf.
@@ -465,21 +447,9 @@ static func leftover_die_payouts(essence_ids: Array[String], base_per_die: int, 
 			chain += 1
 	return out
 
-## Plasma: der Lichtbogen hält den Pointer - er bekommt ZWEI Versuche statt
-## einem. "Doppelte Chance" heißt also aggregiert (1 − (1−p)²), nie p × 2: aus
-## 50 % werden 75 %, und ein Pointer erreicht damit NIE 100 %.
-const PLASMA_SHOTS := 2
-
-## Zünd-Chance der Pointer an diesem Würfel; base = DiceScoring.POINTER_CHANCE
-## (die Grundchance wohnt dort, damit die Essenz nicht zurückgreifen muss).
-static func pointer_chance(essence_id: String, base: float) -> float:
-	if essence_id != Essence.PLASMA:
-		return base
-	return DiceScoring.pointer_chance_for(base, PLASMA_SHOTS)
-
 ## Die Seiten, die das RÖNTGENLICHT mitwertet: die Gegenseite, einmal je
-## WÜRFEL-Trigger (ein Argon-Röntgen-Würfel belichtet also zweimal). Kein
-## Pointer - keine Chance, keine Kette, keine Runen; das Glied hängt hinter dem
+## WÜRFEL-Trigger (ein Argon-Röntgen-Würfel belichtet also zweimal). Keine
+## Chance, keine Kette, keine Runen; das Glied hängt hinter dem
 ## Zündungs-Batch seines Antritts.
 static func essence_link_faces(die: DieDefinition, up_face: int, essence_ids: Array[String]) -> Array[int]:
 	var faces: Array[int] = []
@@ -490,8 +460,8 @@ static func essence_link_faces(die: DieDefinition, up_face: int, essence_ids: Ar
 	return faces
 
 ## Die Seiten, die als DETERMINISTISCHES Glied EINMAL nach allen Würfel-Triggern
-## feuern - das ist nur noch die Kehrseiten-Rune (der gewürfelte Pointer und das
-## Röntgenlicht laufen je Antritt). Trägt ein Röntgen-Würfel zusätzlich die Rune,
+## feuern - das ist nur noch die Kehrseiten-Rune (das Röntgenlicht läuft je
+## Antritt). Trägt ein Röntgen-Würfel zusätzlich die Rune,
 ## feuert seine Gegenseite je Antritt UND einmal am Ende; entdoppelt wird nicht.
 static func link_faces(die: DieDefinition, up_face: int, rune_ids: Array[String] = []) -> Array[int]:
 	var faces: Array[int] = []
@@ -720,13 +690,6 @@ static func protects_face_value_of(essence_ids: Array[String]) -> bool:
 		if protects_face_value(essence_id):
 			return true
 	return false
-
-## Zünd-Chance ALLER wirksamen Seelen - die beste, nie das Produkt.
-static func pointer_chance_of(essence_ids: Array[String], base: float) -> float:
-	var best := base
-	for essence_id in essence_ids:
-		best = maxf(best, pointer_chance(essence_id, base))
-	return best
 
 ## Kann dieser Würfel nicht durchbrennen? Eine immune Seele (Bogenlampe)
 ## deckelt an der Spitze, statt durchzubrennen - in JEDER Quelle.

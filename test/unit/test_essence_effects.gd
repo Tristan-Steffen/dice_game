@@ -328,8 +328,7 @@ func test_the_soul_money_counts_the_whole_scored_hand():
 	krypton.essence_id = Essence.KRYPTON
 	var defs: Array[DieDefinition] = [neon, krypton]
 	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]), _m(["", ""]), _p([0, 1]),
-		NO_CHARMS, -1, {0: Essence.NEON, 1: Essence.KRYPTON}, _p([0, 1]), false, _p([0, 1]),
-		{}, 0, 0, [], _p([0]))
+		NO_CHARMS, -1, {0: Essence.NEON, 1: Essence.KRYPTON}, _p([0, 1]), false, _p([0, 1]), 0, 0, [], _p([0]))
 	assert_eq(report.total_money(), 2 * EssenceEffects.NEON_MONEY_PER_DIE,
 		"zwei gewertete Würfel, obwohl nur einer die Kombination bildet")
 
@@ -709,13 +708,10 @@ func test_the_xray_link_reaches_the_defs_once_per_trigger():
 	assert_eq(die.faces[5], 6 + 2 * MaterialEffects.BONE_GROWTH,
 		"zwei Antritte, zweimal Knochenwachstum auf der Gegenseite")
 
-func test_essence_links_ignore_the_pointer_wiring():
+func test_essence_links_pull_the_opposite_face():
 	var die := _die_with(Essence.XRAY)
-	# Der Pointer läuft getrennt (auf Chance, je Würfel-Trigger) - hier steht
-	# nur, was die Seele deterministisch mitzieht.
-	die.pointers[1] = 0
 	var faces := EssenceEffects.essence_link_faces(die, 1, _ids([Essence.XRAY]))
-	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "der Zeiger gehört nicht hierher")
+	assert_eq(faces, _p([DieDefinition.opposite_face(1)]), "die Gegenseite, sonst nichts")
 
 func test_the_rune_link_stays_the_once_path():
 	var die := _die_with(Essence.XRAY)

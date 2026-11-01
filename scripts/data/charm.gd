@@ -105,12 +105,11 @@ const SHYSTER := "shyster"
 const PARROT_TOTEM := "parrot_totem"
 const ECHO_TOTEM := "echo_totem"
 const HERMIT_CRAB := "hermit_crab"
-# Energie & Pointer
+# Energie & Serie
 const SUPERCONDUCTOR := "superconductor"
 const DYNAMO := "dynamo"
 const STANDBY_LIGHT := "standby_light"
 const SOLDERING_IRON := "soldering_iron"
-const GROUND_WIRE := "ground_wire"
 # Runen & Werkbank
 const BURIN := "burin"
 const LUMINOUS_PAINT := "luminous_paint"
@@ -161,7 +160,6 @@ const CONTRAST_AGENT := "contrast_agent"
 const CENSER := "censer"
 const SOLAR_SAIL := "solar_sail"
 const STORM_FRONT := "storm_front"
-const IGNITION_COIL := "ignition_coil"
 const BELL_JAR := "bell_jar"
 const GLAZE_BRUSH := "glaze_brush"
 const FLUORESCENT_TUBE := "fluorescent_tube"
@@ -176,7 +174,6 @@ const METEORITE := "meteorite"
 const MYCELIUM := "mycelium"
 const HIGHLIGHTER := "highlighter"
 const ASH_CLOUD := "ash_cloud"
-const FEEDBACK := "feedback"
 const ICE_MIRROR := "ice_mirror"
 const POLAR_DAY := "polar_day"
 const MAGNETAR := "magnetar"
@@ -200,7 +197,6 @@ const ESSENCE_REQUIREMENT := {
 	CENSER: Essence.MIASMA,
 	SOLAR_SAIL: Essence.SOLAR_WIND,
 	STORM_FRONT: Essence.OZONE,
-	IGNITION_COIL: Essence.PLASMA,
 	BELL_JAR: Essence.VACUUM,
 	GLAZE_BRUSH: Essence.VARNISH,
 	FLUORESCENT_TUBE: Essence.PHOSPHORESCENCE,
@@ -213,7 +209,6 @@ const ESSENCE_REQUIREMENT := {
 	MYCELIUM: Essence.FOXFIRE,
 	HIGHLIGHTER: Essence.BLACK_LIGHT,
 	ASH_CLOUD: Essence.VOLCANIC_LIGHTNING,
-	FEEDBACK: Essence.OPTICAL_FIBER,
 	ICE_MIRROR: Essence.LIGHT_PILLAR,
 	POLAR_DAY: Essence.MIDNIGHT_SUN,
 	MAGNETAR: Essence.GAMMA_BURST,
@@ -372,12 +367,11 @@ const RARITIES := {
 	PARROT_TOTEM: RARITY_LEGENDARY,
 	ECHO_TOTEM: RARITY_LEGENDARY,
 	HERMIT_CRAB: RARITY_COMMON,
-	# Energie & Pointer
+	# Energie & Serie
 	SUPERCONDUCTOR: RARITY_RARE,
 	DYNAMO: RARITY_UNCOMMON,
 	STANDBY_LIGHT: RARITY_RARE,
-	SOLDERING_IRON: RARITY_UNCOMMON,
-	GROUND_WIRE: RARITY_COMMON,
+	SOLDERING_IRON: RARITY_RARE,
 	# Runen & Werkbank
 	BURIN: RARITY_RARE,
 	LUMINOUS_PAINT: RARITY_COMMON,
@@ -427,7 +421,6 @@ const RARITIES := {
 	CENSER: RARITY_RARE,
 	SOLAR_SAIL: RARITY_RARE,
 	STORM_FRONT: RARITY_RARE,
-	IGNITION_COIL: RARITY_RARE,
 	BELL_JAR: RARITY_RARE,
 	GLAZE_BRUSH: RARITY_RARE,
 	FLUORESCENT_TUBE: RARITY_LEGENDARY,
@@ -442,7 +435,6 @@ const RARITIES := {
 	MYCELIUM: RARITY_RARE,
 	HIGHLIGHTER: RARITY_RARE,
 	ASH_CLOUD: RARITY_RARE,
-	FEEDBACK: RARITY_RARE,
 	ICE_MIRROR: RARITY_RARE,
 	POLAR_DAY: RARITY_RARE,
 	# Legendäre Seelen tragen legendäre Charms (wie Polarfilter/Alkahest).
@@ -847,9 +839,6 @@ static func solar_sail() -> Charm:
 static func storm_front() -> Charm:
 	return _make(STORM_FRONT, "Gewitterfront", "Auch die Krits der bisherigen Hände dieser Runde zählen in Ozons Krit.")
 
-static func ignition_coil() -> Charm:
-	return _make(IGNITION_COIL, "Zündspule", "Jedes gezündete Pointer-Glied eines Plasma-Würfels feuert seine Zielseite zweimal.")
-
 static func bell_jar() -> Charm:
 	return _make(BELL_JAR, "Glasglocke", "Jede Seite eines Vakuum-Würfels trägt einen dritten Rune.")
 
@@ -892,9 +881,6 @@ static func highlighter() -> Charm:
 static func ash_cloud() -> Charm:
 	return _make(ASH_CLOUD, "Aschewolke", "Jeder Fumble, an dem ein Vulkanblitz beteiligt war, hebt seinen Krit dauerhaft +1.")
 
-static func feedback() -> Charm:
-	return _make(FEEDBACK, "Rückkopplung", "Die Glasfaser feuert die Zielseite ihrer Pointer dreimal statt zweimal.")
-
 static func ice_mirror() -> Charm:
 	return _make(ICE_MIRROR, "Eisspiegel", "Die Lichtsäule spiegelt doppelt: Gleichzahlen lösen +4× aus statt +2×.")
 
@@ -907,7 +893,7 @@ static func magnetar() -> Charm:
 static func radio_telescope() -> Charm:
 	return _make(RADIO_TELESCOPE, "Radioteleskop", "Die Hintergrundstrahlung erreicht auch die Ablage: deren Würfel wachsen mit.")
 
-# --- Energie & Pointer ---
+# --- Energie & Serie ---
 
 static func superconductor() -> Charm:
 	return _make(SUPERCONDUCTOR, "Supraleiter", "Kombinationen übertakten kostet 1 ⚡ weniger (mindestens 1).")
@@ -919,10 +905,7 @@ static func standby_light() -> Charm:
 	return _make(STANDBY_LIGHT, "Standby-Licht", "+1 Mult je gelagerter Energie.")
 
 static func soldering_iron() -> Charm:
-	return _make(SOLDERING_IRON, "Lötkolben", "+10 Prozentpunkte Zündchance auf jeden Pointer.")
-
-static func ground_wire() -> Charm:
-	return _make(GROUND_WIRE, "Erdungskabel", "Jeder Pointer, der nicht zündet, entlädt sich als +5 Mult.")
+	return _make(SOLDERING_IRON, "Lötkolben", "Pointer überdecken ihre Zielseite nicht mehr: ihre Zahl wird DAZUGELÖTET.")
 
 # --- Runen & Werkbank ---
 
@@ -1066,13 +1049,13 @@ static func all() -> Array[Charm]:
 		# Essenz-Charms
 		amalgam(), lead_apron(), storm_glass(), lightning_rod(), darkroom(),
 		pressure_vessel(), aqua_fortis(), contrast_agent(),
-		censer(), solar_sail(), storm_front(), ignition_coil(),
+		censer(), solar_sail(), storm_front(),
 		bell_jar(), glaze_brush(), fluorescent_tube(),
 		polarizer(), alkahest(), magnetic_trap(), camouflage(), fuse(),
 		cutting_torch(), moderator(), meteorite(), mycelium(), highlighter(), ash_cloud(),
-		feedback(), ice_mirror(), polar_day(), magnetar(), radio_telescope(),
+		ice_mirror(), polar_day(), magnetar(), radio_telescope(),
 		# Zweite Welle
-		superconductor(), dynamo(), standby_light(), soldering_iron(), ground_wire(),
+		superconductor(), dynamo(), standby_light(), soldering_iron(),
 		burin(), luminous_paint(), kiln(), bench_clamp(), encore(),
 		odds_sheet(), free_spin(), fenced_goods(), jackpot_bell(), deposit_shelf(),
 		tip_jar(), consolation_prize(),

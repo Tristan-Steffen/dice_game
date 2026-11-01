@@ -5,7 +5,7 @@ extends Control
 ## Als INSTANZ ist sie das SUMMEN-NETZ: das aufgeklappte Kreuz des Zielwürfels
 ## (DieNetView-Grammatik), aber gezeichnet aus dem GEISTER-Würfel, den die
 ## Projektion ergäbe. Eine Zelle, deren Augenzahl steigt, liest "3→7" in Grün;
-## Material, Runen, Veredelung und Pointer stehen schon im neuen Zustand, und eine
+## Material, Runen, Veredelung und Pointer-Kopien stehen schon im neuen Zustand, und eine
 ## VERPUFFTE Zelle grault aus und nennt beim Überfahren ihren Grund.
 ##
 ## Als STATIK zeichnet sie das MINI-NETZ einer Kassette (stamp_net): dieselbe
@@ -49,6 +49,7 @@ const FIZZLE_TEXT := {
 	SeriesResolver.FIZZLE_DOPED: "verpufft: die Seite ist schon veredelt",
 	SeriesResolver.FIZZLE_BURNED: "verpufft: Einbrand sperrt das Übermalen",
 	SeriesResolver.FIZZLE_POINTER: "verpufft: kein Nachbar dieser Seite",
+	SeriesResolver.FIZZLE_EMPTY: "verpufft: Ursprungsseite trägt noch nichts",
 }
 
 ## Der Zielwürfel (null = keiner gewählt) und die Projektion der Serie ({} = keine).
@@ -119,16 +120,13 @@ func build() -> void:
 		_chips[face] = chip
 		add_child(chip)
 		_write_face(face)
-	# Essenz-Chip, Runen, Veredelungs-Plaketten und Pointer-Pfeile obendrauf - die
-	# Pfeile zuletzt, sie liegen über den Zellrändern. Alle vom GEISTER: die
+	# Essenz-Chip, Runen und Veredelungs-Plaketten obendrauf, alle vom GEISTER: die
 	# Vorschau zeigt den Zustand NACH der Serie.
 	add_child(DieNetView.edge_chip(ghost, cell))
 	for glyph in DieNetView.rune_glyphs(ghost, cell):
 		add_child(glyph)
 	for badge in DieNetView.level_badges(ghost, cell):
 		add_child(badge)
-	for arrow in DieNetView.pointer_arrows(ghost, cell):
-		add_child(arrow)
 	add_child(DieNetView.charge_lamps(ghost, cell))
 	if ticking:
 		_tick_span = takt
@@ -205,9 +203,6 @@ func preview_die() -> DieDefinition:
 		for slot in runes.size():
 			if String(runes[slot]) != "":
 				ghost.set_rune(face, String(runes[slot]), slot, DieDefinition.MAX_RUNE_SLOTS)
-		var target := int(projection["pointers"][face])
-		if target >= 0:
-			ghost.pointers[face] = target
 	return ghost
 
 ## Ändert die Serie diese Seite überhaupt?
@@ -222,7 +217,7 @@ func touches(face: int) -> bool:
 		return true
 	if not Array(projection["runes"][face]).is_empty():
 		return true
-	return int(projection["pointers"][face]) >= 0
+	return copied_from(projection, face) >= 0
 
 ## Eine Seiten-Zelle: die PLATTE trägt das Maß, die Ziffer liegt darin (dieselbe
 ## Regel wie im Würfelnetz - eine Zelle, die selbst ein Label ist, klemmt sich an
@@ -315,7 +310,12 @@ func face_at_pixel(pixel: Vector2) -> int:
 func hint_for_face(face: int) -> String:
 	if _fizzles.has(face):
 		return String(FIZZLE_TEXT.get(String(_fizzles[face]), "verpufft"))
-	return DieNetView.hint_for(preview_die(), face)
+	var hint := DieNetView.hint_for(preview_die(), face)
+	var source := copied_from(projection, face)
+	if source < 0:
+		return hint
+	var copy := _copy_hint(source)
+	return "%s  ·  %s" % [hint, copy] if hint != "" else copy
 
 # --- Das MINI-NETZ einer Kassette ------------------------------------------------
 
@@ -433,8 +433,6 @@ static func _stamp_cell(entry: Dictionary, cell: float, accent: Color,
 				if material == "":
 					rim = VALUE_TINT
 				tint = VALUE_TINT
-			if int(entry.get("to", -1)) >= 0:
-				rim = DieNetView.POINTER_COLOR
 	var chip := Panel.new()
 	chip.name = "StampCell"
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -531,21 +529,16 @@ static func sum_net(projection: Dictionary, cell: float) -> Control:
 		chip.position = DieNetView.cell_position(face, cell)
 		chip.size = Vector2.ONE * cell
 		root.add_child(chip)
-	for face in StampNet.FACES:
-		var arrow := DieNetView.net_pointer(face,
-			_sum_int(projection, "pointers", face, -1), cell)
-		if arrow != null:
-			root.add_child(arrow)
 	return root
 
 ## EINE Zelle der Summe. Sie trägt MEHRERE Kanäle zugleich (anders als eine
 ## Karten-Zelle): Material füllt sie, die Zahl steht darin, Runen sitzen als kleine
-## Glyphen in den unteren Ecken; den Pointer-Pfeil legt sum_net über die Zellen,
-## hier färbt er nur den Saum.
+## Glyphen in den unteren Ecken; eine Pointer-KOPIE färbt nur den Saum - ihr
+## Ergebnis steht schon in der Zelle.
 static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 	var material := _sum_string(projection, "materials", face)
 	var bonus := _sum_int(projection, "bonus", face, 0)
-	var pointer := _sum_int(projection, "pointers", face, -1)
+	var copied := copied_from(projection, face) >= 0
 	var runes := _sum_runes(projection, face)
 	var factor := _sum_int(projection, "factors", face, 1)
 	var fill := EMPTY_CELL
@@ -566,7 +559,7 @@ static func _sum_cell(projection: Dictionary, face: int, cell: float) -> Panel:
 		if bonus == 0:
 			text = StampNet.factor_glyph(factor)
 			ink = PackDrawerView.MULTIPLIER_TINT.lightened(0.35)
-	if pointer >= 0:
+	if copied:
 		rim = DieNetView.POINTER_COLOR
 	var chip := Panel.new()
 	chip.name = "SumCell"
@@ -597,7 +590,7 @@ static func _sum_rune(rune_id: String, cell: float, slot: int) -> Control:
 	return mark
 
 ## Der Klartext einer Summen-Zelle ("" = sie trägt nichts): Material, Zahl, Runen
-## und Pointer nacheinander - dieselben Quellen wie jedes andere Netz.
+## und die Pointer-Kopie nacheinander - dieselben Quellen wie jedes andere Netz.
 static func projection_hint(projection: Dictionary, face: int) -> String:
 	var parts: Array[String] = []
 	var material := _sum_string(projection, "materials", face)
@@ -616,10 +609,21 @@ static func projection_hint(projection: Dictionary, face: int) -> String:
 		var rune_hint := Rune.hint(String(rune_id))
 		if rune_hint != "":
 			parts.append(rune_hint)
-	var pointer := _sum_int(projection, "pointers", face, -1)
-	if pointer >= 0:
-		parts.append("Pointer: auf Seite %d" % (pointer + 1))
+	var source := copied_from(projection, face)
+	if source >= 0:
+		parts.append(_copy_hint(source))
 	return "  ·  ".join(parts)
+
+## Von welcher Seite die LETZTE Pointer-Kopie auf face kam (-1 = keine).
+static func copied_from(projection: Dictionary, face: int) -> int:
+	var source := -1
+	for copy: Dictionary in projection.get("copies", []):
+		if int(copy.get("to", -1)) == face:
+			source = int(copy.get("from", -1))
+	return source
+
+static func _copy_hint(source: int) -> String:
+	return "kopiert von Seite %d" % (source + 1)
 
 static func _sum_int(projection: Dictionary, key: String, face: int,
 		fallback: int) -> int:

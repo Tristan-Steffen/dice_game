@@ -87,9 +87,6 @@ const STANDBY_LIGHT_MULT := 1
 const ODOMETER_MULT := 1
 const BOTTLE_RACK_MULT := 4
 
-## Erdungskabel: Mult je Pointer-Wurf, der danebengegangen ist.
-const GROUND_WIRE_MULT := 5
-
 ## Inventur: Basispunkte je Material-Seite im GANZEN Würfelpool (ctx-Zahl).
 const INVENTORY_BASE_PER_MATERIAL := 2
 
@@ -229,7 +226,7 @@ static func eye_value(face_value: int, charm_ids: Array[String]) -> int:
 ## Basispunkt-Beitrag der Besitz-Position j am beteiligten Würfel slot.
 ## order: die gewerteten Slots in ZÄHLREIHENFOLGE - die Quadratur misst an ihr.
 ## value_override > 0: die feuernde Augenzahl dieser Zündung (laufender Wert oder
-## Pointer-Glied); Ziel- und Mengenbezüge bleiben an den liegenden Werten.
+## Glied); Ziel- und Mengenbezüge bleiben an den liegenden Werten.
 ## materials: die Material-id der OBEN liegenden Seite je Slot - die Schutzfolie
 ## ist der einzige Charm hier, der nach ihr fragt.
 static func die_charm_base_at(j: int, slot: int, key: String, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, order: Array[int] = [], value_override: int = 0, materials: Array[String] = []) -> int:
@@ -265,7 +262,7 @@ static func _is_bare_die(slot: int, materials: Array[String], ctx: Dictionary) -
 
 ## Mult-Beitrag der Besitz-Position j am beteiligten Würfel slot (Bodensatz:
 ## +4 je spät gezogenem Würfel; Prime Time: Augenzahl, wenn sie prim ist).
-## value_override > 0: feuernde Augenzahl eines Pointer-Glieds - der Effekt
+## value_override > 0: feuernde Augenzahl eines Glieds - der Effekt
 ## rechnet mit ihr, Slot-Bezüge (Bodensatz) bleiben beim Würfel.
 static func die_charm_mult_at(j: int, slot: int, values: Array[int], charm_ids: Array[String], ctx: Dictionary = {}, value_override: int = 0) -> int:
 	match charm_ids[j]:
@@ -537,10 +534,6 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 			return ODOMETER_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_ROUND, 0)))
 		Charm.BOTTLE_RACK:
 			return BOTTLE_RACK_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_DISCARD_SOULS, 0)))
-		Charm.GROUND_WIRE:
-			# Ein Fehlwurf entlädt sich - die Vorschau kennt die Zündungen nicht
-			# und sieht darum nichts.
-			return GROUND_WIRE_MULT * DiceScoring.pointer_misses_in(ctx)
 		Charm.PENDULUM:
 			return pendulum_mult(ctx)
 		Charm.ALL_OR_NOTHING:

@@ -162,7 +162,7 @@ func test_links_never_fire_a_rune():
 	# andere Seite und lässt ihn kalt.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var ctx := _rune_ctx(0, [Rune.AFTERGLOW])
-	ctx[DiceScoring.CTX_POINTER_FIRES] = {0: [[{"face": 2, "value": 4, "material": "", "level": 1}]]}
+	ctx[DiceScoring.CTX_DET_LINKS] = {0: [{"face": 2, "value": 4, "material": "", "level": 1}]}
 	# Basis: Paar (10) + 5 + 5 (Nachglühen zählt Slot 0 zweimal) + 5 + Glied 4.
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, NO_CHARMS, false, NO_MATS, {}, ctx),
 		(10 + 5 + 5 + 5 + 4) * 2, "das Glied feuert einmal, ohne Nachglühen")

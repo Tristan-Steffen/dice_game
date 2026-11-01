@@ -11,9 +11,6 @@ extends Resource
 ## Essenz des GANZEN Würfels ("" = keine). ANGEBOREN: beim Guss versiegelt, es
 ## gibt keinen Auftragsweg - nur Würfelfabriken und Angebote schreiben sie.
 @export var essence_id: String = ""
-## Pointer je Seite: Ziel-Seitenindex (nur Nachbarn) oder -1. Er zündet nur
-## auf Chance (DiceScoring.POINTER_CHANCE), Sprung für Sprung.
-@export var pointers: Array[int] = [-1, -1, -1, -1, -1, -1]
 ## Zustand des Materials DIESER Seite (0 = keins, 1 = normal, 2 = veredelt).
 ## Er wohnt in der Glasur, nicht in der Seite - ein neues Material fängt wieder
 ## unveredelt an (set_face_material ist der einzige Schreibweg).
@@ -56,7 +53,6 @@ func become(other: DieDefinition) -> void:
 		return
 	faces = other.faces.duplicate()
 	materials = other.materials.duplicate()
-	pointers = other.pointers.duplicate()
 	levels = other.levels.duplicate()
 	runes = other.runes.duplicate()
 	second_runes = other.second_runes.duplicate()
@@ -72,7 +68,6 @@ func instantiate() -> DieDefinition:
 	var copy: DieDefinition = duplicate()
 	copy.faces = faces.duplicate()
 	copy.materials = materials.duplicate()
-	copy.pointers = pointers.duplicate()
 	copy.levels = levels.duplicate()
 	copy.runes = runes.duplicate()
 	copy.second_runes = second_runes.duplicate()
@@ -195,19 +190,11 @@ static func adjacent_faces(face: int) -> Array[int]:
 			result.append(i)
 	return result
 
-## Darf ein Pointer von from_face nach to_face führen? Nur zu Nachbarn.
+## Darf eine Pointer-Zelle von from_face nach to_face führen? Nur zu Nachbarn.
 func can_point(from_face: int, to_face: int) -> bool:
 	if from_face < 0 or from_face >= 6 or to_face < 0 or to_face >= 6:
 		return false
 	return to_face != from_face and to_face != opposite_face(from_face)
-
-## Ziel-Seite des Pointers dieser Seite (-1 = keiner). Ob er zündet, würfelt
-## DiceScoring.roll_pointer_fires aus - die Def kennt nur die Verdrahtung.
-func pointer_target(face: int) -> int:
-	if face < 0 or face >= pointers.size():
-		return -1
-	var target: int = pointers[face]
-	return target if target >= 0 and target < 6 else -1
 
 static func standard() -> DieDefinition:
 	return DieDefinition.new()

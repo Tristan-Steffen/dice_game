@@ -151,17 +151,112 @@ func test_a_rune_the_die_already_carries_is_no_change() -> void:
 	var out := _resolve([_net({0: StampNet.rune_cell(Rune.AFTERGLOW)})], die)
 	assert_true(Array(out["runes"][0]).is_empty(), "die Projektion meldet nur Änderungen")
 
-# --- Der Pointer-Kanal --------------------------------------------------------------
+# --- Der Pointer: die KOPIE ----------------------------------------------------------
 
-func test_a_pointer_cell_wires_its_neighbour() -> void:
-	var out := _resolve([_net({0: StampNet.pointer_cell(1)})], _die())
-	assert_eq(int(out["pointers"][0]), 1)
+func _pointer(from: int, to: int) -> Array:
+	return _net({from: StampNet.pointer_cell(to)})
+
+func test_a_pointer_copies_the_sum_and_overwrites_the_target() -> void:
+	var out := _resolve([_net({0: StampNet.value_cell(6), 1: StampNet.value_cell(4)}),
+		_pointer(0, 1)], _die())
+	assert_eq(int(out["bonus"][1]), 6, "die Kopie überdeckt")
+	assert_eq(int(out["bonus"][0]), 6, "kopiert, nicht verschoben")
+	assert_eq(int(out["faces_after"][1]), 8, "2 + 6")
+	assert_eq(Array(out["copies"]), [{"card": 1, "from": 0, "to": 1}])
+
+func test_the_soldering_iron_adds_the_copied_sum() -> void:
+	var out := _resolve([_net({0: StampNet.value_cell(6), 1: StampNet.value_cell(4)}),
+		_pointer(0, 1)], _die(), {"pointer_add": true})
+	assert_eq(int(out["bonus"][1]), 10, "4 + 6")
+	assert_eq(int(out["bonus"][0]), 6)
+
+func test_the_base_pips_are_never_copied() -> void:
+	var out := _resolve([_pointer(0, 1)], _die([5, 2, 3, 4, 5, 6]))
+	assert_eq(int(out["faces_after"][1]), 2, "die 5 der Quelle wandert nicht")
+	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_EMPTY)
+	assert_true((out["copies"] as Array).is_empty())
+
+func test_a_material_of_the_die_itself_is_not_copied() -> void:
+	var die := _die()
+	die.set_face_material(0, DieMaterial.GOLD)
+	var out := _resolve([_pointer(0, 1)], die)
+	assert_eq(String(out["materials"][1]), "")
+	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_EMPTY)
+
+func test_a_copied_material_on_its_own_kind_dopes() -> void:
+	var die := _die()
+	die.set_face_material(1, DieMaterial.RUBY)
+	var out := _resolve([_net({0: StampNet.material_cell(DieMaterial.RUBY)}),
+		_pointer(0, 1)], die)
+	assert_eq(String(out["materials"][1]), DieMaterial.RUBY)
+	assert_true(bool(out["doped"][1]))
+	assert_false(bool(out["doped"][0]), "die Quelle bleibt unveredelt")
+
+func test_the_burn_in_blocks_a_copied_material() -> void:
+	var die := _die()
+	die.set_face_material(1, DieMaterial.GLASS)
+	die.set_rune(1, Rune.BURN_IN)
+	var out := _resolve([_net({0: StampNet.material_cell(DieMaterial.GOLD)}),
+		_pointer(0, 1)], die)
+	assert_eq(String(out["materials"][1]), "")
+	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_BURNED)
+
+func test_a_pointer_copies_the_runes_the_series_set() -> void:
+	var out := _resolve([_net({0: StampNet.rune_cell(Rune.AFTERGLOW)}),
+		_pointer(0, 1)], _die())
+	assert_eq(Array(out["runes"][1]), [Rune.AFTERGLOW])
+	assert_eq(Array(out["runes"][0]), [Rune.AFTERGLOW])
+
+func test_a_pointer_copies_the_dope_onto_the_targets_own_material() -> void:
+	var die := _die()
+	die.set_face_material(0, DieMaterial.BONE)
+	die.set_face_material(1, DieMaterial.AMBER)
+	var out := _resolve([_net({0: StampNet.dope_cell()}), _pointer(0, 1)], die)
+	assert_true(bool(out["doped"][1]), "die Veredelung wandert")
+	assert_eq(String(out["materials"][1]), "", "das Würfel-Material der Quelle nicht")
+	assert_true((out["fizzled"] as Array).is_empty())
+
+func test_an_empty_channel_does_not_overwrite() -> void:
+	var out := _resolve([_net({0: StampNet.material_cell(DieMaterial.GOLD),
+		1: StampNet.value_cell(4)}), _pointer(0, 1)], _die())
+	assert_eq(int(out["bonus"][1]), 4, "A trägt keine Zahl, B behält seine")
+	assert_eq(String(out["materials"][1]), DieMaterial.GOLD)
+
+## Über Etagen hinweg ist die Reihenfolge das Puzzle.
+func test_pointer_before_or_after_the_doubler_differs() -> void:
+	var value := _net({0: StampNet.value_cell(3)})
+	var doubler := _net({0: StampNet.operator_cell(StampNet.OP_DOUBLER)})
+	var early := _resolve([value, _pointer(0, 1), doubler], _die())
+	assert_eq(int(early["bonus"][1]), 3)
+	assert_eq(int(early["bonus"][0]), 6)
+	var late := _resolve([value, doubler, _pointer(0, 1)], _die())
+	assert_eq(int(late["bonus"][1]), 6)
+
+## Innerhalb EINER Karte keine Ketten: B→C kopiert den alten Stand von B.
+func test_pointers_of_one_card_read_the_state_before_the_card() -> void:
+	var out := _resolve([_net({0: StampNet.value_cell(5), 1: StampNet.value_cell(2)}),
+		_net({0: StampNet.pointer_cell(1), 1: StampNet.pointer_cell(2)})], _die())
+	assert_eq(int(out["bonus"][1]), 5)
+	assert_eq(int(out["bonus"][2]), 2, "der alte Stand von B, nicht die Kopie")
+
+func test_pointers_write_after_the_other_cells_of_their_card() -> void:
+	var cards := [_net({0: StampNet.value_cell(5)}),
+		_net({0: StampNet.pointer_cell(1), 1: StampNet.value_cell(7)})]
+	assert_eq(int(_resolve(cards, _die())["bonus"][1]), 5, "die Kopie überdeckt die +7")
+	assert_eq(int(_resolve(cards, _die(), {"pointer_add": true})["bonus"][1]), 12)
 
 func test_a_pointer_to_the_opposite_face_fizzles() -> void:
-	var out := _resolve([_net({0: StampNet.pointer_cell(
-		DieDefinition.opposite_face(0))})], _die())
-	assert_eq(int(out["pointers"][0]), -1)
+	var out := _resolve([_net({0: StampNet.value_cell(3)}),
+		_pointer(0, DieDefinition.opposite_face(0))], _die())
+	assert_eq(int(out["bonus"][DieDefinition.opposite_face(0)]), 0)
 	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_POINTER)
+
+func test_a_pointer_cannot_be_compressed() -> void:
+	var nets := [_net({0: StampNet.value_cell(3)}), _pointer(0, 1)]
+	assert_false(SeriesResolver.compressible(nets))
+	var out := SeriesResolver.compress(nets)
+	assert_eq(String(out["fizzled"][0]["reason"]), SeriesResolver.FIZZLE_OPERATOR)
+	assert_false(StampNet.is_filled(StampNet.cell_at(out["net"], 1)))
 
 # --- Katalysator-Terme und die Zweitprojektion ---------------------------------------
 

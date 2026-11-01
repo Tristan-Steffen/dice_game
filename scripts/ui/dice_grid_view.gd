@@ -207,7 +207,7 @@ func _tile_size() -> Vector2:
 	return Vector2(u * 6.4, u * 4.6)
 
 ## Detail-Kachel: das WÜRFELNETZ wie im Netzfeld der Grube, damit Materialien
-## UND Pointer hier wie dort gelesen werden - die Augensumme sitzt in der
+## UND Runen hier wie dort gelesen werden - die Augensumme sitzt in der
 ## leeren unteren rechten Kreuz-Ecke, die Ladungs-Lampen oben rechts. Keine oben
 ## liegende Seite: im Lager liegt kein Würfel.
 func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: int) -> void:

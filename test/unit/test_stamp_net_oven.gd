@@ -108,8 +108,8 @@ func test_zwei_verdichtete_zellen_teilen_keinen_schluessel() -> void:
 
 func test_dieselbe_verdichtete_zelle_teilt_ihren_schluessel() -> void:
 	var a := StampNet.empty_net()
-	a[0] = StampNet.compound_cell(4, 9, DieMaterial.GOLD, true, Rune.AFTERGLOW, 2)
+	a[0] = StampNet.compound_cell(4, 9, DieMaterial.GOLD, true, Rune.AFTERGLOW)
 	var b := StampNet.empty_net()
-	b[0] = StampNet.compound_cell(4, 9, DieMaterial.GOLD, true, Rune.AFTERGLOW, 2)
+	b[0] = StampNet.compound_cell(4, 9, DieMaterial.GOLD, true, Rune.AFTERGLOW)
 	assert_eq(StampNetOven.signature(a, Color.WHITE, []),
 		StampNetOven.signature(b, Color.WHITE, []), "gleicher Inhalt, eine Backung")

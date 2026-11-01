@@ -1454,8 +1454,8 @@ func test_the_longest_hint_chain_fits_the_footer() -> void:
 		shop.net_footer.size.x, px, lead), shop.net_footer.size.y,
 		"die Zeile bleibt im Fuß")
 
-## Die längste real konstruierbare hint_for-Kette: veredeltes Material, Pointer
-## und drei Runen auf einer Vakuum-Seite.
+## Die längste real konstruierbare hint_for-Kette: veredeltes Material und drei
+## Runen auf einer Vakuum-Seite.
 func _longest_hint() -> String:
 	var runes := Rune.all()
 	var worst := ""
@@ -1464,7 +1464,6 @@ func _longest_hint() -> String:
 		die.essence_id = Essence.VACUUM
 		die.set_face_material(0, material.id)
 		die.dope(0)
-		die.pointers[0] = 3
 		for slot in mini(3, runes.size()):
 			die.set_rune(0, runes[slot].id, slot, 1)
 		var hint := DieNetView.hint_for(die, 0)

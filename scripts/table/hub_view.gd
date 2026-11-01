@@ -17,7 +17,6 @@ signal debug_money_requested
 signal debug_energy_requested
 signal library_requested
 signal test_materials_requested
-signal test_pointers_requested
 signal test_engravings_requested
 signal test_charges_requested
 
@@ -97,7 +96,6 @@ var settings_button: Button
 ## Aufklappbares Menü auf dem Display; öffnet nach OBEN über dem Knopf.
 var settings_menu: PanelContainer
 var _test_materials_button: Button
-var _test_pointers_button: Button
 var _test_engravings_button: Button
 var _menu_u := 1.0  # Breiteneinheit, für die Neupositionierung gemerkt
 
@@ -272,8 +270,6 @@ func _build_settings_menu(u: float) -> void:
 		u, debug_energy_requested.emit, true)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
-	_test_pointers_button = _make_menu_button(box, "🧪 Testpointer: aus",
-		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_pointers_requested.emit)
 	# Kein Schalter, eine Lieferung - und sie bleibt offen fürs Nachlegen.
 	_test_engravings_button = _make_menu_button(box, TEST_PACKS_LABEL,
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_engravings_requested.emit, true)
@@ -301,11 +297,6 @@ func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color
 func set_test_materials_label(text: String) -> void:
 	if _test_materials_button != null:
 		_test_materials_button.text = text
-
-## Beschriftung des Testpointer-Eintrags (AN/aus).
-func set_test_pointers_label(text: String) -> void:
-	if _test_pointers_button != null:
-		_test_pointers_button.text = text
 
 func _toggle_settings_menu() -> void:
 	settings_pressed.emit()

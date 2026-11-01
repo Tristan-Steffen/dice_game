@@ -263,63 +263,6 @@ func test_the_star_fires_often_but_crits_once():
 	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([Charm.ECHO_CHAMBER, Charm.METEORITE]),
 		false, _m(["", ""]), {}, ctx), 280, "mit Meteorit kritet auch sie - einmal")
 
-# --- Pointer: Lötkolben, Erdungskabel, Glasfaser ---------------------------------
-
-func test_the_soldering_iron_raises_the_base_chance():
-	assert_almost_eq(DiceScoring.pointer_base_chance(NO_CHARMS), DiceScoring.POINTER_CHANCE, 0.0001)
-	assert_almost_eq(DiceScoring.pointer_base_chance(_ids([Charm.SOLDERING_IRON])), 0.6, 0.0001)
-	var stacked := _ids([Charm.SOLDERING_IRON, Charm.SOLDERING_IRON, Charm.SOLDERING_IRON,
-		Charm.SOLDERING_IRON, Charm.SOLDERING_IRON, Charm.SOLDERING_IRON])
-	assert_lt(DiceScoring.pointer_base_chance(stacked), 1.0, "nie 100 %")
-	assert_lt(EssenceEffects.pointer_chance_of(_ids([Essence.PLASMA]),
-		DiceScoring.pointer_base_chance(stacked)), 1.0, "auch der Lichtbogen bleibt darunter")
-
-func test_the_ground_wire_counts_the_missed_rolls():
-	var ctx := {DiceScoring.CTX_POINTER_FIRES: {0: [[], [{"face": 2, "value": 3, "material": ""}]], 1: [[]]}}
-	assert_eq(DiceScoring.pointer_misses_in(ctx), 2)
-	assert_eq(DiceScoring.pointer_misses_in({}), 0, "die Vorschau kennt keine Zündungen")
-
-func test_the_ground_wire_lands_in_the_score():
-	var ctx := {DiceScoring.CTX_POINTER_FIRES: {0: [[]]}}
-	assert_eq(_pair_score(_ids([Charm.GROUND_WIRE]), ctx), 20 * (2 + CharmEffects.GROUND_WIRE_MULT))
-	assert_eq(_pair_score(_ids([Charm.GROUND_WIRE]), {}), 40, "ohne Wurf keine Entladung")
-
-func test_the_link_fire_count_is_one_source():
-	assert_eq(EssenceEffects.link_fire_count(_ids([]), NO_CHARMS), 1)
-	assert_eq(EssenceEffects.link_fire_count(_ids([Essence.OPTICAL_FIBER]), NO_CHARMS),
-		EssenceEffects.OPTICAL_FIBER_FIRES)
-	assert_eq(EssenceEffects.link_fire_count(_ids([Essence.OPTICAL_FIBER]), _ids([Charm.FEEDBACK])),
-		EssenceEffects.OPTICAL_FIBER_FIRES_FEEDBACK)
-	assert_eq(EssenceEffects.link_fire_count(_ids([Essence.PLASMA]), _ids([Charm.IGNITION_COIL])), 2,
-		"die Zündspule behält ihr Plasma-Verhalten")
-	assert_eq(EssenceEffects.link_fire_count(_ids([Essence.PLASMA]), NO_CHARMS), 1)
-
-## Ein RNG, dessen erster Wurf sicher zündet (kein magischer Seed im Test).
-func _rng_hit() -> RandomNumberGenerator:
-	var rng := RandomNumberGenerator.new()
-	for s in 500:
-		rng.seed = s
-		if rng.randf() < DiceScoring.POINTER_CHANCE:
-			rng.seed = s
-			return rng
-	return null
-
-func _pointer_die() -> DieDefinition:
-	var def := DieDefinition.new()
-	def.pointers[0] = 2
-	return def
-
-func test_the_optical_fiber_fires_its_target_twice():
-	var soul := _ids([Essence.OPTICAL_FIBER])
-	var plain := DiceScoring.roll_pointer_fires(_pointer_die(), 0, 1, 1, NO_CHARMS, _ids([]), _rng_hit())
-	assert_eq((plain[0] as Array).size(), 1, "normal zündet ein Glied einmal")
-	var fiber := DiceScoring.roll_pointer_fires(_pointer_die(), 0, 1, 1, NO_CHARMS, soul, _rng_hit())
-	assert_eq((fiber[0] as Array).size(), 2)
-	var fed := DiceScoring.roll_pointer_fires(_pointer_die(), 0, 1, 1, _ids([Charm.FEEDBACK]), soul, _rng_hit())
-	assert_eq((fed[0] as Array).size(), 3, "die Rückkopplung legt eine dritte drauf")
-	for entry: Dictionary in fed[0]:
-		assert_eq(int(entry["face"]), 2, "immer dieselbe Zielseite")
-
 # --- Fuchsfeuer & Pilzgeflecht: die Ablage -----------------------------------------
 
 func test_the_foxfire_pays_per_two_discarded_dice():
@@ -368,7 +311,7 @@ func test_the_highlighter_escalates_with_the_round():
 	var mate := _die([5, 2, 3, 4, 5, 6])
 	var report := MaterialEffects.apply_take_effects(_defs([lit, mate]), _p([0, 0]), _m(["", ""]),
 		_p([0, 1]), _ids([Charm.HIGHLIGHTER]), -1, {0: Essence.BLACK_LIGHT}, _p([0, 1]),
-		false, _p([]), {}, 0, 3)
+		false, _p([]), 0, 3)
 	assert_eq(report.bare_dice, 2)
 	assert_eq(report.total_money(), 2 * EssenceEffects.BLACK_LIGHT_PER_DIE + 5,
 		"drei aus früheren Händen plus die zwei von jetzt")
@@ -376,7 +319,7 @@ func test_the_highlighter_escalates_with_the_round():
 func test_without_the_highlighter_the_black_light_stays_flat():
 	var lit := _die([5, 2, 3, 4, 5, 6], "", Essence.BLACK_LIGHT)
 	var report := MaterialEffects.apply_take_effects(_defs([lit]), _p([0]), _m([""]), _p([0]),
-		NO_CHARMS, -1, {0: Essence.BLACK_LIGHT}, _p([0]), false, _p([]), {}, 0, 9)
+		NO_CHARMS, -1, {0: Essence.BLACK_LIGHT}, _p([0]), false, _p([]), 0, 9)
 	assert_eq(report.money, EssenceEffects.BLACK_LIGHT_PER_DIE)
 
 func test_game_run_carries_the_bare_die_counter_through_the_round():
@@ -405,7 +348,7 @@ func test_the_radiation_stays_in_the_pit_without_the_telescope():
 	var source := _die([5, 2, 3, 4, 5, 6], "", Essence.BACKGROUND_RADIATION)
 	var filed := _die([4, 4, 4, 4, 4, 4])
 	var report := MaterialEffects.apply_take_effects(_defs([source]), _p([0]), _m([""]), _p([0]),
-		NO_CHARMS, -1, {0: Essence.BACKGROUND_RADIATION}, _p([0]), false, _p([0]), {}, 0, 0,
+		NO_CHARMS, -1, {0: Essence.BACKGROUND_RADIATION}, _p([0]), false, _p([0]), 0, 0,
 		_defs([filed]))
 	assert_eq(filed.faces, _d([4, 4, 4, 4, 4, 4]))
 	assert_false(report.discard_grown)
@@ -415,7 +358,7 @@ func test_the_radio_telescope_reaches_the_discard():
 	var filed := _die([4, 4, 4, 4, 4, 4])
 	var report := MaterialEffects.apply_take_effects(_defs([source]), _p([0]), _m([""]), _p([0]),
 		_ids([Charm.RADIO_TELESCOPE]), -1, {0: Essence.BACKGROUND_RADIATION}, _p([0]), false,
-		_p([0]), {}, 0, 0, _defs([filed]))
+		_p([0]), 0, 0, _defs([filed]))
 	assert_eq(filed.faces, _d([9, 9, 9, 9, 9, 9]))
 	assert_true(report.discard_grown, "note_pool_changed hängt genau an dieser Flagge")
 
@@ -457,9 +400,8 @@ func test_the_breakdown_mirrors_every_new_source():
 		DiceScoring.CTX_DISCARD_SOULS: 2,
 		DiceScoring.CTX_DISCARD_VALUES: _d([3, 4, 5]),
 		DiceScoring.CTX_FIRST_SCORING: {0: true, 1: true},
-		DiceScoring.CTX_POINTER_FIRES: {2: [[]]},
 	}
-	var ids := _ids([Charm.STANDBY_LIGHT, Charm.ODOMETER, Charm.BOTTLE_RACK, Charm.GROUND_WIRE])
+	var ids := _ids([Charm.STANDBY_LIGHT, Charm.ODOMETER, Charm.BOTTLE_RACK])
 	var dice := _d([5, 5, 5])
 	var mats := _m(["", "", ""])
 	var breakdown := ScoreBreakdown.build(DiceScoring.THREE_KIND, dice, ids, false, mats, {}, ctx)

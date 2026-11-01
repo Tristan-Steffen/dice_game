@@ -105,7 +105,7 @@ static func det_links_for(ctx: Dictionary, slot: int) -> Array:
 
 ## Die Essenz-Glieder eines Slots, aufgeteilt auf die Würfel-Trigger: je Antritt
 ## die Glieder dieses Antritts (Manometer wiederholt sie). Die Werte wandern über
-## die ganze Reihe weiter, wie im eingefrorenen Pointer-Wurf - ein Knochen-Glied
+## die ganze Reihe weiter - ein Knochen-Glied
 ## zählt beim zweiten Antritt den gewachsenen Wert, und genau dort landet auch die
 ## Def, weil apply_take_effects dieselbe Zahl von Zündungen läuft.
 static func essence_link_groups(ctx: Dictionary, slot: int, die_triggers: int, repeat: int,
@@ -135,7 +135,7 @@ static func essence_links_at(groups: Array, trigger_index: int) -> Array:
 	return groups[trigger_index] if trigger_index >= 0 and trigger_index < groups.size() else []
 
 ## Dieselben Glieder, aber so oft, wie die Seele wirkt (Manometer). Die Werte
-## wandern dabei weiter wie im eingefrorenen Pointer-Wurf - ein Knochen-Glied
+## wandern dabei weiter - ein Knochen-Glied
 ## zählt beim zweiten Durchlauf den gewachsenen Wert, und genau dort landet auch
 ## die Def, weil apply_take_effects dieselbe Zahl von Zündungen läuft.
 static func repeated_det_links(ctx: Dictionary, slot: int, repeat: int,
@@ -158,25 +158,6 @@ static func repeated_det_links(ctx: Dictionary, slot: int, repeat: int,
 			running[face] = MaterialEffects.mutate_link_value_once(value, material,
 				charm_ids, int(link.get("raw_level", link.get("level", 1))), essence_ids, clause_growth)
 	return out
-
-## Gezündete Pointer (ctx-Schlüssel): Dictionary Slot -> Array über die
-## WÜRFEL-Trigger, je Trigger die Liste der gezündeten Glieder (leer = der Wurf
-## ist danebengegangen). Einträge wie bei den Essenz-Gliedern.
-## Der Pointer ist die einzige Zufallsquelle der Wertung: er wird beim Nehmen
-## EINMAL ausgewürfelt (roll_pointer_fires) und hier eingefroren, damit Wertung,
-## Schrittliste und Nehmen-Effekte dieselben Zündungen sehen. Der VORSCHAU fehlt
-## der Schlüssel - sie zeigt die Hand ohne Pointer.
-const CTX_POINTER_FIRES := "pointer_fires"
-
-## Alle Trigger-Gruppen des Slots ([] = nichts gezündet).
-static func pointer_fires_for(ctx: Dictionary, slot: int) -> Array:
-	var fires: Dictionary = ctx.get(CTX_POINTER_FIRES, {})
-	return fires.get(slot, [])
-
-## Die Glieder, die im Würfel-Trigger trigger_index gezündet haben.
-static func pointer_fires_at(ctx: Dictionary, slot: int, trigger_index: int) -> Array:
-	var groups := pointer_fires_for(ctx, slot)
-	return groups[trigger_index] if trigger_index >= 0 and trigger_index < groups.size() else []
 
 ## Material-Zustände (ctx-Schlüssel): Dictionary Slot -> {"level": int (0 keins,
 ## 1 normal, 2 veredelt - das Material der OBEREN Seite), "eye_sum": int}. Wie die
@@ -247,18 +228,6 @@ static func volcanic_fumbles_in(ctx: Dictionary, charm_ids: Array[String]) -> in
 		fumbles += int(ctx.get(CTX_ASH_FUMBLES, 0))
 	return maxi(0, fumbles)
 
-## Pointer-Würfe, die danebengegangen sind (Erdungskabel): je Würfel-Trigger
-## eine leere Gruppe. Im ctx stehen nur Würfel, die überhaupt einen Pointer
-## tragen - ein leerer Eintrag IST also ein Fehlwurf.
-static func pointer_misses_in(ctx: Dictionary) -> int:
-	var misses := 0
-	var fires: Dictionary = ctx.get(CTX_POINTER_FIRES, {})
-	for slot in fires:
-		for group: Array in fires[slot]:
-			if group.is_empty():
-				misses += 1
-	return misses
-
 ## Wirksame Essenz-Mengen (ctx-Schluessel): Slot -> Array der Essenz-ids, die an
 ## diesem Wuerfel WIRKEN. Normal genau die eigene; die Quintessenz borgt sich die
 ## der anderen liegenden Wuerfel dazu (siehe EssenceEffects.effective_sets).
@@ -321,8 +290,8 @@ static func burned_for(ctx: Dictionary, slot: int) -> bool:
 	var burned: Dictionary = ctx.get(CTX_BURNED, {})
 	return bool(burned.get(slot, false))
 
-## Würfelt den Vorrat der Ladungs-Würfe aus - EINMAL je Nehmen, wie
-## roll_pointer_fires: Slot -> Array[float] mit CHARGE_ROLLS_PER_DIE Werten.
+## Würfelt den Vorrat der Ladungs-Würfe aus - EINMAL je Nehmen:
+## Slot -> Array[float] mit CHARGE_ROLLS_PER_DIE Werten.
 static func roll_charge_rolls(slots: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
 	var rolls := {}
 	for slot in slots:
@@ -580,8 +549,8 @@ static func _qualifies_plain(key: String, dice: Array[int], charm_ids: Array[Str
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
 ## Würfel in Reihen-Ordnung (trigger_order; je Zündung Augen, Material,
 ## würfelgebundene Charms - Knochen/Glas wandeln den Wert zwischen den
-## Zündungen; je Würfel-Trigger danach der gewürfelte Pointer, zuletzt die
-## Essenz-Glieder), dann
+## Zündungen; je Würfel-Trigger danach das Essenz-Glied, zuletzt die
+## Runen-Glieder), dann
 ## statische Charms strikt in Besitz-Reihenfolge (Boni UND Krits an ihrer
 ## Position), zuletzt das EINE Verschmelzen. materials: DieMaterial-id je Slot
 ## ("" = keins). ctx: Wurf-/Runden-Zustand - dort steht auch, die wievielte Hand
@@ -670,84 +639,9 @@ static func _block_ranks(dice: Array[int], participating: Array[int]) -> Diction
 			ranks[slot] = k
 	return ranks
 
-# --- Pointer: eine Chance, EINMAL ausgewürfelt -------------------------------
-
-## Grundchance, mit der ein Pointer je Wurf zündet.
-const POINTER_CHANCE := 0.5
-## Lötkolben: +10 Prozentpunkte auf die GRUNDCHANCE je Exemplar - gedeckelt,
-## denn ein Pointer, der sicher zündet, wäre keine Chance mehr.
-const SOLDERING_IRON_BONUS := 0.1
-const POINTER_CHANCE_MAX := 0.95
-## Harte Schranke gegen pathologisches RNG (2^-32); Ketten dürfen kreisen.
-const POINTER_HOP_CAP := 32
-
-## Grundchance nach den Charms - VOR der Plasma-Aggregation, die auf ihr aufsetzt.
-static func pointer_base_chance(charm_ids: Array[String]) -> float:
-	return minf(POINTER_CHANCE_MAX,
-		POINTER_CHANCE + SOLDERING_IRON_BONUS * float(charm_ids.count(Charm.SOLDERING_IRON)))
-
-## Aggregierte Chance über firings Seiten-Zündungen: 1 − (1−p)^n. Ein Würfel-
-## Trigger würfelt EINMAL mit ihm statt je Zündung neu - so bleibt der Pointer
-## auch bei vielen Zündungen bei höchstens einer Kette je Trigger.
-static func pointer_chance_for(chance: float, firings: int) -> float:
-	return 1.0 - pow(1.0 - clampf(chance, 0.0, 1.0), float(maxi(1, firings)))
-
-## Würfelt die Pointer EINES Würfels für die ganze Hand aus: je Würfel-Trigger
-## ein Wurf mit der aggregierten Chance; ein Treffer zündet die Zielseite EINMAL
-## (die Seiten-Achse gilt dort nicht - Runen gehören der oberen Seite). Trägt die
-## gezündete Seite selbst einen Pointer, geht es Sprung für Sprung mit der
-## EINFACHEN Chance weiter; ein Zyklus würfelt einfach weiter.
-## Die Werte wandern mit: eine zweimal gezündete Knochen-Seite zählt beim zweiten
-## Mal den gewachsenen Wert. Gerechnet wird mit dem ECHTEN Zustand - genau diese
-## Zahl landet später in der Def, der Firnis hebt nur die Wertung.
-static func roll_pointer_fires(die: DieDefinition, up_face: int, die_triggers: int, face_triggers: int,
-		charm_ids: Array[String], essence_ids: Array[String], rng: RandomNumberGenerator,
-		essence_repeat: int = 1, clause_growth: int = 0) -> Array:
-	var groups: Array = []
-	if die == null or up_face < 0 or up_face >= 6 or rng == null:
-		return groups
-	var chance := EssenceEffects.pointer_chance_of(essence_ids, pointer_base_chance(charm_ids))
-	var aggregated := pointer_chance_for(chance, face_triggers)
-	# Wie oft ein gezündetes Glied seine Zielseite feuert (Glasfaser, Zündspule) -
-	# eingefroren wie jede andere Zündung, damit Wertung, Schrittliste und
-	# Nehmen-Effekte dieselbe Liste lesen.
-	var shots := EssenceEffects.link_fire_count(essence_ids, charm_ids)
-	# Laufende Werte JEDER Seite - auch die obere wandert mit, denn eine Kette darf
-	# auf sie zurückspringen.
-	var running: Array[int] = die.faces.duplicate()
-	var up_material: String = die.materials[up_face] if up_face < die.materials.size() else ""
-	var up_level := MaterialEffects.face_level(die, up_face)
-	var up_runes := die.runes_on(up_face)
-	for _t in maxi(1, die_triggers):
-		for _f in maxi(1, face_triggers):
-			running[up_face] = MaterialEffects.mutate_value_once(running[up_face], up_material,
-				charm_ids, up_level, essence_ids, up_runes, essence_repeat, clause_growth)
-		var fires: Array[Dictionary] = []
-		var face := up_face
-		var roll_chance := aggregated
-		for _hop in POINTER_HOP_CAP:
-			var target := die.pointer_target(face)
-			if target < 0 or rng.randf() >= roll_chance:
-				break
-			var material: String = die.materials[target] if target < die.materials.size() else ""
-			var level := MaterialEffects.face_level(die, target)
-			for _shot in shots:
-				fires.append({
-					"face": target,
-					"value": running[target],
-					"material": material,
-					"level": EssenceEffects.boosted_level(level, essence_ids),
-				})
-				running[target] = MaterialEffects.mutate_link_value_once(running[target], material,
-					charm_ids, level, essence_ids, clause_growth)
-			face = target
-			roll_chance = chance
-		groups.append(fires)
-	return groups
-
 ## Der Vorspann jeder Wertung: die gewertete Menge, ihre Zählreihenfolge und der
-## Echo-Slot. EINE Quelle für _base_and_mult, ScoreBreakdown und den Pointer-
-## Wurf - sonst würfelte der Wurf andere Achsen aus, als die Wertung zählt.
+## Echo-Slot. EINE Quelle für _base_and_mult, ScoreBreakdown und die
+## Nehmen-Effekte - sonst zählten sie andere Achsen.
 static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], ctx: Dictionary) -> Dictionary:
 	var dice := shown_values(raw, charm_ids, ctx)
 	var participating := participating_indices(key, raw, charm_ids, ctx)
@@ -835,7 +729,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# je Krit davor +20 Basis auf SEINE Zündung. Die Gewitterfront startet den
 	# Zähler beim Stand der Runde statt bei null.
 	var crits := EssenceEffects.round_crit_offset(charm_ids, int(ctx.get(CTX_ROUND_CRITS, 0)))
-	# Laufender Auslösungszähler der ganzen Hand (Pointer-Glieder zählen mit):
+	# Laufender Auslösungszähler der ganzen Hand (Glieder zählen mit):
 	# das Photonengas sammelt das Licht aller Auslösungen vor sich - mit
 	# Dunkelkammer auch das der bisherigen Hände der Runde.
 	var triggers := EssenceEffects.round_trigger_offset(charm_ids, int(ctx.get(CTX_ROUND_TRIGGERS, 0)))
@@ -918,8 +812,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		# Würfel selbst (das bliebe ein zweiter Faktor auf der Würfel-Achse).
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
 		# Röntgenlicht: die Gegenseite feuert JE Würfel-Trigger, direkt hinter dem
-		# Zündungs-Batch dieses Antritts - wie ein garantierter Pointer, nur ohne
-		# Chance und ohne Kette.
+		# Zündungs-Batch dieses Antritts - ohne Chance und ohne Kette.
 		var essence_links := essence_link_groups(ctx, i, die_triggers, essence_repeat,
 			charm_ids, essence_ids, clause_growth)
 		# LAUFENDER Wert: Knochen/Glas wandeln die obere Seite ZWISCHEN den
@@ -1008,16 +901,15 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
 					MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
 				charge_firings += 1
-			# Glieder: je Würfel-Trigger erst der dafür gewürfelte Pointer, dann das
-			# Essenz-Glied (Röntgenlicht); im letzten Durchgang die Runen-Glieder.
-			# Jedes feuert EINMAL wie eine Zündung mit getauschter Seite (nie
-			# retriggert) - noch an der Position dieses Würfels, weil Krits die
-			# Reihenfolge werten. Glieder tragen ihren eingefrorenen Wert (eine Kette
-			# meint fremde Seiten). RUNES feuern hier NICHT: eine Rune gehört der oben
-			# liegenden Seite, ein Glied ist per Definition eine andere.
+			# Glieder: je Würfel-Trigger das Essenz-Glied (Röntgenlicht); im letzten
+			# Durchgang die Runen-Glieder. Jedes feuert EINMAL wie eine Zündung mit
+			# getauschter Seite (nie retriggert) - noch an der Position dieses Würfels,
+			# weil Krits die Reihenfolge werten. Glieder tragen ihren eingefrorenen Wert.
+			# RUNES feuern hier NICHT: eine Rune gehört der oben liegenden Seite, ein
+			# Glied ist per Definition eine andere.
 			var links_now: Array = []
 			if t < die_triggers:
-				links_now = pointer_fires_at(ctx, i, t) + essence_links_at(essence_links, t)
+				links_now = essence_links_at(essence_links, t)
 			else:
 				links_now = repeated_det_links(ctx, i, essence_repeat, charm_ids, essence_ids, clause_growth)
 			for link in links_now:

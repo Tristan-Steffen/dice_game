@@ -77,9 +77,8 @@ static func signature(net: Array, accent: Color, drained: Array) -> String:
 		# Eine VERDICHTETE Zelle trägt mehr als kind:id:value. Fehlten ihre übrigen
 		# Kanäle hier, teilten zwei verschiedene Karten EINE gebackene Textur.
 		if StampNet.kind_of(cell) == StampNet.KIND_COMPOUND:
-			mark += ":%d:%s:%s:%d" % [int(cell.get("factor", 1)),
-				String(cell.get("rune", "")), str(cell.get("dope", false)),
-				int(cell.get("to", -1))]
+			mark += ":%d:%s:%s" % [int(cell.get("factor", 1)),
+				String(cell.get("rune", "")), str(cell.get("dope", false))]
 		if face < drained.size() and bool(drained[face]):
 			mark += "!"
 		parts.append(mark)

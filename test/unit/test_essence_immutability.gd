@@ -57,7 +57,6 @@ func test_face_writes_never_touch_the_essence():
 	def.set_face_material(0, DieMaterial.GOLD)
 	def.set_rune(0, Rune.AFTERGLOW)
 	def.set_rune(0, Rune.BURN_IN)
-	def.pointers[0] = 2
 	assert_eq(def.essence_id, Essence.ARGON, "Material, Veredelung und Rune lassen die Seele in Ruhe")
 
 func test_a_projection_never_touches_the_essence():
@@ -107,8 +106,6 @@ func test_the_test_mode_helpers_never_rewrite_a_soul():
 	var before := _souls_of(run)
 	run.randomize_all_materials()
 	run.clear_all_materials()
-	run.randomize_all_pointers()
-	run.clear_all_pointers()
 	assert_eq(_souls_of(run), before, "auch der Testmodus lässt die Seelen stehen")
 
 func test_only_the_named_test_helpers_may_deal_souls():
