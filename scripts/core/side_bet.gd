@@ -30,7 +30,7 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, ENERGY }
 ## Was der Gewinn ausschüttet. PRESS_BOOST ist ein Einmal-Schub auf die nächste
 ## Serie (ein Slot mehr), kein Bestand.
-enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, COMBO_LEVEL, PRESS_BOOST }
+enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART, PRESS_BOOST }
 
 ## Fortschrittsstufe, ab der eine Wette ohne eigenen "unlock" ausliegt: ab Runde 1.
 const UNLOCK_BASE := 1
@@ -45,7 +45,7 @@ const HIGH_DICE_EYES := 6
 var id: String = ""
 var condition: int = Condition.COMBO
 var target: int = 0             # HAND_SCORE: Punkte; FEW_DICE: max. Würfel; ...
-var target_combo: String = ""   # COMBO/COMBO_LEVEL: DiceScoring-Kategorie-Key
+var target_combo: String = ""   # COMBO: DiceScoring-Kategorie-Key
 ## > 0: target wird beim Auslegen aus der Quota gerechnet (siehe _nice_target).
 var target_factor: float = 0.0
 var stake_kind: int = Stake.MONEY
@@ -65,6 +65,8 @@ var reward_pack_tier: int = Pack.TIER_NORMAL
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
 var payout_energy: int = 0     # nur Payout.ENERGY: Gewinn in Energie (⚡)
 var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
+## nur Payout.PART: das Bauteil, beim Auswürfeln der Auslage festgelegt.
+var reward_part_id: String = ""
 var unlock_level: int = UNLOCK_BASE
 var display_name: String = ""
 var description: String = ""
@@ -181,7 +183,7 @@ const TEMPLATES := [
 		"payout": Payout.ENERGY, "payout_energy": 8, "name": "Rückkopplung",
 		"unlock": 8, "desc": "Räume mindestens drei Überladungs-Stufen."},
 	{"id": "patent", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
-		"stake": 12, "payout": Payout.COMBO_LEVEL, "name": "Patent", "unlock": 8,
+		"stake": 12, "payout": Payout.PART, "name": "Patent", "unlock": 8,
 		"desc": "Nimm ein Full House oder besser."},
 	# --- Privatclub (9) ---
 	{"id": "collector", "condition": Condition.DISTINCT_COMBOS, "target": 5,
@@ -253,6 +255,8 @@ static func _from_template(t: Dictionary, quota: int = 0) -> SideBet:
 	if bet.payout_kind == Payout.PACKS or bet.payout_kind == Payout.PACK:
 		bet.reward_pack_type = Pack.roll_engraving_type()
 		bet.reward_pack_tier = Pack.roll_tier()
+	if bet.payout_kind == Payout.PART:
+		bet.reward_part_id = ComboPart.roll_shop().id
 	return bet
 
 ## Der Schlüssel der Inventar-Sicht: Sorte plus Größe. EINE Schreibweise, an der
@@ -488,6 +492,10 @@ func reward_list() -> Array[Pack]:
 	return result
 
 ## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
+## Das gewonnene Bauteil, frisch (null = keins benannt).
+func reward_part() -> ComboPart:
+	return ComboPart.make(reward_part_id)
+
 func special_engraving() -> Engraving:
 	if special_id == "":
 		return null
@@ -515,7 +523,7 @@ func stake_label(factor: int = 1) -> String:
 
 ## Gewinn-Etikett: Barbetrag oder die versiegelten Pakete beim NAMEN ("2 Große
 ## Material-Pakete") - Sorte und Größe stehen seit dem Auswürfeln fest. factor wie oben -
-## Einzelstücke (Sonderposten, Paket, Chipstufe) verdoppelt der Quotenbonus NICHT.
+## Einzelstücke (Sonderposten, Paket, Bauteil) verdoppelt der Quotenbonus NICHT.
 ## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
 ## sonst verspricht er weniger, als die Abrechnung zahlt.
 func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
@@ -529,8 +537,9 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 			return "1 %s" % (special.display_name if special != null else special_id)
 		Payout.PACK:
 			return Pack.amount_phrase(reward_pack_type, reward_pack_tier, 1)
-		Payout.COMBO_LEVEL:
-			return "+1 Stufe"
+		Payout.PART:
+			var part := reward_part()
+			return "1 %s" % (part.display_name if part != null else "Bauteil")
 		Payout.PRESS_BOOST:
 			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Serie.
 			return "Nächste Serie: +%d Slot" % SeriesResolver.BOOST_SLOTS

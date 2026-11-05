@@ -104,8 +104,10 @@ class TakeReport:
 ## tail_slot = Schluss der Zählreihenfolge (Rücklicht), Gegenstück zu echo_slot.
 ## is_first_hand = erste genommene Hand der Runde, in_combination = dieser Slot
 ## gehört zur KOMBINATION (nicht bloß zur gewerteten Menge) - beides für die
-## Zauberkarte, die nur die Kombinationswürfel meint.
-static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0, tail_slot: int = -1, is_first_hand: bool = false, in_combination: bool = false) -> int:
+## Zauberkarte, die nur die Kombinationswürfel meint. chip_parts/combo_head/
+## combo_tail: die Steckplätze der Kombination und Kopf/Schluss ihrer Würfel in der
+## Zählreihe (Relais, Endstufe) - JEDER Aufrufer reicht sie mit.
+static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, extra: int = 0, scored_count: int = 0, tail_slot: int = -1, is_first_hand: bool = false, in_combination: bool = false, chip_parts: Array = [], combo_head: int = -1, combo_tail: int = -1) -> int:
 	var count := EssenceEffects.activation_factor_of(essence_ids, charm_ids, is_stress)
 	if i == echo_slot:
 		count += CharmEffects.echo_retriggers(charm_ids)
@@ -113,6 +115,7 @@ static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int =
 		count += CharmEffects.tail_retriggers(charm_ids)
 	count += CharmEffects.full_hand_retriggers(charm_ids, scored_count)
 	count += CharmEffects.first_hand_retriggers(charm_ids, is_first_hand, in_combination)
+	count += ComboPartEffects.die_retriggers(chip_parts, i, combo_head, combo_tail)
 	return maxi(1, count + extra)
 
 ## SEITEN-Achse: wie oft die obere Seite je Würfel-Trigger zündet. Rein additiv -
@@ -123,8 +126,8 @@ static func face_trigger_count(value: int, charm_ids: Array[String], extra: int 
 
 ## Zündungen der oberen Seite insgesamt: die beiden Achsen MULTIPLIZIEREN sich.
 ## Eine Quelle für Wertung, Schrittliste und Nehmen-Effekte.
-static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0, echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, die_extra: int = 0, face_extra: int = 0, scored_count: int = 0, tail_slot: int = -1, is_first_hand: bool = false, in_combination: bool = false) -> int:
-	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra, scored_count, tail_slot, is_first_hand, in_combination) \
+static func total_trigger_count(i: int, charm_ids: Array[String], value: int = 0, echo_slot: int = -1, essence_ids: Array[String] = [], is_stress: bool = false, die_extra: int = 0, face_extra: int = 0, scored_count: int = 0, tail_slot: int = -1, is_first_hand: bool = false, in_combination: bool = false, chip_parts: Array = [], combo_head: int = -1, combo_tail: int = -1) -> int:
+	return die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress, die_extra, scored_count, tail_slot, is_first_hand, in_combination, chip_parts, combo_head, combo_tail) \
 		* face_trigger_count(value, charm_ids, face_extra, essence_ids)
 
 ## Härteofen: die AUSZAHLUNG einer veredelten Seite läuft zweimal - Basis, Mult,
@@ -386,8 +389,10 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## burned: Slots, die schon VOR der Hand durchgebrannt waren - sie feuern nichts.
 ## Wer erst in dieser Hand durchbrennt, hat vorher FERTIG gefeuert (sein Urteil
 ## fällt nach der letzten Zündung), also läuft hier alles wie in der Wertung.
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0, burned: Array[int] = []) -> TakeReport:
+## chip_parts: die Steckplätze der genommenen Kombination (Relais, Endstufe).
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0, burned: Array[int] = [], chip_parts: Array = []) -> TakeReport:
 	var combo_slots := participating if combination.is_empty() else combination
+	var ends := ComboPartEffects.combo_ends(_take_order(order, participating), combo_slots)
 	# Die GEZEIGTEN Werte und der Schluss der Reihe: beide Achsen müssen exakt so
 	# gezählt werden wie in der Wertung (Lichtsäule liest Gleichzahlen, das
 	# Rücklicht das Schlusslicht), sonst driften Simulation und Def auseinander.
@@ -408,7 +413,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	# Zündungs-Geld (Goldseiten, Seelen-Geld) zahlt die Zeremonie im Moment JEDER
 	# Zündung - hier steht es nur noch als Summe, damit nichts doppelt bucht.
 	report.activation_money = activation_money_total(plan_activation_money(defs, face_indices,
-		materials, participating, charm_ids, echo_slot, essences, order, is_stress, hands_taken, combination, burned))
+		materials, participating, charm_ids, echo_slot, essences, order, is_stress, hands_taken, combination, burned, chip_parts))
 	for i in _take_order(order, participating):
 		if i >= defs.size() or i >= face_indices.size():
 			continue
@@ -432,7 +437,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# Die beiden Achsen, exakt wie DiceScoring sie zählt.
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
-			participating.size(), tail_slot, is_first_hand, combo_slots.has(i))
+			participating.size(), tail_slot, is_first_hand, combo_slots.has(i), chip_parts, ends.x, ends.y)
 		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 		# Manometer: wie oft die SEELE dieses Würfels wirkt (Wachstum, Geld, Glieder).
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
@@ -526,8 +531,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 ##   {"groups": [{"firings": [int], "links": [int]}], "det_links": [int], "total": int}
 ## EINE Quelle: der Zug meldet die Summe als activation_money und bucht sie nicht.
 ## burned wie in apply_take_effects: ein durchgebrannter Würfel zahlt nichts.
-static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, hands_taken: int = 0, combination: Array[int] = [], burned: Array[int] = []) -> Dictionary:
+static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, hands_taken: int = 0, combination: Array[int] = [], burned: Array[int] = [], chip_parts: Array = []) -> Dictionary:
 	var combo_slots := participating if combination.is_empty() else combination
+	var ends := ComboPartEffects.combo_ends(_take_order(order, participating), combo_slots)
 	# Der Goldschmied legt auf JEDEN Gold-Träger denselben Zuschlag - additiv über
 	# jedem Satz, nie als Faktor auf ihn. Die Goldader kommt je Zündung dazu.
 	var gold_surplus := GOLDSMITH_BONUS if charm_ids.has(Charm.GOLDSMITH) else 0
@@ -535,7 +541,7 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 	var tail_slot: int = int(order[order.size() - 1]) if not order.is_empty() else -1
 	# Veredeltes Gold: +$1 je Gold-Seiten-Auslösung dieser Nahme - der Zähler steht
 	# VOR der ersten Buchung fest.
-	var gold_triggers := _gold_face_triggers(defs, face_indices, materials, participating, charm_ids, echo_slot, essences, order, is_stress, shown_values, tail_slot, hands_taken, combo_slots)
+	var gold_triggers := _gold_face_triggers(defs, face_indices, materials, participating, charm_ids, echo_slot, essences, order, is_stress, shown_values, tail_slot, hands_taken, combo_slots, chip_parts)
 	var plan := {}
 	# Die Goldader zählt die Gold-Zündungen der ganzen Nahme mit - deshalb läuft
 	# der Plan in ZÄHLREIHENFOLGE, nicht slot-sortiert.
@@ -554,7 +560,7 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 		var shown := CharmEffects.shown_by_charms(defs[i].faces[face], charm_ids)
 		var die_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
-			participating.size(), tail_slot, hands_taken == 0, combo_slots.has(i))
+			participating.size(), tail_slot, hands_taken == 0, combo_slots.has(i), chip_parts, ends.x, ends.y)
 		var face_triggers := face_trigger_count(shown, charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 		# Manometer: das SEELEN-Geld zahlt mehrfach, das Gold der Seite nicht.
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
@@ -870,8 +876,9 @@ static func _gold_payout(level: int, surplus: int, triggers: int) -> int:
 ## Wie oft in DIESER Nahme eine Gold-Seite zündet - beide Achsen aller
 ## beteiligten Slots plus die Essenz- und Runen-Glieder, in
 ## jedem Zustand.
-static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], echo_slot: int, essences: Dictionary, order: Array[int], is_stress: bool, shown_values: Array[int] = [], tail_slot: int = -1, hands_taken: int = 0, combination: Array[int] = []) -> int:
+static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String], echo_slot: int, essences: Dictionary, order: Array[int], is_stress: bool, shown_values: Array[int] = [], tail_slot: int = -1, hands_taken: int = 0, combination: Array[int] = [], chip_parts: Array = []) -> int:
 	var triggers := 0
+	var ends := ComboPartEffects.combo_ends(_take_order(order, participating), combination)
 	for i in participating:
 		if i >= defs.size() or i >= face_indices.size():
 			continue
@@ -884,12 +891,12 @@ static func _gold_face_triggers(defs: Array[DieDefinition], face_indices: Array[
 			triggers += total_trigger_count(i, charm_ids, shown, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
 				RuneEffects.extra_activations(defs[i].runes_on(face), charm_ids), participating.size(), tail_slot,
-					hands_taken == 0, combination.has(i))
+					hands_taken == 0, combination.has(i), chip_parts, ends.x, ends.y)
 		var essence_repeat := EssenceEffects.essence_repeat_count(i, order, essences, charm_ids)
 		# Das Röntgen-Glied zündet je Würfel-Trigger, das Runen-Glied einmal.
 		var link_triggers := die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, shown_values, hands_taken),
-			participating.size(), tail_slot, hands_taken == 0, combination.has(i))
+			participating.size(), tail_slot, hands_taken == 0, combination.has(i), chip_parts, ends.x, ends.y)
 		for link_face in EssenceEffects.essence_link_faces(defs[i], face, essence_ids):
 			if link_face < defs[i].materials.size() and defs[i].materials[link_face] == DieMaterial.GOLD:
 				triggers += link_triggers * essence_repeat

@@ -250,7 +250,7 @@ func _sync_affordability(index: int, bet: SideBet) -> void:
 	_seat_trades[index].modulate = CasinoStyle.RED if short else GOLD
 
 ## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Energie cyan, alles übrige
-## (Gravuren, Sonderposten, Paket, Chipstufe) grün.
+## (Gravuren, Sonderposten, Paket, Bauteil) grün.
 static func payout_accent(bet: SideBet) -> Color:
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:

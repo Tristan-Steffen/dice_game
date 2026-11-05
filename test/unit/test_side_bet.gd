@@ -382,7 +382,9 @@ func test_pack_payout_reward_label_names_type_and_size():
 
 func test_new_payout_reward_labels():
 	assert_eq(_bet("feedback_loop").reward_label(), "8 ⚡")
-	assert_eq(_bet("patent").reward_label(), "+1 Stufe")
+	var patent := _bet("patent")
+	patent.reward_part_id = ComboPart.RELAY
+	assert_eq(patent.reward_label(), "1 Relais")
 	assert_eq(_bet("circuit_contract").reward_label(), "1 Pointer")
 	assert_eq(_bet("clean_room").reward_label(), "1 Veredelung")
 	var ship := _bet("shipment")
@@ -404,4 +406,6 @@ func test_payout_factor_spares_unique_goods():
 	ship.reward_pack_type = Pack.TYPE_NUMBER
 	ship.reward_pack_tier = Pack.TIER_NORMAL
 	assert_eq(ship.reward_label(2), "1 Zahlen-Paket", "ein Einzelstück bleibt eins")
-	assert_eq(_bet("patent").reward_label(2), "+1 Stufe")
+	var patent := _bet("patent")
+	patent.reward_part_id = ComboPart.RELAY
+	assert_eq(patent.reward_label(2), "1 Relais", "ein Bauteil bleibt eins")

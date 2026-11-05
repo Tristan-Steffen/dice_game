@@ -8,13 +8,17 @@ class_name ScoreBreakdown
 ## damit die Anzeige nie von der Rechnung abweicht.
 
 ## Baut die Schrittliste - Parameter wie DiceScoring.score_category.
-## Ergebnis: key, participating, eye_slots, combo, combo_factor_steps, die_steps,
-## charge_mult_step, charges_after, burned_after, fuse_used, charm_steps, base,
+## Ergebnis: key, participating, eye_slots, combo, combo_factor_steps, part_steps,
+## die_steps, charge_mult_step, part_crit_steps, charges_after, burned_after,
+## fuse_used, charm_steps, base,
 ## mult, merge_total, post_steps, total (== score_category). Jeder Würfel-Schritt
 ## trägt sein Ladungs-Urteil als "charge_step" ({} = nichts geschehen).
 ## "combo" trägt die PUREN Kategorie-Werte; jede Doppelter-Boden-Kopie ist ein
 ## eigener "combo_factor_step" dahinter - sonst reiste die Verdopplung
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
+## Jedes Kombi-Bauteil ist danach ein eigener "part_steps"-Eintrag (Steckplatz
+## 1 -> n), jedes Krit-Bauteil ein eigener "part_crit_steps"-Eintrag; Würfel-Teile
+## reisen im Charm-Anteil ihrer Zündung mit und nennen ihre "part_slots".
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
 ## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" dieses
 ## Triggers (das Röntgen-Glied); die Runen-Glieder stehen
@@ -24,7 +28,7 @@ class_name ScoreBreakdown
 ## zweimal einschlagen - "crit_x" bleibt ihr Produkt. Je Zündung trägt der
 ## Eintrag "value" (die gezählte Augenzahl) und "value_after" (der physische
 ## Wert danach) - daraus schaltet die Grubenanimation die Ziffer um.
-static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], combo_parts: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	# Verwandlung zuerst - wie in DiceScoring; raw bleibt für die Charm-Zuordnung.
 	var raw := dice
 	dice = DiceScoring.shown_values(dice, charm_ids, ctx)
@@ -40,8 +44,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var eye_slots: Array[int] = shape["order"]
 	# Kaltverfestigung: hand-weit wie in DiceScoring.
 	var clause_growth := DiceScoring.clause_growth_in(ctx)
+	var chip := ComboPartEffects.chip(combo_parts, key)
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
-		or not essences.is_empty() or not runes.is_empty()
+		or not essences.is_empty() or not runes.is_empty() or ComboPartEffects.has_die_parts(chip)
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
 	# (Ozon wächst mit ihnen, das Grubengas legt sie auf seine eigene Zündung).
 	# Beide Zähler
@@ -61,20 +66,21 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var hands_taken := int(ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
 	var volcanic := DiceScoring.volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := DiceScoring.discard_values_in(ctx)
-	# Acetylen/Schneidbrenner hängen an der Übertaktungs-Stufe, das Metronom an
-	# den einmal zündenden Würfeln - beide stehen vor der Zählung fest.
-	var combo_level := int(combo_levels.get(key, 0))
+	# Acetylen/Schneidbrenner zählen die Bauteile, das Metronom die einmal
+	# zündenden Würfel - beide stehen vor der Zählung fest.
+	var part_count := ComboPartEffects.part_count(chip)
+	var ends := ComboPartEffects.combo_ends(eye_slots, participating)
 	var tail_slot: int = shape["tail_slot"]
 	var singles: Array[int] = []
 	if charm_ids.has(Charm.METRONOME):
-		singles = DiceScoring.single_trigger_slots(eye_slots, dice, charm_ids, ctx, int(shape["echo_slot"]), tail_slot, participating)
+		singles = DiceScoring.single_trigger_slots(eye_slots, dice, charm_ids, ctx, int(shape["echo_slot"]), tail_slot, participating, chip)
 
-	# 1. Kombination: feste Punkte + Kategorie-Mult (inkl. Menü-Stufen), PUR.
+	# 1. Kombination: feste Punkte + Kategorie-Mult, PUR.
 	# Der Dreifache Boden reist NICHT stillschweigend in dieser Zahl mit - er
 	# bekommt je Kopie einen eigenen Schritt, wie jeder Krit seinen eigenen
 	# Einschlag bekommt. Er hebt nur die Basis; der Mult bleibt die reine Stufe.
-	var base := DiceScoring.points_for(key, combo_levels)
-	var combo_mult := DiceScoring.mult_for(key, combo_levels)
+	var base := DiceScoring.points_for(key)
+	var combo_mult := DiceScoring.mult_for(key)
 	var mult := float(combo_mult)
 	var combo := {"base_add": base, "mult_add": combo_mult}
 	var combo_factor_steps: Array[Dictionary] = []
@@ -82,6 +88,21 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		base *= 3
 		combo_factor_steps.append({
 			"charm_indices": [dock],
+			"base_after": base,
+			"mult_after": mult,
+		})
+	# 1b. Kombi-Bauteile, je Steckplatz ein eigener Schritt.
+	var part_steps: Array[Dictionary] = []
+	for step in ComboPartEffects.combo_steps(combo_parts, key):
+		base += int(step["points"])
+		mult += float(step["mult"])
+		part_steps.append({
+			"key": key,
+			"slot": int(step["slot"]),
+			"part_id": String(step["id"]),
+			"copied": String(step["copied"]),
+			"base_add": int(step["points"]),
+			"mult_add": int(step["mult"]),
 			"base_after": base,
 			"mult_after": mult,
 		})
@@ -125,6 +146,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var rune_ids := RuneEffects.runes_at(runes, i)
+		var in_combination := participating.has(i)
 		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus - mit
 		# Leuchtstoffröhre dazu den gespeicherten Mult.
 		var phosphor := DiceScoring.phosphor_store_for(ctx, i)
@@ -147,7 +169,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		if has_die_bonus:
 			die_count = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, eye_slots, essences, charm_ids, dice, hands_taken), eye_slots.size(), tail_slot,
-				hands_taken == 0, participating.has(i))
+				hands_taken == 0, in_combination, chip, ends.x, ends.y)
 			face_count = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
 			once_base = MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 		# Manometer: wie oft die SEELE wirkt - Krit, Wachstum und Glieder.
@@ -180,7 +202,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var shown := DiceScoring.shown_value(running_values[i], charm_ids, essence_ids)
 				var eye_now := EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
-					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
+					+ EssenceEffects.combo_part_base_of(essence_ids, part_count) \
 					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids) \
 					+ EssenceEffects.firedamp_base_of(essence_ids, crits)
 				triggers += 1
@@ -191,7 +213,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				if has_die_bonus:
 					mult_now = MaterialEffects.mult_once_for(face_material, shown, charm_ids, level) \
 						+ EssenceEffects.mult_bonus_of(essence_ids) \
-						+ EssenceEffects.combo_level_mult_of(essence_ids, combo_level, charm_ids)
+						+ EssenceEffects.combo_part_mult_of(essence_ids, part_count, charm_ids)
 					mat_crit_now = MaterialEffects.mult_crit_once_for(face_material, shown, charm_ids, level)
 				# Der Betrag der würfelgebundenen Charms folgt dem laufenden Wert;
 				# gezielt wird weiter über die liegenden.
@@ -206,6 +228,11 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 						charm_base_now += cb
 						charm_mult_now += cm
 						charm_indices_now.append(j)
+				# Würfel-Teile des Chips reisen im Charm-Anteil, ihre Steckplätze blitzen.
+				var part_charge := int(running_charges.get(i, 0))
+				charm_base_now += ComboPartEffects.firing_base(chip, in_combination)
+				charm_mult_now += ComboPartEffects.firing_mult(chip, in_combination, part_charge)
+				var part_slots_now := ComboPartEffects.firing_slots(chip, in_combination, part_charge)
 				# Metronom und Stroboskop hängen an der Hand bzw. am Zündungszähler,
 				# nicht am zustandslosen Hook - ihr Anteil reist trotzdem im Charm-
 				# Anteil dieser Zündung, damit ihr Pad blitzt.
@@ -239,6 +266,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					"base_after": base, "mult_after": mult,
 					"charm_base_add": charm_base_now, "charm_mult_add": charm_mult_now,
 					"die_charm_indices": charm_indices_now,
+					"part_slots": part_slots_now,
 				}
 				base += charm_base_now
 				mult += float(charm_mult_now)
@@ -490,6 +518,20 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"base_after": base,
 			"mult_after": mult,
 		}
+	# 2c. Krit-Bauteile nach allen Würfeln, vor den statischen Charms - je Teil ein Schlag.
+	var part_crit_steps: Array[Dictionary] = []
+	for step in ComboPartEffects.crit_steps(chip):
+		var part_crit := float(step["crit_x"])
+		crits += 1
+		mult *= part_crit
+		part_crit_steps.append({
+			"key": key,
+			"slot": int(step["slot"]),
+			"part_id": String(step["id"]),
+			"crit_x": part_crit,
+			"base_after": base,
+			"mult_after": mult,
+		})
 	# Die statischen Charms lesen den END-Stand über eine KOPIE - wie in DiceScoring.
 	var charm_ctx := ctx
 	if not running_charges.is_empty():
@@ -568,7 +610,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 
 	# Sicherheitsnetz: die echte Wertung gewinnt, falls die Schrittliste je
 	# hinter einer DiceScoring-Änderung zurückbleibt.
-	var expected := DiceScoring.score_category(key, raw, charm_ids, is_first_hand, materials, combo_levels, ctx)
+	var expected := DiceScoring.score_category(key, raw, charm_ids, is_first_hand, materials, combo_parts, ctx)
 	if total != expected:
 		push_warning("ScoreBreakdown weicht von DiceScoring ab (%d statt %d) - Schrittliste veraltet?" % [total, expected])
 		total = expected
@@ -580,11 +622,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"combo": combo,
 		# Ein Schritt je Doppelter-Boden-Kopie, direkt hinter der Kombination.
 		"combo_factor_steps": combo_factor_steps,
+		# Ein Schritt je Kombi-Bauteil, Steckplatz 1 -> n.
+		"part_steps": part_steps,
 		"die_steps": die_steps,
 		# LADUNG: der Grundregel-Schritt vor den Charms ({} = 0 Mult), die
 		# END-Stände der Hand, wer in IHR durchgebrannt ist und ob die Sicherung
 		# gehalten hat. GameRun bucht daraus (book_charge_results).
 		"charge_mult_step": charge_mult_step,
+		"part_crit_steps": part_crit_steps,
 		"charges_after": running_charges,
 		"burned_after": burned_after,
 		"fuse_used": fuse_used,

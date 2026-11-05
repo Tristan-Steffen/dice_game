@@ -29,9 +29,9 @@ func _argon(slot: int) -> Dictionary:
 	return {DiceScoring.CTX_ESSENCES: {slot: Essence.ARGON}}
 
 ## Baut die Zerlegung und prüft das Herzstück: total == score_category.
-func _build_and_check(key: String, dice: Array[int], ids: Array[String] = [], first := false, mats: Array[String] = [], levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
-	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, levels, ctx)
-	var expected := DiceScoring.score_category(key, dice, ids, first, mats, levels, ctx)
+func _build_and_check(key: String, dice: Array[int], ids: Array[String] = [], first := false, mats: Array[String] = [], parts: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+	var breakdown := ScoreBreakdown.build(key, dice, ids, first, mats, parts, ctx)
+	var expected := DiceScoring.score_category(key, dice, ids, first, mats, parts, ctx)
 	assert_eq(breakdown["total"], expected, "Schrittliste ergibt die echte Wertung (%s)" % key)
 	_check_continuity(breakdown)
 	return breakdown
@@ -60,6 +60,14 @@ func _check_continuity(breakdown: Dictionary) -> void:
 	var base: int = breakdown["combo"]["base_add"]
 	# Mult ist eine Fließkommazahl, seit Krits Bruchteile sein dürfen (Beherit).
 	var mult := float(breakdown["combo"]["mult_add"])
+	for step: Dictionary in breakdown.get("combo_factor_steps", []):
+		base = int(step["base_after"])
+	# Je Kombi-Bauteil ein Schritt, Steckplatz für Steckplatz.
+	for step: Dictionary in breakdown.get("part_steps", []):
+		base += int(step["base_add"])
+		mult += float(step["mult_add"])
+		assert_eq(int(step["base_after"]), base, "Zwischenstand nach dem Bauteil")
+		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
 	var expected_order: Array = breakdown["eye_slots"]
 	var at := 0
 	for step: Dictionary in breakdown["die_steps"]:
@@ -82,6 +90,13 @@ func _check_continuity(breakdown: Dictionary) -> void:
 			assert_almost_eq(float(pulse["mult_after_crit"]), mult, 0.0001, "Summe der Krit-Schläge")
 		assert_eq(step["base_after"], base, "Würfel-Schritt endet am laufenden Stand")
 		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
+	var charge_step: Dictionary = breakdown.get("charge_mult_step", {})
+	if not charge_step.is_empty():
+		mult += float(charge_step["mult_add"])
+	# Krit-Bauteile nach allen Würfeln, je Teil ein Schlag.
+	for crit: Dictionary in breakdown.get("part_crit_steps", []):
+		mult *= float(crit["crit_x"])
+		assert_almost_eq(float(crit["mult_after"]), mult, 0.0001, "Zwischenstand nach dem Krit-Bauteil")
 	for step: Dictionary in breakdown["charm_steps"]:
 		base = (base + int(step["base_add"])) * int(step["base_x"])
 		mult = (mult + float(step["mult_add"])) * float(step["mult_x"])
@@ -135,10 +150,15 @@ func test_every_category_example_matches():
 	for key: String in DiceScoring.HAND_PRIORITY:
 		_build_and_check(key, _d(DiceScoring.EXAMPLE_DICE[key]))
 
-func test_combo_levels_flow_into_combo_step():
-	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, NO_MATS, {DiceScoring.TWO_KIND: 1})
-	assert_eq(breakdown["combo"]["base_add"], 20, "Übertaktungs-Stufe verdoppelt die festen Punkte")
-	assert_eq(breakdown["combo"]["mult_add"], 4)
+func test_combo_parts_get_their_own_steps():
+	var parts := {DiceScoring.TWO_KIND: [ComboPart.resistor(), ComboPart.capacitor()]}
+	var breakdown := _build_and_check(DiceScoring.TWO_KIND, _d([5, 5, 1, 2, 3, 6]), _ids([]), false, NO_MATS, parts)
+	assert_eq(breakdown["combo"]["base_add"], 10, "die Kombination reist PUR")
+	assert_eq(breakdown["combo"]["mult_add"], 2)
+	var steps: Array = breakdown["part_steps"]
+	assert_eq(steps.size(), 2, "je Teil ein Schritt")
+	assert_eq(int(steps[0]["base_after"]), 25)
+	assert_eq(int(steps[1]["mult_add"]), 3)
 
 # --- Material-Schritte ----------------------------------------------------------
 
@@ -455,7 +475,7 @@ func test_after_work_beer_stays_quiet_while_the_pool_has_dice():
 
 func test_kitchen_sink_scenario_matches_scoring():
 	# Materialien + Augen-Charm + additive Charms + Einserkult + Krit + Totem-
-	# aufgelöste ids + Übertaktungs-Stufen + Kontext: die Zerlegung muss exakt bleiben.
+	# aufgelöste ids + Bauteile + Kontext: die Zerlegung muss exakt bleiben.
 	var run := GameRun.new_run()
 	run.owned_charms.append(Charm.broadband())
 	run.owned_charms.append(Charm.parrot_totem())
@@ -464,7 +484,7 @@ func test_kitchen_sink_scenario_matches_scoring():
 	run.owned_charms.append(Charm.rabbits_foot())
 	var dice := _d([6, 6, 6, 1, 2, 5])
 	var mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, "", "", ""])
-	var levels := {DiceScoring.THREE_KIND: 1}
+	var levels := {DiceScoring.THREE_KIND: [ComboPart.relay(), ComboPart.resistor()]}
 	var ctx := {"after_farkle": true, "streak": 2, DiceScoring.CTX_ESSENCES: {1: Essence.ARGON}}
 	_build_and_check(DiceScoring.THREE_KIND, dice, run.charm_ids(), true, mats, levels, ctx)
 
@@ -546,9 +566,13 @@ func _prop_dice() -> Array:
 	]
 
 func test_breakdown_matches_scoring_across_the_matrix():
-	var levels := {DiceScoring.TWO_KIND: 1, DiceScoring.THREE_KIND: 1}
+	var levels := {
+		DiceScoring.TWO_KIND: [ComboPart.relay(), ComboPart.capacitor(), ComboPart.amplifier_tube()],
+		DiceScoring.THREE_KIND: [ComboPart.series_resistor(), ComboPart.solder_joint(), ComboPart.thermistor()],
+		DiceScoring.FULL_HOUSE: [ComboPart.output_stage(), ComboPart.counter_part()],
+	}
 	# Zwei Umgebungen: nackt, und voll (Materialien + Essenzen + reicher Kontext +
-	# Übertaktung + erste Hand) - so laufen auch die Material-/Krit-Zweige mit.
+	# Bauteile + erste Hand) - so laufen auch die Material-/Krit-Zweige mit.
 	var full_mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, DieMaterial.GLASS, "", DieMaterial.BONE])
 	var rich_ctx := {
 		CharmEffects.CTX_PENDULUM: 4,

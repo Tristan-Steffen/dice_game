@@ -209,10 +209,12 @@ static func sink_drop() -> float:
 static func slot_key(kind: String, index: int) -> String:
 	return "%s:%d" % [kind, index]
 
-## Die Zone eines Platzes: die offene Ware liegt in der Schale, alles Versiegelte
-## im Regal.
+## Die Zone eines Platzes: die offene Ware (Würfel und Bauteil) liegt in der
+## Schale, alles Versiegelte im Regal.
 static func zone_of(kind: String) -> int:
-	return ZONE_BOWL if kind == ShopController.KIND_DIE else ZONE_SHELF
+	if kind == ShopController.KIND_DIE or kind == ShopController.KIND_PART:
+		return ZONE_BOWL
+	return ZONE_SHELF
 
 static func zone_of_key(key: String) -> int:
 	return zone_of(key.get_slice(":", 0))
@@ -589,6 +591,10 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var dice: Array = stock.get(ShopController.KIND_DIE, [])
 	for i in dice.size():
 		entries.append({"kind": ShopController.KIND_DIE, "index": i, "value": dice[i]})
+	# Das Bauteil des Ladens steht auf dem Platz hinter den Würfeln.
+	var parts: Array = stock.get(ShopController.KIND_PART, [])
+	for i in parts.size():
+		entries.append({"kind": ShopController.KIND_PART, "index": i, "value": parts[i]})
 	# Die Schale VERTEILT sich über die ganze Auslagebreite, statt sich an einer
 	# Wunschteilung zu drängen: unter jedem Würfel steht sein Netz, und das
 	# braucht die Breite. row_spots deckelt ohnehin auf span/count.
@@ -603,7 +609,8 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 		var entry := entries[i]
 		if entry["value"] == null:
 			continue  # verkauft: der Platz bleibt leer
-		var lift := DieBuilder.HALF_EXTENT * DIE_SCALE
+		var is_part: bool = entry["kind"] == ShopController.KIND_PART
+		var lift := 0.0 if is_part else DieBuilder.HALF_EXTENT * DIE_SCALE
 		var spot := Vector3(x, lie_y(lift), _field_center_z() + offsets[i])
 		if i < spots.size():
 			spot = Vector3(spots[i].x, lie_y(lift), spots[i].z)
@@ -611,10 +618,13 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 		wanted[key] = true
 		var body: Node3D = _bodies.get(key)
 		if body == null or not is_instance_valid(body):
-			body = _spawn_die(entry["value"])
-			add_child(body)
+			if is_part:
+				body = _spawn_part(entry["value"])
+			else:
+				body = _spawn_die(entry["value"])
+				add_child(body)
 			_bodies[key] = body
-			_rest_scale[key] = DIE_SCALE
+			_rest_scale[key] = 1.0 if is_part else DIE_SCALE
 		_hover_head[key] = HOVER_LIFT
 		_seat(key, body, spot)
 		items.append({"kind": entry["kind"], "index": entry["index"], "key": key, "spot": spot,
@@ -631,6 +641,7 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var packs: Array = stock.get(ShopController.KIND_ENGRAVING_PACK, [])
 	var dice: Array = stock.get(ShopController.KIND_DIE, [])
+	var parts: Array = stock.get(ShopController.KIND_PART, [])
 	var kinds: Array = stock.get(STOCK_ROW_KINDS, [])
 	var entries: Array[Dictionary] = []
 	if kinds.is_empty():
@@ -647,6 +658,11 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			if String(kinds[i]) == ShopController.KIND_ENGRAVING_PACK:
 				entries.append({"kind": ShopController.KIND_ENGRAVING_PACK, "index": i,
 					"pack": packs[i] if i < packs.size() else null})
+		# Bauteile liegen zwischen Kassetten und Würfel.
+		for i in kinds.size():
+			if String(kinds[i]) == ShopController.KIND_PART:
+				entries.append({"kind": ShopController.KIND_PART, "index": i,
+					"part": parts[i] if i < parts.size() else null})
 		for i in kinds.size():
 			if String(kinds[i]) == ShopController.KIND_DIE:
 				entries.append({"kind": ShopController.KIND_DIE, "index": i,
@@ -665,7 +681,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	for i in entries.size():
 		var entry := entries[i]
 		# Verkauft: der Platz bleibt LEER, die Lücke ist die Auskunft.
-		if entry.get("pack") == null and entry.get("value") == null:
+		if entry.get("pack") == null and entry.get("value") == null and entry.get("part") == null:
 			continue
 		var key := slot_key(entry["kind"], entry["index"])
 		wanted[key] = true
@@ -688,6 +704,18 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			items.append({"kind": entry["kind"], "index": entry["index"], "key": key,
 				"spot": spot, "node": cell, "cell": cell, "radius": pack_radius})
 			_stage(key, cell, spot, grade, zone, stage, pack_radius)
+		elif entry["kind"] == ShopController.KIND_PART:
+			var spot := Vector3(x, lie_y(0.0), z)
+			var part_body: ComboPartBody = _bodies.get(key)
+			if part_body == null or not is_instance_valid(part_body):
+				part_body = _spawn_part(entry["part"])
+				_bodies[key] = part_body
+				_rest_scale[key] = 1.0
+			_hover_head[key] = HOVER_LIFT
+			_seat(key, part_body, spot)
+			items.append({"kind": entry["kind"], "index": entry["index"], "key": key,
+				"spot": spot, "node": part_body, "cell": null, "radius": die_radius})
+			_stage(key, part_body, spot, grade, zone, stage, die_radius)
 		else:
 			var lift := DieBuilder.HALF_EXTENT * DIE_SCALE
 			var spot := Vector3(x, lie_y(lift), z)
@@ -702,6 +730,17 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			items.append({"kind": entry["kind"], "index": entry["index"], "key": key,
 				"spot": spot, "node": body, "cell": null, "radius": die_radius})
 			_stage(key, body, spot, grade, zone, stage, die_radius)
+
+## Kantenlänge eines Bauteils - dieselbe wie im Steckplatz (EINE Größe je Ding).
+static func part_side() -> float:
+	return ComboPartBody.SIDE
+
+func _spawn_part(part: ComboPart) -> ComboPartBody:
+	var body := ComboPartBody.new()
+	body.name = "VitrinePart"
+	add_child(body)
+	body.setup(part)
+	return body
 
 ## Wie weit ein Stück der EINEN Reihe von seiner Mitte nach vorn/hinten reicht: das
 ## LÄNGSTE der beiden Sorten, damit jedes Loch sein Stück ganz deckt.

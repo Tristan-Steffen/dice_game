@@ -23,13 +23,22 @@ const EMISSION_ENERGY := 1.2
 
 ## Kombinations-Cluster: kleine Zellen in 3 Spalten, Reihenfolge =
 ## DiceScoring.HAND_PRIORITY, unvollständige letzte Zeile mittig.
-const CELL_SIZE := Vector2(98, 31) * SUPERSAMPLE
-const CELL_GAP := Vector2(6, 4) * SUPERSAMPLE
+## CLUSTER_SCALE (2026-11-02): die Chips wuchsen, damit das Bauteil-Modul neben
+## einem Würfel als Ding liest; Seitenverhältnis und Fugen wachsen mit.
+const CLUSTER_SCALE := 1.4
+const CELL_SIZE := Vector2(98, 31) * CLUSTER_SCALE * SUPERSAMPLE
+const CELL_GAP := Vector2(6, 4) * CLUSTER_SCALE * SUPERSAMPLE
 const CLUSTER_COLUMNS := 3
 const CLUSTER_TOP := 440.0 * SUPERSAMPLE
 const CLUSTER_CENTER_X := 400.0 * SUPERSAMPLE
 
 const CLUSTER_PADDING := 13.0 * SUPERSAMPLE
+## Der Block, für den der Editor-Anker CombosBlock steht (der Cluster vor dem
+## Wachstum). Der gewachsene Cluster hält dessen UNTERKANTE und rückt um
+## CLUSTER_RIGHT_PULL nach links ein, damit er unter dem Wertungs-Fenster bleibt;
+## Nachbarn, die sich am Cluster maßen, messen weiter an diesem Block.
+const CLUSTER_ANCHOR_SIZE := Vector2(332, 197) * SUPERSAMPLE
+const CLUSTER_RIGHT_PULL := 22.0 * SUPERSAMPLE
 ## Adern des Chip-Netzes: dünner als die Fenster-Verbindungen (Stiche an Pins).
 const COMBO_WIRING_WIDTH := 4.0 * SUPERSAMPLE
 const FRAME_COLOR := Color("#8be9fd")  # Neon-Cyan
@@ -135,7 +144,7 @@ var combo_wiring: LedStripView
 ## LED-Leiste Hub <-> Kombinationen (Geometrie via link_hub_to_cluster).
 var led_strip: LedStripView
 ## Schatz-Screen (Geldstand als goldene Truhe) rechts des Hubs, plus die
-## LED-Leiste Hub <-> Schatz (Geld-Lichtläufe wie beim Übertakten).
+## LED-Leiste Hub <-> Schatz (Geld-Lichtläufe).
 var treasure_window: TreasureChestView
 var treasure_strip: LedStripView
 var pit_window: Panel
@@ -378,6 +387,8 @@ var memory_veil: ColorRect
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (Zoomziel/Klickzone).
 var cluster_rect := Rect2()
+## Das Rechteck des Anker-Blocks (siehe CLUSTER_ANCHOR_SIZE).
+var cluster_anchor_rect := Rect2()
 
 ## Weltgrenzen der Screen-Fläche (aus attach_to).
 var _z_min := 0.0
@@ -1493,10 +1504,12 @@ func free_cluster_slots() -> Array[Rect2]:
 				slots.append(Rect2(Vector2(x, y), cell_size))
 	return slots
 
-## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) mittig auf center_px
-## (Pixelposition des Editor-Ankers CombosBlock); cluster_rect wandert mit.
+## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) an den Editor-Anker
+## CombosBlock: unten bündig mit dessen Block, rechts um CLUSTER_RIGHT_PULL eingerückt.
 func place_combo_cluster(center_px: Vector2) -> void:
-	var delta := center_px - cluster_rect.get_center()
+	cluster_anchor_rect = Rect2(center_px - CLUSTER_ANCHOR_SIZE * 0.5, CLUSTER_ANCHOR_SIZE)
+	var corner := cluster_anchor_rect.end - Vector2(CLUSTER_RIGHT_PULL, 0.0)
+	var delta := corner - cluster_rect.end
 	for key in combo_cells:
 		combo_cells[key].position += delta
 	cluster_rect.position += delta
@@ -2506,32 +2519,27 @@ func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2, pro
 	charm_dock.visible = true
 	_sync_reflection_windows()
 
-## --- Kauf-Lichtlauf einer Übertaktung ------------------------------------------
+## --- Lichtlauf Hub -> Chip (Rampenlicht) --------------------------------------
 
 ## EINE Licht-Geschwindigkeit für alle Leisten-Läufe zwischen Screens (px/s): die
 ## Dauer folgt aus der Pfadlänge, damit jede Verbindung gleich schnell wirkt. Die
 ## einzige Ausnahme ist der Weg eines NEUZUGANGS in die Schale (DIE_COMET_GAIN).
 const PULSE_SPEED := 680.0 * SUPERSAMPLE
 ## Kurzer, gedämpfter Komet (deutlich dünner/dunkler als die Wertungs-Trails).
-const OVERCLOCK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
-const OVERCLOCK_PULSE_CORE := 3.0 * SUPERSAMPLE
-const OVERCLOCK_PULSE_GLOW := 7.0 * SUPERSAMPLE
-const OVERCLOCK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
-## Aus der Bank bezahlte Übertaktung: dieselbe ⚡-Signalfarbe, gleiche Dämpfung.
-const ENERGY_PULSE_COLOR := Color(CasinoStyle.ENERGY.r, CasinoStyle.ENERGY.g,
-	CasinoStyle.ENERGY.b, 0.6)
+const LINK_PULSE_COLOR := Color(1.3, 1.0, 0.3, 0.6)
+const LINK_PULSE_CORE := 3.0 * SUPERSAMPLE
+const LINK_PULSE_GLOW := 7.0 * SUPERSAMPLE
+const LINK_COMET := 34.0 * SUPERSAMPLE  # Kometen-Länge (sehr kurz)
 ## Wölbung eines LOKALEN Bogenflugs (Presse-Meteor): Anteil der Luftlinie, aber nie
 ## flacher als ein Mindestmaß - ein kurzer Hüpfer soll trotzdem fliegen.
 const ARC_LIFT_SHARE := 0.42
 const ARC_LIFT_MIN := 30.0 * SUPERSAMPLE
 const ARC_SAMPLES := 16
 
-## Der (durch die Geld-Ankünfte) voll geladene Hub entlädt sich RESTLOS in die
-## Leiste: das Licht schießt los, der Rahmen erlischt ohne Nachglühen, der
-## Fenster-Rahmen pulst bei Ankunft, dann laufen vier Bus-Kometen GLEICHZEITIG
-## von den Randkontakten zum Chip. Der Aufrufer wartet das await ab und wendet
-## erst bei Ankunft die sichtbare Wert-Änderung an.
-func play_overclock_pulse(combo_key: String) -> void:
+## Das Rampenlicht schickt sein Geschenk: der Hub entlädt sich golden in die Leiste,
+## dann laufen die Bus-Kometen GLEICHZEITIG zum Chip. Der Aufrufer wartet ab und
+## zeigt erst bei Ankunft.
+func play_combo_pulse(combo_key: String) -> void:
 	var link_time := 0.4
 	if led_strip != null and led_strip.strip_path.size() >= 2:
 		link_time = _travel_time(led_strip.strip_path)
@@ -2540,14 +2548,7 @@ func play_overclock_pulse(combo_key: String) -> void:
 		hub.charge_gold(1.0)  # sicherstellen: voll geladen, dann komplett abgeben
 		hub.discharge_gold(minf(0.35, link_time * 0.6))
 	await get_tree().create_timer(link_time).timeout
-	await get_tree().create_timer(_pulse_wiring_to_chip(combo_key, OVERCLOCK_PULSE_COLOR)).timeout
-
-## Energie-Übertaktung: die Kondensatorbank steht an der Ecke des Chip-Netzes,
-## ihr Licht fährt also nur noch die verlegten Schienen zum Chip - kein Hub-Weg,
-## denn bezahlt wird aus der Bank. Gebucht ist beim Start längst.
-func play_energy_overclock_pulse(combo_key: String) -> void:
-	await get_tree().create_timer(
-		_pulse_wiring_to_chip(combo_key, ENERGY_PULSE_COLOR)).timeout
+	await get_tree().create_timer(_pulse_wiring_to_chip(combo_key, LINK_PULSE_COLOR)).timeout
 
 ## Bus-Kometen von den Randkontakten zum Chip; liefert ihre Laufzeit.
 func _pulse_wiring_to_chip(combo_key: String, color: Color) -> float:
@@ -2737,6 +2738,17 @@ func energy_comet(to_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
+## Liefer-Licht eines BAUTEILS: vom Kaufort (Schwarzmarkt: über die Hinterzimmer-
+## Ader) in den Hub und die Hub-Cluster-Ader entlang zu den Chips. Liefert die Laufzeit.
+func part_delivery_comet(from_px: Vector2, color: Color, from_secret := false) -> float:
+	var strips: Array = [led_strip]
+	if from_secret:
+		strips = [secret_hub_strip, led_strip]
+	var path := _route_via_strips(from_px, strips, cluster_rect.get_center())
+	var travel := _travel_time(path)
+	_pulse_along(path, travel, color)
+	return travel
+
 ## Laufzeit der Automaten-Ader (Hub <-> Automaten) für die Ablauf-Planung außen.
 func slot_pay_travel_time() -> float:
 	if slot_hub_strip == null or slot_hub_strip.strip_path.size() < 2:
@@ -2847,12 +2859,12 @@ func meteor_comet(from_px: Vector2, slot_px: Vector2, color: Color,
 	return travel
 
 ## Kurzer, gedämpfter Komet entlang eines FESTEN Pfads (siehe TracePulseView).
-func _pulse_along(path: PackedVector2Array, duration: float, color := OVERCLOCK_PULSE_COLOR) -> void:
+func _pulse_along(path: PackedVector2Array, duration: float, color := LINK_PULSE_COLOR) -> void:
 	if path.size() < 2:
 		return
 	var pulse := TracePulseView.new()
 	add_child(pulse)
-	pulse.setup(path, color, OVERCLOCK_PULSE_CORE, OVERCLOCK_PULSE_GLOW, duration, OVERCLOCK_COMET)
+	pulse.setup(path, color, LINK_PULSE_CORE, LINK_PULSE_GLOW, duration, LINK_COMET)
 
 func _path_length(path: PackedVector2Array) -> float:
 	var length := 0.0
@@ -2991,7 +3003,7 @@ const ROUND_END_PULSE_SPEED := PULSE_SPEED * 2.0
 func _round_end_travel_time(path: PackedVector2Array) -> float:
 	return maxf(0.12, _path_length(path) / ROUND_END_PULSE_SPEED)
 
-## Geld-Lichtlauf im Übertaktungs-Stil: ein kurzer Komet fährt die Hub<->Schatz-
+## Geld-Lichtlauf: ein kurzer Komet fährt die Hub<->Schatz-
 ## Leiste (to_treasure = Gutschrift Hub->Schatz, sonst Kauf Schatz->Hub).
 ## Liefert die Laufzeit für die Ankunfts-Planung.
 func money_comet(to_treasure: bool, color: Color) -> float:
@@ -3404,3 +3416,69 @@ static func interactive_under(node: Node, point: Vector2) -> bool:
 ## Umrechnungsfaktor Weltmeter -> Display-Pixel (aus der Screen-Breite).
 func pixels_per_world() -> float:
 	return float(size.x) / _z_span
+
+# --- Die STECKPLÄTZE: Hinweis und Einbau-Kopfzeile ------------------------------
+
+## Grundmaß der Bauteil-Karten (HintCard-u): groß, denn der freie Platz gibt es her.
+const PART_HINT_U := 3.0 * SUPERSAMPLE
+## Die Karte wächst aus ihrem Platz nach unten in den freien Filz.
+const PART_HINT_TALL := 2.25
+var part_hint: HintCard
+var install_banner: HintCard
+var _install_banner_wanted := false
+
+## Der freie Chip-Platz links neben „Höchste Zahl" (den rechten trägt die Ladungs-Bank).
+func part_hint_slot() -> Rect2:
+	var slots := free_cluster_slots()
+	return slots[0] if not slots.is_empty() else Rect2(cluster_rect.position, CELL_SIZE)
+
+func _seat_part_card(card: HintCard, title: String, body: String, accent: Color) -> Rect2:
+	var slot := part_hint_slot()
+	card.fit_width(slot.size.x, PART_HINT_U)
+	card.show_at(slot, Vector2(size), title, body, accent, PART_HINT_U)
+	card.reset_size()
+	card.position = slot.position
+	return Rect2(card.position, card.size)
+
+## Hinweis-Karte eines Steckplatzes; im Einbau vertritt sie die Kopfzeile kurz.
+func show_part_hint(title: String, body: String, accent: Color) -> void:
+	if part_hint == null:
+		part_hint = HintCard.new(PART_HINT_U)
+		part_hint.name = "PartHint"
+		add_child(part_hint)
+	if install_banner != null:
+		install_banner.visible = false
+	_seat_part_card(part_hint, title, body, accent)
+
+## Wo die Bauteil-Karten stehen können - der Einbau rahmt diesen Streifen mit.
+func part_hint_lane() -> Rect2:
+	var slot := part_hint_slot()
+	return Rect2(slot.position, Vector2(slot.size.x, slot.size.y * PART_HINT_TALL))
+
+func hide_part_hint() -> void:
+	if part_hint != null:
+		part_hint.hide_card()
+	if install_banner != null and _install_banner_wanted:
+		install_banner.visible = true
+
+func part_hint_shown() -> bool:
+	return part_hint != null and part_hint.visible
+
+## Die Kopfzeile des EINBAUS steht im selben Platz. Liefert ihr Rechteck.
+func show_install_banner(title: String, body: String, accent: Color) -> Rect2:
+	if install_banner == null:
+		install_banner = HintCard.new(PART_HINT_U)
+		install_banner.name = "InstallBanner"
+		add_child(install_banner)
+	_install_banner_wanted = true
+	return _seat_part_card(install_banner, title, body, accent)
+
+func hide_install_banner() -> void:
+	_install_banner_wanted = false
+	if install_banner != null:
+		install_banner.hide_card()
+
+func install_banner_text() -> String:
+	if install_banner == null or not _install_banner_wanted:
+		return ""
+	return install_banner.title_label.text

@@ -28,6 +28,8 @@ signal goods_purchased(uids: Array[int])
 ## Ein Seelenwürfel ist gekauft: er liegt schon im Ausgabefach, scene_root fährt
 ## ihn nur noch dorthin. Kein Paket - ein Würfel wird nie versiegelt.
 signal die_purchased(def: DieDefinition)
+## Ein Bauteil ist gekauft: es wartet in pending_parts, scene_root schickt das Licht.
+signal part_purchased(part: ComboPart)
 ## Die Auslage der Bucht hat sich geändert (Wurf, Kauf, Freischaltung).
 signal vitrine_changed
 ## Ein Schlüsselwort auf dem Info-Fuß wurde geklickt - scene_root schlägt das
@@ -140,6 +142,7 @@ var _vitrine_grade := ShopController.GRADE_STAND
 ## Was körperlich in der Bucht liegt, je Auslage-Platz (null = kein solches Stück).
 var _bay_packs: Array = []
 var _bay_dice: Array = []
+var _bay_parts: Array = []
 ## Die Bucht-Sorte je Platz, UNABHÄNGIG vom Verkauf ("" = Karten-Sitz): daran
 ## rechnet die Reihe ihre Plätze, damit ein Kauf die übrige Ware nicht verrückt.
 var _bay_kinds: Array = []
@@ -602,6 +605,7 @@ func vitrine_stock() -> Dictionary:
 	return {
 		ShopController.KIND_ENGRAVING_PACK: _bay_packs.duplicate(),
 		ShopController.KIND_DIE: _bay_dice.duplicate(),
+		ShopController.KIND_PART: _bay_parts.duplicate(),
 		ShopController.KIND_SPECIAL: [],
 		VitrineView.STOCK_ROW_KINDS: _bay_kinds.duplicate(),
 	}
@@ -627,6 +631,10 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 			data["title"] = "%s-Würfel" % essence.display_name
 			data["body"] = "%s\n%s" % [essence.short, essence.description]
 			data["net"] = die
+		GameRun.KIND_PART:
+			var part: ComboPart = offer[GameRun.OFFER_ITEM]
+			data["title"] = part.display_name
+			data["body"] = part.description
 		GameRun.KIND_CATALYST, GameRun.KIND_BLANK:
 			var card_pack: Pack = offer[GameRun.OFFER_ITEM]
 			data["title"] = card_pack.display_name
@@ -659,6 +667,7 @@ func _refresh_offers() -> void:
 	_charm_hovered = false
 	_bay_packs.clear()
 	_bay_dice.clear()
+	_bay_parts.clear()
 	_bay_kinds.clear()
 	var thumb_px := int(u * 13.0)
 	offer_buttons.resize(run.secret_stock.size())
@@ -686,20 +695,26 @@ func _refresh_offers() -> void:
 func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
 	var pack: Pack = null
 	var die: DieDefinition = null
+	var part: ComboPart = null
 	if on_card_seat:
 		_bay_kinds.append("")
 	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
 		_bay_kinds.append(ShopController.KIND_DIE)
+	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_PART:
+		_bay_kinds.append(ShopController.KIND_PART)
 	else:
 		_bay_kinds.append(ShopController.KIND_ENGRAVING_PACK)
 	if not on_card_seat and not bool(offer[GameRun.OFFER_SOLD]):
 		match String(offer[GameRun.OFFER_KIND]):
 			GameRun.KIND_DIE:
 				die = offer[GameRun.OFFER_ITEM]
+			GameRun.KIND_PART:
+				part = offer[GameRun.OFFER_ITEM]
 			GameRun.KIND_CATALYST, GameRun.KIND_BLANK, GameRun.KIND_ENGRAVING:
 				pack = offer[GameRun.OFFER_ITEM]
 	_bay_packs.append(pack)
 	_bay_dice.append(die)
+	_bay_parts.append(part)
 
 ## Kaufbarkeit der Karte und des Misch-Knopfs am Ladungsstand ausrichten. Die Ware
 ## in der Bucht sperrt sich nicht - ihr Schild sagt den Preis.
@@ -727,6 +742,8 @@ func _offer_blocked(offer: Dictionary) -> bool:
 		return run.charms_full()
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
 		return false
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PART:
+		return not run.parts_room()
 	return run.pack_room() < 1
 
 ## Die EINE Karte am Sitz: der legendäre Charm, in der Laden-Grammatik - oben der
@@ -804,6 +821,7 @@ func _on_offer_pressed(index: int) -> void:
 	# Meldung genau dieses Exemplar meint.
 	var stocked := run.owned_packs.size()
 	var stashed := run.pending_dice.size()
+	var parts_waiting := run.pending_parts.size()
 	if not run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
 		return
 	energy_spent.emit(price)
@@ -814,6 +832,8 @@ func _on_offer_pressed(index: int) -> void:
 		goods_purchased.emit(uids)
 	elif run.pending_dice.size() > stashed:
 		die_purchased.emit(run.pending_dice.back())
+	elif run.pending_parts.size() > parts_waiting:
+		part_purchased.emit(run.pending_parts.back())
 
 func _on_reroll_pressed() -> void:
 	if run == null:

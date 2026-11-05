@@ -24,67 +24,40 @@ func _m(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-# --- Übertaktungs-Stufen (am Chip, siehe GameRun.overclock_combo) -----------------
+# --- Grundwerte und Bauteile (Steckplätze, siehe ComboPartEffects) --------------
 
-func test_mult_for_scales_with_combo_levels():
-	# Jede Stufe addiert den autorierten mult_step: Paar +2 -> ×2, ×4, ×6.
+func test_points_and_mult_are_the_pure_category_values():
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)
-	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 4)
-	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 2}), 6)
-
-func test_points_for_scales_with_combo_levels():
-	# Die festen Kategorie-Punkte wachsen um points_step je Stufe.
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND), 10)
-	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, {DiceScoring.TWO_KIND: 1}), 20)
 	assert_eq(DiceScoring.points_for(DiceScoring.SIX_KIND), 60)
 	assert_eq(DiceScoring.points_for("not_a_category"), 0)
 
-func test_strong_combos_climb_slower_than_their_base():
-	# Der Kern des Reworks: die Schritte sind autoriert, NICHT die Basis erneut.
-	# Sonst zöge der Sechserpasch (+60/+15 je Stufe) um Größenordnungen davon.
-	assert_eq(DiceScoring.points_for(DiceScoring.SIX_KIND, {DiceScoring.SIX_KIND: 1}), 90)
-	assert_eq(DiceScoring.mult_for(DiceScoring.SIX_KIND, {DiceScoring.SIX_KIND: 1}), 19)
-	assert_eq(DiceScoring.points_for(DiceScoring.TWO_PAIR, {DiceScoring.TWO_PAIR: 2}), 35)
-	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_PAIR, {DiceScoring.TWO_PAIR: 2}), 7)
-
-func test_every_category_carries_authored_steps():
-	# Ohne Schritt-Spalten wäre eine Kategorie stumm nicht übertaktbar; und die
-	# beiden untersten behalten ausdrücklich ihren alten Anstieg.
-	var last_points := 0
-	var last_mult := 0
+func test_categories_carry_no_level_steps():
 	for cat in DiceScoring.CATEGORIES:
-		assert_gt(int(cat["points_step"]), 0, "%s hat einen Punkte-Schritt" % cat["key"])
-		assert_gt(int(cat["mult_step"]), 0, "%s hat einen Mult-Schritt" % cat["key"])
-		assert_true(int(cat["points_step"]) >= last_points,
-			"Schritte steigen die Leiter hinauf: %s" % cat["key"])
-		assert_true(int(cat["mult_step"]) >= last_mult, "dito für den Mult: %s" % cat["key"])
-		last_points = int(cat["points_step"])
-		last_mult = int(cat["mult_step"])
-	assert_eq(DiceScoring.CATEGORIES[0]["points_step"], 5, "Höchste Zahl unverändert")
-	assert_eq(DiceScoring.CATEGORIES[0]["mult_step"], 1)
-	assert_eq(DiceScoring.CATEGORIES[1]["points_step"], 10, "Paar unverändert")
-	assert_eq(DiceScoring.CATEGORIES[1]["mult_step"], 2)
+		assert_false(cat.has("points_step"), "%s trägt keine Stufen mehr" % cat["key"])
+		assert_false(cat.has("mult_step"))
 
-func test_score_category_uses_combo_levels():
+func test_score_category_uses_combo_parts():
 	# Paar Fünfer: Basis (10 Punkte + 10 Augen) × Mult 2 = 40;
-	# eine Stufe -> (20 + 10) × 4 = 120.
+	# ein Kondensator -> 20 × 5 = 100.
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats: Array[String] = []
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice), 40)
-	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: 1}), 120)
+	var parts := {DiceScoring.TWO_KIND: [ComboPart.capacitor()]}
+	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, dice, _ids([]), false, no_mats, parts), 100)
 
-func test_best_hand_reports_upgraded_mult():
+func test_best_hand_reports_the_part_mult():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: 1})
-	assert_eq(hand["mult"], 4, "angezeigter Mult = aufgewerteter Mult")
-	assert_eq(hand["score"], 120)
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: [ComboPart.capacitor()]})
+	assert_eq(hand["mult"], 5, "angezeigter Mult = Mult mit Kondensator")
+	assert_eq(hand["score"], 100)
 
-func test_levels_of_other_combos_do_not_leak():
+func test_parts_of_other_combos_do_not_leak():
 	var dice := _d([5, 5, 1, 2, 3, 6])
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.SIX_KIND: 3})
-	assert_eq(hand["score"], 40, "Stufe auf Sechserpasch ändert das Paar nicht")
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.SIX_KIND: [ComboPart.capacitor()]})
+	assert_eq(hand["score"], 40, "ein Teil am Sechserpasch ändert das Paar nicht")
 
 # --- Kategorie-Erkennung: best_hand wählt die richtige Kombination ------------
 
@@ -361,27 +334,27 @@ func test_the_same_rank_farkles_even_with_more_eyes():
 
 func test_best_hand_prefers_the_higher_rank_over_points():
 	# [6,6,2,3,4,5] ist zugleich Kleine Straße (rang-höher) UND Paar 6er. Auch mit
-	# Paar-Stufe 4 (620 statt 168 Punkte) gewinnt, was daliegt: die Straße.
+	# drei Kondensatoren am Paar gewinnt, was daliegt: die Straße.
 	var dice := _d([6, 6, 2, 3, 4, 5])
 	var no_mats: Array[String] = []
-	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: 4})
+	var hand := DiceScoring.best_hand(dice, _ids([]), false, no_mats, {DiceScoring.TWO_KIND: [ComboPart.capacitor(), ComboPart.capacitor(), ComboPart.capacitor()]})
 	assert_eq(hand["key"], "small_straight", "der Rang entscheidet, nicht die Punkte")
 
 func test_three_pairs_beat_an_upgraded_two_pair():
-	# Der Playtest-Fall: drei Zweierpäsche liegen da, Zwei Paare ist hochgestuft -
+	# Der Playtest-Fall: drei Zweierpäsche liegen da, Zwei Paare ist voll bestückt -
 	# genommen wird trotzdem, was auf dem Tisch liegt.
 	var no_mats: Array[String] = []
 	var hand := DiceScoring.best_hand(_d([1, 1, 3, 3, 5, 5]), _ids([]), false, no_mats,
-		{DiceScoring.TWO_PAIR: 8})
+		{DiceScoring.TWO_PAIR: [ComboPart.capacitor(), ComboPart.capacitor(), ComboPart.capacitor()]})
 	assert_eq(hand["key"], DiceScoring.THREE_PAIRS)
 
 func test_a_reroll_into_a_higher_rank_never_farkles():
-	# Der ranghöhere Wurf ist sicher, auch wenn er WENIGER zahlt: das hochgestufte
-	# Paar (620) steht im Rang unter der Großen Straße (528).
-	var levels := {DiceScoring.TWO_KIND: 4}
+	# Der ranghöhere Wurf ist sicher, auch wenn er WENIGER zahlt: das bestückte
+	# Paar steht im Rang unter der Großen Straße (528).
+	var levels := {DiceScoring.TWO_KIND: [ComboPart.capacitor(), ComboPart.capacitor(), ComboPart.capacitor()]}
 	var no_mats: Array[String] = []
 	var new_dice := _d([1, 2, 3, 4, 5, 6])  # Große Straße, 528
-	var old_dice := _d([6, 6, 1, 2, 3, 5])  # Paar Sechser mit Stufe 4, 620
+	var old_dice := _d([6, 6, 1, 2, 3, 5])  # Paar Sechser mit drei Kondensatoren
 	assert_true(DiceScoring.is_strictly_better(new_dice, old_dice, _ids([]),
 		no_mats, no_mats, levels))
 

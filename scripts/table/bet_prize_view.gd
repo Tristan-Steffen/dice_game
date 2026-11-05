@@ -2,7 +2,7 @@ class_name BetPrizeView
 extends Node3D
 ## Der Körper eines Nebenwetten-GEWINNS, der keine Kassette ist:
 ## ein Chip-Stapel (Geld), ein Stück Kondensator-Bank (Energie) oder eine geprägte
-## MARKE (Chipstufe, Press-Schub). Rein per Code gebaut wie alles auf dem Tisch -
+## MARKE (Bauteil, Press-Schub). Rein per Code gebaut wie alles auf dem Tisch -
 ## kein .tscn, kein Panel darunter.
 ## Er ist reine ANZEIGE: keine Buchung hängt an ihm, er zeigt nur, was auf dem
 ## Tresen liegt.
@@ -136,7 +136,7 @@ func setup_energy(count: int) -> void:
 	_natural_height = CapacitorBankView.loose_cell_height()
 
 ## Die geprägte MARKE für die Einzelstücke, die weder Ware noch Geld sind
-## (Chipstufe, Press-Schub): eine flache Platte mit ihrer Aufschrift.
+## (Bauteil, Press-Schub): eine flache Platte mit ihrer Aufschrift.
 func setup_token(text: String, accent: Color) -> void:
 	_reset(KIND_TOKEN)
 	var plate := _cylinder("Marke", TOKEN_RADIUS, TOKEN_HEIGHT,

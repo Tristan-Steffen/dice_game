@@ -505,7 +505,7 @@ func test_double_bottom_triples_only_the_combination_base():
 	assert_eq(tripled, 80)
 
 func test_double_bottom_leaves_the_printed_level_alone():
-	# points_for/mult_for bleiben die reine Stufe - Chips und Preise drucken sie.
+	# points_for/mult_for bleiben der reine Grundwert - die Chips drucken ihn.
 	var ids := _ids([Charm.DOUBLE_BOTTOM])
 	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND), 10)
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)

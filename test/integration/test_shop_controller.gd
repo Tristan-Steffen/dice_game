@@ -61,7 +61,8 @@ func test_every_shelf_carries_three_places_on_every_tier():
 		shop.spreads.clear()
 		shop.open()
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: drei Charms" % tier)
-		assert_eq(shop.single_dice.size(), 3, "Stufe %d: drei Würfel" % tier)
+		assert_eq(shop.part_options.size(), 1, "Stufe %d: ein Bauteil" % tier)
+		assert_eq(shop.single_dice.size(), 2, "Stufe %d: zwei Würfel" % tier)
 		assert_eq(shop.slit_seats().size(), 3, "Stufe %d: drei Gravuren" % tier)
 
 # --- Paketkauf ----------------------------------------------------------------
@@ -228,7 +229,7 @@ func test_spread_offers_packs():
 	for pack in shop.engraving_packs:
 		assert_true(Engraving.CATEGORIES.has(pack.engraving_category()), "echte Gravur-Kategorie")
 
-## Übertaktet wird am Chip, nicht im Laden - die Schale führt keine Chips mehr.
+## Das Übertakten ist tot - die Auslage kennt seine Angebote nicht mehr.
 func test_the_shop_no_longer_sells_overclocks():
 	assert_false(shop.has_method("_on_overclock_buy_pressed"))
 	var spread = shop.spreads[shop.current_spread_index]
@@ -634,11 +635,12 @@ func test_the_vitrine_rect_survives_a_page_flip() -> void:
 	assert_true(shop.vitrine_rect_px().is_equal_approx(before),
 		"die Bucht steht fest - geblättert wird die Ware, nicht das Möbel")
 
-func test_the_bay_carries_only_dice() -> void:
-	# Seit dem Schlitz-Umbau liegt in der Bucht NUR noch offene Ware - alles
+func test_the_bay_carries_only_open_goods() -> void:
+	# In der Bucht liegt NUR offene Ware - Würfel und das Bauteil; alles
 	# Versiegelte steckt in den Kassetten-Schlitzen des Tisches.
 	var stock: Dictionary = shop.vitrine_stock()
 	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size())
+	assert_eq(stock[ShopController.KIND_PART].size(), GameRun.SHOP_PART_SLOTS)
 	assert_false(stock.has(ShopController.KIND_ENGRAVING_PACK),
 		"Pakete liegen nicht mehr in der Bucht")
 	assert_false(stock.has(ShopController.KIND_SPECIAL),
@@ -784,7 +786,7 @@ func test_the_bands_stand_on_every_tier() -> void:
 	for i in low.size():
 		assert_true(high[i].is_equal_approx(low[i]),
 			"Band %d steht auf jeder Stufe gleich (%s vs %s)" % [i, low[i], high[i]])
-	assert_eq(shop.charm_options.size(), 3, "auch auf Stufe 10 liegen drei Charms aus")
+	assert_eq(shop.charm_options.size(), 3, "auch auf Stufe 10 ist das Regal voll")
 
 # --- Die Kassetten-Schlitze -----------------------------------------------------
 
@@ -978,9 +980,9 @@ func test_the_net_answers_with_its_die() -> void:
 	shop.data_cell_lie_px = LIE_PX
 	shop.open()
 	await wait_frames(2)
-	var die: DieDefinition = shop.single_dice[2]
+	var die: DieDefinition = shop.single_dice[1]
 	var strip: Rect2 = shop.vitrine_rect_px()
-	shop.set_die_nets([{"def": die, "anchor": shop.die_seats_px()[2] - strip.position}])
+	shop.set_die_nets([{"def": die, "anchor": shop.die_seats_px()[1] - strip.position}])
 	await wait_frames(1)
 	var net: Control = shop._net_blocks[0].get_node("Net")
 	assert_eq(shop.die_at_net(net.get_global_rect().get_center()), die, "das Netz meint seinen Würfel")
@@ -999,9 +1001,10 @@ func test_the_three_shelves_share_one_column_grid() -> void:
 	assert_eq(slits.size(), 3)
 	assert_eq(dice.size(), 3)
 	for i in 3:
+		# Der dritte Platz der Würfel-Bucht trägt das Bauteil.
 		var card: Rect2 = shop.charm_buttons[i].get_global_rect()
 		assert_almost_eq(slits[i].x, dice[i].x, 0.5, "Gravur %d steht über Würfel %d" % [i, i])
-		assert_almost_eq(card.get_center().x, dice[i].x, 0.5, "Charm %d über Würfel %d" % [i, i])
+		assert_almost_eq(card.get_center().x, dice[i].x, 0.5, "Karte %d über Würfel %d" % [i, i])
 		var price: Rect2 = shop._slit_prices[i].get_global_rect()
 		assert_almost_eq(price.get_center().x, slits[i].x, 0.5, "der Preis mittig unter der Karte")
 		assert_gte(price.position.y, shop.slit_rects()[i].end.y - 0.5, "und direkt darunter")
@@ -1698,3 +1701,64 @@ func test_a_hard_abort_mid_absorption_clears_the_shrinking_blocks() -> void:
 	assert_eq(shop.net_count(), 0, "und kein halb geschrumpfter Block bleibt liegen")
 	await wait_seconds(ShopController.NET_GROW_TIME + 0.2)
 	assert_eq(shop.net_count(), 0, "auch nachträglich stellt niemand mehr etwas")
+
+# --- Das BAUTEIL in der Würfel-Bucht ---------------------------------------------
+
+func test_the_dice_bay_holds_two_dice_and_a_part() -> void:
+	shop.size = Vector2(1068, 1125)
+	shop.open()
+	await wait_frames(2)
+	assert_eq(shop.single_dice.size(), 2, "zwei Würfel")
+	assert_eq(shop.part_options.size(), 1, "und ein Bauteil")
+	assert_false(shop.part_options[0].secret, "der Laden führt keine Schwarzmarkt-Teile")
+	var seats: Array[Vector2] = shop.die_seats_px()
+	assert_eq(seats.size(), 3, "das Bauteil steht auf dem dritten Platz")
+	assert_eq(shop.part_tag(0), ShopController.price_text(run.part_shop_price(shop.part_options[0])))
+	assert_eq(shop.find_children("PartCard", "", true, false).size(), 0,
+		"im Charm-Regal steht keine Bauteil-Karte mehr")
+
+func test_buying_the_bay_part_books_it_and_leaves_a_gap() -> void:
+	var sent: Array = []
+	shop.part_purchased.connect(func(px: Vector2) -> void: sent.append(px))
+	var money := run.money
+	var price: int = shop.part_price(0)
+	shop.buy_part(0, Vector2(10, 20))
+	assert_eq(run.pending_parts.size(), 1, "gebucht wartet es auf seinen Platz")
+	assert_eq(run.money, money - price)
+	assert_eq(sent, [Vector2(10, 20)], "das Licht startet am Platz in der Bucht")
+	assert_null(shop.vitrine_stock()[ShopController.KIND_PART][0], "verkauft = leerer Platz")
+	shop.buy_part(0)
+	assert_eq(run.pending_parts.size(), 1, "derselbe Platz verkauft nicht zweimal")
+
+func test_the_part_locks_when_no_socket_is_left() -> void:
+	for key: String in DiceScoring.HAND_PRIORITY:
+		for slot in run.socket_count(key):
+			run.stash_part(ComboPart.resistor())
+			run.install_pending_part(key, slot)
+	assert_false(shop.part_buyable(0))
+	assert_eq(shop.part_tag(0), ShopController.PARTS_FULL_TAG)
+	shop.buy_part(0)
+	assert_true(run.pending_parts.is_empty(), "und der Kauf schlägt nicht still fehl")
+
+func test_the_part_block_names_it_and_its_price_turns_red() -> void:
+	shop.size = Vector2(1068, 1125)
+	shop.open()
+	await wait_frames(2)
+	var part: ComboPart = shop.part_options[0]
+	var strip: Rect2 = shop.vitrine_rect_px()
+	shop.set_die_nets([{"part": part, "anchor": shop.die_seats_px()[2] - strip.position}])
+	assert_eq(shop._net_souls[0].text, part.display_name, "der Kopf nennt das Bauteil")
+	assert_eq(shop._net_prices[0].text, shop.part_tag(0))
+	assert_eq(shop._net_prices[0].modulate, ShopController.NEON_GOLD)
+	run.money = 0
+	shop._refresh_ware_prices()
+	assert_eq(shop._net_prices[0].modulate, CasinoStyle.RED, "zu teuer = rot")
+	shop.set_ware_hover(part)
+	assert_string_contains(shop.net_footer.text, part.description)
+
+func test_a_new_spread_rolls_a_new_part_with_the_dice() -> void:
+	var first: ComboPart = shop.part_options[0]
+	shop.spreads.clear()
+	shop.open()
+	assert_eq(shop.spreads[0].part_options.size(), 1, "jede Auslage trägt ihr Bauteil")
+	assert_ne(shop.part_options[0], first, "neu gewürfelt mit den Würfeln")

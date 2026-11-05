@@ -245,8 +245,17 @@ func test_granting_an_engraving_pack_ignores_nothing():
 	run.grant_engraving_pack(null)
 	assert_eq(run.owned_packs.size(), 0)
 
-func test_new_run_starts_without_levels():
-	assert_true(GameRun.new_run().combo_levels.is_empty())
+func test_new_run_starts_with_empty_sockets():
+	var fresh := GameRun.new_run()
+	assert_eq(ComboPartEffects.part_count(fresh.parts_of(DiceScoring.FULL_HOUSE)), 0)
+	assert_eq(fresh.free_socket_count(), DiceScoring.HAND_PRIORITY.size() * GameRun.SOCKETS_PER_COMBO)
+
+## Steckt n Widerstände direkt in einen Chip (Testhilfe).
+func _fill(key: String, n: int) -> void:
+	var sockets: Array = []
+	for i in n:
+		sockets.append(ComboPart.resistor())
+	run.combo_parts[key] = sockets
 
 # --- Stresstest-Belohnung: EIN beseelter Würfel ins Ausgabefach -------------------
 
@@ -851,49 +860,6 @@ func _template(id: String) -> Dictionary:
 			return t
 	return {}
 
-# --- Übertakten (am Chip, bezahlt mit Energie) ---------------------------------
-
-func test_overclock_cost_climbs_per_stage_and_caps():
-	# 1 ⚡ plus eine je erklommener Stufe, gedeckelt bei 5 - unabhängig davon,
-	# WELCHE Kombination übertaktet wird.
-	assert_eq(GameRun.overclock_cost_at(0), 1)
-	assert_eq(GameRun.overclock_cost_at(1), 2)
-	assert_eq(GameRun.overclock_cost_at(4), 5)
-	assert_eq(GameRun.overclock_cost_at(7), 5, "gedeckelt, aber ohne Stufen-Limit")
-
-func test_overclock_cost_is_the_same_for_every_combination():
-	assert_eq(run.overclock_cost(DiceScoring.TWO_KIND), run.overclock_cost(DiceScoring.SIX_KIND))
-
-func test_overclock_combo_spends_energy_and_levels():
-	watch_signals(run)
-	run.energy = 5
-	assert_true(run.overclock_combo(DiceScoring.FULL_HOUSE))
-	assert_eq(run.energy, 4, "eine Energie für die erste Stufe")
-	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 1)
-	assert_signal_emitted(run, "combo_upgraded")
-	assert_true(run.overclock_combo(DiceScoring.FULL_HOUSE))
-	assert_eq(run.energy, 2, "die zweite Stufe kostet zwei")
-
-func test_overclock_without_energy_changes_nothing():
-	watch_signals(run)
-	run.energy = 0
-	assert_false(run.overclock_combo(DiceScoring.FULL_HOUSE))
-	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), 0)
-	assert_eq(run.energy, 0, "nichts abgebucht")
-	assert_signal_not_emitted(run, "combo_upgraded")
-
-func test_overclock_raises_scoring():
-	run.energy = 5
-	run.overclock_combo(DiceScoring.TWO_KIND)
-	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND, run.combo_levels), 4, "Paar: +2 je Stufe")
-	assert_eq(DiceScoring.points_for(DiceScoring.TWO_KIND, run.combo_levels), 20)
-
-func test_can_overclock_checks_energy():
-	run.energy = GameRun.overclock_cost_at(0)
-	assert_true(run.can_overclock(DiceScoring.TWO_KIND))
-	run.energy -= 1
-	assert_false(run.can_overclock(DiceScoring.TWO_KIND))
-
 # --- Rampenlicht & Midashandschuh -------------------------------------------------
 
 func test_spotlight_picks_a_combination_each_round():
@@ -904,13 +870,14 @@ func test_spotlight_picks_a_combination_each_round():
 	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "eine echte Kombination")
 	assert_false(run.spotlight_claimed_this_round)
 
-func test_spotlight_levels_the_combination_once_per_round():
+func test_spotlight_gifts_a_resistor_once_per_round():
 	run.owned_charms.append(Charm.spotlight())
 	run.apply_round_start_charms()
 	var key: String = run.spotlight_combo
 	assert_false(run.claim_spotlight("nonsense"), "eine andere Kombination zählt nicht")
 	assert_true(run.claim_spotlight(key))
-	assert_eq(run.combo_level(key), 1, "dauerhaft eine Stufe höher")
+	assert_eq(run.pending_parts.size(), 1, "ein Widerstand wartet auf seinen Steckplatz")
+	assert_eq(run.pending_parts[0].id, ComboPart.RESISTOR)
 	assert_false(run.claim_spotlight(key), "zweimal in derselben Runde nicht")
 	run.apply_round_start_charms()
 	assert_false(run.spotlight_claimed_this_round, "neue Runde, neue Chance")
@@ -978,34 +945,34 @@ func test_stress_round_is_every_last_block_station():
 	assert_false(GameRun.is_stress_round(7))
 	assert_true(GameRun.is_stress_round(12))
 
-func test_hottest_combo_takes_the_highest_level():
-	run.combo_levels[DiceScoring.TWO_KIND] = 3
-	run.combo_levels[DiceScoring.FOUR_KIND] = 5
+func test_hottest_combo_takes_the_most_parts():
+	_fill(DiceScoring.TWO_KIND, 2)
+	_fill(DiceScoring.FOUR_KIND, 3)
 	assert_eq(run.hottest_combos(1)[0], DiceScoring.FOUR_KIND)
 
 func test_hottest_combo_breaks_ties_by_rank():
-	run.combo_levels[DiceScoring.TWO_KIND] = 3
-	run.combo_levels[DiceScoring.FOUR_KIND] = 3
+	_fill(DiceScoring.TWO_KIND, 3)
+	_fill(DiceScoring.FOUR_KIND, 3)
 	assert_eq(run.hottest_combos(1)[0], DiceScoring.FOUR_KIND, "Gleichstand -> der ranghöhere Chip")
 
 func test_hottest_combo_never_throttles_the_fallback_category():
 	# "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand: gedrosselt könnte eine
 	# Hand ohne jede wertbare Kategorie enden.
-	run.combo_levels[DiceScoring.ONE_KIND] = 9
-	run.combo_levels[DiceScoring.TWO_KIND] = 2
+	_fill(DiceScoring.ONE_KIND, 3)
+	_fill(DiceScoring.TWO_KIND, 2)
 	assert_eq(run.hottest_combos(1)[0], DiceScoring.TWO_KIND)
 
-func test_hottest_combos_rank_by_level_then_priority():
-	run.combo_levels[DiceScoring.TWO_KIND] = 5
-	run.combo_levels[DiceScoring.FOUR_KIND] = 5
-	run.combo_levels[DiceScoring.FULL_HOUSE] = 3
+func test_hottest_combos_rank_by_parts_then_priority():
+	_fill(DiceScoring.TWO_KIND, 3)
+	_fill(DiceScoring.FOUR_KIND, 3)
+	_fill(DiceScoring.FULL_HOUSE, 2)
 	var hottest := run.hottest_combos(3)
 	assert_eq(hottest[0], DiceScoring.FOUR_KIND, "Gleichstand -> der ranghöhere zuerst")
 	assert_eq(hottest[1], DiceScoring.TWO_KIND)
-	assert_eq(hottest[2], DiceScoring.FULL_HOUSE, "dann die nächstniedrigere Stufe")
+	assert_eq(hottest[2], DiceScoring.FULL_HOUSE, "dann der nächstvollere Chip")
 
 func test_round_start_throttles_only_under_a_clause():
-	run.combo_levels[DiceScoring.FULL_HOUSE] = 4
+	_fill(DiceScoring.FULL_HOUSE, 2)
 	run.apply_round_start_charms()
 	assert_eq(run.throttled_combos, [], "ohne Klausel drosselt nichts")
 	run.sign_clauses([DealClause.HEAT_WARNING] as Array[String])
@@ -1016,7 +983,7 @@ func test_spotlight_avoids_the_throttled_combo():
 	# Der gedrosselte Chip wertet nicht - ein Rampenlicht darauf wäre verschenkt.
 	run.owned_charms.append(Charm.spotlight())
 	run.sign_clauses([DealClause.HEAT_WARNING] as Array[String])
-	run.combo_levels[DiceScoring.SIX_KIND] = 4
+	_fill(DiceScoring.SIX_KIND, 3)
 	for i in 40:
 		run.apply_round_start_charms()
 		assert_ne(run.spotlight_combo, DiceScoring.SIX_KIND)
@@ -1621,14 +1588,14 @@ func test_golden_handshake_spares_a_burned_in_material_face():
 # --- Drossel & Stresstest-Konditionen ----------------------------------------------
 
 func test_the_stress_round_no_longer_throttles_on_its_own():
-	run.combo_levels[DiceScoring.SIX_KIND] = 5
+	_fill(DiceScoring.SIX_KIND, 3)
 	run.round_number = GameRun.GOAL_BLOCK
 	run.apply_round_start_charms()
 	assert_eq(run.throttled_combos, [], "gedrosselt wird nur noch per Klausel")
 
 func test_heat_warning_throttles_the_hottest_chip():
-	run.combo_levels[DiceScoring.SIX_KIND] = 5
-	run.combo_levels[DiceScoring.FULL_HOUSE] = 4
+	_fill(DiceScoring.SIX_KIND, 3)
+	_fill(DiceScoring.FULL_HOUSE, 2)
 	_sign([DealClause.HEAT_WARNING])
 	run.apply_round_start_charms()
 	assert_eq(run.throttled_combos, [DiceScoring.SIX_KIND], "nur der heißeste")
@@ -1662,14 +1629,13 @@ func test_parity_conditions_set_the_filter():
 	_sign([DealClause.BALANCED_SCALES], GameRun.GOAL_BLOCK)
 	assert_eq(run.parity_filter(), DiceScoring.PARITY_EVEN)
 
-func test_heat_buildup_never_falls_below_the_baseline():
+func test_heat_buildup_runs_out_of_parts():
 	_sign([DealClause.HEAT_BUILDUP], GameRun.GOAL_BLOCK)
-	run.combo_levels[DiceScoring.TWO_KIND] = 1
+	_fill(DiceScoring.TWO_KIND, 1)
 	watch_signals(run)
 	assert_true(run.apply_heat_buildup(DiceScoring.TWO_KIND))
-	assert_eq(run.combo_level(DiceScoring.TWO_KIND), 0)
-	assert_signal_emitted(run, "combo_upgraded")
-	assert_false(run.apply_heat_buildup(DiceScoring.TWO_KIND), "die Grundform bleibt")
+	assert_signal_emitted(run, "combo_parts_changed")
+	assert_false(run.apply_heat_buildup(DiceScoring.TWO_KIND), "nichts mehr stillzulegen")
 
 func test_active_deal_sides_feed_the_hub_tokens():
 	_sign([DealClause.SAVINGS_BONUS, DealClause.EMPTIES, DealClause.HAPPY_HOUR])
@@ -1760,19 +1726,15 @@ func test_grant_pack_costs_nothing():
 	assert_eq(run.owned_packs.size(), 1)
 	assert_eq(run.money, 10)
 
-func test_grant_combo_level_lifts_the_chip():
-	var before := run.combo_level(DiceScoring.FULL_HOUSE)
-	run.grant_combo_level(DiceScoring.FULL_HOUSE)
-	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), before + 1)
-
-func test_combo_level_payout_upgrades_the_named_chip():
+func test_part_payout_stashes_the_named_part():
 	var bet := SideBet._from_template(_template("patent"))
+	assert_ne(bet.reward_part_id, "", "das Bauteil steht ab der Auslage fest")
 	run.money = 100
 	run.place_side_bet(bet)
-	var before := run.combo_level(DiceScoring.FULL_HOUSE)
 	run.resolve_side_bets({"cleared": true,
 		"best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE)})
-	assert_eq(run.combo_level(DiceScoring.FULL_HOUSE), before + 1)
+	assert_eq(run.pending_parts.size(), 1)
+	assert_eq(run.pending_parts[0].id, bet.reward_part_id)
 
 func test_special_payout_grants_the_sonderposten():
 	var bet := SideBet._from_template(_template("circuit_contract"))

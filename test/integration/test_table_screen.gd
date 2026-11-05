@@ -406,8 +406,9 @@ func test_wiring_gives_every_chip_exactly_one_stub_per_bus():
 		var buses := screen.combo_bus_xs()
 		var stub := TableScreen.CELL_GAP.x * 0.5
 		for bus: float in buses:
-			if is_equal_approx(bus, cell.position.x - stub) \
-					or is_equal_approx(bus, cell.position.x + cell.size.x + stub):
+			# Wie die Verlegung: auf ganze Pixel gerundet (die Zellen liegen nicht ganzzahlig).
+			if roundi(bus) == roundi(cell.position.x - stub) \
+					or roundi(bus) == roundi(cell.position.x + cell.size.x + stub):
 				stubs += 1
 	assert_gt(stubs, 0, "jeder Chip hängt an mindestens einer Schiene")
 	assert_eq(screen.combo_wiring.rail_paths.size(), stubs + 3,

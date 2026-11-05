@@ -52,10 +52,10 @@ const STORM_FACTOR := 4
 ## Charm zählt er jeden Essenz-Würfel einfach).
 const SOLAR_SAIL_PER_ESSENCE := 2
 
-## Acetylen brennt an der Kombinationsstufe; der Schneidbrenner legt Mult auf
-## dieselbe Stufe. Stufe 0 = frische Kombination, also beide Male nichts.
-const ACETYLENE_PER_LEVEL := 10
-const CUTTING_TORCH_PER_LEVEL := 3
+## Acetylen brennt je Bauteil der Kombination; der Schneidbrenner legt Mult auf
+## dieselbe Zahl. Ein leerer Chip gibt beide Male nichts.
+const ACETYLENE_PER_PART := 10
+const CUTTING_TORCH_PER_PART := 3
 
 ## Schwarzlicht zahlt je gewertetem Würfel ohne Material.
 const BLACK_LIGHT_PER_DIE := 3
@@ -253,17 +253,17 @@ static func trigger_eye_bonus(essence_id: String, triggers_before: int) -> int:
 		return 0
 	return PHOTON_EYE_PER_TRIGGER * maxi(0, triggers_before)
 
-## Acetylen: Basispunkte je Stufe der genommenen Kombination, je Auslösung. Der
-## Schneidbrenner legt Mult auf dieselbe Stufe - beide hängen an derselben Zahl.
-static func combo_level_base(essence_id: String, combo_level: int) -> int:
+## Acetylen: Basispunkte je Bauteil der genommenen Kombination, je Auslösung. Der
+## Schneidbrenner legt Mult auf dieselbe Zahl.
+static func combo_part_base(essence_id: String, part_count: int) -> int:
 	if essence_id != Essence.ACETYLENE:
 		return 0
-	return ACETYLENE_PER_LEVEL * maxi(0, combo_level)
+	return ACETYLENE_PER_PART * maxi(0, part_count)
 
-static func combo_level_mult(essence_id: String, combo_level: int, charm_ids: Array[String] = []) -> int:
+static func combo_part_mult(essence_id: String, part_count: int, charm_ids: Array[String] = []) -> int:
 	if essence_id != Essence.ACETYLENE or not charm_ids.has(Charm.CUTTING_TORCH):
 		return 0
-	return CUTTING_TORCH_PER_LEVEL * maxi(0, combo_level)
+	return CUTTING_TORCH_PER_PART * maxi(0, part_count)
 
 ## Vorlauf der Hand-Zähler: normal fängt jede Hand bei null an, die Dunkelkammer
 ## (Auslösungen, Photonengas) und die Gewitterfront (Krits, Ozon) schleppen mit,
@@ -648,16 +648,16 @@ static func trigger_eye_bonus_of(essence_ids: Array[String], triggers_before: in
 		total += trigger_eye_bonus(essence_id, triggers_before)
 	return total
 
-static func combo_level_base_of(essence_ids: Array[String], combo_level: int) -> int:
+static func combo_part_base_of(essence_ids: Array[String], part_count: int) -> int:
 	var total := 0
 	for essence_id in essence_ids:
-		total += combo_level_base(essence_id, combo_level)
+		total += combo_part_base(essence_id, part_count)
 	return total
 
-static func combo_level_mult_of(essence_ids: Array[String], combo_level: int, charm_ids: Array[String] = []) -> int:
+static func combo_part_mult_of(essence_ids: Array[String], part_count: int, charm_ids: Array[String] = []) -> int:
 	var total := 0
 	for essence_id in essence_ids:
-		total += combo_level_mult(essence_id, combo_level, charm_ids)
+		total += combo_part_mult(essence_id, part_count, charm_ids)
 	return total
 
 ## Veredelungs-Aufschlag der Wertung (Firnis) - das Maximum, nie die Summe.

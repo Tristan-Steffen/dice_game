@@ -139,3 +139,19 @@ func test_glyph_surface_links_energie() -> void:
 func test_bracket_armored_before_tagging() -> void:
 	var marked := Lexikon.linkify("Ein [Test] mit Energie.")
 	assert_string_contains(marked, "[lb]Test]")
+
+
+func test_every_part_has_entry_with_phase_and_source() -> void:
+	for part in ComboPart.all():
+		var e := Lexikon.entry("part:%s" % part.id)
+		assert_false(e.is_empty(), part.id)
+		assert_eq(e.get("category", ""), Lexikon.CAT_BAUTEILE)
+		var body := String(e.get("body", ""))
+		assert_string_contains(body, part.description)
+		assert_string_contains(body, "Phase:")
+		assert_string_contains(body, "Schwarzmarkt" if part.secret else "Laden")
+	assert_eq(Lexikon.ids_in_category(Lexikon.CAT_BAUTEILE).size(), ComboPart.all().size())
+
+
+func test_part_names_link_to_their_entry() -> void:
+	assert_string_contains(Lexikon.linkify("Ein Relais."), "[url=part:%s]" % ComboPart.RELAY)

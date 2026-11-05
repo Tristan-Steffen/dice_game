@@ -3,7 +3,7 @@ class_name DiceScoring
 ## Basiswert = feste Kategorie-Punkte + beteiligte Würfelaugen. Verwandlungs-
 ## Charms (CharmEffects.transform_values) ändern die Augen VOR der Erkennung -
 ## eine verwandelte 1 IST eine 6, auch für die Kategorie. Alle anderen Charms,
-## Materialien und Menü-Stufen verändern nur die Wertung.
+## Materialien und Bauteile verändern nur die Wertung.
 
 # Kategorie-Keys als Konstanten: ein Tippfehler wird Compilerfehler statt
 # einer still nie zutreffenden Kategorie.
@@ -21,24 +21,21 @@ const LARGE_STRAIGHT := "large_straight"
 const FIVE_KIND := "five_kind"
 const SIX_KIND := "six_kind"
 
-## Basiswerte und die Übertaktungs-Schritte je Stufe. Die Schritte sind AUTORIERT,
-## nicht abgeleitet: würde jede Stufe die Basis erneut addieren, wüchse das feste
-## Produkt quadratisch und der Sechserpasch zöge um das 180-fache der Höchsten
-## Zahl davon. Höchste Zahl und Paar behalten ihren alten Schritt.
+## Grundwerte je Kategorie; was darüber hinausgeht, stecken Bauteile in den Chip.
 const CATEGORIES := [
-	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5, "mult_step": 1, "points_step": 5},
-	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10, "mult_step": 2, "points_step": 10},
-	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3, "points": 15, "mult_step": 2, "points_step": 10},
-	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3, "points": 18, "mult_step": 2, "points_step": 10},
-	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4, "points": 22, "mult_step": 2, "points_step": 12},
-	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4, "points": 25, "mult_step": 3, "points_step": 12},
-	{"key": FULL_HOUSE, "label": "Full House", "mult": 4, "points": 28, "mult_step": 3, "points_step": 14},
-	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5, "points": 32, "mult_step": 3, "points_step": 16},
-	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5, "points": 36, "mult_step": 3, "points_step": 18},
-	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6, "points": 40, "mult_step": 3, "points_step": 20},
-	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8, "points": 45, "mult_step": 4, "points_step": 22},
-	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10, "points": 50, "mult_step": 4, "points_step": 25},
-	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60, "mult_step": 4, "points_step": 30},
+	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5},
+	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10},
+	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3, "points": 15},
+	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3, "points": 18},
+	{"key": SMALL_STRAIGHT, "label": "Kleine Straße", "mult": 4, "points": 22},
+	{"key": FOUR_KIND, "label": "Viererpasch", "mult": 4, "points": 25},
+	{"key": FULL_HOUSE, "label": "Full House", "mult": 4, "points": 28},
+	{"key": THREE_PAIRS, "label": "Drei Zweierpäsche", "mult": 5, "points": 32},
+	{"key": DOUBLE_THREE_KIND, "label": "Doppelter Dreierpasch", "mult": 5, "points": 36},
+	{"key": FOUR_KIND_AND_PAIR, "label": "Viererpasch mit Paar", "mult": 6, "points": 40},
+	{"key": LARGE_STRAIGHT, "label": "Große Straße", "mult": 8, "points": 45},
+	{"key": FIVE_KIND, "label": "5 of a Kind", "mult": 10, "points": 50},
+	{"key": SIX_KIND, "label": "Sechserpasch", "mult": 15, "points": 60},
 ]
 
 # Prestigeträchtigste zuerst: best_hand() nimmt den ERSTEN Treffer dieser Liste,
@@ -443,18 +440,18 @@ static func label_for(key: String) -> String:
 			return cat["label"]
 	return key
 
-## Jede Übertaktungs-Stufe addiert den autorierten mult_step der Kategorie.
-static func mult_for(key: String, combo_levels: Dictionary = {}) -> int:
+## Reiner Kategorie-Mult.
+static func mult_for(key: String) -> int:
 	for cat in CATEGORIES:
 		if cat["key"] == key:
-			return cat["mult"] + cat["mult_step"] * int(combo_levels.get(key, 0))
+			return cat["mult"]
 	return 1
 
-## Feste Basispunkte ("Chips") - skalieren mit Menü-Stufen wie mult_for.
-static func points_for(key: String, combo_levels: Dictionary = {}) -> int:
+## Feste Basispunkte ("Chips") der Kategorie.
+static func points_for(key: String) -> int:
 	for cat in CATEGORIES:
 		if cat["key"] == key:
-			return cat["points"] + cat["points_step"] * int(combo_levels.get(key, 0))
+			return cat["points"]
 	return 0
 
 ## Der Joker-Slot (Polarlicht) oder -1. Legendär und damit Unikat: es kann NIE
@@ -555,24 +552,24 @@ static func _qualifies_plain(key: String, dice: Array[int], charm_ids: Array[Str
 ## Position), zuletzt das EINE Verschmelzen. materials: DieMaterial-id je Slot
 ## ("" = keins). ctx: Wurf-/Runden-Zustand - dort steht auch, die wievielte Hand
 ## der Runde das ist (die Zauberkarte fragt danach).
-static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], _is_first_hand: bool = false, materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> int:
+static func score_category(key: String, dice: Array[int], charm_ids: Array[String] = [], _is_first_hand: bool = false, materials: Array[String] = [], combo_parts: Dictionary = {}, ctx: Dictionary = {}) -> int:
 	# raw = die PHYSISCHEN Seitenwerte; nur auf ihnen läuft der Wertwandel
 	# (Knochen/Glas/Helium), damit die Wertung genau dort landet, wo die Def landet.
 	var raw := dice
 	dice = shown_values(dice, charm_ids, ctx)
 	if is_throttled(key, ctx) or not qualifies(key, dice, ctx, charm_ids):
 		return 0
-	var pair := _base_and_mult(key, dice, raw, charm_ids, materials, combo_levels, ctx)
+	var pair := _base_and_mult(key, dice, raw, charm_ids, materials, combo_parts, ctx)
 	# Die EINZIGE Rundung der ganzen Rechnung: erst beim Verschmelzen, und
 	# aufgerundet. Zwei ×1,5 müssen ×2,25 ergeben, nie zweimal ×2.
 	return ceili(float(pair[0]) * maxf(1.0, pair[1]))
 
 ## Kompletter Kombi-Multiplikator - die Mult-Seite derselben Rechnung; min. 1.
 ## Eine Quelle für Rechnung UND Anzeige.
-static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> float:
+static func _total_mult(key: String, dice: Array[int], charm_ids: Array[String], materials: Array[String], combo_parts: Dictionary, ctx: Dictionary) -> float:
 	var raw := dice
 	dice = shown_values(dice, charm_ids, ctx)
-	return maxf(1.0, _base_and_mult(key, dice, raw, charm_ids, materials, combo_levels, ctx)[1])
+	return maxf(1.0, _base_and_mult(key, dice, raw, charm_ids, materials, combo_parts, ctx)[1])
 
 ## Zählreihenfolge der Würfelphase: die Reihe, wie sie beim Nehmen aufgereiht
 ## liegt - KOMBINATIONS-ERST. Die Kombinationswürfel bilden Blöcke je
@@ -689,8 +686,9 @@ static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], c
 ## Achse). Nur das Metronom fragt danach - ein zustandsloser die_charm_*-Hook
 ## kann die Auslösungen der Mitwürfel nicht kennen, also läuft die Vorabrunde,
 ## und auch nur dann.
-static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids: Array[String], ctx: Dictionary, echo_slot: int, tail_slot: int, participating: Array[int] = []) -> Array[int]:
+static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids: Array[String], ctx: Dictionary, echo_slot: int, tail_slot: int, participating: Array[int] = [], chip_parts: Array = []) -> Array[int]:
 	var singles: Array[int] = []
+	var ends := ComboPartEffects.combo_ends(order, participating)
 	var essences := essence_sets_in(ctx)
 	var runes := runes_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
@@ -699,7 +697,7 @@ static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids:
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var die_triggers := MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 			EssenceEffects.extra_activations(i, order, essences, charm_ids, dice, hands_taken), order.size(), tail_slot,
-			hands_taken == 0, participating.has(i))
+			hands_taken == 0, participating.has(i), chip_parts, ends.x, ends.y)
 		var face_triggers := MaterialEffects.face_trigger_count(dice[i], charm_ids,
 			RuneEffects.extra_activations(RuneEffects.runes_at(runes, i), charm_ids), essence_ids)
 		if die_triggers * face_triggers == 1:
@@ -709,19 +707,24 @@ static func single_trigger_slots(order: Array[int], dice: Array[int], charm_ids:
 ## Basis und Mult einer Hand in der festen Trigger-Reihenfolge (dice = die
 ## GEZEIGTEN Werte, raw = die physischen Seitenwerte). [int base, float mult] -
 ## mult ungeklemmt und ungerundet; gerundet wird erst beim Verschmelzen.
-static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm_ids: Array[String], materials: Array[String], combo_levels: Dictionary, ctx: Dictionary) -> Array:
+static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm_ids: Array[String], materials: Array[String], combo_parts: Dictionary, ctx: Dictionary) -> Array:
 	var shape := hand_shape(key, raw, charm_ids, ctx)
 	var participating: Array[int] = shape["participating"]
 	var scored: Array[int] = shape["scored"]
 	var echo_slot: int = shape["echo_slot"]
 	var tail_slot: int = shape["tail_slot"]
-	# Acetylen und Schneidbrenner hängen beide an der Übertaktungs-Stufe.
-	var combo_level := int(combo_levels.get(key, 0))
-	# Dreifacher Boden vervielfacht NUR die Basispunkte der Kombination -
-	# points_for/mult_for selbst bleiben die reine Stufe (Chips, Preise, Vorschauen).
+	# Dreifacher Boden vervielfacht NUR die Basispunkte der Kategorie.
 	var combo_factor := CharmEffects.combo_factor(charm_ids)
-	var base := points_for(key, combo_levels) * combo_factor
-	var mult := float(mult_for(key, combo_levels))
+	var base := points_for(key) * combo_factor
+	var mult := float(mult_for(key))
+	# Kombi-Teile Steckplatz für Steckplatz, nach dem Dreifachen Boden.
+	var chip := ComboPartEffects.chip(combo_parts, key)
+	for step in ComboPartEffects.combo_steps(combo_parts, key):
+		base += int(step["points"])
+		mult += float(step["mult"])
+	# Acetylen und Schneidbrenner zählen die Bauteile der Kombination.
+	var part_count := ComboPartEffects.part_count(chip)
+	var ends := ComboPartEffects.combo_ends(shape["order"], participating)
 	var essences := essence_sets_in(ctx)
 	var runes := runes_in(ctx)
 	var is_stress := bool(ctx.get(CTX_STRESS, false))
@@ -748,7 +751,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var discard_values := discard_values_in(ctx)
 	# Auch ohne Materialien können Charms und Essenzen Aktivierungen stapeln.
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
-		or not essences.is_empty() or not runes.is_empty()
+		or not essences.is_empty() or not runes.is_empty() or ComboPartEffects.has_die_parts(chip)
 	var order: Array[int] = shape["order"]
 	# Kaltverfestigung: hand-weit, jede Zündung legt ihr Auge auf die Seite.
 	var clause_growth := clause_growth_in(ctx)
@@ -779,7 +782,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Metronom: die einmal zündenden Würfel stehen VOR der Zählung fest.
 	var singles: Array[int] = []
 	if charm_ids.has(Charm.METRONOME):
-		singles = single_trigger_slots(order, dice, charm_ids, ctx, echo_slot, tail_slot, participating)
+		singles = single_trigger_slots(order, dice, charm_ids, ctx, echo_slot, tail_slot, participating, chip)
 	# Würfelphase in Reihen-Ordnung. ZWEI Achsen: der Würfel tritt die_triggers-mal
 	# an, je Antritt zündet die obere Seite face_triggers-mal; je Zündung Augen ->
 	# Material -> würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
@@ -795,6 +798,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		var face_material: String = materials[i] if i < materials.size() else ""
 		var essence_ids := EssenceEffects.set_at(essences, i)
 		var rune_ids := RuneEffects.runes_at(runes, i)
+		var in_combination := participating.has(i)
 		# Phosphoreszenz kippt ihren Speicher als eigenen Basis-Eintrag aus - mit
 		# Leuchtstoffröhre dazu den gespeicherten Mult.
 		base += phosphor_store_for(ctx, i)
@@ -804,7 +808,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		if has_die_bonus:
 			die_triggers = MaterialEffects.die_trigger_count(i, charm_ids, echo_slot, essence_ids, is_stress,
 				EssenceEffects.extra_activations(i, order, essences, charm_ids, dice, hands_taken), order.size(), tail_slot,
-				hands_taken == 0, participating.has(i))
+				hands_taken == 0, in_combination, chip, ends.x, ends.y)
 			# Das Nachglühen addiert auf der SEITEN-Achse; die Essenz bleibt der
 			# einzige Faktor der Würfel-Achse.
 			face_triggers = MaterialEffects.face_trigger_count(dice[i], charm_ids, RuneEffects.extra_activations(rune_ids, charm_ids), essence_ids)
@@ -833,7 +837,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 				# unten wirklich hinüber (spread_radon_once).
 				base += EssenceEffects.eye_value_of(essence_ids, CharmEffects.eye_value(shown, charm_ids), charm_ids) \
 					+ EssenceEffects.trigger_eye_bonus_of(essence_ids, triggers) \
-					+ EssenceEffects.combo_level_base_of(essence_ids, combo_level) \
+					+ EssenceEffects.combo_part_base_of(essence_ids, part_count) \
 					+ EssenceEffects.discard_eye_bonus_of(essence_ids, discard_values, charm_ids) \
 					+ EssenceEffects.firedamp_base_of(essence_ids, crits)
 				triggers += 1
@@ -841,13 +845,16 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					base += MaterialEffects.base_bonus_once(i, materials, charm_ids, level, eye_sum)
 					mult += float(MaterialEffects.mult_once_for(face_material, shown, charm_ids, level)) \
 						+ float(EssenceEffects.mult_bonus_of(essence_ids)) \
-						+ float(EssenceEffects.combo_level_mult_of(essence_ids, combo_level, charm_ids))
+						+ float(EssenceEffects.combo_part_mult_of(essence_ids, part_count, charm_ids))
 					# Der BETRAG folgt dem laufenden Wert (shown), das ZIEL bleibt an den
 					# liegenden Werten - eine Zählung darf sich nie selbst umzielen.
 					for j in charm_ids.size():
 						base += CharmEffects.die_charm_base_at(j, i, key, dice, charm_ids, ctx, order, shown, materials)
 						mult += float(CharmEffects.die_charm_mult_at(j, i, dice, charm_ids, ctx, shown))
 						mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, shown))
+					# Würfel-Teile des Chips neben den würfelgebundenen Charms.
+					base += ComboPartEffects.firing_base(chip, in_combination)
+					mult += float(ComboPartEffects.firing_mult(chip, in_combination, int(running_charges.get(i, 0))))
 					base += CharmEffects.metronome_base(i, singles, charm_ids)
 					mult += float(CharmEffects.strobe_mult(t * face_triggers + f, charm_ids))
 					var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
@@ -959,6 +966,10 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 			continue
 		charge_points += int(running_charges.get(i, 0))
 	mult += float(CHARGE_MULT_PER_POINT * charge_points)
+	# Krit-Teile nach allen Würfeln, vor den statischen Charms.
+	for step in ComboPartEffects.crit_steps(chip):
+		crits += 1
+		mult *= float(step["crit_x"])
 	# Die statischen Charms lesen denselben END-Stand (Spannungsmesser) - über
 	# eine KOPIE, das Original bleibt unberührt.
 	var charm_ctx := ctx
@@ -982,7 +993,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 ## vergleichen wir bewusst NICHT mehr über Kategorien hinweg, sonst nimmt das
 ## Spiel bei drei Zweierpäschen ein hochgestuftes Zwei-Paare. Gedrosselte
 ## Kategorien werden übersprungen (die Hand rutscht zur nächsten passenden).
-static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
+static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_hand: bool = false, materials: Array[String] = [], combo_parts: Dictionary = {}, ctx: Dictionary = {}) -> Dictionary:
 	# Erkennung auf den verwandelten Werten, Wertung mit den ROHEN: score_category
 	# verwandelt selbst und braucht die physischen Werte für den Wertwandel
 	# (Knochen/Glas) - zweimal verwandelt käme dort die Linse als Seitenwert an.
@@ -993,12 +1004,12 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 		if is_throttled(key, ctx) or not qualifies(key, shown, ctx, charm_ids):
 			continue
 		best_key = key
-		best_score = score_category(key, dice, charm_ids, is_first_hand, materials, combo_levels, ctx)
+		best_score = score_category(key, dice, charm_ids, is_first_hand, materials, combo_parts, ctx)
 		break
 	return {
 		"key": best_key,
 		"label": label_for(best_key),
-		"mult": _total_mult(best_key, dice, charm_ids, materials, combo_levels, ctx),
+		"mult": _total_mult(best_key, dice, charm_ids, materials, combo_parts, ctx),
 		"score": best_score,
 	}
 
@@ -1072,15 +1083,15 @@ static func _participating_unsorted(key: String, dice: Array[int], charm_ids: Ar
 ## Farkle-Regel: sicher ist ein Neu-Würfeln nur, wenn die neue Hand im RANG
 ## (HAND_PRIORITY) strikt höher steht - Punkte entscheiden nie. Gleicher Rang
 ## farklet also auch mit mehr Augen, und ein Dreier- auf einen Viererpasch kann
-## nie farkeln. Materialien und Übertaktungs-Stufen bleiben in der Signatur, weil
+## nie farkeln. Materialien und Bauteile bleiben in der Signatur, weil
 ## sie zur Hand gehören; auf den Vergleich wirken sie nicht mehr. Die Drossel im
 ## ctx dagegen schon - sie entscheidet, WELCHE Kategorie best_hand liefert. ctx
 ## gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes old_ctx
 ## mit (Essenz-Glieder, Veredelungen und Essenzen hängen an den Würfeln VOR dem
 ## Neuwurf, wie old_materials).
-static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], combo_levels: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
-	var new_hand := best_hand(new_dice, charm_ids, false, new_materials, combo_levels, ctx)
-	var old_hand := best_hand(old_dice, charm_ids, false, old_materials, combo_levels, ctx if old_ctx.is_empty() else old_ctx)
+static func is_strictly_better(new_dice: Array[int], old_dice: Array[int], charm_ids: Array[String] = [], new_materials: Array[String] = [], old_materials: Array[String] = [], combo_parts: Dictionary = {}, ctx: Dictionary = {}, old_ctx: Dictionary = {}) -> bool:
+	var new_hand := best_hand(new_dice, charm_ids, false, new_materials, combo_parts, ctx)
+	var old_hand := best_hand(old_dice, charm_ids, false, old_materials, combo_parts, ctx if old_ctx.is_empty() else old_ctx)
 	# Eine Hand, die gar nichts wertet (Drossel/Parität), ist nie ein Fortschritt.
 	if int(new_hand["score"]) <= 0:
 		return false

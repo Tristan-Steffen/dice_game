@@ -265,3 +265,22 @@ func test_values_label_nennt_nur_die_liegenden_wuerfel() -> void:
 		RoundLog.pit_slot_record(DieDefinition.standard(), 0, 6, false, false),
 	]
 	assert_eq(RoundLog.values_label(pit), "5 · 2")
+
+## Die Bauteile stehen im Rückblick, wo die Zeremonie sie spielt: Kombi-Teile
+## hinter der Kombination, Krit-Teile nach den Würfeln - je mit ihrem Steckplatz.
+func test_parts_are_steps_in_scoring_order() -> void:
+	var key := DiceScoring.ONE_KIND
+	var parts := {key: [ComboPart.resistor(), ComboPart.amplifier_tube(), ComboPart.solder_joint()]}
+	var materials: Array[String] = [""]
+	var breakdown := ScoreBreakdown.build(key, _d([5]), _ids([]), false, materials, parts)
+	var steps := RoundLog.flatten(breakdown)
+	var kinds := _kinds(steps)
+	assert_eq(kinds[1], RoundLog.STEP_PART, "der Widerstand direkt hinter der Kombination")
+	assert_eq(steps[1]["part_slots"], [0])
+	assert_eq(steps[1]["part_key"], key)
+	var firing := kinds.find(RoundLog.STEP_FIRING)
+	assert_eq(steps[firing]["part_slots"], [2], "der Lötpunkt blitzt in der Zündung")
+	var crit := kinds.find(RoundLog.STEP_CRIT, firing)
+	assert_gt(crit, firing, "die Röhre schlägt nach den Würfeln ein")
+	assert_eq(steps[crit]["part_slots"], [1])
+	assert_almost_eq(float(steps[crit]["crit_x"]), ComboPartEffects.AMPLIFIER_TUBE_CRIT, 0.0001)

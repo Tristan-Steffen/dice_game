@@ -451,12 +451,6 @@ var payout_ledger: PayoutLedgerView
 var combo_labels: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 var combo_chips: Dictionary = {}  # DiceScoring-Key -> ComboChipView (3D-Chip auf dem Glas)
 var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombination
-## Trefferkörper der Übertaktungs-Schilder -> Kombinations-Key (Klick und Hover).
-var combo_pick_keys: Dictionary = {}
-var _hovered_combo_key: String = ""
-## Stehen die Chip-Trefferkörper scharf? Der Einstieg in die Freikamera meldet
-## keinen Moduswechsel, also hält der Zeiger-Abgleich je Bild die Waffe nach.
-var _combo_picks_live: bool = false
 
 @onready var camera_rig: CameraRig = $Camera3D
 @onready var dice_pit: DicePit = $DiceTray
@@ -1193,7 +1187,7 @@ func _setup_table_screen() -> void:
 	var shell_px := table_screen.world_to_pixel(dice_shell.global_position)
 	var pit_r := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var win_size := SideBetPanel.preferred_units() \
-		* (table_screen.cluster_rect.size.x / 100.0) * WETTEN_ROOM
+		* (table_screen.cluster_anchor_rect.size.x / 100.0) * WETTEN_ROOM
 	# Nie höher als die Grube — der Tresen ist ihr Beiwerk, kein Turm.
 	win_size.y = minf(win_size.y, pit_r.size.y)
 	var win_pos := Vector2(pit_r.end.x + table_screen.size.x * 0.005,
@@ -1212,7 +1206,7 @@ func _setup_table_screen() -> void:
 	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
 	var gap_left := side_r.end.x + table_screen.size.x * 0.005
 	var gap_right := shell_px.x + table_screen.size.x * 0.045 \
-		+ SideBetPanel.preferred_units().x * (table_screen.cluster_rect.size.x / 100.0)
+		+ SideBetPanel.preferred_units().x * (table_screen.cluster_anchor_rect.size.x / 100.0)
 	# Doppelt so breit wie der Wett-Tresen, gleiche Höhe und Oberkante.
 	var t_w := side_r.size.x * 2.0
 	var t_top := side_r.position.y
@@ -1254,8 +1248,8 @@ func _setup_table_screen() -> void:
 	var hub_r := Rect2(table_screen.hub.position, table_screen.hub.size)
 	# Die volle Spalte: der Schwarzmarkt-Anker; das Fenster selbst ist kürzer.
 	var slots_column_rect := Rect2(
-		Vector2(table_screen.cluster_rect.position.x, hub_r.position.y),
-		Vector2(table_screen.cluster_rect.size.x, hub_r.size.y - SLOTS_BOTTOM_INSET_WORLD * ppw))
+		Vector2(table_screen.cluster_anchor_rect.position.x, hub_r.position.y),
+		Vector2(table_screen.cluster_anchor_rect.size.x, hub_r.size.y - SLOTS_BOTTOM_INSET_WORLD * ppw))
 	var slots_rect := Rect2(slots_column_rect.position,
 		Vector2(slots_column_rect.size.x, slots_column_rect.size.y * SLOTS_HEIGHT_SHARE))
 	table_screen.place_slot_bank_window(slots_rect)
@@ -1961,7 +1955,7 @@ func _on_settings_changed() -> void:
 ## 3D-Chips auf dem Glas: über jeder Kombinations-Zelle steht ein echtes
 ## Chip-Modell; die Zelle wird zum Sockel (socket_mode) und der Chip trägt
 ## Name/Punkte/×Mult selbst. Die Zellwerte bleiben die einzige Quelle -
-## nach jedem set_score/set_level zieht _sync_combo_chip nach.
+## nach jedem set_score zieht _sync_combo_chip nach.
 func _setup_combo_chips() -> void:
 	var chips_root := Node3D.new()
 	chips_root.name = "ComboChips"
@@ -1973,6 +1967,7 @@ func _setup_combo_chips() -> void:
 		var corner_b := table_screen.pixel_to_world(cell.position + cell.size)
 		var chip := ComboChipView.new()
 		chip.name = "Chip_%s" % key
+		chip.combo_key = key  # vor setup: die Pick-Körper tragen ihn
 		chips_root.add_child(chip)
 		chip.position = (corner_a + corner_b) / 2.0
 		# Modell-X entlang der Zellbreite (Welt+Z), Display-Band zum Spieler (-X).
@@ -1980,7 +1975,6 @@ func _setup_combo_chips() -> void:
 		chip.setup(absf(corner_b.z - corner_a.z), absf(corner_b.x - corner_a.x))
 		chip.sync_cell(cell)
 		combo_chips[key] = chip
-		combo_pick_keys[chip.upgrade_pick_body()] = key
 	ScreenReflection.mark_reflective(chips_root)
 
 ## Rampenlicht auf genau eine Kombination ("" = auf keine): ihr Chip atmet
@@ -1999,83 +1993,16 @@ func _sync_combo_chip(key: String) -> void:
 	if combo_chips.has(key) and combo_labels.has(key):
 		combo_chips[key].sync_cell(combo_labels[key])
 
-## Schreibt Stufe UND die daraus folgenden Werte einer Kombination in die Zelle
-## und spiegelt sie auf den Chip. DIE Stelle, an der eine gestiegene Stufe
-## sichtbar wird - set_level allein rechnet Basispunkte und Mult nicht neu, die
-## kommen aus DiceScoring über die Stufentabelle des Laufs. Jede Stufen-Quelle
-## (Kauf, Wettgewinn, Rampenlicht per Charm ODER Klausel) endet hier.
+## Schreibt den sicheren Wert einer Kombination (Grundwert plus feste Kombi-
+## Teile) in die Zelle und spiegelt ihn auf den Chip.
 func _refresh_combo_display(key: String) -> void:
 	if not combo_labels.has(key):
 		return
 	var row: ComboCellView = combo_labels[key]
-	row.set_score(
-		DiceScoring.points_for(key, run.combo_levels),
-		DiceScoring.mult_for(key, run.combo_levels))
-	row.set_level(run.combo_level(key))
+	var values := ComboPartEffects.display_values(run.scoring_parts(), key)
+	row.set_score(values.x, values.y)
 	_sync_combo_chip(key)
-
-## --- Übertakten am Chip ------------------------------------------------------
-
-## Übertaktet wird am Kombinations-Zoom und in der Freikamera (_felt_pick_live);
-## dort trägt jeder Chip sein Angebot (Preis, Deckung, Werte danach) - sichtbar
-## erst beim Zeigerkontakt. Aus der ruhenden Übersicht bleibt der Klick auf den
-## Cluster der FLUG dorthin, sonst kaufte eine Navigationsgeste eine Stufe.
-## Idempotent: Moduswechsel, Ladungsänderung und jede gekaufte Stufe rufen dasselbe.
-func _sync_combo_upgrade_buttons() -> void:
-	var show := _felt_pick_live(CameraRig.Mode.COMBOS)
-	_combo_picks_live = show
-	for key: String in combo_chips:
-		var chip: ComboChipView = combo_chips[key]
-		chip.set_upgrade_visible(show)
-		if show and run != null:
-			var next_levels: Dictionary = run.combo_levels.duplicate()
-			next_levels[key] = run.combo_level(key) + 1
-			chip.set_upgrade_offer(run.overclock_cost(key), run.can_overclock(key),
-				DiceScoring.points_for(key, next_levels), DiceScoring.mult_for(key, next_levels),
-				run.free_overclocks > 0)
-	if not show:
-		_clear_combo_upgrade_hover()
-
-## Kauft die Stufe der angeklickten Kombination. Reicht die Energie nicht,
-## verpufft der Klick - er darf aber NICHT als Zoom-Klick weiterlaufen, sonst
-## fährt die Kamera weg, weil man sich einen Chip nicht leisten kann.
-func _try_combo_upgrade_click(screen_pos: Vector2) -> bool:
-	if run == null or not _felt_pick_live(CameraRig.Mode.COMBOS):
-		return false
-	var hit := _ray_pick(screen_pos, ComboChipView.UPGRADE_PICK_LAYER)
-	if hit.is_empty() or not combo_pick_keys.has(hit.get("collider")):
-		return false
-	var key: String = combo_pick_keys[hit["collider"]]
-	run.overclock_combo(key)  # false = zu wenig Energie
-	_sync_combo_upgrade_buttons()  # neuer Preis, neue Vorschau - der Zeiger steht ja noch drauf
-	return true
-
-## Zeigerkontakt am Chip (je Frame): der Zeiger liegt auf dem TISCH, nicht im
-## SubViewport - mouse_entered feuert dort nie. Wie bei den Grubenmarken.
-func _update_combo_upgrade_hover() -> void:
-	var live := _felt_pick_live(CameraRig.Mode.COMBOS)
-	# Der Einstieg in die Freikamera meldet keinen Moduswechsel - die Schilder
-	# werden hier scharfgestellt bzw. wieder abgeräumt.
-	if live != _combo_picks_live:
-		_sync_combo_upgrade_buttons()
-	if run == null or not live:
-		_clear_combo_upgrade_hover()
-		return
-	var hit := _ray_pick(get_viewport().get_mouse_position(), ComboChipView.UPGRADE_PICK_LAYER)
-	var key: String = combo_pick_keys.get(hit.get("collider"), "") if not hit.is_empty() else ""
-	if key == _hovered_combo_key:
-		return
-	_clear_combo_upgrade_hover()
-	if key != "":
-		_hovered_combo_key = key
-		combo_chips[key].set_upgrade_hover(true)
-
-func _clear_combo_upgrade_hover() -> void:
-	if _hovered_combo_key == "":
-		return
-	if combo_chips.has(_hovered_combo_key):
-		combo_chips[_hovered_combo_key].set_upgrade_hover(false)
-	_hovered_combo_key = ""
+	_sync_combo_sockets(key)
 
 ## Blendet das Glühen des 3D-Chips weich auf target (0 = Ruhe, 1 = aktiv).
 func _glow_combo_chip(key: String, target: float) -> void:
@@ -2092,42 +2019,28 @@ func _collect_combo_labels() -> void:
 	for key: String in combo_labels:
 		combo_labels[key].modulate = PAYOUT_LABEL_BASE_COLOR
 
-## Kombinationen, deren Kauf-Licht gerade unterwegs ist: ihre Zellen zeigen
-## bis zur Ankunft die ALTEN Werte (siehe _on_combo_upgraded).
+## Kombinationen, deren Licht gerade unterwegs ist: ihre Zellen zeigen bis zur
+## Ankunft die ALTEN Werte.
 var _pulsing_combos: Dictionary = {}
+## Wertungs-Zeremonie der Bauteile: die zählende Kombination, das gehaltene
+## Zählwerk und das schon gebuchte Münzprüfer-Geld (nur Anzeige).
+var _take_combo_key := ""
+var _part_growth_held := ""
+var _part_money_shown := 0
+const PART_CRIT_FLASH := 2.2
 
-## Kombination übertaktet: gebucht ist beim Eintreffen des Signals längst, also
-## zeigt die Zelle SOFORT die neuen Werte - der Spieler steht vor dem Chip. Das
-## ⚡-Licht fährt danach aus der Bank über die Chip-Adern nach (nicht abgewartet,
-## darum überlagern sich schnelle Klicks gefahrlos). Der Hitzestau senkt eine
-## Stufe über dasselbe Signal: der wird nicht gefeiert.
-func _on_combo_upgraded(combo_key: String, new_level: int) -> void:
-	if table_screen == null or not combo_labels.has(combo_key):
-		_refresh_combo_label_texts()
-		return
-	var row: ComboCellView = combo_labels[combo_key]
-	var climbed := new_level > row.level
-	_refresh_combo_display(combo_key)
-	_sync_combo_upgrade_buttons()  # die nächste Stufe kostet mehr
-	if not climbed:
-		return
-	if capacitor_bank != null:
-		capacitor_bank.pulse()  # die Bank gibt ab
-	await table_screen.play_energy_overclock_pulse(combo_key)
-	if combo_chips.has(combo_key):
-		combo_chips[combo_key].play_upgrade_flash()
-	if combo_key != highlighted_combo_key:
-		var flash := create_tween()
-		flash.tween_method(func(c: Color) -> void: row.modulate = c, PAYOUT_LABEL_GLOW_COLOR, PAYOUT_LABEL_BASE_COLOR, 1.2)
+## Steckplätze geändert: Kopplung liest den Nachbarn, also frischen alle auf.
+func _on_combo_parts_changed(_combo_key: String) -> void:
+	_refresh_combo_label_texts()
 
-## Rampenlicht-Schritt der Zähl-Animation: erst jetzt wird die Stufe gebucht -
-## bricht ein Reset die Animation ab, bleibt die Kombination unverändert.
+## Rampenlicht-Schritt der Zähl-Animation: erst jetzt wird das Geschenk gebucht -
+## bricht ein Reset die Animation ab, bleibt alles unverändert.
 ## false = Abbruch (Reset).
 func _play_spotlight_step(step: Dictionary, combo_key: String) -> bool:
 	if not run.claim_spotlight(combo_key):
 		return true  # in dieser Runde schon kassiert
 	var charm_index: int = step["charm_indices"][0]
-	await _play_spotlight_upgrade(charm_index, combo_key)
+	await _play_spotlight_gift(charm_index, combo_key)
 	return phase == Phase.SCORING
 
 ## Dasselbe für ein Rampenlicht aus einer Klausel: kein Charm, also kein Pad zum
@@ -2135,27 +2048,27 @@ func _play_spotlight_step(step: Dictionary, combo_key: String) -> bool:
 func _play_clause_spotlight(combo_key: String) -> bool:
 	if not run.claim_spotlight(combo_key):
 		return true
-	await _play_spotlight_upgrade(-1, combo_key)
+	await _play_spotlight_gift(-1, combo_key)
 	return phase == Phase.SCORING
 
-## Rampenlicht eingelöst: der Chip der hervorgehobenen Kombination bekommt
-## dieselbe Übertaktungs-Zeremonie wie ein Kauf (Licht über die Leiterbahn),
-## danach erlischt das Rampenlicht - je Runde steigt nur eine Stufe.
-func _play_spotlight_upgrade(charm_index: int, combo_key: String) -> void:
+## Rampenlicht eingelöst: Licht über die Leiterbahn an den Chip der
+## hervorgehobenen Kombination, danach erlischt das Rampenlicht - je Runde ein
+## geschenkter Widerstand (er wartet in pending_parts auf seinen Steckplatz).
+func _play_spotlight_gift(charm_index: int, combo_key: String) -> void:
 	_flash_charm_and_pad(charm_index)
 	if table_screen == null or not combo_labels.has(combo_key):
 		_refresh_combo_label_texts()
 		return
 	_pulsing_combos[combo_key] = true
 	_set_spotlight_combo("")
-	await table_screen.play_overclock_pulse(combo_key)
+	await table_screen.play_combo_pulse(combo_key)
 	_pulsing_combos.erase(combo_key)
 	_refresh_combo_display(combo_key)
 	if combo_chips.has(combo_key):
-		combo_chips[combo_key].play_upgrade_flash()
+		combo_chips[combo_key].play_arrival_flash()
 
-## Schreibt Basispunkte + Multiplikatoren inkl. Übertaktungs-Stufen neu;
-## Zellen mit laufendem Kauf-Licht bleiben bis zur Ankunft unangetastet.
+## Schreibt Basispunkte + Multiplikatoren inkl. fester Kombi-Teile neu;
+## Zellen mit laufendem Licht bleiben bis zur Ankunft unangetastet.
 func _refresh_combo_label_texts() -> void:
 	for key: String in combo_labels:
 		if _pulsing_combos.has(key):
@@ -2809,6 +2722,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_chip_drag_input(event)
 		return
 
+	if part_drag_key != "":
+		_handle_part_drag_input(event)
+		return
+
 	if shell_drag_active:
 		_handle_shell_drag_input(event)
 		return
@@ -2838,6 +2755,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Geste dem Raster - Rad, Zoom-Klick und jedes andere Fenster schweigen.
 	if _exchange_forced():
 		_handle_forced_exchange_input(event)
+		return
+
+	# DER EINBAU ebenso: ein wartendes Bauteil will seinen Steckplatz.
+	if _part_install_forced():
+		_handle_part_install_input(event)
 		return
 
 	# Die Freikamera hat KEINEN eigenen Zweig mehr: sie durchläuft dieselbe Kette
@@ -2958,9 +2880,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _felt_pick_live(CameraRig.Mode.CHIPS) and _try_start_chip_drag(event.position):
 		return
 
-	# Übertakten: die Chips liegen UNTER der Kombinations-Klickzone, ihr Griff
-	# muss also vor den Zoom-Klick.
-	if event.button_index == MOUSE_BUTTON_LEFT and _try_combo_upgrade_click(event.position):
+	if _try_start_part_drag(event.position):
 		return
 
 	_try_zoom_click(event.position)
@@ -6508,8 +6428,8 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 				"amount": CharmEffects.side_bet_money(bet.payout_money * factor, run.charm_ids())}
 		SideBet.Payout.ENERGY:
 			return {"body": "energy", "count": bet.payout_energy * factor}
-		SideBet.Payout.COMBO_LEVEL:
-			return {"body": "token", "text": "LVL+1", "tint": CasinoStyle.GOLD_INTENSE}
+		SideBet.Payout.PART:
+			return {"body": "token", "text": "BAUTEIL", "tint": CasinoStyle.GOLD_INTENSE}
 		SideBet.Payout.PRESS_BOOST:
 			return {"body": "token", "text": "PRESSE",
 				"tint": PackDrawerView.COLORS[Pack.SHELF_SPECIAL]}
@@ -7273,7 +7193,7 @@ func _payout_body_wanted(bet: SideBet) -> bool:
 			return not bet.awarded_packs.is_empty()
 		SideBet.Payout.MONEY, SideBet.Payout.ENERGY:
 			return false
-	return true  # die Marken (LVL+1, Presse-Schub): Ware
+	return true  # die Marken (Bauteil, Presse-Schub): Ware
 
 ## Die gemeldeten ZELLEN der Ablage (Display-Pixel). ui/ meldet, scene_root stellt.
 func _payout_cells() -> Array[Rect2]:
@@ -7407,8 +7327,8 @@ func _sink_payout_bodies() -> void:
 
 ## Und DANN je Gewinnart ihr ZIEL-Licht (gebucht ist alles längst): Geld zum Schatz,
 ## ⚡ zur Bank, Paket und Sonderposten auf ihren reservierten Magazin-Platz, wo die
-## zurückgehaltene Kassette aus dem Grubenboden steigt. Die beiden Marken (LVL+1,
-## Presse-Schub) zeigen sich selbst - Chip und Presse tragen es.
+## zurückgehaltene Kassette aus dem Grubenboden steigt, ein Bauteil fährt zu den
+## Chips. Die Presse-Marke zeigt sich selbst.
 func _fly_payout_targets() -> void:
 	if table_screen == null:
 		_payout_claims.clear()
@@ -7455,6 +7375,11 @@ func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 					func() -> void:
 						if run == launched and is_instance_valid(workshop):
 							_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint))
+	# Das Bauteil wartet längst in pending_parts - sein Licht fährt Hub -> Chips.
+	if bet.payout_kind == SideBet.Payout.PART:
+		var part := bet.reward_part()
+		if part != null:
+			table_screen.part_delivery_comet(hub_px, part.tint())
 	var energy := int(claim.get("energy", 0))
 	if energy > 0:
 		_play_hub_energy_volley(energy)
@@ -7638,12 +7563,18 @@ func _sync_vitrine_nets(arrived := false) -> void:
 			continue
 		defs.append(lying[i])
 		anchors.append(table_screen.world_to_pixel(spot) - rect.position)
-	if defs.is_empty():
-		_clear_vitrine_nets()
-		return
 	var entries: Array = []
 	for i in defs.size():
 		entries.append({"def": defs[i], "anchor": anchors[i]})
+	var parts: Array = charm_shop.vitrine_stock().get(ShopController.KIND_PART, [])
+	for i in parts.size():
+		var part_spot := shop_vitrine.spot_of(ShopController.KIND_PART, i)
+		if parts[i] != null and part_spot != Vector3.ZERO:
+			entries.append({"part": parts[i],
+				"anchor": table_screen.world_to_pixel(part_spot) - rect.position})
+	if entries.is_empty():
+		_clear_vitrine_nets()
+		return
 	charm_shop.set_die_nets(entries, arrived)
 
 ## Die Schilder abräumen. Eine laufende ABSORPTION ist die Ausnahme: sie IST das
@@ -7672,9 +7603,26 @@ func _sync_vitrine_net_hover() -> void:
 	if pixel.x < 0.0:
 		charm_shop.set_die_hover(null)
 		return
-	# Der Würfel spricht, ob man ihn selbst oder sein Netz darunter berührt.
-	var die := _vitrine_die_at(_bay_item_at(shop_vitrine, rect, pixel))
-	charm_shop.set_die_hover(die if die != null else charm_shop.die_at_net(pixel))
+	# Die Ware spricht, ob man sie selbst oder ihre Zeile darunter berührt.
+	var item := _bay_item_at(shop_vitrine, rect, pixel)
+	var ware: Object = _vitrine_die_at(item)
+	if ware == null:
+		ware = _vitrine_part_at(item)
+	if ware == null:
+		ware = charm_shop.die_at_net(pixel)
+	if ware == null:
+		ware = charm_shop.part_at_net(pixel)
+	charm_shop.set_ware_hover(ware)
+
+## Das gegriffene Bauteil der Ladenbucht (null für alles andere).
+func _vitrine_part_at(item: Dictionary) -> ComboPart:
+	if item.is_empty() or String(item["kind"]) != ShopController.KIND_PART:
+		return null
+	var lying: Array = charm_shop.vitrine_stock().get(ShopController.KIND_PART, [])
+	var index := int(item["index"])
+	if index < 0 or index >= lying.size():
+		return null
+	return lying[index]
 
 ## Der gegriffene Würfel der Ladenbucht (null für alles andere).
 func _vitrine_die_at(item: Dictionary) -> DieDefinition:
@@ -7750,7 +7698,8 @@ func _sync_secret_plates(market: SecretShopView) -> void:
 		market.set_bay_plates([])
 		return
 	var entries: Array = []
-	for kind: String in [ShopController.KIND_ENGRAVING_PACK, ShopController.KIND_DIE]:
+	for kind: String in [ShopController.KIND_ENGRAVING_PACK, ShopController.KIND_DIE,
+			ShopController.KIND_PART]:
 		for i in run.secret_stock.size():
 			var spot := secret_vitrine.spot_of(kind, i)
 			if spot != Vector3.ZERO:
@@ -7872,10 +7821,10 @@ func _forward_bay_mouse(bay: VitrineView, rect: Rect2, event: InputEventMouse,
 	return true
 
 ## Der Griff kauft: JEDER Weg läuft über die bestehenden Buchungen des Ladens -
-## die Bucht ist Bühne, nicht Regel. In der Ladenbucht liegen nur noch WÜRFEL,
-## alles Versiegelte steckt in den Kassetten-Schlitzen.
+## die Bucht ist Bühne, nicht Regel. In der Ladenbucht liegen nur noch WÜRFEL und
+## das BAUTEIL, alles Versiegelte steckt in den Kassetten-Schlitzen.
 func _buy_vitrine_item(kind: String, index: int) -> void:
-	if charm_shop == null or kind != ShopController.KIND_DIE:
+	if charm_shop == null or (kind != ShopController.KIND_DIE and kind != ShopController.KIND_PART):
 		return
 	# Den PLATZ dieses Stücks merken: dort startet der Komet, sobald der Körper
 	# abgesunken ist. Danach ist der Platz leer und nicht mehr zu erfragen -
@@ -7893,6 +7842,8 @@ func _buy_vitrine_item(kind: String, index: int) -> void:
 			charm_shop.buy_single_special(index)
 		ShopController.KIND_DIE:
 			_buy_single_die(index, depart)
+		ShopController.KIND_PART:
+			charm_shop.buy_part(index, depart)
 
 ## Der offene Würfel: er sinkt in der Bucht, fliegt als Komet die Werkstatt-Ader
 ## entlang und STEIGT in der Schale rechts der Bank herein. Der Abgleich hält ihn
@@ -9843,7 +9794,7 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	if camera_rig.die_focus:
 		return false
 	# Und der ZWANG auch: wer einen Neuzugang schuldet, bedient nur das Raster.
-	if _exchange_forced():
+	if _exchange_forced() or _part_install_forced():
 		return false
 	var flying := camera_rig.is_animating
 	# Die GLAS-ANSICHT wird VOR dieser Kette bedient (_forward_screen_mouse reicht sie
@@ -10071,9 +10022,9 @@ func _free_camera_allowed() -> bool:
 	# Werkstatt-Kamera soll sich bewegen wie die Übersicht).
 	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.die_focus:
 		return false
-	if _exchange_forced():
-		return false  # der Neuzugang hält die Kamera am Raster fest
-	return tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
+	if _exchange_forced() or _part_install_forced():
+		return false  # der Neuzugang hält die Kamera am Raster bzw. an den Chips fest
+	return part_drag_key == "" and tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
 		and charm_drag_index == -1 and chip_drag_value == -1 and not shell_drag_active \
 		and grabbed_stage == null
 
@@ -10100,7 +10051,6 @@ func _process(delta: float) -> void:
 	_update_pit_hover(delta)
 	_update_workshop_hover()
 	_sync_vitrine_hover()
-	_update_combo_upgrade_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
@@ -10108,6 +10058,8 @@ func _process(delta: float) -> void:
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
+	_sync_part_install()  # ein wartendes Bauteil holt die Kamera an die Chips
+	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
 	_sync_shelf_selector()  # und die Knopfleiste, welches Tablett gewählt ist
@@ -11536,7 +11488,7 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_PHOSPHOR_MULT] = pre_reroll_phosphor_mult
 	old_ctx[DiceScoring.CTX_FIRST_SCORING] = pre_reroll_first_scoring
 	old_ctx[DiceScoring.CTX_PLAYER_ORDER] = pre_reroll_order
-	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.combo_levels, _score_ctx(), old_ctx):
+	if last_throw_was_reroll and not DiceScoring.is_strictly_better(dice.values, pre_reroll_values, run.charm_ids(), _rolled_materials(), pre_reroll_materials, run.scoring_parts(), _score_ctx(), old_ctx):
 		# Anker: der ERSTE Neuwurf jeder Hand kann nicht farkeln.
 		if CharmEffects.anchor_saves(run.charm_ids(), rerolls_this_hand):
 			hand_note = "Anker: Der erste Neuwurf kann nicht fumblen – die Hand läuft weiter."
@@ -11698,7 +11650,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 ## in der Zähl-Animation).
 func _apply_hand_clauses(combo_key: String) -> void:
 	if run.apply_heat_buildup(combo_key):
-		hand_note = "Hitzestau: %s fällt eine Stufe zurück." % DiceScoring.label_for(combo_key)
+		hand_note = "Hitzestau: an %s fällt ein Bauteil aus." % DiceScoring.label_for(combo_key)
 	if run.note_hand_taken(combo_key):
 		_set_throttled_combos(run.throttled_combos)
 
@@ -11743,7 +11695,7 @@ func _on_take_button_pressed() -> void:
 
 	# is_first_hand VOR dem Hochzählen von hands_taken_this_round auswerten.
 	var sel_ctx := _score_ctx_for_slots(slots)
-	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.scoring_parts(), sel_ctx)
 	# EINE Quelle wie in der Wertung - sonst nähme der Zug einen anderen Echo-Kopf
 	# als die Punkte, die er gerade gezeigt hat.
 	var sel_shape := DiceScoring.hand_shape(hand["key"], sel_values, ids, sel_ctx)
@@ -11759,7 +11711,7 @@ func _on_take_button_pressed() -> void:
 	# Würfel hängen können und die Ordnung wertungsrelevant ist.
 	# Schrittliste VOR den Nehmen-Effekten bauen (Knochen/Glas verändern gleich
 	# die Seiten); ihre Indizes auf echte Slots zurückrechnen.
-	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, sel_ctx)
+	var breakdown := ScoreBreakdown.build(hand["key"], sel_values, ids, hands_taken_this_round == 0, sel_materials, run.scoring_parts(), sel_ctx)
 	# Geld, das EINZELNE Zündungen erzeugen (Goldseiten, Seelen-Geld), hängt an
 	# seiner Zündung: der Plan reist in der Schrittliste mit, die Zeremonie zahlt
 	# ihn dort. Noch in AUSWAHL-Indizes, also vor dem Rückrechnen anhängen.
@@ -11771,7 +11723,8 @@ func _on_take_button_pressed() -> void:
 		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
 		GameRun.is_stress_round(run.round_number), hands_taken_this_round,
-		sel_participating, sel_burned))
+		sel_participating, sel_burned,
+		ComboPartEffects.chip(run.scoring_parts(), String(hand["key"]))))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
 	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
@@ -11782,6 +11735,12 @@ func _on_take_button_pressed() -> void:
 	for p in sel_scored:
 		scored_slots.append(slots[p])
 	_last_charge_results = run.book_charge_results(active_kinds, breakdown, scored_slots)
+	# Bauteile der Kombination: Zählwerk wächst, Münzprüfer zahlt - vor dem Licht.
+	var take_parts := ComboPartEffects.chip(run.scoring_parts(), String(hand["key"]))
+	_hold_part_growth(String(hand["key"]), take_parts)
+	_suppress_money_light = true
+	_part_money_shown = run.book_combo_scored(String(hand["key"]))
+	_suppress_money_light = false
 	# ... und die Grube hält den ALTEN Stand fest, bis der Würfel sein Urteil hat:
 	# die Buchung hat gerade jeden Grubenwürfel neu gezeichnet.
 	_charge_holds.clear()
@@ -11834,7 +11793,7 @@ func _on_take_button_pressed() -> void:
 		ids, echo_slot, _effective_essence_sets(), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots(),
 		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
-		run.clause_face_growth(), burned_slots)
+		run.clause_face_growth(), burned_slots, take_parts)
 	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
 	# seinem Krit losgeschickt, gebucht wird bei Ankunft.
 	report.tip_money = ScoreBreakdown.tip_money_total(breakdown)
@@ -12012,6 +11971,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	# 2) Kombination: Basis UND Mult reisen als Kometen über die Kombi-Leiste in
 	# den Score; die Zahlen springen bei Ankunft. Zuwachs-Zahlen sofort an der Zelle.
 	var key: String = breakdown["key"]
+	_take_combo_key = key
 	var combo_base: int = breakdown["combo"]["base_add"]
 	var combo_mult: int = breakdown["combo"]["mult_add"]
 	var combo_travel := 0.0
@@ -12043,6 +12003,12 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if not await _score_arrival_gap(factor_travel):
 			return
 
+	# 2c) Kombi-Bauteile: je Steckplatz ein Schritt aus seinem Sockel.
+	for step: Dictionary in breakdown.get("part_steps", []):
+		if not await _play_part_step(key, step):
+			return
+	_play_part_scored_beat(key)
+
 	# Straßenmusiker zahlt PRO ausgelöstem Würfel: je Dock-Position ein $1-Paket,
 	# im Moment des Würfel-Triggers (nicht gebündelt am Ende).
 	var musician_indices: Array[int] = []
@@ -12072,6 +12038,11 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		# Ursache→Wirkung geschlossen: das Podest dimmt bei Ankunft.
 		if glow_by_slot.has(slot):
 			_dim_glow(glow_by_slot[slot])
+
+	# 3b) Krit-Bauteile: nach allen Würfeln, je Teil ein eigener Schlag.
+	for step: Dictionary in breakdown.get("part_crit_steps", []):
+		if not await _play_part_crit_step(key, step):
+			return
 
 	# 4) Charm-Schritte strikt in Besitz-Reihenfolge (Boni UND Faktoren an ihrer
 	# Position): je Komet vom Dock-Pad in die betroffene Zahl.
@@ -12233,7 +12204,12 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 			pctargets.append("mult")
 		for charm_index: int in die_charm_indices:
 			_flash_charm_and_pad(charm_index)
+		var part_slots: Array = pulse.get("part_slots", [])
+		for part_slot: int in part_slots:
+			_flash_part_socket(_take_combo_key, part_slot)
 		var pcharm_px := _charm_trail_source_px(die_charm_indices)
+		if die_charm_indices.is_empty() and not part_slots.is_empty():
+			pcharm_px = _part_socket_px(_take_combo_key, int(part_slots[0]))
 		_spawn_score_gains(pcharm_px, pc_base, pc_mult)
 		var ctravel := _fire_score_light(pcharm_px, "charm", pctargets,
 			func() -> void: table_screen.update_pit_score(pca_base, pca_mult))
@@ -12596,6 +12572,106 @@ func _play_crit_step(step: Dictionary) -> bool:
 		return false
 	return await _score_step_wait(CRIT_HOLD)
 
+## Ein Kombi-Bauteil zählt: sein Sockel blitzt, das Licht fährt über die
+## Kombi-Leiste in den Zähler. false = Abbruch (Reset).
+func _play_part_step(key: String, step: Dictionary) -> bool:
+	var slot := int(step["slot"])
+	_flash_part_socket(key, slot)
+	var part_px := _part_socket_px(key, slot)
+	var pbase: int = step["base_after"]
+	var pmult: float = step["mult_after"]
+	var targets: Array[String] = []
+	if int(step["base_add"]) != 0:
+		targets.append("base")
+	if int(step["mult_add"]) != 0:
+		targets.append("mult")
+	_spawn_score_gains(part_px, int(step["base_add"]), int(step["mult_add"]))
+	var travel := 0.0
+	if not targets.is_empty():
+		travel = _fire_score_light(part_px, "combos", targets,
+			func() -> void: table_screen.update_pit_score(pbase, pmult))
+	return await _score_arrival_gap(travel)
+
+## Ein Krit-Bauteil schlägt ein: der Sockel blitzt kräftig, der heiße Komet
+## kommt vom Chip (die Grammatik von _play_crit_step). false = Abbruch (Reset).
+func _play_part_crit_step(key: String, step: Dictionary) -> bool:
+	var slot := int(step["slot"])
+	_flash_part_socket(key, slot, PART_CRIT_FLASH)
+	var part_px := _part_socket_px(key, slot)
+	var cbase: int = step["base_after"]
+	var cmult: float = step["mult_after"]
+	var crit_x := float(step["crit_x"])
+	table_screen.spawn_gain_number(part_px, ScoreBreakdown.format_mult(crit_x), TableScreen.CRIT_COLOR, 1.2)
+	var travel := _fire_score_light(part_px, "combos", ["mult"],
+		func() -> void: table_screen.crit_pit_mult(cbase, cmult, crit_x),
+		TableScreen.CRIT_COLOR)
+	if not await _score_arrival_gap(travel):
+		return false
+	return await _score_step_wait(CRIT_HOLD)
+
+## Was book_combo_scored längst gebucht hat, zeigt sich hier: das Zählwerk
+## wächst sichtbar am Chip, der Münzprüfer schickt sein Geld zur Truhe.
+func _play_part_scored_beat(key: String) -> void:
+	var sockets := ComboPartEffects.chip(run.scoring_parts(), key)
+	for slot in sockets.size():
+		var part: ComboPart = sockets[slot]
+		if part == null:
+			continue
+		if part.id == ComboPart.COUNTER and _part_growth_held == key:
+			_flash_part_socket(key, slot)
+			table_screen.spawn_gain_number(_part_socket_px(key, slot), "+1",
+				table_screen.TRAIL_MULT_COLOR, 1.0, true)
+		elif part.id == ComboPart.COIN_VALIDATOR and _part_money_shown > 0:
+			_flash_part_socket(key, slot)
+			_play_part_money(_part_socket_px(key, slot), ComboPartEffects.COIN_VALIDATOR_MONEY)
+	_part_money_shown = 0
+	_release_part_growth()
+
+## Reines Anzeige-Geld vom Sockel zur Truhe: gebucht ist es beim Nehmen.
+func _play_part_money(from_px: Vector2, amount: int) -> void:
+	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR, 1.0, true)
+	var chip_color := ChipStackView.denomination_color(amount)
+	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color))
+	var launched := run
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run != launched or table_screen == null or table_screen.treasure_window == null:
+			return
+		table_screen.treasure_window.glint()
+		table_screen.treasure_window.flash_receive_slot(chip_color))
+
+## Wächst ein Zählwerk, zeigt der Chip bis zu seinem Schlag den ALTEN Wert.
+func _hold_part_growth(key: String, sockets: Array) -> void:
+	_release_part_growth()
+	for part in sockets:
+		if part != null and part.id == ComboPart.COUNTER:
+			_part_growth_held = key
+			_pulsing_combos[key] = true
+			return
+
+## Der EINE Ausgang des Halts - Schlag wie Abbruch.
+func _release_part_growth() -> void:
+	if _part_growth_held == "":
+		return
+	var key := _part_growth_held
+	_part_growth_held = ""
+	_pulsing_combos.erase(key)
+	_refresh_combo_display(key)
+
+## Wo ein Steckplatz im Display liegt; ohne Chip die Zellmitte.
+func _part_socket_px(key: String, slot: int) -> Vector2:
+	if combo_chips.has(key):
+		var chip: ComboChipView = combo_chips[key]
+		if slot >= 0 and slot < chip.socket_count():
+			return table_screen.world_to_pixel(chip.socket_world(slot))
+	if combo_labels.has(key):
+		var cell: Control = combo_labels[key]
+		return cell.position + cell.size / 2.0
+	return table_screen.world_to_pixel(DicePit.PIT_CENTER)
+
+func _flash_part_socket(key: String, slot: int, strength := 1.0) -> void:
+	if combo_chips.has(key):
+		combo_chips[key].flash_socket(slot, strength)
+
 ## Spielt einen pro-Würfel-Charm-Schritt als Folge von Einzel-Meteoren: je Puls
 ## blitzt der Charm UND sein auslösender Würfel, ein Komet fliegt vom Dock-Pad in
 ## Basis/Mult, der Zähler springt bei Ankunft. false = Abbruch (Reset).
@@ -12757,6 +12833,9 @@ func _cleanup_take_animation() -> void:
 	_eye_planned.clear()
 	_charge_holds.clear()  # der EINE Aufräum-Pfad: kein Halt überlebt die Zeremonie
 	_clear_charge_overrides()
+	_release_part_growth()
+	_part_money_shown = 0
+	_take_combo_key = ""
 	table_screen.reset_pit_score()
 
 ## Startpunkt des Zähl-Kometen eines Charm-Schritts: das Kontakt-Pad des ersten
@@ -12916,7 +12995,7 @@ func _pit_combination_slots() -> Array[int]:
 	for s in slots:
 		sel_values.append(dice.values[s])
 		sel_materials.append(materials[s])
-	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.combo_levels, _score_ctx_for_slots(slots))
+	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.scoring_parts(), _score_ctx_for_slots(slots))
 	var result: Array[int] = []
 	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
 		result.append(slots[p])
@@ -13070,6 +13149,8 @@ func _connect_run() -> void:
 			table_screen.secret_shop_window.goods_purchased.connect(_on_secret_goods_purchased)
 		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
 			table_screen.secret_shop_window.die_purchased.connect(_on_secret_die_purchased)
+		if not table_screen.secret_shop_window.part_purchased.is_connected(_on_secret_part_purchased):
+			table_screen.secret_shop_window.part_purchased.connect(_on_secret_part_purchased)
 		if not table_screen.secret_shop_window.vitrine_changed.is_connected(_on_secret_vitrine_changed):
 			table_screen.secret_shop_window.vitrine_changed.connect(_on_secret_vitrine_changed)
 	if table_screen != null and table_screen.side_bet_window != null:
@@ -13141,6 +13222,9 @@ func _connect_run() -> void:
 		charm_shop.pack_purchased.connect(_on_pack_purchased)
 	if charm_shop != null and not charm_shop.pack_refunded.is_connected(_on_pack_refunded):
 		charm_shop.pack_refunded.connect(_on_pack_refunded)
+	if charm_shop != null and not charm_shop.part_purchased.is_connected(_on_shop_part_purchased):
+		charm_shop.part_purchased.connect(_on_shop_part_purchased)
+	_settle_part_install_hard()  # ein Einbau des alten Laufs schuldet nichts mehr
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	run.charms_changed.connect(_on_charms_changed)
@@ -13148,8 +13232,7 @@ func _connect_run() -> void:
 	run.pool_changed.connect(_on_pool_changed)
 	# Die Schale rechts der Bank zeigt, was bezahlt ist und noch keinen Platz hat.
 	run.pending_dice_changed.connect(_on_pending_dice_changed)
-	# Die Zwingen stehen auf der Bank und fehlen darum in den Trays daneben.
-	run.combo_upgraded.connect(_on_combo_upgraded)
+	run.combo_parts_changed.connect(_on_combo_parts_changed)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
 	run.energy_changed.connect(_on_energy_changed)
@@ -13189,7 +13272,6 @@ func _on_energy_changed(value: int) -> void:
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_energy_display(value, run.energy_cap())
 	_sync_capacitor()
-	_sync_combo_upgrade_buttons()  # die Preisschilder dimmen sich selbst
 	_refresh_side_bet_affordability()
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.refresh_if_idle()  # der Einsatz kostet ⚡
@@ -13670,7 +13752,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 
 ## Was JEDE gewonnene Wette der Auszahlungs-Seite meldet: dieselben Formeln wie
 ## GameRun._pay_side_bet, gerechnet gegen den Stand VOR der Buchung. Sachgewinne
-## (Pakete, LVL+1, Presse-Schub) melden nichts - nur was am vollen Magazin zu
+## (Pakete, Bauteil, Presse-Schub) melden nichts - nur was am vollen Magazin zu
 ## Geld zerfallen ist, steht ehrlich in der Zeile SEINER Wette.
 func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
 		energy_room: int) -> Array[Dictionary]:
@@ -14350,8 +14432,6 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# Der Zielwürfel gehört auf die Bühne, solange der Spieler an der Werkstatt steht:
 	# das VERLASSEN bringt ihn an seinen Pool-Sitz zurück - derselbe Weg rückwärts.
 	_sync_bench_migration()
-	# Übertaktet wird nur vor den Chips - und dort jederzeit.
-	_sync_combo_upgrade_buttons()
 	_update_gameplay_ui_visibility()
 
 ## Aktiviert das Nachschub-Tray dieser Runde (einmalig): die nächsten Würfel
@@ -14530,12 +14610,11 @@ func _refresh_ui() -> void:
 			for s in slots:
 				sel_values.append(dice.values[s])
 				sel_materials.append(all_materials[s])
-			var hand := DiceScoring.best_hand(sel_values, run.charm_ids(), hands_taken_this_round == 0, sel_materials, run.combo_levels, _score_ctx_for_slots(slots))
+			var hand := DiceScoring.best_hand(sel_values, run.charm_ids(), hands_taken_this_round == 0, sel_materials, run.scoring_parts(), _score_ctx_for_slots(slots))
 			_refresh_combos(hand["key"])
 			if phase != Phase.SCORING:
-				table_screen.update_pit_score(
-					DiceScoring.points_for(hand["key"], run.combo_levels),
-					DiceScoring.mult_for(hand["key"], run.combo_levels))
+				var chip_values := ComboPartEffects.display_values(run.scoring_parts(), hand["key"])
+				table_screen.update_pit_score(chip_values.x, chip_values.y)
 
 ## Verwandlungs-Charms (Glückszigaretten & Co.) am liegenden Würfel sichtbar
 ## machen: die obere Seite zeigt den WIRKSAMEN Wert in Grün - dieselbe Grammatik
@@ -14604,7 +14683,8 @@ func _log_display_state() -> Dictionary:
 		"hand_total": hand_total,
 		"round_number": run.round_number,
 		"goal": run.stage_progress(hand_total).duplicate(),
-		"combo_levels": run.combo_levels.duplicate(true),
+		"combo_parts": ComboPart.copy_layout(run.scoring_parts()),
+		"sockets": _log_socket_state(),
 		"throttled": run.throttled_combos.duplicate(),
 		"spotlight": run.spotlight_combo,
 		"deal_sides": run.active_deal_sides().duplicate(true),
@@ -14613,6 +14693,19 @@ func _log_display_state() -> Dictionary:
 		"discard_defs": RoundLog.copy_defs(discarded_this_round),
 		"discard_faces": discarded_faces_this_round.duplicate(),
 	}
+
+## Die Steckplätze, wie der Chip sie zeigt: volle Belegung samt Hitzestau.
+func _log_socket_state() -> Dictionary:
+	var layout := {}
+	var dimmed := {}
+	for key: String in DiceScoring.HAND_PRIORITY:
+		var parts := run.parts_of(key)
+		var off: Array = []
+		for part in parts:
+			off.append(run.is_part_disabled(part))
+		layout[key] = parts
+		dimmed[key] = off
+	return {"layout": ComboPart.copy_layout(layout), "dimmed": dimmed}
 
 ## Die liegende Grube als Chronik-Zeilen. Aufgezeichnet wird die SEITE, nicht nur
 ## der Wert: Material und Rune hängen an ihr, und ein Wert kann auf
@@ -14823,6 +14916,14 @@ func _log_play_step_effects(entry: Dictionary, step: Dictionary, kind: String) -
 	for index: int in step.get("charm_indices", []):
 		if index >= 0 and index < slots.size():
 			_log_flash_charm(int(slots[index]))
+	var part_key := String(step.get("part_key", ""))
+	var part_slots: Array = step.get("part_slots", [])
+	for part_slot: int in part_slots:
+		_flash_part_socket(part_key, part_slot,
+			PART_CRIT_FLASH if kind == RoundLog.STEP_CRIT else 1.0)
+	if kind == RoundLog.STEP_CRIT and slot < 0 and not part_slots.is_empty():
+		table_screen.spawn_gain_number(_part_socket_px(part_key, int(part_slots[0])),
+			ScoreBreakdown.format_mult(float(step.get("crit_x", 1.0))), TableScreen.CRIT_COLOR, 1.2)
 	if kind == RoundLog.STEP_CRIT and slot >= 0 and slot < dice.count():
 		table_screen.spawn_gain_number(
 			table_screen.world_to_pixel(dice.bodies[slot].global_position),
@@ -14870,12 +14971,18 @@ func _log_apply_display(state: Dictionary) -> void:
 	if table_screen != null and not goal.is_empty():
 		table_screen.set_goal_progress(int(goal["into_stage"]), int(goal["stage_size"]),
 			int(goal["stage"]), int(goal["cleared"]))
-	var levels: Dictionary = state.get("combo_levels", {})
+	var parts: Dictionary = state.get("combo_parts", {})
 	for key: String in combo_labels:
 		var row: ComboCellView = combo_labels[key]
-		row.set_score(DiceScoring.points_for(key, levels), DiceScoring.mult_for(key, levels))
-		row.set_level(int(levels.get(key, 0)))
+		var values := ComboPartEffects.display_values(parts, key)
+		row.set_score(values.x, values.y)
 		_sync_combo_chip(key)
+	var sockets: Dictionary = state.get("sockets", {})
+	var layout: Dictionary = sockets.get("layout", {})
+	var dimmed: Dictionary = sockets.get("dimmed", {})
+	for key: String in combo_chips:
+		if layout.has(key):
+			combo_chips[key].set_sockets(layout[key], dimmed.get(key, []))
 	var throttled: Array[String] = []
 	throttled.assign(state.get("throttled", []))
 	_set_throttled_combos(throttled)
@@ -14986,5 +15093,318 @@ func _log_restore_pit() -> void:
 	player_order.assign(_log_pit_mirror.get("player_order", []))
 	dice.note_pit_changed()
 	dice.refresh_faces()
+
+#endregion
+
+#region Die STECKPLAETZE
+# Bauteile auf den Kombinations-Chips: Anzeige, Hinweis, der modale EINBAU und
+# das UMSTECKEN. Gebucht wird allein in GameRun; hier fahren nur Kamera und Körper.
+
+## Rahmen-Saum des Einbaus (Cluster samt Kopfzeile).
+const PART_INSTALL_FRAME_MARGIN := 1.1
+const PART_EMPTY_TITLE := "Freier Steckplatz"
+const PART_EMPTY_BODY := "Ein Bauteil aus Laden oder Schwarzmarkt passt hier hinein."
+const PART_EMPTY_ACCENT := Color(0.62, 0.66, 0.74)
+const PART_DISABLED_NOTE := "Für diese Runde stillgelegt (Hitzestau)."
+
+## Der EINBAU: die gemerkte Lage davor und ob die Kamera schon gerahmt hat.
+var _part_install_home: Dictionary = {}
+var _part_install_framed := false
+var _install_banner_part: ComboPart = null
+var _install_banner_editable := false
+var _install_banner_rect := Rect2()
+## Der Chip, dessen Platz gerade gesäumt ist ("" = keiner).
+var _part_hover_key := ""
+## UMSTECKEN: der gegriffene Platz, sein Startpunkt und der Geist in der Hand.
+var part_drag_key := ""
+var part_drag_slot := -1
+var part_drag_start := Vector2.ZERO
+var part_dragging := false
+var part_drag_ghost: ComboPartBody = null
+
+## Schreibt die Belegung eines Chips aus GameRun auf seinen Deckel.
+func _sync_combo_sockets(key: String) -> void:
+	if run == null or not combo_chips.has(key) or log_open:
+		return  # der Rückblick malt die aufgezeichnete Belegung
+	var parts := run.parts_of(key)
+	var dimmed: Array = []
+	for part in parts:
+		dimmed.append(run.is_part_disabled(part))
+	combo_chips[key].set_sockets(parts, dimmed)
+
+## Welcher Chip-Platz unter dem Zeiger liegt ({key, slot}; slot -1 = der Chip).
+func _part_pick_at(screen_pos: Vector2) -> Dictionary:
+	return ComboChipView.pick_of(_ray_pick(screen_pos, ComboChipView.SOCKET_PICK_LAYER).get("collider"))
+
+## Liegt keine Zeremonie? Nur dann darf der Einbau den Spieler holen.
+func _part_install_calm() -> bool:
+	if run == null or camera_rig == null or log_open:
+		return false
+	if phase != Phase.IDLE and phase != Phase.SHOP:
+		return false
+	return camera_rig.mode != CameraRig.Mode.TITLE and not _route_choice_open()
+
+## DER EINBAU ist MODAL wie der ZWANG - gerechnet, kein Bit: ein Teil wartet,
+## nichts läuft, und der Würfel geht vor. Ohne freien Platz außerhalb des
+## Bearbeitungs-Fensters wartet das Teil, statt den Spieler festzuhalten.
+func _part_install_forced() -> bool:
+	if run == null or run.pending_parts.is_empty() or not _part_install_calm():
+		return false
+	if _exchange_forced() or _deck_glass:
+		return false
+	if not run.pending_dice.is_empty() and _pool_editable():
+		return false
+	return run.can_install_pending(not _dice_editing_locked())
+
+## Je Bild: Kopfzeile, Glimmen der Plätze und der Rahmen kommen und gehen mit dem
+## Zwang; nach dem letzten Teil fährt die Kamera an die gemerkte Lage zurück.
+func _sync_part_install() -> void:
+	var forced := _part_install_forced()
+	var editable := not _dice_editing_locked()
+	for key: String in combo_chips:
+		combo_chips[key].set_socket_beckon(forced, forced and editable)
+	if forced:
+		_show_install_banner(run.pending_parts[0], editable)
+		if not _part_install_framed and _table_operable() and not camera_rig.die_focus \
+				and grabbed_stage == null:
+			_frame_part_install()
+		return
+	_hide_install_banner()
+	if _part_install_framed:
+		_part_install_framed = false
+		camera_rig.set_tilt_locked(false)
+		var home := _part_install_home
+		_part_install_home = {}
+		if camera_rig.mode != CameraRig.Mode.TITLE:
+			camera_rig.restore_pose(home)
+
+func _show_install_banner(part: ComboPart, editable: bool) -> void:
+	if table_screen == null:
+		return
+	if part == _install_banner_part and editable == _install_banner_editable \
+			and table_screen.install_banner_text() != "":
+		return
+	_install_banner_part = part
+	_install_banner_editable = editable
+	var how := "Tipp auf einen Steckplatz - ein belegter tauscht." if editable \
+		else "Tipp auf einen freien Steckplatz."
+	_install_banner_rect = table_screen.show_install_banner(
+		"Wohin mit %s?" % part.with_dative(), "%s\n%s" % [part.description, how], part.tint())
+
+func _hide_install_banner() -> void:
+	_install_banner_part = null
+	_install_banner_rect = Rect2()
+	if table_screen != null:
+		table_screen.hide_install_banner()
+
+## Ein TEMPORÄRER Rahmen wie der des Rasters: Cluster samt Kopfzeile, kein
+## Moduswechsel; die Lage davor wird gemerkt.
+func _frame_part_install() -> void:
+	if table_screen == null:
+		return
+	var rect := table_screen.cluster_rect.merge(table_screen.part_hint_lane())
+	if _install_banner_rect.size.x > 0.0:
+		rect = rect.merge(_install_banner_rect)
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
+	var center := (a + b) * 0.5
+	center.y = 0.0
+	_part_install_home = camera_rig.camera_pose()
+	_part_install_framed = true
+	camera_rig.set_tilt_locked(true)
+	camera_rig.frame_rect(center, Vector2(absf(b.z - a.z) * 0.5, absf(b.x - a.x) * 0.5),
+		PART_INSTALL_FRAME_MARGIN)
+
+## Solange der Einbau steht, gehört jede Geste ihm: nur der Tipp auf einen Platz
+## oder Chip zählt, alles andere schweigt.
+func _handle_part_install_input(event: InputEvent) -> void:
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if camera_rig.is_animating:
+		return
+	var pick := _part_pick_at(button.position)
+	if not pick.is_empty():
+		_install_part_at(String(pick["key"]), int(pick["slot"]))
+
+## Steckt das nächste wartende Teil (slot -1 = erster freier Platz des Chips).
+func _install_part_at(key: String, slot: int) -> bool:
+	if run == null:
+		return false
+	var target := run.install_target(key, slot, not _dice_editing_locked())
+	if target < 0 or not run.install_pending_part(key, target):
+		return false
+	if combo_chips.has(key):
+		combo_chips[key].play_plug(target)
+	return true
+
+## Der EINE harte Aufräum-Pfad (Laufwechsel): kein Rahmen, keine Hand, kein Hinweis.
+func _settle_part_install_hard() -> void:
+	_part_install_framed = false
+	_part_install_home = {}
+	_hide_install_banner()
+	_drop_part_drag()
+	if camera_rig != null:
+		camera_rig.set_tilt_locked(false)
+	if table_screen != null:
+		table_screen.hide_part_hint()
+	for key: String in combo_chips:
+		combo_chips[key].set_socket_hover(-1)
+		combo_chips[key].set_socket_beckon(false, false)
+	_part_hover_key = ""
+
+## Je Bild: der Platz unter dem Zeiger säumt sich und erklärt sich - aus JEDER
+## Pose, in der der Chip zu sehen ist (Sichtbar heißt bedienbar gilt fürs Lesen).
+func _sync_part_hover() -> void:
+	if table_screen == null or camera_rig == null:
+		return
+	var pick := {}
+	if _table_operable() and not camera_rig.die_focus and not _deck_glass and not log_open:
+		pick = _part_pick_at(get_viewport().get_mouse_position())
+	var key := String(pick.get("key", ""))
+	var slot := int(pick.get("slot", -1))
+	if _part_hover_key != "" and _part_hover_key != key and combo_chips.has(_part_hover_key):
+		combo_chips[_part_hover_key].set_socket_hover(-1)
+	_part_hover_key = key
+	if key == "" or slot < 0 or not combo_chips.has(key):
+		if combo_chips.has(key):
+			combo_chips[key].set_socket_hover(-1)
+		table_screen.hide_part_hint()
+		return
+	var chip: ComboChipView = combo_chips[key]
+	chip.set_socket_hover(slot)
+	if part_dragging:
+		table_screen.hide_part_hint()  # die Hand zeigt schon, was sie trägt
+		return
+	var part := chip.socket_part(slot)
+	var title := PART_EMPTY_TITLE
+	var body := PART_EMPTY_BODY
+	var accent := PART_EMPTY_ACCENT
+	if part != null:
+		title = part.display_name
+		body = part.description
+		accent = part.tint()
+		if chip.socket_dimmed(slot):
+			body += "\n" + PART_DISABLED_NOTE
+	table_screen.show_part_hint(title, body, accent)
+
+## UMSTECKEN nur an der Kombinationen-Station und im Bearbeitungs-Fenster
+## (benannte Ausnahme von "Sichtbar heißt bedienbar").
+func _part_moves_live() -> bool:
+	return run != null and not _dice_editing_locked() and camera_rig.takes_input() \
+		and not camera_rig.free_camera and camera_rig.mode == CameraRig.Mode.COMBOS
+
+func _try_start_part_drag(screen_pos: Vector2) -> bool:
+	if not _part_moves_live():
+		return false
+	var pick := _part_pick_at(screen_pos)
+	if pick.is_empty() or int(pick["slot"]) < 0:
+		return false
+	var key := String(pick["key"])
+	if not combo_chips.has(key) or combo_chips[key].socket_part(int(pick["slot"])) == null:
+		return false
+	part_drag_key = key
+	part_drag_slot = int(pick["slot"])
+	part_drag_start = screen_pos
+	part_dragging = false
+	camera_rig.set_tilt_locked(true)
+	return true
+
+func _handle_part_drag_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var motion := event as InputEventMouseMotion
+		if not part_dragging and motion.position.distance_to(part_drag_start) > REORDER_DRAG_THRESHOLD:
+			_lift_part_drag()
+		if part_dragging:
+			_move_part_ghost(motion.position)
+		return
+	var button := event as InputEventMouseButton
+	if button == null:
+		return
+	if button.pressed and button.button_index == MOUSE_BUTTON_RIGHT:
+		_drop_part_drag()
+		return
+	if not button.pressed and button.button_index == MOUSE_BUTTON_LEFT:
+		_finish_part_drag(button.position)
+
+func _lift_part_drag() -> void:
+	var chip: ComboChipView = combo_chips.get(part_drag_key)
+	if chip == null:
+		return
+	part_dragging = true
+	chip.set_socket_lifted(part_drag_slot)
+	part_drag_ghost = ComboPartBody.new()
+	part_drag_ghost.name = "PartGhost"
+	add_child(part_drag_ghost)
+	part_drag_ghost.setup(chip.socket_part(part_drag_slot))
+	part_drag_ghost.global_rotation = chip.global_rotation
+	part_drag_ghost.global_position = chip.socket_world(part_drag_slot) \
+		+ Vector3.UP * chip.socket_side()
+
+func _move_part_ghost(screen_pos: Vector2) -> void:
+	var chip: ComboChipView = combo_chips.get(part_drag_key)
+	if part_drag_ghost == null or chip == null:
+		return
+	var height := chip.socket_world(part_drag_slot).y + chip.socket_side()
+	var hit: Variant = _mouse_on_plane(screen_pos, height)
+	if hit != null:
+		part_drag_ghost.global_position = hit
+
+## Loslassen über einem Platz steckt um (belegt = Tausch); sonst - oder wenn
+## GameRun ablehnt (Erweiterungsplatine) - schnappt das Teil zurück.
+func _finish_part_drag(screen_pos: Vector2) -> void:
+	var from_key := part_drag_key
+	var from_slot := part_drag_slot
+	var moved := part_dragging
+	_drop_part_drag()
+	if not moved:
+		return
+	var pick := _part_pick_at(screen_pos)
+	if pick.is_empty() or int(pick["slot"]) < 0:
+		return
+	var to_key := String(pick["key"])
+	var to_slot := int(pick["slot"])
+	if run.move_part(from_key, from_slot, to_key, to_slot, not _dice_editing_locked()):
+		if combo_chips.has(to_key):
+			combo_chips[to_key].play_plug(to_slot)
+
+func _drop_part_drag() -> void:
+	if part_drag_key != "" and combo_chips.has(part_drag_key):
+		combo_chips[part_drag_key].set_socket_lifted(-1)
+	if part_drag_ghost != null and is_instance_valid(part_drag_ghost):
+		part_drag_ghost.queue_free()
+	part_drag_ghost = null
+	if part_drag_key != "" and camera_rig != null:
+		camera_rig.set_tilt_locked(_part_install_framed)
+	part_drag_key = ""
+	part_drag_slot = -1
+	part_dragging = false
+
+## Laden-Kauf: gebucht ist es; erst ist der Körper unten, dann fährt das Licht zu den Chips.
+func _on_shop_part_purchased(from_px: Vector2) -> void:
+	if table_screen == null or run == null or run.pending_parts.is_empty():
+		return
+	var launched := run
+	var tint: Color = run.pending_parts.back().tint()
+	await get_tree().create_timer(VitrineView.take_out_time()).timeout
+	if run != launched or table_screen == null:
+		return
+	table_screen.part_delivery_comet(from_px, tint)
+
+## Schwarzmarkt-Kauf: erst ist der Körper unten, dann fliegt das Licht.
+func _on_secret_part_purchased(part: ComboPart) -> void:
+	if table_screen == null or run == null or part == null:
+		return
+	var launched := run
+	var depart := _secret_depart_px
+	_secret_depart_px = Vector2(-1, -1)
+	if depart.x < 0.0:
+		var market := _secret_window()
+		depart = market.position + market.size * 0.5 if market != null \
+			else table_screen.cluster_rect.get_center()
+	await get_tree().create_timer(VitrineView.take_out_time()).timeout
+	if run != launched or table_screen == null:
+		return
+	table_screen.part_delivery_comet(depart, part.tint(), true)
 
 #endregion

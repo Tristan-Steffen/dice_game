@@ -17,6 +17,7 @@ const STEP_COMBO := "combo"
 const STEP_COMBO_FACTOR := "combo_factor"  # eine Doppelter-Boden-Kopie
 const STEP_FIRING := "firing"
 const STEP_CRIT := "crit"
+const STEP_PART := "part"  # ein Kombi-Bauteil; Krit-Bauteile sind STEP_CRIT mit part_slots
 const STEP_LINK := "link"
 const STEP_DET_LINK := "det_link"
 const STEP_CHARM := "charm"
@@ -80,9 +81,10 @@ func advance(cursor: Vector2i, delta: int) -> Vector2i:
 	return Vector2i(entry, step)
 
 ## Zerlegt einen (bereits auf echte Slots geremappten) Breakdown in die lineare
-## Schrittliste. Reihenfolge exakt wie _play_take_animation: Kombination, je
-## Würfel-Schritt die Gruppen der Würfel-Achse (Zündungen mit ihren Krits, dann
-## die Glieder), zuletzt die Essenz-Glieder; danach die statischen Charms, das
+## Schrittliste. Reihenfolge exakt wie _play_take_animation: Kombination, ihre
+## Bauteile, je Würfel-Schritt die Gruppen der Würfel-Achse (Zündungen mit ihren
+## Krits, dann die Glieder), zuletzt die Essenz-Glieder; danach die Krit-Bauteile,
+## die statischen Charms, das
 ## Verschmelzen, die Nach-Schritte und das gebuchte Ergebnis.
 static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Array[Dictionary]:
 	var steps: Array[Dictionary] = []
@@ -108,6 +110,15 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 		factor["charm_indices"] = _int_list(factor_step.get("charm_indices", []))
 		steps.append(factor)
 
+	var key := String(breakdown.get("key", ""))
+	for part_step: Dictionary in breakdown.get("part_steps", []):
+		var part_parts: Array[String] = [part_name(String(part_step.get("part_id", "")))]
+		_add_amounts(part_parts, int(part_step.get("base_add", 0)), float(part_step.get("mult_add", 0)))
+		var part := _step(STEP_PART, " · ".join(part_parts), int(part_step.get("base_after", 0)),
+			float(part_step.get("mult_after", 1.0)), overrides)
+		_mark_parts(part, key, [int(part_step.get("slot", -1))])
+		steps.append(part)
+
 	for die_step: Dictionary in breakdown.get("die_steps", []):
 		var slot := int(die_step.get("slot", -1))
 		for group: Dictionary in die_step.get("die_triggers", []):
@@ -117,6 +128,15 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 				_append_link(steps, link, slot, charm_ids, overrides, STEP_LINK)
 		for link: Dictionary in die_step.get("det_links", []):
 			_append_link(steps, link, slot, charm_ids, overrides, STEP_DET_LINK)
+
+	for crit_step: Dictionary in breakdown.get("part_crit_steps", []):
+		var crit_x := float(crit_step.get("crit_x", 1.0))
+		var part_crit := _step(STEP_CRIT, "%s %s" % [part_name(String(crit_step.get("part_id", ""))),
+				ScoreBreakdown.format_mult(crit_x)],
+			int(crit_step.get("base_after", 0)), float(crit_step.get("mult_after", 1.0)), overrides)
+		part_crit["crit_x"] = crit_x
+		_mark_parts(part_crit, key, [int(crit_step.get("slot", -1))])
+		steps.append(part_crit)
 
 	for charm_step: Dictionary in breakdown.get("charm_steps", []):
 		_append_charm(steps, charm_step, charm_ids, overrides)
@@ -140,6 +160,9 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 		post_step["charm_indices"] = _int_list(post.get("charm_indices", []))
 		steps.append(post_step)
 
+	for step: Dictionary in steps:
+		if not (step["part_slots"] as Array).is_empty():
+			step["part_key"] = key
 	var total := int(breakdown.get("total", 0))
 	var result := _step(STEP_RESULT, "Ergebnis: %d Punkte" % total, final_base, final_mult, overrides)
 	result["total_after"] = total
@@ -164,6 +187,7 @@ static func _append_firing(steps: Array[Dictionary], firing: Dictionary, slot: i
 	var step := _step(STEP_FIRING, " · ".join(parts),
 		int(firing.get("charm_base_after", firing.get("base_after", 0))),
 		float(firing.get("charm_mult_after", firing.get("mult_after", 1.0))), overrides)
+	step["part_slots"] = _int_list(firing.get("part_slots", []))
 	step["slot"] = slot
 	step["flash_slot"] = slot
 	step["value"] = value
@@ -246,6 +270,15 @@ static func _append_charm(steps: Array[Dictionary], charm_step: Dictionary,
 	step["spotlight"] = bool(charm_step.get("spotlight", false))
 	steps.append(step)
 
+## Die Steckplätze, die an einem Schritt blitzen.
+static func _mark_parts(step: Dictionary, key: String, slots: Array) -> void:
+	step["part_key"] = key
+	step["part_slots"] = _int_list(slots)
+
+static func part_name(id: String) -> String:
+	var part := ComboPart.make(id)
+	return part.display_name if part != null else "Bauteil"
+
 ## Grundgerüst jedes Schritts - die Überschreibungen reisen als Momentaufnahme mit.
 static func _step(kind: String, label: String, base_after: int, mult_after: float,
 		overrides: Dictionary) -> Dictionary:
@@ -263,6 +296,8 @@ static func _step(kind: String, label: String, base_after: int, mult_after: floa
 		"net": {},
 		"crit_x": 1.0,
 		"from_die": false,
+		"part_key": "",
+		"part_slots": no_charms.duplicate(),
 	}
 
 static func _add_amounts(parts: Array[String], base_add: int, mult_add: float) -> void:

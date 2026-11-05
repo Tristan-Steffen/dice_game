@@ -337,9 +337,8 @@ func flash_frame(color: Color) -> void:
 	_frame_tween.tween_property(_frame_style, "border_color", _frame_base_color, 0.5) \
 		.set_delay(0.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
-## Gold-Ladung des Hubs (Übertaktungs-Kauf): jeder ankommende Geld-Chip lädt
-## das Panel eine Stufe weiter golden auf; beim Abschuss in die Leiste entlädt
-## es sich RESTLOS (linear, ohne Nachglühen).
+## Gold-Ladung des Hubs (Rampenlicht-Lichtlauf): voll geladen entlädt sich das
+## Panel beim Abschuss in die Leiste RESTLOS (linear, ohne Nachglühen).
 const PULSE_BORDER := Color(3.2, 2.5, 0.8)       # voll geladen (starker HDR-Bloom)
 const PULSE_FILL := Color(0.82, 0.66, 0.18, 0.97)  # ganzes Panel kräftig golden
 

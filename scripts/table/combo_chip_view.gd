@@ -3,14 +3,13 @@ extends Node3D
 ## Eine Kombination als physischer 3D-Chip auf dem Display-Glas: das Modell
 ## (assets/models/chip.glb) steht über seiner Zelle, die nur noch als Sockel
 ## zeichnet (ComboCellView.socket_mode). Der Gehäusedeckel TRÄGT das Chip-
-## Display: Name, Basispunkte, ×Mult und die Übertaktungs-Stufe stehen als
-## Label3D flach auf einem Glasfeld - die Fläche, die die Kamera am besten
-## sieht. Der Chip leuchtet in EINEM Betriebston; die Stufe zeigt das LVL-Feld,
-## nicht die Farbe. Auch das Übertakten steht ganz auf diesem Deckel: der
-## Zeigerkontakt schaltet die Wertzeile grün auf die Werte nach dem Kauf und
-## blendet links der Stufe den ⚡-Preis ein.
+## Display: Name, Basispunkte und ×Mult stehen als Label3D flach auf einem
+## Glasfeld - die Fläche, die die Kamera am besten sieht. Der Chip leuchtet in
+## EINEM Betriebston; die Drossel zeigt rechts in der Namenszeile "AUS". Rechts
+## in der Wertzeile sitzen die STECKPLÄTZE: drei Buchsen, eingeformt in den Deckel
+## (chip_socketed.glb aus tools/blender_combo_hardware.py), gesteckt je ein Modul.
 
-const CHIP_SCENE := "res://assets/models/chip.glb"
+const CHIP_SCENE := "res://assets/models/chip_socketed.glb"
 
 ## Modell-Maße (mm-Einheiten des glb): X-Länge inkl. Pins, Z-Tiefe inkl.
 ## Display-Band (ragt vorn über), Gehäuse und Deckelhöhe.
@@ -64,21 +63,18 @@ const NAME_LINE_Y := 3.6
 const SCORE_LINE_Y := -3.4
 const NAME_HEIGHT := 4.6   # Zeilenhöhe (Modelleinheiten)
 const SCORE_HEIGHT := 5.4
-const LEVEL_HEIGHT := 3.8
+const STATE_HEIGHT := 3.8
 const TEXT_MARGIN := 3.4   # Abstand zur Gehäusekante (> SCREEN_INSET_X)
-const TEXT_GAP := 1.4      # Luft zwischen Punkten, ×Mult und Stufe
+const TEXT_GAP := 1.4      # Luft zwischen Punkten und ×Mult
 
-## Textfarben wie in der 2D-Zelle (ComboCellView); die Stufe erbt die Rahmen-
-## logik der Zelle: ab GOLD_LEVEL golden, sonst cyan.
+## Textfarben wie in der 2D-Zelle (ComboCellView).
 const NAME_COLOR := Color("#ff79c6")
 const POINTS_COLOR := Color("#00ffff")
 const MULT_COLOR := Color("#ffd319")
-const LEVEL_COLOR := Color("#8be9fd")
-const LEVEL_COLOR_GOLD := Color("#ffd319")
 ## Große Atlas-Schrift, klein skaliert = scharfe Kanten.
 const FONT_SIZE := 96
 
-## EIN Betriebston für jeden Chip, unabhängig von der Stufe. Er liegt über der
+## EIN Betriebston für jeden Chip. Er liegt über der
 ## Bloom-Schwelle (glow_hdr_threshold 0.95), damit ein Chip "in Betrieb"
 ## leuchtet und nicht wie ein Fleck aussieht.
 const BAND_COLOR := Color("#3f9bb5")
@@ -97,7 +93,7 @@ const HIGHLIGHT_BAND_ENERGY := 1.2
 const HIGHLIGHT_SCREEN_ENERGY := 0.12
 
 ## Thermal Throttling (Stresstest): der Chip ist abgeschaltet - das Band glimmt
-## nur noch als rote Warnleuchte, das Display zeigt "AUS" statt der Stufe.
+## nur noch als rote Warnleuchte, das Display zeigt "AUS".
 const THROTTLE_COLOR := Color("#ff5555")
 const THROTTLE_ENERGY := 0.45
 
@@ -113,22 +109,34 @@ const BAND_EMISSION_SHARE := 0.7
 ## Wie weit das Frontband unter die Deckelfläche rutscht (Modelleinheiten).
 const BAND_SEAT_DROP := 0.5
 
-## Übertakten: ALLES dazu steht auf dem Deckel selbst - kein Schild daneben und
-## kein Hover-Fenster. Der Zeigerkontakt schaltet die Wertzeile auf die Werte
-## NACH dem Kauf (grün: "steht noch nicht so da", dasselbe Grün wie am Würfel)
-## und blendet links der Stufe den ⚡-Preis ein. Getroffen wird über einen
-## eigenen Pick-Körper über dem ganzen Chip.
-const UPGRADE_PICK_LAYER := 128
-const PREVIEW_COLOR := DieFaceDisplay.PREVIEW_NUMBER_COLOR
-const COST_COLOR := CasinoStyle.ENERGY    # bezahlbar - dieselbe ⚡-Signalfarbe
-const COST_DIM := Color(0.42, 0.5, 0.56)  # zu wenig Energie
-## Eine gebankte Gratis-Stufe (GameRun.free_overclocks) ERSETZT den Preis, sie rechnet ihn
-## nicht auf null: "kostet nichts" und "wird nicht bezahlt" sind zwei Zustände.
-const FREE_TEXT := "GRATIS"
-const FREE_COLOR := LEVEL_COLOR_GOLD
+## Die eingeformten BUCHSEN: Mitten in Modelleinheiten (X entlang des Chips,
+## Z nach vorn), gespiegelt in tools/blender_combo_hardware.py - dort sind die
+## Löcher geschnitten. Eine Platine liegt quer dazu, die Reihe bleibt frei.
+const MOLDED_X: Array[float] = [4.5, 8.85, 13.2]
+const MOLDED_Z := 2.6
+## Luft zwischen Wertung und erster Buchse (Modelleinheiten X).
+const SOCKET_TEXT_GAP := 0.8
+## Ein Pick-Körper je Platz plus einer über dem Deckel (slot -1 = der Chip
+## selbst): EIN Treffer-Pfad für Hover, Einbau und Umstecken.
+const SOCKET_PICK_LAYER := 128
+const SOCKET_FLOOR := Color(0.012, 0.012, 0.022)
+const SOCKET_RIM_COLOR := Color(0.32, 0.36, 0.48)
+const SOCKET_RIM_ENERGY := 0.35
+const SOCKET_HOVER_COLOR := Color(1.0, 0.81, 0.07)
+const SOCKET_HOVER_ENERGY := 1.6
+## Der EINBAU: freie Plätze atmen in diesem Ton, tauschbare belegte schwächer.
+const SOCKET_BECKON_COLOR := Color(0.3, 1.0, 0.75)
+const SOCKET_BECKON_BASE := 0.9
+const SOCKET_BECKON_SWING := 0.8
+const SOCKET_BECKON_SPEED := 4.0
+const SOCKET_SWAP_SHARE := 0.4
+const PLUG_RISE := 1.4   # Steckhub beim Einbau, in Platz-Kanten
+const PLUG_TIME := 0.22
 
 ## Hervorhebung der gewürfelten Hand (0..1): hebt Glas und Band an.
 var glow := 0.0
+## Die Kombination dieses Chips (scene_root setzt sie; reist an den Pick-Körpern).
+var combo_key := ""
 
 var _sx := 1.0
 var _sz := 1.0
@@ -139,23 +147,23 @@ var _pins_material: StandardMaterial3D
 var _name_label: Label3D
 var _points_label: Label3D
 var _mult_label: Label3D
-var _level_label: Label3D
-var _cost_label: Label3D
+var _state_label: Label3D
 var _points := 0
 var _mult := 1
-var _level := -1
 var _spotlit := false
 var _spotlight_phase := 0.0
 var _throttled := false
-var _pick_body: StaticBody3D
-## Angebot der nächsten Stufe (nur beim Zeigerkontakt sichtbar).
-var _cost := 0
-var _cost_affordable := false
-## Eine gebankte Gratis-Stufe liegt bereit (GameRun.free_overclocks).
-var _free := false
-var _next_points := 0
-var _next_mult := 0
-var _hover := false
+var _socket_root: Node3D
+var _sockets: Array[Dictionary] = []  # je Platz {node, rim, body, part, dimmed}
+var _socket_signature := ""
+var _socket_frame := ""
+var _z_shift := 0.0
+var _hover_slot := -1
+var _lifted_slot := -1
+var _beckon_free := false
+var _beckon_occupied := false
+var _beckon_phase := 0.0
+var _chip_pick: StaticBody3D
 
 ## Pin-Positionen der Chips in Screen-Pixeln, relativ zur ZELLMITTE - einzige
 ## Quelle für alles, was an die Pins andockt (TableScreen verlegt daran die
@@ -181,13 +189,9 @@ func setup(length_world: float, depth_world: float) -> void:
 	inst.scale = Vector3(_sx, _sz, _sz)
 	# Modellmitte (das Band ragt vorn über) auf die Zellmitte rücken.
 	var z_shift := -(MODEL_Z_MAX + MODEL_Z_MIN) / 2.0 * _sz
+	_z_shift = z_shift
 	inst.position.z = z_shift
 	add_child(inst)
-
-	# Das Die-Fenster und der gedruckte Pin-1-Punkt entfallen: der Deckel ist
-	# jetzt Display-Fläche, beide lägen mitten darin.
-	_hide(inst, "Die")
-	_hide(inst, "PinOneDot")
 
 	# Das Frontband lehnt im Export GENAU auf Deckelhöhe an - seine obere Kante
 	# liegt dann fast koplanar zum Deckel und flimmert als gestrichelte Linie.
@@ -221,7 +225,7 @@ func setup(length_world: float, depth_world: float) -> void:
 	_override(inst, "Pins", _pins_material)
 
 	_build_screen(z_shift)
-	_build_upgrade_pick(z_shift)
+	_build_chip_pick(z_shift)
 	_apply_materials()
 
 ## Körnungs-Textur (Rauheits-Kanal): Simplex-Rauschen, kachelbar.
@@ -254,12 +258,13 @@ func _build_screen(z_shift: float) -> void:
 		(BODY_WIDTH - SCREEN_INSET_BACK - SCREEN_INSET_FRONT) * _sz)
 	var glass := MeshInstance3D.new()
 	glass.name = "ChipScreen"
-	glass.mesh = plane
+	glass.mesh = _holed_glass(plane.size, z_shift + back_shift)
 	glass.position = Vector3(0.0, top + 0.001, z_shift + back_shift)
 	_screen_material = StandardMaterial3D.new()
 	_screen_material.albedo_color = SCREEN_GLASS
 	_screen_material.roughness = 0.15
 	_screen_material.emission_enabled = true
+	_screen_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	glass.material_override = _screen_material
 	add_child(glass)
 
@@ -269,11 +274,52 @@ func _build_screen(z_shift: float) -> void:
 	# Label-+Z zeigt nach oben; Label-+Y läuft Richtung Gehäuse-Rückseite.
 	board.rotation.x = -PI / 2.0
 	add_child(board)
+	# Die Buchsen im Chip-Raum, ihr Mund auf der Deckelhöhe.
+	_socket_root = Node3D.new()
+	_socket_root.name = "Sockets"
+	_socket_root.position = Vector3(0.0, top, 0.0)
+	add_child(_socket_root)
 	_name_label = _make_label(board, NAME_COLOR)
 	_points_label = _make_label(board, POINTS_COLOR)
 	_mult_label = _make_label(board, MULT_COLOR)
-	_level_label = _make_label(board, LEVEL_COLOR)
-	_cost_label = _make_label(board, COST_COLOR)
+	_state_label = _make_label(board, THROTTLE_COLOR)
+
+## Das Glasfeld mit Aussparungen über den Buchsen: ein Raster aus Rechtecken, die
+## Felder über einem Mund (samt Lippe) fallen weg.
+func _holed_glass(size: Vector2, center_z: float) -> ArrayMesh:
+	var hole := ComboPartBody.OUTER + 0.024
+	var holes: Array[Rect2] = []
+	for i in MOLDED_X.size():
+		var spot := Vector2(MOLDED_X[i] * _sx, MOLDED_Z * _sz + _z_shift - center_z)
+		holes.append(Rect2(spot - Vector2.ONE * hole * 0.5, Vector2.ONE * hole))
+	var xs: Array[float] = [-size.x * 0.5, size.x * 0.5]
+	var zs: Array[float] = [-size.y * 0.5, size.y * 0.5]
+	for rect in holes:
+		for x in [rect.position.x, rect.end.x]:
+			if absf(x) < size.x * 0.5:
+				xs.append(x)
+		for z in [rect.position.y, rect.end.y]:
+			if absf(z) < size.y * 0.5:
+				zs.append(z)
+	xs.sort()
+	zs.sort()
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	tool.set_normal(Vector3.UP)
+	for i in xs.size() - 1:
+		for j in zs.size() - 1:
+			var cell := Rect2(Vector2(xs[i], zs[j]), Vector2(xs[i + 1] - xs[i], zs[j + 1] - zs[j]))
+			if cell.size.x <= 0.0001 or cell.size.y <= 0.0001:
+				continue
+			if holes.any(func(r: Rect2) -> bool: return r.has_point(cell.get_center())):
+				continue
+			var a := Vector3(cell.position.x, 0.0, cell.position.y)
+			var b := Vector3(cell.end.x, 0.0, cell.position.y)
+			var c := Vector3(cell.end.x, 0.0, cell.end.y)
+			var d := Vector3(cell.position.x, 0.0, cell.end.y)
+			for v in [a, b, c, a, c, d]:
+				tool.add_vertex(v)
+	return tool.commit()
 
 func _make_label(board: Node3D, color: Color) -> Label3D:
 	var label := Label3D.new()
@@ -285,61 +331,78 @@ func _make_label(board: Node3D, color: Color) -> Label3D:
 	board.add_child(label)
 	return label
 
-## Übernimmt Name/Wertung/Stufe der 2D-Zelle - die bleibt die einzige Quelle.
+## Übernimmt Name/Wertung der 2D-Zelle - die bleibt die einzige Quelle.
 func sync_cell(cell: ComboCellView) -> void:
 	if cell.combo_name == _name_label.text and cell.points == _points \
-			and cell.mult == _mult and cell.level == _level:
+			and cell.mult == _mult:
 		return
 	_name_label.text = cell.combo_name
 	_points = cell.points
 	_mult = cell.mult
-	_level = cell.level
 	_layout_labels()
 	_apply_materials()
 
-## Zeilenlayout auf dem Deckel: Name über die ganze Breite, darunter Punkte,
-## ×Mult und - ab Stufe 1 - die Stufenmarke "LVL n". Der Name schrumpft, wenn er
-## zu breit wird; die Zahlen behalten ihre Größe. Beim Zeigerkontakt zeigt die
-## Wertzeile grün die Werte NACH dem Kauf und links der Stufe steht der Preis.
+## Zeilenlayout auf dem Deckel: Name über die ganze Breite, darunter Punkte
+## und ×Mult, rechtsbündig die Drossel-Marke. Der Name schrumpft, wenn er zu
+## breit wird; die Zahlen behalten ihre Größe.
 func _layout_labels() -> void:
 	var half := (BODY_LENGTH / 2.0 - TEXT_MARGIN) * _sx
 	var gap := TEXT_GAP * _sx
 
-	_level_label.text = "AUS" if _throttled else ("LVL %d" % _level if _level >= 1 else "")
-	_level_label.modulate = THROTTLE_COLOR if _throttled \
-		else (LEVEL_COLOR_GOLD if _level >= ComboCellView.GOLD_LEVEL else LEVEL_COLOR)
-	_level_label.pixel_size = LEVEL_HEIGHT * _sz / float(FONT_SIZE)
-	_points_label.text = str(_next_points if _hover else _points)
-	_mult_label.text = "×%d" % (_next_mult if _hover else _mult)
-	_points_label.modulate = PREVIEW_COLOR if _hover else POINTS_COLOR
-	_mult_label.modulate = PREVIEW_COLOR if _hover else MULT_COLOR
+	_state_label.text = "AUS" if _throttled else ""
+	_state_label.pixel_size = STATE_HEIGHT * _sz / float(FONT_SIZE)
+	_points_label.text = str(_points)
+	_mult_label.text = "×%d" % _mult
 	_points_label.pixel_size = SCORE_HEIGHT * _sz / float(FONT_SIZE)
 	_mult_label.pixel_size = _points_label.pixel_size
-	_cost_label.text = upgrade_cost_text(_cost, _free) if _hover else ""
-	_cost_label.modulate = upgrade_cost_tint(_free, _cost_affordable)
-	_cost_label.pixel_size = _level_label.pixel_size
 
-	# Untere Zeile von links: Punkte, ×Mult; rechtsbündig Preis und Stufe.
 	var points_w := _text_width(_points_label)
 	var mult_w := _text_width(_mult_label)
-	var level_w := _text_width(_level_label)
-	var cost_w := _text_width(_cost_label)
+	# Die Wertung endet vor der ersten Buchse - sonst schrumpft sie.
+	var zone_left := (MOLDED_X[0] - SOCKET_TEXT_GAP) * _sx - ComboPartBody.OUTER * 0.5
+	var score_avail := minf(zone_left, half) + half - gap
+	if points_w + gap + mult_w > score_avail and points_w + mult_w > 0.0:
+		var shrink := maxf(score_avail - gap, 0.01) / (points_w + mult_w)
+		_points_label.pixel_size *= shrink
+		_mult_label.pixel_size *= shrink
+		points_w *= shrink
+		mult_w *= shrink
 	_points_label.position = Vector3(-half + points_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
 	_mult_label.position = Vector3(-half + points_w + gap + mult_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
-	_level_label.position = Vector3(half - level_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
-	# Der Preis rückt links an die Stufe; ohne Stufenmarke sitzt er an ihrem Platz.
-	var cost_right := half - level_w - (gap if level_w > 0.0 else 0.0)
-	_cost_label.position = Vector3(cost_right - cost_w / 2.0, SCORE_LINE_Y * _sz, 0.0)
+	# AUS steht rechts in der Namenszeile - die Wertzeile gehört den Steckplätzen.
+	var state_w := _text_width(_state_label)
+	_state_label.position = Vector3(half - state_w / 2.0, NAME_LINE_Y * _sz, 0.0)
 
 	# Name über die volle Deckelbreite, nur bei Überlänge kleiner.
 	var name_ps := NAME_HEIGHT * _sz / float(FONT_SIZE)
 	_name_label.pixel_size = name_ps
 	var name_w := _text_width(_name_label)
-	var avail := 2.0 * half
+	var avail := 2.0 * half - (state_w + gap if state_w > 0.0 else 0.0)
+	# Eine Platine, die in die Namenszeile ragt, begrenzt den Namen.
+	avail = minf(avail, _riser_name_limit() - gap + half)
 	if name_w > avail:
 		_name_label.pixel_size = name_ps * avail / name_w
 		name_w = avail
 	_name_label.position = Vector3(-half + name_w / 2.0, NAME_LINE_Y * _sz, 0.0)
+
+## Linkeste Kante (Chip-X) einer Platine, die in die Namenszeile reicht (INF = keine).
+func _riser_name_limit() -> float:
+	var back_shift := -(SCREEN_INSET_FRONT - SCREEN_INSET_BACK) / 2.0 * _sz
+	var name_front := _z_shift + back_shift - NAME_LINE_Y * _sz + NAME_HEIGHT * _sz * 0.5
+	var limit := INF
+	for entry in _sockets:
+		var body: ComboPartBody = entry["body"]
+		if body == null or not is_instance_valid(body) or not ComboPartBody.is_riser(body.part):
+			continue
+		var min_x := INF
+		var min_z := INF
+		for corner in ComboPartBody.riser_corners():
+			var at := to_local(body.global_transform * corner)
+			min_x = minf(min_x, at.x)
+			min_z = minf(min_z, at.z)
+		if min_z < name_front:
+			limit = minf(limit, min_x)
+	return limit
 
 func _text_width(label: Label3D) -> float:
 	if label.text.is_empty():
@@ -366,15 +429,22 @@ func set_spotlight(on: bool) -> void:
 		return
 	_spotlit = on
 	_spotlight_phase = 0.0
-	set_process(on)
+	_sync_process()
 	_apply_materials()
 
 func _process(delta: float) -> void:
-	_spotlight_phase += delta * SPOTLIGHT_SPEED
-	_apply_materials()
+	if _spotlit:
+		_spotlight_phase += delta * SPOTLIGHT_SPEED
+		_apply_materials()
+	if _beckon_free or _beckon_occupied:
+		_beckon_phase += delta * SOCKET_BECKON_SPEED
+		_apply_socket_rims()
 
-## Kauf-Licht angekommen: kurzes Aufglühen, dann zurück in den Ruheton.
-func play_upgrade_flash() -> void:
+func _sync_process() -> void:
+	set_process(_spotlit or _beckon_free or _beckon_occupied)
+
+## Licht angekommen: kurzes Aufglühen, dann zurück in den Ruheton.
+func play_arrival_flash() -> void:
 	var tween := create_tween()
 	tween.tween_method(set_glow, 1.5, 0.0, 1.2)
 
@@ -406,82 +476,313 @@ func _apply_materials() -> void:
 		_pins_material.emission = PIN_ALBEDO.lerp(HIGHLIGHT_COLOR, lit)
 		_pins_material.emission_energy_multiplier = PIN_EMISSION + HIGHLIGHT_PIN_ENERGY * glow
 
-# --- Übertakten: Trefferfläche und Angebot auf dem Deckel --------------------
-
-## Pick-Körper über dem ganzen Chip. Er startet stumpf: erst der
-## Kombinations-Zoom schaltet ihn scharf.
-func _build_upgrade_pick(z_shift: float) -> void:
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(BODY_LENGTH * _sx, BODY_TOP * _sz, BODY_WIDTH * _sz)
-	var collider := CollisionShape3D.new()
-	collider.shape = shape
-	_pick_body = StaticBody3D.new()
-	_pick_body.name = "UpgradePick"
-	_pick_body.collision_layer = 0  # erst set_upgrade_visible schaltet scharf
-	_pick_body.collision_mask = 0
-	_pick_body.position = Vector3(0.0, BODY_TOP * _sz / 2.0, z_shift)
-	_pick_body.add_child(collider)
-	add_child(_pick_body)
-
-## Schaltet die Trefferfläche scharf (Kombinations-Zoom an/aus).
-func set_upgrade_visible(on: bool) -> void:
-	if _pick_body == null:
-		return
-	_pick_body.collision_layer = UPGRADE_PICK_LAYER if on else 0
-	if not on:
-		set_upgrade_hover(false)
-
-## Was auf dem Preisplatz steht: eine gebankte Gratis-Stufe verdrängt die Zahl.
-static func upgrade_cost_text(cost: int, free: bool) -> String:
-	return FREE_TEXT if free else "⚡%d" % cost
-
-## Seine Farbe - die eine Bezahlbarkeits-Auskunft des Chips. Gratis ist immer
-## golden: es gibt nichts, was daran nicht reichen könnte.
-static func upgrade_cost_tint(free: bool, affordable: bool) -> Color:
-	if free:
-		return FREE_COLOR
-	return COST_COLOR if affordable else COST_DIM
-
-## Das Angebot der nächsten Stufe: Preis, ob die Bank ihn deckt, die Werte danach
-## und ob eine Gratis-Stufe gebankt liegt. Sichtbar wird davon nichts - erst der
-## Zeigerkontakt zeigt es.
-func set_upgrade_offer(cost: int, affordable: bool, next_points: int, next_mult: int,
-		free: bool = false) -> void:
-	var same_price := cost == _cost and affordable == _cost_affordable and free == _free
-	if same_price and next_points == _next_points and next_mult == _next_mult:
-		return
-	_cost = cost
-	_cost_affordable = affordable
-	_free = free
-	_next_points = next_points
-	_next_mult = next_mult
-	if _hover:
-		_layout_labels()
-
-## Zeigerkontakt: die Wertzeile springt auf die Werte nach dem Kauf, der Preis
-## erscheint. Die ganze Auskunft steht auf dem Deckel - daneben liegt nichts.
-func set_upgrade_hover(on: bool) -> void:
-	if _hover == on:
-		return
-	_hover = on
-	_layout_labels()
-
-## Der Pick-Körper des Chips - scene_root ordnet ihn seiner Kombination zu.
-func upgrade_pick_body() -> StaticBody3D:
-	return _pick_body
-
 ## Verschiebt eine Modellfläche in der Höhe (Modelleinheiten, unskaliert).
 func _nudge(inst: Node3D, node_name: String, dy: float) -> void:
 	var mesh := inst.find_child(node_name, true, false) as MeshInstance3D
 	if mesh != null:
 		mesh.position.y += dy
 
-func _hide(inst: Node3D, node_name: String) -> void:
-	var mesh := inst.find_child(node_name, true, false) as MeshInstance3D
-	if mesh != null:
-		mesh.visible = false
-
 func _override(inst: Node3D, node_name: String, material: StandardMaterial3D) -> void:
 	var mesh := inst.find_child(node_name, true, false) as MeshInstance3D
 	if mesh != null:
 		mesh.material_override = material
+
+# --- Die STECKPLÄTZE -----------------------------------------------------------
+
+## Der EINE Schreiber der Belegung: parts = je Platz ComboPart oder null (Länge =
+## Zahl der Plätze), dimmed = je Platz stillgelegt (Hitzestau). Gleiche Belegung
+## baut nichts neu; ändern sich die Platinen, wird der Baum neu gesteckt.
+func set_sockets(parts: Array, dimmed: Array = []) -> void:
+	var signature := ""
+	var frame := "%d" % parts.size()
+	for slot in parts.size():
+		var part: ComboPart = parts[slot]
+		var off := slot < dimmed.size() and bool(dimmed[slot])
+		signature += "%s:%d:%d;" % [part.id if part != null else "-",
+			part.get_instance_id() if part != null else 0, int(off)]
+		if ComboPartBody.is_riser(part):
+			frame += ";%d@%d" % [part.get_instance_id(), slot]
+	if signature == _socket_signature and _sockets.size() == parts.size():
+		return
+	_socket_signature = signature
+	if _socket_root == null:
+		return
+	if frame != _socket_frame or _sockets.size() != parts.size():
+		_socket_frame = frame
+		_build_sockets(parts)
+	for slot in parts.size():
+		_seat_part(slot, parts[slot], slot < dimmed.size() and bool(dimmed[slot]))
+	_apply_socket_rims()
+
+func socket_count() -> int:
+	return _sockets.size()
+
+func socket_part(slot: int) -> ComboPart:
+	if slot < 0 or slot >= _sockets.size():
+		return null
+	return _sockets[slot]["part"]
+
+func socket_dimmed(slot: int) -> bool:
+	if slot < 0 or slot >= _sockets.size():
+		return false
+	return bool(_sockets[slot]["dimmed"])
+
+## Der Platz, der diesen trägt (-1 = der Chip selbst).
+func socket_carrier(slot: int) -> int:
+	if slot < 0 or slot >= _sockets.size():
+		return -1
+	return int(_sockets[slot]["carrier"])
+
+## Weltmitte des MUNDES eines Platzes (Ziel des Geistes und des Hinweises).
+func socket_world(slot: int) -> Vector3:
+	if slot < 0 or slot >= _sockets.size():
+		return global_position
+	return (_sockets[slot]["node"] as Node3D).global_position
+
+## Kantenlänge eines Bauteils in Welt - überall dieselbe.
+func socket_side() -> float:
+	return ComboPartBody.SIDE
+
+## Der Zeiger liegt auf diesem Platz (-1 = keinem): sein Mund geht ins Gold.
+func set_socket_hover(slot: int) -> void:
+	if slot == _hover_slot:
+		return
+	_hover_slot = slot
+	_apply_socket_rims()
+
+## Der EINBAU ruft: freie Plätze atmen, tauschbare belegte schwächer mit.
+func set_socket_beckon(free_on: bool, occupied_on: bool) -> void:
+	if free_on == _beckon_free and occupied_on == _beckon_occupied:
+		return
+	_beckon_free = free_on
+	_beckon_occupied = occupied_on
+	_sync_process()
+	_apply_socket_rims()
+
+func socket_beckons(slot: int) -> bool:
+	if slot < 0 or slot >= _sockets.size():
+		return false
+	return _beckon_free if _sockets[slot]["part"] == null else _beckon_occupied
+
+## Umstecken: das gezogene Teil ist in der Hand, sein Platz zeigt leer (eine
+## Platine nimmt ihre Fracht mit).
+func set_socket_lifted(slot: int) -> void:
+	if slot == _lifted_slot:
+		return
+	_lifted_slot = slot
+	for i in _sockets.size():
+		var body: ComboPartBody = _sockets[i]["body"]
+		if body != null and is_instance_valid(body):
+			body.visible = i != _lifted_slot
+
+func socket_lifted() -> int:
+	return _lifted_slot
+
+## Der Einbau: das Teil steckt schon (Endzustand), es fährt nur von oben in seine Buchse.
+func play_plug(slot: int) -> void:
+	if slot < 0 or slot >= _sockets.size():
+		return
+	var body: ComboPartBody = _sockets[slot]["body"]
+	if body == null or not is_instance_valid(body):
+		return
+	body.position = _part_rest() + Vector3.UP * ComboPartBody.SIDE * PLUG_RISE
+	var tween := body.create_tween()
+	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(body, "position", _part_rest(), PLUG_TIME)
+
+## Ein Teil feuert in der Wertung: sein Körper blitzt, sein Mund mit.
+## strength > 1 ist der Krit-Schlag. Leerer oder fremder Platz = nichts.
+func flash_socket(slot: int, strength := 1.0) -> void:
+	if slot < 0 or slot >= _sockets.size():
+		return
+	var body: ComboPartBody = _sockets[slot]["body"]
+	if body != null and is_instance_valid(body):
+		body.flash(strength)
+	var tween := create_tween()
+	tween.tween_method(func(v: float) -> void:
+		if slot < _sockets.size():
+			_sockets[slot]["flash"] = v
+			_apply_socket_rims(),
+		strength, 0.0, ComboPartBody.FLASH_TIME * maxf(strength, 1.0))
+
+func socket_flash(slot: int) -> float:
+	if slot < 0 or slot >= _sockets.size():
+		return 0.0
+	return float(_sockets[slot].get("flash", 0.0))
+
+## Wer getroffen ist: {key, slot} aus dem Pick-Körper ({} = kein Chip-Körper).
+static func pick_of(collider: Object) -> Dictionary:
+	if collider == null or not collider.has_meta("combo_key"):
+		return {}
+	return {"key": String(collider.get_meta("combo_key")),
+		"slot": int(collider.get_meta("socket_slot", -1))}
+
+func _build_chip_pick(z_shift: float) -> void:
+	_chip_pick = StaticBody3D.new()
+	_chip_pick.name = "ChipPick"
+	_chip_pick.collision_layer = SOCKET_PICK_LAYER
+	_chip_pick.collision_mask = 0
+	_chip_pick.set_meta("combo_key", combo_key)
+	_chip_pick.set_meta("socket_slot", -1)
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(BODY_LENGTH * _sx, BODY_TOP * _sz, BODY_WIDTH * _sz)
+	shape.shape = box
+	shape.position = Vector3(0.0, BODY_TOP * _sz * 0.5, z_shift)
+	_chip_pick.add_child(shape)
+	add_child(_chip_pick)
+
+## Wo ein gestecktes Teil ruht: sein Gehäuse sitzt WELL tief in der Buchse.
+func _part_rest() -> Vector3:
+	return Vector3.DOWN * ComboPartBody.WELL
+
+## Die eingeformten Buchsen im Chip-Raum (Mitte des Mundes auf der Deckelhöhe 0).
+func _molded_spot(index: int) -> Vector3:
+	return Vector3(MOLDED_X[index] * _sx, 0.0, MOLDED_Z * _sz + _z_shift)
+
+## Den Baum neu stecken: die drei Grundplätze stehen eingeformt im Deckel, jede
+## Platine trägt ihr Paar oben (ComboPartEffects.socket_parents ordnet die
+## Zusatzplätze zu). Eine Platine auf einer Platine liegt quer zu ihrer Trägerin.
+func _build_sockets(parts: Array) -> void:
+	for entry in _sockets:
+		var node := entry["node"] as Node3D
+		if is_instance_valid(node) and node.get_parent() == _socket_root:
+			_socket_root.remove_child(node)
+			node.queue_free()
+	_sockets.clear()
+	_hover_slot = -1
+	_lifted_slot = -1
+	var parents := ComboPartEffects.socket_parents(parts, GameRun.SOCKETS_PER_COMBO)
+	var tops: Dictionary = {}  # Platinen-Platz -> Zahl der schon vergebenen Buchsen
+	for slot in parts.size():
+		var carrier := parents[slot]
+		var host: Node3D = _socket_root
+		var spot := _molded_spot(mini(slot, MOLDED_X.size() - 1))
+		var tier := 0
+		if carrier >= 0 and carrier < _sockets.size() and _sockets[carrier]["body"] != null:
+			host = _sockets[carrier]["body"]
+			var used: int = tops.get(carrier, 0)
+			tops[carrier] = used + 1
+			spot = ComboPartBody.riser_sockets()[mini(used, 1)]
+			tier = int(_sockets[carrier]["tier"]) + 1
+		elif carrier != ComboPartEffects.CHIP_SOCKET:
+			spot += Vector3.UP * ComboPartBody.RISER_TOP  # Rückfall: nie erreichbar
+		var node := Node3D.new()
+		node.name = "Socket_%d" % slot
+		node.position = spot
+		host.add_child(node)
+		var mouth := _build_socket_shell(node)
+		_build_socket_pick(node, slot, Vector3(ComboPartBody.MOUTH, 0.3, ComboPartBody.MOUTH),
+			Vector3.UP * 0.03)
+		var entry := {"node": node, "rim": mouth, "body": null, "part": null,
+			"dimmed": false, "carrier": carrier, "tier": tier}
+		_sockets.append(entry)
+		var part: ComboPart = parts[slot]
+		if ComboPartBody.is_riser(part):
+			_spawn_body(slot, part)
+	if _chip_pick != null:
+		_chip_pick.set_meta("combo_key", combo_key)
+	_layout_labels()
+
+## Die BUCHSE (part_socket.glb): Wanne und Kontakte stumm, der MUND trägt die Zustände.
+func _build_socket_shell(node: Node3D) -> StandardMaterial3D:
+	var shell := ComboPartBody._scene(ComboPartBody.SOCKET_SCENE).instantiate() as Node3D
+	shell.name = "Buchse"
+	node.add_child(shell)
+	var well := shell.find_child("Wanne", true, false) as MeshInstance3D
+	if well != null:
+		var dark := StandardMaterial3D.new()
+		dark.albedo_color = SOCKET_FLOOR
+		dark.roughness = 0.8
+		well.material_override = dark
+	var contacts := shell.find_child("Kontakte", true, false) as MeshInstance3D
+	if contacts != null:
+		var gold := StandardMaterial3D.new()
+		gold.albedo_color = ComboPartBody.GOLD_ALBEDO
+		gold.metallic = 0.7
+		gold.roughness = 0.35
+		gold.emission_enabled = true
+		gold.emission = ComboPartBody.GOLD_ALBEDO
+		gold.emission_energy_multiplier = ComboPartBody.GOLD_EMISSION
+		contacts.material_override = gold
+	var mouth := StandardMaterial3D.new()
+	mouth.albedo_color = SOCKET_RIM_COLOR.darkened(0.5)
+	mouth.emission_enabled = true
+	var lip := shell.find_child("Mund", true, false) as MeshInstance3D
+	if lip != null:
+		lip.material_override = mouth
+	return mouth
+
+func _build_socket_pick(node: Node3D, slot: int, size: Vector3, at: Vector3) -> void:
+	var pick := StaticBody3D.new()
+	pick.collision_layer = SOCKET_PICK_LAYER
+	pick.collision_mask = 0
+	pick.set_meta("combo_key", combo_key)
+	pick.set_meta("socket_slot", slot)
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	shape.position = at
+	pick.add_child(shape)
+	node.add_child(pick)
+
+func _spawn_body(slot: int, part: ComboPart) -> ComboPartBody:
+	var entry := _sockets[slot]
+	var body := ComboPartBody.new()
+	body.name = "Part"
+	(entry["node"] as Node3D).add_child(body)
+	body.setup(part)
+	body.position = _part_rest()
+	# Quer liegend rückt die Platine zur Chip-Mitte hin, damit sie im Chip bleibt.
+	if int(entry["tier"]) % 2 == 1:
+		var toward := -1.0 if to_local((entry["node"] as Node3D).global_position).x > 0.0 else 1.0
+		body.rotation.y = PI * 0.5 * toward
+	body.visible = slot != _lifted_slot
+	if ComboPartBody.is_riser(part):
+		# Die Platine selbst bleibt greifbar: ein Pick über ihrer Platte, unter den Buchsen.
+		_build_socket_pick(body, slot,
+			Vector3(ComboPartBody.RISER_DEPTH, ComboPartBody.RISER_THICK, ComboPartBody.RISER_WIDTH),
+			Vector3(0.0, ComboPartBody.HEIGHT + ComboPartBody.RISER_THICK * 0.5,
+				ComboPartBody.RISER_SHIFT))
+	entry["body"] = body
+	entry["part"] = part
+	return body
+
+func _seat_part(slot: int, part: ComboPart, off: bool) -> void:
+	var entry := _sockets[slot]
+	var body: ComboPartBody = entry["body"]
+	if body != null and (not is_instance_valid(body) or body.part != part):
+		if is_instance_valid(body):
+			body.queue_free()
+		body = null
+		entry["body"] = null
+	if body == null and part != null:
+		body = _spawn_body(slot, part)
+	if body != null:
+		body.set_dimmed(off)
+	entry["part"] = part
+	entry["dimmed"] = off
+
+func _apply_socket_rims() -> void:
+	var pulse := 0.5 + 0.5 * sin(_beckon_phase)
+	for slot in _sockets.size():
+		var material: StandardMaterial3D = _sockets[slot]["rim"]
+		var color := SOCKET_RIM_COLOR
+		var energy := SOCKET_RIM_ENERGY
+		if socket_beckons(slot):
+			color = SOCKET_BECKON_COLOR
+			energy = SOCKET_BECKON_BASE + SOCKET_BECKON_SWING * pulse
+			if _sockets[slot]["part"] != null:
+				energy *= SOCKET_SWAP_SHARE
+		if slot == _hover_slot:
+			color = SOCKET_HOVER_COLOR
+			energy = SOCKET_HOVER_ENERGY
+		var lit := float(_sockets[slot].get("flash", 0.0))
+		if lit > 0.0:
+			var part: ComboPart = _sockets[slot]["part"]
+			color = color.lerp(part.tint() if part != null else SOCKET_HOVER_COLOR, minf(lit, 1.0))
+			energy += SOCKET_HOVER_ENERGY * lit
+		material.albedo_color = color.darkened(0.5)
+		material.emission = color
+		material.emission_energy_multiplier = energy

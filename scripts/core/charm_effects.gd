@@ -361,8 +361,8 @@ static func cascade_mult(value: int, last: int, charm_ids: Array[String]) -> int
 
 ## Dreifacher Boden: die BASISPUNKTE der Kombination zählen dreifach (je
 ## Vorkommen erneut) - ihr Mult bleibt unberührt, ebenso Augen, Materialien und
-## Charms. points_for/mult_for selbst auch: Chips und Übertaktungspreise drucken
-## weiter die reine Stufe.
+## Charms. points_for/mult_for selbst auch: die Chips drucken weiter den
+## reinen Grundwert.
 static func combo_factor(charm_ids: Array[String]) -> int:
 	var factor := 1
 	for i in charm_ids.count(Charm.DOUBLE_BOTTOM):
@@ -743,8 +743,8 @@ static func has_spotlight(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.SPOTLIGHT)
 
 ## Löst das Rampenlicht der Position j bei DIESER Hand aus? Es wertet nicht -
-## es bekommt trotzdem seinen Schritt in der Zähl-Animation, damit die Stufe
-## an seiner Dock-Position steigt und nicht erst nach dem Zählen.
+## es bekommt trotzdem seinen Schritt in der Zähl-Animation, damit sein Geschenk
+## an seiner Dock-Position kommt und nicht erst nach dem Zählen.
 static func spotlight_fires_at(j: int, key: String, charm_ids: Array[String], ctx: Dictionary = {}) -> bool:
 	return charm_ids[j] == Charm.SPOTLIGHT and key != "" and key == String(ctx.get(CTX_SPOTLIGHT, ""))
 
@@ -816,10 +816,15 @@ const CONSOLATION_ENERGY := 1
 static func fumble_energy(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.CONSOLATION_PRIZE) * CONSOLATION_ENERGY
 
-## Supraleiter: Nachlass auf den Übertaktungs-Preis (je Vorkommen 1 ⚡); der
-## Aufrufer klemmt bei 1 - gratis übertaktet niemand.
-static func overclock_discount(charm_ids: Array[String]) -> int:
-	return charm_ids.count(Charm.SUPERCONDUCTOR)
+## Supraleiter: Bauteile kosten je Vorkommen 25 % weniger - in $ wie in ⚡,
+## abgerundet und nie unter 1.
+const SUPERCONDUCTOR_PART_FACTOR := 0.75
+
+static func part_price(base_price: int, charm_ids: Array[String]) -> int:
+	if base_price <= 0:
+		return base_price
+	var factor := pow(SUPERCONDUCTOR_PART_FACTOR, charm_ids.count(Charm.SUPERCONDUCTOR))
+	return maxi(1, floori(float(base_price) * factor + 0.0001))
 
 ## Hehlerware: Nachlass auf ein Schwarzmarkt-ANGEBOT (je Vorkommen 1 ⚡). Der
 ## Neuwurf bleibt flach - er ist keine Ware.

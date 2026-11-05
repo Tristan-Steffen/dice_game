@@ -1,7 +1,7 @@
 class_name Lexikon
 extends RefCounted
 ## Das Nachschlagewerk des Tisches: je Begriff ein Eintrag, dazu einer je Charm,
-## Essenz, Material, Rune, Gravur und Klausel (aus den data/-Katalogen erzeugt).
+## Essenz, Material, Rune, Gravur, Klausel und Bauteil (aus den data/-Katalogen erzeugt).
 ## Die Quelltexte in data/ bleiben unmarkiert - linkify() macht bekannte
 ## Wortformen erst beim Rendern zu BBCode-Verweisen. Wohnt in ui/, nicht data/:
 ## der Verweis trägt CasinoStyle.LEXIKON_LINK, und ui/ darf aus data/ lesen.
@@ -14,8 +14,9 @@ const CAT_MATERIALIEN := "Materialien"
 const CAT_RUNEN := "Runen"
 const CAT_GRAVUREN := "Gravuren"
 const CAT_KLAUSELN := "Klauseln"
+const CAT_BAUTEILE := "Bauteile"
 const CATEGORIES: Array[String] = [CAT_BEGRIFFE, CAT_CHARMS, CAT_ESSENZEN,
-	CAT_MATERIALIEN, CAT_RUNEN, CAT_GRAVUREN, CAT_KLAUSELN]
+	CAT_MATERIALIEN, CAT_RUNEN, CAT_GRAVUREN, CAT_KLAUSELN, CAT_BAUTEILE]
 
 # --- Konzept-ids (Konvention: Konzepte prefixlos, Items "typ:id") ---
 const KRIT := "krit"
@@ -44,13 +45,13 @@ const PRAEGENETZ := "praegenetz"
 const SERIE := "serie"
 const VERDICHTUNG := "verdichtung"
 const SCHWARZMARKT := "schwarzmarkt"
-const UEBERTAKTEN := "uebertakten"
+const STECKPLATZ := "steckplatz"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	QUOTA, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, UEBERTAKTEN]
+	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -78,7 +79,7 @@ const EXTRA_SURFACES := {
 	"Prägenetz": PRAEGENETZ, "Prägenetze": PRAEGENETZ, "Prägenetzes": PRAEGENETZ,
 	"Serien": SERIE, "Serienschaltung": SERIE, "Serienlänge": SERIE,
 	"Operator": SERIE, "Operatoren": SERIE, "Multiplikator-Netz": SERIE,
-	"übertakten": UEBERTAKTEN, "Übertaktung": UEBERTAKTEN, "Übertaktungen": UEBERTAKTEN,
+	"Steckplätze": STECKPLATZ, "Bauteil": STECKPLATZ, "Bauteile": STECKPLATZ,
 	# Längste Form gewinnt: der Voll-Kompositum schlägt das nackte "Krit(s)".
 	"Tscherenkow-Krit": "essence:cherenkov", "Tscherenkow-Krits": "essence:cherenkov",
 }
@@ -89,6 +90,15 @@ const CHARM_RARITY_NAMES := {
 	Charm.RARITY_UNCOMMON: "ungewöhnlich",
 	Charm.RARITY_RARE: "selten",
 	Charm.RARITY_LEGENDARY: "legendär",
+}
+
+## Wirk-Phase eines Bauteils als Spielerwort.
+const PART_PHASE_NAMES := {
+	ComboPart.PHASE_COMBO: "Kombination",
+	ComboPart.PHASE_DIE: "Würfel",
+	ComboPart.PHASE_CRIT: "Krit",
+	ComboPart.PHASE_ECONOMY: "Geld",
+	ComboPart.PHASE_NONE: "keine",
 }
 
 static var _entries := {}    # id -> {id, title, body, category}
@@ -184,7 +194,7 @@ static func _build_concepts() -> void:
 		"Die linke Hälfte der Wertung: Punkte = Basispunkte × Mult. Die Kombination legt ihre Basis, jeder gezählte Würfel wirft seine Augen darauf, und Materialien wie Bernstein legen nach.",
 		CAT_BEGRIFFE)
 	_add(ENERGIE, "Energie",
-		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert in der Kondensatorbank. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie fürs Übertakten, für die Presse und im Schwarzmarkt.",
+		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert in der Kondensatorbank. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie an den Automaten und im Schwarzmarkt.",
 		CAT_BEGRIFFE)
 	_add(LADUNG, "Ladung",
 		"Jeder Würfel trägt eine Ladung von 0 bis 3 (Glimmen, Kriechstrom, Überschlag), und jede Ladung ist +1 Mult für seine Hand. Jede Auslösung eines gewerteten Würfels würfelt auf +1; wer mit Überschlag in eine Hand geht, würfelt statt dessen aufs Durchbrennen. Ein durchgebrannter Würfel zählt weiter für die Kombination, liefert aber keine Augen und feuert nichts - erst die goldene Generalüberholung aus dem Schwarzmarkt holt ihn beim Prägen in der Werkstatt zurück; Kühlrippe und Kältebad senken die Ladung nach dem Prägen, durchgebrannte Würfel retten sie nicht. Wer eine Runde lang nicht gewertet hat, verliert eine Stufe.",
@@ -214,7 +224,7 @@ static func _build_concepts() -> void:
 		"Ein Glücksbringer am Dock des Tisches, höchstens sechs zugleich. Würfelgebundene Charms feuern mit ihrem Würfel, statische nach allen Würfeln in Dock-Reihenfolge - die Reihenfolge ist spielentscheidend. Gekauft im Laden, verkauft am Dock.",
 		CAT_BEGRIFFE)
 	_add(KOMBINATION, "Kombination",
-		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und lässt sich dort mit Energie übertakten.",
+		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und trägt drei Steckplätze für Bauteile.",
 		CAT_BEGRIFFE)
 	_add(QUOTA, "Quota",
 		"Das Rundenziel: die Punktzahl, die die Runde besteht. Die Quota wächst von Runde zu Runde, und jede sechste Runde endet im Stresstest. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
@@ -252,8 +262,8 @@ static func _build_concepts() -> void:
 	_add(SCHWARZMARKT, "Schwarzmarkt",
 		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",
 		CAT_BEGRIFFE)
-	_add(UEBERTAKTEN, "Übertakten",
-		"Der Ausbau einer Kombination direkt an ihrem Chip: die nächste Stufe kostet Energie (1 + Stufe, höchstens 5 ⚡) und hebt Basispunkte und Mult. Es gibt kein Stufen-Limit - die Kondensatorbank ist die einzige Bremse.",
+	_add(STECKPLATZ, "Steckplatz",
+		"Jeder Kombinations-Chip hat drei Steckplätze für Bauteile - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Teile gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",
 		CAT_BEGRIFFE)
 
 ## Item-Einträge aus den data/-Katalogen. Spiegel-Gravuren (Material/Rune/
@@ -295,6 +305,16 @@ static func _build_items() -> void:
 		_add("clause:%s" % clause.id, clause.display_name,
 			"%s\n%s eines Vertrags mit dem Haus." % [DealClause.text_for(clause.id, 1), kind],
 			CAT_KLAUSELN)
+	for part in ComboPart.all():
+		_add("part:%s" % part.id, part.display_name, part_body(part), CAT_BAUTEILE)
+
+## Wirkung, Phase, Seltenheit und Bezugsquelle eines Bauteils.
+static func part_body(part: ComboPart) -> String:
+	var where := "Schwarzmarkt (⚡)" if part.secret else "Laden"
+	if part.id == ComboPart.RESISTOR:
+		where += ", Rampenlicht"
+	return "%s\nPhase: %s · Seltenheit: %s\nErhältlich: %s." % [part.description,
+		PART_PHASE_NAMES.get(part.phase, part.phase), part.rarity_name(), where]
 
 ## Titel + Zusatzformen -> ids. Bei Namenskollision (z. B. Rampenlicht als Charm
 ## UND Klausel) gewinnt der zuerst Eingetragene - Konzepte vor Items, Items in

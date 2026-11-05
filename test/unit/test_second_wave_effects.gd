@@ -36,35 +36,35 @@ func _die(faces: Array, face_material := "", essence_id := "") -> DieDefinition:
 	def.essence_id = essence_id
 	return def
 
-# --- Acetylen & Schneidbrenner: beide an der Übertaktungs-Stufe ------------------
+# --- Acetylen & Schneidbrenner: beide je Bauteil der Kombination -----------------
 
-func test_acetylene_pays_per_combo_level():
-	assert_eq(EssenceEffects.combo_level_base_of(_ids([Essence.ACETYLENE]), 3),
-		3 * EssenceEffects.ACETYLENE_PER_LEVEL)
-	assert_eq(EssenceEffects.combo_level_base_of(_ids([Essence.ACETYLENE]), 0), 0,
-		"eine frische Kombination hat keine Stufe")
-	assert_eq(EssenceEffects.combo_level_base_of(_ids([Essence.NEON]), 3), 0)
+func test_acetylene_pays_per_combo_part():
+	assert_eq(EssenceEffects.combo_part_base_of(_ids([Essence.ACETYLENE]), 3),
+		3 * EssenceEffects.ACETYLENE_PER_PART)
+	assert_eq(EssenceEffects.combo_part_base_of(_ids([Essence.ACETYLENE]), 0), 0,
+		"ein leerer Chip gibt nichts")
+	assert_eq(EssenceEffects.combo_part_base_of(_ids([Essence.NEON]), 3), 0)
 
-func test_the_cutting_torch_puts_mult_on_the_same_level():
+func test_the_cutting_torch_puts_mult_on_the_same_parts():
 	var soul := _ids([Essence.ACETYLENE])
-	assert_eq(EssenceEffects.combo_level_mult_of(soul, 3), 0, "ohne Brenner kein Mult")
-	assert_eq(EssenceEffects.combo_level_mult_of(soul, 3, _ids([Charm.CUTTING_TORCH])),
-		3 * EssenceEffects.CUTTING_TORCH_PER_LEVEL)
-	assert_eq(EssenceEffects.combo_level_mult_of(_ids([Essence.NEON]), 3, _ids([Charm.CUTTING_TORCH])), 0,
+	assert_eq(EssenceEffects.combo_part_mult_of(soul, 3), 0, "ohne Brenner kein Mult")
+	assert_eq(EssenceEffects.combo_part_mult_of(soul, 3, _ids([Charm.CUTTING_TORCH])),
+		3 * EssenceEffects.CUTTING_TORCH_PER_PART)
+	assert_eq(EssenceEffects.combo_part_mult_of(_ids([Essence.NEON]), 3, _ids([Charm.CUTTING_TORCH])), 0,
 		"der Brenner gehört dem Acetylen allein")
 
 func test_acetylene_and_the_torch_land_in_the_score():
-	var levels := {DiceScoring.TWO_KIND: 2}
+	var parts := {DiceScoring.TWO_KIND: [ComboPart.resistor(), ComboPart.resistor()]}
 	var soul := {DiceScoring.CTX_ESSENCES: {0: Essence.ACETYLENE}}
-	# Paar mit zwei Stufen: 10 + 2×10 Punkte, 2 + 2×2 Mult, dazu 10 Augen.
+	# Paar mit zwei Widerständen: 10 + 2×15 Punkte, Mult 2, dazu 10 Augen.
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m(["", ""]), levels, {}), (30 + 10) * 6)
+		_m(["", ""]), parts, {}), (40 + 10) * 2)
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m(["", ""]), levels, soul), (30 + 10 + 20) * 6, "+10 Basis je Stufe")
+		_m(["", ""]), parts, soul), (40 + 10 + 20) * 2, "+10 Basis je Bauteil")
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), _ids([Charm.CUTTING_TORCH]),
-		false, _m(["", ""]), levels, soul), (30 + 10 + 20) * (6 + 6), "+3 Mult je Stufe obendrauf")
+		false, _m(["", ""]), parts, soul), (40 + 10 + 20) * (2 + 6), "+3 Mult je Bauteil obendrauf")
 
-func test_acetylene_stays_dark_without_an_upgrade():
+func test_acetylene_stays_dark_without_parts():
 	var soul := {DiceScoring.CTX_ESSENCES: {0: Essence.ACETYLENE}}
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
 		_m(["", ""]), {}, soul), (10 + 10) * 2)

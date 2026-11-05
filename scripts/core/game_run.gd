@@ -7,7 +7,10 @@ extends RefCounted
 signal money_changed(money: int)
 signal charms_changed
 signal packs_changed
-signal combo_upgraded(combo_key: String, new_level: int)
+## Die Steckplätze einer Kombination haben sich geändert (Einbau, Umstecken,
+## Stilllegung). Kopplung liest den Nachbarn - Anzeigen frischen darum alle auf.
+signal combo_parts_changed(combo_key: String)
+signal pending_parts_changed
 signal side_bets_changed
 signal deals_changed
 ## Ein Pool-Würfel hat seinen Inhalt geändert (Kauf, Paket, Gravur, Nehmen-
@@ -32,7 +35,7 @@ const BASE_GOAL := 150
 ## Zuwachs je Runde im ERSTEN Block; er verdoppelt sich mit jedem weiteren.
 const GOAL_INCREMENT := 75
 ## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen. Die
-## Wertung wächst multiplikativ (Übertaktung, Gravuren, Charms) - ein konstanter
+## Wertung wächst multiplikativ (Bauteile, Gravuren, Charms) - ein konstanter
 ## Zuwachs würde daher von Block zu Block leichter.
 const GOAL_BLOCK := 6
 
@@ -102,8 +105,10 @@ const TIER_MAX := 10
 
 ## Feste Shop-Platzzahlen (Spieler-Entscheid 2026-10-25): drei Regale zu je drei
 ## Plätzen, jede Runde gleich. Mit der Stufe wächst nur die Qualität.
+## Das Würfel-Regal trägt zwei Würfel und als dritten Platz ein Bauteil (Spec Seite 35).
 const SHOP_CHARM_SLOTS := 3
-const SHOP_DICE_SLOTS := 3
+const SHOP_PART_SLOTS := 1
+const SHOP_DICE_SLOTS := 2
 const SHOP_PACK_SLOTS := 3
 
 ## Ab dieser Fortschrittsstufe führt auch das normale Regal Sonderposten - vorher
@@ -167,13 +172,14 @@ var pack_serial: int = 0
 var pending_dice: Array[DieDefinition] = []
 ## Platzierte Nebenwetten der kommenden Runde; am Rundenende geprüft und geleert.
 var active_side_bets: Array[SideBet] = []
-## Übertaktungs-Stufen je Kombination (Key -> Stufe); jede Stufe addiert die
-## autorierten Schritte der Kategorie (siehe DiceScoring.CATEGORIES).
-var combo_levels: Dictionary = {}
-## Gebankte Gratis-Übertaktungen: overclock_combo greift sie ab, BEVOR es Energie
-## abbucht. Die Presse speist sie nicht mehr - der Vorrat wartet auf seine nächste
-## Quelle.
-var free_overclocks: int = 0
+## Steckplätze je Kombination (Key -> Array aus ComboPart oder null, Länge =
+## socket_count). Gelesen wird über parts_of, geschrieben nur hier.
+var combo_parts: Dictionary = {}
+## Gekaufte oder gewonnene Bauteile, die noch ihren Steckplatz suchen (wie
+## pending_dice: die Strecke bis zur Wahl, kein Lager).
+var pending_parts: Array[ComboPart] = []
+## Hitzestau: die für DIESE Runde stillgelegten Teile (Instanz-id -> true).
+var heat_disabled_parts: Dictionary = {}
 
 ## Prämie der Nebenwette Kettenreaktion: die NÄCHSTE Serie bekommt einen Slot
 ## mehr. Sie wird von apply_series verbraucht - ein Einmal-Schub.
@@ -183,7 +189,7 @@ var farkle_count: int = 0  # Zerbrochener Spiegel
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 ## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
-## sie schon kassiert wurde - je Runde steigt höchstens EINE Stufe.
+## sie schon kassiert wurde - je Runde höchstens EIN geschenkter Widerstand.
 var spotlight_combo: String = ""
 var spotlight_claimed_this_round: bool = false
 ## Goldener Handschlag: die Klausel vergoldet je Runde genau EINEN Würfel.
@@ -360,6 +366,9 @@ func shop_rarity_tier() -> int:
 
 func shop_charm_slots() -> int:
 	return SHOP_CHARM_SLOTS
+
+func shop_part_slots() -> int:
+	return SHOP_PART_SLOTS
 
 func shop_dice_slots() -> int:
 	return SHOP_DICE_SLOTS
@@ -934,49 +943,210 @@ func _consume_series_cards(indices: Array[int], rng: RandomNumberGenerator) -> i
 		owned_packs.remove_at(burned[k])
 	return kept
 
-# --- Übertakten (am Chip): Kombinationen ohne Stufen-Limit aufwerten ---------
+# --- Steckplätze: Bauteile auf den Kombinations-Chips -------------------------
 
-## Deckel des ⚡-Preises: ab der fünften Stufe kostet jede weitere gleich viel.
-const OVERCLOCK_COST_CAP := 5
+## Grundzahl der Steckplätze je Chip - alle ab Runde 1 offen.
+const SOCKETS_PER_COMBO := 3
 
-## Aktuelle Übertaktungs-Stufe einer Kombination.
-func combo_level(combo_key: String) -> int:
-	return int(combo_levels.get(combo_key, 0))
+## Steckplätze eines Chips: drei plus zwei je Erweiterungsplatine.
+func socket_count(combo_key: String) -> int:
+	return SOCKETS_PER_COMBO + ComboPartEffects.extra_sockets(combo_parts.get(combo_key, []))
 
-## ⚡-Preis der Stufe level+1: eine Energie plus je bereits erklommener Stufe
-## eine weitere, gedeckelt bei 5. Kein Stufen-Limit - die Energie ist die einzige
-## Bremse. Bewusst OHNE Ladenpreis-Klauseln: ⚡-Preise sind überall flach; der
-## Supraleiter ist der einzige Nachlass, und nie unter eine Energie.
-static func overclock_cost_at(level: int, charm_ids: Array[String] = []) -> int:
-	var price := mini(1 + maxi(0, level), OVERCLOCK_COST_CAP)
-	return maxi(1, price - CharmEffects.overclock_discount(charm_ids))
+## Belegung eines Chips, auf socket_count aufgefüllt (null = frei). NUR lesen -
+## geschrieben wird über install_pending_part/move_part.
+func parts_of(combo_key: String) -> Array:
+	if not DiceScoring.HAND_PRIORITY.has(combo_key):
+		return []
+	var fitted := _fit_sockets(combo_parts.get(combo_key, []))
+	combo_parts[combo_key] = fitted
+	return fitted
 
-func overclock_cost(combo_key: String) -> int:
-	return overclock_cost_at(combo_level(combo_key), charm_ids())
+## Freie Steckplätze über alle Chips.
+func free_socket_count() -> int:
+	var free := 0
+	for key: String in DiceScoring.HAND_PRIORITY:
+		free += socket_count(key) - ComboPartEffects.part_count(combo_parts.get(key, []))
+	return free
 
-func can_overclock(combo_key: String) -> bool:
-	return free_overclocks > 0 or energy >= overclock_cost(combo_key)
+## Hat ein weiteres Bauteil noch Platz? Die wartenden zählen schon mit.
+func parts_room() -> bool:
+	return free_socket_count() - pending_parts.size() >= 1
 
-## Kauft die nächste Stufe; false = weder Gutschrift noch Energie reichen (dann
-## bleibt alles unverändert). Prüfen-dann-abbuchen wie buy_secret_offer. Die
-## Presse-Gutschrift geht VOR der Energie - sonst verfiele sie ungenutzt.
-func overclock_combo(combo_key: String) -> bool:
-	if combo_key == "" or not can_overclock(combo_key):
+## Die Belegung, mit der gewertet wird: stillgelegte Teile (Hitzestau) fehlen.
+func scoring_parts() -> Dictionary:
+	if heat_disabled_parts.is_empty():
+		return combo_parts
+	var out := {}
+	for key in combo_parts:
+		var sockets: Array = []
+		for part in combo_parts[key]:
+			sockets.append(null if is_part_disabled(part) else part)
+		out[key] = sockets
+	return out
+
+## Ladenpreis eines Bauteils in $ (Supraleiter, dann Inflation/Skonto).
+func part_shop_price(part: ComboPart) -> int:
+	return shop_price(CharmEffects.part_price(part.price, charm_ids()))
+
+## Ein Laden-Bauteil für das Würfel-Regal (nie ein Schwarzmarkt-Teil).
+func roll_shop_part(rng: RandomNumberGenerator = null) -> ComboPart:
+	return ComboPart.roll_shop(rng)
+
+## Kauf im Laden: prüfen, dann zahlen. Ohne freien Steckplatz (die wartenden
+## mitgezählt) oder ohne Geld bleibt alles unverändert.
+func purchase_part(part: ComboPart, price: int) -> bool:
+	if part == null or not parts_room() or money < price:
 		return false
-	if free_overclocks > 0:
-		free_overclocks -= 1
-	else:
-		spend_energy(overclock_cost(combo_key))
-	grant_combo_level(combo_key)
+	add_money(-price)
+	stash_part(part)
 	return true
 
-## Hebt eine Kombination ohne Zahlung eine Stufe (Wett-Gewinn) - dieselbe
-## Buchung wie ein Kauf, damit die Zeremonie am Signal hängt.
-func grant_combo_level(combo_key: String) -> void:
-	if combo_key == "":
-		return
-	combo_levels[combo_key] = combo_level(combo_key) + 1
-	combo_upgraded.emit(combo_key, combo_levels[combo_key])
+## Bucht ein Bauteil in pending_parts - als EIGENE Instanz (Zählwerk-Zustand).
+func stash_part(part: ComboPart) -> void:
+	pending_parts.append(part.instantiate())
+	pending_parts_changed.emit()
+
+## Baut das nächste wartende Teil in combo_key/slot ein. Ein belegter Platz
+## tauscht: das alte Teil wird zum nächsten offenen Einbau.
+func install_pending_part(combo_key: String, slot: int) -> bool:
+	if pending_parts.is_empty() or not _valid_socket(combo_key, slot):
+		return false
+	var sockets := parts_of(combo_key).duplicate()
+	var displaced: ComboPart = sockets[slot]
+	sockets[slot] = pending_parts[0]
+	var fitted := _fit_sockets(sockets)
+	if fitted.is_empty() or fitted[slot] != pending_parts[0]:
+		return false  # eine Platine steckt nie in ihrem eigenen Paar
+	combo_parts[combo_key] = fitted
+	pending_parts.remove_at(0)
+	if displaced != null:
+		pending_parts.insert(0, displaced)
+	pending_parts_changed.emit()
+	combo_parts_changed.emit(combo_key)
+	return true
+
+## Der erste freie Steckplatz eines Chips (-1 = keiner).
+func first_free_socket(combo_key: String) -> int:
+	return parts_of(combo_key).find(null)
+
+## Wohin ein Tipp beim EINBAU steckt (-1 = nirgends): ein freier Platz immer, ein
+## belegter nur im Bearbeitungs-Fenster (sonst wäre der Tausch ein Umstecken
+## mitten in der Runde); slot -1 = der Chip selbst, also sein erster freier.
+func install_target(combo_key: String, slot: int, editable: bool) -> int:
+	if not DiceScoring.HAND_PRIORITY.has(combo_key):
+		return -1
+	if slot < 0:
+		return first_free_socket(combo_key)
+	if not _valid_socket(combo_key, slot):
+		return -1
+	if parts_of(combo_key)[slot] == null or editable:
+		return slot
+	return -1
+
+## Kann ein wartendes Teil jetzt überhaupt stecken? Ohne freien Platz nur per
+## Tausch, und der braucht das Bearbeitungs-Fenster.
+func can_install_pending(editable: bool) -> bool:
+	if pending_parts.is_empty():
+		return false
+	return free_socket_count() > 0 or editable
+
+## Steckt ein Teil um; ein belegtes Ziel tauscht. editable = das Bearbeitungs-
+## Fenster des Aufrufers (Laden, vor der Unterschrift) - zu, dann bleibt alles.
+func move_part(from_key: String, from_slot: int, to_key: String, to_slot: int, editable: bool = true) -> bool:
+	if not editable or not _valid_socket(from_key, from_slot) or not _valid_socket(to_key, to_slot):
+		return false
+	if from_key == to_key and from_slot == to_slot:
+		return false
+	var part: ComboPart = parts_of(from_key)[from_slot]
+	if part == null:
+		return false
+	if from_key == to_key:
+		var sockets := parts_of(from_key).duplicate()
+		sockets[from_slot] = sockets[to_slot]
+		sockets[to_slot] = part
+		var fitted := _fit_sockets(sockets)
+		if fitted.is_empty() or fitted[to_slot] != part:
+			return false
+		combo_parts[from_key] = fitted
+	else:
+		var from_sockets := parts_of(from_key).duplicate()
+		var to_sockets := parts_of(to_key).duplicate()
+		from_sockets[from_slot] = to_sockets[to_slot]
+		to_sockets[to_slot] = part
+		var from_fitted := _fit_sockets(from_sockets)
+		var to_fitted := _fit_sockets(to_sockets)
+		if from_fitted.is_empty() or to_fitted.is_empty() or to_fitted[to_slot] != part:
+			return false
+		combo_parts[from_key] = from_fitted
+		combo_parts[to_key] = to_fitted
+		combo_parts_changed.emit(to_key)
+	combo_parts_changed.emit(from_key)
+	return true
+
+## Die Kombination wurde gewertet: Zählwerke wachsen, Münzprüfer zahlen.
+## Gebucht beim Nehmen, VOR der Zeremonie. Liefert das gezahlte Geld.
+func book_combo_scored(combo_key: String) -> int:
+	var sockets: Array = scoring_parts().get(combo_key, [])
+	var grew := false
+	for part in sockets:
+		if part != null and part.id == ComboPart.COUNTER:
+			part.counter += 1
+			grew = true
+	var money_gain := ComboPartEffects.scoring_money(sockets)
+	if money_gain > 0:
+		add_money(money_gain)
+	if grew:
+		combo_parts_changed.emit(combo_key)
+	return money_gain
+
+func _valid_socket(combo_key: String, slot: int) -> bool:
+	return DiceScoring.HAND_PRIORITY.has(combo_key) and slot >= 0 and slot < socket_count(combo_key)
+
+## Bringt eine Belegung auf ihre Kapazität: auffüllen mit null, und was jenseits
+## liegt (eine Erweiterungsplatine ging) rückt in freie Plätze davor. [] = passt nicht.
+func _fit_sockets(sockets: Array) -> Array:
+	var capacity := SOCKETS_PER_COMBO + ComboPartEffects.extra_sockets(sockets)
+	var out := sockets.duplicate()
+	while out.size() < capacity:
+		out.append(null)
+	var overflow: Array = []
+	while out.size() > capacity:
+		var tail = out.pop_back()
+		if tail != null:
+			overflow.append(tail)
+	for slot in out.size():
+		if overflow.is_empty():
+			break
+		if out[slot] == null:
+			out[slot] = overflow.pop_back()
+	if not overflow.is_empty():
+		return []
+	# Eine Platine, die keine erreichbare Platine trägt (ihr Träger ging, oder sie
+	# steckt in ihrem eigenen Paar), rückt auf den ersten freien getragenen Platz.
+	for _guard in out.size():
+		var parents := ComboPartEffects.socket_parents(out, SOCKETS_PER_COMBO)
+		var orphan := -1
+		for slot in out.size():
+			if parents[slot] == ComboPartEffects.UNREACHABLE and out[slot] != null \
+					and out[slot].id == ComboPart.EXPANSION_BOARD:
+				orphan = slot
+				break
+		if orphan < 0:
+			break
+		var free := -1
+		for slot in out.size():
+			if out[slot] == null and parents[slot] != ComboPartEffects.UNREACHABLE:
+				free = slot
+				break
+		if free < 0:
+			return []
+		out[free] = out[orphan]
+		out[orphan] = null
+	var reach := ComboPartEffects.socket_parents(out, SOCKETS_PER_COMBO)
+	for slot in out.size():
+		if out[slot] != null and reach[slot] == ComboPartEffects.UNREACHABLE:
+			return []
+	return out
 
 ## Rundenbeginn: Runden-Marken zurücksetzen, Lumpensammler würfelt seine
 ## Glückszahl neu - je Vorkommen einmal. Auch Drossel und Rampenlicht werden hier
@@ -988,6 +1158,7 @@ func apply_round_start_charms() -> void:
 	if ids.has(Charm.RAG_COLLECTOR):
 		_roll_lumpensammler_value()
 	throttled_combos = _round_throttled_combos()
+	_clear_heat_disabled()
 	spotlight_claimed_this_round = false
 	golden_handshake_used_this_round = false
 	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
@@ -1009,7 +1180,7 @@ static func is_stress_round(n: int) -> bool:
 static func block_of_round(n: int) -> int:
 	return (n - 1) / GOAL_BLOCK
 
-## Die heißesten Chips zuerst: höchste Übertaktungs-Stufe, bei Gleichstand der
+## Die heißesten Chips zuerst: die meisten Bauteile, bei Gleichstand der
 ## ranghöhere (HAND_PRIORITY). Deterministisch, damit der Spieler im Shop davor
 ## planen kann. "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand und bleibt
 ## darum immer wertbar - sie wird nie gedrosselt.
@@ -1021,8 +1192,10 @@ func hottest_combos(count: int) -> Array[String]:
 	# Gleichstand ausdrücklich über den Rang brechen: sort_custom sortiert nicht
 	# stabil, die Reihenfolge aus HAND_PRIORITY allein trägt also nicht.
 	keys.sort_custom(func(a: String, b: String) -> bool:
-		if combo_level(a) != combo_level(b):
-			return combo_level(a) > combo_level(b)
+		var parts_a := ComboPartEffects.part_count(parts_of(a))
+		var parts_b := ComboPartEffects.part_count(parts_of(b))
+		if parts_a != parts_b:
+			return parts_a > parts_b
 		return DiceScoring.HAND_PRIORITY.find(a) < DiceScoring.HAND_PRIORITY.find(b))
 	return keys.slice(0, maxi(0, count))
 
@@ -1047,17 +1220,30 @@ func note_hand_taken(combo_key: String) -> bool:
 				throttled_combos.append(key)
 	return throttled_combos.size() > before
 
-## Hitzestau: die gespielte Kombination verliert eine Übertaktungs-Stufe, nie
-## unter die ungestufte Grundform. true = es ging tatsächlich eine runter.
+## Hitzestau: die gespielte Kombination legt ein Teil ihres Chips für die Runde
+## still - das im HINTERSTEN belegten Steckplatz, das noch läuft. true = es ging
+## tatsächlich eins aus.
 func apply_heat_buildup(combo_key: String) -> bool:
 	if not _clause_active(DealClause.HEAT_BUILDUP):
 		return false
-	var level := combo_level(combo_key)
-	if level <= 0:
-		return false
-	combo_levels[combo_key] = level - 1
-	combo_upgraded.emit(combo_key, level - 1)
-	return true
+	var sockets := parts_of(combo_key)
+	for slot in range(sockets.size() - 1, -1, -1):
+		var part: ComboPart = sockets[slot]
+		if part != null and not is_part_disabled(part):
+			heat_disabled_parts[part.get_instance_id()] = true
+			combo_parts_changed.emit(combo_key)
+			return true
+	return false
+
+## Ist dieses Teil in der laufenden Runde stillgelegt (Hitzestau)?
+func is_part_disabled(part: ComboPart) -> bool:
+	return part != null and heat_disabled_parts.has(part.get_instance_id())
+
+func _clear_heat_disabled() -> void:
+	if heat_disabled_parts.is_empty():
+		return
+	heat_disabled_parts.clear()
+	combo_parts_changed.emit("")
 
 ## Paritäts-Filter der Boss-Konditionen (DiceScoring.PARITY_*).
 func parity_filter() -> int:
@@ -1513,14 +1699,14 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> Array[Dictionary]:
 				grants.append({"material_id": material.id, "copy": i, "pack": pack})
 	return grants
 
-## Rampenlicht: Wird die hervorgehobene Kombination gewertet, steigt sie
-## dauerhaft eine Stufe - höchstens einmal je Runde. true = eingelöst (der
-## Aufrufer spielt die Zeremonie, siehe scene_root).
+## Rampenlicht: Wird die hervorgehobene Kombination gewertet, gibt es einen
+## Widerstand geschenkt - Einbau wie nach einem Kauf, höchstens einmal je Runde.
+## true = eingelöst (der Aufrufer spielt die Zeremonie, siehe scene_root).
 func claim_spotlight(combo_key: String) -> bool:
 	if spotlight_claimed_this_round or combo_key == "" or combo_key != spotlight_combo:
 		return false
 	spotlight_claimed_this_round = true
-	combo_levels[combo_key] = combo_level(combo_key) + 1
+	stash_part(ComboPart.resistor())
 	return true
 
 ## Midashandschuh: jede oben liegende Seite der gewerteten Würfel wird dauerhaft
@@ -1993,7 +2179,7 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	return won
 
 ## Schüttet EINEN gewonnenen Einsatz aus. Der Quotenbonus-Faktor greift auf
-## Geld, Ware und Energie - Einzelstücke (Sonderposten, Paket, Chipstufe)
+## Geld, Ware und Energie - Einzelstücke (Sonderposten, Paket, Bauteil)
 ## verdoppelt er nicht. JEDES gewährte Paket wird in awarded_packs GEMERKT
 ## (und jedes am vollen Magazin zerfallene gezählt): die Auszahlungs-Seite
 ## hält die Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
@@ -2017,8 +2203,11 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 			# Zeremonie schickt darum Geld statt einer Kassette los.
 			bet.awarded_pack = grant_pack(bet.reward_pack())
 			bet.note_awarded(bet.awarded_pack)
-		SideBet.Payout.COMBO_LEVEL:
-			grant_combo_level(bet.target_combo)
+		SideBet.Payout.PART:
+			# Einzelstück: der Quotenbonus verdoppelt es nicht.
+			var part := bet.reward_part()
+			if part != null:
+				stash_part(part)
 		SideBet.Payout.PRESS_BOOST:
 			# Einzelstück wie der Sonderposten: der Quotenbonus verdoppelt es nicht.
 			grant_press_boost()
@@ -2243,6 +2432,8 @@ const KIND_DIE := "die"
 ## zweite Ware des Sonderposten-Platzes.
 const KIND_CATALYST := "catalyst"
 const KIND_BLANK := "blank"
+## Ein Bauteil (nur die vervielfachenden Schwarzmarkt-Teile).
+const KIND_PART := "part"
 
 ## Umrechnungskurs des Hinterzimmers: EIN Sonderposten kostet dort 3 ⚡, im Regal
 ## $30 - zehn Dollar auf die Energie. Jede Ware, die beide Läden führen (die
@@ -2255,6 +2446,8 @@ const SECRET_REPAIR_CHANCE := 0.2
 ## Eigene Ziehchance des ROHLINGS - er wird nach der Reparatur-Karte gezogen und ist
 ## wie sie NUR hier zu haben (nie in Pack.SPECIAL_ROLL_WEIGHTS).
 const SECRET_BLANK_CHANCE := 0.25
+## Eigene Ziehchance eines Bauteils im Sonderbestand-Platz.
+const SECRET_PART_CHANCE := 0.25
 
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
 static func secret_energy_price(money_price: int) -> int:
@@ -2332,6 +2525,8 @@ func secret_offer_price(offer: Dictionary) -> int:
 	var price := int(offer.get(OFFER_PRICE, 0))
 	if price <= 0:
 		return price
+	if offer.get(OFFER_KIND) == KIND_PART:
+		price = CharmEffects.part_price(price, charm_ids())
 	return maxi(1, price - CharmEffects.secret_price_cut(charm_ids()))
 
 ## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Energie
@@ -2357,11 +2552,13 @@ func buy_secret_offer(index: int) -> bool:
 	# Voller Dock: der Charm-Platz bleibt liegen, die Energie wird nicht abgebucht.
 	if offer[OFFER_KIND] == KIND_CHARM and charms_full():
 		return false
+	if offer[OFFER_KIND] == KIND_PART and not parts_room():
+		return false
 	# Volles Magazin: alles VERSIEGELTE sperrt der Deckel wie eine knappe Börse -
 	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3. Der Würfel geht ins
 	# Ausgabefach und kennt darum keinen Deckel.
 	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE \
-			and pack_room() < 1:
+			and offer[OFFER_KIND] != KIND_PART and pack_room() < 1:
 		return false
 	spend_energy(price)
 	match offer[OFFER_KIND]:
@@ -2373,6 +2570,8 @@ func buy_secret_offer(index: int) -> bool:
 			# sucht der Spieler selbst - kein stiller Tausch.
 			var die: DieDefinition = offer[OFFER_ITEM]
 			stash_die(die, 0)
+		KIND_PART:
+			stash_part(offer[OFFER_ITEM] as ComboPart)
 		_:
 			# Jede versiegelte Ware liegt als fertige Kassette im Angebot - sie geht,
 			# wie sie ist, also bekommt der Spieler genau das gezeigte Netz.
@@ -2396,6 +2595,8 @@ func _secret_special_offer() -> Dictionary:
 		return _secret_catalyst_card(Pack.CATALYST_REPAIR)
 	if randf() < SECRET_BLANK_CHANCE and not _secret_blank_listed():
 		return _secret_blank_card()
+	if randf() < SECRET_PART_CHANCE:
+		return _secret_part_offer()
 	if randf() < SECRET_CATALYST_CHANCE:
 		var card := _secret_catalyst_offer()
 		if not card.is_empty():
@@ -2433,6 +2634,12 @@ func _secret_catalyst_card(id: String) -> Dictionary:
 func _secret_blank_card() -> Dictionary:
 	return _secret_offer(KIND_BLANK, Pack.blank_card(),
 		secret_energy_price(Pack.BLANK_PRICE))
+
+## Ein vervielfachendes Bauteil - nur hier zu haben, Preis in ⚡ aus seinem
+## Grundpreis (Supraleiter drückt ihn in secret_offer_price).
+func _secret_part_offer() -> Dictionary:
+	var part := ComboPart.roll_secret()
+	return _secret_offer(KIND_PART, part, secret_energy_price(part.price))
 
 ## Liegt schon ein Rohling in der Auslage? Zwei gleiche Plätze lesen sich als Fehler.
 func _secret_blank_listed() -> bool:

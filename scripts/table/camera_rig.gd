@@ -307,7 +307,7 @@ func free_zoom_max() -> float:
 func takes_input() -> bool:
 	return mode != Mode.TITLE and not is_animating
 
-## Ob ein physischer Griff auf dem FILZ antwortet - Tray-Würfel, Chip-Stufe,
+## Ob ein physischer Griff auf dem FILZ antwortet - Tray-Würfel, Chip-Steckplatz,
 ## Dock-Kachel: an seiner eigenen Station und in der FREIKAMERA, wo der Spieler
 ## bewusst an ein Ding heranfährt. Aus der RUHENDEN Übersicht bleibt der Klick der
 ## FLUG dorthin, sonst fräße die Geste die Navigation - diese Griffe liegen unter

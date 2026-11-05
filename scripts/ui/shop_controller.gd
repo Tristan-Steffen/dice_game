@@ -25,12 +25,17 @@ signal pack_refunded(from_px: Vector2, amount: int)
 ## Die Auslage der Bucht hat sich geändert (Seite gezeigt, gekauft) - scene_root
 ## stellt die Körper nach. Der Laden fasst nie einen an.
 signal vitrine_changed
+## Ein Bauteil ist gekauft (gebucht in pending_parts): scene_root schickt es als
+## Licht über die Hub-Cluster-Ader zu den Chips.
+signal part_purchased(from_px: Vector2)
 
 ## Warengattungen der Bucht: der Laden nennt sie, die Bucht trägt sie durch und
 ## meldet sie beim Griff zurück - so bleibt der Kaufweg EIN Paar (Gattung, Index).
 const KIND_ENGRAVING_PACK := "engraving_pack"
 const KIND_DIE := "die"
 const KIND_SPECIAL := "special"
+## Bauteil (als Körper im dritten Platz der Würfel-Bucht und im Schwarzmarkt).
+const KIND_PART := "part"
 
 ## Die zwei ANKUNFTS-GRADE der Auslage: STEIGEN heißt, dass Ware durch die Fläche
 ## kommt, LIEGENBLEIBEN heißt, dass gar nichts geschehen ist - das sichtbar
@@ -44,6 +49,8 @@ const GRADE_RISE := "rise"
 ## Karte des Hinterzimmers, die kurze das schmale Preisschild einer Kassette.
 const FULL_TAG := "MAGAZIN VOLL"
 const FULL_MARK := "VOLL"
+## Kein Steckplatz mehr frei (die wartenden mitgezählt).
+const PARTS_FULL_TAG := "STECKPLÄTZE VOLL"
 
 const CHARM_PRICE := 15
 
@@ -139,6 +146,9 @@ class MenuSpread:
 	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
+	## Der Bauteil-Platz der Würfel-Bucht (SHOP_PART_SLOTS, mit der Seite gewürfelt).
+	var part_options: Array[ComboPart] = []
+	var part_bought: Array[bool] = []
 	## Einzelstücke der Schale: OFFENE Würfel, alles vor dem Kauf sichtbar - der
 	## EINZIGE Weg des Ladens an einen Würfel (run.shop_dice_slots() Plätze). Sie
 	## gehören zur gerollten Auslage: die Sortiment-Sperre friert sie mit ein,
@@ -164,6 +174,9 @@ var run: GameRun:
 			run.charms_changed.disconnect(_on_run_charms_changed)
 		if run != null and run.packs_changed.is_connected(_on_run_packs_changed):
 			run.packs_changed.disconnect(_on_run_packs_changed)
+		if run != null and run.pending_parts_changed.is_connected(_on_run_parts_changed):
+			run.pending_parts_changed.disconnect(_on_run_parts_changed)
+			run.combo_parts_changed.disconnect(_on_run_parts_changed)
 		run = value
 		# Ein frischer Lauf bekommt einen frischen Laden - auch ohne Sperre.
 		sortiment_locked = false
@@ -175,6 +188,8 @@ var run: GameRun:
 			run.money_changed.connect(_on_run_money_changed)
 			run.charms_changed.connect(_on_run_charms_changed)
 			run.packs_changed.connect(_on_run_packs_changed)
+			run.pending_parts_changed.connect(_on_run_parts_changed)
+			run.combo_parts_changed.connect(_on_run_parts_changed)
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0
@@ -251,7 +266,7 @@ var _net_growing := false
 ## Und läuft sie RÜCKWÄRTS? Dann räumt die Absorption die Blöcke am Ende selbst ab.
 var _net_absorbing := false
 var _net_grow_tween: Tween
-var _net_dice: Array[DieDefinition] = []
+var _net_dice: Array = []  # je Block sein Würfel (DieDefinition) oder Bauteil (ComboPart)
 ## Je Block sein Preisschild - dieselbe Quelle wie der Kauf (single_dice_prices).
 var _net_prices: Array[Label] = []
 ## Und darüber die NAMENS-Zeile: die Seele im Glühton der Essenz, sonst der Name.
@@ -288,6 +303,9 @@ var charm_thumbs: Array[Control] = []
 var charm_stages: Array[Control] = []
 var charm_effects: Array[Label] = []
 var charm_bought: Array[bool] = []
+## Der Bauteil-Platz: Karte, Mittelfläche (Glyphe/Text) und Preiszeile je Teil.
+var part_options: Array[ComboPart] = []
+var part_bought: Array[bool] = []
 var engraving_packs: Array[Pack] = []
 var engraving_pack_bought: Array[bool] = []
 var single_dice: Array[DieDefinition] = []
@@ -415,7 +433,7 @@ func _build_layout() -> void:
 	dice_band.name = "DiceBand"
 	dice_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
 	dice_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dice_band.add_child(_heading_row("WÜRFEL"))
+	dice_band.add_child(_heading_row("WÜRFEL & BAUTEILE"))
 	vitrine_slot = dice_band
 	var shelf := VBoxContainer.new()
 	shelf.name = "DiceShelf"
@@ -841,14 +859,30 @@ func _footer_font(font: Font, text: String, block: Vector2, bay_u: float) -> int
 			return px
 	return smallest
 
-## Der EINE Schreiber der Würfel-Auskunft (null = keiner gegriffen): Name, Seele
-## und Wirkung. Idempotent je Würfel-Instanz.
+## Der EINE Schreiber der Auskunft der Bucht (null = nichts gegriffen): ein Würfel
+## nennt Name, Seele und Wirkung, ein Bauteil Name, Phase, Wirkung und Preis.
+## Idempotent je Instanz.
 func set_die_hover(def: DieDefinition) -> void:
-	var key := 0 if def == null else def.get_instance_id()
+	set_ware_hover(def)
+
+func set_ware_hover(item: Object) -> void:
+	var key := 0 if item == null else item.get_instance_id()
 	if key == _foot_die_key:
 		return
 	_foot_die_key = key
-	set_net_hint("" if def == null else die_foot_text(def))
+	var text := ""
+	if item is DieDefinition:
+		text = die_foot_text(item)
+	elif item is ComboPart:
+		text = part_foot_text(item)
+	set_net_hint(text)
+
+## Die Auskunft eines Bauteils als EINE Zeile.
+func part_foot_text(part: ComboPart) -> String:
+	var index := part_options.find(part)
+	var tag := part_tag(index) if index >= 0 else ""
+	return "%s · Phase: %s - %s  %s" % [part.display_name,
+		Lexikon.PART_PHASE_NAMES.get(part.phase, ""), part.description, tag]
 
 ## Die Auskunft eines Würfels als EINE Zeile - aus derselben Quelle wie der
 ## Info-Schirm der Werkstatt.
@@ -881,7 +915,7 @@ func die_seats_px() -> Array[Vector2]:
 		return out
 	var gap := u * COLUMN_GAP
 	var half := column_width_in(strip.size.x, gap) * 0.5
-	for i in single_dice.size():
+	for i in single_dice.size() + part_options.size():
 		out.append(strip.position + Vector2(column_x(strip.size.x, gap, i) + half,
 			strip.size.y * 0.5))
 	return out
@@ -922,6 +956,19 @@ func die_at_net(pixel: Vector2) -> DieDefinition:
 			continue
 		var net := block.get_node_or_null("Net") as Control
 		if net != null and net.get_global_rect().has_point(pixel):
+			return _net_dice[i] as DieDefinition
+	return null
+
+## Das Bauteil, über dessen Wirkungs-Zeile der Zeiger liegt (null = keins).
+func part_at_net(pixel: Vector2) -> ComboPart:
+	if _net_growing:
+		return null
+	for i in mini(_net_blocks.size(), _net_dice.size()):
+		var block := _net_blocks[i]
+		if block == null or not is_instance_valid(block) or not (_net_dice[i] is ComboPart):
+			continue
+		var net := block.get_node_or_null("Net") as Control
+		if net != null and net.get_global_rect().has_point(pixel):
 			return _net_dice[i]
 	return null
 
@@ -933,9 +980,9 @@ func die_at_net(pixel: Vector2) -> DieDefinition:
 func set_die_nets(entries: Array, grow := false) -> void:
 	var signature := "%d" % entries.size()
 	for entry in entries:
-		var def: DieDefinition = entry["def"]
+		var item: Object = entry["def"] if entry.has("def") else entry["part"]
 		var anchor: Vector2 = entry.get("anchor", Vector2.ZERO)
-		signature += "|%d@%.1f,%.1f" % [def.get_instance_id(), anchor.x, anchor.y]
+		signature += "|%d@%.1f,%.1f" % [item.get_instance_id(), anchor.x, anchor.y]
 	if signature == _net_signature:
 		return  # derselbe Stand: ein Abgleich mitten im Wachstum stört es nicht
 	_net_signature = signature
@@ -946,6 +993,9 @@ func set_die_nets(entries: Array, grow := false) -> void:
 	var gap := u * WARE_PRICE_GAP
 	var net_top := _die_head_height() + vitrine_rect_px().size.y + gap
 	for entry in entries:
+		if entry.has("part"):
+			_build_part_block(entry, soul_height, gap, net_top)
+			continue
 		var def: DieDefinition = entry["def"]
 		var rect := die_label_rect(single_dice.find(def))
 		if rect.size.x <= 0.0:
@@ -987,6 +1037,44 @@ func set_die_nets(entries: Array, grow := false) -> void:
 	_refresh_ware_prices()
 	if grow:
 		_grow_die_nets()
+
+## Der Block des BAUTEILS in derselben Grammatik wie ein Würfel: über der Bucht Name
+## (in der Phasen-Tönung) und Preis, darunter statt des Netzes seine Wirkung.
+func _build_part_block(entry: Dictionary, soul_height: float, gap: float, net_top: float) -> void:
+	var part: ComboPart = entry["part"]
+	var rect := die_label_rect(single_dice.size() + part_options.find(part))
+	if rect.size.x <= 0.0:
+		return
+	var anchor: Vector2 = entry.get("anchor", rect.position)
+	var block := Control.new()
+	block.name = "PartBlock"
+	block.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	block.position = rect.position
+	block.size = rect.size
+	block.pivot_offset = anchor - rect.position
+	vitrine_nets.add_child(block)
+	_net_blocks.append(block)
+	_net_dice.append(part)
+	var name_label := CasinoStyle.label(part.display_name, u * WARE_SOUL_FONT, part.tint(),
+		HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.size = Vector2(rect.size.x, soul_height)
+	block.add_child(name_label)
+	_net_souls.append(name_label)
+	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	tag.position = Vector2(0.0, soul_height + gap * 0.5)
+	tag.size = Vector2(rect.size.x, _price_height())
+	block.add_child(tag)
+	_net_prices.append(tag)
+	var width := rect.size.x * DIE_NET_WIDTH_SHARE
+	var effect := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	effect.name = "Net"
+	effect.text = "Phase: %s\n%s" % [Lexikon.PART_PHASE_NAMES.get(part.phase, ""), part.description]
+	effect.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	effect.position = Vector2((rect.size.x - width) * 0.5, net_top)
+	effect.size = Vector2(width, u * DIE_NET_UNITS)
+	block.add_child(effect)
 
 ## Die PROJEKTION: der fertige Block steht zuerst (Endzustand-zuerst), dann fährt er
 ## auf fast nichts am Würfel-Anker zurück und wächst in NET_GROW_TIME wieder heraus,
@@ -1151,7 +1239,10 @@ func vitrine_stock() -> Dictionary:
 	var dice: Array = []
 	for i in single_dice.size():
 		dice.append(null if single_dice_bought[i] else single_dice[i])
-	return {KIND_DIE: dice}
+	var parts: Array = []
+	for i in part_options.size():
+		parts.append(null if part_bought[i] else part_options[i])
+	return {KIND_DIE: dice, KIND_PART: parts}
 
 # --- Kauf-Eingänge der Bucht (scene_root meldet den Griff hierher) -------------
 
@@ -1160,6 +1251,10 @@ func buy_engraving_pack(index: int) -> void:
 
 func buy_single_die(index: int) -> void:
 	_on_single_die_pressed(index)
+
+## from_px = der Platz in der Bucht, von dem das Licht startet.
+func buy_part(index: int, from_px := Vector2(-1, -1)) -> void:
+	_on_part_clicked(index, from_px)
 
 func buy_single_special(index: int) -> void:
 	_on_single_special_pressed(index)
@@ -1260,6 +1355,10 @@ func _build_spread() -> MenuSpread:
 		available.erase(pick)
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
+	for i in run.shop_part_slots():
+		spread.part_options.append(run.roll_shop_part())
+	spread.part_bought.resize(spread.part_options.size())
+	spread.part_bought.fill(false)
 
 	# Gravur-Pakete: die Sorte entscheidet die Häufigkeit (viele Zahlen, wenige
 	# Kanten), die Mindest-Seltenheit im Inhalt zieht GameRun beim Öffnen.
@@ -1347,6 +1446,8 @@ func _show_spread() -> void:
 	_standing_spread = spread
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
+	part_options = spread.part_options
+	part_bought = spread.part_bought
 	engraving_packs = spread.engraving_packs
 	engraving_pack_bought = spread.engraving_pack_bought
 	single_dice = spread.single_dice
@@ -1870,12 +1971,20 @@ func _refresh_ware_prices() -> void:
 		var mark := _net_prices[i]
 		if mark == null or not is_instance_valid(mark):
 			continue
+		if _net_dice[i] is ComboPart:
+			_paint_part_tag(mark, part_options.find(_net_dice[i]))
+			continue
 		var price := _shown_die_price(_net_dice[i])
 		if price < 0:
 			mark.text = ""
 			continue
 		mark.text = price_text(price)
 		mark.modulate = price_tint(price, money)
+
+## Steckplätze belegt oder Teil wartend: die VOLL-Marke des Bauteil-Platzes zieht nach.
+func _on_run_parts_changed(_key = "") -> void:
+	if _live():
+		_refresh_ware_prices()
 
 func _on_run_money_changed(_money: int) -> void:
 	if _live():
@@ -1934,3 +2043,43 @@ func finish_close() -> void:
 ## aus einem schließenden Laden.
 func leaving() -> bool:
 	return _leaving
+
+# --- Der BAUTEIL-Platz der Würfel-Bucht ----------------------------------------
+
+func part_price(index: int) -> int:
+	if run == null or index < 0 or index >= part_options.size():
+		return 0
+	return run.part_shop_price(part_options[index])
+
+## Die Preiszeile des Bauteil-Platzes: gekauft, voll oder der Preis.
+func part_tag(index: int) -> String:
+	if index < 0 or index >= part_bought.size():
+		return ""
+	if part_bought[index]:
+		return "gekauft"
+	if run != null and not run.parts_room():
+		return PARTS_FULL_TAG
+	return price_text(part_price(index))
+
+## Ist der Bauteil-Platz gerade kaufbar? Sonst steht sein Schild rot.
+func part_buyable(index: int) -> bool:
+	if run == null or index < 0 or index >= part_options.size() or part_bought[index]:
+		return false
+	return run.parts_room() and run.money >= part_price(index)
+
+func _paint_part_tag(tag: Label, index: int) -> void:
+	tag.text = part_tag(index)
+	tag.modulate = NEON_GOLD if part_buyable(index) else CasinoStyle.RED
+
+## Kauf: gebucht in pending_parts, dann fliegt das Licht; der Einbau folgt modal.
+func _on_part_clicked(index: int, from_px := Vector2(-1, -1)) -> void:
+	if index < 0 or index >= part_options.size() or part_bought[index]:
+		return
+	if from_px.x < 0.0:
+		var bay := vitrine_rect_px()
+		from_px = bay.get_center() if bay.size.x > 0.0 else get_global_rect().get_center()
+	if not run.purchase_part(part_options[index], part_price(index)):
+		return
+	part_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	part_purchased.emit(from_px)
+	_show_spread()

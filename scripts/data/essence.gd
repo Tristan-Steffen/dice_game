@@ -154,8 +154,8 @@ static func firedamp() -> Essence:
 
 static func acetylene() -> Essence:
 	return _make(ACETYLENE, "Acetylen",
-		"+10 Basispunkte je Stufe der genommenen Kombination.",
-		"+10 Basis je Kombinationsstufe", Rarity.COMMON, Color(0.85, 0.92, 1.0))
+		"+10 Basispunkte je Bauteil der genommenen Kombination.",
+		"+10 Basis je Bauteil", Rarity.COMMON, Color(0.85, 0.92, 1.0))
 
 ## Warmes Weiss statt Ladungs-Violett: die Lampe brennt ruhig, sie glüht nicht.
 static func arc_lamp() -> Essence:

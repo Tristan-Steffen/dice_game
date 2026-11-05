@@ -44,11 +44,27 @@ func _init(u: float) -> void:
 	body_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(body_label)
 
+## Feste Gesamtbreite: Titel und Text brechen um, statt die Karte zu weiten.
+func fit_width(width: float, u: float) -> void:
+	var text_width := width - u * 1.8 * 2.0
+	title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_label.custom_minimum_size.x = text_width
+	body_label.custom_minimum_size.x = text_width
+	# Umbruch-Höhe rechnet die Label an ihrer aktuellen Breite, nicht am Minimum.
+	title_label.size.x = text_width
+	body_label.size.x = text_width
+
 ## Zeigt die Karte unter dem Anker; sie bleibt mit gap Abstand in der Bühne
 ## (bündig am Rahmen sah sie eingeklemmt aus). Das Anker-Rechteck kommt über
 ## global_position - der Anker hängt oft in einer Reihe, seine eigene position
 ## zählt daher nicht.
 func show_for(anchor: Control, stage: Control, title: String, body: String,
+		accent: Color, gap: float) -> void:
+	show_at(Rect2(anchor.global_position - stage.global_position, anchor.size),
+		stage.size, title, body, accent, gap)
+
+## Dasselbe an einem bühnenrelativen Anker-Rechteck (ein 3D-Ding hat keinen Control).
+func show_at(anchor: Rect2, stage_size: Vector2, title: String, body: String,
 		accent: Color, gap: float) -> void:
 	if title == "":
 		return
@@ -59,13 +75,12 @@ func show_for(anchor: Control, stage: Control, title: String, body: String,
 	visible = true
 	reset_size()
 	var box := size
-	var top_left := anchor.global_position - stage.global_position
-	var y := top_left.y + anchor.size.y + gap
-	if y + box.y > stage.size.y:
-		y = top_left.y - gap - box.y
-	var max_x := maxf(gap, stage.size.x - box.x - gap)
+	var y := anchor.end.y + gap
+	if y + box.y > stage_size.y:
+		y = anchor.position.y - gap - box.y
+	var max_x := maxf(gap, stage_size.x - box.x - gap)
 	position = Vector2(
-		clampf(top_left.x + anchor.size.x * 0.5 - box.x * 0.5, minf(gap, max_x), max_x),
+		clampf(anchor.get_center().x - box.x * 0.5, minf(gap, max_x), max_x),
 		maxf(gap, y))
 
 func hide_card() -> void:

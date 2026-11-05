@@ -322,7 +322,7 @@ static func discharge() -> DealClause:
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
 static func heat_warning() -> DealClause:
-	return _malus(HEAT_WARNING, "Hitzewarnung", "Die höchstgestufte Kombination wertet nicht",
+	return _malus(HEAT_WARNING, "Hitzewarnung", "Die Kombination mit den meisten Bauteilen wertet nicht",
 		Scope.ROUND, Tier.TWO, [TAG_THROTTLE])
 
 static func rip_off() -> DealClause:
@@ -356,7 +356,7 @@ static func fuse_failure() -> DealClause:
 		Scope.ROUND, Tier.THREE, [TAG_OVERCHARGE, TAG_ENERGY])
 
 static func heat_buildup() -> DealClause:
-	return _malus(HEAT_BUILDUP, "Hitzestau", "Jede gespielte Hand senkt ihre Stufe um 1",
+	return _malus(HEAT_BUILDUP, "Hitzestau", "Jede gespielte Hand legt ein Bauteil ihres Chips still",
 		Scope.ROUND, Tier.THREE, [TAG_THROTTLE])
 
 # --- Stresstest-Konditionen ---------------------------------------------------

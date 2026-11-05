@@ -641,7 +641,7 @@ static func free_drink() -> Charm:
 	return _make(FREE_DRINK, "Freigetränk", "+50 Basispunkte auf jede gewertete Hand.")
 
 static func spotlight() -> Charm:
-	return _make(SPOTLIGHT, "Rampenlicht", "Jede Runde steht eine Kombination im Rampenlicht (sie pulst golden). Wertest du sie in dieser Runde, steigt sie dauerhaft eine Stufe.")
+	return _make(SPOTLIGHT, "Rampenlicht", "Jede Runde steht eine Kombination im Rampenlicht (sie pulst golden). Wertest du sie in dieser Runde, bekommst du einen Widerstand geschenkt.")
 
 static func full_counter() -> Charm:
 	return _make(FULL_COUNTER, "Vollzähler", "ALLE liegenden Würfel werden gewertet.")
@@ -864,7 +864,7 @@ static func fuse() -> Charm:
 	return _make(FUSE, "Zündschnur", "Knallgas zündet stärker: +$3 statt +$1 je folgendem Würfel im Stapel.")
 
 static func cutting_torch() -> Charm:
-	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Kombinationsstufe.")
+	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Bauteil der Kombination.")
 
 static func moderator() -> Charm:
 	return _make(MODERATOR, "Steuerstab", "Tscherenkow-Krits kosten keine Energie und schlagen ×(gelagerte Energie).")
@@ -896,7 +896,7 @@ static func radio_telescope() -> Charm:
 # --- Energie & Serie ---
 
 static func superconductor() -> Charm:
-	return _make(SUPERCONDUCTOR, "Supraleiter", "Kombinationen übertakten kostet 1 ⚡ weniger (mindestens 1).")
+	return _make(SUPERCONDUCTOR, "Supraleiter", "Bauteile kosten 25 % weniger (mindestens 1).")
 
 static func dynamo() -> Charm:
 	return _make(DYNAMO, "Dynamo", "Jede erfolgreich abgeschlossene Runde wirft 1 ⚡ ab.")

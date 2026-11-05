@@ -64,25 +64,18 @@ func _rng_rolling(below: bool, chance: float) -> RandomNumberGenerator:
 			return rng
 	return null
 
-# --- Supraleiter: Übertakten kostet eine Energie weniger ---------------------------
+# --- Supraleiter: Bauteile kosten 25 % weniger ------------------------------------
 
-func test_the_superconductor_shaves_a_energy_off_the_overclock_price():
-	assert_eq(GameRun.overclock_cost_at(3), 4, "unverändert ohne Charm")
-	assert_eq(GameRun.overclock_cost_at(3, _ids([Charm.SUPERCONDUCTOR])), 3)
-	assert_eq(GameRun.overclock_cost_at(0, _ids([Charm.SUPERCONDUCTOR])), 1,
-		"nie unter eine Energie - gratis übertaktet niemand")
-	assert_eq(GameRun.overclock_cost_at(9, _ids([Charm.SUPERCONDUCTOR, Charm.SUPERCONDUCTOR])), 3,
-		"der Deckel 5 minus zwei Exemplare")
+func test_the_superconductor_cuts_the_part_price():
+	assert_eq(CharmEffects.part_price(8, _ids([])), 8, "unverändert ohne Charm")
+	assert_eq(CharmEffects.part_price(8, _ids([Charm.SUPERCONDUCTOR])), 6)
+	assert_eq(CharmEffects.part_price(1, _ids([Charm.SUPERCONDUCTOR])), 1, "nie unter 1")
 
-func test_the_overclock_price_the_chip_shows_carries_the_charm():
-	run.combo_levels[PAIR] = 2
-	assert_eq(run.overclock_cost(PAIR), 3)
+func test_the_shop_price_of_a_part_carries_the_charm():
+	var part := ComboPart.resistor()
+	var plain := run.part_shop_price(part)
 	run.owned_charms.append(Charm.superconductor())
-	assert_eq(run.overclock_cost(PAIR), 2, "der Chip liest dieselbe Abfrage")
-	run.energy = 2
-	assert_true(run.can_overclock(PAIR))
-	assert_true(run.overclock_combo(PAIR))
-	assert_eq(run.energy, 0, "abgebucht wird der ermäßigte Preis")
+	assert_lt(run.part_shop_price(part), plain, "der Laden liest dieselbe Abfrage")
 
 # --- Dynamo & Trostpreis: zwei neue ⚡-Quellen -------------------------------------
 
