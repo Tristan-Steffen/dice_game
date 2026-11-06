@@ -11,8 +11,11 @@ func test_every_segment_of_the_limit_stands_from_the_start() -> void:
 	ring.set_energy(0, 5)
 	assert_eq(EnergyRingView.SEGMENTS, 50)
 	assert_not_null(ring.segment(49))
-	assert_eq(ring.segment(0).mesh, ring.segment(24).mesh, "außen ein Mesh")
-	assert_ne(ring.segment(24).mesh, ring.segment(25).mesh, "innen ein engeres")
+	var seen := {}
+	for i in EnergyRingView.SEGMENTS:
+		assert_not_null(ring.segment(i), "Segment %d steht im Modell" % i)
+		seen[ring.segment(i).get_instance_id()] = true
+	assert_eq(seen.size(), 50, "je Energie ein eigener Körper")
 
 func test_three_states_locked_awake_stored() -> void:
 	var ring := _ring()
@@ -67,21 +70,21 @@ func test_pulse_returns_to_the_rest_scale() -> void:
 	await wait_seconds(0.5)
 	assert_almost_eq(ring.scale.x, 2.0, 0.001)
 
-func test_groups_leave_a_wider_gap_than_segments() -> void:
-	var inside := EnergyRingView.segment_angle_deg(1) - EnergyRingView.segment_angle_deg(0)
-	var across := EnergyRingView.segment_angle_deg(5) - EnergyRingView.segment_angle_deg(4)
-	assert_gt(across, inside, "Fünfergruppen bleiben zählbar")
-	assert_almost_eq(EnergyRingView.segment_angle_deg(5) - EnergyRingView.segment_angle_deg(0),
-		72.0, 0.001)
-
 func test_no_light_and_no_shadow() -> void:
 	var ring := _ring()
 	ring.set_energy(4, 25)
-	for child in ring.get_children():
-		assert_false(child is Light3D)
-		if child is MeshInstance3D:
-			assert_eq((child as MeshInstance3D).cast_shadow,
-				GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	assert_eq(ring.find_children("*", "Light3D", true, false).size(), 0)
+	for mesh in ring.find_children("*", "MeshInstance3D", true, false):
+		assert_eq((mesh as MeshInstance3D).cast_shadow,
+			GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+
+func test_the_model_stands_proud_and_the_core_carries_the_number() -> void:
+	var ring := _ring()
+	ring.set_energy(4, 5)
+	var core := ring.find_child("Core", true, false) as MeshInstance3D
+	assert_not_null(core)
+	assert_almost_eq(core.get_aabb().end.y, EnergyRingView.CORE_TOP, 0.001, "Skript und Modell gleich hoch")
+	assert_gt(EnergyRingView.CORE_TOP, 0.3, "das Gehäuse ragt aus dem Tisch")
 
 func test_the_loose_elko_keeps_its_form() -> void:
 	var elko := ElkoBody.build()

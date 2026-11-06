@@ -2,25 +2,15 @@ class_name EnergyRingView
 extends Node3D
 ## Der Energie-Ring: der physische ⚡-Speicher im freien Chip-Platz. Ein Segment
 ## ist eine Energie: außen die ersten 25, innen die nächsten bis zum Limit, je in
-## Fünfergruppen. In der Mitte steht die Zahl. Liegt flach, weil der Tisch fast
-## senkrecht von oben gesehen wird; nur Emission, keine Lichter (TableGround: 16).
+## Fünfergruppen. In der Mitte steht die Zahl. Das Gehäuse ragt aus dem Tisch
+## (Modell aus tools/blender_energy_ring.py); nur Emission, keine Lichter (TableGround: 16).
 
 const SEGMENTS := GameRun.ENERGY_CAP_LIMIT
-const RING_SEGMENTS := SEGMENTS / 2
-const GROUP_SIZE := 5
-const GROUP_GAP_DEG := 5.0
-const SEGMENT_GAP_DEG := 1.4
-const SEGMENT_STEPS := 4
-const SEGMENT_HEIGHT := 0.05
-
+const MODEL_SCENE := "res://assets/models/hardware/energy_ring.glb"
+## Maße des Modells, im Skript gespiegelt.
 const BASE_RADIUS := 1.06
-const BASE_HEIGHT := 0.06
-const OUTER_RING := Vector2(0.81, 0.99)  # innen, außen
-const INNER_RING := Vector2(0.62, 0.77)
-const CORE_RADIUS := 0.58
-const CORE_HEIGHT := 0.07
+const CORE_TOP := 0.49
 
-const BASE_ALBEDO := Color(0.09, 0.10, 0.14)
 const CORE_ALBEDO := Color(0.02, 0.03, 0.05)
 const LOCKED_ALBEDO := Color(0.05, 0.06, 0.08)
 const LOCKED_EMISSION := Color(0.03, 0.05, 0.06)
@@ -53,6 +43,7 @@ var _empty_material: StandardMaterial3D
 var _locked_material: StandardMaterial3D
 var _sweep_material: StandardMaterial3D
 var _core_material: StandardMaterial3D
+static var _model_scene: PackedScene
 var _lit_materials := {}
 var _flashes := {}
 var _number: Label3D
@@ -114,57 +105,19 @@ func sweeping() -> bool:
 static func diameter() -> float:
 	return BASE_RADIUS * 2.0
 
-## Uhrzeigersinn ab Bild-oben, in Grad: Mitte des Segments i innerhalb seines Rings.
-static func segment_angle_deg(ring_index: int) -> float:
-	var group_span := 360.0 * float(GROUP_SIZE) / float(RING_SEGMENTS)
-	var span := _segment_span_deg()
-	@warning_ignore("integer_division")
-	var group := ring_index / GROUP_SIZE
-	var slot := ring_index % GROUP_SIZE
-	return float(group) * group_span + GROUP_GAP_DEG * 0.5 + span * 0.5 \
-		+ float(slot) * (span + SEGMENT_GAP_DEG)
-
-static func _segment_span_deg() -> float:
-	var group_span := 360.0 * float(GROUP_SIZE) / float(RING_SEGMENTS)
-	return (group_span - GROUP_GAP_DEG - SEGMENT_GAP_DEG * float(GROUP_SIZE - 1)) / float(GROUP_SIZE)
-
 func _build() -> void:
 	_build_materials()
-	var base_material := StandardMaterial3D.new()
-	base_material.albedo_color = BASE_ALBEDO
-	base_material.metallic = 0.7
-	base_material.roughness = 0.35
-	_add_disc("Base", BASE_RADIUS, BASE_HEIGHT, base_material)
-	_add_disc("Core", CORE_RADIUS, CORE_HEIGHT, _core_material)
-	var outer := _segment_mesh(OUTER_RING)
-	var inner := _segment_mesh(INNER_RING)
+	if _model_scene == null:
+		_model_scene = load(MODEL_SCENE) as PackedScene
+	var model := _model_scene.instantiate()
+	add_child(model)
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	(model.find_child("Core", true, false) as MeshInstance3D).material_override = _core_material
 	for i in SEGMENTS:
-		var seg := MeshInstance3D.new()
-		seg.name = "Segment%d" % i
-		seg.mesh = outer if i < RING_SEGMENTS else inner
-		seg.position.y = BASE_HEIGHT
-		# Bild-oben ist +X; eine positive Drehung um Y liefe gegen den Uhrzeigersinn.
-		seg.rotation.y = -deg_to_rad(segment_angle_deg(i % RING_SEGMENTS))
-		seg.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(seg)
-		_segments.append(seg)
+		_segments.append(model.find_child("Seg%02d" % i, true, false) as MeshInstance3D)
 	_number = _add_label("Number", NUMBER_FONT, NUMBER_Y, NUMBER_COLOR)
 	_cap_label = _add_label("Cap", CAP_FONT, CAP_Y, CAP_COLOR)
-
-func _add_disc(disc_name: String, radius: float, height: float, material: Material) -> void:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = height
-	mesh.radial_segments = 64
-	mesh.rings = 0
-	var disc := MeshInstance3D.new()
-	disc.name = disc_name
-	disc.mesh = mesh
-	disc.material_override = material
-	disc.position.y = height * 0.5
-	disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(disc)
 
 ## Liegend, Schriftrichtung Bild-rechts (+Z), Oberkante Bild-oben (+X).
 func _add_label(label_name: String, font: int, offset: float, color: Color) -> Label3D:
@@ -176,7 +129,7 @@ func _add_label(label_name: String, font: int, offset: float, color: Color) -> L
 	label.outline_size = 8
 	label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	label.basis = Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
-	label.position = Vector3(offset, CORE_HEIGHT + 0.01, 0.0)
+	label.position = Vector3(offset, CORE_TOP + 0.01, 0.0)
 	add_child(label)
 	return label
 
@@ -188,14 +141,12 @@ func _build_materials() -> void:
 	_empty_material.emission_enabled = true
 	_empty_material.emission = EMPTY_EMISSION
 	_empty_material.emission_energy_multiplier = EMPTY_ENERGY
-	_empty_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_locked_material = StandardMaterial3D.new()
 	_locked_material.albedo_color = LOCKED_ALBEDO
 	_locked_material.metallic = 0.5
 	_locked_material.roughness = 0.3
 	_locked_material.emission_enabled = true
 	_locked_material.emission = LOCKED_EMISSION
-	_locked_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_sweep_material = _new_lit_material()
 	_sweep_material.albedo_color = CasinoStyle.ENERGY
 	_core_material = StandardMaterial3D.new()
@@ -209,35 +160,7 @@ func _new_lit_material() -> StandardMaterial3D:
 	var lit := StandardMaterial3D.new()
 	lit.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	lit.albedo_color = CasinoStyle.ENERGY * LIT_SHARE
-	lit.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return lit
-
-## Ein Segment als Ringstück um Bild-oben (+X): Deckel und Außenkante genügen,
-## denn von unten sieht es niemand.
-func _segment_mesh(radii: Vector2) -> ArrayMesh:
-	var half := deg_to_rad(_segment_span_deg() * 0.5)
-	var surface := SurfaceTool.new()
-	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for step in SEGMENT_STEPS:
-		var a := lerpf(-half, half, float(step) / float(SEGMENT_STEPS))
-		var b := lerpf(-half, half, float(step + 1) / float(SEGMENT_STEPS))
-		var inner_a := _ring_point(radii.x, a, SEGMENT_HEIGHT)
-		var inner_b := _ring_point(radii.x, b, SEGMENT_HEIGHT)
-		var outer_a := _ring_point(radii.y, a, SEGMENT_HEIGHT)
-		var outer_b := _ring_point(radii.y, b, SEGMENT_HEIGHT)
-		_add_quad(surface, Vector3.UP, inner_a, outer_a, outer_b, inner_b)
-		var side := Vector3(cos((a + b) * 0.5), 0.0, sin((a + b) * 0.5))
-		_add_quad(surface, side, outer_a, _ring_point(radii.y, a, 0.0),
-			_ring_point(radii.y, b, 0.0), outer_b)
-	return surface.commit()
-
-static func _ring_point(radius: float, angle: float, y: float) -> Vector3:
-	return Vector3(cos(angle) * radius, y, sin(angle) * radius)
-
-static func _add_quad(surface: SurfaceTool, normal: Vector3, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
-	surface.set_normal(normal)
-	for point: Vector3 in [a, b, c, a, c, d]:
-		surface.add_vertex(point)
 
 func _apply() -> void:
 	_number.text = str(_energy)

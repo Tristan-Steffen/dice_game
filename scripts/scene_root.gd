@@ -54,10 +54,6 @@ const BANK_BAR_DRAIN_TIME := 0.45
 const ENERGY_COMET_COLOR := CasinoStyle.ENERGY
 
 ## --- Schwarzmarkt ---------------------------------------------------------------
-## Anteil des Platzes, den der Energie-Ring einnimmt - nur ein Saum zur Nachbarzelle.
-const ENERGY_RING_SLOT_FILL := 0.97
-## Der freie Chip-Platz ist flach; der Ring darf so viel höher in den Filz darunter.
-const ENERGY_RING_SLOT_TALL := 2.0
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
 ## Seitenverhältnis des Schwarzmarkt-Fensters. Früher schnitt die Glas-Ellipse
@@ -1235,9 +1231,7 @@ func _setup_table_screen() -> void:
 	table_screen.link_hub_to_treasure()
 	# Der Energie-Ring bekommt den freien Chip-Platz unten rechts im Cluster
 	# (zwischen Grube und Kombinationen), nicht die Geld-Ecke.
-	var free_slots := table_screen.free_cluster_slots()
-	if not free_slots.is_empty():
-		_setup_energy_ring(free_slots[free_slots.size() - 1])
+	_setup_energy_ring(table_screen.energy_ring_rect())
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
@@ -9614,17 +9608,15 @@ func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 ## auf das Platz-Verhältnis getrimmt, also füllen beide zugleich fast ganz - und
 ## kein Rundungsdrift kann die Bank je in die Nachbarzelle schieben. Bewusst auf
 ## blankem Filz, also NICHT spiegelnd (dort ist kein Glas).
-func _setup_energy_ring(slot: Rect2) -> void:
+func _setup_energy_ring(field: Rect2) -> void:
+	if field.size.x <= 0.0:
+		return
 	energy_ring = EnergyRingView.new()
 	energy_ring.name = "EnergyRing"
-	# Nach UNTEN in den freien Filz strecken (Oberkante bleibt an der Chip-Reihe).
-	slot = Rect2(slot.position, Vector2(slot.size.x, slot.size.y * ENERGY_RING_SLOT_TALL))
-	var center := table_screen.pixel_to_world(slot.get_center())
+	var center := table_screen.pixel_to_world(field.get_center())
 	energy_ring.position = Vector3(center.x, 0.0, center.z)
-	var a := table_screen.pixel_to_world(slot.position)
-	var b := table_screen.pixel_to_world(slot.end)
-	var fit := minf(absf(a.z - b.z), absf(a.x - b.x)) / EnergyRingView.diameter()
-	energy_ring.scale = Vector3.ONE * fit * ENERGY_RING_SLOT_FILL
+	var fit := field.size.x / table_screen.pixels_per_world() / EnergyRingView.diameter()
+	energy_ring.scale = Vector3.ONE * fit
 	add_child(energy_ring)
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).

@@ -2347,6 +2347,7 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 
 ## Aderbreite beider Hub-Leisten (schlank = zurückhaltend).
 const HUB_STRIP_WIDTH := 3.4 * SUPERSAMPLE
+const ENERGY_RING_AIR := 3.0 * SUPERSAMPLE
 
 ## Gemeinsame Korridor-Höhe beider Hub-Leisten: mittig zwischen Grube-Unterkante
 ## und Hub-Oberkante - dort läuft ihr waagerechter Teil (unter der Grube).
@@ -2357,6 +2358,17 @@ func _hub_strip_lane_y() -> float:
 		obstacle_bottom = pit_window.position.y + pit_window.size.y
 	var lane_y := (obstacle_bottom + hub_top) * 0.5
 	return minf(lane_y, hub_top - 6.0 * SUPERSAMPLE)  # zur Not knapp über der Hub-Oberkante
+
+## Der Platz des Energie-Rings: rechts neben „Höchste Zahl", von der Chip-Reihe bis
+## knapp über die Hub-Ader - er deckt keine Leiterbahn. Quadratisch, der Ring ist rund.
+func energy_ring_rect() -> Rect2:
+	var slots := free_cluster_slots()
+	if slots.is_empty():
+		return Rect2()
+	var slot: Rect2 = slots[slots.size() - 1]
+	var bottom := _hub_strip_lane_y() - HUB_STRIP_WIDTH * 0.5 - ENERGY_RING_AIR
+	var side := minf(slot.size.x, bottom - slot.position.y)
+	return Rect2(slot.get_center().x - side * 0.5, bottom - side, side, side)
 
 ## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Schatz rechts).
 func _hub_strip_exit_x(to_right: bool) -> float:
