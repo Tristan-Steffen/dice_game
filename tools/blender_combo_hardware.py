@@ -1,4 +1,4 @@
-"""Fumble: BAUTEIL-MODUL, seine BUCHSE und der Chip mit eingeformten Buchsen als .glb
+"""Fumble: MODUL, seine BUCHSE und der Chip mit eingeformten Buchsen als .glb
 (Spieler-Wunsch 2026-11-02 - Stecker und Buchse als passendes Paar wie bei der Datenkarte).
 
 Aufruf (kopflos):
@@ -6,7 +6,7 @@ Aufruf (kopflos):
 
 Vier Modelle, alle in Blender-Achsen gebaut (glTF: Godot (x, y, z) = Blender (x, -z, y)):
 
-  part_module.glb - das EINE Bauteil-Gehäuse in WELT-Maß. Ursprung = Mitte der
+  part_module.glb - das EINE Modul-Gehäuse in WELT-Maß. Ursprung = Mitte der
       Gehäuse-UNTERSEITE; darunter ragt der STECKER (3 x 3 Goldstifte), oben liegt das
       FENSTER, das Godot in der Phasen-Tönung leuchten läßt. Knoten: Gehaeuse, Fenster,
       Stecker.

@@ -25,7 +25,7 @@ signal pack_refunded(from_px: Vector2, amount: int)
 ## Die Auslage der Bucht hat sich geändert (Seite gezeigt, gekauft) - scene_root
 ## stellt die Körper nach. Der Laden fasst nie einen an.
 signal vitrine_changed
-## Ein Bauteil ist gekauft (gebucht in pending_parts): scene_root schickt es als
+## Ein Modul ist gekauft (gebucht in pending_parts): scene_root schickt es als
 ## Licht über die Hub-Cluster-Ader zu den Chips.
 signal part_purchased(from_px: Vector2)
 
@@ -34,7 +34,7 @@ signal part_purchased(from_px: Vector2)
 const KIND_ENGRAVING_PACK := "engraving_pack"
 const KIND_DIE := "die"
 const KIND_SPECIAL := "special"
-## Bauteil (als Körper im dritten Platz der Würfel-Bucht und im Schwarzmarkt).
+## Modul (als Körper im dritten Platz der Würfel-Bucht und im Schwarzmarkt).
 const KIND_PART := "part"
 
 ## Die zwei ANKUNFTS-GRADE der Auslage: STEIGEN heißt, dass Ware durch die Fläche
@@ -146,7 +146,7 @@ class MenuSpread:
 	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	## Der Bauteil-Platz der Würfel-Bucht (SHOP_PART_SLOTS, mit der Seite gewürfelt).
+	## Der Modul-Platz der Würfel-Bucht (SHOP_PART_SLOTS, mit der Seite gewürfelt).
 	var part_options: Array[ComboPart] = []
 	var part_bought: Array[bool] = []
 	## Einzelstücke der Schale: OFFENE Würfel, alles vor dem Kauf sichtbar - der
@@ -266,7 +266,7 @@ var _net_growing := false
 ## Und läuft sie RÜCKWÄRTS? Dann räumt die Absorption die Blöcke am Ende selbst ab.
 var _net_absorbing := false
 var _net_grow_tween: Tween
-var _net_dice: Array = []  # je Block sein Würfel (DieDefinition) oder Bauteil (ComboPart)
+var _net_dice: Array = []  # je Block sein Würfel (DieDefinition) oder Modul (ComboPart)
 ## Je Block sein Preisschild - dieselbe Quelle wie der Kauf (single_dice_prices).
 var _net_prices: Array[Label] = []
 ## Und darüber die NAMENS-Zeile: die Seele im Glühton der Essenz, sonst der Name.
@@ -303,7 +303,7 @@ var charm_thumbs: Array[Control] = []
 var charm_stages: Array[Control] = []
 var charm_effects: Array[Label] = []
 var charm_bought: Array[bool] = []
-## Der Bauteil-Platz: Karte, Mittelfläche (Glyphe/Text) und Preiszeile je Teil.
+## Der Modul-Platz: Karte, Mittelfläche (Glyphe/Text) und Preiszeile je Teil.
 var part_options: Array[ComboPart] = []
 var part_bought: Array[bool] = []
 var engraving_packs: Array[Pack] = []
@@ -433,7 +433,7 @@ func _build_layout() -> void:
 	dice_band.name = "DiceBand"
 	dice_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
 	dice_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dice_band.add_child(_heading_row("WÜRFEL & BAUTEILE"))
+	dice_band.add_child(_heading_row("WÜRFEL & MODULE"))
 	vitrine_slot = dice_band
 	var shelf := VBoxContainer.new()
 	shelf.name = "DiceShelf"
@@ -860,7 +860,7 @@ func _footer_font(font: Font, text: String, block: Vector2, bay_u: float) -> int
 	return smallest
 
 ## Der EINE Schreiber der Auskunft der Bucht (null = nichts gegriffen): ein Würfel
-## nennt Name, Seele und Wirkung, ein Bauteil Name, Phase, Wirkung und Preis.
+## nennt Name, Seele und Wirkung, ein Modul Name, Phase, Wirkung und Preis.
 ## Idempotent je Instanz.
 func set_die_hover(def: DieDefinition) -> void:
 	set_ware_hover(def)
@@ -877,7 +877,7 @@ func set_ware_hover(item: Object) -> void:
 		text = part_foot_text(item)
 	set_net_hint(text)
 
-## Die Auskunft eines Bauteils als EINE Zeile.
+## Die Auskunft eines Moduls als EINE Zeile.
 func part_foot_text(part: ComboPart) -> String:
 	var index := part_options.find(part)
 	var tag := part_tag(index) if index >= 0 else ""
@@ -959,7 +959,7 @@ func die_at_net(pixel: Vector2) -> DieDefinition:
 			return _net_dice[i] as DieDefinition
 	return null
 
-## Das Bauteil, über dessen Wirkungs-Zeile der Zeiger liegt (null = keins).
+## Das Modul, über dessen Wirkungs-Zeile der Zeiger liegt (null = keins).
 func part_at_net(pixel: Vector2) -> ComboPart:
 	if _net_growing:
 		return null
@@ -1038,7 +1038,7 @@ func set_die_nets(entries: Array, grow := false) -> void:
 	if grow:
 		_grow_die_nets()
 
-## Der Block des BAUTEILS in derselben Grammatik wie ein Würfel: über der Bucht Name
+## Der Block des MODULS in derselben Grammatik wie ein Würfel: über der Bucht Name
 ## (in der Phasen-Tönung) und Preis, darunter statt des Netzes seine Wirkung.
 func _build_part_block(entry: Dictionary, soul_height: float, gap: float, net_top: float) -> void:
 	var part: ComboPart = entry["part"]
@@ -1981,7 +1981,7 @@ func _refresh_ware_prices() -> void:
 		mark.text = price_text(price)
 		mark.modulate = price_tint(price, money)
 
-## Steckplätze belegt oder Teil wartend: die VOLL-Marke des Bauteil-Platzes zieht nach.
+## Steckplätze belegt oder Teil wartend: die VOLL-Marke des Modul-Platzes zieht nach.
 func _on_run_parts_changed(_key = "") -> void:
 	if _live():
 		_refresh_ware_prices()
@@ -2044,14 +2044,14 @@ func finish_close() -> void:
 func leaving() -> bool:
 	return _leaving
 
-# --- Der BAUTEIL-Platz der Würfel-Bucht ----------------------------------------
+# --- Der MODUL-Platz der Würfel-Bucht ----------------------------------------
 
 func part_price(index: int) -> int:
 	if run == null or index < 0 or index >= part_options.size():
 		return 0
 	return run.part_shop_price(part_options[index])
 
-## Die Preiszeile des Bauteil-Platzes: gekauft, voll oder der Preis.
+## Die Preiszeile des Modul-Platzes: gekauft, voll oder der Preis.
 func part_tag(index: int) -> String:
 	if index < 0 or index >= part_bought.size():
 		return ""
@@ -2061,7 +2061,7 @@ func part_tag(index: int) -> String:
 		return PARTS_FULL_TAG
 	return price_text(part_price(index))
 
-## Ist der Bauteil-Platz gerade kaufbar? Sonst steht sein Schild rot.
+## Ist der Modul-Platz gerade kaufbar? Sonst steht sein Schild rot.
 func part_buyable(index: int) -> bool:
 	if run == null or index < 0 or index >= part_options.size() or part_bought[index]:
 		return false

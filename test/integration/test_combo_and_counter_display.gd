@@ -1,6 +1,6 @@
 extends GutTest
 ## Zwei Anzeige-Regeln: ein Chip zeigt sofort den sicheren Wert seiner
-## Bauteile, und ein Zähler-Charm zeigt seinen laufenden Stand dauerhaft am
+## Module, und ein Zähler-Charm zeigt seinen laufenden Stand dauerhaft am
 ## Dock-Pad.
 
 # --- Kombinations-Chip: Zelle rechnet, Chip spiegelt --------------------------------

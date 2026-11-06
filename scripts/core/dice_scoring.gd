@@ -3,7 +3,7 @@ class_name DiceScoring
 ## Basiswert = feste Kategorie-Punkte + beteiligte Würfelaugen. Verwandlungs-
 ## Charms (CharmEffects.transform_values) ändern die Augen VOR der Erkennung -
 ## eine verwandelte 1 IST eine 6, auch für die Kategorie. Alle anderen Charms,
-## Materialien und Bauteile verändern nur die Wertung.
+## Materialien und Module verändern nur die Wertung.
 
 # Kategorie-Keys als Konstanten: ein Tippfehler wird Compilerfehler statt
 # einer still nie zutreffenden Kategorie.
@@ -21,7 +21,7 @@ const LARGE_STRAIGHT := "large_straight"
 const FIVE_KIND := "five_kind"
 const SIX_KIND := "six_kind"
 
-## Grundwerte je Kategorie; was darüber hinausgeht, stecken Bauteile in den Chip.
+## Grundwerte je Kategorie; was darüber hinausgeht, stecken Module in den Chip.
 const CATEGORIES := [
 	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5},
 	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10},
@@ -722,7 +722,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	for step in ComboPartEffects.combo_steps(combo_parts, key):
 		base += int(step["points"])
 		mult += float(step["mult"])
-	# Acetylen und Schneidbrenner zählen die Bauteile der Kombination.
+	# Acetylen und Schneidbrenner zählen die Module der Kombination.
 	var part_count := ComboPartEffects.part_count(chip)
 	var ends := ComboPartEffects.combo_ends(shape["order"], participating)
 	var essences := essence_sets_in(ctx)
@@ -1083,7 +1083,7 @@ static func _participating_unsorted(key: String, dice: Array[int], charm_ids: Ar
 ## Farkle-Regel: sicher ist ein Neu-Würfeln nur, wenn die neue Hand im RANG
 ## (HAND_PRIORITY) strikt höher steht - Punkte entscheiden nie. Gleicher Rang
 ## farklet also auch mit mehr Augen, und ein Dreier- auf einen Viererpasch kann
-## nie farkeln. Materialien und Bauteile bleiben in der Signatur, weil
+## nie farkeln. Materialien und Module bleiben in der Signatur, weil
 ## sie zur Hand gehören; auf den Vergleich wirken sie nicht mehr. Die Drossel im
 ## ctx dagegen schon - sie entscheidet, WELCHE Kategorie best_hand liefert. ctx
 ## gilt für beide Seiten gleich - AUSSER die alte Seite bringt ihr eigenes old_ctx

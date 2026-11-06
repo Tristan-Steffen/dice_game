@@ -209,7 +209,7 @@ static func sink_drop() -> float:
 static func slot_key(kind: String, index: int) -> String:
 	return "%s:%d" % [kind, index]
 
-## Die Zone eines Platzes: die offene Ware (Würfel und Bauteil) liegt in der
+## Die Zone eines Platzes: die offene Ware (Würfel und Modul) liegt in der
 ## Schale, alles Versiegelte im Regal.
 static func zone_of(kind: String) -> int:
 	if kind == ShopController.KIND_DIE or kind == ShopController.KIND_PART:
@@ -591,7 +591,7 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var dice: Array = stock.get(ShopController.KIND_DIE, [])
 	for i in dice.size():
 		entries.append({"kind": ShopController.KIND_DIE, "index": i, "value": dice[i]})
-	# Das Bauteil des Ladens steht auf dem Platz hinter den Würfeln.
+	# Das Modul des Ladens steht auf dem Platz hinter den Würfeln.
 	var parts: Array = stock.get(ShopController.KIND_PART, [])
 	for i in parts.size():
 		entries.append({"kind": ShopController.KIND_PART, "index": i, "value": parts[i]})
@@ -658,7 +658,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 			if String(kinds[i]) == ShopController.KIND_ENGRAVING_PACK:
 				entries.append({"kind": ShopController.KIND_ENGRAVING_PACK, "index": i,
 					"pack": packs[i] if i < packs.size() else null})
-		# Bauteile liegen zwischen Kassetten und Würfel.
+		# Module liegen zwischen Kassetten und Würfel.
 		for i in kinds.size():
 			if String(kinds[i]) == ShopController.KIND_PART:
 				entries.append({"kind": ShopController.KIND_PART, "index": i,
@@ -731,7 +731,7 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 				"spot": spot, "node": body, "cell": null, "radius": die_radius})
 			_stage(key, body, spot, grade, zone, stage, die_radius)
 
-## Kantenlänge eines Bauteils - dieselbe wie im Steckplatz (EINE Größe je Ding).
+## Kantenlänge eines Moduls - dieselbe wie im Steckplatz (EINE Größe je Ding).
 static func part_side() -> float:
 	return ComboPartBody.SIDE
 

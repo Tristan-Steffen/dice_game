@@ -36,7 +36,7 @@ func _die(faces: Array, face_material := "", essence_id := "") -> DieDefinition:
 	def.essence_id = essence_id
 	return def
 
-# --- Acetylen & Schneidbrenner: beide je Bauteil der Kombination -----------------
+# --- Acetylen & Schneidbrenner: beide je Modul der Kombination -----------------
 
 func test_acetylene_pays_per_combo_part():
 	assert_eq(EssenceEffects.combo_part_base_of(_ids([Essence.ACETYLENE]), 3),
@@ -60,9 +60,9 @@ func test_acetylene_and_the_torch_land_in_the_score():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
 		_m(["", ""]), parts, {}), (40 + 10) * 2)
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m(["", ""]), parts, soul), (40 + 10 + 20) * 2, "+10 Basis je Bauteil")
+		_m(["", ""]), parts, soul), (40 + 10 + 20) * 2, "+10 Basis je Modul")
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), _ids([Charm.CUTTING_TORCH]),
-		false, _m(["", ""]), parts, soul), (40 + 10 + 20) * (2 + 6), "+3 Mult je Bauteil obendrauf")
+		false, _m(["", ""]), parts, soul), (40 + 10 + 20) * (2 + 6), "+3 Mult je Modul obendrauf")
 
 func test_acetylene_stays_dark_without_parts():
 	var soul := {DiceScoring.CTX_ESSENCES: {0: Essence.ACETYLENE}}

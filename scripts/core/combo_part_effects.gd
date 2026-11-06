@@ -1,5 +1,5 @@
 class_name ComboPartEffects
-## Wirkung der Bauteile in den Steckplätzen der Kombinations-Chips - rein und
+## Wirkung der Module in den Steckplätzen der Kombinations-Chips - rein und
 ## statisch, über die ComboPart-id verteilt. combo_parts ist Key -> Array
 ## (ComboPart oder null je Steckplatz); stillgelegte Teile kommen als null an.
 

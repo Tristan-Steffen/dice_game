@@ -61,7 +61,7 @@ func test_every_shelf_carries_three_places_on_every_tier():
 		shop.spreads.clear()
 		shop.open()
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: drei Charms" % tier)
-		assert_eq(shop.part_options.size(), 1, "Stufe %d: ein Bauteil" % tier)
+		assert_eq(shop.part_options.size(), 1, "Stufe %d: ein Modul" % tier)
 		assert_eq(shop.single_dice.size(), 2, "Stufe %d: zwei Würfel" % tier)
 		assert_eq(shop.slit_seats().size(), 3, "Stufe %d: drei Gravuren" % tier)
 
@@ -636,7 +636,7 @@ func test_the_vitrine_rect_survives_a_page_flip() -> void:
 		"die Bucht steht fest - geblättert wird die Ware, nicht das Möbel")
 
 func test_the_bay_carries_only_open_goods() -> void:
-	# In der Bucht liegt NUR offene Ware - Würfel und das Bauteil; alles
+	# In der Bucht liegt NUR offene Ware - Würfel und das Modul; alles
 	# Versiegelte steckt in den Kassetten-Schlitzen des Tisches.
 	var stock: Dictionary = shop.vitrine_stock()
 	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size())
@@ -1001,7 +1001,7 @@ func test_the_three_shelves_share_one_column_grid() -> void:
 	assert_eq(slits.size(), 3)
 	assert_eq(dice.size(), 3)
 	for i in 3:
-		# Der dritte Platz der Würfel-Bucht trägt das Bauteil.
+		# Der dritte Platz der Würfel-Bucht trägt das Modul.
 		var card: Rect2 = shop.charm_buttons[i].get_global_rect()
 		assert_almost_eq(slits[i].x, dice[i].x, 0.5, "Gravur %d steht über Würfel %d" % [i, i])
 		assert_almost_eq(card.get_center().x, dice[i].x, 0.5, "Karte %d über Würfel %d" % [i, i])
@@ -1702,20 +1702,20 @@ func test_a_hard_abort_mid_absorption_clears_the_shrinking_blocks() -> void:
 	await wait_seconds(ShopController.NET_GROW_TIME + 0.2)
 	assert_eq(shop.net_count(), 0, "auch nachträglich stellt niemand mehr etwas")
 
-# --- Das BAUTEIL in der Würfel-Bucht ---------------------------------------------
+# --- Das MODUL in der Würfel-Bucht ---------------------------------------------
 
 func test_the_dice_bay_holds_two_dice_and_a_part() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
 	assert_eq(shop.single_dice.size(), 2, "zwei Würfel")
-	assert_eq(shop.part_options.size(), 1, "und ein Bauteil")
+	assert_eq(shop.part_options.size(), 1, "und ein Modul")
 	assert_false(shop.part_options[0].secret, "der Laden führt keine Schwarzmarkt-Teile")
 	var seats: Array[Vector2] = shop.die_seats_px()
-	assert_eq(seats.size(), 3, "das Bauteil steht auf dem dritten Platz")
+	assert_eq(seats.size(), 3, "das Modul steht auf dem dritten Platz")
 	assert_eq(shop.part_tag(0), ShopController.price_text(run.part_shop_price(shop.part_options[0])))
 	assert_eq(shop.find_children("PartCard", "", true, false).size(), 0,
-		"im Charm-Regal steht keine Bauteil-Karte mehr")
+		"im Charm-Regal steht keine Modul-Karte mehr")
 
 func test_buying_the_bay_part_books_it_and_leaves_a_gap() -> void:
 	var sent: Array = []
@@ -1747,7 +1747,7 @@ func test_the_part_block_names_it_and_its_price_turns_red() -> void:
 	var part: ComboPart = shop.part_options[0]
 	var strip: Rect2 = shop.vitrine_rect_px()
 	shop.set_die_nets([{"part": part, "anchor": shop.die_seats_px()[2] - strip.position}])
-	assert_eq(shop._net_souls[0].text, part.display_name, "der Kopf nennt das Bauteil")
+	assert_eq(shop._net_souls[0].text, part.display_name, "der Kopf nennt das Modul")
 	assert_eq(shop._net_prices[0].text, shop.part_tag(0))
 	assert_eq(shop._net_prices[0].modulate, ShopController.NEON_GOLD)
 	run.money = 0
@@ -1760,5 +1760,5 @@ func test_a_new_spread_rolls_a_new_part_with_the_dice() -> void:
 	var first: ComboPart = shop.part_options[0]
 	shop.spreads.clear()
 	shop.open()
-	assert_eq(shop.spreads[0].part_options.size(), 1, "jede Auslage trägt ihr Bauteil")
+	assert_eq(shop.spreads[0].part_options.size(), 1, "jede Auslage trägt ihr Modul")
 	assert_ne(shop.part_options[0], first, "neu gewürfelt mit den Würfeln")

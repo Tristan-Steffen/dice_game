@@ -87,7 +87,7 @@ func _draw() -> void:
 		HORIZONTAL_ALIGNMENT_CENTER, body.size.x - pad * 2.0, name_font, NEON_DIM)
 
 	# Breite der Wertung zuerst - die Würfelreihe darf nie in die (durch
-	# Bauteile wachsenden) Zahlen laufen.
+	# Module wachsenden) Zahlen laufen.
 	var mult_text := "×%d" % mult
 	var mult_text_width := font.get_string_size(mult_text, HORIZONTAL_ALIGNMENT_RIGHT, -1, mult_font).x
 	var points_width := font.get_string_size(str(points), HORIZONTAL_ALIGNMENT_RIGHT, -1, points_font).x

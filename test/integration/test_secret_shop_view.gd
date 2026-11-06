@@ -158,7 +158,7 @@ func test_the_stock_maps_every_slot_to_its_body() -> void:
 			assert_null(packs[i])
 			assert_null(dice[i])
 			assert_eq(stock[ShopController.KIND_PART][i], run.secret_stock[i][GameRun.OFFER_ITEM],
-				"das Bauteil liegt als Körper in der Bucht")
+				"das Modul liegt als Körper in der Bucht")
 		else:
 			assert_not_null(packs[i], "Sonderbestand steht als versiegelte Kassette")
 			assert_eq(Pack.shelf_of(packs[i]), Pack.SHELF_SPECIAL)
@@ -192,7 +192,7 @@ func test_row_kinds_survive_a_sale() -> void:
 	assert_ne(String(after[1]), "", "auch der verkaufte Platz nennt seine Sorte")
 
 func test_a_purchase_reports_every_pack_it_booked() -> void:
-	# Platz 1 muss versiegelte Ware tragen - ein Bauteil meldet kein Paket.
+	# Platz 1 muss versiegelte Ware tragen - ein Modul meldet kein Paket.
 	if run.secret_stock[1][GameRun.OFFER_KIND] == GameRun.KIND_PART:
 		run.secret_stock[1] = run._secret_engraving_offer()
 		view.refresh()

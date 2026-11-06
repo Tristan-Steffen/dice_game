@@ -864,7 +864,7 @@ static func fuse() -> Charm:
 	return _make(FUSE, "Zündschnur", "Knallgas zündet stärker: +$3 statt +$1 je folgendem Würfel im Stapel.")
 
 static func cutting_torch() -> Charm:
-	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Bauteil der Kombination.")
+	return _make(CUTTING_TORCH, "Schneidbrenner", "Acetylen gibt zusätzlich +3 Mult je Modul der Kombination.")
 
 static func moderator() -> Charm:
 	return _make(MODERATOR, "Steuerstab", "Tscherenkow-Krits kosten keine Energie und schlagen ×(gelagerte Energie).")
@@ -896,7 +896,7 @@ static func radio_telescope() -> Charm:
 # --- Energie & Serie ---
 
 static func superconductor() -> Charm:
-	return _make(SUPERCONDUCTOR, "Supraleiter", "Bauteile kosten 25 % weniger (mindestens 1).")
+	return _make(SUPERCONDUCTOR, "Supraleiter", "Module kosten 25 % weniger (mindestens 1).")
 
 static func dynamo() -> Charm:
 	return _make(DYNAMO, "Dynamo", "Jede erfolgreich abgeschlossene Runde wirft 1 ⚡ ab.")

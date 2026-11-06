@@ -35,7 +35,7 @@ const BASE_GOAL := 150
 ## Zuwachs je Runde im ERSTEN Block; er verdoppelt sich mit jedem weiteren.
 const GOAL_INCREMENT := 75
 ## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen. Die
-## Wertung wächst multiplikativ (Bauteile, Gravuren, Charms) - ein konstanter
+## Wertung wächst multiplikativ (Module, Gravuren, Charms) - ein konstanter
 ## Zuwachs würde daher von Block zu Block leichter.
 const GOAL_BLOCK := 6
 
@@ -105,7 +105,7 @@ const TIER_MAX := 10
 
 ## Feste Shop-Platzzahlen (Spieler-Entscheid 2026-10-25): drei Regale zu je drei
 ## Plätzen, jede Runde gleich. Mit der Stufe wächst nur die Qualität.
-## Das Würfel-Regal trägt zwei Würfel und als dritten Platz ein Bauteil (Spec Seite 35).
+## Das Würfel-Regal trägt zwei Würfel und als dritten Platz ein Modul (Spec Seite 35).
 const SHOP_CHARM_SLOTS := 3
 const SHOP_PART_SLOTS := 1
 const SHOP_DICE_SLOTS := 2
@@ -175,7 +175,7 @@ var active_side_bets: Array[SideBet] = []
 ## Steckplätze je Kombination (Key -> Array aus ComboPart oder null, Länge =
 ## socket_count). Gelesen wird über parts_of, geschrieben nur hier.
 var combo_parts: Dictionary = {}
-## Gekaufte oder gewonnene Bauteile, die noch ihren Steckplatz suchen (wie
+## Gekaufte oder gewonnene Module, die noch ihren Steckplatz suchen (wie
 ## pending_dice: die Strecke bis zur Wahl, kein Lager).
 var pending_parts: Array[ComboPart] = []
 ## Hitzestau: die für DIESE Runde stillgelegten Teile (Instanz-id -> true).
@@ -943,7 +943,7 @@ func _consume_series_cards(indices: Array[int], rng: RandomNumberGenerator) -> i
 		owned_packs.remove_at(burned[k])
 	return kept
 
-# --- Steckplätze: Bauteile auf den Kombinations-Chips -------------------------
+# --- Steckplätze: Module auf den Kombinations-Chips -------------------------
 
 ## Grundzahl der Steckplätze je Chip - alle ab Runde 1 offen.
 const SOCKETS_PER_COMBO := 3
@@ -968,7 +968,7 @@ func free_socket_count() -> int:
 		free += socket_count(key) - ComboPartEffects.part_count(combo_parts.get(key, []))
 	return free
 
-## Hat ein weiteres Bauteil noch Platz? Die wartenden zählen schon mit.
+## Hat ein weiteres Modul noch Platz? Die wartenden zählen schon mit.
 func parts_room() -> bool:
 	return free_socket_count() - pending_parts.size() >= 1
 
@@ -984,11 +984,11 @@ func scoring_parts() -> Dictionary:
 		out[key] = sockets
 	return out
 
-## Ladenpreis eines Bauteils in $ (Supraleiter, dann Inflation/Skonto).
+## Ladenpreis eines Moduls in $ (Supraleiter, dann Inflation/Skonto).
 func part_shop_price(part: ComboPart) -> int:
 	return shop_price(CharmEffects.part_price(part.price, charm_ids()))
 
-## Ein Laden-Bauteil für das Würfel-Regal (nie ein Schwarzmarkt-Teil).
+## Ein Laden-Modul für das Würfel-Regal (nie ein Schwarzmarkt-Teil).
 func roll_shop_part(rng: RandomNumberGenerator = null) -> ComboPart:
 	return ComboPart.roll_shop(rng)
 
@@ -1001,7 +1001,7 @@ func purchase_part(part: ComboPart, price: int) -> bool:
 	stash_part(part)
 	return true
 
-## Bucht ein Bauteil in pending_parts - als EIGENE Instanz (Zählwerk-Zustand).
+## Bucht ein Modul in pending_parts - als EIGENE Instanz (Zählwerk-Zustand).
 func stash_part(part: ComboPart) -> void:
 	pending_parts.append(part.instantiate())
 	pending_parts_changed.emit()
@@ -1180,7 +1180,7 @@ static func is_stress_round(n: int) -> bool:
 static func block_of_round(n: int) -> int:
 	return (n - 1) / GOAL_BLOCK
 
-## Die heißesten Chips zuerst: die meisten Bauteile, bei Gleichstand der
+## Die heißesten Chips zuerst: die meisten Module, bei Gleichstand der
 ## ranghöhere (HAND_PRIORITY). Deterministisch, damit der Spieler im Shop davor
 ## planen kann. "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand und bleibt
 ## darum immer wertbar - sie wird nie gedrosselt.
@@ -2179,7 +2179,7 @@ func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	return won
 
 ## Schüttet EINEN gewonnenen Einsatz aus. Der Quotenbonus-Faktor greift auf
-## Geld, Ware und Energie - Einzelstücke (Sonderposten, Paket, Bauteil)
+## Geld, Ware und Energie - Einzelstücke (Sonderposten, Paket, Modul)
 ## verdoppelt er nicht. JEDES gewährte Paket wird in awarded_packs GEMERKT
 ## (und jedes am vollen Magazin zerfallene gezählt): die Auszahlungs-Seite
 ## hält die Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
@@ -2433,7 +2433,7 @@ const KIND_DIE := "die"
 ## zweite Ware des Sonderposten-Platzes.
 const KIND_CATALYST := "catalyst"
 const KIND_BLANK := "blank"
-## Ein Bauteil (nur die vervielfachenden Schwarzmarkt-Teile).
+## Ein Modul (nur die vervielfachenden Schwarzmarkt-Teile).
 const KIND_PART := "part"
 
 ## Umrechnungskurs des Hinterzimmers: EIN Sonderposten kostet dort 3 ⚡, im Regal
@@ -2447,7 +2447,7 @@ const SECRET_REPAIR_CHANCE := 0.2
 ## Eigene Ziehchance des ROHLINGS - er wird nach der Reparatur-Karte gezogen und ist
 ## wie sie NUR hier zu haben (nie in Pack.SPECIAL_ROLL_WEIGHTS).
 const SECRET_BLANK_CHANCE := 0.25
-## Eigene Ziehchance eines Bauteils im Sonderbestand-Platz.
+## Eigene Ziehchance eines Moduls im Sonderbestand-Platz.
 const SECRET_PART_CHANCE := 0.25
 
 ## ⚡-Preis eines Dollar-Preises im Hinterzimmer, aufgerundet und nie unter 1.
@@ -2636,7 +2636,7 @@ func _secret_blank_card() -> Dictionary:
 	return _secret_offer(KIND_BLANK, Pack.blank_card(),
 		secret_energy_price(Pack.BLANK_PRICE))
 
-## Ein vervielfachendes Bauteil - nur hier zu haben, Preis in ⚡ aus seinem
+## Ein vervielfachendes Modul - nur hier zu haben, Preis in ⚡ aus seinem
 ## Grundpreis (Supraleiter drückt ihn in secret_offer_price).
 func _secret_part_offer() -> Dictionary:
 	var part := ComboPart.roll_secret()

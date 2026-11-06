@@ -52,7 +52,7 @@ const STORM_FACTOR := 4
 ## Charm zählt er jeden Essenz-Würfel einfach).
 const SOLAR_SAIL_PER_ESSENCE := 2
 
-## Acetylen brennt je Bauteil der Kombination; der Schneidbrenner legt Mult auf
+## Acetylen brennt je Modul der Kombination; der Schneidbrenner legt Mult auf
 ## dieselbe Zahl. Ein leerer Chip gibt beide Male nichts.
 const ACETYLENE_PER_PART := 10
 const CUTTING_TORCH_PER_PART := 3
@@ -253,7 +253,7 @@ static func trigger_eye_bonus(essence_id: String, triggers_before: int) -> int:
 		return 0
 	return PHOTON_EYE_PER_TRIGGER * maxi(0, triggers_before)
 
-## Acetylen: Basispunkte je Bauteil der genommenen Kombination, je Auslösung. Der
+## Acetylen: Basispunkte je Modul der genommenen Kombination, je Auslösung. Der
 ## Schneidbrenner legt Mult auf dieselbe Zahl.
 static func combo_part_base(essence_id: String, part_count: int) -> int:
 	if essence_id != Essence.ACETYLENE:

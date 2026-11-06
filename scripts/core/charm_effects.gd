@@ -816,7 +816,7 @@ const CONSOLATION_ENERGY := 1
 static func fumble_energy(charm_ids: Array[String]) -> int:
 	return charm_ids.count(Charm.CONSOLATION_PRIZE) * CONSOLATION_ENERGY
 
-## Supraleiter: Bauteile kosten je Vorkommen 25 % weniger - in $ wie in ⚡,
+## Supraleiter: Module kosten je Vorkommen 25 % weniger - in $ wie in ⚡,
 ## abgerundet und nie unter 1.
 const SUPERCONDUCTOR_PART_FACTOR := 0.75
 

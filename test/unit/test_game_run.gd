@@ -1728,7 +1728,7 @@ func test_grant_pack_costs_nothing():
 
 func test_part_payout_stashes_the_named_part():
 	var bet := SideBet._from_template(_template("patent"))
-	assert_ne(bet.reward_part_id, "", "das Bauteil steht ab der Auslage fest")
+	assert_ne(bet.reward_part_id, "", "das Modul steht ab der Auslage fest")
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true,

@@ -1,5 +1,5 @@
 extends GutTest
-## Steckplätze und Bauteile: jede Wirkung, die feste Reihenfolge der Schritte,
+## Steckplätze und Module: jede Wirkung, die feste Reihenfolge der Schritte,
 ## die Spiegelgleichheit von Wertung, Schrittliste und Nehmen-Effekten und die
 ## GameRun-Wege (Einbau, Umstecken, Kauf, Schwarzmarkt, Zählwerk, Hitzestau).
 

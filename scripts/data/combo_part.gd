@@ -1,10 +1,10 @@
 class_name ComboPart
 extends Resource
-## Ein BAUTEIL für einen Steckplatz eines Kombinations-Chips. Nur Anzeige-Daten
+## Ein MODUL für einen Steckplatz eines Kombinations-Chips. Nur Anzeige-Daten
 ## und die Phase; die Wirkung löst ComboPartEffects über die id auf. Teile
 ## tragen Zustand (Zählwerk), darum wird jedes beim Erwerb instanziiert.
 
-# --- Bauteil-ids (Single Source of Truth) ---
+# --- Modul-ids (Single Source of Truth) ---
 const RESISTOR := "resistor"
 const CAPACITOR := "capacitor"
 const COIL := "coil"
@@ -184,7 +184,7 @@ static func high_voltage_tube() -> ComboPart:
 	return _make(HIGH_VOLTAGE_TUBE, "Hochspannungsröhre", "×2 Mult.", PHASE_CRIT, 50, true)
 
 static func coupling() -> ComboPart:
-	return _make(COUPLING, "Kopplung", "Kopiert das stärkste Kombi-Teil des Chips links daneben.", PHASE_COMBO, 50, true)
+	return _make(COUPLING, "Kopplung", "Kopiert das stärkste Kombi-Modul des Chips links daneben.", PHASE_COMBO, 50, true)
 
 static func expansion_board() -> ComboPart:
 	return _make(EXPANSION_BOARD, "Erweiterungsplatine", "Belegt einen Steckplatz und gibt dem Chip zwei neue.", PHASE_NONE, 40, true)
@@ -223,11 +223,11 @@ static func pick_weighted(candidates: Array[ComboPart], rng: RandomNumberGenerat
 			return part
 	return candidates.back()
 
-## Ein Laden-Bauteil (nie ein Schwarzmarkt-Teil), frisch.
+## Ein Laden-Modul (nie ein Schwarzmarkt-Teil), frisch.
 static func roll_shop(rng: RandomNumberGenerator = null) -> ComboPart:
 	return pick_weighted(pool(false), rng)
 
-## Ein Schwarzmarkt-Bauteil, frisch.
+## Ein Schwarzmarkt-Modul, frisch.
 static func roll_secret(rng: RandomNumberGenerator = null) -> ComboPart:
 	return pick_weighted(pool(true), rng)
 

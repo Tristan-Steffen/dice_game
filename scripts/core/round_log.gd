@@ -17,7 +17,7 @@ const STEP_COMBO := "combo"
 const STEP_COMBO_FACTOR := "combo_factor"  # eine Doppelter-Boden-Kopie
 const STEP_FIRING := "firing"
 const STEP_CRIT := "crit"
-const STEP_PART := "part"  # ein Kombi-Bauteil; Krit-Bauteile sind STEP_CRIT mit part_slots
+const STEP_PART := "part"  # ein Kombi-Modul; Krit-Module sind STEP_CRIT mit part_slots
 const STEP_LINK := "link"
 const STEP_DET_LINK := "det_link"
 const STEP_CHARM := "charm"
@@ -82,8 +82,8 @@ func advance(cursor: Vector2i, delta: int) -> Vector2i:
 
 ## Zerlegt einen (bereits auf echte Slots geremappten) Breakdown in die lineare
 ## Schrittliste. Reihenfolge exakt wie _play_take_animation: Kombination, ihre
-## Bauteile, je Würfel-Schritt die Gruppen der Würfel-Achse (Zündungen mit ihren
-## Krits, dann die Glieder), zuletzt die Essenz-Glieder; danach die Krit-Bauteile,
+## Module, je Würfel-Schritt die Gruppen der Würfel-Achse (Zündungen mit ihren
+## Krits, dann die Glieder), zuletzt die Essenz-Glieder; danach die Krit-Module,
 ## die statischen Charms, das
 ## Verschmelzen, die Nach-Schritte und das gebuchte Ergebnis.
 static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Array[Dictionary]:
@@ -277,7 +277,7 @@ static func _mark_parts(step: Dictionary, key: String, slots: Array) -> void:
 
 static func part_name(id: String) -> String:
 	var part := ComboPart.make(id)
-	return part.display_name if part != null else "Bauteil"
+	return part.display_name if part != null else "Modul"
 
 ## Grundgerüst jedes Schritts - die Überschreibungen reisen als Momentaufnahme mit.
 static func _step(kind: String, label: String, base_after: int, mult_after: float,

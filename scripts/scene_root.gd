@@ -1686,7 +1686,7 @@ func _add_spill_light(light_name: String, rect_px: Rect2, tint: Color, energy_fa
 	light.shadow_enabled = false
 	add_child(light)
 
-## Ein eigenes Kind gleichen Namens abräumen - für die Bauteile, die eine
+## Ein eigenes Kind gleichen Namens abräumen - für die Module, die eine
 ## Neuplatzierung des Streifens ERSETZT (Klickzone, Spill-Licht).
 func _free_own_child(child_name: String) -> void:
 	var known := get_node_or_null(NodePath(child_name))
@@ -2013,7 +2013,7 @@ func _collect_combo_labels() -> void:
 ## Kombinationen, deren Licht gerade unterwegs ist: ihre Zellen zeigen bis zur
 ## Ankunft die ALTEN Werte.
 var _pulsing_combos: Dictionary = {}
-## Wertungs-Zeremonie der Bauteile: die zählende Kombination, das gehaltene
+## Wertungs-Zeremonie der Module: die zählende Kombination, das gehaltene
 ## Zählwerk und das schon gebuchte Münzprüfer-Geld (nur Anzeige).
 var _take_combo_key := ""
 var _part_growth_held := ""
@@ -2748,7 +2748,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_forced_exchange_input(event)
 		return
 
-	# DER EINBAU ebenso: ein wartendes Bauteil will seinen Steckplatz.
+	# DER EINBAU ebenso: ein wartendes Modul will seinen Steckplatz.
 	if _part_install_forced():
 		_handle_part_install_input(event)
 		return
@@ -6420,7 +6420,7 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 		SideBet.Payout.ENERGY:
 			return {"body": "energy", "count": bet.payout_energy * factor}
 		SideBet.Payout.PART:
-			return {"body": "token", "text": "BAUTEIL", "tint": CasinoStyle.GOLD_INTENSE}
+			return {"body": "token", "text": "MODUL", "tint": CasinoStyle.GOLD_INTENSE}
 		SideBet.Payout.PRESS_BOOST:
 			return {"body": "token", "text": "PRESSE",
 				"tint": PackDrawerView.COLORS[Pack.SHELF_SPECIAL]}
@@ -7184,7 +7184,7 @@ func _payout_body_wanted(bet: SideBet) -> bool:
 			return not bet.awarded_packs.is_empty()
 		SideBet.Payout.MONEY, SideBet.Payout.ENERGY:
 			return false
-	return true  # die Marken (Bauteil, Presse-Schub): Ware
+	return true  # die Marken (Modul, Presse-Schub): Ware
 
 ## Die gemeldeten ZELLEN der Ablage (Display-Pixel). ui/ meldet, scene_root stellt.
 func _payout_cells() -> Array[Rect2]:
@@ -7318,7 +7318,7 @@ func _sink_payout_bodies() -> void:
 
 ## Und DANN je Gewinnart ihr ZIEL-Licht (gebucht ist alles längst): Geld zum Schatz,
 ## ⚡ zur Bank, Paket und Sonderposten auf ihren reservierten Magazin-Platz, wo die
-## zurückgehaltene Kassette aus dem Grubenboden steigt, ein Bauteil fährt zu den
+## zurückgehaltene Kassette aus dem Grubenboden steigt, ein Modul fährt zu den
 ## Chips. Die Presse-Marke zeigt sich selbst.
 func _fly_payout_targets() -> void:
 	if table_screen == null:
@@ -7366,7 +7366,7 @@ func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 					func() -> void:
 						if run == launched and is_instance_valid(workshop):
 							_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint))
-	# Das Bauteil wartet längst in pending_parts - sein Licht fährt Hub -> Chips.
+	# Das Modul wartet längst in pending_parts - sein Licht fährt Hub -> Chips.
 	if bet.payout_kind == SideBet.Payout.PART:
 		var part := bet.reward_part()
 		if part != null:
@@ -7605,7 +7605,7 @@ func _sync_vitrine_net_hover() -> void:
 		ware = charm_shop.part_at_net(pixel)
 	charm_shop.set_ware_hover(ware)
 
-## Das gegriffene Bauteil der Ladenbucht (null für alles andere).
+## Das gegriffene Modul der Ladenbucht (null für alles andere).
 func _vitrine_part_at(item: Dictionary) -> ComboPart:
 	if item.is_empty() or String(item["kind"]) != ShopController.KIND_PART:
 		return null
@@ -7813,7 +7813,7 @@ func _forward_bay_mouse(bay: VitrineView, rect: Rect2, event: InputEventMouse,
 
 ## Der Griff kauft: JEDER Weg läuft über die bestehenden Buchungen des Ladens -
 ## die Bucht ist Bühne, nicht Regel. In der Ladenbucht liegen nur noch WÜRFEL und
-## das BAUTEIL, alles Versiegelte steckt in den Kassetten-Schlitzen.
+## das MODUL, alles Versiegelte steckt in den Kassetten-Schlitzen.
 func _buy_vitrine_item(kind: String, index: int) -> void:
 	if charm_shop == null or (kind != ShopController.KIND_DIE and kind != ShopController.KIND_PART):
 		return
@@ -10043,7 +10043,7 @@ func _process(delta: float) -> void:
 	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
-	_sync_part_install()  # ein wartendes Bauteil holt die Kamera an die Chips
+	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
@@ -11635,7 +11635,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 ## in der Zähl-Animation).
 func _apply_hand_clauses(combo_key: String) -> void:
 	if run.apply_heat_buildup(combo_key):
-		hand_note = "Hitzestau: an %s fällt ein Bauteil aus." % DiceScoring.label_for(combo_key)
+		hand_note = "Hitzestau: an %s fällt ein Modul aus." % DiceScoring.label_for(combo_key)
 	if run.note_hand_taken(combo_key):
 		_set_throttled_combos(run.throttled_combos)
 
@@ -11720,7 +11720,7 @@ func _on_take_button_pressed() -> void:
 	for p in sel_scored:
 		scored_slots.append(slots[p])
 	_last_charge_results = run.book_charge_results(active_kinds, breakdown, scored_slots)
-	# Bauteile der Kombination: Zählwerk wächst, Münzprüfer zahlt - vor dem Licht.
+	# Module der Kombination: Zählwerk wächst, Münzprüfer zahlt - vor dem Licht.
 	var take_parts := ComboPartEffects.chip(run.scoring_parts(), String(hand["key"]))
 	_hold_part_growth(String(hand["key"]), take_parts)
 	_suppress_money_light = true
@@ -11988,7 +11988,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if not await _score_arrival_gap(factor_travel):
 			return
 
-	# 2c) Kombi-Bauteile: je Steckplatz ein Schritt aus seinem Sockel.
+	# 2c) Kombi-Module: je Steckplatz ein Schritt aus seinem Sockel.
 	for step: Dictionary in breakdown.get("part_steps", []):
 		if not await _play_part_step(key, step):
 			return
@@ -12024,7 +12024,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		if glow_by_slot.has(slot):
 			_dim_glow(glow_by_slot[slot])
 
-	# 3b) Krit-Bauteile: nach allen Würfeln, je Teil ein eigener Schlag.
+	# 3b) Krit-Module: nach allen Würfeln, je Teil ein eigener Schlag.
 	for step: Dictionary in breakdown.get("part_crit_steps", []):
 		if not await _play_part_crit_step(key, step):
 			return
@@ -12557,7 +12557,7 @@ func _play_crit_step(step: Dictionary) -> bool:
 		return false
 	return await _score_step_wait(CRIT_HOLD)
 
-## Ein Kombi-Bauteil zählt: sein Sockel blitzt, das Licht fährt über die
+## Ein Kombi-Modul zählt: sein Sockel blitzt, das Licht fährt über die
 ## Kombi-Leiste in den Zähler. false = Abbruch (Reset).
 func _play_part_step(key: String, step: Dictionary) -> bool:
 	var slot := int(step["slot"])
@@ -12577,7 +12577,7 @@ func _play_part_step(key: String, step: Dictionary) -> bool:
 			func() -> void: table_screen.update_pit_score(pbase, pmult))
 	return await _score_arrival_gap(travel)
 
-## Ein Krit-Bauteil schlägt ein: der Sockel blitzt kräftig, der heiße Komet
+## Ein Krit-Modul schlägt ein: der Sockel blitzt kräftig, der heiße Komet
 ## kommt vom Chip (die Grammatik von _play_crit_step). false = Abbruch (Reset).
 func _play_part_crit_step(key: String, step: Dictionary) -> bool:
 	var slot := int(step["slot"])
@@ -13737,7 +13737,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 
 ## Was JEDE gewonnene Wette der Auszahlungs-Seite meldet: dieselben Formeln wie
 ## GameRun._pay_side_bet, gerechnet gegen den Stand VOR der Buchung. Sachgewinne
-## (Pakete, Bauteil, Presse-Schub) melden nichts - nur was am vollen Magazin zu
+## (Pakete, Modul, Presse-Schub) melden nichts - nur was am vollen Magazin zu
 ## Geld zerfallen ist, steht ehrlich in der Zeile SEINER Wette.
 func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
 		energy_room: int) -> Array[Dictionary]:
@@ -15082,13 +15082,13 @@ func _log_restore_pit() -> void:
 #endregion
 
 #region Die STECKPLAETZE
-# Bauteile auf den Kombinations-Chips: Anzeige, Hinweis, der modale EINBAU und
+# Module auf den Kombinations-Chips: Anzeige, Hinweis, der modale EINBAU und
 # das UMSTECKEN. Gebucht wird allein in GameRun; hier fahren nur Kamera und Körper.
 
 ## Rahmen-Saum des Einbaus (Cluster samt Kopfzeile).
 const PART_INSTALL_FRAME_MARGIN := 1.1
 const PART_EMPTY_TITLE := "Freier Steckplatz"
-const PART_EMPTY_BODY := "Ein Bauteil aus Laden oder Schwarzmarkt passt hier hinein."
+const PART_EMPTY_BODY := "Ein Modul aus Laden oder Schwarzmarkt passt hier hinein."
 const PART_EMPTY_ACCENT := Color(0.62, 0.66, 0.74)
 const PART_DISABLED_NOTE := "Für diese Runde stillgelegt (Hitzestau)."
 

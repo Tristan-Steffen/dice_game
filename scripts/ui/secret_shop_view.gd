@@ -28,7 +28,7 @@ signal goods_purchased(uids: Array[int])
 ## Ein Seelenwürfel ist gekauft: er liegt schon im Ausgabefach, scene_root fährt
 ## ihn nur noch dorthin. Kein Paket - ein Würfel wird nie versiegelt.
 signal die_purchased(def: DieDefinition)
-## Ein Bauteil ist gekauft: es wartet in pending_parts, scene_root schickt das Licht.
+## Ein Modul ist gekauft: es wartet in pending_parts, scene_root schickt das Licht.
 signal part_purchased(part: ComboPart)
 ## Die Auslage der Bucht hat sich geändert (Wurf, Kauf, Freischaltung).
 signal vitrine_changed

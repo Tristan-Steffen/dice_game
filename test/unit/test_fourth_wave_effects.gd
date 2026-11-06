@@ -64,7 +64,7 @@ func _rng_rolling(below: bool, chance: float) -> RandomNumberGenerator:
 			return rng
 	return null
 
-# --- Supraleiter: Bauteile kosten 25 % weniger ------------------------------------
+# --- Supraleiter: Module kosten 25 % weniger ------------------------------------
 
 func test_the_superconductor_cuts_the_part_price():
 	assert_eq(CharmEffects.part_price(8, _ids([])), 8, "unverändert ohne Charm")

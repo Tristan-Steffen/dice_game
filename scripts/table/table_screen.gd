@@ -23,7 +23,7 @@ const EMISSION_ENERGY := 1.2
 
 ## Kombinations-Cluster: kleine Zellen in 3 Spalten, Reihenfolge =
 ## DiceScoring.HAND_PRIORITY, unvollständige letzte Zeile mittig.
-## CLUSTER_SCALE (2026-11-02): die Chips wuchsen, damit das Bauteil-Modul neben
+## CLUSTER_SCALE (2026-11-02): die Chips wuchsen, damit das Modul neben
 ## einem Würfel als Ding liest; Seitenverhältnis und Fugen wachsen mit.
 const CLUSTER_SCALE := 1.4
 const CELL_SIZE := Vector2(98, 31) * CLUSTER_SCALE * SUPERSAMPLE
@@ -2750,7 +2750,7 @@ func energy_comet(to_px: Vector2, color: Color) -> float:
 	_pulse_along(path, travel, color)
 	return travel
 
-## Liefer-Licht eines BAUTEILS: vom Kaufort (Schwarzmarkt: über die Hinterzimmer-
+## Liefer-Licht eines MODULS: vom Kaufort (Schwarzmarkt: über die Hinterzimmer-
 ## Ader) in den Hub und die Hub-Cluster-Ader entlang zu den Chips. Liefert die Laufzeit.
 func part_delivery_comet(from_px: Vector2, color: Color, from_secret := false) -> float:
 	var strips: Array = [led_strip]
@@ -3431,7 +3431,7 @@ func pixels_per_world() -> float:
 
 # --- Die STECKPLÄTZE: Hinweis und Einbau-Kopfzeile ------------------------------
 
-## Grundmaß der Bauteil-Karten (HintCard-u): groß, denn der freie Platz gibt es her.
+## Grundmaß der Modul-Karten (HintCard-u): groß, denn der freie Platz gibt es her.
 const PART_HINT_U := 3.0 * SUPERSAMPLE
 ## Die Karte wächst aus ihrem Platz nach unten in den freien Filz.
 const PART_HINT_TALL := 2.25
@@ -3462,7 +3462,7 @@ func show_part_hint(title: String, body: String, accent: Color) -> void:
 		install_banner.visible = false
 	_seat_part_card(part_hint, title, body, accent)
 
-## Wo die Bauteil-Karten stehen können - der Einbau rahmt diesen Streifen mit.
+## Wo die Modul-Karten stehen können - der Einbau rahmt diesen Streifen mit.
 func part_hint_lane() -> Rect2:
 	var slot := part_hint_slot()
 	return Rect2(slot.position, Vector2(slot.size.x, slot.size.y * PART_HINT_TALL))

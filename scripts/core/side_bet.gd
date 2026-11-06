@@ -65,7 +65,7 @@ var reward_pack_tier: int = Pack.TIER_NORMAL
 var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
 var payout_energy: int = 0     # nur Payout.ENERGY: Gewinn in Energie (⚡)
 var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
-## nur Payout.PART: das Bauteil, beim Auswürfeln der Auslage festgelegt.
+## nur Payout.PART: das Modul, beim Auswürfeln der Auslage festgelegt.
 var reward_part_id: String = ""
 var unlock_level: int = UNLOCK_BASE
 var display_name: String = ""
@@ -492,7 +492,7 @@ func reward_list() -> Array[Pack]:
 	return result
 
 ## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
-## Das gewonnene Bauteil, frisch (null = keins benannt).
+## Das gewonnene Modul, frisch (null = keins benannt).
 func reward_part() -> ComboPart:
 	return ComboPart.make(reward_part_id)
 
@@ -523,7 +523,7 @@ func stake_label(factor: int = 1) -> String:
 
 ## Gewinn-Etikett: Barbetrag oder die versiegelten Pakete beim NAMEN ("2 Große
 ## Material-Pakete") - Sorte und Größe stehen seit dem Auswürfeln fest. factor wie oben -
-## Einzelstücke (Sonderposten, Paket, Bauteil) verdoppelt der Quotenbonus NICHT.
+## Einzelstücke (Sonderposten, Paket, Modul) verdoppelt der Quotenbonus NICHT.
 ## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
 ## sonst verspricht er weniger, als die Abrechnung zahlt.
 func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
@@ -539,7 +539,7 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 			return Pack.amount_phrase(reward_pack_type, reward_pack_tier, 1)
 		Payout.PART:
 			var part := reward_part()
-			return "1 %s" % (part.display_name if part != null else "Bauteil")
+			return "1 %s" % (part.display_name if part != null else "Modul")
 		Payout.PRESS_BOOST:
 			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Serie.
 			return "Nächste Serie: +%d Slot" % SeriesResolver.BOOST_SLOTS

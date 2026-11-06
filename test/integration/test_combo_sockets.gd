@@ -1,5 +1,5 @@
 extends GutTest
-## Die STECKPLÄTZE am Tisch (Welle B): Bauteil-Platz im Laden, die Belegung auf
+## Die STECKPLÄTZE am Tisch (Welle B): Modul-Platz im Laden, die Belegung auf
 ## dem Chip-Deckel, der Weg aus pending_parts in einen Platz, Tausch und
 ## Umstecken nur im Bearbeitungs-Fenster und die Ware des Schwarzmarkts.
 
@@ -52,7 +52,7 @@ func test_the_shop_part_stands_as_a_body_in_the_dice_bay() -> void:
 	await wait_frames(2)
 	var found := bay.items.filter(func(item: Dictionary) -> bool:
 		return item["kind"] == ShopController.KIND_PART)
-	assert_eq(found.size(), 1, "ein Körper für das Bauteil")
+	assert_eq(found.size(), 1, "ein Körper für das Modul")
 	var body := found[0]["node"] as ComboPartBody
 	assert_not_null(body)
 	assert_eq(body.part, shop.part_options[0])
@@ -258,7 +258,7 @@ func test_a_secret_part_offer_lies_as_a_body_and_sells() -> void:
 	await wait_frames(2)
 	var stock := view.vitrine_stock()
 	var part: ComboPart = stock[ShopController.KIND_PART][1]
-	assert_not_null(part, "das Bauteil liegt in der Bucht")
+	assert_not_null(part, "das Modul liegt in der Bucht")
 	assert_eq(String(stock[VitrineView.STOCK_ROW_KINDS][1]), ShopController.KIND_PART)
 	var bay := VitrineView.new("PartBay")
 	bay.single_row = true
@@ -266,10 +266,10 @@ func test_a_secret_part_offer_lies_as_a_body_and_sells() -> void:
 	bay.setup(Vector3(-30.0, 0.0, 0.0), Vector2(4.0, 12.0))
 	bay.present(stock)
 	await wait_frames(2)
-	# Die übrigen Plätze dürfen zufällig auch ein Bauteil ziehen - gemeint ist Platz 1.
+	# Die übrigen Plätze dürfen zufällig auch ein Modul ziehen - gemeint ist Platz 1.
 	var found := bay.items.filter(func(item: Dictionary) -> bool:
 		return item["kind"] == ShopController.KIND_PART and int(item["index"]) == 1)
-	assert_eq(found.size(), 1, "ein Körper für das Bauteil")
+	assert_eq(found.size(), 1, "ein Körper für das Modul")
 	assert_true(found[0]["node"] is ComboPartBody)
 	assert_eq(view.vitrine_annotation(ShopController.KIND_PART, 1)["title"], part.display_name)
 	var bought: Array = []

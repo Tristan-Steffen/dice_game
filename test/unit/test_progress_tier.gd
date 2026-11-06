@@ -47,7 +47,7 @@ func test_shop_slots_are_fixed_on_every_tier() -> void:
 		var run := _run_at(tier)
 		assert_eq(run.shop_charm_slots(), 3, "Stufe %d: drei Charms" % tier)
 		assert_eq(run.shop_dice_slots() + run.shop_part_slots(), 3,
-			"Stufe %d: zwei Würfel und ein Bauteil" % tier)
+			"Stufe %d: zwei Würfel und ein Modul" % tier)
 		assert_eq(run.shop_pack_slots(), 3, "Stufe %d: drei Gravuren" % tier)
 
 func test_overcharge_frame_is_five_from_the_first_tier() -> void:

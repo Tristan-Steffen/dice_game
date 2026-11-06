@@ -408,4 +408,4 @@ func test_payout_factor_spares_unique_goods():
 	assert_eq(ship.reward_label(2), "1 Zahlen-Paket", "ein Einzelstück bleibt eins")
 	var patent := _bet("patent")
 	patent.reward_part_id = ComboPart.RELAY
-	assert_eq(patent.reward_label(2), "1 Relais", "ein Bauteil bleibt eins")
+	assert_eq(patent.reward_label(2), "1 Relais", "ein Modul bleibt eins")

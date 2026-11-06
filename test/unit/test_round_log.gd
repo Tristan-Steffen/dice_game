@@ -266,7 +266,7 @@ func test_values_label_nennt_nur_die_liegenden_wuerfel() -> void:
 	]
 	assert_eq(RoundLog.values_label(pit), "5 · 2")
 
-## Die Bauteile stehen im Rückblick, wo die Zeremonie sie spielt: Kombi-Teile
+## Die Module stehen im Rückblick, wo die Zeremonie sie spielt: Kombi-Teile
 ## hinter der Kombination, Krit-Teile nach den Würfeln - je mit ihrem Steckplatz.
 func test_parts_are_steps_in_scoring_order() -> void:
 	var key := DiceScoring.ONE_KIND

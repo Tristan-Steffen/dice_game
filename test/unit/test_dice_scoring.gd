@@ -24,7 +24,7 @@ func _m(values: Array) -> Array[String]:
 	typed.assign(values)
 	return typed
 
-# --- Grundwerte und Bauteile (Steckplätze, siehe ComboPartEffects) --------------
+# --- Grundwerte und Module (Steckplätze, siehe ComboPartEffects) --------------
 
 func test_points_and_mult_are_the_pure_category_values():
 	assert_eq(DiceScoring.mult_for(DiceScoring.TWO_KIND), 2)

@@ -1,7 +1,7 @@
 class_name Lexikon
 extends RefCounted
 ## Das Nachschlagewerk des Tisches: je Begriff ein Eintrag, dazu einer je Charm,
-## Essenz, Material, Rune, Gravur, Klausel und Bauteil (aus den data/-Katalogen erzeugt).
+## Essenz, Material, Rune, Gravur, Klausel und Modul (aus den data/-Katalogen erzeugt).
 ## Die Quelltexte in data/ bleiben unmarkiert - linkify() macht bekannte
 ## Wortformen erst beim Rendern zu BBCode-Verweisen. Wohnt in ui/, nicht data/:
 ## der Verweis trägt CasinoStyle.LEXIKON_LINK, und ui/ darf aus data/ lesen.
@@ -14,9 +14,9 @@ const CAT_MATERIALIEN := "Materialien"
 const CAT_RUNEN := "Runen"
 const CAT_GRAVUREN := "Gravuren"
 const CAT_KLAUSELN := "Klauseln"
-const CAT_BAUTEILE := "Bauteile"
+const CAT_MODULE := "Module"
 const CATEGORIES: Array[String] = [CAT_BEGRIFFE, CAT_CHARMS, CAT_ESSENZEN,
-	CAT_MATERIALIEN, CAT_RUNEN, CAT_GRAVUREN, CAT_KLAUSELN, CAT_BAUTEILE]
+	CAT_MATERIALIEN, CAT_RUNEN, CAT_GRAVUREN, CAT_KLAUSELN, CAT_MODULE]
 
 # --- Konzept-ids (Konvention: Konzepte prefixlos, Items "typ:id") ---
 const KRIT := "krit"
@@ -79,7 +79,7 @@ const EXTRA_SURFACES := {
 	"Prägenetz": PRAEGENETZ, "Prägenetze": PRAEGENETZ, "Prägenetzes": PRAEGENETZ,
 	"Serien": SERIE, "Serienschaltung": SERIE, "Serienlänge": SERIE,
 	"Operator": SERIE, "Operatoren": SERIE, "Multiplikator-Netz": SERIE,
-	"Steckplätze": STECKPLATZ, "Bauteil": STECKPLATZ, "Bauteile": STECKPLATZ,
+	"Steckplätze": STECKPLATZ, "Modul": STECKPLATZ, "Module": STECKPLATZ,
 	# Längste Form gewinnt: der Voll-Kompositum schlägt das nackte "Krit(s)".
 	"Tscherenkow-Krit": "essence:cherenkov", "Tscherenkow-Krits": "essence:cherenkov",
 }
@@ -92,7 +92,7 @@ const CHARM_RARITY_NAMES := {
 	Charm.RARITY_LEGENDARY: "legendär",
 }
 
-## Wirk-Phase eines Bauteils als Spielerwort.
+## Wirk-Phase eines Moduls als Spielerwort.
 const PART_PHASE_NAMES := {
 	ComboPart.PHASE_COMBO: "Kombination",
 	ComboPart.PHASE_DIE: "Würfel",
@@ -224,7 +224,7 @@ static func _build_concepts() -> void:
 		"Ein Glücksbringer am Dock des Tisches, höchstens sechs zugleich. Würfelgebundene Charms feuern mit ihrem Würfel, statische nach allen Würfeln in Dock-Reihenfolge - die Reihenfolge ist spielentscheidend. Gekauft im Laden, verkauft am Dock.",
 		CAT_BEGRIFFE)
 	_add(KOMBINATION, "Kombination",
-		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und trägt drei Steckplätze für Bauteile.",
+		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und trägt drei Steckplätze für Module.",
 		CAT_BEGRIFFE)
 	_add(QUOTA, "Quota",
 		"Das Rundenziel: die Punktzahl, die die Runde besteht. Die Quota wächst von Runde zu Runde, und jede sechste Runde endet im Stresstest. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
@@ -263,7 +263,7 @@ static func _build_concepts() -> void:
 		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",
 		CAT_BEGRIFFE)
 	_add(STECKPLATZ, "Steckplatz",
-		"Jeder Kombinations-Chip hat drei Steckplätze für Bauteile - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Teile gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",
+		"Jeder Kombinations-Chip hat drei Steckplätze für Module - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Module gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",
 		CAT_BEGRIFFE)
 
 ## Item-Einträge aus den data/-Katalogen. Spiegel-Gravuren (Material/Rune/
@@ -306,9 +306,9 @@ static func _build_items() -> void:
 			"%s\n%s eines Vertrags mit dem Haus." % [DealClause.text_for(clause.id, 1), kind],
 			CAT_KLAUSELN)
 	for part in ComboPart.all():
-		_add("part:%s" % part.id, part.display_name, part_body(part), CAT_BAUTEILE)
+		_add("part:%s" % part.id, part.display_name, part_body(part), CAT_MODULE)
 
-## Wirkung, Phase, Seltenheit und Bezugsquelle eines Bauteils.
+## Wirkung, Phase, Seltenheit und Bezugsquelle eines Moduls.
 static func part_body(part: ComboPart) -> String:
 	var where := "Schwarzmarkt (⚡)" if part.secret else "Laden"
 	if part.id == ComboPart.RESISTOR:

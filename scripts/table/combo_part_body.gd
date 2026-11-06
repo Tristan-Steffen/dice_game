@@ -1,6 +1,6 @@
 class_name ComboPartBody
 extends Node3D
-## Ein BAUTEIL als Körper: JEDES Teil ist dasselbe MODUL (part_module.glb) - ein
+## Ein MODUL als Körper: JEDES ist dasselbe Gehäuse (part_module.glb) - ein
 ## dunkles Gehäuse mit dem Goldstecker darunter und einem FENSTER oben, das in der
 ## Tönung seiner Phase leuchtet. Teile unterscheiden sich in der Tönung, nie in Form
 ## oder Stecker. Die Erweiterungsplatine (part_riser.glb) ist dasselbe Gehäuse mit

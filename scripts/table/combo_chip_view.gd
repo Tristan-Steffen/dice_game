@@ -539,7 +539,7 @@ func socket_world(slot: int) -> Vector3:
 		return global_position
 	return (_sockets[slot]["node"] as Node3D).global_position
 
-## Kantenlänge eines Bauteils in Welt - überall dieselbe.
+## Kantenlänge eines Moduls in Welt - überall dieselbe.
 func socket_side() -> float:
 	return ComboPartBody.SIDE
 

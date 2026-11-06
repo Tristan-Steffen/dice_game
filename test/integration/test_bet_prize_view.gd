@@ -32,10 +32,10 @@ func test_energy_caps_its_field():
 
 func test_token_carries_its_engraving():
 	var prize := _prize()
-	prize.setup_token("BAUTEIL", CasinoStyle.GOLD_INTENSE)
+	prize.setup_token("MODUL", CasinoStyle.GOLD_INTENSE)
 	assert_eq(prize.kind, BetPrizeView.KIND_TOKEN)
 	var label: Label3D = prize.get_node("Body/Aufschrift")
-	assert_eq(label.text, "BAUTEIL")
+	assert_eq(label.text, "MODUL")
 
 ## Die ZÄHLPLATTE ist tot: die Steuer reist als Licht zum Fenster, nichts läuft mehr
 ## auf dem Tresen auf. Ein Grep hält die Bauform samt ihrer Sonderwege fort.
@@ -57,7 +57,7 @@ func test_every_build_reports_its_real_size():
 			"energy":
 				prize.setup_energy(12)
 			"token":
-				prize.setup_token("BAUTEIL", CasinoStyle.GOLD_INTENSE)
+				prize.setup_token("MODUL", CasinoStyle.GOLD_INTENSE)
 		assert_gt(prize.natural_span().x, 0.0, "%s meldet seine Tiefe" % build)
 		assert_gt(prize.natural_span().y, 0.0, "%s meldet seine Breite" % build)
 		assert_gt(prize.body_height(), BetPrizeView.FLOOR_CLEAR,
@@ -78,7 +78,7 @@ func test_a_bigger_stake_grows_instead_of_shrinking():
 
 func test_seat_hard_keeps_the_origin_on_the_glass_point():
 	var prize := _prize()
-	prize.setup_token("BAUTEIL", CasinoStyle.GOLD_INTENSE)
+	prize.setup_token("MODUL", CasinoStyle.GOLD_INTENSE)
 	var at := Vector3(3.0, 0.0, -2.0)
 	prize.seat_hard(at)
 	assert_almost_eq(prize.global_position.x, at.x, 0.0001)
@@ -87,7 +87,7 @@ func test_seat_hard_keeps_the_origin_on_the_glass_point():
 
 func test_body_rests_clear_of_the_display():
 	var prize := _prize()
-	prize.setup_token("BAUTEIL", CasinoStyle.GOLD_INTENSE)
+	prize.setup_token("MODUL", CasinoStyle.GOLD_INTENSE)
 	var body: Node3D = prize.get_node("Body")
 	assert_almost_eq(body.position.y, BetPrizeView.FLOOR_CLEAR, 0.0001,
 		"der Körper steht FLOOR_CLEAR über der Anzeige")
@@ -123,7 +123,7 @@ func test_the_static_span_is_the_one_the_body_reports():
 			BetPrizeView.span_for(BetPrizeView.KIND_ENERGY, count)),
 			"Elko-Feld %d: gemeldet wie gerechnet" % count)
 	var token := _prize()
-	token.setup_token("BAUTEIL", CasinoStyle.GOLD_INTENSE)
+	token.setup_token("MODUL", CasinoStyle.GOLD_INTENSE)
 	assert_true(token.natural_span().is_equal_approx(
 		BetPrizeView.span_for(BetPrizeView.KIND_TOKEN)))
 

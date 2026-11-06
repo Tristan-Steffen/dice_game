@@ -62,11 +62,11 @@ func _check_continuity(breakdown: Dictionary) -> void:
 	var mult := float(breakdown["combo"]["mult_add"])
 	for step: Dictionary in breakdown.get("combo_factor_steps", []):
 		base = int(step["base_after"])
-	# Je Kombi-Bauteil ein Schritt, Steckplatz für Steckplatz.
+	# Je Kombi-Modul ein Schritt, Steckplatz für Steckplatz.
 	for step: Dictionary in breakdown.get("part_steps", []):
 		base += int(step["base_add"])
 		mult += float(step["mult_add"])
-		assert_eq(int(step["base_after"]), base, "Zwischenstand nach dem Bauteil")
+		assert_eq(int(step["base_after"]), base, "Zwischenstand nach dem Modul")
 		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
 	var expected_order: Array = breakdown["eye_slots"]
 	var at := 0
@@ -93,10 +93,10 @@ func _check_continuity(breakdown: Dictionary) -> void:
 	var charge_step: Dictionary = breakdown.get("charge_mult_step", {})
 	if not charge_step.is_empty():
 		mult += float(charge_step["mult_add"])
-	# Krit-Bauteile nach allen Würfeln, je Teil ein Schlag.
+	# Krit-Module nach allen Würfeln, je Teil ein Schlag.
 	for crit: Dictionary in breakdown.get("part_crit_steps", []):
 		mult *= float(crit["crit_x"])
-		assert_almost_eq(float(crit["mult_after"]), mult, 0.0001, "Zwischenstand nach dem Krit-Bauteil")
+		assert_almost_eq(float(crit["mult_after"]), mult, 0.0001, "Zwischenstand nach dem Krit-Modul")
 	for step: Dictionary in breakdown["charm_steps"]:
 		base = (base + int(step["base_add"])) * int(step["base_x"])
 		mult = (mult + float(step["mult_add"])) * float(step["mult_x"])
@@ -475,7 +475,7 @@ func test_after_work_beer_stays_quiet_while_the_pool_has_dice():
 
 func test_kitchen_sink_scenario_matches_scoring():
 	# Materialien + Augen-Charm + additive Charms + Einserkult + Krit + Totem-
-	# aufgelöste ids + Bauteile + Kontext: die Zerlegung muss exakt bleiben.
+	# aufgelöste ids + Module + Kontext: die Zerlegung muss exakt bleiben.
 	var run := GameRun.new_run()
 	run.owned_charms.append(Charm.broadband())
 	run.owned_charms.append(Charm.parrot_totem())
@@ -572,7 +572,7 @@ func test_breakdown_matches_scoring_across_the_matrix():
 		DiceScoring.FULL_HOUSE: [ComboPart.output_stage(), ComboPart.counter_part()],
 	}
 	# Zwei Umgebungen: nackt, und voll (Materialien + Essenzen + reicher Kontext +
-	# Bauteile + erste Hand) - so laufen auch die Material-/Krit-Zweige mit.
+	# Module + erste Hand) - so laufen auch die Material-/Krit-Zweige mit.
 	var full_mats := _m([DieMaterial.RUBY, "", DieMaterial.AMBER, DieMaterial.GLASS, "", DieMaterial.BONE])
 	var rich_ctx := {
 		CharmEffects.CTX_PENDULUM: 4,

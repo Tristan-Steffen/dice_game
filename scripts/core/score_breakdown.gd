@@ -16,8 +16,8 @@ class_name ScoreBreakdown
 ## "combo" trägt die PUREN Kategorie-Werte; jede Doppelter-Boden-Kopie ist ein
 ## eigener "combo_factor_step" dahinter - sonst reiste die Verdopplung
 ## unsichtbar in der Kombinationszahl mit und niemand sah, wer verdoppelt hat.
-## Jedes Kombi-Bauteil ist danach ein eigener "part_steps"-Eintrag (Steckplatz
-## 1 -> n), jedes Krit-Bauteil ein eigener "part_crit_steps"-Eintrag; Würfel-Teile
+## Jedes Kombi-Modul ist danach ein eigener "part_steps"-Eintrag (Steckplatz
+## 1 -> n), jedes Krit-Modul ein eigener "part_crit_steps"-Eintrag; Würfel-Teile
 ## reisen im Charm-Anteil ihrer Zündung mit und nennen ihre "part_slots".
 ## Jeder Würfel-Schritt spielt seine "die_triggers" nacheinander (auch bei nur
 ## einem): je Gruppe erst die "firings" der Seiten-Achse, dann die "links" dieses
@@ -66,7 +66,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var hands_taken := int(ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
 	var volcanic := DiceScoring.volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := DiceScoring.discard_values_in(ctx)
-	# Acetylen/Schneidbrenner zählen die Bauteile, das Metronom die einmal
+	# Acetylen/Schneidbrenner zählen die Module, das Metronom die einmal
 	# zündenden Würfel - beide stehen vor der Zählung fest.
 	var part_count := ComboPartEffects.part_count(chip)
 	var ends := ComboPartEffects.combo_ends(eye_slots, participating)
@@ -91,7 +91,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"base_after": base,
 			"mult_after": mult,
 		})
-	# 1b. Kombi-Bauteile, je Steckplatz ein eigener Schritt.
+	# 1b. Kombi-Module, je Steckplatz ein eigener Schritt.
 	var part_steps: Array[Dictionary] = []
 	for step in ComboPartEffects.combo_steps(combo_parts, key):
 		base += int(step["points"])
@@ -518,7 +518,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 			"base_after": base,
 			"mult_after": mult,
 		}
-	# 2c. Krit-Bauteile nach allen Würfeln, vor den statischen Charms - je Teil ein Schlag.
+	# 2c. Krit-Module nach allen Würfeln, vor den statischen Charms - je Teil ein Schlag.
 	var part_crit_steps: Array[Dictionary] = []
 	for step in ComboPartEffects.crit_steps(chip):
 		var part_crit := float(step["crit_x"])
@@ -622,7 +622,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		"combo": combo,
 		# Ein Schritt je Doppelter-Boden-Kopie, direkt hinter der Kombination.
 		"combo_factor_steps": combo_factor_steps,
-		# Ein Schritt je Kombi-Bauteil, Steckplatz 1 -> n.
+		# Ein Schritt je Kombi-Modul, Steckplatz 1 -> n.
 		"part_steps": part_steps,
 		"die_steps": die_steps,
 		# LADUNG: der Grundregel-Schritt vor den Charms ({} = 0 Mult), die

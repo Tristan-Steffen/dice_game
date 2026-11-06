@@ -145,12 +145,12 @@ func test_every_part_has_entry_with_phase_and_source() -> void:
 	for part in ComboPart.all():
 		var e := Lexikon.entry("part:%s" % part.id)
 		assert_false(e.is_empty(), part.id)
-		assert_eq(e.get("category", ""), Lexikon.CAT_BAUTEILE)
+		assert_eq(e.get("category", ""), Lexikon.CAT_MODULE)
 		var body := String(e.get("body", ""))
 		assert_string_contains(body, part.description)
 		assert_string_contains(body, "Phase:")
 		assert_string_contains(body, "Schwarzmarkt" if part.secret else "Laden")
-	assert_eq(Lexikon.ids_in_category(Lexikon.CAT_BAUTEILE).size(), ComboPart.all().size())
+	assert_eq(Lexikon.ids_in_category(Lexikon.CAT_MODULE).size(), ComboPart.all().size())
 
 
 func test_part_names_link_to_their_entry() -> void:
