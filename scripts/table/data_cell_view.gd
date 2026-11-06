@@ -3,7 +3,7 @@ extends Node3D
 ## Die Datenzelle: ein versiegeltes Aufwertungs-Paket als physische Kassette auf
 ## dem Tisch. Dunkles Gehäuse mit Fensterausschnitt, dahinter ein Kern in der
 ## Sortenfarbe, davor eine Glasscheibe und darauf ihr PRÄGENETZ, an der Unterkante
-## goldene Kontaktfinnen. Rein per Code gebaut wie DieBuilder und CapacitorBankView
+## goldene Kontaktfinnen. Rein per Code gebaut wie DieBuilder und EnergyRingView
 ## - kein .tscn, kein GLB.
 ## Die FLÄCHE trägt seit 2026-09-02 das Netz (StampNetOven). Die KAPPE ist am
 ## 2026-09-04 gestorben: die SORTE sagt die FARBE, die GRÖSSE ihre INTENSITÄT -
@@ -103,7 +103,7 @@ const EDGE_STRIP_PROUD := DEPTH * 0.22
 const EDGE_REST_ENERGY := 0.62
 ## Eingesteckt ist der Sliver die ganze Anzeige - hell, aber NICHT weiß: über
 ## etwa 1,5 kippen alle drei Kanäle ins Clipping und die Sortenfarbe geht verloren
-## (dieselbe Grenze wie bei den Zellen der Kondensatorbank).
+## (dieselbe Grenze wie bei den Segmenten des Energie-Rings).
 const EDGE_LIVE_ENERGY := 1.35
 const EDGE_DIM_ENERGY := 0.12
 ## Anteil, mit dem die Kante einen Kern-Ausbruch mitreißt.

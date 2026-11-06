@@ -5,7 +5,7 @@ extends Node3D
 ## (screen_glass.pit_rect verwirft die Anzeige, table_ground den Filzboden
 ## dahinter) - dieser Körper ist, was man durch das Loch sieht: vier nach innen
 ## blickende Wände, ein Boden und ein Kragen, der die harte Schnittkante deckt.
-## Rein per Code gebaut wie DataCellView und CapacitorBankView - kein .tscn.
+## Rein per Code gebaut wie DataCellView und EnergyRingView - kein .tscn.
 ## Seit der Welle Y (2026-09-05) baut sie ZWEI Körper: die MAGAZIN-Grube und die
 ## TURM-BUCHT. Sie berühren sich und sind EIN Raum - die Bucht ist zum Magazin hin
 ## ganz OFFEN, die Magazin-Wand hat dorthin genau EINEN DURCHBRUCH. Seit dem

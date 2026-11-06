@@ -54,13 +54,10 @@ const BANK_BAR_DRAIN_TIME := 0.45
 const ENERGY_COMET_COLOR := CasinoStyle.ENERGY
 
 ## --- Schwarzmarkt ---------------------------------------------------------------
-## Anteil des Rasterplatzes, den die Bank einnimmt - knapp unter 1, nur noch ein
-## Saum gegen die Nachbarzelle (das Raster soll den Platz sichtbar ausfüllen).
-const CAPACITOR_SLOT_FILL := 0.97
-## Der freie Chip-Platz ist flach (3.16:1); die Bank darf so viel höher in den
-## freien Filz DARUNTER wachsen (unter dem Cluster liegt nur blanker Filz). Der
-## Fußabdruck der Bank ist auf dieses Verhältnis mitgetrimmt.
-const CAPACITOR_SLOT_TALL := 2.0
+## Anteil des Platzes, den der Energie-Ring einnimmt - nur ein Saum zur Nachbarzelle.
+const ENERGY_RING_SLOT_FILL := 0.97
+## Der freie Chip-Platz ist flach; der Ring darf so viel höher in den Filz darunter.
+const ENERGY_RING_SLOT_TALL := 2.0
 ## Luft zwischen Automaten-Unterkante und Schwarzmarkt-Fenster.
 const SECRET_SHOP_TOP_GAP := 30.0
 ## Seitenverhältnis des Schwarzmarkt-Fensters. Früher schnitt die Glas-Ellipse
@@ -379,7 +376,7 @@ var charm_library: CharmLibraryView
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
 ## Die Ladungs-Bank in der Geld-Ecke - das physische Gegenstück der ⚡-Börse.
-var capacitor_bank: CapacitorBankView
+var energy_ring: EnergyRingView
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
 ## Vertragswahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
@@ -1236,11 +1233,11 @@ func _setup_table_screen() -> void:
 		Vector3(chip_world.x, 0.0, chip_world.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
-	# Die Ladungs-Bank bekommt den freien Chip-Platz unten rechts im Cluster
+	# Der Energie-Ring bekommt den freien Chip-Platz unten rechts im Cluster
 	# (zwischen Grube und Kombinationen), nicht die Geld-Ecke.
 	var free_slots := table_screen.free_cluster_slots()
 	if not free_slots.is_empty():
-		_setup_capacitor_bank(free_slots[free_slots.size() - 1])
+		_setup_energy_ring(free_slots[free_slots.size() - 1])
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
@@ -2555,7 +2552,7 @@ func _bet_stake_height(bet: SideBet, chips: Array[int]) -> float:
 			return BetPrizeView.FLOOR_CLEAR \
 				+ DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
 		SideBet.Stake.ENERGY:
-			return BetPrizeView.FLOOR_CLEAR + CapacitorBankView.loose_cell_height()
+			return BetPrizeView.FLOOR_CLEAR + ElkoBody.height()
 	return BetPrizeView.FLOOR_CLEAR + ChipStackView.CHIP_HEIGHT \
 		+ ChipStackView.stack_lift(mini(chips.size(), THROW_SALVO_CAP) - 1)
 
@@ -4977,7 +4974,7 @@ func _throw_energy_body() -> Node3D:
 	var holder := Node3D.new()
 	holder.name = "WurfElko"
 	add_child(holder)
-	holder.add_child(CapacitorBankView.build_loose_cell(true))
+	holder.add_child(ElkoBody.build())
 	return holder
 
 ## Eine liegende Kassette als Wurfkörper - dieselbe Ware, die auch im Magazin liegt,
@@ -6416,7 +6413,7 @@ func _bet_stock() -> Dictionary:
 	return out
 
 ## Der Körper eines GEWINNS - was die Wette NENNT, liegt da: Geld als echte
-## Stückelung, Energie als Stück Kondensator-Bank, ein Einzelstück als geprägte
+## Stückelung, Energie als lose Elkos, ein Einzelstück als geprägte
 ## Marke. Und jedes Paket als versiegelte Kassette IHRER Sorte und Größe: die stehen
 ## seit dem Auswürfeln der Auslage fest, also wirbt der Tresen mit dem, was er wirklich
 ## ausschüttet.
@@ -7449,7 +7446,7 @@ func _on_slot_cashed_out(_runs: int) -> void:
 		table_screen.hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 
 ## Ein Gewinn verläßt den Automaten: Pakete ins Magazin an der Werkbank, ⚡ über
-## den Hub in die Kondensator-Bank, Würfel in die Vorrats-Ablage.
+## den Hub in den Energie-Ring, Würfel in die Vorrats-Ablage.
 func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 	if table_screen == null:
 		return
@@ -7464,7 +7461,7 @@ func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
 				_fly_slot_die_to_fach(run.pending_dice[run.pending_dice.size() - 1], from_px)
 
 ## Die gewonnene Energie reist die ZWEI Etappen jedes ⚡ im Spiel: die Automaten-Ader
-## in den Hub, dann die Hub-Cluster-Ader zur Kondensator-Bank. Die Automaten sind
+## in den Hub, dann die Hub-Cluster-Ader zum Energie-Ring. Die Automaten sind
 ## die sechste ⚡-Quelle; gebucht ist längst, das hier ist reine Anzeige.
 func _fly_slot_energy(count: int, from_px: Vector2) -> void:
 	if count <= 0 or table_screen == null:
@@ -7492,7 +7489,7 @@ func _bet_stake_pack_anchors(bet: SideBet) -> Array[Vector2]:
 ## Der EINSATZ wird GEWORFEN: was der Spieler zahlt, fliegt als Körper von seinem
 ## echten Zuhause MITTIG auf den Plot - Geld als gestaffelte Salve von der Spitze des
 ## Schatzes, die sich dort zu EINEM flachen Turm stapelt, jedes geopferte Paket von
-## SEINEM Magazin-Sitz, ⚡ als lose Zelle von der Kondensator-Bank. Erst wenn der
+## SEINEM Magazin-Sitz, ⚡ als lose Zelle vom Energie-Ring. Erst wenn der
 ## Stapel VOLL steht, bekommt on_land die gelandeten Körper - und die Sektion senkt
 ## sie ein. Liefert die Laufzeit der Salve.
 func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
@@ -7517,7 +7514,7 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 					"from": from, "to": _throw_scatter(seat, i, anchors.size())})
 		SideBet.Stake.ENERGY:
 			var count := BetPrizeView.energy_cells(run.side_bet_stake_energy(bet))
-			var from := capacitor_bank.global_position if capacitor_bank != null \
+			var from := energy_ring.global_position if energy_ring != null \
 				else _treasure_throw_point()
 			for i in mini(count, THROW_SALVO_CAP):
 				entries.append({"body": _throw_energy_body(), "from": from,
@@ -9617,22 +9614,18 @@ func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 ## auf das Platz-Verhältnis getrimmt, also füllen beide zugleich fast ganz - und
 ## kein Rundungsdrift kann die Bank je in die Nachbarzelle schieben. Bewusst auf
 ## blankem Filz, also NICHT spiegelnd (dort ist kein Glas).
-func _setup_capacitor_bank(slot: Rect2) -> void:
-	capacitor_bank = CapacitorBankView.new()
-	capacitor_bank.name = "CapacitorBank"
-	# Nach UNTEN in den freien Filz strecken (Oberkante bleibt an der Chip-Reihe):
-	# der flache Platz allein ließe die Bank als schmalen Streifen liegen.
-	slot = Rect2(slot.position, Vector2(slot.size.x, slot.size.y * CAPACITOR_SLOT_TALL))
+func _setup_energy_ring(slot: Rect2) -> void:
+	energy_ring = EnergyRingView.new()
+	energy_ring.name = "EnergyRing"
+	# Nach UNTEN in den freien Filz strecken (Oberkante bleibt an der Chip-Reihe).
+	slot = Rect2(slot.position, Vector2(slot.size.x, slot.size.y * ENERGY_RING_SLOT_TALL))
 	var center := table_screen.pixel_to_world(slot.get_center())
-	capacitor_bank.position = Vector3(center.x, 0.0, center.z)
-	# pixel_to_world dreht die Achsen: Platz-BREITE (Pixel-x) -> Welt-z, Platz-
-	# HÖHE (Pixel-y) -> Welt-x. Lange Rasterachse liegt also auf der Breite.
+	energy_ring.position = Vector3(center.x, 0.0, center.z)
 	var a := table_screen.pixel_to_world(slot.position)
 	var b := table_screen.pixel_to_world(slot.end)
-	var fit_long := absf(a.z - b.z) / CapacitorBankView.max_length()
-	var fit_short := absf(a.x - b.x) / CapacitorBankView.max_width()
-	capacitor_bank.scale = Vector3.ONE * minf(fit_long, fit_short) * CAPACITOR_SLOT_FILL
-	add_child(capacitor_bank)
+	var fit := minf(absf(a.z - b.z), absf(a.x - b.x)) / EnergyRingView.diameter()
+	energy_ring.scale = Vector3.ONE * fit * ENERGY_RING_SLOT_FILL
+	add_child(energy_ring)
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
 func _add_click_zone(zone_name: String, center: Vector3, box_size: Vector3) -> StaticBody3D:
@@ -13264,9 +13257,9 @@ func _sync_secret_shop_state() -> void:
 	_sync_secret_vitrine()
 
 func _sync_capacitor() -> void:
-	if capacitor_bank == null or run == null:
+	if energy_ring == null or run == null:
 		return
-	capacitor_bank.set_energy(run.energy, run.energy_cap())
+	energy_ring.set_energy(run.energy, run.energy_cap())
 
 func _on_energy_changed(value: int) -> void:
 	if table_screen != null and table_screen.hub != null:
@@ -14240,7 +14233,7 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 		if hub != null:
 			hub.flash_frame(color)
 		if energys > 0:
-			# Zweite Etappe: vom Hub über die Schatz-Leiste zur Kondensator-Bank.
+			# Zweite Etappe: vom Hub über die Schatz-Leiste zum Energie-Ring.
 			# Bewusst NICHT abgewartet - die nächste Stufe startet sofort, wie bei
 			# der Frankiermaschinen-Salve; gebucht wird bei der ANKUNFT.
 			_fly_energy_to_capacitor(true, energys)
@@ -14254,7 +14247,7 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 		await get_tree().create_timer(gap).timeout
 		gap = maxf(BANK_STAGE_GAP_MIN, gap * BANK_STAGE_GAP_DECAY)
 
-## EINEN Kometen vom Hub zur Kondensator-Bank schicken: über die Hub-Cluster-Ader,
+## EINEN Kometen vom Hub zum Energie-Ring schicken: über die Hub-Cluster-Ader,
 ## an deren Eintritt die Bank steht. Gebucht wird bei der Ankunft (dort pulsen
 ## Bank und Börsen-Anzeige), damit die Zahl mit dem Licht steigt.
 ## amount = was DIESER Komet trägt: der Doppellader prägt zwei ⚡ je Stufe,
@@ -14264,9 +14257,9 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 func _fly_energy_to_capacitor(book: bool = true, amount: int = 1) -> void:
 	var launched := run
 	var travel := 0.0
-	if table_screen != null and capacitor_bank != null:
+	if table_screen != null and energy_ring != null:
 		travel = table_screen.energy_comet(
-			table_screen.world_to_pixel(capacitor_bank.global_position), ENERGY_COMET_COLOR)
+			table_screen.world_to_pixel(energy_ring.global_position), ENERGY_COMET_COLOR)
 	if travel <= 0.0:
 		if book:
 			run.add_energy(amount)  # ohne Display still buchen, nichts verlieren
@@ -14277,8 +14270,8 @@ func _fly_energy_to_capacitor(book: bool = true, amount: int = 1) -> void:
 		if book:
 			run.add_energy(amount)
 			_ledger_energy(amount)  # book=false sind Sofort-Klauseln, nicht die Runde
-		if capacitor_bank != null:
-			capacitor_bank.pulse()
+		if energy_ring != null:
+			energy_ring.pulse()
 		if table_screen != null and table_screen.hub != null:
 			table_screen.hub.pulse_energy())
 
@@ -14959,8 +14952,8 @@ func _log_apply_display(state: Dictionary) -> void:
 	if chip_stack != null:
 		chip_stack.clear_mints()
 		chip_stack.seed_wallet(int(state.get("money", 0)))
-	if capacitor_bank != null:
-		capacitor_bank.set_energy(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
+	if energy_ring != null:
+		energy_ring.set_energy(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_run_info(int(state.get("round_number", 1)), int(state.get("money", 0)), _round_note())
 		table_screen.hub.set_energy_display(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))

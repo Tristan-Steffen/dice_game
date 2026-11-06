@@ -1435,7 +1435,7 @@ func _apply_noise_filter() -> void:
 	note_pool_changed()
 
 ## Energie, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
-## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zur Bank.
+## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zum Ring.
 static func instant_clause_energy(clause_id: String, bonus_factor: int = 1) -> int:
 	match clause_id:
 		DealClause.SEED_CAPITAL:
@@ -2382,11 +2382,12 @@ func stage_progress(points: int) -> Dictionary:
 ## an. GameRun rechnet nur die Aufteilung (energy_split), gebucht wird in der
 ## Auszahlungs-Zeremonie.
 
-## Die Börse ist die 5×5-Kondensator-Bank: der Deckel wächst NUR in ganzen
-## Reihen (Vielfache von ENERGY_ROW), damit eine neue Stufe als "eine Reihe erwacht"
-## lesbar ist - nie als krumme Zahl.
+## Der Deckel wächst NUR in Fünferschritten, damit eine neue Stufe als "eine Gruppe
+## des Energie-Rings erwacht" lesbar ist - nie als krumme Zahl.
 const ENERGY_ROW := 5
 const ENERGY_ROWS_MAX := 5
+## Mehr fasst der Ring nicht, was immer den Deckel künftig hebt.
+const ENERGY_CAP_LIMIT := 50
 
 ## Barwert einer ⚡, die nicht mehr in die Börse passt (Wett-Gewinn) - derselbe
 ## Satz wie eine übergelaufene Überladungs-Stufe.
@@ -2465,9 +2466,9 @@ var secret_stock: Array[Dictionary] = []
 
 ## Deckel der Börse; wächst mit der Fortschrittsstufe.
 func energy_cap() -> int:
-	return energy_cap_rows() * ENERGY_ROW
+	return mini(energy_cap_rows() * ENERGY_ROW, ENERGY_CAP_LIMIT)
 
-## Erwachte Reihen der Bank je Fortschrittsstufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
+## Erwachte Fünfergruppen je Fortschrittsstufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
 func energy_cap_rows() -> int:
 	var tier := progress_tier()
 	if tier >= 10:

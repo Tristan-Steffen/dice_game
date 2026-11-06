@@ -194,7 +194,7 @@ static func _build_concepts() -> void:
 		"Die linke Hälfte der Wertung: Punkte = Basispunkte × Mult. Die Kombination legt ihre Basis, jeder gezählte Würfel wirft seine Augen darauf, und Materialien wie Bernstein legen nach.",
 		CAT_BEGRIFFE)
 	_add(ENERGIE, "Energie",
-		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert in der Kondensatorbank. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie an den Automaten und im Schwarzmarkt.",
+		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert im Energie-Ring. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie an den Automaten und im Schwarzmarkt.",
 		CAT_BEGRIFFE)
 	_add(LADUNG, "Ladung",
 		"Jeder Würfel trägt eine Ladung von 0 bis 3 (Glimmen, Kriechstrom, Überschlag), und jede Ladung ist +1 Mult für seine Hand. Jede Auslösung eines gewerteten Würfels würfelt auf +1; wer mit Überschlag in eine Hand geht, würfelt statt dessen aufs Durchbrennen. Ein durchgebrannter Würfel zählt weiter für die Kombination, liefert aber keine Augen und feuert nichts - erst die goldene Generalüberholung aus dem Schwarzmarkt holt ihn beim Prägen in der Werkstatt zurück; Kühlrippe und Kältebad senken die Ladung nach dem Prägen, durchgebrannte Würfel retten sie nicht. Wer eine Runde lang nicht gewertet hat, verliert eine Stufe.",
@@ -230,7 +230,7 @@ static func _build_concepts() -> void:
 		"Das Rundenziel: die Punktzahl, die die Runde besteht. Die Quota wächst von Runde zu Runde, und jede sechste Runde endet im Stresstest. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
 		CAT_BEGRIFFE)
 	_add(UEBERLADUNG, "Überladung",
-		"Die Stufen über der Quota: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in die Kondensatorbank; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
+		"Die Stufen über der Quota: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in den Energie-Ring; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
 		CAT_BEGRIFFE)
 	_add(FUMBLE, "Fumble",
 		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Manche Charms und Klauseln federn den ersten Fumble ab, einige zahlen sogar darauf.",

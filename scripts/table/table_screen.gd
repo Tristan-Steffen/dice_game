@@ -2728,8 +2728,8 @@ func _arc_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 		path.append(from_px.lerp(control, t).lerp(control.lerp(to_px, t), t))
 	return path
 
-## Ladungs-Komet Hub -> Kondensator-Bank: die zweite Etappe einer Überladungs-
-## Stufe. Sie fährt die Hub-Cluster-Ader, an deren Eintritt die Bank steht.
+## Ladungs-Komet Hub -> Energie-Ring: die zweite Etappe einer Überladungs-
+## Stufe. Sie fährt die Hub-Cluster-Ader, an deren Eintritt der Ring steht.
 func energy_comet(to_px: Vector2, color: Color) -> float:
 	if led_strip == null or led_strip.strip_path.size() < 2 or hub == null:
 		return 0.0
@@ -3427,7 +3427,7 @@ var part_hint: HintCard
 var install_banner: HintCard
 var _install_banner_wanted := false
 
-## Der freie Chip-Platz links neben „Höchste Zahl" (den rechten trägt die Ladungs-Bank).
+## Der freie Chip-Platz links neben „Höchste Zahl" (den rechten trägt der Energie-Ring).
 func part_hint_slot() -> Rect2:
 	var slots := free_cluster_slots()
 	return slots[0] if not slots.is_empty() else Rect2(cluster_rect.position, CELL_SIZE)

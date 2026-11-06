@@ -1,12 +1,12 @@
 class_name BetPrizeView
 extends Node3D
 ## Der Körper eines Nebenwetten-GEWINNS, der keine Kassette ist:
-## ein Chip-Stapel (Geld), ein Stück Kondensator-Bank (Energie) oder eine geprägte
+## ein Chip-Stapel (Geld), ein Häuflein Elkos (Energie) oder eine geprägte
 ## MARKE (Bauteil, Press-Schub). Rein per Code gebaut wie alles auf dem Tisch -
 ## kein .tscn, kein Panel darunter.
 ## Er ist reine ANZEIGE: keine Buchung hängt an ihm, er zeigt nur, was auf dem
 ## Tresen liegt.
-## Er liegt in ECHTER Größe da - Chips in Schatz-Stückelung, Elkos im Bank-Maß,
+## Er liegt in ECHTER Größe da - Chips in Schatz-Stückelung, Elkos in ihrem Maß,
 ## Marke wie gebaut - und darf dabei über seinen Stellplatz hinausragen.
 ## Nichts schrumpft mehr auf einen Platz; der SCHACHT mißt an ihm, nicht er am Loch.
 ## Drei Tischregeln: er steht FLOOR_CLEAR über der Fläche (sonst kämpfen Unterseite
@@ -22,7 +22,7 @@ const KIND_TOKEN := "token"
 ## Luft zwischen Unterseite und Anzeige - dasselbe Maß wie in einer Bucht.
 const FLOOR_CLEAR := VitrineView.FLOOR_CLEAR
 
-## Der Energie-Preis ist ein Stück Bank: höchstens so viele Spalten, dann wächst
+## Der Energie-Preis ist ein Raster aus Elkos: höchstens so viele Spalten, dann wächst
 ## das Raster in die Tiefe. Mehr als ELKO_CAP Dosen zeigt keiner - die Zahl steht
 ## auf dem Knopf, der Körper sagt nur, WAS es ist.
 const ELKO_COLS := 4
@@ -93,9 +93,9 @@ static func span_for(build_kind: String, amount: int = 0) -> Vector2:
 			return ChipStackView.pile_span(amount)
 		KIND_ENERGY:
 			var grid := energy_grid(amount)
-			var cell := CapacitorBankView.loose_cell_size()
-			return Vector2(float(grid.y - 1) * CapacitorBankView.ROW_PITCH + cell.x,
-				float(grid.x - 1) * CapacitorBankView.CELL_PITCH + cell.y)
+			var cell := ElkoBody.footprint()
+			return Vector2(float(grid.y - 1) * ElkoBody.ROW_PITCH + cell.x,
+				float(grid.x - 1) * ElkoBody.CELL_PITCH + cell.y)
 		KIND_TOKEN:
 			return Vector2(TOKEN_RADIUS * 2.0, TOKEN_RADIUS * 2.0)
 	return Vector2.ZERO
@@ -113,7 +113,7 @@ func setup_chips(amount: int) -> void:
 	_natural = span_for(KIND_CHIPS, amount)
 	_natural_height = _chips_height()
 
-## Energie: ein Stück der Kondensator-Bank - dieselben Elkos, nur ohne Platine, und
+## Energie: lose Elkos ohne Platine, und
 ## darum ebenfalls ohne eigenen Akzent.
 func setup_energy(count: int) -> void:
 	_reset(KIND_ENERGY)
@@ -121,19 +121,19 @@ func setup_energy(count: int) -> void:
 	var grid := energy_grid(count)
 	var cols := grid.x
 	var rows := grid.y
-	var pitch_z := CapacitorBankView.CELL_PITCH
-	var pitch_x := CapacitorBankView.ROW_PITCH
+	var pitch_z := ElkoBody.CELL_PITCH
+	var pitch_x := ElkoBody.ROW_PITCH
 	for i in shown:
 		@warning_ignore("integer_division")
 		var row := i / cols
 		var col := i % cols
-		var cell := CapacitorBankView.build_loose_cell(true)
+		var cell := ElkoBody.build()
 		cell.position += Vector3(
 			(float(row) - float(rows - 1) * 0.5) * pitch_x, 0.0,
 			(float(col) - float(cols - 1) * 0.5) * pitch_z)
 		_body.add_child(cell)
 	_natural = span_for(KIND_ENERGY, count)
-	_natural_height = CapacitorBankView.loose_cell_height()
+	_natural_height = ElkoBody.height()
 
 ## Die geprägte MARKE für die Einzelstücke, die weder Ware noch Geld sind
 ## (Bauteil, Press-Schub): eine flache Platte mit ihrer Aufschrift.
