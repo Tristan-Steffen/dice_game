@@ -50,6 +50,8 @@ const HAND_PRIORITY := [
 ## best_hand fällt auf die nächstbeste zutreffende zurück. Mehrzahl, weil Boss-
 ## Konditionen (Allrounder, Standardprotokoll) die Liste wachsen lassen.
 const CTX_THROTTLED := "throttled"
+## Kombinationen mit Nebenschluss: bei ihnen zählen alle gereichten Würfel mit.
+const CTX_SHUNTED := "shunted"
 
 ## Ob eine Kategorie in diesem Wurf gedrosselt ist.
 static func is_throttled(key: String, ctx: Dictionary) -> bool:
@@ -645,6 +647,9 @@ static func hand_shape(key: String, raw: Array[int], charm_ids: Array[String], c
 	# Vollzähler weitet die gewertete Menge auf ALLE liegenden Würfel; sonst zählen
 	# nur die beteiligten. Kombi-Charms (Snake Eyes & Co.) bleiben auf participating.
 	var scored := CharmEffects.scored_indices(participating, dice.size(), charm_ids)
+	var shunted: Array = ctx.get(CTX_SHUNTED, [])
+	if shunted.has(key):
+		scored = CharmEffects.scored_indices(participating, dice.size(), [Charm.FULL_COUNTER] as Array[String])
 	# Auch der Vollzähler zieht keine paritätsgesperrten Würfel herein.
 	var legal := legal_indices(dice, ctx)
 	if legal.size() < dice.size():
@@ -717,9 +722,11 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var combo_factor := CharmEffects.combo_factor(charm_ids)
 	var base := points_for(key) * combo_factor
 	var mult := float(mult_for(key))
-	# Kombi-Teile Steckplatz für Steckplatz, nach dem Dreifachen Boden.
-	var chip := ComboPartEffects.chip(combo_parts, key)
-	for step in ComboPartEffects.combo_steps(combo_parts, key):
+	# Kombi-Teile Steckplatz für Steckplatz, nach dem Dreifachen Boden; Brücken
+	# zünden weitere Kombinationen samt ihrer Teile.
+	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(CTX_THROTTLED, []))
+	var chip := ComboPartEffects.merged_chip(combo_parts, chain)
+	for step in ComboPartEffects.chain_steps(combo_parts, chain, int(ctx.get(CTX_HANDS_TAKEN, 0)) == 0):
 		base += int(step["points"])
 		mult += float(step["mult"])
 	# Acetylen und Schneidbrenner zählen die Module der Kombination.
@@ -967,7 +974,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		charge_points += int(running_charges.get(i, 0))
 	mult += float(CHARGE_MULT_PER_POINT * charge_points)
 	# Krit-Teile nach allen Würfeln, vor den statischen Charms.
-	for step in ComboPartEffects.crit_steps(chip):
+	for step in ComboPartEffects.chain_crit_steps(combo_parts, chain):
 		crits += 1
 		mult *= float(step["crit_x"])
 	# Die statischen Charms lesen denselben END-Stand (Spannungsmesser) - über

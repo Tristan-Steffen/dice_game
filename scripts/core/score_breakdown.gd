@@ -44,7 +44,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var eye_slots: Array[int] = shape["order"]
 	# Kaltverfestigung: hand-weit wie in DiceScoring.
 	var clause_growth := DiceScoring.clause_growth_in(ctx)
-	var chip := ComboPartEffects.chip(combo_parts, key)
+	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(DiceScoring.CTX_THROTTLED, []))
+	var chip := ComboPartEffects.merged_chip(combo_parts, chain)
+	var chain_sockets := ComboPartEffects.merged_sockets(combo_parts, chain)
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty() or ComboPartEffects.has_die_parts(chip)
 	# Krits dieser Hand, laufend gezählt - wie in DiceScoring._base_and_mult
@@ -93,11 +95,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		})
 	# 1b. Kombi-Module, je Steckplatz ein eigener Schritt.
 	var part_steps: Array[Dictionary] = []
-	for step in ComboPartEffects.combo_steps(combo_parts, key):
+	for step in ComboPartEffects.chain_steps(combo_parts, chain, hands_taken == 0):
 		base += int(step["points"])
 		mult += float(step["mult"])
 		part_steps.append({
-			"key": key,
+			"key": String(step["key"]),
+			"activated": bool(step["activated"]),
 			"slot": int(step["slot"]),
 			"part_id": String(step["id"]),
 			"copied": String(step["copied"]),
@@ -232,7 +235,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 				var part_charge := int(running_charges.get(i, 0))
 				charm_base_now += ComboPartEffects.firing_base(chip, in_combination)
 				charm_mult_now += ComboPartEffects.firing_mult(chip, in_combination, part_charge)
-				var part_slots_now := ComboPartEffects.firing_slots(chip, in_combination, part_charge)
+				var part_slots_now: Array[int] = []
+				var part_foreign_now: Array[Dictionary] = []
+				for merged_slot in ComboPartEffects.firing_slots(chip, in_combination, part_charge):
+					var socket: Dictionary = chain_sockets[merged_slot]
+					if String(socket["key"]) == key:
+						part_slots_now.append(int(socket["slot"]))
+					else:
+						part_foreign_now.append(socket)
 				# Metronom und Stroboskop hängen an der Hand bzw. am Zündungszähler,
 				# nicht am zustandslosen Hook - ihr Anteil reist trotzdem im Charm-
 				# Anteil dieser Zündung, damit ihr Pad blitzt.
@@ -267,6 +277,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 					"charm_base_add": charm_base_now, "charm_mult_add": charm_mult_now,
 					"die_charm_indices": charm_indices_now,
 					"part_slots": part_slots_now,
+					"part_foreign": part_foreign_now,
 				}
 				base += charm_base_now
 				mult += float(charm_mult_now)
@@ -520,12 +531,12 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		}
 	# 2c. Krit-Module nach allen Würfeln, vor den statischen Charms - je Teil ein Schlag.
 	var part_crit_steps: Array[Dictionary] = []
-	for step in ComboPartEffects.crit_steps(chip):
+	for step in ComboPartEffects.chain_crit_steps(combo_parts, chain):
 		var part_crit := float(step["crit_x"])
 		crits += 1
 		mult *= part_crit
 		part_crit_steps.append({
-			"key": key,
+			"key": String(step["key"]),
 			"slot": int(step["slot"]),
 			"part_id": String(step["id"]),
 			"crit_x": part_crit,
@@ -617,6 +628,7 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 
 	return {
 		"key": key,
+		"chain_keys": chain,
 		"participating": participating,
 		"eye_slots": eye_slots,
 		"combo": combo,

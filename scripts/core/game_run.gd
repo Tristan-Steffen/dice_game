@@ -1021,6 +1021,7 @@ func install_pending_part(combo_key: String, slot: int) -> bool:
 	pending_parts.remove_at(0)
 	if displaced != null:
 		pending_parts.insert(0, displaced)
+	_release_guarded(combo_key)
 	pending_parts_changed.emit()
 	combo_parts_changed.emit(combo_key)
 	return true
@@ -1079,25 +1080,82 @@ func move_part(from_key: String, from_slot: int, to_key: String, to_slot: int, e
 			return false
 		combo_parts[from_key] = from_fitted
 		combo_parts[to_key] = to_fitted
+		_release_guarded(to_key)
 		combo_parts_changed.emit(to_key)
+	_release_guarded(from_key)
 	combo_parts_changed.emit(from_key)
 	return true
 
-## Die Kombination wurde gewertet: Zählwerke wachsen, Münzprüfer zahlen.
+## Was eine Wertung dieser Kombination mitzündet (sie selbst zuerst, dann die Brücken).
+func chain_keys(combo_key: String) -> Array[String]:
+	return ComboPartEffects.chain_keys(scoring_parts(), combo_key, throttled_combos)
+
+## Alle Steckplätze dieser Kette - das, womit die Würfel der Hand zünden.
+func chain_chip(combo_key: String) -> Array:
+	return ComboPartEffects.merged_chip(scoring_parts(), chain_keys(combo_key))
+
+## Die Kette wurde gewertet: Zählwerke und Schwingkreise wachsen, Münzprüfer zahlen.
 ## Gebucht beim Nehmen, VOR der Zeremonie. Liefert das gezahlte Geld.
 func book_combo_scored(combo_key: String) -> int:
-	var sockets: Array = scoring_parts().get(combo_key, [])
-	var grew := false
-	for part in sockets:
-		if part != null and part.id == ComboPart.COUNTER:
-			part.counter += 1
-			grew = true
-	var money_gain := ComboPartEffects.scoring_money(sockets)
+	var money_gain := 0
+	var parts := scoring_parts()
+	for key in chain_keys(combo_key):
+		var sockets: Array = parts.get(key, [])
+		var grew := false
+		for part in sockets:
+			if part != null and (part.id == ComboPart.COUNTER or part.id == ComboPart.RESONATOR):
+				part.counter += 1
+				grew = true
+		money_gain += ComboPartEffects.scoring_money(sockets)
+		if grew:
+			combo_parts_changed.emit(key)
 	if money_gain > 0:
 		add_money(money_gain)
-	if grew:
-		combo_parts_changed.emit(combo_key)
 	return money_gain
+
+## Stromabnehmer: Energie je Wertung; was über den Deckel läuft, zahlt bar.
+## Liefert, was wirklich im Speicher ankam - so viele Lichter fliegen.
+func book_part_energy(combo_key: String) -> int:
+	var count := ComboPartEffects.scoring_energy(chain_chip(combo_key))
+	if count <= 0:
+		return 0
+	var before := energy
+	book_copper_energy(count)
+	return energy - before
+
+## Magnetron: lädt die Kombinationswürfel erzwungen, je Kopie um eine Stufe. Liefert
+## je Würfel {die, slot, before, after, burned} wie book_charge_results.
+func book_magnetrons(combo_key: String, defs: Array[DieDefinition], combination: Array[int]) -> Array[Dictionary]:
+	var count := ComboPartEffects.MAGNETRON_CHARGE * ComboPartEffects.count_of(chain_chip(combo_key), ComboPart.MAGNETRON)
+	var changes: Array[Dictionary] = []
+	if count <= 0:
+		return changes
+	for slot in combination:
+		if slot < 0 or slot >= defs.size() or defs[slot] == null or defs[slot].burned_out:
+			continue
+		var die := defs[slot]
+		var before := die.charge
+		var burned := false
+		for _i in count:
+			burned = charge_up_forced(die) or burned
+		if burned or die.charge != before:
+			changes.append({"die": die, "slot": slot, "before": before, "after": die.charge, "burned": burned})
+	if not changes.is_empty():
+		note_pool_changed()
+	return changes
+
+## Sperrdiode: dieser Chip wird nie gedrosselt und nie stillgelegt.
+func _chip_guarded(combo_key: String) -> bool:
+	return ComboPartEffects.has_part(combo_parts.get(combo_key, []), ComboPart.BLOCKING_DIODE)
+
+## Eine frisch gesteckte Sperrdiode hebt auf, was den Chip schon getroffen hat.
+func _release_guarded(combo_key: String) -> void:
+	if not _chip_guarded(combo_key):
+		return
+	throttled_combos.erase(combo_key)
+	for part in combo_parts.get(combo_key, []):
+		if part != null:
+			heat_disabled_parts.erase(part.get_instance_id())
 
 func _valid_socket(combo_key: String, slot: int) -> bool:
 	return DiceScoring.HAND_PRIORITY.has(combo_key) and slot >= 0 and slot < socket_count(combo_key)
@@ -1187,7 +1245,7 @@ static func block_of_round(n: int) -> int:
 func hottest_combos(count: int) -> Array[String]:
 	var keys: Array[String] = []
 	for key: String in DiceScoring.HAND_PRIORITY:
-		if key != DiceScoring.ONE_KIND:
+		if key != DiceScoring.ONE_KIND and not _chip_guarded(key):
 			keys.append(key)
 	# Gleichstand ausdrücklich über den Rang brechen: sort_custom sortiert nicht
 	# stabil, die Reihenfolge aus HAND_PRIORITY allein trägt also nicht.
@@ -1212,11 +1270,11 @@ func _round_throttled_combos() -> Array[String]:
 ## Drossel dadurch gewachsen ist (die Chips müssen dann neu gezeichnet werden).
 func note_hand_taken(combo_key: String) -> bool:
 	var before := throttled_combos.size()
-	if _clause_active(DealClause.ALL_ROUNDER) and not throttled_combos.has(combo_key):
+	if _clause_active(DealClause.ALL_ROUNDER) and not throttled_combos.has(combo_key) and not _chip_guarded(combo_key):
 		throttled_combos.append(combo_key)
 	if _clause_active(DealClause.STANDARD_PROTOCOL):
 		for key: String in DiceScoring.HAND_PRIORITY:
-			if key != combo_key and not throttled_combos.has(key):
+			if key != combo_key and not throttled_combos.has(key) and not _chip_guarded(key):
 				throttled_combos.append(key)
 	return throttled_combos.size() > before
 
@@ -1224,7 +1282,7 @@ func note_hand_taken(combo_key: String) -> bool:
 ## still - das im HINTERSTEN belegten Steckplatz, das noch läuft. true = es ging
 ## tatsächlich eins aus.
 func apply_heat_buildup(combo_key: String) -> bool:
-	if not _clause_active(DealClause.HEAT_BUILDUP):
+	if not _clause_active(DealClause.HEAT_BUILDUP) or _chip_guarded(combo_key):
 		return false
 	var sockets := parts_of(combo_key)
 	for slot in range(sockets.size() - 1, -1, -1):

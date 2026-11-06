@@ -4,15 +4,12 @@
 Aufruf (kopflos):
   blender -b -P tools/blender_combo_hardware.py -- assets/models/hardware
 
-Vier Modelle, alle in Blender-Achsen gebaut (glTF: Godot (x, y, z) = Blender (x, -z, y)):
+Drei Modelle (die Platine baut blender_part_models.py), alle in Blender-Achsen gebaut (glTF: Godot (x, y, z) = Blender (x, -z, y)):
 
   part_module.glb - das EINE Modul-Gehäuse in WELT-Maß. Ursprung = Mitte der
       Gehäuse-UNTERSEITE; darunter ragt der STECKER (3 x 3 Goldstifte), oben liegt das
       FENSTER, das Godot in der Phasen-Tönung leuchten läßt. Knoten: Gehaeuse, Fenster,
       Stecker.
-  part_riser.glb - die Erweiterungsplatine: dasselbe Gehäuse mit demselben Stecker,
-      darauf eine Platine mit ZWEI Buchsen-Löchern (die Buchsen setzt Godot ein).
-      Knoten: Gehaeuse, Stecker, Platine, Bahnen.
   part_socket.glb - die BUCHSE in WELT-Maß. Ursprung = Mitte des MUNDES auf der
       Deckelfläche; die Wanne reicht nach unten. Knoten: Wanne, Kontakte, Mund.
   chip_socketed.glb (in assets/models/) - assets/models/chip.glb mit gefülltem
@@ -45,13 +42,6 @@ PIN_PITCH = SIDE * 0.26
 WINDOW = SIDE * 0.66
 MOUTH = SIDE + 2 * CLEARANCE
 OUTER = MOUTH + 2 * WALL
-# Die Platine liegt QUER zur Chip-Reihe (Godot +Z, zum Frontband), um RISER_SHIFT
-# nach vorn gerückt; ihre zwei Buchsen stehen RISER_PITCH auseinander.
-RISER_PITCH = OUTER + 0.006
-RISER_SHIFT = 0.17
-RISER_DEPTH = OUTER + 0.02             # quer (Godot X)
-RISER_WIDTH = RISER_PITCH + OUTER + 0.02  # längs (Godot Z), ganz im Chip
-RISER_THICK = WELL + FLOOR + 0.012
 
 # --- ComboChipView (Modell-Einheiten) ---
 BODY_TOP = 9.0
@@ -178,29 +168,6 @@ def module():
     export(os.path.join(OUT, "part_module.glb"))
 
 
-def riser():
-    reset()
-    m = materials()
-    housing_and_plug(m)
-    z0 = HEIGHT
-    # Blender-Y = -Godot-Z: die Platine reicht nach Blender -Y, wenn sie nach vorn rückt.
-    by = -RISER_SHIFT
-    board = box("Platine", (RISER_DEPTH, RISER_WIDTH, RISER_THICK),
-                (0, by, z0 + RISER_THICK * 0.5), m["board"], 0.006)
-    for s in (-1, 1):
-        hole = box("Loch", (OUTER, OUTER, RISER_THICK * 3.0),
-                   (0, by + s * RISER_PITCH * 0.5, z0 + RISER_THICK), None)
-        cut(board, hole)
-    top = z0 + RISER_THICK
-    traces = []
-    for x in (-1, 1):
-        traces.append(box("Bahn", (0.014, RISER_WIDTH * 0.9, 0.004),
-                          (x * (RISER_DEPTH * 0.5 - 0.012), by, top + 0.002), m["trace"]))
-    traces.append(box("Bahn", (RISER_DEPTH * 0.86, 0.014, 0.004), (0, by, top + 0.002), m["trace"]))
-    join("Bahnen", traces)
-    export(os.path.join(OUT, "part_riser.glb"))
-
-
 def socket():
     reset()
     m = materials()
@@ -266,6 +233,5 @@ def chip(depth):
 
 
 module()
-riser()
 chip(socket())
 print("FERTIG", OUT, CHIP_OUT)

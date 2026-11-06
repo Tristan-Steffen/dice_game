@@ -410,6 +410,8 @@ func _text_width(label: Label3D) -> float:
 	return ThemeDB.fallback_font.get_string_size(
 		label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x * label.pixel_size
 
+const ACTIVATION_TIME := 0.6
+
 ## Hervorhebung der aktiven Kombination (scene_root tweent den Wert).
 func set_glow(value: float) -> void:
 	glow = value
@@ -590,6 +592,13 @@ func play_plug(slot: int) -> void:
 	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(body, "position", _part_rest(), PLUG_TIME)
 
+## Eine Brücke zündet diesen Chip mit: er leuchtet auf, alle seine Teile mit.
+func flash_activation() -> void:
+	var rest := glow
+	create_tween().tween_method(set_glow, 1.0, rest, ACTIVATION_TIME)
+	for slot in _sockets.size():
+		flash_socket(slot)
+
 ## Ein Teil feuert in der Wertung: sein Körper blitzt, sein Mund mit.
 ## strength > 1 ist der Krit-Schlag. Leerer oder fremder Platz = nichts.
 func flash_socket(slot: int, strength := 1.0) -> void:
@@ -738,6 +747,9 @@ func _spawn_body(slot: int, part: ComboPart) -> ComboPartBody:
 	if int(entry["tier"]) % 2 == 1:
 		var toward := -1.0 if to_local((entry["node"] as Node3D).global_position).x > 0.0 else 1.0
 		body.rotation.y = PI * 0.5 * toward
+	# Der Chip liegt gedreht auf dem Tisch; ein Modul liest im Bild, sein Pfeil zeigt zum Nachbarn.
+	if not ComboPartBody.is_riser(part) and body.is_inside_tree():
+		body.global_rotation = Vector3.ZERO
 	body.visible = slot != _lifted_slot
 	if ComboPartBody.is_riser(part):
 		# Die Platine selbst bleibt greifbar: ein Pick über ihrer Platte, unter den Buchsen.

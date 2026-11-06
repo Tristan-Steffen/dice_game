@@ -112,11 +112,13 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 
 	var key := String(breakdown.get("key", ""))
 	for part_step: Dictionary in breakdown.get("part_steps", []):
-		var part_parts: Array[String] = [part_name(String(part_step.get("part_id", "")))]
+		var step_key := String(part_step.get("key", key))
+		var part_parts: Array[String] = ["%s aktiviert" % DiceScoring.label_for(step_key)
+			if bool(part_step.get("activated", false)) else part_name(String(part_step.get("part_id", "")))]
 		_add_amounts(part_parts, int(part_step.get("base_add", 0)), float(part_step.get("mult_add", 0)))
 		var part := _step(STEP_PART, " · ".join(part_parts), int(part_step.get("base_after", 0)),
 			float(part_step.get("mult_after", 1.0)), overrides)
-		_mark_parts(part, key, [int(part_step.get("slot", -1))])
+		_mark_parts(part, step_key, [int(part_step.get("slot", -1))])
 		steps.append(part)
 
 	for die_step: Dictionary in breakdown.get("die_steps", []):
@@ -135,7 +137,7 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 				ScoreBreakdown.format_mult(crit_x)],
 			int(crit_step.get("base_after", 0)), float(crit_step.get("mult_after", 1.0)), overrides)
 		part_crit["crit_x"] = crit_x
-		_mark_parts(part_crit, key, [int(crit_step.get("slot", -1))])
+		_mark_parts(part_crit, String(crit_step.get("key", key)), [int(crit_step.get("slot", -1))])
 		steps.append(part_crit)
 
 	for charm_step: Dictionary in breakdown.get("charm_steps", []):
@@ -161,7 +163,7 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 		steps.append(post_step)
 
 	for step: Dictionary in steps:
-		if not (step["part_slots"] as Array).is_empty():
+		if not (step["part_slots"] as Array).is_empty() and String(step["part_key"]) == "":
 			step["part_key"] = key
 	var total := int(breakdown.get("total", 0))
 	var result := _step(STEP_RESULT, "Ergebnis: %d Punkte" % total, final_base, final_mult, overrides)
@@ -188,6 +190,7 @@ static func _append_firing(steps: Array[Dictionary], firing: Dictionary, slot: i
 		int(firing.get("charm_base_after", firing.get("base_after", 0))),
 		float(firing.get("charm_mult_after", firing.get("mult_after", 1.0))), overrides)
 	step["part_slots"] = _int_list(firing.get("part_slots", []))
+	step["part_foreign"] = firing.get("part_foreign", [])
 	step["slot"] = slot
 	step["flash_slot"] = slot
 	step["value"] = value
@@ -298,6 +301,7 @@ static func _step(kind: String, label: String, base_after: int, mult_after: floa
 		"from_die": false,
 		"part_key": "",
 		"part_slots": no_charms.duplicate(),
+		"part_foreign": [],
 	}
 
 static func _add_amounts(parts: Array[String], base_add: int, mult_add: float) -> void:

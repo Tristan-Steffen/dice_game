@@ -1,15 +1,19 @@
 class_name ComboPartBody
 extends Node3D
-## Ein MODUL als Körper: JEDES ist dasselbe Gehäuse (part_module.glb) - ein
-## dunkles Gehäuse mit dem Goldstecker darunter und einem FENSTER oben, das in der
-## Tönung seiner Phase leuchtet. Teile unterscheiden sich in der Tönung, nie in Form
-## oder Stecker. Die Erweiterungsplatine (part_riser.glb) ist dasselbe Gehäuse mit
+## Ein MODUL als Körper: jedes hat sein eigenes Modell (part_<id>.glb aus
+## tools/blender_part_models.py), dieselben Außenmaße und denselben Goldstecker; ohne
+## eigenes Modell bleibt das Grundgehäuse (part_module.glb) mit seinem FENSTER. Die
+## Tönung nennt die Modulart, die Plattform die Seltenheit. Die Erweiterungsplatine (part_riser.glb) ist dasselbe Gehäuse mit
 ## demselben Stecker und trägt oben ZWEI Buchsen. Ursprung = Gehäuse-Unterseite.
 ## EINE Größe überall (Bucht, Schwarzmarkt, Steckplatz, Geist): SIDE in Welt.
 
 const MODULE_SCENE := "res://assets/models/hardware/part_module.glb"
 const RISER_SCENE := "res://assets/models/hardware/part_riser.glb"
 const SOCKET_SCENE := "res://assets/models/hardware/part_socket.glb"
+const OWN_MODEL := "res://assets/models/hardware/part_%s.glb"
+## Die Plattform ist Stahl mit einem Hauch Seltenheit - sie soll den Aufbau tragen, nicht überstrahlen.
+const PLATE_STEEL := Color(0.46, 0.48, 0.53)
+const PLATE_RARITY_SHARE := 0.32
 
 ## Die Maße spiegeln tools/blender_combo_hardware.py - wer sie ändert, baut dort neu.
 const SIDE := 0.8
@@ -48,6 +52,7 @@ static var _scenes: Dictionary = {}
 var part: ComboPart
 var _dimmed := false
 var _lit: StandardMaterial3D
+var _plate: StandardMaterial3D
 var _flash := 0.0
 var _flash_tween: Tween
 
@@ -55,6 +60,16 @@ static func _scene(path: String) -> PackedScene:
 	if not _scenes.has(path):
 		_scenes[path] = load(path)
 	return _scenes[path]
+
+## Das eigene Modell des Teils (tools/blender_part_models.py), sonst das Grundgehäuse.
+static func model_path(p_part: ComboPart) -> String:
+	if is_riser(p_part):
+		return RISER_SCENE
+	if p_part != null:
+		var own := OWN_MODEL % p_part.id
+		if ResourceLoader.exists(own):
+			return own
+	return MODULE_SCENE
 
 ## Ein Teil ist eine Platine, wenn es Steckplätze trägt.
 static func is_riser(p_part: ComboPart) -> bool:
@@ -80,7 +95,7 @@ func setup(p_part: ComboPart) -> void:
 	_lit = StandardMaterial3D.new()
 	_lit.emission_enabled = true
 	_lit.roughness = 0.3
-	var inst := _scene(RISER_SCENE if is_riser(part) else MODULE_SCENE).instantiate() as Node3D
+	var inst := _scene(model_path(part)).instantiate() as Node3D
 	inst.name = "Model"
 	add_child(inst)
 	_skin(inst, "Gehaeuse", _flat(HOUSING_ALBEDO, HOUSING_EMISSION))
@@ -88,6 +103,8 @@ func setup(p_part: ComboPart) -> void:
 	_skin(inst, "Platine", _flat(Color(0.05, 0.09, 0.08), 0.06))
 	_skin(inst, "Fenster", _lit)
 	_skin(inst, "Bahnen", _lit)
+	_skin(inst, "Licht", _lit)
+	_apply_baked(inst)
 	_apply()
 
 ## Höhe des Körpers über seinem Fuß.
@@ -127,6 +144,31 @@ func _apply() -> void:
 	_lit.albedo_color = DIM_ALBEDO if _dimmed else tint.darkened(0.2)
 	_lit.emission = tint
 	_lit.emission_energy_multiplier = (DIM_ENERGY if _dimmed else base) + FLASH_ENERGY * _flash
+	if _plate != null:
+		var rarity := part.rarity_color() if part != null else Color.WHITE
+		_plate.albedo_color = DIM_ALBEDO if _dimmed else PLATE_STEEL.lerp(rarity, PLATE_RARITY_SHARE)
+
+## Modelle mit eingemaltem Licht (Vertexfarben): der Tisch ist zu dunkel, um Metall zu tragen.
+## Die Plattform multipliziert darauf die Seltenheitsfarbe.
+func _apply_baked(inst: Node3D) -> void:
+	var korpus := inst.find_child("Korpus", true, false) as MeshInstance3D
+	if korpus == null or not (korpus.mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_COLOR):
+		return
+	korpus.material_override = _baked(false)
+	var glass := inst.find_child("Glas", true, false) as MeshInstance3D
+	if glass != null:
+		glass.material_override = _baked(true)
+	_plate = _baked(false)
+	_skin(inst, "Plattform", _plate)
+
+func _baked(transparent: bool) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.vertex_color_use_as_albedo = true
+	if transparent:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
 
 func _skin(inst: Node3D, node_name: String, material: Material) -> void:
 	var mesh := inst.find_child(node_name, true, false) as MeshInstance3D

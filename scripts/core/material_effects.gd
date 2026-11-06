@@ -115,7 +115,7 @@ static func die_trigger_count(i: int, charm_ids: Array[String], echo_slot: int =
 		count += CharmEffects.tail_retriggers(charm_ids)
 	count += CharmEffects.full_hand_retriggers(charm_ids, scored_count)
 	count += CharmEffects.first_hand_retriggers(charm_ids, is_first_hand, in_combination)
-	count += ComboPartEffects.die_retriggers(chip_parts, i, combo_head, combo_tail)
+	count += ComboPartEffects.die_retriggers(chip_parts, i, combo_head, combo_tail, in_combination)
 	return maxi(1, count + extra)
 
 ## SEITEN-Achse: wie oft die obere Seite je Würfel-Trigger zündet. Rein additiv -

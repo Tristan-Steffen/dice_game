@@ -818,6 +818,7 @@ var charge_rng := RandomNumberGenerator.new()
 ## Was die letzte Buchung der Ladung bewegt hat (Zug, Fumble, Rundenende) - die
 ## Zeremonien der Welle 3 hängen daran, heute liest sie niemand.
 var _last_charge_results: Array[Dictionary] = []
+var _part_energy_shown := 0
 ## Der ALTE Ladungsstand jedes Würfels, dessen Urteil in der Zeremonie noch
 ## aussteht (Slot -> {"level", "burned"}): gebucht ist längst, gezeigt wird der
 ## Stand von vorher, bis _play_charge_beat den Würfel freigibt.
@@ -2023,6 +2024,7 @@ const PART_CRIT_FLASH := 2.2
 ## Steckplätze geändert: Kopplung liest den Nachbarn, also frischen alle auf.
 func _on_combo_parts_changed(_combo_key: String) -> void:
 	_refresh_combo_label_texts()
+	_set_throttled_combos(run.throttled_combos)  # eine Sperrdiode hebt die Drossel auf
 
 ## Rampenlicht-Schritt der Zähl-Animation: erst jetzt wird das Geschenk gebucht -
 ## bricht ein Reset die Animation ab, bleibt alles unverändert.
@@ -10409,7 +10411,8 @@ func _update_selection_glows() -> void:
 	var want := phase == Phase.IDLE and (has_rolled_current_hand or log_open)
 	var die_world := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 	var glow_side := die_world * SCORE_GLOW_SIZE_FACTOR * table_screen.pixels_per_world()
-	var full_counter := want and not log_open and run != null and run.charm_ids().has(Charm.FULL_COUNTER)
+	var full_counter := want and not log_open and run != null \
+		and (run.charm_ids().has(Charm.FULL_COUNTER) or _shunt_widens(_scoring_slots()))
 	var combo := {}
 	if full_counter:
 		for s in _pit_combination_slots():
@@ -10773,6 +10776,7 @@ func _score_ctx() -> Dictionary:
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
+		DiceScoring.CTX_SHUNTED: ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos),
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
 		DiceScoring.CTX_DET_LINKS: _det_links(),  # Kehrseite-Rune
 		DiceScoring.CTX_ESSENCE_LINKS: _essence_links(),  # Röntgenlicht
@@ -11709,7 +11713,7 @@ func _on_take_button_pressed() -> void:
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
 		GameRun.is_stress_round(run.round_number), hands_taken_this_round,
 		sel_participating, sel_burned,
-		ComboPartEffects.chip(run.scoring_parts(), String(hand["key"]))))
+		run.chain_chip(String(hand["key"]))))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
 	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
@@ -11720,12 +11724,18 @@ func _on_take_button_pressed() -> void:
 	for p in sel_scored:
 		scored_slots.append(slots[p])
 	_last_charge_results = run.book_charge_results(active_kinds, breakdown, scored_slots)
-	# Module der Kombination: Zählwerk wächst, Münzprüfer zahlt - vor dem Licht.
-	var take_parts := ComboPartEffects.chip(run.scoring_parts(), String(hand["key"]))
-	_hold_part_growth(String(hand["key"]), take_parts)
+	# Module der Kette: Zählwerk wächst, Münzprüfer zahlt, Stromabnehmer lädt, das
+	# Magnetron heizt die Kombinationswürfel - alles vor dem Licht.
+	var take_parts := run.chain_chip(String(hand["key"]))
+	_hold_part_growth(String(hand["key"]), ComboPartEffects.chip(run.scoring_parts(), String(hand["key"])))
 	_suppress_money_light = true
 	_part_money_shown = run.book_combo_scored(String(hand["key"]))
+	_part_energy_shown = run.book_part_energy(String(hand["key"]))
 	_suppress_money_light = false
+	var magnetron_slots: Array[int] = []
+	for p in sel_participating:
+		magnetron_slots.append(slots[p])
+	_merge_charge_results(run.book_magnetrons(String(hand["key"]), active_kinds, magnetron_slots))
 	# ... und die Grube hält den ALTEN Stand fest, bis der Würfel sein Urteil hat:
 	# die Buchung hat gerade jeden Grubenwürfel neu gezeichnet.
 	_charge_holds.clear()
@@ -11992,7 +12002,7 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for step: Dictionary in breakdown.get("part_steps", []):
 		if not await _play_part_step(key, step):
 			return
-	_play_part_scored_beat(key)
+	_play_part_scored_beat(breakdown.get("chain_keys", [key]))
 
 	# Straßenmusiker zahlt PRO ausgelöstem Würfel: je Dock-Position ein $1-Paket,
 	# im Moment des Würfel-Triggers (nicht gebündelt am Ende).
@@ -12192,9 +12202,14 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 		var part_slots: Array = pulse.get("part_slots", [])
 		for part_slot: int in part_slots:
 			_flash_part_socket(_take_combo_key, part_slot)
+		var part_foreign: Array = pulse.get("part_foreign", [])
+		for socket: Dictionary in part_foreign:
+			_flash_part_socket(String(socket["key"]), int(socket["slot"]))
 		var pcharm_px := _charm_trail_source_px(die_charm_indices)
 		if die_charm_indices.is_empty() and not part_slots.is_empty():
 			pcharm_px = _part_socket_px(_take_combo_key, int(part_slots[0]))
+		elif die_charm_indices.is_empty() and not part_foreign.is_empty():
+			pcharm_px = _part_socket_px(String(part_foreign[0]["key"]), int(part_foreign[0]["slot"]))
 		_spawn_score_gains(pcharm_px, pc_base, pc_mult)
 		var ctravel := _fire_score_light(pcharm_px, "charm", pctargets,
 			func() -> void: table_screen.update_pit_score(pca_base, pca_mult))
@@ -12559,8 +12574,11 @@ func _play_crit_step(step: Dictionary) -> bool:
 
 ## Ein Kombi-Modul zählt: sein Sockel blitzt, das Licht fährt über die
 ## Kombi-Leiste in den Zähler. false = Abbruch (Reset).
-func _play_part_step(key: String, step: Dictionary) -> bool:
+func _play_part_step(take_key: String, step: Dictionary) -> bool:
+	var key := String(step.get("key", take_key))
 	var slot := int(step["slot"])
+	if bool(step.get("activated", false)) and combo_chips.has(key):
+		combo_chips[key].flash_activation()
 	_flash_part_socket(key, slot)
 	var part_px := _part_socket_px(key, slot)
 	var pbase: int = step["base_after"]
@@ -12579,7 +12597,8 @@ func _play_part_step(key: String, step: Dictionary) -> bool:
 
 ## Ein Krit-Modul schlägt ein: der Sockel blitzt kräftig, der heiße Komet
 ## kommt vom Chip (die Grammatik von _play_crit_step). false = Abbruch (Reset).
-func _play_part_crit_step(key: String, step: Dictionary) -> bool:
+func _play_part_crit_step(take_key: String, step: Dictionary) -> bool:
+	var key := String(step.get("key", take_key))
 	var slot := int(step["slot"])
 	_flash_part_socket(key, slot, PART_CRIT_FLASH)
 	var part_px := _part_socket_px(key, slot)
@@ -12594,23 +12613,44 @@ func _play_part_crit_step(key: String, step: Dictionary) -> bool:
 		return false
 	return await _score_step_wait(CRIT_HOLD)
 
-## Was book_combo_scored längst gebucht hat, zeigt sich hier: das Zählwerk
-## wächst sichtbar am Chip, der Münzprüfer schickt sein Geld zur Truhe.
-func _play_part_scored_beat(key: String) -> void:
-	var sockets := ComboPartEffects.chip(run.scoring_parts(), key)
-	for slot in sockets.size():
-		var part: ComboPart = sockets[slot]
-		if part == null:
-			continue
-		if part.id == ComboPart.COUNTER and _part_growth_held == key:
-			_flash_part_socket(key, slot)
-			table_screen.spawn_gain_number(_part_socket_px(key, slot), "+1",
-				table_screen.TRAIL_MULT_COLOR, 1.0, true)
-		elif part.id == ComboPart.COIN_VALIDATOR and _part_money_shown > 0:
-			_flash_part_socket(key, slot)
-			_play_part_money(_part_socket_px(key, slot), ComboPartEffects.COIN_VALIDATOR_MONEY)
+## Was beim Nehmen längst gebucht ist, zeigt sich hier: Zählwerk und Schwingkreis
+## wachsen sichtbar am Chip, der Münzprüfer schickt sein Geld zur Truhe, der
+## Stromabnehmer seine Energie zum Ring.
+func _play_part_scored_beat(keys: Array) -> void:
+	for key: String in keys:
+		var sockets := ComboPartEffects.chip(run.scoring_parts(), key)
+		for slot in sockets.size():
+			var part: ComboPart = sockets[slot]
+			if part == null:
+				continue
+			if part.id == ComboPart.COUNTER or part.id == ComboPart.RESONATOR:
+				_flash_part_socket(key, slot)
+				table_screen.spawn_gain_number(_part_socket_px(key, slot),
+					"+1" if part.id == ComboPart.COUNTER else "×+0,1",
+					table_screen.TRAIL_MULT_COLOR, 1.0, true)
+			elif part.id == ComboPart.COIN_VALIDATOR and _part_money_shown > 0:
+				_flash_part_socket(key, slot)
+				_play_part_money(_part_socket_px(key, slot), ComboPartEffects.COIN_VALIDATOR_MONEY)
+			elif part.id == ComboPart.POWER_PICKUP:
+				_flash_part_socket(key, slot)
 	_part_money_shown = 0
+	_play_rune_energy_volley(_part_energy_shown)
+	_part_energy_shown = 0
 	_release_part_growth()
+
+## Das Magnetron heizt nach dem Urteil der Hand: ein Würfel, der schon eine
+## Änderung hat, behält seinen Stand von vorher, damit die Grube ihn weiter hält.
+func _merge_charge_results(extra: Array[Dictionary]) -> void:
+	for change: Dictionary in extra:
+		var merged := false
+		for known: Dictionary in _last_charge_results:
+			if int(known["slot"]) == int(change["slot"]):
+				known["after"] = change["after"]
+				known["burned"] = bool(known["burned"]) or bool(change["burned"])
+				merged = true
+				break
+		if not merged:
+			_last_charge_results.append(change)
 
 ## Reines Anzeige-Geld vom Sockel zur Truhe: gebucht ist es beim Nehmen.
 func _play_part_money(from_px: Vector2, amount: int) -> void:
@@ -12954,6 +12994,8 @@ func _hand_slots() -> Array[int]:
 	if run != null and run.charm_ids().has(Charm.FULL_COUNTER):
 		return _visible_pit_slots()
 	var slots := _scoring_slots()
+	if _shunt_widens(slots):
+		return _visible_pit_slots()
 	# Krypton zählt immer mit: er kommt auch ungewählt in die Hand, sonst erreicht
 	# ihn die Wertung gar nicht. Aufsteigend, wie jede Slot-Liste hier.
 	var sets := _effective_essence_sets()
@@ -12966,6 +13008,23 @@ func _hand_slots() -> Array[int]:
 		elif dice.roots[i].visible and EssenceEffects.always_scored_of(sets, i):
 			widened.append(i)
 	return widened
+
+## Trägt die Kette der gewählten Hand einen Nebenschluss? Dann zählt die ganze Grube.
+func _shunt_widens(slots: Array[int]) -> bool:
+	if run == null or slots.is_empty():
+		return false
+	var shunted := ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos)
+	if shunted.is_empty():
+		return false
+	var materials := _rolled_materials()
+	var values: Array[int] = []
+	var chosen: Array[String] = []
+	for s in slots:
+		values.append(dice.values[s])
+		chosen.append(materials[s])
+	var hand := DiceScoring.best_hand(values, run.charm_ids(), hands_taken_this_round == 0, chosen,
+		run.scoring_parts(), _score_ctx_for_slots(slots))
+	return shunted.has(String(hand["key"]))
 
 ## Beteiligte Slots der besten Hand über ALLE liegenden Würfel (Vollzähler-Glow:
 ## diese leuchten hell, der Rest der Grube nur schwach).
@@ -14906,6 +14965,8 @@ func _log_play_step_effects(entry: Dictionary, step: Dictionary, kind: String) -
 	for part_slot: int in part_slots:
 		_flash_part_socket(part_key, part_slot,
 			PART_CRIT_FLASH if kind == RoundLog.STEP_CRIT else 1.0)
+	for socket: Dictionary in step.get("part_foreign", []):
+		_flash_part_socket(String(socket["key"]), int(socket["slot"]))
 	if kind == RoundLog.STEP_CRIT and slot < 0 and not part_slots.is_empty():
 		table_screen.spawn_gain_number(_part_socket_px(part_key, int(part_slots[0])),
 			ScoreBreakdown.format_mult(float(step.get("crit_x", 1.0))), TableScreen.CRIT_COLOR, 1.2)

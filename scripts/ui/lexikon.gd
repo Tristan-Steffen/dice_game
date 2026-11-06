@@ -97,7 +97,8 @@ const PART_PHASE_NAMES := {
 	ComboPart.PHASE_COMBO: "Kombination",
 	ComboPart.PHASE_DIE: "Würfel",
 	ComboPart.PHASE_CRIT: "Krit",
-	ComboPart.PHASE_ECONOMY: "Geld",
+	ComboPart.PHASE_ECONOMY: "Ertrag",
+	ComboPart.PHASE_LINK: "Verbindung",
 	ComboPart.PHASE_NONE: "keine",
 }
 

@@ -19,12 +19,23 @@ const COIN_VALIDATOR := "coin_validator"
 const HIGH_VOLTAGE_TUBE := "high_voltage_tube"
 const COUPLING := "coupling"
 const EXPANSION_BOARD := "expansion_board"
+const SERIES_TERMINAL := "series_terminal"
+const STARTER := "starter"
+const BLOCKING_DIODE := "blocking_diode"
+const POWER_PICKUP := "power_pickup"
+const SHUNT := "shunt"
+const PARALLEL_CIRCUIT := "parallel_circuit"
+const RESONATOR := "resonator"
+const MAGNETRON := "magnetron"
+const CROSS_BRIDGE := "cross_bridge"
+const DOWN_BRIDGE := "down_bridge"
 
 ## Wirk-Phasen: die Phase entscheidet, WANN ein Teil in der Wertung feuert.
 const PHASE_COMBO := "kombi"
 const PHASE_DIE := "wuerfel"
 const PHASE_CRIT := "krit"
 const PHASE_ECONOMY := "oekonomie"
+const PHASE_LINK := "verbindung"
 const PHASE_NONE := ""
 
 const RARITY_COMMON := "common"
@@ -47,6 +58,16 @@ const RARITIES := {
 	HIGH_VOLTAGE_TUBE: RARITY_LEGENDARY,
 	COUPLING: RARITY_LEGENDARY,
 	EXPANSION_BOARD: RARITY_LEGENDARY,
+	SERIES_TERMINAL: RARITY_RARE,
+	STARTER: RARITY_COMMON,
+	BLOCKING_DIODE: RARITY_RARE,
+	POWER_PICKUP: RARITY_RARE,
+	SHUNT: RARITY_EPIC,
+	PARALLEL_CIRCUIT: RARITY_LEGENDARY,
+	RESONATOR: RARITY_EPIC,
+	MAGNETRON: RARITY_LEGENDARY,
+	CROSS_BRIDGE: RARITY_LEGENDARY,
+	DOWN_BRIDGE: RARITY_LEGENDARY,
 }
 
 const RARITY_WEIGHTS := {
@@ -80,6 +101,7 @@ const ECONOMY_TINT := Color("#9ccf6a")
 const BOARD_TINT := Color(0.62, 0.66, 0.74)
 ## Die Kopplung trägt beides, was sie kopiert - ein blasses Silber-Cyan.
 const COUPLING_TINT := Color(0.78, 0.94, 1.0)
+const LINK_TINT := Color(1.0, 0.45, 0.85)
 
 ## Artikel im Dativ ("Wohin mit dem Relais?").
 const DATIVES := {
@@ -87,7 +109,10 @@ const DATIVES := {
 	OUTPUT_STAGE: "der", SOLDER_JOINT: "dem", SERIES_RESISTOR: "dem",
 	THERMISTOR: "dem", AMPLIFIER_TUBE: "der", COUNTER: "dem",
 	COIN_VALIDATOR: "dem", HIGH_VOLTAGE_TUBE: "der", COUPLING: "der",
-	EXPANSION_BOARD: "der",
+	EXPANSION_BOARD: "der", SERIES_TERMINAL: "der", STARTER: "dem",
+	BLOCKING_DIODE: "der", POWER_PICKUP: "dem", SHUNT: "dem",
+	PARALLEL_CIRCUIT: "der", RESONATOR: "dem", MAGNETRON: "dem",
+	CROSS_BRIDGE: "der", DOWN_BRIDGE: "der",
 }
 
 @export var id: String = ""
@@ -137,7 +162,9 @@ func tint() -> Color:
 			return ECONOMY_TINT
 		PHASE_NONE:
 			return BOARD_TINT
-	if id == COUPLING:
+		PHASE_LINK:
+			return LINK_TINT
+	if id == COUPLING or id == SERIES_TERMINAL:
 		return COUPLING_TINT
 	return POINTS_TINT if id == RESISTOR else MULT_TINT
 
@@ -189,11 +216,43 @@ static func coupling() -> ComboPart:
 static func expansion_board() -> ComboPart:
 	return _make(EXPANSION_BOARD, "Erweiterungsplatine", "Belegt einen Steckplatz und gibt dem Chip zwei neue.", PHASE_NONE, 40, true)
 
+static func series_terminal() -> ComboPart:
+	return _make(SERIES_TERMINAL, "Reihenklemme", "+5 Punkte und +1 Mult je Modul auf diesem Chip.", PHASE_COMBO, 10)
+
+static func starter() -> ComboPart:
+	return _make(STARTER, "Anlasser", "+6 Mult in der ersten Hand der Runde.", PHASE_COMBO, 6)
+
+static func blocking_diode() -> ComboPart:
+	return _make(BLOCKING_DIODE, "Sperrdiode", "Dieser Chip kann nicht gedrosselt oder stillgelegt werden.", PHASE_NONE, 8)
+
+static func power_pickup() -> ComboPart:
+	return _make(POWER_PICKUP, "Stromabnehmer", "+1 ⚡ je Wertung dieser Kombination.", PHASE_ECONOMY, 12)
+
+static func shunt() -> ComboPart:
+	return _make(SHUNT, "Nebenschluss", "Auch Würfel außerhalb der Kombination werden gewertet.", PHASE_DIE, 14)
+
+static func parallel_circuit() -> ComboPart:
+	return _make(PARALLEL_CIRCUIT, "Parallelschaltung", "Jeder Kombinationswürfel löst 1× zusätzlich aus.", PHASE_DIE, 60, true)
+
+static func resonator() -> ComboPart:
+	return _make(RESONATOR, "Schwingkreis", "×1,1 Mult, wächst dauerhaft um ×0,1 bei jeder Wertung dieser Kombination.", PHASE_CRIT, 40, true)
+
+static func magnetron() -> ComboPart:
+	return _make(MAGNETRON, "Magnetron", "×3 Mult. Jede Wertung lädt alle Kombinationswürfel sicher um +1.", PHASE_CRIT, 60, true)
+
+static func cross_bridge() -> ComboPart:
+	return _make(CROSS_BRIDGE, "Querbrücke", "Aktiviert auch die Kombination rechts daneben samt ihrer Module.", PHASE_LINK, 60, true)
+
+static func down_bridge() -> ComboPart:
+	return _make(DOWN_BRIDGE, "Längsbrücke", "Aktiviert auch die Kombination darunter samt ihrer Module.", PHASE_LINK, 60, true)
+
 static func all() -> Array[ComboPart]:
 	return [
 		resistor(), capacitor(), coil(), relay(), output_stage(), solder_joint(),
 		series_resistor(), thermistor(), amplifier_tube(), counter_part(),
 		coin_validator(), high_voltage_tube(), coupling(), expansion_board(),
+		series_terminal(), starter(), blocking_diode(), power_pickup(), shunt(),
+		parallel_circuit(), resonator(), magnetron(), cross_bridge(), down_bridge(),
 	]
 
 ## Frisches Exemplar zu einer id (null = unbekannt).
