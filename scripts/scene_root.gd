@@ -371,6 +371,8 @@ var charm_library: CharmLibraryView
 ## Fenster-UI); scene_root spricht ihn nur über open()/closed an.
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
+var debug_parts: DebugPartsView
+const DEBUG_PARTS_GAP := 12.0
 ## Die Ladungs-Bank in der Geld-Ecke - das physische Gegenstück der ⚡-Börse.
 var energy_ring: EnergyRingView
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
@@ -1096,6 +1098,7 @@ func _setup_table_screen() -> void:
 	# Screen-Elemente an ihre Editor-Anker setzen; den Kombi-Cluster ERST
 	# platzieren, DANN den Zoom einrichten (er liest das verschobene cluster_rect).
 	table_screen.place_combo_cluster(table_screen.world_to_pixel(combos_anchor.global_position))
+	_setup_debug_parts()
 	_setup_combo_chips()
 	_setup_combos_zoom()
 	table_screen.place_goal_bar(table_screen.world_to_pixel(goal_bar_anchor.global_position))
@@ -1723,6 +1726,21 @@ func _setup_glide_bounds() -> void:
 		Vector2(absf(far.x - near.x), absf(far.z - near.z))))
 
 ## Shop, Gravur-Station und Bogen-Enthüllung anlegen und verdrahten.
+## Debug-Werkzeug links neben den Kombinationen - nur in Debug-Builds.
+func _setup_debug_parts() -> void:
+	if not OS.is_debug_build() or table_screen == null:
+		return
+	debug_parts = DebugPartsView.new()
+	table_screen.add_child(debug_parts)
+	debug_parts.place(Vector2(table_screen.cluster_rect.position.x - DEBUG_PARTS_GAP, table_screen.cluster_rect.end.y))
+	debug_parts.part_chosen.connect(_on_debug_part_chosen)
+
+## Das gewählte Modul nimmt den normalen Weg: es wartet, der EINBAU fragt nach dem Platz.
+func _on_debug_part_chosen(part_id: String) -> void:
+	var part := ComboPart.make(part_id)
+	if run != null and part != null:
+		run.stash_part(part)
+
 func _setup_panels() -> void:
 	# Shop als Hub-Seite; ohne Screen-Mesh ersatzweise als Fenster-UI.
 	charm_shop = SHOP_SCENE.instantiate()
@@ -9784,6 +9802,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	if _exchange_forced() or _part_install_forced():
 		return false
 	var flying := camera_rig.is_animating
+	if debug_parts != null and TableScreen.window_takes_pixel(debug_parts, _window_rect(debug_parts),
+			pixel, is_click, false, flying):
+		return true
 	# Die GLAS-ANSICHT wird VOR dieser Kette bedient (_forward_screen_mouse reicht sie
 	# in ihren eigenen Viewport) - hier taucht sie darum nicht mehr auf.
 	# Das Gruben-Mobiliar meldet sich selbst: es steht nur, solange die Grube im
