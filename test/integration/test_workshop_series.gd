@@ -57,7 +57,6 @@ func test_the_row_carries_exactly_the_series_slots() -> void:
 	await wait_frames(2)
 	assert_eq(view.slot_count(), run.series_slots(), "die Reihe IST die Serienlänge")
 	assert_eq(view._slot_buttons.size(), 6, "und die ist 6 ab Runde 1")
-	run.grant_press_boost()
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view._slot_buttons.size(), 6,

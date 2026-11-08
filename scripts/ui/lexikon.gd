@@ -46,12 +46,13 @@ const SERIE := "serie"
 const VERDICHTUNG := "verdichtung"
 const SCHWARZMARKT := "schwarzmarkt"
 const STECKPLATZ := "steckplatz"
+const GLUECK := "glueck"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	QUOTA, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ]
+	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ, GLUECK]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -61,6 +62,7 @@ const EXTRA_SURFACES := {
 	"Krits": KRIT, "kritet": KRIT, "Kritet": KRIT,
 	"Basispunkten": BASISPUNKTE,
 	"⚡": ENERGIE,
+	"Blinds": QUOTA,
 	"Auslösungen": AUSLOESUNG, "auslösen": AUSLOESUNG,
 	"Runen": RUNE,
 	"Gravuren": GRAVUR,
@@ -227,23 +229,23 @@ static func _build_concepts() -> void:
 	_add(KOMBINATION, "Kombination",
 		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und trägt drei Steckplätze für Module.",
 		CAT_BEGRIFFE)
-	_add(QUOTA, "Quota",
-		"Das Rundenziel: die Punktzahl, die die Runde besteht. Die Quota wächst von Runde zu Runde, und jede sechste Runde endet im Stresstest. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
+	_add(QUOTA, "Blind",
+		"Die Punktzahl, die eine Runde besteht. Er startet bei 150 und wächst je Runde um 10 % im ersten Block, um 15 % im zweiten, 20 % im dritten und so fort; gezeigt wird er abgerundet auf volle 25. Verträge heben oder senken ihn DAUERHAFT, jede sechste Runde ist eine Boss-Runde. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
 		CAT_BEGRIFFE)
 	_add(UEBERLADUNG, "Überladung",
-		"Die Stufen über der Quota: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in den Energie-Ring; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
+		"Die Stufen über dem Blind: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in den Energie-Ring; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
 		CAT_BEGRIFFE)
 	_add(FUMBLE, "Fumble",
-		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Manche Charms und Klauseln federn den ersten Fumble ab, einige zahlen sogar darauf.",
+		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Jeder echte Fumble zählt im Lauf mit, der Zähler sinkt nie: Charms wie Pechvogel oder Fumble-Rente, Module wie der Fehlerspeicher und die Automaten lesen ihn. Manche Charms und Klauseln federn den ersten Fumble ab - ein verziehener zählt nicht.",
 		CAT_BEGRIFFE)
-	_add(STRESSTEST, "Stresstest",
-		"Die letzte Runde jedes Quota-Blocks (Runde 6, 12, ...). Statt der üblichen Verträge liegen nur Malus-Konditionen aus - die Wahl ist, WIE gekämpft wird, nicht wofür. Wer besteht, bekommt ein versiegeltes Würfel-Paket mit garantierter Essenz.",
+	_add(STRESSTEST, "Boss-Runde",
+		"Die letzte Runde jedes Blocks (Runde 6, 12, ...). Statt der üblichen Verträge liegen nur Malus-Konditionen aus - die Wahl ist, WIE gekämpft wird, nicht wofür. Wer besteht, bekommt einen Würfel mit garantierter Essenz.",
 		CAT_BEGRIFFE)
 	_add(VERTRAG, "Vertrag",
-		"Ab Runde 2 bietet das Haus drei Verträge: Standardvertrag, Risikovertrag, Knebelvertrag - je eine Bonus- und eine Malusklausel derselben Stufe. Kein Vertrag überlebt seine Runde. Gelegentlich ersetzt ein Werbegeschenk (nur Bonus, kein Malus) einen der Plätze.",
+		"Ab Runde 2 bietet das Haus drei Verträge: Standardvertrag, Risikovertrag, Knebelvertrag - je eine Bonus- und eine Malusklausel derselben Stufe. Die meisten Klauseln gelten nur ihre Runde, aber Blind-Aufschläge und Eichung verändern den Blind DAUERHAFT, und Glücks-Klauseln drehen am Glück. Gelegentlich ersetzt ein Werbegeschenk (nur Bonus, kein Malus) einen der Plätze.",
 		CAT_BEGRIFFE)
 	_add(NEBENWETTE, "Nebenwette",
-		"Eine Wette neben dem Rundenziel: ein Einsatz auf eine Bedingung dieser Runde, die Punktziele skalieren mit der Quota. Manche Einsätze kosten nichts im Voraus und besteuern stattdessen jede Hand oder jeden Würfel - reicht das Geld nicht mehr, platzt die Wette.",
+		"Eine Wette neben dem Rundenziel: ein Einsatz auf eine Bedingung dieser Runde, ihre Zielwerte skalieren mit dem Blind. Manche Einsätze kosten nichts im Voraus und besteuern stattdessen jede Hand oder jeden Würfel - reicht das Geld nicht mehr, platzt die Wette.",
 		CAT_BEGRIFFE)
 	_add(MAGAZIN, "Magazin",
 		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
@@ -262,6 +264,9 @@ static func _build_concepts() -> void:
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
 		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",
+		CAT_BEGRIFFE)
+	_add(GLUECK, "Glück",
+		"Der Gradmesser des Laufs: jede geschaffte Runde bringt +1 Glück, Glücks-Klauseln in den Verträgen mehr oder weniger. Je 3 Glück steigt die Fortschrittsstufe - sie hebt die Seltenheit im Laden, die Wetten, die Würfel-Angebote und die Automaten.",
 		CAT_BEGRIFFE)
 	_add(STECKPLATZ, "Steckplatz",
 		"Jeder Kombinations-Chip hat drei Steckplätze für Module - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Module gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",

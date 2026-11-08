@@ -247,7 +247,8 @@ func test_pulling_an_overfull_expansion_board_snaps_back() -> void:
 # --- Der SCHWARZMARKT ------------------------------------------------------------
 
 func test_a_secret_part_offer_lies_as_a_body_and_sells() -> void:
-	run.round_number = 1 + (GameRun.TIER_MAX - 1) * GameRun.ROUNDS_PER_TIER
+	run.luck = (GameRun.TIER_MAX - 1) * GameRun.LUCK_PER_TIER
+	run.stress_tests_passed = 4  # volle Börse (25)
 	run.energy = run.energy_cap()
 	var view := SecretShopView.new()
 	add_child_autofree(view)

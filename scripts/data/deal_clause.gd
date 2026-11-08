@@ -36,6 +36,8 @@ const TAG_MONEY := "geld"
 const TAG_SERIES := "serie"
 ## Alles, was an der LADUNG der Würfel dreht - nicht der Energie-Haushalt.
 const TAG_CHARGE := "ladung"
+## Alles, was am GLÜCK des Laufs dreht.
+const TAG_LUCK := "glück"
 
 # --- Klausel-ids (Single Source of Truth) --------------------------------------
 
@@ -47,6 +49,7 @@ const SPOTLIGHT := "spotlight"
 const CASH_DISCOUNT := "cash_discount"
 const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
+const LUCKY_PENNY := "lucky_penny"
 const CHAIN_DRIVER := "chain_driver"
 const DRAIN := "drain"
 
@@ -63,12 +66,14 @@ const GOLDEN_HANDSHAKE := "golden_handshake"
 const WORK_HARDENING := "work_hardening"
 const COOLING_BREAK := "cooling_break"
 const NOISE_FILTER := "noise_filter"
+const LUCKY_STREAK := "lucky_streak"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
 const BLANK_CHEQUE := "blank_cheque"
 const SUPERCONDUCTOR := "superconductor"
 const GOLD_VEIN := "gold_vein"
+const LUCKY_CHILD := "lucky_child"
 
 # Malus, Stufe 1
 const QUOTA_SURCHARGE := "quota_surcharge"
@@ -90,6 +95,8 @@ const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
 const SHORT_CIRCUIT := "short_circuit"
 const OVERLOAD := "overload"
+const UNLUCKY_NUMBER := "unlucky_number"
+const BAD_STREAK := "bad_streak"
 
 # Malus, Stufe 3
 const QUOTA_SHOCK := "quota_shock"
@@ -106,6 +113,7 @@ const ALL_ROUNDER := "all_rounder"
 const TILTED_FLOOR := "tilted_floor"
 const BALANCED_SCALES := "balanced_scales"
 const POWER_FAILURE := "power_failure"
+const PENALTY_FEE := "penalty_fee"
 
 ## Farbe der Marke: das erste Tag bestimmt sie, damit gleiche Themen am Hub
 ## gleich aussehen. Tag-lose Klauseln erben die Stufenfarbe.
@@ -122,6 +130,7 @@ const TAG_COLORS := {
 	TAG_MONEY: "#ffd319",
 	TAG_SERIES: "#6effc7",
 	TAG_CHARGE: "#d9b3ff",
+	TAG_LUCK: "#9dff6b",
 }
 const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5555"]
 
@@ -238,12 +247,24 @@ static func double_loader() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_ENERGY])
 
 static func calibration() -> DealClause:
-	return _bonus(CALIBRATION, "Eichung", "Quota −50%",
-		Scope.ROUND, Tier.TWO, [TAG_QUOTA])
+	return _bonus(CALIBRATION, "Eichung", "Blinds dauerhaft −10%",
+		Scope.INSTANT, Tier.TWO, [TAG_QUOTA])
+
+static func lucky_penny() -> DealClause:
+	return _bonus(LUCKY_PENNY, "Glückspfennig", "Glück +1",
+		Scope.INSTANT, Tier.ONE, [TAG_LUCK])
+
+static func lucky_streak() -> DealClause:
+	return _bonus(LUCKY_STREAK, "Glückssträhne", "Glück +2",
+		Scope.INSTANT, Tier.TWO, [TAG_LUCK])
+
+static func lucky_child() -> DealClause:
+	return _bonus(LUCKY_CHILD, "Glückskind", "Glück +3",
+		Scope.INSTANT, Tier.THREE, [TAG_LUCK])
 
 static func golden_handshake() -> DealClause:
 	return _bonus(GOLDEN_HANDSHAKE, "Goldener Handschlag",
-		"Erfüllt EINE Hand die Quota allein: ihr erster Würfel wird pures Gold",
+		"Erfüllt EINE Hand den Blind allein: ihr erster Würfel wird pures Gold",
 		Scope.ROUND, Tier.TWO)
 
 ## Ein Knochen auf Zeit: solange die Klausel steht, wächst jede ausgelöste Seite.
@@ -270,8 +291,8 @@ static func gold_vein() -> DealClause:
 # --- Malusklauseln ------------------------------------------------------------
 
 static func quota_surcharge() -> DealClause:
-	return _malus(QUOTA_SURCHARGE, "Quota-Aufschlag", "Quota +50%",
-		Scope.ROUND, Tier.ONE, [TAG_QUOTA])
+	return _malus(QUOTA_SURCHARGE, "Blind-Aufschlag", "Blinds dauerhaft +10%",
+		Scope.INSTANT, Tier.ONE, [TAG_QUOTA])
 
 static func betting_tax() -> DealClause:
 	return _malus(BETTING_TAX, "Wettsteuer", "Wett-Einsätze kosten doppelt",
@@ -302,7 +323,15 @@ static func standing_current() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_CHARGE])
 
 static func quota_surcharge_ii() -> DealClause:
-	return _malus(QUOTA_SURCHARGE_II, "Quota-Aufschlag II", "Quota +100%",
+	return _malus(QUOTA_SURCHARGE_II, "Blind-Aufschlag II", "Blinds dauerhaft +20%",
+		Scope.INSTANT, Tier.TWO, [TAG_QUOTA])
+
+static func unlucky_number() -> DealClause:
+	return _malus(UNLUCKY_NUMBER, "Unglückszahl", "Glück −2",
+		Scope.INSTANT, Tier.TWO, [TAG_LUCK])
+
+static func bad_streak() -> DealClause:
+	return _malus(BAD_STREAK, "Pechsträhne", "Jeder Fumble dieser Runde hebt die Blinds dauerhaft um 2%",
 		Scope.ROUND, Tier.TWO, [TAG_QUOTA])
 
 static func half_payout() -> DealClause:
@@ -340,12 +369,12 @@ static func overload() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
 
 static func quota_shock() -> DealClause:
-	return _malus(QUOTA_SHOCK, "Quota-Schock", "Quota +250%",
-		Scope.ROUND, Tier.THREE, [TAG_QUOTA])
+	return _malus(QUOTA_SHOCK, "Blind-Schock", "Blinds dauerhaft +35%",
+		Scope.INSTANT, Tier.THREE, [TAG_QUOTA])
 
 static func usury_clause() -> DealClause:
-	return _malus(USURY_CLAUSE, "Wucherklausel", "Quota +400%",
-		Scope.ROUND, Tier.THREE, [TAG_QUOTA])
+	return _malus(USURY_CLAUSE, "Wucherklausel", "Blinds dauerhaft +50%",
+		Scope.INSTANT, Tier.THREE, [TAG_QUOTA])
 
 static func blackout() -> DealClause:
 	return _malus(BLACKOUT, "Blackout", "Übrige Würfel zahlen nichts",
@@ -362,7 +391,7 @@ static func heat_buildup() -> DealClause:
 # --- Stresstest-Konditionen ---------------------------------------------------
 
 static func high_expectations() -> DealClause:
-	return _malus(HIGH_EXPECTATIONS, "Hohe Erwartungen", "Quota +500%",
+	return _malus(HIGH_EXPECTATIONS, "Hohe Erwartungen", "Blind dieser Runde +500%",
 		Scope.ROUND, Tier.BOSS, [TAG_QUOTA])
 
 static func all_in() -> DealClause:
@@ -389,6 +418,10 @@ static func power_failure() -> DealClause:
 	return _malus(POWER_FAILURE, "Netzausfall", "Der Ladungswurf trifft immer",
 		Scope.ROUND, Tier.BOSS, [TAG_CHARGE])
 
+static func penalty_fee() -> DealClause:
+	return _malus(PENALTY_FEE, "Strafgebühr", "Jeder Fumble kostet 5$",
+		Scope.ROUND, Tier.BOSS, [TAG_MONEY])
+
 static func all() -> Array[DealClause]:
 	return [
 		savings_bonus(), free_charm(), advance_payment(), spotlight(),
@@ -404,7 +437,8 @@ static func all() -> Array[DealClause]:
 		overload(),
 		quota_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
-		tilted_floor(), balanced_scales(), power_failure(),
+		tilted_floor(), balanced_scales(), power_failure(), penalty_fee(),
+		lucky_penny(), lucky_streak(), lucky_child(), unlucky_number(), bad_streak(),
 	]
 
 ## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
@@ -463,7 +497,13 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		DOUBLE_LOADER:
 			return "Überladungs-Stufen prägen 4 Energie"
 		CALIBRATION:
-			return "Quota −75%"
+			return "Blinds dauerhaft −19%"
+		LUCKY_PENNY:
+			return "Glück +2"
+		LUCKY_STREAK:
+			return "Glück +4"
+		LUCKY_CHILD:
+			return "Glück +6"
 		CASH_DISCOUNT:
 			return "Ladenware 36% günstiger"
 		GOLD_VEIN:
@@ -502,7 +542,7 @@ static func tier_label(clause_tier: Tier) -> String:
 			return "Knebelvertrag"
 		Tier.TREAT:
 			return "Werbegeschenk"
-	return "Stresstest-Kondition"
+	return "Boss-Kondition"
 
 ## Ob die id überhaupt eine Klausel ist (Marken-Aufbau, Tests).
 static func is_valid_id(clause_id: String) -> bool:

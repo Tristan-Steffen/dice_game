@@ -542,6 +542,8 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 			return MOMENTUM_MULT * int(ctx.get(CTX_STREAK, 0))
 		Charm.BROKEN_MIRROR:
 			return int(ctx.get(CTX_FARKLE_STACKS, 0))
+		Charm.UNLUCKY_BIRD:
+			return unlucky_bird_mult(int(ctx.get(CTX_FARKLE_STACKS, 0)))
 		Charm.EVEN_COMPANY:
 			if not values.is_empty() and values.all(func(v: int) -> bool: return v % 2 == 0):
 				return 8
@@ -858,7 +860,7 @@ const DEPOSIT_SHELF_CAP := 15
 ## sie längst über die Wertung entscheidet. Der Deckel des Zinsgroschens gilt je
 ## Exemplar auf dessen eigener Grundlage. Grundlage der Auszahlungs-Zeremonie:
 ## der Spieler sieht, WELCHER Charm zahlt.
-static func round_end_income_entries(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0, pack_stock: int = 0) -> Array[Dictionary]:
+static func round_end_income_entries(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0, pack_stock: int = 0, fumbles: int = 0) -> Array[Dictionary]:
 	var entries: Array[Dictionary] = []
 	var projected := money
 	for j in charm_ids.size():
@@ -872,6 +874,8 @@ static func round_end_income_entries(money: int, cleared_stages: int, charm_ids:
 				amount = old_penny_payout(penny_payouts)
 			Charm.DEPOSIT_SHELF:
 				amount = mini(maxi(0, pack_stock) / DEPOSIT_SHELF_PER, DEPOSIT_SHELF_CAP)
+			Charm.FUMBLE_PENSION:
+				amount = fumble_pension(fumbles)
 			Charm.EMERGENCY_FUND:
 				# Auf den LAUFENDEN Stand auffüllen - sonst ersetzte er, was die
 				# Charms vor ihm schon gewährt haben.
@@ -882,9 +886,9 @@ static func round_end_income_entries(money: int, cleared_stages: int, charm_ids:
 	return entries
 
 ## Summe der Rundenende-Einnahmen - immer deckungsgleich mit den Einzelposten.
-static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0, pack_stock: int = 0) -> int:
+static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[String], penny_payouts: int = 0, pack_stock: int = 0, fumbles: int = 0) -> int:
 	var income := 0
-	for entry in round_end_income_entries(money, cleared_stages, charm_ids, penny_payouts, pack_stock):
+	for entry in round_end_income_entries(money, cleared_stages, charm_ids, penny_payouts, pack_stock, fumbles):
 		income += int(entry["amount"])
 	return income
 
@@ -893,6 +897,24 @@ static func round_end_income(money: int, cleared_stages: int, charm_ids: Array[S
 ## später bucht - zwei Formeln liefen sonst irgendwann auseinander.
 static func old_penny_payout(penny_payouts: int) -> int:
 	return 3 + maxi(0, penny_payouts)
+
+## Fumble-Zähler-Charms: Pechvogel, Fumble-Rente, Galgenfrist, Schwarze Katze.
+const UNLUCKY_BIRD_PER := 2
+const FUMBLE_PENSION_PER := 3
+const GALLOWS_REPRIEVE_CUT := 0.03
+const BLACK_CAT_PER := 0.02
+const BLACK_CAT_CAP := 0.30
+
+static func unlucky_bird_mult(fumbles: int) -> int:
+	return maxi(0, fumbles) / UNLUCKY_BIRD_PER
+
+static func fumble_pension(fumbles: int) -> int:
+	return maxi(0, fumbles) / FUMBLE_PENSION_PER
+
+## Anteil, um den die Ladenpreise sinken (0..BLACK_CAT_CAP), je Kopie gestapelt.
+static func black_cat_discount(fumbles: int, charm_ids: Array[String]) -> float:
+	var copies := charm_ids.count(Charm.BLACK_CAT)
+	return minf(BLACK_CAT_PER * float(maxi(0, fumbles) * copies), BLACK_CAT_CAP)
 
 ## Notgroschen: Mindest-Geldstand am Rundenende, sonst 0.
 const EMERGENCY_FUND_FLOOR := 45

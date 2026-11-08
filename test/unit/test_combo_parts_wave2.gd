@@ -38,7 +38,7 @@ func _breakdown(key: String, values: Array, layout: Dictionary, ctx: Dictionary 
 	return ScoreBreakdown.build(key, _d(values), [] as Array[String], false, _m(values.size()), layout, ctx)
 
 func test_the_catalog_carries_the_new_parts() -> void:
-	assert_eq(ComboPart.all().size(), 24)
+	assert_eq(ComboPart.all().size(), 26)
 	for id in [ComboPart.PARALLEL_CIRCUIT, ComboPart.MAGNETRON, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE]:
 		var part := ComboPart.make(id)
 		assert_eq(part.rarity, ComboPart.RARITY_LEGENDARY, id)

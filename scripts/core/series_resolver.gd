@@ -21,11 +21,6 @@ extends RefCounted
 
 const FACES := 6
 
-## Der Einmal-Schub der Nebenwette Kettenreaktion auf die NÄCHSTE Serie. Er steht
-## hier bei der Serien-Rechnung, damit Wettknopf und GameRun-Abfrage dieselbe
-## Quelle lesen (und core/ sich nicht im Kreis referenziert).
-const BOOST_SLOTS := 1
-
 ## Gründe, aus denen eine Zelle verpufft - die Vorschau nennt sie beim Namen.
 const FIZZLE_NAKED := "naked"        # Veredelung auf einer Seite ohne Material
 const FIZZLE_DOPED := "doped"        # Veredelung auf einer schon veredelten Seite

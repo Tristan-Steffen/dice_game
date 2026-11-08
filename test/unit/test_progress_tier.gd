@@ -1,5 +1,5 @@
 extends GutTest
-## Tests der Fortschrittsstufe (GameRun.progress_tier): die Abbildung aus der Runde,
+## Tests der Fortschrittsstufe (GameRun.progress_tier): die Abbildung aus dem Glück,
 ## die Leitern, die an ihr hängen, und der Überladungs-Deckel.
 
 func _run(money: int = 0) -> GameRun:
@@ -7,29 +7,69 @@ func _run(money: int = 0) -> GameRun:
 	run.money = money
 	return run
 
-## Erste Runde der gewünschten Stufe.
+## Kleinstes Glück der gewünschten Stufe.
 func _run_at(tier: int) -> GameRun:
 	var run := _run(9999)
-	run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+	run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
 	return run
 
-func test_the_tier_follows_the_round() -> void:
+func test_the_tier_follows_the_luck() -> void:
 	var run := _run()
-	var expected := {1: 1, 3: 1, 4: 2, 6: 2, 7: 3, 25: 9, 27: 9, 28: 10, 40: 10, 999: 10}
-	for round_number: int in expected:
-		run.round_number = round_number
-		assert_eq(run.progress_tier(), int(expected[round_number]), "Runde %d" % round_number)
+	var expected := {0: 1, 2: 1, 3: 2, 5: 2, 6: 3, 24: 9, 26: 9, 27: 10, 39: 10, 998: 10}
+	for luck: int in expected:
+		run.luck = luck
+		assert_eq(run.progress_tier(), int(expected[luck]), "Glück %d" % luck)
+
+func test_without_luck_clauses_the_old_ladder_holds() -> void:
+	# Ohne Glücks-Klauseln ist Glück = Runde − 1, also die alte Leiter 1 + (Runde − 1) / 3.
+	var run := _run()
+	for i in 30:
+		assert_eq(run.progress_tier(), clampi(1 + (run.round_number - 1) / 3, 1, GameRun.TIER_MAX),
+			"Runde %d" % run.round_number)
+		run.advance_round()
 
 func test_the_tier_never_drops_below_one() -> void:
 	var run := _run()
-	run.round_number = 0
+	run.add_luck(-5)
+	assert_eq(run.luck, 0, "Glück sinkt nie unter 0")
 	assert_eq(run.progress_tier(), 1)
 
 func test_the_tier_climbs_with_advance_round() -> void:
 	var run := _run()
-	for i in GameRun.ROUNDS_PER_TIER:
+	for i in GameRun.LUCK_PER_TIER:
 		run.advance_round()
 	assert_eq(run.progress_tier(), 2, "nach drei Runden die zweite Stufe")
+
+func test_next_tier_luck_names_the_next_step() -> void:
+	var run := _run()
+	assert_eq(run.next_tier_luck(), 3)
+	run.luck = 4
+	assert_eq(run.next_tier_luck(), 6)
+	run.luck = 99
+	assert_eq(run.next_tier_luck(), -1, "die letzte Stufe hat keine nächste")
+
+func test_luck_clauses_move_the_luck() -> void:
+	var run := _run()
+	run.sign_clauses([DealClause.LUCKY_PENNY] as Array[String])
+	assert_eq(run.luck, 1)
+	run.sign_clauses([DealClause.LUCKY_STREAK] as Array[String])
+	assert_eq(run.luck, 3)
+	assert_eq(run.progress_tier(), 2, "Glück hebt die Stufe sofort")
+	run.sign_clauses([DealClause.LUCKY_CHILD] as Array[String])
+	assert_eq(run.luck, 6)
+	run.sign_clauses([DealClause.UNLUCKY_NUMBER] as Array[String])
+	assert_eq(run.luck, 4)
+	run.luck = 1
+	run.sign_clauses([DealClause.UNLUCKY_NUMBER] as Array[String])
+	assert_eq(run.luck, 0, "nie unter 0")
+
+func test_the_shyster_doubles_the_luck_bonuses_only() -> void:
+	var run := _run()
+	run.owned_charms.append(Charm.shyster())
+	run.sign_clauses([DealClause.LUCKY_CHILD] as Array[String])
+	assert_eq(run.luck, 6)
+	run.sign_clauses([DealClause.UNLUCKY_NUMBER] as Array[String])
+	assert_eq(run.luck, 4, "der Malus bleibt −2")
 
 func test_rarity_tiers_scale_with_the_tier() -> void:
 	assert_eq(_run_at(1).shop_rarity_tier(), 0, "Stufe 1: keine")
@@ -75,34 +115,43 @@ func test_thresholds_crossed_respects_cap() -> void:
 
 # --- Fahrplan (Ziel-Block bleibt stehen, bis er geschafft ist) ----------------
 
+## Erwartete Blinds eines Blocks ohne Verträge, ab dem exakten Stand value in Runde first.
+func _curve(value: float, first: int, count: int) -> Array[int]:
+	var goals: Array[int] = []
+	for i in count:
+		if i > 0:
+			value *= 1.0 + GameRun.blind_growth(first + i)
+		goals.append(GameRun.floor_to_blind(value))
+	return goals
+
 func test_goal_roadmap_block_starts_at_round_one() -> void:
 	var run := _run()  # Runde 1, Ziel 150
-	assert_eq(run.goal_roadmap(6), [150, 225, 300, 375, 450, 525] as Array[int])
+	# 150, 165, 181,5, 199,65, 219,6, 241,6 -> abgerundet auf volle 25.
+	assert_eq(run.goal_roadmap(6), [150, 165, 180, 195, 215, 240] as Array[int])
 	assert_eq(run.goal_roadmap_index(6), 0, "Runde 1 = erste Station")
 
 func test_goal_roadmap_block_stays_fixed_while_position_advances() -> void:
 	var run := _run()
-	run.advance_round()  # Runde 2, Ziel 225
-	run.advance_round()  # Runde 3, Ziel 300
-	assert_eq(run.goal_roadmap(6), [150, 225, 300, 375, 450, 525] as Array[int],
+	run.advance_round()
+	run.advance_round()
+	assert_eq(run.goal_roadmap(6), [150, 165, 180, 195, 215, 240] as Array[int],
 		"derselbe Block wie in Runde 1")
 	assert_eq(run.goal_roadmap_index(6), 2, "dritte Station ist dran")
 
 func test_goal_roadmap_rolls_to_a_fresh_block_after_the_sixth() -> void:
 	var run := _run()
 	for i in 6:
-		run.advance_round()  # -> Runde 7, Ziel 675
-	# Der zweite Block steigt in 150er-Schritten (Zuwachs verdoppelt sich je Block).
-	assert_eq(run.goal_roadmap(6), [675, 825, 975, 1125, 1275, 1425] as Array[int],
+		run.advance_round()  # -> Runde 7
+	assert_eq(run.goal_roadmap(6), _curve(run.blind_value, 7, 6),
 		"nach dem sechsten Sieg liegt ein frischer Block aus")
 	assert_eq(run.goal_roadmap_index(6), 0, "wieder die erste Station")
 
-func test_goal_roadmap_matches_the_curve_across_blocks() -> void:
-	# Der Fahrplan zeigt exakt die Ziel-Kurve, auch im dritten Block (300er-Schritte).
+func test_past_stations_show_the_played_blind() -> void:
 	var run := _run()
-	for i in 12:
-		run.advance_round()  # -> Runde 13
-	assert_eq(run.goal_roadmap(6), [1725, 2025, 2325, 2625, 2925, 3225] as Array[int])
+	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
+	var played := run.effective_goal()
+	run.advance_round()
+	assert_eq(run.goal_roadmap(6)[0], played, "die geschaffte Station zeigt den gespielten Blind")
 
 # --- Fumble-Automaten (Ökonomie) ---------------------------------------------
 
@@ -172,5 +221,5 @@ func test_the_special_chance_climbs_with_the_tier() -> void:
 func test_a_round_beyond_the_cap_keeps_the_top_chance() -> void:
 	var top := _run_at(GameRun.TIER_MAX).shop_special_chance()
 	var run := _run()
-	run.round_number = 999
+	run.luck = 999
 	assert_eq(run.shop_special_chance(), top)

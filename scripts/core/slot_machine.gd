@@ -219,7 +219,8 @@ func _pack_lines(tiers: Dictionary) -> Array:
 ## Animation committen (Topf/Bust erscheinen mit der Landung, nicht beim Einwurf).
 ## Markiert den Automaten sofort als gedreht (Einsatz bezahlt, kein zweiter Dreh);
 ## [] wenn nicht drehbar.
-func roll(machine: int, rng: RandomNumberGenerator = null) -> Array:
+## fumbles = Fumbles des Laufs; sie machen den Joker häufiger (joker_weight).
+func roll(machine: int, rng: RandomNumberGenerator = null, fumbles: int = 0) -> Array:
 	if not can_spin(machine):
 		return []
 	spun[machine] = true
@@ -229,7 +230,7 @@ func roll(machine: int, rng: RandomNumberGenerator = null) -> Array:
 	for lc in MACHINE_COLS:
 		var col: Array = []
 		for r in ROWS:
-			col.append(_roll_cell(machine, rng))
+			col.append(_roll_cell(machine, rng, fumbles))
 		block.append(col)
 	return block
 
@@ -243,8 +244,8 @@ func commit(machine: int, block: Array) -> void:
 
 ## Dreht sofort: Wurf UND Commit in einem (für Tests/Direktnutzung). Liefert den
 ## gedrehten Block oder [], wenn der Automat nicht drehbar war.
-func spin(machine: int, rng: RandomNumberGenerator = null) -> Array:
-	var block := roll(machine, rng)
+func spin(machine: int, rng: RandomNumberGenerator = null, fumbles: int = 0) -> Array:
+	var block := roll(machine, rng, fumbles)
 	if not block.is_empty():
 		commit(machine, block)
 	return block
@@ -325,16 +326,16 @@ func _detect_bust() -> void:
 	if fumble_run_cells(BUST_RUN).size() > 0:
 		busted = true
 
-func _roll_cell(machine: int, rng: RandomNumberGenerator) -> int:
+func _roll_cell(machine: int, rng: RandomNumberGenerator, fumbles: int = 0) -> int:
 	if fumble_chance >= 0.0:
 		if rng.randf() < fumble_chance:
 			return SlotPrize.Kind.FUMBLE
-		return _roll_symbol(machine, rng, true)
-	return _roll_symbol(machine, rng, false)
+		return _roll_symbol(machine, rng, true, fumbles)
+	return _roll_symbol(machine, rng, false, fumbles)
 
 ## Gewichtete Symbol-Auswahl aus dem Tisch des Automaten (ohne Fumble, wenn skip).
-func _roll_symbol(machine: int, rng: RandomNumberGenerator, skip_fumble: bool) -> int:
-	var table := _symbol_table(machine)
+func _roll_symbol(machine: int, rng: RandomNumberGenerator, skip_fumble: bool, fumbles: int = 0) -> int:
+	var table := _symbol_table(machine, fumbles)
 	var total := 0.0
 	for entry in table:
 		if skip_fumble and entry[0] == SlotPrize.Kind.FUMBLE:
@@ -364,11 +365,17 @@ const W_FUMBLE := 2.2
 ## Der Joker ist SELTEN - er vervollständigt Reihen und zählt für alle Sorten, ein
 ## häufiger Joker verschöbe den Mix und machte fast jede Wand zum Gewinn.
 const W_JOKER := 1.0
+## Jeder Fumble des Laufs macht den Joker häufiger, gedeckelt.
+const JOKER_PER_FUMBLE := 0.05
+const JOKER_FUMBLE_CAP := 1.0
 
-func _symbol_table(_machine: int) -> Array:
+static func joker_weight(fumbles: int) -> float:
+	return W_JOKER + minf(JOKER_PER_FUMBLE * float(maxi(0, fumbles)), JOKER_FUMBLE_CAP)
+
+func _symbol_table(_machine: int, fumbles: int = 0) -> Array:
 	return [[SlotPrize.Kind.ENGRAVING, W_ZAHLEN], [SlotPrize.Kind.MATERIAL, W_MATERIAL],
 		[SlotPrize.Kind.DICE_ENGRAVING, W_GRAVUR], [SlotPrize.Kind.ENERGY, W_ENERGIE],
-		[SlotPrize.Kind.WILD, W_JOKER], [SlotPrize.Kind.FUMBLE, W_FUMBLE]]
+		[SlotPrize.Kind.WILD, joker_weight(fumbles)], [SlotPrize.Kind.FUMBLE, W_FUMBLE]]
 
 func _fallback_rng() -> RandomNumberGenerator:
 	if _rng == null:

@@ -7,7 +7,7 @@ extends GutTest
 
 func _hub() -> HubView:
 	var hub: HubView = add_child_autofree(HubView.new())
-	hub.size = Vector2(1000, 600)
+	hub.size = Vector2(1068, 1125)  # das Maß des echten Hubs
 	hub.layout()
 	return hub
 
@@ -61,7 +61,7 @@ const ShopPanelScene := preload("res://scenes/shop_panel.tscn")
 func _shop(tier: int) -> ShopController:
 	var run := GameRun.new_run()
 	run.money = 999
-	run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+	run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
 	var shop: ShopController = ShopPanelScene.instantiate()
 	add_child_autofree(shop)
 	shop.run = run
@@ -111,171 +111,112 @@ func test_charm_cards_fill_their_column() -> void:
 	shop.size = Vector2(1068, 1125)
 	assert_almost_eq(shop._charm_card_width(), shop.column_width(), 0.01)
 
-# --- Roulette-Rim: Rad-Rand (Fahrplan) + Stufen-Nabe -------------------------
+# --- Blind-Bühne: großer Blind + Block-Würfel ---------------------------------
 
-func _stations(hub: HubView) -> Array:
-	# Stationen tragen ein Label-Kind (das Ziel); der Rand/Chips nicht.
+func _faces(hub: HubView) -> Array:
 	var out := []
-	for child in hub.roadmap_row.get_children():
-		for sub in child.get_children():
-			if sub is Label:
-				out.append(child)
-				break
+	for station in hub.roadmap_row.get_children():
+		out.append(station.get_node("Face"))
 	return out
 
-func _filled_pips(hub: HubView) -> int:
-	var count := 0
-	for pip in hub._pips:
-		var ps := pip.get_theme_stylebox("panel") as StyleBoxFlat
-		if ps != null and ps.bg_color.a > 0.5:
-			count += 1
-	return count
-
-func test_roadmap_builds_a_station_per_goal() -> void:
-	var hub := _hub()
-	await wait_frames(2)  # der Bühne Zeit geben, ihre Größe zu bekommen (Radgeometrie)
-	hub.set_goal_roadmap([300, 350, 400, 450, 500, 550] as Array[int])
-	var goals: Array = []
-	for st in _stations(hub):
-		for sub in st.get_children():
-			if sub is Label:
-				goals.append((sub as Label).text)
-	assert_eq(goals, ["300", "350", "400", "450", "500", "550"],
-		"jede Station trägt ihr Ziel in Reihenfolge")
-
-func test_roadmap_current_station_is_largest() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([300, 350, 400] as Array[int])
-	var stations := _stations(hub)
-	assert_gt(stations[0].custom_minimum_size.x, stations[1].custom_minimum_size.x,
-		"die aktuelle Station (jetzt) ist die größte")
-
-func test_stations_lie_on_the_wheel_rim() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([300, 350, 400] as Array[int])
-	assert_gt(hub._rim_radius, 0.0, "Radgeometrie berechnet")
-	for st in _stations(hub):
-		var stc: Vector2 = st.position + st.size * 0.5
-		assert_almost_eq(stc.distance_to(hub._rim_center), hub._rim_radius, hub._rim_radius * 0.06,
-			"Station sitzt auf dem Rad-Rand")
-
-func test_current_station_carries_the_ball() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([300, 350, 400] as Array[int])
-	var non_label := 0
-	for child in _stations(hub)[0].get_children():
-		if not (child is Label):
-			non_label += 1
-	assert_eq(non_label, 1, "die aktuelle Station trägt die Kugel")
-
-func test_done_current_and_upcoming_states_read_differently() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	# Block von 6, dritte Station (Index 2) ist dran: 0+1 geschafft, 3..5 offen.
-	hub.set_goal_roadmap([150, 200, 250, 300, 350, 400] as Array[int], 2)
-	var stations := _stations(hub)
-	var done_box := (stations[0] as Panel).get_theme_stylebox("panel") as StyleBoxFlat
-	var open_box := (stations[4] as Panel).get_theme_stylebox("panel") as StyleBoxFlat
-	assert_gt(done_box.bg_color.a, 0.4, "geschaffte Station ist gefüllt")
-	assert_lt(open_box.bg_color.v, done_box.bg_color.v, "offene Station bleibt dunkel")
-	assert_gt(stations[2].custom_minimum_size.x, stations[0].custom_minimum_size.x,
-		"die aktuelle Station ist die größte")
-	# Die Kugel sitzt auf der AKTUELLEN Station (Index 2), nirgendwo sonst.
-	for i in stations.size():
-		var extras := 0
-		for child in stations[i].get_children():
-			if not (child is Label):
-				extras += 1
-		assert_eq(extras, 1 if i == 2 else 0, "Kugel nur auf Station %d" % 2)
-
-func test_same_block_keeps_station_goals_as_position_advances() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	var block: Array[int] = [150, 200, 250, 300, 350, 400]
-	hub.set_goal_roadmap(block, 0)
-	hub.set_goal_roadmap(block, 1)  # Rundensieg im selben Block
-	var goals: Array = []
-	for st in _stations(hub):
-		for sub in st.get_children():
-			if sub is Label:
-				goals.append((sub as Label).text)
-	assert_eq(goals, ["150", "200", "250", "300", "350", "400"],
-		"die Stationen bleiben stehen - nur die Position rückt vor")
-
-# --- Fahrplan-Marker: der Stresstest ------------------------------------------
+func _captions(hub: HubView) -> Array:
+	var out := []
+	for station in hub.roadmap_row.get_children():
+		out.append((station.get_node("Caption") as Label).text)
+	return out
 
 func _markers(values: Array) -> Array[String]:
 	var typed: Array[String] = []
 	typed.assign(values)
 	return typed
 
-func test_markers_color_the_station_itself() -> void:
-	# Die Besonderheit färbt die KUGEL - aus der Übersichts-Distanz ist ein
-	# Punkt darunter nicht zu sehen.
+func test_the_block_shows_one_die_face_per_round() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 200, 250, 300, 350, 400] as Array[int], 0,
+	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int])
+	var faces := _faces(hub)
+	assert_eq(faces.size(), 6)
+	for i in faces.size():
+		assert_eq(faces[i].value, i + 1, "Seite %d zeigt %d Augen" % [i, i + 1])
+
+func test_the_big_number_is_the_current_blind() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 2)
+	assert_eq(hub.blind_label.text, "180", "nur der laufende Blind steht groß")
+
+func test_only_played_faces_carry_their_blind() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 2,
 		_markers(["", "", "", "", "", GameRun.STRESS_MARKER]))
-	var stations := _stations(hub)
-	var plain := (stations[2] as Panel).get_theme_stylebox("panel") as StyleBoxFlat
-	var stress := (stations[5] as Panel).get_theme_stylebox("panel") as StyleBoxFlat
-	assert_almost_eq(stress.border_color.h, ComboChipView.THROTTLE_COLOR.h, 0.02,
-		"Stresstest-Station warnrot")
-	assert_gt(stress.border_color.a, plain.border_color.a,
-		"markierte Station tritt hervor - auch als hinterste des Blocks")
-	assert_almost_eq(stress.bg_color.h, ComboChipView.THROTTLE_COLOR.h, 0.05,
-		"ihre Füllung ist in Markerfarbe getönt")
+	assert_eq(_captions(hub), ["150", "165", " ", " ", " ", "BOSS"],
+		"keine geratene Zukunft - gespielte Seiten nennen ihren Blind, die Boss-Seite sich selbst")
 
-func test_only_marked_stations_listen_for_hover() -> void:
+func test_face_states_read_apart() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
-		_markers(["", GameRun.STRESS_MARKER, ""]))
-	var stations := _stations(hub)
-	assert_eq(stations[0].mouse_filter, Control.MOUSE_FILTER_IGNORE, "graue Station bleibt Deko")
-	assert_eq(stations[1].mouse_filter, Control.MOUSE_FILTER_PASS, "markierte Station ist anfassbar")
+	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 2)
+	var faces := _faces(hub)
+	assert_eq(faces[0].state, HubView.DieFace.DONE)
+	assert_eq(faces[2].state, HubView.DieFace.CURRENT)
+	assert_eq(faces[4].state, HubView.DieFace.OPEN)
+	assert_gt(faces[2].custom_minimum_size.x, faces[4].custom_minimum_size.x,
+		"die laufende Seite ist die größte")
 
-func test_hovering_a_marker_names_its_effect() -> void:
+func test_the_boss_face_is_red_and_explains_itself() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
+	hub.set_goal_roadmap([150, 165, 180] as Array[int], 0,
 		_markers(["", "", GameRun.STRESS_MARKER]))
-	var stations := _stations(hub)
-	assert_false(hub.marker_hint.visible, "ohne Hover kein Hinweis")
-	(stations[2] as Panel).mouse_entered.emit()
+	var faces := _faces(hub)
+	assert_true(faces[2].boss)
+	assert_almost_eq(faces[2].ring.h, ComboChipView.THROTTLE_COLOR.h, 0.02, "Boss-Seite warnrot")
+	assert_eq(faces[0].mouse_filter, Control.MOUSE_FILTER_IGNORE, "gewöhnliche Seite bleibt Deko")
+	assert_false(hub.marker_hint.visible)
+	faces[2].mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
 	assert_eq(hub.marker_hint.title_label.text, GameRun.STRESS_NAME)
 	assert_string_contains(hub.marker_hint.body_label.text, "Konditionen")
-	(stations[2] as Panel).mouse_exited.emit()
-	assert_false(hub.marker_hint.visible, "Hinweis verschwindet mit dem Zeiger")
+	faces[2].mouse_exited.emit()
+	assert_false(hub.marker_hint.visible)
 
-func test_marker_hint_stays_inside_the_stage() -> void:
+func test_rebuilding_the_block_drops_a_standing_hint() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
-		_markers([GameRun.STRESS_MARKER, "", ""]))
-	# Station 0 sitzt am linken Rad-Rand - der Hinweis darf nicht hinausragen.
-	(_stations(hub)[0] as Panel).mouse_entered.emit()
-	await wait_frames(2)
-	var rect := Rect2(hub.marker_hint.position, hub.marker_hint.size)
-	assert_gte(rect.position.x, 0.0)
-	assert_gte(rect.position.y, 0.0)
-	assert_lte(rect.end.x, hub.roadmap_stage.size.x + 1.0)
-
-func test_rebuilding_the_roadmap_drops_a_standing_hint() -> void:
-	# Die gehoverte Station wird beim Neuaufbau freigegeben - der Hinweis dürfte
-	# nicht als Geist über dem neuen Block stehenbleiben.
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0,
-		_markers(["", GameRun.STRESS_MARKER, ""]))
-	(_stations(hub)[1] as Panel).mouse_entered.emit()
+	hub.set_goal_roadmap([150, 165, 180] as Array[int], 0, _markers(["", GameRun.STRESS_MARKER, ""]))
+	_faces(hub)[1].mouse_entered.emit()
 	assert_true(hub.marker_hint.visible)
 	hub.set_goal_roadmap([300, 350, 400] as Array[int], 0, _markers(["", "", ""]))
 	assert_false(hub.marker_hint.visible)
+
+func test_a_raised_blind_ticks_the_big_number() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 165, 180] as Array[int], 0, _markers([]), 0)
+	hub.set_goal_roadmap([200, 220, 240] as Array[int], 0, _markers([]), 0)
+	assert_eq(hub.blind_label.text, "150", "die Zahl tickt erst")
+	await wait_seconds(HubView.STAT_TICK_TIME + 0.1)
+	assert_eq(hub.blind_label.text, "200")
+
+func test_the_stage_stays_inside_its_bounds() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 0,
+		_markers(["", "", "", "", "", GameRun.STRESS_MARKER]))
+	hub.set_run_stats(165, 12, 34)
+	await wait_frames(2)
+	var stage := Rect2(Vector2.ZERO, hub.roadmap_stage.size)
+	for c: Control in [hub.blind_label, hub.roadmap_row, hub.stat_labels[HubView.STAT_LUCK],
+			hub.stat_labels[HubView.STAT_FUMBLES]]:
+		var r := Rect2(c.position, c.size)
+		assert_true(stage.grow(1.0).encloses(r), "%s liegt in der Bühne" % c.name)
+	var luck := Rect2(hub.stat_labels[HubView.STAT_LUCK].position, hub.stat_labels[HubView.STAT_LUCK].size)
+	var row := Rect2(hub.roadmap_row.position, hub.roadmap_row.size)
+	assert_false(luck.intersects(row), "Glück steht unter den Seiten, nicht darauf")
+	assert_gt(luck.position.y, row.end.y - 1.0, "die Lauf-Werte stehen UNTER der Reihe")
+	var next: Label = hub.stat_labels[HubView.STAT_BLIND]
+	assert_almost_eq(next.position.x + next.size.x * 0.5, hub.roadmap_stage.size.x * 0.5, 1.0, "die Nächster-Zeile steht mittig")
 
 # --- Deal-Marken --------------------------------------------------------------
 
@@ -364,20 +305,30 @@ func test_a_fresh_block_restores_swept_tokens() -> void:
 	hub.set_deal_tokens(_sides([_side(DealClause.HAPPY_HOUR)]))
 	assert_eq(hub.deal_token_row.modulate.a, 1.0)
 
-func test_a_quota_deal_lifts_the_current_station() -> void:
-	# Der Fahrplan zeigt die WIRKSAMEN Ziele: unterschreibt der Spieler einen
-	# Aufschlag, springt seine Station sofort mit - und nur sie, denn kein Deal
-	# überlebt seine Runde.
+func test_a_quota_deal_lifts_the_current_and_every_future_station() -> void:
+	# Der Aufschlag ist DAUERHAFT: die laufende Station und alle künftigen springen mit.
 	var run := GameRun.new_run()
 	var before := run.goal_roadmap(GameRun.GOAL_BLOCK)
-	run.sign_clauses([DealClause.QUOTA_SURCHARGE] as Array[String])
+	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
 	var after := run.goal_roadmap(GameRun.GOAL_BLOCK)
-	var here := run.goal_roadmap_index(GameRun.GOAL_BLOCK)
 	for i in before.size():
-		if i == here:
-			assert_gt(after[i], before[i], "die laufende Station trägt den Aufschlag")
-		else:
-			assert_eq(after[i], before[i], "Station %d bleibt frei" % i)
+		assert_gt(after[i], before[i], "Station %d trägt den Aufschlag" % i)
+
+func test_the_run_stats_tick_and_carry_their_hints() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_run_stats(300, 4, 7, {HubView.STAT_LUCK: "Stufe 2."})
+	var label: Label = hub.stat_labels[HubView.STAT_BLIND]
+	assert_eq(label.text, "nächster 300", "der erste Stand steht sofort")
+	hub.set_run_stats(300, 4, 7, {}, 10)
+	assert_eq(label.text, "nächster 300  (+10 %)", "sie nennt das Wachstum der Kurve, nicht den gerundeten Sprung")
+	assert_eq((hub.stat_labels[HubView.STAT_LUCK] as Label).text, "Glück 4")
+	assert_eq((hub.stat_labels[HubView.STAT_FUMBLES] as Label).text, "Fumbles 7")
+	assert_eq(hub._stat_hints[HubView.STAT_LUCK], "Stufe 2.")
+	hub.set_run_stats(300, 4, 9)
+	assert_eq((hub.stat_labels[HubView.STAT_FUMBLES] as Label).text, "Fumbles 7", "die Zahl tickt erst")
+	await wait_seconds(HubView.STAT_TICK_TIME + 0.1)
+	assert_eq((hub.stat_labels[HubView.STAT_FUMBLES] as Label).text, "Fumbles 9")
 
 func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
 	# Sonst gälte ein mitten im Block unterschriebener Quota-Malus als
@@ -388,12 +339,3 @@ func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
 	hub.set_goal_roadmap([188, 250, 313] as Array[int], 0, _markers([]), 0)
 	assert_eq(hub._roadmap_block, 0, "immer noch derselbe Block")
 	assert_eq(hub._roadmap_goals, [188, 250, 313] as Array[int], "aber neue Zahlen")
-
-func test_plaque_medallion_and_pips_track_the_tier() -> void:
-	var hub := _hub()
-	hub.set_progress_tier(3)
-	assert_eq(hub.medallion_label.text, "3", "das Medaillon zeigt die Stufe")
-	assert_eq(_filled_pips(hub), 3, "genau 3 Pips gefüllt")
-	hub.set_progress_tier(10)
-	assert_eq(hub.medallion_label.text, "10")
-	assert_eq(_filled_pips(hub), 10, "auf der letzten Stufe alle Pips gefüllt")

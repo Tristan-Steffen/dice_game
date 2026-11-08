@@ -11,7 +11,8 @@ var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
-	run.round_number = 1 + (GameRun.TIER_MAX - 1) * GameRun.ROUNDS_PER_TIER  # volle Börse (25)
+	run.luck = (GameRun.TIER_MAX - 1) * GameRun.LUCK_PER_TIER
+	run.stress_tests_passed = 4  # volle Börse (25)
 	run.energy = run.energy_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)

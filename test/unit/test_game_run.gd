@@ -691,25 +691,45 @@ func test_advance_round_increments_number_and_goal():
 	run.advance_round()
 	run.advance_round()
 	assert_eq(run.round_number, 3)
-	assert_eq(run.round_goal, GameRun.BASE_GOAL + 2 * GameRun.GOAL_INCREMENT)
+	# 150 × 1,1 × 1,1 = 181,5 -> abgerundet auf 180.
+	assert_eq(run.round_goal, 180)
+	assert_almost_eq(run.blind_value, 181.5, 0.001, "der Akkumulator bleibt exakt")
 
-func test_goal_curve_doubles_its_step_every_block():
-	# Erster Block 75er-Schritte, dann 150 / 300 / 600 - die Wertung wächst
-	# multiplikativ, das Ziel muss mithalten.
-	assert_eq(GameRun.goal_for_round(1), 150, "Startziel")
-	assert_eq(GameRun.goal_for_round(6), 525, "Block 1 endet bei 525")
-	assert_eq(GameRun.goal_for_round(7), 675, "erster 150er-Schritt")
-	assert_eq(GameRun.goal_for_round(12), 1425)
-	assert_eq(GameRun.goal_for_round(13), 1725, "erster 300er-Schritt")
-	assert_eq(GameRun.goal_for_round(18), 3225)
-	assert_eq(GameRun.goal_for_round(24), 6825, "vierter Block: 600er-Schritte")
+func test_blind_growth_climbs_five_points_per_block():
+	assert_almost_eq(GameRun.blind_growth(2), 0.10, 0.0001)
+	assert_almost_eq(GameRun.blind_growth(6), 0.10, 0.0001, "die Boss-Runde gehört zum Block")
+	assert_almost_eq(GameRun.blind_growth(7), 0.15, 0.0001)
+	assert_almost_eq(GameRun.blind_growth(13), 0.20, 0.0001)
+	assert_almost_eq(GameRun.blind_growth(19), 0.25, 0.0001)
+
+func test_the_goal_floors_to_multiples_of_5():
+	assert_eq(GameRun.floor_to_blind(663.0), 660)
+	assert_eq(GameRun.floor_to_blind(165.0), 165, "das erste Wachstum bleibt sichtbar")
+	assert_eq(GameRun.floor_to_blind(664.99), 660)
+	assert_eq(GameRun.floor_to_blind(3.0), GameRun.BLIND_ROUNDING, "nie unter 5")
 
 func test_advance_round_follows_the_curve_across_a_block_edge():
 	for i in 6:
 		run.advance_round()
 	assert_eq(run.round_number, 7)
-	assert_eq(run.round_goal, GameRun.goal_for_round(7), "Rundenwechsel liest die Kurve")
-	assert_eq(run.round_goal, 675)
+	var expected := 150.0 * pow(1.1, 5) * 1.15
+	assert_almost_eq(run.blind_value, expected, 0.001)
+	assert_eq(run.round_goal, GameRun.floor_to_blind(expected))
+
+func test_projected_blind_reads_the_curve_ahead():
+	assert_eq(run.projected_blind(1), 150)
+	assert_eq(run.projected_blind(3), 180)
+	assert_eq(run.projected_blind(7), GameRun.floor_to_blind(150.0 * pow(1.1, 5) * 1.15))
+
+func test_advance_round_remembers_the_played_blind_and_adds_luck():
+	_sign([DealClause.HIGH_EXPECTATIONS])
+	var played := run.effective_goal()
+	run.advance_round()
+	assert_eq(run.blind_history, [played] as Array[int], "die Historie merkt den wirklich gespielten")
+	assert_eq(run.luck, 1, "eine geschaffte Runde = +1 Glück")
+	assert_eq(run.roadmap_goal(1), played)
+	assert_eq(run.roadmap_goal(2), run.effective_goal())
+	assert_eq(run.roadmap_goal(3), run.projected_blind(3))
 
 # --- Testhilfen: Zufallsmaterialien (Testmodus) ----------------------------------
 
@@ -1225,8 +1245,8 @@ func test_the_shyster_applies_the_reductions_twice():
 	_sign([DealClause.CASH_DISCOUNT, DealClause.CALIBRATION])
 	assert_almost_eq(run.shop_price_factor(),
 		GameRun.SHOP_DISCOUNT_FACTOR * GameRun.SHOP_DISCOUNT_FACTOR, 0.0001)
-	assert_eq(run.effective_goal(),
-		roundi(run.round_goal * GameRun.CALIBRATION_FACTOR * GameRun.CALIBRATION_FACTOR))
+	assert_almost_eq(run.blind_value,
+		GameRun.BASE_GOAL * GameRun.CALIBRATION_FACTOR * GameRun.CALIBRATION_FACTOR, 0.001)
 	assert_gt(run.effective_goal(), 0, "das Ziel bleibt erreichbar")
 
 func test_work_hardening_grows_every_fired_face():
@@ -1300,37 +1320,25 @@ func test_offers_never_repeat_a_clause_taken_this_block():
 		seen.append(offer)
 		run.take_route(0)
 
-func test_offers_gate_a_second_quota_malus():
-	# Ein zweiter Aufschlag könnte ein unerreichbares Ziel bauen (geprüft in der
-	# Runde der Unterschrift - länger wirkt keine Klausel).
+func test_permanent_raises_may_stack_across_offers():
+	# Dauerhafte Hebungen sperren nichts - der Wächter gilt nur der Boss-Klausel.
 	_sign([DealClause.QUOTA_SURCHARGE])
-	for i in 20:
-		run.route_offers.clear()
-		run.roll_route_offers()
-		for card in run.route_offers:
-			for clause_id in _card_ids(card):
-				assert_false(GameRun.QUOTA_MALUS.has(clause_id),
-					"%s hebt die Quota ein zweites Mal" % clause_id)
-
-func test_the_boss_pool_gates_high_expectations_too():
-	_sign([DealClause.USURY_CLAUSE], GameRun.GOAL_BLOCK)
-	for i in 20:
-		run.route_offers.clear()
-		run.roll_route_offers()
-		for card in run.route_offers:
-			assert_ne(String(card[GameRun.CARD_MALUS]), DealClause.HIGH_EXPECTATIONS)
-
-func test_a_round_quota_malus_stops_gating_next_round():
-	_sign([DealClause.QUOTA_SHOCK])  # nur diese Runde
-	run.advance_round()
 	var found := false
 	for i in 40:
 		run.route_offers.clear()
 		run.roll_route_offers()
 		for card in run.route_offers:
 			for clause_id in _card_ids(card):
-				found = found or GameRun.QUOTA_MALUS.has(clause_id)
-	assert_true(found, "nach Ablauf des Malus sind Aufschläge wieder möglich")
+				found = found or GameRun.BLIND_RAISE.has(clause_id)
+	assert_true(found, "ein weiterer Aufschlag darf ausliegen")
+
+func test_the_boss_pool_gates_a_second_round_raise():
+	_sign([DealClause.HIGH_EXPECTATIONS], GameRun.GOAL_BLOCK)
+	for i in 20:
+		run.route_offers.clear()
+		run.roll_route_offers()
+		for card in run.route_offers:
+			assert_ne(String(card[GameRun.CARD_MALUS]), DealClause.HIGH_EXPECTATIONS)
 
 func test_stress_round_offers_the_boss_conditions():
 	run.round_number = GameRun.GOAL_BLOCK
@@ -1359,33 +1367,42 @@ func test_exhausted_pool_falls_back_to_repeats():
 
 # --- Klausel-Wirkungen -------------------------------------------------------------
 
-func test_quota_malus_inflates_the_whole_bar():
-	var base := run.effective_goal()
-	_sign([DealClause.QUOTA_SURCHARGE])
-	assert_eq(run.effective_goal(), roundi(base * 1.5))
+func test_blind_raises_are_permanent_and_instant():
+	_sign([DealClause.USURY_CLAUSE])
+	assert_almost_eq(run.blind_value, 225.0, 0.001, "+50 % sofort")
+	assert_eq(run.round_goal, 225, "die laufende Runde zieht sofort mit")
 	assert_eq(run.stage_size(1), run.effective_goal(), "der Balken zieht mit")
-	assert_eq(run.cumulative_threshold(2), run.effective_goal() * 3)
+	run.advance_round()
+	assert_almost_eq(run.blind_value, 225.0 * 1.1, 0.001, "und jede spätere Runde")
 
-func test_calibration_halves_the_quota():
-	var base := run.effective_goal()
+func test_each_raise_lifts_by_its_own_percentage():
+	for clause_id: String in GameRun.BLIND_RAISE:
+		var fresh := GameRun.new_run()
+		fresh.sign_clauses([clause_id] as Array[String])
+		assert_almost_eq(fresh.blind_value, 150.0 * (1.0 + float(GameRun.BLIND_RAISE[clause_id])), 0.001, clause_id)
+	assert_almost_eq(float(GameRun.BLIND_RAISE[DealClause.QUOTA_SURCHARGE]), 0.10, 0.0001)
+	assert_almost_eq(float(GameRun.BLIND_RAISE[DealClause.QUOTA_SURCHARGE_II]), 0.20, 0.0001)
+	assert_almost_eq(float(GameRun.BLIND_RAISE[DealClause.QUOTA_SHOCK]), 0.35, 0.0001)
+	assert_almost_eq(float(GameRun.BLIND_RAISE[DealClause.USURY_CLAUSE]), 0.50, 0.0001)
+
+func test_calibration_lowers_the_blind_for_good():
 	_sign([DealClause.CALIBRATION])
-	assert_eq(run.effective_goal(), roundi(base * GameRun.CALIBRATION_FACTOR))
+	assert_almost_eq(run.blind_value, 135.0, 0.001)
+	assert_eq(run.round_goal, 135)
 
-func test_quota_surcharge_and_calibration_cancel_out():
-	_sign([DealClause.QUOTA_SURCHARGE_II, DealClause.CALIBRATION])
-	assert_eq(run.effective_goal(), run.round_goal, "×2 und ×0,5 heben sich auf")
+func test_signing_lifts_the_current_and_every_future_station():
+	_sign([DealClause.QUOTA_SURCHARGE_II], 1)
+	var goals := run.goal_roadmap(GameRun.GOAL_BLOCK)
+	assert_eq(goals[0], GameRun.floor_to_blind(180.0))
+	assert_eq(goals[2], GameRun.floor_to_blind(180.0 * 1.1 * 1.1))
 
-func test_the_roadmap_only_lifts_the_signing_round():
-	_sign([DealClause.QUOTA_SURCHARGE], 2)
-	assert_eq(run.effective_goal_for_round(2), roundi(GameRun.goal_for_round(2) * 1.5),
-		"die Station der laufenden Runde zeigt den Aufschlag")
-	assert_eq(run.effective_goal_for_round(3), GameRun.goal_for_round(3),
-		"die kommenden Stationen bleiben frei - kein Deal überlebt seine Runde")
-
-func test_a_round_malus_only_inflates_its_own_round():
-	_sign([DealClause.QUOTA_SHOCK], 2)
-	assert_eq(run.effective_goal_for_round(2), roundi(GameRun.goal_for_round(2) * 3.5))
-	assert_eq(run.effective_goal_for_round(3), GameRun.goal_for_round(3))
+func test_high_expectations_stays_round_scoped():
+	_sign([DealClause.HIGH_EXPECTATIONS], 2)
+	var goal := run.round_goal
+	assert_eq(run.effective_goal(), roundi(goal * 6.0))
+	assert_almost_eq(run.blind_value, 150.0, 0.001, "der Akkumulator bleibt")
+	run.advance_round()
+	assert_eq(run.effective_goal(), run.round_goal, "nächste Runde ist der Aufschlag fort")
 
 func test_payout_factors_multiply():
 	_sign([DealClause.DEDUCTION, DealClause.HALF_PAYOUT])
@@ -1757,13 +1774,12 @@ func test_the_odds_bonus_spares_unique_goods():
 func test_the_series_length_is_six_on_every_tier():
 	# Die Stufen-Leiter ist gefallen (2026-09-04): SECHS Schächte ab Runde 1.
 	for tier: int in range(1, GameRun.TIER_MAX + 1):
-		run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+		run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
 		assert_eq(run.series_slots(), 6, "Stufe %d" % tier)
 
 ## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es
 ## nie - auch nicht mit Wett-Schub und Kettentreiber zusammen.
 func test_more_than_six_slots_never_exist():
-	run.grant_press_boost()
 	run.owned_charms.append(Charm.shyster())
 	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Karten sind der Block")
@@ -1780,27 +1796,13 @@ func test_the_shyster_doubles_the_quantitative_series_bonus():
 	assert_eq(run.series_slots(), 6)
 
 func test_the_short_circuit_overrides_the_length_absolutely():
-	run.grant_press_boost()
 	_sign([DealClause.CHAIN_DRIVER, DealClause.SHORT_CIRCUIT])
 	assert_eq(run.series_slots(), 1, "Kurzschluss schlägt Sockel, Klausel und Schub")
 
 func test_the_length_is_capped():
-	run.grant_press_boost()
 	run.owned_charms.append(Charm.shyster())
 	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(run.series_slots(), GameRun.SERIES_SLOT_CAP)
-
-func test_the_press_boost_is_spent_by_one_series():
-	run.grant_press_boost()
-	assert_eq(run.series_slots(), 6, "der Deckel klemmt den Schub weg")
-	var pack := run.grant_pack(Pack.number_pack())
-	run.apply_series([pack.pack_uid] as Array[int], run.owned_pool[0], _seeded(7))
-	assert_false(run.press_boost_pending, "ein Schub, eine Serie")
-	assert_eq(run.series_slots(), 6)
-
-func test_a_fresh_run_carries_no_press_boost():
-	run.grant_press_boost()
-	assert_false(GameRun.new_run().press_boost_pending)
 
 ## Die Presse steht im LADEN der Runde - eine ROUND-Klausel muss dort noch leben,
 ## sonst wären die Serien-Klauseln tote Buchstaben.
@@ -1816,31 +1818,26 @@ func test_a_round_clause_still_reaches_the_shop_of_its_round():
 		return String(entry["id"]) == DealClause.CHAIN_DRIVER),
 		"in der nächsten Runde ist sie tot")
 
-func test_the_chain_reaction_bet_grants_the_boost_once():
+func test_the_chain_reaction_bet_pays_one_module():
 	var bet := SideBet._from_template(_template("chain_reaction"))
-	assert_eq(bet.payout_kind, SideBet.Payout.PRESS_BOOST)
+	assert_eq(bet.payout_kind, SideBet.Payout.PART)
 	assert_eq(bet.unlock_level, SideBet.UNLOCK_BASE)
-	run.money = 100
-	run.place_side_bet(bet)
-	run.resolve_side_bets({"cleared": true,
-		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
-	assert_true(run.press_boost_pending, "der Gewinn merkt die nächste Serie vor")
-
-func test_the_press_boost_is_no_doubled_good():
-	# Einzelstück wie der Sonderposten: der Quotenbonus verdoppelt es nicht.
+	assert_ne(bet.reward_part_id, "", "das Modul steht ab dem Auslegen fest")
 	_sign([DealClause.ODDS_BONUS])
-	var bet := SideBet._from_template(_template("chain_reaction"))
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true,
 		"best_combo_rank": SideBet.combo_rank(DiceScoring.LARGE_STRAIGHT)})
-	assert_true(run.press_boost_pending, "EIN Schub, nicht zwei")
-	assert_eq(run.series_slots(), 6, "und der Deckel klemmt ihn ohnehin weg")
+	assert_eq(run.pending_parts.size(), 1, "EIN Modul wartet auf den Einbau, nicht zwei")
+	assert_eq(run.pending_parts[0].id, bet.reward_part_id)
 
-func test_the_chain_reaction_button_states_its_prize():
-	var bet := SideBet._from_template(_template("chain_reaction"))
-	assert_eq(bet.reward_label(), "Nächste Serie: +1 Slot")
-	assert_eq(bet.reward_label(2), bet.reward_label(), "der Quotenbonus rührt es nicht an")
+func test_module_bets_lie_out_from_round_one():
+	var ids: Array[String] = []
+	for t: Dictionary in SideBet.TEMPLATES:
+		var pays_part := int(t.get("payout", SideBet.Payout.PACKS)) == SideBet.Payout.PART
+		if pays_part and int(t.get("unlock", SideBet.UNLOCK_BASE)) == SideBet.UNLOCK_BASE:
+			ids.append(String(t["id"]))
+	assert_gte(ids.size(), 2, "zwei Modul-Wetten im Grundstock")
 
 # --- Ladung -----------------------------------------------------------------------
 
@@ -2002,7 +1999,7 @@ func _count_style(style_id: String) -> int:
 func test_the_multiplier_chance_grows_with_the_progress_tier() -> void:
 	run.round_number = 1
 	var first := run.shop_multiplier_chance()
-	run.round_number = 1 + GameRun.ROUNDS_PER_TIER * (GameRun.TIER_MAX - 1)
+	run.luck = GameRun.LUCK_PER_TIER * (GameRun.TIER_MAX - 1)
 	var last := run.shop_multiplier_chance()
 	assert_gt(first, 0.0, "selten, aber ab Runde 1 möglich")
 	assert_gt(last, first, "und mit jeder Stufe häufiger")

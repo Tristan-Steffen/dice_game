@@ -148,6 +148,11 @@ const CONTINUOUS_DUTY := "continuous_duty"
 const TRANSFORMER := "transformer"
 const EMBER_CORE := "ember_core"
 const SPARK_PLUG := "spark_plug"
+# Fumbles als Laufzähler
+const UNLUCKY_BIRD := "unlucky_bird"
+const FUMBLE_PENSION := "fumble_pension"
+const GALLOWS_REPRIEVE := "gallows_reprieve"
+const BLACK_CAT := "black_cat"
 # Essenz-Charms: je einer für jede Essenz ab "selten" - siehe ESSENCE_REQUIREMENT.
 const AMALGAM := "amalgam"
 const LEAD_APRON := "lead_apron"
@@ -408,6 +413,11 @@ const RARITIES := {
 	TRANSFORMER: RARITY_LEGENDARY,
 	EMBER_CORE: RARITY_RARE,
 	SPARK_PLUG: RARITY_RARE,
+	# Fumbles
+	UNLUCKY_BIRD: RARITY_UNCOMMON,
+	FUMBLE_PENSION: RARITY_COMMON,
+	GALLOWS_REPRIEVE: RARITY_RARE,
+	BLACK_CAT: RARITY_UNCOMMON,
 	# Essenz-Charms: die Rarität misst die STÄRKE mit der Seele, nicht die Nische -
 	# die Nische regelt schon die Angebots-Kopplung (ESSENCE_REQUIREMENT).
 	AMALGAM: RARITY_RARE,
@@ -813,7 +823,7 @@ static func lead_apron() -> Charm:
 	return _make(LEAD_APRON, "Bleischürze", "Radon zerfällt nicht mehr, und seine Bestrahlung steigt auf +3 Augen je Mitwürfel.")
 
 static func storm_glass() -> Charm:
-	return _make(STORM_GLASS, "Sturmglas", "Für Elmsfeuer gilt JEDE Runde als Stresstest.")
+	return _make(STORM_GLASS, "Sturmglas", "Für Elmsfeuer gilt JEDE Runde als Boss-Runde.")
 
 static func lightning_rod() -> Charm:
 	return _make(LIGHTNING_ROD, "Blitzableiter", "Jeder Kugelblitz kritet ×2 plus 1 je gewertetem Kugelblitz-Würfel.")
@@ -1015,6 +1025,20 @@ static func ember_core() -> Charm:
 static func spark_plug() -> Charm:
 	return _make(SPARK_PLUG, "Zündkerze", "Die Funkenstrecke kritet ×(2 + Ladung) statt ×(1 + Ladung).")
 
+# --- Fumbles -----------------------------------------------------------------
+
+static func unlucky_bird() -> Charm:
+	return _make(UNLUCKY_BIRD, "Pechvogel", "+1 Mult je 2 Fumbles des Laufs.")
+
+static func fumble_pension() -> Charm:
+	return _make(FUMBLE_PENSION, "Fumble-Rente", "Am Rundenende +$1 je 3 Fumbles des Laufs.")
+
+static func gallows_reprieve() -> Charm:
+	return _make(GALLOWS_REPRIEVE, "Galgenfrist", "Jeder Fumble senkt den Blind dieser Runde um 3%.")
+
+static func black_cat() -> Charm:
+	return _make(BLACK_CAT, "Schwarze Katze", "Ladenpreise −2% je Fumble des Laufs (max. −30%).")
+
 ## Kanonische Registrierung aller Charm-Archetypen - ein neuer Charm wird
 ## hier eingehängt.
 static func all() -> Array[Charm]:
@@ -1065,4 +1089,6 @@ static func all() -> Array[Charm]:
 		# Ladung
 		voltmeter(), safety_fuse(), heat_sink(), arc_flash(),
 		grounding(), continuous_duty(), transformer(), ember_core(), spark_plug(),
+		# Fumbles
+		unlucky_bird(), fumble_pension(), gallows_reprieve(), black_cat(),
 	]

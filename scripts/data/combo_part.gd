@@ -29,6 +29,8 @@ const RESONATOR := "resonator"
 const MAGNETRON := "magnetron"
 const CROSS_BRIDGE := "cross_bridge"
 const DOWN_BRIDGE := "down_bridge"
+const ERROR_MEMORY := "error_memory"
+const AFTERBURNER := "afterburner"
 
 ## Wirk-Phasen: die Phase entscheidet, WANN ein Teil in der Wertung feuert.
 const PHASE_COMBO := "kombi"
@@ -68,6 +70,8 @@ const RARITIES := {
 	MAGNETRON: RARITY_LEGENDARY,
 	CROSS_BRIDGE: RARITY_LEGENDARY,
 	DOWN_BRIDGE: RARITY_LEGENDARY,
+	ERROR_MEMORY: RARITY_RARE,
+	AFTERBURNER: RARITY_EPIC,
 }
 
 const RARITY_WEIGHTS := {
@@ -113,6 +117,7 @@ const DATIVES := {
 	BLOCKING_DIODE: "der", POWER_PICKUP: "dem", SHUNT: "dem",
 	PARALLEL_CIRCUIT: "der", RESONATOR: "dem", MAGNETRON: "dem",
 	CROSS_BRIDGE: "der", DOWN_BRIDGE: "der",
+	ERROR_MEMORY: "dem", AFTERBURNER: "dem",
 }
 
 @export var id: String = ""
@@ -124,7 +129,8 @@ const DATIVES := {
 @export var secret: bool = false
 ## Grundpreis in $; der Schwarzmarkt rechnet ihn über secret_energy_price um.
 @export var price: int = 6
-## Zählwerk: dauerhafter Zuwachs, reist beim Umstecken mit.
+## Zählwerk: dauerhafter Zuwachs, reist beim Umstecken mit. Fehlerspeicher: die
+## Block-Fumbles; Nachbrenner: 1 = scharf (ein Fumble ist gefallen).
 @export var counter: int = 0
 
 static func _make(part_id: String, name: String, desc: String, part_phase: String,
@@ -246,6 +252,12 @@ static func cross_bridge() -> ComboPart:
 static func down_bridge() -> ComboPart:
 	return _make(DOWN_BRIDGE, "Längsbrücke", "Aktiviert auch die Kombination darunter samt ihrer Module.", PHASE_LINK, 60, true)
 
+static func error_memory() -> ComboPart:
+	return _make(ERROR_MEMORY, "Fehlerspeicher", "+1 Mult je Fumble dieses Blocks.", PHASE_COMBO, 9)
+
+static func afterburner() -> ComboPart:
+	return _make(AFTERBURNER, "Nachbrenner", "×2 Mult in der ersten Hand dieser Kombination nach einem Fumble.", PHASE_CRIT, 40, true)
+
 static func all() -> Array[ComboPart]:
 	return [
 		resistor(), capacitor(), coil(), relay(), output_stage(), solder_joint(),
@@ -253,6 +265,7 @@ static func all() -> Array[ComboPart]:
 		coin_validator(), high_voltage_tube(), coupling(), expansion_board(),
 		series_terminal(), starter(), blocking_diode(), power_pickup(), shunt(),
 		parallel_circuit(), resonator(), magnetron(), cross_bridge(), down_bridge(),
+		error_memory(), afterburner(),
 	]
 
 ## Frisches Exemplar zu einer id (null = unbekannt).

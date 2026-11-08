@@ -49,6 +49,10 @@ const GRAIN_SCALE := 0.55  # Weltmaß einer Texturkachel (triplanar)
 ## breiterer Rand - dort lehnt das 45°-Frontband an der Deckelkante und würde
 ## sonst durch das Glas stechen (gestrichelte Kante).
 const SCREEN_INSET_X := 2.4
+## Glasfeld über dem Deckel (Welt): mit 0,001 rang es aus der Übersicht im Tiefenpuffer
+## mit dem Deckel, und unter dem Gold-Glühen las das als flimmernde Streifen.
+const SCREEN_LIFT := 0.03
+const LABEL_LIFT := 0.01
 const SCREEN_INSET_BACK := 2.0
 const SCREEN_INSET_FRONT := 3.6
 const SCREEN_GLASS := Color(0.04, 0.045, 0.075)
@@ -259,7 +263,7 @@ func _build_screen(z_shift: float) -> void:
 	var glass := MeshInstance3D.new()
 	glass.name = "ChipScreen"
 	glass.mesh = _holed_glass(plane.size, z_shift + back_shift)
-	glass.position = Vector3(0.0, top + 0.001, z_shift + back_shift)
+	glass.position = Vector3(0.0, top + SCREEN_LIFT, z_shift + back_shift)
 	_screen_material = StandardMaterial3D.new()
 	_screen_material.albedo_color = SCREEN_GLASS
 	_screen_material.roughness = 0.15
@@ -270,7 +274,7 @@ func _build_screen(z_shift: float) -> void:
 
 	var board := Node3D.new()
 	board.name = "ScreenLabels"
-	board.position = Vector3(0.0, top + 0.002, z_shift + back_shift)
+	board.position = Vector3(0.0, top + SCREEN_LIFT + LABEL_LIFT, z_shift + back_shift)
 	# Label-+Z zeigt nach oben; Label-+Y läuft Richtung Gehäuse-Rückseite.
 	board.rotation.x = -PI / 2.0
 	add_child(board)

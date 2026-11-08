@@ -27,6 +27,8 @@ const CARBON_DIOXIDE := "carbon_dioxide"
 const HALOGEN := "halogen"
 const ACETYLENE := "acetylene"
 const ARC_LAMP := "arc_lamp"
+const SCAR := "scar"
+const COOLING_JACKET := "cooling_jacket"
 
 static func carbon_dioxide() -> Essence:
 	return _make(CARBON_DIOXIDE, "Kohlendioxid",
@@ -163,6 +165,16 @@ static func arc_lamp() -> Essence:
 		"Kann nicht durchbrennen: auf Überschlag bleibt sie stehen.",
 		"brennt nie durch", Rarity.COMMON, Color(1.0, 0.95, 0.85))
 
+static func scar() -> Essence:
+	return _make(SCAR, "Narbe",
+		"Nimmt er an einem Fumble teil, wächst seine obere Seite dauerhaft um +1.",
+		"Fumble: obere Seite +1", Rarity.COMMON, Color(0.85, 0.45, 0.5))
+
+static func cooling_jacket() -> Essence:
+	return _make(COOLING_JACKET, "Kühlmantel",
+		"Ein Fumble kühlt ihn um 1 Ladung, statt ihn zu heizen.",
+		"Fumble kühlt statt heizt", Rarity.COMMON, Color(0.55, 0.85, 1.0))
+
 # --- Phänomene --------------------------------------------------------------------
 
 static func mercury_vapor() -> Essence:
@@ -182,8 +194,8 @@ static func miasma() -> Essence:
 
 static func st_elmos_fire() -> Essence:
 	return _make(ST_ELMOS_FIRE, "Elmsfeuer",
-		"Der Würfel löst 2× aus, im Stresstest 4×.",
-		"löst 2× aus, im Stresstest 4×", Rarity.RARE, Color(0.4, 0.6, 1.0))
+		"Der Würfel löst 2× aus, in der Boss-Runde 4×.",
+		"löst 2× aus, in der Boss-Runde 4×", Rarity.RARE, Color(0.4, 0.6, 1.0))
 
 static func ball_lightning() -> Essence:
 	return _make(BALL_LIGHTNING, "Kugelblitz",
@@ -319,7 +331,7 @@ static func all() -> Array[Essence]:
 	return [
 		helium(), neon(), argon(), krypton(), xenon(), nitrogen(), oxygen(),
 		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(), acetylene(),
-		arc_lamp(),
+		arc_lamp(), scar(), cooling_jacket(),
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), varnish(),

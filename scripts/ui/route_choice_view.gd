@@ -13,7 +13,7 @@ extends Control
 signal route_chosen(index: int)
 
 const TITLE := "Vertragswahl"
-const STRESS_TITLE := "Stresstest-Konditionen"
+const STRESS_TITLE := "Boss-Konditionen"
 
 const BONUS_COLOR := Color("#50fa7b")
 const MALUS_COLOR := Color("#ff6b6b")
@@ -26,7 +26,7 @@ const SECTION_MAX := 219
 
 ## Angebotene Vertragskarten (GameRun.route_offers); open() baut daraus die Karten.
 var offers: Array[Dictionary] = []
-## Stresstest-Runde: andere Überschrift, die Karten sind Boss-Konditionen.
+## Boss-Runde: andere Überschrift, die Karten sind Boss-Konditionen.
 var stress_round := false
 ## Bonus-Faktor des Winkeladvokats; die Karte zeigt die verdoppelten Zahlen.
 var bonus_factor := 1
@@ -154,7 +154,7 @@ func _title_scale(name_text: String) -> float:
 	for word in name_text.split(" ", false):
 		longest = maxi(longest, word.length())
 	if longest >= 17:
-		return 2.8  # "Stresstest-Kondition" - ein Wort, das nirgends umbrechen kann
+		return 2.8  # "Boss-Kondition" - ein Wort, das nirgends umbrechen kann
 	if longest >= 15:
 		return 3.2
 	if longest >= 11:

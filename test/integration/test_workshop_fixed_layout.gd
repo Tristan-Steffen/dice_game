@@ -690,7 +690,6 @@ func test_a_longer_series_splits_the_strip_not_the_columns() -> void:
 ## Und der DECKEL steht hart auf SECHS: Wett-Schub und Kettentreiber heben ihn
 ## nicht mehr - der Turm IST sechs Etagen.
 func test_six_floors_are_the_hard_cap() -> void:
-	run.grant_press_boost()
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view.slot_count(), 6, "sechs ist der Deckel")

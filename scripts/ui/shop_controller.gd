@@ -108,7 +108,7 @@ const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
 ## Das NETZ steht IMMER unter seinem Würfel (Spieler-Wunsch 2026-10-25): Höhe in u
 ## und Anteil der Spaltenbreite, den es höchstens nimmt.
-const DIE_NET_UNITS := 9.0
+const DIE_NET_UNITS := 11.0
 const DIE_NET_WIDTH_SHARE := 0.9
 
 ## Die PROJEKTION der Netz-Blöcke: nach einer echten Ankunft wächst jeder Block aus
@@ -319,6 +319,9 @@ var flip_tween: Tween
 ## Einmalige Meldung, die beim nächsten Öffnen oben erscheint (Nebenwetten-
 ## Ergebnis der geräumten Runde); von scene_root vor open() gesetzt.
 var pending_bet_notice: String = ""
+## Das Wett-Ergebnis dieses Besuchs: es steht im Auskunfts-Band, solange nichts
+## gegriffen ist - eine eigene Zeile schob den Fuß aus dem Fenster.
+var bet_notice: String = ""
 
 ## Öffnet den Shop frisch auf der ersten Doppelseite (Gebühr startet neu);
 ## baut das Gerüst passend zur aktuellen Größe. Ist das Sortiment gesperrt,
@@ -400,11 +403,8 @@ func _build_layout() -> void:
 	header.add_child(money_label)
 
 	# Nebenwetten-Ergebnis der letzten Runde (einmalig, dann verbraucht).
-	if pending_bet_notice != "":
-		var notice := CasinoStyle.label(pending_bet_notice, u * 2.3, NEON_GREEN)
-		notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		root.add_child(notice)
-		pending_bet_notice = ""
+	bet_notice = pending_bet_notice
+	pending_bet_notice = ""
 
 	# Regal 1: CHARMS - digitale Ware, je Doppelseite neu bebaut (_rebuild_content).
 	content_root = VBoxContainer.new()
@@ -741,6 +741,7 @@ func set_slit_hover(seat: int, cell_hint := "") -> void:
 	_slit_info_key = key
 	if pack == null:
 		slit_info.visible = false
+		_redraw_foot()  # das Wett-Ergebnis kehrt zurück
 		return
 	var flank := slit_flank_rect()
 	if flank.size.x <= 0.0:
@@ -754,6 +755,8 @@ func set_slit_hover(seat: int, cell_hint := "") -> void:
 	slit_info_body.text = cell_hint if cell_hint != "" else Pack.info_body(pack)
 	_fit_slit_info(flank.size)
 	slit_info.visible = true
+	if _net_hint == "" and net_footer != null and is_instance_valid(net_footer):
+		net_footer.visible = false
 
 ## Beide Zeilen passen sich in die Flanke ein: erst der Name in seinen Anteil,
 ## dann die Beschreibung in den Rest. Der Block bleibt in der Reihenhöhe und
@@ -826,6 +829,9 @@ func _build_net_footer() -> void:
 	ware_foot.add_child(net_footer)
 	_net_hint = ""
 	_foot_die_key = 0
+	if bet_notice != "":
+		# Erst ausgelegt kennt das Band sein Maß.
+		ware_foot.resized.connect(_redraw_foot, CONNECT_ONE_SHOT)
 
 ## Die Zeile des Bandes.
 func set_net_hint(text: String) -> void:
@@ -835,8 +841,16 @@ func set_net_hint(text: String) -> void:
 	if text == _net_hint:
 		return
 	_net_hint = text
+	_redraw_foot()
+
+func _redraw_foot() -> void:
+	if net_footer == null or not is_instance_valid(net_footer):
+		return
+	var text := _net_hint if _net_hint != "" else bet_notice
 	net_footer.text = text
 	net_footer.visible = text != ""
+	net_footer.add_theme_color_override("font_color",
+		NEON_GREEN if _net_hint == "" else NEON_MUTED)
 	if text == "":
 		return
 	# Der Platz wird beim ANZEIGEN gerechnet: erst dann steht das Band gemessen da.

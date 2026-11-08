@@ -492,6 +492,16 @@ static func is_wild(essence_id: String) -> bool:
 static func smothers_farkle(essence_id: String) -> bool:
 	return essence_id == Essence.CARBON_DIOXIDE
 
+## Narbe: ein echter Fumble mit ihm lässt seine obere Seite dauerhaft wachsen.
+const SCAR_GROWTH := 1
+
+static func scars_on_fumble(essence_id: String) -> bool:
+	return essence_id == Essence.SCAR
+
+## Kühlmantel: ein echter Fumble kühlt ihn um 1, statt ihn zu heizen.
+static func cools_on_fumble(essence_id: String) -> bool:
+	return essence_id == Essence.COOLING_JACKET
+
 ## Miasma: NACH jeder Zündung halbiert sich seine obere Seite dauerhaft, und genau
 ## dieser Betrag wächst auf jeder anderen gewerteten Seite der Hand - verschachtelt
 ## in die Zählung, spätere Würfel zählen also schon den Zuwachs.

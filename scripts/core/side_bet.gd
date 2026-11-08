@@ -28,9 +28,8 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 ## fällig, MONEY_PER_HAND/MONEY_PER_DIE laufen als Steuer je genommener Hand -
 ## reicht das Geld dafür nicht, verfällt die Wette (voided).
 enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, ENERGY }
-## Was der Gewinn ausschüttet. PRESS_BOOST ist ein Einmal-Schub auf die nächste
-## Serie (ein Slot mehr), kein Bestand.
-enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART, PRESS_BOOST }
+## Was der Gewinn ausschüttet. PART = ein Modul für die Steckplätze.
+enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART }
 
 ## Fortschrittsstufe, ab der eine Wette ohne eigenen "unlock" ausliegt: ab Runde 1.
 const UNLOCK_BASE := 1
@@ -119,13 +118,18 @@ const TEMPLATES := [
 	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
 		"reward": 2, "name": "Saubere Runde",
 		"desc": "Räume die Runde ohne Fumble."},
-	# Eine Straße IST eine Reihe - der Gewinn verlängert die der Presse.
 	{"id": "chain_reaction", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
-		"stake": 8, "payout": Payout.PRESS_BOOST, "name": "Kettenreaktion",
+		"stake": 8, "payout": Payout.PART, "name": "Kettenreaktion",
 		"desc": "Nimm eine Große Straße."},
+	{"id": "tinkerer", "condition": Condition.DISTINCT_COMBOS, "target": 3,
+		"stake": 7, "payout": Payout.PART, "name": "Bastler",
+		"desc": "Nimm drei verschiedene Kombinationen."},
 	# --- Salon (5) ---
 	{"id": "high_roller", "condition": Condition.HAND_SCORE, "target_factor": 2.0,
 		"stake": 10, "payout": Payout.MONEY, "payout_money": 32, "name": "Hoher Einsatz",
+		"unlock": 5, "desc": "Werte eine Hand mit %d+ Punkten."},
+	{"id": "prototype", "condition": Condition.HAND_SCORE, "target_factor": 1.5,
+		"stake": 9, "payout": Payout.PART, "name": "Prototyp",
 		"unlock": 5, "desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "quick_start", "condition": Condition.FIRST_HAND, "target_factor": 0.6,
 		"stake": 5, "reward": 2, "name": "Blitzstart", "unlock": 5,
@@ -486,10 +490,26 @@ func reward_pack() -> Pack:
 ## Die bei Gewinn gutzuschreibenden Pakete - genau die benannte Sorte und Größe.
 ## Versiegelt, nie lose: die Presse an der Werkbank macht daraus Beute.
 func reward_list() -> Array[Pack]:
-	var result: Array[Pack] = []
-	for i in reward_packs:
-		result.append(reward_pack())
-	return result
+	return reward_cards(reward_packs)
+
+## Die GEWINN-KARTEN samt Prägenetz, einmal gewürfelt und dann fest: die Grube zeigt
+## genau die Karten, die die Abrechnung gewährt. count wächst mit dem Quotenbonus.
+func reward_cards(count: int) -> Array[Pack]:
+	while _rolled_cards.size() < count:
+		if payout_kind == Payout.SPECIAL:
+			var special := special_engraving()
+			if special == null:
+				break
+			_rolled_cards.append(Pack.fixed_engraving_pack(special))
+		else:
+			_rolled_cards.append(reward_pack())
+	return _rolled_cards.slice(0, count)
+
+## Zählt die Grube als KARTEN? Paket-Gewinne und Sonderposten ja, alles andere nicht.
+func pays_cards() -> bool:
+	return payout_kind in [Payout.PACKS, Payout.PACK, Payout.SPECIAL]
+
+var _rolled_cards: Array[Pack] = []
 
 ## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
 ## Das gewonnene Modul, frisch (null = keins benannt).
@@ -540,7 +560,4 @@ func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
 		Payout.PART:
 			var part := reward_part()
 			return "1 %s" % (part.display_name if part != null else "Modul")
-		Payout.PRESS_BOOST:
-			# Der Schub steht ausgeschrieben auf dem Knopf: er gilt EINER Serie.
-			return "Nächste Serie: +%d Slot" % SeriesResolver.BOOST_SLOTS
 	return Pack.amount_phrase(reward_pack_type, reward_pack_tier, reward_packs * factor)

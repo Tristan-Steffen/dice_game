@@ -38,7 +38,8 @@ func test_all_returns_all_charms():
 	# Dauerbetrieb, Transformator, Glutkern und die Zündkerze als Essenz-Charm der
 	# Funkenstrecke.
 	# −3 mit dem Pointer als KOPIE: Zündspule, Rückkopplung und Erdungskabel.
-	assert_eq(Charm.all().size(), 151)
+	# +4 mit den Fumbles: Pechvogel, Fumble-Rente, Galgenfrist, Schwarze Katze.
+	assert_eq(Charm.all().size(), 155)
 
 func test_all_ids_are_unique():
 	var seen := {}

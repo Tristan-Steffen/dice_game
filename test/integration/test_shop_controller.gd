@@ -10,14 +10,14 @@ const ShopPanelScene := preload("res://scenes/shop_panel.tscn")
 var shop
 var run: GameRun
 
-## Erste Runde der gewünschten Fortschrittsstufe.
-static func _round_of(tier: int) -> int:
-	return 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+## Glück der gewünschten Fortschrittsstufe.
+static func _luck_of(tier: int) -> int:
+	return (tier - 1) * GameRun.LUCK_PER_TIER
 
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.round_number = _round_of(7)  # drei Regale zu je drei Plätzen
+	run.luck = _luck_of(7)  # drei Regale zu je drei Plätzen
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
@@ -57,7 +57,7 @@ func test_the_shop_never_lays_out_a_dice_pack_again():
 
 func test_every_shelf_carries_three_places_on_every_tier():
 	for tier in [1, 7, GameRun.TIER_MAX]:
-		run.round_number = _round_of(tier)
+		run.luck = _luck_of(tier)
 		shop.spreads.clear()
 		shop.open()
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: drei Charms" % tier)
@@ -480,7 +480,7 @@ func test_the_footer_stays_inside_the_panel_on_every_tier() -> void:
 	# dem Panel - der Shop war ohne "Fertig" nicht mehr verlassbar.
 	shop.size = Vector2(1068, 1125)  # Maß der Hub-Fläche auf dem Tisch-Display
 	for level in range(1, GameRun.TIER_MAX + 1):
-		run.round_number = _round_of(level)
+		run.luck = _luck_of(level)
 		shop.open()
 		await wait_frames(2)
 		var vroot: Control = shop.done_button.get_parent().get_parent()  # Footer -> Root
@@ -770,14 +770,14 @@ func test_the_bands_stand_on_every_tier() -> void:
 	# Feste Proportionen: nur die INHALTE unterscheiden sich zwischen Stufe 1 und
 	# Stufe 10, kein Band rückt.
 	shop.size = Vector2(1068, 1125)
-	run.round_number = _round_of(1)
+	run.luck = _luck_of(1)
 	shop.sortiment_locked = false
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
 	var low := _band_rects()
 	assert_eq(low.size(), 6, "Kopf, Charms, Gravuren, Würfel, Auskunfts-Band, Fuß")
-	run.round_number = _round_of(GameRun.TIER_MAX)
+	run.luck = _luck_of(GameRun.TIER_MAX)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
@@ -1101,7 +1101,7 @@ func test_every_card_reports_its_own_hover() -> void:
 func test_every_real_description_fits_the_one_card_grade() -> void:
 	# Der EINE Grad aller Karten muß jede echte Beschreibung umgebrochen tragen.
 	shop.size = Vector2(1068, 1125)
-	run.round_number = _round_of(GameRun.TIER_MAX)
+	run.luck = _luck_of(GameRun.TIER_MAX)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
@@ -1145,7 +1145,7 @@ func test_done_is_the_one_filled_button_of_the_page() -> void:
 
 func test_an_open_pager_carries_its_fee() -> void:
 	# Die Pfeile tragen ihre Gebühr selbst - mehr sagt niemand dazu.
-	run.round_number = _round_of(1)
+	run.luck = _luck_of(1)
 	shop.spreads.clear()
 	shop.open()
 	await wait_frames(2)
@@ -1237,7 +1237,7 @@ func test_a_fresh_run_has_an_empty_shelf() -> void:
 
 ## Der Sonderposten BELEGT einen Paket-Platz - die Reihe bleibt gleich voll.
 func test_a_special_lies_in_the_bowl_not_in_the_pack_row() -> void:
-	run.round_number = _round_of(GameRun.TIER_MAX)
+	run.luck = _luck_of(GameRun.TIER_MAX)
 	var seen := 0
 	for i in 60:
 		var spread = shop._build_spread()
@@ -1250,7 +1250,7 @@ func test_a_special_lies_in_the_bowl_not_in_the_pack_row() -> void:
 
 ## Und wenn, dann als Einzelstück zum festen Preis - Bündel bleiben Hehlerware.
 func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
-	run.round_number = _round_of(GameRun.TIER_MAX)
+	run.luck = _luck_of(GameRun.TIER_MAX)
 	for i in 60:
 		var spread = shop._build_spread()
 		assert_lte(spread.single_specials.size(), 1, "höchstens einer je Auslage")
@@ -1268,7 +1268,7 @@ func test_the_bowl_special_is_a_single_at_the_flat_price() -> void:
 
 ## Unter der Schwelle nie - der Sonderposten kommt erst mit der Stufe.
 func test_a_low_tier_bowl_never_carries_one() -> void:
-	run.round_number = _round_of(GameRun.SHOP_SPECIAL_TIER - 1)
+	run.luck = _luck_of(GameRun.SHOP_SPECIAL_TIER - 1)
 	for i in 60:
 		assert_true(shop._build_spread().single_specials.is_empty(),
 			"vor Stufe %d kein Sonderposten" % GameRun.SHOP_SPECIAL_TIER)
@@ -1276,7 +1276,7 @@ func test_a_low_tier_bowl_never_carries_one() -> void:
 ## Der Kauf zahlt und liefert die VERSIEGELTE Karte - offen wartet keine
 ## Aufwertung, auch nicht die aus der Schale.
 func test_a_bowl_special_is_bought_sealed() -> void:
-	run.round_number = _round_of(GameRun.TIER_MAX)
+	run.luck = _luck_of(GameRun.TIER_MAX)
 	run.money = 999
 	var spread = shop._build_spread()
 	if spread.single_specials.is_empty():
@@ -1305,7 +1305,7 @@ func test_a_bowl_special_is_bought_sealed() -> void:
 ## Runen-Bucht: ein Sonderposten ist zwar ein Material-/Runen-Paket, liegt aber
 ## in seiner eigenen Bucht.
 func test_the_delivery_reports_the_sonderbestand_shelf() -> void:
-	run.round_number = _round_of(GameRun.TIER_MAX)
+	run.luck = _luck_of(GameRun.TIER_MAX)
 	run.money = 999
 	var spread = shop._build_spread()
 	spread.single_specials.clear()

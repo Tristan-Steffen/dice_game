@@ -2144,6 +2144,12 @@ func _update_charm_badges() -> void:
 			Charm.BROKEN_MIRROR:
 				if run.farkle_count > 0:
 					texts[slot] = "+%d" % run.farkle_count
+			Charm.UNLUCKY_BIRD:
+				if CharmEffects.unlucky_bird_mult(run.farkle_count) > 0:
+					texts[slot] = "+%d" % CharmEffects.unlucky_bird_mult(run.farkle_count)
+			Charm.FUMBLE_PENSION:
+				if CharmEffects.fumble_pension(run.farkle_count) > 0:
+					texts[slot] = "$%d" % CharmEffects.fumble_pension(run.farkle_count)
 			Charm.BOTTLE_RACK:
 				var souls := _discard_souls()
 				if souls > 0:
@@ -2668,8 +2674,12 @@ func _refresh_hub_info() -> void:
 	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
 		run.goal_roadmap_markers(6), GameRun.block_of_round(run.round_number))
 	_refresh_deal_tokens()
-	# Medaillon und Pips folgen der Runde.
+	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
+	table_screen.hub.set_run_stats(run.projected_blind(run.round_number + 1), run.luck,
+		run.farkle_count, {HubView.STAT_BLIND: run.blind_hint(), HubView.STAT_LUCK: run.luck_hint(),
+			HubView.STAT_FUMBLES: run.fumble_hint()},
+		roundi(GameRun.blind_growth(run.round_number + 1) * 100.0))
 
 ## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
 ## Grubenrand. Gespiegelt aus EINER Hand, damit die Wirkung auch dort steht, wo
@@ -2769,7 +2779,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	# DER EINBAU ebenso: ein wartendes Modul will seinen Steckplatz.
-	if _part_install_forced():
+	if _part_install_forced() or _install_seating:
 		_handle_part_install_input(event)
 		return
 
@@ -6422,6 +6432,7 @@ func _bet_stock() -> Dictionary:
 			var prize := _bet_price_spec(bet)
 			prize["spot"] = index
 			prize["role"] = BET_ROLE_PRIZE
+			prize["stack"] = prize.has("packs")
 			prize["pit"] = lie == SideBetPanel.LIE_PRIZE_PIT
 			out[_bet_slot(index, BET_ROLE_PRIZE)] = prize
 	return out
@@ -6441,12 +6452,9 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 			return {"body": "energy", "count": bet.payout_energy * factor}
 		SideBet.Payout.PART:
 			return {"body": "token", "text": "MODUL", "tint": CasinoStyle.GOLD_INTENSE}
-		SideBet.Payout.PRESS_BOOST:
-			return {"body": "token", "text": "PRESSE",
-				"tint": PackDrawerView.COLORS[Pack.SHELF_SPECIAL]}
 		SideBet.Payout.SPECIAL:
 			return {"body": "cell", "sort": Pack.SHELF_SPECIAL,
-				"tier": Pack.TIER_NORMAL, "count": 1}
+				"tier": Pack.TIER_NORMAL, "count": 1, "packs": bet.reward_cards(1)}
 		SideBet.Payout.PACK:
 			return _bet_pack_spec(bet, 1)
 	return _bet_pack_spec(bet, maxi(bet.reward_packs * factor, 1))
@@ -6454,15 +6462,16 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 ## Die Kassetten eines Paket-Gewinns in seiner echten Sorte und Größe.
 func _bet_pack_spec(bet: SideBet, count: int) -> Dictionary:
 	return {"body": "cell", "sort": Pack.shelf_for_pack_type(bet.reward_pack_type),
-		"tier": bet.reward_pack_tier, "count": count}
+		"tier": bet.reward_pack_tier, "count": count, "packs": bet.reward_cards(count)}
 
 ## Die Signatur eines Platzes: eine andere heißt ANDERER Körper. Der ORT (unten/oben)
 ## steht bewusst NICHT darin - die Auffahrt ist eine FAHRT desselben Körpers, kein
 ## Neubau.
 func _bet_spec_key(spec: Dictionary) -> String:
-	return "%s|%s|%d|%d|%d|%s|%s" % [spec.get("body", ""), spec.get("sort", ""),
+	return "%s|%s|%d|%d|%d|%s|%s|%s" % [spec.get("body", ""), spec.get("sort", ""),
 		int(spec.get("tier", Pack.TIER_NORMAL)), int(spec.get("count", 0)),
-		int(spec.get("amount", 0)), spec.get("text", ""), spec.get("role", "")]
+		int(spec.get("amount", 0)), spec.get("text", ""), spec.get("role", ""),
+		spec.get("stack", false)]
 
 ## Wo ein Körper AUF seinem Plot sitzt: mittig - die Regel gehört dem Fenster.
 func _bet_seat_at(spot: int) -> Vector3:
@@ -6575,9 +6584,22 @@ func _write_bet_counter(grade := ShopController.GRADE_STAND,
 ## in ECHTER Größe da und darf über seinen Plot hinausragen - der Schacht mißt an ihm.
 func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 	var body_kind := String(spec.get("body", ""))
+	if body_kind == "cell" and bool(spec.get("stack", false)):
+		var stack := BetCardStack.new()
+		add_child(stack)
+		var packs: Array[Pack] = []
+		packs.assign(spec.get("packs", []))
+		stack.setup(packs, _bet_plot_world_span(int(spec.get("spot", -1))))
+		stack.seat_hard(target)
+		return stack
 	if body_kind == "cell":
+		# Die Karte zeigt, was sie tut: das Netz der ersten gewonnenen Karte.
+		var packs: Array = spec.get("packs", [])
+		var top: Pack = packs[0] if not packs.is_empty() else null
 		var cell := _spawn_data_cell(String(spec.get("sort", Pack.SHELF_SPECIAL)),
-			int(spec.get("tier", Pack.TIER_NORMAL)), target)
+			int(spec.get("tier", Pack.TIER_NORMAL)), target,
+			top.stamp_net if top != null else [], top != null and top.is_repair(),
+			top != null and top.from_blank())
 		cell.set_count(maxi(int(spec.get("count", 1)), 1))
 		cell.badge_on_face = true  # neben der Karte läge die Marke im Nachbarplatz
 		cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
@@ -6602,6 +6624,8 @@ func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 ## Wie hoch ein Tresen-Körper über der Fläche steht - der Schacht muß tief genug
 ## sein, dass er beim Sinken ganz darin verschwindet.
 func _bet_body_height(body: Node3D) -> float:
+	if body is BetCardStack:
+		return (body as BetCardStack).body_height()
 	if body is BetPrizeView:
 		return (body as BetPrizeView).body_height()
 	if body is DataCellView:
@@ -6614,6 +6638,8 @@ func _seat_bet_body(body: Node3D, target: Vector3) -> void:
 		(body as DataCellView).lie_on_glass(target)
 	elif body is BetPrizeView:
 		(body as BetPrizeView).seat_hard(target)
+	elif body is BetCardStack:
+		(body as BetCardStack).seat_hard(target)
 	else:
 		body.global_position = target
 
@@ -6624,6 +6650,8 @@ func _appear_bet_body(body: Node3D) -> void:
 		(body as DataCellView).materialize()
 	elif body is BetPrizeView:
 		(body as BetPrizeView).materialize()
+	elif body is BetCardStack:
+		(body as BetCardStack).materialize()
 
 func _flare_bet_body(body: Node3D) -> void:
 	if body == null or not is_instance_valid(body):
@@ -6632,12 +6660,16 @@ func _flare_bet_body(body: Node3D) -> void:
 		(body as DataCellView).flare()
 	elif body is BetPrizeView:
 		(body as BetPrizeView).flare()
+	elif body is BetCardStack:
+		(body as BetCardStack).flare()
 
 func _set_bet_hovered(body: Node3D, on: bool) -> void:
 	if body is DataCellView:
 		(body as DataCellView).set_hovered(on)
 	elif body is BetPrizeView:
 		(body as BetPrizeView).set_hovered(on)
+	elif body is BetCardStack:
+		(body as BetCardStack).set_hovered(on)
 
 func _free_bet_body(body: Variant) -> void:
 	if body == null or not is_instance_valid(body):
@@ -6768,6 +6800,17 @@ func _run_bet_plot(spot: int, entering: Array, outgoing: Array, staying: Array,
 			shaft.drop_cover()  # die Fahrt steht, der Schirm ist zur Seite gerollt
 		for body: Node3D in in_bodies:
 			_flare_bet_body(body))
+
+## Die Länge eines Wett-Plots in Welt (Bild-waagerecht) - so weit darf sich ein
+## Karten-Gewinn fächern.
+func _bet_plot_world_span(spot: int) -> float:
+	var rects := _bet_rects()
+	if table_screen == null or spot < 0 or spot >= rects.size():
+		return 0.0
+	var rect: Rect2 = rects[spot]
+	var y := rect.get_center().y
+	return absf(table_screen.pixel_to_world(Vector2(rect.end.x, y)).z
+		- table_screen.pixel_to_world(Vector2(rect.position.x, y)).z)
 
 func _seats_of(entries: Array) -> Array:
 	var out: Array = []
@@ -9811,15 +9854,13 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# Blick ist, und hat keine leere Fläche, die etwas schlucken dürfte.
 	if not flying and _pit_forwards_pixel(pixel):
 		return true
-	# GEWETTET wird nur an der EIGENEN Station (Spieler-Entscheid 2026-08-26):
-	# aus der Übersicht fällt der Klick durch und wird zum Zoom auf den Tresen -
-	# erst ranfahren, dann setzen. Bewegungen laufen weiter über die ganze
-	# Fläche, damit der Knopf-Hover sauber bleibt.
+	# Gewettet wird, wo der Knopf zu sehen ist (Spieler-Wunsch 2026-11-07) - auch aus
+	# der Grube, ohne erst an den Tresen zu fahren; ein Klick neben die Knöpfe zoomt.
 	var bets_focused := camera_rig.mode == CameraRig.Mode.SIDE_BETS
 	if TableScreen.window_takes_pixel(table_screen.side_bet_window,
 			_window_rect(table_screen.side_bet_window), pixel, is_click,
 			bets_focused, flying):
-		return not is_click or bets_focused
+		return true
 	if TableScreen.window_takes_pixel(table_screen.slot_bank_window,
 			_window_rect(table_screen.slot_bank_window), pixel, is_click,
 			camera_rig.mode == CameraRig.Mode.SLOTS, flying):
@@ -10030,7 +10071,7 @@ func _free_camera_allowed() -> bool:
 	# Werkstatt-Kamera soll sich bewegen wie die Übersicht).
 	if camera_rig.mode == CameraRig.Mode.TITLE or camera_rig.die_focus:
 		return false
-	if _exchange_forced() or _part_install_forced():
+	if _exchange_forced() or _part_install_forced() or _install_seating:
 		return false  # der Neuzugang hält die Kamera am Raster bzw. an den Chips fest
 	return part_drag_key == "" and tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
 		and charm_drag_index == -1 and chip_drag_value == -1 and not shell_drag_active \
@@ -11591,18 +11632,17 @@ func _on_farkle(forgivable: bool = true) -> void:
 	round_farkled = true
 	_refresh_side_bet_panel()
 
-	# Zerbrochener Spiegel zählt, die Schwungrad-Serie reißt, Galgenhumor merkt vor.
-	run.farkle_count += 1
-	# Vulkanblitz/Aschewolke: der Zähler der Runde und der run-lange. Der
-	# Trostpreis prägt seine Energie gleich mit - gebucht in GameRun, das Licht
-	# fliegt erst hinterher.
+	# Der Kern zählt den Fumble (Lauf, Block, Runde), bucht Trostpreis, Pechsträhne,
+	# Strafgebühr und Nachbrenner - das Licht fliegt erst hinterher.
 	var consolation_energy := run.note_fumble(_volcanic_in_pit())
+	if run.last_fumble_fee > 0:
+		hand_note = "Strafgebühr: −$%d" % run.last_fumble_fee
 	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
 		_play_rune_energy_volley(consolation_energy)
 	# LADUNG: der echte Fumble heizt die ganze Hand - erzwungenes +1 auf jeden
 	# Würfel, der in der Grube liegt. Ein verziehener Fumble kommt nie hierher.
-	_last_fumble_charges = run.charge_fumble_dice(active_kinds)
+	_last_fumble_charges = run.charge_fumble_dice(active_kinds, dice.face_indices)
 	# Beim Fumble fliegen die Würfel zu schnell weg, um sie zu lesen: an ihrer
 	# Stelle bleibt der Umriss samt Augenzahl stehen. NACH der Ladungs-Buchung -
 	# die Umrisse tragen sie mit. Vor dem Verwerfen; der Phönixfeder-Zweig nimmt
@@ -13958,7 +13998,7 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 	if hub != null:
 		hub.flash_frame(CasinoStyle.GOLD_INTENSE)
 	run.add_money(base_blind + interest)
-	_ledger_money("quota", "Quota", base_blind)
+	_ledger_money("quota", "Blind", base_blind)
 	if interest > 0:
 		_ledger_money("interest", "Zinsen", interest)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
@@ -13994,14 +14034,14 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 func _play_round_end_charm_ceremony(ids: Array[String], cleared_stages: int) -> void:
 	var amounts := {}
 	for entry in CharmEffects.round_end_income_entries(run.money, cleared_stages, ids,
-			run.old_penny_payouts, run.owned_packs.size()):
+			run.old_penny_payouts, run.owned_packs.size(), run.farkle_count):
 		amounts[int(entry["charm_index"])] = int(entry["amount"])
 	var jewelry_copy := 0
 	var encore_copy := 0
 	for j in ids.size():
 		match ids[j]:
 			Charm.INTEREST_PENNY, Charm.HIGH_FLYER, Charm.OLD_PENNY, Charm.EMERGENCY_FUND, \
-					Charm.DEPOSIT_SHELF:
+					Charm.DEPOSIT_SHELF, Charm.FUMBLE_PENSION:
 				if amounts.has(j):
 					await _play_charm_money_payout(j, amounts[j])
 			Charm.STAMP_MACHINE:
@@ -14639,7 +14679,7 @@ func _close_lexikon() -> void:
 func _show_game_over(total: int) -> void:
 	_set_gameplay_ui_visible(false)
 	if title_view == null:
-		game_over_label.text = "Quota verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.effective_goal()]
+		game_over_label.text = "Blind verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.effective_goal()]
 		game_over_panel.visible = true
 		return
 	title_view.show_game_over(total, run.effective_goal(), run.round_number)
@@ -15177,6 +15217,22 @@ const PART_DISABLED_NOTE := "Für diese Runde stillgelegt (Hitzestau)."
 ## Der EINBAU: die gemerkte Lage davor und ob die Kamera schon gerahmt hat.
 var _part_install_home: Dictionary = {}
 var _part_install_framed := false
+## Wohin der Rahmen die Kamera gestellt hat - fährt sie jemand anders weg, rahmt er neu.
+var _part_install_frame_origin := Vector3.INF
+## Das wartende Modul IN DER HAND: es schwebt über den Chips und folgt dem Zeiger.
+var install_ghost: ComboPartBody = null
+## Es fährt gerade in seinen Platz - bis es sitzt, bleibt die Kamera an den Chips.
+var _install_seating := false
+## Schwebehöhe der Hand über dem Deckel und über einem Platz, in Modul-Kanten.
+const INSTALL_HOVER := 1.8
+const INSTALL_SNAP := 0.7
+## Nachzieh-Rate der Hand je Sekunde und ihr leichtes Wiegen.
+const INSTALL_FOLLOW := 16.0
+const INSTALL_BOB := 0.06
+const INSTALL_BOB_SPEED := 2.4
+## Der Einbau-Klick: über den Platz fahren, einrasten, kurz stehen lassen.
+const INSTALL_SEAT_TIME := 0.14
+const INSTALL_LINGER := 0.45
 var _install_banner_part: ComboPart = null
 var _install_banner_editable := false
 var _install_banner_rect := Rect2()
@@ -15229,14 +15285,25 @@ func _sync_part_install() -> void:
 	var forced := _part_install_forced()
 	var editable := not _dice_editing_locked()
 	for key: String in combo_chips:
-		combo_chips[key].set_socket_beckon(forced, forced and editable)
+		combo_chips[key].set_socket_beckon(forced and not _install_seating,
+			forced and editable and not _install_seating)
 	if forced:
 		_show_install_banner(run.pending_parts[0], editable)
+		if _part_install_framed and not camera_rig.is_animating \
+				and camera_rig.anchor_origin != _part_install_frame_origin:
+			# Jemand hat die Kamera weggefahren: dorthin kehrt sie nach dem Einbau
+			# zurück, aber bis das Modul sitzt, gehört sie den Chips.
+			_part_install_framed = false
 		if not _part_install_framed and _table_operable() and not camera_rig.die_focus \
 				and grabbed_stage == null:
 			_frame_part_install()
+		_sync_install_ghost()
 		return
+	if not _install_seating:
+		_drop_install_ghost()
 	_hide_install_banner()
+	if _install_seating:
+		return  # das Modul rastet noch ein - erst danach fährt die Kamera zurück
 	if _part_install_framed:
 		_part_install_framed = false
 		camera_rig.set_tilt_locked(false)
@@ -15281,6 +15348,88 @@ func _frame_part_install() -> void:
 	camera_rig.set_tilt_locked(true)
 	camera_rig.frame_rect(center, Vector2(absf(b.z - a.z) * 0.5, absf(b.x - a.x) * 0.5),
 		PART_INSTALL_FRAME_MARGIN)
+	_part_install_frame_origin = camera_rig.anchor_origin
+
+## Je Bild: das wartende Modul schwebt über den Chips und folgt dem Zeiger; über
+## einem Platz, der es nimmt, steht es genau über dessen Mund.
+func _sync_install_ghost() -> void:
+	if _install_seating or run == null or run.pending_parts.is_empty() or combo_chips.is_empty():
+		return
+	var part: ComboPart = run.pending_parts[0]
+	if install_ghost == null or not is_instance_valid(install_ghost) \
+			or install_ghost.part != part:
+		_drop_install_ghost()
+		install_ghost = ComboPartBody.new()
+		install_ghost.name = "InstallGhost"
+		add_child(install_ghost)
+		install_ghost.setup(part)
+		install_ghost.global_rotation = Vector3.ZERO
+		install_ghost.global_position = _install_hand_rest()
+	var mouse := get_viewport().get_mouse_position()
+	var side := ComboPartBody.SIDE
+	var target := Vector3.INF
+	var pick := _part_pick_at(mouse) if not camera_rig.is_animating else {}
+	if not pick.is_empty() and combo_chips.has(String(pick["key"])):
+		var key := String(pick["key"])
+		var slot := run.install_target(key, int(pick["slot"]), not _dice_editing_locked())
+		if slot >= 0:
+			target = combo_chips[key].socket_world(slot) + Vector3.UP * side * INSTALL_SNAP
+	if target == Vector3.INF:
+		var hit: Variant = _mouse_on_plane(mouse, _install_hand_height())
+		target = hit if hit != null else _install_hand_rest()
+	target.y += sin(Time.get_ticks_msec() * 0.001 * INSTALL_BOB_SPEED) * INSTALL_BOB
+	var share := 1.0 - exp(-INSTALL_FOLLOW * get_process_delta_time())
+	install_ghost.global_position = install_ghost.global_position.lerp(target, share)
+
+## Höhe der Hand: eine feste Schwebe über den Deckeln.
+func _install_hand_height() -> float:
+	var chip: ComboChipView = combo_chips.values()[0]
+	return chip.socket_world(0).y + ComboPartBody.SIDE * INSTALL_HOVER
+
+## Wo die Hand ohne Zeiger schwebt: über der Mitte des Clusters.
+func _install_hand_rest() -> Vector3:
+	var center := table_screen.pixel_to_world(table_screen.cluster_rect.get_center()) \
+		if table_screen != null else Vector3.ZERO
+	return Vector3(center.x, _install_hand_height(), center.z)
+
+func _drop_install_ghost() -> void:
+	if install_ghost != null and is_instance_valid(install_ghost):
+		install_ghost.queue_free()
+	install_ghost = null
+
+## Der Klick: die Hand fährt über den Platz, das Modul rastet ein (play_plug) und
+## sein Mund blitzt; erst danach gibt der Einbau die Kamera frei.
+func _seat_install_ghost(key: String, slot: int) -> void:
+	var chip: ComboChipView = combo_chips.get(key)
+	if chip == null or install_ghost == null or not is_instance_valid(install_ghost):
+		if chip != null:
+			chip.play_plug(slot)
+		return
+	var ghost := install_ghost
+	install_ghost = null
+	_install_seating = true
+	chip.set_socket_lifted(slot)
+	var launched := run
+	var start := chip.socket_world(slot) + Vector3.DOWN * ComboPartBody.WELL \
+		+ Vector3.UP * ComboPartBody.SIDE * ComboChipView.PLUG_RISE
+	var tween := create_tween()  # nicht am Geist: der stirbt mitten im Klick
+	tween.tween_property(ghost, "global_position", start, INSTALL_SEAT_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_callback(func() -> void:
+		ghost.queue_free()
+		if run != launched or not is_instance_valid(chip):
+			_install_seating = false
+			return
+		chip.set_socket_lifted(-1)
+		chip.play_plug(slot))
+	tween.tween_interval(ComboChipView.PLUG_TIME)
+	tween.tween_callback(func() -> void:
+		if is_instance_valid(chip):
+			chip.flash_socket(slot, 1.6))
+	tween.tween_interval(INSTALL_LINGER)
+	tween.tween_callback(func() -> void:
+		if run == launched:
+			_install_seating = false)
 
 ## Solange der Einbau steht, gehört jede Geste ihm: nur der Tipp auf einen Platz
 ## oder Chip zählt, alles andere schweigt.
@@ -15288,7 +15437,7 @@ func _handle_part_install_input(event: InputEvent) -> void:
 	var button := event as InputEventMouseButton
 	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
 		return
-	if camera_rig.is_animating:
+	if camera_rig.is_animating or _install_seating:
 		return
 	var pick := _part_pick_at(button.position)
 	if not pick.is_empty():
@@ -15302,13 +15451,15 @@ func _install_part_at(key: String, slot: int) -> bool:
 	if target < 0 or not run.install_pending_part(key, target):
 		return false
 	if combo_chips.has(key):
-		combo_chips[key].play_plug(target)
+		_seat_install_ghost(key, target)
 	return true
 
 ## Der EINE harte Aufräum-Pfad (Laufwechsel): kein Rahmen, keine Hand, kein Hinweis.
 func _settle_part_install_hard() -> void:
 	_part_install_framed = false
 	_part_install_home = {}
+	_install_seating = false
+	_drop_install_ghost()
 	_hide_install_banner()
 	_drop_part_drag()
 	if camera_rig != null:

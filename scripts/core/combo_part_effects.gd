@@ -29,6 +29,8 @@ const MAGNETRON_CHARGE := 1
 ## Zehntel, sonst summieren sich Rundungsfehler in die Anzeige.
 const RESONATOR_START_TENTHS := 11
 const POWER_PICKUP_ENERGY := 1
+const ERROR_MEMORY_MULT := 1
+const AFTERBURNER_CRIT := 2.0
 
 ## Die Steckplätze einer Kombination ([] = keine Belegung).
 static func chip(combo_parts: Dictionary, key: String) -> Array:
@@ -148,6 +150,8 @@ static func combo_values(part: ComboPart, sockets: Array = [], first_hand: bool 
 			return Vector2i(COIL_POINTS, COIL_MULT)
 		ComboPart.COUNTER:
 			return Vector2i(0, COUNTER_BASE_MULT + maxi(0, part.counter))
+		ComboPart.ERROR_MEMORY:
+			return Vector2i(0, ERROR_MEMORY_MULT * maxi(0, part.counter))
 	return Vector2i.ZERO
 
 ## Das stärkste Kombi-Teil eines Chips: mehr Mult zuerst, dann mehr Punkte, dann
@@ -293,6 +297,9 @@ static func crit_steps(sockets: Array) -> Array[Dictionary]:
 				steps.append({"slot": slot, "id": part.id, "crit_x": MAGNETRON_CRIT})
 			ComboPart.RESONATOR:
 				steps.append({"slot": slot, "id": part.id, "crit_x": resonator_crit(part)})
+			ComboPart.AFTERBURNER:
+				if part.counter > 0:
+					steps.append({"slot": slot, "id": part.id, "crit_x": AFTERBURNER_CRIT})
 	return steps
 
 ## Der Schwingkreis wächst mit seinem Zähler; er reist beim Umstecken mit.

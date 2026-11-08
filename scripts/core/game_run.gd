@@ -32,18 +32,19 @@ const POOL_SIZE := 30
 ## Obergrenze: bei sechs Charms nimmt der Dock keinen weiteren an.
 const CHARM_CAPACITY := 6
 const BASE_GOAL := 150
-## Zuwachs je Runde im ERSTEN Block; er verdoppelt sich mit jedem weiteren.
-const GOAL_INCREMENT := 75
-## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen. Die
-## Wertung wächst multiplikativ (Module, Gravuren, Charms) - ein konstanter
-## Zuwachs würde daher von Block zu Block leichter.
+## Blind-Kurve: Wachstum je Runde = BLIND_GROWTH_BASE + BLIND_GROWTH_STEP × Block.
+const BLIND_GROWTH_BASE := 0.10
+const BLIND_GROWTH_STEP := 0.05
+## Gerundet wird nur das Ziel (abwärts auf Vielfache davon), nie der Akkumulator.
+const BLIND_ROUNDING := 5
+## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen.
 const GOAL_BLOCK := 6
 
 ## Fahrplan-Marker der Stresstest-Station (goal_roadmap_markers) samt Anzeige-
 ## Texten - eine Quelle für Hub-Kopfzeile und Fahrplan-Hinweis.
 const STRESS_MARKER := "stress"
-const STRESS_NAME := "Stresstest"
-const STRESS_HINT := "Stresstest-Konditionen: das Haus diktiert, unter welcher Auflage gespielt wird."
+const STRESS_NAME := "Boss-Runde"
+const STRESS_HINT := "Boss-Konditionen: das Haus diktiert, unter welcher Auflage gespielt wird."
 
 ## --- Verträge mit dem Haus ----------------------------------------------------
 ## Angebotsgröße je Runde (Standard-, Risiko-, Knebelvertrag).
@@ -73,20 +74,34 @@ const HIGH_VOLTAGE_STAGES := 3
 ## also; der Kurzschluss setzt absolut.
 const CHAIN_DRIVER_SLOTS := 1
 const SHORT_CIRCUIT_SLOTS := 1
-const CALIBRATION_FACTOR := 0.5
+## Eichung: dauerhaft −10 % auf den Blind (der Winkeladvokat wendet sie zweimal an).
+const CALIBRATION_FACTOR := 0.9
 ## Skalierung der Überladungs-Stufen: der Sicherungsfall schlägt das Netzbrummen.
 const FUSE_FAILURE_SCALE := 4.0
 const MAINS_HUM_SCALE := 3.0
 const SHOP_INFLATION_FACTOR := 1.25
 const SHOP_DISCOUNT_FACTOR := 0.8
-## Quota-Aufschläge je Malusklausel. Die Eichung (Bonus) zieht separat ab -
-## der Aufschlag-Wächter darf sie nicht als "Quota schon gehoben" lesen.
+## Dauerhafte Blind-Hebungen: mit der Unterschrift auf blind_value multipliziert.
+const BLIND_RAISE := {
+	DealClause.QUOTA_SURCHARGE: 0.10,
+	DealClause.QUOTA_SURCHARGE_II: 0.20,
+	DealClause.QUOTA_SHOCK: 0.35,
+	DealClause.USURY_CLAUSE: 0.50,
+}
+## Rundenweise Blind-Aufschläge (nur die Boss-Kondition) - nur sie bewacht _quota_blocked.
 const QUOTA_MALUS := {
-	DealClause.QUOTA_SURCHARGE: 0.5,
-	DealClause.QUOTA_SURCHARGE_II: 1.0,
-	DealClause.QUOTA_SHOCK: 2.5,
-	DealClause.USURY_CLAUSE: 4.0,
 	DealClause.HIGH_EXPECTATIONS: 5.0,
+}
+## Pechsträhne: jeder echte Fumble der Runde hebt blind_value dauerhaft.
+const BAD_STREAK_RAISE := 0.02
+## Strafgebühr (Boss): jeder echte Fumble kostet so viel, nie unter $0.
+const PENALTY_FEE_MONEY := 5
+## Glücks-Klauseln: Glück je Unterschrift (Malus negativ).
+const LUCK_CLAUSES := {
+	DealClause.LUCKY_PENNY: 1,
+	DealClause.LUCKY_STREAK: 2,
+	DealClause.LUCKY_CHILD: 3,
+	DealClause.UNLUCKY_NUMBER: -2,
 }
 
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
@@ -98,9 +113,9 @@ const OVERCHARGE_STAGES := 5
 ## großer Platzhalter begrenzt sich also von selbst.
 const UNLIMITED_OVERCHARGE_STAGES := 99
 
-## FORTSCHRITTSSTUFE: aus der Runde gerechnet, kein Zustand (progress_tier).
-## Sie trägt jede Leiter, die mit dem Lauf wächst - Laden, Wetten, Automaten, Börse.
-const ROUNDS_PER_TIER := 3
+## FORTSCHRITTSSTUFE: aus dem GLÜCK gerechnet (progress_tier). Sie trägt jede
+## Leiter, die mit dem Lauf wächst - Laden, Wetten, Automaten, Börse.
+const LUCK_PER_TIER := 3
 const TIER_MAX := 10
 
 ## Feste Shop-Platzzahlen (Spieler-Entscheid 2026-10-25): drei Regale zu je drei
@@ -131,6 +146,12 @@ var money: int = 0:
 
 var round_number: int = 1
 var round_goal: int = BASE_GOAL
+## Der Blind ungerundet - Wachstum und dauerhafte Hebungen multiplizieren HIER.
+var blind_value: float = float(BASE_GOAL)
+## Wirklich gespielter Blind je geschaffter Runde (Index = Runde − 1) für den Fahrplan.
+var blind_history: Array[int] = []
+## GLÜCK: +1 je geschaffter Runde, Glücks-Klauseln drehen daran; trägt progress_tier.
+var luck: int = 0
 
 ## Unterschriebene Klauseln des laufenden Blocks als {id, round}; round = Runde
 ## der Unterschrift und entscheidet, wie lange die Klausel wirkt (_scope_reaches -
@@ -178,14 +199,17 @@ var combo_parts: Dictionary = {}
 ## Gekaufte oder gewonnene Module, die noch ihren Steckplatz suchen (wie
 ## pending_dice: die Strecke bis zur Wahl, kein Lager).
 var pending_parts: Array[ComboPart] = []
+## Bestandene Stresstests - jeder hebt den Energie-Deckel um eine Fünfergruppe.
+var stress_tests_passed: int = 0
 ## Hitzestau: die für DIESE Runde stillgelegten Teile (Instanz-id -> true).
 var heat_disabled_parts: Dictionary = {}
 
-## Prämie der Nebenwette Kettenreaktion: die NÄCHSTE Serie bekommt einen Slot
-## mehr. Sie wird von apply_series verbraucht - ein Einmal-Schub.
-var press_boost_pending: bool = false
 # Zustand der Effektkatalog-Charms:
-var farkle_count: int = 0  # Zerbrochener Spiegel
+## Echte Fumbles des Laufs (sinkt nie) und des laufenden Blocks.
+var farkle_count: int = 0
+var block_fumbles: int = 0
+## Strafgebühr des letzten Fumbles (0 = keine) - nur für die Anzeige.
+var last_fumble_fee: int = 0
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 ## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
@@ -312,9 +336,38 @@ func refund_money(amount: int) -> void:
 
 # --- Fortschrittsstufe ---------------------------------------------------------
 
-## 1..TIER_MAX, zwei Stufen je Block zu sechs Runden.
+## 1..TIER_MAX aus dem Glück - ohne Glücks-Klauseln zwei Stufen je Block.
 func progress_tier() -> int:
-	return clampi(1 + (round_number - 1) / ROUNDS_PER_TIER, 1, TIER_MAX)
+	return clampi(1 + luck / LUCK_PER_TIER, 1, TIER_MAX)
+
+## Glück, ab dem die nächste Stufe kommt (-1 = schon die letzte).
+func next_tier_luck() -> int:
+	if progress_tier() >= TIER_MAX:
+		return -1
+	return progress_tier() * LUCK_PER_TIER
+
+## Glück ändern (nie unter 0).
+func add_luck(amount: int) -> void:
+	luck = maxi(0, luck + amount)
+
+## Hinweis-Texte der drei Lauf-Anzeigen am Hub (die Anzeige kennt keinen GameRun).
+func blind_hint() -> String:
+	var percent := roundi(blind_growth(round_number + 1) * 100.0)
+	return "Wächst je Runde um %d%% (dieser Block); Verträge heben ihn dauerhaft." % percent
+
+func luck_hint() -> String:
+	var text := "Stufe %d. " % progress_tier()
+	var next := next_tier_luck()
+	text += "Höchste Stufe erreicht." if next < 0 else "Ab Glück %d kommt Stufe %d." % [next, progress_tier() + 1]
+	return text + " Jede geschaffte Runde bringt +1 Glück; die Stufe hebt Laden-Seltenheit, Wetten, Würfel und Automaten."
+
+func fumble_hint() -> String:
+	var lines := fumble_readers()
+	var head := "%d in diesem Block." % block_fumbles
+	if lines.is_empty():
+		return head + " Noch liest nichts den Zähler."
+	var nl := String.chr(10)
+	return head + nl + nl.join(lines)
 
 ## Der EINE Weg an einen Prämien-Würfel: frisch gewürfelt, Seele garantiert,
 ## gratis ins Ausgabefach - und von dort SOFORT auf einen Vorrats-Platz. Liefert das
@@ -408,6 +461,8 @@ func stash_die(def: DieDefinition, price: int) -> void:
 ## ins Ausgabefach. Liefert das hinterlegte
 ## Exemplar (null = keine Vorlage); zerfallen kann er nicht.
 func grant_stress_reward() -> DieDefinition:
+	stress_tests_passed += 1
+	energy_changed.emit(energy)  # der Deckel ist gewachsen
 	return _grant_reward_die()
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein - der EINE Weg, auf dem
@@ -696,16 +751,13 @@ const SERIES_LADDER := [
 ## keine siebte (Spieler-Entscheid 2026-09-05).
 const SERIES_SLOT_CAP := 6
 
-## Serienlänge dieses Laufs: der feste Sockel, der Einmal-Schub der Nebenwette und
-## die Klauseln. Der Kurzschluss setzt ABSOLUT - er überschreibt, was alles andere
-## zusammengetragen hat. Seit dem Deckel 6 heben Schub und Kettentreiber nichts mehr.
+## Serienlänge dieses Laufs: der feste Sockel und die Klauseln. Der Kurzschluss setzt
+## ABSOLUT. Seit dem Deckel 6 hebt der Kettentreiber nichts mehr.
 func series_slots() -> int:
 	var slots := int(SERIES_LADDER[0]["slots"])
 	for step: Dictionary in SERIES_LADDER:
 		if progress_tier() >= int(step["tier"]):
 			slots = int(step["slots"])
-	if press_boost_pending:
-		slots += SeriesResolver.BOOST_SLOTS
 	if _clause_active(DealClause.CHAIN_DRIVER):
 		slots += CHAIN_DRIVER_SLOTS * deal_bonus_factor()
 	if _clause_active(DealClause.SHORT_CIRCUIT):
@@ -746,11 +798,6 @@ func series_terms(catalysts: Array[Pack]) -> Dictionary:
 	var terms := catalyst_terms(catalysts)
 	terms["pointer_add"] = charm_ids().has(Charm.SOLDERING_IRON)
 	return terms
-
-## Die Prämie der Nebenwette: der nächsten Serie einen Slot mehr. Sie stapelt sich
-## nicht - ein zweiter Gewinn erneuert dieselbe Vormerkung.
-func grant_press_boost() -> void:
-	press_boost_pending = true
 
 ## Zusätzliche Runen-Plätze aus dem Dock: die Glasglocke gibt dem Vakuum einen
 ## dritten.
@@ -881,7 +928,6 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 		return {}
 	if nets.is_empty() and aftercare.is_empty():
 		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
-	press_boost_pending = false  # der Schub galt genau dieser Serie
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)
 	# Das Prägen HEIZT: erzwungenes +1 auf den Zielwürfel. Brennt er dabei durch,
@@ -974,6 +1020,7 @@ func parts_room() -> bool:
 
 ## Die Belegung, mit der gewertet wird: stillgelegte Teile (Hitzestau) fehlen.
 func scoring_parts() -> Dictionary:
+	_sync_error_memories()
 	if heat_disabled_parts.is_empty():
 		return combo_parts
 	var out := {}
@@ -983,6 +1030,52 @@ func scoring_parts() -> Dictionary:
 			sockets.append(null if is_part_disabled(part) else part)
 		out[key] = sockets
 	return out
+
+## Fehlerspeicher lesen die Block-Fumbles über ihren Zähler - vor jeder Wertung gesetzt.
+func _sync_error_memories() -> void:
+	for key in combo_parts:
+		for part in combo_parts[key]:
+			if part != null and part.id == ComboPart.ERROR_MEMORY:
+				part.counter = block_fumbles
+
+## Ein echter Fumble scharft jeden gesteckten Nachbrenner (counter 1 = scharf).
+func _arm_afterburners() -> void:
+	for key in combo_parts:
+		for part in combo_parts[key]:
+			if part != null and part.id == ComboPart.AFTERBURNER and part.counter == 0:
+				part.counter = 1
+				combo_parts_changed.emit(String(key))
+
+## Was den Fumble-Zähler gerade liest, je Zeile "Name: Wirkung" - für den Hub-Hinweis.
+func fumble_readers() -> Array[String]:
+	var lines: Array[String] = []
+	var ids := charm_ids()
+	var mult := CharmEffects.unlucky_bird_mult(farkle_count) * ids.count(Charm.UNLUCKY_BIRD)
+	if mult > 0:
+		lines.append("Pechvogel: +%d Mult" % mult)
+	if ids.has(Charm.BROKEN_MIRROR) and farkle_count > 0:
+		lines.append("Zerbrochener Spiegel: +%d Mult" % (farkle_count * ids.count(Charm.BROKEN_MIRROR)))
+	var pension := CharmEffects.fumble_pension(farkle_count) * ids.count(Charm.FUMBLE_PENSION)
+	if pension > 0:
+		lines.append("Fumble-Rente: +$%d am Rundenende" % pension)
+	var cat := CharmEffects.black_cat_discount(farkle_count, ids)
+	if cat > 0.0:
+		lines.append("Schwarze Katze: Ladenpreise −%d%%" % roundi(cat * 100.0))
+	if ids.has(Charm.GALLOWS_REPRIEVE) and round_fumbles > 0:
+		lines.append("Galgenfrist: Blind dieser Runde −%d%%" % roundi((1.0 - _round_goal_factor_reprieve()) * 100.0))
+	var memories := 0
+	for key in combo_parts:
+		memories += ComboPartEffects.count_of(combo_parts[key], ComboPart.ERROR_MEMORY)
+	if memories > 0 and block_fumbles > 0:
+		lines.append("Fehlerspeicher: +%d Mult" % block_fumbles)
+	var joker := SlotMachine.joker_weight(farkle_count)
+	if joker > SlotMachine.W_JOKER:
+		lines.append("Automaten: Joker ×%s häufiger" % String.num(joker / SlotMachine.W_JOKER, 2))
+	return lines
+
+func _round_goal_factor_reprieve() -> float:
+	var reprieve := charm_ids().count(Charm.GALLOWS_REPRIEVE)
+	return pow(1.0 - CharmEffects.GALLOWS_REPRIEVE_CUT, round_fumbles * reprieve)
 
 ## Ladenpreis eines Moduls in $ (Supraleiter, dann Inflation/Skonto).
 func part_shop_price(part: ComboPart) -> int:
@@ -1105,6 +1198,9 @@ func book_combo_scored(combo_key: String) -> int:
 		for part in sockets:
 			if part != null and (part.id == ComboPart.COUNTER or part.id == ComboPart.RESONATOR):
 				part.counter += 1
+				grew = true
+			elif part != null and part.id == ComboPart.AFTERBURNER and part.counter > 0:
+				part.counter = 0  # der Nachbrenner hat gezündet
 				grew = true
 		money_gain += ComboPartEffects.scoring_money(sockets)
 		if grew:
@@ -1430,7 +1526,8 @@ func _shares_tag(clause_id: String, taboo_tags: Array[String]) -> bool:
 			return true
 	return false
 
-## Ob die Klausel als zweiter Quota-Aufschlag ausgeschlossen ist.
+## Ob die Klausel als zweiter RUNDENWEISER Blind-Aufschlag ausgeschlossen ist -
+## dauerhafte Hebungen dürfen sich stapeln.
 func _quota_blocked(clause_id: String) -> bool:
 	return QUOTA_MALUS.has(clause_id) and _quota_already_raised()
 
@@ -1461,7 +1558,15 @@ func sign_clauses(clause_ids: Array[String]) -> void:
 ## Zähler, die eine Runden-Klausel beim Einzug aufstellt.
 func _apply_instant_clause(clause_id: String) -> void:
 	var boost := deal_bonus_factor()
+	if BLIND_RAISE.has(clause_id):
+		raise_blind(1.0 + float(BLIND_RAISE[clause_id]))
+	if LUCK_CLAUSES.has(clause_id):
+		var amount := int(LUCK_CLAUSES[clause_id])
+		add_luck(amount * boost if amount > 0 else amount)
 	match clause_id:
+		DealClause.CALIBRATION:
+			# Nachlass: zweimal angewandt statt verdoppelt.
+			raise_blind(pow(CALIBRATION_FACTOR, boost))
 		DealClause.ADVANCE_PAYMENT:
 			add_money(ADVANCE_PAYMENT_MONEY * boost)
 		DealClause.BLANK_CHEQUE:
@@ -1565,32 +1670,52 @@ func active_deal_sides() -> Array[Dictionary]:
 
 # --- Klausel-Wirkungen (einzige Auflösung der ids) ----------------------------
 
-## Tatsächliches Rundenziel: das GESETZTE Grundziel × aller wirkenden Quota-
-## Klauseln. Bewusst über round_goal statt goal_for_round - wer das Ziel direkt
-## setzt (Test, Debug), muss den Balken auch verschieben können.
+## Tatsächliches Rundenziel: das GESETZTE Grundziel × rundenweise Faktoren (Hohe
+## Erwartungen, Galgenfrist). Über round_goal, damit ein direkt gesetztes Ziel zählt.
 func effective_goal() -> int:
-	return roundi(round_goal * _quota_factor(round_number))
+	return roundi(round_goal * _round_goal_factor())
 
-## Wie effective_goal, aber für eine beliebige Runde des Fahrplans - so zeigt die
-## Station der laufenden Runde sofort, was ein Quota-Malus sie kostet.
-func effective_goal_for_round(n: int) -> int:
-	return roundi(goal_for_round(n) * _quota_factor(n))
-
-## Faktor der in Runde n wirkenden Quota-Klauseln: Aufschläge multiplizieren
-## sich, die Eichung halbiert.
-func _quota_factor(n: int) -> float:
+## Rundenweise Faktoren auf den Blind DIESER Runde - blind_value bleibt unberührt.
+func _round_goal_factor() -> float:
 	var factor := 1.0
 	for entry in active_deals:
 		var clause := DealClause.find(entry["id"])
-		if clause == null or not _scope_reaches(entry, clause.scope, n):
+		if clause == null or not _scope_reaches(entry, clause.scope, round_number):
 			continue
 		if QUOTA_MALUS.has(clause.id):
 			factor *= 1.0 + float(QUOTA_MALUS[clause.id])
-		elif clause.id == DealClause.CALIBRATION:
-			# Nachlass: der Winkeladvokat wendet ihn ein zweites Mal an, statt die
-			# Zahl zu verdoppeln - sonst hübe "−50%" auf "−100%" das Ziel ganz auf.
-			factor *= pow(CALIBRATION_FACTOR, deal_bonus_factor())
-	return factor
+	return factor * _round_goal_factor_reprieve()
+
+## Wachstum des Blinds beim Eintritt in Runde n: 10 % im ersten Block, je Block +5 %.
+static func blind_growth(n: int) -> float:
+	return BLIND_GROWTH_BASE + BLIND_GROWTH_STEP * float(block_of_round(n))
+
+## Abwärts auf Vielfache von BLIND_ROUNDING, mindestens eines davon.
+static func floor_to_blind(value: float) -> int:
+	var steps := int(floor(value / float(BLIND_ROUNDING) + 0.000001))
+	return maxi(BLIND_ROUNDING, steps * BLIND_ROUNDING)
+
+## Hebt (oder senkt) den Blind DAUERHAFT; die laufende Runde zieht sofort mit.
+func raise_blind(factor: float) -> void:
+	blind_value *= factor
+	round_goal = floor_to_blind(blind_value)
+
+## Projektion des Blinds der Runde k (ohne künftige Verträge), gerundet.
+func projected_blind(k: int) -> int:
+	var value := blind_value
+	for n in range(round_number + 1, k + 1):
+		value *= 1.0 + blind_growth(n)
+	return floor_to_blind(value)
+
+## Fahrplan-Wert der Runde n: gespielt (Historie), laufend (wirksam) oder projiziert.
+func roadmap_goal(n: int) -> int:
+	if n < round_number:
+		if n >= 1 and n - 1 < blind_history.size():
+			return blind_history[n - 1]
+		return floor_to_blind(float(BASE_GOAL))
+	if n == round_number:
+		return effective_goal()
+	return projected_blind(n)
 
 ## Faktor auf die GESAMTE Rundenauszahlung (Bank + übrige Würfel). Happy Hour und
 ## Alles auf Rot stehen bewusst NICHT hier, sondern in money_gain_factor - sonst
@@ -1653,6 +1778,7 @@ func shop_price_factor() -> float:
 	if _clause_active(DealClause.CASH_DISCOUNT):
 		# Nachlass wie die Eichung: zweimal angewandt statt verdoppelt.
 		factor *= pow(SHOP_DISCOUNT_FACTOR, deal_bonus_factor())
+	factor *= 1.0 - CharmEffects.black_cat_discount(farkle_count, charm_ids())
 	return factor
 
 ## Ladenpreis einer Ware; jeder Preisschild-Aufrufer geht hier durch.
@@ -1877,8 +2003,17 @@ func note_hand_counters(breakdown: Dictionary) -> void:
 ## Licht fliegt erst hinterher (book first, fly afterwards).
 func note_fumble(volcanic: bool) -> int:
 	round_fumbles += 1
+	farkle_count += 1
+	block_fumbles += 1
 	if volcanic:
 		ash_fumbles += 1
+	if _clause_active(DealClause.BAD_STREAK):
+		raise_blind(1.0 + BAD_STREAK_RAISE)
+	last_fumble_fee = 0
+	if _clause_active(DealClause.PENALTY_FEE):
+		last_fumble_fee = mini(PENALTY_FEE_MONEY, maxi(0, money))
+		money -= last_fumble_fee
+	_arm_afterburners()
 	var minted := CharmEffects.fumble_energy(charm_ids())
 	if minted > 0:
 		add_energy(minted)
@@ -2000,20 +2135,32 @@ func book_charge_results(defs: Array[DieDefinition], breakdown: Dictionary,
 	return changes
 
 ## Fumble: jeder Würfel, der beim ECHTEN Fumble in der Grube liegt, bekommt ein
-## erzwungenes +1. Ergebnisliste wie book_charge_results.
-func charge_fumble_dice(defs: Array[DieDefinition]) -> Array[Dictionary]:
+## erzwungenes +1 (Kühlmantel: −1 statt dessen). faces = obere Seite je Slot - die
+## Narbe wächst dort um +1. Ergebnisliste wie book_charge_results.
+func charge_fumble_dice(defs: Array[DieDefinition], faces: Array[int] = []) -> Array[Dictionary]:
 	var changes: Array[Dictionary] = []
+	var scarred := false
 	for i in defs.size():
 		var die: DieDefinition = defs[i]
-		if die == null or die.burned_out:
+		if die == null:
+			continue
+		var face: int = faces[i] if i < faces.size() else -1
+		if EssenceEffects.scars_on_fumble(die.essence_id) and face >= 0 and face < die.faces.size():
+			die.faces[face] += EssenceEffects.SCAR_GROWTH
+			scarred = true
+		if die.burned_out:
 			continue
 		var before := die.charge
-		var burned := charge_up_forced(die)
+		var burned := false
+		if EssenceEffects.cools_on_fumble(die.essence_id):
+			die.charge_down()
+		else:
+			burned = charge_up_forced(die)
 		if before == die.charge and not burned:
 			continue
 		changes.append({"die": die, "slot": i, "before": before,
 			"after": die.charge, "burned": burned})
-	if not changes.is_empty():
+	if not changes.is_empty() or scarred:
 		note_pool_changed()
 	return changes
 
@@ -2254,25 +2401,23 @@ func _pay_side_bet(bet: SideBet, factor: int) -> void:
 				add_money(overflow * ENERGY_OVERFLOW_MONEY)  # volle Börse zahlt bar
 		SideBet.Payout.SPECIAL:
 			# Wie beim Paket-Gewinn gemerkt: die Zeremonie zielt auf SEINE uid.
-			bet.awarded_pack = grant_engraving_pack(bet.special_engraving())
+			var specials := bet.reward_cards(1)
+			bet.awarded_pack = grant_pack(specials[0]) if not specials.is_empty() else null
 			bet.note_awarded(bet.awarded_pack)
 		SideBet.Payout.PACK:
 			# null = volles Magazin: der Gewinn ist zu Geld zerfallen, und die
 			# Zeremonie schickt darum Geld statt einer Kassette los.
-			bet.awarded_pack = grant_pack(bet.reward_pack())
+			bet.awarded_pack = grant_pack(bet.reward_cards(1)[0])
 			bet.note_awarded(bet.awarded_pack)
 		SideBet.Payout.PART:
 			# Einzelstück: der Quotenbonus verdoppelt es nicht.
 			var part := bet.reward_part()
 			if part != null:
 				stash_part(part)
-		SideBet.Payout.PRESS_BOOST:
-			# Einzelstück wie der Sonderposten: der Quotenbonus verdoppelt es nicht.
-			grant_press_boost()
 		_:
-			for i in factor:
-				for pack in bet.reward_list():
-					bet.note_awarded(grant_pack(pack))
+			# Genau die Karten, die in der Grube lagen.
+			for pack in bet.reward_cards(bet.reward_packs * factor):
+				bet.note_awarded(grant_pack(pack))
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 
@@ -2301,7 +2446,7 @@ func spin_slot(machine: int) -> Array:
 		free_spin_used_this_visit = true  # ein Freispiel je Besuch, nicht je Automat
 	else:
 		spend_energy(slot_spin_energy(machine))
-	return slot_bank.roll(machine)
+	return slot_bank.roll(machine, null, farkle_count)
 
 ## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,
 ## sobald die Walze gelandet ist.
@@ -2344,21 +2489,19 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 				for i in mult:
 					stash_die(prize.die, 0)
 
-## Ziel der Runde n (1-basiert) - EINZIGE Quelle der Ziel-Kurve; Rundenwechsel
-## und Fahrplan lesen beide hier. Je Block verdoppelt sich der Zuwachs:
-## 150 … 525 (R6), 675 … 1425 (R12), 1725 … 3225 (R18).
-static func goal_for_round(n: int) -> int:
-	var goal := BASE_GOAL
-	for step in range(2, n + 1):
-		goal += GOAL_INCREMENT * (1 << ((step - 1) / GOAL_BLOCK))
-	return goal
-
-## Nächste Runde: Ziel nachziehen und die Auslage der kommenden Runde würfeln.
-## Die ERSTE Runde eines Laufs bekommt bewusst keine - der Spieler soll einmal
-## würfeln, bevor das Haus ihm Konditionen anbietet.
+## Nächste Runde (läuft nur nach einer geschafften): gespielten Blind merken, Glück
+## +1, Blind wachsen lassen und die Auslage würfeln. Runde 1 bekommt keine Auslage.
 func advance_round() -> void:
+	while blind_history.size() < round_number - 1:
+		blind_history.append(floor_to_blind(float(BASE_GOAL)))
+	blind_history.append(effective_goal())
+	add_luck(1)
+	var old_block := block_of_round(round_number)
 	round_number += 1
-	round_goal = goal_for_round(round_number)
+	if block_of_round(round_number) != old_block:
+		block_fumbles = 0
+	blind_value *= 1.0 + blind_growth(round_number)
+	round_goal = floor_to_blind(blind_value)
 	roll_route_offers()
 
 ## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
@@ -2370,7 +2513,7 @@ func goal_roadmap(count: int) -> Array[int]:
 		return goals
 	var first_round := round_number - goal_roadmap_index(count)
 	for i in count:
-		goals.append(effective_goal_for_round(first_round + i))
+		goals.append(roadmap_goal(first_round + i))
 	return goals
 
 ## Position des AKTUELLEN Ziels im Block (0-basiert): davor = geschafft, danach
@@ -2443,7 +2586,6 @@ func stage_progress(points: int) -> Dictionary:
 ## Der Deckel wächst NUR in Fünferschritten, damit eine neue Stufe als "eine Gruppe
 ## des Energie-Rings erwacht" lesbar ist - nie als krumme Zahl.
 const ENERGY_ROW := 5
-const ENERGY_ROWS_MAX := 5
 ## Mehr fasst der Ring nicht, was immer den Deckel künftig hebt.
 const ENERGY_CAP_LIMIT := 50
 
@@ -2522,22 +2664,12 @@ var energy: int = 0:
 var secret_rerolls: int = 0
 var secret_stock: Array[Dictionary] = []
 
-## Deckel der Börse; wächst mit der Fortschrittsstufe.
+## Deckel der Börse: eine Fünfergruppe, plus eine je bestandenem Stresstest.
 func energy_cap() -> int:
 	return mini(energy_cap_rows() * ENERGY_ROW, ENERGY_CAP_LIMIT)
 
-## Erwachte Fünfergruppen je Fortschrittsstufe: 1 / 2 / 3 / 4 / 5 ab 1 / 3 / 5 / 7 / 10.
 func energy_cap_rows() -> int:
-	var tier := progress_tier()
-	if tier >= 10:
-		return ENERGY_ROWS_MAX
-	if tier >= 7:
-		return 4
-	if tier >= 5:
-		return 3
-	if tier >= 3:
-		return 2
-	return 1
+	return 1 + stress_tests_passed
 
 ## Aufteilung von stages in Börse und Überlauf - reine Vorschau gegen den
 ## aktuellen Stand, damit die Zeremonie ihre Kometen vorab planen kann.

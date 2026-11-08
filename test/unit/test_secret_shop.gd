@@ -8,7 +8,7 @@ func _run() -> GameRun:
 
 ## Erste Runde der gewünschten Fortschrittsstufe.
 func _at_tier(run: GameRun, tier: int) -> void:
-	run.round_number = 1 + (tier - 1) * GameRun.ROUNDS_PER_TIER
+	run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
 
 ## Die legendären Charms, die ein frischer Lauf überhaupt angeboten bekommt -
 ## Essenz-Charms fallen raus, solange ihre Seele nicht im Pool steckt.
@@ -27,18 +27,16 @@ func test_fresh_run_starts_with_an_empty_wallet() -> void:
 	assert_eq(run.energy, 0)
 	assert_eq(run.secret_rerolls, 0)
 
-func test_energy_cap_wakes_one_row_per_milestone() -> void:
-	# Die Bank ist ein 5×5-Raster: der Deckel ist IMMER eine ganze Reihenzahl
-	# (Vielfaches von ENERGY_ROW), eine Reihe je Meilenstein 1/3/5/7/10.
+func test_energy_cap_grows_five_per_stress_test() -> void:
 	var run := _run()
-	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "Stufe 1: eine Reihe")
-	var rows := {2: 1, 3: 2, 4: 2, 5: 3, 7: 4, 9: 4}
-	for tier: int in rows:
-		_at_tier(run, tier)
-		assert_eq(run.energy_cap_rows(), int(rows[tier]), "Stufe %d" % tier)
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "zu Beginn eine Fünfergruppe")
 	_at_tier(run, GameRun.TIER_MAX)
-	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW * GameRun.ENERGY_ROWS_MAX,
-		"letzte Stufe: das volle 5×5-Raster")
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "die Fortschrittsstufe hebt nichts")
+	run.grant_stress_reward()
+	assert_eq(run.energy_cap(), 10, "ein Stresstest: +5")
+	for i in 20:
+		run.grant_stress_reward()
+	assert_eq(run.energy_cap(), GameRun.ENERGY_CAP_LIMIT, "der Ring faßt nicht mehr")
 
 func test_add_energy_stores_to_cap_and_returns_overflow() -> void:
 	var run := _run()  # Deckel 5 (eine Reihe)
@@ -113,7 +111,8 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 	# Der dritte Platz ist die Wildcard - und sie würfelt nur noch WARE.
 	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
 	assert_true(wildcard == GameRun.KIND_ENGRAVING or wildcard == GameRun.KIND_CATALYST
-		or wildcard == GameRun.KIND_BLANK or wildcard == GameRun.KIND_DIE,
+		or wildcard == GameRun.KIND_BLANK or wildcard == GameRun.KIND_DIE
+		or wildcard == GameRun.KIND_PART,
 		"unbekannte Wildcard-Ware: %s" % wildcard)
 
 	var charm: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]

@@ -41,7 +41,7 @@ func test_the_catalog_has_fourteen_parts_with_unique_ids():
 		ids.append(part.id)
 		assert_ne(part.display_name, "")
 		assert_true(ComboPart.RARITY_WEIGHTS.has(part.rarity))
-	assert_eq(ids.size(), 24)
+	assert_eq(ids.size(), 26)
 
 func test_only_the_multiplying_and_legendary_parts_are_secret():
 	var secret: Array[String] = []
@@ -50,7 +50,7 @@ func test_only_the_multiplying_and_legendary_parts_are_secret():
 	secret.sort()
 	var expected: Array[String] = [ComboPart.AMPLIFIER_TUBE, ComboPart.COUPLING,
 		ComboPart.EXPANSION_BOARD, ComboPart.HIGH_VOLTAGE_TUBE, ComboPart.PARALLEL_CIRCUIT,
-		ComboPart.RESONATOR, ComboPart.MAGNETRON, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE]
+		ComboPart.RESONATOR, ComboPart.MAGNETRON, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE, ComboPart.AFTERBURNER]
 	expected.sort()
 	assert_eq(secret, expected)
 
