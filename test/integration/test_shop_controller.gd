@@ -96,9 +96,7 @@ func test_con_artist_cuff_discounts_the_bowl_die_price():
 	var price: int = shop.single_dice_prices[0]
 	shop._on_single_die_pressed(0)
 	assert_eq(run.money, 100 - price)
-	var plain := ShopController.single_die_price(
-		CharmEffects.die_price(100, run.charm_ids()))
-	assert_lt(plain, ShopController.single_die_price(100), "33% Rabatt greift")
+	assert_lt(CharmEffects.die_price(100, run.charm_ids()), 100, "33% Rabatt greift")
 
 func test_pack_price_is_raw_price_without_discount():
 	var engraving_pack = shop.engraving_packs[0]
@@ -107,12 +105,12 @@ func test_pack_price_is_raw_price_without_discount():
 func test_bargain_hunter_discounts_every_pack_kind():
 	run.owned_charms.append(Charm.bargain_hunter())
 	for pack in shop.engraving_packs:
-		assert_eq(shop._pack_price(pack), maxi(1, pack.price - 3), "%s: $3 guenstiger" % pack.type)
+		assert_eq(shop._pack_price(pack), maxi(1, roundi(pack.price * 0.7)), "%s: 30 %% guenstiger" % pack.type)
 
 ## Ohne Geld bleibt jedes Paket liegen - die Kaufbarkeit steht seit dem
 ## Vitrinen-Umbau nicht mehr an einer Karte, also wird der Kaufweg selbst geprüft.
 func test_packs_are_not_sold_without_the_money():
-	run.money = 0  # unter jedem Paketpreis (das 1er-Paket kostet $5)
+	run.money = 0  # unter jedem Paketpreis
 	shop.open()
 	shop._on_pack_buy_pressed(0)
 	assert_eq(run.money, 0, "kein Abzug")
@@ -124,7 +122,7 @@ func test_packs_are_not_sold_without_the_money():
 func test_buy_charm_grants_and_deducts():
 	var charm = shop.charm_options[0]
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 85)  # 100 - 15
+	assert_eq(run.money, 100 - charm.price, "der Preis seiner Seltenheit")
 	assert_eq(run.owned_charms.size(), 1)
 	# owned_charm_ids statt charm_ids: Totems lösen sich in charm_ids() zu
 	# ihren Nachbarn auf - der Test war sonst flaky, wenn ein Totem gezogen wurde.
@@ -215,7 +213,7 @@ func test_charm_cannot_be_bought_twice():
 	assert_eq(run.owned_charms.size(), 1)
 
 func test_charm_buttons_disabled_when_broke():
-	run.money = 10
+	run.money = 5  # unter dem billigsten Charm ($6)
 	shop.open()  # neu bestücken mit wenig Geld
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
@@ -262,12 +260,12 @@ func _force_charm_options(charms: Array) -> void:
 	shop._show_spread()
 
 func test_cash_discount_lowers_the_second_charm_in_the_same_visit():
-	# Rabattmarke kaufen ($15), danach kostet der zweite Charm sofort $10.
+	# Rabattmarke kaufen ($8, ungewöhnlich), danach kostet der Hasenfuß ($6) sofort $4.
 	_force_charm_options([Charm.cash_discount(), Charm.rabbits_foot()])
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 85, "die Rabattmarke selbst kostet den vollen Preis")
+	assert_eq(run.money, 92, "die Rabattmarke selbst kostet den vollen Preis")
 	shop._on_charm_clicked(1)
-	assert_eq(run.money, 75, "der nächste Charm kostet im selben Besuch $10")
+	assert_eq(run.money, 88, "der nächste Charm kostet im selben Besuch 40 % weniger")
 	assert_true(shop.charm_bought[0] and shop.charm_bought[1], "beide als gekauft vermerkt")
 
 func test_cash_discount_lowers_charm_price():
@@ -277,8 +275,9 @@ func test_cash_discount_lowers_charm_price():
 	if shop.charm_options.is_empty():
 		pass_test("keine Charm-Angebote auf dieser Seite ausgewürfelt")
 		return
+	var full: int = shop.charm_options[0].price
 	shop._on_charm_clicked(0)
-	assert_eq(run.money, 90, "Rabattmarke: $10 statt $15")
+	assert_eq(run.money, 100 - roundi(full * 0.6), "Rabattmarke: 40 % weniger")
 
 func test_bulk_discount_hits_the_bowl_dice():
 	# Seit die Würfel-Pakete tot sind, greift der Mengenrabatt an der Schale - dem
@@ -287,7 +286,7 @@ func test_bulk_discount_hits_the_bowl_dice():
 	shop.open()
 	for price in shop.single_dice_prices:
 		assert_gt(int(price), 0, "der Rabatt drückt nie unter $1")
-	assert_lt(CharmEffects.die_price(30, run.charm_ids()), 30, "$5 weniger je Würfel")
+	assert_eq(CharmEffects.die_price(30, run.charm_ids()), 21, "30 % weniger je Würfel")
 
 # --- Kaufbarkeit bei Geldänderung ----------------------------------------------
 # Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen
@@ -343,7 +342,7 @@ func test_fee_resets_on_reopen():
 	assert_eq(run.money, 96, "Gebühr beginnt wieder bei $2 (100 - 2 - 2)")
 
 func test_charm_bought_stays_bought_after_flipping():
-	shop._on_charm_clicked(0)  # -$15 auf Seite 1
+	shop._on_charm_clicked(0)  # Kauf auf Seite 1
 	var money_after := run.money
 	shop._on_page_next_pressed()  # -$2, neue Seite
 	shop._on_page_back_pressed()  # zurück zu Seite 1
@@ -1150,22 +1149,6 @@ func test_an_open_pager_carries_its_fee() -> void:
 	shop.open()
 	await wait_frames(2)
 	assert_eq(shop.page_next_button.text, "$2 ›", "offen: die Gebühr steht am Pfeil")
-
-func test_a_bowl_die_costs_less_than_the_same_die_on_the_shelf() -> void:
-	# Der Schalen-Würfel kommt ohne Auswahl und ohne Paket - das schlägt sich im
-	# Preis nieder. Nur die Relation ist gepinnt, die Zahl bleibt ein Stellknopf.
-	for offer_price in [5, 12, 30, 77]:
-		var single := ShopController.single_die_price(offer_price)
-		assert_lt(single, offer_price, "$%d im Regal ist teurer als in der Schale" % offer_price)
-		assert_gt(single, 0, "aber nie geschenkt")
-
-func test_the_bowl_price_never_falls_below_a_dollar() -> void:
-	assert_gte(ShopController.single_die_price(1), 1, "auch der billigste Würfel kostet etwas")
-	assert_gte(ShopController.single_die_price(0), 1)
-
-func test_the_bowl_price_grows_with_the_offer_price() -> void:
-	assert_gte(ShopController.single_die_price(50), ShopController.single_die_price(20),
-		"teurer bleibt teurer")
 
 func test_the_laid_out_singles_carry_the_discounted_price() -> void:
 	for price in shop.single_dice_prices:

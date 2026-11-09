@@ -2636,9 +2636,9 @@ const KIND_BLANK := "blank"
 ## Ein Modul (nur die vervielfachenden Schwarzmarkt-Teile).
 const KIND_PART := "part"
 
-## Umrechnungskurs des Hinterzimmers: EIN Sonderposten kostet dort 3 ⚡, im Regal
-## $30 - zehn Dollar auf die Energie. Jede Ware, die beide Läden führen (die
-## Katalysatoren), preist sich danach, statt eine zweite Tabelle zu pflegen.
+## Umrechnungskurs des Hinterzimmers: zehn Dollar auf die Energie. Jede Ware, die
+## beide Läden führen (die Katalysatoren), preist sich danach, statt eine zweite
+## Tabelle zu pflegen.
 const SECRET_MONEY_PER_ENERGY := 10
 ## Anteil der Katalysatoren am Sonderposten-Platz - die Gravur bleibt die Regel.
 const SECRET_CATALYST_CHANCE := 0.35

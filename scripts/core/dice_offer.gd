@@ -5,15 +5,16 @@ extends RefCounted
 ## einzeln - Menge gegen Qualität. Anzeige baut der ShopController.
 
 ## Vorlagen: count = Bündelgröße; values = erlaubte Augenzahlen je Seite;
-## pasch=true erzeugt gehäufte hohe Seiten. style_id (≠ "normal") schützt
+## pasch=true erzeugt gehäufte hohe Seiten. price gilt je WÜRFEL (der Laden
+## verkauft nur noch Einzelwürfel; Seite 41). style_id (≠ "normal") schützt
 ## gekaufte Würfel vor Verdrängung im Pool.
 const TEMPLATES := [
-	{"name": "Kraftwürfel", "style_id": "power", "count": 1, "price": 22, "values": [3, 4, 5, 6]},
-	{"name": "Paschwürfel", "style_id": "pasch", "count": 1, "price": 24, "pasch": true},
-	{"name": "Gerade Würfel", "style_id": "even", "count": 2, "price": 30, "values": [2, 4, 6]},
-	{"name": "Ungerade Würfel", "style_id": "odd", "count": 2, "price": 22, "values": [1, 3, 5]},
-	{"name": "Niedrige Serie", "style_id": "low", "count": 3, "price": 22, "values": [1, 2]},
-	{"name": "Kleinserie", "style_id": "small", "count": 3, "price": 27, "values": [1, 2, 3]},
+	{"name": "Kraftwürfel", "style_id": "power", "count": 1, "price": 11, "values": [3, 4, 5, 6]},
+	{"name": "Paschwürfel", "style_id": "pasch", "count": 1, "price": 12, "pasch": true},
+	{"name": "Gerade Würfel", "style_id": "even", "count": 2, "price": 9, "values": [2, 4, 6]},
+	{"name": "Ungerade Würfel", "style_id": "odd", "count": 2, "price": 7, "values": [1, 3, 5]},
+	{"name": "Niedrige Serie", "style_id": "low", "count": 3, "price": 4, "values": [1, 2]},
+	{"name": "Kleinserie", "style_id": "small", "count": 3, "price": 5, "values": [1, 2, 3]},
 ]
 
 ## Größte Augenzahl, die eine Vorlage von sich aus hergibt.
@@ -41,7 +42,7 @@ static func max_face_for(tier: int) -> int:
 # Material-Chancen; jede belegte Seite schlägt je Würfel auf den Preis auf.
 const FACE_MATERIAL_CHANCE := 0.35
 const SECOND_FACE_CHANCE := 0.35
-const FACE_MATERIAL_SURCHARGE := 2
+const FACE_MATERIAL_SURCHARGE := 3
 
 ## Essenz-Rollen: die MEISTEN Angebots-Würfel tragen eine Seele. Damit ist der
 ## Würfelkauf kein Stat-Kauf mehr, sondern ein Persönlichkeitskauf - ein
@@ -57,14 +58,12 @@ const ESSENCE_RARITY_WEIGHTS := {
 	Essence.Rarity.LEGENDARY: 2,
 }
 
-## Aufpreis je Würfel. Bezugsgröße sind die Vorlagenpreise (22-30): ein häufiges
-## Gas bleibt in der ersten Runde bezahlbar, ein Legendäres kostet mehr als der
-## Würfel selbst.
+## Aufpreis je Würfel; ein Legendäres kostet mehr als jeder Würfel selbst.
 const ESSENCE_SURCHARGE := {
-	Essence.Rarity.COMMON: 6,
-	Essence.Rarity.RARE: 14,
-	Essence.Rarity.EPIC: 24,
-	Essence.Rarity.LEGENDARY: 40,
+	Essence.Rarity.COMMON: 4,
+	Essence.Rarity.RARE: 8,
+	Essence.Rarity.EPIC: 12,
+	Essence.Rarity.LEGENDARY: 20,
 }
 
 var display_name: String = ""
@@ -114,7 +113,7 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 	# Ein Unikat nur im Einzel-Bündel: drei Kopien derselben Legende gäbe es nicht.
 	base.essence_id = roll_essence(owned_essences, int(t["count"]) == 1)
 	surcharge += essence_surcharge(base.essence_id)
-	offer.price = int(t["price"]) + surcharge * int(t["count"])
+	offer.price = int(t["price"]) + surcharge
 	for i in int(t["count"]):
 		offer.dice.append(base.instantiate())
 	return offer

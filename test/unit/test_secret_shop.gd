@@ -191,8 +191,7 @@ func test_buying_a_catalyst_stocks_the_sealed_cassette() -> void:
 
 ## Der Kurs ist EINER: aufgerundet, nie unter 1 ⚡.
 func test_the_energy_price_follows_the_house_rate() -> void:
-	assert_eq(GameRun.secret_energy_price(Pack.SPECIAL_PRICE), 3,
-		"$30 = 3 ⚡, der Kurs, an dem er abgelesen ist")
+	assert_eq(GameRun.secret_energy_price(30), 3, "$30 = 3 ⚡")
 	assert_eq(GameRun.secret_energy_price(14), 2)
 	assert_eq(GameRun.secret_energy_price(8), 1)
 	assert_eq(GameRun.secret_energy_price(0), 1, "nie geschenkt")

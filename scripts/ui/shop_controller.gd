@@ -54,7 +54,6 @@ const FULL_MARK := "VOLL"
 ## Kein Steckplatz mehr frei (die wartenden mitgezählt).
 const PARTS_FULL_TAG := "STECKPLÄTZE VOLL"
 
-const CHARM_PRICE := 15
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
 ## Je Besuch zurückgesetzt.
@@ -67,9 +66,6 @@ const NEON_GOLD := Color("#ffd319")
 const NEON_GREEN := Color("#50fa7b")
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.75, 0.78, 0.9)
-## Schalen-Rabatt: ein einzeln in der Schale liegender Würfel kostet weniger als
-## derselbe Würfel im Angebotsregal - er kommt ohne Auswahl und ohne Paket.
-const SINGLE_DIE_DISCOUNT := 0.8
 
 ## FESTE PROPORTIONEN: Charm-Band und Fuß stehen in u, die Gravuren-Zeile mißt
 ## ihre liegende Karte, die Würfel-Zeile ihren Würfel. Den Rest nimmt das
@@ -126,10 +122,6 @@ const NET_GROW_STAGGER := 0.05
 const NET_GROW_FROM := 0.02
 ## Die Einblendung ist kürzer als das Wachsen: erst da, dann fertig gewachsen.
 const NET_FADE_SHARE := 0.6
-
-## Preis eines Schalen-Würfels aus dem ungerabatteten Angebotspreis.
-static func single_die_price(offer_price: int) -> int:
-	return maxi(1, roundi(float(offer_price) * SINGLE_DIE_DISCOUNT))
 const FLIP_DURATION := 0.25
 ## Beide Zonen blättern DIESELBE Doppelseite: die Charm-Zeile wechselt im Augenblick
 ## des BAND-SCHRITTS - die alte Ware ist gesenkt und verschwunden, die neue rückt
@@ -1416,7 +1408,7 @@ func _build_spread() -> MenuSpread:
 		# Die Würfel-Rabatte (Trickdieb, Mengenrabatt) liegen jetzt hier: seit die
 		# Würfel-Pakete tot sind, ist die Schale der einzige Würfelkauf.
 		spread.single_dice_prices.append(
-			single_die_price(CharmEffects.die_price(offers[0].price, run.charm_ids())))
+			CharmEffects.die_price(offers[0].price, run.charm_ids()))
 		# Ein frisch gerolltes Unikat darf nicht zweimal in derselben Auslage liegen.
 		if die.essence_id != "" and not owned_souls.has(die.essence_id):
 			owned_souls.append(die.essence_id)
@@ -1753,7 +1745,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	charm_effects.append(effect)
 
 	var tag := "gekauft" if bought else ("voll" if full else \
-		("gratis" if _charm_price() <= 0 else "$%d" % _charm_price()))
+		("gratis" if _charm_price(charm) <= 0 else "$%d" % _charm_price(charm)))
 	column.add_child(CasinoStyle.label(tag, u * CARD_PRICE_FONT,
 		NEON_MUTED if bought or full else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
 
@@ -1946,10 +1938,10 @@ func _pack_price(pack: Pack) -> int:
 
 ## Der Hausgutschein schenkt den ERSTEN Charm des Blocks - danach zählt
 ## wieder der normale Preis samt Inflation/Skonto.
-func _charm_price() -> int:
+func _charm_price(charm: Charm) -> int:
 	if run.charm_is_free():
 		return 0
-	return run.shop_price(CharmEffects.charm_price(CHARM_PRICE, run.charm_ids()))
+	return run.shop_price(CharmEffects.charm_price(charm.price, run.charm_ids()))
 
 ## Kauft ein versiegeltes Paket (je Angebot einmal); es wandert ungeöffnet ins
 ## Werkstatt-Lager. Danach wird die Doppelseite neu bebaut.
@@ -1986,7 +1978,7 @@ func _on_charm_clicked(index: int) -> void:
 	if charm_bought[index] or run.charms_full():
 		return
 	var was_free := run.charm_is_free()
-	run.purchase_charm(charm, _charm_price())
+	run.purchase_charm(charm, _charm_price(charm))
 	if was_free:
 		run.consume_free_charm()
 	charm_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
@@ -2000,8 +1992,8 @@ func _refresh_afford_state() -> void:
 	if money_label != null:
 		money_label.text = "$%d" % money
 	for i in charm_buttons.size():
-		if not charm_bought[i]:
-			charm_buttons[i].disabled = run.charms_full() or money < _charm_price()
+		if not charm_bought[i] and i < charm_options.size():
+			charm_buttons[i].disabled = run.charms_full() or money < _charm_price(charm_options[i])
 	if page_back_button != null and is_instance_valid(page_back_button):
 		page_back_button.disabled = current_spread_index == 0
 	if page_next_button != null and is_instance_valid(page_next_button):

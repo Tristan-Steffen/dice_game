@@ -46,18 +46,18 @@ const TIER_LABELS := {TIER_NORMAL: "Standard", TIER_GROSS: "Groß",
 ## Preisfaktoren der Größen. Der Aufschlag ist der Preis der DICHTE: mehr Zellen
 ## und höhere Werte auf EINER Karte, also aus einem Magazin-Platz und einem
 ## Serien-Slot (und die Serie ist kurz).
-const TIER_PRICE_FACTORS := [1.0, 3.45, 5.75]
+const TIER_PRICE_FACTORS := [1.0, 2.5, 4.5]
 ## Auslage-Gewichte der Größen: die Norm liegt meistens da, das Kolossale selten.
 const TIER_WEIGHTS := [0.6, 0.3, 0.1]
 
 ## Preise je 1er-Paket - Runen sind die teuerste Sorte, sechs Zahlen-Pakete sind
 ## der Lauf auf den Sechserpasch.
-const NUMBER_PRICE := 5
+const NUMBER_PRICE := 4
 ## Das MULTIPLIKATOR-NETZ ist die seltene, teurere Spielart der Zahlen-Karte.
-const MULTIPLIER_PRICE := 9
+const MULTIPLIER_PRICE := 8
 const MULTIPLIER_NAME := "Multiplikator-Paket"
-const MATERIAL_PRICE := 6
-const DICE_MOD_PRICE := 7
+const MATERIAL_PRICE := 5
+const DICE_MOD_PRICE := 6
 
 ## Auslage-Gewichte der Gravur-Pakete (relativ).
 const SHELF_WEIGHTS := {
@@ -222,7 +222,7 @@ static func dice_mod_pack(rng: RandomNumberGenerator = null) -> Pack:
 
 ## Fester Goldpreis eines Sonderposten-Einzelstücks im normalen Regal - er hängt
 ## weder an der Sorte noch an der Fortschrittsstufe. Bündel gibt es nur im Hinterzimmer.
-const SPECIAL_PRICE := 30
+const SPECIAL_PRICE := 18
 
 ## Fixinhalt-Paket: sein Netz trägt cells Zellen dieses Inhalts - in der Regel
 ## eine, die STARKE Karte des Hinterzimmers mehr. amount > 1 ist nur noch ein
@@ -290,10 +290,10 @@ const CATALYSTS := {
 		"effect": "+1 auf jede gefüllte Zahl-Zelle des Summen-Netzes"},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
 		"effect": "Dieses Prägen verbraucht die Pressung der Runde nicht"},
-	CATALYST_COOL: {"name": "Kühlrippe", "price": 10,
+	CATALYST_COOL: {"name": "Kühlrippe", "price": 8,
 		"effect": "Senkt die Ladung des Zielwürfels um 1",
 		"scope": AFTER_HEAT_SCOPE},
-	CATALYST_CHILL: {"name": "Kältebad", "price": 18,
+	CATALYST_CHILL: {"name": "Kältebad", "price": 14,
 		"effect": "Setzt die Ladung des Zielwürfels auf 0",
 		"scope": AFTER_HEAT_SCOPE},
 	CATALYST_REPAIR: {"name": "Generalüberholung", "price": 30, "secret": true,

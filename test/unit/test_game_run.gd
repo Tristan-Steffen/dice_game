@@ -213,9 +213,10 @@ func test_sell_charm_removes_credits_and_emits():
 	_own_three_charms()
 	watch_signals(run)
 	run.money = 10
+	var value: int = run.owned_charms[1].price / 2
 	run.sell_charm(1)
 	assert_eq(run.owned_charm_ids(), [Charm.RABBITS_FOOT, Charm.MAGIC_CARD] as Array[String])
-	assert_eq(run.money, 15, "Basis-Verkaufswert $5 gutgeschrieben")
+	assert_eq(run.money, 10 + value, "der halbe Ladenpreis gutgeschrieben")
 	assert_signal_emitted(run, "charms_changed")
 
 func test_sell_charm_ignores_invalid_index():

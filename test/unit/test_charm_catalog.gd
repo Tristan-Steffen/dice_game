@@ -936,11 +936,13 @@ func test_anchor_saves_only_the_first_reroll():
 # --- Shop-Hooks -------------------------------------------------------------------------
 
 func test_shop_price_hooks():
-	assert_eq(CharmEffects.charm_price(25, _ids([Charm.CASH_DISCOUNT])), 20)
+	assert_eq(CharmEffects.charm_price(20, _ids([Charm.CASH_DISCOUNT])), 12, "-40 %")
+	assert_eq(CharmEffects.charm_price(20, _ids([Charm.CASH_DISCOUNT, Charm.CASH_DISCOUNT])), 7, "zweimal angewandt")
+	assert_eq(CharmEffects.charm_price(1, _ids([Charm.CASH_DISCOUNT])), 1, "nie unter $1")
 	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_NUMBER, _ids([Charm.BARGAIN_HUNTER])), 7)
 	assert_eq(CharmEffects.pack_price(10, Pack.TYPE_DICE_MOD, _ids([Charm.BARGAIN_HUNTER])), 7, "jede Sorte")
-	assert_eq(CharmEffects.pack_price(2, Pack.TYPE_MATERIAL, _ids([Charm.BARGAIN_HUNTER])), 1, "nie unter $1")
-	assert_eq(CharmEffects.die_price(15, _ids([Charm.BULK_DISCOUNT])), 10, "jedes Bündel, auch das einzelne")
+	assert_eq(CharmEffects.pack_price(1, Pack.TYPE_MATERIAL, _ids([Charm.BARGAIN_HUNTER])), 1, "nie unter $1")
+	assert_eq(CharmEffects.die_price(20, _ids([Charm.BULK_DISCOUNT])), 14, "-30 %")
 	assert_almost_eq(CharmEffects.pack_refund_chance(_ids([Charm.FINE_PRINT])), 0.2, 0.001)
 
 func test_seal_of_quality_forces_refinements():

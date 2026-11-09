@@ -39,9 +39,9 @@ func test_shelf_weights_are_the_authored_ones() -> void:
 	assert_eq(int(Pack.SHELF_WEIGHTS[Pack.TYPE_DICE_MOD]), 2)
 
 func test_prices_are_the_authored_ones() -> void:
-	assert_eq(Pack.number_pack().price, 5)
-	assert_eq(Pack.material_pack().price, 6)
-	assert_eq(Pack.dice_mod_pack().price, 7)
+	assert_eq(Pack.number_pack().price, 4)
+	assert_eq(Pack.material_pack().price, 5)
+	assert_eq(Pack.dice_mod_pack().price, 6)
 
 func test_every_shelf_sort_really_rolls() -> void:
 	var seen := {}
@@ -150,8 +150,8 @@ func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
 
 func test_the_catalyst_prices_are_the_authored_ones() -> void:
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_PROPELLANT), 14)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_COOL), 10)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_CHILL), 18)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_COOL), 8)
+	assert_eq(Pack.catalyst_price(Pack.CATALYST_CHILL), 14)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_GROUND), 8)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_REPAIR), 30)
 
@@ -257,10 +257,10 @@ func test_the_size_stands_in_the_name() -> void:
 		"Runen-Paket", "der Standard bleibt unmarkiert")
 
 func test_the_price_climbs_with_the_size() -> void:
-	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_GROSS).price, 17)
-	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL).price, 29)
-	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_GROSS).price, 24)
-	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_KOLOSSAL).price, 40)
+	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_GROSS).price, 10)
+	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_KOLOSSAL).price, 18)
+	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_GROSS).price, 15)
+	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_KOLOSSAL).price, 27)
 
 func test_only_pressable_packs_carry_a_size() -> void:
 	var catalyst := Pack.catalyst(Pack.CATALYST_GROUND)

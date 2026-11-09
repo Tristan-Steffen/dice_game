@@ -442,8 +442,7 @@ static func forgives_first_farkle(charm_ids: Array[String]) -> bool:
 
 # --- Pool / Shop -------------------------------------------------------------
 
-## Würfelpreis nach Rabatten (Trickdieb -33%, Mengenrabatt -$5 je Bündel, egal
-## wie groß).
+## Würfelpreis nach Rabatten (Trickdieb -33 %, Mengenrabatt -30 %, je Vorkommen).
 static func die_price(base_price: int, charm_ids: Array[String]) -> int:
 	var price := float(base_price)
 	for charm_id in charm_ids:
@@ -451,7 +450,7 @@ static func die_price(base_price: int, charm_ids: Array[String]) -> int:
 			Charm.CON_ARTIST_CUFF:
 				price *= 0.67
 			Charm.BULK_DISCOUNT:
-				price -= 5.0
+				price *= 1.0 - BULK_DISCOUNT_CUT
 	return maxi(1, int(round(price)))
 
 # ==============================================================================
@@ -949,25 +948,27 @@ static func has_phoenix(charm_ids: Array[String]) -> bool:
 static func recycles_first_hand(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.RECYCLING)
 
-## Charm-Preis nach Rabattmarke (je Vorkommen -$5, min. $1).
+## Rabatte als Anteil des Preises - feste Abzüge fräßen die günstigen Waren auf.
+const CASH_DISCOUNT_CUT := 0.4
+const BARGAIN_HUNTER_CUT := 0.3
+const BULK_DISCOUNT_CUT := 0.3
+
+## Charm-Preis nach Rabattmarke (je Vorkommen -40 %, min. $1).
 static func charm_price(base_price: int, charm_ids: Array[String]) -> int:
-	var price := base_price
-	for charm_id in charm_ids:
-		if charm_id == Charm.CASH_DISCOUNT:
-			price -= 5
-	return maxi(1, price)
+	var factor := pow(1.0 - CASH_DISCOUNT_CUT, charm_ids.count(Charm.CASH_DISCOUNT))
+	return maxi(1, roundi(float(base_price) * factor))
 
 ## Verkaufserlös eines Charms - Ansatzpunkt für künftige wertsteigernde Charms.
 static func charm_sell_value(base_value: int, _charm_ids: Array[String]) -> int:
 	return maxi(1, base_value)
 
-## Pack-Preis: Schnäppchenjäger -$3 je Vorkommen auf JEDE Paketsorte; min. $1.
+## Pack-Preis: Schnäppchenjäger -30 % je Vorkommen auf JEDE Paketsorte; min. $1.
 ## Bei Würfel-Paketen liegt der Würfel-Rabatt (die_price) schon im base_price.
 static func pack_price(base_price: int, _pack_id: String, charm_ids: Array[String]) -> int:
 	var price := float(base_price)
 	for charm_id in charm_ids:
 		if charm_id == Charm.BARGAIN_HUNTER:
-			price -= 3.0
+			price *= 1.0 - BARGAIN_HUNTER_CUT
 	return maxi(1, int(round(price)))
 
 ## Kleingedrucktes: Chance auf volle Pack-Rückerstattung (20% je Vorkommen, max. 80%).

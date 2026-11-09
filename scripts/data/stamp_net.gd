@@ -36,11 +36,11 @@ const OP_COLLECTOR := "collector"
 const OPERATOR_IDS := [OP_DOUBLER, OP_MIRROR, OP_COLLECTOR]
 
 const OPERATORS := {
-	OP_DOUBLER: {"name": "Verdoppler", "glyph": "×2", "price": 16,
+	OP_DOUBLER: {"name": "Verdoppler", "glyph": "×2", "price": 12,
 		"effect": "Verdoppelt die aufgelaufene Summe dieser Seite"},
-	OP_MIRROR: {"name": "Spiegel", "glyph": "⇄", "price": 14,
+	OP_MIRROR: {"name": "Spiegel", "glyph": "⇄", "price": 11,
 		"effect": "Kopiert die Summe dieser Seite auf die Gegenseite"},
-	OP_COLLECTOR: {"name": "Sammler", "glyph": "◉", "price": 18,
+	OP_COLLECTOR: {"name": "Sammler", "glyph": "◉", "price": 14,
 		"effect": "Zieht die Summen aller Seiten auf diese eine"},
 }
 

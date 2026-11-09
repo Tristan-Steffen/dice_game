@@ -470,8 +470,10 @@ const RARITY_COLORS := {
 @export var description: String = ""
 @export var rarity: String = RARITY_COMMON
 @export var model_path: String = ""  # leer = Platzhalter-Modell
-## Basis-Verkaufswert; den effektiven Erlös rechnet CharmEffects.charm_sell_value.
-@export var sell_value: int = 5
+## Ladenpreis nach Seltenheit (RARITY_PRICES); Rabatte rechnet CharmEffects.charm_price.
+@export var price: int = 6
+## Basis-Verkaufswert: der halbe Ladenpreis, abgerundet.
+@export var sell_value: int = 3
 
 static func _make(charm_id: String, name: String, desc: String) -> Charm:
 	var charm := Charm.new()
@@ -479,10 +481,20 @@ static func _make(charm_id: String, name: String, desc: String) -> Charm:
 	charm.display_name = name
 	charm.description = desc
 	charm.rarity = RARITIES.get(charm_id, RARITY_COMMON)
+	charm.price = int(RARITY_PRICES.get(charm.rarity, RARITY_PRICES[RARITY_COMMON]))
+	charm.sell_value = maxi(1, charm.price / 2)
 	var candidate := MODEL_DIR + charm_id + ".glb"
 	if ResourceLoader.exists(candidate):
 		charm.model_path = candidate
 	return charm
+
+## Ladenpreis je Seltenheit (Seite 41, 2026-11-09).
+const RARITY_PRICES := {
+	RARITY_COMMON: 6,
+	RARITY_UNCOMMON: 8,
+	RARITY_RARE: 12,
+	RARITY_LEGENDARY: 20,
+}
 
 ## Besitz dämpft das Ziehgewicht: ein schon gehaltener Archetyp bleibt kaufbar,
 ## drängelt sich aber nicht mehr vor die ungesehenen.
@@ -720,7 +732,7 @@ static func emergency_fund() -> Charm:
 	return _make(EMERGENCY_FUND, "Notgroschen", "Rundenende unter $45: auf $45 aufgefüllt.")
 
 static func cash_discount() -> Charm:
-	return _make(CASH_DISCOUNT, "Rabattmarke", "Charms kosten $5 weniger.")
+	return _make(CASH_DISCOUNT, "Rabattmarke", "Charms kosten 40 % weniger.")
 
 static func high_flyer() -> Charm:
 	return _make(HIGH_FLYER, "Überflieger", "+$5 je geräumter Überladungs-Stufe.")
@@ -766,7 +778,7 @@ static func rectifier() -> Charm:
 # --- Coupons & Packs ---
 
 static func bargain_hunter() -> Charm:
-	return _make(BARGAIN_HUNTER, "Schnäppchenjäger", "Pakete kosten $3 weniger.")
+	return _make(BARGAIN_HUNTER, "Schnäppchenjäger", "Pakete kosten 30 % weniger.")
 
 static func stamp_machine() -> Charm:
 	return _make(STAMP_MACHINE, "Frankiermaschine", "Rundenende: 1 zufälliges Upgrade-Paket.")
@@ -788,7 +800,7 @@ static func seal_of_quality() -> Charm:
 	return _make(SEAL_OF_QUALITY, "Gütesiegel", "Würfel im Laden tragen immer eine veredelte Material-Seite.")
 
 static func bulk_discount() -> Charm:
-	return _make(BULK_DISCOUNT, "Mengenrabatt", "Würfelbündel kosten $5 weniger.")
+	return _make(BULK_DISCOUNT, "Mengenrabatt", "Würfel im Laden kosten 30 % weniger.")
 
 # --- Verträge mit dem Haus ---
 
