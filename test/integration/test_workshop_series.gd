@@ -62,20 +62,6 @@ func test_the_row_carries_exactly_the_series_slots() -> void:
 	assert_eq(view._slot_buttons.size(), 6,
 		"der Deckel ist die Block-Größe: eine siebte gibt es nicht")
 
-## Eine geschrumpfte Reihe (Kurzschluß) wirft trotzdem keine steckende Karte fort.
-func test_a_shrunken_ladder_never_drops_a_standing_card() -> void:
-	var uids := _stock(6)
-	for uid in uids:
-		view.slot_pack(uid)
-	await wait_frames(2)
-	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
-	run.sign_clauses(short_circuit)
-	view.refresh()
-	await wait_frames(2)
-	assert_eq(run.series_slots(), 1, "der Kurzschluß setzt absolut")
-	assert_eq(view.press_slot_uids().size(), 6, "die gesteckten Karten bleiben stecken")
-	assert_eq(view.slot_count(), 6, "und die Reihe trägt sie alle")
-
 # --- Stecken, zurückwerfen, umsortieren -------------------------------------------
 
 func test_tapping_a_cassette_fills_the_next_free_slot() -> void:
@@ -776,13 +762,6 @@ func test_the_tower_footprint_is_the_lying_card_plus_air() -> void:
 	var short := view.tower_span_px()
 	assert_almost_eq(short.y, view.lie_span_px().y * WorkshopView.TOWER_ROOM, 0.001,
 		"die Kartenbreite plus Luft")
-	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
-	run.sign_clauses(short_circuit)
-	view.refresh()
-	await wait_frames(2)
-	assert_eq(view.step_count(), 1, "ein ganz kurzer Turm")
-	assert_almost_eq(view.tower_span_px().x, short.x, 0.001,
-		"und er zerdrückt die Karte NICHT - der Fußabdruck bleibt ihr treu")
 
 ## Die ETAGEN-FELDER teilen sich EINE Spalte: mehr Etagen heißt schmalere Felder,
 ## nicht eine breitere Leiste.
@@ -1072,17 +1051,6 @@ func test_a_missing_target_names_itself() -> void:
 	assert_null(view.target_die(), "ohne Tipp auf den Vorrat steht kein Ziel")
 	assert_true(view.stamp_blocker().contains("Ziel"),
 		"das fehlende Ziel nennt sich: %s" % view.stamp_blocker())
-
-## Der KURZSCHLUSS läßt eine Karte - und eine genügt dem Prägen.
-func test_the_short_circuit_leaves_the_grip_usable() -> void:
-	view.set_target_die(run.owned_pool[0])
-	view.slot_pack(_valued_pack(0, 2).pack_uid)
-	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
-	run.sign_clauses(short_circuit)
-	await wait_frames(2)
-	assert_eq(run.series_slots(), 1)
-	assert_true(view.can_pull())
-	assert_eq(view.stamp_blocker(), "")
 
 ## Ein durchgebrannter Würfel nennt die fehlende Reparatur-Karte.
 func test_a_burned_target_names_the_missing_repair_card() -> void:

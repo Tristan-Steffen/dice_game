@@ -1777,45 +1777,24 @@ func test_the_series_length_is_six_on_every_tier():
 		run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
 		assert_eq(run.series_slots(), 6, "Stufe %d" % tier)
 
-## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es
-## nie - auch nicht mit Wett-Schub und Kettentreiber zusammen.
+## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es nie.
 func test_more_than_six_slots_never_exist():
 	run.owned_charms.append(Charm.shyster())
-	_sign([DealClause.CHAIN_DRIVER])
 	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Karten sind der Block")
-	assert_eq(run.series_slots(), 6, "Schub und Klausel heben ihn nicht")
-
-func test_the_chain_driver_no_longer_lengthens_the_series():
-	_sign([DealClause.CHAIN_DRIVER])
-	assert_eq(run.series_slots(), 6, "der Deckel klemmt ihn weg")
-
-func test_the_shyster_doubles_the_quantitative_series_bonus():
-	run.owned_charms.append(Charm.shyster())
-	_sign([DealClause.CHAIN_DRIVER])
-	assert_eq(run.deal_bonus_factor(), 2, "der Faktor lebt - nur der Deckel klemmt")
 	assert_eq(run.series_slots(), 6)
-
-func test_the_short_circuit_overrides_the_length_absolutely():
-	_sign([DealClause.CHAIN_DRIVER, DealClause.SHORT_CIRCUIT])
-	assert_eq(run.series_slots(), 1, "Kurzschluss schlägt Sockel, Klausel und Schub")
-
-func test_the_length_is_capped():
-	run.owned_charms.append(Charm.shyster())
-	_sign([DealClause.CHAIN_DRIVER])
-	assert_eq(run.series_slots(), GameRun.SERIES_SLOT_CAP)
 
 ## Die Presse steht im LADEN der Runde - eine ROUND-Klausel muss dort noch leben,
 ## sonst wären die Serien-Klauseln tote Buchstaben.
 func test_a_round_clause_still_reaches_the_shop_of_its_round():
-	_sign([DealClause.CHAIN_DRIVER], 3)
+	_sign([DealClause.HAPPY_HOUR], 3)
 	assert_eq(run.round_number, 3)
 	# Der Laden öffnet nach der Auszahlung, die Runde rückt erst beim Schließen vor.
 	assert_true(run.active_deal_sides().any(func(entry: Dictionary) -> bool:
-		return String(entry["id"]) == DealClause.CHAIN_DRIVER),
+		return String(entry["id"]) == DealClause.HAPPY_HOUR),
 		"im Laden derselben Runde wirkt sie noch")
 	run.advance_round()
 	assert_false(run.active_deal_sides().any(func(entry: Dictionary) -> bool:
-		return String(entry["id"]) == DealClause.CHAIN_DRIVER),
+		return String(entry["id"]) == DealClause.HAPPY_HOUR),
 		"in der nächsten Runde ist sie tot")
 
 func test_the_chain_reaction_bet_pays_one_module():

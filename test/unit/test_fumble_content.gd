@@ -38,10 +38,10 @@ func test_block_fumbles_reset_at_the_block_edge_only() -> void:
 func test_bad_streak_raises_the_blind_for_good_per_fumble() -> void:
 	run.sign_clauses(_ids([DealClause.BAD_STREAK]))
 	_fumble(2)
-	assert_almost_eq(run.blind_value, 150.0 * 1.02 * 1.02, 0.001)
+	assert_almost_eq(run.blind_value, 150.0 * 1.05 * 1.05, 0.001)
 	run.advance_round()
 	_fumble()
-	assert_almost_eq(run.blind_value, 150.0 * 1.02 * 1.02 * 1.1, 0.001, "nur in ihrer Runde")
+	assert_almost_eq(run.blind_value, 150.0 * 1.05 * 1.05 * 1.1, 0.001, "nur in ihrer Runde")
 
 func test_penalty_fee_costs_five_but_never_below_zero() -> void:
 	run.round_number = GameRun.GOAL_BLOCK

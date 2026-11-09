@@ -663,31 +663,7 @@ func test_the_bench_is_always_furnished() -> void:
 	await wait_frames(2)
 	assert_true(view.bench_open(), "auch nach jedem Neuaufbau")
 
-## Die LEISTE wächst mit der Serienlänge - der TURM und die Netz-Spalten rühren
-## sich dabei nicht. Kürzer wird sie nur noch über den KURZSCHLUSS.
-func test_a_longer_series_splits_the_strip_not_the_columns() -> void:
-	var short_circuit: Array[String] = [DealClause.SHORT_CIRCUIT]
-	run.sign_clauses(short_circuit)
-	view.refresh()
-	await wait_frames(2)
-	var u := view.unit()
-	var screen := view.sum_screen_rect(u)
-	var strip := view.strip_rect().position.x
-	var one_field := view.floor_field_rect(0).size.y
-	assert_eq(view.step_count(), 1, "der Kurzschluß läßt EIN Feld")
-	run.active_deals.clear()
-	view.refresh()
-	await wait_frames(2)
-	assert_eq(view.slot_count(), 6, "ohne Klausel steht die volle Leiste")
-	assert_lt(view.floor_field_rect(0).size.y, one_field,
-		"sechs Felder teilen dieselbe Spalte")
-	assert_eq(view.sum_screen_rect(u), screen, "der Summen-Schirm rührt sich nicht")
-	assert_almost_eq(view.strip_rect().position.x, strip, 0.001,
-		"und die Leiste steht auf derselben Kante")
-	for station in ["TargetStage", "IstScreen", "ActionSeat", "SumScreen"]:
-		assert_true(station in _row_names(), "%s steht weiter" % station)
-
-## Und der DECKEL steht hart auf SECHS: Wett-Schub und Kettentreiber heben ihn
+## Und der DECKEL steht hart auf SECHS: der Wett-Schub hebt ihn
 ## nicht mehr - der Turm IST sechs Etagen.
 func test_six_floors_are_the_hard_cap() -> void:
 	view.refresh()

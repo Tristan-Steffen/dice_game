@@ -70,10 +70,6 @@ const WORK_HARDENING_GROWTH := 1
 const INTEREST_PER := 10
 const STAGE_CAP_LIMIT := 2
 const HIGH_VOLTAGE_STAGES := 3
-## Serien-Klauseln: der Bonus ist quantitativ, der Winkeladvokat verdoppelt ihn
-## also; der Kurzschluss setzt absolut.
-const CHAIN_DRIVER_SLOTS := 1
-const SHORT_CIRCUIT_SLOTS := 1
 ## Eichung: dauerhaft −10 % auf den Blind (der Winkeladvokat wendet sie zweimal an).
 const CALIBRATION_FACTOR := 0.9
 ## Skalierung der Überladungs-Stufen: der Sicherungsfall schlägt das Netzbrummen.
@@ -93,7 +89,7 @@ const QUOTA_MALUS := {
 	DealClause.HIGH_EXPECTATIONS: 5.0,
 }
 ## Pechsträhne: jeder echte Fumble der Runde hebt blind_value dauerhaft.
-const BAD_STREAK_RAISE := 0.02
+const BAD_STREAK_RAISE := 0.05
 ## Strafgebühr (Boss): jeder echte Fumble kostet so viel, nie unter $0.
 const PENALTY_FEE_MONEY := 5
 ## Glücks-Klauseln: Glück je Unterschrift (Malus negativ).
@@ -747,7 +743,7 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 ## --- Die SERIENLÄNGE ----------------------------------------------------------
 ## SECHS Schächte ab Runde 1 (Spieler-Entscheid 2026-09-04): die Hub-Leiter der
 ## Werkstatt ist gefallen, der Sockel steht fest. Länger wird die Reihe nur noch
-## über Kettentreiber und den Schub der Nebenwette.
+## über den Schub der Nebenwette.
 const SERIES_LADDER := [
 	{"tier": 1, "slots": 6},
 ]
@@ -755,17 +751,13 @@ const SERIES_LADDER := [
 ## keine siebte (Spieler-Entscheid 2026-09-05).
 const SERIES_SLOT_CAP := 6
 
-## Serienlänge dieses Laufs: der feste Sockel und die Klauseln. Der Kurzschluss setzt
-## ABSOLUT. Seit dem Deckel 6 hebt der Kettentreiber nichts mehr.
+## Serienlänge dieses Laufs: der feste Sockel (Kettentreiber und Kurzschluss sind
+## am 2026-11-09 gestorben).
 func series_slots() -> int:
 	var slots := int(SERIES_LADDER[0]["slots"])
 	for step: Dictionary in SERIES_LADDER:
 		if progress_tier() >= int(step["tier"]):
 			slots = int(step["slots"])
-	if _clause_active(DealClause.CHAIN_DRIVER):
-		slots += CHAIN_DRIVER_SLOTS * deal_bonus_factor()
-	if _clause_active(DealClause.SHORT_CIRCUIT):
-		slots = SHORT_CIRCUIT_SLOTS
 	return clampi(slots, 1, SERIES_SLOT_CAP)
 
 ## --- Die KATALYSATOREN einer Serie --------------------------------------------
