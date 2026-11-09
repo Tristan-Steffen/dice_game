@@ -155,3 +155,19 @@ func test_every_part_has_entry_with_phase_and_source() -> void:
 
 func test_part_names_link_to_their_entry() -> void:
 	assert_string_contains(Lexikon.linkify("Ein Relais."), "[url=part:%s]" % ComboPart.RELAY)
+
+
+func test_every_concept_has_a_one_sentence_summary() -> void:
+	for id in Lexikon.CONCEPT_IDS:
+		var s := Lexikon.summary(id)
+		assert_ne(s, "", "Hover-Satz fehlt: %s" % id)
+		assert_false(s.contains("
+"), "ein Satz, keine Zeilen: %s" % id)
+
+func test_item_summary_is_its_effect_line() -> void:
+	var charm := Charm.spotlight()
+	assert_eq(Lexikon.summary("charm:%s" % charm.id), charm.description)
+
+func test_rampenlicht_in_the_charm_text_links_the_concept() -> void:
+	assert_string_contains(Lexikon.linkify(Charm.spotlight().description),
+		"[url=%s]" % Lexikon.RAMPENLICHT)

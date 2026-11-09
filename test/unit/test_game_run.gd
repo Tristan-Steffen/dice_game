@@ -890,14 +890,14 @@ func test_spotlight_picks_a_combination_each_round():
 	assert_true(DiceScoring.HAND_PRIORITY.has(run.spotlight_combo), "eine echte Kombination")
 	assert_false(run.spotlight_claimed_this_round)
 
-func test_spotlight_gifts_a_resistor_once_per_round():
+func test_spotlight_grows_the_combo_once_per_round():
 	run.owned_charms.append(Charm.spotlight())
 	run.apply_round_start_charms()
 	var key: String = run.spotlight_combo
 	assert_false(run.claim_spotlight("nonsense"), "eine andere Kombination zählt nicht")
 	assert_true(run.claim_spotlight(key))
-	assert_eq(run.pending_parts.size(), 1, "ein Widerstand wartet auf seinen Steckplatz")
-	assert_eq(run.pending_parts[0].id, ComboPart.RESISTOR)
+	assert_eq(run.growth_of(key), Vector2i(5, 1), "die Kombination wächst dauerhaft")
+	assert_true(run.pending_parts.is_empty(), "kein Widerstand mehr")
 	assert_false(run.claim_spotlight(key), "zweimal in derselben Runde nicht")
 	run.apply_round_start_charms()
 	assert_false(run.spotlight_claimed_this_round, "neue Runde, neue Chance")

@@ -650,3 +650,14 @@ func _charge_rolls() -> Dictionary:
 			pool.append(0.1 if (r + slot) % 2 == 0 else 0.9)
 		rolls[slot] = pool
 	return rolls
+
+
+func test_spotlight_growth_lifts_the_combo_base_and_mult() -> void:
+	var dice: Array[int] = [3, 3, 3, 3, 3, 3]
+	var key := DiceScoring.SIX_KIND
+	var plain := _build_and_check(key, dice)
+	var grown := _build_and_check(key, dice, [], false, [], {},
+		{DiceScoring.CTX_COMBO_GROWTH: {key: Vector2i(5, 1)}})
+	assert_eq(int(grown["combo"]["base_add"]), int(plain["combo"]["base_add"]) + 5)
+	assert_eq(int(grown["combo"]["mult_add"]), int(plain["combo"]["mult_add"]) + 1)
+	assert_gt(int(grown["total"]), int(plain["total"]))

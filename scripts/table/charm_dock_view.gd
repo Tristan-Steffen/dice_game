@@ -33,6 +33,9 @@ const CONSOLE_PAD_Y := 0.14       # Rand über dem Sockelring
 const CONSOLE_PAD_BOTTOM := 0.3   # Rand unter der Karte - trägt den Dauer-Chip
 const BADGE_GAP := 0.03           # Abstand Kartenunterkante -> Dauer-Chip
 
+## Klick auf ein Schlüsselwort im Wirkungstext der gehoverten Karte.
+signal lexikon_requested(entry_id: String)
+
 ## Sockelring-Radius in Viewport-Pixeln (= Sockelradius). Fallback bis scene_root
 ## ihn setzt: knapp ein Viertel der Kartenhöhe.
 var projector_radius := 0.0
@@ -57,7 +60,7 @@ var _drop_hint := -1
 var _hover := -1
 ## Hover-Text (wandert in die überflogene Konsole; nur eine ist je hovert).
 var _name_label: Label
-var _body_label: Label
+var _body_label: LexikonText
 ## Verkaufs-Chip am Kartenboden der gehoverten Konsole; scene_root prüft Klicks
 ## über sell_index_at und verkauft dann via GameRun.sell_charm.
 var _sell_label: Label
@@ -212,6 +215,25 @@ func pad_center(i: int) -> Vector2:
 		return position + size / 2.0
 	return position + _pad_offsets[i]
 
+## Eine leere, durchlässige Ebene über der ganzen Anzeige: dort wohnt die
+## Hover-Karte der Schlüsselwörter (der Dock hängt direkt im Viewport).
+func _hint_layer() -> Control:
+	var layer := Control.new()
+	layer.name = "CharmDockHints"
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.size = get_viewport_rect().size
+	get_parent().add_child(layer)
+	return layer
+
+## Liegt der Pixel auf dem Wirkungstext der gehoverten Karte? Bewegung immer,
+## ein Klick nur auf einem Schlüsselwort - sonst bleibt er Griff/Umsortieren.
+func text_takes_pixel(pixel: Vector2, is_click: bool) -> bool:
+	if _body_label == null or not _body_label.visible or _hover < 0:
+		return false
+	if not _body_label.get_global_rect().has_point(pixel):
+		return false
+	return not is_click or _body_label.keyword_at(pixel) != ""
+
 ## Belegter Platz, dessen KONSOLE unter dem (Viewport-)Pixel liegt (Sockelring
 ## zählt mit - dieselbe Einheit), oder -1.
 func pad_index_at(pixel: Vector2) -> int:
@@ -240,12 +262,14 @@ func set_hover(i: int) -> void:
 		if i < _thumbs.size() and _thumbs[i] != null:
 			_thumbs[i].visible = false
 		_name_label.text = _charms[i].display_name
-		_body_label.text = _charms[i].description
+		_body_label.set_source(_charms[i].description)
+		if _body_label.hint == null and get_parent() != null:
+			_body_label.attach_hint(_hint_layer(), _card_size().y * 0.04)
 		_sell_label.text = ("Verkaufen $%d" % _sell_values[i]) if i < _sell_values.size() else ""
 		_place_labels_in_card(i)
 	else:
 		_name_label.text = ""
-		_body_label.text = ""
+		_body_label.set_source("")
 		_sell_label.text = ""
 	_name_label.visible = _hover >= 0
 	_body_label.visible = _hover >= 0
@@ -325,10 +349,9 @@ func _ensure_labels() -> void:
 	_name_label.visible = false
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(_name_label)
-	_body_label = Label.new()
-	_body_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_body_label = LexikonText.new()
 	_body_label.visible = false
-	_body_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_body_label.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
 	add_child(_body_label)
 	_sell_label = Label.new()
 	_sell_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -341,7 +364,7 @@ func _ensure_labels() -> void:
 func _style_labels() -> void:
 	var ch := _card_size().y
 	CasinoStyle.style_score_label(_name_label, int(ch * 0.12), CasinoStyle.GOLD)
-	CasinoStyle.style_body_label(_body_label, int(ch * 0.1), CasinoStyle.CREAM)
+	_body_label.set_style(int(ch * 0.1), CasinoStyle.CREAM, 2, CasinoStyle.INK)
 	CasinoStyle.style_score_label(_sell_label, int(ch * 0.08), CasinoStyle.GOLD)
 	var chip := StyleBoxFlat.new()
 	chip.bg_color = Color(0.05, 0.035, 0.02, 0.92)
@@ -392,18 +415,11 @@ func _place_labels_in_card(i: int) -> void:
 ## Verkleinert die Wirkungs-Schrift, bis der umgebrochene Text in die Karten-
 ## Fläche passt (gemessen über die Font-Metrik, nicht per Frame-Layout).
 func _fit_body_font(width: float, height: float) -> void:
-	var font := _body_label.get_theme_font("font")
-	if font == null:
-		return
 	var font_size := int(_card_size().y * 0.1)
 	var min_size := maxi(8, int(_card_size().y * 0.05))
-	while font_size > min_size:
-		var text_size := font.get_multiline_string_size(_body_label.text,
-			HORIZONTAL_ALIGNMENT_LEFT, width, font_size)
-		if text_size.y <= height:
-			break
+	while font_size > min_size and _body_label.measure(width, font_size) > height:
 		font_size -= 2
-	_body_label.add_theme_font_size_override("font_size", font_size)
+	_body_label.set_style(font_size, CasinoStyle.CREAM, 2, CasinoStyle.INK)
 
 func _clear_thumbs() -> void:
 	for thumb in _thumbs:

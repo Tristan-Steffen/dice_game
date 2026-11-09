@@ -77,7 +77,7 @@ func test_hover_swaps_card_image_for_text():
 	assert_false(d._thumbs[1].visible, "Bild weicht dem Text")
 	assert_true(d._thumbs[0].visible, "Nachbar-Konsole bleibt beim Bild")
 	assert_eq(d._name_label.text, "B", "Name in der Konsole")
-	assert_ne(d._body_label.text, "", "Wirkung in der Konsole")
+	assert_ne(d._body_label.source, "", "Wirkung in der Konsole")
 	d.set_hover(-1)
 	assert_true(d._thumbs[1].visible, "Bild kehrt zurück")
 	assert_false(d._name_label.visible, "Text verschwindet")

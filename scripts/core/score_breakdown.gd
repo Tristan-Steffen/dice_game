@@ -81,8 +81,9 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# Der Dreifache Boden reist NICHT stillschweigend in dieser Zahl mit - er
 	# bekommt je Kopie einen eigenen Schritt, wie jeder Krit seinen eigenen
 	# Einschlag bekommt. Er hebt nur die Basis; der Mult bleibt die reine Stufe.
-	var base := DiceScoring.points_for(key)
-	var combo_mult := DiceScoring.mult_for(key)
+	var growth := DiceScoring.combo_growth_in(ctx, key)
+	var base := DiceScoring.points_for(key) + growth.x
+	var combo_mult := DiceScoring.mult_for(key) + growth.y
 	var mult := float(combo_mult)
 	var combo := {"base_add": base, "mult_add": combo_mult}
 	var combo_factor_steps: Array[Dictionary] = []

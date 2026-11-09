@@ -213,9 +213,13 @@ var last_fumble_fee: int = 0
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 ## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
-## sie schon kassiert wurde - je Runde höchstens EIN geschenkter Widerstand.
+## sie schon kassiert wurde - je Runde höchstens EIN Wachstum.
 var spotlight_combo: String = ""
 var spotlight_claimed_this_round: bool = false
+## Dauerhaftes Wachstum je Kombination (key -> Vector2i(Basispunkte, Mult)).
+var combo_growth: Dictionary = {}
+const SPOTLIGHT_POINTS := 5
+const SPOTLIGHT_MULT := 1
 ## Goldener Handschlag: die Klausel vergoldet je Runde genau EINEN Würfel.
 var golden_handshake_used_this_round: bool = false
 
@@ -1883,15 +1887,19 @@ func apply_jewelry_box(unused_dice: Array[DieDefinition]) -> Array[Dictionary]:
 				grants.append({"material_id": material.id, "copy": i, "pack": pack})
 	return grants
 
-## Rampenlicht: Wird die hervorgehobene Kombination gewertet, gibt es einen
-## Widerstand geschenkt - Einbau wie nach einem Kauf, höchstens einmal je Runde.
+## Rampenlicht: Wird die hervorgehobene Kombination gewertet, wächst sie
+## dauerhaft um +5 Basispunkte und +1 Mult - höchstens einmal je Runde.
 ## true = eingelöst (der Aufrufer spielt die Zeremonie, siehe scene_root).
 func claim_spotlight(combo_key: String) -> bool:
 	if spotlight_claimed_this_round or combo_key == "" or combo_key != spotlight_combo:
 		return false
 	spotlight_claimed_this_round = true
-	stash_part(ComboPart.resistor())
+	combo_growth[combo_key] = growth_of(combo_key) + Vector2i(SPOTLIGHT_POINTS, SPOTLIGHT_MULT)
 	return true
+
+## Dauerhaftes Wachstum einer Kombination (Basispunkte, Mult).
+func growth_of(combo_key: String) -> Vector2i:
+	return combo_growth.get(combo_key, Vector2i.ZERO)
 
 ## Midashandschuh: jede oben liegende Seite der gewerteten Würfel wird dauerhaft
 ## Gold (Pool-Instanzen). Liefert die vergoldeten Slots - leer, wenn die Hand

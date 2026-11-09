@@ -127,7 +127,7 @@ kommt aus den Generatoren meist kaputt heraus).
 ## Pool & Trays
 
 - ✔ `recycling.glb` **Bumerang** — A polished wooden boomerang with crisp neon-cyan edge stripes, mounted mid-spin on a sleek display stand.
-- ✔ `fresh_goods.glb` **Frische Ware** — A tidy wooden market crate holding six shrink-wrapped glowing dice like fresh produce, the wrap glossy and taut.
+- ✘ (entfernt 2026-11-09) `fresh_goods.glb` **Frische Ware** — A tidy wooden market crate holding six shrink-wrapped glowing dice like fresh produce, the wrap glossy and taut.
 - ✔ `sediment.glb` **Bodensatz** — An elegant glass carafe with a luminous sediment layer settled at the bottom, polished cork stopper.
 
 ## Shop & Angebote

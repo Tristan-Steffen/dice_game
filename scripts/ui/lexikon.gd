@@ -47,12 +47,13 @@ const VERDICHTUNG := "verdichtung"
 const SCHWARZMARKT := "schwarzmarkt"
 const STECKPLATZ := "steckplatz"
 const GLUECK := "glueck"
+const RAMPENLICHT := "rampenlicht"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	QUOTA, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ, GLUECK]
+	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ, GLUECK, RAMPENLICHT]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -84,6 +85,40 @@ const EXTRA_SURFACES := {
 	"Steckplätze": STECKPLATZ, "Modul": STECKPLATZ, "Module": STECKPLATZ,
 	# Längste Form gewinnt: der Voll-Kompositum schlägt das nackte "Krit(s)".
 	"Tscherenkow-Krit": "essence:cherenkov", "Tscherenkow-Krits": "essence:cherenkov",
+}
+
+## Ein Satz je Begriff - die Hover-Karte über einem Schlüsselwort. Items nehmen
+## statt dessen die erste Zeile ihres Eintrags (ihre Wirkung).
+const SUMMARIES := {
+	KRIT: "Multipliziert den Mult, statt zu addieren.",
+	MULT: "Der Multiplikator der Wertung: Punkte = Basispunkte × Mult.",
+	BASISPUNKTE: "Die linke Hälfte der Wertung: Punkte = Basispunkte × Mult.",
+	ENERGIE: "Die Zweitwährung ⚡ für Automaten und Schwarzmarkt.",
+	LADUNG: "Hitze eines Würfels von 0 bis 3: je Stufe +1 Mult, an der Spitze droht Durchbrennen.",
+	AUSLOESUNG: "Ein Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal.",
+	RUNE: "Ein Zeichen auf einer Würfelseite mit eigener Wirkung.",
+	GRAVUR: "Eine Aufwertung für Würfel, versiegelt in einem Paket.",
+	MATERIAL: "Die Belegung einer Würfelseite, etwa Rubin, Gold oder Glas.",
+	VEREDELUNG: "Die starke Form eines Materials.",
+	POINTER: "Eine Netz-Zelle, die den Stand ihrer Seite auf die Nachbarseite kopiert.",
+	ESSENZ: "Die angeborene Seele eines Würfels mit eigener Wirkung.",
+	CHARM: "Ein Glücksbringer am Dock, höchstens sechs zugleich.",
+	KOMBINATION: "Die gewertete Hand eines Wurfs, etwa Paar oder Straße.",
+	QUOTA: "Die Punktzahl, die eine Runde besteht.",
+	UEBERLADUNG: "Jede volle Stufe über dem Blind bringt bei der Auszahlung ⚡.",
+	FUMBLE: "Ein Wurf ohne bessere Kombination: die Hand verfällt.",
+	STRESSTEST: "Die letzte Runde jedes Blocks, unter einer Boss-Kondition.",
+	VERTRAG: "Ein Angebot des Hauses aus Bonus- und Malusklausel.",
+	NEBENWETTE: "Ein Einsatz auf eine Bedingung dieser Runde.",
+	MAGAZIN: "Die Grube der Werkstatt, in der deine Pakete liegen.",
+	PRESSE: "Prägt die gesteckte Serie auf einen gewählten Würfel.",
+	PRAEGENETZ: "Das Würfelnetz einer Karte: was sie auf jede Seite prägt.",
+	SERIE: "Die gesteckten Karten, seitenweise aufaddiert.",
+	VERDICHTUNG: "Presst mehrere Karten in einem Rohling zu einer.",
+	SCHWARZMARKT: "Das Hinterzimmer: seltene Ware gegen ⚡.",
+	STECKPLATZ: "Platz für ein Modul auf einem Kombinations-Chip.",
+	GLUECK: "Steigt je geschaffter Runde und hebt die Qualität im Laden.",
+	RAMPENLICHT: "Je Runde pulst eine Kombination golden; gewertet wächst sie dauerhaft um +1 Mult und +5 Basispunkte.",
 }
 
 ## Rarität der Charms als Spielerwort (Charm.rarity ist ein String).
@@ -121,6 +156,17 @@ static func entry(id: String) -> Dictionary:
 	var canonical: String = _aliases.get(id, id)
 	return _entries.get(canonical, {})
 
+## Ein Satz für die Hover-Karte eines Schlüsselworts.
+static func summary(id: String) -> String:
+	var e := entry(id)
+	if e.is_empty():
+		return ""
+	var key := String(e["id"])
+	if SUMMARIES.has(key):
+		return SUMMARIES[key]
+	return String(e["body"]).get_slice("
+", 0)
+
 static func has_entry(id: String) -> bool:
 	return not entry(id).is_empty()
 
@@ -149,6 +195,24 @@ static func linkify(text: String, exclude_id := "") -> String:
 ## Nur die Farbe, kein [url] - für Flächen, die (noch) keine Klicks bekommen.
 static func decorate(text: String, exclude_id := "") -> String:
 	return _mark(text, exclude_id, false)
+
+## Der Text als Stücke [{text, id}] - id "" für schlichten Text. Dieselbe
+## Erkennung wie linkify, aber ohne BBCode (für LexikonText).
+static func spans(text: String, exclude_id := "") -> Array[Dictionary]:
+	_build()
+	var out: Array[Dictionary] = []
+	var cursor := 0
+	for m in _pattern.search_all(text):
+		var id: String = _surfaces[m.get_string()]
+		if id == exclude_id:
+			continue
+		if m.get_start() > cursor:
+			out.append({"text": text.substr(cursor, m.get_start() - cursor), "id": ""})
+		out.append({"text": m.get_string(), "id": id})
+		cursor = m.get_end()
+	if cursor < text.length():
+		out.append({"text": text.substr(cursor), "id": ""})
+	return out
 
 static func _mark(text: String, exclude_id: String, clickable: bool) -> String:
 	_build()
@@ -230,7 +294,7 @@ static func _build_concepts() -> void:
 		"Die gewertete Hand eines Wurfs: Pasch, Straße, Full House und Verwandte. Was physisch liegt, gewinnt - die höchste Kategorie zählt, nie die punktreichste. Jede Kombination steht als Chip auf dem Filz und trägt drei Steckplätze für Module.",
 		CAT_BEGRIFFE)
 	_add(QUOTA, "Blind",
-		"Die Punktzahl, die eine Runde besteht. Er startet bei 150 und wächst je Runde um 10 % im ersten Block, um 15 % im zweiten, 20 % im dritten und so fort; gezeigt wird er abgerundet auf volle 25. Verträge heben oder senken ihn DAUERHAFT, jede sechste Runde ist eine Boss-Runde. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
+		"Die Punktzahl, die eine Runde besteht. Er startet bei 150 und wächst je Runde um 10 % im ersten Block, um 15 % im zweiten, 20 % im dritten und so fort; gezeigt wird er abgerundet auf volle 5. Verträge heben oder senken ihn DAUERHAFT, jede sechste Runde ist eine Boss-Runde. Was über das Ziel hinausgeht, füllt die Überladungs-Stufen.",
 		CAT_BEGRIFFE)
 	_add(UEBERLADUNG, "Überladung",
 		"Die Stufen über dem Blind: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in den Energie-Ring; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
@@ -270,6 +334,9 @@ static func _build_concepts() -> void:
 		CAT_BEGRIFFE)
 	_add(STECKPLATZ, "Steckplatz",
 		"Jeder Kombinations-Chip hat drei Steckplätze für Module - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Module gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",
+		CAT_BEGRIFFE)
+	_add(RAMPENLICHT, "Rampenlicht",
+		"Je Runde pulst eine Kombination golden. Wertest du sie, wächst sie dauerhaft um +1 Mult und +5 Basispunkte - einmal je Runde. Das Rampenlicht kommt vom gleichnamigen Charm oder aus einer Klausel; eine gedrosselte Kombination steht nie darin.",
 		CAT_BEGRIFFE)
 
 ## Item-Einträge aus den data/-Katalogen. Spiegel-Gravuren (Material/Rune/
@@ -317,8 +384,6 @@ static func _build_items() -> void:
 ## Wirkung, Phase, Seltenheit und Bezugsquelle eines Moduls.
 static func part_body(part: ComboPart) -> String:
 	var where := "Schwarzmarkt (⚡)" if part.secret else "Laden"
-	if part.id == ComboPart.RESISTOR:
-		where += ", Rampenlicht"
 	return "%s\nPhase: %s · Seltenheit: %s\nErhältlich: %s." % [part.description,
 		PART_PHASE_NAMES.get(part.phase, part.phase), part.rarity_name(), where]
 

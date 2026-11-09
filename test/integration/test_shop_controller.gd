@@ -1039,7 +1039,7 @@ func test_hovering_swaps_the_model_for_the_whole_effect_text() -> void:
 	shop.set_charm_hover(0, true)
 	assert_false(shop.charm_stages[0].visible, "das Modell weicht")
 	assert_true(shop.charm_effects[0].visible, "und der Text tritt an seine Stelle")
-	assert_eq(shop.charm_effects[0].text, shop.charm_options[0].description,
+	assert_eq(shop.charm_effects[0].source, shop.charm_options[0].description,
 		"ungekürzt - es gibt keinen Schirm, der nachreichte")
 	# Die Nachbarn bleiben, wie sie waren: gehovert ist immer nur eine Karte.
 	for i in range(1, shop.charm_buttons.size()):
@@ -1121,7 +1121,7 @@ func test_every_card_writes_the_same_grade() -> void:
 	await wait_frames(2)
 	var effect_px: int = shop.card_effect_px()
 	for effect in shop.charm_effects:
-		assert_eq(effect.get_theme_font_size("font_size"), effect_px,
+		assert_eq(effect.font_px, effect_px,
 			"die Wirkung steht auf jeder Karte gleich groß")
 
 func test_the_mid_area_is_the_same_on_every_card() -> void:

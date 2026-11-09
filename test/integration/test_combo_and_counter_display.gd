@@ -32,14 +32,14 @@ func test_the_cell_reports_what_was_written_into_it() -> void:
 	assert_eq(cell.points, values.x)
 	assert_eq(cell.mult, values.y)
 
-func test_the_spotlight_redemption_gifts_a_resistor() -> void:
+func test_the_spotlight_redemption_grows_the_combo() -> void:
 	# claim_spotlight ist die Buchung hinter der Zeremonie - je Runde einmal.
 	var run := GameRun.new_run()
 	var key: String = DiceScoring.HAND_PRIORITY[0]
 	run.spotlight_combo = key
 	run.spotlight_claimed_this_round = false
 	assert_true(run.claim_spotlight(key), "das Rampenlicht wird eingelöst")
-	assert_eq(run.pending_parts.size(), 1, "ein Widerstand wartet auf den Einbau")
+	assert_eq(run.growth_of(key), Vector2i(5, 1), "+5 Basispunkte, +1 Mult")
 	assert_false(run.claim_spotlight(key), "und nur einmal je Runde")
 
 func test_a_clause_spotlight_is_redeemable_without_any_charm() -> void:
@@ -49,7 +49,7 @@ func test_a_clause_spotlight_is_redeemable_without_any_charm() -> void:
 	run.spotlight_combo = key
 	run.spotlight_claimed_this_round = false
 	assert_true(run.claim_spotlight(key), "ohne Charm genauso einlösbar")
-	assert_eq(run.pending_parts[0].id, ComboPart.RESISTOR)
+	assert_eq(run.growth_of(key), Vector2i(5, 1))
 
 # --- Der Chip-Deckel ----------------------------------------------------------------
 

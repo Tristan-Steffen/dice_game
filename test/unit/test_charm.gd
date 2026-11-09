@@ -39,7 +39,7 @@ func test_all_returns_all_charms():
 	# Funkenstrecke.
 	# −3 mit dem Pointer als KOPIE: Zündspule, Rückkopplung und Erdungskabel.
 	# +4 mit den Fumbles: Pechvogel, Fumble-Rente, Galgenfrist, Schwarze Katze.
-	assert_eq(Charm.all().size(), 155)
+	assert_eq(Charm.all().size(), 154)
 
 func test_all_ids_are_unique():
 	var seen := {}

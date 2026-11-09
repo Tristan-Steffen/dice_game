@@ -93,7 +93,6 @@ const STAMP_MACHINE := "stamp_machine"
 const FINE_PRINT := "fine_print"
 # Pool & Trays
 const RECYCLING := "recycling"
-const FRESH_GOODS := "fresh_goods"
 const SEDIMENT := "sediment"
 # Shop & Angebote
 const SEAL_OF_QUALITY := "seal_of_quality"
@@ -358,7 +357,6 @@ const RARITIES := {
 	FINE_PRINT: RARITY_UNCOMMON,
 	# Pool & Trays
 	RECYCLING: RARITY_UNCOMMON,
-	FRESH_GOODS: RARITY_COMMON,
 	SEDIMENT: RARITY_UNCOMMON,
 	# Shop & Angebote
 	CON_ARTIST_CUFF: RARITY_COMMON,
@@ -651,7 +649,7 @@ static func free_drink() -> Charm:
 	return _make(FREE_DRINK, "Freigetränk", "+50 Basispunkte.")
 
 static func spotlight() -> Charm:
-	return _make(SPOTLIGHT, "Rampenlicht", "Je Runde pulst eine Kombination golden. Gewertet: ein Widerstand gratis.")
+	return _make(SPOTLIGHT, "Rampenlicht", "Je Runde eine Kombination im Rampenlicht.")
 
 static func full_counter() -> Charm:
 	return _make(FULL_COUNTER, "Vollzähler", "Alle liegenden Würfel werden gewertet.")
@@ -780,9 +778,6 @@ static func fine_print() -> Charm:
 
 static func recycling() -> Charm:
 	return _make(RECYCLING, "Bumerang", "Erste Hand der Runde geht unter den Nachziehstapel zurück.")
-
-static func fresh_goods() -> Charm:
-	return _make(FRESH_GOODS, "Frische Ware", "Essenz-Würfel liegen nach dem Mischen oben im Nachziehstapel.")
 
 static func sediment() -> Charm:
 	return _make(SEDIMENT, "Bodensatz", "Letzte 6 Würfel des Nachziehstapels: +4 Mult, wenn gewertet.")
@@ -1063,7 +1058,7 @@ static func all() -> Array[Charm]:
 		blood_diamond(), bone_glue(), bone_marrow(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(), rectifier(),
 		bargain_hunter(), stamp_machine(), fine_print(),
-		recycling(), fresh_goods(), sediment(),
+		recycling(), sediment(),
 		seal_of_quality(), bulk_discount(),
 		ad_drum(), shyster(),
 		parrot_totem(), echo_totem(), hermit_crab(),

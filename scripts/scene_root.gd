@@ -1749,6 +1749,10 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
+	# Schlüsselwörter im Wirkungstext: Laden-Karte und Dock-Karte schlagen nach.
+	charm_shop.lexikon_requested.connect(open_lexikon)
+	if table_screen != null and table_screen.charm_dock != null:
+		table_screen.charm_dock.lexikon_requested.connect(open_lexikon)
 	# Die Bucht: der Laden MELDET seine Auslage, die Körper stellt scene_root.
 	charm_shop.vitrine_changed.connect(_on_vitrine_changed)
 	# Der Vorhang hängt an der SEITENREGEL des Hubs, nicht nur am Laden-Ablauf:
@@ -2009,7 +2013,7 @@ func _refresh_combo_display(key: String) -> void:
 	if not combo_labels.has(key):
 		return
 	var row: ComboCellView = combo_labels[key]
-	var values := ComboPartEffects.display_values(run.scoring_parts(), key)
+	var values := ComboPartEffects.display_values(run.scoring_parts(), key) + run.growth_of(key)
 	row.set_score(values.x, values.y)
 	_sync_combo_chip(key)
 	_sync_combo_sockets(key)
@@ -2063,8 +2067,8 @@ func _play_clause_spotlight(combo_key: String) -> bool:
 	return phase == Phase.SCORING
 
 ## Rampenlicht eingelöst: Licht über die Leiterbahn an den Chip der
-## hervorgehobenen Kombination, danach erlischt das Rampenlicht - je Runde ein
-## geschenkter Widerstand (er wartet in pending_parts auf seinen Steckplatz).
+## hervorgehobenen Kombination, danach erlischt das Rampenlicht - die Zelle zeigt
+## ihr gewachsenes Grundwert-Paar erst bei der Ankunft.
 func _play_spotlight_gift(charm_index: int, combo_key: String) -> void:
 	_flash_charm_and_pad(charm_index)
 	if table_screen == null or not combo_labels.has(combo_key):
@@ -9845,6 +9849,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	if _exchange_forced() or _part_install_forced():
 		return false
 	var flying := camera_rig.is_animating
+	# Wirkungstext der Dock-Karte: Bewegung für die Hover-Karte, Klick nur aufs Schlüsselwort.
+	if not flying and table_screen.charm_dock != null 			and table_screen.charm_dock.text_takes_pixel(pixel, is_click):
+		return true
 	if debug_parts != null and TableScreen.window_takes_pixel(debug_parts, _window_rect(debug_parts),
 			pixel, is_click, false, flying):
 		return true
@@ -10837,6 +10844,7 @@ func _score_ctx() -> Dictionary:
 		# Leer, sobald das Rampenlicht diese Runde kassiert ist - dann bekommt
 		# es auch keinen Schritt mehr in der Zähl-Animation.
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
+		DiceScoring.CTX_COMBO_GROWTH: run.combo_growth,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
 		DiceScoring.CTX_SHUNTED: ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos),
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
@@ -13521,9 +13529,6 @@ func _commit_round() -> void:
 	# Mit der Unterschrift ist die Ladenzeit vorbei - der Knopf geht mit.
 	shop_reopen_allowed = false
 	_sync_shop_reopen_button()
-	# Zieh-Reihenfolge: die Partition zieht ihre Gruppe stabil nach vorn.
-	if CharmEffects.draws_essences_first(run.charm_ids()):
-		round_pool_kinds = _essences_first(round_pool_kinds)
 	_sync_editing_lock()
 	# Das RASTER darf nur stehen, solange der Vorrat stehen dürfte: das Zurren
 	# schließt es HART, sonst fände _sink_pool_tray einen schon versenkten Vorrat.
@@ -13536,18 +13541,6 @@ func _commit_round() -> void:
 	# füllt. (Das Zurren ist der eine Moment - Unterschrift ODER erster Wurf.)
 	_sink_pool_tray()
 	_refresh_deck_trays()
-
-## Sortiert beseelte Würfel stabil an den Anfang (Frische Ware) - die Seele ist
-## angeboren, also entscheidet allein essence_id.
-func _essences_first(pool: Array[DieDefinition]) -> Array[DieDefinition]:
-	var souls: Array[DieDefinition] = []
-	var rest: Array[DieDefinition] = []
-	for def in pool:
-		if def != null and def.essence_id != "":
-			souls.append(def)
-		else:
-			rest.append(def)
-	return souls + rest
 
 func _start_new_hand() -> void:
 	has_rolled_current_hand = false

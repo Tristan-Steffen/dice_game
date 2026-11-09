@@ -945,10 +945,6 @@ static func has_phoenix(charm_ids: Array[String]) -> bool:
 
 # --- Pool / Shop: Effektkatalog --------------------------------------------------
 
-## Frische Ware: beseelte Würfel liegen vorn im Nachziehstapel.
-static func draws_essences_first(charm_ids: Array[String]) -> bool:
-	return charm_ids.has(Charm.FRESH_GOODS)
-
 ## Bumerang: die erste genommene Hand jeder Runde kehrt in den Stapel zurück.
 static func recycles_first_hand(charm_ids: Array[String]) -> bool:
 	return charm_ids.has(Charm.RECYCLING)

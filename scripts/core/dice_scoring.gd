@@ -372,6 +372,12 @@ const CTX_RUNES := "runes"
 ## umgekehrt aus den Würfelpositionen gelesen - nur so sind Vorschau, Zug,
 ## Farkle-Vergleich und Zähl-Animation garantiert derselben Meinung.
 const CTX_PLAYER_ORDER := "player_order"
+## Dauerhaftes Wachstum je Kombination (Rampenlicht): key -> Vector2i(Basis, Mult).
+const CTX_COMBO_GROWTH := "combo_growth"
+
+## Wachstum der Kombination key aus dem ctx; es zählt zu ihrem Grundwert.
+static func combo_growth_in(ctx: Dictionary, key: String) -> Vector2i:
+	return ctx.get(CTX_COMBO_GROWTH, {}).get(key, Vector2i.ZERO)
 ## Rang eines Würfels, den die Ansage nicht nennt.
 const UNRANKED := 1 << 30
 
@@ -720,8 +726,9 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var tail_slot: int = shape["tail_slot"]
 	# Dreifacher Boden vervielfacht NUR die Basispunkte der Kategorie.
 	var combo_factor := CharmEffects.combo_factor(charm_ids)
-	var base := points_for(key) * combo_factor
-	var mult := float(mult_for(key))
+	var growth := combo_growth_in(ctx, key)
+	var base := (points_for(key) + growth.x) * combo_factor
+	var mult := float(mult_for(key) + growth.y)
 	# Kombi-Teile Steckplatz für Steckplatz, nach dem Dreifachen Boden; Brücken
 	# zünden weitere Kombinationen samt ihrer Teile.
 	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(CTX_THROTTLED, []))

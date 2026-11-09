@@ -28,6 +28,8 @@ signal vitrine_changed
 ## Ein Modul ist gekauft (gebucht in pending_parts): scene_root schickt es als
 ## Licht über die Hub-Cluster-Ader zu den Chips.
 signal part_purchased(from_px: Vector2)
+## Klick auf ein Schlüsselwort im Wirkungstext einer Charm-Karte.
+signal lexikon_requested(entry_id: String)
 
 ## Warengattungen der Bucht: der Laden nennt sie, die Bucht trägt sie durch und
 ## meldet sie beim Griff zurück - so bleibt der Kaufweg EIN Paar (Gattung, Index).
@@ -301,7 +303,7 @@ var charm_thumbs: Array[Control] = []
 ## Die zwei Gesichter der Mittelfläche je Karte: im Ruhezustand steht die Bühne
 ## mit dem Modell, beim Hover der Wirkungstext. Immer genau eines ist sichtbar.
 var charm_stages: Array[Control] = []
-var charm_effects: Array[Label] = []
+var charm_effects: Array[LexikonText] = []
 var charm_bought: Array[bool] = []
 ## Der Modul-Platz: Karte, Mittelfläche (Glyphe/Text) und Preiszeile je Teil.
 var part_options: Array[ComboPart] = []
@@ -1744,7 +1746,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	# weitergeleitet - der Knopf meldet seinen Hover also selbst. Ein gesperrter
 	# Knopf meldet ihn ebenso, seine Auskunft bleibt erreichbar.
 	card.mouse_entered.connect(set_charm_hover.bind(index, true))
-	card.mouse_exited.connect(set_charm_hover.bind(index, false))
+	card.mouse_exited.connect(_on_charm_card_exited.bind(card, index))
 
 	# Der Handler hängt an JEDER ungekauften Karte: ein voller Dock sperrt sie nur
 	# als Startzustand, ein Verkauf gibt sie ohne Neuverdrahtung wieder frei
@@ -1755,6 +1757,28 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 		card.disabled = true
 	charm_buttons.append(card)
 	return card
+
+## Ein Schlüsselwort im Text ist selbst ein Mausziel - der Knopf meldet beim
+## Betreten ein Verlassen. Zurück aufs Bild geht es erst, wenn der Zeiger wirklich
+## draußen ist, sonst flackert die Karte zwischen Bild und Text.
+func _on_charm_card_exited(_card: Control, index: int) -> void:
+	if not _pointer_on_card(index):
+		set_charm_hover(index, false)
+
+func _pointer_on_card(index: int) -> bool:
+	if index < 0 or index >= charm_buttons.size() or not is_instance_valid(charm_buttons[index]):
+		return false
+	var card := charm_buttons[index]
+	return card.is_visible_in_tree() \
+		and card.get_global_rect().has_point(card.get_global_mouse_position())
+
+## Der Rückweg aufs Bild, wenn der Knopf ihn verpaßt hat (sein Verlassen fiel
+## schon beim Betreten eines Schlüsselworts).
+func _process(_delta: float) -> void:
+	for i in charm_effects.size():
+		var effect := charm_effects[i]
+		if is_instance_valid(effect) and effect.visible and not _pointer_on_card(i):
+			set_charm_hover(i, false)
 
 ## Der TAUSCH auf der Karte: Modell weg, Text her - und zurück. Mehr passiert
 ## nicht, insbesondere bewegt sich kein Rechteck.
@@ -1796,11 +1820,28 @@ func _card_line(text: String, px: int, color: Color) -> Label:
 ## Der WIRKUNGSTEXT der Karte: umbrechend, mittig in der Mittelfläche. Er trägt
 ## die ganze Beschreibung - das ist die Auskunft, für die es früher einen Schirm
 ## gab, und beim Hover steht sie an der Stelle des Modells.
-func _card_effect(text: String, width: float, block: float, px: int, color: Color) -> Label:
-	var label := CasinoStyle.label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+## Die EINE Hover-Karte der Schlüsselwörter, ganz vorn im Baum - das letzte Kind
+## bleibt der jüngste Seitenaufbau, z_index hebt sie trotzdem nach oben.
+var _keyword_hint: HintCard
+
+func _keyword_hint_card(px: int) -> HintCard:
+	if _keyword_hint == null or not is_instance_valid(_keyword_hint) \
+			or _keyword_hint.is_queued_for_deletion():
+		_keyword_hint = HintCard.new(maxf(2.0, px / 2.5))
+		_keyword_hint.z_index = 10
+		add_child(_keyword_hint)
+		move_child(_keyword_hint, 0)
+	return _keyword_hint
+
+func _card_effect(text: String, width: float, block: float, px: int, color: Color) -> LexikonText:
+	var label := LexikonText.new()
+	label.center_h = true
+	label.center_v = true
 	label.custom_minimum_size = Vector2(width, block)
+	label.set_style(px, color)
+	label.set_source(text)
+	label.share_hint(self, _keyword_hint_card(px))
+	label.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
 	return label
 
 ## Kartenrahmen im Raritäts-Tint: Saum + weicher Außen-Glow (StyleBox-Schatten).
