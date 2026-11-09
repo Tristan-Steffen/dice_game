@@ -262,7 +262,7 @@ func set_hover(i: int) -> void:
 		if i < _thumbs.size() and _thumbs[i] != null:
 			_thumbs[i].visible = false
 		_name_label.text = _charms[i].display_name
-		_body_label.set_source(_charms[i].description)
+		_body_label.set_source(_charms[i].description, "charm:%s" % _charms[i].id)
 		if _body_label.hint == null and get_parent() != null:
 			_body_label.attach_hint(_hint_layer(), _card_size().y * 0.04)
 		_sell_label.text = ("Verkaufen $%d" % _sell_values[i]) if i < _sell_values.size() else ""

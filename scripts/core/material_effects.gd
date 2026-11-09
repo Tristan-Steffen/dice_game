@@ -82,8 +82,6 @@ class TakeReport:
 	var blocked: Array[int] = []
 	## Slots, aus denen ein Funke gesprungen ist - je Eintrag ein ⚡ der Salve.
 	var sparks: Array[int] = []
-	## Slots, deren Radon-Seele in diesem Zug eine Seite angefressen hat.
-	var decayed: Array[int] = []
 	## Materiallose Würfel dieser Hand - der Neonmarker schreibt sie als Runden-
 	## zähler fort (GameRun bucht, der Bericht meldet nur).
 	var bare_dice: int = 0
@@ -496,14 +494,6 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 		# halbiert, Gegenseite verdreifacht, beides dauerhaft.
 		_apply_contrast_agent(defs[i], face, essence_ids, charm_ids, report, i)
 
-		# Radon zerfällt beim AUSLÖSEN, nicht bei der Abrechnung - aber erst NACH
-		# allen Schreibvorgängen des Zuges: Knochen/Glas müssen exakt auf dem
-		# value_after der Simulation landen (Drift-Doktrin), DANN frisst die
-		# Strahlung. Einmal je Zug, nie je Auslösung; die laufende Kombination
-		# bleibt unberührt, ihre Werte sind längst im ctx festgehalten.
-		if EssenceEffects.decay_die(defs[i], charm_ids):
-			report.decayed.append(i)
-
 	if charm_ids.has(Charm.RECTIFIER):
 		_rectify_faces(defs, face_indices, participating, essences, report)
 
@@ -768,7 +758,7 @@ static func _spread_background_radiation(defs: Array[DieDefinition], participati
 
 ## Gleichrichter: die oberen Seiten aller gewerteten Würfel gehen dauerhaft auf
 ## ihren aufgerundeten Mittelwert. LETZTER Wertwandel des Zuges - nach Knochen,
-## Glas, Kontrastmittel, Zerfall und Miasma, damit er die Endwerte mittelt.
+## Glas, Kontrastmittel und Miasma, damit er die Endwerte mittelt.
 ## Geschützte Seiten (Stickstoff, Einbrand) dürfen nicht SCHRUMPFEN, zählen aber
 ## in den Mittelwert; Wachsen ist ihnen erlaubt.
 static func _rectify_faces(defs: Array[DieDefinition], face_indices: Array[int], participating: Array[int], essences: Dictionary, report: TakeReport) -> void:

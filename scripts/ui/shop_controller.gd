@@ -212,7 +212,7 @@ var die_labels: Control
 ## Die Zeile ÜBER der Bucht: Name/Seele und Preis je Würfel.
 var die_head: Control
 ## Die Auskunftszeile im AUSKUNFTS-BAND - ohne Hover unsichtbar.
-var net_footer: Label
+var net_footer: LexikonText
 ## Das AUSKUNFTS-BAND unter den Regalen: dort spricht der gegriffene Würfel
 ## (net_footer) ODER die gegriffene Karte (slit_info) - nie beide.
 var ware_foot: Control
@@ -823,10 +823,15 @@ static func wrapped_height(font: Font, text: String, width: float, px: int,
 # EIN Schreiber (scene_root entscheidet, wer spricht), leer = unsichtbar.
 
 func _build_net_footer() -> void:
-	net_footer = _wrapped_line(u * float(FOOTER_STEPS[0]), NEON_MUTED,
-		HORIZONTAL_ALIGNMENT_CENTER)
+	# Schlüsselwörter (Essenzen, Mult, Krit ...) sind Klickziele wie auf der
+	# Charm-Karte - die Zeile hält dafür, solange der Zeiger auf dem Band liegt.
+	net_footer = LexikonText.new()
 	net_footer.name = "NetFooter"
-	net_footer.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	net_footer.center_h = true
+	net_footer.center_v = true
+	net_footer.set_style(int(u * float(FOOTER_STEPS[0])), NEON_MUTED)
+	net_footer.share_hint(self, _keyword_hint_card(int(u * float(FOOTER_STEPS[0]))))
+	net_footer.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
 	net_footer.visible = false
 	ware_foot.add_child(net_footer)
 	_net_hint = ""
@@ -836,44 +841,50 @@ func _build_net_footer() -> void:
 		ware_foot.resized.connect(_redraw_foot, CONNECT_ONE_SHOT)
 
 ## Die Zeile des Bandes.
-func set_net_hint(text: String) -> void:
+func set_net_hint(text: String, exclude_id := "") -> void:
 	if net_footer == null or not is_instance_valid(net_footer) \
 			or ware_foot == null or not is_instance_valid(ware_foot):
 		return
-	if text == _net_hint:
+	if text == _net_hint and exclude_id == _net_exclude:
 		return
 	_net_hint = text
+	_net_exclude = exclude_id
 	_redraw_foot()
+
+## Der eigene Eintrag der gezeigten Ware: ihr Name verweist nicht auf sich selbst.
+var _net_exclude := ""
 
 func _redraw_foot() -> void:
 	if net_footer == null or not is_instance_valid(net_footer):
 		return
 	var text := _net_hint if _net_hint != "" else bet_notice
-	net_footer.text = text
+	net_footer.set_source(text, _net_exclude if _net_hint != "" else "")
 	net_footer.visible = text != ""
-	net_footer.add_theme_color_override("font_color",
-		NEON_GREEN if _net_hint == "" else NEON_MUTED)
 	if text == "":
 		return
 	# Der Platz wird beim ANZEIGEN gerechnet: erst dann steht das Band gemessen da.
 	var field := ware_foot.size
 	var margin := u * FOOTER_MARGIN
 	var room := Vector2(maxf(field.x - margin * 2.0, 1.0), maxf(field.y, 1.0))
-	var font := ThemeDB.fallback_font
-	var px := maxi(8, int(u * float(FOOTER_STEPS[FOOTER_STEPS.size() - 1])))
-	if font != null:
-		px = _footer_font(font, text, room, u)
-	_lay_wrapped(net_footer, px, Vector2(margin, 0.0), room)
+	var px := _footer_font(room, u)
+	net_footer.position = Vector2(margin, 0.0)
+	net_footer.size = room
+	net_footer.set_style(px, NEON_GREEN if _net_hint == "" else NEON_MUTED)
 
 ## Der Grad der Zeile: der größte, in dem sie umgebrochen noch ins Band paßt.
-func _footer_font(font: Font, text: String, block: Vector2, bay_u: float) -> int:
+func _footer_font(block: Vector2, bay_u: float) -> int:
 	var smallest := maxi(8, int(bay_u * float(FOOTER_STEPS[FOOTER_STEPS.size() - 1])))
-	var lead := net_footer.get_theme_constant("line_spacing")
 	for step in FOOTER_STEPS:
 		var px := maxi(8, int(bay_u * float(step)))
-		if wrapped_height(font, text, block.x, px, lead) <= block.y:
+		if net_footer.measure(block.x, px) <= block.y:
 			return px
 	return smallest
+
+## Hält der Zeiger die Zeile? Ein Schlüsselwort darin muß erreichbar bleiben,
+## also spricht die Ware weiter, solange er auf dem gefüllten Band liegt.
+func foot_holds(pixel: Vector2) -> bool:
+	return net_footer != null and is_instance_valid(net_footer) and net_footer.visible \
+		and _net_hint != "" and ware_foot.get_global_rect().has_point(pixel)
 
 ## Der EINE Schreiber der Auskunft der Bucht (null = nichts gegriffen): ein Würfel
 ## nennt Name, Seele und Wirkung, ein Modul Name, Phase, Wirkung und Preis.
@@ -887,11 +898,15 @@ func set_ware_hover(item: Object) -> void:
 		return
 	_foot_die_key = key
 	var text := ""
+	var own := ""
 	if item is DieDefinition:
 		text = die_foot_text(item)
+		if (item as DieDefinition).essence_id != "":
+			own = "essence:%s" % (item as DieDefinition).essence_id
 	elif item is ComboPart:
 		text = part_foot_text(item)
-	set_net_hint(text)
+		own = "part:%s" % (item as ComboPart).id
+	set_net_hint(text, own)
 
 ## Die Auskunft eines Moduls als EINE Zeile.
 func part_foot_text(part: ComboPart) -> String:
@@ -1730,7 +1745,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	# Grad aller Karten. Auch eine gekaufte oder gesperrte Karte tauscht: der Text
 	# ist dann erst recht die einzige Auskunft.
 	var effect := _card_effect(charm.description, text_width, mid_h, card_effect_px(),
-		NEON_MUTED)
+		NEON_MUTED, "charm:%s" % charm.id)
 	effect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	effect.visible = false
 	mid.add_child(effect)
@@ -1833,13 +1848,14 @@ func _keyword_hint_card(px: int) -> HintCard:
 		move_child(_keyword_hint, 0)
 	return _keyword_hint
 
-func _card_effect(text: String, width: float, block: float, px: int, color: Color) -> LexikonText:
+func _card_effect(text: String, width: float, block: float, px: int, color: Color,
+		own := "") -> LexikonText:
 	var label := LexikonText.new()
 	label.center_h = true
 	label.center_v = true
 	label.custom_minimum_size = Vector2(width, block)
 	label.set_style(px, color)
-	label.set_source(text)
+	label.set_source(text, own)
 	label.share_hint(self, _keyword_hint_card(px))
 	label.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
 	return label

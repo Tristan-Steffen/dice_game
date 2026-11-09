@@ -7661,6 +7661,9 @@ func _sync_vitrine_net_hover() -> void:
 	if pixel.x < 0.0:
 		charm_shop.set_die_hover(null)
 		return
+	# Auf dem Auskunfts-Band bleibt die Zeile stehen - ihre Schlüsselwörter sind Klickziele.
+	if charm_shop.foot_holds(pixel):
+		return
 	# Die Ware spricht, ob man sie selbst oder ihre Zeile darunter berührt.
 	var item := _bay_item_at(shop_vitrine, rect, pixel)
 	var ware: Object = _vitrine_die_at(item)
@@ -7670,7 +7673,16 @@ func _sync_vitrine_net_hover() -> void:
 		ware = charm_shop.die_at_net(pixel)
 	if ware == null:
 		ware = charm_shop.part_at_net(pixel)
+	# Nachlauf: auf dem Weg von der Ware zum Band bleibt die Zeile kurz stehen.
+	var now := Time.get_ticks_msec()
+	if ware != null:
+		_ware_hover_seen_ms = now
+	elif now - _ware_hover_seen_ms < WARE_HOVER_LINGER_MS:
+		return
 	charm_shop.set_ware_hover(ware)
+
+const WARE_HOVER_LINGER_MS := 600
+var _ware_hover_seen_ms := -100000
 
 ## Das gegriffene Modul der Ladenbucht (null für alles andere).
 func _vitrine_part_at(item: Dictionary) -> ComboPart:
@@ -7847,7 +7859,8 @@ func _secret_window() -> SecretShopView:
 ## also nie - gefragt wird der Reihe nach, wer den Punkt hat.
 func _forward_vitrine_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
 	if _forward_bay_mouse(shop_vitrine, _shop_bay_rect(), event, pixel,
-			_buy_vitrine_item):
+			_buy_vitrine_item,
+			charm_shop.foot_holds if charm_shop != null else Callable()):
 		return true
 	# GEKAUFT wird nur an der eigenen Station (die Wett-Tresen-Regel, zweite benannte
 	# Ausnahme von "Sichtbar heißt bedienbar"): aus der Ferne fällt der Klick durch
@@ -11900,8 +11913,8 @@ func _on_take_button_pressed() -> void:
 	# Seelen-Geld), ist längst gebucht - Paket für Paket in seinem Moment.
 	var take_money := report.money
 	if not report.grown.is_empty() or not report.shrunk.is_empty() \
-			or not report.decayed.is_empty() or report.discard_grown:
-		# Knochen/Glas/Radon haben Pool-Würfel verändert - die in der Grube
+			or report.discard_grown:
+		# Knochen/Glas haben Pool-Würfel verändert - die in der Grube
 		# liegenden Würfel zeigen ihre neuen Zahlen sofort (refresh_faces).
 		run.note_pool_changed()
 

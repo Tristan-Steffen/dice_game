@@ -10,7 +10,7 @@ class_name EssenceEffects
 ## Mehr Achsen gibt es nicht, darum kann nichts explodieren.
 
 ## Radon strahlt auf jeden anderen Würfel der Kombination; die Bleischürze hebt
-## den Satz und nimmt dem Würfel gleichzeitig den Zerfall.
+## den Satz (der Eigen-Zerfall ist am 2026-11-09 gestorben).
 const RADON_EYE_BONUS := 2
 const RADON_EYE_BONUS_SHIELDED := 3
 
@@ -378,7 +378,7 @@ static func firedamp_base_of(essence_ids: Array[String], crits_before: int) -> i
 	return total
 
 ## Stickstoff: die Seiten dieses Würfels verlieren nie an Wert (Glas schrumpft
-## nicht, Zerfall greift nicht).
+## nicht).
 static func protects_face_value(essence_id: String) -> bool:
 	return essence_id == Essence.NITROGEN
 
@@ -541,33 +541,6 @@ static func bare_die_money_of(essence_ids: Array[String], bare_dice: int,
 	if charm_ids.has(Charm.HIGHLIGHTER):
 		money += maxi(0, round_bare_dice)
 	return money
-
-## Zerfällt die Essenz eigene Seiten? (Radon, je Abrechnung.) Die Bleischürze
-## nimmt dem Strahler genau diesen Preis ab.
-static func decays(essence_id: String, charm_ids: Array[String] = []) -> bool:
-	return essence_id == Essence.RADON and not charm_ids.has(Charm.LEAD_APRON)
-
-## Radon-Zerfall EINES Würfels: eine zufällige Seite verliert ein Auge, sobald
-## der Würfel in der genommenen Kombination liegt. Der Zerfall reitet damit auf
-## dem AUSLÖSER, nicht auf der Abrechnung - ein Radon-Würfel, der nie gespielt
-## wird, zerfällt auch nicht.
-## Kandidaten sind nur Seiten, die wirklich verlieren KÖNNEN - sonst würfelt sich
-## die Strafe an Boden- und Einbrand-Seiten zufällig selbst weg.
-## true, wenn eine Seite geschrumpft ist.
-static func decay_die(die: DieDefinition, charm_ids: Array[String] = []) -> bool:
-	if die == null or not decays(die.essence_id, charm_ids):
-		return false
-	var candidates: Array[int] = []
-	for face in die.faces.size():
-		if die.faces[face] <= EtchingEffects.MIN_FACE_VALUE:
-			continue
-		if RuneEffects.protects_face_value(die.runes_on(face)):
-			continue
-		candidates.append(face)
-	if candidates.is_empty():
-		return false
-	die.faces[candidates[randi() % candidates.size()]] -= 1
-	return true
 
 # --- Quintessenz: EINE Aggregation, nie verstreute Sonderfälle ------------------
 

@@ -398,7 +398,7 @@ func test_hovering_a_net_cell_swaps_the_foot_body() -> void:
 		"die Zelle schreibt ihre eigene Zeile in den Body")
 	# Zurück auf die Beschreibung, sobald keine Zelle mehr getroffen ist.
 	view.foot_hover(view.foot_body.get_global_rect().get_center())
-	assert_eq(view.foot_body.text, Lexikon.linkify(String(data["body"])),
+	assert_eq(view.foot_body.text, String(data["body"]),
 		"neben dem Netz steht die Beschreibung wieder")
 
 # --- Die stehenden Schilder der Bucht -------------------------------------------

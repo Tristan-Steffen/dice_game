@@ -815,7 +815,7 @@ static func amalgam() -> Charm:
 	return _make(AMALGAM, "Amalgam", "Quecksilberdampf: +2 Auslösungen.")
 
 static func lead_apron() -> Charm:
-	return _make(LEAD_APRON, "Bleischürze", "Radon zerfällt nicht und bestrahlt mit +3 Augen je Mitwürfel.")
+	return _make(LEAD_APRON, "Bleischürze", "Radon: +3 statt +2 Augen je Mitwürfel.")
 
 static func storm_glass() -> Charm:
 	return _make(STORM_GLASS, "Sturmglas", "Elmsfeuer: jede Runde gilt als Boss-Runde.")

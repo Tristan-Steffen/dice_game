@@ -413,18 +413,6 @@ func test_a_unique_is_never_offered_twice():
 
 # --- Rundenzustand im GameRun -------------------------------------------------------
 
-func test_radon_decays_one_face_when_it_triggers():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.RADON
-	var before := 0
-	for value in die.faces:
-		before += value
-	assert_true(EssenceEffects.decay_die(die), "der Zerfall greift")
-	var after := 0
-	for value in die.faces:
-		after += value
-	assert_eq(after, before - 1, "eine zufällige Seite verliert ein Auge")
 
 func test_owned_essence_ids_lists_every_soul_once():
 	var run := GameRun.new_run()

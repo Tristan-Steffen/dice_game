@@ -58,3 +58,9 @@ func test_lines_break_and_punctuation_sticks_to_its_keyword() -> void:
 	assert_eq(comma.text, ",")
 	assert_eq(comma.position.y, basis.position.y, "das Komma bleibt in der Zeile seines Worts")
 	assert_gt(label.measure(60, label.font_px), label.measure(600, label.font_px), "schmal heißt mehr Zeilen")
+
+func test_the_own_entry_is_not_linked() -> void:
+	var label := _text()
+	label.set_source("Normal · Xenon - Jede Auslösung: Krit ×1,5.", "essence:%s" % Essence.XENON)
+	assert_null(_keyword(label, "essence:%s" % Essence.XENON), "der eigene Name verweist nicht auf sich")
+	assert_not_null(_keyword(label, Lexikon.KRIT), "fremde Wörter bleiben Verweise")

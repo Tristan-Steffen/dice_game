@@ -228,15 +228,11 @@ func test_magnetic_trap_turns_antimatter_positive():
 	assert_eq(EssenceEffects.eye_value_of(ids, 5, _ids([Charm.MAGNETIC_TRAP])), 5)
 	assert_almost_eq(EssenceEffects.crit_of(ids, 5), 5.0, 0.0001, "der Krit bleibt")
 
-func test_lead_apron_raises_the_radiation_and_stops_the_decay():
+func test_lead_apron_raises_the_radiation():
 	var soul := _ids([Essence.RADON])
 	assert_eq(EssenceEffects.radon_eye_gift(soul), EssenceEffects.RADON_EYE_BONUS)
 	assert_eq(EssenceEffects.radon_eye_gift(soul, _ids([Charm.LEAD_APRON])),
 		EssenceEffects.RADON_EYE_BONUS_SHIELDED)
-	var die := _die_with(Essence.RADON)
-	assert_false(EssenceEffects.decay_die(die, _ids([Charm.LEAD_APRON])), "kein Zerfall unter Blei")
-	assert_eq(die.faces, DieDefinition.standard().faces)
-	assert_true(EssenceEffects.decay_die(die), "ohne Schürze frisst die Strahlung weiter")
 
 func test_pressure_vessel_swells_by_percent():
 	var ids := _ids([Essence.RADIATION_PRESSURE])

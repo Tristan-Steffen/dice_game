@@ -119,13 +119,6 @@ func test_only_the_named_test_helpers_may_deal_souls():
 	for die in run.owned_pool:
 		assert_eq(die.essence_id, "", "und nimmt sie wieder weg")
 
-func test_the_radon_decay_never_rewrites_a_soul():
-	var run := _souled_run()
-	run.owned_pool[0].essence_id = Essence.RADON
-	var before := _souls_of(run)
-	EssenceEffects.decay_die(run.owned_pool[0])
-	assert_eq(_souls_of(run), before, "Zerfall frisst Augen, nicht die Seele")
-
 func test_the_round_state_never_rewrites_a_soul():
 	var run := _souled_run()
 	var before := _souls_of(run)

@@ -188,16 +188,6 @@ func test_burn_in_survives_a_take():
 	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.GLASS]), _p([0]))
 	assert_eq(def.faces[0], 5, "auch beim Nehmen bleibt der Wert stehen")
 
-func test_burn_in_skips_the_radon_decay():
-	var run := GameRun.new_run()
-	var die := run.owned_pool[0]
-	die.essence_id = Essence.RADON
-	for face in 6:
-		die.set_rune(face, Rune.BURN_IN)
-	var before := die.faces.duplicate()
-	assert_false(EssenceEffects.decay_die(die), "kein Kandidat, kein Zerfall")
-	assert_eq(die.faces, before, "eingebrannte Seiten zerfallen nicht")
-
 # --- Funkenflug: +1 ⚡ je Zug ---------------------------------------------------------
 
 func test_spark_flight_pays_one_energy():

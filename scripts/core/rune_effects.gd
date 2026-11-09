@@ -34,8 +34,8 @@ static func extra_activations(rune_ids: Array[String], charm_ids: Array[String] 
 			extra += burin_factor(charm_ids)
 	return extra
 
-## Einbrand: der Wert dieser Seite ist eingebrannt - er schrumpft nicht (Glas,
-## Radon-Zerfall) und ihr Material lässt sich nicht übermalen.
+## Einbrand: der Wert dieser Seite ist eingebrannt - er schrumpft nicht (Glas)
+## und ihr Material lässt sich nicht übermalen.
 static func protects_face_value(rune_ids: Array[String]) -> bool:
 	return rune_ids.has(Rune.BURN_IN)
 

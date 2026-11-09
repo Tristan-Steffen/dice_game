@@ -1451,11 +1451,8 @@ func test_the_longest_hint_chain_fits_the_footer() -> void:
 	var worst := _longest_hint()
 	shop.set_net_hint(worst)
 	assert_eq(shop.net_footer.text, worst, "nichts wird beschnitten")
-	var px: int = shop.net_footer.get_theme_font_size("font_size")
-	var lead: int = shop.net_footer.get_theme_constant("line_spacing")
-	assert_lte(ShopController.wrapped_height(ThemeDB.fallback_font, worst,
-		shop.net_footer.size.x, px, lead), shop.net_footer.size.y,
-		"die Zeile bleibt im Fuß")
+	assert_lte(shop.net_footer.measure(shop.net_footer.size.x, shop.net_footer.font_px),
+		shop.net_footer.size.y, "die Zeile bleibt im Fuß")
 
 ## Die längste real konstruierbare hint_for-Kette: veredeltes Material und drei
 ## Runen auf einer Vakuum-Seite.

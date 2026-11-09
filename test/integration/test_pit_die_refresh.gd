@@ -74,39 +74,10 @@ func test_an_untouched_die_keeps_its_number() -> void:
 	dice.refresh_faces()
 	assert_eq(_shown(1), before, "der unbeteiligte Würfel bleibt, wie er lag")
 
-# --- Radon: der Zerfall reitet auf dem Auslöser ------------------------------------
+# --- Radon zerfällt nicht (Spieler-Entscheid 2026-11-09) ---------------------------
 
-func test_radon_decays_in_the_take_that_triggers_it() -> void:
+func test_radon_keeps_its_own_faces_when_it_triggers() -> void:
 	defs[0].essence_id = Essence.RADON
-	var before := 0
-	for value in defs[0].faces:
-		before += value
-	var report := _take(_m(["", ""]), _p([0]))
-	assert_eq(report.decayed, [0] as Array[int], "der Zerfall fällt in DIESEN Zug")
-	var after := 0
-	for value in defs[0].faces:
-		after += value
-	assert_eq(after, before - 1, "genau ein Auge weniger")
-
-func test_radon_that_never_played_does_not_decay() -> void:
-	# Der Zerfall reitet auf dem Auslöser: wer nicht mitwertet, zerfällt nicht.
-	defs[1].essence_id = Essence.RADON
-	var before := defs[1].faces.duplicate()
-	var report := _take(_m(["", ""]), _p([0]))
-	assert_eq(report.decayed.size(), 0)
-	assert_eq(defs[1].faces, before, "der liegengebliebene Radon-Würfel bleibt heil")
-
-func test_a_soulless_die_never_decays() -> void:
 	var before := defs[0].faces.duplicate()
-	var report := _take(_m(["", ""]), _p([0]))
-	assert_eq(report.decayed.size(), 0)
-	assert_eq(defs[0].faces, before)
-
-func test_the_decay_shows_on_the_lying_dice() -> void:
-	defs[0].essence_id = Essence.RADON
 	_take(_m(["", ""]), _p([0]))
-	dice.refresh_faces()
-	for face in 6:
-		if face == TOP_FACE:
-			assert_eq(_shown(0), str(defs[0].faces[TOP_FACE]),
-				"was die Def sagt, steht auf dem Würfel")
+	assert_eq(defs[0].faces, before, "der Strahler selbst bleibt heil")

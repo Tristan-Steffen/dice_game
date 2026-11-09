@@ -118,7 +118,7 @@ var _charm_hovered := false
 var info_foot: Control
 var foot_net: CenterContainer
 var foot_title: Label
-var foot_body: RichTextLabel
+var foot_body: LexikonText
 var _foot_key := ""
 ## Das Netz im Fuß ist HOVERBAR: gemerkt werden sein Würfel, sein Zellmaß, sein
 ## Körper (das Rechteck sitzt mittig im Container) und die zuletzt gezeigte Zelle -
@@ -129,6 +129,9 @@ var _foot_net_cell_px := 0.0
 var _foot_face := -1
 ## Der nackte Beschreibungstext, auf den die Zelle zurückfällt.
 var _foot_body_naked := ""
+var _foot_body_width := 100.0
+## Der eigene Lexikon-Eintrag der gezeigten Ware (ihr Name verweist nicht auf sich).
+var _foot_own := ""
 ## Der laufende Verweil-/Fade-Tween des Fußes (null = er steht oder ist leer).
 var _foot_fade_tween: Tween = null
 var _plate_layer: Control
@@ -328,15 +331,10 @@ func _build_info_foot(root: Container) -> void:
 	foot_title.visible = false
 	column.add_child(foot_title)
 
-	foot_body = RichTextLabel.new()
-	foot_body.bbcode_enabled = true
-	foot_body.fit_content = true
-	foot_body.scroll_active = false
-	# STOP, nicht PASS: die Schlüsselwörter sind Klickziele.
-	foot_body.mouse_filter = Control.MOUSE_FILTER_STOP
-	foot_body.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	foot_body.meta_clicked.connect(func(meta: Variant) -> void:
-		lexikon_requested.emit(String(meta)))
+	# Die Schlüsselwörter sind Klickziele (Wort-Labels, siehe LexikonText).
+	foot_body = LexikonText.new()
+	foot_body.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
+	foot_body.attach_hint(self, u * 0.9)
 	foot_body.visible = false
 	column.add_child(foot_body)
 
@@ -358,6 +356,7 @@ func show_bay_annotation(data: Dictionary, _anchor: Vector2) -> void:
 		return
 	_foot_key = key
 	_foot_body_naked = naked
+	_foot_own = String(data.get("own", ""))
 	_foot_face = -1
 	foot_title.text = String(data.get("title", ""))
 	foot_title.visible = foot_title.text != ""
@@ -388,9 +387,9 @@ func show_bay_annotation(data: Dictionary, _anchor: Vector2) -> void:
 			if ShopController.wrapped_height(font, naked, body_width, px, 0) <= room:
 				grade = px
 				break
-	CasinoStyle.style_rich_body(foot_body, grade)
-	foot_body.text = Lexikon.linkify(naked)
-	foot_body.visible = naked != ""
+	_foot_body_width = body_width
+	foot_body.set_style(grade, CasinoStyle.CREAM, 2, CasinoStyle.INK)
+	_set_foot_body(naked)
 
 ## Der Fuß räumt NICHT sofort: er verweilt FOOT_LINGER_TIME und fadet dann in
 ## FOOT_FADE_TIME aus - der Zeiger darf unterwegs sein (Stück → Netz-Zellen).
@@ -464,12 +463,14 @@ func _restore_foot_body() -> void:
 
 func _write_foot_body() -> void:
 	var line := DieNetView.hint_for(_foot_net_def, _foot_face) if _foot_face != -1 else ""
-	if line == "":
-		foot_body.text = Lexikon.linkify(_foot_body_naked)
-		foot_body.visible = _foot_body_naked != ""
-		return
-	foot_body.text = line  # plain: eine Materialzeile ist kein Lexikon-Text
-	foot_body.visible = true
+	_set_foot_body(line if line != "" else _foot_body_naked)
+
+## Wort-Labels haben kein eigenes Maß - die Spalte bekommt die gesetzte Höhe.
+func _set_foot_body(text_in: String) -> void:
+	foot_body.set_source(text_in, _foot_own)
+	foot_body.custom_minimum_size = Vector2(_foot_body_width,
+		foot_body.measure(_foot_body_width, foot_body.font_px))
+	foot_body.visible = text_in != ""
 
 ## Der Zeiger liegt auf der Charm-Karte (gemeldet je Bild): dann trägt der Fuß
 ## Name und Wirkung des Charms - dieselbe Auskunft wie bei der Bucht-Ware, an
@@ -495,7 +496,7 @@ func charm_foot_data() -> Dictionary:
 	if run == null or seat < 0:
 		return {}
 	var charm: Charm = run.secret_stock[seat][GameRun.OFFER_ITEM]
-	return {"title": charm.display_name, "body": charm.description}
+	return {"title": charm.display_name, "body": charm.description, "own": "charm:%s" % charm.id}
 
 ## Ob der globale Display-Pixel auf dem GEFÜLLTEN Fuß liegt. Der Zeiger muss vom
 ## Stück auf seine Auskunft wandern dürfen - die Schlüsselwörter sind Klickziele -,
@@ -631,10 +632,12 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 			data["title"] = "%s-Würfel" % essence.display_name
 			data["body"] = "%s\n%s" % [essence.short, essence.description]
 			data["net"] = die
+			data["own"] = "essence:%s" % die.essence_id
 		GameRun.KIND_PART:
 			var part: ComboPart = offer[GameRun.OFFER_ITEM]
 			data["title"] = part.display_name
 			data["body"] = part.description
+			data["own"] = "part:%s" % part.id
 		GameRun.KIND_CATALYST, GameRun.KIND_BLANK:
 			var card_pack: Pack = offer[GameRun.OFFER_ITEM]
 			data["title"] = card_pack.display_name

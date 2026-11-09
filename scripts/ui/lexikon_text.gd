@@ -9,6 +9,10 @@ signal entry_requested(id: String)
 
 ## Der unmarkierte Quelltext.
 var source := ""
+## Lesbar wie ein Label (Tests und alte Aufrufer fragen .text).
+var text: String:
+	get:
+		return source
 ## Eintrag unter dem Zeiger ("" = keiner).
 var hovered_id := ""
 var hint: HintCard
@@ -35,10 +39,11 @@ func set_style(px: int, tint: Color, outline_px := 0, outline_tint := Color.BLAC
 	outline_color = outline_tint
 	_rebuild()
 
-func set_source(text_in: String) -> void:
+## exclude_id: der eigene Eintrag - sein Name im Text verweist nicht auf sich selbst.
+func set_source(text_in: String, exclude_id := "") -> void:
 	source = text_in
 	_drop_hover()
-	_words = _split_words(text_in)
+	_words = _split_words(text_in, exclude_id)
 	_rebuild()
 
 ## Die Hover-Karte wohnt auf stage (sie darf über die eigene Fläche hinausragen).
@@ -69,10 +74,10 @@ func keyword_at(point: Vector2) -> String:
 
 # --- Satz -------------------------------------------------------------------------
 
-static func _split_words(text_in: String) -> Array:
+static func _split_words(text_in: String, exclude_id := "") -> Array:
 	var words: Array = []
 	var current: Array = []
-	for span in Lexikon.spans(text_in):
+	for span in Lexikon.spans(text_in, exclude_id):
 		var id: String = span["id"]
 		if id != "":
 			current.append({"text": span["text"], "id": id})
