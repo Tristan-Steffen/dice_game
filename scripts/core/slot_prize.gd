@@ -20,10 +20,10 @@ static func pack_type_of(kind_value: int) -> String:
 
 ## Anzeigename der Paketsorte eines Symbols; count steuert den Plural.
 static func pack_name(kind_value: int, count: int = 1) -> String:
-	var type_name := String(Pack.TYPE_NAMES.get(pack_type_of(kind_value), "Paket"))
-	return type_name if count == 1 else type_name + "e"
+	var type_name := String(Pack.TYPE_NAMES.get(pack_type_of(kind_value), "Karte"))
+	return type_name if count == 1 else Pack.plural(type_name)
 
-## Derselbe Name MIT Paketgröße ("2 Große Zahlen-Pakete"). Der Automat ist neben
+## Derselbe Name MIT Kartengröße ("2 Große Zahlen-Karten"). Der Automat ist neben
 ## dem Laden die zweite Größenquelle, darum muss die Größe überall dranstehen, wo
 ## er seine Beute nennt - sie ist der ganze Unterschied zwischen einer 4er- und
 ## einer 6er-Reihe.

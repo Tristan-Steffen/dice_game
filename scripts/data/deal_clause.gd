@@ -56,6 +56,8 @@ const SOUL_MARKET := "soul_market"
 const FREE_FLIP := "free_flip"
 const BUYBACK := "buyback"
 const REINSURANCE := "reinsurance"
+const LUCKY_GRAB := "lucky_grab"
+const SUPPLEMENT := "supplement"
 
 # Bonus, Stufe 2
 const HIGH_VOLTAGE := "high_voltage"
@@ -77,6 +79,7 @@ const BACK_ROOM_CONTACT := "back_room_contact"
 const LOADED_REELS := "loaded_reels"
 const COLD_PRESS := "cold_press"
 const BIG_STORAGE := "big_storage"
+const BONUS_PICK := "bonus_pick"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
@@ -87,6 +90,7 @@ const LUCKY_CHILD := "lucky_child"
 const REGULAR_CUSTOMER := "regular_customer"
 const SPECIAL_DELIVERY := "special_delivery"
 const HIGH_TABLE := "high_table"
+const FREE_HAND := "free_hand"
 
 # Malus, Stufe 1
 const QUOTA_SURCHARGE := "quota_surcharge"
@@ -100,6 +104,7 @@ const STANDING_CURRENT := "standing_current"
 const EMPTY_SHELVES := "empty_shelves"
 const SOULLESS := "soulless"
 const FLIP_SURCHARGE := "flip_surcharge"
+const SEALED := "sealed"
 
 # Malus, Stufe 2
 const QUOTA_SURCHARGE_II := "quota_surcharge_ii"
@@ -304,7 +309,7 @@ static func lucky_day() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_SHOP, TAG_LUCK])
 
 static func bulk_order() -> DealClause:
-	return _bonus(BULK_ORDER, "Großauftrag", "Karten im Laden öfter Groß und Kolossal.",
+	return _bonus(BULK_ORDER, "Großauftrag", "Karten in Paketen öfter Groß und Kolossal.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func connoisseur_eye() -> DealClause:
@@ -333,7 +338,7 @@ static func regular_customer() -> DealClause:
 		Scope.BLOCK, Tier.THREE, [TAG_SHOP])
 
 static func special_delivery() -> DealClause:
-	return _bonus(SPECIAL_DELIVERY, "Sonderlieferung", "Laden führt sicher einen Sonderposten.",
+	return _bonus(SPECIAL_DELIVERY, "Sonderlieferung", "Laden führt sicher eine Sonder-Karte.",
 		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
 static func back_room_contact() -> DealClause:
@@ -360,10 +365,30 @@ static func big_storage() -> DealClause:
 	return _bonus(BIG_STORAGE, "Großer Speicher", "Börse dauerhaft +5 ⚡ Platz.",
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
+static func lucky_grab() -> DealClause:
+	return _bonus(LUCKY_GRAB, "Glücksgriff", "Pakete: Glückswurf-Chancen verdoppelt.",
+		Scope.ROUND, Tier.ONE, [TAG_SHOP, TAG_LUCK])
+
+static func supplement() -> DealClause:
+	return _bonus(SUPPLEMENT, "Beipack", "Jedes Paket zeigt eine Option mehr.",
+		Scope.ROUND, Tier.ONE, [TAG_SHOP])
+
+static func bonus_pick() -> DealClause:
+	return _bonus(BONUS_PICK, "Zugabe", "Jedes Paket: eine Wahl mehr.",
+		Scope.ROUND, Tier.TWO, [TAG_SHOP])
+
+static func free_hand() -> DealClause:
+	return _bonus(FREE_HAND, "Freie Hand", "Erstes Paket: alle Optionen nehmen.",
+		Scope.ROUND, Tier.THREE, [TAG_SHOP])
+
 # --- Malusklauseln ------------------------------------------------------------
 
+static func sealed() -> DealClause:
+	return _malus(SEALED, "Verplombt", "Jedes Paket zeigt eine Option weniger.",
+		Scope.ROUND, Tier.ONE, [TAG_SHOP])
+
 static func empty_shelves() -> DealClause:
-	return _malus(EMPTY_SHELVES, "Leere Regale", "Laden: −1 Karte, −1 Würfel.",
+	return _malus(EMPTY_SHELVES, "Leere Regale", "Laden: −1 Paket, −1 Würfel.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func shelf_warmer() -> DealClause:
@@ -527,6 +552,7 @@ static func all() -> Array[DealClause]:
 		back_room_contact(), loaded_reels(), reinsurance(), high_table(),
 		cold_press(), big_storage(),
 		empty_shelves(), shelf_warmer(), soulless(), flip_surcharge(),
+		lucky_grab(), supplement(), bonus_pick(), free_hand(), sealed(),
 	]
 
 ## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
@@ -564,6 +590,12 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 	match clause_id:
 		ADVANCE_PAYMENT:
 			return "+$24 sofort."
+		LUCKY_GRAB:
+			return "Pakete: Glückswurf-Chancen vervierfacht."
+		SUPPLEMENT:
+			return "Jedes Paket zeigt zwei Optionen mehr."
+		BONUS_PICK:
+			return "Jedes Paket: zwei Wahlen mehr."
 		BLANK_CHEQUE:
 			return "+$80 sofort."
 		SEED_CAPITAL:

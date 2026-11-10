@@ -609,6 +609,10 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 		var entry := entries[i]
 		if entry["value"] == null:
 			continue  # verkauft: der Platz bleibt leer
+		if entry["value"] is DicePack:
+			_lay_bowl_hull(entry, wanted, grade, stage, x, offsets[i],
+				spots[i] if i < spots.size() else null, radius)
+			continue
 		var is_part: bool = entry["kind"] == ShopController.KIND_PART
 		var lift := 0.0 if is_part else DieBuilder.HALF_EXTENT * DIE_SCALE
 		var spot := Vector3(x, lie_y(lift), _field_center_z() + offsets[i])
@@ -731,6 +735,35 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 				"spot": spot, "node": body, "cell": null, "radius": die_radius})
 			_stage(key, body, spot, grade, zone, stage, die_radius)
 
+## Ein WÜRFEL-PAKET liegt in der Schale wie eine Kassette im Regal: die Hülle flach,
+## im Anzeigemaß der Karten (EINE Größe je Ding).
+func _lay_bowl_hull(entry: Dictionary, wanted: Dictionary, grade: String, stage: Dictionary,
+		x: float, offset: float, reported: Variant, radius: float) -> void:
+	var dice_pack: DicePack = entry["value"]
+	var spot := Vector3(x, cell_y(), _field_center_z() + offset)
+	if reported is Vector3:
+		spot = Vector3((reported as Vector3).x, cell_y(), (reported as Vector3).z)
+	var key := slot_key(entry["kind"], entry["index"])
+	wanted[key] = true
+	var hull: CardPackView = _bodies.get(key) as CardPackView
+	if hull == null or not is_instance_valid(hull):
+		hull = CardPackView.new()
+		hull.name = "VitrineHull"
+		add_child(hull)
+		hull.setup_pack(dice_pack.sort, dice_pack.size, true)
+		hull.rotation.y = -PI / 2.0
+		_bodies[key] = hull
+		_rest_scale[key] = 1.0
+		hull.materialize()
+	hull.badge_on_face = true
+	hull.set_body_scale(PackDrawerView.CASSETTE_SCALE)
+	hull.hover_lift = DataCellView.HOVER_LIFT
+	_hover_head[key] = DataCellView.STAND_HEIGHT * hull.body_scale() * hull.hover_lift
+	hull.lie_on_glass(spot)
+	items.append({"kind": entry["kind"], "index": entry["index"], "key": key, "spot": spot,
+		"node": hull, "cell": hull, "radius": radius})
+	_stage(key, hull, spot, grade, ZONE_BOWL, stage)
+
 ## Kantenlänge eines Moduls - dieselbe wie im Steckplatz (EINE Größe je Ding).
 static func part_side() -> float:
 	return ComboPartBody.SIDE
@@ -751,7 +784,8 @@ func _row_reach() -> float:
 func _zone_reach(zone: int) -> float:
 	if single_row:
 		return _row_reach()
-	return shelf_reach() if zone == ZONE_SHELF else bowl_reach()
+	# In der Schale des Ladens liegen Würfel-PAKETE - ihr Loch mißt an der Hülle.
+	return shelf_reach() if zone == ZONE_SHELF else _row_reach()
 
 ## Wie weit eine liegende Kassette bzw. das höchste Stück der Schale von seiner
 ## Mitte aus nach vorn und hinten reicht - daran messen sich die beiden Bänder.

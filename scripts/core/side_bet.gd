@@ -30,8 +30,10 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, ENERGY }
 ## In welcher WARE der Gewinnwert ausgezahlt wird. PACKS = Regal-Karten einer Sorte,
 ## MULTIPLIER = Multiplikator-Karten, PACK = EIN gewürfelter Sonderposten, SPECIAL =
-## der feste Sonderposten (Pointer, Veredelung), PART = ein Modul, DIE = ein Würfel.
-enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART, DIE, CATALYST, OPERATOR, MULTIPLIER }
+## der feste Sonderposten (Pointer, Veredelung), PART = ein Modul, DIE = ein Würfel,
+## CARD_PACK/DICE_PACK = EIN Laden-Paket, das nach dem Kassieren in der Grube öffnet.
+enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART, DIE, CATALYST, OPERATOR, MULTIPLIER,
+	CARD_PACK, DICE_PACK }
 
 ## Quoten je Schwierigkeit (Spieler-Entscheid 2026-11-10).
 const ODDS_EASY := 2.0
@@ -48,6 +50,10 @@ const ENERGY_PRICE := 8
 ## Höchstens so viele Karten zahlt eine Wette aus.
 const MAX_REWARD_CARDS := 4
 
+## Das billigste Paket - darunter zahlt keine Wette eins.
+const CARD_PACK_MIN := 9
+## Das billigste Würfel-Paket.
+const DICE_PACK_MIN := 12
 ## Die GEWINN-TABELLE: Art, Gewicht und Mindestwert (Geld ohne, Ware mit ×1,25).
 const WARES := [
 	{"kind": Payout.MONEY, "weight": 20, "min": 0},
@@ -61,7 +67,12 @@ const WARES := [
 	{"kind": Payout.CATALYST, "weight": 5, "min": 8},
 	{"kind": Payout.OPERATOR, "weight": 4, "min": 11},
 	{"kind": Payout.PACK, "weight": 3, "min": 18},
+	{"kind": Payout.CARD_PACK, "weight": 8, "min": CARD_PACK_MIN},
+	{"kind": Payout.DICE_PACK, "weight": 8, "min": DICE_PACK_MIN},
 ]
+## Sorten-Gewichte des Paket-Gewinns: die Auslage-Gewichte des Ladens.
+const CARD_PACK_SORT_WEIGHTS := CardPack.SHOP_SORT_WEIGHTS
+const DICE_PACK_SORT_WEIGHTS := DicePack.SHOP_SORT_WEIGHTS
 ## Die Katalysatoren, die eine Wette zahlen darf (nie die Reparatur-Karte).
 const BET_CATALYSTS := [Pack.CATALYST_COOL, Pack.CATALYST_CHILL, Pack.CATALYST_PROPELLANT]
 
@@ -98,6 +109,9 @@ var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
 var reward_item_id: String = ""
 ## nur Payout.PART: das Modul, beim Auswürfeln der Auslage festgelegt.
 var reward_part_id: String = ""
+## nur Payout.CARD_PACK/DICE_PACK: die Paket-Sorte; die Größe folgt dem Gewinnwert.
+var reward_card_pack_sort: String = CardPack.SORT_NUMBER
+var reward_dice_pack_sort: String = DicePack.SORT_MIXED
 var unlock_level: int = UNLOCK_BASE
 var display_name: String = ""
 var description: String = ""
@@ -113,6 +127,8 @@ var awarded_packs: Array[Pack] = []
 var awarded_fizzled: int = 0
 ## Der gewonnene Würfel, wie er im Ausgabefach wartet (Payout.DIE).
 var awarded_die: DieDefinition = null
+## Das gewonnene, geöffnete Paket (CARD_PACK/DICE_PACK) - es wartet in GameRun auf seine Wahl.
+var awarded_choice: PackChoice = null
 ## Was der Einsatz WIRKLICH gekostet hat - die Rückversicherung gibt genau das zurück.
 var paid_money: int = 0
 var paid_energy: int = 0
@@ -120,6 +136,7 @@ var paid_packs: Array[Pack] = []
 ## Lauf-Daten für den Würfel-Gewinn (charm_ids, owned_essences, tier).
 var _context: Dictionary = {}
 var _rolled_cards: Dictionary = {}  # Größe -> gewürfelte Karten
+var _card_packs: Dictionary = {}  # Paketgröße -> CardPack bzw. DicePack
 var _fixed_card: Pack = null
 var _reward_die: DieDefinition = null
 var _die_rarity: int = -2
@@ -400,6 +417,12 @@ func roll_reward() -> void:
 			reward_part_id = ComboPart.pick_weighted(_affordable_parts(ware)).id
 		Payout.PACK:
 			_fixed_card = Pack.roll_special_pack()
+		Payout.CARD_PACK:
+			_card_packs.clear()
+			reward_card_pack_sort = String(_pick_pack_sort(CARD_PACK_SORT_WEIGHTS, ware, false))
+		Payout.DICE_PACK:
+			_card_packs.clear()
+			reward_dice_pack_sort = String(_pick_pack_sort(DICE_PACK_SORT_WEIGHTS, ware, true))
 
 ## Gibt es für diese Art überhaupt eine Ware bis zu diesem Wert?
 func _ware_fits(kind: int, ware: int) -> bool:
@@ -410,7 +433,64 @@ func _ware_fits(kind: int, ware: int) -> bool:
 			return not _affordable_ids(StampNet.OPERATORS.keys(), ware, false).is_empty()
 		Payout.PART:
 			return not _affordable_parts(ware).is_empty()
+		Payout.CARD_PACK:
+			return not _affordable_pack_sorts(CARD_PACK_SORT_WEIGHTS, ware, false).is_empty()
+		Payout.DICE_PACK:
+			return not _affordable_pack_sorts(DICE_PACK_SORT_WEIGHTS, ware, true).is_empty()
 	return true
+
+static func _pack_price(pack_sort: String, pack_size: int, dice: bool) -> int:
+	return DicePack.price_of(pack_sort, pack_size) if dice 		else CardPack.price_of(pack_sort, pack_size)
+
+## Die Paket-Sorten, deren kleinstes Paket der Wert trägt.
+static func _affordable_pack_sorts(weights: Dictionary, ware: int, dice: bool) -> Array:
+	var out: Array = []
+	for pack_sort: String in weights:
+		if _pack_price(pack_sort, CardPack.SIZE_SMALL, dice) <= ware:
+			out.append(pack_sort)
+	out.sort()
+	return out
+
+static func _pick_pack_sort(weights: Dictionary, ware: int, dice: bool) -> String:
+	var sorts := _affordable_pack_sorts(weights, ware, dice)
+	if sorts.is_empty():
+		return DicePack.SORT_MIXED if dice else CardPack.SORT_NUMBER
+	var total := 0
+	for pack_sort: String in sorts:
+		total += int(weights[pack_sort])
+	var pick := randi() % total
+	for pack_sort: String in sorts:
+		pick -= int(weights[pack_sort])
+		if pick < 0:
+			return pack_sort
+	return String(sorts.back())
+
+## Die größte Größe der Sorte, deren Preis der Gewinnwert trägt.
+func _reward_pack_size(pack_sort: String, factor: float, dice: bool) -> int:
+	var value := payout_value(factor)
+	for candidate in range(CardPack.SIZE_HUGE, CardPack.SIZE_SMALL, -1):
+		if _pack_price(pack_sort, candidate, dice) <= value:
+			return candidate
+	return CardPack.SIZE_SMALL
+
+## Das gewonnene KARTEN-PAKET. Je Größe einmal gebaut, damit Knopf, Grube und
+## Abrechnung dasselbe meinen.
+func reward_card_pack(factor: float = 1.0) -> CardPack:
+	if payout_kind != Payout.CARD_PACK:
+		return null
+	var pack_size := _reward_pack_size(reward_card_pack_sort, factor, false)
+	if not _card_packs.has(pack_size):
+		_card_packs[pack_size] = CardPack.make(reward_card_pack_sort, pack_size)
+	return _card_packs[pack_size]
+
+## Das gewonnene WÜRFEL-PAKET - dieselbe Regel.
+func reward_dice_pack(factor: float = 1.0) -> DicePack:
+	if payout_kind != Payout.DICE_PACK:
+		return null
+	var pack_size := _reward_pack_size(reward_dice_pack_sort, factor, true)
+	if not _card_packs.has(pack_size):
+		_card_packs[pack_size] = DicePack.make(reward_dice_pack_sort, pack_size)
+	return _card_packs[pack_size]
 
 static func _affordable_ids(ids: Array, ware: int, catalysts: bool) -> Array:
 	var out: Array = []
@@ -461,7 +541,7 @@ func reward_count(factor: float = 1.0) -> int:
 		Payout.PACKS, Payout.MULTIPLIER:
 			var price := maxi(card_price(reward_tier(factor)), 1)
 			return clampi(payout_value(factor) / price, 1, MAX_REWARD_CARDS)
-		Payout.SPECIAL, Payout.PACK, Payout.CATALYST, Payout.OPERATOR:
+		Payout.SPECIAL, Payout.PACK, Payout.CATALYST, Payout.OPERATOR, Payout.CARD_PACK, 				Payout.DICE_PACK:
 			return 1
 	return 0
 
@@ -767,6 +847,12 @@ func reward_label(factor: float = 1.0, charm_ids: Array[String] = []) -> String:
 		Payout.MULTIPLIER:
 			return Pack.named_phrase(Pack.MULTIPLIER_NAME, reward_tier(factor),
 				reward_count(factor))
+		Payout.CARD_PACK:
+			var card_pack := reward_card_pack(factor)
+			return "1 %s" % (card_pack.display_name if card_pack != null else "Paket")
+		Payout.DICE_PACK:
+			var dice_pack := reward_dice_pack(factor)
+			return "1 %s" % (dice_pack.display_name if dice_pack != null else "Paket")
 	var card := _single_card()
 	return "1 %s" % (card.display_name if card != null else special_id)
 

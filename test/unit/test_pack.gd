@@ -250,11 +250,11 @@ func test_a_fresh_pack_is_a_standard_one() -> void:
 
 func test_the_size_stands_in_the_name() -> void:
 	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_GROSS).display_name,
-		"Großes Zahlen-Paket")
+		"Große Zahlen-Karte")
 	assert_eq(Pack.tiered(Pack.material_pack(), Pack.TIER_KOLOSSAL).display_name,
-		"Kolossales Material-Paket")
+		"Kolossale Material-Karte")
 	assert_eq(Pack.tiered(Pack.dice_mod_pack(), Pack.TIER_NORMAL).display_name,
-		"Runen-Paket", "der Standard bleibt unmarkiert")
+		"Runen-Karte", "der Standard bleibt unmarkiert")
 
 func test_the_price_climbs_with_the_size() -> void:
 	assert_eq(Pack.tiered(Pack.number_pack(), Pack.TIER_GROSS).price, 10)
@@ -292,7 +292,7 @@ func test_the_roll_hands_out_every_size_and_prefers_the_norm() -> void:
 func test_the_shop_roll_carries_the_size_through() -> void:
 	var pack := Pack.roll_engraving_pack(Pack.TIER_KOLOSSAL)
 	assert_eq(pack.tier, Pack.TIER_KOLOSSAL)
-	assert_true(pack.display_name.begins_with("Kolossales"))
+	assert_true(pack.display_name.begins_with("Kolossale "))
 	assert_eq(Pack.roll_engraving_pack().tier, Pack.TIER_NORMAL,
 		"ohne Angabe prägt jede Quelle Standard")
 

@@ -91,6 +91,10 @@ const RECTIFIER := "rectifier"
 const BARGAIN_HUNTER := "bargain_hunter"
 const STAMP_MACHINE := "stamp_machine"
 const FINE_PRINT := "fine_print"
+const ALBUM := "album"
+const RESHUFFLE := "reshuffle"
+const LUCKY_MUSHROOM := "lucky_mushroom"
+const EXTRA_OPTION := "extra_option"
 # Pool & Trays
 const RECYCLING := "recycling"
 const SEDIMENT := "sediment"
@@ -355,6 +359,10 @@ const RARITIES := {
 	BARGAIN_HUNTER: RARITY_COMMON,
 	STAMP_MACHINE: RARITY_RARE,
 	FINE_PRINT: RARITY_UNCOMMON,
+	ALBUM: RARITY_COMMON,
+	RESHUFFLE: RARITY_UNCOMMON,
+	LUCKY_MUSHROOM: RARITY_RARE,
+	EXTRA_OPTION: RARITY_RARE,
 	# Pool & Trays
 	RECYCLING: RARITY_UNCOMMON,
 	SEDIMENT: RARITY_UNCOMMON,
@@ -772,7 +780,7 @@ static func display_case() -> Charm:
 	return _make(DISPLAY_CASE, "Vitrine", "+2 Mult je oberer Material-Seite, veredelt +6.")
 
 static func jewelry_box() -> Charm:
-	return _make(JEWELRY_BOX, "Schmuckkästchen", "Rundenende: je übrigem Würfel 10 % Chance auf ein Material-Paket.")
+	return _make(JEWELRY_BOX, "Schmuckkästchen", "Rundenende: je übrigem Würfel 10 % Chance auf eine Material-Karte.")
 
 static func rectifier() -> Charm:
 	return _make(RECTIFIER, "Gleichrichter", "Nach jeder Hand: obere Seiten der gewerteten Würfel werden dauerhaft ihr Mittelwert (aufgerundet).")
@@ -783,10 +791,22 @@ static func bargain_hunter() -> Charm:
 	return _make(BARGAIN_HUNTER, "Schnäppchenjäger", "Pakete kosten 30 % weniger.")
 
 static func stamp_machine() -> Charm:
-	return _make(STAMP_MACHINE, "Frankiermaschine", "Rundenende: 1 zufälliges Upgrade-Paket.")
+	return _make(STAMP_MACHINE, "Frankiermaschine", "Rundenende: 1 zufällige Upgrade-Karte.")
 
 static func fine_print() -> Charm:
 	return _make(FINE_PRINT, "Kleingedrucktes", "Paket-Kauf: 20 % Chance auf volle Erstattung.")
+
+static func album() -> Charm:
+	return _make(ALBUM, "Sammelalbum", "Paket geöffnet: +$1.")
+
+static func reshuffle() -> Charm:
+	return _make(RESHUFFLE, "Neu gemischt", "Einmal je Runde: Neu mischen gratis.")
+
+static func lucky_mushroom() -> Charm:
+	return _make(LUCKY_MUSHROOM, "Glückspilz", "Glück +5.")
+
+static func extra_option() -> Charm:
+	return _make(EXTRA_OPTION, "Beigabe", "Jedes Paket zeigt eine Option mehr.")
 
 # --- Pool & Trays ---
 
@@ -862,7 +882,7 @@ static func bell_jar() -> Charm:
 	return _make(BELL_JAR, "Glasglocke", "Vakuum-Würfel: jede Seite trägt eine dritte Rune.")
 
 static func glaze_brush() -> Charm:
-	return _make(GLAZE_BRUSH, "Lasurpinsel", "Firnis trifft veredelte Seite: stattdessen ein Veredelungs-Paket.")
+	return _make(GLAZE_BRUSH, "Lasurpinsel", "Firnis trifft veredelte Seite: stattdessen eine Veredelungs-Karte.")
 
 static func fluorescent_tube() -> Charm:
 	return _make(FLUORESCENT_TUBE, "Leuchtstoffröhre", "Phosphoreszenz speichert auch ihren Mult und zahlt ihn erneut aus.")
@@ -939,7 +959,7 @@ static func kiln() -> Charm:
 
 ## bench_clamp statt clamp: clamp() ist eine eingebaute Godot-Funktion.
 static func bench_clamp() -> Charm:
-	return _make(CLAMP, "Zwinge", "Upgrade-Pakete brennen mit 25 % Chance nicht aus.")
+	return _make(CLAMP, "Zwinge", "Upgrade-Karten brennen mit 25 % Chance nicht aus.")
 
 static func encore() -> Charm:
 	return _make(ENCORE, "Füllhorn", "Überladungs-Stufe 5 erreicht: ein Sonderbestand gratis.")
@@ -959,7 +979,7 @@ static func jackpot_bell() -> Charm:
 	return _make(JACKPOT_BELL, "Jackpotglocke", "Erste Hand der Runde über dem Blind: +$10.")
 
 static func deposit_shelf() -> Charm:
-	return _make(DEPOSIT_SHELF, "Pfandregal", "Rundenende: +$1 je 3 Pakete im Magazin (max. $15).")
+	return _make(DEPOSIT_SHELF, "Pfandregal", "Rundenende: +$1 je 3 Karten im Magazin (max. $15).")
 
 static func tip_jar() -> Charm:
 	return _make(TIP_JAR, "Trinkgeldglas", "Jeder Krit zahlt seinen ×-Wert in $ (aufgerundet).")
@@ -1072,6 +1092,7 @@ static func all() -> Array[Charm]:
 		blood_diamond(), bone_glue(), bone_marrow(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(), rectifier(),
 		bargain_hunter(), stamp_machine(), fine_print(),
+		album(), reshuffle(), lucky_mushroom(), extra_option(),
 		recycling(), sediment(),
 		seal_of_quality(), bulk_discount(),
 		ad_drum(), shyster(),

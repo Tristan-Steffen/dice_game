@@ -233,6 +233,81 @@ static func _essence_weight(essence: Essence, boost: float) -> float:
 	var weight := float(ESSENCE_RARITY_WEIGHTS.get(essence.rarity, 1))
 	return weight * boost if essence.rarity != Essence.Rarity.COMMON else weight
 
+# --- WÜRFEL-PAKETE -----------------------------------------------------------------
+
+## Seelen-Chance eines Paket-Würfels: 15 % + 3 Punkte je Glück, Deckel 75 %.
+const PACK_SOUL_CHANCE := 0.15
+const PACK_SOUL_LUCK_STEP := 0.03
+const PACK_SOUL_CAP := 0.75
+
+static func pack_soul_chance(luck: int) -> float:
+	return minf(PACK_SOUL_CHANCE + PACK_SOUL_LUCK_STEP * float(maxi(luck, 0)), PACK_SOUL_CAP)
+
+## Die Vorlagen einer Paket-Sorte (leer = alle).
+static func pack_templates(pack_sort: String) -> Array[Dictionary]:
+	var styles := DicePack.styles_of(pack_sort)
+	var out: Array[Dictionary] = []
+	for t: Dictionary in TEMPLATES:
+		if styles.is_empty() or styles.has(String(t["style_id"])):
+			out.append(t)
+	return out
+
+## EINE Option eines Würfel-Pakets. soul = die Seelen-Regel des Ladens (Seelenmarkt
+## setzt die Chance auf 1, Seelenlos auf 0); das Seelen-Paket trägt immer eine, eine
+## Seltenheit gehoben. owned_essences wächst mit: ein Unikat kommt je Paket einmal.
+static func roll_pack_die(pack_sort: String, tier: int, charm_ids: Array[String],
+		owned_essences: Array[String], soul: Dictionary, luck: int) -> DieDefinition:
+	var templates := pack_templates(pack_sort)
+	if templates.is_empty():
+		return null
+	var die := make_die(templates.pick_random(), tier)
+	roll_refinements(die)
+	if pack_sort == DicePack.SORT_MATERIAL:
+		_force_material_faces(die, DicePack.MATERIAL_MIN_FACES)
+	if CharmEffects.forces_refinement(charm_ids):
+		if die.materials.count("") == die.materials.size():
+			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
+		if not has_doped_side(die):
+			for f in die.materials.size():
+				if die.dope(f):
+					break
+	if pack_sort == DicePack.SORT_SOUL:
+		die.essence_id = roll_essence_of_rarity(owned_essences, _lifted_rarity())
+	else:
+		var chance := float(soul.get("chance", pack_soul_chance(luck)))
+		die.essence_id = roll_essence(owned_essences, true, false, chance,
+			float(soul.get("boost", 1.0)))
+	var essence := Essence.by_id(die.essence_id)
+	if essence != null and essence.unique:
+		owned_essences.append(die.essence_id)
+	return die
+
+## Die Seltenheit einer Seelen-Paket-Seele: gewürfelt wie im Laden, eine Stufe höher.
+static func _lifted_rarity() -> int:
+	var total := 0.0
+	for weight in ESSENCE_RARITY_WEIGHTS.values():
+		total += float(weight)
+	var pick := randf() * total
+	var rarity := int(Essence.Rarity.COMMON)
+	for key in ESSENCE_RARITY_WEIGHTS:
+		pick -= float(ESSENCE_RARITY_WEIGHTS[key])
+		if pick < 0.0:
+			rarity = int(key)
+			break
+	return mini(rarity + 1, int(Essence.Rarity.LEGENDARY))
+
+## Mindestens count Seiten tragen ein Material.
+static func _force_material_faces(die: DieDefinition, count: int) -> void:
+	var bare: Array[int] = []
+	for f in die.materials.size():
+		if die.materials[f] == "":
+			bare.append(f)
+	bare.shuffle()
+	var have := die.materials.size() - bare.size()
+	while have < count and not bare.is_empty():
+		die.set_face_material(bare.pop_back(), DieMaterial.all().pick_random().id)
+		have += 1
+
 ## Wett-Gewinn: ab diesem Gewinnwert (in $) trägt der Würfel diese Seltenheit.
 const BET_SOUL_STEPS := [[32, Essence.Rarity.LEGENDARY], [20, Essence.Rarity.EPIC],
 	[12, Essence.Rarity.RARE]]

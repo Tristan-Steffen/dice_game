@@ -175,17 +175,17 @@ func test_minted_packs_carry_size_name_and_price() -> void:
 	var plain := Pack.number_pack()
 	for pack: Pack in prize.packs:
 		assert_eq(pack.tier, Pack.TIER_GROSS, "die Größe steht am Paket")
-		assert_eq(pack.display_name, "Großes Zahlen-Paket", "und in der Aufschrift")
+		assert_eq(pack.display_name, "Große Zahlen-Karte", "und in der Aufschrift")
 		assert_gt(pack.price, plain.price, "der Preis skaliert mit")
 	var kolossal := SlotPrize.from_spec(_pack_spec(E, 9))
 	assert_eq(kolossal.packs.size(), 5, "9er-Reihe: fünf Kolossale")
-	assert_eq(kolossal.packs[0].display_name, "Kolossales Runen-Paket")
+	assert_eq(kolossal.packs[0].display_name, "Kolossale Runen-Karte")
 
 func test_pot_summary_keeps_the_three_kinds_apart() -> void:
 	# Je Sorte eine eigene Wand mit EINER 3er-Reihe (mehrere explizite Zeilen
 	# zugleich brächen die Neutralität der Füllung - dann entstünden Extra-Reihen).
 	assert_eq(int(_wall([[S, S, S, C, D, C, D, C, D]]).pot_summary()["engravings"]), 1,
-		"3er-Zahlen-Reihe → 1 Zahlen-Paket")
+		"3er-Zahlen-Reihe → 1 Zahlen-Karte")
 	assert_eq(int(_wall([[M, M, M, C, D, C, D, C, D]]).pot_summary()["materials"]), 1,
 		"3er-Material-Reihe → 1 Material-Paket")
 	assert_eq(int(_wall([[E, E, E, C, D, C, D, C, D]]).pot_summary()["edges"]), 1,
@@ -334,21 +334,21 @@ func test_run_specs_resolve_by_symbol() -> void:
 	var engraving_run: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
 	var engraving: Dictionary = engraving_run["specs"][0]
 	assert_eq(String(engraving["kind"]), "pack")
-	assert_eq(int(engraving["count"]), 1, "3er-Zahlen-Reihe → 1 Zahlen-Paket")
+	assert_eq(int(engraving["count"]), 1, "3er-Zahlen-Reihe → 1 Zahlen-Karte")
 
 func test_run_label_names_the_pack_kind() -> void:
 	var numbers: Variant = _find_run(_wall([[S, S, S, C, M, D, C, M, D]]), [1, 0], S)
-	assert_eq(String(numbers["label"]), "◉ ×3 → 1 Zahlen-Paket")
+	assert_eq(String(numbers["label"]), "◉ ×3 → 1 Zahlen-Karte")
 	var long_run: Variant = _find_run(_wall([_run_row(S, 6)]), [1, 0], S)
-	assert_eq(String(long_run["label"]), "◉ ×6 → 2 Kolossale Zahlen-Pakete", "Plural im Etikett")
+	assert_eq(String(long_run["label"]), "◉ ×6 → 2 Kolossale Zahlen-Karten", "Plural im Etikett")
 
 func test_run_label_names_the_pack_size() -> void:
 	# Die Größe ist der ganze Unterschied - das Etikett muss sie nennen, im richtigen
 	# Numerus: 4er → 1 Großes, längere → mehrere Kolossale.
 	var gross: Variant = _find_run(_wall([_run_row(S, 4)]), [1, 0], S)
-	assert_eq(String(gross["label"]), "◉ ×4 → 1 Großes Zahlen-Paket")
+	assert_eq(String(gross["label"]), "◉ ×4 → 1 Große Zahlen-Karte")
 	var kolossal: Variant = _find_run(_wall([_run_row(M, 8)]), [1, 0], M)
-	assert_eq(String(kolossal["label"]), "◆ ×8 → 4 Kolossale Material-Pakete")
+	assert_eq(String(kolossal["label"]), "◆ ×8 → 4 Kolossale Material-Karten")
 
 ## Der Einsatz ist Energie und für alle drei Automaten gleich: die Stufe entscheidet
 ## über den Gewinn, nicht über den Preis.

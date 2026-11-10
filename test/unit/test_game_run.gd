@@ -503,7 +503,7 @@ func test_a_pack_stake_consumes_exactly_the_named_packs():
 	bet.stake_packs = 2
 	bet.stake_pack_type = Pack.TYPE_MATERIAL
 	bet.stake_pack_tier = Pack.TIER_NORMAL
-	assert_true(run.can_place_side_bet(bet), "drei Material-Pakete liegen da")
+	assert_true(run.can_place_side_bet(bet), "drei Material-Karten liegen da")
 	var doomed := run.stake_packs_for(bet)
 	assert_eq(doomed.size(), 2, "genau zwei werden geopfert")
 	run.place_side_bet(bet)
@@ -522,7 +522,7 @@ func test_a_pack_stake_checks_the_named_type_not_the_shelf_size():
 	bet.stake_packs = 1
 	bet.stake_pack_type = Pack.TYPE_MATERIAL
 	bet.stake_pack_tier = Pack.TIER_NORMAL
-	assert_false(run.can_place_side_bet(bet), "drei Zahlen-Pakete zahlen kein Material")
+	assert_false(run.can_place_side_bet(bet), "drei Zahlen-Karten zahlen kein Material")
 	run.grant_packs([Pack.material_pack()] as Array[Pack])
 	assert_true(run.can_place_side_bet(bet), "eines genügt")
 	bet.stake_pack_tier = Pack.TIER_GROSS
@@ -637,7 +637,7 @@ func test_booking_carries_the_pack_size_into_the_magazine():
 	assert_eq(run.owned_packs.size(), 4)
 	for pack: Pack in run.owned_packs:
 		assert_eq(pack.tier, Pack.TIER_KOLOSSAL, "die Größe überlebt die Buchung")
-		assert_eq(pack.display_name, "Kolossales Material-Paket")
+		assert_eq(pack.display_name, "Kolossale Material-Karte")
 
 func test_a_slot_pack_is_a_plain_sealed_pack():
 	# Der Raritäts-Boden ist gestorben: alle sechs Seiten sind gleich wahrscheinlich,

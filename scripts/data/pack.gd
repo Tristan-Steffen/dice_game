@@ -1,10 +1,8 @@
 class_name Pack
 extends Resource
-## Ein versiegeltes Paket: alles Gravierbare wird SO gehandelt und erst an der
-## Presse geöffnet. Der Inhalt wird ERST dort ausgewürfelt - der Kauf entscheidet
-## nur die Sorte. Würfel sind keine Paketware: sie liegen offen im Laden und
-## fahren gekauft ins Ausgabefach. ids sind Konstanten, damit Tippfehler
-## Compilerfehler sind.
+## Eine einzelne Data-Card - im Spiel "Karte", im Code Pack (das PAKET des Ladens
+## ist CardPack). Würfel sind nie Karten: sie liegen offen im Laden und fahren
+## gekauft ins Ausgabefach. ids sind Konstanten, damit Tippfehler Compilerfehler sind.
 ##
 ## Jede Kassette trägt ein PRÄGENETZ (StampNet): sechs Zellen, eine je Würfelseite,
 ## bei der ERZEUGUNG gewürfelt und ab da fix und sichtbar. Mehrere Kassetten in
@@ -34,10 +32,9 @@ const TIER_GROSS := 1
 const TIER_KOLOSSAL := 2
 
 ## Adjektiv vor dem Sortennamen - Standard trägt keins, er ist der Normalfall.
-## Alle Sortennamen enden auf "-Paket" (sächlich), darum passt eine Form je Größe.
-const TIER_ADJECTIVES := {TIER_GROSS: "Großes", TIER_KOLOSSAL: "Kolossales"}
-## Dieselben Adjektive im Plural ("2 Große Zahlen-Pakete"). Eigene Tabelle, denn
-## ein abgeschnittenes "s" wäre eine Regel, die nur zufällig zweimal stimmt.
+## Alle Sortennamen enden auf "-Karte" (weiblich), darum passt eine Form je Größe.
+const TIER_ADJECTIVES := {TIER_GROSS: "Große", TIER_KOLOSSAL: "Kolossale"}
+## Dieselben Adjektive im Plural ("2 Große Zahlen-Karten").
 const TIER_ADJECTIVES_PLURAL := {TIER_GROSS: "Große", TIER_KOLOSSAL: "Kolossale"}
 ## Wie die Größe heißt, wo sie ALLEIN steht (Hinweiszeile, Netz-Auskunft).
 const TIER_LABELS := {TIER_NORMAL: "Standard", TIER_GROSS: "Groß",
@@ -55,7 +52,7 @@ const TIER_WEIGHTS := [0.6, 0.3, 0.1]
 const NUMBER_PRICE := 4
 ## Das MULTIPLIKATOR-NETZ ist die seltene, teurere Spielart der Zahlen-Karte.
 const MULTIPLIER_PRICE := 8
-const MULTIPLIER_NAME := "Multiplikator-Paket"
+const MULTIPLIER_NAME := "Multiplikator-Karte"
 const MATERIAL_PRICE := 5
 const DICE_MOD_PRICE := 6
 
@@ -67,9 +64,9 @@ const SHELF_WEIGHTS := {
 }
 
 const TYPE_NAMES := {
-	TYPE_NUMBER: "Zahlen-Paket",
-	TYPE_MATERIAL: "Material-Paket",
-	TYPE_DICE_MOD: "Runen-Paket",
+	TYPE_NUMBER: "Zahlen-Karte",
+	TYPE_MATERIAL: "Material-Karte",
+	TYPE_DICE_MOD: "Runen-Karte",
 }
 
 @export var type: String = TYPE_NUMBER
@@ -125,19 +122,23 @@ static func tier_adjective(pack_tier: int, amount: int = 1) -> String:
 	var table: Dictionary = TIER_ADJECTIVES if amount == 1 else TIER_ADJECTIVES_PLURAL
 	return String(table.get(pack_tier, ""))
 
-## Die EINE Formulierung einer Paket-MENGE: Zahl, Größe, Sorte ("2 Große
-## Material-Pakete", "1 Zahlen-Paket"). Namensquellen sind TYPE_NAMES und
+## Die EINE Formulierung einer Karten-MENGE: Zahl, Größe, Sorte ("2 Große
+## Material-Karten", "1 Zahlen-Karte"). Namensquellen sind TYPE_NAMES und
 ## tier_adjective - wer Ware in Worten nennt, nennt sie hier und nirgends sonst.
 static func amount_phrase(pack_type: String, pack_tier: int, amount: int) -> String:
 	return named_phrase(String(TYPE_NAMES.get(pack_type, pack_type)), pack_tier, amount)
 
-## Dieselbe Formulierung für einen eigenen Paketnamen ("2 Große Multiplikator-Pakete").
+## Dieselbe Formulierung für einen eigenen Namen ("2 Große Multiplikator-Karten").
 static func named_phrase(singular: String, pack_tier: int, amount: int) -> String:
-	var sort := "%s%s" % [singular, "" if amount == 1 else "e"]
+	var sort := singular if amount == 1 else plural(singular)
 	var adjective := tier_adjective(pack_tier, amount)
 	if adjective == "":
 		return "%d %s" % [amount, sort]
 	return "%d %s %s" % [amount, adjective, sort]
+
+## Mehrzahl eines Karten- oder Paketnamens ("Karte" -> "Karten", "Paket" -> "Pakete").
+static func plural(singular: String) -> String:
+	return singular + ("n" if singular.ends_with("e") else "e")
 
 static func tier_price_factor(pack_tier: int) -> float:
 	if pack_tier < 0 or pack_tier >= TIER_PRICE_FACTORS.size():

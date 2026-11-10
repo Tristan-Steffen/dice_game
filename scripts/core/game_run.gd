@@ -340,7 +340,14 @@ func refund_money(amount: int) -> void:
 
 ## 1..TIER_MAX aus dem Glück - ohne Glücks-Klauseln zwei Stufen je Block.
 func progress_tier() -> int:
-	return clampi(1 + luck / LUCK_PER_TIER, 1, TIER_MAX)
+	return clampi(1 + effective_luck() / LUCK_PER_TIER, 1, TIER_MAX)
+
+## Glückspilz: so viel Glück legt er drauf, solange er im Dock steht.
+const LUCKY_MUSHROOM_LUCK := 5
+
+## Das WIRKENDE Glück: der Laufzustand plus, was gehaltene Charms dazulegen.
+func effective_luck() -> int:
+	return luck + LUCKY_MUSHROOM_LUCK * charm_ids().count(Charm.LUCKY_MUSHROOM)
 
 ## Glück, ab dem die nächste Stufe kommt (-1 = schon die letzte).
 func next_tier_luck() -> int:
@@ -422,7 +429,7 @@ func shop_tier() -> int:
 	if not _clause_active(DealClause.LUCKY_DAY):
 		return progress_tier()
 	var bonus := LUCKY_DAY_LUCK * deal_bonus_factor()
-	return clampi(1 + (luck + bonus) / LUCK_PER_TIER, 1, TIER_MAX)
+	return clampi(1 + (effective_luck() + bonus) / LUCK_PER_TIER, 1, TIER_MAX)
 
 ## Größen-Gewichte der Laden-Karten (Großauftrag: öfter Groß und Kolossal).
 const BULK_ORDER_TIER_WEIGHTS := [0.3, 0.45, 0.25]
@@ -430,6 +437,10 @@ const BULK_ORDER_TIER_WEIGHTS := [0.3, 0.45, 0.25]
 func shop_tier_weights() -> Array:
 	return BULK_ORDER_TIER_WEIGHTS if _clause_active(DealClause.BULK_ORDER) \
 		else Pack.TIER_WEIGHTS
+
+## Großauftrag: die Karten eines Pakets würfeln eine Größenstufe besser.
+func shop_card_pack_bulk() -> bool:
+	return _clause_active(DealClause.BULK_ORDER)
 
 ## Ziehgewicht-Faktoren je Charm-Seltenheit (Kennerblick).
 func shop_charm_rarity_factors() -> Dictionary:
@@ -635,6 +646,160 @@ func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) ->
 		return 0
 	refund_money(price)
 	return price
+
+## Was das Kleingedruckte beim letzten Paket-Kauf zurückgab (0 = nichts).
+var last_card_pack_refund := 0
+
+# --- Die PAKET-AUSWAHL -------------------------------------------------------------
+# Ein Paket wird beim KAUF geöffnet: Optionen und Zahl der Wahlen stehen ab da fest
+# (Buchung vor dem Licht). Die Grube zeigt die offene Auswahl, gebucht wird jede
+# Wahl beim Bestätigen.
+
+## Geöffnete Pakete, die noch auf ihre Wahl warten - eines nach dem anderen.
+var pending_pack_choices: Array[PackChoice] = []
+## In dieser Runde geöffnete Pakete (Freie Hand gilt nur dem ersten).
+var packs_opened_this_round: int = 0
+## Neu gemischt (Charm): der Gratis-Neuwurf dieser Runde ist verbraucht.
+var free_reshuffle_used_this_round: bool = false
+## Neu mischen kostet so viel ⚡.
+const PACK_RESHUFFLE_ENERGY := 1
+## Sammelalbum: so viel Geld je geöffnetem Paket und Kopie.
+const ALBUM_MONEY := 1
+
+## Kauft ein KARTEN-PAKET: zahlen, öffnen (Optionen und Wahlen fallen JETZT), dann
+## würfelt das Kleingedruckte. Preis 0 ist der Wett-Weg.
+func purchase_card_pack(card_pack: CardPack, price: int,
+		rng: RandomNumberGenerator = null) -> PackChoice:
+	return _purchase_choice(card_pack, price, false, rng)
+
+## Kauft ein WÜRFEL-PAKET - derselbe Weg.
+func purchase_dice_pack(dice_pack: DicePack, price: int,
+		rng: RandomNumberGenerator = null) -> PackChoice:
+	return _purchase_choice(dice_pack, price, false, rng)
+
+func _purchase_choice(pack: Resource, price: int, from_bet: bool,
+		rng: RandomNumberGenerator) -> PackChoice:
+	last_card_pack_refund = 0
+	if pack == null:
+		return null
+	add_money(-price)
+	var choice := _open_pack(pack, from_bet, rng)
+	var chance := CharmEffects.pack_refund_chance(charm_ids())
+	if price > 0 and chance > 0.0 and (rng.randf() if rng != null else randf()) < chance:
+		refund_money(price)
+		last_card_pack_refund = price
+	return choice
+
+## Öffnet ein Paket in die Warteschlange der Auswahl.
+func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> PackChoice:
+	var choice := PackChoice.new()
+	choice.pack = pack
+	choice.from_bet = from_bet
+	choice.kind = PackChoice.KIND_DICE if pack is DicePack else PackChoice.KIND_CARDS
+	var pack_size := int(pack.get("size"))
+	var rolled := CardPack.roll_picks(pack_size, effective_luck(), pack_luck_factor(), rng)
+	choice.jackpot = bool(rolled["jackpot"])
+	var picks := int(rolled["picks"]) + pack_pick_bonus()
+	var count := CardPack.options_after(pack_size, pack_option_delta(), picks)
+	if choice.jackpot:
+		count = maxi(count, CardPack.option_count(pack_size))
+	choice.options = _roll_pack_options(pack, count, rng)
+	choice.take_all = choice.jackpot \
+		or (packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND))
+	choice.picks = choice.options.size() if choice.take_all \
+		else mini(picks, choice.options.size())
+	packs_opened_this_round += 1
+	pending_pack_choices.append(choice)
+	var album := charm_ids().count(Charm.ALBUM)
+	if album > 0:
+		add_money(ALBUM_MONEY * album)
+	return choice
+
+## Die Optionen eines Pakets: Karten nach seiner Sorte, Würfel nach seiner.
+func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) -> Array:
+	var out: Array = []
+	if pack is CardPack:
+		for card in CardPack.roll_contents(pack as CardPack, shop_multiplier_chance(),
+				shop_card_pack_bulk(), rng, count):
+			out.append(card)
+		return out
+	var dice_pack := pack as DicePack
+	var souls := owned_essence_ids()
+	for i in count:
+		var die := DiceOffer.roll_pack_die(dice_pack.sort, shop_tier(), charm_ids(), souls,
+			shop_soul_rule(), effective_luck())
+		if die != null:
+			out.append(die)
+	return out
+
+## Glücksgriff: die Glückswurf-Chancen eines Pakets ×2 (Winkeladvokat ×4).
+func pack_luck_factor() -> float:
+	return 2.0 * deal_bonus_factor() if _clause_active(DealClause.LUCKY_GRAB) else 1.0
+
+## Beigabe (je Kopie) und Beipack legen Optionen dazu, Verplombt nimmt eine weg.
+func pack_option_delta() -> int:
+	var delta := charm_ids().count(Charm.EXTRA_OPTION)
+	if _clause_active(DealClause.SUPPLEMENT):
+		delta += deal_bonus_factor()
+	if _clause_active(DealClause.SEALED):
+		delta -= 1
+	return delta
+
+## Zugabe: eine Wahl mehr je Paket.
+func pack_pick_bonus() -> int:
+	return deal_bonus_factor() if _clause_active(DealClause.BONUS_PICK) else 0
+
+## Die Auswahl, die gerade dran ist (null = keine).
+func current_pack_choice() -> PackChoice:
+	return pending_pack_choices[0] if not pending_pack_choices.is_empty() else null
+
+## Was Neu mischen gerade kostet (0 = gratis, -1 = nicht mehr erlaubt).
+func pack_reshuffle_cost(choice: PackChoice) -> int:
+	if choice == null or choice.rerolled or choice.take_all:
+		return -1
+	if charm_ids().has(Charm.RESHUFFLE) and not free_reshuffle_used_this_round:
+		return 0
+	return PACK_RESHUFFLE_ENERGY
+
+func can_reshuffle_pack(choice: PackChoice) -> bool:
+	var cost := pack_reshuffle_cost(choice)
+	return cost >= 0 and energy >= cost
+
+## NEU MISCHEN: neue Optionen in derselben Zahl, die Wahlen bleiben.
+func reshuffle_pack_choice(choice: PackChoice, rng: RandomNumberGenerator = null) -> bool:
+	if not can_reshuffle_pack(choice) or not pending_pack_choices.has(choice):
+		return false
+	var cost := pack_reshuffle_cost(choice)
+	if cost == 0:
+		free_reshuffle_used_this_round = true
+	else:
+		spend_energy(cost)
+	choice.options = _roll_pack_options(choice.pack, choice.options.size(), rng)
+	choice.picks = mini(choice.picks, choice.options.size())
+	choice.rerolled = true
+	return true
+
+## BESTÄTIGEN: jede gewählte Option wird gebucht - Karten ins Magazin, Würfel in
+## pending_dice (der ZWANG setzt sie ein). Ungewähltes verfällt. Liefert
+## {"cards": Array[Pack], "dice": Array[DieDefinition]} (leer bei ungültiger Wahl).
+func confirm_pack_choice(choice: PackChoice, indices: Array) -> Dictionary:
+	var result := {"cards": [] as Array[Pack], "dice": [] as Array[DieDefinition]}
+	if choice == null or not pending_pack_choices.has(choice) \
+			or not choice.valid_selection(indices):
+		return result
+	pending_pack_choices.erase(choice)
+	var sorted := indices.duplicate()
+	sorted.sort()
+	for index in sorted:
+		var option: Variant = choice.options[int(index)]
+		if option is Pack:
+			var card := grant_pack(option as Pack)
+			if card != null:
+				(result["cards"] as Array[Pack]).append(card)
+		elif option is DieDefinition:
+			stash_die(option as DieDefinition, 0)
+			(result["dice"] as Array[DieDefinition]).append(pending_dice[pending_dice.size() - 1])
+	return result
 
 ## Der EINE Einlagerungsweg: stempelt die uid und legt das Paket an seinen Platz
 ## in der Magazin-Ordnung - die ist seit dem 2026-10-28 IMMER nach Typ sortiert
@@ -1383,6 +1548,8 @@ func apply_round_start_charms() -> void:
 	_clear_heat_disabled()
 	spotlight_claimed_this_round = false
 	golden_handshake_used_this_round = false
+	packs_opened_this_round = 0
+	free_reshuffle_used_this_round = false
 	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
 	# (der wertet nicht, das Licht wäre verschenkt).
 	if CharmEffects.has_spotlight(ids) or _clause_active(DealClause.SPOTLIGHT):
@@ -2540,6 +2707,11 @@ func _pay_side_bet(bet: SideBet, factor: float) -> void:
 			var part := bet.reward_part()
 			if part != null:
 				stash_part(part)
+		SideBet.Payout.CARD_PACK:
+			# Der Weg des Ladenkaufs ohne Preis: geöffnet wird nach dem Kassieren in der Grube.
+			bet.awarded_choice = _purchase_choice(bet.reward_card_pack(factor), 0, true, null)
+		SideBet.Payout.DICE_PACK:
+			bet.awarded_choice = _purchase_choice(bet.reward_dice_pack(factor), 0, true, null)
 		SideBet.Payout.DIE:
 			# Der Weg des Ladenkaufs: ins Ausgabefach, und von dort SOFORT in den Vorrat.
 			var die := bet.reward_die(factor)

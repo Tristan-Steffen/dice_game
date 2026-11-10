@@ -48,12 +48,16 @@ const SCHWARZMARKT := "schwarzmarkt"
 const STECKPLATZ := "steckplatz"
 const GLUECK := "glueck"
 const RAMPENLICHT := "rampenlicht"
+const KARTE := "karte"
+const PAKET := "paket"
+const OPTION := "option"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
 const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	QUOTA, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
-	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ, GLUECK, RAMPENLICHT]
+	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ, GLUECK, RAMPENLICHT,
+	KARTE, PAKET, OPTION]
 
 ## Oberflächenformen -> Eintrags-id, NUR für Formen abseits der Titel (Flexion,
 ## Verb, Kompositum) - Titel und display_names ergänzt _build() automatisch.
@@ -82,6 +86,7 @@ const EXTRA_SURFACES := {
 	"Prägenetz": PRAEGENETZ, "Prägenetze": PRAEGENETZ, "Prägenetzes": PRAEGENETZ,
 	"Serien": SERIE, "Serienschaltung": SERIE, "Serienlänge": SERIE,
 	"Operator": SERIE, "Operatoren": SERIE, "Multiplikator-Netz": SERIE,
+	"Karten": KARTE, "Pakete": PAKET, "Option": OPTION, "Optionen": OPTION,
 	"Steckplätze": STECKPLATZ, "Modul": STECKPLATZ, "Module": STECKPLATZ,
 	# Längste Form gewinnt: der Voll-Kompositum schlägt das nackte "Krit(s)".
 	"Tscherenkow-Krit": "essence:cherenkov", "Tscherenkow-Krits": "essence:cherenkov",
@@ -97,7 +102,7 @@ const SUMMARIES := {
 	LADUNG: "Hitze eines Würfels von 0 bis 3: je Stufe +1 Mult, an der Spitze droht Durchbrennen.",
 	AUSLOESUNG: "Ein Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal.",
 	RUNE: "Ein Zeichen auf einer Würfelseite mit eigener Wirkung.",
-	GRAVUR: "Eine Aufwertung für Würfel, versiegelt in einem Paket.",
+	GRAVUR: "Eine Aufwertung für Würfel, getragen von einer Karte.",
 	MATERIAL: "Die Belegung einer Würfelseite, etwa Rubin, Gold oder Glas.",
 	VEREDELUNG: "Die starke Form eines Materials.",
 	POINTER: "Eine Netz-Zelle, die den Stand ihrer Seite auf die Nachbarseite kopiert.",
@@ -110,7 +115,7 @@ const SUMMARIES := {
 	STRESSTEST: "Die letzte Runde jedes Blocks, unter einer Boss-Kondition.",
 	VERTRAG: "Ein Angebot des Hauses aus Bonus- und Malusklausel.",
 	NEBENWETTE: "Ein Einsatz auf eine Bedingung dieser Runde.",
-	MAGAZIN: "Die Grube der Werkstatt, in der deine Pakete liegen.",
+	MAGAZIN: "Die Grube der Werkstatt, in der deine Karten liegen.",
 	PRESSE: "Prägt die gesteckte Serie auf einen gewählten Würfel.",
 	PRAEGENETZ: "Das Würfelnetz einer Karte: was sie auf jede Seite prägt.",
 	SERIE: "Die gesteckten Karten, seitenweise aufaddiert.",
@@ -118,6 +123,9 @@ const SUMMARIES := {
 	SCHWARZMARKT: "Das Hinterzimmer: seltene Ware gegen ⚡.",
 	STECKPLATZ: "Platz für ein Modul auf einem Kombinations-Chip.",
 	GLUECK: "Steigt je geschaffter Runde und hebt die Qualität im Laden.",
+	KARTE: "Eine Data-Card mit Prägenetz, die die Presse auf einen Würfel prägt.",
+	PAKET: "Versiegelte Ladenware: geöffnet zeigt es Optionen, du nimmst eine Zahl davon.",
+	OPTION: "Was ein geöffnetes Paket zeigt; die Wahlen sagen, wie viele du nimmst.",
 	RAMPENLICHT: "Je Runde pulst eine Kombination golden; gewertet wächst sie dauerhaft um +1 Mult und +5 Basispunkte.",
 }
 
@@ -270,10 +278,10 @@ static func _build_concepts() -> void:
 		"Ein volles Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal. Essenzen wie Argon lassen den ganzen Würfel mehrfach auslösen, die Rune Nachglühen legt je Seite eine Auslösung obendrauf - Würfel-Faktor und Seiten-Faktor multiplizieren sich.",
 		CAT_BEGRIFFE)
 	_add(RUNE, "Rune",
-		"Ein in die Würfelschale geätztes Zeichen, das den Kernlicht-Funken des Würfels anzapft - die Tönung ist die Wirkung. Jede Seite trägt höchstens eine Rune; nur das Vakuum erlaubt zwei. Runen kommen als Gravur aus Runen-Paketen über die Presse.",
+		"Ein in die Würfelschale geätztes Zeichen, das den Kernlicht-Funken des Würfels anzapft - die Tönung ist die Wirkung. Jede Seite trägt höchstens eine Rune; nur das Vakuum erlaubt zwei. Runen kommen als Gravur von Runen-Karten über die Presse.",
 		CAT_BEGRIFFE)
 	_add(GRAVUR, "Gravur",
-		"Die Aufwertungs-Art der Werkstatt. Zahl-Gravuren verändern Augen, Material-Gravuren belegen eine Seite, Würfel-Gravuren (Pointer, Runen) wirken über die Seite hinaus. Eine Gravur existiert nur versiegelt im Paket oder angewendet - gepresst in der Presse und von Hand auf die eingespannten Würfel gesetzt.",
+		"Die Aufwertungs-Art der Werkstatt. Zahl-Gravuren verändern Augen, Material-Gravuren belegen eine Seite, Würfel-Gravuren (Pointer, Runen) wirken über die Seite hinaus. Eine Gravur existiert nur auf einer Karte oder angewendet - gepresst in der Presse und von Hand auf die eingespannten Würfel gesetzt.",
 		CAT_BEGRIFFE)
 	_add(MATERIAL, "Material",
 		"Die Belegung einer einzelnen Würfelseite: Rubin, Bernstein, Gold, Knochen, Glas oder Kupfer. Ein Material wirkt, wenn seine Seite in der Kombination liegt. Die Veredelung hebt es in seine starke Form.",
@@ -312,13 +320,13 @@ static func _build_concepts() -> void:
 		"Eine Wette neben dem Rundenziel: ein Einsatz auf eine Bedingung dieser Runde, ihre Zielwerte skalieren mit dem Blind. Manche Einsätze kosten nichts im Voraus und besteuern stattdessen jede Hand oder jeden Würfel - reicht das Geld nicht mehr, platzt die Wette.",
 		CAT_BEGRIFFE)
 	_add(MAGAZIN, "Magazin",
-		"Die Grube der Werkstatt, in der jedes versiegelte Paket als eigene Kassette steht. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
+		"Die Grube der Werkstatt, in der jede Karte als eigene Kassette liegt. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
 		CAT_BEGRIFFE)
 	_add(PRESSE, "Presse",
 		"Die Maschine der Werkstatt: die gesteckten Kassetten bilden eine Serie, und EIN Prägen projiziert ihr Summen-Netz auf einen selbst gewählten Würfel. Es wird nichts mehr gewürfelt - die Vorschau zeigt vorher genau das Ergebnis. Geprägt wird so oft man will, aber jedes Prägen heizt den Zielwürfel um eine Ladung auf.",
 		CAT_BEGRIFFE)
 	_add(PRAEGENETZ, "Prägenetz",
-		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Paketgröße.",
+		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Kartengröße (Standard, Groß, Kolossal).",
 		CAT_BEGRIFFE)
 	_add(SERIE, "Serie",
 		"Die Schaltung der Werkstatt: bis zu mehrere Kassetten stecken nebeneinander, und ihre Prägenetze werden seitenweise von links nach rechts aufaddiert. Ein Operator (×2, Spiegel, Sammler) und ein lilanes Multiplikator-Netz rechnen auf der bis dahin aufgelaufenen Summe - die Grundzahl des Würfels vervielfachen sie nie, die Reihenfolge ist darum die Entscheidung. Die Reihe hat SECHS Slots, und das Prägen zündet schon mit einer Karte. Liegt statt eines Würfels ein Rohling auf dem Podest, VERDICHTET dieselbe Reihe statt zu prägen.",
@@ -334,6 +342,15 @@ static func _build_concepts() -> void:
 		CAT_BEGRIFFE)
 	_add(STECKPLATZ, "Steckplatz",
 		"Jeder Kombinations-Chip hat drei Steckplätze für Module - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Module gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",
+		CAT_BEGRIFFE)
+	_add(KARTE, "Karte",
+		"Eine einzelne Data-Card: sie trägt ein Prägenetz und liegt im Magazin, bis die Presse sie auf einen Würfel prägt. Karten gibt es als Zahlen-, Material- und Runen-Karte in drei Größen - Standard, Groß, Kolossal -, dazu Sonderposten, Operatoren und Katalysatoren. Der Laden verkauft sie in Paketen und auf dem Sonderposten-Platz einzeln; Schwarzmarkt, Automaten, Nebenwetten und Charms liefern auch einzelne.",
+		CAT_BEGRIFFE)
+	_add(PAKET, "Paket",
+		"Versiegelte Ware des Ladens: von außen sieht man nur Art, Sorte und Größe, nie den Inhalt. Karten-Pakete (Zahlen, Material, Runen, Misch) und Würfel-Pakete (Kraft, Serien, Seelen, Material, Misch). Gekauft öffnet es sich in der Wurfgrube und zeigt Optionen: Klein 3 (1 Wahl), Normal 4 (1), Groß 5 (2, mindestens eine Große Karte), Riesig 5 (2, mindestens eine Kolossale). Glück kann eine Wahl mehr bringen, das Riesige selten alle. Gewählte Karten gehen ins Magazin, gewählte Würfel sofort in den Vorrat; Ungewähltes verfällt. Nebenwetten zahlen manchmal ein Paket aus.",
+		CAT_BEGRIFFE)
+	_add(OPTION, "Option",
+		"Was ein geöffnetes Paket in der Wurfgrube zeigt. Erst fallen die Optionen hinein, dann klettert der Zähler auf die Zahl der Wahlen - so viele darfst du nehmen, weniger auch. Neu mischen würfelt die Optionen einmal je Paket neu (1 Energie), die Zahl der Wahlen bleibt.",
 		CAT_BEGRIFFE)
 	_add(RAMPENLICHT, "Rampenlicht",
 		"Je Runde pulst eine Kombination golden. Wertest du sie, wächst sie dauerhaft um +1 Mult und +5 Basispunkte - einmal je Runde. Das Rampenlicht kommt vom gleichnamigen Charm oder aus einer Klausel; eine gedrosselte Kombination steht nie darin.",

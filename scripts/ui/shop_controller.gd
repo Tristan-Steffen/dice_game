@@ -15,9 +15,8 @@ extends Control
 ## auf closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
-## Paket gekauft: scene_root schickt es als Licht die Hub-Werkstatt-Ader entlang
-## (Startpunkt = Kaufknopf-Mitte in Display-Pixeln). Die Lieferung meldet die
-## PAKET-uid - der Komet landet auf genau ihrem Magazin-Platz.
+## Die einzelne SONDER-KARTE ist gekauft: scene_root schickt sie als Licht auf ihren
+## Magazin-Platz (uid). Pakete melden nichts - ihre offene Auswahl steht in GameRun.
 signal pack_purchased(from_px: Vector2, uid: int)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
 ## scene_root schickt ihn nur noch als Licht in die Truhe.
@@ -104,9 +103,9 @@ const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
 const VITRINE_FOOTER_UNITS := 6.5
 const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
-## Das NETZ steht IMMER unter seinem Würfel (Spieler-Wunsch 2026-10-25): Höhe in u
-## und Anteil der Spaltenbreite, den es höchstens nimmt.
-const DIE_NET_UNITS := 11.0
+## Die Zeile unter dem Würfel-Paket bzw. Modul (Auskunft): Höhe in u und Anteil der
+## Spaltenbreite, den sie höchstens nimmt.
+const DIE_NET_UNITS := 8.0
 const DIE_NET_WIDTH_SHARE := 0.9
 
 ## Die PROJEKTION der Netz-Blöcke: nach einer echten Ankunft wächst jeder Block aus
@@ -134,23 +133,20 @@ const FLIP_DELAY := 0.4
 class MenuSpread:
 	extends RefCounted
 
-	## Versiegelte Gravur-Pakete des Regals. Würfel-Pakete gibt es nicht mehr - ein
-	## Würfel liegt offen in der Schale.
-	var engraving_packs: Array[Pack] = []
+	## Die PAKETE der Reihe - Einzelkarten verkauft der Laden nicht mehr.
+	var engraving_packs: Array[CardPack] = []
 	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
 	## Der Modul-Platz der Würfel-Bucht (SHOP_PART_SLOTS, mit der Seite gewürfelt).
 	var part_options: Array[ComboPart] = []
 	var part_bought: Array[bool] = []
-	## Einzelstücke der Schale: OFFENE Würfel, alles vor dem Kauf sichtbar - der
-	## EINZIGE Weg des Ladens an einen Würfel (run.shop_dice_slots() Plätze). Sie
-	## gehören zur gerollten Auslage: die Sortiment-Sperre friert sie mit ein,
-	## Gekauftes bleibt gekauft.
-	var single_dice: Array[DieDefinition] = []
+	## Die WÜRFEL-PAKETE der Schale (run.shop_dice_slots() Plätze) - der EINZIGE Weg
+	## des Ladens an einen Würfel. Die Sortiment-Sperre friert sie mit ein.
+	var single_dice: Array[DicePack] = []
 	var single_dice_prices: Array[int] = []
 	var single_dice_bought: Array[bool] = []
-	## Sonderposten der Schale: das versiegelte Paket, das der Kauf ausliefert.
+	## Die einzelne SONDER-KARTE auf dem letzten Platz (höchstens eine).
 	var single_specials: Array[Pack] = []
 	var single_special_bought: Array[bool] = []
 	## Hat diese Seite schon einmal körperlich in der Bucht gelegen? Genau daran
@@ -300,9 +296,9 @@ var charm_bought: Array[bool] = []
 ## Der Modul-Platz: Karte, Mittelfläche (Glyphe/Text) und Preiszeile je Teil.
 var part_options: Array[ComboPart] = []
 var part_bought: Array[bool] = []
-var engraving_packs: Array[Pack] = []
+var engraving_packs: Array[CardPack] = []
 var engraving_pack_bought: Array[bool] = []
-var single_dice: Array[DieDefinition] = []
+var single_dice: Array[DicePack] = []
 var single_dice_prices: Array[int] = []
 var single_dice_bought: Array[bool] = []
 var single_specials: Array[Pack] = []
@@ -443,7 +439,8 @@ func _build_layout() -> void:
 	vitrine_field = Control.new()
 	vitrine_field.name = "VitrineField"
 	vitrine_field.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vitrine_field.custom_minimum_size = Vector2(0.0, u * DIE_ROOM_UNITS)
+	# Die Hülle eines Würfel-Pakets liegt darin wie eine Kassette: so tief wie ihr Stellplatz.
+	vitrine_field.custom_minimum_size = Vector2(0.0, maxf(u * DIE_ROOM_UNITS, slit_size().y))
 	vitrine_nets = Control.new()
 	vitrine_nets.name = "DieNets"
 	vitrine_nets.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -659,7 +656,8 @@ func slit_stock() -> Array:
 		out.append(_slit_pack(seat))
 	return out
 
-func _slit_pack(seat: Dictionary) -> Pack:
+## Das Paket bzw. (Sonderposten-Platz) die einzelne Sonder-Karte eines Platzes.
+func _slit_pack(seat: Dictionary) -> Resource:
 	var index := int(seat["index"])
 	if String(seat["kind"]) == KIND_SPECIAL:
 		if index >= single_specials.size() or single_special_bought[index]:
@@ -725,7 +723,7 @@ func slit_flank_rect() -> Rect2:
 func set_slit_hover(seat: int, cell_hint := "") -> void:
 	if slit_info == null or not is_instance_valid(slit_info):
 		return
-	var pack: Pack = null
+	var pack: Resource = null
 	if seat >= 0 and seat < _slit_seats.size():
 		pack = _slit_pack(_slit_seats[seat])
 	var key := "" if pack == null else "%d:%d:%s" % [seat, pack.get_instance_id(),
@@ -744,9 +742,13 @@ func set_slit_hover(seat: int, cell_hint := "") -> void:
 		return
 	slit_info.position = flank.position - get_global_rect().position
 	slit_info.size = flank.size
-	slit_info_name.text = pack.display_name
-	slit_info_name.modulate = PackDrawerView.pack_tint(pack)
-	slit_info_body.text = cell_hint if cell_hint != "" else Pack.info_body(pack)
+	slit_info_name.text = String(pack.get("display_name"))
+	if pack is CardPack:
+		slit_info_name.modulate = PackDrawerView.card_pack_tint((pack as CardPack).sort)
+		slit_info_body.text = cell_hint if cell_hint != "" else CardPack.info_body(pack)
+	else:
+		slit_info_name.modulate = PackDrawerView.pack_tint(pack as Pack)
+		slit_info_body.text = cell_hint if cell_hint != "" else Pack.info_body(pack as Pack)
 	_fit_slit_info(flank.size)
 	slit_info.visible = true
 	if _net_hint == "" and net_footer != null and is_instance_valid(net_footer):
@@ -891,7 +893,10 @@ func set_ware_hover(item: Object) -> void:
 	_foot_die_key = key
 	var text := ""
 	var own := ""
-	if item is DieDefinition:
+	if item is DicePack:
+		text = "%s - %s" % [(item as DicePack).display_name,
+			DicePack.info_body(item).replace("\n", " ")]
+	elif item is DieDefinition:
 		text = die_foot_text(item)
 		if (item as DieDefinition).essence_id != "":
 			own = "essence:%s" % (item as DieDefinition).essence_id
@@ -970,7 +975,7 @@ func _die_label_height() -> float:
 
 ## Der Würfel, über dessen NETZ der Zeiger liegt (globaler Display-Pixel; null =
 ## keiner). Solange die Blöcke wachsen oder schrumpfen, lögen ihre Rechtecke.
-func die_at_net(pixel: Vector2) -> DieDefinition:
+func die_at_net(pixel: Vector2) -> DicePack:
 	if _net_growing:
 		return null
 	for i in mini(_net_blocks.size(), _net_dice.size()):
@@ -979,7 +984,7 @@ func die_at_net(pixel: Vector2) -> DieDefinition:
 			continue
 		var net := block.get_node_or_null("Net") as Control
 		if net != null and net.get_global_rect().has_point(pixel):
-			return _net_dice[i] as DieDefinition
+			return _net_dice[i] as DicePack
 	return null
 
 ## Das Modul, über dessen Wirkungs-Zeile der Zeiger liegt (null = keins).
@@ -1003,7 +1008,7 @@ func part_at_net(pixel: Vector2) -> ComboPart:
 func set_die_nets(entries: Array, grow := false) -> void:
 	var signature := "%d" % entries.size()
 	for entry in entries:
-		var item: Object = entry["def"] if entry.has("def") else entry["part"]
+		var item: Object = entry["dice_pack"] if entry.has("dice_pack") else entry["part"]
 		var anchor: Vector2 = entry.get("anchor", Vector2.ZERO)
 		signature += "|%d@%.1f,%.1f" % [item.get_instance_id(), anchor.x, anchor.y]
 	if signature == _net_signature:
@@ -1019,8 +1024,8 @@ func set_die_nets(entries: Array, grow := false) -> void:
 		if entry.has("part"):
 			_build_part_block(entry, soul_height, gap, net_top)
 			continue
-		var def: DieDefinition = entry["def"]
-		var rect := die_label_rect(single_dice.find(def))
+		var dice_pack: DicePack = entry["dice_pack"]
+		var rect := die_label_rect(single_dice.find(dice_pack))
 		if rect.size.x <= 0.0:
 			continue
 		var anchor: Vector2 = entry.get("anchor", rect.position)
@@ -1032,31 +1037,28 @@ func set_die_nets(entries: Array, grow := false) -> void:
 		block.pivot_offset = anchor - rect.position
 		vitrine_nets.add_child(block)
 		_net_blocks.append(block)
-		_net_dice.append(def)
-		# Kurz: die SEELE im Glühton ihrer Essenz, ohne Seele der Name des Würfels.
-		var essence := Essence.by_id(def.essence_id)
-		var souled := essence != null
-		var soul := CasinoStyle.label(essence.display_name if souled else def.display_name,
-			u * WARE_SOUL_FONT, soul_tint(def.essence_id) if souled else NEON_MUTED,
-			HORIZONTAL_ALIGNMENT_CENTER)
-		soul.clip_text = true
-		soul.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		soul.position = Vector2.ZERO
-		soul.size = Vector2(rect.size.x, soul_height)
-		block.add_child(soul)
-		_net_souls.append(soul)
+		_net_dice.append(dice_pack)
+		var name_label := CasinoStyle.label(dice_pack.display_name, u * WARE_SOUL_FONT,
+			PackDrawerView.dice_pack_tint(dice_pack.sort), HORIZONTAL_ALIGNMENT_CENTER)
+		name_label.clip_text = true
+		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		name_label.size = Vector2(rect.size.x, soul_height)
+		block.add_child(name_label)
+		_net_souls.append(name_label)
 		var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD,
 			HORIZONTAL_ALIGNMENT_CENTER)
 		tag.position = Vector2(0.0, soul_height + gap * 0.5)
 		tag.size = Vector2(rect.size.x, _price_height())
 		block.add_child(tag)
 		_net_prices.append(tag)
-		var cell := DieNetView.cell_for(Vector2(rect.size.x * DIE_NET_WIDTH_SHARE,
-			u * DIE_NET_UNITS))
-		var net := DieNetView.build(def, VitrineView.die_up_face(), cell)
-		net.name = "Net"
-		net.position = Vector2((rect.size.x - net.size.x) * 0.5, net_top)
-		block.add_child(net)
+		var width := rect.size.x * DIE_NET_WIDTH_SHARE
+		var info := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		info.name = "Net"
+		info.text = DicePack.info_body(dice_pack)
+		info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		info.position = Vector2((rect.size.x - width) * 0.5, net_top)
+		info.size = Vector2(width, u * DIE_NET_UNITS)
+		block.add_child(info)
 	_refresh_ware_prices()
 	if grow:
 		_grow_die_nets()
@@ -1203,10 +1205,10 @@ func clear_die_nets() -> void:
 	_net_signature = ""
 	_drop_die_nets()
 
-## Der Preis des Würfels, unter dem dieser Block liegt (-1 = keiner gefunden).
-func _shown_die_price(def: DieDefinition) -> int:
+## Der Preis des Würfel-Pakets, unter dem dieser Block liegt (-1 = keiner).
+func _shown_die_price(item: Object) -> int:
 	for i in single_dice.size():
-		if single_dice[i] == def and i < single_dice_prices.size():
+		if single_dice[i] == item and i < single_dice_prices.size():
 			return single_dice_prices[i]
 	return -1
 
@@ -1387,38 +1389,17 @@ func _build_spread() -> MenuSpread:
 	spread.part_bought.resize(spread.part_options.size())
 	spread.part_bought.fill(false)
 
-	# Gravur-Pakete: die Sorte entscheidet die Häufigkeit (viele Zahlen, wenige
-	# Kanten), die Mindest-Seltenheit im Inhalt zieht GameRun beim Öffnen.
-	# Die GRÖSSE würfelt jeder Platz einzeln (60/30/10) - der Laden ist der EINE
-	# Weg zu Groß und Kolossal, jede Prämie prägt Standard - und der EINE Weg zum
-	# Multiplikator-Netz.
-	var multiplier_chance := run.shop_multiplier_chance()
-	var tier_weights := run.shop_tier_weights()
+	# PAKETE: Sorte und Größe je Platz; Optionen und Wahlen fallen erst beim Kauf.
 	for i in run.shop_packs_offered():
-		spread.engraving_packs.append(Pack.roll_engraving_pack(
-			Pack.roll_tier(null, tier_weights), null, multiplier_chance))
+		spread.engraving_packs.append(CardPack.roll_shop())
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 
-	# Die Einzelwürfel der Schale - der EINZIGE Würfelweg des Ladens. Sie werden
-	# HIER ausgewürfelt und vollständig gezeigt: kein Blindkauf, das ist ihr ganzer
-	# Zweck. Drei, auf jeder Stufe (shop_dice_slots).
-	var owned_souls := run.owned_essence_ids()
-	var soul_rule := run.shop_soul_rule()
+	# Die WÜRFEL-PAKETE der Schale - Einzelwürfel führt der Laden nicht mehr.
 	for i in run.shop_dice_slots():
-		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.shop_tier(),
-			soul_rule)
-		if offers.is_empty() or offers[0].dice.is_empty():
-			continue
-		var die: DieDefinition = offers[0].dice[0]
-		spread.single_dice.append(die)
-		# Die Würfel-Rabatte (Trickdieb, Mengenrabatt) liegen jetzt hier: seit die
-		# Würfel-Pakete tot sind, ist die Schale der einzige Würfelkauf.
-		spread.single_dice_prices.append(
-			CharmEffects.die_price(offers[0].price, run.charm_ids()))
-		# Ein frisch gerolltes Unikat darf nicht zweimal in derselben Auslage liegen.
-		if die.essence_id != "" and not owned_souls.has(die.essence_id):
-			owned_souls.append(die.essence_id)
+		var dice_pack := DicePack.roll_shop()
+		spread.single_dice.append(dice_pack)
+		spread.single_dice_prices.append(_dice_pack_price(dice_pack))
 	spread.single_dice_bought.resize(spread.single_dice.size())
 	spread.single_dice_bought.fill(false)
 	# Leere Regale: die Plätze bleiben, die hinteren stehen leer - wie verkauft.
@@ -1883,16 +1864,14 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Kauf eines Sonderpostens aus der Schale: er geht VERSIEGELT ins Lager wie jedes
-## Paket - offen wartet keine Aufwertung. Derselbe Kaufweg wie die Regal-Pakete,
+## Kauf der Sonder-Karte: sie geht VERSIEGELT ins Magazin wie früher jede Einzelkarte,
 ## samt Kleingedrucktem und Lieferkomet.
 func _on_single_special_pressed(index: int) -> void:
-	if single_special_bought[index]:
+	if index < 0 or index >= single_specials.size() or single_special_bought[index] \
+			or _choice_open():
 		return
 	var pack: Pack = single_specials[index]
 	var price := _pack_price(pack)
-	# Volles Magazin sperrt den Kauf wie eine knappe Börse (purchase_pack prüft
-	# ebenso, aber ein stiller Fehlkauf dürfte hier nie als gekauft gelten).
 	if run.money < price or run.packs_full():
 		return
 	var from_px := _buy_origin_px(KIND_SPECIAL, index)
@@ -1903,15 +1882,23 @@ func _on_single_special_pressed(index: int) -> void:
 		pack_refunded.emit(from_px, refunded)
 	_show_spread()
 
-## Kauf eines offenen Würfels: bezahlt, aber NICHT eingesetzt. Er wandert ins
-## Regal des Händlers, bis der Spieler selbst sagt, welcher Pool-Platz weichen
-## soll - der Automat wählte sonst blind, und eine Seele ist nicht wiederbeschaffbar.
+## Kauf eines WÜRFEL-PAKETS: gebucht wird Preis UND Auswahl (Optionen, Wahlen) - die
+## Grube zeigt sie danach.
 func _on_single_die_pressed(index: int) -> void:
-	if single_dice_bought[index] or run.money < single_dice_prices[index]:
+	if index < 0 or index >= single_dice.size() or single_dice_bought[index] \
+			or _choice_open() or run.money < single_dice_prices[index]:
 		return
-	run.stash_die(single_dice[index], single_dice_prices[index])
+	var from_px := _buy_origin_px(KIND_DIE, index)
+	run.purchase_dice_pack(single_dice[index], single_dice_prices[index])
 	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	if run.last_card_pack_refund > 0:
+		pack_refunded.emit(from_px, run.last_card_pack_refund)
 	_show_spread()
+
+## Steht noch eine Paket-Auswahl offen? Dann kauft der Laden nichts - eines nach
+## dem anderen.
+func _choice_open() -> bool:
+	return run != null and run.current_pack_choice() != null
 
 # --- Neon-Bausteine --------------------------------------------------------------
 
@@ -1949,10 +1936,16 @@ func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
 
 # --- Käufe ----------------------------------------------------------------------
 
-## Jedes Paket trägt seinen festen Sortenpreis; der Schnäppchenjäger zieht davon
-## ab, danach Inflation/Skonto des Hauses.
-func _pack_price(pack: Pack) -> int:
-	return run.shop_price(CharmEffects.pack_price(pack.price, pack.type, run.charm_ids()))
+## Jedes Paket trägt seinen Tabellenpreis; der Schnäppchenjäger zieht davon ab,
+## danach Inflation/Skonto des Hauses. Auch die einzelne Sonder-Karte geht hier durch.
+func _pack_price(pack: Resource) -> int:
+	return run.shop_price(CharmEffects.pack_price(int(pack.get("price")), "", run.charm_ids()))
+
+## Das Würfel-Paket: Schnäppchenjäger, dann die Würfel-Rabatte (Trickdieb, Mengenrabatt).
+func _dice_pack_price(dice_pack: DicePack) -> int:
+	var ids := run.charm_ids()
+	return run.shop_price(CharmEffects.die_price(
+		CharmEffects.pack_price(dice_pack.price, "", ids), ids))
 
 ## Der Hausgutschein schenkt den ERSTEN Charm des Blocks - danach zählt
 ## wieder der normale Preis samt Inflation/Skonto.
@@ -1961,23 +1954,27 @@ func _charm_price(charm: Charm) -> int:
 		return 0
 	return run.shop_price(CharmEffects.charm_price(charm.price, run.charm_ids()))
 
-## Kauft ein versiegeltes Paket (je Angebot einmal); es wandert ungeöffnet ins
-## Werkstatt-Lager. Danach wird die Doppelseite neu bebaut.
+## Kauft ein Karten-Paket (je Angebot einmal): gebucht sind Preis und Auswahl, die
+## Grube zeigt sie. Danach wird die Doppelseite neu bebaut.
 func _on_pack_buy_pressed(index: int) -> void:
-	if index < 0 or index >= engraving_packs.size() or engraving_pack_bought[index]:
+	if index < 0 or index >= engraving_packs.size() or engraving_pack_bought[index] \
+			or _choice_open():
 		return
-	var pack: Pack = engraving_packs[index]
+	if _buy_card_pack(engraving_packs[index], KIND_ENGRAVING_PACK, index):
+		engraving_pack_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+		_show_spread()
+
+## Der Karten-Paket-Kauf: GameRun bucht Preis, Optionen und Wahlen; die Erstattung
+## meldet ihr Licht. false = nicht bezahlbar.
+func _buy_card_pack(pack: CardPack, kind: String, index: int) -> bool:
 	var price := _pack_price(pack)
-	# Volles Magazin sperrt wie eine knappe Börse - erst pressen, dann kaufen.
-	if run.money < price or run.packs_full():
-		return
-	var from_px := _buy_origin_px(KIND_ENGRAVING_PACK, index)
-	var refunded := run.purchase_pack(pack, price)
-	engraving_pack_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	pack_purchased.emit(from_px, pack.pack_uid)
-	if refunded > 0:
-		pack_refunded.emit(from_px, refunded)
-	_show_spread()
+	if run.money < price:
+		return false
+	var from_px := _buy_origin_px(kind, index)
+	run.purchase_card_pack(pack, price)
+	if run.last_card_pack_refund > 0:
+		pack_refunded.emit(from_px, run.last_card_pack_refund)
+	return true
 
 ## Startpunkt eines Kauf-Kometen: ein versiegeltes Stück fährt aus SEINEM Schlitz
 ## los, offene Ware aus der Bucht.
@@ -2033,7 +2030,7 @@ func _refresh_ware_prices() -> void:
 		var tag := _slit_prices[seat]
 		if tag == null or not is_instance_valid(tag):
 			continue
-		var pack: Pack = null
+		var pack: Resource = null
 		if run != null:
 			pack = _slit_pack(_slit_seats[seat])
 		if pack == null:

@@ -303,7 +303,7 @@ func test_stake_value_per_stake_kind():
 	var two := _bet("collateral")
 	two.stake_pack_type = Pack.TYPE_MATERIAL
 	two.stake_pack_tier = Pack.TIER_GROSS
-	assert_eq(two.stake_value(), 26, "zwei Große Material-Pakete zum Ladenpreis")
+	assert_eq(two.stake_value(), 26, "zwei Große Material-Karten zum Ladenpreis")
 
 func test_payout_value_is_stake_times_odds_and_ware_bonus():
 	var easy := _with("two_pair", SideBet.Payout.MONEY)
@@ -357,11 +357,11 @@ func test_card_amount_rule():
 	var bet := _with("full_house", SideBet.Payout.PACKS, Pack.TYPE_MATERIAL)  # Ware $19
 	assert_eq(bet.reward_tier(), Pack.TIER_GROSS)
 	assert_eq(bet.reward_count(), 1)
-	assert_eq(bet.reward_label(), "1 Großes Material-Paket")
+	assert_eq(bet.reward_label(), "1 Große Material-Karte")
 	var runes := _with("two_pair", SideBet.Payout.PACKS, Pack.TYPE_DICE_MOD)  # Ware $10
-	assert_eq(runes.reward_label(), "1 Runen-Paket")
+	assert_eq(runes.reward_label(), "1 Runen-Karte")
 	var ship := _with("shipment", SideBet.Payout.PACKS)  # Ware $38
-	assert_eq(ship.reward_label(), "2 Kolossale Zahlen-Pakete")
+	assert_eq(ship.reward_label(), "2 Kolossale Zahlen-Karten")
 	var whale := _with("whale", SideBet.Payout.PACKS)  # Ware $94
 	assert_eq(whale.reward_count(), SideBet.MAX_REWARD_CARDS, "höchstens vier Karten")
 	var cards := ship.reward_cards()
@@ -372,7 +372,7 @@ func test_card_amount_rule():
 
 func test_multiplier_cards_follow_the_same_rule():
 	var bet := _with("full_house", SideBet.Payout.MULTIPLIER)  # Ware $19
-	assert_eq(bet.reward_label(), "2 Multiplikator-Pakete")
+	assert_eq(bet.reward_label(), "2 Multiplikator-Karten")
 	for card in bet.reward_cards():
 		assert_true(card.is_multiplier())
 
@@ -385,10 +385,10 @@ func test_reward_cards_are_rolled_once():
 func test_payout_factor_lifts_every_ware():
 	assert_eq(_with("jackpot", SideBet.Payout.MONEY).reward_label(2.0), "$30")
 	var cards := _with("full_house", SideBet.Payout.PACKS)
-	assert_eq(cards.reward_label(), "1 Kolossales Zahlen-Paket")
-	assert_eq(cards.reward_label(2.0), "2 Kolossale Zahlen-Pakete", "mehr Karten")
+	assert_eq(cards.reward_label(), "1 Kolossale Zahlen-Karte")
+	assert_eq(cards.reward_label(2.0), "2 Kolossale Zahlen-Karten", "mehr Karten")
 	var mats := _with("full_house", SideBet.Payout.PACKS, Pack.TYPE_MATERIAL)
-	assert_eq(mats.reward_label(2.0), "1 Kolossales Material-Paket", "eine größere Karte")
+	assert_eq(mats.reward_label(2.0), "1 Kolossale Material-Karte", "eine größere Karte")
 	assert_eq(_with("feedback_loop", SideBet.Payout.ENERGY).reward_label(), "15 ⚡")
 	assert_eq(_with("feedback_loop", SideBet.Payout.ENERGY).reward_label(2.0), "31 ⚡")
 	assert_eq(_bet("circuit_contract").reward_label(2.0), "1 Pointer")
@@ -459,11 +459,11 @@ func test_pack_stake_label_names_type_and_size():
 	assert_eq(bet.stake_kind, SideBet.Stake.PACKS)
 	bet.stake_pack_type = Pack.TYPE_MATERIAL
 	bet.stake_pack_tier = Pack.TIER_NORMAL
-	assert_eq(bet.stake_label(), "1 Material-Paket")
+	assert_eq(bet.stake_label(), "1 Material-Karte")
 	var two := _bet("collateral")  # 2 Pakete
 	two.stake_pack_type = Pack.TYPE_MATERIAL
 	two.stake_pack_tier = Pack.TIER_GROSS
-	assert_eq(two.stake_label(), "2 Große Material-Pakete")
+	assert_eq(two.stake_label(), "2 Große Material-Karten")
 	assert_eq(two.stake_label(),
 		Pack.amount_phrase(Pack.TYPE_MATERIAL, Pack.TIER_GROSS, 2),
 		"und zwar aus der EINEN Quelle")
