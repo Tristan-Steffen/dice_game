@@ -77,6 +77,8 @@ const FUSE_FAILURE_SCALE := 4.0
 const MAINS_HUM_SCALE := 3.0
 const SHOP_INFLATION_FACTOR := 1.25
 const SHOP_DISCOUNT_FACTOR := 0.8
+## Stammkunde: Ladenpreise −15 % bis zur Abrechnung.
+const REGULAR_CUSTOMER_FACTOR := 0.85
 ## Dauerhafte Blind-Hebungen: mit der Unterschrift auf blind_value multipliziert.
 const BLIND_RAISE := {
 	DealClause.QUOTA_SURCHARGE: 0.10,
@@ -401,14 +403,69 @@ func max_overcharge_stages() -> int:
 func overcharge_frame() -> int:
 	return 5
 
-## Halbierte Blätter-Gebühr ab TIER_CHEAP_FLIP (stapelt mit dem Wechselgeld-Charm).
+## Halbierte Blätter-Gebühr ab TIER_CHEAP_FLIP (stapelt mit dem Wechselgeld-Charm);
+## Freies Blättern macht sie 0, der Blätter-Aufschlag verdoppelt sie.
 func shop_flip_fee_factor() -> float:
-	return 0.5 if progress_tier() >= TIER_CHEAP_FLIP else 1.0
+	if _clause_active(DealClause.FREE_FLIP):
+		return 0.0
+	var factor := 0.5 if progress_tier() >= TIER_CHEAP_FLIP else 1.0
+	if _clause_active(DealClause.FLIP_SURCHARGE):
+		factor *= 2.0
+	return factor
+
+## Glückstag: so viel Glück legt der Laden für seine Würfe drauf.
+const LUCKY_DAY_LUCK := 3
+
+## Die Fortschrittsstufe, mit der der LADEN würfelt (Seltenheit, Multiplikator,
+## Sonderposten, Würfel-Augen) - der Glückstag hebt sie.
+func shop_tier() -> int:
+	if not _clause_active(DealClause.LUCKY_DAY):
+		return progress_tier()
+	var bonus := LUCKY_DAY_LUCK * deal_bonus_factor()
+	return clampi(1 + (luck + bonus) / LUCK_PER_TIER, 1, TIER_MAX)
+
+## Größen-Gewichte der Laden-Karten (Großauftrag: öfter Groß und Kolossal).
+const BULK_ORDER_TIER_WEIGHTS := [0.3, 0.45, 0.25]
+
+func shop_tier_weights() -> Array:
+	return BULK_ORDER_TIER_WEIGHTS if _clause_active(DealClause.BULK_ORDER) \
+		else Pack.TIER_WEIGHTS
+
+## Ziehgewicht-Faktoren je Charm-Seltenheit (Kennerblick).
+func shop_charm_rarity_factors() -> Dictionary:
+	if not _clause_active(DealClause.CONNOISSEUR_EYE):
+		return {}
+	var factor := 2.0 * deal_bonus_factor()
+	return {Charm.RARITY_RARE: factor, Charm.RARITY_LEGENDARY: factor}
+
+## Ladenhüter: der Laden führt nur gewöhnliche Charms.
+func shop_common_charms_only() -> bool:
+	return _clause_active(DealClause.SHELF_WARMER)
+
+## Seelen-Regel der Laden-Würfel ({"chance", "boost"}): Seelenmarkt immer mit Seele
+## und seltene ×2, Seelenlos nie.
+func shop_soul_rule() -> Dictionary:
+	if _clause_active(DealClause.SOULLESS):
+		return {"chance": 0.0, "boost": 1.0}
+	if _clause_active(DealClause.SOUL_MARKET):
+		return {"chance": 1.0, "boost": 2.0}
+	return {}
+
+## Wie viele Würfel bzw. Karten der Laden auslegt - die Plätze bleiben stehen,
+## Leere Regale lassen je einen leer.
+func shop_dice_offered() -> int:
+	return _shelf_cut(shop_dice_slots())
+
+func shop_packs_offered() -> int:
+	return _shelf_cut(shop_pack_slots())
+
+func _shelf_cut(slots: int) -> int:
+	return maxi(1, slots - 1) if _clause_active(DealClause.EMPTY_SHELVES) else slots
 
 ## Raritäts-Stufe der Shop-Ware: 0 keine, 1 ungewöhnlich, 2 selten, 3 legendär.
 ## Steuert den garantierten Premium-Charm + die Gravur-Mindestrarität.
 func shop_rarity_tier() -> int:
-	var tier := progress_tier()
+	var tier := shop_tier()
 	if tier >= TIER_RARITY_LEGENDARY:
 		return 3
 	if tier >= TIER_RARITY_RARE:
@@ -433,7 +490,9 @@ func shop_pack_slots() -> int:
 ## Doppelseite: er belegt einen der Paket-Plätze, statt einen dazuzustellen -
 ## das Regal bleibt gleich breit, und er kostet einen normalen Wurf.
 func shop_special_chance() -> float:
-	var tier := progress_tier()
+	if _clause_active(DealClause.SPECIAL_DELIVERY):
+		return 1.0
+	var tier := shop_tier()
 	if tier < SHOP_SPECIAL_TIER:
 		return 0.0
 	return float(SHOP_SPECIAL_CHANCE.get(tier, 0.0))
@@ -444,9 +503,15 @@ const MULTIPLIER_CHANCE_BASE := 0.04
 const MULTIPLIER_CHANCE_STEP := 0.02
 const MULTIPLIER_CHANCE_CAP := 0.25
 
+## Rechenwoche: Multiplikator-Netze dreimal so oft (der Deckel bleibt).
+const MATH_WEEK_FACTOR := 3.0
+
 func shop_multiplier_chance() -> float:
-	return minf(MULTIPLIER_CHANCE_BASE
-		+ MULTIPLIER_CHANCE_STEP * float(maxi(progress_tier() - 1, 0)), MULTIPLIER_CHANCE_CAP)
+	var chance := MULTIPLIER_CHANCE_BASE \
+		+ MULTIPLIER_CHANCE_STEP * float(maxi(shop_tier() - 1, 0))
+	if _clause_active(DealClause.MATH_WEEK):
+		chance *= MATH_WEEK_FACTOR * deal_bonus_factor()
+	return minf(chance, MULTIPLIER_CHANCE_CAP)
 
 ## Kauf aus der Chip-Schale: bezahlt und SOFORT einzusetzen - pending_dice ist kein
 ## Zwischenlager, sondern die Strecke bis zum Raster (scene_root erzwingt die Wahl,
@@ -521,7 +586,10 @@ func move_charm(from_index: int, to_index: int) -> void:
 func charm_sell_value(index: int) -> int:
 	if index < 0 or index >= owned_charms.size():
 		return 0
-	return CharmEffects.charm_sell_value(owned_charms[index].sell_value, charm_ids())
+	var value := CharmEffects.charm_sell_value(owned_charms[index].sell_value, charm_ids())
+	if _clause_active(DealClause.BUYBACK):
+		value = maxi(value, owned_charms[index].price)  # Rückkaufrecht: voller Preis
+	return value
 
 ## Verkauft den Charm auf Platz index: entfernt ihn, Erlös aufs Konto.
 func sell_charm(index: int) -> void:
@@ -902,6 +970,10 @@ func compress_series(pack_uids: Array[int], blank_uid: int,
 	return {"net": preview["net"], "fizzled": preview["fizzled"],
 		"cards": int(preview["cards"]), "kept": kept, "uid": blank_uid}
 
+## Kaltpressung: das Prägen erhitzt den Zielwürfel nicht.
+func press_heats_free() -> bool:
+	return _clause_active(DealClause.COLD_PRESS)
+
 ## DAS PRÄGEN: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
 ## Karten verbrauchen. Es ist UNBEGRENZT (Spieler-Entscheid 2026-09-05) und geht
 ## mit jeder Kartenzahl ab 1; ohne prägende Karte UND ohne Kühl- oder
@@ -928,7 +1000,7 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	_project(die, projection)
 	# Das Prägen HEIZT: erzwungenes +1 auf den Zielwürfel. Brennt er dabei durch,
 	# bleibt die Prägung trotzdem stehen - sie wirkt nach der Reparatur wieder.
-	var burned_target := charge_up_forced(die)
+	var burned_target := false if press_heats_free() else charge_up_forced(die)
 	# Kühl- und Reparatur-Karten wirken NACH der Hitze, in Steckreihenfolge.
 	var cooled := false
 	for id in aftercare:
@@ -1577,6 +1649,9 @@ func _apply_instant_clause(clause_id: String) -> void:
 			free_spins_used.clear()
 		DealClause.NOISE_FILTER:
 			_apply_noise_filter()
+		DealClause.BIG_STORAGE:
+			storage_rows += boost
+			energy_changed.emit(energy)  # der Deckel ist gewachsen
 
 ## Entstörung: der ganze Vorrat fällt sofort auf Ladung 1 (der Kühlkörper-Deckel
 ## gilt auch hier). Durchgebrannte bleiben dunkel - sie werden repariert.
@@ -1774,6 +1849,8 @@ func shop_price_factor() -> float:
 	if _clause_active(DealClause.CASH_DISCOUNT):
 		# Nachlass wie die Eichung: zweimal angewandt statt verdoppelt.
 		factor *= pow(SHOP_DISCOUNT_FACTOR, deal_bonus_factor())
+	if _clause_active(DealClause.REGULAR_CUSTOMER):
+		factor *= pow(REGULAR_CUSTOMER_FACTOR, deal_bonus_factor())
 	factor *= 1.0 - CharmEffects.black_cat_discount(farkle_count, charm_ids())
 	return factor
 
@@ -1807,25 +1884,48 @@ func begin_shop_visit() -> void:
 func charm_free_spin_open() -> bool:
 	return not free_spin_used_this_visit and CharmEffects.has_free_spin(charm_ids())
 
-## Quotenbonus: Auszahlungsfaktor gewonnener Nebenwetten.
-func side_bet_payout_factor() -> int:
-	return 2 * deal_bonus_factor() if _clause_active(DealClause.ODDS_BONUS) else 1
+## Hoher Tisch: Einsatz und Gewinnwert der Nebenwetten ×1,5.
+const HIGH_TABLE_FACTOR := 1.5
 
-## Wettsteuer: Einsätze kosten doppelt (Anzeige UND Abbuchung lesen das hier).
-func side_bet_stake_factor() -> int:
-	return 2 if _clause_active(DealClause.BETTING_TAX) else 1
+## Faktor auf den GEWINNWERT gewonnener Nebenwetten (Quotenbonus, Hoher Tisch).
+func side_bet_payout_factor() -> float:
+	var factor := 1.0
+	if _clause_active(DealClause.ODDS_BONUS):
+		factor *= 2.0 * deal_bonus_factor()
+	if _clause_active(DealClause.HIGH_TABLE):
+		factor *= HIGH_TABLE_FACTOR * deal_bonus_factor()
+	return factor
+
+## Faktor auf den Einsatz (Wettsteuer ×2, Hoher Tisch ×1,5) - Anzeige UND Abbuchung
+## lesen das hier, gerundet wird aufwärts (SideBet.scaled).
+func side_bet_stake_factor() -> float:
+	var factor := 1.0
+	if _clause_active(DealClause.BETTING_TAX):
+		factor *= 2.0
+	if _clause_active(DealClause.HIGH_TABLE):
+		factor *= HIGH_TABLE_FACTOR
+	return factor
 
 ## Fälliger Bar-Einsatz einer Wette.
 func side_bet_stake(bet: SideBet) -> int:
-	return bet.stake * side_bet_stake_factor()
+	return SideBet.scaled(bet.stake, side_bet_stake_factor())
 
 ## Fälliger Paket-Einsatz einer Wette.
 func side_bet_stake_packs(bet: SideBet) -> int:
-	return bet.stake_packs * side_bet_stake_factor()
+	return SideBet.scaled(bet.stake_packs, side_bet_stake_factor())
 
 ## Fälliger Ladungs-Einsatz einer Wette (⚡).
 func side_bet_stake_energy(bet: SideBet) -> int:
-	return bet.stake_energy * side_bet_stake_factor()
+	return SideBet.scaled(bet.stake_energy, side_bet_stake_factor())
+
+## Lauf-Daten, mit denen eine Wette ihren Würfel-Gewinn würfelt (reine Daten).
+func side_bet_context() -> Dictionary:
+	return {"charm_ids": charm_ids(), "owned_essences": owned_essence_ids(),
+		"tier": progress_tier()}
+
+## Rückversicherung: verlorene Wetten geben ihren Einsatz zurück.
+func side_bet_reinsured() -> bool:
+	return _clause_active(DealClause.REINSURANCE)
 
 ## Frankiermaschine: so viele 1er-Pakete prägt sie am Rundenende - je eines pro
 ## Meteor der Rundenende-Zeremonie (scene_root treibt Flug und grant).
@@ -2318,14 +2418,21 @@ func can_place_side_bet(bet: SideBet) -> bool:
 ## Platziert eine Nebenwette: Einsatz sofort fällig (Geld, geopferte Pakete
 ## oder Energie), Auswertung am Rundenende.
 func place_side_bet(bet: SideBet) -> void:
+	bet.paid_money = 0
+	bet.paid_energy = 0
+	bet.paid_packs.clear()
 	match bet.stake_kind:
 		SideBet.Stake.PACKS:
-			_consume_packs(stake_packs_for(bet))
+			var packs := stake_packs_for(bet)
+			bet.paid_packs.assign(packs)
+			_consume_packs(packs)
 		SideBet.Stake.ENERGY:
+			bet.paid_energy = mini(energy, side_bet_stake_energy(bet))
 			spend_energy(side_bet_stake_energy(bet))
 		SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
 			pass  # Steuerwette: die Rechnung kommt Hand für Hand
 		_:
+			bet.paid_money = side_bet_stake(bet)
 			add_money(-side_bet_stake(bet))
 	active_side_bets.append(bet)
 	side_bets_changed.emit()
@@ -2352,6 +2459,7 @@ func tax_side_bets(hand_dice: int) -> int:
 			bet.voided = true
 			continue
 		add_money(-due)
+		bet.paid_money += due
 		paid += due
 	if changed:
 		side_bets_changed.emit()
@@ -2372,52 +2480,78 @@ func _consume_packs(packs: Array[Pack]) -> void:
 ## Wertet alle platzierten Wetten gegen die Rundenbilanz aus, schüttet die
 ## Gewinne aus (Gravuren oder Bargeld je payout_kind) und leert die Auslage.
 ## Liefert die gewonnenen Wetten für die Auszahlungs-Anzeige.
+## Was die Rückversicherung bei der letzten Abrechnung erstattet hat (Anzeige).
+var last_side_bet_refund: Dictionary = {}
+
 func resolve_side_bets(result: Dictionary) -> Array[SideBet]:
 	var won: Array[SideBet] = []
-	var factor := side_bet_payout_factor()  # Quotenbonus
+	var factor := side_bet_payout_factor()
+	var reinsured := side_bet_reinsured()
+	last_side_bet_refund = {"money": 0, "energy": 0, "packs": [] as Array[Pack]}
 	for bet in active_side_bets:
 		if bet.evaluate(result):
 			won.append(bet)
 			_pay_side_bet(bet, factor)
+		elif reinsured:
+			_refund_side_bet(bet)
 	active_side_bets.clear()
 	side_bets_changed.emit()
 	return won
 
-## Schüttet EINEN gewonnenen Einsatz aus. Der Quotenbonus-Faktor greift auf
-## Geld, Ware und Energie - Einzelstücke (Sonderposten, Paket, Modul)
-## verdoppelt er nicht. JEDES gewährte Paket wird in awarded_packs GEMERKT
-## (und jedes am vollen Magazin zerfallene gezählt): die Auszahlungs-Seite
-## hält die Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
-func _pay_side_bet(bet: SideBet, factor: int) -> void:
+## Rückversicherung: Geld, ⚡ und gezahlte Steuer zurück, die geopferten Karten
+## (dieselben Exemplare) zurück ins Magazin. Eine Erstattung ist keine Einnahme.
+func _refund_side_bet(bet: SideBet) -> void:
+	if bet.paid_money > 0:
+		refund_money(bet.paid_money)
+		last_side_bet_refund["money"] = int(last_side_bet_refund["money"]) + bet.paid_money
+	if bet.paid_energy > 0:
+		var overflow := add_energy(bet.paid_energy)
+		if overflow > 0:
+			refund_money(overflow * ENERGY_OVERFLOW_MONEY)
+		last_side_bet_refund["energy"] = int(last_side_bet_refund["energy"]) \
+			+ bet.paid_energy - overflow
+	if not bet.paid_packs.is_empty():
+		var back: Array[Pack] = last_side_bet_refund["packs"]
+		for pack in grant_packs(bet.paid_packs):
+			if pack != null:
+				back.append(pack)
+	bet.paid_money = 0
+	bet.paid_energy = 0
+	bet.paid_packs.clear()
+
+## Schüttet EINEN gewonnenen Einsatz in seiner Ware aus; factor hebt den
+## Gewinnwert. JEDES gewährte Paket wird in awarded_packs GEMERKT (und jedes am
+## vollen Magazin zerfallene gezählt): die Auszahlungs-Seite hält die Kassetten
+## bis zum Kassieren zurück und zielt dann auf ihre uids.
+func _pay_side_bet(bet: SideBet, factor: float) -> void:
 	bet.awarded_packs.clear()
 	bet.awarded_fizzled = 0
+	bet.awarded_pack = null
+	bet.awarded_die = null
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
-			# Quotenblatt hebt NUR das Bargeld - Energie und Ware bleiben.
-			add_money(CharmEffects.side_bet_money(bet.payout_money * factor, charm_ids()))
+			# Quotenblatt hebt NUR das Bargeld.
+			add_money(CharmEffects.side_bet_money(bet.reward_money(factor), charm_ids()))
 		SideBet.Payout.ENERGY:
-			var overflow := add_energy(bet.payout_energy * factor)
+			var overflow := add_energy(bet.reward_energy(factor))
 			if overflow > 0:
 				add_money(overflow * ENERGY_OVERFLOW_MONEY)  # volle Börse zahlt bar
-		SideBet.Payout.SPECIAL:
-			# Wie beim Paket-Gewinn gemerkt: die Zeremonie zielt auf SEINE uid.
-			var specials := bet.reward_cards(1)
-			bet.awarded_pack = grant_pack(specials[0]) if not specials.is_empty() else null
-			bet.note_awarded(bet.awarded_pack)
-		SideBet.Payout.PACK:
-			# null = volles Magazin: der Gewinn ist zu Geld zerfallen, und die
-			# Zeremonie schickt darum Geld statt einer Kassette los.
-			bet.awarded_pack = grant_pack(bet.reward_cards(1)[0])
-			bet.note_awarded(bet.awarded_pack)
 		SideBet.Payout.PART:
-			# Einzelstück: der Quotenbonus verdoppelt es nicht.
 			var part := bet.reward_part()
 			if part != null:
 				stash_part(part)
+		SideBet.Payout.DIE:
+			# Der Weg des Ladenkaufs: ins Ausgabefach, und von dort SOFORT in den Vorrat.
+			var die := bet.reward_die(factor)
+			if die != null:
+				stash_die(die, 0)
+				bet.awarded_die = pending_dice[pending_dice.size() - 1]
 		_:
 			# Genau die Karten, die in der Grube lagen.
-			for pack in bet.reward_cards(bet.reward_packs * factor):
+			for pack in bet.reward_cards(factor):
 				bet.note_awarded(grant_pack(pack))
+			if not bet.awarded_packs.is_empty():
+				bet.awarded_pack = bet.awarded_packs[0]
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 
@@ -2446,7 +2580,11 @@ func spin_slot(machine: int) -> Array:
 		free_spin_used_this_visit = true  # ein Freispiel je Besuch, nicht je Automat
 	else:
 		spend_energy(slot_spin_energy(machine))
-	return slot_bank.roll(machine, null, farkle_count)
+	return slot_bank.roll(machine, null, farkle_count, slots_fumble_free())
+
+## Gezinkte Walzen: der Walzen-Wurf kennt kein Fumble-Feld.
+func slots_fumble_free() -> bool:
+	return _clause_active(DealClause.LOADED_REELS)
 
 ## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,
 ## sobald die Walze gelandet ist.
@@ -2669,7 +2807,10 @@ func energy_cap() -> int:
 	return mini(energy_cap_rows() * ENERGY_ROW, ENERGY_CAP_LIMIT)
 
 func energy_cap_rows() -> int:
-	return 1 + stress_tests_passed
+	return 1 + stress_tests_passed + storage_rows
+
+## Großer Speicher: dauerhaft gekaufte Fünfergruppen der Börse (stirbt mit dem Lauf).
+var storage_rows: int = 0
 
 ## Aufteilung von stages in Börse und Überlauf - reine Vorschau gegen den
 ## aktuellen Stand, damit die Zeremonie ihre Kometen vorab planen kann.
@@ -2708,7 +2849,7 @@ func book_copper_energy(count: int) -> int:
 ## Preis des nächsten Neuwurfs - immer derselbe. Die Hehlerware drückt ihn NICHT:
 ## ein Neuwurf ist keine Ware.
 func secret_reroll_cost() -> int:
-	return SECRET_REROLL_BASE
+	return 0 if _clause_active(DealClause.BACK_ROOM_CONTACT) else SECRET_REROLL_BASE
 
 ## Fälliger ⚡-Preis EINES Angebots (Hehlerware drückt ihn, nie unter 1). Einzige
 ## Quelle für Anzeige, Bezahlbarkeit und Abbuchung.
@@ -2718,7 +2859,10 @@ func secret_offer_price(offer: Dictionary) -> int:
 		return price
 	if offer.get(OFFER_KIND) == KIND_PART:
 		price = CharmEffects.part_price(price, charm_ids())
-	return maxi(1, price - CharmEffects.secret_price_cut(charm_ids()))
+	price -= CharmEffects.secret_price_cut(charm_ids())
+	if _clause_active(DealClause.BACK_ROOM_CONTACT):
+		price -= deal_bonus_factor()  # Hinterzimmer-Kontakt
+	return maxi(1, price)
 
 ## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Energie
 ## nicht reicht.

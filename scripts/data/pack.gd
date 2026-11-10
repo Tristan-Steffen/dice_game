@@ -129,8 +129,11 @@ static func tier_adjective(pack_tier: int, amount: int = 1) -> String:
 ## Material-Pakete", "1 Zahlen-Paket"). Namensquellen sind TYPE_NAMES und
 ## tier_adjective - wer Ware in Worten nennt, nennt sie hier und nirgends sonst.
 static func amount_phrase(pack_type: String, pack_tier: int, amount: int) -> String:
-	var sort := "%s%s" % [String(TYPE_NAMES.get(pack_type, pack_type)),
-		"" if amount == 1 else "e"]
+	return named_phrase(String(TYPE_NAMES.get(pack_type, pack_type)), pack_tier, amount)
+
+## Dieselbe Formulierung für einen eigenen Paketnamen ("2 Große Multiplikator-Pakete").
+static func named_phrase(singular: String, pack_tier: int, amount: int) -> String:
+	var sort := "%s%s" % [singular, "" if amount == 1 else "e"]
 	var adjective := tier_adjective(pack_tier, amount)
 	if adjective == "":
 		return "%d %s" % [amount, sort]
@@ -163,15 +166,32 @@ static func tiered(pack: Pack, pack_tier: int, rng: RandomNumberGenerator = null
 		pack.stamp_net = StampNet.roll(pack.engraving_category(), pack_tier, rng)
 	return pack
 
-## Gewichteter Griff in die Größen-Tabelle (60 / 30 / 10 %).
-static func roll_tier(rng: RandomNumberGenerator = null) -> int:
-	var roll := rng.randf() if rng != null else randf()
+## Gewichteter Griff in die Größen-Tabelle (60 / 30 / 10 %, der Großauftrag reicht
+## eine eigene herein).
+static func roll_tier(rng: RandomNumberGenerator = null, weights: Array = TIER_WEIGHTS) -> int:
+	var total := 0.0
+	for weight in weights:
+		total += float(weight)
+	var roll := (rng.randf() if rng != null else randf()) * total
 	var sum := 0.0
-	for i in TIER_WEIGHTS.size():
-		sum += float(TIER_WEIGHTS[i])
+	for i in weights.size():
+		sum += float(weights[i])
 		if roll < sum:
 			return i
-	return TIER_WEIGHTS.size() - 1
+	return weights.size() - 1
+
+## Grundpreis einer Regal-Sorte (ohne Netz-Wurf).
+static func type_price(pack_type: String) -> int:
+	match pack_type:
+		TYPE_MATERIAL:
+			return MATERIAL_PRICE
+		TYPE_DICE_MOD:
+			return DICE_MOD_PRICE
+	return NUMBER_PRICE
+
+## Preis einer Größe aus dem Grundpreis - dieselbe Rundung wie tiered.
+static func tier_price(base_price: int, pack_tier: int) -> int:
+	return int(roundf(float(base_price) * tier_price_factor(pack_tier)))
 
 ## Was auf dem Netz dieser Kassette steht - eine Zeile für Laden und Werkbank.
 static func net_line(pack: Pack) -> String:

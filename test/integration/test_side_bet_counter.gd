@@ -191,8 +191,8 @@ func test_every_condition_of_the_catalogue_fits_its_button():
 		var bet := SideBet._from_template(t, 3225)
 		bet.stake_pack_type = Pack.TYPE_MATERIAL
 		bet.stake_pack_tier = Pack.TIER_KOLOSSAL
-		bet.reward_pack_type = Pack.TYPE_MATERIAL
-		bet.reward_pack_tier = Pack.TIER_KOLOSSAL
+		if bet.payout_kind != SideBet.Payout.SPECIAL:
+			bet.payout_kind = SideBet.Payout.MULTIPLIER  # der längste Waren-Name
 		var bets: Array[SideBet] = [bet]
 		panel.open_betting(bets)
 		var goal: Label = panel._seat_goals[0]
@@ -209,6 +209,29 @@ func test_every_condition_of_the_catalogue_fits_its_button():
 			worst = String(t["id"])
 	assert_gte(smallest, 12, "und keine schrumpft unter die Lesbarkeit (%s: %d px)"
 		% [worst, smallest])
+
+## Auch der längste WÜRFEL-Gewinn (Name samt Seele) paßt neben die längste Bedingung.
+func test_the_longest_die_prize_fits_its_button():
+	var font := panel.get_theme_default_font()
+	var inner := panel._seat_inner()
+	for t: Dictionary in SideBet.TEMPLATES:
+		if t["id"] != "upper_class":
+			continue
+		var bet := SideBet._from_template(t, 3225)
+		bet.payout_kind = SideBet.Payout.DIE
+		var die := DiceOffer.make_die(DiceOffer.TEMPLATES[3])
+		die.essence_id = Essence.BACKGROUND_RADIATION  # der längste Seelen-Name
+		bet._reward_die = die
+		bet._die_rarity = DiceOffer.bet_soul_rarity(bet.payout_value())
+		var bets: Array[SideBet] = [bet]
+		panel.open_betting(bets)
+		var goal: Label = panel._seat_goals[0]
+		var trade: Label = panel._seat_trades[0]
+		var block := ShopController.wrapped_height(font, goal.text, inner.x,
+			goal.get_theme_font_size("font_size"), 0)
+		block += ShopController.wrapped_height(font, trade.text, inner.x,
+			trade.get_theme_font_size("font_size"), 0)
+		assert_lte(block, inner.y, "Würfel-Gewinn paßt (%s)" % trade.text)
 
 ## Gesetzt wird der Sitz zur Fassung und tauscht sein Angebot gegen den MELDER:
 ## Bedingung plus Live-Stand, an der Plot-UNTERKANTE - dort, wo ein oben stehender

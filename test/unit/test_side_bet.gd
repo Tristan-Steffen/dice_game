@@ -278,46 +278,166 @@ func test_status_label_reads_progress():
 	assert_eq(_bet("overclocker").status_label(_result({"stages_cleared": 1})), "1 / 2 Stufen")
 	assert_eq(_bet("efficiency").status_label(_result({"hands_taken": 2})), "2 / 3 Hände")
 
-## Gewährt wird EXAKT die benannte Sorte und Größe - der Knopf hat sie gedruckt.
-func test_reward_list_grants_exactly_the_named_packs():
-	var bet := _bet("full_house")
-	bet.reward_pack_type = Pack.TYPE_MATERIAL
-	bet.reward_pack_tier = Pack.TIER_GROSS
-	var rewards := bet.reward_list()
-	assert_eq(rewards.size(), bet.reward_packs)
-	for pack in rewards:
-		assert_eq(pack.type, Pack.TYPE_MATERIAL, "die genannte Sorte")
-		assert_eq(pack.tier, Pack.TIER_GROSS, "und die genannte Größe")
-		assert_eq(pack.count, Pack.ENGRAVING_PACK_COUNT, "je ein Phantomwürfel")
-		assert_true(pack.display_name.begins_with("Großes"), "Name trägt die Größe")
+## Eine Wette mit fest gesetzter Ware - die Tests prüfen Mengen, nicht den Wurf.
+func _with(id: String, kind: int, pack_type: String = Pack.TYPE_NUMBER) -> SideBet:
+	var bet := _bet(id)
+	bet.payout_kind = kind
+	bet.reward_pack_type = pack_type
+	return bet
 
-## Jede Vorlage mit Paket-Gewinn hat ihre Sorte und Größe schon beim Auslegen: der
-## Tresen wirbt nicht mehr mit einem Inhalt, den er nicht kennt.
-func test_pack_payouts_are_typed_at_roll_time():
+# --- Der GEWINNWERT -------------------------------------------------------------
+
+func test_every_template_carries_an_odds_class():
+	var odds := [SideBet.ODDS_EASY, SideBet.ODDS_MEDIUM, SideBet.ODDS_HARD]
 	for t in SideBet.TEMPLATES:
-		var bet := SideBet._from_template(t)
-		if bet.payout_kind != SideBet.Payout.PACKS \
-				and bet.payout_kind != SideBet.Payout.PACK:
-			continue
-		assert_true(Pack.SHELF_WEIGHTS.has(bet.reward_pack_type),
-			"%s nennt eine Regal-Sorte (%s)" % [bet.id, bet.reward_pack_type])
-		assert_true(bet.reward_pack_tier >= Pack.TIER_NORMAL
-			and bet.reward_pack_tier <= Pack.TIER_KOLOSSAL,
-			"%s nennt eine Größe" % bet.id)
-		assert_eq(bet.reward_pack().type, bet.reward_pack_type,
-			"%s gewährt, was es nennt" % bet.id)
+		assert_true(t.has("odds"), "%s nennt seine Quote" % t["id"])
+		assert_true(odds.has(float(t["odds"])), "%s: eine der drei Quoten" % t["id"])
+		assert_false(t.has("payout_money") or t.has("reward") or t.has("payout_energy"),
+			"%s trägt keinen festen Gewinn mehr" % t["id"])
 
-# --- Wett-Sorten (Geld/Paket × Einsatz/Gewinn) ------------------------------
+func test_stake_value_per_stake_kind():
+	assert_eq(_bet("two_pair").stake_value(), 4, "Geld wie gedruckt")
+	assert_eq(_bet("table_fee").stake_value(), 12, "$3 je Hand × 4 Hände")
+	assert_eq(_bet("dice_toll").stake_value(), 10, "$1 je Würfel × 10 Würfel")
+	assert_eq(_bet("feedback_loop").stake_value(), 40, "4 ⚡ × $10")
+	var two := _bet("collateral")
+	two.stake_pack_type = Pack.TYPE_MATERIAL
+	two.stake_pack_tier = Pack.TIER_GROSS
+	assert_eq(two.stake_value(), 26, "zwei Große Material-Pakete zum Ladenpreis")
 
-func test_templates_cover_all_four_quadrants():
+func test_payout_value_is_stake_times_odds_and_ware_bonus():
+	var easy := _with("two_pair", SideBet.Payout.MONEY)
+	assert_eq(easy.payout_value(), 8, "$4 × 2")
+	easy.payout_kind = SideBet.Payout.PACKS
+	assert_eq(easy.payout_value(), 10, "als Ware × 1,25")
+	var medium := _with("jackpot", SideBet.Payout.MONEY)
+	assert_eq(medium.payout_value(), 15, "$6 × 2,5")
+	var hard := _with("shipment", SideBet.Payout.MONEY)
+	assert_eq(hard.payout_value(), 30, "$10 × 3")
+	assert_eq(hard.payout_value(2.0), 60, "der Faktor hebt den Wert")
+
+func test_special_bets_keep_their_fixed_prize():
+	for id in ["circuit_contract", "clean_room"]:
+		for i in 10:
+			var bet := _bet(id)
+			assert_eq(bet.payout_kind, SideBet.Payout.SPECIAL, "%s würfelt nichts" % id)
+			assert_true(Engraving.is_special_id(bet.special_id))
+
+## Unter jedem Mindestwert bleibt nur Geld.
+func test_ware_roll_respects_minimum_values():
+	var cheap := {"id": "x", "condition": SideBet.Condition.CLEARED, "stake": 1,
+		"odds": SideBet.ODDS_EASY, "name": "x", "desc": "x"}
+	for i in 40:
+		assert_eq(SideBet._from_template(cheap).payout_kind, SideBet.Payout.MONEY)
+	var mid := {"id": "y", "condition": SideBet.Condition.CLEARED, "stake": 4,
+		"odds": SideBet.ODDS_EASY, "name": "y", "desc": "y"}
+	var kinds := {}
+	for i in 400:
+		var bet := SideBet._from_template(mid)
+		kinds[bet.payout_kind] = true
+		if bet.payout_kind == SideBet.Payout.CATALYST:
+			assert_eq(bet.reward_item_id, Pack.CATALYST_COOL, "nur die Kühlrippe kostet ≤ $10")
+		if bet.payout_kind == SideBet.Payout.PART:
+			assert_true(bet.reward_part().price <= 10, "ein Modul bis zum Wert")
+	assert_false(kinds.has(SideBet.Payout.OPERATOR), "Operatoren erst ab $11")
+	assert_false(kinds.has(SideBet.Payout.PACK), "Sonderposten erst ab $18")
+	assert_true(kinds.has(SideBet.Payout.MONEY) and kinds.has(SideBet.Payout.PACKS))
+
+func test_ware_roll_never_pays_repair_or_blank():
+	var rich := {"id": "z", "condition": SideBet.Condition.CLEARED, "stake": 30,
+		"odds": SideBet.ODDS_HARD, "name": "z", "desc": "z"}
+	for i in 300:
+		var bet := SideBet._from_template(rich)
+		for card in bet.reward_cards():
+			assert_false(card.is_repair(), "keine Reparatur-Karte")
+			assert_false(card.is_blank_card(), "kein Rohling")
+
+## Größte Größe, die der Wert trägt; Anzahl = Wert / Preis, höchstens vier.
+func test_card_amount_rule():
+	var bet := _with("full_house", SideBet.Payout.PACKS, Pack.TYPE_MATERIAL)  # Ware $19
+	assert_eq(bet.reward_tier(), Pack.TIER_GROSS)
+	assert_eq(bet.reward_count(), 1)
+	assert_eq(bet.reward_label(), "1 Großes Material-Paket")
+	var runes := _with("two_pair", SideBet.Payout.PACKS, Pack.TYPE_DICE_MOD)  # Ware $10
+	assert_eq(runes.reward_label(), "1 Runen-Paket")
+	var ship := _with("shipment", SideBet.Payout.PACKS)  # Ware $38
+	assert_eq(ship.reward_label(), "2 Kolossale Zahlen-Pakete")
+	var whale := _with("whale", SideBet.Payout.PACKS)  # Ware $94
+	assert_eq(whale.reward_count(), SideBet.MAX_REWARD_CARDS, "höchstens vier Karten")
+	var cards := ship.reward_cards()
+	assert_eq(cards.size(), 2)
+	for card in cards:
+		assert_eq(card.type, Pack.TYPE_NUMBER)
+		assert_eq(card.tier, Pack.TIER_KOLOSSAL)
+
+func test_multiplier_cards_follow_the_same_rule():
+	var bet := _with("full_house", SideBet.Payout.MULTIPLIER)  # Ware $19
+	assert_eq(bet.reward_label(), "2 Multiplikator-Pakete")
+	for card in bet.reward_cards():
+		assert_true(card.is_multiplier())
+
+## Die Karten stehen fest: dieselben bei jeder Frage, der Faktor legt nach.
+func test_reward_cards_are_rolled_once():
+	var bet := _with("full_house", SideBet.Payout.PACKS)
+	var first := bet.reward_cards()
+	assert_eq(bet.reward_cards(), first, "kein zweiter Wurf")
+
+func test_payout_factor_lifts_every_ware():
+	assert_eq(_with("jackpot", SideBet.Payout.MONEY).reward_label(2.0), "$30")
+	var cards := _with("full_house", SideBet.Payout.PACKS)
+	assert_eq(cards.reward_label(), "1 Kolossales Zahlen-Paket")
+	assert_eq(cards.reward_label(2.0), "2 Kolossale Zahlen-Pakete", "mehr Karten")
+	var mats := _with("full_house", SideBet.Payout.PACKS, Pack.TYPE_MATERIAL)
+	assert_eq(mats.reward_label(2.0), "1 Kolossales Material-Paket", "eine größere Karte")
+	assert_eq(_with("feedback_loop", SideBet.Payout.ENERGY).reward_label(), "15 ⚡")
+	assert_eq(_with("feedback_loop", SideBet.Payout.ENERGY).reward_label(2.0), "31 ⚡")
+	assert_eq(_bet("circuit_contract").reward_label(2.0), "1 Pointer")
+	assert_eq(_bet("clean_room").reward_label(2.0), "1 Veredelung")
+	var patent := _with("patent", SideBet.Payout.PART)
+	patent.reward_part_id = ComboPart.RELAY
+	assert_eq(patent.reward_label(2.0), "1 Relais")
+
+func test_catalyst_and_operator_labels():
+	var cat := _with("full_house", SideBet.Payout.CATALYST)
+	cat.reward_item_id = Pack.CATALYST_CHILL
+	assert_eq(cat.reward_label(), "1 Kältebad")
+	assert_true(cat.reward_cards()[0].is_cooling())
+	var op := _with("shipment", SideBet.Payout.OPERATOR)
+	op.reward_item_id = StampNet.OP_MIRROR
+	assert_eq(op.reward_label(), "1 Spiegel")
+	assert_true(op.pays_cards() and cat.pays_cards())
+
+## Die Seele eines Wett-Würfels hängt am Wert.
+func test_die_soul_follows_the_value():
+	assert_eq(DiceOffer.bet_soul_rarity(11), -1)
+	assert_eq(DiceOffer.bet_soul_rarity(12), Essence.Rarity.RARE)
+	assert_eq(DiceOffer.bet_soul_rarity(20), Essence.Rarity.EPIC)
+	assert_eq(DiceOffer.bet_soul_rarity(32), Essence.Rarity.LEGENDARY)
+	for i in 20:
+		var low := DiceOffer.roll_bet_die(9)
+		if low.essence_id != "":
+			assert_eq(Essence.by_id(low.essence_id).rarity, Essence.Rarity.COMMON,
+				"unter $12 höchstens gewöhnlich")
+		var top := DiceOffer.roll_bet_die(40)
+		assert_eq(Essence.by_id(top.essence_id).rarity, Essence.Rarity.LEGENDARY)
+
+func test_die_reward_is_named_and_stays():
+	var bet := _with("shipment", SideBet.Payout.DIE)  # Ware $38: legendär
+	var die := bet.reward_die()
+	assert_not_null(die)
+	assert_eq(bet.reward_die(), die, "ein Würfel, einmal gewürfelt")
+	assert_eq(bet.reward_label(), "1 %s" % SideBet.die_name(die))
+	assert_true(bet.reward_label().contains(" · "), "der Knopf nennt die Seele")
+	assert_false(bet.pays_cards())
+
+# --- Wett-Sorten und Etiketten --------------------------------------------------
+
+func test_templates_cover_money_and_pack_stakes():
 	var seen := {}
 	for t in SideBet.TEMPLATES:
-		var bet := SideBet._from_template(t)
-		seen["%d_%d" % [bet.stake_kind, bet.payout_kind]] = true
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.PACKS]), "Geld -> Pakete")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.MONEY, SideBet.Payout.MONEY]), "Geld -> Geld")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.PACKS, SideBet.Payout.MONEY]), "Paket -> Geld")
-	assert_true(seen.has("%d_%d" % [SideBet.Stake.PACKS, SideBet.Payout.PACKS]), "Paket -> Pakete")
+		seen[int(t.get("stake_kind", SideBet.Stake.MONEY))] = true
+	assert_true(seen.has(SideBet.Stake.MONEY) and seen.has(SideBet.Stake.PACKS))
+	assert_true(seen.has(SideBet.Stake.ENERGY) and seen.has(SideBet.Stake.MONEY_PER_HAND))
 
 func test_template_ids_are_unique():
 	var ids := {}
@@ -326,18 +446,11 @@ func test_template_ids_are_unique():
 		assert_false(ids.has(id), "doppelte Vorlagen-id: %s" % id)
 		ids[id] = true
 
-func test_special_payouts_name_a_known_engraving():
-	for t in SideBet.TEMPLATES:
-		var bet := SideBet._from_template(t)
-		if bet.payout_kind != SideBet.Payout.SPECIAL:
-			continue
-		assert_true(Engraving.is_special_id(bet.special_id), "%s zahlt einen Sonderposten" % bet.id)
-		assert_not_null(bet.special_engraving(), "%s findet seine Gravur" % bet.id)
-
 func test_money_stake_label():
 	var bet := _bet("two_pair")
 	assert_eq(bet.stake_kind, SideBet.Stake.MONEY)
 	assert_eq(bet.stake_label(), "$%d" % bet.stake)
+	assert_eq(bet.stake_label(1.5), "$6", "Hoher Tisch rundet auf")
 
 ## Der Einsatz NENNT seine Ware: Zahl, Größe, Sorte. Aus den EINEN Namensquellen
 ## (Pack.TYPE_NAMES + tier_adjective) - eine zweite Formulierung gibt es nicht.
@@ -359,53 +472,4 @@ func test_tax_and_energy_stake_labels():
 	assert_eq(_bet("table_fee").stake_label(), "$3 je Hand")
 	assert_eq(_bet("dice_toll").stake_label(), "$1 je Würfel")
 	assert_eq(_bet("feedback_loop").stake_label(), "4 ⚡")
-	assert_eq(_bet("table_fee").stake_label(2), "$6 je Hand", "Wettsteuer verdoppelt auch die Gebühr")
-
-func test_money_payout_reward_label():
-	var bet := _bet("jackpot")
-	assert_eq(bet.payout_kind, SideBet.Payout.MONEY)
-	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
-
-## Auch der GEWINN nennt Sorte und Größe: "2 Große Material-Pakete", nicht "2 Pakete".
-func test_pack_payout_reward_label_names_type_and_size():
-	var single := _bet("two_pair")  # 1 Paket Gewinn
-	assert_eq(single.payout_kind, SideBet.Payout.PACKS)
-	single.reward_pack_type = Pack.TYPE_DICE_MOD
-	single.reward_pack_tier = Pack.TIER_NORMAL
-	assert_eq(single.reward_label(), "1 Runen-Paket")
-	var many := _bet("full_house")  # 2 Pakete Gewinn
-	many.reward_pack_type = Pack.TYPE_MATERIAL
-	many.reward_pack_tier = Pack.TIER_GROSS
-	assert_eq(many.reward_label(), "2 Große Material-Pakete")
-	many.reward_pack_tier = Pack.TIER_KOLOSSAL
-	assert_eq(many.reward_label(), "2 Kolossale Material-Pakete")
-
-func test_new_payout_reward_labels():
-	assert_eq(_bet("feedback_loop").reward_label(), "8 ⚡")
-	var patent := _bet("patent")
-	patent.reward_part_id = ComboPart.RELAY
-	assert_eq(patent.reward_label(), "1 Relais")
-	assert_eq(_bet("circuit_contract").reward_label(), "1 Pointer")
-	assert_eq(_bet("clean_room").reward_label(), "1 Veredelung")
-	var ship := _bet("shipment")
-	ship.reward_pack_type = Pack.TYPE_NUMBER
-	ship.reward_pack_tier = Pack.TIER_KOLOSSAL
-	assert_eq(ship.reward_label(), "1 Kolossales Zahlen-Paket")
-
-## Der Quotenbonus (×2) verdoppelt Geld, Ware und Energie - Einzelstücke nicht.
-func test_payout_factor_spares_unique_goods():
-	assert_eq(_bet("jackpot").reward_label(2), "$36")
-	var many := _bet("full_house")
-	many.reward_pack_type = Pack.TYPE_NUMBER
-	many.reward_pack_tier = Pack.TIER_NORMAL
-	assert_eq(many.reward_label(2), "4 Zahlen-Pakete")
-	assert_eq(_bet("feedback_loop").reward_label(2), "16 ⚡")
-	assert_eq(_bet("circuit_contract").reward_label(2), "1 Pointer")
-	assert_eq(_bet("clean_room").reward_label(2), "1 Veredelung")
-	var ship := _bet("shipment")
-	ship.reward_pack_type = Pack.TYPE_NUMBER
-	ship.reward_pack_tier = Pack.TIER_NORMAL
-	assert_eq(ship.reward_label(2), "1 Zahlen-Paket", "ein Einzelstück bleibt eins")
-	var patent := _bet("patent")
-	patent.reward_part_id = ComboPart.RELAY
-	assert_eq(patent.reward_label(2), "1 Relais", "ein Modul bleibt eins")
+	assert_eq(_bet("table_fee").stake_label(2.0), "$6 je Hand", "Wettsteuer verdoppelt auch die Gebühr")

@@ -25,6 +25,13 @@ const DOUBLED := {
 	DealClause.GOLD_VEIN: "+$20 je geräumter Überladungs-Stufe.",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite dauerhaft +2.",
 	DealClause.DRAIN: "Jede Auslösung: Würfel −2 Ladung.",
+	DealClause.LUCKY_DAY: "Laden würfelt mit Glück +6.",
+	DealClause.CONNOISSEUR_EYE: "Seltene und legendäre Charms viermal so oft.",
+	DealClause.MATH_WEEK: "Multiplikator-Karten sechsmal so oft.",
+	DealClause.REGULAR_CUSTOMER: "Ladenpreise −28 % bis zur Boss-Runde.",
+	DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware, Neuwurf gratis.",
+	DealClause.HIGH_TABLE: "Nebenwetten: Einsatz ×1,5, Gewinn ×3.",
+	DealClause.BIG_STORAGE: "Börse dauerhaft +10 ⚡ Platz.",
 }
 
 func test_text_for_returns_the_plain_text_without_the_charm():

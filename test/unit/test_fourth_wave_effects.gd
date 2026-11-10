@@ -167,27 +167,32 @@ func test_the_odds_sheet_doubles_the_money_payout():
 func test_the_odds_sheet_lands_in_the_settlement():
 	run.money = 50
 	run.owned_charms.append(Charm.odds_sheet())
-	var bet := SideBet._from_template(_template("jackpot"))
+	var bet := _money_bet("jackpot")
 	run.place_side_bet(bet)
 	var after_stake := run.money
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	run.resolve_side_bets(result)
-	assert_eq(run.money, after_stake + ceili(bet.payout_money * CharmEffects.ODDS_SHEET_FACTOR))
+	assert_eq(run.money, after_stake + ceili(bet.reward_money() * CharmEffects.ODDS_SHEET_FACTOR))
 
 func test_the_odds_sheet_stands_on_the_bet_button():
-	var bet := SideBet._from_template(_template("jackpot"))
-	assert_eq(bet.reward_label(1, _ids([Charm.ODDS_SHEET])),
-		"$%d" % ceili(bet.payout_money * CharmEffects.ODDS_SHEET_FACTOR), "der Knopf verspricht, was die Abrechnung zahlt")
-	assert_eq(bet.reward_label(), "$%d" % bet.payout_money)
+	var bet := _money_bet("jackpot")
+	assert_eq(bet.reward_label(1.0, _ids([Charm.ODDS_SHEET])),
+		"$%d" % ceili(bet.reward_money() * CharmEffects.ODDS_SHEET_FACTOR), "der Knopf verspricht, was die Abrechnung zahlt")
+	assert_eq(bet.reward_label(), "$%d" % bet.reward_money())
 
 func test_a_energy_payout_stays_untouched_by_the_odds_sheet():
 	run.owned_charms.append(Charm.odds_sheet())
 	var bet := SideBet.new()
 	bet.payout_kind = SideBet.Payout.ENERGY
-	bet.payout_energy = 2
-	run._pay_side_bet(bet, 1)
-	assert_eq(run.energy, 2, "Energie ist keine Barauszahlung")
+	bet.stake = 6  # Ware $15 -> 1 ⚡
+	run._pay_side_bet(bet, 1.0)
+	assert_eq(run.energy, bet.reward_energy(), "Energie ist keine Barauszahlung")
+
+func _money_bet(id: String) -> SideBet:
+	var bet := SideBet._from_template(_template(id))
+	bet.payout_kind = SideBet.Payout.MONEY
+	return bet
 
 func _template(id: String) -> Dictionary:
 	for t in SideBet.TEMPLATES:

@@ -1360,20 +1360,24 @@ func _build_spread() -> MenuSpread:
 	var owned := run.owned_charm_ids()
 	var available := _without_owned(
 		Charm.offerable(Charm.all(), run.owned_essence_ids(), run.charm_offer_features()), owned)
+	var common_only := run.shop_common_charms_only()
+	if common_only:
+		available = _common_only(available)
+	var rarity_factors := run.shop_charm_rarity_factors()
 	var charm_slots := run.shop_charm_slots()
-	var rarity_tier := run.shop_rarity_tier()
+	var rarity_tier := 0 if common_only else run.shop_rarity_tier()
 	# Raritäts-Schub: der erste Platz zieht garantiert einen Charm ab der zur Stufe
 	# passenden Mindest-Rarität (Tier 1 ungewöhnlich, 2 selten, 3 legendär) - fällt
 	# auf die nächst-niedrigere Schwelle zurück, falls keiner verfügbar ist.
 	if rarity_tier >= 1 and charm_slots > 0:
 		var premium := _charms_at_least(available, rarity_tier)
 		if not premium.is_empty():
-			var top := Charm.pick_weighted(premium, owned)
+			var top := Charm.pick_weighted(premium, owned, rarity_factors)
 			spread.charm_options.append(top)
 			available.erase(top)
 	# Restliche Plätze gewichtet nach Rarität und Besitz ziehen, ohne Zurücklegen.
 	while spread.charm_options.size() < charm_slots and not available.is_empty():
-		var pick := Charm.pick_weighted(available, owned)
+		var pick := Charm.pick_weighted(available, owned, rarity_factors)
 		spread.charm_options.append(pick)
 		available.erase(pick)
 	spread.charm_bought.resize(spread.charm_options.size())
@@ -1389,9 +1393,10 @@ func _build_spread() -> MenuSpread:
 	# Weg zu Groß und Kolossal, jede Prämie prägt Standard - und der EINE Weg zum
 	# Multiplikator-Netz.
 	var multiplier_chance := run.shop_multiplier_chance()
-	for i in run.shop_pack_slots():
-		spread.engraving_packs.append(
-			Pack.roll_engraving_pack(Pack.roll_tier(), null, multiplier_chance))
+	var tier_weights := run.shop_tier_weights()
+	for i in run.shop_packs_offered():
+		spread.engraving_packs.append(Pack.roll_engraving_pack(
+			Pack.roll_tier(null, tier_weights), null, multiplier_chance))
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 
@@ -1399,8 +1404,10 @@ func _build_spread() -> MenuSpread:
 	# HIER ausgewürfelt und vollständig gezeigt: kein Blindkauf, das ist ihr ganzer
 	# Zweck. Drei, auf jeder Stufe (shop_dice_slots).
 	var owned_souls := run.owned_essence_ids()
+	var soul_rule := run.shop_soul_rule()
 	for i in run.shop_dice_slots():
-		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.progress_tier())
+		var offers := DiceOffer.roll_offers(1, run.charm_ids(), owned_souls, run.shop_tier(),
+			soul_rule)
 		if offers.is_empty() or offers[0].dice.is_empty():
 			continue
 		var die: DieDefinition = offers[0].dice[0]
@@ -1414,6 +1421,9 @@ func _build_spread() -> MenuSpread:
 			owned_souls.append(die.essence_id)
 	spread.single_dice_bought.resize(spread.single_dice.size())
 	spread.single_dice_bought.fill(false)
+	# Leere Regale: die Plätze bleiben, die hinteren stehen leer - wie verkauft.
+	for i in range(run.shop_dice_offered(), spread.single_dice.size()):
+		spread.single_dice_bought[i] = true
 
 	# Sonderposten ab Stufe SHOP_SPECIAL_TIER: er BELEGT den letzten Paket-Platz, statt
 	# einen dazuzustellen - die Reihe bleibt gleich voll, und er kostet einen
@@ -1435,6 +1445,14 @@ func _without_owned(pool: Array[Charm], owned: Array[String]) -> Array[Charm]:
 	var out: Array[Charm] = []
 	for charm in pool:
 		if not owned.has(charm.id):
+			out.append(charm)
+	return out if not out.is_empty() else pool
+
+## Nur die gewöhnlichen Charms (Ladenhüter); ein leerer Topf fällt auf den vollen zurück.
+func _common_only(pool: Array[Charm]) -> Array[Charm]:
+	var out: Array[Charm] = []
+	for charm in pool:
+		if charm.rarity == Charm.RARITY_COMMON:
 			out.append(charm)
 	return out if not out.is_empty() else pool
 

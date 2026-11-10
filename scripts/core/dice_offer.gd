@@ -75,10 +75,12 @@ func size() -> int:
 
 ## Würfelt count verschiedene Angebote aus. Gütesiegel erzwingt mindestens
 ## eine Material-Seite, und eine davon veredelt.
-static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = [], tier: int = 1) -> Array[DiceOffer]:
+## soul = die Seelen-Regel des Ladens ({"chance", "boost"}, GameRun.shop_soul_rule).
+static func roll_offers(count: int, charm_ids: Array[String] = [], owned_essences: Array[String] = [], tier: int = 1,
+		soul: Dictionary = {}) -> Array[DiceOffer]:
 	var offers: Array[DiceOffer] = []
 	for t in pick_templates(count):
-		offers.append(_from_template(t, charm_ids, owned_essences, tier))
+		offers.append(_from_template(t, charm_ids, owned_essences, tier, soul))
 	return offers
 
 ## Zieht count verschiedene Vorlagen (auch die Paket-Auslage nutzt das).
@@ -92,7 +94,8 @@ static func pick_templates(count: int) -> Array[Dictionary]:
 
 ## Ein Angebot bündelt immer nur EINEN Würfeltyp: ein Würfel wird ausgewürfelt
 ## und count-mal als unabhängige Kopie ins Bündel gelegt.
-static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_essences: Array[String] = [], tier: int = 1) -> DiceOffer:
+static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_essences: Array[String] = [], tier: int = 1,
+		soul: Dictionary = {}) -> DiceOffer:
 	var offer := DiceOffer.new()
 	offer.display_name = t["name"]
 	offer.dice = []
@@ -111,7 +114,8 @@ static func _from_template(t: Dictionary, charm_ids: Array[String] = [], owned_e
 					surcharge += FACE_MATERIAL_SURCHARGE
 					break
 	# Ein Unikat nur im Einzel-Bündel: drei Kopien derselben Legende gäbe es nicht.
-	base.essence_id = roll_essence(owned_essences, int(t["count"]) == 1)
+	base.essence_id = roll_essence(owned_essences, int(t["count"]) == 1, false,
+		float(soul.get("chance", ESSENCE_CHANCE)), float(soul.get("boost", 1.0)))
 	surcharge += essence_surcharge(base.essence_id)
 	offer.price = int(t["price"]) + surcharge
 	for i in int(t["count"]):
@@ -198,9 +202,11 @@ static func _scaled_face(value: int, factor: float) -> int:
 ## guaranteed überspringt den Chancen-Wurf (Prämien-Würfel tragen immer eine
 ## Seele). Die Unikat-Sperre gilt weiter - läuft der Topf dadurch
 ## leer, rückt ein NICHT-Unikat nach, statt den Würfel seelenlos zu lassen.
+## chance/boost: die Seelen-Regel des Ladens (Seelenmarkt, Seelenlos); boost hebt das
+## Gewicht jeder Seele über "häufig".
 static func roll_essence(owned_essences: Array[String] = [], allow_unique: bool = true,
-		guaranteed: bool = false) -> String:
-	if not guaranteed and randf() >= ESSENCE_CHANCE:
+		guaranteed: bool = false, chance: float = ESSENCE_CHANCE, boost: float = 1.0) -> String:
+	if not guaranteed and randf() >= chance:
 		return ""
 	var pool: Array[Essence] = []
 	for essence in Essence.tradeable():
@@ -213,15 +219,69 @@ static func roll_essence(owned_essences: Array[String] = [], allow_unique: bool 
 				pool.append(essence)
 	if pool.is_empty():
 		return ""
-	var total := 0
+	var total := 0.0
 	for candidate in pool:
-		total += int(ESSENCE_RARITY_WEIGHTS.get(candidate.rarity, 1))
-	var pick := randi() % maxi(1, total)
+		total += _essence_weight(candidate, boost)
+	var pick := randf() * total
 	for candidate in pool:
-		pick -= int(ESSENCE_RARITY_WEIGHTS.get(candidate.rarity, 1))
-		if pick < 0:
+		pick -= _essence_weight(candidate, boost)
+		if pick < 0.0:
 			return candidate.id
 	return pool[pool.size() - 1].id
+
+static func _essence_weight(essence: Essence, boost: float) -> float:
+	var weight := float(ESSENCE_RARITY_WEIGHTS.get(essence.rarity, 1))
+	return weight * boost if essence.rarity != Essence.Rarity.COMMON else weight
+
+## Wett-Gewinn: ab diesem Gewinnwert (in $) trägt der Würfel diese Seltenheit.
+const BET_SOUL_STEPS := [[32, Essence.Rarity.LEGENDARY], [20, Essence.Rarity.EPIC],
+	[12, Essence.Rarity.RARE]]
+
+## Seltenheit der Seele eines Wett-Würfels zum Gewinnwert (-1 = höchstens gewöhnlich).
+static func bet_soul_rarity(value: int) -> int:
+	for step: Array in BET_SOUL_STEPS:
+		if value >= int(step[0]):
+			return int(step[1])
+	return -1
+
+## EIN Laden-Würfel als Wett-Gewinn: die Seele hängt am Wert. Darunter wie ein
+## Laden-Wurf, aber höchstens gewöhnlich.
+static func roll_bet_die(value: int, charm_ids: Array[String] = [],
+		owned_essences: Array[String] = [], tier: int = 1) -> DieDefinition:
+	var templates := pick_templates(1)
+	if templates.is_empty():
+		return null
+	var die := make_die(templates[0], tier)
+	roll_refinements(die)
+	if CharmEffects.forces_refinement(charm_ids):
+		if die.materials.count("") == die.materials.size():
+			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
+		if not has_doped_side(die):
+			for f in die.materials.size():
+				if die.dope(f):
+					break
+	var rarity := bet_soul_rarity(value)
+	if rarity < 0:
+		die.essence_id = roll_essence_of_rarity(owned_essences, Essence.Rarity.COMMON) \
+			if randf() < ESSENCE_CHANCE else ""
+	else:
+		die.essence_id = roll_essence_of_rarity(owned_essences, rarity)
+	return die
+
+## Eine handelbare Seele GENAU dieser Seltenheit; ist der Topf leer (Unikate im
+## Besitz), eine Seltenheit tiefer.
+static func roll_essence_of_rarity(owned_essences: Array[String], rarity: int) -> String:
+	for r in range(rarity, -1, -1):
+		var pool: Array[Essence] = []
+		for essence in Essence.tradeable():
+			if int(essence.rarity) != r:
+				continue
+			if essence.unique and owned_essences.has(essence.id):
+				continue
+			pool.append(essence)
+		if not pool.is_empty():
+			return pool.pick_random().id
+	return ""
 
 ## Preisaufschlag einer Essenz je Würfel (0 ohne Essenz).
 static func essence_surcharge(essence_id: String) -> int:

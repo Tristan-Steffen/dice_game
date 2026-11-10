@@ -28,8 +28,42 @@ enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 ## fällig, MONEY_PER_HAND/MONEY_PER_DIE laufen als Steuer je genommener Hand -
 ## reicht das Geld dafür nicht, verfällt die Wette (voided).
 enum Stake { MONEY, PACKS, MONEY_PER_HAND, MONEY_PER_DIE, ENERGY }
-## Was der Gewinn ausschüttet. PART = ein Modul für die Steckplätze.
-enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART }
+## In welcher WARE der Gewinnwert ausgezahlt wird. PACKS = Regal-Karten einer Sorte,
+## MULTIPLIER = Multiplikator-Karten, PACK = EIN gewürfelter Sonderposten, SPECIAL =
+## der feste Sonderposten (Pointer, Veredelung), PART = ein Modul, DIE = ein Würfel.
+enum Payout { PACKS, MONEY, SPECIAL, ENERGY, PACK, PART, DIE, CATALYST, OPERATOR, MULTIPLIER }
+
+## Quoten je Schwierigkeit (Spieler-Entscheid 2026-11-10).
+const ODDS_EASY := 2.0
+const ODDS_MEDIUM := 2.5
+const ODDS_HARD := 3.0
+## Ware statt Geld gibt ein Viertel mehr her - Geld ist die flexiblere Wahl.
+const WARE_BONUS := 1.25
+## Einsatzwert der Steuern und der Energie in $.
+const PER_HAND_HANDS := 4
+const PER_DIE_DICE := 10
+const ENERGY_STAKE_MONEY := 10
+## Energie als Gewinn: 1 ⚡ je so viel Gewinnwert (besser als der Hauskurs $10).
+const ENERGY_PRICE := 8
+## Höchstens so viele Karten zahlt eine Wette aus.
+const MAX_REWARD_CARDS := 4
+
+## Die GEWINN-TABELLE: Art, Gewicht und Mindestwert (Geld ohne, Ware mit ×1,25).
+const WARES := [
+	{"kind": Payout.MONEY, "weight": 20, "min": 0},
+	{"kind": Payout.PACKS, "type": Pack.TYPE_NUMBER, "weight": 14, "min": 4},
+	{"kind": Payout.PACKS, "type": Pack.TYPE_MATERIAL, "weight": 10, "min": 5},
+	{"kind": Payout.PACKS, "type": Pack.TYPE_DICE_MOD, "weight": 8, "min": 6},
+	{"kind": Payout.MULTIPLIER, "weight": 6, "min": 8},
+	{"kind": Payout.DIE, "weight": 12, "min": 8},
+	{"kind": Payout.PART, "weight": 10, "min": 5},
+	{"kind": Payout.ENERGY, "weight": 8, "min": 8},
+	{"kind": Payout.CATALYST, "weight": 5, "min": 8},
+	{"kind": Payout.OPERATOR, "weight": 4, "min": 11},
+	{"kind": Payout.PACK, "weight": 3, "min": 18},
+]
+## Die Katalysatoren, die eine Wette zahlen darf (nie die Reparatur-Karte).
+const BET_CATALYSTS := [Pack.CATALYST_COOL, Pack.CATALYST_CHILL, Pack.CATALYST_PROPELLANT]
 
 ## Fortschrittsstufe, ab der eine Wette ohne eigenen "unlock" ausliegt: ab Runde 1.
 const UNLOCK_BASE := 1
@@ -55,15 +89,13 @@ var stake_packs: int = 0           # nur Stake.PACKS: Anzahl geopferter Pakete
 var stake_pack_type: String = Pack.TYPE_NUMBER
 var stake_pack_tier: int = Pack.TIER_NORMAL
 var stake_energy: int = 0          # nur Stake.ENERGY: Energie (⚡)
-var payout_kind: int = Payout.PACKS
-var reward_packs: int = 1          # nur Payout.PACKS: Anzahl versiegelter Pakete
-## Sorte und Größe des GEWINNS, beim Auswürfeln der Auslage festgelegt (Regal-
-## Gewichte plus roll_tier): der Knopf nennt sie, die Abrechnung gewährt genau sie.
+var odds: float = ODDS_MEDIUM
+var payout_kind: int = Payout.MONEY
+## Sorte der Regal-Karten (Payout.PACKS); Größe und Zahl folgen dem Gewinnwert.
 var reward_pack_type: String = Pack.TYPE_NUMBER
-var reward_pack_tier: int = Pack.TIER_NORMAL
-var payout_money: int = 0      # nur Payout.MONEY: Gewinn in Geld
-var payout_energy: int = 0     # nur Payout.ENERGY: Gewinn in Energie (⚡)
 var special_id: String = ""    # nur Payout.SPECIAL: Engraving.SPECIAL_IDS
+## CATALYST: Katalysator-id, OPERATOR: Operator-id - beim Auslegen festgelegt.
+var reward_item_id: String = ""
 ## nur Payout.PART: das Modul, beim Auswürfeln der Auslage festgelegt.
 var reward_part_id: String = ""
 var unlock_level: int = UNLOCK_BASE
@@ -74,12 +106,23 @@ var voided: bool = false
 ## Was ein PACK-Gewinn tatsächlich ausgeschüttet hat (die Zeremonie liest die
 ## Sorte für ihren Farbton).
 var awarded_pack: Pack = null
-## ALLE bei der Abrechnung gewährten Pakete dieser Wette (auch die Gravur-Paket-
-## Mehrfachgewinne) - die Auszahlungs-Seite hält genau diese Kassetten bis zum
-## Kassieren zurück und zielt dann auf ihre uids.
+## ALLE bei der Abrechnung gewährten Pakete dieser Wette - die Auszahlungs-Seite
+## hält genau diese Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
 var awarded_packs: Array[Pack] = []
 ## Und wie viele davon am vollen Magazin zu Geld zerfallen sind.
 var awarded_fizzled: int = 0
+## Der gewonnene Würfel, wie er im Ausgabefach wartet (Payout.DIE).
+var awarded_die: DieDefinition = null
+## Was der Einsatz WIRKLICH gekostet hat - die Rückversicherung gibt genau das zurück.
+var paid_money: int = 0
+var paid_energy: int = 0
+var paid_packs: Array[Pack] = []
+## Lauf-Daten für den Würfel-Gewinn (charm_ids, owned_essences, tier).
+var _context: Dictionary = {}
+var _rolled_cards: Dictionary = {}  # Größe -> gewürfelte Karten
+var _fixed_card: Pack = null
+var _reward_die: DieDefinition = null
+var _die_rarity: int = -2
 
 ## Merkt EIN gewährtes Paket (null = am vollen Magazin zerfallen, wird gezählt).
 func note_awarded(pack: Pack) -> void:
@@ -89,132 +132,130 @@ func note_awarded(pack: Pack) -> void:
 		awarded_fizzled += 1
 
 ## Vorlagen der Auslage (id -> Parameter). Fehlende Schlüssel = Standard
-## (Geld-Einsatz, Gravur-Gewinn, unlock UNLOCK_BASE).
+## (Geld-Einsatz, Quote mittel, unlock UNLOCK_BASE). Die WARE würfelt das Auslegen.
 ## desc = NUR die Gewinnbedingung; Einsatz und Gewinn stehen bereits auf dem Knopf.
 ## Mit target_factor ist desc ein Formatstring: die Quota füllt die Zahl.
 const TEMPLATES := [
 	# --- Grundstock (ab UNLOCK_BASE) ---
 	{"id": "two_pair", "condition": Condition.COMBO, "combo": DiceScoring.TWO_PAIR,
-		"stake": 4, "reward": 1, "name": "Doppelspiel",
+		"stake": 4, "odds": ODDS_EASY, "name": "Doppelspiel",
 		"desc": "Nimm zwei Paare oder besser."},
 	{"id": "full_house", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
-		"stake": 6, "reward": 2, "name": "Volles Haus",
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Volles Haus",
 		"desc": "Nimm ein Full House oder besser."},
 	{"id": "large_straight", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
-		"stake": 9, "reward": 3, "name": "Die lange Reihe",
+		"stake": 9, "odds": ODDS_HARD, "name": "Die lange Reihe",
 		"desc": "Nimm eine Große Straße."},
 	{"id": "big_hand", "condition": Condition.HAND_SCORE, "target_factor": 1.0,
-		"stake": 6, "reward": 2, "name": "Großer Wurf",
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Großer Wurf",
 		"desc": "Werte eine einzelne Hand mit %d+ Punkten."},
 	{"id": "economist", "condition": Condition.FEW_DICE, "target": 9,
-		"stake": 6, "reward": 2, "name": "Sparsam",
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Sparsam",
 		"desc": "Räume die Runde mit höchstens 9 genommenen Würfeln."},
 	{"id": "jackpot", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
-		"stake": 6, "payout": Payout.MONEY, "payout_money": 18, "name": "Jackpot",
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Jackpot",
 		"desc": "Nimm ein Full House oder besser."},
 	{"id": "pawn", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
-		"payout": Payout.MONEY, "payout_money": 16, "name": "Pfandleihe",
+		"odds": ODDS_MEDIUM, "name": "Pfandleihe",
 		"desc": "Räume die Runde ohne Fumble."},
 	{"id": "clean_run", "condition": Condition.NO_FARKLE, "stake_kind": Stake.PACKS, "stake_packs": 1,
-		"reward": 2, "name": "Saubere Runde",
+		"odds": ODDS_MEDIUM, "name": "Saubere Runde",
 		"desc": "Räume die Runde ohne Fumble."},
 	{"id": "chain_reaction", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
-		"stake": 8, "payout": Payout.PART, "name": "Kettenreaktion",
+		"stake": 8, "odds": ODDS_HARD, "name": "Kettenreaktion",
 		"desc": "Nimm eine Große Straße."},
 	{"id": "tinkerer", "condition": Condition.DISTINCT_COMBOS, "target": 3,
-		"stake": 7, "payout": Payout.PART, "name": "Bastler",
+		"stake": 7, "odds": ODDS_MEDIUM, "name": "Bastler",
 		"desc": "Nimm drei verschiedene Kombinationen."},
 	# --- Salon (5) ---
 	{"id": "high_roller", "condition": Condition.HAND_SCORE, "target_factor": 2.0,
-		"stake": 10, "payout": Payout.MONEY, "payout_money": 32, "name": "Hoher Einsatz",
+		"stake": 10, "odds": ODDS_HARD, "name": "Hoher Einsatz",
 		"unlock": 5, "desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "prototype", "condition": Condition.HAND_SCORE, "target_factor": 1.5,
-		"stake": 9, "payout": Payout.PART, "name": "Prototyp",
+		"stake": 9, "odds": ODDS_MEDIUM, "name": "Prototyp",
 		"unlock": 5, "desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "quick_start", "condition": Condition.FIRST_HAND, "target_factor": 0.6,
-		"stake": 5, "reward": 2, "name": "Blitzstart", "unlock": 5,
+		"stake": 5, "odds": ODDS_MEDIUM, "name": "Blitzstart", "unlock": 5,
 		"desc": "Werte schon die erste Hand mit %d+ Punkten."},
 	{"id": "overclocker", "condition": Condition.OVERCHARGE, "target": 2,
-		"stake": 6, "reward": 2, "name": "Übertakter", "unlock": 5,
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Übertakter", "unlock": 5,
 		"desc": "Räume mindestens zwei Überladungs-Stufen."},
 	{"id": "table_fee", "condition": Condition.CLEARED,
-		"stake_kind": Stake.MONEY_PER_HAND, "stake": 3, "reward": 2, "name": "Tischgebühr",
+		"stake_kind": Stake.MONEY_PER_HAND, "stake": 3, "odds": ODDS_EASY, "name": "Tischgebühr",
 		"unlock": 5, "desc": "Räume die Runde - jede genommene Hand kostet."},
 	# --- VIP-Lounge (6) ---
 	{"id": "collateral", "condition": Condition.HAND_SCORE, "target_factor": 1.3,
-		"stake_kind": Stake.PACKS, "stake_packs": 2,
-		"payout": Payout.MONEY, "payout_money": 34, "name": "Sicherheit",
+		"stake_kind": Stake.PACKS, "stake_packs": 2, "odds": ODDS_MEDIUM, "name": "Sicherheit",
 		"unlock": 6, "desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "resupply", "condition": Condition.COMBO, "combo": DiceScoring.LARGE_STRAIGHT,
-		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 3, "name": "Nachschub",
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "odds": ODDS_HARD, "name": "Nachschub",
 		"unlock": 6, "desc": "Nimm eine Große Straße."},
 	{"id": "connoisseur", "condition": Condition.DISTINCT_COMBOS, "target": 3,
-		"stake": 6, "reward": 2, "name": "Kenner", "unlock": 6,
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Kenner", "unlock": 6,
 		"desc": "Nimm drei verschiedene Kombinationen."},
 	{"id": "upper_class", "condition": Condition.HIGH_DICE,
-		"stake": 6, "payout": Payout.MONEY, "payout_money": 20, "name": "Oberklasse",
+		"stake": 6, "odds": ODDS_MEDIUM, "name": "Oberklasse",
 		"unlock": 6, "desc": "Werte eine Hand aus mindestens drei Würfeln mit je 6+ Augen."},
 	{"id": "dice_toll", "condition": Condition.CLEARED,
-		"stake_kind": Stake.MONEY_PER_DIE, "stake": 1,
-		"payout": Payout.MONEY, "payout_money": 30, "name": "Würfelzoll",
+		"stake_kind": Stake.MONEY_PER_DIE, "stake": 1, "odds": ODDS_EASY, "name": "Würfelzoll",
 		"unlock": 6, "desc": "Räume die Runde - jeder genommene Würfel kostet Zoll."},
 	{"id": "variety", "condition": Condition.NO_REPEAT,
-		"stake": 5, "payout": Payout.MONEY, "payout_money": 18, "name": "Abwechslung",
+		"stake": 5, "odds": ODDS_MEDIUM, "name": "Abwechslung",
 		"unlock": 6, "desc": "Nimm keine Kombination zweimal."},
 	# --- Suite (7) ---
 	{"id": "efficiency", "condition": Condition.HAND_LIMIT, "target": 3,
-		"stake": 8, "reward": 3, "name": "Effizienz", "unlock": 7,
+		"stake": 8, "odds": ODDS_HARD, "name": "Effizienz", "unlock": 7,
 		"desc": "Räume die Runde mit höchstens drei Händen."},
 	{"id": "comeback", "condition": Condition.COMEBACK,
-		"stake": 4, "payout": Payout.MONEY, "payout_money": 16, "name": "Comeback",
+		"stake": 4, "odds": ODDS_MEDIUM, "name": "Comeback",
 		"unlock": 7, "desc": "Räume die Runde nach einem Fumble."},
 	{"id": "small_fry", "condition": Condition.MAX_HAND_DICE, "target": 3,
-		"stake": 7, "reward": 3, "name": "Kleinvieh", "unlock": 7,
+		"stake": 7, "odds": ODDS_HARD, "name": "Kleinvieh", "unlock": 7,
 		"desc": "Nimm keine Hand aus mehr als drei Würfeln."},
 	{"id": "no_scraps", "condition": Condition.NO_FALLBACK,
-		"stake": 5, "payout": Payout.MONEY, "payout_money": 18, "name": "Keine Resterampe",
+		"stake": 5, "odds": ODDS_MEDIUM, "name": "Keine Resterampe",
 		"unlock": 7, "desc": "Nimm nie die Höchste Zahl."},
 	# --- Penthouse (8) ---
 	{"id": "deep_energy", "condition": Condition.OVERCHARGE, "target": 4,
-		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 3,
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "odds": ODDS_HARD,
 		"name": "Tiefenladung", "unlock": 8,
 		"desc": "Räume mindestens vier Überladungs-Stufen."},
 	{"id": "blank_check", "condition": Condition.FIRST_HAND, "target_factor": 1.2,
-		"stake": 12, "payout": Payout.MONEY, "payout_money": 45, "name": "Blankoscheck",
+		"stake": 12, "odds": ODDS_HARD, "name": "Blankoscheck",
 		"unlock": 8, "desc": "Werte schon die erste Hand mit %d+ Punkten."},
 	{"id": "feedback_loop", "condition": Condition.OVERCHARGE, "target": 3,
-		"stake_kind": Stake.ENERGY, "stake_energy": 4,
-		"payout": Payout.ENERGY, "payout_energy": 8, "name": "Rückkopplung",
-		"unlock": 8, "desc": "Räume mindestens drei Überladungs-Stufen."},
+		"stake_kind": Stake.ENERGY, "stake_energy": 4, "odds": ODDS_MEDIUM,
+		"name": "Rückkopplung", "unlock": 8,
+		"desc": "Räume mindestens drei Überladungs-Stufen."},
 	{"id": "patent", "condition": Condition.COMBO, "combo": DiceScoring.FULL_HOUSE,
-		"stake": 12, "payout": Payout.PART, "name": "Patent", "unlock": 8,
+		"stake": 12, "odds": ODDS_MEDIUM, "name": "Patent", "unlock": 8,
 		"desc": "Nimm ein Full House oder besser."},
 	# --- Privatclub (9) ---
 	{"id": "collector", "condition": Condition.DISTINCT_COMBOS, "target": 5,
-		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 4,
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "odds": ODDS_HARD,
 		"name": "Sammler", "unlock": 9,
 		"desc": "Nimm fünf verschiedene Kombinationen."},
 	{"id": "whale", "condition": Condition.HAND_SCORE, "target_factor": 2.5,
-		"stake": 25, "payout": Payout.MONEY, "payout_money": 90, "name": "Der Wal",
+		"stake": 25, "odds": ODDS_HARD, "name": "Der Wal",
 		"unlock": 9, "desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "shipment", "condition": Condition.FEW_DICE, "target": 8,
-		"stake": 10, "payout": Payout.PACK, "name": "Warensendung", "unlock": 9,
+		"stake": 10, "odds": ODDS_HARD, "name": "Warensendung", "unlock": 9,
 		"desc": "Räume die Runde mit höchstens 8 genommenen Würfeln."},
 	{"id": "full_grip", "condition": Condition.FULL_HANDS,
-		"stake_kind": Stake.PACKS, "stake_packs": 1, "reward": 4,
+		"stake_kind": Stake.PACKS, "stake_packs": 1, "odds": ODDS_HARD,
 		"name": "Vollgriff", "unlock": 9,
 		"desc": "Nimm jede Hand mit allen sechs Würfeln."},
-	# --- High Roller (10): die Sonderposten ---
+	# --- High Roller (10): die Sonderposten - sie behalten ihren FESTEN Gewinn ---
 	{"id": "circuit_contract", "condition": Condition.OVERCHARGE, "target": 5,
-		"stake": 20, "payout": Payout.SPECIAL, "special": Engraving.POINTER,
+		"stake": 20, "odds": ODDS_HARD, "payout": Payout.SPECIAL, "special": Engraving.POINTER,
 		"name": "Platinenauftrag", "unlock": 10,
 		"desc": "Räume mindestens fünf Überladungs-Stufen."},
 	{"id": "clean_room", "condition": Condition.HAND_SCORE, "target_factor": 2.0,
-		"stake": 20, "payout": Payout.SPECIAL, "special": Engraving.DOPING,
+		"stake": 20, "odds": ODDS_HARD, "payout": Payout.SPECIAL, "special": Engraving.DOPING,
 		"name": "Reinraum", "unlock": 10,
 		"desc": "Werte eine Hand mit %d+ Punkten."},
 	{"id": "all_in_hand", "condition": Condition.HAND_LIMIT, "target": 1,
-		"stake": 15, "reward": 5, "name": "Alles auf eine Hand", "unlock": 10,
+		"stake": 15, "odds": ODDS_HARD, "name": "Alles auf eine Hand", "unlock": 10,
 		"desc": "Räume die Runde mit einer einzigen Hand."},
 ]
 
@@ -231,8 +272,9 @@ static func _nice_target(raw: float) -> int:
 
 ## quota = die GESPEICHERTE Rundenquota (nicht effective_goal): eine
 ## erst nach der Wettannahme unterschriebene Klausel darf ein aufgedrucktes Ziel
-## nicht mehr verschieben.
-static func _from_template(t: Dictionary, quota: int = 0) -> SideBet:
+## nicht mehr verschieben. context = Lauf-Daten für den Würfel-Gewinn
+## (GameRun.side_bet_context).
+static func _from_template(t: Dictionary, quota: int = 0, context: Dictionary = {}) -> SideBet:
 	var bet := SideBet.new()
 	bet.id = t["id"]
 	bet.condition = t["condition"]
@@ -243,10 +285,7 @@ static func _from_template(t: Dictionary, quota: int = 0) -> SideBet:
 	bet.stake = int(t.get("stake", 0))
 	bet.stake_packs = int(t.get("stake_packs", 0))
 	bet.stake_energy = int(t.get("stake_energy", 0))
-	bet.payout_kind = int(t.get("payout", Payout.PACKS))
-	bet.reward_packs = int(t.get("reward", 1))
-	bet.payout_money = int(t.get("payout_money", 0))
-	bet.payout_energy = int(t.get("payout_energy", 0))
+	bet.odds = float(t.get("odds", ODDS_MEDIUM))
 	bet.special_id = t.get("special", "")
 	bet.unlock_level = int(t.get("unlock", UNLOCK_BASE))
 	bet.display_name = t["name"]
@@ -254,13 +293,11 @@ static func _from_template(t: Dictionary, quota: int = 0) -> SideBet:
 	if bet.target_factor > 0.0:
 		bet.target = _nice_target(float(quota) * bet.target_factor)
 		bet.description = t["desc"] % bet.target
-	# Sorte und Größe des Paket-Gewinns stehen ab HIER fest - er wirbt mit dem, was er
-	# wirklich ausschüttet.
-	if bet.payout_kind == Payout.PACKS or bet.payout_kind == Payout.PACK:
-		bet.reward_pack_type = Pack.roll_engraving_type()
-		bet.reward_pack_tier = Pack.roll_tier()
-	if bet.payout_kind == Payout.PART:
-		bet.reward_part_id = ComboPart.roll_shop().id
+	bet._context = context
+	if t.has("payout"):
+		bet.payout_kind = int(t["payout"])
+	else:
+		bet.roll_reward()
 	return bet
 
 ## Der Schlüssel der Inventar-Sicht: Sorte plus Größe. EINE Schreibweise, an der
@@ -275,7 +312,7 @@ static func pack_stock_key(pack_type: String, pack_tier: int) -> String:
 ## Paket-Einsatz-Vorlage liegt nur aus, wenn der Spieler die genannte Ware WIRKLICH
 ## besitzt - sonst rückt die nächste Vorlage nach.
 static func roll_offers(count: int, tier: int, quota: int,
-		stock: Dictionary = {}) -> Array[SideBet]:
+		stock: Dictionary = {}, context: Dictionary = {}) -> Array[SideBet]:
 	var templates: Array = []
 	for t: Dictionary in TEMPLATES:
 		if int(t.get("unlock", UNLOCK_BASE)) <= tier:
@@ -285,9 +322,12 @@ static func roll_offers(count: int, tier: int, quota: int,
 	for t: Dictionary in templates:
 		if bets.size() >= count:
 			break
-		var bet := _from_template(t, quota)
-		if bet.stake_kind == Stake.PACKS and not _name_stake_packs(bet, stock):
-			continue
+		var bet := _from_template(t, quota, context)
+		if bet.stake_kind == Stake.PACKS:
+			if not _name_stake_packs(bet, stock):
+				continue
+			if not t.has("payout"):
+				bet.roll_reward()  # der Einsatzwert steht erst jetzt fest
 		bets.append(bet)
 	return bets
 
@@ -305,6 +345,133 @@ static func _name_stake_packs(bet: SideBet, stock: Dictionary) -> bool:
 	bet.stake_pack_type = pick.get_slice("|", 0)
 	bet.stake_pack_tier = int(pick.get_slice("|", 1))
 	return true
+
+# --- Der GEWINNWERT -----------------------------------------------------------
+
+## Was der Einsatz in $ wert ist - aus dem UNBESTEUERTEN Grund-Einsatz.
+func stake_value() -> int:
+	match stake_kind:
+		Stake.PACKS:
+			return Pack.tier_price(Pack.type_price(stake_pack_type), stake_pack_tier) * stake_packs
+		Stake.MONEY_PER_HAND:
+			return stake * PER_HAND_HANDS
+		Stake.MONEY_PER_DIE:
+			return stake * PER_DIE_DICE
+		Stake.ENERGY:
+			return stake_energy * ENERGY_STAKE_MONEY
+	return stake
+
+func pays_money() -> bool:
+	return payout_kind == Payout.MONEY
+
+## Der Gewinnwert in $: Einsatzwert × Quote × factor (Quotenbonus, Hoher Tisch),
+## als Ware ×1,25.
+func payout_value(factor: float = 1.0) -> int:
+	var value := float(stake_value()) * odds * factor
+	if not pays_money():
+		value *= WARE_BONUS
+	return roundi(value)
+
+## Würfelt die WARE aus dem Gewinnwert (Grundwert, ohne Faktor) - danach steht sie.
+func roll_reward() -> void:
+	var money := roundi(float(stake_value()) * odds)
+	var ware := roundi(float(stake_value()) * odds * WARE_BONUS)
+	var pool: Array[Dictionary] = []
+	for entry: Dictionary in WARES:
+		var kind := int(entry["kind"])
+		if kind == Payout.MONEY:
+			if money >= int(entry["min"]):
+				pool.append(entry)
+		elif ware >= int(entry["min"]) and _ware_fits(kind, ware):
+			pool.append(entry)
+	var pick := _pick_ware(pool)
+	payout_kind = int(pick.get("kind", Payout.MONEY))
+	reward_pack_type = String(pick.get("type", Pack.TYPE_NUMBER))
+	_rolled_cards.clear()
+	_fixed_card = null
+	_reward_die = null
+	_die_rarity = -2
+	match payout_kind:
+		Payout.CATALYST:
+			reward_item_id = String(_affordable_ids(BET_CATALYSTS, ware, true).pick_random())
+		Payout.OPERATOR:
+			reward_item_id = String(_affordable_ids(StampNet.OPERATORS.keys(), ware, false).pick_random())
+		Payout.PART:
+			reward_part_id = ComboPart.pick_weighted(_affordable_parts(ware)).id
+		Payout.PACK:
+			_fixed_card = Pack.roll_special_pack()
+
+## Gibt es für diese Art überhaupt eine Ware bis zu diesem Wert?
+func _ware_fits(kind: int, ware: int) -> bool:
+	match kind:
+		Payout.CATALYST:
+			return not _affordable_ids(BET_CATALYSTS, ware, true).is_empty()
+		Payout.OPERATOR:
+			return not _affordable_ids(StampNet.OPERATORS.keys(), ware, false).is_empty()
+		Payout.PART:
+			return not _affordable_parts(ware).is_empty()
+	return true
+
+static func _affordable_ids(ids: Array, ware: int, catalysts: bool) -> Array:
+	var out: Array = []
+	for item_id in ids:
+		var price := Pack.catalyst_price(item_id) if catalysts \
+			else StampNet.operator_price(item_id)
+		if price <= ware:
+			out.append(item_id)
+	return out
+
+static func _affordable_parts(ware: int) -> Array[ComboPart]:
+	var out: Array[ComboPart] = []
+	for part in ComboPart.pool(false):
+		if part.price <= ware:
+			out.append(part)
+	return out
+
+static func _pick_ware(pool: Array[Dictionary]) -> Dictionary:
+	var total := 0
+	for entry in pool:
+		total += int(entry["weight"])
+	if total <= 0:
+		return {"kind": Payout.MONEY}
+	var pick := randi() % total
+	for entry in pool:
+		pick -= int(entry["weight"])
+		if pick < 0:
+			return entry
+	return pool.back()
+
+## Preis EINER Karte der gewürfelten Sorte in dieser Größe.
+func card_price(pack_tier: int) -> int:
+	var base := Pack.MULTIPLIER_PRICE if payout_kind == Payout.MULTIPLIER \
+		else Pack.type_price(reward_pack_type)
+	return Pack.tier_price(base, pack_tier)
+
+## Die größte Größe, deren Preis der Gewinnwert trägt (Regal- und Multiplikator-Karten).
+func reward_tier(factor: float = 1.0) -> int:
+	var value := payout_value(factor)
+	for pack_tier in range(Pack.TIER_KOLOSSAL, Pack.TIER_NORMAL, -1):
+		if card_price(pack_tier) <= value:
+			return pack_tier
+	return Pack.TIER_NORMAL
+
+## Wie viele Karten: was der Wert in dieser Größe kauft, höchstens MAX_REWARD_CARDS.
+func reward_count(factor: float = 1.0) -> int:
+	match payout_kind:
+		Payout.PACKS, Payout.MULTIPLIER:
+			var price := maxi(card_price(reward_tier(factor)), 1)
+			return clampi(payout_value(factor) / price, 1, MAX_REWARD_CARDS)
+		Payout.SPECIAL, Payout.PACK, Payout.CATALYST, Payout.OPERATOR:
+			return 1
+	return 0
+
+## Der Bargewinn (Payout.MONEY) vor dem Quotenblatt.
+func reward_money(factor: float = 1.0) -> int:
+	return payout_value(factor) if payout_kind == Payout.MONEY else 0
+
+## Der Energie-Gewinn (Payout.ENERGY).
+func reward_energy(factor: float = 1.0) -> int:
+	return payout_value(factor) / ENERGY_PRICE if payout_kind == Payout.ENERGY else 0
 
 ## Prüft die Wette gegen die Rundenbilanz (siehe scene_root._round_result).
 ## Eine nicht geräumte Runde (Game Over) und eine verfallene Wette verlieren immer.
@@ -482,40 +649,61 @@ func status_label(result: Dictionary) -> String:
 			return "Rückfall!" if bool(result.get("fallback_taken", false)) else "sauber"
 	return ""
 
-## EIN Paket des benannten Gewinns - Sorte und Größe stehen seit dem Auswürfeln der
-## Auslage fest, der Knopf hat sie längst gedruckt.
-func reward_pack() -> Pack:
-	return Pack.tiered(Pack.by_type(reward_pack_type), reward_pack_tier)
+## Die GEWINN-KARTEN samt Prägenetz, je Größe einmal gewürfelt und dann fest: die
+## Grube zeigt genau die Karten, die die Abrechnung gewährt. factor (Quotenbonus,
+## Hoher Tisch) hebt den Wert - mehr Karten oder eine größere.
+func reward_cards(factor: float = 1.0) -> Array[Pack]:
+	var out: Array[Pack] = []
+	match payout_kind:
+		Payout.PACKS, Payout.MULTIPLIER:
+			var pack_tier := reward_tier(factor)
+			var count := reward_count(factor)
+			var cards: Array = _rolled_cards.get(pack_tier, [])
+			while cards.size() < count:
+				var base := Pack.multiplier_pack() if payout_kind == Payout.MULTIPLIER \
+					else Pack.by_type(reward_pack_type)
+				cards.append(Pack.tiered(base, pack_tier))
+			_rolled_cards[pack_tier] = cards
+			for i in count:
+				out.append(cards[i])
+		Payout.SPECIAL, Payout.PACK, Payout.CATALYST, Payout.OPERATOR:
+			var card := _single_card()
+			if card != null:
+				out.append(card)
+	return out
 
-## Die bei Gewinn gutzuschreibenden Pakete - genau die benannte Sorte und Größe.
-## Versiegelt, nie lose: die Presse an der Werkbank macht daraus Beute.
-func reward_list() -> Array[Pack]:
-	return reward_cards(reward_packs)
-
-## Die GEWINN-KARTEN samt Prägenetz, einmal gewürfelt und dann fest: die Grube zeigt
-## genau die Karten, die die Abrechnung gewährt. count wächst mit dem Quotenbonus.
-func reward_cards(count: int) -> Array[Pack]:
-	while _rolled_cards.size() < count:
-		if payout_kind == Payout.SPECIAL:
+## Der EINE feste Karten-Gewinn (Sonderposten, Katalysator, Operator).
+func _single_card() -> Pack:
+	if _fixed_card != null:
+		return _fixed_card
+	match payout_kind:
+		Payout.SPECIAL:
 			var special := special_engraving()
-			if special == null:
-				break
-			_rolled_cards.append(Pack.fixed_engraving_pack(special))
-		else:
-			_rolled_cards.append(reward_pack())
-	return _rolled_cards.slice(0, count)
+			if special != null:
+				_fixed_card = Pack.fixed_engraving_pack(special)
+		Payout.CATALYST:
+			_fixed_card = Pack.catalyst(reward_item_id)
+		Payout.OPERATOR:
+			_fixed_card = Pack.operator_pack(reward_item_id)
+	return _fixed_card
 
-## Zählt die Grube als KARTEN? Paket-Gewinne und Sonderposten ja, alles andere nicht.
+## Zählt die Grube als KARTEN? Jede Karten-Art ja, Geld, Energie, Modul, Würfel nicht.
 func pays_cards() -> bool:
-	return payout_kind in [Payout.PACKS, Payout.PACK, Payout.SPECIAL]
+	return payout_kind in [Payout.PACKS, Payout.PACK, Payout.SPECIAL, Payout.CATALYST,
+		Payout.OPERATOR, Payout.MULTIPLIER]
 
-var _rolled_cards: Array[Pack] = []
+## Die Magazin-Sorte der Gewinn-Karten (für Körper und Sammel-Zeile).
+func reward_shelf(factor: float = 1.0) -> String:
+	var cards := reward_cards(factor)
+	if cards.is_empty():
+		return Pack.shelf_for_pack_type(reward_pack_type)
+	return Pack.shelf_of(cards[0])
 
-## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
 ## Das gewonnene Modul, frisch (null = keins benannt).
 func reward_part() -> ComboPart:
 	return ComboPart.make(reward_part_id)
 
+## Die Sonderposten-Gravur eines SPECIAL-Gewinns (null, wenn keine id steht).
 func special_engraving() -> Engraving:
 	if special_id == "":
 		return null
@@ -524,40 +712,69 @@ func special_engraving() -> Engraving:
 			return engraving
 	return null
 
+## Der gewonnene WÜRFEL: seine Seele hängt am Gewinnwert. Gewürfelt wird je
+## Seelen-Stufe einmal - ein Quotenbonus kann ihn also noch heben.
+func reward_die(factor: float = 1.0) -> DieDefinition:
+	if payout_kind != Payout.DIE:
+		return null
+	var value := payout_value(factor)
+	var rarity := DiceOffer.bet_soul_rarity(value)
+	if _reward_die == null or rarity != _die_rarity:
+		var charms: Array[String] = []
+		charms.assign(_context.get("charm_ids", []))
+		var owned: Array[String] = []
+		owned.assign(_context.get("owned_essences", []))
+		_reward_die = DiceOffer.roll_bet_die(value, charms, owned,
+			int(_context.get("tier", 1)))
+		_die_rarity = rarity
+	return _reward_die
+
 ## Einsatz-Etikett: Geld, die BENANNTEN Pakete (Sorte + Größe aus dem Besitz gezogen),
-## Energie oder laufende Steuer.
-## factor = Deal-Aufschlag (Quotenpaket) - der Knopf muss den WIRKLICH fälligen
-## Einsatz zeigen.
-func stake_label(factor: int = 1) -> String:
+## Energie oder laufende Steuer. factor = Deal-Aufschlag (Wettsteuer, Hoher Tisch) -
+## der Knopf muss den WIRKLICH fälligen Einsatz zeigen.
+func stake_label(factor: float = 1.0) -> String:
 	match stake_kind:
 		Stake.PACKS:
 			return Pack.amount_phrase(stake_pack_type, stake_pack_tier,
-				stake_packs * factor)
+				scaled(stake_packs, factor))
 		Stake.MONEY_PER_HAND:
-			return "$%d je Hand" % (stake * factor)
+			return "$%d je Hand" % scaled(stake, factor)
 		Stake.MONEY_PER_DIE:
-			return "$%d je Würfel" % (stake * factor)
+			return "$%d je Würfel" % scaled(stake, factor)
 		Stake.ENERGY:
-			return "%d ⚡" % (stake_energy * factor)
-	return "$%d" % (stake * factor)
+			return "%d ⚡" % scaled(stake_energy, factor)
+	return "$%d" % scaled(stake, factor)
 
-## Gewinn-Etikett: Barbetrag oder die versiegelten Pakete beim NAMEN ("2 Große
-## Material-Pakete") - Sorte und Größe stehen seit dem Auswürfeln fest. factor wie oben -
-## Einzelstücke (Sonderposten, Paket, Modul) verdoppelt der Quotenbonus NICHT.
-## charm_ids nur für den Barbetrag: das Quotenblatt muss auf dem Knopf stehen,
-## sonst verspricht er weniger, als die Abrechnung zahlt.
-func reward_label(factor: int = 1, charm_ids: Array[String] = []) -> String:
+## Ein Einsatz mal Deal-Faktor, aufgerundet - EINE Rundung für Knopf und Buchung.
+static func scaled(amount: int, factor: float) -> int:
+	return ceili(float(amount) * factor - 0.0001)
+
+## Gewinn-Etikett: was die Wette in ihrer Ware wirklich zahlt. factor wie oben;
+## charm_ids nur für den Barbetrag (das Quotenblatt muss auf dem Knopf stehen).
+func reward_label(factor: float = 1.0, charm_ids: Array[String] = []) -> String:
 	match payout_kind:
 		Payout.MONEY:
-			return "$%d" % CharmEffects.side_bet_money(payout_money * factor, charm_ids)
+			return "$%d" % CharmEffects.side_bet_money(reward_money(factor), charm_ids)
 		Payout.ENERGY:
-			return "%d ⚡" % (payout_energy * factor)
-		Payout.SPECIAL:
-			var special := special_engraving()
-			return "1 %s" % (special.display_name if special != null else special_id)
-		Payout.PACK:
-			return Pack.amount_phrase(reward_pack_type, reward_pack_tier, 1)
+			return "%d ⚡" % reward_energy(factor)
 		Payout.PART:
 			var part := reward_part()
 			return "1 %s" % (part.display_name if part != null else "Modul")
-	return Pack.amount_phrase(reward_pack_type, reward_pack_tier, reward_packs * factor)
+		Payout.DIE:
+			return "1 %s" % die_name(reward_die(factor))
+		Payout.PACKS:
+			return Pack.amount_phrase(reward_pack_type, reward_tier(factor), reward_count(factor))
+		Payout.MULTIPLIER:
+			return Pack.named_phrase(Pack.MULTIPLIER_NAME, reward_tier(factor),
+				reward_count(factor))
+	var card := _single_card()
+	return "1 %s" % (card.display_name if card != null else special_id)
+
+## Name eines Würfel-Gewinns samt Seele ("Kraftwürfel · Neon").
+static func die_name(die: DieDefinition) -> String:
+	if die == null:
+		return "Würfel"
+	var essence := Essence.by_id(die.essence_id) if die.essence_id != "" else null
+	if essence == null:
+		return die.display_name
+	return "%s · %s" % [die.display_name, essence.display_name]

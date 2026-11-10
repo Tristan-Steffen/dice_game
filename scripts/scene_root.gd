@@ -156,6 +156,8 @@ const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Und
 ## Automaten-Lichter: der Einsatz fährt als Energie (CasinoStyle.ENERGY), Ware und
 ## Würfel zyan - dieselbe Farbe trägt jede Lieferung zur Werkbank.
 const SLOT_DIE_COLOR := Color(0.7, 1.7, 2.0, 0.9)
+## Die WÜRFEL-Marke eines Wett-Gewinns.
+const BET_DIE_TINT := Color(0.55, 0.9, 1.0)
 
 ## Wuchs-Faktor des Wett-Tresens (Spieler-Entscheid 2026-08-27): die Fenster-
 ## EINHEIT ist seine eigene Breite (SideBetPanel: size.x/UNIT_DIV), also wachsen
@@ -723,6 +725,8 @@ var payout_shaft: LiftShaftView = null
 var _payout_depth := 0.0
 ## Die zurückgehaltenen Gewinn-Pakete: ihre Kassette steigt erst NACH dem Kassieren.
 var _payout_packs: Array[int] = []
+## Ebenso die gewonnenen Würfel: ihr Körper steigt erst nach dem Kassieren im Fach.
+var _payout_dice: Array[DieDefinition] = []
 ## Was beim Kassieren noch als Licht an sein Ziel reist: je Wette {bet, money, energy}.
 var _payout_claims: Array[Dictionary] = []
 ## Die Körper, die gerade VERSINKEN - freigegeben am Ende ihres Band-Schritts, und vom
@@ -6450,23 +6454,22 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 	var factor := run.side_bet_payout_factor()
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
-			return {"body": "chips",
-				"amount": CharmEffects.side_bet_money(bet.payout_money * factor, run.charm_ids())}
+			return {"body": "chips", "amount": CharmEffects.side_bet_money(
+				bet.reward_money(factor), run.charm_ids())}
 		SideBet.Payout.ENERGY:
-			return {"body": "energy", "count": bet.payout_energy * factor}
+			return {"body": "energy", "count": bet.reward_energy(factor)}
 		SideBet.Payout.PART:
 			return {"body": "token", "text": "MODUL", "tint": CasinoStyle.GOLD_INTENSE}
-		SideBet.Payout.SPECIAL:
-			return {"body": "cell", "sort": Pack.SHELF_SPECIAL,
-				"tier": Pack.TIER_NORMAL, "count": 1, "packs": bet.reward_cards(1)}
-		SideBet.Payout.PACK:
-			return _bet_pack_spec(bet, 1)
-	return _bet_pack_spec(bet, maxi(bet.reward_packs * factor, 1))
+		SideBet.Payout.DIE:
+			return {"body": "token", "text": "WÜRFEL", "tint": BET_DIE_TINT}
+	return _bet_pack_spec(bet, factor)
 
-## Die Kassetten eines Paket-Gewinns in seiner echten Sorte und Größe.
-func _bet_pack_spec(bet: SideBet, count: int) -> Dictionary:
-	return {"body": "cell", "sort": Pack.shelf_for_pack_type(bet.reward_pack_type),
-		"tier": bet.reward_pack_tier, "count": count, "packs": bet.reward_cards(count)}
+## Die Kassetten eines Karten-Gewinns in ihrer echten Sorte und Größe.
+func _bet_pack_spec(bet: SideBet, factor: float) -> Dictionary:
+	var packs := bet.reward_cards(factor)
+	var tier := packs[0].tier if not packs.is_empty() else Pack.TIER_NORMAL
+	return {"body": "cell", "sort": bet.reward_shelf(factor), "tier": tier,
+		"count": maxi(packs.size(), 1), "packs": packs}
 
 ## Die Signatur eines Platzes: eine andere heißt ANDERER Körper. Der ORT (unten/oben)
 ## steht bewusst NICHT darin - die Auffahrt ist eine FAHRT desselben Körpers, kein
@@ -7246,12 +7249,12 @@ func _note_bet_progress(stats: Dictionary) -> void:
 ## Ob der Gewinn dieser Wette als Körper auf der Ablage steht: Ware ja, Geld und ⚡
 ## nein. Ein am vollen Magazin GANZ zu Geld zerfallener Paket-Gewinn stellt nichts.
 func _payout_body_wanted(bet: SideBet) -> bool:
+	if bet.pays_cards():
+		return not bet.awarded_packs.is_empty()
 	match bet.payout_kind:
-		SideBet.Payout.SPECIAL, SideBet.Payout.PACK, SideBet.Payout.PACKS:
-			return not bet.awarded_packs.is_empty()
 		SideBet.Payout.MONEY, SideBet.Payout.ENERGY:
 			return false
-	return true  # die Marken (Modul, Presse-Schub): Ware
+	return true  # die Marken (Modul, Würfel): Ware
 
 ## Die gemeldeten ZELLEN der Ablage (Display-Pixel). ui/ meldet, scene_root stellt.
 func _payout_cells() -> Array[Rect2]:
@@ -7391,6 +7394,7 @@ func _fly_payout_targets() -> void:
 	if table_screen == null:
 		_payout_claims.clear()
 		_payout_packs.clear()
+		_land_payout_dice()
 		return
 	var workshop: WorkshopView = table_screen.workshop_window
 	var hub_px := Vector2.ZERO
@@ -7438,6 +7442,10 @@ func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 		var part := bet.reward_part()
 		if part != null:
 			table_screen.part_delivery_comet(hub_px, part.tint())
+	# Der Würfel wartet längst in pending_dice - sein Licht fährt Hub -> Ausgabefach.
+	if bet.awarded_die != null and _payout_dice.has(bet.awarded_die):
+		_payout_dice.erase(bet.awarded_die)
+		_fly_reward_die_to_fach(hub_px, bet.awarded_die)
 	var energy := int(claim.get("energy", 0))
 	if energy > 0:
 		_play_hub_energy_volley(energy)
@@ -7465,6 +7473,16 @@ func _withhold_payout_packs(won: Array[SideBet]) -> void:
 			if pack != null and pack.pack_uid > 0:
 				workshop.expect_pack_delivery(pack.pack_uid)
 				_payout_packs.append(pack.pack_uid)
+		# Ein gewonnener Würfel wartet ebenso: sein Körper steigt erst nach dem Kassieren.
+		if bet.awarded_die != null and ausgabefach != null and is_instance_valid(ausgabefach):
+			ausgabefach.expect_arrival(bet.awarded_die)
+			_payout_dice.append(bet.awarded_die)
+
+## Jeder noch zurückgehaltene Wett-Würfel steht sofort im Fach.
+func _land_payout_dice() -> void:
+	for die in _payout_dice:
+		_land_pending_die(die)
+	_payout_dice.clear()
 
 func _free_payout_bodies(bodies: Array) -> void:
 	for body in bodies:
@@ -7490,6 +7508,7 @@ func _drop_payout_bodies() -> void:
 	if workshop != null and is_instance_valid(workshop):
 		_land_pending_packs(workshop, _payout_packs)
 	_payout_packs.clear()
+	_land_payout_dice()
 	_payout_pending_plots = []
 	_payout_plot_specs.clear()
 	_payout_depth = 0.0  # die nächste Ablage mißt ihre Tiefe neu
@@ -13596,9 +13615,8 @@ var _payout_plot_specs: Dictionary = {}
 ## als EINE Zeile mit summierter Stückzahl; alles andere (Sonderposten, Marken)
 ## bleibt je Wette eigen - ein summierter Sonderposten löge über seinen Inhalt.
 func _payout_merge_key(bet: SideBet) -> String:
-	match bet.payout_kind:
-		SideBet.Payout.PACK, SideBet.Payout.PACKS:
-			return "%s|%d" % [bet.reward_pack_type, bet.reward_pack_tier]
+	if bet.payout_kind == SideBet.Payout.PACKS and not bet.awarded_packs.is_empty():
+		return "%s|%d" % [bet.reward_pack_type, bet.awarded_packs[0].tier]
 	return ""
 
 ## MELDET Geld an die Auszahlungs-Seite - immer NEBEN einer bestehenden Buchung,
@@ -13833,7 +13851,7 @@ func _resolve_side_bets(cleared: bool) -> void:
 					+ int(spec.get("count", 1))
 				_payout_plot_specs[plot_id]["count"] = total
 				plot["label"] = Pack.amount_phrase(bet.reward_pack_type,
-					bet.reward_pack_tier, total)
+					bet.awarded_packs[0].tier, total)
 				claim["plot"] = plot_id
 			else:
 				var plot := {"id": "bet_%d" % i,
@@ -13851,21 +13869,43 @@ func _resolve_side_bets(cleared: bool) -> void:
 	_bet_won = won.duplicate()
 	_bet_stage = SideBetPanel.STAGE_WON
 	_write_bet_counter(ShopController.GRADE_RISE, true)
+	_note_bet_refund()
 	if won.is_empty():
 		charm_shop.pending_bet_notice = "Nebenwetten: 0/%d gewonnen." % placed
 		return
 	var names: Array[String] = []
 	for bet in won:
 		names.append(bet.display_name)
-	var doubled := " (Quotenbonus ×2)" if run.side_bet_payout_factor() > 1 else ""
+	var boosted := " (Quote ×%s)" % ScoreBreakdown.format_number(run.side_bet_payout_factor()) \
+		if run.side_bet_payout_factor() > 1.0 else ""
 	charm_shop.pending_bet_notice = "Nebenwette gewonnen (%d/%d): %s – Gewinn gutgeschrieben%s." \
-		% [won.size(), placed, ", ".join(names), doubled]
+		% [won.size(), placed, ", ".join(names), boosted]
+
+## Die Rückversicherung hat gebucht: ihre Erstattung steht als Zeile der Seite.
+func _note_bet_refund() -> void:
+	var refund := run.last_side_bet_refund
+	var money := int(refund.get("money", 0))
+	if money > 0:
+		_ledger_money("reinsurance", DealClause.find(DealClause.REINSURANCE).display_name, money)
+	var energy := int(refund.get("energy", 0))
+	if energy > 0:
+		_ledger_energy(energy)
+	var packs: Array = refund.get("packs", [])
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop != null and is_instance_valid(workshop):
+		var hub_px := table_screen.hub.position + table_screen.hub.size * 0.5 \
+			if table_screen.hub != null else Vector2.ZERO
+		for pack: Pack in packs:
+			workshop.expect_pack_delivery(pack.pack_uid)
+			_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px,
+				PackIconRenderer.COLORS.get(pack.type, CasinoStyle.GOLD_INTENSE))
+	run.last_side_bet_refund = {}
 
 ## Was JEDE gewonnene Wette der Auszahlungs-Seite meldet: dieselben Formeln wie
 ## GameRun._pay_side_bet, gerechnet gegen den Stand VOR der Buchung. Sachgewinne
-## (Pakete, Modul, Presse-Schub) melden nichts - nur was am vollen Magazin zu
-## Geld zerfallen ist, steht ehrlich in der Zeile SEINER Wette.
-func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
+## (Karten, Modul, Würfel) melden nichts - nur was am vollen Magazin zu Geld
+## zerfallen ist, steht ehrlich in der Zeile SEINER Wette.
+func _bet_ledger_plan(won: Array[SideBet], factor: float, ids: Array[String],
 		energy_room: int) -> Array[Dictionary]:
 	var plan: Array[Dictionary] = []
 	var room := energy_room
@@ -13874,15 +13914,15 @@ func _bet_ledger_plan(won: Array[SideBet], factor: int, ids: Array[String],
 		var energy := 0
 		match bet.payout_kind:
 			SideBet.Payout.MONEY:
-				money = CharmEffects.side_bet_money(bet.payout_money * factor, ids)
+				money = CharmEffects.side_bet_money(bet.reward_money(factor), ids)
 			SideBet.Payout.ENERGY:
-				var minted := bet.payout_energy * factor
+				var minted := bet.reward_energy(factor)
 				energy = clampi(minted, 0, room)
 				room -= energy
 				money = (minted - energy) * GameRun.ENERGY_OVERFLOW_MONEY
-			SideBet.Payout.SPECIAL, SideBet.Payout.PACK, SideBet.Payout.PACKS:
-				# Je am vollen Magazin zerfallenem Paket sein Fizzle-Geld.
-				money = bet.awarded_fizzled * GameRun.PACK_FIZZLE_MONEY
+		if bet.pays_cards():
+			# Je am vollen Magazin zerfallenem Paket sein Fizzle-Geld.
+			money = bet.awarded_fizzled * GameRun.PACK_FIZZLE_MONEY
 		plan.append({"money": money, "energy": energy})
 	return plan
 
@@ -13898,7 +13938,7 @@ func _open_side_bet_betting() -> void:
 		# liegt nur aus, wenn der Spieler die genannte Ware wirklich besitzt.
 		table_screen.side_bet_window.open_betting(
 			SideBet.roll_offers(SideBetPanel.OFFER_COUNT, run.progress_tier(), run.round_goal,
-				run.pack_stock()))
+				run.pack_stock(), run.side_bet_context()))
 		# Vor dem Setzen liegt NICHTS: der Tresen ist leer und die Knöpfe nennen die
 		# Preise. Eine laufende Abrechnung bricht dabei ab - EIN Aufräum-Pfad, und
 		# der räumt Loch wie Abgangs-Körper.

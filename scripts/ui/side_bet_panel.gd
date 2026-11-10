@@ -249,8 +249,7 @@ func _sync_affordability(index: int, bet: SideBet) -> void:
 	_style_button(button, CasinoStyle.RED if short else payout_accent(bet))
 	_seat_trades[index].modulate = CasinoStyle.RED if short else GOLD
 
-## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Energie cyan, alles übrige
-## (Gravuren, Sonderposten, Paket, Modul) grün.
+## Knopffarbe verrät die Wett-Sorte: Bargeld gold, Energie cyan, alle Ware grün.
 static func payout_accent(bet: SideBet) -> Color:
 	match bet.payout_kind:
 		SideBet.Payout.MONEY:
@@ -394,7 +393,7 @@ static func seat_in(plot: Rect2) -> Vector2:
 func prize_label(index: int) -> String:
 	if index < 0 or index >= offers.size() or offers[index] == null:
 		return ""
-	var factor := run.side_bet_payout_factor() if run != null else 1
+	var factor := run.side_bet_payout_factor() if run != null else 1.0
 	var charms := run.charm_ids() if run != null else [] as Array[String]
 	return offers[index].reward_label(factor, charms)
 
@@ -508,7 +507,7 @@ func _sync_seats() -> void:
 			continue
 		# Deal-Faktoren gehören auf den Sitz: sonst verspricht er einen Preis, den
 		# die Buchung nicht einhält (Quotenpaket).
-		var stake_factor := run.side_bet_stake_factor() if run != null else 1
+		var stake_factor := run.side_bet_stake_factor() if run != null else 1.0
 		_seat_goals[i].text = bet.description
 		_seat_trades[i].text = "%s → %s" % [bet.stake_label(stake_factor),
 			prize_label(i)]

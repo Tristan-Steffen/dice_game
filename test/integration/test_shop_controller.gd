@@ -1742,3 +1742,38 @@ func test_a_new_spread_rolls_a_new_part_with_the_dice() -> void:
 	shop.open()
 	assert_eq(shop.spreads[0].part_options.size(), 1, "jede Auslage trägt ihr Modul")
 	assert_ne(shop.part_options[0], first, "neu gewürfelt mit den Würfeln")
+
+# --- Verträge im Laden (Seite 42) -------------------------------------------------
+
+func _sign(ids: Array) -> void:
+	var typed: Array[String] = []
+	typed.assign(ids)
+	run.sign_clauses(typed)
+	shop.spreads.clear()
+	shop.open()
+
+func test_empty_shelves_leave_the_last_seats_empty() -> void:
+	_sign([DealClause.EMPTY_SHELVES])
+	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots() - 1, "eine Karte weniger")
+	assert_eq(shop.slit_seats().size(), run.shop_pack_slots(), "die Plätze bleiben")
+	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "die Würfel-Plätze bleiben")
+	assert_true(shop.single_dice_bought[run.shop_dice_slots() - 1], "der letzte steht leer")
+	assert_false(shop.single_dice_bought[0])
+
+func test_shelf_warmer_lays_out_only_common_charms() -> void:
+	_sign([DealClause.SHELF_WARMER])
+	for charm in shop.charm_options:
+		assert_eq(charm.rarity, Charm.RARITY_COMMON)
+
+func test_soul_market_fills_the_bowl_with_souls() -> void:
+	_sign([DealClause.SOUL_MARKET])
+	for die in shop.single_dice:
+		assert_ne(die.essence_id, "")
+
+func test_free_flip_costs_nothing() -> void:
+	_sign([DealClause.FREE_FLIP])
+	assert_eq(shop._next_flip_fee(), 0)
+
+func test_special_delivery_puts_a_special_on_the_shelf() -> void:
+	_sign([DealClause.SPECIAL_DELIVERY])
+	assert_eq(shop.single_specials.size(), 1)

@@ -845,7 +845,7 @@ func test_cannot_place_pack_stake_without_packs():
 
 func test_resolve_pack_payout_grants_packs_and_clears():
 	run.money = 50
-	var win := SideBet._from_template(_template("full_house"))  # Gravur-Gewinn
+	var win := _ware("full_house", SideBet.Payout.PACKS)
 	var lose := SideBet._from_template(_template("big_hand"))
 	run.place_side_bet(win)
 	run.place_side_bet(lose)
@@ -855,11 +855,11 @@ func test_resolve_pack_payout_grants_packs_and_clears():
 	var won := run.resolve_side_bets(result)
 	assert_eq(won.size(), 1, "nur das volle Haus gewinnt")
 	assert_eq(won[0].id, "full_house")
-	assert_eq(run.owned_packs.size(), before + win.reward_packs, "Pakete ausgeschüttet")
+	assert_eq(run.owned_packs.size(), before + win.reward_count(), "Pakete ausgeschüttet")
 	assert_eq(run.active_side_bets.size(), 0, "Auslage geleert")
 	# JEDES gewährte Paket ist GEMERKT: die Auszahlungs-Seite hält genau diese
 	# Kassetten bis zum Kassieren zurück und zielt dann auf ihre uids.
-	assert_eq(win.awarded_packs.size(), win.reward_packs,
+	assert_eq(win.awarded_packs.size(), win.reward_count(),
 		"alle Gravur-Paket-Gewinne stehen in awarded_packs")
 	for pack: Pack in win.awarded_packs:
 		assert_gt(pack.pack_uid, 0, "und jeder trägt seine Magazin-uid")
@@ -867,13 +867,22 @@ func test_resolve_pack_payout_grants_packs_and_clears():
 
 func test_resolve_money_payout_adds_cash():
 	run.money = 50
-	var bet := SideBet._from_template(_template("jackpot"))  # Geld-Gewinn
+	var bet := _ware("jackpot", SideBet.Payout.MONEY)
 	run.place_side_bet(bet)
 	var after_stake := run.money  # Einsatz bereits abgezogen
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	run.resolve_side_bets(result)
-	assert_eq(run.money, after_stake + bet.payout_money, "Barauszahlung gutgeschrieben")
+	assert_eq(run.money, after_stake + bet.reward_money(), "Barauszahlung gutgeschrieben")
+
+## Eine Wette mit fest gesetzter Ware - die Tests prüfen die Buchung, nicht den Wurf.
+func _ware(id: String, kind: int) -> SideBet:
+	var bet := SideBet._from_template(_template(id))
+	bet.payout_kind = kind
+	bet.reward_pack_type = Pack.TYPE_NUMBER
+	if kind == SideBet.Payout.PART:
+		bet.reward_part_id = ComboPart.RELAY
+	return bet
 
 func _template(id: String) -> Dictionary:
 	for t in SideBet.TEMPLATES:
@@ -1025,10 +1034,14 @@ func test_no_clause_outlives_its_round():
 	run.advance_round()
 	assert_eq(run.deal_unused_die_bonus(), 0, "die Runde ist vorbei, die Klausel auch")
 
-func test_every_clause_of_the_catalogue_is_instant_or_round():
+## Allein der Stammkunde lebt bis zur Abrechnung (BLOCK), alle anderen höchstens ihre Runde.
+func test_only_the_regular_customer_carries_block():
 	for clause in DealClause.all():
-		assert_ne(clause.scope, DealClause.Scope.BLOCK,
-			"%s müsste sofort oder rundenweise wirken" % clause.id)
+		if clause.id == DealClause.REGULAR_CUSTOMER:
+			assert_eq(clause.scope, DealClause.Scope.BLOCK)
+		else:
+			assert_ne(clause.scope, DealClause.Scope.BLOCK,
+				"%s müsste sofort oder rundenweise wirken" % clause.id)
 
 func test_round_clause_dies_with_its_round():
 	_sign([DealClause.HAPPY_HOUR])
@@ -1221,7 +1234,7 @@ func test_the_shyster_doubles_the_linear_bonuses():
 	assert_eq(run.farkle_consolation(), GameRun.INSURANCE_FRAUD_MONEY * 2)
 	assert_eq(run.gold_vein_income(), GameRun.GOLD_VEIN_MONEY * 2)
 	assert_eq(run.energy_per_stage(), 4)
-	assert_eq(run.side_bet_payout_factor(), 4)
+	assert_eq(run.side_bet_payout_factor(), 4.0)
 	assert_eq(run.max_overcharge_stages(),
 		run.overcharge_frame() + GameRun.HIGH_VOLTAGE_STAGES * 2)
 
@@ -1266,7 +1279,7 @@ func test_the_shyster_never_touches_a_malus():
 	var before := run.energy
 	_sign([DealClause.DISCHARGE, DealClause.BETTING_TAX, DealClause.HALF_PAYOUT])
 	assert_eq(run.energy, before - GameRun.DISCHARGE_ENERGY, "die Entladung bleibt einfach")
-	assert_eq(run.side_bet_stake_factor(), 2, "die Wettsteuer bleibt einfach")
+	assert_eq(run.side_bet_stake_factor(), 2.0, "die Wettsteuer bleibt einfach")
 	assert_almost_eq(run.round_payout_factor(), 0.5, 0.0001)
 
 func test_the_shyster_does_not_stack():
@@ -1547,7 +1560,7 @@ func test_gold_vein_pays_per_stage():
 func test_odds_bonus_and_betting_tax_are_separate_clauses():
 	var bet := SideBet._from_template(_template("jackpot"))
 	_sign([DealClause.ODDS_BONUS])
-	assert_eq(run.side_bet_payout_factor(), 2)
+	assert_eq(run.side_bet_payout_factor(), 2.0)
 	assert_eq(run.side_bet_stake(bet), bet.stake, "der Bonus verteuert nichts")
 	_sign([DealClause.BETTING_TAX])
 	assert_eq(run.side_bet_stake(bet), bet.stake * 2)
@@ -1557,16 +1570,17 @@ func test_odds_bonus_and_betting_tax_are_separate_clauses():
 	run.place_side_bet(bet)
 	assert_eq(run.money, 0, "der doppelte Einsatz wird abgebucht")
 
-func test_odds_bonus_doubles_pack_rewards():
+func test_odds_bonus_doubles_the_prize_value():
 	_sign([DealClause.ODDS_BONUS])
-	var bet := SideBet._from_template(_template("full_house"))  # Paket-Gewinn
+	var bet := _ware("full_house", SideBet.Payout.PACKS)
 	run.money = 50
 	run.place_side_bet(bet)
 	var before := run.owned_packs.size()
 	var result := {"cleared": true, "best_combo_rank": SideBet.combo_rank(DiceScoring.FULL_HOUSE),
 		"best_hand_score": 0, "dice_taken": 0, "farkled": false}
 	run.resolve_side_bets(result)
-	assert_eq(run.owned_packs.size(), before + bet.reward_packs * 2)
+	assert_eq(run.owned_packs.size(), before + bet.reward_count(2.0))
+	assert_gt(bet.reward_count(2.0), bet.reward_count(), "der doppelte Wert kauft mehr Karten")
 
 func test_the_spotlight_clause_lights_a_combo_without_the_charm():
 	_sign([DealClause.SPOTLIGHT])
@@ -1720,22 +1734,22 @@ func test_energy_stake_is_paid_from_the_capacitor():
 	assert_eq(run.energy, 1)
 
 func test_energy_payout_overflows_into_money():
-	var bet := SideBet._from_template(_template("feedback_loop"))  # 8 ⚡ Gewinn
+	var bet := _ware("feedback_loop", SideBet.Payout.ENERGY)
 	run.energy = bet.stake_energy
 	run.place_side_bet(bet)
 	run.energy = run.energy_cap() - 1  # nur noch EINE passt hinein
 	run.money = 0
 	run.resolve_side_bets({"cleared": true, "stages_cleared": bet.target})
 	assert_eq(run.energy, run.energy_cap(), "die Börse läuft voll")
-	assert_eq(run.money, (bet.payout_energy - 1) * GameRun.ENERGY_OVERFLOW_MONEY,
+	assert_eq(run.money, (bet.reward_energy() - 1) * GameRun.ENERGY_OVERFLOW_MONEY,
 		"der Rest fällt bar an")
 
 func test_pack_payout_lands_sealed_in_the_stash():
-	var bet := SideBet._from_template(_template("shipment"))
+	var bet := _ware("shipment", SideBet.Payout.PACKS)
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true, "dice_taken": bet.target})
-	assert_eq(run.owned_packs.size(), 1, "ein versiegeltes Paket im Lager")
+	assert_eq(run.owned_packs.size(), bet.reward_count(), "versiegelte Pakete im Lager")
 	assert_not_null(bet.awarded_pack, "die Zeremonie erfährt die Sorte")
 
 func test_grant_pack_costs_nothing():
@@ -1745,8 +1759,7 @@ func test_grant_pack_costs_nothing():
 	assert_eq(run.money, 10)
 
 func test_part_payout_stashes_the_named_part():
-	var bet := SideBet._from_template(_template("patent"))
-	assert_ne(bet.reward_part_id, "", "das Modul steht ab der Auslage fest")
+	var bet := _ware("patent", SideBet.Payout.PART)
 	run.money = 100
 	run.place_side_bet(bet)
 	run.resolve_side_bets({"cleared": true,
@@ -1799,10 +1812,8 @@ func test_a_round_clause_still_reaches_the_shop_of_its_round():
 		"in der nächsten Runde ist sie tot")
 
 func test_the_chain_reaction_bet_pays_one_module():
-	var bet := SideBet._from_template(_template("chain_reaction"))
-	assert_eq(bet.payout_kind, SideBet.Payout.PART)
+	var bet := _ware("chain_reaction", SideBet.Payout.PART)
 	assert_eq(bet.unlock_level, SideBet.UNLOCK_BASE)
-	assert_ne(bet.reward_part_id, "", "das Modul steht ab dem Auslegen fest")
 	_sign([DealClause.ODDS_BONUS])
 	run.money = 100
 	run.place_side_bet(bet)
@@ -1811,13 +1822,26 @@ func test_the_chain_reaction_bet_pays_one_module():
 	assert_eq(run.pending_parts.size(), 1, "EIN Modul wartet auf den Einbau, nicht zwei")
 	assert_eq(run.pending_parts[0].id, bet.reward_part_id)
 
-func test_module_bets_lie_out_from_round_one():
-	var ids: Array[String] = []
-	for t: Dictionary in SideBet.TEMPLATES:
-		var pays_part := int(t.get("payout", SideBet.Payout.PACKS)) == SideBet.Payout.PART
-		if pays_part and int(t.get("unlock", SideBet.UNLOCK_BASE)) == SideBet.UNLOCK_BASE:
-			ids.append(String(t["id"]))
-	assert_gte(ids.size(), 2, "zwei Modul-Wetten im Grundstock")
+## Jede Ware kann schon im Grundstock ausliegen - der Gewinnwert entscheidet.
+func test_every_ware_can_lie_out_from_round_one():
+	var kinds := {}
+	for i in 600:
+		kinds[SideBet._from_template(_template("whale")).payout_kind] = true
+	for kind in [SideBet.Payout.MONEY, SideBet.Payout.PACKS, SideBet.Payout.PART,
+			SideBet.Payout.DIE, SideBet.Payout.ENERGY, SideBet.Payout.MULTIPLIER,
+			SideBet.Payout.CATALYST, SideBet.Payout.OPERATOR, SideBet.Payout.PACK]:
+		assert_true(kinds.has(kind), "Ware %d kommt vor" % kind)
+
+## Der Würfel-Gewinn geht den Weg des Ladenkaufs: ins Ausgabefach, nie direkt in den Vorrat.
+func test_die_payout_waits_in_the_tray():
+	var bet := _ware("shipment", SideBet.Payout.DIE)
+	run.money = 100
+	run.place_side_bet(bet)
+	var pool_before := run.owned_pool.duplicate()
+	run.resolve_side_bets({"cleared": true, "dice_taken": bet.target})
+	assert_eq(run.pending_dice.size(), 1, "der Würfel wartet im Ausgabefach")
+	assert_same(bet.awarded_die, run.pending_dice[0])
+	assert_eq(run.owned_pool, pool_before, "der Vorrat bleibt unberührt")
 
 # --- Ladung -----------------------------------------------------------------------
 

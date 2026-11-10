@@ -220,7 +220,9 @@ func _pack_lines(tiers: Dictionary) -> Array:
 ## Markiert den Automaten sofort als gedreht (Einsatz bezahlt, kein zweiter Dreh);
 ## [] wenn nicht drehbar.
 ## fumbles = Fumbles des Laufs; sie machen den Joker häufiger (joker_weight).
-func roll(machine: int, rng: RandomNumberGenerator = null, fumbles: int = 0) -> Array:
+## no_fumble = Gezinkte Walzen: kein Fumble-Feld fällt.
+func roll(machine: int, rng: RandomNumberGenerator = null, fumbles: int = 0,
+		no_fumble: bool = false) -> Array:
 	if not can_spin(machine):
 		return []
 	spun[machine] = true
@@ -230,7 +232,8 @@ func roll(machine: int, rng: RandomNumberGenerator = null, fumbles: int = 0) -> 
 	for lc in MACHINE_COLS:
 		var col: Array = []
 		for r in ROWS:
-			col.append(_roll_cell(machine, rng, fumbles))
+			col.append(_roll_symbol(machine, rng, true, fumbles) if no_fumble
+				else _roll_cell(machine, rng, fumbles))
 		block.append(col)
 	return block
 

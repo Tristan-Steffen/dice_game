@@ -511,13 +511,15 @@ func pick_weight(owned_ids: Array[String] = []) -> float:
 	return rarity_weight() * (OWNED_WEIGHT_FACTOR if owned_ids.has(id) else 1.0)
 
 ## Zieht gewichtet nach Rarität und Besitz; candidates darf nicht leer sein.
-static func pick_weighted(candidates: Array[Charm], owned_ids: Array[String] = []) -> Charm:
+## rarity_factors (Seltenheit -> Faktor) hebt einzelne Seltenheiten (Kennerblick).
+static func pick_weighted(candidates: Array[Charm], owned_ids: Array[String] = [],
+		rarity_factors: Dictionary = {}) -> Charm:
 	var total := 0.0
 	for charm in candidates:
-		total += charm.pick_weight(owned_ids)
+		total += charm.pick_weight(owned_ids) * float(rarity_factors.get(charm.rarity, 1.0))
 	var roll := randf() * total
 	for charm in candidates:
-		roll -= charm.pick_weight(owned_ids)
+		roll -= charm.pick_weight(owned_ids) * float(rarity_factors.get(charm.rarity, 1.0))
 		if roll <= 0.0:
 			return charm
 	return candidates.back()
