@@ -27,6 +27,9 @@ signal vitrine_changed
 ## Ein Modul ist gekauft (gebucht in pending_parts): scene_root schickt es als
 ## Licht über die Hub-Cluster-Ader zu den Chips.
 signal part_purchased(from_px: Vector2)
+## Ein Würfel-Paket ist gebucht - VOR dem Neuaufbau der Auslage, damit scene_root
+## seine Schatulle als Körper übernehmen kann, bevor die Bucht sie abräumt.
+signal dice_pack_purchased(index: int)
 ## Klick auf ein Schlüsselwort im Wirkungstext einer Charm-Karte.
 signal lexikon_requested(entry_id: String)
 
@@ -405,20 +408,7 @@ func _build_layout() -> void:
 	content_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(content_root)
 
-	# Regal 2: GRAVUREN - die Plätze stehen UNABHÄNGIG von der Doppelseite.
-	_gravur_band = VBoxContainer.new()
-	_gravur_band.name = "GravurBand"
-	_gravur_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
-	_gravur_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_gravur_band.add_child(_heading_row("GRAVUREN"))
-	slit_row = _shelf_row("SlitRow", _slit_seat_size().y)
-	_gravur_band.add_child(slit_row)
-	_fill_slit_row()
-	# GEMELDET, nicht geraten: erst das Sortieren des Bandes stellt die Reihe hin.
-	_gravur_band.sort_children.connect(func() -> void: _slit_row_fresh = false)
-	root.add_child(_gravur_band)
-
-	# Regal 3: WÜRFEL - die Bucht, auf der sie liegen, und darunter ihre Schilder.
+	# Regal 2: WÜRFEL - über den Karten-Paketen, damit die Schatulle gut im Bild liegt.
 	var dice_band := VBoxContainer.new()
 	dice_band.name = "DiceBand"
 	dice_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
@@ -454,6 +444,19 @@ func _build_layout() -> void:
 	shelf.add_child(die_labels)
 	dice_band.add_child(shelf)
 	root.add_child(dice_band)
+
+	# Regal 3: GRAVUREN - die Plätze stehen UNABHÄNGIG von der Doppelseite.
+	_gravur_band = VBoxContainer.new()
+	_gravur_band.name = "GravurBand"
+	_gravur_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
+	_gravur_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_gravur_band.add_child(_heading_row("GRAVUREN"))
+	slit_row = _shelf_row("SlitRow", _slit_seat_size().y)
+	_gravur_band.add_child(slit_row)
+	_fill_slit_row()
+	# GEMELDET, nicht geraten: erst das Sortieren des Bandes stellt die Reihe hin.
+	_gravur_band.sort_children.connect(func() -> void: _slit_row_fresh = false)
+	root.add_child(_gravur_band)
 
 	# Das AUSKUNFTS-BAND nimmt die Resthöhe - die Regale stehen dicht übereinander.
 	ware_foot = Control.new()
@@ -1891,6 +1894,7 @@ func _on_single_die_pressed(index: int) -> void:
 	var from_px := _buy_origin_px(KIND_DIE, index)
 	run.purchase_dice_pack(single_dice[index], single_dice_prices[index])
 	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
+	dice_pack_purchased.emit(index)
 	if run.last_card_pack_refund > 0:
 		pack_refunded.emit(from_px, run.last_card_pack_refund)
 	_show_spread()

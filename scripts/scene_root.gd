@@ -1027,6 +1027,9 @@ func _setup_score_audio() -> void:
 	score_audio = ScoreAudio.new()
 	score_audio.name = "ScoreAudio"
 	add_child(score_audio)
+	case_show = CaseShow.new()
+	case_show.name = "CaseShow"
+	add_child(case_show)
 	var scoring := func() -> bool: return phase == Phase.SCORING
 	table_screen.pit_score_raised.connect(func(base_up: bool, mult_up: bool) -> void:
 		if scoring.call(): score_audio.on_score_raised(base_up, mult_up))
@@ -6025,6 +6028,8 @@ func _exchange_forced() -> bool:
 func _sync_forced_exchange() -> void:
 	if _deck_glass or run == null or _deck_glass_pending() < 0 or _pack_choice_modal():
 		return
+	if _case_sinking != null or not _case_flights.is_empty() or not _case_returning.is_empty():
+		return  # erst verschwindet die Schatulle im Tisch
 	if not _table_operable() or camera_rig.die_focus or not _pool_editable():
 		return
 	_open_deck_glass(false, true)
@@ -9045,6 +9050,27 @@ const PACK_DIE_SLOT := 2.1
 const PACK_LEAVE_TIME := 0.4
 ## Der Würfel liegt so hoch über dem Grubenboden: halbe Kante plus Luft.
 const PACK_DIE_REST := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE + 0.03
+## Die SCHATULLE eines Würfel-Pakets: Flug aus der Laden-Bucht, Show, Würfel-Flug.
+const PACK_CASE_FLIGHT := 0.85
+const PACK_CASE_PEAK := 4.0
+const PACK_CASE_CLEAR := 0.03
+const PACK_CASE_RELEASE_MARGIN := 1.2
+const PACK_CASE_SEAM := 0.15
+## Das große Öffnen: der Deckel schwingt über, die Grubenwände schlagen an.
+const PACK_CASE_LID_OPEN := 0.5
+const PACK_CASE_SLAM_TIME := 0.18
+const PACK_CASE_OPEN_SLAM := 0.35
+const PACK_CASE_CLIMAX_SLAM := 1.0
+## Der Sprung eines Würfels aus der Schatulle; jeder spätere springt höher.
+const PACK_CASE_JUMP := 0.55
+const PACK_CASE_JUMP_PEAK := 2.6
+const PACK_CASE_JUMP_RISE := 1.6
+const PACK_CASE_BEAM_HEIGHT := 7.0
+const PACK_CASE_BEAM_REST := 0.35
+const PACK_DIE_FLIGHT := 0.6
+const PACK_DIE_PEAK := 2.4
+const PACK_DIE_STAGGER := 0.12
+const PACK_DIE_SINK := 1.6
 
 var pack_choice_view: PackChoiceView
 ## Die Auswahl, die gerade in der Grube steht (null = keine).
@@ -9058,6 +9084,18 @@ var _choice_hull: CardPackView = null
 var _choice_bodies: Array[Node3D] = []
 var _choice_rest: Array[Vector3] = []
 var _choice_landed := false
+## Die gekaufte Schatulle zwischen Kauf und Öffnen: sie hat die Bucht verlassen.
+var _case_bought: CardPackView = null
+## Die Show läuft (ein Klick springt an ihr Ende), und wer zurück in die Schatulle springt.
+var _case_show_on := false
+var _case_returning: Array[Node3D] = []
+## Licht- und Klang-Show der Schatulle (Töne beim Aufbau synthetisiert).
+var case_show: CaseShow
+## Gewählte Würfel auf dem Weg zur Schale: {ghost, def, tween}.
+var _case_flights: Array[Dictionary] = []
+## Die Schatulle, die der Tisch gerade einzieht, und ihre Sektion.
+var _case_sinking: CardPackView = null
+var _case_shaft: LiftShaftView = null
 
 ## Die Hülle eines Pakets, liegend im Anzeigemaß der Karten.
 func _spawn_hull(pack_sort: String, pack_size: int, dice: bool, at: Vector3) -> CardPackView:
@@ -9125,6 +9163,10 @@ func _sync_pack_choice() -> void:
 		_sync_pack_choice_bodies()
 		return
 	if run == null or run.current_pack_choice() == null or phase != Phase.SHOP:
+		_drop_bought_case()  # die Auswahl öffnet später mit einer frischen Schatulle
+		return
+	# Die letzte Schatulle muß erst fort sein - zwei lägen an derselben Stelle.
+	if _case_sinking != null or not _case_flights.is_empty() or not _case_returning.is_empty():
 		return
 	if not _table_operable() or camera_rig.die_focus or _deck_glass or log_open \
 			or camera_rig.mode == CameraRig.Mode.TITLE:
@@ -9150,11 +9192,14 @@ func _pack_option_px(choice: PackChoice) -> Vector2:
 	if table_screen == null:
 		return Vector2(60, 60)
 	if choice.is_dice():
-		var origin := table_screen.world_to_pixel(Vector3.ZERO)
-		var edge := absf(table_screen.world_to_pixel(Vector3(0.0, 0.0,
-			DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE)).x - origin.x)
-		return Vector2.ONE * edge * PACK_DIE_SLOT
+		return Vector2.ONE * _die_edge_px() * PACK_DIE_SLOT
 	return _data_cell_lying_px() * PackDrawerView.CASSETTE_SCALE
+
+## Die Würfelkante in Display-Pixeln - der Platz eines Würfels in der Aufstellung.
+func _die_edge_px() -> float:
+	var origin := table_screen.world_to_pixel(Vector3.ZERO)
+	return absf(table_screen.world_to_pixel(Vector3(0.0, 0.0,
+		DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE)).x - origin.x)
 
 func _open_pack_choice(choice: PackChoice) -> void:
 	_choice = choice
@@ -9165,9 +9210,13 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	var launched := run
 	_choice_home = camera_rig.camera_pose()
 	camera_rig.set_tilt_locked(true)
+	_place_pack_choice_view()
+	if choice.is_dice():
+		_open_dice_case(choice, generation, launched)
+		return
+	_drop_bought_case()
 	camera_rig.frame_rect(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z),
 		Vector2(DicePit.PIT_HALF_Z, DicePit.PIT_HALF_X), PACK_CHOICE_MARGIN)
-	_place_pack_choice_view()
 	pack_choice_view.open(choice, _pack_option_px(choice), run.pack_reshuffle_cost(choice),
 		run.energy)
 	# Das Paket erscheint über der Grube und fällt ihr entgegen.
@@ -9249,6 +9298,411 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 			fall.chain().tween_property(ghost, "global_position", target,
 				PACK_DIE_BOUNCE * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
+## --- Die SCHATULLE: Würfel-Pakete öffnen sich IN der Grube --------------------
+## Die gekaufte Schatulle fliegt aus ihrer Bucht in die Grube, klappt auf, und die
+## Optionen liegen die ganze Zeit IN ihr. Bestätigt fliegen die Gewählten in die
+## Schale, die Schatulle klappt zu und der Tisch zieht sie samt Rest ein.
+
+## Der Laden hat ein Würfel-Paket gebucht: seine Schatulle verläßt die Bucht als
+## KÖRPER (die Bucht fährt für sie keine Sektion) und wartet aufs Öffnen.
+func _on_dice_pack_purchased(index: int) -> void:
+	if shop_vitrine == null or not is_instance_valid(shop_vitrine):
+		return
+	var body := shop_vitrine.release_body(
+		VitrineView.slot_key(ShopController.KIND_DIE, index))
+	var hull := body as CardPackView
+	if hull == null:
+		if body != null:
+			body.queue_free()
+		return
+	_drop_bought_case()
+	hull.reparent(self, true)
+	_case_bought = hull
+
+func _drop_bought_case() -> void:
+	if _case_bought != null and is_instance_valid(_case_bought):
+		_free_data_cell(_case_bought)
+	_case_bought = null
+
+## Die Lage der Schatulle auf einem Glaspunkt - gerechnet, auch solange sie noch fliegt.
+func _case_frame(hull: CardPackView, at: Vector3) -> Transform3D:
+	return Transform3D(hull.global_transform.basis.orthonormalized(), at)
+
+## Ihr Grundriß in Display-Pixeln - daraus schneidet die Ansicht ihren Kopf.
+func _case_footprint_px(hull: CardPackView) -> Vector2:
+	var corners := hull.case_outline_local()
+	if corners.is_empty() or table_screen == null:
+		return Vector2.ZERO
+	var frame := _case_frame(hull, Vector3.ZERO)
+	var box := Rect2(table_screen.world_to_pixel(frame * corners[0]), Vector2.ZERO)
+	for corner in corners:
+		box = box.expand(table_screen.world_to_pixel(frame * corner))
+	return box.size
+
+## Der MUND der Schatulle: die Mitte ihres Innenraums, ein halber Würfel über dem Samt.
+func _case_mouth(hull: CardPackView) -> Vector3:
+	var corners := hull.case_interior_local()
+	if corners.is_empty():
+		return hull.global_position
+	var frame := _case_frame(hull, hull.global_position)
+	var sum := Vector3.ZERO
+	for corner in corners:
+		sum += frame * corner
+	return sum / float(corners.size()) + Vector3.UP * PACK_DIE_REST
+
+## Die Plätze der Aufstellung in Welt - Endzustand zuerst: sie stehen, bevor einer springt.
+func _case_targets(choice: PackChoice) -> void:
+	_choice_rest.clear()
+	_choice_bodies.clear()
+	var centers := pack_choice_view.slot_centers()
+	for i in choice.option_count():
+		var px: Vector2 = centers[i] if i < centers.size() else Vector2.ZERO
+		_choice_rest.append(table_screen.pixel_to_world(px) + Vector3.UP * PACK_DIE_REST)
+		_choice_bodies.append(null)
+
+func _open_dice_case(choice: PackChoice, generation: int, launched: GameRun) -> void:
+	var hull := _case_bought
+	_case_bought = null
+	var flown := hull != null and is_instance_valid(hull)
+	if not flown:
+		# Ohne Kauf (ein Wett-Gewinn) erscheint sie gleich an ihrem Platz.
+		hull = _spawn_hull(String(choice.pack.get("sort")), choice.size, true, Vector3.ZERO)
+		hull.visible = false
+	_choice_hull = hull
+	hull.set_lid_open(0.0)
+	pack_choice_view.open(choice, Vector2.ONE * _die_edge_px(), run.pack_reshuffle_cost(choice),
+		run.energy, false, _case_footprint_px(hull), VitrineView.die_up_face())
+	var rest := table_screen.pixel_to_world(pack_choice_view.case_seat_px())
+	rest.y = PACK_CASE_CLEAR
+	camera_rig.frame_rect(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z),
+		Vector2(DicePit.PIT_HALF_Z, DicePit.PIT_HALF_X), PACK_CHOICE_MARGIN)
+	_case_targets(choice)
+	if flown:
+		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
+		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
+	else:
+		hull.lie_on_glass(rest)
+		hull.materialize()
+		await get_tree().create_timer(DataCellView.MATERIALIZE_TIME).timeout
+	if generation != _choice_gen or run != launched:
+		return
+	_play_case_show(generation, launched)
+
+## Der Lichtstrahl aus der Schatulle - ihr Kind, er sinkt mit ihr.
+func _case_beam(hull: CardPackView) -> MeshInstance3D:
+	var beam := hull.get_node_or_null("CaseBeam") as MeshInstance3D
+	if beam != null:
+		return beam
+	var corners := hull.case_interior_local()
+	var radius := 1.0
+	if corners.size() >= 3:
+		radius = minf(corners[0].distance_to(corners[1]), corners[1].distance_to(corners[2])) * 0.45
+	beam = CaseShow.build_beam(radius, PACK_CASE_BEAM_HEIGHT)
+	hull.add_child(beam)
+	beam.global_position = _case_mouth(hull) + Vector3.UP * PACK_CASE_BEAM_HEIGHT * 0.5
+	return beam
+
+## Die SHOW: der Deckel springt auf, Licht strömt heraus, und einer nach dem anderen
+## springen die Würfel auf ihre Plätze - jeder Moment größer als der vorige, der letzte
+## der Höhepunkt. Ein Klick springt ans Ende (_end_case_show).
+func _play_case_show(generation: int, launched: GameRun) -> void:
+	var hull := _choice_hull
+	if hull == null or not is_instance_valid(hull):
+		return
+	_case_show_on = true
+	var count := _choice.option_count()
+	var beam := _case_beam(hull)
+	hull.swing_lid(true, PACK_CASE_LID_OPEN)
+	if case_show != null:
+		case_show.play_open()
+	CaseShow.pulse_beam(beam, CaseShow.GLOW_FIRST, PACK_CASE_BEAM_REST)
+	var case_px := table_screen.world_to_pixel(hull.global_position)
+	table_screen.pit_impulse(case_px, "crit", Color(CaseShow.BEAM_COLOR, 1.0))
+	if dice_pit != null:
+		dice_pit.slam(PACK_CASE_OPEN_SLAM)
+	await get_tree().create_timer(PACK_CASE_LID_OPEN * 0.6).timeout
+	for i in count:
+		if generation != _choice_gen or run != launched or not _case_show_on:
+			return
+		await get_tree().create_timer(CaseShow.beat(i, count)).timeout
+		if generation != _choice_gen or run != launched or not _case_show_on:
+			return
+		_jump_case_die(i, count)
+	await get_tree().create_timer(PACK_CASE_JUMP).timeout
+	if generation != _choice_gen or run != launched or not _case_show_on:
+		return
+	_end_case_show()
+
+## Ein Würfel springt aus dem Mund der Schatulle auf seinen Platz - mit Taumeln, das auf
+## seiner Ruhelage endet.
+func _jump_case_die(index: int, count: int) -> void:
+	var hull := _choice_hull
+	if hull == null or not is_instance_valid(hull) or index >= _choice_rest.size():
+		return
+	var ghost := _case_ghost(index)
+	var from := _case_mouth(hull)
+	var target: Vector3 = _choice_rest[index]
+	var rest_basis: Basis = ghost.get_meta("rest_basis")
+	ghost.global_position = from
+	ghost.rotation = Vector3(randf_range(-PI, PI), randf_range(-PI, PI), randf_range(-PI, PI))
+	var rest_rotation := rest_basis.get_euler()
+	var peak := PACK_CASE_JUMP_PEAK + CaseShow.share(index, count) * PACK_CASE_JUMP_RISE
+	var jump := create_tween().set_parallel(true)
+	jump.tween_method(func(t: float) -> void:
+		if is_instance_valid(ghost):
+			ghost.global_position = from.lerp(target, t) + Vector3.UP * peak * 4.0 * t * (1.0 - t),
+		0.0, 1.0, PACK_CASE_JUMP)
+	jump.tween_property(ghost, "rotation", rest_rotation, PACK_CASE_JUMP) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	jump.chain().tween_callback(_land_case_show_die.bind(index, count))
+	ghost.set_meta("jump", jump)
+	CaseShow.pulse_beam(_case_beam(hull), CaseShow.glow(index, count), PACK_CASE_BEAM_REST)
+
+## Der Körper der Option index - gebaut beim Sprung, nie zweimal.
+func _case_ghost(index: int) -> Node3D:
+	var ghost := _choice_bodies[index]
+	if ghost != null and is_instance_valid(ghost):
+		return ghost
+	ghost = FloatingDie.build_ghost(_choice.options[index] as DieDefinition)
+	var faces: DieFaceDisplay = ghost.get_node("RigidBody3D/Faces")
+	faces.set_pool_enabled(false)
+	ghost.set_meta("rest_basis", ghost.transform.basis)
+	add_child(ghost)
+	_choice_bodies[index] = ghost
+	return ghost
+
+## Gelandet: sein Netz erscheint, der Ring läuft über den Grubenboden, der Ton steigt.
+func _land_case_show_die(index: int, count: int) -> void:
+	if not _case_show_on:
+		return
+	var glow := CaseShow.glow(index, count)
+	pack_choice_view.reveal_net(index)
+	if case_show != null:
+		case_show.play_die(index, count)
+	var centers := pack_choice_view.slot_centers()
+	if index < centers.size():
+		table_screen.pit_impulse(centers[index], "base", Color(CaseShow.BEAM_COLOR * glow, 1.0))
+	if CaseShow.is_climax(index, count):
+		if dice_pit != null:
+			dice_pit.slam(PACK_CASE_CLIMAX_SLAM)
+		table_screen.pack_arrival_flash(table_screen.world_to_pixel(_choice_hull.global_position),
+			Color(CaseShow.BEAM_COLOR * glow, 1.0))
+
+## Das Ende der Show - auch der Klick dorthin: jeder Würfel steht hart auf seinem Platz,
+## alle Netze stehen, dann zählt der Zähler.
+func _end_case_show() -> void:
+	if _choice == null or not _choice.is_dice():
+		return
+	_case_show_on = false
+	for i in _choice_rest.size():
+		var ghost := _case_ghost(i)
+		var jump: Variant = ghost.get_meta("jump") if ghost.has_meta("jump") else null
+		if jump is Tween and (jump as Tween).is_valid():
+			(jump as Tween).kill()
+		ghost.global_transform = Transform3D(ghost.get_meta("rest_basis"), _choice_rest[i])
+	pack_choice_view.reveal_all_nets()
+	if _choice_hull != null and is_instance_valid(_choice_hull):
+		_choice_hull.swing_lid(true, 0.0)
+		CaseShow.pulse_beam(_case_beam(_choice_hull), PACK_CASE_BEAM_REST, PACK_CASE_BEAM_REST)
+	_choice_landed = true
+	pack_choice_view.start_count()
+
+## Ein Würfel springt zurück in die Schatulle und ist darin fort.
+func _return_case_die(ghost: Node3D) -> void:
+	if ghost == null or not is_instance_valid(ghost) or _choice_hull == null \
+			or not is_instance_valid(_choice_hull):
+		_free_choice_body(ghost)
+		return
+	var from := ghost.global_position
+	var target := _case_mouth(_choice_hull)
+	_case_returning.append(ghost)
+	var back := create_tween().set_parallel(true)
+	back.tween_method(func(t: float) -> void:
+		if is_instance_valid(ghost):
+			ghost.global_position = from.lerp(target, t) \
+				+ Vector3.UP * PACK_CASE_JUMP_PEAK * 4.0 * t * (1.0 - t),
+		0.0, 1.0, PACK_CASE_JUMP).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	back.tween_property(ghost, "scale", ghost.scale * 0.35, PACK_CASE_JUMP) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	back.chain().tween_callback(func() -> void:
+		_case_returning.erase(ghost)
+		_free_choice_body(ghost))
+
+## Der harte Weg der Show: nichts springt mehr, nichts ist unterwegs zurück.
+func _settle_case_show() -> void:
+	_case_show_on = false
+	for ghost in _case_returning:
+		_free_choice_body(ghost)
+	_case_returning.clear()
+
+## BESTÄTIGT (Würfel): gebucht ist. Die Gewählten fliegen aus der Grube in die Schale,
+## die Ungewählten springen zurück in die Schatulle, der Deckel fällt zu, und der Tisch
+## zieht sie ein.
+func _release_dice_case(indices: Array, picked: Array[DieDefinition]) -> void:
+	var hull := _choice_hull
+	var sorted := indices.duplicate()
+	sorted.sort()
+	if _case_show_on:
+		_end_case_show()
+	if ausgabefach != null and is_instance_valid(ausgabefach):
+		for def in picked:
+			ausgabefach.expect_arrival(def)
+	var launched := run
+	var leaving: Array[Dictionary] = []
+	for i in _choice_bodies.size():
+		var ghost := _choice_bodies[i]
+		_choice_bodies[i] = null  # er gehört ab hier dem Flug oder der Schatulle
+		if ghost == null or not is_instance_valid(ghost):
+			continue
+		if sorted.has(i) and leaving.size() < picked.size():
+			leaving.append({"ghost": ghost, "def": picked[leaving.size()]})
+		else:
+			_return_case_die(ghost)
+	# Der OFFENE (der erste) fliegt zuletzt: die übrigen tauchen vor ihm unter den
+	# Fachboden, so steht in der Schale nie ein zweiter Würfel.
+	var delay := 0.0
+	for k in range(leaving.size() - 1, -1, -1):
+		_fly_case_die(leaving[k]["ghost"], leaving[k]["def"], delay, k > 0)
+		delay += PACK_DIE_STAGGER
+	if hull != null and is_instance_valid(hull):
+		CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, 0.0)
+	_choice_hull = null
+	_choice_bodies.clear()
+	_choice_rest.clear()
+	_case_sinking = hull
+	_finish_pack_choice()
+	if hull == null or not is_instance_valid(hull):
+		_case_sinking = null
+		_restore_pack_choice_camera()
+		return
+	_frame_case_release(hull)
+	await get_tree().create_timer(maxf(delay, PACK_CASE_JUMP) + PACK_DIE_STAGGER).timeout
+	if run != launched or not is_instance_valid(hull) or _case_sinking != hull:
+		return
+	var close := hull.swing_lid(false, PACK_CASE_SLAM_TIME)
+	if case_show != null:
+		case_show.play_shut()
+	if close > 0.0:
+		await get_tree().create_timer(close).timeout
+		if run != launched or not is_instance_valid(hull) or _case_sinking != hull:
+			return
+	_sink_case(hull)
+
+
+## Ein gewählter Würfel fliegt als Körper in die Schale (ein Spieler-Zug - über dem Tisch).
+## waiting = er wartet unter dem Fachboden: sein Bogen endet dort, nicht im Fach.
+func _fly_case_die(ghost: Node3D, def: DieDefinition, delay: float, waiting: bool) -> void:
+	var from := ghost.global_position
+	var target := ausgabefach.open_spot() \
+		if ausgabefach != null and is_instance_valid(ausgabefach) else from
+	if waiting:
+		target += Vector3.DOWN * PACK_DIE_SINK
+	var entry := {"ghost": ghost, "def": def}
+	_case_flights.append(entry)
+	var tween := create_tween()
+	tween.tween_interval(maxf(delay, 0.001))
+	tween.tween_method(func(t: float) -> void:
+		if is_instance_valid(ghost):
+			ghost.global_position = from.lerp(target, t) \
+				+ Vector3.UP * PACK_DIE_PEAK * 4.0 * t * (1.0 - t),
+		0.0, 1.0, PACK_DIE_FLIGHT).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_callback(_land_case_die.bind(entry, false))
+	entry["tween"] = tween
+
+## Angekommen: liegt er offen, übernimmt die Schale ihn im selben Bild; sonst sinkt er
+## unter den Fachboden, wo er wartet, bis er an der Reihe ist. hard = Abbruch.
+func _land_case_die(entry: Dictionary, _hard: bool) -> void:
+	_case_flights.erase(entry)
+	var tween := entry.get("tween") as Tween
+	if tween != null and tween.is_valid():
+		tween.kill()
+	var ghost: Node3D = entry["ghost"]
+	var def: DieDefinition = entry["def"]
+	var fach := ausgabefach != null and is_instance_valid(ausgabefach)
+	var shown := false
+	if fach and ausgabefach.awaiting(def):
+		shown = ausgabefach.die_at(0) == def
+		ausgabefach.deliver(def)
+		if shown:
+			ausgabefach.settle()
+	_free_choice_body(ghost)
+
+## Abbruch: jeder Würfel im Flug liegt sofort, wo er hin wollte.
+func _settle_case_flights() -> void:
+	for entry in _case_flights.duplicate():
+		_land_case_die(entry, true)
+	_case_flights.clear()
+
+## Während des Abschieds rahmt die Kamera Schatulle UND Schale: man sieht die Würfel
+## ankommen und die Schatulle im Tisch verschwinden.
+func _frame_case_release(hull: CardPackView) -> void:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	var frame := _case_frame(hull, hull.global_position)
+	for corner in hull.case_outline_local():
+		var at := frame * corner
+		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	if ausgabefach != null and is_instance_valid(ausgabefach) and ausgabefach.half.x > 0.0:
+		var fach_lo := ausgabefach.bounds_min()
+		var fach_hi := ausgabefach.bounds_max()
+		lo = Vector2(minf(lo.x, fach_lo.x), minf(lo.y, fach_lo.y))
+		hi = Vector2(maxf(hi.x, fach_hi.x), maxf(hi.y, fach_hi.y))
+	if lo.x > hi.x:
+		return
+	camera_rig.frame_rect(Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5),
+		Vector2((hi.y - lo.y) * 0.5, (hi.x - lo.x) * 0.5), PACK_CASE_RELEASE_MARGIN)
+
+## Der EINZUG: eine Sektion öffnet unter der Schatulle, senkt sie ein, Loch zu.
+func _sink_case(hull: CardPackView) -> void:
+	var shaft := _case_shaft_on(hull)
+	var seat := hull.global_position
+	var gone := func() -> void:
+		if _case_sinking == hull:
+			_case_sinking = null
+			_free_data_cell(hull)
+			_restore_pack_choice_camera()  # erst jetzt: danach holt der Zwang die Kamera
+	if shaft == null or shaft.run_take([hull], [seat], 0.0, gone) == null:
+		gone.call()
+
+## Die Sektion unter der Schatulle: ihr Grundriß plus Saum, tief genug für ihre Höhe.
+func _case_shaft_on(hull: CardPackView) -> LiftShaftView:
+	if table_screen == null or hull == null or not is_instance_valid(hull):
+		return null
+	var corners := hull.case_outline_local()
+	if corners.is_empty():
+		return null
+	var frame := _case_frame(hull, hull.global_position)
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner in corners:
+		var at := frame * corner
+		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	if _case_shaft == null or not is_instance_valid(_case_shaft):
+		_case_shaft = LiftShaftView.new("CaseShaft")
+		_case_shaft.glow_rim = false
+		add_child(_case_shaft)
+		_case_shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(TableScreen.PIT_CASE, spot, hole))
+		_case_shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(TableScreen.PIT_CASE))
+	_case_shaft.deck_skin = table_screen.display_skin()
+	_case_shaft.order_skin(PIT_SKIN)
+	var height := hull.thickness() * hull.body_scale()
+	_case_shaft.setup(Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5),
+		Vector2((hi.x - lo.x) * 0.5, (hi.y - lo.y) * 0.5) + Vector2.ONE * PACK_CASE_SEAM,
+		maxf(VitrineView.shaft_depth(), height * VitrineView.SHAFT_ROOM))
+	return _case_shaft
+
+## Der harte Weg des Einzugs: Loch zu, Schatulle fort.
+func _drop_case_sinking() -> void:
+	if _case_shaft != null and is_instance_valid(_case_shaft):
+		_case_shaft.settle_hard()
+	if _case_sinking != null and is_instance_valid(_case_sinking):
+		_free_data_cell(_case_sinking)
+	_case_sinking = null
+
 ## Je Bild: ein gewählter Würfel hebt sich ein Stück über seinen Platz.
 func _sync_pack_choice_bodies() -> void:
 	if not _choice_landed or pack_choice_view == null:
@@ -9269,10 +9723,16 @@ func _sync_pack_choice_bodies() -> void:
 ## Der Modal-Weg: nur das Fenster der Auswahl bekommt den Zeiger.
 func _handle_pack_choice_input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouse
-	if mouse == null or table_screen == null or camera_rig.is_animating:
+	if mouse == null or table_screen == null:
 		return
 	if mouse is InputEventMouseButton \
 			and (mouse as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
+		return
+	# Während der Show springt ein Klick an ihr Ende - Endzustand zuerst.
+	if _case_show_on and mouse is InputEventMouseButton and (mouse as InputEventMouseButton).pressed:
+		_end_case_show()
+		return
+	if camera_rig.is_animating:
 		return
 	var pixel := _screen_pixel(mouse.position)
 	if pixel.x < 0.0 or not _pack_choice_rect().has_point(pixel):
@@ -9298,6 +9758,10 @@ func _on_pack_choice_reshuffle() -> void:
 	var generation := _choice_gen
 	var launched := run
 	_choice_landed = false
+	if _choice.is_dice() and _choice_hull != null and is_instance_valid(_choice_hull) \
+			and _choice_hull.has_lid():
+		_reshuffle_dice_case(generation, launched)
+		return
 	for body in _choice_bodies:
 		_vanish_choice_body(body)
 	_choice_bodies.clear()
@@ -9313,6 +9777,28 @@ func _on_pack_choice_reshuffle() -> void:
 	if generation == _choice_gen and run == launched:
 		_choice_landed = true
 
+## Neu gemischt mit der Schatulle: die alten Würfel springen zurück, der Deckel schlägt
+## zu, und die neuen kommen mit derselben Show heraus. Der Zähler steht schon.
+func _reshuffle_dice_case(generation: int, launched: GameRun) -> void:
+	var hull := _choice_hull
+	for i in _choice_bodies.size():
+		_return_case_die(_choice_bodies[i])
+		_choice_bodies[i] = null
+	pack_choice_view.open(_choice, pack_choice_view.item_px, run.pack_reshuffle_cost(_choice),
+		run.energy, true, pack_choice_view.case_px, pack_choice_view.up_face)
+	_case_targets(_choice)
+	CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, 0.0)
+	await get_tree().create_timer(PACK_CASE_JUMP).timeout
+	if generation != _choice_gen or run != launched or not is_instance_valid(hull):
+		return
+	var close := hull.swing_lid(false, PACK_CASE_SLAM_TIME)
+	if case_show != null:
+		case_show.play_shut()
+	await get_tree().create_timer(close + PACK_CASE_SLAM_TIME).timeout
+	if generation != _choice_gen or run != launched:
+		return
+	_play_case_show(generation, launched)
+
 ## BESTÄTIGT: GameRun bucht jede Wahl (Karten ins Magazin, Würfel in pending_dice),
 ## dann fliegen die Karten als Komet ins Magazin, der erste Würfel in die Schale, und
 ## Ungewähltes zerfällt. Die Kamera kehrt ZUERST heim - der Zwang merkt sich dann den
@@ -9321,6 +9807,15 @@ func _on_pack_choice_confirmed(indices: Array) -> void:
 	if not _pack_choice_modal() or run == null:
 		return
 	var choice := _choice
+	# Die Schatulle: die Kamera bleibt, bis der Tisch sie eingezogen hat.
+	if choice.is_dice() and _choice_hull != null and is_instance_valid(_choice_hull) \
+			and _choice_hull.has_lid():
+		var booked := run.confirm_pack_choice(choice, indices)
+		_choice_leaving = true
+		pack_choice_view.close()
+		var dice: Array[DieDefinition] = booked["dice"]
+		_release_dice_case(indices, dice)
+		return
 	var positions: Array[Vector2] = []
 	for body in _choice_bodies:
 		positions.append(table_screen.world_to_pixel(body.global_position)
@@ -9428,6 +9923,10 @@ func _finish_pack_choice() -> void:
 ## Der EINE harte Aufräum-Pfad (Laufwechsel, verlorene Auswahl): alles fort, die
 ## Kamera heim. Eine noch offene Auswahl bleibt in GameRun und öffnet neu.
 func _settle_pack_openings() -> void:
+	_settle_case_show()
+	_settle_case_flights()
+	_drop_case_sinking()
+	_drop_bought_case()
 	if _choice == null and _choice_home.is_empty():
 		return
 	_restore_pack_choice_camera()
@@ -13745,6 +14244,9 @@ func _connect_run() -> void:
 		charm_shop.pack_refunded.connect(_on_pack_refunded)
 	if charm_shop != null and not charm_shop.part_purchased.is_connected(_on_shop_part_purchased):
 		charm_shop.part_purchased.connect(_on_shop_part_purchased)
+	if charm_shop != null \
+			and not charm_shop.dice_pack_purchased.is_connected(_on_dice_pack_purchased):
+		charm_shop.dice_pack_purchased.connect(_on_dice_pack_purchased)
 	_settle_part_install_hard()  # ein Einbau des alten Laufs schuldet nichts mehr
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)

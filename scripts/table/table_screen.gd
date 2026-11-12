@@ -238,7 +238,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 31
+const MAX_PITS := 32
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -297,6 +297,9 @@ static func shop_bay_pit(index: int) -> int:
 ## Und dieselben Mulden unter den Kassetten der Schwarzmarkt-Reihe.
 const PIT_SECRET_BAY0 := 28
 const SECRET_BAY_PIT_COUNT := 3
+
+## Der EINZUG der Schatulle eines Würfel-Pakets nach der Wahl - ans Ende gehängt.
+const PIT_CASE := 31
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:

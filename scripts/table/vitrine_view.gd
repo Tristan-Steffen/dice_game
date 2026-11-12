@@ -1211,6 +1211,35 @@ func _take_out(key: String, body: Node3D, place: Dictionary) -> void:
 	if shaft.run_take([body], [seat], 0.0, _release_bodies.bind([body])) == null:
 		_release_bodies([body])
 
+## Ein gekauftes Stück VERLÄSST die Auslage als Körper (die Schatulle fliegt in die
+## Grube): es steht hart auf seinem Platz, gehört ab hier dem Aufrufer, und keine
+## Sektion fährt für es. null = kein Körper unter diesem Schlüssel.
+func release_body(key: String) -> Node3D:
+	var body: Node3D = _bodies.get(key)
+	if body == null or not is_instance_valid(body):
+		return null
+	settle()  # eine laufende Fahrt führte ihn sonst weiter
+	var spot := _spot_for_key(key)
+	_kill(_move_tweens.get(key))
+	_kill(_hover_tweens.get(key))
+	var cell := body as DataCellView
+	if cell != null:
+		cell.set_hovered(false)
+		cell.lie_on_glass(pack_rest(spot) if spot != Vector3.ZERO else cell.global_position)
+	else:
+		body.scale = Vector3.ONE * float(_rest_scale.get(key, 1.0))
+	_bodies.erase(key)
+	_rest_scale.erase(key)
+	_move_tweens.erase(key)
+	_hover_tweens.erase(key)
+	_hover_head.erase(key)
+	if _hovered == key:
+		_hovered = ""
+	for i in range(items.size() - 1, -1, -1):
+		if items[i]["key"] == key:
+			items.remove_at(i)
+	return body
+
 func _free_body(body: Node3D) -> void:
 	if body == null or not is_instance_valid(body):
 		return

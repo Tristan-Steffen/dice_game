@@ -616,7 +616,7 @@ func test_the_vitrine_hole_sits_inside_its_frame() -> void:
 	assert_almost_eq(bay.end.y - hole.end.y,
 		PackDrawerView.rim_inset(shop.u), 0.51, "unten ebenso")
 
-## Die drei REGALE stehen übereinander: Charms, Gravuren, Würfel - jede Zeile über
+## Die drei REGALE stehen übereinander: Charms, Würfel, Gravuren - jede Zeile über
 ## die volle Innenbreite.
 func test_the_three_shelves_stand_one_under_the_other() -> void:
 	shop.size = Vector2(1068, 1125)
@@ -625,8 +625,8 @@ func test_the_three_shelves_stand_one_under_the_other() -> void:
 	var charms: Rect2 = shop.content_root.get_global_rect()
 	var gravur: Rect2 = shop.slit_row.get_global_rect()
 	var bay: Rect2 = shop.vitrine_rect_px()
-	assert_lte(charms.end.y, gravur.position.y, "die Charms stehen über den Gravuren")
-	assert_lte(gravur.end.y, bay.position.y, "die Gravuren über den Würfeln")
+	assert_lte(charms.end.y, bay.position.y, "die Charms stehen über den Würfeln")
+	assert_lte(bay.end.y, gravur.position.y, "die Würfel über den Gravuren")
 	assert_almost_eq(bay.size.x, gravur.size.x, 0.5, "beide Zeilen sind gleich breit")
 	assert_almost_eq(bay.size.x, charms.size.x, 0.5, "und die Charm-Zeile auch")
 	assert_gte(bay.size.y, shop.u * ShopController.DIE_ROOM_UNITS - 0.5, "die Bucht hat Höhe")

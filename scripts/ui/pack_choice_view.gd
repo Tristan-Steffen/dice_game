@@ -47,17 +47,46 @@ func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true
 
+## WÜRFEL-Pakete: die SCHATULLE steht oben in der Mitte (ihr Grundriß in Display-
+## Pixeln, gemeldet von scene_root), links davon Name und Zähler, rechts die Knöpfe,
+## darunter die AUFSTELLUNG - je Würfel sein Platz und darunter sein Netz.
+var case_px := Vector2.ZERO
+## Welche Seite der liegende Würfel oben zeigt (sein Netz rahmt sie golden).
+var up_face := -1
+const HEAD_TOP_UNITS := 1.0
+const HEAD_MIN_UNITS := 13.0
+const LINEUP_GAP_UNITS := 1.4
+const LINEUP_PER_ROW := 5
+const INFO_UNITS := 5.0
+const DIE_BAND_SHARE := 1.2
+const NET_GAP_UNITS := 1.0
+const NET_CELL_MAX_UNITS := 4.2
+const NET_POP_TIME := 0.25
+const HEAD_GRADE := 0.72
+## Kein Hover auf einer Netz-Zelle.
+const NO_FACE := -99
+
+var _nets: Array[Control] = []
+var _net_cell := 0.0
+var _hover_face := NO_FACE
+
 func _unit() -> float:
 	return maxf(minf(size.x / 100.0, size.y / 46.0), 1.0)
 
+## Die Aufstellung der Würfel-Pakete (sonst die Reihe der Karten-Pakete).
+func lineup() -> bool:
+	return case_px.x > 0.0 and case_px.y > 0.0
+
 ## Baut die Auswahl neu auf. counted = der Zähler steht schon (Neuaufbau nach dem
-## Neumischen, Wiedereintritt).
+## Neumischen, Wiedereintritt). case_footprint = Grundriß der Schatulle (Würfel-Paket).
 func open(open_choice: PackChoice, footprint: Vector2, cost: int, have_energy: int,
-		counted := false) -> void:
+		counted := false, case_footprint := Vector2.ZERO, die_up_face := -1) -> void:
 	choice = open_choice
 	item_px = footprint
 	reshuffle_cost = cost
 	energy = have_energy
+	case_px = case_footprint
+	up_face = die_up_face
 	_selected.clear()
 	if choice != null and choice.take_all:
 		for i in choice.option_count():
@@ -96,6 +125,11 @@ func per_row(count: int) -> int:
 
 ## Das Rechteck des Platzes index in Pixeln des Fensters (rein, prüfbar).
 func slot_rect(index: int, count: int) -> Rect2:
+	if lineup():
+		var block := lineup_block(index, count)
+		var side := minf(die_band(), block.size.x)
+		return Rect2(Vector2(block.get_center().x - side * 0.5, block.position.y),
+			Vector2.ONE * side)
 	var u := _unit()
 	var slot := item_px * SLOT_ROOM
 	var gap := u * SLOT_GAP_UNITS
@@ -110,6 +144,93 @@ func slot_rect(index: int, count: int) -> Rect2:
 	var top := area_top + maxf((area_height - block) * 0.5, 0.0)
 	var x := (size.x - row_width) * 0.5 + float(index - row * columns) * (slot.x + gap)
 	return Rect2(Vector2(x, top + float(row) * (slot.y + gap)), slot)
+
+## Wo die Schatulle steht (Fenster-Pixel): oben in der Mitte.
+func case_rect_local() -> Rect2:
+	return Rect2(Vector2((size.x - case_px.x) * 0.5, _unit() * HEAD_TOP_UNITS), case_px)
+
+## Ihr Platz in Display-Pixeln - dort stellt scene_root sie hin.
+func case_seat_px() -> Vector2:
+	return position + case_rect_local().get_center()
+
+func _head_height() -> float:
+	return maxf(case_px.y, _unit() * HEAD_MIN_UNITS)
+
+## Die Fläche der Aufstellung: unter dem Kopf, über der Auskunfts-Zeile.
+func lineup_area() -> Rect2:
+	var u := _unit()
+	var top := u * HEAD_TOP_UNITS + _head_height() + u * LINEUP_GAP_UNITS
+	var bottom := size.y - u * (INFO_UNITS + 0.6)
+	return Rect2(Vector2(u * 2.0, top), Vector2(size.x - u * 4.0, maxf(bottom - top, 1.0)))
+
+## Spalten × Reihen: höchstens LINEUP_PER_ROW je Reihe, die Reihen gleich voll.
+static func lineup_grid(count: int) -> Vector2i:
+	var rows := maxi(int(ceil(float(maxi(count, 1)) / float(LINEUP_PER_ROW))), 1)
+	return Vector2i(int(ceil(float(maxi(count, 1)) / float(rows))), rows)
+
+## Der Block eines Würfels (Platz + Netz); die letzte Reihe steht mittig.
+func lineup_block(index: int, count: int) -> Rect2:
+	var area := lineup_area()
+	var grid := lineup_grid(count)
+	var gap := _unit() * SLOT_GAP_UNITS
+	var cell := Vector2((area.size.x - gap * float(grid.x - 1)) / float(grid.x),
+		(area.size.y - gap * float(grid.y - 1)) / float(grid.y))
+	var row := index / grid.x
+	var in_row := mini(grid.x, count - row * grid.x)
+	var row_width := cell.x * float(in_row) + gap * float(in_row - 1)
+	var left := area.position.x + (area.size.x - row_width) * 0.5
+	return Rect2(Vector2(left + float(index - row * grid.x) * (cell.x + gap),
+		area.position.y + float(row) * (cell.y + gap)), cell)
+
+## Die Höhe des Würfel-Platzes über seinem Netz.
+func die_band() -> float:
+	return item_px.y * DIE_BAND_SHARE
+
+## Die Zellgröße der Netze - EINE für die ganze Aufstellung.
+func net_cell(count: int) -> float:
+	var block := lineup_block(0, count)
+	var avail := Vector2(block.size.x * 0.96,
+		block.size.y - die_band() - _unit() * NET_GAP_UNITS)
+	return minf(DieNetView.cell_for(avail), _unit() * NET_CELL_MAX_UNITS)
+
+## Das Netz unter seinem Würfel (Fenster-Pixel).
+func net_rect(index: int, count: int) -> Rect2:
+	var block := lineup_block(index, count)
+	var span := DieNetView.net_size(net_cell(count))
+	return Rect2(Vector2(block.get_center().x - span.x * 0.5,
+		block.position.y + die_band() + _unit() * NET_GAP_UNITS), span)
+
+## Ein Netz erscheint, wenn sein Würfel landet.
+func reveal_net(index: int) -> void:
+	if index < 0 or index >= _nets.size() or _nets[index].visible:
+		return
+	var net := _nets[index]
+	net.visible = true
+	net.pivot_offset = net.size * 0.5
+	net.scale = Vector2.ONE * 0.4
+	net.modulate.a = 0.0
+	var pop := net.create_tween().set_parallel(true)
+	pop.tween_property(net, "scale", Vector2.ONE, NET_POP_TIME) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pop.tween_property(net, "modulate:a", 1.0, NET_POP_TIME * 0.6)
+	net.set_meta("pop", pop)
+
+## Alle Netze stehen sofort (Überspringen, Abbruch).
+func reveal_all_nets() -> void:
+	for net in _nets:
+		var pop: Variant = net.get_meta("pop") if net.has_meta("pop") else null
+		if pop is Tween and (pop as Tween).is_valid():
+			(pop as Tween).kill()
+		net.visible = true
+		net.scale = Vector2.ONE
+		net.modulate.a = 1.0
+
+func hide_nets() -> void:
+	for net in _nets:
+		net.visible = false
+
+func net_shown(index: int) -> bool:
+	return index >= 0 and index < _nets.size() and _nets[index].visible
 
 ## Die MITTEN der Plätze in Display-Pixeln - dort stellt scene_root die Körper hin.
 func slot_centers() -> Array[Vector2]:
@@ -130,49 +251,81 @@ func _build() -> void:
 	_hovered = -1
 	if choice == null:
 		return
+	_nets.clear()
+	_hover_face = NO_FACE
 	var u := _unit()
-	_title = CasinoStyle.label(choice.display_name, u * 3.6, TEXT_COLOR,
-		HORIZONTAL_ALIGNMENT_CENTER, 3)
-	_title.position = Vector2(0.0, u * 0.8)
-	_title.size = Vector2(size.x, u * 4.6)
-	add_child(_title)
-	_counter = CasinoStyle.label("", u * 3.4, COUNT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
-	_counter.position = Vector2(0.0, u * 5.4)
-	_counter.size = Vector2(size.x, u * 4.4)
-	add_child(_counter)
 	var count := choice.option_count()
+	# Karten: Kopf oben, Knöpfe unten. Würfel: Kopf links und Knöpfe rechts der Schatulle.
+	var head := Rect2(Vector2.ZERO, Vector2(size.x, u * 10.0))
+	var buttons := Rect2(Vector2(0.0, size.y - u * 5.6), Vector2(size.x, u * 4.6))
+	var info := Rect2(Vector2(u * 3.0, size.y - u * 10.6), Vector2(size.x - u * 6.0, u * 4.8))
+	if lineup():
+		var case_rect := case_rect_local()
+		var top := u * HEAD_TOP_UNITS
+		head = Rect2(Vector2(u, top), Vector2(case_rect.position.x - u * 2.5, _head_height()))
+		buttons = Rect2(Vector2(case_rect.end.x + u * 2.0, top),
+			Vector2(size.x - case_rect.end.x - u * 4.0, _head_height()))
+		info = Rect2(Vector2(u * 3.0, size.y - u * INFO_UNITS), Vector2(size.x - u * 6.0,
+			u * (INFO_UNITS - 0.4)))
+	# Neben der Schatulle ist der Kopf schmal - er spricht eine Spur kleiner.
+	var grade := HEAD_GRADE if lineup() else 1.0
+	_title = CasinoStyle.label(choice.display_name, u * 3.6 * grade, TEXT_COLOR,
+		HORIZONTAL_ALIGNMENT_CENTER, 3)
+	_title.position = head.position + Vector2(0.0, u * 0.8)
+	_title.size = Vector2(head.size.x, u * 4.6)
+	add_child(_title)
+	_counter = CasinoStyle.label("", u * 3.4 * grade, COUNT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
+	_counter.position = head.position + Vector2(0.0, u * 5.4)
+	_counter.size = Vector2(head.size.x, u * 4.4)
+	add_child(_counter)
+	if lineup():
+		_net_cell = net_cell(count)
 	for i in count:
 		var slot := Button.new()
 		slot.name = "Option%d" % i
 		slot.focus_mode = Control.FOCUS_NONE
 		slot.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		var rect := slot_rect(i, count)
+		var rect := lineup_block(i, count) if lineup() else slot_rect(i, count)
 		slot.position = rect.position
 		slot.size = rect.size
 		slot.pressed.connect(_on_slot_pressed.bind(i))
 		slot.mouse_entered.connect(_on_slot_hover.bind(i, true))
 		slot.mouse_exited.connect(_on_slot_hover.bind(i, false))
+		slot.gui_input.connect(_on_slot_input.bind(i))
 		add_child(slot)
 		_slots.append(slot)
+		if lineup() and choice.options[i] is DieDefinition:
+			var net := DieNetView.build(choice.options[i] as DieDefinition, up_face, _net_cell)
+			net.position = net_rect(i, count).position
+			net.visible = false
+			add_child(net)
+			_nets.append(net)
 	_info = CasinoStyle.label("", u * 2.0, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.clip_text = true
-	_info.position = Vector2(u * 3.0, size.y - u * 10.6)
-	_info.size = Vector2(size.x - u * 6.0, u * 4.8)
+	_info.position = info.position
+	_info.size = info.size
 	add_child(_info)
-	var row_y := size.y - u * 5.6
 	_reshuffle_button = _button("", u, false)
-	_reshuffle_button.position = Vector2(size.x * 0.5 - u * 31.0, row_y)
-	_reshuffle_button.size = Vector2(u * 28.0, u * 4.6)
 	_reshuffle_button.pressed.connect(func() -> void:
 		if choosing():
 			reshuffle_requested.emit())
 	add_child(_reshuffle_button)
 	_take_button = _button("", u, true)
-	_take_button.position = Vector2(size.x * 0.5 + u * 3.0, row_y)
-	_take_button.size = Vector2(u * 28.0, u * 4.6)
 	_take_button.pressed.connect(_on_take_pressed)
 	add_child(_take_button)
+	var button_size := Vector2(minf(u * 28.0, buttons.size.x), u * 4.6)
+	if lineup():
+		# Übereinander, mittig neben der Schatulle.
+		var stack_top := buttons.position.y + (buttons.size.y - button_size.y * 2.0 - u) * 0.5
+		var x := buttons.position.x + (buttons.size.x - button_size.x) * 0.5
+		_take_button.position = Vector2(x, stack_top)
+		_reshuffle_button.position = Vector2(x, stack_top + button_size.y + u)
+	else:
+		_reshuffle_button.position = Vector2(size.x * 0.5 - u * 31.0, buttons.position.y)
+		_take_button.position = Vector2(size.x * 0.5 + u * 3.0, buttons.position.y)
+	_reshuffle_button.size = button_size
+	_take_button.size = button_size
 	# Ein Klick ins Leere überspringt die Enthüllung.
 	var skip := Button.new()
 	skip.name = "Skip"
@@ -285,7 +438,28 @@ func _on_slot_hover(index: int, inside: bool) -> void:
 		_hovered = index
 	elif _hovered == index:
 		_hovered = -1
+		_hover_face = NO_FACE
 	_refresh_info()
+
+## Über dem Netz nennt die Zelle unter dem Zeiger sich selbst.
+func _on_slot_input(event: InputEvent, index: int) -> void:
+	var motion := event as InputEventMouseMotion
+	if motion == null or choice == null:
+		return
+	var face := net_face_at(index, _slots[index].position + motion.position)
+	if face != _hover_face:
+		_hover_face = face
+		_refresh_info()
+
+## Die Netz-Zelle unter einem Fenster-Pixel (NO_FACE = keine, auch bei verdecktem Netz).
+func net_face_at(index: int, local: Vector2) -> int:
+	if not lineup() or not net_shown(index):
+		return NO_FACE
+	var rect := net_rect(index, choice.option_count())
+	if not rect.has_point(local):
+		return NO_FACE
+	var face := DieNetView.face_at(local - rect.position, _net_cell)
+	return face if face >= 0 or face == DieNetView.EDGE else NO_FACE
 
 func _refresh() -> void:
 	if choice == null:
@@ -323,7 +497,11 @@ func _refresh_info() -> void:
 	if _info == null or not is_instance_valid(_info) or choice == null:
 		return
 	if _hovered >= 0 and _hovered < choice.option_count():
-		_info.text = option_text(choice.options[_hovered])
+		var option: Variant = choice.options[_hovered]
+		var cell := ""
+		if _hover_face != NO_FACE and option is DieDefinition:
+			cell = DieNetView.hint_for(option as DieDefinition, _hover_face)
+		_info.text = cell if cell != "" else option_text(option)
 		_info.modulate = TEXT_COLOR
 		return
 	_info.modulate = MUTED_COLOR

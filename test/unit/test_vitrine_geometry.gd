@@ -83,6 +83,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		slots.append(TableScreen.shop_bay_pit(i))
 	for i in TableScreen.SECRET_BAY_PIT_COUNT:
 		slots.append(TableScreen.PIT_SECRET_BAY0 + i)
+	slots.append(TableScreen.PIT_CASE)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -111,7 +112,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.PIT_SECRET_BAY0,
 		TableScreen.shop_bay_pit(TableScreen.SHOP_BAY_PIT_COUNT - 1) + 1)
 	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT,
-		TableScreen.MAX_PITS)
+		TableScreen.PIT_CASE)
+	assert_eq(TableScreen.PIT_CASE + 1, TableScreen.MAX_PITS, "der Einzug der Schatulle zuletzt")
 	assert_eq(TableScreen.SWALLOW_PIT_COUNT, TableScreen.QUEUE_PIT_COUNT, "je Grubenwürfel eine Bahn")
 	var source: String = load("res://scripts/table/table_screen.gd").source_code
 	assert_false(source.contains("clamp_pit"), "clamp_pit ist tot")
