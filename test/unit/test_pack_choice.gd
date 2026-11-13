@@ -132,9 +132,12 @@ func test_confirm_refuses_too_many_picks() -> void:
 
 func test_dice_pack_books_into_pending_dice() -> void:
 	var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_POWER,
-		CardPack.SIZE_LARGE), 36)
+		CardPack.SIZE_LARGE), 36, _rng(4))
 	assert_true(choice.is_dice())
-	assert_eq(choice.option_count(), 5)
+	assert_gte(choice.option_count(), 4)
+	assert_eq(choice.base_count, 4)
+	assert_eq(choice.base_picks, 2)
+	assert_eq(choice.qualities.size(), choice.option_count(), "je Würfel seine Güte")
 	run.confirm_pack_choice(choice, [0, 1])
 	assert_eq(run.pending_dice.size(), 2, "der ZWANG übernimmt")
 
@@ -170,14 +173,20 @@ func test_soul_rule_overrides_the_pack_chance() -> void:
 			{"chance": 0.0, "boost": 1.0}, 50)
 		assert_eq(none.essence_id, "", "Seelenlos")
 
-## Preise wie bei den Karten: erwartete Wahlen × Wert einer Option × Prämie.
+## Preise: erwartete Wahlen bei Glück 0 × Wert eines Würfels × Prämie × Güte-Faktor.
 func test_dice_price_table_matches_the_formula() -> void:
 	for pack_sort: String in DicePack.SORTS:
 		for pack_size in CardPack.SIZES:
-			var expected := CardPack.expected_picks(pack_size) * _die_value(pack_sort) \
+			var expected := DicePack.expected_picks(pack_size) * _die_value(pack_sort) \
 				* CardPack.CHOICE_PREMIUM
 			assert_almost_eq(float(DicePack.price_of(pack_sort, pack_size)), expected, 2.0,
 				"%s / %d" % [pack_sort, pack_size])
+			var table := float(DicePack.PRICES[pack_sort][pack_size])
+			for pack_quality in DicePack.QUALITIES:
+				assert_eq(DicePack.price_of(pack_sort, pack_size, pack_quality),
+					roundi(table * float(DicePack.QUALITY_PRICE_FACTORS[pack_quality])))
+	assert_eq(DicePack.make(DicePack.SORT_POWER, CardPack.SIZE_LARGE,
+		DicePack.QUALITY_ROYAL).price, roundi(35 * 2.8))
 
 func _die_value(pack_sort: String) -> float:
 	var templates := DiceOffer.pack_templates(pack_sort)
@@ -294,3 +303,218 @@ func test_side_bet_card_pack_opens_a_choice() -> void:
 	run._pay_side_bet(bet, 1.0)
 	assert_not_null(bet.awarded_choice)
 	assert_eq(run.owned_packs.size(), 0, "die Karten kommen erst mit der Wahl")
+
+# --- Würfel-Pakete: Größe, Güte und die drei Ketten -------------------------------------
+
+func test_dice_chain_chances_follow_luck_up_to_the_caps() -> void:
+	assert_almost_eq(DicePack.extra_die_chance(0), 0.20, 0.0001)
+	assert_almost_eq(DicePack.extra_die_chance(10), 0.35, 0.0001)
+	assert_almost_eq(DicePack.extra_die_chance(100), DicePack.EXTRA_DIE_CAP, 0.0001)
+	assert_almost_eq(DicePack.extra_die_chance(0, 2.0), 0.40, 0.0001, "Glücksgriff verdoppelt")
+	assert_almost_eq(DicePack.extra_die_chance(20, 2.0), DicePack.EXTRA_DIE_CAP, 0.0001,
+		"der Deckel bleibt")
+	assert_almost_eq(DicePack.extra_pick_chance(0), 0.20, 0.0001)
+	assert_almost_eq(DicePack.extra_pick_chance(10), 0.30, 0.0001)
+	assert_almost_eq(DicePack.extra_pick_chance(100), DicePack.EXTRA_PICK_CAP, 0.0001)
+	assert_almost_eq(DicePack.upgrade_chance(0), 0.10, 0.0001)
+	assert_almost_eq(DicePack.upgrade_chance(10), 0.20, 0.0001)
+	assert_almost_eq(DicePack.upgrade_chance(100), DicePack.UPGRADE_CAP, 0.0001)
+
+func test_base_numbers_per_size() -> void:
+	assert_eq(DicePack.BASE_COUNTS, [2, 3, 4, 5])
+	assert_eq(DicePack.BASE_PICKS, [1, 1, 2, 2])
+
+func test_dice_count_chain_stays_in_bounds() -> void:
+	var extra := 0
+	var deep := false
+	for seed_value in 1000:
+		var low := DicePack.roll_count(3, 0, 1.0, _rng(seed_value))
+		assert_between(low, 3, 8)
+		if low > 3:
+			extra += 1
+		var high := DicePack.roll_count(5, 100, 1.0, _rng(seed_value))
+		assert_between(high, 5, 10)
+		if high >= 7:
+			deep = true
+		assert_lte(DicePack.roll_count(8, 100, 1.0, _rng(seed_value)), DicePack.MAX_COUNT)
+	assert_almost_eq(float(extra) / 1000.0, 0.20, 0.04, "20 % auf den ersten Zusatz")
+	assert_true(deep, "die Kette reicht weiter als einen Würfel")
+
+func test_quality_never_below_the_pack_and_climbs_with_luck() -> void:
+	var climbed := 0
+	var royal := false
+	for seed_value in 1000:
+		var plain := DicePack.roll_quality(DicePack.QUALITY_STANDARD, 0, _rng(seed_value))
+		if plain > DicePack.QUALITY_STANDARD:
+			climbed += 1
+		var fine := DicePack.roll_quality(DicePack.QUALITY_FINE, 100, _rng(seed_value))
+		assert_between(fine, DicePack.QUALITY_FINE, DicePack.QUALITY_ROYAL)
+		if DicePack.roll_quality(DicePack.QUALITY_STANDARD, 100, _rng(seed_value)) \
+				== DicePack.QUALITY_ROYAL:
+			royal = true
+		assert_eq(DicePack.roll_quality(DicePack.QUALITY_ROYAL, 100, _rng(seed_value)),
+			DicePack.QUALITY_ROYAL, "nie über Royal")
+	assert_almost_eq(float(climbed) / 1000.0, 0.10, 0.03)
+	assert_true(royal, "zwei Aufstiege sind möglich")
+
+func test_picks_always_between_one_and_count_minus_one() -> void:
+	for count in range(2, 11):
+		for base in [1, 2, 3, 9]:
+			for seed_value in 40:
+				var picks := DicePack.roll_picks(base, 100, count, 2.0, _rng(seed_value))
+				assert_between(picks, 1, count - 1, "%d Würfel, Grundzahl %d" % [count, base])
+	assert_eq(DicePack.roll_picks(1, 100, 2, 2.0, _rng(1)), 1, "zwei Würfel: genau eine Wahl")
+
+func test_opened_dice_packs_keep_the_hard_pick_rule() -> void:
+	run.luck = 30
+	_sign([DealClause.BONUS_PICK, DealClause.LUCKY_GRAB])
+	for pack_size in CardPack.SIZES:
+		for seed_value in 25:
+			var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED, pack_size,
+				DicePack.QUALITY_FINE), 0, _rng(seed_value))
+			var count := choice.option_count()
+			assert_between(count, DicePack.base_count(pack_size), DicePack.MAX_COUNT)
+			assert_between(choice.picks, 1, count - 1)
+			assert_lte(choice.base_picks, choice.picks)
+			assert_false(choice.take_all, "kein Hauptgewinn bei Würfel-Paketen")
+			for i in count:
+				assert_gte(choice.quality_of(i), DicePack.QUALITY_FINE, "nie unter dem Paket")
+			run.pending_pack_choices.clear()
+
+func test_option_clauses_move_the_base_count() -> void:
+	_sign([DealClause.SEALED])
+	var sealed := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+		CardPack.SIZE_SMALL), 0, _rng(1))
+	assert_eq(sealed.base_count, DicePack.MIN_COUNT, "Verplombt: nie unter 2")
+	assert_eq(sealed.base_picks, 1)
+	run.active_deals.clear()
+	run.pending_pack_choices.clear()
+	run.owned_charms.append(Charm.extra_option())
+	var extra := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+		CardPack.SIZE_NORMAL), 0, _rng(1))
+	assert_eq(extra.base_count, 4, "Beigabe: ein Würfel mehr")
+	assert_gte(extra.option_count(), 4)
+
+func test_lucky_grab_doubles_both_chains() -> void:
+	assert_eq(run.pack_luck_factor(), 1.0)
+	_sign([DealClause.LUCKY_GRAB])
+	assert_eq(run.pack_luck_factor(), 2.0)
+	var extra := 0
+	for seed_value in 400:
+		var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_SERIES,
+			CardPack.SIZE_NORMAL), 0, _rng(seed_value))
+		if choice.option_count() > 3:
+			extra += 1
+		run.pending_pack_choices.clear()
+	assert_almost_eq(float(extra) / 400.0, 0.40, 0.08, "Zugabe-Kette doppelt so oft")
+
+func test_free_hand_gives_count_minus_one_and_bonus_pick_adds_one() -> void:
+	_sign([DealClause.FREE_HAND])
+	var free := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+		CardPack.SIZE_LARGE), 0, _rng(2))
+	assert_eq(free.picks, free.option_count() - 1, "Freie Hand: das Maximum")
+	assert_false(free.take_all)
+	run.active_deals.clear()
+	run.pending_pack_choices.clear()
+	_sign([DealClause.BONUS_PICK])
+	var bonus := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+		CardPack.SIZE_LARGE), 0, _rng(2))
+	assert_eq(bonus.base_picks, 3, "Zugabe: +1 innerhalb des Deckels")
+	assert_lte(bonus.picks, bonus.option_count() - 1)
+
+func test_reshuffle_rerolls_count_dice_and_picks() -> void:
+	run.energy = 100
+	run.luck = 30
+	var changed := false
+	for seed_value in 30:
+		var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+			CardPack.SIZE_NORMAL), 0, _rng(seed_value))
+		var before: Array = choice.options.duplicate()
+		var signature := [choice.option_count(), choice.picks, choice.qualities.duplicate()]
+		assert_true(run.reshuffle_pack_choice(choice, _rng(seed_value + 1000)))
+		assert_true(choice.rerolled)
+		assert_ne(choice.options, before, "neue Würfel")
+		assert_eq(choice.qualities.size(), choice.option_count())
+		assert_between(choice.picks, 1, choice.option_count() - 1)
+		if [choice.option_count(), choice.picks, choice.qualities] != signature:
+			changed = true
+		run.pending_pack_choices.clear()
+	assert_true(changed, "Zahl, Wahlen oder Güten fallen neu")
+
+func test_quality_raises_faces_souls_and_materials() -> void:
+	var ids: Array[String] = []
+	var sums := [0, 0]
+	var souls := [0, 0]
+	var materials := [0, 0]
+	for i in 300:
+		var owned: Array[String] = []
+		var plain := DiceOffer.roll_pack_die(DicePack.SORT_MIXED, 1, ids, owned, {}, 0,
+			DicePack.QUALITY_STANDARD)
+		var fine := DiceOffer.roll_pack_die(DicePack.SORT_MIXED, 1, ids, owned, {}, 0,
+			DicePack.QUALITY_FINE)
+		var royal := DiceOffer.roll_pack_die(DicePack.SORT_MIXED, 1, ids, owned, {}, 0,
+			DicePack.QUALITY_ROYAL)
+		for f in 6:
+			sums[0] += plain.faces[f]
+			sums[1] += royal.faces[f]
+		souls[0] += 1 if plain.essence_id != "" else 0
+		souls[1] += 1 if fine.essence_id != "" else 0
+		materials[0] += 1 if plain.materials.count("") < 6 else 0
+		materials[1] += 1 if fine.materials.count("") < 6 else 0
+		assert_true(DiceOffer.has_doped_side(royal), "Royal: eine veredelte Seite")
+		assert_lt(royal.runes.count(Rune.NONE), 6, "Royal: eine Rune sicher")
+	assert_gt(sums[1], sums[0] * 2, "Royal: zwei Stufen höhere Augen")
+	assert_gt(souls[1], souls[0] + 30, "Edel: +20 Punkte Seele")
+	assert_gt(materials[1], materials[0] + 30, "Edel: öfter Material")
+
+func test_soulless_stays_soulless_whatever_the_quality() -> void:
+	var ids: Array[String] = []
+	var owned: Array[String] = []
+	for i in 30:
+		var royal := DiceOffer.roll_pack_die(DicePack.SORT_MIXED, 1, ids, owned,
+			{"chance": 0.0, "boost": 1.0}, 50, DicePack.QUALITY_ROYAL)
+		assert_eq(royal.essence_id, "")
+		var soul := DiceOffer.roll_pack_die(DicePack.SORT_SOUL, 1, ids, owned, {}, 0,
+			DicePack.QUALITY_ROYAL)
+		assert_gte(int(Essence.by_id(soul.essence_id).rarity), int(Essence.Rarity.EPIC),
+			"Seelen-Paket und Royal heben zweimal")
+
+func test_shop_quality_weights_shift_with_the_tier() -> void:
+	assert_eq(DicePack.shop_quality_weights(1), [65, 27, 8])
+	assert_eq(DicePack.shop_quality_weights(3), [55, 33, 12])
+	assert_eq(DicePack.shop_quality_weights(10), [20, 54, 26])
+	assert_eq(run.shop_dice_pack_quality_weights(), [65, 27, 8])
+	var seen := {}
+	for seed_value in 300:
+		seen[DicePack.roll_shop(_rng(seed_value)).quality] = true
+	assert_eq(seen.size(), 3, "alle drei Güten liegen aus")
+
+func test_shop_text_names_floors_and_quality_but_no_odds() -> void:
+	var dice_pack := DicePack.make(DicePack.SORT_POWER, CardPack.SIZE_LARGE,
+		DicePack.QUALITY_FINE)
+	assert_eq(dice_pack.display_name, "Großes Kraft-Paket · Edel")
+	assert_eq(DicePack.make(DicePack.SORT_POWER, CardPack.SIZE_NORMAL).display_name,
+		"Kraft-Paket")
+	var text := DicePack.info_body(dice_pack)
+	assert_string_contains(text, "Mindestens 4 Würfel")
+	assert_string_contains(text, "Mindestens 2 Wahlen")
+	assert_string_contains(text, "Edel")
+	assert_false(text.contains("%"), "keine Chancen")
+	assert_string_contains(DicePack.info_body(DicePack.make(DicePack.SORT_MIXED,
+		CardPack.SIZE_SMALL)), "Mindestens 1 Wahl ")
+
+func test_side_bet_takes_the_dearest_affordable_pair() -> void:
+	assert_eq(SideBet.reward_dice_pair(DicePack.SORT_POWER, 60),
+		Vector2i(CardPack.SIZE_HUGE, DicePack.QUALITY_FINE), "gleicher Preis: die größere Größe")
+	assert_eq(SideBet.reward_dice_pair(DicePack.SORT_POWER, 50),
+		Vector2i(CardPack.SIZE_SMALL, DicePack.QUALITY_ROYAL))
+	assert_eq(SideBet.reward_dice_pair(DicePack.SORT_POWER, 5),
+		Vector2i(CardPack.SIZE_SMALL, DicePack.QUALITY_STANDARD))
+	var bet := SideBet.new()
+	bet.stake = 30
+	bet.odds = SideBet.ODDS_HARD
+	bet.payout_kind = SideBet.Payout.DICE_PACK
+	bet.reward_dice_pack_sort = DicePack.SORT_SERIES
+	var dice_pack := bet.reward_dice_pack()
+	assert_lte(dice_pack.price, bet.payout_value())
+	assert_same(bet.reward_dice_pack(), dice_pack)

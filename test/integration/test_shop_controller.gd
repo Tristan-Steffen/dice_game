@@ -457,6 +457,36 @@ func test_reopen_keeps_bought_marks_and_the_page():
 	assert_true(shop.spreads[0].charm_bought[0], "der gekaufte Charm bleibt vermerkt")
 	assert_true(shop.spreads[0].engraving_pack_bought[0])
 
+## Die PAKET-ÖFFNUNG im Hub: der Laden tritt ab und kommt unverändert zurück.
+func test_a_suspended_shop_returns_unchanged_and_never_closes_the_round():
+	shop._on_charm_clicked(0)
+	shop._on_pack_buy_pressed(0)
+	shop._on_page_next_pressed()
+	shop._on_lock_pressed()
+	var spreads = shop.spreads.duplicate()
+	var page: int = shop.current_spread_index
+	var charms = shop.charm_options
+	var heard: Array = []
+	shop.closed.connect(func() -> void: heard.append(true))
+	shop.suspend()
+	assert_true(shop.suspended())
+	assert_true(shop.leaving(), "der Abgang ist derselbe wie beim Schließen")
+	assert_true(shop.visible, "die Seite steht, bis die Auslage geschluckt ist")
+	shop.close()
+	shop.finish_close()
+	assert_false(shop.visible)
+	assert_true(shop.suspended(), "abgetreten bleibt er, bis er zurückkehrt")
+	assert_eq(heard.size(), 0, "kein closed - die Runde rückt nicht vor")
+	shop.reopen()
+	assert_false(shop.suspended())
+	assert_true(shop.visible)
+	assert_eq(shop.current_spread_index, page, "dieselbe Seite")
+	assert_true(shop.spreads == spreads, "dieselben Auslagen, nichts neu gewürfelt")
+	assert_true(shop.charm_options == charms)
+	assert_true(shop.sortiment_locked, "die Sperre steht")
+	assert_true(shop.spreads[0].charm_bought[0], "die Kauf-Marken stehen")
+	assert_true(shop.spreads[0].engraving_pack_bought[0])
+
 func test_reopen_without_a_spread_rolls_like_a_first_visit():
 	# Kommt der Knopf je vor dem ersten Öffnen, darf der Laden nicht leer sein.
 	var fresh := GameRun.new_run()

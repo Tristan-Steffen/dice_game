@@ -19,7 +19,7 @@ signal closed
 ## Magazin-Platz (uid). Pakete melden nichts - ihre offene Auswahl steht in GameRun.
 signal pack_purchased(from_px: Vector2, uid: int)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
-## scene_root schickt ihn nur noch als Licht in die Truhe.
+## scene_root schickt ihn nur noch als Licht ins Chip-Tray.
 signal pack_refunded(from_px: Vector2, amount: int)
 ## Die Auslage der Bucht hat sich geändert (Seite gezeigt, gekauft) - scene_root
 ## stellt die Körper nach. Der Laden fasst nie einen an.
@@ -110,6 +110,8 @@ const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
 ## Spaltenbreite, den sie höchstens nimmt.
 const DIE_NET_UNITS := 8.0
 const DIE_NET_WIDTH_SHARE := 0.9
+## Die Würfel-Paket-Auskunft schrumpft, bis sie ungeschnitten in ihren Block paßt.
+const DIE_INFO_STEPS := [1.6, 1.45, 1.3, 1.15, 1.0, 0.9]
 
 ## Die PROJEKTION der Netz-Blöcke: nach einer echten Ankunft wächst jeder Block aus
 ## seinem Würfel heraus, und vor jedem Abräumen wird er in ihn zurück ABSORBIERT -
@@ -177,6 +179,7 @@ var run: GameRun:
 		_standing_spread = null
 		_vitrine_grade = GRADE_STAND
 		_leaving = false  # der alte Laden räumt für den neuen nichts mehr ab
+		_suspended = false
 		if run != null:
 			run.money_changed.connect(_on_run_money_changed)
 			run.charms_changed.connect(_on_run_charms_changed)
@@ -275,6 +278,9 @@ var _slit_info_key := ""
 ## ihr), er ist aber tot - kein Kauf, kein Neuaufbau, kein Forwarding. Erst
 ## finish_close() gibt die Fläche ab.
 var _leaving := false
+## Der Laden ist für eine PAKET-ÖFFNUNG abgetreten: kein closed, kein Rundenfortschritt;
+## zurück kommt er allein über reopen().
+var _suspended := false
 
 ## Sortiment-Sperre: solange sie steht, würfelt open() NICHTS neu - der nächste
 ## Besuch findet dieselben Doppelseiten samt ihrer Kauf-Marken. Sie überlebt
@@ -321,6 +327,7 @@ var bet_notice: String = ""
 ## bleiben die bestehenden Seiten samt Kauf-Marken stehen.
 func open() -> void:
 	_leaving = false  # ein Wieder-Aufdecken bricht jeden Abgang hart ab
+	_suspended = false
 	_build_layout()
 	if not sortiment_locked or spreads.is_empty():
 		spreads = [_build_spread()]
@@ -333,6 +340,7 @@ func open() -> void:
 ## rollt er wie beim ersten Öffnen.
 func reopen() -> void:
 	_leaving = false  # ein Wieder-Aufdecken bricht jeden Abgang hart ab
+	_suspended = false
 	_build_layout()
 	if spreads.is_empty():
 		spreads = [_build_spread()]
@@ -1023,6 +1031,7 @@ func set_die_nets(entries: Array, grow := false) -> void:
 	var soul_height := _soul_height()
 	var gap := u * WARE_PRICE_GAP
 	var net_top := _die_head_height() + vitrine_rect_px().size.y + gap
+	var info_px := _dice_info_px(entries)
 	for entry in entries:
 		if entry.has("part"):
 			_build_part_block(entry, soul_height, gap, net_top)
@@ -1059,12 +1068,34 @@ func set_die_nets(entries: Array, grow := false) -> void:
 		info.name = "Net"
 		info.text = DicePack.info_body(dice_pack)
 		info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		if info_px > 0:
+			info.add_theme_font_size_override("font_size", info_px)
 		info.position = Vector2((rect.size.x - width) * 0.5, net_top)
 		info.size = Vector2(width, u * DIE_NET_UNITS)
 		block.add_child(info)
 	_refresh_ware_prices()
 	if grow:
 		_grow_die_nets()
+
+## EIN Grad für alle Würfel-Paket-Auskünfte: der größte, in dem jede ungeschnitten paßt.
+func _dice_info_px(entries: Array) -> int:
+	var font := ThemeDB.fallback_font
+	if font == null:
+		return 0
+	var probe := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var lead := probe.get_theme_constant("line_spacing")
+	probe.free()
+	var px := 0
+	for entry in entries:
+		if not entry.has("dice_pack"):
+			continue
+		var rect := die_label_rect(single_dice.find(entry["dice_pack"]))
+		if rect.size.x <= 0.0:
+			continue
+		var fit := _block_font(font, DicePack.info_body(entry["dice_pack"]),
+			rect.size.x * DIE_NET_WIDTH_SHARE, u * DIE_NET_UNITS, DIE_INFO_STEPS, lead)
+		px = fit if px == 0 else mini(px, fit)
+	return px
 
 ## Der Block des MODULS in derselben Grammatik wie ein Würfel: über der Bucht Name
 ## (in der Phasen-Tönung) und Preis, darunter statt des Netzes seine Wirkung.
@@ -1400,7 +1431,7 @@ func _build_spread() -> MenuSpread:
 
 	# Die WÜRFEL-PAKETE der Schale - Einzelwürfel führt der Laden nicht mehr.
 	for i in run.shop_dice_slots():
-		var dice_pack := DicePack.roll_shop()
+		var dice_pack := DicePack.roll_shop(null, run.shop_dice_pack_quality_weights())
 		spread.single_dice.append(dice_pack)
 		spread.single_dice_prices.append(_dice_pack_price(dice_pack))
 	spread.single_dice_bought.resize(spread.single_dice.size())
@@ -2107,8 +2138,8 @@ func _on_done_pressed() -> void:
 ## wartet darauf nicht - closed feuert sofort, Runde und Kamera laufen wie immer -,
 ## nur die FLÄCHE gibt der Laden erst in finish_close() ab. Bis dahin ist er INERT.
 func close() -> void:
-	if _leaving:
-		return  # ein Laden schließt nur einmal
+	if _leaving or _suspended:
+		return  # ein Laden schließt nur einmal - und ein abgetretener gar nicht
 	_leaving = true
 	closed.emit()
 
@@ -2120,6 +2151,23 @@ func finish_close() -> void:
 	_leaving = false
 	_clear_pages()  # 3D-Vorschauen freigeben (kein Hintergrund-Rendern)
 	visible = false
+
+## Der Laden TRITT AB für eine Paket-Öffnung im Hub: derselbe Abgang wie close()
+## (die Seite steht, bis die Auslage geschluckt ist), aber OHNE closed - die Runde
+## rückt nicht vor, und reopen() bringt ihn unverändert zurück.
+func suspend() -> void:
+	if _leaving or _suspended or not visible:
+		return
+	_suspended = true
+	_leaving = true
+
+func suspended() -> bool:
+	return _suspended
+
+## Die Öffnung ist ohne Rückkehr zu Ende (die Runde ist weiter): kein Laden mehr da.
+func cancel_suspend() -> void:
+	_suspended = false
+	finish_close()
 
 ## Räumt der Laden gerade ab? Dann steht seine Seite noch, ist aber tot - kein Kauf
 ## aus einem schließenden Laden.

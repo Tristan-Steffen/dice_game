@@ -1,24 +1,25 @@
 extends GutTest
-## Die Show der Schatulle steigert sich mit jedem Würfel, der letzte ist der Höhepunkt.
+## Die Show der Schatulle: die Grund-Würfel kommen ruhig, jeder Zusatz-Würfel kommt
+## größer als der vorige, und das Rütteln davor wird länger.
 
-func test_every_die_gets_a_bigger_moment_than_the_one_before() -> void:
-	for count in [2, 5, 10]:
-		for i in range(1, count):
-			assert_gt(CaseShow.glow(i, count), CaseShow.glow(i - 1, count), "heller")
-			assert_gte(CaseShow.pitch(i, count), CaseShow.pitch(i - 1, count), "höher")
-		assert_gt(CaseShow.pitch(count - 1, count), CaseShow.pitch(0, count))
+func test_the_base_dice_come_at_a_calm_beat() -> void:
+	assert_gt(CaseShow.launch_beat(), 0.2)
+	assert_eq(CaseShow.pitch(0), CaseShow.pitch(0), "alle Grund-Würfel auf demselben Ton")
+	assert_almost_eq(CaseShow.launch_gain(0), 1.0, 0.0001)
 
-func test_the_beat_quickens_and_holds_before_the_climax() -> void:
-	var count := 8
-	for i in range(1, count - 1):
-		assert_lt(CaseShow.beat(i, count), CaseShow.beat(i - 1, count), "der Takt beschleunigt")
-	assert_gt(CaseShow.beat(count - 1, count), CaseShow.beat(count - 2, count),
-		"vor dem letzten hält sie den Atem an")
+func test_every_extra_die_is_bigger_than_the_one_before() -> void:
+	for level in range(1, 6):
+		assert_gt(CaseShow.glow(level), CaseShow.glow(level - 1), "heller")
+		assert_gt(CaseShow.launch_gain(level), CaseShow.launch_gain(level - 1), "höher")
+		assert_gt(CaseShow.pitch(level), CaseShow.pitch(level - 1), "höherer Ton")
 
-func test_the_last_die_is_the_climax_on_the_top_of_the_ladder() -> void:
-	assert_true(CaseShow.is_climax(4, 5))
-	assert_false(CaseShow.is_climax(3, 5))
-	assert_eq(CaseShow.pitch_step(4, 5), ScoreAudio.LADDER.size() - 1)
-	assert_true(CaseShow.is_climax(0, 1), "ein einzelner Würfel ist sein eigener Höhepunkt")
-	assert_gt(CaseShow.glow(9, 10) - CaseShow.glow(8, 10),
-		CaseShow.glow(8, 10) - CaseShow.glow(7, 10), "der Höhepunkt springt")
+func test_the_rattle_grows_but_stays_short() -> void:
+	for rounds in range(1, 6):
+		assert_gte(CaseShow.rattle_time(rounds), CaseShow.rattle_time(rounds - 1))
+	assert_lte(CaseShow.rattle_time(10), CaseShow.RATTLE_MAX)
+	assert_gt(CaseShow.rattle_time(0), 0.0, "das Rütteln vor dem Zuschlagen gibt es immer")
+
+func test_the_reel_rises_in_pitch() -> void:
+	for value in range(2, 10):
+		assert_gte(CaseShow.reel_pitch(value, 9), CaseShow.reel_pitch(value - 1, 9))
+	assert_gt(CaseShow.reel_pitch(9, 9), CaseShow.reel_pitch(1, 9))

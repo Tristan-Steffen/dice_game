@@ -483,14 +483,28 @@ func reward_card_pack(factor: float = 1.0) -> CardPack:
 		_card_packs[pack_size] = CardPack.make(reward_card_pack_sort, pack_size)
 	return _card_packs[pack_size]
 
-## Das gewonnene WÜRFEL-PAKET - dieselbe Regel.
+## Das gewonnene WÜRFEL-PAKET: das teuerste bezahlbare Paar aus Größe und Güte
+## (gleicher Preis: die größere Größe). Je Paar einmal gebaut.
 func reward_dice_pack(factor: float = 1.0) -> DicePack:
 	if payout_kind != Payout.DICE_PACK:
 		return null
-	var pack_size := _reward_pack_size(reward_dice_pack_sort, factor, true)
-	if not _card_packs.has(pack_size):
-		_card_packs[pack_size] = DicePack.make(reward_dice_pack_sort, pack_size)
-	return _card_packs[pack_size]
+	var pair := reward_dice_pair(reward_dice_pack_sort, payout_value(factor))
+	var key := Vector2i(pair.x, pair.y)
+	if not _card_packs.has(key):
+		_card_packs[key] = DicePack.make(reward_dice_pack_sort, pair.x, pair.y)
+	return _card_packs[key]
+
+## (Größe, Güte) des teuersten Würfel-Pakets bis zu diesem Wert; keines: Klein/Standard.
+static func reward_dice_pair(pack_sort: String, value: int) -> Vector2i:
+	var best := Vector2i(CardPack.SIZE_SMALL, DicePack.QUALITY_STANDARD)
+	var best_price := -1
+	for pack_size in CardPack.SIZES:
+		for pack_quality in DicePack.QUALITIES:
+			var price := DicePack.price_of(pack_sort, pack_size, pack_quality)
+			if price <= value and price >= best_price:
+				best = Vector2i(pack_size, pack_quality)
+				best_price = price
+	return best
 
 static func _affordable_ids(ids: Array, ware: int, catalysts: bool) -> Array:
 	var out: Array = []

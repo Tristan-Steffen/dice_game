@@ -6,7 +6,7 @@ extends Node3D
 ## kein .tscn, kein Panel darunter.
 ## Er ist reine ANZEIGE: keine Buchung hängt an ihm, er zeigt nur, was auf dem
 ## Tresen liegt.
-## Er liegt in ECHTER Größe da - Chips in Schatz-Stückelung, Elkos in ihrem Maß,
+## Er liegt in ECHTER Größe da - Chips in Tray-Stückelung, Elkos in ihrem Maß,
 ## Marke wie gebaut - und darf dabei über seinen Stellplatz hinausragen.
 ## Nichts schrumpft mehr auf einen Platz; der SCHACHT mißt an ihm, nicht er am Loch.
 ## Drei Tischregeln: er steht FLOOR_CLEAR über der Fläche (sonst kämpfen Unterseite
@@ -102,14 +102,14 @@ static func span_for(build_kind: String, amount: int = 0) -> Vector2:
 
 # --- Die drei Bauformen ---------------------------------------------------------
 
-## Geld: echte Stückelungen, dieselbe Börsen-Grammatik wie der Schatz. Kein Akzent -
+## Geld: echte Stückelungen als bodenschwerer Stapel. Kein Akzent -
 ## ein Chip trägt die Farbe seiner Stückelung, nicht die seiner Wette.
 func setup_chips(amount: int) -> void:
 	_reset(KIND_CHIPS)
 	_chips = ChipStackView.new()
 	_chips.name = "Chips"
 	_body.add_child(_chips)
-	_chips.seed_wallet(maxi(amount, 0))
+	_chips.show_amount(maxi(amount, 0))
 	_natural = span_for(KIND_CHIPS, amount)
 	_natural_height = _chips_height()
 

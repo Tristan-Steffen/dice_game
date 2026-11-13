@@ -1,14 +1,20 @@
 class_name PackChoiceView
 extends Control
-## Die PAKET-AUSWAHL in der WURFGRUBE: über dem Grubenboden liegen die Optionen eines
-## geöffneten Pakets (die Körper stellt scene_root auf die gemeldeten PLÄTZE), darüber
-## Name und ZÄHLER der Wahlen, darunter Auskunft und die Knöpfe Nehmen / Neu mischen.
+## Die PAKET-AUSWAHL als SEITE des HUBS: auf ihr liegen die Optionen eines geöffneten
+## Pakets (die Körper stellt scene_root auf die gemeldeten PLÄTZE, in Display-Pixeln),
+## darüber Name und ZÄHLER der Wahlen, darunter Auskunft und die Knöpfe Nehmen / Neu mischen.
 ## Gebucht ist schon (GameRun.pending_pack_choices); das Fenster sammelt nur die Wahl
-## und meldet sie. Erst der Inhalt, dann die Zahl: der Zähler klettert 1 … K, bevor
-## gewählt werden darf - ein Klick überspringt.
+## und meldet sie. Erst der Inhalt, dann die Zahl: bei Karten klettert der Zähler 1 … K,
+## bei Würfeln laufen GÜTE-ENTHÜLLUNG und RISIKOLEITER - ein Klick überspringt.
 
 signal confirmed(indices: Array)
 signal reshuffle_requested
+## Die Bühne der Würfel-Pakete meldet ihre Momente (scene_root spielt Ton und Licht).
+signal reveal_ticked(index: int, tier: int)
+signal quality_locked(index: int, quality: int, climbed: bool)
+signal reel_stepped(value: int, top: int)
+signal reel_stopped(value: int, top: int)
+signal opening_finished
 
 const TEXT_COLOR := Color(1.3, 1.3, 1.25)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -41,6 +47,9 @@ var _info: Label
 var _take_button: Button
 var _reshuffle_button: Button
 var _hovered := -1
+var _energy_label: Label
+## Als Hub-Seite blendet scene_root sie ein: open() baut dann nur und rührt visible nicht an.
+var defer_show := false
 
 func _init() -> void:
 	visible = false
@@ -53,14 +62,24 @@ func _init() -> void:
 var case_px := Vector2.ZERO
 ## Welche Seite der liegende Würfel oben zeigt (sein Netz rahmt sie golden).
 var up_face := -1
-const HEAD_TOP_UNITS := 1.0
-const HEAD_MIN_UNITS := 13.0
+const HEAD_TOP_UNITS := 2.5
+const HEAD_MIN_UNITS := 14.0
 const LINEUP_GAP_UNITS := 1.4
-const LINEUP_PER_ROW := 5
+## Bis zu so vielen Würfeln steht die Aufstellung in EINER Reihe, darüber in zwei (max. 10).
+const LINEUP_ONE_ROW := 6
+const LINEUP_MAX := 10
+## Ein Block ist nie breiter als sein Inhalt (Netz plus Luft), die Reihe steht mittig.
+const BLOCK_MAX_UNITS := 24.0
 const INFO_UNITS := 5.0
-const DIE_BAND_SHARE := 1.2
+const DIE_BAND_SHARE := 1.8
+## So viel (Würfelkante) rückt der Körper nach unten, damit er im Platz liest.
+const LINEUP_TILT_TRIM := 0.6
 const NET_GAP_UNITS := 1.0
-const NET_CELL_MAX_UNITS := 4.2
+const NET_CELL_MAX_UNITS := 5.0
+## Ein Block wird nie höher als Würfel, Netz in voller Zelle und dieser Fuß - die hohe
+## Hub-Seite ließe ihn sonst über die halbe Seite wachsen.
+const BLOCK_FOOT_UNITS := 1.5
+const ENERGY_UNITS := 2.4
 const NET_POP_TIME := 0.25
 const HEAD_GRADE := 0.72
 ## Kein Hover auf einer Netz-Zelle.
@@ -69,6 +88,44 @@ const NO_FACE := -99
 var _nets: Array[Control] = []
 var _net_cell := 0.0
 var _hover_face := NO_FACE
+
+## Die BÜHNE der Würfel-Pakete: Auswurf (keine Plätze, kein Zähler) → Aufstellung →
+## Güte-Enthüllung → Walze → Wahl.
+const STAGE_LAUNCH := 0
+const STAGE_LINEUP := 1
+const STAGE_REVEAL := 2
+const STAGE_REEL := 3
+const STAGE_PICK := 4
+## Die Stufen-Anzeige: so lange je Stufe, so lange steht die eingerastete.
+const REVEAL_STEP := 0.075
+const LOCK_HOLD := 0.16
+const CLIMB_HOLD := 0.5
+const REVEAL_FONT_UNITS := 2.6
+const REVEAL_GLOW := 1.35
+## Die WALZE der Wahlen: ein kleiner Automat, dessen eine Walze die Zahlen von der Grundzahl
+## bis Würfelzahl − 1 durchdreht - mindestens so viele Schritte, vom schnellen zum langsamen Takt.
+const REEL_MIN_SPINS := 14
+const REEL_FAST := 0.05
+const REEL_SLOW := 0.36
+const REEL_HOLD := 0.5
+const REEL_TOP_UNITS := 5.0
+const REEL_UNITS := 4.4
+const REEL_WIDTH_UNITS := 9.0
+const REEL_WINDOW_SHARE := 0.5
+const REEL_CABINET := Color(0.09, 0.08, 0.14, 0.95)
+const REEL_GLASS := Color(0.02, 0.02, 0.05, 1.0)
+
+var _stage := STAGE_PICK
+var _revealed: Array[bool] = []
+var _tier_label: Label
+var _reel_box: Panel
+var _reel_window: Control
+var _reel_now: Label
+var _reel_next: Label
+var _reel_tween: Tween
+var _reel_value := -1
+var _reel_done := false
+var _show_tween: Tween
 
 func _unit() -> float:
 	return maxf(minf(size.x / 100.0, size.y / 46.0), 1.0)
@@ -94,11 +151,21 @@ func open(open_choice: PackChoice, footprint: Vector2, cost: int, have_energy: i
 	_counted = counted
 	_counting = false
 	_kill_count()
+	_kill_show()
+	_stage = STAGE_LAUNCH if lineup() and not counted else STAGE_PICK
+	_reel_done = _stage == STAGE_PICK
+	_reel_value = choice.picks if choice != null and _reel_done else -1
+	_revealed.clear()
+	if choice != null:
+		for i in choice.option_count():
+			_revealed.append(_reel_done)
 	_build()
-	visible = true
+	if not defer_show:
+		visible = true
 
 func close() -> void:
 	_kill_count()
+	_kill_show()
 	visible = false
 	choice = null
 
@@ -151,7 +218,27 @@ func case_rect_local() -> Rect2:
 
 ## Ihr Platz in Display-Pixeln - dort stellt scene_root sie hin.
 func case_seat_px() -> Vector2:
-	return position + case_rect_local().get_center()
+	return global_position + case_rect_local().get_center()
+
+## Die ganze Seite in Display-Pixeln.
+func page_rect_px() -> Rect2:
+	return Rect2(global_position, size)
+
+## Die Fläche der Aufstellung in Display-Pixeln - dorthin zielt der Auswurf.
+func lineup_area_px() -> Rect2:
+	var area := lineup_area()
+	return Rect2(global_position + area.position, area.size)
+
+## Die LANDEFLÄCHE der Wegwerf-Würfel in Display-Pixeln: so breit wie die Aufstellung,
+## vom Kopf bis über die Auskunfts-Zeile - kein Würfel liegt am Rahmen.
+func landing_rect_px() -> Rect2:
+	var area := lineup_area_px()
+	var top := global_position.y + _unit()
+	return Rect2(Vector2(area.position.x, top), Vector2(area.size.x, area.end.y - top))
+
+## Wo die Hülle eines Karten-Pakets aufgeht: über der Mitte der Seite.
+func hull_seat_px() -> Vector2:
+	return global_position + size * 0.5
 
 func _head_height() -> float:
 	return maxf(case_px.y, _unit() * HEAD_MIN_UNITS)
@@ -163,24 +250,33 @@ func lineup_area() -> Rect2:
 	var bottom := size.y - u * (INFO_UNITS + 0.6)
 	return Rect2(Vector2(u * 2.0, top), Vector2(size.x - u * 4.0, maxf(bottom - top, 1.0)))
 
-## Spalten × Reihen: höchstens LINEUP_PER_ROW je Reihe, die Reihen gleich voll.
+## Spalten × Reihen: bis LINEUP_ONE_ROW eine Reihe, bis LINEUP_MAX zwei gleich volle.
 static func lineup_grid(count: int) -> Vector2i:
-	var rows := maxi(int(ceil(float(maxi(count, 1)) / float(LINEUP_PER_ROW))), 1)
-	return Vector2i(int(ceil(float(maxi(count, 1)) / float(rows))), rows)
+	var n := clampi(count, 1, LINEUP_MAX)
+	var rows := 1 if n <= LINEUP_ONE_ROW else 2
+	return Vector2i(int(ceil(float(n) / float(rows))), rows)
 
 ## Der Block eines Würfels (Platz + Netz); die letzte Reihe steht mittig.
 func lineup_block(index: int, count: int) -> Rect2:
 	var area := lineup_area()
 	var grid := lineup_grid(count)
 	var gap := _unit() * SLOT_GAP_UNITS
-	var cell := Vector2((area.size.x - gap * float(grid.x - 1)) / float(grid.x),
-		(area.size.y - gap * float(grid.y - 1)) / float(grid.y))
+	var cell := Vector2(minf((area.size.x - gap * float(grid.x - 1)) / float(grid.x),
+		_unit() * BLOCK_MAX_UNITS), minf((area.size.y - gap * float(grid.y - 1)) / float(grid.y),
+		block_max_height()))
+	var stack := cell.y * float(grid.y) + gap * float(grid.y - 1)
 	var row := index / grid.x
 	var in_row := mini(grid.x, count - row * grid.x)
 	var row_width := cell.x * float(in_row) + gap * float(in_row - 1)
 	var left := area.position.x + (area.size.x - row_width) * 0.5
 	return Rect2(Vector2(left + float(index - row * grid.x) * (cell.x + gap),
-		area.position.y + float(row) * (cell.y + gap)), cell)
+		area.position.y + (area.size.y - stack) * 0.5 + float(row) * (cell.y + gap)), cell)
+
+## Die höchste Höhe eines Blocks: Platz, Fuge, Netz in voller Zelle und Fuß.
+func block_max_height() -> float:
+	var u := _unit()
+	return die_band() + u * NET_GAP_UNITS \
+		+ DieNetView.net_size(u * NET_CELL_MAX_UNITS).y + u * BLOCK_FOOT_UNITS
 
 ## Die Höhe des Würfel-Platzes über seinem Netz.
 func die_band() -> float:
@@ -200,7 +296,7 @@ func net_rect(index: int, count: int) -> Rect2:
 	return Rect2(Vector2(block.get_center().x - span.x * 0.5,
 		block.position.y + die_band() + _unit() * NET_GAP_UNITS), span)
 
-## Ein Netz erscheint, wenn sein Würfel landet.
+## Ein Netz geht auf, wenn die Güte seines Würfels einrastet.
 func reveal_net(index: int) -> void:
 	if index < 0 or index >= _nets.size() or _nets[index].visible:
 		return
@@ -215,20 +311,6 @@ func reveal_net(index: int) -> void:
 	pop.tween_property(net, "modulate:a", 1.0, NET_POP_TIME * 0.6)
 	net.set_meta("pop", pop)
 
-## Alle Netze stehen sofort (Überspringen, Abbruch).
-func reveal_all_nets() -> void:
-	for net in _nets:
-		var pop: Variant = net.get_meta("pop") if net.has_meta("pop") else null
-		if pop is Tween and (pop as Tween).is_valid():
-			(pop as Tween).kill()
-		net.visible = true
-		net.scale = Vector2.ONE
-		net.modulate.a = 1.0
-
-func hide_nets() -> void:
-	for net in _nets:
-		net.visible = false
-
 func net_shown(index: int) -> bool:
 	return index >= 0 and index < _nets.size() and _nets[index].visible
 
@@ -238,7 +320,9 @@ func slot_centers() -> Array[Vector2]:
 	if choice == null:
 		return out
 	for i in choice.option_count():
-		out.append(position + slot_rect(i, choice.option_count()).get_center())
+		var center := global_position + slot_rect(i, choice.option_count()).get_center()
+		# Die geneigte Kamera projiziert einen schwebenden Körper nach oben - er sitzt tiefer.
+		out.append(center + Vector2(0.0, item_px.y * LINEUP_TILT_TRIM if lineup() else 0.0))
 	return out
 
 # --- Aufbau -----------------------------------------------------------------------
@@ -275,10 +359,12 @@ func _build() -> void:
 	_title.size = Vector2(head.size.x, u * 4.6)
 	add_child(_title)
 	_counter = CasinoStyle.label("", u * 3.4 * grade, COUNT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
-	_counter.position = head.position + Vector2(0.0, u * 5.4)
+	_counter.position = head.position + Vector2(0.0, u * (REEL_TOP_UNITS + REEL_UNITS + 0.4)
+		if lineup() else u * 5.4)
 	_counter.size = Vector2(head.size.x, u * 4.4)
 	add_child(_counter)
 	if lineup():
+		_build_reel(head)
 		_net_cell = net_cell(count)
 	for i in count:
 		var slot := Button.new()
@@ -297,9 +383,16 @@ func _build() -> void:
 		if lineup() and choice.options[i] is DieDefinition:
 			var net := DieNetView.build(choice.options[i] as DieDefinition, up_face, _net_cell)
 			net.position = net_rect(i, count).position
-			net.visible = false
+			net.visible = _revealed[i] if i < _revealed.size() else false
 			add_child(net)
 			_nets.append(net)
+	_tier_label = null
+	if lineup():
+		_tier_label = CasinoStyle.label("", u * REVEAL_FONT_UNITS, TEXT_COLOR,
+			HORIZONTAL_ALIGNMENT_CENTER, 3)
+		_tier_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_tier_label.visible = false
+		add_child(_tier_label)
 	_info = CasinoStyle.label("", u * 2.0, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.clip_text = true
@@ -326,6 +419,19 @@ func _build() -> void:
 		_take_button.position = Vector2(size.x * 0.5 + u * 3.0, buttons.position.y)
 	_reshuffle_button.size = button_size
 	_take_button.size = button_size
+	# Neu mischen kostet ⚡: der Stand steht klein unter dem Knopf.
+	_energy_label = CasinoStyle.label("", u * ENERGY_UNITS, CasinoStyle.ENERGY,
+		HORIZONTAL_ALIGNMENT_CENTER)
+	_energy_label.name = "Energy"
+	_energy_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_energy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	if lineup():
+		_energy_label.position = _reshuffle_button.position + Vector2(0.0, button_size.y + u * 0.3)
+		_energy_label.size = Vector2(button_size.x, u * (ENERGY_UNITS + 0.6))
+	else:
+		_energy_label.position = Vector2(u * 2.0, _reshuffle_button.position.y)
+		_energy_label.size = Vector2(maxf(_reshuffle_button.position.x - u * 3.0, u), button_size.y)
+	add_child(_energy_label)
 	# Ein Klick ins Leere überspringt die Enthüllung.
 	var skip := Button.new()
 	skip.name = "Skip"
@@ -382,6 +488,8 @@ func start_count() -> void:
 func skip_count() -> void:
 	if _counted or choice == null:
 		return
+	if lineup():
+		return  # die Bühne der Würfel überspringt scene_root (skip_to_pick), samt Körpern
 	_kill_count()
 	_finish_count()
 
@@ -408,6 +516,294 @@ func _kill_count() -> void:
 	if _count_tween != null and _count_tween.is_valid():
 		_count_tween.kill()
 	_count_tween = null
+
+# --- Die BÜHNE der Würfel-Pakete --------------------------------------------------
+
+func stage() -> int:
+	return _stage
+
+## Plätze gibt es erst ab der Aufstellung - beim Auswurf soll niemand mitzählen.
+func slots_shown() -> bool:
+	return not lineup() or _stage >= STAGE_LINEUP
+
+## Die Würfel stehen in der Aufstellung: ihre Plätze erscheinen, noch ohne Güte.
+func show_lineup() -> void:
+	if not lineup() or _stage != STAGE_LAUNCH:
+		return
+	_stage = STAGE_LINEUP
+	_refresh()
+
+func quality_shown(index: int) -> bool:
+	return index >= 0 and index < _revealed.size() and _revealed[index]
+
+## Der Saum eines Platzes: neutral, bis seine Güte eingerastet ist, dann ihre Farbe.
+func slot_rim(index: int) -> Color:
+	if not lineup() or not quality_shown(index) or choice == null:
+		return SLOT_RIM
+	return DicePack.quality_tint(choice.quality_of(index))
+
+## Die Stufen-Anzeige eines Würfels: einmal durch alle Stufen ab der Paket-Güte, dann bis
+## zu seiner eigenen (rein, prüfbar). Die letzte Stufe ist die eingerastete.
+static func reveal_steps(quality: int, floor_quality: int) -> Array[int]:
+	var floor_q := clampi(floor_quality, DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL)
+	var steps: Array[int] = []
+	if floor_q < DicePack.QUALITY_ROYAL:
+		for tier in range(floor_q, DicePack.QUALITY_ROYAL + 1):
+			steps.append(tier)
+	for tier in range(floor_q, clampi(quality, floor_q, DicePack.QUALITY_ROYAL) + 1):
+		steps.append(tier)
+	return steps
+
+## Die höchste Zahl der Walze: Würfelzahl − 1.
+static func reel_top(count: int) -> int:
+	return DicePack.max_picks(count)
+
+## Was die Walze nacheinander zeigt: von der Grundzahl an im Kreis durch alle möglichen
+## Zahlen, mindestens REEL_MIN_SPINS Schritte, und sie hält auf der gebuchten (rein, prüfbar).
+static func reel_path(base: int, picks: int, top: int) -> Array[int]:
+	var high := maxi(top, 1)
+	var low := clampi(base, 1, high)
+	var goal := clampi(picks, low, high)
+	var path: Array[int] = [low]
+	var at := low
+	var guard := 0
+	while (path.size() < REEL_MIN_SPINS or at != goal) and guard < 200:
+		at = low if at >= high else at + 1
+		path.append(at)
+		guard += 1
+	return path
+
+## Der Takt vor Schritt i von n: schnell am Anfang, immer langsamer zum Halt.
+static func reel_beat(index: int, count: int) -> float:
+	var share := clampf(float(index) / float(maxi(count - 1, 1)), 0.0, 1.0)
+	return lerpf(REEL_FAST, REEL_SLOW, share * share * share)
+
+## Die Zahl im Fenster der Walze (−1 = sie steht noch nicht).
+func reel_value() -> int:
+	return _reel_value
+
+func reel_done() -> bool:
+	return _reel_done
+
+func reel_shown() -> bool:
+	return _reel_box != null and is_instance_valid(_reel_box) and _reel_box.visible
+
+## Der kleine Automat im Kopf: Gehäuse mit Goldrand, dunkles Fenster, EINE Walze.
+func _build_reel(head: Rect2) -> void:
+	var u := _unit()
+	var box := Vector2(minf(u * REEL_WIDTH_UNITS, head.size.x), u * REEL_UNITS)
+	_reel_box = Panel.new()
+	_reel_box.name = "PickReel"
+	_reel_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reel_box.position = Vector2(head.position.x + (head.size.x - box.x) * 0.5,
+		head.position.y + u * REEL_TOP_UNITS)
+	_reel_box.size = box
+	_reel_box.pivot_offset = box * 0.5
+	add_child(_reel_box)
+	var window := Vector2(box.x * REEL_WINDOW_SHARE, box.y - u * 0.9)
+	var glass := Panel.new()
+	glass.name = "Glass"
+	glass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glass.position = (box - window) * 0.5
+	glass.size = window
+	glass.add_theme_stylebox_override("panel", CasinoStyle.flat_box(REEL_GLASS,
+		CasinoStyle.GOLD_DARK, u * 0.15, u * 0.4, 0.0))
+	_reel_box.add_child(glass)
+	_reel_window = Control.new()
+	_reel_window.name = "Window"
+	_reel_window.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reel_window.clip_contents = true
+	_reel_window.position = glass.position
+	_reel_window.size = window
+	_reel_box.add_child(_reel_window)
+	_reel_now = _reel_symbol(window)
+	_reel_next = _reel_symbol(window)
+	_reel_next.position.y = -window.y
+	# Die Zahllinie: zwei Marken links und rechts vom Fenster.
+	for side in [-1.0, 1.0]:
+		var mark := CasinoStyle.label("\u25B8" if side < 0.0 else "\u25C2", window.y * 0.5,
+			CasinoStyle.GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+		mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var gap := (box.x - window.x) * 0.5
+		mark.position = Vector2(0.0 if side < 0.0 else box.x - gap, 0.0)
+		mark.size = Vector2(gap, box.y)
+		_reel_box.add_child(mark)
+
+func _reel_symbol(window: Vector2) -> Label:
+	var symbol := CasinoStyle.label("", window.y * 0.78, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
+	symbol.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	symbol.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	symbol.size = window
+	_reel_window.add_child(symbol)
+	return symbol
+
+## Der EINE Maler der Walze: sichtbar ab ihrer Phase, die gehaltene Zahl in Gold.
+func _paint_reel() -> void:
+	if _reel_box == null or not is_instance_valid(_reel_box):
+		return
+	var u := _unit()
+	_reel_box.visible = lineup() and _stage >= STAGE_REEL
+	_reel_box.add_theme_stylebox_override("panel", CasinoStyle.flat_box(REEL_CABINET,
+		COUNT_COLOR if _reel_done else CasinoStyle.GOLD, u * 0.3, u * 0.9, 0.0))
+	if _reel_tween != null and _reel_tween.is_valid():
+		return
+	_reel_now.text = "%d" % _reel_value if _reel_value > 0 else ""
+	_reel_now.position.y = 0.0
+	_reel_now.add_theme_color_override("font_color", COUNT_COLOR if _reel_done else TEXT_COLOR)
+	_reel_next.position.y = -_reel_window.size.y
+
+## Ein Schritt der Walze: die neue Zahl rollt von oben ins Fenster, die alte unten hinaus.
+func _roll_reel(value: int, time: float, last: bool) -> void:
+	if _reel_box == null or not is_instance_valid(_reel_box):
+		return
+	_kill_reel()
+	var drop := _reel_window.size.y
+	_reel_next.text = "%d" % value
+	_reel_next.add_theme_color_override("font_color", COUNT_COLOR if last else TEXT_COLOR)
+	_reel_next.position.y = -drop
+	_reel_now.position.y = 0.0
+	_reel_tween = create_tween().set_parallel(true)
+	var ease_out := Tween.TRANS_BACK if last else Tween.TRANS_LINEAR
+	_reel_tween.tween_property(_reel_next, "position:y", 0.0, time).set_trans(ease_out) \
+		.set_ease(Tween.EASE_OUT)
+	_reel_tween.tween_property(_reel_now, "position:y", drop, time).set_trans(ease_out) \
+		.set_ease(Tween.EASE_OUT)
+	_reel_tween.chain().tween_callback(_land_reel)
+
+func _land_reel() -> void:
+	_reel_tween = null
+	var swap := _reel_now
+	_reel_now = _reel_next
+	_reel_next = swap
+	_paint_reel()
+
+func _kill_reel() -> void:
+	var rolling := _reel_tween != null and _reel_tween.is_valid()
+	if rolling:
+		_reel_tween.kill()
+	_reel_tween = null
+	if rolling and _reel_box != null and is_instance_valid(_reel_box):
+		_land_reel()
+
+## Enthüllung und Walze laufen als EIN Ablauf; ein Klick springt ans Ende (skip_to_pick).
+func play_reveal() -> void:
+	if not lineup() or choice == null or _stage >= STAGE_REVEAL:
+		return
+	_stage = STAGE_REVEAL
+	_refresh()
+	_kill_show()
+	_show_tween = create_tween()
+	for i in choice.option_count():
+		var steps := reveal_steps(choice.quality_of(i), choice.quality)
+		for tier in steps:
+			_show_tween.tween_callback(_show_tier.bind(i, tier))
+			_show_tween.tween_interval(REVEAL_STEP)
+		_show_tween.tween_callback(_lock_quality.bind(i, true))
+		_show_tween.tween_interval(CLIMB_HOLD if choice.quality_of(i) > choice.quality \
+			else LOCK_HOLD)
+	_show_tween.tween_callback(_start_reel)
+	var top := reel_top(choice.option_count())
+	var path := reel_path(choice.base_picks, choice.picks, top)
+	for k in range(1, path.size()):
+		var beat := reel_beat(k, path.size())
+		_show_tween.tween_callback(_reel_to.bind(path[k], k == path.size() - 1, beat))
+		_show_tween.tween_interval(beat)
+	_show_tween.tween_interval(REEL_HOLD)
+	_show_tween.tween_callback(_finish_opening)
+
+func _show_tier(index: int, tier: int) -> void:
+	if _tier_label == null or not is_instance_valid(_tier_label) or choice == null:
+		return
+	var rect := net_rect(index, choice.option_count())
+	_tier_label.position = rect.position
+	_tier_label.size = rect.size
+	_tier_label.pivot_offset = rect.size * 0.5
+	_tier_label.text = DicePack.quality_name(tier).to_upper()
+	var tint := DicePack.quality_tint(tier)
+	_tier_label.add_theme_color_override("font_color", Color(tint.r * REVEAL_GLOW,
+		tint.g * REVEAL_GLOW, tint.b * REVEAL_GLOW))
+	_tier_label.visible = true
+	_tier_label.scale = Vector2.ONE * 1.15
+	_tier_label.create_tween().tween_property(_tier_label, "scale", Vector2.ONE, REVEAL_STEP)
+	reveal_ticked.emit(index, tier)
+
+## Die Güte rastet ein: das Netz geht auf, der Platz behält den Saum in ihrer Farbe.
+func _lock_quality(index: int, loud: bool) -> void:
+	if choice == null or index < 0 or index >= _revealed.size() or _revealed[index]:
+		return
+	_revealed[index] = true
+	if _tier_label != null and is_instance_valid(_tier_label):
+		_tier_label.visible = false
+	if loud:
+		reveal_net(index)
+	else:
+		_show_net_hard(index)
+	_refresh()
+	if loud:
+		quality_locked.emit(index, choice.quality_of(index),
+			choice.quality_of(index) > choice.quality)
+
+func _show_net_hard(index: int) -> void:
+	if index < 0 or index >= _nets.size():
+		return
+	var net := _nets[index]
+	var pop: Variant = net.get_meta("pop") if net.has_meta("pop") else null
+	if pop is Tween and (pop as Tween).is_valid():
+		(pop as Tween).kill()
+	net.visible = true
+	net.scale = Vector2.ONE
+	net.modulate.a = 1.0
+
+func _start_reel() -> void:
+	_stage = STAGE_REEL
+	_reel_value = choice.base_picks if choice != null else -1
+	_refresh()
+
+func _reel_to(value: int, last: bool, time: float) -> void:
+	if choice == null:
+		return
+	_reel_value = value
+	var top := reel_top(choice.option_count())
+	if last:
+		_reel_done = true
+	_roll_reel(value, time, last)
+	if last:
+		_paint_reel()
+		_reel_box.scale = Vector2.ONE * 1.18
+		_reel_box.create_tween().tween_property(_reel_box, "scale", Vector2.ONE, 0.25) \
+			.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		reel_stopped.emit(value, top)
+	else:
+		reel_stepped.emit(value, top)
+
+func _finish_opening() -> void:
+	_show_tween = null
+	_stage = STAGE_PICK
+	_reel_done = true
+	_reel_value = choice.picks if choice != null else -1
+	_counting = false
+	_counted = true
+	_refresh()
+	opening_finished.emit()
+
+## Endzustand zuerst: jede Güte steht, jedes Netz, die Walze auf der gebuchten Zahl.
+func skip_to_pick() -> void:
+	if choice == null or not lineup() or _stage == STAGE_PICK:
+		return
+	_kill_show()
+	for i in _revealed.size():
+		_lock_quality(i, false)
+		_show_net_hard(i)
+	if _tier_label != null and is_instance_valid(_tier_label):
+		_tier_label.visible = false
+	_finish_opening()
+
+func _kill_show() -> void:
+	if _show_tween != null and _show_tween.is_valid():
+		_show_tween.kill()
+	_show_tween = null
+	_kill_reel()
 
 # --- Wählen -----------------------------------------------------------------------
 
@@ -468,12 +864,15 @@ func _refresh() -> void:
 	for i in _slots.size():
 		var picked := _selected.has(i)
 		var open := _counted and (picked or _selected.size() < choice.picks)
-		var rim := SLOT_PICKED if picked else SLOT_RIM
+		var rim := SLOT_PICKED if picked else slot_rim(i)
+		var width := 0.5 if picked else (0.35 if quality_shown(i) and lineup() else 0.2)
 		var box := CasinoStyle.flat_box(Color(1.0, 0.8, 0.2, 0.08) if picked else Color(0, 0, 0, 0),
-			rim, u * (0.5 if picked else 0.2), u * 1.2, 0.0)
+			rim, u * width, u * 1.2, 0.0)
 		for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 			_slots[i].add_theme_stylebox_override(state, box)
 		_slots[i].modulate.a = 1.0 if open or not _counted else 0.45
+		_slots[i].visible = slots_shown()
+	_paint_reel()
 	if _counter != null and is_instance_valid(_counter) and _counted:
 		_counter.scale = Vector2.ONE
 		if choice.take_all:
@@ -491,6 +890,8 @@ func _refresh() -> void:
 			else "Neu mischen (%d ⚡)" % maxi(reshuffle_cost, 1)
 		_reshuffle_button.disabled = not _counted or reshuffle_cost < 0 \
 			or energy < reshuffle_cost
+	if _energy_label != null and is_instance_valid(_energy_label):
+		_energy_label.text = energy_text()
 	_refresh_info()
 
 func _refresh_info() -> void:
@@ -511,6 +912,10 @@ func _refresh_info() -> void:
 		_info.text = "Alles gehört dir."
 	else:
 		_info.text = "Ungewähltes verfällt."
+
+## Die Energie-Zeile: was Neu mischen bezahlen könnte.
+func energy_text() -> String:
+	return "Energie ⚡ %d" % energy
 
 ## Die Auskunft einer Option in EINER Zeile - aus den Quellen, die überall sprechen.
 static func option_text(option: Variant) -> String:

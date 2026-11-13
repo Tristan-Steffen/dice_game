@@ -4,8 +4,8 @@ extends DataCellView
 ## eine DATEN-KASSETTE (Spieler-Wahl 2026-11-10): Metallgehäuse, Glasfenster mit einer
 ## leuchtenden Kartenkante je Option, Sorte = Farbe; die Größe macht sie DICKER und edler
 ## (Band, Stahlrahmen, Goldecken), der Grundriß bleibt EINER. Ein WÜRFEL-Paket ist die
-## SCHATULLE aus Blender (tools/blender_dice_case.py): ihre Naht leuchtet in der Sortenfarbe,
-## die Augen auf dem Deckel zählen die Optionen, Riesig trägt Gold. Bewegt wird sie wie eine Karte.
+## SCHATULLE aus Blender (tools/blender_dice_case.py): Naht = Sorte, Augen auf dem Deckel =
+## GRUNDZAHL der Würfel, Metall von Schließe und Augen = GÜTE. Bewegt wird sie wie eine Karte.
 
 ## Grundriß gegenüber der Karte und Dicke der Hülle (Kartenmaß, vor CASSETTE_SCALE).
 const FOOT_ROOM := 1.04
@@ -39,8 +39,13 @@ const CASE_ALBEDO := Color(0.2, 0.2, 0.24)
 const CASE_GLOW := Color(0.5, 0.52, 0.6)
 const CASE_GLOW_ENERGY := 0.2
 const CASE_STEEL_ENERGY := 0.45
-## Welche Augen der Schatulle je Optionszahl stehen (Auge0 Mitte, 1/2 quer, 3/4 längs).
-const CASE_PIPS := {3: [0, 3, 4], 4: [1, 2, 3, 4], 5: [0, 1, 2, 3, 4]}
+## Welche Augen der Schatulle je Grundzahl stehen (Auge0 Mitte, 1/2 quer, 3/4 längs).
+const CASE_PIPS := {2: [3, 4], 3: [0, 3, 4], 4: [1, 2, 3, 4], 5: [0, 1, 2, 3, 4]}
+## Royal: dunkles Chrom mit violettem Schimmer, die Naht pulst leise.
+const ROYAL_ALBEDO := Color(0.09, 0.08, 0.12)
+const ROYAL_ENERGY := 1.0
+const ROYAL_PULSE_RATE := 2.4
+const ROYAL_PULSE_DEPTH := 0.35
 static var _dice_case_scene: PackedScene
 ## Der Innenraum im Roh-Maß - spiegelt WALL/FLOOR aus tools/blender_dice_case.py.
 const CASE_WALL := 0.05
@@ -65,6 +70,12 @@ var card_pack_sort: String = CardPack.SORT_NUMBER
 var card_pack_size: int = CardPack.SIZE_NORMAL
 ## Ein Würfel-Paket (dieselbe Hülle, andere Kennung).
 var dice_pack := false
+## Würfel-Paket: seine Güte (Metall) und die Zahl der Augen.
+var quality: int = DicePack.QUALITY_STANDARD
+var pips := 0
+var _case_metal: StandardMaterial3D
+var _royal_seam: StandardMaterial3D
+var _pulse_time := 0.0
 ## Augen der Würfel-Kennung: eine Würfelseite mit drei Augen.
 const PIP_SIZE := DataCellView.HEIGHT * 0.06
 const DIE_FACE_SHARE := 0.5
@@ -76,11 +87,14 @@ var _gold_material: StandardMaterial3D
 func _init() -> void:
 	name = "CardPack"
 
-## Einziger Eingang: baut die Hülle eines Pakets dieser Sorte und Größe.
-func setup_pack(pack_sort: String, pack_size: int, dice := false) -> void:
+## Einziger Eingang: baut die Hülle eines Pakets dieser Sorte und Größe (Würfel: und Güte).
+func setup_pack(pack_sort: String, pack_size: int, dice := false,
+		pack_quality := DicePack.QUALITY_STANDARD) -> void:
 	card_pack_sort = pack_sort
 	card_pack_size = pack_size
 	dice_pack = dice
+	quality = clampi(pack_quality, DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL)
+	pips = DicePack.base_count(pack_size)
 	sort = pack_sort
 	tier = Pack.TIER_KOLOSSAL  # volle Intensität: die Hülle kennt keine Kartengröße
 	stamp_net = StampNet.empty_net()
@@ -332,13 +346,12 @@ func _build_dice_case() -> Node3D:
 	_shell_material.roughness = 0.28
 	_shell_material.emission = CASE_GLOW
 	_shell_material.emission_energy_multiplier = CASE_GLOW_ENERGY
-	var metal := _gold_material if card_pack_size >= CardPack.SIZE_HUGE 		else _metal(Color(0.62, 0.64, 0.7), Color(0.62, 0.64, 0.7), CASE_STEEL_ENERGY)
-	var shown: Array = CASE_PIPS.get(CardPack.option_count(card_pack_size), CASE_PIPS[5])
+	var metal := case_metal()
 	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var part := String(mesh.name)
 		if part.begins_with("Naht"):
-			mesh.material_override = _edge_material
+			mesh.material_override = _seam_material()
 		elif part.begins_with("Deckel") or part.begins_with("Boden"):
 			# Außen Lack, innen der Samt - je Fläche nach ihrem Blender-Material.
 			for i in mesh.mesh.get_surface_count():
@@ -346,12 +359,7 @@ func _build_dice_case() -> Node3D:
 				var velvet := source != null and source.resource_name.begins_with("Samt")
 				mesh.set_surface_override_material(i,
 					_velvet_material() if velvet else _shell_material)
-		elif part.begins_with("AugeMulde"):
-			mesh.visible = int(part.trim_prefix("AugeMulde")) in shown
-		elif part.begins_with("Auge"):
-			mesh.visible = int(part.trim_prefix("Auge")) in shown
-			mesh.material_override = metal
-		elif part != "SchliesseMulde":
+		elif part != "SchliesseMulde" and not part.begins_with("AugeMulde"):
 			mesh.material_override = metal
 	if _cells.is_empty():
 		_case_model = model
@@ -359,7 +367,57 @@ func _build_dice_case() -> Node3D:
 		if _hinge != null:
 			_hinge_rest = _hinge.transform
 			_apply_lid()
+	_show_pips(model)
+	set_process(_royal_seam != null)
 	return cell
+
+## Das Metall der Güte: Stahl, Gold oder dunkles Royal-Chrom mit violettem Schimmer.
+func case_metal() -> StandardMaterial3D:
+	if _case_metal != null:
+		return _case_metal
+	match quality:
+		DicePack.QUALITY_FINE:
+			_case_metal = _gold_material
+		DicePack.QUALITY_ROYAL:
+			_case_metal = _metal(ROYAL_ALBEDO, DicePack.quality_tint(DicePack.QUALITY_ROYAL), ROYAL_ENERGY)
+			_case_metal.roughness = 0.12
+		_:
+			_case_metal = _metal(Color(0.62, 0.64, 0.7), Color(0.62, 0.64, 0.7), CASE_STEEL_ENERGY)
+	return _case_metal
+
+## Die Naht: Royal bekommt eine eigene, pulsende - die geteilte Kante gehört Hover und Flare.
+func _seam_material() -> StandardMaterial3D:
+	if quality != DicePack.QUALITY_ROYAL:
+		return _edge_material
+	if _royal_seam == null:
+		_royal_seam = _edge_material.duplicate() as StandardMaterial3D
+	return _royal_seam
+
+## Die Grundzahl auf dem Deckel (2-5) - eine Auswahl mit Beigabe setzt sie nach.
+func set_pips(count: int) -> void:
+	pips = clampi(count, 2, 5)
+	if _case_model != null and is_instance_valid(_case_model):
+		_show_pips(_case_model)
+
+func shown_pips() -> int:
+	return pips
+
+func _show_pips(model: Node3D) -> void:
+	var shown: Array = CASE_PIPS[clampi(pips, 2, 5)]
+	for mesh: MeshInstance3D in model.find_children("Auge*", "MeshInstance3D", true, false):
+		var part := String(mesh.name)
+		var index := part.trim_prefix("AugeMulde") if part.begins_with("AugeMulde") \
+			else part.trim_prefix("Auge")
+		if index.is_valid_int():
+			mesh.visible = int(index) in shown
+
+func _process(delta: float) -> void:
+	if _royal_seam == null:
+		set_process(false)
+		return
+	_pulse_time += delta
+	_royal_seam.emission_energy_multiplier = edge_rest_energy() \
+		* (1.0 + ROYAL_PULSE_DEPTH * sin(_pulse_time * ROYAL_PULSE_RATE))
 
 func _velvet_material() -> StandardMaterial3D:
 	if _velvet == null:

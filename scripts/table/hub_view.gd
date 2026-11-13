@@ -528,6 +528,17 @@ func _any_page_visible() -> bool:
 func forget_page(panel: Control) -> void:
 	_suppressed.erase(panel)
 
+## Eine Seite will die Fläche: ist gerade eine ANDERE offen (Titel, Lexikon), stellt
+## sie sich hinten an und kommt beim Schließen jener zurück, sonst blendet sie ein.
+func queue_page(panel: Control) -> void:
+	if not is_instance_valid(panel) or panel.visible:
+		return
+	if _any_page_visible():
+		if not _suppressed.has(panel):
+			_suppressed.append(panel)
+		return
+	fade_page_in(panel)
+
 func _pop_suppressed() -> Control:
 	while not _suppressed.is_empty():
 		var candidate: Control = _suppressed.pop_back()

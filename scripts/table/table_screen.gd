@@ -143,8 +143,8 @@ var combo_cells: Dictionary = {}  # DiceScoring-Key -> ComboCellView
 var combo_wiring: LedStripView
 ## LED-Leiste Hub <-> Kombinationen (Geometrie via link_hub_to_cluster).
 var led_strip: LedStripView
-## Schatz-Screen (Geldstand als goldene Truhe) rechts des Hubs, plus die
-## LED-Leiste Hub <-> Schatz (Geld-Lichtläufe).
+## Fassung des Chip-Trays (Geldstand als Rinnen-Börse) rechts des Wett-Tresens, plus die
+## LED-Leiste Hub <-> Tray (Geld-Lichtläufe).
 var treasure_window: TreasureChestView
 var treasure_strip: LedStripView
 var pit_window: Panel
@@ -238,7 +238,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 32
+const MAX_PITS := 33
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -300,6 +300,9 @@ const SECRET_BAY_PIT_COUNT := 3
 
 ## Der EINZUG der Schatulle eines Würfel-Pakets nach der Wahl - ans Ende gehängt.
 const PIT_CASE := 31
+
+## Die Grube des CHIP-TRAYS - Möbel, ans Ende gehängt.
+const PIT_TRAY := 32
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -484,7 +487,7 @@ func _build_content() -> void:
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
-	# LED-Leisten (Hub<->Kombinationen, Hub<->Schatz): bewusst früh gebaut, damit
+	# LED-Leisten (Hub<->Kombinationen, Hub<->Tray): bewusst früh gebaut, damit
 	# sie UNTER allen Fenstern liegen; verlegt werden sie erst in
 	# link_hub_to_cluster/_treasure (brauchen die endgültigen Fenster-Positionen).
 	led_strip = LedStripView.new()
@@ -536,7 +539,7 @@ func _build_content() -> void:
 	charm_dock.visible = false
 	add_child(charm_dock)
 
-	# Schatz-Screen: Position/Größe setzt scene_root über place_treasure_window.
+	# Fassung des Chip-Trays: Position/Größe setzt scene_root über place_treasure_window.
 	treasure_window = TreasureChestView.new()
 	treasure_window.name = "TreasureWindow"
 	treasure_window.visible = false
@@ -1275,12 +1278,21 @@ func place_workshop_info_window(rect: Rect2, unit_px: float) -> void:
 	workshop_info_window.size = rect.size
 	workshop_info_window.visible = rect.size.x > 0.0 and rect.size.y > 0.0
 
-## Spannt den Schatz-Screen über rect auf (rechts des Hubs).
+## Spannt die Fassung des Chip-Trays über rect auf und schneidet seine Grube.
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
 	treasure_window.size = rect.size
 	treasure_window.visible = true
+	set_pit(PIT_TRAY, tray_pit_rect(), treasure_window.pit_radius())
 	_sync_reflection_windows()
+
+## Die Grube des Trays in Display-Pixeln.
+func tray_pit_rect() -> Rect2:
+	if treasure_window == null or not treasure_window.visible:
+		return Rect2()
+	var pit := treasure_window.pit_rect()
+	pit.position += treasure_window.position
+	return pit
 
 ## Die HAUT für jede Hebebühnen-Plattform: sie zeigt das ECHTE Bild der Anzeige an
 ## ihrer Stelle. EIN Material für alle Schächte - es rechnet aus der Weltposition,
@@ -1353,7 +1365,7 @@ func clear_pit(slot: int) -> void:
 ## nach einem Ladenbesuch stand sonst wieder Filz unter der Glas-Scheibe).
 const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_TOWER, PIT_SECTION,
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2,
-	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2]
+	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
@@ -2073,7 +2085,7 @@ const EYE_DENOMINATIONS := [5, 1]
 
 var _eye_pip_texture: GradientTexture2D  # geteilter Punkt, einmalig gebaut
 
-## Gierige Stückelung eines Augen-Betrags - Spiegel von ChipStackView.split_gain.
+## Gierige Stückelung eines Augen-Betrags (nur 5 und 1).
 static func split_eyes(amount: int) -> Array[int]:
 	var values: Array[int] = []
 	var rest := maxi(0, amount)
@@ -2373,7 +2385,7 @@ func energy_ring_rect() -> Rect2:
 	var side := minf(slot.size.x, bottom - slot.position.y)
 	return Rect2(slot.get_center().x - side * 0.5, bottom - side, side, side)
 
-## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Schatz rechts).
+## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Tray rechts).
 func _hub_strip_exit_x(to_right: bool) -> float:
 	var cx := hub.position.x + hub.size.x * 0.5
 	var d := hub.size.x * 0.25
@@ -2427,13 +2439,15 @@ func pack_arrival_flash(px: Vector2, color: Color) -> void:
 	wave.setup(px, Color(color.r, color.g, color.b, 0.85), ARRIVAL_FLASH_RADIUS,
 		ARRIVAL_FLASH_TIME)
 
-## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE des Schatz-Screens.
+## Verlegt die LED-Leiste vom Hub (oben rechts) an die UNTERKANTE der Tray-Fassung.
 func link_hub_to_treasure() -> void:
 	if treasure_strip == null or hub == null or hub.size.x <= 0.0 \
 			or treasure_window == null or not treasure_window.visible:
 		return
+	# Sie mündet unter der Kometen-Schiene des Rinnen-Kopfs.
+	var rail := treasure_window.position.x + treasure_window.rail_x()
 	treasure_strip.link_from_hub_top(Rect2(hub.position, hub.size),
-		Rect2(treasure_window.position, treasure_window.size),
+		Rect2(Vector2(rail - 1.0, treasure_window.position.y), Vector2(2.0, treasure_window.size.y)),
 		HUB_STRIP_WIDTH, _hub_strip_exit_x(true), _hub_strip_lane_y())
 	# T-Stück: die Geld-Ader zweigt im Korridor zusätzlich zu den Nebenwetten ab.
 	if side_bet_window != null and side_bet_window.visible:
@@ -2467,7 +2481,7 @@ func link_score_strips() -> void:
 		pit_score_strip.link_edges(pit_window.position.y, pit_cx, score_bottom, pit_cx,
 			lane, SCORE_BUS_WIDTH)
 	# Grube -> Hub: Bank-Leiste im Korridor zwischen Grube-Unterkante und Hub-Oberkante
-	# (mittig, zwischen den beiden Hub-Ecken-Austritten von Kombi/Schatz).
+	# (mittig, zwischen den beiden Hub-Ecken-Austritten von Kombi/Tray).
 	if pit_hub_strip != null and pit_window != null and pit_window.visible \
 			and hub != null and hub.size.x > 0.0:
 		var pcx := pit_window.position.x + pit_window.size.x * 0.5
@@ -2900,7 +2914,7 @@ const DIE_COMET_GAIN := 3.5
 func _die_travel_time(path: PackedVector2Array) -> float:
 	return maxf(0.12, _path_length(path) / (PULSE_SPEED * DIE_COMET_GAIN))
 
-## Laufzeit der Geld-Leiste (Schatz <-> Hub) für die Ablauf-Planung außen.
+## Laufzeit der Geld-Leiste (Tray <-> Hub) für die Ablauf-Planung außen.
 func money_travel_time() -> float:
 	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
 		return 0.4
@@ -2946,37 +2960,39 @@ func _round_end_route(from_px: Vector2, tail_strips: Array, to_px: Vector2) -> P
 	return path
 
 ## Rückerstattung des Ladens (Kleingedrucktes): der Kaufpreis fährt vom Knopf am
-## Hub-Rahmen entlang auf die Geld-Leiste und in die Truhe. Anders als der
+## Hub-Rahmen entlang auf die Geld-Leiste und ins Tray. Anders als der
 ## Rundenende-Komet nimmt er keinen Konsolen-Vorlauf - der Laden IST der Hub.
 ## Gebucht ist längst; das hier ist nur das Licht.
-func shop_refund_comet(from_px: Vector2, color := SIDE_MONEY_COLOR) -> float:
+func shop_refund_comet(from_px: Vector2, color := SIDE_MONEY_COLOR, rank := -1) -> float:
 	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
 		return 0.0
 	var to_px := treasure_strip.strip_path[treasure_strip.strip_path.size() - 1]
 	var path := _route_via_strip(from_px, treasure_strip, to_px)
+	path.append_array(_tray_in_tail(rank))
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
 ## Geld-Komet eines Rundenende-Charms (EIN Chip-Paket in seiner Stückelungs-
 ## farbe): die Rundenende-Bahn bis zum Hub, dann am Hub-Rahmen zur Geld-Leiste
-## und über sie in die Schatztruhe - der Aufrufer bucht bei Ankunft.
-func charm_money_comet(from_px: Vector2, color := SIDE_MONEY_COLOR) -> float:
+## und über sie ins Tray - der Aufrufer bucht bei Ankunft.
+func charm_money_comet(from_px: Vector2, color := SIDE_MONEY_COLOR, rank := -1) -> float:
 	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
 		return 0.0
 	var to_px := treasure_strip.strip_path[treasure_strip.strip_path.size() - 1]
 	var path := _round_end_route(from_px, [treasure_strip], to_px)
+	path.append_array(_tray_in_tail(rank))
 	var travel := _round_end_travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
 ## Geld-Komet eines Zuges (Goldseiten, Seelen-Geld, Streulicht): er startet am
 ## Datenbus der Grube, umrundet die Grubenhälfte am RAHMEN, fährt über die
-## Bank-Leiste in den Hub und von dort über die Geld-Leiste in die Truhe -
+## Bank-Leiste in den Hub und von dort über die Geld-Leiste ins Tray -
 ## dieselbe Bahn wie ein Rundenende-Charm, nur ohne dessen Konsolen-Vorlauf.
 ## from_px (optional): Geld EINER Zündung startet am WÜRFEL und läuft von dort
 ## im eigenen Fenster auf den Datenbus - danach dieselbe Bahn.
-func take_money_comet(color := SIDE_MONEY_COLOR, from_px := Vector2.INF) -> float:
+func take_money_comet(color := SIDE_MONEY_COLOR, from_px := Vector2.INF, rank := -1) -> float:
 	if pit_window == null or hub == null or treasure_strip == null \
 			or treasure_strip.strip_path.size() < 2:
 		return 0.0
@@ -2996,6 +3012,7 @@ func take_money_comet(color := SIDE_MONEY_COLOR, from_px := Vector2.INF) -> floa
 	var tail := _route_via_strips(path[path.size() - 1], [treasure_strip], to_px)
 	for i in range(1, tail.size()):
 		path.append(tail[i])
+	path.append_array(_tray_in_tail(rank))
 	var travel := _round_end_travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
@@ -3018,27 +3035,46 @@ const ROUND_END_PULSE_SPEED := PULSE_SPEED * 2.0
 func _round_end_travel_time(path: PackedVector2Array) -> float:
 	return maxf(0.12, _path_length(path) / ROUND_END_PULSE_SPEED)
 
-## Geld-Lichtlauf: ein kurzer Komet fährt die Hub<->Schatz-
-## Leiste (to_treasure = Gutschrift Hub->Schatz, sonst Kauf Schatz->Hub).
-## Liefert die Laufzeit für die Ankunfts-Planung.
-func money_comet(to_treasure: bool, color: Color) -> float:
+## Geld-Lichtlauf über die Hub<->Tray-Leiste (to_treasure = Gutschrift an den Kopf
+## der Rinne rank, sonst Zahlung vom Auslauf der Rinne rank zum Hub). Liefert die
+## Laufzeit für die Ankunfts-Planung.
+func money_comet(to_treasure: bool, color: Color, rank := -1) -> float:
 	if treasure_strip == null or treasure_strip.strip_path.size() < 2:
 		return 0.0
 	var path := treasure_strip.strip_path.duplicate()
-	if not to_treasure:
+	if to_treasure:
+		path.append_array(_tray_in_tail(rank))
+	else:
 		path.reverse()
+		var head := _tray_out_head(rank)
+		head.append_array(path)
+		path = head
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
 
-## --- Nebenwetten-Lichter (Einsatz/Auszahlung über die Schatz-Leiste) ----------
+## Vom Mund der Geld-Ader die Kopf-Schiene hinauf an den Kopf der Rinne rank.
+func _tray_in_tail(rank: int) -> PackedVector2Array:
+	if rank < 0 or treasure_window == null or not treasure_window.visible:
+		return PackedVector2Array()
+	return PackedVector2Array([treasure_window.position + treasure_window.entry_px(rank)])
 
-## Farben der Nebenwetten-Lichter: Geld goldgelb (Schatz-seitig), Gravur violett
+## Vom Auslauf der Rinne rank den rechten und den unteren Rahmen entlang zum Mund.
+func _tray_out_head(rank: int) -> PackedVector2Array:
+	if rank < 0 or treasure_window == null or not treasure_window.visible:
+		return PackedVector2Array()
+	var at := treasure_window.position + treasure_window.exit_px(rank)
+	var bottom := treasure_window.position.y + treasure_window.size.y
+	return PackedVector2Array([at, Vector2(at.x, bottom)])
+
+## --- Nebenwetten-Lichter (Einsatz/Auszahlung über die Tray-Leiste) ----------
+
+## Farben der Nebenwetten-Lichter: Geld goldgelb (Tray-seitig), Gravur violett
 ## (Hub-seitig) - so verrät die Farbe schon die Herkunft des Lichts.
 const SIDE_MONEY_COLOR := Color(2.0, 1.55, 0.35, 0.9)
 const SIDE_ENGRAVING_COLOR := Color(1.5, 0.7, 2.0, 0.9)
 
-## Pfad Schatz <-> Nebenwetten (Geld-Gewinn): Truhen-Unterkante in den Korridor,
+## Pfad Tray <-> Nebenwetten (Geld-Gewinn): Tray-Unterkante in den Korridor,
 ## über die Abzweigung zur Nebenwetten-Unterkante. Leer, falls die Adern fehlen.
 func _treasure_to_side_path() -> PackedVector2Array:
 	var trunk := treasure_strip.strip_path
@@ -3056,7 +3092,7 @@ func _hub_to_side_path() -> PackedVector2Array:
 		return PackedVector2Array()
 	return PackedVector2Array([trunk[0], trunk[1], trunk[2], branch[1], branch[2]])
 
-## Komet vom SCHATZ zum Nebenwetten-Fenster: die laufende Steuer einer Steuerwette,
+## Komet vom TRAY zum Nebenwetten-Fenster: die laufende Steuer einer Steuerwette,
 ## je Buchung einer. Die benannte AUSNAHME des Bewegungs-Gesetzes - was der Spieler
 ## zahlt, fliegt sonst als Körper, aber die Kleinsteuer reist als Licht.
 ## Liefert die Laufzeit.
@@ -3069,7 +3105,7 @@ func side_bet_tax_comet(color: Color) -> float:
 	return travel
 
 ## Auszahlungs-Komet VOM Nebenwetten-Fenster (to_hub = Gravur-Gewinn zum Hub,
-## sonst Geld-Gewinn zum Schatz). Liefert die Laufzeit.
+## sonst Geld-Gewinn zum Tray). Liefert die Laufzeit.
 func side_bet_payout_comet(to_hub: bool, color: Color) -> float:
 	var path := _hub_to_side_path() if to_hub else _treasure_to_side_path()
 	if path.size() < 2:

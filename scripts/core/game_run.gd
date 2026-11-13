@@ -696,6 +696,10 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 	choice.pack = pack
 	choice.from_bet = from_bet
 	choice.kind = PackChoice.KIND_DICE if pack is DicePack else PackChoice.KIND_CARDS
+	if pack is DicePack:
+		choice.free_hand = packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND)
+		_roll_dice_choice(choice, rng)
+		return _queue_opened(choice)
 	var pack_size := int(pack.get("size"))
 	var rolled := CardPack.roll_picks(pack_size, effective_luck(), pack_luck_factor(), rng)
 	choice.jackpot = bool(rolled["jackpot"])
@@ -708,6 +712,9 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 		or (packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND))
 	choice.picks = choice.options.size() if choice.take_all \
 		else mini(picks, choice.options.size())
+	return _queue_opened(choice)
+
+func _queue_opened(choice: PackChoice) -> PackChoice:
 	packs_opened_this_round += 1
 	pending_pack_choices.append(choice)
 	var album := charm_ids().count(Charm.ALBUM)
@@ -715,22 +722,45 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 		add_money(ALBUM_MONEY * album)
 	return choice
 
-## Die Optionen eines Pakets: Karten nach seiner Sorte, Würfel nach seiner.
+## Die Optionen eines KARTEN-Pakets nach seiner Sorte.
 func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) -> Array:
 	var out: Array = []
 	if pack is CardPack:
 		for card in CardPack.roll_contents(pack as CardPack, shop_multiplier_chance(),
 				shop_card_pack_bulk(), rng, count):
 			out.append(card)
-		return out
-	var dice_pack := pack as DicePack
-	var souls := owned_essence_ids()
-	for i in count:
-		var die := DiceOffer.roll_pack_die(dice_pack.sort, shop_tier(), charm_ids(), souls,
-			shop_soul_rule(), effective_luck())
-		if die != null:
-			out.append(die)
 	return out
+
+## Ein WÜRFEL-Paket würfelt seine drei Ketten: Zahl, Güte je Würfel, Wahlen - alles
+## gebucht in der Auswahl. Auch Neu mischen läuft hier durch.
+func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
+	var dice_pack := choice.pack as DicePack
+	var luck := effective_luck()
+	var factor := pack_luck_factor()
+	choice.base_count = maxi(DicePack.base_count(dice_pack.size) + pack_option_delta(),
+		DicePack.MIN_COUNT)
+	var count := DicePack.roll_count(choice.base_count, luck, factor, rng)
+	var souls := owned_essence_ids()
+	choice.options = []
+	choice.qualities = []
+	for i in count:
+		var die_quality := DicePack.roll_quality(dice_pack.quality, luck, rng)
+		var die := DiceOffer.roll_pack_die(dice_pack.sort, shop_tier(), charm_ids(), souls,
+			shop_soul_rule(), luck, die_quality)
+		if die != null:
+			choice.options.append(die)
+			choice.qualities.append(die_quality)
+	var ceiling := DicePack.max_picks(choice.options.size())
+	choice.base_picks = clampi(DicePack.base_picks(dice_pack.size) + pack_pick_bonus(), 1,
+		ceiling)
+	choice.picks = ceiling if choice.free_hand \
+		else DicePack.roll_picks(choice.base_picks, luck, choice.options.size(), factor, rng)
+	choice.take_all = false
+	choice.jackpot = false
+
+## Die Güte-Gewichte der Würfel-Pakete im Laden (Haken für künftige Klauseln).
+func shop_dice_pack_quality_weights() -> Array:
+	return DicePack.shop_quality_weights(shop_tier())
 
 ## Glücksgriff: die Glückswurf-Chancen eines Pakets ×2 (Winkeladvokat ×4).
 func pack_luck_factor() -> float:
@@ -765,7 +795,8 @@ func can_reshuffle_pack(choice: PackChoice) -> bool:
 	var cost := pack_reshuffle_cost(choice)
 	return cost >= 0 and energy >= cost
 
-## NEU MISCHEN: neue Optionen in derselben Zahl, die Wahlen bleiben.
+## NEU MISCHEN: Karten-Pakete tauschen die Optionen (Zahl und Wahlen bleiben),
+## Würfel-Pakete würfeln ALLES neu - Zahl, Würfel, Güten, Wahlen.
 func reshuffle_pack_choice(choice: PackChoice, rng: RandomNumberGenerator = null) -> bool:
 	if not can_reshuffle_pack(choice) or not pending_pack_choices.has(choice):
 		return false
@@ -774,6 +805,10 @@ func reshuffle_pack_choice(choice: PackChoice, rng: RandomNumberGenerator = null
 		free_reshuffle_used_this_round = true
 	else:
 		spend_energy(cost)
+	if choice.is_dice():
+		_roll_dice_choice(choice, rng)
+		choice.rerolled = true
+		return true
 	choice.options = _roll_pack_options(choice.pack, choice.options.size(), rng)
 	choice.picks = mini(choice.picks, choice.options.size())
 	choice.rerolled = true

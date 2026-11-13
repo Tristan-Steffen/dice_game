@@ -453,8 +453,8 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 @onready var dice_pit: DicePit = $DiceTray
 @onready var pit_click_zone: StaticBody3D = $DiceTray/PitClickZone
 @onready var charm_row: CharmRowView = $Charms
-## Geldstand als physische Neon-Pokerchips auf dem Tisch.
-@onready var chip_stack: ChipStackView = $ChipStack
+## Geldstand als Chips in den Rinnen des Chip-Trays (ein Abakus des Geldes).
+@onready var chip_tray: ChipTrayView = $ChipTray
 ## Zuletzt ANGEZEIGTER Geldstand - Vergleichsbasis der Geld-Lichtanimation.
 var _shown_money := 0
 
@@ -475,15 +475,6 @@ var chips_click_zone: StaticBody3D
 ## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
 ## Fläche, auf der ein Doppelklick sie öffnet.
 var workshop_close_rect := Rect2()
-## Chip-Umtausch (nur in der Chip-Zoomsicht): gezogener Turm als Geist zum
-## Einwurf-Schlitz; -1 = keine Geste aktiv.
-var chip_drag_value := -1
-var chip_drag_count := 0
-var chip_drag_ghost: Node3D
-## Laufender Umtausch blockiert eine neue Geste; jede Geldänderung entwertet
-## das Token und stoppt damit verspätete Umtausch-Etappen.
-var _exchange_token := 0
-var _exchange_busy := false
 ## Letzter weitergereichter Display-Pixel (relative-Feld der Motion-Events).
 var last_screen_pixel := Vector2(-1, -1)
 
@@ -1179,13 +1170,12 @@ func _setup_table_screen() -> void:
 	table_screen.bank_action_button.pressed.connect(_on_bank_button_pressed)
 	table_screen.log_action_button.pressed.connect(_on_log_button_pressed)
 
-	# Wett-Tresen LINKS in der Lücke NEBEN der Grube, der Schatz rechts daneben
+	# Wett-Tresen LINKS in der Lücke NEBEN der Grube, das Chip-Tray rechts daneben
 	# (Tausch, Spieler-Entscheid 2026-08-27); Unterkante bündig mit Grube und
 	# Kombinationen-Fenster. Es IST die Knopf-Spalte und meldet seine Maße selbst
 	# (SideBetPanel.preferred_units); der Zuschnitt wächst um WETTEN_ROOM, und
 	# weil die Fenster-Einheit die eigene Breite ist, wachsen Plots, Löcher und
 	# Schrift gemeinsam mit - breitere Gruben UND größerer Text aus einer Zahl.
-	var shell_px := table_screen.world_to_pixel(dice_shell.global_position)
 	var pit_r := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var win_size := SideBetPanel.preferred_units() \
 		* (table_screen.cluster_anchor_rect.size.x / 100.0) * WETTEN_ROOM
@@ -1200,41 +1190,29 @@ func _setup_table_screen() -> void:
 	table_screen.side_bet_window.bet_selected.connect(_on_side_bet_selected)
 	table_screen.side_bet_window.bet_placed.connect(_on_side_bet_placed)
 
-	# Schatz-Screen RECHTS des Wett-Tresens; die echten 3D-Chips werden
-	# mittig-oben darauf gestellt. Die AUSSENKANTE der Fensterzeile bleibt die
-	# alte (Hüllen-Anker + 4,5 % Screen + UNGEWACHSENE Fensterbreite) - dahinter
-	# beginnen die Vorrats-Fächer, an die nichts heranrücken darf.
+	# Das CHIP-TRAY RECHTS des Wett-Tresens, genau so groß wie er (Spieler-Entscheid
+	# 2026-11-12); die frei gewordene Hälfte des alten Schatzes bleibt frei.
 	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
-	var gap_left := side_r.end.x + table_screen.size.x * 0.005
-	var gap_right := shell_px.x + table_screen.size.x * 0.045 \
-		+ SideBetPanel.preferred_units().x * (table_screen.cluster_anchor_rect.size.x / 100.0)
-	# Doppelt so breit wie der Wett-Tresen, gleiche Höhe und Oberkante.
-	var t_w := side_r.size.x * 2.0
-	var t_top := side_r.position.y
-	var t_size := Vector2(t_w, side_r.size.y)
-	# Waagerecht mittig in seiner Lücke zwischen Wett-Tresen und Fächern.
-	var t_cx := clampf((gap_left + gap_right) * 0.5,
-		gap_left + t_w * 0.5, gap_right - t_w * 0.5)
-	var t_pos := Vector2(t_cx - t_w * 0.5, t_top)
-	table_screen.place_treasure_window(Rect2(t_pos, t_size))
-	# Chips auf die Truhe stellen: Weltposition aus dem Truhen-Pixel zurückrechnen.
-	# Weiter zur Hinterkante (kleineres Y): der Turm hält Abstand zu den Schlitzen
-	# an der Vorderkante, hohe Türme ragen optisch nach Bildschirm-oben.
-	var chip_px := Vector2(t_cx, t_top + t_size.y * 0.40)
-	var chip_world := table_screen.pixel_to_world(chip_px)
-	chip_stack.global_position = Vector3(chip_world.x, chip_stack.global_position.y, chip_world.z)
-	# Weltpositionen der beiden Münzschlitze als lokale XZ-Versätze des Turms:
-	# links wird gezahlt (Chips sinken), rechts kommt herein/Wechselgeld heraus.
-	var pay_world := table_screen.pixel_to_world(t_pos + t_size * TreasureChestView.PAY_SLOT_FRAC)
-	var rec_world := table_screen.pixel_to_world(t_pos + t_size * TreasureChestView.RECEIVE_SLOT_FRAC)
-	chip_stack.pay_slot_offset = Vector2(pay_world.x - chip_world.x, pay_world.z - chip_world.z)
-	chip_stack.receive_slot_offset = Vector2(rec_world.x - chip_world.x, rec_world.z - chip_world.z)
-	# Klickzone zum Heranzoomen an den Chip-Haufen (Truhen-Fußabdruck).
-	camera_rig.configure_chips_target(Vector3(chip_world.x, 1.5, chip_world.z))
-	var tr_a := table_screen.pixel_to_world(t_pos)
-	var tr_b := table_screen.pixel_to_world(t_pos + t_size)
+	var t_rect := TreasureChestView.placed_beside(side_r, table_screen.size.x * 0.005)
+	table_screen.place_treasure_window(t_rect)
+	var tray_pit := table_screen.tray_pit_rect()
+	var pit_a := table_screen.pixel_to_world(tray_pit.position)
+	var pit_b := table_screen.pixel_to_world(tray_pit.end)
+	var pit_mid := (pit_a + pit_b) * 0.5
+	chip_tray.wall_skin = PIT_SKIN
+	chip_tray.setup(Vector3(pit_mid.x, 0.0, pit_mid.z),
+		Vector2(absf(pit_a.x - pit_b.x), absf(pit_a.z - pit_b.z)) * 0.5)
+	chip_tray.seat_hard(ChipTrayView.belegung(_shown_money))
+	if not chip_tray.chip_entered.is_connected(_on_tray_chip_entered):
+		chip_tray.chip_entered.connect(_on_tray_chip_entered)
+		chip_tray.chip_left.connect(_on_tray_chip_left)
+	# Klickzone zum Heranzoomen an das Tray (Fußabdruck der Fassung).
+	var tr_a := table_screen.pixel_to_world(t_rect.position)
+	var tr_b := table_screen.pixel_to_world(t_rect.end)
+	var tr_mid := (tr_a + tr_b) * 0.5
+	camera_rig.configure_chips_target(Vector3(tr_mid.x, 1.5, tr_mid.z))
 	chips_click_zone = _add_click_zone("ChipsClickZone",
-		Vector3(chip_world.x, 0.0, chip_world.z),
+		Vector3(tr_mid.x, 0.0, tr_mid.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
 	# Der Energie-Ring bekommt den freien Chip-Platz unten rechts im Cluster
@@ -1780,14 +1758,21 @@ func _setup_panels() -> void:
 		$UI.add_child(route_choice)
 	route_choice.route_chosen.connect(_on_route_chosen)
 
-	# Die PAKET-AUSWAHL liegt ebenfalls auf dem Grubenboden.
+	# Die PAKET-AUSWAHL ist eine Seite des Hubs (ohne Hub der 2D-Rückfall).
 	pack_choice_view = PackChoiceView.new()
-	if table_screen != null:
-		table_screen.add_child(pack_choice_view)
+	pack_choice_view.visible = false
+	if table_screen != null and table_screen.hub != null:
+		pack_choice_view.defer_show = true
+		table_screen.hub.attach_panel(pack_choice_view)
 	else:
 		$UI.add_child(pack_choice_view)
 	pack_choice_view.confirmed.connect(_on_pack_choice_confirmed)
 	pack_choice_view.reshuffle_requested.connect(_on_pack_choice_reshuffle)
+	pack_choice_view.reveal_ticked.connect(_on_case_reveal_ticked)
+	pack_choice_view.quality_locked.connect(_on_case_quality_locked)
+	pack_choice_view.reel_stepped.connect(_on_case_reel_stepped)
+	pack_choice_view.reel_stopped.connect(_on_case_reel_stopped)
+	pack_choice_view.opening_finished.connect(_on_pack_opening_finished)
 
 	# Der Rückblick teilt sich den Grubenboden mit der Vertragswahl - beide sind
 	# Gruben-Mobiliar und reisen mit der Kamera ab.
@@ -2203,42 +2188,7 @@ func _on_money_changed(new_money: int) -> void:
 	_shown_money = new_money
 	_refresh_hub_info()
 	_refresh_side_bet_affordability()
-	# Eine offene Umtausch-Geste/-Zeremonie abbrechen: Token entwerten, Geist
-	# verwerfen - die Börse ist bereits endgültig gebucht.
-	_exchange_token += 1
-	_exchange_busy = false
-	if chip_drag_value != -1:
-		_finish_chip_drag(false)
-	# Laufende Prägung abbrechen und die Anzeige auf die aktuelle Börse abgleichen
-	# (eine unterbrochene Zwischen-Etappe würde sonst stehen bleiben).
-	chip_stack.clear_mints()
-	if chip_stack.wallet_total() != new_money - delta:
-		chip_stack.seed_wallet(new_money - delta)  # Drift-Sicherung / Erstbefüllung
-	else:
-		chip_stack.show_wallet()
-	# Ohne Tisch-Display oder während einer eigenen Nebenwetten-Choreografie:
-	# Börse still mutieren, keine Präge-Animation.
-	if delta == 0:
-		return
-	if table_screen == null or table_screen.hub == null or _suppress_money_light:
-		_apply_wallet_delta(delta)
-		chip_stack.show_wallet()
-		return
-	if delta > 0:
-		_animate_money_gain(delta, new_money)
-	else:
-		_animate_money_spend(-delta)
-
-## Mutiert die Börse um delta OHNE Animation (Nebenwetten / Rückfall ohne Display):
-## Zuwachs kommt als gierige Chips herein, Zahlung folgt dem Zahlplan samt
-## Wechselgeld. Die Börse bleibt stets deckungsgleich mit GameRun.money.
-func _apply_wallet_delta(delta: int) -> void:
-	if delta > 0:
-		chip_stack.add_chips(ChipStackView.split_gain(delta))
-	else:
-		var plan := ChipStackView.payment_plan(chip_stack.wallet(), -delta)
-		chip_stack.remove_chips(plan["spend"])
-		chip_stack.add_chips(ChipStackView.split_gain(int(plan["change"])))
+	_play_tray_transition(new_money, delta)
 
 ## Installiert die Nebenwetten- und Automaten-Fenster und zeigt die
 ## Fortschrittsstufe am Hub. Idempotent - bei Spielstart und nach Reset gerufen.
@@ -2270,7 +2220,7 @@ var _jewelry_box_upgrades: Array[Dictionary] = []
 ## Dock-Exemplar eines, gezeigt an seinem Platz in der Charm-Zeremonie.
 var _encore_packs: Array[Pack] = []
 
-## Unterdrückt das generische Schatz<->Hub-Geld-Licht, während eine Nebenwetten-
+## Unterdrückt das generische Tray<->Hub-Geld-Licht, während eine Nebenwetten-
 ## Transaktion (Einsatz/Auszahlung) ihr eigenes Licht fährt.
 var _suppress_money_light := false
 ## Die Magazin-Plätze der Pakete, die der nächste Einsatz verzehrt, und die Chips
@@ -2279,239 +2229,93 @@ var _suppress_money_light := false
 var _pending_bet_packs: Array[Vector2] = []
 var _pending_bet_chips: Array[int] = []
 
+## Die Rinne des größten Pakets eines Betrags - Farbe und Ziel seines Kometen.
+func _money_rank(amount: int) -> int:
+	var packets := ChipStackView.split_gain(amount)
+	return maxi(ChipTrayView.rank_of(packets[0] if not packets.is_empty() else 1), 0)
+
 ## Überhellte Trail-Farbe eines Chips (fürs Bloom der Kometen).
 func _money_trail_color(chip_color: Color) -> Color:
 	return Color(chip_color.r * MONEY_PULSE_BOOST, chip_color.g * MONEY_PULSE_BOOST,
 		chip_color.b * MONEY_PULSE_BOOST, 0.9)
 
-## Gutschrift: die Börse bekommt die gierig gestückelten Chips SOFORT (bleibt
-## deckungsgleich mit dem Geld), die Anzeige zeigt aber noch den alten Turm.
-## Je Chip fährt ein Komet Hub -> Schatz; bei Ankunft leuchtet der Einzahlungs-
-## Schlitz und ein Chip steigt daraus auf und hüpft auf den Turm. Nach dem
-## Landen des letzten Chips baut sich der Turm neu auf (elastischer Pop).
-func _animate_money_gain(delta: int, new_money: int) -> void:
-	var treasure := table_screen.treasure_window
-	var values := ChipStackView.split_gain(delta)
-	chip_stack.add_chips(values)  # Börse sofort korrekt; Turm zeigt weiter ALT
-	for i in values.size():
-		var value: int = values[i]
-		var chip_color := ChipStackView.denomination_color(value)
-		var trail := _money_trail_color(chip_color)
+## Das Tray fährt den Übergang der Belegung: gebucht ist längst, der Endzustand
+## steht sofort im Tray, die Zeremonie fährt nur den Weg dorthin. Eine Gutschrift
+## schickt je Einlauf einen Kometen an den Kopf seiner Rinne; gezahlt wird am
+## Auslauf (_on_tray_chip_left). Unterdrückt (eigene Zeremonie) läuft es ohne
+## Kometen - eine unterdrückte Zahlung (der geworfene Einsatz) setzt hart.
+func _play_tray_transition(new_money: int, delta: int) -> void:
+	if chip_tray == null:
+		return
+	var old := chip_tray.target_counts()
+	if ChipTrayView.total(old) != new_money - delta:
+		chip_tray.seat_hard(ChipTrayView.belegung(new_money - delta))
+		old = chip_tray.target_counts()
+	_sync_tray_head(new_money)
+	if delta == 0:
+		return
+	var fresh := ChipTrayView.belegung(new_money)
+	if table_screen == null or table_screen.hub == null or (_suppress_money_light and delta < 0):
+		chip_tray.seat_hard(fresh)
+		return
+	var comets := not _suppress_money_light and delta > 0
+	var steps := ChipTrayView.transition(old, fresh, comets)
+	chip_tray.play(steps)
+	if comets:
+		_fire_tray_comets(steps)
+
+## Je Einlauf eines Gewinns ein Komet Hub -> Kopf der Rinne, gestaffelt in der
+## Reihenfolge der Schritte; seine Ankunft gibt den wartenden Chip frei.
+func _fire_tray_comets(steps: Array[Dictionary]) -> void:
+	var launched := run
+	var ranks: Array[int] = []
+	for step: Dictionary in steps:
+		if String(step["kind"]) != ChipTrayView.STEP_IN or not bool(step.get("comet", false)):
+			continue
+		for _k in mini(int(step["count"]), ChipTrayView.COMET_CAP):
+			ranks.append(int(step["rank"]))
+	for i in ranks.size():
+		var rank: int = ranks[i]
 		var fire := func() -> void:
-			var travel: float = table_screen.money_comet(true, trail)
+			if run != launched or table_screen == null:
+				return
+			var color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
+			var travel: float = table_screen.money_comet(true, _money_trail_color(color), rank)
 			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-				if treasure != null:
-					treasure.glint()
-					treasure.flash_receive_slot(chip_color)
-				chip_stack.mint_chip(value, true))
+				if run == launched and chip_tray != null:
+					chip_tray.land(rank))
 		if i == 0:
 			fire.call()
 		else:
 			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
-	var settle := float(maxi(0, values.size() - 1)) * MONEY_PULSE_GAP \
-		+ table_screen.money_travel_time() + ChipStackView.MINT_TIME
-	get_tree().create_timer(settle).timeout.connect(func() -> void:
-		if _shown_money == new_money:
-			chip_stack.show_wallet()
-			chip_stack.pulse())
 
-## Ausgabe: der Zahlplan bestimmt, welche Chips die Börse verlassen; die Börse
-## wird sofort korrekt (Chips raus, Wechselgeld rein). Der Turm zeigt zunächst
-## den Stand NACH der Zahlung (ohne Wechselgeld); je gezahltem Chip hebt einer
-## ab und sinkt in den Auszahlungs-Schlitz, dann fährt sein Komet zum Hub. Steht
-## Wechselgeld an, ploppt es danach aus dem Einzahlungs-Schlitz auf den Turm.
-func _animate_money_spend(amount: int) -> void:
-	var treasure := table_screen.treasure_window
-	var plan := ChipStackView.payment_plan(chip_stack.wallet(), amount)
-	var spend_values := _spend_list(plan["spend"])
-	var change_values := ChipStackView.split_gain(int(plan["change"]))
-	chip_stack.remove_chips(plan["spend"])
-	chip_stack.add_chips(change_values)  # Börse jetzt endgültig (netto -Preis)
-	# Zwischenbild: Börse OHNE das noch nicht sichtbare Wechselgeld.
-	chip_stack.show_counts(ChipStackView.without(chip_stack.wallet(), change_values))
+## Die Zahl der 10.000er steht am Kopf ihrer Rinne, sobald sie in Lagen liegen.
+func _sync_tray_head(money: int) -> void:
+	if table_screen != null and table_screen.treasure_window != null:
+		table_screen.treasure_window.set_top_count(
+			ChipTrayView.belegung(money)[ChipTrayView.TOP])
 
-	for i in spend_values.size():
-		var value: int = spend_values[i]
-		var chip_color := ChipStackView.denomination_color(value)
-		var lift := func() -> void:
-			chip_stack.mint_chip(value, false)
-			get_tree().create_timer(ChipStackView.MINT_TIME).timeout.connect(func() -> void:
-				if treasure != null:
-					treasure.flash_pay_slot(chip_color)
-				var travel: float = table_screen.money_comet(false, _money_trail_color(chip_color))
-				get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-					_on_payment_comet_arrived(chip_color)))
-		if i == 0:
-			lift.call()
-		else:
-			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(lift)
-
-	# Wechselgeld tritt aus dem Einzahlungs-Schlitz, nachdem der letzte gezahlte
-	# Chip absorbiert wurde.
-	if change_values.is_empty():
+## Ein Chip ist links eingelaufen: der Kopf seiner Rinne blitzt.
+func _on_tray_chip_entered(rank: int) -> void:
+	if table_screen == null or table_screen.treasure_window == null:
 		return
-	var after_pay := float(maxi(0, spend_values.size() - 1)) * MONEY_PULSE_GAP + ChipStackView.MINT_TIME
-	get_tree().create_timer(after_pay).timeout.connect(func() -> void:
-		_animate_change_out(change_values))
+	table_screen.treasure_window.flash_entry(rank,
+		ChipStackView.denomination_color(ChipTrayView.VALUES[rank]))
 
-## Wechselgeld: je Chip leuchtet der Einzahlungs-Schlitz und ein Chip hüpft auf
-## den Turm; danach steht der Turm endgültig (Pop).
-func _animate_change_out(change_values: Array) -> void:
-	var treasure := table_screen.treasure_window
-	for i in change_values.size():
-		var value: int = int(change_values[i])
-		var chip_color := ChipStackView.denomination_color(value)
-		var pop := func() -> void:
-			if treasure != null:
-				treasure.flash_receive_slot(chip_color)
-			chip_stack.mint_chip(value, true)
-		if i == 0:
-			pop.call()
-		else:
-			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(pop)
-	var settle := float(maxi(0, change_values.size() - 1)) * MONEY_PULSE_GAP + ChipStackView.MINT_TIME
-	get_tree().create_timer(settle).timeout.connect(func() -> void:
-		chip_stack.show_wallet()
-		chip_stack.pulse())
-
-## Zahlplan {value: count} zur größten-zuerst geordneten Chip-Liste ausrollen.
-func _spend_list(spend: Dictionary) -> Array:
-	var out: Array = []
-	for value in ChipStackView.VALUES:
-		for _k in int(spend.get(value, 0)):
-			out.append(value)
-	return out
-
-# --- Chip-Umtausch am Schlitz (Zieh-Geste in der Chip-Zoomsicht) -------------
-
-## Maus auf Turm-lokale XZ-Koordinaten projizieren (null = kein Schnitt).
-func _chip_local_at(screen_pos: Vector2) -> Variant:
-	var hit: Variant = _mouse_on_plane(screen_pos, 0.0)
-	if hit == null:
-		return null
-	var world: Vector3 = hit
-	return Vector2(world.x - chip_stack.global_position.x, world.z - chip_stack.global_position.z)
-
-## Beginnt das Ziehen eines ganzen Turms (nur in der Chip-Zoomsicht): der Turm
-## verschwindet aus dem Rack und folgt als Geist der Maus zum Einwurf-Schlitz.
-func _try_start_chip_drag(screen_pos: Vector2) -> bool:
-	if _exchange_busy or run == null:
-		return false
-	var local: Variant = _chip_local_at(screen_pos)
-	if local == null:
-		return false
-	var index := chip_stack.tower_at(local)
-	if index == -1:
-		return false
-	var tower: Dictionary = chip_stack.towers()[index]
-	chip_drag_value = int(tower["value"])
-	chip_drag_count = int(tower["count"])
-	# Anzeige ohne den gezogenen Turm; die Börse selbst bleibt unangetastet,
-	# bis die Geste am Schlitz endet.
-	var lifted: Array = []
-	for _k in chip_drag_count:
-		lifted.append(chip_drag_value)
-	chip_stack.show_counts(ChipStackView.without(chip_stack.wallet(), lifted))
-	chip_drag_ghost = chip_stack.build_ghost_tower(chip_drag_value, chip_drag_count)
-	var at: Vector2 = tower["at"]
-	chip_drag_ghost.position = Vector3(at.x, 0.8, at.y)
-	camera_rig.set_tilt_locked(true)
-	return true
-
-## Zieh-Geste: Bewegung führt den Geist, Loslassen über einem Schlitz tauscht,
-## sonst (oder per Rechtsklick) schnappt der Turm zurück.
-func _handle_chip_drag_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion:
-		var local: Variant = _chip_local_at(event.position)
-		if local != null and chip_drag_ghost != null:
-			var xz: Vector2 = local
-			chip_drag_ghost.position = Vector3(xz.x, 0.8, xz.y)
+## Ein Chip ist rechts im Tisch verschwunden: der Rand blitzt, und war er gezahlt,
+## fährt sein Licht vom Auslauf zum Hub.
+func _on_tray_chip_left(rank: int, paid: bool) -> void:
+	if table_screen == null or table_screen.treasure_window == null:
 		return
-	if not (event is InputEventMouseButton) or event.pressed:
+	var color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
+	table_screen.treasure_window.flash_exit(rank, color)
+	if not paid or table_screen.hub == null:
 		return
-	if event.button_index == MOUSE_BUTTON_RIGHT:
-		_finish_chip_drag(false)
-		return
-	if event.button_index != MOUSE_BUTTON_LEFT:
-		return
-	var local: Variant = _chip_local_at(event.position)
-	var over_slot := false
-	if local != null:
-		var xz: Vector2 = local
-		over_slot = xz.distance_to(chip_stack.pay_slot_offset) <= ChipStackView.CHIP_RADIUS * 3.0 \
-			or xz.distance_to(chip_stack.receive_slot_offset) <= ChipStackView.CHIP_RADIUS * 3.0
-	_finish_chip_drag(over_slot)
-
-## Beendet die Geste: drop=true versucht den Umtausch am Schlitz (nur wenn
-## dabei ein höherer Chip entsteht), sonst kehrt der Turm ins Rack zurück.
-func _finish_chip_drag(drop: bool) -> void:
-	var value := chip_drag_value
-	var count := chip_drag_count
-	var ghost := chip_drag_ghost
-	chip_drag_value = -1
-	chip_drag_count = 0
-	chip_drag_ghost = null
-	camera_rig.set_tilt_locked(false)
-	var upgraded := ChipStackView.exchange_values(value, count)
-	if not drop or upgraded.is_empty() or ghost == null:
-		# Kein Tausch: Geist verwerfen, Rack unverändert wieder zeigen.
-		if ghost != null:
-			ghost.queue_free()
-		chip_stack.show_wallet()
-		return
-	_run_chip_exchange(value, count, upgraded, ghost)
-
-## Umtausch-Zeremonie: der Geister-Turm sinkt in den Einwurf-Schlitz, dann
-## treten die aufgewerteten Chips aus dem Ausgabe-Schlitz. Geldstand bleibt
-## unverändert - nur die Stückelung der Börse ändert sich.
-func _run_chip_exchange(value: int, count: int, upgraded: Array[int], ghost: Node3D) -> void:
-	_exchange_busy = true
-	_exchange_token += 1
-	var token := _exchange_token
-	var treasure := table_screen.treasure_window if table_screen != null else null
-	var chip_color := ChipStackView.denomination_color(value)
-
-	# Börse sofort endgültig umbuchen (Anzeige folgt der Choreografie).
-	var swallowed: Dictionary = {}
-	swallowed[value] = count
-	chip_stack.remove_chips(swallowed)
-	chip_stack.add_chips(upgraded)
-
-	# Der Geist sinkt geschlossen in den Einwurf-Schlitz.
-	var slot := chip_stack.pay_slot_offset
-	if treasure != null:
-		treasure.flash_pay_slot(chip_color)
-	var sink := create_tween()
-	sink.set_parallel(true)
-	sink.tween_property(ghost, "position", Vector3(slot.x, 0.0, slot.y), 0.3) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	sink.tween_property(ghost, "scale", Vector3.ONE * 0.05, 0.3) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	sink.chain().tween_callback(ghost.queue_free)
-
-	# Danach treten die aufgewerteten Chips aus dem Ausgabe-Schlitz.
-	get_tree().create_timer(0.38).timeout.connect(func() -> void:
-		if token != _exchange_token:
-			return
-		for i in upgraded.size():
-			var out_value: int = upgraded[i]
-			var pop := func() -> void:
-				if token != _exchange_token:
-					return
-				if treasure != null:
-					treasure.flash_receive_slot(ChipStackView.denomination_color(out_value))
-				chip_stack.mint_chip(out_value, true)
-			if i == 0:
-				pop.call()
-			else:
-				get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(pop)
-		var settle := float(maxi(0, upgraded.size() - 1)) * MONEY_PULSE_GAP + ChipStackView.MINT_TIME
-		get_tree().create_timer(settle).timeout.connect(func() -> void:
-			if token != _exchange_token:
-				return
-			_exchange_busy = false
-			chip_stack.show_wallet()
-			chip_stack.pulse()))
+	var launched := run
+	var travel: float = table_screen.money_comet(false, _money_trail_color(color), rank)
+	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
+		if run == launched:
+			_on_payment_comet_arrived(color))
 
 ## Ankunft eines Zahlungs-Kometen am Hub: der Rahmen blitzt in Chip-Farbe.
 func _on_payment_comet_arrived(chip_color: Color) -> void:
@@ -2520,7 +2324,7 @@ func _on_payment_comet_arrived(chip_color: Color) -> void:
 		hub.flash_frame(chip_color)
 
 ## Wette angeklickt (VOR der Zahlung): das generische Geld-Licht unterdrücken und
-## merken, was gleich fliegt - der Zahlplan aus der Börse und, solange die Pakete
+## merken, was gleich fliegt - die Stückelung des Einsatzes und, solange die Pakete
 ## noch liegen, ihre Magazin-Plätze. Danach steht an beiden Orten nichts mehr.
 func _on_side_bet_selected(index: int) -> void:
 	_suppress_money_light = true
@@ -2533,22 +2337,17 @@ func _on_side_bet_selected(index: int) -> void:
 	_pending_bet_packs = _bet_stake_pack_anchors(bet)
 	_pending_bet_chips = _bet_stake_chips(bet)
 
-## Die Chips, die der Spieler für diesen Einsatz WIRKLICH hinlegt - der Zahlplan
-## seiner Börse, höchster Wert zuerst. Gefragt VOR der Buchung.
+## Die Chips, die der Spieler für diesen Einsatz hinlegt - der Einsatz gierig
+## gestückelt, höchster Wert zuerst. Gefragt VOR der Buchung.
 func _bet_stake_chips(bet: SideBet) -> Array[int]:
 	var out: Array[int] = []
 	if run == null or SideBetPanel.is_tax_bet(bet) \
 			or bet.stake_kind != SideBet.Stake.MONEY:
 		return out
-	var plan := ChipStackView.payment_plan(chip_stack.wallet(), run.side_bet_stake(bet))
-	var spend: Dictionary = plan["spend"]
-	for value in ChipStackView.VALUES:
-		for i in int(spend.get(value, 0)):
-			out.append(int(value))
-	return out
+	return ChipStackView.split_greedy(run.side_bet_stake(bet))
 
 ## Wette platziert (nach der Zahlung): der Einsatz WIRD GEWORFEN - Geld als
-## gestapelte Salve von der Spitze des Schatzes, jedes geopferte Paket von seinem
+## gestapelte Salve von der Einlauf seiner Rinne im Chip-Tray, jedes geopferte Paket von seinem
 ## Magazin-Sitz, ⚡ als lose Zelle von der Bank. Er landet auf der PLATTFORM, und die
 ## senkt ihn ein: vom Einsatz liegt danach nie mehr etwas. In derselben Fahrt kommt
 ## der GEWINN in Sicht. Reines Schmuckwerk - gebucht ist der Einsatz längst.
@@ -2756,10 +2555,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_charm_drag_input(event)
 		return
 
-	if chip_drag_value != -1:
-		_handle_chip_drag_input(event)
-		return
-
 	if part_drag_key != "":
 		_handle_part_drag_input(event)
 		return
@@ -2918,9 +2713,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if not _dice_in_motion() and _try_start_pool_tray_drag(event.position):
-		return
-
-	if _felt_pick_live(CameraRig.Mode.CHIPS) and _try_start_chip_drag(event.position):
 		return
 
 	if _try_start_part_drag(event.position):
@@ -4299,7 +4091,8 @@ func _set_vitrine_shown(shown: bool) -> void:
 func _sync_vitrine_curtain() -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop):
 		return
-	var want := not _vitrine_building and phase == Phase.SHOP and charm_shop.visible
+	var want := not _vitrine_building and phase == Phase.SHOP and charm_shop.visible \
+		and not charm_shop.suspended()
 	if _vitrine_leaving:
 		# Der Abgang hält die Ladenseite stehen, bis die Ware hinaus ist. Ihn brechen
 		# nur zwei Dinge ab: ein WIEDER-Aufdecken und eine fremde Seite, die die
@@ -4316,10 +4109,10 @@ func _sync_vitrine_curtain() -> void:
 		_set_vitrine_shown(true)
 		_sync_vitrine_nets()
 		return
-	if phase == Phase.SHOP:
+	if phase == Phase.SHOP and not charm_shop.suspended():
 		_hide_vitrine_hard()  # nur VERDRÄNGT: sofort fort, gar nicht da
 		return
-	_play_vitrine_exit()  # der Laden schließt: die Maschine schluckt
+	_play_vitrine_exit()  # der Laden schließt oder tritt ab: die Maschine schluckt
 
 ## Der harte Sofort-Weg - und zugleich der ABBRUCH jeder Schluck-Zeremonie: jede
 ## Maschine still, jedes Loch zu, kein Körper mehr da (auch keiner, der noch
@@ -4354,6 +4147,10 @@ func _close_shop_page(fade: bool) -> void:
 	# Ein Laden, den eine fremde Seite eben verdrängt hat, schließt UNSICHTBAR - die
 	# Seitenregel dürfte ihn danach nicht als totes Standbild zurückholen.
 	hub.forget_page(charm_shop)
+	# Abgetreten für eine Paket-Öffnung: deren Seite übernimmt im selben Bild.
+	if charm_shop.suspended() and _choice != null:
+		_show_pack_choice_page()
+		return
 	if fade:
 		hub.fade_current_in()  # die Startseite kommt weich zurück
 
@@ -4997,15 +4794,14 @@ func _throw_scatter(target: Vector3, index: int, count: int) -> Vector3:
 	var angle := TAU * float(index) / float(count) + 0.6
 	return lie + Vector3(cos(angle), 0.0, sin(angle)) * THROW_SCATTER
 
-## Die Spitze des SCHATZES - dort hebt jedes geworfene Geld ab.
-func _treasure_throw_point() -> Vector3:
-	return chip_stack.global_position + Vector3.UP * chip_stack.top_y()
+## Der Einlauf der Rinne des geworfenen Werts - dort hebt geworfenes Geld ab.
+func _treasure_throw_point(value: int = 1) -> Vector3:
+	var rank := maxi(ChipTrayView.rank_of(value), 0)
+	return chip_tray.entry_point(rank) + Vector3.UP * ChipStackView.CHIP_HEIGHT
 
-## EIN Wurf-Chip in echter Stückelung, geliehen aus der Börse des Schatzes (ihre
-## Meshes und Materialien, kein zweiter Satz) und hierher umgehängt.
+## EIN Wurf-Chip in echter Stückelung (geteilte Meshes und Materialien).
 func _throw_chip_body(value: int) -> Node3D:
-	var ghost := chip_stack.build_ghost_tower(value, 1)
-	chip_stack.remove_child(ghost)
+	var ghost := ChipStackView.ghost_tower(value, 1)
 	add_child(ghost)
 	return ghost
 
@@ -6489,7 +6285,7 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 		SideBet.Payout.DICE_PACK:
 			var dice_pack := bet.reward_dice_pack(factor)
 			return {"body": "card_pack", "sort": dice_pack.sort, "tier": dice_pack.size,
-				"count": 1, "dice": true}
+				"count": 1, "dice": true, "quality": dice_pack.quality}
 	return _bet_pack_spec(bet, factor)
 
 ## Die Kassetten eines Karten-Gewinns in ihrer echten Sorte und Größe.
@@ -6621,7 +6417,8 @@ func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 	var body_kind := String(spec.get("body", ""))
 	if body_kind == "card_pack":
 		return _spawn_hull(String(spec.get("sort", "")),
-			int(spec.get("tier", CardPack.SIZE_NORMAL)), bool(spec.get("dice", false)), target)
+			int(spec.get("tier", CardPack.SIZE_NORMAL)), bool(spec.get("dice", false)), target,
+			int(spec.get("quality", DicePack.QUALITY_STANDARD)))
 	if body_kind == "cell" and bool(spec.get("stack", false)):
 		var stack := BetCardStack.new()
 		add_child(stack)
@@ -7080,7 +6877,7 @@ func _sync_bet_counter() -> void:
 			shaft.settle_hard()
 
 ## Die Steuer EINER genommenen Hand: gebucht hat GameRun, hier fliegt je zahlender
-## Wette EIN Meteor vom Schatz zu ihrem Fenster. Reine Anzeige.
+## Wette EIN Meteor vom Chip-Tray zu ihrem Fenster. Reine Anzeige.
 func _tax_side_bets(hand_dice: int) -> void:
 	var live: Array[SideBet] = []
 	for bet in run.active_side_bets:
@@ -7102,7 +6899,7 @@ func _tax_side_bets(hand_dice: int) -> void:
 		# Gewinn fährt hinaus, wie alles Verlorene in der Abrechnung.
 		_write_bet_counter(ShopController.GRADE_RISE, true)
 
-## Die STEUER reist als LICHT: je Buchung EIN Meteor vom Schatz zum Wettfenster, und
+## Die STEUER reist als LICHT: je Buchung EIN Meteor vom Chip-Tray zum Wettfenster, und
 ## bei der Ankunft leuchtet die BEDINGUNG der Wette kurz auf. Das ist die benannte
 ## AUSNAHME vom Bewegungs-Gesetz - was der Spieler zahlt, fliegt sonst als Körper,
 ## aber eine Kleinsteuer je Hand ist keine Geste, sie ist ein Ticken.
@@ -7419,7 +7216,7 @@ func _sink_payout_bodies() -> void:
 			return
 	_settle_payout_shafts()
 
-## Und DANN je Gewinnart ihr ZIEL-Licht (gebucht ist alles längst): Geld zum Schatz,
+## Und DANN je Gewinnart ihr ZIEL-Licht (gebucht ist alles längst): Geld zum Chip-Tray,
 ## ⚡ zur Bank, Paket und Sonderposten auf ihren reservierten Magazin-Platz, wo die
 ## zurückgehaltene Kassette aus dem Grubenboden steigt, ein Modul fährt zu den
 ## Chips. Die Presse-Marke zeigt sich selbst.
@@ -7485,7 +7282,7 @@ func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 	if int(claim.get("money", 0)) > 0:
 		_fly_payout_money()
 
-## Geld ab HUB: der Komet fährt die Schatz-Leiste hinunter, die Truhe quittiert.
+## Geld ab HUB: der Komet fährt die Tray-Leiste hinunter, die Fassung quittiert.
 func _fly_payout_money() -> void:
 	var launched := run
 	var travel := table_screen.money_comet(true, TableScreen.SIDE_MONEY_COLOR)
@@ -7600,8 +7397,8 @@ func _bet_stake_pack_anchors(bet: SideBet) -> Array[Vector2]:
 	return out
 
 ## Der EINSATZ wird GEWORFEN: was der Spieler zahlt, fliegt als Körper von seinem
-## echten Zuhause MITTIG auf den Plot - Geld als gestaffelte Salve von der Spitze des
-## Schatzes, die sich dort zu EINEM flachen Turm stapelt, jedes geopferte Paket von
+## echten Zuhause MITTIG auf den Plot - Geld als gestaffelte Salve vom Einlauf seiner
+## Rinne im Chip-Tray, die sich dort zu EINEM flachen Turm stapelt, jedes geopferte Paket von
 ## SEINEM Magazin-Sitz, ⚡ als lose Zelle vom Energie-Ring. Erst wenn der
 ## Stapel VOLL steht, bekommt on_land die gelandeten Körper - und die Sektion senkt
 ## sie ein. Liefert die Laufzeit der Salve.
@@ -7614,7 +7411,7 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 	match bet.stake_kind:
 		SideBet.Stake.PACKS:
 			# Je geopfertem Paket EINE Kassette, jede von IHREM Sitz - ohne Magazin
-			# (Werkbank nicht gestellt) wirft der Schatz vom Hub-Rand her.
+			# (Werkbank nicht gestellt) wirft das Chip-Tray vom Hub-Rand her.
 			var anchors := pack_anchors.duplicate()
 			if anchors.is_empty():
 				anchors.append(Vector2(-1, -1))  # kein Magazin: der Hub zahlt
@@ -7634,9 +7431,8 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 					"to": _throw_scatter(seat, i, mini(count, THROW_SALVO_CAP))})
 		_:
 			var bodies := _throw_chip_bodies(chips)
-			var from := _treasure_throw_point()
 			for i in bodies.size():
-				entries.append({"body": bodies[i], "from": from,
+				entries.append({"body": bodies[i], "from": _treasure_throw_point(chips[i]),
 					"to": seat + Vector3.UP * (BetPrizeView.FLOOR_CLEAR
 						+ ChipStackView.stack_lift(i))})
 	return _throw_bodies(entries, on_land, true)
@@ -9027,12 +8823,12 @@ func _bench_stage_under(screen_pos: Vector2) -> FloatingDie:
 		return null
 	return bench_stage if bench_stage.under(camera, screen_pos) else null
 
-## --- Die PAKET-AUSWAHL in der WURFGRUBE ----------------------------------------
+## --- Die PAKET-AUSWAHL im HUB ------------------------------------------------------
 ## Gebucht ist beim Kauf (GameRun.pending_pack_choices): Optionen und Wahlen stehen
-## fest. Hier öffnet sich das Paket über der Grube, die Optionen fallen hinein und
-## reihen sich auf, dann nennt der Zähler die Wahlen. Die Ansicht ist MODAL wie der
-## Zwang. Jeder Abbruch läuft durch _settle_pack_openings - ein offenes Paket bleibt
-## in GameRun stehen und öffnet beim nächsten Hinsehen neu.
+## fest. Der Laden TRITT AB (ShopController.suspend, Schluck-Zeremonie), das Paket
+## öffnet sich auf einer eigenen Hub-Seite, die Kamera bleibt am Hub. Die Ansicht ist
+## MODAL wie der Zwang. Jeder Abbruch läuft durch _settle_pack_openings - ein offenes
+## Paket bleibt in GameRun stehen und öffnet beim nächsten Hinsehen neu.
 
 const PACK_DROP_HEIGHT := 9.0
 const PACK_HULL_REST := 3.2
@@ -9044,7 +8840,6 @@ const PACK_DIE_BOUNCE := 0.35
 ## Eine gewählte Option hebt sich so weit.
 const PACK_PICK_LIFT := 0.45
 const PACK_PICK_SPEED := 4.0
-const PACK_CHOICE_MARGIN := 1.06
 ## Der Platz eines Würfels in Würfelkanten - er will getroffen werden.
 const PACK_DIE_SLOT := 2.1
 const PACK_LEAVE_TIME := 0.4
@@ -9054,17 +8849,41 @@ const PACK_DIE_REST := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE + 0.03
 const PACK_CASE_FLIGHT := 0.85
 const PACK_CASE_PEAK := 4.0
 const PACK_CASE_CLEAR := 0.03
-const PACK_CASE_RELEASE_MARGIN := 1.2
 const PACK_CASE_SEAM := 0.15
 ## Das große Öffnen: der Deckel schwingt über, die Grubenwände schlagen an.
 const PACK_CASE_LID_OPEN := 0.5
 const PACK_CASE_SLAM_TIME := 0.18
 const PACK_CASE_OPEN_SLAM := 0.35
-const PACK_CASE_CLIMAX_SLAM := 1.0
-## Der Sprung eines Würfels aus der Schatulle; jeder spätere springt höher.
+## Ein Zusatz-Würfel schlägt in die Wände: jeder stärker als der vorige.
+const PACK_CASE_EXTRA_SLAM := 0.45
+const PACK_CASE_EXTRA_SLAM_STEP := 0.15
+## Der Sprung zurück in die Schatulle.
 const PACK_CASE_JUMP := 0.55
 const PACK_CASE_JUMP_PEAK := 2.6
-const PACK_CASE_JUMP_RISE := 1.6
+const PACK_CASE_REOPEN := 0.2
+## Der AUSWURF: Wegwerf-Körper mit der Physik der Grube, auf einer eigenen Ebene - der
+## Rundenwurf (Ebene 2) sieht sie nicht, und sie sehen ihn nicht.
+const PACK_LAUNCH_LAYER := 1 << 9
+const PACK_LAUNCH_EMERGE := 0.12
+const PACK_LAUNCH_UP := 9.0
+const PACK_LAUNCH_SPIN := 14.0
+const PACK_LAUNCH_BOUNCE := 0.35
+## Die LANDEFLÄCHE der Wegwerf-Würfel auf dem Hub: unsichtbarer Boden (Oberkante =
+## Tischhöhe) und Wände ringsum, allein auf PACK_LAUNCH_LAYER.
+const PACK_GROUND_THICK := 1.0
+const PACK_GROUND_WALL := 6.0
+const PACK_GROUND_WALL_THICK := 0.6
+## Ein Wandtreffer läßt den Hub-Rahmen in der Strahlfarbe aufblitzen.
+const PACK_WALL_FLASH := 0.35
+## Das Rütteln: Ausschlag in Welt, der Deckel klappert mit.
+const PACK_RATTLE_SHAKE := 0.07
+const PACK_RATTLE_LID := 0.08
+## Zur Ruhe: liegt alles still oder ist die Höchstzeit um, friert alles hart ein.
+const PACK_SETTLE_MAX := 2.4
+const PACK_SETTLE_SPEED := 0.2
+## Alle heben sich ZUGLEICH und gleiten in die Aufstellung.
+const PACK_LINEUP_TIME := 0.75
+const PACK_LINEUP_LIFT := 1.8
 const PACK_CASE_BEAM_HEIGHT := 7.0
 const PACK_CASE_BEAM_REST := 0.35
 const PACK_DIE_FLIGHT := 0.6
@@ -9078,7 +8897,9 @@ var _choice: PackChoice = null
 ## Bestätigt: die Körper räumen ab, modal ist nichts mehr.
 var _choice_leaving := false
 var _choice_gen := 0
-var _choice_home: Dictionary = {}
+## Bilder, die der Laden nach einem Kauf in Ruhe steht, bevor er abtritt.
+const PACK_SHOP_SETTLE_FRAMES := 3
+var _choice_settle_frames := 0
 var _choice_hull: CardPackView = null
 ## Je Option ihr Körper (Würfel-Geist oder DataCellView), index-treu, und ihr Platz.
 var _choice_bodies: Array[Node3D] = []
@@ -9089,6 +8910,13 @@ var _case_bought: CardPackView = null
 ## Die Show läuft (ein Klick springt an ihr Ende), und wer zurück in die Schatulle springt.
 var _case_show_on := false
 var _case_returning: Array[Node3D] = []
+## Je Option ihr Wegwerf-Körper während des Auswurfs (index-treu, null = keiner).
+var _case_rigid: Array[RigidBody3D] = []
+var _case_collider: StaticBody3D = null
+## Boden und Wände der Landefläche - gebaut beim Öffnen, fort im harten Weg.
+var _case_ground: StaticBody3D = null
+var _case_rattle: Tween = null
+var _case_seat := Vector3.ZERO
 ## Licht- und Klang-Show der Schatulle (Töne beim Aufbau synthetisiert).
 var case_show: CaseShow
 ## Gewählte Würfel auf dem Weg zur Schale: {ghost, def, tween}.
@@ -9098,10 +8926,11 @@ var _case_sinking: CardPackView = null
 var _case_shaft: LiftShaftView = null
 
 ## Die Hülle eines Pakets, liegend im Anzeigemaß der Karten.
-func _spawn_hull(pack_sort: String, pack_size: int, dice: bool, at: Vector3) -> CardPackView:
+func _spawn_hull(pack_sort: String, pack_size: int, dice: bool, at: Vector3,
+		quality := DicePack.QUALITY_STANDARD) -> CardPackView:
 	var hull := CardPackView.new()
 	add_child(hull)
-	hull.setup_pack(pack_sort, pack_size, dice)
+	hull.setup_pack(pack_sort, pack_size, dice, quality)
 	hull.rotation.y = -PI / 2.0
 	hull.badge_on_face = true
 	hull.set_body_scale(PackDrawerView.CASSETTE_SCALE)
@@ -9148,11 +8977,11 @@ func _pack_choice_modal() -> bool:
 func _pack_choice_rect() -> Rect2:
 	if pack_choice_view == null or not pack_choice_view.visible:
 		return Rect2()
-	return Rect2(pack_choice_view.position, pack_choice_view.size)
+	return pack_choice_view.page_rect_px()
 
-## Je Bild: liegt ein geöffnetes Paket bereit und ist der Tisch frei, holt es die
-## Kamera an die Grube. Würfel, die noch ihren Platz suchen, und ein wartendes Modul
-## gehen vor - eines nach dem anderen.
+## Je Bild: liegt ein geöffnetes Paket bereit und steht der Laden in Ruhe, tritt er
+## ab und das Paket öffnet sich im Hub. Würfel, die noch ihren Platz suchen, und ein
+## wartendes Modul gehen vor - eines nach dem anderen.
 func _sync_pack_choice() -> void:
 	if _choice != null:
 		if _choice_leaving:
@@ -9173,18 +9002,61 @@ func _sync_pack_choice() -> void:
 		return
 	if not run.pending_dice.is_empty() or _part_install_forced() or _install_seating:
 		return
-	if charm_shop == null or not charm_shop.visible or charm_shop.leaving():
+	if not _shop_at_rest():
+		_choice_settle_frames = 0
 		return
+	# Der Kauf hat die Ladenseite eben umgebaut: ihre Container sortieren erst in den
+	# nächsten Bildern, und der Abgang mäße sonst an verrutschten Rechtecken.
+	_choice_settle_frames += 1
+	if _choice_settle_frames < PACK_SHOP_SETTLE_FRAMES:
+		return
+	_choice_settle_frames = 0
 	_open_pack_choice(run.current_pack_choice())
 
-## Die Ansicht spannt sich über den Grubenboden wie die Vertragswahl.
-func _place_pack_choice_view() -> void:
-	if pack_choice_view == null or table_screen == null or table_screen.pit_window == null:
+## Der Laden steht in RUHE: offen, fertig gebaut, nicht im Abgang - erst dann tritt er
+## für ein Paket ab (sonst bliebe ein halber Auftritt oder ein Abgang hängen).
+func _shop_at_rest() -> bool:
+	return charm_shop != null and charm_shop.visible and not charm_shop.leaving() \
+		and not charm_shop.suspended() and _vitrine_curtain and not _vitrine_building \
+		and not _vitrine_leaving
+
+## Der Laden tritt ab: dieselbe Schluck-Zeremonie wie beim Schließen, ohne closed.
+func _suspend_shop() -> void:
+	if charm_shop == null or charm_shop.suspended():
 		return
-	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
-	var inset := pit.size.x * ROUTE_CHOICE_INSET * 0.5
-	pack_choice_view.position = pit.position + Vector2(inset, inset)
-	pack_choice_view.size = pit.size - Vector2(inset, inset) * 2.0
+	charm_shop.suspend()
+	_sync_vitrine_curtain()
+
+## Der Laden kehrt zurück - dieselbe Auslage, nichts neu gewürfelt, aufdeckend. Die
+## Öffnungs-Seite muß dafür schon zu sein, sonst verdrängte er sie in die Rückkehr-Liste.
+func _resume_shop() -> void:
+	if charm_shop == null or not is_instance_valid(charm_shop) or not charm_shop.suspended():
+		return
+	if table_screen != null and table_screen.hub != null and pack_choice_view != null:
+		table_screen.hub.forget_page(pack_choice_view)
+	if phase != Phase.SHOP or run == null:
+		charm_shop.cancel_suspend()
+		return
+	charm_shop.reopen()
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.fade_current_in()
+	_sync_shop_vitrine(true)
+
+## Die Ladenseite hat ihre Fläche abgegeben: jetzt übernimmt die Öffnung.
+func _show_pack_choice_page() -> void:
+	if pack_choice_view == null or _choice == null or _choice_leaving:
+		return
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.queue_page(pack_choice_view)
+	else:
+		pack_choice_view.visible = true
+
+## Bis die Seite steht: true, wenn die Öffnung noch dieselbe ist.
+func _await_pack_choice_page(generation: int, launched: GameRun) -> bool:
+	while generation == _choice_gen and run == launched and not pack_choice_view.visible:
+		await get_tree().process_frame
+	await get_tree().process_frame  # die Plätze stehen erst nach dem Layout
+	return generation == _choice_gen and run == launched
 
 ## Der Fußabdruck einer Option in Display-Pixeln - EINE Größe je Ding: die liegende
 ## Karte bzw. der Würfel mit seinem Platz drumherum.
@@ -9208,19 +9080,21 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	_choice_gen += 1
 	var generation := _choice_gen
 	var launched := run
-	_choice_home = camera_rig.camera_pose()
 	camera_rig.set_tilt_locked(true)
-	_place_pack_choice_view()
+	if camera_rig.mode != CameraRig.Mode.HUB:
+		camera_rig.zoom_to(CameraRig.Mode.HUB)
+	_suspend_shop()
 	if choice.is_dice():
 		_open_dice_case(choice, generation, launched)
 		return
 	_drop_bought_case()
-	camera_rig.frame_rect(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z),
-		Vector2(DicePit.PIT_HALF_Z, DicePit.PIT_HALF_X), PACK_CHOICE_MARGIN)
 	pack_choice_view.open(choice, _pack_option_px(choice), run.pack_reshuffle_cost(choice),
 		run.energy)
-	# Das Paket erscheint über der Grube und fällt ihr entgegen.
-	var drop := Vector3(DicePit.PIT_CENTER.x, PACK_DROP_HEIGHT, DicePit.PIT_CENTER.z)
+	if not await _await_pack_choice_page(generation, launched):
+		return
+	# Das Paket erscheint über der Mitte der Seite und fällt ihr entgegen.
+	var seat := table_screen.pixel_to_world(pack_choice_view.hull_seat_px())
+	var drop := Vector3(seat.x, PACK_DROP_HEIGHT, seat.z)
 	var pack_sort := String(choice.pack.get("sort"))
 	_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop)
 	_choice_hull.lie_on_glass(drop)
@@ -9228,9 +9102,6 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	_choice_hull.glide_to(drop - Vector3.UP * (PACK_DROP_HEIGHT - PACK_HULL_REST),
 		PACK_HULL_FALL)
 	await get_tree().create_timer(PACK_HULL_FALL).timeout
-	if generation != _choice_gen or run != launched:
-		return
-	await get_tree().process_frame  # die Plätze der Ansicht stehen erst nach dem Layout
 	if generation != _choice_gen or run != launched:
 		return
 	var from := _choice_hull.global_position if is_instance_valid(_choice_hull) else drop
@@ -9298,10 +9169,10 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 			fall.chain().tween_property(ghost, "global_position", target,
 				PACK_DIE_BOUNCE * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
-## --- Die SCHATULLE: Würfel-Pakete öffnen sich IN der Grube --------------------
-## Die gekaufte Schatulle fliegt aus ihrer Bucht in die Grube, klappt auf, und die
-## Optionen liegen die ganze Zeit IN ihr. Bestätigt fliegen die Gewählten in die
-## Schale, die Schatulle klappt zu und der Tisch zieht sie samt Rest ein.
+## --- Die SCHATULLE: Würfel-Pakete öffnen sich AUF der Hub-Seite -----------------
+## Die gekaufte Schatulle fliegt aus ihrer Bucht an die obere Mitte des Hubs, klappt
+## auf, und die Würfel springen auf eine unsichtbare Landefläche. Bestätigt fliegen
+## die Gewählten in die Schale, die Schatulle klappt zu und der Tisch zieht sie ein.
 
 ## Der Laden hat ein Würfel-Paket gebucht: seine Schatulle verläßt die Bucht als
 ## KÖRPER (die Bucht fährt für sie keine Sektion) und wartet aufs Öffnen.
@@ -9350,15 +9221,17 @@ func _case_mouth(hull: CardPackView) -> Vector3:
 		sum += frame * corner
 	return sum / float(corners.size()) + Vector3.UP * PACK_DIE_REST
 
-## Die Plätze der Aufstellung in Welt - Endzustand zuerst: sie stehen, bevor einer springt.
+## Die Plätze der Aufstellung in Welt - Endzustand zuerst: sie stehen, bevor einer fliegt.
 func _case_targets(choice: PackChoice) -> void:
 	_choice_rest.clear()
 	_choice_bodies.clear()
+	_case_rigid.clear()
 	var centers := pack_choice_view.slot_centers()
 	for i in choice.option_count():
 		var px: Vector2 = centers[i] if i < centers.size() else Vector2.ZERO
 		_choice_rest.append(table_screen.pixel_to_world(px) + Vector3.UP * PACK_DIE_REST)
 		_choice_bodies.append(null)
+		_case_rigid.append(null)
 
 func _open_dice_case(choice: PackChoice, generation: int, launched: GameRun) -> void:
 	var hull := _case_bought
@@ -9366,26 +9239,30 @@ func _open_dice_case(choice: PackChoice, generation: int, launched: GameRun) -> 
 	var flown := hull != null and is_instance_valid(hull)
 	if not flown:
 		# Ohne Kauf (ein Wett-Gewinn) erscheint sie gleich an ihrem Platz.
-		hull = _spawn_hull(String(choice.pack.get("sort")), choice.size, true, Vector3.ZERO)
+		hull = _spawn_hull(String(choice.pack.get("sort")), choice.size, true, Vector3.ZERO,
+			choice.quality)
 		hull.visible = false
 	_choice_hull = hull
 	hull.set_lid_open(0.0)
+	hull.set_pips(choice.base_count)
 	pack_choice_view.open(choice, Vector2.ONE * _die_edge_px(), run.pack_reshuffle_cost(choice),
 		run.energy, false, _case_footprint_px(hull), VitrineView.die_up_face())
 	var rest := table_screen.pixel_to_world(pack_choice_view.case_seat_px())
 	rest.y = PACK_CASE_CLEAR
-	camera_rig.frame_rect(Vector3(DicePit.PIT_CENTER.x, 0.0, DicePit.PIT_CENTER.z),
-		Vector2(DicePit.PIT_HALF_Z, DicePit.PIT_HALF_X), PACK_CHOICE_MARGIN)
 	_case_targets(choice)
+	# Sie fliegt schon, während der Laden abtritt; die Show wartet auf die Seite.
 	if flown:
 		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
 		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
-	else:
+	if not await _await_pack_choice_page(generation, launched):
+		return
+	if not flown:
+		hull.visible = true
 		hull.lie_on_glass(rest)
 		hull.materialize()
 		await get_tree().create_timer(DataCellView.MATERIALIZE_TIME).timeout
-	if generation != _choice_gen or run != launched:
-		return
+		if generation != _choice_gen or run != launched:
+			return
 	_play_case_show(generation, launched)
 
 ## Der Lichtstrahl aus der Schatulle - ihr Kind, er sinkt mit ihr.
@@ -9402,63 +9279,149 @@ func _case_beam(hull: CardPackView) -> MeshInstance3D:
 	beam.global_position = _case_mouth(hull) + Vector3.UP * PACK_CASE_BEAM_HEIGHT * 0.5
 	return beam
 
-## Die SHOW: der Deckel springt auf, Licht strömt heraus, und einer nach dem anderen
-## springen die Würfel auf ihre Plätze - jeder Moment größer als der vorige, der letzte
-## der Höhepunkt. Ein Klick springt ans Ende (_end_case_show).
+func _case_show_live(generation: int, launched: GameRun) -> bool:
+	return generation == _choice_gen and run == launched and _case_show_on \
+		and _choice_hull != null and is_instance_valid(_choice_hull)
+
+## Die ÖFFNUNG: der Deckel springt auf, die Grund-Würfel schießen im ruhigen Takt in die
+## Grube, dann RÜTTELT die Schatulle - und entweder schlägt der Deckel zu, oder noch einer
+## kommt, größer als der vorige. Danach Ruhe, Aufstellung, Enthüllung (im Fenster).
+## Ein Klick springt ans Ende (_end_case_show).
 func _play_case_show(generation: int, launched: GameRun) -> void:
 	var hull := _choice_hull
 	if hull == null or not is_instance_valid(hull):
 		return
 	_case_show_on = true
+	_case_seat = hull.global_position
 	var count := _choice.option_count()
+	var base := clampi(_choice.base_count, 1, count)
 	var beam := _case_beam(hull)
 	hull.swing_lid(true, PACK_CASE_LID_OPEN)
 	if case_show != null:
 		case_show.play_open()
-	CaseShow.pulse_beam(beam, CaseShow.GLOW_FIRST, PACK_CASE_BEAM_REST)
-	var case_px := table_screen.world_to_pixel(hull.global_position)
-	table_screen.pit_impulse(case_px, "crit", Color(CaseShow.BEAM_COLOR, 1.0))
-	if dice_pit != null:
-		dice_pit.slam(PACK_CASE_OPEN_SLAM)
+	CaseShow.pulse_beam(beam, CaseShow.GLOW_BASE, PACK_CASE_BEAM_REST)
+	_case_impulse(table_screen.world_to_pixel(_case_seat), Color(CaseShow.BEAM_COLOR, 1.0))
+	_case_slam(PACK_CASE_OPEN_SLAM)
+	_build_case_collider(hull)
+	_build_case_ground()
 	await get_tree().create_timer(PACK_CASE_LID_OPEN * 0.6).timeout
-	for i in count:
-		if generation != _choice_gen or run != launched or not _case_show_on:
+	for i in base:
+		if not _case_show_live(generation, launched):
 			return
-		await get_tree().create_timer(CaseShow.beat(i, count)).timeout
-		if generation != _choice_gen or run != launched or not _case_show_on:
+		await get_tree().create_timer(CaseShow.launch_beat()).timeout
+		if not _case_show_live(generation, launched):
 			return
-		_jump_case_die(i, count)
-	await get_tree().create_timer(PACK_CASE_JUMP).timeout
-	if generation != _choice_gen or run != launched or not _case_show_on:
+		_launch_case_die(i, 0)
+	var extras := 0
+	while true:
+		if not _case_show_live(generation, launched):
+			return
+		# Das Rütteln vor dem Urteil gibt es IMMER - man weiß nie, ob es das war.
+		var shake := CaseShow.rattle_time(extras)
+		_rattle_case(shake, CaseShow.glow(extras + 1))
+		if case_show != null:
+			case_show.play_rattle(extras)
+		await get_tree().create_timer(shake).timeout
+		if not _case_show_live(generation, launched):
+			return
+		var next := base + extras
+		if next >= count:
+			break
+		extras += 1
+		_launch_case_die(next, extras)
+		await get_tree().create_timer(PACK_LAUNCH_EMERGE).timeout
+	_shut_case(hull)
+	var waited := 0.0
+	while waited < PACK_SETTLE_MAX and not _case_dice_resting():
+		await get_tree().physics_frame
+		if not _case_show_live(generation, launched):
+			return
+		waited += get_physics_process_delta_time()
+	_rise_into_lineup()
+	await get_tree().create_timer(PACK_LINEUP_TIME).timeout
+	if not _case_show_live(generation, launched):
 		return
-	_end_case_show()
+	pack_choice_view.play_reveal()
 
-## Ein Würfel springt aus dem Mund der Schatulle auf seinen Platz - mit Taumeln, das auf
-## seiner Ruhelage endet.
-func _jump_case_die(index: int, count: int) -> void:
+## Ein Würfel schießt aus dem Mund: er hebt sich aus der Schatulle und fliegt dann als
+## Wegwerf-Körper in die Grube. level 0 = Grund-Würfel, k = der k-te Zusatz.
+func _launch_case_die(index: int, level: int) -> void:
 	var hull := _choice_hull
 	if hull == null or not is_instance_valid(hull) or index >= _choice_rest.size():
 		return
 	var ghost := _case_ghost(index)
-	var from := _case_mouth(hull)
-	var target: Vector3 = _choice_rest[index]
-	var rest_basis: Basis = ghost.get_meta("rest_basis")
-	ghost.global_position = from
-	ghost.rotation = Vector3(randf_range(-PI, PI), randf_range(-PI, PI), randf_range(-PI, PI))
-	var rest_rotation := rest_basis.get_euler()
-	var peak := PACK_CASE_JUMP_PEAK + CaseShow.share(index, count) * PACK_CASE_JUMP_RISE
-	var jump := create_tween().set_parallel(true)
-	jump.tween_method(func(t: float) -> void:
-		if is_instance_valid(ghost):
-			ghost.global_position = from.lerp(target, t) + Vector3.UP * peak * 4.0 * t * (1.0 - t),
-		0.0, 1.0, PACK_CASE_JUMP)
-	jump.tween_property(ghost, "rotation", rest_rotation, PACK_CASE_JUMP) \
+	var body := _case_rigid_body(level)
+	add_child(body)
+	_case_rigid[index] = body
+	var mouth := _case_mouth(hull)
+	var top := hull.global_position.y + hull.thickness() * hull.body_scale() + PACK_DIE_REST * 1.5
+	var emerge := Vector3(mouth.x, maxf(top, mouth.y), mouth.z)
+	body.global_transform = Transform3D(Basis.from_euler(Vector3(randf_range(-PI, PI),
+		randf_range(-PI, PI), randf_range(-PI, PI))), mouth)
+	ghost.reparent(body, false)
+	ghost.transform = Transform3D(Basis.from_scale(Vector3.ONE * DiceTrayView.DIE_SCALE),
+		Vector3.ZERO)
+	var rise := body.create_tween()
+	rise.tween_property(body, "global_position", emerge, PACK_LAUNCH_EMERGE) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	jump.chain().tween_callback(_land_case_show_die.bind(index, count))
-	ghost.set_meta("jump", jump)
-	CaseShow.pulse_beam(_case_beam(hull), CaseShow.glow(index, count), PACK_CASE_BEAM_REST)
+	rise.tween_callback(_fire_case_die.bind(body, level))
+	body.set_meta("rise", rise)
+	CaseShow.pulse_beam(_case_beam(hull), CaseShow.glow(level), PACK_CASE_BEAM_REST)
+	if case_show != null:
+		case_show.play_launch(level)
+	var glow := CaseShow.glow(level)
+	_case_impulse(table_screen.world_to_pixel(_case_seat), Color(CaseShow.BEAM_COLOR * glow, 1.0))
+	if level > 0:
+		_case_slam(minf(PACK_CASE_EXTRA_SLAM + PACK_CASE_EXTRA_SLAM_STEP * float(level), 1.0))
 
-## Der Körper der Option index - gebaut beim Sprung, nie zweimal.
+## Der Wegwerf-Körper: Würfelmaß, Würfelphysik, eine eigene Kollisionsebene.
+func _case_rigid_body(level: int) -> RigidBody3D:
+	var body := RigidBody3D.new()
+	body.name = "CaseDie"
+	body.collision_layer = PACK_LAUNCH_LAYER
+	body.collision_mask = PACK_LAUNCH_LAYER
+	body.gravity_scale = 3.5
+	body.linear_damp = 0.2
+	body.angular_damp = 0.4
+	body.continuous_cd = true
+	body.freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
+	body.freeze = true
+	var material := PhysicsMaterial.new()
+	material.bounce = PACK_LAUNCH_BOUNCE
+	material.friction = DicePit.FRICTION
+	body.physics_material_override = material
+	var shape := BoxShape3D.new()
+	shape.size = Vector3.ONE * DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	body.add_child(collision)
+	body.contact_monitor = true
+	body.max_contacts_reported = 4
+	body.body_entered.connect(func(other: Node) -> void:
+		if other == _case_ground:
+			_case_slam(PACK_WALL_FLASH * CaseShow.launch_gain(level)))
+	return body
+
+## Losgelassen: ein Bogen auf einen Zufallspunkt der Aufstellungs-Fläche; ein Zusatz-
+## Würfel schießt mit mehr Schub, also höher und weiter - er prallt von den Wänden.
+func _fire_case_die(body: RigidBody3D, level: int) -> void:
+	if not is_instance_valid(body):
+		return
+	var gain := CaseShow.launch_gain(level)
+	var area := pack_choice_view.lineup_area_px()
+	var aim := table_screen.pixel_to_world(area.position + Vector2(randf(), randf()) * area.size)
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) \
+		* body.gravity_scale
+	var up := PACK_LAUNCH_UP * gain
+	var flight := maxf(up / gravity + sqrt(maxf(up * up / (gravity * gravity)
+		+ 2.0 * body.global_position.y / gravity, 0.0)), 0.1)
+	var reach := Vector3(aim.x - body.global_position.x, 0.0, aim.z - body.global_position.z)
+	body.freeze = false
+	body.linear_velocity = reach / flight * gain + Vector3.UP * up
+	body.angular_velocity = Vector3(randf_range(-1, 1), randf_range(-1, 1),
+		randf_range(-1, 1)).normalized() * PACK_LAUNCH_SPIN * gain
+
+## Der Körper der Option index - gebaut beim Auswurf, nie zweimal.
 func _case_ghost(index: int) -> Node3D:
 	var ghost := _choice_bodies[index]
 	if ghost != null and is_instance_valid(ghost):
@@ -9471,41 +9434,234 @@ func _case_ghost(index: int) -> Node3D:
 	_choice_bodies[index] = ghost
 	return ghost
 
-## Gelandet: sein Netz erscheint, der Ring läuft über den Grubenboden, der Ton steigt.
-func _land_case_show_die(index: int, count: int) -> void:
-	if not _case_show_on:
+## Ein Deckel aus Kollision über dem Grundriß der Schatulle - sonst fiele ein Würfel in sie.
+func _build_case_collider(hull: CardPackView) -> void:
+	_drop_case_collider()
+	var corners := hull.case_outline_local()
+	if corners.is_empty():
 		return
-	var glow := CaseShow.glow(index, count)
-	pack_choice_view.reveal_net(index)
-	if case_show != null:
-		case_show.play_die(index, count)
-	var centers := pack_choice_view.slot_centers()
-	if index < centers.size():
-		table_screen.pit_impulse(centers[index], "base", Color(CaseShow.BEAM_COLOR * glow, 1.0))
-	if CaseShow.is_climax(index, count):
-		if dice_pit != null:
-			dice_pit.slam(PACK_CASE_CLIMAX_SLAM)
-		table_screen.pack_arrival_flash(table_screen.world_to_pixel(_choice_hull.global_position),
-			Color(CaseShow.BEAM_COLOR * glow, 1.0))
+	var frame := _case_frame(hull, hull.global_position)
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner in corners:
+		var at := frame * corner
+		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	var height := hull.thickness() * hull.body_scale()
+	_case_collider = StaticBody3D.new()
+	_case_collider.name = "CaseCollider"
+	_case_collider.collision_layer = PACK_LAUNCH_LAYER
+	_case_collider.collision_mask = 0
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(hi.x - lo.x, height, hi.y - lo.y)
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	_case_collider.add_child(collision)
+	add_child(_case_collider)
+	_case_collider.global_position = Vector3((lo.x + hi.x) * 0.5,
+		hull.global_position.y + height * 0.5, (lo.y + hi.y) * 0.5)
 
-## Das Ende der Show - auch der Klick dorthin: jeder Würfel steht hart auf seinem Platz,
-## alle Netze stehen, dann zählt der Zähler.
+## Die LANDEFLÄCHE: ein unsichtbarer Boden über der Seite (ohne ihren Rand), Oberkante
+## auf Tischhöhe, dazu vier Wände an ihren Rändern - nur für die Wegwerf-Würfel.
+func _build_case_ground() -> void:
+	_drop_case_ground()
+	if pack_choice_view == null or table_screen == null:
+		return
+	var page := pack_choice_view.landing_rect_px()
+	var a := table_screen.pixel_to_world(page.position)
+	var b := table_screen.pixel_to_world(page.end)
+	var lo := Vector2(minf(a.x, b.x), minf(a.z, b.z))
+	var hi := Vector2(maxf(a.x, b.x), maxf(a.z, b.z))
+	var center := Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5)
+	var span := Vector2(hi.x - lo.x, hi.y - lo.y)
+	_case_ground = StaticBody3D.new()
+	_case_ground.name = "CaseGround"
+	_case_ground.collision_layer = PACK_LAUNCH_LAYER
+	_case_ground.collision_mask = 0
+	var material := PhysicsMaterial.new()
+	material.bounce = DicePit.BOUNCE
+	material.friction = DicePit.FRICTION
+	_case_ground.physics_material_override = material
+	add_child(_case_ground)
+	_case_ground.global_position = center
+	var t := PACK_GROUND_WALL_THICK
+	var h := PACK_GROUND_WALL
+	_add_case_box(Vector3(span.x, PACK_GROUND_THICK, span.y),
+		Vector3(0.0, -PACK_GROUND_THICK * 0.5, 0.0))
+	_add_case_box(Vector3(t, h, span.y + t * 2.0), Vector3(span.x * 0.5 + t * 0.5, h * 0.5, 0.0))
+	_add_case_box(Vector3(t, h, span.y + t * 2.0), Vector3(-span.x * 0.5 - t * 0.5, h * 0.5, 0.0))
+	_add_case_box(Vector3(span.x, h, t), Vector3(0.0, h * 0.5, span.y * 0.5 + t * 0.5))
+	_add_case_box(Vector3(span.x, h, t), Vector3(0.0, h * 0.5, -span.y * 0.5 - t * 0.5))
+
+func _add_case_box(extent: Vector3, at: Vector3) -> void:
+	var shape := BoxShape3D.new()
+	shape.size = extent
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	collision.position = at
+	_case_ground.add_child(collision)
+
+func _drop_case_ground() -> void:
+	if _case_ground != null and is_instance_valid(_case_ground):
+		_case_ground.get_parent().remove_child(_case_ground)
+		_case_ground.queue_free()
+	_case_ground = null
+
+## Der Schlag der Schatulle: der Hub-Rahmen blitzt in der Strahlfarbe auf.
+func _case_slam(strength: float) -> void:
+	if table_screen != null and table_screen.hub != null:
+		table_screen.hub.flash_frame(Color(CaseShow.BEAM_COLOR * (1.0 + strength * 2.0), 1.0))
+
+## Ein Ring auf der Seite, wo etwas geschieht.
+func _case_impulse(px: Vector2, color: Color) -> void:
+	if table_screen != null:
+		table_screen.pack_arrival_flash(px, color)
+
+func _drop_case_collider() -> void:
+	if _case_collider != null and is_instance_valid(_case_collider):
+		_case_collider.queue_free()
+	_case_collider = null
+
+## Das RÜTTELN: die Schatulle zittert immer stärker, der Deckel klappert, das Licht baut sich auf.
+func _rattle_case(time: float, glow: float) -> void:
+	var hull := _choice_hull
+	_stop_case_rattle()
+	if hull == null or not is_instance_valid(hull):
+		return
+	var seat := _case_seat
+	_case_rattle = create_tween()
+	_case_rattle.tween_method(func(t: float) -> void:
+		if not is_instance_valid(hull):
+			return
+		var ramp := t * t
+		var clock := t * time
+		hull.global_position = seat + Vector3(sin(clock * 53.0), 0.0, cos(clock * 47.0)) \
+			* PACK_RATTLE_SHAKE * ramp
+		hull.set_lid_open(1.0 - PACK_RATTLE_LID * ramp * absf(sin(clock * 31.0))),
+		0.0, 1.0, time)
+	_case_rattle.tween_callback(_stop_case_rattle)
+	CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, glow, time, true)
+
+## Endzustand des Rüttelns: die Schatulle steht wieder genau auf ihrem Platz.
+func _stop_case_rattle() -> void:
+	if _case_rattle != null and _case_rattle.is_valid():
+		_case_rattle.kill()
+	_case_rattle = null
+	var hull := _choice_hull
+	if hull != null and is_instance_valid(hull) and _case_seat != Vector3.ZERO:
+		hull.global_position = _case_seat
+
+## Der Deckel schlägt zu: Schluß.
+func _shut_case(hull: CardPackView) -> void:
+	_stop_case_rattle()
+	hull.swing_lid(false, PACK_CASE_SLAM_TIME)
+	if case_show != null:
+		case_show.play_shut()
+	_case_slam(PACK_CASE_OPEN_SLAM)
+	CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, 0.0)
+
+func _case_dice_resting() -> bool:
+	for body in _case_rigid:
+		if body == null or not is_instance_valid(body) or body.freeze:
+			continue
+		if not body.sleeping and (body.linear_velocity.length() > PACK_SETTLE_SPEED
+				or body.angular_velocity.length() > PACK_SETTLE_SPEED * 4.0):
+			return false
+	return true
+
+## Der Würfel verläßt seinen Wegwerf-Körper und steht wieder als Geist in der Szene.
+func _release_case_rigid(index: int) -> void:
+	if index < 0 or index >= _case_rigid.size():
+		return
+	var body := _case_rigid[index]
+	_case_rigid[index] = null
+	if body == null or not is_instance_valid(body):
+		return
+	var rise: Variant = body.get_meta("rise") if body.has_meta("rise") else null
+	if rise is Tween and (rise as Tween).is_valid():
+		(rise as Tween).kill()
+	var ghost := _choice_bodies[index] if index < _choice_bodies.size() else null
+	if ghost != null and is_instance_valid(ghost) and ghost.get_parent() == body:
+		ghost.reparent(self, true)
+	body.get_parent().remove_child(body)
+	body.queue_free()
+
+func _drop_case_physics() -> void:
+	for i in _case_rigid.size():
+		_release_case_rigid(i)
+	_case_rigid.clear()
+	_drop_case_collider()
+	_drop_case_ground()
+
+## Die AUFSTELLUNG: alle heben sich ZUGLEICH aus ihrer Lage und gleiten auf ihre Plätze.
+func _rise_into_lineup() -> void:
+	_drop_case_collider()
+	_drop_case_ground()
+	pack_choice_view.show_lineup()
+	for i in _choice_rest.size():
+		_release_case_rigid(i)
+		var ghost := _case_ghost(i)
+		var from := ghost.global_transform
+		var to := Transform3D(ghost.get_meta("rest_basis"), _choice_rest[i])
+		var glide := ghost.create_tween()
+		glide.tween_method(func(t: float) -> void:
+			if is_instance_valid(ghost):
+				var pose := from.interpolate_with(to, t)
+				pose.origin += Vector3.UP * PACK_LINEUP_LIFT * sin(PI * t)
+				ghost.global_transform = pose,
+			0.0, 1.0, PACK_LINEUP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		ghost.set_meta("jump", glide)
+
+## Die Bühne meldet ihre Momente; Ton und Licht spielt scene_root.
+func _on_case_reveal_ticked(_index: int, tier: int) -> void:
+	if case_show != null:
+		case_show.play_reveal_tick(tier)
+
+func _on_case_quality_locked(index: int, quality: int, climbed: bool) -> void:
+	if case_show != null:
+		case_show.play_lock(quality, climbed)
+	var centers := pack_choice_view.slot_centers()
+	if index >= centers.size() or table_screen == null:
+		return
+	var tint := DicePack.quality_tint(quality)
+	_case_impulse(centers[index], Color(tint * (1.8 if climbed else 1.2), 1.0))
+	if climbed:
+		_case_slam(PACK_CASE_OPEN_SLAM)
+
+func _on_case_reel_stepped(value: int, top: int) -> void:
+	if case_show != null:
+		case_show.play_reel_step(value, top)
+
+func _on_case_reel_stopped(value: int, top: int) -> void:
+	if case_show != null:
+		case_show.play_reel_stop(value, top)
+	_case_slam(PACK_CASE_OPEN_SLAM)
+
+func _on_pack_opening_finished() -> void:
+	_case_show_on = false
+	_choice_landed = true
+
+## Das Ende der Öffnung - auch der Klick dorthin: jeder Würfel steht hart auf seinem
+## Platz, der Deckel ist zu, Güte, Netze und Leiter stehen fertig.
 func _end_case_show() -> void:
 	if _choice == null or not _choice.is_dice():
 		return
 	_case_show_on = false
+	_drop_case_physics()
+	_case_rigid.resize(_choice_rest.size())
 	for i in _choice_rest.size():
 		var ghost := _case_ghost(i)
 		var jump: Variant = ghost.get_meta("jump") if ghost.has_meta("jump") else null
 		if jump is Tween and (jump as Tween).is_valid():
 			(jump as Tween).kill()
 		ghost.global_transform = Transform3D(ghost.get_meta("rest_basis"), _choice_rest[i])
-	pack_choice_view.reveal_all_nets()
+	_stop_case_rattle()
 	if _choice_hull != null and is_instance_valid(_choice_hull):
-		_choice_hull.swing_lid(true, 0.0)
-		CaseShow.pulse_beam(_case_beam(_choice_hull), PACK_CASE_BEAM_REST, PACK_CASE_BEAM_REST)
+		_choice_hull.set_lid_open(0.0)
+		CaseShow.pulse_beam(_case_beam(_choice_hull), 0.0, 0.0)
+	pack_choice_view.show_lineup()
+	pack_choice_view.skip_to_pick()
 	_choice_landed = true
-	pack_choice_view.start_count()
 
 ## Ein Würfel springt zurück in die Schatulle und ist darin fort.
 func _return_case_die(ghost: Node3D) -> void:
@@ -9516,7 +9672,7 @@ func _return_case_die(ghost: Node3D) -> void:
 	var from := ghost.global_position
 	var target := _case_mouth(_choice_hull)
 	_case_returning.append(ghost)
-	var back := create_tween().set_parallel(true)
+	var back := ghost.create_tween().set_parallel(true)
 	back.tween_method(func(t: float) -> void:
 		if is_instance_valid(ghost):
 			ghost.global_position = from.lerp(target, t) \
@@ -9528,14 +9684,17 @@ func _return_case_die(ghost: Node3D) -> void:
 		_case_returning.erase(ghost)
 		_free_choice_body(ghost))
 
-## Der harte Weg der Show: nichts springt mehr, nichts ist unterwegs zurück.
+## Der harte Weg der Show: keine Physik, kein Rütteln, nichts unterwegs zurück.
 func _settle_case_show() -> void:
 	_case_show_on = false
+	_drop_case_physics()
+	_stop_case_rattle()
+	_case_seat = Vector3.ZERO
 	for ghost in _case_returning:
 		_free_choice_body(ghost)
 	_case_returning.clear()
 
-## BESTÄTIGT (Würfel): gebucht ist. Die Gewählten fliegen aus der Grube in die Schale,
+## BESTÄTIGT (Würfel): gebucht ist. Die Gewählten fliegen vom Hub in die Schale,
 ## die Ungewählten springen zurück in die Schatulle, der Deckel fällt zu, und der Tisch
 ## zieht sie ein.
 func _release_dice_case(indices: Array, picked: Array[DieDefinition]) -> void:
@@ -9544,6 +9703,8 @@ func _release_dice_case(indices: Array, picked: Array[DieDefinition]) -> void:
 	sorted.sort()
 	if _case_show_on:
 		_end_case_show()
+	if hull != null and is_instance_valid(hull):
+		hull.swing_lid(true, PACK_CASE_REOPEN)  # die Ungewählten springen zurück hinein
 	if ausgabefach != null and is_instance_valid(ausgabefach):
 		for def in picked:
 			ausgabefach.expect_arrival(def)
@@ -9573,9 +9734,7 @@ func _release_dice_case(indices: Array, picked: Array[DieDefinition]) -> void:
 	_finish_pack_choice()
 	if hull == null or not is_instance_valid(hull):
 		_case_sinking = null
-		_restore_pack_choice_camera()
 		return
-	_frame_case_release(hull)
 	await get_tree().create_timer(maxf(delay, PACK_CASE_JUMP) + PACK_DIE_STAGGER).timeout
 	if run != launched or not is_instance_valid(hull) or _case_sinking != hull:
 		return
@@ -9633,26 +9792,6 @@ func _settle_case_flights() -> void:
 		_land_case_die(entry, true)
 	_case_flights.clear()
 
-## Während des Abschieds rahmt die Kamera Schatulle UND Schale: man sieht die Würfel
-## ankommen und die Schatulle im Tisch verschwinden.
-func _frame_case_release(hull: CardPackView) -> void:
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	var frame := _case_frame(hull, hull.global_position)
-	for corner in hull.case_outline_local():
-		var at := frame * corner
-		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
-		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
-	if ausgabefach != null and is_instance_valid(ausgabefach) and ausgabefach.half.x > 0.0:
-		var fach_lo := ausgabefach.bounds_min()
-		var fach_hi := ausgabefach.bounds_max()
-		lo = Vector2(minf(lo.x, fach_lo.x), minf(lo.y, fach_lo.y))
-		hi = Vector2(maxf(hi.x, fach_hi.x), maxf(hi.y, fach_hi.y))
-	if lo.x > hi.x:
-		return
-	camera_rig.frame_rect(Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5),
-		Vector2((hi.y - lo.y) * 0.5, (hi.x - lo.x) * 0.5), PACK_CASE_RELEASE_MARGIN)
-
 ## Der EINZUG: eine Sektion öffnet unter der Schatulle, senkt sie ein, Loch zu.
 func _sink_case(hull: CardPackView) -> void:
 	var shaft := _case_shaft_on(hull)
@@ -9660,8 +9799,7 @@ func _sink_case(hull: CardPackView) -> void:
 	var gone := func() -> void:
 		if _case_sinking == hull:
 			_case_sinking = null
-			_free_data_cell(hull)
-			_restore_pack_choice_camera()  # erst jetzt: danach holt der Zwang die Kamera
+			_free_data_cell(hull)  # erst jetzt: danach holt der Zwang die Kamera
 	if shaft == null or shaft.run_take([hull], [seat], 0.0, gone) == null:
 		gone.call()
 
@@ -9748,7 +9886,7 @@ func _handle_pack_choice_input(event: InputEvent) -> void:
 	table_screen.push_input(forwarded)
 
 ## NEU MISCHEN: GameRun würfelt die Optionen neu (gebucht samt ⚡), die alten Körper
-## treten ab, die neuen fallen aus der Grubenmitte. Der Zähler steht schon.
+## treten ab, die neuen kommen (Karten fallen aus der Seitenmitte, Würfel aus der Schatulle).
 func _on_pack_choice_reshuffle() -> void:
 	if not _pack_choice_modal() or not _choice_landed:
 		return
@@ -9771,23 +9909,24 @@ func _on_pack_choice_reshuffle() -> void:
 	await get_tree().process_frame
 	if generation != _choice_gen or run != launched:
 		return
-	_drop_pack_options(_choice, Vector3(DicePit.PIT_CENTER.x, PACK_HULL_REST,
-		DicePit.PIT_CENTER.z))
+	var seat := table_screen.pixel_to_world(pack_choice_view.hull_seat_px())
+	_drop_pack_options(_choice, Vector3(seat.x, PACK_HULL_REST, seat.z))
 	await get_tree().create_timer(PACK_OPTION_FALL + PACK_DIE_BOUNCE).timeout
 	if generation == _choice_gen and run == launched:
 		_choice_landed = true
 
-## Neu gemischt mit der Schatulle: die alten Würfel springen zurück, der Deckel schlägt
-## zu, und die neuen kommen mit derselben Show heraus. Der Zähler steht schon.
+## Neu gemischt mit der Schatulle: alle Würfel springen zurück, der Deckel schlägt zu,
+## und die GANZE Öffnung läuft neu mit den neu gebuchten Werten - Zahl, Güte, Wahlen.
 func _reshuffle_dice_case(generation: int, launched: GameRun) -> void:
 	var hull := _choice_hull
+	hull.swing_lid(true, PACK_CASE_REOPEN)
 	for i in _choice_bodies.size():
 		_return_case_die(_choice_bodies[i])
 		_choice_bodies[i] = null
+	hull.set_pips(_choice.base_count)
 	pack_choice_view.open(_choice, pack_choice_view.item_px, run.pack_reshuffle_cost(_choice),
-		run.energy, true, pack_choice_view.case_px, pack_choice_view.up_face)
+		run.energy, false, pack_choice_view.case_px, pack_choice_view.up_face)
 	_case_targets(_choice)
-	CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, 0.0)
 	await get_tree().create_timer(PACK_CASE_JUMP).timeout
 	if generation != _choice_gen or run != launched or not is_instance_valid(hull):
 		return
@@ -9801,13 +9940,13 @@ func _reshuffle_dice_case(generation: int, launched: GameRun) -> void:
 
 ## BESTÄTIGT: GameRun bucht jede Wahl (Karten ins Magazin, Würfel in pending_dice),
 ## dann fliegen die Karten als Komet ins Magazin, der erste Würfel in die Schale, und
-## Ungewähltes zerfällt. Die Kamera kehrt ZUERST heim - der Zwang merkt sich dann den
-## Laden als Rückweg, wenn er die Würfel an den Vorrat holt.
+## Ungewähltes zerfällt, und der Laden kehrt zurück - der Zwang merkt sich dann den
+## Hub als Rückweg, wenn er die Würfel an den Vorrat holt.
 func _on_pack_choice_confirmed(indices: Array) -> void:
 	if not _pack_choice_modal() or run == null:
 		return
 	var choice := _choice
-	# Die Schatulle: die Kamera bleibt, bis der Tisch sie eingezogen hat.
+	# Die Schatulle: der Zwang wartet, bis der Tisch sie eingezogen hat.
 	if choice.is_dice() and _choice_hull != null and is_instance_valid(_choice_hull) \
 			and _choice_hull.has_lid():
 		var booked := run.confirm_pack_choice(choice, indices)
@@ -9820,11 +9959,12 @@ func _on_pack_choice_confirmed(indices: Array) -> void:
 	for body in _choice_bodies:
 		positions.append(table_screen.world_to_pixel(body.global_position)
 			if body != null and is_instance_valid(body) else Vector2.ZERO)
-	_restore_pack_choice_camera()
 	var workshop: WorkshopView = table_screen.workshop_window
 	var result := run.confirm_pack_choice(choice, indices)
 	_choice_leaving = true
 	pack_choice_view.close()
+	camera_rig.release_tilt_immediately()
+	_resume_shop()
 	var cards: Array[Pack] = result["cards"]
 	var picked_dice: Array[DieDefinition] = result["dice"]
 	if not picked_dice.is_empty() and ausgabefach != null and is_instance_valid(ausgabefach):
@@ -9898,15 +10038,6 @@ func _clear_choice_bodies() -> void:
 	_choice_bodies.clear()
 	_choice_rest.clear()
 
-## Zurück an die gemerkte Lage - idempotent über das Leeren des Merkzettels.
-func _restore_pack_choice_camera() -> void:
-	camera_rig.release_tilt_immediately()
-	if _choice_home.is_empty():
-		return
-	var home := _choice_home
-	_choice_home = {}
-	camera_rig.restore_pose(home)
-
 ## Das Ende einer Auswahl (bestätigt oder abgebrochen): Körper fort, Fenster zu.
 func _finish_pack_choice() -> void:
 	_choice_gen += 1
@@ -9916,24 +10047,28 @@ func _finish_pack_choice() -> void:
 	_choice_hull = null
 	if pack_choice_view != null:
 		pack_choice_view.close()
+	if _choice != null:
+		camera_rig.release_tilt_immediately()
 	_choice = null
 	_choice_leaving = false
 	_choice_landed = false
+	_resume_shop()
 
-## Der EINE harte Aufräum-Pfad (Laufwechsel, verlorene Auswahl): alles fort, die
-## Kamera heim. Eine noch offene Auswahl bleibt in GameRun und öffnet neu.
+## Der EINE harte Aufräum-Pfad (Laufwechsel, verlorene Auswahl): alles fort, auch
+## Landefläche und Loch, und der Laden steht wieder. Eine noch offene Auswahl bleibt
+## in GameRun und öffnet neu.
 func _settle_pack_openings() -> void:
 	_settle_case_show()
 	_settle_case_flights()
 	_drop_case_sinking()
 	_drop_bought_case()
-	if _choice == null and _choice_home.is_empty():
-		return
-	_restore_pack_choice_camera()
-	_finish_pack_choice()
+	_drop_case_ground()
+	if _choice != null:
+		_finish_pack_choice()
+	_resume_shop()
 
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
-## die Truhe. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
+## das Chip-Tray. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
 ## verpasste Ankunft den Spieler nie aus.
 func _on_pack_refunded(from_px: Vector2, amount: int) -> void:
 	if table_screen == null or amount <= 0:
@@ -9941,31 +10076,31 @@ func _on_pack_refunded(from_px: Vector2, amount: int) -> void:
 	var launched := run
 	# Farbe wie bei jedem Geld-Kometen: die GRÖSSTE Stückelung des Betrags -
 	# denomination_color(6) gäbe es als Chip nicht und liefe weiß.
-	var packets := ChipStackView.split_gain(amount)
-	var chip_color := ChipStackView.denomination_color(packets[0] if not packets.is_empty() else 1)
-	var travel := table_screen.shop_refund_comet(from_px, _money_trail_color(chip_color))
+	var rank := _money_rank(amount)
+	var chip_color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
+	var travel := table_screen.shop_refund_comet(from_px, _money_trail_color(chip_color), rank)
 	if travel <= 0.0:
 		return
 	await get_tree().create_timer(travel).timeout
 	if run != launched or table_screen == null or table_screen.treasure_window == null:
 		return
 	table_screen.treasure_window.glint()
-	table_screen.treasure_window.flash_receive_slot(chip_color)
+	table_screen.treasure_window.flash_entry(rank, chip_color)
 
 ## Volles Magazin: eine Prämie ist zu Geld zerfallen, statt still zu verschwinden.
 ## Gebucht hat GameRun beim Gewähren (book first, fly afterwards) - hier fährt nur
-## das Geld in die Truhe, in derselben Chip-Grammatik wie jede andere Gutschrift.
-## round_end nimmt die lange Rundenende-Bahn (Charm-Pad -> Truhe), sonst die kurze
+## das Geld ins Chip-Tray, in derselben Chip-Grammatik wie jede andere Gutschrift.
+## round_end nimmt die lange Rundenende-Bahn (Charm-Pad -> Tray), sonst die kurze
 ## Hub-Bahn. Liefert die Flugzeit.
 func _fly_pack_fizzle(from_px: Vector2, amount: int, round_end := false) -> float:
 	if table_screen == null or amount <= 0:
 		return 0.0
 	var launched := run
-	var packets := ChipStackView.split_gain(amount)
-	var chip_color := ChipStackView.denomination_color(packets[0] if not packets.is_empty() else 1)
+	var rank := _money_rank(amount)
+	var chip_color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
 	var trail := _money_trail_color(chip_color)
-	var travel := table_screen.charm_money_comet(from_px, trail) if round_end \
-		else table_screen.shop_refund_comet(from_px, trail)
+	var travel := table_screen.charm_money_comet(from_px, trail, rank) if round_end \
+		else table_screen.shop_refund_comet(from_px, trail, rank)
 	if travel <= 0.0:
 		return 0.0
 	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR)
@@ -9973,7 +10108,7 @@ func _fly_pack_fizzle(from_px: Vector2, amount: int, round_end := false) -> floa
 		if run != launched or table_screen == null or table_screen.treasure_window == null:
 			return
 		table_screen.treasure_window.glint()
-		table_screen.treasure_window.flash_receive_slot(chip_color))
+		table_screen.treasure_window.flash_entry(rank, chip_color))
 	return travel
 
 ## Takt der Würfel-Prämie: das Siegel ploppt auf, steht kurz, dann fährt der Komet.
@@ -10987,7 +11122,7 @@ func _free_camera_allowed() -> bool:
 			or _pack_choice_modal():
 		return false  # der Neuzugang hält die Kamera am Raster, den Chips bzw. der Grube fest
 	return part_drag_key == "" and tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
-		and charm_drag_index == -1 and chip_drag_value == -1 and not shell_drag_active \
+		and charm_drag_index == -1 and not shell_drag_active \
 		and grabbed_stage == null
 
 ## Blickfahrt je Bild: die erste Taste schaltet auf die Freikamera, danach bleibt
@@ -12569,7 +12704,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	first_hand_after_farkle = true
 
 	# Scherbengericht: $2 je verworfenem Würfel - als Chip-Pakete vom Charm-Pad
-	# zur Truhe. Die Phase hält solange SCORING, damit kein Wurf dazwischenfunkt.
+	# zum Chip-Tray. Die Phase hält solange SCORING, damit kein Wurf dazwischenfunkt.
 	var shard_income := CharmEffects.farkle_shard_income(active_kinds.size(), ids)
 	if shard_income > 0:
 		phase = Phase.SCORING
@@ -12840,7 +12975,7 @@ func _on_take_button_pressed() -> void:
 		take_money += jackpot
 		_flash_charm_and_pad(ids.find(Charm.JACKPOT_BELL))
 	if take_money > 0:
-		# Gebucht wird sofort, das generische Hub->Truhe-Licht bleibt aus: der Zug
+		# Gebucht wird sofort, das generische Hub->Tray-Licht bleibt aus: der Zug
 		# schickt EINEN eigenen Kometen aus der Grube hinterher.
 		_suppress_money_light = true
 		run.add_money(take_money)
@@ -12848,7 +12983,7 @@ func _on_take_button_pressed() -> void:
 		_play_take_money_comet(take_money)
 	# Goldrausch: nur die ERSTE Hand der Runde, und nur wenn sie alle SECHS
 	# Würfel nutzt -> Geld +20% (max. $50). hands_taken_this_round zählt oben schon.
-	# Zahlt als Chip-Pakete vom Charm-Pad zur Truhe, wie die Rundenende-Charms;
+	# Zahlt als Chip-Pakete vom Charm-Pad zum Chip-Tray, wie die Rundenende-Charms;
 	# die Phase bleibt solange SCORING, damit kein Wurf dazwischenfunkt.
 	if CharmEffects.gold_rush_applies(ids, participating.size(), hands_taken_this_round == 1):
 		var rush := CharmEffects.gold_rush_income(run.money)
@@ -13590,7 +13725,7 @@ func _play_part_crit_step(take_key: String, step: Dictionary) -> bool:
 	return await _score_step_wait(CRIT_HOLD)
 
 ## Was beim Nehmen längst gebucht ist, zeigt sich hier: Zählwerk und Schwingkreis
-## wachsen sichtbar am Chip, der Münzprüfer schickt sein Geld zur Truhe, der
+## wachsen sichtbar am Chip, der Münzprüfer schickt sein Geld zum Chip-Tray, der
 ## Stromabnehmer seine Energie zum Ring.
 func _play_part_scored_beat(keys: Array) -> void:
 	for key: String in keys:
@@ -13628,17 +13763,18 @@ func _merge_charge_results(extra: Array[Dictionary]) -> void:
 		if not merged:
 			_last_charge_results.append(change)
 
-## Reines Anzeige-Geld vom Sockel zur Truhe: gebucht ist es beim Nehmen.
+## Reines Anzeige-Geld vom Sockel zum Chip-Tray: gebucht ist es beim Nehmen.
 func _play_part_money(from_px: Vector2, amount: int) -> void:
 	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR, 1.0, true)
-	var chip_color := ChipStackView.denomination_color(amount)
-	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color))
+	var rank := _money_rank(amount)
+	var chip_color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
+	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color), rank)
 	var launched := run
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if run != launched or table_screen == null or table_screen.treasure_window == null:
 			return
 		table_screen.treasure_window.glint()
-		table_screen.treasure_window.flash_receive_slot(chip_color))
+		table_screen.treasure_window.flash_entry(rank, chip_color))
 
 ## Wächst ein Zählwerk, zeigt der Chip bis zu seinem Schlag den ALTEN Wert.
 func _hold_part_growth(key: String, sockets: Array) -> void:
@@ -14573,7 +14709,7 @@ func _on_round_complete() -> void:
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
-		# Wirkung (Geld-Komet zur Truhe, Gravur-Meteore in die Schublade).
+		# Wirkung (Geld-Komet zum Chip-Tray, Gravur-Meteore in die Schublade).
 		await _play_round_end_charm_ceremony(ids, stages)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Charm-Zeremonie zurückgesetzt
@@ -14946,7 +15082,7 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 ## Rundenende-Zeremonie der Charms: NACH der Rundenauszahlung, VOR dem Shop
 ## feuern die Rundenende-Charms strikt in Besitz-Reihenfolge (links nach
 ## rechts), und jeder ZEIGT seine Wirkung: Geld-Charms schicken einen Gold-
-## Kometen vom Dock-Pad zur Schatztruhe (Buchung bei Ankunft), die Frankier-
+## Kometen vom Dock-Pad zum Chip-Tray (Buchung bei Ankunft), die Frankier-
 ## maschine schleudert je Gravur einen Meteor in ihre Vorrats-Schublade.
 ## Die Geld-Charms rechnen mit ZINSESZINS: CharmEffects.round_end_income_entries
 ## läuft die Dock-Reihenfolge mit einem fortgeschriebenen Stand ab, jeder Charm
@@ -15071,7 +15207,7 @@ func _play_dynamo_energy(index: int, count: int) -> void:
 
 ## EIN Geld-Charm zahlt sichtbar: Pad blitzt, "+N$" steigt am Pad auf, und der
 ## Betrag fährt als ECHTE Chip-Pakete (Stückelung 1/5/25/100, je in seiner
-## Chipfarbe) dicht gestaffelt vom Pad zur Schatztruhe - jedes Paket bucht
+## Chipfarbe) dicht gestaffelt vom Pad zum Chip-Tray - jedes Paket bucht
 ## SEINEN Wert bei Ankunft (das generische Geld-Licht ist unterdrückt, die
 ## Pakete SIND die Gutschrift). Gewartet wird auf die letzte Ankunft.
 ## guard: Phase, die die Zeremonie trägt - ein Wechsel (Reset) bricht sie ab.
@@ -15105,7 +15241,8 @@ func _play_charm_money_payout(index: int, amount: int, guard: Phase = Phase.PAYO
 func _fire_charm_money_packet(from_px: Vector2, value: int, guard: Phase = Phase.PAYOUT,
 		on_book := Callable()) -> float:
 	var chip_color := ChipStackView.denomination_color(value)
-	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color))
+	var travel: float = table_screen.charm_money_comet(from_px, _money_trail_color(chip_color),
+		ChipTrayView.rank_of(value))
 	_book_money_packet_on_arrival(travel, value, chip_color, guard, on_book)
 	return travel
 
@@ -15115,10 +15252,10 @@ func _charm_name(index: int) -> String:
 		return "Charm"
 	return run.owned_charms[index].display_name
 
-## Bucht den Wert eines Chip-Pakets bei ANKUNFT (Truhe glimmt, Einzahlungs-
-## Schlitz blitzt in der Chipfarbe). Das generische Geld-Licht bleibt aus: die
+## Bucht den Wert eines Chip-Pakets bei ANKUNFT (die Fassung glimmt, der Chip läuft
+## ohne eigenen Kometen in seine Rinne). Das generische Geld-Licht bleibt aus: die
 ## Pakete SIND die Gutschrift.
-func _book_money_packet_on_arrival(travel: float, value: int, chip_color: Color, guard: Phase,
+func _book_money_packet_on_arrival(travel: float, value: int, _chip_color: Color, guard: Phase,
 		on_book := Callable()) -> void:
 	get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 		if phase != guard:
@@ -15129,11 +15266,10 @@ func _book_money_packet_on_arrival(travel: float, value: int, chip_color: Color,
 		if on_book.is_valid():
 			on_book.call(value)
 		if table_screen.treasure_window != null:
-			table_screen.treasure_window.glint()
-			table_screen.treasure_window.flash_receive_slot(chip_color))
+			table_screen.treasure_window.glint())
 
 ## Geld EINER Zündung (Goldseite, Seelen-Geld): die Summe fährt als ECHTE
-## Chip-Pakete dicht gestaffelt AUS DER GRUBE über die Zug-Bahn in die Truhe,
+## Chip-Pakete dicht gestaffelt AUS DER GRUBE über die Zug-Bahn ins Chip-Tray,
 ## jedes bucht seinen Wert bei Ankunft. Bewusst nicht abgewartet - die nächste
 ## Zündung muss nur NACH dem Start kommen, nicht nach der Ankunft.
 ## Die Zahl STEIGT aus dem Würfel auf - Geld kommt aus ihm heraus, Basis und Mult
@@ -15153,30 +15289,31 @@ func _fire_die_money(from_px: Vector2, amount: int) -> void:
 					_fire_die_money_packet(from_px, value))
 
 ## Ein Chip-Paket aus der Grube - dieselbe Buchung wie am Dock-Pad, nur reist es
-## die Zug-Bahn (Grube -> Hub -> Geld-Leiste -> Truhe).
+## die Zug-Bahn (Grube -> Hub -> Geld-Leiste -> Tray).
 func _fire_die_money_packet(from_px: Vector2, value: int) -> void:
 	var chip_color := ChipStackView.denomination_color(value)
-	var travel: float = table_screen.take_money_comet(_money_trail_color(chip_color), from_px)
+	var travel: float = table_screen.take_money_comet(_money_trail_color(chip_color), from_px,
+		ChipTrayView.rank_of(value))
 	_book_money_packet_on_arrival(travel, value, chip_color, Phase.SCORING)
 
 ## Geld eines Zuges, das NICHT an einer Zündung hängt (Zyanidgas/Scheidewasser,
 ## Neonmarker, Streulicht, Lumpensammler, Jackpotglocke): EIN Komet trägt den
-## Rest von der Grube zur Truhe. Rein visuell - gebucht ist beim Nehmen, die
+## Rest von der Grube zum Chip-Tray. Rein visuell - gebucht ist beim Nehmen, die
 ## Ankunft glimmt nur (book first, fly afterwards).
 func _play_take_money_comet(amount: int) -> void:
 	if amount <= 0 or table_screen == null:
 		return
 	var launched := run
-	var packets := ChipStackView.split_gain(amount)
-	var chip_color := ChipStackView.denomination_color(packets[0] if not packets.is_empty() else 1)
-	var travel: float = table_screen.take_money_comet(_money_trail_color(chip_color))
+	var rank := _money_rank(amount)
+	var chip_color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
+	var travel: float = table_screen.take_money_comet(_money_trail_color(chip_color), Vector2.INF, rank)
 	if travel <= 0.0:
 		return
 	get_tree().create_timer(travel).timeout.connect(func() -> void:
 		if run != launched or table_screen == null or table_screen.treasure_window == null:
 			return
 		table_screen.treasure_window.glint()
-		table_screen.treasure_window.flash_receive_slot(chip_color))
+		table_screen.treasure_window.flash_entry(rank, chip_color))
 
 ## Die Frankiermaschine schickt ihre 1er-Pakete als dichte Meteor-Salve auf
 ## die Adern: die Starts folgen im STAMP_METEOR_GAP-Takt, ohne auf die vorige
@@ -15211,7 +15348,7 @@ func _fire_charm_pack(pack: Pack, from_px: Vector2, index := -1) -> float:
 		return 0.0
 	if run.packs_full():
 		# Volles Magazin: das Paket zerfällt zu Geld - erst buchen, dann fliegt es
-		# als Geld in die Truhe statt als Kassette zur Werkbank.
+		# als Geld ins Chip-Tray statt als Kassette zur Werkbank.
 		run.grant_pack(pack)
 		_ledger_money("charm_%d" % index, _charm_name(index), GameRun.PACK_FIZZLE_MONEY)
 		return _fly_pack_fizzle(from_px, GameRun.PACK_FIZZLE_MONEY, true)
@@ -15269,7 +15406,7 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 		if hub != null:
 			hub.flash_frame(color)
 		if energys > 0:
-			# Zweite Etappe: vom Hub über die Schatz-Leiste zum Energie-Ring.
+			# Zweite Etappe: vom Hub über die Tray-Leiste zum Energie-Ring.
 			# Bewusst NICHT abgewartet - die nächste Stufe startet sofort, wie bei
 			# der Frankiermaschinen-Salve; gebucht wird bei der ANKUNFT.
 			_fly_energy_to_capacitor(true, energys)
@@ -15987,9 +16124,9 @@ func _log_apply_overrides(values: Dictionary) -> void:
 func _log_apply_display(state: Dictionary) -> void:
 	if state.is_empty():
 		return
-	if chip_stack != null:
-		chip_stack.clear_mints()
-		chip_stack.seed_wallet(int(state.get("money", 0)))
+	if chip_tray != null:
+		chip_tray.seat_hard(ChipTrayView.belegung(int(state.get("money", 0))))
+		_sync_tray_head(int(state.get("money", 0)))
 	if energy_ring != null:
 		energy_ring.set_energy(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
 	if table_screen != null and table_screen.hub != null:
@@ -16088,9 +16225,9 @@ func _close_round_log() -> void:
 	_log_pit_mirror = {}
 	if run == null:
 		return
-	if chip_stack != null:
-		chip_stack.clear_mints()
-		chip_stack.seed_wallet(run.money)
+	if chip_tray != null:
+		chip_tray.seat_hard(ChipTrayView.belegung(run.money))
+		_sync_tray_head(run.money)
 	_refresh_hub_info()
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_energy_display(run.energy, run.energy_cap())

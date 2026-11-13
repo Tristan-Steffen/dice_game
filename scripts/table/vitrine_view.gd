@@ -750,7 +750,7 @@ func _lay_bowl_hull(entry: Dictionary, wanted: Dictionary, grade: String, stage:
 		hull = CardPackView.new()
 		hull.name = "VitrineHull"
 		add_child(hull)
-		hull.setup_pack(dice_pack.sort, dice_pack.size, true)
+		hull.setup_pack(dice_pack.sort, dice_pack.size, true, dice_pack.quality)
 		hull.rotation.y = -PI / 2.0
 		_bodies[key] = hull
 		_rest_scale[key] = 1.0

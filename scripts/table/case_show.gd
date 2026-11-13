@@ -1,9 +1,10 @@
 class_name CaseShow
 extends Node
-## Die LICHT- und KLANG-SHOW der Schatulle: jeder Würfel, der sie verläßt, bekommt einen
-## größeren Moment als der vorige - heller, höher, schneller -, der letzte den Höhepunkt.
-## Die Stufen sind reine Funktionen; die Töne sind synthetisierte Platzhalter, eine
-## Datei gleichen Namens unter SFX_DIR (.wav/.ogg) ersetzt sie.
+## Die LICHT- und KLANG-SHOW der Schatulle: die Grund-Würfel kommen im ruhigen Takt, danach
+## RÜTTELT sie - und jeder Zusatz-Würfel schießt heller, höher und schneller heraus als der
+## vorige. Dazu die Töne der Güte-Enthüllung und der Risikoleiter. Die Stufen sind reine
+## Funktionen; die Töne sind synthetisierte Platzhalter, eine Datei gleichen Namens unter
+## SFX_DIR (.wav/.ogg) ersetzt sie.
 
 const SFX_DIR := "res://assets/sfx/case/"
 const BUS_NAME := "Score"
@@ -12,15 +13,19 @@ const MIX_RATE := 44100
 const OPEN_DB := -7.0
 const DIE_DB := -9.0
 const CLIMAX_DB := -4.0
-const SHUT_DB := -8.0
-## Der Takt zwischen zwei Würfeln beschleunigt vom ersten zum letzten.
-const BEAT_FIRST := 0.42
-const BEAT_LAST := 0.2
-## Vor dem letzten Würfel hält die Schatulle kurz den Atem an.
-const CLIMAX_HOLD := 0.22
-const GLOW_FIRST := 0.8
-const GLOW_LAST := 2.0
-const GLOW_CLIMAX := 1.4
+const SHUT_DB := -6.0
+const RATTLE_DB := -10.0
+const TICK_DB := -14.0
+## Der ruhige Takt der Grund-Würfel.
+const BEAT_BASE := 0.42
+## Das Rütteln vor jedem Urteil: es wird mit jedem Zusatz-Würfel länger.
+const RATTLE_TIME := 0.8
+const RATTLE_GROWTH := 0.12
+const RATTLE_MAX := 1.3
+## Stufe 0 = Grund-Würfel, Stufe k = der k-te Zusatz-Würfel.
+const GLOW_BASE := 0.9
+const GLOW_STEP := 0.55
+const SPEED_STEP := 0.16
 const BEAM_COLOR := Color(1.0, 0.82, 0.42)
 const BEAM_ALPHA := 0.3
 const BEAM_PULSE_TIME := 0.35
@@ -28,34 +33,38 @@ const BEAM_PULSE_TIME := 0.35
 var _streams := {}
 var _playback: AudioStreamPlaybackPolyphonic
 
-## Wie weit der Würfel index in der Reihe steht (0 = erster, 1 = letzter).
-static func share(index: int, count: int) -> float:
-	if count <= 1:
-		return 1.0
-	return clampf(float(index) / float(count - 1), 0.0, 1.0)
+## Der Takt vor einem Grund-Würfel.
+static func launch_beat() -> float:
+	return BEAT_BASE
 
-static func is_climax(index: int, count: int) -> bool:
-	return index == count - 1
+## Wie lange die Schatulle vor dem Urteil rüttelt (rounds = Zusatz-Würfel bisher).
+static func rattle_time(rounds: int) -> float:
+	return minf(RATTLE_TIME + RATTLE_GROWTH * float(maxi(rounds, 0)), RATTLE_MAX)
 
-## Die Wartezeit VOR dem Sprung des Würfels index.
-static func beat(index: int, count: int) -> float:
-	var wait := lerpf(BEAT_FIRST, BEAT_LAST, share(index, count))
-	return wait + (CLIMAX_HOLD if is_climax(index, count) and count > 1 else 0.0)
+## Die Helligkeit eines Auswurfs (Strahl, Ring) und der Spitze des Rüttelns davor.
+static func glow(level: int) -> float:
+	return GLOW_BASE + GLOW_STEP * float(maxi(level, 0))
 
-## Die Helligkeit seines Moments (Strahl und Ring).
-static func glow(index: int, count: int) -> float:
-	var level := lerpf(GLOW_FIRST, GLOW_LAST, share(index, count))
-	return level + (GLOW_CLIMAX if is_climax(index, count) else 0.0)
+## Der Schub eines Auswurfs relativ zum Grund-Würfel.
+static func launch_gain(level: int) -> float:
+	return 1.0 + SPEED_STEP * float(maxi(level, 0))
 
-## Seine Stufe auf der pentatonischen Leiter (ScoreAudio.LADDER, Tonart G).
-static func pitch_step(index: int, count: int) -> int:
-	var top: int = ScoreAudio.LADDER.size() - 1
-	if is_climax(index, count):
-		return top
-	return roundi(share(index, count) * float(top - 2))
+## Seine Stufe auf der pentatonischen Leiter (ScoreAudio.LADDER, Tonart G): die Grund-
+## Würfel alle auf derselben, jeder Zusatz zwei darüber.
+static func pitch_step(level: int) -> int:
+	return mini(2 * maxi(level, 0), ScoreAudio.LADDER.size() - 1)
 
-static func pitch(index: int, count: int) -> float:
-	return pow(2.0, float(ScoreAudio.LADDER[pitch_step(index, count)]) / 12.0)
+static func pitch(level: int) -> float:
+	return _semis(pitch_step(level))
+
+## Der Ton einer Walzen-Zahl (1 … top): je höher, desto höher.
+static func reel_pitch(value: int, top: int) -> float:
+	var last := ScoreAudio.LADDER.size() - 1
+	var share := clampf(float(value - 1) / float(maxi(top - 1, 1)), 0.0, 1.0)
+	return _semis(roundi(share * float(last - 2)) + 2)
+
+static func _semis(step: int) -> float:
+	return pow(2.0, float(ScoreAudio.LADDER[clampi(step, 0, ScoreAudio.LADDER.size() - 1)]) / 12.0)
 
 ## Der Lichtstrahl aus der offenen Schatulle - ein additiver Zylinder, unsichtbar bis
 ## zum ersten Puls. Den Körper stellt scene_root.
@@ -79,15 +88,17 @@ static func build_beam(radius: float, height: float) -> MeshInstance3D:
 	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return beam
 
-## Ein Puls des Strahls auf `strength` - er klingt auf seinen Ruhewert ab.
-static func pulse_beam(beam: MeshInstance3D, strength: float, rest: float) -> void:
+## Ein Puls des Strahls auf `strength` - er klingt in `time` auf seinen Ruhewert ab.
+static func pulse_beam(beam: MeshInstance3D, strength: float, rest: float,
+		time := BEAM_PULSE_TIME, ease_in := false) -> void:
 	if beam == null or not is_instance_valid(beam):
 		return
 	var material := beam.material_override as StandardMaterial3D
 	var tween := beam.create_tween()
 	tween.tween_method(func(a: float) -> void:
 		material.albedo_color = Color(BEAM_COLOR * maxf(a, 1.0), clampf(a, 0.0, 1.0) * BEAM_ALPHA),
-		strength, rest, BEAM_PULSE_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		strength, rest, time).set_trans(Tween.TRANS_QUAD) \
+		.set_ease(Tween.EASE_IN if ease_in else Tween.EASE_OUT)
 	if beam.has_meta("pulse"):
 		var old: Variant = beam.get_meta("pulse")
 		if old is Tween and (old as Tween).is_valid():
@@ -100,6 +111,8 @@ func _ready() -> void:
 		"die": _load_or(&"die", _synth_die),
 		"climax": _load_or(&"climax", _synth_climax),
 		"shut": _load_or(&"shut", _synth_shut),
+		"rattle": _load_or(&"rattle", _synth_rattle),
+		"tick": _load_or(&"tick", _synth_tick),
 	}
 	var poly := AudioStreamPolyphonic.new()
 	poly.polyphony = 16
@@ -114,14 +127,35 @@ func _ready() -> void:
 func play_open() -> void:
 	_play("open", OPEN_DB)
 
-## Der Ton des Würfels index - steigend, der letzte mit dem Höhepunkt darüber.
-func play_die(index: int, count: int) -> void:
-	_play("die", DIE_DB + 2.0 * share(index, count), pitch(index, count))
-	if is_climax(index, count):
-		_play("climax", CLIMAX_DB)
+## Ein Auswurf: die Grund-Würfel ruhig, jeder Zusatz lauter, höher und mit Schlag.
+func play_launch(level: int) -> void:
+	_play("die", DIE_DB + 1.5 * float(level), pitch(level))
+	if level > 0:
+		_play("climax", CLIMAX_DB - 6.0 + 1.5 * float(level), 1.0 + 0.04 * float(level))
+
+## Das Rütteln: mit jeder Runde etwas höher.
+func play_rattle(rounds: int) -> void:
+	_play("rattle", RATTLE_DB + float(rounds), 1.0 + 0.08 * float(rounds))
 
 func play_shut() -> void:
 	_play("shut", SHUT_DB)
+
+## Die Güte-Anzeige springt eine Stufe weiter.
+func play_reveal_tick(tier: int) -> void:
+	_play("tick", TICK_DB, _semis(4 + 2 * tier))
+
+## Die Güte rastet ein; ein Aufstieg über die Paket-Güte bekommt den Höhepunkt.
+func play_lock(quality: int, climbed: bool) -> void:
+	_play("die", DIE_DB, _semis(3 + 2 * quality))
+	if climbed:
+		_play("climax", CLIMAX_DB)
+
+func play_reel_step(value: int, top: int) -> void:
+	_play("tick", TICK_DB + 2.0, reel_pitch(value, top))
+
+func play_reel_stop(value: int, top: int) -> void:
+	_play("shut", SHUT_DB + 2.0, 0.9)
+	_play("die", DIE_DB + 2.0, reel_pitch(value, top))
 
 func _play(key: String, db: float, pitch_scale := 1.0) -> void:
 	if _playback == null or not _streams.has(key):
@@ -179,6 +213,26 @@ func _synth_shut() -> AudioStreamWAV:
 		var thud := sin(TAU * (90.0 + 60.0 * exp(-t / 0.03)) * t) * exp(-t / 0.08)
 		var click := randf_range(-1.0, 1.0) * exp(-t / 0.01)
 		return thud * 0.6 + click * 0.15)
+
+## Das Rütteln: Klicks, die dichter werden, über einem steigenden Brummen.
+func _synth_rattle() -> AudioStreamWAV:
+	var phase := [0.0]
+	var next := [0.0]
+	var hit := [-1.0]
+	return _render(RATTLE_TIME, func(t: float) -> float:
+		var share := t / RATTLE_TIME
+		if t >= next[0]:
+			hit[0] = t
+			next[0] = t + lerpf(0.07, 0.025, share) * randf_range(0.7, 1.3)
+		var click := randf_range(-1.0, 1.0) * exp(-(t - hit[0]) / 0.006) if hit[0] >= 0.0 else 0.0
+		phase[0] += TAU * (70.0 + 90.0 * share) / MIX_RATE
+		var hum := sin(phase[0]) * share * 0.25
+		return (click * 0.5 + hum) * minf(share * 4.0, 1.0))
+
+## Ein kurzes, helles Klicken (die Güte-Anzeige, die Leiter).
+func _synth_tick() -> AudioStreamWAV:
+	return _render(0.08, func(t: float) -> float:
+		return sin(TAU * 1320.0 * t) * exp(-t / 0.018) * 0.6)
 
 ## Rendert 16-Bit-Mono; die letzten 10 ms blenden aus, damit nichts knackt.
 func _render(length: float, sample: Callable) -> AudioStreamWAV:

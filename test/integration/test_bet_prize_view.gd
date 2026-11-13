@@ -14,7 +14,7 @@ func test_chips_build_real_denominations():
 	assert_eq(prize.kind, BetPrizeView.KIND_CHIPS)
 	# 26 = 25 + 1: zwei Türme, also zwei Stückelungen im Rack.
 	var stack: ChipStackView = prize.get_node("Body/Chips")
-	assert_eq(stack.wallet_total(), 26, "die Börse trägt genau den Preis")
+	assert_eq(stack.shown_total(), 26, "der Stapel trägt genau den Preis")
 
 func test_energy_builds_one_elko_per_point():
 	var prize := _prize()

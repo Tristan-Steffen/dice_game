@@ -252,18 +252,35 @@ static func pack_templates(pack_sort: String) -> Array[Dictionary]:
 			out.append(t)
 	return out
 
+## Güte eines Paket-Würfels (Standard/Edel/Royal): Material-Chance, Veredelung je
+## Material-Seite, Seelen-Bonus in Punkten.
+const QUALITY_MATERIAL_CHANCE := [0.35, 0.55, 0.75]
+const QUALITY_DOPE_CHANCE := [0.0, 0.25, 0.5]
+const QUALITY_SOUL_BONUS := [0.0, 0.20, 0.40]
+## Edel: seltene Seelen doppelt so oft.
+const FINE_SOUL_BOOST := 2.0
+
 ## EINE Option eines Würfel-Pakets. soul = die Seelen-Regel des Ladens (Seelenmarkt
 ## setzt die Chance auf 1, Seelenlos auf 0); das Seelen-Paket trägt immer eine, eine
 ## Seltenheit gehoben. owned_essences wächst mit: ein Unikat kommt je Paket einmal.
+## quality: Edel hebt den Augen-Rahmen um eine Stufe, Royal um zwei (siehe Konstanten).
 static func roll_pack_die(pack_sort: String, tier: int, charm_ids: Array[String],
-		owned_essences: Array[String], soul: Dictionary, luck: int) -> DieDefinition:
+		owned_essences: Array[String], soul: Dictionary, luck: int,
+		quality: int = DicePack.QUALITY_STANDARD) -> DieDefinition:
 	var templates := pack_templates(pack_sort)
 	if templates.is_empty():
 		return null
-	var die := make_die(templates.pick_random(), tier)
-	roll_refinements(die)
+	quality = clampi(quality, DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL)
+	var die := make_die(templates.pick_random(), tier + quality)
+	_roll_quality_refinements(die, quality)
 	if pack_sort == DicePack.SORT_MATERIAL:
 		_force_material_faces(die, DicePack.MATERIAL_MIN_FACES)
+	if quality == DicePack.QUALITY_ROYAL:
+		if not has_doped_side(die):
+			_force_material_faces(die, 1)
+			_dope_one(die)
+		if die.runes.count(Rune.NONE) == die.runes.size():
+			die.set_rune(randi() % die.runes.size(), Rune.all().pick_random().id)
 	if CharmEffects.forces_refinement(charm_ids):
 		if die.materials.count("") == die.materials.size():
 			die.set_face_material(randi() % die.materials.size(), DieMaterial.all().pick_random().id)
@@ -271,30 +288,67 @@ static func roll_pack_die(pack_sort: String, tier: int, charm_ids: Array[String]
 			for f in die.materials.size():
 				if die.dope(f):
 					break
+	var boost := float(soul.get("boost", 1.0))
+	if quality == DicePack.QUALITY_FINE:
+		boost *= FINE_SOUL_BOOST
+	var lift := 1 if quality == DicePack.QUALITY_ROYAL else 0
 	if pack_sort == DicePack.SORT_SOUL:
-		die.essence_id = roll_essence_of_rarity(owned_essences, _lifted_rarity())
+		die.essence_id = roll_essence_of_rarity(owned_essences, _lifted_rarity(1 + lift, boost))
 	else:
 		var chance := float(soul.get("chance", pack_soul_chance(luck)))
-		die.essence_id = roll_essence(owned_essences, true, false, chance,
-			float(soul.get("boost", 1.0)))
+		# Seelenlos bleibt seelenlos - die Güte hebt nur eine Chance, die es gibt.
+		if chance > 0.0:
+			chance = minf(chance + float(QUALITY_SOUL_BONUS[quality]), 1.0)
+		if lift > 0:
+			die.essence_id = roll_essence_of_rarity(owned_essences, _lifted_rarity(lift, boost)) \
+				if randf() < chance else ""
+		else:
+			die.essence_id = roll_essence(owned_essences, true, false, chance, boost)
 	var essence := Essence.by_id(die.essence_id)
 	if essence != null and essence.unique:
 		owned_essences.append(die.essence_id)
 	return die
 
-## Die Seltenheit einer Seelen-Paket-Seele: gewürfelt wie im Laden, eine Stufe höher.
-static func _lifted_rarity() -> int:
+## Material nach Güte: Chance je Güte, jede Material-Seite ggf. veredelt.
+static func _roll_quality_refinements(die: DieDefinition, quality: int) -> void:
+	if randf() < float(QUALITY_MATERIAL_CHANCE[quality]):
+		var face_count := 2 if randf() < SECOND_FACE_CHANCE else 1
+		var face_indices := range(6)
+		face_indices.shuffle()
+		for i in face_count:
+			die.set_face_material(face_indices[i], DieMaterial.all().pick_random().id)
+	var dope := float(QUALITY_DOPE_CHANCE[quality])
+	if dope <= 0.0:
+		return
+	for f in die.materials.size():
+		if die.materials[f] != "" and randf() < dope:
+			die.dope(f)
+
+static func _dope_one(die: DieDefinition) -> void:
+	var faces := range(die.materials.size())
+	faces.shuffle()
+	for f in faces:
+		if die.dope(f):
+			return
+
+## Die Seltenheit einer gehobenen Seele: gewürfelt wie im Laden (boost hebt alles über
+## gewöhnlich), dann um lift Stufen höher.
+static func _lifted_rarity(lift: int = 1, boost: float = 1.0) -> int:
 	var total := 0.0
-	for weight in ESSENCE_RARITY_WEIGHTS.values():
-		total += float(weight)
+	for key in ESSENCE_RARITY_WEIGHTS:
+		total += _rarity_weight(int(key), boost)
 	var pick := randf() * total
 	var rarity := int(Essence.Rarity.COMMON)
 	for key in ESSENCE_RARITY_WEIGHTS:
-		pick -= float(ESSENCE_RARITY_WEIGHTS[key])
+		pick -= _rarity_weight(int(key), boost)
 		if pick < 0.0:
 			rarity = int(key)
 			break
-	return mini(rarity + 1, int(Essence.Rarity.LEGENDARY))
+	return mini(rarity + lift, int(Essence.Rarity.LEGENDARY))
+
+static func _rarity_weight(rarity: int, boost: float) -> float:
+	var weight := float(ESSENCE_RARITY_WEIGHTS[rarity])
+	return weight * boost if rarity != int(Essence.Rarity.COMMON) else weight
 
 ## Mindestens count Seiten tragen ein Material.
 static func _force_material_faces(die: DieDefinition, count: int) -> void:

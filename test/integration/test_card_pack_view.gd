@@ -83,10 +83,49 @@ func test_a_dice_pack_is_the_case_with_a_tinted_seam() -> void:
 	assert_ne(((other.find_child("Naht", true, false) as MeshInstance3D).material_override
 		as StandardMaterial3D).emission, paint.emission, "jede Sorte ihre Farbe")
 
-func test_the_case_counts_its_options_in_pips() -> void:
+func test_the_case_shows_the_base_count_in_pips() -> void:
 	for pack_size in CardPack.SIZES:
 		assert_eq(_visible_pips(_hull(DicePack.SORT_MIXED, pack_size, true)),
-			CardPack.option_count(pack_size))
+			DicePack.base_count(pack_size), "Augen = Grundzahl")
+	var hull := _hull(DicePack.SORT_MIXED, CardPack.SIZE_SMALL, true)
+	hull.set_pips(5)
+	assert_eq(_visible_pips(hull), 5, "eine Auswahl mit Beigabe setzt nach")
+	hull.set_pips(9)
+	assert_eq(_visible_pips(hull), 5, "mehr als fünf Augen hat der Deckel nicht")
+
+func _pip_metal(hull: CardPackView) -> StandardMaterial3D:
+	return (hull.find_child("Auge0", true, false) as MeshInstance3D).material_override \
+		as StandardMaterial3D
+
+func test_the_metal_tells_the_quality_not_the_size() -> void:
+	var steel := _quality_hull(DicePack.QUALITY_STANDARD, CardPack.SIZE_HUGE)
+	var gold := _quality_hull(DicePack.QUALITY_FINE, CardPack.SIZE_SMALL)
+	var royal := _quality_hull(DicePack.QUALITY_ROYAL, CardPack.SIZE_NORMAL)
+	assert_ne(_pip_metal(steel).albedo_color, CasinoStyle.GOLD, "Riesig heißt kein Gold mehr")
+	assert_eq(_pip_metal(gold).albedo_color, CasinoStyle.GOLD, "Edel trägt Gold")
+	assert_eq(_pip_metal(royal).emission, DicePack.quality_tint(DicePack.QUALITY_ROYAL),
+		"Royal schimmert violett")
+	assert_lt(_pip_metal(royal).albedo_color.get_luminance(),
+		_pip_metal(steel).albedo_color.get_luminance(), "Royal ist dunkles Chrom")
+	var schliesse := royal.find_child("Schliesse", true, false) as MeshInstance3D
+	if schliesse != null:
+		assert_eq(schliesse.material_override, _pip_metal(royal), "Schließe und Augen ein Metall")
+
+func test_only_the_royal_seam_pulses() -> void:
+	var royal := _quality_hull(DicePack.QUALITY_ROYAL, CardPack.SIZE_NORMAL)
+	var seam := (royal.find_child("Naht", true, false) as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	var first := seam.emission_energy_multiplier
+	await wait_seconds(0.4)
+	assert_ne(seam.emission_energy_multiplier, first, "die Royal-Naht pulst")
+	var plain := _quality_hull(DicePack.QUALITY_FINE, CardPack.SIZE_NORMAL)
+	assert_false(plain.is_processing(), "Stahl und Gold stehen still")
+
+func _quality_hull(quality: int, pack_size: int) -> CardPackView:
+	var hull := CardPackView.new()
+	add_child_autofree(hull)
+	hull.setup_pack(DicePack.SORT_MIXED, pack_size, true, quality)
+	return hull
 
 func test_footprint_and_height_of_the_case() -> void:
 	var hull := _hull(DicePack.SORT_MIXED, CardPack.SIZE_SMALL, true)
