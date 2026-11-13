@@ -6,8 +6,8 @@ extends Node3D
 ## der bündige Stand ist also pixelgleich mit dem Glas ringsum.
 ##
 ## Beim VERDICHTEN weicht sie dem Rohling - wie eine Ware im Laden in den Tisch
-## fährt: erst SINKT sie GANZ unter die Schnittkante, dann FÄHRT sie nach
-## Bild-rechts (Welt +Z) in ihre TASCHE unter dem Nachbar-Abschnitt. Was bleibt,
+## fährt: erst SINKT sie GANZ unter die Schnittkante, dann FÄHRT sie in ihre TASCHE
+## unter dem Nachbar-Abschnitt (lokal +Z; an der Werkstatt nach Bild-oben). Was bleibt,
 ## ist die VERTIEFUNG, in die sich der Rohling legt.
 ##
 ## Gefahren wird hier nichts von selbst: scene_root schreibt ihren Stand je Bild
@@ -62,19 +62,24 @@ func _init() -> void:
 	name = "TableSection"
 
 ## Einziger Eingang: Mitte der Sektion auf dem Glas und ihre Spanne in Welt-X/Welt-Z.
-## Idempotent - dieselben Maße bauen nichts neu.
-func seat(at: Vector3, span: Vector2) -> void:
-	var wanted := Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
-	if _plate != null and is_instance_valid(_plate) \
+## upward = sie fährt nach Bild-OBEN (Welt +X) statt nach rechts - rechts neben der
+## Die-View liegt seit dem 2026-11-13 die Öffnungs-Fläche. Idempotent.
+func seat(at: Vector3, span: Vector2, upward := false) -> void:
+	var raw := Vector2(span.y, span.x) if upward else span
+	var wanted := Vector2(maxf(raw.x, 0.01), maxf(raw.y, 0.01))
+	var turn := PI * 0.5 if upward else 0.0
+	if _plate != null and is_instance_valid(_plate) and is_equal_approx(rotation.y, turn) \
 			and _seat.is_equal_approx(at) and _span.is_equal_approx(wanted):
 		return
 	_seat = at
 	_span = wanted
 	_reach = _span.y + CLEAR
 	global_position = at
+	# Lokal +Z ist die Fahrt; um +90° gedreht zeigt sie nach Welt +X.
+	rotation = Vector3(0.0, turn, 0.0)
 	_build()
 
-## Wie weit sie nach Bild-rechts fährt - das Maß, an dem die Tasche hängt.
+## Wie weit sie fährt - das Maß, an dem die Tasche hängt.
 func reach() -> float:
 	return _reach
 

@@ -42,7 +42,7 @@ func _shop() -> ShopController:
 	shop.open()
 	return shop
 
-func test_the_shop_part_stands_as_a_body_in_the_dice_bay() -> void:
+func test_the_shop_module_pack_lies_as_a_bag_in_the_dice_bay() -> void:
 	var shop := _shop()
 	var stock := shop.vitrine_stock()
 	var bay := VitrineView.new("ShopBay")
@@ -51,13 +51,14 @@ func test_the_shop_part_stands_as_a_body_in_the_dice_bay() -> void:
 	bay.present(stock)
 	await wait_frames(2)
 	var found := bay.items.filter(func(item: Dictionary) -> bool:
-		return item["kind"] == ShopController.KIND_PART)
-	assert_eq(found.size(), 1, "ein Körper für das Modul")
-	var body := found[0]["node"] as ComboPartBody
-	assert_not_null(body)
-	assert_eq(body.part, shop.part_options[0])
-	assert_eq(VitrineView.zone_of(ShopController.KIND_PART), VitrineView.ZONE_BOWL,
-		"es fährt mit den Würfeln auf derselben Hebebühne")
+		return item["kind"] == ShopController.KIND_MODULE_PACK)
+	assert_eq(found.size(), 1, "ein Körper für das Modul-Paket")
+	var bag := found[0]["node"] as CardPackView
+	assert_not_null(bag)
+	assert_true(bag.module_bag, "der Körper ist der ESD-Beutel")
+	assert_eq(bag.grade, shop.module_packs[0].grade)
+	assert_eq(VitrineView.zone_of(ShopController.KIND_MODULE_PACK), VitrineView.ZONE_BOWL,
+		"es fährt mit den Würfel-Paketen auf derselben Hebebühne")
 
 func test_the_module_has_one_size_everywhere() -> void:
 	assert_eq(VitrineView.part_side(), ComboPartBody.SIDE, "Bucht = Modul")

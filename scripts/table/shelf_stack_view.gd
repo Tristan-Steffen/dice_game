@@ -168,6 +168,15 @@ var _lip_material: StandardMaterial3D
 var _floor_material: ShaderMaterial
 var _plate_material: StandardMaterial3D
 var _pocket: Node3D
+## Wie weit (Welt +Z) die rechte Wandtasche höchstens reicht: der Displayrand. Dahinter
+## liegt nur der Bodenfilz, und eine Decke dicht unter ihm flimmerte durch ihn hindurch.
+var pocket_limit_z := INF:
+	set(value):
+		if value == pocket_limit_z:
+			return
+		pocket_limit_z = value
+		if _built:
+			_build_pocket()
 var _ride: Tween
 ## Der ROLL-Zug: läuft gerade einer (vom Zeiger geführt), und das Einrasten danach.
 var _scrolling := false
@@ -333,7 +342,8 @@ func _build_pocket() -> void:
 	add_child(host)
 	_pocket = host
 	# Rechts fahren die Tabletts ein, links rollen die vorderen Spalten hinaus.
-	_build_pocket_side(host, 1.0, retract_span() + RETRACT_CLEAR)
+	_build_pocket_side(host, 1.0, minf(retract_span() + RETRACT_CLEAR,
+		pocket_limit_z - _seat.z - _span.y * 0.5 - POCKET_WALL))
 	_build_pocket_side(host, -1.0, left_pocket_depth())
 
 ## Wie tief die LINKE Wandtasche reicht: die hinausgerollte Spalte samt Luft - was

@@ -1,6 +1,6 @@
 extends GutTest
-## Die PAKET-AUSWAHL: Wahl-Tabelle samt Glück, Optionen, Würfel-Pakete, Buchung beim
-## Kauf und beim Bestätigen, Neu mischen und die neuen Charms und Klauseln.
+## Die PAKET-AUSWAHL: Wahl-Tabelle samt Glück, Optionen, Würfel-Pakete, das LAGER,
+## Buchung beim Öffnen und beim Bestätigen, Neu mischen und die Charms und Klauseln.
 
 var run: GameRun
 
@@ -12,6 +12,15 @@ func _rng(seed_value: int) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	return rng
+
+## Kauft ein Paket ins Lager und öffnet es gleich - der Weg jedes Auswahl-Tests.
+func _buy_open(pack: Resource, price: int, rng: RandomNumberGenerator = null) -> PackChoice:
+	var stored: Resource = null
+	if pack is DicePack:
+		stored = run.purchase_dice_pack(pack as DicePack, price, rng)
+	else:
+		stored = run.purchase_card_pack(pack as CardPack, price, rng)
+	return run.open_stored_pack(int(stored.get("store_uid")), rng)
 
 func _sign(ids: Array) -> void:
 	var typed: Array[String] = []
@@ -60,9 +69,10 @@ func test_options_never_below_picks_or_two() -> void:
 # --- Kauf und Optionen ----------------------------------------------------------------
 
 func test_purchase_books_price_options_and_picks() -> void:
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_MATERIAL,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_MATERIAL,
 		CardPack.SIZE_LARGE), 27, _rng(3))
 	assert_eq(run.money, 473, "der Preis ist bezahlt")
+	assert_eq(run.stored_card_packs.size(), 0, "geöffnet verläßt es das Lager")
 	assert_not_null(choice)
 	assert_eq(choice.option_count(), 5)
 	assert_true(choice.picks >= 2)
@@ -71,42 +81,43 @@ func test_purchase_books_price_options_and_picks() -> void:
 
 func test_extra_options_from_charm_and_clauses() -> void:
 	run.owned_charms.append(Charm.extra_option())
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	assert_eq(choice.option_count(), 5, "Beigabe: eine Option mehr")
 	run.pending_pack_choices.clear()
 	_sign([DealClause.SUPPLEMENT])
-	choice = run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	choice = _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	assert_eq(choice.option_count(), 6, "Beigabe und Beipack")
 
 func test_sealed_takes_one_option_away() -> void:
 	_sign([DealClause.SEALED])
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	assert_eq(choice.option_count(), 3, "Verplombt")
 	assert_lte(choice.picks, choice.option_count())
 
 func test_bonus_pick_adds_a_pick() -> void:
 	_sign([DealClause.BONUS_PICK])
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_SMALL), 0, _rng(1))
 	assert_true(choice.picks >= 2, "Zugabe: eine Wahl mehr")
 
 func test_free_hand_only_for_the_first_pack() -> void:
 	_sign([DealClause.FREE_HAND])
-	var first := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var first := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
-	var second := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
-		CardPack.SIZE_NORMAL), 0, _rng(2))
 	assert_true(first.take_all)
 	assert_eq(first.picks, first.option_count())
-	assert_false(second.take_all, "nur das erste Paket der Runde")
+	run.confirm_pack_choice(first, [])
+	var second := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
+		CardPack.SIZE_NORMAL), 0, _rng(2))
+	assert_false(second.take_all, "nur das erste geöffnete Paket der Runde")
 
 # --- Bestätigen -------------------------------------------------------------------
 
 func test_confirm_books_only_the_picks() -> void:
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(5))
 	var wanted: Object = choice.options[2]
 	var result := run.confirm_pack_choice(choice, [2])
@@ -116,14 +127,14 @@ func test_confirm_books_only_the_picks() -> void:
 	assert_null(run.current_pack_choice(), "Ungewähltes verfällt")
 
 func test_confirm_with_nothing_forfeits_everything() -> void:
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(5))
 	run.confirm_pack_choice(choice, [])
 	assert_eq(run.owned_packs.size(), 0)
 	assert_null(run.current_pack_choice())
 
 func test_confirm_refuses_too_many_picks() -> void:
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_SMALL), 0, _rng(5))
 	choice.picks = 1
 	var result := run.confirm_pack_choice(choice, [0, 1])
@@ -131,7 +142,7 @@ func test_confirm_refuses_too_many_picks() -> void:
 	assert_same(run.current_pack_choice(), choice, "die Auswahl bleibt offen")
 
 func test_dice_pack_books_into_pending_dice() -> void:
-	var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_POWER,
+	var choice := _buy_open(DicePack.make(DicePack.SORT_POWER,
 		CardPack.SIZE_LARGE), 36, _rng(4))
 	assert_true(choice.is_dice())
 	assert_gte(choice.option_count(), 4)
@@ -221,7 +232,7 @@ func _die_value(pack_sort: String) -> float:
 
 func test_reshuffle_costs_energy_once_per_pack() -> void:
 	run.energy = 3
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	var before := choice.options.duplicate()
 	var picks := choice.picks
@@ -233,19 +244,19 @@ func test_reshuffle_costs_energy_once_per_pack() -> void:
 
 func test_reshuffle_needs_energy() -> void:
 	run.energy = 0
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	assert_false(run.reshuffle_pack_choice(choice))
 
 func test_reshuffle_charm_is_free_once_per_round() -> void:
 	run.energy = 0
 	run.owned_charms.append(Charm.reshuffle())
-	var first := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var first := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	assert_eq(run.pack_reshuffle_cost(first), 0)
 	assert_true(run.reshuffle_pack_choice(first))
 	run.confirm_pack_choice(first, [])
-	var second := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+	var second := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(2))
 	assert_eq(run.pack_reshuffle_cost(second), GameRun.PACK_RESHUFFLE_ENERGY,
 		"der Gratis-Neuwurf ist verbraucht")
@@ -256,7 +267,7 @@ func test_reshuffle_charm_is_free_once_per_round() -> void:
 
 func test_album_pays_per_opened_pack() -> void:
 	run.owned_charms.append(Charm.album())
-	run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 9)
+	_buy_open(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 9)
 	assert_eq(run.money, 500 - 9 + GameRun.ALBUM_MONEY)
 
 func test_lucky_mushroom_adds_luck() -> void:
@@ -270,6 +281,7 @@ func test_fine_print_refunds_pack_prices() -> void:
 		run.owned_charms.append(Charm.fine_print())
 	var refunded := false
 	for seed_value in 20:
+		run.stored_card_packs.clear()
 		run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 9,
 			_rng(seed_value))
 		if run.last_card_pack_refund == 9:
@@ -290,9 +302,14 @@ func test_side_bet_pays_one_dice_pack() -> void:
 	assert_same(bet.reward_dice_pack(), dice_pack, "Knopf und Abrechnung meinen dasselbe")
 	assert_eq(bet.reward_label(), "1 %s" % dice_pack.display_name)
 	run._pay_side_bet(bet, 1.0)
-	assert_not_null(bet.awarded_choice)
-	assert_true(bet.awarded_choice.is_dice())
-	assert_same(run.current_pack_choice(), bet.awarded_choice, "öffnet nach dem Kassieren")
+	assert_null(bet.awarded_choice, "mit Platz geht es ins Lager")
+	assert_true(bet.awarded_stored is DicePack)
+	assert_true(run.stored_dice_packs.has(bet.awarded_stored))
+	assert_true(bool(bet.awarded_stored.get("from_bet")))
+	assert_null(run.current_pack_choice(), "geöffnet wird erst per Klick")
+	var choice := run.open_stored_pack(int(bet.awarded_stored.get("store_uid")))
+	assert_true(choice.is_dice())
+	assert_true(choice.from_bet)
 
 func test_side_bet_card_pack_opens_a_choice() -> void:
 	var bet := SideBet.new()
@@ -301,8 +318,105 @@ func test_side_bet_card_pack_opens_a_choice() -> void:
 	bet.payout_kind = SideBet.Payout.CARD_PACK
 	bet.reward_card_pack_sort = CardPack.SORT_MATERIAL
 	run._pay_side_bet(bet, 1.0)
-	assert_not_null(bet.awarded_choice)
+	assert_true(bet.awarded_stored is CardPack, "ins Lager")
 	assert_eq(run.owned_packs.size(), 0, "die Karten kommen erst mit der Wahl")
+
+func test_side_bet_pack_opens_at_once_when_the_store_is_full() -> void:
+	for i in GameRun.STORE_CAPACITY:
+		run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
+	var bet := SideBet.new()
+	bet.stake = 12
+	bet.odds = SideBet.ODDS_HARD
+	bet.payout_kind = SideBet.Payout.CARD_PACK
+	bet.reward_card_pack_sort = CardPack.SORT_MATERIAL
+	run._pay_side_bet(bet, 1.0)
+	assert_null(bet.awarded_stored, "das Lager ist voll")
+	assert_not_null(bet.awarded_choice, "der Gewinn verfällt nicht - er öffnet sofort")
+	assert_same(run.current_pack_choice(), bet.awarded_choice)
+	assert_true(bet.awarded_choice.from_bet)
+	assert_eq(run.stored_card_packs.size(), GameRun.STORE_CAPACITY)
+
+# --- Das LAGER ----------------------------------------------------------------------------
+
+func test_purchase_stores_and_rolls_nothing() -> void:
+	var stored := run.purchase_dice_pack(DicePack.make(DicePack.SORT_POWER, CardPack.SIZE_LARGE,
+		DicePack.QUALITY_FINE), 40)
+	assert_eq(run.money, 460, "bezahlt")
+	assert_not_null(stored)
+	assert_eq(stored.quality, DicePack.QUALITY_FINE, "Größe und Güte stehen beim Kauf")
+	assert_eq(stored.size, CardPack.SIZE_LARGE)
+	assert_gt(stored.store_uid, 0)
+	assert_null(run.current_pack_choice(), "Optionen und Wahlen fallen erst beim Öffnen")
+	assert_eq(run.stored_dice_packs, [stored] as Array[DicePack])
+
+func test_store_holds_eight_per_kind_and_refuses_unpaid() -> void:
+	for i in GameRun.STORE_CAPACITY:
+		assert_not_null(run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+			CardPack.SIZE_SMALL), 10))
+	assert_true(run.store_full(GameRun.LANE_CARDS))
+	assert_false(run.store_full(GameRun.LANE_DICE), "jede Art hat ihre eigene Reihe")
+	assert_false(run.store_full(GameRun.LANE_MODULES))
+	var money := run.money
+	assert_null(run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL),
+		10), "voll: kein Kauf")
+	assert_eq(run.money, money, "und kein Geld gebucht")
+	assert_not_null(run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+		CardPack.SIZE_SMALL), 10))
+
+func test_opening_takes_it_out_of_the_store_one_at_a_time() -> void:
+	var a := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
+	var b := run.purchase_card_pack(CardPack.make(CardPack.SORT_RUNE, CardPack.SIZE_NORMAL), 0)
+	var heard: Array = []
+	run.store_changed.connect(func() -> void: heard.append(true))
+	var choice := run.open_stored_pack(a.store_uid, _rng(1))
+	assert_not_null(choice)
+	assert_eq(heard.size(), 1)
+	assert_eq(run.stored_card_packs, [b] as Array[CardPack], "b rückt nach")
+	assert_null(run.open_stored_pack(b.store_uid), "eines nach dem anderen")
+	run.confirm_pack_choice(choice, [])
+	assert_not_null(run.open_stored_pack(b.store_uid))
+	assert_null(run.open_stored_pack(9999), "unbekannte uid")
+
+func test_opening_rolls_with_the_luck_of_then() -> void:
+	var stored := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+		CardPack.SIZE_NORMAL), 0)
+	run.owned_charms.append(Charm.extra_option())
+	var choice := run.open_stored_pack(stored.store_uid, _rng(1))
+	assert_eq(choice.option_count(), 5, "die Beigabe nach dem Kauf wirkt beim Öffnen")
+
+func test_the_shop_offer_is_not_the_stored_pack() -> void:
+	var offer := CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL)
+	var stored := run.purchase_card_pack(offer, 0)
+	assert_ne(stored, offer, "das Lager bekommt eine Kopie")
+	assert_eq(offer.store_uid, 0)
+
+## Ab dem siebten Paket einer Art liegt die zweite LAGE auf den ersten sechs; jedes Paket
+## behält seinen Platz, und das oberste eines Stapels wird zuerst gegriffen.
+func test_the_seventh_pack_stacks_on_the_first_and_slots_stay() -> void:
+	var packs: Array = []
+	for i in GameRun.STORE_CAPACITY:
+		packs.append(run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
+			CardPack.SIZE_SMALL), 0))
+	for i in packs.size():
+		assert_eq(packs[i].store_slot, i, "Paket %d auf Platz %d" % [i + 1, i])
+	assert_eq(packs.size(), 12, "zwölf je Art")
+	assert_same(run.top_stored_pack(GameRun.LANE_CARDS, 0), packs[6], "oben liegt das siebte")
+	assert_same(run.top_stored_pack(GameRun.LANE_CARDS, 5), packs[11])
+	var choice := run.open_stored_pack(packs[7].store_uid)
+	run.confirm_pack_choice(choice, [])
+	assert_same(run.top_stored_pack(GameRun.LANE_CARDS, 1), packs[1],
+		"darunter liegt wieder das zweite")
+	for i in [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11]:
+		assert_eq(packs[i].store_slot, i, "nichts rückt um")
+	var again := run.purchase_card_pack(CardPack.make(CardPack.SORT_RUNE, CardPack.SIZE_SMALL), 0)
+	assert_eq(again.store_slot, 7, "der neue nimmt den frei gewordenen Platz")
+	assert_null(run.stored_pack_at(GameRun.LANE_DICE, 0), "die Würfel-Reihe ist eigen")
+
+func test_a_new_run_has_an_empty_store() -> void:
+	run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
+	var fresh := GameRun.new_run()
+	assert_eq(fresh.stored_card_packs.size(), 0)
+	assert_eq(fresh.stored_dice_packs.size(), 0)
 
 # --- Würfel-Pakete: Größe, Güte und die drei Ketten -------------------------------------
 
@@ -370,7 +484,7 @@ func test_opened_dice_packs_keep_the_hard_pick_rule() -> void:
 	_sign([DealClause.BONUS_PICK, DealClause.LUCKY_GRAB])
 	for pack_size in CardPack.SIZES:
 		for seed_value in 25:
-			var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED, pack_size,
+			var choice := _buy_open(DicePack.make(DicePack.SORT_MIXED, pack_size,
 				DicePack.QUALITY_FINE), 0, _rng(seed_value))
 			var count := choice.option_count()
 			assert_between(count, DicePack.base_count(pack_size), DicePack.MAX_COUNT)
@@ -383,14 +497,14 @@ func test_opened_dice_packs_keep_the_hard_pick_rule() -> void:
 
 func test_option_clauses_move_the_base_count() -> void:
 	_sign([DealClause.SEALED])
-	var sealed := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+	var sealed := _buy_open(DicePack.make(DicePack.SORT_MIXED,
 		CardPack.SIZE_SMALL), 0, _rng(1))
 	assert_eq(sealed.base_count, DicePack.MIN_COUNT, "Verplombt: nie unter 2")
 	assert_eq(sealed.base_picks, 1)
 	run.active_deals.clear()
 	run.pending_pack_choices.clear()
 	run.owned_charms.append(Charm.extra_option())
-	var extra := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+	var extra := _buy_open(DicePack.make(DicePack.SORT_MIXED,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
 	assert_eq(extra.base_count, 4, "Beigabe: ein Würfel mehr")
 	assert_gte(extra.option_count(), 4)
@@ -401,7 +515,7 @@ func test_lucky_grab_doubles_both_chains() -> void:
 	assert_eq(run.pack_luck_factor(), 2.0)
 	var extra := 0
 	for seed_value in 400:
-		var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_SERIES,
+		var choice := _buy_open(DicePack.make(DicePack.SORT_SERIES,
 			CardPack.SIZE_NORMAL), 0, _rng(seed_value))
 		if choice.option_count() > 3:
 			extra += 1
@@ -410,14 +524,14 @@ func test_lucky_grab_doubles_both_chains() -> void:
 
 func test_free_hand_gives_count_minus_one_and_bonus_pick_adds_one() -> void:
 	_sign([DealClause.FREE_HAND])
-	var free := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+	var free := _buy_open(DicePack.make(DicePack.SORT_MIXED,
 		CardPack.SIZE_LARGE), 0, _rng(2))
 	assert_eq(free.picks, free.option_count() - 1, "Freie Hand: das Maximum")
 	assert_false(free.take_all)
 	run.active_deals.clear()
 	run.pending_pack_choices.clear()
 	_sign([DealClause.BONUS_PICK])
-	var bonus := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+	var bonus := _buy_open(DicePack.make(DicePack.SORT_MIXED,
 		CardPack.SIZE_LARGE), 0, _rng(2))
 	assert_eq(bonus.base_picks, 3, "Zugabe: +1 innerhalb des Deckels")
 	assert_lte(bonus.picks, bonus.option_count() - 1)
@@ -427,7 +541,7 @@ func test_reshuffle_rerolls_count_dice_and_picks() -> void:
 	run.luck = 30
 	var changed := false
 	for seed_value in 30:
-		var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_MIXED,
+		var choice := _buy_open(DicePack.make(DicePack.SORT_MIXED,
 			CardPack.SIZE_NORMAL), 0, _rng(seed_value))
 		var before: Array = choice.options.duplicate()
 		var signature := [choice.option_count(), choice.picks, choice.qualities.duplicate()]

@@ -1,16 +1,17 @@
 class_name PackChoice
 extends RefCounted
-## Ein GEÖFFNETES Paket: seine Optionen und die Zahl der Wahlen stehen ab dem Kauf
-## fest (gebucht in GameRun.pending_pack_choices); die Grube zeigt nur. Karten- und
-## Würfel-Pakete teilen diesen einen Datensatz.
+## Ein GEÖFFNETES Paket: seine Optionen und die Zahl der Wahlen stehen ab dem Öffnen
+## fest (gebucht in GameRun.pending_pack_choices); die Öffnungs-Fläche zeigt nur. Karten-,
+## Würfel- und Modul-Pakete teilen diesen einen Datensatz.
 
 const KIND_CARDS := "cards"
 const KIND_DICE := "dice"
+const KIND_MODULES := "modules"
 
 var kind: String = KIND_CARDS
-## Das Paket selbst (CardPack oder DicePack) - Name, Sorte, Größe.
+## Das Paket selbst (CardPack, DicePack oder ModulePack) - Name, Sorte, Größe.
 var pack: Resource = null
-## Je Option eine Karte (Pack) oder ein Würfel (DieDefinition).
+## Je Option eine Karte (Pack), ein Würfel (DieDefinition) oder ein Modul (ComboPart).
 var options: Array = []
 var picks: int = 1
 ## Nur Würfel-Pakete: je Option ihre Güte (parallel zu options) und die Grundzahlen,
@@ -31,6 +32,9 @@ var from_bet: bool = false
 func is_dice() -> bool:
 	return kind == KIND_DICE
 
+func is_modules() -> bool:
+	return kind == KIND_MODULES
+
 func option_count() -> int:
 	return options.size()
 
@@ -40,6 +44,8 @@ var display_name: String:
 			return (pack as CardPack).display_name
 		if pack is DicePack:
 			return (pack as DicePack).display_name
+		if pack is ModulePack:
+			return (pack as ModulePack).display_name
 		return "Paket"
 
 var size: int:
@@ -48,6 +54,8 @@ var size: int:
 			return (pack as CardPack).size
 		if pack is DicePack:
 			return (pack as DicePack).size
+		if pack is ModulePack:
+			return (pack as ModulePack).size
 		return CardPack.SIZE_NORMAL
 
 ## Die Güte des Pakets (Karten-Pakete: Standard).

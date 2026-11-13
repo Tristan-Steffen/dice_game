@@ -60,19 +60,29 @@ func test_every_shelf_carries_three_places_on_every_tier():
 		shop.spreads.clear()
 		shop.open()
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: drei Charms" % tier)
-		assert_eq(shop.part_options.size(), 1, "Stufe %d: ein Modul" % tier)
+		assert_eq(shop.module_packs.size(), 1, "Stufe %d: ein Modul-Paket" % tier)
 		assert_eq(shop.single_dice.size(), 2, "Stufe %d: zwei Würfel" % tier)
 		assert_eq(shop.slit_seats().size(), 3, "Stufe %d: drei Gravuren" % tier)
 
 # --- Paketkauf ----------------------------------------------------------------
-# Ein gekauftes Paket öffnet eine AUSWAHL: gebucht sind Preis, Optionen und Wahlen.
+# Ein gekauftes Paket wandert ins LAGER; erst das Öffnen würfelt Optionen und Wahlen.
 
-func test_buying_a_pack_opens_a_choice():
+## Öffnet das zuletzt gekaufte Paket einer Art aus dem Lager.
+func _open_last(dice: bool) -> PackChoice:
+	var list: Array = run.stored_packs(GameRun.LANE_DICE if dice else GameRun.LANE_CARDS)
+	return run.open_stored_pack(int(list[list.size() - 1].get("store_uid")))
+
+func test_buying_a_pack_stores_it():
 	var pack: CardPack = shop.engraving_packs[0]
+	var seats: Array = []
+	shop.card_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
 	shop._on_pack_buy_pressed(0)
 	assert_eq(run.money, 100 - pack.price)
-	var choice: PackChoice = run.current_pack_choice()
-	assert_not_null(choice, "die Auswahl wartet auf die Grube")
+	assert_eq(run.stored_card_packs.size(), 1, "das Paket liegt im Lager")
+	assert_null(run.current_pack_choice(), "geöffnet wird erst per Klick")
+	assert_eq(seats, [shop._seat_of(ShopController.KIND_ENGRAVING_PACK, 0)],
+		"die Kassette verläßt IHREN Stellplatz")
+	var choice := _open_last(false)
 	assert_eq(choice.option_count(), CardPack.option_count(pack.size))
 	assert_eq(run.owned_packs.size(), 0, "ins Magazin kommt erst die Wahl")
 	run.confirm_pack_choice(choice, [0])
@@ -80,20 +90,38 @@ func test_buying_a_pack_opens_a_choice():
 
 func test_pack_offer_is_single_use():
 	shop._on_pack_buy_pressed(0)
-	run.confirm_pack_choice(run.current_pack_choice(), [])
 	var money_after: int = run.money
 	shop._on_pack_buy_pressed(0)  # zweiter Kauf desselben Angebots
 	assert_eq(run.money, money_after, "nur einmal abgezogen")
 	assert_true(shop.engraving_pack_bought[0], "als gekauft vermerkt")
 
-func test_an_open_choice_blocks_the_next_purchase():
+## Ein Kauf läßt den Laden stehen: kein Abgang, kein closed, dieselbe Seite.
+func test_a_purchase_leaves_the_shop_untouched():
 	run.money = 500
+	var heard: Array = []
+	shop.closed.connect(func() -> void: heard.append(true))
+	var page: int = shop.current_spread_index
 	shop._on_pack_buy_pressed(0)
-	var money_after: int = run.money
-	shop._on_pack_buy_pressed(1)
 	shop._on_single_die_pressed(0)
-	assert_eq(run.money, money_after, "eines nach dem anderen")
-	assert_eq(run.pending_pack_choices.size(), 1)
+	assert_eq(run.stored_card_packs.size(), 1)
+	assert_eq(run.stored_dice_packs.size(), 1, "zwei Käufe hintereinander gehen")
+	assert_false(shop.leaving(), "der Laden tritt nicht ab")
+	assert_true(shop.visible)
+	assert_eq(heard.size(), 0)
+	assert_eq(shop.current_spread_index, page)
+
+## Ein voller Lager-Platz sperrt den Kauf dieser Art - und das Schild sagt es.
+func test_a_full_store_blocks_its_kind():
+	run.money = 5000
+	for i in GameRun.STORE_CAPACITY:
+		run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
+	var money_before: int = run.money
+	shop._on_pack_buy_pressed(0)
+	assert_eq(run.money, money_before, "kein Kauf am vollen Lager")
+	assert_false(shop.engraving_pack_bought[0])
+	shop._on_single_die_pressed(0)
+	assert_true(shop.single_dice_bought[0], "die Würfel-Reihe hat noch Platz")
+	assert_eq(ShopController.STORE_FULL_MARK, "LAGER VOLL")
 
 func test_cannot_buy_pack_without_funds():
 	run.money = 3  # unter jedem Paketpreis
@@ -457,35 +485,11 @@ func test_reopen_keeps_bought_marks_and_the_page():
 	assert_true(shop.spreads[0].charm_bought[0], "der gekaufte Charm bleibt vermerkt")
 	assert_true(shop.spreads[0].engraving_pack_bought[0])
 
-## Die PAKET-ÖFFNUNG im Hub: der Laden tritt ab und kommt unverändert zurück.
-func test_a_suspended_shop_returns_unchanged_and_never_closes_the_round():
-	shop._on_charm_clicked(0)
-	shop._on_pack_buy_pressed(0)
-	shop._on_page_next_pressed()
-	shop._on_lock_pressed()
-	var spreads = shop.spreads.duplicate()
-	var page: int = shop.current_spread_index
-	var charms = shop.charm_options
-	var heard: Array = []
-	shop.closed.connect(func() -> void: heard.append(true))
-	shop.suspend()
-	assert_true(shop.suspended())
-	assert_true(shop.leaving(), "der Abgang ist derselbe wie beim Schließen")
-	assert_true(shop.visible, "die Seite steht, bis die Auslage geschluckt ist")
-	shop.close()
-	shop.finish_close()
-	assert_false(shop.visible)
-	assert_true(shop.suspended(), "abgetreten bleibt er, bis er zurückkehrt")
-	assert_eq(heard.size(), 0, "kein closed - die Runde rückt nicht vor")
-	shop.reopen()
-	assert_false(shop.suspended())
-	assert_true(shop.visible)
-	assert_eq(shop.current_spread_index, page, "dieselbe Seite")
-	assert_true(shop.spreads == spreads, "dieselben Auslagen, nichts neu gewürfelt")
-	assert_true(shop.charm_options == charms)
-	assert_true(shop.sortiment_locked, "die Sperre steht")
-	assert_true(shop.spreads[0].charm_bought[0], "die Kauf-Marken stehen")
-	assert_true(shop.spreads[0].engraving_pack_bought[0])
+## Das Abtreten für eine Paket-Öffnung ist gestorben (2026-11-13): es gibt keinen Weg dorthin.
+func test_the_shop_no_longer_suspends():
+	assert_false(shop.has_method("suspend"))
+	assert_false(shop.has_method("suspended"))
+	assert_false(shop.has_method("cancel_suspend"))
 
 func test_reopen_without_a_spread_rolls_like_a_first_visit():
 	# Kommt der Knopf je vor dem ersten Öffnen, darf der Laden nicht leer sein.
@@ -557,7 +561,7 @@ func test_the_bowl_offers_dice_packs_only() -> void:
 		assert_true(shop.single_dice[i] is DicePack)
 		assert_gt(int(shop.single_dice_prices[i]), 0)
 
-func test_buying_a_dice_pack_opens_a_dice_choice() -> void:
+func test_buying_a_dice_pack_stores_it_for_a_dice_choice() -> void:
 	run.money = 500
 	var price: int = shop.single_dice_prices[0]
 	var pool_before := []
@@ -567,7 +571,8 @@ func test_buying_a_dice_pack_opens_a_dice_choice() -> void:
 	shop._on_single_die_pressed(0)
 	assert_eq(run.money, before - price, "der Preis ist abgebucht")
 	assert_true(shop.single_dice_bought[0], "der Platz ist verkauft")
-	var choice: PackChoice = run.current_pack_choice()
+	assert_null(run.current_pack_choice(), "im Lager, noch nicht geöffnet")
+	var choice := _open_last(true)
 	assert_true(choice.is_dice(), "eine Würfel-Auswahl")
 	assert_eq(run.pending_dice.size(), 0, "eingesetzt wird erst nach der Wahl")
 	run.confirm_pack_choice(choice, [0])
@@ -580,7 +585,6 @@ func test_buying_a_dice_pack_opens_a_dice_choice() -> void:
 func test_a_single_is_only_sold_once() -> void:
 	run.money = 500
 	shop._on_single_die_pressed(0)
-	run.confirm_pack_choice(run.current_pack_choice(), [])
 	var after_first := run.money
 	shop._on_single_die_pressed(0)
 	assert_eq(run.money, after_first, "der zweite Klick kostet nichts mehr")
@@ -588,7 +592,7 @@ func test_a_single_is_only_sold_once() -> void:
 func test_singles_are_not_sold_without_the_money() -> void:
 	run.money = 0
 	shop._on_single_die_pressed(0)
-	assert_null(run.current_pack_choice(), "ohne Geld kein Kauf")
+	assert_eq(run.stored_dice_packs.size(), 0, "ohne Geld kein Kauf")
 	assert_false(shop.single_dice_bought[0])
 
 func test_the_locked_assortment_freezes_the_singles_too() -> void:
@@ -673,11 +677,12 @@ func test_the_vitrine_rect_survives_a_page_flip() -> void:
 		"die Bucht steht fest - geblättert wird die Ware, nicht das Möbel")
 
 func test_the_bay_carries_only_open_goods() -> void:
-	# In der Bucht liegt NUR offene Ware - Würfel und das Modul; alles
-	# Versiegelte steckt in den Kassetten-Schlitzen des Tisches.
+	# In der Bucht liegen NUR Würfel- und Modul-Pakete; alles Versiegelte steckt in
+	# den Kassetten-Schlitzen des Tisches.
 	var stock: Dictionary = shop.vitrine_stock()
 	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size())
-	assert_eq(stock[ShopController.KIND_PART].size(), GameRun.SHOP_PART_SLOTS)
+	assert_eq(stock[ShopController.KIND_MODULE_PACK].size(), GameRun.SHOP_MODULE_PACK_SLOTS)
+	assert_false(stock.has(ShopController.KIND_PART), "einzelne Module führt der Laden nicht")
 	assert_false(stock.has(ShopController.KIND_ENGRAVING_PACK),
 		"Pakete liegen nicht mehr in der Bucht")
 	assert_false(stock.has(ShopController.KIND_SPECIAL),
@@ -760,7 +765,6 @@ func test_a_purchase_leaves_the_page_lying() -> void:
 	shop.buy_engraving_pack(0)
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
 		"ein Kauf blättert nicht - die Seite bleibt liegen")
-	run.confirm_pack_choice(run.current_pack_choice(), [])
 	shop.buy_single_die(0)
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND)
 
@@ -776,11 +780,10 @@ func test_the_buy_entrances_book_like_the_old_buttons() -> void:
 	run.money = 500
 	var before := run.money
 	shop.buy_engraving_pack(0)
-	assert_false(run.current_pack_choice().is_dice(), "eine Karten-Auswahl")
+	assert_eq(run.stored_card_packs.size(), 1, "ein Karten-Paket im Lager")
 	assert_lt(run.money, before, "und ist bezahlt")
-	run.confirm_pack_choice(run.current_pack_choice(), [])
 	shop.buy_single_die(0)
-	assert_true(run.current_pack_choice().is_dice(), "eine Würfel-Auswahl")
+	assert_eq(run.stored_dice_packs.size(), 1, "ein Würfel-Paket im Lager")
 
 func test_a_pack_purchase_starts_at_its_own_slit() -> void:
 	# Ein versiegeltes Stück fährt aus SEINER Kerbe los, nicht aus der Bucht.
@@ -1160,7 +1163,7 @@ func test_the_laid_out_singles_carry_the_discounted_price() -> void:
 func _stash_one() -> DieDefinition:
 	run.money = 500
 	shop._on_single_die_pressed(0)
-	run.confirm_pack_choice(run.current_pack_choice(), [0])
+	run.confirm_pack_choice(_open_last(true), [0])
 	return run.pending_dice[0]
 
 func test_the_exchange_writes_into_the_chosen_pool_instance() -> void:
@@ -1645,66 +1648,73 @@ func test_a_hard_abort_mid_absorption_clears_the_shrinking_blocks() -> void:
 	await wait_seconds(ShopController.NET_GROW_TIME + 0.2)
 	assert_eq(shop.net_count(), 0, "auch nachträglich stellt niemand mehr etwas")
 
-# --- Das MODUL in der Würfel-Bucht ---------------------------------------------
+# --- Das MODUL-PAKET in der Würfel-Bucht -------------------------------------------
 
-func test_the_dice_bay_holds_two_dice_and_a_part() -> void:
+func test_the_dice_bay_holds_two_dice_packs_and_a_module_pack() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	assert_eq(shop.single_dice.size(), 2, "zwei Würfel")
-	assert_eq(shop.part_options.size(), 1, "und ein Modul")
-	assert_false(shop.part_options[0].secret, "der Laden führt keine Schwarzmarkt-Teile")
+	assert_eq(shop.single_dice.size(), 2, "zwei Würfel-Pakete")
+	assert_eq(shop.module_packs.size(), 1, "und ein Modul-Paket")
 	var seats: Array[Vector2] = shop.die_seats_px()
-	assert_eq(seats.size(), 3, "das Modul steht auf dem dritten Platz")
-	assert_eq(shop.part_tag(0), ShopController.price_text(run.part_shop_price(shop.part_options[0])))
-	assert_eq(shop.find_children("PartCard", "", true, false).size(), 0,
-		"im Charm-Regal steht keine Modul-Karte mehr")
+	assert_eq(seats.size(), 3, "das Modul-Paket steht auf dem dritten Platz")
+	assert_eq(shop.module_pack_prices[0], run.module_pack_shop_price(shop.module_packs[0]))
+	assert_eq(VitrineView.zone_of(ShopController.KIND_MODULE_PACK), VitrineView.ZONE_BOWL,
+		"es fährt mit den Würfel-Paketen auf derselben Hebebühne")
 
-func test_buying_the_bay_part_books_it_and_leaves_a_gap() -> void:
+func test_buying_the_module_pack_stores_it_and_leaves_a_gap() -> void:
 	var sent: Array = []
-	shop.part_purchased.connect(func(px: Vector2) -> void: sent.append(px))
+	shop.module_pack_purchased.connect(func(index: int) -> void: sent.append(index))
 	var money := run.money
-	var price: int = shop.part_price(0)
-	shop.buy_part(0, Vector2(10, 20))
-	assert_eq(run.pending_parts.size(), 1, "gebucht wartet es auf seinen Platz")
+	var price: int = shop.module_pack_prices[0]
+	var bag: ModulePack = shop.module_packs[0]
+	shop.buy_module_pack(0)
+	assert_eq(run.stored_module_packs.size(), 1, "der Beutel liegt im Lager")
+	assert_eq(run.stored_module_packs[0].grade, bag.grade, "seine Stufe steht beim Kauf fest")
+	assert_true(run.pending_parts.is_empty(), "geöffnet wird erst im Lager")
 	assert_eq(run.money, money - price)
-	assert_eq(sent, [Vector2(10, 20)], "das Licht startet am Platz in der Bucht")
-	assert_null(shop.vitrine_stock()[ShopController.KIND_PART][0], "verkauft = leerer Platz")
-	shop.buy_part(0)
-	assert_eq(run.pending_parts.size(), 1, "derselbe Platz verkauft nicht zweimal")
+	assert_eq(sent, [0])
+	assert_null(shop.vitrine_stock()[ShopController.KIND_MODULE_PACK][0], "verkauft = leerer Platz")
+	shop.buy_module_pack(0)
+	assert_eq(run.stored_module_packs.size(), 1, "derselbe Platz verkauft nicht zweimal")
 
-func test_the_part_locks_when_no_socket_is_left() -> void:
+func test_the_module_pack_sells_even_without_a_free_socket() -> void:
 	for key: String in DiceScoring.HAND_PRIORITY:
 		for slot in run.socket_count(key):
 			run.stash_part(ComboPart.resistor())
 			run.install_pending_part(key, slot)
-	assert_false(shop.part_buyable(0))
-	assert_eq(shop.part_tag(0), ShopController.PARTS_FULL_TAG)
-	shop.buy_part(0)
-	assert_true(run.pending_parts.is_empty(), "und der Kauf schlägt nicht still fehl")
+	assert_eq(run.free_socket_count(), 0)
+	shop.buy_module_pack(0)
+	assert_eq(run.stored_module_packs.size(), 1, "volle Steckplätze sperren das Paket nicht")
 
-func test_the_part_block_names_it_and_its_price_turns_red() -> void:
+func test_the_module_pack_locks_when_its_store_lane_is_full() -> void:
+	for i in GameRun.STORE_CAPACITY:
+		run.purchase_module_pack(ModulePack.make(CardPack.SIZE_SMALL, 0), 0)
+	var money := run.money
+	shop.buy_module_pack(0)
+	assert_eq(run.money, money, "kein Geld gebucht")
+	assert_eq(run.stored_module_packs.size(), GameRun.STORE_CAPACITY)
+
+func test_the_module_pack_block_names_it_and_its_price_turns_red() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	var part: ComboPart = shop.part_options[0]
+	var bag: ModulePack = shop.module_packs[0]
 	var strip: Rect2 = shop.vitrine_rect_px()
-	shop.set_die_nets([{"part": part, "anchor": shop.die_seats_px()[2] - strip.position}])
-	assert_eq(shop._net_souls[0].text, part.display_name, "der Kopf nennt das Modul")
-	assert_eq(shop._net_prices[0].text, shop.part_tag(0))
-	assert_eq(shop._net_prices[0].modulate, ShopController.NEON_GOLD)
+	shop.set_die_nets([{"dice_pack": bag, "anchor": shop.die_seats_px()[2] - strip.position}])
+	assert_eq(shop._net_souls[0].text, bag.display_name, "der Kopf nennt das Paket")
+	assert_eq(shop._net_prices[0].text, ShopController.price_text(shop.module_pack_prices[0]))
 	run.money = 0
 	shop._refresh_ware_prices()
 	assert_eq(shop._net_prices[0].modulate, CasinoStyle.RED, "zu teuer = rot")
-	shop.set_ware_hover(part)
-	assert_string_contains(shop.net_footer.text, part.description)
+	shop.set_ware_hover(bag)
+	assert_string_contains(shop.net_footer.text, ModulePack.grade_name(bag.grade))
 
-func test_a_new_spread_rolls_a_new_part_with_the_dice() -> void:
-	var first: ComboPart = shop.part_options[0]
+func test_a_new_spread_rolls_a_new_module_pack_with_the_dice() -> void:
 	shop.spreads.clear()
 	shop.open()
-	assert_eq(shop.spreads[0].part_options.size(), 1, "jede Auslage trägt ihr Modul")
-	assert_ne(shop.part_options[0], first, "neu gewürfelt mit den Würfeln")
+	assert_eq(shop.spreads[0].module_packs.size(), 1, "jede Auslage trägt ihr Modul-Paket")
+	assert_eq(shop.spreads[0].module_pack_prices.size(), 1)
 
 # --- Verträge im Laden (Seite 42) -------------------------------------------------
 
@@ -1732,7 +1742,7 @@ func test_soul_market_fills_the_dice_packs_with_souls() -> void:
 	_sign([DealClause.SOUL_MARKET])
 	run.money = 500
 	shop._on_single_die_pressed(0)
-	for die in run.current_pack_choice().options:
+	for die in _open_last(true).options:
 		assert_ne((die as DieDefinition).essence_id, "")
 
 func test_free_flip_costs_nothing() -> void:

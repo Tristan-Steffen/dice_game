@@ -270,28 +270,34 @@ func test_moving_the_expansion_board_away_compacts_or_refuses():
 	assert_false(run.move_part(DiceScoring.FULL_HOUSE, 0, DiceScoring.SIX_KIND, 0),
 		"kein Platz für die übrigen vier")
 
-func test_purchase_pays_and_stashes():
-	run.money = 20
-	assert_true(run.purchase_part(ComboPart.resistor(), 6))
-	assert_eq(run.money, 14)
-	assert_eq(run.pending_parts.size(), 1)
-
-func test_purchase_refuses_without_money():
-	run.money = 2
-	assert_false(run.purchase_part(ComboPart.resistor(), 6))
-	assert_eq(run.money, 2)
-	assert_true(run.pending_parts.is_empty())
-
-func test_purchase_refuses_when_every_socket_is_spoken_for():
+func test_parts_room_counts_the_waiting_parts():
 	for key: String in DiceScoring.HAND_PRIORITY:
 		run.combo_parts[key] = [ComboPart.resistor(), ComboPart.resistor(), ComboPart.resistor()]
 	run.combo_parts[PAIR] = [ComboPart.resistor(), ComboPart.resistor(), null]
-	run.money = 100
 	assert_eq(run.free_socket_count(), 1)
+	assert_true(run.parts_room())
 	run.stash_part(ComboPart.capacitor())
 	assert_false(run.parts_room(), "der wartende belegt den letzten Platz schon")
-	assert_false(run.purchase_part(ComboPart.resistor(), 6))
-	assert_eq(run.money, 100, "nichts abgebucht")
+
+func test_a_swap_requeues_the_displaced_part():
+	run.combo_parts[PAIR] = [ComboPart.resistor(), null, null]
+	run.stash_part(ComboPart.capacitor())
+	assert_true(run.install_pending_part(PAIR, 0))
+	assert_eq(run.pending_parts.size(), 1, "das alte Teil wird der nächste Einbau")
+	assert_eq(run.pending_parts[0].id, ComboPart.RESISTOR)
+
+func test_a_pack_module_replaces_and_the_displaced_is_lost():
+	for key: String in DiceScoring.HAND_PRIORITY:
+		run.combo_parts[key] = [ComboPart.resistor(), ComboPart.resistor(), ComboPart.resistor()]
+	assert_eq(run.free_socket_count(), 0)
+	run.stash_part(ComboPart.capacitor(), true)
+	assert_true(run.install_loses_displaced(), "ein Modul aus dem Paket verdrängt")
+	assert_true(run.can_install_pending(true), "ohne freien Platz geht es im Bearbeitungs-Fenster")
+	assert_eq(run.install_displaces(PAIR, 1).id, ComboPart.RESISTOR, "der Hinweis kennt das Opfer")
+	assert_true(run.install_pending_part(PAIR, 1))
+	assert_eq(run.parts_of(PAIR)[1].id, ComboPart.CAPACITOR)
+	assert_true(run.pending_parts.is_empty(), "das verdrängte ist verloren, nicht zurück in der Schlange")
+	assert_false(run.parts_of(PAIR)[1].from_pack, "eingebaut ist es ein gewöhnliches Modul")
 
 # --- Schwarzmarkt ---------------------------------------------------------------
 

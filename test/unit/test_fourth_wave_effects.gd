@@ -71,11 +71,11 @@ func test_the_superconductor_cuts_the_part_price():
 	assert_eq(CharmEffects.part_price(8, _ids([Charm.SUPERCONDUCTOR])), 6)
 	assert_eq(CharmEffects.part_price(1, _ids([Charm.SUPERCONDUCTOR])), 1, "nie unter 1")
 
-func test_the_shop_price_of_a_part_carries_the_charm():
-	var part := ComboPart.resistor()
-	var plain := run.part_shop_price(part)
+func test_the_shop_price_of_a_module_pack_carries_the_charm():
+	var bag := ModulePack.make(CardPack.SIZE_LARGE, ModulePack.GRADE_EPIC)
+	var plain := run.module_pack_shop_price(bag)
 	run.owned_charms.append(Charm.superconductor())
-	assert_lt(run.part_shop_price(part), plain, "der Laden liest dieselbe Abfrage")
+	assert_lt(run.module_pack_shop_price(bag), plain, "der Laden liest dieselbe Abfrage")
 
 # --- Dynamo & Trostpreis: zwei neue ⚡-Quellen -------------------------------------
 

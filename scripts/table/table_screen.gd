@@ -16,7 +16,13 @@ signal pit_total_raised
 ## Überabtastung: beim Heranzoomen wird die Textur stark vergrößert; alle
 ## Layout-Maße wachsen mit demselben Faktor mit.
 const SUPERSAMPLE := 3
-const RESOLUTION := Vector2i(1560, 1060) * SUPERSAMPLE
+## Das Maß, an dem das LAYOUT mißt (Mitten, Ränder) - die Fläche bis zum alten Rand.
+const LAYOUT_SIZE := Vector2i(1560, 1060) * SUPERSAMPLE
+## Die Anzeige wächst nach Bild-RECHTS um diesen Streifen (Paket-Lager und Öffnungs-
+## Fläche, 2026-11-13): alles Bisherige behält Pixel und Weltort.
+const EXTRA_RIGHT := 138 * SUPERSAMPLE
+const RESOLUTION := LAYOUT_SIZE + Vector2i(EXTRA_RIGHT, 0)
+const DISPLAY_LAID := "display_min_z"
 ## Farbwelt = Obsidian-Theme "80s Neon".
 const BACKGROUND_COLOR := Color("#171520")
 const EMISSION_ENERGY := 1.2
@@ -148,6 +154,9 @@ var led_strip: LedStripView
 ## Fassung des Chip-Trays (Geldstand als Rinnen-Börse) rechts des Wett-Tresens, plus die
 ## LED-Leiste Hub <-> Tray (Geld-Lichtläufe).
 var treasure_window: TreasureChestView
+## Das PAKET-LAGER rechts vom Chip-Tray und die ÖFFNUNGS-FLÄCHE rechts vom Pool.
+var store_window: PackStoreView
+var opening_window: PackChoiceView
 var treasure_strip: LedStripView
 var pit_window: Panel
 var pit_beckon: VBoxContainer
@@ -240,7 +249,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 33
+const MAX_PITS := 37
 const PIT_MAGAZIN := 0
 const PIT_SHOP_SLITS := 1
 const PIT_SHOP_BOWL := 2
@@ -305,6 +314,17 @@ const PIT_CASE := 31
 
 ## Die Grube des CHIP-TRAYS - Möbel, ans Ende gehängt.
 const PIT_TRAY := 32
+
+## Die drei Gruben des PAKET-LAGERS (Karten, Würfel, Module) - Möbel, ans Ende gehängt.
+const PIT_STORE_CARDS := 33
+const PIT_STORE_DICE := 34
+const PIT_STORE_MODULES := 35
+
+## Die ÖFFNUNGS-FLÄCHE: eine flache Vertiefung - Möbel, ans Ende gehängt.
+const PIT_OPENING := 36
+
+static func store_pit(lane: int) -> int:
+	return [PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES][clampi(lane, 0, 2)]
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -431,10 +451,27 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 		min_z = minf(min_z, corner.z)
 		max_z = maxf(max_z, corner.z)
 		_surface_y = corner.y  # flache Fläche - alle Ecken (fast) gleich hoch
+	# Das Mesh trägt die alte Breite; der Streifen rechts verlängert es in Welt +Z
+	# (einmal - ein zweites attach_to findet die Fläche schon verlängert vor).
+	var extra := (max_z - min_z) * float(EXTRA_RIGHT) / float(LAYOUT_SIZE.x)
+	if screen_mesh.has_meta(DISPLAY_LAID):
+		extra = 0.0
+		min_z = float(screen_mesh.get_meta(DISPLAY_LAID))
+	else:
+		max_z += extra
+	screen_mesh.set_meta(DISPLAY_LAID, min_z)
+	var axis := 0 if absf(to_world.basis.x.z) >= absf(to_world.basis.z.z) else 2
+	var along := to_world.basis.x.z if axis == 0 else to_world.basis.z.z
+	if extra > 0.0 and absf(along) > 0.0001:
+		var local_extra := extra / absf(along)
+		if along < 0.0:
+			aabb.position[axis] -= local_extra
+		aabb.size[axis] += local_extra
 	_z_min = min_z
 	_z_span = max_z - min_z
 	_x_max = max_x
 	_x_span = max_x - min_x
+	_sync_ground_rect()
 
 	var material := ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/screen_glass.gdshader")
@@ -546,6 +583,9 @@ func _build_content() -> void:
 	treasure_window.name = "TreasureWindow"
 	treasure_window.visible = false
 	add_child(treasure_window)
+	store_window = PackStoreView.new()
+	store_window.name = "PackStore"
+	add_child(store_window)
 
 	# Gruben-Fenster: bewusst früh gebaut - hinter allem, was später dazukommt.
 	# Position/Größe setzt scene_root über place_pit_window; bis dahin unsichtbar.
@@ -1288,6 +1328,37 @@ func place_treasure_window(rect: Rect2) -> void:
 	set_pit(PIT_TRAY, tray_pit_rect(), treasure_window.pit_radius())
 	_sync_reflection_windows()
 
+## Spannt das PAKET-LAGER über rect auf und schneidet seine zwei Gruben.
+func place_store_window(rect: Rect2) -> void:
+	store_window.position = rect.position
+	store_window.size = rect.size
+	store_window.visible = true
+	for lane in PackStoreView.LANES:
+		set_pit(store_pit(lane), store_pit_rect(lane), store_window.pit_radius())
+	_sync_reflection_windows()
+
+## Eine Grube des Lagers in Display-Pixeln.
+func store_pit_rect(lane: int) -> Rect2:
+	if store_window == null or not store_window.visible:
+		return Rect2()
+	var pit := store_window.lane_pit_rect(lane)
+	pit.position += store_window.position
+	return pit
+
+## Die ÖFFNUNGS-FLÄCHE: die Paket-Auswahl wohnt als Fenster unter dem Lager und steht
+## IMMER (leer mit ihrem Hinweis). Ihr Bild trägt der Boden ihrer Vertiefung.
+func place_opening_window(view: PackChoiceView, rect: Rect2) -> void:
+	opening_window = view
+	if view.get_parent() != self:
+		if view.get_parent() != null:
+			view.get_parent().remove_child(view)
+		add_child(view)
+	view.backdrop = true
+	view.position = rect.position
+	view.size = rect.size
+	view.visible = rect.size.x > 0.0 and rect.size.y > 0.0
+	_sync_reflection_windows()
+
 ## Die Grube des Trays in Display-Pixeln.
 func tray_pit_rect() -> Rect2:
 	if treasure_window == null or not treasure_window.visible:
@@ -1315,7 +1386,17 @@ func display_skin() -> ShaderMaterial:
 ## Gemeldet, nicht gesucht - table/ greift nicht in die Szene.
 func set_ground_material(material: ShaderMaterial) -> void:
 	_ground_material = material
+	_sync_ground_rect()
 	_sync_pits()
+
+## Der Bodenfilz setzt das Muster der Anzeige fort und läuft um IHR Rechteck aus -
+## seit dem Streifen rechts liegt es nicht mehr mittig auf der Welt.
+func _sync_ground_rect() -> void:
+	if _ground_material == null or _z_span <= 1.0:
+		return
+	_ground_material.set_shader_parameter("screen_half", Vector2(_x_span, _z_span) * 0.5)
+	_ground_material.set_shader_parameter("screen_center",
+		Vector2(_x_max - _x_span * 0.5, _z_min + _z_span * 0.5))
 
 func _ensure_pits() -> void:
 	if _pit_rects.size() == MAX_PITS:
@@ -1367,7 +1448,8 @@ func clear_pit(slot: int) -> void:
 ## nach einem Ladenbesuch stand sonst wieder Filz unter der Glas-Scheibe).
 const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_TOWER, PIT_SECTION,
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2,
-	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY]
+	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
+	PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES, PIT_OPENING]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
@@ -1473,6 +1555,11 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
 		radii.append(treasure_window.size.x / 100.0 * 3.0)
+	if store_window != null and store_window.visible:
+		rects.append(Vector4(store_window.position.x, store_window.position.y,
+			store_window.position.x + store_window.size.x,
+			store_window.position.y + store_window.size.y))
+		radii.append(store_window.frame_px() * 3.0)
 	if hub != null and hub.size.x > 0.0:
 		rects.append(Vector4(hub.position.x, hub.position.y,
 			hub.position.x + hub.size.x, hub.position.y + hub.size.y))
@@ -1501,7 +1588,7 @@ func _top_cell_rect(column: int) -> Rect2:
 	return Rect2(cell.position, cell.size)
 
 ## Fuge zwischen der Grube und ihren Nachbarn links (Kombinationen) und rechts (Wett-Tresen).
-const PIT_SIDE_GAP := RESOLUTION.x * 0.005
+const PIT_SIDE_GAP := LAYOUT_SIZE.x * 0.005
 
 ## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) neben die Grube: die
 ## Chips enden PIT_SIDE_GAP vor ihrer linken Kante, die oberste Reihe ist bündig
@@ -1629,7 +1716,7 @@ func _build_goal_bar() -> void:
 	goal_bar = Panel.new()
 	goal_bar.name = "GoalBar"
 	goal_bar.size = GOAL_BAR_SIZE
-	goal_bar.position = (Vector2(RESOLUTION) - GOAL_BAR_SIZE) / 2.0
+	goal_bar.position = (Vector2(LAYOUT_SIZE) - GOAL_BAR_SIZE) / 2.0
 	goal_bar.pivot_offset = GOAL_BAR_SIZE / 2.0
 	goal_bar.add_theme_stylebox_override("panel", window_style())
 	add_child(goal_bar)
@@ -1740,7 +1827,7 @@ func _make_counter(node_name: String, counter_color: Color, k: float) -> PitScor
 	counter.growth_k = k
 	counter.number_px = SCORE_FONT_PX
 	counter.size = PIT_SCORE_SIZE
-	counter.position = (Vector2(RESOLUTION) - PIT_SCORE_SIZE) / 2.0
+	counter.position = (Vector2(LAYOUT_SIZE) - PIT_SCORE_SIZE) / 2.0
 	counter.pivot_offset = PIT_SCORE_SIZE / 2.0
 	counter.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(counter)

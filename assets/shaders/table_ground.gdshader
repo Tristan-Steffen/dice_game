@@ -23,6 +23,8 @@ uniform float diamond_strength : hint_range(0.0, 1.0) = 0.5;
 
 // Screen-Halbmaße in Welteinheiten: x = Höhe (84.8/2), z = Breite (124.8/2).
 uniform vec2 screen_half = vec2(42.4, 62.4);
+// Mitte der Anzeige in Welt-XZ (sie wächst nach rechts, liegt also nicht auf 0).
+uniform vec2 screen_center = vec2(0.0, 0.0);
 uniform float pool_fade = 110.0;    // Weltstrecke des Auslaufs hinter der Screen-Kante
 uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-Ton der Kante
 
@@ -30,7 +32,7 @@ uniform float glass_energy = 1.2;   // screen_glass.emission_energy: Anschluss-T
 // nicht dahinterstehen, sonst blickt man auf Filz statt in Grube oder Schacht.
 // Platz 0 ist dauerhaft die Magazin-Grube, der Rest sind die Hebebühnen-Schächte.
 // xy = Welt-Min (x, z), zw = Welt-Max; min == max = kein Loch.
-const int MAX_PITS = 33;
+const int MAX_PITS = 37;
 uniform int pit_count = 0;
 uniform vec4 pit_bounds[MAX_PITS];
 
@@ -66,8 +68,9 @@ void fragment() {
 	// Virtuelle Display-UVs: Welt-Z = Screen-Breite, Welt-X = Screen-Höhe.
 	// Ein Vorzeichen-Irrtum spiegelte nur das Rauschen - das Rauten-Gitter
 	// ist spiegelsymmetrisch und bliebe trotzdem in Phase.
-	vec2 uv = vec2((world_xz.y + screen_half.y) / (screen_half.y * 2.0),
-		(screen_half.x - world_xz.x) / (screen_half.x * 2.0));
+	vec2 local = world_xz - screen_center;
+	vec2 uv = vec2((local.y + screen_half.y) / (screen_half.y * 2.0),
+		(screen_half.x - local.x) / (screen_half.x * 2.0));
 	float aspect = screen_half.y / screen_half.x;
 
 	// Ab hier 1:1 die Rechnung aus table_felt.gdshader (fabric = 1).
@@ -88,7 +91,7 @@ void fragment() {
 	felt *= 1.0 + (grain - 0.5) * 2.0 * grain_strength;
 
 	// Abstand zum Screen-Rechteck (SDF-Box): 0 unterm Screen, dann Auslauf.
-	float dist = length(max(abs(world_xz) - screen_half, vec2(0.0)));
+	float dist = length(max(abs(local) - screen_half, vec2(0.0)));
 	float pool = (1.0 - smoothstep(0.0, pool_fade, dist)) * glass_energy;
 
 	EMISSION = felt * pool;

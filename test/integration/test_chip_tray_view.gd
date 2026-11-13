@@ -110,3 +110,14 @@ func test_payment_reports_each_paid_chip() -> void:
 	for value: int in paid:
 		sum += value
 	assert_eq(sum, 30, "was als gezahlt meldet, ist genau der Preis")
+
+## Die TASCHE hinter dem Wandschlitz endet vor einem Nachbarloch (dem Paket-Lager): die
+## Grenze kürzt sie, der Auslauf bleibt hinter der Wand und in ihr.
+func test_the_pocket_ends_before_its_neighbour() -> void:
+	var tray := _tray()
+	var full := tray.pocket_end_z()
+	var limit := full - 2.0
+	tray.set_pocket_limit(limit)
+	assert_lte(tray.pocket_end_z(), limit + 0.001, "die Tasche endet an der Grenze")
+	assert_gt(tray.exit_s(), tray.gate_s(), "der Auslauf liegt hinter der Sperre")
+	assert_lt(tray.exit_s() - tray._length, tray._pocket_len(), "und in der Tasche")

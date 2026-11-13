@@ -126,7 +126,8 @@ var awarded_packs: Array[Pack] = []
 var awarded_fizzled: int = 0
 ## Der gewonnene Würfel, wie er im Ausgabefach wartet (Payout.DIE).
 var awarded_die: DieDefinition = null
-## Das gewonnene, geöffnete Paket (CARD_PACK/DICE_PACK) - es wartet in GameRun auf seine Wahl.
+## Das gewonnene Paket (CARD_PACK/DICE_PACK): im Lager - oder, war es voll, sofort geöffnet.
+var awarded_stored: Resource = null
 var awarded_choice: PackChoice = null
 ## Was der Einsatz WIRKLICH gekostet hat - die Rückversicherung gibt genau das zurück.
 var paid_money: int = 0

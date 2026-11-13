@@ -48,6 +48,9 @@ const FLOOR_T := 0.12
 ## Hinter der Sperre: so weit rutscht ein Chip, bis er verschwindet.
 const EXIT_RUN := R * 2.0 + 0.4
 const POCKET_LEN := EXIT_RUN + 1.2
+## Die kürzeste Tasche: eine Chipdicke Auslauf samt Luft.
+const POCKET_MIN := H + 0.3
+const EXIT_AIR := 0.08
 const DEPTH := 3.6
 ## Der Schlitz der rechten Wand (Tiefe von Ober- und Unterkante).
 const SLOT_TOP := 0.85
@@ -216,6 +219,30 @@ static func fold(counts: Array[int], steps: Array) -> Array[int]:
 
 ## Mitte der Grube auf dem Glas, halbe Ausdehnung in Welt-X (Rinnen) und Welt-Z
 ## (Länge). Baut alles neu; die Belegung bleibt.
+## Wie weit (Welt +Z) die TASCHE hinter dem Wandschlitz höchstens reicht: ein Nachbarloch
+## darüber zeigte sie. Die Chips verlassen die Rinne dann eben kürzer - hochkant sind sie
+## nur eine Chipdicke tief.
+var pocket_limit_z := INF
+
+func pocket_end_z() -> float:
+	return global_position.z + _half.y + PackPitView.WALL * 2.0 + _pocket_len()
+
+func _pocket_len() -> float:
+	var room := pocket_limit_z - global_position.z - _half.y - PackPitView.WALL * 2.0
+	return clampf(room, POCKET_MIN, POCKET_LEN)
+
+## Der Auslauf hinter der Sperre: höchstens so weit, wie die Tasche reicht.
+func _exit_run() -> float:
+	return minf(EXIT_RUN, _pocket_len() - EXIT_AIR)
+
+## Stellt die Grenze und baut neu, wenn sie sich ändert (die Belegung bleibt).
+func set_pocket_limit(limit_z: float) -> void:
+	if is_equal_approx(limit_z, pocket_limit_z):
+		return
+	pocket_limit_z = limit_z
+	if _built:
+		setup(global_position, _half)
+
 func setup(at: Vector3, half_extents: Vector2) -> void:
 	global_position = at
 	_half = half_extents
@@ -260,16 +287,17 @@ func _build_pit() -> void:
 	var w := PackPitView.WALL
 	var top := -PackPitView.WALL_SINK
 	var z0 := _half.y + w
-	var mid_z := z0 + POCKET_LEN * 0.5
+	var pocket_len := _pocket_len()
+	var mid_z := z0 + pocket_len * 0.5
 	var span_x := _half.x * 2.0 + w * 2.0
-	TableProps.box(pocket, "Decke", Vector3(span_x, w, POCKET_LEN),
+	TableProps.box(pocket, "Decke", Vector3(span_x, w, pocket_len),
 		Vector3(0.0, top - w * 0.5, mid_z), wall_mat)
-	TableProps.box(pocket, "Boden", Vector3(span_x, w, POCKET_LEN),
+	TableProps.box(pocket, "Boden", Vector3(span_x, w, pocket_len),
 		Vector3(0.0, top - DEPTH - w * 0.5, mid_z), floor_mat)
 	TableProps.box(pocket, "Rueckwand", Vector3(span_x, DEPTH, w),
-		Vector3(0.0, top - DEPTH * 0.5, z0 + POCKET_LEN + w * 0.5), wall_mat)
+		Vector3(0.0, top - DEPTH * 0.5, z0 + pocket_len + w * 0.5), wall_mat)
 	for side: float in [-1.0, 1.0]:
-		TableProps.box(pocket, "Flanke", Vector3(w, DEPTH, POCKET_LEN),
+		TableProps.box(pocket, "Flanke", Vector3(w, DEPTH, pocket_len),
 			Vector3(side * (_half.x + w * 0.5), top - DEPTH * 0.5, mid_z), wall_mat)
 
 func _build_grooves() -> void:
@@ -284,7 +312,7 @@ func _build_grooves() -> void:
 	var gate_mat := TableProps.metal(Color(0.30, 0.25, 0.12), Color(1.0, 0.78, 0.35), 0.8)
 	var basis := Basis(Vector3.RIGHT, TILT)
 	var normal := basis.y
-	var run_end := _length + POCKET_LEN
+	var run_end := _length + _pocket_len()
 	var grooves := Node3D.new()
 	grooves.name = "Rinnen"
 	add_child(grooves)
@@ -337,7 +365,7 @@ func slot_s(index: int) -> float:
 	return gate_s() - H * 0.5 - float(index) * PITCH
 
 func exit_s() -> float:
-	return _length + EXIT_RUN
+	return _length + _exit_run()
 
 ## Der tiefste Punkt der Rinne (lokal) an der Rinnen-Länge s.
 func _floor_point(x: float, s: float) -> Vector3:

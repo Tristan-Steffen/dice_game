@@ -22,9 +22,10 @@ func before_each() -> void:
 	var u := view.unit()
 	view.size = Vector2(
 		roundf(WorkshopView.bench_width_for(u, view.net_span(u).x,
-			view.tower_span_px().x, view.stage_px(), view.eject_lane_px())),
+			view.tower_span_px().x, view.eject_lane_px(),
+			WorkshopView.shelf_min_width(view.shelf_cell_px(), u))),
 		roundf(WorkshopView.bench_height_for(u, view.net_span(u).y,
-			view.tower_span_px().y, view.stage_px())))
+			view.tower_span_px().y)))
 	view.refresh()  # das neue Maß will gebaut werden, sonst steht die alte Seite
 
 ## Legt count Zahlen-Pakete ins Magazin und liefert ihre uids.
@@ -650,15 +651,15 @@ func test_the_row_reports_sorts_places_and_cards() -> void:
 	assert_eq(view.press_display_anchors().size(), view.slot_count())
 
 ## Die Körper gehören scene_root, den PLATZ meldet das Fenster - seit der WELLE S
-## ist es EIN Podest, und seit der WELLE Z steht es RECHTS vom Netz-Schirm.
+## ist es EIN Podest, und seit dem 2026-11-13 steht es ÜBER dem Netz-Schirm.
 func test_the_window_reports_the_one_podium() -> void:
 	await wait_frames(2)
 	assert_true(view.bench_open(), "die Straße ist Möbel, kein Ablauf")
 	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seine Mitte")
 	assert_eq(view.target_projector_y(), view.target_net_center().y,
 		"Zeile und Mitte sind derselbe Platz")
-	assert_gt(view.target_net_center().x, view.ist_screen_rect().end.x
-		+ view.get_global_rect().position.x, "es steht RECHTS vom Netz-Schirm")
+	assert_lte(view.podium_look_rect().end.y, view.ist_screen_rect().position.y,
+		"es steht ÜBER dem Netz-Schirm")
 	assert_false(view.has_method("result_net_center"),
 		"und ein zweites Podest gibt es nicht mehr")
 
@@ -782,12 +783,11 @@ func test_more_floors_split_the_same_strip() -> void:
 func test_the_strip_grows_sideways_instead_of_shrinking_the_cards() -> void:
 	var u := 5.0
 	var net := 125.0
-	var stage := 94.0
-	assert_almost_eq(WorkshopView.bench_height_for(u, net, 97.0, stage),
-		WorkshopView.bench_height_for(u, net, 97.0, stage), 0.001,
+	assert_almost_eq(WorkshopView.bench_height_for(u, net, 97.0),
+		WorkshopView.bench_height_for(u, net, 97.0), 0.001,
 		"die Höhe kennt die Etagenzahl gar nicht")
-	var narrow := WorkshopView.bench_width_for(u, 168.3, 100.0, stage, 100.0)
-	var wide := WorkshopView.bench_width_for(u, 168.3, 160.0, stage, 160.0)
+	var narrow := WorkshopView.bench_width_for(u, 168.3, 100.0, 100.0)
+	var wide := WorkshopView.bench_width_for(u, 168.3, 160.0, 160.0)
 	assert_gt(wide, narrow, "ein größerer Turm macht den Streifen breiter")
 
 ## Der STREIFEN ist BREITER als die Treppen-Spalte war - dafür ist er FLACH, und
@@ -795,8 +795,7 @@ func test_the_strip_grows_sideways_instead_of_shrinking_the_cards() -> void:
 func test_the_tower_strip_trades_height_for_width() -> void:
 	var u := 5.0
 	var net := 125.0
-	var stage := 94.0
-	var now := WorkshopView.bench_height_for(u, net, 97.3, stage)
+	var now := WorkshopView.bench_height_for(u, net, 97.3)
 	# Die Treppe war sechs liegende Karten hoch: 6 x 90 px plus Netz und u-Kette.
 	var was := 90.0 * 6.0 + net
 	assert_lt(now, was, "die Zeile ist %.1f px hoch statt %.1f px" % [now, was])
@@ -1287,7 +1286,7 @@ func test_die_tischsektion_weicht_dem_rohling() -> void:
 	assert_almost_eq(view.ist_slide(), 0.0, 0.001)
 	assert_almost_eq(view._ist_screen.modulate.a, 1.0, 0.001)
 
-## Sein PLATZ ist die Mitte der Ziel-Spalte - links vom Podest, das beim Verdichten
+## Sein PLATZ ist die Mitte der Ziel-Spalte - unter dem Podest, das beim Verdichten
 ## leer steht, und ueber dem Turm.
 func test_der_rohling_liegt_auf_der_ziel_spalte() -> void:
 	var blank := _blank()
@@ -1299,8 +1298,8 @@ func test_der_rohling_liegt_auf_der_ziel_spalte() -> void:
 		"die Mitte der Ziel-Spalte")
 	assert_almost_eq(seat.x, origin.x + view.tower_rect().get_center().x, 0.5,
 		"und damit ueber dem Turm")
-	assert_lt(seat.x, origin.x + view.target_podium_rect().get_center().x,
-		"links vom Podest")
+	assert_gt(seat.y, origin.y + view.podium_look_rect().end.y,
+		"unter dem Podest")
 
 ## Waehrend der Zeremonie LIEGT er weiter dort - das Licht steigt in IHN, und im
 ## Magazin steht er darum auch nicht schon wieder.

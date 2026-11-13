@@ -90,18 +90,19 @@ const STAGE_HEIGHT := 9.3
 ## an einem Höhen-Budget. So viele u ist eine Würfelfläche breit.
 const U_PER_FACE := 11.0
 
-## --- DIE SPALTEN: Summen-Netz, Leiste, Turm, Ziel-Netz, Podest, Prägen -------------
+## --- DIE SPALTEN: Summen-Netz, Leiste, Turm, Ziel-Netz; Podest und Prägen darüber -----
 ## MINDEST-Breite einer Netz-Spalte in u; die ECHTE Breite ist das Netz plus seinen
 ## beiden Rändern - die Zelle ist eine Würfelfläche und damit ein Weltmaß.
 const DIFF_WIDTH_UNITS := 18.0
 ## Die Fuge zwischen zwei Spalten.
 const STREET_GAP := 1.8
-## Der VERSATZ des Podest-Ankers gegen die Zeilenmitte, in DISPLAY-Pixeln: der
-## Würfel schwebt CLAMP_HOVER über dem Glas und projiziert an der geneigten Station
-## darum nach oben. Der Anker rückt um genau diesen Betrag tiefer, damit der Körper
-## MITTIG auf der Zeilenhöhe LIEST. GEMESSEN an der Werkstatt-Weitsicht (18,76 px);
-## die Nahsicht steht steiler (8,75 px) und weicht bewußt ab.
-const BENCH_TILT_TRIM := 18.8
+## Der VERSATZ des Podest-Ankers gegen den Platz, an dem der Würfel LIEST, in
+## Display-Pixeln: er schwebt CLAMP_HOVER über dem Glas und projiziert an der geneigten
+## Station nach oben, also rückt der Anker um diesen Betrag tiefer. GEMESSEN an der
+## Werkstatt-Weitsicht auf der Höhe ÜBER der Die-View (2026-11-13).
+const BENCH_TILT_TRIM := 29.2
+## Derselbe Versatz an der ZEILENMITTE (Turmkopf), gemessen an der Weitsicht.
+const ROW_TILT_TRIM := 18.8
 
 ## --- DIE TISCHSEKTION WEICHT DEM ROHLING (Spieler-Wünsche 2026-10-26) -------------
 ## Beim VERDICHTEN liegt der Rohling auf der ZIEL-SPALTE - über dem Turm, wo das Licht
@@ -165,6 +166,10 @@ const SHELF_MIN_HEIGHT := 6.0
 ## Bemessen an der breitesten Aufschrift ("Prägen 6/6") plus Rand.
 const ACTION_WIDTH := 21.0
 const ACTION_HEIGHT := 4.0
+const ACTION_SPAN_SHARE := 0.5
+const ACTION_FONT_SHARE := 0.5
+const ACTION_TEXT_PAD := 1.0
+const ACTION_WIDEST := "Verdichten 6/6"
 
 ## DAS DURCHLICHT - die Zeremonie des Prägens (Welle X, 2026-09-05). Alle Karten
 ## rasten ein, der Zielwürfel fliegt über den Turm, ein Licht steigt aus der Kammer
@@ -312,8 +317,8 @@ var die_face_px := 0.0:
 			return
 		die_face_px = value
 		refresh()
-## Wie weit der PODEST-Würfel sich im Bild nach rechts hinauslehnt - ohne diese Luft
-## deckte er den PRÄGEN-Knopf zu.
+## Wie weit der PODEST-Würfel sich im Bild nach rechts über seine Spanne hinauslehnt -
+## ohne diese Luft deckte er den PRÄGEN-Knopf zu.
 var die_lean := 0.0:
 	set(value):
 		if is_equal_approx(die_lean, value):
@@ -574,8 +579,8 @@ func _free_own(node: Node) -> void:
 		remove_child(node)
 		node.queue_free()
 
-# --- DIE ZEILE (Welle Z): Summen-Netz | Leiste + Bahn + Turm | Ziel-Netz | Podest |
-# --- Prägen. Die GRUBE liegt links, der WÜRFEL rechts. -----------------------------
+# --- DIE ZEILE: Summen-Netz | Leiste + Bahn + Turm | Ziel-Netz; Podest und Prägen
+# --- stehen ÜBER der Die-View (2026-11-13). ----------------------------------------
 
 ## Der Innenraum des Fensters in Fenster-Koordinaten - alles liegt darin.
 func street_rect() -> Rect2:
@@ -599,13 +604,47 @@ func stage_px() -> float:
 		return die_face_px * STAGE_FACES
 	return unit() * STAGE_HEIGHT
 
-## Das PODEST: rechts des ZIEL-NETZES, mittig - der Anker rückt um BENCH_TILT_TRIM
-## tiefer, weil der schwebende Körper an der geneigten Station nach oben projiziert.
+## Der ANKER des Podests: dort, wo der Würfel liest, um BENCH_TILT_TRIM tiefer - der
+## schwebende Körper projiziert an der geneigten Station nach oben.
 func target_podium_rect() -> Rect2:
+	var look := podium_look_rect()
+	return Rect2(look.position + Vector2(0.0, BENCH_TILT_TRIM), look.size)
+
+## Wo der Podest-Würfel LIEST: eine Fuge ÜBER der Die-View; er und der Präge-Knopf
+## stehen zusammen mittig über der Ziel-Spalte, links nie über ihre Kante.
+func podium_look_rect() -> Rect2:
+	var u := unit()
 	var span := stage_px()
-	var row := row_rect()
-	return Rect2(Vector2(ist_screen_rect().end.x + unit() * STREET_GAP,
-		row.get_center().y + BENCH_TILT_TRIM - span * 0.5), Vector2(span, span))
+	var ist := ist_screen_rect()
+	var pair := span + u * STREET_GAP + die_lean + action_size(u).x
+	var left := ist.position.x + maxf((ist.size.x - pair) * 0.5, 0.0)
+	return Rect2(Vector2(left, ist.position.y - u * STREET_GAP - span), Vector2(span, span))
+
+## Die KRONE der Werkstatt in Fenster-Koordinaten: Podest und Präge-Sitz über der
+## Die-View - sie liegt über der Fensterkante und braucht eigene Klick-Fläche.
+func crown_rect() -> Rect2:
+	return podium_look_rect().merge(stamp_seat_rect())
+
+## Die rechte Kante dessen, was in der Zeile steht (Fenster-Koordinaten) - rechts davon
+## ist der Streifen nur noch Magazin-Breite und bleibt frei.
+func content_right() -> float:
+	return maxf(ist_screen_rect().end.x, crown_rect().end.x)
+
+## Was die Werkstatt in Display-Pixeln bedient: die Zeile bis zu ihrem Inhalt, die
+## Schürze darunter über die volle Breite und die Krone darüber.
+func hit_rects() -> Array[Rect2]:
+	var origin := get_global_rect().position
+	var bench := bench_rect()
+	var row := Rect2(origin, Vector2(content_right() + unit() * CONTENT_MARGIN_X, size.y))
+	var apron := Rect2(Vector2(origin.x, origin.y + size.y),
+		Vector2(bench.size.x, maxf(bench.end.y - origin.y - size.y, 0.0)))
+	var crown := crown_rect()
+	return [row, apron, Rect2(origin + crown.position, crown.size)] as Array[Rect2]
+
+## Die Krone in Display-Pixeln.
+func crown_rect_px() -> Rect2:
+	var crown := crown_rect()
+	return Rect2(get_global_rect().position + crown.position, crown.size)
 
 ## Die Breite einer NETZ-Spalte: das Netz plus seinen beiden Rändern; die u-Zahl ist
 ## nur der Boden. Gemessen wird am GRÖSSEREN der beiden Ränder - sonst kappte der
@@ -670,13 +709,14 @@ func floor_field_rect(index: int) -> Rect2:
 		strip.position.y + float(count - 1 - index) * (height + gap)),
 		Vector2(strip.size.x, height))
 
-## Der PRÄGE-SITZ: das rechte Ende der Zeile, hinter der Luft, die die LEHNE des
-## Podest-Würfels braucht.
+## Der PRÄGE-SITZ: rechts NEBEN dem Podest-Würfel, auf seiner Lesehöhe, hinter der
+## Luft, die seine LEHNE braucht.
 func stamp_seat_rect() -> Rect2:
 	var u := unit()
 	var span := action_size(u)
-	return Rect2(Vector2(target_podium_rect().end.x + u * STREET_GAP + die_lean,
-		row_rect().get_center().y - span.y * 0.5), span)
+	var look := podium_look_rect()
+	return Rect2(Vector2(look.end.x + u * STREET_GAP + die_lean,
+		look.get_center().y - span.y * 0.5), span)
 
 func _build_street(u: float) -> void:
 	_target_stage_host = _podium_host("TargetStage", target_podium_rect())
@@ -986,13 +1026,12 @@ static func height_units() -> float:
 static func unit_for(die_face: float) -> float:
 	return maxf(die_face / U_PER_FACE, 0.5)
 
-## Die FENSTERHÖHE: die höchste der drei Spalten plus die beiden Ränder. Der SUMMEN-
-## Schirm trägt sein Netz plus Fassung, der Turm seinen Fußabdruck, die Bühne ihre
-## Spanne - jede ist ein Weltmaß, die Ränder sind die u-Kette.
-static func bench_height_for(u: float, net_px: float, tower_px: float,
-		stage_px_now: float) -> float:
+## Die FENSTERHÖHE: die höhere der beiden Spalten plus die beiden Ränder. Der SUMMEN-
+## Schirm trägt sein Netz plus Fassung, der Turm seinen Fußabdruck - beides Weltmaße;
+## das Podest steht seit dem 2026-11-13 über der Zeile.
+static func bench_height_for(u: float, net_px: float, tower_px: float) -> float:
 	var nets := net_px + u * INFO_MARGIN * 2.0
-	return maxf(maxf(nets, tower_px), stage_px_now) + u * height_units()
+	return maxf(nets, tower_px) + u * height_units()
 
 ## Die Maßeinheit u dieses Fensters: die vorgegebene, sonst die u-Konvention
 ## (Fensterbreite/100). Alles Gesetzte im Fenster rechnet in ihr.
@@ -1038,17 +1077,15 @@ func floor_field_rects() -> Array[Rect2]:
 	return rects
 
 ## Wie BREIT das Fenster sein muß: Ränder, die Summen-Spalte, die Leiste, die
-## Auswurf-Bahn, die Ziel-Spalte (mindestens so breit wie der Turm darunter), die
-## Bühne samt ihrer Lehne, die Präge-Spalte und die vier Fugen - und mindestens so
-## breit, daß das Magazin seine COLUMNS Karten trägt (shelf_px).
+## Auswurf-Bahn, die Ziel-Spalte (mindestens so breit wie der Turm darunter) und die
+## zwei Fugen - Podest und Prägen stehen darüber - und mindestens so breit, daß das
+## Magazin seine COLUMNS Karten trägt (shelf_px).
 static func bench_width_for(u: float, net_px: float, tower_px: float,
-		stage_px_now: float, lane_px: float = 0.0, die_lean_px: float = 0.0,
-		shelf_px: float = 0.0) -> float:
+		lane_px: float = 0.0, shelf_px: float = 0.0) -> float:
 	var column := maxf(net_px + u * maxf(DIFF_PAD, INFO_MARGIN) * 2.0,
 		u * DIFF_WIDTH_UNITS)
-	var row := u * (CONTENT_MARGIN_X * 2.0 + STRIP_WIDTH + STREET_GAP * 4.0
-		+ ACTION_WIDTH) + column + maxf(column, tower_px) + lane_px + stage_px_now \
-		+ die_lean_px
+	var row := u * (CONTENT_MARGIN_X * 2.0 + STRIP_WIDTH + STREET_GAP * 2.0) + column \
+		+ maxf(column, tower_px) + lane_px
 	return maxf(row, shelf_px)
 
 ## Die MINDESTBREITE des Streifens, damit das Magazin genau COLUMNS Karten zeigt:
@@ -1330,7 +1367,7 @@ func _prune_series() -> void:
 
 # --- Das PRÄGEN -------------------------------------------------------------------
 
-## Der EINE Handlungs-Sitz am rechten Ende der Zeile. Sein Rechteck ist in JEDEM
+## Der EINE Handlungs-Sitz neben dem Podest. Sein Rechteck ist in JEDEM
 ## Zustand dasselbe - der Sitz ist ein fester Platz, die Aufschrift wechselt.
 func _build_action_seat(u: float) -> void:
 	var seat := Control.new()
@@ -1393,11 +1430,32 @@ func can_pull() -> bool:
 func _seat_fit(button: Button, u: float) -> Button:
 	button.clip_text = true
 	button.custom_minimum_size = action_size(u)
+	button.add_theme_font_size_override("font_size", action_font_size(u))
 	return button
 
-## Maße des Sitzes: EIN Rechteck für beide Aufschriften.
+## Maße des Sitzes: EIN Rechteck für beide Aufschriften. Neben dem Podest füllt er den
+## Rest der Ziel-Spalte und ist halb so hoch wie der Würfel - die u-Zahl ist nur der Boden.
 func action_size(u: float) -> Vector2:
-	return Vector2(u * ACTION_WIDTH, u * ACTION_HEIGHT)
+	var floor_size := Vector2(u * ACTION_WIDTH, u * ACTION_HEIGHT)
+	if die_face_px <= 0.0:
+		return floor_size
+	var span := stage_px()
+	var rest := target_column_width(u) - span - u * STREET_GAP - die_lean
+	return Vector2(maxf(rest, floor_size.x), maxf(span * ACTION_SPAN_SHARE, floor_size.y))
+
+## Die Schrift des Sitzes wächst mit seiner Höhe, bis die breiteste Aufschrift
+## („Verdichten 6/6“) gerade noch ungeschnitten hineinpaßt.
+func action_font_size(u: float) -> int:
+	var seat := action_size(u)
+	var size_px := maxi(8, int(seat.y * ACTION_FONT_SHARE))
+	var font := get_theme_font("font", "Button")
+	if font == null:
+		return size_px
+	var room := seat.x - u * ACTION_TEXT_PAD * 2.0
+	while size_px > 8 and font.get_string_size(ACTION_WIDEST, HORIZONTAL_ALIGNMENT_LEFT,
+			-1, size_px).x > room:
+		size_px -= 1
+	return size_px
 
 ## Der Platz des SUMMEN-SCHIRMS: die ERSTE Spalte der Zeile (Welle Z) - das Netz
 ## plus seiner Fassung. Die CAPTION darunter ist am 2026-09-11 gestorben.

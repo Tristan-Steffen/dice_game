@@ -7,7 +7,7 @@ extends GutTest
 ## Klauseln, die der Winkeladvokat sichtbar verändert: id -> verdoppelter Text.
 const DOUBLED := {
 	DealClause.ADVANCE_PAYMENT: "+$24 sofort.",
-	DealClause.LUCKY_GRAB: "Pakete: Glückswurf-Chancen vervierfacht.",
+	DealClause.LUCKY_GRAB: "Beim Öffnen: Glückswurf-Chancen vervierfacht.",
 	DealClause.SUPPLEMENT: "Jedes Paket zeigt zwei Optionen mehr.",
 	DealClause.BONUS_PICK: "Jedes Paket: zwei Wahlen mehr.",
 	DealClause.BLANK_CHEQUE: "+$80 sofort.",

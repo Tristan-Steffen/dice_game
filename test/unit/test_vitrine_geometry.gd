@@ -85,6 +85,10 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		slots.append(TableScreen.PIT_SECRET_BAY0 + i)
 	slots.append(TableScreen.PIT_CASE)
 	slots.append(TableScreen.PIT_TRAY)
+	slots.append(TableScreen.PIT_STORE_CARDS)
+	slots.append(TableScreen.PIT_STORE_DICE)
+	slots.append(TableScreen.PIT_STORE_MODULES)
+	slots.append(TableScreen.PIT_OPENING)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -115,8 +119,15 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT,
 		TableScreen.PIT_CASE)
 	assert_eq(TableScreen.PIT_CASE + 1, TableScreen.PIT_TRAY, "der Einzug der Schatulle")
-	assert_eq(TableScreen.PIT_TRAY + 1, TableScreen.MAX_PITS, "die Grube des Chip-Trays zuletzt")
+	assert_eq(TableScreen.PIT_TRAY + 1, TableScreen.PIT_STORE_CARDS, "dahinter das Paket-Lager")
+	assert_eq(TableScreen.PIT_STORE_DICE + 1, TableScreen.PIT_STORE_MODULES)
+	assert_eq(TableScreen.PIT_STORE_MODULES + 1, TableScreen.PIT_OPENING)
+	assert_eq(TableScreen.PIT_OPENING + 1, TableScreen.MAX_PITS, "die Öffnungs-Fläche zuletzt")
+	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_OPENING), "sie ist Möbel")
+	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_MODULES))
 	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_TRAY), "sie ist Möbel")
+	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_CARDS), "das Lager auch")
+	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_DICE))
 	assert_eq(TableScreen.SWALLOW_PIT_COUNT, TableScreen.QUEUE_PIT_COUNT, "je Grubenwürfel eine Bahn")
 	var source: String = load("res://scripts/table/table_screen.gd").source_code
 	assert_false(source.contains("clamp_pit"), "clamp_pit ist tot")

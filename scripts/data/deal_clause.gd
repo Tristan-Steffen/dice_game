@@ -366,7 +366,7 @@ static func big_storage() -> DealClause:
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
 static func lucky_grab() -> DealClause:
-	return _bonus(LUCKY_GRAB, "Glücksgriff", "Pakete: Glückswurf-Chancen verdoppelt.",
+	return _bonus(LUCKY_GRAB, "Glücksgriff", "Beim Öffnen: Glückswurf-Chancen verdoppelt.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP, TAG_LUCK])
 
 static func supplement() -> DealClause:
@@ -378,7 +378,7 @@ static func bonus_pick() -> DealClause:
 		Scope.ROUND, Tier.TWO, [TAG_SHOP])
 
 static func free_hand() -> DealClause:
-	return _bonus(FREE_HAND, "Freie Hand", "Erstes Paket: alle Optionen nehmen.",
+	return _bonus(FREE_HAND, "Freie Hand", "Erstes geöffnetes Paket: alle Optionen nehmen.",
 		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
 # --- Malusklauseln ------------------------------------------------------------
@@ -591,7 +591,7 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		ADVANCE_PAYMENT:
 			return "+$24 sofort."
 		LUCKY_GRAB:
-			return "Pakete: Glückswurf-Chancen vervierfacht."
+			return "Beim Öffnen: Glückswurf-Chancen vervierfacht."
 		SUPPLEMENT:
 			return "Jedes Paket zeigt zwei Optionen mehr."
 		BONUS_PICK:

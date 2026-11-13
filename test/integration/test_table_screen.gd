@@ -35,7 +35,9 @@ func before_each() -> void:
 func test_attach_lays_a_rectangular_surface_over_the_mesh() -> void:
 	var plane := mesh.mesh as PlaneMesh
 	assert_not_null(plane, "die Anzeige ist eine ebene Fläche, kein Möbelstück")
-	assert_almost_eq(plane.size.x, 31.2, 0.01, "so breit wie der Hüllquader")
+	assert_almost_eq(plane.size.x, 31.2 * float(TableScreen.RESOLUTION.x)
+		/ float(TableScreen.LAYOUT_SIZE.x), 0.01,
+		"so breit wie der Hüllquader plus der Streifen rechts (lokal X ist Welt +Z)")
 	assert_almost_eq(plane.size.y, 21.2, 0.01, "und so tief")
 
 func test_a_round_platter_becomes_its_own_bounding_rect() -> void:
@@ -50,7 +52,8 @@ func test_a_round_platter_becomes_its_own_bounding_rect() -> void:
 	var plane := round_mesh.mesh as PlaneMesh
 	assert_not_null(plane, "auch die Kugel wird zur Fläche")
 	assert_almost_eq(plane.size.x, before.size.x, 0.01)
-	assert_almost_eq(plane.size.y, before.size.z, 0.01)
+	assert_almost_eq(plane.size.y, before.size.z * float(TableScreen.RESOLUTION.x)
+		/ float(TableScreen.LAYOUT_SIZE.x), 0.01, "Welt +Z trägt den Streifen rechts")
 
 func test_attach_sets_viewport_material():
 	# Display-Glas als ShaderMaterial (siehe screen_glass.gdshader): die
@@ -332,8 +335,9 @@ func test_glass_gets_the_window_rects_for_reflection_masking():
 	assert_eq(rects[0], Vector4(100, 200, 900, 600), "Gruben-Rechteck in Pixeln (Min/Max)")
 
 func test_center_maps_to_screen_center():
+	# Die Welt-Mitte ist die Mitte des LAYOUTS - der Streifen rechts hängt daneben.
 	var pixel := screen.world_to_pixel(Vector3.ZERO)
-	assert_almost_eq(pixel.x, float(screen.size.x) / 2.0, 0.5)
+	assert_almost_eq(pixel.x, float(TableScreen.LAYOUT_SIZE.x) / 2.0, 0.5)
 	assert_almost_eq(pixel.y, float(screen.size.y) / 2.0, 0.5)
 
 func test_screen_up_is_world_plus_x():
@@ -341,13 +345,16 @@ func test_screen_up_is_world_plus_x():
 	# vordere Flächenrand (+42.4) muss auf Pixelzeile 0 fallen.
 	var pixel := screen.world_to_pixel(Vector3(42.4, 0, 0))
 	assert_almost_eq(pixel.y, 0.0, 0.5)
-	assert_almost_eq(pixel.x, float(screen.size.x) / 2.0, 0.5)
+	assert_almost_eq(pixel.x, float(TableScreen.LAYOUT_SIZE.x) / 2.0, 0.5)
 
 func test_u_runs_along_world_plus_z():
 	var left := screen.world_to_pixel(Vector3(0, 0, -62.4))
 	var right := screen.world_to_pixel(Vector3(0, 0, 62.4))
 	assert_almost_eq(left.x, 0.0, 0.5)
-	assert_almost_eq(right.x, float(screen.size.x), 0.5)
+	assert_almost_eq(right.x, float(TableScreen.LAYOUT_SIZE.x), 0.5, "der alte rechte Rand")
+	var edge := screen.pixel_to_world(Vector2(screen.size.x, 0.0))
+	assert_almost_eq(edge.z, 62.4 * float(TableScreen.RESOLUTION.x * 2 - TableScreen.LAYOUT_SIZE.x)
+		/ float(TableScreen.LAYOUT_SIZE.x), 0.05, "die Anzeige reicht um den Streifen weiter")
 
 func test_pixel_to_world_round_trips():
 	# Umkehrung von world_to_pixel: ein Pixel -> Welt -> Pixel muss dorthin
@@ -748,6 +755,9 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 	var sektion := Rect2(880, 300, 204, 142)
 	screen.set_pit(TableScreen.PIT_TOWER, bucht)
 	screen.set_pit(TableScreen.PIT_SECTION, sektion)
+	# Die Öffnungs-Fläche ist seit 2026-11-13 eine flache Vertiefung - Möbel wie das Lager.
+	var oeffnung := Rect2(1200, 600, 300, 310)
+	screen.set_pit(TableScreen.PIT_OPENING, oeffnung)
 	# Der EINE Aufräum-Pfad: jeder Schacht zu, die Möbel-Gruben unberührt.
 	screen.clear_lift_pits()
 	for slot in range(TableScreen.PIT_MAGAZIN + 1, TableScreen.MAX_PITS):
@@ -761,6 +771,8 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 	# ihr Loch schreibt nur der Fenster-Neuaufbau - der Aufräum-Pfad räumte es weg.
 	assert_eq(screen.pit_rect(TableScreen.PIT_SECTION), sektion,
 		"und die Vertiefung der Tischsektion auch")
+	assert_eq(screen.pit_rect(TableScreen.PIT_OPENING), oeffnung,
+		"und die Vertiefung der Öffnungs-Fläche")
 
 func test_ein_schacht_wird_in_weltmassen_genannt():
 	# Der Körper steht in der Welt, das Loch wird in Pixeln geschnitten - die

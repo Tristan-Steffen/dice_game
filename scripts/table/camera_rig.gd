@@ -105,6 +105,9 @@ var score_target := Vector3(-4, 0, 0)
 var slots_target := Vector3(-24, 0, -22)
 var secret_shop_target := Vector3(-24, 0, -12)
 var chips_target := Vector3(0, 1.5, 10)
+var chips_half := Vector2.ZERO
+## Die Station Börse & Lager rahmt beide mit diesem Saum.
+const CHIPS_MARGIN := 1.06
 var workshop_target := Vector3(-24, 0, 22)
 ## Halbe Ausmaße der GANZEN Ecke (Trays + Fenster + Schürze) - daraus rechnet die
 ## weite Sicht ihren Abstand.
@@ -421,8 +424,11 @@ func configure_slots_target(target: Vector3) -> void:
 func configure_secret_shop_target(target: Vector3) -> void:
 	secret_shop_target = target
 
-func configure_chips_target(target: Vector3) -> void:
+## half = halbe Ausmaße von Chip-Tray und Paket-Lager zusammen (Welt-Z, Welt-X); ZERO
+## läßt den alten, festen Abstand stehen.
+func configure_chips_target(target: Vector3, half := Vector2.ZERO) -> void:
 	chips_target = target
+	chips_half = half
 
 ## half_extent = halbe Ausmaße der Ecke; ZERO (die Klickzone meldet nur den Punkt)
 ## lässt das zuletzt gemessene Maß stehen.
@@ -596,6 +602,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	# Der Chip-Haufen ist klein: näher heranfahren als an die Screen-Fenster.
 	if target_mode == Mode.CHIPS:
 		distance -= CHIPS_ZOOM_DISTANCE_CUT
+		if chips_half != Vector2.ZERO:
+			distance = maxf(distance, tilted_fit_distance(chips_half, CHIPS_MARGIN))
 	if target_mode == Mode.SECRET_SHOP:
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.WORKSHOP:

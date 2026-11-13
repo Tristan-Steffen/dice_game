@@ -25,9 +25,10 @@ func before_each() -> void:
 	var u := view.unit()
 	view.size = Vector2(
 		roundf(WorkshopView.bench_width_for(u, view.net_span(u).x,
-			view.tower_span_px().x, view.stage_px(), view.eject_lane_px())),
+			view.tower_span_px().x, view.eject_lane_px(),
+			WorkshopView.shelf_min_width(view.shelf_cell_px(), u))),
 		roundf(WorkshopView.bench_height_for(u, view.net_span(u).y,
-			view.tower_span_px().y, view.stage_px())))
+			view.tower_span_px().y)))
 	view.refresh()  # das neue Maß will gebaut werden, sonst steht die alte Seite
 
 func _drawer_rect() -> Rect2:
@@ -146,7 +147,8 @@ func test_the_apron_is_one_seam_and_the_magazine() -> void:
 	assert_almost_eq(_drawer_rect().position.y - window.end.y,
 		u * WorkshopView.CONSOLE_SHELF_GAP, 1.0, "genau EINE Naht darunter")
 	assert_null(view.get_node_or_null("SeriesBand"), "das Konsolen-Band ist gestorben")
-	assert_true(window.encloses(_seat_rect()), "der GRIFF steht im Fenster")
+	assert_true(view.crown_rect_px().encloses(_seat_rect()),
+		"der GRIFF steht in der Krone über der Die-View")
 
 ## Das Fensterinnere gehört der STRASSE: nichts hängt mehr herein, sie endet erst
 ## an der Fensterkante (bis auf ihren eigenen Rand). Der TRÄGER deckt das ganze
@@ -239,7 +241,8 @@ func test_the_bench_rect_covers_window_and_apron() -> void:
 	await wait_frames(2)
 	var bench := view.bench_rect()
 	assert_true(bench.encloses(view.get_global_rect()), "das Fenster liegt darin")
-	assert_true(bench.encloses(_seat_rect()), "der Handlungs-Sitz ebenso")
+	assert_true(view.crown_rect_px().encloses(_seat_rect()),
+		"der Handlungs-Sitz steht in der Krone darüber")
 	# KORREKTUR-WELLE H: das ganze Magazin liegt WAAGERECHT in bench_rect (kein
 	# Pool-Überhang mehr, der links herausragte) - so werden Klicks auf jede
 	# Kassette weitergereicht.
@@ -308,7 +311,7 @@ func test_the_derived_pack_anchor_matches_the_measured_one() -> void:
 		assert_almost_eq(derived.x, measured.x, 1.5, "uid %d: dieselbe Spalte" % uid)
 		assert_almost_eq(derived.y, measured.y, 1.5, "uid %d: dieselbe Höhe" % uid)
 
-## Der GRIFF steht am RECHTEN Ende der Zeile, neben dem PODEST (Welle Z).
+## Der GRIFF steht rechts NEBEN dem PODEST-Würfel, auf seiner Lesehöhe (2026-11-13).
 func test_the_seat_stands_right_of_the_podium() -> void:
 	await wait_frames(2)
 	var origin := view.get_global_rect().position
@@ -317,7 +320,8 @@ func test_the_seat_stands_right_of_the_podium() -> void:
 	assert_almost_eq(seat.position.x - (origin.x + podium.end.x),
 		view.unit() * WorkshopView.STREET_GAP, 0.5, "der Sitz steht rechts vom Podest")
 	assert_almost_eq(seat.get_center().y,
-		origin.y + view.row_rect().get_center().y, 1.0, "und auf der Zeilenmitte")
+		origin.y + view.podium_look_rect().get_center().y, 1.0,
+		"und auf der Lesehöhe des Würfels")
 	# Die LEHNE des PODEST-Würfels hält allein den Sitz auf Abstand - ohne sie deckte
 	# der schwebende Würfel den Knopf zu (am Bild gemessen).
 	view.die_lean = 30.0
@@ -535,7 +539,7 @@ func test_the_row_height_is_the_tallest_column() -> void:
 	await wait_frames(2)
 	var u := view.unit()
 	var wanted := WorkshopView.bench_height_for(u, view.net_span(u).y,
-		view.tower_span_px().y, view.stage_px())
+		view.tower_span_px().y)
 	assert_almost_eq(view.size.y, roundf(wanted), 1.0,
 		"die Fensterhöhe folgt der höchsten Spalte")
 	assert_lte(view.tower_rect().size.y, view.row_rect().size.y + 0.5,
@@ -568,7 +572,7 @@ func test_the_bench_is_furnished_without_any_camera() -> void:
 	assert_true(view.bench_open())
 
 ## DIE ZEILE liest seit der WELLE 29 von LINKS nach RECHTS: Summen-Netz, Leiste,
-## Auswurf-Bahn, Ziel-Netz (darunter der Turm), Podest, Griff.
+## Auswurf-Bahn, Ziel-Netz (darunter der Turm); Podest und Griff stehen darüber.
 func test_the_page_reads_left_to_right() -> void:
 	await wait_frames(2)
 	var u := view.unit()
@@ -587,9 +591,11 @@ func test_the_page_reads_left_to_right() -> void:
 		"die Ziel-Spalte beginnt an der Kante des Lochs")
 	assert_almost_eq(tower.position.x, ist.position.x, 0.5,
 		"der Turm liegt UNTER dem Ziel-Netz - er hat keine eigene Spalte")
-	assert_almost_eq(podium.position.x - ist.end.x, u * WorkshopView.STREET_GAP, 0.5)
-	assert_almost_eq(grip.position.x - podium.end.x, u * WorkshopView.STREET_GAP, 0.5)
-	assert_lte(grip.end.x, view.size.x - u * WorkshopView.CONTENT_MARGIN_X + 0.5)
+	assert_gte(podium.position.x, ist.position.x - 0.5, "das Podest steht über der Die-View")
+	assert_lte(view.podium_look_rect().end.y, ist.position.y + 0.5)
+	assert_almost_eq(grip.position.x - podium.end.x,
+		u * WorkshopView.STREET_GAP + view.die_lean, 0.5)
+	assert_lte(grip.end.x, view.content_right() + 0.5, "die Zeile zählt den Griff mit")
 	assert_almost_eq(ist.size.x, view.target_column_width(u), 0.5)
 	assert_gte(ist.size.x, tower.size.x - 0.5, "die Ziel-Spalte deckt den Turm")
 	assert_almost_eq(sum.size.x, view.net_column_width(u), 0.5)
@@ -630,20 +636,32 @@ func test_the_reported_tower_minimum_is_dead() -> void:
 		view.strip_rect().end.x + view.unit() * WorkshopView.STREET_GAP
 			+ view.eject_lane_px(), 0.5)
 
-## Das EINE Podest meldet das Fenster, und es steht seit der WELLE Z RECHTS vom
-## ZIEL-NETZ - um den gemessenen Neigungs-Versatz nach unten gerückt.
-func test_the_podium_stands_right_of_the_target_net() -> void:
+## Das EINE Podest meldet das Fenster, und es steht seit dem 2026-11-13 ÜBER der
+## DIE-VIEW, eine Fuge über ihrer Oberkante - der Anker um den gemessenen
+## Neigungs-Versatz tiefer. Krone und Griff liegen über der Zeile, nie in ihr.
+func test_the_podium_stands_above_the_die_view() -> void:
 	await wait_frames(2)
+	var u := view.unit()
+	var ist := view.ist_screen_rect()
+	var look := view.podium_look_rect()
 	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seine Mitte")
 	assert_eq(view.target_projector_y(), view.target_net_center().y,
 		"Zeile und Mitte sind derselbe Punkt")
+	assert_almost_eq(look.end.y, ist.position.y - u * WorkshopView.STREET_GAP, 0.5,
+		"eine Fuge über der Die-View")
 	assert_almost_eq(view.target_podium_rect().get_center().y,
-		view.row_rect().get_center().y + WorkshopView.BENCH_TILT_TRIM, 0.5,
-		"die Podest-Mitte liegt auf der Zeilenmitte plus dem Neigungs-Versatz")
-	assert_gte(view.target_podium_rect().position.x,
-		view.ist_screen_rect().end.x - 0.5, "und rechts vom Ziel-Netz")
-	assert_lte(view.target_podium_rect().end.x,
-		view.stamp_seat_rect().position.x + 0.5, "vor dem Griff")
+		look.get_center().y + WorkshopView.BENCH_TILT_TRIM, 0.5,
+		"der Anker liegt um den Neigungs-Versatz tiefer")
+	assert_gte(look.position.x, ist.position.x - 0.5, "nie links über die Ziel-Spalte")
+	assert_lte(look.end.x, view.stamp_seat_rect().position.x + 0.5, "vor dem Griff")
+	var crown := view.crown_rect()
+	assert_lte(crown.end.y, ist.position.y + 0.5, "die Krone liegt über der Die-View")
+	assert_almost_eq(view.content_right(), maxf(ist.end.x, crown.end.x), 0.001,
+		"ragt der Griff über die Ziel-Spalte, zählt die Zeile ihn mit")
+	assert_lt(crown.position.y, 0.0, "über der Fensterkante")
+	assert_false(crown.intersects(view.sum_screen_rect(u)), "nichts überlappt")
+	assert_false(crown.intersects(view.strip_rect()))
+	assert_false(crown.intersects(ist))
 
 ## Die BÜHNE ist ein WELTMASS: die Würfelfläche mal ihrem Faktor.
 func test_the_stage_span_is_a_world_measure() -> void:
@@ -751,7 +769,8 @@ func test_the_one_net_stands_over_the_tower() -> void:
 	var tower := view.tower_rect()
 	assert_almost_eq(ist.position.x, origin.x + tower.position.x, 0.5,
 		"der Netz-Schirm liegt über dem Turm")
-	assert_lte(ist.end.x, origin.x + view.target_podium_rect().position.x + 0.5)
+	assert_gte(ist.position.y, origin.y + view.podium_look_rect().end.y - 0.5,
+		"das Podest steht darüber")
 	assert_almost_eq(ist.get_center().y, origin.y + view.row_rect().get_center().y, 0.5)
 	assert_true(screen.get_theme_stylebox("panel") is StyleBoxEmpty)
 
@@ -815,26 +834,23 @@ func test_the_one_net_stands_empty_without_a_target() -> void:
 	assert_false(view._empty_net.visible,
 		"mit gewähltem Ziel tritt der Platzhalter hinter das echte Netz zurück")
 
-## bench_width_for zählt Summen-Spalte, Leiste, Bahn, Ziel-Spalte (mindestens der
-## Turm), Bühne und Griff samt vier Fugen - und nie weniger als das Magazin braucht.
+## bench_width_for zählt Summen-Spalte, Leiste, Bahn und Ziel-Spalte (mindestens der
+## Turm) samt zwei Fugen - Podest und Griff stehen darüber - und nie weniger als das
+## Magazin braucht.
 func test_bench_width_counts_every_column() -> void:
 	var u := 5.0
 	var net := 168.3
 	var tower := 157.0
-	var stage := 94.0
 	var lane := 148.0
 	var column := maxf(net + u * maxf(WorkshopView.DIFF_PAD,
 		WorkshopView.INFO_MARGIN) * 2.0, u * WorkshopView.DIFF_WIDTH_UNITS)
 	var wanted := u * (WorkshopView.CONTENT_MARGIN_X * 2.0 + WorkshopView.STRIP_WIDTH
-		+ WorkshopView.STREET_GAP * 4.0 + WorkshopView.ACTION_WIDTH) \
-		+ column + maxf(column, tower) + lane + stage
-	assert_almost_eq(WorkshopView.bench_width_for(u, net, tower, stage, lane),
+		+ WorkshopView.STREET_GAP * 2.0) + column + maxf(column, tower) + lane
+	assert_almost_eq(WorkshopView.bench_width_for(u, net, tower, lane),
 		wanted, 0.001, "jede Spalte und jede Fuge genau einmal")
-	assert_almost_eq(WorkshopView.bench_width_for(u, net, 400.0, stage, lane),
+	assert_almost_eq(WorkshopView.bench_width_for(u, net, 400.0, lane),
 		wanted - maxf(column, tower) + 400.0, 0.001, "ein breiter Turm weitet die Ziel-Spalte")
-	assert_almost_eq(WorkshopView.bench_width_for(u, net, tower, stage, lane, 25.0),
-		wanted + 25.0, 0.001, "die Lehne der Bühne kommt obendrauf")
-	assert_almost_eq(WorkshopView.bench_width_for(u, net, tower, stage, lane, 0.0, 5000.0),
+	assert_almost_eq(WorkshopView.bench_width_for(u, net, tower, lane, 5000.0),
 		5000.0, 0.001, "und das Magazin setzt die Mindestbreite")
 
 ## (A) VIER Spalten in der ECHTEN Grube: mit den am Tisch gemessenen Maßen (1280 × 720)
@@ -850,28 +866,30 @@ func test_the_real_pit_holds_four_columns() -> void:
 	var tower := Vector2(lie.x * WorkshopView.TOWER_ROOM / (1.0 - TowerView.BAR_SHARE),
 		lie.y * WorkshopView.TOWER_ROOM)
 	var net := DieNetView.net_size(WorkshopView.card_net_cell(cell))
-	var stage := face * WorkshopView.STAGE_FACES
 	view.size = Vector2(
-		roundf(WorkshopView.bench_width_for(u, net.x, tower.x, stage,
-			lie.x * TowerView.eject_share(6), 0.0, WorkshopView.shelf_min_width(cell, u))),
-		roundf(WorkshopView.bench_height_for(u, net.y, tower.y, stage)))
+		roundf(WorkshopView.bench_width_for(u, net.x, tower.x,
+			lie.x * TowerView.eject_share(6), WorkshopView.shelf_min_width(cell, u))),
+		roundf(WorkshopView.bench_height_for(u, net.y, tower.y)))
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view.shelf_columns(), PackDrawerView.COLUMNS, "vier Karten je Reihe")
 	assert_eq(view._drawer.columns(), 4)
+	# Am echten Maß paßt die Krone ganz über die Ziel-Spalte.
+	assert_lte(view.crown_rect().end.x, view.ist_screen_rect().end.x + 0.5,
+		"Podest und Griff passen über die Die-View")
+	assert_lte(view.crown_rect().end.y, view.ist_screen_rect().position.y + 0.5)
 
-## Die HÖHE ist GEGEBEN: die höchste der drei Spalten plus die beiden Ränder -
-## nichts davon hängt an einem Budget.
+## Die HÖHE ist GEGEBEN: die höhere der beiden Spalten plus die beiden Ränder -
+## nichts davon hängt an einem Budget, und das Podest steht darüber.
 func test_the_height_is_the_tallest_column_plus_the_margins() -> void:
 	var u := 3.56
 	var net := 125.28
 	var tower := 97.3
-	var stage := 94.0
 	var nets := net + u * WorkshopView.INFO_MARGIN * 2.0
-	assert_almost_eq(WorkshopView.bench_height_for(u, net, tower, stage),
+	assert_almost_eq(WorkshopView.bench_height_for(u, net, tower),
 		nets + u * WorkshopView.height_units(), 0.001,
 		"hier bindet der Summen-Schirm")
-	assert_almost_eq(WorkshopView.bench_height_for(u, net, 400.0, stage),
+	assert_almost_eq(WorkshopView.bench_height_for(u, net, 400.0),
 		400.0 + u * WorkshopView.height_units(), 0.001,
 		"ein hoher Turm bindet statt dessen")
 	assert_almost_eq(WorkshopView.height_units(),
@@ -891,18 +909,17 @@ func test_the_solved_width_really_carries_the_row() -> void:
 	var u0 := view.unit()
 	view.unit_px = u0
 	view.size.x = WorkshopView.bench_width_for(u0, view.net_span(u0).x,
-		view.tower_span_px().x, view.stage_px(), view.eject_lane_px())
+		view.tower_span_px().x, view.eject_lane_px())
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view.slot_count(), 6)
 	assert_gte(view.tower_rect().position.x, view.strip_rect().end.x - 0.5,
 		"der Turm steht rechts der Leiste")
-	assert_lte(view.stamp_seat_rect().end.x,
-		view.size.x - u0 * WorkshopView.CONTENT_MARGIN_X + 0.5,
-		"und der Griff bleibt im Rand")
+	assert_lte(view.stamp_seat_rect().end.x, view.content_right() + 0.5,
+		"und der Griff zählt zum Inhalt der Zeile")
 
-## (4) Der GRIFF behält seinen sichtbaren Platz IM Fenster, neben dem Turm - nie
-## unter dem Magazin.
+## (4) Der GRIFF behält seinen sichtbaren Platz in der KRONE über der Die-View - nie
+## unter dem Magazin, und er bleibt bedienbar.
 func test_the_grip_keeps_a_visible_seat_above_the_magazine() -> void:
 	run.grant_pack(Pack.number_pack())
 	await wait_frames(2)
@@ -911,10 +928,13 @@ func test_the_grip_keeps_a_visible_seat_above_the_magazine() -> void:
 	var seat := _seat_rect()
 	assert_true(view._action_button.visible, "der Knopf steht")
 	assert_gt(seat.size.x, 0.0)
-	assert_true(view.get_global_rect().encloses(seat), "er liegt IM Fenster")
+	assert_true(view.crown_rect_px().encloses(seat), "er liegt in der Krone")
 	assert_lte(seat.end.y, _drawer_rect().position.y + 0.5,
 		"und über dem Magazin - nie darunter")
-	assert_true(view.bench_rect().encloses(seat), "und in der Weiterleitungs-Region")
+	var taken := false
+	for rect in view.hit_rects():
+		taken = taken or TableScreen.window_takes_pixel(view, rect, seat.get_center(), true, true)
+	assert_true(taken, "und in der Weiterleitungs-Region")
 
 ## DIE GLAS-SCHEIBE (Spieler-Wunsch 2026-10-27): der Tisch ueber dem TURM ist Glas,
 ## also zieht das EINE NETZ samt seinem leeren Kreuz in einen EIGENEN, durchsichtigen

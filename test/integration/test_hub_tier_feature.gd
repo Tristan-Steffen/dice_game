@@ -73,7 +73,7 @@ func test_every_tier_lays_out_three_of_each() -> void:
 	for tier in [1, 2, 3, 7, 10]:
 		var shop := _shop(tier)
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: 3 Charms" % tier)
-		assert_eq(shop.part_options.size(), 1, "Stufe %d: 1 Modul" % tier)
+		assert_eq(shop.module_packs.size(), 1, "Stufe %d: 1 Modul-Paket" % tier)
 		assert_eq(shop.single_dice.size(), 2, "Stufe %d: 2 Würfel" % tier)
 		assert_eq(shop.engraving_packs.size() + shop.single_specials.size(), 3,
 			"Stufe %d: 3 Gravuren" % tier)

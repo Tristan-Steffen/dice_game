@@ -1,5 +1,7 @@
 # Plan: Die Paket-Öffnung zieht in den HUB (Spieler-Wunsch 2026-11-12)
 
+> **ABGELÖST am 2026-11-13** durch `docs/plan_paket_lager.md`: Pakete gehen beim Kauf ins PAKET-LAGER und öffnen sich per Klick auf einer eigenen ÖFFNUNGS-FLÄCHE rechts vom Pool. Die Hub-Seite, `ShopController.suspend`/`reopen`-Rückkehr, `_resume_shop`, `PACK_SHOP_SETTLE_FRAMES` und `HubView.queue_page` sind gestorben. Dieses Dokument ist Historie.
+
 Das gekaufte Paket fliegt an die obere Mitte des Hubs, der Laden tritt zurück, und die GANZE Öffnung (Schatulle, Auswurf, Aufstellung, Güte, Walze, Wahl) spielt auf dem Hub-Display. Heute spielt sie in der Wurfgrube, und die Kamera fährt dafür dorthin.
 
 ## 1. Gemessen (Probe `hub_geo_probe.gd`, 1280 × 720, off-screen)

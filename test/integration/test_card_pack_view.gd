@@ -212,3 +212,87 @@ func test_burst_takes_the_hull_away() -> void:
 	hull.burst()
 	await wait_seconds(DataCellView.DEMATERIALIZE_TIME + 0.1)
 	assert_false(hull.visible, "aufgebrochen ist die Hülle fort")
+
+## Zwei Flächen verschiedener Teile in DERSELBEN Ebene, gleich gerichtet und überlappend,
+## streiten im Tiefenpuffer - das Flimmern der Kassette im Lager.
+func _coplanar_fights(hull: CardPackView) -> Array[String]:
+	var boxes: Array[MeshInstance3D] = []
+	for child in hull.find_child("Hull0", true, false).get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh is BoxMesh:
+			boxes.append(child)
+	var fights: Array[String] = []
+	for i in boxes.size():
+		for j in range(i + 1, boxes.size()):
+			var a := boxes[i]
+			var b := boxes[j]
+			if a.material_override == b.material_override:
+				continue
+			var ha: Vector3 = (a.mesh as BoxMesh).size * 0.5
+			var hb: Vector3 = (b.mesh as BoxMesh).size * 0.5
+			for axis in 3:
+				for side: float in [-1.0, 1.0]:
+					if absf((a.position[axis] + side * ha[axis]) - (b.position[axis] + side * hb[axis])) > 0.0005:
+						continue
+					var overlap := true
+					for other in 3:
+						if other == axis:
+							continue
+						var lo := maxf(a.position[other] - ha[other], b.position[other] - hb[other])
+						var hi := minf(a.position[other] + ha[other], b.position[other] + hb[other])
+						if hi - lo <= 0.0005:
+							overlap = false
+					if overlap:
+						fights.append("%s/%s" % [a.name, b.name])
+	return fights
+
+func test_no_two_cassette_parts_share_a_face() -> void:
+	for pack_sort: String in CardPack.SORTS:
+		for pack_size in CardPack.SIZE_HUGE + 1:
+			var fights := _coplanar_fights(_hull(pack_sort, pack_size))
+			assert_eq(fights, [] as Array[String], "%s Größe %d" % [pack_sort, pack_size])
+
+# --- Der ESD-BEUTEL des Modul-Pakets ------------------------------------------------
+
+func _bag(pack_size: int, grade: int) -> CardPackView:
+	var bag := CardPackView.new()
+	add_child_autofree(bag)
+	bag.setup_module_bag(pack_size, grade)
+	bag.set_body_scale(PackDrawerView.CASSETTE_SCALE)
+	return bag
+
+func _bag_parts(bag: CardPackView, prefix: String) -> int:
+	return bag.find_children(prefix + "*", "", true, false).size()
+
+func test_the_bag_shares_the_one_footprint_and_grows_only_in_thickness() -> void:
+	var cassette := _shell(_hull(CardPack.SORT_NUMBER, 0))
+	var last := 0.0
+	for pack_size in CardPack.SIZES:
+		var bag := _bag(pack_size, ModulePack.GRADE_COMMON)
+		var film := ((bag.find_child("Film", true, false) as MeshInstance3D).mesh as BoxMesh).size
+		var seal := ((bag.find_child("Seal", true, false) as MeshInstance3D).mesh as BoxMesh).size
+		assert_almost_eq(film.y, cassette.y, 0.001, "dieselbe Länge wie jede Hülle")
+		assert_almost_eq(film.x + seal.x, cassette.x, 0.001, "Folie und Naht füllen die Breite")
+		assert_gt(bag.thickness(), last, "die Größe macht ihn dicker")
+		last = bag.thickness()
+	assert_lte(last, CardPackView.lying_height(1.0), "nie höher als die höchste Hülle")
+
+func test_the_bag_carries_grade_stripe_label_and_contacts() -> void:
+	for pack_size in CardPack.SIZES:
+		var bag := _bag(pack_size, ModulePack.GRADE_EPIC)
+		assert_true(bag.module_bag)
+		assert_eq(bag.tint, ModulePack.grade_tint(ModulePack.GRADE_EPIC), "Streifen = Stufe")
+		assert_eq(_bag_parts(bag, "Contact"), CardPack.option_count(pack_size),
+			"goldene Kontakte = Grund-Optionen")
+		assert_eq(_bag_parts(bag, "Ridge"), CardPackView.BAG_RIDGES, "Quetschrillen")
+		assert_not_null(bag.find_child("Notch", true, false), "die Reißkerbe")
+		assert_eq((bag.find_child("Esd", true, false) as Label3D).text, "ESD")
+
+func test_tearing_writes_the_end_state_first() -> void:
+	var bag := _bag(CardPack.SIZE_NORMAL, 0)
+	var strip := bag.find_child("TearStrip", true, false) as Node3D
+	assert_true(strip.visible)
+	assert_gt(bag.tear_open(), 0.0)
+	assert_true(bag.torn(), "gerissen ist er sofort")
+	bag.set_torn(true)
+	assert_false(strip.visible, "hart gesetzt ist der Streifen fort")
+	assert_eq(bag.case_outline_local().size(), 4, "sein Grundriß trägt die Einzugs-Sektion")

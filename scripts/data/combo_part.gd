@@ -132,6 +132,8 @@ const DATIVES := {
 ## Zählwerk: dauerhafter Zuwachs, reist beim Umstecken mit. Fehlerspeicher: die
 ## Block-Fumbles; Nachbrenner: 1 = scharf (ein Fumble ist gefallen).
 @export var counter: int = 0
+## Laufzustand, nie gespeichert: wartet als Wahl aus einem Modul-Paket auf den Einbau.
+var from_pack := false
 
 static func _make(part_id: String, name: String, desc: String, part_phase: String,
 		base_price: int, is_secret: bool = false) -> ComboPart:

@@ -6,6 +6,9 @@ extends DataCellView
 ## (Band, Stahlrahmen, Goldecken), der Grundriß bleibt EINER. Ein WÜRFEL-Paket ist die
 ## SCHATULLE aus Blender (tools/blender_dice_case.py): Naht = Sorte, Augen auf dem Deckel =
 ## GRUNDZAHL der Würfel, Metall von Schließe und Augen = GÜTE. Bewegt wird sie wie eine Karte.
+## Ein MODUL-Paket ist ein silberner ESD-BEUTEL: Siegelnaht mit Quetschrillen, darunter ein
+## Streifen in der Farbe der Stufe, schwarzes Etikett mit Warndreieck und „ESD“, goldene
+## Kontakte = Grund-Optionen, Reißkerbe rechts; die Größe macht ihn nur dicker.
 
 ## Grundriß gegenüber der Karte und Dicke der Hülle (Kartenmaß, vor CASSETTE_SCALE).
 const FOOT_ROOM := 1.04
@@ -19,6 +22,7 @@ const MARK_LENGTH_SHARE := 0.42
 const MARK_WIDTH := DataCellView.HEIGHT * 0.035
 const MARK_GAP := DataCellView.HEIGHT * 0.035
 const LID_PROUD := DataCellView.DEPTH * 0.06
+const RIM_PROUD := DataCellView.DEPTH * 0.02
 ## Die Kassette wächst je Größe nur in die Dicke.
 const CASSETTE_THICKNESS := [DataCellView.DEPTH * 2.0, DataCellView.DEPTH * 2.3,
 	DataCellView.DEPTH * 2.6, DataCellView.DEPTH * 2.9]
@@ -47,6 +51,28 @@ const ROYAL_ENERGY := 1.0
 const ROYAL_PULSE_RATE := 2.4
 const ROYAL_PULSE_DEPTH := 0.35
 static var _dice_case_scene: PackedScene
+## Der ESD-BEUTEL: Dicke je Größe, Anteile der Länge, Folie mit leichtem Rosa-Stich.
+const BAG_THICKNESS := [DataCellView.DEPTH * 1.3, DataCellView.DEPTH * 1.5,
+	DataCellView.DEPTH * 1.7, DataCellView.DEPTH * 1.9]
+const BAG_ALBEDO := Color(0.82, 0.76, 0.79)
+const BAG_GLOW := Color(0.55, 0.5, 0.56)
+const BAG_GLOW_ENERGY := 0.5
+const BAG_SEAL_SHARE := 0.13
+const BAG_STRIPE_SHARE := 0.05
+const BAG_RIDGES := 5
+const BAG_FILM_SHARE := 0.45
+const BAG_BULGE_SHARE := 0.86
+const BAG_LABEL_SHARE := Vector2(0.62, 0.36)
+const BAG_LABEL_ALBEDO := Color(0.03, 0.03, 0.035)
+const BAG_WARN := Color(1.0, 0.82, 0.1)
+const BAG_NOTCH_SHARE := 0.07
+const BAG_CONTACT_SHARE := 0.07
+const BAG_TEXT_SHARE := 0.11
+## Das AUFREISSEN: der Siegelstreifen hebt ab, kippt und vergeht.
+const TEAR_TIME := 0.45
+const TEAR_LIFT := DataCellView.HEIGHT * 0.35
+const TEAR_DRIFT := DataCellView.WIDTH * 0.6
+const TEAR_TILT := 1.1
 ## Der Innenraum im Roh-Maß - spiegelt WALL/FLOOR aus tools/blender_dice_case.py.
 const CASE_WALL := 0.05
 const CASE_FLOOR := 0.03
@@ -66,6 +92,13 @@ var _velvet: StandardMaterial3D
 const MIXED_STRIPES := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
 	Engraving.CATEGORY_DICE]
 
+## Ein Modul-Paket (der Beutel) und seine Seltenheits-Stufe.
+var module_bag := false
+var grade: int = ModulePack.GRADE_COMMON
+var _tear_strip: Node3D
+var _tear_rest := Transform3D()
+var _tear_tween: Tween
+var _torn := false
 var card_pack_sort: String = CardPack.SORT_NUMBER
 var card_pack_size: int = CardPack.SIZE_NORMAL
 ## Ein Würfel-Paket (dieselbe Hülle, andere Kennung).
@@ -96,10 +129,24 @@ func setup_pack(pack_sort: String, pack_size: int, dice := false,
 	quality = clampi(pack_quality, DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL)
 	pips = DicePack.base_count(pack_size)
 	sort = pack_sort
-	tier = Pack.TIER_KOLOSSAL  # volle Intensität: die Hülle kennt keine Kartengröße
-	stamp_net = StampNet.empty_net()
 	tint = PackDrawerView.dice_pack_tint(pack_sort) if dice \
 		else PackDrawerView.card_pack_tint(pack_sort)
+	_finish_setup()
+
+## Der ESD-BEUTEL eines Modul-Pakets dieser Größe und Stufe.
+func setup_module_bag(pack_size: int, pack_grade: int) -> void:
+	module_bag = true
+	dice_pack = false
+	card_pack_size = pack_size
+	grade = clampi(pack_grade, ModulePack.GRADE_COMMON, ModulePack.GRADE_LEGENDARY)
+	card_pack_sort = ""
+	sort = ""
+	tint = ModulePack.grade_tint(grade)
+	_finish_setup()
+
+func _finish_setup() -> void:
+	tier = Pack.TIER_KOLOSSAL  # volle Intensität: die Hülle kennt keine Kartengröße
+	stamp_net = StampNet.empty_net()
 	_build_materials()
 	_body = Node3D.new()
 	_body.name = "Body"
@@ -114,6 +161,8 @@ static func lying_height(cell_scale: float) -> float:
 	return maxf(DICE_THICKNESS, CASSETTE_THICKNESS.max()) * cell_scale
 
 func thickness() -> float:
+	if module_bag:
+		return float(BAG_THICKNESS[clampi(card_pack_size, 0, BAG_THICKNESS.size() - 1)])
 	if dice_pack:
 		return DICE_THICKNESS if dice_case_model() != null else THICKNESS
 	return float(CASSETTE_THICKNESS[clampi(card_pack_size, 0, CASSETTE_THICKNESS.size() - 1)])
@@ -175,6 +224,8 @@ func _metal(albedo: Color, glow: Color, energy: float) -> StandardMaterial3D:
 	return material
 
 func _build_cell() -> Node3D:
+	if module_bag:
+		return _build_bag()
 	if not dice_pack:
 		return _build_cassette()
 	var case := _build_dice_case()
@@ -189,16 +240,7 @@ func _build_cell() -> Node3D:
 	TableProps.box(cell, "Shell", Vector3(width, length, THICKNESS),
 		Vector3(0.0, 0.0, bottom + THICKNESS * 0.5), _shell_material)
 	# Der SAUM läuft rund um die Deckelkante.
-	var rim := width * RIM_SHARE
-	var rim_z := lid - rim * 0.5 + LID_PROUD
-	TableProps.box(cell, "RimLeft", Vector3(rim, length, rim),
-		Vector3(-(width - rim) * 0.5, 0.0, rim_z), _edge_material)
-	TableProps.box(cell, "RimRight", Vector3(rim, length, rim),
-		Vector3((width - rim) * 0.5, 0.0, rim_z), _edge_material)
-	TableProps.box(cell, "RimTop", Vector3(width, rim, rim),
-		Vector3(0.0, (length - rim) * 0.5, rim_z), _edge_material)
-	TableProps.box(cell, "RimFoot", Vector3(width, rim, rim),
-		Vector3(0.0, -(length - rim) * 0.5, rim_z), _edge_material)
+	_build_rims(cell, width, length, lid)
 	# Das SIEGELBAND quer über den Deckel, ein Drittel vom Kopf.
 	var seal := length * SEAL_SHARE
 	var seal_y := length * 0.18
@@ -258,16 +300,7 @@ func _build_cassette() -> Node3D:
 		Vector3(0.0, 0.0, seam_z), _edge_material)
 	TableProps.box(cell, "SeamShort", Vector3(width * 0.999, length + SEAM_PROUD * 2.0, seam_h),
 		Vector3(0.0, 0.0, seam_z), _edge_material)
-	var rim := width * RIM_SHARE
-	var rim_z := lid - rim * 0.5 + LID_PROUD
-	TableProps.box(cell, "RimLeft", Vector3(rim, length, rim),
-		Vector3(-(width - rim) * 0.5, 0.0, rim_z), _edge_material)
-	TableProps.box(cell, "RimRight", Vector3(rim, length, rim),
-		Vector3((width - rim) * 0.5, 0.0, rim_z), _edge_material)
-	TableProps.box(cell, "RimTop", Vector3(width, rim, rim),
-		Vector3(0.0, (length - rim) * 0.5, rim_z), _edge_material)
-	TableProps.box(cell, "RimFoot", Vector3(width, rim, rim),
-		Vector3(0.0, -(length - rim) * 0.5, rim_z), _edge_material)
+	_build_rims(cell, width, length, lid)
 	# Undurchsichtig: im Fenster leuchten nur die Kanten der Karten, je Option eine.
 	var window := Vector2(width * WINDOW_SHARE.x, length * WINDOW_SHARE.y)
 	var window_y := length * WINDOW_Y_SHARE
@@ -291,12 +324,30 @@ func _build_cassette() -> Node3D:
 	_build_cassette_trim(cell, width, length, depth, bottom, window, window_y, face_z)
 	return cell
 
+## Der Neon-Saum um die Deckelkante: steht um RIM_PROUD über die Gehäuseseiten vor - bündig
+## stritten Saum und Gehäuse im Tiefenpuffer (Flimmern an der Kante).
+func _build_rims(cell: Node3D, width: float, length: float, lid: float) -> void:
+	var rim := width * RIM_SHARE
+	var rim_z := lid - rim * 0.5 + LID_PROUD
+	var outer := Vector2(width, length) + Vector2.ONE * RIM_PROUD * 2.0
+	TableProps.box(cell, "RimLeft", Vector3(rim, outer.y, rim),
+		Vector3(-(outer.x - rim) * 0.5, 0.0, rim_z), _edge_material)
+	TableProps.box(cell, "RimRight", Vector3(rim, outer.y, rim),
+		Vector3((outer.x - rim) * 0.5, 0.0, rim_z), _edge_material)
+	TableProps.box(cell, "RimTop", Vector3(outer.x, rim, rim),
+		Vector3(0.0, (outer.y - rim) * 0.5, rim_z), _edge_material)
+	TableProps.box(cell, "RimFoot", Vector3(outer.x, rim, rim),
+		Vector3(0.0, -(outer.y - rim) * 0.5, rim_z), _edge_material)
+
 ## Klein schlicht, Normal ein Stahlband, Groß ein Stahlrahmen ums Fenster, Riesig dazu Goldecken.
 func _build_cassette_trim(cell: Node3D, width: float, length: float, depth: float,
 		bottom: float, window: Vector2, window_y: float, face_z: float) -> void:
 	if card_pack_size == CardPack.SIZE_NORMAL:
-		TableProps.box(cell, "Band", Vector3(width * 1.001, length * 0.06, LID_PROUD),
-			Vector3(0.0, -length * 0.33, face_z), _steel_material)
+		# Das Band endet IN den Säumen und bleibt unter ihrer Oberkante - keine gemeinsame Fläche.
+		var rim := width * RIM_SHARE
+		var band_h := LID_PROUD * 0.7
+		TableProps.box(cell, "Band", Vector3(width - rim, length * 0.06, band_h),
+			Vector3(0.0, -length * 0.33, face_z - (LID_PROUD - band_h) * 0.5), _steel_material)
 	if card_pack_size >= CardPack.SIZE_LARGE:
 		var frame := width * 0.035
 		var outer := window + Vector2(frame, frame) * 2.0
@@ -311,15 +362,165 @@ func _build_cassette_trim(cell: Node3D, width: float, length: float, depth: floa
 			Vector3(0.0, window_y - (window.y + frame) * 0.5, face_z), _steel_material)
 	if card_pack_size >= CardPack.SIZE_HUGE:
 		var corner := Vector2(width * CORNER_SHARE.x, length * CORNER_SHARE.y)
-		var reach := depth + LID_PROUD * 2.0
+		# Die Ecken überragen Saum und Naht nach oben wie zur Seite - nie bündig mit ihnen.
+		var reach := depth + LID_PROUD * 2.5
 		var i := 0
 		for sx: float in [-1.0, 1.0]:
 			for sy: float in [-1.0, 1.0]:
-				TableProps.box(cell, "Corner%d" % i, Vector3(corner.x + SEAM_PROUD * 2.0,
-					corner.y + SEAM_PROUD * 2.0, reach), Vector3(sx * (width - corner.x) * 0.5,
+				TableProps.box(cell, "Corner%d" % i, Vector3(corner.x + SEAM_PROUD * 3.0,
+					corner.y + SEAM_PROUD * 3.0, reach), Vector3(sx * (width - corner.x) * 0.5,
 					sy * (length - corner.y) * 0.5, bottom + reach * 0.5 - LID_PROUD),
 					_gold_material)
 				i += 1
+
+## Der ESD-BEUTEL: flache Folie mit gewölbter Mitte, oben die Siegelnaht mit Rillen (sie
+## reißt ab), darunter der Stufen-Streifen, auf der Wölbung das schwarze Etikett. Gebaut im
+## BILD-Rahmen: der liegende Grundriß ist quer, Bild-oben ist die Zelle +x, Bild-rechts -y.
+func _build_bag() -> Node3D:
+	var cell := Node3D.new()
+	cell.name = "Hull%d" % _cells.size()
+	var wide := DataCellView.HEIGHT * FOOT_ROOM
+	var high := DataCellView.WIDTH * FOOT_ROOM
+	var depth := thickness()
+	var bottom := -DataCellView.DEPTH * 0.5
+	_shell_material.albedo_color = BAG_ALBEDO
+	_shell_material.metallic = 0.35
+	_shell_material.roughness = 0.32
+	_shell_material.emission = BAG_GLOW
+	_shell_material.emission_energy_multiplier = BAG_GLOW_ENERGY
+	var seal := high * BAG_SEAL_SHARE
+	var body_h := high - seal
+	var body_y := -seal * 0.5
+	var film := depth * BAG_FILM_SHARE
+	_bag_box(cell, "Film", Vector2(wide, body_h), film, Vector2(0.0, body_y), bottom,
+		_shell_material)
+	var bulge := Vector2(wide, body_h) * BAG_BULGE_SHARE
+	var bulge_y := body_y - body_h * (1.0 - BAG_BULGE_SHARE) * 0.3
+	_bag_box(cell, "Bulge", bulge, depth, Vector2(0.0, bulge_y), bottom, _shell_material)
+	# Die Siegelnaht: dünner als die Folie, die Quetschrillen stehen um LID_PROUD vor.
+	var strip := Node3D.new()
+	strip.name = "TearStrip"
+	cell.add_child(strip)
+	var seal_h := film * 0.7
+	var seal_y := high * 0.5 - seal * 0.5
+	_bag_box(strip, "Seal", Vector2(wide, seal), seal_h, Vector2(0.0, seal_y), bottom,
+		_shell_material)
+	for i in BAG_RIDGES:
+		var y := high * 0.5 - seal * (float(i) + 0.5) / float(BAG_RIDGES)
+		_bag_box(strip, "Ridge%d" % i, Vector2(wide * 0.98, seal / float(BAG_RIDGES) * 0.4),
+			seal_h + LID_PROUD, Vector2(0.0, y), bottom, _steel_material)
+	if _cells.is_empty():
+		_tear_strip = strip
+		_tear_rest = strip.transform
+		_apply_torn()
+	# Der STREIFEN der Stufe unter der Naht - er trägt Hover und Flare.
+	var stripe := high * BAG_STRIPE_SHARE
+	var stripe_y := high * 0.5 - seal - stripe * 0.9
+	_bag_box(cell, "Stripe", Vector2(wide * 0.999, stripe), film + LID_PROUD,
+		Vector2(0.0, stripe_y), bottom, _edge_material)
+	# Die REISSKERBE rechts, auf der Linie zwischen Naht und Streifen.
+	var notch := high * BAG_NOTCH_SHARE
+	var cut := _bag_box(cell, "Notch", Vector2(notch, notch), film + LID_PROUD * 2.0,
+		Vector2(wide * 0.5, high * 0.5 - seal), bottom - LID_PROUD, _label_material())
+	if cut != null:
+		cut.rotation.z = PI * 0.25
+	# Das ETIKETT auf der Wölbung: Warndreieck, „ESD“ und die Kontakte.
+	var top := bottom + depth
+	var label := Vector2(bulge.x * BAG_LABEL_SHARE.x, bulge.y * BAG_LABEL_SHARE.y * 2.0)
+	var label_c := Vector2(0.0, bulge_y)
+	_bag_box(cell, "Label", label, LID_PROUD, label_c, top, _label_material())
+	var face := top + LID_PROUD
+	var row_y := label_c.y + label.y * 0.16
+	var warn := MeshInstance3D.new()
+	warn.name = "Warning"
+	var prism := PrismMesh.new()
+	prism.size = Vector3(label.y * 0.42, label.y * 0.38, LID_PROUD)
+	warn.mesh = prism
+	warn.material_override = _warn_material()
+	warn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	warn.rotation.z = -PI * 0.5
+	warn.position = _bag_point(Vector2(-label.x * 0.27, row_y), face + LID_PROUD * 0.5)
+	cell.add_child(warn)
+	var text := Label3D.new()
+	text.name = "Esd"
+	text.text = "ESD"
+	text.font_size = 64
+	text.pixel_size = high * BAG_TEXT_SHARE / 64.0 * 1.6
+	text.modulate = BAG_WARN
+	text.outline_size = 0
+	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	text.render_priority = _prio(PRIORITY_NET)
+	text.rotation.z = -PI * 0.5
+	text.position = _bag_point(Vector2(label.x * 0.12, row_y), face + LID_PROUD * 0.2)
+	cell.add_child(text)
+	var contacts := CardPack.option_count(card_pack_size)
+	var side := high * BAG_CONTACT_SHARE
+	var span := label.x * 0.7
+	for i in contacts:
+		var x := -span * 0.5 + span * (float(i) + 0.5) / float(contacts)
+		_bag_box(cell, "Contact%d" % i, Vector2(side, side), LID_PROUD,
+			Vector2(x, label_c.y - label.y * 0.27), face, _gold_material)
+	return cell
+
+## Ein Bild-Punkt (rechts, oben) in der Zelle - Bild-oben ist +x, Bild-rechts -y.
+static func _bag_point(screen: Vector2, z: float) -> Vector3:
+	return Vector3(screen.y, -screen.x, z)
+
+## Eine Box im Bild-Rahmen, ihre Unterseite auf z_bottom.
+func _bag_box(host: Node3D, box_name: String, screen_size: Vector2, height: float,
+		center: Vector2, z_bottom: float, material: Material) -> MeshInstance3D:
+	return TableProps.box(host, box_name, Vector3(screen_size.y, screen_size.x, height),
+		_bag_point(center, z_bottom + height * 0.5), material)
+
+var _bag_label_material: StandardMaterial3D
+var _bag_warn_material: StandardMaterial3D
+
+func _label_material() -> StandardMaterial3D:
+	if _bag_label_material == null:
+		_bag_label_material = StandardMaterial3D.new()
+		_bag_label_material.albedo_color = BAG_LABEL_ALBEDO
+		_bag_label_material.roughness = 0.6
+	return _bag_label_material
+
+func _warn_material() -> StandardMaterial3D:
+	if _bag_warn_material == null:
+		_bag_warn_material = _lit_material(BAG_WARN)
+		_bag_warn_material.emission_energy_multiplier = 0.8
+	return _bag_warn_material
+
+## Der Beutel REISST an der Kerbe auf: der Siegelstreifen hebt ab, kippt nach rechts
+## und vergeht. Endzustand zuerst - gerissen ist er sofort; zurück kommt die Dauer.
+func tear_open(time := TEAR_TIME) -> float:
+	_torn = true
+	_kill(_tear_tween)
+	if _tear_strip == null or not is_instance_valid(_tear_strip) or time <= 0.0:
+		_apply_torn()
+		return 0.0
+	_tear_strip.visible = true
+	_tear_tween = create_tween()
+	_tear_tween.tween_method(func(t: float) -> void:
+		if is_instance_valid(_tear_strip):
+			_tear_strip.transform = _tear_rest.translated_local(Vector3(TEAR_LIFT * t * 0.3,
+				-TEAR_DRIFT * t, TEAR_LIFT * sin(t * PI) * 0.6)).rotated_local(
+				Vector3.UP, TEAR_TILT * t)
+			_tear_strip.scale = Vector3.ONE * maxf(1.0 - t * t, 0.01), 0.0, 1.0, time)
+	_tear_tween.tween_callback(_apply_torn)
+	return time
+
+## Gerissen oder ganz - hart gesetzt.
+func set_torn(on: bool) -> void:
+	_torn = on
+	_kill(_tear_tween)
+	_apply_torn()
+
+func torn() -> bool:
+	return _torn
+
+func _apply_torn() -> void:
+	if _tear_strip == null or not is_instance_valid(_tear_strip):
+		return
+	_tear_strip.transform = _tear_rest
+	_tear_strip.visible = not _torn
 
 ## Das Blender-Modell der Schatulle (null = kein Import, dann bleibt die alte Hülle).
 static func dice_case_model() -> PackedScene:
@@ -477,7 +678,25 @@ func case_interior_local() -> Array[Vector3]:
 
 ## Dasselbe für den Außen-Grundriß auf der Unterseite (der Zuschnitt der Sektion).
 func case_outline_local() -> Array[Vector3]:
-	return _case_corners(Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * FOOT_ROOM * 0.5, 0.0)
+	var half := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * FOOT_ROOM * 0.5
+	if module_bag:
+		return _bag_corners(half)
+	return _case_corners(half, 0.0)
+
+## Der Beutel hat kein Modell: seine Ecken liegen in der Zelle selbst (x Breite, y Länge).
+func _bag_corners(half: Vector2) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	if _cells.is_empty():
+		return out
+	var to_self := Transform3D()
+	var node: Node = _cells[0]
+	while node != null and node != self:
+		to_self = (node as Node3D).transform * to_self
+		node = node.get_parent()
+	for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		out.append(to_self * Vector3(half.x * corner.x, half.y * corner.y,
+			-DataCellView.DEPTH * 0.5))
+	return out
 
 func _case_corners(half_raw: Vector2, height: float) -> Array[Vector3]:
 	var out: Array[Vector3] = []

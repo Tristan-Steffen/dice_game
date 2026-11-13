@@ -18,6 +18,9 @@ render_mode unshaded;
 uniform sampler2D screen_texture : source_color, filter_linear_mipmap;
 uniform vec4 display_map = vec4(0.0, 1.0, 0.0, 1.0);
 uniform float emission_energy = 1.2;  // dieselbe Zahl wie das Glas
+// Ein Loch in Welt-XZ (min.xy, max.zw; leer = keins): der Boden der Öffnungs-Fläche
+// öffnet sich darüber für den Einzug der Schatulle.
+uniform vec4 hole = vec4(0.0, 0.0, -1.0, -1.0);
 
 varying vec3 world_position;
 
@@ -26,6 +29,10 @@ void vertex() {
 }
 
 void fragment() {
+	if (hole.z > hole.x && world_position.x > hole.x && world_position.x < hole.z
+			&& world_position.z > hole.y && world_position.z < hole.w) {
+		discard;
+	}
 	vec2 uv = vec2((world_position.z - display_map.x) / display_map.y,
 		(display_map.z - world_position.x) / display_map.w);
 	ALBEDO = texture(screen_texture, clamp(uv, vec2(0.0), vec2(1.0))).rgb * emission_energy;
