@@ -231,9 +231,9 @@ func test_display_case_pays_more_for_a_doped_side():
 		CharmEffects.DISPLAY_CASE_MULT + CharmEffects.DISPLAY_CASE_DOPED_MULT)
 
 func test_high_stacker_mult_follows_highest_counted_die():
-	# Höchste Zahl 4: Mult 1 + 4 = 5, Basis (5 Punkte + 4 Augen) -> 45.
-	var score := DiceScoring.score_category(DiceScoring.ONE_KIND, _d([1, 2, 3, 1, 2, 4]), _ids([Charm.HIGH_STACKER]))
-	assert_eq(score, 45, "Basis (5+4) × Mult (1+4)")
+	# Paar Vierer: Mult 2 + 4 = 6, Basis (10 Punkte + 8 Augen) -> 108.
+	var score := DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 1, 2]), _ids([Charm.HIGH_STACKER]))
+	assert_eq(score, 108, "Basis (10+8) × Mult (2+4)")
 
 func test_high_stacker_also_lights_other_combinations():
 	# Paar Fünfer: der Hochstapler ist würfelgebunden und feuert MIT dem
@@ -249,7 +249,7 @@ func test_flat_charms_pay_without_a_condition():
 	# Hausjoker und Freigetränk hängen an keiner Kombination: Paar Fünfer,
 	# Basis (10 + 10 Augen + 50) × Mult (2 + 4) = 420.
 	assert_eq(CharmEffects.charm_mult_bonus(DiceScoring.TWO_KIND, _d(PAIR), NO_MATS, _ids([Charm.HOUSE_JOKER])), 4)
-	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.ONE_KIND, _d(PAIR), _p([0]), _ids([Charm.FREE_DRINK])), 50)
+	assert_eq(CharmEffects.charm_base_bonus(DiceScoring.TWO_KIND, _d(PAIR), _p([0]), _ids([Charm.FREE_DRINK])), 50)
 	var both := _ids([Charm.FREE_DRINK, Charm.HOUSE_JOKER])
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d(PAIR), both), 420)
 
@@ -321,7 +321,7 @@ func test_drop_height_pays_the_spread_of_the_scored_hand():
 	var ids := _ids([Charm.DROP_HEIGHT])
 	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_PAIR, _d([1, 3, 3, 6]), NO_MATS,
 		ids, {}, _p([]), _p([0, 1, 2, 3])), 5, "6 minus 1")
-	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.ONE_KIND, _d([1, 3, 3, 6]), NO_MATS,
+	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([1, 3, 3, 6]), NO_MATS,
 		ids, {}, _p([]), _p([2])), 0, "ein Würfel hat keine Spanne")
 	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([4, 4]), NO_MATS,
 		ids, {}, _p([]), _p([0, 1])), 0, "gleiche Augen, keine Spanne")

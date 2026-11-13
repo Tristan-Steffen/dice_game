@@ -126,10 +126,12 @@ func test_score_two_of_a_kind():
 func test_score_large_straight():
 	assert_eq(DiceScoring.best_hand(_d([1,2,3,4,5,6]))["score"], (45 + 21) * 8)
 
-func test_score_category_one_kind_directly():
-	# one_kind ist als beste Hand bei 6 Würfeln unerreichbar (alle verschieden =
-	# Straße), aber score_category selbst muss den Zweig korrekt rechnen.
-	assert_eq(DiceScoring.score_category("one_kind", _d([6,6,1,1,2,2])), (5 + 6) * 1)
+func test_no_combination_is_no_hand():
+	# Ohne Paar und Straße gibt es keine Rückfall-Kategorie mehr.
+	var hand := DiceScoring.best_hand(_d([1, 3, 6]))
+	assert_eq(hand["key"], DiceScoring.NO_HAND)
+	assert_eq(int(hand["score"]), 0)
+	assert_false(DiceScoring.CATEGORIES.any(func(c: Dictionary) -> bool: return c["key"] == "one_kind"))
 
 # --- Charm-modifizierte Wertung ----------------------------------------------
 
@@ -189,7 +191,7 @@ func test_lucky_cigarettes_pair_ones_into_sixes():
 	assert_eq(hand["key"], "two_pair", "6er-Paar aus 1ern + 4er-Paar")
 
 func test_fox_tail_builds_combinations_from_threes():
-	# 3+4 sind ohne Charm nur Höchste Zahl - mit Fuchsschwanz ein 4er-Paar.
+	# 3+4 sind ohne Charm keine Kombination - mit Fuchsschwanz ein 4er-Paar.
 	var hand := DiceScoring.best_hand(_d([3,4,1,2,6,6]), _ids([Charm.FOX_TAIL]))
 	assert_eq(hand["key"], "two_pair")
 	# Beteiligt: 4er-Paar (4 + verwandelte 3->4) und 6er-Paar.
@@ -198,7 +200,7 @@ func test_fox_tail_builds_combinations_from_threes():
 func test_pencil_stub_chains_through_fox_tail():
 	# 2 -> 3 -> 4: mit beiden Charms wird aus [2,4] ein 4er-Paar.
 	var hand := DiceScoring.best_hand(_d([2,4,1,3,5,6]), _ids([Charm.PENCIL_STUB, Charm.FOX_TAIL]))
-	assert_ne(hand["key"], "one_kind", "verwandelte Werte bilden eine Kombination")
+	assert_ne(hand["key"], DiceScoring.NO_HAND, "verwandelte Werte bilden eine Kombination")
 
 func test_top_hat_turns_a_four_into_a_fifth_five():
 	assert_eq(DiceScoring.best_hand(_d([4,5,1,1,1,2]))["key"], "three_kind", "ohne Charm nur die 1er")
@@ -218,8 +220,8 @@ func test_eight_knot_pairs_a_seven_with_a_nine():
 	# Kombinationsziffer, also ein echtes Paar.
 	var ids := _ids([Charm.EIGHT_KNOT])
 	assert_eq(DiceScoring.best_hand(_d([7,9,1,2,3,5]), ids)["key"], "two_kind")
-	assert_eq(DiceScoring.best_hand(_d([7,9,1,2,3,5]))["key"], "one_kind",
-		"ohne Knoten sind 7 und 9 nur Höchste Zahl")
+	assert_eq(DiceScoring.best_hand(_d([7,9,1,2,3,5]))["key"], DiceScoring.NO_HAND,
+		"ohne Knoten bilden 7 und 9 nichts")
 	# Punkte zählen die verwandelte 8, nicht 7 und 9.
 	assert_eq(DiceScoring.score_category("two_kind", _d([7,9,1,2,3,5]), ids), (10 + 8 + 8) * 2)
 
@@ -403,11 +405,10 @@ func test_best_hand_falls_past_two_throttled_categories():
 	var hand := DiceScoring.best_hand(_d([6, 6, 6, 6]), [], false, [], {}, ctx)
 	assert_eq(hand["key"], DiceScoring.TWO_KIND)
 
-func test_best_hand_survives_a_throttled_fallback_category():
-	# Das Standardprotokoll kann auch "Höchste Zahl" sperren - best_hand darf
-	# dann nicht mit Score -1 enden.
-	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.ONE_KIND])}
-	var hand := DiceScoring.best_hand(_d([4]), [], false, [], {}, ctx)
+func test_best_hand_survives_its_only_category_throttled():
+	var ctx := {DiceScoring.CTX_THROTTLED: _ids([DiceScoring.TWO_KIND])}
+	var hand := DiceScoring.best_hand(_d([4, 4]), [], false, [], {}, ctx)
+	assert_eq(hand["key"], DiceScoring.NO_HAND)
 	assert_eq(int(hand["score"]), 0)
 
 # --- Paritätsfilter (CTX_PARITY) ---------------------------------------------------
@@ -438,13 +439,12 @@ func test_participating_indices_map_back_to_the_real_slots():
 		_d([1, 3]))
 
 func test_a_throw_without_legal_dice_scores_nothing():
-	# Ausschließlich gerade Augen unter "nur ungerade": auch die Rückfall-
-	# Kategorie greift nicht - der Neuwurf farkelt.
+	# Ausschließlich gerade Augen unter "nur ungerade": das Paar zählt nicht.
 	var ctx := _parity(DiceScoring.PARITY_ODD)
-	assert_false(DiceScoring.qualifies(DiceScoring.ONE_KIND, _d([2, 4, 6]), ctx))
-	var hand := DiceScoring.best_hand(_d([2, 4, 6]), [], false, [], {}, ctx)
+	assert_false(DiceScoring.qualifies(DiceScoring.TWO_KIND, _d([2, 2, 6]), ctx))
+	var hand := DiceScoring.best_hand(_d([2, 2, 6]), [], false, [], {}, ctx)
 	assert_eq(int(hand["score"]), 0)
-	assert_false(DiceScoring.is_strictly_better(_d([2, 4, 6]), _d([1, 2, 4]),
+	assert_false(DiceScoring.is_strictly_better(_d([2, 2, 6]), _d([1, 2, 4]),
 		[], [], [], {}, ctx, ctx), "ohne legalen Würfel wird nichts besser")
 
 func test_parity_only_counts_the_legal_eyes_in_the_base():

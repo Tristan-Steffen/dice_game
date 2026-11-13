@@ -127,12 +127,11 @@ func test_the_shunt_counts_the_dice_beside_the_combination() -> void:
 func test_neighbours_follow_the_picture() -> void:
 	assert_eq(ComboPartEffects.right_of(_key(0)), _key(1))
 	assert_eq(ComboPartEffects.right_of(_key(2)), "", "am Reihenende nichts")
-	assert_eq(ComboPartEffects.right_of(_key(12)), "")
+	assert_eq(ComboPartEffects.right_of(_key(11)), "")
 	assert_eq(ComboPartEffects.below_of(_key(0)), _key(3))
-	assert_eq(ComboPartEffects.below_of(_key(10)), _key(12), "die letzte Reihe steht mittig")
-	assert_eq(ComboPartEffects.below_of(_key(9)), "")
+	assert_eq(ComboPartEffects.below_of(_key(7)), _key(10))
+	assert_eq(ComboPartEffects.below_of(_key(9)), "", "die unterste Reihe hat nichts darunter")
 	assert_eq(ComboPartEffects.below_of(_key(11)), "")
-	assert_eq(ComboPartEffects.below_of(_key(12)), "")
 
 func test_a_bridge_scores_the_neighbour_and_its_parts() -> void:
 	var key := _key(10)

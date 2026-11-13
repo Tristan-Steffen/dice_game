@@ -482,7 +482,7 @@ func test_monotone_conditions_decide_early():
 			"%s kann mitten in der Runde erfüllt sein" % id)
 
 func test_end_of_round_conditions_do_not():
-	for id in ["economist", "pawn", "efficiency", "small_fry", "no_scraps",
+	for id in ["economist", "pawn", "efficiency", "small_fry",
 			"variety", "full_grip", "table_fee", "dice_toll"]:
 		assert_false(_offers([id])[0].decides_early(),
 			"%s entscheidet sich erst am Rundenende" % id)

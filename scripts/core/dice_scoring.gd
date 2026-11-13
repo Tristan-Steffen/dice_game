@@ -7,7 +7,8 @@ class_name DiceScoring
 
 # Kategorie-Keys als Konstanten: ein Tippfehler wird Compilerfehler statt
 # einer still nie zutreffenden Kategorie.
-const ONE_KIND := "one_kind"
+## Kein Treffer: best_hand liefert diesen Key, wenn keine Kategorie zutrifft.
+const NO_HAND := ""
 const TWO_KIND := "two_kind"
 const TWO_PAIR := "two_pair"
 const THREE_KIND := "three_kind"
@@ -23,7 +24,6 @@ const SIX_KIND := "six_kind"
 
 ## Grundwerte je Kategorie; was darüber hinausgeht, stecken Module in den Chip.
 const CATEGORIES := [
-	{"key": ONE_KIND, "label": "Höchste Zahl", "mult": 1, "points": 5},
 	{"key": TWO_KIND, "label": "Paar", "mult": 2, "points": 10},
 	{"key": TWO_PAIR, "label": "Zwei Paare", "mult": 3, "points": 15},
 	{"key": THREE_KIND, "label": "Dreierpasch", "mult": 3, "points": 18},
@@ -43,7 +43,7 @@ const CATEGORIES := [
 # House/Zwei Paare, die sie sonst mit abdecken würden.
 const HAND_PRIORITY := [
 	SIX_KIND, FIVE_KIND, LARGE_STRAIGHT, FOUR_KIND_AND_PAIR, DOUBLE_THREE_KIND,
-	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND, ONE_KIND,
+	THREE_PAIRS, FOUR_KIND, FULL_HOUSE, SMALL_STRAIGHT, THREE_KIND, TWO_PAIR, TWO_KIND,
 ]
 
 ## Drossel (ctx-Schlüssel): Array der gedrosselten Kategorien - sie werten 0,
@@ -61,7 +61,7 @@ static func is_throttled(key: String, ctx: Dictionary) -> bool:
 ## Paritäts-Filter (ctx-Schlüssel): die Boss-Konditionen Schieflage/Gleichgewicht
 ## lassen nur ungerade bzw. gerade Augen an einer Kombination teilnehmen. Der
 ## Filter greift VOR der Erkennung - ausgeschlossene Würfel bilden keine Gruppe,
-## keine Straße und keine "Höchste Zahl", ein Wurf ohne legale Würfel farkelt.
+## und keine Straße.
 const CTX_PARITY := "parity"
 const PARITY_ANY := 0
 const PARITY_ODD := 1
@@ -427,7 +427,6 @@ static func shown_value(value: int, charm_ids: Array[String], essence_ids: Array
 ## Anzeige-Beispiele der Kombinationsliste; per Test gegen die echte Wertung
 ## geprüft (best_hand(Beispiel) muss genau seine Kategorie liefern).
 const EXAMPLE_DICE := {
-	ONE_KIND: [6],
 	TWO_KIND: [6, 6],
 	TWO_PAIR: [6, 6, 5, 5],
 	THREE_KIND: [6, 6, 6],
@@ -547,8 +546,6 @@ static func _qualifies_plain(key: String, dice: Array[int], charm_ids: Array[Str
 			return _count_groups_with_at_least(dice, 2) >= 2
 		TWO_KIND:
 			return _has_count_at_least(dice, 2)
-		ONE_KIND:
-			return not dice.is_empty()  # ohne legalen Würfel zählt auch die Rückfall-Kategorie nicht
 	return false
 
 ## Wertet eine Kategorie in FESTER Trigger-Reihenfolge (keine Ausnahmen):
@@ -1012,8 +1009,8 @@ static func best_hand(dice: Array[int], charm_ids: Array[String] = [], is_first_
 	# verwandelt selbst und braucht die physischen Werte für den Wertwandel
 	# (Knochen/Glas) - zweimal verwandelt käme dort die Linse als Seitenwert an.
 	var shown := shown_values(dice, charm_ids, ctx)
-	var best_key := ONE_KIND
-	var best_score := 0  # bleibt 0, wenn keine Kategorie durchkommt (Drossel/Parität)
+	var best_key := NO_HAND
+	var best_score := 0  # bleibt 0, wenn keine Kategorie zutrifft
 	for key in HAND_PRIORITY:
 		if is_throttled(key, ctx) or not qualifies(key, shown, ctx, charm_ids):
 			continue
@@ -1072,8 +1069,6 @@ static func _participating_unsorted(key: String, dice: Array[int], charm_ids: Ar
 			return result
 		TWO_KIND:
 			return _indices_for_value(dice, _best_value_with_count(dice, 2), 2)
-		ONE_KIND:
-			return [] if dice.is_empty() else [_index_of_highest(dice)]
 		FOUR_KIND_AND_PAIR:
 			var pair := _find_count_and_other_count(dice, 4, 2)
 			return _indices_for_value(dice, pair[0], 4) + _indices_for_value(dice, pair[1], 2)
@@ -1210,15 +1205,6 @@ static func _straight_window(unique: Dictionary, length: int, span: int) -> Arra
 		if found.size() >= length:
 			return found.slice(0, length)
 	return []
-
-static func _index_of_highest(dice: Array[int]) -> int:
-	var best_index := 0
-	var best_value := -1
-	for i in dice.size():
-		if dice[i] > best_value:
-			best_value = dice[i]
-			best_index = i
-	return best_index
 
 ## Erste n Indizes mit der Kombinationsziffer digit.
 static func _indices_for_value(dice: Array[int], digit: int, n: int) -> Array[int]:

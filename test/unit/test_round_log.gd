@@ -24,7 +24,7 @@ func _kinds(steps: Array[Dictionary]) -> Array[String]:
 ## gewachsenem Wert), einem Krit, einem Glied und einem statischen Charm.
 func _hand_built() -> Dictionary:
 	return {
-		"key": DiceScoring.ONE_KIND,
+		"key": DiceScoring.TWO_KIND,
 		"participating": _d([0]),
 		"eye_slots": _d([0]),
 		"combo": {"base_add": 10, "mult_add": 2},
@@ -269,10 +269,10 @@ func test_values_label_nennt_nur_die_liegenden_wuerfel() -> void:
 ## Die Module stehen im Rückblick, wo die Zeremonie sie spielt: Kombi-Teile
 ## hinter der Kombination, Krit-Teile nach den Würfeln - je mit ihrem Steckplatz.
 func test_parts_are_steps_in_scoring_order() -> void:
-	var key := DiceScoring.ONE_KIND
+	var key := DiceScoring.TWO_KIND
 	var parts := {key: [ComboPart.resistor(), ComboPart.amplifier_tube(), ComboPart.solder_joint()]}
-	var materials: Array[String] = [""]
-	var breakdown := ScoreBreakdown.build(key, _d([5]), _ids([]), false, materials, parts)
+	var materials: Array[String] = ["", ""]
+	var breakdown := ScoreBreakdown.build(key, _d([5, 5]), _ids([]), false, materials, parts)
 	var steps := RoundLog.flatten(breakdown)
 	var kinds := _kinds(steps)
 	assert_eq(kinds[1], RoundLog.STEP_PART, "der Widerstand direkt hinter der Kombination")

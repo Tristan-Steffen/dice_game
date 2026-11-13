@@ -985,13 +985,6 @@ func test_hottest_combo_breaks_ties_by_rank():
 	_fill(DiceScoring.FOUR_KIND, 3)
 	assert_eq(run.hottest_combos(1)[0], DiceScoring.FOUR_KIND, "Gleichstand -> der ranghöhere Chip")
 
-func test_hottest_combo_never_throttles_the_fallback_category():
-	# "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand: gedrosselt könnte eine
-	# Hand ohne jede wertbare Kategorie enden.
-	_fill(DiceScoring.ONE_KIND, 3)
-	_fill(DiceScoring.TWO_KIND, 2)
-	assert_eq(run.hottest_combos(1)[0], DiceScoring.TWO_KIND)
-
 func test_hottest_combos_rank_by_parts_then_priority():
 	_fill(DiceScoring.TWO_KIND, 3)
 	_fill(DiceScoring.FOUR_KIND, 3)
@@ -1645,8 +1638,6 @@ func test_standard_protocol_locks_every_other_combination():
 	run.note_hand_taken(DiceScoring.TWO_KIND)
 	assert_eq(run.throttled_combos.size(), DiceScoring.HAND_PRIORITY.size() - 1)
 	assert_false(run.throttled_combos.has(DiceScoring.TWO_KIND))
-	assert_true(run.throttled_combos.has(DiceScoring.ONE_KIND),
-		"auch die Rückfall-Kategorie fällt weg")
 
 func test_all_in_caps_the_round_at_one_hand():
 	assert_gt(run.max_hands_this_round(), 1)

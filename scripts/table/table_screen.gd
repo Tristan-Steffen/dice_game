@@ -46,6 +46,8 @@ const FRAME_BG := Color("#1a1836aa")
 
 ## Rundenziel-Balken: goldene Füllung = erspielte Punkte.
 const GOAL_BAR_SIZE := Vector2(220, 30) * SUPERSAMPLE
+## EINE Schriftgröße für Zielbalken, Basis, Mult und Gesamtzahl.
+const SCORE_FONT_PX := 16 * SUPERSAMPLE
 const GOAL_BAR_INSET := 5.0 * SUPERSAMPLE
 const GOAL_BAR_FILL_COLOR := Color("#ffd319aa")
 const GOAL_BAR_TEXT_COLOR := Color(1.35, 1.35, 1.3)  # überhelles Weiß (Glow)
@@ -1490,44 +1492,41 @@ func _sync_reflection_windows() -> void:
 		_felt_material.set_shader_parameter("window_rects", rects)
 		_felt_material.set_shader_parameter("window_radius", radii)
 
-## Freie Rasterplätze des Chip-Netzes - die letzte Reihe ist nie voll (13
-## Kombinationen auf CLUSTER_COLUMNS Spalten). Zeilenweise sortiert, der letzte
-## Eintrag ist also der Platz unten rechts. Abgeleitet aus den ECHTEN Zellen,
-## damit ein Umbau des Clusters die freien Plätze automatisch mitnimmt.
-func free_cluster_slots() -> Array[Rect2]:
-	var slots: Array[Rect2] = []
-	if combo_cells.is_empty():
-		return slots
-	var xs := PackedFloat32Array()
-	var ys := PackedFloat32Array()
-	var taken := {}
-	var cell_size := Vector2.ZERO
-	for key in combo_cells:
-		var cell: ComboCellView = combo_cells[key]
-		cell_size = cell.size
-		var spot := Vector2(snappedf(cell.position.x, 0.5), snappedf(cell.position.y, 0.5))
-		if not xs.has(spot.x):
-			xs.append(spot.x)
-		if not ys.has(spot.y):
-			ys.append(spot.y)
-		taken[spot] = true
-	xs.sort()
-	ys.sort()
-	for y: float in ys:
-		for x: float in xs:
-			if not taken.has(Vector2(x, y)):
-				slots.append(Rect2(Vector2(x, y), cell_size))
-	return slots
+## Die Zelle oben in Spalte column (Platzhalter für die Plätze über dem Raster).
+func _top_cell_rect(column: int) -> Rect2:
+	var key: String = DiceScoring.HAND_PRIORITY[clampi(column, 0, CLUSTER_COLUMNS - 1)]
+	if not combo_cells.has(key):
+		return Rect2(cluster_rect.position, CELL_SIZE)
+	var cell: ComboCellView = combo_cells[key]
+	return Rect2(cell.position, cell.size)
 
-## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) an den Editor-Anker
-## CombosBlock: unten bündig mit dessen Block, rechts um CLUSTER_RIGHT_PULL eingerückt.
-func place_combo_cluster(center_px: Vector2) -> void:
+## Fuge zwischen der Grube und ihren Nachbarn links (Kombinationen) und rechts (Wett-Tresen).
+const PIT_SIDE_GAP := RESOLUTION.x * 0.005
+
+## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) neben die Grube: die
+## Chips enden PIT_SIDE_GAP vor ihrer linken Kante, die oberste Reihe ist bündig
+## mit ihrer Oberkante, die unterste mit ihrer Unterkante. Ohne Grube (Tests)
+## steht er am Editor-Anker CombosBlock, rechts um CLUSTER_RIGHT_PULL eingerückt.
+func place_combo_cluster(center_px: Vector2, pit_rect := Rect2()) -> void:
 	cluster_anchor_rect = Rect2(center_px - CLUSTER_ANCHOR_SIZE * 0.5, CLUSTER_ANCHOR_SIZE)
 	var corner := cluster_anchor_rect.end - Vector2(CLUSTER_RIGHT_PULL, 0.0)
-	var delta := corner - cluster_rect.end
-	for key in combo_cells:
-		combo_cells[key].position += delta
-	cluster_rect.position += delta
+	var dx := corner.x - cluster_rect.end.x
+	if pit_rect.size.y > 0.0:
+		# Gemessen an den Pin-Spitzen, nicht am Zellrand - der Chip ist schmaler als seine Zelle.
+		var tip_inset := CELL_SIZE.x * 0.5 - float(ComboChipView.pin_offsets_px(CELL_SIZE)["tip_dx"])
+		dx = pit_rect.position.x - PIT_SIDE_GAP - (cluster_rect.end.x - CLUSTER_PADDING - tip_inset)
+	else:
+		# Ohne Grube (Tests): die Zellen behalten ihre Höhe, unten bündig am Anker.
+		var span := cluster_rect.size.y - 2.0 * CLUSTER_PADDING
+		pit_rect = Rect2(0.0, corner.y - CLUSTER_PADDING - span, 0.0, span)
+	var rows := ceili(float(DiceScoring.HAND_PRIORITY.size()) / float(CLUSTER_COLUMNS))
+	var pitch := (pit_rect.size.y - CELL_SIZE.y) / float(maxi(1, rows - 1))
+	for key: String in combo_cells:
+		var row := DiceScoring.HAND_PRIORITY.find(key) / CLUSTER_COLUMNS
+		combo_cells[key].position = Vector2(combo_cells[key].position.x + dx,
+			pit_rect.position.y + float(row) * pitch)
+	cluster_rect = Rect2(cluster_rect.position.x + dx + CLUSTER_PADDING, pit_rect.position.y,
+		cluster_rect.size.x - 2.0 * CLUSTER_PADDING, pit_rect.size.y).grow(CLUSTER_PADDING)
 	_lay_combo_wiring()
 	_sync_reflection_windows()
 
@@ -1654,7 +1653,7 @@ func _build_goal_bar() -> void:
 	goal_bar_label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	goal_bar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	goal_bar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	goal_bar_label.add_theme_font_size_override("font_size", 16 * SUPERSAMPLE)
+	goal_bar_label.add_theme_font_size_override("font_size", SCORE_FONT_PX)
 	# Dunkle Kontur, damit die Zahl auch auf heller (heißer) Füllung lesbar bleibt.
 	goal_bar_label.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
 	goal_bar_label.add_theme_constant_override("outline_size", 4 * SUPERSAMPLE)
@@ -1677,7 +1676,8 @@ func place_score_screen() -> void:
 	var r := Rect2(base_counter.position, base_counter.size)
 	r = r.merge(Rect2(mult_counter.position, mult_counter.size))
 	r = r.merge(Rect2(goal_bar.position, goal_bar.size))
-	score_rect = r.grow(SCORE_SCREEN_PADDING)
+	# Senkrecht ohne Rand: die Orbs füllen die Höhe, der Bildschirm bleibt flach.
+	score_rect = r.grow_individual(SCORE_SCREEN_PADDING, 0.0, SCORE_SCREEN_PADDING, 0.0)
 	score_frame.position = score_rect.position
 	score_frame.size = score_rect.size
 	score_frame.visible = true
@@ -1738,6 +1738,7 @@ func _make_counter(node_name: String, counter_color: Color, k: float) -> PitScor
 	counter.name = node_name
 	counter.color = counter_color
 	counter.growth_k = k
+	counter.number_px = SCORE_FONT_PX
 	counter.size = PIT_SCORE_SIZE
 	counter.position = (Vector2(RESOLUTION) - PIT_SCORE_SIZE) / 2.0
 	counter.pivot_offset = PIT_SCORE_SIZE / 2.0
@@ -1768,7 +1769,7 @@ func update_pit_score(base: int, mult: float) -> void:
 		return
 	var base_up := float(base) > base_counter.value
 	var mult_up := mult > mult_counter.value
-	total_orb.visible = false
+	_show_total(false)
 	base_counter.position = _base_home
 	mult_counter.position = _mult_home
 	base_counter.visible = true
@@ -1783,7 +1784,13 @@ func update_pit_score(base: int, mult: float) -> void:
 func hide_pit_score() -> void:
 	base_counter.visible = false
 	mult_counter.visible = false
-	total_orb.visible = false
+	_show_total(false)
+
+## Die Gesamtzahl steht AUF dem Zielbalken - solange sie steht, schweigt seine Beschriftung.
+func _show_total(on: bool) -> void:
+	total_orb.visible = on
+	if goal_bar_label != null:
+		goal_bar_label.visible = not on
 
 var _crit_tween: Tween
 
@@ -1890,7 +1897,7 @@ func _slam_total(total: int, clears_goal: bool) -> void:
 	total_orb.modulate = Color.WHITE
 	total_orb.set_overbright(clears_goal)
 	total_orb.set_value_silent(0)  # von 0 hochploppen
-	total_orb.visible = true
+	_show_total(true)
 	total_orb.set_value(total)     # eigener Squash-Pop
 	total_orb.pop()
 	pit_total_slammed.emit(clears_goal)
@@ -1912,7 +1919,7 @@ func update_pit_total(total: int, clears_goal: bool) -> void:
 func reset_pit_score() -> void:
 	if _crit_tween != null and _crit_tween.is_valid():
 		_crit_tween.kill()
-	total_orb.visible = false
+	_show_total(false)
 	base_counter.position = _base_home
 	mult_counter.position = _mult_home
 	base_counter.visible = true
@@ -1927,15 +1934,19 @@ func reset_pit_score() -> void:
 ## begin_total_drain streut die Funken über die Gesamtdauer, set_total_drain(f)
 ## schrumpft/verblasst den Orb nach Fortschritt f (0..1), finish räumt auf.
 func begin_total_drain(duration: float) -> void:
-	var gc := goal_bar.position + goal_bar.size / 2.0
+	# Beim Abfließen zählt der Balken hoch - seine Beschriftung muß wieder stehen.
+	goal_bar_label.visible = true
 	var sparks := maxi(DRAIN_SPARKS, int(duration * 6.0))
 	for i in sparks:
 		var delay := duration * float(i) / float(sparks)
 		get_tree().create_timer(delay).timeout.connect(func() -> void:
-			_drain_spark(gc, 0.35))
+			_drain_spark(0.35))
+
+## Die Gesamtzahl verlischt im ersten Teil des Abfließens - sie steht auf der Balken-Beschriftung.
+const TOTAL_DRAIN_FADE_SHARE := 0.15
 
 func set_total_drain(f: float) -> void:
-	var t := clampf(f, 0.0, 1.0)
+	var t := clampf(f / TOTAL_DRAIN_FADE_SHARE, 0.0, 1.0)
 	var s := lerpf(1.0, 0.25, t)
 	total_orb.scale = Vector2(s, s)
 	total_orb.modulate.a = 1.0 - t
@@ -1946,13 +1957,15 @@ func finish_total_drain() -> void:
 	reset_pit_score()
 	pulse_goal_bar()
 
-## Ein kurzer Funke vom schrumpfenden Orb in den Balken (kleiner Radialversatz).
-func _drain_spark(center_px: Vector2, travel: float) -> void:
-	var angle := randf() * TAU
-	var from := center_px + Vector2(cos(angle), sin(angle)) * total_orb.size.y * 0.35
+## Ein kurzer Funke in die VORDERKANTE der Balken-Füllung - von ober- oder unterhalb,
+## damit er nicht durch die mittige Beschriftung zieht.
+func _drain_spark(travel: float) -> void:
+	var edge := goal_bar.position + Vector2(GOAL_BAR_INSET + goal_bar_fill.size.x, goal_bar.size.y * 0.5)
+	var side := -1.0 if randf() < 0.5 else 1.0
+	var from := edge + Vector2(randf_range(-0.5, 0.5), side) * goal_bar.size.y
 	var pulse := TracePulseView.new()
 	add_child(pulse)
-	pulse.setup(PackedVector2Array([from, center_px]), PitScoreView.TOTAL_COLOR,
+	pulse.setup(PackedVector2Array([from, edge]), PitScoreView.TOTAL_COLOR,
 		SCORE_PULSE_CORE, SCORE_PULSE_GLOW, travel, SCORE_COMET * 0.5)
 
 ## Schwebende Zuwachs-Zahl der Zähl-Animation ("+3", "×2"): schießt aus dem
@@ -2374,16 +2387,18 @@ func _hub_strip_lane_y() -> float:
 	var lane_y := (obstacle_bottom + hub_top) * 0.5
 	return minf(lane_y, hub_top - 6.0 * SUPERSAMPLE)  # zur Not knapp über der Hub-Oberkante
 
-## Der Platz des Energie-Rings: rechts neben „Höchste Zahl", von der Chip-Reihe bis
-## knapp über die Hub-Ader - er deckt keine Leiterbahn. Quadratisch, der Ring ist rund.
+## Seitenlänge des Energie-Rings (quadratisch, der Ring ist rund).
+const ENERGY_RING_SIDE := 1.7 * CELL_SIZE.y
+
+## Der Platz des Energie-Rings (vorläufig): über der mittleren Chip-Spalte, knapp
+## über dem Cluster - die rechte liegt unter dem Wertungs-Bildschirm.
 func energy_ring_rect() -> Rect2:
-	var slots := free_cluster_slots()
-	if slots.is_empty():
+	if combo_cells.is_empty():
 		return Rect2()
-	var slot: Rect2 = slots[slots.size() - 1]
-	var bottom := _hub_strip_lane_y() - HUB_STRIP_WIDTH * 0.5 - ENERGY_RING_AIR
-	var side := minf(slot.size.x, bottom - slot.position.y)
-	return Rect2(slot.get_center().x - side * 0.5, bottom - side, side, side)
+	var column := _top_cell_rect(1)
+	var bottom := cluster_rect.position.y - ENERGY_RING_AIR
+	return Rect2(column.get_center().x - ENERGY_RING_SIDE * 0.5, bottom - ENERGY_RING_SIDE,
+		ENERGY_RING_SIDE, ENERGY_RING_SIDE)
 
 ## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Tray rechts).
 func _hub_strip_exit_x(to_right: bool) -> float:
@@ -3478,10 +3493,13 @@ var part_hint: HintCard
 var install_banner: HintCard
 var _install_banner_wanted := false
 
-## Der freie Chip-Platz links neben „Höchste Zahl" (den rechten trägt der Energie-Ring).
+## Der Platz der Modul-Karten: über der linken Chip-Spalte, so hoch, daß die
+## Karte (PART_HINT_TALL) knapp über dem Cluster endet.
 func part_hint_slot() -> Rect2:
-	var slots := free_cluster_slots()
-	return slots[0] if not slots.is_empty() else Rect2(cluster_rect.position, CELL_SIZE)
+	var column := _top_cell_rect(0)
+	var lane_h := column.size.y * PART_HINT_TALL
+	return Rect2(Vector2(column.position.x, cluster_rect.position.y - ENERGY_RING_AIR - lane_h),
+		column.size)
 
 func _seat_part_card(card: HintCard, title: String, body: String, accent: Color) -> Rect2:
 	var slot := part_hint_slot()

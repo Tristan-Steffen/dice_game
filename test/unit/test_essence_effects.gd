@@ -930,8 +930,8 @@ func test_the_breakdown_mirrors_the_infection():
 func test_borrowed_krypton_still_counts_every_lying_die():
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.KRYPTON})
 	var ctx := {DiceScoring.CTX_ESSENCE_SET: sets}
-	var shape := DiceScoring.hand_shape(DiceScoring.ONE_KIND, _d([2, 4]), NO_CHARMS, ctx)
-	assert_eq(Array(shape["scored"]), [0, 1], "die geborgte Seele zählt beide mit")
+	var shape := DiceScoring.hand_shape(DiceScoring.TWO_KIND, _d([2, 4, 4]), NO_CHARMS, ctx)
+	assert_eq(Array(shape["scored"]), [0, 1, 2], "die geborgte Seele zählt alle mit")
 
 func test_borrowed_money_adds_up():
 	var sets := EssenceEffects.effective_sets({0: Essence.QUINTESSENCE, 1: Essence.NEON})

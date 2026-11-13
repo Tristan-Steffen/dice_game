@@ -18,11 +18,10 @@ extends RefCounted
 ## CLEARED         - nur räumen (die Steuerwetten tragen die Herausforderung im Einsatz),
 ## MAX_HAND_DICE   - keine Hand nutzt mehr als target Würfel,
 ## FULL_HANDS      - JEDE Hand nutzt alle sechs Würfel,
-## NO_REPEAT       - keine Kombination zweimal genommen,
-## NO_FALLBACK     - nie die Rückfall-Kategorie (Höchste Zahl) genommen.
+## NO_REPEAT       - keine Kombination zweimal genommen.
 enum Condition { COMBO, HAND_SCORE, FEW_DICE, NO_FARKLE, FIRST_HAND, OVERCHARGE,
 	DISTINCT_COMBOS, HAND_LIMIT, COMEBACK, HIGH_DICE, CLEARED, MAX_HAND_DICE,
-	FULL_HANDS, NO_REPEAT, NO_FALLBACK }
+	FULL_HANDS, NO_REPEAT }
 
 ## Womit der Einsatz bezahlt wird. MONEY/PACKS/ENERGY sind beim Platzieren
 ## fällig, MONEY_PER_HAND/MONEY_PER_DIE laufen als Steuer je genommener Hand -
@@ -229,9 +228,6 @@ const TEMPLATES := [
 	{"id": "small_fry", "condition": Condition.MAX_HAND_DICE, "target": 3,
 		"stake": 7, "odds": ODDS_HARD, "name": "Kleinvieh", "unlock": 7,
 		"desc": "Nimm keine Hand aus mehr als drei Würfeln."},
-	{"id": "no_scraps", "condition": Condition.NO_FALLBACK,
-		"stake": 5, "odds": ODDS_MEDIUM, "name": "Keine Resterampe",
-		"unlock": 7, "desc": "Nimm nie die Höchste Zahl."},
 	# --- Penthouse (8) ---
 	{"id": "deep_energy", "condition": Condition.OVERCHARGE, "target": 4,
 		"stake_kind": Stake.PACKS, "stake_packs": 1, "odds": ODDS_HARD,
@@ -602,8 +598,6 @@ func evaluate(result: Dictionary) -> bool:
 				and int(result.get("min_hand_dice", 0)) >= FULL_HAND_DICE
 		Condition.NO_REPEAT:
 			return not bool(result.get("combo_repeated", false))
-		Condition.NO_FALLBACK:
-			return not bool(result.get("fallback_taken", false))
 	return false
 
 ## Rang einer Kombination: höher = seltener/besser. Über HAND_PRIORITY
@@ -655,8 +649,6 @@ func live_state(result: Dictionary) -> int:
 			return Live.FAILED if int(result.get("min_hand_dice", FULL_HAND_DICE)) < FULL_HAND_DICE else Live.ON_TRACK
 		Condition.NO_REPEAT:
 			return Live.FAILED if bool(result.get("combo_repeated", false)) else Live.ON_TRACK
-		Condition.NO_FALLBACK:
-			return Live.FAILED if bool(result.get("fallback_taken", false)) else Live.ON_TRACK
 	return Live.PENDING
 
 ## Kann diese Wette schon MITTEN in der Runde erfüllt sein? Genau die Bedingungen,
@@ -698,8 +690,6 @@ func progress_fraction(result: Dictionary) -> float:
 			return 0.0 if int(result.get("min_hand_dice", FULL_HAND_DICE)) < FULL_HAND_DICE else 1.0
 		Condition.NO_REPEAT:
 			return 0.0 if bool(result.get("combo_repeated", false)) else 1.0
-		Condition.NO_FALLBACK:
-			return 0.0 if bool(result.get("fallback_taken", false)) else 1.0
 	return 0.0
 
 func _ratio(value: int) -> float:
@@ -739,8 +729,6 @@ func status_label(result: Dictionary) -> String:
 			return "zu klein" if int(result.get("min_hand_dice", FULL_HAND_DICE)) < FULL_HAND_DICE else "voll"
 		Condition.NO_REPEAT:
 			return "Dublette!" if bool(result.get("combo_repeated", false)) else "verschieden"
-		Condition.NO_FALLBACK:
-			return "Rückfall!" if bool(result.get("fallback_taken", false)) else "sauber"
 	return ""
 
 ## Die GEWINN-KARTEN samt Prägenetz, je Größe einmal gewürfelt und dann fest: die

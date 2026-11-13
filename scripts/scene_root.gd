@@ -113,7 +113,10 @@ const SWALLOW_SPEED := 2.0
 ## Die POSITION der Screen-Elemente hängt an frei verschiebbaren Editor-Ankern
 ## (Marker3D unter $ScreenAnchors); nur die GRÖSSEN stehen hier als Weltmaß.
 const PIT_SCORE_WIDTH_WORLD := 10.0
-const PIT_SCORE_HEIGHT_WORLD := 6.0  # höher: Platz für die Wertungs-Orbs
+## Fuge Grube -> Wertungs-Bildschirm und Wertungs-Bildschirm -> Charm-Konsolen (Welt).
+const SCORE_PIT_GAP_WORLD := 1.17
+const SCORE_CHARM_GAP_WORLD := 1.24
+const PIT_SCORE_HEIGHT_WORLD := 3.8  # = Höhe des Wertungs-Bildschirms (die Orbs füllen ihn)
 
 ## Hub-Fläche unter der Grube (~grubenbreit, doppelte Gruben-Bildschirmhöhe).
 const HUB_WIDTH_WORLD := 28.5
@@ -849,7 +852,6 @@ var round_first_hand_score: int = 0  # Wertung der ERSTEN Hand (einmal gesetzt)
 var round_farkled: bool = false
 var round_combo_keys: Dictionary = {}   # genommene Kombi-Sorten (Set)
 var round_combo_repeated: bool = false  # eine Sorte zweimal genommen
-var round_fallback_taken: bool = false  # Höchste Zahl genommen
 var round_high_hand: bool = false       # Hand aus 3+ Würfeln mit je 6+ Augen
 var round_max_hand_dice: int = 0        # größte genommene Hand
 var round_min_hand_dice: int = NO_HAND_DICE  # kleinste genommene Hand
@@ -1092,17 +1094,28 @@ func _setup_table_screen() -> void:
 
 	# Screen-Elemente an ihre Editor-Anker setzen; den Kombi-Cluster ERST
 	# platzieren, DANN den Zoom einrichten (er liest das verschobene cluster_rect).
-	table_screen.place_combo_cluster(table_screen.world_to_pixel(combos_anchor.global_position))
+	var pit_corner_a := table_screen.world_to_pixel(Vector3(
+		DicePit.PIT_CENTER.x + DicePit.PIT_HALF_X, 0.0,
+		DicePit.PIT_CENTER.z - DicePit.PIT_HALF_Z))
+	var pit_corner_b := table_screen.world_to_pixel(Vector3(
+		DicePit.PIT_CENTER.x - DicePit.PIT_HALF_X, 0.0,
+		DicePit.PIT_CENTER.z + DicePit.PIT_HALF_Z))
+	var pit_rect := Rect2(pit_corner_a, Vector2.ZERO).expand(pit_corner_b)
+	# Der Cluster steht so hoch wie die Grube rechts daneben.
+	table_screen.place_combo_cluster(table_screen.world_to_pixel(combos_anchor.global_position), pit_rect)
 	_setup_debug_parts()
 	_setup_combo_chips()
 	_setup_combos_zoom()
-	table_screen.place_goal_bar(table_screen.world_to_pixel(goal_bar_anchor.global_position))
 	var ppw := table_screen.pixels_per_world()
+	# Der Wertungs-Bildschirm steht SCORE_PIT_GAP_WORLD über der Grube; die Anker
+	# geben nur noch die Waagerechte vor.
+	var score_cy := pit_rect.position.y - (SCORE_PIT_GAP_WORLD + PIT_SCORE_HEIGHT_WORLD * 0.5) * ppw
+	var at_score_row := func(anchor: Marker3D) -> Vector2:
+		return Vector2(table_screen.world_to_pixel(anchor.global_position).x, score_cy)
+	table_screen.place_goal_bar(at_score_row.call(goal_bar_anchor))
 	var score_size := Vector2(PIT_SCORE_WIDTH_WORLD * ppw, PIT_SCORE_HEIGHT_WORLD * ppw)
-	table_screen.configure_pit_score(
-		table_screen.world_to_pixel(base_counter_anchor.global_position),
-		table_screen.world_to_pixel(mult_counter_anchor.global_position),
-		score_size)
+	table_screen.configure_pit_score(at_score_row.call(base_counter_anchor),
+		at_score_row.call(mult_counter_anchor), score_size)
 	# Zielbalken + Zähler zu EINEM Wertungs-Bildschirm rahmen, dann Zoom-Zone.
 	table_screen.place_score_screen()
 	_setup_score_zoom()
@@ -1113,15 +1126,7 @@ func _setup_table_screen() -> void:
 	_refresh_hub_info()
 	# Gruben-Fenster: der Rahmen zeichnet EXAKT die Kollisionslinie der
 	# Energiewände nach (±PIT_HALF um die Grubenmitte, Eckenrundung der Wände).
-	var pit_corner_a := table_screen.world_to_pixel(Vector3(
-		DicePit.PIT_CENTER.x + DicePit.PIT_HALF_X, 0.0,
-		DicePit.PIT_CENTER.z - DicePit.PIT_HALF_Z))
-	var pit_corner_b := table_screen.world_to_pixel(Vector3(
-		DicePit.PIT_CENTER.x - DicePit.PIT_HALF_X, 0.0,
-		DicePit.PIT_CENTER.z + DicePit.PIT_HALF_Z))
-	table_screen.place_pit_window(
-		Rect2(pit_corner_a, Vector2.ZERO).expand(pit_corner_b),
-		DicePit.CORNER_RADIUS * ppw)
+	table_screen.place_pit_window(pit_rect, DicePit.CORNER_RADIUS * ppw)
 	# Kompaktes Würfelnetz-Feld unter der Würfelreihe (mit Abstand zur Grubenwand).
 	var pit_info_cx := DicePit.PIT_CENTER.x - PIT_INFO_BAR_INSET_X
 	var pit_info_a := table_screen.world_to_pixel(Vector3(
@@ -1154,13 +1159,13 @@ func _setup_table_screen() -> void:
 	# Charm-Konsolen unter der 3D-Charm-Reihe: je Charm ein Sockelring dort, wo der
 	# Emitter des Hologramms auf dem Screen liegt (= projizierter Platz), Karte darunter. Die
 	# übergebenen Pixel sind die Ringmitten; die Karten legt das Dock ab.
-	var aperture_centers := PackedVector2Array()
-	for i in CharmRowView.SPOT_COUNT:
-		aperture_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
-	var pad_spacing := aperture_centers[0].distance_to(aperture_centers[1]) if aperture_centers.size() > 1 else 200.0
-	# Sockelring = Emitter-Ring des Hologramms: Radius (Welt) -> Screen-Pixel.
-	var proj_radius := CharmRowView.EMITTER_RADIUS * table_screen.pixels_per_world()
-	table_screen.place_charm_dock(aperture_centers, Vector2(pad_spacing * 0.66, pad_spacing * 0.66), proj_radius)
+	_place_charm_dock()
+	# Die Charm-Reihe rückt so weit herab, daß ihre Konsolen SCORE_CHARM_GAP_WORLD
+	# über dem Wertungs-Bildschirm enden (Bild-unten = Welt −X).
+	var dock_bottom := table_screen.charm_dock.position.y + table_screen.charm_dock.size.y
+	var want_bottom := table_screen.score_rect.position.y - SCORE_CHARM_GAP_WORLD * ppw
+	charm_row.position.x -= (want_bottom - dock_bottom) / ppw
+	_place_charm_dock()
 	if run != null:
 		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
 	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
@@ -1181,7 +1186,7 @@ func _setup_table_screen() -> void:
 		* (table_screen.cluster_anchor_rect.size.x / 100.0) * WETTEN_ROOM
 	# Nie höher als die Grube — der Tresen ist ihr Beiwerk, kein Turm.
 	win_size.y = minf(win_size.y, pit_r.size.y)
-	var win_pos := Vector2(pit_r.end.x + table_screen.size.x * 0.005,
+	var win_pos := Vector2(pit_r.end.x + TableScreen.PIT_SIDE_GAP,
 		pit_r.end.y - win_size.y)
 	table_screen.place_side_bet_window(Rect2(win_pos, win_size))
 	_setup_side_bets_zoom()
@@ -1215,8 +1220,7 @@ func _setup_table_screen() -> void:
 		Vector3(tr_mid.x, 0.0, tr_mid.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
-	# Der Energie-Ring bekommt den freien Chip-Platz unten rechts im Cluster
-	# (zwischen Grube und Kombinationen), nicht die Geld-Ecke.
+	# Der Energie-Ring steht vorläufig über der mittleren Chip-Spalte.
 	_setup_energy_ring(table_screen.energy_ring_rect())
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
@@ -10766,6 +10770,16 @@ func _setup_side_bets_zoom() -> void:
 	side_bets_click_zone = _screen_zoom_zone("SideBetsClickZone",
 		Rect2(window.position, window.size), camera_rig.configure_side_bets_target)
 
+## Charm-Konsolen unter den Emittern der Charm-Reihe (Ringmitten in Display-Pixeln).
+func _place_charm_dock() -> void:
+	var aperture_centers := PackedVector2Array()
+	for i in CharmRowView.SPOT_COUNT:
+		aperture_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
+	var pad_spacing := aperture_centers[0].distance_to(aperture_centers[1]) if aperture_centers.size() > 1 else 200.0
+	# Sockelring = Emitter-Ring des Hologramms: Radius (Welt) -> Screen-Pixel.
+	var proj_radius := CharmRowView.EMITTER_RADIUS * table_screen.pixels_per_world()
+	table_screen.place_charm_dock(aperture_centers, Vector2(pad_spacing * 0.66, pad_spacing * 0.66), proj_radius)
+
 ## Zoom-Ziel + Klickzone der Charms aus dem Dock-Rect (rahmt Konsolen UND
 ## Hologramme; Klick auf Karten/Info-Band zoomt ebenfalls heran).
 func _setup_charms_zoom() -> void:
@@ -11442,7 +11456,7 @@ func _sync_screen_action_buttons() -> void:
 		return
 	_sync_pit_deal_hint()
 	var interactable := phase == Phase.IDLE and has_rolled_current_hand
-	table_screen.take_action_button.disabled = not interactable or _hand_slots().is_empty()
+	table_screen.take_action_button.disabled = not interactable or not _hand_scores()
 	# Würfeln braucht mindestens einen ungeschützten Würfel - sind alle geschützt,
 	# gibt es nichts neu zu würfeln (dann führt nur "Nehmen" weiter).
 	var can_roll := phase == Phase.IDLE and _remaining_in_pool() > 0 and not _all_in_play_dice_selected()
@@ -12615,7 +12629,7 @@ func _on_roll_finished() -> void:
 	# Tote Hand (typisch beim ausgespielten Rest-Pool): nichts Wertbares liegt da
 	# und nachgezogen werden kann auch nicht mehr - das ist ein Fumble, kein
 	# Stillstand. Verzeihen hilft hier nicht weiter, die Hand käme nie voran.
-	if _hand_slots().is_empty() and _remaining_in_pool() <= 0:
+	if _pit_combination_slots().is_empty() and _remaining_in_pool() <= 0:
 		_on_farkle(false)
 		return
 
@@ -12782,9 +12796,9 @@ func _on_take_button_pressed() -> void:
 	if phase != Phase.IDLE or not has_rolled_current_hand:
 		return
 
-	var slots := _hand_slots()
-	if slots.is_empty():
+	if not _hand_scores():
 		return
+	var slots := _hand_slots()
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
 	var sel_values: Array[int] = []
@@ -14121,6 +14135,21 @@ func _hand_slots() -> Array[int]:
 			widened.append(i)
 	return widened
 
+## Bildet die gewertete Auswahl überhaupt eine Kombination? Ohne Treffer gibt es nichts zu nehmen.
+func _hand_scores() -> bool:
+	var slots := _hand_slots()
+	if slots.is_empty() or run == null:
+		return false
+	var materials := _rolled_materials()
+	var values: Array[int] = []
+	var chosen: Array[String] = []
+	for s in slots:
+		values.append(dice.values[s])
+		chosen.append(materials[s])
+	var hand := DiceScoring.best_hand(values, run.charm_ids(), hands_taken_this_round == 0, chosen,
+		run.scoring_parts(), _score_ctx_for_slots(slots))
+	return String(hand["key"]) != DiceScoring.NO_HAND
+
 ## Trägt die Kette der gewählten Hand einen Nebenschluss? Dann zählt die ganze Grube.
 func _shunt_widens(slots: Array[int]) -> bool:
 	if run == null or slots.is_empty():
@@ -14522,7 +14551,6 @@ func _start_new_round() -> void:
 	round_farkled = false
 	round_combo_keys = {}
 	round_combo_repeated = false
-	round_fallback_taken = false
 	round_high_hand = false
 	round_max_hand_dice = 0
 	round_min_hand_dice = NO_HAND_DICE
@@ -15005,7 +15033,6 @@ func _side_bet_stats() -> Dictionary:
 		"distinct_combos": round_combo_keys.size(),
 		"hands_taken": hands_taken_this_round,
 		"combo_repeated": round_combo_repeated,
-		"fallback_taken": round_fallback_taken,
 		"high_hand": round_high_hand,
 		"max_hand_dice": round_max_hand_dice,
 		"min_hand_dice": round_min_hand_dice,
@@ -15021,8 +15048,6 @@ func _note_hand_for_side_bets(combo_key: String, score: int, hand_dice: int,
 	if round_combo_keys.has(combo_key):
 		round_combo_repeated = true
 	round_combo_keys[combo_key] = true
-	if combo_key == DiceScoring.ONE_KIND:
-		round_fallback_taken = true
 	round_max_hand_dice = maxi(round_max_hand_dice, hand_dice)
 	round_min_hand_dice = mini(round_min_hand_dice, hand_dice)
 	if _is_high_dice_hand(values, scored):
@@ -15780,6 +15805,8 @@ func _refresh_ui() -> void:
 			_refresh_combos(hand["key"])
 			if phase != Phase.SCORING:
 				var chip_values := ComboPartEffects.display_values(run.scoring_parts(), hand["key"])
+				if hand["key"] == DiceScoring.NO_HAND:
+					chip_values = Vector2i.ZERO
 				table_screen.update_pit_score(chip_values.x, chip_values.y)
 
 ## Verwandlungs-Charms (Glückszigaretten & Co.) am liegenden Würfel sichtbar

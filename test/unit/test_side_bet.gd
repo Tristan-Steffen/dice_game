@@ -11,7 +11,7 @@ func _result(overrides: Dictionary = {}) -> Dictionary:
 		"cleared": true, "best_combo_rank": -1, "best_hand_score": 0,
 		"first_hand_score": 0, "dice_taken": 0, "farkled": false,
 		"stages_cleared": 0, "distinct_combos": 0, "hands_taken": 0,
-		"combo_repeated": false, "fallback_taken": false, "high_hand": false,
+		"combo_repeated": false, "high_hand": false,
 		"max_hand_dice": 0, "min_hand_dice": SideBet.FULL_HAND_DICE,
 	}
 	for key in overrides:
@@ -141,7 +141,7 @@ func test_combo_bet_needs_rank_or_better():
 
 func test_combo_rank_orders_by_priority():
 	assert_gt(SideBet.combo_rank(DiceScoring.SIX_KIND), SideBet.combo_rank(DiceScoring.FULL_HOUSE))
-	assert_gt(SideBet.combo_rank(DiceScoring.TWO_PAIR), SideBet.combo_rank(DiceScoring.ONE_KIND))
+	assert_gt(SideBet.combo_rank(DiceScoring.TWO_PAIR), SideBet.combo_rank(DiceScoring.TWO_KIND))
 
 func test_hand_score_bet():
 	var bet := _bet("big_hand", 400)
@@ -235,12 +235,6 @@ func test_no_repeat_bet():
 	assert_true(bet.evaluate(_result({"combo_repeated": false})))
 	assert_false(bet.evaluate(_result({"combo_repeated": true})))
 	assert_eq(bet.live_state(_result({"combo_repeated": true})), SideBet.Live.FAILED)
-
-func test_no_fallback_bet():
-	var bet := _bet("no_scraps")
-	assert_true(bet.evaluate(_result({"fallback_taken": false})))
-	assert_false(bet.evaluate(_result({"fallback_taken": true})))
-	assert_eq(bet.live_state(_result({"fallback_taken": true})), SideBet.Live.FAILED)
 
 # --- Anzeige ------------------------------------------------------------------
 

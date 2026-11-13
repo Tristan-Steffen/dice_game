@@ -1606,12 +1606,11 @@ static func block_of_round(n: int) -> int:
 
 ## Die heißesten Chips zuerst: die meisten Module, bei Gleichstand der
 ## ranghöhere (HAND_PRIORITY). Deterministisch, damit der Spieler im Shop davor
-## planen kann. "Höchste Zahl" ist die Rückfall-Kategorie jeder Hand und bleibt
-## darum immer wertbar - sie wird nie gedrosselt.
+## planen kann.
 func hottest_combos(count: int) -> Array[String]:
 	var keys: Array[String] = []
 	for key: String in DiceScoring.HAND_PRIORITY:
-		if key != DiceScoring.ONE_KIND and not _chip_guarded(key):
+		if not _chip_guarded(key):
 			keys.append(key)
 	# Gleichstand ausdrücklich über den Rang brechen: sort_custom sortiert nicht
 	# stabil, die Reihenfolge aus HAND_PRIORITY allein trägt also nicht.
