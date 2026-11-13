@@ -1,7 +1,7 @@
 class_name ChipTrayView
 extends Node3D
-## Das CHIP-TRAY: eine Grube mit EINER geneigten Rinne je Stückelung, die Chips
-## liegen flach auf dem schrägen Boden. Die Belegung ist eine Funktion des Geldes
+## Das CHIP-TRAY: eine Grube mit EINER geneigten, runden Rinne je Stückelung, die
+## Chips stehen HOCHKANT darin wie in einem echten Tray. Die Belegung ist eine Funktion des Geldes
 ## (belegung, ein Abakus) - jede Geldänderung fährt als Schrittliste (transition):
 ## alles kommt LINKS herein, alles geht RECHTS durch Sperre und Wandschlitz in den
 ## Tisch. Die Rutsch-Physik ist eindimensional und gefühlt, kein Jolt.
@@ -15,10 +15,11 @@ const VALUES: Array[int] = [1, 5, 25, 100, 500, 2500, 10000]
 ## Wie viele Chips einer Rinne einen der nächsten ergeben.
 const RATIOS: Array[int] = [5, 5, 4, 5, 5, 4]
 const TOP := 6
-const SLOTS := 5
-## Die 10.000er laufen in eine zweite Lage über; sie endet einen Platz vor dem
-## Einlauf, sonst ragte ihr letzter Chip dort über die Fläche.
-const TOP_SHOWN := SLOTS * 2 - 1
+## So voll wird eine Rinne, bevor getauscht wird (die 10.000er kennen keine Grenze).
+const CAP := 20
+## So viele Chips zeigt eine Rinne höchstens - Luft über CAP für den Augenblick vor
+## dem Übertrag; mehr 10.000er stehen als ×n am Kopf.
+const TOP_SHOWN := 28
 
 const STEP_IN := "in"
 const STEP_OUT := "out"
@@ -29,27 +30,30 @@ const R := ChipStackView.CHIP_RADIUS
 const H := ChipStackView.CHIP_HEIGHT
 ## Neigung des Rinnenbodens (6°), rechts (Welt +Z) tiefer.
 const TILT := 0.10472
-## Teilung der Chips längs der Rinne.
-const PITCH := R * 2.0 + 0.02
+## Teilung der hochkanten Chips längs der Rinne: eine Chipdicke plus Luft.
+const PITCH := H + 0.02
 ## Die linke Chip-Oberkante liegt so tief unter der Fläche (unter dem Kragen).
 const TOP_CLEAR := 0.1
+## Luft zwischen Chip-Rand und runder Rinne.
+const GAP := 0.04
+const TROUGH_R := R + GAP
 ## Einlauf: Mitte des ersten Platzes, eine Kragenbreite von der Wand.
-const ENTRY_S := PackPitView.RIM_IN + R + 0.02
+const ENTRY_S := PackPitView.RIM_IN + H + 0.1
 const GATE_T := 0.12
-const GATE_AIR := 0.03
-const GATE_H := H + 0.08
+## Der hochkante Chip lehnt mit der Rinne nach rechts - sein Rand braucht die Luft.
+const GATE_AIR := 0.03 + R * 0.1046
+const GATE_H := R * 1.1
 const GATE_TIME := 0.12
 const FLOOR_T := 0.12
-const STEG_H := H + 0.12
 ## Hinter der Sperre: so weit rutscht ein Chip, bis er verschwindet.
 const EXIT_RUN := R * 2.0 + 0.4
 const POCKET_LEN := EXIT_RUN + 1.2
-const DEPTH := 2.2
+const DEPTH := 3.6
 ## Der Schlitz der rechten Wand (Tiefe von Ober- und Unterkante).
 const SLOT_TOP := 0.85
-## Lift: ein Chip steigt aus dem Tisch.
+## Ein Chip steigt aus dem Rinnenboden.
 const LIFT_TIME := 0.18
-const LIFT_DROP := H + FLOOR_T + 0.08
+const LIFT_DROP := R * 2.0 + 0.1
 const POP_TIME := 0.12
 
 ## Die Rutsch-Physik (Welt/s²): Hangabtrieb minus Reibung, gefühlt.
@@ -95,14 +99,19 @@ var _pit: PackPitView
 
 # --- Die Leiter (rein statisch) ----------------------------------------------
 
-## Die kanonische Belegung eines Betrags: je Rinne die Chipzahl, gierig von oben.
+## Die kanonische Belegung eines Betrags: von UNTEN gefüllt, jede Rinne so voll wie
+## möglich bis CAP - erst was darüber hinausgeht, ist getauscht.
 static func belegung(money: int) -> Array[int]:
 	var counts: Array[int] = [0, 0, 0, 0, 0, 0, 0]
-	var rest := maxi(money, 0)
-	for r in range(TOP, -1, -1):
+	var units := maxi(money, 0)
+	for r in TOP:
+		var k := ratio(r)
+		var residue := units % k
 		@warning_ignore("integer_division")
-		counts[r] = rest / VALUES[r]
-		rest -= counts[r] * VALUES[r]
+		counts[r] = residue + k * ((mini(CAP, units) - residue) / k)
+		@warning_ignore("integer_division")
+		units = (units - counts[r]) / k
+	counts[TOP] = units
 	return counts
 
 static func total(counts: Array[int]) -> int:
@@ -138,47 +147,64 @@ static func apply_step(counts: Array[int], step: Dictionary) -> Array[int]:
 			out[to] += ratio(to)
 	return out
 
-## Der Übergang zweier Belegungen als Schrittliste: Gewinn läuft Rinne für Rinne
-## ein und trägt über, Zahlung zahlt aus, was liegt, und borgt bei der nächsten
-## belegten Rinne. Keine Rinne trägt dabei je mehr als ihr Verhältnis.
+## Der Übergang zweier Belegungen als Schrittliste, Rinne für Rinne von unten: es
+## läuft so viel ein bzw. geht so viel als Zahlung, wie die Rinne zu ihrem Ziel
+## braucht; was dann noch fehlt oder übersteht, trägt über oder wird geborgt.
 static func transition(old: Array[int], new: Array[int], comet := true) -> Array[Dictionary]:
 	var steps: Array[Dictionary] = []
 	var counts: Array[int] = old.duplicate()
 	var delta := total(new) - total(old)
-	var digits := belegung(absi(delta))
-	if delta > 0:
-		for r in VALUES.size():
-			var k := digits[r]
-			while true:
-				while r < TOP and counts[r] >= ratio(r):
-					steps.append({"kind": STEP_CARRY, "rank": r})
-					counts = apply_step(counts, steps.back())
-				if k <= 0:
-					break
-				var take := k if r == TOP else mini(k, ratio(r) - counts[r])
-				steps.append({"kind": STEP_IN, "rank": r, "count": take, "comet": comet})
-				counts = apply_step(counts, steps.back())
-				k -= take
-	elif delta < 0:
-		for r in VALUES.size():
-			var need := digits[r]
-			if need <= 0:
-				continue
-			if counts[r] < need:
-				if counts[r] > 0:
-					need -= counts[r]
-					steps.append({"kind": STEP_OUT, "rank": r, "count": counts[r], "pay": true})
-					counts = apply_step(counts, steps.back())
-				var from := r + 1
-				while from <= TOP and counts[from] == 0:
-					from += 1
-				if from > TOP:
-					break
-				steps.append({"kind": STEP_BORROW, "rank": from, "to": r})
-				counts = apply_step(counts, steps.back())
-			steps.append({"kind": STEP_OUT, "rank": r, "count": need, "pay": true})
+	if delta == 0 and counts == new:
+		return steps
+	var gain := delta >= 0
+	var rest := absi(delta)
+	for r in VALUES.size():
+		@warning_ignore("integer_division")
+		var units := rest / VALUES[r]
+		var k := units
+		if r < TOP:
+			var q := ratio(r)
+			if gain:
+				k = posmod(new[r] - counts[r], q)
+				@warning_ignore("integer_division")
+				k += q * maxi(0, mini((new[r] - counts[r] - k) / q, (units - k) / q))
+			else:
+				k = posmod(counts[r] - new[r], q)
+				while counts[r] < k:
+					if not _borrow_into(counts, steps, r):
+						break
+				@warning_ignore("integer_division")
+				k += q * maxi(0, mini(mini((counts[r] - new[r] - k) / q, (units - k) / q),
+					(counts[r] - k) / q))
+		if k > 0:
+			if gain:
+				steps.append({"kind": STEP_IN, "rank": r, "count": k, "comet": comet})
+			else:
+				steps.append({"kind": STEP_OUT, "rank": r, "count": k, "pay": true})
 			counts = apply_step(counts, steps.back())
+			rest -= k * VALUES[r]
+		if r == TOP:
+			break
+		while counts[r] > new[r]:
+			steps.append({"kind": STEP_CARRY, "rank": r})
+			counts = apply_step(counts, steps.back())
+		while counts[r] < new[r]:
+			if not _borrow_into(counts, steps, r):
+				break
 	return steps
+
+## Borgt EINEN Chip der nächsten belegten Rinne darüber in Rinne r hinunter.
+static func _borrow_into(counts: Array[int], steps: Array[Dictionary], r: int) -> bool:
+	var from := r + 1
+	while from <= TOP and counts[from] == 0:
+		from += 1
+	if from > TOP:
+		return false
+	steps.append({"kind": STEP_BORROW, "rank": from, "to": r})
+	var out := apply_step(counts, steps.back())
+	for j in counts.size():
+		counts[j] = out[j]
+	return true
 
 static func fold(counts: Array[int], steps: Array) -> Array[int]:
 	var out: Array[int] = counts.duplicate()
@@ -258,39 +284,45 @@ func _build_grooves() -> void:
 	var gate_mat := TableProps.metal(Color(0.30, 0.25, 0.12), Color(1.0, 0.78, 0.35), 0.8)
 	var basis := Basis(Vector3.RIGHT, TILT)
 	var normal := basis.y
-	var hole_end := ENTRY_S + R + 0.06
 	var run_end := _length + POCKET_LEN
 	var grooves := Node3D.new()
 	grooves.name = "Rinnen"
 	add_child(grooves)
-	var steg_w := clampf(_pitch_x - R * 2.0 - 0.1, 0.06, 0.5)
+	# Die Rinne ist ein umgestülpter Zylinder: von oben sieht man nur seine untere Hälfte.
+	var trough := CylinderMesh.new()
+	trough.top_radius = TROUGH_R
+	trough.bottom_radius = TROUGH_R
+	trough.height = run_end
+	trough.radial_segments = 40
+	trough.rings = 1
+	trough.cap_top = false
+	trough.cap_bottom = false
+	trough.flip_faces = true
+	var along := basis * Basis(Vector3.RIGHT, PI * 0.5)
+	var steg_w := maxf(_pitch_x - TROUGH_R * 2.0 + 0.04, 0.06)
+	var steg_h := TROUGH_R + FLOOR_T
 	for r in VALUES.size():
 		var x := rank_x(r)
-		# Boden ab dem Lift bis tief in die Tasche.
-		var floor_len := run_end - hole_end
-		var floor_mid := _floor_point(x, hole_end + floor_len * 0.5) - normal * (FLOOR_T * 0.5)
-		var plate := TableProps.box(grooves, "Boden%d" % r,
-			Vector3(_pitch_x, FLOOR_T, floor_len), floor_mid, floor_mat)
-		plate.basis = basis
-		# Der Lift: eine chipgroße Bühne bündig im Boden.
-		var lift := TableProps.box(grooves, "Lift%d" % r,
-			Vector3(R * 2.0 + 0.04, FLOOR_T, hole_end - ENTRY_S + R + 0.02),
-			_floor_point(x, ENTRY_S + 0.02) - normal * (FLOOR_T * 0.5), floor_mat)
-		lift.basis = basis
-		_lift_nodes.append(lift)
-		# Seitenstücke neben dem Lift schließen das Loch zur Steg-Fuge.
+		var groove := MeshInstance3D.new()
+		groove.name = "Rinne%d" % r
+		groove.mesh = trough
+		groove.material_override = floor_mat
+		groove.transform = Transform3D(along,
+			_floor_point(x, run_end * 0.5) + normal * TROUGH_R)
+		grooves.add_child(groove)
 		var gate := TableProps.box(grooves, "Sperre%d" % r,
-			Vector3(R * 2.0 + 0.1, GATE_H, GATE_T),
+			Vector3(R * 2.0, GATE_H, GATE_T),
 			_floor_point(x, gate_s() + GATE_T * 0.5) + normal * (GATE_H * 0.5), gate_mat)
 		gate.basis = basis
 		gate.set_meta("base", gate.position)
 		_gate_nodes.append(gate)
-		if r < VALUES.size() - 1:
-			var bx := -_half.x + _pitch_x * float(r + 1)
-			var steg := TableProps.box(grooves, "Steg%d" % r,
-				Vector3(steg_w, STEG_H + FLOOR_T, run_end),
-				_floor_point(bx, run_end * 0.5) + normal * ((STEG_H - FLOOR_T) * 0.5), steg_mat)
-			steg.basis = basis
+	# Stege bis zur Achshöhe zwischen und neben den Rinnen - die Chips ragen darüber.
+	for k in VALUES.size() + 1:
+		var bx := -_half.x + _pitch_x * float(k)
+		var steg := TableProps.box(grooves, "Steg%d" % k,
+			Vector3(steg_w, steg_h, run_end),
+			_floor_point(bx, run_end * 0.5) + normal * (TROUGH_R - steg_h * 0.5), steg_mat)
+		steg.basis = basis
 
 # --- Geometrie -----------------------------------------------------------------
 
@@ -302,31 +334,30 @@ func gate_s() -> float:
 	return _length - GATE_T - GATE_AIR
 
 func slot_s(index: int) -> float:
-	return gate_s() - R - float(index % SLOTS) * PITCH
+	return gate_s() - H * 0.5 - float(index) * PITCH
 
 func exit_s() -> float:
 	return _length + EXIT_RUN
 
-## Ein Punkt der Bodenoberkante (lokal) an der Rinnen-Länge s.
+## Der tiefste Punkt der Rinne (lokal) an der Rinnen-Länge s.
 func _floor_point(x: float, s: float) -> Vector3:
-	return Vector3(x, -(TOP_CLEAR + H) - s * sin(TILT), -_half.y + s * cos(TILT))
+	return Vector3(x, -(TOP_CLEAR + R * 2.0) - s * sin(TILT), -_half.y + s * cos(TILT))
 
-## Die Chip-Mitte (lokal) an s, in Lage layer.
-func _chip_point(rank: int, s: float, layer: float) -> Vector3:
+## Die Mitte des hochkanten Chips (lokal) an s.
+func _chip_point(rank: int, s: float) -> Vector3:
 	var normal := Basis(Vector3.RIGHT, TILT).y
-	return _floor_point(rank_x(rank), s) + normal * (H * 0.5 + layer * H)
+	return _floor_point(rank_x(rank), s) + normal * R
 
-## Die Mitte des i-ten liegenden Chips einer Rinne, in Welt.
+## Die Mitte des i-ten Chips einer Rinne, in Welt.
 func groove_point(rank: int, index: int) -> Vector3:
-	@warning_ignore("integer_division")
-	return to_global(_chip_point(rank, slot_s(index), float(index / SLOTS)))
+	return to_global(_chip_point(rank, slot_s(index)))
 
 ## Wo ein Chip links erscheint bzw. rechts in den Tisch geht, in Welt.
 func entry_point(rank: int) -> Vector3:
-	return to_global(_chip_point(rank, ENTRY_S, 0.0))
+	return to_global(_chip_point(rank, ENTRY_S))
 
 func exit_point(rank: int) -> Vector3:
-	return to_global(_chip_point(rank, _length, 0.0))
+	return to_global(_chip_point(rank, _length))
 
 func half_extents() -> Vector2:
 	return _half
@@ -355,8 +386,8 @@ func busy() -> bool:
 	return false
 
 ## Wie viele Körper eine Rinne höchstens zeigt.
-static func shown_cap(rank: int) -> int:
-	return TOP_SHOWN if rank == TOP else SLOTS
+static func shown_cap(_rank: int) -> int:
+	return TOP_SHOWN
 
 ## Der EINE harte Schreiber: jeder Chip steht auf seinem Platz der Belegung.
 func seat_hard(counts: Array[int]) -> void:
@@ -379,8 +410,6 @@ func seat_hard(counts: Array[int]) -> void:
 			continue
 		for i in mini(counts[r], shown_cap(r)):
 			row.append(_new_body(r, slot_s(i), 0.0, -1.0, 1.0))
-			@warning_ignore("integer_division")
-			row.back()["layer"] = float(i / SLOTS)
 	_write_all()
 
 func settle_hard() -> void:
@@ -483,8 +512,6 @@ func _run_part(part: Dictionary, comet: bool, dt: float) -> void:
 		var lift := bool(part["lift"])
 		var body := _new_body(r, ENTRY_S, 0.0 if lift else V_IN, 0.0 if lift else -1.0,
 			1.0 if lift else 0.0)
-		@warning_ignore("integer_division")
-		body["layer"] = float(row.size() / SLOTS)
 		row.append(body)
 	chip_entered.emit(r)
 
@@ -535,9 +562,6 @@ func _integrate_row(rank: int, dt: float) -> void:
 	var holding := false
 	for i in row.size():
 		var body: Dictionary = row[i]
-		@warning_ignore("integer_division")
-		var layer := float(i / SLOTS)
-		body["layer"] = move_toward(float(body["layer"]), layer, dt * 4.0)
 		if float(body["pop"]) < 1.0:
 			body["pop"] = minf(1.0, float(body["pop"]) + dt / POP_TIME)
 		if bool(body.get("hold", false)):
@@ -549,9 +573,9 @@ func _integrate_row(rank: int, dt: float) -> void:
 				body["lift"] = -1.0
 				body["v"] = V_LIFT
 			continue
-		var limit := gate_s() - R
+		var limit := gate_s() - H * 0.5
 		var front_v := 0.0
-		if i % SLOTS != 0:
+		if i > 0:
 			var front: Dictionary = row[i - 1]
 			limit = float(front["s"]) - PITCH
 			front_v = maxf(float(front["v"]), 0.0)
@@ -586,8 +610,8 @@ func _integrate_leaving(dt: float) -> void:
 		var limit := INF
 		if last_s.has(r):
 			limit = float(last_s[r]) - PITCH
-		if _gate_t[r] < 0.8 and float(body["s"]) <= gate_s() - R + 0.001:
-			limit = minf(limit, gate_s() - R)
+		if _gate_t[r] < 0.8 and float(body["s"]) <= gate_s() - H * 0.5 + 0.001:
+			limit = minf(limit, gate_s() - H * 0.5)
 		var v := float(body["v"]) + SLIDE_ACCEL * dt
 		var s := minf(float(body["s"]) + v * dt, limit)
 		if s >= limit:
@@ -607,7 +631,7 @@ func _integrate_leaving(dt: float) -> void:
 			continue
 		var through := true
 		for body: Dictionary in _leaving:
-			if int(body["rank"]) == r and float(body["s"]) < _length + R:
+			if int(body["rank"]) == r and float(body["s"]) < _length + H:
 				through = false
 		if through:
 			_gate_open[r] = false
@@ -619,10 +643,10 @@ func _drive_gates(dt: float) -> void:
 # --- Körper ----------------------------------------------------------------------
 
 func _new_body(rank: int, s: float, v: float, lift: float, pop: float) -> Dictionary:
-	var node := ChipStackView.make_chip(VALUES[rank], true)
+	var node := ChipStackView.make_chip(VALUES[rank], false)
 	node.name = "Chip%d" % VALUES[rank]
 	_bodies_root.add_child(node)
-	return {"node": node, "s": s, "v": v, "lift": lift, "pop": pop, "layer": 0.0, "rank": rank}
+	return {"node": node, "s": s, "v": v, "lift": lift, "pop": pop, "rank": rank}
 
 func _free_body(body: Dictionary) -> void:
 	var node: Node3D = body.get("node")
@@ -632,7 +656,8 @@ func _free_body(body: Dictionary) -> void:
 func _write_all() -> void:
 	if not _built:
 		return
-	var basis := Basis(Vector3.RIGHT, TILT) * Basis(Vector3.UP, -PI * 0.5)
+	# Hochkant: die Chip-Achse läuft längs der Rinne.
+	var basis := Basis(Vector3.RIGHT, TILT) * Basis(Vector3.RIGHT, PI * 0.5)
 	var normal := Basis(Vector3.RIGHT, TILT).y
 	for r in VALUES.size():
 		var lift_off := 0.0
@@ -641,7 +666,7 @@ func _write_all() -> void:
 			var s := float(body["s"])
 			if absf(float(body["v"])) <= 0.0001 and float(body["lift"]) < 0.0:
 				s += _nudge[r]
-			var at := _chip_point(r, s, float(body["layer"]))
+			var at := _chip_point(r, s)
 			if float(body["lift"]) >= 0.0:
 				var rise := ease(clampf(float(body["lift"]), 0.0, 1.0), 0.4)
 				lift_off = (1.0 - rise) * LIFT_DROP
@@ -656,7 +681,7 @@ func _write_all() -> void:
 			var gate: Node3D = _gate_nodes[r]
 			gate.position = Vector3(gate.get_meta("base")) - normal * (_gate_t[r] * (GATE_H + 0.02))
 	for body: Dictionary in _leaving:
-		_place(body, _chip_point(int(body["rank"]), float(body["s"]), float(body["layer"])), basis)
+		_place(body, _chip_point(int(body["rank"]), float(body["s"])), basis)
 
 func _place(body: Dictionary, at: Vector3, basis: Basis) -> void:
 	var node: Node3D = body["node"]

@@ -1,14 +1,14 @@
 extends GutTest
 ## Die Rechnung des Chip-Trays (ChipTrayView): die Belegung ist eine Funktion des
-## Geldes, und jeder Übergang ist eine Schrittliste, die exakt auf der neuen
-## Belegung endet - ohne daß eine Rinne je mehr trägt als ihr Verhältnis.
+## Geldes - von unten gefüllt, jede Rinne bis CAP -, und jeder Übergang ist eine
+## Schrittliste, die exakt auf der neuen Belegung endet.
 
 func _counts(values: Array) -> Array[int]:
 	var out: Array[int] = []
 	out.assign(values)
 	return out
 
-## Faltet die Schritte nach und hält dabei die Rinnen im Zaum.
+## Faltet die Schritte nach und hält dabei die Rinnen im sichtbaren Raum.
 func _walk(old: int, new: int) -> Array[Dictionary]:
 	var from := ChipTrayView.belegung(old)
 	var steps := ChipTrayView.transition(from, ChipTrayView.belegung(new))
@@ -16,8 +16,8 @@ func _walk(old: int, new: int) -> Array[Dictionary]:
 	for step: Dictionary in steps:
 		counts = ChipTrayView.apply_step(counts, step)
 		for r in ChipTrayView.TOP:
-			assert_lte(counts[r], ChipTrayView.ratio(r),
-				"%d -> %d: Rinne %d trägt nie mehr als ihr Verhältnis" % [old, new, r])
+			assert_lte(counts[r], ChipTrayView.TOP_SHOWN,
+				"%d -> %d: Rinne %d bleibt im sichtbaren Raum" % [old, new, r])
 			assert_gte(counts[r], 0, "%d -> %d: Rinne %d nie negativ" % [old, new, r])
 	assert_eq(counts, ChipTrayView.belegung(new), "%d -> %d endet auf der Belegung" % [old, new])
 	return steps
@@ -36,59 +36,59 @@ func test_the_ladder_goes_up_to_ten_thousand() -> void:
 		assert_eq(ChipTrayView.VALUES[r] * ChipTrayView.ratio(r), ChipTrayView.VALUES[r + 1],
 			"Rinne %d trägt genau ihr Verhältnis bis zur nächsten" % r)
 
-func test_the_belegung_is_canonical() -> void:
+func test_the_belegung_fills_from_below() -> void:
 	assert_eq(ChipTrayView.belegung(0), _counts([0, 0, 0, 0, 0, 0, 0]))
-	assert_eq(ChipTrayView.belegung(3687), _counts([2, 2, 3, 1, 2, 1, 0]))
-	assert_eq(ChipTrayView.belegung(99), _counts([4, 4, 3, 0, 0, 0, 0]))
-	for money in [1, 4, 5, 24, 99, 100, 2499, 9999, 12_345, 99_999]:
+	assert_eq(ChipTrayView.belegung(20), _counts([20, 0, 0, 0, 0, 0, 0]), "20 Einer passen")
+	assert_eq(ChipTrayView.belegung(21), _counts([16, 1, 0, 0, 0, 0, 0]), "der 21. tauscht")
+	assert_eq(ChipTrayView.belegung(99), _counts([19, 16, 0, 0, 0, 0, 0]))
+	assert_eq(ChipTrayView.belegung(3687), _counts([17, 19, 19, 16, 3, 0, 0]))
+	for money in [1, 4, 5, 24, 99, 100, 2499, 9999, 12_345, 99_999, 1_000_000]:
 		var counts := ChipTrayView.belegung(money)
 		assert_eq(ChipTrayView.total(counts), money, "$%d bleibt $%d" % [money, money])
 		for r in ChipTrayView.TOP:
-			assert_lt(counts[r], ChipTrayView.ratio(r), "$%d: Rinne %d unter dem Verhältnis" % [money, r])
+			assert_lte(counts[r], ChipTrayView.CAP, "$%d: Rinne %d höchstens CAP" % [money, r])
+			if counts[r] + ChipTrayView.ratio(r) <= ChipTrayView.CAP:
+				for up in range(r + 1, ChipTrayView.VALUES.size()):
+					assert_eq(counts[up], 0, "$%d: über einer nicht vollen Rinne liegt nichts" % money)
 
-func test_a_carry_cascades_up_to_the_hundred() -> void:
-	# 4·1 + 4·5 + 3·25 = 99, ein Dollar dazu: alles rutscht, ein 100er kommt.
-	var steps := _walk(99, 100)
+func test_a_full_groove_exchanges_and_cascades() -> void:
+	# 20 Einer und 20 Fünfer liegen, ein Dollar dazu: beide Rinnen tauschen.
+	var steps := _walk(120, 121)
 	assert_eq(_kinds(steps), [ChipTrayView.STEP_IN, ChipTrayView.STEP_CARRY,
-		ChipTrayView.STEP_CARRY, ChipTrayView.STEP_CARRY])
+		ChipTrayView.STEP_CARRY])
 	assert_eq(int(steps[0]["rank"]), 0, "der Dollar läuft unten ein")
-	assert_eq(int(steps[3]["rank"]), 2, "der letzte Übertrag kommt aus den 25ern")
+	assert_eq(int(steps[2]["rank"]), 1, "dann tauschen die Fünfer")
 	assert_true(bool(steps[0]["comet"]), "ein Gewinn kommt als Komet")
+	assert_eq(_kinds(_walk(20, 21)), [ChipTrayView.STEP_IN, ChipTrayView.STEP_CARRY])
 
-func test_a_gain_never_overfills_a_groove() -> void:
-	# 4 Einer liegen, 9 kommen: der fünfte trägt über, bevor der Rest einläuft.
-	var steps := _walk(4, 13)
-	assert_eq(_kinds(steps), [ChipTrayView.STEP_IN, ChipTrayView.STEP_CARRY,
-		ChipTrayView.STEP_IN, ChipTrayView.STEP_IN])
-	for money in [0, 3, 99, 3687, 9999]:
+func test_gains_end_on_the_belegung() -> void:
+	for money in [0, 3, 20, 99, 3687, 9999]:
 		for gain in [1, 4, 7, 26, 124, 2501, 13_333]:
 			_walk(money, money + gain)
 
 func test_borrowing_reaches_across_several_grooves() -> void:
-	# Ein 10.000er zahlt 10: er rutscht in den Tisch, darunter kommt Wechselgeld.
+	# $10.000 zahlen $10: die Fünfer gehen, darüber wird gewechselt, bis alles stimmt.
 	var steps := _walk(10_000, 9990)
-	assert_eq(_kinds(steps), [ChipTrayView.STEP_BORROW, ChipTrayView.STEP_OUT])
-	assert_eq(int(steps[0]["rank"]), ChipTrayView.TOP, "geborgt wird beim 10.000er")
-	assert_eq(int(steps[0]["to"]), 1, "bis hinunter zu den 5ern")
-	assert_eq(int(steps[1]["count"]), 2, "zwei 5er gehen als Zahlung")
-	assert_true(bool(steps[1]["pay"]))
+	assert_has(_kinds(steps), ChipTrayView.STEP_BORROW, "es wird gewechselt")
+	var paid := 0
+	for step in steps:
+		if String(step["kind"]) == ChipTrayView.STEP_OUT:
+			assert_true(bool(step["pay"]))
+			paid += int(step["count"]) * ChipTrayView.VALUES[int(step["rank"])]
+	assert_eq(paid, 10, "gezahlt wird genau der Preis")
 
-func test_a_payment_pays_what_lies_then_borrows() -> void:
-	# $6 (5 + 1) zahlen $3: der Einer geht, der Fünfer wird gewechselt, zwei Einer folgen.
-	var steps := _walk(6, 3)
-	assert_eq(_kinds(steps), [ChipTrayView.STEP_OUT, ChipTrayView.STEP_BORROW,
-		ChipTrayView.STEP_OUT])
+func test_a_payment_pays_with_what_lies() -> void:
+	assert_eq(_kinds(_walk(6, 3)), [ChipTrayView.STEP_OUT], "drei Einer gehen, sonst nichts")
+	# 16 Einer und ein Fünfer zahlen 3: die Einer gehen, der Fünfer füllt die Rinne auf.
+	assert_eq(_kinds(_walk(21, 18)), [ChipTrayView.STEP_OUT, ChipTrayView.STEP_BORROW])
 	for money in [3, 100, 3687, 10_000, 26_000]:
 		for price in [1, 3, 10, 99, 101, 2499]:
 			if price <= money:
 				_walk(money, money - price)
 
-func test_the_tens_of_thousands_overflow_into_layers() -> void:
-	var counts := ChipTrayView.belegung(73_000)
-	assert_eq(counts[ChipTrayView.TOP], 7, "die 10.000er haben keine Grenze")
-	assert_eq(ChipTrayView.shown_cap(ChipTrayView.TOP),
-		ChipTrayView.SLOTS * 2 - 1, "die zweite Lage endet vor dem Einlauf")
-	assert_eq(ChipTrayView.shown_cap(0), ChipTrayView.SLOTS)
+func test_the_tens_of_thousands_have_no_cap() -> void:
+	assert_gt(ChipTrayView.belegung(1_000_000)[ChipTrayView.TOP], ChipTrayView.CAP)
+	assert_eq(ChipTrayView.shown_cap(ChipTrayView.TOP), ChipTrayView.TOP_SHOWN)
 	_walk(73_000, 140_000)
 	_walk(140_000, 3)
 

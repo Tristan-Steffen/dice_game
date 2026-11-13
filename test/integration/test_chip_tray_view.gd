@@ -38,10 +38,10 @@ func test_the_tray_has_the_exact_rectangle_of_the_bet_counter() -> void:
 	assert_eq(rect.position.y, side.position.y, "dieselbe Oberkante")
 	assert_almost_eq(rect.position.x, side.end.x + 6.4, 0.0001, "eine Fuge rechts daneben")
 
-func test_five_chips_fit_every_groove() -> void:
+func test_a_full_groove_fits_left_of_the_entry() -> void:
 	var tray := _tray()
-	assert_gte(tray.slot_s(ChipTrayView.SLOTS - 1), ChipTrayView.ENTRY_S - 0.001,
-		"der fünfte Chip liegt nicht hinter dem Einlauf")
+	assert_gte(tray.slot_s(ChipTrayView.TOP_SHOWN - 1), ChipTrayView.ENTRY_S - 0.001,
+		"der letzte gezeigte Chip steht nicht hinter dem Einlauf")
 	var half := tray.half_extents()
 	assert_gte(half.x * 2.0 / 7.0, ChipStackView.CHIP_RADIUS * 2.0 + 0.1,
 		"eine Rinne ist breiter als ein Chip samt Steg")
@@ -54,12 +54,15 @@ func test_no_chip_rises_over_the_surface_and_all_lie_left_of_the_gate() -> void:
 	var right := tray.global_position.z + tray.half_extents().y
 	var left := tray.global_position.z - tray.half_extents().y
 	for chip: Node3D in tray.get_node("Chips").get_children():
-		var top := chip.global_position.y + ChipStackView.CHIP_HEIGHT * 0.5 \
+		# Hochkant: der Rand steht oben, die Dicke liegt längs der Rinne.
+		var top := chip.global_position.y + ChipStackView.CHIP_RADIUS * cos(ChipTrayView.TILT) \
+			+ ChipStackView.CHIP_HEIGHT * 0.5 * sin(ChipTrayView.TILT)
+		var reach := ChipStackView.CHIP_HEIGHT * 0.5 * cos(ChipTrayView.TILT) \
 			+ ChipStackView.CHIP_RADIUS * sin(ChipTrayView.TILT)
 		assert_lt(top, 0.0, "%s ragt nicht über die Fläche" % chip.name)
-		assert_lt(chip.global_position.z + ChipStackView.CHIP_RADIUS, right,
+		assert_lt(chip.global_position.z + reach, right,
 			"%s liegt links der Sperre" % chip.name)
-		assert_gt(chip.global_position.z - ChipStackView.CHIP_RADIUS, left,
+		assert_gt(chip.global_position.z - reach, left,
 			"%s liegt rechts der linken Wand" % chip.name)
 
 func test_a_ceremony_ends_on_the_belegung() -> void:

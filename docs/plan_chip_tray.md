@@ -1,15 +1,15 @@
 # Das CHIP-TRAY — Plan (Spieler-Entscheide 2026-11-12)
 
 Ersetzt den Schatz-Screen (`TreasureChestView` + Turm-Rack aus `ChipStackView`) durch ein
-geneigtes Chip-Tray: EINE Rinne je Stückelung, die Chips liegen FLACH auf dem schrägen
+geneigtes Chip-Tray: EINE Rinne je Stückelung, die Chips STEHEN HOCHKANT (Nachtrag 2026-11-13, erst lagen sie flach) in der schrägen
 Rinnenboden, die RECHTE Seite des Trays ist im Tisch versunken. Getauscht wird von selbst:
 was eine Rinne voll macht, rutscht der Schwerkraft nach rechts in den Tisch, und in der
 nächsthöheren Rinne kommt ein Chip aus dem Tisch.
 
 ## Entscheide
 
-1. Chips liegen **flach**, mit dem Rinnenboden leicht nach rechts geneigt.
-2. Tausch **automatisch**.
+1. Chips liegen **flach**, mit dem Rinnenboden leicht nach rechts geneigt. **Revidiert 2026-11-13: hochkant in runden Rinnen, wie in einem echten Tray.**
+2. Tausch **automatisch**. **Revidiert 2026-11-13: erst wenn eine Rinne voll ist (`CAP` 20) — die Belegung füllt von unten, damit sich die Chips sichtbar sammeln.**
 3. Ladenkauf zahlt **vorerst weiter als Licht** (der Wurf-Umzug bleibt eine spätere Welle).
 4. Stückelungen bis **10.000**, so viele Stufen, daß das Tray **genau so groß ist wie der
    Wett-Tresen links daneben** (Breite UND Höhe).
