@@ -170,13 +170,7 @@ var _plate_material: StandardMaterial3D
 var _pocket: Node3D
 ## Wie weit (Welt +Z) die rechte Wandtasche höchstens reicht: der Displayrand. Dahinter
 ## liegt nur der Bodenfilz, und eine Decke dicht unter ihm flimmerte durch ihn hindurch.
-var pocket_limit_z := INF:
-	set(value):
-		if value == pocket_limit_z:
-			return
-		pocket_limit_z = value
-		if _built:
-			_build_pocket()
+var pocket_limit_z := INF
 var _ride: Tween
 ## Der ROLL-Zug: läuft gerade einer (vom Zeiger geführt), und das Einrasten danach.
 var _scrolling := false

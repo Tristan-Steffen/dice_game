@@ -9163,7 +9163,7 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	var hull := _case_bought
 	_case_bought = null
 	pack_choice_view.open(choice, _pack_option_px(choice), run.pack_reshuffle_cost(choice),
-		run.energy, false, Vector2.ZERO, -1, _bag_footprint_px(choice))
+		run.energy)
 	if not await _await_opening_ready(generation, launched):
 		if hull != null and is_instance_valid(hull):
 			_free_data_cell(hull)
@@ -9360,7 +9360,7 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 				PACK_DIE_BOUNCE * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
 ## --- Die SCHATULLE: Würfel-Pakete öffnen sich AUF der Öffnungs-Fläche -----------
-## Die Schatulle fliegt aus dem Lager an den linken Rand des Kopfbands, klappt auf, und
+## Die Schatulle fliegt aus dem Lager oben in die linke Spalte, klappt auf, und
 ## die Würfel springen auf eine unsichtbare Landefläche. Bestätigt fliegen die
 ## Gewählten in die Schale, die Schatulle klappt zu und der Tisch zieht sie ein.
 
@@ -9680,19 +9680,10 @@ func _sync_pack_areas() -> void:
 		return
 	_opening_rect = rect
 	table_screen.place_opening_window(pack_choice_view, rect)
-	if shelf_stack != null and is_instance_valid(shelf_stack):
-		shelf_stack.pocket_limit_z = _shelf_pocket_limit()
 
-## Die rechte Wandtasche des Magazins endet am Displayrand - und vor der Öffnungs-Fläche,
-## wenn die neben ihr liegt; sonst sähe man durch deren Vertiefung auf ihre Decke.
+## Die rechte Wandtasche des Magazins endet am Displayrand.
 func _shelf_pocket_limit() -> float:
-	var limit := table_screen.pixel_to_world(Vector2(table_screen.size)).z
-	var magazin := table_screen.apron_pit
-	if _opening_rect.size.x > 0.0 and _opening_rect.end.y > magazin.position.y \
-			and _opening_rect.position.y < magazin.end.y:
-		limit = minf(limit, table_screen.pixel_to_world(_opening_rect.position).z
-			- PACK_POCKET_CLEAR)
-	return limit
+	return table_screen.pixel_to_world(Vector2(table_screen.size)).z
 
 ## Das Rechteck der Öffnungs-Fläche in Display-Pixeln (leer = kein Platz).
 func _opening_area_rect() -> Rect2:
@@ -9760,12 +9751,6 @@ func _set_opening_floor_hole(spot: Vector3, hole: Vector2) -> void:
 	_opening_floor_skin.set_shader_parameter("hole", Vector4(spot.x - hole.x, spot.z - hole.y,
 		spot.x + hole.x, spot.z + hole.y))
 
-## Der Grundriß des Modul-Beutels - EIN Grundriß für alle Pakete.
-func _bag_footprint_px(choice: PackChoice) -> Vector2:
-	if not choice.is_modules() or table_screen == null or table_screen.store_window == null:
-		return Vector2.ZERO
-	return table_screen.store_window.item_px
-
 func _drop_bought_case() -> void:
 	if _case_bought != null and is_instance_valid(_case_bought):
 		_free_data_cell(_case_bought)
@@ -9827,7 +9812,7 @@ func _open_dice_case(choice: PackChoice, generation: int, launched: GameRun) -> 
 	var rest := table_screen.pixel_to_world(pack_choice_view.case_seat_px())
 	rest.y = _opening_floor_y() + PACK_CASE_CLEAR
 	_case_targets(choice)
-	# Sie fliegt aus dem Lager an den linken Rand des Kopfbands.
+	# Sie fliegt aus dem Lager oben in die linke Spalte.
 	if flown:
 		hull.set_hovered(false)
 		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
@@ -10498,7 +10483,7 @@ func _on_pack_choice_reshuffle() -> void:
 	_choice_bodies.clear()
 	_choice_rest.clear()
 	pack_choice_view.open(_choice, _pack_option_px(_choice), run.pack_reshuffle_cost(_choice),
-		run.energy, true, Vector2.ZERO, -1, _bag_footprint_px(_choice))
+		run.energy, true)
 	await get_tree().process_frame
 	if generation != _choice_gen or run != launched:
 		return

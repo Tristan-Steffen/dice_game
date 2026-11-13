@@ -2,11 +2,11 @@ class_name PackChoiceView
 extends Control
 ## Die PAKET-AUSWAHL auf der ÖFFNUNGS-FLÄCHE unter dem Paket-Lager: auf ihr liegen die Optionen
 ## eines geöffneten Pakets (die Körper stellt scene_root auf die gemeldeten PLÄTZE, in
-## Display-Pixeln), darüber das KOPFBAND (Hülle, Name, ZÄHLER, Nehmen / Neu mischen),
-## darunter die Auskunft. Leer steht sie mit einem ruhigen Hinweis (set_idle_text).
+## Display-Pixeln), links die SPALTE (Hülle, Name, ZÄHLER, Nehmen / Neu mischen), unten
+## die Auskunft. Leer steht sie mit einem ruhigen Hinweis (set_idle_text).
 ## Gebucht ist schon (GameRun.pending_pack_choices); das Fenster sammelt nur die Wahl
 ## und meldet sie. Erst der Inhalt, dann die Zahl: bei Karten klettert der Zähler 1 … K,
-## bei Würfeln laufen GÜTE-ENTHÜLLUNG und RISIKOLEITER - ein Klick überspringt.
+## bei Würfeln laufen GÜTE-ENTHÜLLUNG und WALZE - ein Klick überspringt.
 
 signal confirmed(indices: Array)
 signal reshuffle_requested
@@ -58,35 +58,24 @@ func _init() -> void:
 	clip_contents = true
 
 ## WÜRFEL-Pakete: die SCHATULLE (ihr Grundriß in Display-Pixeln, gemeldet von
-## scene_root) steht im KOPFBAND links, daneben Name, Walze und Zähler, rechts die
-## Knöpfe, darunter die AUFSTELLUNG - je Würfel sein Platz und darunter sein Netz.
+## scene_root) steht oben in der linken SPALTE, darunter Name, Walze, Zähler, Energie und
+## Knöpfe; rechts die AUFSTELLUNG - je Würfel sein Platz und darunter sein Netz.
 var case_px := Vector2.ZERO
-## Der Grundriß des Modul-BEUTELS - er liegt, wo bei Würfeln die Schatulle steht.
-var bag_px := Vector2.ZERO
 ## Welche Seite der liegende Würfel oben zeigt (sein Netz rahmt sie golden).
 var up_face := -1
-const HEAD_TOP_UNITS := 2.5
-const HEAD_MIN_UNITS := 14.0
-const LINEUP_GAP_UNITS := 1.4
 ## Höchstens so viele Würfel stehen auf der Fläche; das Raster wählt die Fläche selbst.
 const LINEUP_MAX := 10
-## Das KOPFBAND (die fast quadratische Öffnungs-Fläche): die Einheit folgt der Breite.
-const BAND_UNIT_DIV := 100.0
-const BAND_UNIT_DIV_Y := 60.0
-const BAND_BUTTON_UNITS := 26.0
 ## Leer sagt die Fläche nur, wie man sie füllt.
 const IDLE_FONT_UNITS := 2.6
-## BREIT (Rückfall): links eine SPALTE mit Schatulle, Kopf, Energie und Knöpfen, rechts
-## die Aufstellung über die volle Höhe; die Einheit folgt der Höhe.
-const WIDE_SHARE := 1.6
+## Links eine SPALTE mit Schatulle, Kopf, Energie und Knöpfen, rechts die Aufstellung
+## über die volle Höhe; die Einheit folgt der Höhe.
+const UNIT_DIV := 46.0
 const COLUMN_UNITS := 28.0
 const WIDE_CASE_TOP_UNITS := 2.4
 const WIDE_TITLE_UNITS := 6.0
 const WIDE_FONT_UNITS := 2.1
 const WIDE_HEAD_UNITS := 15.4
 const WIDE_BUTTON_UNITS := 4.0
-## Lesbar heißt: so groß wird die Netz-Zelle bei zehn Würfeln mindestens (Breite folgt ihr).
-const WIDE_ROWS_FOR_TEN := 2
 ## Ein Block ist nie breiter als sein Inhalt (Netz plus Luft), die Reihe steht mittig.
 const BLOCK_MAX_UNITS := 32.0
 const INFO_UNITS := 5.0
@@ -105,7 +94,6 @@ const NET_GAP_UNITS := 1.0
 const NET_CELL_MAX_UNITS := 6.5
 const ENERGY_UNITS := 2.4
 const NET_POP_TIME := 0.25
-const HEAD_GRADE := 0.72
 ## Kein Hover auf einer Netz-Zelle.
 const NO_FACE := -99
 
@@ -132,7 +120,6 @@ const REEL_MIN_SPINS := 14
 const REEL_FAST := 0.05
 const REEL_SLOW := 0.36
 const REEL_HOLD := 0.5
-const REEL_TOP_UNITS := 5.0
 const REEL_UNITS := 4.4
 const REEL_WIDTH_UNITS := 9.0
 const REEL_WINDOW_SHARE := 0.5
@@ -152,35 +139,10 @@ var _reel_done := false
 var _show_tween: Tween
 
 func _unit() -> float:
-	if wide():
-		return maxf(size.y / 46.0, 1.0)
-	return maxf(minf(size.x / BAND_UNIT_DIV, size.y / BAND_UNIT_DIV_Y), 1.0)
-
-## Die Fläche liegt breit: Schatulle, Kopf und Knöpfe stehen in der linken SPALTE;
-## sonst tragen sie das KOPFBAND oben.
-func wide() -> bool:
-	return size.x > size.y * WIDE_SHARE
+	return maxf(size.y / UNIT_DIV, 1.0)
 
 func column_width() -> float:
-	return column_width_for(_unit(), case_px)
-
-static func column_width_for(u: float, case_footprint: Vector2) -> float:
-	return maxf(case_footprint.x + u * 2.0, u * COLUMN_UNITS)
-
-## Wie BREIT die Fläche bei dieser Höhe sein muß: Spalte plus zehn Würfel in zwei Reihen
-## zu fünf, deren Netz-Zelle die Höhe erlaubt (rein, prüfbar - daraus schneidet scene_root).
-static func wide_width_for(height: float, die_px: float, case_footprint: Vector2) -> float:
-	var u := maxf(height / 46.0, 1.0)
-	var gap := u * SLOT_GAP_UNITS
-	var area_h := height - u * (INFO_UNITS + 0.6) - u
-	var block_h := (area_h - gap * float(WIDE_ROWS_FOR_TEN - 1)) / float(WIDE_ROWS_FOR_TEN)
-	var cell := clampf((block_h - die_px * (DIE_LOOK_HALF * 2.0 + TILT_SLOPE * 0.5) - u * (NET_GAP_UNITS
-		+ TILE_AIR_UNITS * 2.0)) / 3.0, 1.0, u * NET_CELL_MAX_UNITS)
-	cell /= 1.0 + 2.0 * DieNetView.GAP_FACTOR / 3.0
-	var block_w := DieNetView.net_size(cell).x + u * TILE_AIR_UNITS * 2.0 + 1.0
-	var per_row := int(ceil(float(LINEUP_MAX) / float(WIDE_ROWS_FOR_TEN)))
-	return column_width_for(u, case_footprint) + u * 2.0 + block_w * float(per_row) \
-		+ gap * float(per_row - 1)
+	return maxf(case_px.x + _unit() * 2.0, _unit() * COLUMN_UNITS)
 
 func _draw() -> void:
 	if backdrop:
@@ -226,52 +188,30 @@ static func area_for(store: Rect2, die_view: Rect2, neighbours: Array[Rect2],
 ## Die festen Felder der Seite (Fenster-Pixel): Kopf, Knöpfe, Energie und Auskunft.
 func _frame_rects() -> Dictionary:
 	var u := _unit()
-	var top := u * HEAD_TOP_UNITS
-	var band := _head_height()
-	var button_w := minf(u * BAND_BUTTON_UNITS, size.x * 0.3)
-	var buttons := Rect2(Vector2(size.x - u * 2.0 - button_w, top), Vector2(button_w, band))
-	var hull := case_rect_local()
-	var head_left := hull.end.x + u * 2.0 if hull.size.x > 0.0 else u * 2.0
-	var head := Rect2(Vector2(head_left, top),
-		Vector2(maxf(buttons.position.x - u * 2.0 - head_left, u), band))
-	var info := Rect2(Vector2(u * 3.0, size.y - u * INFO_UNITS), Vector2(size.x - u * 6.0,
-		u * (INFO_UNITS - 0.4)))
-	var energy := Rect2(Vector2(buttons.position.x, top + u * (WIDE_BUTTON_UNITS * 2.0 + 1.3)),
-		Vector2(button_w, u * (ENERGY_UNITS + 0.6)))
-	if wide():
-		var col := column_width()
-		var stack := u * (WIDE_BUTTON_UNITS * 2.0 + 1.0)
-		buttons = Rect2(Vector2(u, size.y - u - stack), Vector2(col - u * 2.0, stack))
-		energy = Rect2(Vector2(u, buttons.position.y - u * (ENERGY_UNITS + 0.8)),
-			Vector2(col - u * 2.0, u * (ENERGY_UNITS + 0.6)))
-		info = Rect2(Vector2(col + u, size.y - u * INFO_UNITS),
-			Vector2(size.x - col - u * 2.0, u * (INFO_UNITS - 0.4)))
-		var head_top := case_rect_local().end.y + u * 0.6 if lineup() else u
-		head = Rect2(Vector2(u, head_top), Vector2(col - u * 2.0, u * WIDE_HEAD_UNITS))
+	var col := column_width()
+	var stack := u * (WIDE_BUTTON_UNITS * 2.0 + 1.0)
+	var buttons := Rect2(Vector2(u, size.y - u - stack), Vector2(col - u * 2.0, stack))
+	var energy := Rect2(Vector2(u, buttons.position.y - u * (ENERGY_UNITS + 0.8)),
+		Vector2(col - u * 2.0, u * (ENERGY_UNITS + 0.6)))
+	var info := Rect2(Vector2(col + u, size.y - u * INFO_UNITS),
+		Vector2(size.x - col - u * 2.0, u * (INFO_UNITS - 0.4)))
+	var head_top := case_rect_local().end.y + u * 0.6 if lineup() else u
+	var head := Rect2(Vector2(u, head_top), Vector2(col - u * 2.0, u * WIDE_HEAD_UNITS))
 	return {"head": head, "buttons": buttons, "info": info, "energy": energy}
 
 ## Die Aufstellung der Würfel-Pakete (sonst die Reihe der Karten-Pakete).
 func lineup() -> bool:
 	return case_px.x > 0.0 and case_px.y > 0.0
 
-## Die Hülle im Kopf: die Schatulle oder der Beutel (Karten-Pakete haben keine).
-func hull_footprint() -> Vector2:
-	if lineup():
-		return case_px
-	return bag_px if choice != null and choice.is_modules() else Vector2.ZERO
-
 ## Baut die Auswahl neu auf. counted = der Zähler steht schon (Neuaufbau nach dem
-## Neumischen, Wiedereintritt). case_footprint = Grundriß der Schatulle (Würfel-Paket),
-## bag_footprint der des Beutels (Modul-Paket).
+## Neumischen, Wiedereintritt). case_footprint = Grundriß der Schatulle (Würfel-Paket).
 func open(open_choice: PackChoice, footprint: Vector2, cost: int, have_energy: int,
-		counted := false, case_footprint := Vector2.ZERO, die_up_face := -1,
-		bag_footprint := Vector2.ZERO) -> void:
+		counted := false, case_footprint := Vector2.ZERO, die_up_face := -1) -> void:
 	choice = open_choice
 	item_px = footprint
 	reshuffle_cost = cost
 	energy = have_energy
 	case_px = case_footprint
-	bag_px = bag_footprint
 	up_face = die_up_face
 	_selected.clear()
 	if choice != null and choice.take_all:
@@ -301,7 +241,6 @@ func close() -> void:
 	_counting = false
 	_selected.clear()
 	case_px = Vector2.ZERO
-	bag_px = Vector2.ZERO
 	visible = backdrop
 	_build()
 
@@ -365,14 +304,10 @@ func slot_rect(index: int, count: int) -> Rect2:
 		+ float(index - row * columns) * (slot.x + gap)
 	return Rect2(Vector2(x, top + float(row) * (slot.y + gap)), slot)
 
-## Wo die Hülle steht (Fenster-Pixel): im Kopfband ganz links (breit: oben in der Spalte).
+## Wo die Schatulle steht (Fenster-Pixel): oben in der Spalte.
 func case_rect_local() -> Rect2:
-	if wide():
-		return Rect2(Vector2((column_width() - case_px.x) * 0.5, _unit() * WIDE_CASE_TOP_UNITS),
-			case_px)
-	var hull := hull_footprint()
-	var u := _unit()
-	return Rect2(Vector2(u * 2.0, u * HEAD_TOP_UNITS + (_head_height() - hull.y) * 0.5), hull)
+	return Rect2(Vector2((column_width() - case_px.x) * 0.5, _unit() * WIDE_CASE_TOP_UNITS),
+		case_px)
 
 ## Ihr Platz in Display-Pixeln - dort stellt scene_root sie hin.
 func case_seat_px() -> Vector2:
@@ -397,30 +332,21 @@ func landing_rect_px() -> Rect2:
 func hull_seat_px() -> Vector2:
 	return global_position + lineup_area().get_center()
 
-## Wo der BEUTEL eines Modul-Pakets liegt: wo bei Würfeln die Schatulle steht (breit in
-## der Spalte zwischen Kopf und Energie); er bleibt liegen, die Module fallen daneben.
+## Wo der BEUTEL eines Modul-Pakets liegt: in der Spalte zwischen Kopf und Energie; er
+## bleibt liegen, die Module fallen daneben.
 func bag_seat_px() -> Vector2:
-	if not wide():
-		return case_seat_px() if bag_px.x > 0.0 else hull_seat_px()
 	var frame := _frame_rects()
 	var head: Rect2 = frame["head"]
 	var energy: Rect2 = frame["energy"]
 	return global_position + Vector2(column_width() * 0.5,
 		(head.end.y + energy.position.y) * 0.5)
 
-func _head_height() -> float:
-	return maxf(hull_footprint().y, _unit() * HEAD_MIN_UNITS)
-
-## Die Fläche der Aufstellung: unter dem Kopfband, über der Auskunfts-Zeile.
+## Die Fläche der Aufstellung: rechts der Spalte, über der Auskunfts-Zeile.
 func lineup_area() -> Rect2:
 	var u := _unit()
-	var top := u * HEAD_TOP_UNITS + _head_height() + u * LINEUP_GAP_UNITS
+	var col := column_width()
 	var bottom := size.y - u * (INFO_UNITS + 0.6)
-	if wide():
-		var col := column_width()
-		return Rect2(Vector2(col + u, u), Vector2(size.x - col - u * 2.0,
-			maxf(bottom - u, 1.0)))
-	return Rect2(Vector2(u * 2.0, top), Vector2(size.x - u * 4.0, maxf(bottom - top, 1.0)))
+	return Rect2(Vector2(col + u, u), Vector2(size.x - col - u * 2.0, maxf(bottom - u, 1.0)))
 
 ## Spalten × Reihen nach der FLÄCHE: das Raster mit der größten Netz-Zelle, bei Gleichstand
 ## das mit weniger Reihen, dann das mit weniger Spalten (gleich volle Reihen).
@@ -473,12 +399,6 @@ func lineup_block(index: int, count: int) -> Rect2:
 	return Rect2(Vector2(left + float(index - row * grid.x) * (cell.x + gap),
 		area.position.y + (area.size.y - stack) * 0.5 + float(row) * (cell.y + gap)), cell)
 
-## Die höchste Höhe eines Blocks: Luft, Würfel, Fuge, Netz in voller Zelle, Luft.
-func block_max_height() -> float:
-	var u := _unit()
-	return tile_air() * 2.0 + die_look().y + u * NET_GAP_UNITS \
-		+ DieNetView.net_size(u * NET_CELL_MAX_UNITS).y
-
 ## Wie weit der Würfel über bzw. unter seinem Sitz liest (Fenster-Pixel, nach Sitzhöhe).
 func look_above(seat_y: float) -> float:
 	return item_px.y * (DIE_LOOK_HALF + TILT_SLOPE * maxf(TILT_NADIR - seat_y / _page_h(), 0.0))
@@ -506,10 +426,6 @@ func die_look() -> Vector2:
 	var low := area.end.y - tile_air() - item_px.y * DIE_LOOK_HALF
 	return Vector2(item_px.y * DIE_LOOK_WIDTH, maxf(high + look_below(high) - top,
 		look_above(low) + look_below(low)))
-
-## Die Höhe des Würfel-Platzes über seinem Netz.
-func die_band() -> float:
-	return die_look().y
 
 func tile_air() -> float:
 	return _unit() * TILE_AIR_UNITS
@@ -583,36 +499,26 @@ func _build() -> void:
 	_hover_face = NO_FACE
 	var u := _unit()
 	var count := choice.option_count()
-	# Kopfband: Hülle links, daneben der Kopf, rechts die Knöpfe übereinander.
 	var frame := _frame_rects()
 	var head: Rect2 = frame["head"]
 	var buttons: Rect2 = frame["buttons"]
 	var info: Rect2 = frame["info"]
-	# Neben der Schatulle ist der Kopf schmal - er spricht eine Spur kleiner.
-	var grade := HEAD_GRADE
-	var title_size := u * 3.6 * grade
-	var counter_size := u * 3.4 * grade
-	if wide():
-		title_size = u * WIDE_FONT_UNITS
-		counter_size = u * WIDE_FONT_UNITS
-	_title = CasinoStyle.label(choice.display_name, title_size, TEXT_COLOR,
+	_title = CasinoStyle.label(choice.display_name, u * WIDE_FONT_UNITS, TEXT_COLOR,
 		HORIZONTAL_ALIGNMENT_CENTER, 3)
-	_title.position = head.position + Vector2(0.0, u * 0.8)
-	_title.size = Vector2(head.size.x, u * 4.6)
+	_title.position = head.position
+	_title.size = Vector2(head.size.x, u * WIDE_TITLE_UNITS)
 	add_child(_title)
-	_counter = CasinoStyle.label("", counter_size, COUNT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
+	_counter = CasinoStyle.label("", u * WIDE_FONT_UNITS, COUNT_COLOR,
+		HORIZONTAL_ALIGNMENT_CENTER, 3)
 	_counter.position = head.position + Vector2(0.0, u * (_reel_top_units() + REEL_UNITS + 0.4)
 		if lineup() else u * 5.4)
 	_counter.size = Vector2(head.size.x, u * 4.4)
 	add_child(_counter)
-	if wide():
-		# Die schmale Spalte bricht Name und Zähler auf zwei Zeilen um.
-		for label: Label in [_title, _counter]:
-			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			label.clip_text = true
-			label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		_title.position = head.position
-		_title.size = Vector2(head.size.x, u * WIDE_TITLE_UNITS)
+	# Die schmale Spalte bricht Name und Zähler auf zwei Zeilen um.
+	for label: Label in [_title, _counter]:
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.clip_text = true
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if lineup():
 		_build_reel(head)
 		_net_cell = net_cell(count)
@@ -874,9 +780,9 @@ func _build_reel(head: Rect2) -> void:
 		mark.size = Vector2(gap, box.y)
 		_reel_box.add_child(mark)
 
-## Wo die Walze im Kopf steht - breit unter dem zweizeiligen Namen.
+## Wo die Walze im Kopf steht: unter dem zweizeiligen Namen.
 func _reel_top_units() -> float:
-	return WIDE_TITLE_UNITS + 0.2 if wide() else REEL_TOP_UNITS
+	return WIDE_TITLE_UNITS + 0.2
 
 func _reel_symbol(window: Vector2) -> Label:
 	var symbol := CasinoStyle.label("", window.y * 0.78, TEXT_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
@@ -1160,14 +1066,11 @@ func _refresh_info() -> void:
 	else:
 		_info.text = "Ungewähltes verfällt."
 
-## Der Zähler: breit nur „Wähle K von N“ - wie viele gewählt sind, sagt der Nehmen-Knopf.
+## Der Zähler: nur „Wähle K von N“ - wie viele gewählt sind, sagt der Nehmen-Knopf.
 func counter_text() -> String:
 	if choice == null:
 		return ""
-	if wide():
-		return "Wähle %d von %d" % [choice.picks, choice.option_count()]
-	return "Wähle %d von %d  ·  %d gewählt" % [choice.picks, choice.option_count(),
-		_selected.size()]
+	return "Wähle %d von %d" % [choice.picks, choice.option_count()]
 
 ## Die Energie-Zeile: was Neu mischen bezahlen könnte.
 func energy_text() -> String:

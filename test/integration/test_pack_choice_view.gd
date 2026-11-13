@@ -8,11 +8,6 @@ const DIE_PX := Vector2(45, 45)
 ## untere Ecke eine Fuge rechts neben der Die-View, auf deren Unterkante.
 const OPENING_POS := Vector2(3593.744, 1898.176)
 const OPENING_SIZE := Vector2(1480.398, 754.919)
-## Die fast quadratische Fläche der zweiten Fassung - heute der KOPFBAND-Rückfall.
-const TALL_SIZE := Vector2(1098.67, 1140.496)
-
-static func opening_size() -> Vector2:
-	return TALL_SIZE
 
 func _open_pack(run: GameRun, pack: Resource) -> PackChoice:
 	var stored: Resource = run.purchase_dice_pack(pack as DicePack, 1) if pack is DicePack \
@@ -44,12 +39,6 @@ func _view() -> PackChoiceView:
 func _opening() -> PackChoiceView:
 	var view := _view()
 	view.position = OPENING_POS
-	view.size = opening_size()
-	return view
-
-func _real_opening() -> PackChoiceView:
-	var view := _view()
-	view.position = OPENING_POS
 	view.size = OPENING_SIZE
 	return view
 
@@ -75,24 +64,20 @@ func test_up_to_ten_dice_line_up_with_their_nets_inside_the_pit() -> void:
 			taken.append(net)
 		assert_gte(view.net_cell(count), 14.0, "die Zellen bleiben lesbar (%d Würfel)" % count)
 
-## Das Raster folgt der FLÄCHE: auf der hohen Öffnungs-Fläche nie weniger Reihen als
-## auf einer breiten, und nie mehr als zehn Plätze.
+## Das Raster folgt der FLÄCHE: jeder Würfel hat einen Platz, keine Reihe bleibt leer,
+## und nie mehr als zehn Plätze.
 func test_the_lineup_grid_follows_the_area() -> void:
-	var wide := _view()
-	var tall := _opening()
+	var small := _view()
+	var real := _opening()
 	for count in range(1, 11):
 		var choice := _dice_choice(count)
-		wide.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
-		tall.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
-		for view in [wide, tall]:
+		small.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
+		real.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
+		for view in [small, real]:
 			var grid: Vector2i = view.lineup_grid(count)
 			assert_gte(grid.x * grid.y, count)
 			assert_lt((grid.y - 1) * grid.x, count, "keine leere Reihe")
-		assert_gte(tall.lineup_grid(count).y, wide.lineup_grid(count).y,
-			"hochkant nie weniger Reihen (%d Würfel)" % count)
-	assert_true(wide.wide(), "die breite Fläche liegt breit")
-	assert_false(tall.wide(), "die hohe Fläche trägt das Kopfband")
-	var grid99: Vector2i = wide.lineup_grid(99)
+	var grid99: Vector2i = small.lineup_grid(99)
 	assert_lte(grid99.x * grid99.y, 10, "nie mehr als 10 Würfel")
 
 func test_a_net_appears_when_its_quality_locks() -> void:
@@ -220,9 +205,8 @@ func test_the_opening_reports_its_places_in_display_pixels() -> void:
 	var choice := _dice_choice(7)
 	view.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
 	assert_true(view.visible)
-	assert_false(view.wide(), "die hohe Fläche trägt das Kopfband")
 	assert_eq(view.case_seat_px(), OPENING_POS + view.case_rect_local().get_center())
-	var page := Rect2(OPENING_POS, opening_size())
+	var page := Rect2(OPENING_POS, OPENING_SIZE)
 	assert_almost_eq(view.page_rect_px().size.x, page.size.x, 0.01)
 	assert_eq(view.page_rect_px().position, page.position)
 	var centers := view.slot_centers()
@@ -240,47 +224,44 @@ func test_the_opening_reports_its_places_in_display_pixels() -> void:
 		"die Schatulle steht links, geschossen wird nach rechts")
 
 ## Auf der Öffnungs-Fläche für 1 bis 10 Würfel: nichts überlappt, nichts ragt hinaus,
-## nichts liegt im Kopfband, die Netze bleiben lesbar - und jede Kachel ist ausgewogen:
-## der Würfel liest ganz über seinem Netz, oben und unten dieselbe Luft.
+## alles steht rechts der Spalte, die Netze bleiben lesbar - und jede Kachel ist
+## ausgewogen: der Würfel liest ganz über seinem Netz, oben und unten dieselbe Luft.
 func test_on_the_opening_up_to_ten_dice_fit_without_overlap() -> void:
-	var tall := _opening()
+	var view := _opening()
 	for count in range(1, 11):
 		var choice := _dice_choice(count)
-		tall.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
-		assert_gte(tall.net_cell(count), 28.0, "lesbare Zellen (%d Würfel)" % count)
-		var area := Rect2(Vector2.ZERO, tall.size)
-		var band_end: float = (tall._frame_rects()["head"] as Rect2).end.y
+		view.open(choice, DIE_PX, 1, 5, false, CASE_PX, 2)
+		assert_gte(view.net_cell(count), 28.0, "lesbare Zellen (%d Würfel)" % count)
+		var area := view.lineup_area()
 		var taken: Array[Rect2] = []
 		for i in count:
-			var block := tall.lineup_block(i, count)
-			var die := tall.slot_rect(i, count)
-			var net := tall.net_rect(i, count)
-			assert_true(area.encloses(block))
-			assert_gte(block.position.y, band_end, "unter dem Kopfband")
+			var block := view.lineup_block(i, count)
+			var die := view.slot_rect(i, count)
+			var net := view.net_rect(i, count)
+			assert_true(area.encloses(block), "%d/%d: in der Aufstellung" % [i, count])
+			assert_gte(block.position.x, view.column_width(), "rechts der Spalte")
 			assert_true(block.encloses(die) and block.encloses(net))
 			assert_gte(net.position.y, die.end.y, "der Würfel liest ganz über seinem Netz")
 			assert_almost_eq(die.position.y - block.position.y, block.end.y - net.end.y, 0.01,
 				"oben und unten dieselbe Luft")
-			var seat: float = tall.slot_centers()[i].y - OPENING_POS.y
-			assert_almost_eq(seat - tall.look_above(seat), die.position.y, 0.01,
+			var seat: float = view.slot_centers()[i].y - OPENING_POS.y
+			assert_almost_eq(seat - view.look_above(seat), die.position.y, 0.01,
 				"der Sitz rückt um seine gemessene Projektion tiefer")
-			assert_lte(block.size.y, tall.block_max_height() + 0.01, "die Kachel folgt dem Inhalt")
 			for other in taken:
 				assert_false(other.intersects(block.grow(-0.5)), "Kacheln überlappen nicht")
 			taken.append(block)
-		var info: Rect2 = tall._frame_rects()["info"]
-		assert_lte(tall.lineup_area().end.y, info.position.y, "die Auskunft bleibt frei")
-	# Das KOPFBAND: Schatulle, Kopf, Knöpfe und Energie nebeneinander, ohne Überlappung.
-	var frame: Dictionary = tall._frame_rects()
-	var head: Array[Rect2] = [tall.case_rect_local(), frame["head"], frame["energy"],
+		var info: Rect2 = view._frame_rects()["info"]
+		assert_lte(view.lineup_area().end.y, info.position.y, "die Auskunft bleibt frei")
+	# Die SPALTE: Schatulle, Kopf, Energie und Knöpfe untereinander, ohne Überlappung.
+	var frame: Dictionary = view._frame_rects()
+	var column: Array[Rect2] = [view.case_rect_local(), frame["head"], frame["energy"],
 		frame["buttons"]]
-	assert_lt(tall.case_rect_local().position.x, (frame["head"] as Rect2).position.x,
-		"die Schatulle steht links")
-	for i in head.size():
-		assert_true(Rect2(Vector2.ZERO, tall.size).encloses(head[i]), "Kopf-Feld %d" % i)
-	for pair in [[0, 1], [0, 3], [1, 3]]:
-		assert_false(head[pair[0]].intersects(head[pair[1]].grow(-0.5)),
-			"Kopf-Felder %d/%d überlappen nicht" % pair)
+	for i in column.size():
+		assert_true(Rect2(Vector2.ZERO, view.size).encloses(column[i]), "Spalten-Feld %d" % i)
+		assert_lte(column[i].end.x, view.column_width(), "Spalten-Feld %d links" % i)
+		if i > 0:
+			assert_lte(column[i - 1].end.y, column[i].position.y + 0.5,
+				"Spalten-Felder %d/%d untereinander" % [i - 1, i])
 
 ## Leer steht die Fläche weiter: ihr Schirm, ein ruhiger Hinweis, keine Knöpfe.
 ## Das Rechteck der Fläche aus den gemessenen Nachbarn (1280 × 720): ihre linke UNTERE
@@ -310,24 +291,6 @@ func test_the_opening_area_sits_at_the_die_view() -> void:
 	var pushed := PackChoiceView.area_for(store, die_view, [wide_crown] as Array[Rect2],
 		5094.0 - 18.75, gap)
 	assert_almost_eq(pushed.position.x, wide_crown.end.x + gap, 0.01, "nie über die Krone")
-
-## Die ECHTE Fläche liegt BREIT: Spalte links, Aufstellung rechts - 1 bis 10 Würfel
-## passen ohne Überlappung, mit lesbaren Netzen.
-func test_the_real_opening_lies_wide_and_fits_ten_dice() -> void:
-	var view := _real_opening()
-	for count in range(1, 11):
-		view.open(_dice_choice(count), DIE_PX, 1, 5, false, CASE_PX, 2)
-		assert_true(view.wide(), "die flache Fläche trägt die linke Spalte")
-		assert_gte(view.net_cell(count), 28.0, "lesbare Zellen (%d Würfel)" % count)
-		var area := view.lineup_area()
-		var taken: Array[Rect2] = []
-		for i in count:
-			var block := view.lineup_block(i, count)
-			assert_true(area.encloses(block), "%d/%d: in der Aufstellung" % [i, count])
-			assert_gte(block.position.x, view.column_width(), "rechts der Spalte")
-			for other in taken:
-				assert_false(other.intersects(block.grow(-0.5)), "Kacheln überlappen nicht")
-			taken.append(block)
 
 func test_the_empty_opening_shows_a_hint_and_no_buttons() -> void:
 	var view := _opening()
@@ -373,7 +336,7 @@ func _module_choice() -> PackChoice:
 func test_module_options_stand_in_the_lineup_area_with_their_rarity() -> void:
 	var view := _opening()
 	var choice := _module_choice()
-	view.open(choice, Vector2(78, 78), 1, 5, false, Vector2.ZERO, -1, CASE_PX)
+	view.open(choice, Vector2(78, 78), 1, 5)
 	await wait_frames(2)
 	var area := view.lineup_area_px()
 	for i in choice.option_count():
@@ -382,6 +345,5 @@ func test_module_options_stand_in_the_lineup_area_with_their_rarity() -> void:
 		assert_eq(view.slot_rim(i), Color(part.rarity_color(), 0.85), "Saum = Seltenheit")
 		assert_string_contains(PackChoiceView.option_text(part), part.description)
 	var bag := view.bag_seat_px()
-	assert_lt(bag.y, area.position.y, "der Beutel liegt im Kopfband")
-	assert_eq(bag, view.case_seat_px(), "wo bei Würfeln die Schatulle steht")
+	assert_lt(bag.x, area.position.x, "der Beutel liegt in der Spalte")
 	assert_true(view.page_rect_px().has_point(bag))
