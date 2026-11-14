@@ -168,7 +168,7 @@ func flash_frame(color: Color) -> void:
 
 ## Das Rechteck der ÖFFNUNGS-FLÄCHE in Display-Pixeln (rein, prüfbar): eine Fuge unter
 ## dem Lager, links eine Fuge neben der Die-View (und jedem Nachbarn auf ihrer Höhe),
-## unten bündig mit der Die-View, rechts höchstens bis zum Lager-Rand bzw. right_limit.
+## unten bündig mit der Die-View, rechts bis right_limit (das Lager mißt sie nicht mehr).
 static func area_for(store: Rect2, die_view: Rect2, neighbours: Array[Rect2],
 		right_limit: float, gap: float) -> Rect2:
 	var top := store.end.y + gap
@@ -180,7 +180,7 @@ static func area_for(store: Rect2, die_view: Rect2, neighbours: Array[Rect2],
 				and rect.end.y > top:
 			left = maxf(left, rect.end.x)
 	left += gap
-	var right := minf(store.end.x, right_limit)
+	var right := right_limit
 	if right <= left or bottom <= top:
 		return Rect2()
 	return Rect2(Vector2(left, top), Vector2(right - left, bottom - top))

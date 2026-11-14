@@ -90,8 +90,6 @@ const MATERIAL_MIN_FACES := 2
 ## Im LAGER: die Identität (GameRun._store_pack stempelt sie) und ob es ein Wett-Gewinn war.
 var store_uid: int = 0
 var from_bet: bool = false
-## Der Lagerplatz (0..5 unten, 6..11 als zweite Lage darauf).
-var store_slot: int = 0
 
 static func make(pack_sort: String, pack_size: int, pack_quality: int = QUALITY_STANDARD) -> DicePack:
 	var dice_pack := DicePack.new()

@@ -138,6 +138,8 @@ var hover_lift := HOVER_LIFT
 ## Zeiger aus ihrer Etage. Anteil der Kartenlänge; die Auslagen lassen ihn auf 0
 ## und heben weiter. EIN Tween für beide Kanäle (_hover_share).
 var hover_slide := 0.0
+## Wie lange der Griff braucht (die hochkante Lager-Hülle hebt und kippt länger).
+var hover_time := HOVER_TIME
 ## Wohin die ×n-Marke gehört. Normal schwebt sie über dem Stapel; in einer Auslage
 ## steht die Karte dicht bei ihren Nachbarn - neben ihr läge die Marke im fremden
 ## Platz, also liegt sie AUF ihr.
@@ -512,7 +514,7 @@ func set_hovered(on: bool) -> void:
 	_kill(_hover_tween)
 	_hover_tween = create_tween()
 	var lift := _hover_tween.tween_method(_set_hover_share, _hover_share,
-		1.0 if on else 0.0, HOVER_TIME)
+		1.0 if on else 0.0, hover_time)
 	lift.set_trans(Tween.TRANS_SINE)
 	lift.set_ease(Tween.EASE_OUT)
 
@@ -764,12 +766,13 @@ func _apply_pose() -> void:
 	lift += STAND_HEIGHT * hover_lift * _hover_share * _body_scale
 	# ... und der ZWEITE Kanal zieht sie längs ihrer Achse nach Bild-links heraus.
 	var slide := STAND_HEIGHT * hover_slide * _hover_share * _body_scale
-	# Der ROLL sitzt VOR der Kippung (in der Karten-Ebene) und legt sie QUER; die
-	# Kippung um die Bildachse legt sie dann flach auf den Rücken.
-	_body.transform = Transform3D(
-		Basis(Vector3.RIGHT, -PI * 0.5).scaled(Vector3.ONE * _body_scale)
-			* Basis(Vector3.BACK, PI * 0.5),
-		Vector3(-slide, lift, 0.0))
+	_body.transform = Transform3D(_lying_basis(), Vector3(-slide, lift, 0.0))
+
+## Die LIEGE-Drehung samt Maßstab: der ROLL sitzt VOR der Kippung (in der Karten-Ebene)
+## und legt sie QUER; die Kippung um die Bildachse legt sie dann flach auf den Rücken.
+func _lying_basis() -> Basis:
+	return Basis(Vector3.RIGHT, -PI * 0.5).scaled(Vector3.ONE * _body_scale) \
+		* Basis(Vector3.BACK, PI * 0.5)
 
 ## Die STAPEL-EBENE dieser Karte (0 = oberste): je tiefer sie liegt, desto weiter
 ## rutschen ALLE ihre Zeichen-Prioritäten nach unten. So zeichnet eine tiefe Karte

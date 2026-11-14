@@ -266,9 +266,10 @@ func test_on_the_opening_up_to_ten_dice_fit_without_overlap() -> void:
 ## Leer steht die Fläche weiter: ihr Schirm, ein ruhiger Hinweis, keine Knöpfe.
 ## Das Rechteck der Fläche aus den gemessenen Nachbarn (1280 × 720): ihre linke UNTERE
 ## Ecke steht eine Fuge rechts der Die-View auf deren Unterkante, oben eine Fuge unter
-## dem Lager, rechts bündig mit ihm - und nirgends eine Überlappung.
+## dem Lager, rechts an ihrer festen Kante - das schmale Lager der Rinnen mißt sie nicht.
 func test_the_opening_area_sits_at_the_die_view() -> void:
-	var store := Rect2(3719.563, 1304.776, 1354.58, 569.9999)
+	var store := Rect2(3719.563, 1304.776, 809.0, 569.9999)
+	var right := 5094.0 - 19.857
 	var die_view := Rect2(3340.409, 2510.535, 229.9355, 142.5599)
 	var crown := Rect2(3367.822, 2410.168, 175.1079, 93.96035)
 	var info := Rect2(2916.358, 2366.026, 424.0503, 105.7766)
@@ -276,11 +277,12 @@ func test_the_opening_area_sits_at_the_die_view() -> void:
 	var keys := Rect2(3892.1, 2669.552, 59.97, 369.12)
 	var gap := TableScreen.LAYOUT_SIZE.x * 0.005
 	var neighbours: Array[Rect2] = [crown, info, magazin, keys]
-	var area := PackChoiceView.area_for(store, die_view, neighbours, 5094.0 - 18.75, gap)
+	var area := PackChoiceView.area_for(store, die_view, neighbours, right, gap)
 	assert_almost_eq(area.position.x, die_view.end.x + gap, 0.01, "eine Fuge neben der Die-View")
 	assert_almost_eq(area.end.y, die_view.end.y, 0.01, "unten bündig mit der Die-View")
 	assert_almost_eq(area.position.y, store.end.y + gap, 0.01, "eine Fuge unter dem Lager")
-	assert_almost_eq(area.end.x, store.end.x, 0.01, "rechts bündig mit dem Lager")
+	assert_almost_eq(area.end.x, right, 0.01, "rechts an der festen Kante")
+	assert_almost_eq(area.end.x, OPENING_POS.x + OPENING_SIZE.x, 0.01, "wo das alte Lager endete")
 	for other in [store, die_view, crown, info, magazin, keys]:
 		assert_false(area.intersects(other), "keine Überlappung mit %s" % other)
 	assert_almost_eq(area.position.x, OPENING_POS.x, 1.0, "die gemessene Fläche")
@@ -289,7 +291,7 @@ func test_the_opening_area_sits_at_the_die_view() -> void:
 	# Ragt die Krone über die Die-View hinaus, weicht die Fläche ihr.
 	var wide_crown := Rect2(crown.position, Vector2(260.0, crown.size.y))
 	var pushed := PackChoiceView.area_for(store, die_view, [wide_crown] as Array[Rect2],
-		5094.0 - 18.75, gap)
+		right, gap)
 	assert_almost_eq(pushed.position.x, wide_crown.end.x + gap, 0.01, "nie über die Krone")
 
 func test_the_empty_opening_shows_a_hint_and_no_buttons() -> void:

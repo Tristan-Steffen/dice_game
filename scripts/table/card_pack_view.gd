@@ -170,6 +170,102 @@ func thickness() -> float:
 func rise_depth() -> float:
 	return thickness() * _body_scale
 
+# --- HOCHKANT im LAGER ------------------------------------------------------------
+# Stehend ist der Ursprung die Mitte des RÜCKENS (oben). Wie jede Hülle steht sie um -90°
+# um Y gedreht (scene_root._spawn_hull): lokal +X ist Bild-rechts, dorthin zeigt die Fläche.
+
+## Wie lange Aufrichten bzw. Hinlegen in Ruhe dauert, und wie lange der Griff hebt und kippt.
+const STAND_TIME := 0.3
+const PRESENT_TIME := 0.36
+## Bis zu diesem Anteil des Griffs HEBT er senkrecht, danach KIPPT er die Fläche zur Kamera.
+const PRESENT_RISE_SHARE := 0.5
+## Luft zwischen der präsentierten Hülle und dem Filz (Welt).
+const PRESENT_AIR := 0.12
+## Die RÜCKEN-MARKE: Sortenfarbe bzw. Stufe, bei der Schatulle innen die Güte.
+const SPINE_PROUD := DataCellView.DEPTH * 0.06
+const SPINE_WIDTH_SHARE := 0.62
+const SPINE_DEPTH_SHARE := 0.5
+const SPINE_CORE_SHARE := 0.3
+var _stand := 0.0
+var _stand_tween: Tween
+var _spine: Node3D
+
+## Aufrichten (true) oder Hinlegen; Zeit 0 setzt hart.
+func set_standing(on: bool, time := 0.0) -> void:
+	var wanted := 1.0 if on else 0.0
+	_kill(_stand_tween)
+	hover_time = PRESENT_TIME if on else HOVER_TIME
+	if time <= 0.0 or is_equal_approx(_stand, wanted):
+		_set_stand(wanted)
+		return
+	_stand_tween = create_tween()
+	var turn := _stand_tween.tween_method(_set_stand, _stand, wanted, time)
+	turn.set_trans(Tween.TRANS_SINE)
+	turn.set_ease(Tween.EASE_IN_OUT)
+
+func standing() -> bool:
+	return _stand >= 1.0
+
+## Der harte Schreiber im Lager: steht hochkant, der Rücken mittig auf at.
+func stand_on(at: Vector3) -> void:
+	set_standing(true)
+	lie_on_glass(at)
+
+func _set_stand(value: float) -> void:
+	_stand = clampf(value, 0.0, 1.0)
+	_apply_pose()
+
+func _apply_pose() -> void:
+	if _body == null:
+		return
+	if _stand <= 0.0:
+		super._apply_pose()
+		return
+	var length := DataCellView.HEIGHT * FOOT_ROOM * _body_scale
+	var depth := thickness() * _body_scale
+	var rise := clampf(_hover_share / PRESENT_RISE_SHARE, 0.0, 1.0)
+	var tip := smoothstep(PRESENT_RISE_SHARE, 1.0, _hover_share)
+	var angle := PI * 0.5 * _stand * (1.0 - tip)
+	var center := Vector3(0.0, depth * 0.5, 0.0).lerp(Vector3(0.0, -length * 0.5, 0.0), _stand)
+	center.y += rise * (length + PRESENT_AIR) * _stand
+	if tip > 0.0:
+		# Gekippt liegt sie flach über dem Filz - nie mit einem Ende darunter.
+		center.y = maxf(lerpf(center.y, depth * 0.5 + PRESENT_AIR, tip),
+			length * 0.5 * sin(angle) + depth * 0.5 * cos(angle) + PRESENT_AIR)
+	var turn := Basis(Quaternion.IDENTITY.slerp(_stand_turn(), _stand))
+	var basis := Basis(Vector3.BACK, PI * 0.5 * tip) * turn * _lying_basis()
+	var core := Vector3(0.0, 0.0, (thickness() - DataCellView.DEPTH) * 0.5)
+	_body.transform = Transform3D(basis, center - basis * core)
+
+## Die Drehung aus der Liege-Lage in den Stand: der Kopf nach oben, die Fläche nach lokal +X.
+func _stand_turn() -> Quaternion:
+	var lying := _lying_basis().orthonormalized()
+	var source := Basis(lying.y, lying.z, lying.y.cross(lying.z))
+	var target := Basis(Vector3.UP, Vector3.RIGHT, Vector3.UP.cross(Vector3.RIGHT))
+	return Quaternion(target * source.inverse())
+
+## Die Lage, in der sie LIEGT (ohne Griff) - der Grundriß gilt für sie, nicht für den Stand.
+func _lying_body_transform() -> Transform3D:
+	return Transform3D(_lying_basis(), Vector3(0.0, DataCellView.DEPTH * 0.5 * _body_scale, 0.0))
+
+## Die Rücken-Marke auf der Kopfseite: was von oben aus der Rinne liest.
+func add_spine() -> void:
+	if _spine != null or _cells.is_empty():
+		return
+	var width := DataCellView.WIDTH * FOOT_ROOM
+	var depth := thickness()
+	var y := DataCellView.HEIGHT * FOOT_ROOM * 0.5
+	var z := (depth - DataCellView.DEPTH) * 0.5
+	_spine = Node3D.new()
+	_spine.name = "Spine"
+	_cells[0].add_child(_spine)
+	# Halb in der Kopfseite versenkt: keine Fläche teilt sie mit dem Gehäuse.
+	TableProps.box(_spine, "Mark", Vector3(width * SPINE_WIDTH_SHARE, SPINE_PROUD * 2.0,
+		depth * SPINE_DEPTH_SHARE), Vector3(0.0, y, z), _edge_material)
+	if dice_pack:
+		TableProps.box(_spine, "Quality", Vector3(width * SPINE_CORE_SHARE, SPINE_PROUD * 3.0,
+			depth * SPINE_DEPTH_SHARE * 0.5), Vector3(0.0, y, z), case_metal())
+
 ## Der Moment des Aufbrechens: das Siegel lodert, dann zerfällt die Hülle.
 func burst() -> void:
 	flare()
@@ -691,7 +787,7 @@ func _bag_corners(half: Vector2) -> Array[Vector3]:
 	var to_self := Transform3D()
 	var node: Node = _cells[0]
 	while node != null and node != self:
-		to_self = (node as Node3D).transform * to_self
+		to_self = _pose_free(node) * to_self
 		node = node.get_parent()
 	for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
 		out.append(to_self * Vector3(half.x * corner.x, half.y * corner.y,
@@ -705,7 +801,7 @@ func _case_corners(half_raw: Vector2, height: float) -> Array[Vector3]:
 	var to_self := Transform3D()
 	var node: Node = _case_model
 	while node != null and node != self:
-		to_self = (node as Node3D).transform * to_self
+		to_self = _pose_free(node) * to_self
 		node = node.get_parent()
 	for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
 		# Blender (x, y, z) liegt im glTF als (x, z, -y).
@@ -716,3 +812,7 @@ func _case_corners(half_raw: Vector2, height: float) -> Array[Vector3]:
 static func case_inner_half() -> Vector2:
 	return Vector2(DataCellView.WIDTH * FOOT_ROOM * 0.5 - CASE_WALL,
 		DataCellView.HEIGHT * FOOT_ROOM * 0.5 - CASE_WALL)
+
+## Die Lage eines Knotens für den Grundriß: der Körper zählt immer LIEGEND.
+func _pose_free(node: Node) -> Transform3D:
+	return _lying_body_transform() if node == _body else (node as Node3D).transform

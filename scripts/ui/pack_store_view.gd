@@ -1,33 +1,31 @@
 class_name PackStoreView
 extends Control
-## Das PAKET-LAGER rechts vom Chip-Tray: drei Gruben NEBENEINANDER (Karten, Würfel,
-## Module), je ein Kopf (Name, n/12) darüber, darin sechs Plätze quer in 2 × 3 - ab dem
-## siebten Paket einer Art liegt eine zweite LAGE darauf. Rein zeichnend und meldend - die
-## Körper (samt Stapel) stellt scene_root, die Gruben schneidet TableScreen. Die Breite
-## folgt dem Inhalt (gemeldeter Paket-Grundriß), die Höhe ist die des Chip-Trays daneben.
+## Das PAKET-LAGER rechts vom Chip-Tray: drei schmale RINNEN ÜBEREINANDER (Karten, Würfel,
+## Module), je ein Kopf (Name, n/12) darüber. In einer Rinne STEHEN die Pakete hochkant wie
+## Chips im Tray - von oben liest nur ihr RÜCKEN. Rein zeichnend und meldend: die Körper
+## stellt scene_root, die Gruben schneidet TableScreen. Die Breite folgt dem dicksten
+## Paket, die Höhe ist die des Chip-Trays daneben.
 
 const GOLD := Color("#ffd36a")
 const TEXT := Color(1.25, 1.25, 1.2)
 const MUTED := Color(0.62, 0.64, 0.78)
 const LOCKED_TINT := Color(1.0, 0.45, 0.4)
-## Die Plätze einer Grube: zwei Spalten, drei Zeilen, zwei Lagen (= GameRun.STORE_CAPACITY).
-const COLUMNS := 2
-const ROWS := 3
-const LAYERS := 2
-const PLACES := COLUMNS * ROWS
-## Rand zwischen Paket und Grubenwand - eine Spur mehr als die Fuge, damit nichts gequetscht liest.
-const EDGE_SHARE := 0.09
-## Fuge zwischen zwei Paketen, Rahmen und Kopf - in Anteilen der Paket-Höhe.
-const GAP_SHARE := 0.08
+## Plätze je Rinne (= GameRun.STORE_CAPACITY) - eine Lage, der Platz ist der Index.
+const PLACES := 12
+## Fuge zwischen zwei Rücken, in Anteilen der dicksten Paketdicke.
+const GAP_SHARE := 0.12
+## Rand der Rinne, Rahmen und Kopf - in Anteilen der Paketbreite (quer zur Rinne).
+const EDGE_SHARE := 0.06
 const FRAME_SHARE := 0.045
-const HEAD_SHARE := 0.32
-const FONT_SHARE := 0.62
-## Die Reihen von links nach rechts (= GameRun.LANE_*).
+const HEAD_SHARE := 0.2
+const FONT_SHARE := 0.66
+## Die Rinnen von oben nach unten (= GameRun.LANE_*).
 const LANES := 3
 const LANE_NAMES := ["KARTEN-PAKETE", "WÜRFEL-PAKETE", "MODUL-PAKETE"]
 
-## Der Grundriß eines liegenden Pakets in Display-Pixeln (gemeldet von scene_root).
-var item_px := Vector2(202, 135)
+## Der RÜCKEN eines stehenden Pakets in Display-Pixeln (gemeldet von scene_root):
+## x = dickstes Paket (längs der Rinne), y = seine kurze Seite (quer).
+var spine_px := Vector2(58, 135)
 var counts: Array[int] = [0, 0, 0]
 ## In der Runde gesperrt: grau, und der Kopf sagt warum.
 var locked := false
@@ -41,35 +39,41 @@ func _ready() -> void:
 	resized.connect(_layout)
 
 func gap_px() -> float:
-	return item_px.y * GAP_SHARE
+	return spine_px.x * GAP_SHARE
 
-func frame_px() -> float:
-	return maxf(2.0, item_px.y * FRAME_SHARE)
-
-func head_px() -> float:
-	return item_px.y * HEAD_SHARE
-
-## Die Breite, die das Lager braucht: drei Gruben zu je zwei Paketen nebeneinander.
-func preferred_size() -> Vector2:
-	return Vector2(pit_width() * float(LANES) + frame_px() * 2.0 * float(LANES), min_height())
-
-## Mindestens so hoch wie Kopf und alle Zeilen samt Fugen.
-func min_height() -> float:
-	return frame_px() * 2.0 + head_px() + item_px.y * ROWS + gap_px() * (ROWS + 1)
+## Die Teilung der Rinne: dickstes Paket plus Fuge - jedes Paket hat denselben Platz.
+func pitch_px() -> float:
+	return spine_px.x + gap_px()
 
 func edge_px() -> float:
-	return item_px.y * EDGE_SHARE
+	return spine_px.y * EDGE_SHARE
+
+func frame_px() -> float:
+	return maxf(2.0, spine_px.y * FRAME_SHARE)
+
+func head_px() -> float:
+	return spine_px.y * HEAD_SHARE
 
 func pit_width() -> float:
-	return item_px.x * COLUMNS + gap_px() * (COLUMNS - 1) + edge_px() * 2.0
+	return pitch_px() * float(PLACES) + edge_px() * 2.0
 
-func pit_size() -> Vector2:
-	return Vector2(pit_width(), maxf(size.y, min_height()) - frame_px() * 2.0 - head_px())
+## So breit wie zwölf Plätze samt Rand, so hoch wie drei Köpfe und Rinnen.
+func preferred_size() -> Vector2:
+	return Vector2(pit_width() + frame_px() * 2.0, min_height())
 
-## Die Grube einer Reihe in eigenen Pixeln (0 links … 2 rechts).
+func min_height() -> float:
+	return frame_px() * 2.0 + (head_px() + spine_px.y + edge_px() * 2.0) * float(LANES)
+
+## Die Höhe einer Rinne: was die Fassung über Köpfe und Rahmen hinaus hat, zu gleichen Teilen.
+func pit_height() -> float:
+	var height := maxf(size.y, min_height())
+	return (height - frame_px() * 2.0) / float(LANES) - head_px()
+
+## Die Rinne einer Reihe in eigenen Pixeln (0 oben … 2 unten).
 func lane_pit_rect(lane: int) -> Rect2:
 	var f := frame_px()
-	return Rect2(Vector2(f + float(lane) * (pit_width() + f * 2.0), f + head_px()), pit_size())
+	var top := f + float(lane) * (head_px() + pit_height()) + head_px()
+	return Rect2(Vector2(f, top), Vector2(pit_width(), pit_height()))
 
 func lane_head_rect(lane: int) -> Rect2:
 	var pit := lane_pit_rect(lane)
@@ -78,24 +82,25 @@ func lane_head_rect(lane: int) -> Rect2:
 func pit_radius() -> float:
 	return frame_px()
 
-## Die Mitte von Lagerplatz slot (0..11; die obere Lage liegt über Platz slot % 6) in
-## eigenen Pixeln; die Zeilen teilen sich die Höhe der Grube gleichmäßig.
-func slot_center(lane: int, slot: int) -> Vector2:
+## Der Platz index (0 links am Tray … 11) einer Rinne: ein Streifen der Teilung über die
+## volle Rinnenbreite - so bleibt auch das dünnste Paket treffbar.
+func slot_rect(lane: int, index: int) -> Rect2:
 	var pit := lane_pit_rect(lane)
-	var place := slot % PLACES
-	var col := place % COLUMNS
-	var row := place / COLUMNS
-	var air := (pit.size.y - item_px.y * ROWS) / float(ROWS + 1)
-	return pit.position + Vector2(edge_px() + item_px.x * 0.5 + float(col) * (item_px.x + gap_px()),
-		air + item_px.y * 0.5 + float(row) * (item_px.y + air))
+	return Rect2(Vector2(pit.position.x + edge_px() + pitch_px() * float(index), pit.position.y),
+		Vector2(pitch_px(), pit.size.y))
 
-## Welcher sichtbare Platz (0..5) liegt unter einem eigenen Pixel? {} = keiner.
+func slot_center(lane: int, index: int) -> Vector2:
+	return slot_rect(lane, index).get_center()
+
+## Welcher Platz liegt unter einem eigenen Pixel? {} = keiner.
 func slot_at(local: Vector2) -> Dictionary:
 	for lane in LANES:
-		for index in PLACES:
-			var center := slot_center(lane, index)
-			if Rect2(center - item_px * 0.5, item_px).has_point(local):
-				return {"lane": lane, "index": index}
+		var pit := lane_pit_rect(lane)
+		if not pit.has_point(local):
+			continue
+		var index := floori((local.x - pit.position.x - edge_px()) / pitch_px())
+		if index >= 0 and index < PLACES:
+			return {"lane": lane, "index": index}
 	return {}
 
 ## Der EINE Eingang: je Reihe ihr Füllstand, und ob gesperrt ist.
@@ -112,7 +117,7 @@ func set_state(lane_counts: Array, is_locked: bool) -> void:
 ## Der Kopf einer Reihe: Name, Füllstand und - gesperrt - warum.
 static func head_text(lane: int, count: int, is_locked: bool) -> String:
 	var name := String(LANE_NAMES[clampi(lane, 0, LANES - 1)])
-	var text := "%s  %d/%d" % [name, count, PLACES * LAYERS]
+	var text := "%s  %d/%d" % [name, count, PLACES]
 	return text + "  ·  öffnen nach der Runde" if is_locked else text
 
 func _layout() -> void:
@@ -127,11 +132,11 @@ func _layout() -> void:
 	for i in LANES:
 		var rect := lane_head_rect(i)
 		var label := _heads[i]
-		label.position = rect.position + Vector2(gap_px(), 0.0)
-		label.size = Vector2(rect.size.x - gap_px() * 2.0, rect.size.y)
+		label.position = rect.position + Vector2(edge_px(), 0.0)
+		label.size = Vector2(rect.size.x - edge_px() * 2.0, rect.size.y)
 		label.add_theme_font_size_override("font_size", maxi(8, int(rect.size.y * FONT_SHARE)))
 		label.text = head_text(i, counts[i], locked)
-		var full := counts[i] >= PLACES * LAYERS
+		var full := counts[i] >= PLACES
 		label.add_theme_color_override("font_color",
 			MUTED if locked else (LOCKED_TINT if full else TEXT))
 	queue_redraw()

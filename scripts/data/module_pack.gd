@@ -32,10 +32,9 @@ const SHOP_SIZE_WEIGHTS := CardPack.SHOP_SIZE_WEIGHTS
 @export var size: int = CardPack.SIZE_NORMAL
 @export var grade: int = GRADE_COMMON
 
-## Im LAGER: Identität, Herkunft und Platz (GameRun._store_pack stempelt sie).
+## Im LAGER: Identität und Herkunft (GameRun._store_pack stempelt sie).
 var store_uid: int = 0
 var from_bet: bool = false
-var store_slot: int = 0
 
 static func make(pack_size: int, pack_grade: int) -> ModulePack:
 	var module_pack := ModulePack.new()

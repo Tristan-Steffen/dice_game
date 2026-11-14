@@ -390,27 +390,28 @@ func test_the_shop_offer_is_not_the_stored_pack() -> void:
 	assert_ne(stored, offer, "das Lager bekommt eine Kopie")
 	assert_eq(offer.store_uid, 0)
 
-## Ab dem siebten Paket einer Art liegt die zweite LAGE auf den ersten sechs; jedes Paket
-## behält seinen Platz, und das oberste eines Stapels wird zuerst gegriffen.
-func test_the_seventh_pack_stacks_on_the_first_and_slots_stay() -> void:
+## Zwölf Plätze je Rinne in EINER Lage: der Platz ist der Index, und wird ein Paket
+## geöffnet, rücken die rechts davon nach; ein neues reiht sich hinten an.
+func test_twelve_places_per_lane_and_the_rest_moves_up() -> void:
 	var packs: Array = []
 	for i in GameRun.STORE_CAPACITY:
 		packs.append(run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
 			CardPack.SIZE_SMALL), 0))
-	for i in packs.size():
-		assert_eq(packs[i].store_slot, i, "Paket %d auf Platz %d" % [i + 1, i])
 	assert_eq(packs.size(), 12, "zwölf je Art")
-	assert_same(run.top_stored_pack(GameRun.LANE_CARDS, 0), packs[6], "oben liegt das siebte")
-	assert_same(run.top_stored_pack(GameRun.LANE_CARDS, 5), packs[11])
+	for i in packs.size():
+		assert_same(run.stored_pack_at(GameRun.LANE_CARDS, i), packs[i],
+			"Paket %d auf Platz %d" % [i + 1, i])
+	assert_null(run.stored_pack_at(GameRun.LANE_CARDS, GameRun.STORE_CAPACITY), "keine Lage darauf")
 	var choice := run.open_stored_pack(packs[7].store_uid)
 	run.confirm_pack_choice(choice, [])
-	assert_same(run.top_stored_pack(GameRun.LANE_CARDS, 1), packs[1],
-		"darunter liegt wieder das zweite")
-	for i in [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11]:
-		assert_eq(packs[i].store_slot, i, "nichts rückt um")
+	for i in 7:
+		assert_same(run.stored_pack_at(GameRun.LANE_CARDS, i), packs[i], "links bleibt alles")
+	for i in range(8, 12):
+		assert_same(run.stored_pack_at(GameRun.LANE_CARDS, i - 1), packs[i],
+			"Paket %d rückt nach links" % [i + 1])
 	var again := run.purchase_card_pack(CardPack.make(CardPack.SORT_RUNE, CardPack.SIZE_SMALL), 0)
-	assert_eq(again.store_slot, 7, "der neue nimmt den frei gewordenen Platz")
-	assert_null(run.stored_pack_at(GameRun.LANE_DICE, 0), "die Würfel-Reihe ist eigen")
+	assert_same(run.stored_pack_at(GameRun.LANE_CARDS, 11), again, "der neue reiht sich hinten an")
+	assert_null(run.stored_pack_at(GameRun.LANE_DICE, 0), "die Würfel-Rinne ist eigen")
 
 func test_a_new_run_has_an_empty_store() -> void:
 	run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)

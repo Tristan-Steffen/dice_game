@@ -698,10 +698,9 @@ func purchase_module_pack(module_pack: ModulePack, price: int,
 # Art, Größe, Güte und Stufe stehen fest; Optionen und Wahlen würfelt erst open_stored_pack.
 
 signal store_changed
+## Zwölf Plätze je Art in EINER Rinne; der Platz ist der Index (geöffnet rückt nach).
 const STORE_CAPACITY := 12
-## Sichtbare Plätze je Art; was darüber hinausgeht, liegt in einer zweiten LAGE darauf.
-const STORE_PLACES := 6
-## Die Reihen des Lagers, von links nach rechts.
+## Die Rinnen des Lagers, von oben nach unten.
 const LANE_CARDS := 0
 const LANE_DICE := 1
 const LANE_MODULES := 2
@@ -743,7 +742,6 @@ func _store_pack(pack: Resource, from_bet: bool) -> Resource:
 	store_serial += 1
 	stored.set("store_uid", store_serial)
 	stored.set("from_bet", from_bet)
-	stored.set("store_slot", _free_store_slot(store_lane_of(pack)))
 	if stored is DicePack:
 		stored_dice_packs.append(stored as DicePack)
 	elif stored is ModulePack:
@@ -767,29 +765,10 @@ func debug_fill_store(rng: RandomNumberGenerator = null) -> int:
 		added += 1
 	return added
 
-## Der Lagerplatz eines neuen Pakets: der niedrigste freie - erst die untere Lage
-## (Platz 0..5), dann die obere darauf (6..11, Platz k liegt über Platz k - 6). Ein
-## Paket behält seinen Platz, bis es geöffnet wird; nichts rückt nach.
-func _free_store_slot(lane: int) -> int:
-	var used := {}
-	for pack in stored_packs(lane):
-		used[int(pack.get("store_slot"))] = true
-	for slot in STORE_CAPACITY:
-		if not used.has(slot):
-			return slot
-	return STORE_CAPACITY - 1
-
-## Das Paket auf einem Lagerplatz (null = frei).
-func stored_pack_at(lane: int, slot: int) -> Resource:
-	for pack in stored_packs(lane):
-		if int(pack.get("store_slot")) == slot:
-			return pack
-	return null
-
-## Das OBERSTE Paket eines sichtbaren Platzes - es wird zuerst gegriffen.
-func top_stored_pack(lane: int, place: int) -> Resource:
-	var top := stored_pack_at(lane, place + STORE_PLACES)
-	return top if top != null else stored_pack_at(lane, place)
+## Das Paket auf Platz index seiner Rinne (null = frei).
+func stored_pack_at(lane: int, index: int) -> Resource:
+	var packs := stored_packs(lane)
+	return packs[index] if index >= 0 and index < packs.size() else null
 
 ## Ein Gewinn-Paket: ins Lager, solange Platz ist - sonst verfällt es nicht, es
 ## öffnet sofort (wie vor dem Lager). Liefert das gelagerte Paket bzw. die Auswahl.

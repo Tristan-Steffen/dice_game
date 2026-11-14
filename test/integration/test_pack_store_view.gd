@@ -1,79 +1,80 @@
 extends GutTest
-## Das PAKET-LAGER: drei Gruben NEBENEINANDER (Karten, Würfel, Module) zu je sechs
-## sichtbaren Plätzen (2 × 3, volle Paketbreite); ab dem siebten Paket einer Art liegt eine
-## zweite LAGE darauf. Die Breite folgt dem Inhalt, die Höhe ist die des Chip-Trays.
+## Das PAKET-LAGER: drei RINNEN übereinander (Karten, Würfel, Module) zu je zwölf Plätzen
+## in EINER Lage; die Pakete stehen hochkant, von oben liest ihr Rücken. Die Breite folgt
+## dem dicksten Paket, die Höhe ist die des Chip-Trays.
 
-const ITEM := Vector2(202.2, 134.8)
+## Der Rücken des dicksten Pakets (Schatulle) quer zur Rinne (gemessen 2026-11-14).
+const SPINE := Vector2(58.1, 134.8)
 ## Die Höhe von Wett-Tresen und Chip-Tray (gemessen 2026-11-13).
 const TRAY_HEIGHT := 570.0
 
-func _store() -> PackStoreView:
+func _store(spine := SPINE) -> PackStoreView:
 	var store := PackStoreView.new()
 	add_child_autofree(store)
-	store.item_px = ITEM
+	store.spine_px = spine
 	store.size = Vector2(store.preferred_size().x, TRAY_HEIGHT)
 	store.visible = true
 	return store
 
-func test_six_places_per_pit_fit_without_overlap() -> void:
+func test_twelve_places_per_lane_without_layers() -> void:
 	var store := _store()
+	assert_eq(PackStoreView.PLACES, GameRun.STORE_CAPACITY, "ein Platz je Paket, keine Lage")
+	assert_eq(PackStoreView.LANES, GameRun.STORE_LANES, "eine Rinne je Lager-Reihe")
 	var bounds := Rect2(Vector2.ZERO, store.size)
-	var taken: Array[Rect2] = []
 	for lane in PackStoreView.LANES:
 		var pit := store.lane_pit_rect(lane)
-		assert_true(bounds.encloses(pit), "die Grube liegt in der Fassung")
-		for place in PackStoreView.PLACES:
-			var slot := Rect2(store.slot_center(lane, place) - ITEM * 0.5, ITEM)
-			assert_true(pit.encloses(slot), "Platz %d liegt ganz in seiner Grube" % place)
-			for other in taken:
-				assert_false(other.intersects(slot.grow(-0.5)), "Plätze überlappen nicht")
-			taken.append(slot)
-	assert_eq(taken.size(), 18)
-	assert_eq(PackStoreView.LANES, GameRun.STORE_LANES, "eine Grube je Lager-Reihe")
-	assert_eq(PackStoreView.ROWS, 3, "drei Reihen")
-	assert_eq(PackStoreView.PLACES * PackStoreView.LAYERS, GameRun.STORE_CAPACITY,
-		"sechs Plätze in zwei Lagen tragen genau die Kapazität einer Art")
-	assert_eq(GameRun.STORE_CAPACITY, 12)
-	assert_eq(PackStoreView.PLACES, GameRun.STORE_PLACES)
+		assert_true(bounds.encloses(pit), "die Rinne liegt in der Fassung")
+		var last := pit.position.x
+		for index in PackStoreView.PLACES:
+			var slot := store.slot_rect(lane, index)
+			assert_true(pit.encloses(slot), "Platz %d liegt in seiner Rinne" % index)
+			assert_gte(slot.position.x, last - 0.01, "Platz %d rechts vom vorigen" % index)
+			last = slot.end.x
+			var spine := Rect2(store.slot_center(lane, index) - SPINE * 0.5, SPINE)
+			assert_true(slot.encloses(spine), "der dickste Rücken paßt in Platz %d" % index)
+	assert_lt(store.slot_center(GameRun.LANE_CARDS, 0).x,
+		store.slot_center(GameRun.LANE_CARDS, 1).x, "Platz 0 links am Tray")
 
-func test_the_upper_layer_lies_over_the_lower() -> void:
-	var store := _store()
-	for place in PackStoreView.PLACES:
-		assert_eq(store.slot_center(GameRun.LANE_MODULES, place + PackStoreView.PLACES),
-			store.slot_center(GameRun.LANE_MODULES, place),
-			"Platz %d liegt über Platz %d" % [place + 6, place])
-
-func test_the_pits_stand_side_by_side_two_packs_wide() -> void:
+func test_the_lanes_lie_one_above_the_other() -> void:
 	var store := _store()
 	var cards := store.lane_pit_rect(GameRun.LANE_CARDS)
 	var dice := store.lane_pit_rect(GameRun.LANE_DICE)
 	var modules := store.lane_pit_rect(GameRun.LANE_MODULES)
-	assert_lt(cards.end.x, dice.position.x, "Karten links, Würfel daneben")
-	assert_lt(dice.end.x, modules.position.x, "die Module rechts davon")
-	assert_eq(cards.position.y, modules.position.y, "auf derselben Höhe")
-	assert_almost_eq(modules.size.x, ITEM.x * 2.0 + store.gap_px() + store.edge_px() * 2.0, 0.01,
-		"je Grube zwei Pakete samt Rand")
-	assert_gt(store.edge_px(), store.gap_px(), "der Rand quetscht nicht")
+	assert_lt(cards.end.y, dice.position.y, "Karten oben, Würfel darunter")
+	assert_lt(dice.end.y, modules.position.y, "die Module unten")
+	assert_eq(cards.position.x, modules.position.x, "bündig untereinander")
+	assert_gte(cards.size.y, SPINE.y, "die Rinne trägt die kurze Seite")
 	for lane in PackStoreView.LANES:
 		assert_false(store.lane_head_rect(lane).intersects(store.lane_pit_rect(lane)))
+		if lane > 0:
+			assert_false(store.lane_head_rect(lane).grow(-0.01).intersects(store.lane_pit_rect(lane - 1)),
+				"der Kopf steht zwischen zwei Rinnen")
+	assert_lte(store.min_height(), TRAY_HEIGHT, "drei Köpfe und Rinnen passen in die Tray-Höhe")
+	assert_almost_eq(modules.end.y, TRAY_HEIGHT - store.frame_px(), 0.01,
+		"die Rinnen nehmen die volle Höhe")
 
-func test_the_width_follows_the_content_and_the_height_the_tray() -> void:
+func test_the_width_follows_the_thickest_pack() -> void:
 	var store := _store()
-	assert_almost_eq(store.size.x, store.pit_width() * 3.0 + store.frame_px() * 6.0, 0.01)
-	assert_almost_eq(store.lane_pit_rect(GameRun.LANE_MODULES).end.x,
-		store.size.x - store.frame_px(), 0.01, "die dritte Grube endet am Rahmen")
-	assert_lte(store.min_height(), TRAY_HEIGHT, "Kopf und drei Reihen passen in die Tray-Höhe")
-	assert_almost_eq(store.lane_pit_rect(GameRun.LANE_CARDS).end.y,
-		TRAY_HEIGHT - store.frame_px(), 0.01, "die Grube nimmt die volle Höhe")
+	assert_almost_eq(store.size.x, (SPINE.x + store.gap_px()) * 12.0 + store.edge_px() * 2.0
+		+ store.frame_px() * 2.0, 0.01, "zwölf Rücken samt Fuge und Rand")
+	var thick := _store(Vector2(SPINE.x * 1.5, SPINE.y))
+	assert_almost_eq(thick.preferred_size().x - store.preferred_size().x,
+		SPINE.x * 0.5 * (1.0 + PackStoreView.GAP_SHARE) * 12.0, 0.01, "dicker heißt breiter")
+	assert_lt(store.size.x, 900.0, "deutlich schmaler als die drei Gruben (1354,6 px)")
 
-func test_slot_at_finds_the_visible_place_under_a_pixel() -> void:
+func test_a_thin_pack_is_hit_across_the_whole_lane() -> void:
 	var store := _store()
-	assert_eq(store.slot_at(store.slot_center(GameRun.LANE_DICE, 5)),
-		{"lane": GameRun.LANE_DICE, "index": 5})
-	assert_eq(store.slot_at(store.slot_center(GameRun.LANE_CARDS, 8)),
-		{"lane": GameRun.LANE_CARDS, "index": 2}, "die obere Lage meldet ihren sichtbaren Platz")
-	assert_eq(store.slot_at(store.slot_center(GameRun.LANE_MODULES, 0)),
-		{"lane": GameRun.LANE_MODULES, "index": 0})
+	var slot := store.slot_rect(GameRun.LANE_DICE, 4)
+	var pit := store.lane_pit_rect(GameRun.LANE_DICE)
+	assert_eq(slot.position.y, pit.position.y, "quer über die volle Rinne")
+	assert_eq(slot.size.y, pit.size.y)
+	# Ein dünner Beutel steht mittig; sein Platz ist trotzdem die ganze Teilung.
+	for at: Vector2 in [slot.position + Vector2(1, 1), slot.get_center(), slot.end - Vector2(1, 1)]:
+		assert_eq(store.slot_at(at), {"lane": GameRun.LANE_DICE, "index": 4})
+	assert_eq(store.slot_at(store.slot_center(GameRun.LANE_MODULES, 11)),
+		{"lane": GameRun.LANE_MODULES, "index": 11})
+	assert_eq(store.slot_at(store.lane_head_rect(GameRun.LANE_CARDS).get_center()), {},
+		"der Kopf ist kein Platz")
 	assert_eq(store.slot_at(Vector2(-10, -10)), {}, "neben den Plätzen ist keiner")
 
 func test_the_head_names_count_and_lock() -> void:

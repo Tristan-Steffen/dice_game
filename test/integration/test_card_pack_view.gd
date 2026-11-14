@@ -296,3 +296,76 @@ func test_tearing_writes_the_end_state_first() -> void:
 	bag.set_torn(true)
 	assert_false(strip.visible, "hart gesetzt ist der Streifen fort")
 	assert_eq(bag.case_outline_local().size(), 4, "sein Grundriß trägt die Einzugs-Sektion")
+
+# --- HOCHKANT im LAGER ---------------------------------------------------------------
+
+## Stehend hängt die Hülle unter ihrem Rücken: der Ursprung ist oben, die Fläche zeigt
+## nach Bild-rechts (+Z), die lange Seite senkrecht.
+func test_a_standing_pack_hangs_below_its_spine() -> void:
+	var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE)
+	hull.rotation.y = -PI / 2.0  # wie scene_root._spawn_hull
+	hull.add_spine()
+	hull.stand_on(Vector3.ZERO)
+	var length := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE
+	var shell := hull.find_child("Shell", true, false) as Node3D
+	assert_almost_eq(shell.global_position.y, -length * 0.5, 0.001, "die Mitte eine halbe Länge tief")
+	assert_almost_eq(shell.global_position.z, 0.0, 0.001, "mittig im Platz")
+	assert_gt(shell.global_basis.z.normalized().z, 0.99, "die Fläche zeigt nach Bild-rechts")
+	assert_gt(shell.global_basis.y.normalized().y, 0.99, "der Kopf zeigt nach oben")
+	var spine := hull.find_child("Mark", true, false) as Node3D
+	assert_almost_eq(spine.global_position.y, 0.0, 0.001, "der Rücken liegt oben")
+	assert_true(hull.standing())
+
+## Der Griff hebt sie aus der Rinne und legt ihre Fläche zur Kamera - über dem Filz.
+func test_hover_presents_the_face_above_the_felt() -> void:
+	var hull := _hull(CardPack.SORT_RUNE, CardPack.SIZE_NORMAL)
+	hull.rotation.y = -PI / 2.0  # wie scene_root._spawn_hull
+	hull.stand_on(Vector3.ZERO)
+	hull._set_hover_share(CardPackView.PRESENT_RISE_SHARE)
+	var shell := hull.find_child("Shell", true, false) as Node3D
+	var length := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE
+	assert_gt(shell.global_position.y - length * 0.5, 0.0, "gehoben steht sie ganz über dem Filz")
+	hull._set_hover_share(1.0)
+	assert_gt(shell.global_basis.z.normalized().y, 0.99, "gekippt liegt die Fläche oben")
+	assert_gt(shell.global_position.y, 0.0, "über dem Filz")
+	for share in [0.6, 0.7, 0.8, 0.9]:
+		hull._set_hover_share(share)
+		var turn := shell.global_basis
+		var low := shell.global_position.y - absf(turn.y.normalized().y) * length * 0.5 \
+			- absf(turn.z.normalized().y) * hull.thickness() * PackDrawerView.CASSETTE_SCALE * 0.5
+		assert_gt(low, 0.0, "beim Kippen taucht kein Ende unter den Filz (%.1f)" % share)
+
+## Hinlegen gibt die gewohnte Liege-Lage byteweise zurück; der Grundriß kennt nur sie.
+func test_lying_down_restores_the_lying_pose() -> void:
+	var lying := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL, true)
+	lying.lie_on_glass(Vector3.ZERO)
+	var body: Node3D = lying.get_node("Body")
+	var rest := body.transform
+	var outline := lying.case_outline_local()
+	lying.stand_on(Vector3.ZERO)
+	assert_ne(body.transform, rest)
+	assert_eq(lying.case_outline_local(), outline, "der Grundriß gilt liegend, auch im Stand")
+	lying.set_standing(false)
+	assert_eq(body.transform, rest)
+
+## Die Rücken-Marke trägt die Sorte; bei der Schatulle steckt darin die Güte.
+func test_the_spine_carries_sort_and_quality() -> void:
+	var cassette := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_HUGE)
+	cassette.add_spine()
+	var mark := cassette.find_child("Mark", true, false) as MeshInstance3D
+	assert_eq(mark.material_override, cassette._edge_material, "die Sortenfarbe")
+	assert_null(cassette.find_child("Quality", true, false))
+	var case := CardPackView.new()
+	add_child_autofree(case)
+	case.setup_pack(DicePack.SORT_MIXED, CardPack.SIZE_NORMAL, true, DicePack.QUALITY_ROYAL)
+	case.add_spine()
+	var quality := case.find_child("Quality", true, false) as MeshInstance3D
+	assert_eq(quality.material_override, case.case_metal(), "die Güte als Metall")
+	assert_eq(_coplanar_spine(cassette), [] as Array[String], "keine geteilte Fläche")
+
+func _coplanar_spine(hull: CardPackView) -> Array[String]:
+	var spine := hull.find_child("Spine", true, false)
+	var hull0 := hull.find_child("Hull0", true, false)
+	for child in spine.get_children():
+		child.reparent(hull0, false)
+	return _coplanar_fights(hull)

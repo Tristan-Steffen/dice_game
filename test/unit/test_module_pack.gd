@@ -101,7 +101,7 @@ func test_buying_stores_a_copy_in_its_own_lane() -> void:
 	assert_eq(run.stored_module_packs, [stored] as Array[ModulePack])
 	assert_ne(stored, bag, "die Auslage behält ihr Angebot")
 	assert_eq(GameRun.store_lane_of(stored), GameRun.LANE_MODULES)
-	assert_eq(stored.store_slot, 0)
+	assert_same(run.stored_pack_at(GameRun.LANE_MODULES, 0), stored, "Platz 0 der Rinne")
 	assert_true(run.stored_card_packs.is_empty() and run.stored_dice_packs.is_empty())
 	assert_true(run.pending_pack_choices.is_empty(), "geöffnet wird erst im Lager")
 
@@ -112,8 +112,8 @@ func test_a_full_lane_refuses_without_booking() -> void:
 	assert_null(run.purchase_module_pack(ModulePack.make(0, 0), 1))
 	assert_eq(run.money, 500 - GameRun.STORE_CAPACITY)
 	assert_false(run.store_full(GameRun.LANE_CARDS), "die anderen Reihen bleiben frei")
-	assert_eq(run.top_stored_pack(GameRun.LANE_MODULES, 0).store_slot, GameRun.STORE_PLACES,
-		"oben liegt das siebte")
+	assert_not_null(run.stored_pack_at(GameRun.LANE_MODULES, GameRun.STORE_CAPACITY - 1),
+		"der zwölfte steht auf dem letzten Platz")
 
 func test_no_free_socket_does_not_block_buying_or_opening() -> void:
 	for key: String in DiceScoring.HAND_PRIORITY:

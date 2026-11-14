@@ -48,3 +48,6 @@ Umgesetzt wie oben, mit den Spieler-Änderungen nach der ersten Fassung:
 - **Drei Reihen**: je Grube 2 × 3 sichtbare Plätze, Kapazität 12 je Art (`STORE_CAPACITY` 12, `STORE_PLACES` 6, zwei Lagen); gestapelt wird ab dem siebten Paket (7 auf Platz 1 … 12 auf 6). Köpfe „x/12“.
 - **Rand knapp**: `EDGE_SHARE` 0,14 → 0,09; Lager 903 × 570 px (x 99,2–123,3), Gruben je 439 × 515 px. Öffnungs-Fläche unverändert (1005 × 446 px direkt darunter), `EXTRA_RIGHT` bleibt 66 px — die Breite stellt die Öffnung für zehn Würfel, nicht das Lager.
 - **Flimmern der Kassette**: Neon-Saum bündig mit den Gehäuseseiten, Stahlband (Normal) und Goldecken (Riesig) mit derselben Oberkante wie der Saum — beides z-fighting. Saum steht jetzt um `RIM_PROUD` vor, Band endet im Saum und darunter, Ecken überragen Saum und Naht. Gilt für jede Kassette, im Lager wie bei der Öffnung.
+
+## Nachtrag (2026-11-14)
+Das Lager aus drei Gruben zu 2 × 3 liegenden Plätzen mit zweiter Lage ist abgelöst durch `docs/plan_lager_rinnen.md`: drei Rinnen übereinander, die Pakete stehen hochkant, zwölf Plätze je Rinne, geöffnet rückt nach.
