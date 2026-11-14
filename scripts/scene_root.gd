@@ -1848,6 +1848,7 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.debug_energy_requested.connect(_on_debug_energy_pressed)
+		table_screen.hub.debug_packs_requested.connect(_on_debug_packs_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.test_charges_requested.connect(_on_test_charges_pressed)
@@ -16191,6 +16192,11 @@ func _on_debug_money_pressed() -> void:
 func _on_debug_energy_pressed() -> void:
 	if run != null:
 		run.add_energy(10)
+
+## Debug: jede Lager-Reihe auf 12 Pakete; die Körper stellt _sync_store_bodies hart.
+func _on_debug_packs_pressed() -> void:
+	if run != null:
+		run.debug_fill_store()
 
 ## Sichtbarkeit der Spiel-UI nach Spielzustand (false während Shop/GameOver).
 func _set_gameplay_ui_visible(is_visible: bool) -> void:

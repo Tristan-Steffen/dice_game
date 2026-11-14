@@ -15,6 +15,7 @@ signal menu_requested
 signal debug_win_round_requested
 signal debug_money_requested
 signal debug_energy_requested
+signal debug_packs_requested
 signal library_requested
 signal test_materials_requested
 signal test_engravings_requested
@@ -275,6 +276,8 @@ func _build_settings_menu(u: float) -> void:
 	# Ebenso ein Nachschlag-Knopf; der Speicherdeckel bleibt in Kraft.
 	_make_menu_button(box, "Debug: +10 ⚡", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_energy_requested.emit, true)
+	_make_menu_button(box, "Debug: Lager voll", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+		u, debug_packs_requested.emit, true)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
 	# Kein Schalter, eine Lieferung - und sie bleibt offen fürs Nachlegen.

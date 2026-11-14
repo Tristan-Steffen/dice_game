@@ -753,6 +753,20 @@ func _store_pack(pack: Resource, from_bet: bool) -> Resource:
 	store_changed.emit()
 	return stored
 
+## Debug: füllt jede Lager-Reihe mit Laden-Paketen bis STORE_CAPACITY. Liefert die Zahl.
+func debug_fill_store(rng: RandomNumberGenerator = null) -> int:
+	var added := 0
+	while not store_full(LANE_CARDS):
+		_store_pack(CardPack.roll_shop(rng), false)
+		added += 1
+	while not store_full(LANE_DICE):
+		_store_pack(DicePack.roll_shop(rng, shop_dice_pack_quality_weights()), false)
+		added += 1
+	while not store_full(LANE_MODULES):
+		_store_pack(ModulePack.roll_shop(rng, shop_module_pack_grade_weights()), false)
+		added += 1
+	return added
+
 ## Der Lagerplatz eines neuen Pakets: der niedrigste freie - erst die untere Lage
 ## (Platz 0..5), dann die obere darauf (6..11, Platz k liegt über Platz k - 6). Ein
 ## Paket behält seinen Platz, bis es geöffnet wird; nichts rückt nach.
