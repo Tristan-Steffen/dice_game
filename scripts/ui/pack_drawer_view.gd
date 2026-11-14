@@ -71,17 +71,17 @@ static func card_pack_tint(card_pack_sort: String) -> Color:
 	var pack_type := String(CardPack.SORT_TYPES.get(card_pack_sort, Pack.TYPE_NUMBER))
 	return COLORS.get(Pack.shelf_for_pack_type(pack_type), GOLD)
 
-## Die WÜRFEL-PAKETE: warmes Weiß wie die Würfel selbst, die Sorte als Akzent.
+## Die WÜRFEL-PAKETE: die Farbe ihrer BANDEROLE (Material und Runen wie ihre Karten);
+## das normale Paket trägt keine, sein neutraler Stahlton färbt nur Naht und Hover.
 const DICE_PACK_TINTS := {
-	DicePack.SORT_POWER: Color("#ff8a5c"),
-	DicePack.SORT_SERIES: Color("#7fd6ff"),
-	DicePack.SORT_SOUL: Color("#d9a2ff"),
-	DicePack.SORT_MATERIAL: Color("#ffd36b"),
-	DicePack.SORT_MIXED: Color("#f2ece0"),
+	DicePack.SORT_NORMAL: Color("#9aa6ba"),
+	DicePack.SORT_SOUL: Color("#f1e8ff"),
+	DicePack.SORT_MATERIAL: Color("#ff79c6"),
+	DicePack.SORT_RUNE: Color("#ffd319"),
 }
 
 static func dice_pack_tint(dice_pack_sort: String) -> Color:
-	return DICE_PACK_TINTS.get(dice_pack_sort, DICE_PACK_TINTS[DicePack.SORT_MIXED])
+	return DICE_PACK_TINTS.get(dice_pack_sort, DICE_PACK_TINTS[DicePack.SORT_NORMAL])
 
 static func pack_tint(pack: Pack) -> Color:
 	if pack == null:

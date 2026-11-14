@@ -52,7 +52,7 @@ const MAX_REWARD_CARDS := 4
 ## Das billigste Paket - darunter zahlt keine Wette eins.
 const CARD_PACK_MIN := 9
 ## Das billigste Würfel-Paket.
-const DICE_PACK_MIN := 12
+const DICE_PACK_MIN := 10
 ## Die GEWINN-TABELLE: Art, Gewicht und Mindestwert (Geld ohne, Ware mit ×1,25).
 const WARES := [
 	{"kind": Payout.MONEY, "weight": 20, "min": 0},
@@ -110,7 +110,7 @@ var reward_item_id: String = ""
 var reward_part_id: String = ""
 ## nur Payout.CARD_PACK/DICE_PACK: die Paket-Sorte; die Größe folgt dem Gewinnwert.
 var reward_card_pack_sort: String = CardPack.SORT_NUMBER
-var reward_dice_pack_sort: String = DicePack.SORT_MIXED
+var reward_dice_pack_sort: String = DicePack.SORT_NORMAL
 var unlock_level: int = UNLOCK_BASE
 var display_name: String = ""
 var description: String = ""
@@ -437,13 +437,15 @@ func _ware_fits(kind: int, ware: int) -> bool:
 	return true
 
 static func _pack_price(pack_sort: String, pack_size: int, dice: bool) -> int:
-	return DicePack.price_of(pack_sort, pack_size) if dice 		else CardPack.price_of(pack_sort, pack_size)
+	return DicePack.price_of(pack_sort, pack_size) if dice \
+		else CardPack.price_of(pack_sort, pack_size)
 
 ## Die Paket-Sorten, deren kleinstes Paket der Wert trägt.
 static func _affordable_pack_sorts(weights: Dictionary, ware: int, dice: bool) -> Array:
 	var out: Array = []
 	for pack_sort: String in weights:
-		if _pack_price(pack_sort, CardPack.SIZE_SMALL, dice) <= ware:
+		var smallest: int = DicePack.SIZES[0] if dice else CardPack.SIZE_SMALL
+		if _pack_price(pack_sort, smallest, dice) <= ware:
 			out.append(pack_sort)
 	out.sort()
 	return out
@@ -451,7 +453,7 @@ static func _affordable_pack_sorts(weights: Dictionary, ware: int, dice: bool) -
 static func _pick_pack_sort(weights: Dictionary, ware: int, dice: bool) -> String:
 	var sorts := _affordable_pack_sorts(weights, ware, dice)
 	if sorts.is_empty():
-		return DicePack.SORT_MIXED if dice else CardPack.SORT_NUMBER
+		return DicePack.SORT_NORMAL if dice else CardPack.SORT_NUMBER
 	var total := 0
 	for pack_sort: String in sorts:
 		total += int(weights[pack_sort])
@@ -481,7 +483,7 @@ func reward_card_pack(factor: float = 1.0) -> CardPack:
 	return _card_packs[pack_size]
 
 ## Das gewonnene WÜRFEL-PAKET: das teuerste bezahlbare Paar aus Größe und Güte
-## (gleicher Preis: die größere Größe). Je Paar einmal gebaut.
+## (gleicher Preis: mehr Augen). Je Paar einmal gebaut.
 func reward_dice_pack(factor: float = 1.0) -> DicePack:
 	if payout_kind != Payout.DICE_PACK:
 		return null
@@ -491,11 +493,11 @@ func reward_dice_pack(factor: float = 1.0) -> DicePack:
 		_card_packs[key] = DicePack.make(reward_dice_pack_sort, pair.x, pair.y)
 	return _card_packs[key]
 
-## (Größe, Güte) des teuersten Würfel-Pakets bis zu diesem Wert; keines: Klein/Standard.
+## (Augen, Güte) des teuersten Würfel-Pakets bis zu diesem Wert; keines: 2er/Standard.
 static func reward_dice_pair(pack_sort: String, value: int) -> Vector2i:
-	var best := Vector2i(CardPack.SIZE_SMALL, DicePack.QUALITY_STANDARD)
+	var best := Vector2i(DicePack.SIZES[0], DicePack.QUALITY_STANDARD)
 	var best_price := -1
-	for pack_size in CardPack.SIZES:
+	for pack_size in DicePack.SIZES:
 		for pack_quality in DicePack.QUALITIES:
 			var price := DicePack.price_of(pack_sort, pack_size, pack_quality)
 			if price <= value and price >= best_price:

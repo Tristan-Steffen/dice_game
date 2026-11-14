@@ -1,21 +1,22 @@
 class_name PackStoreView
 extends Control
 ## Das PAKET-LAGER rechts vom Chip-Tray: drei schmale RINNEN ÜBEREINANDER (Karten, Würfel,
-## Module), je ein Kopf (Name, n/12) darüber. In einer Rinne STEHEN die Pakete hochkant wie
+## Module), je ein Kopf (Name, n/8) darüber. In einer Rinne STEHEN die Pakete hochkant wie
 ## Chips im Tray - von oben liest nur ihr RÜCKEN. Rein zeichnend und meldend: die Körper
 ## stellt scene_root, die Gruben schneidet TableScreen. Die Breite folgt dem dicksten
-## Paket, die Höhe ist die des Chip-Trays daneben.
+## Paket, die Höhe ist die des Chip-Trays daneben; jede Rinne ist so hoch, wie ihr breitestes
+## Paket quer mißt (die Riesig-Schatulle macht die Würfel-Rinne höher).
 
 const GOLD := Color("#ffd36a")
 const TEXT := Color(1.25, 1.25, 1.2)
 const MUTED := Color(0.62, 0.64, 0.78)
 const LOCKED_TINT := Color(1.0, 0.45, 0.4)
 ## Plätze je Rinne (= GameRun.STORE_CAPACITY) - eine Lage, der Platz ist der Index.
-const PLACES := 12
+const PLACES := GameRun.STORE_CAPACITY
 ## Fuge zwischen zwei Rücken, in Anteilen der dicksten Paketdicke.
 const GAP_SHARE := 0.12
 ## Rand der Rinne, Rahmen und Kopf - in Anteilen der Paketbreite (quer zur Rinne).
-const EDGE_SHARE := 0.06
+const EDGE_SHARE := 0.03
 const FRAME_SHARE := 0.045
 const HEAD_SHARE := 0.2
 const FONT_SHARE := 0.66
@@ -26,6 +27,8 @@ const LANE_NAMES := ["KARTEN-PAKETE", "WÜRFEL-PAKETE", "MODUL-PAKETE"]
 ## Der RÜCKEN eines stehenden Pakets in Display-Pixeln (gemeldet von scene_root):
 ## x = dickstes Paket (längs der Rinne), y = seine kurze Seite (quer).
 var spine_px := Vector2(58, 135)
+## Je Rinne das QUER-Maß ihres breitesten Pakets (gemeldet); fehlt es, gilt spine_px.y.
+var lane_across: Array[float] = []
 var counts: Array[int] = [0, 0, 0]
 ## In der Runde gesperrt: grau, und der Kopf sagt warum.
 var locked := false
@@ -57,23 +60,34 @@ func head_px() -> float:
 func pit_width() -> float:
 	return pitch_px() * float(PLACES) + edge_px() * 2.0
 
-## So breit wie zwölf Plätze samt Rand, so hoch wie drei Köpfe und Rinnen.
+## So breit wie alle Plätze samt Rand, so hoch wie drei Köpfe und Rinnen.
 func preferred_size() -> Vector2:
 	return Vector2(pit_width() + frame_px() * 2.0, min_height())
 
-func min_height() -> float:
-	return frame_px() * 2.0 + (head_px() + spine_px.y + edge_px() * 2.0) * float(LANES)
+func across_px(lane: int) -> float:
+	return lane_across[lane] if lane >= 0 and lane < lane_across.size() else spine_px.y
 
-## Die Höhe einer Rinne: was die Fassung über Köpfe und Rahmen hinaus hat, zu gleichen Teilen.
-func pit_height() -> float:
-	var height := maxf(size.y, min_height())
-	return (height - frame_px() * 2.0) / float(LANES) - head_px()
+## Was eine Rinne mindestens braucht: ihr breitestes Paket quer plus Rand.
+func lane_need(lane: int) -> float:
+	return across_px(lane) + edge_px() * 2.0
+
+func min_height() -> float:
+	var height := frame_px() * 2.0 + head_px() * float(LANES)
+	for lane in LANES:
+		height += lane_need(lane)
+	return height
+
+## Die Höhe einer Rinne: ihr Bedarf plus ein gleicher Teil dessen, was die Fassung übrig hat.
+func pit_height(lane: int) -> float:
+	return lane_need(lane) + (maxf(size.y, min_height()) - min_height()) / float(LANES)
 
 ## Die Rinne einer Reihe in eigenen Pixeln (0 oben … 2 unten).
 func lane_pit_rect(lane: int) -> Rect2:
 	var f := frame_px()
-	var top := f + float(lane) * (head_px() + pit_height()) + head_px()
-	return Rect2(Vector2(f, top), Vector2(pit_width(), pit_height()))
+	var top := f + head_px()
+	for above in lane:
+		top += pit_height(above) + head_px()
+	return Rect2(Vector2(f, top), Vector2(pit_width(), pit_height(lane)))
 
 func lane_head_rect(lane: int) -> Rect2:
 	var pit := lane_pit_rect(lane)

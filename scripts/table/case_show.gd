@@ -2,7 +2,7 @@ class_name CaseShow
 extends Node
 ## Die LICHT- und KLANG-SHOW der Schatulle: die Grund-Würfel kommen im ruhigen Takt, danach
 ## RÜTTELT sie - und jeder Zusatz-Würfel schießt heller, höher und schneller heraus als der
-## vorige. Dazu die Töne der Güte-Enthüllung und der Risikoleiter. Die Stufen sind reine
+## vorige. Dazu die Töne der Walze. Die Stufen sind reine
 ## Funktionen; die Töne sind synthetisierte Platzhalter, eine Datei gleichen Namens unter
 ## SFX_DIR (.wav/.ogg) ersetzt sie.
 
@@ -140,15 +140,6 @@ func play_rattle(rounds: int) -> void:
 func play_shut() -> void:
 	_play("shut", SHUT_DB)
 
-## Die Güte-Anzeige springt eine Stufe weiter.
-func play_reveal_tick(tier: int) -> void:
-	_play("tick", TICK_DB, _semis(4 + 2 * tier))
-
-## Die Güte rastet ein; ein Aufstieg über die Paket-Güte bekommt den Höhepunkt.
-func play_lock(quality: int, climbed: bool) -> void:
-	_play("die", DIE_DB, _semis(3 + 2 * quality))
-	if climbed:
-		_play("climax", CLIMAX_DB)
 
 func play_reel_step(value: int, top: int) -> void:
 	_play("tick", TICK_DB + 2.0, reel_pitch(value, top))
@@ -229,7 +220,7 @@ func _synth_rattle() -> AudioStreamWAV:
 		var hum := sin(phase[0]) * share * 0.25
 		return (click * 0.5 + hum) * minf(share * 4.0, 1.0))
 
-## Ein kurzes, helles Klicken (die Güte-Anzeige, die Leiter).
+## Ein kurzes, helles Klicken (die Walze).
 func _synth_tick() -> AudioStreamWAV:
 	return _render(0.08, func(t: float) -> float:
 		return sin(TAU * 1320.0 * t) * exp(-t / 0.018) * 0.6)

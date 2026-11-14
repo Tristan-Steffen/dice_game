@@ -699,7 +699,7 @@ func purchase_module_pack(module_pack: ModulePack, price: int,
 
 signal store_changed
 ## Zwölf Plätze je Art in EINER Rinne; der Platz ist der Index (geöffnet rückt nach).
-const STORE_CAPACITY := 12
+const STORE_CAPACITY := 8
 ## Die Rinnen des Lagers, von oben nach unten.
 const LANE_CARDS := 0
 const LANE_DICE := 1
@@ -837,32 +837,32 @@ func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) 
 			out.append(card)
 	return out
 
-## Ein WÜRFEL-Paket würfelt seine drei Ketten: Zahl, Güte je Würfel, Wahlen - alles
-## gebucht in der Auswahl. Auch Neu mischen läuft hier durch.
+## Ein WÜRFEL-Paket würfelt seine zwei Ketten (Zahl, Wahlen) und die Würfel - alles
+## gebucht in der Auswahl, mit dem Glück der Güte obendrauf. Auch Neu mischen läuft hier.
 func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 	var dice_pack := choice.pack as DicePack
-	var luck := effective_luck()
+	var luck := pack_luck(dice_pack)
 	var factor := pack_luck_factor()
-	choice.base_count = maxi(DicePack.base_count(dice_pack.size) + pack_option_delta(),
-		DicePack.MIN_COUNT)
+	choice.base_count = clampi(DicePack.base_count(dice_pack.size) + pack_option_delta(),
+		DicePack.MIN_COUNT, DicePack.MAX_COUNT)
 	var count := DicePack.roll_count(choice.base_count, luck, factor, rng)
 	var souls := owned_essence_ids()
 	choice.options = []
-	choice.qualities = []
 	for i in count:
-		var die_quality := DicePack.roll_quality(dice_pack.quality, luck, rng)
 		var die := DiceOffer.roll_pack_die(dice_pack.sort, shop_tier(), charm_ids(), souls,
-			shop_soul_rule(), luck, die_quality)
+			shop_soul_rule(), luck)
 		if die != null:
 			choice.options.append(die)
-			choice.qualities.append(die_quality)
 	var ceiling := DicePack.max_picks(choice.options.size())
 	choice.base_picks = clampi(DicePack.base_picks(dice_pack.size) + pack_pick_bonus(), 1,
 		ceiling)
-	choice.picks = ceiling if choice.free_hand \
-		else DicePack.roll_picks(choice.base_picks, luck, choice.options.size(), factor, rng)
+	choice.picks = ceiling if choice.free_hand 		else DicePack.roll_picks(choice.base_picks, luck, choice.options.size(), factor, rng)
 	choice.take_all = false
 	choice.jackpot = false
+
+## Das Glück, mit dem ein Würfel-Paket öffnet: das wirkende Glück plus das seiner Güte.
+func pack_luck(dice_pack: DicePack) -> int:
+	return effective_luck() + DicePack.quality_luck(dice_pack.quality)
 
 ## Die Güte-Gewichte der Würfel-Pakete im Laden (Haken für künftige Klauseln).
 func shop_dice_pack_quality_weights() -> Array:
@@ -902,7 +902,7 @@ func can_reshuffle_pack(choice: PackChoice) -> bool:
 	return cost >= 0 and energy >= cost
 
 ## NEU MISCHEN: Karten-Pakete tauschen die Optionen (Zahl und Wahlen bleiben),
-## Würfel-Pakete würfeln ALLES neu - Zahl, Würfel, Güten, Wahlen.
+## Würfel-Pakete würfeln ALLES neu - Zahl, Würfel, Wahlen.
 func reshuffle_pack_choice(choice: PackChoice, rng: RandomNumberGenerator = null) -> bool:
 	if not can_reshuffle_pack(choice) or not pending_pack_choices.has(choice):
 		return false

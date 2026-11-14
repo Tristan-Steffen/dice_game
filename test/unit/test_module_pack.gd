@@ -113,7 +113,7 @@ func test_a_full_lane_refuses_without_booking() -> void:
 	assert_eq(run.money, 500 - GameRun.STORE_CAPACITY)
 	assert_false(run.store_full(GameRun.LANE_CARDS), "die anderen Reihen bleiben frei")
 	assert_not_null(run.stored_pack_at(GameRun.LANE_MODULES, GameRun.STORE_CAPACITY - 1),
-		"der zwölfte steht auf dem letzten Platz")
+		"der letzte steht auf dem letzten Platz")
 
 func test_no_free_socket_does_not_block_buying_or_opening() -> void:
 	for key: String in DiceScoring.HAND_PRIORITY:

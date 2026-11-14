@@ -94,6 +94,9 @@ const SLIT_MIN_WIDTH := 5.4
 const SLIT_MIN_HEIGHT := 8.0
 ## Höhe der Würfel-Bucht: der liegende Würfel samt Griff-Hub und Schacht.
 const DIE_ROOM_UNITS := 10.0
+## Luft der breitesten Schatulle quer in der Bucht.
+const CASE_ROOM := 1.06
+
 
 const FLANK_MIN_WIDTH := 14.0
 const FLANK_MIN_HEIGHT := 4.0
@@ -244,6 +247,16 @@ var data_cell_lie_px := Vector2.ZERO:
 		data_cell_lie_px = value
 		if slit_row != null and is_instance_valid(slit_row):
 			rebuild_slit_row()
+
+## Wie breit die BREITESTE Schatulle quer liegt, in Display-Pixeln (meldet scene_root):
+## daran mißt die Würfel-Bucht ihre Höhe, die Riesig-Schatulle ist breiter als eine Karte.
+var dice_case_across_px := 0.0:
+	set(value):
+		if is_equal_approx(dice_case_across_px, value):
+			return
+		dice_case_across_px = value
+		if vitrine_field != null and is_instance_valid(vitrine_field):
+			vitrine_field.custom_minimum_size = Vector2(0.0, bay_height())
 
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
@@ -433,7 +446,7 @@ func _build_layout() -> void:
 	vitrine_field.name = "VitrineField"
 	vitrine_field.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Die Hülle eines Würfel-Pakets liegt darin wie eine Kassette: so tief wie ihr Stellplatz.
-	vitrine_field.custom_minimum_size = Vector2(0.0, maxf(u * DIE_ROOM_UNITS, slit_size().y))
+	vitrine_field.custom_minimum_size = Vector2(0.0, bay_height())
 	vitrine_nets = Control.new()
 	vitrine_nets.name = "DieNets"
 	vitrine_nets.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -553,6 +566,11 @@ func slit_seats() -> Array[Dictionary]:
 	if not single_specials.is_empty() and not seats.is_empty():
 		seats[seats.size() - 1] = {"kind": KIND_SPECIAL, "index": 0}
 	return seats
+
+## Die Höhe der Würfel-Bucht: der liegende Würfel, ein Kassetten-Stellplatz und die breiteste
+## Schatulle samt Luft - das größte gewinnt.
+func bay_height() -> float:
+	return maxf(maxf(u * DIE_ROOM_UNITS, slit_size().y), dice_case_across_px * CASE_ROOM)
 
 ## Der STELLPLATZ: liegender Kartengrundriß plus Stellluft, mit einem u-Boden für
 ## ein Fenster, dem noch niemand einen Grundriß gemeldet hat.

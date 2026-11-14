@@ -12,9 +12,13 @@ Die NAHT zwischen Deckel und Boden ist ein eigenes Objekt "Naht": Godot ersetzt 
 Material durch die Sortenfarbe des Pakets.
 
 Boden und Deckel sind HOHL (Innenraum mit Samt, Material "Samt"); der Deckel hängt samt
-Augen und Lasche unter dem Leer-Objekt "Scharnier", dessen Ursprung auf der
-Scharnierachse liegt (Langseite +X, gegenüber der Schließe). Positive Drehung um
+Lasche und Banderole unter dem Leer-Objekt "Scharnier", dessen Ursprung auf
+der Scharnierachse liegt (Langseite +X, gegenüber der Schließe). Positive Drehung um
 Blender-Y öffnet ihn.
+
+EIN Modell für jedes Paket (2026-11-14): die Augen zeigt Godot als Würfelseite, die Güte als
+Lack der ganzen Box. Godot schaltet die Teile nach Paket:
+"Band*" = die BANDEROLE (Sorte, längs über Deckel, Rücken (+Y), Boden und Fuß).
 """
 import bpy, math, sys, os
 
@@ -22,17 +26,21 @@ OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "assets/models
 os.makedirs(OUT, exist_ok=True)
 
 # Spiegelt CardPackView: FOOT_ROOM 1,04 × Karte (WIDTH 1,08, HEIGHT 1,62), Höhe 3,2 × DEPTH.
-W = 1.08 * 1.04
+W0 = 1.08 * 1.04
+W = W0
 L = 1.62 * 1.04
 H = 0.1512 * 3.2
 BODY_H = H * 0.50
 GAP = H * 0.05
 LID_H = H - BODY_H - GAP
-CORNER = W * 0.16
+CORNER = W0 * 0.16
 # Der INNENRAUM (spiegelt CardPackView.CASE_WALL/CASE_FLOOR/CASE_LID_TOP).
 WALL = 0.05
 FLOOR = 0.03
 LID_TOP = 0.04
+# BANDEROLE: Stärke über der Hülle, Bandbreite.
+BAND_T = 0.012
+BAND_W = 0.3
 
 
 def reset():
@@ -136,7 +144,62 @@ def hollow(target, cut, transfer=True):
     apply_all(target)
 
 
-def build():
+def shell(name, z0, z1, rim, mask, material):
+    """Eine Haut der Stärke t über dem Gehäuse-Abschnitt z0..z1, nur innerhalb der Maske."""
+    t, boxes = mask
+    a = rounded_slab(name, (W + t * 2.0, L + t * 2.0, z1 - z0 + t), z0 - (t if z0 <= 0.0 else 0.0),
+                     material, CORNER + t, rim + t)
+    apply_all(a)
+    clip = None
+    for size, loc in boxes:
+        part = box(name + "Maske", size, loc, material)
+        if clip is None:
+            clip = part
+        else:
+            join = clip.modifiers.new("Vereint", "BOOLEAN")
+            join.operation = "UNION"
+            join.solver = "EXACT"
+            join.object = part
+            apply_all(clip)
+            bpy.data.objects.remove(part, do_unlink=True)
+    cut = a.modifiers.new("Maske", "BOOLEAN")
+    cut.operation = "INTERSECT"
+    cut.solver = "EXACT"
+    cut.object = clip
+    apply_all(a)
+    bpy.data.objects.remove(clip, do_unlink=True)
+    return a
+
+
+def skin(name, z0, z1, rim, mask, material, solid):
+    """Haut minus das volle Gehäuse: eine Schale, die der Rundung folgt."""
+    o = shell(name, z0, z1, rim, mask, material)
+    mod = o.modifiers.new("Gehaeuse", "BOOLEAN")
+    mod.operation = "DIFFERENCE"
+    mod.solver = "EXACT"
+    mod.object = solid
+    apply_all(o)
+    return o
+
+
+def skin_parts(material):
+    """Die Banderole; gibt die Teile des DECKELS zurück."""
+    band = mat("Band", (1.0, 1.0, 1.0), 0.0, 0.5)
+    body_top = BODY_H + GAP * 0.4
+    lid_low = BODY_H + GAP * 0.6
+    solid_body = rounded_slab("VollBoden", (W, L, BODY_H), 0.0, material, CORNER, H * 0.09)
+    solid_lid = rounded_slab("VollDeckel", (W, L, LID_H), BODY_H + GAP, material, CORNER, H * 0.17)
+    apply_all(solid_body)
+    apply_all(solid_lid)
+    band_mask = (BAND_T, [((BAND_W, L * 2.0, H * 4.0), (0.0, 0.0, H * 0.5))])
+    skin("Band", 0.0, body_top, H * 0.09, band_mask, band, solid_body)
+    lid = [skin("BandDeckel", lid_low, H, H * 0.17, band_mask, band, solid_lid)]
+    for o in (solid_body, solid_lid):
+        bpy.data.objects.remove(o, do_unlink=True)
+    return lid
+
+
+def build(file_name):
     reset()
     lack = mat("Lack", (0.055, 0.055, 0.07), 0.65, 0.22)
     stahl = mat("Stahl", (0.62, 0.63, 0.68), 1.0, 0.2)
@@ -148,7 +211,7 @@ def build():
     # Der Deckel wölbt sich: seine Kanten runden kräftiger als die des Bodens.
     deckel = rounded_slab("Deckel", (W, L, LID_H), BODY_H + GAP, lack, CORNER, H * 0.17)
     # Die NAHT steht über die Kante vor - von oben umläuft sie die Schatulle als Leuchtrand.
-    inset = -W * 0.03
+    inset = -W0 * 0.03
     nahtring = rounded_slab("Naht", (W - inset * 2.0, L - inset * 2.0, GAP * 1.6),
                             BODY_H - GAP * 0.3, naht, CORNER - inset, GAP * 0.4)
     # Boden, Naht und Deckel sind HOHL: der Samt liegt innen, die Würfel darin.
@@ -163,7 +226,7 @@ def build():
     face = -W * 0.5
     clasp_w = L * 0.17
     plate_h = BODY_H * 0.62
-    plate_z = BODY_H - plate_h * 0.5
+    plate_z = BODY_H - plate_h * 0.5 - 0.004  # die Oberkante nie in der Ebene des Bodens
     box("Schliesse", (0.035, clasp_w, plate_h), (face - 0.012, 0, plate_z), stahl, 0.012)
     box("SchliesseMulde", (0.02, clasp_w * 0.72, plate_h * 0.5),
         (face - 0.03, 0, plate_z - plate_h * 0.1), dunkel, 0.006)
@@ -178,19 +241,7 @@ def build():
     for i, oy in enumerate((-L * 0.3, L * 0.3)):
         cyl("ScharnierRolle%d" % i, GAP * 1.4, L * 0.16, (hinge_x + GAP * 0.4, oy, hinge_z),
             stahl, (math.pi / 2, 0, 0), 16)
-    # Fünf AUGEN auf dem Deckel (wie in der Vorlage als Kreuz), je ein Stahlring mit Mulde.
-    top = H - 0.002
-    step = W * 0.2
-    for i, (ox, oy) in enumerate(((0, 0), (step, 0), (-step, 0), (0, step), (0, -step))):
-        bpy.ops.mesh.primitive_torus_add(major_radius=W * 0.04, minor_radius=W * 0.012,
-                                         major_segments=24, minor_segments=8,
-                                         location=(ox, oy, top))
-        ring = bpy.context.active_object
-        ring.name = "Auge%d" % i
-        ring.data.materials.append(stahl)
-        bpy.ops.object.shade_smooth()
-        lid_parts.append(ring)
-        lid_parts.append(cyl("AugeMulde%d" % i, W * 0.034, 0.006, (ox, oy, top - 0.002), dunkel))
+    lid_parts += skin_parts(lack)
     # Das SCHARNIER: sein Ursprung liegt auf der Achse, alles am Deckel hängt darunter.
     hinge = bpy.data.objects.new("Scharnier", None)
     bpy.context.scene.collection.objects.link(hinge)
@@ -201,9 +252,9 @@ def build():
         part.parent = hinge
         part.matrix_world = world
     bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, "dice_case.glb"), use_selection=True,
+    bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, file_name), use_selection=True,
                               export_apply=True, export_format="GLB")
 
 
-build()
+build("dice_case.glb")
 print("FERTIG", OUT)

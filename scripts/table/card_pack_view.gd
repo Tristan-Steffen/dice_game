@@ -4,8 +4,9 @@ extends DataCellView
 ## eine DATEN-KASSETTE (Spieler-Wahl 2026-11-10): Metallgehäuse, Glasfenster mit einer
 ## leuchtenden Kartenkante je Option, Sorte = Farbe; die Größe macht sie DICKER und edler
 ## (Band, Stahlrahmen, Goldecken), der Grundriß bleibt EINER. Ein WÜRFEL-Paket ist die
-## SCHATULLE aus Blender (tools/blender_dice_case.py): Naht = Sorte, Augen auf dem Deckel =
-## GRUNDZAHL der Würfel, Metall von Schließe und Augen = GÜTE. Bewegt wird sie wie eine Karte.
+## SCHATULLE aus Blender (tools/blender_dice_case.py): die Augen ihrer Würfelseite sind die
+## Grund-Würfelzahl, die Sorte eine BANDEROLE samt Symbol, die Güte der Lack der ganzen Box
+## (Graphit, Silber, Gold). Bewegt wird sie wie eine Karte.
 ## Ein MODUL-Paket ist ein silberner ESD-BEUTEL: Siegelnaht mit Quetschrillen, darunter ein
 ## Streifen in der Farbe der Stufe, schwarzes Etikett mit Warndreieck und „ESD“, goldene
 ## Kontakte = Grund-Optionen, Reißkerbe rechts; die Größe macht ihn nur dicker.
@@ -37,20 +38,43 @@ const SEAM_HEIGHT_SHARE := 0.07
 const SEAM_Z_SHARE := 0.42
 const SEAM_PROUD := DataCellView.DEPTH * 0.03
 const CORNER_SHARE := Vector2(0.13, 0.09)
+## EIN Modell für jedes Paket: die WÜRFELSEITE trägt die Augen (2..6), nicht die Breite.
 const DICE_CASE_SCENE := "res://assets/models/hardware/dice_case.glb"
+## Die Würfelseite: Kante auf Deckel und Rücken, Abstand zur Mitte (Blender X, neben der
+## Banderole), erhaben wie das Symbol.
+const FACE_LID := 0.26
+const FACE_SPINE := 0.15
+const FACE_LID_X := -0.31
+const FACE_SPINE_X := -0.255
+const FACE_PROUD := 0.008
+const FACE_RIM := 1.16
+const PIP_SHARE := 0.2
+const PIP_STEP := 0.28
+const FACE_ALBEDO := Color(0.93, 0.91, 0.86)
+const FACE_ENERGY := 0.35
 const DICE_THICKNESS := DataCellView.DEPTH * 3.2
-const CASE_ALBEDO := Color(0.2, 0.2, 0.24)
-const CASE_GLOW := Color(0.5, 0.52, 0.6)
-const CASE_GLOW_ENERGY := 0.2
+## Der LACK je GÜTE (Standard Graphit, Edel Silber, Royal Gold). Wenig Eigenleuchten: das
+## gleichmäßige Glühen löschte die Helligkeitsstufen. Ganz fort darf es nicht - in die Rinne
+## fällt kaum Licht, und ein Metall ohne Umgebung läse sonst schwarz.
+const CASE_ALBEDOS := [Color(0.62, 0.62, 0.7), Color(0.9, 0.92, 0.97), Color(1.0, 0.78, 0.32)]
+const CASE_GLOWS := [Color(0.5, 0.52, 0.6), Color(0.8, 0.83, 0.92), Color(1.0, 0.72, 0.25)]
+const CASE_GLOW_ENERGIES := [0.12, 0.4, 0.45]
+const CASE_METALLICS := [0.2, 0.45, 0.45]
+const CASE_ROUGHNESSES := [0.55, 0.3, 0.3]
+## Die OBERFLÄCHE: feine Narbung als Normal-Map, triplanar (das Modell trägt keine UVs, auf die Verlaß ist).
+const CASE_GRAIN_SCALE := 6.0
+const CASE_GRAIN_STRENGTH := 0.35
+static var _case_grain: NoiseTexture2D
 const CASE_STEEL_ENERGY := 0.45
-## Welche Augen der Schatulle je Grundzahl stehen (Auge0 Mitte, 1/2 quer, 3/4 längs).
-const CASE_PIPS := {2: [3, 4], 3: [0, 3, 4], 4: [1, 2, 3, 4], 5: [0, 1, 2, 3, 4]}
-## Royal: dunkles Chrom mit violettem Schimmer, die Naht pulst leise.
-const ROYAL_ALBEDO := Color(0.09, 0.08, 0.12)
-const ROYAL_ENERGY := 1.0
-const ROYAL_PULSE_RATE := 2.4
-const ROYAL_PULSE_DEPTH := 0.35
-static var _dice_case_scene: PackedScene
+## Das SYMBOL der Sorte auf der Banderole, im Roh-Maß des Modells: groß auf dem Deckel,
+## klein auf dem Rücken, dunkel und eine Spur erhaben.
+const BAND_OUTER := 0.012
+const SYMBOL_LID := 0.2
+const SYMBOL_SPINE := 0.12
+const SYMBOL_PROUD := 0.006
+const SYMBOL_STROKE := 0.16
+const SYMBOL_ALBEDO := Color(0.03, 0.03, 0.04)
+static var _dice_case_scenes := {}
 ## Der ESD-BEUTEL: Dicke je Größe, Anteile der Länge, Folie mit leichtem Rosa-Stich.
 const BAG_THICKNESS := [DataCellView.DEPTH * 1.3, DataCellView.DEPTH * 1.5,
 	DataCellView.DEPTH * 1.7, DataCellView.DEPTH * 1.9]
@@ -103,12 +127,12 @@ var card_pack_sort: String = CardPack.SORT_NUMBER
 var card_pack_size: int = CardPack.SIZE_NORMAL
 ## Ein Würfel-Paket (dieselbe Hülle, andere Kennung).
 var dice_pack := false
-## Würfel-Paket: seine Güte (Metall) und die Zahl der Augen.
+## Würfel-Paket: seine Güte (der Lack der Box).
 var quality: int = DicePack.QUALITY_STANDARD
-var pips := 0
 var _case_metal: StandardMaterial3D
-var _royal_seam: StandardMaterial3D
-var _pulse_time := 0.0
+var _seam: StandardMaterial3D
+var _symbol: StandardMaterial3D
+var _face: StandardMaterial3D
 ## Augen der Würfel-Kennung: eine Würfelseite mit drei Augen.
 const PIP_SIZE := DataCellView.HEIGHT * 0.06
 const DIE_FACE_SHARE := 0.5
@@ -127,7 +151,6 @@ func setup_pack(pack_sort: String, pack_size: int, dice := false,
 	card_pack_size = pack_size
 	dice_pack = dice
 	quality = clampi(pack_quality, DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL)
-	pips = DicePack.base_count(pack_size)
 	sort = pack_sort
 	tint = PackDrawerView.dice_pack_tint(pack_sort) if dice \
 		else PackDrawerView.card_pack_tint(pack_sort)
@@ -181,11 +204,11 @@ const PRESENT_TIME := 0.36
 const PRESENT_RISE_SHARE := 0.5
 ## Luft zwischen der präsentierten Hülle und dem Filz (Welt).
 const PRESENT_AIR := 0.12
-## Die RÜCKEN-MARKE: Sortenfarbe bzw. Stufe, bei der Schatulle innen die Güte.
+## Die RÜCKEN-MARKE: Sortenfarbe bzw. Stufe; die Schatulle trägt statt ihrer die Banderole,
+## nur die normale einen schlichten neutralen Rücken.
 const SPINE_PROUD := DataCellView.DEPTH * 0.06
 const SPINE_WIDTH_SHARE := 0.62
 const SPINE_DEPTH_SHARE := 0.5
-const SPINE_CORE_SHARE := 0.3
 var _stand := 0.0
 var _stand_tween: Tween
 var _spine: Node3D
@@ -250,7 +273,7 @@ func _lying_body_transform() -> Transform3D:
 
 ## Die Rücken-Marke auf der Kopfseite: was von oben aus der Rinne liest.
 func add_spine() -> void:
-	if _spine != null or _cells.is_empty():
+	if _spine != null or _cells.is_empty() or (dice_pack and _case_model != null):
 		return
 	var width := DataCellView.WIDTH * FOOT_ROOM
 	var depth := thickness()
@@ -262,9 +285,6 @@ func add_spine() -> void:
 	# Halb in der Kopfseite versenkt: keine Fläche teilt sie mit dem Gehäuse.
 	TableProps.box(_spine, "Mark", Vector3(width * SPINE_WIDTH_SHARE, SPINE_PROUD * 2.0,
 		depth * SPINE_DEPTH_SHARE), Vector3(0.0, y, z), _edge_material)
-	if dice_pack:
-		TableProps.box(_spine, "Quality", Vector3(width * SPINE_CORE_SHARE, SPINE_PROUD * 3.0,
-			depth * SPINE_DEPTH_SHARE * 0.5), Vector3(0.0, y, z), case_metal())
 
 ## Der Moment des Aufbrechens: das Siegel lodert, dann zerfällt die Hülle.
 func burst() -> void:
@@ -620,9 +640,21 @@ func _apply_torn() -> void:
 
 ## Das Blender-Modell der Schatulle (null = kein Import, dann bleibt die alte Hülle).
 static func dice_case_model() -> PackedScene:
-	if _dice_case_scene == null and ResourceLoader.exists(DICE_CASE_SCENE):
-		_dice_case_scene = load(DICE_CASE_SCENE) as PackedScene
-	return _dice_case_scene
+	if not _dice_case_scenes.has(DICE_CASE_SCENE) and ResourceLoader.exists(DICE_CASE_SCENE):
+		_dice_case_scenes[DICE_CASE_SCENE] = load(DICE_CASE_SCENE) as PackedScene
+	return _dice_case_scenes.get(DICE_CASE_SCENE) as PackedScene
+
+## Was die Schatulle QUER mißt (Roh-Maß) - daran messen Rinne, Laden-Bucht und Öffnungs-Fläche.
+static func max_case_across() -> float:
+	return DataCellView.WIDTH * FOOT_ROOM
+
+## Die Augen der Würfelseite: die Grund-Würfelzahl des Pakets.
+static func case_pips(pack_size: int) -> int:
+	return DicePack.base_count(pack_size)
+
+## Trägt diese Hülle eine Banderole (Seele, Material, Runen)?
+func has_band() -> bool:
+	return dice_pack and _case_model != null and card_pack_sort != DicePack.SORT_NORMAL
 
 func _build_dice_case() -> Node3D:
 	var scene := dice_case_model()
@@ -636,18 +668,26 @@ func _build_dice_case() -> Node3D:
 	model.rotation_degrees = Vector3(90.0, 0.0, 0.0)
 	model.position = Vector3(0.0, 0.0, -DataCellView.DEPTH * 0.5)
 	cell.add_child(model)
-	# Der Tisch ist zu dunkel für den Lack des Modells: Gehäuse und Metall tragen die
-	# Materialien der Kassette, die Naht die Sortenfarbe.
-	_shell_material.albedo_color = CASE_ALBEDO
-	_shell_material.metallic = 0.35
-	_shell_material.roughness = 0.28
-	_shell_material.emission = CASE_GLOW
-	_shell_material.emission_energy_multiplier = CASE_GLOW_ENERGY
-	var metal := case_metal()
+	# Der Tisch ist zu dunkel für den Lack des Modells: Gehäuse und Metall tragen eigene
+	# Materialien, die Naht einen neutralen Stahlton, die Banderole die Sortenfarbe.
+	_shell_material.albedo_color = CASE_ALBEDOS[quality]
+	_shell_material.metallic = CASE_METALLICS[quality]
+	_shell_material.roughness = CASE_ROUGHNESSES[quality]
+	_shell_material.emission = CASE_GLOWS[quality]
+	_shell_material.emission_energy_multiplier = CASE_GLOW_ENERGIES[quality]
+	_shell_material.normal_enabled = true
+	_shell_material.normal_texture = case_grain()
+	_shell_material.normal_scale = CASE_GRAIN_STRENGTH
+	_shell_material.uv1_triplanar = true
+	_shell_material.uv1_scale = Vector3.ONE * CASE_GRAIN_SCALE
+	var banded := card_pack_sort != DicePack.SORT_NORMAL
 	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var part := String(mesh.name)
-		if part.begins_with("Naht"):
+		if part.begins_with("Band"):
+			mesh.material_override = _edge_material
+			mesh.visible = banded
+		elif part.begins_with("Naht"):
 			mesh.material_override = _seam_material()
 		elif part.begins_with("Deckel") or part.begins_with("Boden"):
 			# Außen Lack, innen der Samt - je Fläche nach ihrem Blender-Material.
@@ -656,65 +696,186 @@ func _build_dice_case() -> Node3D:
 				var velvet := source != null and source.resource_name.begins_with("Samt")
 				mesh.set_surface_override_material(i,
 					_velvet_material() if velvet else _shell_material)
-		elif part != "SchliesseMulde" and not part.begins_with("AugeMulde"):
-			mesh.material_override = metal
+		elif part != "SchliesseMulde":
+			mesh.material_override = case_metal()
 	if _cells.is_empty():
 		_case_model = model
 		_hinge = model.find_child("Scharnier", true, false) as Node3D
 		if _hinge != null:
 			_hinge_rest = _hinge.transform
 			_apply_lid()
-	_show_pips(model)
-	set_process(_royal_seam != null)
+		if banded:
+			_build_symbols(model)
+		_build_die_faces(model)
 	return cell
 
-## Das Metall der Güte: Stahl, Gold oder dunkles Royal-Chrom mit violettem Schimmer.
+## Die Narbung des Lacks - EINE geteilte Textur für alle Schatullen.
+static func case_grain() -> NoiseTexture2D:
+	if _case_grain == null:
+		var noise := FastNoiseLite.new()
+		noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		noise.frequency = 0.08
+		_case_grain = NoiseTexture2D.new()
+		_case_grain.width = 256
+		_case_grain.height = 256
+		_case_grain.seamless = true
+		_case_grain.as_normal_map = true
+		_case_grain.bump_strength = 4.0
+		_case_grain.noise = noise
+	return _case_grain
+
+## Das Metall von Schließe, Lasche und Scharnier: Stahl, für jede Güte gleich.
 func case_metal() -> StandardMaterial3D:
-	if _case_metal != null:
-		return _case_metal
-	match quality:
-		DicePack.QUALITY_FINE:
-			_case_metal = _gold_material
-		DicePack.QUALITY_ROYAL:
-			_case_metal = _metal(ROYAL_ALBEDO, DicePack.quality_tint(DicePack.QUALITY_ROYAL), ROYAL_ENERGY)
-			_case_metal.roughness = 0.12
-		_:
-			_case_metal = _metal(Color(0.62, 0.64, 0.7), Color(0.62, 0.64, 0.7), CASE_STEEL_ENERGY)
+	if _case_metal == null:
+		_case_metal = _metal(Color(0.62, 0.64, 0.7), Color(0.62, 0.64, 0.7), CASE_STEEL_ENERGY)
 	return _case_metal
 
-## Die Naht: Royal bekommt eine eigene, pulsende - die geteilte Kante gehört Hover und Flare.
+## Die Naht: mit Banderole ein fester Stahlton, ohne trägt sie selbst Hover und Flare.
 func _seam_material() -> StandardMaterial3D:
-	if quality != DicePack.QUALITY_ROYAL:
+	if card_pack_sort == DicePack.SORT_NORMAL:
 		return _edge_material
-	if _royal_seam == null:
-		_royal_seam = _edge_material.duplicate() as StandardMaterial3D
-	return _royal_seam
+	if _seam == null:
+		_seam = _lit_material(PackDrawerView.dice_pack_tint(DicePack.SORT_NORMAL))
+		_seam.emission_energy_multiplier = EDGE_REST_ENERGY
+		_seam.render_priority = _prio(PRIORITY_FRAME)
+	return _seam
 
-## Die Grundzahl auf dem Deckel (2-5) - eine Auswahl mit Beigabe setzt sie nach.
-func set_pips(count: int) -> void:
-	pips = clampi(count, 2, 5)
-	if _case_model != null and is_instance_valid(_case_model):
-		_show_pips(_case_model)
+# --- Das SYMBOL der Sorte auf der Banderole -----------------------------------------
+# Gebaut im Raum des Modells (glTF: Blender (x, y, z) liegt als (x, z, -y)); ein Symbol-Knoten
+# hat lokal X quer, Y = Flächennormale, -Z = "oben" der Figur; SYMBOL_TURN stellt "oben" quer
+# zur Banderole (Blender X): so steht das Zeichen im Laden wie in der Rinne aufrecht.
+const SYMBOL_TURN := Basis(Vector3(0.0, 0.0, 1.0), Vector3.UP, Vector3(-1.0, 0.0, 0.0))
 
-func shown_pips() -> int:
-	return pips
+func _build_symbols(model: Node3D) -> void:
+	var lid := Node3D.new()
+	lid.name = "SymbolDeckel"
+	var lid_at := Transform3D(SYMBOL_TURN, Vector3(0.0, DICE_THICKNESS + BAND_OUTER, 0.0))
+	if has_lid():
+		_hinge.add_child(lid)
+		lid.transform = _hinge_rest.affine_inverse() * lid_at
+	else:
+		model.add_child(lid)
+		lid.transform = lid_at
+	_draw_symbol(lid, SYMBOL_LID)
+	var spine := Node3D.new()
+	spine.name = "SymbolRuecken"
+	model.add_child(spine)
+	# Auf der Bodenhälfte des Rückens (+Y in Blender = -Z im Modell), mittig ihrer flachen Fläche.
+	var end := DataCellView.HEIGHT * FOOT_ROOM * 0.5 + BAND_OUTER
+	spine.transform = Transform3D(Basis(Vector3.RIGHT, Vector3(0.0, 0.0, -1.0), Vector3.UP)
+		* SYMBOL_TURN, Vector3(0.0, DICE_THICKNESS * 0.25, -end))
+	_draw_symbol(spine, SYMBOL_SPINE)
 
-func _show_pips(model: Node3D) -> void:
-	var shown: Array = CASE_PIPS[clampi(pips, 2, 5)]
-	for mesh: MeshInstance3D in model.find_children("Auge*", "MeshInstance3D", true, false):
-		var part := String(mesh.name)
-		var index := part.trim_prefix("AugeMulde") if part.begins_with("AugeMulde") \
-			else part.trim_prefix("Auge")
-		if index.is_valid_int():
-			mesh.visible = int(index) in shown
+func _draw_symbol(host: Node3D, size: float) -> void:
+	var stroke := size * SYMBOL_STROKE
+	match card_pack_sort:
+		DicePack.SORT_SOUL:
+			var gem := _symbol_box(host, "Raute", Vector2(size * 0.62, size * 0.62), Vector2.ZERO)
+			gem.rotation.y = PI * 0.25
+		DicePack.SORT_MATERIAL:
+			var tile := size * 0.42
+			var i := 0
+			for sx: float in [-1.0, 1.0]:
+				for sy: float in [-1.0, 1.0]:
+					_symbol_box(host, "Kachel%d" % i, Vector2(tile, tile),
+						Vector2(sx, sy) * (tile * 0.5 + stroke * 0.3))
+					i += 1
+		DicePack.SORT_RUNE:
+			# Algiz: der Stamm und zwei Arme, die aus der Mitte nach oben auseinanderlaufen.
+			_symbol_box(host, "Stamm", Vector2(stroke, size), Vector2.ZERO)
+			var arm := size * 0.5
+			for side: float in [-1.0, 1.0]:
+				var branch := _symbol_box(host, "Arm%d" % int(side), Vector2(stroke, arm),
+					Vector2(side * arm * 0.5 * sin(PI / 5.0), arm * 0.5 * cos(PI / 5.0)))
+				branch.rotation.y = -side * PI / 5.0
 
-func _process(delta: float) -> void:
-	if _royal_seam == null:
-		set_process(false)
-		return
-	_pulse_time += delta
-	_royal_seam.emission_energy_multiplier = edge_rest_energy() \
-		* (1.0 + ROYAL_PULSE_DEPTH * sin(_pulse_time * ROYAL_PULSE_RATE))
+# --- Die WÜRFELSEITE der Größe ------------------------------------------------------
+# Neben der Banderole (Blender -X, die Seite der Schließe): groß auf dem Deckel, klein auf der
+# Bodenhälfte des Rückens. Ein Knoten hat lokal Y = Flächennormale, X und Z in der Fläche.
+
+func _build_die_faces(model: Node3D) -> void:
+	var lid := Node3D.new()
+	lid.name = "SeiteDeckel"
+	var lid_at := Transform3D(Basis.IDENTITY, Vector3(FACE_LID_X, DICE_THICKNESS, 0.0))
+	if has_lid():
+		_hinge.add_child(lid)
+		lid.transform = _hinge_rest.affine_inverse() * lid_at
+	else:
+		model.add_child(lid)
+		lid.transform = lid_at
+	_draw_die_face(lid, FACE_LID)
+	var spine := Node3D.new()
+	spine.name = "SeiteRuecken"
+	model.add_child(spine)
+	spine.transform = Transform3D(Basis(Vector3.RIGHT, Vector3(0.0, 0.0, -1.0), Vector3.UP),
+		Vector3(FACE_SPINE_X, DICE_THICKNESS * 0.25, -DataCellView.HEIGHT * FOOT_ROOM * 0.5))
+	_draw_die_face(spine, FACE_SPINE)
+
+## Eine Würfelseite: helle Platte mit dunklem Rand, darauf runde dunkle Augen im Klassik-Muster.
+func _draw_die_face(host: Node3D, side: float) -> void:
+	# Ein dunkler Rand trennt die helle Platte vom Silber.
+	TableProps.box(host, "Rand", Vector3(side * FACE_RIM, FACE_PROUD * 0.8, side * FACE_RIM),
+		Vector3(0.0, FACE_PROUD * 0.1, 0.0), _symbol_material())
+	TableProps.box(host, "Platte", Vector3(side, FACE_PROUD, side),
+		Vector3(0.0, FACE_PROUD * 0.3, 0.0), _face_material())
+	var step := side * PIP_STEP
+	var spots := pip_spots(case_pips(card_pack_size))
+	var pip := CylinderMesh.new()
+	pip.top_radius = side * PIP_SHARE * 0.5
+	pip.bottom_radius = pip.top_radius
+	pip.height = FACE_PROUD * 0.5
+	pip.radial_segments = 16
+	pip.rings = 1
+	for i in spots.size():
+		var mesh := MeshInstance3D.new()
+		mesh.name = "Auge%d" % i
+		mesh.mesh = pip
+		mesh.material_override = _symbol_material()
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mesh.position = Vector3(spots[i].x * step, FACE_PROUD * 0.8, spots[i].y * step)
+		host.add_child(mesh)
+
+## Die Augen-Plätze (Einheit = PIP_STEP): 2 und 3 diagonal, 4 Ecken, 5 dazu die Mitte, 6 zwei Reihen.
+static func pip_spots(pips: int) -> Array[Vector2]:
+	var spots: Array[Vector2] = []
+	match pips:
+		2:
+			spots = [Vector2(-1, -1), Vector2(1, 1)]
+		3:
+			spots = [Vector2(-1, -1), Vector2.ZERO, Vector2(1, 1)]
+		4, 5:
+			spots = [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]
+			if pips == 5:
+				spots.append(Vector2.ZERO)
+		_:
+			for column: float in [-1.0, 1.0]:
+				for row: float in [-1.0, 0.0, 1.0]:
+					spots.append(Vector2(column, row))
+	return spots
+
+func _face_material() -> StandardMaterial3D:
+	if _face == null:
+		_face = StandardMaterial3D.new()
+		_face.albedo_color = FACE_ALBEDO
+		_face.roughness = 0.4
+		_face.emission_enabled = true
+		_face.emission = FACE_ALBEDO
+		_face.emission_energy_multiplier = FACE_ENERGY
+	return _face
+
+## Eine flache Figur-Box: center in (quer, oben), ihre Unterseite eine Spur IN der Banderole.
+func _symbol_box(host: Node3D, box_name: String, extent: Vector2,
+		center: Vector2) -> MeshInstance3D:
+	return TableProps.box(host, box_name, Vector3(extent.x, SYMBOL_PROUD, extent.y),
+		Vector3(center.x, SYMBOL_PROUD * 0.3, -center.y), _symbol_material())
+
+func _symbol_material() -> StandardMaterial3D:
+	if _symbol == null:
+		_symbol = StandardMaterial3D.new()
+		_symbol.albedo_color = SYMBOL_ALBEDO
+		_symbol.roughness = 0.5
+		_symbol.render_priority = _prio(PRIORITY_NET)
+	return _symbol
 
 func _velvet_material() -> StandardMaterial3D:
 	if _velvet == null:
