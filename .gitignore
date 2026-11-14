@@ -21,3 +21,5 @@ tools/.imagegen_state.json
 
 # Lokale Claude-Code-Arbeitsverzeichnisse
 .claude/worktrees/
+# Zaehlerstand des Soundgenerators (tools/sfxgen.py)
+tools/.sfxgen_state.json

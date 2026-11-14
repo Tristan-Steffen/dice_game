@@ -792,8 +792,13 @@ func _row_reach() -> float:
 func _zone_reach(zone: int) -> float:
 	if single_row:
 		return _row_reach()
-	# In der Schale des Ladens liegen Würfel-PAKETE - ihr Loch mißt an der Hülle.
-	return shelf_reach() if zone == ZONE_SHELF else _row_reach()
+	# In der Schale des Ladens liegen Würfel-PAKETE - ihr Loch mißt an der breitesten Hülle.
+	return shelf_reach() if zone == ZONE_SHELF else maxf(_row_reach(), case_reach())
+
+## Wie weit die breiteste Schatulle (Riesig) quer liegend nach vorn und hinten reicht.
+static func case_reach() -> float:
+	return CardPackView.max_case_across() * PackDrawerView.CASSETTE_SCALE * 0.5
+
 
 ## Wie weit eine liegende Kassette bzw. das höchste Stück der Schale von seiner
 ## Mitte aus nach vorn und hinten reicht - daran messen sich die beiden Bänder.

@@ -14,9 +14,7 @@ var pack: Resource = null
 ## Je Option eine Karte (Pack), ein Würfel (DieDefinition) oder ein Modul (ComboPart).
 var options: Array = []
 var picks: int = 1
-## Nur Würfel-Pakete: je Option ihre Güte (parallel zu options) und die Grundzahlen,
-## von denen die Ketten ausgingen (Anzeige: Augen, Leiter).
-var qualities: Array[int] = []
+## Nur Würfel-Pakete: die Grundzahlen, von denen die Ketten ausgingen (Anzeige: Leiter).
 var base_count: int = 0
 var base_picks: int = 0
 ## Freie Hand galt beim Öffnen (Würfel: Wahlen = Zahl - 1, auch nach Neu mischen).
@@ -48,6 +46,7 @@ var display_name: String:
 			return (pack as ModulePack).display_name
 		return "Paket"
 
+## Karten-/Modul-Paket: die Größe 0..3; Würfel-Paket: seine Augen 2..6.
 var size: int:
 	get:
 		if pack is CardPack:
@@ -62,11 +61,6 @@ var size: int:
 var quality: int:
 	get:
 		return (pack as DicePack).quality if pack is DicePack else DicePack.QUALITY_STANDARD
-
-## Die Güte der Option i (Karten und Fehlendes: Standard).
-func quality_of(index: int) -> int:
-	return qualities[index] if index >= 0 and index < qualities.size() \
-		else DicePack.QUALITY_STANDARD
 
 ## Ob diese Auswahl gültig ist: verschiedene, vorhandene Optionen, höchstens picks.
 func valid_selection(indices: Array) -> bool:
