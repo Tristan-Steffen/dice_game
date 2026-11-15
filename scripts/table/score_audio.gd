@@ -1,7 +1,8 @@
 class_name ScoreAudio
 extends Node
-## Klang der Wertungs-Zeremonie: Punkt-Tick, Mult-Puls, Krit, Aufladen und
-## Einschlag. Platzhalter-Töne werden beim Start synthetisiert; liegt unter
+## Klang der Wertungs-Zeremonie: Punkt-Tick, Mult-Puls, Krit, Aufladen, Einschlag,
+## das Steigen des Balkens und der Moment, in dem er eine Schwelle durchbricht.
+## Platzhalter-Töne werden beim Start synthetisiert; liegt unter
 ## SFX_DIR eine Datei gleichen Namens (.wav/.ogg), ersetzt sie den Ton.
 ## Nicht positionsgebunden: Wertung ist Anzeige, kein Ort im Raum.
 ## Der Bus samt Hall und Limiter steht in default_bus_layout.tres.
@@ -21,11 +22,14 @@ const CRIT_DB := -5.0
 const RISER_DB := -12.0
 const SLAM_DB := -3.0
 const TOTAL_DB := -8.0
+const CLIMB_DB := -13.0
+const GOAL_DB := -3.0
 
 var _streams := {}
 var _playback: AudioStreamPlaybackPolyphonic
 var _base_step := 0
 var _mult_step := 0
+var _climb_step := -1
 var _last_tick_ms := {}
 
 func _ready() -> void:
@@ -37,6 +41,7 @@ func _ready() -> void:
 		"riser": _load_or(&"riser", _synth_riser.bind(riser_len)),
 		"slam": _load_or(&"slam", _synth_slam.bind(false)),
 		"slam_goal": _load_or(&"slam_goal", _synth_slam.bind(true)),
+		"climb": _load_or(&"climb", _synth_climb),
 	}
 	var poly := AudioStreamPolyphonic.new()
 	poly.polyphony = 24
@@ -67,8 +72,25 @@ func on_crit() -> void:
 func on_merge_started() -> void:
 	_play("riser", RISER_DB)
 
-func on_total_slammed(clears_goal: bool) -> void:
-	_play("slam_goal" if clears_goal else "slam", SLAM_DB)
+## Der Einschlag klingt immer gleich - ob er das Ziel schafft, sagt erst der Balken.
+func on_total_slammed(_clears_goal: bool) -> void:
+	_play("slam", SLAM_DB)
+
+## Der Balken beginnt zu steigen: die Stufenleiter fängt unten an.
+func begin_climb() -> void:
+	_climb_step = -1
+
+## Fortschritt des Steigens 0..1: je Leiterstufe EIN Ton, nach oben gestimmt.
+func on_climb(progress: float) -> void:
+	var step := mini(int(clampf(progress, 0.0, 1.0) * LADDER.size()), LADDER.size() - 1)
+	if step <= _climb_step:
+		return
+	_climb_step = step
+	_play("climb", CLIMB_DB, _ladder_pitch(step))
+
+## Der steigende Balken durchbricht eine Schwelle (Blind oder Überladungs-Stufe).
+func on_goal_reached() -> void:
+	_play("slam_goal", GOAL_DB)
 
 ## Nach-Schritte auf der Summe: der Tick eine Oktave über dem aktuellen Leiterstand.
 func on_total_raised() -> void:
@@ -139,6 +161,13 @@ func _synth_riser(length: float) -> AudioStreamWAV:
 		phase[0] += TAU * freq / MIX_RATE
 		var trem := 0.75 + 0.25 * sin(TAU * lerpf(6.0, 22.0, p) * t)
 		return (sin(phase[0]) + 0.3 * sin(2.0 * phase[0])) * p * p * trem * 0.5)
+
+## Steigen: ein weicher, kurzer Ton auf G4 mit einer Prise Oktave.
+func _synth_climb() -> AudioStreamWAV:
+	var f := 392.0  # G4
+	return _render(0.16, func(t: float) -> float:
+		var env := _attack(t, 0.004) * exp(-t / 0.05)
+		return env * (sin(TAU * f * t) + 0.3 * sin(TAU * f * 2.0 * t)) * 0.5)
 
 ## Einschlag: tiefer Schlag plus Dur-Akkord; mit Ziel zusätzlich hoher Glanz.
 func _synth_slam(clears_goal: bool) -> AudioStreamWAV:

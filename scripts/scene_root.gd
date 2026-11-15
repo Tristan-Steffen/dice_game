@@ -14448,6 +14448,7 @@ func _drain_total_to_goal(from_points: int, to_points: int) -> void:
 	bounds.append_array(thresholds)
 	bounds.append(to_points)
 	table_screen.begin_total_drain(duration)
+	score_audio.begin_climb()
 	var drain := create_tween()
 	var done := 0
 	for i in range(bounds.size() - 1):
@@ -14460,8 +14461,15 @@ func _drain_total_to_goal(from_points: int, to_points: int) -> void:
 		var frac_to := float(done) / float(span)
 		drain.tween_method(func(t: float) -> void:
 			_set_displayed_points(int(round(lerpf(float(seg_from), float(seg_to), t))))
-			table_screen.set_total_drain(lerpf(frac_from, frac_to, t)),
+			table_screen.set_total_drain(lerpf(frac_from, frac_to, t))
+			if phase == Phase.SCORING:
+				score_audio.on_climb(lerpf(frac_from, frac_to, t)),
 			0.0, 1.0, seg_dur)
+		# bounds[i + 1] ist hier eine Schwelle: der Ziel-Klang fällt, wenn der Balken sie erreicht.
+		if i < thresholds.size():
+			drain.tween_callback(func() -> void:
+				if phase == Phase.SCORING:
+					score_audio.on_goal_reached())
 		if i < bounds.size() - 2:  # an jeder Schwelle (nicht am Ende) kurz halten
 			drain.tween_interval(DRAIN_HOLD)
 	drain.tween_callback(table_screen.finish_total_drain)
