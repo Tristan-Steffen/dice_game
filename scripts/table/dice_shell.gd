@@ -127,6 +127,8 @@ var ghosts: Array[Node3D] = []  # Taumel-Würfel (Wurzelknoten, Kinder von self)
 ## Bahn je Taumel-Würfel (index-parallel zu ghosts): radius, speed, phase,
 ## bob_phase, prev_anchor.
 var _orbits: Array[Dictionary] = []
+const POOL_SIZE := 6
+var _spare: Array[Node3D] = []  # geparkte Taumel-Würfel zur Wiederverwendung
 var _orbit_t := 0.0             # gemeinsame Bahn-Zeit (das Tempo pulst darauf)
 var _phase_offset := 0.0        # Drehlage des ganzen Schwarms, je Mischung neu gewürfelt
 ## Drehsinn des Schwarms und Diagonale des Schlags, je Mischung neu: feste legten
@@ -178,6 +180,7 @@ func _ready() -> void:
 	_click_zone.add_child(zone_shape)
 	shell_root.add_child(_click_zone)
 	_prev_shell_pos = shell_root.global_position
+	_prewarm()
 
 ## Der Griff lebt nur, solange etwas zu sehen ist: ohne Taumel-Würfel gibt es
 ## nichts zu packen - geworfen wird am Würfeln-Knopf.
@@ -243,9 +246,7 @@ func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 		_phase_offset = randf() * TAU
 		_orbit_sign = 1.0 if randf() < 0.5 else -1.0
 		_stroke_mirror = Vector3(1.0 if randf() < 0.5 else -1.0, 1.0, 1.0)
-	var die := DieBuilder.build()
-	add_child(die)
-	ScreenReflection.mark_reflective(die)
+	var die := _take_die()
 	ghosts.append(die)
 	var slot := ghosts.size() - 1
 	var spread := TAU * float(slot) / 6.0
@@ -259,9 +260,54 @@ func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 	})
 
 	var body: RigidBody3D = die.get_node("RigidBody3D")
+	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
+	faces.apply_definition(def)
+	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+
+	body.transform = Transform3D.IDENTITY
+	body.linear_velocity = Vector3.ZERO
+	body.global_position = world_pos
+	# Fester Taumel: die Drehachse wandert mit dem Bahn-Platz um den Kreis.
+	body.angular_velocity = Vector3(cos(spread), 0.7 * _orbit_sign, sin(spread)).normalized() * TUMBLE_RATE
+	_sync_zone()
+
+func clear_ghosts() -> void:
+	for die in ghosts:
+		if die != null and is_instance_valid(die):
+			_park_die(die)
+	ghosts.clear()
+	_orbits.clear()
+	_sync_zone()
+
+## Sechs Neubauten im Ankunfts-Bild kosteten gemessen ~28 ms - der Ruckler vor
+## dem Mischen. Darum vorgebaut (einer je Bild) und danach nur wiederverwendet.
+func _prewarm() -> void:
+	while _spare.size() + ghosts.size() < POOL_SIZE:
+		await get_tree().process_frame
+		if not is_inside_tree():
+			return
+		if _spare.size() + ghosts.size() < POOL_SIZE:
+			_park_die(_build_tumble_die())
+
+func _take_die() -> Node3D:
+	var die: Node3D = _spare.pop_back() if not _spare.is_empty() else _build_tumble_die()
+	die.process_mode = Node.PROCESS_MODE_INHERIT
+	die.visible = true
+	return die
+
+## Geparkt ist er unsichtbar und aus der Physik genommen (DISABLED entfernt den Körper).
+func _park_die(die: Node3D) -> void:
+	die.visible = false
+	die.process_mode = Node.PROCESS_MODE_DISABLED
+	_spare.append(die)
+
+func _build_tumble_die() -> Node3D:
+	var die := DieBuilder.build()
+	add_child(die)
+	ScreenReflection.mark_reflective(die)
+	var body: RigidBody3D = die.get_node("RigidBody3D")
 	# Kollisionsfrei nach ALLEN Seiten: die Feder hält jeden Würfel auf seiner
-	# Bahn, Rempler wären Rauschen in der Choreographie - und liegen gebliebene
-	# echte Würfel in der Grube gehen den Wirbel nichts an.
+	# Bahn, Rempler wären Rauschen in der Choreographie.
 	body.collision_layer = 0
 	body.collision_mask = 0
 	body.gravity_scale = 0.0  # die Bahn trägt - Schwerkraft zöge den Kessel schief
@@ -271,23 +317,9 @@ func capture_die(def: DieDefinition, world_pos: Vector3) -> void:
 	shape.size = Vector3.ONE * DieBuilder.HALF_EXTENT * 2.0 * GHOST_SCALE
 	var faces: DieFaceDisplay = die.get_node("RigidBody3D/Faces")
 	faces.scale = Vector3.ONE * GHOST_SCALE
-	# Die Taumel-Würfel kreisen über der Grube - eine Lache am Grubenboden
-	# hätte keinen Bezug und würde unter dem Wirbel flackern.
+	# Eine Lache am Grubenboden hätte unter dem Wirbel keinen Bezug.
 	faces.set_pool_enabled(false)
-	faces.apply_definition(def)
-	faces.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
-
-	body.global_position = world_pos
-	# Fester Taumel: die Drehachse wandert mit dem Bahn-Platz um den Kreis.
-	body.angular_velocity = Vector3(cos(spread), 0.7 * _orbit_sign, sin(spread)).normalized() * TUMBLE_RATE
-	_sync_zone()
-
-func clear_ghosts() -> void:
-	for die in ghosts:
-		die.queue_free()
-	ghosts.clear()
-	_orbits.clear()
-	_sync_zone()
+	return die
 
 func has_ghosts() -> bool:
 	return not ghosts.is_empty()

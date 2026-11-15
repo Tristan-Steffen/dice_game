@@ -205,11 +205,15 @@ static func copper() -> DieMaterial:
 static func all() -> Array[DieMaterial]:
 	return [ruby(), amber(), gold(), bone(), glass(), copper()]
 
+## Einmal gebaut: der Katalog-Neubau je Abfrage kostete ~30× pro apply_definition
+## und war der halbe Ruckler beim Würfeln. Die Records sind schreibgeschützt.
+static var _by_id := {}
+
 static func by_id(material_id: String) -> DieMaterial:
-	for material in all():
-		if material.id == material_id:
-			return material
-	return null
+	if _by_id.is_empty():
+		for material in all():
+			_by_id[material.id] = material
+	return _by_id.get(material_id)
 
 static func is_valid_id(material_id: String) -> bool:
 	return by_id(material_id) != null
