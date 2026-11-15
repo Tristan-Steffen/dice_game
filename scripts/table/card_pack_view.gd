@@ -42,29 +42,42 @@ const CORNER_SHARE := Vector2(0.13, 0.09)
 const DICE_CASE_SCENE := "res://assets/models/hardware/dice_case.glb"
 ## Die Würfelseite: Kante auf Deckel und Rücken, Abstand zur Mitte (Blender X, neben der
 ## Banderole), erhaben wie das Symbol.
+## Der Rücken trägt die Seite so groß, wie die Bodenhälfte es zuläßt: sie ist das größte Zeichen.
 const FACE_LID := 0.26
-const FACE_SPINE := 0.15
+const FACE_SPINE := 0.19
 const FACE_LID_X := -0.31
-const FACE_SPINE_X := -0.255
+const FACE_SPINE_X := -0.275
 const FACE_PROUD := 0.008
-const FACE_RIM := 1.16
-const PIP_SHARE := 0.2
+const FACE_RIM := 1.12
+const PIP_SHARE := 0.24
 const PIP_STEP := 0.28
-const FACE_ALBEDO := Color(0.93, 0.91, 0.86)
-const FACE_ENERGY := 0.35
+## Schwarze Platte, weiß leuchtende Augen: die Zahl liest auf jedem Lack gleich hell.
+const FACE_ALBEDO := Color(0.03, 0.03, 0.04)
+const PIP_ALBEDO := Color(1.0, 0.98, 0.94)
+const PIP_ENERGY := 1.4
 const DICE_THICKNESS := DataCellView.DEPTH * 3.2
-## Der LACK je GÜTE (Standard Graphit, Edel Silber, Royal Gold). Wenig Eigenleuchten: das
-## gleichmäßige Glühen löschte die Helligkeitsstufen. Ganz fort darf es nicht - in die Rinne
-## fällt kaum Licht, und ein Metall ohne Umgebung läse sonst schwarz.
-const CASE_ALBEDOS := [Color(0.62, 0.62, 0.7), Color(0.9, 0.92, 0.97), Color(1.0, 0.78, 0.32)]
-const CASE_GLOWS := [Color(0.5, 0.52, 0.6), Color(0.8, 0.83, 0.92), Color(1.0, 0.72, 0.25)]
-const CASE_GLOW_ENERGIES := [0.12, 0.4, 0.45]
-const CASE_METALLICS := [0.2, 0.45, 0.45]
-const CASE_ROUGHNESSES := [0.55, 0.3, 0.3]
+## Die GÜTE ist das VERHALTEN im Licht, nicht nur die Farbe: Standard mattes Graphit,
+## Edel poliertes Chrom, Royal Gold - und nur Royal leuchtet selbst. Ein Rest Eigenlicht
+## bleibt, denn in die Rinne fällt kaum Licht und ein Metall ohne Umgebung läse schwarz.
+## Neutrale Metalle statt bläulicher Grautöne und Senf: Gunmetal, Silber, Gelbgold.
+const CASE_ALBEDOS := [Color(0.32, 0.32, 0.34), Color(0.9, 0.9, 0.92), Color(0.96, 0.77, 0.4)]
+const CASE_GLOWS := [Color(0.34, 0.34, 0.36), Color(0.84, 0.84, 0.87), Color(1.0, 0.78, 0.4)]
+const CASE_GLOW_ENERGIES := [0.4, 0.62, 0.55]
+## Mäßig metallisch: ohne Umgebung zum Spiegeln läse volles Metall im dunklen Tisch schwarz.
+const CASE_METALLICS := [0.3, 0.45, 0.45]
+const CASE_ROUGHNESSES := [0.45, 0.25, 0.3]
+## Die NAHT je Güte: Graphit ein stumpfer Stahlstrich, Edel eine helle Silberlinie, Royal
+## ein glühender Goldsaum (über der Bloom-Schwelle).
+const SEAM_COLORS := [Color(0.45, 0.45, 0.47), Color(0.85, 0.87, 0.9), Color(1.0, 0.8, 0.42)]
+const SEAM_ENERGIES := [0.2, 0.6, 1.1]
 ## Die OBERFLÄCHE: feine Narbung als Normal-Map, triplanar (das Modell trägt keine UVs, auf die Verlaß ist).
-const CASE_GRAIN_SCALE := 6.0
-const CASE_GRAIN_STRENGTH := 0.35
-static var _case_grain: NoiseTexture2D
+## Die OBERFLÄCHE: Clous de Paris (tools/gen_case_texture.py), triplanar im Raum des
+## Modells - es trägt keine UVs, auf die Verlaß ist. Die Albedo schattiert nur die
+## Facetten, der Lack bleibt die Güte.
+const CASE_SURFACE_ALBEDO := preload("res://assets/textures/case_hobnail_albedo.png")
+const CASE_SURFACE_NORMAL := preload("res://assets/textures/case_hobnail_normal.png")
+const CASE_SURFACE_SCALE := 2.2
+const CASE_SURFACE_DEPTH := 0.8
 const CASE_STEEL_ENERGY := 0.45
 ## Das SYMBOL der Sorte auf der Banderole, im Roh-Maß des Modells: groß auf dem Deckel,
 ## klein auf dem Rücken, dunkel und eine Spur erhaben.
@@ -133,6 +146,7 @@ var _case_metal: StandardMaterial3D
 var _seam: StandardMaterial3D
 var _symbol: StandardMaterial3D
 var _face: StandardMaterial3D
+var _pip: StandardMaterial3D
 ## Augen der Würfel-Kennung: eine Würfelseite mit drei Augen.
 const PIP_SIZE := DataCellView.HEIGHT * 0.06
 const DIE_FACE_SHARE := 0.5
@@ -676,10 +690,14 @@ func _build_dice_case() -> Node3D:
 	_shell_material.emission = CASE_GLOWS[quality]
 	_shell_material.emission_energy_multiplier = CASE_GLOW_ENERGIES[quality]
 	_shell_material.normal_enabled = true
-	_shell_material.normal_texture = case_grain()
-	_shell_material.normal_scale = CASE_GRAIN_STRENGTH
+	_shell_material.albedo_texture = CASE_SURFACE_ALBEDO
+	# Auch das Eigenlicht trägt die Facetten, sonst überstrahlt es die Oberfläche flach.
+	_shell_material.emission_texture = CASE_SURFACE_ALBEDO
+	_shell_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	_shell_material.normal_texture = CASE_SURFACE_NORMAL
+	_shell_material.normal_scale = CASE_SURFACE_DEPTH
 	_shell_material.uv1_triplanar = true
-	_shell_material.uv1_scale = Vector3.ONE * CASE_GRAIN_SCALE
+	_shell_material.uv1_scale = Vector3.ONE * CASE_SURFACE_SCALE
 	var banded := card_pack_sort != DicePack.SORT_NORMAL
 	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -709,34 +727,17 @@ func _build_dice_case() -> Node3D:
 		_build_die_faces(model)
 	return cell
 
-## Die Narbung des Lacks - EINE geteilte Textur für alle Schatullen.
-static func case_grain() -> NoiseTexture2D:
-	if _case_grain == null:
-		var noise := FastNoiseLite.new()
-		noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-		noise.frequency = 0.08
-		_case_grain = NoiseTexture2D.new()
-		_case_grain.width = 256
-		_case_grain.height = 256
-		_case_grain.seamless = true
-		_case_grain.as_normal_map = true
-		_case_grain.bump_strength = 4.0
-		_case_grain.noise = noise
-	return _case_grain
-
 ## Das Metall von Schließe, Lasche und Scharnier: Stahl, für jede Güte gleich.
 func case_metal() -> StandardMaterial3D:
 	if _case_metal == null:
 		_case_metal = _metal(Color(0.62, 0.64, 0.7), Color(0.62, 0.64, 0.7), CASE_STEEL_ENERGY)
 	return _case_metal
 
-## Die Naht: mit Banderole ein fester Stahlton, ohne trägt sie selbst Hover und Flare.
+## Die Naht sagt die Güte, unabhängig von der Sorte.
 func _seam_material() -> StandardMaterial3D:
-	if card_pack_sort == DicePack.SORT_NORMAL:
-		return _edge_material
 	if _seam == null:
-		_seam = _lit_material(PackDrawerView.dice_pack_tint(DicePack.SORT_NORMAL))
-		_seam.emission_energy_multiplier = EDGE_REST_ENERGY
+		_seam = _lit_material(SEAM_COLORS[quality])
+		_seam.emission_energy_multiplier = SEAM_ENERGIES[quality]
 		_seam.render_priority = _prio(PRIORITY_FRAME)
 	return _seam
 
@@ -811,11 +812,10 @@ func _build_die_faces(model: Node3D) -> void:
 		Vector3(FACE_SPINE_X, DICE_THICKNESS * 0.25, -DataCellView.HEIGHT * FOOT_ROOM * 0.5))
 	_draw_die_face(spine, FACE_SPINE)
 
-## Eine Würfelseite: helle Platte mit dunklem Rand, darauf runde dunkle Augen im Klassik-Muster.
+## Eine Würfelseite: schwarze Platte im Stahlrahmen, darauf weiß leuchtende Augen im Klassik-Muster.
 func _draw_die_face(host: Node3D, side: float) -> void:
-	# Ein dunkler Rand trennt die helle Platte vom Silber.
 	TableProps.box(host, "Rand", Vector3(side * FACE_RIM, FACE_PROUD * 0.8, side * FACE_RIM),
-		Vector3(0.0, FACE_PROUD * 0.1, 0.0), _symbol_material())
+		Vector3(0.0, FACE_PROUD * 0.1, 0.0), case_metal())
 	TableProps.box(host, "Platte", Vector3(side, FACE_PROUD, side),
 		Vector3(0.0, FACE_PROUD * 0.3, 0.0), _face_material())
 	var step := side * PIP_STEP
@@ -830,7 +830,7 @@ func _draw_die_face(host: Node3D, side: float) -> void:
 		var mesh := MeshInstance3D.new()
 		mesh.name = "Auge%d" % i
 		mesh.mesh = pip
-		mesh.material_override = _symbol_material()
+		mesh.material_override = _pip_material()
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mesh.position = Vector3(spots[i].x * step, FACE_PROUD * 0.8, spots[i].y * step)
 		host.add_child(mesh)
@@ -857,11 +857,17 @@ func _face_material() -> StandardMaterial3D:
 	if _face == null:
 		_face = StandardMaterial3D.new()
 		_face.albedo_color = FACE_ALBEDO
-		_face.roughness = 0.4
-		_face.emission_enabled = true
-		_face.emission = FACE_ALBEDO
-		_face.emission_energy_multiplier = FACE_ENERGY
+		_face.roughness = 0.6
 	return _face
+
+func _pip_material() -> StandardMaterial3D:
+	if _pip == null:
+		_pip = StandardMaterial3D.new()
+		_pip.albedo_color = PIP_ALBEDO
+		_pip.emission_enabled = true
+		_pip.emission = PIP_ALBEDO
+		_pip.emission_energy_multiplier = PIP_ENERGY
+	return _pip
 
 ## Eine flache Figur-Box: center in (quer, oben), ihre Unterseite eine Spur IN der Banderole.
 func _symbol_box(host: Node3D, box_name: String, extent: Vector2,

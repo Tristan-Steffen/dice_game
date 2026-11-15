@@ -11,11 +11,11 @@ const SFX_DIR := "res://assets/sfx/dice/plastic/"
 const BUS_NAME := &"Dice"
 
 const _BANKS := {
-	"click": ["click_1.mp3", "click_2.mp3", "click_3.mp3", "click_4.mp3", "click_5.mp3", "click_6.mp3"],
-	"floor": ["floor_1.mp3", "floor_2.mp3", "floor_3.mp3"],
-	"wall": ["wall_1.mp3", "wall_2.mp3", "wall_3.mp3", "wall_4.mp3"],
-	"tick": ["tick_1.mp3", "tick_2.mp3", "tick_3.mp3"],
-	"settle": ["settle_1.mp3", "settle_2.mp3", "settle_3.mp3"],
+	"click": ["click_1", "click_2", "click_3", "click_4", "click_5", "click_6"],
+	"floor": ["floor_1", "floor_2", "floor_3"],
+	"wall": ["wall_1", "wall_2", "wall_3", "wall_4"],
+	"tick": ["tick_1", "tick_2", "tick_3"],
+	"settle": ["settle_1", "settle_2", "settle_3"],
 }
 
 const RANDOM_PITCH := 1.1
@@ -159,14 +159,19 @@ func _load_banks() -> void:
 		randomizer.random_pitch = RANDOM_PITCH
 		randomizer.random_volume_offset_db = RANDOM_VOLUME_DB
 		var count := 0
-		for file_name: String in _BANKS[bank]:
-			var path: String = SFX_DIR + file_name
-			if not ResourceLoader.exists(path):
-				continue
-			var stream: AudioStream = load(path)
+		for stem: String in _BANKS[bank]:
+			var stream := _load_sample(stem)
 			if stream == null:
 				continue
 			randomizer.add_stream(count, stream)
 			count += 1
 		if count > 0:
 			_streams[bank] = randomizer
+
+## Eine ersetzte .wav (Klang-Tafel) gewinnt vor der ursprünglichen .mp3.
+func _load_sample(stem: String) -> AudioStream:
+	for ext: String in ["wav", "ogg", "mp3"]:
+		var path := "%s%s.%s" % [SFX_DIR, stem, ext]
+		if ResourceLoader.exists(path):
+			return load(path)
+	return null

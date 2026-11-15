@@ -86,16 +86,21 @@ func test_a_dice_pack_is_the_case_with_a_band_in_its_colour() -> void:
 	assert_false(plain.has_band())
 	assert_false((plain.find_child("Band", true, false) as MeshInstance3D).visible,
 		"das normale Paket trägt keine Banderole")
-	assert_eq((plain.find_child("Naht", true, false) as MeshInstance3D).material_override,
-		plain._edge_material, "ohne Band trägt die Naht Hover und Flare")
+	assert_eq(((plain.find_child("Naht", true, false) as MeshInstance3D).material_override
+		as StandardMaterial3D).emission, seam.emission, "die Naht sagt die Güte, nicht die Sorte")
+	var royal := _quality_hull(DicePack.QUALITY_ROYAL)
+	var royal_seam := (royal.find_child("Naht", true, false) as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	assert_gt(royal_seam.emission_energy_multiplier, seam.emission_energy_multiplier,
+		"nur Royal glüht")
 	assert_eq(plain.find_children("Auge*", "", true, false).size(),
 		2 * CardPackView.case_pips(plain.card_pack_size),
 		"eine Würfelseite je Deckel und Rücken")
 
 func test_the_band_tints_are_the_card_colours() -> void:
-	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_MATERIAL), Color("#ff79c6"))
-	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_RUNE), Color("#ffd319"))
-	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_SOUL), Color("#f1e8ff"))
+	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_MATERIAL), Color("#22e0c0"))
+	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_RUNE), Color("#ff6a2b"))
+	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_SOUL), Color("#a66bff"))
 	assert_eq(PackDrawerView.DICE_PACK_TINTS.size(), DicePack.SORTS.size())
 
 func test_the_symbol_sits_on_lid_and_spine_only_with_a_band() -> void:
