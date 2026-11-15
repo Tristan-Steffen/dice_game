@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sfxboard",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "E:/Godot/klang-tafel/sfxboard.py",
+        "--project", ".",
+        "--gen", "E:/Generated Audio/Fumble",
+        "--godot", "E:/Godot/Godot_v4.7-stable_win64_console.exe"
+      ],
+      "port": 8765
+    }
+  ]
+}
