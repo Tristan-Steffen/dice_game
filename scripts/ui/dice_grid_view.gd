@@ -186,6 +186,7 @@ func set_highlights(indices: Array[int]) -> void:
 
 func _tile(def: DieDefinition, highlighted: bool, index: int) -> Button:
 	var tile := Button.new()
+	tile.set_meta(&"sfx_silent", true)  # Wahl und Tausch klingen selbst
 	tile.focus_mode = Control.FOCUS_NONE
 	tile.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	tile.custom_minimum_size = _tile_size()

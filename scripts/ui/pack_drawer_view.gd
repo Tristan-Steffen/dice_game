@@ -566,6 +566,7 @@ func _well() -> Panel:
 func _well_catch() -> Button:
 	var catch := Button.new()
 	catch.name = "WellCatch"
+	catch.set_meta(&"sfx_silent", true)  # unsichtbarer Fang
 	catch.focus_mode = Control.FOCUS_NONE
 	catch.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
@@ -588,6 +589,7 @@ func _chip(pack: Pack, uid: int, spot: Vector2) -> Button:
 		return null
 	var chip := Button.new()
 	chip.name = "PackCell"
+	chip.set_meta(&"sfx_silent", true)  # die Karte klingt selbst
 	chip.focus_mode = Control.FOCUS_NONE
 	var grip := grip_for(field.size, cell_px)
 	chip.size = grip

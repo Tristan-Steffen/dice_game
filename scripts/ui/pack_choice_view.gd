@@ -10,6 +10,8 @@ extends Control
 
 signal confirmed(indices: Array)
 signal reshuffle_requested
+## Eine Option wurde gewählt oder abgewählt (scene_root spielt den Ton).
+signal pick_toggled(index: int, picked: bool)
 ## Die Bühne der Würfel-Pakete meldet ihre Momente (scene_root spielt Ton und Licht).
 signal reel_stepped(value: int, top: int)
 signal reel_stopped(value: int, top: int)
@@ -525,6 +527,7 @@ func _build() -> void:
 		slot.position = rect.position
 		slot.size = rect.size
 		slot.pressed.connect(_on_slot_pressed.bind(i))
+		slot.set_meta(&"sfx_silent", true)  # die Wahl klingt selbst
 		slot.mouse_entered.connect(_on_slot_hover.bind(i, true))
 		slot.mouse_exited.connect(_on_slot_hover.bind(i, false))
 		slot.gui_input.connect(_on_slot_input.bind(i))
@@ -568,6 +571,7 @@ func _build() -> void:
 	# Ein Klick ins Leere überspringt die Enthüllung.
 	var skip := Button.new()
 	skip.name = "Skip"
+	skip.set_meta(&"sfx_silent", true)  # unsichtbarer Fang
 	skip.flat = true
 	skip.focus_mode = Control.FOCUS_NONE
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
@@ -903,8 +907,10 @@ func toggle(index: int) -> void:
 		return
 	if _selected.has(index):
 		_selected.erase(index)
+		pick_toggled.emit(index, false)
 	elif _selected.size() < choice.picks:
 		_selected.append(index)
+		pick_toggled.emit(index, true)
 	_refresh()
 
 func _on_take_pressed() -> void:
