@@ -1,6 +1,6 @@
 """Erzeugt die kachelbare Oberfläche der Würfel-Schatulle.
 
-Stile: quilt (Rauten-Polster mit Nieten), hobnail (Clous de Paris), guilloche
+Stile: quilt (Rauten-Polster mit Nieten), hobnail (Clous de Paris), brushed (gebürstet), guilloche
 (Guilloché-Wellen), deco (Art-déco-Schuppen). Jede Kachel ist nahtlos.
 Schreibt <out>/<name>_albedo.png (Graustufen, multipliziert den Lack) und
 <out>/<name>_normal.png (OpenGL-Normalen, wie Godot sie liest).
@@ -97,7 +97,22 @@ def deco():
     return height, albedo, 3.0
 
 
-STYLES = {"quilt": quilt, "hobnail": hobnail, "guilloche": guilloche, "deco": deco}
+def brushed():
+    """Gebürstetes Metall: feine Riefen quer, jede Schar mit ganzzahliger Periode (kachelbar)."""
+    rng = np.random.default_rng(7)
+    x, y = grid()
+    height = np.zeros_like(x)
+    for k in range(24, 200):
+        amp = rng.uniform(0.3, 1.0) / np.sqrt(k)
+        wobble = 0.004 * np.sin(2 * np.pi * (x * int(rng.integers(1, 4)) + rng.uniform()))
+        height += amp * np.sin(2 * np.pi * (k * (y + wobble)) + rng.uniform(0, 2 * np.pi))
+    height = (height - height.min()) / (height.max() - height.min())
+    albedo = 0.9 + 0.1 * (height - 0.5) * 2.0
+    return height, albedo, 0.8
+
+
+STYLES = {"quilt": quilt, "hobnail": hobnail, "guilloche": guilloche, "deco": deco,
+          "brushed": brushed}
 
 
 def write(style, out, name):

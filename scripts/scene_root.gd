@@ -6349,7 +6349,7 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 			# Die Hülle: geöffnet wird nach dem Kassieren, in der Grube.
 			var card_pack := bet.reward_card_pack(factor)
 			return {"body": "card_pack", "sort": card_pack.sort, "tier": card_pack.size,
-				"count": 1}
+				"count": 1, "quality": card_pack.quality}
 		SideBet.Payout.DICE_PACK:
 			var dice_pack := bet.reward_dice_pack(factor)
 			return {"body": "card_pack", "sort": dice_pack.sort, "tier": dice_pack.size,
@@ -9077,7 +9077,7 @@ func _spawn_bag(module_pack: ModulePack, at: Vector3) -> CardPackView:
 func _spawn_slit_ware(ware: Resource, at: Vector3) -> DataCellView:
 	if ware is CardPack:
 		var card_pack := ware as CardPack
-		return _spawn_hull(card_pack.sort, card_pack.size, false, at)
+		return _spawn_hull(card_pack.sort, card_pack.size, false, at, card_pack.quality)
 	var pack := ware as Pack
 	var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at, pack.stamp_net,
 		pack.is_repair(), pack.from_blank())
@@ -9248,14 +9248,17 @@ func _open_pack_choice(choice: PackChoice) -> void:
 		_choice_hull = hull
 		hull.set_hovered(false)
 		hull.set_dimmed(false)
+		hull.set_net_cycling(true)
 		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
 		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
 	else:
 		# Ohne Lager-Körper (ein Wett-Gewinn am vollen Lager) fällt sie von oben.
 		var drop := Vector3(seat.x, PACK_DROP_HEIGHT, seat.z)
 		var pack_sort := String(choice.pack.get("sort"))
-		_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop)
+		_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop,
+			choice.quality)
 		_choice_hull.lie_on_glass(drop)
+		_choice_hull.set_net_cycling(true)
 		_choice_hull.materialize()
 		_choice_hull.glide_to(rest, PACK_HULL_FALL)
 		await get_tree().create_timer(PACK_HULL_FALL).timeout
@@ -9512,8 +9515,8 @@ func _spawn_store_hull(pack: Resource, at: Vector3) -> CardPackView:
 		hull = _spawn_bag(pack as ModulePack, at)
 	else:
 		var dice := pack is DicePack
-		var quality := (pack as DicePack).quality if dice else DicePack.QUALITY_STANDARD
-		hull = _spawn_hull(String(pack.get("sort")), int(pack.get("size")), dice, at, quality)
+		hull = _spawn_hull(String(pack.get("sort")), int(pack.get("size")), dice, at,
+			int(pack.get("quality")))
 	hull.add_spine()
 	hull.lie_on_glass(at)
 	return hull

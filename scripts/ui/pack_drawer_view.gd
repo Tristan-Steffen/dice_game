@@ -75,10 +75,10 @@ static func card_pack_tint(card_pack_sort: String) -> Color:
 ## das normale Paket trägt keine, sein neutraler Stahlton färbt nur Naht und Hover.
 const DICE_PACK_TINTS := {
 	DicePack.SORT_NORMAL: Color("#9aa6ba"),
-	# Gesättigte Töne fern von Weiß, Silber und Gold - die Metalle sagen die Güte.
 	DicePack.SORT_SOUL: Color("#a66bff"),
-	DicePack.SORT_MATERIAL: Color("#22e0c0"),
-	DicePack.SORT_RUNE: Color("#ff6a2b"),
+	# Material und Runen tragen die Farben ihrer Karten: eine Farbe meint überall dieselbe Sorte.
+	DicePack.SORT_MATERIAL: COLORS[Engraving.CATEGORY_MATERIAL],
+	DicePack.SORT_RUNE: COLORS[Engraving.CATEGORY_DICE],
 }
 
 static func dice_pack_tint(dice_pack_sort: String) -> Color:

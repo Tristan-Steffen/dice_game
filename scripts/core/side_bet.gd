@@ -136,7 +136,7 @@ var paid_packs: Array[Pack] = []
 ## Lauf-Daten für den Würfel-Gewinn (charm_ids, owned_essences, tier).
 var _context: Dictionary = {}
 var _rolled_cards: Dictionary = {}  # Größe -> gewürfelte Karten
-var _card_packs: Dictionary = {}  # Paketgröße -> CardPack bzw. DicePack
+var _card_packs: Dictionary = {}  # (Größe, Güte) -> CardPack bzw. DicePack
 var _fixed_card: Pack = null
 var _reward_die: DieDefinition = null
 var _die_rarity: int = -2
@@ -436,7 +436,7 @@ func _ware_fits(kind: int, ware: int) -> bool:
 			return not _affordable_pack_sorts(DICE_PACK_SORT_WEIGHTS, ware, true).is_empty()
 	return true
 
-static func _pack_price(pack_sort: String, pack_size: int, dice: bool) -> int:
+static func _pack_price(pack_sort: String, pack_size: int, dice: bool) -> int:  # Standard-Güte
 	return DicePack.price_of(pack_sort, pack_size) if dice \
 		else CardPack.price_of(pack_sort, pack_size)
 
@@ -464,23 +464,29 @@ static func _pick_pack_sort(weights: Dictionary, ware: int, dice: bool) -> Strin
 			return pack_sort
 	return String(sorts.back())
 
-## Die größte Größe der Sorte, deren Preis der Gewinnwert trägt.
-func _reward_pack_size(pack_sort: String, factor: float, dice: bool) -> int:
-	var value := payout_value(factor)
-	for candidate in range(CardPack.SIZE_HUGE, CardPack.SIZE_SMALL, -1):
-		if _pack_price(pack_sort, candidate, dice) <= value:
-			return candidate
-	return CardPack.SIZE_SMALL
-
-## Das gewonnene KARTEN-PAKET. Je Größe einmal gebaut, damit Knopf, Grube und
-## Abrechnung dasselbe meinen.
+## Das gewonnene KARTEN-PAKET: das teuerste bezahlbare Paar aus Kartenzahl und Güte.
+## Je Paar einmal gebaut, damit Knopf, Grube und Abrechnung dasselbe meinen.
 func reward_card_pack(factor: float = 1.0) -> CardPack:
 	if payout_kind != Payout.CARD_PACK:
 		return null
-	var pack_size := _reward_pack_size(reward_card_pack_sort, factor, false)
-	if not _card_packs.has(pack_size):
-		_card_packs[pack_size] = CardPack.make(reward_card_pack_sort, pack_size)
-	return _card_packs[pack_size]
+	var pair := reward_card_pair(reward_card_pack_sort, payout_value(factor))
+	var key := Vector3i(pair.x, pair.y, 0)
+	if not _card_packs.has(key):
+		_card_packs[key] = CardPack.make(reward_card_pack_sort, pair.x, pair.y)
+	return _card_packs[key]
+
+## (Kartenzahl-Stufe, Güte) des teuersten Karten-Pakets bis zu diesem Wert (gleicher
+## Preis: mehr Karten); keines: 3er/Standard.
+static func reward_card_pair(pack_sort: String, value: int) -> Vector2i:
+	var best := Vector2i(CardPack.SIZE_SMALL, DicePack.QUALITY_STANDARD)
+	var best_price := -1
+	for pack_size in CardPack.CARD_SIZES:
+		for pack_quality in DicePack.QUALITIES:
+			var price := CardPack.price_of(pack_sort, pack_size, pack_quality)
+			if price <= value and price >= best_price:
+				best = Vector2i(pack_size, pack_quality)
+				best_price = price
+	return best
 
 ## Das gewonnene WÜRFEL-PAKET: das teuerste bezahlbare Paar aus Größe und Güte
 ## (gleicher Preis: mehr Augen). Je Paar einmal gebaut.

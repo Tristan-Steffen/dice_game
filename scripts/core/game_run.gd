@@ -755,7 +755,7 @@ func _store_pack(pack: Resource, from_bet: bool) -> Resource:
 func debug_fill_store(rng: RandomNumberGenerator = null) -> int:
 	var added := 0
 	while not store_full(LANE_CARDS):
-		_store_pack(CardPack.roll_shop(rng), false)
+		_store_pack(CardPack.roll_shop(rng, shop_card_pack_quality_weights()), false)
 		added += 1
 	while not store_full(LANE_DICE):
 		_store_pack(DicePack.roll_shop(rng, shop_dice_pack_quality_weights()), false)
@@ -804,7 +804,10 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 		_roll_dice_choice(choice, rng)
 		return _queue_opened(choice)
 	var pack_size := int(pack.get("size"))
-	var rolled := CardPack.roll_picks(pack_size, effective_luck(), pack_luck_factor(), rng)
+	var jackpot_base := CardPack.quality_jackpot((pack as CardPack).quality) \
+		if pack is CardPack else -1.0
+	var rolled := CardPack.roll_picks(pack_size, pack_luck(pack), pack_luck_factor(), rng,
+		jackpot_base)
 	choice.jackpot = bool(rolled["jackpot"])
 	var picks := int(rolled["picks"]) + pack_pick_bonus()
 	var count := CardPack.options_after(pack_size, pack_option_delta(), picks)
@@ -860,12 +863,19 @@ func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 	choice.take_all = false
 	choice.jackpot = false
 
-## Das Glück, mit dem ein Würfel-Paket öffnet: das wirkende Glück plus das seiner Güte.
-func pack_luck(dice_pack: DicePack) -> int:
-	return effective_luck() + DicePack.quality_luck(dice_pack.quality)
+## Das Glück, mit dem ein Paket öffnet: das wirkende Glück plus das seiner Güte
+## (Würfel- und Karten-Pakete; Modul-Pakete haben keine).
+func pack_luck(pack: Resource) -> int:
+	if pack is DicePack or pack is CardPack:
+		return effective_luck() + DicePack.quality_luck(int(pack.get("quality")))
+	return effective_luck()
 
 ## Die Güte-Gewichte der Würfel-Pakete im Laden (Haken für künftige Klauseln).
 func shop_dice_pack_quality_weights() -> Array:
+	return DicePack.shop_quality_weights(shop_tier())
+
+## Die Güte-Gewichte der Karten-Pakete - dieselbe Leiter wie bei den Würfel-Paketen.
+func shop_card_pack_quality_weights() -> Array:
 	return DicePack.shop_quality_weights(shop_tier())
 
 ## Glücksgriff: die Glückswurf-Chancen eines Pakets ×2 (Winkeladvokat ×4).

@@ -1411,7 +1411,7 @@ func _build_spread() -> MenuSpread:
 
 	# PAKETE: Sorte und Größe je Platz; Optionen und Wahlen fallen erst beim Kauf.
 	for i in run.shop_packs_offered():
-		spread.engraving_packs.append(CardPack.roll_shop())
+		spread.engraving_packs.append(CardPack.roll_shop(null, run.shop_card_pack_quality_weights()))
 	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
 	spread.engraving_pack_bought.fill(false)
 
