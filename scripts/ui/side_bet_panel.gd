@@ -23,7 +23,7 @@ const OFFER_COUNT := 3
 ## Fenstergröße: nur so sind die gemeldeten Plätze über Setzen, Fassung und Modi
 ## byteweise dieselben.
 ## Das Fenster malt nur die Fassung und MELDET die Plätze - die Körper gehören
-## scene_root (die Grammatik der Kassetten-Schlitzreihe im Laden). Vor dem Setzen
+## scene_root (die Grammatik der Paket-Fläche im Laden). Vor dem Setzen
 ## liegt NICHTS: der Tresen ist kein Schaufenster, der Knopf NENNT den Handel.
 
 const PLOT_WIDTH_UNITS := 26.0

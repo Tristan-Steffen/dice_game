@@ -66,8 +66,8 @@ func test_beide_shader_fuehren_dieselbe_loecherliste() -> void:
 func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	# Sie ist Möbel, kein Auftritt: ihr Platz wird nie geräumt.
 	assert_eq(TableScreen.PIT_MAGAZIN, 0)
-	assert_gt(TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_MAGAZIN)
-	var slots := [TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL,
+	assert_gt(TableScreen.PIT_SHOP_PACK0, TableScreen.PIT_MAGAZIN)
+	var slots := [
 		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
 		TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
 		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT,
@@ -81,6 +81,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_SECTION)
 	for i in TableScreen.SHOP_BAY_PIT_COUNT:
 		slots.append(TableScreen.shop_bay_pit(i))
+	for pit: int in TableScreen.SHOP_PACK_PITS:
+		slots.append(pit)
 	for i in TableScreen.SECRET_BAY_PIT_COUNT:
 		slots.append(TableScreen.PIT_SECRET_BAY0 + i)
 	slots.append(TableScreen.PIT_CASE)
@@ -114,15 +116,23 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		TableScreen.PIT_SECTION - 1)
 	# Die Mulden der Kassetten-Plätze hängen ganz hinten an (2026-10-29).
 	assert_eq(TableScreen.shop_bay_pit(0), TableScreen.PIT_SECTION + 1)
-	assert_eq(TableScreen.PIT_SECRET_BAY0,
-		TableScreen.shop_bay_pit(TableScreen.SHOP_BAY_PIT_COUNT - 1) + 1)
+	assert_eq(TableScreen.PIT_SECRET_BAY0, TableScreen.shop_bay_pit(2) + 1)
+	# Die vierte Mulde nimmt den frei gewordenen Platz 2, die letzten zwei hängen hinten an.
+	assert_eq(TableScreen.shop_bay_pit(3), 2)
+	assert_eq(TableScreen.shop_bay_pit(4), TableScreen.PIT_OPENING + 1)
 	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT,
 		TableScreen.PIT_CASE)
 	assert_eq(TableScreen.PIT_CASE + 1, TableScreen.PIT_TRAY, "der Einzug der Schatulle")
 	assert_eq(TableScreen.PIT_TRAY + 1, TableScreen.PIT_STORE_CARDS, "dahinter das Paket-Lager")
 	assert_eq(TableScreen.PIT_STORE_DICE + 1, TableScreen.PIT_STORE_MODULES)
 	assert_eq(TableScreen.PIT_STORE_MODULES + 1, TableScreen.PIT_OPENING)
-	assert_eq(TableScreen.PIT_OPENING + 1, TableScreen.MAX_PITS, "die Öffnungs-Fläche zuletzt")
+	assert_eq(TableScreen.SHOP_PACK_PITS[1], TableScreen.shop_bay_pit(TableScreen.SHOP_BAY_PIT_COUNT - 1) + 1,
+		"dahinter die Sektionen der Paket-Fläche")
+	assert_eq(TableScreen.SHOP_PACK_PITS[5] + 1, TableScreen.MAX_PITS, "und sie zuletzt")
+	for pit: int in TableScreen.SHOP_PACK_PITS:
+		assert_false(TableScreen.PERMANENT_PITS.has(pit), "eine Sektion ist kein Möbel")
+	for i in TableScreen.SHOP_BAY_PIT_COUNT:
+		assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.shop_bay_pit(i)), "Mulde %d ist Möbel" % i)
 	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_OPENING), "sie ist Möbel")
 	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_MODULES))
 	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_TRAY), "sie ist Möbel")
@@ -185,7 +195,7 @@ func test_eine_leere_reihe_hat_keine_plaetze() -> void:
 func test_gattung_und_index_sind_zusammen_der_platz() -> void:
 	assert_eq(VitrineView.slot_key(ShopController.KIND_DIE, 2), "die:2")
 	assert_ne(VitrineView.slot_key(ShopController.KIND_DIE, 2),
-		VitrineView.slot_key(ShopController.KIND_SPECIAL, 2),
+		VitrineView.slot_key(ShopController.KIND_PART, 2),
 		"gleicher Index, andere Gattung - anderer Platz")
 
 func test_der_greifradius_bleibt_unter_der_halben_teilung() -> void:
@@ -431,29 +441,13 @@ func test_die_einzel_loecher_einer_reihe_beruehren_sich_nie() -> void:
 	bay.free()
 	shop.free()
 
-func test_eine_auslage_ohne_regal_stellt_ihren_block_mittig() -> void:
-	# Der Laden führt keine Regalware mehr: dann gehört die Tiefe der Schale
-	# allein, und der BLOCK aus Würfel plus Beschriftung steht mittig darin - was
-	# die Beschriftung nicht braucht, liegt zu gleichen Teilen davor und dahinter.
+func test_eine_auslage_ohne_regal_stellt_ihre_schale_mittig() -> void:
+	# Ohne Regalware gehört die Tiefe der Schale allein, mittig.
 	var bay := VitrineView.new()
 	bay.center = Vector3.ZERO
 	bay.half = Vector2(9.0, 13.0)
-	var margin := bay.half.x * 2.0 * VitrineView.EDGE_MARGIN
-	var back := bay.center.x + bay.half.x - margin
-	var front := bay.center.x - bay.half.x + margin
-	bay.label_reserve = 4.0
 	var bands: Vector2 = bay._band_depths()
-	var behind := back - (bands.y + VitrineView.bowl_reach())
-	var ahead := (bands.y - bay.label_reserve) - front
-	assert_almost_eq(behind, ahead, 0.0001, "vor und hinter dem Block liegt gleich viel Luft")
-	assert_gt(behind, 0.0, "und der Block bleibt im Feld")
-	# Ohne Beschriftung rückt die Ware nach vorn, mit zu viel davon an die Kante.
-	bay.label_reserve = 0.0
-	assert_lt(bay._band_depths().y, bands.y,
-		"je mehr Beschriftung, desto weiter hinten steht die Ware")
-	bay.label_reserve = 999.0
-	assert_almost_eq(bay._band_depths().y, back - VitrineView.bowl_reach(), 0.0001,
-		"paßt sie nicht mehr, steht die Schale auf Anschlag an der hinteren Kante")
+	assert_almost_eq(bands.y, bay.center.x, 0.0001, "die Schale steht in der Mitte")
 	bay.free()
 
 func test_eine_enge_auslage_rueckt_ihre_baender_an_die_kanten() -> void:
@@ -533,26 +527,6 @@ func test_ankommen_darf_sich_setzen() -> void:
 		"eine Kassette steigt nicht mehr von selbst durch die Fläche")
 	assert_false(cell.has_method("sink_through_glass"),
 		"und sie sinkt auch nicht mehr von selbst hindurch - sie fährt")
-
-# --- Die ABSORPTION der Netz-Blöcke (reiner Deckel) ----------------------------
-
-func test_die_absorption_deckt_ihr_schrumpfen_samt_staffelung() -> void:
-	# Der Vorlauf, den beide Zonen abwarten: das Schrumpfen plus die rückwärts
-	# laufende Staffelung. Ohne Netz ist er 0 - ein leerer Laden wartet nicht.
-	assert_eq(ShopController.absorb_time(0), 0.0, "kein Netz, kein Vorlauf")
-	assert_almost_eq(ShopController.absorb_time(1), ShopController.NET_GROW_TIME, 0.0001,
-		"ein Block schrumpft schlicht seine Zeit")
-	assert_almost_eq(ShopController.absorb_time(4),
-		ShopController.NET_GROW_TIME + ShopController.NET_GROW_STAGGER * 3.0, 0.0001,
-		"vier Blöcke tragen ihre Staffelung mit")
-	assert_gt(ShopController.absorb_time(6), ShopController.absorb_time(3),
-		"mehr Blöcke, längerer Vorlauf")
-	# Und der Deckel der Zeremonie deckt ihn wirklich: erst saugen, dann fahren.
-	var lead := ShopController.absorb_time(6)
-	assert_gt(VitrineView.exit_time(1, lead), lead + LiftShaftView.SINK_TIME,
-		"die Maschine fährt erst nach der Absorption")
-	assert_almost_eq(VitrineView.swap_time(1, lead) - lead,
-		VitrineView.swap_time(1), 0.0001, "und dann ihren ganzen Zyklus")
 
 # --- Die PHYSISCHE Regel des Ankunfts-Grades -----------------------------------
 
@@ -704,12 +678,10 @@ func test_die_gewinn_beschriftung_hat_genau_eine_quelle() -> void:
 ## scene_root nennt sie, alle anderen bekommen sie GEMELDET.
 func test_die_wandhaut_hat_eine_quelle_und_deckt_jede_grube() -> void:
 	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
-	assert_true(root.contains("shop_vitrine.wall_skin = PIT_SKIN"),
-		"die Laden-Auslage trägt sie")
 	assert_true(root.contains("secret_vitrine.wall_skin = PIT_SKIN"),
 		"das Hinterzimmer trägt sie")
-	assert_true(root.contains("slit_shaft.order_skin(PIT_SKIN)"),
-		"die Kassetten-Schlitzreihe trägt sie")
+	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),
+		"die Paket-Fläche des Ladens trägt sie")
 	assert_true(root.contains("pack_pit.wall_skin = PIT_SKIN"),
 		"die Magazin-Grube trägt sie")
 	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),

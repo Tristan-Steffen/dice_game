@@ -116,13 +116,12 @@ const UNLIMITED_OVERCHARGE_STAGES := 99
 const LUCK_PER_TIER := 3
 const TIER_MAX := 10
 
-## Feste Shop-Platzzahlen (Spieler-Entscheid 2026-10-25): drei Regale zu je drei
-## Plätzen, jede Runde gleich. Mit der Stufe wächst nur die Qualität.
-## Das Würfel-Regal trägt zwei Würfel-Pakete und als dritten Platz ein MODUL-PAKET.
+## Feste Shop-Platzzahlen: drei Charms und EINE Paket-Fläche zu sechs Plätzen
+## (Spieler-Entscheid 2026-11-16). Mit der Stufe wächst nur die Qualität.
 const SHOP_CHARM_SLOTS := 3
-const SHOP_MODULE_PACK_SLOTS := 1
-const SHOP_DICE_SLOTS := 2
-const SHOP_PACK_SLOTS := 3
+const SHOP_PACK_PLACES := 6
+## Leere Regale lassen so viele Plätze leer.
+const EMPTY_SHELVES_CUT := 2
 
 ## Ab dieser Fortschrittsstufe führt auch das normale Regal Sonderposten - vorher
 ## gibt es sie einzig im Hinterzimmer.
@@ -462,16 +461,24 @@ func shop_soul_rule() -> Dictionary:
 		return {"chance": 1.0, "boost": 2.0}
 	return {}
 
-## Wie viele Würfel bzw. Karten der Laden auslegt - die Plätze bleiben stehen,
-## Leere Regale lassen je einen leer.
-func shop_dice_offered() -> int:
-	return _shelf_cut(shop_dice_slots())
-
+## Wie viele Paket-Plätze der Laden belegt - die Plätze bleiben stehen, Leere Regale
+## lassen die hinteren leer wie verkauft.
 func shop_packs_offered() -> int:
-	return _shelf_cut(shop_pack_slots())
+	if _clause_active(DealClause.EMPTY_SHELVES):
+		return maxi(1, SHOP_PACK_PLACES - EMPTY_SHELVES_CUT)
+	return SHOP_PACK_PLACES
 
-func _shelf_cut(slots: int) -> int:
-	return maxi(1, slots - 1) if _clause_active(DealClause.EMPTY_SHELVES) else slots
+## Die Art eines Paket-Platzes (LANE_*) aus einem Wurf in [0, 1).
+static func shop_pack_kind_for(roll: float) -> int:
+	var total := 0
+	for lane: int in SHOP_PACK_KIND_WEIGHTS:
+		total += int(SHOP_PACK_KIND_WEIGHTS[lane])
+	var at := roll * float(total)
+	for lane: int in SHOP_PACK_KIND_WEIGHTS:
+		at -= float(SHOP_PACK_KIND_WEIGHTS[lane])
+		if at < 0.0:
+			return lane
+	return LANE_CARDS
 
 ## Raritäts-Stufe der Shop-Ware: 0 keine, 1 ungewöhnlich, 2 selten, 3 legendär.
 ## Steuert den garantierten Premium-Charm + die Gravur-Mindestrarität.
@@ -488,18 +495,11 @@ func shop_rarity_tier() -> int:
 func shop_charm_slots() -> int:
 	return SHOP_CHARM_SLOTS
 
-func shop_module_pack_slots() -> int:
-	return SHOP_MODULE_PACK_SLOTS
-
-func shop_dice_slots() -> int:
-	return SHOP_DICE_SLOTS
-
-func shop_pack_slots() -> int:
-	return SHOP_PACK_SLOTS
+func shop_pack_places() -> int:
+	return SHOP_PACK_PLACES
 
 ## Chance auf EINEN Sonderposten in der Auslage (0 = keiner). Höchstens einer je
-## Doppelseite: er belegt einen der Paket-Plätze, statt einen dazuzustellen -
-## das Regal bleibt gleich breit, und er kostet einen normalen Wurf.
+## Doppelseite: er ersetzt einen zufälligen Paket-Platz, statt einen dazuzustellen.
 func shop_special_chance() -> float:
 	if _clause_active(DealClause.SPECIAL_DELIVERY):
 		return 1.0
@@ -704,6 +704,8 @@ const STORE_CAPACITY := 8
 const LANE_CARDS := 0
 const LANE_DICE := 1
 const LANE_MODULES := 2
+## Jeder Platz würfelt seine Art unabhängig: Karten 3 : Würfel 2 : Module 1, keine Garantie.
+const SHOP_PACK_KIND_WEIGHTS := {LANE_CARDS: 3, LANE_DICE: 2, LANE_MODULES: 1}
 const STORE_LANES := 3
 var stored_card_packs: Array[CardPack] = []
 var stored_dice_packs: Array[DicePack] = []
@@ -755,7 +757,7 @@ func _store_pack(pack: Resource, from_bet: bool) -> Resource:
 func debug_fill_store(rng: RandomNumberGenerator = null) -> int:
 	var added := 0
 	while not store_full(LANE_CARDS):
-		_store_pack(CardPack.roll_shop(rng), false)
+		_store_pack(CardPack.roll_shop(rng, shop_card_pack_quality_weights()), false)
 		added += 1
 	while not store_full(LANE_DICE):
 		_store_pack(DicePack.roll_shop(rng, shop_dice_pack_quality_weights()), false)
@@ -804,7 +806,10 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 		_roll_dice_choice(choice, rng)
 		return _queue_opened(choice)
 	var pack_size := int(pack.get("size"))
-	var rolled := CardPack.roll_picks(pack_size, effective_luck(), pack_luck_factor(), rng)
+	var jackpot_base := CardPack.quality_jackpot((pack as CardPack).quality) \
+		if pack is CardPack else -1.0
+	var rolled := CardPack.roll_picks(pack_size, pack_luck(pack), pack_luck_factor(), rng,
+		jackpot_base)
 	choice.jackpot = bool(rolled["jackpot"])
 	var picks := int(rolled["picks"]) + pack_pick_bonus()
 	var count := CardPack.options_after(pack_size, pack_option_delta(), picks)
@@ -860,12 +865,19 @@ func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 	choice.take_all = false
 	choice.jackpot = false
 
-## Das Glück, mit dem ein Würfel-Paket öffnet: das wirkende Glück plus das seiner Güte.
-func pack_luck(dice_pack: DicePack) -> int:
-	return effective_luck() + DicePack.quality_luck(dice_pack.quality)
+## Das Glück, mit dem ein Paket öffnet: das wirkende Glück plus das seiner Güte
+## (Würfel- und Karten-Pakete; Modul-Pakete haben keine).
+func pack_luck(pack: Resource) -> int:
+	if pack is DicePack or pack is CardPack:
+		return effective_luck() + DicePack.quality_luck(int(pack.get("quality")))
+	return effective_luck()
 
 ## Die Güte-Gewichte der Würfel-Pakete im Laden (Haken für künftige Klauseln).
 func shop_dice_pack_quality_weights() -> Array:
+	return DicePack.shop_quality_weights(shop_tier())
+
+## Die Güte-Gewichte der Karten-Pakete - dieselbe Leiter wie bei den Würfel-Paketen.
+func shop_card_pack_quality_weights() -> Array:
 	return DicePack.shop_quality_weights(shop_tier())
 
 ## Glücksgriff: die Glückswurf-Chancen eines Pakets ×2 (Winkeladvokat ×4).

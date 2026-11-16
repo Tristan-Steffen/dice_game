@@ -607,7 +607,6 @@ func vitrine_stock() -> Dictionary:
 		ShopController.KIND_ENGRAVING_PACK: _bay_packs.duplicate(),
 		ShopController.KIND_DIE: _bay_dice.duplicate(),
 		ShopController.KIND_PART: _bay_parts.duplicate(),
-		ShopController.KIND_SPECIAL: [],
 		VitrineView.STOCK_ROW_KINDS: _bay_kinds.duplicate(),
 	}
 

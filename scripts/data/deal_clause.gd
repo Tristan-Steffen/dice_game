@@ -388,7 +388,7 @@ static func sealed() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func empty_shelves() -> DealClause:
-	return _malus(EMPTY_SHELVES, "Leere Regale", "Laden: −1 Paket, −1 Würfel.",
+	return _malus(EMPTY_SHELVES, "Leere Regale", "Laden: zwei Paket-Plätze bleiben leer.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func shelf_warmer() -> DealClause:

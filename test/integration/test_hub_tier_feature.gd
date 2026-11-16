@@ -69,14 +69,11 @@ func _shop(tier: int) -> ShopController:
 	return shop
 
 func test_every_tier_lays_out_three_of_each() -> void:
-	# Drei Regale zu je drei Plätzen, auf jeder Stufe.
+	# Drei Charms und sechs Paket-Plätze, auf jeder Stufe.
 	for tier in [1, 2, 3, 7, 10]:
 		var shop := _shop(tier)
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: 3 Charms" % tier)
-		assert_eq(shop.module_packs.size(), 1, "Stufe %d: 1 Modul-Paket" % tier)
-		assert_eq(shop.single_dice.size(), 2, "Stufe %d: 2 Würfel" % tier)
-		assert_eq(shop.engraving_packs.size() + shop.single_specials.size(), 3,
-			"Stufe %d: 3 Gravuren" % tier)
+		assert_eq(shop.packs.size(), 6, "Stufe %d: 6 Pakete" % tier)
 
 func test_flipping_is_open_from_round_one() -> void:
 	var shop := _shop(1)
@@ -95,15 +92,14 @@ func test_tier_six_spread_contains_a_non_common_charm() -> void:
 
 # --- Elastisches Layout (wenige, große Karten -> viele, kleine) --------------
 
-## Seit dem Schlitz-Umbau steckt jedes Paket in seiner Kerbe und nur die offenen
-## Würfel liegen in der Bucht - der Bildschirm führt allein die Charm-Karten.
+## Jedes Paket liegt körperlich auf seinem Platz - der Bildschirm führt allein die
+## Charm-Karten.
 func test_every_offer_has_its_own_charm_card() -> void:
 	var shop := _shop(7)
 	assert_eq(shop.charm_buttons.size(), shop.charm_options.size(),
 		"jeder Charm im Regal ist eine Karte")
-	assert_eq(shop.slit_stock().size(), shop.slit_seats().size(),
-		"jedes Paket steckt in seinem Schlitz, nicht auf dem Bildschirm")
-	assert_eq(shop.vitrine_stock()[ShopController.KIND_DIE].size(), shop.single_dice.size())
+	assert_eq(shop.place_stock().size(), shop.place_count(),
+		"jedes Paket liegt auf seinem Platz, nicht auf dem Bildschirm")
 
 ## Die Karte füllt ihren Platz - zwischen den Karten bleibt nur die Spaltenfuge.
 func test_charm_cards_fill_their_column() -> void:

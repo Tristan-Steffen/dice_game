@@ -739,12 +739,12 @@ func test_a_negative_pit_radius_is_refused():
 func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 	var magazin := Rect2(120, 640, 900, 150)
 	screen.set_apron_pit(magazin, 7.0)
-	screen.set_pit(TableScreen.PIT_SHOP_BOWL, Rect2(200, 300, 400, 80))
+	screen.set_pit(TableScreen.PIT_SHOP_PACK0, Rect2(200, 300, 400, 80))
 	# Jeder Wett-Plot hat seinen EIGENEN Platz - drei Gruben stehen unabhängig offen.
 	for i in SideBetPanel.OFFER_COUNT:
 		screen.set_pit(TableScreen.side_bet_pit(i),
 			Rect2(900, 200 + 140 * i, 300, 120))
-	assert_true(screen.pit_open(TableScreen.PIT_SHOP_BOWL), "der Schacht steht offen")
+	assert_true(screen.pit_open(TableScreen.PIT_SHOP_PACK0), "der Schacht steht offen")
 	for i in SideBetPanel.OFFER_COUNT:
 		assert_true(screen.pit_open(TableScreen.side_bet_pit(i)),
 			"und die Grube von Plot %d auch" % i)
@@ -794,8 +794,8 @@ func test_ein_schacht_traegt_den_gemeldeten_eckenradius():
 	var at := screen.pixel_to_world(Vector2(500, 400))
 	screen.set_lift_pit(TableScreen.PIT_SIDE_BET0, at, Vector2(3.0, 5.0), 12.0)
 	assert_almost_eq(screen.pit_radius(TableScreen.PIT_SIDE_BET0), 12.0, 0.0001)
-	screen.set_lift_pit(TableScreen.PIT_SHOP_BOWL, at, Vector2(3.0, 5.0))
-	assert_almost_eq(screen.pit_radius(TableScreen.PIT_SHOP_BOWL), 0.0, 0.0001,
+	screen.set_lift_pit(TableScreen.PIT_SHOP_PACK0, at, Vector2(3.0, 5.0))
+	assert_almost_eq(screen.pit_radius(TableScreen.PIT_SHOP_PACK0), 0.0, 0.0001,
 		"ohne Meldung bleibt das Loch eckig")
 
 # --- Die GLAS-ANSICHT hat ihren EIGENEN Viewport ----------------------------------

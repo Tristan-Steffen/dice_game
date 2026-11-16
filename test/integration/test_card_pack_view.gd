@@ -1,12 +1,13 @@
 extends GutTest
-## Die Hülle eines Pakets: EIN Grundriß für Kassette und Beutel, Sorte als Farbe; die Kassette
-## wächst in die Dicke. Die SCHATULLE ist die benannte Ausnahme: ihre Größe ist ihre Breite,
-## die Sorte eine Banderole, die Güte Eckkappen.
+## Die Hülle eines Pakets: EIN Grundriß für Schachtel, Schatulle und Beutel, Sorte als Farbe.
+## Das Karten-Paket ist eine bedruckte Pappschachtel mit Fenster, die Schatulle trägt die
+## Würfelseite und die Banderole.
 
-func _hull(pack_sort: String, pack_size: int, dice := false) -> CardPackView:
+func _hull(pack_sort: String, pack_size: int, dice := false,
+		quality := DicePack.QUALITY_STANDARD) -> CardPackView:
 	var hull := CardPackView.new()
 	add_child_autofree(hull)
-	hull.setup_pack(pack_sort, pack_size, dice)
+	hull.setup_pack(pack_sort, pack_size, dice, quality)
 	hull.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 	return hull
 
@@ -17,20 +18,62 @@ func _marks(hull: CardPackView) -> int:
 			count += 1
 	return count
 
-func _shell(hull: CardPackView) -> Vector3:
-	return ((hull.find_child("Shell", true, false) as MeshInstance3D).mesh as BoxMesh).size
+## Der Körper der Schachtel ohne Druck: Karton und Lasche.
+func _board_parts(model: Node3D) -> Array[MeshInstance3D]:
+	var parts: Array[MeshInstance3D] = []
+	for part in ["Karton", "Lasche"]:
+		parts.append(model.find_child(part, true, false) as MeshInstance3D)
+	return parts
 
-func _edges(hull: CardPackView) -> int:
+## Breite, Länge, Höhe der Schachtel (Roh-Maß, aus Karton und Lasche).
+func _shell(hull: CardPackView) -> Vector3:
+	var model := hull.find_child("Cassette", true, false) as Node3D
+	var box := AABB()
+	var first := true
+	for mesh: MeshInstance3D in _board_parts(model):
+		var local := (model.global_transform.affine_inverse() * mesh.global_transform) \
+			* mesh.get_aabb()
+		box = local if first else box.merge(local)
+		first = false
+	# glTF: Blender (x, y, z) liegt als (x, z, -y).
+	return Vector3(box.size.x, box.size.z, box.size.y)
+
+## Die Halter der Treppe (je einer eine echte Karte, "Card").
+func _stair(hull: CardPackView) -> Array[Node]:
+	return hull.find_children("StairCard*", "Node3D", true, false)
+
+func _stair_card(holder: Node) -> DataCellView:
+	return holder.get_node("Card") as DataCellView
+
+## Die Mitte der Schachtel in Welt (Karton samt Lasche) - im eigenen Raum gemessen, gekippte
+## Hüllkästen wüchsen sonst schief.
+func _center(hull: CardPackView) -> Vector3:
+	var model := hull.find_child("Cassette", true, false) as Node3D
+	var box := AABB()
+	var first := true
+	for mesh: MeshInstance3D in _board_parts(model):
+		var local := (model.global_transform.affine_inverse() * mesh.global_transform) \
+			* mesh.get_aabb()
+		box = local if first else box.merge(local)
+		first = false
+	return model.global_transform * box.get_center()
+
+## Wie viele Teile mit diesem Namensanfang sichtbar sind.
+func _visible_parts(hull: CardPackView, prefix: String) -> int:
 	var count := 0
-	for child in hull.find_child("Hull0", true, false).get_children():
-		if String(child.name).begins_with("CardEdge"):
+	for mesh: MeshInstance3D in hull.find_children(prefix + "*", "MeshInstance3D", true, false):
+		if mesh.visible:
 			count += 1
 	return count
+
+## Die Lage der Zelle: x Breite, y Kopf, z Deckel-Normale.
+func _cell_basis(hull: CardPackView) -> Basis:
+	return (hull.find_child("Hull0", true, false) as Node3D).global_basis
 
 func test_every_card_pack_has_one_footprint() -> void:
 	var footprints := {}
 	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.SIZES:
+		for pack_size in CardPack.CARD_SIZES:
 			var box := _shell(_hull(pack_sort, pack_size))
 			footprints[Vector2(box.x, box.y)] = true
 	assert_eq(footprints.size(), 1, "EIN Grundriß für alle Karten-Pakete")
@@ -39,22 +82,113 @@ func test_the_hull_is_a_touch_bigger_than_a_lying_card() -> void:
 	var box := _shell(_hull(CardPack.SORT_NUMBER, 0))
 	assert_gt(box.x, DataCellView.WIDTH)
 	assert_gt(box.y, DataCellView.HEIGHT)
-	assert_lt(box.y, DataCellView.HEIGHT * ShopController.SLIT_ROOM, "paßt in den Stellplatz")
+	assert_lt(box.y, DataCellView.HEIGHT * ShopController.PLACE_ROOM, "paßt in den Stellplatz")
 
-func test_a_cassette_grows_in_thickness_and_shows_one_edge_per_option() -> void:
-	var last := 0.0
-	for pack_size in CardPack.SIZES:
-		var hull := _hull(CardPack.SORT_MATERIAL, pack_size)
-		assert_gt(_shell(hull).z, last, "größer heißt dicker")
-		last = _shell(hull).z
-		assert_eq(_edges(hull), CardPack.option_count(pack_size))
-	assert_null(_hull(CardPack.SORT_MATERIAL, CardPack.SIZE_SMALL).find_child("Band", true, false))
-	assert_not_null(_hull(CardPack.SORT_MATERIAL, CardPack.SIZE_NORMAL).find_child("Band", true,
-		false))
-	assert_not_null(_hull(CardPack.SORT_MATERIAL, CardPack.SIZE_LARGE).find_child("FrameTop",
-		true, false))
-	assert_not_null(_hull(CardPack.SORT_MATERIAL, CardPack.SIZE_HUGE).find_child("Corner0",
-		true, false), "Riesig trägt Goldecken")
+## Gleich dick für jede Kartenzahl; im Inneren liegt je Option eine echte Karte.
+func test_every_box_is_equally_thick_and_holds_one_card_per_option() -> void:
+	var first := _shell(_hull(CardPack.SORT_MATERIAL, 0)).z
+	assert_almost_eq(first, CardPackView.CASSETTE_THICKNESS, 0.002, "das Modell ist so dick")
+	for pack_size in CardPack.CARD_SIZES:
+		var hull := _hull(CardPack.SORT_MATERIAL, pack_size, false, DicePack.QUALITY_ROYAL)
+		assert_almost_eq(_shell(hull).z, first, 0.0001, "die Kartenzahl ändert die Dicke nicht")
+		assert_eq(_stair(hull).size(), CardPack.option_count(pack_size), "eine Karte je Option")
+		assert_true(_stair_card(_stair(hull)[0]) is DataCellView, "eine echte Data-Card")
+
+## Die Treppe liegt im Hohlraum: die oberste unter der Folie zum Fuß hin, jede tiefere eine
+## Stufe weiter zum Kopf (unter das Fenster), und keine Karte ragt durch Wand oder Lasche.
+func test_the_stair_lies_inside_the_box() -> void:
+	var hull := _hull(CardPack.SORT_RUNE, CardPack.SIZE_LARGE)
+	var bottom := -DataCellView.DEPTH * 0.5
+	var wall := CardPackView.BOX_WALL
+	var inner_x := DataCellView.WIDTH * CardPackView.FOOT_ROOM * 0.5 - wall
+	var head := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * 0.5 - CardPackView.BOX_TAB - wall
+	var foot := -DataCellView.HEIGHT * CardPackView.FOOT_ROOM * 0.5 + wall
+	var last_y := INF
+	var last_z := -INF
+	for holder: Node3D in _stair(hull):
+		var card := _stair_card(holder)
+		var thick := DataCellView.DEPTH * holder.basis.get_scale().z
+		assert_gt(holder.position.z - thick * 0.5, bottom + wall, holder.name)
+		assert_lt(holder.position.z + thick * 0.5, bottom + CardPackView.CASSETTE_THICKNESS - wall,
+			holder.name)
+		assert_lt(holder.position.y, last_y, "jede höhere rückt zum Fuß - die tieferen lugen am Kopf hervor")
+		assert_gt(holder.position.z, last_z, "und liegt höher")
+		last_y = holder.position.y
+		last_z = holder.position.z
+		var half := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * card.body_scale() * 0.5
+		assert_lt(half.x, inner_x, "%s quer" % holder.name)
+		assert_lt(holder.position.y + half.y, head, "%s am Kopf" % holder.name)
+		assert_gt(holder.position.y - half.y, foot, "%s am Fuß" % holder.name)
+		assert_gt(holder.basis.z.normalized().z, 0.99, "liegend schaut sie zum Deckel")
+
+## Die Karten sind fast so groß wie die Schachtel, das Fenster nur halb so groß: man sieht
+## nie alle ganz - so liest es als Fenster, nicht als Bild.
+func test_the_window_shows_only_part_of_the_cards() -> void:
+	var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_NORMAL)
+	var card := _stair_card(_stair(hull)[0])
+	var card_length := DataCellView.HEIGHT * card.body_scale()
+	assert_gt(card_length, DataCellView.HEIGHT * CardPackView.FOOT_ROOM * 0.7, "fast so lang")
+	var film := hull.find_child("Folie", true, false) as MeshInstance3D
+	var window := film.get_aabb().size
+	assert_lt(maxf(window.x, window.z), card_length * 0.8, "das Fenster zeigt nur einen Teil")
+	var material := film.material_override as StandardMaterial3D
+	assert_eq(material.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA, "Klarsichtfolie")
+	assert_lt(material.albedo_color.a, 0.2, "kaum Farbe")
+
+## Stehend im Lager bleibt die Treppe: das Fenster liegt auf der Front, nicht am Kopf.
+func test_standing_keeps_the_stair() -> void:
+	var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE)
+	var flat: Array[Transform3D] = []
+	for holder: Node3D in _stair(hull):
+		flat.append(holder.transform)
+	hull.set_standing(true)
+	hull._set_hover_share(0.7)
+	var holders := _stair(hull)
+	for i in holders.size():
+		assert_eq((holders[i] as Node3D).transform, flat[i], "die Treppe rührt sich nicht")
+
+## Der Druck je Paket: Augen der Kartenzahl auf Front und Kopf, der Name der Sorte, das
+## Sortenband - im Misch-Paket die drei Sortenfarben.
+func test_the_print_tells_count_and_sort() -> void:
+	for pack_size: int in CardPack.CARD_SIZES:
+		var count := CardPack.option_count(pack_size)
+		var hull := _hull(CardPack.SORT_NUMBER, pack_size)
+		assert_eq(_visible_parts(hull, "AugeFront"), count, "ein Auge je Karte auf der Front")
+		assert_eq(_visible_parts(hull, "AugeKopf"), count, "und am Kopf")
+	var rune := _hull(CardPack.SORT_RUNE, 1)
+	assert_eq(_visible_parts(rune, "DruckSorte_"), 1, "genau ein Sortenname")
+	assert_true((rune.find_child("DruckSorte_rune", true, false) as MeshInstance3D).visible)
+	assert_eq(_visible_parts(rune, "Streifen"), 0, "keine Misch-Streifen")
+	var band := rune.find_child("DruckBand", true, false) as MeshInstance3D
+	assert_true(band.visible)
+	assert_eq(band.material_override, rune._edge_material, "das Band trägt Hover und Flare")
+	var mixed := _hull(CardPack.SORT_MIXED, 1)
+	assert_false((mixed.find_child("DruckBand", true, false) as MeshInstance3D).visible)
+	assert_gt(_visible_parts(mixed, "Streifen"), 2, "Misch: die drei Sortenfarben")
+
+## Die GÜTE ist die Prägefolie: weißer Druck, Silber, Gold - auf Front und Rücken.
+func test_the_foil_tells_the_quality() -> void:
+	var seen := {}
+	for quality in DicePack.QUALITIES:
+		var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_NORMAL, false, quality)
+		var foils := hull.find_children("Praegung*", "MeshInstance3D", true, false)
+		assert_gt(foils.size(), 2, "Marke, Linie und Rücken")
+		var foil := (foils[0] as MeshInstance3D).material_override as StandardMaterial3D
+		assert_eq(foil.albedo_color, CardPackView.FOIL_ALBEDOS[quality])
+		for part: MeshInstance3D in foils:
+			assert_eq(part.material_override, foil, "eine Folie je Schachtel")
+		seen[foil.albedo_color] = true
+	assert_eq(seen.size(), DicePack.QUALITIES.size(), "jede Güte eine eigene Folie")
+
+## Innen ist die Schachtel roher Karton, außen schwarz bedruckt.
+func test_the_box_is_board_outside_and_kraft_inside() -> void:
+	var hull := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_NORMAL)
+	var body := hull.find_child("Karton", true, false) as MeshInstance3D
+	var kinds := {}
+	for surface in body.get_surface_override_material_count():
+		kinds[body.get_surface_override_material(surface)] = true
+	assert_true(kinds.has(hull._shell_material), "außen der Karton")
+	assert_true(kinds.has(hull._kraft_material()), "innen roher Karton")
 
 func test_the_sort_reads_as_colour() -> void:
 	assert_eq(_hull(CardPack.SORT_MATERIAL, 1).tint,
@@ -62,9 +196,55 @@ func test_the_sort_reads_as_colour() -> void:
 	assert_eq(_hull(DicePack.SORT_SOUL, 1, true).tint,
 		PackDrawerView.dice_pack_tint(DicePack.SORT_SOUL))
 	var mixed := _hull(CardPack.SORT_MIXED, 1)
-	var first := (mixed.find_child("CardEdge0", true, false) as MeshInstance3D).material_override
-	var second := (mixed.find_child("CardEdge1", true, false) as MeshInstance3D).material_override
-	assert_ne(first, second, "Misch zeigt Kanten in den Regal-Farben")
+	assert_ne(_stair_card(_stair(mixed)[0]).sort, _stair_card(_stair(mixed)[1]).sort,
+		"Misch: Karten aller Sorten")
+
+## Die Karten sind von der Sorte des Pakets und in der Größe, die die Güte verspricht.
+func test_the_stair_cards_are_of_the_pack_sort() -> void:
+	var sorts := {CardPack.SORT_NUMBER: Engraving.CATEGORY_NUMBER,
+		CardPack.SORT_MATERIAL: Engraving.CATEGORY_MATERIAL,
+		CardPack.SORT_RUNE: Engraving.CATEGORY_DICE}
+	for pack_sort: String in sorts:
+		for quality in DicePack.QUALITIES:
+			var hull := _hull(pack_sort, 1, false, quality)
+			for holder in _stair(hull):
+				var card := _stair_card(holder)
+				assert_eq(card.sort, String(sorts[pack_sort]), pack_sort)
+				assert_eq(card.tier, quality, "Standard / Groß / Kolossal")
+
+## In Ruhe stehen die Netze still; unter dem Griff und in der Öffnung laufen sie.
+func test_the_nets_only_cycle_under_the_grip_or_when_opening() -> void:
+	var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL)
+	assert_false(hull.is_processing(), "in Ruhe still")
+	var first := _stair_card(_stair(hull)[0])
+	var net := first.stamp_net.duplicate()
+	hull._process(CardPackView.NET_CYCLE * 3.0)
+	assert_eq(first.stamp_net, net, "ohne Griff kein Wechsel")
+	hull.set_hovered(true)
+	assert_true(hull.is_processing(), "der Griff läßt sie laufen")
+	hull.set_hovered(false)
+	assert_false(hull.is_processing(), "losgelassen wieder still")
+	hull.set_net_cycling(true)
+	assert_true(hull.is_processing(), "auf dem Weg zur Öffnung laufen sie")
+
+## Unter dem Griff wechseln die Netze - und kommen aus dem geteilten Vorrat ihrer Sorte.
+func test_the_stair_nets_keep_changing_within_their_sort() -> void:
+	var hull := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_SMALL)
+	var cards: Array[DataCellView] = []
+	var before: Array = []
+	for holder in _stair(hull):
+		cards.append(_stair_card(holder))
+		before.append(_stair_card(holder).stamp_net.duplicate())
+	hull.set_hovered(true)
+	hull._cycle_clock = 0.0
+	hull._process(CardPackView.NET_CYCLE + 0.01)
+	var changed := 0
+	for i in cards.size():
+		var pool := CardPackView.net_pool(cards[i].sort, cards[i].tier)
+		assert_true(pool.has(cards[i].stamp_net), "aus dem Vorrat")
+		if cards[i].stamp_net != before[i]:
+			changed += 1
+	assert_eq(changed, cards.size(), "nach einem Umlauf zeigt jede Karte ein anderes Netz")
 
 func test_a_dice_pack_is_the_case_with_a_band_in_its_colour() -> void:
 	var soul := _hull(DicePack.SORT_SOUL, CardPack.SIZE_NORMAL, true)
@@ -98,14 +278,16 @@ func test_a_dice_pack_is_the_case_with_a_band_in_its_colour() -> void:
 		"eine Würfelseite je Deckel und Rücken")
 
 func test_the_band_tints_are_the_card_colours() -> void:
-	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_MATERIAL), Color("#22e0c0"))
-	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_RUNE), Color("#ff6a2b"))
+	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_MATERIAL),
+		PackDrawerView.card_pack_tint(CardPack.SORT_MATERIAL), "Material: dieselbe Farbe wie die Karten")
+	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_RUNE),
+		PackDrawerView.card_pack_tint(CardPack.SORT_RUNE), "Runen: dieselbe Farbe wie die Karten")
 	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_SOUL), Color("#a66bff"))
 	assert_eq(PackDrawerView.DICE_PACK_TINTS.size(), DicePack.SORTS.size())
 
 func test_the_symbol_sits_on_lid_and_spine_only_with_a_band() -> void:
-	var names := {DicePack.SORT_SOUL: "Raute", DicePack.SORT_MATERIAL: "Kachel0",
-		DicePack.SORT_RUNE: "Stamm"}
+	var names := {DicePack.SORT_SOUL: "Raute", DicePack.SORT_MATERIAL: "Sechseck",
+		DicePack.SORT_RUNE: "Ring"}
 	for pack_sort: String in names:
 		var hull := _hull(pack_sort, CardPack.SIZE_LARGE, true)
 		for host in ["SymbolDeckel", "SymbolRuecken"]:
@@ -372,7 +554,7 @@ func _coplanar_fights(hull: CardPackView) -> Array[String]:
 
 func test_no_two_cassette_parts_share_a_face() -> void:
 	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.SIZE_HUGE + 1:
+		for pack_size in CardPack.CARD_SIZES:
 			var fights := _coplanar_fights(_hull(pack_sort, pack_size))
 			assert_eq(fights, [] as Array[String], "%s Größe %d" % [pack_sort, pack_size])
 
@@ -432,13 +614,12 @@ func test_a_standing_pack_hangs_below_its_spine() -> void:
 	hull.add_spine()
 	hull.stand_on(Vector3.ZERO)
 	var length := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE
-	var shell := hull.find_child("Shell", true, false) as Node3D
-	assert_almost_eq(shell.global_position.y, -length * 0.5, 0.001, "die Mitte eine halbe Länge tief")
-	assert_almost_eq(shell.global_position.z, 0.0, 0.001, "mittig im Platz")
-	assert_gt(shell.global_basis.z.normalized().z, 0.99, "die Fläche zeigt nach Bild-rechts")
-	assert_gt(shell.global_basis.y.normalized().y, 0.99, "der Kopf zeigt nach oben")
-	var spine := hull.find_child("Mark", true, false) as Node3D
-	assert_almost_eq(spine.global_position.y, 0.0, 0.001, "der Rücken liegt oben")
+	var center := _center(hull)
+	assert_almost_eq(center.y, -length * 0.5, 0.01, "die Mitte eine halbe Länge tief")
+	assert_almost_eq(center.z, 0.0, 0.001, "mittig im Platz")
+	assert_gt(_cell_basis(hull).z.normalized().z, 0.99, "die Fläche zeigt nach Bild-rechts")
+	assert_gt(_cell_basis(hull).y.normalized().y, 0.99, "der Kopf zeigt nach oben")
+	assert_null(hull.find_child("Spine", true, false), "der Kopfdruck liest von selbst")
 	assert_true(hull.standing())
 
 ## Der Griff hebt sie aus der Rinne und legt ihre Fläche zur Kamera - über dem Filz.
@@ -447,16 +628,15 @@ func test_hover_presents_the_face_above_the_felt() -> void:
 	hull.rotation.y = -PI / 2.0  # wie scene_root._spawn_hull
 	hull.stand_on(Vector3.ZERO)
 	hull._set_hover_share(CardPackView.PRESENT_RISE_SHARE)
-	var shell := hull.find_child("Shell", true, false) as Node3D
 	var length := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE
-	assert_gt(shell.global_position.y - length * 0.5, 0.0, "gehoben steht sie ganz über dem Filz")
+	assert_gt(_center(hull).y - length * 0.5, 0.0, "gehoben steht sie ganz über dem Filz")
 	hull._set_hover_share(1.0)
-	assert_gt(shell.global_basis.z.normalized().y, 0.99, "gekippt liegt die Fläche oben")
-	assert_gt(shell.global_position.y, 0.0, "über dem Filz")
+	assert_gt(_cell_basis(hull).z.normalized().y, 0.99, "gekippt liegt die Fläche oben")
+	assert_gt(_center(hull).y, 0.0, "über dem Filz")
 	for share in [0.6, 0.7, 0.8, 0.9]:
 		hull._set_hover_share(share)
-		var turn := shell.global_basis
-		var low := shell.global_position.y - absf(turn.y.normalized().y) * length * 0.5 \
+		var turn := _cell_basis(hull)
+		var low := _center(hull).y - absf(turn.y.normalized().y) * length * 0.5 \
 			- absf(turn.z.normalized().y) * hull.thickness() * PackDrawerView.CASSETTE_SCALE * 0.5
 		assert_gt(low, 0.0, "beim Kippen taucht kein Ende unter den Filz (%.1f)" % share)
 
@@ -473,14 +653,12 @@ func test_lying_down_restores_the_lying_pose() -> void:
 	lying.set_standing(false)
 	assert_eq(body.transform, rest)
 
-## Die Rücken-Marke trägt die Sorte; die Schatulle braucht keine - ihren Rücken tragen
-## Würfelseite und Banderole.
-func test_the_spine_carries_the_sort() -> void:
-	var cassette := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_HUGE)
+## Weder Schachtel noch Schatulle tragen eine Rücken-Marke: Kopfdruck bzw. Würfelseite und
+## Banderole lesen von selbst.
+func test_no_spine_mark_on_cassette_or_case() -> void:
+	var cassette := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_NORMAL)
 	cassette.add_spine()
-	var mark := cassette.find_child("Mark", true, false) as MeshInstance3D
-	assert_eq(mark.material_override, cassette._edge_material, "die Sortenfarbe")
-	assert_eq(_coplanar_spine(cassette), [] as Array[String], "keine geteilte Fläche")
+	assert_null(cassette.find_child("Spine", true, false), "der Druck trägt den Rücken")
 	var plain := _quality_hull(DicePack.QUALITY_ROYAL)
 	plain.add_spine()
 	assert_null(plain.find_child("Spine", true, false), "die Würfelseite trägt den Rücken")
@@ -488,9 +666,3 @@ func test_the_spine_carries_the_sort() -> void:
 	banded.add_spine()
 	assert_null(banded.find_child("Spine", true, false), "auch mit Banderole keine Marke")
 
-func _coplanar_spine(hull: CardPackView) -> Array[String]:
-	var spine := hull.find_child("Spine", true, false)
-	var hull0 := hull.find_child("Hull0", true, false)
-	for child in spine.get_children():
-		child.reparent(hull0, false)
-	return _coplanar_fights(hull)

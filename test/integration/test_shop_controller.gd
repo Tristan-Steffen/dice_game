@@ -17,7 +17,7 @@ static func _luck_of(tier: int) -> int:
 func before_each() -> void:
 	run = GameRun.new_run()
 	run.money = 100
-	run.luck = _luck_of(7)  # drei Regale zu je drei Plätzen
+	run.luck = _luck_of(7)
 	shop = ShopPanelScene.instantiate()
 	add_child_autofree(shop)  # löst _ready aus (baut Würfel-Angebot, verbindet Signale)
 	shop.run = run
@@ -48,115 +48,194 @@ func test_owned_charms_never_appear_again():
 		for option in shop.charm_options:
 			assert_ne(option.id, Charm.RABBITS_FOOT, "besessener Charm liegt wieder aus")
 
-func test_the_bowl_lays_out_dice_packs_instead_of_dice():
-	for pack in shop.engraving_packs:
-		assert_true(pack is CardPack, "die Reihe führt nur Pakete")
-	for dice_pack in shop.vitrine_stock()[ShopController.KIND_DIE]:
-		assert_true(dice_pack is DicePack, "die Schale führt Würfel-Pakete")
 
-func test_every_shelf_carries_three_places_on_every_tier():
+## Die Paket-Fläche: sechs Plätze, jede Art auf jedem Platz.
+func test_the_pack_area_carries_six_places_on_every_tier():
 	for tier in [1, 7, GameRun.TIER_MAX]:
 		run.luck = _luck_of(tier)
 		shop.spreads.clear()
 		shop.open()
 		assert_eq(shop.charm_options.size(), 3, "Stufe %d: drei Charms" % tier)
-		assert_eq(shop.module_packs.size(), 1, "Stufe %d: ein Modul-Paket" % tier)
-		assert_eq(shop.single_dice.size(), 2, "Stufe %d: zwei Würfel" % tier)
-		assert_eq(shop.slit_seats().size(), 3, "Stufe %d: drei Gravuren" % tier)
+		assert_eq(shop.packs.size(), GameRun.SHOP_PACK_PLACES, "Stufe %d: sechs Pakete" % tier)
+		assert_eq(shop.pack_prices.size(), shop.packs.size(), "je Platz ein Preis")
+		assert_eq(shop.place_count(), 6)
+		for pack in shop.packs:
+			assert_true(pack is CardPack or pack is DicePack or pack is ModulePack or pack is Pack,
+				"jeder Platz trägt ein Paket")
+
+## Jeder Platz würfelt seine Art unabhängig, im Mittel 3 : 2 : 1.
+func test_every_place_rolls_its_kind_three_two_one():
+	assert_eq(GameRun.shop_pack_kind_for(0.0), GameRun.LANE_CARDS)
+	assert_eq(GameRun.shop_pack_kind_for(0.49), GameRun.LANE_CARDS)
+	assert_eq(GameRun.shop_pack_kind_for(0.51), GameRun.LANE_DICE)
+	assert_eq(GameRun.shop_pack_kind_for(0.82), GameRun.LANE_DICE)
+	assert_eq(GameRun.shop_pack_kind_for(0.84), GameRun.LANE_MODULES)
+	assert_eq(GameRun.shop_pack_kind_for(0.999), GameRun.LANE_MODULES)
+	run.luck = _luck_of(1)
+	var counts := {GameRun.LANE_CARDS: 0, GameRun.LANE_DICE: 0, GameRun.LANE_MODULES: 0}
+	for i in 100:
+		var spread = shop._build_spread()
+		for pack in spread.packs:
+			counts[GameRun.store_lane_of(pack)] += 1
+	var total := 600.0
+	assert_almost_eq(counts[GameRun.LANE_CARDS] / total, 0.5, 0.08, "Karten ~1/2")
+	assert_almost_eq(counts[GameRun.LANE_DICE] / total, 1.0 / 3.0, 0.08, "Würfel ~1/3")
+	assert_almost_eq(counts[GameRun.LANE_MODULES] / total, 1.0 / 6.0, 0.06, "Module ~1/6")
 
 # --- Paketkauf ----------------------------------------------------------------
 # Ein gekauftes Paket wandert ins LAGER; erst das Öffnen würfelt Optionen und Wahlen.
+
+## Stellt die Paket-Plätze der aktuellen Seite fest - das echte Angebot ist zufällig.
+func _force_packs(list: Array) -> void:
+	var spread = shop.spreads[shop.current_spread_index]
+	var typed: Array[Resource] = []
+	typed.assign(list)
+	spread.packs = typed
+	var prices: Array[int] = []
+	for pack in typed:
+		prices.append(shop._price_of(pack))
+	spread.pack_prices = prices
+	var bought: Array[bool] = []
+	bought.resize(typed.size())
+	bought.fill(false)
+	spread.pack_bought = bought
+	shop._show_spread()
+
+## Karten, Karten, Würfel, Würfel, Modul, Karten - jede Art auf zwei Reihen.
+func _mixed() -> Array:
+	return [CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL),
+		CardPack.make(CardPack.SORT_MATERIAL, CardPack.SIZE_SMALL),
+		DicePack.make(DicePack.SORT_NORMAL, 2),
+		DicePack.make(DicePack.SORT_SOUL, 3),
+		ModulePack.make(CardPack.SIZE_SMALL, ModulePack.GRADE_COMMON),
+		CardPack.make(CardPack.SORT_RUNE, CardPack.SIZE_SMALL)]
 
 ## Öffnet das zuletzt gekaufte Paket einer Art aus dem Lager.
 func _open_last(dice: bool) -> PackChoice:
 	var list: Array = run.stored_packs(GameRun.LANE_DICE if dice else GameRun.LANE_CARDS)
 	return run.open_stored_pack(int(list[list.size() - 1].get("store_uid")))
 
-func test_buying_a_pack_stores_it():
-	var pack: CardPack = shop.engraving_packs[0]
+func test_buying_a_card_pack_stores_it():
+	_force_packs(_mixed())
+	var pack: CardPack = shop.packs[0]
 	var seats: Array = []
-	shop.card_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
-	shop._on_pack_buy_pressed(0)
+	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
+	shop.buy_pack(0)
 	assert_eq(run.money, 100 - pack.price)
 	assert_eq(run.stored_card_packs.size(), 1, "das Paket liegt im Lager")
 	assert_null(run.current_pack_choice(), "geöffnet wird erst per Klick")
-	assert_eq(seats, [shop._seat_of(ShopController.KIND_ENGRAVING_PACK, 0)],
-		"die Kassette verläßt IHREN Stellplatz")
+	assert_eq(seats, [0], "der Kauf meldet SEINEN Platz")
 	var choice := _open_last(false)
 	assert_eq(choice.option_count(), CardPack.option_count(pack.size))
-	assert_eq(run.owned_packs.size(), 0, "ins Magazin kommt erst die Wahl")
 	run.confirm_pack_choice(choice, [0])
 	assert_eq(run.owned_packs.size(), 1, "bestätigt liegt die Karte da")
 
+## Jede Art geht über DENSELBEN Kaufweg in ihre Lager-Reihe.
+func test_every_kind_buys_through_the_one_path():
+	run.money = 500
+	_force_packs(_mixed())
+	var seats: Array = []
+	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
+	for seat in 6:
+		shop.buy_pack(seat)
+	assert_eq(run.stored_card_packs.size(), 3, "drei Karten-Pakete")
+	assert_eq(run.stored_dice_packs.size(), 2, "zwei Würfel-Pakete")
+	assert_eq(run.stored_module_packs.size(), 1, "ein Modul-Paket")
+	assert_eq(seats, [0, 1, 2, 3, 4, 5], "EIN Signal für jede Art")
+
 func test_pack_offer_is_single_use():
-	shop._on_pack_buy_pressed(0)
+	_force_packs(_mixed())
+	shop.buy_pack(0)
 	var money_after: int = run.money
-	shop._on_pack_buy_pressed(0)  # zweiter Kauf desselben Angebots
+	shop.buy_pack(0)  # zweiter Kauf desselben Angebots
 	assert_eq(run.money, money_after, "nur einmal abgezogen")
-	assert_true(shop.engraving_pack_bought[0], "als gekauft vermerkt")
+	assert_true(shop.pack_bought[0], "als gekauft vermerkt")
 
 ## Ein Kauf läßt den Laden stehen: kein Abgang, kein closed, dieselbe Seite.
 func test_a_purchase_leaves_the_shop_untouched():
 	run.money = 500
+	_force_packs(_mixed())
 	var heard: Array = []
 	shop.closed.connect(func() -> void: heard.append(true))
 	var page: int = shop.current_spread_index
-	shop._on_pack_buy_pressed(0)
-	shop._on_single_die_pressed(0)
+	shop.buy_pack(0)
+	shop.buy_pack(2)
 	assert_eq(run.stored_card_packs.size(), 1)
 	assert_eq(run.stored_dice_packs.size(), 1, "zwei Käufe hintereinander gehen")
 	assert_false(shop.leaving(), "der Laden tritt nicht ab")
 	assert_true(shop.visible)
 	assert_eq(heard.size(), 0)
 	assert_eq(shop.current_spread_index, page)
+	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
+		"ein Kauf blättert nicht - die Seite bleibt liegen")
 
-## Ein voller Lager-Platz sperrt den Kauf dieser Art - und das Schild sagt es.
-func test_a_full_store_blocks_its_kind():
+## Ein voller Lager-Platz sperrt NUR die betroffene Art - und das Schild sagt es.
+func test_a_full_store_blocks_only_its_kind():
 	run.money = 5000
 	for i in GameRun.STORE_CAPACITY:
 		run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
+	shop.size = Vector2(1068, 1125)
+	shop.open()
+	_force_packs(_mixed())
+	await wait_frames(2)
 	var money_before: int = run.money
-	shop._on_pack_buy_pressed(0)
+	shop.buy_pack(0)
 	assert_eq(run.money, money_before, "kein Kauf am vollen Lager")
-	assert_false(shop.engraving_pack_bought[0])
-	shop._on_single_die_pressed(0)
-	assert_true(shop.single_dice_bought[0], "die Würfel-Reihe hat noch Platz")
-	assert_eq(ShopController.STORE_FULL_MARK, "LAGER VOLL")
+	assert_false(shop.pack_bought[0])
+	assert_eq(shop._place_prices[0].text, ShopController.STORE_FULL_MARK, "das Schild sagt es")
+	assert_eq(shop._place_prices[5].text, ShopController.STORE_FULL_MARK, "an jedem Karten-Platz")
+	assert_ne(shop._place_prices[2].text, ShopController.STORE_FULL_MARK, "der Würfel-Platz nicht")
+	shop.buy_pack(2)
+	assert_true(shop.pack_bought[2], "die Würfel-Reihe hat noch Platz")
+	shop.buy_pack(4)
+	assert_true(shop.pack_bought[4], "die Modul-Reihe auch")
 
 func test_cannot_buy_pack_without_funds():
-	run.money = 3  # unter jedem Paketpreis
-	shop._on_pack_buy_pressed(0)
-	assert_eq(run.money, 3, "kein Abzug bei zu wenig Geld")
-	assert_eq(run.owned_packs.size(), 0)
+	_force_packs(_mixed())
+	run.money = 0
+	var denied: Array = []
+	shop.purchase_denied.connect(func() -> void: denied.append(true))
+	for seat in 6:
+		shop.buy_pack(seat)
+	assert_eq(run.money, 0, "kein Abzug bei zu wenig Geld")
+	assert_eq(run.stored_card_packs.size() + run.stored_dice_packs.size()
+		+ run.stored_module_packs.size(), 0, "nichts im Lager")
+	assert_eq(denied.size(), 6, "jeder Versuch klingt abgelehnt")
 
-func test_con_artist_cuff_discounts_the_bowl_die_price():
-	# Die Würfel-Rabatte liegen jetzt in der Schale - der einzige Würfelkauf.
+func test_con_artist_cuff_discounts_the_dice_pack_price():
 	run.owned_charms.append(Charm.con_artist_cuff())
-	shop.open()
-	var price: int = shop.single_dice_prices[0]
-	assert_eq(price, run.shop_price(CharmEffects.die_price(shop.single_dice[0].price,
-		run.charm_ids())), "die Würfel-Rabatte greifen am Würfel-Paket")
-	shop._on_single_die_pressed(0)
+	_force_packs(_mixed())
+	var dice_pack: DicePack = shop.packs[2]
+	var price: int = shop.pack_prices[2]
+	assert_eq(price, run.shop_price(CharmEffects.die_price(dice_pack.price, run.charm_ids())),
+		"die Würfel-Rabatte greifen am Würfel-Paket")
+	shop.buy_pack(2)
 	assert_eq(run.money, 100 - price)
 
 func test_pack_price_is_raw_price_without_discount():
-	var engraving_pack = shop.engraving_packs[0]
-	assert_eq(shop._pack_price(engraving_pack), engraving_pack.price, "Gravur-Pakete haben feste Preise")
+	_force_packs(_mixed())
+	assert_eq(shop.pack_prices[0], shop.packs[0].price, "Karten-Pakete haben feste Preise")
+	assert_eq(shop.pack_prices[4], run.module_pack_shop_price(shop.packs[4]),
+		"das Modul-Paket seinen Ladenpreis")
 
-func test_bargain_hunter_discounts_every_pack_kind():
+func test_bargain_hunter_discounts_every_card_pack():
 	run.owned_charms.append(Charm.bargain_hunter())
-	for pack in shop.engraving_packs:
-		assert_eq(shop._pack_price(pack), maxi(1, roundi(pack.price * 0.7)), "%s: 30 %% guenstiger" % pack.sort)
+	_force_packs(_mixed())
+	for seat in [0, 1, 5]:
+		var pack: CardPack = shop.packs[seat]
+		assert_eq(shop.pack_prices[seat], maxi(1, roundi(pack.price * 0.7)),
+			"%s: 30 %% guenstiger" % pack.sort)
 
-## Ohne Geld bleibt jedes Paket liegen - die Kaufbarkeit steht seit dem
-## Vitrinen-Umbau nicht mehr an einer Karte, also wird der Kaufweg selbst geprüft.
-func test_packs_are_not_sold_without_the_money():
-	run.money = 0  # unter jedem Paketpreis
-	shop.open()
-	shop._on_pack_buy_pressed(0)
-	assert_eq(run.money, 0, "kein Abzug")
-	assert_eq(run.owned_packs.size(), 0, "und nichts im Lager")
-	assert_false(shop.engraving_pack_bought[0])
+func test_the_module_pack_sells_even_without_a_free_socket() -> void:
+	_force_packs(_mixed())
+	for key: String in DiceScoring.HAND_PRIORITY:
+		for slot in run.socket_count(key):
+			run.stash_part(ComboPart.resistor())
+			run.install_pending_part(key, slot)
+	assert_eq(run.free_socket_count(), 0)
+	shop.buy_pack(4)
+	assert_eq(run.stored_module_packs.size(), 1, "volle Steckplätze sperren das Paket nicht")
+	assert_true(run.pending_parts.is_empty(), "geöffnet wird erst im Lager")
 
 # --- Charmkauf ----------------------------------------------------------------
 
@@ -259,29 +338,20 @@ func test_charm_buttons_disabled_when_broke():
 	for button in shop.charm_buttons:
 		assert_true(button.disabled, "Charm bei zu wenig Geld nicht kaufbar")
 
-func test_spread_offers_packs():
-	# Auslage = Gravur-Kassetten auf ihren Stellplätzen, Einzelwürfel in der Schale,
-	# Charms auf dem Bildschirm; die Würfelzahl liefert die Fortschrittsstufe (hier 7:
-	# 5 Würfel), die Kassetten-Reihe ist auf jeder Stufe gleich voll.
-	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "Einzelwürfel in der Schale")
-	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots(), "Gravur-Pakete in der Reihe")
-	for pack in shop.engraving_packs:
-		assert_true(CardPack.SORTS.has(pack.sort), "eine echte Paket-Sorte")
-
 ## Das Übertakten ist tot - die Auslage kennt seine Angebote nicht mehr.
 func test_the_shop_no_longer_sells_overclocks():
 	assert_false(shop.has_method("_on_overclock_buy_pressed"))
 	var spread = shop.spreads[shop.current_spread_index]
 	assert_false("overclock_offers" in spread, "auch die Auslage kennt sie nicht mehr")
 
-func test_engraving_packs_persist_when_flipping_back():
+func test_packs_persist_when_flipping_back():
 	var first_types: Array = []
-	for pack in shop.engraving_packs:
+	for pack in shop.packs:
 		first_types.append(pack.display_name)
 	shop._on_page_next_pressed()  # neue Doppelseite (kostet Gebühr)
 	shop._on_page_back_pressed()
 	var back_types: Array = []
-	for pack in shop.engraving_packs:
+	for pack in shop.packs:
 		back_types.append(pack.display_name)
 	assert_eq(back_types, first_types, "zurückgeblättert = dasselbe Sortiment")
 
@@ -320,14 +390,6 @@ func test_cash_discount_lowers_charm_price():
 	shop._on_charm_clicked(0)
 	assert_eq(run.money, 100 - roundi(full * 0.6), "Rabattmarke: 40 % weniger")
 
-func test_bulk_discount_hits_the_bowl_dice():
-	# Seit die Würfel-Pakete tot sind, greift der Mengenrabatt an der Schale - dem
-	# einzigen Würfelkauf, den es noch gibt.
-	run.owned_charms.append(Charm.bulk_discount())
-	shop.open()
-	for price in shop.single_dice_prices:
-		assert_gt(int(price), 0, "der Rabatt drückt nie unter $1")
-	assert_eq(CharmEffects.die_price(30, run.charm_ids()), 21, "30 % weniger je Würfel")
 
 # --- Kaufbarkeit bei Geldänderung ----------------------------------------------
 # Der Shop hört auf run.money_changed: steigt das Geld, während der Shop offen
@@ -355,18 +417,54 @@ func test_flip_to_new_page_energys_increasing_fee():
 	assert_eq(run.money, 95)
 	assert_eq(shop.spreads.size(), 3)
 
+
 func test_flip_back_is_free_and_shows_same_offers():
-	var first_dice = shop.single_dice
+	var first_packs = shop.packs
 	shop._on_page_next_pressed()  # -$2
-	var second_dice = shop.single_dice
+	var second_packs = shop.packs
 	shop._on_page_back_pressed()
 	assert_eq(run.money, 98, "Zurückblättern kostet nichts")
-	assert_true(shop.single_dice == first_dice, "dieselben Angebote wie zuvor (gleiche Instanz)")
+	assert_true(shop.packs == first_packs, "dieselben Angebote wie zuvor (gleiche Instanz)")
 	shop._on_page_next_pressed()  # vor auf BEREITS gesehene Seite
 	assert_eq(run.money, 98, "Vorblättern auf bekannte Seite kostet nichts")
-	assert_true(shop.single_dice == second_dice)
+	assert_true(shop.packs == second_packs)
 	assert_eq(shop.spreads.size(), 2, "keine neue Seite ausgewürfelt")
 
+# --- Sortiment-Sperre ----------------------------------------------------------
+
+func test_locked_shop_keeps_the_same_offers_on_reopen():
+	var charms = shop.charm_options
+	var packs = shop.packs
+	shop._on_lock_pressed()
+	assert_true(shop.sortiment_locked)
+	shop._on_done_pressed()
+	shop.open()
+	assert_true(shop.charm_options == charms, "dieselben Charms (gleiche Instanzen)")
+	assert_true(shop.packs == packs, "dieselben Pakete")
+
+func test_locked_shop_keeps_bought_marks_on_reopen():
+	_force_packs(_mixed())
+	shop._on_charm_clicked(0)
+	shop.buy_pack(0)
+	shop._on_lock_pressed()
+	shop._on_done_pressed()
+	shop.open()
+	assert_true(shop.charm_bought[0], "der gekaufte Charm bleibt vermerkt")
+	assert_true(shop.pack_bought[0], "das gekaufte Paket bleibt verkauft")
+	var money_after: int = run.money
+	shop._on_charm_clicked(0)
+	shop.buy_pack(0)
+	assert_eq(run.money, money_after, "kein zweiter Kauf über den Besuch hinweg")
+
+func test_locked_shop_keeps_every_flipped_page():
+	shop._on_page_next_pressed()  # -$2, zweite Seite
+	var second = shop.packs
+	shop._on_lock_pressed()
+	shop._on_done_pressed()
+	shop.open()
+	assert_eq(shop.spreads.size(), 2, "beide Seiten bleiben stehen")
+	assert_eq(shop.current_spread_index, 1, "der Laden öffnet, wo er zuging")
+	assert_true(shop.packs == second)
 func test_cannot_flip_to_new_page_without_money():
 	run.money = 1
 	shop._on_page_next_pressed()
@@ -401,41 +499,6 @@ func test_each_archetype_appears_at_most_once_per_spread():
 		assert_false(seen.has(charm.id), "jeder Archetyp höchstens einmal je Seite")
 		seen.append(charm.id)
 
-# --- Sortiment-Sperre ----------------------------------------------------------
-
-func test_locked_shop_keeps_the_same_offers_on_reopen():
-	var charms = shop.charm_options
-	var dice = shop.single_dice
-	var engravings = shop.engraving_packs
-	shop._on_lock_pressed()
-	assert_true(shop.sortiment_locked)
-	shop._on_done_pressed()
-	shop.open()
-	assert_true(shop.charm_options == charms, "dieselben Charms (gleiche Instanzen)")
-	assert_true(shop.single_dice == dice, "dieselben Würfel")
-	assert_true(shop.engraving_packs == engravings, "dieselben Gravur-Pakete")
-
-func test_locked_shop_keeps_bought_marks_on_reopen():
-	shop._on_charm_clicked(0)
-	shop._on_pack_buy_pressed(0)
-	shop._on_lock_pressed()
-	shop._on_done_pressed()
-	shop.open()
-	assert_true(shop.charm_bought[0], "der gekaufte Charm bleibt vermerkt")
-	assert_true(shop.engraving_pack_bought[0], "das gekaufte Paket bleibt im Lager")
-	var money_after: int = run.money
-	shop._on_charm_clicked(0)
-	assert_eq(run.money, money_after, "kein zweiter Kauf über den Besuch hinweg")
-
-func test_locked_shop_keeps_every_flipped_page():
-	shop._on_page_next_pressed()  # -$2, zweite Seite
-	var second = shop.single_dice
-	shop._on_lock_pressed()
-	shop._on_done_pressed()
-	shop.open()
-	assert_eq(shop.spreads.size(), 2, "beide Seiten bleiben stehen")
-	assert_eq(shop.current_spread_index, 1, "der Laden öffnet, wo er zuging")
-	assert_true(shop.single_dice == second)
 
 func test_unlocking_resumes_the_reroll():
 	var charms = shop.charm_options
@@ -465,26 +528,24 @@ func test_a_new_run_clears_the_lock():
 
 func test_reopen_keeps_the_same_offers_without_rolling():
 	var charms = shop.charm_options
-	var dice = shop.single_dice
-	var engravings = shop.engraving_packs
+	var packs = shop.packs
 	shop._on_done_pressed()
 	shop.reopen()
 	assert_true(shop.visible)
 	assert_true(shop.charm_options == charms, "dieselben Charms (gleiche Instanzen)")
-	assert_true(shop.single_dice == dice)
-	assert_true(shop.engraving_packs == engravings)
+	assert_true(shop.packs == packs)
 	assert_eq(shop.spreads.size(), 1, "keine zweite Auslage")
 
 func test_reopen_keeps_bought_marks_and_the_page():
+	_force_packs(_mixed())
 	shop._on_charm_clicked(0)
-	shop._on_pack_buy_pressed(0)
+	shop.buy_pack(0)
 	shop._on_page_next_pressed()  # zweite Seite
 	shop._on_done_pressed()
 	shop.reopen()
 	assert_eq(shop.current_spread_index, 1, "der Laden öffnet, wo er zuging")
 	assert_true(shop.spreads[0].charm_bought[0], "der gekaufte Charm bleibt vermerkt")
-	assert_true(shop.spreads[0].engraving_pack_bought[0])
-
+	assert_true(shop.spreads[0].pack_bought[0])
 ## Das Abtreten für eine Paket-Öffnung ist gestorben (2026-11-13): es gibt keinen Weg dorthin.
 func test_the_shop_no_longer_suspends():
 	assert_false(shop.has_method("suspend"))
@@ -551,165 +612,329 @@ func test_done_hides_panel_and_emits_closed():
 	shop.finish_close()
 	assert_false(shop.visible)
 
-# --- Chip-Schale: die Einzelstücke ------------------------------------------------
 
-func test_the_bowl_offers_dice_packs_only() -> void:
-	assert_eq(shop.single_dice.size(), run.shop_dice_slots(),
-		"die Stufe sagt, wie viele Würfel-Pakete ausliegen")
-	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size(), "je Paket ein Preis")
-	for i in shop.single_dice.size():
-		assert_true(shop.single_dice[i] is DicePack)
-		assert_gt(int(shop.single_dice_prices[i]), 0)
-
-func test_buying_a_dice_pack_stores_it_for_a_dice_choice() -> void:
-	run.money = 500
-	var price: int = shop.single_dice_prices[0]
-	var pool_before := []
-	for def in run.owned_pool:
-		pool_before.append(def.style_id)
-	var before := run.money
-	shop._on_single_die_pressed(0)
-	assert_eq(run.money, before - price, "der Preis ist abgebucht")
-	assert_true(shop.single_dice_bought[0], "der Platz ist verkauft")
-	assert_null(run.current_pack_choice(), "im Lager, noch nicht geöffnet")
-	var choice := _open_last(true)
-	assert_true(choice.is_dice(), "eine Würfel-Auswahl")
-	assert_eq(run.pending_dice.size(), 0, "eingesetzt wird erst nach der Wahl")
-	run.confirm_pack_choice(choice, [0])
-	assert_eq(run.pending_dice.size(), 1, "die Wahl geht in den Zwang")
-	var pool_after := []
-	for def in run.owned_pool:
-		pool_after.append(def.style_id)
-	assert_eq(pool_after, pool_before, "der Vorrat bleibt unangetastet")
-
-func test_a_single_is_only_sold_once() -> void:
-	run.money = 500
-	shop._on_single_die_pressed(0)
-	var after_first := run.money
-	shop._on_single_die_pressed(0)
-	assert_eq(run.money, after_first, "der zweite Klick kostet nichts mehr")
-
-func test_singles_are_not_sold_without_the_money() -> void:
-	run.money = 0
-	shop._on_single_die_pressed(0)
-	assert_eq(run.stored_dice_packs.size(), 0, "ohne Geld kein Kauf")
-	assert_false(shop.single_dice_bought[0])
-
-func test_the_locked_assortment_freezes_the_singles_too() -> void:
-	run.money = 500
-	var die_names: Array[String] = []
-	for def in shop.single_dice:
-		die_names.append(def.display_name)
-	shop.sortiment_locked = true
-	shop.close()
-	shop.open()
-	var after_names: Array[String] = []
-	for def in shop.single_dice:
-		after_names.append(def.display_name)
-	assert_eq(after_names, die_names, "dieselben Würfel liegen wieder da")
-
-func test_a_bought_single_stays_bought_inside_a_locked_spread() -> void:
-	run.money = 500
-	shop._on_single_die_pressed(0)
-	shop.sortiment_locked = true
-	shop.close()
-	shop.open()
-	assert_true(shop.single_dice_bought[0], "gekauft bleibt gekauft")
-
-func test_unlocking_rolls_fresh_singles() -> void:
-	shop.sortiment_locked = false
-	var before: Array[int] = shop.single_dice_prices.duplicate()
-	shop.close()
-	shop.open()
-	# Ohne Sperre wird neu gerollt - die Auslage ist eine andere (Preise oder
-	# Anzahl unterscheiden sich praktisch immer; hier reicht die Existenz).
-	assert_gt(shop.single_dice.size(), 0, "die neue Auslage ist wieder gefüllt")
-	assert_eq(shop.single_dice_prices.size(), shop.single_dice.size())
-	assert_gt(before.size(), 0)
-
-# --- Die Vitrine: die Ware liegt körperlich, der Bildschirm meldet nur ihr Feld ---
-# Die Auslage selbst (Pakete, Einzelstücke, Ausgabefach) stellt scene_root als echte
-# Körper in die Bucht - der Laden zeichnet dort NICHTS und meldet nur das Rechteck.
-
-func test_the_shop_reports_a_vitrine_rect() -> void:
-	await wait_frames(2)
-	var bay: Rect2 = shop.vitrine_rect_px()
-	assert_gt(bay.size.x, 0.0, "die Bucht hat eine Breite")
-	assert_gt(bay.size.y, 0.0, "und eine Höhe")
-	var page: Rect2 = shop.get_global_rect()
-	assert_true(page.encloses(bay), "sie liegt ganz auf der Ladenseite")
-
-func test_the_vitrine_hole_sits_inside_its_frame() -> void:
-	# Dieselbe Rechnung wie am Magazin: die Grube ist der Streifen ohne Fassung.
-	await wait_frames(2)
-	var bay: Rect2 = shop.vitrine_rect_px()
-	var hole: Rect2 = shop.vitrine_pit_rect()
-	assert_true(bay.encloses(hole), "das Loch liegt im Rahmen")
-	assert_almost_eq(hole.position.x - bay.position.x,
-		PackDrawerView.rim_inset(shop.u), 0.51, "links um die Fassung eingerückt")
-	assert_almost_eq(bay.end.y - hole.end.y,
-		PackDrawerView.rim_inset(shop.u), 0.51, "unten ebenso")
-
-## Die drei REGALE stehen übereinander: Charms, Würfel, Gravuren - jede Zeile über
-## die volle Innenbreite.
-func test_the_three_shelves_stand_one_under_the_other() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var charms: Rect2 = shop.content_root.get_global_rect()
-	var gravur: Rect2 = shop.slit_row.get_global_rect()
-	var bay: Rect2 = shop.vitrine_rect_px()
-	assert_lte(charms.end.y, bay.position.y, "die Charms stehen über den Würfeln")
-	assert_lte(bay.end.y, gravur.position.y, "die Würfel über den Gravuren")
-	assert_almost_eq(bay.size.x, gravur.size.x, 0.5, "beide Zeilen sind gleich breit")
-	assert_almost_eq(bay.size.x, charms.size.x, 0.5, "und die Charm-Zeile auch")
-	assert_gte(bay.size.y, shop.u * ShopController.DIE_ROOM_UNITS - 0.5, "die Bucht hat Höhe")
-	assert_null(shop.find_child("ColumnLine", true, false), "keine Spaltenlinie mehr")
-
-func test_the_vitrine_rect_survives_a_page_flip() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var before: Rect2 = shop.vitrine_rect_px()
-	shop._on_page_next_pressed()  # frische Doppelseite
-	await wait_frames(2)
-	assert_true(shop.vitrine_rect_px().is_equal_approx(before),
-		"die Bucht steht fest - geblättert wird die Ware, nicht das Möbel")
-
-func test_the_bay_carries_only_open_goods() -> void:
-	# In der Bucht liegen NUR Würfel- und Modul-Pakete; alles Versiegelte steckt in
-	# den Kassetten-Schlitzen des Tisches.
-	var stock: Dictionary = shop.vitrine_stock()
-	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size())
-	assert_eq(stock[ShopController.KIND_MODULE_PACK].size(), GameRun.SHOP_MODULE_PACK_SLOTS)
-	assert_false(stock.has(ShopController.KIND_PART), "einzelne Module führt der Laden nicht")
-	assert_false(stock.has(ShopController.KIND_ENGRAVING_PACK),
-		"Pakete liegen nicht mehr in der Bucht")
-	assert_false(stock.has(ShopController.KIND_SPECIAL),
-		"und der Sonderposten auch nicht")
-	assert_false(stock.has("pending"),
-		"bezahlte Ware wartet nicht mehr im Laden - sie liegt an der Werkbank")
-
-func test_a_bought_slot_stays_as_an_empty_place() -> void:
-	# Ausverkauft ist SICHTBAR: der Platz bleibt leer, und die Lücke hält die
-	# Indizes treu - ein Griff meint immer denselben Kaufweg.
-	run.money = 500
-	shop.buy_single_die(0)
-	var stock: Dictionary = shop.vitrine_stock()
-	assert_eq(stock[ShopController.KIND_DIE].size(), shop.single_dice.size(),
-		"der Platz verschwindet nicht, er wird leer")
-	assert_null(stock[ShopController.KIND_DIE][0], "verkauft = leerer Platz")
-	assert_not_null(stock[ShopController.KIND_DIE][1], "der Nachbar rückt nicht auf")
-
-func test_every_change_of_the_bay_is_reported() -> void:
+func test_every_change_of_the_area_is_reported() -> void:
+	_force_packs(_mixed())
 	var beats := []
 	shop.vitrine_changed.connect(func() -> void: beats.append(1))
-	shop._on_pack_buy_pressed(0)
+	shop.buy_pack(0)
 	assert_gt(beats.size(), 0, "der Kauf meldet die neue Auslage")
 	beats.clear()
 	shop._on_page_next_pressed()
 	assert_gt(beats.size(), 0, "und das Blättern auch")
 
+# --- Die PAKET-FLÄCHE: zwei Reihen zu drei Plätzen ------------------------------
+
+## Gemessen an der echten Werkbank (scene_root._data_cell_lying_px).
+const LIE_PX := Vector2(60.75, 40.5)
+
+func _lay_out_page() -> void:
+	shop.size = Vector2(1069, 1125)
+	shop.data_cell_lie_px = LIE_PX
+	shop.open()
+
+## Die Bänder der Seite in globalen Display-Pixeln (Kopfzeile inbegriffen) - der
+## jüngste Aufbau zählt, der alte hängt bis zum Frame-Ende noch im Baum.
+func _band_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	var margin: Control = shop.get_child(shop.get_child_count() - 1)
+	for band in margin.get_child(0).get_children():
+		out.append((band as Control).get_global_rect())
+	return out
+
+func test_the_bands_stand_on_every_tier() -> void:
+	shop.size = Vector2(1068, 1125)
+	run.luck = _luck_of(1)
+	shop.sortiment_locked = false
+	shop.spreads.clear()
+	shop.open()
+	await wait_frames(2)
+	var low := _band_rects()
+	assert_eq(low.size(), 5, "Kopf, Charms, Pakete, Auskunfts-Band, Fuß")
+	run.luck = _luck_of(GameRun.TIER_MAX)
+	shop.spreads.clear()
+	shop.open()
+	await wait_frames(2)
+	var high := _band_rects()
+	assert_eq(high.size(), low.size(), "dieselben Bänder")
+	for i in low.size():
+		assert_true(high[i].is_equal_approx(low[i]),
+			"Band %d steht auf jeder Stufe gleich (%s vs %s)" % [i, low[i], high[i]])
+	assert_eq(shop.charm_options.size(), 3, "auch auf Stufe 10 ist das Regal voll")
+
+## Zwei Reihen zu drei Plätzen auf dem Spaltenraster der Charms.
+func test_the_places_stand_in_two_rows_of_three() -> void:
+	assert_almost_eq(ShopController.column_width_in(320.0, 10.0), 100.0, 0.001)
+	assert_almost_eq(ShopController.column_x(320.0, 10.0, 2), 220.0, 0.001)
+	_lay_out_page()
+	await wait_frames(2)
+	var anchors: Array[Vector2] = shop.place_anchors()
+	assert_eq(anchors.size(), 6, "sechs Plätze")
+	for i in 3:
+		var card: Rect2 = shop.charm_buttons[i].get_global_rect()
+		assert_almost_eq(anchors[i].x, card.get_center().x, 0.5, "Platz %d unter Karte %d" % [i, i])
+		assert_almost_eq(anchors[i + 3].x, anchors[i].x, 0.5, "Spalte %d in beiden Reihen" % i)
+		assert_almost_eq(anchors[i + 3].y - anchors[3].y, 0.0, 0.5, "die untere Reihe liegt gerade")
+		assert_almost_eq(anchors[i].y - anchors[0].y, 0.0, 0.5, "die obere auch")
+	assert_gt(anchors[3].y, anchors[0].y, "die zweite Reihe liegt UNTER der ersten")
+	var charms: Rect2 = shop.content_root.get_global_rect()
+	assert_lte(charms.end.y, shop.place_rects()[0].position.y, "die Charms stehen über den Paketen")
+	assert_null(shop.find_child("DieNets", true, false), "die Würfel-Bucht ist fort")
+	assert_null(shop.find_child("SlitRow", true, false), "und die Gravuren-Zeile")
+
+## Name und Preis stehen ÜBER dem Paket, die Auskunft darunter - für jede Art.
+func test_name_and_price_stand_over_the_pack_and_the_info_under_it() -> void:
+	_lay_out_page()
+	_force_packs(_mixed())
+	await wait_frames(2)
+	var rects: Array[Rect2] = shop.place_rects()
+	for seat in 6:
+		var pack: Resource = shop.packs[seat]
+		var name_label: Label = shop._place_names[seat]
+		var price: Label = shop._place_prices[seat]
+		var info: Label = shop._place_infos[seat]
+		assert_eq(name_label.text, pack.display_name, "der Name (%d)" % seat)
+		assert_eq(name_label.modulate, ShopController.ware_tint(pack), "in seiner Farbe (%d)" % seat)
+		assert_eq(price.text, ShopController.price_text(shop.pack_prices[seat]), "der Preis (%d)" % seat)
+		assert_eq(info.text, ShopController.ware_info(pack), "die Auskunft (%d)" % seat)
+		assert_lte(price.get_global_rect().end.y, rects[seat].position.y + 0.5,
+			"Name und Preis über dem Paket (%d)" % seat)
+		assert_gte(info.get_global_rect().position.y, rects[seat].end.y - 0.5,
+			"die Auskunft darunter (%d)" % seat)
+		assert_almost_eq(info.get_global_rect().get_center().x, rects[seat].get_center().x, 0.5)
+
+## Jeder Platz ist für das GRÖSSTE Paket bemessen: Karte wie Schatulle quer.
+func test_every_place_fits_the_largest_pack() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var small: Vector2 = shop.place_pad_size()
+	assert_almost_eq(small.x, LIE_PX.x * PackDrawerView.CASSETTE_SCALE * ShopController.PLACE_ROOM,
+		0.01, "die liegende Karte samt Luft")
+	shop.dice_case_across_px = small.y * 2.0
+	await wait_frames(2)
+	assert_almost_eq(shop.place_pad_size().y, small.y * 2.0 * ShopController.CASE_ROOM, 0.01,
+		"eine breitere Schatulle macht den Platz tiefer")
+	for rect in shop.place_rects():
+		assert_almost_eq(rect.size.y, shop.place_pad_size().y, 0.5, "und jeden Platz gleich")
+
+func test_the_place_stock_stays_index_true_across_a_purchase() -> void:
+	_lay_out_page()
+	_force_packs(_mixed())
+	await wait_frames(2)
+	run.money = 500
+	var before: Array = shop.place_stock()
+	shop.buy_pack(2)
+	await wait_frames(2)
+	var after: Array = shop.place_stock()
+	assert_eq(after.size(), before.size(), "der Platz verschwindet nicht, er wird leer")
+	assert_null(after[2], "verkauft = leerer Platz")
+	assert_eq(after[3], before[3], "der Nachbar rückt nicht auf")
+	assert_eq(shop._place_prices[2].text, "", "verkauft heißt: kein Schild mehr")
+	assert_eq(shop._place_names[2].text, "", "und kein Name")
+
+func test_the_places_are_byte_stable_across_purchase_and_flip() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var before: Array[Rect2] = shop.place_rects()
+	assert_eq(before.size(), 6)
+	run.money = 500
+	shop.buy_pack(0)
+	await wait_frames(2)
+	for i in before.size():
+		assert_true(shop.place_rects()[i].is_equal_approx(before[i]),
+			"ein verkaufter Platz bleibt stehen (%d)" % i)
+	shop._on_page_next_pressed()
+	await wait_frames(2)
+	shop._on_page_back_pressed()
+	await wait_frames(2)
+	for i in before.size():
+		assert_true(shop.place_rects()[i].is_equal_approx(before[i]),
+			"geblättert wird die Ware, nicht das Möbel (%d)" % i)
+
+func test_the_ware_price_turns_red_when_the_purse_is_short() -> void:
+	_lay_out_page()
+	_force_packs(_mixed())
+	await wait_frames(2)
+	run.money = 999
+	await wait_frames(2)
+	assert_eq(shop._place_prices[0].modulate, ShopController.NEON_GOLD, "bezahlbar")
+	run.money = 0
+	await wait_frames(2)
+	assert_eq(shop._place_prices[0].modulate, CasinoStyle.RED,
+		"und der Geldstand färbt es nach, ohne daß jemand pollt")
+
+## Der Laden meldet die Stellplatz-Mitte - dort startet ein gekauftes Stück.
+func test_a_pack_purchase_starts_at_its_own_place() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var rects: Array[Rect2] = shop.place_rects()
+	for seat in 6:
+		assert_true(rects[seat].has_point(shop.place_anchor(seat)), "Platz %d" % seat)
+
+func test_the_pack_seat_is_a_real_buy_button() -> void:
+	_lay_out_page()
+	_force_packs(_mixed())
+	await wait_frames(2)
+	var button: Button = shop._place_pads[3].get_parent()
+	button.pressed.emit()  # der ECHTE Klickweg
+	assert_true(shop.pack_bought[3], "der Klick auf den Platz kauft")
+
+# --- Sonder-Karte ---------------------------------------------------------------
+
+## Die Sonder-Karte ERSETZT einen zufälligen Platz - die Fläche bleibt gleich voll.
+func test_a_special_card_replaces_a_random_place() -> void:
+	run.luck = _luck_of(GameRun.TIER_MAX)
+	var seen := {}
+	for i in 120:
+		var spread = shop._build_spread()
+		assert_eq(spread.packs.size(), GameRun.SHOP_PACK_PLACES, "die Fläche behält ihre Plätze")
+		var specials := 0
+		for seat in spread.packs.size():
+			if spread.packs[seat] is Pack:
+				specials += 1
+				seen[seat] = true
+				assert_false((spread.packs[seat] as Pack).is_repair(), "nie die Reparatur-Karte")
+		assert_lte(specials, 1, "höchstens eine je Auslage")
+	assert_gt(seen.size(), 2, "sie liegt mal hier, mal dort - nicht immer hinten")
+
+## Unter der Schwelle nie - die Sonder-Karte kommt erst mit der Stufe.
+func test_a_low_tier_shop_never_carries_one() -> void:
+	run.luck = _luck_of(GameRun.SHOP_SPECIAL_TIER - 1)
+	for i in 60:
+		for pack in shop._build_spread().packs:
+			assert_false(pack is Pack, "vor Stufe %d keine Sonder-Karte" % GameRun.SHOP_SPECIAL_TIER)
+
+## Der Kauf zahlt und liefert die Karte versiegelt ins Magazin.
+func test_the_special_card_goes_straight_to_the_magazine() -> void:
+	run.money = 999
+	var list := _mixed()
+	list[3] = Pack.catalyst(Pack.CATALYST_COOL)
+	_force_packs(list)
+	var seats: Array = []
+	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
+	var before := run.money
+	shop.buy_pack(3)
+	assert_eq(run.owned_packs.size(), 1, "die Karte liegt im Magazin")
+	assert_eq(seats, [3], "derselbe Melder wie jede Art")
+	assert_eq(shop.pack_at(3).pack_uid, run.owned_packs[0].pack_uid,
+		"scene_root findet die Karte über ihren Platz")
+	assert_null(run.current_pack_choice(), "keine Auswahl - sie ist eine Einzelkarte")
+	assert_lt(run.money, before, "und sie ist bezahlt")
+	assert_true(shop.pack_bought[3], "sie liegt nicht mehr aus")
+
+# --- Die Auskunft im Band --------------------------------------------------------
+
+func test_the_band_names_the_pack_under_the_pointer() -> void:
+	_lay_out_page()
+	_force_packs(_mixed())
+	await wait_frames(2)
+	for seat in 6:
+		var pack: Resource = shop.packs[seat]
+		shop.set_place_hover(seat)
+		assert_true(shop.place_info.visible, "gegriffen heißt: das Band spricht (%d)" % seat)
+		assert_eq(shop.place_info_name.text, pack.display_name)
+		assert_eq(shop.place_info_body.text, ShopController.ware_info(pack))
+	shop.set_place_hover(2, "Zelle: +3")
+	assert_eq(shop.place_info_body.text, "Zelle: +3", "die Netz-Zelle übersteuert die Beschreibung")
+	shop.set_place_hover(-1)
+	assert_false(shop.place_info.visible, "ohne Zeiger steht dort NICHTS")
+
+func test_the_band_stands_under_the_pack_area() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var flank: Rect2 = shop.place_flank_rect()
+	var rects: Array[Rect2] = shop.place_rects()
+	assert_gt(flank.size.y, 0.0, "das Band steht")
+	assert_gte(flank.position.y, rects[5].end.y, "UNTER den Paketen, nicht darauf")
+	assert_lt(flank.end.y, shop.get_global_rect().end.y, "innerhalb der Seite")
+
+func test_a_sold_place_explains_nothing() -> void:
+	_lay_out_page()
+	_force_packs(_mixed())
+	await wait_frames(2)
+	run.money = 500
+	shop.set_place_hover(1)
+	assert_true(shop.place_info.visible)
+	shop.buy_pack(1)
+	shop.set_place_hover(1)
+	assert_false(shop.place_info.visible, "auf einem leeren Platz liegt nichts, was spräche")
+
+func test_the_longest_real_description_fits_the_band() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var list := _mixed()
+	list[0] = _longest_pack()
+	_force_packs(list)
+	shop.set_place_hover(0)
+	assert_eq(shop.place_info_body.text, CardPack.info_body(list[0]), "nichts wird beschnitten")
+	var block: Rect2 = shop.place_flank_rect()
+	assert_lte(shop.place_info_body.position.y + shop.place_info_body.size.y, block.size.y + 0.5,
+		"und der Block bleibt im Band")
+	assert_gte(shop.place_info_name.position.y, -0.5, "oben läuft er auch nicht heraus")
+
+## Die Auskunft UNTER jedem Paket paßt ungeschnitten - für das längste jeder Art.
+func test_the_longest_info_fits_under_its_pack() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var list := _mixed()
+	list[0] = _longest_pack()
+	_force_packs(list)
+	var font := ThemeDB.fallback_font
+	for seat in 6:
+		var info: Label = shop._place_infos[seat]
+		var px := info.get_theme_font_size("font_size")
+		assert_lte(ShopController.wrapped_height(font, info.text, info.size.x, px,
+			info.get_theme_constant("line_spacing")), info.size.y + 0.5,
+			"die Auskunft paßt (%d)" % seat)
+
+## Das Paket mit der längsten Auskunft, das im Laden je liegen kann.
+func _longest_pack() -> CardPack:
+	var worst: CardPack = null
+	for pack_sort: String in CardPack.SORTS:
+		for pack_size in CardPack.max_size(pack_sort) + 1:
+			var pack := CardPack.make(pack_sort, pack_size)
+			if worst == null or CardPack.info_body(pack).length() \
+					> CardPack.info_body(worst).length():
+				worst = pack
+	return worst
+
+func test_the_hover_moves_no_band() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	var bands := _band_rects()
+	var seats: Array[Rect2] = shop.place_rects()
+	shop.set_place_hover(0)
+	await wait_frames(2)
+	var after := _band_rects()
+	assert_eq(after.size(), bands.size())
+	for i in bands.size():
+		assert_true(after[i].is_equal_approx(bands[i]),
+			"Band %d steht mit und ohne Auskunft gleich (%s vs %s)" % [i, after[i], bands[i]])
+	for i in seats.size():
+		assert_true(shop.place_rects()[i].is_equal_approx(seats[i]), "und die Plätze (%d)" % i)
+
+# --- Die frisch gebaute Fläche hat noch kein Rechteck --------------------------
+
+func test_a_freshly_built_area_says_it_does_not_stand_yet() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	assert_true(shop.places_laid_out(), "die ausgelegte Fläche steht")
+	shop.rebuild_places()
+	assert_false(shop.places_laid_out(),
+		"frische Knöpfe haben noch kein Rechteck - hier darf niemand messen")
+	await wait_frames(2)
+	assert_true(shop.places_laid_out(), "und im nächsten Layout steht sie wieder")
+
+func test_after_a_rebuild_the_places_stand_apart() -> void:
+	_lay_out_page()
+	await wait_frames(2)
+	shop.rebuild_places()
+	await wait_frames(2)
+	var anchors: Array = shop.place_anchors()
+	assert_eq(anchors.size(), 6)
+	for i in [1, 2, 4, 5]:
+		assert_gt((anchors[i] as Vector2).x, (anchors[i - 1] as Vector2).x,
+			"Platz %d liegt NEBEN seinem Nachbarn, nicht auf ihm" % i)
 # --- Die zwei Ankunfts-Grade ---------------------------------------------------
 # Steigen heißt Auftritt, Liegenbleiben heißt: nichts geschah. Der Laden
 # entscheidet nur - gefahren wird die Auslage von scene_root.
@@ -760,127 +985,12 @@ func test_an_unlocked_visit_raises_again() -> void:
 	shop.open()  # ohne Sperre würfelt jeder Besuch frisch
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_RISE)
 
-func test_a_purchase_leaves_the_page_lying() -> void:
-	run.money = 500
-	shop.buy_engraving_pack(0)
-	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
-		"ein Kauf blättert nicht - die Seite bleibt liegen")
-	shop.buy_single_die(0)
-	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND)
 
 func test_a_fresh_run_forgets_which_page_was_standing() -> void:
 	shop.run = GameRun.new_run()
 	shop.open()
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_RISE,
 		"ein frischer Lauf bekommt einen frisch gewürfelten Laden - er tritt auf")
-
-func test_the_buy_entrances_book_like_the_old_buttons() -> void:
-	# Der Griff in der Bucht läuft durch DIESELBEN Buchungen - die Bucht ist
-	# Bühne, nicht Regel.
-	run.money = 500
-	var before := run.money
-	shop.buy_engraving_pack(0)
-	assert_eq(run.stored_card_packs.size(), 1, "ein Karten-Paket im Lager")
-	assert_lt(run.money, before, "und ist bezahlt")
-	shop.buy_single_die(0)
-	assert_eq(run.stored_dice_packs.size(), 1, "ein Würfel-Paket im Lager")
-
-func test_a_pack_purchase_starts_at_its_own_slit() -> void:
-	# Ein versiegeltes Stück fährt aus SEINER Kerbe los, nicht aus der Bucht.
-	await wait_frames(2)
-	var rects: Array[Rect2] = shop.slit_rects()
-	assert_gt(rects.size(), 0, "die Reihe hat Kerben")
-	assert_true(rects[0].has_point(shop._buy_origin_px(ShopController.KIND_ENGRAVING_PACK, 0)),
-		"und sie startet in der ersten")
-
-# --- Die festen Proportionen der Seite -----------------------------------------
-
-## Die vier Bänder der Seite in globalen Display-Pixeln (Kopfzeile inbegriffen) -
-## der jüngste Aufbau zählt, der alte hängt bis zum Frame-Ende noch im Baum.
-func _band_rects() -> Array[Rect2]:
-	var out: Array[Rect2] = []
-	var margin: Control = shop.get_child(shop.get_child_count() - 1)
-	for band in margin.get_child(0).get_children():
-		out.append((band as Control).get_global_rect())
-	return out
-
-func test_the_bands_stand_on_every_tier() -> void:
-	# Feste Proportionen: nur die INHALTE unterscheiden sich zwischen Stufe 1 und
-	# Stufe 10, kein Band rückt.
-	shop.size = Vector2(1068, 1125)
-	run.luck = _luck_of(1)
-	shop.sortiment_locked = false
-	shop.spreads.clear()
-	shop.open()
-	await wait_frames(2)
-	var low := _band_rects()
-	assert_eq(low.size(), 6, "Kopf, Charms, Gravuren, Würfel, Auskunfts-Band, Fuß")
-	run.luck = _luck_of(GameRun.TIER_MAX)
-	shop.spreads.clear()
-	shop.open()
-	await wait_frames(2)
-	var high := _band_rects()
-	assert_eq(high.size(), low.size(), "dieselben Bänder")
-	for i in low.size():
-		assert_true(high[i].is_equal_approx(low[i]),
-			"Band %d steht auf jeder Stufe gleich (%s vs %s)" % [i, low[i], high[i]])
-	assert_eq(shop.charm_options.size(), 3, "auch auf Stufe 10 ist das Regal voll")
-
-# --- Die Kassetten-Schlitze -----------------------------------------------------
-
-func test_the_slit_row_has_one_seat_per_place() -> void:
-	await wait_frames(2)
-	var seats: Array[Dictionary] = shop.slit_seats()
-	assert_eq(seats.size(), ShopController.COLUMNS, "drei Plätze, auf jeder Stufe")
-	assert_eq(shop.slit_anchors().size(), seats.size(), "je Platz eine Kerbe")
-
-func test_the_slit_stock_stays_index_true_across_a_purchase() -> void:
-	await wait_frames(2)
-	run.money = 500
-	var before: Array = shop.slit_stock()
-	assert_not_null(before[0])
-	shop.buy_engraving_pack(0)
-	await wait_frames(2)
-	var after: Array = shop.slit_stock()
-	assert_eq(after.size(), before.size(), "der Platz verschwindet nicht, er wird leer")
-	assert_null(after[0], "verkauft = leerer Schlitz")
-	if before.size() > 1:
-		assert_eq(after[1], before[1], "der Nachbar rückt nicht auf")
-
-func test_the_slit_seats_are_byte_stable_across_purchase_and_flip() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var before: Array[Rect2] = shop.slit_rects()
-	assert_gt(before.size(), 0)
-	run.money = 500
-	shop.buy_engraving_pack(0)
-	await wait_frames(2)
-	var bought: Array[Rect2] = shop.slit_rects()
-	assert_eq(bought.size(), before.size(), "ein Kauf baut die Reihe nicht um")
-	for i in before.size():
-		assert_true(bought[i].is_equal_approx(before[i]),
-			"eine verkaufte Kerbe bleibt stehen (%d)" % i)
-	shop._on_page_next_pressed()
-	await wait_frames(2)
-	shop._on_page_back_pressed()
-	await wait_frames(2)
-	var flipped: Array[Rect2] = shop.slit_rects()
-	assert_eq(flipped.size(), before.size(), "und der ganze Blätterzyklus auch nicht")
-	for i in before.size():
-		assert_true(flipped[i].is_equal_approx(before[i]),
-			"geblättert wird die Ware, nicht das Möbel (%d)" % i)
-
-func test_the_kerf_is_cut_to_the_reported_cassette_cap() -> void:
-	# EIN Kassettenmaß: der Stellplatz wächst mit dem gemeldeten Grundriß.
-	await wait_frames(2)
-	var small: Vector2 = shop.slit_size()
-	shop.data_cell_lie_px = Vector2(400.0, 120.0)
-	await wait_frames(2)
-	var big: Vector2 = shop.slit_size()
-	assert_gt(big.x, small.x, "eine größere Karte braucht einen größeren Stellplatz")
-	assert_almost_eq(big.x,
-		400.0 * PackDrawerView.CASSETTE_SCALE * ShopController.SLIT_ROOM, 0.01)
 
 # --- Die Preiszeile ------------------------------------------------------------
 
@@ -893,122 +1003,6 @@ func test_the_price_tint_says_whether_it_is_payable() -> void:
 	assert_eq(ShopController.price_tint(5, 5), ShopController.NEON_GOLD, "genau genug reicht")
 	assert_eq(ShopController.price_tint(5, 4), CasinoStyle.RED, "zu teuer")
 
-# --- Die Preisschilder AN der Ware ---------------------------------------------
-# Jede körperliche Ware trägt ihre Zahl selbst; gerechnet wird sie nirgends neu -
-# sie kommt aus derselben Quelle wie der Kauf.
-
-func test_every_cassette_seat_carries_its_own_price() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var stock: Array = shop.slit_stock()
-	assert_gt(shop._slit_prices.size(), 0, "je Platz ein Schild")
-	assert_eq(shop._slit_prices.size(), stock.size())
-	for i in stock.size():
-		var tag: Label = shop._slit_prices[i]
-		if stock[i] == null:
-			assert_eq(tag.text, "", "ein leerer Platz zeigt nichts")
-			continue
-		assert_eq(tag.text, ShopController.price_text(shop._pack_price(stock[i])),
-			"dieselbe Zahl, die der Kauf zahlt")
-
-func test_a_sold_seat_drops_its_price_but_keeps_its_place() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	run.money = 500
-	var before: Array[Rect2] = shop.slit_rects()
-	shop.buy_engraving_pack(0)
-	await wait_frames(2)
-	assert_eq(shop._slit_prices[0].text, "", "verkauft heißt: kein Schild mehr")
-	for i in before.size():
-		assert_true(shop.slit_rects()[i].is_equal_approx(before[i]),
-			"und die Reihe bleibt stehen (%d)" % i)
-
-func test_the_ware_price_turns_red_when_the_purse_is_short() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var stock: Array = shop.slit_stock()
-	var seat := -1
-	for i in stock.size():
-		if stock[i] != null:
-			seat = i
-			break
-	assert_gt(seat, -1, "eine Kassette liegt aus")
-	run.money = 999
-	await wait_frames(2)
-	assert_eq(shop._slit_prices[seat].modulate, ShopController.NEON_GOLD, "bezahlbar")
-	run.money = 0
-	await wait_frames(2)
-	assert_eq(shop._slit_prices[seat].modulate, CasinoStyle.RED,
-		"und der Geldstand färbt es nach, ohne daß jemand pollt")
-
-func test_every_dice_pack_block_carries_its_price() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var entries: Array = []
-	for i in shop.single_dice.size():
-		entries.append({"dice_pack": shop.single_dice[i], "pos": Vector2(i * 40.0, 0.0)})
-	shop.set_die_nets(entries)
-	assert_eq(shop._net_prices.size(), entries.size(), "je Paket ein Schild")
-	for i in entries.size():
-		assert_eq(shop._net_prices[i].text,
-			ShopController.price_text(shop.single_dice_prices[i]),
-			"dieselbe Zahl, die der Kauf zahlt")
-		assert_eq(shop._net_souls[i].text, shop.single_dice[i].display_name, "und sein Name")
-
-## Der Block eines Würfel-Pakets steht in SEINER Spalte: Name und Preis ÜBER der
-## Bucht, die Auskunft darunter.
-func test_name_and_price_stand_over_the_pack_and_the_info_under_it() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.data_cell_lie_px = LIE_PX
-	shop.open()
-	await wait_frames(2)
-	var dice_pack: DicePack = shop.single_dice[1]
-	var seat: Vector2 = shop.die_seats_px()[1]
-	var strip: Rect2 = shop.vitrine_rect_px()
-	shop.set_die_nets([{"dice_pack": dice_pack, "anchor": seat - strip.position}])
-	var block: Control = shop._net_blocks[0]
-	var origin := strip.position + block.position
-	assert_almost_eq(origin.x + block.size.x * 0.5, seat.x, 0.5, "mittig über seinem Paket")
-	var price_bottom: float = origin.y + shop._net_prices[0].position.y + shop._net_prices[0].size.y
-	assert_lte(price_bottom, strip.position.y + 0.5, "Name und Preis stehen über der Bucht")
-	var info: Control = block.get_node("Net")
-	assert_gte(origin.y + info.position.y, strip.end.y - 0.5, "die Auskunft steht unter der Bucht")
-	await wait_frames(1)
-	assert_eq(shop.die_at_net(info.get_global_rect().get_center()), dice_pack,
-		"die Auskunft meint ihr Paket")
-
-## Die Bucht ist so tief wie ein Kassetten-Stellplatz: die Hülle liegt ganz darin.
-func test_the_bay_carries_a_lying_hull() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.data_cell_lie_px = LIE_PX
-	shop.open()
-	await wait_frames(2)
-	assert_gte(shop.vitrine_rect_px().size.y, shop.slit_size().y - 0.5)
-
-## Das SPALTENRASTER: drei gleiche Plätze, in allen drei Regalen dieselben Kanten.
-func test_the_three_shelves_share_one_column_grid() -> void:
-	assert_almost_eq(ShopController.column_width_in(320.0, 10.0), 100.0, 0.001)
-	assert_almost_eq(ShopController.column_x(320.0, 10.0, 2), 220.0, 0.001)
-	shop.size = Vector2(1068, 1125)
-	shop.data_cell_lie_px = LIE_PX
-	shop.open()
-	await wait_frames(2)
-	var slits: Array[Vector2] = shop.slit_anchors()
-	var dice: Array[Vector2] = shop.die_seats_px()
-	assert_eq(slits.size(), 3)
-	assert_eq(dice.size(), 3)
-	for i in 3:
-		# Der dritte Platz der Würfel-Bucht trägt das Modul.
-		var card: Rect2 = shop.charm_buttons[i].get_global_rect()
-		assert_almost_eq(slits[i].x, dice[i].x, 0.5, "Gravur %d steht über Würfel %d" % [i, i])
-		assert_almost_eq(card.get_center().x, dice[i].x, 0.5, "Karte %d über Würfel %d" % [i, i])
-		var price: Rect2 = shop._slit_prices[i].get_global_rect()
-		assert_almost_eq(price.get_center().x, slits[i].x, 0.5, "der Preis mittig unter der Karte")
-		assert_gte(price.position.y, shop.slit_rects()[i].end.y - 0.5, "und direkt darunter")
 
 func test_a_dark_glow_is_lifted_to_a_readable_tint() -> void:
 	# Vakuum glüht schwarz - als Schriftfarbe wäre das ein Loch auf dunklem Grund.
@@ -1152,17 +1146,14 @@ func test_an_open_pager_carries_its_fee() -> void:
 	await wait_frames(2)
 	assert_eq(shop.page_next_button.text, "$2 ›", "offen: die Gebühr steht am Pfeil")
 
-func test_the_laid_out_singles_carry_the_discounted_price() -> void:
-	for price in shop.single_dice_prices:
-		assert_gt(int(price), 0)
-
 # --- Das Hinterlegen und der Tausch -------------------------------------------------
 # Der Laden BUCHT weiter; gewählt wird der Pool-Platz am VORRAT - der Neuzugang
 # wird aus dem Ausgabefach auf den Sitz gezogen, den er ersetzt.
 
 func _stash_one() -> DieDefinition:
 	run.money = 500
-	shop._on_single_die_pressed(0)
+	_force_packs(_mixed())
+	shop.buy_pack(2)
 	run.confirm_pack_choice(_open_last(true), [0])
 	return run.pending_dice[0]
 
@@ -1215,284 +1206,6 @@ func test_the_stash_survives_a_reroll_and_the_lock() -> void:
 
 func test_a_fresh_run_has_an_empty_shelf() -> void:
 	assert_eq(GameRun.new_run().pending_dice.size(), 0, "ein neuer Lauf schuldet nichts")
-
-# --- Sonderposten in der Chip-Schale ------------------------------------------
-# Geprueft wird die AUSWUERFELUNG (_build_spread), nicht der Neuaufbau der Seite:
-# _show_spread baut je Schalen-Wuerfel eine eigene TumbleStage mit SubViewport,
-# und sechzig davon sind kein Test, sondern ein Lasttest.
-
-## Die Sonder-Karte BELEGT einen Paket-Platz - die Reihe bleibt gleich voll.
-func test_a_special_card_takes_the_last_seat() -> void:
-	run.luck = _luck_of(GameRun.TIER_MAX)
-	var seen := 0
-	for i in 60:
-		var spread = shop._build_spread()
-		assert_eq(spread.engraving_packs.size() + spread.single_specials.size(),
-			run.shop_pack_slots(), "die Reihe behält ihre Breite")
-		for pack in spread.engraving_packs:
-			assert_true(pack is CardPack, "auf den übrigen Plätzen liegen Pakete")
-		seen += spread.single_specials.size()
-	assert_gt(seen, 0, "auf Stufe 10 liegt irgendwann eine aus")
-
-## Höchstens eine, als EINZELNE Karte - ein Sonder-Paket gibt es nicht mehr.
-func test_the_special_seat_sells_a_single_card() -> void:
-	run.luck = _luck_of(GameRun.TIER_MAX)
-	for i in 60:
-		var spread = shop._build_spread()
-		assert_lte(spread.single_specials.size(), 1, "höchstens eine je Auslage")
-		for card in spread.single_specials:
-			assert_true(card is Pack, "eine einzelne Karte")
-			assert_false((card as Pack).is_repair(), "nie die Reparatur-Karte")
-
-## Unter der Schwelle nie - die Sonder-Karte kommt erst mit der Stufe.
-func test_a_low_tier_shop_never_carries_one() -> void:
-	run.luck = _luck_of(GameRun.SHOP_SPECIAL_TIER - 1)
-	for i in 60:
-		assert_true(shop._build_spread().single_specials.is_empty(),
-			"vor Stufe %d keine Sonder-Karte" % GameRun.SHOP_SPECIAL_TIER)
-
-func _force_special_spread() -> void:
-	run.luck = _luck_of(GameRun.TIER_MAX)
-	run.money = 999
-	var spread = shop._build_spread()
-	spread.single_specials.clear()
-	spread.single_special_bought.clear()
-	spread.single_specials.append(Pack.catalyst(Pack.CATALYST_COOL))
-	spread.single_special_bought.append(false)
-	# Kein Array-Literal: spreads ist getypt, und GDScript wandelt nicht um.
-	shop.spreads.clear()
-	shop.spreads.append(spread)
-	shop.current_spread_index = 0
-	shop._show_spread()
-
-## Der Kauf zahlt und liefert die Karte versiegelt ins Magazin, wie früher.
-func test_the_special_card_goes_straight_to_the_magazine() -> void:
-	_force_special_spread()
-	var uids: Array = []
-	shop.pack_purchased.connect(func(_px: Vector2, uid: int) -> void: uids.append(uid))
-	var before := run.money
-	shop._on_single_special_pressed(0)
-	assert_eq(run.owned_packs.size(), 1, "die Karte liegt im Lager")
-	assert_eq(uids.size(), 1, "die Lieferung meldet sie")
-	assert_null(run.current_pack_choice(), "keine Auswahl - sie ist eine Einzelkarte")
-	assert_lt(run.money, before, "und sie ist bezahlt")
-	assert_true(shop.single_special_bought[0], "sie liegt nicht mehr aus")
-
-# --- Die FLANKENAUSKUNFT der Schlitzreihe ---------------------------------------
-# Die Kappe nennt Sorte und Größe, das Schild den Preis - was IN der Kassette
-# steckt, sagt die freie rechte Flanke, und nur mit Zeiger.
-
-## Gemessen an der echten Werkbank (scene_root._data_cell_lying_px).
-const LIE_PX := Vector2(60.75, 40.5)
-
-func _lay_out_page() -> void:
-	shop.size = Vector2(1069, 1125)
-	shop.data_cell_lie_px = LIE_PX
-	shop.open()
-
-## Der erste Platz, auf dem wirklich etwas liegt (-1 = keiner).
-func _filled_seat() -> int:
-	var stock: Array = shop.slit_stock()
-	for i in stock.size():
-		if stock[i] != null:
-			return i
-	return -1
-
-func test_the_flank_names_the_cassette_under_the_pointer() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var seat := _filled_seat()
-	assert_gt(seat, -1, "eine Kassette liegt aus")
-	var pack: Resource = shop.slit_stock()[seat]
-	shop.set_slit_hover(seat)
-	assert_true(shop.slit_info.visible, "gegriffen heißt: die Flanke spricht")
-	assert_eq(shop.slit_info_name.text, pack.display_name,
-		"der dekorierte Name - das Größen-Adjektiv kommt gratis mit")
-	assert_eq(shop.slit_info_body.text, CardPack.info_body(pack) if pack is CardPack
-		else Pack.info_body(pack),
-		"Sorte, Kartenzahl und Garantie - nie der Inhalt")
-
-## Die Karten-Auskunft steht im AUSKUNFTS-BAND unter den Regalen.
-func test_the_flank_stands_under_the_columns() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var flank: Rect2 = shop.slit_flank_rect()
-	var row: Rect2 = shop.slit_row.get_global_rect()
-	assert_gt(flank.size.y, 0.0, "das Band steht")
-	assert_gte(flank.position.y, row.end.y, "UNTER den Karten, nicht darauf")
-	assert_gte(flank.position.y, shop.die_labels.get_global_rect().end.y - 0.5,
-		"und unter den Würfeln samt ihren Schildern")
-	assert_lt(flank.end.y, shop.get_global_rect().end.y, "innerhalb der Seite")
-
-func test_without_a_pointer_the_flank_says_nothing() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.set_slit_hover(_filled_seat())
-	assert_true(shop.slit_info.visible)
-	shop.set_slit_hover(-1)
-	assert_false(shop.slit_info.visible, "ohne Zeiger steht dort NICHTS")
-
-func test_a_sold_seat_explains_nothing() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	run.money = 500
-	var seat := _filled_seat()
-	shop.set_slit_hover(seat)
-	assert_true(shop.slit_info.visible)
-	shop.buy_engraving_pack(int(shop._slit_seats[seat]["index"]))
-	await wait_frames(2)
-	shop.set_slit_hover(seat)
-	assert_false(shop.slit_info.visible, "auf einem leeren Platz liegt nichts, was spräche")
-
-func test_the_longest_real_description_fits_the_flank() -> void:
-	# Die längste reale Beschreibung über ALLE Quellen (Typen-Pakete, Bündel,
-	# beide Sonderposten, alle vier Katalysatoren) steht ungekürzt in der Flanke.
-	_lay_out_page()
-	await wait_frames(2)
-	var worst := _longest_pack()
-	var seat := _filled_seat()
-	assert_gt(seat, -1)
-	shop.engraving_packs[int(shop._slit_seats[seat]["index"])] = worst
-	shop.set_slit_hover(seat)
-	assert_true(shop.slit_info.visible)
-	assert_eq(shop.slit_info_body.text, CardPack.info_body(worst), "nichts wird beschnitten")
-	var block: Rect2 = shop.slit_flank_rect()
-	assert_lte(shop.slit_info_body.position.y + shop.slit_info_body.size.y, block.size.y + 0.5,
-		"und der Block bleibt in der Reihenhöhe")
-	assert_gte(shop.slit_info_name.position.y, -0.5, "oben läuft er auch nicht heraus")
-
-## Das Paket mit der längsten Auskunft, das im Laden je liegen kann.
-func _longest_pack() -> CardPack:
-	var worst: CardPack = null
-	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.max_size(pack_sort) + 1:
-			var pack := CardPack.make(pack_sort, pack_size)
-			if worst == null or CardPack.info_body(pack).length() \
-					> CardPack.info_body(worst).length():
-				worst = pack
-	return worst
-
-# --- Der INFO-FUSS der Bucht ----------------------------------------------------
-
-func test_a_hovered_die_shows_its_info_in_the_band() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var die := DieDefinition.standard()
-	die.essence_id = Essence.ARGON
-	shop.set_die_hover(die)
-	assert_true(shop.net_footer.visible, "der gegriffene Würfel spricht")
-	assert_eq(shop.net_footer.text, ShopController.die_foot_text(die))
-	shop.set_die_hover(null)
-	assert_false(shop.net_footer.visible, "losgelassen: nichts")
-
-func test_the_footer_is_invisible_without_a_hint() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	assert_false(shop.net_footer.visible, "ohne Hover: kein Kasten, keine Zeile")
-	shop.set_net_hint("Knochen: Seite wächst +2")
-	assert_true(shop.net_footer.visible)
-	shop.set_net_hint("")
-	assert_false(shop.net_footer.visible)
-
-func test_the_longest_hint_chain_fits_the_footer() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var worst := _longest_hint()
-	shop.set_net_hint(worst)
-	assert_eq(shop.net_footer.text, worst, "nichts wird beschnitten")
-	assert_lte(shop.net_footer.measure(shop.net_footer.size.x, shop.net_footer.font_px),
-		shop.net_footer.size.y, "die Zeile bleibt im Fuß")
-
-## Die längste real konstruierbare hint_for-Kette: veredeltes Material und drei
-## Runen auf einer Vakuum-Seite.
-func _longest_hint() -> String:
-	var runes := Rune.all()
-	var worst := ""
-	for material in DieMaterial.all():
-		var die := DieDefinition.standard()
-		die.essence_id = Essence.VACUUM
-		die.set_face_material(0, material.id)
-		die.dope(0)
-		for slot in mini(3, runes.size()):
-			die.set_rune(0, runes[slot].id, slot, 1)
-		var hint := DieNetView.hint_for(die, 0)
-		if hint.length() > worst.length():
-			worst = hint
-	return worst
-
-# --- Die Bandrechte überleben beide Sprecher ------------------------------------
-
-func test_the_two_speakers_move_no_band() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var bands := _band_rects()
-	var bay: Rect2 = shop.vitrine_rect_px()
-	var seats: Array[Rect2] = shop.slit_rects()
-	shop.set_slit_hover(_filled_seat())
-	shop.set_net_hint(_longest_hint())
-	await wait_frames(2)
-	var after := _band_rects()
-	assert_eq(after.size(), bands.size())
-	for i in bands.size():
-		assert_true(after[i].is_equal_approx(bands[i]),
-			"Band %d steht mit und ohne Auskunft gleich (%s vs %s)" % [i, after[i], bands[i]])
-	assert_true(shop.vitrine_rect_px().is_equal_approx(bay), "und die Bucht auch")
-	var seats_after: Array[Rect2] = shop.slit_rects()
-	for i in seats.size():
-		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)
-
-# --- Kein Rahmen mehr: die Lichtfugen sind restlos fort -------------------------
-
-func test_the_page_carries_no_lift_seam_at_all() -> void:
-	# Es gibt keine Ankündigung mehr - kein Overlay, kein Symbol, und die Bänder
-	# stehen unverändert byte-gleich.
-	_lay_out_page()
-	await wait_frames(2)
-	var bands := _band_rects()
-	var bay: Rect2 = shop.vitrine_rect_px()
-	var seats: Array[Rect2] = shop.slit_rects()
-	for gone: String in ["set_lift_seam", "hide_lift_seams", "seam_field", "seam_tint"]:
-		assert_false(shop.has_method(gone), "%s kündigt nichts mehr an" % gone)
-	for zone in 2:
-		assert_null(shop.get_node_or_null("LiftSeam%d" % zone),
-			"kein Fugen-Panel in der Seite (Zone %d)" % zone)
-	await wait_frames(2)
-	var after := _band_rects()
-	assert_eq(after.size(), bands.size(), "dieselben Bänder")
-	for i in bands.size():
-		assert_true(after[i].is_equal_approx(bands[i]),
-			"Band %d steht unverändert (%s vs %s)" % [i, after[i], bands[i]])
-	assert_true(shop.vitrine_rect_px().is_equal_approx(bay), "und die Bucht auch")
-	var seats_after: Array[Rect2] = shop.slit_rects()
-	for i in seats.size():
-		assert_true(seats_after[i].is_equal_approx(seats[i]), "und die Reihe (%d)" % i)
-
-# --- Die frisch gebaute Stellplatz-Reihe hat noch kein Rechteck ------------------
-# Der Stapel-Bug: ein Hub-Aufstieg im offenen Laden baut die Reihe neu, und wer
-# ihre Anker im selben Bild mißt, bekommt lauter Nullen - dann läge die ganze
-# Auslage auf dem linkesten Platz.
-
-func test_a_freshly_built_slit_row_says_it_does_not_stand_yet() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	assert_true(shop.slit_row_laid_out(), "die ausgelegte Reihe steht")
-	shop.rebuild_slit_row()
-	assert_false(shop.slit_row_laid_out(),
-		"frische Knöpfe haben noch kein Rechteck - hier darf niemand messen")
-	await wait_frames(2)
-	assert_true(shop.slit_row_laid_out(), "und im nächsten Layout steht sie wieder")
-
-func test_after_a_rebuild_the_seats_stand_apart_not_on_top_of_each_other() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.rebuild_slit_row()
-	await wait_frames(2)
-	var anchors: Array = shop.slit_anchors()
-	assert_gt(anchors.size(), 1, "die Reihe führt mehrere Plätze")
-	for i in range(1, anchors.size()):
-		assert_gt((anchors[i] as Vector2).x, (anchors[i - 1] as Vector2).x,
-			"Platz %d liegt NEBEN seinem Nachbarn, nicht auf ihm" % i)
-
 # --- Der Laden schließt, seine SEITE bleibt stehen ------------------------------
 # Auf ihr spielt die Abräum-Zeremonie der Auslage. Die Spiel-Logik wartet nicht,
 # nur der Seitenwechsel.
@@ -1553,169 +1266,6 @@ func test_a_closing_shop_stops_pulling_anything_after() -> void:
 	await wait_frames(2)
 	assert_eq(pages.size(), 0, "eine abräumende Seite baut nichts mehr um")
 
-# --- Die Schilder-Blöcke wachsen aus ihren Würfeln ----------------------------------
-
-func _net_entries(at: Vector2) -> Array:
-	var dice_pack: DicePack = shop.single_dice[0]
-	return [{"dice_pack": dice_pack, "pos": at, "anchor": at + Vector2(20.0, -30.0)}]
-
-func test_after_an_arrival_the_block_grows_out_of_its_die() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), true)
-	assert_true(shop.nets_growing(), "der Block wächst")
-	var block: Control = shop._net_blocks[0]
-	assert_lt(block.scale.x, 1.0, "er startet fast bei nichts")
-	assert_true(block.pivot_offset.is_equal_approx(Vector2(50.0, 10.0) - block.position),
-		"und er wächst aus dem ANKER des Würfels, nicht aus seiner eigenen Ecke")
-	await wait_seconds(ShopController.NET_GROW_TIME
-		+ ShopController.NET_GROW_STAGGER * float(shop._net_blocks.size()) + 0.2)
-	assert_false(shop.nets_growing(), "danach steht er")
-	assert_true(block.scale.is_equal_approx(Vector2.ONE), "in voller Größe")
-	assert_almost_eq(block.modulate.a, 1.0, 0.001, "und voll sichtbar")
-
-func test_without_an_arrival_the_block_stands_at_once() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)))
-	assert_false(shop.nets_growing(), "liegen geblieben ist nirgends angekommen")
-	var block: Control = shop._net_blocks[0]
-	assert_true(block.scale.is_equal_approx(Vector2.ONE))
-	assert_almost_eq(block.modulate.a, 1.0, 0.001)
-
-func test_an_idempotent_resync_does_not_restart_the_growth() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var entries := _net_entries(Vector2(30.0, 40.0))
-	shop.set_die_nets(entries, true)
-	var block: Control = shop._net_blocks[0]
-	await wait_seconds(ShopController.NET_GROW_TIME * 0.5)
-	var grown := block.scale.x
-	shop.set_die_nets(entries, true)  # dieselbe Unterschrift
-	assert_eq(shop._net_blocks[0], block, "derselbe Block bleibt stehen")
-	assert_almost_eq(block.scale.x, grown, 0.05,
-		"und sein Wachstum läuft weiter, statt neu anzufangen")
-
-func test_a_rebuild_mid_growth_lays_the_finished_block_down_hard() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)), true)
-	await wait_seconds(ShopController.NET_GROW_TIME * 0.4)
-	shop.set_die_nets(_net_entries(Vector2(31.0, 41.0)))
-	assert_false(shop.nets_growing(), "der Abbruch endet das Wachstum")
-	var block: Control = shop._net_blocks[0]
-	assert_true(block.scale.is_equal_approx(Vector2.ONE), "und legt fertig hin")
-	shop.clear_die_nets()
-	assert_false(shop.nets_growing(), "ein Vorhangfall ebenso")
-
-# --- Die ABSORPTION: das Wachstum rückwärts, VOR der Maschine -------------------
-
-func test_before_a_teardown_the_block_shrinks_back_into_its_die() -> void:
-	# Die Symmetrie zur Ankunft: der Block fährt in seinen Würfel zurück - und der
-	# Würfel steht dabei noch, denn die Maschine fährt erst nach dem Vorlauf.
-	_lay_out_page()
-	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)))
-	var block: Control = shop._net_blocks[0]
-	var lead: float = shop.absorb_die_nets()
-	assert_almost_eq(lead, ShopController.absorb_time(1), 0.0001,
-		"der gemeldete Vorlauf ist der ehrliche Deckel")
-	assert_true(shop.nets_absorbing(), "der Block wird eingesogen")
-	assert_true(shop.nets_growing(), "und ist in Bewegung")
-	await wait_seconds(ShopController.NET_GROW_TIME * 0.5)
-	assert_lt(block.scale.x, 0.9, "auf halbem Weg ist er schon kleiner")
-	assert_gt(block.scale.x, ShopController.NET_GROW_FROM, "aber noch nicht fort")
-	await wait_seconds(lead + 0.2)
-	assert_false(shop.nets_absorbing(), "danach ist sie durch")
-	assert_eq(shop.net_count(), 0, "und die Blöcke sind abgeräumt")
-
-func test_an_empty_bay_absorbs_nothing_and_waits_for_nothing() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.clear_die_nets()
-	assert_eq(shop.absorb_die_nets(), 0.0, "steht kein Netz, ist der Vorlauf 0")
-	assert_false(shop.nets_absorbing())
-
-func test_a_hard_abort_mid_absorption_clears_the_shrinking_blocks() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	shop.set_die_nets(_net_entries(Vector2(30.0, 40.0)))
-	shop.absorb_die_nets()
-	await wait_seconds(ShopController.NET_GROW_TIME * 0.4)
-	shop.clear_die_nets()  # Verdrängung, Laufwechsel: der harte Weg
-	assert_false(shop.nets_absorbing(), "die Absorption ist beendet")
-	assert_eq(shop.net_count(), 0, "und kein halb geschrumpfter Block bleibt liegen")
-	await wait_seconds(ShopController.NET_GROW_TIME + 0.2)
-	assert_eq(shop.net_count(), 0, "auch nachträglich stellt niemand mehr etwas")
-
-# --- Das MODUL-PAKET in der Würfel-Bucht -------------------------------------------
-
-func test_the_dice_bay_holds_two_dice_packs_and_a_module_pack() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	assert_eq(shop.single_dice.size(), 2, "zwei Würfel-Pakete")
-	assert_eq(shop.module_packs.size(), 1, "und ein Modul-Paket")
-	var seats: Array[Vector2] = shop.die_seats_px()
-	assert_eq(seats.size(), 3, "das Modul-Paket steht auf dem dritten Platz")
-	assert_eq(shop.module_pack_prices[0], run.module_pack_shop_price(shop.module_packs[0]))
-	assert_eq(VitrineView.zone_of(ShopController.KIND_MODULE_PACK), VitrineView.ZONE_BOWL,
-		"es fährt mit den Würfel-Paketen auf derselben Hebebühne")
-
-func test_buying_the_module_pack_stores_it_and_leaves_a_gap() -> void:
-	var sent: Array = []
-	shop.module_pack_purchased.connect(func(index: int) -> void: sent.append(index))
-	var money := run.money
-	var price: int = shop.module_pack_prices[0]
-	var bag: ModulePack = shop.module_packs[0]
-	shop.buy_module_pack(0)
-	assert_eq(run.stored_module_packs.size(), 1, "der Beutel liegt im Lager")
-	assert_eq(run.stored_module_packs[0].grade, bag.grade, "seine Stufe steht beim Kauf fest")
-	assert_true(run.pending_parts.is_empty(), "geöffnet wird erst im Lager")
-	assert_eq(run.money, money - price)
-	assert_eq(sent, [0])
-	assert_null(shop.vitrine_stock()[ShopController.KIND_MODULE_PACK][0], "verkauft = leerer Platz")
-	shop.buy_module_pack(0)
-	assert_eq(run.stored_module_packs.size(), 1, "derselbe Platz verkauft nicht zweimal")
-
-func test_the_module_pack_sells_even_without_a_free_socket() -> void:
-	for key: String in DiceScoring.HAND_PRIORITY:
-		for slot in run.socket_count(key):
-			run.stash_part(ComboPart.resistor())
-			run.install_pending_part(key, slot)
-	assert_eq(run.free_socket_count(), 0)
-	shop.buy_module_pack(0)
-	assert_eq(run.stored_module_packs.size(), 1, "volle Steckplätze sperren das Paket nicht")
-
-func test_the_module_pack_locks_when_its_store_lane_is_full() -> void:
-	for i in GameRun.STORE_CAPACITY:
-		run.purchase_module_pack(ModulePack.make(CardPack.SIZE_SMALL, 0), 0)
-	var money := run.money
-	shop.buy_module_pack(0)
-	assert_eq(run.money, money, "kein Geld gebucht")
-	assert_eq(run.stored_module_packs.size(), GameRun.STORE_CAPACITY)
-
-func test_the_module_pack_block_names_it_and_its_price_turns_red() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var bag: ModulePack = shop.module_packs[0]
-	var strip: Rect2 = shop.vitrine_rect_px()
-	shop.set_die_nets([{"dice_pack": bag, "anchor": shop.die_seats_px()[2] - strip.position}])
-	assert_eq(shop._net_souls[0].text, bag.display_name, "der Kopf nennt das Paket")
-	assert_eq(shop._net_prices[0].text, ShopController.price_text(shop.module_pack_prices[0]))
-	run.money = 0
-	shop._refresh_ware_prices()
-	assert_eq(shop._net_prices[0].modulate, CasinoStyle.RED, "zu teuer = rot")
-	shop.set_ware_hover(bag)
-	assert_string_contains(shop.net_footer.text, ModulePack.grade_name(bag.grade))
-
-func test_a_new_spread_rolls_a_new_module_pack_with_the_dice() -> void:
-	shop.spreads.clear()
-	shop.open()
-	assert_eq(shop.spreads[0].module_packs.size(), 1, "jede Auslage trägt ihr Modul-Paket")
-	assert_eq(shop.spreads[0].module_pack_prices.size(), 1)
-
 # --- Verträge im Laden (Seite 42) -------------------------------------------------
 
 func _sign(ids: Array) -> void:
@@ -1725,13 +1275,23 @@ func _sign(ids: Array) -> void:
 	shop.spreads.clear()
 	shop.open()
 
-func test_empty_shelves_leave_the_last_seats_empty() -> void:
+## Leere Regale: die hinteren Plätze stehen leer wie verkauft, die Fläche bleibt.
+func test_empty_shelves_leave_the_last_places_empty() -> void:
 	_sign([DealClause.EMPTY_SHELVES])
-	assert_eq(shop.engraving_packs.size(), run.shop_pack_slots() - 1, "ein Paket weniger")
-	assert_eq(shop.slit_seats().size(), run.shop_pack_slots(), "die Plätze bleiben")
-	assert_eq(shop.single_dice.size(), run.shop_dice_slots(), "die Würfel-Plätze bleiben")
-	assert_true(shop.single_dice_bought[run.shop_dice_slots() - 1], "der letzte steht leer")
-	assert_false(shop.single_dice_bought[0])
+	assert_eq(run.shop_packs_offered(), GameRun.SHOP_PACK_PLACES - GameRun.EMPTY_SHELVES_CUT)
+	assert_eq(shop.packs.size(), GameRun.SHOP_PACK_PLACES, "die Plätze bleiben")
+	for seat in GameRun.SHOP_PACK_PLACES:
+		assert_eq(shop.pack_bought[seat], seat >= run.shop_packs_offered(),
+			"Platz %d" % seat)
+	assert_null(shop.place_stock()[GameRun.SHOP_PACK_PLACES - 1], "der letzte steht leer")
+
+## Die Sonder-Karte meidet die geleerten Plätze.
+func test_a_special_never_lands_on_an_emptied_place() -> void:
+	_sign([DealClause.EMPTY_SHELVES, DealClause.SPECIAL_DELIVERY])
+	for i in 40:
+		var spread = shop._build_spread()
+		for seat in range(run.shop_packs_offered(), spread.packs.size()):
+			assert_false(spread.packs[seat] is Pack, "kein Sonderposten auf Platz %d" % seat)
 
 func test_shelf_warmer_lays_out_only_common_charms() -> void:
 	_sign([DealClause.SHELF_WARMER])
@@ -1741,7 +1301,8 @@ func test_shelf_warmer_lays_out_only_common_charms() -> void:
 func test_soul_market_fills_the_dice_packs_with_souls() -> void:
 	_sign([DealClause.SOUL_MARKET])
 	run.money = 500
-	shop._on_single_die_pressed(0)
+	_force_packs(_mixed())
+	shop.buy_pack(2)
 	for die in _open_last(true).options:
 		assert_ne((die as DieDefinition).essence_id, "")
 
@@ -1751,4 +1312,8 @@ func test_free_flip_costs_nothing() -> void:
 
 func test_special_delivery_puts_a_special_on_the_shelf() -> void:
 	_sign([DealClause.SPECIAL_DELIVERY])
-	assert_eq(shop.single_specials.size(), 1)
+	var specials := 0
+	for pack in shop.packs:
+		if pack is Pack:
+			specials += 1
+	assert_eq(specials, 1)

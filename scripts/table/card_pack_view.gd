@@ -1,9 +1,10 @@
 class_name CardPackView
 extends DataCellView
 ## Der Körper eines PAKETS, eine Spur größer als die liegende Karte. Ein KARTEN-Paket ist
-## eine DATEN-KASSETTE (Spieler-Wahl 2026-11-10): Metallgehäuse, Glasfenster mit einer
-## leuchtenden Kartenkante je Option, Sorte = Farbe; die Größe macht sie DICKER und edler
-## (Band, Stahlrahmen, Goldecken), der Grundriß bleibt EINER. Ein WÜRFEL-Paket ist die
+## seit dem 2026-11-16 eine bedruckte PAPPSCHACHTEL wie die eines RAM-Riegels (Spieler-Wahl
+## "Retail", tools/blender_card_box_export.py): Euro-Lasche am Kopf, Sortenband, Prägefolie
+## der GÜTE, Augen der Kartenzahl - und durch ein Fenster mit Klarsichtfolie sieht man ECHTE
+## Data-Cards, fast so groß wie die Schachtel, also nie alle ganz. Ein WÜRFEL-Paket ist die
 ## SCHATULLE aus Blender (tools/blender_dice_case.py): die Augen ihrer Würfelseite sind die
 ## Grund-Würfelzahl, die Sorte eine BANDEROLE samt Symbol, die Güte der Lack der ganzen Box
 ## (Graphit, Silber, Gold). Bewegt wird sie wie eine Karte.
@@ -24,20 +25,59 @@ const MARK_WIDTH := DataCellView.HEIGHT * 0.035
 const MARK_GAP := DataCellView.HEIGHT * 0.035
 const LID_PROUD := DataCellView.DEPTH * 0.06
 const RIM_PROUD := DataCellView.DEPTH * 0.02
-## Die Kassette wächst je Größe nur in die Dicke.
-const CASSETTE_THICKNESS := [DataCellView.DEPTH * 2.0, DataCellView.DEPTH * 2.3,
-	DataCellView.DEPTH * 2.6, DataCellView.DEPTH * 2.9]
-const CASSETTE_ALBEDO := Color(0.17, 0.18, 0.21)
-const WINDOW_ALBEDO := Color(0.05, 0.06, 0.09)
-const WINDOW_EMISSION_ENERGY := 0.18
-const WINDOW_SHARE := Vector2(0.62, 0.5)
-const WINDOW_Y_SHARE := 0.06
-const CARD_EDGE_LENGTH_SHARE := 0.82
-const CARD_EDGE_WIDTH_SHARE := 0.035
+## EINE Dicke für jede Schachtel, so dick wie die Schatulle - das Lager mißt seine Teilung
+## ohnehin am dicksten Paket.
+const CASSETTE_THICKNESS := DICE_THICKNESS
+const CASSETTE_SCENE := "res://assets/models/hardware/card_box.glb"
+## Spiegeln WALL und die Lasche in tools/blender_card_box_export.py (Roh-Maß).
+const BOX_WALL := 0.015
+const BOX_TAB := 0.13
+## Die Karten sind fast so groß wie die Schachtel, das Fenster nur halb so groß: man sieht
+## nie alle ganz - sonst las das Fenster wie ein Bild (Spieler-Wunsch 2026-11-16).
+## Die Treppe fächert zum KOPF (Bild-links, unter das Fenster): jede tiefere Karte lugt eine
+## Stufe weiter hervor, so blitzen alle auf (Spieler-Wunsch 2026-11-16).
+const STAIR_LENGTH := 1.22
+const STAIR_STEP := 0.07
+const STAIR_FLATTEN := 0.25
+const STAIR_PITCH := 0.045
+## So tief liegt die oberste Karte unter der Folie: dicht darunter las sie wie ein Bild, mit
+## Luft sieht man in die Schachtel hinein (Spieler-Wunsch 2026-11-16).
+const STAIR_TOP_AIR := 0.17
+## Alle so viele Sekunden zeigt eine Karte ein anderes Netz ihrer Sorte.
+const NET_CYCLE := 1.6
+## So viele Netze je Sorte und Größe liegen bereit (geteilt, einmal gebacken).
+const NET_POOL := 6
+## Anthrazit statt Schwarz: auf dem dunklen Tisch las Schwarz als Loch (Spieler-Wunsch).
+const BOARD_ALBEDO := Color(0.2, 0.2, 0.23)
+const BOARD_GLOW_ENERGY := 0.35
+const KRAFT_ALBEDO := Color(0.66, 0.56, 0.42)
+## Innen bleibt es schattig - das Dunkel unter dem Fenster sagt die Tiefe.
+const KRAFT_GLOW_ENERGY := 0.05
+const FILM_ALBEDO := Color(0.85, 0.9, 1.0, 0.08)
+const BLACK_INK := Color(0.012, 0.012, 0.014)
+const PRINT_WHITE := Color(0.92, 0.92, 0.92)
+## Die GÜTE ist die PRÄGEFOLIE: Standard weißer Druck, Edel Silber, Royal Gold.
+const FOIL_ALBEDOS := [Color(0.92, 0.92, 0.92), Color(0.9, 0.9, 0.92), Color(0.96, 0.77, 0.4)]
+const FOIL_METALLICS := [0.0, 0.7, 0.7]
+const FOIL_ROUGHNESSES := [0.5, 0.22, 0.22]
+const FOIL_ENERGIES := [0.3, 0.25, 0.3]
+## Der Name jeder Sorte im Modell - die Schrift liegt einmal je Sorte darin.
+const BOX_SORT_KEYS := {CardPack.SORT_NUMBER: "zahl", CardPack.SORT_MATERIAL: "material",
+	CardPack.SORT_RUNE: "rune", CardPack.SORT_MIXED: "misch"}
+var _cassette_model: Node3D
+var _film: StandardMaterial3D
+var _foil: StandardMaterial3D
+var _kraft: StandardMaterial3D
+var _black_ink: StandardMaterial3D
+var _print_white: StandardMaterial3D
+var _cycling_forced := false
+var _stair: Array[DataCellView] = []
+var _stair_holders: Array[Node3D] = []
+var _cycle_clock := 0.0
+static var _net_pools := {}
 const SEAM_HEIGHT_SHARE := 0.07
 const SEAM_Z_SHARE := 0.42
 const SEAM_PROUD := DataCellView.DEPTH * 0.03
-const CORNER_SHARE := Vector2(0.13, 0.09)
 ## EIN Modell für jedes Paket: die WÜRFELSEITE trägt die Augen (2..6), nicht die Breite.
 const DICE_CASE_SCENE := "res://assets/models/hardware/dice_case.glb"
 ## Die Würfelseite: Kante auf Deckel und Rücken, Abstand zur Mitte (Blender X, neben der
@@ -151,7 +191,6 @@ var _pip: StandardMaterial3D
 const PIP_SIZE := DataCellView.HEIGHT * 0.06
 const DIE_FACE_SHARE := 0.5
 var _stripe_materials: Array[StandardMaterial3D] = []
-var _window_material: StandardMaterial3D
 var _steel_material: StandardMaterial3D
 var _gold_material: StandardMaterial3D
 
@@ -192,17 +231,18 @@ func _finish_setup() -> void:
 	_body.add_child(_badge)
 	_apply_pose()
 	set_count(1)
+	set_process(_cycling())
 
 ## Wie hoch die HÖCHSTE liegende Hülle über ihrem Glaspunkt aufragt - das Maß der Schächte.
 static func lying_height(cell_scale: float) -> float:
-	return maxf(DICE_THICKNESS, CASSETTE_THICKNESS.max()) * cell_scale
+	return maxf(DICE_THICKNESS, CASSETTE_THICKNESS) * cell_scale
 
 func thickness() -> float:
 	if module_bag:
 		return float(BAG_THICKNESS[clampi(card_pack_size, 0, BAG_THICKNESS.size() - 1)])
 	if dice_pack:
 		return DICE_THICKNESS if dice_case_model() != null else THICKNESS
-	return float(CASSETTE_THICKNESS[clampi(card_pack_size, 0, CASSETTE_THICKNESS.size() - 1)])
+	return CASSETTE_THICKNESS
 
 func rise_depth() -> float:
 	return thickness() * _body_scale
@@ -287,7 +327,9 @@ func _lying_body_transform() -> Transform3D:
 
 ## Die Rücken-Marke auf der Kopfseite: was von oben aus der Rinne liest.
 func add_spine() -> void:
-	if _spine != null or _cells.is_empty() or (dice_pack and _case_model != null):
+	# Schatulle und Schachtel brauchen keine Marke: Würfelseite bzw. Kopfdruck lesen von selbst.
+	if _spine != null or _cells.is_empty() or (dice_pack and _case_model != null) \
+			or _cassette_model != null:
 		return
 	var width := DataCellView.WIDTH * FOOT_ROOM
 	var depth := thickness()
@@ -329,18 +371,15 @@ func _build_materials() -> void:
 			_stripe_materials.append(stripe)
 
 func _build_cassette_materials() -> void:
-	_shell_material.albedo_color = CASSETTE_ALBEDO
-	_shell_material.metallic = 0.75
-	_shell_material.roughness = 0.32
-	_shell_material.emission_energy_multiplier = SHELL_EMISSION_ENERGY * 0.5
-	_window_material = StandardMaterial3D.new()
-	_window_material.albedo_color = WINDOW_ALBEDO
-	_window_material.roughness = 0.12
-	_window_material.metallic = 0.1
-	_window_material.emission_enabled = true
-	_window_material.emission = _scaled(tint, 1.0)
-	_window_material.emission_energy_multiplier = WINDOW_EMISSION_ENERGY
+	if not dice_pack and not module_bag:
+		# Schwarz bedruckter, laminierter Karton - ein Rest Eigenlicht, sonst läse er als Loch.
+		_shell_material.albedo_color = BOARD_ALBEDO
+		_shell_material.metallic = 0.0
+		_shell_material.roughness = 0.38
+		_shell_material.emission = BOARD_ALBEDO
+		_shell_material.emission_energy_multiplier = BOARD_GLOW_ENERGY
 	_steel_material = _metal(Color(0.55, 0.57, 0.62), Color(0.55, 0.57, 0.62), 0.12)
+
 	_gold_material = _metal(CasinoStyle.GOLD, CasinoStyle.GOLD_INTENSE, 0.35)
 
 func _metal(albedo: Color, glow: Color, energy: float) -> StandardMaterial3D:
@@ -412,47 +451,261 @@ func _build_die_face(cell: Node3D, width: float, center_y: float, z: float) -> v
 		TableProps.box(cell, "Pip%d" % i, Vector3(PIP_SIZE, PIP_SIZE, LID_PROUD),
 			Vector3(offset, center_y - offset, z), _core_material)
 
-## Die DATEN-KASSETTE: Gehäuse, Leuchtnaht zwischen Deckel und Boden, Glasfenster mit
-## einer Kartenkante je Option, Riegel und Kontakte; die Größe legt Band, Rahmen und Gold an.
+## Die SCHACHTEL: die Hülle aus Blender, darin die Treppe der Karten.
 func _build_cassette() -> Node3D:
 	var cell := Node3D.new()
 	cell.name = "Hull%d" % _cells.size()
-	var width := DataCellView.WIDTH * FOOT_ROOM
-	var length := DataCellView.HEIGHT * FOOT_ROOM
-	var depth := thickness()
-	var bottom := -DataCellView.DEPTH * 0.5
-	var lid := bottom + depth
-	TableProps.box(cell, "Shell", Vector3(width, length, depth),
-		Vector3(0.0, 0.0, bottom + depth * 0.5), _shell_material)
-	var seam_h := depth * SEAM_HEIGHT_SHARE
-	var seam_z := bottom + depth * SEAM_Z_SHARE
-	TableProps.box(cell, "SeamLong", Vector3(width + SEAM_PROUD * 2.0, length * 0.999, seam_h),
-		Vector3(0.0, 0.0, seam_z), _edge_material)
-	TableProps.box(cell, "SeamShort", Vector3(width * 0.999, length + SEAM_PROUD * 2.0, seam_h),
-		Vector3(0.0, 0.0, seam_z), _edge_material)
-	_build_rims(cell, width, length, lid)
-	# Undurchsichtig: im Fenster leuchten nur die Kanten der Karten, je Option eine.
-	var window := Vector2(width * WINDOW_SHARE.x, length * WINDOW_SHARE.y)
-	var window_y := length * WINDOW_Y_SHARE
-	var face_z := lid + LID_PROUD * 0.5
-	TableProps.box(cell, "Window", Vector3(window.x, window.y, LID_PROUD),
-		Vector3(0.0, window_y, face_z), _window_material)
-	var edges := CardPack.option_count(card_pack_size)
-	var span := window.x * 0.78
-	for i in edges:
-		var x := -span * 0.5 + span * (float(i) + 0.5) / float(edges)
-		var material := _core_material
-		if not _stripe_materials.is_empty():
-			material = _stripe_materials[i % _stripe_materials.size()]
-		TableProps.box(cell, "CardEdge%d" % i, Vector3(width * CARD_EDGE_WIDTH_SHARE,
-			window.y * CARD_EDGE_LENGTH_SHARE, LID_PROUD),
-			Vector3(x, window_y, face_z + LID_PROUD * 0.5), material)
-	TableProps.box(cell, "Latch", Vector3(SEAM_PROUD * 3.0, length * 0.14, depth * 0.3),
-		Vector3(width * 0.5 + SEAM_PROUD, -length * 0.12, seam_z), _steel_material)
-	TableProps.box(cell, "Contacts", Vector3(width * 0.42, SEAM_PROUD * 2.0, depth * 0.22),
-		Vector3(0.0, -length * 0.5 - SEAM_PROUD, bottom + depth * 0.22), _gold_material)
-	_build_cassette_trim(cell, width, length, depth, bottom, window, window_y, face_z)
+	var scene := cassette_model()
+	if scene == null:
+		# Ohne Import: ein schlichtes Gehäuse, damit nichts fehlt.
+		TableProps.box(cell, "Shell", Vector3(DataCellView.WIDTH * FOOT_ROOM,
+			DataCellView.HEIGHT * FOOT_ROOM, thickness()), Vector3(0.0, 0.0,
+			-DataCellView.DEPTH * 0.5 + thickness() * 0.5), _shell_material)
+		return cell
+	var model := scene.instantiate() as Node3D
+	model.name = "Cassette"
+	# Blender baut Z nach oben, die Zelle liest Z als Höhe: +90° um X stellt es gleich.
+	model.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	model.position = Vector3(0.0, 0.0, -DataCellView.DEPTH * 0.5)
+	cell.add_child(model)
+	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_dress_box_part(mesh)
+	if _cells.is_empty():
+		_cassette_model = model
+	_build_stair(cell)
 	return cell
+
+## Ein Teil der Schachtel: zeigt es sich für dieses Paket, und was trägt es?
+func _dress_box_part(mesh: MeshInstance3D) -> void:
+	var part := String(mesh.name)
+	var mixed := card_pack_sort == CardPack.SORT_MIXED
+	var key := String(BOX_SORT_KEYS.get(card_pack_sort, "zahl"))
+	if part.begins_with("AugeFront") or part.begins_with("AugeKopf"):
+		var group := part.trim_prefix("AugeFront").trim_prefix("AugeKopf")
+		mesh.visible = group.begins_with("%d_" % CardPack.option_count(card_pack_size))
+		# Am Kopf sitzen sie dunkel auf dem Ring der Sortenfarbe.
+		mesh.material_override = _black_ink_material() if part.begins_with("AugeKopf") \
+			else _print_white_material()
+	elif part.begins_with("Folie"):
+		mesh.material_override = _film_material()
+	elif part.begins_with("Praegung"):
+		mesh.material_override = _foil_material()
+	elif part.begins_with("Streifen"):
+		mesh.visible = mixed
+		var stripe := int(part.substr(8, 1))
+		if stripe < _stripe_materials.size():
+			mesh.material_override = _stripe_materials[stripe]
+	elif part.begins_with("DruckSorte_"):
+		mesh.visible = part.ends_with("_" + key)
+		mesh.material_override = _edge_material
+	elif part.begins_with("DruckBand") or part.begins_with("DruckRuecken"):
+		mesh.visible = not mixed
+		mesh.material_override = _edge_material
+	elif part.begins_with("Druck"):
+		mesh.material_override = _edge_material
+	elif part.begins_with("Schwarz"):
+		mesh.visible = part.ends_with("_" + key)
+		mesh.material_override = _black_ink_material()
+	else:
+		# Karton und Lasche; der Hohlraum trägt innen rohen Karton.
+		for surface in mesh.get_surface_override_material_count():
+			var source := mesh.mesh.surface_get_material(surface)
+			var inside := source != null and source.resource_name.begins_with("Kraft")
+			mesh.set_surface_override_material(surface,
+				_kraft_material() if inside else _shell_material)
+
+## Die TREPPE: eine echte Karte je Option, in der Sorte des Pakets (Misch: reihum), in der
+## Größe, die die Güte verspricht. Nur die erste Hülle trägt sie - ein Stapel zeigt nur sie.
+func _build_stair(cell: Node3D) -> void:
+	if not _cells.is_empty():
+		return
+	_stair.clear()
+	_stair_holders.clear()
+	var count := CardPack.option_count(card_pack_size)
+	# Die Karte LIEGT in ihrem eigenen Rahmen; diese Drehung legt ihren in den der Schachtel.
+	var into_cell := (Basis(Vector3.RIGHT, -PI * 0.5) * Basis(Vector3.BACK, PI * 0.5)).inverse()
+	for i in count:
+		var holder := Node3D.new()
+		holder.name = "StairCard%d" % i
+		cell.add_child(holder)
+		holder.transform = stair_pose(i, count)
+		var shelf := _stair_shelf(i)
+		var card := DataCellView.new()
+		card.name = "Card"
+		holder.add_child(card)
+		card.setup(shelf, _stair_tier(), _stair_net(shelf, i))
+		card.transform = Transform3D(into_cell, Vector3.ZERO)
+		card.set_body_scale(STAIR_LENGTH / DataCellView.HEIGHT)
+		# Die obere (die höchste i) zeichnet zuletzt - sonst stanzte jedes Netz durch.
+		card.set_layer_depth(count - 1 - i)
+		_stair_holders.append(holder)
+		_stair.append(card)
+	_cycle_clock = 0.0
+
+## Der Platz der i-ten Karte im Hohlraum (die Lasche kürzt die Schachtel am Kopf): die
+## oberste unter der Folie zum Fuß hin, jede tiefere eine Stufe weiter zum Kopf.
+static func stair_pose(index: int, count: int) -> Transform3D:
+	var center := -BOX_TAB * 0.5
+	var span := STAIR_LENGTH + STAIR_STEP * float(count - 1)
+	var top := -DataCellView.DEPTH * 0.5 + CASSETTE_THICKNESS - BOX_WALL - STAIR_TOP_AIR
+	var thick := DataCellView.DEPTH * STAIR_FLATTEN
+	var at := Vector3(0.0,
+		center + (span * 0.5 - STAIR_LENGTH * 0.5) - STAIR_STEP * float(index),
+		top - thick * 0.5 - STAIR_PITCH * float(count - 1 - index))
+	return Transform3D(Basis.IDENTITY.scaled(Vector3(1.0, 1.0, STAIR_FLATTEN)), at)
+
+## Die Sorte der i-ten Karte: die des Pakets, im Misch-Paket reihum durch die Regal-Sorten.
+func _stair_shelf(index: int) -> String:
+	if card_pack_sort == CardPack.SORT_MIXED:
+		return String(MIXED_STRIPES[index % MIXED_STRIPES.size()])
+	var pack_type := String(CardPack.SORT_TYPES.get(card_pack_sort, Pack.TYPE_NUMBER))
+	return Pack.shelf_for_pack_type(pack_type)
+
+## Die Größe der Karten folgt der Güte: Standard, Edel = Groß, Royal = Kolossal.
+func _stair_tier() -> int:
+	return clampi(quality, Pack.TIER_NORMAL, Pack.TIER_KOLOSSAL)
+
+## Ein Netz aus dem geteilten Vorrat dieser Sorte und Größe.
+func _stair_net(shelf: String, step: int) -> Array:
+	var pool := net_pool(shelf, _stair_tier())
+	return pool[(step + randi()) % pool.size()]
+
+## Der VORRAT an Netzen je Sorte und Größe - fest gewürfelt, damit die Backungen geteilt
+## bleiben und der Ofen nicht mit jedem Wechsel wächst.
+static func net_pool(shelf: String, card_tier: int) -> Array:
+	var key := "%s|%d" % [shelf, card_tier]
+	if not _net_pools.has(key):
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash(key)
+		var pool: Array = []
+		# Lauter VERSCHIEDENE Netze - ein Wechsel soll sichtbar wechseln.
+		for attempt in NET_POOL * 8:
+			var net := StampNet.roll(shelf, card_tier, rng)
+			if not pool.has(net):
+				pool.append(net)
+			if pool.size() >= NET_POOL:
+				break
+		_net_pools[key] = pool
+	return _net_pools[key]
+
+## Die Netze wechseln nur unter dem Griff und auf dem Weg zur Öffnung - in Ruhe stehen sie still
+## (ein volles Lager flimmerte sonst im Augenwinkel).
+func _ready() -> void:
+	set_process(_cycling())
+
+func _cycling() -> bool:
+	return not _stair.is_empty() and (_hovered or _cycling_forced)
+
+## Die Öffnung läßt die Netze laufen, bis die Schachtel aufbricht.
+func set_net_cycling(on: bool) -> void:
+	_cycling_forced = on
+	_sync_cycling()
+
+func set_hovered(on: bool) -> void:
+	super.set_hovered(on)
+	_sync_cycling()
+
+func _sync_cycling() -> void:
+	var on := _cycling()
+	if on and not is_processing() and not _stair.is_empty():
+		# Der erste Wechsel kommt sofort - der Griff soll antworten.
+		_cycle_clock = NET_CYCLE / float(_stair.size())
+	set_process(on)
+
+func _process(delta: float) -> void:
+	if not _cycling():
+		set_process(false)
+		return
+	if not is_visible_in_tree():
+		return
+	_cycle_clock += delta
+	var step := NET_CYCLE / float(_stair.size())
+	while _cycle_clock >= step:
+		_cycle_clock -= step
+		_cycle_next()
+
+var _cycle_index := 0
+
+func _cycle_next() -> void:
+	_cycle_index = (_cycle_index + 1) % _stair.size()
+	var card := _stair[_cycle_index]
+	if not is_instance_valid(card):
+		return
+	var pool := net_pool(card.sort, card.tier)
+	var current := pool.find(card.stamp_net)
+	card.stamp_net = (pool[(current + 1 + randi() % (pool.size() - 1)) % pool.size()] as Array).duplicate()
+	card._apply_net_texture()
+
+## Die Karten leuchten mit, wenn die Schachtel aufflammt.
+func flare() -> void:
+	super.flare()
+	for card in _stair:
+		if is_instance_valid(card):
+			card.flare()
+
+## Klarsichtfolie im Fenster: kaum Farbe, nur Glanz.
+func _film_material() -> StandardMaterial3D:
+	if _film == null:
+		_film = StandardMaterial3D.new()
+		_film.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_film.albedo_color = FILM_ALBEDO
+		_film.roughness = 0.05
+		_film.metallic_specular = 1.0
+		_film.render_priority = _prio(PRIORITY_PANE)
+	return _film
+
+func _foil_material() -> StandardMaterial3D:
+	if _foil == null:
+		_foil = StandardMaterial3D.new()
+		_foil.albedo_color = FOIL_ALBEDOS[quality]
+		_foil.metallic = FOIL_METALLICS[quality]
+		_foil.roughness = FOIL_ROUGHNESSES[quality]
+		_foil.emission_enabled = true
+		_foil.emission = FOIL_ALBEDOS[quality]
+		_foil.emission_energy_multiplier = FOIL_ENERGIES[quality]
+	return _foil
+
+func _kraft_material() -> StandardMaterial3D:
+	if _kraft == null:
+		_kraft = StandardMaterial3D.new()
+		_kraft.albedo_color = KRAFT_ALBEDO
+		_kraft.roughness = 0.9
+		_kraft.emission_enabled = true
+		_kraft.emission = KRAFT_ALBEDO
+		_kraft.emission_energy_multiplier = KRAFT_GLOW_ENERGY
+	return _kraft
+
+func _black_ink_material() -> StandardMaterial3D:
+	if _black_ink == null:
+		_black_ink = StandardMaterial3D.new()
+		_black_ink.albedo_color = BLACK_INK
+		_black_ink.roughness = 0.5
+	return _black_ink
+
+## Weißer Druck der Augen: ein Rest Eigenlicht, damit die Zahl auf dem dunklen Tisch liest.
+func _print_white_material() -> StandardMaterial3D:
+	if _print_white == null:
+		_print_white = StandardMaterial3D.new()
+		_print_white.albedo_color = PRINT_WHITE
+		_print_white.emission_enabled = true
+		_print_white.emission = PRINT_WHITE
+		_print_white.emission_energy_multiplier = 1.1
+	return _print_white
+
+## Die Folie zieht beim Ebenen-Versatz mit.
+func _apply_layer_bias() -> void:
+	super._apply_layer_bias()
+	if _film != null:
+		_film.render_priority = _prio(PRIORITY_PANE)
+
+## Das Blender-Modell der Schachtel (null = kein Import, dann das schlichte Gehäuse).
+## Kein eigener Zwischenspeicher: der des ResourceLoaders hält es, solange eine Schachtel lebt
+## - ein statischer hielte es bis nach dem Beenden (Godot meldet das als Leck).
+static func cassette_model() -> PackedScene:
+	if not ResourceLoader.exists(CASSETTE_SCENE):
+		return null
+	return load(CASSETTE_SCENE) as PackedScene
 
 ## Der Neon-Saum um die Deckelkante: steht um RIM_PROUD über die Gehäuseseiten vor - bündig
 ## stritten Saum und Gehäuse im Tiefenpuffer (Flimmern an der Kante).
@@ -468,40 +721,6 @@ func _build_rims(cell: Node3D, width: float, length: float, lid: float) -> void:
 		Vector3(0.0, (outer.y - rim) * 0.5, rim_z), _edge_material)
 	TableProps.box(cell, "RimFoot", Vector3(outer.x, rim, rim),
 		Vector3(0.0, -(outer.y - rim) * 0.5, rim_z), _edge_material)
-
-## Klein schlicht, Normal ein Stahlband, Groß ein Stahlrahmen ums Fenster, Riesig dazu Goldecken.
-func _build_cassette_trim(cell: Node3D, width: float, length: float, depth: float,
-		bottom: float, window: Vector2, window_y: float, face_z: float) -> void:
-	if card_pack_size == CardPack.SIZE_NORMAL:
-		# Das Band endet IN den Säumen und bleibt unter ihrer Oberkante - keine gemeinsame Fläche.
-		var rim := width * RIM_SHARE
-		var band_h := LID_PROUD * 0.7
-		TableProps.box(cell, "Band", Vector3(width - rim, length * 0.06, band_h),
-			Vector3(0.0, -length * 0.33, face_z - (LID_PROUD - band_h) * 0.5), _steel_material)
-	if card_pack_size >= CardPack.SIZE_LARGE:
-		var frame := width * 0.035
-		var outer := window + Vector2(frame, frame) * 2.0
-		var frame_z := LID_PROUD * 1.4
-		TableProps.box(cell, "FrameLeft", Vector3(frame, outer.y, frame_z),
-			Vector3(-(window.x + frame) * 0.5, window_y, face_z), _steel_material)
-		TableProps.box(cell, "FrameRight", Vector3(frame, outer.y, frame_z),
-			Vector3((window.x + frame) * 0.5, window_y, face_z), _steel_material)
-		TableProps.box(cell, "FrameTop", Vector3(outer.x, frame, frame_z),
-			Vector3(0.0, window_y + (window.y + frame) * 0.5, face_z), _steel_material)
-		TableProps.box(cell, "FrameFoot", Vector3(outer.x, frame, frame_z),
-			Vector3(0.0, window_y - (window.y + frame) * 0.5, face_z), _steel_material)
-	if card_pack_size >= CardPack.SIZE_HUGE:
-		var corner := Vector2(width * CORNER_SHARE.x, length * CORNER_SHARE.y)
-		# Die Ecken überragen Saum und Naht nach oben wie zur Seite - nie bündig mit ihnen.
-		var reach := depth + LID_PROUD * 2.5
-		var i := 0
-		for sx: float in [-1.0, 1.0]:
-			for sy: float in [-1.0, 1.0]:
-				TableProps.box(cell, "Corner%d" % i, Vector3(corner.x + SEAM_PROUD * 3.0,
-					corner.y + SEAM_PROUD * 3.0, reach), Vector3(sx * (width - corner.x) * 0.5,
-					sy * (length - corner.y) * 0.5, bottom + reach * 0.5 - LID_PROUD),
-					_gold_material)
-				i += 1
 
 ## Der ESD-BEUTEL: flache Folie mit gewölbter Mitte, oben die Siegelnaht mit Rillen (sie
 ## reißt ab), darunter der Stufen-Streifen, auf der Wölbung das schwarze Etikett. Gebaut im
@@ -684,20 +903,8 @@ func _build_dice_case() -> Node3D:
 	cell.add_child(model)
 	# Der Tisch ist zu dunkel für den Lack des Modells: Gehäuse und Metall tragen eigene
 	# Materialien, die Naht einen neutralen Stahlton, die Banderole die Sortenfarbe.
-	_shell_material.albedo_color = CASE_ALBEDOS[quality]
-	_shell_material.metallic = CASE_METALLICS[quality]
-	_shell_material.roughness = CASE_ROUGHNESSES[quality]
-	_shell_material.emission = CASE_GLOWS[quality]
-	_shell_material.emission_energy_multiplier = CASE_GLOW_ENERGIES[quality]
-	_shell_material.normal_enabled = true
-	_shell_material.albedo_texture = CASE_SURFACE_ALBEDO
-	# Auch das Eigenlicht trägt die Facetten, sonst überstrahlt es die Oberfläche flach.
-	_shell_material.emission_texture = CASE_SURFACE_ALBEDO
-	_shell_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
-	_shell_material.normal_texture = CASE_SURFACE_NORMAL
-	_shell_material.normal_scale = CASE_SURFACE_DEPTH
-	_shell_material.uv1_triplanar = true
-	_shell_material.uv1_scale = Vector3.ONE * CASE_SURFACE_SCALE
+	_apply_quality_metal(CASE_SURFACE_ALBEDO, CASE_SURFACE_NORMAL, CASE_SURFACE_SCALE,
+		CASE_SURFACE_DEPTH)
 	var banded := card_pack_sort != DicePack.SORT_NORMAL
 	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -726,6 +933,24 @@ func _build_dice_case() -> Node3D:
 			_build_symbols(model)
 		_build_die_faces(model)
 	return cell
+
+## Das Gehäuse der Schatulle im Metall der GÜTE: Lack, Licht und Oberfläche.
+func _apply_quality_metal(surface: Texture2D, normal: Texture2D, surface_scale: float,
+		surface_depth: float) -> void:
+	_shell_material.albedo_color = CASE_ALBEDOS[quality]
+	_shell_material.metallic = CASE_METALLICS[quality]
+	_shell_material.roughness = CASE_ROUGHNESSES[quality]
+	_shell_material.emission = CASE_GLOWS[quality]
+	_shell_material.emission_energy_multiplier = CASE_GLOW_ENERGIES[quality]
+	_shell_material.normal_enabled = true
+	_shell_material.albedo_texture = surface
+	# Auch das Eigenlicht trägt die Oberfläche, sonst überstrahlt es sie flach.
+	_shell_material.emission_texture = surface
+	_shell_material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	_shell_material.normal_texture = normal
+	_shell_material.normal_scale = surface_depth
+	_shell_material.uv1_triplanar = true
+	_shell_material.uv1_scale = Vector3.ONE * surface_scale
 
 ## Das Metall von Schließe, Lasche und Scharnier: Stahl, für jede Güte gleich.
 func case_metal() -> StandardMaterial3D:
@@ -774,21 +999,34 @@ func _draw_symbol(host: Node3D, size: float) -> void:
 			var gem := _symbol_box(host, "Raute", Vector2(size * 0.62, size * 0.62), Vector2.ZERO)
 			gem.rotation.y = PI * 0.25
 		DicePack.SORT_MATERIAL:
-			var tile := size * 0.42
-			var i := 0
-			for sx: float in [-1.0, 1.0]:
-				for sy: float in [-1.0, 1.0]:
-					_symbol_box(host, "Kachel%d" % i, Vector2(tile, tile),
-						Vector2(sx, sy) * (tile * 0.5 + stroke * 0.3))
-					i += 1
+			# Ein Sechseck - die Silhouette eines Würfels über Eck (Spieler-Wahl 2026-11-15).
+			var hexagon := CylinderMesh.new()
+			hexagon.top_radius = size * 0.5
+			hexagon.bottom_radius = hexagon.top_radius
+			hexagon.height = SYMBOL_PROUD
+			hexagon.radial_segments = 6
+			hexagon.rings = 1
+			_symbol_mesh(host, "Sechseck", hexagon, Vector2.ZERO)
 		DicePack.SORT_RUNE:
-			# Algiz: der Stamm und zwei Arme, die aus der Mitte nach oben auseinanderlaufen.
-			_symbol_box(host, "Stamm", Vector2(stroke, size), Vector2.ZERO)
-			var arm := size * 0.5
-			for side: float in [-1.0, 1.0]:
-				var branch := _symbol_box(host, "Arm%d" % int(side), Vector2(stroke, arm),
-					Vector2(side * arm * 0.5 * sin(PI / 5.0), arm * 0.5 * cos(PI / 5.0)))
-				branch.rotation.y = -side * PI / 5.0
+			# Ein Dreieck im Ring (Spieler-Wahl 2026-11-15), die Spitze zeigt nach oben.
+			var ring := TorusMesh.new()
+			ring.outer_radius = size * 0.5
+			ring.inner_radius = size * 0.5 - stroke
+			ring.rings = 32
+			ring.ring_segments = 6
+			var circle := _symbol_mesh(host, "Ring", ring, Vector2.ZERO)
+			circle.scale = Vector3(1.0, SYMBOL_PROUD / stroke, 1.0)
+			var reach := size * 0.5 - stroke * 1.15
+			var corners: Array[Vector2] = []
+			for i in 3:
+				var angle := TAU * float(i) / 3.0
+				corners.append(Vector2(sin(angle), cos(angle)) * reach)
+			for i in 3:
+				var a: Vector2 = corners[i]
+				var b: Vector2 = corners[(i + 1) % 3]
+				var side := _symbol_box(host, "Dreieck%d" % i,
+					Vector2(stroke, a.distance_to(b) + stroke * 0.6), (a + b) * 0.5)
+				side.rotation.y = atan2(b.x - a.x, a.y - b.y)
 
 # --- Die WÜRFELSEITE der Größe ------------------------------------------------------
 # Neben der Banderole (Blender -X, die Seite der Schließe): groß auf dem Deckel, klein auf der
@@ -868,6 +1106,18 @@ func _pip_material() -> StandardMaterial3D:
 		_pip.emission = PIP_ALBEDO
 		_pip.emission_energy_multiplier = PIP_ENERGY
 	return _pip
+
+## Ein flaches Figur-Mesh mit Achse auf der Normalen: center in (quer, oben).
+func _symbol_mesh(host: Node3D, mesh_name: String, mesh: Mesh,
+		center: Vector2) -> MeshInstance3D:
+	var figure := MeshInstance3D.new()
+	figure.name = mesh_name
+	figure.mesh = mesh
+	figure.material_override = _symbol_material()
+	figure.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	figure.position = Vector3(center.x, SYMBOL_PROUD * 0.3, -center.y)
+	host.add_child(figure)
+	return figure
 
 ## Eine flache Figur-Box: center in (quer, oben), ihre Unterseite eine Spur IN der Banderole.
 func _symbol_box(host: Node3D, box_name: String, extent: Vector2,

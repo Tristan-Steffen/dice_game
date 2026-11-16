@@ -15,11 +15,10 @@ func before_each() -> void:
 	add_child_autofree(bay)
 	bay.setup(CENTER, HALF)
 
-func _stock(packs: Array, dice: Array, specials: Array) -> Dictionary:
+func _stock(packs: Array, dice: Array, _specials: Array) -> Dictionary:
 	return {
 		ShopController.KIND_ENGRAVING_PACK: packs,
 		ShopController.KIND_DIE: dice,
-		ShopController.KIND_SPECIAL: specials,
 	}
 
 func _die() -> DieDefinition:
@@ -764,3 +763,27 @@ func test_der_kauf_faehrt_die_sektion_auch_in_einer_reihe() -> void:
 	assert_eq(String(row.items[0]["kind"]), ShopController.KIND_DIE)
 	row.settle()
 	assert_eq(row.leaving_count(), 0, "nach dem Aufräum-Pfad fährt nichts mehr hinaus")
+
+## Die WENDE: alles fährt durch EINE Öffnung - die neue Ware wartet auf der bestellten
+## Seite, nie auf der anderen, und am Ende steht sie hart auf ihrem Platz.
+func test_die_wende_nutzt_nur_ihre_seite() -> void:
+	var shaft: LiftShaftView = LiftShaftView.new()
+	add_child_autofree(shaft)
+	shaft.setup(Vector3.ZERO, Vector2(2.0, 3.0), VitrineView.shaft_depth())
+	var old_body := Node3D.new()
+	var new_body := Node3D.new()
+	add_child_autofree(old_body)
+	add_child_autofree(new_body)
+	var seat := Vector3(0.0, 0.0, 0.0)
+	old_body.global_position = seat
+	var swept: Array = []
+	var tween := shaft.run_turn(-1.0, [old_body], [seat], [new_body], [seat], 0.0,
+		func() -> void: swept.append(true))
+	assert_not_null(tween)
+	assert_lt(new_body.global_position.x, -shaft.half.x, "die neue wartet VORN, nicht hinten")
+	await wait_seconds(LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME * 0.9)
+	assert_lt(old_body.global_position.x, 0.0, "die alte geht nach vorn hinaus")
+	await wait_seconds(LiftShaftView.turn_cycle_time(true))
+	assert_eq(swept.size(), 1, "der Abgang meldet sich")
+	assert_true(new_body.global_position.is_equal_approx(seat), "die neue steht auf ihrem Platz")
+	assert_false(shaft.riding(), "und die Fahrt ist durch")

@@ -568,22 +568,13 @@ var shelf_selector: ShelfSelectorView
 ## Der Filzboden rings um die Anzeige. Er muss dort ausblenden, wo die Grube steht,
 ## sonst blickt man durch das Loch auf Filz statt in die Vertiefung.
 var table_ground: TableGround
-## Die LADEN-AUSLAGE: die Ware, die auf der Ladenseite steht. Sie hängt an dem
-## Rechteck, das ShopController meldet (apron_bottom-Muster) - der Laden weiß vom
-## Tisch nichts.
-var shop_vitrine: VitrineView
 ## Zuletzt entschiedener Stand der Auslage - der Entscheider läuft je Bild.
 var _vitrine_curtain := false
 ## Wie beim Zellen-Abgleich: nur der ZULETZT angestoßene Aufbau misst weiter.
 var _vitrine_gen := 0
-## Wo das zuletzt gegriffene Stück in die Fläche gesunken ist (Display-Pixel):
-## dort startet sein Liefer-Komet. (-1,-1) = keine gemerkte Stelle.
-var _vitrine_depart_px := Vector2(-1, -1)
 ## Der aufgesparte Ankunfts-Grad: bei abgedeckter Auslage wird lautlos umgebaut,
 ## der Auftritt wartet aufs Aufdecken. Er wird EINMAL gefahren.
 var _vitrine_grade := ShopController.GRADE_STAND
-## Laufende Nummer des Warenumschlags - nur der jüngste stellt die Zielseite.
-var _vitrine_swap := 0
 ## Solange die Auslage ihre Körper baut, bleibt sie abgedeckt: sonst deckte sie
 ## halb gestellt auf.
 var _vitrine_building := false
@@ -595,32 +586,31 @@ var _vitrine_leaving := false
 ## lassen.
 var _vitrine_exit := 0
 
-## Die KASSETTEN-PLÄTZE der Ladenseite: je belegtem Platz eine LIEGENDE Zelle auf
-## der Tischfläche (Platz-Index -> Körper). Der Laden markiert den Stellplatz, die
-## Körper gehören scene_root.
-var slit_cells: Dictionary = {}
-## Identität des Pakets je Platz: eine neue Doppelseite bringt neue Kassetten,
-## kein umgestecktes Blech.
-var _slit_keys: Dictionary = {}
-var _slit_gen := 0
-## Die Kassetten, die gerade HINAUSFAHREN: sie gehören keinem Platz mehr. Der
-## Band-Schritt gibt sie frei - und jeder Abbruch (_settle_slit_shaft).
-var _slit_leaving: Array[DataCellView] = []
-## Die HEBEBÜHNE der Reihe: dieselbe Maschine wie in einer Bucht, nur gehört ihr
-## Schacht scene_root - die Schlitzreihe ist Tischmöbel, keine Auslage.
-var slit_shaft: LiftShaftView
-## Die VERTIEFUNG je Kassetten-Platz (Spieler-Wunsch 2026-10-29): die Mulde des
-## Magazins in der Tischfläche, die liegende Karte darin bündig.
-var _slit_recesses: Array[CardRecessView] = []
+## Die PAKET-FLÄCHE des Ladens: je belegtem Platz eine LIEGENDE Hülle bzw. Karte
+## (Platz-Index -> Körper). Der Laden markiert den Stellplatz, die Körper gehören
+## scene_root.
+var shop_pack_cells: Dictionary = {}
+## Identität des Pakets je Platz: eine neue Doppelseite bringt neue Körper.
+var _shop_pack_keys: Dictionary = {}
+var _shop_pack_gen := 0
+## Die Körper, die gerade HINAUSFAHREN: sie gehören keinem Platz mehr. Der
+## Band-Schritt gibt sie frei - und jeder Abbruch (_settle_shop_pack_shaft).
+var _shop_pack_leaving: Array[DataCellView] = []
+## Je Platz SEINE Sektion der Hebebühne (Index = Platz).
+var shop_pack_shafts: Array[LiftShaftView] = []
+## Die sechs Plätze starten überlappend, je Platz um diesen Versatz später.
+const SHOP_PACK_STAGGER := 0.05
+## Die VERTIEFUNG je Paket-Platz: die Mulde des Magazins in der Tischfläche.
+var _shop_pack_recesses: Array[CardRecessView] = []
 ## Und dieselben Mulden unter der Schwarzmarkt-Reihe.
 var _secret_recesses: Array[CardRecessView] = []
-## Wie schnell eine Karte nach einer Fahrt in ihre Mulde sinkt.
-const SLIT_SETTLE_TIME := 0.14
+## Wie schnell ein Paket nach einer Fahrt in seine Mulde sinkt.
+const SHOP_PACK_SETTLE_TIME := 0.14
 
 ## Der WETT-TRESEN unter dem Nebenwetten-Fenster: je Angebot EIN Plot - das
 ## Rechteck seines Setzen-Knopfes - und darauf sein GEWINN.
 ## Das Fenster meldet die Plätze, die Körper gehören scene_root - dieselbe Grammatik
-## wie die Kassetten-Schlitzreihe des Ladens.
+## wie die Paket-Fläche des Ladens.
 ## Die Körper sind reine ANZEIGE: keine Buchung hängt an einem von ihnen.
 var bet_bodies: Dictionary = {}
 ## Signatur je Platz - eine andere Signatur heißt anderer Körper, kein umgestecktes
@@ -658,7 +648,7 @@ var _bet_leaving: Dictionary = {}
 var bet_shafts: Array[LiftShaftView] = []
 ## Die WANDHAUT, die NUR sie bestellen: dunkle Technik-Paneele mit haarfeinen
 ## Leuchtlinien. JEDE Grube des Tisches trägt sie - Wett-Tresen, Laden, Hinterzimmer,
-## Schlitzreihe und Magazin -, damit keine Vertiefung anders liest als die nächste.
+## Paket-Fläche und Magazin -, damit keine Vertiefung anders liest als die nächste.
 const PIT_SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
 ## Und die TIEFFAHRT, die ebenfalls nur sie bestellen: zum Ein- und Ausfahren sinkt
 ## eine Wett-Grube doppelt so tief wie sie aussieht. Nur hier steht die Nachbargrube
@@ -1776,7 +1766,7 @@ func _setup_panels() -> void:
 	charm_shop.lexikon_requested.connect(open_lexikon)
 	if table_screen != null and table_screen.charm_dock != null:
 		table_screen.charm_dock.lexikon_requested.connect(open_lexikon)
-	# Die Bucht: der Laden MELDET seine Auslage, die Körper stellt scene_root.
+	# Die Paket-Fläche: der Laden MELDET seine Auslage, die Körper stellt scene_root.
 	charm_shop.vitrine_changed.connect(_on_vitrine_changed)
 	charm_shop.purchase_denied.connect(_sfx.bind(&"ui_denied", 0.0, 1.0))
 	# Der Vorhang hängt an der SEITENREGEL des Hubs, nicht nur am Laden-Ablauf:
@@ -1785,8 +1775,8 @@ func _setup_panels() -> void:
 	# gemeldet: ShopController.close() versteckt die Seite, BEVOR es sein
 	# closed-Signal wirft, und ein Melder an visibility_changed hätte den Vorhang
 	# dort hart fallen lassen, ehe der Phasenwechsel die Schluck-Zeremonie erlaubt.
-	# Die Stellplätze der Kassetten-Reihe sind auf den ECHTEN liegenden Grundriß
-	# geschnitten - der Laden muss ihn kennen, bevor er auslegt.
+	# Die Stellplätze der Paket-Fläche sind auf den ECHTEN liegenden Grundriß und die
+	# breiteste Schatulle geschnitten - der Laden muss beides kennen, bevor er auslegt.
 	charm_shop.data_cell_lie_px = _data_cell_lying_px()
 	if table_screen != null:
 		charm_shop.dice_case_across_px = _world_len_px(CardPackView.max_case_across()
@@ -3923,6 +3913,7 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 		shelf_stack.wall_skin = PIT_SKIN
 		add_child(shelf_stack)
 	shelf_stack.pocket_limit_z = _shelf_pocket_limit()
+	shelf_stack.left_pocket_limit_z = _shelf_left_pocket_limit()
 	shelf_stack.setup(table_screen.pixel_to_world(rect.get_center()),
 		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect))
 	shelf_stack.set_retract_windows(workshop.shelf_retract_windows())
@@ -4031,30 +4022,21 @@ func _fly_pack_to_magazine(workshop: WorkshopView, uid: int, from_px: Vector2,
 			_land_pack_in_magazine(workshop, uid, tint))
 	return travel
 
-# --- Die Laden-Auslage ------------------------------------------------------
-# Dieselbe Kette wie das Magazin: der Laden MELDET sein Rechteck, scene_root
-# stellt die Ware darauf.
+# --- Die Laden-Auslage: die PAKET-FLÄCHE ------------------------------------
+# Der Laden MELDET seine sechs Stellplätze (zwei Reihen zu drei), scene_root stellt
+# die Hüllen darauf - jede Art auf jedem Platz. EINE Hebebühne fährt beide Reihen.
 
-## Stellt die Auslage auf die Ladenseite. Wie beim Zellen-Abgleich zwei Bilder
-## Geduld: das Rechteck steht erst, wenn die Seite ausgelegt ist. reveal deckt sie
-## danach auf - erst messen, dann zeigen.
+## Stellt die Auslage auf die Ladenseite. Zwei Bilder Geduld: das Rechteck steht
+## erst, wenn die Seite ausgelegt ist. reveal deckt sie danach auf - erst messen,
+## dann zeigen.
 func _sync_shop_vitrine(reveal := false) -> void:
 	if table_screen == null or charm_shop == null:
 		return
-	# Solange gebaut wird, bleibt die Auslage abgedeckt: sonst stünde sie halb
-	# gestellt auf der Seite.
+	# Solange gebaut wird, bleibt die Auslage abgedeckt.
 	_vitrine_building = true
 	_vitrine_gen += 1
 	var generation := _vitrine_gen
 	await get_tree().process_frame
-	await get_tree().process_frame
-	if generation != _vitrine_gen or not is_instance_valid(charm_shop):
-		return
-	_place_shop_vitrine()
-	await get_tree().process_frame
-	if generation != _vitrine_gen or not is_instance_valid(charm_shop):
-		return
-	_sync_vitrine_stock()  # die Körper stehen, die Auslage ist noch abgedeckt
 	await get_tree().process_frame
 	if generation != _vitrine_gen or not is_instance_valid(charm_shop):
 		return
@@ -4067,33 +4049,9 @@ func _sync_shop_vitrine(reveal := false) -> void:
 	if _vitrine_curtain:
 		grade = _vitrine_grade
 		_vitrine_grade = ShopController.GRADE_STAND
-	# Der MASCHINENZYKLUS: beide Zonen fahren ihn GLEICHZEITIG - die Gravuren-Reihe
-	# und die Bucht starten und stehen im selben Augenblick.
-	_write_slit_cells(grade)
-	_sync_vitrine_stock(grade)
+	_write_shop_packs(grade)
 
-## Die Auslage auf das gemeldete Rechteck stellen. Idempotent - dieselben Maße
-## schreiben dasselbe.
-func _place_shop_vitrine() -> void:
-	var rect := charm_shop.vitrine_pit_rect()
-	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-		return
-	if shop_vitrine == null or not is_instance_valid(shop_vitrine):
-		shop_vitrine = VitrineView.new("ShopVitrine")
-		add_child(shop_vitrine)
-		# Die Netze folgen der Schale: sie kommen, wenn sie steht, und gehen, sobald
-		# sich etwas rührt. GEMELDET, nicht je Bild erfragt.
-		shop_vitrine.dice_settled.connect(_on_vitrine_dice_settled)
-		shop_vitrine.dice_moving.connect(_clear_vitrine_nets)
-		_wire_shafts(shop_vitrine,
-			[TableScreen.PIT_SHOP_SLITS, TableScreen.PIT_SHOP_BOWL] as Array[int])
-	# Die bündige Plattform IST die Anzeige: ihre Haut zeigt deren echtes Bild.
-	shop_vitrine.deck_skin = table_screen.display_skin()
-	shop_vitrine.wall_skin = PIT_SKIN
-	_place_vitrine(shop_vitrine, rect, _vitrine_curtain)
-
-## Eine Auslage auf ihr gemeldetes Rechteck stellen. Beide Vitrinen gehen durch
-## dieselbe Hand - eine zweite Rechnung liefe auseinander.
+## Eine Auslage auf ihr gemeldetes Rechteck stellen (der Schwarzmarkt).
 func _place_vitrine(bay: VitrineView, rect: Rect2, shown: bool) -> void:
 	var a := table_screen.pixel_to_world(rect.position)
 	var b := table_screen.pixel_to_world(rect.end)
@@ -4104,8 +4062,7 @@ func _place_vitrine(bay: VitrineView, rect: Rect2, shown: bool) -> void:
 ## Die SCHÄCHTE einer Auslage: sie meldet, wann eines ihrer Löcher auf- und
 ## zugeht, geschnitten wird es von TableScreen (eine View greift nicht in die
 ## Shader). slots ist die EXPLIZITE Zone→Platz-Liste; eine Zone ohne Platz wird
-## still übergangen. Die Ladenbucht führt keine Regalware, ihre Regal-Zone bleibt
-## also unbenutzt - deren Platz gehört der Schlitzreihe, die scene_root selbst fährt.
+## still übergangen.
 func _wire_shafts(bay: VitrineView, slots: Array[int]) -> void:
 	bay.shaft_opened.connect(func(zone: int, at: Vector3, hole: Vector2) -> void:
 		if table_screen != null and zone >= 0 and zone < slots.size():
@@ -4118,28 +4075,17 @@ func _wire_shafts(bay: VitrineView, slots: Array[int]) -> void:
 ## jedem Laufwechsel ist JEDER Schacht zu. Ein offen gebliebenes Loch wäre der
 ## schlimmste denkbare Rest - deshalb räumen alle Abbrüche hier durch.
 func _close_lift_shafts() -> void:
-	if shop_vitrine != null and is_instance_valid(shop_vitrine):
-		shop_vitrine.close_shafts()
 	if secret_vitrine != null and is_instance_valid(secret_vitrine):
 		secret_vitrine.close_shafts()
-	_settle_slit_shaft()
+	_settle_shop_pack_shaft()
 	_settle_bet_shafts()
 	if table_screen != null:
 		table_screen.clear_lift_pits()
 
-## Liegt in der Ladenauslage überhaupt noch ein KÖRPER? Gezählt werden BEIDE Zonen
-## zusammen, denn sie fahren zusammen: Bucht und Kassetten-Schlitzreihe. Gefragt wird
-## im Vorhangfall - dort ist die Antwort noch wahr.
+## Liegt auf der Paket-Fläche überhaupt noch ein KÖRPER? Gefragt im Vorhangfall -
+## dort ist die Antwort noch wahr.
 func _shop_bay_occupied() -> bool:
-	if not slit_cells.is_empty():
-		return true
-	return shop_vitrine != null and is_instance_valid(shop_vitrine) \
-		and shop_vitrine.body_count() > 0
-
-## Der EINE Schreiber der Ladenseite: die Auslage steht oder ist gar nicht da.
-func _set_vitrine_shown(shown: bool) -> void:
-	if shop_vitrine != null and is_instance_valid(shop_vitrine):
-		shop_vitrine.set_shown(shown)
+	return not shop_pack_cells.is_empty()
 
 ## Aufgedeckt wird nach der SEITENREGEL des Hubs - und erst, wenn die Auslage
 ## fertig gebaut ist. Sichtbar nur, solange die Ladenseite die sichtbare Seite ist
@@ -4169,8 +4115,6 @@ func _sync_vitrine_curtain() -> void:
 		return
 	_vitrine_curtain = want
 	if want:
-		_set_vitrine_shown(true)
-		_sync_vitrine_nets()
 		return
 	if phase == Phase.SHOP:
 		_hide_vitrine_hard()  # nur VERDRÄNGT: sofort fort, gar nicht da
@@ -4178,23 +4122,20 @@ func _sync_vitrine_curtain() -> void:
 	_play_vitrine_exit()  # der Laden schließt: die Maschine schluckt
 
 ## Der harte Sofort-Weg - und zugleich der ABBRUCH jeder Schluck-Zeremonie: jede
-## Maschine still, jedes Loch zu, kein Körper mehr da (auch keiner, der noch
+## Maschine still, jedes Loch zu, kein Körper mehr sichtbar (auch keiner, der noch
 ## hinausfuhr), und die Ladenseite gibt ihre Fläche ab. Der EINE Aufräum-Pfad des
 ## Vorhangs. fade: der Abgang ist wirklich durch, die Startseite darf weich
 ## zurückkommen - jeder Abbruch wechselt hart.
 func _hide_vitrine_hard(fade := false) -> void:
 	_vitrine_leaving = false
 	_vitrine_exit += 1  # eine laufende Zeremonie stellt nichts mehr
-	_set_vitrine_shown(false)
 	_close_lift_shafts()  # keine Maschine bleibt mit offenem Loch stehen
 	_close_shop_page(fade)
-	_sync_slit_visibility()
-	_drop_vitrine_nets()  # auch ein halb eingesogener Block ist sofort fort
+	_sync_shop_pack_visibility()
 	# Die PHYSISCHE Regel, gestellt im EINEN Augenblick, in dem sie zu stellen ist:
-	# ist die Auslage jetzt körperlich LEER (der Abgang hat die Ware hinausgefahren),
-	# schuldet das nächste Aufdecken eine ANKUNFT - was die Seite über ihr Liegen auch
-	# glaubt. Eine bloß VERDRÄNGTE Auslage behält ihre Körper und bleibt liegen.
-	# Später ist die Frage nicht mehr zu stellen: der Vorbau stellt hart nach.
+	# ist die Fläche jetzt körperlich LEER (der Abgang hat die Ware hinausgefahren),
+	# schuldet das nächste Aufdecken eine ANKUNFT. Eine bloß VERDRÄNGTE Auslage
+	# behält ihre Körper und bleibt liegen.
 	_vitrine_grade = ShopController.grade_on_stand(_vitrine_grade, _shop_bay_occupied())
 
 ## Die Ladenseite gibt ihre Fläche ab - erst hier greift die Seitenregel des Hubs
@@ -4214,23 +4155,15 @@ func _close_shop_page(fade: bool) -> void:
 		hub.fade_current_in()  # die Startseite kommt weich zurück
 
 ## Die SCHLUCK-ZEREMONIE: der Laden schließt, und die Maschine zieht die Ware ein -
-## senken mit der Ware, vorn hinaus, Platte LEER herauf, Loch zu. Davor werden die
-## NETZ-BLÖCKE in ihre Würfel zurück ABSORBIERT: die Würfel stehen noch, wenn ihre
-## Anzeige eingesogen wird, und ihr Vorlauf gehört BEIDEN Zonen, damit sie zusammen
-## bleiben. Sie spielt auf der STEHENDEN Ladenseite: gebucht ist längst, Runde und
-## Kamera laufen unbeirrt weiter, nur der SEITENWECHSEL wartet. Jede Verdeckung wie
-## jeder Laufwechsel bricht sie hart ab.
+## senken mit der Ware, vorn hinaus, Platte LEER herauf, Loch zu. Sie spielt auf der
+## STEHENDEN Ladenseite: gebucht ist längst, Runde und Kamera laufen unbeirrt
+## weiter, nur der SEITENWECHSEL wartet. Jede Verdeckung wie jeder Laufwechsel
+## bricht sie hart ab.
 func _play_vitrine_exit() -> void:
 	_vitrine_exit += 1
 	var token := _vitrine_exit
 	var launched := run
-	var lead := 0.0
-	if charm_shop != null and is_instance_valid(charm_shop):
-		lead = charm_shop.absorb_die_nets()
-	var cap := 0.0
-	if shop_vitrine != null and is_instance_valid(shop_vitrine):
-		cap = shop_vitrine.exit_all(lead)
-	cap = maxf(cap, _exit_slit_cells(lead))
+	var cap := _exit_shop_packs()
 	if cap <= 0.0:
 		_hide_vitrine_hard()  # nichts zu schlucken: der Vorhang fällt sofort
 		return
@@ -4240,391 +4173,344 @@ func _play_vitrine_exit() -> void:
 		return
 	_hide_vitrine_hard(true)
 
-## Die Auslage des Ladens stellen. Der Laden fasst nie einen Körper an - er
-## meldet, was liegt, und die Auslage stellt es nach (idempotent).
-func _sync_vitrine_stock(grade := ShopController.GRADE_STAND) -> void:
-	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or charm_shop == null:
-		return
-	shop_vitrine.present_graded(_shop_vitrine_stock(), grade)
-	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
-
-## Der Bestand der Ladenbucht samt den Plätzen seines Würfel-RASTERS in Welt: der
-## Laden meldet sie in Display-Pixeln (Zeilen = Kartenzeilen), umgerechnet wird hier.
-func _shop_vitrine_stock() -> Dictionary:
-	var stock := charm_shop.vitrine_stock()
-	var spots: Array = []
-	for px in charm_shop.die_seats_px():
-		spots.append(table_screen.pixel_to_world(px))
-	if not spots.is_empty():
-		stock[VitrineView.STOCK_DIE_SPOTS] = spots
-	return stock
-
-## Der Laden zeigt eine Seite. Bei ZUGEDECKTER Bucht wird lautlos umgebaut und der
+## Der Laden zeigt eine Seite. Bei ZUGEDECKTER Auslage wird lautlos umgebaut und der
 ## Grad fürs Aufdecken aufgehoben; bei offener ist das Blättern ein sichtbarer
-## WARENUMSCHLAG.
+## WARENUMSCHLAG, ein Kauf läßt der harte Schreiber allein laufen.
 func _on_vitrine_changed() -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop):
 		return
 	var grade := charm_shop.vitrine_grade()
-	# Die Maschine schluckt gerade: nichts stellt jetzt um. Der Grad wird aufgehoben,
-	# gestellt wird beim nächsten Aufdecken - der Laden liest seinen Bestand dann
-	# ohnehin neu.
 	if _vitrine_leaving:
 		_vitrine_grade = ShopController.louder_grade(_vitrine_grade, grade)
 		return
 	if not _vitrine_curtain:
 		_vitrine_grade = ShopController.louder_grade(_vitrine_grade, grade)
-		_sync_vitrine_stock()
-		_sync_shop_slit_cells()  # nicht erwartet
-		return
-	# Vor jedem Abräumen werden die Netz-Blöcke in ihre Würfel eingesogen, und ERST
-	# DANACH fährt die Maschine. Der Vorlauf ist EINER für beide Zonen.
-	var lead := 0.0
-	if grade == ShopController.GRADE_RISE:
-		lead = charm_shop.absorb_die_nets()  # 0, wenn kein Netz steht
-	_swap_vitrine_stock(grade, lead)
-	_swap_slit_cells(grade, lead)  # beide Zonen blättern dieselbe Seite
-
-## Die Schlitze blättern mit: bei einem Seitenwechsel fährt die Reihe den
-## BAND-SCHRITT - die alten Kassetten vorn hinaus, die neuen von hinten nach. Ein
-## Kauf lässt der harte Schreiber allein laufen (die verkaufte Kassette sinkt, die
-## anderen bleiben stehen).
-func _swap_slit_cells(grade: String, lead := 0.0) -> void:
-	if grade == ShopController.GRADE_STAND:
-		_sync_shop_slit_cells()  # nicht erwartet
-		return
-	_write_slit_cells(ShopController.GRADE_RISE, true, lead)
-
-## Der Umschlag: EIN Förderband-Schritt der Maschine - die alte Ware geht vorn
-## hinaus, während die neue von hinten nachrückt. Gebucht hat der Laden längst, das
-## hier ist reine Bühne; ein Laufwechsel oder ein zweites Blättern räumt sie ab.
-func _swap_vitrine_stock(grade: String, lead := 0.0) -> void:
-	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or charm_shop == null:
+		_sync_shop_packs()  # nicht erwartet
 		return
 	if grade == ShopController.GRADE_STAND:
-		_sync_vitrine_stock()  # Kauf, Tausch, Sperre: dieselbe Seite bleibt liegen
+		_sync_shop_packs()  # nicht erwartet
 		return
-	_vitrine_swap += 1
-	shop_vitrine.swap_to(_shop_vitrine_stock(), lead)
-	_sfx_after(lead, &"shop_flip")
-	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
+	_write_shop_packs(ShopController.GRADE_RISE, true)
+	_sfx(&"shop_flip")
 
-# --- Die Kassetten-Schlitze der Ladenseite -------------------------------------
-# Versiegelte Ware liegt nicht mehr in der Bucht: sie STECKT im Tisch, gleich
-# unter der Charm-Zeile, in derselben Leser-Grammatik wie an der Werkbank. Der
-# Laden schneidet die Kerbe und nennt ihre Mitte; die Körper gehören scene_root.
-# Sie tragen keine Kollision - geklickt wird der leere Knopf unter ihnen.
-
-## Der Anstoß: zwei Bilder Geduld wie beim Zellen-Abgleich, denn die Kerben haben
-## erst nach dem Layout der Seite ein Rechteck.
-func _sync_shop_slit_cells() -> void:
+## Der Anstoß: zwei Bilder Geduld, denn die Plätze haben erst nach dem Layout der
+## Seite ein Rechteck.
+func _sync_shop_packs() -> void:
 	if table_screen == null or charm_shop == null or not is_instance_valid(charm_shop):
-		_drop_slit_cells()
+		_drop_shop_packs()
 		return
-	_slit_gen += 1
-	var generation := _slit_gen
+	_shop_pack_gen += 1
+	var generation := _shop_pack_gen
 	var launched := run
 	await get_tree().process_frame
 	await get_tree().process_frame
-	if generation != _slit_gen or run != launched or not is_instance_valid(charm_shop):
+	if generation != _shop_pack_gen or run != launched or not is_instance_valid(charm_shop):
 		return
-	_write_slit_cells()
+	_write_shop_packs()
 
 ## Der EINE idempotente Schreiber: was steht, bleibt derselbe Körper; was fehlt,
-## STEIGT aus seiner Kerbe; was verkauft ist, sinkt ganz in den Tisch. Im Grad
-## GRADE_RISE fährt die GANZE Reihe als Block die Hebebühne - auch, was schon
+## STEIGT aus seinem Platz; was verkauft ist, sinkt ganz in den Tisch. Im Grad
+## GRADE_RISE fährt die GANZE Fläche als Block die Hebebühne - auch, was schon
 ## steht, denn das Aufdecken ist der Auftritt der ganzen Zone.
-func _write_slit_cells(grade := ShopController.GRADE_STAND, swap := false,
-		lead := 0.0) -> void:
+func _write_shop_packs(grade := ShopController.GRADE_STAND, swap := false) -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop) or table_screen == null:
 		return
 	if _vitrine_leaving:
 		return  # die Maschine schluckt: der Abgleich stellt nichts nach
-	# Eine eben gebaute Stellplatz-Reihe (frisch geöffneter Laden) hat noch
-	# kein Rechteck: gemessen wird, WENN ES SOWEIT IST - sonst lägen alle Anker
-	# aufeinander und die ganze Reihe stapelte sich auf dem linkesten Platz.
-	if not charm_shop.slit_row_laid_out():
-		_write_slit_cells_when_laid(grade, swap, lead)  # nicht erwartet
+	# Eine eben gebaute Fläche hat noch kein Rechteck: gemessen wird, WENN ES
+	# SOWEIT IST - sonst lägen alle Anker aufeinander.
+	if not charm_shop.places_laid_out():
+		_write_shop_packs_when_laid(grade, swap)  # nicht erwartet
 		return
 	# Jeder Schreiber räumt zuerst: Loch zu, Abgangsware frei. NACH dem Räumen darf
-	# die stehende Reihe hinausfahren - sonst gäbe der Aufräum-Pfad sie gleich frei.
-	_settle_slit_shaft()
+	# die stehende Ware hinausfahren - sonst gäbe der Aufräum-Pfad sie gleich frei.
+	_settle_shop_pack_shaft()
 	var outgoing: Array = []
 	if swap:
-		outgoing = _detach_slit_cells()
-	var stock := charm_shop.slit_stock()
-	var anchors := charm_shop.slit_anchors()
-	var show := _slit_cells_visible()
+		outgoing = _detach_shop_packs()
+	var stock := charm_shop.place_stock()
+	var anchors := charm_shop.place_anchors()
+	var show := _shop_packs_visible()
 	var wanted: Dictionary = {}
 	for i in mini(stock.size(), anchors.size()):
 		var pack: Resource = stock[i]
 		if pack != null:
 			wanted[i] = pack
 	var rising := grade == ShopController.GRADE_RISE
-	# Verkauft: die SEKTION des Stellplatzes fährt ihren eigenen Zyklus - es sei
-	# denn, in diesem Zug fährt schon die ganze Reihe, dann ist die Karte schlicht
-	# fort. Zwei Maschinen teilen sich kein Loch.
-	# Und je Zug nur EINE Sektion: die Reihe hat den einen Schacht, umgeschnitten auf
-	# einen Platz - ein zweiter Schnitt risse dem ersten die Plattform weg.
+	# Verkauft: die SEKTION des Platzes fährt ihren eigenen Zyklus - es sei denn, in
+	# diesem Zug fährt schon die ganze Fläche.
 	var section := not (rising or swap)
-	for seat: int in slit_cells.keys():
+	for seat: int in shop_pack_cells.keys():
 		var kept: Resource = wanted.get(seat)
-		if kept == null or int(_slit_keys.get(seat, 0)) != kept.get_instance_id():
-			if _take_slit_cell(seat, anchors, section):
-				section = false
-	# Steigt die Reihe, fährt sie als EIN Block die Hebebühne - gesammelt wird
-	# zuerst, gefahren danach.
+		if kept == null or int(_shop_pack_keys.get(seat, 0)) != kept.get_instance_id():
+			_take_shop_pack(seat, anchors, section)
+	# Steigt die Fläche, fährt jeder Platz seine Sektion - gesammelt wird zuerst.
 	var lift: Array = []
 	for seat: int in wanted.keys():
 		var pack: Resource = wanted[seat]
 		var target := _data_cell_seat(anchors[seat])
-		var rest := _slit_rest(target)
-		var cell: DataCellView = slit_cells.get(seat)
+		var rest := _shop_pack_rest(target)
+		var cell: DataCellView = shop_pack_cells.get(seat)
 		if cell == null or not is_instance_valid(cell):
-			cell = _spawn_slit_ware(pack, target)
-			slit_cells[seat] = cell
-			_slit_keys[seat] = pack.get_instance_id()
+			cell = _spawn_shop_pack(pack, target)
+			shop_pack_cells[seat] = cell
+			_shop_pack_keys[seat] = pack.get_instance_id()
 			cell.visible = show
 			if rising:
-				_lay_slit_cell(cell, target)
-				lift.append({"cell": cell, "target": target})
+				_lay_shop_pack(cell, target)
+				lift.append({"cell": cell, "target": target, "seat": seat})
 			else:
-				_lay_fresh_slit_cell(cell, rest)
+				_lay_shop_pack(cell, rest)
+				cell.materialize()
 			continue
 		if rising:
-			_lay_slit_cell(cell, target)
-			lift.append({"cell": cell, "target": target})
+			_lay_shop_pack(cell, target)
+			lift.append({"cell": cell, "target": target, "seat": seat})
 		elif not cell.busy():
-			_lay_slit_cell(cell, rest)
+			_lay_shop_pack(cell, rest)
 		cell.visible = show
-	_run_slit_machine(lift if rising else [], outgoing, lead if swap else 0.0)
+	_run_shop_pack_machine(lift if rising else [], outgoing)
 
-## Nachgesetzt, sobald die Reihe ausgelegt ist - die Zwei-Bilder-Geduld des
-## Zellen-Abgleichs. Generations-Marke wie überall: ein neuerer Abgleich entwertet
-## den wartenden, ein Laufwechsel ebenso.
-func _write_slit_cells_when_laid(grade: String, swap: bool, lead: float) -> void:
-	_slit_gen += 1
-	var generation := _slit_gen
+## Nachgesetzt, sobald die Fläche ausgelegt ist - Generations- und Lauf-Marke wie
+## überall: ein neuerer Abgleich entwertet den wartenden.
+func _write_shop_packs_when_laid(grade: String, swap: bool) -> void:
+	_shop_pack_gen += 1
+	var generation := _shop_pack_gen
 	var launched := run
 	await get_tree().process_frame
 	await get_tree().process_frame
-	if generation != _slit_gen or run != launched or charm_shop == null \
-			or not is_instance_valid(charm_shop) or not charm_shop.slit_row_laid_out():
+	if generation != _shop_pack_gen or run != launched or charm_shop == null \
+			or not is_instance_valid(charm_shop) or not charm_shop.places_laid_out():
 		return
-	_write_slit_cells(grade, swap, lead)
+	_write_shop_packs(grade, swap)
 
-## Die Kassette LIEGT auf ihrem Stellplatz - flach, die große Fläche nach oben,
-## ihre ×n-Marke auf der Karte statt daneben (im Nachbarplatz läge sie sonst).
-func _lay_slit_cell(cell: DataCellView, target: Vector3) -> void:
+## Das Paket LIEGT auf seinem Platz - flach, die große Fläche nach oben, seine
+## ×n-Marke auf der Fläche statt daneben.
+func _lay_shop_pack(cell: DataCellView, target: Vector3) -> void:
 	cell.badge_on_face = true
 	cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 	cell.lie_on_glass(target)
 
-## Ohne Ankunfts-Grad LIEGT eine frische Kassette schlicht da - dieselbe Geste, mit
-## der auch die Bucht eine neue Zelle hinstellt (materialize, ihr eigenes
-## Entstehen). Gefahren wird nur in einer ZEREMONIE, und die kennt keine Körperart.
-func _lay_fresh_slit_cell(cell: DataCellView, target: Vector3) -> void:
-	_lay_slit_cell(cell, target)
-	cell.materialize()
+## Ein Stück der Fläche: Karten-, Würfel- und Modul-Paket als HÜLLE (EINE Größe je
+## Ding, dieselbe wie im Lager), die Sonder-Karte als Karte.
+func _spawn_shop_pack(ware: Resource, at: Vector3) -> DataCellView:
+	if ware is CardPack:
+		var card_pack := ware as CardPack
+		return _spawn_hull(card_pack.sort, card_pack.size, false, at, card_pack.quality)
+	if ware is DicePack:
+		var dice_pack := ware as DicePack
+		return _spawn_hull(dice_pack.sort, dice_pack.size, true, at, dice_pack.quality)
+	if ware is ModulePack:
+		return _spawn_bag(ware as ModulePack, at)
+	var pack := ware as Pack
+	var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at, pack.stamp_net,
+		pack.is_repair(), pack.from_blank())
+	cell.set_count(maxi(pack.count, 1))
+	return cell
 
-## Die HEBEBÜHNE der Gravuren-Zone: dieselbe Maschine wie in einer Bucht, dieselben
-## drei Fahrpläne. Kommt Ware und geht welche, ist es der BAND-SCHRITT; kommt nur
-## welche, das Aufdecken; geht nur welche, der Abgang. Sie fährt GLEICHZEITIG mit
-## der Bucht - denselben Vorlauf, dieselbe Fahrt.
-func _run_slit_machine(entries: Array, outgoing: Array, delay := 0.0) -> void:
+## Die HEBEBÜHNE der Fläche: JEDER Platz fährt seine EIGENE Sektion, alle sechs
+## überlappend, je Platz um SHOP_PACK_STAGGER versetzt. Jede Reihe WENDET zu ihrer
+## freien Seite (LiftShaftView.run_turn): die obere nach hinten, die untere nach vorn -
+## so wartet und geht keine Ware zwischen den Reihen, unter dem Loch der anderen.
+func _run_shop_pack_machine(entries: Array, outgoing: Array) -> void:
+	var jobs: Dictionary = {}  # Platz -> {"in": entry, "out": entry}
+	for entry: Dictionary in entries:
+		var seat := int(entry["seat"])
+		if not jobs.has(seat):
+			jobs[seat] = {}
+		jobs[seat]["in"] = entry
+	for entry: Dictionary in outgoing:
+		var seat := int(entry["seat"])
+		if not jobs.has(seat):
+			jobs[seat] = {}
+		jobs[seat]["out"] = entry
+	var rects: Array[Rect2] = []
+	if charm_shop != null and is_instance_valid(charm_shop):
+		rects = charm_shop.place_rects()
+	for seat: int in jobs:
+		_run_shop_pack_place(seat, jobs[seat], rects, SHOP_PACK_STAGGER * float(seat))
+
+## Die freie Seite eines Platzes: die obere Reihe wendet nach hinten, die untere nach vorn.
+static func _shop_pack_side(seat: int) -> float:
+	return 1.0 if ShopController.row_of(seat) == 0 else -1.0
+
+## EIN Platz fährt seine Wende. Ohne Spur liegt die neue Ware hart auf ihrem Platz.
+func _run_shop_pack_place(seat: int, job: Dictionary, rects: Array[Rect2],
+		delay: float) -> void:
 	var old_bodies: Array = []
 	var old_seats: Array = []
-	for entry: Dictionary in outgoing:
-		old_bodies.append(entry["cell"])
-		old_seats.append(entry["target"])
-	if (entries.is_empty() and outgoing.is_empty()) or table_screen == null:
-		_release_slit_bodies(old_bodies)
-		return
-	if _slit_shaft_on(_slit_shaft_rect()) == null:
-		_release_slit_bodies(old_bodies)
-		return  # ohne gemessene Spur bleibt es beim harten Stand
+	if job.has("out"):
+		old_bodies.append(job["out"]["cell"])
+		old_seats.append(job["out"]["target"])
 	var bodies: Array = []
 	var seats: Array = []
-	for entry: Dictionary in entries:
-		bodies.append(entry["cell"])
-		seats.append(entry["target"])
-	var swap := not old_bodies.is_empty()
-	var swept := _release_slit_bodies.bind(old_bodies)
-	var tween: Tween
-	if not swap:
-		tween = slit_shaft.run_cycle(bodies, seats, delay)
-	elif bodies.is_empty():
-		tween = slit_shaft.run_exit(old_bodies, old_seats, delay, swept)
-	else:
-		tween = slit_shaft.run_swap(old_bodies, old_seats, bodies, seats, delay, swept)
+	if job.has("in"):
+		bodies.append(job["in"]["cell"])
+		seats.append(job["in"]["target"])
+	var shaft: LiftShaftView = null
+	if table_screen != null and seat < rects.size():
+		shaft = _shop_pack_shaft_on(seat, rects[seat])
+	var tween: Tween = null
+	if shaft != null:
+		tween = shaft.run_turn(_shop_pack_side(seat), old_bodies, old_seats, bodies, seats,
+			delay, _release_shop_pack_bodies.bind(old_bodies))
 	if tween == null:
-		_release_slit_bodies(old_bodies)
+		_release_shop_pack_bodies(old_bodies)
+		for i in bodies.size():
+			if is_instance_valid(bodies[i]):
+				(bodies[i] as DataCellView).lie_on_glass(seats[i])
 		return
 	tween.tween_callback(func() -> void:
 		for cell: DataCellView in bodies:
 			if is_instance_valid(cell):
 				cell.flare())
 
-## Der EINE Schachtkörper der Reihe, auf ein gemeldetes Display-Rechteck gestellt
-## (null = keine Spur). Auftritt, Umschlag, Abgang und Kauf-Sektion teilen ihn -
-## und damit auch den Platz seines Loches in der Anzeige.
-func _slit_shaft_on(field: Rect2) -> LiftShaftView:
-	if table_screen == null or field.size.x <= 0.0 or field.size.y <= 0.0:
+## Die Sektion EINES Platzes, auf sein gemeldetes Display-Rechteck gestellt (null =
+## keine Spur). Auftritt, Umschlag, Abgang und Kauf teilen sie - und ihr Loch.
+func _shop_pack_shaft_on(seat: int, field: Rect2) -> LiftShaftView:
+	if table_screen == null or seat < 0 or seat >= TableScreen.SHOP_PACK_PITS.size() \
+			or field.size.x <= 0.0 or field.size.y <= 0.0:
 		return null
 	var a := table_screen.pixel_to_world(field.position)
 	var b := table_screen.pixel_to_world(field.end)
-	if slit_shaft == null or not is_instance_valid(slit_shaft):
-		slit_shaft = LiftShaftView.new("SlitShaft")
-		add_child(slit_shaft)
-		slit_shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
-			table_screen.set_lift_pit(TableScreen.PIT_SHOP_SLITS, at, hole))
-		slit_shaft.closed.connect(func() -> void:
-			table_screen.clear_pit(TableScreen.PIT_SHOP_SLITS))
-	slit_shaft.deck_skin = table_screen.display_skin()
-	slit_shaft.order_skin(PIT_SKIN)
-	slit_shaft.setup(table_screen.pixel_to_world(field.get_center()),
+	while shop_pack_shafts.size() <= seat:
+		shop_pack_shafts.append(null)
+	var shaft: LiftShaftView = shop_pack_shafts[seat]
+	if shaft == null or not is_instance_valid(shaft):
+		shaft = LiftShaftView.new("ShopPackShaft%d" % seat)
+		add_child(shaft)
+		shop_pack_shafts[seat] = shaft
+		var pit: int = TableScreen.SHOP_PACK_PITS[seat]
+		shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(pit, at, hole))
+		shaft.closed.connect(func() -> void: table_screen.clear_pit(pit))
+	shaft.deck_skin = table_screen.display_skin()
+	shaft.order_skin(PIT_SKIN)
+	shaft.setup(table_screen.pixel_to_world(field.get_center()),
 		Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5, VitrineView.shaft_depth())
-	return slit_shaft
+	return shaft
 
-## Die SPUR der Reihe: die Stellplätze selbst, nichts daneben. Die Preisschilder
-## hängen UNTER den Plätzen und bleiben außerhalb - ein Loch unter dem Preis fräße
-## die Zahl.
-func _slit_shaft_rect() -> Rect2:
-	if charm_shop == null or not is_instance_valid(charm_shop):
-		return Rect2()
-	var field := Rect2()
-	for rect: Rect2 in charm_shop.slit_rects():
-		if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-			continue
-		field = rect if field.size.x <= 0.0 else field.merge(rect)
-	return field
+## Fährt gerade irgendeine Sektion?
+func _shop_packs_riding() -> bool:
+	for shaft in shop_pack_shafts:
+		if shaft != null and is_instance_valid(shaft) and shaft.riding():
+			return true
+	return false
 
-## Der Abbruch der Reihen-Maschine: Platte bündig, Schacht fort, Loch zu - und was
-## hinausfuhr, ist frei. Teil des EINEN Aufräum-Pfades; die Kassetten legt der harte
-## Schreiber selbst nach. Die zwei denkbaren Reste (offenes Loch, verwaiste
-## Abgangs-Kassette) sterben hier zusammen.
-func _settle_slit_shaft() -> void:
-	if slit_shaft != null and is_instance_valid(slit_shaft):
-		slit_shaft.settle_hard()
-	_release_slit_bodies(_slit_leaving.duplicate())
+## Der Abbruch der Maschine: jede Sektion bündig, jedes Loch zu - und was hinausfuhr,
+## ist frei. Der EINE Aufräum-Pfad.
+func _settle_shop_pack_shaft() -> void:
+	for shaft in shop_pack_shafts:
+		if shaft != null and is_instance_valid(shaft):
+			shaft.settle_hard()
+	_release_shop_pack_bodies(_shop_pack_leaving.duplicate())
 
-## Die stehende Reihe verläßt ihre Plätze: ihre Zellen fahren nur noch hinaus, der
-## Abgleich findet sie nicht mehr. Freigegeben werden sie am Ende des Band-Schritts -
-## oder bei jedem Abbruch.
-func _detach_slit_cells() -> Array:
+## Die stehende Ware verläßt ihre Plätze: ihre Körper fahren nur noch hinaus, der
+## Abgleich findet sie nicht mehr. Freigegeben am Ende des Band-Schritts - oder bei
+## jedem Abbruch.
+func _detach_shop_packs() -> Array:
 	var out: Array = []
-	var anchors := charm_shop.slit_anchors()
-	for seat: int in slit_cells:
-		var cell: DataCellView = slit_cells[seat]
+	var anchors := charm_shop.place_anchors()
+	for seat: int in shop_pack_cells:
+		var cell: DataCellView = shop_pack_cells[seat]
 		if cell == null or not is_instance_valid(cell) or seat >= anchors.size():
 			continue
 		cell.set_hovered(false)  # der Griff sitzt am Körper, nicht am Ort
-		out.append({"cell": cell, "target": _data_cell_seat(anchors[seat])})
-		_slit_leaving.append(cell)
-	slit_cells.clear()
-	_slit_keys.clear()
-	charm_shop.set_slit_hover(-1)
+		out.append({"cell": cell, "target": _data_cell_seat(anchors[seat]), "seat": seat})
+		_shop_pack_leaving.append(cell)
+	shop_pack_cells.clear()
+	_shop_pack_keys.clear()
+	charm_shop.set_place_hover(-1)
 	return out
 
-func _release_slit_bodies(bodies: Array) -> void:
+func _release_shop_pack_bodies(bodies: Array) -> void:
 	for cell: DataCellView in bodies:
-		_slit_leaving.erase(cell)
+		_shop_pack_leaving.erase(cell)
 		_free_data_cell(cell)
 
-## Der ABGANG der Reihe: sie geht mit der Bucht, dieselbe Maschine, derselbe Takt -
-## samt dem gemeinsamen Vorlauf der Absorption.
-func _exit_slit_cells(lead := 0.0) -> float:
-	if slit_cells.is_empty():
+## Der ABGANG der Fläche (Laden zu): dieselbe Maschine, Platte leer herauf.
+func _exit_shop_packs() -> float:
+	if shop_pack_cells.is_empty():
 		return 0.0
-	_slit_gen += 1  # ein schwebender Abgleich stellt nichts mehr nach
-	_settle_slit_shaft()
-	var outgoing := _detach_slit_cells()
-	_run_slit_machine([], outgoing, lead)
-	return VitrineView.exit_time(outgoing.size(), lead)
+	_shop_pack_gen += 1  # ein schwebender Abgleich stellt nichts mehr nach
+	_settle_shop_pack_shaft()
+	var outgoing := _detach_shop_packs()
+	_run_shop_pack_machine([], outgoing)
+	return SHOP_PACK_STAGGER * float(GameRun.SHOP_PACK_PLACES - 1) \
+		+ LiftShaftView.turn_cycle_time(false)
 
-## Verkauft: die SEKTION unter dem Stellplatz fährt ihren Zyklus - sie senkt sich
-## MIT der Karte, die fährt durch die HINTERE Öffnung ab (Richtung Werkbank), die
-## leere Sektion hebt sich bündig und das Loch ist zu. Derselbe Takt wie in der
-## Bucht, denn es ist dieselbe Maschine. section = false heißt: die ganze Reihe
-## fährt in diesem Zug ohnehin, die Karte ist schlicht fort. Meldet, ob wirklich
-## eine Sektion losgefahren ist - es gibt nur die eine.
-func _take_slit_cell(seat: int, anchors: Array[Vector2], section: bool) -> bool:
-	var cell: DataCellView = slit_cells.get(seat)
-	slit_cells.erase(seat)
-	_slit_keys.erase(seat)
+## Verkauft: die SEKTION unter dem Platz fährt ihren Zyklus - sie senkt sich MIT dem
+## Stück, das durch die HINTERE Öffnung abfährt, die leere Sektion hebt sich bündig
+## und das Loch ist zu. section = false heißt: die Fläche fährt in diesem Zug ohnehin,
+## das Stück ist schlicht fort. Meldet, ob wirklich eine Sektion losgefahren ist.
+func _take_shop_pack(seat: int, anchors: Array[Vector2], section: bool) -> bool:
+	var cell: DataCellView = shop_pack_cells.get(seat)
+	shop_pack_cells.erase(seat)
+	_shop_pack_keys.erase(seat)
 	if cell == null or not is_instance_valid(cell):
 		return false
-	var shaft := _slit_section_shaft(seat) if section else null
+	var rects := charm_shop.place_rects()
+	var shaft: LiftShaftView = null
+	if section and seat < rects.size():
+		shaft = _shop_pack_shaft_on(seat, rects[seat])
 	if shaft == null or seat >= anchors.size():
 		_free_data_cell(cell)
 		return false
 	cell.set_hovered(false)  # der Griff sitzt am Körper, nicht am Ort
 	var target := _data_cell_seat(anchors[seat])
 	cell.lie_on_glass(target)
-	_slit_leaving.append(cell)
-	if shaft.run_take([cell], [target], 0.0,
-			_release_slit_bodies.bind([cell])) == null:
-		_release_slit_bodies([cell])
+	_shop_pack_leaving.append(cell)
+	if shaft.run_turn(_shop_pack_side(seat), [cell], [target], [], [], 0.0,
+			_release_shop_pack_bodies.bind([cell])) == null:
+		_release_shop_pack_bodies([cell])
 		return false
 	return true
 
-## Der SEKTIONS-Schacht EINES Stellplatzes: derselbe Schacht der Reihe, nur auf
-## seine eigene Kerbe geschnitten.
-func _slit_section_shaft(seat: int) -> LiftShaftView:
-	if charm_shop == null or not is_instance_valid(charm_shop):
-		return null
-	var rects := charm_shop.slit_rects()
-	if seat < 0 or seat >= rects.size():
-		return null
-	return _slit_shaft_on(rects[seat])
-
-## Die Körper der Ladenseite stehen nur, solange sie wirklich zu sehen ist -
-## derselbe Entscheider wie der Vorhang der Bucht. Kassetten UND Charm-Modelle
-## hängen daran: eine verdrängte Seite läßt nichts auf dem Tisch zurück. Die
-## SCHLUCK-ZEREMONIE hält sie sichtbar, bis sie hinaus sind: sie ist der Abgang,
-## nicht das Abdecken.
-func _slit_cells_visible() -> bool:
+## Die Körper der Ladenseite stehen nur, solange sie wirklich zu sehen ist - derselbe
+## Entscheider wie der Vorhang. Die SCHLUCK-ZEREMONIE hält sie sichtbar, bis sie
+## hinaus sind: sie ist der Abgang, nicht das Abdecken.
+func _shop_packs_visible() -> bool:
 	if _vitrine_leaving:
 		return true
 	return charm_shop != null and is_instance_valid(charm_shop) \
 		and phase == Phase.SHOP and charm_shop.visible
 
-func _sync_slit_visibility() -> void:
-	var show := _slit_cells_visible()
-	for seat: int in slit_cells:
-		var cell: DataCellView = slit_cells[seat]
+func _sync_shop_pack_visibility() -> void:
+	var show := _shop_packs_visible()
+	for seat: int in shop_pack_cells:
+		var cell: DataCellView = shop_pack_cells[seat]
 		if cell != null and is_instance_valid(cell) and cell.visible != show:
 			cell.visible = show
-	_sync_slit_recesses(show)
+	_sync_shop_pack_recesses(show)
 
-## Der Ruheplatz einer Kassette in ihrer Mulde: die Oberkante bündig mit der Fläche.
-## Gefahren wird auf der Fläche (die Hebebühne trägt sie dort), gelegen wird tiefer.
-func _slit_rest(glass_point: Vector3) -> Vector3:
+## Der Ruheplatz eines Pakets in seiner Mulde: die Oberkante der Karte bündig mit der
+## Fläche. Gefahren wird auf der Fläche (die Hebebühne trägt es dort), gelegen tiefer.
+func _shop_pack_rest(glass_point: Vector3) -> Vector3:
 	return glass_point - Vector3.UP * DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
 
-## Die Mulden der Kassetten-Plätze: je Platz Körper, Saumfarbe und Loch; ist die
-## Fahrt durch, sinkt jede Karte in ihre Mulde.
-func _sync_slit_recesses(show: bool) -> void:
+## Die Mulden der Paket-Plätze: je Platz Körper, Saumfarbe und Loch; ist die Fahrt
+## durch, sinkt jedes Paket in seine Mulde.
+func _sync_shop_pack_recesses(show: bool) -> void:
 	if table_screen == null:
 		return
 	var slots: Array[Dictionary] = []
-	if show and charm_shop.slit_row_laid_out():
-		var anchors := charm_shop.slit_anchors()
-		var stock := charm_shop.slit_stock()
+	if show and charm_shop.places_laid_out():
+		var anchors := charm_shop.place_anchors()
+		var stock := charm_shop.place_stock()
 		for i in anchors.size():
 			slots.append({"point": _data_cell_seat(anchors[i]),
 				"pack": stock[i] if i < stock.size() else null})
-	_sync_recess_row(_slit_recesses, TableScreen.PIT_SHOP_BAY0, TableScreen.SHOP_BAY_PIT_COUNT,
-		slots, [TableScreen.PIT_SHOP_SLITS])
-	if slit_shaft != null and is_instance_valid(slit_shaft) and slit_shaft.riding():
+	_sync_recess_row(_shop_pack_recesses, TableScreen.SHOP_BAY_PITS, slots,
+		TableScreen.SHOP_PACK_PITS)
+	if _shop_packs_riding():
 		return
 	for i in slots.size():
-		var cell: DataCellView = slit_cells.get(i)
+		var cell: DataCellView = shop_pack_cells.get(i)
 		if cell == null or not is_instance_valid(cell) or cell.busy():
 			continue
-		var rest := _slit_rest(slots[i]["point"])
+		var rest := _shop_pack_rest(slots[i]["point"])
 		if cell.glass_position().distance_to(rest) > 0.001:
-			cell.glide_to(rest, SLIT_SETTLE_TIME)
+			cell.glide_to(rest, SHOP_PACK_SETTLE_TIME)
 
 ## Die Mulden der Schwarzmarkt-Reihe: dieselben Körper und Löcher; das Einsinken
 ## der Karten gehört der Auslage selbst (VitrineView.sync_recessed).
@@ -4636,16 +4522,18 @@ func _sync_secret_recesses() -> void:
 	if bay != null and is_instance_valid(bay) and _secret_curtain:
 		slots = bay.recess_slots()
 		bay.sync_recessed()
-	_sync_recess_row(_secret_recesses, TableScreen.PIT_SECRET_BAY0,
-		TableScreen.SECRET_BAY_PIT_COUNT, slots, TableScreen.secret_pits())
+	var pits: Array[int] = []
+	for i in TableScreen.SECRET_BAY_PIT_COUNT:
+		pits.append(TableScreen.PIT_SECRET_BAY0 + i)
+	_sync_recess_row(_secret_recesses, pits, slots, TableScreen.secret_pits())
 
-## Der EINE Schreiber einer Mulden-Reihe: slots = {point (Glaspunkt), pack}. Wo ein
-## Schacht offen steht, weicht die Mulde ihm - sein Loch deckt sie, seine Plattform
-## trägt die Ware.
-func _sync_recess_row(recesses: Array[CardRecessView], pit_base: int, pit_count: int,
+## Der EINE Schreiber einer Mulden-Reihe: slots = {point (Glaspunkt), pack}, pits = je
+## Mulde ihr Loch. Wo ein Schacht offen steht, weicht die Mulde ihm - sein Loch deckt
+## sie, seine Plattform trägt die Ware.
+func _sync_recess_row(recesses: Array[CardRecessView], pits: Array[int],
 		slots: Array[Dictionary], covering: Array[int]) -> void:
-	for i in pit_count:
-		var pit := pit_base + i
+	for i in pits.size():
+		var pit := pits[i]
 		var recess: CardRecessView = recesses[i] if i < recesses.size() else null
 		var wanted := i < slots.size()
 		var glass: Vector3 = slots[i]["point"] if wanted else Vector3.ZERO
@@ -4666,12 +4554,12 @@ func _sync_recess_row(recesses: Array[CardRecessView], pit_base: int, pit_count:
 		recess.visible = true
 		var ware: Variant = slots[i]["pack"]
 		var shade: Color = ShelfStackView.BAY_EMPTY
-		if ware is CardPack:
-			shade = PackDrawerView.card_pack_tint((ware as CardPack).sort)
-		elif ware is Pack:
+		if ware is Pack:
 			var pack := ware as Pack
 			shade = PackDrawerView.card_shade(Pack.shelf_of(pack), pack.tier, pack.catalyst_id,
 				pack.stamp_net, pack.from_blank())
+		elif ware != null:
+			shade = ShopController.ware_tint(ware)
 		recess.set_tint(shade)
 		table_screen.set_lift_pit(pit, glass, recess.opening_half())
 
@@ -4687,52 +4575,51 @@ func _recess_covered(rect: Rect2, covering: Array[int]) -> bool:
 			return true
 	return false
 
-## Der Griff auf einen Stellplatz: die liegende Kassette hebt sich an und leuchtet
-## auf - dieselbe Geste wie im Magazin -, und in der freien RECHTEN Flanke der
-## Reihe steht, was in ihr steckt (Name und Beschreibung). GEFRAGT je Bild (der
-## Zeiger liegt auf dem Tisch), EIN Walker für Griff und Auskunft.
-func _sync_slit_hover() -> void:
+## Der Griff auf einen Platz: das liegende Paket hebt sich an und leuchtet auf -
+## dieselbe Geste wie im Magazin -, und im Auskunfts-Band steht, was es ist.
+## GEFRAGT je Bild (der Zeiger liegt auf dem Tisch), EIN Walker für Griff und Auskunft.
+func _sync_shop_pack_hover() -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop):
 		return
 	var pixel := Vector2(-1, -1)
-	if _slit_cells_visible() and _table_operable():
+	# Während einer Fahrt hebt der Griff nichts: die Sektion trägt den Körper.
+	if _shop_packs_visible() and _table_operable() and not _shop_packs_riding():
 		pixel = _screen_pixel(get_viewport().get_mouse_position())
-	var rects := charm_shop.slit_rects()
+	var rects := charm_shop.place_rects()
 	var hovered := -1
-	for seat: int in slit_cells:
+	for seat: int in shop_pack_cells:
 		if pixel.x >= 0.0 and seat < rects.size() and rects[seat].has_point(pixel):
 			hovered = seat
 			break
-	# Der SPIELRAUM: ohne neuen Platz hält die gehoverte Karte den Zeiger noch.
+	# Der SPIELRAUM: ohne neuen Platz hält das gehoverte Paket den Zeiger noch.
 	if hovered < 0 and pixel.x >= 0.0:
-		for seat: int in slit_cells:
-			if _cell_holds_pointer(slit_cells[seat], get_viewport().get_mouse_position()):
+		for seat: int in shop_pack_cells:
+			if _cell_holds_pointer(shop_pack_cells[seat], get_viewport().get_mouse_position()):
 				hovered = seat
 				break
-	for seat: int in slit_cells:
-		var cell: DataCellView = slit_cells[seat]
+	for seat: int in shop_pack_cells:
+		var cell: DataCellView = shop_pack_cells[seat]
 		if cell != null and is_instance_valid(cell):
 			cell.set_hovered(seat == hovered)
-	# Dieselbe Zell-Auskunft wie in der Werkstatt: liegt der Zeiger auf einer Zelle
-	# des Prägenetzes, nennt die Flanke DEREN Wirkung statt der des ganzen Pakets.
+	# Liegt der Zeiger auf einer Zelle eines Prägenetzes, nennt das Band DEREN Wirkung.
 	var cell_hint := ""
 	if hovered >= 0:
 		var camera := get_viewport().get_camera_3d()
 		if camera != null:
-			cell_hint = _cell_face_hint(slit_cells.get(hovered), camera,
+			cell_hint = _cell_face_hint(shop_pack_cells.get(hovered), camera,
 				get_viewport().get_mouse_position())
-	charm_shop.set_slit_hover(hovered, cell_hint)
+	charm_shop.set_place_hover(hovered, cell_hint)
 
 ## Laufwechsel: die Ware des alten Ladens liegt nirgends mehr.
-func _drop_slit_cells() -> void:
-	for seat: int in slit_cells:
-		_free_data_cell(slit_cells[seat])
-	slit_cells.clear()
-	_slit_keys.clear()
-	_settle_slit_shaft()  # auch, was noch hinausfuhr, gehört dem alten Laden
+func _drop_shop_packs() -> void:
+	for seat: int in shop_pack_cells:
+		_free_data_cell(shop_pack_cells[seat])
+	shop_pack_cells.clear()
+	_shop_pack_keys.clear()
+	_settle_shop_pack_shaft()  # auch, was noch hinausfuhr, gehört dem alten Laden
 	if table_screen != null:
-		for i in TableScreen.SHOP_BAY_PIT_COUNT:
-			table_screen.clear_pit(TableScreen.shop_bay_pit(i))
+		for pit: int in TableScreen.SHOP_BAY_PITS:
+			table_screen.clear_pit(pit)
 
 #region Der WURF
 # Das Bewegungs-Gesetz liest sich nach URHEBER: was der SPIELER ZAHLT, fliegt als
@@ -6349,7 +6236,7 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 			# Die Hülle: geöffnet wird nach dem Kassieren, in der Grube.
 			var card_pack := bet.reward_card_pack(factor)
 			return {"body": "card_pack", "sort": card_pack.sort, "tier": card_pack.size,
-				"count": 1}
+				"count": 1, "quality": card_pack.quality}
 		SideBet.Payout.DICE_PACK:
 			var dice_pack := bet.reward_dice_pack(factor)
 			return {"body": "card_pack", "sort": dice_pack.sort, "tier": dice_pack.size,
@@ -7520,139 +7407,21 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 						+ ChipStackView.stack_lift(i))})
 	return _throw_bodies(entries, on_land, true)
 
-# --- Die Schilder unter der Auslage ---------------------------------------------
-# Steht die Schale, liegt unter jedem Würfel sein Block aus Name/Seele und Preis auf
-# der Ladenseite. Er ist fort, solange etwas steigt oder sinkt - eine Beschriftung
-# unter einem fahrenden Würfel wäre eine Lüge - und solange die Auslage abgedeckt ist.
-
-## Die Schale STEHT nach einer echten Fahrt (Auftritt oder Umschlag): erst das ist
-## eine ANKUNFT, und nur dort projizieren sich die Blöcke aus ihren Würfeln.
-func _on_vitrine_dice_settled() -> void:
-	_sync_vitrine_nets(true)
-
-func _sync_vitrine_nets(arrived := false) -> void:
-	if shop_vitrine == null or not is_instance_valid(shop_vitrine) \
-			or charm_shop == null or not is_instance_valid(charm_shop) or table_screen == null:
-		return
-	# Gemessen wird im STREIFEN: dort hängt der Netz-Layer, seine Pixel sind die
-	# der Seite.
-	var rect := charm_shop.vitrine_rect_px()
-	if not _vitrine_curtain or not shop_vitrine.bowl_settled() \
-			or rect.size.x <= 0.0 or rect.size.y <= 0.0:
-		_clear_vitrine_nets()
-		return
-	var lying: Array = charm_shop.vitrine_stock().get(ShopController.KIND_DIE, [])
-	var entries: Array = []
-	for i in lying.size():
-		if lying[i] == null:
-			continue
-		var spot := shop_vitrine.spot_of(ShopController.KIND_DIE, i)
-		if spot == Vector3.ZERO:
-			continue
-		entries.append({"dice_pack": lying[i],
-			"anchor": table_screen.world_to_pixel(spot) - rect.position})
-	var bags: Array = charm_shop.vitrine_stock().get(ShopController.KIND_MODULE_PACK, [])
-	for i in bags.size():
-		var bag_spot := shop_vitrine.spot_of(ShopController.KIND_MODULE_PACK, i)
-		if bags[i] != null and bag_spot != Vector3.ZERO:
-			entries.append({"dice_pack": bags[i],
-				"anchor": table_screen.world_to_pixel(bag_spot) - rect.position})
-	if entries.is_empty():
-		_clear_vitrine_nets()
-		return
-	charm_shop.set_die_nets(entries, arrived)
-
-## Die Schilder abräumen. Eine laufende ABSORPTION ist die Ausnahme: sie IST das
-## Abräumen und legt am Ende selbst ab - ihr dazwischenzufahren risse die Blöcke
-## mitten im Einsaugen weg.
-func _clear_vitrine_nets() -> void:
-	if charm_shop != null and is_instance_valid(charm_shop) and charm_shop.nets_absorbing():
-		return
-	_drop_vitrine_nets()
-
-## Der harte Weg: was schrumpft, ist sofort fort (Verdrängung, Laufwechsel).
-func _drop_vitrine_nets() -> void:
-	if charm_shop != null and is_instance_valid(charm_shop):
-		charm_shop.clear_die_nets()
-
-## Der EINE Schreiber der Würfel-Auskunft im Auskunfts-Band: der gegriffene Würfel
-## spricht (Name, Seele, Wirkung und Netz), sonst steht dort nichts.
-func _sync_vitrine_net_hover() -> void:
-	if charm_shop == null or not is_instance_valid(charm_shop):
-		return
-	var rect := _shop_bay_rect()
-	if not _vitrine_curtain or rect.size.x <= 0.0 or charm_shop.net_count() <= 0:
-		charm_shop.set_die_hover(null)
-		return
-	var pixel := _screen_pixel(get_viewport().get_mouse_position())
-	if pixel.x < 0.0:
-		charm_shop.set_die_hover(null)
-		return
-	# Auf dem Auskunfts-Band bleibt die Zeile stehen - ihre Schlüsselwörter sind Klickziele.
-	if charm_shop.foot_holds(pixel):
-		return
-	# Die Ware spricht, ob man sie selbst oder ihre Zeile darunter berührt.
-	var item := _bay_item_at(shop_vitrine, rect, pixel)
-	var ware: Object = _vitrine_die_at(item)
-	if ware == null:
-		ware = _vitrine_bag_at(item)
-	if ware == null:
-		ware = charm_shop.die_at_net(pixel)
-	# Nachlauf: auf dem Weg von der Ware zum Band bleibt die Zeile kurz stehen.
-	var now := Time.get_ticks_msec()
-	if ware != null:
-		_ware_hover_seen_ms = now
-	elif now - _ware_hover_seen_ms < WARE_HOVER_LINGER_MS:
-		return
-	charm_shop.set_ware_hover(ware)
-
-const WARE_HOVER_LINGER_MS := 600
-var _ware_hover_seen_ms := -100000
-
-## Das gegriffene Modul-Paket der Ladenbucht (null für alles andere).
-func _vitrine_bag_at(item: Dictionary) -> ModulePack:
-	if item.is_empty() or String(item["kind"]) != ShopController.KIND_MODULE_PACK:
-		return null
-	var lying: Array = charm_shop.vitrine_stock().get(ShopController.KIND_MODULE_PACK, [])
-	var index := int(item["index"])
-	if index < 0 or index >= lying.size():
-		return null
-	return lying[index]
-
-## Das gegriffene Würfel-Paket der Ladenbucht (null für alles andere).
-func _vitrine_die_at(item: Dictionary) -> DicePack:
-	if item.is_empty() or String(item["kind"]) != ShopController.KIND_DIE:
-		return null
-	var lying: Array = charm_shop.vitrine_stock().get(ShopController.KIND_DIE, [])
-	var index := int(item["index"])
-	if index < 0 or index >= lying.size():
-		return null
-	return lying[index]
-
 # --- Griff und Beschriftung in der Auslage -------------------------------------
 
 ## Das Stück unter dem Zeiger: pro Bild gefragt, nie gemeldet - der Zeiger liegt
 ## auf dem Tisch, mouse_entered erreicht die Auslage nie (die Magazin-Grammatik).
-## Der Griff hebt das Stück, das Fenster schreibt seine Beschriftung. BEIDE
-## Auslagen laufen hier durch; ihre Rechteck-Geber sind Modus-gebunden, es kann
-## also immer nur eine greifbar sein.
+## Der Griff hebt das Stück, das Fenster schreibt seine Beschriftung.
 func _sync_vitrine_hover() -> void:
 	# Der Tausch-Wähler hat kein Signal und der Kamera-Fokus keinen eigenen Ruf -
 	# also wird beides hier je Bild mitgefragt.
 	_sync_vitrine_curtain()
 	_sync_secret_curtain()
-	_sync_slit_visibility()
+	_sync_shop_pack_visibility()
 	_sync_secret_recesses()
-	_sync_slit_hover()
+	_sync_shop_pack_hover()
 	_sync_bet_counter()
 	_sync_payout_bodies()
-	if charm_shop != null and is_instance_valid(charm_shop):
-		# Im Laden HEBT der Griff nur - die Bucht selbst sagt nichts: unter jedem
-		# Würfel liegen sein Netz, seine Seelen-Zeile und sein Preis, und die stehen
-		# ohne Zeiger da. Was der Zeiger hinzufügt, schreibt der Info-Fuß - und der
-		# hat seinen EIGENEN Schreiber daneben, nicht hier eingefädelt.
-		_paint_bay_hover(shop_vitrine, _shop_bay_rect())
-		_sync_vitrine_net_hover()
 	var market := _secret_window()
 	if market != null:
 		# Der Zeiger auf der Charm-Karte schreibt ihren Text in DENSELBEN Fuß wie die
@@ -7703,9 +7472,8 @@ func _sync_secret_plates(market: SecretShopView) -> void:
 	market.set_bay_plates(entries)
 
 ## Griff und (wo es eine gibt) Beschriftung EINER Auslage. Ein leeres Rechteck
-## heißt: abgedeckt oder weggezoomt - dann ist nichts greifbar. Der LADEN greift
-## nur (seine Ware trägt ihre Auskunft selbst und übergibt keine Callables), das
-## Hinterzimmer schreibt zusätzlich auf seine Fenster-Karte. holds meldet, ob der
+## heißt: abgedeckt oder weggezoomt - dann ist nichts greifbar. Das Hinterzimmer
+## schreibt zusätzlich auf seine Fenster-Karte. holds meldet, ob der
 ## Zeiger auf der stehenden Karte liegt - dort bleibt alles, wie es steht (ihre
 ## Schlüsselwörter sind Klickziele).
 func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
@@ -7756,16 +7524,7 @@ func _bay_item_at(bay: VitrineView, rect: Rect2, pixel: Vector2) -> Dictionary:
 		return {}
 	return bay.item_at(table_screen.pixel_to_world(pixel))
 
-## Das AUFGEDECKTE Auslage-Rechteck des Ladens (leer = abgedeckt oder noch nicht
-## gemessen). GEGRIFFEN wird, wo die Ware LIEGT: der Vorhang ist die ganze
-## Bedingung, die Kamerastation keine - nur eine laufende Fahrt macht sie taub.
-func _shop_bay_rect() -> Rect2:
-	if charm_shop == null or not is_instance_valid(charm_shop) or not _vitrine_curtain \
-			or not _table_operable():
-		return Rect2()
-	return charm_shop.vitrine_pit_rect()
-
-## Dasselbe im Hinterzimmer: die Ware steht immer, also antwortet der Griff überall,
+## Das Auslage-Rechteck des Hinterzimmers: die Ware steht immer, also antwortet der Griff überall,
 ## wo sie zu sehen ist. Nur der KAUF-Klick hängt an der Station (_forward_vitrine_mouse).
 func _secret_bay_rect() -> Rect2:
 	var market := _secret_window()
@@ -7779,14 +7538,9 @@ func _secret_window() -> SecretShopView:
 		return null
 	return table_screen.secret_shop_window
 
-## Klick-Schlichtung in den Auslage-Rechtecken (true = verbraucht). Die beiden
-## Buchten liegen unter verschiedenen Fenstern, ihre Rechtecke überschneiden sich
-## also nie - gefragt wird der Reihe nach, wer den Punkt hat.
+## Klick-Schlichtung im Auslage-Rechteck des Hinterzimmers (true = verbraucht). Die
+## Paket-Fläche des Ladens braucht keine: ihre Plätze sind Knöpfe der Seite.
 func _forward_vitrine_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
-	if _forward_bay_mouse(shop_vitrine, _shop_bay_rect(), event, pixel,
-			_buy_vitrine_item,
-			charm_shop.foot_holds if charm_shop != null else Callable()):
-		return true
 	# GEKAUFT wird nur an der eigenen Station (die Wett-Tresen-Regel, zweite benannte
 	# Ausnahme von "Sichtbar heißt bedienbar"): aus der Ferne fällt der Klick durch
 	# und wird zum Zoom. Bewegungen laufen weiter überall - Hover und Schilder auch.
@@ -7815,33 +7569,6 @@ func _forward_bay_mouse(bay: VitrineView, rect: Rect2, event: InputEventMouse,
 	if not item.is_empty():
 		buy.call(String(item["kind"]), int(item["index"]))
 	return true
-
-## Der Griff kauft: JEDER Weg läuft über die bestehenden Buchungen des Ladens -
-## die Bucht ist Bühne, nicht Regel. In der Ladenbucht liegen nur noch WÜRFEL- und
-## MODUL-PAKETE, alles Versiegelte steckt in den Kassetten-Schlitzen.
-func _buy_vitrine_item(kind: String, index: int) -> void:
-	if charm_shop == null or (kind != ShopController.KIND_DIE \
-			and kind != ShopController.KIND_MODULE_PACK):
-		return
-	# Den PLATZ dieses Stücks merken: dort startet der Komet, sobald der Körper
-	# abgesunken ist. Danach ist der Platz leer und nicht mehr zu erfragen -
-	# gemerkt wird also VOR der Buchung.
-	var depart := Vector2(-1, -1)
-	if table_screen != null and shop_vitrine != null and is_instance_valid(shop_vitrine):
-		var spot := shop_vitrine.spot_of(kind, index)
-		if spot != Vector3.ZERO:
-			depart = table_screen.world_to_pixel(spot)
-	_vitrine_depart_px = depart
-	match kind:
-		ShopController.KIND_ENGRAVING_PACK:
-			charm_shop.buy_engraving_pack(index)
-		ShopController.KIND_SPECIAL:
-			charm_shop.buy_single_special(index)
-		ShopController.KIND_DIE:
-			# Ein Würfel-PAKET: gebucht ist die Auswahl, die Grube öffnet sie.
-			charm_shop.buy_single_die(index)
-		ShopController.KIND_MODULE_PACK:
-			charm_shop.buy_module_pack(index)
 
 # --- Das Ausgabefach an der BESTANDS-Station ------------------------------------
 # Der Hub kauft, der Vorrat nimmt auf: ein bezahlter Würfel LIEGT in der offenen
@@ -9073,21 +8800,31 @@ func _spawn_bag(module_pack: ModulePack, at: Vector3) -> CardPackView:
 	bag.global_position = at
 	return bag
 
-## Ein Stück der Kassetten-Reihe: Karten-Paket als Hülle, die Sonder-Karte als Karte.
-func _spawn_slit_ware(ware: Resource, at: Vector3) -> DataCellView:
-	if ware is CardPack:
-		var card_pack := ware as CardPack
-		return _spawn_hull(card_pack.sort, card_pack.size, false, at)
-	var pack := ware as Pack
-	var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at, pack.stamp_net,
-		pack.is_repair(), pack.from_blank())
-	cell.set_count(maxi(pack.count, 1))
-	return cell
-
-## Die einzelne Sonder-Karte ist gekauft: sie sinkt, ein Komet fährt die Werkstatt-
-## Ader entlang, und auf dem Magazin-Platz steigt sie. Gebucht ist längst.
-func _on_pack_purchased(from_px: Vector2, uid: int) -> void:
+## Ein Paket-Platz ist gekauft. Lager-Pakete verlassen ihren Platz als KÖRPER und
+## fliegen ins Lager; die Sonder-Karte sinkt mit ihrer Sektion (der Schreiber fährt
+## sie), und ein Komet bringt sie ins Magazin. Gebucht ist längst.
+func _on_shop_pack_purchased(seat: int) -> void:
 	_sfx(&"shop_buy")
+	if run == null or charm_shop == null or not is_instance_valid(charm_shop):
+		return
+	var ware := charm_shop.pack_at(seat)
+	if ware is Pack:
+		_deliver_shop_special(charm_shop.place_anchor(seat), (ware as Pack).pack_uid)
+		return
+	var cell: DataCellView = shop_pack_cells.get(seat)
+	shop_pack_cells.erase(seat)
+	_shop_pack_keys.erase(seat)
+	var hull := cell as CardPackView
+	var stored := run.stored_packs(GameRun.store_lane_of(ware)) if ware != null else []
+	if hull == null or not is_instance_valid(hull) or stored.is_empty():
+		if cell != null and is_instance_valid(cell):
+			_free_data_cell(cell)
+		return
+	_fly_into_store(stored.back(), hull)
+
+## Die Sonder-Karte: nach dem Absinken fährt ein Komet die Werkstatt-Ader entlang,
+## und auf dem Magazin-Platz steigt sie.
+func _deliver_shop_special(from_px: Vector2, uid: int) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
@@ -9248,14 +8985,17 @@ func _open_pack_choice(choice: PackChoice) -> void:
 		_choice_hull = hull
 		hull.set_hovered(false)
 		hull.set_dimmed(false)
+		hull.set_net_cycling(true)
 		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
 		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
 	else:
 		# Ohne Lager-Körper (ein Wett-Gewinn am vollen Lager) fällt sie von oben.
 		var drop := Vector3(seat.x, PACK_DROP_HEIGHT, seat.z)
 		var pack_sort := String(choice.pack.get("sort"))
-		_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop)
+		_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop,
+			choice.quality)
 		_choice_hull.lie_on_glass(drop)
+		_choice_hull.set_net_cycling(true)
 		_choice_hull.materialize()
 		_choice_hull.glide_to(rest, PACK_HULL_FALL)
 		await get_tree().create_timer(PACK_HULL_FALL).timeout
@@ -9512,8 +9252,8 @@ func _spawn_store_hull(pack: Resource, at: Vector3) -> CardPackView:
 		hull = _spawn_bag(pack as ModulePack, at)
 	else:
 		var dice := pack is DicePack
-		var quality := (pack as DicePack).quality if dice else DicePack.QUALITY_STANDARD
-		hull = _spawn_hull(String(pack.get("sort")), int(pack.get("size")), dice, at, quality)
+		hull = _spawn_hull(String(pack.get("sort")), int(pack.get("size")), dice, at,
+			int(pack.get("quality")))
 	hull.add_spine()
 	hull.lie_on_glass(at)
 	return hull
@@ -9605,58 +9345,6 @@ func _drop_store_bodies() -> void:
 		_drop_store_body(uid)
 	_store_withheld.clear()
 	_store_hovered = -1
-
-## Der Laden hat ein Würfel-Paket gebucht: seine Schatulle verläßt die Bucht als
-## KÖRPER (die Bucht fährt für sie keine Sektion) und fliegt ins Lager.
-func _on_dice_pack_purchased(index: int) -> void:
-	_sfx(&"shop_buy")
-	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or run == null:
-		return
-	var body := shop_vitrine.release_body(
-		VitrineView.slot_key(ShopController.KIND_DIE, index))
-	var hull := body as CardPackView
-	if hull == null:
-		if body != null:
-			body.queue_free()
-		return
-	hull.reparent(self, true)
-	if run.stored_dice_packs.is_empty():
-		_free_data_cell(hull)
-		return
-	_fly_into_store(run.stored_dice_packs.back(), hull)
-
-## Ein Modul-Paket ebenso: sein Beutel verläßt die Bucht als Körper und fliegt ins Lager.
-func _on_module_pack_purchased(index: int) -> void:
-	_sfx(&"shop_buy")
-	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or run == null:
-		return
-	var body := shop_vitrine.release_body(
-		VitrineView.slot_key(ShopController.KIND_MODULE_PACK, index))
-	var bag := body as CardPackView
-	if bag == null:
-		if body != null:
-			body.queue_free()
-		return
-	bag.reparent(self, true)
-	if run.stored_module_packs.is_empty():
-		_free_data_cell(bag)
-		return
-	_fly_into_store(run.stored_module_packs.back(), bag)
-
-## Ein Karten-Paket ebenso: seine Kassette verläßt ihren Stellplatz und fliegt ins Lager.
-func _on_card_pack_purchased(seat: int) -> void:
-	_sfx(&"shop_buy")
-	if run == null:
-		return
-	var cell: DataCellView = slit_cells.get(seat)
-	slit_cells.erase(seat)
-	_slit_keys.erase(seat)
-	var hull := cell as CardPackView
-	if hull == null or not is_instance_valid(hull) or run.stored_card_packs.is_empty():
-		if cell != null and is_instance_valid(cell):
-			_free_data_cell(cell)
-		return
-	_fly_into_store(run.stored_card_packs.back(), hull)
 
 ## Welches Paket steht unter dem Zeiger? Gemessen auf der Glashöhe; ein Platz ist ein
 ## Streifen über die volle Rinnenbreite, so trifft man auch das dünnste. {} = keines.
@@ -9756,6 +9444,14 @@ func _sync_pack_areas() -> void:
 		return
 	_opening_rect = rect
 	table_screen.place_opening_window(pack_choice_view, rect)
+
+## Die linke Wandtasche des Magazins endet vor dem Hub: darunter liegen die Löcher
+## der Paket-Fläche.
+func _shelf_left_pocket_limit() -> float:
+	var hub: HubView = table_screen.hub if table_screen != null else null
+	if hub == null or not is_instance_valid(hub) or hub.size.x <= 0.0:
+		return -INF
+	return table_screen.pixel_to_world(hub.get_global_rect().end).z
 
 ## Die rechte Wandtasche des Magazins endet am Displayrand.
 func _shelf_pocket_limit() -> float:
@@ -15046,22 +14742,18 @@ func _connect_run() -> void:
 			table_screen.workshop_window.shelf_scroll_snapped.connect(_on_shelf_scroll_snapped)
 		_drop_data_cells()  # die Ware des alten Laufs liegt nicht mehr auf der Bank
 		table_screen.workshop_window.run = run
-	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
-	if shop_vitrine != null and is_instance_valid(shop_vitrine):
-		shop_vitrine.clear()
 	# Und die Schale der Bank steht leer da - eine Fahrt des alten Laufs endet
 	# nirgends mehr (ihr _arriving geht mit).
 	if ausgabefach != null and is_instance_valid(ausgabefach):
 		ausgabefach.clear()
 	_drop_fach_drag_hard()  # ein Tausch des alten Laufs schuldet nichts mehr
-	_vitrine_depart_px = Vector2(-1, -1)
+	# Ein frischer Lauf steht vor geschlossenem Laden: der Vorhang springt zu.
 	_vitrine_curtain = false
 	_vitrine_grade = ShopController.GRADE_STAND
-	_vitrine_swap += 1  # ein Umschlag mitten in der Fahrt stellt nichts mehr
 	_vitrine_gen += 1   # und ein Vorbau mitten im Bauen gibt den Vorhang nicht frei
 	_vitrine_building = false
-	_slit_gen += 1
-	_drop_slit_cells()  # die versiegelte Ware des alten Ladens liegt nirgends mehr
+	_shop_pack_gen += 1
+	_drop_shop_packs()  # die Ware des alten Ladens liegt nirgends mehr
 	_drop_bet_bodies()  # und der Wett-Tresen des alten Laufs ebenso
 	_drop_payout_bodies()  # samt der Ablage seiner Auszahlungs-Seite
 	# (Einen laufenden Automaten-Perlenzug beendet _connect_run über refresh() -
@@ -15075,18 +14767,12 @@ func _connect_run() -> void:
 	_secret_grade = ShopController.GRADE_STAND
 	_secret_swap += 1
 	_hide_secret_hard()
-	if charm_shop != null and not charm_shop.pack_purchased.is_connected(_on_pack_purchased):
-		charm_shop.pack_purchased.connect(_on_pack_purchased)
+	if charm_shop != null \
+			and not charm_shop.shop_pack_purchased.is_connected(_on_shop_pack_purchased):
+		charm_shop.shop_pack_purchased.connect(_on_shop_pack_purchased)
 	_settle_pack_openings()  # eine offene Auswahl gehört dem alten Lauf
 	if charm_shop != null and not charm_shop.pack_refunded.is_connected(_on_pack_refunded):
 		charm_shop.pack_refunded.connect(_on_pack_refunded)
-	if charm_shop != null \
-			and not charm_shop.module_pack_purchased.is_connected(_on_module_pack_purchased):
-		charm_shop.module_pack_purchased.connect(_on_module_pack_purchased)
-	if charm_shop != null \
-			and not charm_shop.dice_pack_purchased.is_connected(_on_dice_pack_purchased):
-		charm_shop.dice_pack_purchased.connect(_on_dice_pack_purchased)
-		charm_shop.card_pack_purchased.connect(_on_card_pack_purchased)
 	_settle_part_install_hard()  # ein Einbau des alten Laufs schuldet nichts mehr
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)

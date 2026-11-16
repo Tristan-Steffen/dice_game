@@ -135,12 +135,11 @@ func test_special_delivery_guarantees_a_special_from_round_one():
 	_sign([DealClause.SPECIAL_DELIVERY])
 	assert_eq(run.shop_special_chance(), 1.0)
 
-func test_empty_shelves_leave_one_seat_each_empty():
-	assert_eq(run.shop_dice_offered(), run.shop_dice_slots())
+func test_empty_shelves_leave_two_places_empty():
+	assert_eq(run.shop_packs_offered(), GameRun.SHOP_PACK_PLACES)
 	_sign([DealClause.EMPTY_SHELVES])
-	assert_eq(run.shop_dice_offered(), run.shop_dice_slots() - 1)
-	assert_eq(run.shop_packs_offered(), run.shop_pack_slots() - 1)
-	assert_eq(run.shop_pack_slots(), GameRun.SHOP_PACK_SLOTS, "die Plätze bleiben stehen")
+	assert_eq(run.shop_packs_offered(), GameRun.SHOP_PACK_PLACES - GameRun.EMPTY_SHELVES_CUT)
+	assert_eq(run.shop_pack_places(), GameRun.SHOP_PACK_PLACES, "die Plätze bleiben stehen")
 
 func test_shelf_warmer_flags_common_charms():
 	assert_false(run.shop_common_charms_only())

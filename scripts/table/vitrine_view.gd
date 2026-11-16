@@ -55,9 +55,7 @@ const HOVER_TIME := 0.14
 
 ## Die ZONEN der Hebebühne: hinten das Regal, davor die Schale. Sie fahren
 ## GLEICHZEITIG los und stehen gleichzeitig - synchron innerhalb einer Zone wie
-## zwischen ihnen. Im Laden führt die Auslage nur die Schale; ihre Regal-Zone ist die
-## Kassetten-Schlitzreihe des Tisches, und die taktet scene_root nach denselben
-## Zahlen: EIN Vorlauf für beide, sonst liefen sie auseinander.
+## zwischen ihnen. Der Schwarzmarkt (single_row) fährt je Stück eine eigene Zone.
 const ZONE_SHELF := 0
 const ZONE_BOWL := 1
 
@@ -87,12 +85,6 @@ static func pick_radius(wanted: float, offsets: PackedFloat32Array) -> float:
 		return wanted
 	return minf(wanted, absf(offsets[1] - offsets[0]) * 0.5)
 
-## Die Schale steht (oder ist eben in Bewegung geraten). Die Netze der Ladenseite
-## hängen daran: eine Beschriftung unter einem steigenden Würfel wäre eine Lüge.
-## Gemeldet, nicht abgefragt.
-signal dice_settled
-signal dice_moving
-
 ## Ein Schacht steht offen bzw. ist zu. GEMELDET nach draußen, weil das LOCH in
 ## der Anzeige den Shadern gehört und eine View nicht in sie greift: scene_root
 ## reicht es an TableScreen weiter.
@@ -103,7 +95,7 @@ signal shaft_closed(zone: int)
 var center := Vector3.ZERO
 var half := Vector2.ZERO
 
-## Die zuletzt gezeigte Auslage (ShopController.vitrine_stock).
+## Die zuletzt gezeigte Auslage (SecretShopView.vitrine_stock).
 var stock: Dictionary = {}
 
 ## Der Schwarzmarkt stellt EINE Reihe: Kassetten UND Würfel auf gleicher Tiefe,
@@ -113,26 +105,9 @@ var single_row := false
 ## Bestands-Schlüssel der Sorten-Meldung je Platz (auch für Verkauftes): die
 ## Reihe rechnet ihre Plätze darüber, damit ein Kauf nur eine Lücke lässt.
 const STOCK_ROW_KINDS := "row_kinds"
-## Die PLÄTZE der Würfel in WELT, je Angebot einer (Welle 29): der Laden legt seine
-## Würfel in ein Raster, dessen Zeilen die Kartenzeilen sind - dann rechnet die Schale
-## keine Reihe mehr, sie stellt auf diese Plätze.
-const STOCK_DIE_SPOTS := "die_spots"
 ## Die gemessene Teilung der EINEN Reihe (0 = keine zwei Stücke): sie deckelt die
 ## Spannweite jedes Einzel-Loches.
 var _row_pitch := 0.0
-
-## Was die BESCHRIFTUNG vor der Schale beansprucht (Welt-Tiefe): Netze und
-## Preisschilder der Seite liegen dort. Die Auslage weiß nichts von ihnen - sie
-## bekommt nur die Zahl gesagt und stellt den Block aus Ware + Beschriftung
-## MITTIG ins Band, statt die Ware an die hintere Kante zu drücken. Gesetzt von
-## scene_root, das die Seite mißt.
-var label_reserve := 0.0:
-	set(value):
-		var wanted := maxf(value, 0.0)
-		if is_equal_approx(label_reserve, wanted):
-			return
-		label_reserve = wanted
-		_layout()
 
 ## Je Stück ein Datensatz: {kind, index, key, spot (Welt), node, cell, radius}.
 ## Der Griff fragt sie ab, der Abgleich stellt sie nach.
@@ -212,8 +187,7 @@ static func slot_key(kind: String, index: int) -> String:
 ## Die Zone eines Platzes: die offene Ware (Würfel und Modul) liegt in der
 ## Schale, alles Versiegelte im Regal.
 static func zone_of(kind: String) -> int:
-	if kind == ShopController.KIND_DIE or kind == ShopController.KIND_PART \
-			or kind == ShopController.KIND_MODULE_PACK:
+	if kind == ShopController.KIND_DIE or kind == ShopController.KIND_PART:
 		return ZONE_BOWL
 	return ZONE_SHELF
 
@@ -229,7 +203,7 @@ func _zone_of_key(key: String) -> int:
 	return zone_of_key(key)
 
 ## Die drei Fahrpläne einer Auslage - Auftritt, Umschlag, Abgang. EIN Ort, damit
-## Bucht und Schlitzreihe denselben Takt lesen; einen zonen-abhängigen Versatz gibt
+## Bucht und Paket-Fläche denselben Takt lesen; einen zonen-abhängigen Versatz gibt
 ## es darin nicht mehr.
 const PLAN_ENTER := "enter"
 const PLAN_SWAP := "swap"
@@ -467,13 +441,7 @@ func _settle_after(delay: float) -> void:
 		_mark_bowl(true)
 
 func _mark_bowl(settled: bool) -> void:
-	if settled == _bowl_settled:
-		return
 	_bowl_settled = settled
-	if settled:
-		dice_settled.emit()
-	else:
-		dice_moving.emit()
 
 # --- Aufbau ---------------------------------------------------------------------
 
@@ -592,10 +560,6 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var dice: Array = stock.get(ShopController.KIND_DIE, [])
 	for i in dice.size():
 		entries.append({"kind": ShopController.KIND_DIE, "index": i, "value": dice[i]})
-	# Das Modul-Paket des Ladens steht auf dem Platz hinter den Würfel-Paketen.
-	var bags: Array = stock.get(ShopController.KIND_MODULE_PACK, [])
-	for i in bags.size():
-		entries.append({"kind": ShopController.KIND_MODULE_PACK, "index": i, "value": bags[i]})
 	var parts: Array = stock.get(ShopController.KIND_PART, [])
 	for i in parts.size():
 		entries.append({"kind": ShopController.KIND_PART, "index": i, "value": parts[i]})
@@ -606,22 +570,13 @@ func _lay_bowl(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 	var offsets := TableProps.row_spots(entries.size(), _field_width(), pitch)
 	var radius := pick_radius(bowl_reach() * PICK_FACTOR, offsets)
 	var x := _band_depths().y
-	var spots := _die_spots()
-	if not spots.is_empty():
-		radius = minf(bowl_reach() * PICK_FACTOR, _closest_pair(spots) * 0.5)
 	for i in entries.size():
 		var entry := entries[i]
 		if entry["value"] == null:
 			continue  # verkauft: der Platz bleibt leer
-		if entry["value"] is DicePack or entry["value"] is ModulePack:
-			_lay_bowl_hull(entry, wanted, grade, stage, x, offsets[i],
-				spots[i] if i < spots.size() else null, radius)
-			continue
 		var is_part: bool = entry["kind"] == ShopController.KIND_PART
 		var lift := 0.0 if is_part else DieBuilder.HALF_EXTENT * DIE_SCALE
 		var spot := Vector3(x, lie_y(lift), _field_center_z() + offsets[i])
-		if i < spots.size():
-			spot = Vector3(spots[i].x, lie_y(lift), spots[i].z)
 		var key := slot_key(entry["kind"], entry["index"])
 		wanted[key] = true
 		var body: Node3D = _bodies.get(key)
@@ -739,39 +694,6 @@ func _lay_row(wanted: Dictionary, grade: String, stage: Dictionary) -> void:
 				"spot": spot, "node": body, "cell": null, "radius": die_radius})
 			_stage(key, body, spot, grade, zone, stage, die_radius)
 
-## Ein WÜRFEL- oder MODUL-PAKET liegt in der Schale wie eine Kassette im Regal: die
-## Hülle flach, im Anzeigemaß der Karten (EINE Größe je Ding).
-func _lay_bowl_hull(entry: Dictionary, wanted: Dictionary, grade: String, stage: Dictionary,
-		x: float, offset: float, reported: Variant, radius: float) -> void:
-	var ware: Resource = entry["value"]
-	var spot := Vector3(x, cell_y(), _field_center_z() + offset)
-	if reported is Vector3:
-		spot = Vector3((reported as Vector3).x, cell_y(), (reported as Vector3).z)
-	var key := slot_key(entry["kind"], entry["index"])
-	wanted[key] = true
-	var hull: CardPackView = _bodies.get(key) as CardPackView
-	if hull == null or not is_instance_valid(hull):
-		hull = CardPackView.new()
-		hull.name = "VitrineHull"
-		add_child(hull)
-		if ware is ModulePack:
-			hull.setup_module_bag((ware as ModulePack).size, (ware as ModulePack).grade)
-		else:
-			var dice_pack := ware as DicePack
-			hull.setup_pack(dice_pack.sort, dice_pack.size, true, dice_pack.quality)
-		hull.rotation.y = -PI / 2.0
-		_bodies[key] = hull
-		_rest_scale[key] = 1.0
-		hull.materialize()
-	hull.badge_on_face = true
-	hull.set_body_scale(PackDrawerView.CASSETTE_SCALE)
-	hull.hover_lift = DataCellView.HOVER_LIFT
-	_hover_head[key] = DataCellView.STAND_HEIGHT * hull.body_scale() * hull.hover_lift
-	hull.lie_on_glass(spot)
-	items.append({"kind": entry["kind"], "index": entry["index"], "key": key, "spot": spot,
-		"node": hull, "cell": hull, "radius": radius})
-	_stage(key, hull, spot, grade, ZONE_BOWL, stage)
-
 ## Kantenlänge eines Moduls - dieselbe wie im Steckplatz (EINE Größe je Ding).
 static func part_side() -> float:
 	return ComboPartBody.SIDE
@@ -792,13 +714,7 @@ func _row_reach() -> float:
 func _zone_reach(zone: int) -> float:
 	if single_row:
 		return _row_reach()
-	# In der Schale des Ladens liegen Würfel-PAKETE - ihr Loch mißt an der breitesten Hülle.
-	return shelf_reach() if zone == ZONE_SHELF else maxf(_row_reach(), case_reach())
-
-## Wie weit die breiteste Schatulle (Riesig) quer liegend nach vorn und hinten reicht.
-static func case_reach() -> float:
-	return CardPackView.max_case_across() * PackDrawerView.CASSETTE_SCALE * 0.5
-
+	return shelf_reach() if zone == ZONE_SHELF else bowl_reach()
 
 ## Wie weit eine liegende Kassette bzw. das höchste Stück der Schale von seiner
 ## Mitte aus nach vorn und hinten reicht - daran messen sich die beiden Bänder.
@@ -828,14 +744,10 @@ func _band_depths() -> Vector2:
 	var margin := half.x * 2.0 * EDGE_MARGIN
 	var back := center.x + half.x - margin
 	var front := center.x - half.x + margin
-	# Ohne Regal gehört die Tiefe der Schale allein, und der BLOCK aus Würfel und
-	# seiner Beschriftung steht mittig darin: was die Beschriftung nicht braucht,
-	# liegt zu gleichen Teilen vor und hinter ihm.
+	# Ohne Regal gehört die Tiefe der Schale allein, mittig.
 	if _shelf_slots() <= 0:
-		# Der Block reicht von der Silhouette HINTER dem Würfel bis ans Ende der
-		# Beschriftung davor - vor ihm liegt nur, was die Reserve nennt.
-		var lead := maxf((back - front - bowl_reach() - label_reserve) * 0.5, 0.0)
-		return Vector2(back, back - lead - bowl_reach())
+		var mid := (back + front) * 0.5
+		return Vector2(mid, mid)
 	var shelf := minf(_depth_at(0.0, SHELF_DEPTH_SHARE), back - shelf_reach())
 	var bowl := maxf(_depth_at(SHELF_DEPTH_SHARE, 1.0), front + bowl_reach())
 	var need := shelf_reach() + bowl_reach()
@@ -990,8 +902,6 @@ func _run_machine(zone: int, entries: Array, leaving: Array, delay: float) -> bo
 ## Stücks. Er bleibt IM Buchtenrechteck - ein Loch daneben fräße die Seite an.
 ## track sagt die Tiefe an, wenn sie nicht aus dem Bestand kommt (reiner Abgang).
 func _shaft_for(zone: int, track := INF) -> LiftShaftView:
-	if zone == ZONE_BOWL and not _die_spots().is_empty():
-		return _grid_shaft(zone)
 	var bands := _band_depths()
 	var depth_x := bands.x if zone == ZONE_SHELF else bands.y
 	if not is_inf(track):
@@ -1006,41 +916,6 @@ func _shaft_for(zone: int, track := INF) -> LiftShaftView:
 	var shaft := _shaft_node(zone)
 	shaft.setup(Vector3((back + front) * 0.5, center.y, _field_center_z()),
 		Vector2((back - front) * 0.5, span), shaft_depth())
-	return shaft
-
-## Die gemeldeten Würfel-Plätze (leer = die Schale rechnet ihre Reihe selbst).
-func _die_spots() -> Array:
-	return stock.get(STOCK_DIE_SPOTS, [])
-
-## Der kleinste Abstand zweier Plätze in der Tischebene - daran deckelt der Griff.
-static func _closest_pair(spots: Array) -> float:
-	var best := INF
-	for i in spots.size():
-		for j in range(i + 1, spots.size()):
-			var a: Vector3 = spots[i]
-			var b: Vector3 = spots[j]
-			best = minf(best, Vector2(a.x - b.x, a.z - b.z).length())
-	return best if not is_inf(best) else bowl_reach() * PICK_FACTOR * 2.0
-
-## Der Schacht des RASTERS: er deckt alle gemeldeten Plätze samt Reichweite.
-func _grid_shaft(zone: int) -> LiftShaftView:
-	var spots := _die_spots()
-	var reach := _zone_reach(zone)
-	var margin := reach * SHAFT_MARGIN_SHARE
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	for spot: Vector3 in spots:
-		lo = Vector2(minf(lo.x, spot.x), minf(lo.y, spot.z))
-		hi = Vector2(maxf(hi.x, spot.x), maxf(hi.y, spot.z))
-	var back := minf(hi.x + reach + margin, center.x + half.x)
-	var front := maxf(lo.x - reach - margin, center.x - half.x)
-	var right := minf(hi.y + reach + margin, center.z + half.y)
-	var left := maxf(lo.y - reach - margin, center.z - half.y)
-	if back - front <= 0.0 or right - left <= 0.0:
-		return null
-	var shaft := _shaft_node(zone)
-	shaft.setup(Vector3((back + front) * 0.5, center.y, (right + left) * 0.5),
-		Vector2((back - front) * 0.5, (right - left) * 0.5), shaft_depth())
 	return shaft
 
 ## Der SEKTIONS-Schacht EINES Platzes: dieselbe Maschine der Zone, nur auf den
@@ -1223,35 +1098,6 @@ func _take_out(key: String, body: Node3D, place: Dictionary) -> void:
 	_leaving.append(body)
 	if shaft.run_take([body], [seat], 0.0, _release_bodies.bind([body])) == null:
 		_release_bodies([body])
-
-## Ein gekauftes Stück VERLÄSST die Auslage als Körper (die Schatulle fliegt in die
-## Grube): es steht hart auf seinem Platz, gehört ab hier dem Aufrufer, und keine
-## Sektion fährt für es. null = kein Körper unter diesem Schlüssel.
-func release_body(key: String) -> Node3D:
-	var body: Node3D = _bodies.get(key)
-	if body == null or not is_instance_valid(body):
-		return null
-	settle()  # eine laufende Fahrt führte ihn sonst weiter
-	var spot := _spot_for_key(key)
-	_kill(_move_tweens.get(key))
-	_kill(_hover_tweens.get(key))
-	var cell := body as DataCellView
-	if cell != null:
-		cell.set_hovered(false)
-		cell.lie_on_glass(pack_rest(spot) if spot != Vector3.ZERO else cell.global_position)
-	else:
-		body.scale = Vector3.ONE * float(_rest_scale.get(key, 1.0))
-	_bodies.erase(key)
-	_rest_scale.erase(key)
-	_move_tweens.erase(key)
-	_hover_tweens.erase(key)
-	_hover_head.erase(key)
-	if _hovered == key:
-		_hovered = ""
-	for i in range(items.size() - 1, -1, -1):
-		if items[i]["key"] == key:
-			items.remove_at(i)
-	return body
 
 func _free_body(body: Node3D) -> void:
 	if body == null or not is_instance_valid(body):

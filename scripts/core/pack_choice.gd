@@ -46,7 +46,7 @@ var display_name: String:
 			return (pack as ModulePack).display_name
 		return "Paket"
 
-## Karten-/Modul-Paket: die Größe 0..3; Würfel-Paket: seine Augen 2..6.
+## Karten-Paket: 0..2 (3er/4er/5er), Modul-Paket 0..3; Würfel-Paket: seine Augen 2..6.
 var size: int:
 	get:
 		if pack is CardPack:
@@ -57,10 +57,12 @@ var size: int:
 			return (pack as ModulePack).size
 		return CardPack.SIZE_NORMAL
 
-## Die Güte des Pakets (Karten-Pakete: Standard).
+## Die Güte des Pakets (Würfel- und Karten-Pakete; Modul-Pakete: Standard).
 var quality: int:
 	get:
-		return (pack as DicePack).quality if pack is DicePack else DicePack.QUALITY_STANDARD
+		if pack is DicePack or pack is CardPack:
+			return int(pack.get("quality"))
+		return DicePack.QUALITY_STANDARD
 
 ## Ob diese Auswahl gültig ist: verschiedene, vorhandene Optionen, höchstens picks.
 func valid_selection(indices: Array) -> bool:
