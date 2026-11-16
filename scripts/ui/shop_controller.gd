@@ -33,6 +33,8 @@ signal dice_pack_purchased(index: int)
 signal card_pack_purchased(seat: int)
 ## Klick auf ein Schlüsselwort im Wirkungstext einer Charm-Karte.
 signal lexikon_requested(entry_id: String)
+## Ein Kauf wurde abgelehnt (zu wenig Geld, Lager voll) - scene_root spielt den Ton.
+signal purchase_denied
 
 ## Warengattungen der Bucht: der Laden nennt sie, die Bucht trägt sie durch und
 ## meldet sie beim Griff zurück - so bleibt der Kaufweg EIN Paar (Gattung, Index).
@@ -639,6 +641,7 @@ func _slit_seat(seat: int) -> Button:
 	_slit_prices.append(tag)
 	# Nur der KLICK hängt hier: Anheben und Auskunft fragt scene_root je Bild ab.
 	button.pressed.connect(_on_slit_pressed.bind(seat))
+	button.set_meta(&"sfx_silent", true)  # der Kauf klingt selbst
 	return button
 
 ## Der Stellplatz ist eine flache Marke im Kartengrundriß - eine Karte liegt darauf.
@@ -1777,6 +1780,7 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	# (_on_charm_clicked prüft charms_full ohnehin selbst).
 	if not bought:
 		card.pressed.connect(_on_charm_clicked.bind(index))
+	card.set_meta(&"sfx_silent", true)  # der Kauf klingt selbst
 	if bought or full:
 		card.disabled = true
 	charm_buttons.append(card)
@@ -1890,6 +1894,7 @@ func _on_single_special_pressed(index: int) -> void:
 	var pack: Pack = single_specials[index]
 	var price := _pack_price(pack)
 	if run.money < price or run.packs_full():
+		purchase_denied.emit()
 		return
 	var from_px := _buy_origin_px(KIND_SPECIAL, index)
 	var refunded := run.purchase_pack(pack, price)
@@ -1902,8 +1907,10 @@ func _on_single_special_pressed(index: int) -> void:
 ## Kauf eines WÜRFEL-PAKETS: gebucht wird der Preis, das Paket wandert ins LAGER.
 ## Ist dessen Würfel-Reihe voll, kauft der Laden nichts.
 func _on_single_die_pressed(index: int) -> void:
-	if index < 0 or index >= single_dice.size() or single_dice_bought[index] \
-			or run.store_full(GameRun.LANE_DICE) or run.money < single_dice_prices[index]:
+	if index < 0 or index >= single_dice.size() or single_dice_bought[index]:
+		return
+	if run.store_full(GameRun.LANE_DICE) or run.money < single_dice_prices[index]:
+		purchase_denied.emit()
 		return
 	var from_px := _buy_origin_px(KIND_DIE, index)
 	if run.purchase_dice_pack(single_dice[index], single_dice_prices[index]) == null:
@@ -1982,6 +1989,7 @@ func _on_pack_buy_pressed(index: int) -> void:
 func _buy_card_pack(pack: CardPack, kind: String, index: int) -> bool:
 	var price := _pack_price(pack)
 	if run.money < price or run.store_full(GameRun.LANE_CARDS):
+		purchase_denied.emit()
 		return false
 	var from_px := _buy_origin_px(kind, index)
 	if run.purchase_card_pack(pack, price) == null:
@@ -2142,8 +2150,10 @@ func leaving() -> bool:
 ## Kauf eines MODUL-PAKETS: der Preis wird gebucht, der Beutel wandert ins LAGER.
 ## Freie Steckplätze fragt er nicht - ein voller Chip tauscht beim Einbau.
 func _on_module_pack_pressed(index: int) -> void:
-	if index < 0 or index >= module_packs.size() or module_pack_bought[index] \
-			or run.store_full(GameRun.LANE_MODULES) or run.money < module_pack_prices[index]:
+	if index < 0 or index >= module_packs.size() or module_pack_bought[index]:
+		return
+	if run.store_full(GameRun.LANE_MODULES) or run.money < module_pack_prices[index]:
+		purchase_denied.emit()
 		return
 	var from_px := _buy_origin_px(KIND_MODULE_PACK, index)
 	if run.purchase_module_pack(module_packs[index], module_pack_prices[index]) == null:

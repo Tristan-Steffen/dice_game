@@ -467,6 +467,11 @@ var _shown_money := 0
 var dice: DiceController
 var dice_audio: DiceAudio
 var score_audio: ScoreAudio
+var sfx_bank: SfxBank
+## Charm-Zahl beim letzten Abgleich - nur ein Zuwachs im Laden klingt als Kauf.
+var _sfx_charm_count := 0
+## Energie beim letzten Abgleich - die Richtung wählt den Ton.
+var _sfx_energy := 0
 var music_director: MusicDirector
 var table_screen: TableScreen
 var screen_reflection: ScreenReflection
@@ -1038,6 +1043,27 @@ func _setup_score_audio() -> void:
 	table_screen.pit_total_raised.connect(func() -> void:
 		if scoring.call(): score_audio.on_total_raised())
 
+## Platzhalter-Klänge; jeder Knopf klickt von selbst, der Rest spielt an den Hook-Stellen.
+func _setup_sfx_bank() -> void:
+	sfx_bank = SfxBank.new()
+	sfx_bank.name = "SfxBank"
+	add_child(sfx_bank)
+
+## Spielt einen Platz der Bank - still, solange sie nicht steht.
+func _sfx(sfx: StringName, db := 0.0, pitch := 1.0) -> void:
+	if sfx_bank != null:
+		sfx_bank.play(sfx, db, pitch)
+
+## Ein Platz nach einem Vorlauf - der Ton gehört zur Bewegung, nicht zum Klick.
+func _sfx_after(delay: float, sfx: StringName) -> void:
+	if delay <= 0.0:
+		_sfx(sfx)
+		return
+	var launched := run
+	get_tree().create_timer(delay).timeout.connect(func() -> void:
+		if run == launched:
+			_sfx(sfx))
+
 ## Die Musik läuft durch; welche Schicht zu hören ist, sagt _sync_music je Bild.
 func _setup_music() -> void:
 	music_director = MusicDirector.new()
@@ -1073,6 +1099,7 @@ func _setup_table_screen() -> void:
 	table_screen.name = "TableScreen"
 	add_child(table_screen)
 	_setup_score_audio()
+	_setup_sfx_bank()
 	_setup_music()
 	# Der Filzboden muss hinter jedem Loch ausblenden - sonst blickt man durch die
 	# Grube (oder einen offenen Schacht) auf Filz statt in die Vertiefung. Die
@@ -1444,6 +1471,8 @@ func _on_tray_requested(tray: int) -> void:
 		return
 	# Die FAHRT zuerst: das Fenster schiebt beim Umschreiben seinen Abgleich an, und
 	# der dürfte die eben begonnene Fahrt nicht gleich wieder hart setzen.
+	if tray != workshop.shelf_tray:
+		_sfx(&"shelf_switch")
 	shelf_stack.select(tray)
 	workshop.shelf_tray = tray
 	if shelf_selector != null and is_instance_valid(shelf_selector):
@@ -1466,6 +1495,7 @@ func _on_shelf_scroll_snapped(tray: int, from_px: float, to_px: float) -> void:
 	shelf_stack.snap_scroll(tray, _display_dx_to_world(from_px),
 		_display_dx_to_world(to_px), func() -> void:
 			if run == launched and table_screen != null:
+				_sfx(&"shelf_snap")
 				_sync_data_cells())
 
 ## Ein waagerechter Weg in Display-Pixeln als Welt-Z.
@@ -1748,6 +1778,7 @@ func _setup_panels() -> void:
 		table_screen.charm_dock.lexikon_requested.connect(open_lexikon)
 	# Die Bucht: der Laden MELDET seine Auslage, die Körper stellt scene_root.
 	charm_shop.vitrine_changed.connect(_on_vitrine_changed)
+	charm_shop.purchase_denied.connect(_sfx.bind(&"ui_denied", 0.0, 1.0))
 	# Der Vorhang hängt an der SEITENREGEL des Hubs, nicht nur am Laden-Ablauf:
 	# verdrängt eine andere Seite (Lexikon, Titel) die Ladenseite, muss das Loch zu
 	# sein - sonst stünde es offen unter fremdem Inhalt. GEFRAGT je Bild, nie
@@ -1783,6 +1814,8 @@ func _setup_panels() -> void:
 		$UI.add_child(pack_choice_view)
 	pack_choice_view.confirmed.connect(_on_pack_choice_confirmed)
 	pack_choice_view.reshuffle_requested.connect(_on_pack_choice_reshuffle)
+	pack_choice_view.pick_toggled.connect(func(_index: int, picked: bool) -> void:
+		_sfx(&"pack_pick", 0.0, 1.0 if picked else 0.75))
 	pack_choice_view.reel_stepped.connect(_on_case_reel_stepped)
 	pack_choice_view.reel_stopped.connect(_on_case_reel_stopped)
 	pack_choice_view.opening_finished.connect(_on_pack_opening_finished)
@@ -2123,6 +2156,9 @@ func _tween_combo_label(row: ComboCellView, color: Color, target_scale: float) -
 	tween.tween_property(row, "scale", row.base_scale * target_scale, PAYOUT_FLASH_DURATION)
 
 func _on_charms_changed() -> void:
+	if phase == Phase.SHOP and run.owned_charms.size() > _sfx_charm_count:
+		_sfx(&"shop_buy")
+	_sfx_charm_count = run.owned_charms.size()
 	charm_row.set_charms(run.owned_charms)
 	if table_screen != null and table_screen.charm_dock != null:
 		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
@@ -2311,6 +2347,7 @@ func _sync_tray_head(money: int) -> void:
 
 ## Ein Chip ist links eingelaufen: der Kopf seiner Rinne blitzt.
 func _on_tray_chip_entered(rank: int) -> void:
+	_sfx(&"chip_in", 0.0, 1.0 + 0.04 * rank)
 	if table_screen == null or table_screen.treasure_window == null:
 		return
 	table_screen.treasure_window.flash_entry(rank,
@@ -2319,6 +2356,7 @@ func _on_tray_chip_entered(rank: int) -> void:
 ## Ein Chip ist rechts im Tisch verschwunden: der Rand blitzt, und war er gezahlt,
 ## fährt sein Licht vom Auslauf zum Hub.
 func _on_tray_chip_left(rank: int, paid: bool) -> void:
+	_sfx(&"chip_out", 0.0, 1.0 + 0.04 * rank)
 	if table_screen == null or table_screen.treasure_window == null:
 		return
 	var color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
@@ -2333,6 +2371,7 @@ func _on_tray_chip_left(rank: int, paid: bool) -> void:
 
 ## Ankunft eines Zahlungs-Kometen am Hub: der Rahmen blitzt in Chip-Farbe.
 func _on_payment_comet_arrived(chip_color: Color) -> void:
+	_sfx(&"money_arrive")
 	var hub := table_screen.hub if table_screen != null else null
 	if hub != null:
 		hub.flash_frame(chip_color)
@@ -2374,6 +2413,7 @@ func _on_side_bet_placed(index: int) -> void:
 	# Steuerwetten zahlen beim Platzieren nichts - es fliegt kein Körper. Ihr Gewinn
 	# kommt sofort in Sicht, und die Rechnung tickt später als Licht.
 	if SideBetPanel.is_tax_bet(bet):
+		_sfx(&"bet_place")
 		panel.glow_bet(index, SideBetPanel.GOLD)
 		_write_bet_counter(ShopController.GRADE_RISE, true)
 		return
@@ -2390,6 +2430,7 @@ func _on_side_bet_placed(index: int) -> void:
 			# Der Stapel steht: jetzt SCHLUCKT ihn die Sektion, und der Gewinn kommt
 			# in derselben Fahrt herein.
 			_bet_swallow[index] = {"bodies": landed, "height": stake_high}
+			_sfx(&"bet_place")
 			_write_bet_counter(ShopController.GRADE_RISE, true)
 			panel.glow_bet(index, glow_color))
 
@@ -2410,6 +2451,7 @@ func _bet_stake_height(bet: SideBet, chips: Array[int]) -> float:
 ## Etappe wie jede ⚡-Zahlung (Schwarzmarkt-Grammatik), nicht zwei wie das Geld.
 ## Erst nach ihrer Ankunft läuft die Walze an.
 func _on_slot_spin_paid(_machine: int) -> void:
+	_sfx(&"slot_spin")
 	if table_screen == null:
 		return
 	table_screen.slot_pay_comet(CasinoStyle.ENERGY)
@@ -2805,6 +2847,7 @@ var _burning_cards: Array[DataCellView] = []
 
 ## Das Prägen beginnt: Licht, Netz und Funken der vorigen Zeremonie fahren nie mit.
 func _on_press_started() -> void:
+	_sfx(&"bench_press")
 	_press_gen += 1
 	_drop_light_net()
 	_drop_sparks()
@@ -2838,6 +2881,7 @@ func _flash_latch(index: int, cell: DataCellView, delay: float, generation: int,
 	await get_tree().create_timer(maxf(delay, 0.0)).timeout
 	if run != launched or generation != _press_gen:
 		return
+	_sfx(&"bench_latch", 0.0, 1.0 + 0.05 * index)
 	if tower != null and is_instance_valid(tower):
 		tower.latch_flash(index)
 	if cell != null and is_instance_valid(cell):
@@ -2877,6 +2921,7 @@ func _ride_die_over_tower(target: Vector3, time: float, generation: int,
 ## BRENNT AUS, das LICHT-NETZ tickt auf den neuen Stand - und die Ebene steigt weiter.
 func _on_light_passed(index: int, faces: Array, values: Array, glyph: String,
 		time: float) -> void:
+	_sfx(&"light_pass", 0.0, pow(2.0, [0, 3, 5, 7, 10, 12][mini(index, 5)] / 12.0))
 	var cell := _take_socket_cell(index)
 	if cell != null:
 		cell.set_net_drained(_drained_mask(faces))  # idempotent
@@ -2898,6 +2943,7 @@ func _on_light_passed(index: int, faces: Array, values: Array, glyph: String,
 func _burn_out_card(cell: DataCellView, time: float, generation: int,
 		launched: GameRun) -> void:
 	_burning_cards.append(cell)
+	_sfx(&"card_burnout")
 	cell.set_dimmed(true)
 	cell.dematerialize()
 	await get_tree().create_timer(maxf(time, 0.0)).timeout
@@ -2965,6 +3011,7 @@ func _strike_die(hits: Array[int], repaired: bool, delay: float, generation: int
 		return
 	stage.apply_definition(stage.def)
 	stage.pulse()
+	_sfx(&"light_strike")
 	if stage.emitter != null and is_instance_valid(stage.emitter):
 		stage.emitter.ripple()
 	if stage.faces == null or not is_instance_valid(stage.faces):
@@ -3230,7 +3277,9 @@ func _on_die_stages_changed() -> void:
 
 ## Der Spieler hat im Raster gewählt, gewechselt oder abgewählt: der Zielwürfel
 ## fährt auf die Bühne bzw. denselben Weg zurück in den Pool.
-func _on_workshop_target_chosen(_die: DieDefinition) -> void:
+func _on_workshop_target_chosen(die: DieDefinition) -> void:
+	if die != null:
+		_sfx(&"bench_target")
 	_sync_bench_migration()
 	if _deck_glass:
 		_show_deck_glass_window()  # der Gold-Saum im Raster folgt der Wahl
@@ -4257,6 +4306,7 @@ func _swap_vitrine_stock(grade: String, lead := 0.0) -> void:
 		return
 	_vitrine_swap += 1
 	shop_vitrine.swap_to(_shop_vitrine_stock(), lead)
+	_sfx_after(lead, &"shop_flip")
 	_sync_vitrine_nets()  # die Netze hängen an den Plätzen, die eben gestellt wurden
 
 # --- Die Kassetten-Schlitze der Ladenseite -------------------------------------
@@ -5277,6 +5327,7 @@ func _pump_swallow() -> void:
 			_flush_ablage_rows()
 			continue
 		tween.set_speed_scale(SWALLOW_SPEED)
+		_sfx(&"dice_swallow")
 		_swallow_bodies[lane] = body
 		var generation := _tray_stage_gen
 		var launched := run
@@ -6079,6 +6130,7 @@ func _on_deck_glass_cell_pressed(index: int) -> void:
 		return
 	if not run.exchange_pending_die(pending, index):
 		return
+	_sfx(&"pool_swap")
 	if run.pending_dice.is_empty() and not _deck_glass_pinned:
 		_close_deck_glass()
 		return
@@ -6165,6 +6217,7 @@ func _forward_raster_switch_mouse(event: InputEventMouse, pixel: Vector2) -> boo
 		return false
 	if not _raster_switch_live():
 		return false
+	_sfx(&"raster_toggle")
 	_toggle_deck_glass()
 	return true
 
@@ -7075,9 +7128,11 @@ func _note_bet_progress(stats: Dictionary) -> void:
 		var live := bet.live_state(stats)
 		if live == SideBet.Live.FAILED:
 			_bet_failed.append(bet)
+			_sfx(&"bet_lose")
 			fresh = true
 		elif live == SideBet.Live.ON_TRACK and bet.decides_early():
 			_bet_fulfilled.append(bet)
+			_sfx(&"bet_win")
 			fresh = true
 	if fresh:
 		_write_bet_counter(ShopController.GRADE_RISE, true)
@@ -7385,6 +7440,7 @@ func _on_slot_cashed_out(_runs: int) -> void:
 ## Ein Gewinn verläßt den Automaten: Pakete ins Magazin an der Werkbank, ⚡ über
 ## den Hub in den Energie-Ring, Würfel in die Vorrats-Ablage.
 func _on_slot_prize_dispatched(prize: SlotPrize, from_px: Vector2) -> void:
+	_sfx(&"slot_win")
 	if table_screen == null:
 		return
 	match prize.kind:
@@ -8290,6 +8346,7 @@ func _swap_secret_stock(grade: String) -> void:
 		return
 	_secret_swap += 1
 	secret_vitrine.swap_to(market.vitrine_stock())
+	_sfx(&"shop_flip")
 
 ## Der Griff im Hinterzimmer kauft: Gattung und Index meinen denselben Auslage-
 ## Platz, gebucht wird über buy_secret_offer wie an der Karte. Der PLATZ wird VOR
@@ -8307,6 +8364,7 @@ func _buy_secret_item(kind: String, index: int) -> void:
 ## AUSGABEFACH statt im Magazin - ein Würfel wird nie versiegelt. Gebucht hat
 ## buy_secret_offer längst (stash_die); hier fährt nur die Ware.
 func _on_secret_die_purchased(def: DieDefinition) -> void:
+	_sfx(&"shop_buy")
 	if table_screen == null or run == null or def == null \
 			or ausgabefach == null or not is_instance_valid(ausgabefach):
 		return
@@ -8337,6 +8395,7 @@ func _on_secret_die_purchased(def: DieDefinition) -> void:
 ## (ein Bündel als Salve im STAMP_METEOR_GAP-Takt), auf dem Magazin-Platz steigt
 ## die Kassette. Gebucht hat buy_secret_offer längst - hier fliegt nur noch die Ware.
 func _on_secret_goods_purchased(uids: Array[int]) -> void:
+	_sfx(&"shop_buy")
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
@@ -8680,6 +8739,7 @@ func _carry_data_cell(cell: DataCellView, target: Vector3) -> void:
 	# Der Bogen startet, wo sie LIEGT - nicht auf ihrem Glaspunkt über dem Loch.
 	cell.lie_on_glass(cell.global_position)
 	cell.arc_to(target, CARRY_TIME, _pit_carry_peak(cell.global_position, target))
+	_sfx(&"card_lift")
 	await get_tree().create_timer(CARRY_TIME).timeout
 	if run != launched or not _still_carrying(cell):
 		return
@@ -8748,6 +8808,7 @@ func _return_data_cell(cell: DataCellView, uid: int) -> void:
 		return
 	_carrying.erase(cell)
 	_lay_shelf_hard(cell, line, target)
+	_sfx(&"card_drop")
 	_finish_cell_return(cell, uid, run != null and run.pack_by_uid(uid) != null)
 
 ## Angekommen: der Rückläufer WIRD wieder die Magazin-Kassette seines Pakets -
@@ -9026,6 +9087,7 @@ func _spawn_slit_ware(ware: Resource, at: Vector3) -> DataCellView:
 ## Die einzelne Sonder-Karte ist gekauft: sie sinkt, ein Komet fährt die Werkstatt-
 ## Ader entlang, und auf dem Magazin-Platz steigt sie. Gebucht ist längst.
 func _on_pack_purchased(from_px: Vector2, uid: int) -> void:
+	_sfx(&"shop_buy")
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or run == null:
 		return
@@ -9202,6 +9264,7 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	var from := _choice_hull.global_position if is_instance_valid(_choice_hull) else rest
 	if is_instance_valid(_choice_hull):
 		_choice_hull.burst()
+		_sfx(&"pack_burst")
 	_drop_pack_options(choice, from)
 	var fall := PACK_OPTION_FALL + PACK_DIE_BOUNCE \
 		+ PACK_OPTION_STAGGER * float(choice.option_count())
@@ -9239,6 +9302,7 @@ func _open_module_bag(choice: PackChoice, hull: CardPackView, generation: int,
 			or _choice_hull == null or not is_instance_valid(_choice_hull):
 		return
 	var tear := _choice_hull.tear_open()
+	_sfx(&"bag_tear")
 	await get_tree().create_timer(tear * 0.5).timeout
 	if generation != _choice_gen or run != launched or not _bag_show_on:
 		return
@@ -9531,6 +9595,7 @@ func _fly_into_store(pack: Resource, body: CardPackView) -> void:
 		_store_flying.erase(uid)
 		var landed: CardPackView = _store_bodies.get(uid)
 		if landed != null and is_instance_valid(landed):
+			_sfx(&"store_land")
 			landed.stand_on(_store_seats.get(uid, seat)))
 
 ## Der harte Weg: kein Flug, nichts zurückgehalten, jeder Körper fort (der Schreiber
@@ -9544,6 +9609,7 @@ func _drop_store_bodies() -> void:
 ## Der Laden hat ein Würfel-Paket gebucht: seine Schatulle verläßt die Bucht als
 ## KÖRPER (die Bucht fährt für sie keine Sektion) und fliegt ins Lager.
 func _on_dice_pack_purchased(index: int) -> void:
+	_sfx(&"shop_buy")
 	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or run == null:
 		return
 	var body := shop_vitrine.release_body(
@@ -9561,6 +9627,7 @@ func _on_dice_pack_purchased(index: int) -> void:
 
 ## Ein Modul-Paket ebenso: sein Beutel verläßt die Bucht als Körper und fliegt ins Lager.
 func _on_module_pack_purchased(index: int) -> void:
+	_sfx(&"shop_buy")
 	if shop_vitrine == null or not is_instance_valid(shop_vitrine) or run == null:
 		return
 	var body := shop_vitrine.release_body(
@@ -9578,6 +9645,7 @@ func _on_module_pack_purchased(index: int) -> void:
 
 ## Ein Karten-Paket ebenso: seine Kassette verläßt ihren Stellplatz und fliegt ins Lager.
 func _on_card_pack_purchased(seat: int) -> void:
+	_sfx(&"shop_buy")
 	if run == null:
 		return
 	var cell: DataCellView = slit_cells.get(seat)
@@ -9644,6 +9712,7 @@ func _forward_store_mouse(event: InputEventMouse) -> bool:
 	if camera_rig.mode != CameraRig.Mode.CHIPS or not camera_rig.takes_input():
 		return false
 	if not _pack_opening_ready() or _choice != null or run.current_pack_choice() != null:
+		_sfx(&"ui_denied")
 		return true
 	_open_stored_pack(int(slot["uid"]))
 	return true
@@ -9652,6 +9721,7 @@ func _forward_store_mouse(event: InputEventMouse) -> bool:
 func _open_stored_pack(uid: int) -> void:
 	if run == null or run.open_stored_pack(uid) == null:
 		return
+	_sfx(&"store_open")
 	var body: CardPackView = _store_bodies.get(uid)
 	_store_bodies.erase(uid)
 	_store_seats.erase(uid)
@@ -10445,6 +10515,7 @@ func _on_pack_choice_reshuffle() -> void:
 		return
 	if not run.reshuffle_pack_choice(_choice):
 		return
+	_sfx(&"pack_reshuffle")
 	_choice_gen += 1
 	var generation := _choice_gen
 	var launched := run
@@ -10501,6 +10572,7 @@ func _reshuffle_dice_case(generation: int, launched: GameRun) -> void:
 func _on_pack_choice_confirmed(indices: Array) -> void:
 	if not _pack_choice_modal() or run == null:
 		return
+	_sfx(&"pack_confirm")
 	var choice := _choice
 	# Die Schatulle: der Zwang wartet, bis der Tisch sie eingezogen hat.
 	if choice.is_dice() and _choice_hull != null and is_instance_valid(_choice_hull) \
@@ -10646,6 +10718,7 @@ func _settle_pack_openings() -> void:
 func _on_pack_refunded(from_px: Vector2, amount: int) -> void:
 	if table_screen == null or amount <= 0:
 		return
+	_sfx(&"shop_refund")
 	var launched := run
 	# Farbe wie bei jedem Geld-Kometen: die GRÖSSTE Stückelung des Betrags -
 	# denomination_color(6) gäbe es als Chip nicht und liefe weiß.
@@ -12916,6 +12989,7 @@ func _on_throw_button_pressed() -> void:
 			move_top_targets.append(_pit_top_row_position(k, selected_indices.size(), dice.bodies[i].global_position.y))
 
 	phase = Phase.SHELL_ANIMATING
+	_sfx(&"dice_throw")
 
 	var cursor_before_draw := next_draw_index
 	last_throw_was_reroll = has_rolled_current_hand
@@ -13277,6 +13351,7 @@ func _on_farkle(forgivable: bool = true) -> void:
 	hand_note = ""
 	# Der Fumble geht in die Chronik, solange die Würfel noch liegen.
 	_log_record_farkle()
+	_sfx(&"round_fumble")
 	if table_screen != null:
 		table_screen.pit_fumble()
 
@@ -13386,6 +13461,7 @@ func _on_take_button_pressed() -> void:
 
 	if not _hand_scores():
 		return
+	_sfx(&"dice_take")
 	var slots := _hand_slots()
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
@@ -14007,6 +14083,7 @@ func _play_charge_beat(beat: Dictionary, slot: int, die_px: Vector2) -> void:
 	if bool(beat.get("burned", false)):
 		# DIE DURCHBRENN-ZEREMONIE: Einschlag in die Grubenwände, der Rundenpuls
 		# stottert wie beim Fumble, dann fällt der Würfel dunkel.
+		_sfx(&"charge_burn")
 		if dice_pit != null:
 			dice_pit.slam(CHARGE_BURN_SLAM)
 		if table_screen != null:
@@ -15013,6 +15090,7 @@ func _connect_run() -> void:
 	_settle_part_install_hard()  # ein Einbau des alten Laufs schuldet nichts mehr
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
+	_sfx_charm_count = run.owned_charms.size()
 	run.charms_changed.connect(_on_charms_changed)
 	# Würfel-Änderungen (Kauf, Paket, Gravur, Nehmen-Effekt) laufen über EINEN Weg.
 	run.pool_changed.connect(_on_pool_changed)
@@ -15021,6 +15099,7 @@ func _connect_run() -> void:
 	run.combo_parts_changed.connect(_on_combo_parts_changed)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
+	_sfx_energy = run.energy
 	run.energy_changed.connect(_on_energy_changed)
 	# Jedes Ladungs-Ereignis geht in die Chronik der Runde.
 	run.charge_logged.connect(_log_record_charge)
@@ -15055,6 +15134,9 @@ func _sync_capacitor() -> void:
 	energy_ring.set_energy(run.energy, run.energy_cap())
 
 func _on_energy_changed(value: int) -> void:
+	if value != _sfx_energy:
+		_sfx(&"energy_gain" if value > _sfx_energy else &"energy_spend")
+	_sfx_energy = value
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_energy_display(value, run.energy_cap())
 	_sync_capacitor()
@@ -15198,6 +15280,7 @@ func _commit_round() -> void:
 	if round_committed:
 		return
 	round_committed = true
+	_sfx(&"round_commit")
 	# Mit der Unterschrift ist die Ladenzeit vorbei - der Knopf geht mit.
 	shop_reopen_allowed = false
 	_sync_shop_reopen_button()
@@ -15276,6 +15359,7 @@ func _on_round_complete() -> void:
 	var stages := run.stages_cleared(hand_total)
 	if stages >= 1:
 		phase = Phase.PAYOUT
+		_sfx(&"round_won")
 		# Der Hub wird zur Auszahlungs-Seite: leer aufschlagen, dann zählt sie mit.
 		_drop_payout_bodies()  # ein Rest der Vorrunde liegt hier nie
 		if payout_ledger != null:
@@ -16186,6 +16270,8 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 	_update_gameplay_ui_visibility()
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
+	if new_mode != CameraRig.Mode.TITLE:
+		_sfx(&"cam_zoom")
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
 	# Wer aus der GLAS-ANSICHT wegfährt, hat abgebrochen gemeint: der Vorrat steigt
 	# unverändert wieder herauf - und die gemerkte Station wird VERGESSEN, sonst
@@ -16300,6 +16386,7 @@ func _on_shop_closed() -> void:
 	if camera_rig.mode == CameraRig.Mode.HUB:
 		camera_rig.zoom_out()
 	_start_new_round()
+	_sfx(&"round_start")
 	# Erst NACH dem Rundenstart (der die Sperren zurücksetzt): ab hier steht der
 	# Knopf, bis die Runde festgezurrt ist.
 	shop_reopen_allowed = true
@@ -16367,6 +16454,7 @@ func _close_lexikon() -> void:
 ## 2D-Panel als Rückfall.
 func _show_game_over(total: int) -> void:
 	_set_gameplay_ui_visible(false)
+	_sfx(&"game_over")
 	if title_view == null:
 		game_over_label.text = "Blind verfehlt: %d / %d Punkte.\nSpiel vorbei – klicke 'Neues Spiel' zum Neustart." % [total, run.effective_goal()]
 		game_over_panel.visible = true
@@ -17114,6 +17202,7 @@ func _seat_install_ghost(key: String, slot: int) -> void:
 	var chip: ComboChipView = combo_chips.get(key)
 	if chip == null or install_ghost == null or not is_instance_valid(install_ghost):
 		if chip != null:
+			_sfx(&"part_install")
 			chip.play_plug(slot)
 		return
 	var ghost := install_ghost
@@ -17132,6 +17221,7 @@ func _seat_install_ghost(key: String, slot: int) -> void:
 			_install_seating = false
 			return
 		chip.set_socket_lifted(-1)
+		_sfx(&"part_install")
 		chip.play_plug(slot))
 	tween.tween_interval(ComboChipView.PLUG_TIME)
 	tween.tween_callback(func() -> void:
@@ -17294,6 +17384,7 @@ func _finish_part_drag(screen_pos: Vector2) -> void:
 	var to_key := String(pick["key"])
 	var to_slot := int(pick["slot"])
 	if run.move_part(from_key, from_slot, to_key, to_slot, not _dice_editing_locked()):
+		_sfx(&"part_move")
 		if combo_chips.has(to_key):
 			combo_chips[to_key].play_plug(to_slot)
 
@@ -17311,6 +17402,7 @@ func _drop_part_drag() -> void:
 
 ## Schwarzmarkt-Kauf: erst ist der Körper unten, dann fliegt das Licht.
 func _on_secret_part_purchased(part: ComboPart) -> void:
+	_sfx(&"shop_buy")
 	if table_screen == null or run == null or part == null:
 		return
 	var launched := run

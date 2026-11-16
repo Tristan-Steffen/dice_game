@@ -1112,6 +1112,7 @@ func _build_floor_strip(u: float) -> void:
 func _floor_field(index: int, card: Dictionary, u: float) -> Button:
 	var slot := Button.new()
 	slot.name = "SeriesFloor%d" % (index + 1)
+	slot.set_meta(&"sfx_silent", true)  # die Karte klingt selbst
 	slot.focus_mode = Control.FOCUS_NONE
 	slot.disabled = true
 	var tint := _slot_tint(card)
