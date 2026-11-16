@@ -249,10 +249,11 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 37
+const MAX_PITS := 44
 const PIT_MAGAZIN := 0
-const PIT_SHOP_SLITS := 1
-const PIT_SHOP_BOWL := 2
+## Die PAKET-FLÄCHE des Ladens: je Platz SEINE Sektion - die erste auf Platz 1,
+## die übrigen fünf hängen hinten an (SHOP_PACK_PITS).
+const PIT_SHOP_PACK0 := 1
 ## Die Schwarzmarkt-Bucht fährt JEDES Stück aus seiner EIGENEN Sektion, und sie kann
 ## drei Körper führen (der erschöpfte Legenden-Topf schiebt eine Sonder-Kassette in
 ## den Kartensitz-Platz) - drei Plätze, die alten Namen sind ihre Zonen 0 und 1.
@@ -297,13 +298,22 @@ const PIT_SWALLOW_TAIL0 := 21
 ## umzieht - dafür ist das Löcher-Budget auf 25 gewachsen.
 const PIT_SECTION := 24
 
-## Die VERTIEFUNGEN der Kassetten-Plätze im Laden, je Platz eine (Spieler-Wunsch
-## 2026-10-29) - offen, solange die Ladenseite steht; ans Ende gehängt.
+## Die VERTIEFUNGEN der Paket-Plätze im Laden, je Platz eine - offen, solange die
+## Ladenseite steht. Die ersten drei liegen hier, die vierte auf dem frei gewordenen
+## Platz 2 (der tote Bucht-Schacht), die letzten zwei hängen hinten an.
 const PIT_SHOP_BAY0 := 25
-const SHOP_BAY_PIT_COUNT := 3
+const SHOP_BAY_PIT_COUNT := 6
+const PIT_SHOP_BAY_TAIL0 := 37
+const SHOP_BAY_PITS: Array[int] = [PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2,
+	2, PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1]
 
 static func shop_bay_pit(index: int) -> int:
-	return PIT_SHOP_BAY0 + clampi(index, 0, SHOP_BAY_PIT_COUNT - 1)
+	return SHOP_BAY_PITS[clampi(index, 0, SHOP_BAY_PIT_COUNT - 1)]
+
+## Die Sektions-Löcher der Paket-Fläche, je Platz eines.
+const PIT_SHOP_PACK_TAIL0 := 39
+const SHOP_PACK_PITS: Array[int] = [PIT_SHOP_PACK0, PIT_SHOP_PACK_TAIL0, PIT_SHOP_PACK_TAIL0 + 1,
+	PIT_SHOP_PACK_TAIL0 + 2, PIT_SHOP_PACK_TAIL0 + 3, PIT_SHOP_PACK_TAIL0 + 4]
 
 ## Und dieselben Mulden unter den Kassetten der Schwarzmarkt-Reihe.
 const PIT_SECRET_BAY0 := 28
@@ -1447,7 +1457,8 @@ func clear_pit(slot: int) -> void:
 ## ihre Löcher werden nur beim Fenster-Neuaufbau geschrieben (gemessen 2026-10-27:
 ## nach einem Ladenbesuch stand sonst wieder Filz unter der Glas-Scheibe).
 const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_TOWER, PIT_SECTION,
-	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2,
+	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
+	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
 	PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES, PIT_OPENING]
 

@@ -2,49 +2,37 @@ class_name ShopController
 extends Control
 ## Der Shop zwischen den Runden - ein Neon-Panel auf der Hub-Fläche des
 ## Tisch-Displays, bedient über die Maus-Weiterleitung. Die Seite liest sich als
-## DREI REGALE (Spieler-Entscheid 2026-10-25): CHARMS, GRAVUREN, WÜRFEL - je drei
-## gleich große Plätze auf EINEM Spaltenraster, der Preis direkt unter seinem
-## Stück. Darunter das AUSKUNFTS-BAND und der Fuß. Körper zeichnet dieser Laden nie
-## selbst; er MELDET Rechtecke und Inhalte nach oben (vitrine_rect_px/die_seats_px/
-## vitrine_stock, slit_anchors/slit_stock), aufgestellt wird alles von scene_root.
-## Ohne Zeiger trägt jede Ware nur Name/Farbe und Preis; mit Zeiger spricht das
-## Auskunfts-Band: Kassette (Name + Beschreibung) oder Würfel (Auskunft + Netz).
+## CHARMS (drei Plätze) und PAKETE (Spieler-Entscheid 2026-11-16: EINE Fläche, zwei
+## Reihen zu drei Plätzen, auf jedem kann jede Paket-Art liegen) auf EINEM
+## Spaltenraster. Darunter das AUSKUNFTS-BAND und der Fuß. Körper zeichnet dieser
+## Laden nie selbst; er MELDET Platz-Rechtecke und Inhalte (place_anchors/
+## place_rects/place_stock), aufgestellt wird alles von scene_root.
 ## "Umblättern" auf eine NEUE Seite würfelt frische Angebote aus und kostet eine
 ## steigende Gebühr; bereits gesehene Seiten bleiben stehen (MenuSpread) und sind
 ## gratis erreichbar. Zustands-Mutation läuft ausschließlich über GameRun-Methoden;
 ## auf closed reagiert scene_root. Alle Maße: Einheit u = Breite/100 (wie HubView).
 
 signal closed
-## Die einzelne SONDER-KARTE ist gekauft: scene_root schickt sie als Licht auf ihren
-## Magazin-Platz (uid). Pakete melden nichts - ihre offene Auswahl steht in GameRun.
-signal pack_purchased(from_px: Vector2, uid: int)
+## Ein Paket-Platz ist gekauft (VOR dem Neuaufbau der Auslage): scene_root fliegt
+## die Hülle ins Lager bzw. schickt die Sonder-Karte als Licht ins Magazin.
+signal shop_pack_purchased(seat: int)
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben - gebucht ist er längst,
 ## scene_root schickt ihn nur noch als Licht ins Chip-Tray.
 signal pack_refunded(from_px: Vector2, amount: int)
-## Die Auslage der Bucht hat sich geändert (Seite gezeigt, gekauft) - scene_root
-## stellt die Körper nach. Der Laden fasst nie einen an.
+## Die Auslage hat sich geändert (Seite gezeigt, gekauft) - scene_root stellt die
+## Körper nach. Der Laden fasst nie einen an.
 signal vitrine_changed
-## Ein Modul-Paket ist gebucht und liegt im LAGER: sein Beutel verläßt die Bucht als Körper.
-signal module_pack_purchased(index: int)
-## Ein Würfel-Paket ist gebucht - VOR dem Neuaufbau der Auslage, damit scene_root
-## seine Schatulle als Körper übernehmen kann, bevor die Bucht sie abräumt.
-signal dice_pack_purchased(index: int)
-## Ein Karten-Paket ist gekauft und liegt im LAGER: seine Kassette verläßt den Stellplatz.
-signal card_pack_purchased(seat: int)
 ## Klick auf ein Schlüsselwort im Wirkungstext einer Charm-Karte.
 signal lexikon_requested(entry_id: String)
 ## Ein Kauf wurde abgelehnt (zu wenig Geld, Lager voll) - scene_root spielt den Ton.
 signal purchase_denied
 
-## Warengattungen der Bucht: der Laden nennt sie, die Bucht trägt sie durch und
-## meldet sie beim Griff zurück - so bleibt der Kaufweg EIN Paar (Gattung, Index).
+## Warengattungen der Schwarzmarkt-Bucht: der Griff meldet sie zurück, der Kaufweg
+## ist das Paar (Gattung, Index).
 const KIND_ENGRAVING_PACK := "engraving_pack"
 const KIND_DIE := "die"
-const KIND_SPECIAL := "special"
 ## Modul (als Körper im Schwarzmarkt).
 const KIND_PART := "part"
-## Das MODUL-PAKET auf dem dritten Platz der Würfel-Bucht (als ESD-Beutel).
-const KIND_MODULE_PACK := "module_pack"
 
 ## Die zwei ANKUNFTS-GRADE der Auslage: STEIGEN heißt, dass Ware durch die Fläche
 ## kommt, LIEGENBLEIBEN heißt, dass gar nichts geschehen ist - das sichtbar
@@ -55,7 +43,7 @@ const GRADE_RISE := "rise"
 
 ## Was statt eines Preises steht, wenn das Lager zu ist - ein Kauf, der stumm
 ## scheitert, wäre schlimmer als eine Zahl weniger. Die lange Fassung trägt die
-## Karte des Hinterzimmers, die kurze das schmale Preisschild einer Kassette.
+## Karte des Hinterzimmers, die kurze das Preisschild eines Platzes.
 const FULL_TAG := "MAGAZIN VOLL"
 const FULL_MARK := "VOLL"
 ## Das Paket-Lager dieser Art ist voll: kein Kauf, das Schild sagt es.
@@ -74,29 +62,29 @@ const NEON_GREEN := Color("#50fa7b")
 const NEON_TEXT := Color(1.35, 1.35, 1.3)
 const NEON_MUTED := Color(0.75, 0.78, 0.9)
 
-## FESTE PROPORTIONEN: Charm-Band und Fuß stehen in u, die Gravuren-Zeile mißt
-## ihre liegende Karte, die Würfel-Zeile ihren Würfel. Den Rest nimmt das
-## Auskunfts-Band - kein Band wächst mit Fortschrittsstufe oder Bestand.
+## FESTE PROPORTIONEN: Charm-Band und Fuß stehen in u, die Paket-Fläche mißt ihr
+## größtes Paket. Den Rest nimmt das Auskunfts-Band.
 const BAND_CHARM_UNITS := 26.0
 ## Der Fuß trägt die höchsten Knöpfe der Seite (gemessen: die Blätter-Pfeile mit
 ## ihrem Grad 3,2 u brauchen 5,9 u) - die Zahl steht bewußt darüber, sonst
 ## bestimmten die Knöpfe die Bandhöhe.
 const BAND_FOOTER_UNITS := 6.2
 
-## Das SPALTENRASTER der drei Regale: drei gleich breite Plätze über die volle
-## Innenbreite, dieselben in jeder Zeile.
+## Das SPALTENRASTER: drei gleich breite Plätze über die volle Innenbreite, dieselben
+## in jeder Zeile.
 const COLUMNS := 3
 const COLUMN_GAP := 2.0
+## Die Paket-Fläche: zwei Reihen auf dem Raster, Fuge dazwischen in u.
+const PACK_ROWS := 2
+const PACK_ROW_GAP := 0.6
 
-## Der STELLPLATZ einer Kassette: ihr liegender Grundriß im EINEN Anzeigemaß
-## (PackDrawerView.CASSETTE_SCALE) plus Stellluft. Die u-Maße sind nur ihr Boden,
-## solange kein Grundriß gemeldet ist.
-const SLIT_ROOM := 1.15
-const SLIT_MIN_WIDTH := 5.4
-const SLIT_MIN_HEIGHT := 8.0
-## Höhe der Würfel-Bucht: der liegende Würfel samt Griff-Hub und Schacht.
-const DIE_ROOM_UNITS := 10.0
-## Luft der breitesten Schatulle quer in der Bucht.
+## Der STELLPLATZ eines Pakets: der liegende Kartengrundriß im EINEN Anzeigemaß
+## (PackDrawerView.CASSETTE_SCALE) plus Stellluft, mindestens so tief wie die
+## breiteste Schatulle quer. Die u-Maße sind nur sein Boden, solange nichts gemeldet ist.
+const PLACE_ROOM := 1.15
+const PLACE_MIN_WIDTH := 5.4
+const PLACE_MIN_HEIGHT := 8.0
+## Luft der breitesten Schatulle quer im Stellplatz.
 const CASE_ROOM := 1.06
 
 
@@ -109,36 +97,20 @@ const FLANK_NAME_SHARE := 0.38
 const FLANK_NAME_STEPS := [2.4, 2.2, 2.0, 1.8, 1.6]
 const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
 
-## Mindesthöhe des AUSKUNFTS-BANDES unter den Regalen (u): es trägt die längste
-## Paket-Beschreibung ungekürzt und beim Würfel-Hover dessen Netz.
+## Mindesthöhe des AUSKUNFTS-BANDES unter der Paket-Fläche (u).
 const VITRINE_FOOTER_UNITS := 6.5
 const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
-## Die Zeile unter dem Würfel-Paket bzw. Modul (Auskunft): Höhe in u und Anteil der
-## Spaltenbreite, den sie höchstens nimmt.
-const DIE_NET_UNITS := 8.0
-const DIE_NET_WIDTH_SHARE := 0.9
-## Die Würfel-Paket-Auskunft schrumpft, bis sie ungeschnitten in ihren Block paßt.
-const DIE_INFO_STEPS := [1.6, 1.45, 1.3, 1.15, 1.0, 0.9]
+## Die Auskunft UNTER jedem Paket: Höhe in u und Anteil der Spaltenbreite.
+const PLACE_INFO_UNITS := 4.6
+const PLACE_INFO_WIDTH_SHARE := 0.9
+## Sie schrumpft, bis jede ungeschnitten in ihren Block paßt - EIN Grad für alle.
+const PLACE_INFO_STEPS := [1.45, 1.3, 1.15, 1.0, 0.9, 0.8]
 
-## Die PROJEKTION der Netz-Blöcke: nach einer echten Ankunft wächst jeder Block aus
-## seinem Würfel heraus, und vor jedem Abräumen wird er in ihn zurück ABSORBIERT -
-## dieselbe Zeit, dieselbe Staffelung, nur rückwärts. Eine zurückkehrende Seite ist
-## KEINE Ankunft: dort steht der Block sofort.
-const NET_GROW_TIME := 0.5
-## Ein Hauch Versatz je Würfel: die Reihe projiziert sich von links nach rechts,
-## statt in einem Schlag dazustehen.
-const NET_GROW_STAGGER := 0.05
-## Woraus er wächst - fast nichts, aber nicht null: eine Null nähme dem Block seine
-## Richtung und ließe ihn aus dem Nirgendwo kommen.
-const NET_GROW_FROM := 0.02
-## Die Einblendung ist kürzer als das Wachsen: erst da, dann fertig gewachsen.
-const NET_FADE_SHARE := 0.6
 const FLIP_DURATION := 0.25
-## Beide Zonen blättern DIESELBE Doppelseite: die Charm-Zeile wechselt im Augenblick
-## des BAND-SCHRITTS - die alte Ware ist gesenkt und verschwunden, die neue rückt
-## nach. Spiegelt VitrineView.belt_moment() (ui/ greift nicht in table/ - ein Test
-## hält die beiden Zahlen gleich); der Vorlauf der Absorption kommt davor.
+## Charm-Zeile und Pakete blättern DIESELBE Doppelseite: die Charm-Zeile wechselt im
+## Augenblick des BAND-SCHRITTS. Spiegelt VitrineView.belt_moment() (ui/ greift nicht
+## in table/ - ein Test hält die beiden Zahlen gleich).
 const FLIP_DELAY := 0.4
 
 ## Eine aufgeschlagene Doppelseite: bleibt für den ganzen Besuch bestehen -
@@ -146,30 +118,20 @@ const FLIP_DELAY := 0.4
 class MenuSpread:
 	extends RefCounted
 
-	## Die PAKETE der Reihe - Einzelkarten verkauft der Laden nicht mehr.
-	var engraving_packs: Array[CardPack] = []
-	var engraving_pack_bought: Array[bool] = []
 	var charm_options: Array[Charm] = []
 	var charm_bought: Array[bool] = []
-	## Der Modul-Paket-Platz der Würfel-Bucht (SHOP_MODULE_PACK_SLOTS).
-	var module_packs: Array[ModulePack] = []
-	var module_pack_prices: Array[int] = []
-	var module_pack_bought: Array[bool] = []
-	## Die WÜRFEL-PAKETE der Schale (run.shop_dice_slots() Plätze) - der EINZIGE Weg
-	## des Ladens an einen Würfel. Die Sortiment-Sperre friert sie mit ein.
-	var single_dice: Array[DicePack] = []
-	var single_dice_prices: Array[int] = []
-	var single_dice_bought: Array[bool] = []
-	## Die einzelne SONDER-KARTE auf dem letzten Platz (höchstens eine).
-	var single_specials: Array[Pack] = []
-	var single_special_bought: Array[bool] = []
-	## Hat diese Seite schon einmal körperlich in der Bucht gelegen? Genau daran
-	## hängt der Ankunfts-Grad: was noch nie da war, wird gewürfelt, nicht abgerufen.
+	## Die sechs PAKET-PLÄTZE, index-treu: CardPack, DicePack, ModulePack oder die
+	## einzelne Sonder-Karte (Pack). Verkauft = Lücke.
+	var packs: Array[Resource] = []
+	var pack_prices: Array[int] = []
+	var pack_bought: Array[bool] = []
+	## Hat diese Seite schon einmal körperlich gelegen? Genau daran hängt der
+	## Ankunfts-Grad: was noch nie da war, wird gewürfelt, nicht abgerufen.
 	var presented := false
 
 ## Der laufende Spiellauf (setzt scene_root). Der Shop hört auf money_changed und
-## packs_changed, damit Kaufbarkeit und Magazin-Marke auch bei Änderungen von
-## außen (Pressen, Prämien) nachziehen.
+## packs_changed, damit Kaufbarkeit und Lager-Marke auch bei Änderungen von
+## außen nachziehen.
 var run: GameRun:
 	set(value):
 		if run != null and run.money_changed.is_connected(_on_run_money_changed):
@@ -197,29 +159,16 @@ var u := 8.0
 
 ## Gerüst-Referenzen (je open() frisch gebaut).
 var money_label: Label
-var content_root: VBoxContainer  # das CHARM-Regal (der Rest liegt körperlich auf dem Tisch)
-## Das WÜRFEL-Regal: Titel, Bucht und die Zeile der Schilder darunter.
-var vitrine_slot: Control
-## Die BUCHT: der Streifen, auf dem die Würfel liegen - der Laden meldet ihn nur
-## (apron_bottom-Muster), aufgestellt wird von scene_root.
-var vitrine_field: Control
-## Der Schilder-Layer: je Würfel ein Block aus Name/Preis darüber und Netz darunter.
-## Reine Anzeige; die Anker kennt allein scene_root.
-var vitrine_nets: Control
-## Die Zeile unter der Bucht, die das Netz reserviert.
-var die_labels: Control
-## Die Zeile ÜBER der Bucht: Name/Seele und Preis je Würfel.
-var die_head: Control
-## Die Auskunftszeile im AUSKUNFTS-BAND - ohne Hover unsichtbar.
+var content_root: VBoxContainer  # das CHARM-Regal (die Pakete liegen körperlich auf dem Tisch)
+## Die Bet-Notiz im AUSKUNFTS-BAND - ohne Meldung unsichtbar.
 var net_footer: LexikonText
-## Das AUSKUNFTS-BAND unter den Regalen: dort spricht der gegriffene Würfel
-## (net_footer) ODER die gegriffene Karte (slit_info) - nie beide.
+## Das AUSKUNFTS-BAND unter der Paket-Fläche: dort spricht das gegriffene Paket.
 var ware_foot: Control
-## Die Auskunft der Kassette (Name + Beschreibung). Absolut positioniertes Overlay
-## der SEITE, kein Layout-Kind - die Bandhöhen bleiben davon unberührt.
-var slit_info: Control
-var slit_info_name: Label
-var slit_info_body: Label
+## Die Auskunft des gegriffenen Pakets (Name + Beschreibung). Absolut positioniertes
+## Overlay der SEITE, kein Layout-Kind - die Bandhöhen bleiben davon unberührt.
+var place_info: Control
+var place_info_name: Label
+var place_info_body: Label
 var page_label: Label
 var done_button: Button
 var page_back_button: Button
@@ -227,18 +176,18 @@ var page_next_button: Button
 ## Umschalter der Sortiment-Sperre (Kopfzeile).
 var lock_button: Button
 
-## Das GRAVUREN-Regal: drei Plätze, auf denen die Kassetten liegen; der Laden
-## meldet ihre Mitten, die Zellen stellt scene_root.
-var slit_row: Control
-var _gravur_band: VBoxContainer
-var _slit_pads: Array[Panel] = []
-## Je Platz sein Preisschild direkt unter der Karte - leer, wo nichts liegt.
-var _slit_prices: Array[Label] = []
-## Je Platz {kind, index}.
-var _slit_seats: Array[Dictionary] = []
-## Eine eben gebaute Reihe hat noch KEIN Rechteck - erst das Sortieren ihres Bandes
+## Die PAKET-FLÄCHE: zwei Reihen zu drei Plätzen; der Laden meldet ihre Mitten, die
+## Körper stellt scene_root.
+var _pack_band: VBoxContainer
+var pack_rows: Array[Control] = []
+## Je Platz (Index = Platz): Stellplatz, Name und Preis darüber, Auskunft darunter.
+var _place_pads: Array[Panel] = []
+var _place_names: Array[Label] = []
+var _place_prices: Array[Label] = []
+var _place_infos: Array[Label] = []
+## Eine eben gebaute Fläche hat noch KEIN Rechteck - erst das Sortieren ihres Bandes
 ## stellt sie hin. Wer vorher mißt, stapelt alles auf den Ursprung.
-var _slit_row_fresh := true
+var _places_fresh := true
 
 ## Fußabdruck einer LIEGENDEN Kassette in Display-Pixeln (meldet scene_root).
 ## Daran ist der Stellplatz geschnitten - ein Weltmaß, kein u-Maß.
@@ -247,47 +196,26 @@ var data_cell_lie_px := Vector2.ZERO:
 		if data_cell_lie_px.is_equal_approx(value):
 			return
 		data_cell_lie_px = value
-		if slit_row != null and is_instance_valid(slit_row):
-			rebuild_slit_row()
+		rebuild_places()
 
 ## Wie breit die BREITESTE Schatulle quer liegt, in Display-Pixeln (meldet scene_root):
-## daran mißt die Würfel-Bucht ihre Höhe, die Riesig-Schatulle ist breiter als eine Karte.
+## daran mißt der Stellplatz seine Tiefe.
 var dice_case_across_px := 0.0:
 	set(value):
 		if is_equal_approx(dice_case_across_px, value):
 			return
 		dice_case_across_px = value
-		if vitrine_field != null and is_instance_valid(vitrine_field):
-			vitrine_field.custom_minimum_size = Vector2(0.0, bay_height())
+		rebuild_places()
 
 var spreads: Array[MenuSpread] = []
 var current_spread_index: int = 0
 
-## Die Seite, die gerade körperlich in der Bucht liegt, und der Grad, in dem die
-## zuletzt gezeigte Seite dorthin kommt. Beides ist reine Anzeige-Buchführung -
-## an der Ökonomie ändert der Grad nichts.
+## Die Seite, die gerade körperlich liegt, und der Grad, in dem die zuletzt gezeigte
+## Seite dorthin kommt. Reine Anzeige-Buchführung.
 var _standing_spread: MenuSpread = null
 var _vitrine_grade := GRADE_STAND
-## Unterschrift der stehenden Schilder-Blöcke - gleiche Unterschrift, kein Neuaufbau.
-var _net_signature := ""
-## Je Würfel EIN Block aus Name/Seele und Preis - er wächst aus seinem Würfel.
-var _net_blocks: Array[Control] = []
-## Läuft eine Projektion (Wachstum ODER Absorption)?
-var _net_growing := false
-## Und läuft sie RÜCKWÄRTS? Dann räumt die Absorption die Blöcke am Ende selbst ab.
-var _net_absorbing := false
-var _net_grow_tween: Tween
-var _net_dice: Array = []  # je Block sein Paket (DicePack oder ModulePack)
-## Je Block sein Preisschild - dieselbe Quelle wie der Kauf (single_dice_prices).
-var _net_prices: Array[Label] = []
-## Und darüber die NAMENS-Zeile: die Seele im Glühton der Essenz, sonst der Name.
-var _net_souls: Array[Label] = []
-## Was im Band steht - idempotenter Schreiber, er läuft je Bild.
-var _net_hint := ""
-## Welcher Würfel im Band erklärt wird (0 = keiner).
-var _foot_die_key := 0
-## Welche Kassette die Flanke gerade erklärt ("" = keine).
-var _slit_info_key := ""
+## Welches Paket die Flanke gerade erklärt ("" = keines).
+var _place_info_key := ""
 
 ## Der Laden RÄUMT AB: seine Seite steht noch (die Zeremonie der Auslage spielt auf
 ## ihr), er ist aber tot - kein Kauf, kein Neuaufbau, kein Forwarding. Erst
@@ -304,7 +232,6 @@ var sortiment_locked: bool = false
 var _charm_rebuild_queued: bool = false
 
 # Spiegel der AKTUELLEN Doppelseite - Kauf-Handler und Tests arbeiten dagegen.
-# Knopf-Listen führt nur noch das Charm-Regal: alles andere LIEGT in der Bucht.
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
 ## Je Karte ihr Kartenbild - daran ist das schwebende Modell darüber gemessen.
@@ -314,16 +241,9 @@ var charm_thumbs: Array[Control] = []
 var charm_stages: Array[Control] = []
 var charm_effects: Array[LexikonText] = []
 var charm_bought: Array[bool] = []
-var module_packs: Array[ModulePack] = []
-var module_pack_prices: Array[int] = []
-var module_pack_bought: Array[bool] = []
-var engraving_packs: Array[CardPack] = []
-var engraving_pack_bought: Array[bool] = []
-var single_dice: Array[DicePack] = []
-var single_dice_prices: Array[int] = []
-var single_dice_bought: Array[bool] = []
-var single_specials: Array[Pack] = []
-var single_special_bought: Array[bool] = []
+var packs: Array[Resource] = []
+var pack_prices: Array[int] = []
+var pack_bought: Array[bool] = []
 
 var flip_tween: Tween
 
@@ -333,7 +253,6 @@ var pending_bet_notice: String = ""
 ## Das Wett-Ergebnis dieses Besuchs: es steht im Auskunfts-Band, solange nichts
 ## gegriffen ist - eine eigene Zeile schob den Fuß aus dem Fenster.
 var bet_notice: String = ""
-
 ## Öffnet den Shop frisch auf der ersten Doppelseite (Gebühr startet neu);
 ## baut das Gerüst passend zur aktuellen Größe. Ist das Sortiment gesperrt,
 ## bleiben die bestehenden Seiten samt Kauf-Marken stehen.
@@ -376,9 +295,10 @@ func _build_layout() -> void:
 	# endet an der Hub-Fläche).
 	clip_contents = true
 
-	# Die Kassetten-Auskunft steht VOR dem Layout in der Kindliste: sie ist ein
-	# Overlay, kein Band - und das Möbel der Seite bleibt so ihr letztes Kind.
-	_build_slit_info()
+
+	# Die Paket-Auskunft steht VOR dem Layout in der Kindliste: sie ist ein Overlay,
+	# kein Band - und das Möbel der Seite bleibt so ihr letztes Kind.
+	_build_place_info()
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
@@ -426,55 +346,26 @@ func _build_layout() -> void:
 	content_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(content_root)
 
-	# Regal 2: WÜRFEL - über den Karten-Paketen, damit die Schatulle gut im Bild liegt.
-	var dice_band := VBoxContainer.new()
-	dice_band.name = "DiceBand"
-	dice_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
-	dice_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dice_band.add_child(_heading_row("WÜRFEL & MODULE"))
-	vitrine_slot = dice_band
-	var shelf := VBoxContainer.new()
-	shelf.name = "DiceShelf"
-	shelf.add_theme_constant_override("separation", 0)
-	shelf.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_net_signature = ""  # ein frischer Layer trägt nichts, was schon stünde
-	# Name und Preis stehen ÜBER dem Würfel, das Netz darunter (Spieler-Wunsch 2026-10-29).
-	die_head = Control.new()
-	die_head.name = "DieHead"
-	die_head.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	die_head.custom_minimum_size = Vector2(0.0, _die_head_height())
-	shelf.add_child(die_head)
-	vitrine_field = Control.new()
-	vitrine_field.name = "VitrineField"
-	vitrine_field.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Die Hülle eines Würfel-Pakets liegt darin wie eine Kassette: so tief wie ihr Stellplatz.
-	vitrine_field.custom_minimum_size = Vector2(0.0, bay_height())
-	vitrine_nets = Control.new()
-	vitrine_nets.name = "DieNets"
-	vitrine_nets.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vitrine_nets.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vitrine_field.add_child(vitrine_nets)
-	shelf.add_child(vitrine_field)
-	die_labels = Control.new()
-	die_labels.name = "DieLabels"
-	die_labels.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	die_labels.custom_minimum_size = Vector2(0.0, _die_label_height())
-	shelf.add_child(die_labels)
-	dice_band.add_child(shelf)
-	root.add_child(dice_band)
-
-	# Regal 3: GRAVUREN - die Plätze stehen UNABHÄNGIG von der Doppelseite.
-	_gravur_band = VBoxContainer.new()
-	_gravur_band.name = "GravurBand"
-	_gravur_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
-	_gravur_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_gravur_band.add_child(_heading_row("GRAVUREN"))
-	slit_row = _shelf_row("SlitRow", _slit_seat_size().y)
-	_gravur_band.add_child(slit_row)
-	_fill_slit_row()
-	# GEMELDET, nicht geraten: erst das Sortieren des Bandes stellt die Reihe hin.
-	_gravur_band.sort_children.connect(func() -> void: _slit_row_fresh = false)
-	root.add_child(_gravur_band)
+	# Regal 2: PAKETE - zwei Reihen zu drei Plätzen, jede Art auf jedem Platz.
+	_pack_band = VBoxContainer.new()
+	_pack_band.name = "PackBand"
+	_pack_band.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
+	_pack_band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pack_band.add_child(_heading_row("PAKETE"))
+	var rows := VBoxContainer.new()
+	rows.name = "PackRows"
+	rows.add_theme_constant_override("separation", int(u * PACK_ROW_GAP))
+	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pack_band.add_child(rows)
+	pack_rows.clear()
+	for r in PACK_ROWS:
+		var row := _shelf_row("PackRow%d" % r, _place_seat_size().y)
+		rows.add_child(row)
+		pack_rows.append(row)
+	_fill_places()
+	# GEMELDET, nicht geraten: erst das Sortieren der Reihen stellt die Plätze hin.
+	rows.sort_children.connect(func() -> void: _places_fresh = false)
+	root.add_child(_pack_band)
 
 	# Das AUSKUNFTS-BAND nimmt die Resthöhe - die Regale stehen dicht übereinander.
 	ware_foot = Control.new()
@@ -555,97 +446,123 @@ static func _center_in_place(child: Control, width: float, height: float) -> voi
 	child.set_anchor_and_offset(SIDE_TOP, 0.0, 0.0)
 	child.set_anchor_and_offset(SIDE_BOTTOM, 0.0, height)
 
-# --- Die Kassetten-Plätze (gemeldete Geometrie, kein Inhalt) -------------------
+# --- Die Paket-Plätze (gemeldete Geometrie, kein Körper) --------------------------
 
-## Die Plätze der Reihe. Der Sonderposten BELEGT den letzten, er stellt keinen dazu;
-## ein verkaufter oder nie gewürfelter Platz behält seinen Stellplatz.
-func slit_seats() -> Array[Dictionary]:
-	var seats: Array[Dictionary] = []
-	if run == null:
-		return seats
-	for i in run.shop_pack_slots():
-		seats.append({"kind": KIND_ENGRAVING_PACK, "index": i})
-	if not single_specials.is_empty() and not seats.is_empty():
-		seats[seats.size() - 1] = {"kind": KIND_SPECIAL, "index": 0}
-	return seats
+## Wie viele Plätze die Fläche hat - fest, verkaufte und leere eingeschlossen.
+func place_count() -> int:
+	return GameRun.SHOP_PACK_PLACES
 
-## Die Höhe der Würfel-Bucht: der liegende Würfel, ein Kassetten-Stellplatz und die breiteste
-## Schatulle samt Luft - das größte gewinnt.
-func bay_height() -> float:
-	return maxf(maxf(u * DIE_ROOM_UNITS, slit_size().y), dice_case_across_px * CASE_ROOM)
+## Die Reihe eines Platzes (0 = oben).
+static func row_of(seat: int) -> int:
+	return seat / COLUMNS
 
-## Der STELLPLATZ: liegender Kartengrundriß plus Stellluft, mit einem u-Boden für
-## ein Fenster, dem noch niemand einen Grundriß gemeldet hat.
-func slit_size() -> Vector2:
-	var card := data_cell_lie_px * PackDrawerView.CASSETTE_SCALE * SLIT_ROOM
-	return Vector2(maxf(u * SLIT_MIN_WIDTH, card.x), maxf(u * SLIT_MIN_HEIGHT, card.y))
+## Der STELLPLATZ: liegender Kartengrundriß plus Stellluft, mindestens so tief wie die
+## breiteste Schatulle quer - jeder Platz trägt jede Art. Ein u-Boden hält ein Fenster,
+## dem noch niemand einen Grundriß gemeldet hat.
+func place_pad_size() -> Vector2:
+	var card := data_cell_lie_px * PackDrawerView.CASSETTE_SCALE * PLACE_ROOM
+	return Vector2(maxf(u * PLACE_MIN_WIDTH, card.x),
+		maxf(maxf(u * PLACE_MIN_HEIGHT, card.y), dice_case_across_px * CASE_ROOM))
 
-## Ein ganzer Platz: Stellplatz und darunter sein Preisschild.
-func _slit_seat_size() -> Vector2:
-	var pad := slit_size()
-	return Vector2(pad.x, pad.y + u * WARE_PRICE_GAP + _price_height())
+## Ein ganzer Platz: Name und Preis, der Stellplatz, die Auskunft darunter.
+func _place_seat_size() -> Vector2:
+	return Vector2(column_width(), _place_head_height() + place_pad_size().y
+		+ u * WARE_PRICE_GAP + u * PLACE_INFO_UNITS)
 
 func _price_height() -> float:
 	return ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
 
-func _fill_slit_row() -> void:
-	_slit_pads.clear()
-	_slit_prices.clear()
-	_slit_seats = slit_seats()
-	var places := slit_row.get_children()
-	for i in mini(_slit_seats.size(), places.size()):
-		places[i].add_child(_slit_seat(i))
-	_slit_row_fresh = true
+func _name_height() -> float:
+	return ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
 
-## Ein neuer Kartengrundriß mitten im Besuch: die Plätze werden neu geschnitten.
-func rebuild_slit_row() -> void:
-	if slit_row == null or not is_instance_valid(slit_row):
+## Name und Preis - der Kopf über dem Stellplatz.
+func _place_head_height() -> float:
+	var gap := u * WARE_PRICE_GAP
+	return _name_height() + gap * 0.5 + _price_height() + gap * 0.5
+
+func _fill_places() -> void:
+	_place_pads.clear()
+	_place_names.clear()
+	_place_prices.clear()
+	_place_infos.clear()
+	for seat in place_count():
+		var r := row_of(seat)
+		if r >= pack_rows.size():
+			break
+		var places := pack_rows[r].get_children()
+		var column := seat % COLUMNS
+		if column < places.size():
+			places[column].add_child(_place_seat(seat))
+	_places_fresh = true
+	_refresh_place_labels()
+
+## Ein neuer Grundriß mitten im Besuch: die Plätze werden neu geschnitten.
+func rebuild_places() -> void:
+	if pack_rows.is_empty() or not is_instance_valid(pack_rows[0]):
 		return
-	for place in slit_row.get_children():
-		for child in place.get_children():
-			child.queue_free()
-	slit_row.custom_minimum_size = Vector2(0.0, _slit_seat_size().y)
-	_fill_slit_row()
-	if _gravur_band != null and is_instance_valid(_gravur_band):
-		_gravur_band.queue_sort()  # frische Knöpfe: erst das nächste Sortieren gilt
-	_slit_info_key = ""  # die Reihe ist neu, die Flanke erklärt nichts mehr
-	if slit_info != null and is_instance_valid(slit_info):
-		slit_info.visible = false
+	for row in pack_rows:
+		for place in row.get_children():
+			for child in place.get_children():
+				child.queue_free()
+		row.custom_minimum_size = Vector2(0.0, _place_seat_size().y)
+	_fill_places()
+	var rows := pack_rows[0].get_parent() as Container
+	if rows != null:
+		rows.queue_sort()  # frische Knöpfe: erst das nächste Sortieren gilt
+	_place_info_key = ""  # die Fläche ist neu, die Flanke erklärt nichts mehr
+	if place_info != null and is_instance_valid(place_info):
+		place_info.visible = false
 	_refresh_ware_prices()
 
-## Ein Platz: der leere KNOPF fängt Klick und Zeiger, gezeichnet wird allein der
-## flache Stellplatz darin. Der PREIS steht direkt darunter, mittig.
-func _slit_seat(seat: int) -> Button:
-	var pad_size := slit_size()
-	var whole := _slit_seat_size()
+## Ein Platz: der leere KNOPF fängt Klick und Zeiger über die ganze Spalte; gezeichnet
+## wird der flache Stellplatz, darüber Name und Preis, darunter die Auskunft.
+func _place_seat(seat: int) -> Button:
+	var pad_size := place_pad_size()
+	var whole := _place_seat_size()
+	var gap := u * WARE_PRICE_GAP
 	var button := Button.new()
-	button.name = "SlitSeat"
+	button.name = "PackSeat"
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
 	_center_in_place(button, whole.x, whole.y)
+	var name_label := CasinoStyle.label("", u * WARE_SOUL_FONT, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.name = "Name"
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.size = Vector2(whole.x, _name_height())
+	button.add_child(name_label)
+	_place_names.append(name_label)
+	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	tag.name = "Price"
+	tag.position = Vector2(0.0, _name_height() + gap * 0.5)
+	tag.size = Vector2(whole.x, _price_height())
+	button.add_child(tag)
+	_place_prices.append(tag)
 	var pad := Panel.new()
 	pad.name = "Pad"
 	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pad.position = Vector2.ZERO
+	pad.position = Vector2((whole.x - pad_size.x) * 0.5, _place_head_height())
 	pad.size = pad_size
-	pad.add_theme_stylebox_override("panel", _slit_box())
+	pad.add_theme_stylebox_override("panel", _place_box())
 	button.add_child(pad)
-	_slit_pads.append(pad)
-	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	tag.name = "Price"
-	tag.position = Vector2(0.0, pad_size.y + u * WARE_PRICE_GAP)
-	tag.size = Vector2(pad_size.x, _price_height())
-	button.add_child(tag)
-	_slit_prices.append(tag)
+	_place_pads.append(pad)
+	var width := whole.x * PLACE_INFO_WIDTH_SHARE
+	var info := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	info.name = "Info"
+	info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	info.position = Vector2((whole.x - width) * 0.5, _place_head_height() + pad_size.y + gap)
+	info.size = Vector2(width, u * PLACE_INFO_UNITS)
+	button.add_child(info)
+	_place_infos.append(info)
 	# Nur der KLICK hängt hier: Anheben und Auskunft fragt scene_root je Bild ab.
-	button.pressed.connect(_on_slit_pressed.bind(seat))
+	button.pressed.connect(buy_pack.bind(seat))
 	button.set_meta(&"sfx_silent", true)  # der Kauf klingt selbst
 	return button
 
-## Der Stellplatz ist eine flache Marke im Kartengrundriß - eine Karte liegt darauf.
-func _slit_box() -> StyleBoxFlat:
+## Der Stellplatz ist eine flache Marke im Paket-Grundriß - ein Paket liegt darauf.
+func _place_box() -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color("#0b0a1ce6")
 	box.border_color = Color(NEON_CYAN.r, NEON_CYAN.g, NEON_CYAN.b, 0.3)
@@ -653,86 +570,70 @@ func _slit_box() -> StyleBoxFlat:
 	box.set_corner_radius_all(int(u * 0.8))
 	return box
 
-## STEHT die Reihe wirklich? Eine eben gebaute hat bis zum nächsten Sortieren
-## ihres Bandes keine Rechtecke - wer stellt, mißt erst, wenn es soweit ist.
-func slit_row_laid_out() -> bool:
-	return not _slit_row_fresh
+## STEHT die Fläche wirklich? Eine eben gebaute hat bis zum nächsten Sortieren
+## keine Rechtecke - wer stellt, mißt erst, wenn es soweit ist.
+func places_laid_out() -> bool:
+	return not _places_fresh
 
-## Display-Pixel der STELLPLATZ-Mitten (leere eingeschlossen) - dort liegt die
-## Kassette, und von dort fährt eine gekaufte los.
-func slit_anchors() -> Array[Vector2]:
+## Display-Pixel der STELLPLATZ-Mitten (leere eingeschlossen) - dort liegt das
+## Paket, und von dort fährt ein gekauftes los.
+func place_anchors() -> Array[Vector2]:
 	var out: Array[Vector2] = []
-	for pad in _slit_pads:
+	for pad in _place_pads:
 		if is_instance_valid(pad):
 			out.append(pad.get_global_rect().get_center())
 	return out
 
-## Dieselben Stellplätze als Rechtecke - die Rechteck-Treue prüft sich daran.
-func slit_rects() -> Array[Rect2]:
+## Dieselben Stellplätze als Rechtecke.
+func place_rects() -> Array[Rect2]:
 	var out: Array[Rect2] = []
-	for pad in _slit_pads:
+	for pad in _place_pads:
 		if is_instance_valid(pad):
 			out.append(pad.get_global_rect())
 	return out
 
-## Was in den Schlitzen steckt: je Platz sein Paket, null für verkauft oder nie
-## gewürfelt. Die Lücken sind index-treu - ein Griff meint immer denselben Kaufweg.
-func slit_stock() -> Array:
+## Die Mitte EINES Stellplatzes (Display-Pixel; leer = nicht ausgelegt).
+func place_anchor(seat: int) -> Vector2:
+	if seat >= 0 and seat < _place_pads.size() and is_instance_valid(_place_pads[seat]):
+		return _place_pads[seat].get_global_rect().get_center()
+	return get_global_rect().get_center()
+
+## Was auf den Plätzen liegt: je Platz sein Paket, null für verkauft oder leer. Die
+## Lücken sind index-treu - ein Griff meint immer denselben Platz.
+func place_stock() -> Array:
 	var out: Array = []
-	for seat in _slit_seats:
-		out.append(_slit_pack(seat))
+	for seat in place_count():
+		out.append(_shown_pack(seat))
 	return out
 
-## Das Paket bzw. (Sonderposten-Platz) die einzelne Sonder-Karte eines Platzes.
-func _slit_pack(seat: Dictionary) -> Resource:
-	var index := int(seat["index"])
-	if String(seat["kind"]) == KIND_SPECIAL:
-		if index >= single_specials.size() or single_special_bought[index]:
-			return null
-		return single_specials[index]
-	if index >= engraving_packs.size() or engraving_pack_bought[index]:
+## Das Paket eines Platzes, gekauft oder nicht (null = keines gewürfelt).
+func pack_at(seat: int) -> Resource:
+	return packs[seat] if seat >= 0 and seat < packs.size() else null
+
+func _shown_pack(seat: int) -> Resource:
+	if seat < 0 or seat >= packs.size() or seat >= pack_bought.size() or pack_bought[seat]:
 		return null
-	return engraving_packs[index]
+	return packs[seat]
 
-func _on_slit_pressed(seat: int) -> void:
-	if seat < 0 or seat >= _slit_seats.size():
-		return
-	var entry := _slit_seats[seat]
-	if _slit_pack(entry) == null:
-		return
-	if String(entry["kind"]) == KIND_SPECIAL:
-		_on_single_special_pressed(int(entry["index"]))
-	else:
-		_on_pack_buy_pressed(int(entry["index"]))
+# --- Die Paket-Auskunft im Auskunfts-Band --------------------------------------
 
-## Der Platz EINES Angebots (-1 = keiner) - der Kauf-Komet startet dort.
-func _seat_of(kind: String, index: int) -> int:
-	for i in _slit_seats.size():
-		if String(_slit_seats[i]["kind"]) == kind and int(_slit_seats[i]["index"]) == index:
-			return i
-	return -1
-
-# --- Die Kassetten-Auskunft im Auskunfts-Band ----------------------------------
-# Die Farbe nennt Sorte und Größe, das Schild den Preis - was in der Kassette
-# steckt, sagt das Band, und nur mit Zeiger.
-
-func _build_slit_info() -> void:
-	slit_info = Control.new()
-	slit_info.name = "SlitInfo"
-	slit_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slit_info.visible = false
-	slit_info_name = _wrapped_line(u * float(FLANK_NAME_STEPS[0]), NEON_TEXT,
+func _build_place_info() -> void:
+	place_info = Control.new()
+	place_info.name = "PlaceInfo"
+	place_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	place_info.visible = false
+	place_info_name = _wrapped_line(u * float(FLANK_NAME_STEPS[0]), NEON_TEXT,
 		HORIZONTAL_ALIGNMENT_LEFT)
-	slit_info.add_child(slit_info_name)
-	slit_info_body = _wrapped_line(u * float(FLANK_BODY_STEPS[0]), NEON_MUTED,
+	place_info.add_child(place_info_name)
+	place_info_body = _wrapped_line(u * float(FLANK_BODY_STEPS[0]), NEON_MUTED,
 		HORIZONTAL_ALIGNMENT_LEFT)
-	slit_info.add_child(slit_info_body)
-	add_child(slit_info)
-	_slit_info_key = ""
+	place_info.add_child(place_info_body)
+	add_child(place_info)
+	_place_info_key = ""
 
-## Der Platz der Karten-Auskunft in globalen Pixeln: das AUSKUNFTS-BAND unter den
-## Regalen. GEMESSEN - leer heißt, die Seite ist noch nicht ausgelegt.
-func slit_flank_rect() -> Rect2:
+## Der Platz der Paket-Auskunft in globalen Pixeln: das AUSKUNFTS-BAND. GEMESSEN -
+## leer heißt, die Seite ist noch nicht ausgelegt.
+func place_flank_rect() -> Rect2:
 	if ware_foot == null or not is_instance_valid(ware_foot):
 		return Rect2()
 	var band := ware_foot.get_global_rect()
@@ -742,63 +643,53 @@ func slit_flank_rect() -> Rect2:
 	return Rect2(band.position + Vector2(margin, 0.0),
 		Vector2(band.size.x - margin * 2.0, band.size.y))
 
-## Der EINE Schreiber der Flanke (-1 = kein Platz gegriffen). Ein verkaufter oder
-## nie gewürfelter Platz zeigt NICHTS - dort liegt keine Ware, die etwas sagen
-## könnte. Idempotent: dieselbe Kassette schreibt nichts neu. `cell_hint` ist die
-## Zeile der NETZ-ZELLE unter dem Zeiger (scene_root fragt den Körper): sie
-## übersteuert die Wirkung des ganzen Pakets, der Name bleibt stehen.
-func set_slit_hover(seat: int, cell_hint := "") -> void:
-	if slit_info == null or not is_instance_valid(slit_info):
+## Der EINE Schreiber der Auskunft (-1 = kein Platz gegriffen). Ein verkaufter Platz
+## zeigt NICHTS. Idempotent. `cell_hint` ist die Zeile der NETZ-ZELLE unter dem Zeiger
+## (scene_root fragt den Körper): sie übersteuert die Beschreibung, der Name bleibt.
+func set_place_hover(seat: int, cell_hint := "") -> void:
+	if place_info == null or not is_instance_valid(place_info):
 		return
-	var pack: Resource = null
-	if seat >= 0 and seat < _slit_seats.size():
-		pack = _slit_pack(_slit_seats[seat])
-	var key := "" if pack == null else "%d:%d:%s" % [seat, pack.get_instance_id(),
-		cell_hint]
-	if key == _slit_info_key:
+	var pack := _shown_pack(seat)
+	var key := "" if pack == null else "%d:%d:%s" % [seat, pack.get_instance_id(), cell_hint]
+	if key == _place_info_key:
 		return
-	_slit_info_key = key
+	_place_info_key = key
 	if pack == null:
-		slit_info.visible = false
+		place_info.visible = false
 		_redraw_foot()  # das Wett-Ergebnis kehrt zurück
 		return
-	var flank := slit_flank_rect()
+	var flank := place_flank_rect()
 	if flank.size.x <= 0.0:
-		slit_info.visible = false
-		_slit_info_key = ""  # ungemessen: beim nächsten Bild noch einmal versuchen
+		place_info.visible = false
+		_place_info_key = ""  # ungemessen: beim nächsten Bild noch einmal versuchen
 		return
-	slit_info.position = flank.position - get_global_rect().position
-	slit_info.size = flank.size
-	slit_info_name.text = String(pack.get("display_name"))
-	if pack is CardPack:
-		slit_info_name.modulate = PackDrawerView.card_pack_tint((pack as CardPack).sort)
-		slit_info_body.text = cell_hint if cell_hint != "" else CardPack.info_body(pack)
-	else:
-		slit_info_name.modulate = PackDrawerView.pack_tint(pack as Pack)
-		slit_info_body.text = cell_hint if cell_hint != "" else Pack.info_body(pack as Pack)
-	_fit_slit_info(flank.size)
-	slit_info.visible = true
-	if _net_hint == "" and net_footer != null and is_instance_valid(net_footer):
+	place_info.position = flank.position - get_global_rect().position
+	place_info.size = flank.size
+	place_info_name.text = String(pack.get("display_name"))
+	place_info_name.modulate = ware_tint(pack)
+	place_info_body.text = cell_hint if cell_hint != "" else ware_info(pack)
+	_fit_place_info(flank.size)
+	place_info.visible = true
+	if net_footer != null and is_instance_valid(net_footer):
 		net_footer.visible = false
 
 ## Beide Zeilen passen sich in die Flanke ein: erst der Name in seinen Anteil,
-## dann die Beschreibung in den Rest. Der Block bleibt in der Reihenhöhe und
-## steht senkrecht mittig darin.
-func _fit_slit_info(flank: Vector2) -> void:
+## dann die Beschreibung in den Rest.
+func _fit_place_info(flank: Vector2) -> void:
 	var font := ThemeDB.fallback_font
 	if font == null:
 		return
 	var gap := u * FLANK_SEPARATION
-	var lead := slit_info_body.get_theme_constant("line_spacing")
-	var name_px := _block_font(font, slit_info_name.text, flank.x,
+	var lead := place_info_body.get_theme_constant("line_spacing")
+	var name_px := _block_font(font, place_info_name.text, flank.x,
 		flank.y * FLANK_NAME_SHARE, FLANK_NAME_STEPS, lead)
-	var name_h := wrapped_height(font, slit_info_name.text, flank.x, name_px, lead)
-	var body_px := _block_font(font, slit_info_body.text, flank.x,
+	var name_h := wrapped_height(font, place_info_name.text, flank.x, name_px, lead)
+	var body_px := _block_font(font, place_info_body.text, flank.x,
 		maxf(flank.y - name_h - gap, 1.0), FLANK_BODY_STEPS, lead)
-	var body_h := wrapped_height(font, slit_info_body.text, flank.x, body_px, lead)
+	var body_h := wrapped_height(font, place_info_body.text, flank.x, body_px, lead)
 	var top := maxf((flank.y - name_h - gap - body_h) * 0.5, 0.0)
-	_lay_wrapped(slit_info_name, name_px, Vector2(0.0, top), Vector2(flank.x, name_h))
-	_lay_wrapped(slit_info_body, body_px, Vector2(0.0, top + name_h + gap),
+	_lay_wrapped(place_info_name, name_px, Vector2(0.0, top), Vector2(flank.x, name_h))
+	_lay_wrapped(place_info_body, body_px, Vector2(0.0, top + name_h + gap),
 		Vector2(flank.x, body_h))
 
 ## Eine umbrechende Zeile setzen: Grad, Platz, Rechteck. Sie MUSS clip_text tragen
@@ -839,58 +730,38 @@ static func wrapped_height(font: Font, text: String, width: float, px: int,
 	return float(WorkshopView.text_block_lines(font, text, width, px)) \
 		* (font.get_height(px) + float(spacing))
 
-# --- Die Würfel-Auskunft im Auskunfts-Band -------------------------------------
-# Eine rahmenlose Zeile - das Netz steht schon unter dem Würfel.
-# EIN Schreiber (scene_root entscheidet, wer spricht), leer = unsichtbar.
+
+# --- Das Wett-Ergebnis im Auskunfts-Band ---------------------------------------
 
 func _build_net_footer() -> void:
-	# Schlüsselwörter (Essenzen, Mult, Krit ...) sind Klickziele wie auf der
-	# Charm-Karte - die Zeile hält dafür, solange der Zeiger auf dem Band liegt.
 	net_footer = LexikonText.new()
 	net_footer.name = "NetFooter"
 	net_footer.center_h = true
 	net_footer.center_v = true
-	net_footer.set_style(int(u * float(FOOTER_STEPS[0])), NEON_MUTED)
+	net_footer.set_style(int(u * float(FOOTER_STEPS[0])), NEON_GREEN)
 	net_footer.share_hint(self, _keyword_hint_card(int(u * float(FOOTER_STEPS[0]))))
 	net_footer.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
 	net_footer.visible = false
 	ware_foot.add_child(net_footer)
-	_net_hint = ""
-	_foot_die_key = 0
 	if bet_notice != "":
 		# Erst ausgelegt kennt das Band sein Maß.
 		ware_foot.resized.connect(_redraw_foot, CONNECT_ONE_SHOT)
 
-## Die Zeile des Bandes.
-func set_net_hint(text: String, exclude_id := "") -> void:
-	if net_footer == null or not is_instance_valid(net_footer) \
-			or ware_foot == null or not is_instance_valid(ware_foot):
-		return
-	if text == _net_hint and exclude_id == _net_exclude:
-		return
-	_net_hint = text
-	_net_exclude = exclude_id
-	_redraw_foot()
-
-## Der eigene Eintrag der gezeigten Ware: ihr Name verweist nicht auf sich selbst.
-var _net_exclude := ""
-
+## Die Bet-Notiz steht, solange kein Paket spricht.
 func _redraw_foot() -> void:
 	if net_footer == null or not is_instance_valid(net_footer):
 		return
-	var text := _net_hint if _net_hint != "" else bet_notice
-	net_footer.set_source(text, _net_exclude if _net_hint != "" else "")
-	net_footer.visible = text != ""
-	if text == "":
+	net_footer.set_source(bet_notice, "")
+	net_footer.visible = bet_notice != ""
+	if bet_notice == "":
 		return
 	# Der Platz wird beim ANZEIGEN gerechnet: erst dann steht das Band gemessen da.
 	var field := ware_foot.size
 	var margin := u * FOOTER_MARGIN
 	var room := Vector2(maxf(field.x - margin * 2.0, 1.0), maxf(field.y, 1.0))
-	var px := _footer_font(room, u)
 	net_footer.position = Vector2(margin, 0.0)
 	net_footer.size = room
-	net_footer.set_style(px, NEON_GREEN if _net_hint == "" else NEON_MUTED)
+	net_footer.set_style(_footer_font(room, u), NEON_GREEN)
 
 ## Der Grad der Zeile: der größte, in dem sie umgebrochen noch ins Band paßt.
 func _footer_font(block: Vector2, bay_u: float) -> int:
@@ -901,65 +772,34 @@ func _footer_font(block: Vector2, bay_u: float) -> int:
 			return px
 	return smallest
 
-## Hält der Zeiger die Zeile? Ein Schlüsselwort darin muß erreichbar bleiben,
-## also spricht die Ware weiter, solange er auf dem gefüllten Band liegt.
-func foot_holds(pixel: Vector2) -> bool:
-	return net_footer != null and is_instance_valid(net_footer) and net_footer.visible \
-		and _net_hint != "" and ware_foot.get_global_rect().has_point(pixel)
-
-## Der EINE Schreiber der Auskunft der Bucht (null = nichts gegriffen): ein Würfel
-## nennt Name, Seele und Wirkung, ein Modul Name, Phase, Wirkung und Preis.
-## Idempotent je Instanz.
-func set_die_hover(def: DieDefinition) -> void:
-	set_ware_hover(def)
-
-func set_ware_hover(item: Object) -> void:
-	var key := 0 if item == null else item.get_instance_id()
-	if key == _foot_die_key:
-		return
-	_foot_die_key = key
-	var text := ""
-	var own := ""
-	if item is DicePack or item is ModulePack:
-		text = "%s - %s" % [String(item.get("display_name")),
-			ware_info(item).replace("\n", " ")]
-	elif item is DieDefinition:
-		text = die_foot_text(item)
-		if (item as DieDefinition).essence_id != "":
-			own = "essence:%s" % (item as DieDefinition).essence_id
-	elif item is ComboPart:
-		text = part_text(item)
-		own = "part:%s" % (item as ComboPart).id
-	set_net_hint(text, own)
-
-## Die Auskunft eines Moduls als EINE Zeile (Laden-Band, Öffnungs-Fläche).
+## Die Auskunft eines Moduls als EINE Zeile (Öffnungs-Fläche).
 static func part_text(part: ComboPart) -> String:
 	return "%s · %s · Phase: %s - %s" % [part.display_name, part.rarity_name(),
 		Lexikon.PART_PHASE_NAMES.get(part.phase, ""), part.description]
 
-## Die Auskunft eines Pakets der Würfel-Zeile.
+## Die Auskunft eines Pakets - jede Art aus ihrer EINEN Quelle.
 static func ware_info(item: Object) -> String:
 	if item is ModulePack:
 		return ModulePack.info_body(item as ModulePack)
 	if item is DicePack:
 		return DicePack.info_body(item as DicePack)
+	if item is CardPack:
+		return CardPack.info_body(item as CardPack)
+	if item is Pack:
+		return Pack.info_body(item as Pack)
 	return ""
 
-## Die Namensfarbe eines Pakets der Würfel-Zeile: Sorte bzw. Stufe.
+## Die Namensfarbe eines Pakets: Sorte bzw. Stufe.
 static func ware_tint(item: Object) -> Color:
 	if item is ModulePack:
 		return ModulePack.grade_tint((item as ModulePack).grade)
-	return PackDrawerView.dice_pack_tint((item as DicePack).sort)
-
-## Der Platz eines Pakets in der Würfel-Zeile (-1 = keiner): erst die Würfel-Pakete,
-## dann das Modul-Paket.
-func ware_column(item: Object) -> int:
 	if item is DicePack:
-		return single_dice.find(item)
-	if item is ModulePack:
-		var at := module_packs.find(item)
-		return single_dice.size() + at if at >= 0 else -1
-	return -1
+		return PackDrawerView.dice_pack_tint((item as DicePack).sort)
+	if item is CardPack:
+		return PackDrawerView.card_pack_tint((item as CardPack).sort)
+	if item is Pack:
+		return PackDrawerView.pack_tint(item as Pack)
+	return NEON_TEXT
 
 ## Die Auskunft eines Würfels als EINE Zeile - aus derselben Quelle wie der
 ## Info-Schirm der Werkstatt.
@@ -967,288 +807,47 @@ static func die_foot_text(def: DieDefinition) -> String:
 	var info := WorkshopInfoView.die_info(def)
 	return "%s · %s - %s" % [info["title"], info["sub"], info["body"]]
 
-# --- Die Bucht der Würfel (gemeldete Geometrie, kein Inhalt) ---------------------
-
-## Das Buchten-Rechteck in globalen Display-Pixeln (leeres Rect = keine Bucht,
-## etwa solange die Seite noch nicht ausgelegt ist).
-func vitrine_rect_px() -> Rect2:
-	if vitrine_field == null or not is_instance_valid(vitrine_field):
-		return Rect2()
-	return vitrine_field.get_global_rect()
-
-## Das FELD darin: der Streifen ohne Fassung - dieselbe Rechnung wie am Magazin.
-func vitrine_pit_rect() -> Rect2:
-	var strip := vitrine_rect_px()
-	if strip.size.x <= 0.0 or strip.size.y <= 0.0:
-		return Rect2()
-	return PackDrawerView.pit_rect_in(strip, u)
-
-## Die PLÄTZE der Würfel in globalen Display-Pixeln, je Angebot einer (verkaufte
-## eingeschlossen): mittig in ihrem Platz des Rasters. Leer = noch nicht ausgelegt.
-func die_seats_px() -> Array[Vector2]:
-	var out: Array[Vector2] = []
-	var strip := vitrine_rect_px()
-	if strip.size.x <= 0.0 or strip.size.y <= 0.0:
-		return out
-	var gap := u * COLUMN_GAP
-	var half := column_width_in(strip.size.x, gap) * 0.5
-	for i in single_dice.size() + module_packs.size():
-		out.append(strip.position + Vector2(column_x(strip.size.x, gap, i) + half,
-			strip.size.y * 0.5))
-	return out
-
-## Der BLOCK des Würfels index in Pixeln der Bucht: seine Spalte von der Kopfzeile
-## über der Bucht bis unter das Netz - der Würfel liegt mitten darin.
-func die_label_rect(index: int) -> Rect2:
-	var strip := vitrine_rect_px()
-	if strip.size.x <= 0.0 or die_head == null or not is_instance_valid(die_head) \
-			or die_labels == null or not is_instance_valid(die_labels):
-		return Rect2()
-	var top := die_head.get_global_rect().position.y
-	var bottom := die_labels.get_global_rect().end.y
-	var gap := u * COLUMN_GAP
-	return Rect2(Vector2(column_x(strip.size.x, gap, index), top - strip.position.y),
-		Vector2(column_width_in(strip.size.x, gap), bottom - top))
-
-func _soul_height() -> float:
-	return ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_SOUL_FONT)))
-
-## Name/Seele und Preis - die Kopfzeile über der Bucht.
-func _die_head_height() -> float:
-	var gap := u * WARE_PRICE_GAP
-	return _soul_height() + gap * 0.5 + _price_height() + gap * 0.5
-
-## Das Netz - die Zeile unter der Bucht.
-func _die_label_height() -> float:
-	return u * WARE_PRICE_GAP + u * DIE_NET_UNITS
-
-## Das Paket, über dessen Auskunft der Zeiger liegt (globaler Display-Pixel; null =
-## keines). Solange die Blöcke wachsen oder schrumpfen, lögen ihre Rechtecke.
-func die_at_net(pixel: Vector2) -> Resource:
-	if _net_growing:
-		return null
-	for i in mini(_net_blocks.size(), _net_dice.size()):
-		var block := _net_blocks[i]
-		if block == null or not is_instance_valid(block):
+## Name und Auskunft je Platz - ein verkaufter Platz schweigt. Die Auskunft steht für
+## alle Plätze in EINEM Grad, dem größten, in dem jede ungeschnitten paßt.
+func _refresh_place_labels() -> void:
+	var px := _info_px()
+	for seat in mini(_place_names.size(), _place_infos.size()):
+		var pack := _shown_pack(seat)
+		var name_label := _place_names[seat]
+		var info := _place_infos[seat]
+		if not is_instance_valid(name_label) or not is_instance_valid(info):
 			continue
-		var net := block.get_node_or_null("Net") as Control
-		if net != null and net.get_global_rect().has_point(pixel):
-			return _net_dice[i] as Resource
-	return null
+		name_label.text = "" if pack == null else String(pack.get("display_name"))
+		name_label.modulate = NEON_TEXT if pack == null else ware_tint(pack)
+		info.text = "" if pack == null else ware_info(pack)
+		if px > 0:
+			info.add_theme_font_size_override("font_size", px)
 
-## Die SCHILDER der Auslage stellen: je Eintrag {def, anchor} (anchor = der Würfel
-## in Pixeln der Bucht). Idempotent - dieselbe Auslage baut nichts neu. Je Würfel
-## steht sein Block in seiner Spalte: Name/Seele und Preis über der Bucht, das Netz
-## darunter. Nach einer echten ANKUNFT (grow) wächst er aus seinem Würfel, sonst
-## steht er sofort.
-func set_die_nets(entries: Array, grow := false) -> void:
-	var signature := "%d" % entries.size()
-	for entry in entries:
-		var item: Object = entry["dice_pack"]
-		var anchor: Vector2 = entry.get("anchor", Vector2.ZERO)
-		signature += "|%d@%.1f,%.1f" % [item.get_instance_id(), anchor.x, anchor.y]
-	if signature == _net_signature:
-		return  # derselbe Stand: ein Abgleich mitten im Wachstum stört es nicht
-	_net_signature = signature
-	_drop_die_nets()
-	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
-		return
-	var soul_height := _soul_height()
-	var gap := u * WARE_PRICE_GAP
-	var net_top := _die_head_height() + vitrine_rect_px().size.y + gap
-	var info_px := _dice_info_px(entries)
-	for entry in entries:
-		var dice_pack: Resource = entry["dice_pack"]
-		var rect := die_label_rect(ware_column(dice_pack))
-		if rect.size.x <= 0.0:
-			continue
-		var anchor: Vector2 = entry.get("anchor", rect.position)
-		var block := Control.new()
-		block.name = "NetBlock"
-		block.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		block.position = rect.position
-		block.size = rect.size
-		block.pivot_offset = anchor - rect.position
-		vitrine_nets.add_child(block)
-		_net_blocks.append(block)
-		_net_dice.append(dice_pack)
-		var name_label := CasinoStyle.label(String(dice_pack.get("display_name")),
-			u * WARE_SOUL_FONT, ware_tint(dice_pack), HORIZONTAL_ALIGNMENT_CENTER)
-		name_label.clip_text = true
-		name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		name_label.size = Vector2(rect.size.x, soul_height)
-		block.add_child(name_label)
-		_net_souls.append(name_label)
-		var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD,
-			HORIZONTAL_ALIGNMENT_CENTER)
-		tag.position = Vector2(0.0, soul_height + gap * 0.5)
-		tag.size = Vector2(rect.size.x, _price_height())
-		block.add_child(tag)
-		_net_prices.append(tag)
-		var width := rect.size.x * DIE_NET_WIDTH_SHARE
-		var info := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		info.name = "Net"
-		info.text = ware_info(dice_pack)
-		info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		if info_px > 0:
-			info.add_theme_font_size_override("font_size", info_px)
-		info.position = Vector2((rect.size.x - width) * 0.5, net_top)
-		info.size = Vector2(width, u * DIE_NET_UNITS)
-		block.add_child(info)
-	_refresh_ware_prices()
-	if grow:
-		_grow_die_nets()
-
-## EIN Grad für alle Würfel-Paket-Auskünfte: der größte, in dem jede ungeschnitten paßt.
-func _dice_info_px(entries: Array) -> int:
+func _info_px() -> int:
 	var font := ThemeDB.fallback_font
-	if font == null:
+	if font == null or _place_infos.is_empty() or not is_instance_valid(_place_infos[0]):
 		return 0
-	var probe := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	var lead := probe.get_theme_constant("line_spacing")
-	probe.free()
+	var lead := _place_infos[0].get_theme_constant("line_spacing")
+	var width := column_width() * PLACE_INFO_WIDTH_SHARE
 	var px := 0
-	for entry in entries:
-		var rect := die_label_rect(ware_column(entry["dice_pack"]))
-		if rect.size.x <= 0.0:
+	for seat in place_count():
+		var pack := _shown_pack(seat)
+		if pack == null:
 			continue
-		var fit := _block_font(font, ware_info(entry["dice_pack"]),
-			rect.size.x * DIE_NET_WIDTH_SHARE, u * DIE_NET_UNITS, DIE_INFO_STEPS, lead)
+		var fit := _block_font(font, ware_info(pack), width, u * PLACE_INFO_UNITS,
+			PLACE_INFO_STEPS, lead)
 		px = fit if px == 0 else mini(px, fit)
 	return px
 
-## Die PROJEKTION: der fertige Block steht zuerst (Endzustand-zuerst), dann fährt er
-## auf fast nichts am Würfel-Anker zurück und wächst in NET_GROW_TIME wieder heraus,
-## mit Alpha-Einblendung und einer Spur Versatz je Würfel. Jeder Abbruch läßt ihn
-## schlicht fertig stehen.
-func _grow_die_nets() -> void:
-	_kill_net_growth()
-	if _net_blocks.is_empty():
-		return
-	_net_growing = true
-	_net_grow_tween = create_tween().set_parallel(true)
-	for i in _net_blocks.size():
-		var block := _net_blocks[i]
-		if block == null or not is_instance_valid(block):
-			continue
-		block.scale = Vector2.ONE * NET_GROW_FROM
-		block.modulate.a = 0.0
-		var delay := NET_GROW_STAGGER * float(i)
-		var swell := _net_grow_tween.tween_property(block, "scale", Vector2.ONE,
-			NET_GROW_TIME)
-		swell.set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		_net_grow_tween.tween_property(block, "modulate:a", 1.0,
-			NET_GROW_TIME * NET_FADE_SHARE).set_delay(delay)
-	_net_grow_tween.finished.connect(func() -> void: _net_growing = false)
-
-## Die ABSORPTION - das Wachstum rückwärts: vor JEDEM Abräumen (Umschlag wie
-## Abgang) fahren die Blöcke in NET_GROW_TIME in ihren Würfel zurück, in derselben
-## Staffelung von hinten nach vorn. Erst DANACH fährt die Maschine: die Würfel
-## stehen noch, wenn ihre Anzeige eingesogen wird. Sie räumt sich am Ende selbst ab
-## und liefert den ehrlichen Vorlauf (0 = es steht nichts zu saugen).
-func absorb_die_nets() -> float:
-	if _net_blocks.is_empty():
-		return 0.0
-	_kill_net_growth()
-	_net_growing = true
-	_net_absorbing = true
-	var count := _net_blocks.size()
-	_net_grow_tween = create_tween().set_parallel(true)
-	for i in count:
-		var block := _net_blocks[i]
-		if block == null or not is_instance_valid(block):
-			continue
-		var delay := NET_GROW_STAGGER * float(count - 1 - i)
-		var shrink := _net_grow_tween.tween_property(block, "scale",
-			Vector2.ONE * NET_GROW_FROM, NET_GROW_TIME)
-		shrink.set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-		# Erst schrumpfen, dann verlöschen - umgekehrt wäre der Block fort, bevor er
-		# im Würfel angekommen ist.
-		_net_grow_tween.tween_property(block, "modulate:a", 0.0,
-			NET_GROW_TIME * NET_FADE_SHARE).set_delay(
-				delay + NET_GROW_TIME * (1.0 - NET_FADE_SHARE))
-	_net_grow_tween.finished.connect(func() -> void:
-		_net_absorbing = false
-		clear_die_nets())
-	return absorb_time(count)
-
-## Der ehrliche Deckel der Absorption: das Schrumpfen plus die rückwärts laufende
-## Staffelung. Rein und prüfbar - der Wirt taktet beide Zonen danach.
-static func absorb_time(count: int) -> float:
-	if count <= 0:
-		return 0.0
-	return NET_GROW_TIME + NET_GROW_STAGGER * float(count - 1)
-
-## Der EINE Abbruch-Pfad beider Projektionen: kein Tween mehr, jeder Block steht
-## ausgewachsen. Ein harter Abbruch mitten in der Absorption räumt danach ohnehin
-## ab - hier zählt nur, dass kein halb geschrumpfter Block liegen bleibt.
-func _kill_net_growth() -> void:
-	if _net_grow_tween != null and _net_grow_tween.is_valid():
-		_net_grow_tween.kill()
-	_net_grow_tween = null
-	_net_growing = false
-	_net_absorbing = false
-	for block in _net_blocks:
-		if block != null and is_instance_valid(block):
-			block.scale = Vector2.ONE
-			block.modulate.a = 1.0
-
-## Ist gerade ein Block in Bewegung? Solange antwortet der Info-Fuß nicht:
-## skalierte Rechtecke lögen - beim Wachsen wie beim Einsaugen.
-func nets_growing() -> bool:
-	return _net_growing
-
-## Werden die Blöcke gerade eingesogen? Solange gehören sie der Absorption: ein
-## Abräumen von außen risse sie mitten im Schrumpfen weg.
-func nets_absorbing() -> bool:
-	return _net_absorbing
-
-## Der Ton der Seelen-Zeile: das Kantenglühen der Essenz selbst. Ein dunkler Ton
-## (Vakuum glüht schwarz) wird auf ein lesbares Maß gehoben - sonst stünde die
-## Zeile als Loch auf dunklem Grund.
+## Der Ton einer Seelen-Zeile: das Kantenglühen der Essenz selbst. Ein dunkler Ton
+## (Vakuum glüht schwarz) wird auf ein lesbares Maß gehoben.
 static func soul_tint(essence_id: String) -> Color:
 	var glow := Essence.glow_for(essence_id)
 	if glow.get_luminance() >= SOUL_MIN_LUMINANCE:
 		return glow
 	return glow.lerp(Color(1, 1, 1), SOUL_LIFT)
 
-func clear_die_nets() -> void:
-	# Eine Auskunft über verschwundene Ware wäre eine Lüge.
-	set_die_hover(null)
-	set_net_hint("")
-	if _net_signature == "":
-		return
-	_net_signature = ""
-	_drop_die_nets()
-
-## Der Preis des Pakets, unter dem dieser Block liegt (-1 = keiner).
-func _shown_die_price(item: Object) -> int:
-	for i in single_dice.size():
-		if single_dice[i] == item and i < single_dice_prices.size():
-			return single_dice_prices[i]
-	for i in module_packs.size():
-		if module_packs[i] == item and i < module_pack_prices.size():
-			return module_pack_prices[i]
-	return -1
-
-func net_count() -> int:
-	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
-		return 0
-	return vitrine_nets.get_child_count()
-
-func _drop_die_nets() -> void:
-	_kill_net_growth()
-	_net_blocks.clear()
-	_net_dice.clear()
-	_net_prices.clear()
-	_net_souls.clear()
-	if vitrine_nets == null or not is_instance_valid(vitrine_nets):
-		return
-	for child in vitrine_nets.get_children():
-		vitrine_nets.remove_child(child)
-		child.queue_free()
-
-# --- Die Auslage der Bucht (gemeldet, nie gezeichnet) --------------------------
+# --- Die Auslage (gemeldet, nie gezeichnet) ------------------------------------
 
 ## Der Ankunfts-Grad der zuletzt gezeigten Seite. scene_root liest ihn und fährt
 ## ihn EINMAL - jeder weitere Abgleich stellt hart nach.
@@ -1260,47 +859,74 @@ func vitrine_grade() -> String:
 static func grade_for(standing: bool) -> String:
 	return GRADE_STAND if standing else GRADE_RISE
 
-## Die PHYSISCHE Regel schlägt die Seiten-Regel: eine Bucht OHNE Körper zeigt ihre
-## Ware immer als ANKUNFT - die Seite mag liegen geblieben sein, ihre Körper sind
-## seit dem Abgang körperlich fort (Wiedereintritt über den Laden-Knopf, gesperrtes
-## Sortiment). Rein und prüfbar; der Wirt zählt die Körper.
+## Die PHYSISCHE Regel schlägt die Seiten-Regel: eine Auslage OHNE Körper zeigt ihre
+## Ware immer als ANKUNFT. Rein und prüfbar; der Wirt zählt die Körper.
 static func grade_on_stand(grade: String, occupied: bool) -> String:
 	return grade if occupied else GRADE_RISE
 
 static func grade_rank(grade: String) -> int:
 	return 1 if grade == GRADE_RISE else 0
 
-## Der lautere von zwei Graden gewinnt: sammeln sich Meldungen an, bis die Bucht
+## Der lautere von zwei Graden gewinnt: sammeln sich Meldungen an, bis die Auslage
 ## wirklich stellt, darf die leiseste die lauteste nicht verschlucken.
 static func louder_grade(a: String, b: String) -> String:
 	return a if grade_rank(a) >= grade_rank(b) else b
 
-## Was körperlich in der Bucht liegt - seit dem Schlitz-Umbau NUR noch die offenen
-## Würfel: alles Versiegelte steckt im Tisch. Ausverkauft ist SICHTBAR (der Platz
-## bleibt leer), und die bought-Marken halten die Lücken index-treu, damit ein
-## Griff immer denselben Kaufweg meint.
-func vitrine_stock() -> Dictionary:
-	var dice: Array = []
-	for i in single_dice.size():
-		dice.append(null if single_dice_bought[i] else single_dice[i])
-	var bags: Array = []
-	for i in module_packs.size():
-		bags.append(null if module_pack_bought[i] else module_packs[i])
-	return {KIND_DIE: dice, KIND_MODULE_PACK: bags}
+# --- Der Kauf ------------------------------------------------------------------
 
-# --- Kauf-Eingänge der Bucht (scene_root meldet den Griff hierher) -------------
+## Der EINE Kaufweg eines Platzes: Lager-Pakete buchen den Preis und liegen im LAGER
+## (voll = nur diese Art gesperrt), die Sonder-Karte geht versiegelt ins Magazin.
+func buy_pack(seat: int) -> void:
+	var pack := _shown_pack(seat)
+	if pack == null or run == null or _leaving:
+		return
+	var price := pack_prices[seat]
+	if not _buyable(pack, price):
+		purchase_denied.emit()
+		return
+	var refund := 0
+	if pack is Pack:
+		refund = run.purchase_pack(pack as Pack, price)
+	else:
+		var stored: Resource = null
+		if pack is CardPack:
+			stored = run.purchase_card_pack(pack as CardPack, price)
+		elif pack is DicePack:
+			stored = run.purchase_dice_pack(pack as DicePack, price)
+		elif pack is ModulePack:
+			stored = run.purchase_module_pack(pack as ModulePack, price)
+		if stored == null:
+			return
+		refund = run.last_card_pack_refund
+	pack_bought[seat] = true  # liegt im Spread - übersteht den Neuaufbau
+	shop_pack_purchased.emit(seat)
+	if refund > 0:
+		pack_refunded.emit(place_anchor(seat), refund)
+	_show_spread()
 
-func buy_engraving_pack(index: int) -> void:
-	_on_pack_buy_pressed(index)
+func _buyable(pack: Resource, price: int) -> bool:
+	if run.money < price:
+		return false
+	if pack is Pack:
+		return not run.packs_full()
+	return not run.store_full(GameRun.store_lane_of(pack))
 
-func buy_single_die(index: int) -> void:
-	_on_single_die_pressed(index)
+## Der Preis eines Pakets je Art - dieselbe Quelle für Schild und Kauf.
+func _price_of(pack: Resource) -> int:
+	if pack is DicePack:
+		return _dice_pack_price(pack as DicePack)
+	if pack is ModulePack:
+		return run.module_pack_shop_price(pack as ModulePack)
+	return _pack_price(pack)
 
-func buy_module_pack(index: int) -> void:
-	_on_module_pack_pressed(index)
-
-func buy_single_special(index: int) -> void:
-	_on_single_special_pressed(index)
+## Ein Paket der gewürfelten Art (GameRun.LANE_*).
+func _roll_shop_pack(lane: int) -> Resource:
+	match lane:
+		GameRun.LANE_DICE:
+			return DicePack.roll_shop(null, run.shop_dice_pack_quality_weights())
+		GameRun.LANE_MODULES:
+			return ModulePack.roll_shop(null, run.shop_module_pack_grade_weights())
+	return CardPack.roll_shop(null, run.shop_card_pack_quality_weights())
 
 # --- Blättern ------------------------------------------------------------------
 
@@ -1354,17 +980,14 @@ func _on_page_back_pressed() -> void:
 ## Rein kosmetische Einblendung - der Spielzustand ist schon gewechselt, die
 ## Animation gate nichts (schnelles Klicken ersetzt sie einfach). Sie wartet den
 ## Warenumschlag darunter ab: die Karten der neuen Seite erscheinen, wenn auch die
-## neue Ware kommt - also erst hinter der ABSORPTION, die vor der Maschine läuft
-## (die hat _show_spread eben angestoßen, ihr Vorlauf steht also schon).
+## neue Ware kommt.
 func _play_flip_animation() -> void:
 	if flip_tween != null and flip_tween.is_valid():
 		flip_tween.kill()
 	content_root.modulate = Color(1, 1, 1, 0)
 	flip_tween = create_tween()
-	flip_tween.tween_interval(
-		absorb_time(_net_blocks.size() if _net_absorbing else 0) + FLIP_DELAY)
-	flip_tween.tween_property(content_root, "modulate:a", 1.0, FLIP_DURATION) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	flip_tween.tween_interval(FLIP_DELAY)
+	flip_tween.tween_property(content_root, "modulate:a", 1.0, FLIP_DURATION).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 # --- Doppelseiten bauen --------------------------------------------------------
 
@@ -1402,40 +1025,22 @@ func _build_spread() -> MenuSpread:
 		available.erase(pick)
 	spread.charm_bought.resize(spread.charm_options.size())
 	spread.charm_bought.fill(false)
-	for i in run.shop_module_pack_slots():
-		var module_pack := ModulePack.roll_shop(null, run.shop_module_pack_grade_weights())
-		spread.module_packs.append(module_pack)
-		spread.module_pack_prices.append(run.module_pack_shop_price(module_pack))
-	spread.module_pack_bought.resize(spread.module_packs.size())
-	spread.module_pack_bought.fill(false)
 
-	# PAKETE: Sorte und Größe je Platz; Optionen und Wahlen fallen erst beim Kauf.
-	for i in run.shop_packs_offered():
-		spread.engraving_packs.append(CardPack.roll_shop(null, run.shop_card_pack_quality_weights()))
-	spread.engraving_pack_bought.resize(spread.engraving_packs.size())
-	spread.engraving_pack_bought.fill(false)
-
-	# Die WÜRFEL-PAKETE der Schale - Einzelwürfel führt der Laden nicht mehr.
-	for i in run.shop_dice_slots():
-		var dice_pack := DicePack.roll_shop(null, run.shop_dice_pack_quality_weights())
-		spread.single_dice.append(dice_pack)
-		spread.single_dice_prices.append(_dice_pack_price(dice_pack))
-	spread.single_dice_bought.resize(spread.single_dice.size())
-	spread.single_dice_bought.fill(false)
+	# PAKETE: jeder Platz würfelt seine Art unabhängig; Optionen und Wahlen fallen
+	# erst beim Öffnen.
+	for i in run.shop_pack_places():
+		spread.packs.append(_roll_shop_pack(GameRun.shop_pack_kind_for(randf())))
+	spread.pack_bought.resize(spread.packs.size())
+	spread.pack_bought.fill(false)
 	# Leere Regale: die Plätze bleiben, die hinteren stehen leer - wie verkauft.
-	for i in range(run.shop_dice_offered(), spread.single_dice.size()):
-		spread.single_dice_bought[i] = true
-
-	# Sonderposten ab Stufe SHOP_SPECIAL_TIER: er BELEGT den letzten Paket-Platz, statt
-	# einen dazuzustellen - die Reihe bleibt gleich voll, und er kostet einen
-	# normalen Wurf.
-	if randf() < run.shop_special_chance():
-		spread.single_specials.append(Pack.roll_special_pack())
-		if not spread.engraving_packs.is_empty():
-			spread.engraving_packs.remove_at(spread.engraving_packs.size() - 1)
-			spread.engraving_pack_bought.resize(spread.engraving_packs.size())
-	spread.single_special_bought.resize(spread.single_specials.size())
-	spread.single_special_bought.fill(false)
+	var offered := mini(run.shop_packs_offered(), spread.packs.size())
+	for i in range(offered, spread.packs.size()):
+		spread.pack_bought[i] = true
+	# Sonderposten ab Stufe SHOP_SPECIAL_TIER: er ERSETZT einen zufälligen belegten Platz.
+	if offered > 0 and randf() < run.shop_special_chance():
+		spread.packs[randi_range(0, offered - 1)] = Pack.roll_special_pack()
+	for pack in spread.packs:
+		spread.pack_prices.append(_price_of(pack))
 
 	return spread
 
@@ -1488,25 +1093,19 @@ func _show_spread() -> void:
 	_standing_spread = spread
 	charm_options = spread.charm_options
 	charm_bought = spread.charm_bought
-	module_packs = spread.module_packs
-	module_pack_prices = spread.module_pack_prices
-	module_pack_bought = spread.module_pack_bought
-	engraving_packs = spread.engraving_packs
-	engraving_pack_bought = spread.engraving_pack_bought
-	single_dice = spread.single_dice
-	single_dice_prices = spread.single_dice_prices
-	single_dice_bought = spread.single_dice_bought
-	single_specials = spread.single_specials
-	single_special_bought = spread.single_special_bought
-	# Die Plätze bleiben, wo sie sind - nur die GATTUNG des letzten hängt daran,
-	# ob diese Auslage einen Sonderposten führt. Kein Neuaufbau, keine Rechtecke.
-	_slit_seats = slit_seats()
+	packs = spread.packs
+	# Preise je Besuch frisch: ein eben gekaufter Rabatt-Charm wirkt sofort.
+	for i in spread.packs.size():
+		spread.pack_prices[i] = _price_of(spread.packs[i])
+	pack_prices = spread.pack_prices
+	pack_bought = spread.pack_bought
+	_refresh_place_labels()
 
 	_rebuild_content(spread)
 	page_label.text = "Seite %d" % (current_spread_index + 1)
 	_refresh_afford_state()
-	# EIN Melder für jede Änderung der Bucht: Seitenwechsel, Kauf und Tausch
-	# laufen alle durch _show_spread.
+	# EIN Melder für jede Änderung der Auslage: Seitenwechsel und Kauf laufen
+	# beide durch _show_spread.
 	vitrine_changed.emit()
 
 ## Gibt den Inhalt frei - auch beim Schließen wichtig, damit die
@@ -1886,40 +1485,6 @@ func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha
 		box.shadow_size = int(u * 0.9)
 	return box
 
-## Kauf der Sonder-Karte: sie geht VERSIEGELT ins Magazin wie früher jede Einzelkarte,
-## samt Kleingedrucktem und Lieferkomet.
-func _on_single_special_pressed(index: int) -> void:
-	if index < 0 or index >= single_specials.size() or single_special_bought[index]:
-		return
-	var pack: Pack = single_specials[index]
-	var price := _pack_price(pack)
-	if run.money < price or run.packs_full():
-		purchase_denied.emit()
-		return
-	var from_px := _buy_origin_px(KIND_SPECIAL, index)
-	var refunded := run.purchase_pack(pack, price)
-	single_special_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	pack_purchased.emit(from_px, pack.pack_uid)
-	if refunded > 0:
-		pack_refunded.emit(from_px, refunded)
-	_show_spread()
-
-## Kauf eines WÜRFEL-PAKETS: gebucht wird der Preis, das Paket wandert ins LAGER.
-## Ist dessen Würfel-Reihe voll, kauft der Laden nichts.
-func _on_single_die_pressed(index: int) -> void:
-	if index < 0 or index >= single_dice.size() or single_dice_bought[index]:
-		return
-	if run.store_full(GameRun.LANE_DICE) or run.money < single_dice_prices[index]:
-		purchase_denied.emit()
-		return
-	var from_px := _buy_origin_px(KIND_DIE, index)
-	if run.purchase_dice_pack(single_dice[index], single_dice_prices[index]) == null:
-		return
-	single_dice_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	dice_pack_purchased.emit(index)
-	if run.last_card_pack_refund > 0:
-		pack_refunded.emit(from_px, run.last_card_pack_refund)
-	_show_spread()
 
 # --- Neon-Bausteine --------------------------------------------------------------
 
@@ -1975,38 +1540,6 @@ func _charm_price(charm: Charm) -> int:
 		return 0
 	return run.shop_price(CharmEffects.charm_price(charm.price, run.charm_ids()))
 
-## Kauft ein Karten-Paket (je Angebot einmal): gebucht ist der Preis, das Paket liegt
-## im LAGER. Danach wird die Doppelseite neu bebaut.
-func _on_pack_buy_pressed(index: int) -> void:
-	if index < 0 or index >= engraving_packs.size() or engraving_pack_bought[index]:
-		return
-	if _buy_card_pack(engraving_packs[index], KIND_ENGRAVING_PACK, index):
-		engraving_pack_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-		_show_spread()
-
-## Der Karten-Paket-Kauf: GameRun bucht den Preis und legt es ins Lager; die Erstattung
-## meldet ihr Licht. false = nicht bezahlbar oder Lager voll.
-func _buy_card_pack(pack: CardPack, kind: String, index: int) -> bool:
-	var price := _pack_price(pack)
-	if run.money < price or run.store_full(GameRun.LANE_CARDS):
-		purchase_denied.emit()
-		return false
-	var from_px := _buy_origin_px(kind, index)
-	if run.purchase_card_pack(pack, price) == null:
-		return false
-	card_pack_purchased.emit(_seat_of(kind, index))
-	if run.last_card_pack_refund > 0:
-		pack_refunded.emit(from_px, run.last_card_pack_refund)
-	return true
-
-## Startpunkt eines Kauf-Kometen: ein versiegeltes Stück fährt aus SEINEM Schlitz
-## los, offene Ware aus der Bucht.
-func _buy_origin_px(kind: String, index: int) -> Vector2:
-	var seat := _seat_of(kind, index)
-	if seat >= 0 and seat < _slit_pads.size() and is_instance_valid(_slit_pads[seat]):
-		return _slit_pads[seat].get_global_rect().get_center()
-	var bay := vitrine_rect_px()
-	return bay.get_center() if bay.size.x > 0.0 else get_global_rect().get_center()
 
 ## Kauft den Charm (je einmal). Danach wird die ganze Doppelseite neu bebaut:
 ## Shop-Charms (Rabattmarke, Trickdieb-Manschette, ...) wirken schon in DIESEM Besuch -
@@ -2023,8 +1556,8 @@ func _on_charm_clicked(index: int) -> void:
 	_show_spread()
 
 ## Deaktiviert alles Unbezahlbare und hält den Geldstand der Kopfzeile aktuell.
-## Die Ware in der Bucht hat keine Knöpfe mehr - ihre Kaufbarkeit steht in der
-## Preiszeile der Beschriftung (price_tint), und der Kaufweg prüft sie ohnehin.
+## Die Kaufbarkeit der Pakete steht in ihrem Preisschild (price_tint), und der
+## Kaufweg prüft sie ohnehin.
 func _refresh_afford_state() -> void:
 	var money: int = run.money
 	if money_label != null:
@@ -2043,49 +1576,30 @@ func _refresh_afford_state() -> void:
 			page_next_button.disabled = false
 	_refresh_ware_prices()
 
-## Die Preisschilder AN der Ware - Kassette wie Würfel. Sie rechnen nichts nach:
-## der Preis kommt aus derselben Quelle wie der Kauf (_pack_price bzw.
-## single_dice_prices), gefärbt wird er von price_tint. Idempotent, und am
-## Geldstand hängt er über _refresh_afford_state.
+## Die Preisschilder AN der Ware. Sie rechnen nichts nach: der Preis kommt aus
+## derselben Quelle wie der Kauf (pack_prices), gefärbt wird er von price_tint.
+## Idempotent, und am Geldstand hängt er über _refresh_afford_state.
 func _refresh_ware_prices() -> void:
 	var money: int = run.money if run != null else 0
-	for seat in mini(_slit_prices.size(), _slit_seats.size()):
-		var tag := _slit_prices[seat]
+	for seat in _place_prices.size():
+		var tag := _place_prices[seat]
 		if tag == null or not is_instance_valid(tag):
 			continue
-		var pack: Resource = null
-		if run != null:
-			pack = _slit_pack(_slit_seats[seat])
-		if pack == null:
+		var pack := _shown_pack(seat)
+		if pack == null or run == null:
 			tag.text = ""  # leerer Platz: kein Schild
 			continue
-		# Ein volles Magazin steht DORT, wo der Preis stünde - dieselbe Grammatik
-		# wie am Sitz des Hinterzimmers.
-		if run != null and run.packs_full():
+		if pack is Pack and run.packs_full():
 			tag.text = FULL_MARK
 			tag.modulate = CasinoStyle.RED
 			continue
-		if run != null and pack is CardPack and run.store_full(GameRun.LANE_CARDS):
+		if not (pack is Pack) and run.store_full(GameRun.store_lane_of(pack)):
 			tag.text = STORE_FULL_MARK
 			tag.modulate = CasinoStyle.RED
 			continue
-		var price := _pack_price(pack)
+		var price := pack_prices[seat]
 		tag.text = price_text(price)
 		tag.modulate = price_tint(price, money)
-	for i in mini(_net_prices.size(), _net_dice.size()):
-		var mark := _net_prices[i]
-		if mark == null or not is_instance_valid(mark):
-			continue
-		var price := _shown_die_price(_net_dice[i])
-		if price < 0:
-			mark.text = ""
-			continue
-		if run != null and run.store_full(GameRun.store_lane_of(_net_dice[i])):
-			mark.text = STORE_FULL_MARK
-			mark.modulate = CasinoStyle.RED
-			continue
-		mark.text = price_text(price)
-		mark.modulate = price_tint(price, money)
 
 func _on_run_money_changed(_money: int) -> void:
 	if _live():
@@ -2144,22 +1658,3 @@ func finish_close() -> void:
 ## aus einem schließenden Laden.
 func leaving() -> bool:
 	return _leaving
-
-# --- Der MODUL-PAKET-Platz der Würfel-Bucht --------------------------------------
-
-## Kauf eines MODUL-PAKETS: der Preis wird gebucht, der Beutel wandert ins LAGER.
-## Freie Steckplätze fragt er nicht - ein voller Chip tauscht beim Einbau.
-func _on_module_pack_pressed(index: int) -> void:
-	if index < 0 or index >= module_packs.size() or module_pack_bought[index]:
-		return
-	if run.store_full(GameRun.LANE_MODULES) or run.money < module_pack_prices[index]:
-		purchase_denied.emit()
-		return
-	var from_px := _buy_origin_px(KIND_MODULE_PACK, index)
-	if run.purchase_module_pack(module_packs[index], module_pack_prices[index]) == null:
-		return
-	module_pack_bought[index] = true  # liegt im Spread - übersteht den Neuaufbau
-	module_pack_purchased.emit(index)
-	if run.last_card_pack_refund > 0:
-		pack_refunded.emit(from_px, run.last_card_pack_refund)
-	_show_spread()

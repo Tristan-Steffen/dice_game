@@ -82,7 +82,7 @@ func test_the_hull_is_a_touch_bigger_than_a_lying_card() -> void:
 	var box := _shell(_hull(CardPack.SORT_NUMBER, 0))
 	assert_gt(box.x, DataCellView.WIDTH)
 	assert_gt(box.y, DataCellView.HEIGHT)
-	assert_lt(box.y, DataCellView.HEIGHT * ShopController.SLIT_ROOM, "paßt in den Stellplatz")
+	assert_lt(box.y, DataCellView.HEIGHT * ShopController.PLACE_ROOM, "paßt in den Stellplatz")
 
 ## Gleich dick für jede Kartenzahl; im Inneren liegt je Option eine echte Karte.
 func test_every_box_is_equally_thick_and_holds_one_card_per_option() -> void:

@@ -456,6 +456,20 @@ func test_die_wandtasche_liegt_hinter_der_grubenwand() -> void:
 	var left_back := left.get_node("Rueckwand") as MeshInstance3D
 	assert_lt(left_back.global_position.z, -SPAN.y * 0.5, "links hinter der Grubenwand")
 
+## Die LINKE Tasche endet vor dem Hub: unter ihm liegen die Löcher der Paket-Fläche,
+## und durch sie sah man in die Tasche (2026-11-16, teal gestreifte Wände in der Mulde).
+func test_die_linke_wandtasche_endet_an_der_gemeldeten_grenze() -> void:
+	var left := stack.get_node("Wandtaschen/WandtascheLinks/Rueckwand") as MeshInstance3D
+	var free_end := left.global_position.z
+	var limit := -SPAN.y * 0.5 - 1.0
+	assert_lt(free_end, limit, "ohne Grenze reicht sie weiter")
+	stack.left_pocket_limit_z = limit
+	var cut := stack.get_node("Wandtaschen/WandtascheLinks/Rueckwand") as MeshInstance3D
+	assert_gte(cut.global_position.z, limit - 0.001, "mit Grenze endet sie davor")
+	var floor_plate := stack.get_node("Wandtaschen/WandtascheLinks/Decke") as MeshInstance3D
+	var bb := floor_plate.global_transform * floor_plate.get_aabb()
+	assert_gte(minf(bb.position.z, bb.end.z), limit - 0.001, "auch ihre Decke")
+
 ## Sie ist der Raum NEBEN der Grube, nicht ihr Ende: dieselbe Auskleidung, die
 ## Flanken mit den Werten der Grubenwand (sonst verriete ein Helligkeitssprung die
 ## Naht), der Boden heller als der der Grube - durch den flachen Schlitz sieht man

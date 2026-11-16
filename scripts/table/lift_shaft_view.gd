@@ -551,6 +551,46 @@ func run_take(bodies: Array, seats: Array, delay: float,
 	_tween.tween_callback(_shut)
 	return _tween
 
+## Die WENDE: Abgang, Auftritt oder Tausch durch EINE Öffnung (side +1 = hinten,
+## -1 = vorn). Die alte Ware fährt dort hinaus, DANACH kommt die neue von dort herein -
+## so nimmt der Schacht nur den Raum auf EINER Seite in Anspruch. Bestellt von einer
+## Fläche, deren Reihen gegeneinander liegen: jede Reihe wendet zu ihrer freien Seite.
+func run_turn(side: float, old_bodies: Array, old_seats: Array, new_bodies: Array,
+		new_seats: Array, delay: float, on_swept := Callable()) -> Tween:
+	settle_hard()
+	if (old_bodies.is_empty() and new_bodies.is_empty()) or _platform == null \
+			or old_bodies.size() != old_seats.size() or new_bodies.size() != new_seats.size():
+		return null
+	var band := BAND_BACK if side > 0.0 else BAND_FRONT
+	var reach := (waiting_offset() if side > 0.0 else exit_offset()) * signf(side)
+	for i in new_bodies.size():
+		var body: Node3D = new_bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = (new_seats[i] as Vector3) + Vector3(reach, -drop(), 0.0)
+	_tween = create_tween()
+	_tween.tween_interval(maxf(delay, 0.0))
+	_tween.tween_callback(_open)
+	_together(old_bodies, old_seats, -drop(), SINK_TIME, Tween.TRANS_LINEAR,
+		Tween.EASE_IN_OUT)
+	_shutter_step(band, 0.0, 1.0, true)
+	if not old_bodies.is_empty():
+		for i in old_bodies.size():
+			var step := _tween if i == 0 else _tween.parallel()
+			step.tween_property(old_bodies[i], "global_position",
+				(old_seats[i] as Vector3) + Vector3(reach, -drop(), 0.0), PUSH_TIME) \
+				.set_trans(Tween.TRANS_LINEAR)
+		if on_swept.is_valid():
+			_tween.tween_callback(on_swept)
+	if not new_bodies.is_empty():
+		_belt_step([], [], 0.0, new_bodies, new_seats)
+	_lift_and_seat(new_bodies, new_seats, band)
+	_tween.tween_callback(_shut)
+	return _tween
+
+## Der Deckel der WENDE: ein Tausch braucht zwei Band-Schritte nacheinander.
+static func turn_cycle_time(swap: bool) -> float:
+	return SINK_TIME + PUSH_TIME * (2.0 if swap else 1.0) + LIFT_TIME + DIP_TIME
+
 ## Der PARK-ZYKLUS: wie der Warenumschlag, nur endet er UNTEN. Loch auf, Platte und
 ## alte Ware auf die BAND-EBENE senken, EIN Band-Schritt (die alte vorn hinaus, die
 ## neue von hinten auf ihren Platz), dann zurück auf den PARKSTAND - und dort bleibt
@@ -648,7 +688,7 @@ func park_hard() -> void:
 
 # --- Die WANDHAUT und ihre BLENDEN ----------------------------------------------
 # Die Haut wird BESTELLT wie der Schirm; wer nichts bestellt, fährt die nackte
-# Maschine mit ihren offenen Bändern (Laden, Hinterzimmer, Schlitzreihe, Magazin).
+# Maschine mit ihren offenen Bändern (Laden, Hinterzimmer, Paket-Fläche, Magazin).
 # Mit Haut bekommt jedes Öffnungsband eine BLENDE in genau derselben Haut: geschlossen
 # liest die Wand durchgehend wie die Seitenwände, und das ist der ganze Zweck.
 

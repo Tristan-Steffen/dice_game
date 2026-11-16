@@ -42,23 +42,15 @@ func _shop() -> ShopController:
 	shop.open()
 	return shop
 
-func test_the_shop_module_pack_lies_as_a_bag_in_the_dice_bay() -> void:
+## Ein Modul-Paket liegt auf der Paket-Fläche wie jede andere Art.
+func test_the_shop_can_lay_out_a_module_pack() -> void:
 	var shop := _shop()
-	var stock := shop.vitrine_stock()
-	var bay := VitrineView.new("ShopBay")
-	add_child_autofree(bay)
-	bay.setup(Vector3(-30.0, 0.0, 0.0), Vector2(4.0, 12.0))
-	bay.present(stock)
-	await wait_frames(2)
-	var found := bay.items.filter(func(item: Dictionary) -> bool:
-		return item["kind"] == ShopController.KIND_MODULE_PACK)
-	assert_eq(found.size(), 1, "ein Körper für das Modul-Paket")
-	var bag := found[0]["node"] as CardPackView
-	assert_not_null(bag)
-	assert_true(bag.module_bag, "der Körper ist der ESD-Beutel")
-	assert_eq(bag.grade, shop.module_packs[0].grade)
-	assert_eq(VitrineView.zone_of(ShopController.KIND_MODULE_PACK), VitrineView.ZONE_BOWL,
-		"es fährt mit den Würfel-Paketen auf derselben Hebebühne")
+	var seen := false
+	for i in 40:
+		for pack in shop._build_spread().packs:
+			if pack is ModulePack:
+				seen = true
+	assert_true(seen, "die Fläche würfelt auch Modul-Pakete")
 
 func test_the_module_has_one_size_everywhere() -> void:
 	assert_eq(VitrineView.part_side(), ComboPartBody.SIDE, "Bucht = Modul")

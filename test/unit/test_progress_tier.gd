@@ -82,13 +82,11 @@ func test_cheap_flipping_from_tier_eight() -> void:
 	assert_eq(_run_at(8).shop_flip_fee_factor(), 0.5, "Stufe 8 halbiert die Blätter-Gebühr")
 
 func test_shop_slots_are_fixed_on_every_tier() -> void:
-	# Drei Regale zu je drei Plätzen - die Stufe hebt nur die Qualität.
+	# Drei Charms und sechs Paket-Plätze - die Stufe hebt nur die Qualität.
 	for tier in [1, 2, 3, 7, 10]:
 		var run := _run_at(tier)
 		assert_eq(run.shop_charm_slots(), 3, "Stufe %d: drei Charms" % tier)
-		assert_eq(run.shop_dice_slots() + run.shop_module_pack_slots(), 3,
-			"Stufe %d: zwei Würfel-Pakete und ein Modul-Paket" % tier)
-		assert_eq(run.shop_pack_slots(), 3, "Stufe %d: drei Gravuren" % tier)
+		assert_eq(run.shop_pack_places(), 6, "Stufe %d: sechs Paket-Plätze" % tier)
 
 func test_overcharge_frame_is_five_from_the_first_tier() -> void:
 	var run := _run()
