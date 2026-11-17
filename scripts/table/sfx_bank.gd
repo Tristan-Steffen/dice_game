@@ -29,19 +29,31 @@ const G5 := 783.99
 const BB5 := 932.33
 const D6 := 1174.66
 
+## Geld: je Stückelung eine Stimme auf B♭ (Oktaven abwärts), die Chipzahl spielt B♭-C-D-F rein gestimmt.
+const BB2 := 116.54
+const PAYOUT_VOICES: Array[StringName] = [&"payout_one", &"payout_five", &"payout_twentyfive",
+	&"payout_hundred"]
+const PAYOUT_RATIOS: Array[float] = [1.0, 9.0 / 8.0, 5.0 / 4.0, 3.0 / 2.0]
+const PAYOUT_NOTE_GAP := 0.05
+const PAYOUT_LAYER_GAP := 0.08
+## Der Kassen-Klick des Verkaufs läuft der Geld-Kaskade so weit voraus.
+const PAYOUT_SELL_LEAD := 0.07
+
 const DEFAULT_DB := -10.0
 const LEVEL_DB := {
-	&"ui_click": -14.0, &"ui_hover": -26.0, &"ui_denied": -11.0, &"cam_zoom": -20.0,
+	&"ui_click": -14.0, &"ui_hover": -26.0, &"ui_denied": -11.0,
 	&"chip_in": -16.0, &"chip_out": -17.0, &"money_arrive": -15.0,
 	&"energy_gain": -14.0, &"energy_spend": -15.0, &"shelf_snap": -20.0,
 	&"light_pass": -13.0, &"card_burnout": -18.0, &"dice_swallow": -16.0,
+	&"payout_one": -12.0, &"payout_five": -11.0, &"payout_twentyfive": -10.0,
+	&"payout_hundred": -9.0, &"payout_sell": -13.0,
 	&"round_fumble": -8.0, &"round_won": -7.0, &"game_over": -6.0,
 }
 ## Mindestpause je Name - gegen Geknatter bei vielen gleichzeitigen Auslösern.
 const MIN_GAP_MS := {
 	&"ui_click": 30, &"ui_hover": 60, &"chip_in": 30, &"chip_out": 30,
 	&"money_arrive": 50, &"dice_swallow": 45, &"card_burnout": 60,
-	&"store_land": 50, &"energy_gain": 40, &"energy_spend": 40, &"cam_zoom": 150,
+	&"store_land": 50, &"energy_gain": 40, &"energy_spend": 40,
 	&"shelf_snap": 60, &"pack_pick": 30, &"bench_latch": 40,
 }
 const DEFAULT_SPREAD := 0.02
@@ -61,7 +73,6 @@ func _ready() -> void:
 		&"ui_click": _load_or(&"ui_click", _click.bind(G5, 0.05)),
 		&"ui_hover": _load_or(&"ui_hover", _blip.bind(D6, 0.04, 0.0)),
 		&"ui_denied": _load_or(&"ui_denied", _buzz),
-		&"cam_zoom": _load_or(&"cam_zoom", _whoosh.bind(0.35, true)),
 		&"round_start": _load_or(&"round_start", _chime.bind([G4, BB4, D5], 0.9, 0.07)),
 		&"round_commit": _load_or(&"round_commit", _latch.bind(0.06)),
 		&"dice_throw": _load_or(&"dice_throw", _whoosh.bind(0.4, false)),
@@ -73,6 +84,11 @@ func _ready() -> void:
 		&"chip_in": _load_or(&"chip_in", _clack.bind(D6)),
 		&"chip_out": _load_or(&"chip_out", _clack.bind(G5)),
 		&"money_arrive": _load_or(&"money_arrive", _blip.bind(G5, 0.18, 0.4)),
+		&"payout_one": _load_or(&"payout_one", _glass_ping.bind(BB5)),
+		&"payout_five": _load_or(&"payout_five", _bell.bind(BB4)),
+		&"payout_twentyfive": _load_or(&"payout_twentyfive", _vibes.bind(BB3)),
+		&"payout_hundred": _load_or(&"payout_hundred", _deep_bell.bind(BB2)),
+		&"payout_sell": _load_or(&"payout_sell", _register),
 		&"energy_gain": _load_or(&"energy_gain", _zap.bind(D5, G5, 0.16)),
 		&"energy_spend": _load_or(&"energy_spend", _zap.bind(G5, D5, 0.16)),
 		&"shop_buy": _load_or(&"shop_buy", _chime.bind([G5, D6], 0.4, 0.05)),
@@ -124,6 +140,50 @@ func play(sfx: StringName, db := 0.0, pitch := 1.0) -> void:
 	var jitter := _rng.randf_range(1.0 - spread, 1.0 + spread) if spread > 0.0 else 1.0
 	playback.play_stream(_streams[sfx], 0.0, float(LEVEL_DB.get(sfx, DEFAULT_DB)) + db,
 		pitch * jitter)
+
+## Spielt einen Geldbetrag als Chips: große Stückelung zuerst, je Chip ein Ton aufwärts.
+func play_money(amount: int, sold := false) -> void:
+	var lead := 0.0
+	if sold:
+		_voice(&"payout_sell", 1.0)
+		lead = PAYOUT_SELL_LEAD
+	for note: Dictionary in payout_notes(amount):
+		var delay: float = lead + float(note["delay"])
+		var voice: StringName = note["voice"]
+		var ratio: float = note["ratio"]
+		if delay <= 0.0:
+			_voice(voice, ratio)
+		else:
+			get_tree().create_timer(delay).timeout.connect(_voice.bind(voice, ratio))
+
+## Reine Rechnung: die Chips des Betrags (gierig, wie das Tray stückelt) als Töne.
+static func payout_notes(amount: int) -> Array[Dictionary]:
+	var counts: Array[int] = []
+	counts.resize(PAYOUT_VOICES.size())
+	counts.fill(0)
+	var rest := maxi(amount, 0)
+	for rank in range(ChipTrayView.VALUES.size() - 1, -1, -1):
+		var value: int = ChipTrayView.VALUES[rank]
+		var voice := mini(rank, PAYOUT_VOICES.size() - 1)
+		counts[voice] += rest / value
+		rest %= value
+	var notes: Array[Dictionary] = []
+	var layer := 0
+	for voice in range(PAYOUT_VOICES.size() - 1, -1, -1):
+		var count := mini(counts[voice], PAYOUT_RATIOS.size())
+		if count == 0:
+			continue
+		for k in count:
+			notes.append({"voice": PAYOUT_VOICES[voice], "ratio": PAYOUT_RATIOS[k],
+				"delay": layer * PAYOUT_LAYER_GAP + k * PAYOUT_NOTE_GAP})
+		layer += 1
+	return notes
+
+## Gestimmte Stimme: ohne Mindestpause und ohne Tonhöhen-Streuung.
+func _voice(sfx: StringName, ratio: float) -> void:
+	var playback: AudioStreamPlaybackPolyphonic = _playbacks.get(bus_of(sfx))
+	if playback != null and _streams.has(sfx):
+		playback.play_stream(_streams[sfx], 0.0, float(LEVEL_DB.get(sfx, DEFAULT_DB)), ratio)
 
 func names() -> Array:
 	return _streams.keys()
@@ -288,6 +348,40 @@ func _latch(gap: float) -> AudioStreamWAV:
 			v += (sin(TAU * 1830.0 * local) + 0.6 * sin(TAU * 2710.0 * local)
 				+ 0.4 * sin(TAU * 4170.0 * local)) * exp(-local / 0.018) * _attack(local, 0.002)
 		return v * 0.22)
+
+## FM-Ton: ein Träger, dessen Phase ein Modulator im ganzzahligen Verhältnis wiegt - so bleiben
+## alle Obertöne harmonisch. Der Index (Helligkeit) klingt schneller ab als die Lautstärke.
+func _fm(freq: float, length: float, ratio: float, index: float, index_tau: float,
+		amp_tau: float, shimmer := 0.0, glow := 0.0) -> AudioStreamWAV:
+	return _render(length, func(t: float) -> float:
+		var mod := index * exp(-t / index_tau) * sin(TAU * freq * ratio * t)
+		var amp := exp(-t / amp_tau) * (1.0 - shimmer * (0.5 - 0.5 * cos(TAU * 4.5 * t)))
+		var tone := sin(TAU * freq * t + mod) * amp
+		# Glühen: reiner Sinus eine Oktave höher, der langsam einblendet und lange steht.
+		var halo := glow * sin(TAU * freq * 2.0 * t) * (1.0 - exp(-t / 0.08)) * exp(-t / (amp_tau * 1.4))
+		# Gemeinsamer Anschlag aller Geld-Stimmen: ein winziger Rauschklick.
+		var click := _rng.randf_range(-1.0, 1.0) * exp(-t / 0.0015) * 0.18
+		return (tone + halo + click) * _attack(t, 0.001) * 0.42)
+
+## $1: knappes, helles Tink - Verhältnis 1:4, der Glanz ist nach 15 ms fort.
+func _glass_ping(freq: float) -> AudioStreamWAV:
+	return _fm(freq, 0.35, 4.0, 2.4, 0.015, 0.08)
+
+## $5: weiche Neon-Glocke - Verhältnis 1:2, nur ungerade Obertöne, hohl und rund.
+func _bell(freq: float) -> AudioStreamWAV:
+	return _fm(freq, 0.75, 2.0, 1.8, 0.09, 0.22)
+
+## $25: warmer, gläserner Schlägel - Verhältnis 1:3, leichtes Schimmern.
+func _vibes(freq: float) -> AudioStreamWAV:
+	return _fm(freq, 1.1, 3.0, 1.5, 0.12, 0.4, 0.18)
+
+## $100: tiefe, runde Glocke mit langem Glühen darüber.
+func _deep_bell(freq: float) -> AudioStreamWAV:
+	return _fm(freq, 1.8, 2.0, 2.2, 0.35, 0.8, 0.0, 0.35)
+
+## Verkauf: mechanischer Kassen-Klick vor dem Geld.
+func _register() -> AudioStreamWAV:
+	return _latch(0.035)
 
 func _attack(t: float, time: float) -> float:
 	return clampf(t / time, 0.0, 1.0)

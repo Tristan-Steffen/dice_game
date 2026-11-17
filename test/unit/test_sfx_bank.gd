@@ -62,3 +62,29 @@ func test_silent_button_gets_no_connection() -> void:
 	assert_gt(loud.pressed.get_connections().size(), 0, "normaler Knopf klickt nicht")
 	assert_eq(quiet.pressed.get_connections().size(), 0, "sfx_silent bekam eine Verbindung")
 	assert_eq(quiet.mouse_entered.get_connections().size(), 0)
+
+## Je Chip ein Ton: $1 ein Ping, $2 zwei aufwärts, $6 erst der Fünfer, dann der Einer.
+func test_payout_notes_follow_the_chips() -> void:
+	var one := SfxBank.payout_notes(1)
+	assert_eq(one.size(), 1)
+	assert_eq(one[0]["voice"], &"payout_one")
+	assert_almost_eq(float(one[0]["ratio"]), 1.0, 0.0001)
+	var two := SfxBank.payout_notes(2)
+	assert_eq(two.size(), 2)
+	assert_gt(float(two[1]["ratio"]), float(two[0]["ratio"]), "der zweite Chip klingt höher")
+	var six := SfxBank.payout_notes(6)
+	assert_eq(six.map(func(n: Dictionary) -> StringName: return n["voice"]),
+		[&"payout_five", &"payout_one"])
+	assert_gt(float(six[1]["delay"]), float(six[0]["delay"]), "kleine Chips rollen danach ein")
+	assert_eq(SfxBank.payout_notes(99).size(), 11, "3×25 + 4×5 + 4×1")
+	assert_eq(SfxBank.payout_notes(0).size(), 0)
+
+## Jede Stimme steht auf B♭-C-D-F, also nie mehr Töne als Stufen.
+func test_payout_never_exceeds_the_scale() -> void:
+	for amount in [4, 24, 99, 499, 12345]:
+		var per_voice := {}
+		for note: Dictionary in SfxBank.payout_notes(amount):
+			per_voice[note["voice"]] = int(per_voice.get(note["voice"], 0)) + 1
+			assert_true(SfxBank.PAYOUT_RATIOS.has(float(note["ratio"])))
+		for voice in per_voice:
+			assert_lte(int(per_voice[voice]), SfxBank.PAYOUT_RATIOS.size())

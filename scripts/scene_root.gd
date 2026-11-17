@@ -10989,7 +10989,10 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 		if charm_is_dragging:
 			_finish_charm_drag()
 		elif _sell_pixel_hits(event.position):
+			var sold := run.charm_sell_value(charm_drag_index)
 			run.sell_charm(charm_drag_index)  # charms_changed baut Reihe + Dock neu
+			if sfx_bank != null:
+				sfx_bank.play_money(sold, true)
 		elif camera_rig.mode == CameraRig.Mode.CHARMS:
 			# Klick ohne Ziehen in der Charm-Sicht: Zoom auf diesen Charm schwenken.
 			_pan_zoom_to_charm(charm_drag_index)
@@ -15035,6 +15038,8 @@ func _payout_merge_key(bet: SideBet) -> String:
 func _ledger_money(id: String, caption: String, amount: int, note := "") -> void:
 	if payout_ledger != null and phase == Phase.PAYOUT:
 		payout_ledger.add_money(id, caption, amount, note)
+		if sfx_bank != null and amount > 0:
+			sfx_bank.play_money(amount)
 
 ## MELDET Energie an die Auszahlungs-Seite - eigene Zeile, nicht in der Summe.
 func _ledger_energy(amount: int) -> void:
@@ -15956,8 +15961,6 @@ func _set_gameplay_ui_visible(is_visible: bool) -> void:
 	_update_gameplay_ui_visibility()
 
 func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
-	if new_mode != CameraRig.Mode.TITLE:
-		_sfx(&"cam_zoom")
 	is_pit_focused = new_mode == CameraRig.Mode.PIT
 	# Wer aus der GLAS-ANSICHT wegfährt, hat abgebrochen gemeint: der Vorrat steigt
 	# unverändert wieder herauf - und die gemerkte Station wird VERGESSEN, sonst

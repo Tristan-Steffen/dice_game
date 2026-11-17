@@ -27,7 +27,7 @@ Die Funktionsnamen stammen aus einer ersten Suche; die genaue Zeile sucht die Um
 **UI und Kamera**
 - `ui_click`, `ui_hover` — global über die Buttons (siehe oben).
 - `ui_denied` — ein abgelehnter Klick: Kauf bei vollem Lager / zu wenig Geld (`ShopController` lehnt in `buy_*`/Sitz-Logik ab — Signal ergänzen oder an der bestehenden Ablehnung in scene_root hängen), Öffnen in der Runde (`_store_unlocked` falsch beim Klick).
-- `cam_zoom` — leises Whoosh bei einem Stationswechsel (`_on_camera_mode_changed`; nicht bei temporären Rahmen-Sprüngen hart, nicht beim Start).
+- Kamera-Zoom bleibt STUMM (Spieler-Entscheid 2026-11-16).
 
 **Runde**
 - `round_start` — neue Runde / Blind beginnt (`_start_new_round`, nur im echten Spiel, nicht beim Reset).
