@@ -120,21 +120,10 @@ const TEAR_TIME := 0.45
 const TEAR_LIFT := DataCellView.HEIGHT * 0.35
 const TEAR_DRIFT := DataCellView.WIDTH * 0.6
 const TEAR_TILT := 1.1
-## Der MUND im Roh-Maß: die Mitte über den Mulden, knapp über ihrem Boden.
-const CASE_WALL := 0.05
-const CASE_FLOOR := 0.03
-const LID_OPEN_DEGREES := 105.0
-const LID_TIME := 0.35
 var _case_model: Node3D
-var _hinge: Node3D
-var _hinge_rest := Transform3D()
-var _lid_share := 0.0
-var _lid_tween: Tween
 var _tray: StandardMaterial3D
 var _tray_materials := {}
 var _tray_dice: Array[MeshInstance3D] = []
-## Einmal offen, ist die Schale leer: die Würfel sind ausgeworfen.
-var _tray_emptied := false
 ## Misch-Paket: das Siegel trägt die drei Regal-Farben nebeneinander.
 const MIXED_STRIPES := [Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL,
 	Engraving.CATEGORY_DICE]
@@ -866,10 +855,6 @@ func _build_dice_case() -> Node3D:
 		_dress_tray_part(mesh)
 	if _cells.is_empty():
 		_case_model = model
-		_hinge = model.find_child("Scharnier", true, false) as Node3D
-		if _hinge != null:
-			_hinge_rest = _hinge.transform
-			_apply_lid()
 	return cell
 
 ## Ein Teil der Schale: zeigt es sich für dieses Paket, und was trägt es?
@@ -952,7 +937,7 @@ func _tray_die_material(part: String, well: int) -> StandardMaterial3D:
 		_tray_materials[key] = material
 	return _tray_materials[key]
 
-## Wie viele Würfel die Schale gerade zeigt (offen: keiner mehr).
+## Wie viele Würfel die Schale in ihren Mulden zeigt.
 func tray_dice_shown() -> int:
 	var shown := 0
 	for mesh in _tray_dice:
@@ -960,58 +945,10 @@ func tray_dice_shown() -> int:
 			shown += 1
 	return shown
 
-# --- Die HAUBE und der INNENRAUM der Schale ------------------------------------
+# --- Der GRUNDRISS der Hülle --------------------------------------------------
 
-## Hat diese Hülle eine Haube am Scharnier (nur die importierte Schale)?
-func has_lid() -> bool:
-	return _hinge != null and is_instance_valid(_hinge)
-
-## 0 = zu, 1 = offen - hart gesetzt, eine laufende Fahrt endet.
-func set_lid_open(share: float) -> void:
-	_kill(_lid_tween)
-	_lid_share = clampf(share, 0.0, 1.0)
-	_apply_lid()
-
-func lid_share() -> float:
-	return _lid_share
-
-## Der Deckel klappt in `time` auf (1) bzw. zu (0); zurück kommt die Fahrzeit.
-func swing_lid(open: bool, time := LID_TIME) -> float:
-	var goal := 1.0 if open else 0.0
-	_kill(_lid_tween)
-	if not has_lid() or time <= 0.0 or is_equal_approx(_lid_share, goal):
-		set_lid_open(goal)
-		return 0.0
-	_lid_tween = create_tween()
-	var swing := _lid_tween.tween_method(func(value: float) -> void:
-		_lid_share = value
-		_apply_lid(), _lid_share, goal, time)
-	swing.set_trans(Tween.TRANS_BACK if open else Tween.TRANS_QUAD)
-	swing.set_ease(Tween.EASE_OUT if open else Tween.EASE_IN)
-	return time
-
-func lid_swinging() -> bool:
-	return _lid_tween != null and _lid_tween.is_valid()
-
-## Blender-Y ist im glTF -Z: positive Drehung um Blender-Y öffnet, also -Z hier.
-func _apply_lid() -> void:
-	if not has_lid():
-		return
-	if _lid_share > 0.01 and not _tray_emptied:
-		# Die Würfel der Mulden SIND die, die gleich herausfliegen - nie zweimal gezeigt.
-		_tray_emptied = true
-		for mesh in _tray_dice:
-			if is_instance_valid(mesh):
-				mesh.visible = false
-	_hinge.transform = _hinge_rest * Transform3D(
-		Basis(Vector3.BACK, -deg_to_rad(LID_OPEN_DEGREES) * _lid_share), Vector3.ZERO)
-
-## Die vier Bodenecken des Innenraums im EIGENEN Raum der Hülle (ohne ihre
-## Skalierung) - so rechnet der Aufrufer sie auf jede Lage um, auch vor der Landung.
-func case_interior_local() -> Array[Vector3]:
-	return _case_corners(case_inner_half(), CASE_FLOOR)
-
-## Dasselbe für den Außen-Grundriß auf der Unterseite (der Zuschnitt der Sektion).
+## Der Außen-Grundriß auf der Unterseite im EIGENEN Raum der Hülle (ohne ihre Skalierung) -
+## der Zuschnitt einer Sektion; der Aufrufer rechnet ihn auf jede Lage um.
 func case_outline_local() -> Array[Vector3]:
 	var half := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * FOOT_ROOM * 0.5
 	if module_bag:
@@ -1046,11 +983,6 @@ func _case_corners(half_raw: Vector2, height: float) -> Array[Vector3]:
 		# Blender (x, y, z) liegt im glTF als (x, z, -y).
 		out.append(to_self * Vector3(half_raw.x * corner.x, height, -half_raw.y * corner.y))
 	return out
-
-## Die Hälften des Innenraums im Roh-Maß (Blender X = Breite, Y = Länge).
-static func case_inner_half() -> Vector2:
-	return Vector2(DataCellView.WIDTH * FOOT_ROOM * 0.5 - CASE_WALL,
-		DataCellView.HEIGHT * FOOT_ROOM * 0.5 - CASE_WALL)
 
 ## Die Lage eines Knotens für den Grundriß: der Körper zählt immer LIEGEND.
 func _pose_free(node: Node) -> Transform3D:

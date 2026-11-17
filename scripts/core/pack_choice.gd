@@ -1,17 +1,16 @@
 class_name PackChoice
 extends RefCounted
 ## Ein GEÖFFNETES Paket: seine Optionen und die Zahl der Wahlen stehen ab dem Öffnen
-## fest (gebucht in GameRun.pending_pack_choices); die Öffnungs-Fläche zeigt nur. Karten-,
-## Würfel- und Modul-Pakete teilen diesen einen Datensatz.
+## fest (gebucht in GameRun.pending_pack_choices); die Öffnungs-Fläche zeigt nur. Karten-
+## und Würfel-Pakete teilen diesen einen Datensatz (Modul-Pakete haben keine Wahl).
 
 const KIND_CARDS := "cards"
 const KIND_DICE := "dice"
-const KIND_MODULES := "modules"
 
 var kind: String = KIND_CARDS
-## Das Paket selbst (CardPack, DicePack oder ModulePack) - Name, Sorte, Größe.
+## Das Paket selbst (CardPack oder DicePack) - Name, Sorte, Größe.
 var pack: Resource = null
-## Je Option eine Karte (Pack), ein Würfel (DieDefinition) oder ein Modul (ComboPart).
+## Je Option eine Karte (Pack) oder ein Würfel (DieDefinition).
 var options: Array = []
 var picks: int = 1
 ## Nur Würfel-Pakete: die Grundzahlen, von denen die Ketten ausgingen (Anzeige: Leiter).
@@ -30,9 +29,6 @@ var from_bet: bool = false
 func is_dice() -> bool:
 	return kind == KIND_DICE
 
-func is_modules() -> bool:
-	return kind == KIND_MODULES
-
 func option_count() -> int:
 	return options.size()
 
@@ -42,22 +38,18 @@ var display_name: String:
 			return (pack as CardPack).display_name
 		if pack is DicePack:
 			return (pack as DicePack).display_name
-		if pack is ModulePack:
-			return (pack as ModulePack).display_name
 		return "Paket"
 
-## Karten-Paket: 0..2 (3er/4er/5er), Modul-Paket 0..3; Würfel-Paket: seine Augen 2..6.
+## Karten-Paket: 0..2 (3er/4er/5er); Würfel-Paket: seine Augen 2..6.
 var size: int:
 	get:
 		if pack is CardPack:
 			return (pack as CardPack).size
 		if pack is DicePack:
 			return (pack as DicePack).size
-		if pack is ModulePack:
-			return (pack as ModulePack).size
 		return CardPack.SIZE_NORMAL
 
-## Die Güte des Pakets (Würfel- und Karten-Pakete; Modul-Pakete: Standard).
+## Die Güte des Pakets.
 var quality: int:
 	get:
 		if pack is DicePack or pack is CardPack:

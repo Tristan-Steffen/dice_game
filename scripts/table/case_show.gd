@@ -1,10 +1,9 @@
 class_name CaseShow
 extends Node
-## Die LICHT- und KLANG-SHOW der Schatulle: die Grund-Würfel kommen im ruhigen Takt, danach
-## RÜTTELT sie - und jeder Zusatz-Würfel schießt heller, höher und schneller heraus als der
-## vorige. Dazu die Töne der Walze. Die Stufen sind reine
-## Funktionen; die Töne sind synthetisierte Platzhalter, eine Datei gleichen Namens unter
-## SFX_DIR (.wav/.ogg) ersetzt sie.
+## Die KLANG-SHOW des Aufplatzens: die Grund-Würfel fallen, danach pulst der Glutkern - und
+## jeder Zusatz-Würfel fällt heller, höher und schneller heraus als der vorige. Dazu die
+## Töne der Walze. Die Stufen sind reine Funktionen; die Töne sind synthetisierte
+## Platzhalter, eine Datei gleichen Namens unter SFX_DIR (.wav/.ogg) ersetzt sie.
 
 const SFX_DIR := "res://assets/sfx/case/"
 const BUS_NAME := "Score"
@@ -18,7 +17,7 @@ const RATTLE_DB := -10.0
 const TICK_DB := -14.0
 ## Der ruhige Takt der Grund-Würfel.
 const BEAT_BASE := 0.42
-## Das Rütteln vor jedem Urteil: es wird mit jedem Zusatz-Würfel länger.
+## Die Spannung vor jedem Urteil: sie wird mit jedem Zusatz-Würfel länger.
 const RATTLE_TIME := 0.8
 const RATTLE_GROWTH := 0.12
 const RATTLE_MAX := 1.3
@@ -26,9 +25,8 @@ const RATTLE_MAX := 1.3
 const GLOW_BASE := 0.9
 const GLOW_STEP := 0.55
 const SPEED_STEP := 0.16
-const BEAM_COLOR := Color(1.0, 0.82, 0.42)
-const BEAM_ALPHA := 0.3
-const BEAM_PULSE_TIME := 0.35
+## Die Farbe von Blitz und Glutkern.
+const GLOW_COLOR := Color(1.0, 0.82, 0.42)
 
 var _streams := {}
 var _playback: AudioStreamPlaybackPolyphonic
@@ -37,11 +35,11 @@ var _playback: AudioStreamPlaybackPolyphonic
 static func launch_beat() -> float:
 	return BEAT_BASE
 
-## Wie lange die Schatulle vor dem Urteil rüttelt (rounds = Zusatz-Würfel bisher).
+## Wie lange der Kern vor dem Urteil pulst (rounds = Zusatz-Würfel bisher).
 static func rattle_time(rounds: int) -> float:
 	return minf(RATTLE_TIME + RATTLE_GROWTH * float(maxi(rounds, 0)), RATTLE_MAX)
 
-## Die Helligkeit eines Auswurfs (Strahl, Ring) und der Spitze des Rüttelns davor.
+## Die Helligkeit eines Zusatz-Blitzes und der Spitze der Spannung davor.
 static func glow(level: int) -> float:
 	return GLOW_BASE + GLOW_STEP * float(maxi(level, 0))
 
@@ -66,45 +64,6 @@ static func reel_pitch(value: int, top: int) -> float:
 static func _semis(step: int) -> float:
 	return pow(2.0, float(ScoreAudio.LADDER[clampi(step, 0, ScoreAudio.LADDER.size() - 1)]) / 12.0)
 
-## Der Lichtstrahl aus der offenen Schatulle - ein additiver Zylinder, unsichtbar bis
-## zum ersten Puls. Den Körper stellt scene_root.
-static func build_beam(radius: float, height: float) -> MeshInstance3D:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius * 1.35
-	mesh.bottom_radius = radius
-	mesh.height = height
-	mesh.cap_top = false
-	mesh.cap_bottom = false
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	material.albedo_color = Color(BEAM_COLOR, 0.0)
-	var beam := MeshInstance3D.new()
-	beam.name = "CaseBeam"
-	beam.mesh = mesh
-	beam.material_override = material
-	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return beam
-
-## Ein Puls des Strahls auf `strength` - er klingt in `time` auf seinen Ruhewert ab.
-static func pulse_beam(beam: MeshInstance3D, strength: float, rest: float,
-		time := BEAM_PULSE_TIME, ease_in := false) -> void:
-	if beam == null or not is_instance_valid(beam):
-		return
-	var material := beam.material_override as StandardMaterial3D
-	var tween := beam.create_tween()
-	tween.tween_method(func(a: float) -> void:
-		material.albedo_color = Color(BEAM_COLOR * maxf(a, 1.0), clampf(a, 0.0, 1.0) * BEAM_ALPHA),
-		strength, rest, time).set_trans(Tween.TRANS_QUAD) \
-		.set_ease(Tween.EASE_IN if ease_in else Tween.EASE_OUT)
-	if beam.has_meta("pulse"):
-		var old: Variant = beam.get_meta("pulse")
-		if old is Tween and (old as Tween).is_valid():
-			(old as Tween).kill()
-	beam.set_meta("pulse", tween)
-
 func _ready() -> void:
 	_streams = {
 		"open": _load_or(&"open", _synth_open),
@@ -127,13 +86,13 @@ func _ready() -> void:
 func play_open() -> void:
 	_play("open", OPEN_DB)
 
-## Ein Auswurf: die Grund-Würfel ruhig, jeder Zusatz lauter, höher und mit Schlag.
+## Ein Würfel fällt: die Grund-Würfel ruhig, jeder Zusatz lauter, höher und mit Schlag.
 func play_launch(level: int) -> void:
 	_play("die", DIE_DB + 1.5 * float(level), pitch(level))
 	if level > 0:
 		_play("climax", CLIMAX_DB - 6.0 + 1.5 * float(level), 1.0 + 0.04 * float(level))
 
-## Das Rütteln: mit jeder Runde etwas höher.
+## Die Spannung: mit jeder Runde etwas höher.
 func play_rattle(rounds: int) -> void:
 	_play("rattle", RATTLE_DB + float(rounds), 1.0 + 0.08 * float(rounds))
 
@@ -198,14 +157,14 @@ func _synth_climax() -> AudioStreamWAV:
 		var sparkle := sin(TAU * 1567.98 * t) * exp(-t / 0.6) * (0.5 + 0.5 * sin(TAU * 9.0 * t))
 		return (thump * 0.4 + chord * 0.07 + sparkle * 0.08) * clampf(t / 0.003, 0.0, 1.0))
 
-## Der Deckel fällt zu: kurzer, dumpfer Schlag.
+## Ein kurzer, dumpfer Schlag (der Kern verlischt, die Walze hält).
 func _synth_shut() -> AudioStreamWAV:
 	return _render(0.3, func(t: float) -> float:
 		var thud := sin(TAU * (90.0 + 60.0 * exp(-t / 0.03)) * t) * exp(-t / 0.08)
 		var click := randf_range(-1.0, 1.0) * exp(-t / 0.01)
 		return thud * 0.6 + click * 0.15)
 
-## Das Rütteln: Klicks, die dichter werden, über einem steigenden Brummen.
+## Die Spannung: Klicks, die dichter werden, über einem steigenden Brummen.
 func _synth_rattle() -> AudioStreamWAV:
 	var phase := [0.0]
 	var next := [0.0]

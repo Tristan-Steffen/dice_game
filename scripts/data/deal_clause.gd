@@ -374,7 +374,7 @@ static func supplement() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func bonus_pick() -> DealClause:
-	return _bonus(BONUS_PICK, "Zugabe", "Jedes Paket: eine Wahl mehr.",
+	return _bonus(BONUS_PICK, "Zugabe", "Jedes Paket: eine Wahl mehr (Modul-Paket: ein Modul).",
 		Scope.ROUND, Tier.TWO, [TAG_SHOP])
 
 static func free_hand() -> DealClause:
@@ -595,7 +595,7 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		SUPPLEMENT:
 			return "Jedes Paket zeigt zwei Optionen mehr."
 		BONUS_PICK:
-			return "Jedes Paket: zwei Wahlen mehr."
+			return "Jedes Paket: zwei Wahlen mehr (Modul-Paket: zwei Module)."
 		BLANK_CHEQUE:
 			return "+$80 sofort."
 		SEED_CAPITAL:

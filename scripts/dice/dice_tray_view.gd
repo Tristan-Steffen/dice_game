@@ -53,6 +53,8 @@ var slot_defs: Array[DieDefinition] = []
 var slot_emitters: Array[StasisEmitter] = []
 ## Ruhe-Höhe (inkl. Terrasse) und Phasen-Offset je Slot für die Schweb-Animation.
 var slot_base_y: Array[float] = []
+## Ein gehaltener HUB je Platz über der Schwebe (der angeheftete Würfel); scene_root schreibt ihn.
+var slot_lift: Array[float] = []
 var slot_phase: Array[float] = []
 ## Steht dieser Platz überhaupt AUF dem Tisch? Die Warteschlange fährt per
 ## Hebebühne auf und ab - ein abgesenkter Platz zeigt weder Puck noch Würfel,
@@ -77,7 +79,7 @@ func _process(_delta: float) -> void:
 			continue
 		var phase: float = slot_phase[i]
 		var bob := sin(t * BOB_SPEED + phase)
-		slot_roots[i].position.y = slot_base_y[i] + bob * BOB_AMPLITUDE
+		slot_roots[i].position.y = slot_base_y[i] + slot_lift[i] + bob * BOB_AMPLITUDE
 		# Gieren um die Hochachse - quaternion statt rotation.y, weil die Lage sonst
 		# jeden Frame verloren ginge (der Setter nimmt die Skalierung mit).
 		var yaw := YAW_REST + deg_to_rad(SWAY_DEGREES) * sin(t * SWAY_SPEED + phase)
@@ -113,6 +115,7 @@ func _build_slots() -> void:
 	slot_defs.clear()
 	slot_emitters.clear()
 	slot_base_y.clear()
+	slot_lift.clear()
 	slot_phase.clear()
 	slot_staged.clear()
 	slot_riding.clear()
@@ -149,6 +152,7 @@ func _build_slots() -> void:
 		slot_defs.append(DieDefinition.standard())
 		slot_emitters.append(emitter)
 		slot_base_y.append(rest_y)
+		slot_lift.append(0.0)
 		slot_phase.append(float(i) * 0.7)
 		slot_staged.append(true)
 		slot_riding.append(false)
@@ -221,6 +225,11 @@ func set_slot_staged(index: int, staged: bool) -> void:
 		return
 	slot_staged[index] = staged
 	_set_slot_shown(index, slot_defs[index] != null)
+
+## Der gehaltene Hub eines Platzes (0 = keiner) - der Schwebe-Takt trägt ihn mit.
+func set_slot_lift(index: int, lift: float) -> void:
+	if index >= 0 and index < slot_lift.size():
+		slot_lift[index] = lift
 
 ## Solange die Hebebühne einen Platz führt, hält der Schwebe-Takt still.
 func set_slot_riding(index: int, riding: bool) -> void:

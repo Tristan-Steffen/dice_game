@@ -262,6 +262,9 @@ var shelf_tray := 0:
 			if tray != shelf_tray:
 				_shelf_scroll[tray] = 0
 		refresh()
+## Nur BLÄTTERN (Karten-Öffnung, gemeldet von scene_root): Tablett, Rollen und Griff
+## leben, Stecken, Rohling-Legen und Aufräumen schweigen.
+var browse_only := false
 ## Der ROLL-STAND je Tablett in ganzen Spalten - ebenfalls ANZEIGE.
 var _shelf_scroll: Array[int] = [0, 0, 0, 0]
 ## Der letzte gemeldete Versatz des laufenden Zugs.
@@ -1509,7 +1512,8 @@ func stamp_blocker() -> String:
 		return "Runde gezurrt - erst im Laden wieder."
 	# Die ART des Ziels sagt, was der Knopf überhaupt tut - darum steht sie zuerst.
 	if target_die() == null and not compressing():
-		return "Kein Ziel: einen Vorrats-Würfel antippen oder einen %s auflegen." 			% Pack.BLANK_NAME
+		return "Kein Ziel: einen Vorrats-Würfel antippen oder einen %s auflegen." \
+			% Pack.BLANK_NAME
 	if _series.is_empty():
 		return "Keine Karte in der Reihe."
 	if compressing():
@@ -2293,6 +2297,8 @@ func arrival_anchor_px(pack: Pack, extra: int = 0) -> Vector2:
 ## ein ROHLING dagegen auf das PODEST. Die Karte entscheidet, was der Tipp tut, genau
 ## wie das Ziel entscheidet, was der Knopf tut: ein Rohling als Futter trüge nichts bei.
 func _on_pack_pressed(uid: int) -> void:
+	if browse_only:
+		return
 	var pack := run.pack_by_uid(uid) if run != null else null
 	if pack != null and pack.is_blank_card():
 		if not shelf_locked():
@@ -2328,7 +2334,7 @@ func shelf_dragging() -> bool:
 
 ## Doppelklick auf leere Fach-Fläche: aufräumen nach Sorte, Inhalt, uid.
 func _on_tidy_requested() -> void:
-	if run == null or shelf_locked():
+	if run == null or shelf_locked() or browse_only:
 		return
 	run.tidy_packs()
 

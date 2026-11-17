@@ -51,3 +51,6 @@ Umgesetzt wie oben, mit den Spieler-Änderungen nach der ersten Fassung:
 
 ## Nachtrag (2026-11-14)
 Das Lager aus drei Gruben zu 2 × 3 liegenden Plätzen mit zweiter Lage ist abgelöst durch `docs/plan_lager_rinnen.md`: drei Rinnen übereinander, die Pakete stehen hochkant, zwölf Plätze je Rinne, geöffnet rückt nach.
+
+## Nachtrag (2026-11-17)
+Das Öffnen aus dem Lager ist abgelöst durch `docs/plan_oeffnung_am_ziel.md`: jedes Paket öffnet sofort beim Kauf, Gewinn-Pakete ebenso. Das Lager (Grube, Rinnen, Code) bleibt vorerst stehen, bekommt aber nichts mehr; der Spieler entfernt es später.

@@ -129,3 +129,40 @@ func test_idle_info_names_the_blocker_or_the_target() -> void:
 	die.display_name = "Zielwürfel"
 	assert_eq(String(WorkshopInfoView.idle_info(die, "")["title"]), "Zielwürfel",
 		"ein gewähltes Ziel erklärt sich selbst")
+
+## Das NETZ steht rechts im Schirm, der Text endet davor - und es kommt und geht mit
+## seinem Würfel.
+func test_a_die_net_stands_right_of_the_text() -> void:
+	await wait_frames(2)
+	var def := DieDefinition.standard()
+	view.set_info("Würfel", "", Color.WHITE, "Kurz.")
+	assert_false(view.net_shown(), "ohne Würfel kein Netz")
+	view.set_net(def)
+	assert_true(view.net_shown())
+	assert_same(view.net_def(), def)
+	var net := view.net_rect()
+	var bounds := Rect2(Vector2.ZERO, view.size)
+	assert_true(bounds.encloses(net), "das Netz steht im Schirm")
+	assert_almost_eq(net.end.x, view.size.x - view.unit() * WorkshopInfoView.MARGIN_X, 0.01,
+		"rechtsbündig")
+	var title := view.get_node("Titel") as Control
+	assert_lte(title.position.x + title.size.x, net.position.x, "der Text endet vor dem Netz")
+	view.set_net(null)
+	assert_false(view.net_shown(), "und geht mit seinem Würfel")
+	assert_eq(view.net_rect(), Rect2())
+
+## Eine Zelle des Netzes nennt ihre Seite - dieselbe EINE Quelle wie jedes Netz.
+func test_a_net_cell_names_its_face() -> void:
+	await wait_frames(2)
+	var def := DieDefinition.standard()
+	view.set_net(def)
+	var net := view.net_rect()
+	var cell := view.net_cell()
+	# Die mittlere Zelle der Mittelreihe ist eine Würfelseite.
+	var inside := view.get_global_rect().position + net.position \
+		+ Vector2(cell * 1.5 * (1.0 + DieNetView.GAP_FACTOR), cell * 1.5 * (1.0 + DieNetView.GAP_FACTOR))
+	var face := view.net_face_at(inside)
+	assert_gte(face, 0, "die Zelle ist eine Seite")
+	assert_eq(view.net_hint_at(inside), DieNetView.hint_for(def, face))
+	assert_eq(view.net_hint_at(view.get_global_rect().position + Vector2(2, 2)), "",
+		"neben dem Netz sagt es nichts")

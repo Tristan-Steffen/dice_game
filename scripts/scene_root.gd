@@ -1370,10 +1370,6 @@ func _place_workshop_strip() -> Rect2:
 	# Die KRONE (Podest und Prägen über der Die-View) gehört zur Station.
 	var crown := table_screen.workshop_window.crown_rect_px() \
 		if table_screen.workshop_window != null else Rect2()
-	# Die Oberkante des STREIFENS samt Krone: bis dorthin reicht die Info-Säule am Fach.
-	_bench_top_px = workshop_rect.position.y
-	if crown.size.y > 0.0:
-		_bench_top_px = minf(_bench_top_px, crown.position.y)
 	_free_own_child("WorkshopClickZone")  # eine Neuplatzierung ersetzt sie
 	# Die Zone deckt, was die Werkstatt bedient: Zeile bis zu ihrem Inhalt, Schürze und
 	# Krone - der leere Rest der Zeile gehört der Öffnungs-Fläche.
@@ -1533,7 +1529,7 @@ func _sync_shelf_selector() -> void:
 
 func _shelf_selector_live() -> bool:
 	return _table_operable() and not _deck_glass \
-		and _felt_pick_live(CameraRig.Mode.WORKSHOP)
+		and (_felt_pick_live(CameraRig.Mode.WORKSHOP) or _card_opening_browse())
 
 ## Welche Taste liegt unter dem Zeiger ("" = keine)? Entschieden wird am NAMEN des
 ## Treffers, nicht am Treffer allein.
@@ -5714,6 +5710,12 @@ func _deck_glass_frame() -> Dictionary:
 	if ausgabefach != null and is_instance_valid(ausgabefach) and ausgabefach.half.x > 0.0:
 		lo = lo.min(ausgabefach.bounds_min())
 		hi = hi.max(ausgabefach.bounds_max())
+	# Der ZWANG zeigt den Neuzugang im INFO-SCHIRM unter dem Vorrat - er gehört ins Bild.
+	if _deck_glass_pending() >= 0 and _info_rect.size.x > 0.0:
+		for corner: Vector2 in [_info_rect.position, _info_rect.end]:
+			var at_info := table_screen.pixel_to_world(corner)
+			lo = lo.min(Vector2(at_info.x, at_info.z))
+			hi = hi.max(Vector2(at_info.x, at_info.z))
 	var middle := (lo + hi) * 0.5
 	return {"at": Vector3(middle.x, 0.0, middle.y),
 		"half": Vector2((hi.y - lo.y) * 0.5, (hi.x - lo.x) * 0.5)}
@@ -5772,16 +5774,11 @@ func _exchange_forced() -> bool:
 func _sync_forced_exchange() -> void:
 	if _deck_glass or run == null or _deck_glass_pending() < 0 or _pack_choice_modal():
 		return
-	if _case_sinking != null or not _case_flights.is_empty() or not _case_returning.is_empty():
-		return  # erst verschwindet die Schatulle im Tisch
+	if not _case_flights.is_empty() or not _assign_sinking.is_empty():
+		return  # erst sitzt die Öffnung, und ihre Ungewählten sind im Tisch
 	if not _table_operable() or camera_rig.die_focus or not _pool_editable():
 		return
 	_open_deck_glass(false, true)
-	# Kam der Neuzugang aus einer Öffnung, kehrt die Kamera danach dorthin zurück, wo
-	# sie VOR der Öffnung stand.
-	if _deck_glass and not _choice_home_handoff.is_empty():
-		_deck_glass_home = _choice_home_handoff
-		_choice_home_handoff = {}
 
 ## Und die Kehrseite: solange der Zwang steht, geht NUR das Raster. Der Rechtsklick
 ## wird geschluckt statt abgebrochen - hinaus führt allein der Tipp auf eine Zelle.
@@ -5789,7 +5786,8 @@ func _handle_forced_exchange_input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouse
 	if mouse == null or table_screen == null or camera_rig.is_animating:
 		return
-	if mouse is InputEventMouseButton 			and (mouse as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
+	if mouse is InputEventMouseButton \
+			and (mouse as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
 		return
 	var pixel := _screen_pixel(mouse.position)
 	if pixel.x >= 0.0:
@@ -5874,7 +5872,8 @@ func _show_deck_glass_window() -> void:
 		return
 	table_screen.place_deck_glass_window(rect, _deck_glass_resolution(rect))
 	var die := _deck_glass_die()
-	var head := "Wohin mit %s? Kein Zwischenlager." % die.display_name 		if die != null else DECK_GLASS_TITLE
+	var head := "Wohin mit %s? Kein Zwischenlager." % die.display_name \
+		if die != null else DECK_GLASS_TITLE
 	window.show_pool(head, run.owned_pool, pool_tray_view.columns, _deck_glass_target())
 
 ## Die Auflösung des Glas-Viewports: GEMESSEN an der stehenden Kamera. Die vier
@@ -6040,7 +6039,7 @@ func _on_deck_glass_reordered(from_index: int, to_index: int) -> void:
 func _place_raster_switch() -> void:
 	if table_screen == null:
 		return
-	var column := _raster_switch_column()
+	var column := _fach_rect_px()
 	if column.size.x <= 0.0:
 		return
 	if raster_switch == null or not is_instance_valid(raster_switch):
@@ -6048,13 +6047,6 @@ func _place_raster_switch() -> void:
 		add_child(raster_switch)
 	raster_switch.setup(RasterSwitchView.spot_under(table_screen.pixel_to_world(
 		Vector2(column.get_center().x, column.end.y))))
-
-## Woran die Taste hängt, in Display-Pixeln: die DIE-VIEW-SÄULE rechts des Vorrats -
-## ohne Platz für sie die Schale selbst (leer = es steht keine Schale). Beide melden
-## Pixel, der Körper gehört hierher.
-func _raster_switch_column() -> Rect2:
-	var column := _fach_net_rect()
-	return column if column.size.x > 0.0 else _fach_rect_px()
 
 ## Ihr Rechteck in Display-Pixeln (leer = sie steht nicht).
 func _raster_switch_rect_px() -> Rect2:
@@ -6068,9 +6060,11 @@ func _raster_switch_rect_px() -> Rect2:
 	var b := table_screen.world_to_pixel(Vector3(lo.x, 0.0, hi.y))
 	return Rect2(a, b - a)
 
-## Das SICHTBARE Rechteck (leer = in den Werkbank-Nahstufen oder während einer Fahrt).
+## Das SICHTBARE Rechteck (leer = in den Werkbank-Nahstufen, während einer Fahrt oder
+## einer Paket-Öffnung - dort steht sie gar nicht).
 func _raster_switch_rect() -> Rect2:
-	if not _table_operable() or camera_rig.workshop_close or camera_rig.die_focus:
+	if not _table_operable() or camera_rig.workshop_close or camera_rig.die_focus \
+			or _pack_choice_modal():
 		return Rect2()
 	return _raster_switch_rect_px()
 
@@ -6084,6 +6078,8 @@ func _raster_switch_live() -> bool:
 func _sync_raster_switch() -> void:
 	if raster_switch == null or not is_instance_valid(raster_switch):
 		return
+	# Während einer Paket-Öffnung ist sie nicht zu bedienen - also steht sie nicht.
+	raster_switch.visible = not _pack_choice_modal()
 	raster_switch.set_open(_deck_glass)
 	raster_switch.set_live(_raster_switch_live())
 	var rect := _raster_switch_rect()
@@ -7224,14 +7220,6 @@ func _fly_payout_claim(bet: SideBet, claim: Dictionary, workshop: WorkshopView,
 					func() -> void:
 						if run == launched and is_instance_valid(workshop):
 							_fly_pack_to_magazine(workshop, pack.pack_uid, hub_px, tint))
-	# Das Paket liegt längst im Lager - sein Körper fliegt Hub -> Lager.
-	if bet.awarded_stored != null and run != null:
-		var stored := bet.awarded_stored
-		var at := table_screen.pixel_to_world(hub_px)
-		at.y = PACK_STORE_CLEAR
-		var hull := _spawn_store_hull(stored, at)
-		hull.materialize()
-		_fly_into_store(stored, hull)
 	# Das Modul wartet längst in pending_parts - sein Licht fährt Hub -> Chips.
 	if bet.payout_kind == SideBet.Payout.PART:
 		var part := bet.reward_part()
@@ -7268,9 +7256,6 @@ func _withhold_payout_packs(won: Array[SideBet]) -> void:
 			if pack != null and pack.pack_uid > 0:
 				workshop.expect_pack_delivery(pack.pack_uid)
 				_payout_packs.append(pack.pack_uid)
-		# Ein gewonnenes Paket wartet ebenso: es fliegt erst nach dem Kassieren ins Lager.
-		if bet.awarded_stored != null:
-			_store_withheld[int(bet.awarded_stored.get("store_uid"))] = true
 		# Ein gewonnener Würfel wartet ebenso: sein Körper steigt erst nach dem Kassieren.
 		if bet.awarded_die != null and ausgabefach != null and is_instance_valid(ausgabefach):
 			ausgabefach.expect_arrival(bet.awarded_die)
@@ -7307,7 +7292,6 @@ func _drop_payout_bodies() -> void:
 		_land_pending_packs(workshop, _payout_packs)
 	_payout_packs.clear()
 	_land_payout_dice()
-	_store_withheld.clear()  # zurückgehaltene Lager-Pakete stehen sofort
 	_payout_pending_plots = []
 	_payout_plot_specs.clear()
 	_payout_depth = 0.0  # die nächste Ablage mißt ihre Tiefe neu
@@ -7607,85 +7591,6 @@ func _fach_rect_px() -> Rect2:
 	var b := table_screen.world_to_pixel(Vector3(lo.x, 0.0, hi.y))
 	return Rect2(a, b - a)
 
-## Die INFO-SÄULE steht UNTER der Schale (Bildschirm-unten = Welt −X): über ihr
-## liegt der eine offene NEUZUGANG, darin steht, was er ist und tut. Sie muß auf der
-## ANZEIGE liegen - reicht sie unter den Werkstatt-Streifen, wird sie an dessen
-## Oberkante gekürzt; bleibt dann zu wenig übrig, steht sie gar nicht.
-const FACH_NET_GAP_SHARE := 0.25   # Fuge unter der Schale, als Anteil ihrer Breite
-const FACH_NET_WIDTH_SHARE := 1.9  # ihre Breite als Vielfaches der Schalenbreite
-const FACH_NET_MIN_FILL := 0.7     # bleibt weniger davon übrig, steht sie gar nicht
-
-## Oberkante des WERKSTATT-STREIFENS in Display-Pixeln (0 = noch nicht gemessen):
-## dort endet der freie Filz unter dem Vorrat, und dort endet die Info-Säule.
-var _bench_top_px := 0.0
-
-## Ihre SPALTE in Display-Pixeln (x, Breite) - eine reine Funktion der Schale, ohne
-## die Höhen-Frage.
-func _fach_net_span() -> Vector2:
-	var fach := _fach_rect_px()
-	if fach.size.x <= 0.0:
-		return Vector2.ZERO
-	var wide := fach.size.x * FACH_NET_WIDTH_SHARE
-	return Vector2(fach.get_center().x - wide * 0.5, wide)
-
-## Ihr BODEN: die ERSTE Fläche unter ihr. Kreuzt ihre Spalte den INFO-SCHIRM,
-## endet sie an dessen Oberkante, sonst an der des Streifens.
-func _fach_floor_px(span: Vector2) -> float:
-	var floor_px := float(table_screen.size.y)
-	if _info_rect.size.x > 0.0 and span.x < _info_rect.end.x \
-			and span.x + span.y > _info_rect.position.x:
-		floor_px = minf(floor_px, _info_rect.position.y)
-	if _bench_top_px > 0.0:
-		floor_px = minf(floor_px, _bench_top_px)
-	return floor_px
-
-## Ihr Rechteck in Display-Pixeln (leer = kein Platz oder keine Schale). Die HÖHE
-## meldet die Säule selbst - hier wird keine gerechnet.
-func _fach_net_rect() -> Rect2:
-	if table_screen == null:
-		return Rect2()
-	var fach := _fach_rect_px()
-	var span := _fach_net_span()
-	if fach.size.y <= 0.0 or span.y <= 0.0:
-		return Rect2()
-	var top := fach.position.y + fach.size.y + fach.size.x * FACH_NET_GAP_SHARE
-	var tall := FachNetView.height_for(span.y)
-	var room := _fach_floor_px(span) - top
-	if room < tall * FACH_NET_MIN_FILL:
-		return Rect2()
-	return Rect2(Vector2(span.x, top), Vector2(span.y, minf(tall, room)))
-
-## Die Säule zeigt AUSSCHLIESSLICH den Neuzugang der Schale (2026-09-04: der
-## Werkstatt-Zielwürfel hat sein eigenes Netz im Streifen). Leer heißt: sie
-## steht gar nicht. Je Bild gefragt, gebaut nur der Wechsel.
-func _sync_fach_nets() -> void:
-	if table_screen == null or table_screen.fach_net_window == null \
-			or not is_instance_valid(table_screen.fach_net_window):
-		return
-	var window := table_screen.fach_net_window
-	var rect := _fach_net_rect()
-	# Der überfahrene VORRATS-Würfel gewinnt (Spieler-Wunsch 2026-09-11), sonst der
-	# offene Neuzugang in der Schale.
-	var shown := _hovered_pool_die()
-	if shown == null and ausgabefach != null and is_instance_valid(ausgabefach) \
-			and not ausgabefach.items.is_empty():
-		shown = ausgabefach.items[0]["def"]
-	if shown == null or rect.size.x <= 0.0:
-		window.set_die(null)
-		table_screen.hide_fach_net_window()
-		return
-	table_screen.place_fach_net_window(rect)
-	window.set_die(shown)
-
-## Der Vorrats-Würfel unter dem Zeiger (null = keiner) - nur, wo der Tisch
-## bedienbar ist und kein modales Bild steht.
-func _hovered_pool_die() -> DieDefinition:
-	if pool_tray_view == null or not _table_operable() or _deck_glass \
-			or camera_rig.die_focus:
-		return null
-	var seat := _pool_tray_slot_at(get_viewport().get_mouse_position())
-	return pool_tray_view.slot_defs[seat] if seat >= 0 else null
-
 ## Die hinterlegten Würfel in die Schale stellen - EIN idempotenter Schreiber.
 ## Ein Würfel, der noch unterwegs ist, bekommt seinen Platz und wartet mit dem
 ## Körper auf seinen Kometen.
@@ -7696,6 +7601,8 @@ func _sync_ausgabefach() -> void:
 	if run != null:
 		stashed = run.pending_dice
 	ausgabefach.present(stashed)
+	# Paket-Würfel gehen nie hinein: die Schale steht nur, solange ein Neuzugang wartet.
+	ausgabefach.visible = not stashed.is_empty()
 
 func _on_pending_dice_changed() -> void:
 	_sync_ausgabefach()
@@ -7764,7 +7671,8 @@ func _pool_editable() -> bool:
 ## Vorrat steht, die Runde ist noch nicht unterschrieben, und das Tray ist die
 ## lokale Bühne (oder die Freikamera). Hover und Dossier antworten überall.
 func _fach_swap_live() -> bool:
-	return _pool_editable() 		and (_felt_pick_live(CameraRig.Mode.WORKSHOP) or _felt_pick_live(CameraRig.Mode.POOL))
+	return _pool_editable() \
+		and (_felt_pick_live(CameraRig.Mode.WORKSHOP) or _felt_pick_live(CameraRig.Mode.POOL))
 
 func _handle_fach_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed \
@@ -8638,11 +8546,11 @@ func _bench_stage_under(screen_pos: Vector2) -> FloatingDie:
 	return bench_stage if bench_stage.under(camera, screen_pos) else null
 
 ## --- Die PAKET-AUSWAHL auf der ÖFFNUNGS-FLÄCHE ---------------------------------------
-## Gekauft liegt ein Paket im LAGER; ein Klick darauf (nur außerhalb der Runde) bucht
-## das Öffnen (GameRun.open_stored_pack): Optionen und Wahlen stehen fest. Das Paket
-## fliegt auf die Öffnungs-Fläche unter dem Lager, die Kamera rahmt sie (ein temporärer
-## Rahmen wie das Raster), und die Ansicht ist MODAL wie der Zwang. Der Laden bleibt
-## unberührt. Jeder Abbruch läuft durch _settle_pack_openings - ein offenes Paket bleibt
+## Gekauft ist geöffnet (GameRun): Optionen und Wahlen stehen fest, die Hülle fliegt
+## aus ihrem Laden-Platz auf die Öffnungs-Fläche, die Kamera rahmt sie (ein temporärer
+## Rahmen wie das Raster; beim Würfel-Paket samt Vorrat), und die Ansicht ist MODAL -
+## beim Würfel-Paket antworten außer ihr nur die Vorrats-Würfel und der Podest-Würfel.
+## Der Laden bleibt unberührt. Jeder Abbruch läuft durch _settle_pack_openings - ein offenes Paket bleibt
 ## in GameRun stehen und öffnet beim nächsten Hinsehen neu.
 
 const PACK_DROP_HEIGHT := 9.0
@@ -8657,72 +8565,78 @@ const PACK_PICK_LIFT := 0.45
 const PACK_PICK_SPEED := 4.0
 ## Der Platz eines Würfels in Würfelkanten - er will getroffen werden.
 const PACK_DIE_SLOT := 2.1
-## Der Platz eines Moduls in der Aufstellung: seine Kante mal diese Luft.
-const PACK_PART_SLOT := 2.6
-## Wie weit über dem Beutel die Module aufbrechen, und ihr Aufsetzer.
-const PACK_BAG_MOUTH := 1.0
-const PACK_PART_BOUNCE := 0.12
 const PACK_LEAVE_TIME := 0.4
 ## Der Würfel liegt so hoch über dem Grubenboden: halbe Kante plus Luft.
 const PACK_DIE_REST := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE + 0.03
-## Die SCHATULLE eines Würfel-Pakets: Flug aus der Laden-Bucht, Show, Würfel-Flug.
+## Der Trage-Bogen einer gekauften Hülle aus ihrem Laden-Platz; der Saum ihrer Sektion.
 const PACK_CASE_FLIGHT := 0.85
 const PACK_CASE_PEAK := 4.0
-const PACK_CASE_CLEAR := 0.03
 const PACK_CASE_SEAM := 0.15
-## Das große Öffnen: der Deckel schwingt über, die Grubenwände schlagen an.
-const PACK_CASE_LID_OPEN := 0.5
-const PACK_CASE_SLAM_TIME := 0.18
-const PACK_CASE_OPEN_SLAM := 0.35
-## Ein Zusatz-Würfel schlägt in die Wände: jeder stärker als der vorige.
-const PACK_CASE_EXTRA_SLAM := 0.45
-const PACK_CASE_EXTRA_SLAM_STEP := 0.15
-## Der Sprung zurück in die Schatulle.
-const PACK_CASE_JUMP := 0.55
-const PACK_CASE_JUMP_PEAK := 2.6
-const PACK_CASE_REOPEN := 0.2
-## Der AUSWURF: Wegwerf-Körper mit der Physik der Grube, auf einer eigenen Ebene - der
-## Rundenwurf (Ebene 2) sieht sie nicht, und sie sehen ihn nicht.
+## Das AUFPLATZEN der Schale über der Schiene: Höhe, Blähen, Splitter, Blitz, Glutkern
+## (Spannen in Würfelkanten).
+const PACK_BURST_HEIGHT := 4.0
+const PACK_BURST_SWELL := 0.18
+const PACK_BURST_SHAKE := 0.08
+const PACK_BURST_SWELL_TIME := 0.24
+const PACK_BURST_SHARDS := 21
+const PACK_BURST_SPAN := 3.0
+const PACK_BURST_SPEED := 7.0
+const PACK_BURST_GRAVITY := 22.0
+const PACK_BURST_FLASH_TIME := 0.32
+const PACK_BURST_CORE := 0.35
+## Die Würfel fallen als Wegwerf-Körper mit der Physik der Grube, auf einer eigenen Ebene -
+## der Rundenwurf (Ebene 2) sieht sie nicht, und sie sehen ihn nicht. Sie streuen zu
+## ihrem Platz hin (PACK_SPILL_REACH des Wegs) mit kleinem Hub.
 const PACK_LAUNCH_LAYER := 1 << 9
-const PACK_LAUNCH_EMERGE := 0.12
-## Der Schuß nach Bild-UNTEN: ein flacher Bogen, sein Ziel in der Aufstellung unter dem Kopf.
-const PACK_LAUNCH_UP := 4.5
 const PACK_LAUNCH_SPIN := 14.0
 const PACK_LAUNCH_BOUNCE := 0.35
-## Die LANDEFLÄCHE der Wegwerf-Würfel auf der Öffnungs-Fläche: unsichtbarer Boden
-## (Oberkante = Tischhöhe) und Wände ringsum, allein auf PACK_LAUNCH_LAYER.
+const PACK_SPILL_UP := 2.0
+const PACK_SPILL_REACH := 0.7
+## Die LANDEFLÄCHE der Wegwerf-Würfel auf dem Filz: unsichtbarer Boden (Oberkante =
+## Tischhöhe) und Wände ringsum um die Schiene samt Saum (Würfelkanten), allein auf
+## PACK_LAUNCH_LAYER.
 const PACK_GROUND_THICK := 1.0
 const PACK_GROUND_WALL := 6.0
 const PACK_GROUND_WALL_THICK := 0.6
-## Ein Wandtreffer läßt den Rahmen der Fläche in der Strahlfarbe aufblitzen.
-const PACK_WALL_FLASH := 0.35
-## Das Rütteln: Ausschlag in Welt, der Deckel klappert mit.
-const PACK_RATTLE_SHAKE := 0.07
-const PACK_RATTLE_LID := 0.08
+const PACK_GROUND_SEAM := 0.5
+## Die Schiene hält diese Fuge (Würfelkanten) zu Ausgabefach, Krone und Die-View.
+const PACK_RAIL_SIDE_GAP := 1.0
 ## Zur Ruhe: liegt alles still oder ist die Höchstzeit um, friert alles hart ein.
 const PACK_SETTLE_MAX := 2.4
 const PACK_SETTLE_SPEED := 0.2
-## Alle heben sich ZUGLEICH und gleiten in die Aufstellung.
+## Alle heben sich ZUGLEICH und gleiten auf die Schiene.
 const PACK_LINEUP_TIME := 0.75
 const PACK_LINEUP_LIFT := 1.8
-const PACK_CASE_BEAM_HEIGHT := 7.0
-const PACK_CASE_BEAM_REST := 0.35
-const PACK_DIE_FLIGHT := 0.6
-const PACK_DIE_PEAK := 2.4
 const PACK_DIE_STAGGER := 0.12
-const PACK_DIE_SINK := 1.6
 
 ## Die Kamera rahmt die Öffnungs-Fläche mit diesem Saum.
 const PACK_OPENING_MARGIN := 1.06
+const PACK_DICE_FRAME_MARGIN := 1.1
+## Saum am Vorrat (Würfelkanten): schwebende Würfel lesen weiter außen - links im Rahmen,
+## rechts vor der Schiene.
+const PACK_DICE_FRAME_POOL_SEAM := 1.5
+## Karten-Paket: Fläche ∪ Magazin, und die Gewählten tragen sich im Bogen auf ihren Platz.
+const PACK_CARD_FRAME_MARGIN := 1.05
+const PACK_CARD_CARRY_TIME := 0.6
+const PACK_CARD_CARRY_PEAK := 1.4
+const PACK_CARD_CARRY_STAGGER := 0.08
+## ZUORDNEN: eine eingesetzte Option schwebt so hoch über ihrem Vorrats-Würfel, und
+## der alte darunter trägt rotes Licht und dunkelt ab („wird ersetzt“).
+const ASSIGN_HOVER := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * 2.8
+const ASSIGN_SPEED := 18.0
+const ASSIGN_DOOMED_RIM := Color(1.6, 0.18, 0.12)
+const ASSIGN_DOOMED_BODY := Color(0.42, 0.3, 0.3)
+## Die Buchungs-Zeremonie: der alte sinkt sofort, der neue setzt sich kurz danach.
+const ASSIGN_SEAT_DELAY := 0.18
+const ASSIGN_SEAT_TIME := 0.5
+const ASSIGN_SEAT_PEAK := 1.2
 ## Der Rand des Lagers zum Display, in Welt.
 const PACK_AREA_EDGE := 0.5
 ## Die Öffnungs-Fläche ist eine flache VERTIEFUNG: so tief liegt ihr Boden - über der
 ## obersten Tablett-Fläche des Magazins (−0,242), die eingefahren darunter liegt.
 const PACK_AREA_DEPTH := 0.2
-## Das LAGER: Flug aus dem Laden bzw. vom Hub, Nachrücken, und die Grubentiefe (das
-## dickste Paket plus Luft - es liegt bündig unter der Schnittkante).
-const PACK_STORE_FLIGHT := 0.75
-const PACK_STORE_PEAK := 3.0
+## Das LAGER: Nachrücken und die Grubentiefe (das dickste Paket plus Luft - es liegt
+## bündig unter der Schnittkante).
 const PACK_STORE_SHIFT := 0.3
 const PACK_STORE_CLEAR := 0.03
 const PACK_STORE_AIR := 0.15
@@ -8735,17 +8649,13 @@ var _choice: PackChoice = null
 ## Bestätigt: die Körper räumen ab, modal ist nichts mehr.
 var _choice_leaving := false
 var _choice_gen := 0
-## Die Kamera-Lage vor der Öffnung; mit gewählten Würfeln erbt sie der Zwang.
+## Die Kamera-Lage vor der Öffnung; nach dem Einsetzen kehrt sie dorthin zurück.
 var _choice_home: Dictionary = {}
-var _choice_home_handoff: Dictionary = {}
 var _choice_hull: CardPackView = null
-## Das Lager: je uid sein Körper und sein Platz; fliegende und zurückgehaltene stellt
-## der Schreiber nicht um.
+## Das Lager: je uid sein Körper und sein Platz (es bekommt seit dem 2026-11-17 nichts mehr).
 var store_pits: Array[PackPitView] = []
 var _store_bodies := {}
 var _store_seats := {}
-var _store_flying := {}
-var _store_withheld := {}
 var _store_locked := false
 var _store_hovered := -1
 var _opening_rect := Rect2()
@@ -8757,25 +8667,43 @@ var _opening_floor_skin: ShaderMaterial
 var _choice_bodies: Array[Node3D] = []
 var _choice_rest: Array[Vector3] = []
 var _choice_landed := false
-## Die gekaufte Schatulle zwischen Kauf und Öffnen: sie hat die Bucht verlassen.
+## Die gekaufte Hülle zwischen Kauf und Öffnen: sie hat ihren Laden-Platz verlassen.
 var _case_bought: CardPackView = null
-## Die Show läuft (ein Klick springt an ihr Ende), und wer zurück in die Schatulle springt.
+var _opening_shown := false
+## Wo das Fenster der Auswahl gerade steht (Schiene oder Fläche).
+var _choice_window_rect := Rect2()
+## Die Show läuft (ein Klick springt an ihr Ende).
 var _case_show_on := false
-var _case_returning: Array[Node3D] = []
-## Je Option ihr Wegwerf-Körper während des Auswurfs (index-treu, null = keiner).
+## Je Option ihr Wegwerf-Körper während des Falls (index-treu, null = keiner).
 var _case_rigid: Array[RigidBody3D] = []
-var _case_collider: StaticBody3D = null
 ## Boden und Wände der Landefläche - gebaut beim Öffnen, fort im harten Weg.
 var _case_ground: StaticBody3D = null
-var _case_rattle: Tween = null
-var _case_seat := Vector3.ZERO
-## Licht- und Klang-Show der Schatulle (Töne beim Aufbau synthetisiert).
+## Das AUFPLATZEN: wo, was davon noch fliegt (Splitter, Blitze, Kern), und welche
+## Auswahl schon aufgeplatzt ist - wieder geöffnet liegen ihre Würfel sofort.
+var _burst_at := Vector3.ZERO
+var _burst_parts: Array[Node3D] = []
+var _burst_core: Node3D = null
+var _burst_seen: Array[PackChoice] = []
+## Ton der Show (Töne beim Aufbau synthetisiert).
 var case_show: CaseShow
-## Gewählte Würfel auf dem Weg zur Schale: {ghost, def, tween}.
+## Eingesetzte Würfel auf dem Weg in ihren Vorrats-Sitz: {ghost, def, slot, bench, tween}.
 var _case_flights: Array[Dictionary] = []
-## Die Schatulle, die der Tisch gerade einzieht, und ihre Sektion.
-var _case_sinking: CardPackView = null
-var _case_shaft: LiftShaftView = null
+## ZUORDNEN: die laufende Geste auf eine Option, die rot gesäumten alten Würfel
+## (Tray-Platz bzw. -1 fürs Podest → def) und die Sitze, die bis zur Landung leer bleiben.
+var _assign_press := -1
+var _assign_press_pos := Vector2.ZERO
+var _assign_dragging := false
+var _assign_marked := {}
+var _assign_hidden: Array[DieDefinition] = []
+## ANHEFTEN: der angeheftete Vorrats-Würfel, sein Platz und sein Hub (Welt).
+const POOL_PIN_LIFT := 0.55
+const POOL_PIN_SPEED := 4.0
+var _pool_pin: DieDefinition = null
+var _pin_seat := -1
+var _pin_lift := 0.0
+## Die Würfel, die der Tisch gerade einzieht (ersetzte und ungewählte), und ihre Schluck-Bahnen.
+var _assign_sinking: Array[Node3D] = []
+var _assign_lanes: Array[int] = []
 
 ## Die Hülle eines Pakets, liegend im Anzeigemaß der Karten.
 func _spawn_hull(pack_sort: String, pack_size: int, dice: bool, at: Vector3,
@@ -8800,9 +8728,10 @@ func _spawn_bag(module_pack: ModulePack, at: Vector3) -> CardPackView:
 	bag.global_position = at
 	return bag
 
-## Ein Paket-Platz ist gekauft. Lager-Pakete verlassen ihren Platz als KÖRPER und
-## fliegen ins Lager; die Sonder-Karte sinkt mit ihrer Sektion (der Schreiber fährt
-## sie), und ein Komet bringt sie ins Magazin. Gebucht ist längst.
+## Ein Paket-Platz ist gekauft. Ein Karten- oder Würfel-Paket ist damit schon geöffnet
+## (GameRun): seine Hülle wird die Hülle der Öffnung und fliegt im Trage-Bogen in die
+## Fläche (_open_pack_choice). Die Sonder-Karte sinkt mit ihrer Sektion (der Schreiber
+## fährt sie), und ein Komet bringt sie ins Magazin. Gebucht ist längst.
 func _on_shop_pack_purchased(seat: int) -> void:
 	_sfx(&"shop_buy")
 	if run == null or charm_shop == null or not is_instance_valid(charm_shop):
@@ -8815,12 +8744,20 @@ func _on_shop_pack_purchased(seat: int) -> void:
 	shop_pack_cells.erase(seat)
 	_shop_pack_keys.erase(seat)
 	var hull := cell as CardPackView
-	var stored := run.stored_packs(GameRun.store_lane_of(ware)) if ware != null else []
-	if hull == null or not is_instance_valid(hull) or stored.is_empty():
-		if cell != null and is_instance_valid(cell):
-			_free_data_cell(cell)
+	if (ware is CardPack or ware is DicePack) and hull != null and is_instance_valid(hull):
+		_drop_bought_case()
+		hull.set_hovered(false)
+		hull.set_dimmed(false)
+		_case_bought = hull
+		_sync_pack_choice()
 		return
-	_fly_into_store(stored.back(), hull)
+	# Module liegen schon in pending_parts: der Beutel fliegt in die Wurfgrube.
+	if ware is ModulePack and hull != null and is_instance_valid(hull):
+		_bag_spec = Vector2i((ware as ModulePack).size, (ware as ModulePack).grade)
+		_start_module_bag_show(hull)
+		return
+	if cell != null and is_instance_valid(cell):
+		_free_data_cell(cell)
 
 ## Die Sonder-Karte: nach dem Absinken fährt ein Komet die Werkstatt-Ader entlang,
 ## und auf dem Magazin-Platz steigt sie.
@@ -8857,6 +8794,7 @@ func _pack_choice_rect() -> Rect2:
 ## es sich auf der Öffnungs-Fläche. Würfel, die noch ihren Platz suchen, und ein
 ## wartendes Modul gehen vor - eines nach dem anderen.
 func _sync_pack_choice() -> void:
+	_sync_workshop_browse()
 	if _choice != null:
 		if _choice_leaving:
 			return
@@ -8864,31 +8802,25 @@ func _sync_pack_choice() -> void:
 			_settle_pack_openings()
 			return
 		_sync_pack_choice_bodies()
+		_sync_option_tray()
 		return
 	if run == null or run.current_pack_choice() == null:
 		_drop_bought_case()  # die Auswahl öffnet später mit einer frischen Hülle
-		_release_choice_handoff()
 		return
+	# Beim Würfel-Paket steht der Vorrat als KÖRPER: ein liegendes Raster geht hart zu.
+	if _deck_glass and not _exchange_forced() and run.current_pack_choice().is_dice():
+		_settle_deck_glass_hard()
 	if not _pack_opening_ready():
 		return
 	_open_pack_choice(run.current_pack_choice())
-
-## Die geerbte Kamera-Lage, die kein Zwang abgeholt hat (kein Neuzugang wartet mehr,
-## die Schatulle ist fort): die Kamera kehrt selbst heim.
-func _release_choice_handoff() -> void:
-	if _choice_home_handoff.is_empty() or _deck_glass or run == null:
-		return
-	if not run.pending_dice.is_empty() or _case_sinking != null or not _case_flights.is_empty():
-		return
-	camera_rig.restore_pose(_choice_home_handoff)
-	_choice_home_handoff = {}
 
 ## Darf JETZT eine Öffnung beginnen? Keine Runde läuft (dieselbe Frage wie am Vorrat),
 ## nichts Modales steht, und die letzte Schatulle ist fort - zwei lägen übereinander.
 func _pack_opening_ready() -> bool:
 	if run == null or not _store_unlocked():
 		return false
-	if _case_sinking != null or not _case_flights.is_empty() or not _case_returning.is_empty():
+	if not _case_flights.is_empty() or not _assign_sinking.is_empty() \
+			or not _card_carries.is_empty() or _bag_sinking != null:
 		return false
 	if not _table_operable() or camera_rig.die_focus or _deck_glass or log_open \
 			or camera_rig.mode == CameraRig.Mode.TITLE:
@@ -8912,13 +8844,7 @@ func _pack_option_px(choice: PackChoice) -> Vector2:
 		return Vector2(60, 60)
 	if choice.is_dice():
 		return Vector2.ONE * _die_edge_px() * PACK_DIE_SLOT
-	if choice.is_modules():
-		return Vector2.ONE * _world_len_px(ComboPartBody.SIDE) * PACK_PART_SLOT
 	return _data_cell_lying_px() * PackDrawerView.CASSETTE_SCALE
-
-## Der Grundriß des liegenden Modul-BEUTELS in Display-Pixeln (wie eine liegende Kassette).
-func _bag_footprint_px() -> Vector2:
-	return _data_cell_lying_px() * PackDrawerView.CASSETTE_SCALE * CardPackView.FOOT_ROOM
 
 ## Die Würfelkante in Display-Pixeln - der Platz eines Würfels in der Aufstellung.
 func _die_edge_px() -> float:
@@ -8929,29 +8855,101 @@ func _world_len_px(length: float) -> float:
 	var origin := table_screen.world_to_pixel(Vector3.ZERO)
 	return absf(table_screen.world_to_pixel(Vector3(0.0, 0.0, length)).x - origin.x)
 
-## Die Kamera rahmt die Öffnungs-Fläche - ein TEMPORÄRER Rahmen ohne Moduswechsel; die
-## Lage davor wird gemerkt.
+## Die Kamera rahmt die Öffnung - ein TEMPORÄRER Rahmen ohne Moduswechsel; die Lage
+## davor wird gemerkt. Ein Würfel-Paket nimmt den Vorrat samt Ausgabefach-Säule und
+## Krone mit ins Bild: gewählt wird, indem man einsetzt.
 func _frame_opening() -> void:
 	if table_screen == null or pack_choice_view == null or _opening_rect.size.x <= 0.0:
 		return
 	if _choice_home.is_empty():
 		_choice_home = camera_rig.camera_pose()
 	camera_rig.set_tilt_locked(true)
-	var a := table_screen.pixel_to_world(_opening_rect.position)
-	var b := table_screen.pixel_to_world(_opening_rect.end)
+	var rect := _opening_rect
+	var margin := PACK_OPENING_MARGIN
+	if _choice != null and _choice.is_dice():
+		rect = _dice_opening_frame_px()
+		margin = PACK_DICE_FRAME_MARGIN
+	elif _choice != null:
+		rect = _card_opening_frame_px()
+		margin = PACK_CARD_FRAME_MARGIN
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
 	camera_rig.frame_rect((a + b) * 0.5,
-		Vector2(absf(a.z - b.z), absf(a.x - b.x)) * 0.5, PACK_OPENING_MARGIN)
+		Vector2(absf(a.z - b.z), absf(a.x - b.x)) * 0.5, margin)
 
-## Die Öffnung endet: die Kamera kehrt heim - oder, mit gewählten Würfeln, erbt der
-## Zwang die Lage und bringt sie nach dem Einsetzen dorthin zurück.
-func _leave_opening_frame(hand_over: bool) -> void:
+## Pool-Feld ∪ Ausgabefach-Säule ∪ Krone ∪ Schiene samt Kopf und Fuß, in Display-Pixeln.
+func _dice_opening_frame_px() -> Rect2:
+	var rect := PackChoiceView.rail_window_for(_dice_rail_rect())
+	if rect.size.x <= 0.0:
+		rect = _opening_rect
+	# Die schwebenden Vorrats-Würfel projizieren nach außen: links ein Saum dazu. Der
+	# INFO-SCHIRM gehört dazu - dort liest man den angehefteten Würfel.
+	var pool := _deck_glass_rect().abs()
+	pool = pool.grow_individual(_die_edge_px() * PACK_DICE_FRAME_POOL_SEAM, 0.0, 0.0, 0.0)
+	for part: Rect2 in [pool, _info_rect.abs()]:
+		if part.size.x > 0.0 and part.size.y > 0.0:
+			rect = rect.merge(part)
+	# Die Krone nur, wenn auf dem Podest ein Würfel steht, der ersetzt werden kann.
+	var workshop: WorkshopView = table_screen.workshop_window
+	if _bench_die != null and workshop != null and is_instance_valid(workshop) and workshop.visible:
+		var crown := workshop.crown_rect_px()
+		if crown.size.x > 0.0 and crown.size.y > 0.0:
+			rect = rect.merge(crown)
+	return rect
+
+## Öffnungs-Fläche ∪ Magazin-Grube samt Knopfleiste, in Display-Pixeln.
+func _card_opening_frame_px() -> Rect2:
+	var rect := _opening_rect
+	var workshop: WorkshopView = table_screen.workshop_window
+	if workshop == null or not is_instance_valid(workshop) or not workshop.visible:
+		return rect
+	var pit := workshop.shelf_pit_rect().abs()
+	if pit.size.x > 0.0 and pit.size.y > 0.0:
+		rect = rect.merge(pit)
+	for key in workshop.shelf_key_px:
+		if key.x >= 0.0:
+			rect = rect.expand(key)
+	return rect
+
+## Das Magazin während einer Karten-Öffnung: BLÄTTERN ja (Tablett, Rollen, Griff),
+## Stecken, Rohling und Aufräumen nein - die benannte Ausnahme zu Sichtbar-heißt-bedienbar.
+func _card_opening_browse() -> bool:
+	return _pack_choice_modal() and not _choice.is_dice()
+
+## Die Fläche, in der das Magazin bei einer Karten-Öffnung Klick und Zug nimmt.
+func _magazin_browse_rect() -> Rect2:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop) or not workshop.visible:
+		return Rect2()
+	return workshop.shelf_rect_global()
+
+## Je Bild und vor jeder weitergereichten Geste: das Fenster erfährt, ob es nur blättert.
+func _sync_workshop_browse() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop != null and is_instance_valid(workshop):
+		workshop.browse_only = _card_opening_browse()
+
+## Der Zeiger über einer Karten-Option schlägt im Magazin das Tablett ihrer Sorte auf
+## (nur Anzeige, es bleibt nach dem Schließen stehen).
+func _sync_option_tray() -> void:
+	if not _card_opening_browse() or not _table_operable() or camera_rig.is_animating:
+		return
+	var workshop: WorkshopView = table_screen.workshop_window
+	if workshop == null or not is_instance_valid(workshop) or workshop.shelf_dragging():
+		return
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	if pixel.x < 0.0:
+		return
+	var tray := pack_choice_view.option_shelf_tray(pack_choice_view.option_at_px(pixel))
+	if tray >= 0 and tray != workshop.shelf_tray:
+		_on_tray_requested(tray)
+
+## Die Öffnung endet: die Kamera kehrt heim.
+func _leave_opening_frame() -> void:
 	camera_rig.release_tilt_immediately()
 	var home := _choice_home
 	_choice_home = {}
 	if home.is_empty():
-		return
-	if hand_over:
-		_choice_home_handoff = home
 		return
 	camera_rig.restore_pose(home)
 
@@ -8962,26 +8960,23 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	_choice_gen += 1
 	var generation := _choice_gen
 	var launched := run
+	_place_choice_window(choice.is_dice())
 	_frame_opening()
 	if choice.is_dice():
-		_open_dice_case(choice, generation, launched)
+		_open_dice_burst(choice, generation, launched)
 		return
 	var hull := _case_bought
 	_case_bought = null
-	pack_choice_view.bag_px = _bag_footprint_px()
 	pack_choice_view.open(choice, _pack_option_px(choice), run.pack_reshuffle_cost(choice),
 		run.energy)
 	if not await _await_opening_ready(generation, launched):
 		if hull != null and is_instance_valid(hull):
 			_free_data_cell(hull)
 		return
-	if choice.is_modules():
-		_open_module_bag(choice, hull, generation, launched)
-		return
 	var seat := table_screen.pixel_to_world(pack_choice_view.hull_seat_px())
 	var rest := Vector3(seat.x, _opening_floor_y() + PACK_HULL_REST, seat.z)
 	if hull != null and is_instance_valid(hull):
-		# Die Kassette fliegt aus dem Lager über die Mitte der Fläche.
+		# Die Kassette fliegt aus dem Laden über die Mitte der Fläche.
 		_choice_hull = hull
 		hull.set_hovered(false)
 		hull.set_dimmed(false)
@@ -8989,7 +8984,7 @@ func _open_pack_choice(choice: PackChoice) -> void:
 		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
 		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
 	else:
-		# Ohne Lager-Körper (ein Wett-Gewinn am vollen Lager) fällt sie von oben.
+		# Ohne gekaufte Hülle (ein Wett-Gewinn) fällt sie von oben.
 		var drop := Vector3(seat.x, PACK_DROP_HEIGHT, seat.z)
 		var pack_sort := String(choice.pack.get("sort"))
 		_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop,
@@ -9014,82 +9009,6 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	_choice_landed = true
 	pack_choice_view.start_count()
 
-## --- Der ESD-BEUTEL: Modul-Pakete reißen AUF der Öffnungs-Fläche auf ------------
-## Der Beutel fliegt aus dem Lager in die linke Spalte, reißt an der Kerbe auf, und die
-## Module fallen einzeln auf ihre Plätze. Bestätigt zieht der Tisch ihn ein (PIT_CASE).
-
-## Die Show läuft: ein Klick springt an ihr Ende.
-var _bag_show_on := false
-
-func _open_module_bag(choice: PackChoice, hull: CardPackView, generation: int,
-		launched: GameRun) -> void:
-	var rest := table_screen.pixel_to_world(pack_choice_view.bag_seat_px())
-	rest.y = _opening_floor_y()
-	_bag_show_on = true
-	if hull != null and is_instance_valid(hull):
-		_choice_hull = hull
-		hull.set_hovered(false)
-		hull.set_dimmed(false)
-		hull.set_torn(false)
-		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
-		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
-	else:
-		_choice_hull = _spawn_bag(choice.pack as ModulePack, rest)
-		_choice_hull.lie_on_glass(rest)
-		_choice_hull.materialize()
-		await get_tree().create_timer(DataCellView.MATERIALIZE_TIME).timeout
-	if generation != _choice_gen or run != launched or not _bag_show_on \
-			or _choice_hull == null or not is_instance_valid(_choice_hull):
-		return
-	var tear := _choice_hull.tear_open()
-	_sfx(&"bag_tear")
-	await get_tree().create_timer(tear * 0.5).timeout
-	if generation != _choice_gen or run != launched or not _bag_show_on:
-		return
-	_drop_pack_options(choice, _bag_mouth(_choice_hull))
-	var fall := PACK_OPTION_FALL + PACK_PART_BOUNCE \
-		+ PACK_OPTION_STAGGER * float(choice.option_count())
-	await get_tree().create_timer(fall).timeout
-	if generation != _choice_gen or run != launched or not _bag_show_on:
-		return
-	_bag_show_on = false
-	_choice_landed = true
-	pack_choice_view.start_count()
-
-## Der Punkt über dem offenen Beutel, aus dem die Module fallen.
-func _bag_mouth(bag: CardPackView) -> Vector3:
-	return bag.global_position + Vector3.UP * PACK_BAG_MOUTH
-
-## Das Ende der Beutel-Show - auch der Klick dorthin: der Beutel ist offen, jedes Modul
-## liegt hart auf seinem Platz, der Zähler steht.
-func _end_bag_show() -> void:
-	if not _bag_show_on or _choice == null:
-		return
-	_bag_show_on = false
-	if _choice_hull != null and is_instance_valid(_choice_hull):
-		_choice_hull.set_torn(true)
-		var rest := table_screen.pixel_to_world(pack_choice_view.bag_seat_px())
-		rest.y = _opening_floor_y()
-		_choice_hull.glide_to(rest, 0.0)
-		_choice_hull.lie_on_glass(rest)
-	if _choice_bodies.is_empty():
-		var hull := _choice_hull
-		_drop_pack_options(_choice, _bag_mouth(hull) if hull != null and is_instance_valid(hull)
-			else Vector3.ZERO)
-	for i in _choice_bodies.size():
-		var body := _choice_bodies[i]
-		if body == null or not is_instance_valid(body):
-			continue
-		var fall: Variant = body.get_meta("fall") if body.has_meta("fall") else null
-		if fall is Tween and (fall as Tween).is_valid():
-			(fall as Tween).kill()
-		body.visible = true
-		body.rotation = Vector3.ZERO
-		body.global_position = _choice_rest[i]
-	_choice_landed = true
-	pack_choice_view.start_count()
-	pack_choice_view.skip_count()
-
 ## Die Optionen fallen aus dem offenen Paket auf ihre Plätze: Würfel im Bogen mit
 ## einem Taumeln und einem kurzen Aufsetzer, Karten im Trage-Bogen. Endzustand
 ## zuerst: jeder Platz steht in _choice_rest, bevor etwas fliegt.
@@ -9102,34 +9021,7 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 		var px: Vector2 = centers[i] if i < centers.size() else Vector2.ZERO
 		var option: Variant = choice.options[i]
 		var delay := PACK_OPTION_STAGGER * float(i)
-		if option is ComboPart:
-			var target := table_screen.pixel_to_world(px) + Vector3.UP * VitrineView.FLOOR_CLEAR \
-				+ floor_drop
-			var body := ComboPartBody.new()
-			body.name = "ChoicePart%d" % i
-			add_child(body)
-			body.setup(option as ComboPart)
-			body.global_position = from
-			body.visible = false
-			_choice_bodies.append(body)
-			_choice_rest.append(target)
-			var drop := create_tween()
-			drop.tween_interval(maxf(delay, 0.001))
-			drop.tween_callback(func() -> void:
-				if is_instance_valid(body):
-					body.visible = true)
-			drop.tween_method(func(t: float) -> void:
-				if is_instance_valid(body):
-					body.global_position = from.lerp(target, t) \
-						+ Vector3.UP * PACK_OPTION_PEAK * 4.0 * t * (1.0 - t)
-					body.rotation = Vector3(0.0, TAU * (1.0 - t), 0.0),
-				0.0, 1.0, PACK_OPTION_FALL)
-			drop.tween_property(body, "global_position", target + Vector3.UP * PACK_PART_BOUNCE,
-				PACK_PART_BOUNCE * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-			drop.tween_property(body, "global_position", target, PACK_PART_BOUNCE * 0.55) \
-				.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-			body.set_meta("fall", drop)
-		elif option is Pack:
+		if option is Pack:
 			var pack := option as Pack
 			var target := _data_cell_seat(px) + floor_drop
 			var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, from, pack.stamp_net,
@@ -9259,8 +9151,8 @@ func _spawn_store_hull(pack: Resource, at: Vector3) -> CardPackView:
 	return hull
 
 ## Der EINE Schreiber der Lager-Körper, je Bild: jedes gelagerte Paket steht hochkant auf
-## seinem Platz; öffnet eines, gleiten die rechten nach (Rinnen-Grammatik). Fliegende und
-## zurückgehaltene läßt er in Ruhe, und in der Runde steht alles grau.
+## seinem Platz; öffnet eines, gleiten die rechten nach (Rinnen-Grammatik), und in der
+## Runde steht alles grau.
 func _sync_store_bodies() -> void:
 	if run == null or table_screen == null or table_screen.store_window == null \
 			or not table_screen.store_window.visible:
@@ -9275,8 +9167,6 @@ func _sync_store_bodies() -> void:
 		for pack: Resource in run.stored_packs(lane):
 			var uid := int(pack.get("store_uid"))
 			alive[uid] = true
-			if _store_withheld.has(uid):
-				continue
 			var seat := _store_seat(pack)
 			var body: CardPackView = _store_bodies.get(uid)
 			if body == null or not is_instance_valid(body):
@@ -9288,7 +9178,7 @@ func _sync_store_bodies() -> void:
 				continue
 			if dim_changed:
 				body.set_dimmed(locked)
-			if not _store_flying.has(uid) and _store_seats.get(uid, seat) != seat:
+			if _store_seats.get(uid, seat) != seat:
 				_store_seats[uid] = seat
 				body.glide_to(seat, PACK_STORE_SHIFT)
 	for uid in _store_bodies.keys():
@@ -9300,50 +9190,15 @@ func _drop_store_body(uid: int) -> void:
 	var body: CardPackView = _store_bodies.get(uid)
 	_store_bodies.erase(uid)
 	_store_seats.erase(uid)
-	_store_flying.erase(uid)
 	if _store_hovered == uid:
 		_store_hovered = -1
 	if body != null and is_instance_valid(body):
 		_free_data_cell(body)
 
-## Ein Körper fliegt ins Lager (aus dem Laden oder vom Hub): Endzustand zuerst - der
-## Platz steht, der Bogen ist nur der Weg dorthin.
-func _fly_into_store(pack: Resource, body: CardPackView) -> void:
-	if pack == null or body == null or not is_instance_valid(body):
-		return
-	var uid := int(pack.get("store_uid"))
-	if not run.stored_packs(GameRun.store_lane_of(pack)).has(pack):
-		_free_data_cell(body)
-		return
-	var old: CardPackView = _store_bodies.get(uid)
-	if old != null and is_instance_valid(old) and old != body:
-		_free_data_cell(old)
-	var seat := _store_seat(pack)
-	_store_bodies[uid] = body
-	_store_seats[uid] = seat
-	_store_flying[uid] = true
-	_store_withheld.erase(uid)
-	body.set_hovered(false)
-	body.add_spine()
-	# Im Bogen richtet sie sich auf: sie landet stehend im Platz.
-	body.set_standing(true, PACK_STORE_FLIGHT)
-	body.arc_to(seat, PACK_STORE_FLIGHT, PACK_STORE_PEAK)
-	var launched := run
-	get_tree().create_timer(PACK_STORE_FLIGHT).timeout.connect(func() -> void:
-		if run != launched:
-			return
-		_store_flying.erase(uid)
-		var landed: CardPackView = _store_bodies.get(uid)
-		if landed != null and is_instance_valid(landed):
-			_sfx(&"store_land")
-			landed.stand_on(_store_seats.get(uid, seat)))
-
-## Der harte Weg: kein Flug, nichts zurückgehalten, jeder Körper fort (der Schreiber
-## stellt beim nächsten Bild alles neu).
+## Der harte Weg: jeder Körper fort (der Schreiber stellt beim nächsten Bild alles neu).
 func _drop_store_bodies() -> void:
 	for uid in _store_bodies.keys():
 		_drop_store_body(uid)
-	_store_withheld.clear()
 	_store_hovered = -1
 
 ## Welches Paket steht unter dem Zeiger? Gemessen auf der Glashöhe; ein Platz ist ein
@@ -9374,7 +9229,7 @@ func _sync_store_hover() -> void:
 	if _store_unlocked() and _choice == null and _table_operable() and not _deck_glass \
 			and not log_open:
 		var slot := _store_slot_under(get_viewport().get_mouse_position())
-		if not slot.is_empty() and not _store_flying.has(int(slot["uid"])):
+		if not slot.is_empty():
 			want = int(slot["uid"])
 	if want == _store_hovered:
 		return
@@ -9413,7 +9268,6 @@ func _open_stored_pack(uid: int) -> void:
 	var body: CardPackView = _store_bodies.get(uid)
 	_store_bodies.erase(uid)
 	_store_seats.erase(uid)
-	_store_flying.erase(uid)
 	_store_hovered = -1
 	_drop_bought_case()
 	if body != null and is_instance_valid(body):
@@ -9424,14 +9278,13 @@ func _open_stored_pack(uid: int) -> void:
 		_case_bought = body
 	_sync_pack_choice()
 
-## Die ÖFFNUNGS-FLÄCHE unter dem Lager: so breit wie das Lager, nahtlos an seiner
-## Unterkante, unten bündig mit der Die-View. Sie steht IMMER - leer mit ihrem Hinweis -
-## und ist eine flache Vertiefung. Idempotent je Bild.
+## Die ÖFFNUNGS-FLÄCHE unter dem Lager (nur für Karten-Pakete): so breit wie das Lager,
+## nahtlos an seiner Unterkante, unten bündig mit der Die-View, eine flache Vertiefung mit
+## Schirm. Bei Würfel-Paketen steht das Fenster als SCHIENE auf dem Filz - ohne Schirm,
+## ohne Loch, ohne Vertiefung. Idempotent je Bild.
 func _sync_pack_areas() -> void:
 	if table_screen == null or pack_choice_view == null:
 		return
-	pack_choice_view.set_idle_text("Paket im Lager anklicken zum Öffnen" if _store_unlocked()
-		else "Öffnen nach der Runde")
 	var store := table_screen.store_window
 	var workshop: WorkshopView = table_screen.workshop_window
 	if store == null or not store.visible or workshop == null or not workshop.visible:
@@ -9439,11 +9292,32 @@ func _sync_pack_areas() -> void:
 	var rect := _opening_area_rect()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	_seat_opening_pit(rect)
-	if rect == _opening_rect:
-		return
-	_opening_rect = rect
-	table_screen.place_opening_window(pack_choice_view, rect)
+	if rect != _opening_rect:
+		_opening_rect = rect
+		_opening_shown = true
+	var dice := _dice_choice_shown()
+	_place_choice_window(dice)
+	var shown := _opening_in_use() and not dice
+	if pack_choice_view.backdrop != shown:
+		pack_choice_view.backdrop = shown
+		pack_choice_view.queue_redraw()
+	if shown:
+		_seat_opening_pit(rect)
+	if shown != _opening_shown:
+		_opening_shown = shown
+		# Leer (oder bei Würfeln) steht weder Fläche noch Vertiefung: der Filz ist durchgehend.
+		if not shown:
+			table_screen.clear_pit(TableScreen.PIT_OPENING)
+		for body: Node3D in [opening_pit, _opening_floor]:
+			if body != null and is_instance_valid(body):
+				body.visible = shown
+	table_screen.show_opening_window(shown or pack_choice_view.choice != null)
+
+## Gebraucht wird die Fläche nur, solange ein Paket unterwegs oder offen ist.
+func _opening_in_use() -> bool:
+	if run != null and run.current_pack_choice() != null:
+		return true
+	return _choice != null or _case_bought != null
 
 ## Die linke Wandtasche des Magazins endet vor dem Hub: darunter liegen die Löcher
 ## der Paket-Fläche.
@@ -9499,48 +9373,71 @@ func _seat_opening_pit(rect: Rect2) -> void:
 func _opening_floor_y() -> float:
 	return -PACK_AREA_DEPTH if opening_pit != null and is_instance_valid(opening_pit) else 0.0
 
-## Der Einzug der Schatulle schneidet sein Loch auch in den Boden der Vertiefung.
-func _set_opening_floor_hole(spot: Vector3, hole: Vector2) -> void:
-	if _opening_floor_skin == null:
-		return
-	if hole.x <= 0.0 or hole.y <= 0.0:
-		_opening_floor_skin.set_shader_parameter("hole", Vector4(0.0, 0.0, -1.0, -1.0))
-		return
-	_opening_floor_skin.set_shader_parameter("hole", Vector4(spot.x - hole.x, spot.z - hole.y,
-		spot.x + hole.x, spot.z + hole.y))
-
 func _drop_bought_case() -> void:
 	if _case_bought != null and is_instance_valid(_case_bought):
 		_free_data_cell(_case_bought)
 	_case_bought = null
 
-## Die Lage der Schatulle auf einem Glaspunkt - gerechnet, auch solange sie noch fliegt.
+## Die Lage einer Hülle auf einem Glaspunkt - gerechnet, auch solange sie noch fliegt.
 func _case_frame(hull: CardPackView, at: Vector3) -> Transform3D:
 	return Transform3D(hull.global_transform.basis.orthonormalized(), at)
 
-## Ihr Grundriß in Display-Pixeln - daraus schneidet die Ansicht ihren Kopf.
-func _case_footprint_px(hull: CardPackView) -> Vector2:
-	var corners := hull.case_outline_local()
-	if corners.is_empty() or table_screen == null:
-		return Vector2.ZERO
-	var frame := _case_frame(hull, Vector3.ZERO)
-	var box := Rect2(table_screen.world_to_pixel(frame * corners[0]), Vector2.ZERO)
-	for corner in corners:
-		box = box.expand(table_screen.world_to_pixel(frame * corner))
-	return box.size
+## --- Das AUFPLATZEN: Würfel-Pakete öffnen sich ÜBER der Schiene ------------------
+## Die Schale fliegt im Trage-Bogen über die Schiene, bläht sich, PLATZT (Splitter,
+## Blitz, Ring) und ist fort. Die Würfel fallen mit echter Physik auf den Filz; ein
+## Glutkern bleibt, solange noch einer herausfallen könnte. Dann gleiten alle auf ihre
+## Plätze, und die Walze dreht. Ein Klick springt ans Ende (_end_case_show).
 
-## Der MUND der Schatulle: die Mitte ihres Innenraums, ein halber Würfel über dem Samt.
-func _case_mouth(hull: CardPackView) -> Vector3:
-	var corners := hull.case_interior_local()
-	if corners.is_empty():
-		return hull.global_position
-	var frame := _case_frame(hull, hull.global_position)
-	var sum := Vector3.ZERO
-	for corner in corners:
-		sum += frame * corner
-	return sum / float(corners.size()) + Vector3.UP * PACK_DIE_REST
+## Die SCHIENE in Display-Pixeln: oben bündig mit dem Vorrat und so hoch wie er, links
+## ein Saum hinter dem Vorrat. Ausweichen muß sie nur, was während der Öffnung steht: der
+## Schale, wenn ein Würfel in ihr wartet, und der Krone - trifft ihr Fuß die Krone, rückt
+## die Schiene rechts an ihr vorbei.
+func _dice_rail_rect() -> Rect2:
+	var pool := _deck_glass_rect().abs()
+	if table_screen == null or pool.size.y <= 0.0 or _opening_rect.size.x <= 0.0:
+		return Rect2()
+	var edge := _die_edge_px()
+	var left := pool.end.x + edge * PACK_DICE_FRAME_POOL_SEAM
+	var fach := _fach_rect_px().abs()
+	if ausgabefach != null and is_instance_valid(ausgabefach) and not ausgabefach.items.is_empty() \
+			and fach.size.x > 0.0:
+		left = maxf(left, fach.end.x + edge * PACK_RAIL_SIDE_GAP)
+	var count := 1
+	var choice: PackChoice = _choice
+	if choice == null and run != null:
+		choice = run.current_pack_choice()
+	if choice != null:
+		count = choice.option_count()
+	var width := PackChoiceView.rail_width_for(pool.size.y, edge, count)
+	var rail := Rect2(Vector2(left, pool.position.y), Vector2(width, pool.size.y))
+	var workshop: WorkshopView = table_screen.workshop_window
+	if workshop != null and is_instance_valid(workshop) and workshop.visible:
+		var crown := workshop.crown_rect_px().abs()
+		if crown.size.x > 0.0 and PackChoiceView.rail_window_for(rail).intersects(crown):
+			rail.position.x = crown.end.x + edge * PACK_RAIL_SIDE_GAP
+	return rail
 
-## Die Plätze der Aufstellung in Welt - Endzustand zuerst: sie stehen, bevor einer fliegt.
+## Das Fenster der Auswahl: bei Würfeln die Schiene ohne Schirm, sonst die Fläche.
+## Idempotent; gebaut wird erst danach (open), denn die Ansicht mißt am Fenster.
+func _place_choice_window(dice: bool) -> void:
+	if table_screen == null or pack_choice_view == null:
+		return
+	var rect := PackChoiceView.rail_window_for(_dice_rail_rect()) if dice else _opening_rect
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+		rect = _opening_rect
+	if rect == _choice_window_rect or rect.size.x <= 0.0:
+		return
+	_choice_window_rect = rect
+	table_screen.place_opening_window(pack_choice_view, rect)
+
+## Steht gerade (oder gleich) ein Würfel-Paket zur Wahl?
+func _dice_choice_shown() -> bool:
+	var choice := _choice
+	if choice == null and run != null:
+		choice = run.current_pack_choice()
+	return choice != null and choice.is_dice()
+
+## Die Plätze der Schiene in Welt - Endzustand zuerst: sie stehen, bevor einer fällt.
 func _case_targets(choice: PackChoice) -> void:
 	_choice_rest.clear()
 	_choice_bodies.clear()
@@ -9548,109 +9445,94 @@ func _case_targets(choice: PackChoice) -> void:
 	var centers := pack_choice_view.slot_centers()
 	for i in choice.option_count():
 		var px: Vector2 = centers[i] if i < centers.size() else Vector2.ZERO
-		_choice_rest.append(table_screen.pixel_to_world(px)
-			+ Vector3.UP * (PACK_DIE_REST + _opening_floor_y()))
+		_choice_rest.append(table_screen.pixel_to_world(px) + Vector3.UP * PACK_DIE_REST)
 		_choice_bodies.append(null)
 		_case_rigid.append(null)
 
-func _open_dice_case(choice: PackChoice, generation: int, launched: GameRun) -> void:
+## Der Punkt ÜBER der Schiene, an dem die Schale platzt.
+func _burst_point() -> Vector3:
+	var at := table_screen.pixel_to_world(pack_choice_view.lineup_area_px().get_center())
+	return Vector3(at.x, PACK_BURST_HEIGHT, at.z)
+
+func _open_dice_burst(choice: PackChoice, generation: int, launched: GameRun) -> void:
 	var hull := _case_bought
 	_case_bought = null
 	var flown := hull != null and is_instance_valid(hull)
-	if not flown:
-		# Ohne Lager-Körper (ein Wett-Gewinn am vollen Lager) erscheint sie an ihrem Platz.
-		hull = _spawn_hull(String(choice.pack.get("sort")), choice.size, true, Vector3.ZERO,
-			choice.quality)
-		hull.visible = false
-	_choice_hull = hull
-	hull.set_lid_open(0.0)
 	pack_choice_view.open(choice, Vector2.ONE * _die_edge_px(), run.pack_reshuffle_cost(choice),
-		run.energy, false, _case_footprint_px(hull), VitrineView.die_up_face())
-	var rest := table_screen.pixel_to_world(pack_choice_view.case_seat_px())
-	rest.y = _opening_floor_y() + PACK_CASE_CLEAR
+		run.energy, false, VitrineView.die_up_face())
 	_case_targets(choice)
-	# Sie fliegt aus dem Lager oben in die linke Spalte.
-	if flown:
-		hull.set_hovered(false)
-		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
-		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
-	if not await _await_opening_ready(generation, launched):
+	_case_show_on = true
+	# Wieder geöffnet (nach dem harten Weg): kein zweites Aufplatzen, die Würfel liegen.
+	if _burst_seen.has(choice):
+		if flown:
+			_free_data_cell(hull)
+		_end_case_show()
 		return
-	if not flown:
-		hull.visible = true
-		hull.lie_on_glass(rest)
+	_burst_seen.append(choice)
+	_burst_at = _burst_point()
+	if flown:
+		_choice_hull = hull
+		hull.set_hovered(false)
+		hull.set_dimmed(false)
+		hull.arc_to(_burst_at, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
+		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
+	else:
+		# Ohne gekaufte Hülle (ein Wett-Gewinn) erscheint sie über der Schiene.
+		hull = _spawn_hull(String(choice.pack.get("sort")), choice.size, true, _burst_at,
+			choice.quality)
+		_choice_hull = hull
+		hull.lie_on_glass(_burst_at)
 		hull.materialize()
 		await get_tree().create_timer(DataCellView.MATERIALIZE_TIME).timeout
-		if generation != _choice_gen or run != launched:
-			return
+	if not _case_show_live(generation, launched):
+		return
 	_play_case_show(generation, launched)
 
-## Der Lichtstrahl aus der Schatulle - ihr Kind, er sinkt mit ihr.
-func _case_beam(hull: CardPackView) -> MeshInstance3D:
-	var beam := hull.get_node_or_null("CaseBeam") as MeshInstance3D
-	if beam != null:
-		return beam
-	var corners := hull.case_interior_local()
-	var radius := 1.0
-	if corners.size() >= 3:
-		radius = minf(corners[0].distance_to(corners[1]), corners[1].distance_to(corners[2])) * 0.45
-	beam = CaseShow.build_beam(radius, PACK_CASE_BEAM_HEIGHT)
-	hull.add_child(beam)
-	beam.global_position = _case_mouth(hull) + Vector3.UP * PACK_CASE_BEAM_HEIGHT * 0.5
-	return beam
-
 func _case_show_live(generation: int, launched: GameRun) -> bool:
-	return generation == _choice_gen and run == launched and _case_show_on \
-		and _choice_hull != null and is_instance_valid(_choice_hull)
+	return generation == _choice_gen and run == launched and _case_show_on
 
-## Die ÖFFNUNG: der Deckel springt auf, die Grund-Würfel schießen im ruhigen Takt in die
-## Grube, dann RÜTTELT die Schatulle - und entweder schlägt der Deckel zu, oder noch einer
-## kommt, größer als der vorige. Danach Ruhe, Aufstellung, Enthüllung (im Fenster).
-## Ein Klick springt ans Ende (_end_case_show).
+## Das AUFPLATZEN und der FALL: die Hülle bläht sich und platzt, die Grund-Würfel fallen
+## heraus; der Glutkern pulst - und entweder fällt noch einer, heller als der vorige,
+## oder er verlischt. Danach Ruhe, Schiene, Walze.
 func _play_case_show(generation: int, launched: GameRun) -> void:
-	var hull := _choice_hull
-	if hull == null or not is_instance_valid(hull):
-		return
-	_case_show_on = true
-	_case_seat = hull.global_position
 	var count := _choice.option_count()
 	var base := clampi(_choice.base_count, 1, count)
-	var beam := _case_beam(hull)
-	hull.swing_lid(true, PACK_CASE_LID_OPEN)
-	if case_show != null:
-		case_show.play_open()
-	CaseShow.pulse_beam(beam, CaseShow.GLOW_BASE, PACK_CASE_BEAM_REST)
-	_case_impulse(table_screen.world_to_pixel(_case_seat), Color(CaseShow.BEAM_COLOR, 1.0))
-	_case_slam(PACK_CASE_OPEN_SLAM)
-	_build_case_collider(hull)
 	_build_case_ground()
-	await get_tree().create_timer(PACK_CASE_LID_OPEN * 0.6).timeout
+	var hull := _choice_hull
+	if hull != null and is_instance_valid(hull):
+		hull.flare()
+		var swell := hull.create_tween()
+		swell.tween_method(func(t: float) -> void:
+			if is_instance_valid(hull):
+				hull.scale = Vector3.ONE * (1.0 + PACK_BURST_SWELL * t * t)
+				hull.global_position = _burst_at + Vector3(sin(t * 61.0), 0.0, cos(t * 53.0)) \
+					* PACK_BURST_SHAKE * t,
+			0.0, 1.0, PACK_BURST_SWELL_TIME)
+		await get_tree().create_timer(PACK_BURST_SWELL_TIME).timeout
+		if not _case_show_live(generation, launched):
+			return
+	_burst_hull()
 	for i in base:
+		_drop_case_die(i, 0)
+		await get_tree().create_timer(PACK_DIE_STAGGER * 0.5).timeout
 		if not _case_show_live(generation, launched):
 			return
-		await get_tree().create_timer(CaseShow.launch_beat()).timeout
-		if not _case_show_live(generation, launched):
-			return
-		_launch_case_die(i, 0)
 	var extras := 0
 	while true:
-		if not _case_show_live(generation, launched):
-			return
-		# Das Rütteln vor dem Urteil gibt es IMMER - man weiß nie, ob es das war.
-		var shake := CaseShow.rattle_time(extras)
-		_rattle_case(shake, CaseShow.glow(extras + 1))
+		# Die Spannung gibt es IMMER: der Kern pulst, ehe er entscheidet.
+		var wait := CaseShow.rattle_time(extras)
+		_pulse_burst_core(wait, CaseShow.glow(extras + 1))
 		if case_show != null:
 			case_show.play_rattle(extras)
-		await get_tree().create_timer(shake).timeout
+		await get_tree().create_timer(wait).timeout
 		if not _case_show_live(generation, launched):
 			return
 		var next := base + extras
 		if next >= count:
 			break
 		extras += 1
-		_launch_case_die(next, extras)
-		await get_tree().create_timer(PACK_LAUNCH_EMERGE).timeout
-	_shut_case(hull)
+		_drop_case_die(next, extras)
+	_fade_burst_core()
 	var waited := 0.0
 	while waited < PACK_SETTLE_MAX and not _case_dice_resting():
 		await get_tree().physics_frame
@@ -9663,39 +9545,187 @@ func _play_case_show(generation: int, launched: GameRun) -> void:
 		return
 	pack_choice_view.play_reel()
 
-## Ein Würfel schießt aus dem Mund: er hebt sich aus der Schatulle und fliegt dann als
-## Wegwerf-Körper in die Grube. level 0 = Grund-Würfel, k = der k-te Zusatz.
-func _launch_case_die(index: int, level: int) -> void:
+## Die Hülle PLATZT: Splitter in ihren Farben fliegen auseinander und verglühen, ein
+## Blitz, ein Ring auf dem Filz - und die Hülle ist fort. Es bleibt der Glutkern.
+func _burst_hull() -> void:
 	var hull := _choice_hull
-	if hull == null or not is_instance_valid(hull) or index >= _choice_rest.size():
+	_choice_hull = null
+	var tint := CaseShow.GLOW_COLOR
+	if hull != null and is_instance_valid(hull):
+		tint = hull.tint
+		_free_data_cell(hull)
+	if case_show != null:
+		case_show.play_open()
+	_sfx(&"pack_burst")
+	var edge := _world_len_from_px(_die_edge_px())
+	var span := edge * PACK_BURST_SPAN
+	var colors: Array[Color] = [tint, CardPackView.BOARD_ALBEDO, Color(0.85, 0.9, 1.0)]
+	for i in PACK_BURST_SHARDS:
+		_spawn_burst_shard(colors[i % colors.size()], i % colors.size() == 0, span)
+	_burst_flash(_burst_at, Color(CaseShow.GLOW_COLOR * 2.2, 1.0), span * 0.7)
+	_case_impulse(table_screen.world_to_pixel(_burst_at), Color(tint * 1.6, 1.0))
+	_burst_core = _burst_ball(_burst_at, Color(CaseShow.GLOW_COLOR * 1.6, 0.9),
+		edge * PACK_BURST_CORE)
+	_burst_parts.append(_burst_core)
+
+## Eine Weltlänge aus Display-Pixeln (quer, Welt Z).
+func _world_len_from_px(px: float) -> float:
+	var per := _world_len_px(1.0)
+	return px / per if per > 0.0 else 0.0
+
+## Ein Splitter: ein flaches Stück Hülle fliegt im Wurfbogen hinaus, dreht sich und
+## verglüht. Er gehört _burst_parts, bis er fort ist.
+func _spawn_burst_shard(color: Color, glow: bool, span: float) -> void:
+	var piece := MeshInstance3D.new()
+	piece.name = "BurstShard"
+	var mesh := BoxMesh.new()
+	var edge := span * randf_range(0.08, 0.2)
+	mesh.size = Vector3(edge, edge * 0.25, edge * randf_range(0.6, 1.4))
+	piece.mesh = mesh
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(color * (2.0 if glow else 1.0), 1.0)
+	piece.material_override = material
+	piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(piece)
+	ScreenReflection.set_reflective(piece, false)
+	_burst_parts.append(piece)
+	var from := _burst_at + Vector3(randf_range(-0.5, 0.5), randf_range(-0.2, 0.2),
+		randf_range(-0.5, 0.5)) * span
+	var out := Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
+	var velocity := out * randf_range(0.6, 1.0) * PACK_BURST_SPEED \
+		+ Vector3.UP * randf_range(1.0, PACK_BURST_SPEED * 0.6)
+	var spin := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 14.0
+	var life := randf_range(0.55, 0.9)
+	piece.global_position = from
+	var tween := piece.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		if not is_instance_valid(piece):
+			return
+		var time := t * life
+		piece.global_position = from + velocity * time \
+			+ Vector3.DOWN * 0.5 * PACK_BURST_GRAVITY * time * time
+		piece.rotation = spin * time
+		var fade := clampf((1.0 - t) / 0.45, 0.0, 1.0)
+		piece.scale = Vector3.ONE * maxf(fade, 0.05)
+		material.albedo_color.a = fade, 0.0, 1.0, life)
+	tween.tween_callback(_drop_burst_part.bind(piece))
+
+## Eine leuchtende Kugel (additiv, ohne Licht) - Blitz und Glutkern.
+func _burst_ball(at: Vector3, color: Color, radius: float) -> MeshInstance3D:
+	var ball := MeshInstance3D.new()
+	ball.name = "BurstGlow"
+	var mesh := SphereMesh.new()
+	mesh.radius = 1.0
+	mesh.height = 2.0
+	ball.mesh = mesh
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	material.albedo_color = color
+	ball.material_override = material
+	ball.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ball)
+	ScreenReflection.set_reflective(ball, false)
+	ball.global_position = at
+	ball.scale = Vector3.ONE * radius
+	return ball
+
+## Der Blitz: eine Kugel wächst und verlischt.
+func _burst_flash(at: Vector3, color: Color, radius: float) -> void:
+	var ball := _burst_ball(at, color, radius * 0.2)
+	_burst_parts.append(ball)
+	var material := ball.material_override as StandardMaterial3D
+	var tween := ball.create_tween().set_parallel(true)
+	tween.tween_property(ball, "scale", Vector3.ONE * radius, PACK_BURST_FLASH_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(material, "albedo_color:a", 0.0, PACK_BURST_FLASH_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.chain().tween_callback(_drop_burst_part.bind(ball))
+
+## Der Glutkern schwillt in time zur Spannung an (glow = wie hell).
+func _pulse_burst_core(time: float, glow: float) -> void:
+	var core := _burst_core
+	if core == null or not is_instance_valid(core):
+		return
+	var rest := core.scale
+	var material := core.material_override as StandardMaterial3D
+	var tween := core.create_tween()
+	tween.tween_method(func(t: float) -> void:
+		if is_instance_valid(core):
+			core.scale = rest * (1.0 + 0.35 * t * t * absf(sin(t * 18.0)))
+			material.albedo_color = Color(CaseShow.GLOW_COLOR * glow * (0.8 + 0.6 * t), 0.9),
+		0.0, 1.0, time)
+	tween.tween_callback(func() -> void:
+		if is_instance_valid(core):
+			core.scale = rest)
+
+## Kein Würfel mehr: der Kern schrumpft und ist fort - von der Hülle bleibt nichts.
+func _fade_burst_core() -> void:
+	var core := _burst_core
+	_burst_core = null
+	if core == null or not is_instance_valid(core):
+		return
+	if case_show != null:
+		case_show.play_shut()
+	var tween := core.create_tween()
+	tween.tween_property(core, "scale", Vector3.ONE * 0.01, PACK_BURST_FLASH_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween.tween_callback(_drop_burst_part.bind(core))
+
+func _drop_burst_part(part: Node3D) -> void:
+	_burst_parts.erase(part)
+	if part != null and is_instance_valid(part):
+		if part.get_parent() != null:
+			part.get_parent().remove_child(part)
+		part.queue_free()
+
+## Der harte Weg des Aufplatzens: Splitter, Blitz und Kern sind fort.
+func _drop_burst_parts() -> void:
+	for part in _burst_parts.duplicate():
+		_drop_burst_part(part)
+	_burst_parts.clear()
+	_burst_core = null
+
+## Ein Würfel fällt aus dem Aufplatzen: als Wegwerf-Körper mit echter Physik, zu seinem
+## Platz hin gestreut. level 0 = Grund-Würfel, k = der k-te Zusatz (heller, höher im
+## Ton, mit Blitz).
+func _drop_case_die(index: int, level: int) -> void:
+	if index >= _choice_rest.size():
 		return
 	var ghost := _case_ghost(index)
-	var body := _case_rigid_body(level)
+	var body := _case_rigid_body()
 	add_child(body)
 	_case_rigid[index] = body
-	var mouth := _case_mouth(hull)
-	var top := hull.global_position.y + hull.thickness() * hull.body_scale() + PACK_DIE_REST * 1.5
-	var emerge := Vector3(mouth.x, maxf(top, mouth.y), mouth.z)
+	var from := _burst_at + Vector3(randf_range(-0.3, 0.3), 0.0, randf_range(-0.3, 0.3))
 	body.global_transform = Transform3D(Basis.from_euler(Vector3(randf_range(-PI, PI),
-		randf_range(-PI, PI), randf_range(-PI, PI))), mouth)
+		randf_range(-PI, PI), randf_range(-PI, PI))), from)
 	ghost.reparent(body, false)
 	ghost.transform = Transform3D(Basis.from_scale(Vector3.ONE * DiceTrayView.DIE_SCALE),
 		Vector3.ZERO)
-	var rise := body.create_tween()
-	rise.tween_property(body, "global_position", emerge, PACK_LAUNCH_EMERGE) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	rise.tween_callback(_fire_case_die.bind(body, level))
-	body.set_meta("rise", rise)
-	CaseShow.pulse_beam(_case_beam(hull), CaseShow.glow(level), PACK_CASE_BEAM_REST)
+	var gain := CaseShow.launch_gain(level)
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) \
+		* body.gravity_scale
+	var up := PACK_SPILL_UP * gain
+	var height := from.y - PACK_DIE_REST
+	var flight := maxf(up / gravity + sqrt(maxf(up * up / (gravity * gravity)
+		+ 2.0 * height / gravity, 0.0)), 0.1)
+	var goal: Vector3 = _choice_rest[index]
+	var reach := Vector3(goal.x - from.x, 0.0, goal.z - from.z)
+	body.freeze = false
+	body.linear_velocity = reach / flight * PACK_SPILL_REACH + Vector3.UP * up
+	body.angular_velocity = Vector3(randf_range(-1, 1), randf_range(-1, 1),
+		randf_range(-1, 1)).normalized() * PACK_LAUNCH_SPIN * gain
 	if case_show != null:
 		case_show.play_launch(level)
-	var glow := CaseShow.glow(level)
-	_case_impulse(table_screen.world_to_pixel(_case_seat), Color(CaseShow.BEAM_COLOR * glow, 1.0))
 	if level > 0:
-		_case_slam(minf(PACK_CASE_EXTRA_SLAM + PACK_CASE_EXTRA_SLAM_STEP * float(level), 1.0))
+		_burst_flash(_burst_at, Color(CaseShow.GLOW_COLOR * CaseShow.glow(level), 1.0),
+			_world_len_from_px(_die_edge_px()) * PACK_BURST_CORE * 2.5)
 
 ## Der Wegwerf-Körper: Würfelmaß, Würfelphysik, eine eigene Kollisionsebene.
-func _case_rigid_body(level: int) -> RigidBody3D:
+func _case_rigid_body() -> RigidBody3D:
 	var body := RigidBody3D.new()
 	body.name = "CaseDie"
 	body.collision_layer = PACK_LAUNCH_LAYER
@@ -9715,37 +9745,7 @@ func _case_rigid_body(level: int) -> RigidBody3D:
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
 	body.add_child(collision)
-	body.contact_monitor = true
-	body.max_contacts_reported = 4
-	body.body_entered.connect(func(other: Node) -> void:
-		if other == _case_ground:
-			_case_slam(PACK_WALL_FLASH * CaseShow.launch_gain(level)))
 	return body
-
-## Losgelassen: ein flacher Bogen nach Bild-UNTEN auf einen gestreuten Punkt der
-## Aufstellung; ein Zusatz-Würfel schießt weiter und prallt von den Wänden.
-func _fire_case_die(body: RigidBody3D, level: int) -> void:
-	if not is_instance_valid(body):
-		return
-	var gain := CaseShow.launch_gain(level)
-	var aim := table_screen.pixel_to_world(_case_aim_px())
-	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) \
-		* body.gravity_scale
-	var up := PACK_LAUNCH_UP * gain
-	var height := body.global_position.y - _opening_floor_y() - PACK_DIE_REST
-	var flight := maxf(up / gravity + sqrt(maxf(up * up / (gravity * gravity)
-		+ 2.0 * height / gravity, 0.0)), 0.1)
-	var reach := Vector3(aim.x - body.global_position.x, 0.0, aim.z - body.global_position.z)
-	body.freeze = false
-	body.linear_velocity = reach / flight * gain + Vector3.UP * up
-	body.angular_velocity = Vector3(randf_range(-1, 1), randf_range(-1, 1),
-		randf_range(-1, 1)).normalized() * PACK_LAUNCH_SPIN * gain
-
-## Das Ziel eines Schusses: in der Aufstellung unter der Schatulle, gestreut.
-func _case_aim_px() -> Vector2:
-	var area := pack_choice_view.lineup_area_px()
-	return Vector2(lerpf(area.position.x, area.end.x, randf()),
-		lerpf(area.position.y, area.end.y, randf()))
 
 ## Der Körper der Option index - gebaut beim Auswurf, nie zweimal.
 func _case_ghost(index: int) -> Node3D:
@@ -9760,47 +9760,18 @@ func _case_ghost(index: int) -> Node3D:
 	_choice_bodies[index] = ghost
 	return ghost
 
-## Ein Deckel aus Kollision über dem Grundriß der Schatulle - sonst fiele ein Würfel in sie.
-func _build_case_collider(hull: CardPackView) -> void:
-	_drop_case_collider()
-	var corners := hull.case_outline_local()
-	if corners.is_empty():
-		return
-	var frame := _case_frame(hull, hull.global_position)
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	for corner in corners:
-		var at := frame * corner
-		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
-		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
-	var height := hull.thickness() * hull.body_scale()
-	_case_collider = StaticBody3D.new()
-	_case_collider.name = "CaseCollider"
-	_case_collider.collision_layer = PACK_LAUNCH_LAYER
-	_case_collider.collision_mask = 0
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(hi.x - lo.x, height, hi.y - lo.y)
-	var collision := CollisionShape3D.new()
-	collision.shape = shape
-	_case_collider.add_child(collision)
-	add_child(_case_collider)
-	_case_collider.global_position = Vector3((lo.x + hi.x) * 0.5,
-		hull.global_position.y + height * 0.5, (lo.y + hi.y) * 0.5)
-
-## Die LANDEFLÄCHE: ein unsichtbarer Boden über die GANZE Seite (ohne ihren Rand),
-## Oberkante auf dem Grubenboden, dazu vier Wände an ihren Rändern - nur für die
-## Wegwerf-Würfel. Die Schatulle steht DARIN: stand sie außerhalb, schlug ihr Schuß an
-## die Außenseite einer Wand und fiel ins Bodenlose.
+## Die LANDEFLÄCHE: ein unsichtbarer Boden auf dem Filz (Oberkante = Tischhöhe) über
+## die Schiene samt Saum, dazu vier Wände - nur für die Wegwerf-Würfel.
 func _build_case_ground() -> void:
 	_drop_case_ground()
 	if pack_choice_view == null or table_screen == null:
 		return
-	var page := pack_choice_view.landing_rect_px()
+	var page := pack_choice_view.lineup_area_px().grow(_die_edge_px() * PACK_GROUND_SEAM)
 	var a := table_screen.pixel_to_world(page.position)
 	var b := table_screen.pixel_to_world(page.end)
 	var lo := Vector2(minf(a.x, b.x), minf(a.z, b.z))
 	var hi := Vector2(maxf(a.x, b.x), maxf(a.z, b.z))
-	var center := Vector3((lo.x + hi.x) * 0.5, _opening_floor_y(), (lo.y + hi.y) * 0.5)
+	var center := Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5)
 	var span := Vector2(hi.x - lo.x, hi.y - lo.y)
 	_case_ground = StaticBody3D.new()
 	_case_ground.name = "CaseGround"
@@ -9835,58 +9806,10 @@ func _drop_case_ground() -> void:
 		_case_ground.queue_free()
 	_case_ground = null
 
-## Der Schlag der Schatulle: der Rahmen der Öffnungs-Fläche blitzt in der Strahlfarbe auf.
-func _case_slam(strength: float) -> void:
-	if pack_choice_view != null:
-		pack_choice_view.flash_frame(Color(CaseShow.BEAM_COLOR * (1.0 + strength * 2.0), 1.0))
-
 ## Ein Ring auf der Seite, wo etwas geschieht.
 func _case_impulse(px: Vector2, color: Color) -> void:
 	if table_screen != null:
 		table_screen.pack_arrival_flash(px, color)
-
-func _drop_case_collider() -> void:
-	if _case_collider != null and is_instance_valid(_case_collider):
-		_case_collider.queue_free()
-	_case_collider = null
-
-## Das RÜTTELN: die Schatulle zittert immer stärker, der Deckel klappert, das Licht baut sich auf.
-func _rattle_case(time: float, glow: float) -> void:
-	var hull := _choice_hull
-	_stop_case_rattle()
-	if hull == null or not is_instance_valid(hull):
-		return
-	var seat := _case_seat
-	_case_rattle = create_tween()
-	_case_rattle.tween_method(func(t: float) -> void:
-		if not is_instance_valid(hull):
-			return
-		var ramp := t * t
-		var clock := t * time
-		hull.global_position = seat + Vector3(sin(clock * 53.0), 0.0, cos(clock * 47.0)) \
-			* PACK_RATTLE_SHAKE * ramp
-		hull.set_lid_open(1.0 - PACK_RATTLE_LID * ramp * absf(sin(clock * 31.0))),
-		0.0, 1.0, time)
-	_case_rattle.tween_callback(_stop_case_rattle)
-	CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, glow, time, true)
-
-## Endzustand des Rüttelns: die Schatulle steht wieder genau auf ihrem Platz.
-func _stop_case_rattle() -> void:
-	if _case_rattle != null and _case_rattle.is_valid():
-		_case_rattle.kill()
-	_case_rattle = null
-	var hull := _choice_hull
-	if hull != null and is_instance_valid(hull) and _case_seat != Vector3.ZERO:
-		hull.global_position = _case_seat
-
-## Der Deckel schlägt zu: Schluß.
-func _shut_case(hull: CardPackView) -> void:
-	_stop_case_rattle()
-	hull.swing_lid(false, PACK_CASE_SLAM_TIME)
-	if case_show != null:
-		case_show.play_shut()
-	_case_slam(PACK_CASE_OPEN_SLAM)
-	CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, 0.0)
 
 func _case_dice_resting() -> bool:
 	for body in _case_rigid:
@@ -9918,12 +9841,10 @@ func _drop_case_physics() -> void:
 	for i in _case_rigid.size():
 		_release_case_rigid(i)
 	_case_rigid.clear()
-	_drop_case_collider()
 	_drop_case_ground()
 
-## Die AUFSTELLUNG: alle heben sich ZUGLEICH aus ihrer Lage und gleiten auf ihre Plätze.
+## Die SCHIENE: alle heben sich ZUGLEICH aus ihrer Lage und gleiten auf ihre Plätze.
 func _rise_into_lineup() -> void:
-	_drop_case_collider()
 	_drop_case_ground()
 	pack_choice_view.show_lineup()
 	for i in _choice_rest.size():
@@ -9948,19 +9869,22 @@ func _on_case_reel_stepped(value: int, top: int) -> void:
 func _on_case_reel_stopped(value: int, top: int) -> void:
 	if case_show != null:
 		case_show.play_reel_stop(value, top)
-	_case_slam(PACK_CASE_OPEN_SLAM)
 
 func _on_pack_opening_finished() -> void:
 	_case_show_on = false
 	_choice_landed = true
 
-## Das Ende der Öffnung - auch der Klick dorthin: jeder Würfel steht hart auf seinem
-## Platz, der Deckel ist zu, Netze und Walze stehen fertig.
+## Das Ende der Öffnung - auch der Klick dorthin: die Hülle ist fort, keine Physik, kein
+## Splitter, jeder Würfel hart auf seinem Platz, Netze und Walze stehen fertig.
 func _end_case_show() -> void:
 	if _choice == null or not _choice.is_dice():
 		return
 	_case_show_on = false
 	_drop_case_physics()
+	_drop_burst_parts()
+	if _choice_hull != null and is_instance_valid(_choice_hull):
+		_free_data_cell(_choice_hull)
+	_choice_hull = null
 	_case_rigid.resize(_choice_rest.size())
 	for i in _choice_rest.size():
 		var ghost := _case_ghost(i)
@@ -9968,198 +9892,164 @@ func _end_case_show() -> void:
 		if jump is Tween and (jump as Tween).is_valid():
 			(jump as Tween).kill()
 		ghost.global_transform = Transform3D(ghost.get_meta("rest_basis"), _choice_rest[i])
-	_stop_case_rattle()
-	if _choice_hull != null and is_instance_valid(_choice_hull):
-		_choice_hull.set_lid_open(0.0)
-		CaseShow.pulse_beam(_case_beam(_choice_hull), 0.0, 0.0)
 	pack_choice_view.show_lineup()
 	pack_choice_view.skip_to_pick()
 	_choice_landed = true
 
-## Ein Würfel springt zurück in die Schatulle und ist darin fort.
-func _return_case_die(ghost: Node3D) -> void:
-	if ghost == null or not is_instance_valid(ghost) or _choice_hull == null \
-			or not is_instance_valid(_choice_hull):
-		_free_choice_body(ghost)
-		return
-	var from := ghost.global_position
-	var target := _case_mouth(_choice_hull)
-	_case_returning.append(ghost)
-	var back := ghost.create_tween().set_parallel(true)
-	back.tween_method(func(t: float) -> void:
-		if is_instance_valid(ghost):
-			ghost.global_position = from.lerp(target, t) \
-				+ Vector3.UP * PACK_CASE_JUMP_PEAK * 4.0 * t * (1.0 - t),
-		0.0, 1.0, PACK_CASE_JUMP).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-	back.tween_property(ghost, "scale", ghost.scale * 0.35, PACK_CASE_JUMP) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	back.chain().tween_callback(func() -> void:
-		_case_returning.erase(ghost)
-		_free_choice_body(ghost))
-
-## Der harte Weg der Show: keine Physik, kein Rütteln, nichts unterwegs zurück.
+## Der harte Weg der Show: keine Physik, keine Splitter, kein Kern.
 func _settle_case_show() -> void:
 	_case_show_on = false
 	_drop_case_physics()
-	_stop_case_rattle()
-	_case_seat = Vector3.ZERO
-	for ghost in _case_returning:
-		_free_choice_body(ghost)
-	_case_returning.clear()
+	_drop_burst_parts()
 
-## BESTÄTIGT (Würfel): gebucht ist. Die Gewählten fliegen von der Fläche in die Schale,
-## die Ungewählten springen zurück in die Schatulle, der Deckel fällt zu, und der Tisch
-## zieht sie ein.
-func _release_dice_case(indices: Array, picked: Array[DieDefinition]) -> void:
-	var hull := _choice_hull
-	var sorted := indices.duplicate()
-	sorted.sort()
+## BESTÄTIGT (Würfel): gebucht ist (confirm_dice_choice, VOR diesem Aufruf). Jeder
+## ersetzte Vorrats-Würfel sinkt per Hebebühne aus seinem Sitz, die neue Option setzt
+## sich im kurzen Trage-Bogen hinein, und die Ungewählten zieht der Tisch an ihrem
+## Schienen-Platz ein. seats: option_index → {def, slot, bench, at, replaced} - gerechnet
+## VOR der Buchung, denn danach hält der Sitz eine Lücke.
+func _release_dice_options(seats: Dictionary) -> void:
 	if _case_show_on:
 		_end_case_show()
-	if hull != null and is_instance_valid(hull):
-		hull.swing_lid(true, PACK_CASE_REOPEN)  # die Ungewählten springen zurück hinein
-	if ausgabefach != null and is_instance_valid(ausgabefach):
-		for def in picked:
-			ausgabefach.expect_arrival(def)
-	var launched := run
-	var leaving: Array[Dictionary] = []
+	var delay := 0.0
+	var lane := 0
+	var unchosen: Array[Node3D] = []
 	for i in _choice_bodies.size():
 		var ghost := _choice_bodies[i]
-		_choice_bodies[i] = null  # er gehört ab hier dem Flug oder der Schatulle
+		_choice_bodies[i] = null  # er gehört ab hier dem Flug oder dem Einzug
 		if ghost == null or not is_instance_valid(ghost):
 			continue
-		if sorted.has(i) and leaving.size() < picked.size():
-			leaving.append({"ghost": ghost, "def": picked[leaving.size()]})
-		else:
-			_return_case_die(ghost)
-	# Der OFFENE (der erste) fliegt zuletzt: die übrigen tauchen vor ihm unter den
-	# Fachboden, so steht in der Schale nie ein zweiter Würfel.
-	var delay := 0.0
-	for k in range(leaving.size() - 1, -1, -1):
-		_fly_case_die(leaving[k]["ghost"], leaving[k]["def"], delay, k > 0)
+		if not seats.has(i):
+			unchosen.append(ghost)
+			continue
+		var seat: Dictionary = seats[i]
+		if not bool(seat["bench"]):
+			_sink_replaced_die(seat["replaced"], int(seat["slot"]), seat["at"], lane)
+			lane += 1
+		_seat_assigned_die(ghost, seat, delay)
 		delay += PACK_DIE_STAGGER
-	if hull != null and is_instance_valid(hull):
-		CaseShow.pulse_beam(_case_beam(hull), PACK_CASE_BEAM_REST, 0.0)
-	_choice_hull = null
+	for ghost in unchosen:
+		if not _sink_choice_die(ghost, lane):
+			_vanish_choice_body(ghost)
+		lane += 1
 	_choice_bodies.clear()
 	_choice_rest.clear()
-	_case_sinking = hull
-	_finish_pack_choice()
-	if hull == null or not is_instance_valid(hull):
-		_case_sinking = null
-		return
-	await get_tree().create_timer(maxf(delay, PACK_CASE_JUMP) + PACK_DIE_STAGGER).timeout
-	if run != launched or not is_instance_valid(hull) or _case_sinking != hull:
-		return
-	var close := hull.swing_lid(false, PACK_CASE_SLAM_TIME)
-	if case_show != null:
-		case_show.play_shut()
-	if close > 0.0:
-		await get_tree().create_timer(close).timeout
-		if run != launched or not is_instance_valid(hull) or _case_sinking != hull:
-			return
-	_sink_case(hull)
+	# Mit Würfeln im Flug bleibt die Kamera, bis der letzte sitzt (_land_case_die).
+	_finish_pack_choice(not _case_flights.is_empty())
 
+## Der alte Inhalt geht dort hinaus, wo er SCHWEBTE: eine würfelgroße Sektion öffnet
+## unter seinem Sitz und zieht ihn ein (die Bahnen des Schlucks, im Laden frei).
+func _sink_replaced_die(def: DieDefinition, slot: int, at: Vector3, lane: int) -> void:
+	if def == null or slot < 0 or table_screen == null:
+		return
+	var field := _bench_pool_field(slot)
+	if field.is_empty() or lane >= TableScreen.SWALLOW_PIT_COUNT:
+		return
+	var body := _spawn_deck_ghost(def)
+	body.global_position = at
+	ScreenReflection.set_reflective(body, false)
+	var shaft := _swallow_shaft_for(lane, field["at"], field["half"], _tray_shaft_depth())
+	var tween: Tween = shaft.run_exit([body], [at], 0.0) if shaft != null else null
+	if tween == null:
+		_drop_stage_body(body)
+		return
+	_assign_sinking.append(body)
+	_assign_lanes.append(lane)
+	tween.finished.connect(func() -> void:
+		_assign_sinking.erase(body)
+		_drop_stage_body(body))
 
-## Ein gewählter Würfel fliegt als Körper in die Schale (ein Spieler-Zug - über dem Tisch).
-## waiting = er wartet unter dem Fachboden: sein Bogen endet dort, nicht im Fach.
-func _fly_case_die(ghost: Node3D, def: DieDefinition, delay: float, waiting: bool) -> void:
+## Die neue Option setzt sich im Trage-Bogen in ihren Sitz (ein Spieler-Zug - über
+## dem Tisch); aufs Podest, wenn der Werkstatt-Zielwürfel ersetzt wird.
+func _seat_assigned_die(ghost: Node3D, seat: Dictionary, delay: float) -> void:
 	var from := ghost.global_position
-	var target := ausgabefach.open_spot() \
-		if ausgabefach != null and is_instance_valid(ausgabefach) else from
-	if waiting:
-		target += Vector3.DOWN * PACK_DIE_SINK
-	var entry := {"ghost": ghost, "def": def}
+	var target: Vector3 = seat["at"]
+	var from_basis := ghost.global_basis
+	var to_basis := Basis(Vector3.UP, DiceTrayView.YAW_REST).scaled(
+		Vector3.ONE * DiceTrayView.DIE_SCALE)
+	var entry := {"ghost": ghost, "def": seat["def"], "slot": seat["slot"],
+		"bench": seat["bench"]}
 	_case_flights.append(entry)
+	if bool(seat["bench"]) and bench_stage != null and is_instance_valid(bench_stage):
+		bench_stage.dematerialize()
 	var tween := create_tween()
-	tween.tween_interval(maxf(delay, 0.001))
+	tween.tween_interval(maxf(delay + ASSIGN_SEAT_DELAY, 0.001))
 	tween.tween_method(func(t: float) -> void:
 		if is_instance_valid(ghost):
 			ghost.global_position = from.lerp(target, t) \
-				+ Vector3.UP * PACK_DIE_PEAK * 4.0 * t * (1.0 - t),
-		0.0, 1.0, PACK_DIE_FLIGHT).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+				+ Vector3.UP * ASSIGN_SEAT_PEAK * 4.0 * t * (1.0 - t)
+			ghost.global_basis = from_basis.orthonormalized().slerp(
+				to_basis.orthonormalized(), t).scaled(Vector3.ONE * DiceTrayView.DIE_SCALE),
+		0.0, 1.0, ASSIGN_SEAT_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_callback(_land_case_die.bind(entry, false))
 	entry["tween"] = tween
 
-## Angekommen: liegt er offen, übernimmt die Schale ihn im selben Bild; sonst sinkt er
-## unter den Fachboden, wo er wartet, bis er an der Reihe ist. hard = Abbruch.
-func _land_case_die(entry: Dictionary, _hard: bool) -> void:
+## Gelandet: der Sitz zeigt seinen neuen Inhalt (die Lücke fällt), der Puck rastet
+## ein. Sitzt der letzte, kehrt die Kamera heim - es sei denn, ein weiteres Paket
+## wartet schon (es rahmt sich gleich selbst). hard = Abbruch.
+func _land_case_die(entry: Dictionary, hard: bool) -> void:
 	_case_flights.erase(entry)
 	var tween := entry.get("tween") as Tween
 	if tween != null and tween.is_valid():
 		tween.kill()
-	var ghost: Node3D = entry["ghost"]
-	var def: DieDefinition = entry["def"]
-	var fach := ausgabefach != null and is_instance_valid(ausgabefach)
-	var shown := false
-	if fach and ausgabefach.awaiting(def):
-		shown = ausgabefach.die_at(0) == def
-		ausgabefach.deliver(def)
-		if shown:
-			ausgabefach.settle()
-	_free_choice_body(ghost)
+	_free_choice_body(entry["ghost"])
+	_assign_hidden.erase(entry["def"])
+	if bool(entry["bench"]):
+		if bench_stage != null and is_instance_valid(bench_stage):
+			bench_stage.materialize()
+			if not hard:
+				bench_stage.pulse()
+	else:
+		_refresh_dice_trays()
+		var slot := int(entry["slot"])
+		if not hard and pool_tray_view != null and slot >= 0 \
+				and slot < pool_tray_view.slot_roots.size():
+			pool_tray_view.slot_emitter(slot).ripple()
+	if hard or not _case_flights.is_empty() or _choice != null:
+		return
+	if run == null or run.current_pack_choice() == null:
+		_leave_opening_frame()
 
-## Abbruch: jeder Würfel im Flug liegt sofort, wo er hin wollte.
+## Abbruch: jeder Würfel im Flug sitzt sofort, jeder alte ist fort, jede Bahn bündig.
 func _settle_case_flights() -> void:
 	for entry in _case_flights.duplicate():
 		_land_case_die(entry, true)
 	_case_flights.clear()
+	for body in _assign_sinking:
+		_drop_stage_body(body)
+	_assign_sinking.clear()
+	for lane in _assign_lanes:
+		if lane < _swallow_shafts.size() and _swallow_shafts[lane] != null \
+				and is_instance_valid(_swallow_shafts[lane]):
+			_swallow_shafts[lane].settle_hard()
+	_assign_lanes.clear()
+	if not _assign_hidden.is_empty():
+		_assign_hidden.clear()
+		_refresh_dice_trays()
 
-## Der EINZUG: eine Sektion öffnet unter der Schatulle, senkt sie ein, Loch zu.
-func _sink_case(hull: CardPackView) -> void:
-	var shaft := _case_shaft_on(hull)
-	var seat := hull.global_position
-	var gone := func() -> void:
-		if _case_sinking == hull:
-			_case_sinking = null
-			_free_data_cell(hull)  # erst jetzt: danach holt der Zwang die Kamera
-	if shaft == null or shaft.run_take([hull], [seat], 0.0, gone) == null:
-		gone.call()
-
-## Die Sektion unter der Schatulle: ihr Grundriß plus Saum, tief genug für ihre Höhe.
-func _case_shaft_on(hull: CardPackView) -> LiftShaftView:
-	if table_screen == null or hull == null or not is_instance_valid(hull):
-		return null
-	var corners := hull.case_outline_local()
-	if corners.is_empty():
-		return null
-	var frame := _case_frame(hull, hull.global_position)
-	var lo := Vector2(INF, INF)
-	var hi := Vector2(-INF, -INF)
-	for corner in corners:
-		var at := frame * corner
-		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
-		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
-	if _case_shaft == null or not is_instance_valid(_case_shaft):
-		_case_shaft = LiftShaftView.new("CaseShaft")
-		_case_shaft.glow_rim = false
-		add_child(_case_shaft)
-		_case_shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
-			table_screen.set_lift_pit(TableScreen.PIT_CASE, spot, hole)
-			_set_opening_floor_hole(spot, hole))
-		_case_shaft.closed.connect(func() -> void:
-			table_screen.clear_pit(TableScreen.PIT_CASE)
-			_set_opening_floor_hole(Vector3.ZERO, Vector2.ZERO))
-	_case_shaft.deck_skin = table_screen.display_skin()
-	_case_shaft.order_skin(PIT_SKIN)
-	var height := hull.thickness() * hull.body_scale()
-	_case_shaft.setup(Vector3((lo.x + hi.x) * 0.5, _opening_floor_y(), (lo.y + hi.y) * 0.5),
-		Vector2((hi.x - lo.x) * 0.5, (hi.y - lo.y) * 0.5) + Vector2.ONE * PACK_CASE_SEAM,
-		maxf(VitrineView.shaft_depth(), height * VitrineView.SHAFT_ROOM))
-	return _case_shaft
-
-## Der harte Weg des Einzugs: Loch zu, Schatulle fort.
-func _drop_case_sinking() -> void:
-	if _case_shaft != null and is_instance_valid(_case_shaft):
-		_case_shaft.settle_hard()
-	_set_opening_floor_hole(Vector3.ZERO, Vector2.ZERO)
-	if _case_sinking != null and is_instance_valid(_case_sinking):
-		_free_data_cell(_case_sinking)
-	_case_sinking = null
+## Ein Ungewählter geht dort hinaus, wo er LIEGT: eine würfelgroße Sektion öffnet unter
+## seinem Schienen-Platz und zieht ihn ein (false = keine Bahn frei).
+func _sink_choice_die(ghost: Node3D, lane: int) -> bool:
+	if table_screen == null or lane >= TableScreen.SWALLOW_PIT_COUNT:
+		return false
+	var at := ghost.global_position
+	var shaft := _swallow_shaft_for(lane, at)
+	var tween: Tween = shaft.run_exit([ghost], [at], 0.0) if shaft != null else null
+	if tween == null:
+		return false
+	ScreenReflection.set_reflective(ghost, false)
+	_assign_sinking.append(ghost)
+	_assign_lanes.append(lane)
+	tween.finished.connect(func() -> void:
+		_assign_sinking.erase(ghost)
+		_drop_stage_body(ghost))
+	return true
 
 ## Je Bild: ein gewählter Würfel hebt sich ein Stück über seinen Platz.
 func _sync_pack_choice_bodies() -> void:
 	if not _choice_landed or pack_choice_view == null:
+		return
+	if pack_choice_view.assigning():
+		_sync_assign_bodies()
 		return
 	var picked := pack_choice_view.selected_indices()
 	var step := PACK_PICK_SPEED * get_process_delta_time()
@@ -10179,6 +10069,8 @@ func _handle_pack_choice_input(event: InputEvent) -> void:
 	var mouse := event as InputEventMouse
 	if mouse == null or table_screen == null:
 		return
+	if _assign_live() and _handle_assign_input(mouse):
+		return
 	if mouse is InputEventMouseButton \
 			and (mouse as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
 		return
@@ -10186,13 +10078,15 @@ func _handle_pack_choice_input(event: InputEvent) -> void:
 	if _case_show_on and mouse is InputEventMouseButton and (mouse as InputEventMouseButton).pressed:
 		_end_case_show()
 		return
-	if _bag_show_on and mouse is InputEventMouseButton and (mouse as InputEventMouseButton).pressed:
-		_end_bag_show()
-		return
 	if camera_rig.is_animating:
 		return
 	var pixel := _screen_pixel(mouse.position)
-	if pixel.x < 0.0 or not _pack_choice_rect().has_point(pixel):
+	# Beim Karten-Paket blättert das Magazin mit: Tasten und ein laufender Zug zuerst.
+	_sync_workshop_browse()
+	if _card_opening_browse():
+		if _forward_shelf_selector_mouse(mouse) or _forward_shelf_drag_mouse(mouse, pixel):
+			return
+	if pixel.x < 0.0 or not _screen_forwards_pixel(pixel, mouse is InputEventMouseButton):
 		last_screen_pixel = Vector2(-1, -1)
 		return
 	var forwarded := mouse.duplicate() as InputEventMouse
@@ -10204,6 +10098,281 @@ func _handle_pack_choice_input(event: InputEvent) -> void:
 	last_screen_pixel = pixel
 	table_screen.push_input(forwarded)
 
+## --- ZUORDNEN: beim Würfel-Paket ist Wählen Einsetzen ------------------------------
+## Eine Option wird auf einen Vorrats-Würfel GEZOGEN - oder angetippt (Gold-Saum) und
+## dann der Vorrats-Würfel. Gezogen ordnet zu, getippt wählt aus. Das ist ein ENTWURF
+## (er wohnt in PackChoiceView); gebucht wird erst beim Einsetzen. Getroffen wird über
+## den EINEN Trefferweg der Trays (SLOT_PICK_LAYER) und über den Podest-Körper.
+
+func _assign_live() -> bool:
+	return _pack_choice_modal() and _choice_landed and pack_choice_view != null \
+		and pack_choice_view.assigning() \
+		and pack_choice_view.stage() == PackChoiceView.STAGE_PICK
+
+## Der Vorrats-Würfel unter dem Zeiger: {pool, def, slot, bench, label} ({} = keiner).
+func _assign_target_at(screen_pos: Vector2) -> Dictionary:
+	if run == null or pool_tray_view == null:
+		return {}
+	var slot := _pool_tray_slot_at(screen_pos)
+	var def: DieDefinition = pool_tray_view.slot_defs[slot] if slot >= 0 else null
+	var bench := false
+	if def == null:
+		var stage := _bench_stage_under(screen_pos)
+		if stage == null or stage.def == null:
+			return {}
+		def = stage.def
+		bench = true
+	var pool := run.owned_pool.find(def)
+	if pool < 0:
+		return {}
+	return {"pool": pool, "def": def, "slot": slot, "bench": bench,
+		"label": "Podest" if bench else "Platz %d" % (pool + 1)}
+
+## Wo der Würfel eines Vorrats-Index gerade schwebt: {at, def, key, slot, bench}. key ist
+## der Tray-Platz, -1 das Podest ({} = nicht zu sehen).
+func _assign_seat(pool_index: int) -> Dictionary:
+	if run == null or pool_index < 0 or pool_index >= run.owned_pool.size():
+		return {}
+	var def: DieDefinition = run.owned_pool[pool_index]
+	if def == _bench_die and bench_stage != null and is_instance_valid(bench_stage) \
+			and bench_stage.def == def:
+		var at := bench_stage.center()
+		return {"at": Vector3(at.x, bench_stage.rest_y, at.z), "def": def, "key": -1,
+			"slot": -1, "bench": true}
+	var slot := pool_tray_view.slot_defs.find(def) if pool_tray_view != null else -1
+	if slot < 0:
+		return {}
+	return {"at": pool_tray_view.slot_home_position(slot, true), "def": def, "key": slot,
+		"slot": slot, "bench": false}
+
+## true = die Geste gehörte dem Zuordnen (sonst geht sie an die Fläche).
+func _handle_assign_input(mouse: InputEventMouse) -> bool:
+	if camera_rig.is_animating:
+		return false
+	var button := mouse as InputEventMouseButton
+	if button != null and button.button_index == MOUSE_BUTTON_RIGHT:
+		if not button.pressed:
+			return true
+		# Rechtsklick auf einen belegten Platz nimmt die Option zurück.
+		if not _assign_dragging:
+			var target := _assign_target_at(button.position)
+			var held := pack_choice_view.option_on_seat(int(target.get("pool", -1)))
+			if held >= 0:
+				pack_choice_view.unassign(held)
+			else:
+				pack_choice_view.arm(-1)
+				_pool_pin = null
+		_end_assign_gesture()
+		return true
+	if mouse is InputEventMouseMotion:
+		if _assign_press >= 0 and not _assign_dragging \
+				and mouse.position.distance_to(_assign_press_pos) > REORDER_DRAG_THRESHOLD:
+			_assign_dragging = true
+			pack_choice_view.unassign(_assign_press)
+			pack_choice_view.arm(-1)
+		return _assign_dragging
+	if button == null or button.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	if button.pressed:
+		var pixel := _screen_pixel(button.position)
+		var option := pack_choice_view.option_at_px(pixel) if pixel.x >= 0.0 else -1
+		if option >= 0:
+			_assign_press = option
+			_assign_press_pos = button.position
+			_assign_dragging = false
+			return true
+		var target := _assign_target_at(button.position)
+		if target.is_empty():
+			return false
+		var armed := pack_choice_view.armed_index()
+		var held := pack_choice_view.option_on_seat(int(target["pool"]))
+		if armed >= 0:
+			_assign_option(armed, target)
+		elif held >= 0:
+			pack_choice_view.unassign(held)
+		else:
+			_toggle_pool_pin(target["def"])
+		return true
+	if _assign_press < 0:
+		return false
+	var pressed := _assign_press
+	var dragged := _assign_dragging
+	_end_assign_gesture()
+	if not dragged:
+		pack_choice_view.arm(pressed)
+		return true
+	# Losgelassen über dem Vorrat ordnet zu, sonst fällt sie in die Aufstellung zurück.
+	var target := _assign_target_at(button.position)
+	if not target.is_empty():
+		_assign_option(pressed, target)
+	return true
+
+## ANHEFTEN: ohne gewählte Option heftet der Tipp den Würfel an - er schwebt höher, und
+## der INFO-SCHIRM hält ihn, bis man dort seine Seiten gelesen hat. Derselbe Tipp löst.
+func _toggle_pool_pin(def: DieDefinition) -> void:
+	_pool_pin = null if _pool_pin == def else def
+	_sfx(&"pack_pick", 0.0, 1.0 if _pool_pin != null else 0.75)
+
+## Der EINE Schreiber des Hubs, je Bild: der angeheftete Vorrats-Würfel schwebt höher -
+## außer, eine Option steht schon über ihm. Endet die Wahl, fällt die Heftung.
+func _sync_pool_pin() -> void:
+	if pool_tray_view == null:
+		return
+	if _pool_pin != null and not _assign_live():
+		_pool_pin = null
+	var seat := -1
+	if _pool_pin != null and run != null:
+		seat = pool_tray_view.slot_defs.find(_pool_pin)
+		if seat >= 0 and pack_choice_view.option_on_seat(run.owned_pool.find(_pool_pin)) >= 0:
+			seat = -1
+	if seat != _pin_seat:
+		if _pin_seat >= 0:
+			pool_tray_view.set_slot_lift(_pin_seat, 0.0)
+		_pin_seat = seat
+		_pin_lift = 0.0
+	if seat < 0:
+		return
+	_pin_lift = move_toward(_pin_lift, POOL_PIN_LIFT, POOL_PIN_SPEED * get_process_delta_time())
+	pool_tray_view.set_slot_lift(seat, _pin_lift)
+
+## Der harte Weg: keine Heftung, kein Hub.
+func _drop_pool_pin() -> void:
+	_pool_pin = null
+	if _pin_seat >= 0 and pool_tray_view != null:
+		pool_tray_view.set_slot_lift(_pin_seat, 0.0)
+	_pin_seat = -1
+	_pin_lift = 0.0
+
+func _assign_option(option: int, target: Dictionary) -> void:
+	if not pack_choice_view.assign(option, int(target["pool"]), String(target["label"])):
+		_sfx(&"ui_denied")
+
+func _end_assign_gesture() -> void:
+	_assign_press = -1
+	_assign_dragging = false
+
+## Der EINE Schreiber des Entwurfs, je Bild: jede eingesetzte Option schwebt über ihrem
+## Vorrats-Würfel, die gezogene folgt dem Zeiger, die übrigen stehen in der Aufstellung
+## (die angetippte gehoben); die alten unter den Entwürfen tragen rotes Licht, und der
+## überfahrene Vorrats-Würfel steht in der Vergleichszeile.
+func _sync_assign_bodies() -> void:
+	var blend := 1.0 - exp(-ASSIGN_SPEED * get_process_delta_time())
+	var mouse := get_viewport().get_mouse_position()
+	var drag_at: Variant = null
+	if _assign_dragging and pool_tray_view != null:
+		drag_at = _mouse_on_plane(mouse, pool_tray_view.global_position.y
+			+ DiceTrayView.FLOAT_HEIGHT + REORDER_LIFT_HEIGHT)
+	var draft := pack_choice_view.assignments()
+	var armed := pack_choice_view.armed_index()
+	var doomed := {}
+	for i in _choice_bodies.size():
+		var body := _choice_bodies[i]
+		if body == null or not is_instance_valid(body) or i >= _choice_rest.size():
+			continue
+		if _assign_dragging and i == _assign_press:
+			if drag_at != null:
+				body.global_position = drag_at
+			continue
+		var goal: Vector3 = _choice_rest[i]
+		if draft.has(i):
+			var seat := _assign_seat(int(draft[i]))
+			if not seat.is_empty():
+				goal = (seat["at"] as Vector3) + Vector3.UP * ASSIGN_HOVER
+				doomed[seat["key"]] = seat["def"]
+		elif armed == i:
+			goal.y += PACK_PICK_LIFT
+		body.global_position = body.global_position.lerp(goal, blend)
+	_apply_assign_marks(doomed)
+
+## Rotes Licht an genau den Würfeln, die der Entwurf ersetzt - nur der Wechsel schreibt.
+func _apply_assign_marks(wanted: Dictionary) -> void:
+	for key in _assign_marked.keys():
+		if wanted.get(key) != (_assign_marked[key] as Dictionary)["def"]:
+			_unmark_doomed(int(key), _assign_marked[key])
+			_assign_marked.erase(key)
+	for key in wanted:
+		if _assign_marked.has(key):
+			continue
+		var display := _doomed_display(int(key))
+		var emitter := _doomed_emitter(int(key))
+		if display == null:
+			continue
+		_assign_marked[key] = {"def": wanted[key],
+			"tint": emitter.tint if emitter != null else Color.WHITE}
+		display.set_tint(ASSIGN_DOOMED_BODY)
+		display.set_edge_tint(ASSIGN_DOOMED_RIM)
+		if emitter != null:
+			emitter.set_tint(ASSIGN_DOOMED_RIM)
+
+func _unmark_doomed(key: int, mark: Dictionary) -> void:
+	var def: DieDefinition = mark["def"]
+	var display := _doomed_display(key)
+	if display != null and def != null:
+		display.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	var emitter := _doomed_emitter(key)
+	if emitter != null:
+		emitter.set_tint(mark["tint"])
+
+func _doomed_display(key: int) -> DieFaceDisplay:
+	if key < 0:
+		return bench_stage.faces if bench_stage != null and is_instance_valid(bench_stage) \
+			else null
+	if pool_tray_view == null or key >= pool_tray_view.slot_face_displays.size():
+		return null
+	return pool_tray_view.slot_face_displays[key]
+
+func _doomed_emitter(key: int) -> StasisEmitter:
+	if key < 0:
+		return bench_stage.emitter if bench_stage != null and is_instance_valid(bench_stage) \
+			else null
+	if pool_tray_view == null or key >= pool_tray_view.slot_emitters.size():
+		return null
+	return pool_tray_view.slot_emitter(key)
+
+func _restore_assign_marks() -> void:
+	_apply_assign_marks({})
+
+## Ein Neuaufbau des Trays hat Körper und Tönung frisch gesetzt - nur die Pucks
+## behalten ihr rotes Licht; sie bekommen ihre Farbe zurück, der Schreiber markiert neu.
+func _forget_tray_assign_marks() -> void:
+	for key in _assign_marked.keys():
+		if int(key) < 0:
+			continue
+		var emitter := _doomed_emitter(int(key))
+		if emitter != null:
+			emitter.set_tint((_assign_marked[key] as Dictionary)["tint"])
+		_assign_marked.erase(key)
+
+## EINSETZEN: erst die Sitze rechnen (danach hält der Sitz eine Lücke), dann bucht GameRun
+## alle Zuordnungen atomar (become, ein pool_changed), dann die Zeremonie. Ein leerer
+## Entwurf heißt „Nichts nehmen“ und schließt das Paket.
+func _confirm_dice_assignments() -> void:
+	var choice := _choice
+	var draft := pack_choice_view.assignments()
+	var seats := {}
+	for key in draft:
+		var seat := _assign_seat(int(draft[key]))
+		if seat.is_empty():
+			_sfx(&"ui_denied")
+			return
+		seat["replaced"] = (seat["def"] as DieDefinition).instantiate()
+		seats[int(key)] = seat
+	_end_assign_gesture()
+	_restore_assign_marks()
+	for key in seats:
+		if not bool(seats[key]["bench"]):
+			_assign_hidden.append(seats[key]["def"])
+	run.confirm_dice_choice(choice, draft)
+	if run.pending_pack_choices.has(choice):
+		_assign_hidden.clear()
+		_refresh_dice_trays()
+		_sfx(&"ui_denied")
+		return
+	_sfx(&"pack_confirm")
+	_choice_leaving = true
+	pack_choice_view.close()
+	_release_dice_options(seats)
+
 ## NEU MISCHEN: GameRun würfelt die Optionen neu (gebucht samt ⚡), die alten Körper
 ## treten ab, die neuen kommen (Karten fallen aus der Seitenmitte, Würfel aus der Schatulle).
 func _on_pack_choice_reshuffle() -> void:
@@ -10212,14 +10381,13 @@ func _on_pack_choice_reshuffle() -> void:
 	if not run.reshuffle_pack_choice(_choice):
 		return
 	_sfx(&"pack_reshuffle")
+	# Neu mischen verwirft den Entwurf: die Fläche baut neu, die Säume fallen.
+	_end_assign_gesture()
+	_restore_assign_marks()
 	_choice_gen += 1
 	var generation := _choice_gen
 	var launched := run
 	_choice_landed = false
-	if _choice.is_dice() and _choice_hull != null and is_instance_valid(_choice_hull) \
-			and _choice_hull.has_lid():
-		_reshuffle_dice_case(generation, launched)
-		return
 	for body in _choice_bodies:
 		_vanish_choice_body(body)
 	_choice_bodies.clear()
@@ -10231,75 +10399,30 @@ func _on_pack_choice_reshuffle() -> void:
 		return
 	var seat := table_screen.pixel_to_world(pack_choice_view.hull_seat_px())
 	var from := Vector3(seat.x, _opening_floor_y() + PACK_HULL_REST, seat.z)
-	if _choice.is_modules() and _choice_hull != null and is_instance_valid(_choice_hull):
-		from = _bag_mouth(_choice_hull)
 	_drop_pack_options(_choice, from)
 	await get_tree().create_timer(PACK_OPTION_FALL + PACK_DIE_BOUNCE).timeout
 	if generation == _choice_gen and run == launched:
 		_choice_landed = true
 
-## Neu gemischt mit der Schatulle: alle Würfel springen zurück, der Deckel schlägt zu,
-## und die GANZE Öffnung läuft neu mit den neu gebuchten Werten - Zahl und Wahlen.
-
-func _reshuffle_dice_case(generation: int, launched: GameRun) -> void:
-	var hull := _choice_hull
-	hull.swing_lid(true, PACK_CASE_REOPEN)
-	for i in _choice_bodies.size():
-		_return_case_die(_choice_bodies[i])
-		_choice_bodies[i] = null
-	pack_choice_view.open(_choice, pack_choice_view.item_px, run.pack_reshuffle_cost(_choice),
-		run.energy, false, pack_choice_view.case_px, pack_choice_view.up_face)
-	_case_targets(_choice)
-	await get_tree().create_timer(PACK_CASE_JUMP).timeout
-	if generation != _choice_gen or run != launched or not is_instance_valid(hull):
-		return
-	var close := hull.swing_lid(false, PACK_CASE_SLAM_TIME)
-	if case_show != null:
-		case_show.play_shut()
-	await get_tree().create_timer(close + PACK_CASE_SLAM_TIME).timeout
-	if generation != _choice_gen or run != launched:
-		return
-	_play_case_show(generation, launched)
-
-## BESTÄTIGT: GameRun bucht jede Wahl (Karten ins Magazin, Würfel in pending_dice),
-## dann fliegen die Karten als Komet ins Magazin, der erste Würfel in die Schale, und
-## Ungewähltes zerfällt. Mit gewählten Würfeln erbt der Zwang die Kamera-Lage von
-## vor der Öffnung und bringt sie nach dem Einsetzen dorthin zurück.
+## BESTÄTIGT: GameRun bucht jede Wahl, dann fliegen die Karten als Komet ins Magazin
+## und Ungewähltes zerfällt. Würfel-Pakete buchen den ENTWURF (_confirm_dice_assignments).
 func _on_pack_choice_confirmed(indices: Array) -> void:
 	if not _pack_choice_modal() or run == null:
 		return
-	_sfx(&"pack_confirm")
 	var choice := _choice
-	# Die Schatulle: der Zwang wartet, bis der Tisch sie eingezogen hat.
-	if choice.is_dice() and _choice_hull != null and is_instance_valid(_choice_hull) \
-			and _choice_hull.has_lid():
-		var booked := run.confirm_pack_choice(choice, indices)
-		_choice_leaving = true
-		pack_choice_view.close()
-		var chosen: Array[DieDefinition] = booked["dice"]
-		_leave_opening_frame(not chosen.is_empty())
-		_release_dice_case(indices, chosen)
+	if choice.is_dice():
+		_confirm_dice_assignments()
 		return
-	var positions: Array[Vector2] = []
-	for body in _choice_bodies:
-		positions.append(table_screen.world_to_pixel(body.global_position)
-			if body != null and is_instance_valid(body) else Vector2.ZERO)
+	_sfx(&"pack_confirm")
 	var workshop: WorkshopView = table_screen.workshop_window
 	var result := run.confirm_pack_choice(choice, indices)
 	_choice_leaving = true
 	pack_choice_view.close()
 	var cards: Array[Pack] = result["cards"]
-	var picked_dice: Array[DieDefinition] = result["dice"]
-	var parts: Array[ComboPart] = result["parts"]
-	var part_index := 0
-	_leave_opening_frame(not picked_dice.is_empty())
-	if not picked_dice.is_empty() and ausgabefach != null and is_instance_valid(ausgabefach):
-		ausgabefach.expect_arrival(picked_dice[0])
 	var sorted := indices.duplicate()
 	sorted.sort()
-	var launched := run
 	var card_index := 0
-	var die_index := 0
+	var delay := 0.0
 	for i in _choice_bodies.size():
 		var body := _choice_bodies[i]
 		if not sorted.has(i):
@@ -10309,41 +10432,126 @@ func _on_pack_choice_confirmed(indices: Array) -> void:
 		if option is Pack and card_index < cards.size():
 			var card := cards[card_index]
 			card_index += 1
+			if body is DataCellView and is_instance_valid(body) and workshop != null \
+					and is_instance_valid(workshop):
+				_carry_choice_card(body as DataCellView, card, workshop, delay)
+				delay += PACK_CARD_CARRY_STAGGER
+				continue
 			if workshop != null and is_instance_valid(workshop):
+				# Ohne Körper (sollte nie sein): die Karte steigt schlicht auf ihrem Platz.
 				workshop.expect_pack_delivery(card.pack_uid)
-				var tint := PackDrawerView.pack_tint(card)
-				var travel := table_screen.pack_delivery_comet(positions[i], tint,
-					_pack_arrival_px(workshop, card.pack_uid))
-				var uid := card.pack_uid
-				get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
-					if run == launched and is_instance_valid(workshop):
-						_land_pack_in_magazine(workshop, uid, tint))
-		elif option is ComboPart and part_index < parts.size():
-			# Das gewählte Modul fährt als Licht zu den Chips; dort wartet der EINBAU.
-			table_screen.part_delivery_comet(positions[i], parts[part_index].tint())
-			part_index += 1
-		elif option is DieDefinition and die_index < picked_dice.size():
-			var def := picked_dice[die_index]
-			die_index += 1
-			if die_index == 1 and ausgabefach != null and is_instance_valid(ausgabefach):
-				var travel := table_screen.fach_delivery_comet(positions[i], SLOT_DIE_COLOR,
-					_fach_rect_px().get_center())
-				get_tree().create_timer(maxf(travel, 0.01)).timeout.connect(func() -> void:
-					if run == launched and is_instance_valid(ausgabefach):
-						ausgabefach.deliver(def))
+				_land_pack_in_magazine(workshop, card.pack_uid, PackDrawerView.pack_tint(card))
 		_vanish_choice_body(body)
 	_choice_bodies.clear()
 	_choice_rest.clear()
-	# Der leere Beutel: der Tisch zieht ihn ein, statt daß er zerfällt.
-	if choice.is_modules() and _choice_hull != null and is_instance_valid(_choice_hull):
-		_drop_case_sinking()
-		_case_sinking = _choice_hull
-		_choice_hull = null
-		_sink_case(_case_sinking)
 	var generation := _choice_gen
 	await get_tree().create_timer(PACK_LEAVE_TIME).timeout
 	if generation == _choice_gen:
-		_finish_pack_choice()
+		# Mit Karten im Bogen bleibt die Kamera, bis die letzte liegt (_land_choice_card).
+		_finish_pack_choice(not _card_carries.is_empty())
+
+## --- Die gewählten KARTEN tragen sich ins Magazin ---------------------------------
+## Ein Spieler-Zug: der Körper der Option fliegt im Trage-Bogen von seinem Platz auf
+## der Fläche auf seinen Magazin-Platz und WIRD dort die Magazin-Kassette (kein zweiter
+## Körper). Liegt das Ziel-Tablett verdeckt oder hinausgerollt, endet der Bogen an der
+## Taste bzw. am Grubenrand und die Karte landet wie jede Lieferung.
+
+## Je Bogen {cell, uid, tint, run, tween}; der harte Weg ist _settle_card_carries.
+var _card_carries: Array[Dictionary] = []
+
+func _carry_choice_card(cell: DataCellView, card: Pack, workshop: WorkshopView,
+		delay: float) -> void:
+	var uid := card.pack_uid
+	var entry := {"cell": cell, "uid": uid, "tint": PackDrawerView.pack_tint(card),
+		"run": run, "tween": null}
+	_card_carries.append(entry)
+	# Gebucht ist längst: der Platz steht (ohne Chip), und der Abgleich stellt keinen
+	# zweiten Körper auf, solange dieser hier fliegt.
+	workshop.expect_pack_delivery(uid)
+	_cell_returns[uid] = cell
+	cell.set_hovered(false)
+	cell.set_dimmed(false)
+	# Das Fach legt sich erst nach der Buchung neu - dann erst steht der Platz.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not _card_carries.has(entry) or not is_instance_valid(cell) \
+			or not is_instance_valid(workshop):
+		return
+	var target := _card_carry_target(workshop, uid)
+	var flight := create_tween()
+	entry["tween"] = flight
+	flight.tween_interval(maxf(delay, 0.001))
+	flight.tween_callback(func() -> void:
+		if is_instance_valid(cell):
+			cell.lie_on_glass(cell.global_position)
+			cell.arc_to(target, PACK_CARD_CARRY_TIME, PACK_CARD_CARRY_PEAK)
+			_sfx(&"card_lift"))
+	flight.tween_interval(PACK_CARD_CARRY_TIME)
+	flight.tween_callback(_land_choice_card.bind(entry, false))
+
+## Das Ziel des Bogens: der Platz im Tablett, sonst der Anker der bestehenden Regel
+## (Taste des verdeckten Tabletts, Grubenrand der hinausgerollten Seite) auf dem Glas.
+func _card_carry_target(workshop: WorkshopView, uid: int) -> Vector3:
+	if workshop.shelf_in_window(uid):
+		return _shelf_seat(workshop, uid, workshop.shelf_row_of(uid))
+	return _data_cell_seat(_pack_arrival_px(workshop, uid))
+
+## Gelandet (oder hart gesetzt): liegt ihr Platz im Fenster, WIRD der Körper die
+## Magazin-Kassette; sonst geht er fort und die Lieferung landet nach der Regel.
+func _land_choice_card(entry: Dictionary, hard: bool) -> void:
+	if not _card_carries.has(entry):
+		return
+	_card_carries.erase(entry)
+	var tween := entry.get("tween") as Tween
+	if tween != null and tween.is_valid():
+		tween.kill()
+	var held: Variant = entry["cell"]
+	var cell: DataCellView = held as DataCellView if is_instance_valid(held) else null
+	var uid := int(entry["uid"])
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if _cell_returns.has(uid) and (not is_instance_valid(_cell_returns[uid])
+			or _cell_returns[uid] == cell):
+		_cell_returns.erase(uid)
+	var live: bool = entry["run"] == run and run != null and run.pack_by_uid(uid) != null \
+		and workshop != null and is_instance_valid(workshop)
+	if not live:
+		_free_data_cell(cell)
+	elif cell != null and is_instance_valid(cell) and workshop.shelf_in_window(uid):
+		var line := workshop.shelf_row_of(uid)
+		var standing: DataCellView = shelf_cells.get(uid)
+		if standing != null and is_instance_valid(standing) and standing != cell:
+			_free_data_cell(standing)
+		cell.set_body_scale(workshop.shelf_cell_scale())
+		_lay_shelf_hard(cell, line, _shelf_seat(workshop, uid, line))
+		cell.set_dimmed(workshop.shelf_locked())
+		cell.hover_lift = ShelfStackView.hover_lift(workshop.shelf_cell_scale(),
+			ShelfStackView.tray_of(line))
+		cell.hover_slide = 0.0
+		shelf_cells[uid] = cell
+		# Die EINE Ankunft: Platz frei, Blitz, und die Kassette lodert - steigen muß sie nicht.
+		_land_pack_in_magazine(workshop, uid, entry["tint"])
+		_rising_packs.erase(uid)
+		if not hard:
+			_sfx(&"card_drop")
+	else:
+		# An der Taste bzw. am Grubenrand zerfällt der Körper; gelandet wird nach der Regel.
+		if hard or cell == null:
+			_free_data_cell(cell)
+		else:
+			cell.dematerialize()
+			get_tree().create_timer(DataCellView.DEMATERIALIZE_TIME).timeout.connect(
+				_free_data_cell.bind(cell))
+		_land_pack_in_magazine(workshop, uid, entry["tint"])
+	if hard or not _card_carries.is_empty() or _choice != null:
+		return
+	if run == null or run.current_pack_choice() == null:
+		_leave_opening_frame()
+
+## Abbruch: jede Karte im Bogen liegt sofort (bzw. ist fort, wenn ihr Lauf es ist).
+func _settle_card_carries() -> void:
+	for entry in _card_carries.duplicate():
+		_land_choice_card(entry, true)
+	_card_carries.clear()
 
 ## Ein Körper tritt ab: die Karte zerfällt, der Würfel schrumpft ins Nichts.
 func _vanish_choice_body(body: Node3D) -> void:
@@ -10375,17 +10583,19 @@ func _clear_choice_bodies() -> void:
 	_choice_rest.clear()
 
 ## Das Ende einer Auswahl (bestätigt oder abgebrochen): Körper fort, Fenster zu.
-func _finish_pack_choice() -> void:
+## keep_frame = die Kamera bleibt, bis die eingesetzten Würfel sitzen.
+func _finish_pack_choice(keep_frame := false) -> void:
 	_choice_gen += 1
-	_bag_show_on = false
+	_end_assign_gesture()
+	_restore_assign_marks()
 	_clear_choice_bodies()
 	if _choice_hull != null and is_instance_valid(_choice_hull):
 		_free_data_cell(_choice_hull)
 	_choice_hull = null
 	if pack_choice_view != null:
 		pack_choice_view.close()
-	if _choice != null and not _choice_home.is_empty():
-		_leave_opening_frame(false)
+	if _choice != null and not _choice_home.is_empty() and not keep_frame:
+		_leave_opening_frame()
 	_choice = null
 	_choice_leaving = false
 	_choice_landed = false
@@ -10394,18 +10604,23 @@ func _finish_pack_choice() -> void:
 ## Landefläche und Loch, die Kamera heim. Eine noch offene Auswahl bleibt in GameRun
 ## und öffnet neu; die Lager-Körper stellt ihr Schreiber neu.
 func _settle_pack_openings() -> void:
+	_drop_pool_pin()
 	_settle_case_show()
 	_settle_case_flights()
-	_drop_case_sinking()
+	_settle_card_carries()
 	_drop_bought_case()
 	_drop_case_ground()
+	if run == null:
+		_burst_seen.clear()
+	else:
+		_burst_seen = _burst_seen.filter(func(c: PackChoice) -> bool:
+			return run.pending_pack_choices.has(c))
 	if _choice != null:
 		_finish_pack_choice()
+	_end_assign_gesture()
+	_restore_assign_marks()
 	if not _choice_home.is_empty():
-		_leave_opening_frame(false)
-	if not _choice_home_handoff.is_empty() and not _deck_glass:
-		camera_rig.restore_pose(_choice_home_handoff)
-	_choice_home_handoff = {}
+		_leave_opening_frame()
 	_drop_store_bodies()
 
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
@@ -11254,12 +11469,15 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# Und der ZWANG auch: wer einen Neuzugang schuldet, bedient nur das Raster.
 	if _exchange_forced() or _part_install_forced():
 		return false
-	# Die PAKET-AUSWAHL nimmt allein ihr eigenes Fenster.
+	# Die PAKET-AUSWAHL nimmt allein ihr eigenes Fenster - beim Karten-Paket dazu das
+	# Magazin zum Blättern (stecken darf es dort nicht, browse_only).
 	if _pack_choice_modal():
-		return _pack_choice_rect().has_point(pixel)
+		return _pack_choice_rect().has_point(pixel) \
+			or (_card_opening_browse() and _magazin_browse_rect().has_point(pixel))
 	var flying := camera_rig.is_animating
 	# Wirkungstext der Dock-Karte: Bewegung für die Hover-Karte, Klick nur aufs Schlüsselwort.
-	if not flying and table_screen.charm_dock != null 			and table_screen.charm_dock.text_takes_pixel(pixel, is_click):
+	if not flying and table_screen.charm_dock != null \
+			and table_screen.charm_dock.text_takes_pixel(pixel, is_click):
 		return true
 	if debug_parts != null and TableScreen.window_takes_pixel(debug_parts, _window_rect(debug_parts),
 			pixel, is_click, false, flying):
@@ -11524,13 +11742,13 @@ func _process(delta: float) -> void:
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
-	_sync_fach_nets()  # und die Info-Säule zeigt den Neuzugang über ihr
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
 	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_pack_areas()  # die Öffnungs-Fläche steht unter dem Lager, auch leer
 	_sync_store_bodies()  # und jedes gelagerte Paket auf seinem Platz
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
+	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
@@ -11547,7 +11765,11 @@ const PIT_BECKON_FADE := 2.5  # Anteil/s
 var _pit_beckon_share := 0.0
 
 func _pit_beckons() -> bool:
-	return run != null and phase == Phase.IDLE and gameplay_ui_state_visible 		and camera_rig.mode != CameraRig.Mode.TITLE 		and next_draw_index == 0 and not has_rolled_current_hand 		and _remaining_in_pool() > 0 and not log_open 		and not _route_choice_open() and not _exchange_forced()
+	return run != null and phase == Phase.IDLE and gameplay_ui_state_visible \
+		and camera_rig.mode != CameraRig.Mode.TITLE \
+		and next_draw_index == 0 and not has_rolled_current_hand \
+		and _remaining_in_pool() > 0 and not log_open \
+		and not _route_choice_open() and not _exchange_forced()
 
 func _sync_pit_beckon(delta: float) -> void:
 	var target := 1.0 if _pit_beckons() else 0.0
@@ -11608,13 +11830,27 @@ func _write_workshop_info(workshop: WorkshopView, pixel: Vector2) -> void:
 	var data := _workshop_info_data(workshop, pixel)
 	info.set_info(String(data.get("title", "")), String(data.get("sub", "")),
 		data.get("sub_tint", WorkshopView.MUTED_COLOR), String(data.get("body", "")))
+	info.set_net(data.get("net") as DieDefinition)
 
 ## WAS der Schirm sagt - die erste Quelle gewinnt: Netz-Zelle im Fenster, Zelle auf
 ## einem Karten-KÖRPER, die Karte selbst, der Podest-Würfel, ein POOL-Würfel, sonst
 ## die Ruhe-Auskunft. Die Glas-Ansicht und die Inspektion haben ihr eigenes Bild.
 func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
+	# Die Zellen des Netzes IM Schirm erklären sich selbst (der angeheftete Würfel).
+	var info: WorkshopInfoView = table_screen.workshop_info_window
+	if pixel.x >= 0.0 and info != null and info.net_def() != null:
+		var hint := info.net_hint_at(pixel)
+		if hint != "":
+			var cell := WorkshopInfoView.cell_info(info.net_def().display_name, hint)
+			cell["net"] = info.net_def()
+			return cell
 	var idle := WorkshopInfoView.idle_info(workshop.target_die(),
 		workshop.stamp_blocker(), workshop.compressing())
+	# Der angeheftete Würfel, sonst ein wartender Neuzugang (der ZWANG), steht, solange
+	# nichts anderes spricht - auch ohne Zeiger auf dem Tisch.
+	var held: DieDefinition = _pool_pin if _pool_pin != null else _waiting_fach_die()
+	if held != null:
+		idle = _die_info_with_net(held)
 	if pixel.x < 0.0 or _deck_glass or camera_rig.die_focus:
 		return idle
 	var cell_hint := workshop.net_hint_at(pixel)
@@ -11635,9 +11871,21 @@ func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
 	# Die NEUE Hover-Quelle: ein Würfel im VORRAT. Kein Highlight am Körper - nur
 	# die Auskunft.
 	var seat := _pool_tray_slot_at(mouse)
-	if seat >= 0:
-		return WorkshopInfoView.die_info(pool_tray_view.slot_defs[seat])
+	if seat >= 0 and pool_tray_view.slot_defs[seat] != null:
+		return _die_info_with_net(pool_tray_view.slot_defs[seat])
 	return idle
+
+## Die Auskunft eines Würfels samt seinem Netz rechts im Schirm.
+func _die_info_with_net(def: DieDefinition) -> Dictionary:
+	var data := WorkshopInfoView.die_info(def)
+	data["net"] = def
+	return data
+
+## Der offene Neuzugang in der Schale (null = keiner).
+func _waiting_fach_die() -> DieDefinition:
+	if ausgabefach == null or not is_instance_valid(ausgabefach) or ausgabefach.items.is_empty():
+		return null
+	return ausgabefach.items[0]["def"]
 
 ## Die NETZ-ZELLE einer Kassette unter dem Zeiger ({} = keine): ihr Klartext und die
 ## uid ihrer Karte. GEFRAGT werden die KÖRPER - sie schneiden den Zeigerstrahl
@@ -12521,6 +12769,9 @@ func _tray_shows(def: DieDefinition) -> bool:
 	# Eintrag trägt schon den neuen Inhalt, aber gezeigt wird er erst danach.
 	if def != null and def == _exchange_hidden:
 		return false
+	# Ebenso beim Einsetzen aus einem Würfel-Paket: bis der neue landet.
+	if def != null and _assign_hidden.has(def):
+		return false
 	# Und wer gerade vom Podest HEIMfliegt, ist auch noch nicht da.
 	if def != null and def == _bench_homing:
 		return false
@@ -12544,6 +12795,7 @@ func _return_dice_to_pool_tray() -> void:
 		return  # der Vorrat fährt gerade erst herauf (siehe _play_tray_return)
 	pool_tray_view.ensure_capacity(run.owned_pool.size())
 	pool_tray_view.fill(_tray_holes(_pool_tray_source()))
+	_forget_tray_assign_marks()
 
 ## Warteschlangen-Fenster: fest HAND_SIZE Plätze.
 func _queue_capacity() -> int:
@@ -12622,6 +12874,7 @@ func _refresh_dice_trays() -> void:
 		_return_dice_to_pool_tray()
 	else:
 		_refresh_deck_trays()
+		_forget_tray_assign_marks()
 
 func _cancel_deck_shift() -> void:
 	if deck_shift_tween:
@@ -16040,11 +16293,6 @@ func _on_pool_changed() -> void:
 		_apply_charge_holds()
 	_refresh_bench_stage_faces()  # die Bühne hält eine geteilte Instanz
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
-	# Die Info-Säule hält eine GETEILTE Instanz: die Signatur sähe die Gravur nicht.
-	if table_screen != null and table_screen.fach_net_window != null \
-			and is_instance_valid(table_screen.fach_net_window):
-		table_screen.fach_net_window.refresh()
-		_sync_fach_nets()
 	if _deck_glass:
 		_show_deck_glass_window()  # das Raster auf dem Glas folgt der Buchung
 
@@ -16756,23 +17004,31 @@ func _sync_part_install() -> void:
 	for key: String in combo_chips:
 		combo_chips[key].set_socket_beckon(forced and not _install_seating,
 			forced and editable and not _install_seating)
+	_sync_module_bag(forced)
 	if forced:
-		_show_install_banner(run.pending_parts[0], editable, _install_loss_under_pointer(editable))
+		var active := _install_active_part()
+		_show_install_banner(active, editable, _install_loss_under_pointer(editable))
 		if _part_install_framed and not camera_rig.is_animating \
 				and camera_rig.anchor_origin != _part_install_frame_origin:
 			# Jemand hat die Kamera weggefahren: dorthin kehrt sie nach dem Einbau
 			# zurück, aber bis das Modul sitzt, gehört sie den Chips.
 			_part_install_framed = false
+		if _part_install_framed and not camera_rig.is_animating \
+				and _part_install_frame_pit != _pit_install_mode():
+			_frame_part_install(true)  # Wett-Modul fertig, die Paket-Module folgen (oder umgekehrt)
 		if not _part_install_framed and _table_operable() and not camera_rig.die_focus \
 				and grabbed_stage == null:
 			_frame_part_install()
-		_sync_install_ghost()
+		if _pit_install_mode():
+			_drop_install_ghost()
+		else:
+			_sync_install_ghost()
 		return
 	if not _install_seating:
 		_drop_install_ghost()
 	_hide_install_banner()
-	if _install_seating:
-		return  # das Modul rastet noch ein - erst danach fährt die Kamera zurück
+	if _install_seating or _module_bag != null or _bag_sinking != null:
+		return  # das Modul rastet noch ein bzw. der Beutel sinkt - erst danach fährt die Kamera zurück
 	if _part_install_framed:
 		_part_install_framed = false
 		camera_rig.set_tilt_locked(false)
@@ -16783,14 +17039,35 @@ func _sync_part_install() -> void:
 
 ## Ein Modul aus einem Paket VERDRÄNGT: welches Modul ginge unter dem Zeiger verloren?
 func _install_loss_under_pointer(editable: bool) -> ComboPart:
-	if run == null or not run.install_loses_displaced() or camera_rig.is_animating:
+	var index := _install_active_index()
+	if run == null or not run.install_loses_displaced(index) or camera_rig.is_animating:
 		return null
-	var pick := _part_pick_at(get_viewport().get_mouse_position())
+	var pick := _part_pick_at(_install_pointer())
 	if pick.is_empty() or not combo_chips.has(String(pick["key"])):
 		return null
 	var key := String(pick["key"])
 	var slot := run.install_target(key, int(pick["slot"]), editable)
-	return run.install_displaces(key, slot) if slot >= 0 else null
+	return run.install_displaces(key, slot, index) if slot >= 0 else null
+
+## Wo der Zeiger des Einbaus steht: beim Zug aus der Grube die letzte Geste, sonst die Maus.
+func _install_pointer() -> Vector2:
+	return _pit_pointer if _pit_press != null else get_viewport().get_mouse_position()
+
+## Das Modul, das der nächste Tipp steckt: beim Paket das gezogene, gewählte oder erste
+## in der Grube; sonst das erste Wett- bzw. verdrängte Modul.
+func _install_active_part() -> ComboPart:
+	var index := _install_active_index()
+	return run.pending_parts[index] if index >= 0 else null
+
+func _install_active_index() -> int:
+	if run == null or run.pending_parts.is_empty():
+		return -1
+	if not _pit_install_mode():
+		return maxi(_plain_install_index(), 0)
+	for part in [_pit_press if _pit_dragging else null, _pit_selected]:
+		if part != null and run.pending_parts.has(part):
+			return run.pending_parts.find(part)
+	return 0
 
 func _show_install_banner(part: ComboPart, editable: bool, lost: ComboPart = null) -> void:
 	if table_screen == null:
@@ -16806,9 +17083,9 @@ func _show_install_banner(part: ComboPart, editable: bool, lost: ComboPart = nul
 	if part.from_pack and lost != null:
 		how = "Ersetzt %s - %s geht verloren." % [lost.display_name, lost.display_name]
 	elif part.from_pack and run != null and run.free_socket_count() <= 0:
-		how = "Kein Steckplatz frei: ein Tipp ersetzt ein Modul - das alte geht verloren."
-	elif part.from_pack and editable:
-		how = "Tipp auf einen freien Steckplatz - ein belegter wird ersetzt, das alte geht verloren."
+		how = "Kein Steckplatz frei: ein belegter wird ersetzt, das alte geht verloren. Zurück in den Beutel = verwerfen."
+	elif part.from_pack:
+		how = "Ziehen oder antippen, dann ein Steckplatz. Zurück in den Beutel = verwerfen."
 	_install_banner_rect = table_screen.show_install_banner(
 		"Wohin mit %s?" % part.with_dative(), "%s\n%s" % [part.description, how], part.tint())
 
@@ -16821,21 +17098,26 @@ func _hide_install_banner() -> void:
 
 ## Ein TEMPORÄRER Rahmen wie der des Rasters: Cluster samt Kopfzeile, kein
 ## Moduswechsel; die Lage davor wird gemerkt.
-func _frame_part_install() -> void:
+func _frame_part_install(keep_home := false) -> void:
 	if table_screen == null:
 		return
 	var rect := table_screen.cluster_rect.merge(table_screen.part_hint_lane())
 	if _install_banner_rect.size.x > 0.0:
 		rect = rect.merge(_install_banner_rect)
+	var pit := _pit_install_mode()
+	if pit:
+		rect = rect.merge(_throw_pit_rect_px())
 	var a := table_screen.pixel_to_world(rect.position)
 	var b := table_screen.pixel_to_world(rect.end)
 	var center := (a + b) * 0.5
 	center.y = 0.0
-	_part_install_home = camera_rig.camera_pose()
+	if not keep_home or _part_install_home.is_empty():
+		_part_install_home = camera_rig.camera_pose()
 	_part_install_framed = true
+	_part_install_frame_pit = pit
 	camera_rig.set_tilt_locked(true)
 	camera_rig.frame_rect(center, Vector2(absf(b.z - a.z) * 0.5, absf(b.x - a.x) * 0.5),
-		PART_INSTALL_FRAME_MARGIN)
+		PIT_PART_FRAME_MARGIN if pit else PART_INSTALL_FRAME_MARGIN)
 	_part_install_frame_origin = camera_rig.anchor_origin
 
 ## Je Bild: das wartende Modul schwebt über den Chips und folgt dem Zeiger; über
@@ -16843,7 +17125,7 @@ func _frame_part_install() -> void:
 func _sync_install_ghost() -> void:
 	if _install_seating or run == null or run.pending_parts.is_empty() or combo_chips.is_empty():
 		return
-	var part: ComboPart = run.pending_parts[0]
+	var part := _install_active_part()
 	if install_ghost == null or not is_instance_valid(install_ghost) \
 			or install_ghost.part != part:
 		_drop_install_ghost()
@@ -16887,22 +17169,31 @@ func _drop_install_ghost() -> void:
 
 ## Der Klick: die Hand fährt über den Platz, das Modul rastet ein (play_plug) und
 ## sein Mund blitzt; erst danach gibt der Einbau die Kamera frei.
-func _seat_install_ghost(key: String, slot: int) -> void:
+func _seat_install_ghost(key: String, slot: int, body: ComboPartBody = null,
+		carry := false) -> void:
 	var chip: ComboChipView = combo_chips.get(key)
-	if chip == null or install_ghost == null or not is_instance_valid(install_ghost):
+	var ghost := body
+	if ghost == null:
+		ghost = install_ghost
+		install_ghost = null
+	if chip == null or ghost == null or not is_instance_valid(ghost):
 		if chip != null:
 			_sfx(&"part_install")
 			chip.play_plug(slot)
 		return
-	var ghost := install_ghost
-	install_ghost = null
 	_install_seating = true
 	chip.set_socket_lifted(slot)
 	var launched := run
 	var start := chip.socket_world(slot) + Vector3.DOWN * ComboPartBody.WELL \
 		+ Vector3.UP * ComboPartBody.SIDE * ComboChipView.PLUG_RISE
+	var from := ghost.global_position
+	# Aus der Grube ein Trage-Bogen, aus der Hand nur der kurze Griff.
+	var peak := PIT_PART_CARRY_PEAK if carry else 0.0
 	var tween := create_tween()  # nicht am Geist: der stirbt mitten im Klick
-	tween.tween_property(ghost, "global_position", start, INSTALL_SEAT_TIME) \
+	tween.tween_method(func(t: float) -> void:
+		if is_instance_valid(ghost):
+			ghost.global_position = from.lerp(start, t) + Vector3.UP * peak * 4.0 * t * (1.0 - t),
+		0.0, 1.0, PIT_PART_CARRY_TIME if carry else INSTALL_SEAT_TIME) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_callback(func() -> void:
 		ghost.queue_free()
@@ -16924,6 +17215,9 @@ func _seat_install_ghost(key: String, slot: int) -> void:
 ## Solange der Einbau steht, gehört jede Geste ihm: nur der Tipp auf einen Platz
 ## oder Chip zählt, alles andere schweigt.
 func _handle_part_install_input(event: InputEvent) -> void:
+	if _pit_install_mode():
+		_handle_pit_part_input(event)
+		return
 	var button := event as InputEventMouseButton
 	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
 		return
@@ -16933,22 +17227,37 @@ func _handle_part_install_input(event: InputEvent) -> void:
 	if not pick.is_empty():
 		_install_part_at(String(pick["key"]), int(pick["slot"]))
 
-## Steckt das nächste wartende Teil (slot -1 = erster freier Platz des Chips).
-func _install_part_at(key: String, slot: int) -> bool:
+## Steckt ein wartendes Teil (slot -1 = erster freier Platz des Chips); ohne part das
+## aktive. Ein Paket-Modul fährt aus seiner Grube in den Platz.
+func _install_part_at(key: String, slot: int, part: ComboPart = null, carry := true) -> bool:
 	if run == null:
 		return false
-	var target := run.install_target(key, slot, not _dice_editing_locked())
-	if target < 0 or not run.install_pending_part(key, target):
+	var index := run.pending_parts.find(part) if part != null else _install_active_index()
+	if index < 0:
 		return false
+	part = run.pending_parts[index]
+	var target := run.install_target(key, slot, not _dice_editing_locked())
+	if target < 0 or not run.install_pending_part_at(index, key, target):
+		return false
+	var body: ComboPartBody = _pit_part_bodies.get(part)
+	_pit_part_bodies.erase(part)
+	if _pit_selected == part:
+		_pit_selected = null
+	if body != null and not is_instance_valid(body):
+		body = null
 	if combo_chips.has(key):
-		_seat_install_ghost(key, target)
+		_seat_install_ghost(key, target, body, body != null and carry)
+	elif body != null:
+		body.queue_free()
 	return true
 
-## Der EINE harte Aufräum-Pfad (Laufwechsel): kein Rahmen, keine Hand, kein Hinweis.
+## Der EINE harte Aufräum-Pfad (Laufwechsel): kein Rahmen, keine Hand, kein Hinweis,
+## kein Beutel und keine Grube - die Teile bleiben in pending_parts.
 func _settle_part_install_hard() -> void:
 	_part_install_framed = false
 	_part_install_home = {}
 	_install_seating = false
+	_settle_module_bag_hard()
 	_drop_install_ghost()
 	_hide_install_banner()
 	_drop_part_drag()
@@ -16977,6 +17286,13 @@ func _sync_part_hover() -> void:
 	if key == "" or slot < 0 or not combo_chips.has(key):
 		if combo_chips.has(key):
 			combo_chips[key].set_socket_hover(-1)
+		# Ein Paket-Modul in der Grube erklärt sich selbst.
+		var lying: ComboPart = null
+		if _module_bag_open and not _pit_dragging and _table_operable() and _pit_install_mode():
+			lying = _pit_part_at(get_viewport().get_mouse_position())
+		if lying != null:
+			table_screen.show_part_hint(lying.display_name, lying.description, lying.tint())
+			return
 		table_screen.hide_part_hint()
 		return
 	var chip: ComboChipView = combo_chips[key]
@@ -17105,5 +17421,503 @@ func _on_secret_part_purchased(part: ComboPart) -> void:
 	if run != launched or table_screen == null:
 		return
 	table_screen.part_delivery_comet(depart, part.tint(), true)
+
+## --- Das MODUL-PAKET in der WURFGRUBE ----------------------------------------------
+## Gekauft liegen die Module schon in pending_parts (from_pack). Der ESD-Beutel fliegt in
+## die Wurfgrube neben dem Cluster, reißt auf, und die Module liegen dort in einer Reihe:
+## Reihe i = i-tes Paket-Modul. Gezogen steckt, getippt wählt; zurück in den Beutel
+## verwirft. Ist die Reihe leer, zieht der Tisch den Beutel ein. Wett-Module (nicht
+## from_pack) gehen vorher den alten Weg aus der Hand.
+
+const PIT_PART_FRAME_MARGIN := 1.04
+## Reihe und Beutel als Anteil der Grubenbreite (Display-x), Teilung in Modul-Kanten.
+const PIT_ROW_SHARE := 0.36
+const PIT_BAG_SHARE := 0.8
+const PIT_PART_PITCH := 2.6
+## Ein gewähltes Modul hebt sich so weit; Nachzieh-Rate der Reihe je Sekunde.
+const PIT_PART_LIFT := 0.35
+const PIT_PART_FOLLOW := 14.0
+## Treffer-Radius in Modul-Kanten, mindestens so viele Bildschirm-px.
+const PIT_PART_PICK := 1.2
+const PIT_PART_PICK_MIN_PX := 12.0
+## Der Beutel: Flug aus dem Laden, Mund über ihm, Trefferfläche als Verwerf-Ziel.
+const PIT_BAG_FLIGHT := 0.85
+const PIT_BAG_PEAK := 4.0
+const PIT_BAG_MOUTH := 1.0
+const PIT_BAG_HIT_ROOM := 1.15
+## Die Module fallen aus dem Mund auf ihre Plätze.
+const PIT_PART_FALL := 0.5
+const PIT_PART_STAGGER := 0.09
+const PIT_PART_PEAK := 1.6
+const PIT_PART_BOUNCE := 0.12
+## Aus der Grube in den Steckplatz: ein Trage-Bogen.
+const PIT_PART_CARRY_TIME := 0.42
+const PIT_PART_CARRY_PEAK := 1.6
+const PIT_DISCARD_TIME := 0.3
+## Der Gold-Saum der Wahl: eine flache Platte unter dem Modul.
+const PIT_RIM_ROOM := 1.32
+const PIT_RIM_THICK := 0.01
+const PIT_RIM_Y := 0.012
+const PIT_RIM_COLOR := Color(1.0, 0.78, 0.3)
+
+var _module_bag: CardPackView = null
+## Gerissen und gelandet: erst dann steht die Reihe und nimmt Gesten.
+var _module_bag_open := false
+var _module_bag_gen := 0
+## Größe und Stufe des letzten Beutels - der harte Weg baut ihn daraus neu.
+var _bag_spec := Vector2i(1, ModulePack.GRADE_COMMON)
+var _bag_sinking: CardPackView = null
+var _bag_shaft: LiftShaftView = null
+## Je wartendem Paket-Modul sein Körper in der Grube.
+var _pit_part_bodies := {}
+var _pit_selected: ComboPart = null
+var _pit_press: ComboPart = null
+var _pit_press_pos := Vector2.ZERO
+var _pit_dragging := false
+var _pit_pointer := Vector2.ZERO
+var _pit_rim: MeshInstance3D = null
+## Rahmt der Einbau gerade die Grube mit?
+var _part_install_frame_pit := false
+
+## Die wartenden Paket-Module in der Reihenfolge von pending_parts.
+func _pit_parts() -> Array[ComboPart]:
+	var out: Array[ComboPart] = []
+	if run == null:
+		return out
+	for part in run.pending_parts:
+		if part.from_pack:
+			out.append(part)
+	return out
+
+## Das erste wartende Modul, das nicht aus einem Paket kommt (-1 = keines).
+func _plain_install_index() -> int:
+	if run == null:
+		return -1
+	for i in run.pending_parts.size():
+		if not run.pending_parts[i].from_pack:
+			return i
+	return -1
+
+## Paket-Module werden aus der Grube gesteckt - erst, wenn kein anderes mehr wartet.
+func _pit_install_mode() -> bool:
+	return run != null and not run.pending_parts.is_empty() and _plain_install_index() < 0
+
+## Die Wurfgrube in Display-Pixeln.
+func _throw_pit_rect_px() -> Rect2:
+	var c := dice_pit.global_position if dice_pit != null else Vector3.ZERO
+	var a := table_screen.world_to_pixel(c + Vector3(DicePit.PIT_HALF_X, 0.0, -DicePit.PIT_HALF_Z))
+	var b := table_screen.world_to_pixel(c + Vector3(-DicePit.PIT_HALF_X, 0.0, DicePit.PIT_HALF_Z))
+	return Rect2(a, Vector2.ZERO).expand(b)
+
+func _pit_bag_rest() -> Vector3:
+	var r := _throw_pit_rect_px()
+	var at := table_screen.pixel_to_world(
+		Vector2(r.position.x + r.size.x * PIT_BAG_SHARE, r.get_center().y))
+	return Vector3(at.x, VitrineView.FLOOR_CLEAR, at.z)
+
+## Platz i von n in der Reihe - eine reine Rechnung, die Reihe rückt beim Stecken zusammen.
+func _pit_part_rest(i: int, n: int) -> Vector3:
+	var r := _throw_pit_rect_px()
+	var center := Vector2(r.position.x + r.size.x * PIT_ROW_SHARE, r.get_center().y)
+	var pitch := _world_len_px(ComboPartBody.SIDE * PIT_PART_PITCH)
+	var at := table_screen.pixel_to_world(
+		center + Vector2((float(i) - float(n - 1) * 0.5) * pitch, 0.0))
+	return Vector3(at.x, VitrineView.FLOOR_CLEAR, at.z)
+
+## Der Grundriß des liegenden Beutels in Display-Pixeln (wie eine liegende Kassette).
+func _bag_footprint_px() -> Vector2:
+	return _data_cell_lying_px() * PackDrawerView.CASSETTE_SCALE * CardPackView.FOOT_ROOM
+
+func _bag_mouth(bag: CardPackView) -> Vector3:
+	return bag.global_position + Vector3.UP * PIT_BAG_MOUTH
+
+func _spawn_pit_part(part: ComboPart, at: Vector3) -> ComboPartBody:
+	var body := ComboPartBody.new()
+	body.name = "PitPart"
+	add_child(body)
+	body.setup(part)
+	body.global_rotation = Vector3.ZERO
+	body.global_position = at
+	return body
+
+func _bag_show_live(generation: int, launched: GameRun, hull: CardPackView) -> bool:
+	return generation == _module_bag_gen and run == launched and _module_bag == hull \
+		and is_instance_valid(hull)
+
+## Der Kauf: der Beutel fliegt aus seinem Laden-Platz in die Grube, reißt auf, die
+## Module fallen in ihre Reihe. Ein Klick springt ans Ende (_end_module_bag_show).
+func _start_module_bag_show(hull: CardPackView) -> void:
+	if _module_bag != null and is_instance_valid(_module_bag):
+		_free_data_cell(hull)  # ein offener Beutel nimmt die neuen Module mit auf
+		return
+	_drop_bag_sinking()
+	_module_bag_gen += 1
+	var generation := _module_bag_gen
+	var launched := run
+	_module_bag = hull
+	_module_bag_open = false
+	hull.set_hovered(false)
+	hull.set_dimmed(false)
+	hull.set_torn(false)
+	hull.arc_to(_pit_bag_rest(), PIT_BAG_FLIGHT, PIT_BAG_PEAK)
+	await get_tree().create_timer(PIT_BAG_FLIGHT).timeout
+	if not _bag_show_live(generation, launched, hull):
+		return
+	var tear := hull.tear_open()
+	_sfx(&"bag_tear")
+	await get_tree().create_timer(tear * 0.5).timeout
+	if not _bag_show_live(generation, launched, hull):
+		return
+	var count := _drop_pit_parts_from_bag(hull)
+	await get_tree().create_timer(PIT_PART_FALL + PIT_PART_BOUNCE
+		+ PIT_PART_STAGGER * float(count)).timeout
+	if not _bag_show_live(generation, launched, hull):
+		return
+	_module_bag_open = true
+
+## Jedes wartende Paket-Modul fällt im Bogen aus dem Mund auf seinen Platz.
+func _drop_pit_parts_from_bag(hull: CardPackView) -> int:
+	_clear_pit_part_bodies()
+	var parts := _pit_parts()
+	var from := _bag_mouth(hull)
+	for i in parts.size():
+		var target := _pit_part_rest(i, parts.size())
+		var body := _spawn_pit_part(parts[i], from)
+		body.visible = false
+		_pit_part_bodies[parts[i]] = body
+		var drop := body.create_tween()
+		drop.tween_interval(maxf(PIT_PART_STAGGER * float(i), 0.001))
+		drop.tween_callback(func() -> void:
+			body.visible = true)
+		drop.tween_method(func(t: float) -> void:
+			body.global_position = from.lerp(target, t) \
+				+ Vector3.UP * PIT_PART_PEAK * 4.0 * t * (1.0 - t)
+			body.rotation = Vector3(0.0, TAU * (1.0 - t), 0.0),
+			0.0, 1.0, PIT_PART_FALL)
+		drop.tween_property(body, "global_position", target + Vector3.UP * PIT_PART_BOUNCE,
+			PIT_PART_BOUNCE * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		drop.tween_property(body, "global_position", target, PIT_PART_BOUNCE * 0.55) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		body.set_meta("fall", drop)
+	return parts.size()
+
+## Das Ende der Show - auch der Klick dorthin: Beutel offen auf seinem Platz, die Reihe
+## baut der Schreiber hart.
+func _end_module_bag_show() -> void:
+	if _module_bag == null or not is_instance_valid(_module_bag) or _module_bag_open:
+		return
+	_module_bag_gen += 1
+	var rest := _pit_bag_rest()
+	_module_bag.glide_to(rest, 0.0)
+	_module_bag.lie_on_glass(rest)
+	_module_bag.set_torn(true)
+	_clear_pit_part_bodies()
+	_module_bag_open = true
+
+## Je Bild: der EINE Schreiber von Beutel und Reihe. Fehlt der Beutel (harter Weg), steht
+## er offen wieder da; ist die Reihe leer, sinkt er.
+func _sync_module_bag(forced: bool) -> void:
+	if run == null or table_screen == null:
+		return
+	var parts := _pit_parts()
+	if parts.is_empty():
+		_drop_pit_part_gesture()
+		_pit_selected = null
+		_clear_pit_part_bodies()
+		_sync_pit_rim(parts)
+		if _module_bag != null:
+			_sink_module_bag()
+		return
+	if not forced or not _pit_install_mode():
+		return
+	if _module_bag == null or not is_instance_valid(_module_bag):
+		_module_bag_gen += 1
+		var rest := _pit_bag_rest()
+		_module_bag = _spawn_bag(ModulePack.make(_bag_spec.x, _bag_spec.y), rest)
+		_module_bag.lie_on_glass(rest)
+		_module_bag.set_torn(true)
+		_module_bag_open = true
+	if not _module_bag_open:
+		return
+	_write_pit_row(parts)
+
+func _write_pit_row(parts: Array[ComboPart]) -> void:
+	for part in _pit_part_bodies.keys():
+		if not parts.has(part):
+			_free_pit_body(_pit_part_bodies[part])
+			_pit_part_bodies.erase(part)
+	if _pit_press != null and not parts.has(_pit_press):
+		_drop_pit_part_gesture()
+	var share := 1.0 - exp(-PIT_PART_FOLLOW * get_process_delta_time())
+	for i in parts.size():
+		var part := parts[i]
+		var rest := _pit_part_rest(i, parts.size())
+		var body: ComboPartBody = _pit_part_bodies.get(part)
+		if body == null or not is_instance_valid(body):
+			body = _spawn_pit_part(part, rest)
+			_pit_part_bodies[part] = body
+		var fall: Variant = body.get_meta("fall") if body.has_meta("fall") else null
+		if fall is Tween and (fall as Tween).is_valid():
+			continue
+		var goal := rest
+		if part == _pit_press and _pit_dragging:
+			goal = _pit_drag_goal(body)
+		elif part == _pit_selected:
+			goal += Vector3.UP * PIT_PART_LIFT
+		body.rotation = Vector3.ZERO
+		body.global_position = body.global_position.lerp(goal, share)
+	_sync_pit_rim(parts)
+	if _module_bag != null and is_instance_valid(_module_bag):
+		_module_bag.set_hovered(_pit_dragging and _pointer_over_bag(_pit_pointer))
+
+## Wohin das gezogene Modul will: über einen Steckplatz, der es nimmt, in den Beutel-Mund,
+## sonst unter den Zeiger.
+func _pit_drag_goal(body: ComboPartBody) -> Vector3:
+	if not camera_rig.is_animating and not combo_chips.is_empty():
+		var pick := _part_pick_at(_pit_pointer)
+		if not pick.is_empty() and combo_chips.has(String(pick["key"])):
+			var key := String(pick["key"])
+			var slot := run.install_target(key, int(pick["slot"]), not _dice_editing_locked())
+			if slot >= 0:
+				return combo_chips[key].socket_world(slot) \
+					+ Vector3.UP * ComboPartBody.SIDE * INSTALL_SNAP
+	if _pointer_over_bag(_pit_pointer):
+		return _bag_mouth(_module_bag)
+	var height := ComboPartBody.SIDE * INSTALL_HOVER
+	if not combo_chips.is_empty():
+		height = maxf(height, _install_hand_height())
+	var hit: Variant = _mouse_on_plane(_pit_pointer, height)
+	return hit if hit != null else body.global_position
+
+func _sync_pit_rim(parts: Array[ComboPart]) -> void:
+	var on := _pit_selected != null and parts.has(_pit_selected) \
+		and not (_pit_dragging and _pit_press == _pit_selected)
+	if not on:
+		if _pit_rim != null and is_instance_valid(_pit_rim):
+			_pit_rim.visible = false
+		return
+	if _pit_rim == null or not is_instance_valid(_pit_rim):
+		_pit_rim = MeshInstance3D.new()
+		_pit_rim.name = "PitPartRim"
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(ComboPartBody.SIDE * PIT_RIM_ROOM, PIT_RIM_THICK,
+			ComboPartBody.SIDE * PIT_RIM_ROOM)
+		var material := StandardMaterial3D.new()
+		material.albedo_color = PIT_RIM_COLOR
+		material.emission_enabled = true
+		material.emission = PIT_RIM_COLOR
+		material.emission_energy_multiplier = 1.4
+		mesh.material = material
+		_pit_rim.mesh = mesh
+		add_child(_pit_rim)
+	var rest := _pit_part_rest(parts.find(_pit_selected), parts.size())
+	_pit_rim.global_position = Vector3(rest.x, PIT_RIM_Y, rest.z)
+	_pit_rim.visible = true
+
+## Das Paket-Modul unter dem Zeiger (null = keines) - gemessen an seiner Projektion.
+func _pit_part_at(screen_pos: Vector2) -> ComboPart:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return null
+	var best: ComboPart = null
+	var best_d := INF
+	for part: ComboPart in _pit_part_bodies:
+		var body: ComboPartBody = _pit_part_bodies[part]
+		if body == null or not is_instance_valid(body) or not body.visible:
+			continue
+		var center := body.global_position + Vector3.UP * body.height() * 0.5
+		if camera.is_position_behind(center):
+			continue
+		var c := camera.unproject_position(center)
+		var reach := c.distance_to(camera.unproject_position(
+			center + Vector3(0.0, 0.0, ComboPartBody.SIDE * 0.5 * PIT_PART_PICK)))
+		var d := c.distance_to(screen_pos)
+		if d <= maxf(reach, PIT_PART_PICK_MIN_PX) and d < best_d:
+			best = part
+			best_d = d
+	return best
+
+## Liegt der Zeiger auf dem offenen Beutel? Dort verwirft das Loslassen.
+func _pointer_over_bag(screen_pos: Vector2) -> bool:
+	if _module_bag == null or not is_instance_valid(_module_bag) or table_screen == null:
+		return false
+	var hit: Variant = _mouse_on_plane(screen_pos, 0.0)
+	if hit == null:
+		return false
+	var foot := _bag_footprint_px() * PIT_BAG_HIT_ROOM
+	var center := table_screen.world_to_pixel(_pit_bag_rest())
+	return Rect2(center - foot * 0.5, foot).has_point(table_screen.world_to_pixel(hit))
+
+## Solange Paket-Module warten, gehört jede Geste ihnen: gezogen steckt bzw. verwirft,
+## getippt wählt (Gold-Saum), ein Tipp auf einen Platz steckt das gewählte.
+func _handle_pit_part_input(event: InputEvent) -> void:
+	var motion := event as InputEventMouseMotion
+	if motion != null:
+		_pit_pointer = motion.position
+		if _pit_press != null and not _pit_dragging \
+				and motion.position.distance_to(_pit_press_pos) > REORDER_DRAG_THRESHOLD:
+			_pit_dragging = true
+		return
+	var button := event as InputEventMouseButton
+	if button == null:
+		return
+	_pit_pointer = button.position
+	if button.pressed and button.button_index == MOUSE_BUTTON_RIGHT:
+		if _pit_press != null:
+			_drop_pit_part_gesture()
+		else:
+			_pit_selected = null
+		return
+	if button.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if button.pressed:
+		if not _module_bag_open:
+			_end_module_bag_show()
+			return
+		if camera_rig.is_animating or _install_seating:
+			return
+		var part := _pit_part_at(button.position)
+		if part != null:
+			_pit_press = part
+			_pit_press_pos = button.position
+			_pit_dragging = false
+			return
+		var pick := _part_pick_at(button.position)
+		if not pick.is_empty():
+			_install_part_at(String(pick["key"]), int(pick["slot"]))
+		return
+	if _pit_press == null:
+		return
+	var pressed := _pit_press
+	var dragged := _pit_dragging
+	_drop_pit_part_gesture()
+	if run == null or not run.pending_parts.has(pressed):
+		return
+	if not dragged:
+		_pit_selected = null if _pit_selected == pressed else pressed
+		return
+	if _pointer_over_bag(button.position):
+		_discard_pit_part(pressed)
+		return
+	var pick := _part_pick_at(button.position)
+	if not pick.is_empty():
+		_install_part_at(String(pick["key"]), int(pick["slot"]), pressed, false)
+
+func _drop_pit_part_gesture() -> void:
+	_pit_press = null
+	_pit_dragging = false
+	if _module_bag != null and is_instance_valid(_module_bag):
+		_module_bag.set_hovered(false)
+
+## VERWERFEN: gebucht zuerst, dann schrumpft das Modul in den Beutel.
+func _discard_pit_part(part: ComboPart) -> void:
+	var index := run.pending_parts.find(part)
+	if index < 0 or not run.discard_pending_part(index):
+		return
+	if _pit_selected == part:
+		_pit_selected = null
+	var body: ComboPartBody = _pit_part_bodies.get(part)
+	_pit_part_bodies.erase(part)
+	_sfx(&"part_move", 0.0, 0.7)
+	if body == null or not is_instance_valid(body):
+		return
+	var mouth := body.global_position
+	if _module_bag != null and is_instance_valid(_module_bag):
+		mouth = _bag_mouth(_module_bag)
+		_module_bag.flare()
+	var gulp := body.create_tween().set_parallel(true)
+	gulp.tween_property(body, "global_position", mouth, PIT_DISCARD_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	gulp.tween_property(body, "scale", Vector3.ONE * 0.05, PIT_DISCARD_TIME) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	gulp.chain().tween_callback(body.queue_free)
+
+func _free_pit_body(body: ComboPartBody) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	if body.get_parent() != null:
+		body.get_parent().remove_child(body)
+	body.queue_free()
+
+func _clear_pit_part_bodies() -> void:
+	for part in _pit_part_bodies:
+		_free_pit_body(_pit_part_bodies[part])
+	_pit_part_bodies.clear()
+
+## Der EINZUG: eine Sektion öffnet unter dem leeren Beutel und senkt ihn ein.
+func _sink_module_bag() -> void:
+	var bag := _module_bag
+	_module_bag = null
+	_module_bag_open = false
+	_module_bag_gen += 1
+	_drop_bag_sinking()
+	if bag == null or not is_instance_valid(bag):
+		return
+	bag.set_hovered(false)
+	_bag_sinking = bag
+	var seat := _pit_bag_rest()
+	bag.glide_to(seat, 0.0)
+	var shaft := _bag_shaft_on(bag, seat)
+	var gone := func() -> void:
+		if _bag_sinking == bag:
+			_bag_sinking = null
+			_free_data_cell(bag)
+	if shaft == null or shaft.run_take([bag], [seat], 0.0, gone) == null:
+		gone.call()
+
+## Die Sektion unter dem Beutel: sein Grundriß plus Saum, auf dem Grubenboden (Tischhöhe).
+func _bag_shaft_on(bag: CardPackView, seat: Vector3) -> LiftShaftView:
+	if table_screen == null:
+		return null
+	var corners := bag.case_outline_local()
+	if corners.is_empty():
+		return null
+	var frame := _case_frame(bag, seat)
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner in corners:
+		var at := frame * corner
+		lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
+		hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
+	if _bag_shaft == null or not is_instance_valid(_bag_shaft):
+		_bag_shaft = LiftShaftView.new("BagShaft")
+		_bag_shaft.glow_rim = false
+		add_child(_bag_shaft)
+		_bag_shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(TableScreen.PIT_BAG, spot, hole))
+		_bag_shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(TableScreen.PIT_BAG))
+	_bag_shaft.deck_skin = table_screen.display_skin()
+	_bag_shaft.order_skin(PIT_SKIN)
+	var height := bag.thickness() * bag.body_scale()
+	_bag_shaft.setup(Vector3((lo.x + hi.x) * 0.5, 0.0, (lo.y + hi.y) * 0.5),
+		Vector2((hi.x - lo.x) * 0.5, (hi.y - lo.y) * 0.5) + Vector2.ONE * PACK_CASE_SEAM,
+		maxf(VitrineView.shaft_depth(), height * VitrineView.SHAFT_ROOM))
+	return _bag_shaft
+
+## Der harte Weg des Einzugs: Sektion bündig, Beutel fort.
+func _drop_bag_sinking() -> void:
+	if _bag_shaft != null and is_instance_valid(_bag_shaft) and _bag_shaft.riding():
+		_bag_shaft.settle_hard()
+	if _bag_sinking != null and is_instance_valid(_bag_sinking):
+		_free_data_cell(_bag_sinking)
+	_bag_sinking = null
+
+## Der EINE harte Weg: Beutel, Reihe, Geste und Saum fort - die Module bleiben in
+## pending_parts, und der Schreiber stellt alles beim nächsten Hinsehen offen wieder hin.
+func _settle_module_bag_hard() -> void:
+	_module_bag_gen += 1
+	_drop_pit_part_gesture()
+	_pit_selected = null
+	_clear_pit_part_bodies()
+	if _module_bag != null and is_instance_valid(_module_bag):
+		_free_data_cell(_module_bag)
+	_module_bag = null
+	_module_bag_open = false
+	_drop_bag_sinking()
+	if _pit_rim != null and is_instance_valid(_pit_rim):
+		_pit_rim.queue_free()
+	_pit_rim = null
+	_part_install_frame_pit = false
 
 #endregion

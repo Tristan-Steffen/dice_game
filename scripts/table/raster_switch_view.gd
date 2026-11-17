@@ -1,8 +1,8 @@
 class_name RasterSwitchView
 extends Node3D
 ## Der RASTER-UMSCHALTER: eine flache Taste auf dem Filz RECHTS neben dem
-## Vorrats-Loch, UNTER der Die-View-Säule des Ausgabefachs (Spieler-Wunsch
-## 2026-09-11; bis dahin lag sie über der Grube). Sie legt zwischen den beiden
+## Vorrats-Loch, UNTER der Schale des Ausgabefachs (seit dem 2026-11-17; davor unter
+## der Die-View-Säule, die mit der Paket-Öffnung gestorben ist). Sie legt zwischen den beiden
 ## Ansichten des Vorrats um - KÖRPER (die schwebenden Würfel, wie eh und je) und
 ## RASTER (die Glas-Ansicht, das Netz-Raster auf dem geschlossenen Gruben-Glas).
 ## Ihre Aufschrift nennt, was der Druck LIEFERT, nicht was gerade steht - darum
@@ -13,8 +13,7 @@ extends Node3D
 ## daneben (dieselbe Regel wie Ausgabefach und Datenzellen).
 
 ## Halbmaße der Taste (Welt): x = Bildschirm-Höhe, y = Welt-z = Bildschirm-Breite.
-## Sie paßt UNTER die Die-View-Säule (gemessen 4,37 Welt breit) und läßt an beiden
-## Seiten Luft; die Aufschrift wächst mit (siehe _write_face), bleibt also lesbar.
+## Die Aufschrift wächst mit (siehe _write_face), bleibt also lesbar.
 const HALF := Vector2(0.92, 2.04)
 ## Fuge zum Anker über ihr.
 const GAP := 0.45
@@ -59,8 +58,8 @@ func _init(switch_name := "RasterSwitch") -> void:
 	name = switch_name
 
 ## Ihr Platz (reine Funktion): eine Fuge UNTER dem Anker, mittig auf ihm. Der Anker
-## ist die Unterkante der Die-View-Säule rechts des Vorrats - scene_root reicht ihn
-## als Weltpunkt herein, denn die Säule meldet sich in Display-Pixeln.
+## ist die Unterkante der Schale rechts des Vorrats - scene_root reicht ihn als
+## Weltpunkt herein.
 static func spot_under(anchor: Vector3, half_extents := HALF) -> Vector3:
 	return Vector3(anchor.x - GAP - half_extents.x, 0.0, anchor.z)
 

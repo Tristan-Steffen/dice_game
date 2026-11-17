@@ -299,6 +299,49 @@ func test_a_pack_module_replaces_and_the_displaced_is_lost():
 	assert_true(run.pending_parts.is_empty(), "das verdrängte ist verloren, nicht zurück in der Schlange")
 	assert_false(run.parts_of(PAIR)[1].from_pack, "eingebaut ist es ein gewöhnliches Modul")
 
+func test_install_by_index_takes_any_waiting_module():
+	run.combo_parts[PAIR] = [null, null, null]
+	run.stash_part(ComboPart.resistor(), true)
+	run.stash_part(ComboPart.capacitor(), true)
+	run.stash_part(ComboPart.relay(), true)
+	var heard := [0]
+	run.pending_parts_changed.connect(func() -> void: heard[0] += 1)
+	assert_true(run.install_pending_part_at(1, PAIR, 2))
+	assert_eq(run.parts_of(PAIR)[2].id, ComboPart.CAPACITOR, "das gewählte, nicht das erste")
+	assert_eq(run.pending_parts.size(), 2)
+	assert_eq(run.pending_parts[0].id, ComboPart.RESISTOR)
+	assert_eq(run.pending_parts[1].id, ComboPart.RELAY)
+	assert_eq(heard[0], 1)
+	assert_false(run.install_pending_part_at(5, PAIR, 0), "kein solches Modul")
+	assert_false(run.install_pending_part_at(-1, PAIR, 0))
+	assert_eq(run.pending_parts.size(), 2, "nichts gebucht")
+
+func test_install_hints_take_the_pending_index():
+	run.combo_parts[PAIR] = [ComboPart.resistor(), null, null]
+	run.stash_part(ComboPart.capacitor())
+	run.stash_part(ComboPart.relay(), true)
+	assert_false(run.install_loses_displaced(), "Index 0: ein Wett-Modul tauscht")
+	assert_true(run.install_loses_displaced(1), "Index 1: das Paket-Modul verdrängt")
+	assert_false(run.install_loses_displaced(2))
+	assert_eq(run.install_displaces(PAIR, 0, 1).id, ComboPart.RESISTOR)
+	assert_null(run.install_displaces(PAIR, 0, 2), "kein solches Modul")
+	assert_true(run.install_pending_part_at(1, PAIR, 0))
+	assert_eq(run.pending_parts.size(), 1, "das verdrängte ist verloren")
+	assert_eq(run.pending_parts[0].id, ComboPart.CAPACITOR)
+
+func test_discard_only_drops_pack_modules():
+	run.stash_part(ComboPart.capacitor())
+	run.stash_part(ComboPart.relay(), true)
+	var heard := [0]
+	run.pending_parts_changed.connect(func() -> void: heard[0] += 1)
+	assert_false(run.discard_pending_part(0), "ein Wett-Modul bleibt")
+	assert_false(run.discard_pending_part(2))
+	assert_eq(heard[0], 0)
+	assert_true(run.discard_pending_part(1))
+	assert_eq(run.pending_parts.size(), 1)
+	assert_eq(run.pending_parts[0].id, ComboPart.CAPACITOR)
+	assert_eq(heard[0], 1)
+
 # --- Schwarzmarkt ---------------------------------------------------------------
 
 func test_the_secret_part_offer_is_secret_only_and_priced_in_energy():

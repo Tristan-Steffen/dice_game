@@ -4,8 +4,8 @@ extends GutTest
 ## Geometrie), ihre Aufschrift (sie nennt, was der Druck LIEFERT) und der blinde
 ## Zustand - sie verschwindet nie, sie antwortet nur nicht.
 
-## Der ANKER der Taste: die Unterkante der Die-View-Säule rechts des Vorrats, als
-## Weltpunkt (scene_root rechnet ihn aus dem gemeldeten Display-Rechteck).
+## Der ANKER der Taste: die Unterkante der Schale rechts des Vorrats, als Weltpunkt
+## (scene_root rechnet ihn aus dem gemeldeten Display-Rechteck).
 const ANCHOR := Vector3(-11.0, 0.0, 26.5)
 
 func _switch() -> RasterSwitchView:
@@ -26,17 +26,14 @@ func test_die_taste_haengt_eine_fuge_UNTER_ihrem_anker() -> void:
 func test_sie_steht_mittig_unter_ihrem_anker() -> void:
 	var view := _switch()
 	assert_almost_eq((view.bounds_min().y + view.bounds_max().y) * 0.5, ANCHOR.z,
-		0.0001, "ihre Mitte ist die Mitte der Säule")
+		0.0001, "ihre Mitte ist die Mitte der Schale")
 	assert_gt(view.bounds_max().y - view.bounds_min().y, 0.0, "und sie hat eine Breite")
 
-## Sie paßt UNTER die Säule (gemessen 4,37 Welt breit) - sonst stünde sie breiter
-## da als das, woran sie hängt.
-func test_sie_bleibt_schmaler_als_die_saeule_ueber_ihr() -> void:
-	assert_lt(RasterSwitchView.HALF.y * 2.0, 4.37, "schmaler als die Säule")
-	assert_gt(RasterSwitchView.HALF.y * 2.0, 3.0, "aber breit genug für die Aufschrift")
+func test_sie_ist_breit_genug_fuer_ihre_aufschrift() -> void:
+	assert_gt(RasterSwitchView.HALF.y * 2.0, 3.0, "breit genug für die Aufschrift")
 
 func test_der_platz_folgt_dem_anker() -> void:
-	# Reine Funktion: verschiebt sich die Säule, verschiebt sich die Taste mit.
+	# Reine Funktion: verschiebt sich die Schale, verschiebt sich die Taste mit.
 	var moved := RasterSwitchView.spot_under(ANCHOR + Vector3(3.0, 0.0, -2.0))
 	var home := RasterSwitchView.spot_under(ANCHOR)
 	assert_almost_eq(moved.x - home.x, 3.0, 0.0001)

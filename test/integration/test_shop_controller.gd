@@ -110,27 +110,28 @@ func _mixed() -> Array:
 		ModulePack.make(CardPack.SIZE_SMALL, ModulePack.GRADE_COMMON),
 		CardPack.make(CardPack.SORT_RUNE, CardPack.SIZE_SMALL)]
 
-## Öffnet das zuletzt gekaufte Paket einer Art aus dem Lager.
+## Die Auswahl des zuletzt gekauften Pakets (gekauft ist geöffnet).
 func _open_last(dice: bool) -> PackChoice:
-	var list: Array = run.stored_packs(GameRun.LANE_DICE if dice else GameRun.LANE_CARDS)
-	return run.open_stored_pack(int(list[list.size() - 1].get("store_uid")))
+	var choice: PackChoice = run.pending_pack_choices.back()
+	assert_eq(choice.is_dice(), dice)
+	return choice
 
-func test_buying_a_card_pack_stores_it():
+func test_buying_a_card_pack_opens_it():
 	_force_packs(_mixed())
 	var pack: CardPack = shop.packs[0]
 	var seats: Array = []
 	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
 	shop.buy_pack(0)
 	assert_eq(run.money, 100 - pack.price)
-	assert_eq(run.stored_card_packs.size(), 1, "das Paket liegt im Lager")
-	assert_null(run.current_pack_choice(), "geöffnet wird erst per Klick")
+	assert_true(run.stored_card_packs.is_empty(), "nie ins Lager")
 	assert_eq(seats, [0], "der Kauf meldet SEINEN Platz")
-	var choice := _open_last(false)
+	var choice := run.current_pack_choice()
+	assert_not_null(choice, "gekauft ist geöffnet")
 	assert_eq(choice.option_count(), CardPack.option_count(pack.size))
 	run.confirm_pack_choice(choice, [0])
 	assert_eq(run.owned_packs.size(), 1, "bestätigt liegt die Karte da")
 
-## Jede Art geht über DENSELBEN Kaufweg in ihre Lager-Reihe.
+## Jede Art geht über DENSELBEN Kaufweg: Karten und Würfel öffnen, Module warten im Einbau.
 func test_every_kind_buys_through_the_one_path():
 	run.money = 500
 	_force_packs(_mixed())
@@ -138,9 +139,10 @@ func test_every_kind_buys_through_the_one_path():
 	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
 	for seat in 6:
 		shop.buy_pack(seat)
-	assert_eq(run.stored_card_packs.size(), 3, "drei Karten-Pakete")
-	assert_eq(run.stored_dice_packs.size(), 2, "zwei Würfel-Pakete")
-	assert_eq(run.stored_module_packs.size(), 1, "ein Modul-Paket")
+	assert_eq(run.pending_pack_choices.size(), 5, "drei Karten- und zwei Würfel-Pakete")
+	assert_false(run.pending_parts.is_empty(), "das Modul-Paket legt seine Module hin")
+	assert_eq(run.stored_card_packs.size() + run.stored_dice_packs.size()
+		+ run.stored_module_packs.size(), 0, "das Lager bekommt nichts")
 	assert_eq(seats, [0, 1, 2, 3, 4, 5], "EIN Signal für jede Art")
 
 func test_pack_offer_is_single_use():
@@ -160,8 +162,7 @@ func test_a_purchase_leaves_the_shop_untouched():
 	var page: int = shop.current_spread_index
 	shop.buy_pack(0)
 	shop.buy_pack(2)
-	assert_eq(run.stored_card_packs.size(), 1)
-	assert_eq(run.stored_dice_packs.size(), 1, "zwei Käufe hintereinander gehen")
+	assert_eq(run.pending_pack_choices.size(), 2, "zwei Käufe hintereinander gehen")
 	assert_false(shop.leaving(), "der Laden tritt nicht ab")
 	assert_true(shop.visible)
 	assert_eq(heard.size(), 0)
@@ -169,26 +170,19 @@ func test_a_purchase_leaves_the_shop_untouched():
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
 		"ein Kauf blättert nicht - die Seite bleibt liegen")
 
-## Ein voller Lager-Platz sperrt NUR die betroffene Art - und das Schild sagt es.
-func test_a_full_store_blocks_only_its_kind():
+## Ein volles Lager sperrt nichts mehr - gekauft wird geöffnet.
+func test_a_full_store_blocks_nothing():
 	run.money = 5000
-	for i in GameRun.STORE_CAPACITY:
-		run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
+	run.debug_fill_store()
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	_force_packs(_mixed())
 	await wait_frames(2)
-	var money_before: int = run.money
-	shop.buy_pack(0)
-	assert_eq(run.money, money_before, "kein Kauf am vollen Lager")
-	assert_false(shop.pack_bought[0])
-	assert_eq(shop._place_prices[0].text, ShopController.STORE_FULL_MARK, "das Schild sagt es")
-	assert_eq(shop._place_prices[5].text, ShopController.STORE_FULL_MARK, "an jedem Karten-Platz")
-	assert_ne(shop._place_prices[2].text, ShopController.STORE_FULL_MARK, "der Würfel-Platz nicht")
-	shop.buy_pack(2)
-	assert_true(shop.pack_bought[2], "die Würfel-Reihe hat noch Platz")
-	shop.buy_pack(4)
-	assert_true(shop.pack_bought[4], "die Modul-Reihe auch")
+	assert_eq(shop._place_prices[0].text, ShopController.price_text(shop.pack_prices[0]),
+		"das Schild nennt den Preis")
+	for seat in [0, 2, 4]:
+		shop.buy_pack(seat)
+		assert_true(shop.pack_bought[seat], "Platz %d verkauft" % seat)
 
 func test_cannot_buy_pack_without_funds():
 	_force_packs(_mixed())
@@ -198,8 +192,8 @@ func test_cannot_buy_pack_without_funds():
 	for seat in 6:
 		shop.buy_pack(seat)
 	assert_eq(run.money, 0, "kein Abzug bei zu wenig Geld")
-	assert_eq(run.stored_card_packs.size() + run.stored_dice_packs.size()
-		+ run.stored_module_packs.size(), 0, "nichts im Lager")
+	assert_null(run.current_pack_choice(), "nichts geöffnet")
+	assert_true(run.pending_parts.is_empty(), "keine Module")
 	assert_eq(denied.size(), 6, "jeder Versuch klingt abgelehnt")
 
 func test_con_artist_cuff_discounts_the_dice_pack_price():
@@ -234,8 +228,9 @@ func test_the_module_pack_sells_even_without_a_free_socket() -> void:
 			run.install_pending_part(key, slot)
 	assert_eq(run.free_socket_count(), 0)
 	shop.buy_pack(4)
-	assert_eq(run.stored_module_packs.size(), 1, "volle Steckplätze sperren das Paket nicht")
-	assert_true(run.pending_parts.is_empty(), "geöffnet wird erst im Lager")
+	assert_true(shop.pack_bought[4], "volle Steckplätze sperren das Paket nicht")
+	assert_false(run.pending_parts.is_empty(), "die Module warten im EINBAU")
+	assert_null(run.current_pack_choice(), "ohne Auswahl")
 
 # --- Charmkauf ----------------------------------------------------------------
 
@@ -1151,10 +1146,8 @@ func test_an_open_pager_carries_its_fee() -> void:
 # wird aus dem Ausgabefach auf den Sitz gezogen, den er ersetzt.
 
 func _stash_one() -> DieDefinition:
-	run.money = 500
-	_force_packs(_mixed())
-	shop.buy_pack(2)
-	run.confirm_pack_choice(_open_last(true), [0])
+	# Paket-Würfel gehen nicht mehr durchs Ausgabefach - der Tausch lebt für die übrigen Quellen.
+	run.stash_die(run.owned_pool[0], 0)
 	return run.pending_dice[0]
 
 func test_the_exchange_writes_into_the_chosen_pool_instance() -> void:

@@ -9,6 +9,10 @@ extends Panel
 ## Größe·Sorte, in ihrer eigenen Tönung) und die WIRKUNG, die sich in höchstens
 ## zwei Zeilen einpaßt.
 ##
+## RECHTS steht seit dem 2026-11-17 das NETZ eines Würfels (der Vorrats-Würfel unter dem
+## Zeiger, der angeheftete oder der wartende Neuzugang), der Text rückt dafür nach links.
+## Seine Zellen erklären sich: scene_root fragt je Bild net_hint_at am Zeiger.
+##
 ## Er MELDET nur seine Höhe (height_for) und faßt nichts an - scene_root schneidet
 ## sein Rechteck und schreibt ihn je Bild (das apron_bottom-Muster).
 
@@ -39,6 +43,9 @@ const SOULLESS := "Ohne Seele"
 const PLAIN_DIE := "Ein schlichter Würfel."
 ## Die Unterzeile einer Netz-Zelle.
 const CELL_SUB := "Zelle"
+## Das Netz rechts: höchstens dieser Anteil der Breite, die Fuge zum Text in u.
+const NET_WIDTH_SHARE := 0.4
+const NET_GAP := 2.0
 ## Das Trennzeichen zweier Wirkungs-Teile - dieselbe Fuge wie in DieNetView.
 const JOIN := "  ·  "
 
@@ -61,6 +68,10 @@ var _shown := {"title": "", "sub": "", "sub_tint": Color.WHITE, "body": ""}
 ## Die Restbreite der Wirkung und die Einheit, in der ihre Leiter mißt.
 var _body_span := Vector2.ZERO
 var _body_unit := 0.0
+## Das Netz rechts (null = keins) und sein Schlüssel - nur der Wechsel baut neu.
+var _net_def: DieDefinition = null
+var _net_key := ""
+var _net: Control = null
 ## Seelen-Auskunft je Essenz-id: Essence.by_id baut den ganzen Katalog, und die
 ## Frage kommt je Bild.
 static var _soul_cache: Dictionary = {}
@@ -98,6 +109,70 @@ func set_info(title: String, sub: String, sub_tint: Color, body: String) -> void
 	_shown = {"title": title, "sub": sub, "sub_tint": sub_tint, "body": body}
 	_paint()
 
+## Das Netz rechts im Schirm (null = keins). Gebaut wird nur, wenn sich Würfel oder Inhalt
+## ändern; kommt oder geht es, rückt der Text neu.
+func set_net(def: DieDefinition) -> void:
+	var key := ""
+	if def != null:
+		var one: Array[DieDefinition] = [def]
+		key = "%d|%s" % [def.get_instance_id(), str(DeckGlassView.pool_signature(one))]
+	if key == _net_key:
+		return
+	var reflow := (def == null) != (_net_def == null)
+	_net_def = def
+	_net_key = key
+	if reflow:
+		_rebuild()
+	else:
+		_build_net()
+
+func net_def() -> DieDefinition:
+	return _net_def
+
+func net_shown() -> bool:
+	return _net != null and is_instance_valid(_net)
+
+## Wo das Netz im Schirm steht (Fenster-Pixel; leer = keins): rechts, mittig in der Höhe.
+func net_rect() -> Rect2:
+	if _net_def == null or size.x <= 0.0 or size.y <= 0.0:
+		return Rect2()
+	var u := unit()
+	var cell := net_cell()
+	var span := DieNetView.net_size(cell)
+	return Rect2(Vector2(size.x - u * MARGIN_X - span.x, (size.y - span.y) * 0.5), span)
+
+func net_cell() -> float:
+	var u := unit()
+	return DieNetView.cell_for(Vector2(size.x * NET_WIDTH_SHARE, size.y - u * MARGIN_Y * 2.0))
+
+## Die Seite unter einem Display-Pixel (DieNetView.EDGE für den Seelen-Chip, -1 = keine).
+func net_face_at(pixel: Vector2) -> int:
+	var rect := net_rect()
+	var local := pixel - get_global_rect().position
+	if rect.size.x <= 0.0 or not rect.has_point(local):
+		return -1
+	var face := DieNetView.face_at(local - rect.position, net_cell())
+	return face if face >= 0 or face == DieNetView.EDGE else -1
+
+## Was die Zelle unter dem Pixel sagt - dieselbe EINE Quelle wie jedes Netz ("" = nichts).
+func net_hint_at(pixel: Vector2) -> String:
+	var face := net_face_at(pixel)
+	return DieNetView.hint_for(_net_def, face) if face != -1 else ""
+
+func _build_net() -> void:
+	if _net != null and is_instance_valid(_net):
+		remove_child(_net)
+		_net.queue_free()
+	_net = null
+	var rect := net_rect()
+	if _net_def == null or rect.size.x <= 0.0 or not is_inside_tree():
+		return
+	_net = DieNetView.build(_net_def, -1, net_cell())
+	_net.name = "Netz"
+	_net.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_net.position = rect.position
+	add_child(_net)
+
 func title_text() -> String:
 	return _title.text if _title != null and is_instance_valid(_title) else ""
 
@@ -124,9 +199,13 @@ func _rebuild() -> void:
 	_title = null
 	_sub = null
 	_body = null
+	_net = null
 	var u := unit()
 	var pad := Vector2(u * MARGIN_X, u * MARGIN_Y)
 	var inner := maxf(size.x - pad.x * 2.0, 1.0)
+	# Steht das Netz rechts, endet der Text eine Fuge davor.
+	if _net_def != null:
+		inner = maxf(net_rect().position.x - pad.x - u * NET_GAP, 1.0)
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
 	var gap := u * LINE_GAP
@@ -141,6 +220,7 @@ func _rebuild() -> void:
 	_body_unit = u
 	_body = _line("Wirkung", Vector2(pad.x, body_top), _body_span,
 		u * float(BODY_STEPS[0]), WorkshopView.MUTED_COLOR, true)
+	_build_net()
 	_paint()
 
 ## Eine Zeile des Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst klemmt

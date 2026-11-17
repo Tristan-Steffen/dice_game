@@ -665,33 +665,48 @@ const PACK_RESHUFFLE_ENERGY := 1
 ## Sammelalbum: so viel Geld je geöffnetem Paket und Kopie.
 const ALBUM_MONEY := 1
 
-## Kauft ein KARTEN-PAKET: zahlen, ins LAGER legen, dann würfelt das Kleingedruckte.
-## Optionen und Wahlen fallen erst beim Öffnen. null = Lager voll, nichts gebucht.
+## Kauft ein KARTEN-PAKET: zahlen, Kleingedrucktes würfeln, sofort ÖFFNEN (seit dem
+## 2026-11-17 geht es nicht mehr ins Lager). null = nichts gebucht.
 func purchase_card_pack(card_pack: CardPack, price: int,
-		rng: RandomNumberGenerator = null) -> CardPack:
-	return _purchase_stored(card_pack, price, rng) as CardPack
+		rng: RandomNumberGenerator = null) -> PackChoice:
+	return _purchase_open(card_pack, price, rng)
 
 ## Kauft ein WÜRFEL-PAKET - derselbe Weg.
 func purchase_dice_pack(dice_pack: DicePack, price: int,
-		rng: RandomNumberGenerator = null) -> DicePack:
-	return _purchase_stored(dice_pack, price, rng) as DicePack
+		rng: RandomNumberGenerator = null) -> PackChoice:
+	return _purchase_open(dice_pack, price, rng)
 
-func _purchase_stored(pack: Resource, price: int, rng: RandomNumberGenerator) -> Resource:
+func _purchase_open(pack: Resource, price: int, rng: RandomNumberGenerator) -> PackChoice:
 	last_card_pack_refund = 0
-	if pack == null or store_full(store_lane_of(pack)):
+	if pack == null:
 		return null
 	add_money(-price)
-	var stored := _store_pack(pack, false)
+	_roll_purchase_refund(price, rng)
+	return _open_pack(pack.duplicate(), false, rng)
+
+## Das Kleingedruckte: volle Erstattung mit Glück (gemerkt in last_card_pack_refund).
+func _roll_purchase_refund(price: int, rng: RandomNumberGenerator) -> void:
 	var chance := CharmEffects.pack_refund_chance(charm_ids())
 	if price > 0 and chance > 0.0 and (rng.randf() if rng != null else randf()) < chance:
 		refund_money(price)
 		last_card_pack_refund = price
-	return stored
 
-## Kauft ein MODUL-PAKET - derselbe Weg; freie Steckplätze fragt es nicht.
+## Kauft ein MODUL-PAKET: zahlen, Inhalt würfeln, ALLE Module nach pending_parts
+## (keine Wahl). Leer = nichts gekauft.
 func purchase_module_pack(module_pack: ModulePack, price: int,
-		rng: RandomNumberGenerator = null) -> ModulePack:
-	return _purchase_stored(module_pack, price, rng) as ModulePack
+		rng: RandomNumberGenerator = null) -> Array[ComboPart]:
+	var out: Array[ComboPart] = []
+	last_card_pack_refund = 0
+	if module_pack == null:
+		return out
+	add_money(-price)
+	_roll_purchase_refund(price, rng)
+	var count := ModulePack.content_count(module_pack.size, pack_luck(module_pack),
+		pack_luck_factor(), rng) + pack_pick_bonus()
+	for part in ModulePack.roll_contents(module_pack, mini(count, ModulePack.MAX_CONTENTS), rng):
+		stash_part(part, true)
+		out.append(pending_parts[pending_parts.size() - 1])
+	return out
 
 # --- Das PAKET-LAGER ---------------------------------------------------------------
 # Gekaufte Pakete warten ungeöffnet, je Art eine Reihe (Reihenfolge = Kaufreihenfolge).
@@ -772,13 +787,10 @@ func stored_pack_at(lane: int, index: int) -> Resource:
 	var packs := stored_packs(lane)
 	return packs[index] if index >= 0 and index < packs.size() else null
 
-## Ein Gewinn-Paket: ins Lager, solange Platz ist - sonst verfällt es nicht, es
-## öffnet sofort (wie vor dem Lager). Liefert das gelagerte Paket bzw. die Auswahl.
-func _award_pack(pack: Resource, rng: RandomNumberGenerator) -> Variant:
+## Ein Gewinn-Paket öffnet sofort (seit dem 2026-11-17 bekommt das Lager nichts mehr).
+func _award_pack(pack: Resource, rng: RandomNumberGenerator) -> PackChoice:
 	if pack == null:
 		return null
-	if not store_full(store_lane_of(pack)):
-		return _store_pack(pack, true)
 	return _open_pack(pack, true, rng)
 
 ## Darf jetzt ein Lager-Paket geöffnet werden? Eines nach dem anderen.
@@ -800,7 +812,7 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 	var choice := PackChoice.new()
 	choice.pack = pack
 	choice.from_bet = from_bet
-	choice.kind = PackChoice.KIND_DICE if pack is DicePack 		else (PackChoice.KIND_MODULES if pack is ModulePack else PackChoice.KIND_CARDS)
+	choice.kind = PackChoice.KIND_DICE if pack is DicePack else PackChoice.KIND_CARDS
 	if pack is DicePack:
 		choice.free_hand = packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND)
 		_roll_dice_choice(choice, rng)
@@ -830,13 +842,10 @@ func _queue_opened(choice: PackChoice) -> PackChoice:
 		add_money(ALBUM_MONEY * album)
 	return choice
 
-## Die Optionen eines KARTEN-Pakets nach seiner Sorte, eines MODUL-Pakets nach seiner Stufe.
+## Die Optionen eines KARTEN-Pakets nach seiner Sorte.
 func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) -> Array:
 	var out: Array = []
-	if pack is ModulePack:
-		for part in ModulePack.roll_contents(pack as ModulePack, count, rng):
-			out.append(part)
-	elif pack is CardPack:
+	if pack is CardPack:
 		for card in CardPack.roll_contents(pack as CardPack, shop_multiplier_chance(),
 				shop_card_pack_bulk(), rng, count):
 			out.append(card)
@@ -861,7 +870,8 @@ func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 	var ceiling := DicePack.max_picks(choice.options.size())
 	choice.base_picks = clampi(DicePack.base_picks(dice_pack.size) + pack_pick_bonus(), 1,
 		ceiling)
-	choice.picks = ceiling if choice.free_hand 		else DicePack.roll_picks(choice.base_picks, luck, choice.options.size(), factor, rng)
+	choice.picks = ceiling if choice.free_hand \
+		else DicePack.roll_picks(choice.base_picks, luck, choice.options.size(), factor, rng)
 	choice.take_all = false
 	choice.jackpot = false
 
@@ -903,7 +913,8 @@ func current_pack_choice() -> PackChoice:
 
 ## Was Neu mischen gerade kostet (0 = gratis, -1 = nicht mehr erlaubt).
 func pack_reshuffle_cost(choice: PackChoice) -> int:
-	if choice == null or choice.rerolled or choice.take_all:
+	# Würfel-Pakete mischen nie neu (Spieler-Entscheid 2026-11-17).
+	if choice == null or choice.rerolled or choice.take_all or choice.is_dice():
 		return -1
 	if charm_ids().has(Charm.RESHUFFLE) and not free_reshuffle_used_this_round:
 		return 0
@@ -932,32 +943,53 @@ func reshuffle_pack_choice(choice: PackChoice, rng: RandomNumberGenerator = null
 	choice.rerolled = true
 	return true
 
-## BESTÄTIGEN: jede gewählte Option wird gebucht - Karten ins Magazin, Würfel in
-## pending_dice (der ZWANG setzt sie ein), Module in pending_parts (der EINBAU).
-## Ungewähltes verfällt. Liefert {"cards": Array[Pack], "dice": Array[DieDefinition],
-## "parts": Array[ComboPart]} (leer bei ungültiger Wahl).
+## BESTÄTIGEN eines KARTEN-Pakets: jede gewählte Karte geht ins Magazin, Ungewähltes
+## verfällt (Würfel-Pakete bucht confirm_dice_choice). Liefert {"cards": Array[Pack]}
+## (leer bei ungültiger Wahl).
 func confirm_pack_choice(choice: PackChoice, indices: Array) -> Dictionary:
-	var result := {"cards": [] as Array[Pack], "dice": [] as Array[DieDefinition],
-		"parts": [] as Array[ComboPart]}
-	if choice == null or not pending_pack_choices.has(choice) \
+	var result := {"cards": [] as Array[Pack]}
+	if choice == null or choice.is_dice() or not pending_pack_choices.has(choice) \
 			or not choice.valid_selection(indices):
 		return result
 	pending_pack_choices.erase(choice)
 	var sorted := indices.duplicate()
 	sorted.sort()
 	for index in sorted:
-		var option: Variant = choice.options[int(index)]
-		if option is Pack:
-			var card := grant_pack(option as Pack)
-			if card != null:
-				(result["cards"] as Array[Pack]).append(card)
-		elif option is DieDefinition:
-			stash_die(option as DieDefinition, 0)
-			(result["dice"] as Array[DieDefinition]).append(pending_dice[pending_dice.size() - 1])
-		elif option is ComboPart:
-			stash_part(option as ComboPart, true)
-			(result["parts"] as Array[ComboPart]).append(pending_parts[pending_parts.size() - 1])
+		var card := grant_pack(choice.options[int(index)] as Pack)
+		if card != null:
+			(result["cards"] as Array[Pack]).append(card)
 	return result
+
+## WÄHLEN IST EINSETZEN: assignments = {Options-Index: Pool-Index}. Bucht ALLE Paare
+## atomar per become in die Pool-Instanzen (ein pool_changed) und liefert je Paar
+## {option (die Pool-Instanz), option_index, pool_index, replaced (Kopie des alten
+## Würfels)}. Ungültig =
+## nichts gebucht, leeres Array; ein leeres Dictionary schließt die Auswahl ("Nichts nehmen").
+func confirm_dice_choice(choice: PackChoice, assignments: Dictionary) -> Array:
+	var out: Array = []
+	if choice == null or not choice.is_dice() or not pending_pack_choices.has(choice) \
+			or not choice.valid_selection(assignments.keys()):
+		return out
+	var seats := {}
+	for key in assignments:
+		var seat := int(assignments[key])
+		if seat < 0 or seat >= owned_pool.size() or seats.has(seat) \
+				or not (choice.options[int(key)] is DieDefinition):
+			return out
+		seats[seat] = true
+	pending_pack_choices.erase(choice)
+	var keys := assignments.keys()
+	keys.sort()
+	for key in keys:
+		var seat := int(assignments[key])
+		var option := (choice.options[int(key)] as DieDefinition).instantiate()
+		var replaced := owned_pool[seat].instantiate()
+		owned_pool[seat].become(option)
+		out.append({"option": owned_pool[seat], "option_index": int(key), "pool_index": seat,
+			"replaced": replaced})
+	if not out.is_empty():
+		pool_changed.emit()
+	return out
 
 ## Der EINE Einlagerungsweg: stempelt die uid und legt das Paket an seinen Platz
 ## in der Magazin-Ordnung - die ist seit dem 2026-10-28 IMMER nach Typ sortiert
@@ -1486,35 +1518,52 @@ func stash_part(part: ComboPart, from_pack := false) -> void:
 
 ## Was der Einbau des nächsten Teils auf diesem Platz verdrängt (null = nichts) -
 ## und ob es dabei VERLOREN geht (Modul aus einem Paket).
-func install_displaces(combo_key: String, slot: int) -> ComboPart:
-	if pending_parts.is_empty() or not _valid_socket(combo_key, slot):
+func install_displaces(combo_key: String, slot: int, pending_index := 0) -> ComboPart:
+	if pending_index < 0 or pending_index >= pending_parts.size() \
+			or not _valid_socket(combo_key, slot):
 		return null
 	return parts_of(combo_key)[slot]
 
-func install_loses_displaced() -> bool:
-	return not pending_parts.is_empty() and pending_parts[0].from_pack
+func install_loses_displaced(pending_index := 0) -> bool:
+	return pending_index >= 0 and pending_index < pending_parts.size() \
+		and pending_parts[pending_index].from_pack
 
-## Baut das nächste wartende Teil in combo_key/slot ein. Ein belegter Platz
+## Baut das nächste wartende Teil ein (Wett- und Rampenlicht-Module gehen der Reihe nach).
+func install_pending_part(combo_key: String, slot: int) -> bool:
+	return install_pending_part_at(0, combo_key, slot)
+
+## Baut das wartende Teil pending_index in combo_key/slot ein. Ein belegter Platz
 ## tauscht: das alte Teil wird zum nächsten offenen Einbau - kommt das neue aus
 ## einem Modul-Paket, ist das alte VERLOREN (sonst kreiste es ewig).
-func install_pending_part(combo_key: String, slot: int) -> bool:
-	if pending_parts.is_empty() or not _valid_socket(combo_key, slot):
+func install_pending_part_at(pending_index: int, combo_key: String, slot: int) -> bool:
+	if pending_index < 0 or pending_index >= pending_parts.size() \
+			or not _valid_socket(combo_key, slot):
 		return false
+	var part := pending_parts[pending_index]
 	var sockets := parts_of(combo_key).duplicate()
 	var displaced: ComboPart = sockets[slot]
-	sockets[slot] = pending_parts[0]
+	sockets[slot] = part
 	var fitted := _fit_sockets(sockets)
-	if fitted.is_empty() or fitted[slot] != pending_parts[0]:
+	if fitted.is_empty() or fitted[slot] != part:
 		return false  # eine Platine steckt nie in ihrem eigenen Paar
 	combo_parts[combo_key] = fitted
-	var from_pack := pending_parts[0].from_pack
-	pending_parts[0].from_pack = false
-	pending_parts.remove_at(0)
+	var from_pack := part.from_pack
+	part.from_pack = false
+	pending_parts.remove_at(pending_index)
 	if displaced != null and not from_pack:
 		pending_parts.insert(0, displaced)
 	_release_guarded(combo_key)
 	pending_parts_changed.emit()
 	combo_parts_changed.emit(combo_key)
+	return true
+
+## VERWERFEN: ein neues Paket-Modul zurück in den Beutel - es ist dann weg.
+## Nur from_pack-Module; ein verdrängtes oder gewonnenes bleibt.
+func discard_pending_part(index: int) -> bool:
+	if index < 0 or index >= pending_parts.size() or not pending_parts[index].from_pack:
+		return false
+	pending_parts.remove_at(index)
+	pending_parts_changed.emit()
 	return true
 
 ## Der erste freie Steckplatz eines Chips (-1 = keiner).
@@ -2856,7 +2905,6 @@ func _refund_side_bet(bet: SideBet) -> void:
 ## bis zum Kassieren zurück und zielt dann auf ihre uids.
 func _pay_side_bet(bet: SideBet, factor: float) -> void:
 	bet.awarded_choice = null
-	bet.awarded_stored = null
 	bet.awarded_packs.clear()
 	bet.awarded_fizzled = 0
 	bet.awarded_pack = null
@@ -2874,10 +2922,9 @@ func _pay_side_bet(bet: SideBet, factor: float) -> void:
 			if part != null:
 				stash_part(part)
 		SideBet.Payout.CARD_PACK:
-			# Ins Lager wie ein Kauf; ist es voll, öffnet es sofort.
-			_book_award(bet, _award_pack(bet.reward_card_pack(factor), null))
+			bet.awarded_choice = _award_pack(bet.reward_card_pack(factor), null)
 		SideBet.Payout.DICE_PACK:
-			_book_award(bet, _award_pack(bet.reward_dice_pack(factor), null))
+			bet.awarded_choice = _award_pack(bet.reward_dice_pack(factor), null)
 		SideBet.Payout.DIE:
 			# Der Weg des Ladenkaufs: ins Ausgabefach, und von dort SOFORT in den Vorrat.
 			var die := bet.reward_die(factor)
@@ -2890,13 +2937,6 @@ func _pay_side_bet(bet: SideBet, factor: float) -> void:
 				bet.note_awarded(grant_pack(pack))
 			if not bet.awarded_packs.is_empty():
 				bet.awarded_pack = bet.awarded_packs[0]
-
-## Ein Paket-Gewinn: gelagert (awarded_stored) oder, am vollen Lager, geöffnet.
-func _book_award(bet: SideBet, award: Variant) -> void:
-	if award is PackChoice:
-		bet.awarded_choice = award as PackChoice
-	else:
-		bet.awarded_stored = award as Resource
 
 # --- Fumble-Automaten (Slot-Bank) ---------------------------------------------
 

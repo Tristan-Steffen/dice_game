@@ -212,9 +212,6 @@ var deck_glass_viewport: SubViewport
 ## Welt-Abbildung der Haut und die Umrechnung jedes weitergereichten Zeigers.
 var _deck_glass_rect := Rect2()
 var _deck_glass_skin: ShaderMaterial
-## Die INFO-SÄULE unter dem Ausgabefach: Name, Seele, Wirkung und Netz dessen,
-## was über ihr steht (Neuzugang oder gewählter Zielwürfel).
-var fach_net_window: FachNetView
 ## Ader Automaten <-> Hub: Einsatz fährt hin, Gewinne fahren zurück.
 var slot_hub_strip: LedStripView
 ## Ader Schwarzmarkt <-> Hub: der Zwilling der Automaten-Ader eine Etage tiefer -
@@ -249,7 +246,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 44
+const MAX_PITS := 45
 const PIT_MAGAZIN := 0
 ## Die PAKET-FLÄCHE des Ladens: je Platz SEINE Sektion - die erste auf Platz 1,
 ## die übrigen fünf hängen hinten an (SHOP_PACK_PITS).
@@ -319,8 +316,7 @@ const SHOP_PACK_PITS: Array[int] = [PIT_SHOP_PACK0, PIT_SHOP_PACK_TAIL0, PIT_SHO
 const PIT_SECRET_BAY0 := 28
 const SECRET_BAY_PIT_COUNT := 3
 
-## Der EINZUG der Schatulle eines Würfel-Pakets nach der Wahl - ans Ende gehängt.
-const PIT_CASE := 31
+## Platz 31 trug bis 2026-11-17 den Einzug der Schatulle - er ist frei.
 
 ## Die Grube des CHIP-TRAYS - Möbel, ans Ende gehängt.
 const PIT_TRAY := 32
@@ -332,6 +328,9 @@ const PIT_STORE_MODULES := 35
 
 ## Die ÖFFNUNGS-FLÄCHE: eine flache Vertiefung - Möbel, ans Ende gehängt.
 const PIT_OPENING := 36
+
+## Der EINZUG des leeren Modul-Beutels in der Wurfgrube - ein eigenes Loch.
+const PIT_BAG := 44
 
 static func store_pit(lane: int) -> int:
 	return [PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES][clampi(lane, 0, 2)]
@@ -737,11 +736,6 @@ func _build_content() -> void:
 	net_glass_pane.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	net_glass_viewport.add_child(net_glass_pane)
 	workshop_window.net_pane = net_glass_pane
-
-	# Info-Säule unter dem Ausgabefach: Position/Größe setzt scene_root über
-	# place_fach_net_window; leer heißt unsichtbar.
-	fach_net_window = FachNetView.new()
-	add_child(fach_net_window)
 
 	# Ader Automaten -> Hub (verlegt place_slot_bank_window).
 	slot_hub_strip = LedStripView.new()
@@ -1233,15 +1227,6 @@ func _sync_deck_glass_skin() -> void:
 		Vector4(a.z, b.z - a.z, a.x, a.x - b.x))
 	_deck_glass_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
 
-## Spannt die Info-Säule über rect auf (unter dem Ausgabefach) bzw. nimmt sie fort.
-func place_fach_net_window(rect: Rect2) -> void:
-	fach_net_window.position = rect.position
-	fach_net_window.size = rect.size
-	fach_net_window.visible = rect.size.x > 0.0 and rect.size.y > 0.0
-
-func hide_fach_net_window() -> void:
-	fach_net_window.visible = false
-
 ## Spannt das Automaten-Fenster über rect auf (links vom Hub).
 func place_slot_bank_window(rect: Rect2) -> void:
 	slot_bank_window.position = rect.position
@@ -1355,18 +1340,25 @@ func store_pit_rect(lane: int) -> Rect2:
 	pit.position += store_window.position
 	return pit
 
-## Die ÖFFNUNGS-FLÄCHE: die Paket-Auswahl wohnt als Fenster unter dem Lager und steht
-## IMMER (leer mit ihrem Hinweis). Ihr Bild trägt der Boden ihrer Vertiefung.
+## Die PAKET-AUSWAHL als Fenster: bei Karten die Öffnungs-Fläche unter dem Lager (ihr
+## Bild trägt der Boden ihrer Vertiefung), bei Würfeln die Schiene ohne Schirm. Den
+## Schirm (backdrop) setzt scene_root.
 func place_opening_window(view: PackChoiceView, rect: Rect2) -> void:
 	opening_window = view
 	if view.get_parent() != self:
 		if view.get_parent() != null:
 			view.get_parent().remove_child(view)
 		add_child(view)
-	view.backdrop = true
 	view.position = rect.position
 	view.size = rect.size
 	view.visible = rect.size.x > 0.0 and rect.size.y > 0.0
+	_sync_reflection_windows()
+
+## Die Fläche zeigt sich nur während einer Öffnung; Lage und Maß bleiben stehen.
+func show_opening_window(shown: bool) -> void:
+	if opening_window == null or opening_window.visible == shown:
+		return
+	opening_window.visible = shown
 	_sync_reflection_windows()
 
 ## Die Grube des Trays in Display-Pixeln.

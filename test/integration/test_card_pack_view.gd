@@ -393,8 +393,8 @@ func test_it_rises_by_its_own_height() -> void:
 
 func test_the_hood_and_the_upper_band_hang_on_the_hinge() -> void:
 	var hull := _hull(DicePack.SORT_MATERIAL, CardPack.SIZE_LARGE, true)
-	assert_true(hull.has_lid(), "die Schale hat ein Scharnier")
 	var hinge := hull.find_child("Scharnier", true, false)
+	assert_not_null(hinge, "die Schale hat ein Scharnier")
 	for part in ["Haube", "BanderoleDeckel", "DruckBand", "SchwarzMarke", "AugeBand4_0"]:
 		var node := hull.find_child(part, true, false)
 		assert_not_null(node, part)
@@ -405,58 +405,8 @@ func test_the_hood_and_the_upper_band_hang_on_the_hinge() -> void:
 		assert_false(hinge.is_ancestor_of(node), "%s bleibt am Boden" % part)
 	assert_eq((hull.find_child("Haube", true, false) as MeshInstance3D).material_override,
 		hull._film_material(), "die Haube ist Klarsichtfolie")
-	assert_false(_hull(CardPack.SORT_NUMBER, 1).has_lid(), "die Schachtel hat keine Haube")
-
-func test_opening_swings_the_lid_up() -> void:
-	var hull := _hull(DicePack.SORT_NORMAL, CardPack.SIZE_LARGE, true)
-	hull.lie_on_glass(Vector3.ZERO)
-	await wait_frames(1)
-	# Die Haube liegt mittig, fern vom Scharnier an der Langseite.
-	var tab := hull.find_child("Haube", true, false) as Node3D
-	var closed := tab.global_position
-	hull.set_lid_open(1.0)
-	assert_gt(tab.global_position.y, closed.y + 1.0, "die Haube steht auf")
-	assert_eq(hull.tray_dice_shown(), 0, "offen sind die Mulden leer - die Würfel fliegen")
-	hull.set_lid_open(0.0)
-	assert_almost_eq(tab.global_position.distance_to(closed), 0.0, 0.001, "zu ist zu")
-	assert_eq(hull.tray_dice_shown(), 0, "und sie bleiben leer")
-	assert_almost_eq(hull.swing_lid(true), CardPackView.LID_TIME, 0.0001)
-	assert_true(hull.lid_swinging())
-	await wait_seconds(CardPackView.LID_TIME + 0.1)
-	assert_almost_eq(hull.lid_share(), 1.0, 0.001)
-
-func test_the_interior_lies_inside_the_outline() -> void:
-	for pack_size in DicePack.SIZES:
-		var hull := _hull(DicePack.SORT_NORMAL, pack_size, true)
-		hull.rotation.y = -PI / 2.0
-		hull.lie_on_glass(Vector3.ZERO)
-		var inner := hull.case_interior_local()
-		var outer := hull.case_outline_local()
-		assert_eq(inner.size(), 4)
-		var lo := Vector2(INF, INF)
-		var hi := Vector2(-INF, -INF)
-		for corner in outer:
-			var at := hull.global_transform * corner
-			lo = Vector2(minf(lo.x, at.x), minf(lo.y, at.z))
-			hi = Vector2(maxf(hi.x, at.x), maxf(hi.y, at.z))
-		var ilo := Vector2(INF, INF)
-		var ihi := Vector2(-INF, -INF)
-		for corner in inner:
-			var at := hull.global_transform * corner
-			assert_gt(at.y, 0.0, "der Muldenboden liegt über dem Glas")
-			ilo = Vector2(minf(ilo.x, at.x), minf(ilo.y, at.z))
-			ihi = Vector2(maxf(ihi.x, at.x), maxf(ihi.y, at.z))
-		assert_gt(ilo.x, lo.x)
-		assert_gt(ilo.y, lo.y)
-		assert_lt(ihi.x, hi.x)
-		assert_lt(ihi.y, hi.y)
-		# Ein Würfel in DIE_SCALE paßt durch den Mund, und geschlossen deckt der Deckel ihn ganz.
-		var edge := DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE
-		var span := ihi - ilo
-		assert_gte(minf(span.x, span.y), edge)
-		var floor_y := (hull.global_transform * inner[0]).y
-		var top := hull.thickness() * hull.body_scale()
-		assert_lt(floor_y + edge, top, "die Würfel passen unter den Deckel")
+	assert_null(_hull(CardPack.SORT_NUMBER, 1).find_child("Scharnier", true, false),
+		"die Schachtel hat keine Haube")
 
 func test_burst_takes_the_hull_away() -> void:
 	var hull := _hull(CardPack.SORT_NUMBER, 1)

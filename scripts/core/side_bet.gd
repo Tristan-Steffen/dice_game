@@ -126,8 +126,7 @@ var awarded_packs: Array[Pack] = []
 var awarded_fizzled: int = 0
 ## Der gewonnene Würfel, wie er im Ausgabefach wartet (Payout.DIE).
 var awarded_die: DieDefinition = null
-## Das gewonnene Paket (CARD_PACK/DICE_PACK): im Lager - oder, war es voll, sofort geöffnet.
-var awarded_stored: Resource = null
+## Das gewonnene Paket (CARD_PACK/DICE_PACK), sofort geöffnet.
 var awarded_choice: PackChoice = null
 ## Was der Einsatz WIRKLICH gekostet hat - die Rückversicherung gibt genau das zurück.
 var paid_money: int = 0
@@ -560,7 +559,8 @@ func reward_count(factor: float = 1.0) -> int:
 		Payout.PACKS, Payout.MULTIPLIER:
 			var price := maxi(card_price(reward_tier(factor)), 1)
 			return clampi(payout_value(factor) / price, 1, MAX_REWARD_CARDS)
-		Payout.SPECIAL, Payout.PACK, Payout.CATALYST, Payout.OPERATOR, Payout.CARD_PACK, 				Payout.DICE_PACK:
+		Payout.SPECIAL, Payout.PACK, Payout.CATALYST, Payout.OPERATOR, Payout.CARD_PACK, \
+				Payout.DICE_PACK:
 			return 1
 	return 0
 

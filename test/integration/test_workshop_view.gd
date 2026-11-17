@@ -38,6 +38,24 @@ func test_tapping_a_cassette_only_ever_slots_it() -> void:
 	view._on_pack_pressed(run.owned_packs[0].pack_uid)
 	assert_eq(view.press_slot_uids().size(), 1, "sie steckt im Slot")
 
+## Während einer Karten-Öffnung blättert das Magazin nur: kein Stecken, kein Rohling,
+## kein Aufräumen.
+func test_browse_only_neither_slots_nor_lays_a_blank_nor_tidies() -> void:
+	run.purchase_pack(Pack.number_pack(), 0)
+	run.purchase_pack(Pack.blank_card(), 0)
+	view.browse_only = true
+	for pack in run.owned_packs:
+		view._on_pack_pressed(pack.pack_uid)
+	assert_eq(view.press_slot_uids().size(), 0, "nichts steckt")
+	assert_null(view.target_pack(), "kein Rohling liegt")
+	watch_signals(run)
+	view._on_tidy_requested()
+	assert_signal_not_emitted(run, "packs_changed")
+	view.browse_only = false
+	var number := run.owned_packs.filter(func(p: Pack) -> bool: return not p.is_blank_card())
+	view._on_pack_pressed((number[0] as Pack).pack_uid)
+	assert_eq(view.press_slot_uids().size(), 1, "ohne Öffnung steckt der Tipp wieder")
+
 func test_the_bench_has_no_floating_dice_of_its_own() -> void:
 	# Über der Bank schwebt allein der Zielwürfel - eine zweite Seite gibt es nicht.
 	assert_true(view.bench_open())

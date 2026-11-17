@@ -46,8 +46,6 @@ const GRADE_RISE := "rise"
 ## Karte des Hinterzimmers, die kurze das Preisschild eines Platzes.
 const FULL_TAG := "MAGAZIN VOLL"
 const FULL_MARK := "VOLL"
-## Das Paket-Lager dieser Art ist voll: kein Kauf, das Schild sagt es.
-const STORE_FULL_MARK := "LAGER VOLL"
 
 
 ## Gebühr fürs Aufschlagen einer NEUEN Doppelseite: $2, dann $3, $4 ...
@@ -772,11 +770,6 @@ func _footer_font(block: Vector2, bay_u: float) -> int:
 			return px
 	return smallest
 
-## Die Auskunft eines Moduls als EINE Zeile (Öffnungs-Fläche).
-static func part_text(part: ComboPart) -> String:
-	return "%s · %s · Phase: %s - %s" % [part.display_name, part.rarity_name(),
-		Lexikon.PART_PHASE_NAMES.get(part.phase, ""), part.description]
-
 ## Die Auskunft eines Pakets - jede Art aus ihrer EINEN Quelle.
 static func ware_info(item: Object) -> String:
 	if item is ModulePack:
@@ -874,8 +867,8 @@ static func louder_grade(a: String, b: String) -> String:
 
 # --- Der Kauf ------------------------------------------------------------------
 
-## Der EINE Kaufweg eines Platzes: Lager-Pakete buchen den Preis und liegen im LAGER
-## (voll = nur diese Art gesperrt), die Sonder-Karte geht versiegelt ins Magazin.
+## Der EINE Kaufweg eines Platzes: Pakete buchen Preis und Öffnung zugleich (Module
+## gehen gleich in den Einbau), die Sonder-Karte geht versiegelt ins Magazin.
 func buy_pack(seat: int) -> void:
 	var pack := _shown_pack(seat)
 	if pack == null or run == null or _leaving:
@@ -888,14 +881,14 @@ func buy_pack(seat: int) -> void:
 	if pack is Pack:
 		refund = run.purchase_pack(pack as Pack, price)
 	else:
-		var stored: Resource = null
+		var bought := false
 		if pack is CardPack:
-			stored = run.purchase_card_pack(pack as CardPack, price)
+			bought = run.purchase_card_pack(pack as CardPack, price) != null
 		elif pack is DicePack:
-			stored = run.purchase_dice_pack(pack as DicePack, price)
+			bought = run.purchase_dice_pack(pack as DicePack, price) != null
 		elif pack is ModulePack:
-			stored = run.purchase_module_pack(pack as ModulePack, price)
-		if stored == null:
+			bought = not run.purchase_module_pack(pack as ModulePack, price).is_empty()
+		if not bought:
 			return
 		refund = run.last_card_pack_refund
 	pack_bought[seat] = true  # liegt im Spread - übersteht den Neuaufbau
@@ -909,7 +902,7 @@ func _buyable(pack: Resource, price: int) -> bool:
 		return false
 	if pack is Pack:
 		return not run.packs_full()
-	return not run.store_full(GameRun.store_lane_of(pack))
+	return true
 
 ## Der Preis eines Pakets je Art - dieselbe Quelle für Schild und Kauf.
 func _price_of(pack: Resource) -> int:
@@ -1591,10 +1584,6 @@ func _refresh_ware_prices() -> void:
 			continue
 		if pack is Pack and run.packs_full():
 			tag.text = FULL_MARK
-			tag.modulate = CasinoStyle.RED
-			continue
-		if not (pack is Pack) and run.store_full(GameRun.store_lane_of(pack)):
-			tag.text = STORE_FULL_MARK
 			tag.modulate = CasinoStyle.RED
 			continue
 		var price := pack_prices[seat]
