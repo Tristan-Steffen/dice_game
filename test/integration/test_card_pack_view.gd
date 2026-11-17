@@ -1,7 +1,7 @@
 extends GutTest
-## Die Hülle eines Pakets: EIN Grundriß für Schachtel, Schatulle und Beutel, Sorte als Farbe.
-## Das Karten-Paket ist eine bedruckte Pappschachtel mit Fenster, die Schatulle trägt die
-## Würfelseite und die Banderole.
+## Die Hülle eines Pakets: EIN Grundriß für Schachtel, Schale und Beutel, Sorte als Farbe.
+## Das Karten-Paket ist eine bedruckte Pappschachtel mit Fenster, das Würfel-Paket eine Schale
+## mit sechs Mulden unter einer Klarsicht-Haube.
 
 func _hull(pack_sort: String, pack_size: int, dice := false,
 		quality := DicePack.QUALITY_STANDARD) -> CardPackView:
@@ -246,36 +246,24 @@ func test_the_stair_nets_keep_changing_within_their_sort() -> void:
 			changed += 1
 	assert_eq(changed, cards.size(), "nach einem Umlauf zeigt jede Karte ein anderes Netz")
 
-func test_a_dice_pack_is_the_case_with_a_band_in_its_colour() -> void:
-	var soul := _hull(DicePack.SORT_SOUL, CardPack.SIZE_NORMAL, true)
-	assert_not_null(soul.find_child("Case", true, false), "die Schatulle aus Blender")
-	assert_true(soul.has_band())
-	for part in ["Band", "BandDeckel"]:
-		var band := soul.find_child(part, true, false) as MeshInstance3D
-		assert_true(band.visible, part)
-		assert_eq(band.material_override, soul._edge_material, "das Band trägt Hover und Flare")
-	assert_eq((soul._edge_material as StandardMaterial3D).emission, DataCellView._scaled(
-		PackDrawerView.dice_pack_tint(DicePack.SORT_SOUL), 1.0), "Banderole = Sortenfarbe")
-	var seam := (soul.find_child("Naht", true, false) as MeshInstance3D).material_override \
-		as StandardMaterial3D
-	assert_ne(seam, soul._edge_material, "die Naht ist neutral")
-	var rune := _hull(DicePack.SORT_RUNE, CardPack.SIZE_NORMAL, true)
-	assert_eq(((rune.find_child("Naht", true, false) as MeshInstance3D).material_override
-		as StandardMaterial3D).emission, seam.emission, "jede Naht im selben Stahlton")
-	var plain := _hull(DicePack.SORT_NORMAL, CardPack.SIZE_NORMAL, true)
-	assert_false(plain.has_band())
-	assert_false((plain.find_child("Band", true, false) as MeshInstance3D).visible,
-		"das normale Paket trägt keine Banderole")
-	assert_eq(((plain.find_child("Naht", true, false) as MeshInstance3D).material_override
-		as StandardMaterial3D).emission, seam.emission, "die Naht sagt die Güte, nicht die Sorte")
-	var royal := _quality_hull(DicePack.QUALITY_ROYAL)
-	var royal_seam := (royal.find_child("Naht", true, false) as MeshInstance3D).material_override \
-		as StandardMaterial3D
-	assert_gt(royal_seam.emission_energy_multiplier, seam.emission_energy_multiplier,
-		"nur Royal glüht")
-	assert_eq(plain.find_children("Auge*", "", true, false).size(),
-		2 * CardPackView.case_pips(plain.card_pack_size),
-		"eine Würfelseite je Deckel und Rücken")
+func test_a_dice_pack_is_the_tray_in_its_colour() -> void:
+	for pack_sort: String in DicePack.SORTS:
+		var hull := _hull(pack_sort, 4, true)
+		assert_not_null(hull.find_child("Case", true, false), "die Schale aus Blender")
+		var tray := (hull.find_child("Schale", true, false) as MeshInstance3D).material_override \
+			as StandardMaterial3D
+		assert_eq(tray.albedo_color, PackDrawerView.dice_pack_tint(pack_sort),
+			"%s: die Schale trägt die Sortenfarbe" % pack_sort)
+		for part in ["DruckBand", "AugeKopf4_0"]:
+			assert_eq((hull.find_child(part, true, false) as MeshInstance3D).material_override,
+				hull._edge_material, "%s: %s trägt Hover und Flare" % [pack_sort, part])
+		var names := 0
+		for mesh: MeshInstance3D in hull.find_children("SchwarzSorte_*", "MeshInstance3D", true,
+				false):
+			if mesh.visible:
+				names += 1
+				assert_true(String(mesh.name).ends_with("_" + pack_sort), "der eigene Name")
+		assert_eq(names, 1, "%s: genau ein Name auf der Banderole" % pack_sort)
 
 func test_the_band_tints_are_the_card_colours() -> void:
 	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_MATERIAL),
@@ -284,22 +272,6 @@ func test_the_band_tints_are_the_card_colours() -> void:
 		PackDrawerView.card_pack_tint(CardPack.SORT_RUNE), "Runen: dieselbe Farbe wie die Karten")
 	assert_eq(PackDrawerView.dice_pack_tint(DicePack.SORT_SOUL), Color("#a66bff"))
 	assert_eq(PackDrawerView.DICE_PACK_TINTS.size(), DicePack.SORTS.size())
-
-func test_the_symbol_sits_on_lid_and_spine_only_with_a_band() -> void:
-	var names := {DicePack.SORT_SOUL: "Raute", DicePack.SORT_MATERIAL: "Sechseck",
-		DicePack.SORT_RUNE: "Ring"}
-	for pack_sort: String in names:
-		var hull := _hull(pack_sort, CardPack.SIZE_LARGE, true)
-		for host in ["SymbolDeckel", "SymbolRuecken"]:
-			var node := hull.find_child(host, true, false)
-			assert_not_null(node, "%s: %s" % [pack_sort, host])
-			assert_not_null(node.find_child(String(names[pack_sort]), false, false),
-				"%s trägt sein Zeichen" % pack_sort)
-		var hinge := hull.find_child("Scharnier", true, false)
-		assert_true(hinge.is_ancestor_of(hull.find_child("SymbolDeckel", true, false)),
-			"das große Zeichen geht mit dem Deckel auf")
-	var plain := _hull(DicePack.SORT_NORMAL, CardPack.SIZE_LARGE, true)
-	assert_null(plain.find_child("SymbolDeckel", true, false))
 
 ## Das kürzere Maß des Grundrisses: die Breite (auch Riesig ist schmaler als lang).
 func _across(hull: CardPackView) -> float:
@@ -311,34 +283,28 @@ func _across(hull: CardPackView) -> float:
 	var span := hi - lo
 	return minf(span.x, span.z) if span.y < 0.001 else minf(minf(span.x, span.y), span.z)
 
-## Jedes Paket hat dieselbe Schatulle; die Augen auf Deckel und Rücken sind die Würfelzahl.
-func test_every_size_is_one_case_and_the_pips_tell_the_count() -> void:
+## Jedes Paket hat dieselbe Schale; so viele Mulden sind gefüllt, wie die Grundzahl sagt, und
+## Banderole und Kopf tragen sie als Augen.
+func test_every_size_is_one_tray_and_fills_its_wells() -> void:
 	var widths: Array[float] = []
 	for pack_size in DicePack.SIZES:
-		var hull := _hull(DicePack.SORT_NORMAL, pack_size, true)
+		var hull := _hull(DicePack.SORT_RUNE, pack_size, true)
 		widths.append(_across(hull))
 		assert_eq(CardPackView.case_pips(pack_size), pack_size)
-		assert_eq(CardPackView.pip_spots(pack_size).size(), pack_size)
-		for face in ["SeiteDeckel", "SeiteRuecken"]:
-			var host := hull.find_child(face, true, false)
-			assert_not_null(host, face)
-			assert_eq(host.find_children("Auge*", "", true, false).size(), pack_size,
-				"%s %der" % [face, pack_size])
+		assert_eq(hull.tray_dice_shown(), pack_size, "%der: so viele Würfel in den Mulden" % pack_size)
+		assert_eq(_shown(hull, "Muldenboden"), 6, "%der: alle sechs Mulden sichtbar" % pack_size)
+		assert_eq(_shown(hull, "AugeKopf"), pack_size, "%der: Augen am Kopf" % pack_size)
+		assert_eq(_shown(hull, "AugeBand"), pack_size, "%der: Augen auf der Banderole" % pack_size)
 	for width in widths:
-		assert_almost_eq(width, widths[0], 0.0001, "jede Schatulle gleich breit")
+		assert_almost_eq(width, widths[0], 0.0001, "jede Schale gleich breit")
 
-## Die Augen liegen im Klassik-Muster und nie aufeinander.
-func test_the_pips_follow_the_classic_pattern() -> void:
-	assert_eq(CardPackView.pip_spots(2), [Vector2(-1, -1), Vector2(1, 1)] as Array[Vector2])
-	assert_true(CardPackView.pip_spots(3).has(Vector2.ZERO), "3: die Mitte")
-	assert_false(CardPackView.pip_spots(4).has(Vector2.ZERO), "4: nur Ecken")
-	assert_true(CardPackView.pip_spots(5).has(Vector2.ZERO), "5: Ecken und Mitte")
-	assert_false(CardPackView.pip_spots(6).has(Vector2.ZERO), "6: zwei Reihen")
-	for pips in DicePack.SIZES:
-		var seen := {}
-		for spot in CardPackView.pip_spots(pips):
-			assert_false(seen.has(spot), "%d: kein Auge doppelt" % pips)
-			seen[spot] = true
+## Die Würfel einer Mulde sprechen ihre Sorte: nur deren Zeichnung steht.
+func test_the_dice_in_the_wells_show_their_sort() -> void:
+	for pack_sort: String in DicePack.SORTS:
+		var hull := _hull(pack_sort, 6, true)
+		for mesh: MeshInstance3D in hull.find_children("Deko*", "MeshInstance3D", true, false):
+			assert_eq(mesh.visible, String(mesh.name).contains("_%s_" % pack_sort),
+				"%s: %s" % [pack_sort, mesh.name])
 
 func _quality_hull(quality: int, pack_size := CardPack.SIZE_NORMAL,
 		pack_sort := DicePack.SORT_NORMAL) -> CardPackView:
@@ -354,42 +320,22 @@ func _shown(hull: CardPackView, prefix: String) -> int:
 			count += 1
 	return count
 
-## Die GÜTE ist der Lack der ganzen Box; Kappen und Steine gibt es nicht mehr.
-func test_the_whole_box_tells_the_quality() -> void:
-	var plain := _quality_hull(DicePack.QUALITY_STANDARD, 6)
-	var fine := _quality_hull(DicePack.QUALITY_FINE)
-	var royal := _quality_hull(DicePack.QUALITY_ROYAL, 3, DicePack.SORT_RUNE)
-	for hull in [plain, fine, royal]:
-		assert_eq(_shown(hull, "Kappe"), 0, "keine Eckkappen")
-		assert_eq(_shown(hull, "Stein"), 0, "keine Steine")
-		assert_eq(hull.find_children("Kappe*", "", true, false).size(), 0, "nicht im Modell")
-		assert_eq(hull.find_children("Stein*", "", true, false).size(), 0, "nicht im Modell")
-	var lacquer := []
-	for hull: CardPackView in [plain, fine, royal]:
-		var lid := hull.find_child("Deckel", true, false) as MeshInstance3D
-		var outside: StandardMaterial3D = null
-		for i in lid.mesh.get_surface_count():
-			if lid.get_surface_override_material(i) != hull._velvet_material():
-				outside = lid.get_surface_override_material(i) as StandardMaterial3D
-		assert_eq(outside, hull._shell_material, "der Deckel trägt den Lack")
-		lacquer.append(outside.albedo_color)
-	assert_ne(lacquer[0], lacquer[1], "Edel ist nicht Graphit")
-	assert_ne(lacquer[1], lacquer[2], "Royal ist nicht Edel")
-	assert_gt(lacquer[2].r, lacquer[2].b + 0.3, "Royal ist Gold")
-	assert_almost_eq(lacquer[1].r, lacquer[1].b, 0.1, "Edel ist Silber")
-	assert_gt(fine._shell_material.metallic, plain._shell_material.metallic, "Silber ist Metall")
-	assert_gt(lacquer[1].get_luminance(), lacquer[0].get_luminance(), "Silber heller als Graphit")
-	var clasp := (fine.find_child("Schliesse", true, false) as MeshInstance3D).material_override
-	assert_eq(clasp, fine.case_metal(), "die Schließe bleibt Stahl")
+## Die GÜTE ist die Prägefolie auf der Banderole: weißer Druck, Silber, Gold.
+func test_the_foil_tells_the_quality_of_a_tray() -> void:
+	var foils := []
+	for quality in [DicePack.QUALITY_STANDARD, DicePack.QUALITY_FINE, DicePack.QUALITY_ROYAL]:
+		var hull := _quality_hull(quality)
+		var foil := (hull.find_child("PraegungBandA", true, false) as MeshInstance3D) \
+			.material_override as StandardMaterial3D
+		assert_eq(foil, hull._foil_material())
+		foils.append(foil)
+	assert_lt(foils[0].metallic, foils[1].metallic, "Edel ist Metall")
+	assert_gt(foils[2].albedo_color.r, foils[2].albedo_color.b + 0.3, "Royal ist Gold")
+	assert_almost_eq(foils[1].albedo_color.r, foils[1].albedo_color.b, 0.1, "Edel ist Silber")
 
-func test_nothing_on_the_case_pulses() -> void:
+func test_nothing_on_the_tray_pulses() -> void:
 	var royal := _quality_hull(DicePack.QUALITY_ROYAL)
 	assert_false(royal.is_processing(), "Royal steht still")
-	var naht := royal.find_child("Naht", true, false) as MeshInstance3D
-	var seam := naht.material_override as StandardMaterial3D
-	var rest := seam.emission_energy_multiplier
-	await wait_seconds(0.2)
-	assert_eq(seam.emission_energy_multiplier, rest, "die Naht pulst nicht")
 
 func _global_box(mesh: MeshInstance3D) -> AABB:
 	return mesh.global_transform * mesh.get_aabb()
@@ -445,37 +391,35 @@ func test_it_rises_by_its_own_height() -> void:
 	assert_gt(hull.rise_depth(), DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE),
 		"ein Paket ist dicker als eine Karte")
 
-func test_the_case_has_a_hinged_lid_and_a_velvet_interior() -> void:
+func test_the_hood_and_the_upper_band_hang_on_the_hinge() -> void:
 	var hull := _hull(DicePack.SORT_MATERIAL, CardPack.SIZE_LARGE, true)
-	assert_true(hull.has_lid(), "die Schatulle hat ein Scharnier")
+	assert_true(hull.has_lid(), "die Schale hat ein Scharnier")
 	var hinge := hull.find_child("Scharnier", true, false)
-	for part in ["Deckel", "Lasche", "BandDeckel", "SymbolDeckel"]:
+	for part in ["Haube", "BanderoleDeckel", "DruckBand", "SchwarzMarke", "AugeBand4_0"]:
 		var node := hull.find_child(part, true, false)
 		assert_not_null(node, part)
-		assert_true(hinge.is_ancestor_of(node), "%s hängt am Deckel" % part)
-	for part in ["Naht", "Band", "SymbolRuecken"]:
-		assert_false(hinge.is_ancestor_of(hull.find_child(part, true, false)),
-			"%s bleibt am Boden" % part)
-	var velvet := 0
-	for part in ["Boden", "Deckel"]:
-		var mesh := hull.find_child(part, true, false) as MeshInstance3D
-		for i in mesh.mesh.get_surface_count():
-			if mesh.get_surface_override_material(i) == hull._velvet_material():
-				velvet += 1
-	assert_eq(velvet, 2, "Boden und Deckel sind innen mit Samt ausgekleidet")
-	assert_false(_hull(CardPack.SORT_NUMBER, 1).has_lid(), "die Kassette hat keinen Deckel")
+		assert_true(hinge.is_ancestor_of(node), "%s geht mit der Haube auf" % part)
+	for part in ["Boden", "Schale", "BanderoleBoden", "Wuerfel0", "AugeKopf4_0"]:
+		var node := hull.find_child(part, true, false)
+		assert_not_null(node, part)
+		assert_false(hinge.is_ancestor_of(node), "%s bleibt am Boden" % part)
+	assert_eq((hull.find_child("Haube", true, false) as MeshInstance3D).material_override,
+		hull._film_material(), "die Haube ist Klarsichtfolie")
+	assert_false(_hull(CardPack.SORT_NUMBER, 1).has_lid(), "die Schachtel hat keine Haube")
 
 func test_opening_swings_the_lid_up() -> void:
 	var hull := _hull(DicePack.SORT_NORMAL, CardPack.SIZE_LARGE, true)
 	hull.lie_on_glass(Vector3.ZERO)
 	await wait_frames(1)
-	# Die Lasche sitzt auf der Seite der Schließe, fern vom Scharnier.
-	var tab := hull.find_child("Lasche", true, false) as Node3D
+	# Die Haube liegt mittig, fern vom Scharnier an der Langseite.
+	var tab := hull.find_child("Haube", true, false) as Node3D
 	var closed := tab.global_position
 	hull.set_lid_open(1.0)
-	assert_gt(tab.global_position.y, closed.y + 1.0, "der Deckel steht auf")
+	assert_gt(tab.global_position.y, closed.y + 1.0, "die Haube steht auf")
+	assert_eq(hull.tray_dice_shown(), 0, "offen sind die Mulden leer - die Würfel fliegen")
 	hull.set_lid_open(0.0)
 	assert_almost_eq(tab.global_position.distance_to(closed), 0.0, 0.001, "zu ist zu")
+	assert_eq(hull.tray_dice_shown(), 0, "und sie bleiben leer")
 	assert_almost_eq(hull.swing_lid(true), CardPackView.LID_TIME, 0.0001)
 	assert_true(hull.lid_swinging())
 	await wait_seconds(CardPackView.LID_TIME + 0.1)
@@ -499,7 +443,7 @@ func test_the_interior_lies_inside_the_outline() -> void:
 		var ihi := Vector2(-INF, -INF)
 		for corner in inner:
 			var at := hull.global_transform * corner
-			assert_gt(at.y, 0.0, "der Samt liegt über dem Glas")
+			assert_gt(at.y, 0.0, "der Muldenboden liegt über dem Glas")
 			ilo = Vector2(minf(ilo.x, at.x), minf(ilo.y, at.z))
 			ihi = Vector2(maxf(ihi.x, at.x), maxf(ihi.y, at.z))
 		assert_gt(ilo.x, lo.x)
@@ -653,16 +597,15 @@ func test_lying_down_restores_the_lying_pose() -> void:
 	lying.set_standing(false)
 	assert_eq(body.transform, rest)
 
-## Weder Schachtel noch Schatulle tragen eine Rücken-Marke: Kopfdruck bzw. Würfelseite und
-## Banderole lesen von selbst.
+## Weder Schachtel noch Schale tragen eine Rücken-Marke: ihr Kopfdruck liest von selbst.
 func test_no_spine_mark_on_cassette_or_case() -> void:
 	var cassette := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_NORMAL)
 	cassette.add_spine()
 	assert_null(cassette.find_child("Spine", true, false), "der Druck trägt den Rücken")
 	var plain := _quality_hull(DicePack.QUALITY_ROYAL)
 	plain.add_spine()
-	assert_null(plain.find_child("Spine", true, false), "die Würfelseite trägt den Rücken")
+	assert_null(plain.find_child("Spine", true, false), "die Augen am Kopf tragen den Rücken")
 	var banded := _quality_hull(DicePack.QUALITY_STANDARD, CardPack.SIZE_HUGE, DicePack.SORT_SOUL)
 	banded.add_spine()
-	assert_null(banded.find_child("Spine", true, false), "auch mit Banderole keine Marke")
+	assert_null(banded.find_child("Spine", true, false), "auch die Seele keine Marke")
 
