@@ -246,19 +246,18 @@ func test_a_sold_slot_has_nothing_to_say() -> void:
 
 # --- Der Charm-Hover schreibt in den festen Fuß (Laden-Grammatik) ---------------
 
-func test_the_charm_card_keeps_its_model_and_names_itself() -> void:
+func test_the_charm_card_is_the_seat_of_a_disk() -> void:
 	await wait_frames(2)
-	var charm: Charm = run.secret_stock[view.card_slot_index()][GameRun.OFFER_ITEM]
-	# Kein schwebendes Dropdown, kein Bild⇄Text-Tausch mehr - die Karte trägt nur
-	# noch Name/Modell/Preis, die Wirkung steht im Fuß.
+	# Name und Wirkung trägt seit 2026-11-18 die DISKETTE, die scene_root auf den Sitz
+	# legt - die Karte malt nur Fassung und Preis; die Wirkung steht weiter im Fuß.
 	assert_false("detail_card" in view, "kein schwebendes Dropdown mehr")
 	assert_false("_charm_effect" in view, "kein Text-Tausch auf der Karte")
 	assert_false(view.has_method("_set_charm_hover"))
-	var names := 0
-	for label in _find_labels(_card()):
-		if label.text == charm.display_name:
-			names += 1
-	assert_gt(names, 0, "der Name steht auf der Karte")
+	view.charm_disk_px = Vector2(240, 250)
+	await wait_frames(2)
+	var disk: Rect2 = view.charm_disk_rect_px()
+	assert_eq(disk.size, Vector2(240, 250), "die Diskette liegt in ihrer EINEN Größe")
+	assert_true(view.charm_seat_rect_px().grow(0.5).encloses(disk), "und ganz im Sitz")
 
 func test_hovering_the_charm_fills_the_foot() -> void:
 	await wait_frames(2)

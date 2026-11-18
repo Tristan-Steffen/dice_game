@@ -1,9 +1,7 @@
 extends GutTest
-## Tier-2-Tests der Charm-Reihe (CharmRowView). Prüft, dass je Charm eine
-## HOLOGRAMM (Emitter-Ring, Lichtgestalt) auf einem festen Platz landet, die Plätze
-## bei mehr Charms als Plätzen gekappt werden, die sechs Plätze eine gleichmäßige,
-## spiegelsymmetrische Reihe auf der Tischfläche bilden - und dass das Modell als
-## additive Lichtgestalt in gesättigten Originalfarben liest.
+## Tier-2-Tests der Charm-Reihe (CharmRowView): sechs LAUFWERKE in einer Reihe, je Charm
+## eine Diskette im Schlitz und ein Hologramm über der Linse, der EINE Schreiber
+## (set_charms) fährt Körper statt sie neu zu bauen.
 
 var row: CharmRowView
 
@@ -39,98 +37,150 @@ func test_rebuild_replaces_previous_models():
 
 # --- Platz-Geometrie ----------------------------------------------------------
 
-func test_row_is_a_straight_line():
-	# Gerade Reihe: alle Plätze teilen dasselbe X (fester hinterer Rand).
+func test_six_readers_stand_in_a_straight_row():
+	assert_eq(row.readers.size(), CharmRowView.SPOT_COUNT, "je Platz ein Laufwerk")
 	for i in CharmRowView.SPOT_COUNT:
-		assert_almost_eq(row._spot_transform(i).origin.x, CharmRowView.LINE_X, 0.001)
+		assert_almost_eq(row.readers[i].position.x, CharmRowView.LINE_X, 0.001)
+		assert_almost_eq(row.readers[i].position.y, CharmRowView.SPOT_Y, 0.001,
+			"das Laufwerk steht auf dem Filz")
 
-func test_spots_mirror_across_z_axis():
-	# Äußerste Plätze (0 und 5) spiegeln sich über Z=0: gleiches X, entgegengesetztes Z.
-	var t0 := row._spot_transform(0)
-	var t5 := row._spot_transform(5)
-	assert_almost_eq(t0.origin.x, t5.origin.x, 0.001)
-	assert_almost_eq(t0.origin.z, -t5.origin.z, 0.001)
+func test_readers_mirror_across_z_axis():
+	assert_almost_eq(row.readers[0].position.z, -row.readers[5].position.z, 0.001)
 
-func test_models_hover_over_the_emitter():
-	# Das Hologramm schwebt über seinem Emitter - eine Projektion steht nicht auf.
-	for i in CharmRowView.SPOT_COUNT:
-		assert_almost_eq(row._spot_transform(i).origin.y,
-			CharmRowView.SPOT_Y + CharmRowView.HOVER_HEIGHT, 0.001)
-
-func test_reported_spot_stays_on_the_table():
-	# Der gemeldete Platz (Sockelring des Docks, Drop-Ziel) bleibt die Tischfläche.
-	for i in CharmRowView.SPOT_COUNT:
-		assert_almost_eq(row.spot_global_position(i).y, CharmRowView.SPOT_Y, 0.001)
-
-func test_row_evenly_spaced_in_z():
-	# Benachbarte Plätze haben in Z stets denselben Abstand (LINE_SPACING).
-	var z: Array = []
-	for i in CharmRowView.SPOT_COUNT:
-		z.append(row._spot_transform(i).origin.z)
+func test_readers_evenly_spaced_in_z():
 	for i in range(1, CharmRowView.SPOT_COUNT):
-		assert_almost_eq(z[i] - z[i - 1], CharmRowView.LINE_SPACING, 0.001)
+		assert_almost_eq(row.readers[i].position.z - row.readers[i - 1].position.z,
+			CharmRowView.LINE_SPACING, 0.001)
 
-# --- Emitter-Körper -------------------------------------------------------------
+func test_a_reader_fits_between_its_neighbours():
+	assert_lt(CharmReaderView.SIZE.z, CharmRowView.LINE_SPACING, "Laufwerke berühren sich nie")
 
-func test_one_emitter_per_occupied_spot():
+func test_hologram_hovers_over_the_lens():
 	row.set_charms(_charms(2))
-	assert_eq(row.ring_nodes.size(), 2, "je besetztem Platz genau ein Emitter-Ring")
+	for i in 2:
+		var lens := row.spot_global_position(i)
+		var holo := row.charm_nodes[i].global_position
+		assert_almost_eq(holo.y, lens.y + CharmRowView.HOVER_HEIGHT, 0.001, "über der Linse")
+		assert_almost_eq(holo.z, lens.z, 0.001)
+		assert_gt(lens.y, CharmReaderView.SIZE.y, "die Linse sitzt auf dem Laufwerk")
 
-func test_emitters_cleared_with_charms():
-	row.set_charms(_charms(3))
-	row.set_charms([])
-	assert_eq(row.ring_nodes.size(), 0, "leere Reihe hat keine Emitter mehr")
-
-## Kein Sockel (Spieler-Entscheid 2026-09-09): der Emitter liegt flach auf dem
-## Filz, das Modell schwebt darüber, und der Strahler sieht nur die Modelle.
-func test_the_emitter_lies_flat_on_the_felt():
+func test_the_disk_sits_in_the_slot_and_its_text_stays_outside():
 	row.set_charms(_charms(1))
-	assert_almost_eq(row.ring_nodes[0].position.y, CharmRowView.RING_HEIGHT * 0.5, 0.001,
-		"der Ring liegt auf der Tischfläche")
-	assert_eq(row.spot_lights.size(), 1, "je Platz ein Strahler")
-	assert_eq(row.spot_lights[0].light_cull_mask, CharmRowView.MODEL_LIGHT_LAYER,
-		"der Filz sieht ihn nicht")
+	var disk: CharmDiskView = row.disks[0]
+	var reader := row.readers[0]
+	var local := reader.to_local(disk.global_position)
+	assert_almost_eq(local.x, CharmReaderView.LOADED_X, 0.001, "mitten im Schlitz")
+	# Was im Schlitz steckt, endet an der Front; der Text liegt ganz davor.
+	var front := -CharmReaderView.SIZE.x * 0.5
+	var inside := local.x + CharmDiskView.SIZE.x * 0.5 - front
+	assert_almost_eq(inside, CharmDiskView.INSERT_DEPTH, 0.05, "nur Schieber und Bild stecken")
+	var text_top := reader.to_local(disk.desc_label.global_position).x
+	assert_lt(text_top, front, "die Wirkung liegt vor dem Schlitz")
 
-func test_ring_color_follows_rarity():
-	# Gewöhnlich (Hasenpfote) und Legendär (Zerbrochener Spiegel) leuchten
-	# verschieden; gleiche Rarität teilt ihre Farbe.
+func test_the_row_front_edge_is_the_disk_front():
+	row.set_charms(_charms(1))
+	var front := row.to_local(row.disks[0].global_position).x - CharmDiskView.SIZE.x * 0.5
+	assert_almost_eq(front, CharmRowView.front_edge_x(), 0.001)
+
+# --- Laufwerke ----------------------------------------------------------------
+
+func test_occupied_readers_glow_and_empty_ones_stay_dark():
+	row.set_charms(_charms(2))
+	assert_ne(row.readers[0].glow_color(), CharmReaderView.DARK, "belegt leuchtet")
+	assert_eq(row.readers[3].glow_color(), CharmReaderView.DARK, "leer bleibt dunkel")
+
+func test_reader_glow_follows_rarity():
 	var charms: Array[Charm] = [Charm.rabbits_foot(), Charm.broken_mirror(), Charm.lucky_cigarettes()]
 	row.set_charms(charms)
-	assert_ne(row.ring_materials[0].albedo_color, row.ring_materials[1].albedo_color,
+	assert_ne(row.readers[0].glow_color(), row.readers[1].glow_color(),
 		"Gewöhnlich und Legendär leuchten verschieden")
-	assert_eq(row.ring_materials[0].albedo_color, row.ring_materials[2].albedo_color,
-		"gleiche Rarität teilt dieselbe Kantenlicht-Farbe")
+	assert_eq(row.readers[0].glow_color(), row.readers[2].glow_color(),
+		"gleiche Rarität teilt ihre Farbe")
 
-func test_every_spot_owns_its_ring_material():
-	# Geteilt blitzten beim Feuern alle Emitter derselben Rarität mit.
-	row.set_charms(_charms(3))
-	assert_ne(row.ring_materials[0], row.ring_materials[1],
-		"je Platz eine eigene Ring-Instanz")
-
-func test_ring_rests_below_the_bloom_threshold():
-	# Ruhe darf nicht dauerhaft bloomen (Schwelle 0,95), das Feuern muss darüber.
+func test_reader_rests_below_the_bloom_threshold():
 	row.set_charms(_charms(1))
-	var rest: Color = row.ring_materials[0].albedo_color
+	var rest := row.readers[0].glow_color()
 	assert_lt(maxf(maxf(rest.r, rest.g), rest.b), 0.95, "Ruhe bleibt unter der Schwelle")
-	var flash := CharmRowView.ring_color(Charm.rabbits_foot().rarity,
-		CharmRowView.RING_FLASH_ENERGY)
-	assert_gt(maxf(maxf(flash.r, flash.g), flash.b), 0.95, "der Puls bloomt")
 
-func test_flash_charm_lifts_the_ring_and_falls_back():
+func test_flash_charm_lifts_the_reader_and_falls_back():
 	row.set_charms(_charms(1))
-	var material: StandardMaterial3D = row.ring_materials[0]
-	var rest: Color = material.albedo_color
+	var rest := row.readers[0].glow_color()
 	row.flash_charm(0)
 	await wait_seconds(0.09)
-	assert_gt(material.albedo_color.b, rest.b, "das Kantenlicht steigt")
+	assert_gt(row.readers[0].glow_color().b, rest.b, "der Saum steigt")
 	await wait_seconds(0.6)
-	assert_almost_eq(material.albedo_color.b, rest.b, 0.02, "und fällt zurück")
+	assert_almost_eq(row.readers[0].glow_color().b, rest.b, 0.02, "und fällt zurück")
 
 func test_flash_charm_tolerates_invalid_index():
 	row.set_charms(_charms(1))
 	row.flash_charm(-1)
 	row.flash_charm(5)  # außerhalb - darf nicht abstürzen
 	assert_eq(row.charm_nodes.size(), 1)
+
+func test_one_light_per_occupied_spot_sees_only_models():
+	row.set_charms(_charms(2))
+	assert_eq(row.spot_lights.size(), 2, "je Platz ein Strahler")
+	assert_eq(row.spot_lights[0].light_cull_mask, CharmRowView.MODEL_LIGHT_LAYER,
+		"der Filz sieht ihn nicht")
+
+# --- Der EINE Schreiber -------------------------------------------------------
+
+func test_reorder_keeps_the_bodies_and_moves_them():
+	var charms := _charms(3)
+	row.set_charms(charms)
+	var disk: CharmDiskView = row.disks[0]
+	var moved: Array[Charm] = [charms[1], charms[2], charms[0]]
+	row.set_charms(moved)
+	assert_eq(row.disks[2], disk, "dieselbe Diskette, nur ein anderer Platz")
+	assert_true(disk.carrying(), "sie fährt im Trage-Bogen")
+	row.settle_hard()
+	assert_almost_eq(disk.global_position.distance_to(
+		row.readers[2].disk_global_transform().origin), 0.0, 0.001, "hart steckt sie")
+
+func test_an_incoming_disk_flies_in_and_its_reader_waits():
+	var charm := Charm.rabbits_foot()
+	var disk := CharmDiskView.new(charm)
+	add_child_autofree(disk)
+	disk.global_position = Vector3(0.0, 1.0, 0.0)
+	var charms: Array[Charm] = [charm]
+	row.set_charms(charms, {charm: disk})
+	assert_eq(row.disks[0], disk, "die gekaufte Diskette wird die der Reihe")
+	assert_true(row.arriving(), "bis zur Landung fliegt sie")
+	assert_eq(row.readers[0].glow_color(), CharmReaderView.DARK, "das Laufwerk zeigt den Platz leer")
+	assert_false(row.charm_nodes[0].visible, "kein Hologramm vor der Landung")
+	row.settle_hard()
+	assert_false(row.arriving())
+	assert_ne(row.readers[0].glow_color(), CharmReaderView.DARK, "danach leuchtet es")
+	assert_true(row.charm_nodes[0].visible)
+
+func test_release_disk_hands_the_body_over():
+	row.set_charms(_charms(2))
+	var disk := row.release_disk(0)
+	assert_not_null(disk)
+	assert_null(disk.get_parent(), "die Reihe gibt ihn frei")
+	disk.free()
+
+func test_drag_lifts_the_disk_and_end_drag_returns_it():
+	row.set_charms(_charms(2))
+	row.begin_drag(1)
+	assert_true(row.dragging())
+	row.drag_to(Vector3(30.0, 0.0, 0.0))
+	assert_almost_eq(row.disks[1].global_position.y, CharmRowView.DRAG_HEIGHT, 0.001)
+	assert_eq(row.drop_target(row.readers[0].global_position), 0, "das nächste Laufwerk quer")
+	row.end_drag()
+	assert_false(row.dragging())
+	row.settle_hard()
+	assert_almost_eq(row.disks[1].global_position.distance_to(
+		row.readers[1].disk_global_transform().origin), 0.0, 0.001)
+
+func test_sale_text_lands_on_the_hovered_reader_only():
+	row.set_charms(_charms(3))
+	row.set_badges({0: "+2"})
+	row.set_sale(1, "VERKAUF $4")
+	assert_eq(row.readers[1].display_text(), "VERKAUF $4")
+	assert_eq(row.readers[0].display_text(), "+2", "der Nachbar zeigt weiter seinen Zähler")
+	row.set_sale(-1, "")
+	assert_eq(row.readers[1].display_text(), "")
 
 # --- Lichtgestalt ---------------------------------------------------------------
 
@@ -166,8 +216,8 @@ func test_the_hologram_is_not_additive():
 	assert_false(code.contains("unshaded"), "beleuchtet")
 	assert_false(code.contains("flicker"), "kein Flackern - clean, nicht CRT")
 
-## Lichtkante plus Emitter-Kegel (Spieler-Wahl 2026-09-09): je Platz ein kurzer
-## Kegel aus dem Ring, das Modell schwebt auf und ab, der Saum trägt das Blau.
+## Lichtkante plus Kegel (Spieler-Wahl 2026-09-09): je Platz ein kurzer Kegel aus der
+## Linse, das Modell schwebt auf und ab, der Saum trägt das Blau.
 func test_emitter_cone_and_hover_bob():
 	row.set_charms(_charms(2))
 	assert_eq(row.cone_nodes.size(), 2, "je Platz ein Kegel")

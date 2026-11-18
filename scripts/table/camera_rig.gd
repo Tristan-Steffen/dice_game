@@ -106,6 +106,9 @@ var slots_target := Vector3(-24, 0, -22)
 var secret_shop_target := Vector3(-24, 0, -12)
 var chips_target := Vector3(0, 1.5, 10)
 var chips_half := Vector2.ZERO
+## Die Laufwerks-Reihe samt Hologrammen (2026-11-18): gerahmt statt fester Abstand.
+var charms_half := Vector2.ZERO
+const CHARMS_MARGIN := 1.04
 ## Die Station Börse & Lager rahmt beide mit diesem Saum.
 const CHIPS_MARGIN := 1.06
 var workshop_target := Vector3(-24, 0, 22)
@@ -402,8 +405,12 @@ func configure_combos_target(target: Vector3) -> void:
 func configure_pit_target(target: Vector3) -> void:
 	pit_target = target
 
-func configure_charms_target(target: Vector3) -> void:
+## half = halbe Ausmaße der Laufwerks-Reihe (x = Welt-Z, y = Welt-X); ZERO läßt das
+## zuletzt gemessene stehen.
+func configure_charms_target(target: Vector3, half := Vector2.ZERO) -> void:
 	charms_target = target
+	if half != Vector2.ZERO:
+		charms_half = half
 
 ## half_extent = halbe Ausmaße des Hub-Fensters; ZERO lässt das zuletzt gemessene
 ## Maß stehen (dieselbe Regel wie bei der Werkbank).
@@ -606,6 +613,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 			distance = maxf(distance, tilted_fit_distance(chips_half, CHIPS_MARGIN))
 	if target_mode == Mode.SECRET_SHOP:
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
+	if target_mode == Mode.CHARMS and charms_half != Vector2.ZERO:
+		distance = maxf(distance, tilted_fit_distance(charms_half, CHARMS_MARGIN))
 	if target_mode == Mode.WORKSHOP:
 		distance = workshop_wide_distance()
 	# Das höchste Fenster des Tisches: sein Abstand wird gerechnet, nicht gesetzt.

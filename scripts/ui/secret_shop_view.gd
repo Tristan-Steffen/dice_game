@@ -35,6 +35,8 @@ signal vitrine_changed
 ## Ein Schlüsselwort auf dem Info-Fuß wurde geklickt - scene_root schlägt das
 ## Lexikon auf.
 signal lexikon_requested(entry_id: String)
+## Gleich wird der Charm am Kartensitz gebucht: seine Diskette fliegt zum Laufwerk.
+signal charm_buying
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -48,6 +50,10 @@ const CARD_BG := Color("#150f2acc")
 ## Breite des Karten-Sitzes in Einheiten. Er steht FEST - ob eine Karte darin
 ## liegt oder der legendäre Topf erschöpft ist, ändert die Aufteilung nie.
 const CARD_SEAT_WIDTH := 28.0
+## Die Diskette liegt in ihrer EINEN Größe am Sitz: er ist mindestens so breit, und unter
+## ihr steht der Preis.
+const CHARM_SEAT_ROOM := 1.08
+const CHARM_TAG_UNITS := 4.4
 
 ## Bauhöhe des Inhalts in Einheiten. Seit der Schwarzmarkt in den vom
 ## TOPF-Rückbau freigegebenen Filz gewachsen ist (~786×437 px), bindet weiter
@@ -103,6 +109,16 @@ var u := 4.0
 var wallet_label: Label
 ## Der feste Sitz der EINEN Karte (Bildschirm) und daneben das Feld der Bucht.
 var card_seat: Control
+## Grundriß der liegenden Charm-Diskette in Display-Pixeln (meldet scene_root).
+var charm_disk_px := Vector2.ZERO:
+	set(value):
+		charm_disk_px = value
+		if card_seat != null and is_instance_valid(card_seat):
+			card_seat.custom_minimum_size = _card_seat_size()
+
+func _card_seat_size() -> Vector2:
+	return Vector2(maxf(u * CARD_SEAT_WIDTH, charm_disk_px.x * CHARM_SEAT_ROOM),
+		charm_disk_px.y + u * CHARM_TAG_UNITS)
 var vitrine_slot: Control
 var reroll_button: Button
 ## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
@@ -238,7 +254,7 @@ func _build_layout() -> void:
 	card_seat = Control.new()
 	card_seat.name = "CardSeat"
 	card_seat.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card_seat.custom_minimum_size = Vector2(u * CARD_SEAT_WIDTH, 0.0)
+	card_seat.custom_minimum_size = _card_seat_size()
 	body.add_child(card_seat)
 
 	# Die Bucht bekommt den Rest der Zeile. Gemalt wird allein die FASSUNG - die
@@ -671,11 +687,10 @@ func _refresh_offers() -> void:
 	_bay_dice.clear()
 	_bay_parts.clear()
 	_bay_kinds.clear()
-	var thumb_px := int(u * 13.0)
 	offer_buttons.resize(run.secret_stock.size())
 	var seat := card_slot_index()
 	if seat >= 0:
-		var card := _build_charm_card(run.secret_stock[seat], seat, thumb_px,
+		var card := _build_charm_card(run.secret_stock[seat], seat,
 			run.secret_offer_price(run.secret_stock[seat]))
 		card_seat.add_child(card)
 		offer_buttons[seat] = card
@@ -748,17 +763,14 @@ func _offer_blocked(offer: Dictionary) -> bool:
 		return not run.parts_room()
 	return run.pack_room() < 1
 
-## Die EINE Karte am Sitz: der legendäre Charm, in der Laden-Grammatik - oben der
-## NAME, in der Mitte das MODELL, unten der PREIS. Die volle Wirkung zeigt der
-## INFO-FUSS beim Hover (hover_charm), wie bei der Bucht-Ware - das Modell BLEIBT,
-## nichts schwebt über der Karte. Charms sind digitale Ware und bleiben Bildschirm.
-## price kommt fertig vom Aufrufer (GameRun.secret_offer_price) - die Hehlerware
-## soll auf dem Schild stehen, nicht erst an der Kasse auffallen.
-func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int) -> Button:
+## Die EINE Karte am Sitz: die FASSUNG der Charm-DISKETTE (2026-11-18) - Rahmen in der
+## Rarität, unten der Preis. Name und Wirkung trägt die Diskette, die scene_root auf
+## charm_disk_rect_px() legt; die volle Wirkung zeigt weiter der INFO-FUSS beim Hover.
+## price kommt fertig vom Aufrufer (GameRun.secret_offer_price).
+func _build_charm_card(offer: Dictionary, index: int, price: int) -> Button:
 	var sold: bool = offer[GameRun.OFFER_SOLD]
 	var charm: Charm = offer[GameRun.OFFER_ITEM]
 	var tint := charm.rarity_color()
-
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -768,49 +780,28 @@ func _build_charm_card(offer: Dictionary, index: int, thumb_px: int, price: int)
 	card.add_theme_stylebox_override("pressed", _card_box(Color("#2e2160"), Color(1.4, 1.1, 0.2), 1.0, 0.3))
 	card.add_theme_stylebox_override("disabled", _card_box(Color("#100c2266"), tint, 0.2, 0.0))
 	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-
-	# Der Rand liegt als eigener Container um die Spalte: die Stylebox-Ränder des
-	# Knopfs greifen bei verankerten Kindern nicht.
-	var pad := MarginContainer.new()
-	pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		pad.add_theme_constant_override(side, int(u * 0.8))
-	card.add_child(pad)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", int(u * 0.8))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pad.add_child(column)
-
-	# Der NAME steht oben - eine Ware ohne Namen ist keine Ware.
-	var name_px := maxi(8, int(u * 2.6))
-	var name_line := CasinoStyle.label(charm.display_name, name_px,
-		NEON_MUTED if sold else NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER)
-	name_line.clip_text = true
-	name_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	column.add_child(name_line)
-
-	# Die MITTELFLÄCHE trägt das Modell im Lichtfleck - immer, denn die Wirkung
-	# steht jetzt im Fuß. Sie füllt den Rest des Sitzbandes.
-	var stage := CenterContainer.new()
-	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(CasinoStyle.glow_disc(tint, thumb_px * 1.5, 0.34, 0.12))
-	var face: Control = CharmThumb.new(charm, thumb_px)
-	if sold:
-		face.modulate = Color(1, 1, 1, 0.3)  # die Ware ist weg, der Platz bleibt
-	stage.add_child(face)
-	column.add_child(stage)
-
 	# Volles Dock: der Sitz zeigt das statt seines Preises.
 	var blocked := _offer_blocked(offer)
 	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
-	column.add_child(CasinoStyle.label(tag, u * 3.0,
-		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER))
-
+	var price_label := CasinoStyle.label(tag, u * 3.0,
+		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
+	price_label.name = "Price"
+	price_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	price_label.offset_top = -u * CHARM_TAG_UNITS
+	price_label.offset_bottom = -u * 0.6
+	card.add_child(price_label)
 	if not sold:
 		card.pressed.connect(_on_offer_pressed.bind(index))
 	return card
+
+## Wo die Diskette am Sitz liegt (Display-Pixel; leer = kein Charm-Sitz): mittig über
+## dem Preis, in ihrer EINEN Größe.
+func charm_disk_rect_px() -> Rect2:
+	var seat := charm_seat_rect_px()
+	if seat.size.x <= 0.0:
+		return Rect2()
+	var room := Vector2(seat.size.x, seat.size.y - u * CHARM_TAG_UNITS)
+	return Rect2(seat.position + (room - charm_disk_px) * 0.5, charm_disk_px)
 
 # --- Käufe --------------------------------------------------------------------
 
@@ -824,6 +815,11 @@ func _on_offer_pressed(index: int) -> void:
 	var stocked := run.owned_packs.size()
 	var stashed := run.pending_dice.size()
 	var parts_waiting := run.pending_parts.size()
+	var offer := run.secret_stock[index]
+	# Dieselben Bremsen wie die Buchung - erst dann gibt die Diskette ihren Sitz ab.
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and not bool(offer[GameRun.OFFER_SOLD]) \
+			and run.energy >= price and not run.charms_full():
+		charm_buying.emit()
 	if not run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
 		return
 	energy_spent.emit(price)

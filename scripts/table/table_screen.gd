@@ -316,7 +316,9 @@ const SHOP_PACK_PITS: Array[int] = [PIT_SHOP_PACK0, PIT_SHOP_PACK_TAIL0, PIT_SHO
 const PIT_SECRET_BAY0 := 28
 const SECRET_BAY_PIT_COUNT := 3
 
-## Platz 31 trug bis 2026-11-17 den Einzug der Schatulle - er ist frei.
+## Der EINZUG einer ausgeworfenen Charm-Diskette (seit 2026-11-18 auf dem Platz, den der
+## Einzug der Schatulle bis 2026-11-17 trug).
+const PIT_CHARM := 31
 
 ## Die Grube des CHIP-TRAYS - Möbel, ans Ende gehängt.
 const PIT_TRAY := 32
@@ -388,8 +390,10 @@ var charm_bus_strip: LedStripView
 ## Stamm -> Score).
 var _charm_rail_y := 0.0
 var _charm_trunk_x := 0.0
-## Charm-Dock (eigene Konsolen-Screens unter der 3D-Charm-Reihe).
-var charm_dock: CharmDockView
+## Grundrisse der Charm-Laufwerke samt Diskette (Display-Pixel, gemeldet von scene_root).
+var charm_reader_rects: Array[Rect2] = []
+## Der Schlüsselwort-Tip an der gehoverten Diskette.
+var charm_tip: CharmDiskTip
 var goal_bar: Panel
 ## Zwei Füllschichten: goal_bar_base = die bereits gefüllten Stufen (volle Breite,
 ## Farbe der letzten Stufe), goal_bar_fill = die AKTUELLE Stufe darüber in neuer
@@ -580,12 +584,9 @@ func _build_content() -> void:
 		add_child(strip)
 		charm_score_strips.append(strip)
 
-	# Charm-Dock: über den Leisten, aber unter den restlichen Fenstern; Position
-	# setzt scene_root über place_charm_dock (Maße aus den Charm-Plätzen).
-	charm_dock = CharmDockView.new()
-	charm_dock.name = "CharmDock"
-	charm_dock.visible = false
-	add_child(charm_dock)
+	charm_tip = CharmDiskTip.new()
+	charm_tip.name = "CharmDiskTip"
+	add_child(charm_tip)
 
 	# Fassung des Chip-Trays: Position/Größe setzt scene_root über place_treasure_window.
 	treasure_window = TreasureChestView.new()
@@ -1528,12 +1529,6 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(score_rect.position.x, score_rect.position.y,
 			score_rect.end.x, score_rect.end.y))
 		radii.append(10.0)
-	if charm_dock != null and charm_dock.visible:
-		# Je Charm-Konsole ein eigenes Glas-Fenster (gekapselte Sub-Screens).
-		for console in charm_dock.console_rects():
-			rects.append(Vector4(console.position.x, console.position.y,
-				console.end.x, console.end.y))
-			radii.append(charm_dock.console_corner_radius())
 	if goal_bar != null:
 		rects.append(Vector4(goal_bar.position.x, goal_bar.position.y,
 			goal_bar.position.x + goal_bar.size.x, goal_bar.position.y + goal_bar.size.y))
@@ -2606,16 +2601,16 @@ func link_score_strips() -> void:
 		var enter_x := score_rect.position.x + score_rect.size.x * 0.25
 		combos_score_strip.link_edges(cluster_rect.position.y, exit_x, score_bottom, enter_x,
 			lane, SCORE_STRIP_WIDTH)
-	# Charm-Konsolen -> Score: je Konsole eine Ader, gebündelt wie ein Kabelbaum.
+	# Charm-Laufwerke -> Score: je Laufwerk eine Ader, gebündelt wie ein Kabelbaum.
 	_link_charm_strips()
 
-## Verlegt die Charm-Adern geordnet: je Konsole eine kurze senkrechte Ader auf
-## EINE gemeinsame waagerechte Sammelschiene unter den Charms; die Schiene läuft
-## als Stamm mittig in die Score-Oberkante.
+## Verlegt die Charm-Adern geordnet: je Laufwerk eine kurze senkrechte Ader von der
+## Disketten-Vorderkante auf EINE gemeinsame Sammelschiene; die Schiene läuft als
+## Stamm mittig in die Score-Oberkante.
 func _link_charm_strips() -> void:
-	if charm_dock == null or not charm_dock.visible or score_frame == null or not score_frame.visible:
+	if charm_reader_rects.is_empty() or score_frame == null or not score_frame.visible:
 		return
-	var consoles := charm_dock.console_rects()
+	var consoles := charm_reader_rects
 	var n := mini(consoles.size(), charm_score_strips.size())
 	if n == 0:
 		return
@@ -2644,14 +2639,9 @@ func _charm_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 		Vector2(_charm_trunk_x, to_px.y),
 		to_px])
 
-## Spannt das Charm-Dock über die 6 Blenden-Pixelmitten auf (pad_size = Kachel,
-## proj_radius = Kraftfeld-/Beam-Radius in px für den Projektor).
-func place_charm_dock(pad_centers_px: PackedVector2Array, pad_size: Vector2, proj_radius: float) -> void:
-	if charm_dock == null:
-		return
-	charm_dock.place(pad_centers_px, pad_size, proj_radius)
-	charm_dock.visible = true
-	_sync_reflection_windows()
+## Die Grundrisse der Charm-Laufwerke (Display-Pixel) - daran hängen ihre Adern.
+func place_charm_readers(rects: Array[Rect2]) -> void:
+	charm_reader_rects = rects.duplicate()
 
 ## --- Lichtlauf Hub -> Chip (Rampenlicht) --------------------------------------
 

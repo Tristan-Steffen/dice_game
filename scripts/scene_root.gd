@@ -116,6 +116,10 @@ const PIT_SCORE_WIDTH_WORLD := 10.0
 ## Fuge Grube -> Wertungs-Bildschirm und Wertungs-Bildschirm -> Charm-Konsolen (Welt).
 const SCORE_PIT_GAP_WORLD := 1.17
 const SCORE_CHARM_GAP_WORLD := 1.24
+## Die ausgeworfene Diskette fällt in diesem Bogen vor ihr Laufwerk auf den Tisch.
+const CHARM_EJECT_DROP_TIME := 0.32
+## Gemessene Modellhöhe der Hologramme (CharmRowView.MODEL_SCALE 4: höchstens 4,01 Welt).
+const CHARM_HOLO_HEIGHT := 4.01
 const PIT_SCORE_HEIGHT_WORLD := 3.8  # = Höhe des Wertungs-Bildschirms (die Orbs füllen ihn)
 
 ## Hub-Fläche unter der Grube (~grubenbreit, doppelte Gruben-Bildschirmhöhe).
@@ -929,6 +933,17 @@ var fach_drag_ghost: Node3D
 
 ## Umsortieren der Tisch-Charms per Ziehen (gleiche Klick-oder-Drag-Logik).
 var charm_drag_index: int = -1
+## Die DISKETTEN-Körper außerhalb der Reihe: gekauft und unterwegs (Charm -> Körper, die
+## Reihe übernimmt sie in set_charms), im Laden (Charm -> Körper), am Schwarzmarkt-Sitz,
+## und die eine ausgeworfene samt ihrer Sektion.
+var _incoming_charm_disks := {}
+var _shop_charm_disks := {}
+var _secret_charm_disk: CharmDiskView
+var _charm_sinking: CharmDiskView
+var _charm_shaft: LiftShaftView
+var _charm_tip_owner: Charm
+## Ein Verkauf läßt das Geld am Laufwerk starten statt am Hub (INF = Hub).
+var _money_comet_origin := Vector2.INF
 var charm_drag_start_pos: Vector2
 var charm_is_dragging: bool = false
 
@@ -1176,19 +1191,14 @@ func _setup_table_screen() -> void:
 	# LED-Leiste ERST jetzt verlegen: sie führt um die Grube herum, braucht also
 	# deren endgültiges Rechteck.
 	table_screen.link_hub_to_cluster()
-	# Charm-Konsolen unter der 3D-Charm-Reihe: je Charm ein Sockelring dort, wo der
-	# Emitter des Hologramms auf dem Screen liegt (= projizierter Platz), Karte darunter. Die
-	# übergebenen Pixel sind die Ringmitten; die Karten legt das Dock ab.
-	_place_charm_dock()
-	# Die Charm-Reihe rückt so weit herab, daß ihre Konsolen SCORE_CHARM_GAP_WORLD
-	# über dem Wertungs-Bildschirm enden (Bild-unten = Welt −X).
-	var dock_bottom := table_screen.charm_dock.position.y + table_screen.charm_dock.size.y
+	# Die Laufwerks-Reihe rückt so weit herab, daß die Vorderkante ihrer Disketten
+	# SCORE_CHARM_GAP_WORLD über dem Wertungs-Bildschirm endet (Bild-unten = Welt -X).
+	var front_px := table_screen.world_to_pixel(
+		charm_row.to_global(Vector3(CharmRowView.front_edge_x(), 0.0, 0.0))).y
 	var want_bottom := table_screen.score_rect.position.y - SCORE_CHARM_GAP_WORLD * ppw
-	charm_row.position.x -= (want_bottom - dock_bottom) / ppw
-	_place_charm_dock()
-	if run != null:
-		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
-	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Dock münden in den Score.
+	charm_row.position.x -= (want_bottom - front_px) / ppw
+	_place_charm_readers()
+	# Wertungs-Leisten: Grube (Datenbus), Kombis und Charm-Laufwerke münden in den Score.
 	table_screen.link_score_strips()
 	table_screen.take_action_button.pressed.connect(_on_take_button_pressed)
 	table_screen.roll_action_button.pressed.connect(_on_throw_button_pressed)
@@ -1758,10 +1768,11 @@ func _setup_panels() -> void:
 	else:
 		$UI.add_child(charm_shop)
 	charm_shop.closed.connect(_on_shop_closed)
-	# Schlüsselwörter im Wirkungstext: Laden-Karte und Dock-Karte schlagen nach.
+	# Schlüsselwörter: der Laden-Fuß und der Tip an der Diskette schlagen nach.
 	charm_shop.lexikon_requested.connect(open_lexikon)
-	if table_screen != null and table_screen.charm_dock != null:
-		table_screen.charm_dock.lexikon_requested.connect(open_lexikon)
+	charm_shop.charm_purchasing.connect(_on_shop_charm_purchasing)
+	if table_screen != null and table_screen.charm_tip != null:
+		table_screen.charm_tip.lexikon_requested.connect(open_lexikon)
 	# Die Paket-Fläche: der Laden MELDET seine Auslage, die Körper stellt scene_root.
 	charm_shop.vitrine_changed.connect(_on_vitrine_changed)
 	charm_shop.purchase_denied.connect(_sfx.bind(&"ui_denied", 0.0, 1.0))
@@ -1774,6 +1785,7 @@ func _setup_panels() -> void:
 	# Die Stellplätze der Paket-Fläche sind auf den ECHTEN liegenden Grundriß und die
 	# breiteste Schatulle geschnitten - der Laden muss beides kennen, bevor er auslegt.
 	charm_shop.data_cell_lie_px = _data_cell_lying_px()
+	charm_shop.charm_disk_px = _charm_disk_px()
 	if table_screen != null:
 		charm_shop.dice_case_across_px = _world_len_px(CardPackView.max_case_across()
 			* PackDrawerView.CASSETTE_SCALE)
@@ -2145,15 +2157,16 @@ func _on_charms_changed() -> void:
 	if phase == Phase.SHOP and run.owned_charms.size() > _sfx_charm_count:
 		_sfx(&"shop_buy")
 	_sfx_charm_count = run.owned_charms.size()
-	charm_row.set_charms(run.owned_charms)
-	if table_screen != null and table_screen.charm_dock != null:
-		table_screen.charm_dock.set_charms(run.owned_charms, _charm_sell_values())
+	charm_row.set_charms(run.owned_charms, _incoming_charm_disks)
+	_incoming_charm_disks.clear()
+	if table_screen != null and table_screen.charm_tip != null:
+		table_screen.charm_tip.hide_tip()
 	_update_charm_badges()
 
-## Zeigt die laufenden Werte der Zähler-Charms als Chip UNTER ihrer Dock-Karte
+## Zeigt die laufenden Werte der Zähler-Charms auf dem FRONT-DISPLAY ihres Laufwerks
 ## (Position folgt Umsortieren/Kauf/Verkauf über die Besitz-Slots).
 func _update_charm_badges() -> void:
-	if table_screen == null or table_screen.charm_dock == null:
+	if charm_row == null or run == null:
 		return
 	var texts := {}
 	var ids := run.charm_ids()
@@ -2192,7 +2205,7 @@ func _update_charm_badges() -> void:
 				var souls := _discard_souls()
 				if souls > 0:
 					texts[slot] = "+%d" % (souls * CharmEffects.BOTTLE_RACK_MULT)
-	table_screen.charm_dock.set_badges(texts)
+	charm_row.set_badges(texts)
 	_show_pendulum_swing(ids, pendulum)
 
 ## Pendel: jede Bewegung des Mults schwingt sichtbar - der Charm blitzt und die
@@ -2211,13 +2224,6 @@ func _show_pendulum_swing(ids: Array[String], value: int) -> void:
 	var color := CasinoStyle.GOLD if delta > 0 else PENDULUM_LOSS_COLOR
 	table_screen.spawn_gain_number(_charm_trail_source_px([resolved]),
 		"%+d" % delta, color, PENDULUM_SWING_FONT)
-
-## Verkaufserlöse je Dock-Platz (Reihenfolge = Besitz) für den Verkaufs-Chip.
-func _charm_sell_values() -> Array[int]:
-	var values: Array[int] = []
-	for i in run.owned_charms.size():
-		values.append(run.charm_sell_value(i))
-	return values
 
 func _on_money_changed(new_money: int) -> void:
 	var delta := new_money - _shown_money
@@ -2304,6 +2310,7 @@ func _play_tray_transition(new_money: int, delta: int) -> void:
 ## Reihenfolge der Schritte; seine Ankunft gibt den wartenden Chip frei.
 func _fire_tray_comets(steps: Array[Dictionary]) -> void:
 	var launched := run
+	var origin := _money_comet_origin
 	var ranks: Array[int] = []
 	for step: Dictionary in steps:
 		if String(step["kind"]) != ChipTrayView.STEP_IN or not bool(step.get("comet", false)):
@@ -2316,7 +2323,8 @@ func _fire_tray_comets(steps: Array[Dictionary]) -> void:
 			if run != launched or table_screen == null:
 				return
 			var color := ChipStackView.denomination_color(ChipTrayView.VALUES[rank])
-			var travel: float = table_screen.money_comet(true, _money_trail_color(color), rank)
+			var travel: float = table_screen.charm_money_comet(origin, _money_trail_color(color), rank) \
+				if origin.is_finite() else table_screen.money_comet(true, _money_trail_color(color), rank)
 			get_tree().create_timer(maxf(travel, 0.05)).timeout.connect(func() -> void:
 				if run == launched and chip_tray != null:
 					chip_tray.land(rank))
@@ -7903,6 +7911,9 @@ func _place_secret_vitrine() -> void:
 		return
 	if not market.lexikon_requested.is_connected(open_lexikon):
 		market.lexikon_requested.connect(open_lexikon)
+	if not market.charm_buying.is_connected(_claim_secret_charm_disk):
+		market.charm_buying.connect(_claim_secret_charm_disk)
+	market.charm_disk_px = _charm_disk_px()
 	if secret_vitrine == null or not is_instance_valid(secret_vitrine):
 		secret_vitrine = VitrineView.new("SecretVitrine")
 		# EINE Reihe auf gleicher Tiefe, aber je Stück eine eigene Sektion.
@@ -11160,22 +11171,15 @@ func _animate_reorder_move(from_index: int, to_index: int) -> void:
 		deck_shift_tween.tween_property(ghost, "global_position", target_pos, DECK_SHIFT_DURATION)
 	deck_shift_tween.chain().tween_callback(_finish_deck_shift)
 
-## Klick auf eine Dock-Kachel: startet einen POTENZIELLEN 2D-Umsortier-Drag.
-## Nur in Gruben-/Charm-Sicht und in der Freikamera (in der ruhenden Übersicht
-## bleibt der Klick ein Zoom); Loslassen ohne Bewegung führt zum Charm hin.
+## Druck auf ein Laufwerk oder seine Diskette: startet eine MÖGLICHE Geste - gezogen
+## sortiert um, losgelassen auf der Auswurf-Taste verkauft, sonst führt er zum Charm hin.
+## Nur in Gruben-/Charm-Sicht und in der Freikamera (in der Übersicht bleibt er ein Zoom).
 func _try_start_charm_reorder(screen_pos: Vector2) -> bool:
-	if table_screen.charm_dock == null or not _table_operable():
+	if charm_row == null or not _table_operable():
 		return false
 	if not (is_pit_focused or _felt_pick_live(CameraRig.Mode.CHARMS)):
 		return false
-	# Konsolen-Karte ODER das 3D-Hologramm treffen denselben Charm - so
-	# recentert/zieht ein Klick auf beides (das Hologramm schwebt über der Karte).
-	var index := -1
-	var pixel := _screen_pixel(screen_pos)
-	if pixel.x >= 0.0:
-		index = table_screen.charm_dock.pad_index_at(pixel)
-	if index == -1:
-		index = charm_row.charm_index_at_screen_pos(camera_rig, screen_pos)
+	var index := charm_row.charm_index_at_screen_pos(camera_rig, screen_pos)
 	if index == -1:
 		return false
 	charm_drag_index = index
@@ -11183,8 +11187,7 @@ func _try_start_charm_reorder(screen_pos: Vector2) -> bool:
 	charm_is_dragging = false
 	return true
 
-## Maus-Bewegung/-Loslassen während eines Charm-Drags (analog zum
-## Warteschlangen-Drag); Loslassen über einem anderen Platz sortiert um.
+## Maus-Bewegung/-Loslassen während einer Charm-Geste.
 func _handle_charm_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 		_cancel_charm_drag()
@@ -11193,59 +11196,327 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if not charm_is_dragging and event.position.distance_to(charm_drag_start_pos) > REORDER_DRAG_THRESHOLD:
 			charm_is_dragging = true
-			table_screen.charm_dock.begin_drag(charm_drag_index)
+			charm_row.begin_drag(charm_drag_index)
+			if table_screen != null:
+				table_screen.charm_tip.hide_tip()
 		if charm_is_dragging:
-			var pixel := _screen_pixel(event.position)
-			if pixel.x >= 0.0:
-				table_screen.charm_dock.drag_to(pixel)
+			var at: Variant = _mouse_on_plane(event.position,
+				charm_row.global_position.y + CharmRowView.DRAG_HEIGHT)
+			if at != null:
+				charm_row.drag_to(at)
 		return
 
 	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if charm_is_dragging:
-			_finish_charm_drag()
-		elif _sell_pixel_hits(event.position):
-			var sold := run.charm_sell_value(charm_drag_index)
-			run.sell_charm(charm_drag_index)  # charms_changed baut Reihe + Dock neu
-			if sfx_bank != null:
-				sfx_bank.play_money(sold, true)
+			_finish_charm_drag(event.position)
+		elif charm_row.eject_index_at_screen_pos(camera_rig, event.position) == charm_drag_index:
+			_sell_charm_disk(charm_drag_index)
 		elif camera_rig.mode == CameraRig.Mode.CHARMS:
-			# Klick ohne Ziehen in der Charm-Sicht: Zoom auf diesen Charm schwenken.
 			_pan_zoom_to_charm(charm_drag_index)
 		elif is_pit_focused or camera_rig.free_camera:
-			# Aus der Grube oder der Freikamera heraus: EIN Flug in die Charm-Sicht,
-			# mittig auf den geklickten Charm. zoom_to setzt den Modus (die
-			# Weiterleitung hängt daran), pan_to überschreibt im selben Frame nur den
-			# Blickpunkt - gleiche Basis, gleicher Abstand, also kein zweiter Flug.
+			# EIN Flug in die Charm-Sicht, mittig auf den geklickten Charm.
 			camera_rig.zoom_to(CameraRig.Mode.CHARMS)
 			_pan_zoom_to_charm(charm_drag_index)
 		charm_drag_index = -1
 		charm_is_dragging = false
 
-## Ob die Fenster-Mausposition den Verkaufs-Chip des angeklickten Charms trifft.
-func _sell_pixel_hits(screen_pos: Vector2) -> bool:
-	var pixel := _screen_pixel(screen_pos)
-	return pixel.x >= 0.0 and table_screen.charm_dock.sell_index_at(pixel) == charm_drag_index
-
-## Schwenkt den Charm-Zoom mittig auf die Konsole i (deren Weltposition).
+## Schwenkt den Charm-Zoom mittig auf das Laufwerk i.
 func _pan_zoom_to_charm(i: int) -> void:
-	var consoles := table_screen.charm_dock.console_rects()
-	if i < 0 or i >= consoles.size():
+	if table_screen == null or i < 0 or i >= table_screen.charm_reader_rects.size():
 		return
-	camera_rig.pan_to(table_screen.pixel_to_world(consoles[i].get_center()))
+	camera_rig.pan_to(table_screen.pixel_to_world(table_screen.charm_reader_rects[i].get_center()))
 
-## Loslassen: auf einen anderen Platz umsortieren (die Reihenfolge ist
-## spielrelevant - Totems kopieren Nachbarn), sonst Kachel zurück auf ihren Platz.
-func _finish_charm_drag() -> void:
-	var target_index := table_screen.charm_dock.drop_target()
-	table_screen.charm_dock.end_drag()
-	if target_index != -1 and target_index != charm_drag_index:
-		run.move_charm(charm_drag_index, target_index)  # charms_changed baut Reihe + Dock neu
-
-func _cancel_charm_drag() -> void:
-	if charm_is_dragging:
-		table_screen.charm_dock.end_drag()
+## Loslassen über einem anderen Laufwerk sortiert um (die Reihenfolge ist
+## spielrelevant); sonst gleitet die Diskette in ihren eigenen Schlitz zurück.
+func _finish_charm_drag(screen_pos: Vector2) -> void:
+	var at: Variant = _mouse_on_plane(screen_pos, 0.0)
+	var target_index := charm_row.drop_target(at) if at != null else -1
+	var from := charm_drag_index
 	charm_drag_index = -1
 	charm_is_dragging = false
+	if target_index != -1 and target_index != from:
+		run.move_charm(from, target_index)  # charms_changed fährt die Disketten
+	else:
+		charm_row.end_drag()
+
+func _cancel_charm_drag() -> void:
+	if charm_is_dragging and charm_row != null:
+		charm_row.end_drag()
+	charm_drag_index = -1
+	charm_is_dragging = false
+
+## Die AUSWURF-TASTE: GameRun bucht, das Geld reist als Licht vom Laufwerk ins Tray,
+## die Diskette springt aus dem Schlitz und der Tisch zieht sie per Hebebühne ein.
+func _sell_charm_disk(index: int) -> void:
+	var sold := run.charm_sell_value(index)
+	var from_px := _charm_anchor_px(index)
+	var disk := charm_row.release_disk(index)
+	_money_comet_origin = from_px
+	run.sell_charm(index)  # charms_changed baut die Reihe
+	_money_comet_origin = Vector2.INF
+	if sfx_bank != null:
+		sfx_bank.play_money(sold, true)
+	if disk != null:
+		_eject_charm_disk(disk)
+
+## Ausgeworfen: sie gleitet ganz heraus, legt sich davor auf den Tisch, und eine
+## Sektion unter ihr senkt sie ein. Gebucht ist längst.
+func _eject_charm_disk(disk: CharmDiskView) -> void:
+	_drop_charm_sinking()
+	add_child(disk)
+	var at: Transform3D = disk.get_meta(&"released_at")
+	disk.global_transform = at
+	_charm_sinking = disk
+	var out := at
+	out.origin -= at.basis.x.normalized() * CharmDiskView.INSERT_DEPTH
+	var rest := out
+	rest.origin.y = VitrineView.FLOOR_CLEAR
+	var launched := run
+	var sink := func() -> void:
+		if run != launched or _charm_sinking != disk:
+			return
+		var shaft := _charm_shaft_on(rest.origin)
+		var gone := func() -> void:
+			if _charm_sinking == disk:
+				_drop_charm_sinking()
+		if shaft == null or shaft.run_take([disk], [rest.origin], 0.0, gone) == null:
+			gone.call()
+	var drop := func() -> void:
+		if run != launched or _charm_sinking != disk:
+			return
+		var fall := disk.carry_to(rest, CHARM_EJECT_DROP_TIME, 0.4)
+		if fall == null:
+			sink.call()
+		else:
+			fall.finished.connect(sink)
+	var slide := disk.carry_to(out, CharmRowView.SLIDE_TIME, 0.0)
+	if slide == null:
+		drop.call()
+	else:
+		slide.finished.connect(drop)
+
+## Die Sektion unter einer ausgeworfenen Diskette: ihr Grundriß plus Saum.
+func _charm_shaft_on(at: Vector3) -> LiftShaftView:
+	if table_screen == null:
+		return null
+	if _charm_shaft == null or not is_instance_valid(_charm_shaft):
+		_charm_shaft = LiftShaftView.new("CharmShaft")
+		_charm_shaft.glow_rim = false
+		add_child(_charm_shaft)
+		_charm_shaft.opened.connect(func(spot: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(TableScreen.PIT_CHARM, spot, hole))
+		_charm_shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(TableScreen.PIT_CHARM))
+	_charm_shaft.deck_skin = table_screen.display_skin()
+	_charm_shaft.order_skin(PIT_SKIN)
+	_charm_shaft.setup(Vector3(at.x, 0.0, at.z),
+		Vector2(CharmDiskView.SIZE.x, CharmDiskView.SIZE.z) * 0.5 + Vector2.ONE * PACK_CASE_SEAM,
+		maxf(VitrineView.shaft_depth(), CharmDiskView.SIZE.y * VitrineView.SHAFT_ROOM))
+	return _charm_shaft
+
+## Der EINE harte Weg aller Disketten: Auswurf fort, Sektion bündig, Reihe gesetzt,
+## Laden-Disketten fort, ein fliegender Kauf steckt.
+func _settle_charm_disks_hard() -> void:
+	_drop_charm_sinking()
+	_cancel_charm_drag()
+	for charm: Charm in _incoming_charm_disks:
+		var disk: CharmDiskView = _incoming_charm_disks[charm]
+		if is_instance_valid(disk):
+			disk.queue_free()
+	_incoming_charm_disks.clear()
+	_drop_shop_charm_disks()
+	_drop_secret_charm_disk()
+	if table_screen != null and table_screen.charm_tip != null:
+		table_screen.charm_tip.hide_tip()
+	if charm_row != null:
+		charm_row.settle_hard()
+
+func _drop_charm_sinking() -> void:
+	if _charm_shaft != null and is_instance_valid(_charm_shaft) and _charm_shaft.riding():
+		_charm_shaft.settle_hard()
+	if _charm_sinking != null and is_instance_valid(_charm_sinking):
+		_charm_sinking.queue_free()
+	_charm_sinking = null
+
+## Grundriß der liegenden Diskette in Display-Pixeln (x quer = Welt Z, y längs = Welt X).
+func _charm_disk_px() -> Vector2:
+	if table_screen == null:
+		return Vector2.ZERO
+	return Vector2(_world_len_px(CharmDiskView.SIZE.z), _world_len_px(CharmDiskView.SIZE.x))
+
+## Anker der Charm-Kometen und Zahlen eines Platzes: die Mitte der Disketten-Vorderkante
+## (Display-Pixel) - dort beginnt seine Ader; die Displaymitte deckt das Laufwerk zu.
+func _charm_anchor_px(slot: int) -> Vector2:
+	if table_screen == null:
+		return Vector2.ZERO
+	if slot < 0 or slot >= table_screen.charm_reader_rects.size():
+		return table_screen.world_to_pixel(DicePit.PIT_CENTER)
+	var rect := table_screen.charm_reader_rects[slot]
+	return Vector2(rect.get_center().x, rect.end.y)
+
+## Die Grundrisse der Laufwerke samt Diskette an die Anzeige melden (ihre Adern).
+func _place_charm_readers() -> void:
+	var rects: Array[Rect2] = []
+	for i in CharmRowView.SPOT_COUNT:
+		var corners := charm_row.footprint(i)
+		var a := table_screen.world_to_pixel(corners[0])
+		var b := table_screen.world_to_pixel(corners[1])
+		rects.append(Rect2(a, Vector2.ZERO).expand(b))
+	table_screen.place_charm_readers(rects)
+
+## Hover über einem Laufwerk: das Display nennt den Preis, und der Schlüsselwort-Tip
+## hängt an der Diskette (gehoben verdeckte sie das Display). Antwortet überall, wo die Reihe steht.
+func _update_charm_hover() -> void:
+	if table_screen == null or charm_row == null or run == null:
+		return
+	if not _table_operable() or charm_is_dragging or charm_row.dragging():
+		return
+	var mouse := get_viewport().get_mouse_position()
+	var index := charm_row.charm_index_at_screen_pos(camera_rig, mouse)
+	var tip := table_screen.charm_tip
+	if index == -1 and tip.visible and _charm_tip_owner != null:
+		var pixel := _screen_pixel(mouse)
+		if pixel.x >= 0.0 and tip.has_pixel(pixel):
+			index = run.owned_charms.find(_charm_tip_owner)
+	if index < 0 or index >= run.owned_charms.size():
+		charm_row.set_sale(-1, "")
+		if _charm_tip_owner != null and run.owned_charms.has(_charm_tip_owner):
+			tip.hide_tip()
+			_charm_tip_owner = null
+		return
+	charm_row.set_sale(index, "VERKAUF $%d" % run.charm_sell_value(index))
+	var rect: Rect2 = table_screen.charm_reader_rects[index] \
+		if index < table_screen.charm_reader_rects.size() else Rect2()
+	_show_charm_tip(run.owned_charms[index], Vector2(rect.get_center().x, rect.end.y),
+		_charm_disk_px().x)
+
+# --- Disketten im LADEN und im SCHWARZMARKT ---------------------------------
+
+## Der Laden meldet: gleich bucht GameRun den Charm dieses Platzes - seine Diskette
+## wird zur ankommenden der Reihe (set_charms fliegt sie hinein).
+func _on_shop_charm_purchasing(index: int) -> void:
+	if index < 0 or index >= charm_shop.charm_options.size():
+		return
+	var charm := charm_shop.charm_options[index]
+	var disk: CharmDiskView = _shop_charm_disks.get(charm)
+	if disk == null or not is_instance_valid(disk):
+		return
+	_shop_charm_disks.erase(charm)
+	_incoming_charm_disks[charm] = disk
+
+## Je Bild: auf jedem unverkauften Charm-Platz des Ladens liegt seine Diskette, und der
+## Zeiger hebt sie. Der EINE Schreiber der Laden-Disketten.
+func _sync_shop_charm_disks() -> void:
+	if charm_shop == null or not is_instance_valid(charm_shop) or table_screen == null:
+		return
+	var shown := phase == Phase.SHOP and charm_shop.is_visible_in_tree() \
+		and charm_shop.charm_seats_laid_out()
+	if not shown:
+		_drop_shop_charm_disks()
+		return
+	var stock := charm_shop.charm_stock()
+	var rects := charm_shop.charm_seat_rects()
+	var wanted := {}
+	var seats := {}
+	for i in stock.size():
+		if stock[i] != null and i < rects.size():
+			wanted[stock[i]] = rects[i]
+			seats[stock[i]] = i
+	for charm: Charm in _shop_charm_disks.keys():
+		if not wanted.has(charm):
+			var gone: CharmDiskView = _shop_charm_disks[charm]
+			if is_instance_valid(gone):
+				gone.queue_free()
+			_shop_charm_disks.erase(charm)
+	var hover := _hovered_disk_rect(wanted.values())
+	if hover == Rect2() and _charm_tip_owner != null and wanted.has(_charm_tip_owner):
+		var pixel := _screen_pixel(get_viewport().get_mouse_position())
+		if not table_screen.charm_tip.has_pixel(pixel):
+			table_screen.charm_tip.hide_tip()
+			_charm_tip_owner = null
+	for charm: Charm in wanted:
+		var rect: Rect2 = wanted[charm]
+		var disk: CharmDiskView = _shop_charm_disks.get(charm)
+		if disk == null or not is_instance_valid(disk):
+			disk = _spawn_lying_disk(charm)
+			_shop_charm_disks[charm] = disk
+		_lay_disk_on(disk, rect)
+		var seat: int = seats[charm]
+		disk.set_tag(charm_shop.charm_tag_text(seat), charm_shop.charm_tag_muted(seat))
+		var lifted := rect == hover
+		disk.set_lifted(lifted)
+		if lifted:
+			_show_charm_tip(charm, Vector2(rect.get_center().x, rect.end.y), rect.size.x)
+
+## Je Bild: die Charm-Ware des Schwarzmarkts liegt als Diskette am Kartensitz.
+func _sync_secret_charm_disk() -> void:
+	var market: SecretShopView = table_screen.secret_shop_window if table_screen != null else null
+	if market == null or run == null or not market.is_visible_in_tree():
+		_drop_secret_charm_disk()
+		return
+	var seat := market.card_slot_index()
+	var rect := market.charm_disk_rect_px()
+	if seat < 0 or rect.size.x <= 0.0 or bool(run.secret_stock[seat][GameRun.OFFER_SOLD]):
+		_drop_secret_charm_disk()
+		return
+	var charm: Charm = run.secret_stock[seat][GameRun.OFFER_ITEM]
+	if _secret_charm_disk == null or not is_instance_valid(_secret_charm_disk) \
+			or _secret_charm_disk.charm != charm:
+		_drop_secret_charm_disk()
+		_secret_charm_disk = _spawn_lying_disk(charm)
+	_lay_disk_on(_secret_charm_disk, rect)
+	_secret_charm_disk.set_lifted(_hovered_disk_rect([rect]) == rect)
+
+func _drop_secret_charm_disk() -> void:
+	if _secret_charm_disk != null and is_instance_valid(_secret_charm_disk):
+		_secret_charm_disk.queue_free()
+	_secret_charm_disk = null
+
+## Ein Schwarzmarkt-Charm wird gleich gebucht: seine Diskette wird die ankommende der Reihe.
+func _claim_secret_charm_disk() -> void:
+	if _secret_charm_disk != null and is_instance_valid(_secret_charm_disk):
+		_incoming_charm_disks[_secret_charm_disk.charm] = _secret_charm_disk
+		_secret_charm_disk = null
+
+func _drop_shop_charm_disks() -> void:
+	if _charm_tip_owner != null and _shop_charm_disks.has(_charm_tip_owner) and table_screen != null:
+		table_screen.charm_tip.hide_tip()
+		_charm_tip_owner = null
+	for charm: Charm in _shop_charm_disks:
+		var disk: CharmDiskView = _shop_charm_disks[charm]
+		if is_instance_valid(disk):
+			disk.queue_free()
+	_shop_charm_disks.clear()
+
+func _spawn_lying_disk(charm: Charm) -> CharmDiskView:
+	var disk := CharmDiskView.new(charm)
+	disk.name = "LadenDiskette_%s" % charm.id
+	add_child(disk)
+	return disk
+
+## Die Diskette liegt flach auf dem gemeldeten Stellplatz (Display-Pixel), Text lesbar.
+func _lay_disk_on(disk: CharmDiskView, rect: Rect2) -> void:
+	if disk.carrying():
+		return
+	var at := table_screen.pixel_to_world(rect.get_center())
+	disk.global_transform = Transform3D(Basis(), Vector3(at.x, VitrineView.FLOOR_CLEAR, at.z))
+
+## Welcher gemeldete Stellplatz liegt unter dem Zeiger (Display-Pixel), oder Rect2().
+func _hovered_disk_rect(rects: Array) -> Rect2:
+	if camera_rig == null or camera_rig.is_animating:
+		return Rect2()
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	if pixel.x < 0.0:
+		return Rect2()
+	for rect: Rect2 in rects:
+		if rect.has_point(pixel):
+			return rect
+	return Rect2()
+
+func _show_charm_tip(charm: Charm, anchor: Vector2, width: float) -> void:
+	if table_screen != null and table_screen.charm_tip != null:
+		table_screen.charm_tip.show_for(charm, anchor, width)
+		_charm_tip_owner = charm
 
 ## Display-Pixel unter der Fenster-Mausposition (Kamerastrahl auf die Screen-
 ## Ebene), oder x<0 bei Verfehlen.
@@ -11337,22 +11608,25 @@ func _setup_side_bets_zoom() -> void:
 	side_bets_click_zone = _screen_zoom_zone("SideBetsClickZone",
 		Rect2(window.position, window.size), camera_rig.configure_side_bets_target)
 
-## Charm-Konsolen unter den Emittern der Charm-Reihe (Ringmitten in Display-Pixeln).
-func _place_charm_dock() -> void:
-	var aperture_centers := PackedVector2Array()
-	for i in CharmRowView.SPOT_COUNT:
-		aperture_centers.append(table_screen.world_to_pixel(charm_row.spot_global_position(i)))
-	var pad_spacing := aperture_centers[0].distance_to(aperture_centers[1]) if aperture_centers.size() > 1 else 200.0
-	# Sockelring = Emitter-Ring des Hologramms: Radius (Welt) -> Screen-Pixel.
-	var proj_radius := CharmRowView.EMITTER_RADIUS * table_screen.pixels_per_world()
-	table_screen.place_charm_dock(aperture_centers, Vector2(pad_spacing * 0.66, pad_spacing * 0.66), proj_radius)
-
-## Zoom-Ziel + Klickzone der Charms aus dem Dock-Rect (rahmt Konsolen UND
-## Hologramme; Klick auf Karten/Info-Band zoomt ebenfalls heran).
+## Zoom-Ziel + Klickzone der Charms aus den Grundrissen der Laufwerke samt Disketten.
 func _setup_charms_zoom() -> void:
-	charms_click_zone = _screen_zoom_zone("CharmsClickZone",
-		Rect2(table_screen.charm_dock.position, table_screen.charm_dock.size),
+	var rects := table_screen.charm_reader_rects
+	var all := rects[0]
+	for rect in rects:
+		all = all.merge(rect)
+	charms_click_zone = _screen_zoom_zone("CharmsClickZone", all,
 		camera_rig.configure_charms_target)
+	# Gerahmt wird in WELT-Maßen am Grundriß der Reihe; die Hologramme stehen über den
+	# Laufwerken, also nimmt die Rahmung ihre halbe Höhe mit.
+	var lo := Vector3(INF, 0.0, INF)
+	var hi := Vector3(-INF, 0.0, -INF)
+	for i in CharmRowView.SPOT_COUNT:
+		for corner in charm_row.footprint(i):
+			lo = Vector3(minf(lo.x, corner.x), 0.0, minf(lo.z, corner.z))
+			hi = Vector3(maxf(hi.x, corner.x), 0.0, maxf(hi.z, corner.z))
+	var lift := (CharmReaderView.LENS.y + CharmRowView.HOVER_HEIGHT + CHARM_HOLO_HEIGHT) * 0.5
+	camera_rig.configure_charms_target((lo + hi) * 0.5,
+		Vector2((hi.z - lo.z) * 0.5, (hi.x - lo.x) * 0.5 + lift))
 
 ## Zoom-Ziel + Klickzone des Hubs (Anker + HUB_*_WORLD).
 func _setup_hub_zoom() -> void:
@@ -11475,9 +11749,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		return _pack_choice_rect().has_point(pixel) \
 			or (_card_opening_browse() and _magazin_browse_rect().has_point(pixel))
 	var flying := camera_rig.is_animating
-	# Wirkungstext der Dock-Karte: Bewegung für die Hover-Karte, Klick nur aufs Schlüsselwort.
-	if not flying and table_screen.charm_dock != null \
-			and table_screen.charm_dock.text_takes_pixel(pixel, is_click):
+	# Der Schlüsselwort-Tip an der Diskette: Bewegung immer, Klick nur aufs Schlüsselwort.
+	if not flying and table_screen.charm_tip != null \
+			and table_screen.charm_tip.takes_pixel(pixel, is_click):
 		return true
 	if debug_parts != null and TableScreen.window_takes_pixel(debug_parts, _window_rect(debug_parts),
 			pixel, is_click, false, flying):
@@ -11735,6 +12009,8 @@ func _sync_free_camera(delta: float) -> void:
 func _process(delta: float) -> void:
 	_sync_free_camera(delta)
 	_update_charm_hover()
+	_sync_shop_charm_disks()
+	_sync_secret_charm_disk()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
 	_sync_vitrine_hover()
@@ -12171,25 +12447,6 @@ func _update_selection_glows() -> void:
 		elif _select_glows.has(i):
 			_select_glows[i].queue_free()
 			_select_glows.erase(i)
-
-## Hover-Info der Charms ins Dock-Band: Index erst über das 3D-Hologramm
-## (Projektions-Nähe), sonst über die Dock-Karte unter der Maus - so leuchtet die
-## Konsole aus jeder Sicht auf. Nicht während Kamerafahrt oder Drag.
-func _update_charm_hover() -> void:
-	if table_screen == null or table_screen.charm_dock == null:
-		return
-	# Nur Fahrt, Titel und der laufende Griff schweigen: die Konsole steht auch in
-	# der Freikamera sichtbar da, und der Pick hat seinen eigenen Radius
-	# (CharmRowView.PICK_RADIUS_PX) - er trifft nichts, was niemand meinte.
-	if not _table_operable() or charm_is_dragging:
-		return
-	var mouse := get_viewport().get_mouse_position()
-	var index := charm_row.charm_index_at_screen_pos(camera_rig, mouse)
-	if index == -1:
-		var pixel := _screen_pixel(mouse)
-		if pixel.x >= 0.0:
-			index = table_screen.charm_dock.pad_index_at(pixel)
-	table_screen.charm_dock.set_hover(index)
 
 ## Mausdruck auf der Energie-Hülle: das Drücken WIRFT bereits (dieselben
 ## Vorbedingungen wie der Würfeln-Knopf, die Funktion prüft sie selbst). Bleibt
@@ -14557,15 +14814,13 @@ func _charm_slot(resolved_index: int) -> int:
 		return -1
 	return slots[resolved_index]
 
-## Blitzt das 3D-Hologramm eines Charms UND sein Dock-Pad ("dieser Charm feuert").
+## Blitzt Hologramm, Laufwerk und Diskette eines Charms ("dieser Charm feuert").
 ## index ist eine WIRKUNGS-Position, keine Besitz-Position.
 func _flash_charm_and_pad(index: int) -> void:
 	var slot := _charm_slot(index)
 	if slot < 0:
 		return
 	charm_row.flash_charm(slot)
-	if table_screen != null and table_screen.charm_dock != null:
-		table_screen.charm_dock.flash_pad(slot)
 
 ## Zuwachs eines Zählschritts als schwebende Zahl aus der Quelle: "+N" bzw.
 ## "×N"; Basis cyan, Mult gold. Rein schmückend.
@@ -14614,15 +14869,11 @@ func _cleanup_take_animation() -> void:
 	_take_combo_key = ""
 	table_screen.reset_pit_score()
 
-## Startpunkt des Zähl-Kometen eines Charm-Schritts: das Kontakt-Pad des ersten
-## beteiligten Charms im Dock (von dort läuft das Licht über die Dock-Leiste).
-## Startpunkt der Charm-Kometen: das Dock-Pad des ERSTEN beteiligten Charms
-## (charm_indices sind Wirkungs-Positionen, siehe _charm_slot).
+## Startpunkt der Charm-Kometen: der Anker des Laufwerks des ERSTEN beteiligten
+## Charms (charm_indices sind Wirkungs-Positionen, siehe _charm_slot).
 func _charm_trail_source_px(charm_indices: Array) -> Vector2:
 	var slot := _charm_slot(int(charm_indices[0])) if not charm_indices.is_empty() else -1
-	if slot < 0 or table_screen.charm_dock == null:
-		return table_screen.world_to_pixel(DicePit.PIT_CENTER)
-	return table_screen.charm_dock.pad_center(slot)
+	return _charm_anchor_px(slot)
 
 ## Goldener Handschlag: der Würfel wird vor aller Augen zu Gold - Ton-Sweep mit
 ## Pop, Blitz auf dem Höhepunkt, dann zurück auf den Ruheton. Die Seiten TRAGEN
@@ -14894,7 +15145,7 @@ func _reset_game() -> void:
 	phase = Phase.IDLE  # bricht auch laufende Wurf-/Zähl-Koroutinen ab
 	_cancel_deck_shift()
 	_cancel_reorder_drag()
-	_cancel_charm_drag()
+	_settle_charm_disks_hard()
 	_cancel_lineup()
 	_cleanup_take_animation()
 	_reset_tray_stage_hard()  # Ablage, Löcher und alle drei Maschinen des alten Laufs
@@ -16758,8 +17009,6 @@ func _log_flash_charm(slot: int) -> void:
 		return
 	if charm_row != null:
 		charm_row.flash_charm(slot)
-	if table_screen != null and table_screen.charm_dock != null:
-		table_screen.charm_dock.flash_pad(slot)
 
 ## Die laufenden Werte auf den Würfeln: ungetönt wie in der Zeremonie, denn die
 ## Änderung war dauerhaft. Trifft der Wert die Seite der Def, verschwindet sie.
