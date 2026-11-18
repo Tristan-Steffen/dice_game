@@ -1,9 +1,8 @@
 extends GutTest
-## Die Datenzelle (DataCellView): das versiegelte Paket als Kassette auf dem
-## Tisch. Geprüft wird, was der Bauplan festlegt - eine Farbquelle, ein
-## versiegelter Sonderbestand ohne Kern, der Deckel des Stapels und die drei
-## Leuchtzustände. Die Tween-Zeit selbst ist nie Gegenstand: geprüft werden
-## Zielwerte.
+## Die Datenzelle (DataCellView): die Werkstatt-Karte als DATENTRÄGER ihrer Sorte.
+## Geprüft wird, was der Bauplan festlegt - eine Farbquelle, EINE Größe für alle vier
+## Träger, der Deckel des Stapels, die Leuchtzustände und der Holo-Emitter AN/AUS.
+## Die Tween-Zeit selbst ist nie Gegenstand: geprüft werden Zielwerte.
 
 func _cell(sort: String, net: Array = [], tier := Pack.TIER_NORMAL) -> DataCellView:
 	var cell := DataCellView.new()
@@ -16,9 +15,10 @@ func test_every_shelf_sort_builds() -> void:
 	for sort: String in Pack.SHELF_ORDER:
 		var cell := _cell(sort)
 		assert_eq(cell.sort, sort)
-		assert_eq(cell.stack_size(), 1, "%s steht als eine Kassette da" % sort)
-		assert_not_null(cell.get_node_or_null("Body/Cell0/Glass"),
-			"%s hat seine Scheibe" % sort)
+		assert_eq(cell.stack_size(), 1, "%s steht als eine Karte da" % sort)
+		assert_eq(cell.carrier(), Pack.SHELF_ORDER.find(sort), "%s trägt seinen Träger" % sort)
+		assert_not_null(cell.get_node_or_null("Body/Cell0/Huelle"),
+			"%s hat seine Hülle" % sort)
 
 func test_the_tint_comes_from_the_single_shelf_table() -> void:
 	for sort: String in Pack.SHELF_ORDER:
@@ -31,82 +31,106 @@ func test_the_tint_comes_from_the_single_shelf_table() -> void:
 		assert_almost_eq(glow.g, expected.g, 0.001)
 		assert_almost_eq(glow.b, expected.b, 0.001)
 
-## Das SIEGELBAND des Sonderbestands ist am 2026-09-11 gestorben (Spieler-Entscheid:
-## der Querbalken verkleinerte sein Netz) - er trägt Kern und Netz wie jede Sorte.
-func test_the_special_sort_carries_core_and_net_like_any_other() -> void:
-	var special := _cell(Pack.SHELF_SPECIAL, _number_net())
-	var plain := _cell(Engraving.CATEGORY_NUMBER, _number_net())
-	assert_true(special.has_core(), "der Kern hinterleuchtet auch den Sonderbestand")
-	assert_not_null(special.get_node_or_null("Body/Cell0/Core"))
-	assert_null(special.get_node_or_null("Body/Cell0/Seal"), "kein Band mehr")
-	assert_null(special.get("has_band"), "und keine Vokabel dafür")
-	assert_eq(special.net_size(), plain.net_size(), "das Netz ist GENAU so groß")
-	assert_eq((special.get_node("Body/Cell0/StampNet") as Node3D).position,
-		(plain.get_node("Body/Cell0/StampNet") as Node3D).position,
-		"und liegt an derselben Stelle")
-
-func test_an_open_sort_shows_its_core() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	assert_true(cell.has_core())
-	assert_not_null(cell.get_node_or_null("Body/Cell0/Core"),
-		"der Kern hinterleuchtet das Netz")
-	assert_null(cell.get_node_or_null("Body/Cell0/Seal"))
-
-## STECKER am Fuß (2026-10-27): das Modell sitzt mittig auf der Fußkante, die Stifte
-## zeigen aus der Karte hinaus - die alten Finnen sind fort.
-func test_the_foot_carries_the_connector_model() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var connector := cell.get_node_or_null("Body/Cell0/Connector") as Node3D
-	assert_not_null(connector, "der Stecker steckt am Fuß")
-	assert_almost_eq(connector.position.y, -DataCellView.HEIGHT * 0.5, 0.0001)
-	assert_null(cell.get_node_or_null("Body/Cell0/Fin0"), "keine Finnen mehr")
+## Die Hülle des Trägers im Rahmen der Karte: alle Teile, gemessen in Karten-Koordinaten.
+func _hull_box(cell: DataCellView) -> AABB:
+	var host: Node3D = cell.get_node("Body/Cell0")
+	var hull: Node3D = cell.get_node("Body/Cell0/Huelle")
 	var reach := AABB()
-	for mesh in connector.find_children("*", "MeshInstance3D", true, false):
-		var box: AABB = (mesh as MeshInstance3D).get_aabb()
-		box.position += (mesh as MeshInstance3D).position
-		reach = box if reach.size == Vector3.ZERO else reach.merge(box)
-	assert_almost_eq(-reach.position.y, DataCellView.PIN_LENGTH, 0.004,
-		"die Stifte ragen genau PIN_LENGTH über die Kante")
-	assert_almost_eq(reach.size.z, DataCellView.CONNECTOR_DEPTH, 0.004,
-		"und der Kragen ist so dick wie gemeldet")
+	var first := true
+	for node in hull.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		var into := host.global_transform.affine_inverse() * mesh.global_transform
+		var box: AABB = into * mesh.get_aabb()
+		reach = box if first else reach.merge(box)
+		first = false
+	return reach
 
-## Die Karte ist GANZ aus GETÖNTEM GLAS - Körper, Kopfkante, Blende und Kragen alle
-## halb durchsichtig; nur das Netz (die "die-view") bleibt deckend.
-func test_the_body_is_tinted_glass_and_cap_and_frame_stay_solid() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var shade := cell.tier_tint()
-	var shell: StandardMaterial3D = cell.get_node("Body/Cell0/Back").material_override
-	assert_eq(shell.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA, "der Körper ist Glas")
-	assert_almost_eq(shell.albedo_color.a, DataCellView.GLASS_BODY_ALPHA, 0.001)
-	assert_almost_eq(shell.albedo_color.r, shade.r, 0.001, "in der Sortenfarbe")
-	assert_almost_eq(shell.albedo_color.g, shade.g, 0.001)
-	assert_almost_eq(shell.albedo_color.b, shade.b, 0.001)
-	assert_lt(DataCellView.GLASS_BODY_EMISSION, Rune.IDLE_CEILING, "kein Ruhe-Bloom")
-	assert_eq(cell.get_node("Body/Cell0/BarLeft").material_override, shell,
-		"die Gehäusebalken teilen dasselbe Glas")
-	for glassy in ["EdgeStrip", "BezelLeft", "CollarLeft"]:
-		var part: StandardMaterial3D = cell.get_node("Body/Cell0/%s" % glassy).material_override
-		assert_eq(part.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA,
-			"%s ist jetzt halb durchsichtig" % glassy)
-		assert_almost_eq(part.albedo_color.a, DataCellView.GLASS_FRAME_ALPHA, 0.001,
-			"%s auf halber Deckkraft" % glassy)
+## EINE GRÖSSE: jeder Träger füllt den Umriß der liegenden Karte, liegt mit der Grundfläche
+## auf ihrer Unterkante und bleibt dünner als die alte Karte - nichts ragt aus einer Fassung.
+func test_every_carrier_fills_the_one_outline() -> void:
+	for sort: String in Pack.SHELF_ORDER:
+		var cell := _cell(sort)
+		var box := _hull_box(cell)
+		assert_almost_eq(box.size.x, DataCellView.WIDTH, 0.02, "%s: so breit wie die Karte" % sort)
+		assert_almost_eq(box.size.y, DataCellView.HEIGHT, 0.02, "%s: so lang wie die Karte" % sort)
+		assert_lte(maxf(-box.position.x, box.end.x), DataCellView.WIDTH * 0.5 + 0.001,
+			"%s: nicht breiter" % sort)
+		assert_lte(maxf(-box.position.y, box.end.y), DataCellView.HEIGHT * 0.5 + 0.001,
+			"%s: nicht länger" % sort)
+		assert_almost_eq(box.position.z, -DataCellView.DEPTH * 0.5, 0.001,
+			"%s liegt auf der Unterkante der Karte" % sort)
+		assert_lte(box.end.z, DataCellView.DEPTH * 0.5 + 0.001, "%s: nie dicker als die Karte" % sort)
 
-## Und darum liest das Netz auch von HINTEN: EINE Backung, beidseitig gezeigt, mit
-## einem durchscheinenden Kern dahinter und einer festen Zeichen-Reihenfolge.
-func test_the_net_reads_from_behind_through_the_body() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var net: StandardMaterial3D = cell.get_node("Body/Cell0/StampNet").material_override
-	assert_eq(net.cull_mode, BaseMaterial3D.CULL_DISABLED,
-		"die Rückseite des Quads zeigt dieselbe Textur gespiegelt")
-	var core: StandardMaterial3D = cell.get_node("Body/Cell0/Core").material_override
-	assert_eq(core.transparency, BaseMaterial3D.TRANSPARENCY_ALPHA)
-	assert_almost_eq(core.albedo_color.a, DataCellView.CORE_ALPHA, 0.001,
-		"die Hinterleuchtung blockt den Blick nicht mehr")
-	var shell: StandardMaterial3D = cell.get_node("Body/Cell0/Back").material_override
-	var pane: StandardMaterial3D = cell.get_node("Body/Cell0/Glass").material_override
-	assert_lt(shell.render_priority, core.render_priority, "Körper hinter Kern")
-	assert_lt(core.render_priority, pane.render_priority, "Kern hinter Scheibe")
-	assert_lt(pane.render_priority, net.render_priority, "Scheibe hinter Netz")
+## Die leuchtenden Teile tragen die Farbe der Karte, die neutralen sind geteilt.
+func test_the_hull_is_dressed_by_role() -> void:
+	var cell := _cell(Engraving.CATEGORY_MATERIAL)
+	var hull: Node3D = cell.get_node("Body/Cell0/Huelle")
+	var kern := hull.find_child("Kern", true, false) as MeshInstance3D
+	var saum := hull.find_child("Saum", true, false) as MeshInstance3D
+	var koerper := hull.find_child("Koerper", true, false) as MeshInstance3D
+	assert_eq(kern.material_override, cell.glow_material(), "der Kern ist das Leuchten")
+	assert_almost_eq((saum.material_override as StandardMaterial3D).emission_energy_multiplier,
+		cell.edge_energy(), 0.0001, "der Saum ist die Kante")
+	assert_eq((koerper.material_override as StandardMaterial3D).transparency,
+		BaseMaterial3D.TRANSPARENCY_DISABLED, "die Hülle ist deckend")
+	var metal := hull.find_child("Metall", true, false) as MeshInstance3D
+	var other := _cell(Engraving.CATEGORY_MATERIAL)
+	var other_metal := (other.get_node("Body/Cell0/Huelle") as Node3D).find_child("Metall",
+		true, false) as MeshInstance3D
+	assert_eq(metal.material_override, other_metal.material_override, "Metall ist geteilt")
+
+## Das Modell wird EINMAL je Träger geladen: zwei Karten teilen dasselbe Mesh.
+func test_the_carrier_models_are_loaded_once() -> void:
+	var first := _cell(Engraving.CATEGORY_DICE)
+	var second := _cell(Engraving.CATEGORY_DICE)
+	var a := (first.get_node("Body/Cell0/Huelle") as Node3D).find_child("Koerper", true,
+		false) as MeshInstance3D
+	var b := (second.get_node("Body/Cell0/Huelle") as Node3D).find_child("Koerper", true,
+		false) as MeshInstance3D
+	assert_eq(a.mesh, b.mesh, "dasselbe Mesh, kein Neuladen je Karte")
+
+## Das NETZ liegt auf jedem Träger an DERSELBEN Stelle in DERSELBEN Größe - auf seiner
+## Oberseite, eine Spur darüber.
+func test_the_net_lies_at_the_same_spot_on_every_carrier() -> void:
+	var plain := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	var at := (plain.get_node("Body/Cell0/StampNet") as Node3D).position
+	for sort: String in Pack.SHELF_ORDER:
+		var cell := _cell(sort, _number_net())
+		var plate: Node3D = cell.get_node("Body/Cell0/StampNet")
+		assert_eq(cell.net_size(), plain.net_size(), "%s: dieselbe Größe" % sort)
+		assert_almost_eq(plate.position.x, at.x, 0.0001, "%s: dieselbe Stelle" % sort)
+		assert_almost_eq(plate.position.y, at.y, 0.0001)
+		assert_almost_eq(plate.position.z, -DataCellView.DEPTH * 0.5
+			+ float(DataCellView.CARRIER_TOPS[cell.carrier()]) + DataCellView.NET_PROUD,
+			0.0001, "%s: auf der Oberseite" % sort)
+
+## Der HOLO-EMITTER ist AUS im Magazin und in jeder Auslage (nur der Sockel mit seinen
+## Leuchtlinien), AN auf dem Leser und im Griff - dann schwebt das Netz über der Lichtsäule.
+func test_the_holo_emitter_projects_only_on_its_reader_and_in_the_grip() -> void:
+	var cell := _cell(Pack.SHELF_SPECIAL, _number_net())
+	var plate: Node3D = cell.get_node("Body/Cell0/StampNet")
+	var beam: Node3D = cell.get_node("Body/Cell0/Lichtsaeule")
+	assert_false(cell.projecting(), "liegend AUS")
+	assert_false(plate.visible, "AUS: kein Netz")
+	assert_false(beam.visible)
+	cell.set_socketed(true)
+	assert_true(cell.projecting(), "auf dem Leser AN")
+	assert_true(plate.visible)
+	assert_true(beam.visible, "die Lichtsäule steht")
+	assert_almost_eq(plate.position.z, -DataCellView.DEPTH * 0.5 + DataCellView.HOLO_FLOAT,
+		0.0001, "das Netz schwebt")
+	cell.set_socketed(false)
+	assert_false(plate.visible, "zurück im Regal wieder AUS")
+	cell.set_hovered(true)
+	assert_true(cell.projecting(), "der Griff schaltet AN")
+	assert_true(plate.visible)
+	cell.set_hovered(false)
+	assert_false(plate.visible)
+	# Die anderen Träger projizieren nie - ihr Netz liegt immer.
+	var punch := _cell(Engraving.CATEGORY_NUMBER, _number_net())
+	assert_false(punch.projecting())
+	assert_true((punch.get_node("Body/Cell0/StampNet") as Node3D).visible)
+	assert_null(punch.get_node_or_null("Body/Cell0/Lichtsaeule"))
 
 func test_the_physical_stack_is_capped_and_the_badge_carries_the_rest() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
@@ -197,12 +221,11 @@ func test_the_standing_height_grows_out_of_the_old_die_edge() -> void:
 # --- Die leuchtende Kopfkante -----------------------------------------------------
 # Tief im Leseschlitz steht NUR sie über dem Glas - sie ist dort die ganze Anzeige.
 
-func test_every_cell_carries_its_edge_strip() -> void:
+func test_every_carrier_carries_its_glow_parts() -> void:
 	for sort: String in Pack.SHELF_ORDER:
-		var cell := _cell(sort)
-		assert_not_null(cell.get_node_or_null("Body/Cell0/EdgeStrip"),
-			"%s hat seine Kopfkante" % sort)
-	assert_lt(DataCellView.EDGE_STRIP_H, DataCellView.HEIGHT * 0.1, "ein Streifen, kein Balken")
+		var hull: Node3D = _cell(sort).get_node("Body/Cell0/Huelle")
+		assert_not_null(hull.find_child("Kern", true, false), "%s hat seinen Kern" % sort)
+		assert_not_null(hull.find_child("Saum", true, false), "%s hat seinen Saum" % sort)
 
 func test_the_edge_rests_below_the_bloom_and_burns_only_when_socketed() -> void:
 	# Die volle Stufe (Kolossal) trägt die authored Energien - dort binden die
@@ -393,19 +416,16 @@ func test_no_cell_carries_a_cap_any_more() -> void:
 	# die sagt jetzt die Farbe. Über dem Blech steht nur noch die Kopfkante.
 	for sort: String in Pack.SHELF_ORDER:
 		var cell := _cell(sort, [], Pack.TIER_KOLOSSAL)
-		for gone in ["Cap", "CapGlyph", "TierStripe0", "TierStripe1"]:
+		for gone in ["Cap", "CapGlyph", "TierStripe0", "Glass", "Back", "EdgeStrip",
+				"Connector"]:
 			assert_null(cell.get_node_or_null("Body/Cell0/%s" % gone),
 				"%s: kein %s mehr" % [sort, gone])
 		assert_null(cell.get_node_or_null("Body/CapBadge"))
-		assert_not_null(cell.get_node_or_null("Body/Cell0/EdgeStrip"),
-			"%s behält seine Kopfkante" % sort)
 	# Das GRIFFMASS überlebt als reine Rechnung: Reihe und Magazin teilen danach,
 	# und es ist byteweise das alte Kappenmaß - die Teilung bleibt dieselbe.
 	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.DEPTH,
 		"die Griff-Zelle ist breiter als die Karte dick - sonst fände der Zeiger sie nie")
 	assert_almost_eq(DataCellView.GRIP_DEPTH, DataCellView.DEPTH * 2.9, 0.000001)
-	assert_gt(DataCellView.GRIP_DEPTH, DataCellView.CONNECTOR_DEPTH,
-		"und bleibt die Greifluft um den steckenden Körper")
 
 func test_hovering_lifts_the_cell_and_lets_it_sink_back() -> void:
 	var cell := _cell(Engraving.CATEGORY_NUMBER)
@@ -447,9 +467,11 @@ func test_hovering_lifts_the_lying_cell_in_its_fach() -> void:
 func test_a_lying_cell_is_deliberately_not_mirrored() -> void:
 	# Dieselbe Regel wie beim Phantomwürfel: sie LIEGT auf dem Glas, ihr
 	# Spiegelbild fiele neben sie und schmierte Stapel und Marke zu.
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	var glass: MeshInstance3D = cell.get_node("Body/Cell0/Glass")
-	assert_eq(glass.layers & ScreenReflection.LAYER, 0, "kein zweites ×n neben dem echten")
+	for sort: String in Pack.SHELF_ORDER:
+		var cell := _cell(sort)
+		for node in cell.find_children("*", "MeshInstance3D", true, false):
+			assert_eq((node as MeshInstance3D).layers & ScreenReflection.LAYER, 0,
+				"%s: kein zweites ×n neben dem echten" % sort)
 
 # --- Das PRÄGENETZ auf der Fläche -------------------------------------------------
 # Die Karte trägt ihr Netz, der Rahmen ihre Sorte und dessen Stärke ihre Größe.
@@ -515,23 +537,20 @@ func test_eine_operator_karte_liest_amber() -> void:
 	assert_false(plain.has_operator())
 	assert_eq(plain.net_accent(), PackDrawerView.COLORS[Pack.SHELF_SPECIAL])
 
-func test_die_groesse_steht_in_der_rahmenstaerke_statt_in_streifen() -> void:
-	# Die Größe sagt die INTENSITÄT; die Rahmenstärke bleibt der stille zweite Kanal.
-	var normal := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_NORMAL)
-	var big := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_GROSS)
-	var huge := _cell(Engraving.CATEGORY_NUMBER, _number_net(), Pack.TIER_KOLOSSAL)
-	assert_almost_eq(normal.bezel_lip(), DataCellView.BEZEL_LIP, 0.0001)
-	assert_gt(big.bezel_lip(), normal.bezel_lip())
-	assert_gt(huge.bezel_lip(), big.bezel_lip())
-	assert_lt(huge.bezel_lip(), DataCellView.SIDE_BAR,
-		"aber nie breiter als der Seitenbalken, der ihn trägt")
-	# ... und beide Kanäle laufen gleich herum: stärker heißt satter und heller.
-	assert_gt(huge.tier_tint().s, normal.tier_tint().s)
-	assert_gt(huge.tier_energy(), normal.tier_energy())
-	var frame: StandardMaterial3D = huge.get_node("Body/Cell0/BezelLeft").material_override
-	var pale: StandardMaterial3D = normal.get_node("Body/Cell0/BezelLeft").material_override
-	assert_gt(frame.emission_energy_multiplier, pale.emission_energy_multiplier,
-		"der Rahmen des Kolossalen glüht stärker")
+## Der Backschlüssel kennt den TRÄGER: dasselbe Netz auf zwei Trägern sind zwei Bilder.
+func test_dasselbe_netz_auf_zwei_traegern_backt_zweimal() -> void:
+	var net := _number_net()
+	var accent := PackDrawerView.COLORS[Engraving.CATEGORY_NUMBER] as Color
+	assert_ne(StampNetOven.signature(net, accent, [], DataCellView.CARRIER_PUNCH),
+		StampNetOven.signature(net, accent, [], DataCellView.CARRIER_HOLO))
+	var oven := StampNetOven.bake(net, accent, [], DataCellView.CARRIER_PUNCH)
+	add_child_autofree(oven)
+	var holes := oven.find_children("Stanzung*", "ColorRect", true, false)
+	assert_eq(holes.size(), 4, "die Lochkarte stanzt je Wert so viele Löcher (+2, +2)")
+	var plain := StampNetOven.bake(net, accent, [], DataCellView.CARRIER_HOLO)
+	add_child_autofree(plain)
+	assert_eq(plain.find_children("Stanzung*", "ColorRect", true, false).size(), 0,
+		"der Holo-Emitter stanzt nicht")
 
 # --- KORREKTUR-WELLE K: die Karte im SCHACHT liegt QUER ----------------------------
 

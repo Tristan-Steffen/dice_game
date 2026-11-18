@@ -1,7 +1,7 @@
 extends GutTest
 ## Tier-2-Tests der Werkstatt (WorkshopView): die Grundseite zeigt allein die
 ## ZIEL-SÄULE (der schwebende Zielwürfel über seinem Summen-Netz, mittig); gewählt
-## wird per Klick auf einen physischen Pool-Würfel (set_target_die), das alte
+## wird per Klick auf einen physischen Pool-Würfel (choose_die), das alte
 ## 2D-Raster ist tot. Versiegelte Pakete liegen als Kassetten im Magazin.
 
 var view: WorkshopView
@@ -26,10 +26,10 @@ func test_packs_never_render_as_cards_in_the_window() -> void:
 	assert_eq(run.owned_packs.size(), 2, "und die Siegel bleiben ganz")
 
 ## Das 2D-Pool-Raster ist tot - gewählt wird ein physischer Pool-Würfel, den
-## scene_root über set_target_die meldet.
+## scene_root über choose_die meldet.
 func test_the_pool_grid_is_gone() -> void:
 	assert_false("_pool_grid" in view, "kein Raster mehr im Fenster")
-	assert_true(view.has_method("set_target_die"), "die Zielwahl kommt von außen")
+	assert_true(view.has_method("choose_die"), "die Zielwahl kommt von außen")
 
 ## Es gibt keine Auspack-Zeremonie mehr: JEDE Kassette geht in einen Serien-Slot,
 ## und ein Würfel wird nie versiegelt.
@@ -64,7 +64,7 @@ func test_the_bench_has_no_floating_dice_of_its_own() -> void:
 
 func test_a_target_net_cell_explains_itself() -> void:
 	# Die Zeile wird GEFRAGT, nicht gemalt - das Fenster hat keinen Schirm dafür.
-	view.choose_target(0)
+	view.choose_index(0)
 	await wait_frames(2)
 	run.owned_pool[0].set_face_material(0, DieMaterial.GOLD)
 	view.refresh()
@@ -74,7 +74,7 @@ func test_a_target_net_cell_explains_itself() -> void:
 		"die Zelle sagt, was auf ihr liegt: '%s'" % said)
 
 func test_a_bare_face_and_a_point_outside_say_nothing() -> void:
-	view.choose_target(0)
+	view.choose_index(0)
 	await wait_frames(2)
 	for face in 6:
 		run.owned_pool[0].set_face_material(face, "")
@@ -83,9 +83,9 @@ func test_a_bare_face_and_a_point_outside_say_nothing() -> void:
 	assert_eq(view.net_hint_at(_net_pixel(0)), "", "eine nackte Seite erklärt nichts")
 	assert_eq(view.net_hint_at(Vector2(-50, -50)), "", "und außerhalb erst recht nicht")
 
-## Display-Pixel in der Mitte der Zelle face im Summen-Netz.
+## Display-Pixel in der Mitte der Zelle face in der Die-View des Podests.
 func _net_pixel(face: int) -> Vector2:
-	var net := view._net
+	var net := view._podium_net
 	return net.get_global_rect().position \
 		+ DieNetView.cell_position(face, net.cell) + Vector2.ONE * net.cell * 0.5
 
@@ -96,7 +96,7 @@ func test_the_grip_keeps_the_target_column_standing() -> void:
 	# bleibt stehen, sie ist das Ziel.
 	run.purchase_pack(Pack.number_pack(), 0)
 	view.slot_pack_from_stack(Engraving.CATEGORY_NUMBER)
-	view.choose_target(0)
+	view.choose_index(0)
 	view.pull_lever()
 	assert_true(view.bench_open())
 	assert_not_null(view._net, "und das Summen-Netz steht")
@@ -131,7 +131,7 @@ func test_the_running_ceremony_relabels_the_same_seat() -> void:
 		pack.stamp_net = StampNet.empty_net()
 		pack.stamp_net[i] = StampNet.value_cell(1)
 		view.slot_pack(pack.pack_uid)
-	view.choose_target(0)
+	view.choose_index(0)
 	await wait_frames(2)
 	view.pull_lever()
 	await wait_frames(2)

@@ -1,26 +1,26 @@
 class_name ShelfStackView
 extends Node3D
-## Das SORTEN-MAGAZIN (2026-11-18): VIER REIHEN untereinander in EINER flachen Grube,
-## eine je SORTE (Pack.SHELF_ORDER), alle auf derselben Höhe. Jede Reihe trägt EINE
-## Lane auf ihrer Platte und ROLLT für sich: ein Zug schiebt ihr FACH waagerecht, was
-## das Fenster verläßt, gleitet durch die Schlitze der Seitenwände unter den Filz.
+## Das SORTEN-MAGAZIN (Layout A, 2026-11-18): VIER SPALTEN nebeneinander in EINER flachen
+## Grube, eine je SORTE (Pack.SHELF_ORDER), alle auf derselben Höhe. Jede Spalte trägt EINE
+## Lane auf ihrer Platte und ROLLT für sich senkrecht: ein Zug schiebt ihr FACH längs Welt-X,
+## was das Fenster verläßt, gleitet durch die Schlitze der Wände oben und unten unter den Filz.
 ##
-## Die Karten LIEGEN flach (Netz nach oben) und sind KINDER des Faches ihrer Reihe:
-## eine Fahrt trägt sie mit. Eine Karte, die ganz außerhalb des Fensters liegt, ist
-## WEGGESTECKT (DataCellView.set_tucked) - sie läge sonst unter dem Graben der Walze.
+## Die Karten LIEGEN flach (Netz nach oben, Langseite quer) und sind KINDER des Faches ihrer
+## Spalte: eine Fahrt trägt sie mit. Eine Karte, die das Fenster verlassen hat, ist
+## WEGGESTECKT (DataCellView.set_tucked) - oben läge sie sonst unter dem Graben der Walze.
 ##
-## Die Maße kommen von außen (scene_root rechnet die gemeldete Grube und die Reihen in
+## Die Maße kommen von außen (scene_root rechnet die gemeldete Grube und die Spalten in
 ## Welt), die HÖHE gehört dem Magazin. Endzustand zuerst: der Roll-Stand ist gebucht,
-## bevor das Fach fährt.
+## bevor das Fach fährt. Längs der Spalte zählt Bild-unten, also Welt -X.
 
-const ROWS := PackDrawerView.ROWS
+const COLUMNS := PackDrawerView.COLUMNS
 
-## Eine Reihe ist eine Platte; die Karte liegt eine Spur darüber (koplanar stritten
+## Eine Spalte ist eine Platte; die Karte liegt eine Spur darüber (koplanar stritten
 ## sie im Tiefenpuffer).
 const PLATE := 0.06
 ## Die Karte liegt in ihrer MULDE auf der Boden-Einlage - um BAY_FLOOR über der
 ## Platte; PROUD mißt vom Muldenboden aus. Lippen, Rippen und Deck reichen bis
-## Kartenoberkante (deck_height), die liegende Karte ist bündig mit der Reihe.
+## Kartenoberkante (deck_height), die liegende Karte ist bündig mit der Spalte.
 const BAY_FLOOR := 0.05
 ## Die Dicke der liegenden Karte und ihre Spur über dem Boden (koplanar stritten
 ## sie im Tiefenpuffer).
@@ -36,15 +36,14 @@ const RIM_CLEAR := CARD_THICKNESS * 0.5
 ## Kartendicke über das Glas - nur der Hover darf über die Kante.
 const HOVER_PROUD := CARD_THICKNESS
 ## So tief unter ihrem Platz beginnt eine gelieferte Karte ihren Aufstieg: unter der
-## Platte ihrer Reihe.
+## Platte ihrer Spalte.
 const RISE_DEPTH := CARD_THICKNESS + PLATE + PROUD
 
-## Der Anteil der Reihen-Tiefe, den die BLENDE am oberen Rand nimmt (PackDrawerView
+## Der Anteil der Spaltenbreite, den die BLENDE am linken Rand nimmt (PackDrawerView
 ## schneidet die Plätze an derselben Zahl - EINE Quelle).
 const BAND_SHARE := PackDrawerView.BAND_SHARE
 const NUMBER_FONT := 48
-## Wie weit das (linksbündige) Kürzel von der linken Blenden-Kante einrückt, in
-## Blenden-Tiefen: bündig gesetzt schnitt die Grubenwand es an.
+## Wie weit das Kürzel vom unteren Blenden-Ende einrückt, in Blenden-Breiten.
 const NUMBER_INSET := 1.0
 ## Hervorgehoben (die Sorte der Option unter dem Zeiger) leuchten Kürzel und Saum heller.
 const HIGHLIGHT_GAIN := 2.2
@@ -70,12 +69,12 @@ const WALL_TOP_GAP := 0.003
 const SEAM_EMPTY_ENERGY := 0.85
 const SEAM_FILLED_ENERGY := 0.9
 
-## Das EINRASTEN nach einem Zug auf die nächste ganze Spalte.
+## Das EINRASTEN nach einem Zug auf den nächsten ganzen Platz.
 const SNAP_TIME := 0.16
-## Eine Wandtasche faßt die hinausgerollte Spalte samt Luft (in Kartenlängen).
+## Eine Wandtasche faßt den hinausgerollten Platz samt Luft (in Kartenbreiten).
 const POCKET_SHARE := 1.2
 const POCKET_CLEAR := 0.3
-## Das GLIMMEN an der Wand, hinter der in dieser Reihe noch Karten liegen.
+## Das GLIMMEN an der Wand, hinter der in dieser Spalte noch Karten liegen.
 const HINT_WIDTH := 0.05
 const HINT_HEIGHT := 0.05
 const HINT_COLOR := Color(1.0, 0.83, 0.1)
@@ -96,7 +95,7 @@ const BAY_FLOOR_ALBEDO := Color(0.095, 0.088, 0.14)
 const BAY_FLOOR_ENERGY := 1.8
 
 ## Die Platten sind UNDURCHSICHTIG (Spieler-Entscheid 2026-09-09): dunkles Blech, ohne
-## Rand - nur die Karten und die Blende unterscheiden eine Reihe.
+## Rand - nur die Karten und die Blende unterscheiden eine Spalte.
 const PLATE_ALBEDO := Color(0.22, 0.212, 0.285)
 const PLATE_EMISSION := Color(0.46, 0.48, 0.66)
 const PLATE_ENERGY := 0.42
@@ -112,50 +111,50 @@ var _span := Vector2.ONE
 var _seat := Vector3.ZERO
 var _scale := PackDrawerView.CASSETTE_SCALE
 var _built := false
-## Die gemeldete Reihen-Geometrie in WELT: je Reihe (Mitte relativ zur Grubenmitte in
-## Welt-X, Tiefe). Leer = der kopflose Rückfall, gleiche Streifen.
+## Die gemeldete Spalten-Geometrie in WELT: je Spalte (Mitte relativ zur Grubenmitte in
+## Welt-Z, Breite). Leer = der kopflose Rückfall, gleiche Streifen.
 var _lanes: Array[Vector2] = []
 
-var _rows: Array[Node3D] = []
+var _columns: Array[Node3D] = []
 var _fachs: Array[Node3D] = []
 var _bands: Array[Node3D] = []
 var _labels: Array[Label3D] = []
 var _glows: Array[MeshInstance3D] = []
-var _tints: Array = []          # Reihe -> Array[Color], zuletzt geschrieben
-var _rolled := {}               # Reihe -> schon nach rechts gerollt (Vorrat links)
+var _tints: Array = []          # Spalte -> Array[Color], zuletzt geschrieben
+var _rolled := {}               # Spalte -> schon nach unten gerollt (Vorrat oben)
 var _wall_material: ShaderMaterial
-var _spare_right := {}           # Reihe -> Vorrats-Block rechts
-var _spare_left := {}            # Reihe -> Vorrats-Block links (nur gerollt)
-var _pitch := {}                 # Reihe -> Muldenteilung
-var _bays: Array[Node3D] = []    # Reihe -> Mulden-Knoten
-var _seams: Array = []          # Reihe -> Array[StandardMaterial3D], je Mulde
+var _spare_below := {}           # Spalte -> Vorrats-Block unten
+var _spare_above := {}           # Spalte -> Vorrats-Block oben (nur gerollt)
+var _pitch := {}                 # Spalte -> Muldenteilung
+var _bays: Array[Node3D] = []    # Spalte -> Mulden-Knoten
+var _seams: Array = []          # Spalte -> Array[StandardMaterial3D], je Mulde
 var _lip_material: StandardMaterial3D
 var _floor_material: ShaderMaterial
 var _plate_material: StandardMaterial3D
 var _pocket: Node3D
-## Wie weit (Welt +Z) die rechte Wandtasche höchstens reicht: der Displayrand.
-var pocket_limit_z := INF:
+## Wie weit (Welt +X) die OBERE Wandtasche höchstens reicht: bis vor den Graben der Walze.
+var top_pocket_limit_x := INF:
 	set(value):
-		if pocket_limit_z == value:
+		if top_pocket_limit_x == value:
 			return
-		pocket_limit_z = value
+		top_pocket_limit_x = value
 		if _built:
 			_build_pocket()
-## Und wie weit (Welt -Z) die LINKE höchstens reicht: bis vor den Graben der Walze.
-var left_pocket_limit_z := -INF:
+## Und wie weit (Welt -X) die UNTERE höchstens reicht: der Displayrand.
+var bottom_pocket_limit_x := -INF:
 	set(value):
-		if left_pocket_limit_z == value:
+		if bottom_pocket_limit_x == value:
 			return
-		left_pocket_limit_z = value
+		bottom_pocket_limit_x = value
 		if _built:
 			_build_pocket()
-## Der ROLL-Zug: welche Reihe gerade vom Zeiger geführt wird (-1 = keine), und das
+## Der ROLL-Zug: welche Spalte gerade vom Zeiger geführt wird (-1 = keine), und das
 ## Einrasten danach.
 var _scrolling := -1
 var _snap: Tween
-var _snap_row := -1
+var _snap_column := -1
 var _snap_to := 0.0
-## Je Reihe zwei Glimm-Balken (links, rechts) und ob sie stehen sollen.
+## Je Spalte zwei Glimm-Balken (oben, unten) und ob sie stehen sollen.
 var _hints: Array = []
 var _overflow: Array[Vector2i] = []
 var _highlight := -1
@@ -165,12 +164,12 @@ func _init() -> void:
 
 ## Gleitet eine Karte im Fach auf einen neuen Platz, folgt das Wegstecken ihr je Bild.
 func _process(_delta: float) -> void:
-	for row in _fachs.size():
-		_write_tuck(row)
+	for column in _fachs.size():
+		_write_tuck(column)
 
 # --- Die reine Rechnung --------------------------------------------------------------
 
-## Wie weit die Trittfläche jeder Reihe unter dem Glas liegt: so tief, daß die flach
+## Wie weit die Trittfläche jeder Spalte unter dem Glas liegt: so tief, daß die flach
 ## darauf liegende Karte mit ihrer Oberseite unter der Tischkante bleibt.
 static func read_drop(cell_scale: float) -> float:
 	return DataCellView.lying_over(cell_scale) + PROUD + RIM_CLEAR
@@ -189,7 +188,7 @@ static func stack_depth(cell_scale: float) -> float:
 
 ## Stellt das Magazin (idempotent - dieselben Maße bauen nichts neu). at = der
 ## GLASPUNKT der Grubenmitte, span = ihr Weltmaß (x quer/Bild-hoch, y längs/Bild-
-## breit), cell_scale der Anzeige-Maßstab der Karten, lanes die gemeldeten Reihen.
+## breit), cell_scale der Anzeige-Maßstab der Karten, lanes die gemeldeten Spalten.
 func setup(at: Vector3, span: Vector2, cell_scale: float,
 		lanes: Array[Vector2] = []) -> void:
 	var wanted := Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
@@ -201,25 +200,25 @@ func setup(at: Vector3, span: Vector2, cell_scale: float,
 	_scale = cell_scale
 	_lanes = lanes.duplicate()
 	global_position = at
-	_tune_bay_floor()  # das Samt-Feld hängt an der Grube, nicht an der Reihe
-	_ensure_rows()
-	for row in ROWS:
-		_build_row(row)
+	_tune_bay_floor()  # das Samt-Feld hängt an der Grube, nicht an der Spalte
+	_ensure_columns()
+	for column in COLUMNS:
+		_build_column(column)
 	_build_pocket()
 	_build_hints()
 	_built = true
 	settle_scroll_hard()
 
-## Die Reihen entstehen EINMAL - ihre Fächer tragen die Karten, ein Neuaufbau der
+## Die Spalten entstehen EINMAL - ihre Fächer tragen die Karten, ein Neuaufbau der
 ## Maße darf sie nicht mit wegräumen.
-func _ensure_rows() -> void:
-	if not _rows.is_empty():
+func _ensure_columns() -> void:
+	if not _columns.is_empty():
 		return
-	for row in ROWS:
+	for column in COLUMNS:
 		var node := Node3D.new()
-		node.name = "Reihe%d" % (row + 1)
+		node.name = "Spalte%d" % (column + 1)
 		add_child(node)
-		_rows.append(node)
+		_columns.append(node)
 		var fach := Node3D.new()
 		fach.name = "Fach"
 		node.add_child(fach)
@@ -232,64 +231,65 @@ func _ensure_rows() -> void:
 		_seams.append([])
 		_overflow.append(Vector2i.ZERO)
 
-## Platte, BLENDE und MULDEN einer Reihe. Das Fach bleibt stehen - es trägt die Karten.
-func _build_row(row: int) -> void:
+## Platte, BLENDE und MULDEN einer Spalte. Das Fach bleibt stehen - es trägt die Karten.
+func _build_column(column: int) -> void:
 	_ensure_materials()
-	var node := _rows[row]
+	var node := _columns[column]
 	node.position = Vector3(0.0, -read_drop(_scale), 0.0)
 	for child in node.get_children():
-		if child == _fachs[row]:
+		if child == _fachs[column]:
 			continue
 		node.remove_child(child)
 		child.queue_free()
-	# Die Platten der Reihen kacheln die ganze Grube: Ränder und Rand gehören ihnen mit.
-	_build_plate(node, "Platte", plate_span(row), plate_center(row), _span.y, 0.0, 0.0)
-	_build_band(node, row)
-	_build_bays(node, row)
+	# Die Platten der Spalten kacheln die ganze Grube: Ränder und Rand gehören ihnen mit.
+	_build_plate(node, "Platte", plate_span(column), plate_center(column), _span.x, 0.0, 0.0)
+	_build_band(node, column)
+	_build_bays(node, column)
 
-## Die BLENDE einer Reihe: am oberen Rand IHRER Lane, links das Kürzel ihrer Sorte in
-## ihrer Sortenfarbe.
-func _build_band(host: Node3D, row: int) -> void:
+## Die BLENDE einer Spalte: am linken Rand IHRER Lane, unten das Kürzel ihrer Sorte in
+## ihrer Sortenfarbe, von unten nach oben zu lesen.
+func _build_band(host: Node3D, column: int) -> void:
 	var band := Node3D.new()
-	band.name = "Blende%d" % (row + 1)
-	band.position = Vector3(lane_x(row) + lane_depth(row) * 0.5 - band_depth(row) * 0.5,
-		0.0, 0.0)
+	band.name = "Blende%d" % (column + 1)
+	band.position = Vector3(0.0, 0.0,
+		lane_z(column) - lane_width(column) * 0.5 + band_width(column) * 0.5)
 	host.add_child(band)
-	_bands[row] = band
+	_bands[column] = band
 	var label := Label3D.new()
 	label.name = "Kuerzel"
-	label.text = row_label(row)
+	label.text = column_label(column)
 	label.font_size = NUMBER_FONT
-	# Flach in Tisch-Leserichtung wie jede Aufschrift auf dem Filz.
-	label.transform.basis = Basis(Vector3.BACK, Vector3.RIGHT, Vector3.UP)
-	label.pixel_size = band_depth(row) * 0.7 / (float(NUMBER_FONT) * 0.62)
-	# Linksbündig: das Kürzel ist unterschiedlich lang, sein Anfang steht fest.
+	# Flach auf dem Filz, die Schrift läuft Bild-aufwärts (Welt +X).
+	label.transform.basis = Basis(Vector3.RIGHT, Vector3.FORWARD, Vector3.UP)
+	label.pixel_size = band_width(column) * 0.7 / (float(NUMBER_FONT) * 0.62)
+	# Der Anfang steht fest: das Kürzel ist unterschiedlich lang.
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.position = Vector3(0.0, deck_height() + 0.01,
-		-_span.y * 0.5 + band_depth(row) * NUMBER_INSET)
+	label.position = Vector3(-_span.x * 0.5 + band_width(column) * NUMBER_INSET,
+		deck_height() + 0.01, 0.0)
 	label.outline_size = 12
 	label.outline_modulate = Color(0.03, 0.03, 0.05)
 	band.add_child(label)
-	_labels[row] = label
+	_labels[column] = label
 	# Der Saum der Hervorhebung liegt über die volle Länge der Blende auf dem Deck.
 	var glow := MeshInstance3D.new()
 	glow.name = "Hervorhebung"
 	var box := BoxMesh.new()
-	box.size = Vector3(band_depth(row) * 0.25, HIGHLIGHT_RISE, _span.y)
+	box.size = Vector3(_span.x, HIGHLIGHT_RISE, band_width(column) * 0.25)
 	glow.mesh = box
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = row_tint(row) * HIGHLIGHT_GAIN
+	material.albedo_color = column_tint(column) * HIGHLIGHT_GAIN
 	glow.material_override = material
 	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	glow.position = Vector3(band_depth(row) * 0.25, deck_height() + HIGHLIGHT_RISE * 0.5, 0.0)
+	glow.position = Vector3(0.0, deck_height() + HIGHLIGHT_RISE * 0.5,
+		band_width(column) * 0.25)
 	band.add_child(glow)
-	_glows[row] = glow
+	_glows[column] = glow
 	_write_highlight()
 
-## Die WANDTASCHEN hinter den Schlitzen beider Seitenwände: geschlossene Kästen von
-## der Wand weg, so tief wie eine hinausgerollte Spalte samt Luft, zur Grube hin
-## offen. Sie liegen außerhalb des Lochs, also sieht man sie NUR durch den Schlitz.
+## Die WANDTASCHEN hinter den Schlitzen der Wände oben und unten: geschlossene Kästen von
+## der Wand weg, so tief wie ein hinausgerollter Platz samt Luft, zur Grube hin offen. Sie
+## liegen außerhalb des Lochs, also sieht man sie NUR durch den Schlitz.
 func _build_pocket() -> void:
 	if _pocket != null and is_instance_valid(_pocket):
 		remove_child(_pocket)
@@ -298,52 +298,52 @@ func _build_pocket() -> void:
 	host.name = "Wandtaschen"
 	add_child(host)
 	_pocket = host
-	_build_pocket_side(host, 1.0, right_pocket_depth())
-	_build_pocket_side(host, -1.0, left_pocket_depth())
+	_build_pocket_side(host, 1.0, top_pocket_depth())
+	_build_pocket_side(host, -1.0, bottom_pocket_depth())
 
-## Wie tief eine Wandtasche ohne Grenze reicht: eine Kartenlänge samt Luft.
+## Wie tief eine Wandtasche ohne Grenze reicht: eine Kartenbreite samt Luft.
 func pocket_depth() -> float:
-	return DataCellView.HEIGHT * _scale * POCKET_SHARE + POCKET_CLEAR
+	return DataCellView.WIDTH * _scale * POCKET_SHARE + POCKET_CLEAR
 
-## Die LINKE endet vor dem Graben der Walze, die RECHTE spätestens am Displayrand.
-func left_pocket_depth() -> float:
+## Die OBERE endet vor dem Graben der Walze, die UNTERE spätestens am Displayrand.
+func top_pocket_depth() -> float:
 	return maxf(minf(pocket_depth(),
-		_seat.z - _span.y * 0.5 - POCKET_WALL - left_pocket_limit_z), POCKET_WALL)
+		top_pocket_limit_x - _seat.x - _span.x * 0.5 - POCKET_WALL), POCKET_WALL)
 
-func right_pocket_depth() -> float:
+func bottom_pocket_depth() -> float:
 	return maxf(minf(pocket_depth(),
-		pocket_limit_z - _seat.z - _span.y * 0.5 - POCKET_WALL), POCKET_WALL)
+		_seat.x - _span.x * 0.5 - POCKET_WALL - bottom_pocket_limit_x), POCKET_WALL)
 
-## EINE Wandtasche, außen an der Wand der Seite side (+1 = Bild-rechts, Welt +Z).
+## EINE Wandtasche, außen an der Wand der Seite side (+1 = Bild-oben, Welt +X).
 func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
 	var host := Node3D.new()
-	host.name = "Wandtasche" if side > 0.0 else "WandtascheLinks"
-	host.scale = Vector3(1.0, 1.0, side)
+	host.name = "WandtascheOben" if side > 0.0 else "WandtascheUnten"
+	host.scale = Vector3(side, 1.0, 1.0)
 	parent.add_child(host)
-	var near := _span.y * 0.5
+	var near := _span.x * 0.5
 	# Die DECKE hängt UNTER der Tischfläche (auf der Höhe der Wandoberkante): auf der
 	# Glasebene selbst läge sie AUF dem Filz - als schwarzer Balken neben der Grube.
 	var top := -PackPitView.WALL_SINK
 	var bottom := -stack_depth(_scale) - POCKET_WALL
 	var high := top - bottom
-	# So breit wie die GANZE Grube - der Schlitz läuft über deren volle Länge.
-	var wide := _span.x + POCKET_WALL * 2.0
-	var mid_z := near + deep * 0.5
+	# So breit wie die GANZE Grube - der Schlitz läuft über deren volle Breite.
+	var wide := _span.y + POCKET_WALL * 2.0
+	var mid_x := near + deep * 0.5
 	var reach := near + deep
-	var rect := Rect2(Vector2(_seat.x - wide * 0.5,
-		_seat.z + (near if side > 0.0 else -reach)), Vector2(wide, deep))
+	var rect := Rect2(Vector2(_seat.x + (near if side > 0.0 else -reach),
+		_seat.z - wide * 0.5), Vector2(deep, wide))
 	var skin := _lining(0.0, rect, high)
 	var velvet := _lining(1.0, rect, high)
-	TableProps.box(host, "Decke", Vector3(wide, POCKET_WALL, deep),
-		Vector3(0.0, top - POCKET_WALL * 0.5, mid_z), skin)
-	TableProps.box(host, "Boden", Vector3(wide, POCKET_WALL, deep),
-		Vector3(0.0, bottom - POCKET_WALL * 0.5, mid_z), velvet)
-	TableProps.box(host, "Rueckwand", Vector3(wide, high, POCKET_WALL),
-		Vector3(0.0, (top + bottom) * 0.5, near + deep + POCKET_WALL * 0.5), skin)
+	TableProps.box(host, "Decke", Vector3(deep, POCKET_WALL, wide),
+		Vector3(mid_x, top - POCKET_WALL * 0.5, 0.0), skin)
+	TableProps.box(host, "Boden", Vector3(deep, POCKET_WALL, wide),
+		Vector3(mid_x, bottom - POCKET_WALL * 0.5, 0.0), velvet)
+	TableProps.box(host, "Rueckwand", Vector3(POCKET_WALL, high, wide),
+		Vector3(near + deep + POCKET_WALL * 0.5, (top + bottom) * 0.5, 0.0), skin)
 	for flank in 2:
 		var dir := float(flank) * 2.0 - 1.0
-		TableProps.box(host, "Flanke%d" % flank, Vector3(POCKET_WALL, high, deep),
-			Vector3(dir * (wide * 0.5 - POCKET_WALL * 0.5), (top + bottom) * 0.5, mid_z),
+		TableProps.box(host, "Flanke%d" % flank, Vector3(deep, high, POCKET_WALL),
+			Vector3(mid_x, (top + bottom) * 0.5, dir * (wide * 0.5 - POCKET_WALL * 0.5)),
 			skin)
 
 ## Die Grube in WELT-XZ - das Feld, an dem sich jede Auskleidung des Magazins mißt.
@@ -372,189 +372,193 @@ func _lining(velvet: float, rect: Rect2, high: float) -> ShaderMaterial:
 		_seat.y, high, PackPitView.GLOW_COLOR, wall_skin if wall else null)
 	return material
 
-## Die Tiefe EINER Reihe in Welt: GEMELDET (das Fenster schneidet die Ränder heraus);
+## Die Breite EINER Spalte in Welt: GEMELDET (das Fenster schneidet die Ränder heraus);
 ## ohne Meldung ein gleicher Streifen.
-func lane_depth(row := 0) -> float:
+func lane_width(column := 0) -> float:
 	if _lanes.is_empty():
-		return _span.x / float(ROWS)
-	return maxf(_lanes[clampi(row, 0, _lanes.size() - 1)].y, 0.01)
+		return _span.y / float(COLUMNS)
+	return maxf(_lanes[clampi(column, 0, _lanes.size() - 1)].y, 0.01)
 
-## Die Mitte einer Reihe, quer zur Grube (Welt-X, relativ zur Grubenmitte; Reihe 0
-## liegt Bild-oben, also bei +X).
-func lane_x(row: int) -> float:
+## Die Mitte einer Spalte, quer zur Grube (Welt-Z, relativ zur Grubenmitte; Spalte 0
+## liegt Bild-links, also bei -Z).
+func lane_z(column: int) -> float:
 	if _lanes.is_empty():
-		return _span.x * 0.5 - _span.x / float(ROWS) * (float(row) + 0.5)
-	return _lanes[clampi(row, 0, _lanes.size() - 1)].x
+		return -_span.y * 0.5 + _span.y / float(COLUMNS) * (float(column) + 0.5)
+	return _lanes[clampi(column, 0, _lanes.size() - 1)].x
 
-## Die Tiefe der Blende in Welt.
-func band_depth(row := 0) -> float:
-	return lane_depth(row) * BAND_SHARE
+## Die Breite der Blende in Welt.
+func band_width(column := 0) -> float:
+	return lane_width(column) * BAND_SHARE
 
-## Die Grenzen der PLATTE einer Reihe (Welt-X, von unten nach oben): die Grubenkante
-## bzw. die Mitte des Randes zur Nachbarreihe.
-func plate_bounds(row: int) -> Vector2:
-	var top := _span.x * 0.5
-	var bottom := -_span.x * 0.5
-	if row > 0:
-		top = (lane_x(row - 1) - lane_depth(row - 1) * 0.5
-			+ lane_x(row) + lane_depth(row) * 0.5) * 0.5
-	if row < ROWS - 1:
-		bottom = (lane_x(row) - lane_depth(row) * 0.5
-			+ lane_x(row + 1) + lane_depth(row + 1) * 0.5) * 0.5
-	return Vector2(bottom, top)
+## Die Grenzen der PLATTE einer Spalte (Welt-Z, von links nach rechts): die Grubenkante
+## bzw. die Mitte des Randes zur Nachbarspalte.
+func plate_bounds(column: int) -> Vector2:
+	var left := -_span.y * 0.5
+	var right := _span.y * 0.5
+	if column > 0:
+		left = (lane_z(column - 1) + lane_width(column - 1) * 0.5
+			+ lane_z(column) - lane_width(column) * 0.5) * 0.5
+	if column < COLUMNS - 1:
+		right = (lane_z(column) + lane_width(column) * 0.5
+			+ lane_z(column + 1) - lane_width(column + 1) * 0.5) * 0.5
+	return Vector2(left, right)
 
-func plate_span(row: int) -> float:
-	var bounds := plate_bounds(row)
+func plate_span(column: int) -> float:
+	var bounds := plate_bounds(column)
 	return maxf(bounds.y - bounds.x, 0.05)
 
-func plate_center(row: int) -> float:
-	var bounds := plate_bounds(row)
+func plate_center(column: int) -> float:
+	var bounds := plate_bounds(column)
 	return (bounds.x + bounds.y) * 0.5
 
-## Die Mitte der Plätze einer Reihe (Welt-X): ihre Lane ohne die Blende.
-func slot_x(row: int) -> float:
-	return lane_x(row) - band_depth(row) * 0.5
+## Die Mitte der Plätze einer Spalte (Welt-Z): ihre Lane ohne die Blende.
+func slot_z(column: int) -> float:
+	return lane_z(column) + band_width(column) * 0.5
 
-func slot_depth(row: int) -> float:
-	return lane_depth(row) * (1.0 - BAND_SHARE)
+func slot_width(column: int) -> float:
+	return lane_width(column) * (1.0 - BAND_SHARE)
 
 # --- Der Zustand -------------------------------------------------------------------
 
-func row_count() -> int:
-	return ROWS
+func column_count() -> int:
+	return COLUMNS
 
-## Fährt gerade eine Reihe - unter dem Zeiger oder ins Einrasten?
+## Fährt gerade eine Spalte - unter dem Zeiger oder ins Einrasten?
 func riding() -> bool:
 	return _scrolling >= 0 or (_snap != null and _snap.is_valid())
 
 # --- Das ROLLEN --------------------------------------------------------------------
 
-## Der Zeiger führt das Fach der Reihe: um z (Welt, + = Bild-rechts) gegen ihren
+## Der Zeiger führt das Fach der Spalte: um x (Welt, - = Bild-unten) gegen ihren
 ## Roll-Stand versetzt. Die Karten hängen am Fach und reisen mit.
-func drag_scroll(row: int, z: float) -> void:
-	if row < 0 or row >= _fachs.size():
+func drag_scroll(column: int, x: float) -> void:
+	if column < 0 or column >= _fachs.size():
 		return
-	if _snap_row != row:
+	if _snap_column != column:
 		_finish_snap()
 	else:
 		_kill_snap()
-	_scrolling = row
-	_roll_to(row, z)
+	_scrolling = column
+	_roll_to(column, x)
 
 ## Fach UND Mulden fahren gemeinsam: ausgeblendet ließen die Mulden eine graue Platte
 ## stehen, und die leeren Vorrats-Mulden rücken nach.
-func _roll_to(row: int, z: float) -> void:
-	_fachs[row].position.z = z
-	if _bays[row] != null and is_instance_valid(_bays[row]):
-		_bays[row].position.z = z
-		_place_spares(row, z)
-		_write_segments(row)
-	_write_tuck(row)
+func _roll_to(column: int, x: float) -> void:
+	_fachs[column].position.x = x
+	if _bays[column] != null and is_instance_valid(_bays[column]):
+		_bays[column].position.x = x
+		_place_spares(column, x)
+		_write_segments(column)
+	_write_tuck(column)
 
-## Die Dauer des Einrastens: eine Spalte in SNAP_TIME, ein weiter Rückweg länger -
+## Die Dauer des Einrastens: ein Platz in SNAP_TIME, ein weiter Rückweg länger -
 ## mit der Wurzel der Strecke, gedeckelt (sonst spränge ein langer Zug zurück).
 func snap_time_for(distance: float) -> float:
-	var columns := distance / maxf(_span.y / float(PackDrawerView.COLUMNS), 0.001)
-	return minf(SNAP_TIME * sqrt(maxf(columns, 1.0)), SNAP_TIME_MAX)
+	var places := distance / maxf(_span.x / float(PackDrawerView.PLACES), 0.001)
+	return minf(SNAP_TIME * sqrt(maxf(places, 1.0)), SNAP_TIME_MAX)
 
 ## Der Versatz des Fachs (0 = es liegt auf seinem Roll-Stand).
-func scroll_offset(row: int) -> float:
-	if row < 0 or row >= _fachs.size():
+func scroll_offset(column: int) -> float:
+	if column < 0 or column >= _fachs.size():
 		return 0.0
-	return _fachs[row].position.z
+	return _fachs[column].position.x
 
 ## Losgelassen: das Fach fährt von from auf to und RASTET dort ein - danach wird der
 ## Versatz in die Karten übernommen (der Roll-Stand ist längst gebucht, ihre Plätze
 ## stehen schon dort). on_done läuft danach, auch bei Zeit 0.
-func snap_scroll(row: int, from: float, to: float, on_done: Callable) -> void:
-	if row < 0 or row >= _fachs.size():
+func snap_scroll(column: int, from: float, to: float, on_done: Callable) -> void:
+	if column < 0 or column >= _fachs.size():
 		return
 	_finish_snap()
-	if _scrolling == row:
+	if _scrolling == column:
 		_scrolling = -1
-	_roll_to(row, from)
+	_roll_to(column, from)
 	if not is_inside_tree() or is_equal_approx(from, to):
-		_roll_to(row, to)
-		bake_scroll(row)
+		_roll_to(column, to)
+		bake_scroll(column)
 		on_done.call()
 		return
-	_snap_row = row
+	_snap_column = column
 	_snap_to = to
 	_snap = create_tween()
-	_snap.tween_method(func(z: float) -> void: _roll_to(row, z), from, to,
+	_snap.tween_method(func(x: float) -> void: _roll_to(column, x), from, to,
 		snap_time_for(absf(to - from))) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	_snap.tween_callback(func() -> void:
-		_snap_row = -1
-		bake_scroll(row)
+		_snap_column = -1
+		bake_scroll(column)
 		on_done.call())
 
 ## Der Versatz des Fachs geht in seine Karten über, das Fach steht wieder auf 0 -
 ## die Welt-Plätze bleiben byteweise, wo sie sind.
-func bake_scroll(row: int) -> void:
-	if row < 0 or row >= _fachs.size():
+func bake_scroll(column: int) -> void:
+	if column < 0 or column >= _fachs.size():
 		return
-	var fach_node := _fachs[row]
-	var offset := fach_node.position.z
-	_roll_to(row, 0.0)
+	var fach_node := _fachs[column]
+	var offset := fach_node.position.x
+	_roll_to(column, 0.0)
 	if not is_zero_approx(offset):
 		for child in fach_node.get_children():
-			(child as Node3D).position.z += offset
-	_write_tuck(row)
+			(child as Node3D).position.x += offset
+	_write_tuck(column)
 
 ## Der harte Weg: jedes Fach auf 0, jede Fahrt aus (Laufwechsel, Abbruch).
 func settle_scroll_hard() -> void:
 	_kill_snap()
 	_scrolling = -1
-	for row in _fachs.size():
-		bake_scroll(row)
+	for column in _fachs.size():
+		bake_scroll(column)
 
-## Ein laufendes Einrasten einer ANDEREN Reihe springt an sein Ende - es schuldet nichts.
+## Ein laufendes Einrasten einer ANDEREN Spalte springt an sein Ende - es schuldet nichts.
 func _finish_snap() -> void:
-	var row := _snap_row
+	var column := _snap_column
 	var to := _snap_to
 	_kill_snap()
-	if row >= 0:
-		_roll_to(row, to)
-		bake_scroll(row)
+	if column >= 0:
+		_roll_to(column, to)
+		bake_scroll(column)
 
 func _kill_snap() -> void:
 	if _snap != null and _snap.is_valid():
 		_snap.kill()
 	_snap = null
-	_snap_row = -1
+	_snap_column = -1
 
-## WEGGESTECKT ist, was die Reihe aus dem Fenster gerollt hat: LINKS, sobald seine
-## Mitte die Wand passiert oder seine Kante weiter reicht als die schmale Tasche -
-## dahinter liegt der offene Graben der Walze -, RECHTS erst ganz draußen (dort deckt
-## der Filz).
-func hidden_at(z: float, half_length: float) -> bool:
-	var edge := _span.y * 0.5
-	var room := left_pocket_depth()
-	var tail := z - half_length
-	return z < -edge or tail < -edge - room or tail > edge
+## WEGGESTECKT ist, was die Spalte aus dem Fenster gerollt hat: ganz draußen, mit der
+## fernen Kante jenseits der Tasche, oder - ist die Tasche kürzer als die Karte - schon,
+## sobald die Mitte die Wand passiert. Oben liegt dahinter der offene Graben der Walze.
+func hidden_at(x: float, half: float) -> bool:
+	var edge := _span.x * 0.5
+	for side: float in [1.0, -1.0]:
+		var room := top_pocket_depth() if side > 0.0 else bottom_pocket_depth()
+		var at := x * side
+		if at - half > edge or at + half > edge + room:
+			return true
+		if at > edge and room < half * 2.0:
+			return true
+	return false
 
-func _write_tuck(row: int) -> void:
-	if row < 0 or row >= _fachs.size():
+func _write_tuck(column: int) -> void:
+	if column < 0 or column >= _fachs.size():
 		return
-	var fach_node := _fachs[row]
-	var half := DataCellView.HEIGHT * _scale * 0.5
+	var fach_node := _fachs[column]
+	var half := DataCellView.WIDTH * _scale * 0.5
 	for child in fach_node.get_children():
 		var cell := child as DataCellView
 		if cell != null:
-			cell.set_tucked(hidden_at(fach_node.position.z + cell.position.z, half))
+			cell.set_tucked(hidden_at(fach_node.position.x + cell.position.x, half))
 
-## Dieselbe Regel für die Mulden-Stücke der Reihe (Fenster und Vorrat).
-func _write_segments(row: int) -> void:
-	var bays: Node3D = _bays[row] if row < _bays.size() else null
+## Dieselbe Regel für die Mulden-Stücke der Spalte (Fenster und Vorrat).
+func _write_segments(column: int) -> void:
+	var bays: Node3D = _bays[column] if column < _bays.size() else null
 	if bays == null or not is_instance_valid(bays):
 		return
-	var half := float(_pitch.get(row, 0.0)) * 0.5
+	var half := float(_pitch.get(column, 0.0)) * 0.5
 	for node in _segments_of(bays):
-		var z := bays.position.z + node.position.z
+		var x := bays.position.x + node.position.x
 		if node.get_parent() != bays:
-			z += (node.get_parent() as Node3D).position.z
-		node.visible = not hidden_at(z, half)
+			x += (node.get_parent() as Node3D).position.x
+		node.visible = not hidden_at(x, half)
 
 func _segments_of(bays: Node3D) -> Array[Node3D]:
 	var out: Array[Node3D] = []
@@ -566,22 +570,22 @@ func _segments_of(bays: Node3D) -> Array[Node3D]:
 				out.append(spare as Node3D)
 	return out
 
-## Das GLIMMEN an den Wänden einer Reihe: links stehen noch hinausgerollte Karten,
-## rechts noch ungezeigte. Idempotent.
-func set_overflow(row: int, left: bool, right: bool) -> void:
-	if row < 0 or row >= _overflow.size():
+## Das GLIMMEN an den Wänden einer Spalte: oben stehen noch hinausgerollte Karten,
+## unten noch ungezeigte. Idempotent.
+func set_overflow(column: int, above: bool, below: bool) -> void:
+	if column < 0 or column >= _overflow.size():
 		return
-	_overflow[row] = Vector2i(1 if left else 0, 1 if right else 0)
+	_overflow[column] = Vector2i(1 if above else 0, 1 if below else 0)
 	_write_hints()
 
-func overflow(row: int) -> Vector2i:
-	if row < 0 or row >= _overflow.size():
+func overflow(column: int) -> Vector2i:
+	if column < 0 or column >= _overflow.size():
 		return Vector2i.ZERO
-	return _overflow[row]
+	return _overflow[column]
 
-## Die HERVORHEBUNG einer Reihe (-1 = keine): Kürzel und Saum leuchten heller.
-func set_highlight(row: int) -> void:
-	var wanted := row if row >= 0 and row < ROWS else -1
+## Die HERVORHEBUNG einer Spalte (-1 = keine): Kürzel und Saum leuchten heller.
+func set_highlight(column: int) -> void:
+	var wanted := column if column >= 0 and column < COLUMNS else -1
 	if wanted == _highlight:
 		return
 	_highlight = wanted
@@ -591,12 +595,12 @@ func highlighted() -> int:
 	return _highlight
 
 func _write_highlight() -> void:
-	for row in _labels.size():
-		var on := row == _highlight
-		var label := _labels[row]
+	for column in _labels.size():
+		var on := column == _highlight
+		var label := _labels[column]
 		if label != null and is_instance_valid(label):
-			label.modulate = row_tint(row) * (HIGHLIGHT_GAIN if on else 1.0)
-		var glow := _glows[row]
+			label.modulate = column_tint(column) * (HIGHLIGHT_GAIN if on else 1.0)
+		var glow := _glows[column]
 		if glow != null and is_instance_valid(glow):
 			glow.visible = on
 
@@ -610,57 +614,57 @@ func _build_hints() -> void:
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.albedo_color = HINT_COLOR * HINT_ENERGY
-	for row in ROWS:
+	for column in COLUMNS:
 		var pair: Array[MeshInstance3D] = []
 		for side in 2:
 			var bar := MeshInstance3D.new()
-			bar.name = "Glimmen%s" % ("Links" if side == 0 else "Rechts")
+			bar.name = "Glimmen%s" % ("Oben" if side == 0 else "Unten")
 			var box := BoxMesh.new()
-			box.size = Vector3(slot_depth(row), HINT_HEIGHT, HINT_WIDTH)
+			box.size = Vector3(HINT_WIDTH, HINT_HEIGHT, slot_width(column))
 			bar.mesh = box
 			bar.material_override = material
 			bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var dir := -1.0 if side == 0 else 1.0
-			bar.position = Vector3(slot_x(row), PROUD + HINT_HEIGHT * 0.5,
-				dir * (_span.y * 0.5 - HINT_WIDTH * 0.5))
-			_rows[row].add_child(bar)
+			var dir := 1.0 if side == 0 else -1.0
+			bar.position = Vector3(dir * (_span.x * 0.5 - HINT_WIDTH * 0.5),
+				PROUD + HINT_HEIGHT * 0.5, slot_z(column))
+			_columns[column].add_child(bar)
 			pair.append(bar)
 		_hints.append(pair)
 	_write_hints()
 
 func _write_hints() -> void:
-	for row in _hints.size():
-		var pair: Array = _hints[row]
+	for column in _hints.size():
+		var pair: Array = _hints[column]
 		for side in pair.size():
 			var bar: MeshInstance3D = pair[side]
 			if is_instance_valid(bar):
-				bar.visible = (_overflow[row].x if side == 0 else _overflow[row].y) > 0
+				bar.visible = (_overflow[column].x if side == 0 else _overflow[column].y) > 0
 
 # --- Die Plätze --------------------------------------------------------------------
 
-## Welt-y der Trittfläche einer Reihe - alle Reihen liegen gleich hoch.
-func tray_top(_row := 0) -> float:
+## Welt-y der Trittfläche einer Spalte - alle Spalten liegen gleich hoch.
+func tray_top(_column := 0) -> float:
 	return _seat.y - read_drop(_scale)
 
-## ... und die Höhe, auf der die Karte dieser Reihe LIEGT.
-func card_seat(row := 0) -> float:
-	return tray_top(row) + PROUD
+## ... und die Höhe, auf der die Karte dieser Spalte LIEGT.
+func card_seat(column := 0) -> float:
+	return tray_top(column) + PROUD
 
 ## Der höchste Punkt einer Karte - daran mißt die Invariante.
-func card_top(row := 0) -> float:
-	return card_seat(row) + DataCellView.lying_over(_scale)
+func card_top(column := 0) -> float:
+	return card_seat(column) + DataCellView.lying_over(_scale)
 
-## Das FACH einer Reihe - der Wirt ihrer Karten (null = noch nicht gebaut).
-func fach(row: int) -> Node3D:
+## Das FACH einer Spalte - der Wirt ihrer Karten (null = noch nicht gebaut).
+func fach(column: int) -> Node3D:
 	if _fachs.is_empty():
 		return null
-	return _fachs[clampi(row, 0, _fachs.size() - 1)]
+	return _fachs[clampi(column, 0, _fachs.size() - 1)]
 
-## Die Karte wird KIND des Faches ihrer Reihe - ein Zug trägt sie mit. Ihren Platz
-## nennt der Sitz-Schreiber, die HÖHE gehört der Reihe: lokal liegt sie IMMER PROUD
+## Die Karte wird KIND des Faches ihrer Spalte - ein Zug trägt sie mit. Ihren Platz
+## nennt der Sitz-Schreiber, die HÖHE gehört der Spalte: lokal liegt sie IMMER PROUD
 ## über der Trittfläche.
-func host_card(cell: Node3D, row: int) -> void:
-	var fach_node := fach(row)
+func host_card(cell: Node3D, column: int) -> void:
+	var fach_node := fach(column)
 	if fach_node == null:
 		return
 	if cell.get_parent() != fach_node:
@@ -668,12 +672,12 @@ func host_card(cell: Node3D, row: int) -> void:
 	cell.position.y = PROUD
 	if cell is DataCellView:
 		(cell as DataCellView).set_layer_depth(0)
-	_write_tuck(clampi(row, 0, _fachs.size() - 1))
+	_write_tuck(clampi(column, 0, _fachs.size() - 1))
 
 ## Liegt diese Karte schon auf ihrem Platz? Verglichen wird in der TISCHEBENE und am
 ## Fach.
-func seated(cell: Node3D, row: int, at: Vector3) -> bool:
-	if _fachs.is_empty() or cell.get_parent() != fach(row):
+func seated(cell: Node3D, column: int, at: Vector3) -> bool:
+	if _fachs.is_empty() or cell.get_parent() != fach(column):
 		return false
 	if not is_equal_approx(cell.position.y, PROUD):
 		return false
@@ -699,138 +703,145 @@ static func rehost(node: Node3D, host: Node) -> void:
 # --- Die BLENDE ----------------------------------------------------------------------
 
 ## Die Aufschrift der Blende: das KÜRZEL der Sorte.
-static func row_label(row: int) -> String:
-	return Pack.shelf_short(String(Pack.SHELF_ORDER[clampi(row, 0, ROWS - 1)]))
+static func column_label(column: int) -> String:
+	return Pack.shelf_short(String(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)]))
 
-## Die Sortenfarbe der Reihe.
-static func row_tint(row: int) -> Color:
-	return PackDrawerView.COLORS.get(Pack.SHELF_ORDER[clampi(row, 0, ROWS - 1)],
+## Die Sortenfarbe der Spalte.
+static func column_tint(column: int) -> Color:
+	return PackDrawerView.COLORS.get(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)],
 		PackDrawerView.GOLD)
 
-## Die Sortenfarben einer Reihe, je Stellplatz eine (BAY_EMPTY = leer). Sie färben
+## Die Sortenfarben einer Spalte, je Stellplatz eine (BAY_EMPTY = leer). Sie färben
 ## den Lichtsaum der Mulden; ändert sich die Platzzahl, werden die Mulden neu gebaut,
 ## sonst nur umgefärbt. Idempotent.
-## rolled = die Reihe ist schon nach rechts gerollt: erst dann liegen links
-## Vorrats-Mulden (Spieler-Wunsch 2026-10-28 - auf Stand 0 endet sie an der ersten).
-func set_bay_tints(row: int, tints: Array, rolled := false) -> void:
-	if row < 0 or row >= ROWS or _tints.is_empty():
+## rolled = die Spalte ist schon nach unten gerollt: erst dann liegen oben
+## Vorrats-Mulden (auf Stand 0 endet sie an der ersten).
+func set_bay_tints(column: int, tints: Array, rolled := false) -> void:
+	if column < 0 or column >= COLUMNS or _tints.is_empty():
 		return
-	var was_rolled: bool = _rolled.get(row, false)
-	if _tints[row] == tints and was_rolled == rolled:
+	var was_rolled: bool = _rolled.get(column, false)
+	if _tints[column] == tints and was_rolled == rolled:
 		return
-	var rebuild := (_tints[row] as Array).size() != tints.size() or was_rolled != rolled
-	_rolled[row] = rolled
-	_tints[row] = tints.duplicate()
-	if rebuild and row < _rows.size():
-		_build_bays(_rows[row], row)
+	var rebuild := (_tints[column] as Array).size() != tints.size() or was_rolled != rolled
+	_rolled[column] = rolled
+	_tints[column] = tints.duplicate()
+	if rebuild and column < _columns.size():
+		_build_bays(_columns[column], column)
 	else:
-		_write_bays(row)
+		_write_bays(column)
 
-func bay_count(row: int) -> int:
-	if row < 0 or row >= _tints.size():
+func bay_count(column: int) -> int:
+	if column < 0 or column >= _tints.size():
 		return 0
-	return (_tints[row] as Array).size()
+	return (_tints[column] as Array).size()
 
-func bay_tint(row: int, index: int) -> Color:
-	if row < 0 or row >= _tints.size():
+func bay_tint(column: int, index: int) -> Color:
+	if column < 0 or column >= _tints.size():
 		return BAY_EMPTY
-	var line: Array = _tints[row]
+	var line: Array = _tints[column]
 	if index < 0 or index >= line.size():
 		return BAY_EMPTY
 	return line[index]
 
-## Das Maß EINER Mulde bei so vielen Plätzen: die liegende Karte plus Luft, gedeckelt
-## von Teilung und Reihe, so daß zwischen zwei Mulden immer eine Lippe steht.
-func bay_size(columns: int, row := 0) -> Vector2:
-	var pitch := _span.y / float(maxi(columns, 1))
+## Das Maß EINER Mulde bei so vielen Plätzen (x längs der Spalte, y quer): die liegende
+## Karte plus Luft, gedeckelt von Teilung und Spalte, so daß zwischen zwei Mulden immer
+## eine Lippe steht.
+func bay_size(places: int, column := 0) -> Vector2:
+	var pitch := _span.x / float(maxi(places, 1))
 	return Vector2(
-		minf(DataCellView.WIDTH * _scale * BAY_ROOM, slot_depth(row) - LIP_MIN * 2.0),
-		minf(DataCellView.HEIGHT * _scale * BAY_ROOM, pitch - LIP_MIN))
+		minf(DataCellView.WIDTH * _scale * BAY_ROOM, pitch - LIP_MIN),
+		minf(DataCellView.HEIGHT * _scale * BAY_ROOM, slot_width(column) - LIP_MIN * 2.0))
 
-## Die MULDEN einer Reihe: je Platz EIN Stück aus Platte, Deck, Lippen, Rippe und
+## Welt-X eines Platzes einer Spalte bei so vielen Plätzen: Platz 0 oben.
+func _place_x(index: float, pitch: float) -> float:
+	return _span.x * 0.5 - pitch * (index + 0.5)
+
+## Die MULDEN einer Spalte: je Platz EIN Stück aus Platte, Deck, Lippen, Rippe und
 ## Mulde (Saum, Boden, Buchse) - in Stücken, damit hinausgerollte für sich verschwinden.
-func _build_bays(host: Node3D, row: int) -> void:
-	var old: Node3D = _bays[row] if row < _bays.size() else null
+func _build_bays(host: Node3D, column: int) -> void:
+	var old: Node3D = _bays[column] if column < _bays.size() else null
 	if old != null and is_instance_valid(old):
-		# Ein Neubau der Reihe hat den Knoten schon ausgehängt - dann nur freigeben.
+		# Ein Neubau der Spalte hat den Knoten schon ausgehängt - dann nur freigeben.
 		if old.get_parent() != null:
 			old.get_parent().remove_child(old)
 		old.queue_free()
-	_bays[row] = null
-	_seams[row] = []
-	var tints: Array = _tints[row]
+	_bays[column] = null
+	_seams[column] = []
+	var tints: Array = _tints[column]
 	if tints.is_empty():
 		return
 	_ensure_materials()
 	# Der Verlauf mißt an der Wandhöhe - die hängt am Kartenmaß.
 	_wall_material.set_shader_parameter("height", deck_height() - WALL_TOP_GAP)
 	var bays := Node3D.new()
-	bays.name = "Mulden%d" % (row + 1)
-	bays.position = Vector3(slot_x(row), 0.0, _fachs[row].position.z)
+	bays.name = "Mulden%d" % (column + 1)
+	bays.position = Vector3(_fachs[column].position.x, 0.0, slot_z(column))
 	host.add_child(bays)
-	_bays[row] = bays
-	var columns := tints.size()
-	var pitch := _span.y / float(columns)
-	var shape := _segment_shape(row, columns)
-	var rolled: bool = _rolled.get(row, false)
+	_bays[column] = bays
+	var places := tints.size()
+	var pitch := _span.x / float(places)
+	var shape := _segment_shape(column, places)
+	var rolled: bool = _rolled.get(column, false)
 	var seams: Array = []
-	for i in columns:
+	for i in places:
 		var node := Node3D.new()
 		node.name = "Mulde%d" % i
-		node.position = Vector3(0.0, 0.0, -_span.y * 0.5 + pitch * (float(i) + 0.5))
+		node.position = Vector3(_place_x(float(i), pitch), 0.0, 0.0)
 		bays.add_child(node)
-		# Die Rippe links gehört dem Stück; ohne Vorrat links steht die erste halb so
-		# breit INNEN an der Kante, die letzte trägt auch die rechte.
+		# Die Rippe oben gehört dem Stück; ohne Vorrat oben steht die erste halb so
+		# breit INNEN an der Kante, die letzte trägt auch die untere.
 		var ribs: Array[float] = [-1.0 if i > 0 or rolled else -0.5]
-		if i == columns - 1:
+		if i == places - 1:
 			ribs.append(1.0)
 		var seam := _seam_material(BAY_EMPTY)
-		_build_segment(node, row, pitch, shape, ribs, seam)
+		_build_segment(node, column, pitch, shape, ribs, seam)
 		seams.append(seam)
-	# Die VORRATS-Mulden: rechts immer, links erst nach dem Rollen. Sie rollen mit und
+	# Die VORRATS-Mulden: unten immer, oben erst nach dem Rollen. Sie rollen mit und
 	# springen beim Zug um ganze Teilungen nach - so ist das Fenster bei jedem Zug voll.
-	_spare_right[row] = _build_spares(bays, row, "VorratRechts", 1.0, columns, pitch, shape)
-	_spare_left[row] = _build_spares(bays, row, "VorratLinks", -1.0, columns, pitch,
+	_spare_below[column] = _build_spares(bays, column, "VorratUnten", 1.0, places, pitch,
+		shape)
+	_spare_above[column] = _build_spares(bays, column, "VorratOben", -1.0, places, pitch,
 		shape) if rolled else null
-	_pitch[row] = pitch
-	_seams[row] = seams
-	_place_spares(row, bays.position.z)
-	_write_bays(row)
-	_write_segments(row)
+	_pitch[column] = pitch
+	_seams[column] = seams
+	_place_spares(column, bays.position.x)
+	_write_bays(column)
+	_write_segments(column)
 
 ## Die Quer-Maße eines Stücks: Mulde, Lippe, Rippe und die mitrollende Platte (Mitte
 ## quer relativ zu den Plätzen, Breite).
-func _segment_shape(row: int, columns: int) -> Dictionary:
-	var bay := bay_size(columns, row)
-	var pitch := _span.y / float(maxi(columns, 1))
-	return {"bay": bay, "rail": (slot_depth(row) - bay.x) * 0.5, "rib": pitch - bay.y,
-		"under": Vector2(plate_center(row) - slot_x(row), plate_span(row))}
+func _segment_shape(column: int, places: int) -> Dictionary:
+	var bay := bay_size(places, column)
+	var pitch := _span.x / float(maxi(places, 1))
+	return {"bay": bay, "rail": (slot_width(column) - bay.y) * 0.5, "rib": pitch - bay.x,
+		"under": Vector2(plate_center(column) - slot_z(column), plate_span(column))}
 
-## EIN Stück der Reihe, pitch lang um seinen Knoten: die mitrollende PLATTE eine Spur
-## UNTER der festen (sichtbar nur jenseits der Grubenwand), darauf das DECK auf
-## Kartenhöhe neben der Mulden-Lane, die Lippen, die Rippen an den genannten Rändern
-## (-1 links, +1 rechts, ±0.5 halb und innen) und die Mulde selbst.
-func _build_segment(node: Node3D, row: int, pitch: float, shape: Dictionary,
+## EIN Stück der Spalte, pitch lang um seinen Knoten (längs Welt-X): die mitrollende
+## PLATTE eine Spur UNTER der festen (sichtbar nur jenseits der Grubenwand), darauf das
+## DECK auf Kartenhöhe neben der Mulden-Lane, die Lippen, die Rippen an den genannten
+## Rändern (-1 oben, +1 unten, ±0.5 halb und innen) und die Mulde selbst.
+func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 		ribs: Array[float], seam: StandardMaterial3D) -> void:
 	var bay: Vector2 = shape["bay"]
 	var rail: float = shape["rail"]
 	var rib: float = shape["rib"]
 	var under: Vector2 = shape["under"]
 	_build_plate(node, "Unterplatte", under.y, under.x, pitch, 0.0, UNDERPLATE_SINK)
-	for strip: Vector2 in _deck_strips(row):
-		TableProps.box(node, "Deck", Vector3(strip.y - strip.x, deck_height(), pitch),
-			Vector3((strip.x + strip.y) * 0.5, deck_height() * 0.5, 0.0), _lip_material)
+	for strip: Vector2 in _deck_strips(column):
+		TableProps.box(node, "Deck", Vector3(pitch, deck_height(), strip.y - strip.x),
+			Vector3(0.0, deck_height() * 0.5, (strip.x + strip.y) * 0.5), _lip_material)
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
-		TableProps.box(node, "Lippe%d" % side, Vector3(rail, deck_height(), pitch),
-			Vector3(dir * (bay.x + rail) * 0.5, deck_height() * 0.5, 0.0), _lip_material)
+		TableProps.box(node, "Lippe%d" % side, Vector3(pitch, deck_height(), rail),
+			Vector3(0.0, deck_height() * 0.5, dir * (bay.y + rail) * 0.5), _lip_material)
 	for edge: float in ribs:
 		var width := rib * (0.5 if absf(edge) < 0.75 else 1.0)
-		var z := signf(edge) * pitch * 0.5
+		# Längs der Spalte zählt Bild-unten: +1 ist der untere Rand, also Welt -X.
+		var down := signf(edge) * pitch * 0.5
 		if absf(edge) < 0.75:
-			z -= signf(edge) * width * 0.5
-		TableProps.box(node, "Rippe%s" % ("L" if edge < 0.0 else "R"),
-			Vector3(bay.x, deck_height(), width), Vector3(0.0, deck_height() * 0.5, z),
+			down -= signf(edge) * width * 0.5
+		TableProps.box(node, "Rippe%s" % ("O" if edge < 0.0 else "U"),
+			Vector3(width, deck_height(), bay.y), Vector3(-down, deck_height() * 0.5, 0.0),
 			_lip_material)
 	_build_bay(node, bay, seam)
 
@@ -839,7 +850,8 @@ func _build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D) -> void:
 	build_bay(node, bay, seam, _scale, _wall_material, _floor_material)
 
 ## Die EINE Bauregel einer Mulde - auch der Laden legt seine Kassetten so hinein
-## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden.
+## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden; bay ist
+## (Welt-X, Welt-Z).
 static func build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D,
 		cell_scale: float, wall_material: Material, floor_material: Material) -> void:
 	TableProps.box(node, "Saum", Vector3(bay.x, SEAM_RISE, bay.y),
@@ -879,25 +891,25 @@ static func bay_wall_material(cell_scale: float) -> ShaderMaterial:
 static func bay_size_for(cell_scale: float) -> Vector2:
 	return Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * cell_scale * BAY_ROOM
 
-## Eine PLATTE über die Breite span (Welt-X) um center, length lang (Welt-Z).
+## Eine PLATTE über die Breite span (Welt-Z) um center, length lang (Welt-X).
 func _build_plate(host: Node3D, plate_name: String, span: float, center: float,
-		length: float, mid_z: float, sink: float) -> void:
-	TableProps.box(host, plate_name, Vector3(span, PLATE - sink, length),
-		Vector3(center, -(PLATE + sink) * 0.5, mid_z), _plate_material)
+		length: float, mid_x: float, sink: float) -> void:
+	TableProps.box(host, plate_name, Vector3(length, PLATE - sink, span),
+		Vector3(mid_x, -(PLATE + sink) * 0.5, center), _plate_material)
 
-## Die DECK-Streifen einer Reihe, relativ zur Mitte ihrer Plätze (von, bis): oben
-## Blende und halber Rand, unten der halbe Rand.
-func _deck_strips(row: int) -> Array[Vector2]:
-	var bounds := plate_bounds(row)
-	var slot_top := lane_x(row) + lane_depth(row) * 0.5 - band_depth(row)
-	var slot_bottom := lane_x(row) - lane_depth(row) * 0.5
-	var mid := slot_x(row)
+## Die DECK-Streifen einer Spalte, relativ zur Mitte ihrer Plätze (von, bis; Welt-Z):
+## links Blende und halber Rand, rechts der halbe Rand.
+func _deck_strips(column: int) -> Array[Vector2]:
+	var bounds := plate_bounds(column)
+	var slot_left := lane_z(column) - lane_width(column) * 0.5 + band_width(column)
+	var slot_right := lane_z(column) + lane_width(column) * 0.5
+	var mid := slot_z(column)
 	var strips: Array[Vector2] = [
-		Vector2(slot_top - mid, bounds.y - mid),
-		Vector2(bounds.x - mid, slot_bottom - mid)]
+		Vector2(bounds.x - mid, slot_left - mid),
+		Vector2(slot_right - mid, bounds.y - mid)]
 	return strips.filter(func(strip: Vector2) -> bool: return strip.y - strip.x > 0.001)
 
-## Die Oberfläche der Reihe: genau Kartenoberkante - eine Karte in ihrer Mulde liegt
+## Die Oberfläche der Spalte: genau Kartenoberkante - eine Karte in ihrer Mulde liegt
 ## bündig (Spieler-Wunsch 2026-10-28).
 func deck_height() -> float:
 	return deck_height_for(_scale)
@@ -916,46 +928,48 @@ func _seam_material(tint: Color) -> StandardMaterial3D:
 	return seam
 
 ## Ein Block leerer Mulden, ein Fenster plus SPARE_EXTRA lang, ab der Kante der
-## Fenster-Mulden nach dir (+1 Bild-rechts, -1 Bild-links). Seine Lage schreibt
+## Fenster-Mulden nach dir (+1 Bild-unten, -1 Bild-oben). Seine Lage schreibt
 ## _place_spares.
-func _build_spares(bays: Node3D, row: int, block_name: String, dir: float, columns: int,
+func _build_spares(bays: Node3D, column: int, block_name: String, dir: float, places: int,
 		pitch: float, shape: Dictionary) -> Node3D:
 	var block := Node3D.new()
 	block.name = block_name
 	bays.add_child(block)
-	for i in columns + SPARE_EXTRA:
+	for i in places + SPARE_EXTRA:
 		var node := Node3D.new()
 		node.name = "Vorrat%d" % i
-		node.position = Vector3(0.0, 0.0, dir * pitch * (float(i) + 0.5))
+		node.position = Vector3(-dir * pitch * (float(i) + 0.5), 0.0, 0.0)
 		block.add_child(node)
 		# Die Rippe am äußeren Rand: die innere trägt schon der Nachbar.
-		_build_segment(node, row, pitch, shape, [dir] as Array[float],
+		_build_segment(node, column, pitch, shape, [dir] as Array[float],
 			_seam_material(BAY_EMPTY))
-	block.position.z = dir * _span.y * 0.5
+	block.position.x = -dir * _span.x * 0.5
 	return block
 
-## Die Vorrats-Blöcke einer Reihe bei Zug-Versatz z: am Rand der Fenster-Mulden, und
-## wo der schon aus dem Fenster gerollt ist, um ganze Teilungen nachgerückt.
-func _place_spares(row: int, z: float) -> void:
-	var pitch: float = _pitch.get(row, 0.0)
+## Die Vorrats-Blöcke einer Spalte bei Zug-Versatz x: am Rand der Fenster-Mulden, und
+## wo der schon aus dem Fenster gerollt ist, um ganze Teilungen nachgerückt. Gerechnet
+## wird längs der Spalte (r = -x, Bild-unten positiv).
+func _place_spares(column: int, x: float) -> void:
+	var pitch: float = _pitch.get(column, 0.0)
 	if pitch <= 0.0:
 		return
-	var half := _span.y * 0.5
-	var right: Node3D = _spare_right.get(row)
-	if right != null and is_instance_valid(right):
-		var lag := ceili(((-half - pitch) - (z + half)) / pitch)
-		right.position.z = half + pitch * float(maxi(lag, 0))
-	var left: Node3D = _spare_left.get(row)
-	if left != null and is_instance_valid(left):
-		var lead := ceili(((z - half) - (half + pitch)) / pitch)
-		left.position.z = -half - pitch * float(maxi(lead, 0))
+	var half := _span.x * 0.5
+	var r := -x
+	var below: Node3D = _spare_below.get(column)
+	if below != null and is_instance_valid(below):
+		var lag := ceili(((-half - pitch) - (r + half)) / pitch)
+		below.position.x = -(half + pitch * float(maxi(lag, 0)))
+	var above: Node3D = _spare_above.get(column)
+	if above != null and is_instance_valid(above):
+		var lead := ceili(((r - half) - (half + pitch)) / pitch)
+		above.position.x = half + pitch * float(maxi(lead, 0))
 
 ## Der EINE Schreiber der Saum-Farben: Sortenfarbe hell, leer kühl und stumpf.
-func _write_bays(row: int) -> void:
-	if row < 0 or row >= _seams.size():
+func _write_bays(column: int) -> void:
+	if column < 0 or column >= _seams.size():
 		return
-	var seams: Array = _seams[row]
-	var tints: Array = _tints[row]
+	var seams: Array = _seams[column]
+	var tints: Array = _tints[column]
 	for i in seams.size():
 		var tint: Color = tints[i] if i < tints.size() else BAY_EMPTY
 		var material: StandardMaterial3D = seams[i]

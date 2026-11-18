@@ -132,13 +132,81 @@ reicht das gemessen nicht, wird es gemeldet.
 Umgesetzt 2026-11-18: Schiene 585 × 424,5 (Fenster samt Fuß 514,8, Netz-Zelle 32,9), das 5er-Paket
 steht in 421,4 von 434,4 px Aufstellung. Die frühere „Welle 2“ ist damit erledigt.
 
-## Spätere Wellen
-- **Welle 3 — die vier DATENTRÄGER** (`tools/blender_data_media_set.py` → GLBs, Netz-Backung je
-  Träger, Holo AN/AUS) und die echten Leser-Seiten der Scheiben mit Lese-Geste.
-- **Welle 4 — die KABEL**: `CablePlan` (core, reine Funktion aus dem Serien-Ergebnis: je
-  betroffener Seite vier Klemmen an ihren Kanten, Farbe = Kanal, mehrere Kanäle teilen reihum;
-  Ganz-Würfel-Wirkungen an die Ecken; Pointer = Patchkabel), `CableLoomView` aus den
-  Kammerwänden, Vorschau-Köpfe beim Stecken, Andocken und Pulse statt Funken beim Prägen.
+## Welle 3 — die vier DATENTRÄGER (Auftrag 2026-11-18; Welle 1 ist committet, 2a87fd0)
+Jede Sorte ist ein EIGENER Träger (Spieler-Wahl, Entwurf `tools/blender_data_media_set.py`,
+Bilder `E:/Generated Images/Fumble/datentraeger_final/`): Zahlen = LOCHKARTE (Faktor-Netz
+dieselbe Karte in Violett), Material = KASSETTE, Runen = TONTAFEL, Sonderbestand =
+HOLO-EMITTER (AUS im Magazin und in jeder Auslage, AN auf der Walze, in der Kammer und im Griff).
+- **EINE Größe bleibt**: alle vier passen in den Umriß der liegenden Karte (1,62 × 1,08 im
+  Blender-Maß, im Spiel × `CASSETTE_SCALE`); das Netz liegt auf jedem an DERSELBEN Stelle mit
+  DERSELBEN Zelle. Keine Fassung (Magazin-Mulde, Scheibe, Paket-Fenster, Auslagen) ändert ihr Maß.
+- **Assets**: ein Export-Skript baut je Träger EIN GLB mit der HÜLLE (ohne Netz-Inhalt, ohne
+  Text) nach `assets/models/hardware/`; leuchtende Teile sind eigene benannte Meshes, damit
+  Godot sie tönt. Dreiecke sparsam.
+- **Körper**: `DataCellView` wählt die Hülle nach `Pack.shelf_rank`; Netz, ×n-Marke, Griff,
+  Flug, Ausbrennen und alle heutigen Zustände bleiben EIN Pfad. Sortenfarbe, Größen-Leiter
+  (`tier_tint`/`tier_energy`), Gold der Reparatur-Karte und Stahlblau des Rohlings lesen weiter.
+- **Netz-Bild je Träger** (`StampNetOven`): Lochkarte = Wert plus so viele Löcher, Kassette =
+  Material-Kachel, Tontafel = glasierte Runen-Kachel, Holo = Leuchtlinien — soweit ohne zweite
+  Rechnung machbar; sonst bleibt die heutige Backung auf dem neuen Träger.
+- **Leser-Seiten der Scheiben**: jede der vier Seiten bekommt die Wiege ihres Trägers
+  (Leuchtbett, Deck mit Dornen, Steinwiege, Kontakt-Dock) statt Saum und Kürzel.
+- **Leere Scheibe**: bleibt auf Kante (Spieler hat nicht widersprochen), aber ohne Kürzel auf
+  dem Grat.
+
+Umgesetzt 2026-11-18: `tools/blender_data_media_export.py` → `data_punch_card/cassette/
+clay_tablet/holo_emitter.glb` (1.132 / 1.694 / 882 / 1.282 Dreiecke, Dicke 0,04 / 0,126 /
+0,128 / 0,063 Roh-Maß), `DataCellView` mit Hülle je Sorte, Holo AN/AUS (`projecting`),
+Netz-Kleid je Träger (`StampNetOven.dress`), Wiegen an den Scheiben-Enden. Sichtproben
+`E:/Generated Images/Fumble/werkstatt_welle3_datentraeger/`.
+
+## Welle 5 — Layout A: die Werkstatt wieder UNTER dem Pool (Spieler-Entscheid 2026-11-18)
+Die senkrechte Walze rechts vom Pool hat im Spiel nicht getragen. Zielbild:
+`E:/Generated Images/Fumble/werkstatt_layouts_2026-11-18/a_unten_station.png`
+(`tools/blender_workshop_layouts.py`, Variante `a_unten`). Was oben zu V1 steht, gilt nur noch,
+wo dieser Abschnitt nichts anderes sagt.
+- **Unter dem Pool, linksbündig mit ihm**: Zeile 1 die WALZE, jetzt LIEGEND (Achse Bild-links →
+  Bild-rechts, Scheibe 1 LINKS, sechs liegende Karten nebeneinander), an ihrem rechten Ende die
+  KAMMER, rechts daneben der Prägen-Sitz. Zeile 2 das MAGAZIN.
+- **Keine Die-View über oder unter den Scheiben.** Rechts neben dem Magazin, unter der Kammer,
+  steht die GLEICHUNG aus drei Netzen: ORIGINAL + UPGRADES = ERGEBNIS (Zielwürfel, wie er ist ·
+  Summe der Serie · Vorschau bzw. Ergebnis mit Deltas), mit gemaltem „+“ und „=“. Der
+  INFO-SCHIRM steht in demselben Block über der Gleichung.
+- **Das MAGAZIN in vier Sorten-SPALTEN** (Zahlen, Material, Runen, Sonderbestand von links),
+  je Spalte zwei Karten untereinander sichtbar, jede Spalte rollt für sich SENKRECHT.
+- **Das PODEST** (Paket 2): rechts von Pool und Schale, auf Pool-Höhe, mit EIGENER Die-View
+  darunter. Ein im Pool getippter Würfel geht aufs Podest — nur zum ANSEHEN (drehen,
+  Doppelklick-Inspektion), er ist damit noch KEIN Ziel. Mit der ERSTEN gesteckten Karte fliegt
+  er in die KAMMER und ist Ziel (stecken schon Karten, fliegt er direkt aus dem Pool dorthin);
+  wird die letzte Karte zurückgelegt oder ist geprägt, fliegt er aufs Podest zurück;
+  Rechtsklick/derselbe Tipp schickt ihn in den Pool. Ohne Würfel bleibt Prägen grau.
+  Der ROHLING geht wie bisher direkt in die Kammer; ein Podest-Würfel bleibt dann oben.
+- **Die PAKET-ÖFFNUNG zieht zurück rechts neben das Podest**, Oberkante = Pool-Oberkante, so
+  hoch wie der Pool: die Würfel-Schiene in ihrer alten Form, die Karten-Fläche an derselben
+  Stelle (fünf liegende Karten in 3 + 2).
+- **Höhe**: unter dem Pool sind 596,3 px (2531,0–3127,3). Walzen-Zeile (Graben = Diagonale des
+  Scheiben-Vierkants) + Naht + Magazin (zwei Reihen) müssen hineinpassen — messen, melden.
+
+**Paket 1 umgesetzt 2026-11-18** (gemessen 1280 × 720, u = 5,042): Graben x 2916,4–4207,2, y
+2554,2–2757,6 (Nummern 23,2 darüber, ab der Naht 2531,0), Kammer x 4216,3–4422,3, Prägen bis x 4537,3,
+Magazin x 2916,4–3920,3, y 2777,7–3106,7 (Spalten 213,8 × 320,4, Platz-Teilung 160,2), Info-Schirm
+x 3940,4–4594,2, y 2777,7–2927,6, Gleichung (Netze 194,4 × 129,6) y 2977,1–3106,7 — unter dem Pool
+bleiben 20,6 px, nichts geschrumpft. Podest-Platz 201,7 × 352,9 ab x 3660,3; Öffnungs-Fläche
+646,6 × 487,5 ab x 3882,1; die Schiene ist 442,3 hoch (Fenster samt Fuß 536,2, unten bei 2531,0) —
+so hoch wie der Pool reichte ihr Fuß bis y 2586 in die Walze. Sichtproben
+`E:/Generated Images/Fumble/werkstatt_layout_a_paket1/`.
+
+**Paket 2 umgesetzt 2026-11-18**: `WorkshopView` trennt `chosen_die()` (Podest oder Kammer) von
+`target_die()` (Ziel, sobald eine Karte steckt), `podium_die()`, Signale `die_chosen` und
+`target_changed`; scene_root führt EINEN Körper mit `_bench_spot`, Podest ⇄ Kammer per
+`_ride_bench_between`. Podest-Platte 201,7 × 214,3 ab y 1994,8, Die-View 194,4 × 129,6 bei y
+2218,1–2347,7; Anker-Versatz 0 | 47,8 Display-px (Weitsicht: der Würfel liest 0,4 | 1,1 px neben
+der Plattenmitte). Walzen-Netzzelle weit 24,6 / nah 31,3 Viewport-px wie vorher — die Nahsicht
+schließt das Podest nicht ein. Sichtproben `E:/Generated Images/Fumble/werkstatt_layout_a_paket2/`.
+
+## Zurückgestellt
+- **Die KABEL** in der Kammer (Spieler-Entscheid 2026-11-18: vorerst nicht). Die Lichtfunken
+  bleiben die Zeremonie.
 
 ## Spiel-Ideen (nicht Teil der Wellen)
 - Zwischenstand: Hover auf Scheibe i zeigt in NACHHER den Stand nach dieser Karte.

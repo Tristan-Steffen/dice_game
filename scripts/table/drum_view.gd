@@ -1,27 +1,30 @@
 class_name DrumView
 extends Node3D
-## Die WALZE der Werkstatt (V1, docs/plan_werkstatt_walze.md): sechs SCHEIBEN entlang
-## Welt-X (Bild-oben → Bild-unten), Scheibe 1 oben. Jede ist ein Vierkant um diese Achse,
-## je Seite der Leser EINER Sorte (Pack.SHELF_ORDER). Belegt liegt der Leser ihrer Sorte
-## oben, bündig Y = 0; leer steht sie auf Kante. Die Scheibe trägt keinen Klick.
+## Die WALZE der Werkstatt (Layout A, docs/plan_werkstatt_walze.md): sechs SCHEIBEN entlang
+## Welt-Z (Bild-links → Bild-rechts), Scheibe 1 links. Jede ist ein Vierkant um diese
+## Achse, gemessen an der KURZEN Kartenseite, je Seite der Leser EINER Sorte
+## (Pack.SHELF_ORDER); die Karte liegt mit ihrer Langseite längs der Achse. Belegt liegt
+## der Leser ihrer Sorte oben, bündig Y = 0; leer steht sie auf Kante. Die Scheibe trägt
+## keinen Klick.
 
 const SLICES := 6
 ## Eine Vierteldrehung dauert so lange.
 const QUARTER_TIME := 0.25
 ## Leer steht die Scheibe auf Kante.
 const EMPTY_ANGLE := PI * 0.25
-## Die Scheibe ist so dick wie ihre Teilung mal diesem Anteil.
-const SLICE_SHARE := 0.92
-## Saum der Leser-Seite: Anteil der Seitenkante, Leuchtkraft.
-const RIM_SHARE := 0.06
+## Die Scheibe ist so lang wie ihre Teilung mal diesem Anteil - länger als die Karte.
+const SLICE_SHARE := 0.97
+## Die Wiegen: Leuchtkraft, flache Höhe, Wangen und Stifte (Welt).
 const RIM_ENERGY := 1.3
+const CRADLE_FLAT := 0.012
+const CRADLE_CHEEK := 0.05
+const CRADLE_PIN_R := 0.035
+const CRADLE_PIN_H := 0.07
 const BODY_ALBEDO := Color(0.16, 0.155, 0.21)
 const BODY_EMISSION := Color(0.36, 0.38, 0.52)
 const BODY_EMISSION_ENERGY := 0.3
-## Das Kürzel liegt am Bild-linken Rand der Seite.
-const LABEL_PIXEL := 0.012
 
-## Der STROM der Übertragung läuft über die Scheiben von 1 nach unten: eine additive
+## Der STROM der Übertragung läuft über die Scheiben von 1 nach rechts: eine additive
 ## Ebene in Kartengröße, knapp über der liegenden Karte.
 const LIGHT_COLOR := Color(0.55, 0.91, 0.99)
 const LIGHT_ALPHA := 0.30
@@ -45,7 +48,7 @@ var _light_material: StandardMaterial3D
 var _light_ride: Tween
 
 ## Stellt die Walze auf: je Scheibe ihre Mitte AUF dem Glas (Welt, Y = 0), die Kante des
-## Vierkants und die Teilung längs der Achse.
+## Vierkants (Welt-X und -Y) und die Teilung längs der Achse (Welt-Z).
 func setup(centers: Array[Vector3], side: float, pitch: float) -> void:
 	if _same_geometry(centers, side, pitch):
 		return  # dieselben Maße bauen nichts neu - das Licht samt Reiter bleibt
@@ -71,7 +74,7 @@ func setup(centers: Array[Vector3], side: float, pitch: float) -> void:
 		_target.append(EMPTY_ANGLE)
 		_tweens.append(null)
 		_flashes.append(null)
-		pivot.rotation.x = EMPTY_ANGLE
+		pivot.rotation.z = EMPTY_ANGLE
 	_ensure_light()
 
 func _same_geometry(centers: Array[Vector3], side: float, pitch: float) -> bool:
@@ -108,13 +111,13 @@ func seat_hard(packs: Array) -> void:
 		var pack: Pack = packs[i] if i < packs.size() else null
 		_target[i] = angle_for(pack)
 		_kill(i)
-		_pivots[i].rotation.x = _target[i]
+		_pivots[i].rotation.z = _target[i]
 
 func target_angle(index: int) -> float:
 	return _target[index] if index >= 0 and index < _target.size() else EMPTY_ANGLE
 
 func shown_angle(index: int) -> float:
-	return _pivots[index].rotation.x if index >= 0 and index < _pivots.size() else EMPTY_ANGLE
+	return _pivots[index].rotation.z if index >= 0 and index < _pivots.size() else EMPTY_ANGLE
 
 func turning(index: int) -> bool:
 	return index >= 0 and index < _tweens.size() and _tweens[index] != null \
@@ -129,22 +132,28 @@ func top_point(index: int) -> Vector3:
 # --- DIE ÜBERTRAGUNG ----------------------------------------------------------
 
 ## Wo der Strom über Scheibe index steht; hinter der letzten eine Teilung weiter
-## (Bild-unten = Welt -X).
+## (Bild-rechts = Welt +Z).
 func light_stop(index: int) -> Vector3:
 	if _pivots.is_empty():
 		return global_position
 	var last := _pivots.size() - 1
 	var at := top_point(mini(index, last))
 	if index > last:
-		at += Vector3(-_pitch * float(index - last), 0.0, 0.0)
+		at += Vector3(0.0, 0.0, _pitch * float(index - last))
 	return at + Vector3.UP * LIGHT_RISE
+
+## Das Ende der Walze auf dem Glas: die Kammer-seitige Stirn hinter Scheibe 6.
+func end_point() -> Vector3:
+	if _pivots.is_empty():
+		return global_position
+	return top_point(_pivots.size() - 1) + Vector3(0.0, 0.0, _pitch * 0.5)
 
 func light_on(accent: Color) -> void:
 	_ensure_light()
 	_light_material.albedo_color = Color(accent.r * LIGHT_ENERGY,
 		accent.g * LIGHT_ENERGY, accent.b * LIGHT_ENERGY, LIGHT_ALPHA)
 	_light.visible = true
-	light_hard(light_stop(0) + Vector3(_pitch, 0.0, 0.0))
+	light_hard(light_stop(0) - Vector3(0.0, 0.0, _pitch))
 
 ## Die Ebene fährt auf einen Weltpunkt; bei time <= 0 steht sie sofort dort.
 func light_to(point: Vector3, time: float) -> void:
@@ -207,8 +216,9 @@ func _ensure_light() -> void:
 	_light_plane = MeshInstance3D.new()
 	_light_plane.name = "Plane"
 	var quad := QuadMesh.new()
-	# Quer die Scheibendicke, längs die Kartenlänge (die Karte liegt quer, Welt-Z).
-	quad.size = Vector2(_pitch * SLICE_SHARE, _side / (1.0 + WorkshopView.DRUM_AIR))
+	# Quer die kurze Kartenseite (Welt-X), längs die Scheibenlänge (Welt-Z).
+	quad.size = Vector2(_side / (1.0 + WorkshopView.DRUM_AIR),
+		_pitch * SLICE_SHARE / (1.0 + WorkshopView.DRUM_AIR))
 	_light_plane.mesh = quad
 	_light_plane.material_override = _light_material
 	_light_plane.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
@@ -223,15 +233,15 @@ func _turn(index: int, want: float) -> void:
 	_kill(index)
 	var pivot := _pivots[index]
 	if not pivot.is_inside_tree():
-		pivot.rotation.x = want
+		pivot.rotation.z = want
 		return
-	var from := pivot.rotation.x
+	var from := pivot.rotation.z
 	var time := QUARTER_TIME * absf(want - from) / (PI * 0.5)
 	if time <= 0.001:
-		pivot.rotation.x = want
+		pivot.rotation.z = want
 		return
 	var tween := pivot.create_tween()
-	tween.tween_property(pivot, "rotation:x", want, time) \
+	tween.tween_property(pivot, "rotation:z", want, time) \
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_tweens[index] = tween
 
@@ -245,7 +255,7 @@ func _build_slice(pivot: Node3D, side: float, thickness: float) -> void:
 	var body := MeshInstance3D.new()
 	body.name = "Koerper"
 	var box := BoxMesh.new()
-	box.size = Vector3(thickness, side, side)
+	box.size = Vector3(side, side, thickness)
 	body.mesh = box
 	var material := StandardMaterial3D.new()
 	material.albedo_color = BODY_ALBEDO
@@ -262,38 +272,69 @@ func _build_slice(pivot: Node3D, side: float, thickness: float) -> void:
 		var face := Node3D.new()
 		face.name = "Leser_%s" % shelf
 		# Rückwärts gedreht: die Pivot-Drehung um face_angle bringt sie nach oben.
-		face.basis = Basis(Vector3.RIGHT, -face_angle(rank))
+		face.basis = Basis(Vector3.BACK, -face_angle(rank))
 		pivot.add_child(face)
 		_build_reader(face, shelf, side, thickness)
 
+## Die WIEGE ihres Trägers an den Enden der Seite (längs der Achse), wo die Karte sie
+## freiläßt: Leuchtbett (Lochkarte), Deck mit zwei Dornen (Kassette), Steinwiege
+## (Tontafel), Kontakt-Dock mit Eckstiften (Holo-Emitter). Jedes Teil steht weiter von der
+## Kante ab, als es hoch ist - sonst wüchse der Drehkreis der Scheibe über den Graben.
 func _build_reader(face: Node3D, shelf: String, side: float, thickness: float) -> void:
 	var tint: Color = PackDrawerView.COLORS.get(shelf, Color.WHITE)
-	var rim_material := StandardMaterial3D.new()
-	rim_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	rim_material.albedo_color = tint
-	rim_material.emission_enabled = true
-	rim_material.emission = tint
-	rim_material.emission_energy_multiplier = RIM_ENERGY
-	var rim := side * RIM_SHARE
-	var top := side * 0.5 + 0.002
-	for z in [-1.0, 1.0]:
-		var strip := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(thickness, 0.004, rim)
-		strip.mesh = mesh
-		strip.material_override = rim_material
-		strip.position = Vector3(0.0, top, z * (side * 0.5 - rim * 0.5))
-		face.add_child(strip)
-	var label := Label3D.new()
-	label.name = "Kuerzel"
-	label.text = Pack.shelf_short(shelf)
-	label.modulate = tint
-	label.pixel_size = LABEL_PIXEL
-	label.font_size = 48
-	label.outline_size = 0
-	label.shaded = false
-	label.double_sided = false
-	# Flach auf der Seite, am Bild-linken Rand (Welt -Z), lesbar von oben.
-	label.basis = Basis(Vector3.UP, -PI * 0.5) * Basis(Vector3.RIGHT, -PI * 0.5)
-	label.position = Vector3(0.0, top + 0.002, -side * 0.5 + rim * 3.0)
-	face.add_child(label)
+	var glow := StandardMaterial3D.new()
+	glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	glow.albedo_color = tint * RIM_ENERGY
+	var top := side * 0.5
+	var across := side / (1.0 + WorkshopView.DRUM_AIR)
+	var card := thickness / (1.0 + WorkshopView.DRUM_AIR)
+	var margin := (thickness - card) * 0.5
+	var end := card * 0.5 + margin * 0.5
+	for z: float in [-1.0, 1.0]:
+		var at := z * end
+		match DataCellView.carrier_of(shelf):
+			DataCellView.CARRIER_PUNCH:
+				_part(face, "Leuchtbett", Vector3(across * 0.9, CRADLE_FLAT, margin * 0.6),
+					Vector3(0.0, top + CRADLE_FLAT * 0.5, at), glow)
+			DataCellView.CARRIER_CASSETTE:
+				_part(face, "Deck", Vector3(across * 0.9, CRADLE_FLAT, margin * 0.6),
+					Vector3(0.0, top + CRADLE_FLAT * 0.5, at),
+					DataCellView.neutral_material("Dunkel"))
+				if z > 0.0:
+					for x: float in [-1.0, 1.0]:
+						_pin(face, "Dorn", CRADLE_PIN_R, CRADLE_PIN_H,
+							Vector3(x * across * 0.22, top, card * 0.5 + CRADLE_PIN_R * 1.6),
+							DataCellView.neutral_material("Metall"))
+				_part(face, "Saum", Vector3(across * 0.9, CRADLE_FLAT * 1.5, margin * 0.12),
+					Vector3(0.0, top + CRADLE_FLAT * 0.75, at - z * margin * 0.24), glow)
+			DataCellView.CARRIER_CLAY:
+				_part(face, "Wange", Vector3(across * 0.8, CRADLE_CHEEK, margin * 0.55),
+					Vector3(0.0, top + CRADLE_CHEEK * 0.5, at), DataCellView.neutral_material("Ton"))
+				_part(face, "Glasur", Vector3(across * 0.8, 0.004, margin * 0.14),
+					Vector3(0.0, top + CRADLE_CHEEK + 0.002, at), glow)
+			_:
+				_part(face, "Kontakt", Vector3(across * 0.7, CRADLE_FLAT, margin * 0.3),
+					Vector3(0.0, top + CRADLE_FLAT * 0.5, at), glow)
+				for x: float in [-1.0, 1.0]:
+					_pin(face, "Eckstift", CRADLE_PIN_R, CRADLE_FLAT * 3.0,
+						Vector3(x * across * 0.4, top, at), DataCellView.neutral_material("Metall"))
+
+func _part(face: Node3D, part_name: String, size: Vector3, at: Vector3,
+		material: Material) -> void:
+	TableProps.box(face, part_name, size, at, material)
+
+func _pin(face: Node3D, part_name: String, radius: float, height: float, foot: Vector3,
+		material: Material) -> void:
+	var pin := MeshInstance3D.new()
+	pin.name = part_name
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = radius
+	mesh.bottom_radius = radius
+	mesh.height = height
+	mesh.radial_segments = 12
+	mesh.rings = 1
+	pin.mesh = mesh
+	pin.material_override = material
+	pin.position = foot + Vector3.UP * height * 0.5
+	pin.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	face.add_child(pin)

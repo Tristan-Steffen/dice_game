@@ -16,9 +16,8 @@ func test_die_ware_liegt_auf_der_tischflaeche() -> void:
 	assert_almost_eq(bay.lie_y(thick) - thick, bay.lie_y(0.0), 0.0001,
 		"dickere Ware steht genau um ihre halbe Höhe höher")
 	assert_gt(bay.lie_y(thick), bay.center.y, "und steht ÜBER der Anzeige, nicht darunter")
-	assert_almost_eq(bay.cell_y(),
-		bay.lie_y(0.0) + DataCellView.lying_under(PackDrawerView.CASSETTE_SCALE), 0.0001,
-		"die Kassette nur um ihre Finnen gehoben")
+	assert_almost_eq(bay.cell_y(), bay.lie_y(0.0), 0.0001,
+		"die Karte liegt auf derselben Auflage - ihr Träger reicht nicht darunter")
 	bay.free()
 
 func test_der_weg_durch_die_flaeche_misst_die_hoechste_ware() -> void:
@@ -26,8 +25,7 @@ func test_der_weg_durch_die_flaeche_misst_die_hoechste_ware() -> void:
 	# opake Display-Mesh alles weg. Eine Grubentiefe kommt darin nicht mehr vor.
 	var die_top := DieBuilder.HALF_EXTENT * VitrineView.DIE_SCALE \
 		* (1.0 + VitrineView.SILHOUETTE)
-	var cell_top := DataCellView.lying_under(PackDrawerView.CASSETTE_SCALE) \
-		+ DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE)
+	var cell_top := DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE)
 	assert_almost_eq(VitrineView.content_depth(),
 		VitrineView.FLOOR_CLEAR + maxf(die_top, cell_top), 0.0001)
 	assert_almost_eq(VitrineView.sink_drop(), VitrineView.content_depth(), 0.0001)

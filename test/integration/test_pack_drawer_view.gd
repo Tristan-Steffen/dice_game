@@ -1,25 +1,25 @@
 extends GutTest
-## Tier-2-Tests des Magazins (PackDrawerView): EINE Grube rechts der Walze, VIER REIHEN
-## untereinander, eine je SORTE, je Paket seine eigene LIEGENDE Kassette - und jede
-## Reihe ROLLT für sich. Gezählt wird in WorkshopView, gefahren in ShelfStackView.
+## Tier-2-Tests des Magazins (PackDrawerView): EINE Grube unter der Walze, VIER SPALTEN
+## nebeneinander, eine je SORTE, je Paket seine eigene LIEGENDE Kassette - und jede
+## Spalte ROLLT für sich senkrecht. Gezählt wird in WorkshopView, gefahren in ShelfStackView.
 
 ## Fußabdruck einer STEHENDEN Kassette (Grifftiefe × Kartenbreite) - daraus folgt
 ## der liegende (lie_cell).
 const CELL := Vector2(30, 12)
-## Ein Streifen, in den die vier Reihen samt Rändern passen.
-const STRIP := Vector2(900, 360)
+## Ein Streifen, in den die vier Spalten samt Rändern und zwei Plätze passen.
+const STRIP := Vector2(420, 108)
 
 func _entry(pack: Pack, uid: int, withheld := false, cell := -1) -> Dictionary:
 	pack.pack_uid = uid
 	return {"uid": uid, "pack": pack, "withheld": withheld,
-		"row": Pack.shelf_rank(pack), "cell": cell}
+		"column": Pack.shelf_rank(pack), "cell": cell}
 
 func _drawer(entries: Array[Dictionary], locked := false,
-		row := STRIP, scrolls: Array[int] = []) -> PackDrawerView:
+		strip := STRIP, scrolls: Array[int] = []) -> PackDrawerView:
 	var drawer := PackDrawerView.new()
 	add_child_autofree(drawer)
-	drawer.size = row
-	drawer.build(entries, 8.0, locked, CELL, row, scrolls)
+	drawer.size = strip
+	drawer.build(entries, 8.0, locked, CELL, strip, scrolls)
 	return drawer
 
 ## So viele Zahlen-Karten wie gewünscht, Platz k = k.
@@ -29,8 +29,8 @@ func _fill(count: int) -> Array[Dictionary]:
 		entries.append(_entry(Pack.number_pack(), i + 1, false, i))
 	return entries
 
-func _field(row := STRIP) -> Rect2:
-	return PackDrawerView.pit_rect_in(Rect2(Vector2.ZERO, row), 8.0)
+func _field(strip := STRIP) -> Rect2:
+	return PackDrawerView.pit_rect_in(Rect2(Vector2.ZERO, strip), 8.0)
 
 # --- Taxonomie: sie wohnt in data/ (Pack), die Farben hier -----------------------
 
@@ -62,68 +62,69 @@ func test_every_shelf_order_key_has_a_colour_and_a_short_name() -> void:
 		assert_true(PackDrawerView.COLORS.has(category), "%s hat seine Farbe" % category)
 		assert_ne(Pack.shelf_short(category), category, "%s hat ein Kürzel" % category)
 
-# --- Sorte -> Reihe ----------------------------------------------------------------
+# --- Sorte -> Spalte ---------------------------------------------------------------
 
-## Je SORTE eine Reihe: ROWS ist SHELF_ORDER, und shelf_rank ordnet zu.
-func test_one_row_per_sort() -> void:
-	assert_eq(PackDrawerView.ROWS, Pack.SHELF_ORDER.size(), "vier Reihen, eine je Sorte")
+## Je SORTE eine Spalte: COLUMNS ist SHELF_ORDER, und shelf_rank ordnet zu.
+func test_one_column_per_sort() -> void:
+	assert_eq(PackDrawerView.COLUMNS, Pack.SHELF_ORDER.size(), "vier Spalten, eine je Sorte")
 	assert_eq(Pack.shelf_rank(Pack.number_pack()), 0)
 	assert_eq(Pack.shelf_rank(Pack.material_pack()), 1)
 	assert_eq(Pack.shelf_rank(Pack.dice_mod_pack()), 2)
 	assert_eq(Pack.shelf_rank(Pack.catalyst(Pack.CATALYST_GROUND)), 3)
 	assert_eq(Pack.shelf_rank(Pack.fixed_engraving_pack(Engraving.pointer_engraving())), 3)
 
-# --- Das Raster: feste Kartengröße, ein Fenster aus COLUMNS Spalten je Reihe --------
+# --- Das Raster: feste Kartengröße, ein Fenster aus PLACES Plätzen je Spalte --------
 
 func test_die_liegende_karte_folgt_aus_der_stehenden() -> void:
 	var lie := PackDrawerView.lie_cell(CELL)
 	assert_almost_eq(lie.y, CELL.y * PackDrawerView.CASSETTE_SCALE, 0.001)
 	assert_almost_eq(lie.x, lie.y * PackDrawerView.CARD_ASPECT, 0.001)
 
-## Das FELD trägt je Reihe genau COLUMNS Karten - nie eine weniger - und vier Reihen.
-func test_the_field_carries_exactly_the_window_columns() -> void:
+## Das FELD trägt je Spalte genau PLACES Karten untereinander - nie eine weniger.
+func test_the_field_carries_exactly_the_window_places() -> void:
 	var field := PackDrawerView.field_for(PackDrawerView.lie_cell(CELL))
-	assert_eq(PackDrawerView.columns_for(field, CELL), PackDrawerView.COLUMNS)
-	assert_eq(PackDrawerView.COLUMNS, 2, "zwei liegende Karten je Reihe")
-	assert_almost_eq(PackDrawerView.row_depth(field),
-		PackDrawerView.lie_cell(CELL).y * PackDrawerView.RANK_SPAN, 0.001)
+	assert_eq(PackDrawerView.places_for(field, CELL), PackDrawerView.PLACES)
+	assert_eq(PackDrawerView.PLACES, 2, "zwei liegende Karten je Spalte")
+	assert_almost_eq(PackDrawerView.column_width(field),
+		PackDrawerView.lie_cell(CELL).x * PackDrawerView.RANK_SPAN, 0.001)
 
-func test_spots_run_along_the_row_and_the_rows_stack_down() -> void:
+func test_spots_run_down_the_column_and_the_columns_side_by_side() -> void:
 	var field := _field().size
-	var columns := PackDrawerView.columns_for(field, CELL)
+	var places := PackDrawerView.places_for(field, CELL)
 	var first := PackDrawerView.spot_for(0, field, CELL)
 	var second := PackDrawerView.spot_for(1, field, CELL)
-	assert_almost_eq(second.x - first.x, field.x / float(columns), 0.01)
-	for row in range(1, PackDrawerView.ROWS):
-		var below := PackDrawerView.spot_for(0, field, CELL, row)
-		assert_almost_eq(below.x, first.x, 0.01)
-		assert_almost_eq(below.y - first.y, (PackDrawerView.row_depth(field)
-			+ PackDrawerView.LANE_GAP_PX) * float(row), 0.01)
+	assert_almost_eq(second.y - first.y, field.y / float(places), 0.01)
+	assert_almost_eq(second.x, first.x, 0.01)
+	for column in range(1, PackDrawerView.COLUMNS):
+		var right := PackDrawerView.spot_for(0, field, CELL, column)
+		assert_almost_eq(right.y, first.y, 0.01)
+		assert_almost_eq(right.x - first.x, (PackDrawerView.column_width(field)
+			+ PackDrawerView.LANE_GAP_PX) * float(column), 0.01)
 
-func test_the_rows_leave_equal_gaps() -> void:
+func test_the_columns_leave_equal_gaps() -> void:
 	var field := _field().size
-	var rects := PackDrawerView.row_rects(field)
-	assert_eq(rects.size(), PackDrawerView.ROWS)
-	assert_almost_eq(rects[0].position.y, PackDrawerView.LANE_GAP_PX, 0.001)
+	var rects := PackDrawerView.column_rects(field)
+	assert_eq(rects.size(), PackDrawerView.COLUMNS)
+	assert_almost_eq(rects[0].position.x, PackDrawerView.LANE_GAP_PX, 0.001)
 	for i in range(1, rects.size()):
-		assert_almost_eq(rects[i].position.y - rects[i - 1].end.y,
+		assert_almost_eq(rects[i].position.x - rects[i - 1].end.x,
 			PackDrawerView.LANE_GAP_PX, 0.001)
-	assert_almost_eq(field.y - rects[rects.size() - 1].end.y, PackDrawerView.LANE_GAP_PX, 0.001)
+	assert_almost_eq(field.x - rects[rects.size() - 1].end.x, PackDrawerView.LANE_GAP_PX, 0.001)
 
-## Jeder Punkt der Grube gehört einer Reihe: die Grenzen liegen mitten in den Rändern.
-func test_row_at_splits_in_the_gaps() -> void:
+## Jeder Punkt der Grube gehört einer Spalte: die Grenzen liegen mitten in den Rändern.
+func test_column_at_splits_in_the_gaps() -> void:
 	var field := _field().size
-	var rects := PackDrawerView.row_rects(field)
+	var rects := PackDrawerView.column_rects(field)
 	for i in rects.size():
-		assert_eq(PackDrawerView.row_at(field, rects[i].get_center().y), i)
-	assert_eq(PackDrawerView.row_at(field, -50.0), 0)
-	assert_eq(PackDrawerView.row_at(field, field.y + 50.0), PackDrawerView.ROWS - 1)
+		assert_eq(PackDrawerView.column_at(field, rects[i].get_center().x), i)
+	assert_eq(PackDrawerView.column_at(field, -50.0), 0)
+	assert_eq(PackDrawerView.column_at(field, field.x + 50.0), PackDrawerView.COLUMNS - 1)
 
 # --- Das ROLLEN --------------------------------------------------------------------
 
-## RASTEN darf eine Reihe nur 0 .. bis ihre letzte Karte am Fensterrand steht (leer:
+## RASTEN darf eine Spalte nur 0 .. bis ihre letzte Karte am Fensterrand steht (leer:
 ## nur 0) - gezogen wird beliebig weit, losgelassen federt sie dorthin zurück.
-func test_the_scroll_clamps_and_snaps_to_whole_columns() -> void:
+func test_the_scroll_clamps_and_snaps_to_whole_places() -> void:
 	assert_eq(PackDrawerView.max_scroll(0, 2), 0, "leer rastet sie am Anfang")
 	assert_eq(PackDrawerView.max_scroll(2, 2), 0, "zwei Karten füllen genau das Fenster")
 	assert_eq(PackDrawerView.max_scroll(3, 2), 1)
@@ -131,49 +132,49 @@ func test_the_scroll_clamps_and_snaps_to_whole_columns() -> void:
 	assert_eq(PackDrawerView.clamp_scroll(-2, 10, 2), 0)
 	assert_eq(PackDrawerView.clamp_scroll(99, 10, 2), 8)
 	assert_eq(PackDrawerView.snap_scroll(0, -900.0, 100.0, 0, 2), 0,
-		"eine leere Reihe federt nach jedem Zug an den Anfang zurück")
+		"eine leere Spalte federt nach jedem Zug an den Anfang zurück")
 	assert_eq(PackDrawerView.snap_scroll(0, -100.0, 100.0, 10, 2), 1,
-		"eine Spalte nach links gezogen rollt eine weiter")
+		"einen Platz nach oben gezogen rollt sie einen weiter")
 	assert_eq(PackDrawerView.snap_scroll(0, -140.0, 100.0, 10, 2), 1, "abgerundet")
 	assert_eq(PackDrawerView.snap_scroll(0, -160.0, 100.0, 10, 2), 2, "aufgerundet")
 	assert_eq(PackDrawerView.snap_scroll(2, 900.0, 100.0, 10, 2), 0, "nie unter 0")
 	assert_eq(PackDrawerView.snap_scroll(5, -900.0, 100.0, 10, 2), 8, "nie über das Ende")
 
-## Eine gerollte Reihe legt ihre vorderen Karten unter den Filz: kein Chip, aber der
-## Platz steht weiter - links neben dem Fenster. Die anderen Reihen rollen nicht mit.
+## Eine gerollte Spalte legt ihre vorderen Karten unter den Filz: kein Chip, aber der
+## Platz steht weiter - über dem Fenster. Die anderen Spalten rollen nicht mit.
 func test_a_rolled_out_card_keeps_its_place_but_carries_no_chip() -> void:
-	var columns := PackDrawerView.columns_for(_field().size, CELL)
-	var entries := _fill(columns + 4)
+	var places := PackDrawerView.places_for(_field().size, CELL)
+	var entries := _fill(places + 4)
 	entries.append(_entry(Pack.material_pack(), 99, false, 0))
 	var drawer := _drawer(entries, false, STRIP, [2, 0, 0, 0] as Array[int])
 	await wait_frames(2)
 	assert_null(drawer.pack_button(1), "Platz 0 ist hinausgerollt")
-	assert_lt(drawer.column_of_pack(1), 0)
-	assert_lt(drawer.pack_seat_px(1).x, drawer.get_global_rect().position.x
-		+ drawer.field.position.x, "sie liegt links unter der Wand")
+	assert_lt(drawer.place_of_pack(1), 0)
+	assert_lt(drawer.pack_seat_px(1).y, drawer.get_global_rect().position.y
+		+ drawer.field.position.y, "sie liegt oben unter der Wand")
 	assert_not_null(drawer.pack_button(3), "Platz 2 liegt jetzt vorn im Fenster")
-	assert_eq(drawer.column_of_pack(3), 0)
+	assert_eq(drawer.place_of_pack(3), 0)
 	assert_false(drawer.shows_pack(1))
 	assert_true(drawer.shows_pack(3))
-	assert_not_null(drawer.pack_button(99), "die Material-Reihe steht, wo sie stand")
-	assert_eq(drawer.column_of_pack(99), 0)
+	assert_not_null(drawer.pack_button(99), "die Material-Spalte steht, wo sie stand")
+	assert_eq(drawer.place_of_pack(99), 0)
 
-## Das Liefer-Licht einer hinausgerollten Karte endet am RAND ihrer Reihe.
-func test_a_rolled_out_card_aims_at_the_row_edge() -> void:
-	var columns := PackDrawerView.columns_for(_field().size, CELL)
-	var drawer := _drawer(_fill(columns * 3), false, STRIP, [1, 0, 0, 0] as Array[int])
+## Das Liefer-Licht einer hinausgerollten Karte endet am RAND ihrer Spalte.
+func test_a_rolled_out_card_aims_at_the_column_edge() -> void:
+	var places := PackDrawerView.places_for(_field().size, CELL)
+	var drawer := _drawer(_fill(places * 3), false, STRIP, [1, 0, 0, 0] as Array[int])
 	await wait_frames(2)
 	var origin := drawer.get_global_rect().position
-	assert_almost_eq(drawer.pack_anchor_px(1).x, origin.x + drawer.field.position.x, 0.5,
-		"links hinaus: der linke Rand")
-	assert_almost_eq(drawer.pack_anchor_px(1).y, drawer.pack_seat_px(1).y, 0.5,
-		"auf der Höhe ihrer Reihe")
-	var far := columns * 3
-	assert_almost_eq(drawer.pack_anchor_px(far).x, origin.x + drawer.field.end.x, 0.5,
-		"rechts noch nicht gezeigt: der rechte Rand")
+	assert_almost_eq(drawer.pack_anchor_px(1).y, origin.y + drawer.field.position.y, 0.5,
+		"oben hinaus: der obere Rand")
+	assert_almost_eq(drawer.pack_anchor_px(1).x, drawer.pack_seat_px(1).x, 0.5,
+		"in ihrer Spalte")
+	var far := places * 3
+	assert_almost_eq(drawer.pack_anchor_px(far).y, origin.y + drawer.field.end.y, 0.5,
+		"unten noch nicht gezeigt: der untere Rand")
 
-## ALLE VIER Sorten liegen zugleich im Bild, jede in ihrer Reihe, Platz 0 in Spalte 0.
-func test_every_sort_shows_in_its_own_row() -> void:
+## ALLE VIER Sorten liegen zugleich im Bild, jede in ihrer Spalte, Platz 0 oben.
+func test_every_sort_shows_in_its_own_column() -> void:
 	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 1, false, 0),
 		_entry(Pack.material_pack(), 2, false, 0), _entry(Pack.dice_mod_pack(), 3, false, 0),
 		_entry(Pack.catalyst(Pack.CATALYST_GROUND), 4, false, 0)]
@@ -181,11 +182,11 @@ func test_every_sort_shows_in_its_own_row() -> void:
 	await wait_frames(2)
 	for uid in [1, 2, 3, 4]:
 		assert_not_null(drawer.pack_button(uid), "uid %d trägt einen Chip" % uid)
-		assert_eq(drawer.row_of_pack(uid), uid - 1)
-		assert_almost_eq(drawer.pack_seat_px(uid).x, drawer.pack_seat_px(1).x, 0.5)
+		assert_eq(drawer.column_of_pack(uid), uid - 1)
+		assert_almost_eq(drawer.pack_seat_px(uid).y, drawer.pack_seat_px(1).y, 0.5)
 		if uid > 1:
-			assert_gt(drawer.pack_seat_px(uid).y, drawer.pack_seat_px(uid - 1).y,
-				"die nächste Sorte liegt darunter")
+			assert_gt(drawer.pack_seat_px(uid).x, drawer.pack_seat_px(uid - 1).x,
+				"die nächste Sorte liegt rechts daneben")
 
 func test_a_withheld_pack_keeps_its_spot_but_shows_no_chip() -> void:
 	var entries: Array[Dictionary] = [_entry(Pack.number_pack(), 1, false, 0),
@@ -216,10 +217,9 @@ func test_the_derived_anchor_matches_the_measured_one() -> void:
 		var uid := int(entry["uid"])
 		var measured := drawer.pack_anchor_px(uid)
 		var derived := PackDrawerView.anchor_in(field, int(entry["cell"]), CELL,
-			int(entry["row"]))
+			int(entry["column"]))
 		assert_almost_eq(measured.x, derived.x, 0.5)
 		assert_almost_eq(measured.y, derived.y, 0.5)
-
 # --- Chip-Schalen-Regel -------------------------------------------------------------
 
 func test_a_chip_draws_nothing_at_all() -> void:
@@ -291,8 +291,8 @@ func test_the_grip_is_the_whole_slot_minus_its_air() -> void:
 	var drawer := _drawer([_entry(Pack.number_pack(), 1, false, 0)] as Array[Dictionary])
 	await wait_frames(2)
 	var slot := PackDrawerView.slot_size(drawer.field.size, CELL)
-	assert_almost_eq(drawer.pack_button(1).size.x,
-		slot.x * (1.0 - PackDrawerView.SLOT_INSET * 2.0), 0.5)
+	assert_almost_eq(drawer.pack_button(1).size.y,
+		slot.y * (1.0 - PackDrawerView.SLOT_INSET * 2.0), 0.5)
 
 # --- Gesten: getippt wählt, gezogen rollt, Doppelklick räumt auf -------------------
 
@@ -310,7 +310,7 @@ func _motion(at: Vector2) -> InputEventMouseMotion:
 	event.button_mask = MOUSE_BUTTON_MASK_LEFT
 	return event
 
-## Ein Zug über die Schwelle ROLLT seine Reihe: gemeldet werden Reihe und Weg,
+## Ein Zug über die Schwelle ROLLT seine Spalte: gemeldet werden Spalte und Weg,
 ## losgelassen das Einrasten - und der Knopf-Klick danach wird geschluckt.
 func test_a_drag_scrolls_and_swallows_the_press() -> void:
 	var entries := _fill(2)
@@ -319,28 +319,28 @@ func test_a_drag_scrolls_and_swallows_the_press() -> void:
 	await wait_frames(2)
 	var dragged: Array[float] = []
 	var released: Array[float] = []
-	var rows: Array[int] = []
+	var columns: Array[int] = []
 	var pressed: Array[int] = []
-	drawer.scroll_dragged.connect(func(row: int, px: float) -> void:
-		rows.append(row)
+	drawer.scroll_dragged.connect(func(column: int, px: float) -> void:
+		columns.append(column)
 		dragged.append(px))
-	drawer.scroll_released.connect(func(row: int, px: float) -> void:
-		rows.append(row)
+	drawer.scroll_released.connect(func(column: int, px: float) -> void:
+		columns.append(column)
 		released.append(px))
 	drawer.pack_pressed.connect(func(uid: int) -> void: pressed.append(uid))
 	var start := drawer.pack_button(40).get_global_rect().get_center()
 	drawer._track_drag(_click(true, start))
-	drawer._track_drag(_motion(start + Vector2(-3, 0)))
+	drawer._track_drag(_motion(start + Vector2(0, -3)))
 	assert_true(dragged.is_empty(), "unter der Schwelle rollt nichts")
-	drawer._track_drag(_motion(start + Vector2(-60, 0)))
+	drawer._track_drag(_motion(start + Vector2(0, -60)))
 	assert_eq(dragged, [-60.0] as Array[float])
 	assert_true(drawer.dragging())
-	drawer._track_drag(_click(false, start + Vector2(-60, 0)))
+	drawer._track_drag(_click(false, start + Vector2(0, -60)))
 	drawer.pack_button(40).pressed.emit()
 	assert_true(pressed.is_empty(), "ein Zug ist kein Tipp")
 	await wait_frames(1)
 	assert_eq(released, [-60.0] as Array[float], "gemeldet nach dem Ereignis")
-	assert_eq(rows, [2, 2] as Array[int], "es rollt die Reihe unter dem Druck: Runen")
+	assert_eq(columns, [2, 2] as Array[int], "es rollt die Spalte unter dem Druck: Runen")
 	assert_false(drawer.dragging())
 
 func test_a_tap_stays_a_tap() -> void:
@@ -358,9 +358,9 @@ func test_a_drag_on_the_well_scrolls_too() -> void:
 	var drawer := _drawer(_fill(1))
 	await wait_frames(2)
 	var dragged: Array[float] = []
-	drawer.scroll_dragged.connect(func(_row: int, px: float) -> void: dragged.append(px))
-	drawer._on_well_input(_click(true, Vector2(100, 100)))
-	drawer._on_well_input(_motion(Vector2(140, 100)))
+	drawer.scroll_dragged.connect(func(_column: int, px: float) -> void: dragged.append(px))
+	drawer._on_well_input(_click(true, Vector2(100, 40)))
+	drawer._on_well_input(_motion(Vector2(100, 80)))
 	assert_eq(dragged, [40.0] as Array[float], "über der leeren Fläche rollt es ebenso")
 
 func test_a_double_click_on_the_empty_well_requests_a_tidy() -> void:

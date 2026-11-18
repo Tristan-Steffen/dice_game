@@ -31,6 +31,10 @@ const COUNT_HOLD := 0.3
 ## Die Optionen stehen mit dieser Luft um ihren Körper.
 const SLOT_ROOM := 1.04
 const SLOT_GAP_UNITS := 0.8
+## Die Karten-Aufstellung steht höchstens so viele nebeneinander (fünf stehen 3 + 2), und
+## die Fläche hat dafür so viel Luft (u), damit die Zählung nie eine Spur darunter fällt.
+const CARDS_PER_ROW := 3
+const AREA_AIR_UNITS := 1.0
 
 var choice: PackChoice = null
 ## Die Fußabdrücke der Körper in Display-Pixeln (gemeldet von scene_root).
@@ -157,20 +161,29 @@ static func rail_window_for(rail: Rect2) -> Rect2:
 	var u := rail.size.y / RAIL_UNITS
 	return Rect2(rail.position, Vector2(rail.size.x, rail.size.y + u * RAIL_FOOT_UNITS))
 
-## Das Rechteck der ÖFFNUNGS-FLÄCHE in Display-Pixeln (rein, prüfbar): GENAU so breit wie
-## die Pool-Reihe, eine Naht darunter, unten bis zur Schranke (die Hub-Unterkante).
-static func area_under(pool: Rect2, seam: float, bottom: float) -> Rect2:
-	var top := pool.end.y + seam
-	if pool.size.x <= 0.0 or bottom <= top:
+## Das Rechteck der ÖFFNUNGS-FLÄCHE in Display-Pixeln (rein, prüfbar): rechts neben dem
+## freigehaltenen Podest-Platz, oben bündig mit der Pool-Reihe und so hoch wie sie.
+static func area_beside(pool: Rect2, podium: Rect2, gap: float, width: float) -> Rect2:
+	if pool.size.y <= 0.0 or width <= 0.0:
 		return Rect2()
-	return Rect2(Vector2(pool.position.x, top), Vector2(pool.size.x, bottom - top))
+	return Rect2(Vector2(podium.end.x + gap, pool.position.y), Vector2(width, pool.size.y))
+
+## Wie breit die Fläche sein muß (rein): drei liegende Karten nebeneinander samt Fugen und
+## Rand - die Aufstellung der Karten-Pakete steht 3 + 2 -, mindestens die Schiene der
+## Würfel-Pakete in dieser Höhe.
+static func area_width_for(height: float, card: Vector2, die_px: float, rail_high: float) -> float:
+	var u := maxf(height / UNIT_DIV, 1.0)
+	var cards := card.x * SLOT_ROOM * float(CARDS_PER_ROW) \
+		+ u * SLOT_GAP_UNITS * float(CARDS_PER_ROW - 1) + u * (2.0 + AREA_AIR_UNITS)
+	return maxf(cards, rail_width_for(rail_high, die_px, RAIL_ROWS * 2))
 
 ## Die SCHIENE auf der Fläche (rein): oben bündig, so breit wie sie, und so hoch, wie Fuß
-## und Spalten es zulassen - die Würfel bleiben gleich groß, nur Reihe und Netz schrumpfen.
-static func rail_in(area: Rect2, die_px: float, count: int) -> Rect2:
+## und Spalten es zulassen - der Fuß darf um below unter die Fläche reichen (in die Naht
+## über der Walze); die Würfel bleiben gleich groß, nur Reihe und Netz schrumpfen.
+static func rail_in(area: Rect2, die_px: float, count: int, below := 0.0) -> Rect2:
 	if area.size.x <= 0.0 or area.size.y <= 0.0:
 		return Rect2()
-	var high := area.size.y / (1.0 + RAIL_FOOT_UNITS / RAIL_UNITS)
+	var high := (area.size.y + maxf(below, 0.0)) / (1.0 + RAIL_FOOT_UNITS / RAIL_UNITS)
 	var low := 0.0
 	if rail_width_for(high, die_px, count) > area.size.x:
 		for i in 40:
@@ -344,8 +357,8 @@ func option_at_px(pixel: Vector2) -> int:
 			return i
 	return -1
 
-## Die Magazin-Reihe einer Karten-Option (ihre Sorte, -1 = keine Karte).
-func option_shelf_row(index: int) -> int:
+## Die Magazin-Spalte einer Karten-Option (ihre Sorte, -1 = keine Karte).
+func option_shelf_column(index: int) -> int:
 	if choice == null or index < 0 or index >= choice.option_count():
 		return -1
 	var option: Variant = choice.options[index]

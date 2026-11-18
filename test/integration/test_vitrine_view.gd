@@ -48,7 +48,7 @@ func test_in_der_auslage_liegt_alles_das_regal_hinten() -> void:
 
 func test_die_liegende_kassette_zeigt_ihr_netz_nach_oben() -> void:
 	# Von oben sieht man ihre große Fläche: darauf liegt das Prägenetz ihres
-	# Pakets, die Größe trägt der Rahmen - die Kappe zeigt zur Seite.
+	# Pakets, die Größe trägt die Intensität seiner Farbe.
 	var big := Pack.tiered(Pack.roll_engraving_pack(), Pack.TIER_KOLOSSAL)
 	bay.present(_stock([big], [], []))
 	await wait_frames(2)
@@ -58,8 +58,7 @@ func test_die_liegende_kassette_zeigt_ihr_netz_nach_oben() -> void:
 		"das Prägenetz liegt auf der Fläche")
 	assert_eq(cell.stamp_net, big.stamp_net, "und zwar SEINES, nicht irgendeins")
 	assert_not_null(cell.net_texture(), "gebacken ist es auch")
-	assert_gt(cell.bezel_lip(), DataCellView.BEZEL_LIP,
-		"die Größe steht in der Rahmenstärke")
+	assert_almost_eq(cell.tier_energy(), 1.0, 0.0001, "die Größe steht in der Intensität")
 
 func test_ein_buendel_traegt_seine_zahl_auf_der_karte() -> void:
 	# Von oben gelesen gehört die Marke auf die Fläche, nicht neben die Karte.

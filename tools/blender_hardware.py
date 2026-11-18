@@ -1,14 +1,12 @@
-"""Fumble: STECKER und BUCHSE der Datenkarten als .glb (Spieler-Entscheid 2026-10-27).
+"""Fumble: die BUCHSE der Magazin-Mulden als .glb (Spieler-Entscheid 2026-10-27; der STECKER
+der Karte ist mit den Datenträgern der Welle 3 gestorben).
 
 Aufruf (kopflos):
   blender -b -P tools/blender_hardware.py -- assets/models/hardware
 
-Zwei Modelle, beide mit Godot-Achsen gedacht (glTF: Godot (x, y, z) = Blender (x, -z, y)
-umgestellt - hier wird direkt in Blender-Achsen gebaut):
+Mit Godot-Achsen gedacht (glTF: Godot (x, y, z) = Blender (x, -z, y) umgestellt - hier
+wird direkt in Blender-Achsen gebaut):
 
-  card_connector.glb - in ROH-Maß der DataCellView (sie skaliert den Körper selbst mit
-      CASSETTE_SCALE). Ursprung = Mitte der FUSSKANTE der stehenden Karte; das Gehäuse
-      ragt in die Karte (Godot +Y), die Stifte nach außen (Godot -Y).
   card_socket.glb - in WELT-Maß (Karte bei CASSETTE_SCALE 3,2). Ursprung = Mitte des
       MUNDES auf Stifthöhe; der Körper reicht nach Godot +Z (weg von der Karte).
 
@@ -26,8 +24,6 @@ D = 0.1512                # DataCellView.DEPTH
 PINS = 8
 SPREAD = W * 0.74
 PIN_R = 0.016             # roh; in Welt 0,051
-PIN_LEN = 0.036           # roh; in Welt 0,115 - samt Spitze kürzer als die Buchse tief
-HOUSING_H = 0.10
 SOCKET_DEPTH = 0.15       # Welt
 HOLE_DEPTH = 0.13
 LIP = 0.05                # Welt: Rand der Buchse über und unter der Karte
@@ -84,20 +80,6 @@ def export(path):
                               export_format="GLB")
 
 
-def connector():
-    reset()
-    gold = mat("Gold", (1.0, 0.76, 0.33), 1.0, 0.22, (0.92, 0.74, 0.34), 0.35)
-    housing = mat("Steckergehaeuse", (0.06, 0.06, 0.08), 0.2, 0.45)
-    # Gehäuse in der Fußkante (Blender +Z = Godot +Y, in die Karte), eine Spur dicker
-    # als die Karte, damit es auf beiden Flächen steht.
-    box("Gehaeuse", (W * 0.86, D * 1.09, HOUSING_H), (0, 0, HOUSING_H * 0.5), housing, 0.006)
-    box("Kragen", (W * 0.88, D * 1.12, 0.012), (0, 0, HOUSING_H + 0.006), gold)
-    for i, x in enumerate(pin_xs(SPREAD)):
-        cyl("Stift%d" % i, PIN_R, PIN_LEN, (x, 0, -PIN_LEN * 0.5), gold)
-        cyl("Spitze%d" % i, PIN_R * 0.6, 0.006, (x, 0, -PIN_LEN - 0.003), gold)
-    export(os.path.join(OUT, "card_connector.glb"))
-
-
 def socket():
     reset()
     gold = mat("Gold", (1.0, 0.76, 0.33), 1.0, 0.22, (0.92, 0.74, 0.34), 0.35)
@@ -137,6 +119,5 @@ def socket():
     export(os.path.join(OUT, "card_socket.glb"))
 
 
-connector()
 socket()
 print("FERTIG", OUT)

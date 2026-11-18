@@ -15,6 +15,16 @@ extends RefCounted
 ## Karte in wenigen Dutzend Bildschirmpixeln - mehr wäre Vorrat für nichts, weniger
 ## fräße die "+n" der Zellen.
 const CELL := 34.0
+## Die Kleider der Träger (dress).
+const PUNCH_CELL := Color(0.02, 0.02, 0.026)
+const PUNCH_MAX := 6
+const TILE_SHEEN := 0.22
+const GLAZE := Color(0.03, 0.034, 0.05)
+const GLAZE_BARE := Color(0.13, 0.1, 0.075)
+const CLAY_RIM := Color(0.09, 0.07, 0.05)
+const GLAZE_SHEEN := 0.12
+const HOLO_FILL := 0.12
+const HOLO_BARE_RIM := 0.45
 
 static var _ovens: Dictionary = {}
 static var _holder: Node = null
@@ -33,22 +43,22 @@ static func size_px() -> Vector2i:
 
 ## Die geteilte Backung des RUHE-Zustands (null = der Baum nimmt gerade nichts auf;
 ## dann backt die Kassette selbst).
-static func texture(net: Array, accent: Color) -> Texture2D:
-	var key := signature(net, accent, [])
+static func texture(net: Array, accent: Color, carrier := -1) -> Texture2D:
+	var key := signature(net, accent, [], carrier)
 	var known: SubViewport = _ovens.get(key)
 	if known != null and is_instance_valid(known):
 		return known.get_texture()
 	var host := _shared_holder()
 	if host == null:
 		return null
-	var oven := bake(net, accent, [])
+	var oven := bake(net, accent, [], carrier)
 	host.add_child(oven)
 	_ovens[key] = oven
 	return oven.get_texture()
 
 ## Ein EIGENER Ofen - der Aufrufer hängt ihn ein und gibt ihn frei. Für den
 ## abgedunkelten Zustand und als Rückfall, wenn der geteilte gerade fehlt.
-static func bake(net: Array, accent: Color, drained: Array = []) -> SubViewport:
+static func bake(net: Array, accent: Color, drained: Array = [], carrier := -1) -> SubViewport:
 	var oven := SubViewport.new()
 	oven.name = "StampNetOven"
 	oven.size = size_px()
@@ -62,13 +72,81 @@ static func bake(net: Array, accent: Color, drained: Array = []) -> SubViewport:
 	# Gitter da.
 	if StampNet.is_blank(net):
 		drawing.modulate = accent
+	dress(drawing, net, accent, carrier)
 	oven.add_child(drawing)
 	return oven
 
-## Der Schlüssel einer Backung: ihr Inhalt, ihr Ton und ihre Abdunkelung. Eine
-## Orientierung steht nicht mehr darin - es gibt nur noch die eine.
-static func signature(net: Array, accent: Color, drained: Array) -> String:
-	var parts: Array[String] = [accent.to_html(false)]
+## Das Netz-Bild je TRÄGER (DataCellView.CARRIER_*): dieselbe Zeichnung, nur die Zellen
+## anders gekleidet - Lochkarte mit Stanzungen je Wert, Kassette mit Material-Kacheln,
+## Tontafel mit glasierten Kacheln, Holo als Leuchtlinien. -1 = die schlichte Backung.
+static func dress(drawing: Control, net: Array, accent: Color, carrier: int) -> void:
+	if carrier < 0 or drawing.get_child_count() == 0:
+		return
+	var root := drawing.get_child(0)
+	for face in StampNet.FACES:
+		if face >= root.get_child_count():
+			return
+		var chip := root.get_child(face) as Panel
+		if chip == null:
+			continue
+		var box := chip.get_theme_stylebox("panel") as StyleBoxFlat
+		if box == null:
+			continue
+		var entry := StampNet.cell_at(net, face)
+		var kind := StampNet.kind_of(entry)
+		var filled := StampNet.is_filled(entry)
+		match carrier:
+			DataCellView.CARRIER_PUNCH:
+				box.bg_color = PUNCH_CELL
+				if not filled:
+					box.border_color = accent.darkened(0.45)
+				if kind == StampNet.KIND_VALUE or kind == StampNet.KIND_FACTOR:
+					_punch_holes(chip, int(entry.get("value", 0)), accent)
+			DataCellView.CARRIER_CASSETTE:
+				if kind == StampNet.KIND_MATERIAL:
+					box.border_color = accent
+					_sheen(chip, TILE_SHEEN)
+			DataCellView.CARRIER_CLAY:
+				box.bg_color = GLAZE if filled else GLAZE_BARE
+				box.border_color = accent.darkened(0.35) if filled else CLAY_RIM
+				if filled:
+					_sheen(chip, GLAZE_SHEEN)
+			DataCellView.CARRIER_HOLO:
+				box.bg_color = Color(accent.r, accent.g, accent.b,
+					HOLO_FILL if filled else 0.0)
+				box.border_color = Color(accent.r, accent.g, accent.b,
+					1.0 if filled else HOLO_BARE_RIM)
+
+## So viele Stanzungen, wie die Zelle wert ist (höchstens PUNCH_MAX), unter dem Wert -
+## das Licht der Karte scheint hindurch.
+static func _punch_holes(chip: Panel, amount: int, accent: Color) -> void:
+	var count := clampi(absi(amount), 0, PUNCH_MAX)
+	var width := CELL * 0.075
+	var pitch := CELL * 0.12
+	for k in count:
+		var hole := ColorRect.new()
+		hole.name = "Stanzung%d" % k
+		hole.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hole.color = accent.lightened(0.3)
+		hole.size = Vector2(width, CELL * 0.13)
+		hole.position = Vector2(CELL * 0.5 + (float(k) - float(count - 1) * 0.5) * pitch
+			- width * 0.5, CELL * 0.76)
+		chip.add_child(hole)
+
+## Ein Glanzstreif im oberen Drittel: aus der Zelle wird eine Kachel.
+static func _sheen(chip: Panel, alpha: float) -> void:
+	var band := ColorRect.new()
+	band.name = "Glanz"
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	band.color = Color(1.0, 1.0, 1.0, alpha)
+	band.position = Vector2(CELL * 0.16, CELL * 0.12)
+	band.size = Vector2(CELL * 0.68, CELL * 0.14)
+	chip.add_child(band)
+
+## Der Schlüssel einer Backung: Träger, Inhalt, Ton und Abdunkelung - ohne den Träger
+## teilten zwei verschiedene Karten EINE Textur.
+static func signature(net: Array, accent: Color, drained: Array, carrier := -1) -> String:
+	var parts: Array[String] = ["%d" % carrier, accent.to_html(false)]
 	for face in StampNet.FACES:
 		var cell := StampNet.cell_at(net, face)
 		var mark := "-" if not StampNet.is_filled(cell) else "%s:%s:%s" % [

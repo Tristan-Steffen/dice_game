@@ -171,8 +171,7 @@ var wall_skin: Texture2D = null:
 ## Fläche - tiefer muss nichts sinken, um verdeckt zu sein.
 static func content_depth() -> float:
 	var die_top := DieBuilder.HALF_EXTENT * DIE_SCALE * (1.0 + SILHOUETTE)
-	var cell_top := DataCellView.lying_under(PackDrawerView.CASSETTE_SCALE) \
-		+ DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE)
+	var cell_top := DataCellView.lying_over(PackDrawerView.CASSETTE_SCALE)
 	return FLOOR_CLEAR + maxf(die_top, cell_top)
 
 ## Der Weg DURCH die Fläche - hinunter wie herauf.
@@ -281,10 +280,10 @@ func floor_y() -> float:
 func lie_y(half_height: float) -> float:
 	return floor_y() + FLOOR_CLEAR + half_height
 
-## Der Platz einer liegenden Kassette: dieselbe Auflage, nur um das gehoben, was
-## ihre Kontaktfinnen unter ihren Ursprung ragen lassen.
+## Der Platz einer liegenden Karte: dieselbe Auflage - ihr Träger reicht nicht unter
+## ihren Ursprung.
 func cell_y() -> float:
-	return lie_y(0.0) + DataCellView.lying_under(PackDrawerView.CASSETTE_SCALE)
+	return lie_y(0.0)
 
 ## Die Auslage zeigen. EIN idempotenter Schreiber: was schon steht, bleibt
 ## derselbe Körper; was fehlt, entsteht; was verkauft ist, sinkt weg.
