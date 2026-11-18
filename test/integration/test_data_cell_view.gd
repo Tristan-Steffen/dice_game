@@ -427,27 +427,6 @@ func test_hovering_lifts_the_cell_and_lets_it_sink_back() -> void:
 	assert_almost_eq(body.position.y, resting, 0.01, "und sinkt zurück")
 	assert_almost_eq(cell.glow_energy(), cell.rest_energy(), 0.001)
 
-## Der ZWEITE Hover-Kanal (Welle X): im TURM wird nicht gehoben, sondern LÄNGS
-## herausgezogen - nach Bild-links, damit das Netz frei liest. EIN Tween für beide.
-func test_hover_slide_pulls_the_lying_cell_along_its_own_axis() -> void:
-	var cell := _cell(Engraving.CATEGORY_NUMBER)
-	cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
-	cell.lie_on_glass(Vector3.ZERO)
-	var body: Node3D = cell.get_node("Body")
-	var resting := body.position
-	assert_almost_eq(cell.hover_slide, 0.0, 0.001, "die Auslagen schieben nichts")
-	cell.hover_lift = 0.0
-	cell.hover_slide = TowerView.hover_slide_for(0, 6)
-	cell.set_hovered(true)
-	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
-	assert_almost_eq(body.position.x, resting.x - DataCellView.STAND_HEIGHT
-		* TowerView.hover_slide_for(0, 6) * PackDrawerView.CASSETTE_SCALE, 0.01,
-		"sie fährt längs ihrer Achse heraus")
-	assert_almost_eq(body.position.y, resting.y, 0.01, "und hebt sich dabei NICHT")
-	cell.set_hovered(false)
-	await wait_seconds(DataCellView.HOVER_TIME + 0.1)
-	assert_almost_eq(body.position.x, resting.x, 0.01, "und rutscht zurück")
-
 ## Und im FACH einer Auslage hebt derselbe Griff die LIEGENDE Karte weiter AN - der
 ## Hub gilt in BEIDEN Lagen, gemessen an ihrer Standhöhe.
 func test_hovering_lifts_the_lying_cell_in_its_fach() -> void:

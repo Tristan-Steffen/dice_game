@@ -4,8 +4,12 @@ extends GutTest
 ## physischen Pool-Würfel (set_target_die), und die Vorschau ist buchstäblich
 ## dieselbe Rechnung wie der Griff.
 
-## Breite der Probeseite: der 100-u-Boden, damit unit() die Konvention bleibt.
-const PAGE_WIDTH := 560.0
+## Die gemessene Kette vom 2026-11-18 (siehe test_workshop_drum_layout).
+const POOL := Rect2(2916.4, 1994.8, 585.0, 487.5)
+const FACH := Rect2(3553.9, 1994.8, 86.3, 86.2)
+const CELL := Vector2(16.4, 40.5)
+const FACE := 55.46
+const U := 5.042
 
 var view: WorkshopView
 var run: GameRun
@@ -13,20 +17,16 @@ var run: GameRun
 func before_each() -> void:
 	run = GameRun.new_run()
 	view = WorkshopView.new()
-	view.size = Vector2(PAGE_WIDTH, 540)
 	add_child_autofree(view)
+	view.unit_px = U
+	view.data_cell_px = CELL
+	view.die_face_px = FACE
+	var frame := WorkshopView.drum_layout(POOL, FACH, PackDrawerView.lie_cell(CELL), FACE, U)
+	var bounds: Rect2 = frame["bounds"]
+	view.position = bounds.position
+	view.size = bounds.size
+	view.drum_frame = frame
 	view.run = run
-	# Wie am Tisch: die EINHEIT wird GEMELDET (sie folgt dort der Würfelfläche), und
-	# BREITE wie HÖHE fallen daraus - die Zeile ist so groß, wie ihr Inhalt ist.
-	view.unit_px = PAGE_WIDTH / 100.0
-	var u := view.unit()
-	view.size = Vector2(
-		roundf(WorkshopView.bench_width_for(u, view.net_span(u).x,
-			view.tower_span_px().x, view.eject_lane_px(),
-			WorkshopView.shelf_min_width(view.shelf_cell_px(), u))),
-		roundf(WorkshopView.bench_height_for(u, view.net_span(u).y,
-			view.tower_span_px().y)))
-	view.refresh()  # das neue Maß will gebaut werden, sonst steht die alte Seite
 
 ## Legt count Zahlen-Pakete ins Magazin und liefert ihre uids.
 func _stock(count: int) -> Array[int]:
@@ -169,7 +169,7 @@ func test_a_lone_repair_card_pulls_on_a_burned_die() -> void:
 	view.pull_lever()
 	assert_false(run.owned_pool[0].burned_out, "gebucht vor dem Licht")
 	assert_eq(run.owned_pool[0].charge, 0)
-	assert_true(view.burning(), "das Durchlicht läuft auch mit einer Karte")
+	assert_true(view.burning(), "die Übertragung läuft auch mit einer Karte")
 	assert_true(view.burn_repaired())
 	await wait_seconds(view.ceremony_time() + 0.2)
 	assert_false(view.burning(), "und läuft zu Ende")
@@ -272,20 +272,17 @@ func test_the_ceremony_reports_the_grip_at_its_end() -> void:
 	assert_eq(seen.size(), 1, "und der Griff ist gemeldet")
 	assert_eq(int(Dictionary(seen[0]).get("cards", 0)), GameRun.SERIES_SLOT_CAP)
 
-# --- DIE LAWINE und der SCANNER -----------------------------------------------------
+# --- DIE ÜBERTRAGUNG ---------------------------------------------------------------
 
 ## Alle Takt-Meldungen der Zeremonie in Reihenfolge, als [Kennung, Nutzlast].
 func _record_press() -> Array:
 	var beats: Array = []
-	view.cards_latched.connect(func(time: float) -> void:
-		beats.append(["latched", time]))
-	view.die_raised.connect(func(time: float) -> void: beats.append(["raised", time]))
-	view.light_passed.connect(func(index: int, faces: Array, values: Array,
+	view.slices_locked.connect(func(time: float) -> void:
+		beats.append(["locked", time]))
+	view.stream_passed.connect(func(index: int, faces: Array, values: Array,
 			operator: String, time: float) -> void:
 		beats.append(["passed", index, faces, values, operator, time]))
-	view.light_struck.connect(func(time: float) -> void: beats.append(["struck", time]))
-	view.die_returned.connect(func(time: float) -> void:
-		beats.append(["returned", time]))
+	view.stream_struck.connect(func(time: float) -> void: beats.append(["struck", time]))
 	return beats
 
 ## Es gibt genau EIN Netz, und es PARKT im Netz-Schirm der Netz-Spalte: der
@@ -298,9 +295,8 @@ func test_the_net_screen_parks_the_one_net() -> void:
 	assert_almost_eq(view._net.get_global_rect().get_center().y,
 		view.ist_net_center().y, 0.5)
 
-## Der Griff RASTET zuerst alle Karten EIN, dann hebt der Würfel ab - erst danach
-## steigt das Licht.
-func test_the_grip_latches_the_cards_and_raises_the_die_first() -> void:
+## Das Prägen VERRIEGELT zuerst die Scheiben - erst danach läuft der Strom.
+func test_the_grip_locks_the_slices_first() -> void:
 	var pack := _valued_pack(0, 3)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
@@ -310,17 +306,18 @@ func test_the_grip_latches_the_cards_and_raises_the_die_first() -> void:
 	view.pull_lever()
 	await wait_frames(2)
 	assert_true(view.burning(), "die Zeremonie läuft noch")
-	assert_eq(String(beats[0][0]), "latched", "erst rasten alle Karten ein")
-	assert_almost_eq(float(beats[0][1]), view.latch_time(), 0.001,
+	assert_eq(String(beats[0][0]), "locked", "erst verriegeln die Scheiben")
+	assert_almost_eq(float(beats[0][1]), view.lock_time(), 0.001,
 		"und zwar in der gemeldeten Gesamtdauer")
-	assert_almost_eq(view.latch_time(), WorkshopView.LATCH_TIME
-		+ WorkshopView.LATCH_STAGGER * float(GameRun.SERIES_SLOT_CAP - 1), 0.001,
-		"eine Karte plus die Staffel über die Etagen")
+	assert_almost_eq(view.lock_time(), WorkshopView.LOCK_TIME
+		+ WorkshopView.LOCK_STAGGER * float(GameRun.SERIES_SLOT_CAP - 1), 0.001,
+		"eine Scheibe plus die Staffel über die übrigen")
+	assert_eq(beats.size(), 1, "kein Würfel-Takt dazwischen - er bleibt in der Kammer")
 	view.skip_ceremony()
 
-## Je Etage EINE Licht-Meldung, in Serienfolge, mit ihren Zellen und dem
+## Je Scheibe EINE Strom-Meldung, in Serienfolge, mit ihren Zellen und dem
 ## aufgelaufenen Stand - genau das, was die Kassette abdunkelt und das Licht-Netz
-## tickt. Zuletzt der Einschlag und der Rückflug.
+## tickt. Zuletzt der Einschlag, und danach kommt nichts mehr.
 func test_every_card_reports_its_cells_and_the_running_sum() -> void:
 	var first := _valued_pack(0, 2)
 	var second := _valued_pack(3, 5)
@@ -336,15 +333,14 @@ func test_every_card_reports_its_cells_and_the_running_sum() -> void:
 	for beat in beats:
 		if String(beat[0]) == "passed":
 			reads.append(beat)
-	assert_eq(reads.size(), GameRun.SERIES_SLOT_CAP, "je Etage genau ein Takt")
-	assert_eq(int(reads[0][1]), 0, "in Serienfolge - Index 0 liegt UNTEN")
+	assert_eq(reads.size(), GameRun.SERIES_SLOT_CAP, "je Scheibe genau ein Takt")
+	assert_eq(int(reads[0][1]), 0, "in Serienfolge - Index 0 liegt OBEN")
 	assert_eq(reads[0][2], [0] as Array[int], "Karte 1 gibt ihre Seite her")
 	assert_eq(int(reads[0][3][0]), 2, "und der Stand danach ist ihr Wert")
 	assert_eq(reads[1][2], [3] as Array[int])
 	assert_eq(int(reads[1][3][0]), 2, "der Stand LÄUFT AUF - Karte 1 bleibt darin")
 	assert_eq(int(reads[1][3][3]), 5)
-	assert_eq(String(beats[-2][0]), "struck", "dann schlagen die Funken ein")
-	assert_eq(String(beats[-1][0]), "returned", "und der Würfel fliegt zurück")
+	assert_eq(String(beats[-1][0]), "struck", "zuletzt schlagen die Funken ein")
 
 ## Ein OPERATOR und ein MULTIPLIKATOR melden ihre Glyphe mit - sie schlagen
 ## perkussiv zu, statt still aufzunehmen.
@@ -387,7 +383,7 @@ func test_an_aborted_ride_owes_nothing() -> void:
 		seen.append(true))
 	_fill_row()
 	view.pull_lever()
-	await wait_seconds(WorkshopView.LIGHT_STEP * 0.5)
+	await wait_seconds(WorkshopView.STREAM_STEP * 0.5)
 	view.skip_ceremony()
 	await wait_frames(2)
 	assert_almost_eq(view._net.get_global_rect().get_center().x, park.x, 0.5,
@@ -478,12 +474,11 @@ func test_the_beat_ramps_and_operators_get_their_moment() -> void:
 	view.pull_lever()
 	assert_lt(view.card_beat(3), view.card_beat(1), "die Rampe zieht an")
 	assert_gt(view.card_beat(2), view.card_beat(1),
-		"der Operator bekommt seine %.2f s dazu" % WorkshopView.LIGHT_OPERATOR_EXTRA)
-	var span := view.latch_time() + WorkshopView.RAISE_TIME
+		"der Operator bekommt seine %.2f s dazu" % WorkshopView.STREAM_OPERATOR_EXTRA)
+	var span := view.lock_time()
 	for i in GameRun.SERIES_SLOT_CAP:
 		span += view.card_beat(i)
-	span += WorkshopView.STRIKE_TIME + WorkshopView.STRIKE_HOLD \
-		+ WorkshopView.RETURN_TIME
+	span += WorkshopView.STRIKE_TIME + WorkshopView.STRIKE_HOLD
 	assert_almost_eq(view.ceremony_time(), span, 0.001,
 		"ceremony_time IST die Summe aller Takte")
 	view.skip_ceremony()
@@ -531,34 +526,30 @@ func test_the_stamp_label_counts_the_slots() -> void:
 	var uids := _stock(1)
 	await wait_frames(2)
 	assert_eq(view.stamp_label(), "Prägen 0/%d" % run.series_slots())
-	assert_false(view._action_button.visible, "leer zeigt sich kein Knopf")
+	assert_true(view._action_button.visible, "leer steht er da")
+	assert_true(view._action_button.disabled, "und grau")
 	view.slot_pack(uids[0])
 	await wait_frames(2)
 	assert_true(view._action_button.visible, "gesteckt steht er da")
 	assert_eq(view._action_button.text, "Prägen 1/%d" % run.series_slots())
 
-## Der SERIEN-Schirm ist tot (der Zähler steht in der Griff-Aufschrift), und an der
-## Stelle des dreizeiligen Tooltips steht seit der Welle O der SUMMEN-Schirm.
-func test_the_series_screen_is_gone_and_the_sum_screen_stands() -> void:
+## Der SERIEN-Schirm ist tot (der Zähler steht in der Griff-Aufschrift), und der
+## eigene SUMMEN-Schirm auch: die Summe steht ohne Ziel in NACHHER.
+func test_the_series_and_sum_screens_are_gone() -> void:
 	await wait_frames(2)
 	assert_false(view.has_method("series_text"), "kein Serien-Schirm mehr")
 	assert_false(view.has_method("set_info"), "und kein dreizeiliger Tooltip mehr")
-	assert_null(view.get_node_or_null("SeriesBand/SeriesScreen"))
-	assert_null(view.get_node_or_null("SeriesBand/SumScreen"),
-		"und im Band steht er auch nicht")
-	assert_not_null(view.get_node_or_null("Street/SumScreen"),
-		"der Summen-Schirm steht in Zeile 2 der Straße")
-	assert_null(view.get_node_or_null("Street/SumScreen/Caption"),
-		"die Caption darunter ist am 2026-09-11 gestorben")
+	assert_null(view.get_node_or_null("Street/SumScreen"), "kein Summen-Schirm mehr")
+	assert_not_null(view.get_node_or_null("Street/BeforeScreen"), "VORHER steht")
+	assert_not_null(view.get_node_or_null("Street/AfterScreen"), "NACHHER steht")
 
-# --- WELLE O: der SUMMEN-SCHIRM ---------------------------------------------------
-# Zeile 2 trägt DREI Netze. Das mittlere zeigt die REINE Summe der gesteckten
-# Prägenetze (zielunabhängig) - und beim Hover das Netz DER einen Karte.
+# --- NACHHER ohne Ziel: die SUMME DER SERIE ---------------------------------------
+# Ohne Zielwürfel zeigt NACHHER die REINE Summe der gesteckten Prägenetze.
 
 func _sum_view() -> Control:
-	return view.get_node("Street/SumScreen/SumNet").get_child(0)
+	return view.get_node("Street/AfterScreen/Net").get_child(0)
 
-## Ohne Karte steht dort dasselbe LEERE KREUZ wie links und rechts.
+## Ohne Karte steht dort das LEERE KREUZ.
 func test_the_sum_screen_shows_the_empty_cross_without_a_card() -> void:
 	await wait_frames(2)
 	assert_eq(_sum_view().name, "EmptyNet", "leer heißt: sechs dunkle Zellen")
@@ -582,22 +573,26 @@ func test_the_sum_screen_sums_the_slotted_nets_in_order() -> void:
 	assert_eq(int(view._sum_projection["bonus"][0]), 3,
 		"Verdoppler zuerst verdoppelt nichts")
 
-## Der HOVER zeigt DIE EINE Karte statt der Summe - Schacht wie Magazin -, und
-## verläßt der Zeiger sie, steht die Summe wieder.
-func test_hovering_a_card_shows_its_own_net() -> void:
+## Der HOVER rührt die Summe nicht an - die Karte trägt ihr Netz selbst.
+func test_hovering_a_card_keeps_the_sum() -> void:
 	var slotted := _valued_pack(0, 3)
-	var spare := _valued_pack(1, 2)
 	view.slot_pack(slotted.pack_uid)
 	await wait_frames(2)
 	view.sync_hover_at(view._slot_buttons[0].get_global_rect().get_center())
-	assert_eq(_sum_view().name, "StampNet", "die Schacht-Karte zeigt ihr eigenes Netz")
+	assert_eq(_sum_view().name, "SeriesSum", "die Summe bleibt stehen")
 	assert_eq(view.hover_pack_name(), slotted.display_name)
-	view.sync_hover_at(view.pack_anchor_px(spare.pack_uid))
-	assert_eq(_sum_view().name, "StampNet", "und eine Magazin-Kassette ebenso")
-	assert_eq(view.hover_pack_name(), spare.display_name)
-	view.sync_hover_at(Vector2(-50, -50))
-	assert_eq(_sum_view().name, "SeriesSum", "weg vom Zeiger steht wieder die Summe")
-	assert_eq(view.hover_pack_name(), "", "und niemand wird genannt")
+
+## Mit Zielwürfel tritt die Summe ab: NACHHER zeigt die Vorschau, VORHER den Würfel.
+func test_with_a_target_after_shows_the_preview_and_before_the_die() -> void:
+	var value := _valued_pack(0, 3)
+	view.slot_pack(value.pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_eq(view.get_node("Street/AfterScreen/Net").get_child_count(), 0,
+		"keine Summe neben dem Vorschau-Netz")
+	assert_false(view._net.projection.is_empty(), "NACHHER ist die Vorschau")
+	assert_eq(view._before_net.def, view.target_die(), "VORHER ist der Würfel")
+	assert_true(view._before_net.projection.is_empty(), "wie er IST")
 
 ## Die CAPTION ist am 2026-09-11 gestorben - der Info-Schirm fragt statt dessen
 ## nach dem PAKET unter dem Zeiger, und die ETAGE schlägt das Magazin.
@@ -648,7 +643,7 @@ func test_the_row_reports_sorts_places_and_cards() -> void:
 		[Engraving.CATEGORY_NUMBER, Engraving.CATEGORY_MATERIAL] as Array[String])
 	assert_eq(view.press_slot_anchors().size(), view.slot_count(),
 		"auch die leeren Schächte melden ihren Mund")
-	assert_eq(view.press_display_anchors().size(), view.slot_count())
+	assert_eq(view.press_slot_anchors().size(), view.slot_count())
 
 ## Die Körper gehören scene_root, den PLATZ meldet das Fenster - seit der WELLE S
 ## ist es EIN Podest, und seit dem 2026-11-13 steht es ÜBER dem Netz-Schirm.
@@ -658,8 +653,8 @@ func test_the_window_reports_the_one_podium() -> void:
 	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seine Mitte")
 	assert_eq(view.target_projector_y(), view.target_net_center().y,
 		"Zeile und Mitte sind derselbe Platz")
-	assert_lte(view.podium_look_rect().end.y, view.ist_screen_rect().position.y,
-		"es steht ÜBER dem Netz-Schirm")
+	assert_gt(view.chamber_rect().position.x, view.after_net_rect().end.x,
+		"es ist die KAMMER rechts von NACHHER")
 	assert_false(view.has_method("result_net_center"),
 		"und ein zweites Podest gibt es nicht mehr")
 
@@ -696,8 +691,8 @@ func test_the_row_carries_no_card_mockups() -> void:
 	await wait_frames(2)
 	assert_false("SlotCard" in _node_names(view), "keine Karten-Attrappe im Fenster")
 	assert_false("SlotCardSeat" in _node_names(view))
-	assert_eq(view._slot_buttons.size(), view.step_count(),
-		"gemeldet werden die ETAGEN-FELDER, nicht gemalte Karten")
+	assert_eq(view._slot_buttons.size(), view.slot_count(),
+		"gemeldet werden die SCHEIBEN, nicht gemalte Karten")
 
 ## Alle Namen im Fensterbaum - der Beweis, dass etwas NICHT mehr gebaut wird.
 func _node_names(root: Node) -> Array[String]:
@@ -713,7 +708,7 @@ func test_the_fach_anchors_stand_still_through_slotting() -> void:
 	var uids := _stock(2)
 	await wait_frames(2)
 	var mouths := view.press_slot_anchors()
-	var faces := view.press_display_anchors()
+	var faces := view.press_slot_anchors()
 	assert_eq(mouths, faces, "das FACH IST die Karten-Fläche")
 	view.slot_pack(uids[0])
 	await wait_frames(2)
@@ -752,53 +747,18 @@ func test_a_tower_cassette_lies_at_the_one_card_size() -> void:
 	assert_false(view.has_method("socket_cell_scale"),
 		"es gibt keinen kontext-eigenen Maßstab mehr")
 
-# --- WELLE X: EINE Kartengröße, der TURM paßt sich an -----------------------------
+# --- DIE WALZE: EINE Kartengröße, die Scheiben stehen untereinander -------------
 
-## Der TURM-Fußabdruck kommt aus der KARTE plus Luft, nicht aus der Etagenzahl: er
-## ist bei einer wie bei sechs Etagen gleich groß - der Turm wächst nach OBEN.
-func test_the_tower_footprint_is_the_lying_card_plus_air() -> void:
-	view.data_cell_px = Vector2(8, 24)
-	view.refresh()
-	await wait_frames(2)
-	var short := view.tower_span_px()
-	assert_almost_eq(short.y, view.lie_span_px().y * WorkshopView.TOWER_ROOM, 0.001,
-		"die Kartenbreite plus Luft")
-
-## Die ETAGEN-FELDER teilen sich EINE Spalte: mehr Etagen heißt schmalere Felder,
-## nicht eine breitere Leiste.
-func test_more_floors_split_the_same_strip() -> void:
-	view.data_cell_px = Vector2(8, 24)
-	view.refresh()
+## Die Scheiben stehen UNTEREINANDER in EINER Spalte, Scheibe 1 oben.
+func test_the_slices_stand_in_one_column_top_down() -> void:
 	await wait_frames(2)
 	assert_gt(view._slot_buttons.size(), 1)
 	var first: Rect2 = view._slot_buttons[0].get_global_rect()
 	var second: Rect2 = view._slot_buttons[1].get_global_rect()
-	assert_lt(second.position.y, first.position.y, "Etage 2 liegt HÖHER als Etage 1")
+	assert_gt(second.position.y, first.position.y, "Scheibe 2 liegt UNTER Scheibe 1")
 	assert_almost_eq(second.position.x, first.position.x, 0.001, "in EINER Spalte")
-	assert_almost_eq(view.strip_rect().size.x,
-		view.unit() * WorkshopView.STRIP_WIDTH, 0.001, "die Leiste hat EINE Breite")
-
-## Der STREIFEN wächst mit dem TURM in die BREITE, statt die Karten zu schrumpfen -
-## und die Zeilenhöhe hängt nicht mehr an der Etagenzahl.
-func test_the_strip_grows_sideways_instead_of_shrinking_the_cards() -> void:
-	var u := 5.0
-	var net := 125.0
-	assert_almost_eq(WorkshopView.bench_height_for(u, net, 97.0),
-		WorkshopView.bench_height_for(u, net, 97.0), 0.001,
-		"die Höhe kennt die Etagenzahl gar nicht")
-	var narrow := WorkshopView.bench_width_for(u, 168.3, 100.0, 100.0)
-	var wide := WorkshopView.bench_width_for(u, 168.3, 160.0, 160.0)
-	assert_gt(wide, narrow, "ein größerer Turm macht den Streifen breiter")
-
-## Der STREIFEN ist BREITER als die Treppen-Spalte war - dafür ist er FLACH, und
-## die Kamera kommt näher.
-func test_the_tower_strip_trades_height_for_width() -> void:
-	var u := 5.0
-	var net := 125.0
-	var now := WorkshopView.bench_height_for(u, net, 97.3)
-	# Die Treppe war sechs liegende Karten hoch: 6 x 90 px plus Netz und u-Kette.
-	var was := 90.0 * 6.0 + net
-	assert_lt(now, was, "die Zeile ist %.1f px hoch statt %.1f px" % [now, was])
+	assert_almost_eq(first.size.y, view.lie_span_px().y, 0.001,
+		"eine Scheibe ist so hoch wie die liegende Karte breit")
 
 ## Die MASSEINHEIT darf von außen vorgegeben werden: der Streifen ist breiter als
 ## seine 100 u, sonst zerrisse die gewachsene Reihe die senkrechte Rechnung.
@@ -811,16 +771,14 @@ func test_the_reported_unit_beats_the_window_width() -> void:
 	await wait_frames(2)
 	assert_almost_eq(view.unit(), own * 0.5, 0.001, "gemeldet schlägt gerechnet")
 
-## (2) Die gemeldeten ANKER zeigen alle auf den TURM-Platz: alle Karten liegen über
-## DEMSELBEN Fußabdruck, nur die HÖHE unterscheidet sie - und die rechnet der Körper.
-func test_the_anchors_all_name_the_tower_place() -> void:
+## Die gemeldeten ANKER sind die Mitten der Scheiben - die Höhe der Karte darauf
+## rechnet der Körper.
+func test_the_anchors_name_the_slice_centres() -> void:
 	await wait_frames(2)
 	var anchors := view.press_slot_anchors()
-	assert_eq(anchors, view.press_display_anchors(),
-		"Turm-Platz und Kartenfläche liegen aufeinander")
-	assert_eq(anchors.size(), view.step_count())
-	var centre := view.get_global_rect().position + view.tower_rect().get_center()
+	assert_eq(anchors.size(), view.slot_count())
 	for i in anchors.size():
+		var centre := view._global(view.slice_rect(i)).get_center()
 		assert_almost_eq(anchors[i].x, centre.x, 0.001)
 		assert_almost_eq(anchors[i].y, centre.y, 0.001)
 
@@ -828,29 +786,20 @@ func test_the_anchors_all_name_the_tower_place() -> void:
 # Die Aufschlüsselungs-Zeilen sind tot, die dritte Spalte auch - der Schirm trägt
 # das EINE Netz: Vorschau, Ergebnis, grüne Deltas.
 
-## Er trägt keinen eigenen Hintergrund (blanker Filz).
-func test_the_net_screen_has_no_background() -> void:
-	await wait_frames(2)
-	assert_true(view._ist_screen.get_theme_stylebox("panel") is StyleBoxEmpty,
-		"der Netz-Schirm steht auf blankem Filz")
-
 ## Die Diff-Zeilen sind restlos fort - weder Rechnung noch Zeilen-Hover.
 func test_the_breakdown_rows_are_dead() -> void:
 	assert_false(view.has_method("diff_rows"), "keine Aufschlüsselungs-Zeilen mehr")
 	assert_false(view.has_method("diff_row_slot_at"), "und kein Zeilen-Hover")
 
-## Das Zellmaß ist das des PRÄGENETZES auf der Karte (Welle 29); das Ziel-Netz
-## füllt seine Spalte und wird dabei nie kleiner - die Würfelfläche rührt beides nicht.
+## Das Zellmaß ist das des PRÄGENETZES auf der Karte: VORHER und NACHHER sind
+## Kartenzellen - die Würfelfläche rührt es nicht.
 func test_both_nets_share_the_card_net_cell() -> void:
 	view.die_face_px = 28.0
 	view.choose_target(0)
 	await wait_frames(2)
 	var card := WorkshopView.card_net_cell(view.shelf_cell_px())
-	assert_almost_eq(view._net.cell, view.target_net_cell(view.unit()), 0.001,
-		"das Ziel-Netz füllt seine Spalte")
-	assert_gte(view._net.cell, card, "und ist nie kleiner als die Karten-Zelle")
-	assert_almost_eq(view.sum_net_cell(view.unit()), card, 0.001,
-		"und der Summen-Schirm dasselbe Maß")
+	assert_almost_eq(view._net.cell, card, 0.001, "NACHHER in der Kartenzelle")
+	assert_almost_eq(view._before_net.cell, card, 0.001, "und VORHER dasselbe Maß")
 
 ## OHNE Ziel rechnet der Netz-Schirm nichts - er hängt allein am gewählten
 ## Zielwürfel; der wartende Neuzugang wird von der Info-Säule am Fach gezeigt.
@@ -882,17 +831,18 @@ func test_the_stencil_ride_is_gone() -> void:
 	assert_false(view.has_signal("stack_slid"))
 	assert_false(view.has_signal("stack_dropped"))
 	assert_false(view.has_signal("stack_scanned"))
-	assert_true(view.has_signal("cards_latched"))
-	assert_true(view.has_signal("die_raised"))
-	assert_true(view.has_signal("light_passed"))
-	assert_true(view.has_signal("light_struck"))
-	assert_true(view.has_signal("die_returned"))
+	assert_true(view.has_signal("slices_locked"))
+	assert_true(view.has_signal("stream_passed"))
+	assert_true(view.has_signal("stream_struck"))
+	for dead in ["cards_latched", "die_raised", "light_passed", "light_struck",
+			"die_returned"]:
+		assert_false(view.has_signal(dead), "%s ist mit dem Durchlicht gestorben" % dead)
 	var net := view.ist_net_center()
 	assert_gt(net.x, 0.0, "der Parkplatz des Netzes steht")
-	assert_almost_eq(net.x, view.ist_screen_rect().get_center().x
-		+ view.get_global_rect().position.x, 1.0, "und liegt über dem Turm")
+	assert_almost_eq(net.x, view.after_net_rect().get_center().x
+		+ view.get_global_rect().position.x, 1.0, "und liegt in NACHHER")
 
-## Der Zielwürfel behält seine ALTEN Augen, bis der Scanner sie aufdeckt: held_faces
+## Der Zielwürfel behält seine ALTEN Augen, bis die Funken einschlagen: held_faces
 ## trägt den Stand VOR dem Griff und ist danach wieder leer.
 func test_the_window_holds_the_faces_before_the_grip() -> void:
 	var pack := _valued_pack(0, 4)
@@ -911,6 +861,27 @@ func test_the_window_holds_the_faces_before_the_grip() -> void:
 	view.skip_ceremony()
 	await wait_frames(2)
 	assert_null(view.held_faces(), "danach hält es nichts mehr")
+
+## VORHER hält den alten Stand wie der Würfel und springt erst mit dem EINSCHLAG
+## der Funken auf den gebuchten.
+func test_before_jumps_with_the_strike() -> void:
+	var pack := _valued_pack(0, 4)
+	view.slot_pack(pack.pack_uid)
+	view.choose_target(0)
+	await wait_frames(2)
+	var before: int = run.owned_pool[0].faces[0]
+	var struck: Array[float] = []
+	view.stream_struck.connect(func(t: float) -> void: struck.append(t))
+	view.pull_lever()
+	await wait_frames(2)
+	assert_eq(view.before_die().faces[0], before, "VORHER zeigt den alten Stand")
+	while struck.is_empty() and view.burning():
+		await wait_frames(1)
+	assert_eq(view.before_die().faces[0], before, "auch noch beim Abflug der Funken")
+	await wait_seconds(WorkshopView.STRIKE_TIME + 0.05)
+	assert_eq(view.before_die().faces[0], before + 4, "mit dem Einschlag der neue")
+	assert_eq(view._before_net.def, view.target_die(), "und das Netz zeigt ihn")
+	assert_null(view.held_faces(), "der Würfel hält ab dem Einschlag nichts mehr")
 
 ## Die Kartendaten der Zeremonie tragen die PAKETGRÖSSE - daraus nimmt der Block
 ## seine Intensität.
@@ -931,8 +902,8 @@ func test_the_card_data_carries_the_tier() -> void:
 	assert_false(view.burn_projection().is_empty(), "und die Projektion steht")
 	view.skip_ceremony()
 
-## Der Takt der letzten Etappe: der Einschlag, dann der Rückflug - dazwischen nichts.
-func test_the_last_leg_is_striking_then_returning() -> void:
+## Die letzte Etappe ist der Einschlag in der Kammer - einen Rückflug gibt es nicht.
+func test_the_last_leg_is_the_strike() -> void:
 	var pack := _valued_pack(0, 3)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(0)
@@ -941,12 +912,13 @@ func test_the_last_leg_is_striking_then_returning() -> void:
 	_fill_row()
 	view.pull_lever()
 	await wait_seconds(view.ceremony_time() + 0.35)
-	assert_eq(String(beats[-2][0]), "struck", "erst schlagen die Funken ein")
-	assert_eq(String(beats[-1][0]), "returned", "dann fliegt der Würfel zurück")
+	assert_eq(String(beats[-1][0]), "struck", "zuletzt schlagen die Funken ein")
+	assert_eq(String(beats[-2][0]), "passed", "direkt nach der letzten Scheibe")
+	assert_almost_eq(float(beats[-1][1]), WorkshopView.STRIKE_TIME, 0.001)
 
-## Skip MITTEN im LICHT: das Ende ist genau einmal gemeldet, die Reihe leer, und der
+## Skip MITTEN im STROM: das Ende ist genau einmal gemeldet, die Reihe leer, und der
 ## Endstand ist derselbe wie bei der ausgefahrenen Zeremonie.
-func test_a_skip_inside_the_light_owes_nothing() -> void:
+func test_a_skip_inside_the_stream_owes_nothing() -> void:
 	var pack := _valued_pack(3, 4)
 	view.slot_pack(pack.pack_uid)
 	view.choose_target(2)
@@ -957,9 +929,8 @@ func test_a_skip_inside_the_light_owes_nothing() -> void:
 		seen.append(true))
 	_fill_row()
 	view.pull_lever()
-	await wait_seconds(view.latch_time() + WorkshopView.RAISE_TIME
-		+ WorkshopView.LIGHT_STEP * 1.5)
-	assert_true(view.burning(), "das Licht steigt noch")
+	await wait_seconds(view.lock_time() + WorkshopView.STREAM_STEP * 1.5)
+	assert_true(view.burning(), "der Strom läuft noch")
 	view.skip_ceremony()
 	await wait_frames(2)
 	assert_eq(seen.size(), 1, "der Griff ist genau einmal gemeldet")
@@ -1143,20 +1114,20 @@ func test_ein_katalysator_sperrt_das_verdichten_mit_klartext() -> void:
 	assert_eq(view.stamp_blocker(),
 		"Katalysatoren verdichten nicht - sie wirken auf einen Würfel.")
 
-## Die ganze Fahrt: buchen vor dem Licht, und die drei WUERFEL-Takte entfallen - beim
-## Verdichten fliegt nichts.
-func test_das_verdichten_bucht_vor_dem_licht_und_laesst_die_wuerfel_takte_fort() -> void:
+## Die ganze Fahrt: buchen vor dem Licht, dann dieselben Takte wie beim Prägen - die
+## Funken schlagen in den Rohling in der Kammer.
+func test_das_verdichten_bucht_vor_dem_licht_und_schlaegt_in_den_rohling() -> void:
 	var blank := _blank()
 	var fuel := _valued_pack(0, 5)
 	view.slot_pack(fuel.pack_uid)
 	view.set_target_pack(blank)
 	await wait_frames(2)
 	var beats: Array[String] = []
-	view.die_raised.connect(func(_t: float) -> void: beats.append("raised"))
-	view.light_struck.connect(func(_t: float) -> void: beats.append("struck"))
-	view.die_returned.connect(func(_t: float) -> void: beats.append("returned"))
-	var latched: Array[float] = []
-	view.cards_latched.connect(func(t: float) -> void: latched.append(t))
+	view.stream_passed.connect(func(_i: int, _f: Array, _v: Array, _g: String,
+			_t: float) -> void: beats.append("passed"))
+	view.stream_struck.connect(func(_t: float) -> void: beats.append("struck"))
+	var locked: Array[float] = []
+	view.slices_locked.connect(func(t: float) -> void: locked.append(t))
 	var applied: Array = []
 	view.series_applied.connect(func(result: Dictionary, _px: Vector2) -> void:
 		applied.append(result))
@@ -1165,10 +1136,11 @@ func test_das_verdichten_bucht_vor_dem_licht_und_laesst_die_wuerfel_takte_fort()
 		"gebucht vor dem Licht")
 	assert_true(view.burning(), "und die Fahrt läuft")
 	assert_true(view.compressing(), "sie weiß noch, daß sie verdichtet")
-	assert_eq(latched.size(), 1, "die Karten rasten ein")
+	assert_eq(locked.size(), 1, "die Scheiben verriegeln")
 	await wait_seconds(view.ceremony_time() + 0.3)
 	assert_false(view.burning(), "sie läuft zu Ende")
-	assert_eq(beats, [] as Array[String], "kein Würfel-Takt - hier fliegt nichts")
+	assert_eq(beats, ["passed", "struck"] as Array[String],
+		"der Strom liest die Karte, dann schlägt er in den Rohling")
 	assert_eq(applied.size(), 1, "und sie meldet das Verdichten")
 
 func test_nach_dem_verdichten_ist_das_podest_leer() -> void:
@@ -1183,7 +1155,7 @@ func test_nach_dem_verdichten_ist_das_podest_leer() -> void:
 	assert_false(view.compressing())
 	assert_true(blank.is_compressed(), "sondern eine verdichtete Karte")
 
-## Der Summen-Schirm zeigt beim Verdichten die KARTE, die herauskaeme - nicht die
+## NACHHER zeigt beim Verdichten die KARTE, die herauskaeme - nicht die
 ## Praege-Summe, denn das ist eine andere Rechnung.
 func test_der_summen_schirm_zeigt_die_verdichtete_karte() -> void:
 	var blank := _blank()
@@ -1235,12 +1207,9 @@ func test_der_rohling_auf_dem_podest_hat_im_magazin_keinen_koerper() -> void:
 	assert_false(bool(before["withheld"]), "und wird dort gezeigt")
 	view.set_target_pack(blank)
 	await wait_frames(2)
-	assert_false(bool(_entry_of(blank.pack_uid)["withheld"]),
-		"solange die Die-View noch weicht, liegt er in seinem Fach")
-	await wait_frames(40)
 	var during := _entry_of(blank.pack_uid)
 	assert_false(during.is_empty(), "sein PLATZ bleibt stehen")
-	assert_true(bool(during["withheld"]), "aber sein Körper liegt auf der Ziel-Spalte")
+	assert_true(bool(during["withheld"]), "aber sein Körper liegt in der Kammer")
 
 ## Und nach dem Verdichten kommt er zurueck ins Fach - sonst waere die fertige Karte
 ## nirgends zu finden.
@@ -1255,60 +1224,31 @@ func test_nach_dem_verdichten_steht_die_karte_wieder_im_fach() -> void:
 	var entry := _entry_of(blank.pack_uid)
 	assert_false(entry.is_empty(), "die verdichtete Karte liegt im Magazin")
 	assert_false(bool(entry["withheld"]), "und wird dort auch gezeigt")
-	assert_eq(int(entry["tray"]), Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL),
+	assert_eq(int(entry["row"]), Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL),
 		"im Sonderbestand, wie der Rohling vorher")
 
-## DIE TISCHSEKTION WEICHT (Spieler-Wuensche 2026-10-26): der Rohling liegt auf der
-## ZIEL-SPALTE - ueber dem Turm, wo das Licht ankommt -, und das Stueck Tisch unter
-## der Die-View weicht ihm in ZWEI Takten (erst SINKEN, dann FAHREN). Das Fenster
-## gibt den Takt, den KOERPER stellt scene_root - hier steht der Takt und der
-## Schirm, der beim Sinken verlischt (die Platte traegt sein Bild unter die Kante).
-func test_die_tischsektion_weicht_dem_rohling() -> void:
-	await wait_frames(2)
-	var home := view.ist_screen_rect().position
-	assert_almost_eq(view.ist_dip(), 0.0, 0.001, "ohne Rohling steht sie buendig")
-	assert_almost_eq(view.ist_slide(), 0.0, 0.001)
-	assert_almost_eq(view._ist_screen.modulate.a, 1.0, 0.001, "und der Schirm ist ganz da")
-	var blank := _blank()
-	view.set_target_pack(blank)
-	await wait_frames(4)
-	assert_gt(view.ist_dip(), 0.0, "erst SINKT sie")
-	assert_almost_eq(view.ist_slide(), 0.0, 0.001, "noch ohne zu fahren")
-	assert_lt(view._ist_screen.modulate.a, 1.0, "und der Schirm verlischt mit ihr")
-	await wait_frames(40)
-	assert_almost_eq(view.ist_dip(), 1.0, 0.001, "dann steht sie ganz unter der Kante")
-	assert_almost_eq(view.ist_slide(), 1.0, 0.001, "und ganz in ihrer Tasche")
-	assert_almost_eq(view._ist_screen.modulate.a, 0.0, 0.001, "der Schirm ist fort")
-	assert_eq(view._ist_screen.position, home, "sein PLATZ hat sich nie geruehrt")
-	view.clear_target()
-	await wait_frames(40)
-	assert_almost_eq(view.ist_dip(), 0.0, 0.001, "abgewaehlt kommt sie denselben Weg zurueck")
-	assert_almost_eq(view.ist_slide(), 0.0, 0.001)
-	assert_almost_eq(view._ist_screen.modulate.a, 1.0, 0.001)
-
-## Sein PLATZ ist die Mitte der Ziel-Spalte - unter dem Podest, das beim Verdichten
-## leer steht, und ueber dem Turm.
-func test_der_rohling_liegt_auf_der_ziel_spalte() -> void:
+## Sein PLATZ ist die Mitte der KAMMER - dort, wo sonst der Zielwuerfel schwebt.
+func test_der_rohling_liegt_in_der_kammer() -> void:
 	var blank := _blank()
 	view.set_target_pack(blank)
 	await wait_frames(2)
-	var seat := view.blank_seat_center()
-	var origin := view.get_global_rect().position
-	assert_eq(seat, origin + view.ist_screen_rect().get_center(),
-		"die Mitte der Ziel-Spalte")
-	assert_almost_eq(seat.x, origin.x + view.tower_rect().get_center().x, 0.5,
-		"und damit ueber dem Turm")
-	assert_gt(seat.y, origin.y + view.podium_look_rect().end.y,
-		"unter dem Podest")
+	assert_eq(view.blank_seat_center(), view.chamber_rect_px().get_center(),
+		"die Mitte der Kammer")
+	assert_eq(view.seated_blank(), blank, "er liegt sofort dort")
+	assert_null(view.target_die(), "und schliesst den Wuerfel als Ziel aus")
+	view.choose_target(0)
+	await wait_frames(2)
+	assert_null(view.seated_blank(), "ein Wuerfel verdraengt ihn")
+	assert_false(bool(_entry_of(blank.pack_uid)["withheld"]), "er liegt wieder im Fach")
 
-## Waehrend der Zeremonie LIEGT er weiter dort - das Licht steigt in IHN, und im
+## Waehrend der Zeremonie LIEGT er weiter dort - die Funken schlagen in IHN, und im
 ## Magazin steht er darum auch nicht schon wieder.
 func test_der_rohling_liegt_auch_waehrend_der_zeremonie() -> void:
 	var blank := _blank()
 	view.slot_pack(_valued_pack(0, 3).pack_uid)
 	view.set_target_pack(blank)
-	await wait_frames(40)
-	assert_eq(view.seated_blank(), blank, "er liegt auf der freien Ziel-Spalte")
+	await wait_frames(2)
+	assert_eq(view.seated_blank(), blank, "er liegt in der Kammer")
 	view.pull_lever()
 	await wait_frames(2)
 	assert_true(view.burning(), "die Zeremonie laeuft")
@@ -1337,16 +1277,15 @@ func test_eine_weit_hinausgerollte_karte_landet_nie_auf_der_grubenmitte() -> voi
 	for i in 40:
 		uids.append(run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping())).pack_uid)
 	var tray := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
-	view.shelf_tray = tray
 	view.set_shelf_scroll(tray, PackDrawerView.max_scroll(run.pack_tray_count(tray)))
 	await wait_frames(2)
 	var mitte := view.shelf_rect_global().get_center()
-	# Die kritischen sind die mit NEGATIVER Anzeige-x: genau die verwarf der alte
+	# Die kritischen sind die weit LINKS des Fachs: genau die verwarf der alte
 	# Gueltigkeits-Test als ungueltig.
 	var negativ := 0
 	for uid in uids:
 		var seat := view.pack_seat_px(uid)
-		if seat.x < 0.0:
+		if seat.x < view.shelf_rect_global().position.x:
 			negativ += 1
 		assert_gt(seat.distance_to(mitte), 1.0,
 			"uid %d (Spalte %d) liegt auf der Grubenmitte"
@@ -1359,13 +1298,11 @@ func test_die_plaetze_der_hinausgerollten_karten_bleiben_linear() -> void:
 	for i in 40:
 		uids.append(run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping())).pack_uid)
 	var tray := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
-	view.shelf_tray = tray
 	view.set_shelf_scroll(tray, PackDrawerView.max_scroll(run.pack_tray_count(tray)))
 	await wait_frames(2)
 	var by_column: Dictionary = {}
 	for uid in uids:
-		if view.shelf_lane_of(uid) == 0:
-			by_column[view.shelf_window_column_of(uid)] = view.pack_seat_px(uid)
+		by_column[view.shelf_window_column_of(uid)] = view.pack_seat_px(uid)
 	var columns: Array = by_column.keys()
 	columns.sort()
 	assert_gt(columns.size(), 3, "genug Spalten für eine Gerade")
@@ -1376,70 +1313,62 @@ func test_die_plaetze_der_hinausgerollten_karten_bleiben_linear() -> void:
 		var delta: Vector2 = by_column[columns[i]] - by_column[columns[i - 1]]
 		assert_almost_eq(delta.x, step.x, 0.5, "Spalte %d" % columns[i])
 
-# --- Der Roll-Stand gehoert dem SICHTBAREN Tablett -------------------------------
-## Spieler-Wunsch 2026-10-26: nur das gewaehlte Tablett rollt. Beim Wechsel stehen
-## alle anderen wieder auf ihrer ersten Spalte.
-func test_der_tablett_wechsel_setzt_die_uebrigen_roll_staende_zurueck() -> void:
-	for i in 40:
+# --- Jede Reihe rollt FÜR SICH ------------------------------------------------------
+## Der Roll-Stand ist je Sorte gebucht: eine Reihe zu rollen läßt die anderen stehen,
+## und der Laufwechsel setzt alle auf 0.
+func test_jede_reihe_rollt_fuer_sich() -> void:
+	for i in 10:
 		run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping()))
-	for i in 20:
+	for i in 6:
 		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
 	var sonder := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
 	var runen := Pack.SHELF_ORDER.find(Engraving.CATEGORY_DICE)
-	view.shelf_tray = sonder
 	view.set_shelf_scroll(sonder, 5)
-	await wait_frames(2)
-	assert_eq(view.shelf_scroll_of(sonder), 5, "das gewählte Tablett rollt")
-	view.shelf_tray = runen
-	await wait_frames(2)
-	assert_eq(view.shelf_scroll_of(sonder), 0,
-		"beim Wechsel steht das verlassene wieder auf Spalte 0")
 	view.set_shelf_scroll(runen, 3)
 	await wait_frames(2)
-	view.shelf_tray = sonder
-	await wait_frames(2)
-	assert_eq(view.shelf_scroll_of(runen), 0, "und umgekehrt genauso")
-	assert_eq(view.shelf_scroll_of(sonder), 0, "das zurueckgekehrte steht vorn")
+	assert_eq(view.shelf_scroll_of(sonder), 5)
+	assert_eq(view.shelf_scroll_of(runen), 3, "die andere Reihe behält ihren eigenen Stand")
+	assert_eq(view.shelf_scroll_of(0), 0, "eine leere Reihe rastet am Anfang")
+	view.set_shelf_scroll(runen, 99)
+	assert_eq(view.shelf_scroll_of(runen), 6 - view.shelf_columns(),
+		"gerastet wird höchstens bis die letzte Karte am rechten Rand steht")
+	assert_eq(view.shelf_overflow(sonder), Vector2i(1, 1), "beide Seiten tragen noch Karten")
+	assert_eq(view.shelf_overflow(runen), Vector2i(1, 0))
+	view.reset_shelf_scroll()
+	assert_eq(view.shelf_scroll_of(sonder), 0)
+	assert_eq(view.shelf_scroll_of(runen), 0)
 
-## Die Folge davon ist der eigentliche FEHLER-Fix: das Einfahren in die Wand ist ein
-## FESTER z-Versatz, und ein Roll-Stand konnte ihn genau aufheben - dann lag eine
-## eingefahrene Karte wieder ueber der offenen Grube. Ohne Roll-Stand kann das nicht
-## mehr passieren: alle Karten eines verdeckten Tabletts liegen auf EINER Spalte je Rang.
-func test_ein_verdecktes_tablett_liegt_geschlossen_auf_seinen_spalten() -> void:
-	for i in 20:
+## Ein Zug über eine Reihe bucht beim Loslassen NUR ihren Stand und meldet ihre Reihe.
+func test_das_loslassen_bucht_nur_die_gezogene_reihe() -> void:
+	for i in 6:
 		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
-	for i in 8:
+	for i in 6:
 		run.grant_pack(Pack.fixed_engraving_pack(Engraving.doping()))
 	var runen := Pack.SHELF_ORDER.find(Engraving.CATEGORY_DICE)
-	view.shelf_tray = runen
-	view.set_shelf_scroll(runen, 4)
+	var sonder := Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
 	await wait_frames(2)
-	view.shelf_tray = Pack.SHELF_ORDER.find(Pack.SHELF_SPECIAL)
-	await wait_frames(2)
-	var columns: Array[int] = []
-	for pack in run.owned_packs:
-		if Pack.shelf_rank(pack) != runen:
-			continue
-		columns.append(view.shelf_window_column_of(pack.pack_uid))
-	columns.sort()
-	assert_eq(columns[0], 0, "die erste Karte des verdeckten Tabletts steht auf Spalte 0")
-	assert_gt(columns[columns.size() - 1], 0, "und die Reihe laeuft von dort aufwaerts")
+	var snapped: Array[int] = []
+	view.shelf_scroll_snapped.connect(func(row: int, _f: float, _t: float) -> void:
+		snapped.append(row))
+	view._on_scroll_released(runen, -view.shelf_slot_px() * 2.0)
+	assert_eq(view.shelf_scroll_of(runen), 2, "zwei Spalten weiter, sofort gebucht")
+	assert_eq(view.shelf_scroll_of(sonder), 0, "die Nachbarreihe steht")
+	assert_eq(snapped, [runen] as Array[int])
 
-## Ein verdecktes Tablett faehrt so weit ein, wie sein INHALT reicht - mit nur EINER
-## Grubenbreite laegen seine ersten Spalten wieder ueber dem gewaehlten (gemessen
-## 2026-10-26: vier Karten standen darueber).
-func test_ein_langes_tablett_faehrt_mehrere_grubenbreiten_ein() -> void:
-	await wait_frames(2)
-	assert_eq(view.shelf_retract_windows(), 1, "leer reicht EINE Breite")
-	for i in 8:
+## Eine Lieferung auf einen hinausgerollten Platz landet am RAND ihrer Reihe - die
+## Reihe rollt nicht von selbst.
+func test_eine_lieferung_landet_an_ihrer_reihe() -> void:
+	for i in 6:
 		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
+	var runen := Pack.SHELF_ORDER.find(Engraving.CATEGORY_DICE)
 	await wait_frames(2)
-	assert_eq(view.shelf_retract_windows(), 1, "ein volles Fenster auch noch")
-	for i in 20:
-		run.grant_pack(Pack.by_type(Pack.TYPE_DICE_MOD))
-	await wait_frames(2)
-	var columns := PackDrawerView.columns_used(28)
-	var wanted := ceili(float(columns) / float(view.shelf_columns()))
-	assert_eq(view.shelf_retract_windows(), wanted,
-		"%d Spalten brauchen %d Fensterbreiten" % [columns, wanted])
-	assert_gt(view.shelf_retract_windows(), 1, "und das sind mehr als eine")
+	var pit := view.shelf_pit_rect()
+	var row := view.shelf_row_rect(runen)
+	var anchor := view.arrival_anchor_px(Pack.by_type(Pack.TYPE_DICE_MOD))
+	assert_almost_eq(anchor.x, pit.end.x, 0.5, "rechts hinaus: der rechte Rand")
+	assert_true(anchor.y > row.position.y and anchor.y < row.end.y,
+		"auf der Höhe der Runen-Reihe")
+	assert_eq(view.shelf_scroll_of(runen), 0, "und sie rollt nicht von selbst")
+	var number := view.arrival_anchor_px(Pack.number_pack())
+	var first := view.shelf_row_rect(0)
+	assert_true(first.has_point(number), "eine Zahl landet im Fenster der Zahlen-Reihe")

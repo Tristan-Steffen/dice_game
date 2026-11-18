@@ -1,32 +1,28 @@
 class_name PackDrawerView
 extends Control
-## Das MAGAZIN der Werkbank: EINE durchgehende GRUBE in der Schürze - und seit der
-## Welle 29 ein REGALSTAPEL aus VIER TABLETTS, eines je SORTE (Pack.SHELF_ORDER), zu
-## je ZWEI LANES, von denen genau EIN Tablett in der Fläche liegt.
-## Ein Tablett ist EIN durchgehendes Regal: Platz k liegt in Spalte k / 2, Lane
-## k % 2 (spaltenweise: hinten, vorn, nächste Spalte), und es ROLLT - ein Zug über
-## das Magazin schiebt es waagerecht, das Fenster zeigt immer COLUMNS Spalten.
+## Das MAGAZIN der Werkbank: EINE Grube rechts der Walze mit VIER REIHEN untereinander,
+## eine je SORTE (Pack.SHELF_ORDER). Jede Reihe ist EIN durchgehendes Regal - Platz k
+## liegt in Spalte k - und ROLLT für sich: ein Zug über die Reihe schiebt nur sie
+## waagerecht, das Fenster zeigt je Reihe COLUMNS Spalten.
 ## Die Karten LIEGEN flach, Netz nach oben; ShelfStackView fährt die Körper, diese
-## Klasse rechnet die Plätze - und die reine TABLETT-Rechnung wohnt hier, damit
-## table/ sie liest statt umgekehrt.
-## Die Karte hat ihr FESTES Maß (CASSETTE_SCALE) und ist so bemessen, daß genau
-## COLUMNS liegende Karten in eine Reihe der Grube passen. Unbegrenzt ist der Bestand.
-## Eine Karte auf einem verdeckten TABLETT hat keinen Chip: ihr Liefer-Licht endet an
-## der TASTE ihres Tabletts; eine hinausgerollte am Grubenrand ihrer Seite.
+## Klasse rechnet die Plätze - die reine Reihen-Rechnung wohnt hier, damit table/ sie
+## liest statt umgekehrt.
+## Die Karte hat ihr FESTES Maß (CASSETTE_SCALE); unbegrenzt ist der Bestand. Eine
+## hinausgerollte Karte hat keinen Chip, ihr Liefer-Licht endet am Rand ihrer Reihe.
 ## Die Grube ist echt: screen_glass verwirft sein Bild darin, table_ground seinen
 ## Filz, und PackPitView stellt Wände und Boden. Diese Klasse malt nur die FASSUNG
 ## darum herum und trägt die Gesten: getippt wählt, gezogen rollt.
 ## Reiner Renderer: was liegt, was reserviert ist und was noch fliegt, entscheidet
 ## WorkshopView (drawer_entries).
 
-## Eine Kassette wurde angetippt: sie wandert in die nächste freie Etage.
+## Eine Kassette wurde angetippt: sie wandert auf die nächste freie Scheibe.
 signal pack_pressed(uid: int)
 ## Doppelklick auf leere Fach-Fläche: das Magazin soll sich aufräumen.
 signal tidy_requested
-## Ein ZUG über das Magazin: so weit (Display-px) ist der Zeiger seit dem Druck.
-signal scroll_dragged(offset_px: float)
-## Der Zug ist losgelassen - das Tablett soll auf eine ganze Spalte einrasten.
-signal scroll_released(offset_px: float)
+## Ein ZUG über Reihe row: so weit (Display-px) ist der Zeiger seit dem Druck.
+signal scroll_dragged(row: int, offset_px: float)
+## Der Zug ist losgelassen - die Reihe soll auf eine ganze Spalte einrasten.
+signal scroll_released(row: int, offset_px: float)
 
 const GOLD := Color("#ffd319")
 
@@ -99,99 +95,46 @@ static func card_shade(shelf: String, tier: int, catalyst_id := "",
 		return BLANK_TINT
 	return DataCellView.tier_shade(tint_of(shelf, catalyst_id, net, blank), tier)
 
-## Der EINE Anzeige-Maßstab einer Kassette - ÜBERALL (Welle L). 3,2 = das alte Maß
-## 2,184 mal ~1,47 (Welle 29): genau VIER liegende Karten je Magazin-Reihe.
+## Der EINE Anzeige-Maßstab einer Kassette - ÜBERALL (Welle L).
 const CASSETTE_SCALE := 3.2
 
 ## Seitenverhältnis der Kassette (Höhe / Breite, 2 : 3): daraus folgt ihr LIEGENDER
 ## Fußabdruck aus dem gemeldeten STEHENDEN. EINE Quelle - WorkshopView liest sie mit.
 const CARD_ASPECT := 1.5
-## Der Anteil der LANE-Tiefe, den die FRONT-BLENDE des Tabletts am Bild-unteren
-## Rand nimmt; die Karten liegen mittig in dem, was bleibt.
-const FRONT_SHARE := 0.09
-const LANES := 2
-## Die zwei Lanes eines Tabletts: HINTEN ist Bild-oben (Welt +X), VORN Bild-unten.
-const LANE_BACK := 0
-const LANE_FRONT := 1
-## Je SORTE ein Tablett (Pack.SHELF_ORDER - ein Test hält beide gleich).
-const TRAYS := 4
-const ROWS := TRAYS * LANES
-## So viele Spalten zeigt das Fenster; der Streifen wächst, bis sie liegen.
-const COLUMNS := 4
-## Luft über COLUMNS hinaus, mit der die Mindestbreite rechnet (so fällt die Zählung
+## Der Anteil der Reihen-Tiefe, den die BLENDE am oberen Rand der Reihe nimmt; die
+## Karten liegen in dem, was bleibt.
+const BAND_SHARE := 0.09
+## Je SORTE eine Reihe (Pack.SHELF_ORDER - ein Test hält beide gleich).
+const ROWS := 4
+## So viele Spalten zeigt das Fenster je Reihe.
+const COLUMNS := 2
+## Luft über COLUMNS hinaus, mit der die Feldbreite rechnet (so fällt die Zählung
 ## sicher auf COLUMNS, nie eine Spur darunter).
-const COLUMN_AIR := 0.3
+const COLUMN_AIR := 0.15
 ## Ab so vielen Display-px Weg wird aus dem Druck ein Zug.
 const DRAG_THRESHOLD := 8.0
 
-## Die drei Zustände eines Tabletts (state_of): das GEWÄHLTE liegt in der Fläche,
-## die darüber sind seitlich in die Grubenwand gefahren, die darunter liegen unter
-## seiner Platte und sind darum unsichtbar.
-const SHOWN := 0
-const RETRACTED := 1
-const BURIED := 2
-
-## Die reine TABLETT-Rechnung. Eine REIHE ist Tablett mal Lane.
-static func tray_of(row: int) -> int:
-	return clampi(row, 0, ROWS - 1) / LANES
-
-## Die LANE einer Reihe: 0 = hinten (Bild-oben, Welt +X), 1 = vorn.
-static func lane_of(row: int) -> int:
-	return clampi(row, 0, ROWS - 1) % LANES
-
-## Die Reihe aus Tablett und Lane.
-static func row_for(tray: int, lane: int) -> int:
-	return clampi(tray, 0, TRAYS - 1) * LANES + clampi(lane, 0, LANES - 1)
-
-## Die zwei Reihen eines Tabletts, hinten zuerst.
-static func rows_of(tray: int) -> Array[int]:
-	var first := clampi(tray, 0, TRAYS - 1) * LANES
-	return [first, first + 1] as Array[int]
-
-## Wo die Reihe steckt, wenn Tablett `selected` gewählt ist.
-static func state_of(row: int, selected: int) -> int:
-	var tray := tray_of(row)
-	if tray == clampi(selected, 0, TRAYS - 1):
-		return SHOWN
-	return RETRACTED if tray < selected else BURIED
-
-## Liegt sie damit in der Fläche?
-static func shows_row(row: int, selected: int) -> bool:
-	return state_of(row, selected) == SHOWN
-
-## Platz k eines Tabletts: SPALTE k / 2 und LANE k % 2 - spaltenweise gefüllt, damit
-## das Rollen ganze Spalten freilegt.
-static func column_of_cell(cell: int) -> int:
-	return maxi(cell, 0) / LANES
-
-static func lane_of_cell(cell: int) -> int:
-	return maxi(cell, 0) % LANES
-
-## So viele Spalten belegt ein Tablett mit count Karten.
-static func columns_used(count: int) -> int:
-	return ceili(float(maxi(count, 0)) / float(LANES))
-
-## Wo das Tablett RASTEN darf: 0 bis zur Stellung, in der die letzte belegte Spalte
-## am rechten Fensterrand steht (leer: nur 0). GEZOGEN wird beliebig weit - beim
-## Loslassen federt es hierher zurück (Spieler-Wunsch 2026-10-28).
+## Wo eine Reihe RASTEN darf: 0 bis zur Stellung, in der ihre letzte Karte am rechten
+## Fensterrand steht (leer: nur 0). GEZOGEN wird beliebig weit - beim Loslassen federt
+## sie hierher zurück (Spieler-Wunsch 2026-10-28).
 static func max_scroll(count: int, window: int = COLUMNS) -> int:
-	return maxi(columns_used(count) - maxi(window, 1), 0)
+	return maxi(maxi(count, 0) - maxi(window, 1), 0)
 
 static func clamp_scroll(scroll: int, count: int, window: int = COLUMNS) -> int:
 	return clampi(scroll, 0, max_scroll(count, window))
 
-## Wo das Tablett nach einem Zug um offset_px EINRASTET: die nächste ganze Spalte,
-## in den Grenzen. Nach links gezogen (negativ) rollt es weiter.
+## Wo die Reihe nach einem Zug um offset_px EINRASTET: die nächste ganze Spalte, in
+## den Grenzen. Nach links gezogen (negativ) rollt sie weiter.
 static func snap_scroll(scroll: int, offset_px: float, slot_px: float, count: int,
 		window: int = COLUMNS) -> int:
 	if slot_px <= 0.0:
 		return clamp_scroll(scroll, count, window)
 	return clamp_scroll(scroll - roundi(offset_px / slot_px), count, window)
 
-## Der EINE RAND der Grube: GLEICH GROSS an allen drei Kanten.
+## Der EINE RAND der Grube: GLEICH GROSS über, zwischen und unter den Reihen.
 const LANE_GAP_PX := 28.0
 
-## Greifluft quer zum Fußabdruck der LIEGENDEN Kassette und die TIEFE einer Reihe.
+## Greifluft längs der LIEGENDEN Kassette und die TIEFE einer Reihe.
 const CELL_SPAN := 1.15
 const RANK_SPAN := 1.1
 ## Randluft im Platz.
@@ -222,22 +165,18 @@ var cell_px := Vector2.ZERO
 var strip := Vector2.ZERO
 ## Das FELD darin: die Grube selbst (lokale Koordinaten).
 var field := Rect2()
-var _grid: Dictionary = {}
 ## uid -> Platzmitte in LOKALEN Pixeln, für ALLE Einträge - auch hinausgerollte und
 ## zurückgehaltene: ihr Platz wartet.
 var _spots: Dictionary = {}
-## uid -> REIHE des Stapels und SPALTE im Fenster (0 .. columns-1 liegt im Bild).
+## uid -> REIHE und SPALTE im Fenster (0 .. COLUMNS-1 liegt im Bild).
 var _rows: Dictionary = {}
 var _cols: Dictionary = {}
-## uid -> Chip-Knopf (nur Einträge im Fenster des gewählten Tabletts).
+## uid -> Chip-Knopf (nur Einträge im Fenster).
 var _chips: Dictionary = {}
-var _count := 0
 var _locked := false
-## Das gewählte TABLETT und die Anker der TASTEN in Display-Pixeln.
-var _tray := 0
-var _keys: Array[Vector2] = []
-## Der laufende ZUG: Startpunkt, ob er schon rollt, und ob der Knopf-Klick danach
-## geschluckt wird (ein Zug ist kein Tipp).
+## Der laufende ZUG: Reihe und Startpunkt, ob er schon rollt, und ob der Knopf-Klick
+## danach geschluckt wird (ein Zug ist kein Tipp).
+var _press_row := 0
 var _press_x := 0.0
 var _press_live := false
 var _dragging := false
@@ -247,14 +186,14 @@ func _init() -> void:
 	name = "PackDrawer"
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-## Baut das Fach neu: entries = [{uid, pack, withheld, tray, cell}] in Magazin-Ordnung,
-## scrolls je Tablett der Roll-Stand in Spalten.
+## Baut das Fach neu: entries = [{uid, pack, withheld, row, cell}] in Magazin-Ordnung,
+## scrolls je Reihe der Roll-Stand in Spalten.
 func build(entries: Array[Dictionary], unit: float, locked: bool,
-		footprint := Vector2.ZERO, row := Vector2.ZERO, tray := 0,
-		keys: Array[Vector2] = [], scrolls: Array[int] = []) -> void:
+		footprint := Vector2.ZERO, row_size := Vector2.ZERO,
+		scrolls: Array[int] = []) -> void:
 	u = maxf(unit, 1.0)
 	_locked = locked
-	strip = row if row.x > 0.0 and row.y > 0.0 else size
+	strip = row_size if row_size.x > 0.0 and row_size.y > 0.0 else size
 	cell_px = footprint if footprint.x > 0.0 and footprint.y > 0.0 else _fallback_cell()
 	field = pit_rect_in(Rect2(Vector2.ZERO, strip), u)
 	for child in get_children():
@@ -266,29 +205,23 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	_chips.clear()
 	_press_live = false
 	_dragging = false
-	_count = entries.size()
-	_tray = clampi(tray, 0, TRAYS - 1)
-	_keys = keys.duplicate()
-	_grid = grid_for(field.size, cell_px, _count)
-	var columns := maxi(int(_grid.get("columns", 1)), 1)
+	var columns := columns()
 	add_child(_well())
 	add_child(_well_catch())
 	for i in entries.size():
 		var uid := int(entries[i].get("uid", 0))
 		var pack := entries[i].get("pack") as Pack
-		var owner := int(entries[i].get("tray", Pack.shelf_rank(pack) if pack != null else 0))
-		var cell_index := int(entries[i].get("cell", i))
-		var scroll := scrolls[owner] if owner >= 0 and owner < scrolls.size() else 0
-		var column := column_of_cell(cell_index) - scroll
-		var lane := lane_of_cell(cell_index)
-		# Der PLATZ gilt IMMER - auch hinausgerollt oder verdeckt liegt der Körper dort,
-		# nur eben unter dem Filz. Nur der CHIP hängt am Fenster.
-		var spot := field.position + spot_for(column, field.size, cell_px, lane)
+		var row := clampi(int(entries[i].get("row",
+			Pack.shelf_rank(pack) if pack != null else 0)), 0, ROWS - 1)
+		var scroll := scrolls[row] if row < scrolls.size() else 0
+		var column := int(entries[i].get("cell", i)) - scroll
+		# Der PLATZ gilt IMMER - auch hinausgerollt liegt der Körper dort, nur eben
+		# unter dem Filz. Nur der CHIP hängt am Fenster.
+		var spot := field.position + spot_for(column, field.size, cell_px, row)
 		_spots[uid] = spot
-		_rows[uid] = row_for(owner, lane)
+		_rows[uid] = row
 		_cols[uid] = column
-		if bool(entries[i].get("withheld", false)) or owner != _tray \
-				or column < 0 or column >= columns:
+		if bool(entries[i].get("withheld", false)) or column < 0 or column >= columns:
 			continue
 		var chip := _chip(pack, uid, spot)
 		if chip != null:
@@ -300,9 +233,11 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 static func lie_cell(cell: Vector2) -> Vector2:
 	return Vector2(cell.y * CARD_ASPECT, cell.y) * CASSETTE_SCALE
 
-## Das gelöste Raster eines FELDES: {"columns", "scale"} - reine Funktion.
-static func grid_for(field_size: Vector2, cell: Vector2, _count_now: int) -> Dictionary:
-	return {"columns": _columns_at(field_size, cell), "scale": CASSETTE_SCALE}
+## Das FELD (die Grube ohne Fassung) für eine LIEGENDE Karte: COLUMNS Spalten samt
+## Luft, ROWS Reihen samt der gleichen Ränder.
+static func field_for(card: Vector2) -> Vector2:
+	return Vector2(card.x * CELL_SPAN * (float(COLUMNS) + COLUMN_AIR),
+		card.y * RANK_SPAN * float(ROWS) + LANE_GAP_PX * float(ROWS + 1))
 
 ## Wie viele Kassetten in ihrer festen Größe nebeneinander in die Grube liegen.
 static func _columns_at(field_size: Vector2, cell: Vector2) -> int:
@@ -312,46 +247,45 @@ static func _columns_at(field_size: Vector2, cell: Vector2) -> int:
 	return maxi(int(field_size.x / wide), 1)
 
 ## Spalten im Fenster einer Reihe.
-static func columns_for(field_size: Vector2, cell: Vector2, count: int) -> int:
-	return int(grid_for(field_size, cell, count)["columns"])
+static func columns_for(field_size: Vector2, cell: Vector2) -> int:
+	return _columns_at(field_size, cell)
 
-## Die Mindestbreite der GRUBE, in der genau COLUMNS Karten liegen.
-static func min_field_width(cell: Vector2) -> float:
-	return lie_cell(cell).x * CELL_SPAN * (float(COLUMNS) + COLUMN_AIR)
-
-## Die LANE-Geometrie EINER Grube, hinten zuerst: drei gleiche Ränder.
-static func lane_rects(field_size: Vector2) -> Array[Rect2]:
-	var deep := lane_depth(field_size)
+## Die REIHEN einer Grube, oben zuerst: dazwischen und ringsum der gleiche Rand.
+static func row_rects(field_size: Vector2) -> Array[Rect2]:
+	var deep := row_depth(field_size)
 	var rects: Array[Rect2] = []
-	for lane in LANES:
-		rects.append(Rect2(Vector2(0.0, LANE_GAP_PX + (deep + LANE_GAP_PX) * float(lane)),
+	for row in ROWS:
+		rects.append(Rect2(Vector2(0.0, LANE_GAP_PX + (deep + LANE_GAP_PX) * float(row)),
 			Vector2(field_size.x, deep)))
 	return rects
 
-## Die TIEFE einer Lane: was von der Grube bleibt, wenn die drei Ränder ab sind.
-static func lane_depth(field_size: Vector2) -> float:
-	return maxf((field_size.y - LANE_GAP_PX * float(LANES + 1)) / float(LANES), 1.0)
+## Die TIEFE einer Reihe: was von der Grube bleibt, wenn die Ränder ab sind.
+static func row_depth(field_size: Vector2) -> float:
+	return maxf((field_size.y - LANE_GAP_PX * float(ROWS + 1)) / float(ROWS), 1.0)
+
+## Die Reihe unter einer Feld-Höhe (lokal zum Feld): die Grenzen liegen mitten in
+## den Rändern, also gehört jeder Punkt der Grube einer Reihe.
+static func row_at(field_size: Vector2, y: float) -> int:
+	var pitch := row_depth(field_size) + LANE_GAP_PX
+	return clampi(int(floorf((y - LANE_GAP_PX * 0.5) / pitch)), 0, ROWS - 1)
 
 ## Platzmitte einer SPALTE im Fenster (relativ zur Feldecke) - eine Spalte links oder
 ## rechts des Fensters liegt einfach außerhalb, unter dem Filz.
-static func spot_for(column: int, field_size: Vector2, cell: Vector2,
-		lane := LANE_BACK) -> Vector2:
+static func spot_for(column: int, field_size: Vector2, cell: Vector2, row := 0) -> Vector2:
 	var slot := slot_size(field_size, cell)
-	var lane_top := lane_rects(field_size)[clampi(lane, 0, LANES - 1)].position.y
+	var top := row_rects(field_size)[clampi(row, 0, ROWS - 1)].position.y
 	return Vector2(slot.x * (float(column) + 0.5),
-		lane_top + band_before(lane, field_size) + slot.y * 0.5)
+		top + band_depth(field_size) + slot.y * 0.5)
 
-## Wieviel Blende OBERHALB der Plätze einer Lane liegt: die hintere trägt ihre Blende
-## OBEN, die vordere UNTEN - so ist das Tablett oben wie unten gleich breit gerandet
-## (Spieler-Wunsch 2026-10-28; bis dahin lagen beide Blenden unten).
-static func band_before(lane: int, field_size: Vector2) -> float:
-	return lane_depth(field_size) * FRONT_SHARE if lane == LANE_BACK else 0.0
+## Die BLENDE über den Plätzen einer Reihe.
+static func band_depth(field_size: Vector2) -> float:
+	return row_depth(field_size) * BAND_SHARE
 
 ## Der PLATZ einer Spalte: die Feldbreite geteilt durch die Spalten im Fenster, in der
-## Tiefe die LANE ohne die Blende.
+## Tiefe die Reihe ohne die Blende.
 static func slot_size(field_size: Vector2, cell: Vector2) -> Vector2:
 	return Vector2(field_size.x / float(_columns_at(field_size, cell)),
-		lane_depth(field_size) * (1.0 - FRONT_SHARE))
+		row_depth(field_size) * (1.0 - BAND_SHARE))
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft.
 static func grip_for(field_size: Vector2, cell: Vector2) -> Vector2:
@@ -367,20 +301,14 @@ static func rim_inset(unit: float) -> float:
 	return maxf(2.0, unit * RIM_WIDTH) + maxf(2.0, unit * EDGE)
 
 func cell_scale() -> float:
-	if _grid.has("scale"):
-		return float(_grid["scale"])
 	return CASSETTE_SCALE
 
-static func cell_scale_for(_cell: Vector2, _field_size: Vector2, _count_now: int) -> float:
-	return CASSETTE_SCALE
-
-## Display-Pixel des PLATZES dieser uid ((-1,-1) = liegt nicht im Fach).
-## KENNT das Fach den Platz dieser Karte? Die Frage ist nötig, weil ein Platz
-## LEGITIM negativ sein darf (weit hinausgerollt liegt er links der Anzeige) - ein
-## Koordinaten-Test taugt darum nicht als Gültigkeits-Probe.
+## KENNT das Fach den Platz dieser Karte? Ein Platz darf LEGITIM negativ sein (weit
+## hinausgerollt liegt er links der Anzeige) - ein Koordinaten-Test taugt nicht.
 func knows_pack(uid: int) -> bool:
 	return _spots.has(uid)
 
+## Display-Pixel des PLATZES dieser uid ((-1,-1) = liegt nicht im Fach).
 func pack_seat_px(uid: int) -> Vector2:
 	if not _spots.has(uid):
 		return Vector2(-1, -1)
@@ -388,13 +316,10 @@ func pack_seat_px(uid: int) -> Vector2:
 	return get_global_rect().position + spot
 
 ## Und wohin ihr Liefer-Licht fliegt: auf den Platz, wenn er im Fenster liegt; ist er
-## hinausgerollt, an den Grubenrand seiner Seite; ist das Tablett verdeckt, an
-## dessen TASTE - eine Maschine, die keiner sieht, hat nicht gespielt.
+## hinausgerollt, an den Rand ihrer Reihe auf dieser Seite.
 func pack_anchor_px(uid: int) -> Vector2:
 	if not _spots.has(uid):
 		return Vector2(-1, -1)
-	if tray_of(int(_rows[uid])) != _tray:
-		return key_px(tray_of(int(_rows[uid])))
 	var column := int(_cols.get(uid, 0))
 	var seat := pack_seat_px(uid)
 	var origin := get_global_rect().position
@@ -403,13 +328,6 @@ func pack_anchor_px(uid: int) -> Vector2:
 	if column >= columns():
 		return Vector2(origin.x + field.end.x, seat.y)
 	return seat
-
-## Die gemeldete TASTE eines Tabletts (ohne Leiste: die Fach-Mitte).
-func key_px(tray: int) -> Vector2:
-	var index := clampi(tray, 0, TRAYS - 1)
-	if index < _keys.size() and _keys[index].x >= 0.0:
-		return _keys[index]
-	return get_global_rect().get_center()
 
 ## Die REIHE einer Kassette (-1 = liegt nicht im Fach).
 func row_of_pack(uid: int) -> int:
@@ -421,25 +339,20 @@ func column_of_pack(uid: int) -> int:
 
 ## Spalten im Fenster.
 func columns() -> int:
-	return maxi(int(_grid.get("columns", 1)), 1)
+	return columns_for(field.size, cell_px)
 
-## Liegt sie im FENSTER des gewählten Tabletts?
+## Liegt sie im FENSTER ihrer Reihe?
 func shows_pack(uid: int) -> bool:
-	if not _rows.has(uid) or tray_of(int(_rows[uid])) != _tray:
+	if not _rows.has(uid):
 		return false
 	var column := int(_cols.get(uid, 0))
 	return column >= 0 and column < columns()
 
-## Das gewählte Tablett.
-func tray() -> int:
-	return _tray
-
 ## Derselbe Platz, GERECHNET statt gemessen (Spalte im Fenster).
-static func anchor_in(field_rect: Rect2, column: int,
-		cell: Vector2, lane := LANE_BACK) -> Vector2:
+static func anchor_in(field_rect: Rect2, column: int, cell: Vector2, row := 0) -> Vector2:
 	if field_rect.size.x <= 0.0 or field_rect.size.y <= 0.0:
 		return Vector2(-1, -1)
-	return field_rect.position + spot_for(column, field_rect.size, cell, lane)
+	return field_rect.position + spot_for(column, field_rect.size, cell, row)
 
 ## Der Chip einer uid (null = keiner).
 func pack_button(uid: int) -> Button:
@@ -465,8 +378,8 @@ func hover_uid_at(pixel: Vector2) -> int:
 func dragging() -> bool:
 	return _dragging
 
-## DER ZUG: gedrückt merkt den Punkt, gezogen über die Schwelle rollt das Tablett,
-## losgelassen rastet es ein - und der Knopf-Klick danach wird geschluckt.
+## DER ZUG: gedrückt merkt Punkt und Reihe, gezogen über die Schwelle rollt die Reihe,
+## losgelassen rastet sie ein - und der Knopf-Klick danach wird geschluckt.
 func _track_drag(event: InputEvent) -> void:
 	var click := event as InputEventMouseButton
 	if click != null:
@@ -474,6 +387,8 @@ func _track_drag(event: InputEvent) -> void:
 			return
 		if click.pressed:
 			_press_x = click.global_position.x
+			_press_row = row_at(field.size,
+				click.global_position.y - get_global_rect().position.y - field.position.y)
 			_press_live = true
 			_dragging = false
 			return
@@ -482,7 +397,7 @@ func _track_drag(event: InputEvent) -> void:
 			_clear_swallow.call_deferred()
 			# Gemeldet wird NACH dem Ereignis: der Neuaufbau nähme sonst dem Knopf, der
 			# gerade sein Loslassen verarbeitet, den Baum unter den Füßen weg.
-			scroll_released.emit.call_deferred(click.global_position.x - _press_x)
+			scroll_released.emit.call_deferred(_press_row, click.global_position.x - _press_x)
 		_press_live = false
 		_dragging = false
 		return
@@ -496,7 +411,7 @@ func _track_drag(event: InputEvent) -> void:
 	if not _dragging and absf(offset) >= DRAG_THRESHOLD:
 		_dragging = true
 	if _dragging:
-		scroll_dragged.emit(offset)
+		scroll_dragged.emit(_press_row, offset)
 
 func _clear_swallow() -> void:
 	_swallow_press = false
@@ -583,7 +498,7 @@ func _on_well_input(event: InputEvent) -> void:
 		tidy_requested.emit()
 
 ## Der unsichtbare Griff einer Kassette: er zeichnet NICHTS - das Greifen zeigt die
-## Kassette selbst. Getippt wählt sie, gezogen rollt das Tablett.
+## Kassette selbst. Getippt wählt sie, gezogen rollt die Reihe.
 func _chip(pack: Pack, uid: int, spot: Vector2) -> Button:
 	if pack == null:
 		return null

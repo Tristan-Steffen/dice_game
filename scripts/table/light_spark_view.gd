@@ -1,8 +1,8 @@
 class_name LightSparkView
 extends Node3D
-## EIN LICHTFUNKE des DURCHLICHTS (Welle X, 2026-09-05): oben am Turm zerfällt das
-## Licht-Netz in bis zu sechs davon, und sie schlagen ALLE ZUGLEICH in die
-## Seitenmitten des Zielwürfels ein.
+## EIN LICHTFUNKE der ÜBERTRAGUNG: am NACHHER-Netz zerfällt das Licht-Netz in bis
+## zu sechs davon, und sie schlagen ALLE ZUGLEICH in die Seitenmitten des
+## Zielwürfels in der Kammer ein.
 ##
 ## Ein additives Billboard-Quad mit weichem Kern - kein Körper, keine Kollision.
 ## fly_to ist ein flacher Bogen: XZ gerade, Y als Parabel ÜBER der Sehne, unter sie

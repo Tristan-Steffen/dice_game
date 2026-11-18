@@ -9,7 +9,7 @@ extends Node3D
 ## 2026-09-04 gestorben: die SORTE sagt die FARBE, die GRÖSSE ihre INTENSITÄT -
 ## Sättigung UND Glühen aus EINER Quelle (tier_tint/tier_energy); die
 ## Rahmenstärke bleibt der stille zweite Kanal. Sie LIEGT überall (Läden, Wetten,
-## Wurf, Magazin, Turm), quer gerollt - die stehende Pose ist mit der Kartei
+## Wurf, Magazin, Walze), quer gerollt - die stehende Pose ist mit der Kartei
 ## (2026-09-07) gestorben und seit dem 2026-09-13 gestrichen.
 ## Drei Regeln des Tisches gelten auch hier: nur EMISSION, keine eigenen Lichter
 ## (die Bodenkacheln vertragen 16); im Ruhezustand bleibt das Leuchten UNTER der
@@ -63,7 +63,7 @@ const CONNECTOR_DEPTH := DEPTH * 1.12
 ## So weit ragen die Stifte über die Fußkante hinaus (roh, samt Spitze).
 const PIN_LENGTH := 0.042
 static var _connector_scene: PackedScene
-## Die BUCHSE, sein Gegenstück in Mulde und Turm - im WELT-Maß der Karte bei
+## Die BUCHSE, sein Gegenstück in der Mulde - im WELT-Maß der Karte bei
 ## CASSETTE_SCALE gebaut. Ursprung = Mitte des Mundes auf Stifthöhe, der Körper
 ## reicht SOCKET_DEPTH nach +Z (weg von der Karte).
 const SOCKET_SCENE := "res://assets/models/hardware/card_socket.glb"
@@ -133,11 +133,6 @@ const HOVER_HOLD_SLACK := 0.3
 ## Derselbe Hub als Stellschraube der Zelle: der Wirt setzt ihn (die Läden lassen
 ## HOVER_LIFT stehen, der Regalstapel rechnet seinen eigenen).
 var hover_lift := HOVER_LIFT
-## Der ZWEITE Hover-Kanal (Welle X): die LIEGENDE Karte fährt längs ihrer eigenen
-## Achse nach Bild-LINKS heraus, statt zu steigen - so zieht der Turm sie unter dem
-## Zeiger aus ihrer Etage. Anteil der Kartenlänge; die Auslagen lassen ihn auf 0
-## und heben weiter. EIN Tween für beide Kanäle (_hover_share).
-var hover_slide := 0.0
 ## Wie lange der Griff braucht (die hochkante Lager-Hülle hebt und kippt länger).
 var hover_time := HOVER_TIME
 ## Wohin die ×n-Marke gehört. Normal schwebt sie über dem Stapel; in einer Auslage
@@ -326,7 +321,7 @@ func tier_tint() -> Color:
 	return tier_shade(net_accent(), tier)
 
 ## Dieselbe Leiter für jeden, der die Karte NICHT ist (die Sorten-Ticks der
-## Tablett-Blende, die Felder der Etagen-Leiste): EINE Rechnung, ein Bild.
+## Tablett-Blende, die Mulden): EINE Rechnung, ein Bild.
 static func tier_shade(base: Color, cell_tier: int) -> Color:
 	var grey := base.get_luminance()
 	var share: float = TIER_SATURATION[clampi(cell_tier, 0, TIER_SATURATION.size() - 1)]
@@ -393,7 +388,7 @@ func net_face_at(camera: Camera3D, screen_pos: Vector2) -> int:
 ## die Karte nicht gleich (Spieler-Wunsch 2026-10-29). Gemessen an der Lage, in der
 ## sie GERADE liegt - auch angehoben oder ausgezogen.
 func holds_pointer(camera: Camera3D, screen_pos: Vector2, slack := HOVER_HOLD_SLACK) -> bool:
-	if camera == null or not is_visible_in_tree() or _cells.is_empty():
+	if camera == null or not is_visible_in_tree() or tucked() or _cells.is_empty():
 		return false
 	var plate := _cells[0].get_node_or_null("StampNet") as MeshInstance3D
 	if plate == null or not (plate.mesh is QuadMesh):
@@ -556,7 +551,7 @@ func _apply_body_scale(value: float) -> void:
 	_place_badge()
 
 ## Der EINE harte Schreiber ihres Platzes: sie LIEGT auf dem genannten GLASPUNKT,
-## die große Fläche nach oben - in jeder Auslage, im Tablett, in der Etage.
+## die große Fläche nach oben - in jeder Auslage, im Tablett, auf der Walze.
 func lie_on_glass(at: Vector3) -> void:
 	_kill(_glide_tween)
 	_apply_pose()
@@ -706,7 +701,7 @@ func arc_to(glass_target: Vector3, time: float, peak: float) -> void:
 ## liegt `peak` über dem höheren Ende. Bei SCHRÄGER Sehne liegt der Scheitel der
 ## Summe (Sehne + Parabel) nicht in der Mitte, sondern zur hohen Seite hin - ein
 ## voller Hub schöbe ihn also ÜBER das höhere Ende hinaus (gemessen: 0,47 Welt bei
-## einer Fahrt vom Magazin in die unterste Turm-Etage, also 0,31 über den Tisch).
+## einer Fahrt vom Magazin in die unterste Turm-Etage der Welle X, also 0,31 über den Tisch).
 ## Gelöst aus y(s) = a + (b-a)s + 4h·s(1-s): der Scheitel steht auf
 ## a + (d+4h)²/(16h), und die größte Wurzel von 16h² + 8h(d-2k) + d² = 0 (k = Ziel
 ## über a) ist der gesuchte Deckel.
@@ -764,9 +759,7 @@ func _apply_pose() -> void:
 	# Der Griff hebt den KÖRPER, nicht den Platz: er überlebt jedes Gleiten und
 	# jeden Neuaufbau des Fachs; wie weit, sagt hover_lift, und das setzt der Wirt.
 	lift += STAND_HEIGHT * hover_lift * _hover_share * _body_scale
-	# ... und der ZWEITE Kanal zieht sie längs ihrer Achse nach Bild-links heraus.
-	var slide := STAND_HEIGHT * hover_slide * _hover_share * _body_scale
-	_body.transform = Transform3D(_lying_basis(), Vector3(-slide, lift, 0.0))
+	_body.transform = Transform3D(_lying_basis(), Vector3(0.0, lift, 0.0))
 
 ## Die LIEGE-Drehung samt Maßstab: der ROLL sitzt VOR der Kippung (in der Karten-Ebene)
 ## und legt sie QUER; die Kippung um die Bildachse legt sie dann flach auf den Rücken.
@@ -779,6 +772,15 @@ func _lying_basis() -> Basis:
 ## VOR dem Glas darüber und wird von ihm gedämpft, statt mit ihrem Netz
 ## durchzustanzen - der Compatibility-Renderer sortiert nach Priorität, nicht nach
 ## Tiefe, und ohne den Versatz gewönne das Netz jeder Karte gegen jedes Glas.
+## WEGGESTECKT (eine hinausgerollte Magazin-Karte): der Körper verschwindet, der Knoten
+## bleibt sichtbar - `visible` gehört dem Sitz-Schreiber, dies dem Magazin.
+func set_tucked(on: bool) -> void:
+	if _body != null:
+		_body.visible = not on
+
+func tucked() -> bool:
+	return _body != null and not _body.visible
+
 func set_layer_depth(level: int) -> void:
 	var wanted := -LAYER_SPAN * maxi(level, 0)
 	if wanted == _layer_bias:

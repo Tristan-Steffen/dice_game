@@ -54,7 +54,7 @@ const MIN_GAP_MS := {
 	&"ui_click": 30, &"ui_hover": 60, &"chip_in": 30, &"chip_out": 30,
 	&"money_arrive": 50, &"dice_swallow": 45, &"card_burnout": 60,
 	&"store_land": 50, &"energy_gain": 40, &"energy_spend": 40,
-	&"shelf_snap": 60, &"pack_pick": 30, &"bench_latch": 40,
+	&"shelf_snap": 60, &"pack_pick": 30, &"slice_lock": 40,
 }
 const DEFAULT_SPREAD := 0.02
 const PITCH_SPREAD := {
@@ -103,11 +103,10 @@ func _ready() -> void:
 		&"pack_reshuffle": _load_or(&"pack_reshuffle", _whoosh.bind(0.45, true)),
 		&"card_lift": _load_or(&"card_lift", _blip.bind(C5, 0.1, 0.2)),
 		&"card_drop": _load_or(&"card_drop", _click.bind(D4, 0.08)),
-		&"shelf_switch": _load_or(&"shelf_switch", _whoosh.bind(0.25, false)),
 		&"shelf_snap": _load_or(&"shelf_snap", _click.bind(F4, 0.04)),
 		&"bench_target": _load_or(&"bench_target", _blip.bind(G4, 0.2, 0.5)),
 		&"bench_press": _load_or(&"bench_press", _thud.bind(G3, 0.3)),
-		&"bench_latch": _load_or(&"bench_latch", _latch.bind(0.05)),
+		&"slice_lock": _load_or(&"slice_lock", _latch.bind(0.05)),
 		&"light_pass": _load_or(&"light_pass", _blip.bind(G4, 0.25, 0.5)),
 		&"light_strike": _load_or(&"light_strike", _zap.bind(D6, G4, 0.35)),
 		&"card_burnout": _load_or(&"card_burnout", _tear.bind(0.2)),

@@ -1,5 +1,5 @@
 extends GutTest
-## EIN LICHTFUNKE des DURCHLICHTS: oben am Turm zerfällt das Licht-Netz in bis zu
+## EIN LICHTFUNKE der ÜBERTRAGUNG: am NACHHER-Netz zerfällt das Licht-Netz in bis zu
 ## sechs davon, und sie schlagen ALLE ZUGLEICH in die Seitenmitten des Würfels ein.
 ## Reine Anzeige - ein additives Billboard, das einen flachen Bogen fliegt.
 

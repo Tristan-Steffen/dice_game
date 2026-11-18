@@ -77,8 +77,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_POOL)
 	for lane in TableScreen.SWALLOW_PIT_COUNT:
 		slots.append(TableScreen.swallow_pit(lane))
-	slots.append(TableScreen.PIT_TOWER)
-	slots.append(TableScreen.PIT_SECTION)
+	slots.append(TableScreen.PIT_DRUM)
+	slots.append(TableScreen.PIT_CHAMBER)
 	for i in TableScreen.SHOP_BAY_PIT_COUNT:
 		slots.append(TableScreen.shop_bay_pit(i))
 	for pit: int in TableScreen.SHOP_PACK_PITS:
@@ -95,9 +95,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
-	# Die VERTIEFUNG der Tischsektion haengt hinter den Schluck-Bahnen an - dafuer
-	# ist das Budget 2026-10-26 von 24 auf 25 gewachsen.
-	assert_eq(TableScreen.PIT_SECTION,
+	# Die KAMMER haengt hinter den Schluck-Bahnen an (der Platz der toten Tischsektion).
+	assert_eq(TableScreen.PIT_CHAMBER,
 		TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1) + 1)
 	# Die Würfel-Hebebühnen hängen ans ENDE, damit kein bestehender Platz
 	# umnummeriert wird - und keine teilt ihr Loch mit einer anderen: die
@@ -110,13 +109,13 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.PIT_SWALLOW0, TableScreen.PIT_POOL + 1)
 	# Die TURM-BUCHT hängt ganz hinten dran - die vier toten Aufspann-Plätze sind
 	# mit der Bühnen-Fahrt gestorben (Welle Y).
-	assert_eq(TableScreen.PIT_TOWER, TableScreen.swallow_pit(2) + 1)
+	assert_eq(TableScreen.PIT_DRUM, TableScreen.swallow_pit(2) + 1)
 	# Die Bahnen 3-5 hängen hinter der Bucht an (Spieler-Wunsch 2026-10-25: alle zugleich).
-	assert_eq(TableScreen.swallow_pit(3), TableScreen.PIT_TOWER + 1)
+	assert_eq(TableScreen.swallow_pit(3), TableScreen.PIT_DRUM + 1)
 	assert_eq(TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1),
-		TableScreen.PIT_SECTION - 1)
+		TableScreen.PIT_CHAMBER - 1)
 	# Die Mulden der Kassetten-Plätze hängen ganz hinten an (2026-10-29).
-	assert_eq(TableScreen.shop_bay_pit(0), TableScreen.PIT_SECTION + 1)
+	assert_eq(TableScreen.shop_bay_pit(0), TableScreen.PIT_CHAMBER + 1)
 	assert_eq(TableScreen.PIT_SECRET_BAY0, TableScreen.shop_bay_pit(2) + 1)
 	# Die vierte Mulde nimmt den frei gewordenen Platz 2, die letzten zwei hängen hinten an.
 	assert_eq(TableScreen.shop_bay_pit(3), 2)
@@ -148,7 +147,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	# Jeder Warteschlangen-Platz und jede Schluck-Bahn hat SEIN Loch.
 	assert_eq(TableScreen.queue_pit(0), TableScreen.PIT_QUEUE0)
 	assert_eq(TableScreen.queue_pit(99), TableScreen.PIT_QUEUE0 + 5, "geklemmt")
-	assert_eq(TableScreen.swallow_pit(99), TableScreen.PIT_SECTION - 1, "geklemmt")
+	assert_eq(TableScreen.swallow_pit(99), TableScreen.PIT_CHAMBER - 1, "geklemmt")
 	# Die Ablage der Auszahlungs-Seite ist EINE Plattform, also EIN Loch - und ein
 	# eigenes: die drei Wett-Gruben dürfen derweil offen stehen.
 	for i in SideBetPanel.OFFER_COUNT:

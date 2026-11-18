@@ -6,12 +6,6 @@ extends Node3D
 ## dahinter) - dieser Körper ist, was man durch das Loch sieht: vier nach innen
 ## blickende Wände, ein Boden und ein Kragen, der die harte Schnittkante deckt.
 ## Rein per Code gebaut wie DataCellView und EnergyRingView - kein .tscn.
-## Seit der Welle Y (2026-09-05) baut sie ZWEI Körper: die MAGAZIN-Grube und die
-## TURM-BUCHT. Sie berühren sich und sind EIN Raum - die Bucht ist zum Magazin hin
-## ganz OFFEN, die Magazin-Wand hat dorthin genau EINEN DURCHBRUCH. Seit dem
-## 2026-09-11 ist die Bucht viel FLACHER (Spieler-Entscheid): jede Grube baut ihren
-## eigenen Boden, und unter dem Durchbruch schließt eine SCHWELLE (breach_floor)
-## die Magazin-Wand vom Bucht-Boden bis zum eigenen.
 ## Drei Tischregeln gelten auch hier: nur EMISSION (die Bodenkacheln vertragen
 ## 16 Lichter), das Ruhelicht bleibt unter Rune.IDLE_CEILING, und gespiegelt wird
 ## sie NICHT - ein Loch hat kein Spiegelbild.
@@ -108,31 +102,16 @@ var wall := WALL
 var floor_plate := FLOOR
 var glow_color := GLOW_COLOR
 var glow_energy := GLOW_ENERGY
-## Die Seite zur NACHBARGRUBE (-1 = keine). Ohne Durchbruch fehlt sie GANZ (die
-## Bucht ist zum Magazin hin offen), mit Durchbruch wird sie zu ZWEI Balken.
-var open_wall := -1
-## Der DURCHBRUCH in dieser Wand: x = Versatz in WELT-Koordinaten zur Grubenmitte
-## (längs der Wand), y = Breite. Es gibt genau EINEN - den zur Turm-Bucht.
-var breach := Vector2.ZERO
-## Die Tiefe des Nachbar-Bodens unter der Kante (0 = so tief wie der eigene): ist
-## er flacher, steht unter dem Durchbruch eine SCHWELLE bis zum eigenen Boden.
-var breach_floor := 0.0
-## Wo längs des Durchbruchs das NACHBARLOCH offen ist (Versatz, Breite in Welt): nur
-## dort fehlt auch der Kragen. 0 = er läuft über den ganzen Durchbruch.
-var rim_gap := Vector2.ZERO
-
 ## Trägt die Grube einen KRAGEN über ihrer Schnittkante? Die Vertiefung unter der
 ## Tischsektion trägt keinen: dort deckt die bündige Platte die Kante selbst, und ein
 ## Kragen stünde ihr im Weg (die Schacht-Grammatik, LiftShaftView - "die Schnittkante
 ## steht NACKT").
 var rimmed := true
-## Hat die Grube einen BODEN? Die Vertiefung unter der Tischsektion hat keinen: sie
-## ist nur der Hals zwischen der Glas-Scheibe und der Tasche des Turms darunter, und
-## ein Boden wäre genau der Deckel, den man dort fortnehmen will.
+## Hat die Grube einen BODEN? Die Vertiefung der Öffnungs-Fläche hat keinen eigenen: ihr
+## Bild trägt ein Boden-Quad auf derselben Höhe, zwei Flächen dort flimmerten.
 var floored := true
 ## Die Seiten mit einem SCHLITZ: durch ihn fahren die Tabletts des Regalstapels
-## seitlich in die Wand (rechts) bzw. rollen ihre Spalten hinaus (links), und der
-## Turm schaut aus seiner Tasche in die Bucht. Die Platte wird dafür zu ZWEI Balken -
+## seitlich in die Wand (rechts) bzw. rollen ihre Spalten hinaus (links). Die Platte wird dafür zu ZWEI Balken -
 ## Sturz darüber, Sockel darunter; Kragen und Lichtsaum bleiben ungeteilt.
 var slot_walls: Array[int] = []
 ## Seine Lage: x = Tiefe der OBERKANTE unter der Schnittkante, y = die der Unterkante.
@@ -143,13 +122,10 @@ func _init(pit_name := "PackPit") -> void:
 
 ## Einziger Eingang: Mitte auf dem Glas, halbe Ausdehnung in Welt-X/Welt-Z und
 ## die Tiefe unter dem Glas. Baut die Grube neu - sie steht selten um.
-func setup(at: Vector3, half_extents: Vector2, pit_depth: float,
-		side: int = -1, gap: Vector2 = Vector2.ZERO) -> void:
+func setup(at: Vector3, half_extents: Vector2, pit_depth: float) -> void:
 	center = at
 	half = Vector2(maxf(half_extents.x, 0.01), maxf(half_extents.y, 0.01))
 	depth = maxf(pit_depth, 0.05)
-	open_wall = side
-	breach = gap
 	global_position = center
 	for child in get_children():
 		remove_child(child)
@@ -183,10 +159,6 @@ static func wall_yaw(wall_id: int) -> float:
 ## Die Innenrichtung einer Wand (waagerechter Einheitsvektor).
 static func wall_inward(wall_id: int) -> Vector3:
 	return Basis(Vector3.UP, wall_yaw(wall_id)) * Vector3.BACK
-
-## Ihre Längsrichtung.
-static func wall_axis(wall_id: int) -> Vector3:
-	return Basis(Vector3.UP, wall_yaw(wall_id)) * Vector3.RIGHT
 
 ## Abstand der Grubenmitte zur INNENFLÄCHE einer Wand.
 func _wall_reach(wall_id: int) -> float:
@@ -255,6 +227,7 @@ func _tune_lining() -> void:
 func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
 	return TableProps.metal(albedo, emission, energy, 0.5, 0.46)
 
+
 ## Wände, Boden, Kragen und Lichtsaum - alles in LOKALEN Koordinaten um die
 ## Grubenmitte auf dem Glas (y = 0 ist die Tischfläche).
 func _build_body() -> void:
@@ -265,138 +238,63 @@ func _build_body() -> void:
 	# zeigt sonst nur weggekullte Rückseiten.
 	for wall_id: int in WALLS:
 		_build_wall(wall_id, top)
+	var plate := _floor_plan()
 	if floored:
-		var plate := _floor_plan()
 		TableProps.box(self, "Floor", Vector3(plate.size.x + wall * 2.0, floor_plate,
 			plate.size.y + wall * 2.0),
 			Vector3(plate.get_center().x, top - depth - floor_plate * 0.5,
 				plate.get_center().y), _floor_material)
 
 	# Kragen: er greift RIM_IN über die Kante in die Öffnung hinein und deckt
-	# damit die harte Schnittkante des Shaders. An der offenen Seite gibt es keine.
+	# damit die harte Schnittkante des Shaders.
 	if rimmed:
 		var rim_y := -RIM_H * 0.5 - RIM_SINK
 		var rim_x := half.x - RIM_IN * 0.5 + RIM_OUT * 0.5
 		var rim_z := half.y - RIM_IN * 0.5 + RIM_OUT * 0.5
 		var rim_bar := RIM_IN + RIM_OUT
-		# Über einem DURCHBRUCH trägt die SCHNITTKANTE des Tisches den Kragen weiter
-		# (Spieler-Wunsch 2026-10-27) - geteilt nur, wo das Nachbarloch offen ist
-		# (rim_gap), sonst läge er als Brücke quer über der Öffnung.
-		var rim_whole := true
-		_side_box("RimXPlus", WALL_X_PLUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
-			Vector3(rim_x, rim_y, 0.0), _rim_material, rim_whole)
-		_side_box("RimXMinus", WALL_X_MINUS, Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
-			Vector3(-rim_x, rim_y, 0.0), _rim_material, rim_whole)
-		_side_box("RimZPlus", WALL_Z_PLUS, Vector3(span.x, RIM_H, rim_bar),
-			Vector3(0.0, rim_y, rim_z), _rim_material, rim_whole)
-		_side_box("RimZMinus", WALL_Z_MINUS, Vector3(span.x, RIM_H, rim_bar),
-			Vector3(0.0, rim_y, rim_z * -1.0), _rim_material, rim_whole)
+		TableProps.box(self, "RimXPlus", Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
+			Vector3(rim_x, rim_y, 0.0), _rim_material)
+		TableProps.box(self, "RimXMinus", Vector3(rim_bar, RIM_H, span.y + rim_bar * 2.0),
+			Vector3(-rim_x, rim_y, 0.0), _rim_material)
+		TableProps.box(self, "RimZPlus", Vector3(span.x, RIM_H, rim_bar),
+			Vector3(0.0, rim_y, rim_z), _rim_material)
+		TableProps.box(self, "RimZMinus", Vector3(span.x, RIM_H, rim_bar),
+			Vector3(0.0, rim_y, -rim_z), _rim_material)
 
 	var glow_y := -GLOW_DROP - GLOW_H * 0.5
 	var glow_in := RIM_IN * 0.5
-	_side_box("GlowXPlus", WALL_X_PLUS, Vector3(glow_in, GLOW_H, span.y),
+	TableProps.box(self, "GlowXPlus", Vector3(glow_in, GLOW_H, span.y),
 		Vector3(half.x - glow_in * 0.5, glow_y, 0.0), _glow_material)
-	_side_box("GlowXMinus", WALL_X_MINUS, Vector3(glow_in, GLOW_H, span.y),
+	TableProps.box(self, "GlowXMinus", Vector3(glow_in, GLOW_H, span.y),
 		Vector3(-half.x + glow_in * 0.5, glow_y, 0.0), _glow_material)
-	_side_box("GlowZPlus", WALL_Z_PLUS, Vector3(span.x, GLOW_H, glow_in),
+	TableProps.box(self, "GlowZPlus", Vector3(span.x, GLOW_H, glow_in),
 		Vector3(0.0, glow_y, half.y - glow_in * 0.5), _glow_material)
-	_side_box("GlowZMinus", WALL_Z_MINUS, Vector3(span.x, GLOW_H, glow_in),
+	TableProps.box(self, "GlowZMinus", Vector3(span.x, GLOW_H, glow_in),
 		Vector3(0.0, glow_y, -half.y + glow_in * 0.5), _glow_material)
 
-## EINE Wand ist EIN Balken - außer an der Seite zur Nachbargrube: dort fehlt sie
-## ganz oder steht als zwei Balken um den Durchbruch. Gerechnet wird in der
-## GEDREHTEN Wandrichtung (wall_axis/wall_inward), eine Rechnung für alle vier.
+## EINE Wand ist EIN Balken, gerechnet in der GEDREHTEN Wandrichtung (wall_inward).
 ## Trägt sie den SCHLITZ, wird sie waagerecht in Sturz und Sockel geteilt.
 func _build_wall(wall_id: int, top: float) -> void:
 	var run := _wall_run(wall_id)
-	# Die SCHWELLE unter dem Durchbruch: sie beginnt eine Bodenplatte unter dem
-	# flacheren Nachbar-Boden (deren Rand greift in die Wand, zwei Deckflächen
-	# stritten sonst) und reicht bis zum eigenen. UNGETEILT - sie steht IM Durchbruch.
-	var sill := breach_floor + floor_plate
-	if wall_id == open_wall and breach.y > 0.0 and breach_floor > 0.001 and sill < depth:
-		_wall_box("%sSchwelle" % WALL_NAMES[wall_id], wall_id, breach.x,
-			top - (sill + depth) * 0.5, breach.y, depth - sill, wall, wall * 0.5,
-			_wall_material, true)
 	if not slot_walls.has(wall_id) or slot.y <= slot.x:
-		_wall_box(WALL_NAMES[wall_id], wall_id, 0.0, top - depth * 0.5,
-			run, depth, wall, wall * 0.5, _wall_material)
+		_wall_box(WALL_NAMES[wall_id], wall_id, top - depth * 0.5, run, depth)
 		return
 	var high := clampf(slot.x, 0.0, depth)
 	var low := clampf(slot.y, 0.0, depth)
 	if high > 0.001:
-		_wall_box("%sSturz" % WALL_NAMES[wall_id], wall_id, 0.0, top - high * 0.5,
-			run, high, wall, wall * 0.5, _wall_material)
+		_wall_box("%sSturz" % WALL_NAMES[wall_id], wall_id, top - high * 0.5, run, high)
 	if low < depth - 0.001:
-		_wall_box("%sSockel" % WALL_NAMES[wall_id], wall_id, 0.0,
-			top - (low + depth) * 0.5, run, depth - low, wall, wall * 0.5,
-			_wall_material)
+		_wall_box("%sSockel" % WALL_NAMES[wall_id], wall_id, top - (low + depth) * 0.5,
+			run, depth - low)
 
-## Die Balken-Stücke einer Wandseite als [Länge, Mitte] längs ihrer Weltachse:
-## normalerweise EINES, an der offenen Seite KEINES, am Durchbruch ZWEI.
-func _bar_cuts(wall_id: int, run: float) -> Array:
-	if wall_id != open_wall:
-		return [[run, 0.0]]
-	if breach.y <= 0.0:
-		return []
-	return _cuts_around(run, breach)
-
-## Der KRAGEN am Durchbruch: geteilt nur, wo das NACHBARLOCH offen ist (rim_gap) -
-## über dem Rest des Durchbruchs liegt Tisch, und dessen Kante trägt ihn weiter.
-func _rim_cuts(wall_id: int, run: float) -> Array:
-	if wall_id != open_wall or breach.y <= 0.0:
-		return _bar_cuts(wall_id, run)
-	if rim_gap.y <= 0.0:
-		return [[run, 0.0]]
-	return _cuts_around(run, rim_gap)
-
-## Ein Balken der Länge run, um die Lücke gap (Versatz, Breite) geteilt.
-func _cuts_around(run: float, gap: Vector2) -> Array:
-	var lo := gap.x - gap.y * 0.5
-	var hi := gap.x + gap.y * 0.5
-	var cuts: Array = []
-	if lo > -run * 0.5:
-		cuts.append([lo + run * 0.5, (lo - run * 0.5) * 0.5])
-	if hi < run * 0.5:
-		cuts.append([run * 0.5 - hi, (hi + run * 0.5) * 0.5])
-	return cuts
-
-## Ein Balken AUF einer Wandseite, durch dieselbe Zerlegung geschickt. An den
-## X-Wänden läuft er längs Welt-Z, an den Z-Wänden längs Welt-X.
-## rim = der KRAGEN, nur um das offene Nachbarloch geteilt (_rim_cuts).
-func _side_box(box_name: String, wall_id: int, box_size: Vector3, at: Vector3,
-		material: Material, rim := false) -> void:
-	var lengthwise := absf(wall_inward(wall_id).x) > 0.5
-	var run := box_size.z if lengthwise else box_size.x
-	var cuts := _rim_cuts(wall_id, run) if rim else _bar_cuts(wall_id, run)
-	if cuts.size() == 1 and is_equal_approx(float(cuts[0][0]), run):
-		TableProps.box(self, box_name, box_size, at, material)
-		return
-	for i in cuts.size():
-		var size := box_size
-		var seat := at
-		if lengthwise:
-			size.z = float(cuts[i][0])
-			seat.z += float(cuts[i][1])
-		else:
-			size.x = float(cuts[i][0])
-			seat.x += float(cuts[i][1])
-		TableProps.box(self, "%s%s" % [box_name, "AB"[i]], size, seat, material)
-
-## Ein Kasten AUF einer Wand: along = Versatz längs der Wand, deep = Abstand
-## seiner Mitte von der Innenfläche nach außen (negativ = eine Spur davor).
-## uncut = ohne die Zerlegung am Durchbruch (für die Schwelle, die darin steht).
-func _wall_box(box_name: String, wall_id: int, along: float, y: float,
-		length: float, height: float, thick: float, deep: float,
-		material: Material, uncut := false) -> void:
+## Ein Kasten AUF einer Wand, eine halbe Wandstärke hinter ihrer Innenfläche.
+func _wall_box(box_name: String, wall_id: int, y: float, length: float,
+		height: float) -> void:
 	if length <= 0.001 or height <= 0.001:
 		return
 	var inward := wall_inward(wall_id)
-	var size := Vector3(length, height, thick)
+	var size := Vector3(length, height, wall)
 	if absf(inward.x) > 0.5:
-		size = Vector3(thick, height, length)
-	var at := wall_axis(wall_id) * along - inward * (_wall_reach(wall_id) + deep) \
-		+ Vector3.UP * y
-	if uncut:
-		TableProps.box(self, box_name, size, at, material)
-		return
-	_side_box(box_name, wall_id, size, at, material)
+		size = Vector3(wall, height, length)
+	var at := -inward * (_wall_reach(wall_id) + wall * 0.5) + Vector3.UP * y
+	TableProps.box(self, box_name, size, at, _wall_material)

@@ -1,10 +1,10 @@
 class_name PackChoiceView
 extends Control
 ## Die PAKET-AUSWAHL: die Optionen eines geöffneten Pakets (die Körper stellt scene_root auf
-## die gemeldeten PLÄTZE, in Display-Pixeln). KARTEN liegen auf der ÖFFNUNGS-FLÄCHE unter dem
-## Lager (Kopf, Aufstellung, Auskunft, Knöpfe). WÜRFEL stehen ohne Schirm auf dem Filz als
-## SCHIENE neben dem Vorrat: je Option eine Reihe (Würfel links, Netz rechts), höchstens
-## drei je Spalte, darunter die Auskunft und der Knopf mit der Walze rechts daneben.
+## die gemeldeten PLÄTZE, in Display-Pixeln). Beide stehen auf der ÖFFNUNGS-FLÄCHE unter
+## dem Vorrat: KARTEN mit Schirm (Kopfzeile, Aufstellung, Auskunft, Knöpfe), WÜRFEL ohne
+## Schirm als SCHIENE: je Option eine Reihe (Würfel links, Netz rechts), höchstens drei je Spalte,
+## darunter die Auskunft und der Knopf mit der Walze rechts daneben.
 ## Gebucht ist schon (GameRun.pending_pack_choices); das Fenster sammelt nur die Wahl
 ## und meldet sie. Erst der Inhalt, dann die Zahl: bei Karten klettert der Zähler 1 … K,
 ## bei Würfeln dreht die WALZE - ein Klick überspringt.
@@ -62,14 +62,13 @@ func _init() -> void:
 var up_face := -1
 ## Höchstens so viele Würfel stehen auf der Schiene.
 const LINEUP_MAX := 10
-## Leer sagt die Fläche nur, wie man sie füllt.
-const IDLE_FONT_UNITS := 2.6
-## Die Einheit folgt der Höhe; der Kopf ist so hoch wie sein Text.
+## Die Einheit folgt der Höhe; der Kopf ist EINE Zeile: Name · Zähler · Energie.
 const UNIT_DIV := 56.0
-const TITLE_UNITS := 5.2
+const HEAD_UNITS := 3.0
 const FONT_UNITS := 1.6
-## Der Zähler steht in EINER Zeile neben der Walze.
 const COUNT_FONT_UNITS := 1.8
+const HEAD_TITLE_SHARE := 0.42
+const HEAD_COUNT_SHARE := 0.32
 const BUTTON_FONT_UNITS := 1.7
 const BUTTON_UNITS := 4.0
 const INFO_UNITS := 4.2
@@ -93,7 +92,6 @@ const RAIL_SEAT_DROP := 0.22
 const TILE_AIR_UNITS := 1.3
 const NET_GAP_UNITS := 1.0
 const NET_CELL_MAX_UNITS := 6.5
-const ENERGY_UNITS := 2.4
 const NET_POP_TIME := 0.25
 ## Kein Hover auf einer Netz-Zelle.
 const NO_FACE := -99
@@ -144,12 +142,8 @@ func _unit() -> float:
 		return maxf(size.y / (RAIL_UNITS + RAIL_FOOT_UNITS), 1.0)
 	return maxf(size.y / UNIT_DIV, 1.0)
 
-## Die Texthöhe des Kopfs: Name, Walze bzw. Zähler, Energie.
-func _head_text_units() -> float:
-	return TITLE_UNITS + 0.2 + REEL_UNITS + 0.3 + ENERGY_UNITS
-
 func head_height() -> float:
-	return _unit() * _head_text_units()
+	return _unit() * HEAD_UNITS
 
 func _draw() -> void:
 	if backdrop:
@@ -163,23 +157,41 @@ static func rail_window_for(rail: Rect2) -> Rect2:
 	var u := rail.size.y / RAIL_UNITS
 	return Rect2(rail.position, Vector2(rail.size.x, rail.size.y + u * RAIL_FOOT_UNITS))
 
-## Das Rechteck der ÖFFNUNGS-FLÄCHE in Display-Pixeln (rein, prüfbar): so breit wie das
-## Lager, nahtlos an seiner Unterkante, unten bis bottom (die Unterkante der Die-View).
-static func area_for(store: Rect2, bottom: float) -> Rect2:
-	if store.size.x <= 0.0 or bottom <= store.end.y:
+## Das Rechteck der ÖFFNUNGS-FLÄCHE in Display-Pixeln (rein, prüfbar): GENAU so breit wie
+## die Pool-Reihe, eine Naht darunter, unten bis zur Schranke (die Hub-Unterkante).
+static func area_under(pool: Rect2, seam: float, bottom: float) -> Rect2:
+	var top := pool.end.y + seam
+	if pool.size.x <= 0.0 or bottom <= top:
 		return Rect2()
-	return Rect2(Vector2(store.position.x, store.end.y),
-		Vector2(store.size.x, bottom - store.end.y))
+	return Rect2(Vector2(pool.position.x, top), Vector2(pool.size.x, bottom - top))
 
-## Die festen Felder der Seite (Fenster-Pixel): Kopf (Text rechts der Hülle), Energie,
+## Die SCHIENE auf der Fläche (rein): oben bündig, so breit wie sie, und so hoch, wie Fuß
+## und Spalten es zulassen - die Würfel bleiben gleich groß, nur Reihe und Netz schrumpfen.
+static func rail_in(area: Rect2, die_px: float, count: int) -> Rect2:
+	if area.size.x <= 0.0 or area.size.y <= 0.0:
+		return Rect2()
+	var high := area.size.y / (1.0 + RAIL_FOOT_UNITS / RAIL_UNITS)
+	var low := 0.0
+	if rail_width_for(high, die_px, count) > area.size.x:
+		for i in 40:
+			var mid := (low + high) * 0.5
+			if rail_width_for(mid, die_px, count) > area.size.x:
+				high = mid
+			else:
+				low = mid
+		high = low
+	return Rect2(area.position, Vector2(area.size.x, high))
+
+## Die festen Felder der Seite (Fenster-Pixel): die Kopfzeile samt Energie rechts,
 ## Auskunft und die Knopfzeile.
 func _frame_rects() -> Dictionary:
 	if lineup():
 		return _rail_frame_rects()
 	var u := _unit()
-	var head := Rect2(Vector2(u, u), Vector2(maxf(size.x - u * 2.0, u), u * _head_text_units()))
-	var energy := Rect2(Vector2(head.position.x, head.end.y - u * ENERGY_UNITS),
-		Vector2(head.size.x, u * ENERGY_UNITS))
+	var head := Rect2(Vector2(u, u), Vector2(maxf(size.x - u * 2.0, u), u * HEAD_UNITS))
+	var rest := head.size.x * (HEAD_TITLE_SHARE + HEAD_COUNT_SHARE)
+	var energy := Rect2(Vector2(head.position.x + rest, head.position.y),
+		Vector2(head.size.x - rest, head.size.y))
 	var buttons := Rect2(Vector2(u, size.y - u - u * BUTTON_UNITS),
 		Vector2(size.x - u * 2.0, u * BUTTON_UNITS))
 	var info := Rect2(Vector2(u, buttons.position.y - u * (INFO_UNITS + 0.4)),
@@ -229,7 +241,6 @@ func open(open_choice: PackChoice, footprint: Vector2, cost: int, have_energy: i
 	visible = true
 	queue_redraw()
 
-## Zu: auf dem Tisch bleibt die Fläche stehen und zeigt ihren Leer-Zustand.
 func close() -> void:
 	_kill_count()
 	_kill_show()
@@ -242,20 +253,6 @@ func close() -> void:
 	_armed = -1
 	visible = backdrop
 	_build()
-
-## Der Leer-Zustand: ein ruhiger Hinweis, keine Knöpfe. Nur der Wechsel baut neu.
-var idle_text := ""
-var _idle_size := Vector2.ZERO
-
-func set_idle_text(text: String) -> void:
-	if text == idle_text and size == _idle_size:
-		return
-	idle_text = text
-	if choice == null:
-		_build()
-
-func idle_label() -> Label:
-	return get_node_or_null("Idle") as Label
 
 func selected_indices() -> Array[int]:
 	if assigning():
@@ -347,8 +344,8 @@ func option_at_px(pixel: Vector2) -> int:
 			return i
 	return -1
 
-## Das Magazin-Tablett einer Karten-Option (ihre Sorte, -1 = keine Karte).
-func option_shelf_tray(index: int) -> int:
+## Die Magazin-Reihe einer Karten-Option (ihre Sorte, -1 = keine Karte).
+func option_shelf_row(index: int) -> int:
 	if choice == null or index < 0 or index >= choice.option_count():
 		return -1
 	var option: Variant = choice.options[index]
@@ -533,18 +530,6 @@ func _build() -> void:
 	_marks.clear()
 	_hovered = -1
 	if choice == null:
-		_idle_size = size
-		if idle_text != "":
-			var idle := CasinoStyle.label(idle_text, _unit() * IDLE_FONT_UNITS, MUTED_COLOR,
-				HORIZONTAL_ALIGNMENT_CENTER)
-			idle.name = "Idle"
-			idle.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			idle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			idle.clip_text = true
-			idle.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			idle.position = Vector2.ZERO
-			idle.size = size
-			add_child(idle)
 		return
 	_nets.clear()
 	_hover_face = NO_FACE
@@ -555,18 +540,16 @@ func _build() -> void:
 	var buttons: Rect2 = frame["buttons"]
 	var info: Rect2 = frame["info"]
 	_title = CasinoStyle.label(choice.display_name, u * FONT_UNITS, TEXT_COLOR,
-		HORIZONTAL_ALIGNMENT_CENTER, 3)
+		HORIZONTAL_ALIGNMENT_LEFT, 3)
 	_title.position = head.position
-	_title.size = Vector2(head.size.x, u * TITLE_UNITS)
+	_title.size = Vector2(head.size.x * HEAD_TITLE_SHARE, head.size.y)
 	add_child(_title)
 	_counter = CasinoStyle.label("", u * COUNT_FONT_UNITS, COUNT_COLOR,
 		HORIZONTAL_ALIGNMENT_CENTER, 3)
-	_counter.position = head.position + Vector2(0.0, u * (TITLE_UNITS + 0.2))
-	_counter.size = Vector2(head.size.x, u * REEL_UNITS)
+	_counter.position = head.position + Vector2(_title.size.x, 0.0)
+	_counter.size = Vector2(head.size.x * HEAD_COUNT_SHARE, head.size.y)
 	add_child(_counter)
-	# Der schmale Kopf bricht Name und Zähler auf zwei Zeilen um.
 	for label: Label in [_title, _counter]:
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		label.clip_text = true
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if lineup():
@@ -629,9 +612,9 @@ func _build() -> void:
 	_reshuffle_button.position = buttons.position + Vector2(button_size.x + u, 0.0)
 	_reshuffle_button.size = button_size
 	_take_button.size = button_size
-	# Neu mischen kostet ⚡: der Stand steht klein im Kopf.
-	_energy_label = CasinoStyle.label("", u * ENERGY_UNITS, CasinoStyle.ENERGY,
-		HORIZONTAL_ALIGNMENT_CENTER)
+	# Neu mischen kostet ⚡: der Stand steht rechts in der Kopfzeile.
+	_energy_label = CasinoStyle.label("", u * FONT_UNITS, CasinoStyle.ENERGY,
+		HORIZONTAL_ALIGNMENT_RIGHT)
 	_energy_label.name = "Energy"
 	_energy_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_energy_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

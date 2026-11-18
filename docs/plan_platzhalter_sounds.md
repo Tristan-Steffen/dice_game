@@ -6,7 +6,7 @@ Spieler-Wunsch: überall, wo das Spiel einen Klang bräuchte, einen PLATZHALTER 
 
 - **EINE neue Klasse `SfxBank`** (`scripts/table/sfx_bank.gd`, `extends Node`), nach dem Muster von `ScoreAudio`: Platzhalter werden beim Start synthetisiert (`_render`-Helfer wie dort, 16-Bit-Mono 44,1 kHz), und eine Datei gleichen Namens unter `SFX_DIR` (`.wav`/`.ogg`) ersetzt den Ton ohne Code-Änderung.
 - **`const SFX_DIR := "res://assets/sfx/game/"`** — genau EINE Konstante dieses Wortlauts, und jeder Platz als WÖRTLICHER Aufruf `_load_or(&"name", …)` in einem Dictionary-Literal. Die Klang-Tafel (`E:/Godot/klang-tafel`) liest genau dieses Muster per Regex, um die Plätze für „Im Spiel ersetzen“ zu finden — kein Name aus einer Schleife oder Konstante zusammensetzen.
-- Namen: `kategorie_ereignis` in snake_case (z. B. `ui_click`, `shop_buy`, `bench_latch`).
+- Namen: `kategorie_ereignis` in snake_case (z. B. `ui_click`, `shop_buy`, `slice_lock`).
 - **API**: `play(name: StringName, db := 0.0, pitch := 1.0)`. Jeder Platz hat einen Grundpegel und optional eine Mindestpause (`MIN_GAP_MS` je Name, gegen Geknatter bei Chips/Hover) und eine leichte Tonhöhen-Streuung. Unbekannter Name = still (kein Fehler).
 - **Busse**: `ui_*` auf `UI`, alles andere auf `SFX` (beide stehen in `default_bus_layout.tres`; fehlt einer, Rückfall `Master` — wie `ScoreAudio.BUS_NAME`). Je Bus ein `AudioStreamPolyphonic`-Player (polyphony ~24).
 - **Buttons global**: `SfxBank` hört `get_tree().node_added` und verbindet jeden `BaseButton` (auch in SubViewports — derselbe Baum) mit `ui_click` beim `pressed` und einem sehr leisen `ui_hover` beim `mouse_entered` (Mindestpause ~60 ms; nur wenn der Button nicht `disabled` ist). Bestehende Buttons beim Start einmal durchgehen. Ein Button kann sich per Meta `sfx_silent` ausnehmen (für Klick-Fänger wie die Laden-Stellplätze, deren Kauf schon `shop_buy` spielt).
@@ -59,7 +59,7 @@ Die Funktionsnamen stammen aus einer ersten Suche; die genaue Zeile sucht die Um
 - `card_lift` / `card_drop` — Karte vom Magazin in den Turm bzw. zurück (Start von `_carry_data_cell` / Ankunft von `_return_data_cell`).
 - `shelf_switch` — Tablett-Wechsel (`_on_tray_requested`); `shelf_snap` — Rollen rastet ein (`_on_shelf_scroll_snapped`, leise).
 - `bench_target` — Zielwürfel gewählt (`_on_workshop_target_chosen`).
-- `bench_press` — Prägen startet (`_on_press_started`); `bench_latch` — Karten rasten ein (`_on_cards_latched`); `light_pass` — Licht passiert eine Karte (`_on_light_passed`, Tonhöhe steigt je Etage); `light_strike` — Funken schlagen in den Würfel (`_on_light_struck`); `card_burnout` — Karte brennt aus (`_burn_out_card`, Mindestpause).
+- `bench_press` — Prägen startet (`_on_press_started`); `slice_lock` — Scheiben verriegeln (`_on_slices_locked`); `light_pass` — der Strom passiert eine Karte (`_on_stream_passed`, Tonhöhe steigt je Scheibe); `light_strike` — Funken schlagen in den Würfel (`_on_stream_struck`); `card_burnout` — Karte brennt aus (`_burn_out_card`, Mindestpause).
 - `raster_toggle` — Raster-Umschalter (wo `RasterSwitchView` gedrückt wird); `pool_swap` — Würfel in die Rasterzelle getauscht (`_on_deck_glass_cell_pressed`, wenn wirklich getauscht).
 
 **Wetten, Automaten, Module**

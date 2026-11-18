@@ -1,17 +1,17 @@
 extends GutTest
-## Die Paket-Auswahl: Würfel-Pakete stehen als SCHIENE ohne Schirm auf dem Filz (je Option
-## eine Reihe, höchstens drei je Spalte, weitere Spalten rechts); Karten-Pakete liegen auf
-## der Öffnungs-Fläche unter dem Lager.
+## Die Paket-Auswahl auf der ÖFFNUNGS-FLÄCHE unter dem Vorrat: Würfel-Pakete stehen als
+## SCHIENE ohne Schirm (je Option eine Reihe, höchstens drei je Spalte, weitere Spalten
+## rechts), Karten-Pakete liegen mit Schirm in zwei Spalten.
 
 const DIE_PX := Vector2(45, 45)
-## Die Öffnungs-Fläche unter dem Lager (1280 × 720, 2026-11-14): so breit wie das Lager,
-## nahtlos an seiner Unterkante, unten bis zur Unterkante der Die-View.
-const STORE := Rect2(3719.563, 1304.776, 540.4, 569.9999)
-const DIE_VIEW_BOTTOM := 2653.095
-const OPENING_POS := Vector2(3719.563, 1874.776)
-const OPENING_SIZE := Vector2(540.4, 778.319)
-## Die SCHIENE (1280 × 720, 2026-11-17): oben bündig mit dem Vorrat und so hoch wie er.
-const RAIL := Rect2(3618.0, 1995.0, 540.4, 337.0)
+## Gemessen 1280 × 720 (2026-11-18): Pool-Reihe, die Naht darunter, die Hub-Unterkante.
+const POOL := Rect2(2916.358, 1994.776, 585.0, 487.5)
+const SEAM := 48.75
+const HUB_BOTTOM := 3127.276
+const OPENING_POS := Vector2(2916.358, 2531.026)
+const OPENING_SIZE := Vector2(585.0, 596.25)
+## Die SCHIENE darauf (gemessen 585 × 424,5).
+const RAIL := Rect2(2916.358, 2531.026, 585.0, 424.5)
 
 func _open_pack(run: GameRun, pack: Resource) -> PackChoice:
 	if pack is DicePack:
@@ -252,17 +252,17 @@ func test_card_choice_keeps_its_layout() -> void:
 
 ## Der Zeiger über einer Karten-Option nennt das Magazin-Tablett ihrer Sorte; Würfel
 ## und Leerstellen nennen keines.
-func test_a_card_option_names_its_shelf_tray() -> void:
+func test_a_card_option_names_its_shelf_row() -> void:
 	var choice := _card_choice()
 	var view := _view()
 	view.open(choice, Vector2(60, 90), 1, 5)
 	for i in choice.option_count():
-		assert_eq(view.option_shelf_tray(i), Pack.shelf_rank(choice.options[i] as Pack))
-	assert_eq(view.option_shelf_tray(-1), -1)
-	assert_eq(view.option_shelf_tray(choice.option_count()), -1)
+		assert_eq(view.option_shelf_row(i), Pack.shelf_rank(choice.options[i] as Pack))
+	assert_eq(view.option_shelf_row(-1), -1)
+	assert_eq(view.option_shelf_row(choice.option_count()), -1)
 	var dice := _rail_view()
 	_dice(dice, 3)
-	assert_eq(dice.option_shelf_tray(0), -1)
+	assert_eq(dice.option_shelf_row(0), -1)
 
 ## Kopf, Aufstellung, Auskunft und Knöpfe stehen untereinander auf der Fläche.
 func test_cards_on_the_opening_stack_their_fields() -> void:
@@ -285,34 +285,50 @@ func test_cards_on_the_opening_stack_their_fields() -> void:
 	assert_eq(view.page_rect_px().position, OPENING_POS)
 	assert_true(view.page_rect_px().has_point(view.hull_seat_px()), "die Hülle geht auf der Fläche auf")
 
-## Das Rechteck der Fläche: so breit wie das Lager, nahtlos an seiner Unterkante, unten
-## bündig mit der Die-View.
-func test_the_opening_area_hangs_under_the_store() -> void:
-	var area := PackChoiceView.area_for(STORE, DIE_VIEW_BOTTOM)
-	assert_almost_eq(area.position.x, STORE.position.x, 0.01, "linksbündig mit dem Lager")
-	assert_almost_eq(area.size.x, STORE.size.x, 0.01, "so breit wie das Lager")
-	assert_almost_eq(area.position.y, STORE.end.y, 0.01, "nahtlos an seiner Unterkante")
-	assert_almost_eq(area.end.y, DIE_VIEW_BOTTOM, 0.01, "unten bündig mit der Die-View")
-	assert_almost_eq(area.position.x, OPENING_POS.x, 0.01)
+## Das Rechteck der Fläche: GENAU so breit wie die Pool-Reihe, eine Naht darunter, unten
+## bis zur Hub-Unterkante.
+func test_the_opening_area_hangs_under_the_pool() -> void:
+	var area := PackChoiceView.area_under(POOL, SEAM, HUB_BOTTOM)
+	assert_almost_eq(area.position.x, POOL.position.x, 0.01, "linksbündig mit dem Pool")
+	assert_almost_eq(area.size.x, POOL.size.x, 0.01, "so breit wie der Pool")
+	assert_almost_eq(area.position.y, POOL.end.y + SEAM, 0.01, "eine Naht unter ihm")
+	assert_almost_eq(area.end.y, HUB_BOTTOM, 0.01, "nie tiefer als der Hub")
 	assert_almost_eq(area.size.y, OPENING_SIZE.y, 0.01)
-	assert_eq(PackChoiceView.area_for(STORE, STORE.end.y - 1.0), Rect2(), "kein Platz, keine Fläche")
+	assert_eq(PackChoiceView.area_under(POOL, SEAM, POOL.end.y), Rect2(), "kein Platz, keine Fläche")
 
-## Der leere Rückfall: ein ruhiger Hinweis, keine Knöpfe.
-func test_the_empty_opening_shows_a_hint_and_no_buttons() -> void:
+## Die Schiene füllt die Fläche oben, samt Fuß darin; die Würfel bleiben gleich groß.
+func test_the_rail_fits_the_area_under_the_pool() -> void:
+	var area := PackChoiceView.area_under(POOL, SEAM, HUB_BOTTOM)
+	for count in [1, 3, 5, 6]:
+		var rail := PackChoiceView.rail_in(area, DIE_PX.y, count)
+		var window := PackChoiceView.rail_window_for(rail)
+		assert_eq(rail.position, area.position, "%d Würfel: oben auf der Fläche" % count)
+		assert_almost_eq(rail.size.x, area.size.x, 0.01, "so breit wie sie")
+		assert_true(area.grow(0.01).encloses(window), "%d Würfel: samt Fuß darin" % count)
+		assert_lte(PackChoiceView.rail_width_for(rail.size.y, DIE_PX.y, count), area.size.x + 0.01,
+			"die Spalten passen in die Breite")
+	# Die echte Würfelkante bei 37,5 px/Welt: die Breite bindet, gemessen 424,5 hoch.
+	var die_px := DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE * 37.5
+	assert_almost_eq(PackChoiceView.rail_in(area, die_px, 5).size.y, RAIL.size.y, 1.0,
+		"gemessen 424,5 hoch")
+	assert_eq(PackChoiceView.rail_in(Rect2(), DIE_PX.y, 5), Rect2(), "keine Fläche, keine Schiene")
+
+## Fünf liegende Karten stehen in zwei Spalten zu drei Reihen ganz in der Aufstellung,
+## der Kopf ist EINE Zeile.
+func test_five_cards_stand_in_three_rows_under_a_one_line_head() -> void:
+	var choice := _card_choice()
 	var view := _opening()
-	view.backdrop = true
-	view.open(_card_choice(), Vector2(194, 130), 1, 5)
-	view.close()
-	view.set_idle_text("Pakete öffnen sich hier beim Kauf")
-	assert_true(view.visible, "mit Schirm bleibt die Fläche stehen")
-	assert_false(view.choosing())
-	assert_not_null(view.idle_label())
-	assert_eq(view.idle_label().text, "Pakete öffnen sich hier beim Kauf")
-	assert_eq(view.find_children("*", "Button", true, false).size(), 0, "keine Knöpfe")
-	view.set_idle_text("Pakete öffnen sich im Laden")
-	assert_eq(view.idle_label().text, "Pakete öffnen sich im Laden")
-	view.open(_card_choice(), Vector2(194, 130), 1, 5)
-	assert_null(view.idle_label(), "eine Öffnung verdrängt den Hinweis")
+	view.open(choice, Vector2(194.4, 129.6), 1, 5)
+	assert_eq(choice.option_count(), 5)
+	assert_eq(view.per_row(5), 2, "zwei Spalten")
+	var area := view.lineup_area()
+	for i in 5:
+		assert_true(area.encloses(view.slot_rect(i, 5)), "Karte %d in der Aufstellung" % i)
+	var head: Rect2 = view._frame_rects()["head"]
+	for label: Label in [view._title, view._counter, view._energy_label]:
+		assert_almost_eq(label.position.y, head.position.y, 0.01, "%s in der Kopfzeile" % label.name)
+	assert_lt(view._title.position.x, view._counter.position.x, "Name links")
+	assert_lt(view._counter.position.x, view._energy_label.position.x, "Energie rechts")
 
 func test_the_page_names_the_energy_for_the_reshuffle() -> void:
 	var view := _view()

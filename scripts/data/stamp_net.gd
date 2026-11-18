@@ -185,7 +185,7 @@ static func top_factor(net: Array) -> int:
 static func is_factor_net(net: Array) -> bool:
 	return top_factor(net) > 0
 
-## Die Glyphe, mit der die Karte im Durchlicht zuschlägt ("" = sie prägt still).
+## Die Glyphe, mit der die Karte in der Übertragung zuschlägt ("" = sie prägt still).
 static func net_glyph(net: Array) -> String:
 	for face in FACES:
 		var cell := cell_at(net, face)

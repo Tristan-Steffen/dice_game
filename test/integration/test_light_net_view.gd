@@ -1,6 +1,6 @@
 extends GutTest
-## DAS LICHT-NETZ des DURCHLICHTS: ein reines HOLOGRAMM, das auf der steigenden
-## Licht-Ebene des Turms reitet und je Etage deren Zellen aufnimmt. Eine NULL-Zelle
+## DAS LICHT-NETZ der ÜBERTRAGUNG: ein reines HOLOGRAMM, das auf der Strom-Ebene
+## der Walze reitet und je Scheibe deren Zellen aufnimmt. Eine NULL-Zelle
 ## ist UNSICHTBAR, nicht dunkel - was leuchtet, wird benutzt. Reine Anzeige.
 
 var net: LightNetView

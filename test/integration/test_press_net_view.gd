@@ -276,7 +276,7 @@ func test_a_rune_cell_draws_the_same_figure_as_the_die() -> void:
 	assert_eq((glyph as DieNetView.RuneGlyph).lines.size(),
 		Rune.glyph_lines(Rune.by_id(Rune.AFTERGLOW).glyph).size())
 
-# --- Der ZÄHL-TAKT und die FALTUNG (die DURCHLICHT-FAHRT) --------------------------
+# --- Der ZÄHL-TAKT und die FALTUNG (die ÜBERTRAGUNG) --------------------------
 
 ## Zahlen TICKEN, sie springen nie: mit gesetztem Takt steht erst der alte Stand
 ## da, und der Aufräum-Pfad setzt sie auf ihr Ziel.

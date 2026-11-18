@@ -1,7 +1,6 @@
 extends GutTest
-## Tier-2-Tests der GEMEINSAMEN GRUBE (PackPitView): der Körper, den man durch das
-## Loch im Display sieht. Sie baut BEIDE Rechtecke - Magazin und Turm-Bucht -, und
-## sie kennt genau EINE Öffnung: die zwischen den beiden.
+## Tier-2-Tests der Grube (PackPitView): der Körper, den man durch das Loch im
+## Display sieht.
 
 const HALF := Vector2(9.0, 1.6)
 const DEPTH := 1.4
@@ -32,117 +31,20 @@ func test_every_wall_is_one_bar_without_an_opening() -> void:
 		assert_false(String(child.name).begins_with("Hatch"),
 			"das Magazin bestellt keine Klappen")
 
-## DIE BUCHT: die Seite zum Magazin fehlt GANZ - Wand, Kragen und Lichtsaum.
-func test_an_open_side_has_no_wall_no_collar_and_no_seam() -> void:
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_MINUS)
-	assert_null(_mesh("WallXMinus"), "die Wand zum Nachbarn fehlt")
-	assert_null(_mesh("RimXMinus"), "und kein Kragen liegt quer durch das Loch")
-	assert_null(_mesh("GlowXMinus"), "der Lichtsaum ebenso nicht")
-	for name: String in ["WallXPlus", "WallZPlus", "WallZMinus", "RimXPlus",
-			"GlowXPlus"]:
-		assert_not_null(_mesh(name), "%s steht weiter" % name)
-
-## DAS MAGAZIN: dieselbe Seite bekommt einen DURCHBRUCH - aus EINEM Balken werden
-## ZWEI, und die Lücke dazwischen ist genau seine Breite.
-func test_a_breach_splits_the_wall_into_two_bars() -> void:
-	var offset := 0.4
-	var width := 1.0
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
-		Vector2(offset, width))
-	assert_null(_mesh("WallXPlus"), "der EINE Balken ist fort")
-	var left := _mesh("WallXPlusA")
-	var right := _mesh("WallXPlusB")
-	assert_not_null(left, "links des Durchbruchs steht einer")
-	assert_not_null(right, "rechts des Durchbruchs der andere")
-	var lo: float = left.position.z + (left.mesh as BoxMesh).size.z * 0.5
-	var hi: float = right.position.z - (right.mesh as BoxMesh).size.z * 0.5
-	assert_almost_eq(hi - lo, width, 0.001, "die Lücke IST die Breite")
-	assert_almost_eq((lo + hi) * 0.5, offset, 0.001, "und sie sitzt auf dem Versatz")
-	# Der Lichtsaum folgt der Wand - er liegt IM Raum und bricht am Durchbruch ab.
-	assert_null(_mesh("GlowXPlus"), "der Lichtsaum ist geteilt")
-	assert_not_null(_mesh("GlowXPlusA"))
-	assert_not_null(_mesh("GlowXPlusB"))
-	assert_not_null(_mesh("WallXMinus"), "die Gegenseite bleibt zu")
-
-## Der KRAGEN dagegen läuft über den Durchbruch hinweg (Spieler-Wunsch 2026-10-27):
-## die Wand fehlt dort, die SCHNITTKANTE des Tisches aber nicht - ohne ihn bricht
-## die graue Linie der Tischkante mitten im Streifen ab.
-func test_the_collar_runs_across_a_breach() -> void:
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
-		Vector2(0.4, 1.0))
-	var rim := _mesh("RimXPlus")
-	assert_not_null(rim, "der Kragen steht als EIN Balken")
-	assert_null(_mesh("RimXPlusA"), "und ist nicht geteilt")
-	assert_almost_eq((rim.mesh as BoxMesh).size.z,
-		HALF.y * 2.0 + (PackPitView.RIM_IN + PackPitView.RIM_OUT) * 2.0, 0.001,
-		"über die ganze Seite")
-
-## Aber NICHT über dem offenen Nachbarloch: dort ist kein Tisch, ein Kragen läge
-## als Brücke quer über der Öffnung. Geteilt wird er genau um rim_gap.
-func test_the_collar_opens_over_the_neighbours_hole() -> void:
-	pit.rim_gap = Vector2(-0.2, 0.6)
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
-		Vector2(0.0, 1.4))
-	assert_null(_mesh("RimXPlus"), "kein durchgehender Kragen")
-	var left := _mesh("RimXPlusA")
-	var right := _mesh("RimXPlusB")
-	assert_not_null(left)
-	assert_not_null(right)
-	var lo: float = left.position.z + (left.mesh as BoxMesh).size.z * 0.5
-	var hi: float = right.position.z - (right.mesh as BoxMesh).size.z * 0.5
-	assert_almost_eq(hi - lo, 0.6, 0.001, "die Lücke ist das Nachbarloch, nicht der Durchbruch")
-	assert_almost_eq((lo + hi) * 0.5, -0.2, 0.001)
-
-## Eine GANZ offene Seite behält dagegen keinen Kragen: dort ist es EIN Raum, keine
-## Kante - ein Balken läge quer durch das Loch.
-func test_a_fully_open_side_keeps_no_collar() -> void:
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS)
-	assert_null(_mesh("RimXPlus"), "kein Kragen quer durch die offene Seite")
-	assert_null(_mesh("RimXPlusA"))
-
 func test_the_four_walls_and_the_floor_close_the_box() -> void:
 	assert_not_null(_mesh("Floor"), "der Boden liegt unter allem")
 	var floor_mesh := _mesh("Floor")
 	assert_lt(floor_mesh.position.y, -DEPTH, "und zwar unter der ganzen Tiefe")
 
-## JEDE Grube baut ihren eigenen Boden auf ihrer eigenen Tiefe (2026-09-11: die
-## Bucht ist nur halb so tief, der eine L-Boden ist damit gestorben) - auch die
-## offene Bucht.
-func test_the_open_bay_builds_its_own_floor() -> void:
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH * 0.5, PackPitView.WALL_X_MINUS)
-	var plate := _mesh("Floor")
-	assert_not_null(plate, "die Bucht hat ihren Boden")
-	assert_almost_eq(plate.position.y + PackPitView.FLOOR * 0.5,
-		-PackPitView.WALL_SINK - DEPTH * 0.5, 0.001, "auf ihrer eigenen Tiefe")
-	assert_null(pit.get("floor_area"), "die gemeldete L-Fläche ist gestorben")
-	assert_null(pit.get("build_floor"), "und der Boden-Schalter mit ihr")
-
-## Unter dem Durchbruch steht eine SCHWELLE, wenn der Nachbar flacher ist: sie
-## beginnt eine Bodenplatte unter dessen Boden und reicht bis zum eigenen, so breit
-## wie der Durchbruch - und sie ist UNGETEILT, sie steht ja im Durchbruch.
-func test_a_shallower_neighbour_gets_a_sill_under_the_breach() -> void:
-	var offset := 0.5
-	var width := 1.0
-	pit.breach_floor = DEPTH * 0.5
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
-		Vector2(offset, width))
-	var sill := _mesh("WallXPlusSchwelle")
-	assert_not_null(sill, "die Schwelle steht")
-	var span: Vector3 = (sill.mesh as BoxMesh).size
-	assert_almost_eq(span.z, width, 0.001, "so breit wie der Durchbruch")
-	assert_almost_eq(sill.position.z, offset, 0.001, "und auf seinem Versatz")
-	var top := sill.position.y + span.y * 0.5
-	assert_almost_eq(top, -PackPitView.WALL_SINK - DEPTH * 0.5 - PackPitView.FLOOR,
-		0.001, "ihre Oberkante liegt eine Platte unter dem Nachbar-Boden")
-	assert_almost_eq(sill.position.y - span.y * 0.5, -PackPitView.WALL_SINK - DEPTH,
-		0.001, "und sie reicht bis zum eigenen")
-	assert_almost_eq(sill.position.x, _mesh("WallXPlusA").position.x, 0.001,
-		"in der Flucht der Wand")
-
-func test_an_equally_deep_neighbour_needs_no_sill() -> void:
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH, PackPitView.WALL_X_PLUS,
-		Vector2(1.5, 2.0))
-	assert_null(_mesh("WallXPlusSchwelle"), "ohne breach_floor keine Schwelle")
+## Die Vertiefung der Öffnungs-Fläche baut keinen eigenen Boden: ihr Bild trägt EIN
+## Boden-Quad auf derselben Höhe - zwei Flächen dort flimmerten.
+func test_an_unfloored_pit_builds_no_floor() -> void:
+	pit.floored = false
+	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH)
+	await wait_frames(1)
+	assert_null(_mesh("Floor"), "kein eigener Boden")
+	for wall_name: String in PackPitView.WALL_NAMES:
+		assert_not_null(_mesh(wall_name), "die Wände bleiben")
 
 ## Der Samt-Schimmer mißt sich an der eigenen Platte.
 func test_the_velvet_field_spans_the_plate() -> void:
@@ -208,13 +110,3 @@ func test_a_rimless_pit_wears_no_collar() -> void:
 	assert_not_null(_mesh("Floor"), "und ihr Boden auch")
 	assert_not_null(_mesh("GlowZPlus"), "der Lichtsaum bleibt - er liegt IN der Grube")
 
-## Eine Grube OHNE Boden (die Vertiefung unter der Tischsektion): sie ist nur der
-## Hals zwischen der GLAS-Scheibe und der Tasche des Turms darunter - ein Boden waere
-## genau der Deckel, den man dort fortnimmt (Spieler-Wunsch 2026-10-27).
-func test_a_floorless_pit_keeps_its_walls_but_has_no_plate() -> void:
-	pit.floored = false
-	pit.setup(Vector3(3.0, 0.0, -2.0), HALF, DEPTH * 0.5)
-	assert_null(_mesh("Floor"), "sie hat keinen Boden mehr")
-	for wall_name: String in PackPitView.WALL_NAMES:
-		assert_not_null(_mesh(wall_name), "%s steht weiter" % wall_name)
-	assert_not_null(_mesh("RimZPlus"), "und ihr Kragen auch")

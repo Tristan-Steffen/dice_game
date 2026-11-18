@@ -250,8 +250,8 @@ var depth := 0.0
 ## sich dort als schwarzer Balken.
 var cavity_reach := 0.0
 ## Und dasselbe NUR für die VORDERE Seite (0 = so weit wie der allgemeine Reach).
-## Der Pool-Schacht meldet hier die Fuge zur Turm-Bucht: hinten schiebt die Ablage
-## herein und braucht die volle Länge, vorn steht ein fremdes, IMMER offenes Loch.
+## Der Pool-Schacht meldet hier die Fuge zur Öffnungs-Fläche: hinten schiebt die Ablage
+## herein und braucht die volle Länge, vorn liegt deren Vertiefung.
 var front_cavity_reach := 0.0
 ## Trägt der Schacht den türkisen Saum? Schluck und Warteschlange nicht (Spieler-Wunsch 2026-10-25).
 var glow_rim := true
@@ -1386,8 +1386,8 @@ func _build_body() -> void:
 	_build_cavity("Back", 1.0, span, top, mouth, back_cavity)
 	_build_cavity("Front", -1.0, span, top, mouth, front_cavity)
 
-	# Die SOHLE unter Schacht und BEIDEN Hohlräumen - und die sind seit der
-	# Turm-Bucht verschieden lang, also steht sie außermittig.
+	# Die SOHLE unter Schacht und BEIDEN Hohlräumen - und die können verschieden
+	# lang sein, also steht sie außermittig.
 	TableProps.box(self, "Sole", Vector3(span.x + WALL * 2.0 + back_cavity + front_cavity, DECK,
 		span.y + WALL * 2.0),
 		Vector3((back_cavity - front_cavity) * 0.5, sole_y + DECK * 0.5, 0.0),

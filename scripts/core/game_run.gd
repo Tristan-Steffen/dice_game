@@ -1211,7 +1211,7 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 			aftercare.append(pack.catalyst_id)
 	return terms
 
-## Die EINE Quelle der Serien-Terme für Vorschau, Buchung und Durchlicht: die
+## Die EINE Quelle der Serien-Terme für Vorschau, Buchung und Übertragung: die
 ## Katalysatoren plus der Lötkolben aus dem Dock (pointer_add).
 func series_terms(catalysts: Array[Pack]) -> Dictionary:
 	var terms := catalyst_terms(catalysts)
