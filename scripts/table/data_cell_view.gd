@@ -28,8 +28,8 @@ extends Node3D
 ## zu klein, Netz und Kern verschwammen. Ein Drittel mehr ist die Größe, bei der
 ## beides steht - Möbel neben den Würfeln, immer noch kein Klotz.
 const SIZE_FACTOR := 1.35
-## Standhöhe, aus der Würfelkante abgeleitet: alles andere hängt an ihr.
-const HEIGHT := DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE * SIZE_FACTOR
+## Standhöhe aus der Würfelkante VOR der Würfel-Vergrößerung (0,6) - die Karte wuchs nicht mit.
+const HEIGHT := DieBuilder.HALF_EXTENT * 2.0 * 0.6 * SIZE_FACTOR
 ## Streichholzschachtel-Verhältnis 2 : 3 : 0,28 (Breite : Höhe : Tiefe). Die Zelle
 ## ist als Einzelstück dünner, als sie sein müsste - gebaut wird sie für den
 ## STAPEL: fünf davon sollen als flacher Haufen lesen, nicht als Turm.

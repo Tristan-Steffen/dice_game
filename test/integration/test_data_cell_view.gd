@@ -181,10 +181,10 @@ func test_the_cell_lies_by_default() -> void:
 	assert_almost_eq(body.position.y, DataCellView.DEPTH * 0.5, 0.001,
 		"liegend hebt der Ursprung auf halbe Dicke")
 
-func test_the_standing_height_grows_out_of_the_die_edge() -> void:
+func test_the_standing_height_grows_out_of_the_old_die_edge() -> void:
 	# Sie bleibt Möbel neben den Würfeln - nur ein Drittel größer, damit sie im
 	# Regal auf Bankdistanz liest. Alles andere hängt an dieser einen Zahl.
-	var edge := DieBuilder.HALF_EXTENT * 2.0 * DiceTrayView.DIE_SCALE
+	var edge := DieBuilder.HALF_EXTENT * 2.0 * 0.6  # Würfelkante vor der Vergrößerung 2026-11-18
 	assert_almost_eq(DataCellView.HEIGHT, edge * DataCellView.SIZE_FACTOR, 0.001)
 	assert_gt(DataCellView.SIZE_FACTOR, 1.0, "gewachsen, nicht geschrumpft")
 	assert_almost_eq(DataCellView.UNIT, DataCellView.HEIGHT / 3.0, 0.001,

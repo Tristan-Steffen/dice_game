@@ -11,8 +11,8 @@ extends Node3D
 
 @export var rows: int = 5
 @export var columns: int = 6
-const SPACING := Vector2(1.8, 1.8)
-const DIE_SCALE := 0.6  # gemeinsame Würfelgröße (Tray + Grube)
+const SPACING := Vector2(2.6, 2.6)
+const DIE_SCALE := 0.85  # gemeinsame Würfelgröße (Tray + Grube); 0,6 bis 2026-11-18
 ## Einheitliche Schwebehöhe der Würfel-MITTE über der Tischfläche für ALLE Trays
 ## (auch die einreihige Warteschlange) - hoch genug, dass der Emitter darunter
 ## sichtbar bleibt und nicht vom Würfel verdeckt wird.

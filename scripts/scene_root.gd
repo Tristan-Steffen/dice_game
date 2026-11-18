@@ -242,7 +242,7 @@ const SPARK_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
 const TOWER_DIE_CLEAR := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 4.0
 ## Zähl-Animation beim Nehmen (siehe _play_take_animation).
 const SCORE_ROW_X := 2.0  # Reihen-X in der Grube (obere Hälfte)
-const SCORE_ROW_SPACING := 2.9
+const SCORE_ROW_SPACING := 3.6
 const SCORE_HOVER_HEIGHT := 0.0  # 0 = die Würfel liegen beim Zählen auf dem Tisch
 const SCORE_LIFT_TIME := 0.5
 const SCORE_GLOW_SIZE_FACTOR := 1.5  # Glow-Kantenlänge als Vielfaches der Würfelgröße
@@ -333,7 +333,7 @@ const SHELL_FLY_DURATION := 0.4
 ## Reihe der geschützten Würfel am oberen Grubenrand: nah an der Mitte und eng
 ## gestellt, damit eine volle 6er-Reihe nicht in der elliptischen Wand steckt.
 const PIT_TOP_ROW_X := 4.0
-const PIT_TOP_ROW_SPACING := 2.1
+const PIT_TOP_ROW_SPACING := 3.0
 
 ## Nach dem Ausrollen gleiten ALLE Würfel in eine Reihe in der Grubenmitte.
 const PIT_CENTER_ROW_X := 0.0
