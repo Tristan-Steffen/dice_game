@@ -26,6 +26,8 @@ signal vitrine_changed
 signal lexikon_requested(entry_id: String)
 ## Ein Kauf wurde abgelehnt (zu wenig Geld, Lager voll) - scene_root spielt den Ton.
 signal purchase_denied
+## Gleich wird der Charm dieses Platzes gebucht: seine Diskette fliegt zum Laufwerk.
+signal charm_purchasing(index: int)
 
 ## Warengattungen der Schwarzmarkt-Bucht: der Griff meldet sie zurück, der Kaufweg
 ## ist das Paar (Gattung, Index).
@@ -99,8 +101,9 @@ const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
 const VITRINE_FOOTER_UNITS := 6.5
 const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
-## Die Auskunft UNTER jedem Paket: Höhe in u und Anteil der Spaltenbreite.
-const PLACE_INFO_UNITS := 4.6
+## Die Auskunft UNTER jedem Paket: Höhe in u und Anteil der Spaltenbreite. 2026-11-18 von
+## 4,6 auf 3,2: das Charm-Band wuchs um die liegende Diskette (gemessen +29,6 px).
+const PLACE_INFO_UNITS := 3.2
 const PLACE_INFO_WIDTH_SHARE := 0.9
 ## Sie schrumpft, bis jede ungeschnitten in ihren Block paßt - EIN Grad für alle.
 const PLACE_INFO_STEPS := [1.45, 1.3, 1.15, 1.0, 0.9, 0.8]
@@ -187,6 +190,9 @@ var _place_infos: Array[Label] = []
 ## stellt sie hin. Wer vorher mißt, stapelt alles auf den Ursprung.
 var _places_fresh := true
 
+## Grundriß der liegenden Charm-DISKETTE in Display-Pixeln (meldet scene_root).
+var charm_disk_px := Vector2.ZERO
+
 ## Fußabdruck einer LIEGENDEN Kassette in Display-Pixeln (meldet scene_root).
 ## Daran ist der Stellplatz geschnitten - ein Weltmaß, kein u-Maß.
 var data_cell_lie_px := Vector2.ZERO:
@@ -232,12 +238,8 @@ var _charm_rebuild_queued: bool = false
 # Spiegel der AKTUELLEN Doppelseite - Kauf-Handler und Tests arbeiten dagegen.
 var charm_options: Array[Charm] = []
 var charm_buttons: Array[Button] = []
-## Je Karte ihr Kartenbild - daran ist das schwebende Modell darüber gemessen.
-var charm_thumbs: Array[Control] = []
-## Die zwei Gesichter der Mittelfläche je Karte: im Ruhezustand steht die Bühne
-## mit dem Modell, beim Hover der Wirkungstext. Immer genau eines ist sichtbar.
-var charm_stages: Array[Control] = []
-var charm_effects: Array[LexikonText] = []
+## Je Karte der Stellplatz der DISKETTE (die Körper stellt scene_root).
+var charm_pads: Array[Control] = []
 var charm_bought: Array[bool] = []
 var packs: Array[Resource] = []
 var pack_prices: Array[int] = []
@@ -340,7 +342,7 @@ func _build_layout() -> void:
 	content_root.name = "Content"
 	content_root.add_theme_constant_override("separation", int(u * ZONE_SEPARATION))
 	content_root.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	content_root.custom_minimum_size = Vector2(0.0, u * BAND_CHARM_UNITS)
+	content_root.custom_minimum_size = Vector2(0.0, charm_band_height())
 	content_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(content_root)
 
@@ -1108,9 +1110,7 @@ func _clear_pages() -> void:
 		for child in content_root.get_children():
 			child.queue_free()
 	charm_buttons.clear()
-	charm_thumbs.clear()
-	charm_stages.clear()
-	charm_effects.clear()
+	charm_pads.clear()
 
 ## Baut das CHARM-Regal der Seite: Titel und drei Plätze, je Platz eine Karte
 ## mittig. Die Karte füllt das feste Band - schrumpfen darf die Karte, das Band nie.
@@ -1120,15 +1120,10 @@ func _rebuild_content(spread: MenuSpread) -> void:
 	content_root.add_child(_heading_row("CHARMS"))
 	var charm_row := _shelf_row("CharmShelf", _charm_card_height())
 	content_root.add_child(charm_row)
-	var cm := _charm_metrics()
-	var card_w := _charm_card_width()
-	var name_px := card_name_px()
 	var podest_index := 0 if run.shop_rarity_tier() >= 1 else -1
 	var places := charm_row.get_children()
 	for i in mini(spread.charm_options.size(), places.size()):
-		var podest := i == podest_index
-		places[i].add_child(_build_charm_card(spread.charm_options[i], i, cm.x, int(cm.y),
-			card_w, name_px, podest))
+		places[i].add_child(_build_charm_card(spread.charm_options[i], i, i == podest_index))
 
 ## Signaturfarbe der aktuellen Fortschrittsstufe (wie der Hub-Rahmen); der Laden
 ## trägt sie dezent auf seinen Säumen.
@@ -1148,13 +1143,7 @@ func _tinted(accent: Color) -> Color:
 const ZONE_SEPARATION := 1.2
 const HEADING_FONT := 2.2
 const CARD_MARGIN := 0.7
-const CARD_SEPARATION := 0.3
 const CARD_PRICE_FONT := 2.0
-## Name und Wirkung tragen auf JEDER Karte denselben Grad (Spieler-Wunsch
-## 2026-10-29): gewählt wird der größte, in dem der GANZE Katalog paßt - der
-## Name einzeilig, die Wirkung umgebrochen in die Mittelfläche.
-const CARD_NAME_STEPS := [2.8, 2.6, 2.4, 2.2, 2.0, 1.8, 1.6, 1.4]
-const CARD_EFFECT_STEPS := [2.4, 2.2, 2.0, 1.85, 1.7, 1.55, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9]
 ## Seitenrand der Seite (Margin) - die Plätze messen sich daran.
 const PAGE_MARGIN := 3.0
 
@@ -1168,90 +1157,33 @@ const WARE_SOUL_FONT := 1.6
 ## ein dunkleres zum Weiß gezogen wird (Vakuum glüht schwarz).
 const SOUL_MIN_LUMINANCE := 0.45
 const SOUL_LIFT := 0.6
-## Wie breit ein Modell auf seiner Karte höchstens werden darf.
-const THUMB_WIDTH_SHARE := 0.62
-## Und der Boden, unter den es nicht fällt - kleiner liest es als Fleck.
-const THUMB_MIN := 3.2
-
-## Charm-Karte: (Kartenhöhe, Modell-Kantenlänge). Die HÖHE ist fest - das Band
-## minus Titel; elastisch bleibt allein das Modell.
-func _charm_metrics() -> Vector2:
-	var thumb := minf(card_mid_height(), _charm_card_width() * THUMB_WIDTH_SHARE)
-	return Vector2(_charm_card_height(), maxf(thumb, u * THUMB_MIN))
-
 func _heading_height() -> float:
 	var font := ThemeDB.fallback_font
 	if font == null:
 		return u * HEADING_FONT * 1.4
 	return font.get_height(maxi(8, int(u * HEADING_FONT)))
 
-## Die feste Kartenhöhe: das Band minus Titel und Fuge.
+## Die DISKETTE liegt im Laden in ihrer EINEN Größe: der Stellplatz ist ihr Grundriß
+## plus Luft, die Karte nur ein Saum darum - den PREIS trägt die Diskette selbst (ihr
+## Schild auf dem Gehäuse), sonst paßte die Seite nicht mehr. Reicht das Band nicht, wächst es.
+const CHARM_PAD_ROOM := 1.02
+const CHARM_CARD_MARGIN := 0.35
+
+func charm_pad_size() -> Vector2:
+	if charm_disk_px == Vector2.ZERO:
+		return Vector2(column_width() * 0.75, u * 18.0)
+	return charm_disk_px * CHARM_PAD_ROOM
+
 func _charm_card_height() -> float:
-	return maxf(u * BAND_CHARM_UNITS - _heading_height() - u * ZONE_SEPARATION, u * 6.0)
+	return charm_pad_size().y + u * CHARM_CARD_MARGIN * 2.0
 
-## Die MITTELFLÄCHE einer Charm-Karte in Pixeln: die Karte minus Rand, Name und
-## Preis. Sie ist FEST - im Ruhezustand steht das Modell darin, beim Hover der
-## volle Wirkungstext an SEINER Stelle; die Karte reflowt dabei kein Pixel.
-func card_mid_height() -> float:
-	var font := ThemeDB.fallback_font
-	if font == null:
-		return maxf(_charm_card_height() * 0.5, u * THUMB_MIN)
-	var price := font.get_height(maxi(8, int(u * CARD_PRICE_FONT)))
-	var name_h := font.get_height(card_name_px())
-	return maxf(_charm_card_height() - u * CARD_MARGIN * 2.0 - price - name_h \
-		- u * CARD_SEPARATION * 2.0, u * THUMB_MIN)
-
-## Die Breite EINER Karte: sie füllt ihren Platz - die Luft zwischen den Karten
-## ist allein die Spaltenfuge.
 func _charm_card_width() -> float:
 	return column_width()
 
-func _card_text_width() -> float:
-	return _charm_card_width() - u * CARD_MARGIN * 2.0
-
-## Namen und Wirkungen des ganzen Katalogs, EINMAL gebaut (Charm.all baut jede
-## Instanz neu).
-static var _catalog_names: Array[String] = []
-static var _catalog_texts: Array[String] = []
-
-static func _charm_catalog() -> void:
-	if not _catalog_names.is_empty():
-		return
-	for charm in Charm.all():
-		_catalog_names.append(charm.display_name)
-		_catalog_texts.append(charm.description)
-
-## Der EINE Namens-Grad aller Karten: jeder Katalog-Name einzeilig.
-func card_name_px() -> int:
-	_charm_catalog()
-	return _row_font(_catalog_names, _card_text_width(), CARD_NAME_STEPS)
-
-## Der EINE Wirkungs-Grad aller Karten: jede Katalog-Beschreibung umgebrochen in
-## die Mittelfläche. Gecacht je Seitenmaß - die Frage kommt bei jedem Aufbau.
-var _effect_px_key := Vector2.ZERO
-var _effect_px := 0
-
-func card_effect_px() -> int:
-	var key := Vector2(_card_text_width(), card_mid_height())
-	if key == _effect_px_key and _effect_px > 0:
-		return _effect_px
-	_charm_catalog()
-	var font := ThemeDB.fallback_font
-	var px := maxi(8, int(u * float(CARD_EFFECT_STEPS[CARD_EFFECT_STEPS.size() - 1])))
-	if font != null:
-		for step in CARD_EFFECT_STEPS:
-			var try_px := maxi(8, int(u * float(step)))
-			var fits := true
-			for text in _catalog_texts:
-				if WorkshopView.text_block_height(font, text, key.x, try_px, 0) > key.y:
-					fits = false
-					break
-			if fits:
-				px = try_px
-				break
-	_effect_px_key = key
-	_effect_px = px
-	return px
+## Das Charm-Band: so hoch wie Titel und Karte - mindestens BAND_CHARM_UNITS.
+func charm_band_height() -> float:
+	return maxf(u * BAND_CHARM_UNITS,
+		_heading_height() + u * ZONE_SEPARATION + _charm_card_height())
 
 ## Regal-Titel: Akzent-Raute, gesperrter Titel, auslaufende Lichtschiene - für
 ## alle drei Regale derselbe Stil.
@@ -1276,100 +1208,46 @@ func _spaced(text: String) -> String:
 		chars.append(text[i])
 	return " ".join(chars)
 
-## Charm-Karte: oben der NAME, in der Mitte das MODELL, unten der PREIS - und beim
-## Hover tritt an die Stelle des Modells die volle Wirkung. Rahmen und Lichtfleck
-## tragen die Charm-Rarität (weiß/grün/blau/violett). card_h, thumb_px und card_w
-## kommen aus _charm_metrics/_charm_card_width; podest = garantierter Premium-Charm
-## (Rarität freigeschaltet): breiter, stärkerer Lichtfleck, dickerer Saum.
-func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
-		card_w: float, name_px: int, podest := false) -> Control:
+## Charm-Karte: die FASSUNG eines Disketten-Stellplatzes (Rahmen in der Rarität, Preis
+## darunter, Sperr-Zustand) - die Diskette selbst, die Name und Wirkung trägt, legt
+## scene_root darauf. podest = garantierter Premium-Charm: stärkerer Saum.
+func _build_charm_card(charm: Charm, index: int, podest := false) -> Control:
 	var bought := charm_bought[index]
 	# Voller Dock steht wie "gekauft" da: der Platz ist zu, egal was er kostet.
 	var full := run.charms_full()
 	var tint := charm.rarity_color()
+	var width := _charm_card_width()
+	var height := _charm_card_height()
 	var card := Button.new()
 	card.focus_mode = Control.FOCUS_NONE
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	# Alle Karten sind gleich groß und füllen ihren Platz; das Podest trägt nur den
-	# stärkeren Saum und Lichtfleck.
-	var width := card_w
-	card.custom_minimum_size = Vector2(width, card_h)
-	_center_in_place(card, width, card_h)
+	card.custom_minimum_size = Vector2(width, height)
+	_center_in_place(card, width, height)
 	var seam_alpha := 0.9 if podest else 0.65
 	card.add_theme_stylebox_override("normal", _charm_card_box(Color("#1d1840cc"), tint, seam_alpha, 0.32 if podest else 0.22))
 	card.add_theme_stylebox_override("hover", _charm_card_box(Color("#2a2158dd"), NEON_GOLD, 0.9, 0.3))
 	card.add_theme_stylebox_override("pressed", _charm_card_box(Color("#352a68"), NEON_GOLD, 1.0, 0.3))
 	card.add_theme_stylebox_override("disabled", _charm_card_box(Color("#16133466"), tint, 0.18, 0.0))
 	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-
-	var column := VBoxContainer.new()
-	column.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	column.alignment = BoxContainer.ALIGNMENT_CENTER
-	column.add_theme_constant_override("separation", int(u * CARD_SEPARATION))
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(column)
-
-	# Der NAME steht oben - eine Ware ohne Namen ist keine Ware.
-	var text_width := width - u * CARD_MARGIN * 2.0
-	column.add_child(_card_line(charm.display_name, name_px,
-		NEON_MUTED if bought else NEON_TEXT))
-
-	# Die MITTELFLÄCHE: eine feste Fläche, kein Container - beide Kinder liegen
-	# deckungsgleich darin, also kostet der Tausch keinen Umbruch.
-	var mid_h := card_mid_height()
-	var mid := Control.new()
-	mid.custom_minimum_size = Vector2(text_width, mid_h)
-	mid.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(mid)
-
-	# Ruhezustand: das Modell im Lichtfleck. Der Fleck QUILLT über das Modell
-	# hinaus, zählt aber nicht zur Mindesthöhe - sonst schöbe sein Rand den Preis
-	# aus der Karte.
-	var glow := tint if not bought else Color(tint.r, tint.g, tint.b, 0.3)
-	var disc_side := thumb_px * (1.32 if podest else 1.18)
-	var stage := CenterContainer.new()
-	stage.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var halo := Control.new()
-	halo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	halo.custom_minimum_size = Vector2(thumb_px, thumb_px)
-	halo.size = halo.custom_minimum_size
-	var disc := CasinoStyle.glow_disc(glow, disc_side)
-	disc.position = Vector2.ONE * ((thumb_px - disc_side) * 0.5)
-	disc.size = Vector2.ONE * disc_side
-	halo.add_child(disc)
-	var thumb := CharmThumb.new(charm, thumb_px)
-	thumb.size = Vector2(thumb_px, thumb_px)
-	halo.add_child(thumb)
-	stage.add_child(halo)
-	charm_thumbs.append(thumb)
-	mid.add_child(stage)
-
-	# Hover: an SEINER Stelle die volle Wirkung - ungekürzt, umbrechend, im EINEN
-	# Grad aller Karten. Auch eine gekaufte oder gesperrte Karte tauscht: der Text
-	# ist dann erst recht die einzige Auskunft.
-	var effect := _card_effect(charm.description, text_width, mid_h, card_effect_px(),
-		NEON_MUTED, "charm:%s" % charm.id)
-	effect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	effect.visible = false
-	mid.add_child(effect)
-	charm_stages.append(stage)
-	charm_effects.append(effect)
-
-	var tag := "gekauft" if bought else ("voll" if full else \
-		("gratis" if _charm_price(charm) <= 0 else "$%d" % _charm_price(charm)))
-	column.add_child(CasinoStyle.label(tag, u * CARD_PRICE_FONT,
-		NEON_MUTED if bought or full else Color(1.4, 1.16, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
-
-	# Der Zeiger liegt auf dem Tisch, aber die Bewegung wird in den SubViewport
-	# weitergeleitet - der Knopf meldet seinen Hover also selbst. Ein gesperrter
-	# Knopf meldet ihn ebenso, seine Auskunft bleibt erreichbar.
-	card.mouse_entered.connect(set_charm_hover.bind(index, true))
-	card.mouse_exited.connect(_on_charm_card_exited.bind(card, index))
-
+	var pad_size := charm_pad_size()
+	var pad := Panel.new()
+	pad.name = "DiskPad"
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.position = Vector2((width - pad_size.x) * 0.5, u * CHARM_CARD_MARGIN)
+	pad.size = pad_size
+	pad.add_theme_stylebox_override("panel", _place_box())
+	card.add_child(pad)
+	charm_pads.append(pad)
+	# Das Schild steht nur auf dem LEEREN Platz ("gekauft") - sonst trägt es die Diskette.
+	var price := CasinoStyle.label(charm_tag_text(index), u * CARD_PRICE_FONT, NEON_MUTED,
+		HORIZONTAL_ALIGNMENT_CENTER)
+	price.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	price.position = pad.position
+	price.size = pad_size
+	price.visible = bought
+	card.add_child(price)
 	# Der Handler hängt an JEDER ungekauften Karte: ein voller Dock sperrt sie nur
-	# als Startzustand, ein Verkauf gibt sie ohne Neuverdrahtung wieder frei
-	# (_on_charm_clicked prüft charms_full ohnehin selbst).
+	# als Startzustand, ein Verkauf gibt sie ohne Neuverdrahtung wieder frei.
 	if not bought:
 		card.pressed.connect(_on_charm_clicked.bind(index))
 	card.set_meta(&"sfx_silent", true)  # der Kauf klingt selbst
@@ -1378,68 +1256,40 @@ func _build_charm_card(charm: Charm, index: int, card_h: float, thumb_px: int,
 	charm_buttons.append(card)
 	return card
 
-## Ein Schlüsselwort im Text ist selbst ein Mausziel - der Knopf meldet beim
-## Betreten ein Verlassen. Zurück aufs Bild geht es erst, wenn der Zeiger wirklich
-## draußen ist, sonst flackert die Karte zwischen Bild und Text.
-func _on_charm_card_exited(_card: Control, index: int) -> void:
-	if not _pointer_on_card(index):
-		set_charm_hover(index, false)
+## Das Preisschild eines Charm-Platzes ("gekauft" / "voll" / "gratis" / "$n").
+func charm_tag_text(index: int) -> String:
+	if index < 0 or index >= charm_options.size():
+		return ""
+	if index < charm_bought.size() and charm_bought[index]:
+		return "gekauft"
+	if run.charms_full():
+		return "voll"
+	var price := _charm_price(charm_options[index])
+	return "gratis" if price <= 0 else "$%d" % price
 
-func _pointer_on_card(index: int) -> bool:
-	if index < 0 or index >= charm_buttons.size() or not is_instance_valid(charm_buttons[index]):
-		return false
-	var card := charm_buttons[index]
-	return card.is_visible_in_tree() \
-		and card.get_global_rect().has_point(card.get_global_mouse_position())
+## Ob der Platz gerade nicht kaufbar ist (voll, zu teuer, gekauft) - das Schild graut.
+func charm_tag_muted(index: int) -> bool:
+	return index < 0 or index >= charm_buttons.size() or charm_buttons[index].disabled
 
-## Der Rückweg aufs Bild, wenn der Knopf ihn verpaßt hat (sein Verlassen fiel
-## schon beim Betreten eines Schlüsselworts).
-func _process(_delta: float) -> void:
-	for i in charm_effects.size():
-		var effect := charm_effects[i]
-		if is_instance_valid(effect) and effect.visible and not _pointer_on_card(i):
-			set_charm_hover(i, false)
+## Je Charm-Platz der Stellplatz der Diskette (Display-Pixel), index-treu.
+func charm_seat_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for pad in charm_pads:
+		out.append(pad.get_global_rect() if is_instance_valid(pad) else Rect2())
+	return out
 
-## Der TAUSCH auf der Karte: Modell weg, Text her - und zurück. Mehr passiert
-## nicht, insbesondere bewegt sich kein Rechteck.
-func set_charm_hover(index: int, hovered: bool) -> void:
-	if index < 0 or index >= charm_stages.size() or index >= charm_effects.size():
-		return
-	if not is_instance_valid(charm_stages[index]) or not is_instance_valid(charm_effects[index]):
-		return
-	charm_stages[index].visible = not hovered
-	charm_effects[index].visible = hovered
+## Steht die Charm-Zeile schon (eine frische hat bis zum Sortieren kein Rechteck)?
+func charm_seats_laid_out() -> bool:
+	return not charm_pads.is_empty() and is_instance_valid(charm_pads[0]) \
+		and charm_pads[0].get_global_rect().size.x > 0.0
 
-## Der Grad EINER Zeile für die ganze Kartenreihe: der erste, in dem JEDER Text
-## noch einzeilig in die Karte paßt - sonst der kleinste. Karten nebeneinander,
-## jede in ihrem eigenen Grad, lasen sich als Flickenteppich.
-func _row_font(texts: Array[String], width: float, steps: Array) -> int:
-	var font := ThemeDB.fallback_font
-	var smallest := maxi(8, int(u * float(steps[steps.size() - 1])))
-	if font == null:
-		return smallest
-	for step in steps:
-		var px := maxi(8, int(u * float(step)))
-		var fits := true
-		for text in texts:
-			if font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, px).x > width:
-				fits = false
-				break
-		if fits:
-			return px
-	return smallest
+## Was auf den Charm-Plätzen liegt: je Platz sein Charm, null für verkauft.
+func charm_stock() -> Array:
+	var out: Array = []
+	for i in charm_options.size():
+		out.append(null if i < charm_bought.size() and charm_bought[i] else charm_options[i])
+	return out
 
-## Eine einzeilige Kartenzeile im gesetzten Grad (der Name) - sie wird notfalls
-## beschnitten, denn ein Name bricht nicht um.
-func _card_line(text: String, px: int, color: Color) -> Label:
-	var label := CasinoStyle.label(text, float(px), color, HORIZONTAL_ALIGNMENT_CENTER)
-	label.clip_text = true
-	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	return label
-
-## Der WIRKUNGSTEXT der Karte: umbrechend, mittig in der Mittelfläche. Er trägt
-## die ganze Beschreibung - das ist die Auskunft, für die es früher einen Schirm
-## gab, und beim Hover steht sie an der Stelle des Modells.
 ## Die EINE Hover-Karte der Schlüsselwörter, ganz vorn im Baum - das letzte Kind
 ## bleibt der jüngste Seitenaufbau, z_index hebt sie trotzdem nach oben.
 var _keyword_hint: HintCard
@@ -1452,18 +1302,6 @@ func _keyword_hint_card(px: int) -> HintCard:
 		add_child(_keyword_hint)
 		move_child(_keyword_hint, 0)
 	return _keyword_hint
-
-func _card_effect(text: String, width: float, block: float, px: int, color: Color,
-		own := "") -> LexikonText:
-	var label := LexikonText.new()
-	label.center_h = true
-	label.center_v = true
-	label.custom_minimum_size = Vector2(width, block)
-	label.set_style(px, color)
-	label.set_source(text, own)
-	label.share_hint(self, _keyword_hint_card(px))
-	label.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
-	return label
 
 ## Kartenrahmen im Raritäts-Tint: Saum + weicher Außen-Glow (StyleBox-Schatten).
 func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha: float) -> StyleBoxFlat:
@@ -1542,6 +1380,7 @@ func _on_charm_clicked(index: int) -> void:
 	if charm_bought[index] or run.charms_full():
 		return
 	var was_free := run.charm_is_free()
+	charm_purchasing.emit(index)  # scene_root übernimmt die Diskette, gleich bucht GameRun
 	run.purchase_charm(charm, _charm_price(charm))
 	if was_free:
 		run.consume_free_charm()

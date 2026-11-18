@@ -91,9 +91,10 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_STORE_MODULES)
 	slots.append(TableScreen.PIT_OPENING)
 	slots.append(TableScreen.PIT_BAG)
+	slots.append(TableScreen.PIT_CHARM)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
-	assert_eq(slots.size(), TableScreen.MAX_PITS - 2, "und mehr gibt es nicht")
+	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
 	# Die VERTIEFUNG der Tischsektion haengt hinter den Schluck-Bahnen an - dafuer
 	# ist das Budget 2026-10-26 von 24 auf 25 gewachsen.
 	assert_eq(TableScreen.PIT_SECTION,
@@ -120,8 +121,10 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	# Die vierte Mulde nimmt den frei gewordenen Platz 2, die letzten zwei hängen hinten an.
 	assert_eq(TableScreen.shop_bay_pit(3), 2)
 	assert_eq(TableScreen.shop_bay_pit(4), TableScreen.PIT_OPENING + 1)
-	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT + 1,
-		TableScreen.PIT_TRAY, "Platz 31 ist frei, seit die Schale nicht mehr einzieht")
+	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT,
+		TableScreen.PIT_CHARM, "Platz 31 zieht seit 2026-11-18 die ausgeworfene Diskette ein")
+	assert_eq(TableScreen.PIT_CHARM + 1, TableScreen.PIT_TRAY)
+	assert_false(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_CHARM), "ein Einzug ist kein Möbel")
 	assert_eq(TableScreen.PIT_TRAY + 1, TableScreen.PIT_STORE_CARDS, "dahinter das Paket-Lager")
 	assert_eq(TableScreen.PIT_STORE_DICE + 1, TableScreen.PIT_STORE_MODULES)
 	assert_eq(TableScreen.PIT_STORE_MODULES + 1, TableScreen.PIT_OPENING)

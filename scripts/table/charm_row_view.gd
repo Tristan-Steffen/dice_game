@@ -1,63 +1,38 @@
 class_name CharmRowView
 extends Node3D
-## Zeigt die besessenen Charms als HOLOGRAMME auf dem Tisch (zweite Fassung,
-## Spieler-Entscheid 2026-09-09: der Vitrinen-Sockel ist gestorben, die Charms
-## sollen wieder als echte Hologramme lesen): sechs feste Plätze in einer Reihe
-## am hinteren Tischrand, Reihenfolge = Besitz-Reihenfolge. Je Platz liegt ein
-## flacher EMITTER-RING in der Raritätsfarbe auf dem Filz, darüber schwebt die
-## Lichtgestalt des Modells (charm_hologram.gdshader). set_charms() baut bei
-## jeder Änderung neu auf; zusätzlich löst der Knoten den Hover/Drag der
-## Grubenansicht auf (charm_*_at_screen_pos).
+## Die Charm-Reihe als LAUFWERKE (Spieler-Entscheid 2026-11-18): sechs feste
+## `CharmReaderView` am hinteren Tischrand, Schlitz zum Spieler. Je Charm steckt eine
+## `CharmDiskView` mit Schieber und Bild im Schlitz, ihr Text liegt davor; über der
+## Projektor-Linse schwebt das HOLOGRAMM (massives Modell mit Lichtkante,
+## charm_hologram.gdshader). set_charms() ist der EINE idempotente Schreiber: Disketten
+## und Hologramme gehören ihrem Charm und fahren im Trage-Bogen zum neuen Platz.
 
 const LINE_X := 31.0  # Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-oben)
 const LINE_SPACING := 9.0
 const SPOT_Y := 0.0  # Tischoberfläche
 const MODEL_SCALE := 4.0
-## Das Hologramm schwebt über seinem Emitter - eine Projektion steht nicht auf.
+## Das Hologramm schwebt über der Linse - eine Projektion steht nicht auf.
 const HOVER_HEIGHT := 0.6
 
-## Anzahl fester Plätze; die Obergrenze besitzbarer Charms führt GameRun, damit
-## Laden und Tisch nie auseinanderlaufen.
+## Anzahl fester Plätze; die Obergrenze besitzbarer Charms führt GameRun.
 const SPOT_COUNT := GameRun.CHARM_CAPACITY
 
-## Der EMITTER: ein flacher Ring (Torus) auf dem Filz. Sein Radius trägt zugleich
-## den Sockelring der 2D-Konsole (scene_root meldet ihn als Blenden-Radius ans
-## Charm-Dock) - dieselbe Zahl wie der alte Beam- und Sockelradius.
-const EMITTER_RADIUS := 3.6
-const RING_HEIGHT := 0.16
-
-## Emitter-Licht: die Ruhe-Energie bleibt unter der Bloom-Schwelle (0,95 mal dem
-## stärksten Kanal jeder Raritätsfarbe), der Puls des Feuerns geht deutlich darüber.
-## 0,62 statt 0,88 ist GEMESSEN: dicht unter der Schwelle stand der Ring schon in
-## Ruhe fast weiß, und der Puls war im Bild nicht zu unterscheiden.
-const RING_REST_ENERGY := 0.62
-const RING_FLASH_ENERGY := 2.2
-
-## Der Hologramm-Look (`charm_hologram.gdshader`): ein MASSIVES, beleuchtetes
-## Modell in GESÄTTIGTEN Farben (der Tisch ist dunkel und blau-ambient, roh lasen
-## die Charms ausgegraut; das Eigenlicht liegt auf der gesättigten Farbe, sonst
-## wird es milchig), darüber die LICHTKANTE: ein kräftiger blauer Fresnel-Saum und
-## breite, langsam steigende Bänder. Nie additiv - der additive Ersatz war viel zu
-## hell. Spieler-Wahl 2026-09-09 aus fünf Varianten: Lichtkante plus Emitter-Kegel.
+## Der Hologramm-Look: Spieler-Wahl 2026-09-09 (Lichtkante plus Kegel), unverändert.
 const HOLO_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
 const HOLO_SATURATION := 1.6
 const HOLO_SELF_GLOW := 0.45
 const HOLO_RIM := 1.0
 const HOLO_BAND := 0.18
 const HOLO_FLASH := 1.0
-## Der EMITTER-KEGEL: ein kurzer, schwacher Lichtkegel aus dem Ring - kurz, damit
-## er unter der 15°-Kamera nicht als Splitter aus dem Ring lehnt -, und das
-## Modell SCHWEBT sichtbar auf und ab: das Signal kommt aus der Projektion.
+## Der Kegel steigt kurz und schwach aus der Linse.
 const CONE_HEIGHT := 2.2
 const CONE_ALPHA := 0.07
+const CONE_BOTTOM := 0.13 * CharmDiskView.BLENDER_SCALE
+const CONE_TOP := CONE_BOTTOM * 1.6
 const BOB_HEIGHT := 0.15
 const BOB_SPEED := 1.3
 
-## Strahler je besetztem Platz, frei über dem Emitter. Er leuchtet AUSSCHLIESSLICH
-## die Modelle an (eigene Lichtebene): die Filzfläche ist EIN Mesh und der
-## Compatibility-Renderer deckelt die Lichter je Mesh - TableLight plus sechs
-## Spill-Omnis stehen dort schon. Fast neutral getönt (Creme legte einen beigen
-## Schleier über jeden Charm).
+## Strahler je besetztem Platz; er sieht AUSSCHLIESSLICH die Modelle (eigene Lichtebene).
 const MODEL_LIGHT_LAYER := 1 << 19
 const SPOT_LIGHT_HEIGHT := 8.5
 const SPOT_LIGHT_ENERGY := 2.8
@@ -65,97 +40,370 @@ const SPOT_LIGHT_RANGE := 14.0
 const SPOT_LIGHT_ANGLE := 34.0
 const SPOT_LIGHT_COLOR := Color(1.0, 0.99, 0.97)
 
-## Hover-Toleranz um die projizierte Charm-Mitte - die Charms liegen in der
-## Grubenansicht klein am oberen Bildrand, daher großzügig.
+## Hover-Toleranz um die projizierte Hologramm-Mitte.
 const PICK_RADIUS_PX := 70.0
+const ROTATION_SPEED := 0.15  # rad/s
 
-## Placement-Pivots (je Charm): tragen Platz-Transform und werden beim Drag
-## bewegt; das Modell darin dreht sich dauerhaft - so kollidiert die Rotation
-## nie mit Drag/Gleiten.
+## Die Fahrten: Trage-Bogen zum Schlitz, dann gleitet sie hinein.
+const CARRY_TIME := 0.42
+const CARRY_PEAK := 2.4
+const SLIDE_TIME := 0.22
+## Gezogen schwebt die Diskette über den Laufwerken.
+const DRAG_HEIGHT := CharmReaderView.SIZE.y + 1.6
+
+var readers: Array[CharmReaderView] = []
+var current_charms: Array[Charm] = []
+## Index-parallel zu current_charms (für Wertung und Tests).
 var charm_nodes: Array[Node3D] = []
 var charm_models: Array[Node3D] = []
-var current_charms: Array[Charm] = []
-
-## Emitter-Ringe, Strahler und Kegel je besetztem Platz, index-parallel zu charm_nodes.
-var ring_nodes: Array[MeshInstance3D] = []
+var charm_materials: Array = []
 var spot_lights: Array[SpotLight3D] = []
 var cone_nodes: Array[MeshInstance3D] = []
+var disks: Array[CharmDiskView] = []
+
 var _bob_time := 0.0
-## Je Platz eine EIGENE Ring-Instanz - geteilt blitzten sonst alle Emitter
-## derselben Rarität mit.
-var ring_materials: Array[StandardMaterial3D] = []
-## Je Platz die Hologramm-Materialien (ein Array je Platz) - sie blitzen mit.
-var charm_materials: Array = []
-
-const ROTATION_SPEED := 0.15  # rad/s, ruhiger Spin - die Silhouette bleibt lesbar
-
-## Geteilte Ressourcen: EIN Ring-Material je Rarität als Vorlage, aus der jeder
-## Platz seine Instanz zieht.
-var _ring_materials: Dictionary = {}  # Rarität -> StandardMaterial3D
-var _ring_mesh: TorusMesh
 var _cone_mesh: CylinderMesh
+## Charm -> {disk, pivot, model, materials, light, cone}
+var _bodies := {}
+## Charms, deren Diskette noch fliegt: ihr Laufwerk zeigt den Platz LEER.
+var _arriving := {}
+var _drag: Charm = null
+var _badges := {}
 
-## Baut die Hologramme neu: je Charm eines auf dem nächsten Platz; mehr Charms
-## als Plätze werden abgeschnitten.
-func set_charms(charms: Array[Charm]) -> void:
+func _ready() -> void:
+	_ensure_readers()
+
+func _ensure_readers() -> void:
+	if not readers.is_empty():
+		return
+	for i in SPOT_COUNT:
+		var reader := CharmReaderView.new()
+		reader.name = "Laufwerk%d" % i
+		reader.position = _spot_position(i)
+		add_child(reader)
+		readers.append(reader)
+
+## Der EINE Schreiber. incoming: eine frisch gekaufte Diskette, die schon in der Welt
+## liegt (Charm -> CharmDiskView) - sie fliegt hinein statt hart zu stecken.
+func set_charms(charms: Array[Charm], incoming := {}, hard := false) -> void:
+	_ensure_readers()
 	_ensure_resources()
-	for node in charm_nodes:
-		node.queue_free()
-	charm_nodes.clear()
-	charm_models.clear()
-	for body in ring_nodes:
-		body.queue_free()
-	ring_nodes.clear()
-	for light in spot_lights:
-		light.queue_free()
-	spot_lights.clear()
-	for cone in cone_nodes:
-		cone.queue_free()
-	cone_nodes.clear()
-	ring_materials.clear()
-	charm_materials.clear()
-	current_charms = []
-	var count := mini(charms.size(), SPOT_COUNT)
-	for i in count:
-		current_charms.append(charms[i])
-		_build_spot(i)
+	var wanted: Array[Charm] = []
+	for i in mini(charms.size(), SPOT_COUNT):
+		wanted.append(charms[i])
+	for charm: Charm in _bodies.keys():
+		if not wanted.has(charm):
+			_drop_body(charm)
+	var old := current_charms
+	current_charms = wanted
+	for i in wanted.size():
+		var charm := wanted[i]
+		if incoming.has(charm) and not _bodies.has(charm):
+			_adopt(charm, incoming[charm], i)
+		elif not _bodies.has(charm):
+			_build_body(charm, i)
+		elif old.find(charm) != i or _drag == charm:
+			_move_body(charm, i, hard)
+	if _drag != null and not wanted.has(_drag):
+		_drag = null
+	_index_bodies()
+	_refresh_readers()
 
 func _process(delta: float) -> void:
 	_bob_time += delta
-	# Lokal im skalierten Pivot, darum durch MODEL_SCALE.
 	var lift := sin(_bob_time * BOB_SPEED) * BOB_HEIGHT / MODEL_SCALE
 	for model in charm_models:
-		model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
-		model.position.y = lift
+		if is_instance_valid(model):
+			model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
+			model.position.y = lift
 
-## Emitter-Ring und Hologramm des Platzes i.
-func _build_spot(i: int) -> void:
-	var spot := _spot_position(i)
-	var charm := current_charms[i]
+func _refresh_readers() -> void:
+	for i in SPOT_COUNT:
+		var charm: Charm = current_charms[i] if i < current_charms.size() else null
+		var shown := charm != null and not _arriving.has(charm)
+		readers[i].set_charm(charm if shown else null)
+		readers[i].set_badge(String(_badges.get(i, "")))
+		if charm != null and _bodies.has(charm):
+			_set_holo_visible(charm, shown)
 
-	var ring_material: StandardMaterial3D = _ring_material_for(charm.rarity).duplicate()
-	var ring := MeshInstance3D.new()
-	ring.mesh = _ring_mesh
-	ring.material_override = ring_material
-	ring.position = spot + Vector3(0.0, RING_HEIGHT * 0.5, 0.0)  # flach auf dem Filz
-	add_child(ring)
-	ring_nodes.append(ring)
-	ring_materials.append(ring_material)
+func _index_bodies() -> void:
+	charm_nodes.clear()
+	charm_models.clear()
+	charm_materials.clear()
+	spot_lights.clear()
+	cone_nodes.clear()
+	disks.clear()
+	for charm in current_charms:
+		var body: Dictionary = _bodies[charm]
+		charm_nodes.append(body["pivot"])
+		charm_models.append(body["model"])
+		charm_materials.append(body["materials"])
+		spot_lights.append(body["light"])
+		cone_nodes.append(body["cone"])
+		disks.append(body["disk"])
 
+func _build_body(charm: Charm, i: int) -> void:
+	var disk := CharmDiskView.new(charm)
+	disk.name = "Diskette_%s" % charm.id
+	add_child(disk)
+	disk.global_transform = readers[i].disk_global_transform()
+	_bodies[charm] = _holo_for(charm, i)
+	_bodies[charm]["disk"] = disk
+
+## Eine gekaufte Diskette: sie liegt schon in der Welt und fliegt in ihren Schlitz.
+func _adopt(charm: Charm, disk: CharmDiskView, i: int) -> void:
+	var at := disk.global_transform
+	if disk.get_parent() != null:
+		disk.get_parent().remove_child(disk)
+	add_child(disk)
+	disk.global_transform = at
+	disk.set_lifted(false)
+	disk.set_tag("")
+	_bodies[charm] = _holo_for(charm, i)
+	_bodies[charm]["disk"] = disk
+	_arriving[charm] = true
+	_fly_in(charm, i)
+
+## Trage-Bogen vor den Schlitz, dann gleitet sie hinein; erst dann leuchtet das Laufwerk.
+func _fly_in(charm: Charm, i: int) -> void:
+	var disk: CharmDiskView = _bodies[charm]["disk"]
+	var home := readers[i].disk_global_transform()
+	var mouth := home
+	mouth.origin -= readers[i].global_basis.x.normalized() * CharmDiskView.INSERT_DEPTH
+	var tween := disk.carry_to(mouth, CARRY_TIME, CARRY_PEAK)
+	var slide := func() -> void:
+		if not _bodies.has(charm) or _bodies[charm]["disk"] != disk:
+			return
+		var glide := disk.carry_to(home, SLIDE_TIME, 0.0)
+		var land := func() -> void:
+			if _arriving.erase(charm):
+				_refresh_readers()
+		if glide == null:
+			land.call()
+		else:
+			glide.finished.connect(land)
+	if tween == null:
+		slide.call()
+	else:
+		tween.finished.connect(slide)
+
+## Umsortiert: Diskette und Hologramm fahren zum neuen Laufwerk.
+func _move_body(charm: Charm, i: int, hard: bool) -> void:
+	var body: Dictionary = _bodies[charm]
+	var disk: CharmDiskView = body["disk"]
+	if _arriving.has(charm):
+		_arriving.erase(charm)
+	var home := readers[i].disk_global_transform()
+	var pivot: Node3D = body["pivot"]
+	var holo_at := _holo_position(i)
+	if hard:
+		disk.settle_carry()
+		disk.global_transform = home
+		pivot.position = holo_at
+	else:
+		disk.carry_to(home, CARRY_TIME, CARRY_PEAK)
+		var tween := pivot.create_tween()
+		tween.tween_property(pivot, "position", holo_at, CARRY_TIME) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	_place_light(body, i)
+
+func _drop_body(charm: Charm) -> void:
+	var body: Dictionary = _bodies[charm]
+	for key in ["disk", "pivot", "light", "cone"]:
+		var node: Node = body.get(key)
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_bodies.erase(charm)
+	_arriving.erase(charm)
+
+## Gibt die Diskette des Platzes frei (Verkauf): die Reihe vergißt sie, der Aufrufer
+## führt den Körper weiter. Das Hologramm erlischt sofort.
+func release_disk(index: int) -> CharmDiskView:
+	if index < 0 or index >= current_charms.size():
+		return null
+	var charm := current_charms[index]
+	var body: Dictionary = _bodies[charm]
+	var disk: CharmDiskView = body["disk"]
+	body["disk"] = null
+	_drop_body(charm)
+	if disk != null:
+		disk.settle_carry()
+		var at := disk.global_transform
+		remove_child(disk)
+		disk.set_meta(&"released_at", at)
+	return disk
+
+## Der harte Weg: jede Fahrt steht sofort, gezogen wird nichts mehr.
+func settle_hard() -> void:
+	_drag = null
+	_arriving.clear()
+	for i in current_charms.size():
+		var body: Dictionary = _bodies[current_charms[i]]
+		var disk: CharmDiskView = body["disk"]
+		disk.settle_carry()
+		disk.global_transform = readers[i].disk_global_transform()
+		disk.set_lifted(false)
+		(body["pivot"] as Node3D).position = _holo_position(i)
+	_refresh_readers()
+
+func arriving() -> bool:
+	return not _arriving.is_empty()
+
+# --- Umsortieren -----------------------------------------------------------
+
+## Hebt die Diskette des Platzes aus dem Schlitz; sie folgt dann dem Zeiger.
+func begin_drag(index: int) -> void:
+	if index < 0 or index >= current_charms.size():
+		return
+	_drag = current_charms[index]
+	var disk: CharmDiskView = _bodies[_drag]["disk"]
+	disk.settle_carry()
+
+func dragging() -> bool:
+	return _drag != null
+
+## Die gezogene Diskette über dem Weltpunkt (auf der Zieh-Höhe).
+func drag_to(point: Vector3) -> void:
+	if _drag == null:
+		return
+	var disk: CharmDiskView = _bodies[_drag]["disk"]
+	var at := disk.global_transform
+	at.origin = Vector3(point.x, global_position.y + DRAG_HEIGHT, point.z)
+	disk.global_transform = at
+
+## Belegtes Laufwerk, das dem Weltpunkt quer am nächsten liegt.
+func drop_target(point: Vector3) -> int:
+	var best := -1
+	var best_dist := INF
+	for i in current_charms.size():
+		var dist := absf(readers[i].global_position.z - point.z)
+		if dist < best_dist:
+			best_dist = dist
+			best = i
+	return best
+
+## Ohne Umsortieren: zurück in den eigenen Schlitz.
+func end_drag() -> void:
+	if _drag == null:
+		return
+	var charm := _drag
+	_drag = null
+	var i := current_charms.find(charm)
+	if i >= 0:
+		(_bodies[charm]["disk"] as CharmDiskView).carry_to(
+			readers[i].disk_global_transform(), CARRY_TIME, 0.6)
+
+# --- Anzeige ---------------------------------------------------------------
+
+## Zähler-Chips je Platz (Platz -> Text) auf das Front-Display.
+func set_badges(texts: Dictionary) -> void:
+	_badges = texts.duplicate()
+	for i in SPOT_COUNT:
+		if i < readers.size():
+			readers[i].set_badge(String(_badges.get(i, "")))
+
+## Der Verkaufspreis auf dem Display des Platzes (-1 = keiner).
+func set_sale(index: int, text: String) -> void:
+	for i in readers.size():
+		readers[i].set_sale(text if i == index else "")
+
+## Hologramm, Laufwerk UND Diskette blitzen ("dieser Charm feuert").
+func flash_charm(index: int) -> void:
+	if index < 0 or index >= current_charms.size():
+		return
+	var body: Dictionary = _bodies[current_charms[index]]
+	var materials: Array = body["materials"]
+	var set_flash := func(value: float) -> void:
+		for material: ShaderMaterial in materials:
+			material.set_shader_parameter("flash", value)
+	var holo_tween := create_tween()
+	holo_tween.tween_method(set_flash, 0.0, HOLO_FLASH, 0.08) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	holo_tween.tween_method(set_flash, HOLO_FLASH, 0.0, 0.4) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	readers[index].flash()
+	(body["disk"] as CharmDiskView).flash()
+	var model: Node3D = body["model"]
+	var scale_tween := create_tween()
+	scale_tween.tween_property(model, "scale", Vector3.ONE * 1.22, 0.08) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	scale_tween.tween_property(model, "scale", Vector3.ONE, 0.4) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+# --- Treffer ---------------------------------------------------------------
+
+## Belegter Platz unter dem Zeiger: Laufwerk samt Diskette, oder nah am Hologramm.
+func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
+	var best := -1
+	var best_dist := INF
+	for i in current_charms.size():
+		var rect := readers[i].screen_rect(camera)
+		var dist := rect.get_center().distance_to(screen_pos)
+		if rect.has_point(screen_pos) and dist < best_dist:
+			best_dist = dist
+			best = i
+	if best >= 0:
+		return best
+	best_dist = PICK_RADIUS_PX
+	for i in charm_nodes.size():
+		var world_pos := charm_nodes[i].global_position
+		if camera.is_position_behind(world_pos):
+			continue
+		var dist := camera.unproject_position(world_pos).distance_to(screen_pos)
+		if dist < best_dist:
+			best_dist = dist
+			best = i
+	return best
+
+## Belegter Platz, dessen AUSWURF-TASTE unter dem Zeiger liegt, oder -1.
+func eject_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
+	for i in current_charms.size():
+		if readers[i].eject_screen_rect(camera).has_point(screen_pos):
+			return i
+	return -1
+
+## Linsenpunkt des Platzes i (darüber schwebt das Hologramm).
+func spot_global_position(i: int) -> Vector3:
+	_ensure_readers()
+	return readers[i].lens_global_position()
+
+## Displaymitte des Laufwerks i - der Anker der Charm-Kometen.
+func display_global_position(i: int) -> Vector3:
+	_ensure_readers()
+	return readers[i].display_global_position()
+
+## Mitte des Textfelds der Diskette auf Platz i (Anker des Schlüsselwort-Tips).
+func text_global_position(i: int) -> Vector3:
+	_ensure_readers()
+	return readers[i].disk_global_transform() * CharmDiskView.text_center_local()
+
+## Welt-XZ-Grundriß des Laufwerks i samt vorstehender Diskette (zwei Ecken).
+func footprint(i: int) -> Array[Vector3]:
+	_ensure_readers()
+	return readers[i].footprint_world()
+
+func disk_of(index: int) -> CharmDiskView:
+	if index < 0 or index >= current_charms.size():
+		return null
+	return _bodies[current_charms[index]]["disk"]
+
+# --- Hologramm -------------------------------------------------------------
+
+func _holo_position(i: int) -> Vector3:
+	return to_local(readers[i].lens_global_position()) + Vector3(0.0, HOVER_HEIGHT, 0.0)
+
+func _holo_for(charm: Charm, i: int) -> Dictionary:
 	var pivot := Node3D.new()
+	pivot.name = "Hologramm_%s" % charm.id
 	add_child(pivot)
-	pivot.transform = _spot_transform(i)
+	pivot.position = _holo_position(i)
+	var to_center := Vector3(-pivot.position.x, 0.0, -pivot.position.z).normalized()
+	pivot.basis = Basis.looking_at(to_center, Vector3.UP).scaled(Vector3.ONE * MODEL_SCALE)
 	var model := _load_model(charm)
 	pivot.add_child(model)
 	var materials: Array[ShaderMaterial] = []
 	apply_hologram(model, materials)
-	charm_nodes.append(pivot)
-	charm_models.append(model)
-	charm_materials.append(materials)
-
-	# Strahler NICHT als Kind des Pivots: dessen MODEL_SCALE zöge seinen Versatz mit.
 	var light := SpotLight3D.new()
-	light.position = spot + Vector3(0.0, SPOT_LIGHT_HEIGHT, 0.0)
 	light.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
 	light.light_color = SPOT_LIGHT_COLOR
 	light.light_energy = SPOT_LIGHT_ENERGY
@@ -164,8 +412,6 @@ func _build_spot(i: int) -> void:
 	light.spot_angle = SPOT_LIGHT_ANGLE
 	light.shadow_enabled = false
 	add_child(light)
-	spot_lights.append(light)
-
 	var cone := MeshInstance3D.new()
 	cone.mesh = _cone_mesh
 	var cone_material := StandardMaterial3D.new()
@@ -173,52 +419,42 @@ func _build_spot(i: int) -> void:
 	cone_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	cone_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	cone_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-	var tint := ring_color(charm.rarity, 1.0)
+	var tint := CharmDiskView.rarity_color(charm.rarity)
 	tint.a = CONE_ALPHA
 	cone_material.albedo_color = tint
 	cone.material_override = cone_material
-	cone.position = spot + Vector3(0.0, CONE_HEIGHT * 0.5, 0.0)
 	cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(cone)
-	cone_nodes.append(cone)
+	var body := {"pivot": pivot, "model": model, "materials": materials, "light": light,
+		"cone": cone, "disk": null}
+	_place_light(body, i)
+	return body
+
+## Strahler und Kegel stehen fest über ihrer Linse.
+func _place_light(body: Dictionary, i: int) -> void:
+	var lens := to_local(readers[i].lens_global_position())
+	(body["light"] as Node3D).position = lens + Vector3(0.0, SPOT_LIGHT_HEIGHT, 0.0)
+	(body["cone"] as Node3D).position = lens + Vector3(0.0, CONE_HEIGHT * 0.5, 0.0)
+
+func _set_holo_visible(charm: Charm, on: bool) -> void:
+	var body: Dictionary = _bodies[charm]
+	for key in ["pivot", "light", "cone"]:
+		(body[key] as Node3D).visible = on
 
 func _ensure_resources() -> void:
-	if _ring_mesh != null:
+	if _cone_mesh != null:
 		return
-	_ring_mesh = TorusMesh.new()
-	_ring_mesh.inner_radius = EMITTER_RADIUS - RING_HEIGHT * 0.5
-	_ring_mesh.outer_radius = EMITTER_RADIUS + RING_HEIGHT * 0.5
-	_ring_mesh.rings = 32
-	_ring_mesh.ring_segments = 8
-	# Der Kegel: unten am Ring, oben enger, ohne Deckel - nur die Wand leuchtet.
 	_cone_mesh = CylinderMesh.new()
-	_cone_mesh.bottom_radius = EMITTER_RADIUS
-	_cone_mesh.top_radius = EMITTER_RADIUS * 0.55
+	_cone_mesh.bottom_radius = CONE_BOTTOM
+	_cone_mesh.top_radius = CONE_TOP
 	_cone_mesh.height = CONE_HEIGHT
 	_cone_mesh.cap_top = false
 	_cone_mesh.cap_bottom = false
 
-## Ring-Vorlage einer Rarität: unshaded in der Raritätsfarbe, Ruhe-Energie unter
-## der Bloom-Schwelle - einmal gebaut, je Platz dupliziert.
-func _ring_material_for(rarity: String) -> StandardMaterial3D:
-	if _ring_materials.has(rarity):
-		return _ring_materials[rarity]
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = ring_color(rarity, RING_REST_ENERGY)
-	_ring_materials[rarity] = material
-	return material
-
-## Emitter-Farbe: Raritätsfarbe mal Energie, Alpha bleibt voll.
-static func ring_color(rarity: String, energy: float) -> Color:
-	var tint: Color = Charm.RARITY_COLORS.get(rarity, Charm.RARITY_COLORS[Charm.RARITY_COMMON])
-	return Color(tint.r * energy, tint.g * energy, tint.b * energy)
-
 ## Stülpt jeder Modell-Fläche das Hologramm-Material über, das Originalfarbe und
 ## -textur übernimmt; out_materials sammelt sie für flash_charm. Die GLB-Ressource
 ## liegt im geteilten Cache und wird nie angefaßt - der Override liegt DARÜBER.
-## STATISCH, weil der Laden dieselben Modelle zeigt und zwei Rezepte für einen
-## Look auseinanderliefen.
+## STATISCH, weil der Laden dieselben Modelle zeigt.
 static func apply_hologram(node: Node, out_materials: Array = []) -> void:
 	if node is MeshInstance3D:
 		var mesh_instance := node as MeshInstance3D
@@ -229,8 +465,7 @@ static func apply_hologram(node: Node, out_materials: Array = []) -> void:
 		else:
 			var surface_count := mesh_instance.mesh.get_surface_count() if mesh_instance.mesh != null else 0
 			for s in surface_count:
-				# Eine Fläche OHNE Material bekommt eine neutrale - sonst rendert
-				# der Renderer sie mit einem Null-Material und schimpft je Bild.
+				# Eine Fläche OHNE Material bekommt eine neutrale - sonst schimpft der Renderer.
 				var base: BaseMaterial3D = mesh_instance.get_active_material(s) as BaseMaterial3D
 				if base == null:
 					base = StandardMaterial3D.new()
@@ -255,60 +490,6 @@ static func _holo_material(source: BaseMaterial3D, out_materials: Array) -> Shad
 	holo.set_shader_parameter("flash", 0.0)  # Ruhestand explizit: ungesetzt liest er null
 	out_materials.append(holo)
 	return holo
-
-## Lässt das Hologramm auf Platz index kurz aufblitzen ("dieser Charm feuert"):
-## der Emitter pulst über die Bloom-Schwelle, die Lichtgestalt zieht mit und poppt.
-func flash_charm(index: int) -> void:
-	if index < 0 or index >= charm_models.size():
-		return
-	var materials: Array = charm_materials[index]
-	var set_flash := func(value: float) -> void:
-		for material: ShaderMaterial in materials:
-			material.set_shader_parameter("flash", value)
-	var holo_tween := create_tween()
-	holo_tween.tween_method(set_flash, 0.0, HOLO_FLASH, 0.08) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	holo_tween.tween_method(set_flash, HOLO_FLASH, 0.0, 0.4) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-
-	var material := ring_materials[index]
-	var rarity := current_charms[index].rarity
-	var set_energy := func(value: float) -> void:
-		material.albedo_color = ring_color(rarity, value)
-	var ring_tween := create_tween()
-	ring_tween.tween_method(set_energy, RING_REST_ENERGY, RING_FLASH_ENERGY, 0.08) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	ring_tween.tween_method(set_energy, RING_FLASH_ENERGY, RING_REST_ENERGY, 0.4) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-
-	var model := charm_models[index]
-	var scale_tween := create_tween()
-	scale_tween.tween_property(model, "scale", Vector3.ONE * 1.22, 0.08) \
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	scale_tween.tween_property(model, "scale", Vector3.ONE, 0.4) \
-		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-## Charm-Index (Position in current_charms = Besitz-Reihenfolge), dessen Modell
-## screen_pos am nächsten liegt (innerhalb PICK_RADIUS_PX), oder -1.
-## Projektions-Nähe statt Physik-Raycast - die GLB-Modelle bringen keine
-## verlässlichen Kollider mit.
-func charm_index_at_screen_pos(camera: Camera3D, screen_pos: Vector2) -> int:
-	var best := -1
-	var best_dist := PICK_RADIUS_PX
-	for i in charm_nodes.size():
-		var world_pos := charm_nodes[i].global_position
-		if camera.is_position_behind(world_pos):
-			continue
-		var dist := camera.unproject_position(world_pos).distance_to(screen_pos)
-		if dist < best_dist:
-			best_dist = dist
-			best = i
-	return best
-
-## Globale Position des festen Platzes i auf der Tischfläche (Drop-Ziel,
-## Rückgleit-Anker und Mitte des 2D-Sockelrings).
-func spot_global_position(i: int) -> Vector3:
-	return to_global(_spot_position(i))
 
 func _load_model(charm: Charm) -> Node3D:
 	var path := charm.model_path
@@ -433,13 +614,11 @@ static func placeholder_model(charm_id: String) -> Node3D:
 	root.add_child(mesh_instance)
 	return root
 
+## Mitte des Laufwerks i (lokal, auf dem Filz).
 func _spot_position(i: int) -> Vector3:
 	var z := (float(i) - float(SPOT_COUNT - 1) * 0.5) * LINE_SPACING
 	return Vector3(LINE_X, SPOT_Y, z)
 
-## Transform des Platzes i: schwebend über dem Emitter, zur Mitte gedreht.
-func _spot_transform(i: int) -> Transform3D:
-	var pos := _spot_position(i) + Vector3(0.0, HOVER_HEIGHT, 0.0)
-	var to_center := Vector3(-pos.x, 0.0, -pos.z).normalized()
-	var basis := Basis.looking_at(to_center, Vector3.UP).scaled(Vector3.ONE * MODEL_SCALE)
-	return Transform3D(basis, pos)
+## Die Vorderkante der Reihe (lokal x): dort endet der Text der eingelegten Disketten.
+static func front_edge_x() -> float:
+	return LINE_X + CharmReaderView.LOADED_X - CharmDiskView.SIZE.x * 0.5

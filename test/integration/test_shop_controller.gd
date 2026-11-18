@@ -1010,118 +1010,50 @@ func test_a_dark_glow_is_lifted_to_a_readable_tint() -> void:
 	if bright.get_luminance() >= ShopController.SOUL_MIN_LUMINANCE:
 		assert_eq(ShopController.soul_tint(Essence.ARGON), bright)
 
-# --- Die Charm-Karte tauscht Bild gegen Text ------------------------------------
-# Ruhezustand: Name, Modell, Preis. Hover: an der Stelle des Modells die volle
-# Beschreibung. Das Rechteck der Karte rührt sich dabei nicht.
+# --- Die Charm-Karte ist die FASSUNG einer Diskette (2026-11-18) -----------------
+# Name und Wirkung trägt die Diskette, die scene_root auf den gemeldeten Stellplatz legt.
 
-func test_the_card_shows_its_model_at_rest_and_no_text() -> void:
+func test_every_charm_place_reports_a_disk_seat() -> void:
 	shop.size = Vector2(1068, 1125)
+	shop.charm_disk_px = Vector2(240, 250)
 	shop.open()
 	await wait_frames(2)
-	for i in shop.charm_buttons.size():
-		assert_true(shop.charm_stages[i].visible, "im Ruhezustand steht das Modell (%d)" % i)
-		assert_false(shop.charm_effects[i].visible, "und kein Text (%d)" % i)
+	assert_true(shop.charm_seats_laid_out())
+	var rects: Array = shop.charm_seat_rects()
+	assert_eq(rects.size(), shop.charm_options.size(), "je Platz ein Stellplatz")
+	for i in rects.size():
+		var rect: Rect2 = rects[i]
+		assert_true(rect.size.x >= 240.0 and rect.size.y >= 250.0,
+			"die Diskette paßt in ihrer EINEN Größe (%d)" % i)
+		assert_true(shop.charm_buttons[i].get_global_rect().encloses(rect),
+			"und liegt in ihrer Karte (%d)" % i)
 
-func test_hovering_swaps_the_model_for_the_whole_effect_text() -> void:
+func test_the_band_grows_for_the_disk_and_never_shrinks_it() -> void:
 	shop.size = Vector2(1068, 1125)
+	shop.charm_disk_px = Vector2(240, 400)
 	shop.open()
 	await wait_frames(2)
-	shop.set_charm_hover(0, true)
-	assert_false(shop.charm_stages[0].visible, "das Modell weicht")
-	assert_true(shop.charm_effects[0].visible, "und der Text tritt an seine Stelle")
-	assert_eq(shop.charm_effects[0].source, shop.charm_options[0].description,
-		"ungekürzt - es gibt keinen Schirm, der nachreichte")
-	# Die Nachbarn bleiben, wie sie waren: gehovert ist immer nur eine Karte.
-	for i in range(1, shop.charm_buttons.size()):
-		assert_true(shop.charm_stages[i].visible, "der Nachbar zeigt weiter sein Modell (%d)" % i)
-	shop.set_charm_hover(0, false)
-	assert_true(shop.charm_stages[0].visible, "und zurück")
-	assert_false(shop.charm_effects[0].visible)
+	assert_gte(shop.charm_band_height(), 400.0, "das Band wächst mit der Diskette")
+	assert_almost_eq(shop.charm_pad_size().y, 400.0 * ShopController.CHARM_PAD_ROOM, 0.01)
 
-func test_the_card_rect_survives_the_swap_byte_identically() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var before: Array[Rect2] = []
-	for card in shop.charm_buttons:
-		before.append(card.get_global_rect())
-	shop.set_charm_hover(0, true)
-	await wait_frames(2)
-	for i in shop.charm_buttons.size():
-		assert_eq(shop.charm_buttons[i].get_global_rect(), before[i],
-			"der Tausch bewegt kein Rechteck (%d)" % i)
-	# Auch der Name und der Preis stehen still.
-	var column := shop.charm_buttons[0].get_child(0) as Control
-	var name_y: float = (column.get_child(0) as Control).global_position.y
-	var price_y: float = (column.get_child(2) as Control).global_position.y
-	shop.set_charm_hover(0, false)
-	await wait_frames(2)
-	assert_almost_eq((column.get_child(0) as Control).global_position.y, name_y, 0.01,
-		"der Name bleibt oben stehen")
-	assert_almost_eq((column.get_child(2) as Control).global_position.y, price_y, 0.01,
-		"und der Preis unten")
-
-func test_a_sold_card_swaps_just_the_same() -> void:
-	# Der Text ist bei einer gesperrten Karte erst recht die einzige Auskunft.
+func test_a_bought_place_reports_no_disk_and_says_so() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
 	shop._on_charm_clicked(0)
 	await wait_frames(2)
-	assert_true(shop.charm_buttons[0].disabled, "die gekaufte Karte ist gesperrt")
-	assert_gt(shop.charm_buttons[0].get_signal_connection_list("mouse_entered").size(), 0,
-		"ihr Hover ist trotzdem verdrahtet - ein gesperrter Knopf meldet ihn weiter")
-	shop.set_charm_hover(0, true)
-	assert_true(shop.charm_effects[0].visible, "und tauscht trotzdem auf ihren Text")
+	assert_null(shop.charm_stock()[0], "verkauft liegt keine Diskette mehr")
+	assert_eq(shop.charm_tag_text(0), "gekauft")
 
-func test_every_card_reports_its_own_hover() -> void:
-	# Der Zeiger liegt auf dem Tisch; die Bewegung wird in den SubViewport
-	# weitergeleitet, also meldet der Kartenknopf seinen Hover selbst.
+func test_the_purchase_is_announced_before_it_is_booked() -> void:
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	await wait_frames(2)
-	for i in shop.charm_buttons.size():
-		assert_gt(shop.charm_buttons[i].get_signal_connection_list("mouse_entered").size(), 0,
-			"Eintritt verdrahtet (%d)" % i)
-		assert_gt(shop.charm_buttons[i].get_signal_connection_list("mouse_exited").size(), 0,
-			"Austritt verdrahtet (%d)" % i)
-		assert_ne(shop.charm_buttons[i].mouse_filter, Control.MOUSE_FILTER_IGNORE,
-			"und der Knopf sieht die Maus überhaupt (%d)" % i)
-
-func test_every_real_description_fits_the_one_card_grade() -> void:
-	# Der EINE Grad aller Karten muß jede echte Beschreibung umgebrochen tragen.
-	shop.size = Vector2(1068, 1125)
-	run.luck = _luck_of(GameRun.TIER_MAX)
-	shop.spreads.clear()
-	shop.open()
-	await wait_frames(2)
-	var font := ThemeDB.fallback_font
-	var text_w: float = shop._card_text_width()
-	var block: float = shop.card_mid_height()
-	var px: int = shop.card_effect_px()
-	var worst := ""
-	for charm in Charm.all():
-		if WorkshopView.text_block_height(font, charm.description, text_w, px, 0) > block:
-			worst = charm.description
-	assert_eq(worst, "", "keine einzige Beschreibung fällt aus der Mittelfläche")
-
-func test_every_card_writes_the_same_grade() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var effect_px: int = shop.card_effect_px()
-	for effect in shop.charm_effects:
-		assert_eq(effect.font_px, effect_px,
-			"die Wirkung steht auf jeder Karte gleich groß")
-
-func test_the_mid_area_is_the_same_on_every_card() -> void:
-	shop.size = Vector2(1068, 1125)
-	shop.open()
-	await wait_frames(2)
-	var block: float = shop.card_mid_height()
-	for i in shop.charm_effects.size():
-		assert_almost_eq(shop.charm_effects[i].custom_minimum_size.y, block, 0.01,
-			"die Mittelfläche ist fix - die Karten bleiben bündig (%d)" % i)
+	var owned_then: Array[int] = []
+	shop.charm_purchasing.connect(func(_index: int) -> void: owned_then.append(run.owned_charms.size()))
+	var before: int = run.owned_charms.size()
+	shop._on_charm_clicked(0)
+	assert_eq(owned_then, [before], "die Diskette wird übergeben, BEVOR GameRun bucht")
 
 # --- Die Hierarchie des Fußes ---------------------------------------------------
 

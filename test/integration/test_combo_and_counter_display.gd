@@ -81,13 +81,16 @@ func test_the_throttle_still_reads_aus() -> void:
 	chip.set_throttled(true)
 	assert_eq((_labels(chip)["state"] as Label3D).text, "AUS")
 
-# --- Zähler-Charms am Dock ----------------------------------------------------------
+# --- Zähler-Charms am FRONT-DISPLAY ------------------------------------------------
 
-func _dock() -> CharmDockView:
-	var dock := CharmDockView.new()
-	dock.size = Vector2(900, 200)
-	add_child_autofree(dock)
-	return dock
+func _row(count: int) -> CharmRowView:
+	var row := CharmRowView.new()
+	add_child_autofree(row)
+	var charms: Array[Charm] = []
+	for i in count:
+		charms.append(Charm.rabbits_foot())
+	row.set_charms(charms)
+	return row
 
 func test_the_old_penny_payout_is_one_formula() -> void:
 	# Der Chip zeigt, was die Abrechnung später bucht - eine Formel, zwei Leser.
@@ -103,27 +106,25 @@ func test_the_payout_formula_matches_the_booking() -> void:
 		assert_eq(int(entries[0]["amount"]), CharmEffects.old_penny_payout(count),
 			"Chip und Buchung sagen dasselbe (%d)" % count)
 
-func test_setting_a_badge_shows_it_and_clearing_hides_it() -> void:
-	var dock := _dock()
-	await wait_frames(2)
-	dock.set_badges({0: "$7"})
-	await wait_frames(2)
-	assert_eq(dock._badge_texts.get(0, ""), "$7", "der Chip trägt seinen Stand")
-	dock.set_badges({})
-	await wait_frames(2)
-	assert_false(dock._badge_texts.has(0), "ohne Zähler kein Chip")
+func test_setting_a_badge_shows_it_on_the_display_and_clearing_hides_it() -> void:
+	var row := _row(2)
+	row.set_badges({0: "$7"})
+	assert_eq(row.readers[0].display_text(), "$7", "das Display trägt den Stand")
+	row.set_badges({})
+	assert_eq(row.readers[0].display_text(), "", "ohne Zähler bleibt es leer")
 
 func test_badges_are_rebuilt_wholesale_not_patched() -> void:
-	# Umsortieren und Käufe bauen die Reihe neu - die Chips müssen mitkommen,
-	# also setzt set_badges IMMER alle Plätze.
-	var dock := _dock()
-	await wait_frames(2)
-	dock.set_badges({0: "+3", 2: "$5"})
-	await wait_frames(2)
-	dock.set_badges({1: "+9"})
-	await wait_frames(2)
-	assert_false(dock._badge_texts.has(0), "der alte Platz ist geräumt")
-	assert_eq(dock._badge_texts.get(1, ""), "+9", "und der neue gesetzt")
+	# Umsortieren und Käufe stellen die Reihe neu - set_badges setzt IMMER alle Plätze.
+	var row := _row(3)
+	row.set_badges({0: "+3", 2: "$5"})
+	row.set_badges({1: "+9"})
+	assert_eq(row.readers[0].display_text(), "", "der alte Platz ist geräumt")
+	assert_eq(row.readers[1].display_text(), "+9", "und der neue gesetzt")
+
+func test_an_empty_reader_shows_no_badge() -> void:
+	var row := _row(1)
+	row.set_badges({3: "+4"})
+	assert_eq(row.readers[3].display_text(), "", "ein leeres Laufwerk zählt nichts")
 
 func test_the_broken_mirror_counter_grows_with_farkles() -> void:
 	var run := GameRun.new_run()
