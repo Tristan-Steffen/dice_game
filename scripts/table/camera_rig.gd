@@ -55,7 +55,7 @@ const SECRET_SHOP_ZOOM_DISTANCE_CUT := 4.0
 const WORKSHOP_MIN_DISTANCE := 7.0
 ## Zugabe der weiten Werkbank-Sicht: reine Rahmungs-Luft. Einst deckte sie den
 ## ±5°-Schwenk des Rundschauens - das ruht in den Stationen, die Rahmung bleibt.
-const WORKSHOP_WIDE_MARGIN := 1.14
+const WORKSHOP_WIDE_MARGIN := 1.03
 
 ## Zweite Werkbank-Stufe (Doppelklick auf leere Fläche): rahmt NUR Fenster und
 ## Schubladen, mit einem Hauch Zugabe - anders als der Titel (TITLE_MARGIN), der

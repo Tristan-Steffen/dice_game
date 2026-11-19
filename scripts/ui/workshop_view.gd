@@ -626,7 +626,7 @@ func _build_podium(u: float) -> void:
 	plate.size = plate_rect.size
 	_content.add_child(plate)
 	_podium_stage_host = _podium_host("PodiumStage", podium_stage_rect())
-	_podium_view_host = _net_screen("PodiumScreen", layout["podium_net"], net_cell(u), "")
+	_podium_view_host = _net_screen("PodiumScreen", layout["podium_net"], podium_cell(), "")
 	_fill_podium()
 
 func _fill_podium() -> void:
@@ -636,7 +636,7 @@ func _fill_podium() -> void:
 		_podium_view_host.remove_child(child)
 		child.queue_free()
 	_podium_net = null
-	var cell := net_cell(unit())
+	var cell := podium_cell()
 	var die := podium_die()
 	if die == null:
 		_podium_view_host.add_child(_empty_net_cross(cell))
@@ -646,6 +646,10 @@ func _fill_podium() -> void:
 	_podium_net.def = die
 	_podium_net.build()
 	_podium_view_host.add_child(_podium_net)
+
+## Die Zelle der Podest-Die-View: die Fläche eines echten Würfels.
+func podium_cell() -> float:
+	return (die_face_px if die_face_px > 0.0 else unit() * U_PER_FACE) * PODIUM_FACE_GAIN
 
 ## Ein gemaltes Zeichen der Gleichung ("+" bzw. "=") mittig in seinem Feld.
 func _equation_sign(sign_name: String, rect: Rect2, glyph: String) -> void:
@@ -755,8 +759,14 @@ const DRUM_SLICES := 6
 const DRUM_AIR := 0.06
 ## Fuge zwischen den Zeilen und zwischen Magazin und Gleichung, in u.
 const DRUM_SHELF_GAP := 4.0
-## Der Platz des PODESTS rechts der Schale (Platte samt Die-View), in u.
-const PODIUM_PLACE_UNITS := Vector2(40.0, 70.0)
+## Der Platz des PODESTS rechts am Pool (Platte samt Die-View), in u - die Breite ist
+## nur der Boden, sie folgt der Die-View.
+const PODIUM_PLACE_UNITS := Vector2(40.0, 76.0)
+## Rand der Podest-Die-View um ihr Netz, in u je Seite.
+const PODIUM_NET_PAD := 2.0
+## Ein schwebender Würfel steht näher an der Kamera und liest größer als sein Maß auf
+## dem Glas - gemessen an der Werkstatt-Station (Pool-Teilung 60 gegen 51 Bildschirm-px).
+const PODIUM_FACE_GAIN := 1.17
 ## Die Gleichung: Breite der Zeichen-Felder, Überschrift, Grade (u).
 const EQ_SIGN_UNITS := 7.0
 const EQ_HEAD_UNITS := 4.5
@@ -773,9 +783,17 @@ static func slice_length_px(card: Vector2) -> float:
 
 ## Der PODEST-Platz direkt rechts neben dem Pool, oben bündig mit ihm; die Schale steht
 ## rechts von ihm.
-static func podium_place_for(pool: Rect2, u: float) -> Rect2:
+static func podium_place_for(pool: Rect2, u: float, card := Vector2.ZERO,
+		die_face := 0.0) -> Rect2:
 	return Rect2(Vector2(pool.end.x + u * DRUM_SHELF_GAP, pool.position.y),
-		PODIUM_PLACE_UNITS * u)
+		Vector2(maxf(PODIUM_PLACE_UNITS.x * u, podium_net_size(card, die_face, u).x),
+			PODIUM_PLACE_UNITS.y * u))
+
+## Die Die-View des Podests: ihre Zellen sind so groß wie die Flächen der echten Würfel.
+static func podium_net_size(card: Vector2, die_face: float, u: float) -> Vector2:
+	if die_face <= 0.0:
+		return card
+	return DieNetView.net_size(die_face * PODIUM_FACE_GAIN) 		+ Vector2.ONE * u * PODIUM_NET_PAD * 2.0
 
 ## Die ganze Kette in Display-px aus Pool-Reihe, Schale, liegender Karte, Würfelfläche
 ## und u. Unter dem Pool (eine Naht pool_seam darunter, linksbündig mit ihm): die Nummern,
@@ -831,9 +849,10 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 	var bounds := top.merge(pit).merge(chamber).merge(stamp).merge(shelf).merge(info) \
 		.merge(equation)
 	# Das PODEST: oben die Platte, auf der der Würfel schwebt, unten seine Die-View.
-	var podium := podium_place_for(pool, u)
-	var podium_net := Rect2(Vector2(podium.get_center().x - card.x * 0.5,
-		podium.end.y - card.y), card)
+	var podium := podium_place_for(pool, u, card, die_face)
+	var net_span := podium_net_size(card, die_face, u)
+	var podium_net := Rect2(Vector2(podium.get_center().x - net_span.x * 0.5,
+		podium.end.y - net_span.y), net_span)
 	var podium_stage := Rect2(podium.position,
 		Vector2(podium.size.x, maxf(podium_net.position.y - seam - podium.position.y, 1.0)))
 	return {"pit": pit, "slices": slices, "chamber": chamber, "stamp": stamp,
@@ -2123,6 +2142,18 @@ func _on_scroll_released(column: int, offset_px: float) -> void:
 		shelf_column_count(column), shelf_places())
 	set_shelf_scroll(column, after)
 	shelf_scroll_snapped.emit(column, from, float(before - after) * shelf_slot_px())
+
+## Ein Rad-Schritt rollt eine Spalte um ganze Plätze (true = sie hat sich bewegt).
+func wheel_shelf(column: int, places: int) -> bool:
+	if shelf_dragging():
+		return false
+	var before := shelf_scroll_of(column)
+	set_shelf_scroll(column, before + places)
+	var after := shelf_scroll_of(column)
+	if after == before:
+		return false
+	shelf_scroll_snapped.emit(column, 0.0, float(before - after) * shelf_slot_px())
+	return true
 
 ## Der Zug-Versatz: nach oben (weiter) unbegrenzt - die Spalte läuft ins Leere und
 ## federt beim Loslassen zurück -, nach unten nie vor den Anfang.

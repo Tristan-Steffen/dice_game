@@ -116,3 +116,28 @@ func test_each_sort_has_its_own_reader() -> void:
 	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[1]).find_child("Klappe", true, false))
 	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[2]).find_child("Rollsiegel", true, false))
 	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[3]).find_child("Arm", true, false))
+
+func test_an_empty_slice_spins_by_hand_and_snaps_to_an_edge() -> void:
+	assert_true(drum.spinnable(0))
+	drum.spin_drag(0, 1.3)
+	drum.spin_release(0)
+	await wait_seconds(0.5)
+	assert_almost_eq(drum.shown_angle(0), DrumView.EMPTY_ANGLE + PI * 0.5, 0.001)
+	drum.spin_by(0, 1)
+	await wait_seconds(0.5)
+	assert_almost_eq(drum.shown_angle(0), DrumView.EMPTY_ANGLE + PI, 0.001)
+
+func test_a_seated_slice_does_not_spin_and_forgets_the_hand() -> void:
+	drum.spin_by(0, 3)
+	await wait_seconds(1.0)
+	var pack := _pack(Engraving.CATEGORY_NUMBER)
+	drum.seat([pack])
+	assert_false(drum.spinnable(0))
+	await wait_seconds(1.0)
+	assert_almost_eq(drum.shown_angle(0), DrumView.angle_for(pack), 0.001)
+	drum.spin_by(0, 1)
+	drum.spin_drag(0, 1.0)
+	assert_almost_eq(drum.shown_angle(0), DrumView.angle_for(pack), 0.001)
+	drum.seat([])
+	await wait_seconds(1.0)
+	assert_almost_eq(drum.shown_angle(0), DrumView.EMPTY_ANGLE, 0.001)

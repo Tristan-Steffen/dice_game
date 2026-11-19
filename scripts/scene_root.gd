@@ -333,6 +333,10 @@ const PIT_ZOOM_UP := 4.0
 ## gesammelt; ein Richtungswechsel verwirft das Angesammelte.
 const WHEEL_STEP_THRESHOLD := 1.0
 var wheel_accum := 0.0
+## Die leere Walzen-Scheibe, die der Spieler gerade von Hand dreht (-1 = keine), und der
+## Display-Pixel des Zeigers beim letzten Bild des Zugs.
+var drum_spin_index := -1
+var drum_spin_pixel := Vector2.ZERO
 
 ## Grobe Spielphase - genau EINE zur Zeit; Eingabe-Gates prüfen gegen sie.
 ## Nebenläufige Kosmetik (Deck-Aufrücken, Drags, Bogen-Abschluss) ist bewusst
@@ -1329,15 +1333,14 @@ func _place_workshop_strip() -> Rect2:
 	for i in range(1, hits.size()):
 		if hits[i].size.x > 0.0 and hits[i].size.y > 0.0:
 			_add_zone_shape(workshop_click_zone, hits[i])
-	# Die Weitsicht rahmt die Station samt Pool, Schale und Podest-Platz, die Nahsicht die
-	# Werkstatt allein, oben dazu den Kopfraum einer gegriffenen Karte; beide mit der
-	# EINEN Naht als Saum.
+	# Die Weitsicht rahmt Werkstatt und Podest-Platz; vom Pool fällt die oberste Reihe
+	# aus dem Bild (Spieler-Wunsch 2026-11-19: näher heran). Die Nahsicht rahmt die
+	# Werkstatt allein, oben dazu den Kopfraum einer gegriffenen Karte.
 	var seam := _pool_seam_px
-	var station := bench_rect.merge(_pool_row_px)
-	for part: Rect2 in [_fach_rect_px(), _podium_place_px]:
-		if part.size.x > 0.0 and part.size.y > 0.0:
-			station = station.merge(part)
-	var corner := station.grow(seam)
+	var station := bench_rect
+	if _podium_place_px.size.x > 0.0 and _podium_place_px.size.y > 0.0:
+		station = station.merge(_podium_place_px)
+	var corner := station.grow_individual(seam * 0.5, -seam * 2.0, seam * 0.5, seam * 0.5)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()),
 		_world_half(corner))
 	workshop_close_rect = bench_rect
@@ -2337,6 +2340,10 @@ func _on_die_wall_contact(other: Node, body: RigidBody3D) -> void:
 	dice_pit.flash_wall(other, lerpf(FIELD_FLASH_MIN_STRENGTH, 1.0, strength))
 
 func _unhandled_input(event: InputEvent) -> void:
+	if drum_spin_index != -1:
+		_handle_drum_spin_input(event)
+		return
+
 	if tray_drag_index != -1:
 		_handle_tray_drag_input(event)
 		return
@@ -2425,6 +2432,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	# die Weiterleitung, sonst schluckt das Fenster den Klick - und vor die
 	# Nahsicht, denn ein Würfel ist keine freie Bankfläche.
 	if _try_grab_floating_die(event):
+		return
+
+	if _try_start_drum_spin(event):
 		return
 
 	# Zweite Werkbank-Stufe: VOR der Weiterleitung, sonst verschluckt das
@@ -3526,6 +3536,55 @@ func _sync_drum(workshop: WorkshopView) -> void:
 	# wie sie stehen, bis der Abgleich danach sie auf Kante dreht.
 	if not workshop.burning():
 		drum.seat(_drum_packs(workshop))
+
+## Die LEERE Scheibe unter dem Display-Pixel, die sich von Hand drehen läßt (-1 = keine).
+func _free_slice_at(workshop: WorkshopView, pixel: Vector2) -> int:
+	if drum == null or not is_instance_valid(drum) or workshop.burning() \
+			or workshop.editing_locked:
+		return -1
+	var origin := workshop.get_global_rect().position
+	for i in WorkshopView.DRUM_SLICES:
+		if drum.spinnable(i) and Rect2(origin + workshop.slice_rect(i).position,
+				workshop.slice_rect(i).size).has_point(pixel):
+			return i
+	return -1
+
+## Ein Druck auf eine leere Scheibe an der Werkstatt-Station beginnt ihr Drehen von Hand.
+func _try_start_drum_spin(event: InputEvent) -> bool:
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	if camera_rig.is_animating or not _felt_pick_live(CameraRig.Mode.WORKSHOP) \
+			or table_screen == null:
+		return false
+	var workshop: WorkshopView = table_screen.workshop_window
+	if workshop == null or not is_instance_valid(workshop) or not workshop.visible:
+		return false
+	var pixel := _screen_pixel(button.position)
+	var slice := _free_slice_at(workshop, pixel)
+	if slice < 0:
+		return false
+	drum_spin_index = slice
+	drum_spin_pixel = pixel
+	return true
+
+## Der Zug rollt die Scheibe unter dem Zeiger ab, das Loslassen rastet sie auf Kante ein.
+func _handle_drum_spin_input(event: InputEvent) -> void:
+	if drum == null or not is_instance_valid(drum):
+		drum_spin_index = -1
+		return
+	var motion := event as InputEventMouseMotion
+	if motion != null:
+		var pixel := _screen_pixel(motion.position)
+		if pixel.x >= 0.0:
+			var moved := _display_dy_to_world(pixel.y - drum_spin_pixel.y)
+			drum_spin_pixel = pixel
+			drum.spin_drag(drum_spin_index, -moved / maxf(drum.side() * 0.5, 0.01))
+		return
+	var button := event as InputEventMouseButton
+	if button != null and not button.pressed and button.button_index == MOUSE_BUTTON_LEFT:
+		drum.spin_release(drum_spin_index)
+		drum_spin_index = -1
 
 ## Je Bild: liegt die Karte einer Scheibe (gelandet, nicht mehr im Flug), greift ihr Leser zu.
 func _sync_drum_readers() -> void:
@@ -11577,10 +11636,9 @@ func _zoom_to_mode(target: int, again := false) -> void:
 		table_screen.slot_bank_window.refresh_if_idle()
 
 ## Ein Rad-Schritt. Taub während einer Kamerafahrt (das ist zugleich die Sperre
-## gegen nachlaufende Flicks). Die beiden senkrechten Werkbank-Stufen behalten
-## ihr altes Rad - dort führt es zwischen den Stufen, nie aus der Zeremonie
-## heraus. Überall sonst gehört das Rad der FREIKAMERA: es zoomt stufenlos und
-## schaltet dabei aus dem Fokus in sie hinüber.
+## gegen nachlaufende Flicks). Gezoomt wird NUR aus der Übersicht (Spieler-Entscheid
+## 2026-11-19): dort schaltet das Rad in die Freikamera und zoomt stufenlos. An
+## jeder Station steht die Kamera fest, und das Rad rollt das Magazin.
 func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 	# Im Rückblick ist das Rad taub: der Cursor gehört den Pfeilen, und ein
 	# Radstups darf die Erinnerung nicht aus Versehen verlassen.
@@ -11599,20 +11657,37 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 		return
 
 	wheel_accum = 0.0
-	# Die Inspektion ist eine senkrechte Stufe: Rad zurück geht aufs Podest.
-	if camera_rig.die_focus:
-		if not up:
-			_leave_die_focus()
-		return
-	if camera_rig.workshop_close:
-		if not up:
-			camera_rig.zoom_workshop_wide()  # eine Stufe zurück, nicht ganz raus
+	if camera_rig.mode != CameraRig.Mode.OVERVIEW or camera_rig.die_focus \
+			or camera_rig.workshop_close:
+		_wheel_shelf(event.position, up)
 		return
 	if not camera_rig.free_camera:
 		if not camera_rig.begin_free():
 			return
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 	camera_rig.free_zoom(1.0 if up else -1.0)
+
+## Das Rad über einer Magazin-Spalte rollt sie um einen Platz - nur an der Werkstatt.
+func _wheel_shelf(screen_pos: Vector2, up: bool) -> void:
+	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.die_focus or _deck_glass:
+		return
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var camera := get_viewport().get_camera_3d()
+	if workshop == null or not is_instance_valid(workshop) or not workshop.visible \
+			or camera == null:
+		return
+	var pixel := table_screen.pixel_from_ray(camera.project_ray_origin(screen_pos),
+		camera.project_ray_normal(screen_pos))
+	if pixel.x < 0.0:
+		return
+	var slice := _free_slice_at(workshop, pixel)
+	if slice >= 0:
+		drum.spin_by(slice, -1 if up else 1)
+		return
+	for column in PackDrawerView.COLUMNS:
+		if workshop.shelf_column_rect(column).has_point(pixel):
+			workshop.wheel_shelf(column, -1 if up else 1)
+			return
 
 ## Ob WASD gerade greifen darf. Taub sind: jede laufende Zieh-Geste, der
 ## Rückblick (dort gehören die Tasten dem Cursor), das Titel-HUD, die Werkbank-
@@ -11629,7 +11704,7 @@ func _free_camera_allowed() -> bool:
 	if _exchange_forced() or _part_install_forced() or _install_seating \
 			or _pack_choice_modal():
 		return false  # der Neuzugang hält die Kamera am Raster, den Chips bzw. der Grube fest
-	return part_drag_key == "" and tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 \
+	return part_drag_key == "" and tray_drag_index == -1 and pit_drag_index == -1 and reorder_drag_index == -1 and drum_spin_index == -1 \
 		and charm_drag_index == -1 and not shell_drag_active \
 		and grabbed_stage == null
 

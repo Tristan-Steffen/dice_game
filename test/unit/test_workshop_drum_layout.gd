@@ -96,16 +96,19 @@ func test_the_podium_stands_right_next_to_the_pool() -> void:
 	assert_almost_eq(podium.position.x, POOL.end.x + U * WorkshopView.DRUM_SHELF_GAP, 0.01,
 		"eine Fuge rechts vom Pool")
 	assert_almost_eq(podium.position.y, POOL.position.y, 0.01, "auf Pool-Höhe")
-	assert_almost_eq(podium.size.x, 201.7, 1.0, "rund 200 × 355")
-	assert_almost_eq(podium.size.y, 352.9, 1.0)
+	assert_almost_eq(podium.size.x, (lay["podium_net"] as Rect2).size.x, 0.01,
+		"so breit wie seine Die-View")
+	assert_almost_eq(podium.size.y, U * WorkshopView.PODIUM_PLACE_UNITS.y, 0.01)
 	assert_false(podium.intersects(lay["bounds"]), "die Werkstatt berührt ihn nicht")
 
-## Oben die Platte, auf der der Würfel schwebt, unten seine Die-View in Kartengröße.
+## Oben die Platte, auf der der Würfel schwebt, unten seine Die-View in Würfelgröße.
 func test_the_podium_carries_its_plate_over_its_die_view() -> void:
 	var podium: Rect2 = lay["podium"]
 	var plate: Rect2 = lay["podium_stage"]
 	var net: Rect2 = lay["podium_net"]
-	assert_eq(net.size, CARD, "die Die-View ist ein Netz-Schirm wie die der Gleichung")
+	var span := DieNetView.net_size(FACE * WorkshopView.PODIUM_FACE_GAIN)
+	assert_gt(net.size.x, span.x, "ihre Zellen sind so groß wie die Flächen der Würfel")
+	assert_gt(net.size.y, span.y)
 	assert_almost_eq(net.end.y, podium.end.y, 0.01, "unten bündig im Platz")
 	assert_almost_eq(net.get_center().x, podium.get_center().x, 0.01, "mittig")
 	assert_lt(plate.end.y, net.position.y, "die Platte darüber, eine Fuge davor")
