@@ -18,9 +18,13 @@ const CELL := 34.0
 ## Die Kleider der Träger (dress).
 const PUNCH_CELL := Color(0.02, 0.02, 0.026)
 const PUNCH_MAX := 6
+const PUNCH_MARK_SHARE := 0.5
 const TILE_SHEEN := 0.22
 const GLAZE := Color(0.03, 0.034, 0.05)
-const GLAZE_BARE := Color(0.13, 0.1, 0.075)
+const GLAZE_BARE := Color(0.2, 0.155, 0.11)
+const TAPE_BARE := Color(0.07, 0.065, 0.12)
+## Der Saum einer LEEREN Zelle: die Sortenfarbe, so weit abgedunkelt.
+const BARE_RIM_DARK := 0.35
 const CLAY_RIM := Color(0.09, 0.07, 0.05)
 const GLAZE_SHEEN := 0.12
 const HOLO_FILL := 0.12
@@ -97,18 +101,28 @@ static func dress(drawing: Control, net: Array, accent: Color, carrier: int) -> 
 		var filled := StampNet.is_filled(entry)
 		match carrier:
 			DataCellView.CARRIER_PUNCH:
+				# Wie gedruckt: eckiger Kasten in der Sortenfarbe, der Wert groß darin.
 				box.bg_color = PUNCH_CELL
-				if not filled:
-					box.border_color = accent.darkened(0.45)
+				box.set_corner_radius_all(1)
+				if kind == StampNet.KIND_VALUE or not filled:
+					box.border_color = accent
+				var mark := chip.get_node_or_null("CellMark") as Label
+				if mark != null and kind == StampNet.KIND_VALUE:
+					mark.add_theme_color_override("font_color", accent.lightened(0.2))
+					mark.add_theme_font_size_override("font_size", int(CELL * PUNCH_MARK_SHARE))
+					mark.offset_bottom = -CELL * 0.2
 				if kind == StampNet.KIND_VALUE or kind == StampNet.KIND_FACTOR:
 					_punch_holes(chip, int(entry.get("value", 0)), accent)
 			DataCellView.CARRIER_CASSETTE:
 				if kind == StampNet.KIND_MATERIAL:
 					box.border_color = accent
 					_sheen(chip, TILE_SHEEN)
+				elif not filled:
+					box.bg_color = TAPE_BARE
+					box.border_color = accent.darkened(BARE_RIM_DARK)
 			DataCellView.CARRIER_CLAY:
 				box.bg_color = GLAZE if filled else GLAZE_BARE
-				box.border_color = accent.darkened(0.35) if filled else CLAY_RIM
+				box.border_color = accent.darkened(BARE_RIM_DARK)
 				if filled:
 					_sheen(chip, GLAZE_SHEEN)
 			DataCellView.CARRIER_HOLO:

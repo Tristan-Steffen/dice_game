@@ -1,6 +1,7 @@
 """Fumble: exportiert die HÜLLEN der vier Datenträger (Welle 3, 2026-11-18) nach
 assets/models/hardware/ - data_punch_card.glb, data_cassette.glb, data_clay_tablet.glb,
-data_holo_emitter.glb. Vorbild ist tools/blender_data_media_set.py; dies ist die Fassung OHNE
+data_holo_emitter.glb. Vorbild ist tools/blender_data_media_set.py (Kassette KLASSIK und Tontafel KEILSCHRIFT seit dem
+2026-11-19 nach tools/blender_data_media_real.py); dies ist die Fassung OHNE
 Inhalt: kein Netz, keine Werte, keine Runen, kein Text. Das Netz backt Godot (StampNetOven).
 
 Aufruf (kopflos):
@@ -9,8 +10,8 @@ Aufruf (kopflos):
 Achsen: X = Länge (Kopf -X, Fuß +X), Y = Breite, Z = Höhe, Ursprung = Mitte der Grundfläche.
 Der Umriß ist der der liegenden Karte (1,62 x 1,08), das Netz-Feld liegt GENAU wie im Spiel
 (DataCellView: Mitte 0,0486 zum Kopf, Zelle 0,2924, Teilung 0,3216, Querbalken in Reihe 2
-vom Kopf). Jedes Objekt heißt nach seiner ROLLE (Koerper, Kern, Saum, Metall, Dunkel, Glanz,
-Ton, Hell); je Rolle wird EIN Netz exportiert, Godot gibt die Materialien nach dem Namen.
+vom Kopf). Jedes Objekt heißt nach seiner ROLLE (Koerper, Kern, Saum, Druck, Metall, Dunkel,
+Glanz, Ton, Hell, Band, Kerbe); je Rolle wird EIN Netz exportiert, Godot gibt die Materialien nach dem Namen.
 """
 import bpy, bmesh, math, os, random, sys
 from mathutils import Vector
@@ -31,7 +32,8 @@ ARM = [NX - (1.5 - k) * P for k in range(4)]
 CELLS = [(x, 0.0) for x in ARM] + [(ARM[1], P), (ARM[1], -P)]
 FREE = [(ARM[0], P), (ARM[0], -P), (ARM[2], P), (ARM[2], -P), (ARM[3], P), (ARM[3], -P)]
 NET_HX, NET_HY = 2.15 * C, 1.6 * C
-ROLES = ("Koerper", "Kern", "Saum", "Druck", "Metall", "Dunkel", "Glanz", "Ton", "Hell")
+ROLES = ("Koerper", "Kern", "Saum", "Druck", "Metall", "Dunkel", "Glanz", "Ton", "Hell", "Band",
+         "Kerbe")
 LIFT = 0.0015
 
 
@@ -53,6 +55,8 @@ def mats(key):
         "Glanz": led.mat("Glanz", (0.02, 0.035, 0.05), 0.0, 0.05, clearcoat=1.0),
         "Ton": led.mat("Ton", (0.29, 0.22, 0.16), 0.0, 0.92),
         "Hell": led.mat("Hell", (0.78, 0.74, 0.68), 0.0, 0.8),
+        "Band": led.mat("Band", (0.2, 0.1, 0.06), 0.3, 0.35),
+        "Kerbe": led.mat("Kerbe", (0.1, 0.07, 0.045), 0.0, 0.95),
     }
 
 
@@ -157,8 +161,7 @@ def punch_card():
             if rnd.random() < 0.16:
                 shapes.append(("rect", x - 0.011, yy - 0.022, x + 0.011, yy + 0.022))
             else:
-                # Statt der Ziffern des Entwurfs ein stilles Raster: der Rhythmus, kein Text.
-                line("Druck%d_%d" % (i, d), PT, x - 0.006, yy, x + 0.006, yy, 0.012, m["Druck"])
+                glyph("Druck%d_%d" % (i, d), str(d), x, yy, PT + LIFT, 0.04, m["Druck"])
     led.cut(top, dm.hole_cutter(None, "SchnittStanzungen", shapes, PLAYER + PCORE * 0.5, 0.1))
     e = 0.014
     rim = [(-L * 0.5 + e, W * 0.5 - leg - e * 0.4), (-L * 0.5 + leg + e * 0.4, W * 0.5 - e),
@@ -174,96 +177,146 @@ def punch_card():
         line("Dunkel%d" % i, PT, x, -0.52, x, -0.49, 0.004, m["Dunkel"])
 
 
-# --- MATERIAL: die Kassette ------------------------------------------------------------------
+def glyph(name, body, x, y, z, size, material):
+    """Ein Schriftzeichen als flaches Netz (Normale nach oben)."""
+    bpy.ops.object.text_add(location=(x, y, z))
+    t = bpy.context.active_object
+    t.data.body = body
+    t.data.size = size
+    t.data.align_x = "CENTER"
+    t.data.align_y = "CENTER"
+    bpy.ops.object.convert(target="MESH")
+    t = bpy.context.active_object
+    t.name = name
+    t.data.materials.append(material)
+    return t
+
+
+def quad_prism(name, pts, z0, z1, material):
+    n = len(pts)
+    verts = [(x, y, z0) for x, y in pts] + [(x, y, z1) for x, y in pts]
+    faces = [list(range(n - 1, -1, -1)), list(range(n, 2 * n))]
+    faces += [[i, (i + 1) % n, n + (i + 1) % n, n + i] for i in range(n)]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    o = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(o)
+    o.data.materials.append(material)
+    return o
+
+
+# --- MATERIAL: die Kassette (KLASSIK, 2026-11-19) ---------------------------------------------
 
 CT = 0.126
-
-
-def reel(name, x, y, r, z, m, fill):
-    dm.cyl(None, "Dunkel" + name + "Mulde", r, 0.004, (x, y, z + 0.002), m["Dunkel"], 20)
-    dm.cyl(None, "Dunkel" + name + "Wickel", r * fill, 0.003, (x, y, z + 0.0055),
-           led.mat("Band", (0.05, 0.03, 0.022), 0.4, 0.3), 20)
-    dm.cyl(None, "Hell" + name + "Nabe", r * 0.36, 0.008, (x, y, z + 0.008), m["Hell"], 12)
-    dm.cyl(None, "Dunkel" + name + "Loch", r * 0.16, 0.009, (x, y, z + 0.0085), m["Dunkel"], 6)
-    dm.annulus(None, "Saum" + name + "Ring", x, y, z + 0.0045, r, r * 1.12, m["Saum"], 20)
+RX, RR = 0.52, 0.135
 
 
 def cassette():
+    """Schwarze Schale, Papier-Etikett hinter dem Netz, Sichtfenster mit zwei Naben am Kopf der
+    Langseite, darunter die Kopfpartie als Trapez. Im Netz-Feld bleibt alles unter CT + 0,004."""
     m = mats("material")
-    shell = led.mat("Kassettenrauch", (0.05, 0.012, 0.035), 0.0, 0.18, clearcoat=0.7)
-    body = box("Koerper", (L - 0.008, W - 0.008, CT), (0, 0, CT * 0.5), shell, 0.06, 0.01, 3)
-    seam = box("KernNaht", (L, W, 0.01), (0, 0, CT * 0.5), m["Kern"], 0.064)
+    shell = led.mat("Kassettenschale", (0.02, 0.02, 0.024), 0.0, 0.42, clearcoat=0.2)
+    box("Koerper", (L - 0.008, W - 0.008, CT), (0, 0, CT * 0.5), shell, 0.05, 0.01, 3)
+    seam = box("KernNaht", (L, W, 0.01), (0, 0, CT * 0.5), m["Kern"], 0.054)
     led.cut(seam, box("SchnittNaht", (L - 0.03, W - 0.03, 0.05), (0, 0, CT * 0.5), m["Dunkel"],
-                      0.05))
+                      0.04))
     bpy.data.objects["SchnittNaht"].display_type = "WIRE"
-    # Die GRIFFLEISTE am Kopf: Rippen, dazwischen Lichtschlitze in der Sortenfarbe.
-    gx = -0.779
-    box("DunkelGriffleiste", (0.058, 0.9, 0.012), (gx, 0, CT + 0.006), m["Dunkel"], 0.01)
-    ys = [-0.42 + k * 0.06 for k in range(15)]
-    for k, y in enumerate(ys):
-        slab("DunkelRippe%d" % k, gx - 0.026, y - 0.007, gx + 0.026, y + 0.007, CT + 0.012,
-             CT + 0.02, m["Dunkel"])
-        if k < len(ys) - 1:
-            slab("KernSchlitz%d" % k, gx - 0.023, y + 0.012, gx + 0.023, y + 0.048, CT + 0.012,
-                 CT + 0.0135, m["Kern"])
-    # Die SPULEN in den freien Fuß-Ecken des Netzes.
-    rx = (ARM[2] + ARM[3]) * 0.5
-    for s, f in ((1, 0.82), (-1, 0.58)):
-        reel("Spule%d" % (s + 1), rx, s * P, 0.135, CT, m, f)
-    # Der BANDKOPF am Fuß: Öffnung, Band, Andruckfilz, Rollen.
-    box("DunkelKopf", (0.1, 0.72, 0.004), (0.735, 0, CT + 0.002), m["Dunkel"], 0.02)
-    line("DunkelKopfband", CT + 0.004, 0.772, -0.34, 0.772, 0.34, 0.014,
-         led.mat("Band", (0.05, 0.03, 0.022), 0.4, 0.3))
-    slab("HellFilz", 0.745, -0.05, 0.765, 0.05, CT + 0.004, CT + 0.007, m["Hell"])
+    z = CT
+    box("HellEtikett", (1.5, 0.74, 0.0015), (0, 0.13, z + 0.00075), m["Hell"], 0.04)
+    for k, y in enumerate((-0.2, -0.218)):
+        line("SaumEtikett%d" % k, z + 0.0015, -0.74, y, 0.74, y, 0.008, m["Saum"], 0.0006)
     for s in (-1, 1):
-        dm.cyl(None, "MetallRolle%d" % (s + 1), 0.022, 0.006, (0.74, s * 0.3, CT + 0.006),
-               m["Metall"], 12)
-    # Die freien Kopf-Ecken: Typschild und Pegel.
-    hx = ARM[0]
-    box("GlanzTypschild", (0.22, 0.24, 0.003), (hx, P, CT + 0.0015), m["Glanz"], 0.02)
-    for k in range(7):
-        h = 0.04 + k * 0.026
-        slab("KernPegel%d" % k, hx - 0.105 + k * 0.032, -P - 0.11, hx - 0.085 + k * 0.032,
-             -P - 0.11 + h, CT, CT + 0.003, m["Kern"])
-    for k, (x, y) in enumerate(((0.69, 0.47), (0.69, -0.47), (-0.69, 0.47), (-0.69, -0.47))):
-        dm.cyl(None, "MetallSchraube%d" % k, 0.024, 0.008, (x, y, CT + 0.004), m["Metall"], 10)
-        line("DunkelSchlitz%d" % k, CT + 0.0085, x - 0.016, y, x + 0.016, y, 0.005, m["Dunkel"])
+        line("DruckSeitenband%d" % (s + 1), z + 0.0015, s * 0.705, -0.17, s * 0.705, 0.17, 0.05,
+             m["Druck"], 0.0006)
+    glyph("DunkelSeite", "A", -0.705, 0.0, z + 0.0026, 0.06, m["Dunkel"])
+    # Das SICHTFENSTER: Wickel, Naben mit sechs Zähnen, dazwischen das Band.
+    box("GlanzFenster", (1.38, 0.33, 0.0015), (0, P, z + 0.00225), m["Glanz"], 0.06)
+    zw = z + 0.003
+    for s, f in ((-1, 0.75), (1, 0.3)):
+        x = s * RX
+        dm.cyl(None, "BandWickel%d" % (s + 1), RR * (0.72 + 0.34 * f), 0.002, (x, P, zw + 0.001),
+               m["Band"], 28)
+        dm.annulus(None, "HellNabe%d" % (s + 1), x, P, zw + 0.0035, RR * 0.38, RR * 0.62,
+                   m["Hell"], 24)
+        for k in range(6):
+            a = k * math.tau / 6
+            line("HellZahn%d_%d" % (s + 1, k), zw + 0.0035, x + math.cos(a) * RR * 0.18, P +
+                 math.sin(a) * RR * 0.18, x + math.cos(a) * RR * 0.4, P + math.sin(a) * RR * 0.4,
+                 RR * 0.12, m["Hell"], 0.0)
+        dm.annulus(None, "SaumFensterring%d" % (s + 1), x, P, zw + 0.004, RR * 1.08, RR * 1.17,
+                   m["Saum"], 28)
+    for k, (a, b) in enumerate(((-RX, ARM[1] - C * 0.5 - 0.02), (ARM[1] + C * 0.5 + 0.02, RX))):
+        line("BandFenster%d" % k, zw, a, P - 0.135, b, P - 0.135, 0.012, m["Band"], 0.0008)
+    for k in range(5):
+        x = 0.06 + k * 0.03
+        line("HellSkala%d" % k, zw, x, P - 0.055, x, P + 0.055 - (k % 2) * 0.04, 0.004, m["Hell"],
+             0.0008)
+    # Die KOPFPARTIE: erhabenes Trapez mit Capstan- und Paßlöchern, an der Kante zwei Kerben.
+    trap = [(-0.66, -0.536), (0.66, -0.536), (0.56, -0.2), (-0.56, -0.2)]
+    quad_prism("KoerperKopfpartie", trap, z - 0.001, z + 0.003, shell)
+    for k in range(1, 4):
+        a, b = trap[k], trap[(k + 1) % 4]
+        line("DunkelKopfkante%d" % k, z + 0.003, a[0], a[1], b[0], b[1], 0.008, m["Dunkel"],
+             0.0006)
+    for k, (x, y, r) in enumerate(((-0.47, -0.4, 0.04), (0.47, -0.4, 0.04), (-0.29, -0.43, 0.026),
+                                   (0.29, -0.43, 0.026))):
+        if not in_net(x, y, r + 0.01):
+            dm.cyl(None, "DunkelLoch%d" % k, r, 0.001, (x, y, z + 0.0041), m["Dunkel"], 18)
+    for s in (-1, 1):
+        slab("DunkelKerbe%d" % (s + 1), s * 0.6 - 0.03, -0.536, s * 0.6 + 0.03, -0.49, z + 0.003,
+             z + 0.0042, m["Dunkel"])
+    for k, (x, y) in enumerate(((0.76, 0.49), (0.76, -0.49), (-0.76, 0.49), (-0.76, -0.49))):
+        dm.cyl(None, "MetallSchraube%d" % k, 0.024, 0.006, (x, y, z + 0.003), m["Metall"], 10)
+        line("DunkelSchlitz%d" % k, z + 0.006, x - 0.016, y, x + 0.016, y, 0.005, m["Dunkel"],
+             0.0006)
 
 
-# --- RUNEN: die Tontafel ---------------------------------------------------------------------
+# --- RUNEN: die Tontafel (KEILSCHRIFT, 2026-11-19) ---------------------------------------------
 
-TT, LIP_H = 0.128, 0.146
+TT = 0.128
 
 
 def clay_tablet():
+    """Helle Kissen-Tafel, dicht in Zeilen beschrieben: Keile und Zeilen-Rillen rings ums Netz."""
     m = mats("rune")
-    clay = led.mat("Steinzeug", (0.2, 0.15, 0.11), 0.0, 0.95)
-    box("Koerper", (L - 0.012, W - 0.012, TT), (0.003, 0, TT * 0.5), clay, 0.1, 0.03, 3)
-    lx = -0.768
-    box("TonLippe", (0.08, W - 0.05, LIP_H), (lx, 0, LIP_H * 0.5), m["Ton"], 0.035, 0.02, 3)
-    # Die Keile der LIPPE tragen leuchtende Glasur, die im Feld sind dunkle Eindrücke.
-    lip = []
-    y = -0.43
-    while y < 0.44:
-        lip.append(wedge(-0.787, y, 0.032, 0.0))
-        y += 0.054
-    prism("KernLippenkeile", lip, LIP_H - 0.004, LIP_H + LIFT, m["Kern"])
-    line("SaumLippe", TT, lx + 0.052, -0.45, lx + 0.052, 0.45, 0.008, m["Saum"])
+    clay = led.mat("Ton_hell", (0.45, 0.34, 0.22), 0.0, 0.95)
+    box("Koerper", (L - 0.012, W - 0.012, TT), (0, 0, TT * 0.5), clay, 0.15, 0.05, 6)
     rnd = random.Random(11)
     marks = []
-    spots = [(x, y, 0.12, 0.12) for x, y in FREE] + [(0.7, 0.0, 0.05, 0.44)]
-    for x, y, hw, hh in spots:
-        rows = max(1, int(hh * 2 / 0.08))
-        cols = max(1, int(hw * 2 / 0.08))
-        for r in range(rows):
-            for j in range(cols):
-                if rnd.random() < 0.3:
-                    continue
-                px = x - hw + 0.03 + j * (hw * 2 - 0.05) / max(1, cols - 0.5)
-                py = y + hh - 0.03 - r * (hh * 2 - 0.05) / max(1, rows - 0.6)
-                ang = rnd.choice((-math.pi * 0.5, -math.pi * 0.5, 0.0, math.pi * 0.75))
-                marks.append(wedge(px, py, 0.036, ang))
-    prism("DunkelKeile", marks, TT - 0.002, TT + LIFT, m["Dunkel"])
+    row, step, size = 0.082, 0.052, 0.03
+    y = 0.47 - row * 0.5
+    r = 0
+    while y > -0.46:
+        x = -0.69
+        start = None
+        while x < 0.72:
+            free = not in_net(x, y, 0.04) and not in_net(x + size, y, 0.04)
+            if free:
+                start = x if start is None else start
+                if rnd.random() > 0.12:
+                    ang = rnd.choice((-math.pi * 0.5, -math.pi * 0.5, 0.0, 0.0, math.pi * 0.75))
+                    dy = row * 0.3 if ang < 0 else rnd.uniform(-0.01, 0.01)
+                    marks.append(wedge(x, y + dy, size, ang))
+            if (not free or x + step >= 0.72) and start is not None:
+                if x - start > 0.1 and not in_net((start + x) * 0.5, y + row * 0.5, 0.02):
+                    line("KerbeZeile%d_%d" % (r, len(marks)), TT, start - 0.01, y + row * 0.5,
+                         x - 0.02, y + row * 0.5, 0.006, m["Kerbe"])
+                start = None
+            x += step
+        y -= row
+        r += 1
+    prism("KerbeKeile", marks, TT - 0.002, TT + LIFT, m["Kerbe"])
+    # Was GLÜHT (Griff, Aufflammen): eine Spalte glasierter Keile am Kopf, ein Glasur-Saum am Fuß.
+    seal = []
+    y = -0.4
+    while y < 0.41:
+        seal.append(wedge(-0.765, y, 0.03, 0.0))
+        y += 0.066
+    prism("KernSiegelkeile", seal, TT - 0.002, TT + LIFT, m["Kern"])
+    rim = box("SaumFuss", (L - 0.004, W - 0.004, 0.008), (0, 0, TT * 0.5), m["Saum"], 0.154)
+    led.cut(rim, box("SchnittFuss", (L - 0.03, W - 0.03, 0.05), (0, 0, TT * 0.5), m["Dunkel"],
+                     0.14))
+    bpy.data.objects["SchnittFuss"].display_type = "WIRE"
 
 
 # --- SONDERBESTAND: der Holo-Emitter ---------------------------------------------------------

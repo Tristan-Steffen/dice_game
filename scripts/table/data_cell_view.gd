@@ -49,12 +49,12 @@ const CARRIER_SCENES := [
 ## Höhe der Oberseite je Träger (Roh-Maß, gemessen am Export) - darauf liegt das Netz.
 const CARRIER_TOPS := [0.04, 0.126, 0.128, 0.063]
 ## Der Körper je Träger: Albedo, Rauheit, Eigenlicht (Anteil Sortenfarbe, Energie).
-const CARRIER_BODY := [Color(0.03, 0.03, 0.036), Color(0.10, 0.03, 0.07),
-	Color(0.24, 0.18, 0.13), Color(0.05, 0.055, 0.07)]
-const CARRIER_ROUGHNESS := [0.55, 0.2, 0.95, 0.3]
-## Die Kassette ist RAUCH in ihrer Sortenfarbe, der Ton sein eigener warmer Grund.
-const CARRIER_TINT_SHARE := [0.0, 0.35, 0.0, 0.0]
-const CARRIER_BODY_GLOW := [0.18, 0.3, 0.45, 0.3]
+const CARRIER_BODY := [Color(0.1, 0.11, 0.115), Color(0.16, 0.16, 0.18),
+	Color(0.5, 0.38, 0.25), Color(0.05, 0.055, 0.07)]
+const CARRIER_ROUGHNESS := [0.55, 0.42, 0.95, 0.3]
+## Die Kassette ist eine schwarze Schale mit einem Hauch Sortenfarbe, der Ton heller Lehm.
+const CARRIER_TINT_SHARE := [0.0, 0.08, 0.0, 0.0]
+const CARRIER_BODY_GLOW := [1.2, 1.0, 0.6, 0.3]
 ## Das Modell liegt in Blender mit der Länge auf X (Kopf -X), der Breite auf Y; diese
 ## Drehung legt es in den Rahmen der Karte (Breite x, Länge y, Kopf +y, Fläche +z).
 const CARRIER_BASIS := Basis(Vector3(0.0, -1.0, 0.0), Vector3(0.0, 0.0, 1.0),
@@ -94,7 +94,7 @@ const EDGE_DIM_ENERGY := 0.12
 ## Anteil, mit dem der Saum einen Kern-Ausbruch mitreißt.
 const EDGE_FLARE_SHARE := 0.75
 ## Der stille Druck (das Raster der Lochkarte).
-const PRINT_ENERGY := 0.22
+const PRINT_ENERGY := 0.8
 
 ## Die GRÖSSE ist die INTENSITÄT der Sortenfarbe: entsättigt wird zum Grau gleicher
 ## Helligkeit, nie zu Weiß.
@@ -818,17 +818,19 @@ func _dress_hull(hull: Node3D) -> void:
 			_:
 				mesh.material_override = neutral_material(role)
 
-## Die neutralen Teile (Metall, Dunkel, Glanz, Ton, Hell) - einmal gebaut, von allen geteilt.
+## Die neutralen Teile (Metall, Dunkel, Glanz, Ton, Hell, Band, Kerbe) - einmal gebaut, von allen geteilt.
 ## Metall mit wenig Metallic und etwas Eigenlicht: ohne Umgebung läse Chrom schwarz.
 static func neutral_material(role: String) -> StandardMaterial3D:
 	if _neutrals.has(role):
 		return _neutrals[role]
 	var spec: Array = {
-		"Metall": [Color(0.62, 0.64, 0.7), 0.35, 0.3, 0.35],
+		"Metall": [Color(0.62, 0.64, 0.7), 0.35, 0.3, 0.5],
 		"Dunkel": [Color(0.012, 0.012, 0.016), 0.0, 0.6, 0.0],
 		"Glanz": [Color(0.03, 0.05, 0.07), 0.2, 0.06, 0.12],
 		"Ton": [Color(0.33, 0.25, 0.18), 0.0, 0.9, 0.45],
-		"Hell": [Color(0.8, 0.76, 0.7), 0.0, 0.8, 0.3],
+		"Hell": [Color(0.8, 0.76, 0.7), 0.0, 0.8, 0.55],
+		"Band": [Color(0.3, 0.15, 0.09), 0.2, 0.4, 0.8],
+		"Kerbe": [Color(0.1, 0.07, 0.045), 0.0, 0.95, 0.0],
 	}.get(role, [Color(0.2, 0.2, 0.24), 0.0, 0.6, 0.2])
 	var material := StandardMaterial3D.new()
 	material.albedo_color = spec[0]
