@@ -71,7 +71,18 @@ const GOAL_STAGE_FILL_COLORS := [
 ]
 
 const PIT_SCORE_SIZE := Vector2(620, 150) * SUPERSAMPLE
-const GLOW_COLOR := Color(1.9, 1.55, 0.6, 0.85)  # überhelles Gold (bloomt)
+## Auswahl-Podest: je Gruppe der Kombination eine eigene Neonfarbe - die Fläche
+## bleibt gedämpft, nur der Saum glüht (Spieler-Wunsch 2026-11-19, das volle Gold
+## überstrahlte die Würfel).
+const GROUP_GLOW_COLORS: Array[Color] = [
+	Color(0.15, 1.00, 0.55, 0.42),  # Minze
+	Color(0.72, 0.36, 1.00, 0.42),  # Lavendel
+	Color(1.00, 0.36, 0.28, 0.42),  # Koralle
+]
+## Der Saum leuchtet um diesen Faktor über der Fläche (knapp über der Bloom-Schwelle).
+const GLOW_RIM_GAIN := 1.35
+const GLOW_RIM_WIDTH_SHARE := 0.06
+const LOOSE_GLOW_COLOR := Color(0.70, 0.76, 0.95, 0.22)
 
 ## Rundenpuls: Einrückung des Wellen-Overlays (der Fensterrahmen bleibt frei)
 ## und Ein-/Ausblendzeit beim Rundenwechsel.
@@ -2193,18 +2204,41 @@ func pit_ceiling_y() -> float:
 		return 0.0
 	return pit_window.position.y + EYE_PIP_CEILING_INSET
 
-## Goldenes Leucht-Podest unter einem zählenden/ausgewählten Würfel.
+## Farbe des Podests einer Kombinations-Gruppe; -1 = außerhalb.
+static func group_glow_color(group: int) -> Color:
+	if group < 0:
+		return LOOSE_GLOW_COLOR
+	return GROUP_GLOW_COLORS[group % GROUP_GLOW_COLORS.size()]
+
+## Färbt ein stehendes Podest um (die Auswahl wechselt ihre Gruppen).
+static func set_glow_color(glow: Control, color: Color) -> void:
+	if glow.get_meta("glow_color", Color.TRANSPARENT) == color:
+		return
+	var box := glow.get_theme_stylebox("panel") as StyleBoxFlat
+	if box != null:
+		_paint_glow_box(box, color)
+	glow.set_meta("glow_color", color)
+
+static func _paint_glow_box(box: StyleBoxFlat, color: Color) -> void:
+	box.bg_color = color
+	box.border_color = Color(color.r * GLOW_RIM_GAIN, color.g * GLOW_RIM_GAIN,
+		color.b * GLOW_RIM_GAIN, minf(1.0, color.a * 2.2))
+
+## Leucht-Podest unter einem zählenden/ausgewählten Würfel.
 ## side_px = Kantenlänge; der Aufrufer hält und entsorgt die Knoten.
-func spawn_glow(center_px: Vector2, side_px: float, intensity: float = 1.0) -> Control:
+func spawn_glow(center_px: Vector2, side_px: float, intensity: float = 1.0,
+		color: Color = LOOSE_GLOW_COLOR) -> Control:
 	var glow := Panel.new()
 	glow.size = Vector2(side_px, side_px)
 	glow.position = center_px - glow.size / 2.0
 	glow.pivot_offset = glow.size / 2.0
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := StyleBoxFlat.new()
-	box.bg_color = GLOW_COLOR
+	_paint_glow_box(box, color)
+	box.set_border_width_all(maxi(1, int(side_px * GLOW_RIM_WIDTH_SHARE)))
 	box.set_corner_radius_all(int(side_px * 0.22))
 	glow.add_theme_stylebox_override("panel", box)
+	glow.set_meta("glow_color", color)
 	glow.modulate = Color(1, 1, 1, 0)
 	add_child(glow)
 	var tween := create_tween()

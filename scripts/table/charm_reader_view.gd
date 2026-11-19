@@ -13,7 +13,7 @@ const BLENDER_SIZE := Vector3(0.8, 0.3, 1.12)  # x = Tiefe, y = Höhe, z = Breit
 const SIZE := BLENDER_SIZE * S
 const SLOT_Y := 0.17 * S
 ## Mitte der eingelegten Diskette, längs (Blender LOADED_Y = -RL/2 + INSERT - DL/2).
-const LOADED_X := (-0.4 + 0.56 - 0.47) * S
+const LOADED_X := (-0.4 + CharmDiskView.INSERT - 0.47) * S
 ## Linsenmitte (Blender pc + Linse).
 const LENS := Vector3(0.04 * S, (0.3 + 0.062 + 0.052) * S, 0.0)
 ## Display und Auswurf-Taste auf dem Deckel (Blender -0.12 / 0.38 quer, fy + 0.09 längs).
@@ -61,6 +61,7 @@ func _build() -> void:
 		shell.name = "Gehaeuse"
 		shell.rotation = Vector3(0.0, -PI * 0.5, 0.0)
 		shell.scale = Vector3.ONE * S
+		CharmDiskView.dress_shell(shell)
 		add_child(shell)
 		for part in GLOW_PARTS:
 			var mesh := shell.find_child(part, true, false) as MeshInstance3D

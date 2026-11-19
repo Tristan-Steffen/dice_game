@@ -1,9 +1,8 @@
 extends GutTest
-## Der Dauerwächter der Runenzeichen. Seit den GRUNDFORMEN (2026-10-24) ist jede
-## Figur EINE geschlossene, zur Hochachse symmetrische Grundform um die Seitenmitte;
-## sie weicht der Ziffer nicht mehr aus, sondern läuft hinter ihr durch. Was hier
-## geprüft wird, ist darum die FORM selbst - billig zu prüfen und teuer zu übersehen,
-## denn eine schiefe oder offene Figur fällt headless sonst niemandem auf.
+## Der Dauerwächter der Runenzeichen. Seit den GERITZTEN RUNEN (2026-11-19) ist jede
+## Figur aus wenigen geraden Strichen geschnitten und läuft hinter der Ziffer durch.
+## Geprüft wird die FORM selbst: Rand, Größe, Strichzahl und dass keine zwei
+## Zeichen dieselbe Silhouette tragen.
 
 ## float32-Toleranz der PackedVector2Array-Speicherung.
 const EPS := 0.0001
@@ -30,39 +29,57 @@ func test_the_halo_field_fits_inside_the_margin() -> void:
 	assert_lte(RuneTextures.FIELD, Rune.GLYPH_MARGIN,
 		"sonst schneidet der Seitenrand den Hof ab")
 
-func test_every_glyph_is_one_closed_figure() -> void:
-	# Geschlossen heißt: die Bogenlänge läuft im Kreis, und keine Bewegung zeigt
-	# ein freies Ende. Mehr als eine Linie wäre ein zweites Zeichen.
+func test_every_glyph_is_carved_from_straight_strokes() -> void:
+	# Eine Rune ist geritzt: gerade Striche, keine Bögen. Ein Bogen wäre hier ein
+	# Linienzug aus vielen kurzen Stücken.
 	for glyph in Rune.all_glyphs():
-		var lines := Rune.glyph_lines(glyph)
-		assert_eq(lines.size(), 1, "%s ist EINE Figur" % glyph)
-		var line: PackedVector2Array = lines[0]
-		assert_gt(line.size(), 3, "%s hat eine Figur, keinen Strich" % glyph)
-		assert_lt(line[0].distance_to(line[line.size() - 1]), SAME_POINT,
-			"%s schließt sich" % glyph)
+		var strokes := 0
+		for line: PackedVector2Array in Rune.glyph_lines(glyph):
+			assert_gt(line.size(), 1, "%s: jede Linie ist ein Strich" % glyph)
+			for i in range(line.size() - 1):
+				strokes += 1
+				assert_gt(line[i].distance_to(line[i + 1]), 0.15,
+					"%s: kein Strich ist ein Bogenstück" % glyph)
+		assert_between(strokes, 3, 6, "%s: wenige, klare Striche" % glyph)
 
-func test_every_glyph_is_symmetric_about_the_upright_axis() -> void:
-	# Eine Grundform liest auf Grubendistanz als SILHOUETTE - eine schiefe Figur
-	# läse dort als Fleck.
+func test_no_two_glyphs_share_a_silhouette() -> void:
+	# Auf einer Material-Seite kann die Farbe der Rune der der Fläche gleichen -
+	# dann trennt allein die Form. Verglichen wird ein grobes Raster der Striche.
+	var prints := {}
 	for glyph in Rune.all_glyphs():
-		var line: PackedVector2Array = Rune.glyph_lines(glyph)[0]
-		for point in line:
-			var mirrored := Vector2(1.0 - point.x, point.y)
-			var nearest := INF
-			for other in line:
-				nearest = minf(nearest, other.distance_to(mirrored))
-			assert_lt(nearest, SAME_POINT,
-				"%s: %v hat kein Gegenstück an der Hochachse" % [glyph, point])
+		prints[glyph] = _footprint(glyph)
+	var glyphs := Rune.all_glyphs()
+	for a in glyphs.size():
+		for b in range(a + 1, glyphs.size()):
+			var only_one := 0
+			var either := 0
+			for cell in prints[glyphs[a]].keys() + prints[glyphs[b]].keys():
+				var in_a: bool = prints[glyphs[a]].has(cell)
+				var in_b: bool = prints[glyphs[b]].has(cell)
+				if in_a != in_b:
+					only_one += 1
+				either += 1
+			assert_gt(float(only_one) / float(either), 0.3,
+				"%s und %s decken fast dieselben Zellen" % [glyphs[a], glyphs[b]])
+
+## Zellen eines 8×8-Rasters, durch die ein Strich der Figur läuft.
+func _footprint(glyph: String) -> Dictionary:
+	var cells := {}
+	for line: PackedVector2Array in Rune.glyph_lines(glyph):
+		for i in range(line.size() - 1):
+			for step in 41:
+				var point := line[i].lerp(line[i + 1], float(step) / 40.0)
+				cells[Vector2i(int(point.x * 8.0), int(point.y * 8.0))] = true
+	return cells
 
 func test_every_glyph_reaches_the_authored_radius() -> void:
-	# EINE Größe je Ding: eine Grundform, die kleiner ausfällt als ihre Nachbarin,
-	# liest als zweite Größe statt als zweites Zeichen. Nach OBEN hält der Seitenrand
-	# (test_every_glyph_stays_inside_the_face) - die Ecken eines Quadrats reichen
-	# weiter als sein Radius, und das sollen sie.
+	# EINE Größe je Ding: eine Figur, die kleiner ausfällt als ihre Nachbarin,
+	# liest als zweite Größe statt als zweites Zeichen.
 	for glyph in Rune.all_glyphs():
 		var reach := 0.0
-		for point in Rune.glyph_lines(glyph)[0]:
-			reach = maxf(reach, point.distance_to(Rune.CENTER))
+		for line: PackedVector2Array in Rune.glyph_lines(glyph):
+			for point in line:
+				reach = maxf(reach, point.distance_to(Rune.CENTER))
 		assert_gte(reach, Rune.GLYPH_RADIUS - 0.001,
 			"%s bleibt hinter dem authored Radius zurück" % glyph)
 
@@ -91,24 +108,23 @@ func test_the_slots_never_coincide() -> void:
 func test_a_placed_glyph_stays_inside_the_face() -> void:
 	for slot in Rune.SLOT_SCALES.size():
 		for glyph in Rune.all_glyphs():
-			for point in Rune.glyph_lines(glyph)[0]:
-				var seat := Rune.place(point, slot)
-				assert_between(seat.x, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
-					"%s auf Platz %d verlässt den Seitenrand (x)" % [glyph, slot])
-				assert_between(seat.y, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
-					"%s auf Platz %d verlässt den Seitenrand (y)" % [glyph, slot])
+			for line: PackedVector2Array in Rune.glyph_lines(glyph):
+				for point in line:
+					var seat := Rune.place(point, slot)
+					assert_between(seat.x, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
+						"%s auf Platz %d verlässt den Seitenrand (x)" % [glyph, slot])
+					assert_between(seat.y, Rune.GLYPH_MARGIN - EPS, 1.0 - Rune.GLYPH_MARGIN + EPS,
+						"%s auf Platz %d verlässt den Seitenrand (y)" % [glyph, slot])
 
 func test_every_polyline_carries_a_weight() -> void:
 	for glyph in Rune.all_glyphs():
 		assert_eq(Rune.glyph_weights(glyph).size(), Rune.glyph_lines(glyph).size(),
 			"%s: je Linie genau ein Gewicht" % glyph)
 
-func test_every_glyph_is_a_single_full_stroke() -> void:
-	# Ein Beistrich wäre ein zweites Zeichen - die Grundform trägt genau einen.
+func test_every_stroke_is_carved_equally_deep() -> void:
 	for glyph in Rune.all_glyphs():
-		var weights := Rune.glyph_weights(glyph)
-		assert_eq(weights.size(), 1, "%s: EIN Strich" % glyph)
-		assert_almost_eq(weights[0], 1.0, 0.001, "%s: in voller Stärke" % glyph)
+		for weight in Rune.glyph_weights(glyph):
+			assert_almost_eq(weight, 1.0, 0.001, "%s: jeder Strich in voller Stärke" % glyph)
 
 func test_every_rune_owns_exactly_one_glyph() -> void:
 	# Je Wirkung eine erkennbare Idee - zwei Runen mit derselben Figur wären

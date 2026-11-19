@@ -300,7 +300,7 @@ static func _build_label(value: int) -> Label3D:
 	label.outline_size = DieFaceDisplay.LABEL_OUTLINE_SIZE
 	label.outline_modulate = DieFaceDisplay.LABEL_OUTLINE_COLOR
 	label.alpha_scissor_threshold = DieFaceDisplay.LABEL_ALPHA_SCISSOR
-	label.position = Vector3(0, 0, 0.01)
+	label.position = Vector3(0, 0, DieFaceDisplay.LABEL_LIFT)
 	DieFaceDisplay.write_value(label, value)
 	return label
 

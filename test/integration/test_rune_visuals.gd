@@ -177,7 +177,9 @@ func test_even_the_last_rune_slot_stays_under_the_digit() -> void:
 	# trotzdem fest, und sie muss unter Asche UND Ziffer bleiben.
 	var deepest := DieFaceDisplay.RUNE_LIFT 		+ DieFaceDisplay.SECOND_RUNE_STEP * float(Rune.SLOT_SCALES.size() - 1)
 	assert_lt(deepest, DieFaceDisplay.BURN_LIFT, "unter der Asche")
-	assert_lt(deepest, 0.01, "und unter der Ziffer")
+	# Der Abstand trägt die Tiefen-Auflösung unter flachem Blick.
+	assert_gt(DieFaceDisplay.LABEL_LIFT - deepest, 0.008, "und klar unter der Ziffer")
+	assert_gt(DieFaceDisplay.LABEL_LIFT - DieFaceDisplay.BURN_LIFT, 0.008, "die Asche ebenso")
 
 func test_the_figure_never_follows_the_value() -> void:
 	# Knochen lässt Werte wachsen, und eine Rune, die sich dabei neu zeichnet,

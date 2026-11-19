@@ -3527,6 +3527,15 @@ func _sync_drum(workshop: WorkshopView) -> void:
 	if not workshop.burning():
 		drum.seat(_drum_packs(workshop))
 
+## Je Bild: liegt die Karte einer Scheibe (gelandet, nicht mehr im Flug), greift ihr Leser zu.
+func _sync_drum_readers() -> void:
+	if drum == null or not is_instance_valid(drum):
+		return
+	for i in WorkshopView.DRUM_SLICES:
+		var cell: DataCellView = socket_cells[i] if i < socket_cells.size() else null
+		drum.set_loaded(i, cell != null and is_instance_valid(cell) and cell.socketed()
+			and not _carrying.has(cell))
+
 ## Die Karte je Scheibe (null = leer) - in Steckreihenfolge.
 func _drum_packs(workshop: WorkshopView) -> Array:
 	var packs: Array = []
@@ -11648,6 +11657,7 @@ func _process(delta: float) -> void:
 	_sync_secret_charm_disk()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
+	_sync_drum_readers()
 	_sync_vitrine_hover()
 	_update_selection_glows()
 	_sync_screen_action_buttons()
@@ -12042,7 +12052,8 @@ func _all_in_play_dice_selected() -> bool:
 			return false
 	return any_visible
 
-## Zeigt die Auswahl als goldenes Leucht-Podest unter jedem ausgewählten Würfel;
+## Zeigt die Auswahl als Leucht-Podest unter jedem ausgewählten Würfel, je
+## Gruppe der Kombination in eigener Farbe;
 ## folgt den Würfeln jeden Frame, nur in der Auswahlphase sichtbar. Mit Vollzähler
 ## zählt die ganze Grube: die Kombi-Würfel leuchten hell, alle übrigen liegenden
 ## schwach (sie werten mit, gehören aber nicht zur Kombination).
@@ -12058,6 +12069,7 @@ func _update_selection_glows() -> void:
 	if full_counter:
 		for s in _pit_combination_slots():
 			combo[s] = true
+	var colors := _selection_glow_colors() if want else {}
 	for i in dice.count():
 		# Glow-Stärke je Würfel: 1 hell, FAINT schwach, 0 aus.
 		var intensity := 0.0
@@ -12070,12 +12082,14 @@ func _update_selection_glows() -> void:
 				intensity = 1.0
 		if intensity > 0.0:
 			var center := table_screen.world_to_pixel(dice.bodies[i].global_position)
+			var color: Color = colors.get(i, TableScreen.LOOSE_GLOW_COLOR)
 			if _select_glows.has(i):
 				var g: Control = _select_glows[i]
 				g.position = center - g.size / 2.0
 				g.modulate.a = intensity
+				TableScreen.set_glow_color(g, color)
 			else:
-				_select_glows[i] = table_screen.spawn_glow(center, glow_side, intensity)
+				_select_glows[i] = table_screen.spawn_glow(center, glow_side, intensity, color)
 		elif _select_glows.has(i):
 			_select_glows[i].queue_free()
 			_select_glows.erase(i)
@@ -13583,13 +13597,17 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 		_cleanup_take_animation()
 		return
 
-	# Goldenes Leucht-Podest unter jedem zählenden Würfel.
+	# Leucht-Podest unter jedem zählenden Würfel, je Gruppe in ihrer Farbe.
 	var die_world := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 	var glow_side := die_world * SCORE_GLOW_SIZE_FACTOR * table_screen.pixels_per_world()
+	var participating: Array[int] = []
+	participating.assign(breakdown.get("participating", []))
+	var groups := DiceScoring.combo_groups(breakdown["key"], dice.values, participating)
 	var glow_by_slot := {}
 	for i in counting:
 		var glow := table_screen.spawn_glow(
-			table_screen.world_to_pixel(dice.bodies[i].global_position), glow_side)
+			table_screen.world_to_pixel(dice.bodies[i].global_position), glow_side, 1.0,
+			TableScreen.group_glow_color(groups.get(i, -1)))
 		take_anim_glows.append(glow)
 		glow_by_slot[i] = glow
 
@@ -14678,9 +14696,26 @@ func _shunt_widens(slots: Array[int]) -> bool:
 ## Beteiligte Slots der besten Hand über ALLE liegenden Würfel (Vollzähler-Glow:
 ## diese leuchten hell, der Rest der Grube nur schwach).
 func _pit_combination_slots() -> Array[int]:
-	var slots := _visible_pit_slots()
+	return _combination_in(_visible_pit_slots())["participating"]
+
+## Slot -> Farbe des Podests: die beste Hand der AUSWAHL, je Gruppe eine Farbe.
+func _selection_glow_colors() -> Dictionary:
+	var colors := {}
+	var slots := _scoring_slots()
 	if slots.is_empty():
-		return []
+		return colors
+	var combo := _combination_in(slots)
+	var participating: Array[int] = combo["participating"]
+	var groups := DiceScoring.combo_groups(combo["key"], dice.values, participating)
+	for s in slots:
+		colors[s] = TableScreen.group_glow_color(groups.get(s, -1))
+	return colors
+
+## Beste Hand über die gegebenen Slots: {key, participating (echte Slots)}.
+func _combination_in(slots: Array[int]) -> Dictionary:
+	var result: Array[int] = []
+	if slots.is_empty():
+		return {"key": "", "participating": result}
 	var ids := run.charm_ids()
 	var materials := _rolled_materials()
 	var sel_values: Array[int] = []
@@ -14689,10 +14724,9 @@ func _pit_combination_slots() -> Array[int]:
 		sel_values.append(dice.values[s])
 		sel_materials.append(materials[s])
 	var hand := DiceScoring.best_hand(sel_values, ids, hands_taken_this_round == 0, sel_materials, run.scoring_parts(), _score_ctx_for_slots(slots))
-	var result: Array[int] = []
 	for p in DiceScoring.participating_indices(hand["key"], sel_values, ids, _score_ctx_for_slots(slots)):
 		result.append(slots[p])
-	return result
+	return {"key": hand["key"], "participating": result}
 
 ## Rechnet die Indizes einer über den Auswahl-Teilwurf gebauten Schrittliste
 ## auf echte Würfel-Slots zurück - so leuchten die richtigen Würfel auf.

@@ -1,7 +1,8 @@
 class_name CharmDiskView
 extends Node3D
 ## Die CHARM-DISKETTE (Spieler-Entscheid 2026-11-18, Layout TERMINAL): eine 3,5"-Diskette mit
-## schwarzer Glasfront. OBEN (steckt im Laufwerk) Bild-Kachel, „LOAD <ID>.DSK“ und Ladebalken,
+## schwarzer Glasfront. OBEN (steckt im Laufwerk) der Schieber, durch sein breites Fenster sieht man
+## die HOLO-SCHEIBE mit dem Charm-Bild unter Glas,
 ## UNTEN (bleibt draußen) „> NAME“ in der Raritätsfarbe, die Wirkung in Bildschirm-Cyan,
 ## Raritätswort und vier LEDs. Ursprung = Mitte der Unterseite; lokal +X = Schieber-Ende
 ## (steckt zuerst), +Z = Bild-rechts, +Y = oben. EINE Größe überall (SIZE).
@@ -14,11 +15,27 @@ const BLENDER_THICK := 0.033
 ## Welt-Maße: x = Länge (Einschub-Achse), y = Dicke, z = Breite.
 const SIZE := Vector3(BLENDER_LENGTH * BLENDER_SCALE, BLENDER_THICK * BLENDER_SCALE,
 	BLENDER_WIDTH * BLENDER_SCALE)
-## So tief steckt sie: Schieber und Bild, nie der Text (Blender INSERT 0,56).
-const INSERT_DEPTH := 0.56 * BLENDER_SCALE
+## So tief steckt sie: nur der Schieber, der Rest ist Textfeld (Blender-Einheiten).
+const INSERT := 0.34
+const INSERT_DEPTH := INSERT * BLENDER_SCALE
 
 const MODEL_PATH := "res://assets/models/hardware/charm_disk.glb"
 const FONT_PATH := "res://assets/fonts/AnonymousPro-Bold.ttf"
+## Die Hüllen-Materialien des Exports ersetzt (Name -> Albedo, Metallic, Roughness, Rim): aus
+## Blender kamen fast schwarzes Gußgrau und Chrom mit Metallic 1, die auf dem dunklen Tisch ohne
+## Umgebung nichts zu spiegeln haben und schwarz lasen (Spieler-Befund 2026-11-18). Die Tischlichter
+## erreichen die Reihe nicht: Licht gibt allein der Strahler des Charms (MODEL_LIGHT_LAYER), dazu
+## ein schwaches Eigenlicht (SHELL_SELF_GLOW), damit leere Laufwerke und Laden-Disketten nicht verschwinden.
+const SHELL_LOOK := {
+	"Gussgrau": [Color(0.2, 0.2, 0.24), 0.35, 0.38, 0.45],
+	"Front": [Color(0.06, 0.06, 0.075), 0.0, 0.22, 0.35],
+	"Schwarzlack": [Color(0.075, 0.075, 0.09), 0.1, 0.28, 0.45],
+	"Chrom": [Color(0.6, 0.62, 0.66), 0.55, 0.22, 0.0],
+	"Schwarzchrom": [Color(0.32, 0.33, 0.37), 0.45, 0.3, 0.0],
+	"Displayglas": [Color(0.02, 0.035, 0.045), 0.0, 0.3, 0.0],
+	"Glasfront": [Color(0.02, 0.032, 0.04), 0.0, 0.35, 0.0],
+}
+const SHELL_SELF_GLOW := 0.55
 ## Weltmaß eines Label-Pixels.
 const PIXEL := 0.01
 ## Oberkante der Glasfront über der Unterseite (Blender DT + 0,0029).
@@ -32,18 +49,18 @@ const NAME_ENERGY := 1.15
 const FRAME_REST := 1.0
 const FRAME_FLASH := 2.6
 const LED_OFF := Color(0.03, 0.03, 0.04)
-const TILE_SHARE := 0.3
+const DISC_GLOW_SHARE := 0.65
 const LIFT_HEIGHT := 0.9
 const LIFT_TIME := 0.12
 
 ## Felder in Blender-Koordinaten (x = quer, y = längs) - dieselben wie terminal().
 const NAME_LEFT := -0.365
-const NAME_Y := -0.145
+const NAME_Y := 0.085
 const TEXT_WIDTH := 0.73
-const NAME_BIGGEST := 0.09
-const DESC_TOP := -0.203
+const NAME_BIGGEST := 0.135
+const DESC_TOP := 0.035
 const DESC_BOTTOM := -0.385
-const DESC_BIGGEST := 0.085
+const DESC_BIGGEST := 0.13
 const DESC_SMALLEST := 0.02
 const FOOT_Y := -0.415
 const GLASS := Rect2(-0.405, -0.455, 0.81, 0.605)
@@ -53,7 +70,17 @@ const TAG_WIDTH := 0.22
 const TAG_BIGGEST := 0.1
 const TAG_COLOR := Color(1.4, 1.16, 0.14)
 const TAG_MUTED := Color(0.5, 0.5, 0.58)
-const TILE := Rect2(-0.37, -0.07, 0.22, 0.2)
+## Das HOLO-FENSTER im Schieber (Spieler-Wahl 2026-11-18): Mitte -0,03 / 0,314, 0,33 × 0,225 wie
+## der Schnitt in tools/blender_floppy_export.py (WINDOW). Darunter die Scheibe, darüber das Glas.
+const WINDOW := Rect2(-0.195, 0.2015, 0.33, 0.225)
+## Die Scheibe dreht um die Nabe; ihr Rand streift nur die oberen Fensterecken.
+const DISC_HUB := Vector2(0.0, 0.03)
+const DISC_RADIUS := 0.405
+## Höhen über der Glasfront (Blender): die Scheibe knapp über dem Gehäuse, das Glas unter dem Schieber.
+const DISC_LIFT := -0.0025 * BLENDER_SCALE
+const WINDOW_GLASS_LIFT := 0.0001 * BLENDER_SCALE
+const DISC_SHADER := preload("res://assets/shaders/charm_disc.gdshader")
+const DISC_GLASS_SHADER := preload("res://assets/shaders/charm_disc_glass.gdshader")
 
 const RARITY_TIERS := {
 	Charm.RARITY_COMMON: 1, Charm.RARITY_UNCOMMON: 2,
@@ -84,6 +111,7 @@ static var _font: Font
 static var _model: PackedScene
 static var _pictures := {}  # Charm-Id -> ViewportTexture (EINMAL gerendert)
 static var _studio: Node
+static var _shell_materials := {}  # Blender-Materialname -> StandardMaterial3D
 
 func _init(for_charm: Charm = null) -> void:
 	charm = for_charm
@@ -158,8 +186,6 @@ func _build() -> void:
 	var tint := rarity_color(charm.rarity)
 	_frame_material = _unshaded(energized(tint, FRAME_REST))
 	_led_material = _unshaded(energized(tint, NAME_ENERGY))
-	var dim := _unshaded(energized(SCREEN_COLOR, DIM_SHARE))
-	var cyan := _unshaded(energized(SCREEN_COLOR, SCREEN_ENERGY))
 	# Rahmen in der Raritätsfarbe - auch aus der Ferne die Stufe.
 	var inset := 0.012
 	var t := 0.006
@@ -168,15 +194,12 @@ func _build() -> void:
 	_quad(Rect2(g.position.x + inset, g.position.y + inset, g.size.x - inset * 2.0, t), _frame_material)
 	_quad(Rect2(g.position.x + inset, g.position.y + inset, t, g.size.y - inset * 2.0), _frame_material)
 	_quad(Rect2(g.end.x - inset - t, g.position.y + inset, t, g.size.y - inset * 2.0), _frame_material)
-	# Drinnen: Bild-Kachel und eine Kopfzeile wie ein Ladebildschirm.
-	_quad(TILE, _unshaded(energized(tint, TILE_SHARE)))
-	var picture := _quad(TILE, _picture_material(charm), FACE_LIFT * 2.0)
+	# Drinnen: die Holo-Scheibe im Fenster des Schiebers, darüber das Glas.
+	var picture := _quad(WINDOW, _disc_material(charm, tint), DISC_LIFT)
 	picture.name = "Bild"
-	var head := "LOAD  %s.DSK" % charm.id.to_upper().substr(0, 10)
-	_label(head, -0.12, 0.09, int(0.032 * BLENDER_SCALE / PIXEL), energized(SCREEN_COLOR, DIM_SHARE),
-		VERTICAL_ALIGNMENT_CENTER)
-	_quad(Rect2(-0.12, 0.028, 0.48, 0.014), dim)
-	_quad(Rect2(-0.12, 0.028, 0.38, 0.014), cyan, FACE_LIFT * 2.0)
+	var glass := ShaderMaterial.new()
+	glass.shader = DISC_GLASS_SHADER
+	_quad(WINDOW, glass, WINDOW_GLASS_LIFT).name = "Fensterglas"
 	# Draußen: Name in der Rarität, Wirkung in Cyan, so groß wie das Feld erlaubt.
 	var width := TEXT_WIDTH * BLENDER_SCALE / PIXEL
 	var title := "> " + charm.display_name.to_upper()
@@ -215,6 +238,7 @@ func _mount_shell() -> void:
 		shell.name = "Huelle"
 		shell.rotation = Vector3(0.0, -PI * 0.5, 0.0)
 		shell.scale = Vector3.ONE * BLENDER_SCALE
+		dress_shell(shell)
 		_body.add_child(shell)
 		return
 	# Ohne Import ein schlichter schwarzer Kasten.
@@ -267,19 +291,54 @@ func _label(text: String, bx: float, by: float, size: int, color: Color,
 	_body.add_child(label)
 	return label
 
+## Gibt jeder Fläche einer Hülle das Tisch-Material ihres Blender-Namens (geteilt je Name).
+static func dress_shell(root: Node) -> void:
+	for node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		mesh_node.layers |= CharmRowView.MODEL_LIGHT_LAYER
+		for i in mesh_node.mesh.get_surface_count():
+			var source := mesh_node.mesh.surface_get_material(i)
+			if source == null or not SHELL_LOOK.has(source.resource_name):
+				continue
+			mesh_node.set_surface_override_material(i, shell_material(source.resource_name))
+
+static func shell_material(look: String) -> StandardMaterial3D:
+	if _shell_materials.has(look):
+		return _shell_materials[look]
+	var spec: Array = SHELL_LOOK[look]
+	var material := StandardMaterial3D.new()
+	material.albedo_color = spec[0]
+	material.metallic = spec[1]
+	material.roughness = spec[2]
+	material.emission_enabled = true
+	material.emission = spec[0]
+	material.emission_energy_multiplier = SHELL_SELF_GLOW
+	if float(spec[3]) > 0.0:
+		material.rim_enabled = true
+		material.rim = spec[3]
+		material.rim_tint = 0.6
+	_shell_materials[look] = material
+	return material
+
 static func _unshaded(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.albedo_color = color
 	return material
 
-## Das Charm-Bild: EINMAL je Id gerendert (CharmThumb rendert genau ein Bild) und geteilt.
-func _picture_material(for_charm: Charm) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	material.alpha_scissor_threshold = 0.4
-	material.albedo_texture = charm_picture(for_charm)
+## Die Holo-Scheibe: das Charm-Bild (EINMAL je Id gerendert und geteilt) über einem Verlauf in der
+## Rarität, rund beschnitten um die Nabe.
+func _disc_material(for_charm: Charm, tint: Color) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = DISC_SHADER
+	material.set_shader_parameter("picture", charm_picture(for_charm))
+	material.set_shader_parameter("rect", Vector4(WINDOW.position.x, WINDOW.position.y,
+		WINDOW.end.x, WINDOW.end.y))
+	material.set_shader_parameter("hub", DISC_HUB)
+	material.set_shader_parameter("radius", DISC_RADIUS)
+	material.set_shader_parameter("bg_inner", tint * DISC_GLOW_SHARE)
 	return material
 
 static func charm_picture(for_charm: Charm) -> Texture2D:

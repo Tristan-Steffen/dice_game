@@ -4,7 +4,7 @@
 Aufruf (kopflos):
   blender -b -P tools/blender_floppy_export.py -- assets/models/hardware
 
-charm_disk.glb - NUR die Hülle: Gehaeuse, Schieber, Fenster, Loch*, Nabe, Glasfront. Text, Bild,
+charm_disk.glb - NUR die Hülle: Gehaeuse, Schieber (mit breitem Fenster), Loch*, Nabe, Glasfront. Text, Bild,
   Rahmen und LEDs setzt Godot je Charm (CharmDiskView). Ursprung = Mitte der Unterseite.
 charm_reader.glb - Gehaeuse, Blende mit Schlitz, Schlitzgrund, Rillen, Sockel, Topf, Stangen und
   die eigenen, benannten Leuchtteile Lippe, Kopfsaum, Ring, Linse, Spitzen, Lampe, Display,
@@ -25,6 +25,8 @@ os.makedirs(OUT, exist_ok=True)
 DW, DL, DT = fc.DW, fc.DL, fc.DT
 RW, RL, RH = fc.RW, fc.RL, fc.RH
 ZT = DT * 0.5
+## Mitte x, Mitte y, Breite, Höhe - dieselben Zahlen wie CharmDiskView.WINDOW.
+WINDOW = (-0.03, 0.314, 0.33, 0.225)
 
 
 def reset():
@@ -61,6 +63,13 @@ def disk():
     root = fc.empty("Diskette", (0, 0, ZT))
     fl.shell(root, led.mat("Schwarzlack", (0.008, 0.008, 0.011), 0.0, 0.12, clearcoat=1.0),
              led.mat("Schwarzchrom", (0.12, 0.12, 0.14), 1.0, 0.18))
+    # Das breite Holo-Fenster (Spieler-Wahl 2026-11-18, tools/blender_floppy_picture.py „fenster“):
+    # in den Schieber geschnitten, darunter legt Godot die Holo-Scheibe samt Glas (WINDOW).
+    bpy.data.objects.remove(bpy.data.objects["Fenster"], do_unlink=True)
+    wx, wy, ww, wh = WINDOW
+    cutter = fc.box(root, "SchnittFenster", (ww, wh, 0.01), (wx, wy, ZT + 0.0035),
+                    led.mat("Loch", (0.004, 0.004, 0.006), 0.0, 0.5))
+    led.cut(bpy.data.objects["Schieber"], cutter)
     x0, x1, y0, y1 = -0.405, 0.405, -DL * 0.5 + 0.015, DL * 0.5 - 0.32
     led.rounded_box(root, "Glasfront", (x1 - x0, y1 - y0, 0.003), (0, (y0 + y1) * 0.5, ZT + 0.0012),
                     led.mat("Glasfront", (0.004, 0.009, 0.012), 0.0, 0.35, 0.0, clearcoat=0.25),

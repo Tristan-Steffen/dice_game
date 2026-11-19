@@ -23,8 +23,9 @@ uniform float emission_energy = 1.2;  // lässt die Anzeige im dunklen Raum als 
 // Stärke der Würfel-Spiegelung: fresnel_base wirkt bei senkrechtem Blick,
 // Richtung streifendem Blick steigt sie auf reflection_strength an (Fresnel -
 // echtes Glas spiegelt flach betrachtet deutlich stärker).
-uniform float reflection_strength : hint_range(0.0, 2.0) = 0.9;
-uniform float fresnel_base : hint_range(0.0, 1.0) = 0.4;
+// Gedämpft (2026-11-19): veredelte Würfel lasen in der Grube sonst doppelt.
+uniform float reflection_strength : hint_range(0.0, 2.0) = 0.35;
+uniform float fresnel_base : hint_range(0.0, 1.0) = 0.15;
 uniform float fresnel_power : hint_range(0.5, 8.0) = 3.0;
 
 // NUR die "Fenster" des Displays sind spiegelndes Glas - der Rest der Fläche

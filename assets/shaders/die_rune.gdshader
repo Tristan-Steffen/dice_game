@@ -11,7 +11,7 @@
 // Ein Ausbruch liest auf Übersichts-Distanz über BREITE: eine Naht ist dort ~1 px,
 // Helligkeit allein bliebe ein Subpixel-Punkt.
 //
-// Seit den GRUNDFORMEN (2026-10-24) hat der Shader keinen Ziffern-Wächter mehr:
+// Seit dem 2026-10-24 hat der Shader keinen Ziffern-Wächter mehr:
 // die Figur läuft HINTER der Ziffer durch, und die deckt sie mitsamt ihrem dunklen
 // Saum selbst (Label3D mit ALPHA_CUT_OPAQUE_PREPASS schreibt Tiefe).
 
@@ -39,6 +39,9 @@ uniform vec2 halo_bias = vec2(0.0);    // gerichtetes Ausbluten (Streulicht: nac
 // die Maske weiter aussen abzutasten - ausserhalb steht sie auf "kein Feld".
 uniform float glyph_scale = 1.0;
 uniform bool block_flare = false;      // Einbrand: Schutz-Blitz statt Wertungswelle
+// Dunkler Unterzug auf Material-Seiten: eine goldene Rune auf Gold trüge sonst
+// nur ihr Licht, keine Form.
+uniform float casing = 0.0;
 
 // Länge der wandernden Bande als Anteil der Naht (TAU ist eingebaut).
 const float BAND = 0.12;
@@ -176,6 +179,8 @@ void fragment() {
 	// Der Kern ist immer da - der Spalt bleibt, auch wenn kein Licht durchfällt.
 	// Der Hof dagegen kommt und geht mit der Helligkeit.
 	float out_alpha = clamp(max(core, max(halo * bright, ring)), 0.0, 1.0) * max(cover, ring);
+	// Die Farbe ist ausserhalb des Lichts schon schwarz - Deckung allein dunkelt ab.
+	out_alpha = max(out_alpha, casing * cover);
 
 	// --- Vakuum: die Umkehrung. Licht fällt HINEIN, statt heraus -------------------
 	if (motion == 4) {

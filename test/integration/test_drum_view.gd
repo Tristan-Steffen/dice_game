@@ -75,3 +75,44 @@ func test_the_same_geometry_keeps_the_light_rider() -> void:
 	drum.setup(centers, 3.6, 5.5)
 	assert_true(is_instance_valid(rider) and rider.is_inside_tree(),
 		"ein gleicher Abgleich baut nichts neu - das Licht-Netz reitet weiter")
+
+# --- Die LESER: flach, bereit, zugegriffen ---------------------------------------------------
+
+func test_readers_lie_flat_until_a_card_is_seated() -> void:
+	for i in DrumView.SLICES:
+		assert_eq(drum.reader_pose(i), DrumView.POSE_REST)
+	drum.set_loaded(0, true)
+	assert_eq(drum.reader_pose(0), DrumView.POSE_REST, "ohne belegte Seite greift nichts zu")
+
+func test_a_reader_stands_ready_then_grips_then_folds_again() -> void:
+	var pack := _pack(Engraving.CATEGORY_MATERIAL)
+	drum.seat([pack])
+	assert_eq(drum.reader_pose(0), DrumView.POSE_READY, "Endzustand zuerst: bereit")
+	drum.set_loaded(0, true)
+	assert_eq(drum.reader_pose(0), DrumView.POSE_LOADED)
+	drum.set_loaded(0, false)
+	assert_eq(drum.reader_pose(0), DrumView.POSE_READY, "die Karte ist fort, die Seite noch belegt")
+	drum.seat([])
+	assert_eq(drum.reader_pose(0), DrumView.POSE_REST, "leer legt er sich flach")
+
+## In POSE_REST darf nichts aus dem Drehkreis des Vierkants ragen - sonst schlüge ein Leser
+## beim Drehen durch den Graben.
+func test_resting_readers_stay_inside_the_turning_circle() -> void:
+	drum.seat_hard([])
+	var limit := 3.6 * sqrt(2.0) * 0.5 + 0.02
+	var pivot: Node3D = drum.get_node("Scheibe1")
+	for node in pivot.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		var box := mesh.mesh.get_aabb()
+		var to_pivot := pivot.global_transform.affine_inverse() * mesh.global_transform
+		for k in 8:
+			var corner := to_pivot * box.get_endpoint(k)
+			assert_lt(Vector2(corner.x, corner.y).length(), limit,
+				"%s/%s ragt aus dem Drehkreis" % [mesh.get_parent().name, mesh.name])
+
+func test_each_sort_has_its_own_reader() -> void:
+	var pivot: Node3D = drum.get_node("Scheibe1")
+	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[0]).find_child("Finger0", true, false))
+	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[1]).find_child("Klappe", true, false))
+	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[2]).find_child("Rollsiegel", true, false))
+	assert_not_null(pivot.get_node("Leser_%s" % Pack.SHELF_ORDER[3]).find_child("Arm", true, false))

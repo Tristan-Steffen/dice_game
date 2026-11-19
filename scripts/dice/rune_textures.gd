@@ -156,8 +156,7 @@ static func _bake(glyph_id: String) -> ImageTexture:
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
 
-## Halbe Kernbreite: konstant, ein geätzter Strich hat überall dieselbe Tiefe.
-## Die Auslaufzone der freien Enden ist mit den GRUNDFORMEN gestorben - jede Figur
-## ist geschlossen, und ein schmaler werdendes "Ende" säße mitten auf der Linie.
+## Halbe Kernbreite: konstant, ein geritzter Strich hat überall dieselbe Tiefe
+## und endet stumpf-rund.
 static func _half_width(weight: float) -> float:
 	return 0.5 * STROKE * float(SIZE) * weight

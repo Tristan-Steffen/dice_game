@@ -613,6 +613,16 @@ static func trigger_order(scored: Array[int], dice: Array[int], declared: Array 
 		return dice[a] > dice[b] or (dice[a] == dice[b] and a < b))
 	return order
 
+## Slot -> Gruppe der Kombination (0 = vorderste): jedes Paar, jeder Drilling
+## seine eigene, eine Straße ist EINE.
+static func combo_groups(key: String, dice: Array[int], participating: Array[int]) -> Dictionary:
+	if key == SMALL_STRAIGHT or key == LARGE_STRAIGHT:
+		var whole := {}
+		for slot in participating:
+			whole[slot] = 0
+		return whole
+	return _block_ranks(dice, participating)
+
 ## Slot -> Rang seines Kombinations-Blocks (0 = vorderster). Blöcke nach Größe
 ## absteigend, bei gleicher Größe nach Kombinationsziffer absteigend; der
 ## Gleichstand muss AUSDRÜCKLICH brechen, sort_custom ist nicht stabil.

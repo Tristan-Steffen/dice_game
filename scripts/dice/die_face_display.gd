@@ -124,7 +124,11 @@ const BURNED_BODY := Color(0.42, 0.41, 0.4)
 const BURNED_EDGE := Color(0.5, 0.48, 0.46)
 const BURNED_NUMBER := Color(0.2, 0.19, 0.19)
 const BURN_SHADER := preload("res://assets/shaders/die_burn.gdshader")
-const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer (0,01)
+const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer
+## Höhe der Ziffer über der Seite. Der Abstand zur Runen-Auflage muss gross bleiben:
+## bei 0,002 reichte unter flachem Blick die Tiefen-Auflösung nicht, und die Rune
+## schnitt durch die Zahl.
+const LABEL_LIFT := 0.02
 var burn_parts: Array[MeshInstance3D] = []
 ## Ab dieser Stufe zünden die Eck-Lampen.
 const CHARGE_ARC_LEVEL := 3
@@ -241,6 +245,9 @@ const AURORA_HUE_SPAN := 0.22
 ## Tiefe der Runen-Auflage und der Schritt je weiterem Platz. Beide Zusatz-Plätze
 ## müssen UNTER der Asche (BURN_LIFT 0.0092) und der Ziffer (0.01) bleiben - sonst
 ## läge der dritte Rune eines Vakuum-Würfels VOR der Zahl.
+## Deckung des dunklen Unterzugs einer Rune auf einer Material-Seite.
+const RUNE_CASING := 0.85
+var _rune_casing := 0.0
 const RUNE_LIFT := 0.008
 const SECOND_RUNE_STEP := 0.0004
 
@@ -592,6 +599,7 @@ func _refresh_rune_overlays(def: DieDefinition) -> void:
 	for axis in rune_overlays:
 		var face_index: int = DiceController.AXIS_FACE_INDEX[axis]
 		var on_face := def.runes_on(face_index)
+		_rune_casing = RUNE_CASING if String(face_ids.get(axis, "")) != "" else 0.0
 		_apply_rune_overlay(rune_overlays[axis], on_face, 0, def)
 		for slot in range(1, Rune.SLOT_SCALES.size()):
 			var extra: MeshInstance3D = _extra_overlays(slot).get(axis)
@@ -640,6 +648,9 @@ func _apply_rune_overlay(overlay: MeshInstance3D, on_face: Array[String], index:
 	material.set_shader_parameter("phase", _pulse_phase)
 	# Der Platz ist ein Maßstab derselben Maske - die Grundformen liegen ineinander.
 	material.set_shader_parameter("glyph_scale", Rune.slot_scale(index))
+	# Das Vakuum deckt selbst schwarz.
+	material.set_shader_parameter("casing",
+		0.0 if profile.motion == Rune.MOTION_INTAKE else _rune_casing)
 	material.set_shader_parameter("flare", 0.0)
 	material.set_shader_parameter("block_flare", false)
 

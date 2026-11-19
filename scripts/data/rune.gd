@@ -265,76 +265,68 @@ const GLYPH_MARGIN := 0.06
 ## Mitte der Seite - jede Grundform liegt um sie.
 const CENTER := Vector2(0.5, 0.5)
 
-## Geschlossener Linienzug aus steps Ecken auf einem Kreis um CENTER. turn dreht
-## die Figur (Grad, 0 = erste Ecke OBEN); der letzte Punkt IST der erste.
-static func _ring(radius: float, steps: int, turn := 0.0) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	for i in steps + 1:
-		var phi := deg_to_rad(turn) + TAU * float(i % steps) / float(steps)
-		points.append(CENTER + Vector2(radius * sin(phi), -radius * cos(phi)))
-	return points
+## Punkt auf dem Kreis um CENTER (Grad, 0 = OBEN, im Uhrzeigersinn).
+static func _spoke(radius: float, turn: float) -> Vector2:
+	var phi := deg_to_rad(turn)
+	return CENTER + Vector2(radius * sin(phi), -radius * cos(phi))
 
-## Stern mit spikes Zacken: die Ecken wechseln zwischen outer und inner.
-static func _star(spikes: int, outer: float, inner: float) -> PackedVector2Array:
-	var points := PackedVector2Array()
-	var corners := spikes * 2
-	for i in corners + 1:
-		var step := i % corners
-		var radius := outer if step % 2 == 0 else inner
-		var phi := TAU * float(step) / float(corners)
-		points.append(CENTER + Vector2(radius * sin(phi), -radius * cos(phi)))
-	return points
-
-## Achsenparalleles Quadrat um CENTER (half = halbe Kantenlänge).
-static func _box(half: float) -> PackedVector2Array:
-	return PackedVector2Array([CENTER + Vector2(-half, -half), CENTER + Vector2(half, -half),
-		CENTER + Vector2(half, half), CENTER + Vector2(-half, half),
-		CENTER + Vector2(-half, -half)])
+## Gerader Strich; over verlängert ihn über sein Ende hinaus.
+static func _stroke(from: Vector2, to: Vector2, over := 0.0) -> PackedVector2Array:
+	return PackedVector2Array([from, to + (to - from).normalized() * over])
 
 ## Das Zeichen als normierte Polylinien in SEITEN-Koordinaten (0..1 über die ganze
-## Seite), x nach rechts, y nach UNTEN. Seit den GRUNDFORMEN (2026-10-24) ist jede
-## Figur EINE geschlossene, zur Hochachse symmetrische Grundform um die Seitenmitte:
-## auf Grubendistanz ist eine Seite ~25 px breit, und dort liest eine SILHOUETTE,
-## wo ein Linienzug zu Matsch wird. Sie läuft HINTER der Ziffer durch - die schreibt
-## Tiefe und deckt mitsamt ihrem dunklen Saum, was sie überschneidet. EINE Quelle
-## für Würfelnetz und 3D-Auflage; wohin ein zweiter Rune kommt, sagt SLOT_SCALES.
+## Seite), x nach rechts, y nach UNTEN. Seit den GERITZTEN RUNEN (Spieler-Wahl
+## 2026-11-19) ist jede Figur aus GERADEN Strichen geschnitten, die über ihre Ecken
+## hinauslaufen dürfen - Stäbe und Zweige statt geschlossener Grundformen. Was sie
+## trennt, ist die SILHOUETTE, nicht die Farbe: auf einer Material-Seite kann der
+## Ton der Rune dem der Fläche gleichen. Die Figur läuft HINTER der Ziffer durch.
+## EINE Quelle für Würfelnetz und 3D-Auflage; wohin ein zweiter Rune kommt, sagt
+## SLOT_SCALES. Die Reihenfolge der Striche ist die Laufrichtung der Bewegung.
 ##
-## RADIUS ist für alle derselbe (1 - GLYPH_MARGIN - Seitenmitte): eine Grundform,
-## die kleiner ausfällt als ihre Nachbarin, liest als zweite Größe statt als zweites
-## Zeichen. Die Figur ist NIE eine Funktion des Seitenwerts - Knochen lässt Werte
-## wachsen, und eine Rune, die sich dabei neu zeichnet, liest als Fehler.
+## Jede Figur reicht bis GLYPH_RADIUS: eine kleinere läse als zweite Größe statt als
+## zweites Zeichen. Sie ist NIE eine Funktion des Seitenwerts.
 const GLYPH_RADIUS := 0.44
-## Halbe Kantenlänge des QUADRATS - die eine Figur, die nicht auf dem Radius
-## sitzt, sondern auf ihrer SEITE (Spieler-Entscheid 2026-10-24): auf voller Größe
-## liefe sie 0,88 der Seite breit, und der Leuchtrahmen einer Material-Seite liegt
-## auf 0,03 - zwei fast gleiche Linien mit 0,03 Luft dazwischen lasen als EINE.
-## Hereingezogen auf 0,80 ist die Fuge mehr als doppelt so breit (0,07).
-const SQUARE_HALF := 0.40
+## Das Sechseck des Nachglühens und der Überstand seiner Striche.
+const WHEEL_RADIUS := 0.39
+const WHEEL_OVER := 0.09
 
 static func glyph_lines(glyph_id: String) -> Array[PackedVector2Array]:
 	match glyph_id:
 		GLYPH_AFTERGLOW:
-			# RING: der geschlossene Umlauf - die Seite läuft noch einmal um.
-			return [_ring(GLYPH_RADIUS, 48)]
+			# WINDRAD: sechs Striche im Umlauf, jeder schießt über seine Ecke hinaus -
+			# die Seite läuft noch einmal um.
+			var lines: Array[PackedVector2Array] = []
+			for i in 6:
+				lines.append(_stroke(_spoke(WHEEL_RADIUS, 60.0 * i),
+					_spoke(WHEEL_RADIUS, 60.0 * (i + 1)), WHEEL_OVER))
+			return lines
 		GLYPH_STRAY_LIGHT:
-			# DREIECK nach UNTEN: das Licht fällt vom Würfel aufs Filz.
-			return [_ring(GLYPH_RADIUS, 3, 180.0)]
+			# YR: ein Stab, zwei Zweige nach UNTEN - das Licht fällt aufs Filz.
+			return [_stroke(Vector2(0.5, 0.06), Vector2(0.5, 0.94)),
+				_stroke(CENTER, Vector2(0.14, 0.90)), _stroke(CENTER, Vector2(0.86, 0.90))]
 		GLYPH_BURN_IN:
-			# QUADRAT: eingebrannt ist festgeklammert und hat keinen Ausgang.
-			return [_box(SQUARE_HALF)]
+			# OTHALA: der Besitz, der bleibt - eine Raute auf zwei gekreuzten Beinen.
+			return [PackedVector2Array([Vector2(0.14, 0.94), Vector2(0.82, 0.38),
+				Vector2(0.5, 0.06), Vector2(0.18, 0.38), Vector2(0.86, 0.94)])]
 		GLYPH_SPARK_FLIGHT:
-			# STERN: der übergesprungene Funke.
-			return [_star(6, GLYPH_RADIUS, 0.19)]
+			# HAGALL: drei gekreuzte Stäbe - der übergesprungene Funke.
+			return [_stroke(_spoke(GLYPH_RADIUS, 0.0), _spoke(GLYPH_RADIUS, 180.0)),
+				_stroke(_spoke(GLYPH_RADIUS, 300.0), _spoke(GLYPH_RADIUS, 120.0)),
+				_stroke(_spoke(GLYPH_RADIUS, 60.0), _spoke(GLYPH_RADIUS, 240.0))]
 		GLYPH_REVERSE:
-			# RAUTE: das Quadrat auf die andere Seite gedreht.
-			return [_ring(GLYPH_RADIUS, 4)]
+			# DAGAZ: zwei Stäbe, über Kreuz verbunden - jede Seite sieht ihre Gegenseite.
+			return [_stroke(Vector2(0.12, 0.14), Vector2(0.12, 0.86)),
+				_stroke(Vector2(0.12, 0.86), Vector2(0.88, 0.14)),
+				_stroke(Vector2(0.88, 0.14), Vector2(0.88, 0.86)),
+				_stroke(Vector2(0.88, 0.86), Vector2(0.12, 0.14))]
 	return []
 
-## Strichstärke je Polylinie. Eine Grundform ist EIN Strich konstanter Tiefe -
-## seit den GRUNDFORMEN trägt jedes Zeichen genau eine 1.0, und ein Beistrich
-## wäre ein zweites Zeichen.
+## Strichstärke je Polylinie: jeder Strich einer Rune ist gleich tief geritzt.
 static func glyph_weights(glyph_id: String) -> PackedFloat32Array:
-	return PackedFloat32Array([1.0]) if not glyph_lines(glyph_id).is_empty() 		else PackedFloat32Array()
+	var weights := PackedFloat32Array()
+	weights.resize(glyph_lines(glyph_id).size())
+	weights.fill(1.0)
+	return weights
 
 ## Der Kasten, in dem eine Figur WIRKLICH liegt (Seiten-Koordinaten, leer =
 ## unbekanntes Zeichen). Auf dem 3D-WÜRFEL zählt er nicht - dort läuft die Figur

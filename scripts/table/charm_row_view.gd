@@ -7,7 +7,9 @@ extends Node3D
 ## charm_hologram.gdshader). set_charms() ist der EINE idempotente Schreiber: Disketten
 ## und Hologramme gehören ihrem Charm und fahren im Trage-Bogen zum neuen Platz.
 
-const LINE_X := 31.0  # Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-oben)
+## Abstand der Reihe vom Grubenzentrum (+X = Bildschirm-oben); seit die Diskette nur noch den
+## Schieber einsteckt, rückt die Reihe um den Unterschied zurück - ihre Vorderkante bleibt stehen.
+const LINE_X := 31.0 + (0.56 - CharmDiskView.INSERT) * CharmDiskView.BLENDER_SCALE
 const LINE_SPACING := 9.0
 const SPOT_Y := 0.0  # Tischoberfläche
 const MODEL_SCALE := 4.0

@@ -454,3 +454,25 @@ func test_parity_only_counts_the_legal_eyes_in_the_base():
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4, 5]), [], false,
 			[], {}, ctx),
 		DiceScoring.score_category(DiceScoring.TWO_KIND, _d([4, 4])))
+
+# --- Gruppen der Kombination (Farbe der Auswahl-Podeste) ---------------------------
+
+func test_two_pair_gives_each_pair_its_own_group():
+	var dice := _d([3, 2, 3, 5, 2, 1])
+	var groups := DiceScoring.combo_groups(DiceScoring.TWO_PAIR, dice, _d([0, 1, 2, 4]))
+	assert_eq(groups[0], groups[2], "die beiden Dreien teilen eine Gruppe")
+	assert_eq(groups[1], groups[4], "die beiden Zweien teilen eine Gruppe")
+	assert_ne(groups[0], groups[1], "zwei Paare, zwei Gruppen")
+	assert_false(groups.has(3), "wer nicht mitspielt, hat keine Gruppe")
+
+func test_full_house_puts_the_triple_first():
+	var dice := _d([2, 6, 2, 6, 6, 1])
+	var groups := DiceScoring.combo_groups(DiceScoring.FULL_HOUSE, dice, _d([0, 1, 2, 3, 4]))
+	assert_eq(groups[1], 0, "der Drilling ist die vorderste Gruppe")
+	assert_eq(groups[0], 1)
+
+func test_a_straight_is_one_group():
+	var dice := _d([1, 2, 3, 4, 5, 5])
+	var groups := DiceScoring.combo_groups(DiceScoring.SMALL_STRAIGHT, dice, _d([0, 1, 2, 3, 4]))
+	for slot in [0, 1, 2, 3, 4]:
+		assert_eq(groups[slot], 0, "eine Straße ist EINE Gruppe")
