@@ -278,7 +278,7 @@ func _build_slice(pivot: Node3D, side: float, thickness: float) -> void:
 
 ## Die WIEGE ihres Trägers an den Enden der Seite (längs der Achse), wo die Karte sie
 ## freiläßt: Leuchtbett (Lochkarte), Deck mit zwei Dornen (Kassette), Steinwiege
-## (Tontafel), Kontakt-Dock mit Eckstiften (Holo-Emitter). Jedes Teil steht weiter von der
+## (Tontafel), Kontakt-Dock mit Eckstiften (Service-Modul). Jedes Teil steht weiter von der
 ## Kante ab, als es hoch ist - sonst wüchse der Drehkreis der Scheibe über den Graben.
 func _build_reader(face: Node3D, shelf: String, side: float, thickness: float) -> void:
 	var tint: Color = PackDrawerView.COLORS.get(shelf, Color.WHITE)

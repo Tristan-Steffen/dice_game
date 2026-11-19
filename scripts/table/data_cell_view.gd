@@ -2,7 +2,7 @@ class_name DataCellView
 extends Node3D
 ## Die Datenzelle: eine Werkstatt-Karte als physischer DATENTRÄGER auf dem Tisch. Jede
 ## SORTE ist ihr eigener Träger (Welle 3, 2026-11-18): Zahlen die LOCHKARTE, Material die
-## KASSETTE, Runen die TONTAFEL, der Sonderbestand der HOLO-EMITTER - die Hüllen sind
+## KASSETTE, Runen die TONTAFEL, der Sonderbestand das SERVICE-MODUL - die Hüllen sind
 ## Blender-Modelle (tools/blender_data_media_export.py), das PRÄGENETZ backt StampNetOven
 ## auf eine Platte darüber. Alle vier füllen denselben Umriß, das Netz liegt auf jedem an
 ## derselben Stelle (EINE Größe je Ding); nur die Dicken unterscheiden sich.
@@ -39,30 +39,26 @@ const TOP_CLEAR := DEPTH * 0.16
 const CARRIER_PUNCH := 0
 const CARRIER_CASSETTE := 1
 const CARRIER_CLAY := 2
-const CARRIER_HOLO := 3
+const CARRIER_MODULE := 3
 const CARRIER_SCENES := [
 	"res://assets/models/hardware/data_punch_card.glb",
 	"res://assets/models/hardware/data_cassette.glb",
 	"res://assets/models/hardware/data_clay_tablet.glb",
-	"res://assets/models/hardware/data_holo_emitter.glb",
+	"res://assets/models/hardware/data_service_module.glb",
 ]
 ## Höhe der Oberseite je Träger (Roh-Maß, gemessen am Export) - darauf liegt das Netz.
-const CARRIER_TOPS := [0.04, 0.126, 0.128, 0.063]
+const CARRIER_TOPS := [0.04, 0.126, 0.128, 0.034]
 ## Der Körper je Träger: Albedo, Rauheit, Eigenlicht (Anteil Sortenfarbe, Energie).
 const CARRIER_BODY := [Color(0.1, 0.11, 0.115), Color(0.16, 0.16, 0.18),
-	Color(0.5, 0.38, 0.25), Color(0.05, 0.055, 0.07)]
-const CARRIER_ROUGHNESS := [0.55, 0.42, 0.95, 0.3]
+	Color(0.5, 0.38, 0.25), Color(0.06, 0.06, 0.07)]
+const CARRIER_ROUGHNESS := [0.55, 0.42, 0.95, 0.6]
 ## Die Kassette ist eine schwarze Schale mit einem Hauch Sortenfarbe, der Ton heller Lehm.
 const CARRIER_TINT_SHARE := [0.0, 0.08, 0.0, 0.0]
-const CARRIER_BODY_GLOW := [1.2, 1.0, 0.6, 0.3]
+const CARRIER_BODY_GLOW := [1.2, 1.0, 0.6, 1.0]
 ## Das Modell liegt in Blender mit der Länge auf X (Kopf -X), der Breite auf Y; diese
 ## Drehung legt es in den Rahmen der Karte (Breite x, Länge y, Kopf +y, Fläche +z).
 const CARRIER_BASIS := Basis(Vector3(0.0, -1.0, 0.0), Vector3(0.0, 0.0, 1.0),
 	Vector3(-1.0, 0.0, 0.0))
-## AN schwebt das Netz des Holo-Emitters so hoch über seiner Grundfläche (Roh-Maß).
-const HOLO_FLOAT := 0.22
-## Die Lichtsäule darunter: kaum Deckkraft, additiv.
-const HOLO_BEAM_ALPHA := 0.09
 static var _carrier_scenes := {}
 static var _neutrals := {}
 
@@ -167,7 +163,7 @@ var _dimmed := false
 ## Anzeige-Maßstab des KÖRPERS (PackDrawerView.CASSETTE_SCALE): eine Karte behält ihre
 ## Größe ihr ganzes Leben lang; der Ursprung bleibt auf dem Glas.
 var _body_scale := 1.0
-## Liegt sie auf ihrem LESER (Walze, Kammer)? Dann brennt der Saum, und der Holo-Emitter ist AN.
+## Liegt sie auf ihrem LESER (Walze, Kammer)? Dann brennt der Saum.
 var _socketed := false
 var _hovered := false
 var _hover_share := 0.0
@@ -186,7 +182,6 @@ var _shell_material: StandardMaterial3D
 var _core_material: StandardMaterial3D
 var _edge_material: StandardMaterial3D
 var _print_material: StandardMaterial3D
-var _beam_material: StandardMaterial3D
 ## Die Netz-Fläche und ihr EIGENER Ofen (nur abgedunkelt bzw. als Rückfall).
 var _net_material: StandardMaterial3D
 var _net_oven: SubViewport
@@ -218,7 +213,7 @@ func setup(cell_sort: String, cell_tier: int = 0, net: Array = [],
 ## Der Träger einer Sorte: ihr Rang in Pack.SHELF_ORDER; ohne Sorte der Sonderbestand.
 static func carrier_of(cell_sort: String) -> int:
 	var rank := Pack.SHELF_ORDER.find(cell_sort)
-	return rank if rank >= 0 else CARRIER_HOLO
+	return rank if rank >= 0 else CARRIER_MODULE
 
 func carrier() -> int:
 	return _carrier
@@ -369,7 +364,6 @@ func set_count(n: int) -> void:
 		cell.position = Vector3(step * STACK_STAGGER, 0.0, step * STACK_PITCH)
 		_body.add_child(cell)
 		_cells.append(cell)
-	_sync_projection()
 	_place_badge()
 
 func count() -> int:
@@ -390,15 +384,14 @@ func set_dimmed(on: bool) -> void:
 func dimmed() -> bool:
 	return _dimmed
 
-## Der Zeiger liegt auf ihr: sie zieht sich ein Stück heraus und leuchtet auf - der
-## Holo-Emitter schaltet AN. Idempotent; der Hub sitzt im Körper, nicht im Platz.
+## Der Zeiger liegt auf ihr: sie zieht sich ein Stück heraus und leuchtet auf.
+## Idempotent; der Hub sitzt im Körper, nicht im Platz.
 func set_hovered(on: bool) -> void:
 	if _hovered == on:
 		return
 	_hovered = on
 	_kill_flare()
 	_set_glow(rest_energy())
-	_sync_projection()
 	_kill(_hover_tween)
 	_hover_tween = create_tween()
 	var lift := _hover_tween.tween_method(_set_hover_share, _hover_share,
@@ -488,11 +481,10 @@ func glass_position() -> Vector3:
 func busy() -> bool:
 	return gliding()
 
-## Auf ihrem LESER brennt der Saum - und der Holo-Emitter projiziert.
+## Auf ihrem LESER brennt der Saum.
 func set_socketed(on: bool) -> void:
 	_socketed = on
 	_sync_edge(glow_energy())
-	_sync_projection()
 
 func socketed() -> bool:
 	return _socketed
@@ -506,28 +498,8 @@ func edge_rest_energy() -> float:
 func edge_energy() -> float:
 	return _edge_material.emission_energy_multiplier if _edge_material != null else 0.0
 
-## Projiziert der Holo-Emitter gerade? AN auf dem Leser (Walze, Kammer) und im Griff,
-## AUS im Magazin und in jeder Auslage. Die anderen Träger projizieren nie.
-func projecting() -> bool:
-	return _carrier == CARRIER_HOLO and (_socketed or _hovered)
-
-## Der EINE Schreiber des Holo-Zustands: AUS liegt nur der Sockel mit seinen Leuchtlinien,
-## AN schwebt das Netz über der Lichtsäule.
-func _sync_projection() -> void:
-	var on := projecting()
-	for cell in _cells:
-		var plate := cell.get_node_or_null("StampNet") as Node3D
-		if plate != null:
-			plate.visible = _carrier != CARRIER_HOLO or on
-			plate.position.z = net_z(_carrier, on)
-		var beam := cell.get_node_or_null("Lichtsaeule") as Node3D
-		if beam != null:
-			beam.visible = on
-
 ## Wo die Netz-Platte im Rahmen der Karte liegt (Mitte bei 0, Grundfläche bei -DEPTH/2).
-static func net_z(carrier_index: int, on := false) -> float:
-	if carrier_index == CARRIER_HOLO and on:
-		return -DEPTH * 0.5 + HOLO_FLOAT
+static func net_z(carrier_index: int) -> float:
 	return -DEPTH * 0.5 + float(CARRIER_TOPS[clampi(carrier_index, 0, 3)]) + NET_PROUD
 
 ## Aus dem Nichts an ihren Platz - delay: nur das Wachsen wartet.
@@ -677,8 +649,6 @@ func _apply_layer_bias() -> void:
 		_core_material.render_priority = _prio(PRIORITY_CORE)
 	if _edge_material != null:
 		_edge_material.render_priority = _prio(PRIORITY_FRAME)
-	if _beam_material != null:
-		_beam_material.render_priority = _prio(PRIORITY_FRAME)
 	if _net_material != null:
 		_net_material.render_priority = _prio(PRIORITY_NET)
 	if _badge != null and is_instance_valid(_badge):
@@ -719,15 +689,6 @@ func _build_materials() -> void:
 	_net_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_apply_net_texture()
 
-	if _carrier == CARRIER_HOLO:
-		_beam_material = StandardMaterial3D.new()
-		_beam_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_beam_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_beam_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		_beam_material.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_beam_material.albedo_color = Color(shade.r, shade.g, shade.b, HOLO_BEAM_ALPHA)
-		_beam_material.render_priority = _prio(PRIORITY_FRAME)
-
 func _lit_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = _scaled(color, CORE_ALBEDO_SHARE)
@@ -742,8 +703,7 @@ func _lit_material(color: Color) -> StandardMaterial3D:
 static func _scaled(color: Color, factor: float) -> Color:
 	return Color(color.r * factor, color.g * factor, color.b * factor, 1.0)
 
-## Eine Karte des Stapels: ihre HÜLLE, das Netz darauf und - beim Holo-Emitter - die
-## Lichtsäule. Alle Kopien teilen Meshes und Materialien.
+## Eine Karte des Stapels: ihre HÜLLE und das Netz darauf. Alle Kopien teilen Meshes und Materialien.
 func _build_cell() -> Node3D:
 	var cell := Node3D.new()
 	cell.name = "Cell%d" % _cells.size()
@@ -767,28 +727,7 @@ func _build_cell() -> Node3D:
 	net_plate.position = Vector3(0.0, opening_center_y(), net_z(_carrier))
 	net_plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	cell.add_child(net_plate)
-	if _carrier == CARRIER_HOLO:
-		cell.add_child(_build_beam())
 	return cell
-
-## Die LICHTSÄULE des Holo-Emitters: das Kreuz als drei additive Blöcke von der Linse bis
-## unter das schwebende Netz (Arm längs, Querbalken in der zweiten Reihe vom Kopf).
-func _build_beam() -> Node3D:
-	var beam := Node3D.new()
-	beam.name = "Lichtsaeule"
-	beam.visible = false
-	var net := net_size()
-	var cell_size := net.x / 3.2
-	var pitch := cell_size * 1.1
-	var z0 := -DEPTH * 0.5 + float(CARRIER_TOPS[CARRIER_HOLO])
-	var z1 := -DEPTH * 0.5 + HOLO_FLOAT - NET_PROUD
-	var zc := (z0 + z1) * 0.5
-	var mid := opening_center_y()
-	TableProps.box(beam, "Arm", Vector3(cell_size, net.y, z1 - z0), Vector3(0.0, mid, zc),
-		_beam_material)
-	TableProps.box(beam, "Balken", Vector3(net.x, cell_size, z1 - z0),
-		Vector3(0.0, mid + pitch * 0.5, zc), _beam_material)
-	return beam
 
 ## Das Modell eines Trägers - EINMAL je Träger geladen und geteilt (null = kein Import).
 static func carrier_model(carrier_index: int) -> Node3D:
@@ -818,7 +757,7 @@ func _dress_hull(hull: Node3D) -> void:
 			_:
 				mesh.material_override = neutral_material(role)
 
-## Die neutralen Teile (Metall, Dunkel, Glanz, Ton, Hell, Band, Kerbe) - einmal gebaut, von allen geteilt.
+## Die neutralen Teile (Metall, Dunkel, Glanz, Ton, Hell, Band, Kerbe, Bahn, Pad, Keramik, Schrift) - einmal gebaut, von allen geteilt.
 ## Metall mit wenig Metallic und etwas Eigenlicht: ohne Umgebung läse Chrom schwarz.
 static func neutral_material(role: String) -> StandardMaterial3D:
 	if _neutrals.has(role):
@@ -831,6 +770,10 @@ static func neutral_material(role: String) -> StandardMaterial3D:
 		"Hell": [Color(0.8, 0.76, 0.7), 0.0, 0.8, 0.55],
 		"Band": [Color(0.3, 0.15, 0.09), 0.2, 0.4, 0.8],
 		"Kerbe": [Color(0.1, 0.07, 0.045), 0.0, 0.95, 0.0],
+		"Bahn": [Color(0.3, 0.21, 0.08), 0.3, 0.5, 0.9],
+		"Pad": [Color(0.5, 0.36, 0.13), 0.4, 0.4, 0.9],
+		"Keramik": [Color(0.2, 0.16, 0.24), 0.0, 0.5, 0.8],
+		"Schrift": [Color(0.3, 0.3, 0.33), 0.0, 0.7, 0.8],
 	}.get(role, [Color(0.2, 0.2, 0.24), 0.0, 0.6, 0.2])
 	var material := StandardMaterial3D.new()
 	material.albedo_color = spec[0]

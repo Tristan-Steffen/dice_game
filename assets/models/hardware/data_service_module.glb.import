@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://racdohva1sf1"
-path="res://.godot/imported/data_holo_emitter.glb-9661f25fe4c0ffc1c57b53fe94971401.scn"
+uid="uid://dyr2gdqw0pllv"
+path="res://.godot/imported/data_service_module.glb-4856d2c594eab60ff542248b2c16529d.scn"
 
 [deps]
 
-source_file="res://assets/models/hardware/data_holo_emitter.glb"
-dest_files=["res://.godot/imported/data_holo_emitter.glb-9661f25fe4c0ffc1c57b53fe94971401.scn"]
+source_file="res://assets/models/hardware/data_service_module.glb"
+dest_files=["res://.godot/imported/data_service_module.glb-4856d2c594eab60ff542248b2c16529d.scn"]
 
 [params]
 

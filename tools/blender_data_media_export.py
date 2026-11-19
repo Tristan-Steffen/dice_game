@@ -1,6 +1,6 @@
 """Fumble: exportiert die HÜLLEN der vier Datenträger (Welle 3, 2026-11-18) nach
 assets/models/hardware/ - data_punch_card.glb, data_cassette.glb, data_clay_tablet.glb,
-data_holo_emitter.glb. Vorbild ist tools/blender_data_media_set.py (Kassette KLASSIK und Tontafel KEILSCHRIFT seit dem
+data_service_module.glb. Vorbild ist tools/blender_data_media_set.py (Kassette KLASSIK und Tontafel KEILSCHRIFT seit dem
 2026-11-19 nach tools/blender_data_media_real.py); dies ist die Fassung OHNE
 Inhalt: kein Netz, keine Werte, keine Runen, kein Text. Das Netz backt Godot (StampNetOven).
 
@@ -33,7 +33,7 @@ CELLS = [(x, 0.0) for x in ARM] + [(ARM[1], P), (ARM[1], -P)]
 FREE = [(ARM[0], P), (ARM[0], -P), (ARM[2], P), (ARM[2], -P), (ARM[3], P), (ARM[3], -P)]
 NET_HX, NET_HY = 2.15 * C, 1.6 * C
 ROLES = ("Koerper", "Kern", "Saum", "Druck", "Metall", "Dunkel", "Glanz", "Ton", "Hell", "Band",
-         "Kerbe")
+         "Kerbe", "Bahn", "Pad", "Keramik", "Schrift")
 LIFT = 0.0015
 
 
@@ -57,6 +57,10 @@ def mats(key):
         "Hell": led.mat("Hell", (0.78, 0.74, 0.68), 0.0, 0.8),
         "Band": led.mat("Band", (0.2, 0.1, 0.06), 0.3, 0.35),
         "Kerbe": led.mat("Kerbe", (0.1, 0.07, 0.045), 0.0, 0.95),
+        "Bahn": led.mat("Bahn", (0.3, 0.21, 0.08), 0.3, 0.5),
+        "Pad": led.mat("Pad", (0.5, 0.36, 0.13), 0.5, 0.4),
+        "Keramik": led.mat("Keramik", (0.2, 0.16, 0.24), 0.0, 0.5),
+        "Schrift": led.mat("Schrift", (0.3, 0.3, 0.33), 0.0, 0.7),
     }
 
 
@@ -319,51 +323,136 @@ def clay_tablet():
     bpy.data.objects["SchnittFuss"].display_type = "WIRE"
 
 
-# --- SONDERBESTAND: der Holo-Emitter ---------------------------------------------------------
+# --- SONDERBESTAND: das Service-Modul (2026-11-19) ---------------------------------------------
 
-HT = 0.06
-
-
-def cross_outline():
-    """Der Umriß des Netz-Kreuzes, wie es im Spiel liegt (Querbalken in Reihe 2 vom Kopf)."""
-    h = P * 0.5
-    a0, a3 = ARM[0] - h, ARM[3] + h
-    b0, b1 = ARM[1] - h, ARM[1] + h
-    return [(a0, -h), (b0, -h), (b0, -3 * h), (b1, -3 * h), (b1, -h), (a3, -h), (a3, h),
-            (b1, h), (b1, 3 * h), (b0, 3 * h), (b0, h), (a0, h)]
+MT = 0.034
 
 
-def holo_emitter():
+def trace(name, pts, w=0.006, vias=None, m=None):
+    """Eine Leiterbahn als Linienzug; ihr Ende sammelt sich als Via."""
+    for k in range(len(pts) - 1):
+        a, b = pts[k], pts[k + 1]
+        line("%s_%d" % (name, k), MT, a[0], a[1], b[0], b[1], w, m)
+    if vias is not None:
+        vias.append((pts[-1][0], pts[-1][1], MT + 0.001))
+
+
+def service_module():
+    """Mattschwarze Platine: feine matte Leiterbahnen, EPROM mit Fenster, QFP, Pad-Feld,
+    SMD-Reihen, Kontaktleiste am Fuß. Nichts davon leuchtet - hell ist allein das Netz."""
     m = mats("gold")
-    base = led.mat("Emitter", (0.025, 0.028, 0.035), 0.6, 0.25, clearcoat=0.8)
-    box("Koerper", (L - 0.006, W - 0.006, HT), (0, 0, HT * 0.5), base, 0.08, 0.008, 3)
-    ring = box("SaumRand", (L, W, 0.008), (0, 0, HT * 0.5), m["Saum"], 0.083)
-    led.cut(ring, box("SchnittRand", (L - 0.02, W - 0.02, 0.05), (0, 0, HT * 0.5), m["Dunkel"],
-                      0.075))
+    rnd = random.Random(4)
+    black = led.mat("Mattschwarz", (0.012, 0.012, 0.014), 0.0, 0.6, clearcoat=0.2)
+    box("Koerper", (L - 0.006, W - 0.006, MT), (0, 0, MT * 0.5), black, 0.05, 0.004, 3)
+    ring = box("SaumRand", (L, W, 0.006), (0, 0, MT * 0.5), m["Saum"], 0.053)
+    led.cut(ring, box("SchnittRand", (L - 0.02, W - 0.02, 0.05), (0, 0, MT * 0.5), m["Dunkel"],
+                      0.04))
     bpy.data.objects["SchnittRand"].display_type = "WIRE"
-    box("GlanzLinse", (1.36, 1.02, 0.003), (NX, 0, HT + 0.0015), m["Glanz"], 0.05)
-    zl = HT + 0.003
-    pts = cross_outline()
-    for k in range(len(pts)):
-        a, b = pts[k], pts[(k + 1) % len(pts)]
-        line("KernUmriss%d" % k, zl, a[0], a[1], b[0], b[1], 0.010, m["Kern"])
-    h = P * 0.5
-    for k, (a0, b0, a1, b1) in enumerate((
-            (ARM[0] + h, -h, ARM[0] + h, h), (ARM[1] + h, -h, ARM[1] + h, h),
-            (ARM[2] + h, -h, ARM[2] + h, h), (ARM[1] - h, h, ARM[1] + h, h),
-            (ARM[1] - h, -h, ARM[1] + h, -h))):
-        line("SaumTeiler%d" % k, zl, a0, b0, a1, b1, 0.004, m["Saum"], LIFT * 0.6)
-    dots = []
-    for x, y in CELLS:
-        for i in range(3):
-            for j in range(3):
-                dots.append((x + (i - 1) * C * 0.28, y + (j - 1) * C * 0.28, zl + 0.002))
-    dm.dots(None, "KernPunkte", dots, 0.0055, m["Kern"])
-    for k, (x, y) in enumerate([(sx, sy * 0.44) for sx in (-0.768, 0.735) for sy in (-1, 1)]):
-        dm.cyl(None, "MetallKnotenfuss%d" % k, 0.04, 0.006, (x, y, HT + 0.003), m["Metall"], 14)
-        dm.cyl(None, "KernKnoten%d" % k, 0.03, 0.01, (x, y, HT + 0.005), m["Kern"], 14)
-    box("KernKopfbalken", (0.016, 0.8, 0.004), (-0.785, 0, HT + 0.002), m["Kern"])
-    box("KernStirnbalken", (0.004, 0.8, 0.022), (-0.8075, 0, HT * 0.5), m["Kern"])
+    bahn, pad = m["Bahn"], m["Pad"]
+    vias = []
+    for k in range(11):
+        y = (k - 5) * 0.085
+        slab("PadKontakt%d" % k, 0.725, y - 0.028, 0.802, y + 0.028, MT, MT + 0.002, pad)
+    e = 0.025
+    rim = [(-L * 0.5 + e, -W * 0.5 + e), (0.705, -W * 0.5 + e), (0.705, W * 0.5 - e),
+           (-L * 0.5 + e, W * 0.5 - e)]
+    for k in range(4):
+        a, b = rim[k], rim[(k + 1) % 4]
+        line("BahnRand%d" % k, MT, a[0], a[1], b[0], b[1], 0.006, bahn)
+    arm_r = ARM[3] + C * 0.5
+    arm_l = ARM[0] - C * 0.5
+    edge = C * 0.5 + 0.02
+    # Von den Kontakten zum Netz und in die Fuß-Felder.
+    for k in range(11):
+        y = (k - 5) * 0.085
+        d = abs(k - 5)
+        if d <= 1:
+            pts = [(0.725, y), (arm_r + 0.02, y)]
+        else:
+            s = 1 if k > 5 else -1
+            x_turn = 0.7 - d * 0.014
+            ty = s * (edge + (5 - d) * 0.022)
+            pts = [(0.725, y), (x_turn, y), (x_turn - abs(y - ty), ty), (0.05 + (5 - d) * 0.05, ty)]
+        trace("BahnKontakt%d" % k, pts, vias=vias, m=bahn)
+    # Der EPROM im Fuß-Feld über dem Netz, seine Beine laufen zum Arm.
+    cx, cy, cw, ch = 0.3, 0.375, 0.48, 0.17
+    for k in range(12):
+        x = cx - cw * 0.42 + k * cw * 0.84 / 11
+        for s in (-1, 1):
+            slab("PadBein%d_%d" % (k, s + 1), x - 0.011, cy + s * (ch * 0.5 + 0.012) - 0.028,
+                 x + 0.011, cy + s * (ch * 0.5 + 0.012) + 0.028, MT, MT + 0.004, pad)
+        bend = 0.235 - (k % 4) * 0.01
+        trace("BahnChip%d" % k, [(x, cy - ch * 0.5 - 0.04), (x, bend), (x - 0.02, bend - 0.02),
+                                 (x - 0.02, edge + 0.115 if k % 3 else edge + 0.13)], vias=vias,
+              m=bahn)
+    box("KeramikChip", (cw, ch, 0.04), (cx, cy, MT + 0.02), m["Keramik"], 0.012, 0.005, 2)
+    zc = MT + 0.04
+    dm.cyl(None, "DunkelChipkerbe", 0.02, 0.002, (cx - cw * 0.46, cy, zc + 0.001), m["Dunkel"], 12)
+    dm.annulus(None, "PadFassung", cx, cy, zc + 0.0012, 0.065, 0.08, pad, 28)
+    dm.cyl(None, "DunkelFenster", 0.065, 0.001, (cx, cy, zc + 0.0006), m["Dunkel"], 28)
+    slab("KernDie", cx - 0.028, cy - 0.028, cx + 0.028, cy + 0.028, zc + 0.0012, zc + 0.002,
+         m["Kern"])
+    for k in range(8):
+        a = k * math.tau / 8
+        line("PadBond%d" % k, zc + 0.0005, cx + math.cos(a) * 0.036, cy + math.sin(a) * 0.036,
+             cx + math.cos(a) * 0.062, cy + math.sin(a) * 0.062, 0.003, pad)
+    # Das Fuß-Feld unter dem Netz: ein Bündel zum Rand, darüber eine SMD-Reihe.
+    for k in range(14):
+        x = -0.02 + k * 0.042
+        y_out = -0.3 - k * 0.012
+        trace("BahnFuss%d" % k, [(x, -edge), (x, y_out + 0.04), (x + 0.04, y_out), (0.7, y_out)],
+              vias=vias, m=bahn)
+    # Das Kopf-Feld: QFP oben, Pad-Feld unten, Bahnen am Kopfrand.
+    qx, qy = -0.6, 0.37
+    slab("DunkelQFP", qx - 0.065, qy - 0.065, qx + 0.065, qy + 0.065, MT, MT + 0.014, m["Dunkel"])
+    for k in range(8):
+        o = (k - 3.5) * 0.015
+        for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+            ax, ay = qx + dx * 0.075 + (o if dx == 0 else 0), qy + dy * 0.075 + (o if dy == 0 else
+                                                                                0)
+            hx, hy = (0.004, 0.012) if dx == 0 else (0.012, 0.004)
+            slab("PadQFP%d_%d_%d" % (k, dx + 1, dy + 1), ax - hx, ay - hy, ax + hx, ay + hy, MT,
+                 MT + 0.003, pad)
+    dm.cyl(None, "PadQFPMarke", 0.008, 0.001, (qx - 0.045, qy + 0.045, MT + 0.0146), pad, 10)
+    for k in range(6):
+        y = qy - 0.05 + k * 0.02
+        trace("BahnQFP%d" % k, [(qx + 0.087, y), (qx + 0.13 + k * 0.012, y),
+                                (qx + 0.13 + k * 0.012, edge + 0.01 + (5 - k) * 0.004)], 0.005,
+              vias, bahn)
+    for k in range(5):
+        y = -0.1 + k * 0.05
+        trace("BahnKopf%d" % k, [(arm_l - 0.02, y), (-0.72 - k * 0.012, y),
+                                 (-0.72 - k * 0.012, 0.2 + k * 0.012)], vias=vias, m=bahn)
+    pts = [(-0.74 + i * 0.022, -0.46 + j * 0.022, MT + 0.002) for i in range(9) for j in range(7)]
+    dm.dots(None, "PadBGA", pts, 0.006, pad)
+    for k in range(6):
+        trace("BahnBGA%d" % k, [(-0.74 + k * 0.03, -0.31), (-0.74 + k * 0.03, -0.24 - k * 0.006),
+                                (-0.7 + k * 0.03, -0.2 - k * 0.006)], 0.005, vias, bahn)
+    # SMD-Reihen in den schmalen Streifen an den Armen.
+    n = 0
+    for x0, x1, y in ((-0.5, -0.38, -0.36), (-0.5, -0.38, -0.44), (0.0, 0.62, -0.2),
+                      (-0.74, -0.4, 0.19)):
+        x = x0
+        while x < x1:
+            if rnd.random() < 0.8:
+                mat = m["Dunkel"] if rnd.random() < 0.6 else m["Ton"]
+                slab("%sTeil%d" % ("Dunkel" if mat is m["Dunkel"] else "Ton", n), x - 0.018,
+                     y - 0.01, x + 0.018, y + 0.01, MT, MT + 0.01, mat)
+                for s in (-1, 1):
+                    slab("PadTeil%d_%d" % (n, s + 1), x + s * 0.022 - 0.006, y - 0.011,
+                         x + s * 0.022 + 0.006, y + 0.011, MT, MT + 0.002, pad)
+                n += 1
+            x += 0.07
+    for k in range(6):
+        dm.cyl(None, "PadPruef%d" % k, 0.009, 0.001, (-0.02 + k * 0.045, 0.5, MT + 0.0015), pad, 10)
+    dm.dots(None, "PadVias", vias, 0.01, pad)
+    # Das Schild: ein freies Feld im Bündel, darin die matte Schrift.
+    slab("KoerperSchild", 0.03, -0.49, 0.6, -0.41, MT, MT + 0.0012, black)
+    glyph("SchriftSchild", "FUMBLE SERVICE  ·  REV C", 0.315, -0.45, MT + 0.0026, 0.034,
+          m["Schrift"])
+    for name, x, y in (("U1", 0.3, 0.515), ("U2", -0.6, 0.47), ("J1", 0.665, 0.505),
+                       ("R1-R8", 0.31, -0.235), ("TP", -0.07, 0.5)):
+        glyph("Schrift" + name.replace("-", ""), name, x, y, MT + LIFT, 0.018, m["Schrift"])
 
 
 # --- Abschluß ------------------------------------------------------------------------------
@@ -418,7 +507,7 @@ def report(name):
 
 
 CARRIERS = [("data_punch_card", punch_card), ("data_cassette", cassette),
-            ("data_clay_tablet", clay_tablet), ("data_holo_emitter", holo_emitter)]
+            ("data_clay_tablet", clay_tablet), ("data_service_module", service_module)]
 
 
 def export_all():

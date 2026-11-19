@@ -1,7 +1,7 @@
 extends GutTest
 ## Die Datenzelle (DataCellView): die Werkstatt-Karte als DATENTRÄGER ihrer Sorte.
 ## Geprüft wird, was der Bauplan festlegt - eine Farbquelle, EINE Größe für alle vier
-## Träger, der Deckel des Stapels, die Leuchtzustände und der Holo-Emitter AN/AUS.
+## Träger, der Deckel des Stapels, die Leuchtzustände und das Netz auf jedem Träger.
 ## Die Tween-Zeit selbst ist nie Gegenstand: geprüft werden Zielwerte.
 
 func _cell(sort: String, net: Array = [], tier := Pack.TIER_NORMAL) -> DataCellView:
@@ -104,33 +104,21 @@ func test_the_net_lies_at_the_same_spot_on_every_carrier() -> void:
 			+ float(DataCellView.CARRIER_TOPS[cell.carrier()]) + DataCellView.NET_PROUD,
 			0.0001, "%s: auf der Oberseite" % sort)
 
-## Der HOLO-EMITTER ist AUS im Magazin und in jeder Auslage (nur der Sockel mit seinen
-## Leuchtlinien), AN auf dem Leser und im Griff - dann schwebt das Netz über der Lichtsäule.
-func test_the_holo_emitter_projects_only_on_its_reader_and_in_the_grip() -> void:
+## Das SERVICE-MODUL trägt sein Netz wie jeder andere Träger: immer sichtbar, flach auf der
+## Platine - im Magazin, auf dem Leser und im Griff (der Holo-Emitter ist gestorben).
+func test_the_service_module_always_shows_its_net_on_the_board() -> void:
 	var cell := _cell(Pack.SHELF_SPECIAL, _number_net())
 	var plate: Node3D = cell.get_node("Body/Cell0/StampNet")
-	var beam: Node3D = cell.get_node("Body/Cell0/Lichtsaeule")
-	assert_false(cell.projecting(), "liegend AUS")
-	assert_false(plate.visible, "AUS: kein Netz")
-	assert_false(beam.visible)
+	var flat := -DataCellView.DEPTH * 0.5 + float(
+		DataCellView.CARRIER_TOPS[DataCellView.CARRIER_MODULE]) + DataCellView.NET_PROUD
+	assert_true(plate.visible, "liegend: das Netz steht")
 	cell.set_socketed(true)
-	assert_true(cell.projecting(), "auf dem Leser AN")
 	assert_true(plate.visible)
-	assert_true(beam.visible, "die Lichtsäule steht")
-	assert_almost_eq(plate.position.z, -DataCellView.DEPTH * 0.5 + DataCellView.HOLO_FLOAT,
-		0.0001, "das Netz schwebt")
+	assert_almost_eq(plate.position.z, flat, 0.0001, "auf dem Leser schwebt nichts")
 	cell.set_socketed(false)
-	assert_false(plate.visible, "zurück im Regal wieder AUS")
 	cell.set_hovered(true)
-	assert_true(cell.projecting(), "der Griff schaltet AN")
-	assert_true(plate.visible)
-	cell.set_hovered(false)
-	assert_false(plate.visible)
-	# Die anderen Träger projizieren nie - ihr Netz liegt immer.
-	var punch := _cell(Engraving.CATEGORY_NUMBER, _number_net())
-	assert_false(punch.projecting())
-	assert_true((punch.get_node("Body/Cell0/StampNet") as Node3D).visible)
-	assert_null(punch.get_node_or_null("Body/Cell0/Lichtsaeule"))
+	assert_almost_eq(plate.position.z, flat, 0.0001, "im Griff schwebt nichts")
+	assert_null(cell.get_node_or_null("Body/Cell0/Lichtsaeule"), "keine Lichtsäule mehr")
 
 func test_the_physical_stack_is_capped_and_the_badge_carries_the_rest() -> void:
 	var cell := _cell(Engraving.CATEGORY_MATERIAL)
@@ -542,15 +530,15 @@ func test_dasselbe_netz_auf_zwei_traegern_backt_zweimal() -> void:
 	var net := _number_net()
 	var accent := PackDrawerView.COLORS[Engraving.CATEGORY_NUMBER] as Color
 	assert_ne(StampNetOven.signature(net, accent, [], DataCellView.CARRIER_PUNCH),
-		StampNetOven.signature(net, accent, [], DataCellView.CARRIER_HOLO))
+		StampNetOven.signature(net, accent, [], DataCellView.CARRIER_MODULE))
 	var oven := StampNetOven.bake(net, accent, [], DataCellView.CARRIER_PUNCH)
 	add_child_autofree(oven)
 	var holes := oven.find_children("Stanzung*", "ColorRect", true, false)
 	assert_eq(holes.size(), 4, "die Lochkarte stanzt je Wert so viele Löcher (+2, +2)")
-	var plain := StampNetOven.bake(net, accent, [], DataCellView.CARRIER_HOLO)
+	var plain := StampNetOven.bake(net, accent, [], DataCellView.CARRIER_MODULE)
 	add_child_autofree(plain)
 	assert_eq(plain.find_children("Stanzung*", "ColorRect", true, false).size(), 0,
-		"der Holo-Emitter stanzt nicht")
+		"das Service-Modul stanzt nicht")
 
 # --- KORREKTUR-WELLE K: die Karte im SCHACHT liegt QUER ----------------------------
 

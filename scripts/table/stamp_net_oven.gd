@@ -27,8 +27,7 @@ const TAPE_BARE := Color(0.07, 0.065, 0.12)
 const BARE_RIM_DARK := 0.35
 const CLAY_RIM := Color(0.09, 0.07, 0.05)
 const GLAZE_SHEEN := 0.12
-const HOLO_FILL := 0.12
-const HOLO_BARE_RIM := 0.45
+const MODULE_CELL := Color(0.006, 0.012, 0.045)
 
 static var _ovens: Dictionary = {}
 static var _holder: Node = null
@@ -82,7 +81,7 @@ static func bake(net: Array, accent: Color, drained: Array = [], carrier := -1) 
 
 ## Das Netz-Bild je TRÄGER (DataCellView.CARRIER_*): dieselbe Zeichnung, nur die Zellen
 ## anders gekleidet - Lochkarte mit Stanzungen je Wert, Kassette mit Material-Kacheln,
-## Tontafel mit glasierten Kacheln, Holo als Leuchtlinien. -1 = die schlichte Backung.
+## Tontafel mit glasierten Kacheln, Service-Modul als dunkle Plättchen. -1 = die schlichte Backung.
 static func dress(drawing: Control, net: Array, accent: Color, carrier: int) -> void:
 	if carrier < 0 or drawing.get_child_count() == 0:
 		return
@@ -125,11 +124,13 @@ static func dress(drawing: Control, net: Array, accent: Color, carrier: int) -> 
 				box.border_color = accent.darkened(BARE_RIM_DARK)
 				if filled:
 					_sheen(chip, GLAZE_SHEEN)
-			DataCellView.CARRIER_HOLO:
-				box.bg_color = Color(accent.r, accent.g, accent.b,
-					HOLO_FILL if filled else 0.0)
-				box.border_color = Color(accent.r, accent.g, accent.b,
-					1.0 if filled else HOLO_BARE_RIM)
+			DataCellView.CARRIER_MODULE:
+				# Das Einzige, was auf der Platine leuchtet: dunkle Plättchen mit hellem Saum.
+				box.bg_color = MODULE_CELL
+				box.set_corner_radius_all(2)
+				# Eine Pflege-Karte trägt ein leeres Netz: auch der leere Saum leuchtet voll.
+				if not filled:
+					box.border_color = accent
 
 ## So viele Stanzungen, wie die Zelle wert ist (höchstens PUNCH_MAX), unter dem Wert -
 ## das Licht der Karte scheint hindurch.
