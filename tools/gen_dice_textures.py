@@ -181,20 +181,6 @@ def height_to_normal(v, strength):
     return n * 0.5 + 0.5
 
 
-def tex_face_frame():
-    """Leucht-Rahmen einer Material-Seite: weiße Linie mit weichem Schein auf
-    Alpha - die Materialfarbe liefert zur Laufzeit die Emission (RGBA!)."""
-    inset, radius, width = 26.0, 54.0, 7.0
-    half = S / 2.0
-    qx = np.abs(XX - half) - (half - inset - radius)
-    qy = np.abs(YY - half) - (half - inset - radius)
-    dist = (np.hypot(np.maximum(qx, 0.0), np.maximum(qy, 0.0))
-            + np.minimum(np.maximum(qx, qy), 0.0) - radius)
-    line = np.exp(-(dist ** 2) / (2.0 * width ** 2))
-    halo = 0.35 * np.exp(-(dist ** 2) / (2.0 * (width * 4.0) ** 2))
-    return np.clip(line + halo, 0.0, 1.0)
-
-
 def main():
     os.makedirs(OUT, exist_ok=True)
     tiles = []
@@ -210,12 +196,6 @@ def main():
             Image.fromarray((normal * 255).astype(np.uint8)).save(
                 os.path.join(OUT, name + "_n.png"))
         print("ok", name)
-
-    alpha = tex_face_frame()
-    rgba = np.stack([np.ones_like(alpha)] * 3 + [alpha], axis=-1)
-    Image.fromarray((rgba * 255).astype(np.uint8), "RGBA").save(
-        os.path.join(OUT, "face_frame.png"))
-    print("ok face_frame")
 
     # Kontaktbogen (2×2 gekachelt je Textur, um die Nahtlosigkeit zu sehen)
     cell = 256

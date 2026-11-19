@@ -38,46 +38,14 @@ const MAX_LEVEL := 2
 @export var glow: float = 0.6       # Emissionsstärke (× tint)
 @export var alpha: float = 1.0      # < 1: durchsichtige Seite (Glas)
 
-## --- Die VEREDELUNG: jedes Material eine eigene Geometrie ---------------------
-## Spieler-Entscheid 2026-10-25: der veredelte Zustand trägt ein gleichmäßiges,
-## sofort erkennbares GITTER, und jedes erzählt, wie sein Material entstanden
-## ist - prozedural gerechnet, darum texturlos und in jeder Entfernung scharf
-## (Shader die_dope_lattice). Die Werte hier sind die EINE Quelle dieses
-## Aussehens; saturated()/tint_for liefern weiter die Farbe für UI,
-## Leuchtrahmen und Boden-Lache.
-const LATTICE_FACETS := 0   # Rubin: geschliffener Stein - Knochen teilt sie
-const LATTICE_FLOW := 1     # Bernstein: Fließbänder mit gefangenen Blasen
-const LATTICE_RINGS := 2    # Gold: Münzprägung mit geriffeltem Rand
-const LATTICE_CRYSTAL := 3  # Glas: geschliffene Rauten mit Kreuz
-const LATTICE_WEAVE := 4    # Kupfer: Korbgeflecht aus gewickeltem Draht
-
-@export var lattice: int = LATTICE_FACETS
-@export var lattice_body: Color = Color.WHITE   # Feld zwischen den Linien
-@export var lattice_light: Color = Color.WHITE  # Farbe der Linien
-@export var lattice_cells: float = 4.0          # Dichte (Zellen je Seite)
-@export var lattice_width: float = 0.014        # Strichstärke
-@export var lattice_gain: float = 1.0           # Emission der Linien
-@export var lattice_metallic: float = 0.0
-@export var lattice_roughness: float = 0.1
-## Zell-für-Zell-Helligkeit (0 = gleichmäßig); nur wo die Geometrie Zellen hat.
-@export var lattice_shade: float = 0.0
-## Eigenlicht der FLÄCHE: der Tisch leuchtet kaum, eine Seite bringt ihr
-## Aussehen also selbst mit.
-@export var lattice_field: float = 0.52
-@export var lattice_alpha: float = 1.0
-## Zusatzglühen der geometrie-eigenen Zugabe (Bernsteins Blasen, Golds Riffel).
-@export var lattice_extra: float = 0.0
-
-func _set_lattice(kind: int, field: Color, line: Color, cells: float, width: float,
-		line_gain: float, metal: float, rough: float) -> void:
-	lattice = kind
-	lattice_body = field
-	lattice_light = line
-	lattice_cells = cells
-	lattice_width = width
-	lattice_gain = line_gain
-	lattice_metallic = metal
-	lattice_roughness = rough
+## --- Die VEREDELUNG: das Material GLÜHT -----------------------------------------
+## Spieler-Wahl 2026-11-19: veredelt leuchtet die Seite satt in ihrer eigenen
+## Farbe, Edelmetall fasst nur zwei Ecken (Shader
+## die_dope_mount). Die Werte hier sind die EINE Quelle dieses Aussehens.
+@export var refined_color: Color = Color.WHITE
+## Eigenlicht der Fläche; um 1 blüht der Kern leicht, der Rand nicht.
+@export var refined_glow: float = 0.95
+@export var refined_alpha: float = 1.0
 
 static func _make(material_id: String, name: String, desc: String, face_tint: Color) -> DieMaterial:
 	var material := DieMaterial.new()
@@ -95,9 +63,7 @@ static func ruby() -> DieMaterial:
 	m.metallic = 0.15
 	m.roughness = 0.08
 	m.glow = 0.5
-	m._set_lattice(LATTICE_FACETS, Color(0.32, 0.03, 0.07), Color(1.0, 0.15, 0.20),
-		3.6, 0.016, 2.6, 0.12, 0.05)
-	m.lattice_shade = 0.45  # jede Facette fängt das Licht anders
+	m.refined_color = Color(1.0, 0.08, 0.22)
 	m.short = "+4 Mult"
 	m.short_doped = "Krit ×2"
 	m.description_doped = "Krit ×2 auf den Mult, statt zu addieren."
@@ -110,10 +76,7 @@ static func amber() -> DieMaterial:
 	m.surface_color = Color(0.8, 0.45, 0.14)  # Harz glüht von innen (Textur: Mitte hell)
 	m.roughness = 0.35
 	m.glow = 1.1
-	m._set_lattice(LATTICE_FLOW, Color(0.94, 0.58, 0.18), Color(1.0, 0.78, 0.34),
-		4.0, 0.012, 1.1, 0.0, 0.18)
-	m.lattice_extra = 0.45  # die gefangenen Blasen glimmen mit
-	m.lattice_alpha = 0.94
+	m.refined_color = Color(1.0, 0.56, 0.0)
 	m.short = "+20 Basis +Augensumme"
 	m.short_doped = "5 × Augensumme"
 	m.description_doped = "Die fünffache Augensumme des Würfels - ohne festen Zuschlag."
@@ -129,9 +92,7 @@ static func gold() -> DieMaterial:
 	m.metallic = 0.6
 	m.roughness = 0.14
 	m.glow = 0.26
-	m._set_lattice(LATTICE_RINGS, Color(0.88, 0.68, 0.24), Color(1.0, 0.90, 0.54),
-		4.0, 0.014, 1.1, 0.45, 0.08)
-	m.lattice_extra = 0.5  # Streiflicht und Riffelrand
+	m.refined_color = Color(1.0, 0.82, 0.0)
 	m.short = "+$3"
 	m.short_doped = "+$7 +$1 je Gold-Seite"
 	m.description_doped = "+$7, dazu +$1 je ausgelöster Gold-Seite dieser Nahme."
@@ -141,20 +102,12 @@ static func bone() -> DieMaterial:
 	var m := _make(BONE, "Knochen",
 		"Diese Seite wächst dauerhaft +2, wenn sie in der genommenen Kombination liegt.",
 		Color(0.76, 0.69, 0.5))
-	m.surface_color = Color(0.82, 0.76, 0.6)  # tot-matt: das EINZIGE Material ohne Leuchten
+	m.surface_color = Color(0.82, 0.76, 0.6)  # tot-matt: normal das EINZIGE Material ohne Leuchten
 	m.roughness = 0.95
 	m.glow = 0.0
-	# Eingeritzt statt leuchtend: die Linien liegen dunkel im Elfenbein, und
-	# keine von ihnen leuchtet (lattice_gain 0). Das FELD trägt sich selbst,
-	# aber weit unter der Bloom-Schwelle - der Tisch gibt zu wenig Licht, sonst
-	# wäre die Schraffur schwarz auf schwarz. Knochen ist damit nach wie vor das
-	# einzige Material, das keine Lampe ist.
-	m._set_lattice(LATTICE_FACETS, Color(0.14, 0.12, 0.11), Color(0.93, 0.90, 0.82),
-		4.2, 0.020, 0.0, 0.0, 0.24)
-	m.lattice_shade = 0.25
-	# Keine Lampe (gain 0) - die Streben tragen nur ihr Eigenlicht, und das
-	# bleibt unter der Bloom-Schwelle. Knochen leuchtet nie.
-	m.lattice_field = 0.88
+	# Veredelt glüht auch Knochen: warmes, helles Elfenbein statt mehr Farbe.
+	m.refined_color = Color(1.0, 0.94, 0.80)
+	m.refined_glow = 0.85
 	m.short = "Seite wächst +2"
 	m.short_doped = "Seite wächst +10 / +20 %"
 	m.description_doped = "Die Seite wächst um 10 oder 20 %, je nachdem was mehr ist."
@@ -168,12 +121,9 @@ static func glass() -> DieMaterial:
 	m.roughness = 0.05
 	m.glow = 0.3
 	m.alpha = 0.42
-	m._set_lattice(LATTICE_CRYSTAL, Color(0.26, 0.46, 0.62), Color(0.78, 0.97, 1.0),
-		2.6, 0.012, 1.6, 0.10, 0.02)
-	m.lattice_field = 0.62
-	# Weniger durchsichtig als die glatte Seite (alpha 0.26): durch die hätte
-	# der Schliff keinen Grund, auf dem er lesen kann.
-	m.lattice_alpha = 0.52
+	# Dichter als die glatte Seite: durch sie hätte die Glut keinen Grund.
+	m.refined_color = Color(0.22, 0.80, 1.0)
+	m.refined_alpha = 0.78
 	m.short = "Mult += Augen (max 6)"
 	m.short_doped = "Krit ×Augen/2"
 	m.description_doped = "Krit ×(Augen/2), statt zu addieren; beim Nehmen halbiert sich die Seite."
@@ -184,16 +134,14 @@ static func copper() -> DieMaterial:
 		"+1 ⚡, wenn diese Seite in der genommenen Kombination liegt.",
 		Color(0.86, 0.47, 0.24))
 	# WARM, nicht grünspan-cyan (Spieler-Entscheid 2026-10-25): die Seite wechselte
-	# sonst beim Veredeln die Farbe, denn das Geflecht ist Kupfer. Seine Wirkung
+	# sonst beim Veredeln die Farbe. Seine Wirkung
 	# trägt jetzt das ⚡ im Kurztext, nicht mehr der Farbton.
 	m.surface_color = Color(0.72, 0.35, 0.17)
 	m.metallic = 0.55
 	m.roughness = 0.18
 	m.glow = 0.42
-	# Gewickelter Draht, ganz in warmem Kupfer: das Energie-Cyan gehört den
-	# RUNEN, und ein Gitter in derselben Farbe verschluckt ihr Zeichen.
-	m._set_lattice(LATTICE_WEAVE, Color(0.86, 0.50, 0.24), Color(1.0, 0.74, 0.44),
-		4.5, 0.014, 1.1, 0.65, 0.14)
+	# Röter und dunkler als Bernstein, nie Energie-Cyan - das gehört den Runen.
+	m.refined_color = Color(0.86, 0.28, 0.14)
 	m.short = "+1 ⚡"
 	m.short_doped = "+2 ⚡"
 	m.description_doped = "+2 ⚡; was über den Speicher hinausgeht, zahlt $2 je ⚡."
@@ -280,10 +228,6 @@ static func die_normal_for(material_id: String) -> Texture2D:
 	if not is_valid_id(material_id):
 		return null
 	return _load_die_texture(material_id + "_n")
-
-## Alpha-Rahmenlinie der Material-Seiten (materialunabhängig, Tint zur Laufzeit).
-static func face_frame_texture() -> Texture2D:
-	return _load_die_texture("face_frame")
 
 static func _load_die_texture(texture_id: String) -> Texture2D:
 	if not _die_textures.has(texture_id):

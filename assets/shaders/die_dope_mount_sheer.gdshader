@@ -1,11 +1,10 @@
 shader_type spatial;
 render_mode blend_mix, depth_prepass_alpha;
 
-// Veredelte Seite, DURCHSICHTIG (nur Glas): dasselbe Gitter, aber die Seite
-// bleibt durchscheinend - der Stufenschliff liegt auf dem Wuerfelinneren.
-// Der Tiefen-Vorpass haelt Ziffer und Runen vor der Scheibe.
+// Veredelte Seite, DURCHSCHEINEND (nur Glas): dieselbe Glut und Kante, aber das
+// Wuerfelinnere scheint durch. Der Tiefen-Vorpass haelt Ziffer und Runen davor.
 
-#include "res://assets/shaders/die_dope_lattice.gdshaderinc"
+#include "res://assets/shaders/die_dope_mount.gdshaderinc"
 
 void vertex() {
 	vec3 vpos = (MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -19,7 +18,7 @@ void fragment() {
 	float metal;
 	float rough;
 	float alpha;
-	dope_lattice(UV, tview, albedo, emission, metal, rough, alpha);
+	dope_mount(UV, tview, albedo, emission, metal, rough, alpha);
 	ALBEDO = albedo;
 	EMISSION = emission;
 	METALLIC = metal;

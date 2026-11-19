@@ -225,10 +225,6 @@ static func build() -> Node3D:
 		faces.add_child(quad)
 		faces.quads[axis] = quad
 
-		var frame := _build_face_frame()
-		quad.add_child(frame)
-		faces.frames[axis] = frame
-
 		var crack := build_rune_overlay()
 		quad.add_child(crack)
 		faces.rune_overlays[axis] = crack
@@ -239,28 +235,6 @@ static func build() -> Node3D:
 		DieFaceDisplay.fit_label(label)
 
 	return root
-
-## Leucht-Rahmen einer Material-Seite (unsichtbar ohne Material): dünne Linie
-## in Materialfarbe knapp vor dem Quad - das Distanz-Signal, welche Seite
-## Material trägt, wenn Facetten/Relief längst nicht mehr lesbar sind.
-static func _build_face_frame() -> MeshInstance3D:
-	var frame := MeshInstance3D.new()
-	frame.name = "MaterialFrame"
-	var mesh := QuadMesh.new()
-	mesh.size = Vector2.ONE * FACE_SIZE
-	frame.mesh = mesh
-	frame.position = Vector3(0, 0, 0.006)  # vor dem Quad, hinter der Ziffer (0.01)
-	frame.visible = false
-	frame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var material := StandardMaterial3D.new()
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_texture = DieMaterial.face_frame_texture()
-	material.albedo_color = DieFaceDisplay.BODY_COLOR
-	material.emission_enabled = true
-	material.emission_texture = material.albedo_texture
-	material.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
-	frame.material_override = material
-	return frame
 
 ## Runen-Auflage einer gebrochenen Seite (unsichtbar ohne Rune): das farblose
 ## Runenzeichen unter die_rune.gdshader - das Kernlicht bricht aus der Schale. Ein

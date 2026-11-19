@@ -183,29 +183,6 @@ func test_reset_number_tints_restores_neutral_white():
 	assert_eq(display.labels[_axis_for(0)].modulate, DieFaceDisplay.NUMBER_COLOR,
 		"nach der Auswahl kehrt das Neutral-Weiß zurück")
 
-func test_material_face_shows_a_glowing_frame_plain_faces_none():
-	var def := DieDefinition.standard()
-	def.materials[0] = DieMaterial.RUBY
-	var display := _display()
-	display.apply_definition(def)
-	var frame: MeshInstance3D = display.frames[_axis_for(0)]
-	assert_true(frame.visible, "Material-Seite trägt den Leucht-Rahmen")
-	var frame_material: StandardMaterial3D = frame.material_override
-	assert_almost_eq(frame_material.emission.r,
-		DieFaceDisplay.intense(DieMaterial.ruby().tint).r * DieFaceDisplay.FRAME_GLOW, 0.001,
-		"Rahmen leuchtet voll in Materialfarbe")
-	assert_false(display.frames[_axis_for(1)].visible, "neutrale Seiten bleiben rahmenlos")
-
-func test_bone_frame_stays_dark():
-	var def := DieDefinition.standard()
-	def.materials[0] = DieMaterial.BONE
-	var display := _display()
-	display.apply_definition(def)
-	var frame: MeshInstance3D = display.frames[_axis_for(0)]
-	assert_true(frame.visible, "auch Knochen bekommt den Rahmen (als dunkle Linie)")
-	assert_eq((frame.material_override as StandardMaterial3D).emission, Color(0, 0, 0, 0),
-		"aber er leuchtet nie - Knochen-Identität")
-
 func test_material_edges_glow_at_least_the_distance_floor():
 	var def := DieDefinition.standard()
 	def.essence_id = Essence.NEON
@@ -406,9 +383,9 @@ func test_pool_follows_the_die_size():
 	assert_almost_eq(display.glow_pool.scale.x, 0.5, 0.05,
 		"halb so großer Würfel, halb so große Lache")
 
-# --- Veredelung: jedes Material sein eigenes GITTER ----------------------------------
+# --- Veredelung: das Material glüht, Edelmetall an zwei Ecken -----------------------
 
-func _face_lattice(display: DieFaceDisplay, face_index: int) -> ShaderMaterial:
+func _face_refined(display: DieFaceDisplay, face_index: int) -> ShaderMaterial:
 	return display.quads[_axis_for(face_index)].get_surface_override_material(0)
 
 func _leveled(face_index: int, material_id: String, level: int) -> DieDefinition:
@@ -418,64 +395,74 @@ func _leveled(face_index: int, material_id: String, level: int) -> DieDefinition
 		def.dope(face_index)
 	return def
 
-func test_doping_hangs_the_lattice_of_the_material_on_the_face():
+func test_doping_hangs_the_glow_of_the_material_on_the_face():
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
 	assert_true(_face_material(display, 0) is StandardMaterial3D,
 		"normal bleibt die glatte Oberfläche")
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
-	var lattice := _face_lattice(display, 0)
-	assert_true(lattice is ShaderMaterial, "veredelt hängt das Gitter")
-	assert_eq(int(lattice.get_shader_parameter("kind")), DieMaterial.LATTICE_FACETS,
-		"und zwar die Geometrie DIESES Materials")
+	var refined := _face_refined(display, 0)
+	assert_true(refined is ShaderMaterial, "veredelt hängt die Glut")
+	var ruby := DieMaterial.by_id(DieMaterial.RUBY).refined_color
+	assert_eq(refined.get_shader_parameter("vivid"), Vector3(ruby.r, ruby.g, ruby.b),
+		"und zwar in der Farbe DIESES Materials")
 	# Zurück auf normal hängt wieder die glatte Oberfläche - ein Weg hin, einer zurück.
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
 	assert_true(_face_material(display, 0) is StandardMaterial3D, "und wieder zurück")
 
 func test_no_two_materials_look_alike_when_doped():
-	# Die Veredelung soll man AM MUSTER erkennen. Rubin und Knochen teilen sich
-	# als EINZIGE eine Geometrie (die Voronoi ist Schliff wie Spongiosa) - dann
-	# muss die Einfärbung sie trennen, und sie tut es deutlich: der eine ist
-	# eine Lampe, der andere leuchtet nie.
-	var by_geometry := {}
-	for material in DieMaterial.all():
-		by_geometry.get_or_add(material.lattice, []).append(material)
-	for geometry: int in by_geometry:
-		var sharing: Array = by_geometry[geometry]
-		assert_lte(sharing.size(), 2, "eine Figur trägt höchstens zwei Materialien")
-		if sharing.size() < 2:
-			continue
-		var a: DieMaterial = sharing[0]
-		var b: DieMaterial = sharing[1]
-		assert_gt(absf(a.lattice_gain - b.lattice_gain), 1.0,
-			"%s und %s teilen die Figur, also nicht das Licht" % [a.id, b.id])
+	# Veredelt trägt jedes Material dieselbe Kante - trennen muss sie die FARBE.
+	var all := DieMaterial.all()
+	for i in all.size():
+		for j in range(i + 1, all.size()):
+			var a: Color = all[i].refined_color
+			var b: Color = all[j].refined_color
+			var apart := Vector3(a.r - b.r, a.g - b.g, a.b - b.b).length()
+			assert_gt(apart, 0.2, "%s und %s liegen zu dicht" % [all[i].id, all[j].id])
 
-func test_the_lattice_carries_the_tint_like_the_plain_surface():
+func test_doping_makes_the_colour_more_intense():
+	# Veredeln heißt satter und heller, nie blasser - Knochen wird heller statt bunter.
+	for material in DieMaterial.all():
+		assert_gte(material.refined_color.v, material.tint.v, "%s: heller" % material.id)
+		if material.id != DieMaterial.BONE:
+			assert_gt(material.refined_color.s, material.tint.s, "%s: satter" % material.id)
+
+func test_gold_is_mounted_in_platinum():
+	var display := _display()
+	display.apply_definition(_leveled(0, DieMaterial.GOLD, DieMaterial.MAX_LEVEL))
+	var platinum := DieFaceDisplay.MOUNT_PLATINUM
+	assert_eq(_face_refined(display, 0).get_shader_parameter("mount"),
+		Vector3(platinum.r, platinum.g, platinum.b), "Gold fasst sich nicht in Gold")
+	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
+	var gold := DieFaceDisplay.MOUNT_GOLD
+	assert_eq(_face_refined(display, 0).get_shader_parameter("mount"),
+		Vector3(gold.r, gold.g, gold.b))
+
+func test_the_glow_carries_the_tint_like_the_plain_surface():
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
-	var full: Vector3 = _face_lattice(display, 0).get_shader_parameter("body")
+	var full: Vector3 = _face_refined(display, 0).get_shader_parameter("vivid")
 	display.set_tint(Color(0.5, 0.5, 0.5))
-	var dimmed: Vector3 = _face_lattice(display, 0).get_shader_parameter("body")
-	assert_almost_eq(dimmed.x, full.x * 0.5, 0.001, "body_tint moduliert auch das Gitter")
+	var dimmed: Vector3 = _face_refined(display, 0).get_shader_parameter("vivid")
+	assert_almost_eq(dimmed.x, full.x * 0.5, 0.001, "body_tint moduliert auch die Glut")
 
-func test_glass_keeps_its_sheer_lattice():
+func test_glass_stays_sheer_when_doped():
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.GLASS, DieMaterial.MAX_LEVEL))
-	assert_eq(_face_lattice(display, 0).shader, DieFaceDisplay.DOPE_SHADER_SHEER,
+	assert_eq(_face_refined(display, 0).shader, DieFaceDisplay.DOPE_SHADER_SHEER,
 		"Glas bleibt durchscheinend")
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
-	assert_eq(_face_lattice(display, 0).shader, DieFaceDisplay.DOPE_SHADER,
+	assert_eq(_face_refined(display, 0).shader, DieFaceDisplay.DOPE_SHADER,
 		"alle anderen decken")
 
-func test_ash_wipes_the_lattice_off_a_doped_face():
-	# Asche hat keine Figur: der durchgebrannte Würfel fällt auf die glatte
-	# Oberfläche zurück, sonst läge das Gitter über dem Ruß.
+func test_ash_wipes_the_glow_off_a_doped_face():
+	# Asche glüht nicht: der durchgebrannte Würfel fällt auf die glatte Oberfläche zurück.
 	var display := _display()
 	var def := _leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
 	def.burn_out()
 	display.apply_definition(def)
 	var material := _face_material(display, 0)
-	assert_true(material is StandardMaterial3D, "Ruß löscht das Gitter")
+	assert_true(material is StandardMaterial3D, "Ruß löscht die Veredelung")
 	assert_eq(material.albedo_color, DieFaceDisplay.BURNED_BODY)
 
 func test_the_plain_state_leaves_the_face_exactly_where_it_was():
@@ -485,14 +472,6 @@ func test_the_plain_state_leaves_the_face_exactly_where_it_was():
 	var expected := DieMaterial.by_id(DieMaterial.RUBY).surface_color * display.body_tint
 	assert_eq(_face_material(display, 0).albedo_color, expected)
 
-func test_doping_steps_the_frame_glow_too():
-	var display := _display()
-	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
-	var base: Color = display.frames[_axis_for(0)].material_override.emission
-	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
-	var rich: Color = display.frames[_axis_for(0)].material_override.emission
-	assert_gt(rich.s, base.s, "der Leuchtrahmen zieht mit")
-
 func test_the_plain_face_never_lifts_over_the_bloom_threshold():
 	# Der NORMALE Zustand ist der Regelfall und kündigt sich nie an - er bleibt
 	# genau auf dem Glühen seines Materials.
@@ -500,34 +479,26 @@ func test_the_plain_face_never_lifts_over_the_bloom_threshold():
 	for material in DieMaterial.all():
 		display.apply_definition(_leveled(0, material.id, 1))
 		var lit: Color = _face_material(display, 0).emission
-		var frame: Color = display.frames[_axis_for(0)].material_override.emission
 		var grew := _peak(lit) - _peak(DieFaceDisplay.intense(material.tint) * material.glow)
 		assert_lt(grew, 0.10, "%s leuchtet höchstens einen Hauch heller" % material.id)
-		assert_true(_peak(frame) < BLOOM_THRESHOLD or material.glow > 0.0,
-			"%s: ohne Glühen bleibt auch der Rahmen dunkel" % material.id)
 
-func test_only_the_lattice_lines_may_bloom():
-	# Die LINIEN tragen das Licht; die Fläche dazwischen bleibt unter der
-	# Bloom-Schwelle, sonst wäscht die veredelte Seite die Ziffer aus.
-	for material in DieMaterial.all():
-		var field := material.lattice_body * material.lattice_field
-		assert_lt(_peak(field), BLOOM_THRESHOLD,
-			"%s: das Feld der Veredelung blüht nie" % material.id)
-
-func test_bone_stays_dead_matte_when_doped():
-	# Das EINZIGE Material ohne Leuchten: seine Streben tragen keine Lampe,
-	# nur ihr Eigenlicht - und das bleibt unter der Bloom-Schwelle.
+func test_bone_only_glows_when_doped():
+	# Normal ist Knochen das einzige Material ohne Leuchten; veredelt glüht auch er.
 	var display := _display()
 	var bone := DieMaterial.by_id(DieMaterial.BONE)
-	assert_eq(bone.lattice_gain, 0.0, "Knochen glüht nie")
-	assert_lt(_peak(bone.lattice_light * bone.lattice_field), BLOOM_THRESHOLD,
-		"auch seine hellen Streben blühen nicht")
-	display.apply_definition(_leveled(0, DieMaterial.BONE, DieMaterial.MAX_LEVEL))
-	assert_eq(_peak(display.frames[_axis_for(0)].material_override.emission), 0.0,
-		"und sein Rahmen auch nicht")
+	assert_eq(bone.glow, 0.0, "normal glüht Knochen nie")
+	assert_gt(bone.refined_glow, 0.0, "veredelt schon")
+	display.apply_definition(_leveled(0, DieMaterial.BONE, 1))
+	assert_eq(_peak(_face_material(display, 0).emission), 0.0, "und seine Fläche bleibt dunkel")
 
 func test_doping_reaches_the_pool_through_face_base():
 	var display := _display()
 	display.apply_definition(_leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL))
 	assert_eq(display.face_base[_axis_for(0)], DieMaterial.tint_for(DieMaterial.RUBY, DieMaterial.MAX_LEVEL),
 		"Lache, Hülle und Neon-Mischung erben die Sättigung von hier")
+
+func test_material_faces_carry_no_frame():
+	# Der Leucht-Rahmen der Material-Seiten ist gestorben (2026-11-19): die Fläche trägt sich selbst.
+	var display := _display()
+	display.apply_definition(_leveled(0, DieMaterial.RUBY, 1))
+	assert_null(display.quads[_axis_for(0)].get_node_or_null("MaterialFrame"))

@@ -37,11 +37,6 @@ const EDGE_NEON := Color(0.95, 0.96, 0.98)
 ## ohnehin das Würfellicht, nicht die Emission.
 const FACE_GLOW := 0.06
 const EDGE_GLOW := 0.7
-## Distanz-Signale: der Seiten-Rahmen leuchtet voll in Materialfarbe, und
-## Material-Kanten glühen mindestens so stark - dünne Linien ohne Emission
-## sind aus der Übersichtskamera unsichtbar. Ausnahme: glow == 0 (Knochen)
-## bleibt bewusst tot-dunkel, seine Identität.
-const FRAME_GLOW := 0.95
 ## Kanten-Material leuchtet IMMER kräftig, auch wenn das Profil selbst kaum
 ## glüht (Gold 0.26, Quecksilber 0.22) - die Kante ist die Lampe, nicht die
 ## Oberfläche. Liegt bewusst ÜBER EDGE_GLOW: eine Material-Kante muss die
@@ -205,7 +200,6 @@ const LABEL_ALPHA_SCISSOR := 0.25
 
 var quads: Dictionary = {}   # Achse -> MeshInstance3D (Körper-Quad)
 var labels: Dictionary = {}  # Achse -> Label3D (Augenzahl)
-var frames: Dictionary = {}  # Achse -> MeshInstance3D (Material-Leuchtrahmen)
 var rune_overlays: Dictionary = {}  # Achse -> MeshInstance3D (Runen-Auflage)
 ## Zweite und dritte Auflage NUR für Vakuum-Würfel (bis zu drei Zeichen je
 ## Seite, die dritte erst unter der Glasglocke), beide faul gebaut.
@@ -262,12 +256,12 @@ var body_tint: Color = Color.WHITE
 ## Material-id je Achse ("" = ohne) - Schlüssel ins Shading-Profil.
 var face_ids: Dictionary = {}
 ## Material-Zustand je Achse (1 normal, 2 veredelt). Normal färbt nur satter;
-## VEREDELT hängt das Gitter des Materials an die Seite (siehe _dress_face).
+## VEREDELT hängt Glut und Kante des Materials an die Seite (siehe _dress_face).
 var face_levels: Dictionary = {}
 ## Die zwei Materialien EINER Seite: die glatte Standard-Oberfläche vom Bau und
-## das veredelte Gitter (faul). _dress_face entscheidet, welches hängt.
+## das veredelte (faul). _dress_face entscheidet, welches hängt.
 var face_plain: Dictionary = {}    # Achse -> StandardMaterial3D
-var face_lattice: Dictionary = {}  # Achse -> ShaderMaterial
+var face_refined: Dictionary = {}  # Achse -> ShaderMaterial
 ## Essenz des Würfels ("" = keine): sie allein färbt die Kanten.
 var essence_id: String = ""
 ## Rarität der Essenz (-1 = seelenlos) - entscheidet die Animationsstufen.
@@ -348,7 +342,6 @@ func _refresh_face_colors() -> void:
 		var profile := DieMaterial.by_id(face_ids.get(axis, ""))
 		var level: int = face_levels.get(axis, 1)
 		_dress_face(axis, profile, level)
-		_refresh_frame(axis, profile, level)
 	_apply_essence_edge()
 	if corner_caps != null:
 		# Ab dem Überschlag brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
@@ -538,64 +531,57 @@ func _apply_profile(material: StandardMaterial3D, profile: DieMaterial, is_edge:
 	material.roughness = profile.roughness
 
 # --- Die VEREDELUNG am Körper --------------------------------------------------
-# Veredelt trägt eine Seite das GITTER ihres Materials (Spieler-Entscheid
-# 2026-10-25): eine eigene, gleichmäßige Geometrie, prozedural gerechnet und
-# darum texturlos. Alle Werte dazu stehen in DieMaterial - hier hängt nur das
-# Material an der Seite.
-const DOPE_SHADER := preload("res://assets/shaders/die_dope_lattice.gdshader")
+# Veredelt GLÜHT das Material selbst satt von innen, und Edelmetall liegt als
+# Fassung an zwei Ecken (Spieler-Wahl 2026-11-19). Farbe und Glut stehen
+# in DieMaterial - hier hängt nur das Material an der Seite.
+const DOPE_SHADER := preload("res://assets/shaders/die_dope_mount.gdshader")
 ## Glas bleibt durchscheinend; ein geschriebenes ALPHA braucht eigene Variante.
-const DOPE_SHADER_SHEER := preload("res://assets/shaders/die_dope_lattice_sheer.gdshader")
+const DOPE_SHADER_SHEER := preload("res://assets/shaders/die_dope_mount_sheer.gdshader")
+const MOUNT_GOLD := Color(1.0, 0.80, 0.26)
+## Gold fasst sich nicht in Gold: dort trägt Platin.
+const MOUNT_PLATINUM := Color(0.93, 0.95, 1.0)
 
-## Die glatte Standard-Oberfläche einer Seite - vom Bau, auch wenn gerade das
-## Gitter hängt (EIN Ort kennt beide Materialien einer Seite).
+## Die glatte Standard-Oberfläche einer Seite - vom Bau, auch wenn gerade die
+## Veredelung hängt (EIN Ort kennt beide Materialien einer Seite).
 func _plain_face(axis: String) -> StandardMaterial3D:
 	if not face_plain.has(axis):
 		face_plain[axis] = quads[axis].get_surface_override_material(0)
 	return face_plain[axis]
 
-## Was an einer Seite hängt: veredelt ihr Gitter, sonst die glatte Oberfläche.
-## Ruß löscht das Gitter - Asche hat keine Figur.
+## Was an einer Seite hängt: veredelt Glut und Kante, sonst die glatte
+## Oberfläche. Ruß löscht die Veredelung - Asche glüht nicht.
 func _dress_face(axis: String, profile: DieMaterial, level: int) -> void:
 	var quad: MeshInstance3D = quads[axis]
 	if profile != null and level >= DieMaterial.MAX_LEVEL and not shown_burned():
-		var lattice := _lattice_face(axis, profile)
-		_apply_lattice(lattice, profile)
-		if quad.get_surface_override_material(0) != lattice:
-			quad.set_surface_override_material(0, lattice)
+		var refined := _refined_face(axis, profile)
+		_apply_refined(refined, profile)
+		if quad.get_surface_override_material(0) != refined:
+			quad.set_surface_override_material(0, refined)
 		return
 	var plain := _plain_face(axis)
 	_apply_profile(plain, profile, false, level)
 	if quad.get_surface_override_material(0) != plain:
 		quad.set_surface_override_material(0, plain)
 
-## Das Gitter-Material einer Seite, faul gebaut wie die Runen-Auflagen.
-func _lattice_face(axis: String, profile: DieMaterial) -> ShaderMaterial:
-	var material: ShaderMaterial = face_lattice.get(axis)
+## Das Veredelungs-Material einer Seite, faul gebaut wie die Runen-Auflagen.
+func _refined_face(axis: String, profile: DieMaterial) -> ShaderMaterial:
+	var material: ShaderMaterial = face_refined.get(axis)
 	if material == null:
 		material = ShaderMaterial.new()
-		face_lattice[axis] = material
-	var shader := DOPE_SHADER_SHEER if profile.lattice_alpha < 1.0 else DOPE_SHADER
+		face_refined[axis] = material
+	var shader := DOPE_SHADER_SHEER if profile.refined_alpha < 1.0 else DOPE_SHADER
 	if material.shader != shader:
 		material.shader = shader
 	return material
 
-## body_tint moduliert Feld und Linien wie bei der glatten Oberfläche, damit
-## Auswahl- und Stil-Tints auch über dem Gitter lesen.
-func _apply_lattice(material: ShaderMaterial, profile: DieMaterial) -> void:
-	var field := profile.lattice_body * body_tint
-	var line := profile.lattice_light * body_tint
-	material.set_shader_parameter("kind", profile.lattice)
-	material.set_shader_parameter("body", Vector3(field.r, field.g, field.b))
-	material.set_shader_parameter("light", Vector3(line.r, line.g, line.b))
-	material.set_shader_parameter("cells", profile.lattice_cells)
-	material.set_shader_parameter("width", profile.lattice_width)
-	material.set_shader_parameter("gain", profile.lattice_gain)
-	material.set_shader_parameter("shade_amount", profile.lattice_shade)
-	material.set_shader_parameter("field_glow", profile.lattice_field)
-	material.set_shader_parameter("extra_gain", profile.lattice_extra)
-	material.set_shader_parameter("metallic_amount", profile.lattice_metallic)
-	material.set_shader_parameter("roughness_amount", profile.lattice_roughness)
-	material.set_shader_parameter("alpha_amount", profile.lattice_alpha)
+## body_tint moduliert Glut und Kante wie bei der glatten Oberfläche.
+func _apply_refined(material: ShaderMaterial, profile: DieMaterial) -> void:
+	var vivid := profile.refined_color * body_tint
+	var mount := (MOUNT_PLATINUM if profile.id == DieMaterial.GOLD else MOUNT_GOLD) * body_tint
+	material.set_shader_parameter("vivid", Vector3(vivid.r, vivid.g, vivid.b))
+	material.set_shader_parameter("mount", Vector3(mount.r, mount.g, mount.b))
+	material.set_shader_parameter("glow", profile.refined_glow)
+	material.set_shader_parameter("alpha_amount", profile.refined_alpha)
 
 ## Runen der Seiten: sichtbar nur, wo eine Rune sitzt. In Ruhe schimmern sie
 ## schwach - erst im Moment ihres Feuerns flammen sie auf (flare_runes). Genau
@@ -672,19 +658,6 @@ func flare_runes(strength: float, face_index := -1, block := false) -> void:
 			var material: ShaderMaterial = overlay.material_override
 			material.set_shader_parameter("flare", strength)
 			material.set_shader_parameter("block_flare", block)
-
-## Leucht-Rahmen der Seite: sichtbar nur mit Material, Linie in Materialfarbe.
-func _refresh_frame(axis: String, profile: DieMaterial, level := 1) -> void:
-	var frame: MeshInstance3D = frames.get(axis)
-	if frame == null:
-		return
-	frame.visible = profile != null
-	if profile == null:
-		return
-	var material: StandardMaterial3D = frame.material_override
-	material.albedo_color = BODY_COLOR * body_tint
-	var glow := FRAME_GLOW if profile.glow > 0.0 else 0.0
-	material.emission = intense(DieMaterial.saturated(profile.tint, level)) * glow * body_tint
 
 ## Grenzen des Bodens, auf den die Lache fällt (abgerundetes Rechteck in
 ## Weltkoordinaten). Setzt scene_root aus den Grubenmaßen - die Würfel
@@ -848,9 +821,6 @@ func _refresh_charge() -> void:
 		material.albedo_color = BURNED_BODY
 		material.emission = BURNED_EDGE * FACE_GLOW
 		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-		var frame: MeshInstance3D = frames.get(axis)
-		if frame != null and frame.visible:
-			(frame.material_override as StandardMaterial3D).emission = BURNED_EDGE * FACE_GLOW
 	if glow_pool != null:
 		glow_pool.visible = false
 	if soul_motes != null:
