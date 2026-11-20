@@ -49,12 +49,12 @@ const CARRIER_SCENES := [
 ## Höhe der Oberseite je Träger (Roh-Maß, gemessen am Export) - darauf liegt das Netz.
 const CARRIER_TOPS := [0.04, 0.126, 0.128, 0.034]
 ## Der Körper je Träger: Albedo, Rauheit, Eigenlicht (Anteil Sortenfarbe, Energie).
-const CARRIER_BODY := [Color(0.1, 0.11, 0.115), Color(0.16, 0.16, 0.18),
+const CARRIER_BODY := [Color(0.6, 0.56, 0.48), Color(0.16, 0.16, 0.18),
 	Color(0.5, 0.38, 0.25), Color(0.06, 0.06, 0.07)]
-const CARRIER_ROUGHNESS := [0.55, 0.42, 0.95, 0.6]
+const CARRIER_ROUGHNESS := [0.85, 0.42, 0.95, 0.6]
 ## Die Kassette ist eine schwarze Schale mit einem Hauch Sortenfarbe, der Ton heller Lehm.
 const CARRIER_TINT_SHARE := [0.0, 0.08, 0.0, 0.0]
-const CARRIER_BODY_GLOW := [1.2, 1.0, 0.6, 1.0]
+const CARRIER_BODY_GLOW := [0.7, 1.0, 0.6, 1.0]
 ## Das Modell liegt in Blender mit der Länge auf X (Kopf -X), der Breite auf Y; diese
 ## Drehung legt es in den Rahmen der Karte (Breite x, Länge y, Kopf +y, Fläche +z).
 const CARRIER_BASIS := Basis(Vector3(0.0, -1.0, 0.0), Vector3(0.0, 0.0, 1.0),

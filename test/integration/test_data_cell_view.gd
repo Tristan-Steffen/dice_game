@@ -212,8 +212,17 @@ func test_the_standing_height_grows_out_of_the_old_die_edge() -> void:
 func test_every_carrier_carries_its_glow_parts() -> void:
 	for sort: String in Pack.SHELF_ORDER:
 		var hull: Node3D = _cell(sort).get_node("Body/Cell0/Huelle")
+		if DataCellView.carrier_of(sort) == DataCellView.CARRIER_PUNCH:
+			continue
 		assert_not_null(hull.find_child("Kern", true, false), "%s hat seinen Kern" % sort)
 		assert_not_null(hull.find_child("Saum", true, false), "%s hat seinen Saum" % sort)
+
+## Die Lochkarte ist stumpfer Karton: an ihr leuchtet nur das Netz.
+func test_the_punch_card_does_not_glow_itself() -> void:
+	var hull: Node3D = _cell(Engraving.CATEGORY_NUMBER).get_node("Body/Cell0/Huelle")
+	assert_not_null(hull.find_child("Koerper", true, false))
+	for role: String in ["Kern", "Saum", "Druck"]:
+		assert_null(hull.find_child(role, true, false), "die Lochkarte hat kein Teil %s" % role)
 
 func test_the_edge_rests_below_the_bloom_and_burns_only_when_socketed() -> void:
 	# Die volle Stufe (Kolossal) trägt die authored Energien - dort binden die

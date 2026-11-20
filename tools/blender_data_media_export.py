@@ -135,50 +135,30 @@ CORNER_CUT = 0.22
 
 
 def punch_card():
+    """Die KLASSIK (Spieler-Wahl 2026-11-20, tools/blender_punch_card_variants.py "C1"): eine
+    stumpfe Karton-Karte mit gekappter Ecke, jede Lochposition trägt ihre Ziffer, gestanzt ist
+    ein echtes Loch durch die ganze Karte. Sie leuchtet NICHT - kein Kern, kein Saum; hell ist
+    allein das Netz, und Licht bekommt sie später vom Grund, auf dem sie liegt."""
     m = mats("zahl")
-    black = led.mat("Neonkarton", (0.03, 0.03, 0.036), 0.0, 0.55, clearcoat=0.3)
-    lower = box("KoerperUnterlage", (L, W, PLAYER), (0, 0, PLAYER * 0.5), black, 0.02)
-    core = box("KernSchicht", (L - 0.004, W - 0.004, PCORE), (0, 0, PLAYER + PCORE * 0.5),
-               m["Kern"], 0.02)
-    top = box("KoerperKarte", (L, W, PT - PLAYER - PCORE),
-              (0, 0, (PT + PLAYER + PCORE) * 0.5), black, 0.02)
-    cutter = corner_cutter(CORNER_CUT)
-    for o in (lower, core, top):
-        led.cut(o, cutter)
+    stock = led.mat("Karton", (0.78, 0.74, 0.68), 0.0, 0.85)
+    card = box("Koerper", (L, W, PT), (0, 0, PT * 0.5), stock, 0.02)
+    led.cut(card, corner_cutter(CORNER_CUT))
     leg = CORNER_CUT / math.sqrt(2.0)
-    # Die STANZUNGEN gehen nur durch die obere Lage: der Kern scheint hindurch.
+    rnd = random.Random(5)
     shapes = []
-    y = -0.47
-    while (W * 0.5 - y) > leg + 0.05:
-        shapes.append(("rect", -0.797, y - 0.017, -0.769, y + 0.017))
-        y += 0.06
-    rnd = random.Random(7)
-    for i in range(20):
-        x = -0.72 + i * 1.49 / 19
+    cols = 14
+    for i in range(cols):
+        x = -0.72 + i * 1.46 / (cols - 1)
         for d in range(10):
-            yy = 0.44 - d * 0.88 / 9
-            if in_net(x, yy, 0.03) or (in_field(x, yy) and not any(
-                    abs(x - fx) < C * 0.5 and abs(yy - fy) < C * 0.5 for fx, fy in FREE)):
+            y = 0.42 - d * 0.86 / 9
+            if in_net(x, y, 0.03) or (x + L * 0.5) + (W * 0.5 - y) < leg + 0.07:
                 continue
-            if (x + L * 0.5) + (W * 0.5 - yy) < leg + 0.06 or yy > 0.46:
-                continue
-            if rnd.random() < 0.16:
-                shapes.append(("rect", x - 0.011, yy - 0.022, x + 0.011, yy + 0.022))
+            if rnd.random() < 0.3:
+                shapes.append(("rect", x - 0.02, y - 0.033, x + 0.02, y + 0.033))
             else:
-                glyph("Druck%d_%d" % (i, d), str(d), x, yy, PT + LIFT, 0.04, m["Druck"])
-    led.cut(top, dm.hole_cutter(None, "SchnittStanzungen", shapes, PLAYER + PCORE * 0.5, 0.1))
-    e = 0.014
-    rim = [(-L * 0.5 + e, W * 0.5 - leg - e * 0.4), (-L * 0.5 + leg + e * 0.4, W * 0.5 - e),
-           (L * 0.5 - e, W * 0.5 - e), (L * 0.5 - e, -W * 0.5 + e), (-L * 0.5 + e, -W * 0.5 + e),
-           (-L * 0.5 + e, W * 0.5 - leg - e * 0.4)]
-    for k in range(len(rim) - 1):
-        a, b = rim[k], rim[k + 1]
-        line("Saum%d" % k, PT, a[0], a[1], b[0], b[1], 0.006, m["Saum"])
-    line("KernStreifen", PT, -L * 0.5 + leg + 0.02, 0.503, L * 0.5 - 0.03, 0.503, 0.026, m["Kern"])
-    # Die Spalten-Teilung als feine Haarlinien im Fuß - der Rhythmus der Karte.
-    for i in range(12):
-        x = 0.06 + i * 0.045
-        line("Dunkel%d" % i, PT, x, -0.52, x, -0.49, 0.004, m["Dunkel"])
+                glyph("Dunkel%d_%d" % (i, d), str(d), x, y, PT + LIFT, 0.042, m["Dunkel"])
+    led.cut(card, dm.hole_cutter(None, "SchnittStanzungen", shapes, -0.1, 0.1))
+    line("DunkelKopfzeile", PT, -0.74, 0.5, 0.74, 0.5, 0.008, m["Dunkel"])
 
 
 def glyph(name, body, x, y, z, size, material):
@@ -227,12 +207,7 @@ def cassette():
     bpy.data.objects["SchnittNaht"].display_type = "WIRE"
     z = CT
     box("HellEtikett", (1.5, 0.74, 0.0015), (0, 0.13, z + 0.00075), m["Hell"], 0.04)
-    for k, y in enumerate((-0.2, -0.218)):
-        line("SaumEtikett%d" % k, z + 0.0015, -0.74, y, 0.74, y, 0.008, m["Saum"], 0.0006)
-    for s in (-1, 1):
-        line("DruckSeitenband%d" % (s + 1), z + 0.0015, s * 0.705, -0.17, s * 0.705, 0.17, 0.05,
-             m["Druck"], 0.0006)
-    glyph("DunkelSeite", "A", -0.705, 0.0, z + 0.0026, 0.06, m["Dunkel"])
+    line("SaumEtikett", z + 0.0015, -0.74, -0.2, 0.74, -0.2, 0.01, m["Saum"], 0.0006)
     # Das SICHTFENSTER: Wickel, Naben mit sechs Zähnen, dazwischen das Band.
     box("GlanzFenster", (1.38, 0.33, 0.0015), (0, P, z + 0.00225), m["Glanz"], 0.06)
     zw = z + 0.003
@@ -251,28 +226,14 @@ def cassette():
                    m["Saum"], 28)
     for k, (a, b) in enumerate(((-RX, ARM[1] - C * 0.5 - 0.02), (ARM[1] + C * 0.5 + 0.02, RX))):
         line("BandFenster%d" % k, zw, a, P - 0.135, b, P - 0.135, 0.012, m["Band"], 0.0008)
-    for k in range(5):
-        x = 0.06 + k * 0.03
-        line("HellSkala%d" % k, zw, x, P - 0.055, x, P + 0.055 - (k % 2) * 0.04, 0.004, m["Hell"],
-             0.0008)
     # Die KOPFPARTIE: erhabenes Trapez mit Capstan- und Paßlöchern, an der Kante zwei Kerben.
     trap = [(-0.66, -0.536), (0.66, -0.536), (0.56, -0.2), (-0.56, -0.2)]
     quad_prism("KoerperKopfpartie", trap, z - 0.001, z + 0.003, shell)
-    for k in range(1, 4):
-        a, b = trap[k], trap[(k + 1) % 4]
-        line("DunkelKopfkante%d" % k, z + 0.003, a[0], a[1], b[0], b[1], 0.008, m["Dunkel"],
-             0.0006)
-    for k, (x, y, r) in enumerate(((-0.47, -0.4, 0.04), (0.47, -0.4, 0.04), (-0.29, -0.43, 0.026),
-                                   (0.29, -0.43, 0.026))):
+    for k, (x, y, r) in enumerate(((-0.47, -0.4, 0.04), (0.47, -0.4, 0.04))):
         if not in_net(x, y, r + 0.01):
             dm.cyl(None, "DunkelLoch%d" % k, r, 0.001, (x, y, z + 0.0041), m["Dunkel"], 18)
-    for s in (-1, 1):
-        slab("DunkelKerbe%d" % (s + 1), s * 0.6 - 0.03, -0.536, s * 0.6 + 0.03, -0.49, z + 0.003,
-             z + 0.0042, m["Dunkel"])
     for k, (x, y) in enumerate(((0.76, 0.49), (0.76, -0.49), (-0.76, 0.49), (-0.76, -0.49))):
         dm.cyl(None, "MetallSchraube%d" % k, 0.024, 0.006, (x, y, z + 0.003), m["Metall"], 10)
-        line("DunkelSchlitz%d" % k, z + 0.006, x - 0.016, y, x + 0.016, y, 0.005, m["Dunkel"],
-             0.0006)
 
 
 # --- RUNEN: die Tontafel (KEILSCHRIFT, 2026-11-19) ---------------------------------------------
@@ -280,43 +241,88 @@ def cassette():
 TT = 0.128
 
 
+def nail(x, y, length, width, ang):
+    """Ein Keil der Keilschrift: dreieckiger Kopf bei (x, y), der Schaft läuft nach ang aus."""
+    ca, sa = math.cos(ang), math.sin(ang)
+
+    def at(u, v):
+        return (x + u * ca - v * sa, y + u * sa + v * ca)
+
+    return [[at(0, width * 0.5), at(0, -width * 0.5), at(width * 0.75, 0)],
+            [at(width * 0.2, width * 0.2), at(width * 0.2, -width * 0.2), at(length, 0)]]
+
+
+def hook(x, y, size):
+    """Ein Winkelhaken: die Spitze zeigt zum Kopf der Zeile."""
+    return [[(x + size * 0.8, y + size * 0.5), (x, y), (x + size * 0.8, y - size * 0.5)]]
+
+
+def sign(rnd, x, top, width, high):
+    """Ein Zeichen: zwei bis vier Keile in einer der fünf Fügungen der Inschrift."""
+    down = -math.pi * 0.5
+    kind = rnd.randrange(5)
+    out = []
+    if kind == 0:
+        n = 2 if width < 0.095 else 3
+        for i in range(n):
+            out += nail(x + width * (i + 0.5) / n, top, high, 0.044, down)
+    elif kind == 1:
+        n = rnd.choice((2, 3))
+        for j in range(n):
+            out += nail(x, top - high * (j + 0.5) / n, width, 0.04, 0.0)
+    elif kind == 2:
+        out += nail(x + width - 0.016, top, high, 0.044, down)
+        for j in range(2):
+            out += hook(x, top - high * (0.28 + j * 0.44), 0.05)
+    elif kind == 3:
+        out += nail(x, top - 0.014, width, 0.038, 0.0)
+        for i in range(2):
+            out += nail(x + width * (0.3 + i * 0.42), top - 0.034, high - 0.034, 0.038, down)
+    else:
+        out += nail(x + width * 0.5, top, high, 0.044, down)
+        out += nail(x, top - high * 0.55, width, 0.038, 0.0)
+    return out
+
+
 def clay_tablet():
-    """Helle Kissen-Tafel, dicht in Zeilen beschrieben: Keile und Zeilen-Rillen rings ums Netz."""
+    """Helle Kissen-Tafel, in sieben gezogenen Zeilen mit Keilschrift beschrieben: Köpfe und
+    Schäfte wie auf einer assyrischen Inschrift, das Netz bleibt frei."""
     m = mats("rune")
     clay = led.mat("Ton_hell", (0.45, 0.34, 0.22), 0.0, 0.95)
     box("Koerper", (L - 0.012, W - 0.012, TT), (0, 0, TT * 0.5), clay, 0.15, 0.05, 6)
     rnd = random.Random(11)
+    rows, row = 7, 0.125
+    y0 = rows * row * 0.5
     marks = []
-    row, step, size = 0.082, 0.052, 0.03
-    y = 0.47 - row * 0.5
-    r = 0
-    while y > -0.46:
-        x = -0.69
-        start = None
-        while x < 0.72:
-            free = not in_net(x, y, 0.04) and not in_net(x + size, y, 0.04)
-            if free:
-                start = x if start is None else start
-                if rnd.random() > 0.12:
-                    ang = rnd.choice((-math.pi * 0.5, -math.pi * 0.5, 0.0, 0.0, math.pi * 0.75))
-                    dy = row * 0.3 if ang < 0 else rnd.uniform(-0.01, 0.01)
-                    marks.append(wedge(x, y + dy, size, ang))
-            if (not free or x + step >= 0.72) and start is not None:
-                if x - start > 0.1 and not in_net((start + x) * 0.5, y + row * 0.5, 0.02):
-                    line("KerbeZeile%d_%d" % (r, len(marks)), TT, start - 0.01, y + row * 0.5,
-                         x - 0.02, y + row * 0.5, 0.006, m["Kerbe"])
+    for r in range(rows + 1):
+        y = y0 - r * row
+        edge = r in (0, rows)
+        x0, x1 = (-0.66, 0.68) if edge else (-0.74, 0.76)
+        x, start, n = x0, None, 0
+        while x <= x1 + 1e-6:
+            free = not in_net(x, y, 0.025)
+            if free and start is None:
+                start = x
+            if (not free or x + 0.02 > x1) and start is not None:
+                if x - start > 0.06:
+                    line("%sZeile%d_%d" % ("Kern" if edge else "Kerbe", r, n), TT, start, y, x, y,
+                         0.008 if edge else 0.006, m["Kern"] if edge else m["Kerbe"])
+                    n += 1
                 start = None
-            x += step
-        y -= row
-        r += 1
+            x += 0.02
+    for r in range(rows):
+        top = y0 - r * row - 0.02
+        high = row - 0.04
+        x0, x1 = (-0.62, 0.64) if r in (0, rows - 1) else (-0.71, 0.73)
+        x = x0
+        while x < x1 - 0.07:
+            width = rnd.uniform(0.075, 0.115)
+            box_pts = [(x - 0.01, top), (x + width + 0.01, top), (x - 0.01, top - high),
+                       (x + width + 0.01, top - high), (x + width * 0.5, top - high * 0.5)]
+            if x + width <= x1 and not any(in_net(px, py, 0.03) for px, py in box_pts):
+                marks += sign(rnd, x, top, width, high)
+            x += width + 0.022
     prism("KerbeKeile", marks, TT - 0.002, TT + LIFT, m["Kerbe"])
-    # Was GLÜHT (Griff, Aufflammen): eine Spalte glasierter Keile am Kopf, ein Glasur-Saum am Fuß.
-    seal = []
-    y = -0.4
-    while y < 0.41:
-        seal.append(wedge(-0.765, y, 0.03, 0.0))
-        y += 0.066
-    prism("KernSiegelkeile", seal, TT - 0.002, TT + LIFT, m["Kern"])
     rim = box("SaumFuss", (L - 0.004, W - 0.004, 0.008), (0, 0, TT * 0.5), m["Saum"], 0.154)
     led.cut(rim, box("SchnittFuss", (L - 0.03, W - 0.03, 0.05), (0, 0, TT * 0.5), m["Dunkel"],
                      0.14))
@@ -341,7 +347,6 @@ def service_module():
     """Mattschwarze Platine: feine matte Leiterbahnen, EPROM mit Fenster, QFP, Pad-Feld,
     SMD-Reihen, Kontaktleiste am Fuß. Nichts davon leuchtet - hell ist allein das Netz."""
     m = mats("gold")
-    rnd = random.Random(4)
     black = led.mat("Mattschwarz", (0.012, 0.012, 0.014), 0.0, 0.6, clearcoat=0.2)
     box("Koerper", (L - 0.006, W - 0.006, MT), (0, 0, MT * 0.5), black, 0.05, 0.004, 3)
     ring = box("SaumRand", (L, W, 0.006), (0, 0, MT * 0.5), m["Saum"], 0.053)
@@ -397,7 +402,7 @@ def service_module():
         line("PadBond%d" % k, zc + 0.0005, cx + math.cos(a) * 0.036, cy + math.sin(a) * 0.036,
              cx + math.cos(a) * 0.062, cy + math.sin(a) * 0.062, 0.003, pad)
     # Das Fuß-Feld unter dem Netz: ein Bündel zum Rand, darüber eine SMD-Reihe.
-    for k in range(14):
+    for k in range(0, 14, 2):
         x = -0.02 + k * 0.042
         y_out = -0.3 - k * 0.012
         trace("BahnFuss%d" % k, [(x, -edge), (x, y_out + 0.04), (x + 0.04, y_out), (0.7, y_out)],
@@ -423,36 +428,11 @@ def service_module():
         y = -0.1 + k * 0.05
         trace("BahnKopf%d" % k, [(arm_l - 0.02, y), (-0.72 - k * 0.012, y),
                                  (-0.72 - k * 0.012, 0.2 + k * 0.012)], vias=vias, m=bahn)
-    pts = [(-0.74 + i * 0.022, -0.46 + j * 0.022, MT + 0.002) for i in range(9) for j in range(7)]
-    dm.dots(None, "PadBGA", pts, 0.006, pad)
-    for k in range(6):
-        trace("BahnBGA%d" % k, [(-0.74 + k * 0.03, -0.31), (-0.74 + k * 0.03, -0.24 - k * 0.006),
-                                (-0.7 + k * 0.03, -0.2 - k * 0.006)], 0.005, vias, bahn)
-    # SMD-Reihen in den schmalen Streifen an den Armen.
-    n = 0
-    for x0, x1, y in ((-0.5, -0.38, -0.36), (-0.5, -0.38, -0.44), (0.0, 0.62, -0.2),
-                      (-0.74, -0.4, 0.19)):
-        x = x0
-        while x < x1:
-            if rnd.random() < 0.8:
-                mat = m["Dunkel"] if rnd.random() < 0.6 else m["Ton"]
-                slab("%sTeil%d" % ("Dunkel" if mat is m["Dunkel"] else "Ton", n), x - 0.018,
-                     y - 0.01, x + 0.018, y + 0.01, MT, MT + 0.01, mat)
-                for s in (-1, 1):
-                    slab("PadTeil%d_%d" % (n, s + 1), x + s * 0.022 - 0.006, y - 0.011,
-                         x + s * 0.022 + 0.006, y + 0.011, MT, MT + 0.002, pad)
-                n += 1
-            x += 0.07
-    for k in range(6):
-        dm.cyl(None, "PadPruef%d" % k, 0.009, 0.001, (-0.02 + k * 0.045, 0.5, MT + 0.0015), pad, 10)
     dm.dots(None, "PadVias", vias, 0.01, pad)
     # Das Schild: ein freies Feld im Bündel, darin die matte Schrift.
     slab("KoerperSchild", 0.03, -0.49, 0.6, -0.41, MT, MT + 0.0012, black)
     glyph("SchriftSchild", "FUMBLE SERVICE  ·  REV C", 0.315, -0.45, MT + 0.0026, 0.034,
           m["Schrift"])
-    for name, x, y in (("U1", 0.3, 0.515), ("U2", -0.6, 0.47), ("J1", 0.665, 0.505),
-                       ("R1-R8", 0.31, -0.235), ("TP", -0.07, 0.5)):
-        glyph("Schrift" + name.replace("-", ""), name, x, y, MT + LIFT, 0.018, m["Schrift"])
 
 
 # --- Abschluß ------------------------------------------------------------------------------

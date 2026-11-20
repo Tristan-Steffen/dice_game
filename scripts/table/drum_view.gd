@@ -39,6 +39,9 @@ const BED_HIGH := 0.02
 const BED_STEP := 0.004
 ## Luft der Mulde um die Karte (Welt).
 const WELL_AIR := 0.012
+## Der Leuchttisch unter der Lochkarte: dunkel ohne Karte, hell mit ihr (Anteil der Sortenfarbe).
+const FLOOR_DARK := 0.2
+const FLOOR_LIT := 1.25
 const BODY_ALBEDO := Color(0.16, 0.155, 0.21)
 const BODY_EMISSION := Color(0.36, 0.38, 0.52)
 const BODY_EMISSION_ENERGY := 0.3
@@ -377,7 +380,7 @@ func _build_reader(face: Node3D, shelf: String, side: float, thickness: float) -
 	var length := thickness / (1.0 + WorkshopView.DRUM_AIR)
 	var k := across / DataCellView.WIDTH if DataCellView.WIDTH > 0.0 else 1.0
 	var edge := length * 0.5 + (thickness - length) * 0.25
-	_build_bed(face, shelf, tint, top, side, across, length, thickness, k)
+	_build_bed(face, reader, shelf, tint, top, side, across, length, thickness, k)
 	match DataCellView.carrier_of(shelf):
 		DataCellView.CARRIER_PUNCH:
 			_build_feelers(face, reader, tint, top, across, edge, k, well_depth(side))
@@ -392,17 +395,19 @@ func _build_reader(face: Node3D, shelf: String, side: float, thickness: float) -
 ## Das BETT einer Seite: eine MULDE, in die die Karte sinkt (well_depth tief), mit einem Rand
 ## im Material ihres Mediums, einer Lichtlippe in der Sortenfarbe und EINEM Motiv am Boden.
 ## Maße der Drucke im Karten-Maß: x längs der Achse (Kopf = -x), y quer.
-func _build_bed(face: Node3D, shelf: String, tint: Color, top: float, side: float,
-		across: float, length: float, thickness: float, k: float) -> void:
+func _build_bed(face: Node3D, reader: Dictionary, shelf: String, tint: Color, top: float,
+		side: float, across: float, length: float, thickness: float, k: float) -> void:
 	var half := Vector2(length * 0.5 / k, across * 0.5 / k)
 	var well := well_depth(side)
 	var floor_y := top - well + BED_STEP
 	var inner := Vector2(length * 0.5 + WELL_AIR, side * 0.5 - well)
 	var ground := Color.BLACK
+	var floor_material: Material = null
 	var rim := Color.BLACK
 	match DataCellView.carrier_of(shelf):
 		DataCellView.CARRIER_PUNCH:
-			ground = _lit(tint, 0.2)
+			# Der Boden ist ein LEUCHTTISCH: liegt die Karte, scheint er durch ihre Löcher.
+			floor_material = _lamp(reader, tint, [FLOOR_DARK, FLOOR_DARK, FLOOR_LIT])
 			rim = Color(0.05, 0.05, 0.06)
 			_bed_punch(face, tint, floor_y, k, half)
 			_pin(face, "Juwel", 0.07, 0.03,
@@ -420,7 +425,8 @@ func _build_bed(face: Node3D, shelf: String, tint: Color, top: float, side: floa
 			rim = _lit(tint, 0.22)
 			_bed_module(face, tint, floor_y, k, half)
 	_part(face, "Grund", Vector3(inner.y * 2.0, BED_STEP, inner.x * 2.0),
-		Vector3(0.0, top - well + BED_STEP * 0.5, 0.0), _flat(ground, 1.0))
+		Vector3(0.0, top - well + BED_STEP * 0.5, 0.0),
+		floor_material if floor_material != null else _flat(ground, 1.0))
 	_well_frame(face, _flat(rim, 1.0), tint, top, well, inner, thickness)
 
 ## So tief ist die Mulde - und so breit ihre Wand längs der Kanten: tiefer brächen die
