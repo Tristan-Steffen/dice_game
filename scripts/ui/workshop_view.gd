@@ -2246,19 +2246,22 @@ func shelf_overflow(column: int) -> Vector2i:
 	return Vector2i(1 if mini(scroll, used) > 0 else 0,
 		1 if used - scroll > shelf_window_cards() else 0)
 
-## Die Sortenfarben einer Spalte, ein Eintrag je PLATZ im Fenster (Reihe mal ACROSS plus
-## Querplatz; leer stumpf) - die MULDEN ihrer Platte lesen sie.
+## Die Sortenfarben einer Spalte, ein Eintrag je RANG (Reihe mal ACROSS plus Querplatz;
+## leer stumpf) - jede LAMELLE liest ihre Reihe, auch hinausgerollt.
 func shelf_column_tints(column: int) -> Array[Color]:
 	var tints: Array[Color] = []
-	var places := shelf_window_cards()
-	var scroll := shelf_scroll_of(column) * PackDrawerView.ACROSS
+	var entries := drawer_entries()
+	var count := 0
+	for entry in entries:
+		if int(entry.get("column", -1)) == column:
+			count = maxi(count, int(entry.get("cell", 0)) + 1)
 	var packs: Array[Pack] = []
-	packs.resize(places)
-	for entry in drawer_entries():
+	packs.resize(count)
+	for entry in entries:
 		if int(entry.get("column", -1)) != column:
 			continue
-		var place := int(entry.get("cell", 0)) - scroll
-		if place >= 0 and place < places:
+		var place := int(entry.get("cell", 0))
+		if place >= 0 and place < count:
 			packs[place] = entry.get("pack") as Pack
 	for pack in packs:
 		if pack == null:

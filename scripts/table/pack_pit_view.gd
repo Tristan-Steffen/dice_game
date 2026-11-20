@@ -118,6 +118,12 @@ var floored := true
 var slot_walls: Array[int] = []
 ## Seine Lage: x = Tiefe der OBERKANTE unter der Schnittkante, y = die der Unterkante.
 var slot := Vector2.ZERO
+## Die SCHACHT-Aussparung: so weit stehen die Wände oben und unten (Welt ±X) hinter der
+## Lochkante - dort kippen die Lamellen des Magazins über die Kante. Eine Decke unter dem
+## Filz schließt den Streifen, der Lichtsaum dort fällt weg.
+var x_room := 0.0
+## Ihre Dicke unter der Schnittkante.
+const CEILING := 0.04
 
 func _init(pit_name := "PackPit") -> void:
 	name = pit_name
@@ -140,7 +146,8 @@ func setup(at: Vector3, half_extents: Vector2, pit_depth: float) -> void:
 ## Der Grundriß der BODENPLATTE in LOKALEN Koordinaten (x längs Welt-X, y längs
 ## Welt-Z).
 func _floor_plan() -> Rect2:
-	return Rect2(-half, half * 2.0)
+	var room := Vector2(maxf(x_room, 0.0), 0.0)
+	return Rect2(-half - room, half * 2.0 + room * 2.0)
 
 ## Die Welt-XZ-Grenzen des Lochs (der Bodenshader blendet genau sie aus).
 func bounds_min() -> Vector2:
@@ -164,14 +171,14 @@ static func wall_inward(wall_id: int) -> Vector3:
 
 ## Abstand der Grubenmitte zur INNENFLÄCHE einer Wand.
 func _wall_reach(wall_id: int) -> float:
-	return half.x if wall_id == WALL_X_MINUS or wall_id == WALL_X_PLUS else half.y
+	return half.x + maxf(x_room, 0.0) if wall_id == WALL_X_MINUS or wall_id == WALL_X_PLUS 		else half.y
 
 ## Länge des Wandbalkens längs seiner Richtung. Die X-Wände greifen um die
 ## Wandstärke über, damit die vier Ecken geschlossen sind.
 func _wall_run(wall_id: int) -> float:
 	if wall_id == WALL_X_MINUS or wall_id == WALL_X_PLUS:
 		return half.y * 2.0 + wall * 2.0
-	return half.x * 2.0
+	return (half.x + maxf(x_room, 0.0)) * 2.0
 
 func _build_materials() -> void:
 	var lining: Shader = load("res://assets/shaders/pit_lining.gdshader")
@@ -265,10 +272,17 @@ func _build_body() -> void:
 
 	var glow_y := -GLOW_DROP - GLOW_H * 0.5
 	var glow_in := RIM_IN * 0.5
-	TableProps.box(self, "GlowXPlus", Vector3(glow_in, GLOW_H, span.y),
-		Vector3(half.x - glow_in * 0.5, glow_y, 0.0), _glow_material)
-	TableProps.box(self, "GlowXMinus", Vector3(glow_in, GLOW_H, span.y),
-		Vector3(-half.x + glow_in * 0.5, glow_y, 0.0), _glow_material)
+	if x_room > 0.0:
+		for side: float in [1.0, -1.0]:
+			TableProps.box(self, "Decke%s" % ("XPlus" if side > 0.0 else "XMinus"),
+				Vector3(x_room + wall, CEILING, span.y + wall * 2.0),
+				Vector3(side * (half.x + (x_room + wall) * 0.5), top - CEILING * 0.5, 0.0),
+				_wall_material)
+	else:
+		TableProps.box(self, "GlowXPlus", Vector3(glow_in, GLOW_H, span.y),
+			Vector3(half.x - glow_in * 0.5, glow_y, 0.0), _glow_material)
+		TableProps.box(self, "GlowXMinus", Vector3(glow_in, GLOW_H, span.y),
+			Vector3(-half.x + glow_in * 0.5, glow_y, 0.0), _glow_material)
 	TableProps.box(self, "GlowZPlus", Vector3(span.x, GLOW_H, glow_in),
 		Vector3(0.0, glow_y, half.y - glow_in * 0.5), _glow_material)
 	TableProps.box(self, "GlowZMinus", Vector3(span.x, GLOW_H, glow_in),

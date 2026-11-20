@@ -1,8 +1,8 @@
 extends GutTest
-## Das SORTEN-MAGAZIN: VIER TRAYS nebeneinander, je Sorte einer in eigener Grube, alle
-## gleich hoch. Jeder rollt für sich senkrecht (Welt-X); die Karten sind Kinder des Faches
-## ihres Trays und reisen mit. Keine Karte ragt je über die Tischkante, was das Fenster
-## verlassen hat, ist weggesteckt, und jeder Tray trägt das Gerät seines Datenträgers.
+## Das SORTEN-MAGAZIN: VIER TRAYS nebeneinander, je Sorte einer in eigenem Schacht, alle
+## gleich hoch. Jeder ist ein UMLAUFREGAL: je Reihe eine Lamelle, die am Ende über die Achse
+## in den Schacht kippt; die Karten sind Kinder des Faches ihres Trays und folgen ihrer
+## Lamelle. Keine Karte ragt je über die Tischkante, und jeder Tray trägt sein Gerät.
 
 ## Die Grube in Welt: x quer (Bild-hoch, ZWEI Reihen), y längs (Bild-breit, VIER Spalten
 ## zu je zwei Karten nebeneinander).
@@ -71,9 +71,12 @@ func test_die_platte_ist_die_grube() -> void:
 	for column in COLUMNS:
 		assert_almost_eq(stack.plate_bounds(column).x, lanes[column].x - 2.85, 0.0001)
 		assert_almost_eq(stack.plate_bounds(column).y, lanes[column].x + 2.85, 0.0001)
+	# Fest steht nur die Platte unter der Schiene; die Plätze trägt die Lamelle.
 	var plate := stack.get_node("Spalte2/Platte") as MeshInstance3D
-	assert_almost_eq((plate.mesh as BoxMesh).size.z, 5.7, 0.0001)
-	assert_almost_eq(plate.position.z, -3.3, 0.0001)
+	assert_almost_eq((plate.mesh as BoxMesh).size.z, stack.rail_width(1), 0.0001)
+	assert_almost_eq(plate.position.z, stack.rail_z(1), 0.0001)
+	var own := stack.get_node("Spalte2/Lamellen/Lamelle0/Platte") as MeshInstance3D
+	assert_almost_eq((own.mesh as BoxMesh).size.z, stack.slot_width(1), 0.0001)
 
 func test_ohne_meldung_gleiche_streifen() -> void:
 	assert_almost_eq(stack.lane_width(), SPAN.y / float(COLUMNS), 0.0001)
@@ -126,49 +129,157 @@ func test_der_umzug_behaelt_den_weltplatz() -> void:
 	assert_almost_eq(cell.global_position.x, at.x, 0.0001)
 	assert_almost_eq(cell.global_position.z, at.z, 0.0001)
 
-# --- WEGGESTECKT: was das Fenster verlassen hat ------------------------------------
+# --- DIE KIPP-FUNKTION ------------------------------------------------------------------
 
-func test_eine_karte_ausserhalb_des_fensters_ist_weggesteckt() -> void:
-	var half := DataCellView.WIDTH * SCALE * 0.5
-	var inside := _cell(0, 0.0)
-	var above := _cell(0, SPAN.x * 0.5 + half * 2.5)
-	var below := _cell(0, -SPAN.x * 0.5 - half * 2.5)
-	var touching := _cell(0, SPAN.x * 0.5 + stack.top_pocket_depth() - half + 0.01)
-	var clear := _cell(0, SPAN.x * 0.5 - half - 0.01)
-	assert_false(inside.tucked(), "im Fenster liegt sie offen")
-	assert_true(above.tucked(), "oben ganz draußen ist sie weggesteckt")
-	assert_true(below.tucked(), "unten ebenso")
-	assert_true(touching.tucked(), "mit der Kante über der Tasche ist sie fort")
-	assert_false(clear.tucked(), "ganz im Fenster liegt sie offen")
-	assert_true(inside.visible and above.visible, "visible gehört dem Sitz-Schreiber")
+const PITCH := SPAN.x / 2.0
+const HALF := SPAN.x * 0.5
+const TOP := 0.54
 
-func test_ein_zug_steckt_weg_und_holt_herein() -> void:
-	var cell := _cell(1, 0.0)
-	stack.drag_scroll(1, SPAN.x)
-	assert_true(cell.tucked(), "hinausgezogen verschwindet sie")
-	stack.drag_scroll(1, 0.0)
+## Die vier Ecken der flachen Lamelle mit der Mitte x im Seitenschnitt (x, y).
+func _corners(x: float) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for dx: float in [-PITCH * 0.5, PITCH * 0.5]:
+		for y: float in [-ShelfStackView.PLATE, TOP]:
+			out.append(Vector3(x + dx, y, 0.0))
+	return out
+
+func _posed(x: float) -> Array[Vector3]:
+	var pose := ShelfStackView.lamella_pose(x, HALF, PITCH, TOP)
+	var out: Array[Vector3] = []
+	for corner in _corners(x):
+		out.append((pose["transform"] as Transform3D) * corner)
+	return out
+
+func test_im_fenster_liegt_die_lamelle_exakt_flach() -> void:
+	for x: float in [PITCH * 0.5, -PITCH * 0.5, 0.0, HALF - PITCH * 0.5]:
+		var pose := ShelfStackView.lamella_pose(x, HALF, PITCH, TOP)
+		assert_eq(int(pose["state"]), ShelfStackView.LAM_FLAT, "x = %.2f" % x)
+		assert_eq(pose["transform"], Transform3D.IDENTITY)
+
+func test_am_ende_kippt_sie_und_jenseits_ist_sie_fort() -> void:
+	var tip := ShelfStackView.lamella_pose(PITCH * 0.5 + PITCH * 0.4, HALF, PITCH, TOP)
+	assert_eq(int(tip["state"]), ShelfStackView.LAM_TIP)
+	assert_gt(float(tip["angle"]), 0.3)
+	assert_lt(float(tip["angle"]), PI * 0.5)
+	var hang := ShelfStackView.lamella_pose(PITCH * 1.5 + PITCH * 0.4, HALF, PITCH, TOP)
+	assert_eq(int(hang["state"]), ShelfStackView.LAM_HANG)
+	assert_almost_eq(float(hang["angle"]), PI * 0.5, 0.0001, "sie hängt senkrecht")
+	var gone := ShelfStackView.lamella_pose(PITCH * 2.5 + PITCH * 0.1, HALF, PITCH, TOP)
+	assert_eq(int(gone["state"]), ShelfStackView.LAM_GONE)
+
+## Oben wie unten dieselbe Bewegung, gespiegelt.
+func test_die_kippung_ist_symmetrisch() -> void:
+	for share: float in [0.1, 0.5, 0.9, 1.3, 1.8]:
+		var x := PITCH * 0.5 + PITCH * share
+		var up := _posed(x)
+		var down := _posed(-x)
+		for i in up.size():
+			var mirrored := Vector3(-up[i].x, up[i].y, up[i].z)
+			var hit := false
+			for p in down:
+				hit = hit or p.distance_to(mirrored) < 0.0001
+			assert_true(hit, "Anteil %.1f, Ecke %d gespiegelt" % [share, i])
+
+## Stetig über den Versatz: kein Sprung zwischen Flach, Kippen und Hängen.
+func test_die_kippung_ist_stetig_und_steigt_nie() -> void:
+	var step := PITCH / 400.0
+	var x := 0.0
+	var last := _posed(x)
+	while x < PITCH * 2.4:
+		x += step
+		var now := _posed(x)
+		for i in now.size():
+			assert_lt(now[i].distance_to(last[i]), 0.08, "bei x = %.3f" % x)
+			assert_lte(now[i].y, TOP + 0.0001, "nichts steigt über die Oberkante")
+		last = now
+
+## Ihr Ende reicht nur knapp über die Kante - so weit steht die Schachtwand dahinter.
+func test_sie_reicht_nur_knapp_ueber_die_kante() -> void:
+	var reach := ShelfStackView.tip_reach(PITCH)
+	assert_lt(reach, PITCH * 0.1)
+	var x := PITCH * 0.5
+	while x < PITCH * 2.5:
+		for p in _posed(x):
+			assert_lte(p.x, HALF + reach + 0.001, "bei x = %.2f" % x)
+		x += PITCH / 50.0
+	assert_gt(ShelfStackView.shaft_setback(PITCH), reach)
+	assert_gt(ShelfStackView.shaft_depth(SCALE, PITCH),
+		PITCH + ShelfStackView.deck_drop(SCALE), "der Schacht faßt die hängende Lamelle")
+
+# --- Die KARTE folgt ihrer Lamelle ------------------------------------------------------
+
+func test_die_karte_kippt_mit_und_ist_erst_unten_weggesteckt() -> void:
+	var cell := _cell(0, -PITCH * 0.5)
+	assert_eq(cell.carry(), Transform3D.IDENTITY, "im Fenster liegt sie flach")
+	assert_false(cell.tucked())
+	assert_true(stack.card_flat(cell))
+	stack.drag_scroll(0, -PITCH * 0.4)
+	assert_ne(cell.carry(), Transform3D.IDENTITY, "sie kippt mit ihrer Lamelle")
+	assert_false(cell.tucked(), "und bleibt dabei sichtbar")
+	assert_false(stack.card_flat(cell), "kippend ist sie nicht greifbar")
+	stack.drag_scroll(0, -PITCH * 1.6)
+	assert_false(cell.tucked(), "auch hängend noch")
+	stack.drag_scroll(0, -PITCH * 2.2)
+	assert_true(cell.tucked(), "ganz unten ist sie weggesteckt")
+	assert_true(cell.visible, "visible gehört dem Sitz-Schreiber")
+	stack.drag_scroll(0, 0.0)
 	assert_false(cell.tucked(), "und kommt zurück")
+	assert_eq(cell.carry(), Transform3D.IDENTITY)
 
-func test_hinausgerollte_mulden_verschwinden() -> void:
-	stack.top_pocket_limit_x = SPAN.x * 0.5 + 0.3  # oben liegt der Graben der Walze
-	stack.set_bay_tints(0, _empties(4), true)
-	var bays := stack.get_node("Spalte1/Mulden1") as Node3D
-	assert_true((bays.get_node("Mulde0") as Node3D).visible, "im Fenster stehen sie")
-	assert_false((bays.get_node("VorratOben/Vorrat0") as Node3D).visible,
-		"der obere Vorrat ruht unsichtbar")
-	stack.drag_scroll(0, -SPAN.x * 0.5 + 0.1)
-	assert_true((bays.get_node("VorratOben/Vorrat0") as Node3D).visible,
-		"hereingezogen erscheint er")
-	stack.drag_scroll(0, SPAN.x)
-	assert_false((bays.get_node("Mulde0") as Node3D).visible, "hinausgerollt ist das Stück fort")
-	stack.settle_scroll_hard()
-	assert_true((bays.get_node("Mulde0") as Node3D).visible)
+## Der Körper liegt genau auf seiner Lamelle (Ursprung der Karte durch das Band geführt).
+func test_der_koerper_folgt_der_lamelle() -> void:
+	var cell := _cell(0, -PITCH * 0.5)
+	stack.drag_scroll(0, -PITCH * 0.3)
+	var flat := stack.scroll_offset(0) - PITCH * 0.5
+	var pose := stack.pose_at(0, flat)
+	var column := stack.get_node("Spalte1") as Node3D
+	var expected := column.global_transform * (pose["transform"] as Transform3D) \
+		* Vector3(flat, ShelfStackView.PROUD, stack.slot_z(0))
+	var body := cell.global_transform * (cell.carry() * Vector3.ZERO)
+	assert_almost_eq(body.distance_to(expected), 0.0, 0.001)
 
-func test_wer_das_fach_verlaesst_ist_nie_weggesteckt() -> void:
-	var cell := _cell(0, SPAN.x * 2.0)
-	assert_true(cell.tucked())
+func test_wer_das_fach_verlaesst_liegt_flach_und_offen() -> void:
+	var cell := _cell(0, -PITCH * 0.5)
+	stack.drag_scroll(0, -PITCH * 0.5)
 	ShelfStackView.rehost(cell, self)
 	assert_false(cell.tucked(), "auf dem Weg zur Walze ist sie sichtbar")
+	assert_eq(cell.carry(), Transform3D.IDENTITY)
+
+# --- Die LAMELLEN und ACHSEN -----------------------------------------------------------
+
+func _lamella_of(column: int, row: int) -> Node3D:
+	var band := stack.get_node("Spalte%d/Lamellen" % (column + 1))
+	for i in band.get_child_count():
+		if stack.lamella_row(column, i) == row:
+			return band.get_child(i) as Node3D
+	return null
+
+func test_jeder_tray_hat_zwei_achsen_und_keine_taschen() -> void:
+	for column in COLUMNS:
+		for end in ["AchseOben", "AchseUnten"]:
+			var path := "Spalte%d/%s/Rad/" % [column + 1, end]
+			assert_not_null(stack.get_node_or_null(path + "Welle"), path)
+			assert_not_null(stack.get_node_or_null(path + "Kettenrad1"), path)
+	assert_null(stack.get_node_or_null("Wandtaschen"), "die Wandtaschen sind gestorben")
+	var top := stack.get_node("Spalte1/AchseOben") as Node3D
+	assert_gt(top.position.x, 0.0, "oben an der Kante")
+	var wheel := stack.get_node("Spalte1/AchseOben/Rad") as Node3D
+	var rest := wheel.rotation.z
+	stack.drag_scroll(0, 0.5)
+	assert_ne(wheel.rotation.z, rest, "die Räder drehen mit dem Band")
+
+## Über die Enden hinaus kommen LEERE Lamellen herauf.
+func test_ueber_das_ende_kommen_leere_lamellen() -> void:
+	var tints := _empties(4)
+	tints[0] = Color.RED
+	stack.set_bay_tints(0, tints)
+	stack.drag_scroll(0, -PITCH * 0.6)
+	var above := _lamella_of(0, -1)
+	assert_not_null(above, "über Reihe 0 läuft eine Lamelle herein")
+	assert_true(above.visible)
+	var seam := (above.get_node("Platz0/Saum") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	assert_eq(seam.emission, ShelfStackView.BAY_EMPTY, "sie ist leer")
 
 # --- Die FASSUNG und die LICHTLEISTE -------------------------------------------------
 
@@ -236,20 +347,19 @@ func test_je_platz_eine_mulde_mit_saum_in_der_sortenfarbe() -> void:
 	assert_eq(stack.bay_count(2), 4)
 	assert_eq(stack.bay_tint(2, 0), tints[0])
 	assert_eq(stack.bay_tint(2, 1), ShelfStackView.BAY_EMPTY, "leer ist stumpf")
-	var bays := stack.get_node("Spalte3/Mulden3")
-	assert_gt((bays.get_node("Mulde0") as Node3D).position.x,
-		(bays.get_node("Mulde1") as Node3D).position.x, "Reihe 0 liegt oben")
-	assert_null(bays.get_node_or_null("Mulde2"), "vier Plätze sind zwei Reihen")
+	var first := _lamella_of(2, 0)
+	var second := _lamella_of(2, 1)
+	assert_gt(first.position.x, second.position.x, "Reihe 0 liegt oben")
 	for part in ["Saum", "Boden", "Buchse"]:
-		assert_not_null(bays.get_node_or_null("Mulde0/Platz0/" + part))
-		assert_not_null(bays.get_node_or_null("Mulde0/Platz1/" + part))
-	assert_gt((bays.get_node("Mulde0/Platz1") as Node3D).position.z,
-		(bays.get_node("Mulde0/Platz0") as Node3D).position.z, "Querplatz 1 rechts daneben")
-	var lit := (bays.get_node("Mulde0/Platz0/Saum") as MeshInstance3D).material_override \
+		assert_not_null(first.get_node_or_null("Platz0/" + part))
+		assert_not_null(first.get_node_or_null("Platz1/" + part))
+	assert_gt((first.get_node("Platz1") as Node3D).position.z,
+		(first.get_node("Platz0") as Node3D).position.z, "Querplatz 1 rechts daneben")
+	var lit := (first.get_node("Platz0/Saum") as MeshInstance3D).material_override \
 		as StandardMaterial3D
-	var dull := (bays.get_node("Mulde0/Platz1/Saum") as MeshInstance3D).material_override \
+	var dull := (first.get_node("Platz1/Saum") as MeshInstance3D).material_override \
 		as StandardMaterial3D
-	var corner := (bays.get_node("Mulde1/Platz1/Saum") as MeshInstance3D).material_override \
+	var corner := (second.get_node("Platz1/Saum") as MeshInstance3D).material_override \
 		as StandardMaterial3D
 	assert_eq(lit.emission, tints[0])
 	assert_eq(corner.emission, tints[3], "Platz 3: zweite Reihe, rechts")
@@ -259,9 +369,8 @@ func test_die_mulde_ist_eine_vertiefung_und_die_karte_buendig() -> void:
 	stack.set_bay_tints(0, _empties(4))
 	var top := ShelfStackView.PROUD + DataCellView.DEPTH * SCALE
 	assert_almost_eq(stack.deck_height(), top, 0.0001)
-	var bays := stack.get_node("Spalte1/Mulden1") as Node3D
-	for part in ["Mulde0/Lippe0", "Mulde1/RippeO"]:
-		var box := bays.get_node(part) as MeshInstance3D
+	for part in ["Lippe0", "RippeO"]:
+		var box := _lamella_of(0, 1).get_node(part) as MeshInstance3D
 		assert_almost_eq(box.position.y + (box.mesh as BoxMesh).size.y * 0.5, top, 0.0001, part)
 	var bed := stack.get_node("Spalte1/Rollschiene/Bett0") as MeshInstance3D
 	assert_almost_eq(bed.position.y + (bed.mesh as BoxMesh).size.y * 0.5, top, 0.0001,
@@ -276,8 +385,8 @@ func test_die_mulde_ist_eine_vertiefung_und_die_karte_buendig() -> void:
 ## Lippen und Schiene decken die ganze Grube - links bis an die Wand, rechts die Schiene.
 func test_lippen_und_schiene_decken_die_grube() -> void:
 	stack.set_bay_tints(1, _empties(4))
-	var bays := stack.get_node("Spalte2/Mulden2") as Node3D
-	var segment := bays.get_node("Mulde0") as Node3D
+	var bays := stack.get_node("Spalte2/Lamellen") as Node3D
+	var segment := _lamella_of(1, 0)
 	var lo := INF
 	var hi := -INF
 	for child in segment.get_children():
@@ -294,50 +403,20 @@ func test_lippen_und_schiene_decken_die_grube() -> void:
 	assert_almost_eq(rail.position.z + stack.rail_width(1) * 0.5, bounds.y, 0.001,
 		"die Schiene schließt an der rechten Wand")
 
-func test_umfaerben_baut_nichts_neu_umzaehlen_schon() -> void:
+## Die Farben kommen je RANG; umgefärbt und umgezählt wird, gebaut nie.
+func test_farben_bauen_nichts_neu() -> void:
 	stack.set_bay_tints(1, _empties(4))
-	var before := stack.get_node("Spalte2/Mulden2")
-	var gold := _empties(4)
+	var before := _lamella_of(1, 0)
+	var gold := _empties(6)
 	gold[0] = PackDrawerView.GOLD
 	stack.set_bay_tints(1, gold)
-	assert_eq(stack.get_node("Spalte2/Mulden2"), before)
-	stack.set_bay_tints(1, _empties(6))
 	assert_eq(stack.bay_count(1), 6)
-	assert_ne(stack.get_node("Spalte2/Mulden2"), before)
+	assert_eq(_lamella_of(1, 0), before)
 
 func test_die_buchse_sitzt_am_kartenfuss() -> void:
-	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY])
-	var socket := stack.get_node("Spalte1/Mulden1/Mulde0/Platz0/Buchse") as Node3D
+	var socket := _lamella_of(0, 0).get_node("Platz0/Buchse") as Node3D
 	assert_not_null(socket)
 	assert_almost_eq(socket.position.z, DataCellView.HEIGHT * SCALE * 0.5, 0.0001)
-
-# --- Die WANDTASCHEN --------------------------------------------------------------------
-
-func test_die_wandtaschen_liegen_hinter_den_waenden_oben_und_unten() -> void:
-	for column in COLUMNS:
-		var path := "Wandtaschen/Spalte%d/" % (column + 1)
-		var top := stack.get_node(path + "WandtascheOben/Rueckwand") as MeshInstance3D
-		assert_gt(top.global_position.x, SPAN.x * 0.5, "oben hinter der Grubenwand")
-		assert_almost_eq(top.global_position.z, stack.lane_z(column), 0.0001, "je Tray eine")
-		var bottom := stack.get_node(path + "WandtascheUnten/Rueckwand") as MeshInstance3D
-		assert_lt(bottom.global_position.x, -SPAN.x * 0.5, "unten ebenso")
-		assert_null(stack.get_node_or_null(path + "WandtascheOben/Vorderwand"))
-		var flank := stack.get_node(path + "WandtascheOben/Flanke1") as MeshInstance3D
-		var bb := flank.global_transform * flank.get_aabb()
-		assert_lte(bb.end.z, stack.lane_z(column) + stack.lane_width(column) * 0.5
-			+ ShelfStackView.POCKET_WALL + 0.001, "so breit wie die eigene Grube")
-
-func test_die_wandtaschen_enden_an_den_gemeldeten_grenzen() -> void:
-	var limit := SPAN.x * 0.5 + 0.5
-	stack.top_pocket_limit_x = limit
-	var decke := stack.get_node("Wandtaschen/Spalte1/WandtascheOben/Decke") as MeshInstance3D
-	var bb := decke.global_transform * decke.get_aabb()
-	assert_lte(maxf(bb.position.x, bb.end.x), limit + 0.001, "oben vor dem Graben")
-	var low := -SPAN.x * 0.5 - 1.0
-	stack.bottom_pocket_limit_x = low
-	var unten := stack.get_node("Wandtaschen/Spalte1/WandtascheUnten/Decke") as MeshInstance3D
-	var ub := unten.global_transform * unten.get_aabb()
-	assert_gte(minf(ub.position.x, ub.end.x), low - 0.001, "unten am Displayrand")
 
 # --- Das ROLLEN, je Spalte für sich ------------------------------------------------------
 
@@ -405,21 +484,6 @@ func test_der_schieber_folgt_dem_zug_und_dem_einrasten() -> void:
 	stack.set_rail(2, 6, 2, 1)
 	assert_almost_eq(stack.rail_thumb(2).x, 1.0 / 6.0, 0.0001)
 
-func test_der_vorrat_fuellt_das_fenster_bei_jedem_zug() -> void:
-	stack.set_bay_tints(0, _empties(4))
-	var bays := stack.get_node("Spalte1/Mulden1") as Node3D
-	var block := bays.get_node("VorratUnten") as Node3D
-	var pitch := SPAN.x / 2.0
-	var reach := pitch * float(2 + ShelfStackView.SPARE_EXTRA)
-	for x: float in [0.5, SPAN.x, SPAN.x * 3.7, SPAN.x * 10.0]:
-		stack.drag_scroll(0, x)
-		var start: float = x + block.position.x
-		var real_end: float = x - SPAN.x * 0.5
-		assert_gte(start, minf(real_end, SPAN.x * 0.5) - 0.001, "bei x = %.1f ohne Lücke" % x)
-		assert_lte(start - reach, -SPAN.x * 0.5 + 0.001, "und bis an den unteren Rand")
-	stack.settle_scroll_hard()
-	assert_almost_eq(block.position.x, -SPAN.x * 0.5, 0.0001)
-
 func test_ein_weiter_rueckweg_federt_laenger() -> void:
 	var pitch := SPAN.x / float(PackDrawerView.PLACES)
 	assert_almost_eq(stack.snap_time_for(pitch), ShelfStackView.SNAP_TIME, 0.0001)
@@ -435,23 +499,38 @@ func test_dieselben_masse_bauen_nichts_neu() -> void:
 	stack.setup(Vector3.ZERO, SPAN * 1.2, SCALE)
 	assert_eq(cell.get_parent().name, "Fach")
 
+func _floor(column: int, row: int, across: int) -> StandardMaterial3D:
+	return (_lamella_of(column, row).get_node("Platz%d/Boden" % across) as MeshInstance3D) \
+		.material_override as StandardMaterial3D
+
 ## Die Kartenzufuhr: der Boden eines Platzes leuchtet nur unter einer Karte, in ihrer Farbe.
 func test_der_leuchttisch_leuchtet_nur_unter_einer_karte() -> void:
 	var green := Color(0.3, 1.0, 0.5)
 	var tints := _empties(4)
 	tints[0] = green
 	stack.set_bay_tints(0, tints)
-	var lit := (stack.get_node("Spalte1/Mulden1/Mulde0/Platz0/Boden") as MeshInstance3D) \
-		.material_override as StandardMaterial3D
-	var dark := (stack.get_node("Spalte1/Mulden1/Mulde0/Platz1/Boden") as MeshInstance3D) \
-		.material_override as StandardMaterial3D
+	var lit := _floor(0, 0, 0)
+	var dark := _floor(0, 0, 1)
 	assert_eq(lit.emission, green)
 	assert_almost_eq(lit.emission_energy_multiplier, MagazinTrayDress.LAMP_LIT, 0.001)
 	assert_almost_eq(dark.emission_energy_multiplier, MagazinTrayDress.LAMP_DARK, 0.001)
 	stack.set_bay_tints(1, tints)
-	var deck := (stack.get_node("Spalte2/Mulden2/Mulde0/Platz0/Boden") as MeshInstance3D) \
-		.material_override
-	assert_eq(deck, MagazinTrayDress.floor_material(1), "die anderen Geräte haben keinen")
+	assert_eq(_floor(1, 0, 0), MagazinTrayDress.floor_material(1),
+		"die anderen Geräte haben keinen")
+
+## Die Farbe folgt dem RANG der Karte, nicht dem Platz im Fenster - schon beim Hereinschwenken.
+func test_der_leuchttisch_folgt_dem_rang() -> void:
+	var tints := _empties(8)
+	tints[4] = Color.RED      # Reihe 2, links
+	tints[7] = Color.BLUE     # Reihe 3, rechts
+	stack.set_bay_tints(0, tints)
+	stack.set_rail(0, 4, 2, 1)
+	assert_eq(_floor(0, 2, 0).emission, Color.RED, "gerollt trägt die untere Lamelle Reihe 2")
+	stack.drag_scroll(0, PITCH * 0.5)
+	var coming := _lamella_of(0, 3)
+	assert_not_null(coming, "Reihe 3 schwenkt unten herein")
+	assert_true(coming.visible)
+	assert_eq(_floor(0, 3, 1).emission, Color.BLUE, "und leuchtet schon in ihrer Farbe")
 
 ## Der Schieber ist ein Knopf mit Griffrillen in zwei Führungsschienen - in JEDEM Tray.
 func test_jeder_tray_hat_einen_greifbaren_schieber() -> void:

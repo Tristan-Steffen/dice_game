@@ -692,8 +692,6 @@ func test_die_wandhaut_hat_eine_quelle_und_deckt_jede_grube() -> void:
 		"das Hinterzimmer trägt sie")
 	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),
 		"die Paket-Fläche des Ladens trägt sie")
-	assert_true(root.contains("shelf_stack.wall_skin = PIT_SKIN"),
-		"die Wandtaschen des Magazins tragen sie")
 	assert_true(root.contains("pit.wall_color = MagazinTrayDress.wall_color(column)"),
 		"die Trays selbst tragen die Wand ihres Geräts (Plan magazin_trays)")
 	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),

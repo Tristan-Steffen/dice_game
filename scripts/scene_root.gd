@@ -197,8 +197,6 @@ const BENCH_CARRY_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 2.0
 
 ## Die Datenzellen der Werkbank: Staffel, mit der eine Regal-Zeile aufgeht, und der
 ## Takt, in dem eine umsortierte Karte auf ihren neuen Platz gleitet.
-## Die Luft unter der Platte der Magazin-Spalten bis zum Grubenboden (_pack_pit_depth).
-const PACK_PIT_FLOOR_AIR := 0.3
 ## Luft unter der auf Kante stehenden Scheibe im GRABEN der Walze.
 const DRUM_PIT_AIR := 0.3
 ## Wie weit der Griff eine Karte auf der Walze anhebt (Anteil der Kartenhöhe).
@@ -3652,8 +3650,7 @@ func _drop_drum() -> void:
 func _sync_pack_pit(workshop: WorkshopView) -> void:
 	if table_screen == null:
 		return
-	var scale := workshop.shelf_cell_scale()
-	var air := ShelfStackView.RIM_CLEAR * 0.5
+	var pitch := _shelf_lamella_length(workshop)
 	for column in PackDrawerView.COLUMNS:
 		var rect := workshop.shelf_column_rect(column)
 		if rect.size.x <= 0.0 or rect.size.y <= 0.0:
@@ -3669,13 +3666,12 @@ func _sync_pack_pit(workshop: WorkshopView) -> void:
 			pit.glow_color = MagazinTrayDress.glow_color(column)
 			add_child(pit)
 			shelf_pits[column] = pit
-		# Die Wände oben und unten (Welt ±X) bekommen den SCHLITZ, durch den der Tray
-		# hinausrollt: von der Oberkante der Karte bis unter die Platte.
-		pit.slot_walls = [PackPitView.WALL_X_PLUS, PackPitView.WALL_X_MINUS] as Array[int]
-		pit.slot = Vector2(maxf(ShelfStackView.RIM_CLEAR - air, 0.0),
-			ShelfStackView.stack_depth(scale) + air)
+		# Ein SCHACHT: oben und unten stehen die Wände hinter der Kante, über die die
+		# Lamellen des Umlaufs kippen.
+		pit.x_room = ShelfStackView.shaft_setback(pitch)
 		pit.setup(table_screen.pixel_to_world(rect.get_center()), _pit_half(rect),
-			_pack_pit_depth())
+			_pack_pit_depth(workshop))
+	_warn_shelf_shaft(workshop)
 
 ## Der GRABEN der Walze: ein Dauer-Loch, so tief, dass die auf Kante stehende Scheibe
 ## frei dreht.
@@ -3714,13 +3710,13 @@ var chamber_rig: ChamberRigView
 ## und -rechts unter den Tisch fahren (0 = zu, 1 = offen).
 var chamber_floor: Node3D
 var _chamber_doors: Array[MeshInstance3D] = []
-## So tief liegen die Tore unter der Anzeige - sie verschwinden unter ihr.
-const CHAMBER_DOOR_SINK := 0.02
-const CHAMBER_DOOR_EDGE := Color(1.0, 0.7, 0.15)
 var _chamber_door_share := 0.0
 var _chamber_half := Vector2.ONE
 var _chamber_floor_skin: ShaderMaterial
 var _chamber_floor_tween: Tween
+## So tief liegen die Tore unter der Anzeige - sie verschwinden unter ihr.
+const CHAMBER_DOOR_SINK := 0.02
+const CHAMBER_DOOR_EDGE := Color(1.0, 0.7, 0.15)
 ## Steht der Würfel in der Kammer (bzw. fährt hinab)? Die Rückfahrt setzt es sofort falsch.
 var _chamber_open := false
 
@@ -3875,19 +3871,14 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 		return
 	if shelf_stack == null or not is_instance_valid(shelf_stack):
 		shelf_stack = ShelfStackView.new()
-		# Die Wandtaschen sind der Raum NEBEN der Grube und tragen darum DEREN Haut.
-		shelf_stack.wall_skin = PIT_SKIN
 		add_child(shelf_stack)
-	shelf_stack.bottom_pocket_limit_x = _shelf_bottom_pocket_limit()
-	shelf_stack.top_pocket_limit_x = _shelf_top_pocket_limit()
 	var k := _world_span(rect.size).y / rect.size.x
 	shelf_stack.setup(table_screen.pixel_to_world(rect.get_center()),
 		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect),
 		Vector3(PackDrawerView.FRAME_PX, PackDrawerView.FRAME_PX, PackDrawerView.BAR_PX) * k)
 	var window := workshop.shelf_places()
 	for column in PackDrawerView.COLUMNS:
-		shelf_stack.set_bay_tints(column, workshop.shelf_column_tints(column),
-			workshop.shelf_scroll_of(column) > 0)
+		shelf_stack.set_bay_tints(column, workshop.shelf_column_tints(column))
 		shelf_stack.set_bar(column, workshop.shelf_bar_text(column))
 		shelf_stack.set_rail(column, workshop.shelf_rows(column), window,
 			workshop.shelf_scroll_of(column))
@@ -3913,8 +3904,33 @@ func _pit_half(rect: Rect2) -> Vector2:
 	return Vector2(absf(a.x - b.x), absf(a.z - b.z)) * 0.5
 
 ## Die Tiefe der Magazin-Grube: eine Lage Karten samt Platte und Luft - flach.
-func _pack_pit_depth() -> float:
-	return ShelfStackView.stack_depth(PackDrawerView.CASSETTE_SCALE) + PACK_PIT_FLOOR_AIR
+func _pack_pit_depth(workshop: WorkshopView) -> float:
+	return ShelfStackView.shaft_depth(workshop.shelf_cell_scale(),
+		_shelf_lamella_length(workshop)) - PackPitView.WALL_SINK
+
+## Die Länge einer Lamelle in Welt: eine Reihen-Teilung des Fensters.
+func _shelf_lamella_length(workshop: WorkshopView) -> float:
+	var rect := workshop.shelf_pit_rect()
+	return _world_span(rect.size).x / float(maxi(workshop.shelf_places(), 1))
+
+## Der Schacht darf weder den GRABEN der Walze noch den Displayrand erreichen (einmal je
+## Lauf des Spiels gewarnt).
+var _shelf_shaft_warned := false
+
+func _warn_shelf_shaft(workshop: WorkshopView) -> void:
+	var field := workshop.shelf_pit_rect()
+	var drum := workshop.drum_pit_rect()
+	if field.size.y <= 0.0 or _shelf_shaft_warned:
+		return
+	var reach := ShelfStackView.shaft_setback(_shelf_lamella_length(workshop)) + PackPitView.WALL
+	var top := table_screen.pixel_to_world(field.position).x + reach
+	if drum.size.y > 0.0 and top > table_screen.pixel_to_world(drum.end).x - PackPitView.WALL:
+		push_warning("Magazin-Schacht reicht unter den Graben der Walze")
+		_shelf_shaft_warned = true
+	var bottom := table_screen.pixel_to_world(field.end).x - reach
+	if bottom < table_screen.pixel_to_world(Vector2(table_screen.size)).x:
+		push_warning("Magazin-Schacht reicht über den Displayrand")
+		_shelf_shaft_warned = true
 
 # --- Die EINE Ankunft des Magazins ------------------------------------------
 # Wer auch immer liefert - Laden, Hub-Prämie, Charm, Nebenwette, Hinterzimmer -,
@@ -9198,21 +9214,6 @@ func _opening_in_use() -> bool:
 		return true
 	return _choice != null or _case_bought != null
 
-## Die obere Wandtasche des Magazins endet vor der Außenwand des GRABENS der Walze, der
-## darüber offen steht.
-func _shelf_top_pocket_limit() -> float:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop):
-		return INF
-	var pit := workshop.drum_pit_rect()
-	if pit.size.y <= 0.0:
-		return INF
-	return table_screen.pixel_to_world(pit.end).x - PackPitView.WALL
-
-## Die untere Wandtasche des Magazins endet am Displayrand.
-func _shelf_bottom_pocket_limit() -> float:
-	return table_screen.pixel_to_world(Vector2(table_screen.size)).x
-
 ## Das Rechteck der Öffnungs-Fläche in Display-Pixeln: eine Fuge rechts neben dem Podest-
 ## Platz, oben bündig mit der Pool-Reihe und so hoch wie sie (leer = kein Platz). Sie
 ## liegt über "=", ERGEBNIS, PRÄGEN und der (dann leeren) Schale.
@@ -11956,6 +11957,9 @@ func _update_workshop_hover() -> void:
 			hover_uid = _hovered_pack_uid
 		elif _cell_holds_pointer(_socket_cell(_hovered_step), mouse):
 			step = _hovered_step
+	# Eine kippende Karte ist nicht greifbar.
+	if hover_uid != 0 and shelf_stack != null and is_instance_valid(shelf_stack) 			and not shelf_stack.card_flat(shelf_cells.get(hover_uid)):
+		hover_uid = 0
 	_sync_pack_hover(hover_uid)
 	_sync_fach_hover()
 	workshop.sync_hover_at(pixel, hover_uid, step)

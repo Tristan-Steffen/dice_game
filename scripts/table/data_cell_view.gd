@@ -166,6 +166,7 @@ var _body_scale := 1.0
 ## Liegt sie auf ihrem LESER (Walze, Kammer)? Dann brennt der Saum.
 var _socketed := false
 var _hovered := false
+var _carry := Transform3D.IDENTITY
 var _hover_share := 0.0
 var _hover_tween: Tween
 var _flare_tween: Tween
@@ -614,12 +615,23 @@ func _apply_pose() -> void:
 	var lift := DEPTH * 0.5 * _body_scale
 	# Der Griff hebt den KÖRPER, nicht den Platz; wie weit, sagt hover_lift.
 	lift += STAND_HEIGHT * hover_lift * _hover_share * _body_scale
-	_body.transform = Transform3D(_lying_basis(), Vector3(0.0, lift, 0.0))
+	_body.transform = _carry * Transform3D(_lying_basis(), Vector3(0.0, lift, 0.0))
 
 ## Die LIEGE-Drehung samt Maßstab: der ROLL legt sie QUER, die Kippung flach.
 func _lying_basis() -> Basis:
 	return Basis(Vector3.RIGHT, -PI * 0.5).scaled(Vector3.ONE * _body_scale) \
 		* Basis(Vector3.BACK, PI * 0.5)
+
+## Die LAGE ihrer Lamelle im Umlaufregal (ShelfStackView), im Rahmen ihres Ursprungs:
+## kippt die Lamelle, kippt der Körper mit. Der Knoten bleibt auf seinem flachen Platz.
+func set_carry(carry: Transform3D) -> void:
+	if _carry.is_equal_approx(carry):
+		return
+	_carry = carry
+	_apply_pose()
+
+func carry() -> Transform3D:
+	return _carry
 
 ## WEGGESTECKT (eine hinausgerollte Magazin-Karte): der Körper verschwindet, der Knoten
 ## bleibt sichtbar - `visible` gehört dem Sitz-Schreiber, dies dem Magazin.

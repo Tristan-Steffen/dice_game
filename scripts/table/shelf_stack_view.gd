@@ -1,16 +1,16 @@
 class_name ShelfStackView
 extends Node3D
 ## Das SORTEN-MAGAZIN (Layout C, 2026-11-20): VIER TRAYS nebeneinander, einer je SORTE
-## (Pack.SHELF_ORDER), jeder in seiner eigenen Grube, alle auf derselben Höhe; dazwischen
-## liegt Filz. Jeder Tray (Knoten "Spalte%d") trägt auf seiner Platte REIHEN zu ACROSS
-## Mulden und ROLLT für sich senkrecht: ein Zug schiebt sein FACH längs Welt-X, was das
-## Fenster verläßt, gleitet durch die Schlitze der Wände oben und unten unter den Filz.
-## Aussehen, Fassung und Lichtleiste sind das GERÄT seines Datenträgers (MagazinTrayDress);
-## rechts in der Grube zeigt die ROLLSCHIENE, wie weit er gerollt ist.
+## (Pack.SHELF_ORDER), jeder in seinem eigenen Schacht, alle auf derselben Höhe; dazwischen
+## liegt Filz. Jeder Tray ist ein UMLAUFREGAL (Plan docs/plan_magazin_umlaufregal.md): je
+## REIHE eine starre LAMELLE, und ein Zug rollt das Band längs Welt-X. Am Ende kippt die
+## vorderste Lamelle samt ihren Karten über die ACHSE an der Kante in den Schacht, am anderen
+## schwenkt die nächste hoch. Lage und Winkel sind eine reine Funktion des Roll-Versatzes
+## (lamella_pose) - kein eigener Tween.
 ##
 ## Die Karten LIEGEN flach (Netz nach oben, Langseite quer) und sind KINDER des Faches ihrer
-## Spalte: eine Fahrt trägt sie mit. Eine Karte, die das Fenster verlassen hat, ist
-## WEGGESTECKT (DataCellView.set_tucked) - oben läge sie sonst unter dem Graben der Walze.
+## Spalte: sein Versatz IST der Roll-Versatz. Ihr Körper folgt ihrer Lamelle (set_carry),
+## erst ganz unten ist sie WEGGESTECKT (set_tucked).
 ##
 ## Die Maße kommen von außen (scene_root rechnet die gemeldeten Gruben in Welt), die
 ## HÖHE gehört dem Magazin. Endzustand zuerst: der Roll-Stand ist gebucht,
@@ -19,12 +19,12 @@ extends Node3D
 const COLUMNS := PackDrawerView.COLUMNS
 const ACROSS := PackDrawerView.ACROSS
 
-## Eine Spalte ist eine Platte; die Karte liegt eine Spur darüber (koplanar stritten
+## Eine Lamelle hat eine Platte; die Karte liegt eine Spur darüber (koplanar stritten
 ## sie im Tiefenpuffer).
 const PLATE := 0.06
 ## Die Karte liegt in ihrer MULDE auf der Boden-Einlage - um BAY_FLOOR über der
-## Platte; PROUD mißt vom Muldenboden aus. Lippen, Rippen und Deck reichen bis
-## Kartenoberkante (deck_height), die liegende Karte ist bündig mit der Spalte.
+## Platte; PROUD mißt vom Muldenboden aus. Lippen und Rippen reichen bis Kartenoberkante
+## (deck_height), die liegende Karte ist bündig mit der Lamelle.
 const BAY_FLOOR := 0.05
 ## Die Dicke der liegenden Karte und ihre Spur über dem Boden (koplanar stritten
 ## sie im Tiefenpuffer).
@@ -40,7 +40,7 @@ const RIM_CLEAR := CARD_THICKNESS * 0.5
 ## Kartendicke über das Glas - nur der Hover darf über die Kante.
 const HOVER_PROUD := CARD_THICKNESS
 ## So tief unter ihrem Platz beginnt eine gelieferte Karte ihren Aufstieg: unter der
-## Platte ihrer Spalte.
+## Platte ihrer Lamelle.
 const RISE_DEPTH := CARD_THICKNESS + PLATE + PROUD
 
 ## Der Anteil der Grubenbreite, den die ROLLSCHIENE rechts nimmt (PackDrawerView
@@ -50,20 +50,16 @@ const RAIL_SHARE := PackDrawerView.RAIL_SHARE
 const HIGHLIGHT_GAIN := 2.2
 ## Die Fassung ohne Meldung (kopflos): Seite, oben, unten in Welt.
 const MARGINS_FALLBACK := Vector3(0.21, 0.21, 0.9)
-## Die MULDE je Stellplatz: die PLATTE ist ihr Boden, Lippen und Rippen ihr Rand bis
-## Kartenhöhe, am Boden ein LICHTSAUM in der Sortenfarbe (leer kühl und stumpf) und am
-## Bild-rechten Ende die BUCHSE, in der die Karte steckt.
+## Die MULDE je Stellplatz: die Platte der Lamelle ist ihr Boden, Lippen und Rippen ihr
+## Rand bis Kartenhöhe, am Boden ein LICHTSAUM in der Sortenfarbe (leer kühl und stumpf)
+## und am Bild-rechten Ende die BUCHSE, in der die Karte steckt.
 const BAY_ROOM := 1.06
 const LIP_MIN := 0.06
 const SEAM_WIDTH := 0.05
 const SEAM_RISE := 0.006
 const FLOOR_RISE := 0.010
 const BAY_EMPTY := Color(0.34, 0.38, 0.58)
-## Ein Vorrats-Block ist ein Fenster plus so viele Mulden lang.
-const SPARE_EXTRA := 2
 const SNAP_TIME_MAX := 0.45
-## So weit liegt die mitrollende Platte unter der festen.
-const UNDERPLATE_SINK := 0.01
 ## Die Wand-Auskleidung einer Mulde: Stärke, Abstand zur Lippe, Luft unter dem Deck.
 const WALL_LINING := 0.012
 const WALL_INSET := 0.004
@@ -73,21 +69,9 @@ const SEAM_FILLED_ENERGY := 0.9
 
 ## Das EINRASTEN nach einem Zug auf den nächsten ganzen Platz.
 const SNAP_TIME := 0.16
-## Eine Wandtasche faßt den hinausgerollten Platz samt Luft (in Kartenbreiten).
-const POCKET_SHARE := 1.2
-const POCKET_CLEAR := 0.3
 
-## Die WANDTASCHE hinter dem Schlitz ist der Raum NEBEN der Grube, nicht ihr Ende:
-## sie trägt dieselbe Archiv-Auskleidung wie die Grube selbst (PackPitView.tune_lining),
-## und ihre Flanken setzen die Grubenwände in Weltmaß fort.
-const POCKET_WALL := 0.06
-## Ihr BODEN ist HELLER als der der Grube: in die Grube sieht man von oben, in die
-## Tasche nur durch einen flachen Schlitz (gemessen 2026-10-26).
-const POCKET_FLOOR_ALBEDO := Color(0.125, 0.115, 0.18)
-const POCKET_FLOOR_ENERGY := 2.4
-
-## Der BODEN einer MULDE bekommt DIESELBE Auskleidung, aber DUNKLER als die Tasche: in
-## ein Kartenfach sieht die Station fast senkrecht hinein. GEMESSEN 2026-10-26.
+## Der BODEN einer Laden-MULDE (CardRecessView): Archiv-Auskleidung, dunkel - in ein
+## Kartenfach sieht die Station fast senkrecht hinein. GEMESSEN 2026-10-26.
 const BAY_FLOOR_ALBEDO := Color(0.095, 0.088, 0.14)
 const BAY_FLOOR_ENERGY := 1.8
 
@@ -96,12 +80,29 @@ const PLATE_ALBEDO := Color(0.22, 0.212, 0.285)
 const PLATE_EMISSION := Color(0.46, 0.48, 0.66)
 const PLATE_ENERGY := 0.42
 
-## Die WANDHAUT der Wandtaschen: von draußen GEMELDET wie die der Grube selbst.
-var wall_skin: Texture2D = null:
-	set(value):
-		wall_skin = value
-		if _built:
-			_build_pocket()
+## Die Lagen einer Lamelle (lamella_pose): flach im Fenster, am Ende im Kippen, darunter
+## hängend, ganz unten fort.
+const LAM_FLAT := 0
+const LAM_TIP := 1
+const LAM_HANG := 2
+const LAM_GONE := 3
+## So viele Lamellen hält ein Tray über das Fenster hinaus vorrätig (je Ende kippt eine,
+## hängt eine, und eine Teilung Spiel).
+const LAMELLA_SPARE := 4
+## Die ACHSE an jeder Kante: Welle und Kettenräder (Welt). Ihre Mitte liegt im Streifen
+## zwischen Fassungslippe und Kartenende und eine Spur unter der Oberkante - so liest sie
+## auch in Ruhe, ohne über eine Karte zu ragen.
+const AXLE_RADIUS := 0.06
+const AXLE_DROP := 0.03
+const SPROCKET_RADIUS := 0.2
+const SPROCKET_WIDTH := 0.06
+const SPROCKET_TEETH := 10
+const SPROCKET_INSET := 0.11
+## Luft zwischen dem, was über die Kante kippt, und der Schachtwand; unter der tiefsten
+## Lamelle bis zum Boden.
+const SHAFT_CLEAR := 0.06
+const SHAFT_AIR := 0.04
+const REACH_SAMPLES := 64
 
 var _span := Vector2.ONE
 var _seat := Vector3.ZERO
@@ -115,8 +116,7 @@ var _margins := MARGINS_FALLBACK
 
 var _columns: Array[Node3D] = []
 var _fachs: Array[Node3D] = []
-var _tints: Array = []          # Spalte -> Array[Color], zuletzt geschrieben
-var _rolled := {}               # Spalte -> schon nach unten gerollt (Vorrat oben)
+var _tints: Array = []          # Spalte -> Array[Color] je RANG der Spalte
 var _frames: Array[Node3D] = []  # Spalte -> Fassung auf dem Filz
 var _bars: Array = []           # Spalte -> {bar, label, material} der Lichtleiste
 var _bar_texts: Array[String] = []
@@ -125,31 +125,16 @@ var _bar_texts: Array[String] = []
 var _thumbs: Array[MeshInstance3D] = []
 var _rail_rows: Array[Vector2i] = []
 var _rail_scroll: Array[int] = []
+## Der Roll-Stand, für den das Fach auf 0 steht - er wechselt erst, wenn der Versatz in
+## die Karten übergeht (bake_scroll), nie mitten in einer Fahrt.
+var _fach_base: Array[int] = []
 var _wall_material: ShaderMaterial
-var _spare_below := {}           # Spalte -> Vorrats-Block unten
-var _spare_above := {}           # Spalte -> Vorrats-Block oben (nur gerollt)
-var _pitch := {}                 # Spalte -> Muldenteilung
-var _bays: Array[Node3D] = []    # Spalte -> Mulden-Knoten
-var _seams: Array = []          # Spalte -> Array[StandardMaterial3D], je Mulde
-var _lamps: Array = []          # Spalte -> Leuchttische je Platz (nur die Kartenzufuhr)
+var _lamellae: Array = []       # Spalte -> Array[Node3D], der Vorrat an Lamellen
+var _lam_rows: Array = []       # Spalte -> Array[int], die Reihe, die jede gerade trägt
+var _seams: Array = []          # Spalte -> je Lamelle Array[StandardMaterial3D]
+var _lamps: Array = []          # Spalte -> je Lamelle die Leuchttische (nur Kartenzufuhr)
+var _axles: Array = []          # Spalte -> [oben, unten] die drehenden Räder
 var _grips: Array = []          # Spalte -> Griffrillen des Schiebers
-var _pocket: Node3D
-## Wie weit (Welt +X) die OBERE Wandtasche höchstens reicht: bis vor den Graben der Walze.
-var top_pocket_limit_x := INF:
-	set(value):
-		if top_pocket_limit_x == value:
-			return
-		top_pocket_limit_x = value
-		if _built:
-			_build_pocket()
-## Und wie weit (Welt -X) die UNTERE höchstens reicht: der Displayrand.
-var bottom_pocket_limit_x := -INF:
-	set(value):
-		if bottom_pocket_limit_x == value:
-			return
-		bottom_pocket_limit_x = value
-		if _built:
-			_build_pocket()
 ## Der ROLL-Zug: welche Spalte gerade vom Zeiger geführt wird (-1 = keine), und das
 ## Einrasten danach.
 var _scrolling := -1
@@ -161,10 +146,10 @@ var _highlight := -1
 func _init() -> void:
 	name = "ShelfStack"
 
-## Gleitet eine Karte im Fach auf einen neuen Platz, folgt das Wegstecken ihr je Bild.
+## Gleitet eine Karte im Fach auf einen neuen Platz, folgt ihre Lamelle ihr je Bild.
 func _process(_delta: float) -> void:
 	for column in _fachs.size():
-		_write_tuck(column)
+		_write_cards(column)
 
 # --- Die reine Rechnung --------------------------------------------------------------
 
@@ -179,9 +164,66 @@ static func hover_lift(cell_scale: float) -> float:
 	var reach := read_drop(cell_scale) + HOVER_PROUD
 	return reach / maxf(DataCellView.STAND_HEIGHT * cell_scale, 0.001)
 
-## Wie tief das Magazin reicht - eine Lage, daran mißt die Grube.
+## Wie tief eine FLACHE Lamelle reicht - Trittfläche plus Platte.
 static func stack_depth(cell_scale: float) -> float:
 	return read_drop(cell_scale) + PLATE
+
+## Die Oberkante einer Lamelle (Lippen, Rippen) unter dem Glas: dort liegt ihr Scharnier.
+static func deck_drop(cell_scale: float) -> float:
+	return read_drop(cell_scale) - deck_height_for(cell_scale)
+
+## Der KIPPWINKEL über den Weg, auf dem die Lamelle das Fenster verläßt (share 0..1):
+## glatt von flach bis senkrecht, früh steil genug, daß ihr Ende nur knapp über die Kante
+## hinausreicht.
+static func tip_angle(share: float) -> float:
+	return PI * 0.5 * sin(PI * 0.5 * clampf(share, 0.0, 1.0))
+
+## DIE KIPP-FUNKTION: die Lage einer Lamelle aus ihrer FLACHEN Mitte x (Spalten-lokal,
+## jenseits des Fensters erlaubt), der halben Fensterlänge half, ihrer Länge pitch und der
+## Höhe top ihrer Oberkante. {state, transform, angle}: transform führt die flache Lamelle
+## in ihre Lage. Ihr Scharnier ist die hintere Oberkante - es bleibt im Band; kippt sie aus,
+## hängt die nächste senkrecht unter ihrer Vorderkante.
+static func lamella_pose(x: float, half: float, pitch: float, top: float) -> Dictionary:
+	var side := 1.0 if x >= 0.0 else -1.0
+	var u := x * side
+	var way := u + pitch * 0.5 - half
+	if way <= 0.0:
+		return {"state": LAM_FLAT, "transform": Transform3D.IDENTITY, "angle": 0.0}
+	if way >= pitch * 2.0:
+		return {"state": LAM_GONE, "transform": Transform3D.IDENTITY, "angle": PI * 0.5}
+	var hinge := Vector2(u - pitch * 0.5, top)
+	if way < pitch:
+		var angle := tip_angle(way / pitch)
+		return {"state": LAM_TIP, "transform": _tip_transform(side, hinge, hinge, angle),
+			"angle": angle}
+	# Sie hängt an der Vorderkante der kippenden Lamelle davor.
+	var inner := tip_angle((way - pitch) / pitch)
+	var corner := Vector2(u - pitch * 1.5 + pitch * cos(inner), top - pitch * sin(inner))
+	return {"state": LAM_HANG, "transform": _tip_transform(side, hinge, corner, PI * 0.5),
+		"angle": PI * 0.5}
+
+## Drehung um die Scharnier-Kante (längs Z) nach unten zum Ende side hin, dann aufs Ziel.
+static func _tip_transform(side: float, hinge: Vector2, to: Vector2, angle: float) -> Transform3D:
+	var basis := Basis(Vector3.BACK, -side * angle)
+	var pivot := Vector3(hinge.x * side, hinge.y, 0.0)
+	return Transform3D(basis, Vector3(to.x * side, to.y, 0.0) - basis * pivot)
+
+## Wie weit eine Lamelle beim Kippen höchstens über die Kante hinausreicht (ihre Vorderkante;
+## der Körper liegt dahinter).
+static func tip_reach(pitch: float) -> float:
+	var most := 0.0
+	for i in REACH_SAMPLES + 1:
+		var share := float(i) / float(REACH_SAMPLES)
+		most = maxf(most, pitch * (share - 1.0 + cos(tip_angle(share))))
+	return most
+
+## Wie weit die Wand des Schachts hinter der Lochkante steht: Platz für Kippen und Achse.
+static func shaft_setback(pitch: float) -> float:
+	return maxf(tip_reach(pitch), SPROCKET_RADIUS - SPROCKET_INSET) + SHAFT_CLEAR
+
+## Wie tief der SCHACHT unter dem Glas reicht: bis unter die senkrecht hängende Lamelle.
+static func shaft_depth(cell_scale: float, pitch: float) -> float:
+	return deck_drop(cell_scale) + pitch + SHAFT_AIR
 
 # --- Aufbau ------------------------------------------------------------------------
 
@@ -206,7 +248,6 @@ func setup(at: Vector3, span: Vector2, cell_scale: float,
 	for column in COLUMNS:
 		_build_column(column)
 		_build_frame(column)
-	_build_pocket()
 	_built = true
 	settle_scroll_hard()
 
@@ -224,10 +265,12 @@ func _ensure_columns() -> void:
 		fach.name = "Fach"
 		node.add_child(fach)
 		_fachs.append(fach)
-		_bays.append(null)
 		_tints.append([] as Array[Color])
+		_lamellae.append([])
+		_lam_rows.append([])
 		_seams.append([])
 		_lamps.append([])
+		_axles.append([])
 		_grips.append(null)
 		_frames.append(null)
 		_bars.append({})
@@ -235,8 +278,10 @@ func _ensure_columns() -> void:
 		_thumbs.append(null)
 		_rail_rows.append(Vector2i(0, PackDrawerView.PLACES))
 		_rail_scroll.append(0)
+		_fach_base.append(0)
 
-## Platte, ROLLSCHIENE und MULDEN eines Trays. Das Fach bleibt stehen - es trägt die Karten.
+## Platte der Schiene, ROLLSCHIENE, LAMELLEN und ACHSEN eines Trays. Das Fach bleibt
+## stehen - es trägt die Karten.
 func _build_column(column: int) -> void:
 	var node := _columns[column]
 	node.position = Vector3(0.0, -read_drop(_scale), 0.0)
@@ -245,10 +290,12 @@ func _build_column(column: int) -> void:
 			continue
 		node.remove_child(child)
 		child.queue_free()
-	_build_plate(node, "Platte", plate_span(column), plate_center(column), _span.x, 0.0, 0.0,
+	# Fest steht nur noch die Platte unter der Schiene - die Plätze tragen ihre Lamellen.
+	_build_plate(node, "Platte", rail_width(column), rail_z(column), _span.x, 0.0, 0.0,
 		MagazinTrayDress.inside_material(column))
 	_build_rail(node, column)
-	_build_bays(node, column)
+	_build_lamellae(node, column)
+	_build_axles(node, column)
 
 ## Die ROLLSCHIENE rechts in der Grube: ein Bett bündig mit dem Deck, darin die Rinne und
 ## der SCHIEBER in Sortenfarbe. Sie steht fest - nur der Schieber wandert.
@@ -304,83 +351,6 @@ func _build_frame(column: int) -> void:
 		Vector2(_span.x, lane_width(column)), _margins)
 	_write_bar(column)
 
-## Die WANDTASCHEN hinter den Schlitzen der Wände oben und unten, je Tray zwei:
-## geschlossene Kästen von der Wand weg, so tief wie ein hinausgerollter Platz samt Luft,
-## zur Grube hin offen. Sie liegen außerhalb des Lochs, man sieht sie NUR durch den Schlitz.
-func _build_pocket() -> void:
-	if _pocket != null and is_instance_valid(_pocket):
-		remove_child(_pocket)
-		_pocket.queue_free()
-	var host := Node3D.new()
-	host.name = "Wandtaschen"
-	add_child(host)
-	_pocket = host
-	for column in COLUMNS:
-		var tray := Node3D.new()
-		tray.name = "Spalte%d" % (column + 1)
-		tray.position = Vector3(0.0, 0.0, lane_z(column))
-		host.add_child(tray)
-		_build_pocket_side(tray, column, 1.0, top_pocket_depth())
-		_build_pocket_side(tray, column, -1.0, bottom_pocket_depth())
-
-## Wie tief eine Wandtasche ohne Grenze reicht: eine Kartenbreite samt Luft.
-func pocket_depth() -> float:
-	return DataCellView.WIDTH * _scale * POCKET_SHARE + POCKET_CLEAR
-
-## Die OBERE endet vor dem Graben der Walze, die UNTERE spätestens am Displayrand.
-func top_pocket_depth() -> float:
-	return maxf(minf(pocket_depth(),
-		top_pocket_limit_x - _seat.x - _span.x * 0.5 - POCKET_WALL), POCKET_WALL)
-
-func bottom_pocket_depth() -> float:
-	return maxf(minf(pocket_depth(),
-		_seat.x - _span.x * 0.5 - POCKET_WALL - bottom_pocket_limit_x), POCKET_WALL)
-
-## EINE Wandtasche, außen an der Wand der Seite side (+1 = Bild-oben, Welt +X), so breit
-## wie die Grube ihres Trays.
-func _build_pocket_side(parent: Node3D, column: int, side: float, deep: float) -> void:
-	var host := Node3D.new()
-	host.name = "WandtascheOben" if side > 0.0 else "WandtascheUnten"
-	host.scale = Vector3(side, 1.0, 1.0)
-	parent.add_child(host)
-	var near := _span.x * 0.5
-	# Die DECKE hängt UNTER der Tischfläche (auf der Höhe der Wandoberkante): auf der
-	# Glasebene selbst läge sie AUF dem Filz - als schwarzer Balken neben der Grube.
-	var top := -PackPitView.WALL_SINK
-	var bottom := -stack_depth(_scale) - POCKET_WALL
-	var high := top - bottom
-	# So breit wie die Grube - der Schlitz läuft über deren volle Breite.
-	var wide := lane_width(column) + POCKET_WALL * 2.0
-	var mid_x := near + deep * 0.5
-	var reach := near + deep
-	var rect := Rect2(Vector2(_seat.x + (near if side > 0.0 else -reach),
-		_seat.z + lane_z(column) - wide * 0.5), Vector2(deep, wide))
-	var skin := _lining(0.0, rect, high)
-	var velvet := _lining(1.0, rect, high)
-	TableProps.box(host, "Decke", Vector3(deep, POCKET_WALL, wide),
-		Vector3(mid_x, top - POCKET_WALL * 0.5, 0.0), skin)
-	TableProps.box(host, "Boden", Vector3(deep, POCKET_WALL, wide),
-		Vector3(mid_x, bottom - POCKET_WALL * 0.5, 0.0), velvet)
-	TableProps.box(host, "Rueckwand", Vector3(POCKET_WALL, high, wide),
-		Vector3(near + deep + POCKET_WALL * 0.5, (top + bottom) * 0.5, 0.0), skin)
-	for flank in 2:
-		var dir := float(flank) * 2.0 - 1.0
-		TableProps.box(host, "Flanke%d" % flank, Vector3(deep, high, POCKET_WALL),
-			Vector3(mid_x, (top + bottom) * 0.5, dir * (wide * 0.5 - POCKET_WALL * 0.5)),
-			skin)
-
-## EINE Fläche der Tasche, ausgekleidet von derselben Hand wie die Grube: velvet = 1
-## der Boden, 0 die Wand. Die Haut bekommt NUR die Wand - auf dem Samt läge sie quer.
-func _lining(velvet: float, rect: Rect2, high: float) -> ShaderMaterial:
-	var material := ShaderMaterial.new()
-	material.shader = load("res://assets/shaders/pit_lining.gdshader")
-	var wall := velvet <= 0.5
-	var base := PackPitView.WALL_ALBEDO if wall else POCKET_FLOOR_ALBEDO
-	var field := PackPitView.WALL_FIELD_ENERGY if wall else POCKET_FLOOR_ENERGY
-	PackPitView.tune_lining(material, velvet, base, field, rect,
-		_seat.y, high, PackPitView.GLOW_COLOR, wall_skin if wall else null)
-	return material
-
 ## Die Breite EINER Spalte in Welt: GEMELDET (das Fenster schneidet die Ränder heraus);
 ## ohne Meldung ein gleicher Streifen.
 func lane_width(column := 0) -> float:
@@ -395,7 +365,7 @@ func lane_z(column: int) -> float:
 		return -_span.y * 0.5 + _span.y / float(COLUMNS) * (float(column) + 0.5)
 	return _lanes[clampi(column, 0, _lanes.size() - 1)].x
 
-## Die Grenzen der PLATTE eines Trays (Welt-Z, von links nach rechts): seine Grube.
+## Die Grenzen der Grube eines Trays (Welt-Z, von links nach rechts).
 func plate_bounds(column: int) -> Vector2:
 	return Vector2(lane_z(column) - lane_width(column) * 0.5,
 		lane_z(column) + lane_width(column) * 0.5)
@@ -452,15 +422,11 @@ func drag_scroll(column: int, x: float) -> void:
 	_scrolling = column
 	_roll_to(column, x)
 
-## Fach UND Mulden fahren gemeinsam: ausgeblendet ließen die Mulden eine graue Platte
-## stehen, und die leeren Vorrats-Mulden rücken nach.
+## Fach, Lamellen, Achsen und Schieber folgen demselben Versatz.
 func _roll_to(column: int, x: float) -> void:
 	_fachs[column].position.x = x
-	if _bays[column] != null and is_instance_valid(_bays[column]):
-		_bays[column].position.x = x
-		_place_spares(column, x)
-		_write_segments(column)
-	_write_tuck(column)
+	_write_lamellae(column)
+	_write_cards(column)
 	_write_rail(column)
 
 ## Die Dauer des Einrastens: ein Platz in SNAP_TIME, ein weiter Rückweg länger -
@@ -501,18 +467,19 @@ func snap_scroll(column: int, from: float, to: float, on_done: Callable) -> void
 		bake_scroll(column)
 		on_done.call())
 
-## Der Versatz des Fachs geht in seine Karten über, das Fach steht wieder auf 0 -
-## die Welt-Plätze bleiben byteweise, wo sie sind.
+## Der Versatz des Fachs geht in seine Karten über, das Fach steht wieder auf 0 und auf dem
+## gebuchten Stand - die Welt-Plätze bleiben byteweise, wo sie sind.
 func bake_scroll(column: int) -> void:
 	if column < 0 or column >= _fachs.size():
 		return
 	var fach_node := _fachs[column]
 	var offset := fach_node.position.x
-	_roll_to(column, 0.0)
 	if not is_zero_approx(offset):
 		for child in fach_node.get_children():
 			(child as Node3D).position.x += offset
-	_write_tuck(column)
+	fach_node.position.x = 0.0
+	_fach_base[column] = _rail_scroll[column]
+	_roll_to(column, 0.0)
 
 ## Der harte Weg: jedes Fach auf 0, jede Fahrt aus (Laufwechsel, Abbruch).
 func settle_scroll_hard() -> void:
@@ -536,51 +503,155 @@ func _kill_snap() -> void:
 	_snap = null
 	_snap_column = -1
 
-## WEGGESTECKT ist, was die Spalte aus dem Fenster gerollt hat: ganz draußen, mit der
-## fernen Kante jenseits der Tasche, oder - ist die Tasche kürzer als die Karte - schon,
-## sobald die Mitte die Wand passiert. Oben liegt dahinter der offene Graben der Walze.
-func hidden_at(x: float, half: float) -> bool:
-	var edge := _span.x * 0.5
-	for side: float in [1.0, -1.0]:
-		var room := top_pocket_depth() if side > 0.0 else bottom_pocket_depth()
-		var at := x * side
-		if at - half > edge or at + half > edge + room:
-			return true
-		if at > edge and room < half * 2.0:
-			return true
-	return false
+## Die Länge einer Lamelle - die Reihen-Teilung des Fensters.
+func lamella_length(column := 0) -> float:
+	return _row_pitch(column)
 
-func _write_tuck(column: int) -> void:
+## Die Lage der Lamelle, auf der ein Punkt mit FLACHER Spalten-Position x liegt (der
+## Fach-Versatz eingerechnet): die Teilung des Bandes wird am Versatz gemessen.
+func pose_at(column: int, x: float) -> Dictionary:
+	var pitch := _row_pitch(column)
+	var half := _span.x * 0.5
+	var shift := _fachs[column].position.x if column >= 0 and column < _fachs.size() else 0.0
+	var j := roundi((half + shift - x) / pitch - 0.5)
+	return lamella_pose(half - pitch * (float(j) + 0.5) + shift, half, pitch, deck_height())
+
+## Liegt diese Karte gerade flach im Fenster (greifbar)? Eine kippende ist es nicht.
+func card_flat(cell: Node3D) -> bool:
+	for column in _fachs.size():
+		if cell != null and cell.get_parent() == _fachs[column]:
+			return int(pose_at(column, _fachs[column].position.x + cell.position.x)["state"]) \
+				== LAM_FLAT
+	return true
+
+## Jede Karte des Faches folgt IHRER Lamelle: Lage und Drehung am Körper, und erst ganz
+## unten ist sie weggesteckt.
+func _write_cards(column: int) -> void:
 	if column < 0 or column >= _fachs.size():
 		return
 	var fach_node := _fachs[column]
-	var half := DataCellView.WIDTH * _scale * 0.5
 	for child in fach_node.get_children():
 		var cell := child as DataCellView
-		if cell != null:
-			cell.set_tucked(hidden_at(fach_node.position.x + cell.position.x, half))
+		if cell == null:
+			continue
+		var pose := pose_at(column, fach_node.position.x + cell.position.x)
+		var state := int(pose["state"])
+		if state == LAM_FLAT or state == LAM_GONE:
+			cell.set_carry(Transform3D.IDENTITY)
+		else:
+			# Der Körper hängt am Ursprung der Karte: die Lage des Bandes in ihren Rahmen.
+			var frame := fach_node.transform * cell.transform
+			cell.set_carry(frame.affine_inverse() * (pose["transform"] as Transform3D) * frame)
+		cell.set_tucked(state == LAM_GONE)
 
-## Dieselbe Regel für die Mulden-Stücke der Spalte (Fenster und Vorrat).
-func _write_segments(column: int) -> void:
-	var bays: Node3D = _bays[column] if column < _bays.size() else null
-	if bays == null or not is_instance_valid(bays):
+# --- Die LAMELLEN ------------------------------------------------------------------------
+
+## Die Lamellen eines Trays: ein Vorrat, der das Fenster samt beider Enden deckt. Jede
+## nimmt je Bild die Reihe, die gerade an ihrem Platz im Band läuft.
+func _build_lamellae(host: Node3D, column: int) -> void:
+	_ensure_materials()
+	_wall_material.set_shader_parameter("height", deck_height() - WALL_TOP_GAP)
+	var band := Node3D.new()
+	band.name = "Lamellen"
+	band.position = Vector3(0.0, 0.0, slot_z(column))
+	host.add_child(band)
+	var window := maxi(_rail_rows[column].y, 1)
+	var pitch := _row_pitch(column)
+	var shape := _segment_shape(column, window)
+	var nodes: Array[Node3D] = []
+	var rows: Array[int] = []
+	var seams: Array = []
+	var lamps: Array = []
+	for i in window + LAMELLA_SPARE:
+		var node := Node3D.new()
+		node.name = "Lamelle%d" % i
+		band.add_child(node)
+		var row_seams := _row_seams()
+		var row_lamps := _row_lamps(column)
+		_build_segment(node, column, pitch, shape, [-0.5, 0.5] as Array[float], row_seams,
+			row_lamps)
+		nodes.append(node)
+		rows.append(-2147483648)
+		seams.append(row_seams)
+		lamps.append(row_lamps)
+	_lamellae[column] = nodes
+	_lam_rows[column] = rows
+	_seams[column] = seams
+	_lamps[column] = lamps
+	_write_lamellae(column)
+
+## Der EINE Schreiber der Lamellen: Lage, Sichtbarkeit und - wenn sie eine andere Reihe
+## übernimmt - ihre Farben.
+func _write_lamellae(column: int) -> void:
+	if column < 0 or column >= _lamellae.size():
 		return
-	var half := float(_pitch.get(column, 0.0)) * 0.5
-	for node in _segments_of(bays):
-		var x := bays.position.x + node.position.x
-		if node.get_parent() != bays:
-			x += (node.get_parent() as Node3D).position.x
-		node.visible = not hidden_at(x, half)
+	var nodes: Array = _lamellae[column]
+	if nodes.is_empty():
+		return
+	var count := nodes.size()
+	var pitch := _row_pitch(column)
+	var half := _span.x * 0.5
+	var shift := _fachs[column].position.x
+	var first := floori(shift / pitch - 2.0) + 1
+	var rows: Array = _lam_rows[column]
+	for i in count:
+		var j := first + posmod(i - first, count)
+		var x := half - pitch * (float(j) + 0.5) + shift
+		var pose := lamella_pose(x, half, pitch, deck_height())
+		var node: Node3D = nodes[i]
+		node.visible = int(pose["state"]) != LAM_GONE
+		node.transform = (pose["transform"] as Transform3D) \
+			* Transform3D(Basis.IDENTITY, Vector3(x, 0.0, 0.0))
+		var row := j + _fach_base[column]
+		if int(rows[i]) != row:
+			rows[i] = row
+			_write_lamella_tint(column, i)
+	_write_axles(column)
 
-func _segments_of(bays: Node3D) -> Array[Node3D]:
-	var out: Array[Node3D] = []
-	for child in bays.get_children():
-		if String(child.name).begins_with("Mulde"):
-			out.append(child as Node3D)
-		elif String(child.name).begins_with("Vorrat"):
-			for spare in child.get_children():
-				out.append(spare as Node3D)
-	return out
+## Die Farben EINER Lamelle aus den Rängen ihrer Reihe: Sortenfarbe hell, leer kühl.
+func _write_lamella_tint(column: int, index: int) -> void:
+	var row: int = _lam_rows[column][index]
+	var seams: Array = _seams[column][index]
+	var lamps: Array = _lamps[column][index]
+	for across in ACROSS:
+		var tint := bay_tint(column, row * ACROSS + across)
+		if across < seams.size():
+			var seam: StandardMaterial3D = seams[across]
+			seam.albedo_color = tint
+			seam.emission = tint
+			seam.emission_energy_multiplier = \
+				SEAM_EMPTY_ENERGY if tint == BAY_EMPTY else SEAM_FILLED_ENERGY
+		if across < lamps.size():
+			MagazinTrayDress.write_lamp(lamps[across], tint, tint != BAY_EMPTY)
+
+## Welche Reihe eine Lamelle gerade trägt (Test und Probe).
+func lamella_row(column: int, index: int) -> int:
+	return int(_lam_rows[column][index])
+
+## Die ACHSEN an der oberen und unteren Kante: Welle und Kettenräder, eine Spur ins
+## Fenster gerückt, knapp unter der Oberkante der Lamellen.
+func _build_axles(host: Node3D, column: int) -> void:
+	var wide := slot_width(column)
+	# Die Räder laufen in den Lippen: außen an beiden Seiten und zwischen den Plätzen.
+	var wheels := PackedFloat32Array([-wide * 0.5 + SPROCKET_WIDTH * 0.5, 0.0,
+		wide * 0.5 - SPROCKET_WIDTH * 0.5])
+	var turns: Array = []
+	for side: float in [1.0, -1.0]:
+		var node := Node3D.new()
+		node.name = "AchseOben" if side > 0.0 else "AchseUnten"
+		node.position = Vector3(side * (_span.x * 0.5 - SPROCKET_INSET),
+			deck_height() - AXLE_DROP, slot_z(column))
+		host.add_child(node)
+		turns.append(MagazinTrayDress.build_axle(node, column, wide, AXLE_RADIUS,
+			SPROCKET_RADIUS, SPROCKET_WIDTH, wheels, SPROCKET_TEETH))
+	_axles[column] = turns
+
+## Die Räder drehen mit dem Band: der Weg durch ihren Radius.
+func _write_axles(column: int) -> void:
+	var travel := _fachs[column].position.x + float(_fach_base[column]) * _row_pitch(column)
+	for turn: Node3D in _axles[column]:
+		if turn != null and is_instance_valid(turn):
+			turn.rotation.z = -travel / SPROCKET_RADIUS
 
 ## Die HERVORHEBUNG eines Trays (-1 = keiner): seine Lichtleiste leuchtet heller.
 func set_highlight(column: int) -> void:
@@ -632,12 +703,21 @@ func _write_bar(column: int) -> void:
 
 # --- Die ROLLSCHIENE ---------------------------------------------------------------
 
-## Der Stand der Rollschiene: Reihen gesamt und im Fenster, der GEBUCHTE Roll-Stand.
+## Der Stand der Rollschiene: Reihen gesamt und im Fenster, der GEBUCHTE Roll-Stand. Ruht
+## das Fach, steht es von da an auf diesem Stand; zählt das Fenster anders, entstehen die
+## Lamellen neu.
 func set_rail(column: int, total_rows: int, window_rows: int, scroll: int) -> void:
 	if column < 0 or column >= _rail_rows.size():
 		return
-	_rail_rows[column] = Vector2i(maxi(total_rows, 0), maxi(window_rows, 1))
+	var window := maxi(window_rows, 1)
+	var rebuild := _rail_rows[column].y != window
+	_rail_rows[column] = Vector2i(maxi(total_rows, 0), window)
 	_rail_scroll[column] = scroll
+	if not riding() and is_zero_approx(_fachs[column].position.x):
+		_fach_base[column] = scroll
+	if rebuild and _built:
+		_build_column(column)
+	_write_lamellae(column)
 	_write_rail(column)
 
 ## Der Schieber als Anteile der Schiene (x = Anfang oben, y = Länge), live samt Zug: ein
@@ -713,7 +793,7 @@ func host_card(cell: Node3D, column: int) -> void:
 	cell.position.y = PROUD
 	if cell is DataCellView:
 		(cell as DataCellView).set_layer_depth(0)
-	_write_tuck(clampi(column, 0, _fachs.size() - 1))
+	_write_cards(clampi(column, 0, _fachs.size() - 1))
 
 ## Liegt diese Karte schon auf ihrem Platz? Verglichen wird in der TISCHEBENE und am
 ## Fach.
@@ -726,8 +806,8 @@ func seated(cell: Node3D, column: int, at: Vector3) -> bool:
 		.distance_to(Vector2(at.x, at.z)) < 0.01
 
 ## Ein Körper wechselt den Wirt und behält seinen Weltplatz - der eine Umzug, den
-## das Magazin kennt (hinein ins Fach, hinaus zur Walze). Wer das Fach verläßt, ist
-## nie mehr weggesteckt.
+## das Magazin kennt (hinein ins Fach, hinaus zur Walze). Wer das Fach verläßt, liegt
+## flach und ist nie mehr weggesteckt.
 static func rehost(node: Node3D, host: Node) -> void:
 	if node == null or not is_instance_valid(node) or host == null:
 		return
@@ -735,37 +815,32 @@ static func rehost(node: Node3D, host: Node) -> void:
 		return
 	if node is DataCellView:
 		(node as DataCellView).set_tucked(false)
+		(node as DataCellView).set_carry(Transform3D.IDENTITY)
 	var at := node.global_position
 	if node.get_parent() != null:
 		node.get_parent().remove_child(node)
 	host.add_child(node)
 	node.global_position = at
 
-# --- Die MULDEN ----------------------------------------------------------------------
+# --- Die MULDEN -----------------------------------------------------------------------
 
 ## Die Sortenfarbe eines Trays.
 static func column_tint(column: int) -> Color:
 	return PackDrawerView.COLORS.get(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)],
 		PackDrawerView.GOLD)
 
-## Die Sortenfarben einer Spalte, je Stellplatz eine (Reihe mal ACROSS plus Querplatz,
-## BAY_EMPTY = leer). Sie färben den Lichtsaum der Mulden; ändert sich die Platzzahl,
-## werden die Mulden neu gebaut, sonst nur umgefärbt. Idempotent.
-## rolled = die Spalte ist schon nach unten gerollt: erst dann liegen oben
-## Vorrats-Mulden (auf Stand 0 endet sie an der ersten).
-func set_bay_tints(column: int, tints: Array, rolled := false) -> void:
+## Die Sortenfarben einer Spalte, je RANG eine (Reihe mal ACROSS plus Querplatz, BAY_EMPTY
+## = leer). Jede Lamelle färbt sich danach mit der Reihe, die sie gerade trägt - auch eine,
+## die erst hereinschwenkt. Idempotent; gebaut wird dabei nichts.
+func set_bay_tints(column: int, tints: Array) -> void:
 	if column < 0 or column >= COLUMNS or _tints.is_empty():
 		return
-	var was_rolled: bool = _rolled.get(column, false)
-	if _tints[column] == tints and was_rolled == rolled:
+	if _tints[column] == tints:
 		return
-	var rebuild := (_tints[column] as Array).size() != tints.size() or was_rolled != rolled
-	_rolled[column] = rolled
 	_tints[column] = tints.duplicate()
-	if rebuild and column < _columns.size():
-		_build_bays(_columns[column], column)
-	else:
-		_write_bays(column)
+	var nodes: Array = _lamellae[column]
+	for i in nodes.size():
+		_write_lamella_tint(column, i)
 
 func bay_count(column: int) -> int:
 	if column < 0 or column >= _tints.size():
@@ -789,78 +864,16 @@ func bay_size(places: int, column := 0) -> Vector2:
 		minf(DataCellView.WIDTH * _scale * BAY_ROOM, pitch - LIP_MIN),
 		minf(DataCellView.HEIGHT * _scale * BAY_ROOM, card_slot_width(column) - LIP_MIN * 2.0))
 
-## Welt-X eines Platzes einer Spalte bei so vielen Plätzen: Platz 0 oben.
-func _place_x(index: float, pitch: float) -> float:
-	return _span.x * 0.5 - pitch * (index + 0.5)
-
-## Die MULDEN einer Spalte: je REIHE EIN Stück aus Platte, Deck, Lippen, Rippen und ACROSS
-## Mulden (Saum, Boden, Buchse) - in Stücken, damit hinausgerollte für sich verschwinden.
-func _build_bays(host: Node3D, column: int) -> void:
-	var old: Node3D = _bays[column] if column < _bays.size() else null
-	if old != null and is_instance_valid(old):
-		# Ein Neubau der Spalte hat den Knoten schon ausgehängt - dann nur freigeben.
-		if old.get_parent() != null:
-			old.get_parent().remove_child(old)
-		old.queue_free()
-	_bays[column] = null
-	_seams[column] = []
-	_lamps[column] = []
-	var tints: Array = _tints[column]
-	if tints.is_empty():
-		return
-	_ensure_materials()
-	# Der Verlauf mißt an der Wandhöhe - die hängt am Kartenmaß.
-	_wall_material.set_shader_parameter("height", deck_height() - WALL_TOP_GAP)
-	var bays := Node3D.new()
-	bays.name = "Mulden%d" % (column + 1)
-	bays.position = Vector3(_fachs[column].position.x, 0.0, slot_z(column))
-	host.add_child(bays)
-	_bays[column] = bays
-	var places := PackDrawerView.rows_for(tints.size())
-	var pitch := _span.x / float(places)
-	var shape := _segment_shape(column, places)
-	var rolled: bool = _rolled.get(column, false)
-	var seams: Array = []
-	var lamps: Array = []
-	for i in places:
-		var node := Node3D.new()
-		node.name = "Mulde%d" % i
-		node.position = Vector3(_place_x(float(i), pitch), 0.0, 0.0)
-		bays.add_child(node)
-		# Die Rippe oben gehört dem Stück; ohne Vorrat oben steht die erste halb so
-		# breit INNEN an der Kante, die letzte trägt auch die untere.
-		var ribs: Array[float] = [-1.0 if i > 0 or rolled else -0.5]
-		if i == places - 1:
-			ribs.append(1.0)
-		var row_seams := _row_seams()
-		var row_lamps := _row_lamps(column)
-		_build_segment(node, column, pitch, shape, ribs, row_seams, row_lamps)
-		seams.append_array(row_seams)
-		lamps.append_array(row_lamps)
-	# Die VORRATS-Mulden: unten immer, oben erst nach dem Rollen. Sie rollen mit und
-	# springen beim Zug um ganze Teilungen nach - so ist das Fenster bei jedem Zug voll.
-	_spare_below[column] = _build_spares(bays, column, "VorratUnten", 1.0, places, pitch,
-		shape)
-	_spare_above[column] = _build_spares(bays, column, "VorratOben", -1.0, places, pitch,
-		shape) if rolled else null
-	_pitch[column] = pitch
-	_seams[column] = seams
-	_lamps[column] = lamps
-	_place_spares(column, bays.position.x)
-	_write_bays(column)
-	_write_segments(column)
-
-## Die Quer-Maße eines Stücks: Mulde, Lippe, Rippe und die mitrollende Platte (Mitte
-## quer relativ zu den Plätzen, Breite).
+## Die Quer-Maße einer Lamelle: Mulde, Lippe, Rippe und ihre Platte (Mitte quer relativ zu
+## den Plätzen, Breite - nur die Plätze, die Schiene steht fest).
 func _segment_shape(column: int, places: int) -> Dictionary:
 	var bay := bay_size(places, column)
 	var pitch := _span.x / float(maxi(places, 1))
 	return {"bay": bay, "rail": (card_slot_width(column) - bay.y) * 0.5, "rib": pitch - bay.x,
-		"under": Vector2(plate_center(column) - slot_z(column), plate_span(column))}
+		"under": Vector2(0.0, slot_width(column))}
 
-## EIN Stück des Trays (eine Reihe), pitch lang um seinen Knoten (längs Welt-X): die
-## mitrollende PLATTE eine Spur UNTER der festen (sichtbar nur jenseits der Grubenwand),
-## je Querplatz Lippen bis Kartenhöhe, Rippen an den genannten Rändern (-1 oben, +1 unten,
+## EINE Lamelle (eine Reihe), pitch lang um ihren Knoten (längs Welt-X): ihre PLATTE, je
+## Querplatz Lippen bis Kartenhöhe, Rippen an den genannten Rändern (-1 oben, +1 unten,
 ## ±0.5 halb und innen) und die Mulde selbst samt dem, was ihr Gerät hineinlegt (Kind
 ## "Platz<a>"). Die Schiene rechts daneben steht fest.
 func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
@@ -870,7 +883,7 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 	var rib: float = shape["rib"]
 	var under: Vector2 = shape["under"]
 	var lip := MagazinTrayDress.inside_material(column)
-	_build_plate(node, "Unterplatte", under.y, under.x, pitch, 0.0, UNDERPLATE_SINK, lip)
+	_build_plate(node, "Platte", under.y, under.x, pitch, 0.0, 0.0, lip)
 	for across in ACROSS:
 		var at_z := across_z(column, across)
 		var tag := "" if across == 0 else str(across)
@@ -977,61 +990,6 @@ func _seam_material(tint: Color) -> StandardMaterial3D:
 	seam.emission = tint
 	seam.emission_energy_multiplier = SEAM_EMPTY_ENERGY
 	return seam
-
-## Ein Block leerer Mulden, ein Fenster plus SPARE_EXTRA lang, ab der Kante der
-## Fenster-Mulden nach dir (+1 Bild-unten, -1 Bild-oben). Seine Lage schreibt
-## _place_spares.
-func _build_spares(bays: Node3D, column: int, block_name: String, dir: float, places: int,
-		pitch: float, shape: Dictionary) -> Node3D:
-	var block := Node3D.new()
-	block.name = block_name
-	bays.add_child(block)
-	for i in places + SPARE_EXTRA:
-		var node := Node3D.new()
-		node.name = "Vorrat%d" % i
-		node.position = Vector3(-dir * pitch * (float(i) + 0.5), 0.0, 0.0)
-		block.add_child(node)
-		# Die Rippe am äußeren Rand: die innere trägt schon der Nachbar.
-		_build_segment(node, column, pitch, shape, [dir] as Array[float], _row_seams(),
-			_row_lamps(column))
-	block.position.x = -dir * _span.x * 0.5
-	return block
-
-## Die Vorrats-Blöcke einer Spalte bei Zug-Versatz x: am Rand der Fenster-Mulden, und
-## wo der schon aus dem Fenster gerollt ist, um ganze Teilungen nachgerückt. Gerechnet
-## wird längs der Spalte (r = -x, Bild-unten positiv).
-func _place_spares(column: int, x: float) -> void:
-	var pitch: float = _pitch.get(column, 0.0)
-	if pitch <= 0.0:
-		return
-	var half := _span.x * 0.5
-	var r := -x
-	var below: Node3D = _spare_below.get(column)
-	if below != null and is_instance_valid(below):
-		var lag := ceili(((-half - pitch) - (r + half)) / pitch)
-		below.position.x = -(half + pitch * float(maxi(lag, 0)))
-	var above: Node3D = _spare_above.get(column)
-	if above != null and is_instance_valid(above):
-		var lead := ceili(((r - half) - (half + pitch)) / pitch)
-		above.position.x = half + pitch * float(maxi(lead, 0))
-
-## Der EINE Schreiber der Saum-Farben: Sortenfarbe hell, leer kühl und stumpf.
-func _write_bays(column: int) -> void:
-	if column < 0 or column >= _seams.size():
-		return
-	var seams: Array = _seams[column]
-	var tints: Array = _tints[column]
-	for i in seams.size():
-		var tint: Color = tints[i] if i < tints.size() else BAY_EMPTY
-		var material: StandardMaterial3D = seams[i]
-		material.albedo_color = tint
-		material.emission = tint
-		material.emission_energy_multiplier = \
-			SEAM_EMPTY_ENERGY if tint == BAY_EMPTY else SEAM_FILLED_ENERGY
-	var lamps: Array = _lamps[column] if column < _lamps.size() else []
-	for i in lamps.size():
-		var lit: Color = tints[i] if i < tints.size() else BAY_EMPTY
-		MagazinTrayDress.write_lamp(lamps[i], lit, lit != BAY_EMPTY)
 
 # --- Bausteine -----------------------------------------------------------------------
 

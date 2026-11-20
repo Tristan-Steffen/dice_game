@@ -392,6 +392,44 @@ static func _bead(host: Node3D, bead_name: String, at: Vector3, length: float, r
 	node.transform = Transform3D(Basis.from_scale(Vector3(1.0, squash, 1.0)) * turn, at)
 	host.add_child(node)
 
+# --- Die ACHSEN des Umlaufs -------------------------------------------------------
+
+## Die blanke Welle: heller als die Führungsschienen, sie liest im dunklen Schacht.
+static func axle_steel() -> StandardMaterial3D:
+	return _flat("axle_steel", STEEL, 0.55, 0.85, 0.25)
+
+## Kettenräder im Inneren des Geräts, eine Spur heller - in den Schacht fällt kein Licht.
+static func axle_material(column: int) -> StandardMaterial3D:
+	var key := _key("axle", column)
+	if not _materials.has(key):
+		var c := clampi(column, 0, 3)
+		_materials[key] = TableProps.metal(INSIDE_ALBEDO[c] * 1.4 + Color(0.04, 0.04, 0.045),
+			INSIDE_GLOW[c] * 1.6, INSIDE_ENERGY[c], 0.5, 0.35)
+	return _materials[key]
+
+## Eine ACHSE quer über den Tray: die Welle längs Z und Kettenräder an den genannten z, alle
+## an EINEM Knoten "Rad", der um Z dreht. Gibt ihn zurück.
+static func build_axle(host: Node3D, column: int, length: float, shaft_r: float,
+		wheel_r: float, wheel_w: float, wheels: PackedFloat32Array, teeth: int) -> Node3D:
+	var turn := Node3D.new()
+	turn.name = "Rad"
+	host.add_child(turn)
+	var shaft := _disc(turn, "Welle", shaft_r, length, axle_steel())
+	shaft.rotation.x = PI * 0.5
+	var metal := axle_material(column)
+	var tooth := Vector3(wheel_r * 0.3, wheel_r * 0.28, wheel_w)
+	for i in wheels.size():
+		var disc := _disc(turn, "Kettenrad%d" % i, wheel_r * 0.86, wheel_w, metal)
+		disc.rotation.x = PI * 0.5
+		disc.position.z = wheels[i]
+		for k in teeth:
+			var a := TAU * float(k) / float(teeth)
+			var box := TableProps.box(turn, "Zahn%d_%d" % [i, k], tooth,
+				Vector3(cos(a) * wheel_r * 0.88, sin(a) * wheel_r * 0.88, wheels[i]), metal)
+			if box != null:
+				box.rotation.z = a
+	return turn
+
 # --- Die MULDEN -----------------------------------------------------------------
 
 ## Was ein Gerät in eine leere Mulde legt (unter der Karte, nie über ihr): Dorn-Stummel
