@@ -4,8 +4,9 @@ extends GutTest
 ## sind Kinder des Faches ihrer Spalte und reisen mit. Keine Karte ragt je über die
 ## Tischkante, und was das Fenster verlassen hat, ist weggesteckt.
 
-## Die Grube in Welt: x quer (Bild-hoch, ZWEI Plätze), y längs (Bild-breit, VIER Spalten).
-const SPAN := Vector2(8.6, 26.6)
+## Die Grube in Welt: x quer (Bild-hoch, ZWEI Reihen), y längs (Bild-breit, VIER Spalten
+## zu je zwei Karten nebeneinander).
+const SPAN := Vector2(8.6, 50.0)
 const SCALE := PackDrawerView.CASSETTE_SCALE
 ## Die Invariante der Wurzel: nichts liegt höher als das im Tisch.
 const RIM_LIMIT := -0.11
@@ -17,6 +18,13 @@ func before_each() -> void:
 	stack = ShelfStackView.new()
 	add_child_autofree(stack)
 	stack.setup(Vector3.ZERO, SPAN, SCALE)
+
+## Leere Plätze für so viele Karten (zwei Reihen = vier Plätze).
+func _empties(count: int) -> Array[Color]:
+	var tints: Array[Color] = []
+	for i in count:
+		tints.append(ShelfStackView.BAY_EMPTY)
+	return tints
 
 func _column_node(column: int) -> Node3D:
 	return stack.get_node("Spalte%d" % (column + 1)) as Node3D
@@ -59,10 +67,10 @@ func test_das_magazin_ist_flach() -> void:
 func test_die_platten_kacheln_die_grube() -> void:
 	var lanes: Array[Vector2] = [Vector2(-9.9, 5.7), Vector2(-3.3, 5.7),
 		Vector2(3.3, 5.7), Vector2(9.9, 5.7)]
-	stack.setup(Vector3.ZERO, SPAN, SCALE, lanes)
+	stack.setup(Vector3.ZERO, Vector2(SPAN.x, 26.6), SCALE, lanes)
 	assert_almost_eq(stack.lane_width(1), 5.7, 0.0001, "die gemeldete Breite")
-	assert_almost_eq(stack.plate_bounds(0).x, -SPAN.y * 0.5, 0.0001, "links die Grubenkante")
-	assert_almost_eq(stack.plate_bounds(COLUMNS - 1).y, SPAN.y * 0.5, 0.0001, "rechts ebenso")
+	assert_almost_eq(stack.plate_bounds(0).x, -26.6 * 0.5, 0.0001, "links die Grubenkante")
+	assert_almost_eq(stack.plate_bounds(COLUMNS - 1).y, 26.6 * 0.5, 0.0001, "rechts ebenso")
 	for column in range(1, COLUMNS):
 		assert_almost_eq(stack.plate_bounds(column).x, stack.plate_bounds(column - 1).y,
 			0.0001, "Spalte %d schließt an" % (column + 1))
@@ -146,7 +154,7 @@ func test_ein_zug_steckt_weg_und_holt_herein() -> void:
 
 func test_hinausgerollte_mulden_verschwinden() -> void:
 	stack.top_pocket_limit_x = SPAN.x * 0.5 + 0.3  # oben liegt der Graben der Walze
-	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY], true)
+	stack.set_bay_tints(0, _empties(4), true)
 	var bays := stack.get_node("Spalte1/Mulden1") as Node3D
 	assert_true((bays.get_node("Mulde0") as Node3D).visible, "im Fenster stehen sie")
 	assert_false((bays.get_node("VorratOben/Vorrat0") as Node3D).visible,
@@ -193,27 +201,37 @@ func test_die_hervorhebung_trifft_genau_eine_spalte() -> void:
 
 # --- Die MULDEN -------------------------------------------------------------------------
 
+## Je Reihe ein Stück, darin ACROSS Mulden nebeneinander; Platz i ist Reihe i / ACROSS,
+## Querplatz i % ACROSS.
 func test_je_platz_eine_mulde_mit_saum_in_der_sortenfarbe() -> void:
 	var tints: Array[Color] = [PackDrawerView.COLORS[Engraving.CATEGORY_DICE],
-		ShelfStackView.BAY_EMPTY]
+		ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY,
+		PackDrawerView.COLORS[Engraving.CATEGORY_DICE]]
 	stack.set_bay_tints(2, tints)
-	assert_eq(stack.bay_count(2), 2)
+	assert_eq(stack.bay_count(2), 4)
 	assert_eq(stack.bay_tint(2, 0), tints[0])
 	assert_eq(stack.bay_tint(2, 1), ShelfStackView.BAY_EMPTY, "leer ist stumpf")
 	var bays := stack.get_node("Spalte3/Mulden3")
 	assert_gt((bays.get_node("Mulde0") as Node3D).position.x,
-		(bays.get_node("Mulde1") as Node3D).position.x, "Platz 0 liegt oben")
+		(bays.get_node("Mulde1") as Node3D).position.x, "Reihe 0 liegt oben")
+	assert_null(bays.get_node_or_null("Mulde2"), "vier Plätze sind zwei Reihen")
 	for part in ["Saum", "Boden", "Buchse"]:
-		assert_not_null(bays.get_node_or_null("Mulde0/" + part))
-	var lit := (bays.get_node("Mulde0/Saum") as MeshInstance3D).material_override \
+		assert_not_null(bays.get_node_or_null("Mulde0/Platz0/" + part))
+		assert_not_null(bays.get_node_or_null("Mulde0/Platz1/" + part))
+	assert_gt((bays.get_node("Mulde0/Platz1") as Node3D).position.z,
+		(bays.get_node("Mulde0/Platz0") as Node3D).position.z, "Querplatz 1 rechts daneben")
+	var lit := (bays.get_node("Mulde0/Platz0/Saum") as MeshInstance3D).material_override \
 		as StandardMaterial3D
-	var dull := (bays.get_node("Mulde1/Saum") as MeshInstance3D).material_override \
+	var dull := (bays.get_node("Mulde0/Platz1/Saum") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	var corner := (bays.get_node("Mulde1/Platz1/Saum") as MeshInstance3D).material_override \
 		as StandardMaterial3D
 	assert_eq(lit.emission, tints[0])
+	assert_eq(corner.emission, tints[3], "Platz 3: zweite Reihe, rechts")
 	assert_gt(lit.emission_energy_multiplier, dull.emission_energy_multiplier)
 
 func test_die_mulde_ist_eine_vertiefung_und_die_karte_buendig() -> void:
-	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	stack.set_bay_tints(0, _empties(4))
 	var top := ShelfStackView.PROUD + DataCellView.DEPTH * SCALE
 	assert_almost_eq(stack.deck_height(), top, 0.0001)
 	var bays := stack.get_node("Spalte1/Mulden1") as Node3D
@@ -224,11 +242,13 @@ func test_die_mulde_ist_eine_vertiefung_und_die_karte_buendig() -> void:
 	var bay := stack.bay_size(2)
 	assert_gt(bay.x, DataCellView.WIDTH * SCALE, "längs der Spalte weiter als die Karte breit")
 	assert_gt(bay.y, DataCellView.HEIGHT * SCALE, "quer weiter als die Karte lang")
+	assert_lt(bay.y * float(ShelfStackView.ACROSS), stack.slot_width(0),
+		"und zwei passen mit Lippe nebeneinander")
 	assert_lt(bay.x, SPAN.x * 0.5, "und zwei passen mit Lippe untereinander")
 
 ## Deck und Mulden lassen KEINE Lücke zwischen den Spalten.
 func test_das_deck_deckt_die_kachel_der_spalte() -> void:
-	stack.set_bay_tints(1, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	stack.set_bay_tints(1, _empties(4))
 	var bays := stack.get_node("Spalte2/Mulden2") as Node3D
 	var segment := bays.get_node("Mulde0") as Node3D
 	var lo := INF
@@ -245,17 +265,19 @@ func test_das_deck_deckt_die_kachel_der_spalte() -> void:
 	assert_almost_eq(hi, bounds.y, 0.001, "rechts ebenso")
 
 func test_umfaerben_baut_nichts_neu_umzaehlen_schon() -> void:
-	stack.set_bay_tints(1, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	stack.set_bay_tints(1, _empties(4))
 	var before := stack.get_node("Spalte2/Mulden2")
-	stack.set_bay_tints(1, [PackDrawerView.GOLD, ShelfStackView.BAY_EMPTY])
+	var gold := _empties(4)
+	gold[0] = PackDrawerView.GOLD
+	stack.set_bay_tints(1, gold)
 	assert_eq(stack.get_node("Spalte2/Mulden2"), before)
-	stack.set_bay_tints(1, [PackDrawerView.GOLD, ShelfStackView.BAY_EMPTY, PackDrawerView.GOLD])
-	assert_eq(stack.bay_count(1), 3)
+	stack.set_bay_tints(1, _empties(6))
+	assert_eq(stack.bay_count(1), 6)
 	assert_ne(stack.get_node("Spalte2/Mulden2"), before)
 
 func test_die_buchse_sitzt_am_kartenfuss() -> void:
 	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY])
-	var socket := stack.get_node("Spalte1/Mulden1/Mulde0/Buchse") as Node3D
+	var socket := stack.get_node("Spalte1/Mulden1/Mulde0/Platz0/Buchse") as Node3D
 	assert_not_null(socket)
 	assert_almost_eq(socket.position.z, DataCellView.HEIGHT * SCALE * 0.5, 0.0001)
 
@@ -325,7 +347,7 @@ func test_das_glimmen_steht_je_spalte() -> void:
 	assert_gt(top.position.x, 0.0)
 
 func test_der_vorrat_fuellt_das_fenster_bei_jedem_zug() -> void:
-	stack.set_bay_tints(0, [ShelfStackView.BAY_EMPTY, ShelfStackView.BAY_EMPTY])
+	stack.set_bay_tints(0, _empties(4))
 	var bays := stack.get_node("Spalte1/Mulden1") as Node3D
 	var block := bays.get_node("VorratUnten") as Node3D
 	var pitch := SPAN.x / 2.0

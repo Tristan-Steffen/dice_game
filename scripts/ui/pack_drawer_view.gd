@@ -1,9 +1,10 @@
 class_name PackDrawerView
 extends Control
 ## Das MAGAZIN der Werkbank: EINE Grube unter der Walze mit VIER SPALTEN nebeneinander,
-## eine je SORTE (Pack.SHELF_ORDER). Jede Spalte ist EIN durchgehendes Regal - Platz k
-## liegt k Plätze tiefer - und ROLLT für sich: ein Zug über die Spalte schiebt nur sie
-## senkrecht, das Fenster zeigt je Spalte PLACES Plätze.
+## eine je SORTE (Pack.SHELF_ORDER). Jede Spalte ist EIN durchgehendes Regal aus REIHEN zu
+## ACROSS Karten - Rang k liegt in Reihe k / ACROSS auf Querplatz k % ACROSS - und ROLLT
+## für sich in ganzen Reihen: ein Zug über die Spalte schiebt nur sie senkrecht, das
+## Fenster zeigt je Spalte PLACES Reihen.
 ## Die Karten LIEGEN flach, Netz nach oben; ShelfStackView fährt die Körper, diese
 ## Klasse rechnet die Plätze - die reine Spalten-Rechnung wohnt hier, damit table/ sie
 ## liest statt umgekehrt.
@@ -102,29 +103,45 @@ const CASSETTE_SCALE := 3.2
 ## Seitenverhältnis der Kassette (Höhe / Breite, 2 : 3): daraus folgt ihr LIEGENDER
 ## Fußabdruck aus dem gemeldeten STEHENDEN. EINE Quelle - WorkshopView liest sie mit.
 const CARD_ASPECT := 1.5
-## Der Anteil der Spaltenbreite, den die BLENDE am linken Rand der Spalte nimmt; die
-## Karten liegen in dem, was bleibt.
-const BAND_SHARE := 0.09
 ## Je SORTE eine Spalte (Pack.SHELF_ORDER - ein Test hält beide gleich).
 const COLUMNS := 4
-## So viele Plätze zeigt das Fenster je Spalte.
+## So viele Karten liegen in einer Spalte NEBENEINANDER (Layout C).
+const ACROSS := 2
+## So viele REIHEN zeigt das Fenster je Spalte.
 const PLACES := 2
+## Quer je Karte ihr Platz samt Luft und links die BLENDE, in Kartenlängen.
+const CARD_ROOM := 1.06
+const BAND_ROOM := 0.1
+## Der Anteil der Spaltenbreite, den die BLENDE am linken Rand der Spalte nimmt; die
+## Karten liegen in dem, was bleibt.
+const BAND_SHARE := BAND_ROOM / (BAND_ROOM + CARD_ROOM * ACROSS)
 ## Luft über PLACES hinaus, mit der die Feldhöhe rechnet (so fällt die Zählung
 ## sicher auf PLACES, nie eine Spur darunter).
 const PLACE_AIR := 0.15
 ## Ab so vielen Display-px Weg wird aus dem Druck ein Zug.
 const DRAG_THRESHOLD := 8.0
 
-## Wo eine Spalte RASTEN darf: 0 bis zur Stellung, in der ihre letzte Karte am unteren
-## Fensterrand steht (leer: nur 0). GEZOGEN wird beliebig weit - beim Loslassen federt
-## sie hierher zurück (Spieler-Wunsch 2026-10-28).
+## Wo eine Spalte RASTEN darf (in Reihen): 0 bis zur Stellung, in der ihre letzte Reihe
+## am unteren Fensterrand steht (leer: nur 0). count zählt Karten, window Reihen. GEZOGEN
+## wird beliebig weit - beim Loslassen federt sie hierher zurück.
 static func max_scroll(count: int, window: int = PLACES) -> int:
-	return maxi(maxi(count, 0) - maxi(window, 1), 0)
+	return maxi(rows_for(count) - maxi(window, 1), 0)
+
+## Wie viele Reihen so viele Karten belegen.
+static func rows_for(count: int) -> int:
+	return ceili(float(maxi(count, 0)) / float(ACROSS))
+
+## Reihe und Querplatz eines Rangs (auch negativ: über dem Fenster).
+static func row_of(rank: int) -> int:
+	return floori(float(rank) / float(ACROSS))
+
+static func across_of(rank: int) -> int:
+	return posmod(rank, ACROSS)
 
 static func clamp_scroll(scroll: int, count: int, window: int = PLACES) -> int:
 	return clampi(scroll, 0, max_scroll(count, window))
 
-## Wo die Spalte nach einem Zug um offset_px EINRASTET: der nächste ganze Platz, in
+## Wo die Spalte nach einem Zug um offset_px EINRASTET: die nächste ganze Reihe, in
 ## den Grenzen. Nach oben gezogen (negativ) rollt sie weiter.
 static func snap_scroll(scroll: int, offset_px: float, slot_px: float, count: int,
 		window: int = PLACES) -> int:
@@ -135,10 +152,8 @@ static func snap_scroll(scroll: int, offset_px: float, slot_px: float, count: in
 ## Der EINE RAND der Grube: GLEICH GROSS links, zwischen und rechts der Spalten.
 const LANE_GAP_PX := 28.0
 
-## Greifluft längs der Spalte (die Kartenbreite) und die BREITE einer Spalte (die
-## Kartenlänge).
+## Greifluft längs der Spalte (die Kartenbreite).
 const CELL_SPAN := 1.15
-const RANK_SPAN := 1.1
 ## Randluft im Platz.
 const SLOT_INSET := 0.12
 ## Rückfall-Fußabdruck (Einheiten u), solange niemand die Welt-Projektion gemeldet
@@ -207,7 +222,7 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	_chips.clear()
 	_press_live = false
 	_dragging = false
-	var shown := places()
+	var shown := window_cards()
 	add_child(_well())
 	add_child(_well_catch())
 	for i in entries.size():
@@ -216,7 +231,7 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 		var column := clampi(int(entries[i].get("column",
 			Pack.shelf_rank(pack) if pack != null else 0)), 0, COLUMNS - 1)
 		var scroll := scrolls[column] if column < scrolls.size() else 0
-		var place := int(entries[i].get("cell", i)) - scroll
+		var place := int(entries[i].get("cell", i)) - scroll * ACROSS
 		# Der PLATZ gilt IMMER - auch hinausgerollt liegt der Körper dort, nur eben
 		# unter dem Filz. Nur der CHIP hängt am Fenster.
 		var spot := field.position + spot_for(place, field.size, cell_px, column)
@@ -235,10 +250,11 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 static func lie_cell(cell: Vector2) -> Vector2:
 	return Vector2(cell.y * CARD_ASPECT, cell.y) * CASSETTE_SCALE
 
-## Das FELD (die Grube ohne Fassung) für eine LIEGENDE Karte: COLUMNS Spalten samt der
-## gleichen Ränder, PLACES Plätze samt Luft.
+## Das FELD (die Grube ohne Fassung) für eine LIEGENDE Karte: COLUMNS Spalten zu je
+## Blende und ACROSS Plätzen samt der gleichen Ränder, PLACES Reihen samt Luft.
 static func field_for(card: Vector2) -> Vector2:
-	return Vector2(card.x * RANK_SPAN * float(COLUMNS) + LANE_GAP_PX * float(COLUMNS + 1),
+	var column := card.x * (BAND_ROOM + CARD_ROOM * float(ACROSS))
+	return Vector2(column * float(COLUMNS) + LANE_GAP_PX * float(COLUMNS + 1),
 		card.y * CELL_SPAN * (float(PLACES) + PLACE_AIR))
 
 ## Wie viele Kassetten in ihrer festen Größe untereinander in die Grube liegen.
@@ -248,9 +264,13 @@ static func _places_at(field_size: Vector2, cell: Vector2) -> int:
 		return 1
 	return maxi(int(field_size.y / high), 1)
 
-## Plätze im Fenster einer Spalte.
+## REIHEN im Fenster einer Spalte.
 static func places_for(field_size: Vector2, cell: Vector2) -> int:
 	return _places_at(field_size, cell)
+
+## KARTEN im Fenster einer Spalte.
+static func window_cards_for(field_size: Vector2, cell: Vector2) -> int:
+	return _places_at(field_size, cell) * ACROSS
 
 ## Die SPALTEN einer Grube, links zuerst: dazwischen und ringsum der gleiche Rand.
 static func column_rects(field_size: Vector2) -> Array[Rect2]:
@@ -271,22 +291,23 @@ static func column_at(field_size: Vector2, x: float) -> int:
 	var pitch := column_width(field_size) + LANE_GAP_PX
 	return clampi(int(floorf((x - LANE_GAP_PX * 0.5) / pitch)), 0, COLUMNS - 1)
 
-## Platzmitte eines PLATZES im Fenster (relativ zur Feldecke) - ein Platz über oder
-## unter dem Fenster liegt einfach außerhalb, unter dem Filz.
+## Platzmitte eines PLATZES im Fenster (Rang ab dem obersten sichtbaren, relativ zur
+## Feldecke): Reihe place / ACROSS, Querplatz place % ACROSS - ein Platz über oder unter
+## dem Fenster liegt einfach außerhalb, unter dem Filz.
 static func spot_for(place: int, field_size: Vector2, cell: Vector2, column := 0) -> Vector2:
 	var slot := slot_size(field_size, cell)
 	var left := column_rects(field_size)[clampi(column, 0, COLUMNS - 1)].position.x
-	return Vector2(left + band_width(field_size) + slot.x * 0.5,
-		slot.y * (float(place) + 0.5))
+	return Vector2(left + band_width(field_size) + slot.x * (float(across_of(place)) + 0.5),
+		slot.y * (float(row_of(place)) + 0.5))
 
 ## Die BLENDE links der Plätze einer Spalte.
 static func band_width(field_size: Vector2) -> float:
 	return column_width(field_size) * BAND_SHARE
 
-## Der PLATZ: in der Breite die Spalte ohne die Blende, in der Höhe die Feldhöhe geteilt
-## durch die Plätze im Fenster.
+## Der PLATZ einer Karte: in der Breite ein ACROSS-tel der Spalte ohne die Blende, in der
+## Höhe die Feldhöhe geteilt durch die Reihen im Fenster.
 static func slot_size(field_size: Vector2, cell: Vector2) -> Vector2:
-	return Vector2(column_width(field_size) * (1.0 - BAND_SHARE),
+	return Vector2(column_width(field_size) * (1.0 - BAND_SHARE) / float(ACROSS),
 		field_size.y / float(_places_at(field_size, cell)))
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft.
@@ -327,7 +348,7 @@ func pack_anchor_px(uid: int) -> Vector2:
 	var origin := get_global_rect().position
 	if place < 0:
 		return Vector2(seat.x, origin.y + field.position.y)
-	if place >= places():
+	if place >= window_cards():
 		return Vector2(seat.x, origin.y + field.end.y)
 	return seat
 
@@ -339,16 +360,20 @@ func column_of_pack(uid: int) -> int:
 func place_of_pack(uid: int) -> int:
 	return int(_places.get(uid, 0))
 
-## Plätze im Fenster.
+## Reihen im Fenster.
 func places() -> int:
 	return places_for(field.size, cell_px)
+
+## Karten im Fenster einer Spalte.
+func window_cards() -> int:
+	return places() * ACROSS
 
 ## Liegt sie im FENSTER ihrer Spalte?
 func shows_pack(uid: int) -> bool:
 	if not _columns.has(uid):
 		return false
 	var place := int(_places.get(uid, 0))
-	return place >= 0 and place < places()
+	return place >= 0 and place < window_cards()
 
 ## Derselbe Platz, GERECHNET statt gemessen (Platz im Fenster).
 static func anchor_in(field_rect: Rect2, place: int, cell: Vector2, column := 0) -> Vector2:

@@ -750,7 +750,7 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 			"und die Grube von Plot %d auch" % i)
 	assert_true(screen.pit_open(TableScreen.PIT_MAGAZIN))
 	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL), "was nie auffuhr")
-	# Möbel: der Graben der Walze und die Grube der Kammer stehen dauerhaft.
+	# Möbel: der Graben der Walze steht dauerhaft; die KAMMER unter dem Podest nur beim Prägen.
 	var graben := Rect2(640, 480, 210, 164)
 	var kammer := Rect2(880, 300, 206, 206)
 	screen.set_pit(TableScreen.PIT_DRUM, graben)
@@ -767,8 +767,8 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 	assert_eq(screen.pit_rect(TableScreen.PIT_MAGAZIN), magazin,
 		"die Magazin-Grube ist Möbel, kein Auftritt")
 	assert_eq(screen.pit_rect(TableScreen.PIT_DRUM), graben, "der Graben ebenso")
-	# Ihr Loch schreibt nur der Fenster-Neuaufbau - der Aufräum-Pfad darf es nie räumen.
-	assert_eq(screen.pit_rect(TableScreen.PIT_CHAMBER), kammer, "und die Kammer auch")
+	assert_false(screen.pit_open(TableScreen.PIT_CHAMBER),
+		"die Kammer ist kein Möbel mehr - der harte Weg schließt sie")
 	assert_eq(screen.pit_rect(TableScreen.PIT_OPENING), oeffnung,
 		"und die Vertiefung der Öffnungs-Fläche")
 

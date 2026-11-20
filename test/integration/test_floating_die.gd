@@ -127,6 +127,23 @@ func test_a_carry_without_time_stands_hard_on_its_target() -> void:
 	assert_almost_eq(stage.die.global_position, goal, Vector3.ONE * 0.001,
 		"er steht sofort da")
 
+## Ein Platz UNTER dem Tisch (die Kammer): quer reist er nur über dem Deck, hinab
+## und herauf geht es senkrecht.
+func test_a_carry_below_the_deck_sinks_straight_down() -> void:
+	stage.land_at(TARGET, 0.0)
+	var goal := Vector3(-6.0, -1.6, 5.0)
+	var flight := stage.carry_to(goal, 0.3, 1.2, 1.0)
+	var crossed_low := false
+	while flight.is_valid() and flight.is_running():
+		await wait_frames(1)
+		var at := stage.die.global_position
+		var over_goal := Vector2(at.x - goal.x, at.z - goal.z).length() < 0.01
+		if at.y < 0.999 and not over_goal:
+			crossed_low = true
+	assert_false(crossed_low, "unter dem Deck steht er schon senkrecht über dem Ziel")
+	assert_almost_eq(stage.die.global_position, goal, Vector3.ONE * 0.001,
+		"und landet unten auf dem Ziel")
+
 ## show_faces malt einen HYBRID der Aufdeckung, OHNE def anzufassen: def bleibt die
 ## geteilte Instanz, an der ein Steady-State-Schreiber seinen Körper wiedererkennt.
 func test_show_faces_paints_without_touching_the_definition() -> void:

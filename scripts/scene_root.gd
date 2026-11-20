@@ -203,11 +203,15 @@ const PACK_PIT_FLOOR_AIR := 0.3
 const DRUM_PIT_AIR := 0.3
 ## Wie weit der Griff eine Karte auf der Walze anhebt (Anteil der Kartenhöhe).
 const DRUM_HOVER_LIFT := 0.08
-## Die KAMMER: so tief ist ihre flache Grube, und ihr SOCKEL ist so breit wie der Puck
-## (plus Saum) - er endet eine Haaresbreite unter der Tischebene.
-const CHAMBER_DEPTH := 0.6
-const CHAMBER_PLINTH_ROOM := 1.15
-const CHAMBER_PLINTH_DROP := 0.01
+## Die KAMMER unter dem Podest: beim Prägen sinkt der Würfel GANZ unter den Tisch, genau in
+## ihre Mitte (auch gedreht bleibt er darunter: halbe Raumdiagonale 1,47), sein Puck fährt
+## auf dem Boden mit hinab.
+const CHAMBER_DIE_DROP := CLAMP_HOVER + 0.05
+const CHAMBER_DEPTH := CHAMBER_DIE_DROP * 2.0
+## Die KABEL der Kammer: Ausfahren beim Verriegeln, Einfahren nach dem Einschlag.
+const CABLE_DOCK_TIME := 0.32
+const CABLE_SQUARE_TIME := 0.18
+const CABLE_RELEASE_TIME := 0.2
 const DATA_CELL_STAGGER := 0.06
 const DATA_CELL_SLIDE_TIME := 0.32
 ## DER TRAGE-BOGEN (Welle O): was der SPIELER bewegt, fliegt ÜBER dem Tisch -
@@ -220,7 +224,7 @@ const CARRY_SEAT_SOCKET := "socket"
 const CARRY_SEAT_PIT := "pit"
 
 ## DIE ÜBERTRAGUNG: der Zähl-Takt des Licht-Netzes, der flache Scheitel, mit dem ein
-## LICHTFUNKE vom Ende der Walze in die Kammer schlägt, und seine Starthöhe über dem Glas.
+## LICHTFUNKE vom Ende der Walze in den Rohling schlägt, und seine Starthöhe über dem Glas.
 const LIGHT_TICK_TIME := 0.22
 const SPARK_PEAK := DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
 const SPARK_LIFT := 0.05
@@ -485,13 +489,10 @@ var bench_stage: FloatingDie
 ## ZUGLEICH. Sein Pool-Sitz bleibt leer, bis er landet (_tray_shows) - wie beim TAUSCH.
 var bench_home_stage: FloatingDie
 var _bench_homing: DieDefinition = null
-## Sein ORT: er LIEGT im Pool, bis er auf Podest oder Kammer WANDERT. Steht er dort,
-## bleibt sein Pool-Sitz leer - ein Würfel wird nie zweimal gezeigt. Geschrieben
-## werden beide allein von _seat_bench_place; der PLATZ kippt beim ABFLUG.
+## Sein ORT: er LIEGT im Pool, bis er aufs PODEST WANDERT. Steht er dort, bleibt sein
+## Pool-Sitz leer - ein Würfel wird nie zweimal gezeigt. Geschrieben allein von
+## _seat_bench_place; er kippt beim ABFLUG.
 var _bench_die: DieDefinition
-const BENCH_PODIUM := 0
-const BENCH_CHAMBER := 1
-var _bench_spot := BENCH_PODIUM
 ## Und ob gerade eine Fahrt läuft - guardt das Doppel-Auslösen und hält den
 ## Bühnen-Schreiber von der fahrenden Ware fern.
 var _bench_riding := false
@@ -521,7 +522,7 @@ var _sparks: Array[LightSparkView] = []
 ## Die Scheibe unter dem Zeiger (-1 = keine): ihre Karte hebt sich.
 var _hovered_step := -1
 ## Läuft gerade eine ÜBERTRAGUNG? Dann hält der Abgleich der Bühne still - der
-## Kammer-Würfel ist das Ziel der Funken.
+## Podest-Würfel ist ihr Ziel.
 var _transferring := false
 ## Die WALZE selbst (null = steht gerade nicht) - sechs Scheiben als EIN Körper.
 var drum: DrumView
@@ -1270,8 +1271,8 @@ func _setup_table_screen() -> void:
 	pool_bounds = pool_bounds.grow(slot_half)
 	_pool_seam_px = slot_half  # dieselbe Naht trennt den Streifen von der Reihe
 
-	# Rechts am Pool das PODEST, rechts davon die Schale; die Raster-Taste hängt unter der
-	# Die-View des Podests.
+	# Rechts am Pool die GLEICHUNG samt Podest; die Raster-Taste steht über UPGRADES, die
+	# Schale rechts neben ERGEBNIS.
 	_pool_row_px = pool_bounds
 	var corner := _place_workshop_strip()
 	_place_ausgabefach()
@@ -1289,8 +1290,11 @@ var _pool_seam_px := 0.0
 ## Das Rechteck des INFO-SCHIRMS in Display-Pixeln (leer = noch nicht gestellt):
 ## Kamera-Rahmen messen daran.
 var _info_rect := Rect2()
-## Der PODEST-Platz rechts der Schale (Platte samt Die-View) in Display-Pixeln.
+## Der PODEST-Platz in der Gleichung (Platte samt Die-View) in Display-Pixeln.
 var _podium_place_px := Rect2()
+## Die GLEICHUNGS-ZEILE rechts am Pool und das Feld der Raster-Taste darin (Display-Pixel).
+var _equation_px := Rect2()
+var _raster_area_px := Rect2()
 
 ## Der EINE Schreiber der WERKSTATT: die Kette (WorkshopView.drum_layout) eine Naht unter
 ## dem Pool, Fenster, Info-Schirm, Gruben, Klickzone und die beiden Kamera-Rahmen.
@@ -1298,11 +1302,12 @@ var _podium_place_px := Rect2()
 func _place_workshop_strip() -> Rect2:
 	var workshop: WorkshopView = table_screen.workshop_window
 	var u := _workshop_unit()
-	var info_h := WorkshopInfoView.height_for(u)
 	var card := PackDrawerView.lie_cell(_data_cell_apparent_px())
-	var frame := WorkshopView.drum_layout(_pool_row_px, card, _die_face_px(), u, info_h,
+	var frame := WorkshopView.drum_layout(_pool_row_px, card, _die_face_px(), u, 0.0,
 		_pool_seam_px)
 	_podium_place_px = frame["podium"]
+	_equation_px = frame["equation"]
+	_raster_area_px = frame["raster"]
 	var bounds: Rect2 = frame["bounds"]
 	if workshop != null:
 		# Die Maße ZUERST: das Fenster legt seine Kette damit aus.
@@ -1333,14 +1338,15 @@ func _place_workshop_strip() -> Rect2:
 	for i in range(1, hits.size()):
 		if hits[i].size.x > 0.0 and hits[i].size.y > 0.0:
 			_add_zone_shape(workshop_click_zone, hits[i])
-	# Die Weitsicht rahmt Werkstatt und Podest-Platz; vom Pool fällt die oberste Reihe
-	# aus dem Bild (Spieler-Wunsch 2026-11-19: näher heran). Die Nahsicht rahmt die
-	# Werkstatt allein, oben dazu den Kopfraum einer gegriffenen Karte.
+	# Die Weitsicht rahmt Werkstatt und Gleichungs-Zeile samt Schale. Die Nahsicht rahmt
+	# die Werkstatt allein, oben dazu den Kopfraum einer gegriffenen Karte.
 	var seam := _pool_seam_px
 	var station := bench_rect
-	if _podium_place_px.size.x > 0.0 and _podium_place_px.size.y > 0.0:
-		station = station.merge(_podium_place_px)
-	var corner := station.grow_individual(seam * 0.5, -seam * 2.0, seam * 0.5, seam * 0.5)
+	if _equation_px.size.x > 0.0 and _equation_px.size.y > 0.0:
+		station = station.merge(_equation_px).merge(_fach_spot_px())
+	if station.end.x > float(TableScreen.RESOLUTION.x):
+		push_warning("Werkstatt-Station reicht über die Anzeige: %.1f px" % station.end.x)
+	var corner := station.grow_individual(seam * 0.5, seam * 0.5, seam * 0.5, seam * 0.5)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()),
 		_world_half(corner))
 	workshop_close_rect = bench_rect
@@ -1349,6 +1355,15 @@ func _place_workshop_strip() -> Rect2:
 	camera_rig.configure_workshop_close_target(
 		table_screen.pixel_to_world(close_frame.get_center()), _world_half(close_frame))
 	return bench_rect.grow(seam)
+
+## Der Platz der SCHALE in Display-Pixeln, gerechnet (auch bevor sie steht): eine Fuge
+## rechts neben ERGEBNIS, oben bündig mit dem Pool.
+func _fach_spot_px() -> Rect2:
+	if _equation_px.size.x <= 0.0 or table_screen == null:
+		return Rect2()
+	var side := _world_len_px(AusgabefachView.HALF_Z * 2.0)
+	return Rect2(Vector2(_equation_px.end.x + _workshop_unit() * WorkshopView.DRUM_SHELF_GAP,
+		_pool_row_px.position.y), Vector2(side, side))
 
 ## Die halbe Welt-Ausdehnung eines Kamera-Rahmens (x quer = Welt-Z, y = Welt-X).
 func _world_half(rect: Rect2) -> Vector2:
@@ -2482,7 +2497,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if camera_rig.die_focus:
 			_leave_die_focus()
 			return
-		# Steht ein gewählter Würfel auf Podest oder in der Kammer, wählt Rechtsklick
+		# Steht ein gewählter Würfel auf dem Podest, wählt Rechtsklick
 		# ihn ab: er fliegt in seinen Pool-Sitz zurück.
 		if _clear_workshop_target():
 			return
@@ -2585,13 +2600,13 @@ func _on_series_applied(result: Dictionary, _from_px: Vector2) -> void:
 	bench_stage.pulse()
 
 #region DIE ÜBERTRAGUNG
-# Die Zeremonie des Prägens als KÖRPER: die belegten Scheiben VERRIEGELN, ein STROM
-# läuft von Scheibe 1 nach rechts bis vor die Kammer. Jede Karte, die er passiert,
-# flammt auf, gibt ihre Zellen an das mitreitende LICHT-NETZ ab und BRENNT AUS. Am
-# Ende der Walze zerfällt es in LICHTFUNKEN, die ALLE ZUGLEICH in den Würfel in der
-# KAMMER schlagen (beim Verdichten in den Rohling) - der Würfel verläßt sie nie.
-# Den TAKT gibt das Fenster (slices_locked/stream_passed/stream_struck), gefahren
-# wird hier - ui/ faßt nie Körper an. Der EINE Aufräum-Pfad ist _settle_transfer.
+# Die Zeremonie des Prägens als KÖRPER: der Boden unter dem Podest SINKT und nimmt den
+# Würfel in die KAMMER mit, die belegten Scheiben VERRIEGELN, die KABEL klemmen an, ein
+# STROM läuft von Scheibe 1 bis ans Ende der Walze. Jede Karte, die er passiert, flammt
+# auf, gibt ihre Zellen an das mitreitende LICHT-NETZ ab und BRENNT AUS. Am Ende läuft
+# der Puls durch die Kabel in den Würfel (beim Verdichten ein Funke in den Rohling auf
+# der Platte); danach steigt der Würfel, der Boden schließt. Den TAKT gibt das Fenster,
+# gefahren wird hier - ui/ faßt nie Körper an. Der EINE Aufräum-Pfad ist _settle_transfer.
 
 ## Die Karten, die der Strom schon gelesen hat und die gerade ausbrennen - sie sind
 ## aus socket_cells ausgetragen, also führt sie diese Liste, damit der Aufräum-Pfad
@@ -2603,10 +2618,55 @@ var _transfer_struck := false
 ## Das Prägen beginnt: Strom, Netz und Funken der vorigen Zeremonie fahren nie mit.
 func _on_press_started() -> void:
 	_sfx(&"bench_press")
-	_land_bench_hard()  # fliegt er noch in die Kammer, steht er jetzt dort
+	_land_bench_hard()  # fliegt er noch aufs Podest, steht er jetzt dort
 	_press_gen += 1
 	_drop_light_net()
 	_drop_sparks()
+	_drop_cables()
+	# Schon die BUCHUNG leert die Reihe - ohne diese Marke flöge er aufs Podest zurück.
+	_transferring = true
+	_release_failed_press.call_deferred(_press_gen)
+
+## Das Prägen hat nichts gebucht: die Marke fällt, der Abgleich läuft wieder.
+func _release_failed_press(generation: int) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if generation != _press_gen or (workshop != null and is_instance_valid(workshop) \
+			and workshop.burning()):
+		return
+	_transferring = false
+	_sync_bench_migration()
+
+## DER VOR-TAKT: das Loch öffnet, der Boden sinkt, und der Würfel fährt SENKRECHT mit ihm
+## in die Kammer. Beim Verdichten bleibt sie zu (das Fenster meldet dann keinen Takt).
+func _on_chamber_opening(time: float) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var stage := bench_stage
+	if workshop == null or not is_instance_valid(workshop) or workshop.compressing() \
+			or stage == null or not is_instance_valid(stage):
+		return
+	if grabbed_stage == stage:
+		grabbed_stage = null
+	_chamber_open = true
+	_open_chamber_hole()
+	_ride_chamber_floor(-CHAMBER_DEPTH, time)
+	stage.set_process(false)  # kein Wippen in der Kammer
+	stage.ride_to(_bench_podium_target(workshop), time)
+	_sync_bench_reflection()
+
+## DER NACH-TAKT: der Würfel steigt mit seinem neuen Stand, der Boden schließt.
+func _on_chamber_closing(time: float) -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if not _chamber_open or workshop == null or not is_instance_valid(workshop):
+		return
+	_chamber_open = false  # Endzustand zuerst: die Fahrt ist nur der Weg nach oben
+	_ride_chamber_floor(0.0, time)
+	var stage := bench_stage
+	if stage != null and is_instance_valid(stage):
+		var tween := stage.ride_to(_bench_podium_target(workshop), time)
+		if tween != null:
+			tween.finished.connect(func() -> void:
+				if is_instance_valid(stage) and not _chamber_down():
+					stage.set_process(true))
 
 ## DIE SCHEIBEN VERRIEGELN: von Scheibe 1 an gestaffelt blitzt jede belegte auf und
 ## ihre Karte flammt mit - keine bewegt sich. Zugleich zündet der Strom über Scheibe 1.
@@ -2620,6 +2680,35 @@ func _on_slices_locked(time: float) -> void:
 		drum.light_on(_series_tint(workshop))
 		drum.light_to(drum.light_stop(0), time)
 	_lock_slices(_press_gen, run)  # nicht erwartet: der Ripple läuft für sich
+	if workshop != null and is_instance_valid(workshop):
+		_dock_cables(workshop)
+
+## DIE KABEL KLEMMEN AN: der Würfel in der Kammer steht still, und je geänderter Seite
+## und Kanal fahren vier Kabel aus den Wänden an ihre Ecken. Der Rohling bekommt keine.
+func _dock_cables(workshop: WorkshopView) -> void:
+	var stage := bench_stage
+	if workshop.compressing() or chamber_rig == null or not is_instance_valid(chamber_rig) \
+			or stage == null or not is_instance_valid(stage) or stage.faces == null \
+			or not _chamber_open:
+		return
+	if grabbed_stage == stage:
+		grabbed_stage = null
+	stage.set_process(false)  # kein Wippen, solange die Kabel an ihm hängen
+	stage.die.global_position = _stage_rest(stage)
+	var repaired := workshop.burn_repaired()
+	var plan := ChamberRigView.cable_plan(workshop.burn_projection(), true)
+	# Er richtet sich in seine Ruhelage: so zeigt jede Würfelecke auf ihre Kammerecke.
+	var rest := FloatingDie.rest_pose()
+	var faces_in_die := stage.die.global_basis.orthonormalized().inverse() \
+		* stage.faces.global_basis.orthonormalized()
+	stage.pose_to(rest, CABLE_SQUARE_TIME)
+	chamber_rig.dock(stage.center(), rest * faces_in_die,
+		DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE, plan, CABLE_DOCK_TIME,
+		PackDrawerView.REPAIR_TINT if repaired else _series_tint(workshop), CABLE_SQUARE_TIME)
+
+func _drop_cables() -> void:
+	if chamber_rig != null and is_instance_valid(chamber_rig):
+		chamber_rig.settle_hard()
 
 func _lock_slices(generation: int, launched: GameRun) -> void:
 	var count := socket_cells.size()
@@ -2657,9 +2746,11 @@ func _on_stream_passed(index: int, faces: Array, values: Array, glyph: String,
 			_light_net.punch(glyph)
 	if drum != null and is_instance_valid(drum):
 		drum.light_to(_stream_stop(index + 1), time)
+	if chamber_rig != null and is_instance_valid(chamber_rig):
+		chamber_rig.tick()
 
 ## Wo der Strom als nächstes steht: über der nächsten Scheibe, nach der letzten
-## gelesenen Karte am Ende der Walze - er läuft über die leeren Scheiben in die Kammer.
+## gelesenen Karte am Ende der Walze - er läuft über die leeren Scheiben dorthin.
 func _stream_stop(index: int) -> Vector3:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop != null and is_instance_valid(workshop) \
@@ -2667,8 +2758,8 @@ func _stream_stop(index: int) -> Vector3:
 		return drum.end_point() + Vector3.UP * DrumView.LIGHT_RISE
 	return drum.light_stop(index)
 
-## Das Ende der Walze auf dem Glas: die Kammer-seitige Grabenwand - dort starten die
-## Funken.
+## Das Ende der Walze auf dem Glas: die rechte Grabenwand - dort startet der Funke des
+## Rohlings.
 func _drum_end_point(workshop: WorkshopView) -> Vector3:
 	return table_screen.pixel_to_world(workshop.drum_end_px())
 
@@ -2686,14 +2777,12 @@ func _burn_out_card(cell: DataCellView, time: float, generation: int,
 	_burning_cards.erase(cell)
 	_free_data_cell(cell)
 
-## DER EINSCHLAG: am Ende der Walze zerfällt das Licht-Netz in seine LICHTFUNKEN - je
-## Seite mit Bonus einer -, sie fliegen ALLE ZUGLEICH in die Seitenmitten des Würfels
-## in der KAMMER, und dort steht er mit seinem GEBUCHTEN Stand. Repariert fliegt ein
-## goldener Funke in seine Mitte, ohne Bonus (Kühlen, Material, Rune) einer im Ton
-## der Reihe. Beim VERDICHTEN schlägt EIN Funke in den Rohling.
+## DER EINSCHLAG: am Ende der Walze geht der Strom in die KABEL der Kammer - ein Puls
+## läuft durch jedes in seine Ecke, und dort steht der Würfel mit seinem GEBUCHTEN Stand.
+## Beim VERDICHTEN schlägt EIN Funke in den Rohling.
 func _on_stream_struck(time: float) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	_drop_light_net()  # es IST in die Funken zerfallen
+	_drop_light_net()  # es IST in die Kabel gegangen
 	if drum != null and is_instance_valid(drum):
 		drum.light_off()
 	if workshop == null or not is_instance_valid(workshop):
@@ -2705,24 +2794,15 @@ func _on_stream_struck(time: float) -> void:
 			_fly_spark(origin, bench_blank_cell.global_position, tint, time)
 		_strike_blank(time, _press_gen, run)  # nicht erwartet: der Einschlag ist Licht
 		return
-	var stage := bench_stage
-	var standing := stage != null and is_instance_valid(stage)
+	# Der Strom läuft durch die KABEL in den Würfel - die Seiten mit Bonus blitzen.
 	var projection := workshop.burn_projection()
 	var hits: Array[int] = []
 	for face in StampNet.FACES:
-		if _face_bonus(projection, face) == 0:
-			continue
-		hits.append(face)
-		if standing:
-			# Jeder Funke bricht an der Grabenwand an SEINER Stelle aus.
-			var from := table_screen.pixel_to_world(workshop.spark_start_px(face)) \
-				+ Vector3.UP * SPARK_LIFT
-			_fly_spark(from, _die_face_point(stage, face), tint, time)
-	var repaired := workshop.burn_repaired()
-	if standing and (repaired or hits.is_empty()):
-		_fly_spark(origin, stage.center(),
-			PackDrawerView.REPAIR_TINT if repaired else tint, time)
-	_strike_die(hits, repaired, time, _press_gen, run)  # nicht erwartet
+		if _face_bonus(projection, face) != 0:
+			hits.append(face)
+	if chamber_rig != null and is_instance_valid(chamber_rig):
+		chamber_rig.pulse(time)
+	_strike_die(hits, workshop.burn_repaired(), time, _press_gen, run)  # nicht erwartet
 
 ## EIN Funke von from nach to - alle Funken einer Zeremonie führt _sparks.
 func _fly_spark(from: Vector3, to: Vector3, tint: Color, time: float) -> void:
@@ -2742,6 +2822,8 @@ func _strike_die(hits: Array[int], repaired: bool, delay: float, generation: int
 		return
 	_transfer_struck = true
 	_drop_sparks()
+	if chamber_rig != null and is_instance_valid(chamber_rig):
+		chamber_rig.release(CABLE_RELEASE_TIME)
 	var stage := bench_stage
 	if stage == null or not is_instance_valid(stage) or stage.def == null:
 		return
@@ -2764,14 +2846,14 @@ func _strike_die(hits: Array[int], repaired: bool, delay: float, generation: int
 		stage.faces.reset_number_tints()
 
 ## Beim VERDICHTEN trifft der Funke den Rohling: er liegt danach mit seinem gefüllten
-## Netz in der Kammer und flammt auf.
+## Netz auf dem Podest und flammt auf.
 func _strike_blank(delay: float, generation: int, launched: GameRun) -> void:
 	await get_tree().create_timer(maxf(delay, 0.0)).timeout
 	if run != launched or generation != _press_gen:
 		return
 	_transfer_struck = true
 	_drop_sparks()
-	_rebuild_target_stage()  # der Schreiber legt ihn mit gefülltem Netz neu
+	_rebuild_podium_puck()  # der Schreiber legt ihn mit gefülltem Netz neu
 	_sfx(&"light_strike")
 	if bench_blank_cell != null and is_instance_valid(bench_blank_cell):
 		bench_blank_cell.flare()
@@ -2781,21 +2863,6 @@ func _strike_blank(delay: float, generation: int, launched: GameRun) -> void:
 static func _face_bonus(projection: Dictionary, face: int) -> int:
 	var bonus: Array = projection.get("bonus", [])
 	return int(bonus[face]) if face >= 0 and face < bonus.size() else 0
-
-## Die SEITENMITTE einer Würfelseite in Welt: Würfelmitte plus ihre Richtung mal der
-## halben Kante - dorthin schlägt ihr Funke ein.
-func _die_face_point(stage: FloatingDie, face: int) -> Vector3:
-	var centre := stage.center()
-	if stage.faces == null or not is_instance_valid(stage.faces):
-		return centre
-	var half := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE
-	var basis := stage.faces.global_basis.orthonormalized()
-	for axis: String in DiceController.AXIS_FACE_INDEX:
-		if int(DiceController.AXIS_FACE_INDEX[axis]) != face:
-			continue
-		var dir: Vector3 = basis * (DiceController.AXIS_DIRECTIONS[axis] as Vector3)
-		return centre + dir * half
-	return centre
 
 ## Das LICHT-NETZ entsteht auf der Strom-Ebene und REITET von da an mit ihr.
 func _spawn_light_net() -> void:
@@ -2849,14 +2916,18 @@ func _skip_transfer() -> void:
 		workshop.skip_ceremony()
 
 ## Der EINE Aufräum-Pfad der Zeremonie, HART: Strom, Netz und Funken sind fort, jede
-## noch liegende oder brennende Karte fällt weg, und der Würfel in der Kammer trägt
-## seinen GEBUCHTEN Stand.
+## noch liegende oder brennende Karte fällt weg, die Kammer ist zu, und der Würfel steht
+## mit seinem GEBUCHTEN Stand auf dem Podest.
 func _settle_transfer() -> void:
 	_skip_transfer()  # läuft das Fenster noch, kommt es über series_applied hierher
 	_press_gen += 1
 	_hovered_step = -1  # die überfahrene Scheibe ist mit ihrer Karte fort
 	_drop_light_net()
 	_drop_sparks()
+	_drop_cables()
+	_close_chamber_hard()
+	if bench_stage != null and is_instance_valid(bench_stage) and not bench_stage.is_flying():
+		bench_stage.set_process(true)  # die Kabel sind ab, er wippt wieder
 	if drum != null and is_instance_valid(drum):
 		drum.light_off()
 	_settle_carries()  # ein noch fliegender Trage-Bogen steht erst hart
@@ -2874,7 +2945,7 @@ func _settle_transfer() -> void:
 		bench_stage.apply_definition(bench_stage.def)
 		if bench_stage.faces != null and is_instance_valid(bench_stage.faces):
 			bench_stage.faces.reset_number_tints()
-	_rebuild_target_stage()
+	_rebuild_podium_puck()
 	if was_transferring:
 		_sync_bench_migration()  # eine Abwahl während der Zeremonie holt er jetzt nach
 
@@ -2941,8 +3012,10 @@ func _try_grab_floating_die(event: InputEvent) -> bool:
 	# Der gewählte Würfel ist ein Griff der WERKSTATT: er antwortet nur an ihrer
 	# Station (Spieler-Entscheid 2026-09-11) - auf dem PODEST neben dem Pool auch an
 	# der Pool-Station. Aus der Ferne bleibt der Klick der Flug.
-	var podium := _bench_spot == BENCH_PODIUM and _felt_pick_live(CameraRig.Mode.POOL)
-	if not _felt_pick_live(CameraRig.Mode.WORKSHOP) and not podium:
+	if _transferring:
+		return false  # an den Kabeln dreht ihn niemand
+	if not _felt_pick_live(CameraRig.Mode.WORKSHOP) \
+			and not _felt_pick_live(CameraRig.Mode.POOL):
 		return false
 	var button := event as InputEventMouseButton
 	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
@@ -3010,7 +3083,7 @@ func _leave_die_focus() -> void:
 ## Die Werkstatt hat ihre Bühne neu gelegt: der schwebende Würfel zieht nach.
 func _on_die_stages_changed() -> void:
 	_rebuild_bench_stage()
-	_rebuild_target_stage()  # der leere Puck folgt demselben Layout
+	_rebuild_podium_puck()  # der leere Puck folgt demselben Layout
 	_sync_data_cells()  # Magazin-Kassetten und Schlitze hängen am selben Layout
 
 ## Der Spieler hat im Raster gewählt, gewechselt oder abgewählt: der Zielwürfel
@@ -3023,7 +3096,7 @@ func _on_workshop_die_chosen(die: DieDefinition) -> void:
 		_show_deck_glass_window()  # der Gold-Saum im Raster folgt der Wahl
 
 ## Das ZIEL der Serie hat gewechselt (erste Karte, letzte Karte, Prägen, Rohling): der
-## gewählte Würfel zieht zwischen Podest und Kammer um.
+## Würfel bleibt, wo er ist - der Abgleich bestätigt es nur.
 func _on_workshop_target_changed(_die: DieDefinition) -> void:
 	_sync_bench_migration()
 
@@ -3034,27 +3107,21 @@ func _choose_workshop_target(die: DieDefinition) -> void:
 	if workshop != null and is_instance_valid(workshop):
 		workshop.choose_die(die)
 
-# --- PODEST und KAMMER: EIN Würfel fliegt aus dem Pool herauf ---------------------
+# --- Das PODEST: EIN Würfel fliegt aus dem Pool herauf ------------------------------
 # Der gewählte Würfel liegt im Pool, bis der Spieler ihn ANTIPPT - dann fliegt er aufs
-# PODEST (ansehen) bzw. in die KAMMER (Ziel der Serie, sobald eine Karte steckt). Wo er
-# steht, sagen _bench_die und _bench_spot: der Bühnen-Körper ist ein FloatingDie, der
-# Pool-Körper der Tray-Slot selbst - nie beide zugleich sichtbar. Die PLÄTZE nennt das
-# FENSTER (podium_stage_center, target_net_center).
+# PODEST, ob Karten stecken oder nicht; beim PRÄGEN sinkt er in die KAMMER darunter und
+# steigt wieder. Wo er steht, sagt _bench_die: der Bühnen-Körper ist ein FloatingDie, der
+# Pool-Körper der Tray-Slot selbst - nie beide zugleich sichtbar. Den PLATZ nennt das
+# FENSTER (podium_stage_center).
 
-## Der Würfel, der aus dem Pool heraus gehört (null = keiner): schlicht die Wahl des
-## Fensters, an jeder Station (die Fahrt wartet ohnehin auf den stehenden Vorrat).
+## Der Würfel, der aus dem Pool heraus gehört (null = keiner): der gewählte, solange kein
+## ROHLING auf dem Podest liegt - an jeder Station (die Fahrt wartet ohnehin auf den
+## stehenden Vorrat).
 func _wanted_bench_die() -> DieDefinition:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or not workshop.visible:
 		return null
-	return workshop.chosen_die()
-
-## WO er hingehört: in die KAMMER, sobald er Ziel der Serie ist, sonst aufs PODEST.
-func _wanted_bench_spot() -> int:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop) or workshop.target_die() == null:
-		return BENCH_PODIUM
-	return BENCH_CHAMBER
+	return workshop.seated_die()
 
 ## Wählt den gewählten Würfel ab (true = es stand einer). Die Abwahl geht durch das
 ## FENSTER - dort wohnt die Wahl.
@@ -3110,23 +3177,22 @@ func _rebuild_bench_stage() -> void:
 		return
 	bench_stage = _spawn_floating_die(_bench_die, CLAMP_EMITTER_TINT, target,
 		CLAMP_HOVER)
+	_sync_bench_reflection()
 	bench_stage.land_at(target, 0.0)
 	bench_stage.materialize()
 
-## Der Weltpunkt eines Platzes (Podest oder Kammer, -1 = der jetzige) - das Fenster
-## meldet ihn (ZERO = der Platz steht gerade nicht).
-func _bench_podium_target(workshop: WorkshopView, spot := -1) -> Vector3:
-	var place := _bench_spot if spot < 0 else spot
-	var center := workshop.podium_stage_center() if place == BENCH_PODIUM \
-		else workshop.target_net_center()
+## Der Weltpunkt des Würfels: über dem Podest-Anker schwebend, bei offener Kammer genau
+## in ihrer Mitte darunter (ZERO = das Podest steht gerade nicht).
+func _bench_podium_target(workshop: WorkshopView) -> Vector3:
+	var center := workshop.podium_stage_center()
 	if center.x < 0.0:
 		return Vector3.ZERO
+	if _chamber_open:
+		return table_screen.pixel_to_world(center) + Vector3.DOWN * CHAMBER_DIE_DROP
 	return _bench_hover_target(center, CLAMP_HOVER)
 
-## Die LEEREN Pucks von Kammer und Podest. Steht der Würfel auf einem, weicht er -
-## zwei Pucks an einem Platz wären ein zweiter Leib. Idempotent: dieselbe
-## Zielposition baut nichts neu, sie folgt nur dem Layout.
-var target_stage: StasisEmitter
+## Der LEERE Puck des Podests: steht der Würfel oder liegt der Rohling dort, weicht er -
+## zwei Leiber an einem Platz wären einer zu viel. Idempotent.
 var podium_stage: StasisEmitter
 
 ## Der ROHLING, der beim VERDICHTEN auf dem Podest LIEGT, und seine uid als
@@ -3135,24 +3201,19 @@ var bench_blank_cell: DataCellView
 var _bench_blank_uid := 0
 var _bench_blank_filled := false
 
-func _rebuild_target_stage() -> void:
+func _rebuild_podium_puck() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
 		return
 	_seat_bench_blank(workshop)
-	# Ein Würfel oder ein liegender ROHLING verdrängt den leeren Puck: zwei Leiber an
-	# einem Platz wären einer zu viel.
-	var held := _bench_die != null
-	target_stage = _seat_podium_puck(target_stage, "TargetStage",
-		_bench_podium_target(workshop, BENCH_CHAMBER),
-		not (held and _bench_spot == BENCH_CHAMBER) and bench_blank_cell == null)
 	podium_stage = _seat_podium_puck(podium_stage, "PodiumStage",
-		_bench_podium_target(workshop, BENCH_PODIUM),
-		not (held and _bench_spot == BENCH_PODIUM))
+		_bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER)
+			if workshop.podium_stage_center().x >= 0.0 else Vector3.ZERO,
+		_bench_die == null and bench_blank_cell == null)
 
-## Der EINE Schreiber des ROHLINGS. Er liegt in der KAMMER statt des Würfels, FLACH auf
-## ihrem Sockel in der Tischebene - ohne CLAMP_HOVER und ohne den Projektions-Trim des
-## schwebenden Würfels. Getragen wird er NICHT: das Licht kommt zu ihm.
+## Der EINE Schreiber des ROHLINGS. Er liegt statt des Würfels FLACH mittig auf der
+## Podest-Platte in der Tischebene - ohne CLAMP_HOVER und ohne den Projektions-Trim des
+## schwebenden Würfels; die Kammer darunter bleibt zu. Das Licht kommt zu ihm.
 func _seat_bench_blank(workshop: WorkshopView) -> void:
 	var pack := workshop.seated_blank()
 	var uid := pack.pack_uid if pack != null else 0
@@ -3210,13 +3271,17 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 # bei der ANKUNFT - ein Würfel wird nie zweimal gezeigt. Der EINE Aufräum-Pfad ist
 # _reset_bench_migration_hard.
 
-## Der EINE Schreiber des ORTS: welcher Würfel aus dem Pool heraus steht (null =
-## keiner) und auf welchem Platz (-1 = derselbe). Er zieht die leeren Pucks mit.
-func _seat_bench_place(die: DieDefinition, spot := -1) -> void:
+## Der EINE Schreiber des ORTS: welcher Würfel aus dem Pool heraus auf dem Podest steht
+## (null = keiner). Er zieht den leeren Puck mit.
+func _seat_bench_place(die: DieDefinition) -> void:
 	_bench_die = die
-	if spot >= 0:
-		_bench_spot = spot
-	_rebuild_target_stage()
+	_rebuild_podium_puck()
+	_sync_bench_reflection()
+
+## In der offenen KAMMER steht der Würfel unter dem Tisch - dort spiegelt er nicht.
+func _sync_bench_reflection() -> void:
+	if bench_stage != null and is_instance_valid(bench_stage):
+		ScreenReflection.set_reflective(bench_stage, not _chamber_down())
 
 ## Der EINE Abgleich: auf der Bühne steht, was das Fenster als Ziel meldet - und nur
 ## an der Werkstatt-Station. Idempotent und überspringt eine laufende Fahrt; jede
@@ -3229,8 +3294,6 @@ func _sync_bench_migration() -> void:
 		return  # die Übertragung holt den Abgleich mit ihrem Aufräum-Pfad nach
 	var wanted := _wanted_bench_die()
 	if wanted == _bench_die:
-		if wanted != null and _wanted_bench_spot() != _bench_spot:
-			_ride_bench_between(_wanted_bench_spot())
 		return
 	# Räumen und Holen ZUGLEICH (Spieler-Wunsch 2026-09-11): der Alte fliegt heim,
 	# während der Neue schon kommt - ein Wechsel dauert EINE Fahrt, nicht zwei.
@@ -3256,7 +3319,6 @@ func _ride_bench_from_pool(die: DieDefinition) -> void:
 	var generation := _bench_gen
 	var workshop: WorkshopView = table_screen.workshop_window
 	var bench_at := Vector3.ZERO
-	var spot := BENCH_PODIUM
 	if workshop != null and is_instance_valid(workshop) and workshop.bench_open():
 		# Der Platz steht erst nach dem Layout des Fensters fest - zwei Bilder weit.
 		await get_tree().process_frame
@@ -3265,16 +3327,14 @@ func _ride_bench_from_pool(die: DieDefinition) -> void:
 				or not _pool_standing or not workshop.bench_open():
 			_bench_riding = false
 			return
-		# Stecken schon Karten, fliegt er gleich in die KAMMER.
-		spot = _wanted_bench_spot()
-		bench_at = _bench_podium_target(workshop, spot)
+		bench_at = _bench_podium_target(workshop)
 	# Der ABFLUG-Platz: der Sitz des Würfels im Pool - gerechnet, nie am Körper
 	# gemessen. Ohne Sitz (er liegt gar nicht im Vorrat) startet er am Podest selbst.
 	var seat := _pool_tray_source().find(die)
 	var from := bench_at
 	if seat >= 0 and pool_tray_view != null and seat < pool_tray_view.slot_roots.size():
 		from = pool_tray_view.slot_home_position(seat, true)
-	_seat_bench_place(die, spot)  # ab jetzt LEER im Pool, er gehört seinem Platz
+	_seat_bench_place(die)  # ab jetzt LEER im Pool, er gehört dem Podest
 	_refresh_deck_trays()  # der Schreiber bestätigt die Pool-Lücke
 	if bench_at == Vector3.ZERO:
 		# Kein Netz gemessen (Fenster noch ohne Layout): der Körper erscheint hart,
@@ -3286,8 +3346,9 @@ func _ride_bench_from_pool(die: DieDefinition) -> void:
 	var stage := _spawn_floating_die(die, CLAMP_EMITTER_TINT, from, CLAMP_HOVER)
 	_free_stage(bench_stage)  # ein Rest der vorigen Wahl steht hier nie
 	bench_stage = stage
+	_sync_bench_reflection()
 	stage.set_process(false)  # kein Eigen-Wippen, solange der Bogen ihn führt
-	var tween := stage.carry_to(bench_at, BENCH_CARRY_TIME, BENCH_CARRY_PEAK)
+	var tween := stage.carry_to(bench_at, BENCH_CARRY_TIME, BENCH_CARRY_PEAK, CLAMP_HOVER)
 	if tween == null:
 		stage.set_process(true)
 		stage.land_at(bench_at, 0.0)
@@ -3303,40 +3364,8 @@ func _ride_bench_from_pool(die: DieDefinition) -> void:
 		if generation == _bench_gen and run == launched:
 			_sync_bench_migration())  # wer derweil umwählte, kehrt um
 
-## Podest <-> Kammer: derselbe TRAGE-BOGEN, EIN Körper. Der Platz kippt beim ABFLUG
-## (der verlassene Puck steht sofort leer da); die Landung gleicht erneut ab.
-func _ride_bench_between(spot: int) -> void:
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop == null or not is_instance_valid(workshop) or _bench_die == null:
-		return
-	var at := _bench_podium_target(workshop, spot)
-	_seat_bench_place(_bench_die, spot)
-	var stage := bench_stage
-	if at == Vector3.ZERO or stage == null or not is_instance_valid(stage) \
-			or not stage.visible:
-		_rebuild_bench_stage()  # ohne Körper oder Platz stellt der Schreiber ihn hart
-		return
-	_bench_riding = true
-	var generation := _bench_gen
-	var launched := run
-	stage.set_process(false)  # kein Eigen-Wippen, solange der Bogen ihn führt
-	var tween := stage.carry_to(at, BENCH_CARRY_TIME, BENCH_CARRY_PEAK)
-	if tween == null:
-		stage.set_process(true)
-		stage.land_at(at, 0.0)
-		_bench_riding = false
-		return
-	tween.finished.connect(func() -> void:
-		if generation != _bench_gen or run != launched:
-			return  # der harte Weg hat ihn schon gesetzt
-		if is_instance_valid(stage):
-			stage.set_process(true)
-			stage.land_at(at, 0.0)
-		_bench_riding = false
-		_sync_bench_migration())
-
 ## Ein fliegender Bühnen-Würfel steht SOFORT auf seinem Platz - der harte Weg und das
-## Prägen, das ihn in der Kammer braucht, bevor die Funken fliegen.
+## Prägen, das ihn auf dem Podest braucht, bevor die Kammer sich öffnet.
 func _land_bench_hard() -> void:
 	if bench_stage == null or not is_instance_valid(bench_stage) or not bench_stage.is_flying():
 		return
@@ -3377,7 +3406,7 @@ func _ride_bench_to_pool(die: DieDefinition) -> void:
 			and seat < pool_tray_view.slot_roots.size():
 		stage.set_process(false)  # kein Eigen-Wippen, solange der Bogen ihn führt
 		var tween := stage.carry_to(pool_tray_view.slot_home_position(seat, true),
-			BENCH_CARRY_TIME, BENCH_CARRY_PEAK)
+			BENCH_CARRY_TIME, BENCH_CARRY_PEAK, CLAMP_HOVER)
 		if tween != null:
 			flew = true
 			tween.finished.connect(func() -> void:
@@ -3434,6 +3463,7 @@ func _migrate_bench_to_pool() -> void:
 ## gelöscht. Reset, Laufwechsel und Abbruch gehen durch ihn. Er läßt den
 ## Ort-Zustand (_bench_die) unberührt - der ist Sache von _migrate_bench_to_pool.
 func _reset_bench_migration_hard() -> void:
+	_close_chamber_hard()  # ein Würfel in der Kammer steht wieder oben
 	_land_bench_hard()  # ein abgebrochener Bogen steht auf SEINEM Platz
 	_bench_gen += 1
 	_drop_bench_blank()
@@ -3665,49 +3695,141 @@ func _drum_pit_depth(workshop: WorkshopView) -> float:
 	var side := _world_span(Vector2(0.0, workshop.drum_side())).x
 	return side * (0.5 + sqrt(2.0) * 0.5) + DRUM_PIT_AIR
 
-#region DIE KAMMER - das eine Podest
-# Eine flache Grube ohne Kragen unter dem Platz des Zielwürfels. Ein schlanker SOCKEL
-# steht vom Grubenboden bis an die Tischebene und trägt den Puck; der ROHLING liegt
-# statt des Würfels flach darauf, mittig in der Kammer. Möbel, idempotent gestellt.
+#region DIE KAMMER
+# Eine TIEFE Grube ohne Kragen UNTER der Podest-Platte. In Ruhe ist sie ZU: kein Loch,
+# Wände und Buchsen unsichtbar. Beim Prägen sinkt ihr BODEN - eine Platte in der Haut der
+# Anzeige (der Mahjong-Deckel) - und nimmt den Würfel mit hinab; dort klemmen die KABEL
+# (ChamberRigView) an seine Ecken. Danach steigt er, der Boden schließt. Der Zustand ist
+# _chamber_open (EIN Schreiber je Richtung, Endzustand zuerst), der harte Weg
+# _close_chamber_hard.
 
 var chamber_pit: PackPitView
-var chamber_plinth: MeshInstance3D
+var chamber_rig: ChamberRigView
+var chamber_floor: MeshInstance3D
+var _chamber_floor_skin: ShaderMaterial
+var _chamber_floor_tween: Tween
+## Steht der Würfel in der Kammer (bzw. fährt hinab)? Die Rückfahrt setzt es sofort falsch.
+var _chamber_open := false
 
+## Möbel, idempotent gestellt: Grube, Kabel und Boden unter der Kammer des Fensters.
 func _sync_chamber(workshop: WorkshopView) -> void:
 	if table_screen == null:
 		return
 	var rect := workshop.chamber_rect_px()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	table_screen.set_pit(TableScreen.PIT_CHAMBER, rect, 0.0)
 	var centre := table_screen.pixel_to_world(rect.get_center())
+	var half := _pit_half(rect)
 	if chamber_pit == null or not is_instance_valid(chamber_pit):
 		chamber_pit = PackPitView.new("ChamberPit")
 		chamber_pit.wall_skin = PIT_SKIN
 		chamber_pit.rimmed = false
+		# EIN Boden: der fahrende Boden-Quad, die Grube keinen eigenen.
+		chamber_pit.floored = false
 		add_child(chamber_pit)
-	chamber_pit.setup(centre, _pit_half(rect), CHAMBER_DEPTH)
-	# Der Sockel steht unter dem PUCK - dem Anker samt Neigungs-Versatz.
-	var anchor := workshop.target_net_center()
-	var foot := table_screen.pixel_to_world(anchor) if anchor.x >= 0.0 else centre
-	if chamber_plinth == null or not is_instance_valid(chamber_plinth):
-		chamber_plinth = MeshInstance3D.new()
-		chamber_plinth.name = "ChamberPlinth"
-		var mesh := CylinderMesh.new()
-		mesh.top_radius = StasisEmitter.PUCK_RADIUS * CHAMBER_PLINTH_ROOM
-		mesh.bottom_radius = mesh.top_radius
-		mesh.height = CHAMBER_DEPTH - CHAMBER_PLINTH_DROP
-		mesh.radial_segments = 32
-		chamber_plinth.mesh = mesh
-		var material := StandardMaterial3D.new()
-		material.albedo_color = PackPitView.RIM_ALBEDO
-		material.emission_enabled = true
-		material.emission = PackPitView.RIM_EMISSION
-		material.emission_energy_multiplier = PackPitView.RIM_EMISSION_ENERGY
-		chamber_plinth.material_override = material
-		add_child(chamber_plinth)
-	var drop := (CHAMBER_DEPTH + CHAMBER_PLINTH_DROP) * 0.5
-	chamber_plinth.global_position = foot - Vector3.UP * drop
+	chamber_pit.setup(centre, half, CHAMBER_DEPTH)
+	if chamber_rig == null or not is_instance_valid(chamber_rig):
+		chamber_rig = ChamberRigView.new()
+		chamber_rig.name = "ChamberRig"
+		add_child(chamber_rig)
+	chamber_rig.setup(centre, half, CHAMBER_DEPTH)
+	if chamber_floor == null or not is_instance_valid(chamber_floor):
+		chamber_floor = MeshInstance3D.new()
+		chamber_floor.name = "ChamberFloor"
+		chamber_floor.mesh = PlaneMesh.new()
+		add_child(chamber_floor)
+	var skin := table_screen.display_skin()
+	if _chamber_floor_skin == null:
+		_chamber_floor_skin = skin.duplicate() as ShaderMaterial
+	for param in ["screen_texture", "display_map", "emission_energy"]:
+		_chamber_floor_skin.set_shader_parameter(param, skin.get_shader_parameter(param))
+	(chamber_floor.mesh as PlaneMesh).size = half * 2.0
+	chamber_floor.material_override = _chamber_floor_skin
+	if not _chamber_riding():
+		_seat_chamber_hard()
+
+## Fährt der Boden gerade?
+func _chamber_riding() -> bool:
+	return _chamber_floor_tween != null and _chamber_floor_tween.is_valid()
+
+## Steht der Würfel unter dem Tisch - offen oder auf der Rückfahrt?
+func _chamber_down() -> bool:
+	return _chamber_open or _chamber_riding()
+
+## Der Weltpunkt des Bodens auf Höhe y (Mitte der Kammer).
+func _chamber_floor_at(y: float) -> Vector3:
+	var centre := Vector3.ZERO
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop != null and is_instance_valid(workshop):
+		var rect := workshop.chamber_rect_px()
+		if rect.size.x > 0.0:
+			centre = table_screen.pixel_to_world(rect.get_center())
+	return Vector3(centre.x, y, centre.z)
+
+## Das Loch auf, Grube, Buchsen und Boden sichtbar - der Boden steht noch bündig.
+func _open_chamber_hole() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or chamber_pit == null or not is_instance_valid(chamber_pit):
+		return
+	table_screen.set_pit(TableScreen.PIT_CHAMBER, workshop.chamber_rect_px(), 0.0)
+	chamber_pit.visible = true
+	if chamber_rig != null and is_instance_valid(chamber_rig):
+		chamber_rig.visible = true
+	if chamber_floor != null and is_instance_valid(chamber_floor):
+		chamber_floor.visible = true
+		if not _chamber_riding():
+			chamber_floor.global_position = _chamber_floor_at(0.0)
+
+## Der Boden fährt auf y; oben angekommen schließt sich das Loch.
+func _ride_chamber_floor(y: float, time: float) -> void:
+	if chamber_floor == null or not is_instance_valid(chamber_floor):
+		return
+	if _chamber_floor_tween != null and _chamber_floor_tween.is_valid():
+		_chamber_floor_tween.kill()
+	_chamber_floor_tween = create_tween()
+	_chamber_floor_tween.tween_property(chamber_floor, "global_position",
+		_chamber_floor_at(y), maxf(time, 0.01)) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var tween := _chamber_floor_tween
+	_chamber_floor_tween.finished.connect(func() -> void:
+		if _chamber_floor_tween == tween:
+			_chamber_floor_tween = null
+		_seat_chamber_hard())
+
+## Der EINE Schreiber des Endzustands: offen steht der Boden unten, zu ist kein Loch
+## da und nichts darunter zu sehen.
+func _seat_chamber_hard() -> void:
+	if _chamber_floor_tween != null and _chamber_floor_tween.is_valid():
+		_chamber_floor_tween.kill()
+	_chamber_floor_tween = null
+	if table_screen != null:
+		if _chamber_open and table_screen.workshop_window != null:
+			table_screen.set_pit(TableScreen.PIT_CHAMBER,
+				table_screen.workshop_window.chamber_rect_px(), 0.0)
+		else:
+			table_screen.clear_pit(TableScreen.PIT_CHAMBER)
+	for body: Node3D in [chamber_pit, chamber_rig, chamber_floor]:
+		if body != null and is_instance_valid(body):
+			body.visible = _chamber_open
+	if chamber_floor != null and is_instance_valid(chamber_floor):
+		chamber_floor.global_position = _chamber_floor_at(-CHAMBER_DEPTH if _chamber_open
+			else 0.0)
+	_sync_bench_reflection()
+
+## Der harte Weg: die Kammer ist zu, ein Würfel darin steht wieder auf dem Podest.
+func _close_chamber_hard() -> void:
+	var was_down := _chamber_down()
+	_chamber_open = false
+	_seat_chamber_hard()
+	if not was_down or bench_stage == null or not is_instance_valid(bench_stage):
+		return
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	var at := _bench_podium_target(workshop) if workshop != null \
+		and is_instance_valid(workshop) else Vector3.ZERO
+	if at != Vector3.ZERO:
+		bench_stage.land_at(at, 0.0)
+	bench_stage.set_process(true)
+	_sync_bench_reflection()
 
 #endregion
 
@@ -5814,24 +5936,21 @@ func _on_deck_glass_reordered(from_index: int, to_index: int) -> void:
 	run.reorder_pool(from_index, to_index)
 
 # --- Der RASTER-UMSCHALTER am Grubenrand -----------------------------------------
-# Eine flache Taste auf dem freien Filz ÜBER dem Vorrats-Loch (die rechte Kante gehört
-# Schale und Info-Säule, unter dem Loch beginnt die Werkbank). Sie legt zwischen KÖRPER
-# und RASTER um und ist bedienbar, wo sie zu sehen ist (Pool- wie Werkstatt-Station,
-# Freikamera) - dieselbe Bedingung, unter der überhaupt am Vorrat gerührt werden darf.
+# Eine flache Taste auf dem freien Filz ÜBER dem UPGRADES-Netz, links neben der Podest-
+# Platte. Sie legt zwischen KÖRPER und RASTER um und ist bedienbar, wo sie zu sehen ist
+# (Pool- wie Werkstatt-Station, Freikamera) - dieselbe Bedingung, unter der überhaupt am
+# Vorrat gerührt werden darf.
 
-## Die Taste an den Grubenrand stellen (idempotent). Ihr Ort ist aus der POOL-
-## Geometrie gerechnet wie der der Schale, nie an einer Fensterkante gemessen.
+## Die Taste mittig in ihr Feld der Gleichung stellen (idempotent) - die Kette rechnet es.
 func _place_raster_switch() -> void:
 	if table_screen == null:
 		return
-	var column := _podium_place_px
-	if column.size.x <= 0.0:
+	if _raster_area_px.size.x <= 0.0:
 		return
 	if raster_switch == null or not is_instance_valid(raster_switch):
 		raster_switch = RasterSwitchView.new()
 		add_child(raster_switch)
-	raster_switch.setup(RasterSwitchView.spot_under(table_screen.pixel_to_world(
-		Vector2(column.get_center().x, column.end.y))))
+	raster_switch.setup(table_screen.pixel_to_world(_raster_area_px.get_center()))
 
 ## Ihr Rechteck in Display-Pixeln (leer = sie steht nicht).
 func _raster_switch_rect_px() -> Rect2:
@@ -7352,14 +7471,14 @@ func _forward_bay_mouse(bay: VitrineView, rect: Rect2, event: InputEventMouse,
 func _place_ausgabefach() -> void:
 	if table_screen == null or pool_tray_view == null:
 		return
-	if _podium_place_px.size.x <= 0.0:
+	var spot_px := _fach_spot_px()
+	if spot_px.size.x <= 0.0:
 		return
 	if ausgabefach == null or not is_instance_valid(ausgabefach):
 		ausgabefach = AusgabefachView.new()
 		add_child(ausgabefach)
-	# Rechts neben dem Podest, oben bündig mit dem Pool (Welt +X ist Bild-oben).
-	var corner := table_screen.pixel_to_world(Vector2(_podium_place_px.end.x
-		+ _workshop_unit() * WorkshopView.DRUM_SHELF_GAP, _pool_row_px.position.y))
+	# Rechts neben ERGEBNIS, oben bündig mit dem Pool (Welt +X ist Bild-oben).
+	var corner := table_screen.pixel_to_world(spot_px.position)
 	var spot := Vector3(corner.x - AusgabefachView.HALF_Z, 0.0,
 		corner.z + AusgabefachView.HALF_Z)
 	ausgabefach.setup(spot, AusgabefachView.single_half())
@@ -8587,8 +8706,8 @@ func _world_len_px(length: float) -> float:
 	return absf(table_screen.world_to_pixel(Vector3(0.0, 0.0, length)).x - origin.x)
 
 ## Die Kamera rahmt die Öffnung - ein TEMPORÄRER Rahmen ohne Moduswechsel; die Lage
-## davor wird gemerkt. Ein Würfel-Paket nimmt den Vorrat, den Info-Schirm und die
-## Kammer mit ins Bild: gewählt wird, indem man einsetzt.
+## davor wird gemerkt. Ein Würfel-Paket nimmt den Vorrat, den Info-Schirm und das
+## Podest mit ins Bild: gewählt wird, indem man einsetzt.
 func _frame_opening() -> void:
 	if table_screen == null or pack_choice_view == null or _opening_rect.size.x <= 0.0:
 		return
@@ -8608,7 +8727,7 @@ func _frame_opening() -> void:
 	camera_rig.frame_rect((a + b) * 0.5,
 		Vector2(absf(a.z - b.z), absf(a.x - b.x)) * 0.5, margin)
 
-## Pool-Feld ∪ Schiene samt Fuß ∪ Info-Schirm ∪ Kammer (mit Würfel), in Display-Pixeln.
+## Pool-Feld ∪ Schiene samt Fuß ∪ Info-Schirm ∪ Podest (mit Würfel), in Display-Pixeln.
 func _dice_opening_frame_px() -> Rect2:
 	var rect := PackChoiceView.rail_window_for(_dice_rail_rect())
 	if rect.size.x <= 0.0:
@@ -8620,11 +8739,10 @@ func _dice_opening_frame_px() -> Rect2:
 	for part: Rect2 in [pool, _info_rect.abs()]:
 		if part.size.x > 0.0 and part.size.y > 0.0:
 			rect = rect.merge(part)
-	# Podest bzw. Kammer nur, wenn dort der gewählte Würfel steht - er kann ersetzt werden.
+	# Das Podest nur, wenn dort der gewählte Würfel steht - er kann ersetzt werden.
 	var workshop: WorkshopView = table_screen.workshop_window
 	if _bench_die != null and workshop != null and is_instance_valid(workshop) and workshop.visible:
-		var place := workshop.podium_rect_px() if _bench_spot == BENCH_PODIUM \
-			else workshop.chamber_area_px()
+		var place := workshop.podium_rect_px()
 		if place.size.x > 0.0 and place.size.y > 0.0:
 			rect = rect.merge(place)
 	return rect
@@ -9018,6 +9136,10 @@ func _sync_pack_areas() -> void:
 		_opening_shown = true
 	var dice := _dice_choice_shown()
 	_place_choice_window(dice)
+	# Die Fläche liegt über "=", ERGEBNIS und PRÄGEN - solange sie gebraucht wird, sind die fort.
+	var workshop: WorkshopView = table_screen.workshop_window
+	if workshop != null and is_instance_valid(workshop):
+		workshop.opening_shown = _opening_in_use()
 	var shown := _opening_in_use() and not dice
 	if pack_choice_view.backdrop != shown:
 		pack_choice_view.backdrop = shown
@@ -9055,8 +9177,9 @@ func _shelf_top_pocket_limit() -> float:
 func _shelf_bottom_pocket_limit() -> float:
 	return table_screen.pixel_to_world(Vector2(table_screen.size)).x
 
-## Das Rechteck der Öffnungs-Fläche in Display-Pixeln: rechts neben dem freigehaltenen
-## Podest-Platz, oben bündig mit der Pool-Reihe und so hoch wie sie (leer = kein Platz).
+## Das Rechteck der Öffnungs-Fläche in Display-Pixeln: eine Fuge rechts neben dem Podest-
+## Platz, oben bündig mit der Pool-Reihe und so hoch wie sie (leer = kein Platz). Sie
+## liegt über "=", ERGEBNIS, PRÄGEN und der (dann leeren) Schale.
 func _opening_area_rect() -> Rect2:
 	if table_screen == null or _podium_place_px.size.x <= 0.0:
 		return Rect2()
@@ -9066,12 +9189,7 @@ func _opening_area_rect() -> Rect2:
 		/ PackChoiceView.RAIL_UNITS)
 	var width := PackChoiceView.area_width_for(high, _data_cell_lying_px() * PackDrawerView.CASSETTE_SCALE,
 		_die_edge_px(), rail)
-	# Die Schale steht rechts am Podest - auch leer bleibt ihr Platz frei.
-	var beside := _podium_place_px
-	var fach := _fach_rect_px()
-	if fach.size.x > 0.0:
-		beside = beside.merge(fach)
-	return PackChoiceView.area_beside(_pool_row_px, beside, gap, width)
+	return PackChoiceView.area_beside(_pool_row_px, _podium_place_px, gap, width)
 
 ## Die Vertiefung: Loch, Grube ohne Kragen, und ihr Boden trägt das Bild der Fläche
 ## (die Haut rechnet aus der Weltposition - der Mahjong-Deckel). Möbel.
@@ -11489,7 +11607,7 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	var workshop: WorkshopView = table_screen.workshop_window
 	var workshop_focused := camera_rig.mode == CameraRig.Mode.WORKSHOP
 	if workshop != null and is_instance_valid(workshop):
-		# Walzen-Spalte, Magazin und Kammer - der leere Filz dazwischen gehört nicht dazu.
+		# Walze, Präge-Sitz, Magazin und Podest - der leere Filz dazwischen gehört nicht dazu.
 		for rect in workshop.hit_rects():
 			if TableScreen.window_takes_pixel(workshop, rect, pixel, is_click,
 					workshop_focused, flying):
@@ -14983,6 +15101,8 @@ func _connect_run() -> void:
 			table_screen.workshop_window.slices_locked.connect(_on_slices_locked)
 			table_screen.workshop_window.stream_passed.connect(_on_stream_passed)
 			table_screen.workshop_window.stream_struck.connect(_on_stream_struck)
+			table_screen.workshop_window.chamber_opening.connect(_on_chamber_opening)
+			table_screen.workshop_window.chamber_closing.connect(_on_chamber_closing)
 		# Das ROLLEN des Magazins: das Fenster rechnet, scene_root fährt das Fach.
 		if not table_screen.workshop_window.shelf_scrolling.is_connected(_on_shelf_scrolling):
 			table_screen.workshop_window.shelf_scrolling.connect(_on_shelf_scrolling)

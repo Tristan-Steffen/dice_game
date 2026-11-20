@@ -300,6 +300,27 @@ func test_the_opening_area_stands_beside_the_podium_place() -> void:
 	assert_eq(PackChoiceView.area_beside(Rect2(), PODIUM, GAP, width), Rect2(),
 		"ohne Pool keine Fläche")
 
+## Layout C: an der echten Kette steht die Fläche rechts neben dem Podest der Gleichung -
+## über "=", ERGEBNIS und PRÄGEN (die dann fort sind), nie über Pool, UPGRADES oder Kammer,
+## und nicht über die Anzeige hinaus.
+func test_the_opening_area_stands_right_of_the_equation_podium() -> void:
+	var card := Vector2(194.4, 129.6)
+	var lay := WorkshopView.drum_layout(POOL, card, 55.46, 5.042, 0.0, 48.75)
+	var podium: Rect2 = lay["podium"]
+	var width := PackChoiceView.area_width_for(POOL.size.y, card, DIE_PX.y, RAIL.size.y)
+	var area := PackChoiceView.area_beside(POOL, podium, 5.042 * WorkshopView.DRUM_SHELF_GAP,
+		width)
+	assert_gt(area.position.x, podium.end.x, "rechts vom Podest-Platz")
+	assert_almost_eq(area.position.y, POOL.position.y, 0.01, "oben bündig mit dem Pool")
+	for key in ["upgrades", "podium_stage", "chamber", "podium_net", "raster", "bounds"]:
+		assert_false((lay[key] as Rect2).intersects(area), "nicht über %s" % key)
+	assert_lte(area.end.x, 5094.0, "innerhalb der Anzeige")
+	var window := PackChoiceView.rail_window_for(PackChoiceView.rail_in(area, DIE_PX.y, 5, 48.75))
+	assert_lte(window.end.y, (lay["pit"] as Rect2).position.y
+		- 5.042 * (WorkshopView.SLICE_NUMBER_UNITS + WorkshopView.SLICE_NUMBER_GAP) + 0.01,
+		"der Fuß der Schiene endet vor den Nummern der Walze")
+	assert_false(window.intersects(lay["info"]), "und über dem Info-Schirm")
+
 ## Die Schiene steht oben auf der Fläche, ihr Fuß reicht höchstens um die Naht darunter.
 func test_the_rail_fits_the_area_and_the_seam() -> void:
 	var width := PackChoiceView.area_width_for(POOL.size.y, CARD, DIE_PX.y, RAIL.size.y)

@@ -63,11 +63,11 @@ func test_the_net_carries_edge_chip_runes_and_badges() -> void:
 
 # --- Die Vorschau: das Netz zeigt den Zustand NACH der Serie -----------------------
 
-func test_a_raised_face_reads_as_an_arrow() -> void:
+func test_a_raised_face_reads_its_new_value() -> void:
 	var before: int = die.faces[3]
 	net.projection = _bump(3, 4)
 	_build()
-	assert_eq(_text(3), "%d→%d" % [before, before + 4], "die Zelle zeigt den Weg")
+	assert_eq(_text(3), str(before + 4), "die Zelle zeigt nur den neuen Wert")
 	assert_eq(_text(0), str(die.faces[0]), "eine unberührte Zelle bleibt eine Zahl")
 	assert_true(net.touches(3))
 	assert_false(net.touches(0))
@@ -288,7 +288,7 @@ func test_the_numbers_tick_instead_of_jumping() -> void:
 	_build()
 	assert_eq(_text(0), str(die.faces[0]), "der Takt beginnt beim alten Stand")
 	net.settle_ticks()
-	assert_eq(_text(0), "%d→%d" % [die.faces[0], die.faces[0] + 6],
+	assert_eq(_text(0), str(die.faces[0] + 6),
 		"und endet auf dem Ziel - Endzustand zuerst")
 
 ## Ohne Vorstand gibt es nichts zu ticken: der erste Aufbau steht sofort richtig.
@@ -296,7 +296,7 @@ func test_without_a_previous_reading_there_is_nothing_to_tick() -> void:
 	net.projection = _bump(1, 3)
 	net.tick_time = 1.0
 	_build()
-	assert_eq(_text(1), "%d→%d" % [die.faces[1], die.faces[1] + 3])
+	assert_eq(_text(1), str(die.faces[1] + 3))
 
 ## Ein Takt gilt genau EINEN Aufbau - sonst tickte die nächste Anzeige nach.
 func test_a_tick_lasts_exactly_one_build() -> void:
@@ -312,7 +312,7 @@ func test_a_reset_drops_the_standing_reading() -> void:
 	net.projection = _bump(2, 4)
 	net.tick_time = 1.0
 	_build()
-	assert_eq(_text(2), "%d→%d" % [die.faces[2], die.faces[2] + 4], "es springt")
+	assert_eq(_text(2), str(die.faces[2] + 4), "es springt")
 
 ## Die FALTUNG ist tot - seit der Welle U faltet sich gar nichts mehr: der BLOCK
 ## wird weggescannt, das Summen-Netz bleibt stehen und zeigt den gebuchten Würfel.

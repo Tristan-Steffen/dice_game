@@ -4,7 +4,7 @@ extends Control
 ##
 ## Als INSTANZ ist sie das SUMMEN-NETZ: das aufgeklappte Kreuz des Zielwürfels
 ## (DieNetView-Grammatik), aber gezeichnet aus dem GEISTER-Würfel, den die
-## Projektion ergäbe. Eine Zelle, deren Augenzahl steigt, liest "3→7" in Grün;
+## Projektion ergäbe. Eine Zelle, deren Augenzahl steigt, zeigt den neuen Wert in Grün;
 ## Material, Runen, Veredelung und Pointer-Kopien stehen schon im neuen Zustand, und eine
 ## VERPUFFTE Zelle grault aus und nennt beim Überfahren ihren Grund.
 ##
@@ -172,16 +172,10 @@ func _write_face(face: int) -> void:
 		return
 	write_cell(label, _before[face], _shown[face], cell)
 
-## Eine Vorschau-Zelle: "3→7", solange beide Zahlen dreistellig bleiben; ab vier
-## Stellen paßt das nicht mehr - dann steht nur der NEUE Wert (FaceValue), und den
-## Weg dorthin nennt der Info-Schirm.
-static func write_cell(label: Label, before: int, after: int, cell: float) -> void:
-	if after == before or FaceValue.is_big(before) or FaceValue.is_big(after):
-		DieNetView.write_value(label, after, cell)
-		return
-	DieNetView.write_value(label, after, cell)  # räumt ein altes Größen-Band fort
-	label.text = "%d→%d" % [before, after]
-	label.add_theme_font_size_override("font_size", fit_font_size(label, label.text, cell))
+## Eine Vorschau-Zelle zeigt nur den NEUEN Wert - die Farbe sagt, dass er sich ändert,
+## den alten nennt ORIGINAL daneben.
+static func write_cell(label: Label, _before: int, after: int, cell: float) -> void:
+	DieNetView.write_value(label, after, cell)
 
 ## Der GEISTER-Würfel: der Zielwürfel, wie die Serie ihn zurückließe. Er geht durch
 ## dieselben DieDefinition-Schreibwege wie die Buchung, damit Veredelung, Runen-

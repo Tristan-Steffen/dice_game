@@ -1,16 +1,16 @@
 class_name WorkshopView
 extends Panel
-## Die WERKSTATT unter dem Pool (Layout A, docs/plan_werkstatt_walze.md). Sie hat
-## KEINEN Schirm-Hintergrund - ihre Teile liegen auf dem Filz. Linksbündig mit dem Pool
-## liest Zeile 1 die liegende WALZE (sechs Scheiben, Scheibe 1 links), an ihrem Ende die
-## KAMMER (das eine Podest) und PRÄGEN; Zeile 2 das MAGAZIN, rechts davon der
-## INFO-SCHIRM über der GLEICHUNG. Die Kette rechnet drum_layout; scene_root meldet sie.
+## Die WERKSTATT unter dem Pool (Layout C, docs/plan_werkstatt_layout_c.md). Sie hat
+## KEINEN Schirm-Hintergrund - ihre Teile liegen auf dem Filz. Rechts am Pool steht die
+## GLEICHUNG in einer Zeile: UPGRADES + PODEST (Platte über der Kammer, darunter seine
+## Die-View = ORIGINAL) = ERGEBNIS, über UPGRADES die Raster-Taste, über ERGEBNIS PRÄGEN.
+## Unter dem Pool liest Zeile 1 die liegende WALZE (Scheibe 1 links), an ihrem Ende der
+## INFO-SCHIRM; Zeile 2 das MAGAZIN über die volle Breite. Die Kette rechnet drum_layout;
+## scene_root meldet sie.
 ##  - DIE WALZE ist ein Körper (DrumView); das Fenster MALT sie nicht, seine
 ##    unsichtbaren Scheiben-Knöpfe tragen Klick, Zug und Zeiger.
-##  - Die GLEICHUNG: ORIGINAL (der Zielwürfel, wie er IST) + UPGRADES (die Summe der
-##    Serie) = ERGEBNIS (der PressNetView: Vorschau bzw. Ergebnis mit den grünen Deltas,
-##    beim Verdichten die Karte, die herauskäme). Alle Netze teilen die Zelle des
-##    PRÄGENETZES (card_net_cell).
+##  - Die drei Netze der Gleichung sind gleich groß und teilen die Zelle der Die-View
+##    (podium_cell).
 ##
 ## Die Scheiben SIND die Rechnung: getippt geht eine Kassette auf die nächste freie
 ## Scheibe, gezogen sortiert sie um (Scheibe 1 wirkt zuerst), geklickt kommt sie
@@ -20,11 +20,10 @@ extends Panel
 ## Vorschau, apply_series als Prägen); die Vorschau ist buchstäblich dieselbe
 ## Rechnung wie die Buchung.
 
-## Ein Würfel wurde zum ANSEHEN gewählt, gewechselt oder abgewählt (null = keiner) -
-## scene_root fliegt ihn aus dem Pool aufs PODEST bzw. zurück.
+## Ein Würfel wurde gewählt, gewechselt oder abgewählt (null = keiner) - scene_root
+## fliegt ihn aus dem Pool aufs PODEST bzw. zurück.
 signal die_chosen(die: DieDefinition)
-## Das ZIEL der Serie hat gewechselt (null = keins): der gewählte Würfel zieht in die
-## KAMMER bzw. zurück aufs Podest.
+## Das ZIEL der Serie hat gewechselt (null = keins) - reine Logik, der Würfel bleibt stehen.
 signal target_changed(die: DieDefinition)
 ## Das PRÄGEN ist durch: gebucht hat GameRun schon beim Auslösen, hier ist die
 ## Zeremonie zu Ende und scene_root läßt den Zielwürfel aufblitzen. Der Anker
@@ -44,15 +43,19 @@ signal pack_unslotted(slot_index: int, uid: int)
 signal press_started
 ## DIE ÜBERTRAGUNG, im Takt gemeldet - GEFAHREN wird sie von scene_root, das Fenster
 ## nennt nur Plätze in Display-Pixeln und Zeiten (ui/ faßt nie Körper an).
+## Der VOR-TAKT: der Boden unter dem Podest senkt sich, der Würfel sinkt in die Kammer.
+signal chamber_opening(time: float)
+## Der NACH-TAKT: der Würfel steigt, der Boden schließt.
+signal chamber_closing(time: float)
 ## Die belegten Scheiben VERRIEGELN von links nach rechts; keine Karte bewegt sich.
 signal slices_locked(time: float)
 ## Der Strom hat Scheibe index durchlaufen: welche Zellen sie hergibt, der Stand
 ## danach, die Glyphe, mit der sie zuschlägt ("" = still); time ist der Takt bis
-## zur nächsten Scheibe (nach der letzten: bis in die Kammer).
+## zur nächsten Scheibe (nach der letzten: bis ans Ende der Walze).
 signal stream_passed(index: int, faces: Array, values: Array, glyph: String,
 	time: float)
-## Am Ende der Walze zerfällt das Licht-Netz in seine LICHTFUNKEN - sie schlagen
-## GLEICHZEITIG in den Würfel (bzw. den Rohling) in der KAMMER.
+## Am Ende der Walze geht der Strom in die Kabel der Kammer und schlägt in den Würfel
+## (beim Verdichten als Funke in den Rohling auf dem Podest).
 signal stream_struck(time: float)
 ## Ein ZUG rollt die Magazin-Spalte column: so weit (Display-px, schon in den Grenzen)
 ## steht sie gerade gegen ihren Roll-Stand versetzt.
@@ -71,9 +74,7 @@ const OPERATOR_TINT := PressNetView.OPERATOR_TINT
 const SUM_OWNER := "Summe der Serie"
 const ORIGINAL_OWNER := "Original"
 const RESULT_OWNER := "Ergebnis"
-const PODIUM_OWNER := "Podest"
-## Die Überschriften der Gleichung.
-const ORIGINAL_HEAD := "ORIGINAL"
+## Die Überschriften der Gleichung (ORIGINAL trägt keine - darüber steht die Platte).
 const UPGRADES_HEAD := "UPGRADES"
 const RESULT_HEAD := "ERGEBNIS"
 
@@ -90,14 +91,15 @@ const U_PER_FACE := 11.0
 
 ## Die Fuge zwischen zwei Teilen der Kette.
 const STREET_GAP := 1.8
-## Der VERSATZ des Podest-Ankers gegen den Platz, an dem der Würfel LIEST, in
-## Display-Pixeln: er schwebt CLAMP_HOVER über dem Glas und projiziert vom Bildmittelpunkt
-## weg, also rückt der Anker zur Mitte zurück. Gemessen als Mittel aus Weit- und Nahsicht.
-const BENCH_TILT_TRIM := 23.7
-const BENCH_TILT_TRIM_X := -46.0
-## Derselbe Versatz am PODEST (eigene Messung - es steht woanders im Bild).
-const PODIUM_TILT_TRIM := 47.8
-const PODIUM_TILT_TRIM_X := 0.0
+## So weit (Display-px) liest der schwebende Würfel ÜBER seinem Anker (der Grubenmitte),
+## gemessen an der Werkstatt-Weitsicht (Layout C, 2026-11-20: 12,3 | -54,3 px) - daran
+## mißt der obere Rand der Platte.
+const PODIUM_TILT_TRIM := 54.3
+## Die halbe Reichweite des schwebenden Würfels in Würfelflächen (er liest größer als
+## seine Fläche auf dem Glas).
+const PODIUM_HEAD_FACES := 1.0
+## Die KAMMER unter dem Podest: ein Quadrat von so vielen Würfelflächen.
+const CHAMBER_FACES := 3.3
 
 ## Seitenverhältnis der KASSETTE selbst (Höhe / Breite, 2 : 3) - daraus folgt der
 ## LIEGENDE Fußabdruck aus dem gemeldeten stehenden.
@@ -106,6 +108,11 @@ const CARD_ASPECT := PackDrawerView.CARD_ASPECT
 const SLICE_NUMBER_UNITS := 4.0
 const SLICE_NUMBER_GAP := 0.6
 const SLICE_NUMBER_FONT := 4.0
+## Die Leiterbahnen: Breite (u), Rand ihres Spur-Bands, Abdunklung, dunkler Grund.
+const TRACE_WIDTH := 0.6
+const TRACE_BAND_MARGIN := 0.15
+const TRACE_DARKEN := 0.25
+const TRACE_BED := Color(0.03, 0.03, 0.06, 0.9)
 
 ## Der EINE Handlungs-Sitz am RECHTEN Ende der Zeile, neben dem Podest: er trägt
 ## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
@@ -118,10 +125,13 @@ const ACTION_FONT_SHARE := 0.5
 const ACTION_TEXT_PAD := 1.0
 const ACTION_WIDEST := "Verdichten 6/6"
 
-## DIE ÜBERTRAGUNG - die Zeremonie des Prägens. Die Scheiben verriegeln, ein Strom
-## läuft von Scheibe 1 nach rechts bis in die Kammer und nimmt ihre Zellen auf, am
-## Ende der Walze zerfällt er in Funken, die in den Würfel in der KAMMER schlagen. Der
-## Würfel bleibt in der Kammer. Klick überspringt jederzeit.
+## DIE ÜBERTRAGUNG - die Zeremonie des Prägens. Der Boden unter dem Podest öffnet die
+## Kammer, die Scheiben verriegeln, ein Strom läuft von Scheibe 1 bis ans Ende der Walze
+## und geht in die Kabel der Kammer; danach steigt der Würfel, der Boden schließt.
+## Klick überspringt jederzeit.
+## VOR- und NACH-TAKT: die Fahrt des Bodens (beim Verdichten bleibt er zu).
+const CHAMBER_OPEN_TIME := 0.3
+const CHAMBER_CLOSE_TIME := 0.3
 ## Das geparkte ERGEBNIS-Netz ENTLEERT sich sofort auf die nackten Augenzahlen (die
 ## Vorschau tritt ab, die Rechnung beginnt bei 0) - parallel zum Verriegeln.
 const DRAIN_TIME := 0.3
@@ -167,15 +177,11 @@ var _net: PressNetView
 ## Sein PARKPLATZ im ERGEBNIS-Schirm: ein leerer Platz in Netzgröße, auf den es je
 ## Bild zurückgesetzt wird.
 var _net_host: Control
-## Der Platz in der KAMMER, über dem das Ziel der Serie schwebt.
-var _target_stage_host: Control
 ## Der Platz auf dem PODEST, seine Die-View und das Netz darin.
 var _podium_stage_host: Control
 var _podium_view_host: Control
 var _podium_net: PressNetView
 ## ORIGINAL: der Platz und das Netz darin (PressNetView ohne Vorschau oder leeres Kreuz).
-var _before_host: Control
-var _before_net: PressNetView
 ## Haben die Funken schon eingeschlagen? Ab da zeigt ORIGINAL den gebuchten Stand.
 var _burn_struck := false
 ## Die SCHEIBEN-Knöpfe: je Scheibe einer, der Klick, Zug und Zeiger fängt - die
@@ -243,11 +249,11 @@ var die_face_px := 0.0:
 ## DIE SERIE: die uids der gesteckten Karten in STECKREIHENFOLGE - sie SIND die
 ## Rechnung. uids, nicht Indizes: das Magazin darf darunter umsortiert werden.
 var _series: Array[int] = []
-## Platz des GEWÄHLTEN Würfels im Pool (Podest oder Kammer) - Ziel der Serie ist er
+## Platz des GEWÄHLTEN Würfels im Pool (er steht auf dem Podest) - Ziel der Serie ist er
 ## erst, sobald eine Karte steckt (target_die).
 var _chosen_index := -1
-## Der ROHLING in der Kammer (0 = keiner) - das Ziel des VERDICHTENS. Er und der
-## Würfel schließen einander als Ziel aus: liegt er dort, bleibt der Würfel oben.
+## Der ROHLING auf dem Podest (0 = keiner) - das Ziel des VERDICHTENS. Er und der
+## Würfel schließen einander als Ziel aus: liegt er dort, wartet der Würfel im Pool.
 var _target_pack := 0
 ## Das zuletzt gemeldete Ziel - nur der WECHSEL meldet target_changed.
 var _announced_target: DieDefinition
@@ -349,13 +355,10 @@ func _refresh_content() -> void:
 	if not is_inside_tree():
 		return
 	_slot_buttons.clear()
-	_target_stage_host = null
 	_podium_stage_host = null
 	_podium_view_host = null  # die Die-View des Podests hing am Inhalt
 	_podium_net = null
 	_net_host = null
-	_before_host = null  # ORIGINAL hing am Inhalt
-	_before_net = null
 	# Ein Neuaufbau mitten im Zug läßt ihn einrasten, statt ihn hängen zu lassen.
 	if shelf_dragging():
 		_on_scroll_released.call_deferred(_drag_column, _last_drag_px)
@@ -418,7 +421,7 @@ func _free_own(node: Node) -> void:
 		node.queue_free()
 
 # --- DIE WERKSTATT UNTER DEM POOL (Layout A, docs/plan_werkstatt_walze.md): Zeile 1 die
-# --- liegende WALZE samt KAMMER und Prägen, Zeile 2 das MAGAZIN und rechts davon der
+# --- liegende WALZE samt Prägen, Zeile 2 das MAGAZIN und rechts davon der
 # --- INFO-SCHIRM über der GLEICHUNG. ------------------------------------------------
 
 ## Die Kette in FENSTER-Koordinaten: die gemeldete Display-Kette (drum_frame) gegen
@@ -471,11 +474,11 @@ func drum_pitch() -> float:
 		return lie_span_px().x
 	return (slices[1] as Rect2).position.x - (slices[0] as Rect2).position.x
 
-## ORIGINAL in der Gleichung: der Zielwürfel, wie er IST.
+## ORIGINAL in der Gleichung: die Die-View des Podests.
 func original_net_rect() -> Rect2:
-	return drum()["original"]
+	return drum()["podium_net"]
 
-## UPGRADES: die Summe der Serie.
+## UPGRADES: die Summe der Serie, links neben dem Podest.
 func upgrades_net_rect() -> Rect2:
 	return drum()["upgrades"]
 
@@ -483,7 +486,7 @@ func upgrades_net_rect() -> Rect2:
 func result_net_rect() -> Rect2:
 	return drum()["result"]
 
-## Der INFO-SCHIRM über der Gleichung, in Display-Pixeln.
+## Der INFO-SCHIRM am Ende der Walze, in Display-Pixeln.
 func info_rect_px() -> Rect2:
 	return _global(drum()["info"])
 
@@ -494,30 +497,21 @@ func stage_px() -> float:
 		return die_face_px * STAGE_FACES
 	return unit() * STAGE_HEIGHT
 
-## Der ANKER des Podests: die Mitte der KAMMER, um den Neigungs-Versatz verschoben -
-## dort steht der Puck, und der schwebende Würfel liest über der Kammermitte.
-func target_podium_rect() -> Rect2:
-	var stage := Vector2.ONE * stage_px()
-	var at := chamber_rect().get_center() + Vector2(BENCH_TILT_TRIM_X, BENCH_TILT_TRIM)
-	return Rect2(at - stage * 0.5, stage)
-
-## Der ANKER des PODESTS: die Mitte seiner Platte, um seinen eigenen Neigungs-Versatz
-## verschoben - dort steht der Puck, und der Würfel liest über der Plattenmitte.
+## Der ANKER des PODESTS: die Mitte der KAMMER unter der Platte - dort steht der Puck.
 func podium_stage_rect() -> Rect2:
 	var stage := Vector2.ONE * stage_px()
-	var at: Vector2 = (drum()["podium_stage"] as Rect2).get_center() \
-		+ Vector2(PODIUM_TILT_TRIM_X, PODIUM_TILT_TRIM)
+	var at := chamber_rect().get_center()
 	return Rect2(at - stage * 0.5, stage)
 
 ## Der ganze PODEST-Platz (Platte samt Die-View) in Display-Pixeln.
 func podium_rect_px() -> Rect2:
 	return _global(drum()["podium"])
 
-## Die PLATTE des Podests in Display-Pixeln (ohne Neigungs-Versatz).
+## Die PLATTE des Podests in Display-Pixeln: sie umschließt die Kammer ganz.
 func podium_plate_px() -> Rect2:
 	return _global(drum()["podium_stage"])
 
-## Die DIE-VIEW unter dem Podest (Fenster-Koordinaten).
+## Die DIE-VIEW unter dem Podest (Fenster-Koordinaten) - zugleich ORIGINAL.
 func podium_net_rect() -> Rect2:
 	return drum()["podium_net"]
 
@@ -527,8 +521,8 @@ func podium_stage_center() -> Vector2:
 		return Vector2(-1, -1)
 	return _podium_stage_host.get_global_rect().get_center()
 
-## Die KAMMER am rechten Ende der Walze (Fenster-Koordinaten): flache Grube, über der
-## das ZIEL der Serie schwebt bzw. in der der Rohling liegt.
+## Die KAMMER unter der Podest-Platte (Fenster-Koordinaten): in Ruhe geschlossen, beim
+## Prägen sinkt der Würfel hinein.
 func chamber_rect() -> Rect2:
 	return drum()["chamber"]
 
@@ -536,35 +530,136 @@ func chamber_rect() -> Rect2:
 func chamber_rect_px() -> Rect2:
 	return _global(chamber_rect())
 
-## Kammer samt Präge-Sitz in Display-Pixeln.
-func chamber_area_px() -> Rect2:
-	return _global(chamber_rect().merge(stamp_seat_rect()))
+## Der Präge-Sitz in Display-Pixeln.
+func stamp_seat_px() -> Rect2:
+	return _global(stamp_seat_rect())
 
-## Die GLEICHUNG samt Überschriften und INFO-SCHIRM in Display-Pixeln.
+## Die GLEICHUNGS-ZEILE rechts am Pool in Display-Pixeln: Raster-Feld, UPGRADES, Podest,
+## ERGEBNIS und Präge-Sitz.
 func equation_area_px() -> Rect2:
-	var layout := drum()
-	return _global((layout["info"] as Rect2).merge(layout["equation"]))
+	return _global(drum()["equation"])
 
-## Was die Werkstatt in Display-Pixeln bedient: die Walze samt Nummern, Kammer und
-## Präge-Sitz, das Magazin und die Gleichung samt Info-Schirm - der Filz dazwischen nicht.
+## Das freie Feld über UPGRADES, in dem die RASTER-Taste mittig steht (Display-Pixel).
+func raster_area_px() -> Rect2:
+	return _global(drum()["raster"])
+
+## Was die Werkstatt in Display-Pixeln bedient: die Walze samt Nummern, der Info-Schirm,
+## das Magazin, die Netze der Gleichung samt Überschriften, das Podest und der
+## Präge-Sitz - der Filz dazwischen nicht, und die Raster-Taste ist ein eigener Körper.
 func hit_rects() -> Array[Rect2]:
 	var layout := drum()
 	var pit: Rect2 = layout["pit"]
 	var drum_row := pit.grow_individual(0.0, unit() * (SLICE_NUMBER_UNITS + SLICE_NUMBER_GAP),
 		0.0, 0.0)
-	return [_global(drum_row), chamber_area_px(), shelf_rect_global(), equation_area_px(),
-		podium_rect_px()] as Array[Rect2]
+	var nets := (layout["upgrades"] as Rect2).merge(layout["result"]) \
+		.grow_individual(0.0, unit() * EQ_HEAD_UNITS, 0.0, 0.0)
+	return [_global(drum_row), info_rect_px(), shelf_rect_global(), _global(nets),
+		podium_rect_px(), stamp_seat_px()] as Array[Rect2]
 
-## Der PRÄGE-SITZ rechts neben der Kammer.
+## Der PRÄGE-SITZ über ERGEBNIS, rechts neben der Platte.
 func stamp_seat_rect() -> Rect2:
 	return drum()["stamp"]
 
+## Steht gerade eine PAKET-ÖFFNUNG? Dann sind "=", ERGEBNIS und PRÄGEN fort (scene_root
+## meldet es; die Öffnungs-Fläche liegt dort).
+var opening_shown := false:
+	set(value):
+		if opening_shown == value:
+			return
+		opening_shown = value
+		_sync_result_side()
+
+## "=", ERGEBNIS samt Überschrift und PRÄGEN stehen nur, solange keine Öffnung ihren Platz
+## braucht - ausgeblendet nehmen sie auch keinen Klick.
+func _sync_result_side() -> void:
+	if _content == null or not is_instance_valid(_content):
+		return
+	for node_name in ["EqualsSign", "ResultScreen", "ResultScreenHead", "ActionSeat"]:
+		var node := _content.get_node_or_null(node_name) as CanvasItem
+		if node != null:
+			node.visible = not opening_shown
+	if _net != null and is_instance_valid(_net):
+		_net.visible = not opening_shown
+
 func _build_street(u: float) -> void:
-	_target_stage_host = _podium_host("TargetStage", target_podium_rect())
+	_build_traces(u)  # zuerst: die Bahnen liegen unter allem
 	_build_podium(u)
 	_build_equation(u)
 	_build_slices(u)
 	_build_action_seat(u)
+	_sync_result_side()
+
+## DIE LEITERBAHNEN: von jeder belegten Scheibe eine matte Bahn in der Farbe ihrer Karte
+## zum UPGRADES-Netz - gemalt auf den Filz zwischen Walze und Gleichung.
+func _build_traces(u: float) -> void:
+	var layout := drum()
+	var paths := trace_paths(layout["slices"], layout["upgrades"], layout["trace_band"])
+	var cards := _slot_cards()
+	var layer := TraceLayer.new()
+	layer.name = "Traces"
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.width = maxf(u * TRACE_WIDTH, 1.5)
+	for i in mini(cards.size(), paths.size()):
+		var card: Dictionary = cards[i]
+		layer.paths.append(paths[i])
+		layer.tints.append(PackDrawerView.tint_of(String(card.get("sort", "")),
+			String(card.get("catalyst", "")), card.get("net", []), bool(card.get("blank", false))))
+	_content.add_child(layer)
+
+## Je Scheibe ein Linienzug: senkrecht aus der Nummern-Zeile, mit 45°-Knick auf ihre Spur,
+## quer zum Netz, mit 45°-Knick hinauf in seine Unterkante. Wer weiter weg startet, fährt
+## die höhere Spur - so kreuzt keine Bahn eine andere.
+static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2) -> Array[PackedVector2Array]:
+	var paths: Array[PackedVector2Array] = []
+	var count := slices.size()
+	if count == 0 or band.size.y <= 0.0:
+		return paths
+	var starts: Array[float] = []
+	var ends: Array[float] = []
+	for i in count:
+		starts.append((slices[i] as Rect2).get_center().x)
+		var share := 0.5 if count == 1 else float(i) / float(count - 1)
+		ends.append(upgrades.position.x + upgrades.size.x * (0.2 + 0.6 * share))
+	var margin := band.size.y * TRACE_BAND_MARGIN
+	var pitch := (band.size.y - margin * 2.0) / float(maxi(count - 1, 1))
+	var right_rank := 0
+	var ranks: Array[int] = []
+	ranks.resize(count)
+	for i in count:
+		if starts[i] <= ends[i]:
+			ranks[i] = right_rank
+			right_rank += 1
+	var left_rank := 0
+	for i in range(count - 1, -1, -1):
+		if starts[i] > ends[i]:
+			ranks[i] = left_rank
+			left_rank += 1
+	for i in count:
+		var lane := band.position.y + margin + pitch * float(ranks[i])
+		var way := signf(ends[i] - starts[i])
+		var bend := minf(pitch, absf(ends[i] - starts[i]) * 0.5)
+		paths.append(PackedVector2Array([
+			Vector2(starts[i], band.end.y), Vector2(starts[i], lane + bend),
+			Vector2(starts[i] + way * bend, lane), Vector2(ends[i] - way * bend, lane),
+			Vector2(ends[i], lane - bend), Vector2(ends[i], upgrades.end.y)]))
+	return paths
+
+## Die gemalten Bahnen: dunkler Grund, matte Farbe, an beiden Enden ein Lötauge.
+class TraceLayer extends Control:
+	var paths: Array[PackedVector2Array] = []
+	var tints: Array[Color] = []
+	var width := 2.0
+
+	func _draw() -> void:
+		for i in paths.size():
+			var tint := tints[i].darkened(TRACE_DARKEN)
+			tint.a = 1.0
+			draw_polyline(paths[i], TRACE_BED, width * 2.4, true)
+			draw_polyline(paths[i], tint, width, true)
+			for point: Vector2 in [paths[i][0], paths[i][paths[i].size() - 1]]:
+				draw_circle(point, width * 2.2, TRACE_BED)
+				draw_circle(point, width * 1.7, tint)
+				draw_circle(point, width * 0.7, TRACE_BED)
 
 ## Der leere Platz eines Podests: das Fenster MELDET ihn, gestellt wird der Körper
 ## von scene_root.
@@ -613,9 +708,9 @@ func _net_heading(screen_name: String, rect: Rect2, heading: String) -> void:
 	head.add_theme_color_override("font_color", MUTED_COLOR)
 	_content.add_child(head)
 
-## DAS PODEST rechts der Schale: oben die Platte (der Puck gehört scene_root), unten
-## seine DIE-VIEW - der Würfel, der dort steht, schlicht; ohne ihn das leere Kreuz.
-func _build_podium(u: float) -> void:
+## DAS PODEST: oben die Platte über der Kammer (der Puck gehört scene_root), unten seine
+## DIE-VIEW = ORIGINAL - der Würfel, der dort steht, schlicht; ohne ihn das leere Kreuz.
+func _build_podium(_u: float) -> void:
 	var layout := drum()
 	var plate_rect: Rect2 = layout["podium_stage"]
 	var plate := Panel.new()
@@ -629,6 +724,8 @@ func _build_podium(u: float) -> void:
 	_podium_view_host = _net_screen("PodiumScreen", layout["podium_net"], podium_cell(), "")
 	_fill_podium()
 
+## ORIGINAL: während der Zeremonie der Stand davor - erst der Einschlag deckt den gebuchten
+## auf -, sonst der Würfel auf dem Podest.
 func _fill_podium() -> void:
 	if _podium_view_host == null or not is_instance_valid(_podium_view_host):
 		return
@@ -637,7 +734,7 @@ func _fill_podium() -> void:
 		child.queue_free()
 	_podium_net = null
 	var cell := podium_cell()
-	var die := podium_die()
+	var die := before_die() if before_die() != null else seated_die()
 	if die == null:
 		_podium_view_host.add_child(_empty_net_cross(cell))
 		return
@@ -647,8 +744,13 @@ func _fill_podium() -> void:
 	_podium_net.build()
 	_podium_view_host.add_child(_podium_net)
 
-## Die Zelle der Podest-Die-View: die Fläche eines echten Würfels.
+## Die Zelle der Die-View: die Fläche eines echten Würfels - aus der gemeldeten Kette
+## gelesen, denn reicht die Pool-Höhe nicht, schrumpft sie dort.
 func podium_cell() -> float:
+	var net: Rect2 = drum()["podium_net"]
+	var cell := (net.size.y - unit() * PODIUM_NET_PAD * 2.0) / DieNetView.net_size(1.0).y
+	if cell > 0.0:
+		return cell
 	return (die_face_px if die_face_px > 0.0 else unit() * U_PER_FACE) * PODIUM_FACE_GAIN
 
 ## Ein gemaltes Zeichen der Gleichung ("+" bzw. "=") mittig in seinem Feld.
@@ -665,12 +767,10 @@ func _equation_sign(sign_name: String, rect: Rect2, glyph: String) -> void:
 	sign.add_theme_color_override("font_color", TEXT_COLOR)
 	_content.add_child(sign)
 
-## DIE GLEICHUNG: ORIGINAL + UPGRADES = ERGEBNIS.
+## DIE GLEICHUNG: UPGRADES + ORIGINAL (die Die-View des Podests) = ERGEBNIS.
 func _build_equation(u: float) -> void:
 	var cell := net_cell(u)
 	var layout := drum()
-	_before_host = _net_screen("OriginalScreen", layout["original"], cell, ORIGINAL_HEAD)
-	_fill_before()
 	_sum_host = _net_screen("UpgradesScreen", layout["upgrades"], cell, UPGRADES_HEAD)
 	var signs: Array = layout["signs"]
 	_equation_sign("PlusSign", signs[0], "+")
@@ -696,24 +796,6 @@ func before_die() -> DieDefinition:
 		return chosen_die()  # neben dem stehenden Ergebnis der gebuchte Stand
 	return target_die()
 
-func _fill_before() -> void:
-	if _before_host == null or not is_instance_valid(_before_host):
-		return
-	for child in _before_host.get_children():
-		_before_host.remove_child(child)
-		child.queue_free()
-	_before_net = null
-	var cell := net_cell(unit())
-	var die := before_die()
-	if die == null:
-		_before_host.add_child(_empty_net_cross(cell))
-		return
-	_before_net = PressNetView.new()
-	_before_net.cell = cell
-	_before_net.def = die
-	_before_net.build()
-	_before_host.add_child(_before_net)
-
 ## Das LEERE Kreuz: sechs dunkle Zellen an den Netz-Plätzen, sonst nichts.
 func _empty_net_cross(cell: float) -> Control:
 	var cross := Control.new()
@@ -734,10 +816,10 @@ func _empty_net_cross(cell: float) -> Control:
 		cross.add_child(chip)
 	return cross
 
-## Das EINE Zellmaß der Netze (Welle 29): die Zelle des PRÄGENETZES auf der Karte -
-## die drei Netze der Gleichung und das Licht-Netz lesen damit wie die Karte selbst.
+## Das EINE Zellmaß der Gleichung: die drei Netze sind gleich groß, also teilen UPGRADES
+## und ERGEBNIS die Zelle der Die-View.
 func net_cell(_u: float) -> float:
-	return card_net_cell(shelf_cell_px())
+	return podium_cell()
 
 ## Die Netz-Zelle einer Karte in Display-Pixeln, aus der gemeldeten STEHENDEN Zelle:
 ## das Netz füllt die Öffnung quer, und quer liegen drei Zellen samt zwei Fugen.
@@ -759,15 +841,15 @@ const DRUM_SLICES := 6
 const DRUM_AIR := 0.06
 ## Luft QUER zur Achse: sie ist die Wand neben der Karte, also die Tiefe der Mulde.
 const DRUM_SIDE_AIR := 0.12
-## Fuge zwischen den Zeilen und zwischen Magazin und Gleichung, in u.
+## Fuge zwischen Pool und Gleichung und zwischen Walze und Magazin, in u.
 const DRUM_SHELF_GAP := 4.0
-## Der Platz des PODESTS rechts am Pool (Platte samt Die-View), in u - die Breite ist
-## nur der Boden, sie folgt der Die-View.
-const PODIUM_PLACE_UNITS := Vector2(40.0, 76.0)
+## Rand der PLATTE um die Kammer, in u je Seite (oben kommt der Kopf des Würfels dazu).
+const PODIUM_RIM := 2.0
 ## Rand der Podest-Die-View um ihr Netz, in u je Seite.
 const PODIUM_NET_PAD := 2.0
 ## Ein schwebender Würfel steht näher an der Kamera und liest größer als sein Maß auf
 ## dem Glas - gemessen an der Werkstatt-Station (Pool-Teilung 60 gegen 51 Bildschirm-px).
+## Reicht die Pool-Höhe nicht, schrumpft dieser Faktor, nie die Kammer.
 const PODIUM_FACE_GAIN := 1.17
 ## Die Gleichung: Breite der Zeichen-Felder, Überschrift, Grade (u).
 const EQ_SIGN_UNITS := 7.0
@@ -783,26 +865,49 @@ static func drum_side_px(card: Vector2) -> float:
 static func slice_length_px(card: Vector2) -> float:
 	return card.x * (1.0 + DRUM_AIR)
 
-## Der PODEST-Platz direkt rechts neben dem Pool, oben bündig mit ihm; die Schale steht
-## rechts von ihm.
-static func podium_place_for(pool: Rect2, u: float, card := Vector2.ZERO,
-		die_face := 0.0) -> Rect2:
-	return Rect2(Vector2(pool.end.x + u * DRUM_SHELF_GAP, pool.position.y),
-		Vector2(maxf(PODIUM_PLACE_UNITS.x * u, podium_net_size(card, die_face, u).x),
-			PODIUM_PLACE_UNITS.y * u))
+## Die Kante der KAMMER unter dem Podest: ein Weltmaß, kopflos der u-Rückfall.
+static func chamber_side_px(die_face: float, u: float) -> float:
+	return (die_face if die_face > 0.0 else u * U_PER_FACE) * CHAMBER_FACES
+
+## Wie weit der Anker (die Grubenmitte) unter der Oberkante der Platte liegt: oben so viel
+## Rand, daß der schwebende Würfel ganz auf der Platte liest.
+static func podium_anchor_drop(die_face: float, u: float) -> float:
+	var face := die_face if die_face > 0.0 else u * U_PER_FACE
+	var half := chamber_side_px(die_face, u) * 0.5
+	return maxf(half, PODIUM_TILT_TRIM + face * PODIUM_HEAD_FACES) + u * PODIUM_RIM
+
+## Die PLATTE: die Kammer samt Rand, oben der Kopf des Würfels dazu.
+static func podium_plate_size(die_face: float, u: float) -> Vector2:
+	var side := chamber_side_px(die_face, u)
+	return Vector2(side + u * PODIUM_RIM * 2.0,
+		podium_anchor_drop(die_face, u) + side * 0.5 + u * PODIUM_RIM)
+
+## Der Zell-Faktor der Die-View: PODIUM_FACE_GAIN, außer der Podest-Platz würde höher als
+## die Pool-Reihe - dann schrumpft er.
+static func podium_gain(pool_high: float, die_face: float, u: float) -> float:
+	if pool_high <= 0.0 or die_face <= 0.0:
+		return PODIUM_FACE_GAIN
+	var room := pool_high - podium_plate_size(die_face, u).y - u * STREET_GAP \
+		- u * PODIUM_NET_PAD * 2.0
+	var fits := room / DieNetView.net_size(1.0).y / die_face
+	return clampf(fits, 0.1, PODIUM_FACE_GAIN)
 
 ## Die Die-View des Podests: ihre Zellen sind so groß wie die Flächen der echten Würfel.
-static func podium_net_size(card: Vector2, die_face: float, u: float) -> Vector2:
+static func podium_net_size(card: Vector2, die_face: float, u: float,
+		gain := PODIUM_FACE_GAIN) -> Vector2:
 	if die_face <= 0.0:
 		return card
-	return DieNetView.net_size(die_face * PODIUM_FACE_GAIN) 		+ Vector2.ONE * u * PODIUM_NET_PAD * 2.0
+	return DieNetView.net_size(die_face * gain) + Vector2.ONE * u * PODIUM_NET_PAD * 2.0
 
-## Die ganze Kette in Display-px aus Pool-Reihe, Schale, liegender Karte, Würfelfläche
-## und u. Unter dem Pool (eine Naht pool_seam darunter, linksbündig mit ihm): die Nummern,
-## der Graben mit den sechs Scheiben, rechts die Kammer und der Präge-Sitz; eine Fuge
-## tiefer das Magazin und rechts davon der Info-Schirm über der Gleichung.
+## Die ganze Kette in Display-px aus Pool-Reihe, liegender Karte, Würfelfläche und u.
+## Rechts am Pool (oben bündig, eine Fuge daneben) die GLEICHUNG: UPGRADES + PODEST =
+## ERGEBNIS, die Netze gleich groß und unten bündig, darüber das Raster-Feld bzw. PRÄGEN.
+## Unter dem Pool (eine Naht pool_seam darunter, linksbündig): die Nummern, der Graben mit
+## den sechs Scheiben, eine Naht rechts daneben der Info-Schirm in Grabenhöhe; eine Fuge
+## tiefer das Magazin über die volle Breite, rechts bündig mit dem Info-Schirm.
+## bounds ist das Fenster: Walze, Info-Schirm und Magazin - die Gleichung liegt außerhalb.
 static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
-		u: float, info_h := 0.0, pool_seam := -1.0) -> Dictionary:
+		u: float, _info_h := 0.0, pool_seam := -1.0) -> Dictionary:
 	var seam := u * STREET_GAP
 	var gap := u * DRUM_SHELF_GAP
 	var below := pool_seam if pool_seam >= 0.0 else seam
@@ -816,13 +921,6 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 	for i in DRUM_SLICES:
 		slices.append(Rect2(Vector2(pit.position.x + seam * 0.5 + pitch * float(i),
 			pit.position.y), Vector2(slice_length_px(card), high)))
-	var stage := die_face * STAGE_FACES
-	# So groß, dass auch der liegende ROHLING mit Luft hineinpaßt.
-	var chamber := Rect2(Vector2(pit.end.x + seam, pit.position.y),
-		Vector2(maxf(stage, slice_length_px(card)), high))
-	var action := Vector2(u * ACTION_WIDTH, maxf(stage * ACTION_SPAN_SHARE, u * ACTION_HEIGHT))
-	var stamp := Rect2(Vector2(chamber.end.x + seam, chamber.get_center().y - action.y * 0.5),
-		action)
 	var rim := PackDrawerView.rim_inset(u)
 	var field := PackDrawerView.field_for(card)
 	var shelf_pos := Vector2(pool.position.x, pit.end.y + gap)
@@ -831,37 +929,58 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 	var columns: Array[Rect2] = []
 	for lane in PackDrawerView.column_rects(field):
 		columns.append(Rect2(shelf_pos + Vector2.ONE * rim + lane.position, lane.size))
-	# Die GLEICHUNG steht unten bündig mit dem Magazin, der Info-Schirm darüber.
-	var sign_w := u * EQ_SIGN_UNITS
-	var head_h := u * EQ_HEAD_UNITS
-	var eq_left := shelf.end.x + gap
-	var eq_width := card.x * 3.0 + sign_w * 2.0
-	var heads_top := maxf(shelf.end.y - card.y - head_h, shelf.position.y + info_h + seam)
-	var screens_top := heads_top + head_h
-	var original := Rect2(Vector2(eq_left, screens_top), card)
-	var plus := Rect2(Vector2(original.end.x, screens_top), Vector2(sign_w, card.y))
-	var upgrades := Rect2(Vector2(plus.end.x, screens_top), card)
-	var equals := Rect2(Vector2(upgrades.end.x, screens_top), Vector2(sign_w, card.y))
-	var result := Rect2(Vector2(equals.end.x, screens_top), card)
-	var equation := Rect2(Vector2(eq_left, heads_top), Vector2(eq_width, head_h + card.y))
-	var info := Rect2(Vector2(eq_left, shelf.position.y), Vector2(eq_width,
-		info_h if info_h > 0.0 else maxf(heads_top - seam - shelf.position.y, 1.0)))
+	var info_left := pit.end.x + seam
+	var info := Rect2(Vector2(info_left, pit.position.y),
+		Vector2(maxf(shelf.end.x - info_left, 1.0), pit.size.y))
 	var top := Rect2(Vector2(pit.position.x, pit.position.y - numbers), Vector2(pit.size.x,
 		numbers))
-	var bounds := top.merge(pit).merge(chamber).merge(stamp).merge(shelf).merge(info) \
-		.merge(equation)
-	# Das PODEST: oben die Platte, auf der der Würfel schwebt, unten seine Die-View.
-	var podium := podium_place_for(pool, u, card, die_face)
-	var net_span := podium_net_size(card, die_face, u)
+	var bounds := top.merge(pit).merge(shelf).merge(info)
+	# DIE GLEICHUNG rechts am Pool: das Podest in der Mitte, seine Die-View ist ORIGINAL.
+	var plate_size := podium_plate_size(die_face, u)
+	var gain := podium_gain(pool.size.y, die_face, u)
+	var net_span := podium_net_size(card, die_face, u, gain)
+	# Die Platte ist so breit wie die Die-View darunter (Spieler-Wunsch 2026-11-20).
+	plate_size.x = maxf(plate_size.x, net_span.x)
+	var sign_w := u * EQ_SIGN_UNITS
+	var head_h := u * EQ_HEAD_UNITS
+	var upgrades_x := pool.end.x + gap
+	var podium := Rect2(Vector2(upgrades_x + net_span.x + sign_w, pool.position.y),
+		Vector2(maxf(net_span.x, plate_size.x), plate_size.y + seam + net_span.y))
+	var podium_stage := Rect2(Vector2(podium.get_center().x - plate_size.x * 0.5,
+		pool.position.y), plate_size)
+	# Die KAMMER liegt ganz in der Platte; ihre Mitte ist der Anker des Würfels.
+	var side := chamber_side_px(die_face, u)
+	var anchor := podium_stage.position + Vector2(plate_size.x * 0.5,
+		podium_anchor_drop(die_face, u))
+	var chamber := Rect2(anchor - Vector2.ONE * side * 0.5, Vector2.ONE * side)
 	var podium_net := Rect2(Vector2(podium.get_center().x - net_span.x * 0.5,
-		podium.end.y - net_span.y), net_span)
-	var podium_stage := Rect2(podium.position,
-		Vector2(podium.size.x, maxf(podium_net.position.y - seam - podium.position.y, 1.0)))
+		podium_stage.end.y + seam), net_span)
+	var row_y := podium_net.position.y
+	var upgrades := Rect2(Vector2(upgrades_x, row_y), net_span)
+	var plus := Rect2(Vector2(upgrades.end.x, row_y), Vector2(sign_w, net_span.y))
+	var equals := Rect2(Vector2(podium.end.x, row_y), Vector2(sign_w, net_span.y))
+	var result := Rect2(Vector2(equals.end.x, row_y), net_span)
+	# Raster-Taste und PRÄGEN stehen auf halber Plattenhöhe über ihren Netzen, im Filz
+	# zwischen Pool-Oberkante und Überschrift.
+	var mid_y := podium_stage.get_center().y
+	var reach := maxf(minf(mid_y - pool.position.y, row_y - head_h - mid_y), 1.0)
+	var raster := Rect2(Vector2(upgrades.position.x, mid_y - reach), Vector2(net_span.x,
+		reach * 2.0))
+	var stamp_area := Rect2(Vector2(result.position.x, mid_y - reach), raster.size)
+	var stage := die_face * STAGE_FACES
+	var action := Vector2(u * ACTION_WIDTH, maxf(stage * ACTION_SPAN_SHARE, u * ACTION_HEIGHT))
+	var stamp := Rect2(stamp_area.get_center() - action * 0.5, action)
+	# Das Spur-Band der Leiterbahnen: der Filz zwischen Pool bzw. Netzen und den Nummern.
+	var band_top := maxf(pool.end.y, upgrades.end.y)
+	var trace_band := Rect2(Vector2(pit.position.x, band_top),
+		Vector2(pit.size.x, maxf(top.position.y - band_top, 0.0)))
+	var equation := Rect2(Vector2(upgrades.position.x, pool.position.y),
+		Vector2(result.end.x - upgrades.position.x, podium.size.y))
 	return {"pit": pit, "slices": slices, "chamber": chamber, "stamp": stamp,
-		"shelf": shelf, "columns": columns, "info": info, "original": original,
+		"shelf": shelf, "columns": columns, "info": info, "original": podium_net,
 		"upgrades": upgrades, "result": result, "signs": [plus, equals] as Array[Rect2],
-		"equation": equation, "podium": podium, "podium_stage": podium_stage,
-		"podium_net": podium_net, "bounds": bounds}
+		"equation": equation, "raster": raster, "podium": podium, "trace_band": trace_band,
+		"podium_stage": podium_stage, "podium_net": podium_net, "bounds": bounds}
 
 # --- Die Würfel des Vorrats und die Zielwahl ---------------------------------------
 
@@ -871,7 +990,7 @@ func pool_defs() -> Array[DieDefinition]:
 		return [] as Array[DieDefinition]
 	return run.owned_pool
 
-## Der GEWÄHLTE Würfel (null = keiner): er steht auf dem Podest oder in der Kammer.
+## Der GEWÄHLTE Würfel (null = keiner).
 func chosen_die() -> DieDefinition:
 	var defs := pool_defs()
 	if _chosen_index < 0 or _chosen_index >= defs.size():
@@ -882,7 +1001,7 @@ func chosen_index() -> int:
 	return _chosen_index
 
 ## Das ZIEL der Serie (null = keins): der gewählte Würfel, sobald eine Karte steckt
-## (oder die Übertragung läuft) und kein Rohling in der Kammer liegt. Ansehen ist
+## (oder die Übertragung läuft) und kein Rohling auf dem Podest liegt. Ansehen ist
 ## nicht Aufwerten.
 func target_die() -> DieDefinition:
 	if compressing() or target_pack() != null:
@@ -891,13 +1010,18 @@ func target_die() -> DieDefinition:
 		return null
 	return chosen_die()
 
-## Der Würfel, der auf dem PODEST steht (null = keiner): gewählt, aber kein Ziel.
+## Der gewählte Würfel, der nur ANGESEHEN wird (null = keiner): gewählt, aber kein Ziel.
 func podium_die() -> DieDefinition:
 	return chosen_die() if target_die() == null else null
 
+## Der Würfel, dessen KÖRPER auf dem Podest steht (null = keiner): der gewählte, Ziel oder
+## nicht - es sei denn, der ROHLING liegt dort, dann wartet er in seinem Pool-Sitz.
+func seated_die() -> DieDefinition:
+	return null if compressing() else chosen_die()
+
 ## Die WAHL per Pool-Klick: scene_root meldet den angetippten physischen Würfel.
 ## Derselbe wählt ab, ein anderer wechselt. null oder ein Würfel, den der Pool nicht
-## kennt, wählt ab. Ein Rohling in der Kammer bleibt liegen.
+## kennt, wählt ab. Ein Rohling auf dem Podest bleibt liegen.
 func choose_die(die: DieDefinition) -> void:
 	if editing_locked or burning():
 		return
@@ -916,7 +1040,7 @@ func target_pack() -> Pack:
 	var pack := run.pack_by_uid(_target_pack)
 	return pack if pack != null and pack.is_blank_card() else null
 
-## VERDICHTET die Kammer gerade, statt zu prägen? Die Art des Ziels entscheidet - und
+## VERDICHTET die Werkstatt gerade, statt zu prägen? Die Art des Ziels entscheidet - und
 ## während der Zeremonie die Art, mit der sie aufbrach (der Rohling ist dann längst
 ## gefüllt und wäre keiner mehr).
 func compressing() -> bool:
@@ -925,7 +1049,7 @@ func compressing() -> bool:
 	return target_pack() != null
 
 ## Die ZIELWAHL eines Rohlings: derselbe nimmt ihn zurück, ein anderer wechselt. Ein
-## gewählter Würfel bleibt gewählt - er weicht aufs Podest.
+## gewählter Würfel bleibt gewählt - er wartet in seinem Pool-Sitz.
 func set_target_pack(pack: Pack) -> void:
 	if editing_locked or burning():
 		return
@@ -935,7 +1059,7 @@ func set_target_pack(pack: Pack) -> void:
 	_target_pack = pack.pack_uid
 	_announce_target()
 
-## Nimmt den Rohling aus der Kammer zurück ins Magazin.
+## Nimmt den Rohling vom Podest zurück ins Magazin.
 func clear_blank() -> void:
 	if _target_pack == 0:
 		return
@@ -1019,21 +1143,19 @@ func _highlight_faces() -> Array[int]:
 			faces.append(face)
 	return faces
 
-## Display-Pixel des KAMMER-Ankers ((-1,-1) = sie steht gerade nicht) - dort schwebt
-## das Ziel der Serie.
+## Display-Pixel des Ankers, über dem das Ziel der Serie schwebt: der EINE Platz, das
+## Podest über der Kammer ((-1,-1) = es steht gerade nicht).
 func target_net_center() -> Vector2:
-	if _target_stage_host == null or not is_instance_valid(_target_stage_host):
-		return Vector2(-1, -1)
-	return _target_stage_host.get_global_rect().get_center()
+	return podium_stage_center()
 
-## Display-Pixel des ROHLING-PLATZES: die Mitte der KAMMER ((-1,-1) = sie steht gerade
-## nicht). Die Karte LIEGT flach, darum ohne den Neigungs-Versatz des Würfels.
+## Display-Pixel des ROHLING-PLATZES: die Mitte der Podest-Platte ((-1,-1) = sie steht
+## gerade nicht). Die Karte LIEGT flach, darum ohne den Neigungs-Versatz des Würfels.
 func blank_seat_center() -> Vector2:
-	if _target_stage_host == null or not is_instance_valid(_target_stage_host):
+	if _podium_stage_host == null or not is_instance_valid(_podium_stage_host):
 		return Vector2(-1, -1)
-	return chamber_rect_px().get_center()
+	return podium_plate_px().get_center()
 
-## Der ROHLING, der gerade in der Kammer LIEGT - während der Zeremonie der, in den sie
+## Der ROHLING, der gerade auf dem Podest LIEGT - während der Zeremonie der, in den sie
 ## verdichtet (er ist da längst gefüllt und wäre keiner mehr, liegt aber weiter dort).
 func seated_blank() -> Pack:
 	if run == null:
@@ -1391,7 +1513,7 @@ func _seat_fit(button: Button, u: float) -> Button:
 	return button
 
 ## Maße des Sitzes: EIN Rechteck für beide Aufschriften - der Platz, den die Kette
-## neben der Kammer rechnet.
+## neben dem Graben rechnet.
 func action_size(_u: float) -> Vector2:
 	return stamp_seat_rect().size
 
@@ -1583,7 +1705,7 @@ func pull_lever() -> void:
 	var anchor := hand_anchor_px()
 	press_started.emit()
 	# VOR der Buchung: ihr synchrones pool_changed fragt held_faces() schon, und der
-	# Kammer-Würfel soll die ALTEN Augen behalten, bis die Funken einschlagen.
+	# Podest-Würfel soll die ALTEN Augen behalten, bis der Strom einschlägt.
 	_burn_die = before
 	_burn_struck = false
 	var result := run.apply_series(_series.duplicate(), target_die())
@@ -1609,7 +1731,7 @@ func burning() -> bool:
 	return _burn_step >= 0
 
 ## Der Stand des Zielwürfels VOR dem Prägen (null = keine Zeremonie). scene_root malt
-## ihn auf den Kammer-Würfel zurück, bis die Funken einschlagen - sonst zeigte die
+## ihn auf den Podest-Würfel zurück, bis der Strom einschlägt - sonst zeigte die
 ## Buchung die neuen Augen sofort.
 func held_faces() -> DieDefinition:
 	return _burn_die if burning() and not _burn_struck else null
@@ -1631,13 +1753,21 @@ func burn_repaired() -> bool:
 func lock_time() -> float:
 	return LOCK_TIME + LOCK_STAGGER * float(maxi(_burning.size(), 1) - 1)
 
+## Die Fahrt des Bodens vor und nach dem Strom - beim Verdichten bleibt er zu.
+func chamber_open_time() -> float:
+	return 0.0 if compressing() else CHAMBER_OPEN_TIME
+
+func chamber_close_time() -> float:
+	return 0.0 if compressing() else CHAMBER_CLOSE_TIME
+
 ## Wie lange die ÜBERTRAGUNG dauert - scene_root staffelt daran nichts, aber ein Test
 ## darf sie abwarten.
 func ceremony_time() -> float:
 	var beats := 0.0
 	for i in _burning.size():
 		beats += card_beat(i)
-	return lock_time() + beats + STRIKE_TIME + STRIKE_HOLD
+	var strike := STRIKE_TIME + STRIKE_HOLD
+	return chamber_open_time() + lock_time() + beats + strike + chamber_close_time()
 
 ## Der Takt EINER Scheibe - er IST die Laufzeit des Stroms zur nächsten: die RAMPE
 ## macht die späteren schneller, ein Operator bekommt seinen Sondermoment obendrauf.
@@ -1660,13 +1790,18 @@ func _burn_nets_so_far() -> Array:
 		nets.append(_burning[i].get("net", []))
 	return nets
 
-## DIE ÜBERTRAGUNG: die Scheiben verriegeln, der Strom läuft Scheibe um Scheibe nach
-## rechts (jede Karte flammt auf, ihre Zellen dunkeln ab, die Summe tickt hoch, ein
-## Operator schlägt perkussiv zu), am Ende der Walze zerfällt er in Funken, die in die
-## KAMMER schlagen - in den Würfel bzw. beim Verdichten in den Rohling. Am Ende
+## DIE ÜBERTRAGUNG: die Kammer öffnet sich, die Scheiben verriegeln, der Strom läuft
+## Scheibe um Scheibe nach rechts (jede Karte flammt auf, ihre Zellen dunkeln ab, die
+## Summe tickt hoch, ein Operator schlägt perkussiv zu) und schlägt am Ende der Walze in
+## den Würfel bzw. beim Verdichten in den Rohling; dann schließt die Kammer. Am Ende
 ## meldet das Fenster das Prägen, und scene_root räumt. Hier steht nur der TAKT.
 func _play_series_ceremony(generation: int) -> void:
 	var launched := run
+	var opening := chamber_open_time()
+	if opening > 0.0:
+		chamber_opening.emit(opening)
+		if not await _scan_wait(opening, generation, launched):
+			return
 	var lock := lock_time()
 	slices_locked.emit(lock)
 	if not await _scan_wait(lock, generation, launched):
@@ -1681,9 +1816,14 @@ func _play_series_ceremony(generation: int) -> void:
 		return
 	# Mit dem Einschlag springt ORIGINAL auf den gebuchten Stand - zusammen mit dem Würfel.
 	_burn_struck = true
-	_fill_before()
+	_fill_podium()
 	if not await _scan_wait(STRIKE_HOLD, generation, launched):
 		return
+	var closing := chamber_close_time()
+	if closing > 0.0:
+		chamber_closing.emit(closing)
+		if not await _scan_wait(closing, generation, launched):
+			return
 	_end_ceremony()
 
 ## DAS VERDICHTEN: EINE atomare Buchung in GameRun, dann die Zeremonie - dieselbe
@@ -1831,16 +1971,10 @@ func _refresh_preview_net(tick: float = 0.0) -> void:
 func hand_anchor_px() -> Vector2:
 	return drum_pit_rect().get_center()
 
-## Wo der Strom die Walze verläßt: an der Kammer-seitigen Grabenwand, auf halber Höhe.
+## Wo der Strom die Walze verläßt: an der rechten Grabenwand, auf halber Höhe.
 func drum_end_px() -> Vector2:
 	var pit := drum_pit_rect()
 	return Vector2(pit.end.x, pit.get_center().y)
-
-## Wo der Funke einer Seite startet: an derselben Wand, je Seite ein Stück tiefer.
-func spark_start_px(face: int) -> Vector2:
-	var pit := drum_pit_rect()
-	var share := (float(clampi(face, 0, 5)) + 0.5) / 6.0
-	return Vector2(pit.end.x, pit.position.y + pit.size.y * lerpf(0.2, 0.8, share))
 
 # --- Das Magazin (versiegelte Ware) ---------------------------------------------
 
@@ -1928,7 +2062,7 @@ func drawer_entries() -> Array[Dictionary]:
 		var column := Pack.shelf_rank(pack)
 		var cell_index := int(fill.get(column, 0))
 		fill[column] = cell_index + 1
-		# Der ROHLING in der Kammer hat im Fach KEINEN Körper - sein Platz bleibt
+		# Der ROHLING auf dem Podest hat im Fach KEINEN Körper - sein Platz bleibt
 		# stehen, wie der Pool-Sitz des Zielwürfels: ein Ding wird nie zweimal gezeigt.
 		entries.append({"uid": pack.pack_uid, "pack": pack,
 			"withheld": _pending_arrivals.has(pack.pack_uid)
@@ -1976,15 +2110,19 @@ func pack_anchor_px(uid: int) -> Vector2:
 		return _drawer.pack_anchor_px(uid)
 	return _anchor_for(shelf_column_of(uid), shelf_window_place_of(uid))
 
-## Der Anker eines Platzes (im Fenster gezählt) einer Spalte - die EINE Regel für
-## gelandete wie für noch nicht eingelagerte Karten.
+## Der Anker eines Platzes (im Fenster gezählt, Rang ab dem obersten sichtbaren) einer
+## Spalte - die EINE Regel für gelandete wie für noch nicht eingelagerte Karten. Draußen
+## liegt er am Rand, auf seinem Querplatz.
 func _anchor_for(column: int, place: int) -> Vector2:
 	var pit := shelf_pit_rect()
-	var at := PackDrawerView.anchor_in(pit, clampi(place, 0, shelf_places() - 1),
-		shelf_cell_px(), column)
+	var window := shelf_window_cards()
+	var across := posmod(place, PackDrawerView.ACROSS)
+	var seen := across if place < 0 else (window - PackDrawerView.ACROSS + across \
+		if place >= window else place)
+	var at := PackDrawerView.anchor_in(pit, seen, shelf_cell_px(), column)
 	if place < 0:
 		return Vector2(at.x, pit.position.y)
-	if place >= shelf_places():
+	if place >= window:
 		return Vector2(at.x, pit.end.y)
 	return at
 
@@ -2025,22 +2163,27 @@ func shelf_column_of(uid: int) -> int:
 func shelf_cell_of(uid: int) -> int:
 	return int(_entry_of(uid).get("cell", 0))
 
-## Ihr PLATZ im Fenster - der Roll-Stand ihrer Spalte ist schon abgezogen.
+## Ihr PLATZ im Fenster (Rang ab dem obersten sichtbaren) - der Roll-Stand ihrer Spalte,
+## in ganzen Reihen, ist schon abgezogen.
 func shelf_window_place_of(uid: int) -> int:
 	if _drawer != null and is_instance_valid(_drawer) and _drawer.column_of_pack(uid) >= 0:
 		return _drawer.place_of_pack(uid)
-	return shelf_cell_of(uid) - shelf_scroll_of(shelf_column_of(uid))
+	return shelf_cell_of(uid) - shelf_scroll_of(shelf_column_of(uid)) * PackDrawerView.ACROSS
 
 ## Liegt sie im FENSTER ihrer Spalte (nicht hinausgerollt)?
 func shelf_in_window(uid: int) -> bool:
 	var place := shelf_window_place_of(uid)
-	return place >= 0 and place < shelf_places()
+	return place >= 0 and place < shelf_window_cards()
 
-## Wie viele Plätze das Fenster einer Spalte zeigt.
+## Wie viele REIHEN das Fenster einer Spalte zeigt.
 func shelf_places() -> int:
 	return PackDrawerView.places_for(shelf_pit_rect().size, shelf_cell_px())
 
-## Die Höhe EINES Platzes in Display-Pixeln - der Schritt, um den eine Spalte rollt.
+## Wie viele Karten das Fenster einer Spalte zeigt: Reihen mal ACROSS.
+func shelf_window_cards() -> int:
+	return shelf_places() * PackDrawerView.ACROSS
+
+## Die Höhe EINER Reihe in Display-Pixeln - der Schritt, um den eine Spalte rollt.
 func shelf_slot_px() -> float:
 	return PackDrawerView.slot_size(shelf_pit_rect().size, shelf_cell_px()).y
 
@@ -2052,13 +2195,13 @@ func shelf_column_count(column: int) -> int:
 			count += 1
 	return count
 
-## Der ROLL-STAND einer Spalte in Plätzen.
+## Der ROLL-STAND einer Spalte in REIHEN.
 func shelf_scroll_of(column: int) -> int:
 	if column < 0 or column >= _shelf_scroll.size():
 		return 0
 	return _shelf_scroll[column]
 
-## Setzt den Roll-Stand, in den Grenzen 0 .. max(0, Karten - Fenster).
+## Setzt den Roll-Stand (Reihen), in den Grenzen 0 .. bis die letzte Reihe unten steht.
 func set_shelf_scroll(column: int, places: int) -> void:
 	if column < 0 or column >= _shelf_scroll.size():
 		return
@@ -2078,17 +2221,17 @@ func reset_shelf_scroll() -> void:
 ## Gibt es oben bzw. unten hinausgerollte Karten? (x = oben, y = unten) - oben zählt,
 ## was dort wirklich LIEGT.
 func shelf_overflow(column: int) -> Vector2i:
-	var scroll := shelf_scroll_of(column)
+	var scroll := shelf_scroll_of(column) * PackDrawerView.ACROSS
 	var used := shelf_column_count(column)
 	return Vector2i(1 if mini(scroll, used) > 0 else 0,
-		1 if used - scroll > shelf_places() else 0)
+		1 if used - scroll > shelf_window_cards() else 0)
 
-## Die Sortenfarben einer Spalte, ein Eintrag je PLATZ im Fenster (leer stumpf) - die
-## MULDEN ihrer Platte lesen sie.
+## Die Sortenfarben einer Spalte, ein Eintrag je PLATZ im Fenster (Reihe mal ACROSS plus
+## Querplatz; leer stumpf) - die MULDEN ihrer Platte lesen sie.
 func shelf_column_tints(column: int) -> Array[Color]:
 	var tints: Array[Color] = []
-	var places := shelf_places()
-	var scroll := shelf_scroll_of(column)
+	var places := shelf_window_cards()
+	var scroll := shelf_scroll_of(column) * PackDrawerView.ACROSS
 	var packs: Array[Pack] = []
 	packs.resize(places)
 	for entry in drawer_entries():
@@ -2113,10 +2256,10 @@ func arrival_anchor_px(pack: Pack, extra: int = 0) -> Vector2:
 	var column := run.next_pack_spot(pack, extra).x
 	# Gesteckte Karten liegen nicht im Fach - der Platz zählt nur, was dort liegt.
 	var cell_index := shelf_column_count(column) + maxi(extra, 0)
-	return _anchor_for(column, cell_index - shelf_scroll_of(column))
+	return _anchor_for(column, cell_index - shelf_scroll_of(column) * PackDrawerView.ACROSS)
 
 ## Eine Kassette wurde angetippt: sie wandert auf die nächste freie Scheibe - ein
-## ROHLING dagegen in die KAMMER. Die Karte entscheidet, was der Tipp tut, genau wie
+## ROHLING dagegen aufs PODEST. Die Karte entscheidet, was der Tipp tut, genau wie
 ## das Ziel entscheidet, was der Knopf tut: ein Rohling als Futter trüge nichts bei.
 func _on_pack_pressed(uid: int) -> void:
 	if browse_only:
@@ -2135,7 +2278,7 @@ func _on_scroll_dragged(column: int, offset_px: float) -> void:
 	_last_drag_px = offset_px
 	shelf_scrolling.emit(column, _clamp_scroll_px(column, offset_px))
 
-## Losgelassen: der Roll-Stand rastet auf den nächsten ganzen Platz und wird SOFORT
+## Losgelassen: der Roll-Stand rastet auf die nächste ganze Reihe und wird SOFORT
 ## gebucht (Endzustand zuerst) - der Körper fährt den Rest des Weges.
 func _on_scroll_released(column: int, offset_px: float) -> void:
 	var before := shelf_scroll_of(column)
@@ -2145,7 +2288,7 @@ func _on_scroll_released(column: int, offset_px: float) -> void:
 	set_shelf_scroll(column, after)
 	shelf_scroll_snapped.emit(column, from, float(before - after) * shelf_slot_px())
 
-## Ein Rad-Schritt rollt eine Spalte um ganze Plätze (true = sie hat sich bewegt).
+## Ein Rad-Schritt rollt eine Spalte um ganze Reihen (true = sie hat sich bewegt).
 func wheel_shelf(column: int, places: int) -> bool:
 	if shelf_dragging():
 		return false
@@ -2212,14 +2355,10 @@ func _net_hint_info(pixel: Vector2) -> Dictionary:
 		return summed
 	var podium := _face_hint(_podium_net, pixel)
 	if podium != "":
-		return {"hint": podium, "owner": _owner_line(PODIUM_OWNER, podium_die())}
-	var die := chosen_die()
-	var after := _face_hint(_net, pixel)
+		return {"hint": podium, "owner": _owner_line(ORIGINAL_OWNER, _podium_net.def)}
+	var after := _face_hint(_net, pixel) if not opening_shown else ""
 	if after != "":
-		return {"hint": after, "owner": _owner_line(RESULT_OWNER, die)}
-	var before := _face_hint(_before_net, pixel)
-	if before != "":
-		return {"hint": before, "owner": _owner_line(ORIGINAL_OWNER, die)}
+		return {"hint": after, "owner": _owner_line(RESULT_OWNER, chosen_die())}
 	return {}
 
 ## Der Klartext der Zelle eines Netzes unter dem Pixel ("" = keine).

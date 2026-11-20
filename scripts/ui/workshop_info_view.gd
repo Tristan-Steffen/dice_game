@@ -1,20 +1,19 @@
 class_name WorkshopInfoView
 extends Panel
-## Der INFO-SCHIRM der Werkstatt (2026-09-11): er liegt in der LÜCKE zwischen der
-## Pool-Reihe und dem Streifen, ist so breit wie dieser und trägt JEDE Auskunft der
-## Station - Netz-Zelle, Karte, Podest-Würfel und (neu) Pool-Würfel. Er ersetzt die
-## winzige CAPTION unter dem Summen-Netz.
+## Der INFO-SCHIRM der Werkstatt: seit Layout C (2026-11-20) steht er am ENDE der Walze,
+## so hoch wie ihr Graben, und trägt JEDE Auskunft der Station - Netz-Zelle, Karte,
+## Podest-Würfel und Pool-Würfel.
 ##
 ## DREI Zeilen, linksbündig: TITEL (Name des Dings), UNTERZEILE (Seele bzw.
-## Größe·Sorte, in ihrer eigenen Tönung) und die WIRKUNG, die sich in höchstens
-## zwei Zeilen einpaßt.
+## Größe·Sorte, in ihrer eigenen Tönung) und die WIRKUNG, die so viele Zeilen bricht,
+## wie die gegebene Höhe hergibt (mindestens BODY_LINES, höchstens BODY_LINES_MAX).
 ##
 ## RECHTS steht seit dem 2026-11-17 das NETZ eines Würfels (der Vorrats-Würfel unter dem
 ## Zeiger, der angeheftete oder der wartende Neuzugang), der Text rückt dafür nach links.
 ## Seine Zellen erklären sich: scene_root fragt je Bild net_hint_at am Zeiger.
 ##
-## Er MELDET nur seine Höhe (height_for) und faßt nichts an - scene_root schneidet
-## sein Rechteck und schreibt ihn je Bild (das apron_bottom-Muster).
+## Seine Höhe ist GEGEBEN (die Kette); height_for nennt nur das Mindestmaß. Er faßt
+## nichts an - scene_root schneidet sein Rechteck und schreibt ihn je Bild.
 
 ## Ränder und Zeilen-Fuge in u des STREIFENS.
 const MARGIN_X := 2.4
@@ -24,8 +23,9 @@ const LINE_GAP := 0.5
 const TITLE_UNITS := 5.2
 const SUB_UNITS := 3.8
 const BODY_STEPS := [3.6, 3.2, 2.8, 2.4, 2.0]
-## So viele Zeilen darf die Wirkung brechen.
+## So viele Zeilen darf die Wirkung mindestens bzw. höchstens brechen.
 const BODY_LINES := 2
+const BODY_LINES_MAX := 5
 ## Wie hoch ein Label über seinem Grad steht - EIN Faktor für alle drei Zeilen,
 ## damit height_for und Aufbau nicht auseinanderlaufen. GEMESSEN: die Schrifthöhe
 ## ist ~1,42 × Grad, und der Zeilenabstand kommt je Zeile dazu; ein knapperer Wert
@@ -88,9 +88,8 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_rebuild()
 
-## Die HÖHE, die der Schirm bei dieser Einheit braucht: beide Ränder, Titel,
-## Unterzeile, zwei Wirkungs-Zeilen am größten Grad und die zwei Fugen. scene_root
-## schneidet sein Rechteck daraus, statt eine Zahl zu tippen.
+## Die MINDEST-HÖHE bei dieser Einheit: beide Ränder, Titel, Unterzeile, zwei
+## Wirkungs-Zeilen am größten Grad und die zwei Fugen.
 static func height_for(u: float) -> float:
 	var grades := TITLE_UNITS + SUB_UNITS + float(BODY_STEPS[0]) * float(BODY_LINES)
 	return u * (MARGIN_Y * 2.0 + LINE_GAP * 2.0 + LINE_BOX * grades)
@@ -266,12 +265,20 @@ func _fit_body() -> void:
 	for step: float in BODY_STEPS:
 		var wanted := maxi(8, int(_body_unit * step))
 		if WorkshopView.text_block_lines(font, _body.text, _body_span.x,
-				wanted) <= BODY_LINES \
+				wanted) <= body_lines() \
 				and ShopController.wrapped_height(font, _body.text, _body_span.x,
 					wanted, lead) <= _body_span.y:
 			px = wanted
 			break
 	_body.add_theme_font_size_override("font_size", px)
+
+## Wie viele Zeilen die Wirkung brechen darf: so viele, wie am größten Grad in ihre Kiste
+## passen.
+func body_lines() -> int:
+	var line := _body_unit * float(BODY_STEPS[0]) * LINE_BOX
+	if line <= 0.0:
+		return BODY_LINES
+	return clampi(int(_body_span.y / line), BODY_LINES, BODY_LINES_MAX)
 
 # --- Die reinen Text-Quellen ------------------------------------------------
 # Jede liefert {title, sub, sub_tint, body}. Formuliert wird hier nichts: die

@@ -292,7 +292,7 @@ const SWALLOW_PIT_COUNT := 6
 const PIT_DRUM := 20
 const PIT_SWALLOW_TAIL0 := 21
 
-## Die KAMMER der Werkstatt: die flache Grube des Podests - Möbel.
+## Die KAMMER unter dem Podest: offen nur, während der Würfel beim Prägen darin steht.
 const PIT_CHAMBER := 24
 
 ## Die VERTIEFUNGEN der Paket-Plätze im Laden, je Platz eine - offen, solange die
@@ -1370,7 +1370,7 @@ func clear_pit(slot: int) -> void:
 
 ## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die Gruben der Möbel bleiben - sie sind
 ## kein Auftritt, und ihre Löcher werden nur beim Fenster-Neuaufbau geschrieben.
-const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_DRUM, PIT_CHAMBER,
+const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_DRUM,
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,

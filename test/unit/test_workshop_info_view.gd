@@ -58,6 +58,21 @@ func test_a_long_body_falls_to_a_smaller_grade() -> void:
 	assert_lte(WorkshopView.text_block_lines(font, long_text, inner, small),
 		WorkshopInfoView.BODY_LINES, "und bricht in höchstens zwei Zeilen")
 
+## Am Walzen-Ende ist die Höhe GEGEBEN (Layout C): ein höherer Schirm läßt die Wirkung
+## in mehr Zeilen brechen, damit derselbe lange Text größer steht.
+func test_a_taller_screen_allows_more_body_lines() -> void:
+	await wait_frames(2)
+	assert_eq(view.body_lines(), WorkshopInfoView.BODY_LINES, "im Mindestmaß zwei Zeilen")
+	var long_text := "Eine lange Wirkungszeile ohne Ende. ".repeat(14)
+	view.set_info("Lang", "", Color.WHITE, long_text)
+	var short_px := view.body_font_size()
+	view.size = Vector2(900, WorkshopInfoView.height_for(4.0) * 1.6)
+	await wait_frames(1)
+	assert_gt(view.body_lines(), WorkshopInfoView.BODY_LINES, "höher: mehr Zeilen")
+	assert_lte(view.body_lines(), WorkshopInfoView.BODY_LINES_MAX)
+	view.set_info("Lang", "", Color.WHITE, long_text + " ")
+	assert_gt(view.body_font_size(), short_px, "und der Text steht größer")
+
 ## Und BEIDE Zeilen sind auch zu SEHEN: Godot zeichnet die letzte nur, wenn sie
 ## samt Zeilenabstand in die Kiste paßt - genau daran fiel die erste Fassung.
 func test_both_body_lines_are_really_drawn() -> void:

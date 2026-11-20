@@ -1,5 +1,5 @@
 extends GutTest
-## Die Werkstatt unter dem Pool (drum_layout, Layout A): das Fenster steht auf der
+## Die Werkstatt unter dem Pool (drum_layout, Layout C): das Fenster steht auf der
 ## gemeldeten Kette, und nichts darf sich je verschieben. Die Stabilität IST die
 ## Prüfung - gemessen werden Magazin-Fach, Scheiben und Handlungs-Sitz, danach wird
 ## die Bank benutzt und jedes Rechteck muss auf denselben Pixeln liegen wie vorher.
@@ -71,17 +71,35 @@ func test_slot_at_finds_the_slice_under_the_pointer() -> void:
 
 func test_the_equation_stands_on_the_chain() -> void:
 	await wait_frames(2)
-	for pair: Array in [["OriginalScreen", "original"], ["UpgradesScreen", "upgrades"],
+	for pair: Array in [["PodiumScreen", "podium_net"], ["UpgradesScreen", "upgrades"],
 			["ResultScreen", "result"]]:
 		assert_true(view.get_node("Street/%s" % pair[0]).get_global_rect().is_equal_approx(
 			frame[pair[1]]), "%s steht auf der Kette" % pair[0])
-		assert_not_null(view.get_node_or_null("Street/%sHead" % pair[0]), "mit Überschrift")
+	for screen in ["UpgradesScreen", "ResultScreen"]:
+		assert_not_null(view.get_node_or_null("Street/%sHead" % screen), "mit Überschrift")
+	assert_null(view.get_node_or_null("Street/OriginalScreen"), "die eigene ORIGINAL-Kachel ist fort")
 	assert_not_null(view.get_node_or_null("Street/PlusSign"))
 	assert_not_null(view.get_node_or_null("Street/EqualsSign"))
 	assert_true((frame["result"] as Rect2).encloses(Rect2(view.ist_net_center() - Vector2.ONE,
 		Vector2.ONE * 2.0)), "der Parkplatz des Ergebnis-Netzes liegt darin")
-	assert_gt((frame["original"] as Rect2).position.y, view.info_rect_px().end.y,
-		"der Info-Schirm darüber")
+	assert_almost_eq(view.info_rect_px().position.y, view.drum_pit_rect().position.y, 0.01,
+		"der Info-Schirm steht am Walzen-Ende")
+
+## Während einer Paket-Öffnung sind "=", ERGEBNIS und PRÄGEN fort.
+func test_an_opening_hides_the_result_side() -> void:
+	await wait_frames(2)
+	view.opening_shown = true
+	for node_name in ["EqualsSign", "ResultScreen", "ResultScreenHead", "ActionSeat"]:
+		assert_false((view.get_node("Street/%s" % node_name) as CanvasItem).visible,
+			"%s ist fort" % node_name)
+	assert_true((view.get_node("Street/UpgradesScreen") as CanvasItem).visible, "UPGRADES bleibt")
+	assert_true((view.get_node("Street/PodiumScreen") as CanvasItem).visible, "das Podest bleibt")
+	view.refresh()
+	await wait_frames(1)
+	assert_false((view.get_node("Street/ActionSeat") as CanvasItem).visible,
+		"auch nach einem Neuaufbau")
+	view.opening_shown = false
+	assert_true((view.get_node("Street/ActionSeat") as CanvasItem).visible)
 
 func test_the_magazine_stands_under_the_drum_with_four_columns() -> void:
 	await wait_frames(2)
@@ -90,7 +108,8 @@ func test_the_magazine_stands_under_the_drum_with_four_columns() -> void:
 	assert_true(view.shelf_rect_global().is_equal_approx(shelf))
 	assert_gt(_drawer_rect().position.y, view.drum_pit_rect().end.y)
 	assert_eq(PackDrawerView.places_for(view.shelf_pit_rect().size, CELL),
-		PackDrawerView.PLACES, "jede Spalte zeigt PLACES Karten")
+		PackDrawerView.PLACES, "jede Spalte zeigt PLACES Reihen")
+	assert_eq(view.shelf_window_cards(), PackDrawerView.PLACES * PackDrawerView.ACROSS)
 	var columns: Array = frame["columns"]
 	for column in PackDrawerView.COLUMNS:
 		assert_true(view.shelf_column_rect(column).is_equal_approx(columns[column]),
@@ -100,30 +119,52 @@ func test_the_magazine_stands_under_the_drum_with_four_columns() -> void:
 func test_nothing_reaches_below_the_hub() -> void:
 	await wait_frames(2)
 	assert_lt(view.bench_rect().end.y, HUB_BOTTOM)
-	assert_lt(view.chamber_area_px().end.y, HUB_BOTTOM)
+	assert_lt(view.stamp_seat_px().end.y, HUB_BOTTOM)
 
-func test_the_chamber_ends_the_drum_and_takes_the_lying_blank() -> void:
+func test_the_stamp_seat_stands_over_the_result() -> void:
+	await wait_frames(2)
+	var seat := _seat_rect()
+	var result: Rect2 = frame["result"]
+	assert_true(seat.is_equal_approx(view.stamp_seat_px()), "der Sitz IST der gemeldete")
+	assert_almost_eq(seat.get_center().x, result.get_center().x, 0.01, "mittig über ERGEBNIS")
+	assert_almost_eq(seat.get_center().y, view.podium_plate_px().get_center().y, 0.01,
+		"auf halber Plattenhöhe")
+	assert_lt(seat.end.y, result.position.y, "über dem Netz")
+
+func test_the_chamber_lies_under_the_podium_plate() -> void:
 	await wait_frames(2)
 	var chamber := view.chamber_rect_px()
+	var plate := view.podium_plate_px()
 	assert_eq(chamber, frame["chamber"])
-	var card := PackDrawerView.lie_cell(CELL)
-	assert_gt(chamber.size.x, card.x, "der liegende Rohling paßt längs hinein")
-	assert_gt(chamber.size.y, card.y, "und quer")
-	assert_gt(chamber.position.x, view.drum_pit_rect().end.x, "am Ende der Walze")
-	assert_almost_eq(chamber.position.y, view.drum_pit_rect().position.y, 0.01, "in ihrer Zeile")
-	assert_gt(_seat_rect().position.x, chamber.end.x, "der Präge-Sitz rechts daneben")
-	assert_true(view.chamber_area_px().encloses(_seat_rect()), "beide zusammen")
+	assert_true(view.podium_rect_px().encloses(chamber), "die Grube bleibt im Podest-Platz")
+	assert_true(plate.grow(0.05).encloses(chamber), "die Platte umschließt sie ganz")
+	assert_almost_eq(chamber.size.x, FACE * WorkshopView.CHAMBER_FACES, 0.01, "ein Weltmaß")
+	assert_almost_eq(chamber.size.x, chamber.size.y, 0.01, "quadratisch")
+	var die_edge := FACE  # eine Würfelfläche = eine Kante
+	assert_gt(chamber.size.x, die_edge * 3.0, "Würfel und Kabel haben Platz")
+	# Der Pool-Schacht (Wand und Fuge) reicht nicht an sie heran, nichts sonst liegt darauf.
+	var wall_px := LiftShaftView.WALL * 2.0 * 37.5
+	assert_gt(chamber.position.x, POOL.end.x + wall_px, "der Pool-Hohlraum schneidet sie nie")
+	for rect: Rect2 in [view.drum_pit_rect(), _seat_rect(), view.shelf_rect_global(),
+			view.info_rect_px(), frame["upgrades"], frame["result"],
+			view._global(view.podium_net_rect())]:
+		assert_false(chamber.intersects(rect), "die Kammer überlappt nichts der Kette")
 
-func test_the_podium_anchor_is_the_chamber_centre_trimmed_down() -> void:
+func test_the_podium_anchor_is_the_chamber_centre() -> void:
 	await wait_frames(2)
 	var centre := view.chamber_rect_px().get_center()
-	var anchor := view.target_net_center()
-	assert_almost_eq(anchor.x - centre.x, WorkshopView.BENCH_TILT_TRIM_X, 0.01,
-		"um den gemessenen Neigungs-Versatz verschoben - quer")
-	assert_almost_eq(anchor.y - centre.y, WorkshopView.BENCH_TILT_TRIM, 0.01, "und längs")
-	assert_eq(view.blank_seat_center(), centre, "der Rohling liegt in der Kammermitte")
+	assert_almost_eq(view.podium_stage_center().distance_to(centre), 0.0, 0.01,
+		"der Würfel sinkt senkrecht genau in die Mitte der Grube")
+	assert_eq(view.target_net_center(), view.podium_stage_center(), "EIN Platz für den Würfel")
+	assert_eq(view.blank_seat_center(), view.podium_plate_px().get_center(),
+		"der Rohling liegt mittig auf der Platte")
+	var plate := view.podium_plate_px()
+	assert_almost_eq(centre.x, plate.get_center().x, 0.01, "quer mittig auf der Platte")
+	assert_gte(centre.y - plate.position.y,
+		WorkshopView.PODIUM_TILT_TRIM + FACE * WorkshopView.PODIUM_HEAD_FACES,
+		"oben bleibt Platte für den schwebenden Würfel")
 
-func test_the_hit_rects_cover_column_magazine_and_chamber() -> void:
+func test_the_hit_rects_cover_column_magazine_and_podium() -> void:
 	await wait_frames(2)
 	var hits := view.hit_rects()
 	var covered := func(point: Vector2) -> bool:
@@ -134,7 +175,12 @@ func test_the_hit_rects_cover_column_magazine_and_chamber() -> void:
 	assert_true(covered.call((frame["slices"][0] as Rect2).get_center()), "die Scheiben")
 	assert_true(covered.call(_drawer_rect().get_center()), "das Magazin")
 	assert_true(covered.call(_seat_rect().get_center()), "der Präge-Sitz")
-	assert_true(covered.call(view.chamber_rect_px().get_center()), "die Kammer")
+	assert_true(covered.call(view.chamber_rect_px().get_center()), "das Podest samt Kammer")
+	assert_true(covered.call(view.info_rect_px().get_center()), "der Info-Schirm")
+	assert_true(covered.call((frame["upgrades"] as Rect2).get_center()), "UPGRADES")
+	assert_true(covered.call((frame["result"] as Rect2).get_center()), "ERGEBNIS")
+	assert_false(covered.call(view.raster_area_px().get_center()),
+		"die Raster-Taste ist ein eigener Körper")
 	assert_true(view.bench_rect().encloses(_drawer_rect()), "bench_rect deckt das Magazin")
 
 func test_the_strip_has_no_window_background() -> void:
@@ -261,31 +307,32 @@ func test_the_seat_rect_is_byte_stable_through_the_cycle() -> void:
 
 # --- Die Netze --------------------------------------------------------------------
 
-func test_every_net_shares_the_card_net_cell() -> void:
+func test_every_net_shares_the_die_view_cell() -> void:
 	view.choose_index(0)
 	view.slot_pack(run.grant_pack(Pack.number_pack()).pack_uid)
 	await wait_frames(2)
-	var card := WorkshopView.card_net_cell(view.shelf_cell_px())
-	assert_almost_eq(view.net_cell(U), card, 0.001, "das Zellmaß der Werkstatt")
-	assert_almost_eq(view._net.cell, card, 0.001, "ERGEBNIS ist eine Kartenzelle")
-	assert_almost_eq(view._before_net.cell, card, 0.001, "ORIGINAL auch")
-	assert_lte(DieNetView.net_size(card).x, (frame["result"] as Rect2).size.x,
+	var cell := view.podium_cell()
+	assert_almost_eq(cell, FACE * WorkshopView.PODIUM_FACE_GAIN, 0.01, "die Würfelfläche")
+	assert_almost_eq(view.net_cell(U), cell, 0.001, "das Zellmaß der Gleichung")
+	assert_almost_eq(view._net.cell, cell, 0.001, "ERGEBNIS")
+	assert_almost_eq(view._podium_net.cell, cell, 0.001, "ORIGINAL")
+	assert_lte(DieNetView.net_size(cell).x, (frame["result"] as Rect2).size.x,
 		"und es paßt in ERGEBNIS")
 
-func test_without_a_target_before_is_the_empty_cross() -> void:
+func test_without_a_die_original_is_the_empty_cross() -> void:
 	await wait_frames(2)
 	assert_null(view.target_die(), "kein Ziel gewählt")
-	assert_null(view._before_net, "ORIGINAL zeigt keinen Würfel")
-	var cross: Control = view._before_host.get_child(0)
+	assert_null(view._podium_net, "ORIGINAL zeigt keinen Würfel")
+	var cross: Control = view._podium_view_host.get_child(0)
 	assert_eq(cross.name, "EmptyNet", "sondern das leere Kreuz")
 	assert_eq(cross.get_child_count(), 6, "sechs leere Zellen")
 	view.choose_index(0)
 	await wait_frames(2)
-	assert_null(view._before_net, "nur gewählt ist er kein Ziel - ORIGINAL bleibt leer")
+	assert_eq(view._podium_net.def, view.chosen_die(), "gewählt steht er auf dem Podest")
 	view.slot_pack(run.grant_pack(Pack.number_pack()).pack_uid)
 	await wait_frames(2)
-	assert_eq(view._before_net.def, view.target_die(), "mit Ziel steht der Würfel da")
-	assert_true(view._before_net.projection.is_empty(), "schlicht, ohne Vorschau")
+	assert_eq(view._podium_net.def, view.target_die(), "als Ziel bleibt er dort")
+	assert_true(view._podium_net.projection.is_empty(), "schlicht, ohne Vorschau")
 
 func test_the_net_lives_in_the_window() -> void:
 	await wait_frames(2)

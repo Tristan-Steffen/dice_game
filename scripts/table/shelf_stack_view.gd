@@ -1,9 +1,10 @@
 class_name ShelfStackView
 extends Node3D
-## Das SORTEN-MAGAZIN (Layout A, 2026-11-18): VIER SPALTEN nebeneinander in EINER flachen
-## Grube, eine je SORTE (Pack.SHELF_ORDER), alle auf derselben Höhe. Jede Spalte trägt EINE
-## Lane auf ihrer Platte und ROLLT für sich senkrecht: ein Zug schiebt ihr FACH längs Welt-X,
-## was das Fenster verläßt, gleitet durch die Schlitze der Wände oben und unten unter den Filz.
+## Das SORTEN-MAGAZIN (Layout C, 2026-11-20): VIER SPALTEN nebeneinander in EINER flachen
+## Grube, eine je SORTE (Pack.SHELF_ORDER), alle auf derselben Höhe. Jede Spalte trägt auf
+## ihrer Platte REIHEN zu ACROSS Mulden nebeneinander und ROLLT für sich senkrecht: ein Zug
+## schiebt ihr FACH längs Welt-X, was das Fenster verläßt, gleitet durch die Schlitze der
+## Wände oben und unten unter den Filz.
 ##
 ## Die Karten LIEGEN flach (Netz nach oben, Langseite quer) und sind KINDER des Faches ihrer
 ## Spalte: eine Fahrt trägt sie mit. Eine Karte, die das Fenster verlassen hat, ist
@@ -14,6 +15,7 @@ extends Node3D
 ## bevor das Fach fährt. Längs der Spalte zählt Bild-unten, also Welt -X.
 
 const COLUMNS := PackDrawerView.COLUMNS
+const ACROSS := PackDrawerView.ACROSS
 
 ## Eine Spalte ist eine Platte; die Karte liegt eine Spur darüber (koplanar stritten
 ## sie im Tiefenpuffer).
@@ -418,6 +420,13 @@ func slot_z(column: int) -> float:
 func slot_width(column: int) -> float:
 	return lane_width(column) * (1.0 - BAND_SHARE)
 
+## Die Breite EINES Querplatzes (Welt-Z) und seine Mitte relativ zu slot_z.
+func card_slot_width(column: int) -> float:
+	return slot_width(column) / float(ACROSS)
+
+func across_z(column: int, across: int) -> float:
+	return (float(across) - float(ACROSS - 1) * 0.5) * card_slot_width(column)
+
 # --- Der Zustand -------------------------------------------------------------------
 
 func column_count() -> int:
@@ -711,9 +720,9 @@ static func column_tint(column: int) -> Color:
 	return PackDrawerView.COLORS.get(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)],
 		PackDrawerView.GOLD)
 
-## Die Sortenfarben einer Spalte, je Stellplatz eine (BAY_EMPTY = leer). Sie färben
-## den Lichtsaum der Mulden; ändert sich die Platzzahl, werden die Mulden neu gebaut,
-## sonst nur umgefärbt. Idempotent.
+## Die Sortenfarben einer Spalte, je Stellplatz eine (Reihe mal ACROSS plus Querplatz,
+## BAY_EMPTY = leer). Sie färben den Lichtsaum der Mulden; ändert sich die Platzzahl,
+## werden die Mulden neu gebaut, sonst nur umgefärbt. Idempotent.
 ## rolled = die Spalte ist schon nach unten gerollt: erst dann liegen oben
 ## Vorrats-Mulden (auf Stand 0 endet sie an der ersten).
 func set_bay_tints(column: int, tints: Array, rolled := false) -> void:
@@ -743,21 +752,21 @@ func bay_tint(column: int, index: int) -> Color:
 		return BAY_EMPTY
 	return line[index]
 
-## Das Maß EINER Mulde bei so vielen Plätzen (x längs der Spalte, y quer): die liegende
-## Karte plus Luft, gedeckelt von Teilung und Spalte, so daß zwischen zwei Mulden immer
+## Das Maß EINER Mulde bei so vielen Reihen (x längs der Spalte, y quer): die liegende
+## Karte plus Luft, gedeckelt von Teilung und Querplatz, so daß zwischen zwei Mulden immer
 ## eine Lippe steht.
 func bay_size(places: int, column := 0) -> Vector2:
 	var pitch := _span.x / float(maxi(places, 1))
 	return Vector2(
 		minf(DataCellView.WIDTH * _scale * BAY_ROOM, pitch - LIP_MIN),
-		minf(DataCellView.HEIGHT * _scale * BAY_ROOM, slot_width(column) - LIP_MIN * 2.0))
+		minf(DataCellView.HEIGHT * _scale * BAY_ROOM, card_slot_width(column) - LIP_MIN * 2.0))
 
 ## Welt-X eines Platzes einer Spalte bei so vielen Plätzen: Platz 0 oben.
 func _place_x(index: float, pitch: float) -> float:
 	return _span.x * 0.5 - pitch * (index + 0.5)
 
-## Die MULDEN einer Spalte: je Platz EIN Stück aus Platte, Deck, Lippen, Rippe und
-## Mulde (Saum, Boden, Buchse) - in Stücken, damit hinausgerollte für sich verschwinden.
+## Die MULDEN einer Spalte: je REIHE EIN Stück aus Platte, Deck, Lippen, Rippen und ACROSS
+## Mulden (Saum, Boden, Buchse) - in Stücken, damit hinausgerollte für sich verschwinden.
 func _build_bays(host: Node3D, column: int) -> void:
 	var old: Node3D = _bays[column] if column < _bays.size() else null
 	if old != null and is_instance_valid(old):
@@ -778,7 +787,7 @@ func _build_bays(host: Node3D, column: int) -> void:
 	bays.position = Vector3(_fachs[column].position.x, 0.0, slot_z(column))
 	host.add_child(bays)
 	_bays[column] = bays
-	var places := tints.size()
+	var places := PackDrawerView.rows_for(tints.size())
 	var pitch := _span.x / float(places)
 	var shape := _segment_shape(column, places)
 	var rolled: bool = _rolled.get(column, false)
@@ -793,9 +802,9 @@ func _build_bays(host: Node3D, column: int) -> void:
 		var ribs: Array[float] = [-1.0 if i > 0 or rolled else -0.5]
 		if i == places - 1:
 			ribs.append(1.0)
-		var seam := _seam_material(BAY_EMPTY)
-		_build_segment(node, column, pitch, shape, ribs, seam)
-		seams.append(seam)
+		var row_seams := _row_seams()
+		_build_segment(node, column, pitch, shape, ribs, row_seams)
+		seams.append_array(row_seams)
 	# Die VORRATS-Mulden: unten immer, oben erst nach dem Rollen. Sie rollen mit und
 	# springen beim Zug um ganze Teilungen nach - so ist das Fenster bei jedem Zug voll.
 	_spare_below[column] = _build_spares(bays, column, "VorratUnten", 1.0, places, pitch,
@@ -813,15 +822,16 @@ func _build_bays(host: Node3D, column: int) -> void:
 func _segment_shape(column: int, places: int) -> Dictionary:
 	var bay := bay_size(places, column)
 	var pitch := _span.x / float(maxi(places, 1))
-	return {"bay": bay, "rail": (slot_width(column) - bay.y) * 0.5, "rib": pitch - bay.x,
+	return {"bay": bay, "rail": (card_slot_width(column) - bay.y) * 0.5, "rib": pitch - bay.x,
 		"under": Vector2(plate_center(column) - slot_z(column), plate_span(column))}
 
-## EIN Stück der Spalte, pitch lang um seinen Knoten (längs Welt-X): die mitrollende
-## PLATTE eine Spur UNTER der festen (sichtbar nur jenseits der Grubenwand), darauf das
-## DECK auf Kartenhöhe neben der Mulden-Lane, die Lippen, die Rippen an den genannten
-## Rändern (-1 oben, +1 unten, ±0.5 halb und innen) und die Mulde selbst.
+## EIN Stück der Spalte (eine Reihe), pitch lang um seinen Knoten (längs Welt-X): die
+## mitrollende PLATTE eine Spur UNTER der festen (sichtbar nur jenseits der Grubenwand),
+## darauf das DECK auf Kartenhöhe neben der Mulden-Lane, je Querplatz Lippen, Rippen an
+## den genannten Rändern (-1 oben, +1 unten, ±0.5 halb und innen) und die Mulde selbst
+## (Kind "Platz<a>").
 func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
-		ribs: Array[float], seam: StandardMaterial3D) -> void:
+		ribs: Array[float], seams: Array) -> void:
 	var bay: Vector2 = shape["bay"]
 	var rail: float = shape["rail"]
 	var rib: float = shape["rib"]
@@ -830,20 +840,28 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 	for strip: Vector2 in _deck_strips(column):
 		TableProps.box(node, "Deck", Vector3(pitch, deck_height(), strip.y - strip.x),
 			Vector3(0.0, deck_height() * 0.5, (strip.x + strip.y) * 0.5), _lip_material)
-	for side in 2:
-		var dir := float(side) * 2.0 - 1.0
-		TableProps.box(node, "Lippe%d" % side, Vector3(pitch, deck_height(), rail),
-			Vector3(0.0, deck_height() * 0.5, dir * (bay.y + rail) * 0.5), _lip_material)
-	for edge: float in ribs:
-		var width := rib * (0.5 if absf(edge) < 0.75 else 1.0)
-		# Längs der Spalte zählt Bild-unten: +1 ist der untere Rand, also Welt -X.
-		var down := signf(edge) * pitch * 0.5
-		if absf(edge) < 0.75:
-			down -= signf(edge) * width * 0.5
-		TableProps.box(node, "Rippe%s" % ("O" if edge < 0.0 else "U"),
-			Vector3(width, deck_height(), bay.y), Vector3(-down, deck_height() * 0.5, 0.0),
-			_lip_material)
-	_build_bay(node, bay, seam)
+	for across in ACROSS:
+		var at_z := across_z(column, across)
+		var tag := "" if across == 0 else str(across)
+		for side in 2:
+			var dir := float(side) * 2.0 - 1.0
+			TableProps.box(node, "Lippe%d" % (across * 2 + side), Vector3(pitch, deck_height(),
+				rail), Vector3(0.0, deck_height() * 0.5, at_z + dir * (bay.y + rail) * 0.5),
+				_lip_material)
+		for edge: float in ribs:
+			var width := rib * (0.5 if absf(edge) < 0.75 else 1.0)
+			# Längs der Spalte zählt Bild-unten: +1 ist der untere Rand, also Welt -X.
+			var down := signf(edge) * pitch * 0.5
+			if absf(edge) < 0.75:
+				down -= signf(edge) * width * 0.5
+			TableProps.box(node, "Rippe%s%s" % ["O" if edge < 0.0 else "U", tag],
+				Vector3(width, deck_height(), bay.y), Vector3(-down, deck_height() * 0.5, at_z),
+				_lip_material)
+		var place := Node3D.new()
+		place.name = "Platz%d" % across
+		place.position = Vector3(0.0, 0.0, at_z)
+		node.add_child(place)
+		_build_bay(place, bay, seams[across] if across < seams.size() else _seam_material(BAY_EMPTY))
 
 ## EINE Mulde: Saum, Boden und die BUCHSE am Bild-rechten Ende.
 func _build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D) -> void:
@@ -917,6 +935,13 @@ func deck_height() -> float:
 static func deck_height_for(cell_scale: float) -> float:
 	return PROUD + DataCellView.DEPTH * cell_scale
 
+## Je Querplatz einer Reihe ein eigener Saum.
+func _row_seams() -> Array:
+	var seams: Array = []
+	for across in ACROSS:
+		seams.append(_seam_material(BAY_EMPTY))
+	return seams
+
 func _seam_material(tint: Color) -> StandardMaterial3D:
 	var seam := StandardMaterial3D.new()
 	seam.metallic = 0.2
@@ -941,8 +966,7 @@ func _build_spares(bays: Node3D, column: int, block_name: String, dir: float, pl
 		node.position = Vector3(-dir * pitch * (float(i) + 0.5), 0.0, 0.0)
 		block.add_child(node)
 		# Die Rippe am äußeren Rand: die innere trägt schon der Nachbar.
-		_build_segment(node, column, pitch, shape, [dir] as Array[float],
-			_seam_material(BAY_EMPTY))
+		_build_segment(node, column, pitch, shape, [dir] as Array[float], _row_seams())
 	block.position.x = -dir * _span.x * 0.5
 	return block
 
