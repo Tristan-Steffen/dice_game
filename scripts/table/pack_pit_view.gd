@@ -102,6 +102,8 @@ var wall := WALL
 var floor_plate := FLOOR
 var glow_color := GLOW_COLOR
 var glow_energy := GLOW_ENERGY
+## Der Grundton der Wände (die Magazin-Trays tragen ihr Gerät).
+var wall_color := WALL_ALBEDO
 ## Trägt die Grube einen KRAGEN über ihrer Schnittkante? Die Vertiefung unter der
 ## Tischsektion trägt keinen: dort deckt die bündige Platte die Kante selbst, und ein
 ## Kragen stünde ihr im Weg (die Schacht-Grammatik, LiftShaftView - "die Schnittkante
@@ -219,7 +221,7 @@ static func panel_width(span: Vector2) -> float:
 ## Fläche: der Samt-Schimmer ist EIN Verlauf über die ganze Bodenplatte.
 func _tune_lining() -> void:
 	var rect := Rect2(Vector2(center.x, center.z) - half, half * 2.0)
-	tune_lining(_wall_material, 0.0, WALL_ALBEDO, WALL_FIELD_ENERGY, rect,
+	tune_lining(_wall_material, 0.0, wall_color, WALL_FIELD_ENERGY, rect,
 		center.y, depth, glow_color, wall_skin)
 	tune_lining(_floor_material, 1.0, FLOOR_ALBEDO, FLOOR_FIELD_ENERGY, rect,
 		center.y, depth, glow_color, null)

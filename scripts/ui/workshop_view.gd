@@ -459,9 +459,10 @@ func slice_rect(index: int) -> Rect2:
 func drum_pit_rect() -> Rect2:
 	return _global(drum()["pit"])
 
-## Sein Eckenradius - derselbe, den die Magazin-Grube trägt.
+## Sein Eckenradius: der eines gemalten Rahmens, um dessen Breite verkleinert.
 func drum_pit_radius() -> float:
-	return shelf_pit_radius()
+	var unit := shelf_unit()
+	return maxf(unit * PackDrawerView.RADIUS - PackDrawerView.rim_inset(unit), 0.0)
 
 ## Die Kante des Scheiben-Vierkants in Display-Pixeln (an der KURZEN Kartenseite).
 func drum_side() -> float:
@@ -544,8 +545,9 @@ func raster_area_px() -> Rect2:
 	return _global(drum()["raster"])
 
 ## Was die Werkstatt in Display-Pixeln bedient: die Walze samt Nummern, der Info-Schirm,
-## das Magazin, die Netze der Gleichung samt Überschriften, das Podest und der
-## Präge-Sitz - der Filz dazwischen nicht, und die Raster-Taste ist ein eigener Körper.
+## die vier Trays des Magazins, die Netze der Gleichung samt Überschriften, das Podest
+## und der Präge-Sitz - der Filz dazwischen nicht, und die Raster-Taste ist ein eigener
+## Körper.
 func hit_rects() -> Array[Rect2]:
 	var layout := drum()
 	var pit: Rect2 = layout["pit"]
@@ -553,8 +555,10 @@ func hit_rects() -> Array[Rect2]:
 		0.0, 0.0)
 	var nets := (layout["upgrades"] as Rect2).merge(layout["result"]) \
 		.grow_individual(0.0, unit() * EQ_HEAD_UNITS, 0.0, 0.0)
-	return [_global(drum_row), info_rect_px(), shelf_rect_global(), _global(nets),
-		podium_rect_px(), stamp_seat_px()] as Array[Rect2]
+	var rects: Array[Rect2] = [_global(drum_row), info_rect_px(), _global(nets),
+		podium_rect_px(), stamp_seat_px()]
+	rects.append_array(shelf_tray_rects())
+	return rects
 
 ## Der PRÄGE-SITZ über ERGEBNIS, rechts neben der Platte.
 func stamp_seat_rect() -> Rect2:
@@ -876,11 +880,11 @@ static func podium_anchor_drop(die_face: float, u: float) -> float:
 	var half := chamber_side_px(die_face, u) * 0.5
 	return maxf(half, PODIUM_TILT_TRIM + face * PODIUM_HEAD_FACES) + u * PODIUM_RIM
 
-## Die PLATTE: die Kammer samt Rand, oben der Kopf des Würfels dazu.
+## Die PLATTE: um den Anker gespiegelt, damit er ihre Mitte ist - sie IST die Kammer.
 static func podium_plate_size(die_face: float, u: float) -> Vector2:
 	var side := chamber_side_px(die_face, u)
 	return Vector2(side + u * PODIUM_RIM * 2.0,
-		podium_anchor_drop(die_face, u) + side * 0.5 + u * PODIUM_RIM)
+		podium_anchor_drop(die_face, u) * 2.0)
 
 ## Der Zell-Faktor der Die-View: PODIUM_FACE_GAIN, außer der Podest-Platz würde höher als
 ## die Pool-Reihe - dann schrumpft er.
@@ -904,7 +908,8 @@ static func podium_net_size(card: Vector2, die_face: float, u: float,
 ## ERGEBNIS, die Netze gleich groß und unten bündig, darüber das Raster-Feld bzw. PRÄGEN.
 ## Unter dem Pool (eine Naht pool_seam darunter, linksbündig): die Nummern, der Graben mit
 ## den sechs Scheiben, eine Naht rechts daneben der Info-Schirm in Grabenhöhe; eine Fuge
-## tiefer das Magazin über die volle Breite, rechts bündig mit dem Info-Schirm.
+## tiefer das Magazin aus vier Trays (columns = ihre Gruben, trays = samt Fassung), rechts
+## bündig mit dem Info-Schirm.
 ## bounds ist das Fenster: Walze, Info-Schirm und Magazin - die Gleichung liegt außerhalb.
 static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 		u: float, _info_h := 0.0, pool_seam := -1.0) -> Dictionary:
@@ -921,14 +926,16 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 	for i in DRUM_SLICES:
 		slices.append(Rect2(Vector2(pit.position.x + seam * 0.5 + pitch * float(i),
 			pit.position.y), Vector2(slice_length_px(card), high)))
-	var rim := PackDrawerView.rim_inset(u)
-	var field := PackDrawerView.field_for(card)
-	var shelf_pos := Vector2(pool.position.x, pit.end.y + gap)
-	var shelf := Rect2(shelf_pos, field + Vector2.ONE * rim * 2.0)
-	# Je SORTE eine Spalte: die Lane ihrer Karten in Display-Pixeln (EINE Quelle).
+	var shelf := Rect2(Vector2(pool.position.x, pit.end.y + gap),
+		PackDrawerView.shelf_for(card))
+	var field := PackDrawerView.field_in(shelf)
+	# Je SORTE ein Tray: seine Grube (columns) und samt Fassung (trays), EINE Quelle.
 	var columns: Array[Rect2] = []
-	for lane in PackDrawerView.column_rects(field):
-		columns.append(Rect2(shelf_pos + Vector2.ONE * rim + lane.position, lane.size))
+	var trays: Array[Rect2] = []
+	for lane in PackDrawerView.column_rects(field.size):
+		var hole := Rect2(field.position + lane.position, lane.size)
+		columns.append(hole)
+		trays.append(PackDrawerView.tray_of(hole))
 	var info_left := pit.end.x + seam
 	var info := Rect2(Vector2(info_left, pit.position.y),
 		Vector2(maxf(shelf.end.x - info_left, 1.0), pit.size.y))
@@ -948,11 +955,9 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 		Vector2(maxf(net_span.x, plate_size.x), plate_size.y + seam + net_span.y))
 	var podium_stage := Rect2(Vector2(podium.get_center().x - plate_size.x * 0.5,
 		pool.position.y), plate_size)
-	# Die KAMMER liegt ganz in der Platte; ihre Mitte ist der Anker des Würfels.
-	var side := chamber_side_px(die_face, u)
-	var anchor := podium_stage.position + Vector2(plate_size.x * 0.5,
-		podium_anchor_drop(die_face, u))
-	var chamber := Rect2(anchor - Vector2.ONE * side * 0.5, Vector2.ONE * side)
+	# Die KAMMER ist so groß wie die Platte (Spieler-Wunsch 2026-11-20); ihre Mitte ist
+	# der Anker des Würfels.
+	var chamber := podium_stage
 	var podium_net := Rect2(Vector2(podium.get_center().x - net_span.x * 0.5,
 		podium_stage.end.y + seam), net_span)
 	var row_y := podium_net.position.y
@@ -977,7 +982,8 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 	var equation := Rect2(Vector2(upgrades.position.x, pool.position.y),
 		Vector2(result.end.x - upgrades.position.x, podium.size.y))
 	return {"pit": pit, "slices": slices, "chamber": chamber, "stamp": stamp,
-		"shelf": shelf, "columns": columns, "info": info, "original": podium_net,
+		"shelf": shelf, "columns": columns, "trays": trays, "info": info,
+		"original": podium_net,
 		"upgrades": upgrades, "result": result, "signs": [plus, equals] as Array[Rect2],
 		"equation": equation, "raster": raster, "podium": podium, "trace_band": trace_band,
 		"podium_stage": podium_stage, "podium_net": podium_net, "bounds": bounds}
@@ -1978,8 +1984,8 @@ func drum_end_px() -> Vector2:
 
 # --- Das Magazin (versiegelte Ware) ---------------------------------------------
 
-## Das Magazin: EINE eingelassene Grube unter der Walze, je Sorte eine Spalte, je
-## Paket seine eigene Kassette. Es ist die einzige Auslage versiegelter Ware.
+## Das Magazin: vier Trays unter der Walze, je Sorte einer, je Paket seine eigene
+## Kassette. Es ist die einzige Auslage versiegelter Ware.
 func _build_drawer(u: float) -> void:
 	_drawer = PackDrawerView.new()
 	_drawer.pack_pressed.connect(_on_pack_pressed)
@@ -2003,20 +2009,34 @@ func shelf_rect() -> Rect2:
 func shelf_rect_global() -> Rect2:
 	return _global(shelf_rect())
 
-## Das LOCH des Magazins in Display-Pixeln: der Streifen abzüglich seiner gemalten
-## Fassung. scene_root schneidet danach das Glas und stellt die Grube darunter.
+## Das FELD des Magazins in Display-Pixeln: die Vereinigung der vier Gruben (dazwischen
+## liegt Filz). Wer EIN Rechteck braucht - Kamera, Öffnungs-Rahmen -, nimmt dieses.
 func shelf_pit_rect() -> Rect2:
-	return PackDrawerView.pit_rect_in(shelf_rect_global(), shelf_unit())
+	return PackDrawerView.field_in(shelf_rect_global())
 
-## Die Lane der Magazin-Spalte column in Display-Pixeln.
+## Die GRUBE des Trays column in Display-Pixeln - dort schneidet scene_root das Loch.
 func shelf_column_rect(column: int) -> Rect2:
 	var columns: Array = drum()["columns"]
 	return _global(columns[clampi(column, 0, columns.size() - 1)])
 
-## Eckenradius des Lochs: der des Rahmens, um dessen Breite verkleinert.
-func shelf_pit_radius() -> float:
-	var unit := shelf_unit()
-	return maxf(unit * PackDrawerView.RADIUS - PackDrawerView.rim_inset(unit), 0.0)
+## Die TRAYS samt Fassung und Leisten-Band in Display-Pixeln, links zuerst.
+func shelf_tray_rects() -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	for tray: Rect2 in drum().get("trays", []):
+		rects.append(_global(tray))
+	return rects
+
+## Eckenradius des Lochs eines Trays (je Gerät).
+func shelf_pit_radius(column: int) -> float:
+	return PackDrawerView.PIT_RADII[clampi(column, 0, PackDrawerView.COLUMNS - 1)]
+
+## Die Aufschrift der LICHTLEISTE eines Trays: Name und Gesamtzahl.
+func shelf_bar_text(column: int) -> String:
+	return PackDrawerView.bar_text(column, shelf_column_count(column))
+
+## Wie viele REIHEN ein Tray belegt (mindestens das Fenster) - das Maß der Rollschiene.
+func shelf_rows(column: int) -> int:
+	return PackDrawerView.rows_for(shelf_column_count(column))
 
 ## Die Maßeinheit, in der das Magazin rechnet.
 func shelf_unit() -> float:

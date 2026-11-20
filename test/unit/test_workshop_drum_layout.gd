@@ -50,13 +50,11 @@ func test_the_info_screen_closes_the_drum_row() -> void:
 	assert_almost_eq(info.size.y, pit.size.y, 0.01, "so hoch wie er")
 	assert_almost_eq(info.end.x, shelf.end.x, 0.01, "rechts bündig mit dem Magazin")
 
-func test_the_chamber_lies_inside_the_podium_plate() -> void:
+func test_the_chamber_is_the_podium_plate() -> void:
 	var chamber: Rect2 = lay["chamber"]
 	var plate: Rect2 = lay["podium_stage"]
-	assert_true(plate.encloses(chamber), "die Platte umschließt die Grube ganz")
-	assert_almost_eq(chamber.size.x, WorkshopView.chamber_side_px(FACE, U), 0.01)
-	assert_almost_eq(chamber.size.y, chamber.size.x, 0.01, "quadratisch")
-	assert_almost_eq(chamber.get_center().x, plate.get_center().x, 0.01, "mittig")
+	assert_true(chamber.is_equal_approx(plate), "die Grube ist so groß wie die Platte")
+	assert_gte(chamber.size.x, WorkshopView.chamber_side_px(FACE, U), "Platz für die Kabel")
 	assert_gte(chamber.get_center().y - plate.position.y,
 		WorkshopView.PODIUM_TILT_TRIM + FACE * WorkshopView.PODIUM_HEAD_FACES,
 		"oben Platz für den schwebenden Würfel")
@@ -79,6 +77,27 @@ func test_shelf_spans_four_columns_of_two_cards() -> void:
 		assert_gt(c.size.y, CARD.y * float(PackDrawerView.PLACES), "zwei Reihen untereinander")
 		if i > 0:
 			assert_gt(c.position.x, (columns[i - 1] as Rect2).end.x, "Spalten von links")
+
+## Vier TRAYS samt Fassung: sie überlappen nicht, zwischen ihnen derselbe Filz, und das
+## Magazin wird nicht höher als die eine Grube vor ihnen (Unterkante ≤ 3117,7).
+func test_the_shelf_is_four_trays_no_taller_than_before() -> void:
+	var shelf: Rect2 = lay["shelf"]
+	var trays: Array = lay["trays"]
+	var columns: Array = lay["columns"]
+	assert_eq(trays.size(), PackDrawerView.COLUMNS)
+	for i in trays.size():
+		var tray: Rect2 = trays[i]
+		assert_true(tray.encloses(columns[i]), "Tray %d umschließt seine Grube" % (i + 1))
+		assert_true(shelf.grow(0.01).encloses(tray))
+		if i > 0:
+			assert_false(tray.intersects(trays[i - 1]), "Tray %d steht frei" % (i + 1))
+			assert_almost_eq(tray.position.x - (trays[i - 1] as Rect2).end.x,
+				PackDrawerView.FELT_GAP_PX, 0.01, "derselbe Filz dazwischen")
+	assert_almost_eq((trays[0] as Rect2).position.x, shelf.position.x, 0.01)
+	assert_almost_eq((trays[trays.size() - 1] as Rect2).end.x, shelf.end.x, 0.01)
+	assert_lte(shelf.end.y, 3117.7, "nicht tiefer als die eine Grube vor den Trays")
+	assert_lt(shelf.size.x, 1874.8, "schmaler: die Ränder sind gespart")
+	assert_gte((lay["info"] as Rect2).size.x, CARD.x * 2.0, "der Info-Schirm bleibt breit genug")
 
 ## Die GLEICHUNG rechts am Pool: UPGRADES + ORIGINAL = ERGEBNIS, drei gleich große Netze,
 ## unten bündig.
@@ -171,12 +190,12 @@ func test_the_podium_carries_its_plate_over_its_die_view() -> void:
 	assert_true(podium.grow(0.05).encloses(plate) and podium.grow(0.05).encloses(net),
 		"beides im Platz")
 
-## Reicht die Pool-Höhe nicht, schrumpft die Zelle - nie die Kammer.
+## Reicht die Pool-Höhe nicht, schrumpft die Zelle - die Kammer bleibt so hoch.
 func test_a_short_pool_shrinks_the_die_view_not_the_chamber() -> void:
 	var short := Rect2(POOL.position, Vector2(POOL.size.x, 420.0))
 	var small := WorkshopView.drum_layout(short, CARD, FACE, U, 0.0, SEAM)
 	assert_lte((small["podium"] as Rect2).size.y, 420.01)
-	assert_almost_eq((small["chamber"] as Rect2).size.x, (lay["chamber"] as Rect2).size.x, 0.01)
+	assert_almost_eq((small["chamber"] as Rect2).size.y, (lay["chamber"] as Rect2).size.y, 0.01)
 	assert_lt((small["podium_net"] as Rect2).size.y, (lay["podium_net"] as Rect2).size.y)
 	assert_eq((small["upgrades"] as Rect2).size, (small["podium_net"] as Rect2).size)
 

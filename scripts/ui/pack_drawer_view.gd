@@ -1,18 +1,17 @@
 class_name PackDrawerView
 extends Control
-## Das MAGAZIN der Werkbank: EINE Grube unter der Walze mit VIER SPALTEN nebeneinander,
-## eine je SORTE (Pack.SHELF_ORDER). Jede Spalte ist EIN durchgehendes Regal aus REIHEN zu
-## ACROSS Karten - Rang k liegt in Reihe k / ACROSS auf Querplatz k % ACROSS - und ROLLT
-## für sich in ganzen Reihen: ein Zug über die Spalte schiebt nur sie senkrecht, das
-## Fenster zeigt je Spalte PLACES Reihen.
-## Die Karten LIEGEN flach, Netz nach oben; ShelfStackView fährt die Körper, diese
-## Klasse rechnet die Plätze - die reine Spalten-Rechnung wohnt hier, damit table/ sie
+## Das MAGAZIN der Werkbank: VIER TRAYS nebeneinander unter der Walze, einer je SORTE
+## (Pack.SHELF_ORDER), jeder mit eigener Grube und Fassung, dazwischen echter Filz. Jeder
+## Tray ist EIN durchgehendes Regal aus REIHEN zu ACROSS Karten - Rang k liegt in Reihe
+## k / ACROSS auf Querplatz k % ACROSS - und ROLLT für sich in ganzen Reihen; das Fenster
+## zeigt je Tray PLACES Reihen, rechts daneben läuft die ROLLSCHIENE, unten die LICHTLEISTE.
+## Die Karten LIEGEN flach, Netz nach oben; ShelfStackView baut Trays und fährt die Körper,
+## diese Klasse rechnet die Rechtecke - die reine Rechnung wohnt hier, damit table/ sie
 ## liest statt umgekehrt.
 ## Die Karte hat ihr FESTES Maß (CASSETTE_SCALE); unbegrenzt ist der Bestand. Eine
-## hinausgerollte Karte hat keinen Chip, ihr Liefer-Licht endet am Rand ihrer Spalte.
-## Die Grube ist echt: screen_glass verwirft sein Bild darin, table_ground seinen
-## Filz, und PackPitView stellt Wände und Boden. Diese Klasse malt nur die FASSUNG
-## darum herum und trägt die Gesten: getippt wählt, gezogen rollt.
+## hinausgerollte Karte hat keinen Chip, ihr Liefer-Licht endet am Rand ihres Trays.
+## Die Gruben sind echt (screen_glass, table_ground, PackPitView); gemalt wird hier nichts,
+## diese Klasse trägt nur die Gesten: getippt wählt, gezogen rollt.
 ## Reiner Renderer: was liegt, was reserviert ist und was noch fliegt, entscheidet
 ## WorkshopView (drawer_entries).
 
@@ -103,23 +102,41 @@ const CASSETTE_SCALE := 3.2
 ## Seitenverhältnis der Kassette (Höhe / Breite, 2 : 3): daraus folgt ihr LIEGENDER
 ## Fußabdruck aus dem gemeldeten STEHENDEN. EINE Quelle - WorkshopView liest sie mit.
 const CARD_ASPECT := 1.5
-## Je SORTE eine Spalte (Pack.SHELF_ORDER - ein Test hält beide gleich).
+## Je SORTE ein Tray (Pack.SHELF_ORDER - ein Test hält beide gleich).
 const COLUMNS := 4
-## So viele Karten liegen in einer Spalte NEBENEINANDER (Layout C).
+## So viele Karten liegen in einem Tray NEBENEINANDER (Layout C).
 const ACROSS := 2
-## So viele REIHEN zeigt das Fenster je Spalte.
+## So viele REIHEN zeigt das Fenster je Tray.
 const PLACES := 2
-## Quer je Karte ihr Platz samt Luft und links die BLENDE, in Kartenlängen.
+## Quer je Karte ihr Platz samt Luft und rechts die ROLLSCHIENE, in Kartenlängen.
 const CARD_ROOM := 1.06
-const BAND_ROOM := 0.1
-## Der Anteil der Spaltenbreite, den die BLENDE am linken Rand der Spalte nimmt; die
-## Karten liegen in dem, was bleibt.
-const BAND_SHARE := BAND_ROOM / (BAND_ROOM + CARD_ROOM * ACROSS)
+const RAIL_ROOM := 0.1
+## Der Anteil der Grubenbreite, den die Rollschiene rechts nimmt.
+const RAIL_SHARE := RAIL_ROOM / (RAIL_ROOM + CARD_ROOM * ACROSS)
+## Längs je Reihe die Karte samt Luft (eigenes Maß - CELL_SPAN gehört dem Schwarzmarkt).
+const ROW_SPAN := 1.10
 ## Luft über PLACES hinaus, mit der die Feldhöhe rechnet (so fällt die Zählung
 ## sicher auf PLACES, nie eine Spur darunter).
-const PLACE_AIR := 0.15
+const PLACE_AIR := 0.01
+## Die FASSUNG eines Trays (Display-px): links, rechts und oben schmal, unten das Band
+## der LICHTLEISTE; zwischen zwei Trays liegt FELT_GAP_PX echter Filz.
+const FRAME_PX := 8.0
+const BAR_PX := 34.0
+const FELT_GAP_PX := 12.0
+const TRAY_GAP_PX := FRAME_PX * 2.0 + FELT_GAP_PX
+## Die Ecken jedes Lochs, je Gerät (Display-px): das Deck rund, das Steinbett weich.
+const PIT_RADII: Array[float] = [1.5, 5.0, 6.0, 2.0]
+## Die Namen der Lichtleisten.
+const BAR_NAMES := {
+	Engraving.CATEGORY_NUMBER: "Zahl",
+	Engraving.CATEGORY_MATERIAL: "Material",
+	Engraving.CATEGORY_DICE: "Rune",
+	Pack.SHELF_SPECIAL: "Sonder",
+}
 ## Ab so vielen Display-px Weg wird aus dem Druck ein Zug.
 const DRAG_THRESHOLD := 8.0
+## Der Schieber wird sofort gegriffen.
+const RAIL_THRESHOLD := 2.0
 
 ## Wo eine Spalte RASTEN darf (in Reihen): 0 bis zur Stellung, in der ihre letzte Reihe
 ## am unteren Fensterrand steht (leer: nur 0). count zählt Karten, window Reihen. GEZOGEN
@@ -149,10 +166,36 @@ static func snap_scroll(scroll: int, offset_px: float, slot_px: float, count: in
 		return clamp_scroll(scroll, count, window)
 	return clamp_scroll(scroll - roundi(offset_px / slot_px), count, window)
 
-## Der EINE RAND der Grube: GLEICH GROSS links, zwischen und rechts der Spalten.
-const LANE_GAP_PX := 28.0
+## Der SCHIEBER der Rollschiene als Anteile ihrer Länge (x = Anfang oben, y = Länge):
+## so lang wie sichtbare durch alle Reihen, so weit unten wie gerollt. scroll darf
+## gebrochen sein (ein laufender Zug) - er bleibt trotzdem ganz in der Schiene.
+static func rail_thumb(total_rows: int, window_rows: int, scroll: float) -> Vector2:
+	var whole := float(maxi(maxi(total_rows, window_rows), 1))
+	var length := clampf(float(maxi(window_rows, 1)) / whole, 0.0, 1.0)
+	return Vector2(clampf(scroll / whole, 0.0, 1.0 - length), length)
 
-## Greifluft längs der Spalte (die Kartenbreite).
+## Die Aufschrift der Lichtleiste: Name und Gesamtzahl.
+static func bar_text(column: int, total: int) -> String:
+	var shelf := String(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)])
+	var label := String(BAR_NAMES.get(shelf, Pack.shelf_short(shelf)))
+	return "%s %d" % [label, maxi(total, 0)]
+
+## Liegt die Feld-Breite x auf der ROLLSCHIENE ihres Trays? Der Griff reicht eine
+## Schienenbreite in die Grube und über die Fassung daneben.
+static func on_rail(field_size: Vector2, x: float) -> bool:
+	var pit := column_rects(field_size)[column_at(field_size, x)]
+	return x >= pit.end.x - rail_width(field_size) * 2.0 and x <= pit.end.x + FRAME_PX
+
+## Der Zug am SCHIEBER als Roll-Versatz des Trays: der Schieber folgt dem Zeiger, also
+## rollt der Inhalt um Reihen/Fenster schneller und gegenläufig - nie über die Enden.
+static func rail_drag(dy: float, count: int, scroll: int, slot_px: float,
+		window: int = PLACES) -> float:
+	var rows := maxi(rows_for(count), maxi(window, 1))
+	var up := float(clamp_scroll(scroll, count, window)) * slot_px
+	var down := float(max_scroll(count, window)) * slot_px - up
+	return clampf(-dy * float(rows) / float(maxi(window, 1)), -down, up)
+
+## Greifluft längs der Spalte des SCHWARZMARKTS (die Kartenbreite).
 const CELL_SPAN := 1.15
 ## Randluft im Platz.
 const SLOT_INSET := 0.12
@@ -162,14 +205,14 @@ const SLOT_INSET := 0.12
 const CELL_FALLBACK := 7.5
 const CELL_FALLBACK_DEPTH := 2.463
 
-## Der gemalte RAHMEN um die Grube - Schatten oben, Licht unten.
+## Der gemalte RAHMEN einer Grube - Schatten oben, Licht unten (der Schwarzmarkt malt ihn;
+## das Magazin trägt seit den Trays körperliche Fassungen).
 const RIM_BASE := Color("#34313f")
 const RIM_WIDTH := 0.45
 const EDGE := 0.33
 const RADIUS := 0.9
 const WELL_SHADOW := Color(0.0, 0.0, 0.0, 0.72)
 const WELL_SHEEN := Color(0.66, 0.64, 0.76, 0.4)
-const LOCK_DIM := Color(0.55, 0.55, 0.6)
 
 const EMPTY_TITLE := "Magazin"
 const EMPTY_BODY := "Das Magazin ist leer."
@@ -196,6 +239,10 @@ var _locked := false
 var _press_column := 0
 var _press_y := 0.0
 var _press_live := false
+## Greift der Zug den SCHIEBER der Rollschiene? Dazu Kartenzahl und Roll-Stand je Tray.
+var _press_rail := false
+var _counts: Array[int] = []
+var _scrolls: Array[int] = []
 var _dragging := false
 var _swallow_press := false
 
@@ -212,7 +259,7 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	_locked = locked
 	strip = strip_size if strip_size.x > 0.0 and strip_size.y > 0.0 else size
 	cell_px = footprint if footprint.x > 0.0 and footprint.y > 0.0 else _fallback_cell()
-	field = pit_rect_in(Rect2(Vector2.ZERO, strip), u)
+	field = field_in(Rect2(Vector2.ZERO, strip))
 	for child in get_children():
 		remove_child(child)
 		child.queue_free()
@@ -222,8 +269,12 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 	_chips.clear()
 	_press_live = false
 	_dragging = false
+	_scrolls = scrolls.duplicate()
+	_counts.assign([0, 0, 0, 0])
+	for entry in entries:
+		var at := clampi(int(entry.get("column", 0)), 0, COLUMNS - 1)
+		_counts[at] = maxi(_counts[at], int(entry.get("cell", 0)) + 1)
 	var shown := window_cards()
-	add_child(_well())
 	add_child(_well_catch())
 	for i in entries.size():
 		var uid := int(entries[i].get("uid", 0))
@@ -250,46 +301,70 @@ func build(entries: Array[Dictionary], unit: float, locked: bool,
 static func lie_cell(cell: Vector2) -> Vector2:
 	return Vector2(cell.y * CARD_ASPECT, cell.y) * CASSETTE_SCALE
 
-## Das FELD (die Grube ohne Fassung) für eine LIEGENDE Karte: COLUMNS Spalten zu je
-## Blende und ACROSS Plätzen samt der gleichen Ränder, PLACES Reihen samt Luft.
+## Das FELD für eine LIEGENDE Karte: die Vereinigung der vier GRUBEN (je ACROSS Plätze
+## samt Rollschiene, dazwischen Fassung, Filz, Fassung), PLACES Reihen samt Luft.
 static func field_for(card: Vector2) -> Vector2:
-	var column := card.x * (BAND_ROOM + CARD_ROOM * float(ACROSS))
-	return Vector2(column * float(COLUMNS) + LANE_GAP_PX * float(COLUMNS + 1),
-		card.y * CELL_SPAN * (float(PLACES) + PLACE_AIR))
+	return Vector2(pit_width_for(card) * float(COLUMNS) + TRAY_GAP_PX * float(COLUMNS - 1),
+		card.y * ROW_SPAN * (float(PLACES) + PLACE_AIR))
+
+## Die Breite EINER Grube: ACROSS Plätze und die Rollschiene.
+static func pit_width_for(card: Vector2) -> float:
+	return card.x * (CARD_ROOM * float(ACROSS) + RAIL_ROOM)
+
+## Das ganze MAGAZIN: das Feld samt der Fassungen links, rechts, oben und dem
+## Leisten-Band unten.
+static func shelf_for(card: Vector2) -> Vector2:
+	return field_for(card) + Vector2(FRAME_PX * 2.0, FRAME_PX + BAR_PX)
+
+## Das Feld im Magazin-Rechteck (die Umkehrung von shelf_for).
+static func field_in(shelf: Rect2) -> Rect2:
+	return Rect2(shelf.position + Vector2(FRAME_PX, FRAME_PX),
+		shelf.size - Vector2(FRAME_PX * 2.0, FRAME_PX + BAR_PX))
 
 ## Wie viele Kassetten in ihrer festen Größe untereinander in die Grube liegen.
 static func _places_at(field_size: Vector2, cell: Vector2) -> int:
-	var high := lie_cell(cell).y * CELL_SPAN
+	var high := lie_cell(cell).y * ROW_SPAN
 	if field_size.y <= 0.0 or high <= 0.0:
 		return 1
 	return maxi(int(field_size.y / high), 1)
 
-## REIHEN im Fenster einer Spalte.
+## REIHEN im Fenster eines Trays.
 static func places_for(field_size: Vector2, cell: Vector2) -> int:
 	return _places_at(field_size, cell)
 
-## KARTEN im Fenster einer Spalte.
+## KARTEN im Fenster eines Trays.
 static func window_cards_for(field_size: Vector2, cell: Vector2) -> int:
 	return _places_at(field_size, cell) * ACROSS
 
-## Die SPALTEN einer Grube, links zuerst: dazwischen und ringsum der gleiche Rand.
+## Die GRUBEN der Trays im Feld, links zuerst: dazwischen je TRAY_GAP_PX.
 static func column_rects(field_size: Vector2) -> Array[Rect2]:
 	var wide := column_width(field_size)
 	var rects: Array[Rect2] = []
 	for column in COLUMNS:
-		rects.append(Rect2(Vector2(LANE_GAP_PX + (wide + LANE_GAP_PX) * float(column), 0.0),
+		rects.append(Rect2(Vector2((wide + TRAY_GAP_PX) * float(column), 0.0),
 			Vector2(wide, field_size.y)))
 	return rects
 
-## Die BREITE einer Spalte: was von der Grube bleibt, wenn die Ränder ab sind.
-static func column_width(field_size: Vector2) -> float:
-	return maxf((field_size.x - LANE_GAP_PX * float(COLUMNS + 1)) / float(COLUMNS), 1.0)
+## Die TRAYS samt Fassung (dieselben Koordinaten wie die Gruben).
+static func tray_rects(field_size: Vector2) -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	for pit in column_rects(field_size):
+		rects.append(tray_of(pit))
+	return rects
 
-## Die Spalte unter einer Feld-Breite (lokal zum Feld): die Grenzen liegen mitten in
-## den Rändern, also gehört jeder Punkt der Grube einer Spalte.
+## Ein Tray um seine Grube: Fassung links, rechts und oben, unten das Leisten-Band.
+static func tray_of(pit: Rect2) -> Rect2:
+	return pit.grow_individual(FRAME_PX, FRAME_PX, FRAME_PX, BAR_PX)
+
+## Die BREITE einer Grube: was vom Feld bleibt, wenn die Fugen ab sind.
+static func column_width(field_size: Vector2) -> float:
+	return maxf((field_size.x - TRAY_GAP_PX * float(COLUMNS - 1)) / float(COLUMNS), 1.0)
+
+## Der Tray unter einer Feld-Breite (lokal zum Feld): die Grenzen liegen mitten im Filz,
+## also gehört jeder Punkt des Magazins einem Tray.
 static func column_at(field_size: Vector2, x: float) -> int:
-	var pitch := column_width(field_size) + LANE_GAP_PX
-	return clampi(int(floorf((x - LANE_GAP_PX * 0.5) / pitch)), 0, COLUMNS - 1)
+	var pitch := column_width(field_size) + TRAY_GAP_PX
+	return clampi(int(floorf((x + TRAY_GAP_PX * 0.5) / pitch)), 0, COLUMNS - 1)
 
 ## Platzmitte eines PLATZES im Fenster (Rang ab dem obersten sichtbaren, relativ zur
 ## Feldecke): Reihe place / ACROSS, Querplatz place % ACROSS - ein Platz über oder unter
@@ -297,24 +372,24 @@ static func column_at(field_size: Vector2, x: float) -> int:
 static func spot_for(place: int, field_size: Vector2, cell: Vector2, column := 0) -> Vector2:
 	var slot := slot_size(field_size, cell)
 	var left := column_rects(field_size)[clampi(column, 0, COLUMNS - 1)].position.x
-	return Vector2(left + band_width(field_size) + slot.x * (float(across_of(place)) + 0.5),
+	return Vector2(left + slot.x * (float(across_of(place)) + 0.5),
 		slot.y * (float(row_of(place)) + 0.5))
 
-## Die BLENDE links der Plätze einer Spalte.
-static func band_width(field_size: Vector2) -> float:
-	return column_width(field_size) * BAND_SHARE
+## Die ROLLSCHIENE rechts in der Grube eines Trays.
+static func rail_width(field_size: Vector2) -> float:
+	return column_width(field_size) * RAIL_SHARE
 
-## Der PLATZ einer Karte: in der Breite ein ACROSS-tel der Spalte ohne die Blende, in der
+## Der PLATZ einer Karte: in der Breite ein ACROSS-tel der Grube ohne die Schiene, in der
 ## Höhe die Feldhöhe geteilt durch die Reihen im Fenster.
 static func slot_size(field_size: Vector2, cell: Vector2) -> Vector2:
-	return Vector2(column_width(field_size) * (1.0 - BAND_SHARE) / float(ACROSS),
+	return Vector2(column_width(field_size) * (1.0 - RAIL_SHARE) / float(ACROSS),
 		field_size.y / float(_places_at(field_size, cell)))
 
 ## Der GRIFF einer Kassette: ihr ganzer Platz abzüglich der Randluft.
 static func grip_for(field_size: Vector2, cell: Vector2) -> Vector2:
 	return slot_size(field_size, cell) * (1.0 - SLOT_INSET * 2.0)
 
-## Die Grube selbst: das Rechteck INNERHALB des gemalten Rahmens.
+## Eine gemalte Grube (Schwarzmarkt): das Rechteck INNERHALB des Rahmens.
 static func pit_rect_in(rect: Rect2, unit: float) -> Rect2:
 	var inset := rim_inset(unit)
 	return rect.grow(-inset)
@@ -414,8 +489,9 @@ func _track_drag(event: InputEvent) -> void:
 			return
 		if click.pressed:
 			_press_y = click.global_position.y
-			_press_column = column_at(field.size,
-				click.global_position.x - get_global_rect().position.x - field.position.x)
+			var at := click.global_position.x - get_global_rect().position.x - field.position.x
+			_press_column = column_at(field.size, at)
+			_press_rail = on_rail(field.size, at)
 			_press_live = true
 			_dragging = false
 			return
@@ -425,7 +501,7 @@ func _track_drag(event: InputEvent) -> void:
 			# Gemeldet wird NACH dem Ereignis: der Neuaufbau nähme sonst dem Knopf, der
 			# gerade sein Loslassen verarbeitet, den Baum unter den Füßen weg.
 			scroll_released.emit.call_deferred(_press_column,
-				click.global_position.y - _press_y)
+				_drag_offset(click.global_position.y - _press_y))
 		_press_live = false
 		_dragging = false
 		return
@@ -436,10 +512,19 @@ func _track_drag(event: InputEvent) -> void:
 		_press_live = false
 		return
 	var offset := motion.global_position.y - _press_y
-	if not _dragging and absf(offset) >= DRAG_THRESHOLD:
+	if not _dragging and absf(offset) >= (RAIL_THRESHOLD if _press_rail else DRAG_THRESHOLD):
 		_dragging = true
 	if _dragging:
-		scroll_dragged.emit(_press_column, offset)
+		scroll_dragged.emit(_press_column, _drag_offset(offset))
+
+## Der Roll-Versatz eines Zeigerwegs: über den Karten 1:1, am Schieber übersetzt.
+func _drag_offset(dy: float) -> float:
+	if not _press_rail:
+		return dy
+	var scroll := _scrolls[_press_column] if _press_column < _scrolls.size() else 0
+	var count := _counts[_press_column] if _press_column < _counts.size() else 0
+	return rail_drag(dy, count, scroll, slot_size(field.size, cell_px).y,
+		places_for(field.size, cell_px))
 
 func _clear_swallow() -> void:
 	_swallow_press = false
@@ -484,25 +569,6 @@ func _fallback_cell() -> Vector2:
 static func fallback_cell(unit: float) -> Vector2:
 	var deep := unit * CELL_FALLBACK * 2.0 / 3.0
 	return Vector2(deep / CELL_FALLBACK_DEPTH, deep)
-
-## Die FASSUNG der Grube; ihre Mitte ist ein echtes Loch.
-func _well() -> Panel:
-	var well := Panel.new()
-	well.name = "DrawerWell"
-	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	well.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var radius := int(u * RADIUS)
-	var box := StyleBoxFlat.new()
-	box.draw_center = false
-	box.border_color = RIM_BASE
-	box.set_border_width_all(maxi(2, int(u * RIM_WIDTH)))
-	box.set_corner_radius_all(radius)
-	well.add_theme_stylebox_override("panel", box)
-	var edge := maxi(2, int(u * EDGE))
-	well.add_child(edge_band("WellShade", WELL_SHADOW, edge, radius, true))
-	well.add_child(edge_band("WellSheen", WELL_SHEEN, edge, radius, false))
-	well.modulate = LOCK_DIM if _locked else Color.WHITE
-	return well
 
 ## Der unsichtbare Fang der Fach-Fläche: ein Doppelklick räumt auf, ein Zug rollt.
 ## Als KNOPF, damit die Werkbank-Nahsicht hier nicht mitzündet.

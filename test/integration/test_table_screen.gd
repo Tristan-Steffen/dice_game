@@ -721,24 +721,29 @@ func test_the_arrival_flash_stands_on_the_spot_and_ignores_a_missing_one():
 
 # --- Die Löcher der Anzeige -------------------------------------------------------
 # Keine Fenster: sie kosten keinen der MAX_WINDOWS-Plätze und haben eigene
-# Uniforms. Platz 0 ist DAUERHAFT die Magazin-Grube, die übrigen sind die
-# flüchtigen Schächte der Hebebühnen.
+# Uniforms. Die vier Trays des Magazins sind DAUERHAFT (Platz 0 und die letzten drei),
+# die übrigen sind die flüchtigen Schächte der Hebebühnen.
 
-func test_the_apron_pit_is_the_only_hole_and_keeps_its_rect():
-	var hole := Rect2(120, 640, 900, 150)
-	screen.set_apron_pit(hole, 7.0)
-	assert_eq(screen.apron_pit, hole, "die Grube behält ihr Rechteck")
-	assert_almost_eq(screen.apron_pit_radius, 7.0, 0.0001)
-	screen.set_apron_pit(Rect2(), 0.0)
-	assert_eq(screen.apron_pit.size, Vector2.ZERO, "ein Null-Rechteck heißt: kein Loch")
+func test_each_magazin_tray_keeps_its_own_hole():
+	for column in PackDrawerView.COLUMNS:
+		var hole := Rect2(120 + 300 * column, 640, 280, 150)
+		screen.set_magazin_pit(column, hole, 7.0)
+		assert_eq(screen.pit_rect(TableScreen.magazin_pit(column)), hole,
+			"Tray %d behält sein Rechteck" % (column + 1))
+		assert_almost_eq(screen.pit_radius(TableScreen.magazin_pit(column)), 7.0, 0.0001)
+	screen.set_magazin_pit(2, Rect2(), 0.0)
+	assert_false(screen.pit_open(TableScreen.magazin_pit(2)), "ein Null-Rechteck heißt: kein Loch")
+	assert_true(screen.pit_open(TableScreen.magazin_pit(3)), "die anderen bleiben")
 
 func test_a_negative_pit_radius_is_refused():
-	screen.set_apron_pit(Rect2(10, 10, 20, 20), -4.0)
-	assert_almost_eq(screen.apron_pit_radius, 0.0, 0.0001)
+	screen.set_magazin_pit(0, Rect2(10, 10, 20, 20), -4.0)
+	assert_almost_eq(screen.pit_radius(TableScreen.PIT_MAGAZIN), 0.0, 0.0001)
 
 func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 	var magazin := Rect2(120, 640, 900, 150)
-	screen.set_apron_pit(magazin, 7.0)
+	screen.set_magazin_pit(0, magazin, 7.0)
+	var tray := Rect2(1100, 640, 280, 150)
+	screen.set_magazin_pit(3, tray, 7.0)
 	screen.set_pit(TableScreen.PIT_SHOP_PACK0, Rect2(200, 300, 400, 80))
 	# Jeder Wett-Plot hat seinen EIGENEN Platz - drei Gruben stehen unabhängig offen.
 	for i in SideBetPanel.OFFER_COUNT:
@@ -766,6 +771,7 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 		assert_false(screen.pit_open(slot), "Platz %d ist zu" % slot)
 	assert_eq(screen.pit_rect(TableScreen.PIT_MAGAZIN), magazin,
 		"die Magazin-Grube ist Möbel, kein Auftritt")
+	assert_eq(screen.pit_rect(TableScreen.magazin_pit(3)), tray, "jeder Tray")
 	assert_eq(screen.pit_rect(TableScreen.PIT_DRUM), graben, "der Graben ebenso")
 	assert_false(screen.pit_open(TableScreen.PIT_CHAMBER),
 		"die Kammer ist kein Möbel mehr - der harte Weg schließt sie")

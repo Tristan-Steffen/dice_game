@@ -539,13 +539,13 @@ var _rising_packs: Dictionary = {}
 ## Nur der ZULETZT angestoßene Abgleich läuft nach dem gewarteten Bild weiter -
 ## sonst stellten zwei Aufbauten im selben Bild zwei Körper auf denselben Platz.
 var _data_cell_gen := 0
-## Die MAGAZIN-GRUBE: Wände, Boden und Kragen unter dem Loch, das screen_glass in
-## die Anzeige schneidet. Möbel wie die Trays - sie steht ab dem Aufbau und tritt
-## für keinen Ablauf ab. Die Läden stehen flächig.
-var pack_pit: PackPitView
+## Die GRUBEN der vier Magazin-Trays: Wände und Boden unter den Löchern, die screen_glass
+## in die Anzeige schneidet. Möbel - sie stehen ab dem Aufbau und treten für keinen
+## Ablauf ab.
+var shelf_pits: Array[PackPitView] = []
 ## Und der GRABEN der Walze: ein Dauer-Loch für sich.
 var drum_pit: PackPitView
-## Das SORTEN-MAGAZIN in seiner Grube: vier Spalten nebeneinander, jede rollt für sich.
+## Das SORTEN-MAGAZIN in seinen Gruben: vier Trays nebeneinander, jeder rollt für sich.
 ## Es TRÄGT die Karten (sie sind Kinder ihres Faches), also fahren sie mit.
 var shelf_stack: ShelfStackView
 ## Der Filzboden rings um die Anzeige. Er muss dort ausblenden, wo die Grube steht,
@@ -3649,29 +3649,36 @@ func _drop_drum() -> void:
 		drum.queue_free()
 	drum = null
 
-## Die Grube unter dem Magazin: das Loch im Glas, der ausgeblendete Filz darunter
-## und der Körper, den man hindurch sieht. Idempotent - dieselben Maße schreiben
-## dasselbe.
+## Die vier Gruben der Magazin-Trays: je Tray das Loch im Glas, der ausgeblendete Filz
+## darunter und der Körper, den man hindurch sieht - in Wand und Saum seines Geräts, ohne
+## Kragen (die Fassung auf dem Filz deckt die Schnittkante). Idempotent.
 func _sync_pack_pit(workshop: WorkshopView) -> void:
 	if table_screen == null:
 		return
-	var rect := workshop.shelf_pit_rect()
-	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-		return
-	table_screen.set_apron_pit(rect, workshop.shelf_pit_radius())
-	var centre := table_screen.pixel_to_world(rect.get_center())
-	if pack_pit == null or not is_instance_valid(pack_pit):
-		pack_pit = PackPitView.new()
-		pack_pit.wall_skin = PIT_SKIN
-		add_child(pack_pit)
-	# Die Wände oben und unten (Welt ±X) bekommen den SCHLITZ, durch den die Spalten
-	# hinausrollen: von der Oberkante der Karte bis unter die Platte.
 	var scale := workshop.shelf_cell_scale()
 	var air := ShelfStackView.RIM_CLEAR * 0.5
-	pack_pit.slot_walls = [PackPitView.WALL_X_PLUS, PackPitView.WALL_X_MINUS] as Array[int]
-	pack_pit.slot = Vector2(maxf(ShelfStackView.RIM_CLEAR - air, 0.0),
-		ShelfStackView.stack_depth(scale) + air)
-	pack_pit.setup(centre, _pit_half(rect), _pack_pit_depth())
+	for column in PackDrawerView.COLUMNS:
+		var rect := workshop.shelf_column_rect(column)
+		if rect.size.x <= 0.0 or rect.size.y <= 0.0:
+			continue
+		table_screen.set_magazin_pit(column, rect, workshop.shelf_pit_radius(column))
+		while shelf_pits.size() <= column:
+			shelf_pits.append(null)
+		var pit: PackPitView = shelf_pits[column]
+		if pit == null or not is_instance_valid(pit):
+			pit = PackPitView.new("MagazinGrube%d" % (column + 1))
+			pit.rimmed = false
+			pit.wall_color = MagazinTrayDress.wall_color(column)
+			pit.glow_color = MagazinTrayDress.glow_color(column)
+			add_child(pit)
+			shelf_pits[column] = pit
+		# Die Wände oben und unten (Welt ±X) bekommen den SCHLITZ, durch den der Tray
+		# hinausrollt: von der Oberkante der Karte bis unter die Platte.
+		pit.slot_walls = [PackPitView.WALL_X_PLUS, PackPitView.WALL_X_MINUS] as Array[int]
+		pit.slot = Vector2(maxf(ShelfStackView.RIM_CLEAR - air, 0.0),
+			ShelfStackView.stack_depth(scale) + air)
+		pit.setup(table_screen.pixel_to_world(rect.get_center()), _pit_half(rect),
+			_pack_pit_depth())
 
 ## Der GRABEN der Walze: ein Dauer-Loch, so tief, dass die auf Kante stehende Scheibe
 ## frei dreht.
@@ -3833,8 +3840,9 @@ func _close_chamber_hard() -> void:
 
 #endregion
 
-## DAS SORTEN-MAGAZIN: die vier Spalten in der Magazin-Grube. Möbel, idempotent - das
-## ROLLEN gehört dem Zug, dieser Abgleich stellt nur und schreibt Mulden und Glimmen nach.
+## DAS SORTEN-MAGAZIN: die vier Trays in ihren Gruben. Möbel, idempotent - das ROLLEN
+## gehört dem Zug, dieser Abgleich stellt nur und schreibt Mulden, Lichtleiste und
+## Rollschiene nach.
 func _sync_shelf_stack(workshop: WorkshopView) -> void:
 	if table_screen == null:
 		return
@@ -3848,16 +3856,20 @@ func _sync_shelf_stack(workshop: WorkshopView) -> void:
 		add_child(shelf_stack)
 	shelf_stack.bottom_pocket_limit_x = _shelf_bottom_pocket_limit()
 	shelf_stack.top_pocket_limit_x = _shelf_top_pocket_limit()
+	var k := _world_span(rect.size).y / rect.size.x
 	shelf_stack.setup(table_screen.pixel_to_world(rect.get_center()),
-		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect))
+		_world_span(rect.size), workshop.shelf_cell_scale(), _shelf_lanes(rect),
+		Vector3(PackDrawerView.FRAME_PX, PackDrawerView.FRAME_PX, PackDrawerView.BAR_PX) * k)
+	var window := workshop.shelf_places()
 	for column in PackDrawerView.COLUMNS:
 		shelf_stack.set_bay_tints(column, workshop.shelf_column_tints(column),
 			workshop.shelf_scroll_of(column) > 0)
-		var spill := workshop.shelf_overflow(column)
-		shelf_stack.set_overflow(column, spill.x > 0, spill.y > 0)
+		shelf_stack.set_bar(column, workshop.shelf_bar_text(column))
+		shelf_stack.set_rail(column, workshop.shelf_rows(column), window,
+			workshop.shelf_scroll_of(column))
 
-## Die SPALTEN der Grube in WELT: je Spalte die Mitte ihrer Lane (Welt-Z, relativ zur
-## Grubenmitte) und ihre Breite. Das FENSTER rechnet die Rechtecke in Display-Pixeln,
+## Die GRUBEN der Trays in WELT: je Tray die Mitte seiner Grube (Welt-Z, relativ zur Mitte
+## des Feldes) und ihre Breite. Das FENSTER rechnet die Rechtecke in Display-Pixeln,
 ## scene_root rechnet sie um - ui/ faßt keine Körper an. Bild-rechts ist Welt +Z.
 func _shelf_lanes(rect: Rect2) -> Array[Vector2]:
 	var lanes: Array[Vector2] = []
@@ -8747,13 +8759,13 @@ func _dice_opening_frame_px() -> Rect2:
 			rect = rect.merge(place)
 	return rect
 
-## Öffnungs-Fläche ∪ Magazin-Grube, in Display-Pixeln.
+## Öffnungs-Fläche ∪ die vier Trays des Magazins samt Lichtleisten, in Display-Pixeln.
 func _card_opening_frame_px() -> Rect2:
 	var rect := _opening_rect
 	var workshop: WorkshopView = table_screen.workshop_window
 	if workshop == null or not is_instance_valid(workshop) or not workshop.visible:
 		return rect
-	var pit := workshop.shelf_pit_rect().abs()
+	var pit := workshop.shelf_rect_global().abs()
 	if pit.size.x > 0.0 and pit.size.y > 0.0:
 		rect = rect.merge(pit)
 	return rect
@@ -11802,8 +11814,9 @@ func _wheel_shelf(screen_pos: Vector2, up: bool) -> void:
 	if slice >= 0:
 		drum.spin_by(slice, -1 if up else 1)
 		return
-	for column in PackDrawerView.COLUMNS:
-		if workshop.shelf_column_rect(column).has_point(pixel):
+	var trays := workshop.shelf_tray_rects()
+	for column in trays.size():
+		if trays[column].has_point(pixel):
 			workshop.wheel_shelf(column, -1 if up else 1)
 			return
 

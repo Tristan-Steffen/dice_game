@@ -37,7 +37,9 @@ const OUTLET_TILT := 0.9
 const STATION_TOP := 0.6
 const STATION_FLOOR := 0.8
 ## Der STAMM: vier Spuren nebeneinander, so breit je Spur und so lang vor dem Stecker.
-const LANE := 0.085
+const LANE := 0.058
+## Eine unbenutzte Spur ist nur ein dünner Faden (Anteil der Spurbreite).
+const IDLE_SHARE := 0.14
 const TRUNK := 0.62
 const TRUNK_SEGMENTS := 4
 ## Der ZOPF: auf dem letzten Stück vor dem Sammler kreuzen sich die Bänder.
@@ -49,15 +51,15 @@ const BRAID := 0.13
 const TRUNK_SHARE := 0.84
 ## Der ECKSTECKER: Schenkellänge und -breite, wie weit sein Schuh von der Ecke sitzt und
 ## wie weit er über der Seite steht - der Rahmen des Würfels ragt selbst vor.
-const CLIP_ARM := 0.44
-const CLIP_BAR := 0.11
+const CLIP_ARM := 0.27
+const CLIP_BAR := 0.065
 const CLIP_INSET := 0.11
 const CLIP_PROUD := 0.09
 const GUNMETAL := Color(0.2, 0.22, 0.27)
 const DARK := Color(0.07, 0.075, 0.09)
 const STEEL := Color(0.55, 0.58, 0.66)
 const GOLD := Color(0.85, 0.63, 0.24)
-const IDLE_LANE := Color(0.1, 0.11, 0.14)
+const IDLE_LANE := Color(0.2, 0.22, 0.27)
 const SAG := 0.18
 const STAGGER_SPAN := 0.18
 const TICK_GLOW := 0.6
@@ -351,7 +353,8 @@ func _build_harness(die_center: Vector3, basis: Basis, half_edge: float, face: i
 			_m(lamp, lanes[rank], Vector3.ZERO, Vector3.ONE * 0.055, 0.0, 1.0)
 			_ports_lit.append(lamp)
 		else:
-			_add_cable(_trunk_path(joint + shift, seat + shift, lat), IDLE_LANE, joint, seat, false)
+			_add_cable(_trunk_path(joint + shift, seat + shift, lat, IDLE_SHARE), IDLE_LANE,
+				joint, seat, false)
 	_fittings.append(_build_collector(joint, lat, toward, lanes))
 	_fittings.append(_build_connector(die_center, basis, half_edge, face, corner, lanes))
 
@@ -380,11 +383,11 @@ func _weave_path(from: Vector3, joint: Vector3, seat: Vector3, lat: Vector3,
 	path.append_array(_trunk_path(joint + lat * lane, seat + lat * lane, lat).slice(1))
 	return path
 
-func _trunk_path(from: Vector3, to: Vector3, lat: Vector3) -> Array:
+func _trunk_path(from: Vector3, to: Vector3, lat: Vector3, share := 0.44) -> Array:
 	var path: Array = []
 	for i in TRUNK_SEGMENTS + 1:
 		var t := float(i) / float(TRUNK_SEGMENTS)
-		path.append([from.lerp(to, t), lat, LANE * 0.44, lerpf(TRUNK_SHARE, 1.0, t)])
+		path.append([from.lerp(to, t), lat, LANE * share, lerpf(TRUNK_SHARE, 1.0, t)])
 	return path
 
 func _add_cable(path: Array, tint: Color, from: Vector3, to: Vector3, live: bool) -> void:
@@ -414,12 +417,12 @@ func _build_collector(joint: Vector3, lat: Vector3, toward: Vector3, lanes: Dict
 	block.name = "Sammler"
 	_loom.add_child(block)
 	block.global_transform = Transform3D(Basis(lat, toward.cross(lat), toward), joint)
-	_m(block, GUNMETAL, Vector3.ZERO, Vector3(LANE * 4.7, 0.075, 0.2))
-	_m(block, STEEL, Vector3(0, 0, -0.085), Vector3(LANE * 4.9, 0.09, 0.03))
+	_m(block, GUNMETAL, Vector3.ZERO, Vector3(LANE * 4.5, 0.045, 0.13))
+	_m(block, STEEL, Vector3(0, 0, -0.055), Vector3(LANE * 4.7, 0.055, 0.02))
 	for rank in CHANNELS.size():
 		if lanes.has(rank):
-			_m(block, lanes[rank], Vector3((float(rank) - 1.5) * LANE, 0.04, 0.03),
-				Vector3(LANE * 0.55, 0.012, 0.07), 0.0, 0.6)
+			_m(block, lanes[rank], Vector3((float(rank) - 1.5) * LANE, 0.024, 0.02),
+				Vector3(LANE * 0.55, 0.01, 0.05), 0.0, 0.6)
 	return block
 
 ## Der ECKSTECKER: ein Winkel, der die Ecke der Seite von innen faßt (zwei Schenkel längs
@@ -441,18 +444,18 @@ func _build_connector(die_center: Vector3, basis: Basis, half_edge: float, face:
 	_loom.add_child(clip)
 	clip.global_transform = Transform3D(Basis(x, up, x.cross(up)),
 		die_center + basis * (corner * half_edge + dir * (CLIP_PROUD - 0.06)))
-	_m(clip, GUNMETAL * 0.9, Vector3(CLIP_ARM * 0.5, 0.025, CLIP_BAR * 0.5), Vector3(CLIP_ARM, 0.05, CLIP_BAR))
-	_m(clip, GUNMETAL * 0.9, Vector3(CLIP_BAR * 0.5, 0.025, CLIP_ARM * 0.5), Vector3(CLIP_BAR, 0.05, CLIP_ARM))
-	_m(clip, STEEL, Vector3(CLIP_ARM, 0.03, CLIP_BAR * 0.5), Vector3(0.05, 0.07, CLIP_BAR + 0.03))
-	_m(clip, STEEL, Vector3(CLIP_BAR * 0.5, 0.03, CLIP_ARM), Vector3(CLIP_BAR + 0.03, 0.07, 0.05))
+	_m(clip, GUNMETAL * 0.9, Vector3(CLIP_ARM * 0.5, 0.018, CLIP_BAR * 0.5), Vector3(CLIP_ARM, 0.036, CLIP_BAR))
+	_m(clip, GUNMETAL * 0.9, Vector3(CLIP_BAR * 0.5, 0.018, CLIP_ARM * 0.5), Vector3(CLIP_BAR, 0.036, CLIP_ARM))
+	_m(clip, STEEL, Vector3(CLIP_ARM, 0.02, CLIP_BAR * 0.5), Vector3(0.03, 0.046, CLIP_BAR + 0.02))
+	_m(clip, STEEL, Vector3(CLIP_BAR * 0.5, 0.02, CLIP_ARM), Vector3(CLIP_BAR + 0.02, 0.046, 0.03))
 	var seat := CLIP_INSET * 0.7071
-	_m(clip, DARK * 1.4, Vector3(seat, 0.045, seat), Vector3(LANE * 4.6, 0.09, 0.17), 0.4, 0.0, QUARTER)
+	_m(clip, DARK * 1.4, Vector3(seat, 0.03, seat), Vector3(LANE * 4.5, 0.06, 0.11), 0.4, 0.0, QUARTER)
 	for rank in CHANNELS.size():
 		var along := (float(rank) - 1.5) * LANE * 0.7071
-		var inner := seat + 0.085
+		var inner := seat + 0.055
 		var lit := lanes.has(rank)
 		_m(clip, lanes[rank] if lit else GOLD * 0.5,
-			Vector3(inner + along, 0.035, inner - along), Vector3(LANE * 0.45, 0.03, 0.06),
+			Vector3(inner + along, 0.025, inner - along), Vector3(LANE * 0.45, 0.022, 0.04),
 			0.0 if lit else 1.0, 0.35 if lit else 0.0, QUARTER)
 	return clip
 

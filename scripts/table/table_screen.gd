@@ -244,13 +244,14 @@ const PIT_DEAL_U_DIV := 7.0
 ## Display-Glas-Material: bekommt über _sync_reflection_windows die Fenster-
 ## Rechtecke - NUR dort spiegelt das Glas, der Filz dazwischen bleibt matt.
 var _glass_material: ShaderMaterial
-## Die LÖCHER der Anzeige in Display-Pixeln (leeres Rechteck = keins): Platz 0
-## gehört DAUERHAFT der Magazin-Grube, die übrigen sind die flüchtigen SCHÄCHTE
+## Die LÖCHER der Anzeige in Display-Pixeln (leeres Rechteck = keins): Platz 0 und die
+## drei letzten gehören DAUERHAFT den Trays des Magazins, die übrigen sind die flüchtigen SCHÄCHTE
 ## der Hebebühnen - offen nur, solange eine Auslage auffährt. Keine Fenster: sie
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 45
+const MAX_PITS := 48
+## Der erste Tray des Magazins (Zahl); die drei übrigen hängen hinten an.
 const PIT_MAGAZIN := 0
 ## Die PAKET-FLÄCHE des Ladens: je Platz SEINE Sektion - die erste auf Platz 1,
 ## die übrigen fünf hängen hinten an (SHOP_PACK_PITS).
@@ -334,6 +335,15 @@ const PIT_OPENING := 36
 ## Der EINZUG des leeren Modul-Beutels in der Wurfgrube - ein eigenes Loch.
 const PIT_BAG := 44
 
+## Die Trays 2-4 des Magazins (Material, Rune, Sonder) - Möbel, ans Ende gehängt.
+const PIT_MAGAZIN_TAIL0 := 45
+const MAGAZIN_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_TAIL0 + 1,
+	PIT_MAGAZIN_TAIL0 + 2]
+
+## Der Löcher-Platz des Magazin-Trays einer Sorte.
+static func magazin_pit(column: int) -> int:
+	return MAGAZIN_PITS[clampi(column, 0, MAGAZIN_PITS.size() - 1)]
+
 static func store_pit(lane: int) -> int:
 	return [PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES][clampi(lane, 0, 2)]
 
@@ -361,15 +371,6 @@ var _pit_radii := PackedFloat32Array()
 var _ground_material: ShaderMaterial
 ## Die EINE Haut, die jede Hebebühnen-Plattform trägt (display_skin).
 var _display_skin: ShaderMaterial
-## Die Magazin-Grube unter ihrem alten Namen: Platz 0, nur lesend.
-var apron_pit: Rect2:
-	get:
-		_ensure_pits()
-		return _pit_rects[PIT_MAGAZIN]
-var apron_pit_radius: float:
-	get:
-		_ensure_pits()
-		return _pit_radii[PIT_MAGAZIN]
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
 ## Mult-Zähler (die bleiben eigenständige Kinder mit Screen-globaler Position -
 ## die Zähl-Animation rechnet unverändert weiter).
@@ -1333,11 +1334,10 @@ func _ensure_pits() -> void:
 		_pit_rects[i] = Rect2()
 		_pit_radii[i] = 0.0
 
-## Schneidet das Loch der Magazin-Grube ins Display-Glas (leeres Rechteck =
-## keins). Der Körper darunter gehört scene_root (PackPitView), hier fällt nur
-## die Anzeige weg.
-func set_apron_pit(rect: Rect2, radius: float = 0.0) -> void:
-	set_pit(PIT_MAGAZIN, rect, radius)
+## Schneidet das Loch eines Magazin-Trays ins Display-Glas (leeres Rechteck = keins).
+## Der Körper darunter gehört scene_root (PackPitView), hier fällt nur die Anzeige weg.
+func set_magazin_pit(column: int, rect: Rect2, radius: float = 0.0) -> void:
+	set_pit(magazin_pit(column), rect, radius)
 
 ## Ein Loch setzen (leeres Rechteck = keins). Idempotent - dasselbe Rechteck
 ## schreibt keine Uniform neu.
@@ -1370,7 +1370,8 @@ func clear_pit(slot: int) -> void:
 
 ## Der EINE Aufräum-Pfad: jeder Schacht ist zu. Die Gruben der Möbel bleiben - sie sind
 ## kein Auftritt, und ihre Löcher werden nur beim Fenster-Neuaufbau geschrieben.
-const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_DRUM,
+const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_TAIL0 + 1,
+	PIT_MAGAZIN_TAIL0 + 2, PIT_DRUM,
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,

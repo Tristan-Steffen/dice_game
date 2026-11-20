@@ -115,6 +115,8 @@ func test_the_magazine_stands_under_the_drum_with_four_columns() -> void:
 		assert_true(view.shelf_column_rect(column).is_equal_approx(columns[column]),
 			"Spalte %d" % column)
 		assert_true(view.shelf_pit_rect().encloses(view.shelf_column_rect(column)))
+		assert_true(view.shelf_tray_rects()[column].is_equal_approx(frame["trays"][column]),
+			"Tray %d samt Fassung" % column)
 
 func test_nothing_reaches_below_the_hub() -> void:
 	await wait_frames(2)
@@ -136,10 +138,9 @@ func test_the_chamber_lies_under_the_podium_plate() -> void:
 	var chamber := view.chamber_rect_px()
 	var plate := view.podium_plate_px()
 	assert_eq(chamber, frame["chamber"])
-	assert_true(view.podium_rect_px().encloses(chamber), "die Grube bleibt im Podest-Platz")
-	assert_true(plate.grow(0.05).encloses(chamber), "die Platte umschließt sie ganz")
-	assert_almost_eq(chamber.size.x, FACE * WorkshopView.CHAMBER_FACES, 0.01, "ein Weltmaß")
-	assert_almost_eq(chamber.size.x, chamber.size.y, 0.01, "quadratisch")
+	assert_true(view.podium_rect_px().grow(0.05).encloses(chamber),
+		"die Grube bleibt im Podest-Platz")
+	assert_true(chamber.is_equal_approx(plate), "sie ist so groß wie die Platte")
 	var die_edge := FACE  # eine Würfelfläche = eine Kante
 	assert_gt(chamber.size.x, die_edge * 3.0, "Würfel und Kabel haben Platz")
 	# Der Pool-Schacht (Wand und Fuge) reicht nicht an sie heran, nichts sonst liegt darauf.
@@ -173,7 +174,11 @@ func test_the_hit_rects_cover_column_magazine_and_podium() -> void:
 				return true
 		return false
 	assert_true(covered.call((frame["slices"][0] as Rect2).get_center()), "die Scheiben")
-	assert_true(covered.call(_drawer_rect().get_center()), "das Magazin")
+	for tray: Rect2 in frame["trays"]:
+		assert_true(covered.call(tray.get_center()), "jeder Tray des Magazins")
+	var felt := ((frame["trays"][0] as Rect2).end.x + (frame["trays"][1] as Rect2).position.x) * 0.5
+	assert_false(covered.call(Vector2(felt, (frame["trays"][0] as Rect2).get_center().y)),
+		"der Filz zwischen zwei Trays nicht")
 	assert_true(covered.call(_seat_rect().get_center()), "der Präge-Sitz")
 	assert_true(covered.call(view.chamber_rect_px().get_center()), "das Podest samt Kammer")
 	assert_true(covered.call(view.info_rect_px().get_center()), "der Info-Schirm")

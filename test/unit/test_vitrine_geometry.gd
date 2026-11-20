@@ -90,6 +90,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_OPENING)
 	slots.append(TableScreen.PIT_BAG)
 	slots.append(TableScreen.PIT_CHARM)
+	for column in range(1, PackDrawerView.COLUMNS):
+		slots.append(TableScreen.magazin_pit(column))
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -128,7 +130,14 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.SHOP_PACK_PITS[1], TableScreen.shop_bay_pit(TableScreen.SHOP_BAY_PIT_COUNT - 1) + 1,
 		"dahinter die Sektionen der Paket-Fläche")
 	assert_eq(TableScreen.SHOP_PACK_PITS[5] + 1, TableScreen.PIT_BAG, "dahinter der Beutel-Einzug")
-	assert_eq(TableScreen.PIT_BAG + 1, TableScreen.MAX_PITS, "und er zuletzt")
+	assert_eq(TableScreen.PIT_BAG + 1, TableScreen.PIT_MAGAZIN_TAIL0,
+		"dahinter die Trays 2-4 des Magazins")
+	assert_eq(TableScreen.magazin_pit(0), TableScreen.PIT_MAGAZIN, "Tray 1 bleibt Platz null")
+	assert_eq(TableScreen.magazin_pit(PackDrawerView.COLUMNS - 1) + 1, TableScreen.MAX_PITS,
+		"und sie zuletzt")
+	for column in PackDrawerView.COLUMNS:
+		assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.magazin_pit(column)),
+			"Tray %d ist Möbel" % (column + 1))
 	assert_false(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_BAG), "ein Einzug ist kein Möbel")
 	for pit: int in TableScreen.SHOP_PACK_PITS:
 		assert_false(TableScreen.PERMANENT_PITS.has(pit), "eine Sektion ist kein Möbel")
@@ -683,8 +692,10 @@ func test_die_wandhaut_hat_eine_quelle_und_deckt_jede_grube() -> void:
 		"das Hinterzimmer trägt sie")
 	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),
 		"die Paket-Fläche des Ladens trägt sie")
-	assert_true(root.contains("pack_pit.wall_skin = PIT_SKIN"),
-		"die Magazin-Grube trägt sie")
+	assert_true(root.contains("shelf_stack.wall_skin = PIT_SKIN"),
+		"die Wandtaschen des Magazins tragen sie")
+	assert_true(root.contains("pit.wall_color = MagazinTrayDress.wall_color(column)"),
+		"die Trays selbst tragen die Wand ihres Geräts (Plan magazin_trays)")
 	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),
 		"und die Sektion eines Wett-Plots ebenso")
 	for foreign: String in ["res://scripts/table/vitrine_view.gd",

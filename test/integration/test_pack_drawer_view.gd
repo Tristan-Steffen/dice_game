@@ -1,13 +1,14 @@
 extends GutTest
-## Tier-2-Tests des Magazins (PackDrawerView): EINE Grube unter der Walze, VIER SPALTEN
-## nebeneinander, eine je SORTE, je Spalte REIHEN zu ACROSS liegenden Kassetten - und jede
-## Spalte ROLLT für sich senkrecht, in ganzen Reihen. Gezählt wird in WorkshopView, gefahren in ShelfStackView.
+## Tier-2-Tests des Magazins (PackDrawerView): VIER TRAYS nebeneinander unter der Walze,
+## einer je SORTE, jeder mit eigener Grube, dazwischen Filz; je Tray REIHEN zu ACROSS
+## liegenden Kassetten - und jeder ROLLT für sich senkrecht, in ganzen Reihen. Gezählt wird
+## in WorkshopView, gefahren in ShelfStackView.
 
 ## Fußabdruck einer STEHENDEN Kassette (Grifftiefe × Kartenbreite) - daraus folgt
 ## der liegende (lie_cell).
 const CELL := Vector2(30, 12)
-## Ein Streifen, in den die vier Spalten samt Rändern und zwei Reihen passen.
-const STRIP := Vector2(680, 108)
+## Ein Streifen, in den die vier Trays samt Fassungen und zwei Reihen passen.
+const STRIP := Vector2(640, 140)
 
 func _entry(pack: Pack, uid: int, withheld := false, cell := -1) -> Dictionary:
 	pack.pack_uid = uid
@@ -30,7 +31,7 @@ func _fill(count: int) -> Array[Dictionary]:
 	return entries
 
 func _field(strip := STRIP) -> Rect2:
-	return PackDrawerView.pit_rect_in(Rect2(Vector2.ZERO, strip), 8.0)
+	return PackDrawerView.field_in(Rect2(Vector2.ZERO, strip))
 
 # --- Taxonomie: sie wohnt in data/ (Pack), die Farben hier -----------------------
 
@@ -88,7 +89,9 @@ func test_the_field_carries_exactly_the_window_places() -> void:
 	assert_eq(PackDrawerView.ACROSS, 2, "zu je zwei Karten nebeneinander")
 	assert_eq(PackDrawerView.window_cards_for(field, CELL), 4, "vier sichtbar je Sorte")
 	var lie := PackDrawerView.lie_cell(CELL)
-	assert_almost_eq(PackDrawerView.column_width(field), lie.x * (PackDrawerView.BAND_ROOM
+	assert_almost_eq(PackDrawerView.column_width(field), PackDrawerView.pit_width_for(lie),
+		0.001)
+	assert_almost_eq(PackDrawerView.pit_width_for(lie), lie.x * (PackDrawerView.RAIL_ROOM
 		+ PackDrawerView.CARD_ROOM * float(PackDrawerView.ACROSS)), 0.001)
 	assert_gt(PackDrawerView.slot_size(field, CELL).x, lie.x, "die Karte paßt in ihren Platz")
 
@@ -117,17 +120,49 @@ func test_spots_fill_a_row_then_run_down_the_column() -> void:
 		var right := PackDrawerView.spot_for(0, field, CELL, column)
 		assert_almost_eq(right.y, first.y, 0.01)
 		assert_almost_eq(right.x - first.x, (PackDrawerView.column_width(field)
-			+ PackDrawerView.LANE_GAP_PX) * float(column), 0.01)
+			+ PackDrawerView.TRAY_GAP_PX) * float(column), 0.01)
+	var rail := PackDrawerView.rail_width(field)
+	var last := PackDrawerView.spot_for(1, field, CELL)
+	assert_almost_eq(PackDrawerView.column_width(field) - rail
+		- (last.x + PackDrawerView.slot_size(field, CELL).x * 0.5), 0.0, 0.01,
+		"rechts neben dem letzten Platz liegt nur noch die Rollschiene")
 
-func test_the_columns_leave_equal_gaps() -> void:
+## Das Feld ist die Vereinigung der Gruben: sie füllen es ganz, dazwischen je Fassung,
+## Filz, Fassung.
+func test_the_pits_fill_the_field_with_equal_gaps() -> void:
 	var field := _field().size
 	var rects := PackDrawerView.column_rects(field)
 	assert_eq(rects.size(), PackDrawerView.COLUMNS)
-	assert_almost_eq(rects[0].position.x, PackDrawerView.LANE_GAP_PX, 0.001)
+	assert_almost_eq(rects[0].position.x, 0.0, 0.001)
 	for i in range(1, rects.size()):
 		assert_almost_eq(rects[i].position.x - rects[i - 1].end.x,
-			PackDrawerView.LANE_GAP_PX, 0.001)
-	assert_almost_eq(field.x - rects[rects.size() - 1].end.x, PackDrawerView.LANE_GAP_PX, 0.001)
+			PackDrawerView.TRAY_GAP_PX, 0.001)
+	assert_almost_eq(field.x - rects[rects.size() - 1].end.x, 0.0, 0.001)
+
+## Die TRAYS samt Fassung überlappen nie, und zwischen je zwei liegt derselbe Filz.
+func test_the_trays_never_overlap_and_leave_the_same_felt() -> void:
+	var trays := PackDrawerView.tray_rects(_field().size)
+	assert_eq(trays.size(), PackDrawerView.COLUMNS)
+	for i in range(1, trays.size()):
+		assert_false(trays[i].intersects(trays[i - 1]), "Tray %d steht frei" % (i + 1))
+		assert_almost_eq(trays[i].position.x - trays[i - 1].end.x,
+			PackDrawerView.FELT_GAP_PX, 0.001, "derselbe Filz")
+	var field := _field()
+	var shelf := Rect2(Vector2.ZERO, STRIP)
+	var outer := trays[0]
+	for tray in trays:
+		outer = outer.merge(tray)
+	assert_true(Rect2(outer.position + field.position, outer.size).is_equal_approx(shelf),
+		"zusammen sind sie das ganze Magazin")
+	assert_almost_eq(trays[0].end.y - field.size.y, PackDrawerView.BAR_PX, 0.001,
+		"unten das Band der Lichtleiste")
+
+func test_shelf_and_field_invert_each_other() -> void:
+	var card := PackDrawerView.lie_cell(CELL)
+	var shelf := Rect2(Vector2(40, 200), PackDrawerView.shelf_for(card))
+	var field := PackDrawerView.field_in(shelf)
+	assert_true(field.size.is_equal_approx(PackDrawerView.field_for(card)))
+	assert_true(shelf.encloses(field))
 
 ## Jeder Punkt der Grube gehört einer Spalte: die Grenzen liegen mitten in den Rändern.
 func test_column_at_splits_in_the_gaps() -> void:
@@ -232,7 +267,7 @@ func test_the_derived_anchor_matches_the_measured_one() -> void:
 	entries.append(_entry(Pack.material_pack(), 51, false, 1))
 	var drawer := _drawer(entries)
 	await wait_frames(2)
-	var field := PackDrawerView.pit_rect_in(drawer.get_global_rect(), 8.0)
+	var field := PackDrawerView.field_in(drawer.get_global_rect())
 	for entry in entries:
 		var uid := int(entry["uid"])
 		var measured := drawer.pack_anchor_px(uid)
@@ -262,25 +297,56 @@ func test_a_chip_reports_its_uid_when_pressed() -> void:
 	drawer.pack_button(11).pressed.emit()
 	assert_eq(pressed, [11] as Array[int])
 
-func test_the_lock_bars_every_chip_and_dims_the_well() -> void:
+func test_the_lock_bars_every_chip() -> void:
 	var drawer := _drawer([_entry(Pack.number_pack(), 6, false, 0)] as Array[Dictionary], true)
 	await wait_frames(2)
 	assert_true(drawer.pack_button(6).disabled)
-	var well: Panel = drawer.get_node("DrawerWell")
-	assert_eq(well.modulate, PackDrawerView.LOCK_DIM)
 	assert_eq(drawer.hover_uid_at(drawer.pack_button(6).get_global_rect().get_center()), 0)
 
-func test_the_well_paints_only_its_frame() -> void:
+## Die Fassungen sind Körper der Trays: das Fenster malt keinen Rahmen mehr.
+func test_the_drawer_paints_no_frame() -> void:
 	var drawer := _drawer([] as Array[Dictionary])
-	var well: Panel = drawer.get_node("DrawerWell")
-	var box: StyleBoxFlat = well.get_theme_stylebox("panel")
-	assert_false(box.draw_center)
-	assert_gt(box.border_width_left, 0)
+	assert_null(drawer.get_node_or_null("DrawerWell"), "der graue Gesamtrahmen ist tot")
+	for child in drawer.get_children():
+		assert_false(child is Panel, "%s malt nichts" % child.name)
 
-func test_the_pit_is_the_strip_minus_its_painted_frame() -> void:
-	var strip := Rect2(Vector2(40, 200), STRIP)
-	var inset := PackDrawerView.rim_inset(8.0)
-	assert_eq(PackDrawerView.pit_rect_in(strip, 8.0), strip.grow(-inset))
+# --- Rollschiene und Lichtleiste ----------------------------------------------------
+
+## Der Schieber ist so lang wie sichtbare durch alle Reihen und steht, wo gerollt ist.
+func test_the_rail_thumb_reads_rows_and_scroll() -> void:
+	assert_eq(PackDrawerView.rail_thumb(0, 2, 0.0), Vector2(0.0, 1.0), "leer füllt er die Schiene")
+	assert_eq(PackDrawerView.rail_thumb(2, 2, 0.0), Vector2(0.0, 1.0), "alles im Fenster ebenso")
+	assert_eq(PackDrawerView.rail_thumb(4, 2, 0.0), Vector2(0.0, 0.5))
+	assert_eq(PackDrawerView.rail_thumb(4, 2, 2.0), Vector2(0.5, 0.5), "ganz unten")
+	assert_eq(PackDrawerView.rail_thumb(4, 2, 1.0), Vector2(0.25, 0.5))
+	assert_eq(PackDrawerView.rail_thumb(4, 2, 0.5), Vector2(0.125, 0.5), "ein Zug: gebrochen")
+	assert_eq(PackDrawerView.rail_thumb(4, 2, 9.0), Vector2(0.5, 0.5), "nie aus der Schiene")
+	assert_eq(PackDrawerView.rail_thumb(4, 2, -3.0), Vector2(0.0, 0.5))
+
+## Die Lichtleiste nennt Namen und sichtbar/gesamt, leer nur den Namen und 0.
+func test_the_bar_names_the_sort_and_counts() -> void:
+	assert_eq(PackDrawerView.bar_text(0, 7), "Zahl 7", "nur die Gesamtzahl")
+	assert_eq(PackDrawerView.bar_text(1, 2), "Material 2")
+	assert_eq(PackDrawerView.bar_text(2, 0), "Rune 0")
+
+## Der Zug am Schieber: er folgt dem Zeiger, der Inhalt rollt übersetzt und gegenläufig.
+func test_dragging_the_rail_thumb_rolls_the_tray() -> void:
+	# 8 Karten = 4 Reihen, 2 im Fenster: der Schieber ist halb so lang wie die Schiene.
+	assert_almost_eq(PackDrawerView.rail_drag(50.0, 8, 0, 100.0), -100.0, 0.001,
+		"50 px am Schieber = eine Reihe weiter")
+	assert_almost_eq(PackDrawerView.rail_drag(500.0, 8, 0, 100.0), -200.0, 0.001,
+		"nie über das Ende")
+	assert_almost_eq(PackDrawerView.rail_drag(-500.0, 8, 1, 100.0), 100.0, 0.001,
+		"nie über den Anfang")
+	assert_eq(PackDrawerView.rail_drag(80.0, 4, 0, 100.0), 0.0, "alles sichtbar: nichts rollt")
+
+func test_the_rail_grip_lies_at_the_right_edge_of_each_tray() -> void:
+	var field := PackDrawerView.field_for(Vector2(194.4, 129.6))
+	for pit in PackDrawerView.column_rects(field):
+		assert_true(PackDrawerView.on_rail(field, pit.end.x - 2.0))
+		assert_false(PackDrawerView.on_rail(field, pit.get_center().x), "über den Karten nicht")
+	for column in PackDrawerView.COLUMNS:
+		assert_true(PackDrawerView.BAR_NAMES.has(Pack.SHELF_ORDER[column]))
 
 # --- Auskunft -----------------------------------------------------------------------
 

@@ -1,17 +1,19 @@
 class_name ShelfStackView
 extends Node3D
-## Das SORTEN-MAGAZIN (Layout C, 2026-11-20): VIER SPALTEN nebeneinander in EINER flachen
-## Grube, eine je SORTE (Pack.SHELF_ORDER), alle auf derselben Höhe. Jede Spalte trägt auf
-## ihrer Platte REIHEN zu ACROSS Mulden nebeneinander und ROLLT für sich senkrecht: ein Zug
-## schiebt ihr FACH längs Welt-X, was das Fenster verläßt, gleitet durch die Schlitze der
-## Wände oben und unten unter den Filz.
+## Das SORTEN-MAGAZIN (Layout C, 2026-11-20): VIER TRAYS nebeneinander, einer je SORTE
+## (Pack.SHELF_ORDER), jeder in seiner eigenen Grube, alle auf derselben Höhe; dazwischen
+## liegt Filz. Jeder Tray (Knoten "Spalte%d") trägt auf seiner Platte REIHEN zu ACROSS
+## Mulden und ROLLT für sich senkrecht: ein Zug schiebt sein FACH längs Welt-X, was das
+## Fenster verläßt, gleitet durch die Schlitze der Wände oben und unten unter den Filz.
+## Aussehen, Fassung und Lichtleiste sind das GERÄT seines Datenträgers (MagazinTrayDress);
+## rechts in der Grube zeigt die ROLLSCHIENE, wie weit er gerollt ist.
 ##
 ## Die Karten LIEGEN flach (Netz nach oben, Langseite quer) und sind KINDER des Faches ihrer
 ## Spalte: eine Fahrt trägt sie mit. Eine Karte, die das Fenster verlassen hat, ist
 ## WEGGESTECKT (DataCellView.set_tucked) - oben läge sie sonst unter dem Graben der Walze.
 ##
-## Die Maße kommen von außen (scene_root rechnet die gemeldete Grube und die Spalten in
-## Welt), die HÖHE gehört dem Magazin. Endzustand zuerst: der Roll-Stand ist gebucht,
+## Die Maße kommen von außen (scene_root rechnet die gemeldeten Gruben in Welt), die
+## HÖHE gehört dem Magazin. Endzustand zuerst: der Roll-Stand ist gebucht,
 ## bevor das Fach fährt. Längs der Spalte zählt Bild-unten, also Welt -X.
 
 const COLUMNS := PackDrawerView.COLUMNS
@@ -41,15 +43,13 @@ const HOVER_PROUD := CARD_THICKNESS
 ## Platte ihrer Spalte.
 const RISE_DEPTH := CARD_THICKNESS + PLATE + PROUD
 
-## Der Anteil der Spaltenbreite, den die BLENDE am linken Rand nimmt (PackDrawerView
+## Der Anteil der Grubenbreite, den die ROLLSCHIENE rechts nimmt (PackDrawerView
 ## schneidet die Plätze an derselben Zahl - EINE Quelle).
-const BAND_SHARE := PackDrawerView.BAND_SHARE
-const NUMBER_FONT := 48
-## Wie weit das Kürzel vom unteren Blenden-Ende einrückt, in Blenden-Breiten.
-const NUMBER_INSET := 1.0
-## Hervorgehoben (die Sorte der Option unter dem Zeiger) leuchten Kürzel und Saum heller.
+const RAIL_SHARE := PackDrawerView.RAIL_SHARE
+## Hervorgehoben (die Sorte der Option unter dem Zeiger) leuchtet die Lichtleiste heller.
 const HIGHLIGHT_GAIN := 2.2
-const HIGHLIGHT_RISE := 0.004
+## Die Fassung ohne Meldung (kopflos): Seite, oben, unten in Welt.
+const MARGINS_FALLBACK := Vector3(0.21, 0.21, 0.9)
 ## Die MULDE je Stellplatz: die PLATTE ist ihr Boden, Lippen und Rippen ihr Rand bis
 ## Kartenhöhe, am Boden ein LICHTSAUM in der Sortenfarbe (leer kühl und stumpf) und am
 ## Bild-rechten Ende die BUCHSE, in der die Karte steckt.
@@ -76,11 +76,6 @@ const SNAP_TIME := 0.16
 ## Eine Wandtasche faßt den hinausgerollten Platz samt Luft (in Kartenbreiten).
 const POCKET_SHARE := 1.2
 const POCKET_CLEAR := 0.3
-## Das GLIMMEN an der Wand, hinter der in dieser Spalte noch Karten liegen.
-const HINT_WIDTH := 0.05
-const HINT_HEIGHT := 0.05
-const HINT_COLOR := Color(1.0, 0.83, 0.1)
-const HINT_ENERGY := 1.2
 
 ## Die WANDTASCHE hinter dem Schlitz ist der Raum NEBEN der Grube, nicht ihr Ende:
 ## sie trägt dieselbe Archiv-Auskleidung wie die Grube selbst (PackPitView.tune_lining),
@@ -96,8 +91,7 @@ const POCKET_FLOOR_ENERGY := 2.4
 const BAY_FLOOR_ALBEDO := Color(0.095, 0.088, 0.14)
 const BAY_FLOOR_ENERGY := 1.8
 
-## Die Platten sind UNDURCHSICHTIG (Spieler-Entscheid 2026-09-09): dunkles Blech, ohne
-## Rand - nur die Karten und die Blende unterscheiden eine Spalte.
+## Das dunkle Blech der Laden-Mulden (CardRecessView); die Trays tragen ihr Gerät.
 const PLATE_ALBEDO := Color(0.22, 0.212, 0.285)
 const PLATE_EMISSION := Color(0.46, 0.48, 0.66)
 const PLATE_ENERGY := 0.42
@@ -113,26 +107,32 @@ var _span := Vector2.ONE
 var _seat := Vector3.ZERO
 var _scale := PackDrawerView.CASSETTE_SCALE
 var _built := false
-## Die gemeldete Spalten-Geometrie in WELT: je Spalte (Mitte relativ zur Grubenmitte in
-## Welt-Z, Breite). Leer = der kopflose Rückfall, gleiche Streifen.
+## Die gemeldeten GRUBEN in WELT: je Tray (Mitte relativ zur Mitte des Feldes in Welt-Z,
+## Breite). Leer = der kopflose Rückfall, gleiche Streifen ohne Filz dazwischen.
 var _lanes: Array[Vector2] = []
+## Die Fassung in Welt: Seite, oben, unten (dort liegt die Lichtleiste).
+var _margins := MARGINS_FALLBACK
 
 var _columns: Array[Node3D] = []
 var _fachs: Array[Node3D] = []
-var _bands: Array[Node3D] = []
-var _labels: Array[Label3D] = []
-var _glows: Array[MeshInstance3D] = []
 var _tints: Array = []          # Spalte -> Array[Color], zuletzt geschrieben
 var _rolled := {}               # Spalte -> schon nach unten gerollt (Vorrat oben)
+var _frames: Array[Node3D] = []  # Spalte -> Fassung auf dem Filz
+var _bars: Array = []           # Spalte -> {bar, label, material} der Lichtleiste
+var _bar_texts: Array[String] = []
+## Die ROLLSCHIENE je Tray: Schieber, Reihen (gesamt, im Fenster) und der gebuchte
+## Roll-Stand (ein laufender Zug kommt live dazu).
+var _thumbs: Array[MeshInstance3D] = []
+var _rail_rows: Array[Vector2i] = []
+var _rail_scroll: Array[int] = []
 var _wall_material: ShaderMaterial
 var _spare_below := {}           # Spalte -> Vorrats-Block unten
 var _spare_above := {}           # Spalte -> Vorrats-Block oben (nur gerollt)
 var _pitch := {}                 # Spalte -> Muldenteilung
 var _bays: Array[Node3D] = []    # Spalte -> Mulden-Knoten
 var _seams: Array = []          # Spalte -> Array[StandardMaterial3D], je Mulde
-var _lip_material: StandardMaterial3D
-var _floor_material: ShaderMaterial
-var _plate_material: StandardMaterial3D
+var _lamps: Array = []          # Spalte -> Leuchttische je Platz (nur die Kartenzufuhr)
+var _grips: Array = []          # Spalte -> Griffrillen des Schiebers
 var _pocket: Node3D
 ## Wie weit (Welt +X) die OBERE Wandtasche höchstens reicht: bis vor den Graben der Walze.
 var top_pocket_limit_x := INF:
@@ -156,9 +156,6 @@ var _scrolling := -1
 var _snap: Tween
 var _snap_column := -1
 var _snap_to := 0.0
-## Je Spalte zwei Glimm-Balken (oben, unten) und ob sie stehen sollen.
-var _hints: Array = []
-var _overflow: Array[Vector2i] = []
 var _highlight := -1
 
 func _init() -> void:
@@ -189,25 +186,27 @@ static func stack_depth(cell_scale: float) -> float:
 # --- Aufbau ------------------------------------------------------------------------
 
 ## Stellt das Magazin (idempotent - dieselben Maße bauen nichts neu). at = der
-## GLASPUNKT der Grubenmitte, span = ihr Weltmaß (x quer/Bild-hoch, y längs/Bild-
-## breit), cell_scale der Anzeige-Maßstab der Karten, lanes die gemeldeten Spalten.
+## GLASPUNKT der Feldmitte (Vereinigung der Gruben), span = ihr Weltmaß (x quer/Bild-
+## hoch, y längs/Bild-breit), cell_scale der Anzeige-Maßstab der Karten, lanes die
+## gemeldeten Gruben, margins die Fassung (Seite, oben, unten) in Welt.
 func setup(at: Vector3, span: Vector2, cell_scale: float,
-		lanes: Array[Vector2] = []) -> void:
+		lanes: Array[Vector2] = [], margins := MARGINS_FALLBACK) -> void:
 	var wanted := Vector2(maxf(span.x, 0.01), maxf(span.y, 0.01))
 	if _built and _seat.is_equal_approx(at) and _span.is_equal_approx(wanted) \
-			and is_equal_approx(_scale, cell_scale) and _lanes == lanes:
+			and is_equal_approx(_scale, cell_scale) and _lanes == lanes \
+			and _margins.is_equal_approx(margins):
 		return
 	_seat = at
 	_span = wanted
 	_scale = cell_scale
 	_lanes = lanes.duplicate()
+	_margins = margins
 	global_position = at
-	_tune_bay_floor()  # das Samt-Feld hängt an der Grube, nicht an der Spalte
 	_ensure_columns()
 	for column in COLUMNS:
 		_build_column(column)
+		_build_frame(column)
 	_build_pocket()
-	_build_hints()
 	_built = true
 	settle_scroll_hard()
 
@@ -225,17 +224,20 @@ func _ensure_columns() -> void:
 		fach.name = "Fach"
 		node.add_child(fach)
 		_fachs.append(fach)
-		_bands.append(null)
-		_labels.append(null)
-		_glows.append(null)
 		_bays.append(null)
 		_tints.append([] as Array[Color])
 		_seams.append([])
-		_overflow.append(Vector2i.ZERO)
+		_lamps.append([])
+		_grips.append(null)
+		_frames.append(null)
+		_bars.append({})
+		_bar_texts.append("")
+		_thumbs.append(null)
+		_rail_rows.append(Vector2i(0, PackDrawerView.PLACES))
+		_rail_scroll.append(0)
 
-## Platte, BLENDE und MULDEN einer Spalte. Das Fach bleibt stehen - es trägt die Karten.
+## Platte, ROLLSCHIENE und MULDEN eines Trays. Das Fach bleibt stehen - es trägt die Karten.
 func _build_column(column: int) -> void:
-	_ensure_materials()
 	var node := _columns[column]
 	node.position = Vector3(0.0, -read_drop(_scale), 0.0)
 	for child in node.get_children():
@@ -243,55 +245,68 @@ func _build_column(column: int) -> void:
 			continue
 		node.remove_child(child)
 		child.queue_free()
-	# Die Platten der Spalten kacheln die ganze Grube: Ränder und Rand gehören ihnen mit.
-	_build_plate(node, "Platte", plate_span(column), plate_center(column), _span.x, 0.0, 0.0)
-	_build_band(node, column)
+	_build_plate(node, "Platte", plate_span(column), plate_center(column), _span.x, 0.0, 0.0,
+		MagazinTrayDress.inside_material(column))
+	_build_rail(node, column)
 	_build_bays(node, column)
 
-## Die BLENDE einer Spalte: am linken Rand IHRER Lane, unten das Kürzel ihrer Sorte in
-## ihrer Sortenfarbe, von unten nach oben zu lesen.
-func _build_band(host: Node3D, column: int) -> void:
-	var band := Node3D.new()
-	band.name = "Blende%d" % (column + 1)
-	band.position = Vector3(0.0, 0.0,
-		lane_z(column) - lane_width(column) * 0.5 + band_width(column) * 0.5)
-	host.add_child(band)
-	_bands[column] = band
-	var label := Label3D.new()
-	label.name = "Kuerzel"
-	label.text = column_label(column)
-	label.font_size = NUMBER_FONT
-	# Flach auf dem Filz, die Schrift läuft Bild-aufwärts (Welt +X).
-	label.transform.basis = Basis(Vector3.RIGHT, Vector3.FORWARD, Vector3.UP)
-	label.pixel_size = band_width(column) * 0.7 / (float(NUMBER_FONT) * 0.62)
-	# Der Anfang steht fest: das Kürzel ist unterschiedlich lang.
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.position = Vector3(-_span.x * 0.5 + band_width(column) * NUMBER_INSET,
-		deck_height() + 0.01, 0.0)
-	label.outline_size = 12
-	label.outline_modulate = Color(0.03, 0.03, 0.05)
-	band.add_child(label)
-	_labels[column] = label
-	# Der Saum der Hervorhebung liegt über die volle Länge der Blende auf dem Deck.
-	var glow := MeshInstance3D.new()
-	glow.name = "Hervorhebung"
-	var box := BoxMesh.new()
-	box.size = Vector3(_span.x, HIGHLIGHT_RISE, band_width(column) * 0.25)
-	glow.mesh = box
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = column_tint(column) * HIGHLIGHT_GAIN
-	glow.material_override = material
-	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	glow.position = Vector3(0.0, deck_height() + HIGHLIGHT_RISE * 0.5,
-		band_width(column) * 0.25)
-	band.add_child(glow)
-	_glows[column] = glow
-	_write_highlight()
+## Die ROLLSCHIENE rechts in der Grube: ein Bett bündig mit dem Deck, darin die Rinne und
+## der SCHIEBER in Sortenfarbe. Sie steht fest - nur der Schieber wandert.
+func _build_rail(host: Node3D, column: int) -> void:
+	var rail := Node3D.new()
+	rail.name = "Rollschiene"
+	rail.position = Vector3(0.0, 0.0, rail_z(column))
+	host.add_child(rail)
+	var wide := rail_width(column)
+	var groove := wide * MagazinTrayDress.RAIL_GROOVE_SHARE
+	var bed := (wide - groove) * 0.5
+	var top := deck_height()
+	var floor_y := top - CARD_THICKNESS * 0.35
+	var inside := MagazinTrayDress.inside_material(column)
+	for side in 2:
+		var dir := float(side) * 2.0 - 1.0
+		TableProps.box(rail, "Bett%d" % side, Vector3(_span.x, top, bed),
+			Vector3(0.0, top * 0.5, dir * (groove + bed) * 0.5), inside)
+	TableProps.box(rail, "Rinne", Vector3(_span.x, floor_y, groove),
+		Vector3(0.0, floor_y * 0.5, 0.0), MagazinTrayDress.groove_material(column))
+	# Zwei Führungsschienen fassen die Rinne, der SCHIEBER ist ein Knopf mit Griffrillen.
+	for side in 2:
+		var dir := float(side) * 2.0 - 1.0
+		TableProps.box(rail, "Fuehrung%d" % side, Vector3(_span.x, 0.014, 0.018),
+			Vector3(0.0, top + 0.007, dir * groove * 0.5), MagazinTrayDress.rail_steel())
+	var knob := CARD_THICKNESS * 0.6
+	var across := wide * MagazinTrayDress.RAIL_THUMB_SHARE
+	var thumb := TableProps.box(rail, "Schieber", Vector3(1.0, knob, across),
+		Vector3(0.0, floor_y + knob * 0.5, 0.0), MagazinTrayDress.thumb_material(column))
+	_thumbs[column] = thumb
+	var grip := Node3D.new()
+	grip.name = "Griff"
+	grip.position.y = floor_y + knob
+	rail.add_child(grip)
+	for i in 3:
+		TableProps.box(grip, "Rille%d" % i, Vector3(0.028, 0.012, across * 0.8),
+			Vector3((float(i) - 1.0) * 0.075, 0.006, 0.0), MagazinTrayDress.grip_material())
+	_grips[column] = grip
+	_write_rail(column)
 
-## Die WANDTASCHEN hinter den Schlitzen der Wände oben und unten: geschlossene Kästen von
-## der Wand weg, so tief wie ein hinausgerollter Platz samt Luft, zur Grube hin offen. Sie
-## liegen außerhalb des Lochs, also sieht man sie NUR durch den Schlitz.
+## Die FASSUNG eines Trays auf dem Filz samt Lichtleiste - sein Gerät.
+func _build_frame(column: int) -> void:
+	var old := _frames[column]
+	if old != null and is_instance_valid(old):
+		remove_child(old)
+		old.queue_free()
+	var frame := Node3D.new()
+	frame.name = "Fassung%d" % (column + 1)
+	frame.position = Vector3(0.0, 0.0, lane_z(column))
+	add_child(frame)
+	_frames[column] = frame
+	_bars[column] = MagazinTrayDress.build_frame(frame, column,
+		Vector2(_span.x, lane_width(column)), _margins)
+	_write_bar(column)
+
+## Die WANDTASCHEN hinter den Schlitzen der Wände oben und unten, je Tray zwei:
+## geschlossene Kästen von der Wand weg, so tief wie ein hinausgerollter Platz samt Luft,
+## zur Grube hin offen. Sie liegen außerhalb des Lochs, man sieht sie NUR durch den Schlitz.
 func _build_pocket() -> void:
 	if _pocket != null and is_instance_valid(_pocket):
 		remove_child(_pocket)
@@ -300,8 +315,13 @@ func _build_pocket() -> void:
 	host.name = "Wandtaschen"
 	add_child(host)
 	_pocket = host
-	_build_pocket_side(host, 1.0, top_pocket_depth())
-	_build_pocket_side(host, -1.0, bottom_pocket_depth())
+	for column in COLUMNS:
+		var tray := Node3D.new()
+		tray.name = "Spalte%d" % (column + 1)
+		tray.position = Vector3(0.0, 0.0, lane_z(column))
+		host.add_child(tray)
+		_build_pocket_side(tray, column, 1.0, top_pocket_depth())
+		_build_pocket_side(tray, column, -1.0, bottom_pocket_depth())
 
 ## Wie tief eine Wandtasche ohne Grenze reicht: eine Kartenbreite samt Luft.
 func pocket_depth() -> float:
@@ -316,8 +336,9 @@ func bottom_pocket_depth() -> float:
 	return maxf(minf(pocket_depth(),
 		_seat.x - _span.x * 0.5 - POCKET_WALL - bottom_pocket_limit_x), POCKET_WALL)
 
-## EINE Wandtasche, außen an der Wand der Seite side (+1 = Bild-oben, Welt +X).
-func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
+## EINE Wandtasche, außen an der Wand der Seite side (+1 = Bild-oben, Welt +X), so breit
+## wie die Grube ihres Trays.
+func _build_pocket_side(parent: Node3D, column: int, side: float, deep: float) -> void:
 	var host := Node3D.new()
 	host.name = "WandtascheOben" if side > 0.0 else "WandtascheUnten"
 	host.scale = Vector3(side, 1.0, 1.0)
@@ -328,12 +349,12 @@ func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
 	var top := -PackPitView.WALL_SINK
 	var bottom := -stack_depth(_scale) - POCKET_WALL
 	var high := top - bottom
-	# So breit wie die GANZE Grube - der Schlitz läuft über deren volle Breite.
-	var wide := _span.y + POCKET_WALL * 2.0
+	# So breit wie die Grube - der Schlitz läuft über deren volle Breite.
+	var wide := lane_width(column) + POCKET_WALL * 2.0
 	var mid_x := near + deep * 0.5
 	var reach := near + deep
 	var rect := Rect2(Vector2(_seat.x + (near if side > 0.0 else -reach),
-		_seat.z - wide * 0.5), Vector2(deep, wide))
+		_seat.z + lane_z(column) - wide * 0.5), Vector2(deep, wide))
 	var skin := _lining(0.0, rect, high)
 	var velvet := _lining(1.0, rect, high)
 	TableProps.box(host, "Decke", Vector3(deep, POCKET_WALL, wide),
@@ -347,20 +368,6 @@ func _build_pocket_side(parent: Node3D, side: float, deep: float) -> void:
 		TableProps.box(host, "Flanke%d" % flank, Vector3(deep, high, POCKET_WALL),
 			Vector3(mid_x, (top + bottom) * 0.5, dir * (wide * 0.5 - POCKET_WALL * 0.5)),
 			skin)
-
-## Die Grube in WELT-XZ - das Feld, an dem sich jede Auskleidung des Magazins mißt.
-func _pit_field() -> Rect2:
-	return Rect2(Vector2(_seat.x, _seat.z) - _span * 0.5, _span)
-
-## Der BODEN einer MULDE trägt dieselbe ARCHIV-Auskleidung wie die Grube selbst; sein
-## Samt-LICHT mißt an der ganzen Grube, sein MUSTER fährt mit der Mulde.
-func _tune_bay_floor() -> void:
-	if _floor_material == null:
-		return
-	PackPitView.tune_lining(_floor_material, 1.0, BAY_FLOOR_ALBEDO,
-		BAY_FLOOR_ENERGY, _pit_field(), _seat.y, stack_depth(_scale),
-		PackPitView.GLOW_COLOR, null)
-	_floor_material.set_shader_parameter("pattern_local", 1.0)
 
 ## EINE Fläche der Tasche, ausgekleidet von derselben Hand wie die Grube: velvet = 1
 ## der Boden, 0 die Wand. Die Haut bekommt NUR die Wand - auf dem Samt läge sie quer.
@@ -388,22 +395,10 @@ func lane_z(column: int) -> float:
 		return -_span.y * 0.5 + _span.y / float(COLUMNS) * (float(column) + 0.5)
 	return _lanes[clampi(column, 0, _lanes.size() - 1)].x
 
-## Die Breite der Blende in Welt.
-func band_width(column := 0) -> float:
-	return lane_width(column) * BAND_SHARE
-
-## Die Grenzen der PLATTE einer Spalte (Welt-Z, von links nach rechts): die Grubenkante
-## bzw. die Mitte des Randes zur Nachbarspalte.
+## Die Grenzen der PLATTE eines Trays (Welt-Z, von links nach rechts): seine Grube.
 func plate_bounds(column: int) -> Vector2:
-	var left := -_span.y * 0.5
-	var right := _span.y * 0.5
-	if column > 0:
-		left = (lane_z(column - 1) + lane_width(column - 1) * 0.5
-			+ lane_z(column) - lane_width(column) * 0.5) * 0.5
-	if column < COLUMNS - 1:
-		right = (lane_z(column) + lane_width(column) * 0.5
-			+ lane_z(column + 1) - lane_width(column + 1) * 0.5) * 0.5
-	return Vector2(left, right)
+	return Vector2(lane_z(column) - lane_width(column) * 0.5,
+		lane_z(column) + lane_width(column) * 0.5)
 
 func plate_span(column: int) -> float:
 	var bounds := plate_bounds(column)
@@ -413,12 +408,19 @@ func plate_center(column: int) -> float:
 	var bounds := plate_bounds(column)
 	return (bounds.x + bounds.y) * 0.5
 
-## Die Mitte der Plätze einer Spalte (Welt-Z): ihre Lane ohne die Blende.
+## Die ROLLSCHIENE rechts in der Grube (Welt-Z): Breite und Mitte.
+func rail_width(column := 0) -> float:
+	return lane_width(column) * RAIL_SHARE
+
+func rail_z(column: int) -> float:
+	return lane_z(column) + lane_width(column) * 0.5 - rail_width(column) * 0.5
+
+## Die Mitte der Plätze eines Trays (Welt-Z): seine Grube ohne die Schiene.
 func slot_z(column: int) -> float:
-	return lane_z(column) + band_width(column) * 0.5
+	return lane_z(column) - rail_width(column) * 0.5
 
 func slot_width(column: int) -> float:
-	return lane_width(column) * (1.0 - BAND_SHARE)
+	return lane_width(column) * (1.0 - RAIL_SHARE)
 
 ## Die Breite EINES Querplatzes (Welt-Z) und seine Mitte relativ zu slot_z.
 func card_slot_width(column: int) -> float:
@@ -459,6 +461,7 @@ func _roll_to(column: int, x: float) -> void:
 		_place_spares(column, x)
 		_write_segments(column)
 	_write_tuck(column)
+	_write_rail(column)
 
 ## Die Dauer des Einrastens: ein Platz in SNAP_TIME, ein weiter Rückweg länger -
 ## mit der Wurzel der Strecke, gedeckelt (sonst spränge ein langer Zug zurück).
@@ -579,75 +582,104 @@ func _segments_of(bays: Node3D) -> Array[Node3D]:
 				out.append(spare as Node3D)
 	return out
 
-## Das GLIMMEN an den Wänden einer Spalte: oben stehen noch hinausgerollte Karten,
-## unten noch ungezeigte. Idempotent.
-func set_overflow(column: int, above: bool, below: bool) -> void:
-	if column < 0 or column >= _overflow.size():
-		return
-	_overflow[column] = Vector2i(1 if above else 0, 1 if below else 0)
-	_write_hints()
-
-func overflow(column: int) -> Vector2i:
-	if column < 0 or column >= _overflow.size():
-		return Vector2i.ZERO
-	return _overflow[column]
-
-## Die HERVORHEBUNG einer Spalte (-1 = keine): Kürzel und Saum leuchten heller.
+## Die HERVORHEBUNG eines Trays (-1 = keiner): seine Lichtleiste leuchtet heller.
 func set_highlight(column: int) -> void:
 	var wanted := column if column >= 0 and column < COLUMNS else -1
 	if wanted == _highlight:
 		return
 	_highlight = wanted
-	_write_highlight()
+	for each in _bars.size():
+		_write_bar(each)
 
 func highlighted() -> int:
 	return _highlight
 
-func _write_highlight() -> void:
-	for column in _labels.size():
-		var on := column == _highlight
-		var label := _labels[column]
-		if label != null and is_instance_valid(label):
-			label.modulate = column_tint(column) * (HIGHLIGHT_GAIN if on else 1.0)
-		var glow := _glows[column]
-		if glow != null and is_instance_valid(glow):
-			glow.visible = on
+# --- Die LICHTLEISTE ---------------------------------------------------------------
 
-func _build_hints() -> void:
-	for pair: Array in _hints:
-		for bar: MeshInstance3D in pair:
-			if is_instance_valid(bar) and bar.get_parent() != null:
-				bar.get_parent().remove_child(bar)
-				bar.queue_free()
-	_hints.clear()
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = HINT_COLOR * HINT_ENERGY
-	for column in COLUMNS:
-		var pair: Array[MeshInstance3D] = []
-		for side in 2:
-			var bar := MeshInstance3D.new()
-			bar.name = "Glimmen%s" % ("Oben" if side == 0 else "Unten")
-			var box := BoxMesh.new()
-			box.size = Vector3(HINT_WIDTH, HINT_HEIGHT, slot_width(column))
-			bar.mesh = box
-			bar.material_override = material
-			bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var dir := 1.0 if side == 0 else -1.0
-			bar.position = Vector3(dir * (_span.x * 0.5 - HINT_WIDTH * 0.5),
-				PROUD + HINT_HEIGHT * 0.5, slot_z(column))
-			_columns[column].add_child(bar)
-			pair.append(bar)
-		_hints.append(pair)
-	_write_hints()
+## Die Aufschrift der Lichtleiste (Name sichtbar/gesamt - das Fenster formuliert).
+## Idempotent.
+func set_bar(column: int, text: String) -> void:
+	if column < 0 or column >= _bar_texts.size() or _bar_texts[column] == text:
+		return
+	_bar_texts[column] = text
+	_write_bar(column)
 
-func _write_hints() -> void:
-	for column in _hints.size():
-		var pair: Array = _hints[column]
-		for side in pair.size():
-			var bar: MeshInstance3D = pair[side]
-			if is_instance_valid(bar):
-				bar.visible = (_overflow[column].x if side == 0 else _overflow[column].y) > 0
+func bar_text(column: int) -> String:
+	if column < 0 or column >= _bar_texts.size():
+		return ""
+	return _bar_texts[column]
+
+## Wie hell die Lichtleiste gerade leuchtet (die Hervorhebung hebt sie).
+func bar_energy(column: int) -> float:
+	var parts: Dictionary = _bars[column] if column >= 0 and column < _bars.size() else {}
+	var material := parts.get("material") as StandardMaterial3D
+	return material.emission_energy_multiplier if material != null else 0.0
+
+func _write_bar(column: int) -> void:
+	if column < 0 or column >= _bars.size():
+		return
+	var parts: Dictionary = _bars[column]
+	var on := column == _highlight
+	var material := parts.get("material") as StandardMaterial3D
+	if material != null:
+		material.emission_energy_multiplier = MagazinTrayDress.BAR_HIGHLIGHT_ENERGY if on \
+			else MagazinTrayDress.BAR_ENERGY
+	var label := parts.get("label") as Label3D
+	if label != null and is_instance_valid(label):
+		label.text = _bar_texts[column]
+		var color := column_tint(column).lerp(Color.WHITE, 0.7)
+		label.modulate = color.lerp(Color.WHITE, 0.6) if on else color
+
+# --- Die ROLLSCHIENE ---------------------------------------------------------------
+
+## Der Stand der Rollschiene: Reihen gesamt und im Fenster, der GEBUCHTE Roll-Stand.
+func set_rail(column: int, total_rows: int, window_rows: int, scroll: int) -> void:
+	if column < 0 or column >= _rail_rows.size():
+		return
+	_rail_rows[column] = Vector2i(maxi(total_rows, 0), maxi(window_rows, 1))
+	_rail_scroll[column] = scroll
+	_write_rail(column)
+
+## Der Schieber als Anteile der Schiene (x = Anfang oben, y = Länge), live samt Zug: ein
+## Zug liegt über dem gebuchten Stand, ein Einrasten fährt auf ihn zu (gebucht ist da
+## schon das Ziel).
+func rail_thumb(column: int) -> Vector2:
+	if column < 0 or column >= _rail_rows.size():
+		return Vector2(0.0, 1.0)
+	var rows := _rail_rows[column]
+	var offset := scroll_offset(column)
+	if _snap_column == column:
+		offset -= _snap_to
+	var live := float(_rail_scroll[column]) + offset / _row_pitch(column)
+	return PackDrawerView.rail_thumb(rows.x, rows.y, live)
+
+func _row_pitch(column: int) -> float:
+	var rows := _rail_rows[column].y if column >= 0 and column < _rail_rows.size() else 1
+	return maxf(_span.x / float(maxi(rows, 1)), 0.001)
+
+## Der Schieber fährt längs der Schiene (Welt-X, oben = +X); paßt alles ins Fenster,
+## füllt er sie gedimmt.
+func _write_rail(column: int) -> void:
+	if column < 0 or column >= _thumbs.size():
+		return
+	var thumb := _thumbs[column]
+	if thumb == null or not is_instance_valid(thumb):
+		return
+	var share := rail_thumb(column)
+	var inset := 0.04
+	var run := maxf(_span.x - inset * 2.0, 0.01)
+	var length := clampf(run * share.y, minf(MagazinTrayDress.RAIL_THUMB_MIN, run), run)
+	var way := share.x / (1.0 - share.y) if share.y < 1.0 else 0.0
+	thumb.scale.x = length
+	thumb.position.x = run * 0.5 - (run - length) * way - length * 0.5
+	var grip: Node3D = _grips[column] if column < _grips.size() else null
+	if grip != null and is_instance_valid(grip):
+		grip.position.x = thumb.position.x
+	var full := _rail_rows[column].x <= _rail_rows[column].y
+	var material := thumb.material_override as StandardMaterial3D
+	if material != null:
+		material.emission_energy_multiplier = MagazinTrayDress.RAIL_THUMB_ENERGY \
+			* (MagazinTrayDress.RAIL_THUMB_DIM if full else 1.0)
 
 # --- Die Plätze --------------------------------------------------------------------
 
@@ -709,13 +741,9 @@ static func rehost(node: Node3D, host: Node) -> void:
 	host.add_child(node)
 	node.global_position = at
 
-# --- Die BLENDE ----------------------------------------------------------------------
+# --- Die MULDEN ----------------------------------------------------------------------
 
-## Die Aufschrift der Blende: das KÜRZEL der Sorte.
-static func column_label(column: int) -> String:
-	return Pack.shelf_short(String(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)]))
-
-## Die Sortenfarbe der Spalte.
+## Die Sortenfarbe eines Trays.
 static func column_tint(column: int) -> Color:
 	return PackDrawerView.COLORS.get(Pack.SHELF_ORDER[clampi(column, 0, COLUMNS - 1)],
 		PackDrawerView.GOLD)
@@ -776,6 +804,7 @@ func _build_bays(host: Node3D, column: int) -> void:
 		old.queue_free()
 	_bays[column] = null
 	_seams[column] = []
+	_lamps[column] = []
 	var tints: Array = _tints[column]
 	if tints.is_empty():
 		return
@@ -792,6 +821,7 @@ func _build_bays(host: Node3D, column: int) -> void:
 	var shape := _segment_shape(column, places)
 	var rolled: bool = _rolled.get(column, false)
 	var seams: Array = []
+	var lamps: Array = []
 	for i in places:
 		var node := Node3D.new()
 		node.name = "Mulde%d" % i
@@ -803,8 +833,10 @@ func _build_bays(host: Node3D, column: int) -> void:
 		if i == places - 1:
 			ribs.append(1.0)
 		var row_seams := _row_seams()
-		_build_segment(node, column, pitch, shape, ribs, row_seams)
+		var row_lamps := _row_lamps(column)
+		_build_segment(node, column, pitch, shape, ribs, row_seams, row_lamps)
 		seams.append_array(row_seams)
+		lamps.append_array(row_lamps)
 	# Die VORRATS-Mulden: unten immer, oben erst nach dem Rollen. Sie rollen mit und
 	# springen beim Zug um ganze Teilungen nach - so ist das Fenster bei jedem Zug voll.
 	_spare_below[column] = _build_spares(bays, column, "VorratUnten", 1.0, places, pitch,
@@ -813,6 +845,7 @@ func _build_bays(host: Node3D, column: int) -> void:
 		shape) if rolled else null
 	_pitch[column] = pitch
 	_seams[column] = seams
+	_lamps[column] = lamps
 	_place_spares(column, bays.position.x)
 	_write_bays(column)
 	_write_segments(column)
@@ -825,21 +858,19 @@ func _segment_shape(column: int, places: int) -> Dictionary:
 	return {"bay": bay, "rail": (card_slot_width(column) - bay.y) * 0.5, "rib": pitch - bay.x,
 		"under": Vector2(plate_center(column) - slot_z(column), plate_span(column))}
 
-## EIN Stück der Spalte (eine Reihe), pitch lang um seinen Knoten (längs Welt-X): die
+## EIN Stück des Trays (eine Reihe), pitch lang um seinen Knoten (längs Welt-X): die
 ## mitrollende PLATTE eine Spur UNTER der festen (sichtbar nur jenseits der Grubenwand),
-## darauf das DECK auf Kartenhöhe neben der Mulden-Lane, je Querplatz Lippen, Rippen an
-## den genannten Rändern (-1 oben, +1 unten, ±0.5 halb und innen) und die Mulde selbst
-## (Kind "Platz<a>").
+## je Querplatz Lippen bis Kartenhöhe, Rippen an den genannten Rändern (-1 oben, +1 unten,
+## ±0.5 halb und innen) und die Mulde selbst samt dem, was ihr Gerät hineinlegt (Kind
+## "Platz<a>"). Die Schiene rechts daneben steht fest.
 func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
-		ribs: Array[float], seams: Array) -> void:
+		ribs: Array[float], seams: Array, lamps: Array = []) -> void:
 	var bay: Vector2 = shape["bay"]
 	var rail: float = shape["rail"]
 	var rib: float = shape["rib"]
 	var under: Vector2 = shape["under"]
-	_build_plate(node, "Unterplatte", under.y, under.x, pitch, 0.0, UNDERPLATE_SINK)
-	for strip: Vector2 in _deck_strips(column):
-		TableProps.box(node, "Deck", Vector3(pitch, deck_height(), strip.y - strip.x),
-			Vector3(0.0, deck_height() * 0.5, (strip.x + strip.y) * 0.5), _lip_material)
+	var lip := MagazinTrayDress.inside_material(column)
+	_build_plate(node, "Unterplatte", under.y, under.x, pitch, 0.0, UNDERPLATE_SINK, lip)
 	for across in ACROSS:
 		var at_z := across_z(column, across)
 		var tag := "" if across == 0 else str(across)
@@ -847,7 +878,7 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 			var dir := float(side) * 2.0 - 1.0
 			TableProps.box(node, "Lippe%d" % (across * 2 + side), Vector3(pitch, deck_height(),
 				rail), Vector3(0.0, deck_height() * 0.5, at_z + dir * (bay.y + rail) * 0.5),
-				_lip_material)
+				lip)
 		for edge: float in ribs:
 			var width := rib * (0.5 if absf(edge) < 0.75 else 1.0)
 			# Längs der Spalte zählt Bild-unten: +1 ist der untere Rand, also Welt -X.
@@ -856,16 +887,15 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 				down -= signf(edge) * width * 0.5
 			TableProps.box(node, "Rippe%s%s" % ["O" if edge < 0.0 else "U", tag],
 				Vector3(width, deck_height(), bay.y), Vector3(-down, deck_height() * 0.5, at_z),
-				_lip_material)
+				lip)
 		var place := Node3D.new()
 		place.name = "Platz%d" % across
 		place.position = Vector3(0.0, 0.0, at_z)
 		node.add_child(place)
-		_build_bay(place, bay, seams[across] if across < seams.size() else _seam_material(BAY_EMPTY))
-
-## EINE Mulde: Saum, Boden und die BUCHSE am Bild-rechten Ende.
-func _build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D) -> void:
-	build_bay(node, bay, seam, _scale, _wall_material, _floor_material)
+		build_bay(place, bay, seams[across] if across < seams.size() else _seam_material(BAY_EMPTY),
+			_scale, _wall_material, lamps[across] if across < lamps.size()
+				else MagazinTrayDress.floor_material(column))
+		MagazinTrayDress.dress_bay(place, column, bay, FLOOR_RISE, PROUD)
 
 ## Die EINE Bauregel einer Mulde - auch der Laden legt seine Kassetten so hinein
 ## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden; bay ist
@@ -911,21 +941,9 @@ static func bay_size_for(cell_scale: float) -> Vector2:
 
 ## Eine PLATTE über die Breite span (Welt-Z) um center, length lang (Welt-X).
 func _build_plate(host: Node3D, plate_name: String, span: float, center: float,
-		length: float, mid_x: float, sink: float) -> void:
+		length: float, mid_x: float, sink: float, material: Material) -> void:
 	TableProps.box(host, plate_name, Vector3(length, PLATE - sink, span),
-		Vector3(mid_x, -(PLATE + sink) * 0.5, center), _plate_material)
-
-## Die DECK-Streifen einer Spalte, relativ zur Mitte ihrer Plätze (von, bis; Welt-Z):
-## links Blende und halber Rand, rechts der halbe Rand.
-func _deck_strips(column: int) -> Array[Vector2]:
-	var bounds := plate_bounds(column)
-	var slot_left := lane_z(column) - lane_width(column) * 0.5 + band_width(column)
-	var slot_right := lane_z(column) + lane_width(column) * 0.5
-	var mid := slot_z(column)
-	var strips: Array[Vector2] = [
-		Vector2(bounds.x - mid, slot_left - mid),
-		Vector2(slot_right - mid, bounds.y - mid)]
-	return strips.filter(func(strip: Vector2) -> bool: return strip.y - strip.x > 0.001)
+		Vector3(mid_x, -(PLATE + sink) * 0.5, center), material)
 
 ## Die Oberfläche der Spalte: genau Kartenoberkante - eine Karte in ihrer Mulde liegt
 ## bündig (Spieler-Wunsch 2026-10-28).
@@ -941,6 +959,14 @@ func _row_seams() -> Array:
 	for across in ACROSS:
 		seams.append(_seam_material(BAY_EMPTY))
 	return seams
+
+## Die Leuchttische einer Reihe - nur die Kartenzufuhr hat welche.
+func _row_lamps(column: int) -> Array:
+	var lamps: Array = []
+	if column == MagazinTrayDress.ZAHL:
+		for across in ACROSS:
+			lamps.append(MagazinTrayDress.lamp_material())
+	return lamps
 
 func _seam_material(tint: Color) -> StandardMaterial3D:
 	var seam := StandardMaterial3D.new()
@@ -966,7 +992,8 @@ func _build_spares(bays: Node3D, column: int, block_name: String, dir: float, pl
 		node.position = Vector3(-dir * pitch * (float(i) + 0.5), 0.0, 0.0)
 		block.add_child(node)
 		# Die Rippe am äußeren Rand: die innere trägt schon der Nachbar.
-		_build_segment(node, column, pitch, shape, [dir] as Array[float], _row_seams())
+		_build_segment(node, column, pitch, shape, [dir] as Array[float], _row_seams(),
+			_row_lamps(column))
 	block.position.x = -dir * _span.x * 0.5
 	return block
 
@@ -1001,20 +1028,15 @@ func _write_bays(column: int) -> void:
 		material.emission = tint
 		material.emission_energy_multiplier = \
 			SEAM_EMPTY_ENERGY if tint == BAY_EMPTY else SEAM_FILLED_ENERGY
+	var lamps: Array = _lamps[column] if column < _lamps.size() else []
+	for i in lamps.size():
+		var lit: Color = tints[i] if i < tints.size() else BAY_EMPTY
+		MagazinTrayDress.write_lamp(lamps[i], lit, lit != BAY_EMPTY)
 
 # --- Bausteine -----------------------------------------------------------------------
 
 func _ensure_materials() -> void:
-	if _plate_material != null:
+	if _wall_material != null:
 		return
-	_plate_material = _metal(PLATE_ALBEDO, PLATE_EMISSION, PLATE_ENERGY)
-	# Die Lippe ist Platte; der Muldenboden liegt dunkler.
-	_lip_material = _plate_material
 	_wall_material = ShaderMaterial.new()
 	_wall_material.shader = load("res://assets/shaders/bay_wall.gdshader")
-	_floor_material = ShaderMaterial.new()
-	_floor_material.shader = load("res://assets/shaders/pit_lining.gdshader")
-	_tune_bay_floor()
-
-func _metal(albedo: Color, emission: Color, energy: float) -> StandardMaterial3D:
-	return TableProps.metal(albedo, emission, energy, 0.35, 0.55)

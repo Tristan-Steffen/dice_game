@@ -770,7 +770,7 @@ func test_the_window_reports_podium_and_chamber() -> void:
 	assert_gt(view.target_net_center().x, 0.0, "das Podest meldet seinen Anker")
 	var plate := view.podium_plate_px()
 	assert_true(plate.grow(0.05).encloses(view.chamber_rect_px()), "die KAMMER liegt unter der Platte")
-	assert_true(view.podium_rect_px().encloses(view.chamber_rect_px()), "im Podest-Platz")
+	assert_true(view.podium_rect_px().grow(0.05).encloses(view.chamber_rect_px()), "im Podest-Platz")
 	assert_true(plate.has_point(view.podium_stage_center()), "der Podest-Anker liegt auf der Platte")
 	var net := view._global(view.podium_net_rect())
 	assert_gt(net.position.y, plate.end.y, "die Die-View steht unter der Platte")
