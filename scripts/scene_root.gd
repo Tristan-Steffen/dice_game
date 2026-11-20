@@ -4260,7 +4260,8 @@ func _lay_shop_pack(cell: DataCellView, target: Vector3) -> void:
 func _spawn_shop_pack(ware: Resource, at: Vector3) -> DataCellView:
 	if ware is CardPack:
 		var card_pack := ware as CardPack
-		return _spawn_hull(card_pack.sort, card_pack.size, false, at, card_pack.quality)
+		return _spawn_hull(card_pack.sort, card_pack.size, false, at, card_pack.quality,
+			card_pack.front_card())
 	if ware is DicePack:
 		var dice_pack := ware as DicePack
 		return _spawn_hull(dice_pack.sort, dice_pack.size, true, at, dice_pack.quality)
@@ -6199,7 +6200,7 @@ func _bet_price_spec(bet: SideBet) -> Dictionary:
 			# Die Hülle: geöffnet wird nach dem Kassieren, in der Grube.
 			var card_pack := bet.reward_card_pack(factor)
 			return {"body": "card_pack", "sort": card_pack.sort, "tier": card_pack.size,
-				"count": 1, "quality": card_pack.quality}
+				"count": 1, "quality": card_pack.quality, "front": card_pack.front_card()}
 		SideBet.Payout.DICE_PACK:
 			var dice_pack := bet.reward_dice_pack(factor)
 			return {"body": "card_pack", "sort": dice_pack.sort, "tier": dice_pack.size,
@@ -6336,7 +6337,7 @@ func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 	if body_kind == "card_pack":
 		return _spawn_hull(String(spec.get("sort", "")),
 			int(spec.get("tier", CardPack.SIZE_NORMAL)), bool(spec.get("dice", false)), target,
-			int(spec.get("quality", DicePack.QUALITY_STANDARD)))
+			int(spec.get("quality", DicePack.QUALITY_STANDARD)), spec.get("front") as Pack)
 	if body_kind == "cell" and bool(spec.get("stack", false)):
 		var stack := BetCardStack.new()
 		add_child(stack)
@@ -8620,10 +8621,10 @@ var _assign_lanes: Array[int] = []
 
 ## Die Hülle eines Pakets, liegend im Anzeigemaß der Karten.
 func _spawn_hull(pack_sort: String, pack_size: int, dice: bool, at: Vector3,
-		quality := DicePack.QUALITY_STANDARD) -> CardPackView:
+		quality := DicePack.QUALITY_STANDARD, front: Pack = null) -> CardPackView:
 	var hull := CardPackView.new()
 	add_child(hull)
-	hull.setup_pack(pack_sort, pack_size, dice, quality)
+	hull.setup_pack(pack_sort, pack_size, dice, quality, front)
 	hull.rotation.y = -PI / 2.0
 	hull.badge_on_face = true
 	hull.set_body_scale(PackDrawerView.CASSETTE_SCALE)
@@ -8887,7 +8888,6 @@ func _open_pack_choice(choice: PackChoice) -> void:
 		_choice_hull = hull
 		hull.set_hovered(false)
 		hull.set_dimmed(false)
-		hull.set_net_cycling(true)
 		hull.arc_to(rest, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
 		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
 	else:
@@ -8895,9 +8895,8 @@ func _open_pack_choice(choice: PackChoice) -> void:
 		var drop := Vector3(seat.x, PACK_DROP_HEIGHT, seat.z)
 		var pack_sort := String(choice.pack.get("sort"))
 		_choice_hull = _spawn_hull(pack_sort, choice.size, choice.is_dice(), drop,
-			choice.quality)
+			choice.quality, _pack_front(choice.pack))
 		_choice_hull.lie_on_glass(drop)
-		_choice_hull.set_net_cycling(true)
 		_choice_hull.materialize()
 		_choice_hull.glide_to(rest, PACK_HULL_FALL)
 		await get_tree().create_timer(PACK_HULL_FALL).timeout
@@ -9052,7 +9051,7 @@ func _spawn_store_hull(pack: Resource, at: Vector3) -> CardPackView:
 	else:
 		var dice := pack is DicePack
 		hull = _spawn_hull(String(pack.get("sort")), int(pack.get("size")), dice, at,
-			int(pack.get("quality")))
+			int(pack.get("quality")), _pack_front(pack))
 	hull.add_spine()
 	hull.lie_on_glass(at)
 	return hull
@@ -9091,6 +9090,10 @@ func _sync_store_bodies() -> void:
 	for uid in _store_bodies.keys():
 		if not alive.has(uid):
 			_drop_store_body(uid)
+## Die vorderste Karte eines Karten-Pakets (null bei jeder anderen Art).
+func _pack_front(pack: Resource) -> Pack:
+	return (pack as CardPack).front_card() if pack is CardPack else null
+
 	_sync_store_hover()
 
 func _drop_store_body(uid: int) -> void:

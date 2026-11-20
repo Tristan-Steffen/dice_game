@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bosiy6bcxrn07"
-path="res://.godot/imported/card_box.glb-33930e3f3815ab57b11973200dfe698b.scn"
+uid="uid://dvwrgk8h1ay1l"
+path="res://.godot/imported/card_pack_special_3.glb-93b6c452bf8016d05a2995e42c0a1cf4.scn"
 
 [deps]
 
-source_file="res://assets/models/hardware/card_box.glb"
-dest_files=["res://.godot/imported/card_box.glb-33930e3f3815ab57b11973200dfe698b.scn"]
+source_file="res://assets/models/hardware/card_pack_special_3.glb"
+dest_files=["res://.godot/imported/card_pack_special_3.glb-93b6c452bf8016d05a2995e42c0a1cf4.scn"]
 
 [params]
 

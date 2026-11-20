@@ -58,14 +58,11 @@ static func tint_of(shelf: String, catalyst_id := "", net: Array = [],
 		return MULTIPLIER_TINT
 	return COLORS.get(shelf, GOLD)
 
-## Das Misch-Paket trägt ein neutrales Silber.
-const CARD_PACK_MIXED_TINT := Color("#c9d2e6")
-
-## Die Farbe eines PAKETS (CardPack-Sorte): Regal-Sorten tragen ihre Sortenfarbe.
+## Die Farbe eines PAKETS (CardPack-Sorte): die Sortenfarbe seiner Karten.
 static func card_pack_tint(card_pack_sort: String) -> Color:
-	if card_pack_sort == CardPack.SORT_MIXED:
-		return CARD_PACK_MIXED_TINT
-	var pack_type := String(CardPack.SORT_TYPES.get(card_pack_sort, Pack.TYPE_NUMBER))
+	if not CardPack.SORT_TYPES.has(card_pack_sort):
+		return COLORS[Pack.SHELF_SPECIAL]
+	var pack_type := String(CardPack.SORT_TYPES[card_pack_sort])
 	return COLORS.get(Pack.shelf_for_pack_type(pack_type), GOLD)
 
 ## Die WÜRFEL-PAKETE: die Farbe ihrer BANDEROLE (Material und Runen wie ihre Karten);

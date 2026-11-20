@@ -34,7 +34,7 @@ func _dice_choice(count: int) -> PackChoice:
 func _card_choice() -> PackChoice:
 	var run := GameRun.new_run()
 	run.money = 999
-	return _open_pack(run, CardPack.make(CardPack.SORT_MIXED, CardPack.SIZE_LARGE))
+	return _open_pack(run, CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE))
 
 func _view() -> PackChoiceView:
 	var view := PackChoiceView.new()

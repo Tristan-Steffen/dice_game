@@ -921,7 +921,10 @@ func _roll_shop_pack(lane: int) -> Resource:
 			return DicePack.roll_shop(null, run.shop_dice_pack_quality_weights())
 		GameRun.LANE_MODULES:
 			return ModulePack.roll_shop(null, run.shop_module_pack_grade_weights())
-	return CardPack.roll_shop(null, run.shop_card_pack_quality_weights())
+	var card_pack := CardPack.roll_shop(null, run.shop_card_pack_quality_weights())
+	# Die vorderste Karte steht ab der Auslage fest: sie liegt sichtbar im Paket.
+	card_pack.front_card(run.shop_multiplier_chance(), run.shop_card_pack_bulk())
+	return card_pack
 
 # --- Blättern ------------------------------------------------------------------
 

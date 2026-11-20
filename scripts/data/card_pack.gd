@@ -3,22 +3,24 @@ extends Resource
 ## Ein KARTEN-PAKET des Ladens: Sorte, KARTENZAHL (3er/4er/5er = SIZE_SMALL..SIZE_LARGE)
 ## und GÜTE (dieselbe wie bei Würfel-Paketen). Geöffnet zeigt es OPTIONEN (je eine Karte),
 ## von denen der Spieler eine Zahl WAHLEN nimmt; die Güte entscheidet die Kartengrößen.
+## Je Kartensorte EIN Paket (seit dem 2026-11-20, das Misch-Paket ist gestorben), und die
+## vorderste Karte (front) liegt sichtbar darin: sie ist IMMER Option 0, genau so.
 ## Die Wahl-Tabelle hier teilen sich Karten- und Modul-Pakete (Modul: alle vier Größen).
 
 const SORT_NUMBER := "number"
 const SORT_MATERIAL := "material"
 const SORT_RUNE := "rune"
-const SORT_MIXED := "mixed"
-const SORTS := [SORT_NUMBER, SORT_MATERIAL, SORT_RUNE, SORT_MIXED]
+const SORT_SPECIAL := "special"
+const SORTS := [SORT_NUMBER, SORT_MATERIAL, SORT_RUNE, SORT_SPECIAL]
 
 const SORT_NAMES := {
 	SORT_NUMBER: "Zahlen-Paket",
 	SORT_MATERIAL: "Material-Paket",
 	SORT_RUNE: "Runen-Paket",
-	SORT_MIXED: "Misch-Paket",
+	SORT_SPECIAL: "Sonder-Paket",
 }
 
-## Regal-Paketsorte -> Pack-Typ seiner Karten.
+## Regal-Paketsorte -> Pack-Typ seiner Karten (das Sonder-Paket würfelt den Sonderbestand).
 const SORT_TYPES := {
 	SORT_NUMBER: Pack.TYPE_NUMBER,
 	SORT_MATERIAL: Pack.TYPE_MATERIAL,
@@ -62,26 +64,26 @@ const BULK_QUALITY_TIER_WEIGHTS := [[0.45, 0.40, 0.15], [0.20, 0.45, 0.35],
 	[0.10, 0.40, 0.50]]
 ## Garantie unter den Optionen je Güte: so groß ist mindestens eine Karte (-1 = keine).
 const QUALITY_GUARANTEE := [-1, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]
+## Preisfaktor der Güte im Sonder-Paket (seine Karten haben keine Größe).
+const SPECIAL_QUALITY_FACTORS := [1.0, 1.2, 1.45]
 ## Hauptgewinn (alle nehmen) je Güte - nur Royal.
 const QUALITY_JACKPOT := [0.0, 0.0, 0.03]
 ## Der Preis zahlt die WAHL mit: je Option über drei ein Stück Prämie mehr.
 const OPTION_PREMIUM_STEP := 0.05
 
-## Auslage-Gewichte: Zahlen/Material/Runen wie Pack.SHELF_WEIGHTS (×3), Misch ~25 %.
-const SHOP_SORT_WEIGHTS := {SORT_NUMBER: 18, SORT_MATERIAL: 9, SORT_RUNE: 6, SORT_MIXED: 11}
+## Auslage-Gewichte: Zahlen/Material/Runen wie Pack.SHELF_WEIGHTS (×3), Sonder selten.
+const SHOP_SORT_WEIGHTS := {SORT_NUMBER: 18, SORT_MATERIAL: 9, SORT_RUNE: 6, SORT_SPECIAL: 4}
 ## Die Größen-Gewichte der Modul-Pakete (vier Größen) und der Karten-Pakete (3er/4er/5er).
 const SHOP_SIZE_WEIGHTS := [30, 40, 22, 8]
 const CARD_SHOP_SIZE_WEIGHTS := [35, 42, 23]
-## Misch: so oft eine Sonder-Karte statt einer Regal-Karte.
-const MIXED_SPECIAL_CHANCE := 0.15
-## Sonder-Karte im Misch-Paket: so oft ein Multiplikator statt eines Sonderpostens.
-const SPECIAL_MULTIPLIER_SHARE := 1.0 / 6.0
 ## So oft wird eine doppelte Karte neu gewürfelt, bevor sie bleibt.
 const DUPLICATE_RETRIES := 8
 
 @export var sort: String = SORT_NUMBER
 @export var size: int = SIZE_NORMAL
 @export var quality: int = DicePack.QUALITY_STANDARD
+## Die VORDERSTE Karte: sie liegt sichtbar im Paket und ist beim Öffnen Option 0.
+@export var front: Pack
 
 ## Im LAGER: die Identität (GameRun._store_pack stempelt sie) und ob es ein Wett-Gewinn war.
 var store_uid: int = 0
@@ -105,15 +107,10 @@ static func _quality(pack_quality: int) -> int:
 ## Was EINE Option im Mittel wert ist: Kartengrößen der Güte über den Regalpreis der Sorte.
 static func option_value(pack_sort: String, pack_quality: int) -> float:
 	var weights: Array = QUALITY_TIER_WEIGHTS[_quality(pack_quality)]
-	var base := 0.0
-	if SORT_TYPES.has(pack_sort):
-		base = float(Pack.type_price(String(SORT_TYPES[pack_sort])))
-	else:
-		var total := 0.0
-		for pack_type: String in Pack.SHELF_WEIGHTS:
-			base += float(Pack.SHELF_WEIGHTS[pack_type]) * float(Pack.type_price(pack_type))
-			total += float(Pack.SHELF_WEIGHTS[pack_type])
-		base /= total
+	# Sonder-Karten kennen keine Größe: die Güte zahlt dort nur ihr Glück.
+	if not SORT_TYPES.has(pack_sort):
+		return float(Pack.SPECIAL_PRICE) * float(SPECIAL_QUALITY_FACTORS[_quality(pack_quality)])
+	var base := float(Pack.type_price(String(SORT_TYPES[pack_sort])))
 	var value := 0.0
 	for tier in weights.size():
 		value += float(weights[tier]) * base * Pack.tier_price_factor(tier)
@@ -139,7 +136,18 @@ static func quality_luck(pack_quality: int) -> int:
 	return DicePack.quality_luck(pack_quality)
 
 func guaranteed_tier() -> int:
+	if not SORT_TYPES.has(sort):
+		return -1
 	return int(QUALITY_GUARANTEE[_quality(quality)])
+
+## Die vorderste Karte; beim ersten Fragen gewürfelt (Sorte und Güte des Pakets) und dann fest.
+func front_card(multiplier_chance := 0.0, bulk := false,
+		rng: RandomNumberGenerator = null) -> Pack:
+	if front == null:
+		var weights: Array = (BULK_QUALITY_TIER_WEIGHTS if bulk else QUALITY_TIER_WEIGHTS)[
+			_quality(quality)]
+		front = _roll_card(sort, Pack.roll_tier(rng, weights), multiplier_chance, rng)
+	return front
 
 static func sort_name(pack_sort: String) -> String:
 	return String(SORT_NAMES.get(pack_sort, SORT_NAMES[SORT_NUMBER]))
@@ -172,7 +180,7 @@ static func info_body(card_pack: CardPack) -> String:
 	var luck := quality_luck(card_pack.quality)
 	if luck > 0:
 		line += " +%d Glück." % luck
-	return "%s\n%s" % [_content_line(card_pack.sort), line]
+	return "%s\n%s" % [_content_line(card_pack.sort) + " Die sichtbare Karte ist dabei.", line]
 
 static func _content_line(pack_sort: String) -> String:
 	match pack_sort:
@@ -180,8 +188,8 @@ static func _content_line(pack_sort: String) -> String:
 			return "Nur Material-Karten."
 		SORT_RUNE:
 			return "Nur Runen-Karten."
-		SORT_MIXED:
-			return "Karten aller Sorten gemischt."
+		SORT_SPECIAL:
+			return "Nur Sonder-Karten."
 	return "Zahlen-Karten, manchmal ein Multiplikator."
 
 # --- Die WAHL ----------------------------------------------------------------------
@@ -246,7 +254,8 @@ static func roll_shop(rng: RandomNumberGenerator = null, quality_weights: Array 
 # --- Der Inhalt -------------------------------------------------------------------
 
 ## Würfelt count OPTIONEN (ohne count: die Optionen der Kartenzahl) nach Sorte und Güte,
-## mit Garantie und ohne doppeltes Netz. Nie Reparatur-Karte, nie Rohling.
+## mit Garantie und ohne doppeltes Netz. Option 0 ist IMMER die vorderste Karte des Pakets,
+## unverändert - auch nach Neu mischen. Nie Reparatur-Karte, nie Rohling.
 static func roll_contents(card_pack: CardPack, multiplier_chance := 0.0, bulk := false,
 		rng: RandomNumberGenerator = null, count := -1) -> Array[Pack]:
 	var cards: Array[Pack] = []
@@ -258,18 +267,20 @@ static func roll_contents(card_pack: CardPack, multiplier_chance := 0.0, bulk :=
 		return cards
 	var weights: Array = (BULK_QUALITY_TIER_WEIGHTS if bulk else QUALITY_TIER_WEIGHTS)[
 		_quality(card_pack.quality)]
-	var tiers: Array[int] = []
-	for i in count:
+	var shown := card_pack.front_card(multiplier_chance, bulk, rng)
+	var tiers: Array[int] = [shown.tier]
+	for i in count - 1:
 		tiers.append(Pack.roll_tier(rng, weights))
 	var guarantee := card_pack.guaranteed_tier()
-	if guarantee >= 0 and tiers.max() < guarantee:
-		tiers[_roll_unit_index(count, rng)] = guarantee
-	var seen := {}
-	for i in count:
+	if guarantee >= 0 and count > 1 and tiers.max() < guarantee:
+		tiers[1 + _roll_unit_index(count - 1, rng)] = guarantee
+	cards.append(shown)
+	var seen := {content_key(shown): true}
+	for i in range(1, count):
 		cards.append(_roll_unique(card_pack.sort, tiers[i], multiplier_chance, rng, seen))
 	# Die Garantie trägt nur eine Karte MIT Größe - sonst übernimmt eine Regal-Karte.
-	if guarantee >= 0 and not _meets(cards, guarantee):
-		cards[count - 1] = _tiered_card(_regular_type(card_pack.sort, rng), guarantee,
+	if guarantee >= 0 and count > 1 and not _meets(cards, guarantee):
+		cards[count - 1] = _tiered_card(_regular_type(card_pack.sort), guarantee,
 			multiplier_chance, rng)
 	return cards
 
@@ -297,10 +308,8 @@ static func content_key(card: Pack) -> String:
 
 static func _roll_card(pack_sort: String, tier: int, multiplier_chance: float,
 		rng: RandomNumberGenerator) -> Pack:
-	if pack_sort == SORT_MIXED:
-		if _unit(rng) < MIXED_SPECIAL_CHANCE:
-			return _special_card(tier, rng)
-		return _tiered_card(_regular_type(pack_sort, rng), tier, multiplier_chance, rng)
+	if pack_sort == SORT_SPECIAL:
+		return Pack.roll_special_pack()
 	return _tiered_card(String(SORT_TYPES.get(pack_sort, Pack.TYPE_NUMBER)), tier,
 		multiplier_chance, rng)
 
@@ -318,17 +327,9 @@ static func _tiered_card(pack_type: String, tier: int, multiplier_chance: float,
 				and _unit(rng) < multiplier_chance else Pack.number_pack(rng)
 	return Pack.tiered(base, tier, rng)
 
-## Sonderbestand: Sonderposten, Katalysatoren, Operatoren - oder ein Multiplikator.
-static func _special_card(tier: int, rng: RandomNumberGenerator) -> Pack:
-	if _unit(rng) < SPECIAL_MULTIPLIER_SHARE:
-		return Pack.tiered(Pack.multiplier_pack(rng), tier, rng)
-	return Pack.roll_special_pack()
-
-## Misch: die Sorte nach Regal-Gewicht; jede andere Sorte nennt ihren eigenen Typ.
-static func _regular_type(pack_sort: String, rng: RandomNumberGenerator) -> String:
-	if SORT_TYPES.has(pack_sort):
-		return String(SORT_TYPES[pack_sort])
-	return String(_pick_key(Pack.SHELF_WEIGHTS, rng))
+## Der Kartentyp der Garantie-Karte.
+static func _regular_type(pack_sort: String) -> String:
+	return String(SORT_TYPES.get(pack_sort, Pack.TYPE_NUMBER))
 
 # --- Würfel-Helfer ------------------------------------------------------------------
 
