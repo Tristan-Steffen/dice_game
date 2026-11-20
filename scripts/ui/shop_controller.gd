@@ -1211,11 +1211,10 @@ func _spaced(text: String) -> String:
 ## Charm-Karte: die FASSUNG eines Disketten-Stellplatzes (Rahmen in der Rarität, Preis
 ## darunter, Sperr-Zustand) - die Diskette selbst, die Name und Wirkung trägt, legt
 ## scene_root darauf. podest = garantierter Premium-Charm: stärkerer Saum.
-func _build_charm_card(charm: Charm, index: int, podest := false) -> Control:
+func _build_charm_card(_charm: Charm, index: int, _podest := false) -> Control:
 	var bought := charm_bought[index]
 	# Voller Dock steht wie "gekauft" da: der Platz ist zu, egal was er kostet.
 	var full := run.charms_full()
-	var tint := charm.rarity_color()
 	var width := _charm_card_width()
 	var height := _charm_card_height()
 	var card := Button.new()
@@ -1223,19 +1222,16 @@ func _build_charm_card(charm: Charm, index: int, podest := false) -> Control:
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	card.custom_minimum_size = Vector2(width, height)
 	_center_in_place(card, width, height)
-	var seam_alpha := 0.9 if podest else 0.65
-	card.add_theme_stylebox_override("normal", _charm_card_box(Color("#1d1840cc"), tint, seam_alpha, 0.32 if podest else 0.22))
-	card.add_theme_stylebox_override("hover", _charm_card_box(Color("#2a2158dd"), NEON_GOLD, 0.9, 0.3))
-	card.add_theme_stylebox_override("pressed", _charm_card_box(Color("#352a68"), NEON_GOLD, 1.0, 0.3))
-	card.add_theme_stylebox_override("disabled", _charm_card_box(Color("#16133466"), tint, 0.18, 0.0))
-	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	# Gemalt wird nichts mehr: Projektor und Diskette SIND der Platz.
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		card.add_theme_stylebox_override(state, StyleBoxEmpty.new())
 	var pad_size := charm_pad_size()
 	var pad := Panel.new()
 	pad.name = "DiskPad"
 	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.position = Vector2((width - pad_size.x) * 0.5, u * CHARM_CARD_MARGIN)
 	pad.size = pad_size
-	pad.add_theme_stylebox_override("panel", _place_box())
+	pad.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	card.add_child(pad)
 	charm_pads.append(pad)
 	# Das Schild steht nur auf dem LEEREN Platz ("gekauft") - sonst trägt es die Diskette.
@@ -1302,19 +1298,6 @@ func _keyword_hint_card(px: int) -> HintCard:
 		add_child(_keyword_hint)
 		move_child(_keyword_hint, 0)
 	return _keyword_hint
-
-## Kartenrahmen im Raritäts-Tint: Saum + weicher Außen-Glow (StyleBox-Schatten).
-func _charm_card_box(fill: Color, border: Color, border_alpha: float, glow_alpha: float) -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color = fill
-	box.border_color = Color(border.r, border.g, border.b, border_alpha)
-	box.set_border_width_all(maxi(1, int(u * 0.22)))
-	box.set_corner_radius_all(int(u * 1.2))
-	box.set_content_margin_all(int(u * CARD_MARGIN))
-	if glow_alpha > 0.0:
-		box.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
-		box.shadow_size = int(u * 0.9)
-	return box
 
 
 # --- Neon-Bausteine --------------------------------------------------------------

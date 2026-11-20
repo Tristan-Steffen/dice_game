@@ -172,7 +172,6 @@ func _fly_in(charm: Charm, i: int) -> void:
 	var home := readers[i].disk_global_transform()
 	var mouth := home
 	mouth.origin -= readers[i].global_basis.x.normalized() * CharmDiskView.INSERT_DEPTH
-	var tween := disk.carry_to(mouth, CARRY_TIME, CARRY_PEAK)
 	var slide := func() -> void:
 		if not _bodies.has(charm) or _bodies[charm]["disk"] != disk:
 			return
@@ -184,10 +183,23 @@ func _fly_in(charm: Charm, i: int) -> void:
 			land.call()
 		else:
 			glide.finished.connect(land)
-	if tween == null:
-		slide.call()
+	var fly := func() -> void:
+		if not _bodies.has(charm) or _bodies[charm]["disk"] != disk:
+			return
+		var tween := disk.carry_to(mouth, CARRY_TIME, CARRY_PEAK)
+		if tween == null:
+			slide.call()
+		else:
+			tween.finished.connect(slide)
+	# Steckt sie noch im Laden-Projektor, gleitet sie erst aus dessen Schlitz.
+	var out: Tween = null
+	if disk.has_meta(&"pull_out"):
+		out = disk.carry_to(disk.get_meta(&"pull_out"), SLIDE_TIME, 0.0)
+		disk.remove_meta(&"pull_out")
+	if out == null:
+		fly.call()
 	else:
-		tween.finished.connect(slide)
+		out.finished.connect(fly)
 
 ## Umsortiert: Diskette und Hologramm fahren zum neuen Laufwerk.
 func _move_body(charm: Charm, i: int, hard: bool) -> void:

@@ -915,7 +915,18 @@ var charm_drag_index: int = -1
 ## und die eine ausgeworfene samt ihrer Sektion.
 var _incoming_charm_disks := {}
 var _shop_charm_disks := {}
+var _shop_charm_projectors: Array[CharmProjectorView] = []
+## Charm -> Platz, Charms im Anflug, abgehende Körper und offene Schlitze des Blätterns.
+var _shop_charm_seat := {}
+var _shop_charm_arriving := {}
+var _shop_charm_leaving: Array = []
+var _shop_charm_slits: Array = []
+## Der Schlitz eines Charm-Platzes (Welt-X ab Platzmitte) und die Takte des Tauschs.
+const SHOP_SLIT := -2.2
+const SHOP_DISK_TILT := 0.32
+const SHOP_DISK_SINK := 0.3
 var _secret_charm_disk: CharmDiskView
+var _secret_charm_projector: CharmProjectorView
 var _charm_sinking: CharmDiskView
 var _charm_shaft: LiftShaftView
 var _charm_tip_owner: Charm
@@ -11264,51 +11275,145 @@ func _on_shop_charm_purchasing(index: int) -> void:
 	if disk == null or not is_instance_valid(disk):
 		return
 	_shop_charm_disks.erase(charm)
+	_shop_charm_seat.erase(charm)
+	_shop_charm_arriving.erase(charm)
+	disk.visible = true
 	_incoming_charm_disks[charm] = disk
+	if index < _shop_charm_projectors.size():
+		var projector := _shop_charm_projectors[index]
+		disk.set_meta(&"pull_out", projector.mouth_global_transform())
+		projector.set_charm(null)
 
-## Je Bild: auf jedem unverkauften Charm-Platz des Ladens liegt seine Diskette, und der
-## Zeiger hebt sie. Der EINE Schreiber der Laden-Disketten.
+## Je Bild: auf jedem Charm-Platz des Ladens steht ein Projektor, in dem die Diskette
+## des unverkauften Charms steckt. Der EINE Schreiber der Laden-Disketten.
 func _sync_shop_charm_disks() -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop) or table_screen == null:
 		return
-	var shown := phase == Phase.SHOP and charm_shop.is_visible_in_tree() \
-		and charm_shop.charm_seats_laid_out()
-	if not shown:
+	if phase != Phase.SHOP or not charm_shop.is_visible_in_tree():
 		_drop_shop_charm_disks()
+		return
+	# Ein Neuaufbau der Seite (Blättern) hat kurz keine Rechtecke - die Körper bleiben.
+	if not charm_shop.charm_seats_laid_out():
 		return
 	var stock := charm_shop.charm_stock()
 	var rects := charm_shop.charm_seat_rects()
 	var wanted := {}
 	var seats := {}
+	while _shop_charm_projectors.size() > rects.size():
+		_shop_charm_projectors.pop_back().queue_free()
+	for i in rects.size():
+		if i >= _shop_charm_projectors.size():
+			var fresh := CharmProjectorView.new()
+			fresh.name = "LadenProjektor%d" % i
+			add_child(fresh)
+			_shop_charm_projectors.append(fresh)
+		_shop_charm_projectors[i].global_position = CharmProjectorView.origin_for(
+			table_screen.pixel_to_world(rects[i].get_center()))
 	for i in stock.size():
 		if stock[i] != null and i < rects.size():
 			wanted[stock[i]] = rects[i]
 			seats[stock[i]] = i
+	# Was der Laden nicht mehr führt, zieht aus und geht durch den Abgangs-Schlitz.
+	var leaving_seats := {}
 	for charm: Charm in _shop_charm_disks.keys():
 		if not wanted.has(charm):
 			var gone: CharmDiskView = _shop_charm_disks[charm]
-			if is_instance_valid(gone):
-				gone.queue_free()
+			var seat: int = _shop_charm_seat.get(charm, -1)
 			_shop_charm_disks.erase(charm)
+			_shop_charm_seat.erase(charm)
+			_shop_charm_arriving.erase(charm)
+			if is_instance_valid(gone):
+				if seat >= 0 and seat < rects.size():
+					leaving_seats[seat] = true
+					_send_shop_disk_off(gone, seat)
+				else:
+					gone.queue_free()
 	var hover := _hovered_disk_rect(wanted.values())
-	if hover == Rect2() and _charm_tip_owner != null and wanted.has(_charm_tip_owner):
-		var pixel := _screen_pixel(get_viewport().get_mouse_position())
-		if not table_screen.charm_tip.has_pixel(pixel):
-			table_screen.charm_tip.hide_tip()
-			_charm_tip_owner = null
 	for charm: Charm in wanted:
 		var rect: Rect2 = wanted[charm]
+		var seat: int = seats[charm]
+		var projector := _shop_charm_projectors[seat]
 		var disk: CharmDiskView = _shop_charm_disks.get(charm)
 		if disk == null or not is_instance_valid(disk):
 			disk = _spawn_lying_disk(charm)
 			_shop_charm_disks[charm] = disk
-		_lay_disk_on(disk, rect)
-		var seat: int = seats[charm]
-		disk.set_tag(charm_shop.charm_tag_text(seat), charm_shop.charm_tag_muted(seat))
-		var lifted := rect == hover
-		disk.set_lifted(lifted)
-		if lifted:
-			_show_charm_tip(charm, Vector2(rect.get_center().x, rect.end.y), rect.size.x)
+			_bring_shop_disk_in(charm, disk, seat, leaving_seats.has(seat))
+		_shop_charm_seat[charm] = seat
+		if not disk.carrying() and not _shop_charm_arriving.has(charm):
+			disk.global_transform = projector.disk_global_transform()
+		projector.set_price(charm_shop.charm_tag_text(seat), charm_shop.charm_tag_muted(seat))
+		projector.set_hovered(rect == hover)
+	for i in _shop_charm_projectors.size():
+		var held: Charm = stock[i] if i < stock.size() else null
+		_shop_charm_projectors[i].set_charm(null if _shop_charm_arriving.has(held) else held)
+
+## Die senkrechte Lage einer Diskette über (sunk: unter) einem Schlitz, Text zum Betrachter.
+func _shop_disk_upright(slit: Vector3, sunk: bool) -> Transform3D:
+	var half := CharmDiskView.SIZE.x * 0.5
+	return Transform3D(Basis(Vector3(0, 0, 1), PI * 0.5), Vector3(
+		slit.x + CharmDiskView.SIZE.y * 0.5, -half - 0.3 if sunk else half + 0.15, slit.z))
+
+## Der Schlitz mißt am PROJEKTOR: das Rechteck einer frisch gebauten Seite steht noch nicht.
+func _shop_slit_point(seat: int, offset: float) -> Vector3:
+	var at := _shop_charm_projectors[seat].global_position
+	return Vector3(at.x - (CharmDiskView.SIZE.x - CharmDiskView.INSERT_DEPTH) * 0.5 + offset, 0.0, at.z)
+
+func _open_shop_slit(at: Vector3, hold: float) -> void:
+	var slit := CharmSlitView.new()
+	add_child(slit)
+	slit.global_position = at
+	slit.play(hold)
+	for i in range(_shop_charm_slits.size() - 1, -1, -1):
+		if not is_instance_valid(_shop_charm_slits[i]):
+			_shop_charm_slits.remove_at(i)
+	_shop_charm_slits.append(slit)
+
+## Abgang beim Blättern: ausstecken, aufrichten, im Schlitz versinken.
+func _send_shop_disk_off(disk: CharmDiskView, seat: int) -> void:
+	_shop_charm_leaving.append(disk)
+	var here := func() -> Vector3:
+		return _shop_slit_point(mini(seat, _shop_charm_projectors.size() - 1), SHOP_SLIT)
+	var sink := func() -> void:
+		var down := disk.carry_to(_shop_disk_upright(here.call(), true), SHOP_DISK_SINK, 0.0)
+		down.finished.connect(func() -> void:
+			_shop_charm_leaving.erase(disk)
+			disk.queue_free())
+	var rise := func() -> void:
+		# Der Schlitz bleibt offen, bis auch die neue Diskette heraus ist.
+		_open_shop_slit(here.call(), SHOP_DISK_TILT + SHOP_DISK_SINK * 2.0 + SHOP_DISK_TILT * 0.5)
+		disk.carry_to(_shop_disk_upright(here.call(), false), SHOP_DISK_TILT, 0.0).finished.connect(sink)
+	disk.carry_to(_shop_charm_projectors[seat].mouth_global_transform(),
+		CharmRowView.SLIDE_TIME, 0.0).finished.connect(rise)
+
+## Ankunft: aus demselben Schlitz steigen, hinlegen, einstecken - erst dann projiziert er.
+func _bring_shop_disk_in(charm: Charm, disk: CharmDiskView, seat: int, wait: bool) -> void:
+	_shop_charm_arriving[charm] = true
+	disk.visible = false
+	var mine := func() -> bool:
+		return is_instance_valid(disk) and _shop_charm_disks.get(charm) == disk \
+			and _shop_charm_arriving.has(charm) and seat < _shop_charm_projectors.size()
+	var plug := func() -> void:
+		if not mine.call():
+			return
+		disk.carry_to(_shop_charm_projectors[seat].disk_global_transform(),
+			CharmRowView.SLIDE_TIME, 0.0).finished.connect(func() -> void:
+				if _shop_charm_disks.get(charm) == disk:
+					_shop_charm_arriving.erase(charm))
+	var lie := func() -> void:
+		if mine.call():
+			disk.carry_to(_shop_charm_projectors[seat].mouth_global_transform(),
+				SHOP_DISK_TILT, 0.0).finished.connect(plug)
+	var rise := func() -> void:
+		if mine.call():
+			var slit := _shop_slit_point(seat, SHOP_SLIT)
+			disk.global_transform = _shop_disk_upright(slit, true)
+			disk.visible = true
+			if not wait:
+				_open_shop_slit(slit, SHOP_DISK_SINK + SHOP_DISK_TILT * 0.5)
+			disk.carry_to(_shop_disk_upright(slit, false), SHOP_DISK_SINK, 0.0).finished.connect(lie)
+	# Erst wenn die alte Diskette versunken ist, steigt die neue aus demselben Schlitz.
+	var lead := (CharmRowView.SLIDE_TIME + SHOP_DISK_TILT + SHOP_DISK_SINK) if wait else 0.02
+	disk.create_tween().tween_interval(lead).finished.connect(rise)
 
 ## Je Bild: die Charm-Ware des Schwarzmarkts liegt als Diskette am Kartensitz.
 func _sync_secret_charm_disk() -> void:
@@ -11318,26 +11423,47 @@ func _sync_secret_charm_disk() -> void:
 		return
 	var seat := market.card_slot_index()
 	var rect := market.charm_disk_rect_px()
-	if seat < 0 or rect.size.x <= 0.0 or bool(run.secret_stock[seat][GameRun.OFFER_SOLD]):
+	if seat < 0 or rect.size.x <= 0.0:
 		_drop_secret_charm_disk()
 		return
+	if _secret_charm_projector == null or not is_instance_valid(_secret_charm_projector):
+		_secret_charm_projector = CharmProjectorView.new()
+		_secret_charm_projector.name = "SchwarzmarktProjektor"
+		add_child(_secret_charm_projector)
+	var projector := _secret_charm_projector
+	projector.global_position = CharmProjectorView.origin_for(
+		table_screen.pixel_to_world(rect.get_center()))
+	if bool(run.secret_stock[seat][GameRun.OFFER_SOLD]):
+		_drop_secret_charm_disk(true)
+		projector.set_charm(null)
+		return
 	var charm: Charm = run.secret_stock[seat][GameRun.OFFER_ITEM]
+	projector.set_charm(charm)
 	if _secret_charm_disk == null or not is_instance_valid(_secret_charm_disk) \
 			or _secret_charm_disk.charm != charm:
-		_drop_secret_charm_disk()
+		_drop_secret_charm_disk(true)
 		_secret_charm_disk = _spawn_lying_disk(charm)
-	_lay_disk_on(_secret_charm_disk, rect)
-	_secret_charm_disk.set_lifted(_hovered_disk_rect([rect]) == rect)
+	if not _secret_charm_disk.carrying():
+		_secret_charm_disk.global_transform = projector.disk_global_transform()
+	projector.set_hovered(_hovered_disk_rect([rect]) == rect)
 
-func _drop_secret_charm_disk() -> void:
+## Der Projektor bleibt als Möbel stehen, solange der Sitz steht (keep_projector).
+func _drop_secret_charm_disk(keep_projector := false) -> void:
 	if _secret_charm_disk != null and is_instance_valid(_secret_charm_disk):
 		_secret_charm_disk.queue_free()
 	_secret_charm_disk = null
+	if not keep_projector:
+		if _secret_charm_projector != null and is_instance_valid(_secret_charm_projector):
+			_secret_charm_projector.queue_free()
+		_secret_charm_projector = null
 
 ## Ein Schwarzmarkt-Charm wird gleich gebucht: seine Diskette wird die ankommende der Reihe.
 func _claim_secret_charm_disk() -> void:
 	if _secret_charm_disk != null and is_instance_valid(_secret_charm_disk):
 		_incoming_charm_disks[_secret_charm_disk.charm] = _secret_charm_disk
+		if _secret_charm_projector != null and is_instance_valid(_secret_charm_projector):
+			_secret_charm_disk.set_meta(&"pull_out", _secret_charm_projector.mouth_global_transform())
+			_secret_charm_projector.set_charm(null)
 		_secret_charm_disk = null
 
 func _drop_shop_charm_disks() -> void:
@@ -11349,6 +11475,17 @@ func _drop_shop_charm_disks() -> void:
 		if is_instance_valid(disk):
 			disk.queue_free()
 	_shop_charm_disks.clear()
+	_shop_charm_seat.clear()
+	_shop_charm_arriving.clear()
+	for node: Variant in _shop_charm_leaving + _shop_charm_slits:
+		if is_instance_valid(node):
+			node.queue_free()
+	_shop_charm_leaving.clear()
+	_shop_charm_slits.clear()
+	for projector in _shop_charm_projectors:
+		if is_instance_valid(projector):
+			projector.queue_free()
+	_shop_charm_projectors.clear()
 
 func _spawn_lying_disk(charm: Charm) -> CharmDiskView:
 	var disk := CharmDiskView.new(charm)
