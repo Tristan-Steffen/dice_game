@@ -8084,12 +8084,12 @@ func _flush_cell_pops() -> void:
 func _data_cell_seat(px: Vector2) -> Vector3:
 	return _bench_hover_target(px, 0.0)
 
-## Der Platz der Karte auf Scheibe index: die Oberseite der Scheibe (ZERO = die Walze
+## Der Platz der Karte auf Scheibe index: der Boden ihrer Mulde (ZERO = die Walze
 ## steht nicht).
 func _drum_seat(index: int) -> Vector3:
 	if drum == null or not is_instance_valid(drum):
 		return Vector3.ZERO
-	return drum.top_point(index)
+	return drum.seat_point(index)
 
 ## Der EINE harte Schreiber einer Karte in ihrem FACH: sie LIEGT dort auf der
 ## Trittfläche, die große Fläche mit dem Prägenetz nach oben.

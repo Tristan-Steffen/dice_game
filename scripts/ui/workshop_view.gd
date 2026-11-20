@@ -757,6 +757,8 @@ func net_span(u: float) -> Vector2:
 const DRUM_SLICES := 6
 ## Luft der Karte in ihrer Scheibe, Anteil ihres Maßes (quer und längs).
 const DRUM_AIR := 0.06
+## Luft QUER zur Achse: sie ist die Wand neben der Karte, also die Tiefe der Mulde.
+const DRUM_SIDE_AIR := 0.12
 ## Fuge zwischen den Zeilen und zwischen Magazin und Gleichung, in u.
 const DRUM_SHELF_GAP := 4.0
 ## Der Platz des PODESTS rechts am Pool (Platte samt Die-View), in u - die Breite ist
@@ -775,7 +777,7 @@ const EQ_SIGN_FONT := 8.0
 
 ## Die Kante des Scheiben-Vierkants: die KURZE Kartenseite plus Luft.
 static func drum_side_px(card: Vector2) -> float:
-	return card.y * (1.0 + DRUM_AIR)
+	return card.y * (1.0 + DRUM_SIDE_AIR)
 
 ## Wie lang eine Scheibe längs der Achse ist: die lange Kartenseite plus Luft.
 static func slice_length_px(card: Vector2) -> float:

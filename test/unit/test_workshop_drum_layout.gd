@@ -35,7 +35,7 @@ func test_slices_run_left_to_right_inside_pit() -> void:
 
 func test_drum_fits_on_edge_at_the_short_side() -> void:
 	var pit: Rect2 = lay["pit"]
-	assert_almost_eq(WorkshopView.drum_side_px(CARD), CARD.y * (1.0 + WorkshopView.DRUM_AIR),
+	assert_almost_eq(WorkshopView.drum_side_px(CARD), CARD.y * (1.0 + WorkshopView.DRUM_SIDE_AIR),
 		0.001, "der Querschnitt mißt an der KURZEN Kartenseite")
 	assert_gt(pit.size.y, WorkshopView.drum_side_px(CARD) * sqrt(2.0))
 

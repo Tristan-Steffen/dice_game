@@ -37,6 +37,8 @@ const BURNER_ARM := 0.36
 ## über der Seite - die Karte deckt sie. Was sich deckt, liegt nie in derselben Schicht.
 const BED_HIGH := 0.02
 const BED_STEP := 0.004
+## Luft der Mulde um die Karte (Welt).
+const WELL_AIR := 0.012
 const BODY_ALBEDO := Color(0.16, 0.155, 0.21)
 const BODY_EMISSION := Color(0.36, 0.38, 0.52)
 const BODY_EMISSION_ENERGY := 0.3
@@ -204,6 +206,10 @@ func top_point(index: int) -> Vector3:
 		return global_position
 	return _pivots[index].global_position + Vector3.UP * _side * 0.5
 
+## Wo die Karte auf Scheibe index liegt: am Boden ihrer Mulde.
+func seat_point(index: int) -> Vector3:
+	return top_point(index) - Vector3.UP * well_depth(_side)
+
 # --- DIE ÜBERTRAGUNG ----------------------------------------------------------
 
 ## Wo der Strom über Scheibe index steht; hinter der letzten eine Teilung weiter
@@ -293,7 +299,7 @@ func _ensure_light() -> void:
 	_light_plane.name = "Plane"
 	var quad := QuadMesh.new()
 	# Quer die kurze Kartenseite (Welt-X), längs die Scheibenlänge (Welt-Z).
-	quad.size = Vector2(_side / (1.0 + WorkshopView.DRUM_AIR),
+	quad.size = Vector2(_side / (1.0 + WorkshopView.DRUM_SIDE_AIR),
 		_pitch * SLICE_SHARE / (1.0 + WorkshopView.DRUM_AIR))
 	_light_plane.mesh = quad
 	_light_plane.material_override = _light_material
@@ -331,7 +337,8 @@ func _build_slice(pivot: Node3D, side: float, thickness: float) -> Array:
 	var body := MeshInstance3D.new()
 	body.name = "Koerper"
 	var box := BoxMesh.new()
-	box.size = Vector3(side, side, thickness)
+	var wall := well_depth(side)
+	box.size = Vector3(side - wall * 2.0, side - wall * 2.0, thickness)
 	body.mesh = box
 	var material := StandardMaterial3D.new()
 	material.albedo_color = BODY_ALBEDO
@@ -343,6 +350,10 @@ func _build_slice(pivot: Node3D, side: float, thickness: float) -> Array:
 	body.material_override = material
 	_bodies.append(material)
 	pivot.add_child(body)
+	for x: float in [-1.0, 1.0]:
+		for y: float in [-1.0, 1.0]:
+			_part(pivot, "Holm", Vector3(wall, wall, thickness),
+				Vector3(x * (side - wall) * 0.5, y * (side - wall) * 0.5, 0.0), material)
 	var readers: Array = []
 	for rank in Pack.SHELF_ORDER.size():
 		var shelf: String = Pack.SHELF_ORDER[rank]
@@ -362,192 +373,136 @@ func _build_reader(face: Node3D, shelf: String, side: float, thickness: float) -
 	var tint: Color = PackDrawerView.COLORS.get(shelf, Color.WHITE)
 	var reader := {"movers": [], "lamps": []}
 	var top := side * 0.5
-	var across := side / (1.0 + WorkshopView.DRUM_AIR)
+	var across := side / (1.0 + WorkshopView.DRUM_SIDE_AIR)
 	var length := thickness / (1.0 + WorkshopView.DRUM_AIR)
 	var k := across / DataCellView.WIDTH if DataCellView.WIDTH > 0.0 else 1.0
 	var edge := length * 0.5 + (thickness - length) * 0.25
 	_build_bed(face, shelf, tint, top, side, across, length, thickness, k)
 	match DataCellView.carrier_of(shelf):
 		DataCellView.CARRIER_PUNCH:
-			_build_feelers(face, reader, tint, top, across, edge, k)
+			_build_feelers(face, reader, tint, top, across, edge, k, well_depth(side))
 		DataCellView.CARRIER_CASSETTE:
-			_build_lid(face, reader, tint, top, across, length, edge, k)
+			_build_lid(face, reader, tint, top, across, length, edge, k, well_depth(side))
 		DataCellView.CARRIER_CLAY:
-			_build_roller(face, reader, tint, top, across, length, edge, k)
+			_build_roller(face, reader, tint, top, across, length, edge, k, well_depth(side))
 		_:
 			_build_burner(face, reader, tint, top, across, length, edge, k)
 	return reader
 
-## Das BETT einer Seite: jede Sorte in Material und Epoche ihres Mediums, flach aufgedruckt
-## (höchstens BED_HIGH über der Seite) - die Karte deckt es. Maße im Karten-Maß: x längs der
-## Achse (Kopf = -x), y quer.
+## Das BETT einer Seite: eine MULDE, in die die Karte sinkt (well_depth tief), mit einem Rand
+## im Material ihres Mediums, einer Lichtlippe in der Sortenfarbe und EINEM Motiv am Boden.
+## Maße der Drucke im Karten-Maß: x längs der Achse (Kopf = -x), y quer.
 func _build_bed(face: Node3D, shelf: String, tint: Color, top: float, side: float,
 		across: float, length: float, thickness: float, k: float) -> void:
 	var half := Vector2(length * 0.5 / k, across * 0.5 / k)
-	var rim := Vector2((thickness * 0.5 - 0.05) / k, (side * 0.5 - 0.05) / k)
+	var well := well_depth(side)
+	var floor_y := top - well + BED_STEP
+	var inner := Vector2(length * 0.5 + WELL_AIR, side * 0.5 - well)
+	var ground := Color.BLACK
+	var rim := Color.BLACK
 	match DataCellView.carrier_of(shelf):
 		DataCellView.CARRIER_PUNCH:
-			_bed_punch(face, tint, top, k, half, rim)
+			ground = _lit(tint, 0.2)
+			rim = Color(0.05, 0.05, 0.06)
+			_bed_punch(face, tint, floor_y, k, half)
+			_pin(face, "Juwel", 0.07, 0.03,
+				Vector3(0.0, top, (inner.x + thickness * 0.5) * 0.5), _flat(_lit(tint, 0.95), 1.0))
 		DataCellView.CARRIER_CASSETTE:
-			_bed_cassette(face, tint, top, k, half, rim)
+			ground = Color(0.07, 0.07, 0.085)
+			rim = Color(0.5, 0.51, 0.55)
+			_bed_cassette(face, tint, floor_y, k)
 		DataCellView.CARRIER_CLAY:
-			_bed_clay(face, tint, top, k, half, rim)
+			ground = Color(0.34, 0.245, 0.14)
+			rim = Color(0.24, 0.165, 0.09)
+			_bed_clay(face, tint, floor_y, k, half)
 		_:
-			_bed_module(face, tint, top, k, half, rim)
+			ground = _lit(tint, 0.1)
+			rim = _lit(tint, 0.22)
+			_bed_module(face, tint, floor_y, k, half)
+	_part(face, "Grund", Vector3(inner.y * 2.0, BED_STEP, inner.x * 2.0),
+		Vector3(0.0, top - well + BED_STEP * 0.5, 0.0), _flat(ground, 1.0))
+	_well_frame(face, _flat(rim, 1.0), tint, top, well, inner, thickness)
 
-## Die Tabelliermaschine von 1934: Schrumpflack, Messing, grünes Email, Elfenbein-Skala.
-func _bed_punch(face: Node3D, tint: Color, top: float, k: float, half: Vector2,
-		rim: Vector2) -> void:
-	var brass := _flat(Color(0.7, 0.53, 0.22), 1.0)
-	var ink := _flat(Color(0.03, 0.03, 0.03), 1.0)
-	var foot := (half.x + rim.x) * 0.5
-	_ground(face, Color(0.05, 0.05, 0.06), 0.5, top, rim, k)
-	_prints(face, "Messingrahmen", [_box2(0.0, 0.0, half.x * 2.0 + 0.05, half.y * 2.0 + 0.05)],
-		top + BED_STEP, k, brass)
-	_prints(face, "Emailfeld", [_box2(0.0, 0.0, half.x * 2.0, half.y * 2.0)],
-		top + BED_STEP * 2.0, k, _flat(_lit(tint, 0.2), 1.0))
-	var rules: Array = []
-	for i in 20:
-		rules.append(_box2(-half.x + (float(i) + 0.5) * half.x / 10.0, 0.05, 0.009,
-			half.y * 2.0 - 0.22))
-	_prints(face, "Spalten", rules, top + BED_STEP * 3.0, k, brass)
+## So tief ist die Mulde - und so breit ihre Wand längs der Kanten: tiefer brächen die
+## Mulden zweier Nachbarseiten an der Kante ineinander.
+static func well_depth(side: float) -> float:
+	return (side - side / (1.0 + WorkshopView.DRUM_SIDE_AIR)) * 0.5 - WELL_AIR
+
+## Der Rand der Mulde: die Stirnwände im Material der Seite, ihre Kappen auf den Kanten-
+## Holmen der Scheibe, darauf die Lichtlippe um die Öffnung. inner = halbe Öffnung (längs, quer).
+func _well_frame(face: Node3D, rim: Material, tint: Color, top: float, well: float,
+		inner: Vector2, thickness: float) -> void:
+	var deep := thickness * 0.5 - inner.x
+	for z: float in [-1.0, 1.0]:
+		_part(face, "Stirnwand", Vector3(inner.y * 2.0, well, deep),
+			Vector3(0.0, top - well * 0.5, z * (inner.x + deep * 0.5)), rim)
+	var cap := well - 0.01
+	_prints(face, "Randkappe", [_box2(0.0, inner.y + cap * 0.5, thickness, cap),
+		_box2(0.0, -inner.y - cap * 0.5, thickness, cap)], top + 0.002, 1.0, rim)
+	_prints(face, "Lippe", [_box2(0.0, inner.y + 0.015, inner.x * 2.0 + 0.06, 0.03),
+		_box2(0.0, -inner.y - 0.015, inner.x * 2.0 + 0.06, 0.03),
+		_box2(inner.x + 0.015, 0.0, 0.03, inner.y * 2.0),
+		_box2(-inner.x - 0.015, 0.0, 0.03, inner.y * 2.0)], top + 0.004, 1.0,
+		_flat(_lit(tint, 0.85), 1.0))
+
+## Die Tabelliermaschine von 1934: grünes Email, am Fuß die Elfenbein-Skala.
+func _bed_punch(face: Node3D, _tint: Color, floor_y: float, k: float, half: Vector2) -> void:
 	_prints(face, "Skala", [_box2(0.0, -half.y + 0.07, half.x * 2.0 - 0.06, 0.08)],
-		top + BED_STEP * 3.0, k, _flat(Color(0.82, 0.76, 0.6), 1.0))
+		floor_y + BED_STEP, k, _flat(Color(0.82, 0.76, 0.6), 1.0))
 	var ticks: Array = []
-	for i in 40:
-		ticks.append(_box2(-half.x + 0.03 + (float(i) + 0.5) * (half.x * 2.0 - 0.06) / 40.0,
-			-half.y + 0.07, 0.006, 0.06 if i % 5 == 0 else 0.03))
-	_prints(face, "Teilung", ticks, top + BED_STEP * 4.0, k, ink)
-	var rings: Array = []
-	for i in 3:
-		var y := (float(i) - 1.0) * 0.36
-		rings.append(_disc2(foot, y, 0.042))
-		_pin(face, "Juwel", 0.027 * k, 0.03, Vector3(y * k, top, foot * k),
-			_flat(_lit(tint, 0.95 if i == 1 else 0.4), 1.0))
-	for y: float in [-0.18, 0.18]:
-		rings.append(_disc2(foot, y, 0.024))
-	_prints(face, "Fassungen", rings, top + BED_STEP * 2.0, k, brass)
-	_prints(face, "Schlitze", [_line2(Vector2(foot - 0.017, -0.19), Vector2(foot + 0.017, -0.17),
-		0.007), _line2(Vector2(foot - 0.017, 0.17), Vector2(foot + 0.017, 0.19), 0.007)],
-		top + BED_STEP * 3.0, k, ink)
-
-## Der Walkman von 1992: gebürstetes Alu, pink eloxiertes Band, aufgedruckte Laufwerks-Zeichen.
-func _bed_cassette(face: Node3D, tint: Color, top: float, k: float, half: Vector2,
-		rim: Vector2) -> void:
-	var pink := _flat(_lit(tint, 0.7), 1.0)
-	var foot := (half.x + rim.x) * 0.5
-	_ground(face, Color(0.5, 0.51, 0.55), 1.0, top, rim, k)
-	_prints(face, "Schacht", [_rrect2(0.0, 0.0, half.x * 2.0, half.y * 2.0, 0.09)],
-		top + BED_STEP, k, _flat(Color(0.07, 0.07, 0.085), 1.0))
-	_prints(face, "Band", [_box2(0.0, 0.4, half.x * 2.0 - 0.2, 0.05),
-		_box2(0.0, 0.34, half.x * 2.0 - 0.2, 0.012)], top + BED_STEP * 2.0, k, pink)
-	_prints(face, "Zeichen", [_tri2(-0.5, -0.4, 0.09, -1.0), _tri2(-0.42, -0.4, 0.09, -1.0),
-		_tri2(-0.2, -0.4, 0.1, 1.0), _box2(0.03, -0.4, 0.085, 0.085),
-		_box2(0.22, -0.4, 0.03, 0.09), _box2(0.28, -0.4, 0.03, 0.09),
-		_tri2(0.46, -0.4, 0.09, 1.0), _tri2(0.54, -0.4, 0.09, 1.0)],
-		top + BED_STEP * 2.0, k, _flat(_lit(tint, 0.95), 1.0))
-	var grooves: Array = []
-	for i in 7:
-		grooves.append(_box2(0.6 + float(i) * 0.026, 0.02, 0.01, 0.5))
-	_prints(face, "Rillen", grooves, top + BED_STEP * 2.0, k, _flat(Color(0.42, 0.43, 0.47), 1.0))
-	var slots: Array = []
-	for i in 8:
-		slots.append(_box2(foot, 0.25 + float(i) * 0.03, 0.06, 0.012))
-	_prints(face, "Schlitzfeld", slots, top + BED_STEP * 2.0, k,
+	for i in 20:
+		ticks.append(_box2(-half.x + 0.03 + (float(i) + 0.5) * (half.x * 2.0 - 0.06) / 20.0,
+			-half.y + 0.07, 0.007, 0.06 if i % 5 == 0 else 0.03))
+	_prints(face, "Teilung", ticks, floor_y + BED_STEP * 2.0, k,
 		_flat(Color(0.03, 0.03, 0.03), 1.0))
-	_pin(face, "Batterielicht", 0.016 * k, 0.012, Vector3(-0.3 * k, top, foot * k),
-		_flat(_lit(tint, 0.95), 1.0))
-	_part(face, "Schieber", Vector3(0.16 * k, 0.014, 0.05 * k),
-		Vector3(-0.05 * k, top + 0.011, foot * k), pink)
 
-## Luftgetrocknete Lehmziegel mit Bitumen-Fugen und einem ockergelben Rosetten-Fries.
-func _bed_clay(face: Node3D, tint: Color, top: float, k: float, half: Vector2,
-		rim: Vector2) -> void:
-	var ochre := _flat(_lit(tint, 0.6), 1.0)
-	var bitumen := _flat(Color(0.05, 0.04, 0.03), 1.0)
-	var foot := (half.x + rim.x) * 0.5
-	_ground(face, Color(0.34, 0.23, 0.13), 0.75, top, rim, k)
-	_prints(face, "Ziegel", [_box2(0.0, 0.0, half.x * 2.0, half.y * 2.0)], top + BED_STEP, k,
-		_flat(Color(0.34, 0.245, 0.14), 1.0))
-	_prints(face, "Fries", [_box2(0.0, 0.0, half.x * 2.0, half.y * 0.5)],
-		top + BED_STEP * 2.0, k, ochre)
-	var course := half.y * 0.5
-	var joints: Array = []
-	for j in 5:
-		joints.append(_box2(0.0, -half.y + float(j) * course, half.x * 2.0, 0.018))
-	for j in 4:
-		var x := -half.x + (0.205 if j % 2 == 1 else 0.41)
-		while x < half.x - 0.01:
-			joints.append(_box2(x, -half.y + (float(j) + 0.5) * course, 0.018, course))
-			x += 0.41
-	_prints(face, "Bitumen", joints, top + BED_STEP * 3.0, k, bitumen)
+## Der Walkman von 1992: im dunklen Schacht nur die pinken Laufwerks-Zeichen.
+func _bed_cassette(face: Node3D, tint: Color, floor_y: float, k: float) -> void:
+	_prints(face, "Zeichen", [_tri2(-0.5, -0.38, 0.1, -1.0), _tri2(-0.41, -0.38, 0.1, -1.0),
+		_tri2(-0.2, -0.38, 0.11, 1.0), _box2(0.03, -0.38, 0.095, 0.095),
+		_box2(0.22, -0.38, 0.034, 0.1), _box2(0.285, -0.38, 0.034, 0.1),
+		_tri2(0.46, -0.38, 0.1, 1.0), _tri2(0.55, -0.38, 0.1, 1.0)],
+		floor_y + BED_STEP, k, _flat(_lit(tint, 0.95), 1.0))
+
+## Lehmziegel: ein ockergelber Fries mit vier Rosetten.
+func _bed_clay(face: Node3D, tint: Color, floor_y: float, k: float, half: Vector2) -> void:
+	_prints(face, "Fries", [_box2(0.0, 0.0, half.x * 2.0, 0.3)], floor_y + BED_STEP, k,
+		_flat(_lit(tint, 0.6), 1.0))
 	var petals: Array = []
 	var cores: Array = []
-	for i in 6:
-		var x := (float(i) - 2.5) * 0.27
+	for i in 4:
+		var x := (float(i) - 1.5) * 0.4
 		for p in 8:
 			var a := TAU * float(p) / 8.0
-			petals.append(_disc2(x + cos(a) * 0.053, sin(a) * 0.053, 0.026))
-		cores.append(_disc2(x, 0.0, 0.022))
-	_prints(face, "Rosetten", petals, top + BED_STEP * 4.0, k, _flat(Color(0.8, 0.75, 0.56), 1.0))
-	_prints(face, "Rosettenkerne", cores, top + BED_STEP * 5.0, k, _flat(_lit(tint, 0.95), 1.0))
-	_prints(face, "Randfries", [_box2(foot, 0.0, 0.06, rim.y * 2.0 - 0.14)],
-		top + BED_STEP * 2.0, k, ochre)
-	var teeth: Array = []
-	for i in 14:
-		teeth.append(_tri2(foot, (float(i) - 6.5) * 0.075, 0.05, 1.0))
-	_prints(face, "Randzacken", teeth, top + BED_STEP * 3.0, k, bitumen)
+			petals.append(_disc2(x + cos(a) * 0.062, sin(a) * 0.062, 0.03))
+		cores.append(_disc2(x, 0.0, 0.026))
+	_prints(face, "Rosetten", petals, floor_y + BED_STEP * 2.0, k,
+		_flat(Color(0.8, 0.75, 0.56), 1.0))
+	_prints(face, "Rosettenkerne", cores, floor_y + BED_STEP * 3.0, k,
+		_flat(_lit(tint, 0.95), 1.0))
 
-## Die lila ESD-Matte des Service-Platzes: Rasterdruck, Lineal, Lagewinkel, Warnzeichen, Erdung.
-func _bed_module(face: Node3D, tint: Color, top: float, k: float, half: Vector2,
-		rim: Vector2) -> void:
-	var pale := _flat(Color(0.7, 0.68, 0.8), 1.0)
-	var sign := _flat(_lit(tint, 0.75), 1.0)
-	_ground(face, _lit(tint, 0.2), 1.0, top, rim, k)
+## Die lila ESD-Matte: grobes Raster, Lagewinkel, ein Warnzeichen.
+func _bed_module(face: Node3D, tint: Color, floor_y: float, k: float, half: Vector2) -> void:
 	var grid: Array = []
-	for i in range(-10, 11):
-		if absf(float(i) * 0.09) < rim.x - 0.03:
-			grid.append(_box2(float(i) * 0.09, 0.0, 0.01 if i % 5 == 0 else 0.005,
-				rim.y * 2.0 - 0.06))
-	for j in range(-7, 8):
-		if absf(float(j) * 0.09) < rim.y - 0.03:
-			grid.append(_box2(0.0, float(j) * 0.09, rim.x * 2.0 - 0.06,
-				0.01 if j % 5 == 0 else 0.005))
-	_prints(face, "Raster", grid, top + BED_STEP, k, _flat(_lit(tint, 0.38), 1.0))
-	var ticks: Array = []
-	for i in 52:
-		var tall := i % 5 == 0
-		ticks.append(_box2(-half.x + 0.04 + float(i) * 0.03, -half.y + (0.05 if tall else 0.03),
-			0.006, 0.07 if tall else 0.03))
-	_prints(face, "Lineal", ticks, top + BED_STEP * 2.0, k, pale)
+	for i in range(-4, 5):
+		grid.append(_box2(float(i) * 0.18, 0.0, 0.007, half.y * 2.0))
+	for j in range(-2, 3):
+		grid.append(_box2(0.0, float(j) * 0.18, half.x * 2.0, 0.007))
+	_prints(face, "Raster", grid, floor_y + BED_STEP, k, _flat(_lit(tint, 0.3), 1.0))
 	var corners: Array = []
 	for sx: float in [-1.0, 1.0]:
 		for sy: float in [-1.0, 1.0]:
-			corners.append(_box2(sx * (half.x - 0.08), sy * (half.y - 0.02), 0.16, 0.014))
-			corners.append(_box2(sx * (half.x - 0.007), sy * (half.y - 0.09), 0.014, 0.16))
-	_prints(face, "Lagewinkel", corners, top + BED_STEP * 3.0, k, _flat(_lit(tint, 0.95), 1.0))
-	var c := Vector2(-0.2, 0.0)
-	var a := c + Vector2(-0.16, -0.12)
-	var b := c + Vector2(0.16, -0.12)
-	var d := c + Vector2(0.0, 0.15)
-	_prints(face, "Warnzeichen", [_line2(a, b, 0.024), _line2(b, d, 0.024), _line2(d, a, 0.024),
-		PackedVector2Array([c + Vector2(0.02, 0.08), c + Vector2(-0.05, -0.01),
-			c + Vector2(-0.005, -0.01), c + Vector2(0.005, 0.01)]),
-		PackedVector2Array([c + Vector2(-0.005, -0.01), c + Vector2(-0.02, -0.09),
-			c + Vector2(0.05, 0.01), c + Vector2(0.005, 0.01)])],
-		top + BED_STEP * 2.0, k, sign)
-	var e := Vector2(0.42, -0.3)
-	_prints(face, "Erdzeichen", [_box2(e.x, e.y + 0.06, 0.01, 0.08), _box2(e.x, e.y + 0.02, 0.12,
-		0.012), _box2(e.x, e.y - 0.01, 0.08, 0.012), _box2(e.x, e.y - 0.04, 0.04, 0.012)],
-		top + BED_STEP * 2.0, k, pale)
-	_pin(face, "Erdknopf", 0.04 * k, 0.014, Vector3(e.y * k, top, (e.x + 0.16) * k),
-		DataCellView.neutral_material("Metall"))
-
-## Der Grund der ganzen Seite; er endet UNTER der ersten Druckschicht (sonst flimmern beide).
-func _ground(face: Node3D, color: Color, energy: float, top: float, rim: Vector2,
-		k: float) -> void:
-	_part(face, "Grund", Vector3(rim.y * 2.0 * k, BED_STEP * 0.5, rim.x * 2.0 * k),
-		Vector3(0.0, top + BED_STEP * 0.25, 0.0), _flat(color, energy))
+			corners.append(_box2(sx * (half.x - 0.1), sy * (half.y - 0.03), 0.16, 0.014))
+			corners.append(_box2(sx * (half.x - 0.027), sy * (half.y - 0.1), 0.014, 0.16))
+	var a := Vector2(-0.17, -0.13)
+	var b := Vector2(0.17, -0.13)
+	var d := Vector2(0.0, 0.16)
+	corners.append_array([_line2(a, b, 0.024), _line2(b, d, 0.024), _line2(d, a, 0.024),
+		PackedVector2Array([Vector2(0.02, 0.07), Vector2(-0.05, -0.02), Vector2(-0.005, -0.02),
+			Vector2(0.005, 0.0)]),
+		PackedVector2Array([Vector2(-0.005, -0.02), Vector2(-0.02, -0.1), Vector2(0.05, 0.0),
+			Vector2(0.005, 0.0)])])
+	_prints(face, "Zeichen", corners, floor_y + BED_STEP * 2.0, k, _flat(_lit(tint, 0.85), 1.0))
 
 ## Flache Drucke (Karten-Maß) als EIN Körper auf Höhe y; beidseitig, die Wicklung ist gleich.
 func _prints(face: Node3D, part_name: String, polys: Array, y: float, k: float,
@@ -619,7 +574,7 @@ static func clear_height(side: float, x: float) -> float:
 ## FÜHLHEBEL: ein Balken am Kopf, zehn gefederte Finger. Liegt die Karte, senken sie sich
 ## auf sie; wer ein Loch findet, fällt hinein, und seine Lampe am Balken geht an.
 func _build_feelers(face: Node3D, reader: Dictionary, tint: Color, top: float, across: float,
-		edge: float, k: float) -> void:
+		edge: float, k: float, well: float) -> void:
 	var metal := DataCellView.neutral_material("Metall")
 	var dark := DataCellView.neutral_material("Dunkel")
 	var span := across * 0.36
@@ -627,7 +582,7 @@ func _build_feelers(face: Node3D, reader: Dictionary, tint: Color, top: float, a
 		Vector3(0.0, top + FEELER_BAR * 0.5, -edge), dark)
 	var hit := _lamp(reader, tint, [LAMP_DIM, LAMP_DIM, LAMP_ON])
 	var miss := _lamp(reader, tint, [LAMP_DIM, LAMP_DIM, LAMP_DIM])
-	var card_top := float(DataCellView.CARRIER_TOPS[DataCellView.CARRIER_PUNCH]) * k
+	var card_top := float(DataCellView.CARRIER_TOPS[DataCellView.CARRIER_PUNCH]) * k - well
 	var pivot_y := FEELER_BAR - 0.05
 	var slice := _pivots.size()
 	for i in FEELERS:
@@ -643,7 +598,7 @@ func _build_feelers(face: Node3D, reader: Dictionary, tint: Color, top: float, a
 			Vector3(0.0, 0.0, FEELER_REACH * 0.5), metal)
 		_part(finger, "Taster", Vector3(0.07, 0.09, 0.07), Vector3(0.0, -0.03, FEELER_REACH),
 			DataCellView.neutral_material("Pad"))
-		var lies := card_top + 0.07 if not found else card_top * 0.4 + 0.07
+		var lies := card_top + 0.07 if not found else card_top - 0.08 + 0.07
 		_mover(reader, finger, [_tilt(finger, pivot_y - 0.08), _tilt(finger, pivot_y + 0.2),
 			_tilt(finger, pivot_y - lies)])
 
@@ -659,11 +614,11 @@ func _tilt(finger: Node3D, drop: float) -> Transform3D:
 ## KLAPPE: ein Klarsicht-Rahmen über dem Deck. In Ruhe liegt er flach auf der Seite, vor
 ## der Ankunft steht er offen, über der Kassette schließt er sich und leuchtet.
 func _build_lid(face: Node3D, reader: Dictionary, tint: Color, top: float, across: float,
-		length: float, edge: float, k: float) -> void:
+		length: float, edge: float, k: float, well: float) -> void:
 	var metal := DataCellView.neutral_material("Metall")
 	# Die zwei Mitnehmer-Dorne des Decks greifen von unten in die Naben.
 	for z: float in [-1.0, 1.0]:
-		_pin(face, "Dorn", 0.1, 0.16, Vector3(0.3216 * k, top, z * 0.52 * k), metal)
+		_pin(face, "Dorn", 0.1, 0.16, Vector3(0.3216 * k, top - well, z * 0.52 * k), metal)
 	_rod(face, "Scharnier", 0.04, across * 0.8, Vector3(0.0, top + 0.05, -edge), metal)
 	var frame := _lamp(reader, tint, [LAMP_DIM, 1.0, LAMP_ON])
 	var lid := Node3D.new()
@@ -686,7 +641,8 @@ func _build_lid(face: Node3D, reader: Dictionary, tint: Color, top: float, acros
 	glass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	lid.add_child(glass)
 	var hinge_z := -edge
-	var closed := float(DataCellView.CARRIER_TOPS[DataCellView.CARRIER_CASSETTE]) * k + 0.06
+	var closed := float(DataCellView.CARRIER_TOPS[DataCellView.CARRIER_CASSETTE]) * k - well \
+		+ 0.06
 	_mover(reader, lid, [
 		Transform3D(Basis.IDENTITY, Vector3(0.0, top + LID_BAR * 0.5, hinge_z)),
 		Transform3D(Basis(Vector3.RIGHT, -LID_OPEN), Vector3(0.0, top + closed, hinge_z)),
@@ -703,7 +659,7 @@ func _lid_glass() -> StandardMaterial3D:
 ## ROLLSIEGEL: eine gravierte Walze. In Ruhe liegt sie flach am Kopf, vor der Ankunft
 ## hebt sie sich, auf der Tafel liegt sie auf - und beim Lesen rollt sie über sie hin.
 func _build_roller(face: Node3D, reader: Dictionary, tint: Color, top: float, across: float,
-		length: float, edge: float, k: float) -> void:
+		length: float, edge: float, k: float, well: float) -> void:
 	var brass := DataCellView.neutral_material("Pad")
 	for x: float in [-1.0, 1.0]:
 		_part(face, "Schiene", Vector3(0.05, 0.035, length),
@@ -718,7 +674,7 @@ func _build_roller(face: Node3D, reader: Dictionary, tint: Color, top: float, ac
 	for i in 7:
 		_rod(roller, "Band%d" % i, ROLLER_R + 0.008, 0.05,
 			Vector3((float(i) - 3.0) * span / 7.0, 0.0, 0.0), band)
-	var tablet := float(DataCellView.CARRIER_TOPS[DataCellView.CARRIER_CLAY]) * k
+	var tablet := float(DataCellView.CARRIER_TOPS[DataCellView.CARRIER_CLAY]) * k - well
 	var park := -edge + 0.02
 	var poses := [
 		Transform3D(Basis.IDENTITY, Vector3(0.0, top + ROLLER_R, park)),

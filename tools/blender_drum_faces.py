@@ -486,10 +486,131 @@ rd.READERS["flaeche_modul"] = [("M1 · ESD-MATTE", face(modul_esd, rd.module_bre
                                ("M3 · BACKPLANE", face(modul_backplane, rd.module_brenner))]
 
 
+# --- Zweite Runde: die MULDE - die Karte sinkt in ihre Seite, die Fläche ist ruhiger ------------
+
+def bezel(p, h, material, key, energy=1.4):
+    """Der Rand der Mulde: so hoch, daß die Karte ein Stück in der Seite versinkt."""
+    gx, gy = (SL - L - 0.03) * 0.5, (SW - W - 0.03) * 0.5
+    for s in (-1, 1):
+        slab(p, "RandLang%d" % s, SL, gy, h, 0, s * (SW * 0.5 - gy * 0.5), 0.0, material, 0.0,
+             0.004)
+        slab(p, "RandKurz%d" % s, gx, SW - gy * 2.0, h, s * (SL * 0.5 - gx * 0.5), 0, 0.0,
+             material, 0.0, 0.004)
+    flats(p, "Lippe", ring(0, 0, L + 0.045, W + 0.045, 0.014), h + 0.0006, glow(key, energy))
+
+
+def mulde_loch(p):
+    """Lochkarte: schwarzer Lack, grünes Email am Muldenboden, die Elfenbein-Skala am Fuß."""
+    lack = bumpy("Schrumpflack", (0.012, 0.012, 0.014), 0.35, 160.0, 0.5, 0.0, 0.6)
+    base(p, lack)
+    flats(p, "Emailfeld", [rect(0, 0, L + 0.03, W + 0.03)], Z1,
+          m("Emailgruen", (0.012, 0.1, 0.04), 0.0, 0.2, 0.0, 1.0))
+    flats(p, "Skala", [rect(0, -HY + 0.07, L - 0.06, 0.08)], Z2, m("Elfenbein", lin("#e6d9b0"),
+                                                                 0.0, 0.5))
+    flats(p, "Teilung", [rect(-HX + 0.03 + (i + 0.5) * (L - 0.06) / 20, -HY + 0.07, 0.005,
+                              0.06 if i % 5 == 0 else 0.03) for i in range(20)], Z3,
+          m("Tusche", INK, 0.0, 0.6))
+    bezel(p, 0.05, lack, "zahl")
+    dm.cyl(p, "Juwel", 0.022, 0.02, (SL * 0.5 - 0.037, 0, 0.055), glow("zahl", 2.2), 8)
+
+
+def mulde_kassette(p):
+    """Kassette: Alu-Rand, dunkler Schacht, darin nur die pinken Laufwerks-Zeichen."""
+    alu = m("Alu", (0.72, 0.73, 0.76), 1.0, 0.26)
+    base(p, alu)
+    flats(p, "Schacht", [rect(0, 0, L + 0.03, W + 0.03)], Z1,
+          m("Schachtplastik", (0.035, 0.035, 0.042), 0.0, 0.35))
+    icons = [tri(-0.5, -0.38, 0.1, -1), tri(-0.41, -0.38, 0.1, -1), tri(-0.2, -0.38, 0.11),
+             rect(0.03, -0.38, 0.095, 0.095), rect(0.22, -0.38, 0.034, 0.1),
+             rect(0.285, -0.38, 0.034, 0.1), tri(0.46, -0.38, 0.1), tri(0.55, -0.38, 0.1)]
+    flats(p, "Zeichen", icons, Z2, glow("material", 1.1))
+    bezel(p, 0.075, alu, "material")
+
+
+def mulde_ton(p):
+    """Tontafel: ein Lehmziegel-Rand, der Muldenboden ein ockergelber Fries mit vier Rosetten."""
+    lehm = bumpy("Lehm", (0.3, 0.2, 0.11), 0.95, 35.0, 0.9)
+    base(p, lehm)
+    flats(p, "Boden", [rect(0, 0, L + 0.03, W + 0.03)], Z1,
+          bumpy("Lehmhell", (0.42, 0.3, 0.17), 0.95, 70.0, 0.7))
+    flats(p, "Fries", [rect(0, 0, L + 0.03, 0.3)], Z2, bumpy("Ocker", (0.78, 0.56, 0.06), 0.8,
+                                                           90.0, 0.4))
+    petals = []
+    for i in range(4):
+        petals += rosette((i - 1.5) * 0.4, 0.0, 0.1)
+    flats(p, "Rosetten", petals, Z3, m("Kalkweiss", (0.9, 0.84, 0.62), 0.0, 0.8))
+    flats(p, "Rosettenkerne", [disc((i - 1.5) * 0.4, 0.0, 0.026) for i in range(4)], Z4,
+          glow("rune", 1.2))
+    bezel(p, 0.085, lehm, "rune")
+
+
+def mulde_modul(p):
+    """Service-Modul: lila Matte als Rand, am Boden ein grobes Raster, Lagewinkel, ein Warnzeichen."""
+    matte = bumpy("Gummimatte", (0.11, 0.07, 0.22), 0.85, 400.0, 0.15)
+    base(p, matte)
+    flats(p, "Boden", [rect(0, 0, L + 0.03, W + 0.03)], Z1, m("Mattendunkel", (0.05, 0.03, 0.11),
+                                                             0.0, 0.8))
+    lines = [rect(i * 0.18, 0, 0.006, W) for i in range(-4, 5)]
+    lines += [rect(0, j * 0.18, L, 0.006) for j in range(-2, 3)]
+    flats(p, "Raster", lines, Z2, m("Rasterlila", (0.26, 0.2, 0.46), 0.0, 0.7))
+    corners = []
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            corners += [rect(sx * (HX - 0.1), sy * (HY - 0.03), 0.16, 0.014),
+                        rect(sx * (HX - 0.027), sy * (HY - 0.1), 0.014, 0.16)]
+    flats(p, "Lagewinkel", corners, Z3, glow("gold", 1.2))
+    cx, cy = 0.0, 0.0
+    pts = [(cx - 0.17, cy - 0.13), (cx + 0.17, cy - 0.13), (cx, cy + 0.16)]
+    flats(p, "Warndreieck", [line(*pts[i], *pts[(i + 1) % 3], 0.024) for i in range(3)], Z3,
+          glow("gold", 0.9))
+    flats(p, "Warnblitz", [[(cx + 0.02, cy + 0.07), (cx - 0.05, cy - 0.02), (cx - 0.005, cy - 0.02),
+                            (cx + 0.005, cy)], [(cx - 0.005, cy - 0.02), (cx - 0.02, cy - 0.1),
+                                                (cx + 0.05, cy), (cx + 0.005, cy)]], Z3,
+          glow("gold", 0.9))
+    bezel(p, 0.07, matte, "gold")
+
+
+MULDEN = [("LOCHKARTE", face(mulde_loch, rd.punch_fuehlhebel)),
+          ("KASSETTE", face(mulde_kassette, rd.cassette_klappe)),
+          ("TONTAFEL", face(mulde_ton, rd.clay_rollsiegel)),
+          ("SERVICE-MODUL", face(mulde_modul, rd.module_brenner))]
+MULDEN_X = (-3.15, -1.05, 1.05, 3.15)
+
+
+def view_mulden(flat, readers=True):
+    cam, aim = dm.empty_stage()
+    scene = bpy.context.scene
+    scene.render.resolution_x, scene.render.resolution_y = 2600, 1100
+    spread = 0.78 if flat else 1.1
+    for row, loaded in enumerate((False, True)):
+        y = spread if row == 0 else -spread
+        for (title, fn), x in zip(MULDEN, MULDEN_X):
+            text = title + (" · belegt" if loaded else " · leer")
+            dm.build(lambda p, fn=fn, loaded=loaded: fn(p, loaded), text, (x, y, 0.101))
+            rd.ms.label(text, x, y - 0.74, 0.075)
+    if flat:
+        cam.data.type = "ORTHO"
+        cam.data.ortho_scale = 8.6
+        aim.location = (0, -0.05, 0)
+        cam.location = (0, -0.05, 12)
+    else:
+        aim.location = (0, -0.25, 0.0)
+        cam.location = (0.0, -6.4, 5.4)
+        cam.data.lens = 31
+
+
 if __name__ == "__main__":
     os.makedirs(rd.OUT, exist_ok=True)
     argv = sys.argv[sys.argv.index("--") + 1:]
     only = argv[1].split(",") if len(argv) > 1 else []
+    for name, flat in (("mulde_draufsicht", True), ("mulde_schraeg", False)):
+        if only and name not in only:
+            continue
+        view_mulden(flat)
+        bpy.context.scene.eevee.taa_render_samples = 48
+        bpy.context.scene.render.filepath = os.path.join(rd.OUT, name + ".png")
+        bpy.ops.render.render(write_still=True)
+        print("gerendert", name, flush=True)
     for name in rd.READERS:
         for suffix, flat in (("_draufsicht", True), ("_schraeg", False)):
             if only and name + suffix not in only:
