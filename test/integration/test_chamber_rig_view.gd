@@ -1,16 +1,19 @@
 extends GutTest
-## Die KABEL der Kammer: welche Seiten und Kanäle wie viele Kabel bekommen, wo sie
-## klemmen, und daß der harte Weg keines stehen läßt.
+## Das GERÜST der Kammer: der Rahmenwürfel um den Würfelplatz, die acht Streben an die
+## Würfelecken, welche Spuren eine Serie leuchten läßt - und daß der harte Weg keine
+## Strebe stehen läßt.
 
 const HALF_EDGE := 0.85
-const DIE_AT := Vector3(0.0, -1.7, 0.0)
+const DEPTH := 3.5
+const DROP := 1.75
+const HALF := Vector2(3.2, 4.0)
 
 var rig: ChamberRigView
 
 func before_each() -> void:
 	rig = ChamberRigView.new()
 	add_child_autofree(rig)
-	rig.setup(Vector3.ZERO, Vector2(2.7, 2.7), 3.4)
+	rig.setup(Vector3.ZERO, HALF, DEPTH, DROP, HALF_EDGE)
 
 func _projection(bonus_face := -1, material_face := -1, rune_face := -1) -> Dictionary:
 	var out := SeriesResolver.blank()
@@ -22,125 +25,105 @@ func _projection(bonus_face := -1, material_face := -1, rune_face := -1) -> Dict
 		out["runes"][rune_face] = ["afterglow"]
 	return out
 
-func test_one_face_gets_four_cables() -> void:
-	var plan := ChamberRigView.cable_plan(_projection(3))
-	assert_eq(plan.size(), 1, "eine Seite, ein Kanal")
-	assert_eq(ChamberRigView.plan_cable_count(plan), 4, "vier Ecken, vier Kabel")
+func _dock(plan: Array[Dictionary], basis := Basis.IDENTITY) -> void:
+	rig.dock(rig.die_center(), basis, plan, 0.0)
 
-func test_every_upgrade_type_brings_its_own_four_cables() -> void:
-	var plan := ChamberRigView.cable_plan(_projection(3, 3, 3))
-	assert_eq(ChamberRigView.plan_cable_count(plan), 12, "Zahl, Material und Rune je vier")
-	var channels: Array[String] = []
+func test_the_plan_names_every_changed_face_and_channel() -> void:
+	var plan := ChamberRigView.cable_plan(_projection(2, 2, 2))
+	assert_eq(plan.size(), 3)
 	for entry in plan:
-		channels.append(String(entry["channel"]))
-	assert_eq(channels, ChamberRigView.CHANNELS.slice(0, 3), "in dieser Reihenfolge")
-	assert_ne(ChamberRigView.channel_tint(ChamberRigView.CH_NUMBER),
-		ChamberRigView.channel_tint(ChamberRigView.CH_MATERIAL), "jeder in seiner Farbe")
-	assert_ne(ChamberRigView.channel_tint(ChamberRigView.CH_MATERIAL),
-		ChamberRigView.channel_tint(ChamberRigView.CH_RUNE))
+		assert_eq(int(entry["face"]), 2)
+	assert_eq(ChamberRigView.plan_channels(plan), [0, 1, 2] as Array[int])
 
-func test_the_sonderbestand_brings_its_own_cables() -> void:
-	var doped := _projection()
-	doped["doped"][2] = true
-	var plan := ChamberRigView.cable_plan(doped)
-	assert_eq(plan.size(), 1)
-	assert_eq(String(plan[0]["channel"]), ChamberRigView.CH_SPECIAL, "die Veredelung")
-	var copied := _projection()
-	copied["copies"].append({"card": 0, "from": 1, "to": 4})
-	plan = ChamberRigView.cable_plan(copied)
-	assert_eq(int(plan[0]["face"]), 4, "die Pointer-Kopie faßt ihre Zielseite")
+func test_the_sonderbestand_has_its_own_lane() -> void:
+	var doped := SeriesResolver.blank()
+	doped["doped"][1] = true
+	assert_eq(ChamberRigView.plan_channels(ChamberRigView.cable_plan(doped)), [3] as Array[int])
+	var copied := SeriesResolver.blank()
+	copied["copies"] = [{"from": 0, "to": 4}]
+	var plan := ChamberRigView.cable_plan(copied)
+	assert_eq(int(plan[0]["face"]), 4, "das Ziel der Kopie")
 	assert_eq(String(plan[0]["channel"]), ChamberRigView.CH_SPECIAL)
-	var full := _projection(3, 3, 3)
-	full["doped"][3] = true
-	assert_eq(ChamberRigView.plan_cable_count(ChamberRigView.cable_plan(full)), 16,
-		"vier Sorten, vier Kabel je Ecke")
-	var tints := {}
-	for channel in ChamberRigView.CHANNELS:
-		tints[ChamberRigView.channel_tint(channel)] = true
-	assert_eq(tints.size(), 4, "jede Sorte in ihrer Farbe")
 
-func test_a_series_that_only_tends_clamps_all_eight_corners() -> void:
-	assert_eq(ChamberRigView.cable_plan(_projection()).size(), 0, "ohne Pflege nichts")
-	var plan := ChamberRigView.cable_plan(_projection(), true)
-	assert_eq(ChamberRigView.plan_cable_count(plan), 8, "Kühlen und Reparatur fassen alle Ecken")
+func test_a_series_that_only_tends_uses_the_special_lane() -> void:
+	assert_true(ChamberRigView.cable_plan(SeriesResolver.blank()).is_empty())
+	var plan := ChamberRigView.cable_plan(SeriesResolver.blank(), true)
+	assert_eq(String(plan[0]["channel"]), ChamberRigView.CH_CARE)
+	assert_eq(ChamberRigView.plan_channels(plan), [3] as Array[int])
 
-func test_the_corners_of_a_face_lie_on_that_face() -> void:
-	for face in StampNet.FACES:
-		var dir := ChamberRigView.face_direction(face)
-		var corners := ChamberRigView.face_corners(face)
-		assert_eq(corners.size(), 4, "vier Ecken je Seite")
-		for corner in corners:
-			assert_almost_eq(corner.dot(dir), 1.0, 0.001, "alle auf der Seite")
+func test_the_frame_has_the_proportions_of_the_die() -> void:
+	var reach := ChamberRigView.die_reach(HALF_EDGE)
+	assert_gt(reach, HALF_EDGE, "der Kantenrahmen zählt mit")
+	assert_almost_eq(rig.frame_half(), reach * ChamberRigView.FRAME_SCALE, 0.001)
+	assert_eq(rig.die_center(), Vector3(0.0, -DROP, 0.0), "um den Würfelplatz")
 
-func test_docked_cables_run_from_the_wall_to_the_corners() -> void:
-	var plan := ChamberRigView.cable_plan(_projection(3, 3))
-	rig.dock(DIE_AT, Basis.IDENTITY, HALF_EDGE, plan, 0.0)
+func test_the_frame_fits_into_the_chamber() -> void:
+	var r := rig.frame_half() + ChamberRigView.JOINT * 0.5
+	assert_lt(rig.die_center().y + r, 0.0, "unter dem Tisch")
+	assert_gt(rig.die_center().y - r, -DEPTH, "über dem Boden")
+	assert_lt(r, HALF.x, "zwischen den Wänden")
+	assert_lt(r, HALF.y)
+
+func test_the_same_measures_build_nothing_new() -> void:
+	var frame := rig.get_node("Geruest")
+	rig.setup(Vector3.ZERO, HALF, DEPTH, DROP, HALF_EDGE)
+	assert_eq(rig.get_node("Geruest"), frame)
+
+func test_eight_struts_run_from_the_frame_corners_to_the_die_corners() -> void:
+	_dock(ChamberRigView.cable_plan(_projection(0)))
 	assert_true(rig.docked())
-	assert_eq(rig.cable_count(), 8)
-	var seen: Array[Vector3] = []
-	for i in rig.cable_count():
-		var ends := rig.cable_ends(i)
-		var from: Vector3 = ends[0]
-		var to: Vector3 = ends[1]
-		assert_almost_eq(maxf(absf(from.x), absf(from.z)), 2.7, 0.05, "der Port sitzt an der Wand")
-		assert_lt(from.y, 0.0, "unter dem Tisch")
-		assert_gt(from.y, -3.4, "über dem Kammerboden")
-		assert_lt(to.distance_to(DIE_AT), HALF_EDGE * 1.8, "die Klemme sitzt am Würfel")
-		assert_gt(to.y, DIE_AT.y, "an der oberen Seite")
-		var known := false
-		for other in seen:
-			known = known or to.distance_to(other) < 0.01
-		if not known:
-			seen.append(to)
-	assert_eq(seen.size(), 4, "je Ecke der Seite EIN Stecker, den sich ihre Kabel teilen")
+	assert_eq(rig.arm_count(), 8, "alle acht Ecken, was auch immer die Serie ändert")
+	var reach := ChamberRigView.die_reach(HALF_EDGE)
+	for i in rig.arm_count():
+		var ends := rig.arm_ends(i)
+		var outer: Vector3 = ends[0] - rig.die_center()
+		var inner: Vector3 = ends[1] - rig.die_center()
+		for axis in 3:
+			assert_almost_eq(absf(outer[axis]), rig.frame_half(), 0.001, "eine Ecke des Rahmenwürfels")
+			assert_almost_eq(absf(inner[axis]), reach, 0.001, "eine Ecke des Würfels")
+			assert_eq(signf(outer[axis]), signf(inner[axis]), "dieselbe Ecke - die Strebe läuft schräg")
 
-func test_the_hard_path_leaves_no_cable() -> void:
-	rig.dock(DIE_AT, Basis.IDENTITY, HALF_EDGE, ChamberRigView.cable_plan(_projection(0)), 0.3)
-	assert_eq(rig.cable_count(), 4, "angeklemmt ist der Endzustand - sofort")
-	rig.pulse(0.2)
+func test_a_turned_die_is_gripped_at_its_own_corners() -> void:
+	var basis := Basis(Vector3.UP, PI * 0.5)
+	_dock(ChamberRigView.cable_plan(_projection(0)), basis)
+	var seen := {}
+	for i in rig.arm_count():
+		var ends := rig.arm_ends(i)
+		assert_eq(ChamberRigView.station_of(ends[1] - rig.die_center()),
+			ChamberRigView.station_of(ends[0] - rig.die_center()), "die nächste Gerüst-Ecke")
+		seen[ChamberRigView.station_of(ends[0] - rig.die_center())] = true
+	assert_eq(seen.size(), 8, "jede Gerüst-Ecke genau einmal")
+
+func test_only_the_lanes_of_the_series_light_up() -> void:
+	_dock(ChamberRigView.cable_plan(_projection(0, -1, 3)))
+	assert_eq(rig.active_channels(), [0, 2] as Array[int])
+	for rank in ChamberRigView.CHANNELS.size():
+		assert_almost_eq(rig.lane_glow(rank), ChamberRigView.REST_GLOW, 0.001, "vor dem Strom ruhen alle")
+	rig.pulse(0.01)
+	await wait_seconds(0.1)
+	assert_almost_eq(rig.lane_glow(0), ChamberRigView.PULSE_GLOW, 0.01)
+	assert_almost_eq(rig.lane_glow(2), ChamberRigView.PULSE_GLOW, 0.01)
+	assert_almost_eq(rig.lane_glow(1), ChamberRigView.REST_GLOW, 0.001, "eine fremde Spur bleibt ruhig")
+
+func test_the_hard_path_leaves_no_strut() -> void:
+	_dock(ChamberRigView.cable_plan(_projection(0)))
+	rig.pulse(0.5)
 	rig.settle_hard()
 	assert_false(rig.docked())
-	assert_eq(rig.cable_count(), 0)
+	assert_eq(rig.arm_count(), 0)
+	assert_true(rig.active_channels().is_empty())
+	assert_almost_eq(rig.lane_glow(0), ChamberRigView.REST_GLOW, 0.001)
+	assert_almost_eq(rig.ring_glow(), ChamberRigView.RING_REST, 0.001)
+
+func test_the_machine_floor_carries_a_light_ring_under_the_die() -> void:
+	var ring := rig.get_node("Geruest/Lichtring") as MeshInstance3D
+	assert_almost_eq(ring.position.x, rig.die_center().x, 0.001)
+	assert_almost_eq(ring.position.z, rig.die_center().z, 0.001)
+	assert_almost_eq(ring.position.y, -DEPTH, 0.1, "auf dem Boden")
 
 func test_release_retracts_and_clears() -> void:
-	rig.dock(DIE_AT, Basis.IDENTITY, HALF_EDGE, ChamberRigView.cable_plan(_projection(0)), 0.0)
+	_dock(ChamberRigView.cable_plan(_projection(0)))
 	rig.release(0.05)
-	assert_false(rig.docked(), "gelöst ist sofort wahr")
+	assert_false(rig.docked(), "Endzustand zuerst")
 	await wait_seconds(0.2)
-	assert_eq(rig.cable_count(), 0, "und dann sind sie in der Wand")
-
-func test_every_station_shows_one_socket_per_channel() -> void:
-	assert_eq(rig.socket_count(), 32, "acht Stationen, je vier Buchsen")
-	assert_eq(rig.plugs_home(), 32, "eingefahren steckt jeder Stecker sichtbar")
-	rig.setup(Vector3.ZERO, Vector2(2.7, 2.7), 3.4)
-	assert_eq(rig.socket_count(), 32, "dieselben Maße bauen nichts dazu")
-
-func test_a_corner_draws_from_the_same_corner_of_the_pit() -> void:
-	rig.dock(DIE_AT, Basis.IDENTITY, HALF_EDGE,
-		ChamberRigView.cable_plan(_projection(), true), 0.0)
-	assert_eq(rig.cable_count(), 8)
-	for i in rig.cable_count():
-		var ends := rig.cable_ends(i)
-		var from: Vector3 = ends[0]
-		var offset: Vector3 = ends[1] - DIE_AT
-		assert_eq(signf(from.x), signf(offset.x), "dieselbe Seite längs")
-		assert_eq(signf(from.z), signf(offset.z), "dieselbe Seite quer")
-		assert_eq(from.y > -1.7, offset.y > 0.0, "obere Ecken oben, untere unten")
-		var station := ChamberRigView.station_of(offset)
-		assert_almost_eq(from, rig.socket_point(station[0], station[1], station[2], 3),
-			Vector3.ONE * 0.001, "genau aus der Sonder-Buchse seiner Station")
-
-func test_a_used_socket_gives_its_plug_and_gets_it_back() -> void:
-	rig.dock(DIE_AT, Basis.IDENTITY, HALF_EDGE, ChamberRigView.cable_plan(_projection(3)), 0.0)
-	assert_eq(rig.plugs_home(), 28, "vier Stecker sind ausgezogen")
-	rig.settle_hard()
-	assert_eq(rig.plugs_home(), 32, "und sitzen danach wieder in ihrer Buchse")
-
-func test_each_face_corner_gets_one_harness_with_one_connector() -> void:
-	rig.dock(DIE_AT, Basis.IDENTITY, HALF_EDGE, ChamberRigView.cable_plan(_projection(3, 3)), 0.0)
-	assert_eq(rig.harness_count(), 4, "je Ecke der Seite EIN Strang")
-	assert_eq(rig.cable_count(), 8, "zwei Sorten, also zwei Kabel je Strang")
-	for i in rig.cable_count():
-		var to: Vector3 = rig.cable_ends(i)[1]
-		assert_almost_eq(to.y, DIE_AT.y + HALF_EDGE, 0.1, "der Stecker sitzt auf dem Rand der Seite")
-		assert_gt(maxf(absf(to.x), absf(to.z)), HALF_EDGE * 0.55, "an der Ecke, nicht auf der Fläche")
+	assert_eq(rig.arm_count(), 0)

@@ -2636,8 +2636,8 @@ func _release_failed_press(generation: int) -> void:
 	_transferring = false
 	_sync_bench_migration()
 
-## DER VOR-TAKT: das Loch öffnet, der Boden sinkt, und der Würfel fährt SENKRECHT mit ihm
-## in die Kammer. Beim Verdichten bleibt sie zu (das Fenster meldet dann keinen Takt).
+## DER VOR-TAKT: das Loch öffnet, die Tore fahren auseinander, und der Würfel sinkt
+## SENKRECHT in die Kammer. Beim Verdichten bleibt sie zu (das Fenster meldet dann keinen Takt).
 func _on_chamber_opening(time: float) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	var stage := bench_stage
@@ -2648,18 +2648,18 @@ func _on_chamber_opening(time: float) -> void:
 		grabbed_stage = null
 	_chamber_open = true
 	_open_chamber_hole()
-	_ride_chamber_floor(-CHAMBER_DEPTH, time)
+	_ride_chamber_doors(1.0, time)
 	stage.set_process(false)  # kein Wippen in der Kammer
 	stage.ride_to(_bench_podium_target(workshop), time)
 	_sync_bench_reflection()
 
-## DER NACH-TAKT: der Würfel steigt mit seinem neuen Stand, der Boden schließt.
+## DER NACH-TAKT: der Würfel steigt mit seinem neuen Stand, die Tore schließen.
 func _on_chamber_closing(time: float) -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if not _chamber_open or workshop == null or not is_instance_valid(workshop):
 		return
 	_chamber_open = false  # Endzustand zuerst: die Fahrt ist nur der Weg nach oben
-	_ride_chamber_floor(0.0, time)
+	_ride_chamber_doors(0.0, time)
 	var stage := bench_stage
 	if stage != null and is_instance_valid(stage):
 		var tween := stage.ride_to(_bench_podium_target(workshop), time)
@@ -2683,8 +2683,8 @@ func _on_slices_locked(time: float) -> void:
 	if workshop != null and is_instance_valid(workshop):
 		_dock_cables(workshop)
 
-## DIE KABEL KLEMMEN AN: der Würfel in der Kammer steht still, und je geänderter Seite
-## und Kanal fahren vier Kabel aus den Wänden an ihre Ecken. Der Rohling bekommt keine.
+## DAS GERÜST GREIFT ZU: der Würfel in der Kammer steht still, und aus den acht Ecken
+## des Rahmenwürfels fahren die Streben an seine Ecken. Der Rohling bekommt keine.
 func _dock_cables(workshop: WorkshopView) -> void:
 	var stage := bench_stage
 	if workshop.compressing() or chamber_rig == null or not is_instance_valid(chamber_rig) \
@@ -2695,16 +2695,13 @@ func _dock_cables(workshop: WorkshopView) -> void:
 		grabbed_stage = null
 	stage.set_process(false)  # kein Wippen, solange die Kabel an ihm hängen
 	stage.die.global_position = _stage_rest(stage)
-	var repaired := workshop.burn_repaired()
 	var plan := ChamberRigView.cable_plan(workshop.burn_projection(), true)
 	# Er richtet sich in seine Ruhelage: so zeigt jede Würfelecke auf ihre Kammerecke.
 	var rest := FloatingDie.rest_pose()
 	var faces_in_die := stage.die.global_basis.orthonormalized().inverse() \
 		* stage.faces.global_basis.orthonormalized()
 	stage.pose_to(rest, CABLE_SQUARE_TIME)
-	chamber_rig.dock(stage.center(), rest * faces_in_die,
-		DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE, plan, CABLE_DOCK_TIME,
-		PackDrawerView.REPAIR_TINT if repaired else _series_tint(workshop), CABLE_SQUARE_TIME)
+	chamber_rig.dock(stage.center(), rest * faces_in_die, plan, CABLE_DOCK_TIME, CABLE_SQUARE_TIME)
 
 func _drop_cables() -> void:
 	if chamber_rig != null and is_instance_valid(chamber_rig):
@@ -3704,15 +3701,24 @@ func _drum_pit_depth(workshop: WorkshopView) -> float:
 
 #region DIE KAMMER
 # Eine TIEFE Grube ohne Kragen UNTER der Podest-Platte. In Ruhe ist sie ZU: kein Loch,
-# Wände und Buchsen unsichtbar. Beim Prägen sinkt ihr BODEN - eine Platte in der Haut der
-# Anzeige (der Mahjong-Deckel) - und nimmt den Würfel mit hinab; dort klemmen die KABEL
-# (ChamberRigView) an seine Ecken. Danach steigt er, der Boden schließt. Der Zustand ist
+# Wände und Gerüst unsichtbar. Beim Prägen fahren ihre zwei TORE - die Platte in der Haut
+# der Anzeige - auseinander unter den Tisch, der Würfel sinkt auf den Maschinenboden ins
+# GERÜST (ChamberRigView), das seine Ecken greift. Danach steigt er, die Tore schließen.
+# Der Zustand ist
 # _chamber_open (EIN Schreiber je Richtung, Endzustand zuerst), der harte Weg
 # _close_chamber_hard.
 
 var chamber_pit: PackPitView
 var chamber_rig: ChamberRigView
-var chamber_floor: MeshInstance3D
+## Der Deckel der Kammer: zwei TORHÄLFTEN in der Haut der Anzeige, die nach Bild-links
+## und -rechts unter den Tisch fahren (0 = zu, 1 = offen).
+var chamber_floor: Node3D
+var _chamber_doors: Array[MeshInstance3D] = []
+## So tief liegen die Tore unter der Anzeige - sie verschwinden unter ihr.
+const CHAMBER_DOOR_SINK := 0.02
+const CHAMBER_DOOR_EDGE := Color(1.0, 0.7, 0.15)
+var _chamber_door_share := 0.0
+var _chamber_half := Vector2.ONE
 var _chamber_floor_skin: ShaderMaterial
 var _chamber_floor_tween: Tween
 ## Steht der Würfel in der Kammer (bzw. fährt hinab)? Die Rückfahrt setzt es sofort falsch.
@@ -3739,19 +3745,41 @@ func _sync_chamber(workshop: WorkshopView) -> void:
 		chamber_rig = ChamberRigView.new()
 		chamber_rig.name = "ChamberRig"
 		add_child(chamber_rig)
-	chamber_rig.setup(centre, half, CHAMBER_DEPTH)
-	if chamber_floor == null or not is_instance_valid(chamber_floor):
-		chamber_floor = MeshInstance3D.new()
-		chamber_floor.name = "ChamberFloor"
-		chamber_floor.mesh = PlaneMesh.new()
-		add_child(chamber_floor)
+	chamber_rig.setup(centre, half, CHAMBER_DEPTH, CHAMBER_DIE_DROP,
+		DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE)
 	var skin := table_screen.display_skin()
 	if _chamber_floor_skin == null:
 		_chamber_floor_skin = skin.duplicate() as ShaderMaterial
 	for param in ["screen_texture", "display_map", "emission_energy"]:
 		_chamber_floor_skin.set_shader_parameter(param, skin.get_shader_parameter(param))
-	(chamber_floor.mesh as PlaneMesh).size = half * 2.0
-	chamber_floor.material_override = _chamber_floor_skin
+	if chamber_floor == null or not is_instance_valid(chamber_floor):
+		chamber_floor = Node3D.new()
+		chamber_floor.name = "ChamberDoors"
+		add_child(chamber_floor)
+		_chamber_doors.clear()
+		var edge := StandardMaterial3D.new()
+		edge.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		edge.albedo_color = CHAMBER_DOOR_EDGE
+		for side in 2:
+			var door := MeshInstance3D.new()
+			door.name = "Tor%d" % side
+			door.mesh = PlaneMesh.new()
+			door.material_override = _chamber_floor_skin
+			chamber_floor.add_child(door)
+			var lip := MeshInstance3D.new()
+			lip.name = "Kante"
+			lip.mesh = BoxMesh.new()
+			lip.material_override = edge
+			door.add_child(lip)
+			_chamber_doors.append(door)
+	chamber_floor.global_position = Vector3(centre.x, 0.0, centre.z)
+	_chamber_half = half
+	for side in _chamber_doors.size():
+		var door := _chamber_doors[side]
+		(door.mesh as PlaneMesh).size = Vector2(half.x * 2.0, half.y)
+		var lip := door.get_node("Kante") as MeshInstance3D
+		(lip.mesh as BoxMesh).size = Vector3(half.x * 2.0, 0.02, 0.06)
+		lip.position = Vector3(0.0, 0.0, (half.y * 0.5 - 0.03) * (1.0 if side == 0 else -1.0))
 	if not _chamber_riding():
 		_seat_chamber_hard()
 
@@ -3763,17 +3791,16 @@ func _chamber_riding() -> bool:
 func _chamber_down() -> bool:
 	return _chamber_open or _chamber_riding()
 
-## Der Weltpunkt des Bodens auf Höhe y (Mitte der Kammer).
-func _chamber_floor_at(y: float) -> Vector3:
-	var centre := Vector3.ZERO
-	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop != null and is_instance_valid(workshop):
-		var rect := workshop.chamber_rect_px()
-		if rect.size.x > 0.0:
-			centre = table_screen.pixel_to_world(rect.get_center())
-	return Vector3(centre.x, y, centre.z)
+## Die Tore stehen auf share: jede Hälfte um ihren Anteil unter den Tisch gefahren.
+func _set_chamber_doors(share: float) -> void:
+	_chamber_door_share = share
+	for side in _chamber_doors.size():
+		var door := _chamber_doors[side]
+		if is_instance_valid(door):
+			door.position = Vector3(0.0, -CHAMBER_DOOR_SINK,
+				(_chamber_half.y * 0.5 + share * _chamber_half.y) * (-1.0 if side == 0 else 1.0))
 
-## Das Loch auf, Grube, Buchsen und Boden sichtbar - der Boden steht noch bündig.
+## Das Loch auf, Grube, Gerüst und Tore sichtbar - die Tore stehen noch zu.
 func _open_chamber_hole() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or chamber_pit == null or not is_instance_valid(chamber_pit):
@@ -3785,18 +3812,17 @@ func _open_chamber_hole() -> void:
 	if chamber_floor != null and is_instance_valid(chamber_floor):
 		chamber_floor.visible = true
 		if not _chamber_riding():
-			chamber_floor.global_position = _chamber_floor_at(0.0)
+			_set_chamber_doors(0.0)
 
-## Der Boden fährt auf y; oben angekommen schließt sich das Loch.
-func _ride_chamber_floor(y: float, time: float) -> void:
+## Die Tore fahren auf share (1 = offen); zugefahren schließt sich das Loch.
+func _ride_chamber_doors(share: float, time: float) -> void:
 	if chamber_floor == null or not is_instance_valid(chamber_floor):
 		return
 	if _chamber_floor_tween != null and _chamber_floor_tween.is_valid():
 		_chamber_floor_tween.kill()
 	_chamber_floor_tween = create_tween()
-	_chamber_floor_tween.tween_property(chamber_floor, "global_position",
-		_chamber_floor_at(y), maxf(time, 0.01)) \
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_chamber_floor_tween.tween_method(_set_chamber_doors, _chamber_door_share, share,
+		maxf(time, 0.01)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var tween := _chamber_floor_tween
 	_chamber_floor_tween.finished.connect(func() -> void:
 		if _chamber_floor_tween == tween:
@@ -3818,9 +3844,7 @@ func _seat_chamber_hard() -> void:
 	for body: Node3D in [chamber_pit, chamber_rig, chamber_floor]:
 		if body != null and is_instance_valid(body):
 			body.visible = _chamber_open
-	if chamber_floor != null and is_instance_valid(chamber_floor):
-		chamber_floor.global_position = _chamber_floor_at(-CHAMBER_DEPTH if _chamber_open
-			else 0.0)
+	_set_chamber_doors(1.0 if _chamber_open else 0.0)
 	_sync_bench_reflection()
 
 ## Der harte Weg: die Kammer ist zu, ein Würfel darin steht wieder auf dem Podest.
