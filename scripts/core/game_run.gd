@@ -148,7 +148,14 @@ var blind_value: float = float(BASE_GOAL)
 ## Wirklich gespielter Blind je geschaffter Runde (Index = Runde − 1) für den Fahrplan.
 var blind_history: Array[int] = []
 ## GLÜCK: +1 je geschaffter Runde, Glücks-Klauseln drehen daran; trägt progress_tier.
-var luck: int = 0
+## Jede Änderung gleicht den Glückswürfel an (Buchung vor dem Licht).
+var luck: int = 0:
+	set(value):
+		luck = value
+		sync_luck_die()
+## Der GLÜCKSWÜRFEL: seine Augen wachsen mit dem wirkenden Glück, sein Wurf sind die Wahlen.
+signal luck_die_changed(changes: Array)
+var luck_die := LuckDie.new()
 
 ## Unterschriebene Klauseln des laufenden Blocks als {id, round}; round = Runde
 ## der Unterschrift und entscheidet, wie lange die Klausel wirkt (_scope_reaches -
@@ -254,6 +261,9 @@ var fuse_used_this_round: bool = false
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
 var slot_bank := SlotMachine.new()
 
+func _init() -> void:
+	charms_changed.connect(sync_luck_die)  # Glückspilz & Co. drehen am wirkenden Glück
+
 static func new_run() -> GameRun:
 	var run := GameRun.new()
 	for i in POOL_SIZE:
@@ -358,6 +368,21 @@ func next_tier_luck() -> int:
 func add_luck(amount: int) -> void:
 	luck = maxi(0, luck + amount)
 
+## Der EINE Schreiber des Glückswürfels: Augen ans wirkende Glück angleichen und jede
+## Änderung melden (die Zeremonie zeigt sie nur).
+func sync_luck_die(rng: RandomNumberGenerator = null) -> Array:
+	var changes := luck_die.sync(effective_luck(), rng)
+	if not changes.is_empty():
+		luck_die_changed.emit(changes)
+	return changes
+
+## Der Hover des Glückswürfels: "Glückswürfel · Glück 7 · nächstes Auge bei 10".
+func luck_die_hint() -> String:
+	var lucky := effective_luck()
+	var next := LuckDie.next_threshold(lucky)
+	var tail := "alle Seiten voll" if next < 0 else "nächstes Auge bei %d" % next
+	return "Glückswürfel · Glück %d · %s" % [lucky, tail]
+
 ## Hinweis-Texte der drei Lauf-Anzeigen am Hub (die Anzeige kennt keinen GameRun).
 func blind_hint() -> String:
 	var percent := roundi(blind_growth(round_number + 1) * 100.0)
@@ -367,6 +392,9 @@ func luck_hint() -> String:
 	var text := "Stufe %d. " % progress_tier()
 	var next := next_tier_luck()
 	text += "Höchste Stufe erreicht." if next < 0 else "Ab Glück %d kommt Stufe %d." % [next, progress_tier() + 1]
+	var eye := LuckDie.next_threshold(effective_luck())
+	if eye >= 0:
+		text += " Ab Glück %d bekommt der Glückswürfel ein Auge." % eye
 	return text + " Jede geschaffte Runde bringt +1 Glück; die Stufe hebt Laden-Seltenheit, Wetten, Würfel und Automaten."
 
 func fumble_hint() -> String:
@@ -691,8 +719,9 @@ func _roll_purchase_refund(price: int, rng: RandomNumberGenerator) -> void:
 		refund_money(price)
 		last_card_pack_refund = price
 
-## Kauft ein MODUL-PAKET: zahlen, Inhalt würfeln, ALLE Module nach pending_parts
-## (keine Wahl). Leer = nichts gekauft.
+## Kauft ein MODUL-PAKET: zahlen, die Optionen der Größe würfeln - ALLE fallen nach
+## pending_parts -, und der Glückswürfel sagt, wie viele davon EINGEBAUT werden dürfen
+## (module_keeps; der Rest verfällt mit dem Beutel). Leer = nichts gekauft.
 func purchase_module_pack(module_pack: ModulePack, price: int,
 		rng: RandomNumberGenerator = null) -> Array[ComboPart]:
 	var out: Array[ComboPart] = []
@@ -701,12 +730,38 @@ func purchase_module_pack(module_pack: ModulePack, price: int,
 		return out
 	add_money(-price)
 	_roll_purchase_refund(price, rng)
-	var count := ModulePack.content_count(module_pack.size, pack_luck(module_pack),
-		pack_luck_factor(), rng) + pack_pick_bonus()
-	for part in ModulePack.roll_contents(module_pack, mini(count, ModulePack.MAX_CONTENTS), rng):
+	var face := luck_die.roll(rng)
+	var bonus := _free_hand_bonus()
+	packs_opened_this_round += 1
+	for part in ModulePack.roll_contents(module_pack, ModulePack.option_count(module_pack.size), rng):
 		stash_part(part, true)
 		out.append(pending_parts[pending_parts.size() - 1])
+	var keeps := mini(luck_die.value(face) + bonus, out.size())
+	module_keeps += keeps
+	last_module_roll = {"face": face, "value": luck_die.value(face), "keeps": keeps}
 	return out
+
+## Wie viele Paket-Module noch EINGEBAUT werden dürfen (die Würfe aller offenen Beutel).
+var module_keeps := 0
+## Der letzte Wurf eines Modul-Pakets {face, value, keeps} - die Zeremonie liest ihn.
+var last_module_roll := {}
+## Was der letzte Einbau verfallen ließ (der Wurf ist aufgebraucht) - für die Zeremonie.
+var last_lapsed_parts: Array[ComboPart] = []
+
+## Freie Hand: das erste geöffnete Paket der Runde bekommt Wahlen dazu.
+func _free_hand_bonus() -> int:
+	if packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND):
+		return deal_bonus_factor()
+	return 0
+
+## Der Glückswürfel fällt beim Öffnen (gebucht in der Auswahl).
+func _roll_luck_die(choice: PackChoice, rng: RandomNumberGenerator) -> void:
+	choice.die_face = luck_die.roll(rng)
+	choice.die_value = luck_die.value(choice.die_face)
+	choice.free_bonus = _free_hand_bonus()
+
+func _choice_picks(choice: PackChoice) -> int:
+	return mini(choice.die_value + choice.free_bonus, choice.options.size())
 
 # --- Das PAKET-LAGER ---------------------------------------------------------------
 # Gekaufte Pakete warten ungeöffnet, je Art eine Reihe (Reihenfolge = Kaufreihenfolge).
@@ -797,7 +852,7 @@ func _award_pack(pack: Resource, rng: RandomNumberGenerator) -> PackChoice:
 func can_open_stored_pack(uid: int) -> bool:
 	return pending_pack_choices.is_empty() and stored_pack_by_uid(uid) != null
 
-## ÖFFNEN: das Paket verläßt das Lager, Optionen, Wahlen und Glückswurf fallen JETZT
+## ÖFFNEN: das Paket verläßt das Lager, Optionen, Wahlen und Glückswürfel fallen JETZT
 ## (Buchung vor dem Licht). Die Phasen-Sperre fragt der Aufrufer.
 func open_stored_pack(uid: int, rng: RandomNumberGenerator = null) -> PackChoice:
 	if not can_open_stored_pack(uid):
@@ -813,25 +868,13 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 	choice.pack = pack
 	choice.from_bet = from_bet
 	choice.kind = PackChoice.KIND_DICE if pack is DicePack else PackChoice.KIND_CARDS
+	_roll_luck_die(choice, rng)
 	if pack is DicePack:
-		choice.free_hand = packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND)
 		_roll_dice_choice(choice, rng)
-		return _queue_opened(choice)
-	var pack_size := int(pack.get("size"))
-	var jackpot_base := CardPack.quality_jackpot((pack as CardPack).quality) \
-		if pack is CardPack else -1.0
-	var rolled := CardPack.roll_picks(pack_size, pack_luck(pack), pack_luck_factor(), rng,
-		jackpot_base)
-	choice.jackpot = bool(rolled["jackpot"])
-	var picks := int(rolled["picks"]) + pack_pick_bonus()
-	var count := CardPack.options_after(pack_size, pack_option_delta(), picks)
-	if choice.jackpot:
-		count = maxi(count, CardPack.option_count(pack_size))
-	choice.options = _roll_pack_options(pack, count, rng)
-	choice.take_all = choice.jackpot \
-		or (packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND))
-	choice.picks = choice.options.size() if choice.take_all \
-		else mini(picks, choice.options.size())
+	else:
+		var count := CardPack.options_after(int(pack.get("size")), pack_option_delta())
+		choice.options = _roll_pack_options(pack, count, rng)
+	choice.picks = _choice_picks(choice)
 	return _queue_opened(choice)
 
 func _queue_opened(choice: PackChoice) -> PackChoice:
@@ -851,15 +894,14 @@ func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) 
 			out.append(card)
 	return out
 
-## Ein WÜRFEL-Paket würfelt seine zwei Ketten (Zahl, Wahlen) und die Würfel - alles
-## gebucht in der Auswahl, mit dem Glück der Güte obendrauf. Auch Neu mischen läuft hier.
+## Ein WÜRFEL-Paket würfelt seine Zugabe-Kette und die Würfel - gebucht in der Auswahl,
+## mit dem Glück der Güte obendrauf. Die Wahlen sagt der Glückswürfel.
 func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 	var dice_pack := choice.pack as DicePack
 	var luck := pack_luck(dice_pack)
-	var factor := pack_luck_factor()
 	choice.base_count = clampi(DicePack.base_count(dice_pack.size) + pack_option_delta(),
 		DicePack.MIN_COUNT, DicePack.MAX_COUNT)
-	var count := DicePack.roll_count(choice.base_count, luck, factor, rng)
+	var count := DicePack.roll_count(choice.base_count, luck, rng)
 	var souls := owned_essence_ids()
 	choice.options = []
 	for i in count:
@@ -867,16 +909,9 @@ func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 			shop_soul_rule(), luck)
 		if die != null:
 			choice.options.append(die)
-	var ceiling := DicePack.max_picks(choice.options.size())
-	choice.base_picks = clampi(DicePack.base_picks(dice_pack.size) + pack_pick_bonus(), 1,
-		ceiling)
-	choice.picks = ceiling if choice.free_hand \
-		else DicePack.roll_picks(choice.base_picks, luck, choice.options.size(), factor, rng)
-	choice.take_all = false
-	choice.jackpot = false
 
-## Das Glück, mit dem ein Paket öffnet: das wirkende Glück plus das seiner Güte
-## (Würfel- und Karten-Pakete; Modul-Pakete haben keine).
+## Das Glück, mit dem ein Paket seinen INHALT würfelt: das wirkende Glück plus das seiner
+## Güte (Würfel- und Karten-Pakete; Modul-Pakete haben keine). Den Glückswürfel hebt es nicht.
 func pack_luck(pack: Resource) -> int:
 	if pack is DicePack or pack is CardPack:
 		return effective_luck() + DicePack.quality_luck(int(pack.get("quality")))
@@ -890,10 +925,6 @@ func shop_dice_pack_quality_weights() -> Array:
 func shop_card_pack_quality_weights() -> Array:
 	return DicePack.shop_quality_weights(shop_tier())
 
-## Glücksgriff: die Glückswurf-Chancen eines Pakets ×2 (Winkeladvokat ×4).
-func pack_luck_factor() -> float:
-	return 2.0 * deal_bonus_factor() if _clause_active(DealClause.LUCKY_GRAB) else 1.0
-
 ## Beigabe (je Kopie) und Beipack legen Optionen dazu, Verplombt nimmt eine weg.
 func pack_option_delta() -> int:
 	var delta := charm_ids().count(Charm.EXTRA_OPTION)
@@ -903,10 +934,6 @@ func pack_option_delta() -> int:
 		delta -= 1
 	return delta
 
-## Zugabe: eine Wahl mehr je Paket.
-func pack_pick_bonus() -> int:
-	return deal_bonus_factor() if _clause_active(DealClause.BONUS_PICK) else 0
-
 ## Die Auswahl, die gerade dran ist (null = keine).
 func current_pack_choice() -> PackChoice:
 	return pending_pack_choices[0] if not pending_pack_choices.is_empty() else null
@@ -914,7 +941,7 @@ func current_pack_choice() -> PackChoice:
 ## Was Neu mischen gerade kostet (0 = gratis, -1 = nicht mehr erlaubt).
 func pack_reshuffle_cost(choice: PackChoice) -> int:
 	# Würfel-Pakete mischen nie neu (Spieler-Entscheid 2026-11-17).
-	if choice == null or choice.rerolled or choice.take_all or choice.is_dice():
+	if choice == null or choice.rerolled or choice.is_dice():
 		return -1
 	if charm_ids().has(Charm.RESHUFFLE) and not free_reshuffle_used_this_round:
 		return 0
@@ -936,6 +963,7 @@ func reshuffle_pack_choice(choice: PackChoice, rng: RandomNumberGenerator = null
 		spend_energy(cost)
 	if choice.is_dice():
 		_roll_dice_choice(choice, rng)
+		choice.picks = _choice_picks(choice)
 		choice.rerolled = true
 		return true
 	choice.options = _roll_pack_options(choice.pack, choice.options.size(), rng)
@@ -1552,6 +1580,13 @@ func install_pending_part_at(pending_index: int, combo_key: String, slot: int) -
 	pending_parts.remove_at(pending_index)
 	if displaced != null and not from_pack:
 		pending_parts.insert(0, displaced)
+	last_lapsed_parts.clear()
+	# Nur ein Wurf zählt herunter (direkt gestashte Paket-Module kennen keinen).
+	if from_pack and module_keeps > 0:
+		module_keeps -= 1
+		if module_keeps == 0:
+			_lapse_pack_parts()
+	_settle_module_keeps()
 	_release_guarded(combo_key)
 	pending_parts_changed.emit()
 	combo_parts_changed.emit(combo_key)
@@ -1563,8 +1598,23 @@ func discard_pending_part(index: int) -> bool:
 	if index < 0 or index >= pending_parts.size() or not pending_parts[index].from_pack:
 		return false
 	pending_parts.remove_at(index)
+	_settle_module_keeps()
 	pending_parts_changed.emit()
 	return true
+
+## Der Wurf ist aufgebraucht: jedes übrige Paket-Modul verfällt mit dem Beutel.
+func _lapse_pack_parts() -> void:
+	for i in range(pending_parts.size() - 1, -1, -1):
+		if pending_parts[i].from_pack:
+			last_lapsed_parts.insert(0, pending_parts[i])
+			pending_parts.remove_at(i)
+
+## Ohne wartendes Paket-Modul gibt es auch nichts mehr einzubauen.
+func _settle_module_keeps() -> void:
+	for part in pending_parts:
+		if part.from_pack:
+			return
+	module_keeps = 0
 
 ## Der erste freie Steckplatz eines Chips (-1 = keiner).
 func first_free_socket(combo_key: String) -> int:

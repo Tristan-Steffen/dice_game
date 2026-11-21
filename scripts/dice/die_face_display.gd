@@ -673,6 +673,9 @@ func flare_runes(strength: float, face_index := -1, block := false) -> void:
 ## Grenzen des Bodens, auf den die Lache fällt (abgerundetes Rechteck in
 ## Weltkoordinaten). Setzt scene_root aus den Grubenmaßen - die Würfel
 ## selbst kennen die Grube nicht.
+## So tief liegt der Boden, auf dem dieser Würfel liegt, unter der Tischfläche (Wurfgrube).
+var pool_drop := 0.0
+
 func set_pool_clip(center: Vector3, half_extent: Vector2, corner_radius: float) -> void:
 	if pool_material == null:
 		return
@@ -713,9 +716,9 @@ func _process(delta: float) -> void:
 	# Ruhehöhe skaliert mit dem Würfel - sonst gilt ein kleiner Tray-Würfel
 	# schon im Sitzen als "fliegend" und seine Lache verblasst grundlos.
 	var scale_factor := _die_scale()
-	var height := maxf(0.0, center.y - POOL_REST_Y * scale_factor)
+	var height := maxf(0.0, center.y + pool_drop - POOL_REST_Y * scale_factor)
 	var fade := clampf(1.0 - height * POOL_FADE_PER_UNIT, 0.0, 1.0)
-	glow_pool.global_position = Vector3(center.x, POOL_Y, center.z)
+	glow_pool.global_position = Vector3(center.x, POOL_Y - pool_drop, center.z)
 	# top_level erbt keine Skalierung: die Größe des Würfels muss von Hand
 	# durchgereicht werden, sonst wirft ein Tray-Würfel dieselbe Riesenlache
 	# wie ein Spielwürfel und 30 Stück im Raster waschen den Tisch aus.

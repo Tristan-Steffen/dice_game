@@ -19,7 +19,7 @@ func test_the_rattle_grows_but_stays_short() -> void:
 	assert_lte(CaseShow.rattle_time(10), CaseShow.RATTLE_MAX)
 	assert_gt(CaseShow.rattle_time(0), 0.0, "das Rütteln vor dem Zuschlagen gibt es immer")
 
-func test_the_reel_rises_in_pitch() -> void:
-	for value in range(2, 10):
-		assert_gte(CaseShow.reel_pitch(value, 9), CaseShow.reel_pitch(value - 1, 9))
-	assert_gt(CaseShow.reel_pitch(9, 9), CaseShow.reel_pitch(1, 9))
+func test_the_luck_die_rises_in_pitch_with_its_pips() -> void:
+	for value in range(2, LuckDie.CAP + 1):
+		assert_gte(CaseShow.roll_pitch(value), CaseShow.roll_pitch(value - 1))
+	assert_gt(CaseShow.roll_pitch(LuckDie.CAP), CaseShow.roll_pitch(1))

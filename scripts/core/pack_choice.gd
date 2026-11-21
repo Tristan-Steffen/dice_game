@@ -13,14 +13,14 @@ var pack: Resource = null
 ## Je Option eine Karte (Pack) oder ein Würfel (DieDefinition).
 var options: Array = []
 var picks: int = 1
-## Nur Würfel-Pakete: die Grundzahlen, von denen die Ketten ausgingen (Anzeige: Leiter).
+## Der GLÜCKSWÜRFEL beim Öffnen: die gewürfelte Seite und ihre Augen (Wahlen = Augen plus
+## Freie Hand, gedeckelt auf die Optionen).
+var die_face: int = 0
+var die_value: int = 1
+## Was Freie Hand auf den Wurf legte (0 = nichts).
+var free_bonus: int = 0
+## Nur Würfel-Pakete: die Grundzahl, von der die Zugabe-Kette ausging.
 var base_count: int = 0
-var base_picks: int = 0
-## Freie Hand galt beim Öffnen (Würfel: Wahlen = Zahl - 1, auch nach Neu mischen).
-var free_hand: bool = false
-## Hauptgewinn oder Freie Hand: alle Optionen nehmen (nur Karten-Pakete).
-var take_all: bool = false
-var jackpot: bool = false
 ## Neu mischen ist je Paket einmal erlaubt.
 var rerolled: bool = false
 ## Woher es kam (Laden-Kauf oder Wett-Gewinn) - nur Anzeige.

@@ -65,8 +65,11 @@ const STACK_HEIGHT := DIE_HALF * 1.6
 const SLIDE_IMPULSE := 3.0
 const SLIDE_LIFT := 1.0
 
+## Höhe des Grubenbodens (gemeldet von scene_root) - daran mißt die Stapel-Erkennung.
+var floor_y := 0.0
+
 func _is_stacked(body: RigidBody3D) -> bool:
-	return body.global_position.y > STACK_HEIGHT
+	return body.global_position.y - floor_y > STACK_HEIGHT
 
 ## Richtung weg vom nächsten tiefer liegenden Würfel (XZ); bei exakt
 ## deckungsgleichen Mitten eine zufällige, sonst bliebe der Würfel liegen.

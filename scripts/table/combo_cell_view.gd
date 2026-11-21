@@ -31,6 +31,9 @@ var combo_name := ""
 var values: Array = []
 var points := 0
 var mult := 1
+## Der Grundwert ohne Module (-1 = wie die Wertung) - der Chip zeigt ihn gedimmt daneben.
+var base_points := -1
+var base_mult := -1
 ## Sockel-Modus: über der Zelle steht ein 3D-Chip (ComboChipView), der Name,
 ## Wertung, Drossel UND Rampenlicht selbst trägt. Die Zelle zeichnet dann
 ## gar nichts mehr - sie bleibt nur Datenhalter und Pixel-Anker (Zellmitte =
@@ -48,10 +51,12 @@ func setup(p_name: String, p_values: Array, p_points: int, p_mult: int) -> void:
 	pivot_offset = size / 2.0  # Highlight skaliert um die Zellenmitte
 	queue_redraw()
 
-## Schreibt Basispunkte + Multiplikator neu (feste Kombi-Teile).
-func set_score(p_points: int, p_mult: int) -> void:
+## Schreibt Basispunkte + Multiplikator neu (feste Kombi-Teile); base = Wert ohne Module.
+func set_score(p_points: int, p_mult: int, base := Vector2i(-1, -1)) -> void:
 	points = p_points
 	mult = p_mult
+	base_points = base.x
+	base_mult = base.y
 	queue_redraw()
 
 func _draw() -> void:

@@ -1,6 +1,7 @@
 extends GutTest
-## Das MODUL-PAKET: Größe und Seltenheits-Stufe stehen beim Kauf fest. Es hat KEINE Wahl:
-## der Kauf würfelt 1-3 Module und legt ALLE nach pending_parts (Spieler-Entscheid 2026-11-17).
+## Das MODUL-PAKET: Größe und Seltenheits-Stufe stehen beim Kauf fest. Der Kauf würfelt die
+## Optionen der Größe (3/4/5/5) nach pending_parts, und der Glückswürfel sagt, wie viele davon
+## eingebaut werden dürfen - der Rest verfällt mit dem Beutel.
 
 var run: GameRun
 
@@ -13,15 +14,6 @@ func _rng(seed_value: int) -> RandomNumberGenerator:
 	rng.seed = seed_value
 	return rng
 
-## Ein rng, dessen erster Wurf den Glückswurf sicher trifft bzw. sicher verfehlt.
-func _luck_rng(hit: bool) -> RandomNumberGenerator:
-	for seed_value in 500:
-		var rng := _rng(seed_value)
-		var roll := rng.randf()
-		if (roll < 0.05) == hit and (roll > 0.95 or hit):
-			return _rng(seed_value)
-	return null
-
 func _sign(ids: Array) -> void:
 	var typed: Array[String] = []
 	typed.assign(ids)
@@ -29,27 +21,18 @@ func _sign(ids: Array) -> void:
 
 # --- Inhalt ---------------------------------------------------------------------
 
-func test_the_content_table_is_one_two_two_three() -> void:
-	assert_eq(ModulePack.CONTENT_COUNTS, [1, 2, 2, 3])
+func test_the_options_follow_the_size() -> void:
 	for pack_size in CardPack.SIZES:
-		assert_eq(ModulePack.content_count(pack_size, 0, 1.0, _luck_rng(false)),
-			ModulePack.CONTENT_COUNTS[pack_size], "Größe %d ohne Glück" % pack_size)
+		assert_eq(ModulePack.option_count(pack_size), CardPack.OPTION_COUNTS[pack_size])
+		var parts := run.purchase_module_pack(ModulePack.make(pack_size, 0), 0, _rng(pack_size))
+		assert_eq(parts.size(), CardPack.OPTION_COUNTS[pack_size], "Größe %d" % pack_size)
+		run.pending_parts.clear()
+		run.module_keeps = 0
 
-func test_the_luck_roll_adds_one_but_never_past_three() -> void:
-	assert_eq(ModulePack.content_count(CardPack.SIZE_SMALL, 0, 1.0, _luck_rng(true)), 2)
-	assert_eq(ModulePack.content_count(CardPack.SIZE_LARGE, 0, 1.0, _luck_rng(true)), 3)
-	assert_eq(ModulePack.content_count(CardPack.SIZE_HUGE, 99, 4.0, _luck_rng(true)), 3,
-		"Riesig steht am Deckel")
-	assert_eq(ModulePack.content_lucky_chance(CardPack.SIZE_HUGE, 50), 0.0)
-	assert_gt(ModulePack.content_lucky_chance(CardPack.SIZE_SMALL, 10),
-		ModulePack.content_lucky_chance(CardPack.SIZE_SMALL, 0), "Glück hebt die Chance")
-	assert_lte(ModulePack.content_lucky_chance(CardPack.SIZE_SMALL, 1000, 2.0), CardPack.LUCKY_CAP)
-
-func test_the_prices_follow_the_formula_and_the_grade_lifts_them() -> void:
+func test_the_prices_stay_frozen_and_the_grade_lifts_them() -> void:
+	assert_eq(ModulePack.PRICES, [10, 18, 20, 24])
 	var last_size := 0
 	for pack_size in CardPack.SIZES:
-		assert_almost_eq(float(ModulePack.PRICES[pack_size]),
-			ModulePack.formula_price(pack_size), 0.6, "Größe %d" % pack_size)
 		assert_gt(int(ModulePack.PRICES[pack_size]), last_size, "größer kostet mehr")
 		last_size = int(ModulePack.PRICES[pack_size])
 		var last := 0
@@ -85,7 +68,7 @@ func test_contents_are_shop_modules_without_duplicates_and_own_instances() -> vo
 	var rng := _rng(5)
 	for i in 30:
 		var parts := ModulePack.roll_contents(ModulePack.make(CardPack.SIZE_HUGE, i % 4), -1, rng)
-		assert_eq(parts.size(), 3, "der Grundinhalt")
+		assert_eq(parts.size(), 5, "die Optionen der Größe")
 		var ids := {}
 		for part in parts:
 			assert_false(part.secret, "nie ein Schwarzmarkt-Teil")
@@ -107,9 +90,9 @@ func test_name_and_info_say_size_and_grade_never_the_modules() -> void:
 	var bag := ModulePack.make(CardPack.SIZE_LARGE, ModulePack.GRADE_EPIC)
 	assert_eq(bag.display_name, "Großes Modul-Paket · Episch")
 	assert_eq(ModulePack.make(CardPack.SIZE_NORMAL, 0).display_name, "Modul-Paket")
-	assert_string_contains(ModulePack.info_body(bag), "2 Module, alle behalten")
+	assert_string_contains(ModulePack.info_body(bag), "5 Module")
 	assert_string_contains(ModulePack.info_body(ModulePack.make(CardPack.SIZE_SMALL, 0)),
-		"1 Modul, alle behalten - mit Glück mehr.")
+		"3 Module. " + CardPack.DIE_SAYS)
 	assert_eq(ModulePack.grade_tint(ModulePack.GRADE_RARE),
 		ComboPart.RARITY_COLORS[ComboPart.RARITY_RARE], "die Farbe der Seltenheit")
 
@@ -119,31 +102,66 @@ func test_buying_stashes_every_module_and_opens_no_choice() -> void:
 	var bag := ModulePack.make(CardPack.SIZE_HUGE, ModulePack.GRADE_RARE)
 	var parts := run.purchase_module_pack(bag, 24, _rng(4))
 	assert_eq(run.money, 476)
-	assert_eq(parts.size(), 3)
-	assert_eq(run.pending_parts.size(), 3, "alle behalten")
+	assert_eq(parts.size(), 5)
+	assert_eq(run.pending_parts.size(), 5, "alle liegen in der Grube")
+	assert_eq(run.module_keeps, 1, "der frische Glückswürfel: eines einbauen")
+	assert_eq(int(run.last_module_roll["keeps"]), 1)
 	for i in parts.size():
 		assert_same(run.pending_parts[i], parts[i], "geliefert wird, was wartet")
 		assert_true(parts[i].from_pack, "aus dem Paket: sein Einbau darf verdrängen")
 	assert_true(run.pending_pack_choices.is_empty(), "keine Auswahl")
 	assert_true(run.stored_module_packs.is_empty(), "nie ins Lager")
 
-func test_zugabe_adds_one_module_up_to_the_cap() -> void:
-	_sign([DealClause.BONUS_PICK])
-	assert_eq(run.purchase_module_pack(ModulePack.make(CardPack.SIZE_SMALL, 0), 1,
-		_luck_rng(false)).size(), 2, "Klein + Zugabe")
-	run.pending_parts.clear()
-	assert_eq(run.purchase_module_pack(ModulePack.make(CardPack.SIZE_HUGE, 0), 1,
-		_luck_rng(true)).size(), 3, "der Deckel gilt auch mit Zugabe")
+func test_the_roll_caps_what_may_be_installed() -> void:
+	run.luck_die.faces.assign([4, 4, 4, 4, 4, 4])
+	run.purchase_module_pack(ModulePack.make(CardPack.SIZE_SMALL, 0), 0, _rng(1))
+	assert_eq(run.module_keeps, 3, "nie mehr als Optionen")
+
+func test_installing_the_last_kept_module_lapses_the_rest() -> void:
+	run.luck_die.faces.assign([2, 2, 2, 2, 2, 2])
+	var parts := run.purchase_module_pack(ModulePack.make(CardPack.SIZE_NORMAL, 0), 0, _rng(2))
+	assert_eq(run.module_keeps, 2)
+	var key := String(DiceScoring.HAND_PRIORITY[0])
+	assert_true(run.install_pending_part_at(0, key, 0))
+	assert_eq(run.pending_parts.size(), 3, "noch einer darf")
+	assert_true(run.last_lapsed_parts.is_empty())
+	assert_true(run.install_pending_part_at(0, key, 1))
+	assert_true(run.pending_parts.is_empty(), "der Wurf ist aufgebraucht")
+	assert_eq(run.last_lapsed_parts.size(), 2, "zwei verfallen mit dem Beutel")
+	for part in run.last_lapsed_parts:
+		assert_true(parts.has(part))
+	assert_eq(run.module_keeps, 0)
+
+func test_discarding_everything_clears_the_keeps() -> void:
+	run.luck_die.faces.assign([2, 2, 2, 2, 2, 2])
+	run.purchase_module_pack(ModulePack.make(CardPack.SIZE_SMALL, 0), 0, _rng(3))
+	while not run.pending_parts.is_empty():
+		assert_true(run.discard_pending_part(0))
+	assert_eq(run.module_keeps, 0)
+
+func test_free_hand_adds_an_install() -> void:
+	_sign([DealClause.FREE_HAND])
+	run.purchase_module_pack(ModulePack.make(CardPack.SIZE_NORMAL, 0), 0, _rng(5))
+	assert_eq(run.module_keeps, 2, "Wurf 1 + Freie Hand")
+
+func test_bet_modules_never_lapse() -> void:
+	run.stash_part(ComboPart.resistor())
+	run.luck_die.faces.assign([1, 1, 1, 1, 1, 1])
+	run.purchase_module_pack(ModulePack.make(CardPack.SIZE_SMALL, 0), 0, _rng(6))
+	var key := String(DiceScoring.HAND_PRIORITY[0])
+	assert_true(run.install_pending_part_at(1, key, 0))
+	assert_eq(run.pending_parts.size(), 1, "das Wett-Modul bleibt")
+	assert_false(run.pending_parts[0].from_pack)
 
 func test_supplement_and_sealed_do_not_touch_module_packs() -> void:
 	_sign([DealClause.SUPPLEMENT])
 	assert_eq(run.purchase_module_pack(ModulePack.make(CardPack.SIZE_NORMAL, 0), 1,
-		_luck_rng(false)).size(), 2)
+		_rng(1)).size(), 4)
 	run.active_deals.clear()
 	run.pending_parts.clear()
 	_sign([DealClause.SEALED])
 	assert_eq(run.purchase_module_pack(ModulePack.make(CardPack.SIZE_NORMAL, 0), 1,
-		_luck_rng(false)).size(), 2)
+		_rng(1)).size(), 4)
 
 func test_no_free_socket_does_not_block_buying() -> void:
 	for key: String in DiceScoring.HAND_PRIORITY:

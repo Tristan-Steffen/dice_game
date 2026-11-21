@@ -9,8 +9,11 @@ extends Node3D
 ## Weltposition der Grubenmitte (y ohne Bedeutung) - auch Wurfziel.
 const PIT_CENTER := Vector3(0.0, 0.0, 0.0)
 
+## Der Grubenboden liegt eine halbe Würfelkante UNTER der Tischfläche (Sockel).
+const FLOOR_DROP := 0.85
+const FLOOR_TOP := -FLOOR_DROP
 const FLOOR_SIZE := Vector3(17, 2, 31)
-const FLOOR_Y := -1.0  # Oberkante 0 = Screen-Oberfläche des Tischs
+const FLOOR_Y := -1.0 - FLOOR_DROP
 
 ## PIT_HALF_X = halbe Höhe auf dem Bildschirm (Welt-X), PIT_HALF_Z = halbe
 ## Breite (Welt-Z, deutlich breiter als hoch).
@@ -18,9 +21,9 @@ const PIT_HALF_X := 7.6
 const PIT_HALF_Z := 14.28
 const CORNER_RADIUS := 2.0
 const CORNER_STEPS := 4  # Bogen-Segmente je Ecke
-const WALL_HEIGHT := 16.0  # bleibt unter den Wurf-Startpositionen (Y ~17.1)
+const WALL_HEIGHT := 16.0 + FLOOR_DROP  # Oberkante 16 - unter den Wurf-Startpositionen (Y ~17.1)
 const WALL_THICKNESS := 1.0
-const WALL_CENTER_Y := 8.0  # Unterkante bündig mit der Bodenoberseite
+const WALL_CENTER_Y := 8.0 - FLOOR_DROP * 0.5  # Unterkante bündig mit der Bodenoberseite
 const WALL_OVERLAP := 0.05  # keine Lücken zwischen Segmenten
 
 const BOUNCE := 0.25

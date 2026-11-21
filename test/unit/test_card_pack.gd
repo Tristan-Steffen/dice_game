@@ -89,11 +89,6 @@ func test_quality_lifts_the_card_sizes() -> void:
 	assert_gt(sums[1], sums[0], "Edel größer als Standard")
 	assert_gt(sums[2], sums[1], "Royal größer als Edel")
 
-func test_only_royal_knows_the_jackpot() -> void:
-	assert_eq(CardPack.quality_jackpot(DicePack.QUALITY_STANDARD), 0.0)
-	assert_eq(CardPack.quality_jackpot(DicePack.QUALITY_FINE), 0.0)
-	assert_almost_eq(CardPack.quality_jackpot(DicePack.QUALITY_ROYAL), 0.03, 0.0001)
-
 func _max_tier(cards: Array[Pack]) -> int:
 	var best := -1
 	for card in cards:
@@ -129,7 +124,7 @@ func test_bulk_order_lifts_the_card_sizes() -> void:
 			bulk += card.tier
 	assert_gt(bulk, plain, "Großauftrag würfelt größer")
 
-## Der Preis ist die Formel: erwartete Wahlen × Ladenwert einer Option × Auswahl-Prämie.
+## Der Preis ist die Formel: Preis-Wahlen × Ladenwert einer Option × Auswahl-Prämie.
 ## Sonder rechnet mit dem Regalpreis der Sonder-Karte.
 func test_price_follows_the_formula() -> void:
 	for pack_sort: String in CardPack.SORTS:
@@ -137,11 +132,24 @@ func test_price_follows_the_formula() -> void:
 			for pack_quality in DicePack.QUALITIES:
 				var premium := CardPack.CHOICE_PREMIUM + CardPack.OPTION_PREMIUM_STEP \
 					* float(CardPack.option_count(pack_size) - 3)
-				var expected := CardPack.expected_picks(pack_size,
-					CardPack.quality_jackpot(pack_quality)) \
+				var expected := float(CardPack.PRICE_PICKS[pack_size][pack_quality]) \
 					* _option_value(pack_sort, pack_quality) * premium
 				assert_almost_eq(float(CardPack.price_of(pack_sort, pack_size, pack_quality)),
 					expected, 1.0, "%s / %d / %d" % [pack_sort, pack_size, pack_quality])
+
+## Der Glückswürfel hat die Preise nicht bewegt (2026-11-21): Zahl für Zahl wie vorher -
+## Sorte, dann Kartenzahl 3er/4er/5er, dann Güte Standard/Edel/Royal.
+const FROZEN_PRICES := [9, 12, 17, 10, 13, 19, 17, 24, 34, 11, 15, 21, 12, 17, 24, 22, 30, 42,
+	13, 18, 25, 15, 20, 29, 26, 36, 51, 25, 30, 38, 28, 34, 43, 51, 61, 76]
+
+func test_prices_stay_frozen() -> void:
+	var i := 0
+	for pack_sort: String in CardPack.SORTS:
+		for pack_size in CardPack.CARD_SIZES:
+			for pack_quality in DicePack.QUALITIES:
+				assert_eq(CardPack.price_of(pack_sort, pack_size, pack_quality),
+					int(FROZEN_PRICES[i]), "%s / %d / %d" % [pack_sort, pack_size, pack_quality])
+				i += 1
 
 func test_more_cards_and_better_quality_cost_more() -> void:
 	for pack_sort: String in CardPack.SORTS:
@@ -172,8 +180,8 @@ func test_names_and_info_never_tell_the_contents() -> void:
 		DicePack.QUALITY_FINE).display_name, "4er Material-Paket · Edel")
 	var info := CardPack.info_body(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE,
 		DicePack.QUALITY_ROYAL))
-	assert_string_contains(info, "2 von 5")
-	assert_string_contains(info, "mit Glück mehr")
+	assert_string_contains(info, "5 Optionen")
+	assert_string_contains(info, CardPack.DIE_SAYS)
 	assert_string_contains(info, "Kolossale")
 	assert_string_contains(info, "+12 Glück")
 

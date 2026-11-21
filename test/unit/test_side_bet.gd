@@ -277,6 +277,7 @@ func _with(id: String, kind: int, pack_type: String = Pack.TYPE_NUMBER) -> SideB
 	var bet := _bet(id)
 	bet.payout_kind = kind
 	bet.reward_pack_type = pack_type
+	bet._fixed_card = null  # eine beim Auslegen schon gewürfelte Karte gehört der alten Art
 	return bet
 
 # --- Der GEWINNWERT -------------------------------------------------------------

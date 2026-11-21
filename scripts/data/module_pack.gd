@@ -1,8 +1,8 @@
 class_name ModulePack
 extends Resource
 ## Ein MODUL-PAKET des Ladens: ein silberner ESD-Beutel, von außen nur Größe und
-## SELTENHEITS-STUFE (die Farbe des Streifens unter der Siegelnaht). Es hat KEINE Wahl:
-## 1-3 Laden-Module, alle behalten (Spieler-Entscheid 2026-11-17).
+## SELTENHEITS-STUFE (die Farbe des Streifens unter der Siegelnaht). Es zeigt Optionen nach
+## Größe (CardPack.OPTION_COUNTS), und der Glückswürfel sagt, wie viele man EINBAUEN darf.
 
 const GRADE_COMMON := 0
 const GRADE_RARE := 1
@@ -19,16 +19,8 @@ const GRADE_WEIGHTS := [[1.0, 0.45, 0.2, 0.08], [0.6, 0.8, 0.35, 0.15],
 	[0.3, 0.7, 0.8, 0.3], [0.15, 0.5, 1.0, 0.6]]
 ## Die Stufe hebt den Preis wie die Güte das Würfel-Paket.
 const GRADE_PRICE_FACTORS := [1.0, 1.4, 1.9, 2.6]
-## Grundpreis je Größe (Gewöhnlich): erwarteter Inhalt × Modulwert - man behält alles,
-## also ohne Wahl-Prämie.
+## Grundpreis je Größe (Gewöhnlich) - eingefroren, bis das Balancing ihn neu setzt.
 const PRICES := [10, 18, 20, 24]
-## Der mittlere Laden-Modulpreis, an dem PRICES hängt (test_module_pack prüft die Formel).
-const OPTION_VALUE := 8.0
-## Der Inhalt je Größe (Klein, Normal, Groß, Riesig) und der Glückswurf auf +1.
-const CONTENT_COUNTS := [1, 2, 2, 3]
-const CONTENT_LUCKY_CHANCES := [0.25, 0.25, 0.5, 0.0]
-## Mehr als drei Module gibt kein Beutel - auch nicht mit Zugabe.
-const MAX_CONTENTS := 3
 
 ## Laden: Gewichte der Stufen; je Fortschrittsstufe über 1 wandern sie nach oben.
 const SHOP_GRADE_WEIGHTS := [70, 22, 7, 1]
@@ -72,7 +64,7 @@ var display_name: String:
 		var base := CardPack.sized_name("Modul-Paket", size)
 		return base if grade == GRADE_COMMON else "%s · %s" % [base, grade_name(grade)]
 
-## Was der Beutel von außen sagt: Inhalt und Stufe - nie die Module.
+## Was der Beutel von außen sagt: Optionen und Stufe - nie die Module.
 static func info_body(module_pack: ModulePack) -> String:
 	if module_pack == null:
 		return ""
@@ -80,38 +72,11 @@ static func info_body(module_pack: ModulePack) -> String:
 		grade_name(module_pack.grade)]
 
 static func content_line(pack_size: int) -> String:
-	var base := base_contents(pack_size)
-	var noun := "Modul" if base == 1 else "Module"
-	if base >= MAX_CONTENTS:
-		return "%d %s, alle behalten." % [base, noun]
-	return "%d %s, alle behalten - mit Glück mehr." % [base, noun]
+	return "%d Module. %s" % [option_count(pack_size), CardPack.DIE_SAYS]
 
-static func base_contents(pack_size: int) -> int:
-	return int(CONTENT_COUNTS[clampi(pack_size, 0, CONTENT_COUNTS.size() - 1)])
-
-## Glückswurf auf ein Modul mehr: +1 Punkt je Glück, gedeckelt wie bei den Karten-
-## Paketen; factor = Glücksgriff. Am Deckel gibt es nichts zu würfeln.
-static func content_lucky_chance(pack_size: int, luck: int, factor := 1.0) -> float:
-	if base_contents(pack_size) >= MAX_CONTENTS:
-		return 0.0
-	var base := float(CONTENT_LUCKY_CHANCES[clampi(pack_size, 0,
-		CONTENT_LUCKY_CHANCES.size() - 1)])
-	return minf((base + CardPack.LUCK_STEP * float(maxi(luck, 0))) * factor, CardPack.LUCKY_CAP)
-
-## Wie viele Module der Beutel gibt (Deckel MAX_CONTENTS).
-static func content_count(pack_size: int, luck: int, factor := 1.0,
-		rng: RandomNumberGenerator = null) -> int:
-	var count := base_contents(pack_size)
-	if CardPack._unit(rng) < content_lucky_chance(pack_size, luck, factor):
-		count += 1
-	return mini(count, MAX_CONTENTS)
-
-## Erwarteter Inhalt ohne Glück - daran hängt der Preis.
-static func expected_contents(pack_size: int) -> float:
-	return float(base_contents(pack_size)) + content_lucky_chance(pack_size, 0)
-
-static func formula_price(pack_size: int) -> float:
-	return expected_contents(pack_size) * OPTION_VALUE
+## Wie viele Module in den Beutel fallen: die Options-Tabelle der Pakete.
+static func option_count(pack_size: int) -> int:
+	return CardPack.option_count(pack_size)
 
 # --- Die Auslage ------------------------------------------------------------------
 
@@ -137,14 +102,14 @@ static func weight_of(part: ComboPart, pack_grade: int) -> float:
 
 ## Würfelt count Module aus den Laden-Modulen, ohne Dublette (gehen die Teile aus,
 ## darf eines doppelt liegen - ein leerer Platz wäre schlimmer). Jedes ist eine
-## EIGENE Instanz; count < 0 = der Grundinhalt.
+## EIGENE Instanz; count < 0 = die Optionen der Größe.
 static func roll_contents(module_pack: ModulePack, count := -1,
 		rng: RandomNumberGenerator = null) -> Array[ComboPart]:
 	var out: Array[ComboPart] = []
 	if module_pack == null:
 		return out
 	if count < 0:
-		count = base_contents(module_pack.size)
+		count = option_count(module_pack.size)
 	var pool := ComboPart.pool(false)
 	var left := pool.duplicate()
 	for i in count:

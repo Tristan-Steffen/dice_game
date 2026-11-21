@@ -94,6 +94,8 @@ const WORKSHOP_CLOSE_AIM := Vector2.ZERO
 ## Zoom automatisch mitnehmen.
 var pool_target := Vector3(-23.75, 0.4, 12)
 var combos_target := Vector3(-8, 0, 0)
+var combos_half := Vector2.ZERO
+const COMBOS_MARGIN := 1.04
 var pit_target := Vector3.ZERO
 var charms_target := Vector3(24, 0, 0)
 var hub_target := Vector3(-24, 0, 0)
@@ -399,8 +401,12 @@ func release_tilt_immediately() -> void:
 func configure_tray_targets(pool: Vector3) -> void:
 	pool_target = pool
 
-func configure_combos_target(target: Vector3) -> void:
+## half = halbe Ausmaße des Clusters (x = Welt-Z, y = Welt-X); ZERO läßt das zuletzt
+## gemessene stehen. Der breite Chip-Cluster paßt nicht mehr in den festen Abstand.
+func configure_combos_target(target: Vector3, half := Vector2.ZERO) -> void:
 	combos_target = target
+	if half != Vector2.ZERO:
+		combos_half = half
 
 func configure_pit_target(target: Vector3) -> void:
 	pit_target = target
@@ -613,6 +619,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 			distance = maxf(distance, tilted_fit_distance(chips_half, CHIPS_MARGIN))
 	if target_mode == Mode.SECRET_SHOP:
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
+	if target_mode == Mode.COMBOS and combos_half != Vector2.ZERO:
+		distance = maxf(distance, tilted_fit_distance(combos_half, COMBOS_MARGIN))
 	if target_mode == Mode.CHARMS and charms_half != Vector2.ZERO:
 		distance = maxf(distance, tilted_fit_distance(charms_half, CHARMS_MARGIN))
 	if target_mode == Mode.WORKSHOP:

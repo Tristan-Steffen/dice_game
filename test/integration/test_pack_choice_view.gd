@@ -65,7 +65,7 @@ func _dice(view: PackChoiceView, count: int) -> PackChoice:
 # --- Die SCHIENE -------------------------------------------------------------------
 
 ## Das Fenster beginnt mit der Schiene (kein Kopf), der Fuß hängt darunter: die Auskunft
-## über die volle Breite, zuunterst der Knopf und rechts daneben die Walze.
+## über die volle Breite, zuunterst der Knopf und rechts daneben der Zähler.
 func test_the_rail_window_wraps_the_rail() -> void:
 	var view := _rail_view()
 	_dice(view, 5)
@@ -77,14 +77,14 @@ func test_the_rail_window_wraps_the_rail() -> void:
 	assert_almost_eq(rail.size.y, RAIL.size.y, 0.01, "so hoch wie der Vorrat")
 	var frame: Dictionary = view._frame_rects()
 	var bounds := Rect2(Vector2.ZERO, view.size).grow(0.01)
-	for key in ["info", "buttons", "reel"]:
+	for key in ["info", "buttons", "count"]:
 		var rect: Rect2 = frame[key]
 		assert_true(bounds.encloses(rect), "%s im Fenster" % key)
 		assert_gte(rect.position.y, view.lineup_area().end.y, "%s unter der Schiene" % key)
 	var buttons: Rect2 = frame["buttons"]
-	var reel: Rect2 = frame["reel"]
-	assert_gt(reel.position.x, buttons.end.x, "die Walze steht rechts neben dem Knopf")
-	assert_almost_eq(reel.position.y, buttons.position.y, 0.01, "auf derselben Zeile")
+	var count: Rect2 = frame["count"]
+	assert_gt(count.position.x, buttons.end.x, "der Zähler steht rechts neben dem Knopf")
+	assert_almost_eq(count.position.y, buttons.position.y, 0.01, "auf derselben Zeile")
 	assert_lte((frame["info"] as Rect2).end.y, buttons.position.y, "die Auskunft darüber")
 	assert_false(view._title.visible, "kein Name über der Schiene")
 	assert_false(view._counter.visible, "kein Zähler über der Schiene")
@@ -183,50 +183,59 @@ func test_the_launch_shows_no_slots_and_no_counter() -> void:
 	assert_eq(view.stage(), PackChoiceView.STAGE_LAUNCH)
 	assert_false(view.slots_shown(), "beim Fall zählt niemand mit")
 	assert_false(view.choosing())
-	assert_false(view.reel_shown(), "die Walze wartet")
+	assert_eq((view.get_node("RailCount") as Label).text, "", "keine Zahl vor dem Wurf")
 	view.show_lineup()
 	assert_true(view.slots_shown(), "die Schiene zeigt ihre Plätze")
 	view.skip_to_pick()
 	for i in 5:
 		assert_eq(view.slot_rim(i), PackChoiceView.SLOT_RIM, "ein Würfel trägt einen neutralen Saum")
 
-func test_the_reel_spins_up_to_count_minus_one_and_stops_on_the_booked_picks() -> void:
-	for count in [2, 3, 5, 10]:
-		assert_eq(PackChoiceView.reel_top(count), count - 1)
-		var top: int = count - 1
-		for base in range(1, top + 1):
-			for picks in range(base, top + 1):
-				var path := PackChoiceView.reel_path(base, picks, top)
-				assert_eq(path[path.size() - 1], picks, "Halt auf der gebuchten Zahl")
-				for value in path:
-					assert_between(value, base, top, "die Walze zeigt nur mögliche Zahlen")
-				assert_gte(path.size(), PackChoiceView.REEL_MIN_SPINS)
-	assert_lt(PackChoiceView.reel_beat(0, 12), PackChoiceView.reel_beat(11, 12),
-		"die Walze wird langsamer")
-
-func test_the_opening_runs_the_reel_then_pick() -> void:
+## Der Glückswürfel rollt (scene_root), und erst sein Stillstand nennt die Wahlen.
+func test_the_opening_waits_for_the_luck_die_then_picks() -> void:
 	var view := _rail_view()
 	var choice := _dice_choice(4)
-	choice.base_picks = 1
 	choice.picks = 2
 	view.open(choice, DIE_PX, 1, 5, false, 2)
-	assert_false(view.reel_shown(), "die Walze steht erst auf der Schiene")
 	var events: Array = []
-	view.reel_stopped.connect(func(value: int, _top: int) -> void: events.append(["stop", value]))
-	view.opening_finished.connect(func() -> void: events.append(["done"]))
+	view.opening_finished.connect(func() -> void: events.append("done"))
 	view.show_lineup()
-	view.play_reel()
-	assert_eq(view.stage(), PackChoiceView.STAGE_REEL, "es geht direkt zur Walze")
-	assert_true(view.reel_shown())
-	var reel := view.get_node("PickReel") as Control
-	assert_true(Rect2(Vector2.ZERO, view.size).encloses(Rect2(reel.position, reel.size)),
-		"die Walze steht im Fenster")
-	await wait_for_signal(view.opening_finished, 10.0)
-	assert_eq(events[events.size() - 2], ["stop", 2], "die Walze hält auf der Buchung")
-	assert_eq(events[events.size() - 1], ["done"])
-	assert_true(view.reel_done())
-	assert_eq(view.reel_value(), 2, "im Fenster steht die gebuchte Zahl")
+	view.await_roll()
+	assert_eq(view.stage(), PackChoiceView.STAGE_ROLL, "es geht direkt zum Wurf")
+	assert_true(view.awaiting_roll())
+	assert_false(view.choosing(), "vor dem Stillstand keine Wahl")
+	var label := view.get_node("RailCount") as Label
+	assert_eq(label.text, "", "noch keine Zahl")
+	view.die_landed()
+	assert_eq(events, ["done"])
+	assert_eq(view.stage(), PackChoiceView.STAGE_PICK)
+	assert_eq(label.text, "Wähle 2 von 4", "der Zähler nennt die Wahlen")
 	assert_true(view.choosing())
+	view.die_landed()
+	assert_eq(events, ["done"], "idempotent")
+
+func test_cards_wait_for_the_luck_die_and_a_click_asks_to_skip() -> void:
+	var view := _opening()
+	var choice := _card_choice()
+	view.open(choice, CARD, 1, 5)
+	var asked: Array = []
+	view.roll_skip_requested.connect(func() -> void: asked.append(true))
+	view.await_roll()
+	assert_true(view.awaiting_roll())
+	assert_eq(view._counter.text, "")
+	view.skip_count()
+	assert_eq(asked.size(), 1, "der Klick bittet scene_root, den Würfel liegen zu lassen")
+	assert_false(view.choosing())
+	view.die_landed()
+	assert_true(view.choosing())
+	assert_eq(view._counter.text, view.counter_text())
+
+func test_free_hand_names_itself_in_the_counter() -> void:
+	var view := _opening()
+	var choice := _card_choice()
+	choice.free_bonus = 1
+	choice.picks = 2
+	view.open(choice, CARD, 1, 5, true)
+	assert_string_contains(view.counter_text(), "Freie Hand +1")
 
 func test_a_net_cell_names_its_face() -> void:
 	var view := _rail_view()
@@ -377,7 +386,8 @@ func _picking(count: int, picks: int) -> PackChoiceView:
 func test_a_dice_pack_assigns_instead_of_picking() -> void:
 	var view := _picking(5, 2)
 	assert_true(view.assigning(), "Würfel-Pakete ordnen zu")
-	assert_eq(view.reel_value(), 2, "die Walze am Knopf nennt die Wahlen")
+	assert_eq((view.get_node("RailCount") as Label).text, "Wähle 2 von 5",
+		"der Zähler am Knopf nennt die Wahlen")
 	assert_eq(view._take_button.text, "Nichts nehmen")
 	assert_true(view.assign(1, 3, "Platz 4"))
 	assert_eq(view.assignments(), {1: 3})

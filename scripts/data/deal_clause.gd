@@ -56,7 +56,6 @@ const SOUL_MARKET := "soul_market"
 const FREE_FLIP := "free_flip"
 const BUYBACK := "buyback"
 const REINSURANCE := "reinsurance"
-const LUCKY_GRAB := "lucky_grab"
 const SUPPLEMENT := "supplement"
 
 # Bonus, Stufe 2
@@ -79,7 +78,6 @@ const BACK_ROOM_CONTACT := "back_room_contact"
 const LOADED_REELS := "loaded_reels"
 const COLD_PRESS := "cold_press"
 const BIG_STORAGE := "big_storage"
-const BONUS_PICK := "bonus_pick"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
@@ -365,20 +363,12 @@ static func big_storage() -> DealClause:
 	return _bonus(BIG_STORAGE, "Großer Speicher", "Börse dauerhaft +5 ⚡ Platz.",
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
-static func lucky_grab() -> DealClause:
-	return _bonus(LUCKY_GRAB, "Glücksgriff", "Beim Öffnen: Glückswurf-Chancen verdoppelt.",
-		Scope.ROUND, Tier.ONE, [TAG_SHOP, TAG_LUCK])
-
 static func supplement() -> DealClause:
 	return _bonus(SUPPLEMENT, "Beipack", "Jedes Paket zeigt eine Option mehr.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
-static func bonus_pick() -> DealClause:
-	return _bonus(BONUS_PICK, "Zugabe", "Jedes Paket: eine Wahl mehr (Modul-Paket: ein Modul).",
-		Scope.ROUND, Tier.TWO, [TAG_SHOP])
-
 static func free_hand() -> DealClause:
-	return _bonus(FREE_HAND, "Freie Hand", "Erstes geöffnetes Paket: alle Optionen nehmen.",
+	return _bonus(FREE_HAND, "Freie Hand", "Erstes geöffnetes Paket: +1 Wahl.",
 		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
 # --- Malusklauseln ------------------------------------------------------------
@@ -552,7 +542,7 @@ static func all() -> Array[DealClause]:
 		back_room_contact(), loaded_reels(), reinsurance(), high_table(),
 		cold_press(), big_storage(),
 		empty_shelves(), shelf_warmer(), soulless(), flip_surcharge(),
-		lucky_grab(), supplement(), bonus_pick(), free_hand(), sealed(),
+		supplement(), free_hand(), sealed(),
 	]
 
 ## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
@@ -590,12 +580,10 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 	match clause_id:
 		ADVANCE_PAYMENT:
 			return "+$24 sofort."
-		LUCKY_GRAB:
-			return "Beim Öffnen: Glückswurf-Chancen vervierfacht."
 		SUPPLEMENT:
 			return "Jedes Paket zeigt zwei Optionen mehr."
-		BONUS_PICK:
-			return "Jedes Paket: zwei Wahlen mehr (Modul-Paket: zwei Module)."
+		FREE_HAND:
+			return "Erstes geöffnetes Paket: +2 Wahlen."
 		BLANK_CHEQUE:
 			return "+$80 sofort."
 		SEED_CAPITAL:

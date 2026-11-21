@@ -92,6 +92,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_CHARM)
 	for column in range(1, PackDrawerView.COLUMNS):
 		slots.append(TableScreen.magazin_pit(column))
+	slots.append(TableScreen.PIT_SOCKET)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
 	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
@@ -133,8 +134,9 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.PIT_BAG + 1, TableScreen.PIT_MAGAZIN_TAIL0,
 		"dahinter die Trays 2-4 des Magazins")
 	assert_eq(TableScreen.magazin_pit(0), TableScreen.PIT_MAGAZIN, "Tray 1 bleibt Platz null")
-	assert_eq(TableScreen.magazin_pit(PackDrawerView.COLUMNS - 1) + 1, TableScreen.MAX_PITS,
-		"und sie zuletzt")
+	assert_eq(TableScreen.magazin_pit(PackDrawerView.COLUMNS - 1) + 1, TableScreen.PIT_SOCKET,
+		"dahinter das Dauer-Loch der Wurfgrube")
+	assert_eq(TableScreen.PIT_SOCKET + 1, TableScreen.MAX_PITS, "und es zuletzt")
 	for column in PackDrawerView.COLUMNS:
 		assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.magazin_pit(column)),
 			"Tray %d ist Möbel" % (column + 1))

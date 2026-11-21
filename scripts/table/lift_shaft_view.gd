@@ -269,6 +269,10 @@ var _platform: Node3D
 var _built_reach := -1.0
 var _built_front_reach := -1.0
 var _built_travel := -1.0
+## So tief unter der Schnittkante beginnt der HINTERE Hohlraum: liegt hinter dem Schacht
+## ein versenkter Boden (Wurfgrube), ragte er sonst als dunkler Kasten darüber.
+var back_cavity_sink := 0.0
+var _built_back_sink := -1.0
 ## Der EINE Tween des Zyklus - Platte und Ware fahren darin gemeinsam.
 var _tween: Tween
 
@@ -346,7 +350,8 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 			and is_equal_approx(depth, travel) and _platform != null \
 			and is_equal_approx(_built_reach, cavity_reach) \
 			and is_equal_approx(_built_front_reach, front_cavity_reach) \
-			and is_equal_approx(_built_travel, travel_share):
+			and is_equal_approx(_built_travel, travel_share) \
+			and is_equal_approx(_built_back_sink, back_cavity_sink):
 		return
 	center = at
 	half = wanted
@@ -354,6 +359,7 @@ func setup(at: Vector3, half_extents: Vector2, shaft_depth: float) -> void:
 	_built_reach = cavity_reach
 	_built_front_reach = front_cavity_reach
 	_built_travel = travel_share
+	_built_back_sink = back_cavity_sink
 	global_position = center
 	for child in get_children():
 		remove_child(child)
@@ -1427,6 +1433,13 @@ func _build_cavity(cavity_name: String, dir: float, span: Vector2, top: float,
 	var mid := dir * (half.x + WALL + cavity * 0.5)
 	var deep := drop()
 	var lid := maxf(deep - mouth, 0.01)
+	if dir > 0.0 and back_cavity_sink > 0.0:
+		# Die Decke bleibt über dem Öffnungsband stehen, nur dünner.
+		var sink := minf(back_cavity_sink, lid - 0.02)
+		if sink > 0.0:
+			top -= sink
+			deep -= sink
+			lid -= sink
 	TableProps.box(self, "Cavity%sEnd" % cavity_name, Vector3(WALL, deep, span.y + WALL * 2.0),
 		Vector3(dir * (half.x + WALL * 1.5 + cavity), top - deep * 0.5, 0.0),
 		_cavity_material)

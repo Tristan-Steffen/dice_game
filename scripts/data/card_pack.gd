@@ -5,7 +5,8 @@ extends Resource
 ## von denen der Spieler eine Zahl WAHLEN nimmt; die Güte entscheidet die Kartengrößen.
 ## Je Kartensorte EIN Paket (seit dem 2026-11-20, das Misch-Paket ist gestorben), und die
 ## vorderste Karte (front) liegt sichtbar darin: sie ist IMMER Option 0, genau so.
-## Die Wahl-Tabelle hier teilen sich Karten- und Modul-Pakete (Modul: alle vier Größen).
+## Die Options-Tabelle hier teilen sich Karten- und Modul-Pakete (Modul: alle vier Größen);
+## wie viele Wahlen es gibt, sagt der GLÜCKSWÜRFEL (GameRun.luck_die).
 
 const SORT_NUMBER := "number"
 const SORT_MATERIAL := "material"
@@ -40,22 +41,16 @@ const CARD_SIZES := [SIZE_SMALL, SIZE_NORMAL, SIZE_LARGE]
 const SIZE_LABELS := ["Klein", "Normal", "Groß", "Riesig"]
 const SIZE_ADJECTIVES := ["Kleines", "", "Großes", "Riesiges"]
 
-# --- Die WAHL-Tabelle (Karten- und Würfel-Pakete) ---------------------------------
+# --- Die OPTIONS-Tabelle (Karten- und Modul-Pakete) --------------------------------
 
 const OPTION_COUNTS := [3, 4, 5, 5]
-const BASE_PICKS := [1, 1, 2, 2]
-## Glückswurf: so oft gibt es eine Wahl mehr.
-const LUCKY_CHANCES := [0.20, 0.30, 0.25, 0.15]
-## Hauptgewinn: alle Optionen nehmen (nur Riesig).
-const JACKPOT_CHANCES := [0.0, 0.0, 0.0, 0.03]
-const LUCK_STEP := 0.01
-const LUCKY_CAP := 0.60
-const JACKPOT_LUCK_STEP := 0.0025
-const JACKPOT_CAP := 0.10
 ## Kein Paket zeigt weniger Optionen (Verplombt).
 const MIN_OPTIONS := 2
-## Der Preis zahlt die AUSWAHL mit: erwartete Wahlen × Optionswert × diese Prämie.
+## Der Preis zahlt die AUSWAHL mit: Preis-Wahlen × Optionswert × diese Prämie.
 const CHOICE_PREMIUM := 1.15
+## Eingefroren (2026-11-21): die erwarteten Wahlen der alten Wahl-Formel je Größe und Güte -
+## daran hängen die Preise Zahl für Zahl, bis das Balancing sie neu setzt.
+const PRICE_PICKS := [[1.2, 1.2, 1.254], [1.3, 1.3, 1.381], [2.25, 2.25, 2.3325]]
 
 ## Kartengrößen (Standard/Groß/Kolossal) je GÜTE.
 const QUALITY_TIER_WEIGHTS := [[0.70, 0.25, 0.05], [0.45, 0.40, 0.15], [0.20, 0.45, 0.35]]
@@ -66,8 +61,6 @@ const BULK_QUALITY_TIER_WEIGHTS := [[0.45, 0.40, 0.15], [0.20, 0.45, 0.35],
 const QUALITY_GUARANTEE := [-1, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]
 ## Preisfaktor der Güte im Sonder-Paket (seine Karten haben keine Größe).
 const SPECIAL_QUALITY_FACTORS := [1.0, 1.2, 1.45]
-## Hauptgewinn (alle nehmen) je Güte - nur Royal.
-const QUALITY_JACKPOT := [0.0, 0.0, 0.03]
 ## Der Preis zahlt die WAHL mit: je Option über drei ein Stück Prämie mehr.
 const OPTION_PREMIUM_STEP := 0.05
 
@@ -116,20 +109,17 @@ static func option_value(pack_sort: String, pack_quality: int) -> float:
 		value += float(weights[tier]) * base * Pack.tier_price_factor(tier)
 	return value
 
-## Der EINE Preis (vor Rabatten): erwartete Wahlen × Optionswert × Prämie der Optionen.
+## Der EINE Preis (vor Rabatten): Preis-Wahlen × Optionswert × Prämie der Optionen.
 static func price_of(pack_sort: String, pack_size: int,
 		pack_quality: int = DicePack.QUALITY_STANDARD) -> int:
 	var at := clampi(pack_size, 0, max_size())
 	var premium := CHOICE_PREMIUM + OPTION_PREMIUM_STEP * float(option_count(at) - OPTION_COUNTS[0])
-	var picks := expected_picks(at, quality_jackpot(pack_quality))
+	var picks := float(PRICE_PICKS[at][_quality(pack_quality)])
 	return maxi(roundi(picks * option_value(pack_sort, pack_quality) * premium), 1)
 
 var price: int:
 	get:
 		return price_of(sort, size, quality)
-
-static func quality_jackpot(pack_quality: int) -> float:
-	return float(QUALITY_JACKPOT[_quality(pack_quality)])
 
 ## Das Glück, das die Güte beim Öffnen auf effective_luck legt - dieselbe Zahl wie beim Würfel-Paket.
 static func quality_luck(pack_quality: int) -> int:
@@ -197,48 +187,16 @@ static func _content_line(pack_sort: String) -> String:
 static func option_count(pack_size: int) -> int:
 	return int(OPTION_COUNTS[clampi(pack_size, 0, OPTION_COUNTS.size() - 1)])
 
-static func base_picks(pack_size: int) -> int:
-	return int(BASE_PICKS[clampi(pack_size, 0, BASE_PICKS.size() - 1)])
-
-## "1 von 3 - mit Glück mehr." (die Auskunft jedes Pakets).
+## "3 Optionen. Der Glückswürfel sagt, wie viele." (die Auskunft jedes Pakets).
 static func choice_line(pack_size: int) -> String:
-	return "%d von %d - mit Glück mehr." % [base_picks(pack_size), option_count(pack_size)]
+	return "%d Optionen. %s" % [option_count(pack_size), DIE_SAYS]
 
-## Glückswurf-Chance: +1 Punkt je Glück, gedeckelt; factor = Glücksgriff.
-static func lucky_chance(pack_size: int, luck: int, factor := 1.0) -> float:
-	var base := float(LUCKY_CHANCES[clampi(pack_size, 0, LUCKY_CHANCES.size() - 1)])
-	return minf((base + LUCK_STEP * float(maxi(luck, 0))) * factor, LUCKY_CAP)
+## Die Wahlen nennt kein Paket selbst - sie fallen beim Öffnen mit dem Glückswürfel.
+const DIE_SAYS := "Der Glückswürfel sagt, wie viele."
 
-## Hauptgewinn-Chance: nur wo die Tabelle einen kennt; base_chance >= 0 ersetzt sie (Güte).
-static func jackpot_chance(pack_size: int, luck: int, factor := 1.0,
-		base_chance := -1.0) -> float:
-	var base := base_chance if base_chance >= 0.0 \
-		else float(JACKPOT_CHANCES[clampi(pack_size, 0, JACKPOT_CHANCES.size() - 1)])
-	if base <= 0.0:
-		return 0.0
-	return minf((base + JACKPOT_LUCK_STEP * float(maxi(luck, 0))) * factor, JACKPOT_CAP)
-
-## Würfelt die Wahlen: {"picks": n, "jackpot": bool} - der Hauptgewinn heißt "alle".
-static func roll_picks(pack_size: int, luck: int, factor := 1.0,
-		rng: RandomNumberGenerator = null, jackpot_base := -1.0) -> Dictionary:
-	if _unit(rng) < jackpot_chance(pack_size, luck, factor, jackpot_base):
-		return {"picks": option_count(pack_size), "jackpot": true}
-	var picks := base_picks(pack_size)
-	if _unit(rng) < lucky_chance(pack_size, luck, factor):
-		picks += 1
-	return {"picks": picks, "jackpot": false}
-
-## Erwartete Wahlen ohne Glück - daran hängt der Preis.
-static func expected_picks(pack_size: int, jackpot_base := -1.0) -> float:
-	var options := float(option_count(pack_size))
-	var jackpot := jackpot_chance(pack_size, 0, 1.0, jackpot_base)
-	var plain := float(base_picks(pack_size)) + lucky_chance(pack_size, 0)
-	return jackpot * options + (1.0 - jackpot) * plain
-
-## Die Zahl der Optionen nach den Zu- und Abschlägen: nie unter den Wahlen und nie
-## unter MIN_OPTIONS.
-static func options_after(pack_size: int, delta: int, picks: int) -> int:
-	return maxi(option_count(pack_size) + delta, maxi(picks, MIN_OPTIONS))
+## Die Zahl der Optionen nach den Zu- und Abschlägen: nie unter MIN_OPTIONS.
+static func options_after(pack_size: int, delta: int) -> int:
+	return maxi(option_count(pack_size) + delta, MIN_OPTIONS)
 
 # --- Die Auslage ------------------------------------------------------------------
 

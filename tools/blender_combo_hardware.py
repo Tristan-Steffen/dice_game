@@ -17,6 +17,11 @@ Drei Modelle (die Platine baut blender_part_models.py), alle in Blender-Achsen g
       Godot-Seite streckt den Chip in X stärker als in Z - darum sind die Löcher in X
       um NOMINAL_SX / NOMINAL_SZ schmaler geschnitten).
 
+  chip_wide.glb (in assets/models/) - der GROSSE Kombinations-Chip (2026-11-21): chip.glb
+      ohne Die-Fenster und Buchsen, in X auf WIDE_LENGTH verlängert ohne Verzerrung. Nur
+      dieses Modell und part_module.glb lädt das Spiel noch; Buchse und chip_socketed.glb
+      sind seit den code-gebauten Sockeln ungenutzt. Allein bauen: -- assets/models/hardware wide
+
 Die Zahlen spiegeln ComboPartBody (SIDE, HEIGHT, WELL, CLEARANCE, WALL, FLOOR, PIN_*,
 RISER_*) und ComboChipView (MOLDED_X, MOLDED_Z, BODY_TOP) - wer sie dort ändert, zieht
 sie hier nach. NOMINAL_SX/SZ sind die Skalen, die ComboChipView.setup aus
@@ -24,10 +29,17 @@ TableScreen.CELL_SIZE (98 x 31 x CLUSTER_SCALE 1,4, SUPERSAMPLE 3, 37,5 px je We
 """
 import bpy, math, sys, os
 
-OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "assets/models/hardware"
+ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+# "wide" baut nur chip_wide.glb (der große Kombinations-Chip, plan_kombi_grosschip.md).
+ONLY_WIDE = "wide" in ARGS
+OUT = next((a for a in ARGS if a != "wide"), "assets/models/hardware")
 os.makedirs(OUT, exist_ok=True)
 CHIP_IN = os.path.join(os.path.dirname(os.path.abspath(OUT)), "chip.glb")
 CHIP_OUT = os.path.join(os.path.dirname(os.path.abspath(OUT)), "chip_socketed.glb")
+CHIP_WIDE_OUT = os.path.join(os.path.dirname(os.path.abspath(OUT)), "chip_wide.glb")
+# ComboChipView.MODEL_LENGTH: Pin-Spitze zu Pin-Spitze bei GLEICHER Skala in X und Z
+# (TableScreen.CELL_SIZE 133 x 31 x 1,4 x 3, FIT 0,86 -> 14,896 x 0,86 / 0,142187).
+WIDE_LENGTH = 90.1
 
 # --- ComboPartBody (Welt) ---
 SIDE = 0.8                # Gehäuse-Kante
@@ -232,6 +244,41 @@ def chip(depth):
                               export_format="GLB")
 
 
-module()
-chip(socket())
-print("FERTIG", OUT, CHIP_OUT)
+def chip_wide():
+    """chip.glb ohne Buchsen und Die-Fenster, in X verlängert OHNE Verzerrung: alles rechts der
+    Mitte rückt um den halben Zuwachs nach rechts, alles links nach links - Pins, Ecken und
+    Frontband behalten ihre Form."""
+    reset()
+    bpy.ops.import_scene.gltf(filepath=CHIP_IN)
+    for name in ("Die", "PinOneDot"):
+        o = bpy.data.objects.get(name)
+        if o is not None:
+            bpy.data.objects.remove(o, do_unlink=True)
+    body = bpy.data.objects["Body"]
+    fill = box("Fuellung", (32.0, 16.0, 1.6), (0, 0, BODY_TOP - 0.8 - 0.001), None)
+    mod = body.modifiers.new("Fuellen", "BOOLEAN")
+    mod.operation = "UNION"
+    mod.solver = "EXACT"
+    mod.object = fill
+    apply_mods(body)
+    bpy.data.objects.remove(fill, do_unlink=True)
+    grow = (WIDE_LENGTH - 42.4) * 0.5
+    for name in ("Body", "Pins", "Display"):
+        o = bpy.data.objects[name]
+        for v in o.data.vertices:
+            world_x = (o.matrix_world @ v.co).x
+            if abs(world_x) > 1e-4:
+                v.co.x += grow if world_x > 0.0 else -grow
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.export_scene.gltf(filepath=CHIP_WIDE_OUT, use_selection=True, export_apply=True,
+                              export_format="GLB")
+
+
+if ONLY_WIDE:
+    chip_wide()
+    print("FERTIG", CHIP_WIDE_OUT)
+else:
+    module()
+    chip(socket())
+    chip_wide()
+    print("FERTIG", OUT, CHIP_OUT, CHIP_WIDE_OUT)

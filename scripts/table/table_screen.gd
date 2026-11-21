@@ -31,9 +31,13 @@ const EMISSION_ENERGY := 1.2
 ## DiceScoring.HAND_PRIORITY, unvollständige letzte Zeile mittig.
 ## CLUSTER_SCALE (2026-11-02): die Chips wuchsen, damit das Modul neben
 ## einem Würfel als Ding liest; Seitenverhältnis und Fugen wachsen mit.
+## Breite 133 (2026-11-21): der große Chip trägt drei Sockel im Deckel und wächst
+## nach LINKS in den freien Filz - die rechte Kante bleibt an der Grube.
+## Breite 120,4 und Fuge 4 (2026-11-21): die Spalten stehen enger, der Chip bleibt gleich
+## groß (133 x 0,86 = 120,4 x ComboChipView.FIT_LENGTH).
 const CLUSTER_SCALE := 1.4
-const CELL_SIZE := Vector2(98, 31) * CLUSTER_SCALE * SUPERSAMPLE
-const CELL_GAP := Vector2(6, 4) * CLUSTER_SCALE * SUPERSAMPLE
+const CELL_SIZE := Vector2(120.4, 31) * CLUSTER_SCALE * SUPERSAMPLE
+const CELL_GAP := Vector2(4, 4) * CLUSTER_SCALE * SUPERSAMPLE
 const CLUSTER_COLUMNS := 3
 const CLUSTER_TOP := 440.0 * SUPERSAMPLE
 const CLUSTER_CENTER_X := 400.0 * SUPERSAMPLE
@@ -170,6 +174,14 @@ var store_window: PackStoreView
 var opening_window: PackChoiceView
 var treasure_strip: LedStripView
 var pit_window: Panel
+var pit_lands: Control
+var _pit_lands_radius := 0.0
+## Landeraster (Welt): Teilung, Pad-Kante, Tiefe des Randbands, Abstand des ersten Pads vom Rand.
+const PIT_LAND_PITCH := 0.62
+const PIT_LAND_SIDE := 0.3
+const PIT_LAND_BAND := 2.4
+const PIT_LAND_EDGE := 0.7
+const PIT_LAND_COLOR := Color(0.83, 0.6, 0.22, 0.34)
 var pit_beckon: VBoxContainer
 ## Schriftgrade des Lockruf-Schilds als Anteil der Grubenhöhe.
 const PIT_BECKON_TITLE_SHARE := 0.16
@@ -250,7 +262,7 @@ var _glass_material: ShaderMaterial
 ## fressen keinen der MAX_WINDOWS-Plätze und haben eigene Uniforms - ein Loch
 ## spiegelt nicht, es ist weg. EIN Schreiber für Glas UND Filzboden: ein zweiter
 ## ließe irgendwann eines offen stehen.
-const MAX_PITS := 48
+const MAX_PITS := 49
 ## Der erste Tray des Magazins (Zahl); die drei übrigen hängen hinten an.
 const PIT_MAGAZIN := 0
 ## Die PAKET-FLÄCHE des Ladens: je Platz SEINE Sektion - die erste auf Platz 1,
@@ -337,6 +349,8 @@ const PIT_BAG := 44
 
 ## Die Trays 2-4 des Magazins (Material, Rune, Sonder) - Möbel, ans Ende gehängt.
 const PIT_MAGAZIN_TAIL0 := 45
+## Das Dauer-Loch der WURFGRUBE: ihr Boden liegt versenkt (DicePit.FLOOR_DROP).
+const PIT_SOCKET := 48
 const MAGAZIN_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_TAIL0 + 1,
 	PIT_MAGAZIN_TAIL0 + 2]
 
@@ -438,6 +452,9 @@ var _z_span := 1.0
 var _x_max := 0.0
 var _x_span := 1.0
 var _surface_y := 0.0
+var _sunk_skin: ShaderMaterial
+var _sunk_rect := Rect2()
+var _sunk_drop := 0.0
 
 func _ready() -> void:
 	size = RESOLUTION
@@ -627,6 +644,11 @@ func _build_content() -> void:
 	waves_material.set_shader_parameter("heat_gain", PIT_HEAT_GAIN)
 	pit_waves.material = waves_material
 	pit_window.add_child(pit_waves)
+	pit_lands = Control.new()
+	pit_lands.name = "PitLands"
+	pit_lands.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pit_lands.draw.connect(_draw_pit_lands)
+	pit_window.add_child(pit_lands)
 	_build_pit_beckon()
 
 	# Zellpositionen vorab berechnen - der Neon-Rahmen muss hinter die Zellen.
@@ -810,8 +832,35 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	waves_material.set_shader_parameter("impulse_radius", pit_waves.size.y * 0.75)
 	waves_material.set_shader_parameter("impulse_width", pit_waves.size.y * 0.1)
 	_fit_pit_beckon()
+	pit_lands.size = rect.size
+	_pit_lands_radius = corner_radius
+	pit_lands.queue_redraw()
 	pit_window.visible = true
 	_sync_reflection_windows()
+
+## Das LANDERASTER des Sockels: Gold-Pads nur im Randband, die Mitte bleibt der Anzeige.
+func _draw_pit_lands() -> void:
+	var size := pit_lands.size
+	var pitch := PIT_LAND_PITCH * pixels_per_world()
+	var side := PIT_LAND_SIDE * pixels_per_world()
+	var band := PIT_LAND_BAND * pixels_per_world()
+	var first := PIT_LAND_EDGE * pixels_per_world()
+	var r := _pit_lands_radius
+	var cols := int((size.x - first * 2.0) / pitch) + 1
+	var rows := int((size.y - first * 2.0) / pitch) + 1
+	var start := (size - Vector2(cols - 1, rows - 1) * pitch) * 0.5
+	for i in cols:
+		for j in rows:
+			var p := start + Vector2(i, j) * pitch
+			var edge := minf(minf(p.x, size.x - p.x), minf(p.y, size.y - p.y))
+			if edge > band:
+				continue
+			# Die gerundete Ecke: außerhalb des Bogens liegt kein Pad.
+			var q := Vector2(minf(p.x, size.x - p.x), minf(p.y, size.y - p.y))
+			if q.x < r and q.y < r and q.distance_to(Vector2(r, r)) > r - first:
+				continue
+			pit_lands.draw_rect(Rect2(p - Vector2.ONE * side * 0.5, Vector2.ONE * side),
+				PIT_LAND_COLOR)
 
 ## Das LOCKRUF-Schild im leeren Grubenboden: WÜRFELN, darunter wie man hinkommt.
 func _build_pit_beckon() -> void:
@@ -1309,6 +1358,26 @@ func display_skin() -> ShaderMaterial:
 	_display_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
 	return _display_skin
 
+## Die Haut des VERSENKTEN Grubenbodens: das Bild der Anzeige wie display_skin, aber
+## mit den Löchern der Schächte - nur das eigene Dauer-Loch der Grube zählt nicht.
+func sunk_floor_skin() -> ShaderMaterial:
+	if _sunk_skin == null:
+		_sunk_skin = ShaderMaterial.new()
+		_sunk_skin.shader = load("res://assets/shaders/display_skin_holes.gdshader")
+		_sunk_skin.set_shader_parameter("skip_slot", PIT_SOCKET)
+	_sunk_skin.set_shader_parameter("screen_texture", get_texture())
+	_sunk_skin.set_shader_parameter("display_map", Vector4(_z_min, _z_span, _x_max, _x_span))
+	_sunk_skin.set_shader_parameter("emission_energy", EMISSION_ENERGY)
+	_sunk_skin.set_shader_parameter("screen_px", Vector2(size))
+	_sync_pits()
+	return _sunk_skin
+
+## Schneidet das Dauer-Loch der Wurfgrube; Klicks darin messen fortan am versenkten Boden.
+func set_sunk_pit(rect: Rect2, radius: float, drop: float) -> void:
+	_sunk_rect = rect
+	_sunk_drop = drop
+	set_pit(PIT_SOCKET, rect, radius)
+
 ## Der Filzboden hinter den Löchern: er bekommt dieselbe Liste, nur in Welt-XZ.
 ## Gemeldet, nicht gesucht - table/ greift nicht in die Szene.
 func set_ground_material(material: ShaderMaterial) -> void:
@@ -1375,7 +1444,7 @@ const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
-	PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES, PIT_OPENING]
+	PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES, PIT_OPENING, PIT_SOCKET]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
@@ -1423,6 +1492,10 @@ func _sync_pits() -> void:
 		_glass_material.set_shader_parameter("pit_count", count)
 		_glass_material.set_shader_parameter("pit_rects", rects)
 		_glass_material.set_shader_parameter("pit_radii", radii)
+	if _sunk_skin != null:
+		_sunk_skin.set_shader_parameter("pit_count", count)
+		_sunk_skin.set_shader_parameter("pit_rects", rects)
+		_sunk_skin.set_shader_parameter("pit_radii", radii)
 	if _ground_material != null:
 		_ground_material.set_shader_parameter("pit_count", count)
 		_ground_material.set_shader_parameter("pit_bounds", bounds)
@@ -2619,6 +2692,36 @@ func play_combo_pulse(combo_key: String) -> void:
 	await get_tree().create_timer(link_time).timeout
 	await get_tree().create_timer(_pulse_wiring_to_chip(combo_key, LINK_PULSE_COLOR)).timeout
 
+## Eine Brücke zündet den Nachbarn mit: ein kleiner Puls läuft vom Pin der Quelle über
+## eine gemeinsame Sammelschiene in den Pin des Ziels. Liefert seine Laufzeit (0 = kein Weg).
+func play_bridge_pulse(from_key: String, to_key: String) -> float:
+	if not combo_cells.has(from_key) or not combo_cells.has(to_key):
+		return 0.0
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var tip_dx: float = offsets["tip_dx"]
+	var row: float = offsets["rows"][1]
+	var stub := CELL_GAP.x * 0.5
+	var a := Rect2(combo_cells[from_key].position, combo_cells[from_key].size)
+	var b := Rect2(combo_cells[to_key].position, combo_cells[to_key].size)
+	var sides := func(r: Rect2) -> Array: return [roundi(r.position.x - stub), roundi(r.end.x + stub)]
+	var bus_x := NAN
+	for bus: float in combo_bus_xs():
+		if sides.call(a).has(roundi(bus)) and sides.call(b).has(roundi(bus)):
+			bus_x = bus
+			break
+	if is_nan(bus_x):
+		return 0.0
+	var tip := func(r: Rect2) -> Vector2:
+		return Vector2(r.get_center().x + (tip_dx if bus_x > r.get_center().x else -tip_dx),
+			r.get_center().y + row)
+	var from_tip: Vector2 = tip.call(a)
+	var to_tip: Vector2 = tip.call(b)
+	var path := PackedVector2Array([from_tip, Vector2(bus_x, from_tip.y), Vector2(bus_x, to_tip.y),
+		to_tip])
+	var time := maxf(0.12, _path_length(path) / PULSE_SPEED)
+	_pulse_along(path, time)
+	return time
+
 ## Bus-Kometen von den Randkontakten zum Chip; liefert ihre Laufzeit.
 func _pulse_wiring_to_chip(combo_key: String, color: Color) -> float:
 	var paths := wiring_paths_to_cell(DiceScoring.HAND_PRIORITY.find(combo_key))
@@ -3463,6 +3566,11 @@ func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 	if t <= 0.0:
 		return Vector2(-1, -1)  # Ebene hinter der Kamera
 	var hit := origin + direction * t
+	# In der versenkten Grube liegt das Bild tiefer: dort zählt der Punkt auf IHREM Boden.
+	if _sunk_drop > 0.0:
+		var deep := origin + direction * ((_surface_y - _sunk_drop - origin.y) / direction.y)
+		if _sunk_rect.has_point(world_to_pixel(deep)):
+			hit = deep
 	var pixel := world_to_pixel(hit)
 	if pixel.x < 0.0 or pixel.y < 0.0 or pixel.x > float(size.x) or pixel.y > float(size.y):
 		return Vector2(-1, -1)

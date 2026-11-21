@@ -2,7 +2,7 @@ class_name CaseShow
 extends Node
 ## Die KLANG-SHOW des Aufplatzens: die Grund-Würfel fallen, danach pulst der Glutkern - und
 ## jeder Zusatz-Würfel fällt heller, höher und schneller heraus als der vorige. Dazu die
-## Töne der Walze. Die Stufen sind reine Funktionen; die Töne sind synthetisierte
+## Töne des GLÜCKSWÜRFELS (Aufsetzer und Landung). Die Stufen sind reine Funktionen; die Töne sind synthetisierte
 ## Platzhalter, eine Datei gleichen Namens unter SFX_DIR (.wav/.ogg) ersetzt sie.
 
 const SFX_DIR := "res://assets/sfx/case/"
@@ -55,10 +55,10 @@ static func pitch_step(level: int) -> int:
 static func pitch(level: int) -> float:
 	return _semis(pitch_step(level))
 
-## Der Ton einer Walzen-Zahl (1 … top): je höher, desto höher.
-static func reel_pitch(value: int, top: int) -> float:
+## Der Ton der Augen des Glückswürfels (1 … LuckDie.CAP): je mehr, desto höher.
+static func roll_pitch(value: int) -> float:
 	var last := ScoreAudio.LADDER.size() - 1
-	var share := clampf(float(value - 1) / float(maxi(top - 1, 1)), 0.0, 1.0)
+	var share := clampf(float(value - 1) / float(LuckDie.CAP - 1), 0.0, 1.0)
 	return _semis(roundi(share * float(last - 2)) + 2)
 
 static func _semis(step: int) -> float:
@@ -99,13 +99,18 @@ func play_rattle(rounds: int) -> void:
 func play_shut() -> void:
 	_play("shut", SHUT_DB)
 
+## Der Glückswürfel setzt auf (step = der wievielte Hüpfer).
+func play_roll_hop(step: int) -> void:
+	_play("tick", TICK_DB + 2.0, 1.0 + 0.12 * float(step))
 
-func play_reel_step(value: int, top: int) -> void:
-	_play("tick", TICK_DB + 2.0, reel_pitch(value, top))
-
-func play_reel_stop(value: int, top: int) -> void:
+## Er liegt: Schlag und der Ton seiner Augen.
+func play_roll_land(value: int) -> void:
 	_play("shut", SHUT_DB + 2.0, 0.9)
-	_play("die", DIE_DB + 2.0, reel_pitch(value, top))
+	_play("die", DIE_DB + 2.0, roll_pitch(value))
+
+## Ein Auge kommt (gain) oder geht.
+func play_pip(gain: bool, value: int) -> void:
+	_play("die", DIE_DB + (0.0 if gain else -5.0), roll_pitch(value) * (1.0 if gain else 0.5))
 
 func _play(key: String, db: float, pitch_scale := 1.0) -> void:
 	if _playback == null or not _streams.has(key):
@@ -157,7 +162,7 @@ func _synth_climax() -> AudioStreamWAV:
 		var sparkle := sin(TAU * 1567.98 * t) * exp(-t / 0.6) * (0.5 + 0.5 * sin(TAU * 9.0 * t))
 		return (thump * 0.4 + chord * 0.07 + sparkle * 0.08) * clampf(t / 0.003, 0.0, 1.0))
 
-## Ein kurzer, dumpfer Schlag (der Kern verlischt, die Walze hält).
+## Ein kurzer, dumpfer Schlag (der Kern verlischt, der Glückswürfel liegt).
 func _synth_shut() -> AudioStreamWAV:
 	return _render(0.3, func(t: float) -> float:
 		var thud := sin(TAU * (90.0 + 60.0 * exp(-t / 0.03)) * t) * exp(-t / 0.08)
@@ -179,7 +184,7 @@ func _synth_rattle() -> AudioStreamWAV:
 		var hum := sin(phase[0]) * share * 0.25
 		return (click * 0.5 + hum) * minf(share * 4.0, 1.0))
 
-## Ein kurzes, helles Klicken (die Walze).
+## Ein kurzes, helles Klicken (ein Aufsetzer des Glückswürfels).
 func _synth_tick() -> AudioStreamWAV:
 	return _render(0.08, func(t: float) -> float:
 		return sin(TAU * 1320.0 * t) * exp(-t / 0.018) * 0.6)

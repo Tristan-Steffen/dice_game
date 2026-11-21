@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://silk4uxqnwea"
-path="res://.godot/imported/part_riser.glb-5e7dee70e59fdbfeb9cb6c1241e28d5b.scn"
+uid="uid://docoeyoe8yr4b"
+path="res://.godot/imported/chip_wide.glb-0e8704dd7b2602852654a8748b28c0b5.scn"
 
 [deps]
 
-source_file="res://assets/models/hardware/part_riser.glb"
-dest_files=["res://.godot/imported/part_riser.glb-5e7dee70e59fdbfeb9cb6c1241e28d5b.scn"]
+source_file="res://assets/models/chip_wide.glb"
+dest_files=["res://.godot/imported/chip_wide.glb-0e8704dd7b2602852654a8748b28c0b5.scn"]
 
 [params]
 

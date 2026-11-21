@@ -450,6 +450,12 @@ func test_cluster_rect_covers_all_cells():
 		assert_true(screen.cluster_rect.encloses(Rect2(cell.position, cell.size)),
 			"Zelle '%s' liegt außerhalb des Cluster-Rahmens" % key)
 
+func test_a_bridge_pulse_runs_over_the_shared_bus():
+	var left: String = DiceScoring.HAND_PRIORITY[0]
+	assert_gt(screen.play_bridge_pulse(left, ComboPartEffects.right_of(left)), 0.0, "Querbrücke: die Schiene dazwischen")
+	assert_gt(screen.play_bridge_pulse(left, ComboPartEffects.below_of(left)), 0.0, "Längsbrücke: die Schiene daneben")
+	assert_eq(screen.play_bridge_pulse(left, DiceScoring.HAND_PRIORITY[2]), 0.0, "ohne gemeinsame Schiene kein Puls")
+
 # --- Liefer-Routen (Kauf/Inhalt fahren die Adern statt quer über den Filz) -------
 
 func _place_workbench_corner() -> void:

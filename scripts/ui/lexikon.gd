@@ -338,7 +338,7 @@ static func _build_concepts() -> void:
 		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",
 		CAT_BEGRIFFE)
 	_add(GLUECK, "Glück",
-		"Der Gradmesser des Laufs: jede geschaffte Runde bringt +1 Glück, Glücks-Klauseln in den Verträgen mehr oder weniger. Je 3 Glück steigt die Fortschrittsstufe - sie hebt die Seltenheit im Laden, die Wetten, die Würfel-Angebote und die Automaten.",
+		"Der Gradmesser des Laufs: jede geschaffte Runde bringt +1 Glück, Glücks-Klauseln in den Verträgen mehr oder weniger. Je 3 Glück steigt die Fortschrittsstufe - sie hebt die Seltenheit im Laden, die Wetten, die Würfel-Angebote und die Automaten. Dazu wächst der goldene Glückswürfel: bei Glück 1, 3, 6, 10 … bekommt eine zufällige Seite ein Auge mehr (höchstens 6), und sinkt das Glück, geht das zuletzt gewonnene wieder.",
 		CAT_BEGRIFFE)
 	_add(STECKPLATZ, "Steckplatz",
 		"Jeder Kombinations-Chip hat drei Steckplätze für Module - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Module gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",
@@ -347,10 +347,10 @@ static func _build_concepts() -> void:
 		"Eine einzelne Data-Card: sie trägt ein Prägenetz und liegt im Magazin, bis die Presse sie auf einen Würfel prägt. Karten gibt es als Zahlen-, Material- und Runen-Karte in drei Größen - Standard, Groß, Kolossal -, dazu Sonderposten, Operatoren und Katalysatoren. Der Laden verkauft sie in Paketen und auf dem Sonderposten-Platz einzeln; Schwarzmarkt, Automaten, Nebenwetten und Charms liefern auch einzelne.",
 		CAT_BEGRIFFE)
 	_add(PAKET, "Paket",
-		"Versiegelte Ware des Ladens: von außen sieht man Art, Sorte und Größe. Karten-Pakete (Zahlen, Material, Runen, Sonder) zeigen vorn EINE Karte - sie ist beim Öffnen sicher unter den Optionen, genau so, auch nach Neu mischen - und Würfel-Pakete (Kraft, Serien, Seelen, Material, Misch). Gekauft öffnet es sich in der Wurfgrube und zeigt Optionen: Klein 3 (1 Wahl), Normal 4 (1), Groß 5 (2, mindestens eine Große Karte), Riesig 5 (2, mindestens eine Kolossale). Glück kann eine Wahl mehr bringen, das Riesige selten alle. Gewählte Karten gehen ins Magazin, gewählte Würfel sofort in den Vorrat; Ungewähltes verfällt. Nebenwetten zahlen manchmal ein Paket aus.",
+		"Versiegelte Ware des Ladens: von außen sieht man Art, Sorte und Größe. Karten-Pakete (Zahlen, Material, Runen, Sonder) zeigen vorn EINE Karte - sie ist beim Öffnen sicher unter den Optionen, genau so, auch nach Neu mischen - und Würfel-Pakete (Kraft, Serien, Seelen, Material, Misch). Gekauft öffnet es sich und zeigt Optionen - Karten-Pakete 3, 4 oder 5, Modul-Pakete 3 bis 5. Wie viele du nehmen darfst, würfelt der Glückswürfel neben der Öffnungs-Fläche: seine Augen sind die Wahlen, höchstens so viele, wie Optionen liegen. Gewählte Karten gehen ins Magazin, gewählte Würfel sofort in den Vorrat; Ungewähltes verfällt. Nebenwetten zahlen manchmal ein Paket aus.",
 		CAT_BEGRIFFE)
 	_add(OPTION, "Option",
-		"Was ein geöffnetes Paket in der Wurfgrube zeigt. Erst fallen die Optionen hinein, dann klettert der Zähler auf die Zahl der Wahlen - so viele darfst du nehmen, weniger auch. Neu mischen würfelt die Optionen einmal je Paket neu (1 Energie), die Zahl der Wahlen bleibt.",
+		"Was ein geöffnetes Paket in der Wurfgrube zeigt. Erst fallen die Optionen hinein, dann rollt der Glückswürfel - seine Augen sind die Zahl der Wahlen, so viele darfst du nehmen, weniger auch. Neu mischen würfelt die Optionen einmal je Paket neu (1 Energie), die Zahl der Wahlen bleibt.",
 		CAT_BEGRIFFE)
 	_add(RAMPENLICHT, "Rampenlicht",
 		"Je Runde pulst eine Kombination golden. Wertest du sie, wächst sie dauerhaft um +1 Mult und +5 Basispunkte - einmal je Runde. Das Rampenlicht kommt vom gleichnamigen Charm oder aus einer Klausel; eine gedrosselte Kombination steht nie darin.",
