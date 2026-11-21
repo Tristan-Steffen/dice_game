@@ -16,22 +16,31 @@ const HALF := DieBuilder.HALF_EXTENT
 ## Seite i zeigt in diese Richtung (Körper-Raum); 0 liegt in der Ruhe oben.
 const FACE_DIRS: Array[Vector3] = [Vector3.UP, Vector3.RIGHT, Vector3.BACK, Vector3.FORWARD,
 	Vector3.LEFT, Vector3.DOWN]
-## Die Augen je Zahl in Seiten-Koordinaten (-1..1, mal PIP_SPREAD).
-const PIP_LAYOUTS := [
-	[],
-	[Vector2(0, 0)],
-	[Vector2(-1, -1), Vector2(1, 1)],
-	[Vector2(-1, -1), Vector2(0, 0), Vector2(1, 1)],
-	[Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)],
-	[Vector2(-1, -1), Vector2(1, -1), Vector2(0, 0), Vector2(-1, 1), Vector2(1, 1)],
-	[Vector2(-1, -1), Vector2(-1, 0), Vector2(-1, 1), Vector2(1, -1), Vector2(1, 0), Vector2(1, 1)],
-]
+## Die Augen-Lagen (LuckDie.PIP_LAYOUTS) mal PIP_SPREAD.
 const PIP_SPREAD := 0.52
-const PIP_RADIUS := 0.17
-const PIP_PROUD := 0.012
-const PIP_COLOR := Color(0.07, 0.045, 0.02)
-const PIP_FLASH := Color(0.93, 0.85, 0.55)
-const GOLD := Color(0.86, 0.63, 0.2)
+const PIP_RADIUS := 0.2
+const PIP_PROUD := 0.004
+## Die Augen sind versenkte Smaragde: eine Mulde mit Goldfase, gemalt auf einer flachen Scheibe.
+const GEM := Color(0.05, 0.75, 0.5)
+const GOLD := Color(0.9, 0.66, 0.22)
+const EDGE_RADIUS := 0.16
+## Die Ruhe-Bewegung: er schwebt eine Spur über dem Sitz, wiegt sich und dreht langsam.
+const IDLE_TURN := 0.5
+const IDLE_LIFT := 0.3
+const IDLE_BOB := 0.09
+const IDLE_BOB_SPEED := 1.6
+const IDLE_RISE := 0.6
+## Das Wiegen: zwei überlagerte Schwingungen je Achse (Winkel, Tempo) - nie derselbe Kreis.
+const IDLE_SWAY := 0.17
+const IDLE_SWAY_FINE := 0.07
+const IDLE_YAW_DRIFT := 0.45
+## Der Schubs: ein Zug dreht ihn, losgelassen läuft der Schwung aus (FLING_DAMP je Sekunde),
+## und je langsamer er wird, desto stärker zieht ihn die Ruhe-Bewegung zurück.
+const FLING_SENSITIVITY := 0.012
+const FLING_MAX := 16.0
+const FLING_DAMP := 1.4
+const FLING_RETURN := 2.2
+const FLING_CALM := 2.5
 ## Die Ruhe: ein Hauch gedreht, damit er auf der flachen Kamera als Körper liest.
 const REST_YAW := 0.35
 ## In Ruhe neigt er die obere Seite zum Betrachter (Welt -X).
@@ -58,14 +67,25 @@ var _up_face := 0
 var _queue: Array = []
 var _body: Node3D
 var _pips: Array[Node3D] = []
-var _hint: Label3D
 var _roll_tween: Tween
 var _beat_tween: Tween
 var _pose_tween: Tween
 var _carry_tween: Tween
 var _rolled_face := -1
+var _idle_time := 0.0
+## Von Hand gedreht oder in eine Lage gefahren: die Ruhe-Bewegung schweigt.
+var _posed := false
+## Der Schubs: die Drehung über der Ruhe-Bewegung, ihr Schwung, und ob der Spieler ihn hält.
+var _nudge := Basis.IDENTITY
+var _swing := Vector3.ZERO
+var _pull := Vector3.ZERO
+var _held := false
+var _phase := randf() * 40.0
 
 static var _gold_shader: Shader
+static var _pip_shader: Shader
+static var _body_mesh: ArrayMesh
+static var _pip_mesh: PlaneMesh
 
 func _init() -> void:
 	name = "LuckDie"
@@ -74,9 +94,9 @@ func _init() -> void:
 	add_child(_body)
 	var box := MeshInstance3D.new()
 	box.name = "Gold"
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3.ONE * HALF * 2.0
-	box.mesh = mesh
+	if _body_mesh == null:
+		_body_mesh = rounded_box(HALF, HALF * EDGE_RADIUS)
+	box.mesh = _body_mesh
 	box.material_override = gold_material()
 	box.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_body.add_child(box)
@@ -85,18 +105,6 @@ func _init() -> void:
 		holder.name = "Face%d" % face
 		_body.add_child(holder)
 		_pips.append(holder)
-	_hint = Label3D.new()
-	_hint.name = "Hint"
-	_hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_hint.no_depth_test = true
-	_hint.fixed_size = false
-	_hint.pixel_size = 0.004
-	_hint.font_size = 64
-	_hint.outline_size = 14
-	_hint.modulate = Color(1.0, 0.86, 0.45)
-	_hint.outline_modulate = Color(0.08, 0.05, 0.0)
-	_hint.visible = false
-	add_child(_hint)
 	_body.scale = Vector3.ONE * SCALE
 	_rest_hard()
 	_build_all()
@@ -125,30 +133,67 @@ static func face_up_basis(face: int, yaw := REST_YAW, tilt := REST_TILT) -> Basi
 
 ## Die Augen einer Zahl in Seiten-Koordinaten.
 static func pip_layout(value: int) -> Array:
-	return PIP_LAYOUTS[clampi(value, 0, PIP_LAYOUTS.size() - 1)]
+	return LuckDie.pip_layout(value)
 
 static func gold_material() -> ShaderMaterial:
 	if _gold_shader == null:
 		_gold_shader = Shader.new()
 		_gold_shader.code = """shader_type spatial;
 render_mode unshaded, cull_back;
-uniform vec3 base : source_color = vec3(0.86, 0.63, 0.2);
+uniform vec3 base : source_color = vec3(0.9, 0.66, 0.22);
 uniform float glow = 0.0;
 uniform vec3 key_dir = vec3(0.45, 0.8, -0.35);
 varying vec3 world_normal;
+varying vec3 world_pos;
 void vertex() {
 	world_normal = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 void fragment() {
-	float lam = max(dot(normalize(world_normal), normalize(key_dir)), 0.0);
-	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
-	vec3 c = base * (0.42 + 0.55 * lam) + vec3(1.0, 0.85, 0.5) * rim * 0.22;
+	vec3 n = normalize(world_normal);
+	vec3 v = normalize(CAMERA_POSITION_WORLD - world_pos);
+	vec3 r = reflect(-v, n);
+	float lam = max(dot(n, normalize(key_dir)), 0.0);
+	float top = smoothstep(0.35, 0.95, r.y);
+	float strip = smoothstep(0.86, 0.99, sin(atan(r.z, r.x) * 2.0 + r.y * 2.5 + TIME * 0.35) * 0.5 + 0.5)
+		* smoothstep(-0.3, 0.4, r.y);
+	float rim = pow(1.0 - max(dot(n, v), 0.0), 4.0);
+	vec3 c = base * (0.46 + 0.4 * lam) + base * (top * 0.1 + strip * 0.3)
+		+ vec3(1.0, 0.85, 0.5) * rim * 0.25;
 	ALBEDO = min(c + base * glow, vec3(0.93));
 }
 """
 	var material := ShaderMaterial.new()
 	material.shader = _gold_shader
 	return material
+
+## Ein Würfel mit runden Kanten, glatt schattiert.
+static func rounded_box(half: float, radius: float, steps := 10) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var inner := half - radius
+	for axis in 3:
+		for side: float in [-1.0, 1.0]:
+			for i in steps:
+				for j in steps:
+					var quad: Array[Vector3] = []
+					for corner: Vector2i in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 1)]:
+						var p := Vector3.ZERO
+						p[axis] = side * half
+						p[(axis + 1) % 3] = (float(i + corner.x) / steps * 2.0 - 1.0) * half
+						p[(axis + 2) % 3] = (float(j + corner.y) / steps * 2.0 - 1.0) * half
+						quad.append(p)
+					var order := [0, 2, 1, 0, 3, 2] if side > 0.0 else [0, 1, 2, 0, 2, 3]
+					for k: int in order:
+						var core := quad[k].clamp(Vector3.ONE * -inner, Vector3.ONE * inner)
+						var out := quad[k] - core
+						var normal := out.normalized()
+						if out.length() < 0.0001:
+							normal = Vector3.ZERO
+							normal[axis] = side
+						st.set_normal(normal)
+						st.add_vertex(core + normal * radius)
+	return st.commit()
 
 # --- Der Stand ---------------------------------------------------------------------
 
@@ -194,10 +239,76 @@ func busy() -> bool:
 func pending_beats() -> int:
 	return _queue.size()
 
-func _process(_delta: float) -> void:
-	if _queue.is_empty() or busy():
+func _process(delta: float) -> void:
+	if busy():
 		return
-	_play_beat(_queue.pop_front())
+	if not _queue.is_empty():
+		_play_beat(_queue.pop_front())
+		return
+	if _posed or (_pose_tween != null and _pose_tween.is_valid()):
+		return
+	_step_nudge(delta)
+	if not _held:
+		_idle_time += delta
+	var t := _idle_time
+	var w := t + _phase
+	var ease := smoothstep(0.0, IDLE_RISE * 2.0, t)
+	var yaw := REST_YAW + t * IDLE_TURN + ease * IDLE_YAW_DRIFT * (sin(w * 0.37) - sin(_phase * 0.37))
+	var sway := Basis(Vector3.RIGHT, ease * (IDLE_SWAY * sin(w * 0.83) + IDLE_SWAY_FINE * sin(w * 1.9))) \
+		* Basis(Vector3.BACK, ease * (IDLE_SWAY * sin(w * 0.61 + 1.7) + IDLE_SWAY_FINE * sin(w * 2.3)))
+	_body.basis = (_nudge * sway * face_up_basis(_up_face, yaw)).orthonormalized() \
+		.scaled(Vector3.ONE * SCALE)
+	_body.position.y = _rest_y() + half_edge() * (IDLE_LIFT * smoothstep(0.0, IDLE_RISE, t)
+		+ ease * (IDLE_BOB * sin(w * IDLE_BOB_SPEED) + IDLE_BOB * 0.4 * sin(w * 0.9)))
+
+## Der Schubs je Bild: gehalten folgt er dem Zug, frei läuft der Schwung aus und die Ruhe holt ihn.
+func _step_nudge(delta: float) -> void:
+	if delta <= 0.0:
+		return
+	if _held:
+		_swing = _swing.lerp(_pull / delta, 0.4).limit_length(FLING_MAX)
+		_turn_nudge(_pull)
+		_pull = Vector3.ZERO
+		return
+	var speed := _swing.length()
+	if speed > 0.001:
+		_turn_nudge(_swing * delta)
+		_swing *= exp(-FLING_DAMP * delta)
+	var calm := 1.0 - clampf(speed / FLING_CALM, 0.0, 1.0)
+	_nudge = _nudge.slerp(Basis.IDENTITY, 1.0 - exp(-FLING_RETURN * calm * delta))
+
+func _turn_nudge(turn: Vector3) -> void:
+	var angle := turn.length()
+	if angle > 0.00001:
+		_nudge = (Basis(turn / angle, angle) * _nudge).orthonormalized()
+
+## Der Spieler greift ihn am Sitz (kein Fokus): er hält an und folgt dem Zug.
+func grab() -> void:
+	if busy() or _posed:
+		return
+	_held = true
+	_swing = Vector3.ZERO
+	_pull = Vector3.ZERO
+
+func drag(relative: Vector2, camera: Camera3D) -> void:
+	if not _held or camera == null:
+		return
+	_pull += (camera.global_basis.y.normalized() * relative.x
+		+ camera.global_basis.x.normalized() * relative.y) * FLING_SENSITIVITY
+
+## Losgelassen: der Schwung des Zugs trägt ihn weiter.
+func release() -> void:
+	_held = false
+	_pull = Vector3.ZERO
+
+func held() -> bool:
+	return _held
+
+func _drop_nudge() -> void:
+	_held = false
+	_nudge = Basis.IDENTITY
+	_swing = Vector3.ZERO
+	_pull = Vector3.ZERO
 
 func _play_beat(change: Dictionary) -> void:
 	var face := int(change["face"])
@@ -238,7 +349,7 @@ func _build_face(face: int, value: int) -> void:
 		holder.remove_child(child)
 		child.queue_free()
 	for at: Vector2 in pip_layout(value):
-		holder.add_child(_make_pip(face, at, _pip_material(PIP_COLOR)))
+		holder.add_child(_make_pip(face, at, _pip_material(0.0)))
 
 ## Seite face wechselt von before auf after: neue Plätze poppen golden auf, verschwundene
 ## verglimmen; was bleibt, bleibt.
@@ -251,17 +362,17 @@ func _morph_face(face: int, before: int, after: int, gain: bool) -> void:
 		var spot: Vector2 = pip.get_meta("spot")
 		if old_spots.has(spot):
 			continue
-		var material := _pip_material(PIP_FLASH if gain else PIP_COLOR)
+		var material := _pip_material(1.0 if gain else 0.0)
 		pip.material_override = material
 		pip.scale = Vector3.ONE * 0.05
 		var pop := pip.create_tween().set_parallel(true)
 		pop.tween_property(pip, "scale", Vector3.ONE, PIP_TIME).set_trans(Tween.TRANS_BACK) \
 			.set_ease(Tween.EASE_OUT)
-		pop.tween_property(material, "albedo_color", PIP_COLOR, PIP_TIME * 1.6)
+		pop.tween_property(material, "shader_parameter/flash", 0.0, PIP_TIME * 1.6)
 	for spot: Vector2 in old_spots:
 		if new_spots.has(spot):
 			continue
-		var ghost := _make_pip(face, spot, _pip_material(PIP_FLASH if not gain else PIP_COLOR))
+		var ghost := _make_pip(face, spot, _pip_material(1.0 if not gain else 0.0))
 		holder.add_child(ghost)
 		var fade := ghost.create_tween()
 		fade.tween_property(ghost, "scale", Vector3.ONE * 0.05, PIP_TIME) \
@@ -270,25 +381,59 @@ func _morph_face(face: int, before: int, after: int, gain: bool) -> void:
 
 func _make_pip(face: int, at: Vector2, material: Material) -> MeshInstance3D:
 	var pip := MeshInstance3D.new()
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = PIP_RADIUS * HALF
-	mesh.bottom_radius = PIP_RADIUS * HALF
-	mesh.height = PIP_PROUD * 2.0
-	mesh.radial_segments = 16
-	mesh.rings = 1
-	pip.mesh = mesh
+	if _pip_mesh == null:
+		_pip_mesh = PlaneMesh.new()
+		_pip_mesh.size = Vector2.ONE * PIP_RADIUS * HALF * 2.0
+	pip.mesh = _pip_mesh
 	pip.material_override = material
 	pip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var out := face_up_basis(face, 0.0, 0.0).inverse()
 	var spot := at * PIP_SPREAD * HALF
-	pip.transform = Transform3D(out, out * Vector3(spot.x, HALF, spot.y))
+	pip.transform = Transform3D(out, out * Vector3(spot.x, HALF + PIP_PROUD, spot.y))
 	pip.set_meta("spot", at)
 	return pip
 
-func _pip_material(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = color
+## Die Mulde: die Normale einer Schale gerechnet, darin der Stein, außen die Goldfase.
+func _pip_material(flash: float) -> ShaderMaterial:
+	if _pip_shader == null:
+		_pip_shader = Shader.new()
+		_pip_shader.code = """shader_type spatial;
+render_mode unshaded, cull_back;
+uniform vec3 gem : source_color = vec3(0.05, 0.75, 0.5);
+uniform vec3 gold : source_color = vec3(0.9, 0.66, 0.22);
+uniform float radius = 0.2;
+uniform float flash = 0.0;
+varying vec3 lp;
+varying vec3 wp;
+void vertex() {
+	lp = VERTEX;
+	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	vec2 p = lp.xz / radius;
+	float r = length(p);
+	if (r > 1.0) {
+		discard;
+	}
+	vec3 bowl = normalize(vec3(-p.x, sqrt(max(1.0 - 0.85 * r * r, 0.04)), -p.y));
+	vec3 n = normalize((MODEL_MATRIX * vec4(bowl, 0.0)).xyz);
+	vec3 v = normalize(CAMERA_POSITION_WORLD - wp);
+	float lam = max(dot(n, normalize(vec3(0.45, 0.8, -0.35))), 0.0);
+	float spec = smoothstep(0.8, 0.98, reflect(-v, n).y);
+	float shade = mix(1.0, 0.3, smoothstep(0.25, 0.85, r) * (1.0 - lam));
+	float wall = 1.0 - 0.55 * smoothstep(0.5, 0.74, r);
+	vec3 stone = (gem * (0.3 + 0.9 * lam) + gem * 0.3 * (1.0 - r)) * shade * wall + vec3(1.0) * spec * 0.12;
+	vec3 bevel = gold * (0.2 + 0.85 * lam);
+	vec3 c = mix(stone, bevel, smoothstep(0.76, 0.84, r));
+	ALBEDO = min(mix(c, vec3(1.0, 0.92, 0.6), flash), vec3(0.93));
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = _pip_shader
+	material.set_shader_parameter("gem", GEM)
+	material.set_shader_parameter("gold", GOLD)
+	material.set_shader_parameter("radius", PIP_RADIUS * HALF)
+	material.set_shader_parameter("flash", flash)
 	return material
 
 ## Wie viele Augen eine Seite gerade ZEIGT (gezählt an den Körpern, ohne verglimmende).
@@ -405,12 +550,15 @@ func spin(relative: Vector2, camera: Camera3D) -> void:
 	if camera == null:
 		return
 	_kill(_pose_tween)
+	_posed = true
 	_body.global_rotate(camera.global_basis.y.normalized(), relative.x * SPIN_SENSITIVITY)
 	_body.global_rotate(camera.global_basis.x.normalized(), relative.y * SPIN_SENSITIVITY)
 
 ## In eine Lage (Welt-Basis, ohne Skalierung) und an einen Hub über dem Tisch.
 func pose_to(target: Basis, time: float, lift := 0.0) -> void:
 	_kill(_pose_tween)
+	_posed = true
+	_drop_nudge()
 	var from := _body.global_basis.orthonormalized()
 	var y0 := _body.position.y
 	var y1 := _rest_y() + lift
@@ -423,6 +571,7 @@ func pose_to(target: Basis, time: float, lift := 0.0) -> void:
 ## Zurück in die Ruhe (die Inspektion endet).
 func rest_to(time: float) -> void:
 	pose_to(face_up_basis(_up_face), time)
+	_pose_tween.tween_callback(_rest_hard)
 
 func under(camera: Camera3D, screen_pos: Vector2) -> bool:
 	if camera == null or not is_visible_in_tree():
@@ -434,20 +583,14 @@ func under(camera: Camera3D, screen_pos: Vector2) -> bool:
 	var edge := camera.unproject_position(middle + camera.global_basis.x * half_edge())
 	return c.distance_to(screen_pos) <= c.distance_to(edge) * PICK_FACTOR
 
-## Der Hover: eine Zeile über ihm (leer = keine).
-func set_hint(text: String) -> void:
-	_hint.text = text
-	_hint.visible = text != ""
-	_hint.position = Vector3(0.0, half_edge() * 3.2, 0.0)
-
-func hint_shown() -> bool:
-	return _hint.visible
-
 func _rest_y() -> float:
 	return half_edge() * (cos(REST_TILT) + sin(REST_TILT) * (absf(cos(REST_YAW)) + absf(sin(REST_YAW))))
 
 func _rest_hard() -> void:
 	_kill(_pose_tween)
+	_posed = false
+	_idle_time = 0.0
+	_drop_nudge()
 	_body.basis = face_up_basis(_up_face).scaled(Vector3.ONE * SCALE)
 	_body.position = Vector3(0.0, _rest_y(), 0.0)
 

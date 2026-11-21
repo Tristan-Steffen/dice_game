@@ -66,7 +66,8 @@ func test_the_guided_roll_lands_on_the_booked_face() -> void:
 	var body := view.get_node("Body") as Node3D
 	var up: Vector3 = body.global_basis.orthonormalized() * LuckDieView.FACE_DIRS[4]
 	var rest: Vector3 = LuckDieView.face_up_basis(4) * LuckDieView.FACE_DIRS[4]
-	assert_almost_eq(up.distance_to(rest), 0.0, 0.01, "Seite 4 liegt oben")
+	# Er wiegt sich in Ruhe - die Seite bleibt oben, nicht starr.
+	assert_lt(up.distance_to(rest), 0.4, "Seite 4 liegt oben")
 	assert_gt(rest.y, 0.9, "geneigt, aber oben")
 	assert_lt(rest.x, 0.0, "zum Betrachter geneigt")
 
@@ -81,9 +82,32 @@ func test_a_click_jumps_to_the_end_of_the_roll() -> void:
 	assert_eq(landed, [1], "genau einmal")
 	assert_false(view.rolling())
 
-func test_the_hint_reads_above_it() -> void:
+
+func test_a_push_carries_on_and_fades_back() -> void:
 	var view := _view()
-	view.set_hint("Glückswürfel · Glück 3 · nächstes Auge bei 6")
-	assert_true(view.hint_shown())
-	view.set_hint("")
-	assert_false(view.hint_shown())
+	var camera := Camera3D.new()
+	add_child_autofree(camera)
+	await wait_frames(2)
+	view.grab()
+	assert_true(view.held())
+	view.drag(Vector2(60.0, 0.0), camera)
+	await wait_frames(2)
+	view.release()
+	assert_false(view.held())
+	var pushed: Basis = view._nudge
+	assert_gt(view._swing.length(), 0.1, "der Schwung bleibt")
+	await wait_frames(3)
+	assert_false(view._nudge.is_equal_approx(pushed), "er dreht weiter")
+	await wait_seconds(8.0)
+	assert_lt(view._nudge.get_rotation_quaternion().get_angle(), 0.02, "und kehrt in die Ruhe-Bewegung zurück")
+
+func test_a_roll_ends_any_push() -> void:
+	var view := _view()
+	var camera := Camera3D.new()
+	add_child_autofree(camera)
+	view.grab()
+	view.drag(Vector2(40.0, 25.0), camera)
+	await wait_frames(2)
+	view.roll_to(2, 0.0)
+	assert_false(view.held())
+	assert_true(view._nudge.is_equal_approx(Basis.IDENTITY))

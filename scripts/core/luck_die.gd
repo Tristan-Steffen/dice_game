@@ -8,6 +8,23 @@ const FACES := 6
 const BASE := 1
 const CAP := 6
 const MAX_EXTRA := FACES * (CAP - BASE)
+## Die Augen je Zahl in Seiten-Koordinaten (-1..1) - EINE Quelle für Körper und Netz.
+const PIP_LAYOUTS := [
+	[],
+	[Vector2(0, 0)],
+	[Vector2(-1, -1), Vector2(1, 1)],
+	[Vector2(-1, -1), Vector2(0, 0), Vector2(1, 1)],
+	[Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)],
+	[Vector2(-1, -1), Vector2(1, -1), Vector2(0, 0), Vector2(-1, 1), Vector2(1, 1)],
+	[Vector2(-1, -1), Vector2(-1, 0), Vector2(-1, 1), Vector2(1, -1), Vector2(1, 0), Vector2(1, 1)],
+]
+## Das aufgeklappte Kreuz (Zeile, Spalte → Seite, -1 leer), von oben auf die Ruhelage gesehen:
+## Seite 0 (oben) in der Mitte, Bild-oben = Seite 1, rechts 2, links 3, unten 4, dahinter 5.
+const NET_LAYOUT := [
+	[-1, 1, -1, -1],
+	[3, 0, 2, 5],
+	[-1, 4, -1, -1],
+]
 
 var faces: Array[int] = [BASE, BASE, BASE, BASE, BASE, BASE]
 ## Die Seiten der Zusatz-Augen in Gewinn-Reihenfolge - der Stapel der Rücknahme.
@@ -28,6 +45,21 @@ static func pips_for(luck: int) -> int:
 static func next_threshold(luck: int) -> int:
 	var k := pips_for(luck)
 	return -1 if k >= MAX_EXTRA else threshold(k + 1)
+
+## Das Glück des zuletzt gewonnenen Auges (0 = noch keines).
+static func prev_threshold(luck: int) -> int:
+	return threshold(pips_for(luck))
+
+static func pip_layout(value: int) -> Array:
+	return PIP_LAYOUTS[clampi(value, 0, PIP_LAYOUTS.size() - 1)]
+
+## Wo Seite face im Kreuz liegt (Spalte, Zeile).
+static func net_cell(face: int) -> Vector2i:
+	for row in NET_LAYOUT.size():
+		for col in NET_LAYOUT[row].size():
+			if NET_LAYOUT[row][col] == face:
+				return Vector2i(col, row)
+	return Vector2i(-1, -1)
 
 ## Gleicht die Augen an das Glück an. Je Änderung {face, delta, value_after}, in der
 ## Reihenfolge, in der sie gebucht wurden.
@@ -63,6 +95,10 @@ func total_pips() -> int:
 	for v in faces:
 		sum += v
 	return sum
+
+## Die erwarteten Wahlen eines Wurfs (Augen-Mittel).
+func expected() -> float:
+	return float(total_pips()) / float(FACES)
 
 func to_dict() -> Dictionary:
 	return {"faces": faces.duplicate(), "gained": gained.duplicate()}

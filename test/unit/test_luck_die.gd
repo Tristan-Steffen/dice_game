@@ -125,3 +125,56 @@ func test_the_hint_names_the_next_pip() -> void:
 	run.luck = 4
 	assert_eq(run.luck_die_hint(), "Glückswürfel · Glück 4 · nächstes Auge bei 6")
 	assert_string_contains(run.luck_hint(), "Ab Glück 6 bekommt der Glückswürfel ein Auge")
+
+# --- Die GLÜCKS-STATION -------------------------------------------------------------
+
+func test_prev_threshold_is_the_last_gained_pip() -> void:
+	assert_eq(LuckDie.prev_threshold(0), 0)
+	assert_eq(LuckDie.prev_threshold(2), 1)
+	assert_eq(LuckDie.prev_threshold(3), 3)
+	assert_eq(LuckDie.prev_threshold(9), 6)
+	assert_eq(LuckDie.next_threshold(9), 10)
+
+func test_expected_is_the_pip_mean() -> void:
+	var die := LuckDie.new()
+	assert_almost_eq(die.expected(), 1.0, 0.0001)
+	die.faces.assign([1, 2, 3, 4, 5, 6])
+	assert_almost_eq(die.expected(), 3.5, 0.0001)
+
+func test_the_net_holds_every_face_once_with_up_in_the_middle() -> void:
+	var seen: Array[int] = []
+	for row: Array in LuckDie.NET_LAYOUT:
+		for face: int in row:
+			if face >= 0:
+				seen.append(face)
+	seen.sort()
+	assert_eq(seen, [0, 1, 2, 3, 4, 5] as Array[int])
+	assert_eq(LuckDie.net_cell(0), Vector2i(1, 1), "die Ruhe-Seite liegt in der Mitte")
+	assert_eq(LuckDie.net_cell(5), Vector2i(3, 1), "die Gegenseite außen")
+
+func test_body_and_net_share_one_pip_source() -> void:
+	for value in range(1, 7):
+		assert_eq(LuckDie.pip_layout(value).size(), value)
+		assert_eq(LuckDieView.pip_layout(value), LuckDie.pip_layout(value))
+
+func test_station_state_follows_the_run() -> void:
+	var run := GameRun.new_run()
+	run.luck = 8
+	run.sync_luck_die()
+	var state := run.luck_station_state()
+	assert_eq(int(state["luck"]), 8)
+	assert_eq(int(state["prev"]), 6)
+	assert_eq(int(state["next"]), 10)
+	assert_almost_eq(float(state["expected"]), float(6 + 3) / 6.0, 0.0001)
+	assert_eq(int(state["free_bonus"]), 0)
+	assert_eq(int(state["keeps"]), 0)
+	run.module_keeps = 2
+	assert_eq(int(run.luck_station_state()["keeps"]), 2)
+
+func test_station_state_names_free_hand_until_the_first_pack() -> void:
+	var run := GameRun.new_run()
+	var ids: Array[String] = [DealClause.FREE_HAND]
+	run.sign_clauses(ids)
+	assert_eq(int(run.luck_station_state()["free_bonus"]), 1)
+	run.packs_opened_this_round = 1
+	assert_eq(int(run.luck_station_state()["free_bonus"]), 0)

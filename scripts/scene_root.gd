@@ -1205,9 +1205,14 @@ func _setup_table_screen() -> void:
 	if not chip_tray.chip_entered.is_connected(_on_tray_chip_entered):
 		chip_tray.chip_entered.connect(_on_tray_chip_entered)
 		chip_tray.chip_left.connect(_on_tray_chip_left)
+	# Die GLÜCKS-STATION eine Fuge rechts neben dem Tray; Klickzone und Station CHIPS rahmen beide.
+	var luck_rect := LuckStationView.placed_beside(t_rect, TableScreen.LAYOUT_SIZE.x * 0.005,
+		_luck_station_limit_x(t_rect))
+	table_screen.place_luck_station(luck_rect)
+	var chips_rect := t_rect.merge(luck_rect) if luck_rect.size.x > 0.0 else t_rect
 	# Klickzone zum Heranzoomen ans Tray (Fußabdruck der Fassung).
-	var tr_a := table_screen.pixel_to_world(t_rect.position)
-	var tr_b := table_screen.pixel_to_world(t_rect.end)
+	var tr_a := table_screen.pixel_to_world(chips_rect.position)
+	var tr_b := table_screen.pixel_to_world(chips_rect.end)
 	var tr_mid := (tr_a + tr_b) * 0.5
 	camera_rig.configure_chips_target(Vector3(tr_mid.x, 1.5, tr_mid.z),
 		Vector2(absf(tr_a.z - tr_b.z), absf(tr_a.x - tr_b.x)) * 0.5)
@@ -8809,9 +8814,9 @@ func _dice_opening_frame_px() -> Rect2:
 			rect = rect.merge(place)
 	return _merge_luck_die_place(rect)
 
-## Der Glückswürfel würfelt an seinem Platz - jeder Öffnungs-Rahmen sieht ihn.
+## Der Glückswürfel würfelt am Wurfplatz - jeder Öffnungs-Rahmen sieht ihn.
 func _merge_luck_die_place(rect: Rect2) -> Rect2:
-	var luck := _luck_die_place_px()
+	var luck := _luck_die_roll_px()
 	return rect.merge(luck) if luck.size.x > 0.0 else rect
 
 ## Öffnungs-Fläche ∪ die vier Trays des Magazins samt Lichtleisten, in Display-Pixeln.
@@ -10244,7 +10249,7 @@ func _finish_pack_choice(keep_frame := false) -> void:
 func _settle_pack_openings() -> void:
 	_drop_pool_pin()
 	_settle_case_show()
-	if not _luck_away:
+	if _luck_at != LUCK_PIT:
 		_luck_die_home_hard()  # in der Wurfgrube gehört er dem Beutel
 	_settle_case_flights()
 	_settle_card_carries()
@@ -11800,12 +11805,12 @@ func _process(delta: float) -> void:
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
+	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
 	_sync_combo_extension()  # die Chips fahren ihre Sockel aus, wo man stecken kann
 	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_pack_areas()  # die Öffnungs-Fläche unter dem Vorrat
-	_sync_luck_die()  # und der Glückswürfel rechts daneben
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
@@ -16979,7 +16984,7 @@ var _install_banner_keeps := -1
 
 func _pit_keeps_shown() -> int:
 	if run == null or luck_die_view == null or luck_die_view.rolling() \
-			or not _module_bag_open or (luck_die_view.carrying() and _luck_away):
+			or not _module_bag_open or (luck_die_view.carrying() and _luck_at == LUCK_PIT):
 		return -1
 	return run.module_keeps
 
@@ -17597,7 +17602,7 @@ func _sync_module_bag(forced: bool) -> void:
 		_sync_pit_rim(parts)
 		if _module_bag != null:
 			_sink_module_bag()
-		elif _bag_sinking == null and _luck_away:
+		elif _bag_sinking == null and _luck_at == LUCK_PIT:
 			_send_luck_die_home()
 		return
 	if not forced or not _pit_install_mode():
@@ -17873,8 +17878,15 @@ func _bag_shaft_on(bag: CardPackView, seat: Vector3) -> LiftShaftView:
 	return _bag_shaft
 
 ## Der harte Weg des Einzugs: Sektion bündig, Beutel fort.
+## Der weitere Bogen zwischen Station und Wurfplatz.
+const LUCK_ROLL_CARRY := 0.8
+const LUCK_ROLL_PEAK := 5.0
 func _drop_bag_sinking() -> void:
 	if _bag_shaft != null and is_instance_valid(_bag_shaft) and _bag_shaft.riding():
+## Wo er ist: auf der Station, am Wurfplatz, in der Wurfgrube.
+const LUCK_HOME := 0
+const LUCK_ROLL := 1
+const LUCK_PIT := 2
 		_bag_shaft.settle_hard()
 	if _bag_sinking != null and is_instance_valid(_bag_sinking):
 		_free_data_cell(_bag_sinking)
@@ -17896,19 +17908,20 @@ func _settle_module_bag_hard() -> void:
 		_pit_rim.queue_free()
 	_pit_rim = null
 	_part_install_frame_pit = false
-	if _luck_away:
+	if _luck_at == LUCK_PIT:
 		_luck_die_home_hard()
 
 #endregion
 
 #region Der GLUECKSWUERFEL
-## Der kleine goldene Würfel liegt dauerhaft auf dem Filz rechts neben der Öffnungs-Fläche.
+## Der kleine goldene Würfel wohnt auf dem Sitz der GLÜCKS-STATION rechts neben dem Chip-Tray.
 ## Seine Augen sind gebucht (GameRun.luck_die), der Körper zeigt sie im eigenen Schlag; sein
-## Wurf beim Öffnen IST die Zahl der Wahlen. Karten- und Würfel-Pakete würfeln an seinem
-## Platz, für ein Modul-Paket fliegt er in die Wurfgrube und erst nach dem Einzug des Beutels
-## heim (die benannte Ausnahme: ein Wurf, kein Hub).
+## Wurf beim Öffnen IST die Zahl der Wahlen. Für jedes Paket fliegt er im Trage-Bogen hin -
+	_luck_last_face = -1
+## Karten und Würfel an den WURFPLATZ neben der Öffnungs-Fläche, Module in die Wurfgrube -,
+## würfelt dort und fliegt heim (die benannte Ausnahme: ein Wurf, kein Hub).
 
-## Sein Platz in Würfelkanten; die Fuge daneben ist die der Werkstatt.
+## Sein Wurfplatz in Würfelkanten; die Fuge daneben ist die der Werkstatt.
 const LUCK_DIE_ROOM := 1.6
 ## Der Trage-Bogen zur Wurfgrube und zurück.
 const LUCK_DIE_CARRY := 0.6
@@ -17917,17 +17930,29 @@ const LUCK_DIE_PEAK := 3.0
 const PIT_LUCK_SHARE := 0.62
 
 var luck_die_view: LuckDieView
-## In der Wurfgrube (Modul-Paket) statt am Platz; fliegt er gerade, führt der Bogen.
-var _luck_away := false
+## Sein Ort (LUCK_*); fliegt er gerade, führt der Bogen dorthin.
+var _luck_at := LUCK_HOME
+## Die Seite des letzten Wurfs (-1 = in diesem Lauf noch keiner) - die Station säumt sie.
+var _luck_last_face := -1
 ## Die Öffnung, deren Zahl der laufende Wurf nennt (null = keine).
 var _luck_roll_choice: PackChoice = null
 var _luck_focused := false
 var _luck_grabbed := false
-var _luck_hint := ""
 
 func _setup_luck_die() -> void:
 	luck_die_view = LuckDieView.new()
 	add_child(luck_die_view)
+	if table_screen == null:
+		return Rect2()
+	var seat := table_screen.luck_seat_px()
+	if seat.x < 0.0:
+		return Rect2()
+	var side := _world_len_px(LuckDieView.half_edge() * 2.0) * LUCK_DIE_ROOM
+	return Rect2(seat - Vector2.ONE * side * 0.5, Vector2(side, side))
+
+## Der WURFPLATZ der Karten- und Würfel-Pakete: eine Fuge rechts neben der Öffnungs-Fläche,
+## oben bündig mit dem Pool (leer = noch keiner).
+func _luck_die_roll_px() -> Rect2:
 	luck_die_view.visible = false
 	luck_die_view.hopped.connect(func(step: int) -> void:
 		if case_show != null:
@@ -17941,6 +17966,21 @@ func _setup_luck_die() -> void:
 func _seat_luck_die_for_run() -> void:
 	if luck_die_view == null or run == null:
 		return
+## Der Punkt eines Ortes (ohne Wurfplatz würfelt er zu Hause).
+func _luck_spot(where: int) -> Vector3:
+	if where == LUCK_PIT:
+		return _pit_luck_rest()
+	if where == LUCK_ROLL:
+		var roll := _luck_die_roll_px()
+		if roll.size.x > 0.0:
+			var at := table_screen.pixel_to_world(roll.get_center())
+			return Vector3(at.x, 0.0, at.z)
+	return _luck_die_home()
+
+## Wohin er gehört, solange ihn kein Modul-Paket in der Grube hält.
+func _luck_wanted() -> int:
+	return LUCK_ROLL if _choice != null else LUCK_HOME
+
 	if not run.luck_die_changed.is_connected(_on_luck_die_changed):
 		run.luck_die_changed.connect(_on_luck_die_changed)
 	_luck_die_home_hard()
@@ -17950,8 +17990,26 @@ func _on_luck_die_changed(changes: Array) -> void:
 	if luck_die_view != null:
 		luck_die_view.play_changes(changes)
 
-## Der Platz in Display-Pixeln: eine Fuge rechts neben der Öffnungs-Fläche, oben bündig mit
-## dem Pool (leer = noch kein Platz).
+## Wie weit die Station nach rechts darf: bis eine Fuge vor das nächste Fenster, das neben
+## dem Tray steht, höchstens bis an den Rand der Anzeige.
+func _luck_station_limit_x(tray: Rect2) -> float:
+	var station := table_screen.luck_station_window
+	if station != null and station.visible:
+		station.set_state(luck_die_view.shown_faces(), _luck_last_face, run.luck_station_state())
+	var gap := TableScreen.LAYOUT_SIZE.x * 0.005
+	var limit := float(TableScreen.RESOLUTION.x) - gap
+	for child in table_screen.get_children():
+		var other := child as Control
+		if other == null or not other.visible or other == table_screen.treasure_window \
+				or other == table_screen.luck_station_window or other.size.x <= 0.0:
+			continue
+		var rect := Rect2(other.position, other.size)
+		if rect.position.x >= tray.end.x and rect.position.y < tray.end.y \
+				and rect.end.y > tray.position.y:
+			limit = minf(limit, rect.position.x - gap)
+	return limit
+
+## Das Zuhause in Display-Pixeln: der Sitz der Station (leer = keine Station).
 func _luck_die_place_px() -> Rect2:
 	if table_screen == null:
 		return Rect2()
@@ -17973,30 +18031,52 @@ func _pit_luck_rest() -> Vector3:
 		Vector2(r.position.x + r.size.x * PIT_LUCK_SHARE, r.get_center().y))
 	return Vector3(at.x, DicePit.FLOOR_TOP + VitrineView.FLOOR_CLEAR, at.z)
 
-## Je Bild: der EINE Schreiber seines Ortes - am Platz, solange er nicht in der Grube steht
-## oder fliegt; dazu der Hover.
+## Je Bild: der EINE Schreiber seines Ortes (Station oder Wurfplatz; die Grube führt das
+## Modul-Paket), der Station und des Hovers.
 func _sync_luck_die() -> void:
 	if luck_die_view == null or run == null or table_screen == null:
 		return
 	var place := _luck_die_place_px()
 	luck_die_view.visible = place.size.x > 0.0 and camera_rig.mode != CameraRig.Mode.TITLE
-	if not luck_die_view.visible:
+	if place.size.x <= 0.0:
 		return
-	if not _luck_away and not luck_die_view.carrying():
-		var home := _luck_die_home()
-		if luck_die_view.global_position != home:
-			luck_die_view.global_position = home
-	var hint := ""
-	if _table_operable() and not log_open and not _luck_focused:
-		if luck_die_view.under(get_viewport().get_camera_3d(), get_viewport().get_mouse_position()):
-			hint = run.luck_die_hint()
-	if hint != _luck_hint:
-		_luck_hint = hint
-		luck_die_view.set_hint(hint)
+	if _luck_at != LUCK_PIT and _luck_wanted() != _luck_at:
+		_send_luck_die(_luck_wanted())
+	if not luck_die_view.carrying():
+## Ist er noch nicht am Wurfplatz gelandet, landet er hart - der Zähler wartet nie.
+		var spot := _luck_spot(_luck_at)
+		if luck_die_view.global_position != spot:
+			luck_die_view.global_position = spot
 
-## Der harte Weg: kein Wurf, kein Flug, der gebuchte Stand in Ruhe am Platz.
+## Im Trage-Bogen an einen Ort (Endzustand zuerst: der Ort steht, der Bogen fährt hin). Ein
+	if _luck_focused:
+		_leave_die_focus()
+	if _luck_at != LUCK_ROLL or luck_die_view.carrying():
+		_luck_land_hard(LUCK_ROLL)
+## laufender Wurf liegt sofort - sein Stillstand nennt die Zahl.
+func _send_luck_die(where: int) -> void:
+	if luck_die_view == null or table_screen == null:
+		return
+	if _luck_focused:
+		_leave_die_focus()
+	var from := _luck_at
+	_luck_at = where
+	luck_die_view.finish_roll()
+	var near := from == LUCK_PIT or where == LUCK_PIT
+	luck_die_view.carry_to(_luck_spot(where), LUCK_DIE_CARRY if near else LUCK_ROLL_CARRY,
+		LUCK_DIE_PEAK if near else LUCK_ROLL_PEAK)
+
+## Hart an einen Ort (ein Wurf, dessen Bogen noch läuft, landet).
+func _luck_land_hard(where: int) -> void:
+	if luck_die_view == null or table_screen == null:
+		return
+	_luck_at = where
+	_luck_last_face = face
+	luck_die_view.land_at(_luck_spot(where))
+
+## Der harte Weg: kein Wurf, kein Flug, der gebuchte Stand in Ruhe auf der Station.
 func _luck_die_home_hard() -> void:
-	_luck_away = false
+	_luck_at = LUCK_HOME
 	_luck_roll_choice = null
 	if _luck_focused:
 		_leave_die_focus()
@@ -18011,7 +18091,7 @@ func _luck_die_home_hard() -> void:
 ## Stillstand nennt die Wahlen (_on_luck_die_rolled).
 func _roll_luck_die_for(choice: PackChoice) -> void:
 	pack_choice_view.await_roll()
-	if luck_die_view == null or not luck_die_view.visible or _luck_away:
+	if luck_die_view == null or not luck_die_view.visible or _luck_at == LUCK_PIT:
 		pack_choice_view.die_landed()
 		return
 	_luck_roll_choice = choice
@@ -18025,8 +18105,11 @@ func _finish_luck_roll() -> void:
 ## Der Wurf einer Öffnung endet hart auf ihrer Seite (der Klick an das Ende der Show).
 func _land_luck_roll_hard(choice: PackChoice) -> void:
 	_luck_roll_choice = null
-	if luck_die_view != null and choice != null and not _luck_away:
-		luck_die_view.roll_to(choice.die_face, 0.0)
+	if luck_die_view == null or choice == null or _luck_at == LUCK_PIT:
+		return
+	if _luck_at != LUCK_ROLL or luck_die_view.carrying():
+		_luck_land_hard(LUCK_ROLL)
+	luck_die_view.roll_to(choice.die_face, 0.0)
 
 func _on_luck_die_rolled(face: int) -> void:
 	if case_show != null and run != null:
@@ -18038,26 +18121,24 @@ func _on_luck_die_rolled(face: int) -> void:
 		pack_choice_view.die_landed()
 
 func _on_roll_skip_requested() -> void:
+	if not button.double_click:
+		# Am Sitz: ein Zug schubst ihn an, der Schwung läuft aus.
+		_luck_grabbed = true
+		luck_die_view.grab()
+		return true
 	_finish_luck_roll()
 
 ## Modul-Paket: der Würfel fliegt im Trage-Bogen neben die Modul-Reihe (dort würfelt er).
 func _send_luck_die_to_pit() -> void:
-	if luck_die_view == null or table_screen == null:
+	if _luck_at == LUCK_PIT:
+		if _luck_focused:
+			_leave_die_focus()
 		return
-	if _luck_focused:
-		_leave_die_focus()
-	if _luck_away:
-		return
-	_luck_away = true
-	luck_die_view.finish_roll()
-	luck_die_view.carry_to(_pit_luck_rest(), LUCK_DIE_CARRY, LUCK_DIE_PEAK)
+	_send_luck_die(LUCK_PIT)
 
 ## Hart in die Grube (der Beutel stand nach einem harten Weg wieder da).
 func _luck_die_to_pit_hard() -> void:
-	if luck_die_view == null or table_screen == null:
-		return
-	_luck_away = true
-	luck_die_view.land_at(_pit_luck_rest())
+	_luck_land_hard(LUCK_PIT)
 
 ## Der Wurf in der Grube: die Zahl der Einbauten fällt (gebucht beim Kauf).
 func _roll_luck_die_in_pit() -> void:
@@ -18065,14 +18146,12 @@ func _roll_luck_die_in_pit() -> void:
 		return
 	luck_die_view.roll_to(int(run.last_module_roll["face"]))
 
-## Der Beutel ist eingezogen: der Würfel fliegt heim.
+## Der Beutel ist eingezogen: der Würfel fliegt heim (oder an den Wurfplatz einer Öffnung).
+		luck_die_view.release()
 func _send_luck_die_home() -> void:
-	if luck_die_view == null or table_screen == null or not _luck_away:
+	if _luck_at != LUCK_PIT:
 		return
-	_luck_away = false
-	luck_die_view.finish_roll()
-	if _luck_die_place_px().size.x > 0.0:
-		luck_die_view.carry_to(_luck_die_home(), LUCK_DIE_CARRY, LUCK_DIE_PEAK)
+	_send_luck_die(_luck_wanted())
 
 ## Doppelklick auf ihn öffnet die INSPEKTION (wie am Podest-Würfel), ein Druck darin greift
 ## ihn zum Drehen. Modale Rahmen kommen gar nicht hierher.
@@ -18086,7 +18165,7 @@ func _try_luck_die_click(event: InputEvent) -> bool:
 	if _luck_focused:
 		_luck_grabbed = true
 		return true
-	if not button.double_click or camera_rig.die_focus or _luck_away or luck_die_view.busy():
+	if camera_rig.die_focus or _luck_at != LUCK_HOME or luck_die_view.busy():
 		return false
 	_focus_luck_die()
 	return true
@@ -18101,7 +18180,10 @@ func _focus_luck_die() -> void:
 func _handle_luck_drag_input(event: InputEvent) -> void:
 	var motion := event as InputEventMouseMotion
 	if motion != null:
-		luck_die_view.spin(motion.relative, get_viewport().get_camera_3d())
+		if _luck_focused:
+			luck_die_view.spin(motion.relative, get_viewport().get_camera_3d())
+		else:
+			luck_die_view.drag(motion.relative, get_viewport().get_camera_3d())
 		return
 	var button := event as InputEventMouseButton
 	if button != null and not button.pressed and button.button_index == MOUSE_BUTTON_LEFT:

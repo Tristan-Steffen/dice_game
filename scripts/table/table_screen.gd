@@ -162,6 +162,8 @@ var led_strip: LedStripView
 ## Fassung des Chip-Trays (Geldstand als Rinnen-Börse) rechts des Wett-Tresens, plus die
 ## LED-Leiste Hub <-> Tray (Geld-Lichtläufe).
 var treasure_window: TreasureChestView
+## Die GLÜCKS-STATION rechts neben dem Tray (Zuhause des Glückswürfels).
+var luck_station_window: LuckStationView
 ## Die ÖFFNUNGS-FLÄCHE rechts vom Pool.
 var opening_window: PackChoiceView
 var treasure_strip: LedStripView
@@ -595,6 +597,10 @@ func _build_content() -> void:
 	add_child(charm_tip)
 
 	# Fassung des Chip-Trays: Position/Größe setzt scene_root über place_treasure_window.
+	luck_station_window = LuckStationView.new()
+	luck_station_window.name = "LuckStationWindow"
+	luck_station_window.visible = false
+	add_child(luck_station_window)
 	treasure_window = TreasureChestView.new()
 	treasure_window.name = "TreasureWindow"
 	treasure_window.visible = false
@@ -1243,6 +1249,18 @@ func place_workshop_info_window(rect: Rect2, unit_px: float) -> void:
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
 	treasure_window.size = rect.size
+func place_luck_station(rect: Rect2) -> void:
+	luck_station_window.position = rect.position
+	luck_station_window.size = rect.size
+	luck_station_window.visible = rect.size.x > 0.0 and rect.size.y > 0.0
+	_sync_reflection_windows()
+
+## Der Sitz des Glückswürfels in Display-Pixeln (leer = keine Station).
+func luck_seat_px() -> Vector2:
+	if luck_station_window == null or not luck_station_window.visible:
+		return Vector2(-1.0, -1.0)
+	return luck_station_window.position + luck_station_window.seat_px()
+
 	treasure_window.visible = true
 	set_pit(PIT_TRAY, tray_pit_rect(), treasure_window.pit_radius())
 	_sync_reflection_windows()
@@ -1477,6 +1495,10 @@ func _sync_reflection_windows() -> void:
 	# Die WERKSTATT ist KEIN Fenster mehr: ihr Streifen hat seit 2026-09-03 keinen
 	# Schirm-Hintergrund, ihre Teile liegen auf dem Filz (wie der Kombi-Cluster).
 	# Die REPARATUR-BUCHT teilt diese Grammatik und steht darum ebenfalls nicht hier.
+	if luck_station_window != null and luck_station_window.visible:
+		var luck := Rect2(luck_station_window.position, luck_station_window.size)
+		rects.append(Vector4(luck.position.x, luck.position.y, luck.end.x, luck.end.y))
+		radii.append(luck_station_window.frame_px() * 2.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))

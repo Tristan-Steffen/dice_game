@@ -371,6 +371,18 @@ func luck_die_hint() -> String:
 	var tail := "alle Seiten voll" if next < 0 else "nächstes Auge bei %d" % next
 	return "Glückswürfel · Glück %d · %s" % [lucky, tail]
 
+## Was die GLÜCKS-STATION zeigt, als reine Daten (free_bonus 0 = nichts zu holen).
+func luck_station_state() -> Dictionary:
+	var lucky := effective_luck()
+	return {
+		"luck": lucky,
+		"prev": LuckDie.prev_threshold(lucky),
+		"next": LuckDie.next_threshold(lucky),
+		"expected": luck_die.expected(),
+		"free_bonus": _free_hand_bonus(),
+		"keeps": module_keeps,
+	}
+
 ## Hinweis-Texte der drei Lauf-Anzeigen am Hub (die Anzeige kennt keinen GameRun).
 func blind_hint() -> String:
 	var percent := roundi(blind_growth(round_number + 1) * 100.0)
