@@ -350,7 +350,7 @@ func test_je_platz_eine_mulde_mit_saum_in_der_sortenfarbe() -> void:
 	var first := _lamella_of(2, 0)
 	var second := _lamella_of(2, 1)
 	assert_gt(first.position.x, second.position.x, "Reihe 0 liegt oben")
-	for part in ["Saum", "Boden", "Buchse"]:
+	for part in ["Saum", "Boden", "Halterung"]:
 		assert_not_null(first.get_node_or_null("Platz0/" + part))
 		assert_not_null(first.get_node_or_null("Platz1/" + part))
 	assert_gt((first.get_node("Platz1") as Node3D).position.z,
@@ -413,10 +413,42 @@ func test_farben_bauen_nichts_neu() -> void:
 	assert_eq(stack.bay_count(1), 6)
 	assert_eq(_lamella_of(1, 0), before)
 
-func test_die_buchse_sitzt_am_kartenfuss() -> void:
-	var socket := _lamella_of(0, 0).get_node("Platz0/Buchse") as Node3D
-	assert_not_null(socket)
-	assert_almost_eq(socket.position.z, DataCellView.HEIGHT * SCALE * 0.5, 0.0001)
+## Jede Mulde hält ihre Karte mit dem Mechanismus ihres Datenträgers; die alte Buchse ist fort.
+func test_jede_mulde_traegt_die_halterung_ihres_geraets() -> void:
+	var signs := ["Schraeganschlag", "Wickeldorn0", "Zapfen0", "Feder0"]
+	for column in COLUMNS:
+		var place := _lamella_of(column, 0).get_node("Platz0") as Node3D
+		assert_null(place.get_node_or_null("Buchse"), "Tray %d" % column)
+		var hold := place.get_node_or_null("Halterung") as Node3D
+		assert_not_null(hold, "Tray %d" % column)
+		for other in COLUMNS:
+			assert_eq(hold.get_node_or_null(signs[other]) != null, other == column,
+				"Tray %d, %s" % [column, signs[other]])
+
+## Die Wickeldorne stehen unter den Naben der Kassette und bleiben in ihr verborgen.
+func test_die_wickeldorne_stehen_in_den_naben() -> void:
+	var hold := _lamella_of(MagazinTrayDress.MATERIAL, 0).get_node("Platz0/Halterung") as Node3D
+	var top := ShelfStackView.PROUD + DataCellView.CARRIER_TOPS[1] * SCALE
+	for side in 2:
+		var spindle := hold.get_node("Wickeldorn%d" % side) as MeshInstance3D
+		assert_almost_eq(spindle.position.x, MagazinTrayDress.HUB.y * SCALE, 0.0001)
+		assert_almost_eq(absf(spindle.position.z), MagazinTrayDress.HUB.x * SCALE, 0.0001)
+		assert_lt(spindle.position.y + (spindle.mesh as CylinderMesh).height * 0.5, top)
+		assert_not_null(hold.get_node_or_null("Zahn%d_5" % side), "sechs Zähne")
+
+## Nichts an einer Halterung ragt über das Deck oder aus der Mulde.
+func test_keine_halterung_ragt_aus_der_mulde() -> void:
+	var bay := stack.bay_size(2)
+	for column in COLUMNS:
+		var hold := _lamella_of(column, 0).get_node("Platz0/Halterung") as Node3D
+		for child in hold.get_children():
+			var part := child as MeshInstance3D
+			var box := part.transform * part.get_aabb()
+			assert_lt(box.end.y, stack.deck_height(), "%d %s" % [column, part.name])
+			assert_lt(maxf(absf(box.position.x), absf(box.end.x)), bay.x * 0.5,
+				"%d %s längs" % [column, part.name])
+			assert_lt(maxf(absf(box.position.z), absf(box.end.z)), bay.y * 0.5,
+				"%d %s quer" % [column, part.name])
 
 # --- Das ROLLEN, je Spalte für sich ------------------------------------------------------
 

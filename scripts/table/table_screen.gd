@@ -33,10 +33,10 @@ const EMISSION_ENERGY := 1.2
 ## einem Würfel als Ding liest; Seitenverhältnis und Fugen wachsen mit.
 ## Breite 133 (2026-11-21): der große Chip trägt drei Sockel im Deckel und wächst
 ## nach LINKS in den freien Filz - die rechte Kante bleibt an der Grube.
-## Breite 120,4 und Fuge 4 (2026-11-21): die Spalten stehen enger, der Chip bleibt gleich
-## groß (133 x 0,86 = 120,4 x ComboChipView.FIT_LENGTH).
+## Breite 76 (2026-11-21, nur noch Pins): die Zelle ist der kompakte Chip von Pin-Spitze zu
+## Pin-Spitze (ComboChipView.tip_span_px) plus 4,3 px Rand je Seite.
 const CLUSTER_SCALE := 1.4
-const CELL_SIZE := Vector2(120.4, 31) * CLUSTER_SCALE * SUPERSAMPLE
+const CELL_SIZE := Vector2(76.0, 31) * CLUSTER_SCALE * SUPERSAMPLE
 const CELL_GAP := Vector2(4, 4) * CLUSTER_SCALE * SUPERSAMPLE
 const CLUSTER_COLUMNS := 3
 const CLUSTER_TOP := 440.0 * SUPERSAMPLE
@@ -429,10 +429,6 @@ var memory_veil: ColorRect
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (Zoomziel/Klickzone).
 var cluster_rect := Rect2()
-## Die zwei Layouts des Clusters (false = kompakt, true = ausgefahren): {positions, rect}.
-var _cluster_layouts: Dictionary = {}
-## Welches steht: ausgefahren nur an der KOMBINATIONEN-Station und beim Einbau/Umstecken.
-var cluster_extended := false
 ## Das Rechteck des Anker-Blocks (siehe CLUSTER_ANCHOR_SIZE).
 var cluster_anchor_rect := Rect2()
 
@@ -597,14 +593,14 @@ func _build_content() -> void:
 	add_child(charm_tip)
 
 	# Fassung des Chip-Trays: Position/Größe setzt scene_root über place_treasure_window.
-	luck_station_window = LuckStationView.new()
-	luck_station_window.name = "LuckStationWindow"
-	luck_station_window.visible = false
-	add_child(luck_station_window)
 	treasure_window = TreasureChestView.new()
 	treasure_window.name = "TreasureWindow"
 	treasure_window.visible = false
 	add_child(treasure_window)
+	luck_station_window = LuckStationView.new()
+	luck_station_window.name = "LuckStationWindow"
+	luck_station_window.visible = false
+	add_child(luck_station_window)
 
 	# Gruben-Fenster: bewusst früh gebaut - hinter allem, was später dazukommt.
 	# Position/Größe setzt scene_root über place_pit_window; bis dahin unsichtbar.
@@ -1249,6 +1245,10 @@ func place_workshop_info_window(rect: Rect2, unit_px: float) -> void:
 func place_treasure_window(rect: Rect2) -> void:
 	treasure_window.position = rect.position
 	treasure_window.size = rect.size
+	treasure_window.visible = true
+	set_pit(PIT_TRAY, tray_pit_rect(), treasure_window.pit_radius())
+	_sync_reflection_windows()
+
 func place_luck_station(rect: Rect2) -> void:
 	luck_station_window.position = rect.position
 	luck_station_window.size = rect.size
@@ -1260,10 +1260,6 @@ func luck_seat_px() -> Vector2:
 	if luck_station_window == null or not luck_station_window.visible:
 		return Vector2(-1.0, -1.0)
 	return luck_station_window.position + luck_station_window.seat_px()
-
-	treasure_window.visible = true
-	set_pit(PIT_TRAY, tray_pit_rect(), treasure_window.pit_radius())
-	_sync_reflection_windows()
 
 ## Die PAKET-AUSWAHL als Fenster auf der Öffnungs-Fläche unter dem Vorrat: bei Karten
 ## mit Schirm (sein Bild trägt der Boden ihrer Vertiefung), bei Würfeln die Schiene. Den
@@ -1495,14 +1491,14 @@ func _sync_reflection_windows() -> void:
 	# Die WERKSTATT ist KEIN Fenster mehr: ihr Streifen hat seit 2026-09-03 keinen
 	# Schirm-Hintergrund, ihre Teile liegen auf dem Filz (wie der Kombi-Cluster).
 	# Die REPARATUR-BUCHT teilt diese Grammatik und steht darum ebenfalls nicht hier.
-	if luck_station_window != null and luck_station_window.visible:
-		var luck := Rect2(luck_station_window.position, luck_station_window.size)
-		rects.append(Vector4(luck.position.x, luck.position.y, luck.end.x, luck.end.y))
-		radii.append(luck_station_window.frame_px() * 2.0)
 	if treasure_window != null and treasure_window.visible:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
 		radii.append(treasure_window.size.x / 100.0 * 3.0)
+	if luck_station_window != null and luck_station_window.visible:
+		var luck := Rect2(luck_station_window.position, luck_station_window.size)
+		rects.append(Vector4(luck.position.x, luck.position.y, luck.end.x, luck.end.y))
+		radii.append(luck_station_window.frame_px() * 2.0)
 	if hub != null and hub.size.x > 0.0:
 		rects.append(Vector4(hub.position.x, hub.position.y,
 			hub.position.x + hub.size.x, hub.position.y + hub.size.y))
@@ -1526,18 +1522,17 @@ func _sync_reflection_windows() -> void:
 func _top_cell_rect(column: int) -> Rect2:
 	var key: String = DiceScoring.HAND_PRIORITY[clampi(column, 0, CLUSTER_COLUMNS - 1)]
 	if not combo_cells.has(key):
-		return Rect2(cluster_rect.position, cell_size_for(cluster_extended))
+		return Rect2(cluster_rect.position, CELL_SIZE)
 	var cell: ComboCellView = combo_cells[key]
 	return Rect2(cell.position, cell.size)
 
 ## Fuge zwischen der Grube und ihren Nachbarn links (Kombinationen) und rechts (Wett-Tresen).
 const PIT_SIDE_GAP := LAYOUT_SIZE.x * 0.005
 
-## Stellt den Kombi-Cluster (Zellen + Adernetz) neben die Grube, in ZWEI Layouts: KOMPAKT
-## (die Regel) und AUSGEFAHREN (Sockelzone offen). Beide stehen rechtsbündig - die Pin-Spitzen
-## PIT_SIDE_GAP vor der Grube -, die oberste Reihe bündig mit ihrer Oberkante, die unterste
-## mit ihrer Unterkante. Ohne Grube (Tests) steht er am Editor-Anker CombosBlock, rechts um
-## CLUSTER_RIGHT_PULL eingerückt.
+## Stellt den Kombi-Cluster (Zellen + Adernetz) neben die Grube: rechtsbündig - die
+## Pin-Spitzen PIT_SIDE_GAP vor der Grube -, die oberste Reihe bündig mit ihrer Oberkante, die
+## unterste mit ihrer Unterkante. Ohne Grube (Tests) steht er am Editor-Anker CombosBlock,
+## rechts um CLUSTER_RIGHT_PULL eingerückt.
 func place_combo_cluster(center_px: Vector2, pit_rect := Rect2()) -> void:
 	cluster_anchor_rect = Rect2(center_px - CLUSTER_ANCHOR_SIZE * 0.5, CLUSTER_ANCHOR_SIZE)
 	var corner := cluster_anchor_rect.end - Vector2(CLUSTER_RIGHT_PULL, 0.0)
@@ -1546,64 +1541,28 @@ func place_combo_cluster(center_px: Vector2, pit_rect := Rect2()) -> void:
 		var span := float(rows) * CELL_SIZE.y + float(rows - 1) * CELL_GAP.y
 		pit_rect = Rect2(0.0, corner.y - CLUSTER_PADDING - span, 0.0, span)
 	var pitch := (pit_rect.size.y - CELL_SIZE.y) / float(maxi(1, rows - 1))
-	for extended in [false, true]:
-		var size := cell_size_for(extended)
-		var right := corner.x - CLUSTER_PADDING
-		if pit_rect.size.x > 0.0:
-			# Gemessen an den Pin-Spitzen, nicht am Zellrand - der Chip ist schmaler als seine Zelle.
-			var tip_dx: float = ComboChipView.pin_offsets_px(CELL_SIZE, extended)["tip_dx"]
-			right = pit_rect.position.x - PIT_SIDE_GAP + size.x * 0.5 - tip_dx
-		var full := float(CLUSTER_COLUMNS) * size.x + float(CLUSTER_COLUMNS - 1) * CELL_GAP.x
-		var positions := {}
-		var bounds := Rect2()
-		var total := DiceScoring.HAND_PRIORITY.size()
-		for i in total:
-			var row := i / CLUSTER_COLUMNS
-			var in_row: int = mini(CLUSTER_COLUMNS, total - row * CLUSTER_COLUMNS)
-			var row_width := float(in_row) * size.x + float(in_row - 1) * CELL_GAP.x
-			var at := Vector2(right - full + (full - row_width) * 0.5
-				+ float(i % CLUSTER_COLUMNS) * (size.x + CELL_GAP.x), pit_rect.position.y + float(row) * pitch)
-			positions[DiceScoring.HAND_PRIORITY[i]] = at
-			bounds = Rect2(at, size) if i == 0 else bounds.merge(Rect2(at, size))
-		_cluster_layouts[extended] = {"positions": positions, "rect": bounds.grow(CLUSTER_PADDING)}
-	_apply_cluster_layout()
-
-## Die Zellgröße eines Layouts: ausgefahren CELL_SIZE, kompakt ohne die Sockelzone.
-func cell_size_for(extended: bool) -> Vector2:
-	if extended:
-		return CELL_SIZE
-	return Vector2(ComboChipView.compact_cell_width(CELL_SIZE), CELL_SIZE.y)
-
-## Die Hülle des Zellfelds eines Layouts (leer, solange der Cluster nicht steht).
-func cluster_rect_for(extended: bool) -> Rect2:
-	return (_cluster_layouts.get(extended, {}) as Dictionary).get("rect", cluster_rect)
-
-## Wo eine Zelle in einem Layout steht.
-func cell_rect_for(key: String, extended: bool) -> Rect2:
-	var positions: Dictionary = (_cluster_layouts.get(extended, {}) as Dictionary).get("positions", {})
-	if not positions.has(key):
-		return Rect2()
-	return Rect2(positions[key], cell_size_for(extended))
-
-## Der EINE Schreiber des Layouts: Zellen, Hülle und alles, was an ihnen hängt (Adernetz,
-## Hub- und Wertungs-Ader), stehen sofort am ENDZUSTAND - die Chips fahren selbst nach.
-func set_cluster_extended(on: bool) -> void:
-	if on == cluster_extended:
-		return
-	cluster_extended = on
-	_apply_cluster_layout()
-
-func _apply_cluster_layout() -> void:
-	var layout: Dictionary = _cluster_layouts.get(cluster_extended, {})
-	if layout.is_empty():
-		return
-	var size := cell_size_for(cluster_extended)
-	for key: String in combo_cells:
-		var cell: ComboCellView = combo_cells[key]
-		cell.position = layout["positions"][key]
-		cell.size = size
-		cell.pivot_offset = size / 2.0
-	cluster_rect = layout["rect"]
+	var right := corner.x - CLUSTER_PADDING
+	if pit_rect.size.x > 0.0:
+		# Gemessen an den Pin-Spitzen, nicht am Zellrand - der Chip ist schmaler als seine Zelle.
+		var tip_dx: float = ComboChipView.pin_offsets_px(CELL_SIZE)["tip_dx"]
+		right = pit_rect.position.x - PIT_SIDE_GAP + CELL_SIZE.x * 0.5 - tip_dx
+	var full := float(CLUSTER_COLUMNS) * CELL_SIZE.x + float(CLUSTER_COLUMNS - 1) * CELL_GAP.x
+	var bounds := Rect2()
+	var total := DiceScoring.HAND_PRIORITY.size()
+	for i in total:
+		var row := i / CLUSTER_COLUMNS
+		var in_row: int = mini(CLUSTER_COLUMNS, total - row * CLUSTER_COLUMNS)
+		var row_width := float(in_row) * CELL_SIZE.x + float(in_row - 1) * CELL_GAP.x
+		var at := Vector2(right - full + (full - row_width) * 0.5
+			+ float(i % CLUSTER_COLUMNS) * (CELL_SIZE.x + CELL_GAP.x), pit_rect.position.y + float(row) * pitch)
+		var key: String = DiceScoring.HAND_PRIORITY[i]
+		if combo_cells.has(key):
+			var cell: ComboCellView = combo_cells[key]
+			cell.position = at
+			cell.size = CELL_SIZE
+			cell.pivot_offset = CELL_SIZE / 2.0
+		bounds = Rect2(at, CELL_SIZE) if i == 0 else bounds.merge(Rect2(at, CELL_SIZE))
+	cluster_rect = bounds.grow(CLUSTER_PADDING)
 	_lay_combo_wiring()
 	link_hub_to_cluster()
 	link_score_strips()
@@ -1637,7 +1596,7 @@ func _lay_combo_wiring() -> void:
 	var buses := combo_bus_xs()
 	if buses.is_empty():
 		return
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE, cluster_extended)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
 	var tip_dx: float = offsets["tip_dx"]
 	var row: float = offsets["rows"][1]
 	var stub := CELL_GAP.x * 0.5
@@ -1677,7 +1636,7 @@ func wiring_paths_to_cell(index: int) -> Array[PackedVector2Array]:
 		return paths
 	var cell: ComboCellView = combo_cells[key]
 	var rect := Rect2(cell.position, cell.size)
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE, cluster_extended)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
 	var tip_dx: float = offsets["tip_dx"]
 	var y: float = rect.get_center().y + float(offsets["rows"][1])
 	var stub := CELL_GAP.x * 0.5
@@ -2696,7 +2655,7 @@ func play_combo_pulse(combo_key: String) -> void:
 func play_bridge_pulse(from_key: String, to_key: String) -> float:
 	if not combo_cells.has(from_key) or not combo_cells.has(to_key):
 		return 0.0
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE, cluster_extended)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
 	var tip_dx: float = offsets["tip_dx"]
 	var row: float = offsets["rows"][1]
 	var stub := CELL_GAP.x * 0.5

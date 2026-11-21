@@ -436,17 +436,13 @@ static func build_axle(host: Node3D, column: int, length: float, shaft_r: float,
 ## im Deck, Pad-Feld und Leiterbahnen im Einschub. bay = (Welt-X, Welt-Z), y = 0 ist der
 ## Muldenboden.
 static func dress_bay(node: Node3D, column: int, bay: Vector2, floor_top: float,
-		under_card: float) -> void:
+		under_card: float, cell_scale := 0.0) -> void:
 	var high := minf(0.02, under_card - floor_top - 0.006)
 	if high <= 0.002:
 		return
+	if cell_scale > 0.0:
+		build_holder(node, column, bay, floor_top, under_card, cell_scale)
 	match clampi(column, 0, 3):
-		MATERIAL:
-			var stub := _flat("deck_stub", Color(0.3, 0.29, 0.3), 0.18, 0.2, 0.6)
-			for side in 2:
-				var disc := _disc(node, "Dorn%d" % side, bay.x * 0.11, high, stub)
-				disc.position = Vector3(0.0, floor_top + high * 0.5,
-					(float(side) * 2.0 - 1.0) * bay.y * 0.2)
 		SONDER:
 			var trace := _flat("slot_trace", TRACE, 0.9, 0.0, 0.9)
 			var pad := _flat("slot_pad", GOLD * 0.7, 0.25, 0.8, 0.4)
@@ -460,3 +456,180 @@ static func dress_bay(node: Node3D, column: int, bay: Vector2, floor_top: float,
 					TableProps.box(node, "Pad%d%d" % [row, col], Vector3(0.09, thin, 0.09),
 						Vector3((float(row) - 1.0) * bay.x * 0.24, floor_top + thin * 0.5,
 							bay.y * 0.3 + float(col) * 0.13), pad)
+
+# --- Die HALTERUNG ---------------------------------------------------------------
+
+## Maße der Träger im Roh-Maß ihres Exports (tools/blender_data_media_export.py):
+## Nabe längs/quer und ihr Radius, Capstan-Loch längs/quer, Eckschnitt der Lochkarte,
+## Eckradius der Tafel, Kontaktleiste des Moduls (Mitte längs, Teilung).
+const CARD_HALF := Vector2(0.54, 0.81)
+const HUB := Vector3(0.52, 0.3216, 0.135)
+const CAPSTAN := Vector2(0.47, -0.4)
+const PUNCH_CUT := 0.156
+const CLAY_ROUND := 0.15
+const CONTACT := Vector2(0.7635, 0.085)
+## So viel Luft bleibt zwischen Karte und einem Anschlag daneben.
+const HOLD_GAP := 0.014
+const HOLD_WALL := 0.024
+
+## Was die Karte in ihrer Mulde HÄLT, je Datenträger ein eigener Mechanismus (Knoten
+## "Halterung"): Lochkarte - Auflageschienen, Eckwinkel und der Schräganschlag ihrer
+## gekappten Ecke; Kassette - zwei gezahnte Wickeldorne in den Naben, Capstan-Stifte und
+## der Tonkopf; Tafel - Lagerbalken und Zapfen in den runden Ecken; Modul - Abstandsbolzen,
+## Federstifte unter der Kontaktleiste und Rasthaken am Kopf. Lokal +X = Karten-quer zum
+## Fenster hin, +Z = Kartenfuß; seat ist die Unterseite der Karte.
+static func build_holder(node: Node3D, column: int, bay: Vector2, floor_top: float,
+		seat: float, k: float) -> Node3D:
+	var c := clampi(column, 0, 3)
+	var hold := Node3D.new()
+	hold.name = "Halterung"
+	node.add_child(hold)
+	var half := CARD_HALF * k
+	var thick: float = DataCellView.CARRIER_TOPS[c] * k
+	var rest := seat - floor_top
+	# Der Platz neben der Karte bis zur Wandauskleidung.
+	var room := Vector2(bay.x * 0.5 - half.x, bay.y * 0.5 - half.y) \
+		- Vector2.ONE * (HOLD_WALL + HOLD_GAP)
+	var stop := Vector2(clampf(room.x, 0.02, 0.07), clampf(room.y, 0.02, 0.09))
+	match c:
+		ZAHL:
+			_hold_punch(hold, half, thick, floor_top, rest, stop, k)
+		MATERIAL:
+			_hold_cassette(hold, thick, floor_top, rest, k)
+		RUNE:
+			_hold_clay(hold, half, thick, floor_top, rest, k)
+		SONDER:
+			_hold_module(hold, half, thick, floor_top, rest, stop, k)
+	return hold
+
+static func _hold_punch(hold: Node3D, half: Vector2, thick: float, floor_top: float,
+		rest: float, stop: Vector2, k: float) -> void:
+	var steel := _flat("hold_steel", STEEL, 0.5, 0.7, 0.3)
+	var key := _flat("hold_punch_key", tint(ZAHL), 0.8, 0.0, 0.5)
+	var rail := 0.03 * k
+	for side in 2:
+		var dir := float(side) * 2.0 - 1.0
+		TableProps.box(hold, "Auflage%d" % side, Vector3(rail, rest, half.y * 1.84),
+			Vector3(dir * (half.x - rail * 0.5), floor_top + rest * 0.5, 0.0), steel)
+	var high := rest + thick
+	var arm := 0.1 * k
+	for corner in 4:
+		var sx := 1.0 if corner < 2 else -1.0
+		var sz := 1.0 if corner % 2 == 0 else -1.0
+		if sx > 0.0 and sz < 0.0:
+			continue
+		var edge := Vector3(sx * (half.x + HOLD_GAP), floor_top + high * 0.5,
+			sz * (half.y + HOLD_GAP))
+		TableProps.box(hold, "WinkelX%d" % corner, Vector3(stop.x, high, arm + stop.y),
+			edge + Vector3(sx * stop.x * 0.5, 0.0, -sz * (arm - stop.y) * 0.5), steel)
+		TableProps.box(hold, "WinkelZ%d" % corner, Vector3(arm, high, stop.y),
+			edge + Vector3(-sx * arm * 0.5, 0.0, sz * stop.y * 0.5), steel)
+	# Der SCHRÄGANSCHLAG füllt die gekappte Ecke: nur richtig herum liegt die Karte. Er bleibt
+	# im Umriß der Karte und unter ihrer Oberkante - an der Wand hat er nichts verloren.
+	var leg := PUNCH_CUT * k - HOLD_GAP * sqrt(2.0)
+	var corner := Vector2(half.x, -half.y)
+	_wedge(hold, "Schraeganschlag", [corner, corner + Vector2(-leg, 0.0),
+		corner + Vector2(0.0, leg)], floor_top, floor_top + rest + thick, key)
+
+## Ein dreieckiges Prisma: points in (X, Z), von y0 bis y1.
+static func _wedge(host: Node3D, wedge_name: String, points: Array, y0: float, y1: float,
+		material: Material) -> MeshInstance3D:
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var top: Array[Vector3] = []
+	var low: Array[Vector3] = []
+	for point: Vector2 in points:
+		top.append(Vector3(point.x, y1, point.y))
+		low.append(Vector3(point.x, y0, point.y))
+	for face: Array in [[top[0], top[1], top[2]], [top[0], top[2], top[1]]]:
+		for vertex: Vector3 in face:
+			tool.add_vertex(vertex)
+	for i in 3:
+		var n := (i + 1) % 3
+		for vertex: Vector3 in [top[i], low[i], low[n], top[i], low[n], top[n],
+				top[i], low[n], low[i], top[i], top[n], low[n]]:
+			tool.add_vertex(vertex)
+	tool.generate_normals()
+	var node := MeshInstance3D.new()
+	node.name = wedge_name
+	node.mesh = tool.commit()
+	node.material_override = material
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	host.add_child(node)
+	return node
+
+static func _hold_cassette(hold: Node3D, thick: float, floor_top: float, rest: float,
+		k: float) -> void:
+	var white := _flat("hold_hub", HUB_WHITE, 0.5, 0.0, 0.6)
+	var chrome := _flat("hold_chrome", CHROME, 0.5, 0.8, 0.25)
+	var dark := _flat("hold_plate", Color(0.1, 0.1, 0.115), 0.6, 0.2, 0.6)
+	var ring := _flat("hold_deck_ring", tint(MATERIAL) * 0.55, 0.7, 0.0, 0.6)
+	var radius := HUB.z * k
+	var high := rest + thick * 0.72
+	for side in 2:
+		var at := Vector3(HUB.y * k, floor_top, (float(side) * 2.0 - 1.0) * HUB.x * k)
+		var plate := _disc(hold, "Teller%d" % side, radius * 0.9, rest * 0.6, ring)
+		plate.position = at + Vector3(0.0, rest * 0.3, 0.0)
+		var rest_disc := _disc(hold, "Auflage%d" % side, radius * 0.7, rest, dark)
+		rest_disc.position = at + Vector3(0.0, rest * 0.5, 0.0)
+		var spindle := _disc(hold, "Wickeldorn%d" % side, radius * 0.27, high, white)
+		spindle.position = at + Vector3(0.0, high * 0.5, 0.0)
+		for tooth in 6:
+			var angle := TAU * float(tooth) / 6.0
+			var fin := TableProps.box(hold, "Zahn%d_%d" % [side, tooth],
+				Vector3(radius * 0.26, high - rest - 0.01, radius * 0.13),
+				at + Vector3(cos(angle), 0.0, sin(angle)) * radius * 0.37
+					+ Vector3(0.0, rest + (high - rest - 0.01) * 0.5, 0.0), white)
+			if fin != null:
+				fin.rotation.y = -angle
+		var pin := _disc(hold, "Capstan%d" % side, 0.03 * k, rest + thick * 0.5, chrome)
+		pin.position = Vector3(CAPSTAN.y * k, floor_top + (rest + thick * 0.5) * 0.5,
+			(float(side) * 2.0 - 1.0) * CAPSTAN.x * k)
+	TableProps.box(hold, "Tonkopf", Vector3(0.1 * k, rest, 0.3 * k),
+		Vector3((CAPSTAN.y - 0.06) * k, floor_top + rest * 0.5, 0.0), chrome)
+
+static func _hold_clay(hold: Node3D, half: Vector2, thick: float, floor_top: float,
+		rest: float, k: float) -> void:
+	var stone := _flat("hold_stone", Color(0.5, 0.4, 0.27), 0.45, 0.0, 0.95)
+	var inlay := _flat("bed_inlay", tint(RUNE), 0.75, 0.0, 0.5)
+	for side in 2:
+		TableProps.box(hold, "Lager%d" % side, Vector3(half.x * 1.7, rest, 0.07 * k),
+			Vector3(0.0, floor_top + rest * 0.5, (float(side) * 2.0 - 1.0) * half.y * 0.5), stone)
+	# Die Zapfen stehen in der Lücke, die die runde Ecke der Tafel läßt.
+	var peg := 0.035 * k
+	var out := (CLAY_ROUND * k + peg + HOLD_GAP) / sqrt(2.0) - CLAY_ROUND * k
+	var high := rest + thick * 0.75
+	for corner in 4:
+		var sx := 1.0 if corner < 2 else -1.0
+		var sz := 1.0 if corner % 2 == 0 else -1.0
+		var at := Vector3(sx * (half.x + out), floor_top, sz * (half.y + out))
+		var body := _disc(hold, "Zapfen%d" % corner, peg, high, stone)
+		body.position = at + Vector3(0.0, high * 0.5, 0.0)
+		var cap := _disc(hold, "Zapfenkopf%d" % corner, peg * 0.55, 0.012, inlay)
+		cap.position = at + Vector3(0.0, high + 0.006, 0.0)
+
+static func _hold_module(hold: Node3D, half: Vector2, thick: float, floor_top: float,
+		rest: float, stop: Vector2, k: float) -> void:
+	var gold := _flat("hold_gold", GOLD, 0.55, 0.8, 0.3)
+	var dark := _flat("hold_plate", Color(0.1, 0.1, 0.115), 0.6, 0.2, 0.6)
+	var clip := _flat("hold_clip", tint(SONDER).lerp(Color.WHITE, 0.25), 0.6, 0.0, 0.5)
+	for corner in 4:
+		var sx := 1.0 if corner < 2 else -1.0
+		var sz := 1.0 if corner % 2 == 0 else -1.0
+		var bolt := _disc(hold, "Bolzen%d" % corner, 0.03 * k, rest, gold)
+		bolt.position = Vector3(sx * (half.x - 0.07 * k), floor_top + rest * 0.5,
+			sz * (half.y - 0.07 * k) - (0.12 * k if sz > 0.0 else 0.0))
+	# Die FEDERSTIFTE unter der Kontaktleiste am Kartenfuß.
+	var block := rest * 0.55
+	TableProps.box(hold, "Steckleiste", Vector3(CONTACT.y * 11.6 * k, block, 0.11 * k),
+		Vector3(0.0, floor_top + block * 0.5, CONTACT.x * k), dark)
+	for i in 11:
+		var pin := _disc(hold, "Feder%d" % i, 0.014 * k, rest, gold)
+		pin.position = Vector3((float(i) - 5.0) * CONTACT.y * k, floor_top + rest * 0.5,
+			CONTACT.x * k)
+	# Zwei RASTHAKEN am Kopf, eine Spur über die Platine hinaus.
+	var high := rest + thick + 0.04
+	for side in 2:
+		TableProps.box(hold, "Rasthaken%d" % side, Vector3(0.09 * k, high, stop.y),
+			Vector3((float(side) * 2.0 - 1.0) * half.x * 0.5, floor_top + high * 0.5,
+				-half.y - HOLD_GAP - stop.y * 0.5), clip)

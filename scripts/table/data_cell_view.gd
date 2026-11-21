@@ -62,12 +62,6 @@ const CARRIER_BASIS := Basis(Vector3(0.0, -1.0, 0.0), Vector3(0.0, 0.0, 1.0),
 static var _carrier_scenes := {}
 static var _neutrals := {}
 
-## Die BUCHSE in der Mulde (das Möbel des Magazins), im WELT-Maß der Karte bei
-## CASSETTE_SCALE gebaut. Ursprung = Mitte des Mundes, der Körper reicht SOCKET_DEPTH nach +Z.
-const SOCKET_SCENE := "res://assets/models/hardware/card_socket.glb"
-const SOCKET_DEPTH := 0.15
-static var _socket_scene: PackedScene
-
 ## Sichtbarer Stapel und sein Achsabstand; darüber zählt allein die Marke. Der seitliche
 ## Versatz unterscheidet einen Stapel von einer Zelle.
 const STACK_CAP := 5
@@ -796,16 +790,6 @@ static func neutral_material(role: String) -> StandardMaterial3D:
 		material.emission_energy_multiplier = spec[3]
 	_neutrals[role] = material
 	return material
-
-## Die BUCHSE als Modell (null = kein Import).
-static func socket_model() -> Node3D:
-	if _socket_scene == null:
-		_socket_scene = load(SOCKET_SCENE) as PackedScene
-	if _socket_scene == null:
-		return null
-	var node := _socket_scene.instantiate() as Node3D
-	node.name = "Buchse"
-	return node
 
 func _build_badge() -> Label3D:
 	var badge := Label3D.new()

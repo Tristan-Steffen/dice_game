@@ -56,7 +56,7 @@ func test_a_clause_spotlight_is_redeemable_without_any_charm() -> void:
 func _chip() -> ComboChipView:
 	var chip := ComboChipView.new()
 	add_child_autofree(chip)
-	chip.setup(4.0, 1.5)  # Weltmaße einer Zelle
+	chip.setup(1.5)  # Welt-Tiefe einer Zelle
 	return chip
 
 func _labels(chip: ComboChipView) -> Dictionary:

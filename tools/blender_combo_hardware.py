@@ -1,66 +1,28 @@
-"""Fumble: MODUL, seine BUCHSE und der Chip mit eingeformten Buchsen als .glb
-(Spieler-Wunsch 2026-11-02 - Stecker und Buchse als passendes Paar wie bei der Datenkarte).
+"""Fumble: der Kombinations-Chip als .glb.
 
 Aufruf (kopflos):
   blender -b -P tools/blender_combo_hardware.py -- assets/models/hardware
 
-Drei Modelle (die Platine baut blender_part_models.py), alle in Blender-Achsen gebaut (glTF: Godot (x, y, z) = Blender (x, -z, y)):
+  chip_wide.glb (in assets/models/) - der Kombinations-Chip (2026-11-21): chip.glb ohne
+      Die-Fenster, in X auf WIDE_LENGTH verlängert ohne Verzerrung. ComboChipView staucht
+      seine Gehäuse-Mitte im Spiel auf BODY_COMPACT; rechts stehen die Modul-Pins
+      (tools/blender_pin_models.py). Glb-Achsen: Godot (x, y, z) = Blender (x, -z, y).
 
-  part_module.glb - das EINE Modul-Gehäuse in WELT-Maß. Ursprung = Mitte der
-      Gehäuse-UNTERSEITE; darunter ragt der STECKER (3 x 3 Goldstifte), oben liegt das
-      FENSTER, das Godot in der Phasen-Tönung leuchten läßt. Knoten: Gehaeuse, Fenster,
-      Stecker.
-  part_socket.glb - die BUCHSE in WELT-Maß. Ursprung = Mitte des MUNDES auf der
-      Deckelfläche; die Wanne reicht nach unten. Knoten: Wanne, Kontakte, Mund.
-  chip_socketed.glb (in assets/models/) - assets/models/chip.glb mit gefülltem
-      Die-Fenster und drei Buchsen-Löchern im Deckel, in MODELL-Einheiten (die
-      Godot-Seite streckt den Chip in X stärker als in Z - darum sind die Löcher in X
-      um NOMINAL_SX / NOMINAL_SZ schmaler geschnitten).
-
-  chip_wide.glb (in assets/models/) - der GROSSE Kombinations-Chip (2026-11-21): chip.glb
-      ohne Die-Fenster und Buchsen, in X auf WIDE_LENGTH verlängert ohne Verzerrung. Nur
-      dieses Modell und part_module.glb lädt das Spiel noch; Buchse und chip_socketed.glb
-      sind seit den code-gebauten Sockeln ungenutzt. Allein bauen: -- assets/models/hardware wide
-
-Die Zahlen spiegeln ComboPartBody (SIDE, HEIGHT, WELL, CLEARANCE, WALL, FLOOR, PIN_*,
-RISER_*) und ComboChipView (MOLDED_X, MOLDED_Z, BODY_TOP) - wer sie dort ändert, zieht
-sie hier nach. NOMINAL_SX/SZ sind die Skalen, die ComboChipView.setup aus
-TableScreen.CELL_SIZE (98 x 31 x CLUSTER_SCALE 1,4, SUPERSAMPLE 3, 37,5 px je Welt) und FIT_* rechnet.
+Modul-Gehäuse, Buchse und chip_socketed.glb sind gestorben (2026-11-21, nur noch Pins).
 """
 import bpy, math, sys, os
 
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-# "wide" baut nur chip_wide.glb (der große Kombinations-Chip, plan_kombi_grosschip.md).
-ONLY_WIDE = "wide" in ARGS
 OUT = next((a for a in ARGS if a != "wide"), "assets/models/hardware")
 os.makedirs(OUT, exist_ok=True)
 CHIP_IN = os.path.join(os.path.dirname(os.path.abspath(OUT)), "chip.glb")
-CHIP_OUT = os.path.join(os.path.dirname(os.path.abspath(OUT)), "chip_socketed.glb")
 CHIP_WIDE_OUT = os.path.join(os.path.dirname(os.path.abspath(OUT)), "chip_wide.glb")
 # ComboChipView.MODEL_LENGTH: Pin-Spitze zu Pin-Spitze bei GLEICHER Skala in X und Z
 # (TableScreen.CELL_SIZE 133 x 31 x 1,4 x 3, FIT 0,86 -> 14,896 x 0,86 / 0,142187).
 WIDE_LENGTH = 90.1
 
-# --- ComboPartBody (Welt) ---
-SIDE = 0.8                # Gehäuse-Kante
-HEIGHT = 0.32             # Gehäuse-Höhe
-WELL = 0.19               # so tief sinkt das Gehäuse in die Buchse
-CLEARANCE = 0.014         # Luft zwischen Gehäuse und Mund
-WALL = 0.02               # Wandstärke der Wanne
-FLOOR = 0.11              # Boden der Wanne (die Stifte enden darin)
-PIN_R = 0.03
-PIN_LEN = 0.095
-PIN_PITCH = SIDE * 0.26
-WINDOW = SIDE * 0.66
-MOUTH = SIDE + 2 * CLEARANCE
-OUTER = MOUTH + 2 * WALL
-
 # --- ComboChipView (Modell-Einheiten) ---
 BODY_TOP = 9.0
-MOLDED_X = [4.5, 8.85, 13.2]
-MOLDED_Z = 2.6            # Godot-Z (nach vorn); Blender-Y = -Z
-NOMINAL_SX = 0.22262642   # TableScreen.CLUSTER_SCALE 1,4
-NOMINAL_SZ = 0.14218667
 
 
 def reset():
@@ -133,117 +95,6 @@ def join(name, objects):
     return o
 
 
-def pin_grid():
-    return [(PIN_PITCH * i, PIN_PITCH * j) for i in (-1, 0, 1) for j in (-1, 0, 1)]
-
-
-def export(path):
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.export_scene.gltf(filepath=path, use_selection=True, export_apply=True,
-                              export_format="GLB")
-
-
-def materials():
-    return {
-        "gold": mat("Gold", (1.0, 0.76, 0.33), 1.0, 0.22, (0.92, 0.74, 0.34), 0.35),
-        "housing": mat("Modulgehaeuse", (0.07, 0.07, 0.09), 0.2, 0.45),
-        "window": mat("Fenster", (0.8, 0.8, 0.8), 0.0, 0.3, (1, 1, 1), 1.0),
-        "board": mat("Platine", (0.05, 0.08, 0.07), 0.1, 0.6),
-        "trace": mat("Bahn", (0.6, 0.65, 0.74), 0.3, 0.4, (0.6, 0.65, 0.74), 0.8),
-        "well": mat("Wanne", (0.02, 0.02, 0.03), 0.1, 0.8),
-        "lip": mat("Mund", (0.3, 0.34, 0.45), 0.4, 0.4, (0.3, 0.34, 0.45), 0.4),
-    }
-
-
-def housing_and_plug(m):
-    """Gehäuse samt Stecker - in Modul und Platine byteweise gleich."""
-    body = box("Gehaeuse", (SIDE, SIDE, HEIGHT), (0, 0, HEIGHT * 0.5), m["housing"], 0.01)
-    parts = []
-    collar = box("Kragen", (SIDE * 0.84, SIDE * 0.84, 0.008), (0, 0, -0.004), m["gold"])
-    parts.append(collar)
-    for x, y in pin_grid():
-        parts.append(cyl("Stift", PIN_R, PIN_LEN, (x, y, -PIN_LEN * 0.5), m["gold"]))
-        parts.append(cyl("Spitze", PIN_R * 0.6, 0.006, (x, y, -PIN_LEN - 0.003), m["gold"]))
-    plug = join("Stecker", parts)
-    return body, plug
-
-
-def module():
-    reset()
-    m = materials()
-    body, _plug = housing_and_plug(m)
-    # Eine flache Fase rings um das Fenster: der Rahmen ist Gehäuse, das Licht liegt darin.
-    bezel = box("Blende", (WINDOW + 0.04, WINDOW + 0.04, 0.008),
-                (0, 0, HEIGHT + 0.004), m["housing"])
-    join("Gehaeuse", [body, bezel])
-    box("Fenster", (WINDOW, WINDOW, 0.01), (0, 0, HEIGHT + 0.006), m["window"])
-    export(os.path.join(OUT, "part_module.glb"))
-
-
-def socket():
-    reset()
-    m = materials()
-    depth = WELL + FLOOR
-    wall_parts = []
-    for s in (-1, 1):
-        wall_parts.append(box("Wand", (OUTER, WALL, WELL), (0, s * (MOUTH + WALL) * 0.5, -WELL * 0.5),
-                              m["well"]))
-        wall_parts.append(box("Wand", (WALL, MOUTH, WELL), (s * (MOUTH + WALL) * 0.5, 0, -WELL * 0.5),
-                              m["well"]))
-    floor = box("Boden", (OUTER, OUTER, FLOOR), (0, 0, -WELL - FLOOR * 0.5), m["well"])
-    for x, y in pin_grid():
-        cut(floor, cyl("Loch", PIN_R * 1.5, FLOOR * 1.6, (x, y, -WELL), None))
-    join("Wanne", wall_parts + [floor])
-    contacts = []
-    for x, y in pin_grid():
-        bpy.ops.mesh.primitive_torus_add(major_radius=PIN_R * 1.5, minor_radius=0.008,
-                                         major_segments=16, minor_segments=5,
-                                         location=(x, y, -WELL + 0.002))
-        ring = bpy.context.active_object
-        ring.data.materials.append(m["gold"])
-        contacts.append(ring)
-        contacts.append(cyl("Kontakt", PIN_R * 1.2, 0.006, (x, y, -WELL - PIN_LEN), m["gold"]))
-    join("Kontakte", contacts)
-    # Der MUND: ein flacher Rahmen bündig auf dem Deckel - er trägt die Zustände.
-    lip_w = WALL + 0.012
-    lip = []
-    for s in (-1, 1):
-        lip.append(box("Lippe", (OUTER + 0.024, lip_w, 0.005),
-                       (0, s * (MOUTH + lip_w) * 0.5, 0.0035), m["lip"]))
-        lip.append(box("Lippe", (lip_w, MOUTH, 0.005),
-                       (s * (MOUTH + lip_w) * 0.5, 0, 0.0035), m["lip"]))
-    join("Mund", lip)
-    export(os.path.join(OUT, "part_socket.glb"))
-    return depth
-
-
-def chip(depth):
-    reset()
-    bpy.ops.import_scene.gltf(filepath=CHIP_IN)
-    for name in ("Die", "PinOneDot"):
-        o = bpy.data.objects.get(name)
-        if o is not None:
-            bpy.data.objects.remove(o, do_unlink=True)
-    body = bpy.data.objects["Body"]
-    # Die-Fenster und Pin-1-Punkt zuschütten: der Deckel ist ganz Display-Fläche.
-    fill = box("Fuellung", (32.0, 16.0, 1.6), (0, 0, BODY_TOP - 0.8 - 0.001), None)
-    mod = body.modifiers.new("Fuellen", "BOOLEAN")
-    mod.operation = "UNION"
-    mod.solver = "EXACT"
-    mod.object = fill
-    apply_mods(body)
-    bpy.data.objects.remove(fill, do_unlink=True)
-    hole_x = OUTER / NOMINAL_SX
-    hole_y = OUTER / NOMINAL_SZ
-    hole_z = (depth + 0.01) / NOMINAL_SZ
-    for x in MOLDED_X:
-        cutter = box("Buchse", (hole_x, hole_y, hole_z * 2.0), (x, -MOLDED_Z, BODY_TOP), None)
-        cut(body, cutter)
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.export_scene.gltf(filepath=CHIP_OUT, use_selection=True, export_apply=True,
-                              export_format="GLB")
-
-
 def chip_wide():
     """chip.glb ohne Buchsen und Die-Fenster, in X verlängert OHNE Verzerrung: alles rechts der
     Mitte rückt um den halben Zuwachs nach rechts, alles links nach links - Pins, Ecken und
@@ -274,11 +125,5 @@ def chip_wide():
                               export_format="GLB")
 
 
-if ONLY_WIDE:
-    chip_wide()
-    print("FERTIG", CHIP_WIDE_OUT)
-else:
-    module()
-    chip(socket())
-    chip_wide()
-    print("FERTIG", OUT, CHIP_OUT, CHIP_WIDE_OUT)
+chip_wide()
+print("FERTIG", CHIP_WIDE_OUT)

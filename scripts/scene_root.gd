@@ -320,7 +320,7 @@ const LINEUP_DURATION := 0.35
 ## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben).
 const PIT_ZOOM_UP := 4.0
 ## Die Gruben-Station schaut etwas nach Bild-links: so stehen alle zwölf Kombinationen im Bild.
-const PIT_ZOOM_LEFT := 4.5
+const PIT_ZOOM_LEFT := 6.0
 
 ## Mausrad-Navigation: EIN Rad-Schritt = EINE Zoomstufe, also genau die Fahrten,
 ## die auch Klick und Rechtsklick auslösen - die Zoom-Distanzen sind gerechnet
@@ -1445,7 +1445,7 @@ func _setup_screen_spill_lights(workshop_corner: Rect2) -> void:
 		Rect2(table_screen.pit_window.position, table_screen.pit_window.size), cyan)
 	# Kombi-Cluster heller: dort stehen echte 3D-Chips, die ohne Licht schwarz
 	# blieben (die anderen Fenster beleuchten nur flaches Glas).
-	_add_spill_light("ClusterSpill", table_screen.cluster_rect_for(true), Color("#ffd9f0"), CLUSTER_SPILL_FACTOR)
+	_add_spill_light("ClusterSpill", table_screen.cluster_rect, Color("#ffd9f0"), CLUSTER_SPILL_FACTOR)
 	_add_spill_light("ScoreSpill", table_screen.score_rect, cyan)
 	_add_spill_light("HubSpill",
 		Rect2(table_screen.hub.position, table_screen.hub.size), cyan)
@@ -1517,8 +1517,8 @@ func _setup_debug_parts() -> void:
 		return
 	debug_parts = DebugPartsView.new()
 	table_screen.add_child(debug_parts)
-	# Der Knopf steht unter der linken Kante des ausgefahrenen Clusters.
-	var cluster := table_screen.cluster_rect_for(true)
+	# Der Knopf steht unter der linken Kante des Clusters.
+	var cluster := table_screen.cluster_rect
 	debug_parts.place(Vector2(cluster.position.x + debug_parts.size.x,
 		cluster.end.y + DEBUG_PARTS_GAP + DebugPartsView.TOGGLE_SIZE.y))
 	debug_parts.part_chosen.connect(_on_debug_part_chosen)
@@ -1773,19 +1773,17 @@ func _setup_combo_chips() -> void:
 	for key: String in table_screen.combo_cells:
 		var cell: ComboCellView = table_screen.combo_cells[key]
 		cell.socket_mode = true
-		var wide := table_screen.cell_rect_for(key, true)
-		var corner_a := table_screen.pixel_to_world(wide.position)
-		var corner_b := table_screen.pixel_to_world(wide.end)
+		var rect := Rect2(cell.position, cell.size)
+		var corner_a := table_screen.pixel_to_world(rect.position)
+		var corner_b := table_screen.pixel_to_world(rect.end)
 		var chip := ComboChipView.new()
 		chip.name = "Chip_%s" % key
 		chip.combo_key = key  # vor setup: die Pick-Körper tragen ihn
 		chips_root.add_child(chip)
 		# Modell-X entlang der Zellbreite (Welt+Z), Display-Band zum Spieler (-X).
 		chip.rotation.y = -PI / 2.0
-		chip.setup(absf(corner_b.z - corner_a.z), absf(corner_b.x - corner_a.x))
-		chip.set_cells(table_screen.pixel_to_world(table_screen.cell_rect_for(key, false).get_center()),
-			table_screen.pixel_to_world(wide.get_center()))
-		chip.set_extended(table_screen.cluster_extended, 0.0)
+		chip.setup(absf(corner_b.x - corner_a.x))
+		chip.set_cell(table_screen.pixel_to_world(rect.get_center()))
 		chip.sync_cell(cell)
 		combo_chips[key] = chip
 	ScreenReflection.mark_reflective(chips_root)
@@ -1838,8 +1836,6 @@ var _pulsing_combos: Dictionary = {}
 ## Wertungs-Zeremonie der Module: die zählende Kombination, das gehaltene
 ## Zählwerk und das schon gebuchte Münzprüfer-Geld (nur Anzeige).
 var _take_combo_key := ""
-## Platz des gerade zählenden Würfels in der Reihe (-1 = keiner) - für die Punktreihe der Module.
-var _take_die_index := -1
 var _part_growth_held := ""
 var _part_money_shown := 0
 const PART_CRIT_FLASH := 2.2
@@ -11351,13 +11347,12 @@ func _screen_zoom_zone(zone_name: String, rect: Rect2, configure_target: Callabl
 	return _add_click_zone(zone_name, center,
 		Vector3(absf(corner_a.x - corner_b.x), 4.0, absf(corner_a.z - corner_b.z)))
 
-## Zoom-Ziel + Klickzone des Kombi-Clusters aus der Display-Fläche ableiten: die Station
-## rahmt den AUSGEFAHRENEN Cluster (dort steht er ausgefahren), die Klickzone folgt dem Layout.
+## Zoom-Ziel + Klickzone des Kombi-Clusters aus der Display-Fläche ableiten.
 func _setup_combos_zoom() -> void:
-	var wide := table_screen.cluster_rect_for(true)
-	combos_click_zone = _screen_zoom_zone("CombosClickZone", wide, camera_rig.configure_combos_target)
-	var a := table_screen.pixel_to_world(wide.position)
-	var b := table_screen.pixel_to_world(wide.end)
+	var rect := table_screen.cluster_rect
+	combos_click_zone = _screen_zoom_zone("CombosClickZone", rect, camera_rig.configure_combos_target)
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
 	camera_rig.configure_combos_target(camera_rig.combos_target,
 		Vector2(absf(b.z - a.z), absf(b.x - a.x)) * 0.5)
 	_place_combos_click_zone()
@@ -11805,13 +11800,12 @@ func _process(delta: float) -> void:
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
-	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
-	_sync_combo_extension()  # die Chips fahren ihre Sockel aus, wo man stecken kann
 	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_pack_areas()  # die Öffnungs-Fläche unter dem Vorrat
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
+	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
@@ -13746,7 +13740,6 @@ func _play_take_animation(breakdown: Dictionary, new_total: int) -> void:
 	for step_index in breakdown["die_steps"].size():
 		var step: Dictionary = breakdown["die_steps"][step_index]
 		var slot: int = step["slot"]
-		_take_die_index = step_index  # Platz in der Reihe = Punkt der Punktreihe
 		_pay_street_musician(musician_indices)
 		_pay_die_fees(die_fee)
 		var die_px := table_screen.world_to_pixel(dice.bodies[slot].global_position)
@@ -13926,10 +13919,10 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 			_flash_charm_and_pad(charm_index)
 		var part_slots: Array = pulse.get("part_slots", [])
 		for part_slot: int in part_slots:
-			_flash_part_socket(_take_combo_key, part_slot, 1.0, _take_die_index)
+			_flash_part_socket(_take_combo_key, part_slot)
 		var part_foreign: Array = pulse.get("part_foreign", [])
 		for socket: Dictionary in part_foreign:
-			_flash_part_socket(String(socket["key"]), int(socket["slot"]), 1.0, _take_die_index)
+			_flash_part_socket(String(socket["key"]), int(socket["slot"]))
 		var pcharm_px := _charm_trail_source_px(die_charm_indices)
 		if die_charm_indices.is_empty() and not part_slots.is_empty():
 			pcharm_px = _part_socket_px(_take_combo_key, int(part_slots[0]))
@@ -14326,15 +14319,15 @@ func _part_socket_px(key: String, slot: int) -> Vector2:
 	if combo_chips.has(key):
 		var chip: ComboChipView = combo_chips[key]
 		if slot >= 0 and slot < chip.socket_count():
-			return table_screen.world_to_pixel(chip.socket_world(slot))
+			return table_screen.world_to_pixel(chip.pin_world(slot))
 	if combo_labels.has(key):
 		var cell: Control = combo_labels[key]
 		return cell.position + cell.size / 2.0
 	return table_screen.world_to_pixel(DicePit.PIT_CENTER)
 
-func _flash_part_socket(key: String, slot: int, strength := 1.0, die := -1) -> void:
+func _flash_part_socket(key: String, slot: int, strength := 1.0) -> void:
 	if combo_chips.has(key):
-		combo_chips[key].flash_socket(slot, strength, die)
+		combo_chips[key].flash_socket(slot, strength)
 
 ## Spielt einen pro-Würfel-Charm-Schritt als Folge von Einzel-Meteoren: je Puls
 ## blitzt der Charm UND sein auslösender Würfel, ein Komet fliegt vom Dock-Pad in
@@ -14504,7 +14497,6 @@ func _cleanup_take_animation() -> void:
 	_release_part_growth()
 	_part_money_shown = 0
 	_take_combo_key = ""
-	_take_die_index = -1
 	table_screen.reset_pit_score()
 
 ## Startpunkt der Charm-Kometen: der Anker des Laufwerks des ERSTEN beteiligten
@@ -17043,7 +17035,7 @@ func _sync_install_ghost() -> void:
 		var key := String(pick["key"])
 		var slot := run.install_target(key, int(pick["slot"]), not _dice_editing_locked())
 		if slot >= 0:
-			target = combo_chips[key].socket_world(slot) + Vector3.UP * side * INSTALL_SNAP
+			target = combo_chips[key].pin_world(slot) + Vector3.UP * side * INSTALL_SNAP
 	if target == Vector3.INF:
 		var hit: Variant = _mouse_on_plane(mouse, _install_hand_height())
 		target = hit if hit != null else _install_hand_rest()
@@ -17054,7 +17046,7 @@ func _sync_install_ghost() -> void:
 ## Höhe der Hand: eine feste Schwebe über den Deckeln.
 func _install_hand_height() -> float:
 	var chip: ComboChipView = combo_chips.values()[0]
-	return chip.socket_world(0).y + ComboPartBody.SIDE * INSTALL_HOVER
+	return chip.pin_world(0).y + ComboPartBody.SIDE * INSTALL_HOVER
 
 ## Wo die Hand ohne Zeiger schwebt: über der Mitte des Clusters.
 func _install_hand_rest() -> Vector3:
@@ -17084,8 +17076,7 @@ func _seat_install_ghost(key: String, slot: int, body: ComboPartBody = null,
 	_install_seating = true
 	chip.set_socket_lifted(slot)
 	var launched := run
-	var start := chip.socket_world(slot) + Vector3.UP * ComboPartBody.SOCKET_SEAT \
-		+ Vector3.UP * ComboPartBody.SIDE * ComboChipView.PLUG_RISE
+	var start := chip.pin_world(slot) + Vector3.UP * ComboPartBody.SIDE * ComboChipView.PLUG_RISE
 	var from := ghost.global_position
 	# Aus der Grube ein Trage-Bogen, aus der Hand nur der kurze Griff.
 	var peak := PIT_PART_CARRY_PEAK if carry else 0.0
@@ -17193,7 +17184,6 @@ func _settle_part_install_hard() -> void:
 		combo_chips[key].set_socket_hover(-1)
 		combo_chips[key].set_socket_beckon(false, false)
 	_part_hover_key = ""
-	_sync_combo_extension(true)
 
 ## Je Bild: der Platz unter dem Zeiger säumt sich und erklärt sich - aus JEDER
 ## Pose, in der der Chip zu sehen ist (Sichtbar heißt bedienbar gilt fürs Lesen).
@@ -17236,35 +17226,6 @@ func _sync_part_hover() -> void:
 		if chip.socket_dimmed(slot):
 			body += "\n" + PART_DISABLED_NOTE
 	table_screen.show_part_hint(title, body, accent)
-
-## Der EINE Entscheider: ausgefahren stehen die Chips genau dann, wenn die Kamera an der
-## KOMBINATIONEN-Station steht oder ein Einbau/Umstecken läuft (Einbau-Rahmen, Modul-Beutel in
-## der Grube, gezogenes Teil). Je Bild gefragt; Layout und Pick-Körper stehen sofort am
-## Endzustand, die Körper fahren nach.
-func _combos_extended_wanted() -> bool:
-	if camera_rig == null or run == null:
-		return false
-	if camera_rig.mode == CameraRig.Mode.COMBOS and not camera_rig.free_camera:
-		return true
-	return _part_install_forced() or _install_seating or part_drag_key != "" or _module_bag != null
-
-func _sync_combo_extension(hard := false) -> void:
-	if table_screen == null:
-		return
-	var on := _combos_extended_wanted()
-	if on != table_screen.cluster_extended:
-		table_screen.set_cluster_extended(on)
-		_place_combos_click_zone()
-	var riding := false
-	for key: String in combo_chips:
-		var chip: ComboChipView = combo_chips[key]
-		chip.set_extended(on, 0.0 if hard else ComboChipView.EXTEND_TIME)
-		if hard:
-			chip.settle_extension_hard()
-		riding = riding or chip.extension_running()
-	# Das Adernetz liegt schon am Endzustand - solange die Chips fahren, steht es nicht.
-	if table_screen.combo_wiring != null:
-		table_screen.combo_wiring.visible = not riding
 
 ## UMSTECKEN nur an der Kombinationen-Station und im Bearbeitungs-Fenster
 ## (benannte Ausnahme von "Sichtbar heißt bedienbar").
@@ -17316,14 +17277,14 @@ func _lift_part_drag() -> void:
 	add_child(part_drag_ghost)
 	part_drag_ghost.setup(chip.socket_part(part_drag_slot))
 	part_drag_ghost.global_rotation = Vector3.ZERO
-	part_drag_ghost.global_position = chip.socket_world(part_drag_slot) \
-		+ Vector3.UP * chip.socket_side()
+	part_drag_ghost.global_position = chip.pin_world(part_drag_slot) \
+		+ Vector3.UP * ComboPartBody.SIDE
 
 func _move_part_ghost(screen_pos: Vector2) -> void:
 	var chip: ComboChipView = combo_chips.get(part_drag_key)
 	if part_drag_ghost == null or chip == null:
 		return
-	var height := chip.socket_world(part_drag_slot).y + chip.socket_side()
+	var height := chip.pin_world(part_drag_slot).y + ComboPartBody.SIDE
 	var hit: Variant = _mouse_on_plane(screen_pos, height)
 	if hit != null:
 		part_drag_ghost.global_position = hit
@@ -17383,10 +17344,13 @@ func _on_secret_part_purchased(part: ComboPart) -> void:
 ## from_pack) gehen vorher den alten Weg aus der Hand.
 
 const PIT_PART_FRAME_MARGIN := 1.04
-## Reihe und Beutel als Anteil der Grubenbreite (Display-x), Teilung als Vielfaches der Platte.
+## Säule und Beutel als Anteil der Grubenbreite (Display-x); Teilung untereinander als
+## Vielfaches der Pin-Tiefe, nebeneinander der Pin-Länge; höchstens so viel der Grubenhöhe.
 const PIT_ROW_SHARE := 0.36
 const PIT_BAG_SHARE := 0.8
-const PIT_PART_PITCH := 1.25
+const PIT_PART_PITCH := 1.6
+const PIT_PART_COLUMN_PITCH := 1.3
+const PIT_PART_HEIGHT_SHARE := 0.8
 ## Ein gewähltes Modul hebt sich so weit; Nachzieh-Rate der Reihe je Sekunde.
 const PIT_PART_LIFT := 0.35
 const PIT_PART_FOLLOW := 14.0
@@ -17469,26 +17433,22 @@ func _pit_bag_rest() -> Vector3:
 	return Vector3(at.x, DicePit.FLOOR_TOP + VitrineView.FLOOR_CLEAR, at.z)
 
 ## Platz i von n in der Reihe - eine reine Rechnung, die Reihe rückt beim Stecken zusammen.
-## Reicht die Reihe nicht zwischen Grubenrand und Glückswürfel, bricht sie in zwei um -
-## die Module bleiben gleich groß.
+## Die Pins liegen untereinander wie am Chip; reicht die Grubenhöhe nicht, bricht die Säule in
+## eine zweite um - die Module bleiben gleich groß.
 func _pit_part_rest(i: int, n: int) -> Vector3:
 	var r := _throw_pit_rect_px()
 	var center := Vector2(r.position.x + r.size.x * PIT_ROW_SHARE, r.get_center().y)
-	# Längs der Reihe liegt die Platte mit Z (Bild-rechts), quer mit X (Bild-oben).
-	var pitch := _world_len_px(ComboPartBody.PLATE.z * PIT_PART_PITCH)
-	var row_pitch := _world_len_px(ComboPartBody.PLATE.x * PIT_PART_PITCH)
-	var luck_left := r.position.x + r.size.x * PIT_LUCK_SHARE \
-		- _world_len_px(LuckDieView.half_edge() * 2.0)
-	var reach := minf(center.x - r.position.x, luck_left - center.x) - pitch * 0.5
-	var per_row := maxi(n, 1)
-	if float(per_row - 1) * pitch * 0.5 > reach:
-		per_row = ceili(float(n) / 2.0)
-	var rows := ceili(float(n) / float(per_row))
-	var row := i / per_row
-	var in_row := mini(per_row, n - row * per_row)
+	var pitch := _world_len_px(ComboPartBody.HULL.y * PIT_PART_PITCH)
+	var column_pitch := _world_len_px(ComboPartBody.HULL.x * PIT_PART_COLUMN_PITCH)
+	var per_column := maxi(n, 1)
+	if float(per_column) * pitch > r.size.y * PIT_PART_HEIGHT_SHARE:
+		per_column = ceili(float(n) / 2.0)
+	var columns := ceili(float(n) / float(per_column))
+	var column := i / per_column
+	var in_column := mini(per_column, n - column * per_column)
 	var at := table_screen.pixel_to_world(center + Vector2(
-		(float(i - row * per_row) - float(in_row - 1) * 0.5) * pitch,
-		(float(row) - float(rows - 1) * 0.5) * row_pitch))
+		(float(column) - float(columns - 1) * 0.5) * column_pitch,
+		(float(i - column * per_column) - float(in_column - 1) * 0.5) * pitch))
 	return Vector3(at.x, DicePit.FLOOR_TOP + VitrineView.FLOOR_CLEAR, at.z)
 
 ## Der Grundriß des liegenden Beutels in Display-Pixeln (wie eine liegende Kassette).
@@ -17657,7 +17617,7 @@ func _pit_drag_goal(body: ComboPartBody) -> Vector3:
 			var key := String(pick["key"])
 			var slot := run.install_target(key, int(pick["slot"]), not _dice_editing_locked())
 			if slot >= 0:
-				return combo_chips[key].socket_world(slot) \
+				return combo_chips[key].pin_world(slot) \
 					+ Vector3.UP * ComboPartBody.SIDE * INSTALL_SNAP
 	if _pointer_over_bag(_pit_pointer):
 		return _bag_mouth(_module_bag)
@@ -17678,8 +17638,8 @@ func _sync_pit_rim(parts: Array[ComboPart]) -> void:
 		_pit_rim = MeshInstance3D.new()
 		_pit_rim.name = "PitPartRim"
 		var mesh := BoxMesh.new()
-		mesh.size = Vector3(ComboPartBody.PLATE.x * PIT_RIM_ROOM, PIT_RIM_THICK,
-			ComboPartBody.PLATE.z * PIT_RIM_ROOM)
+		mesh.size = Vector3(ComboPartBody.HULL.y * PIT_RIM_ROOM, PIT_RIM_THICK,
+			ComboPartBody.HULL.x * PIT_RIM_ROOM)
 		var material := StandardMaterial3D.new()
 		material.albedo_color = PIT_RIM_COLOR
 		material.emission_enabled = true
@@ -17708,7 +17668,7 @@ func _pit_part_at(screen_pos: Vector2) -> ComboPart:
 			continue
 		var c := camera.unproject_position(center)
 		var reach := c.distance_to(camera.unproject_position(
-			center + Vector3(0.0, 0.0, ComboPartBody.SIDE * 0.5 * PIT_PART_PICK)))
+			center + Vector3(0.0, 0.0, ComboPartBody.HULL.x * 0.5 * PIT_PART_PICK)))
 		var d := c.distance_to(screen_pos)
 		if d <= maxf(reach, PIT_PART_PICK_MIN_PX) and d < best_d:
 			best = part
@@ -17878,15 +17838,8 @@ func _bag_shaft_on(bag: CardPackView, seat: Vector3) -> LiftShaftView:
 	return _bag_shaft
 
 ## Der harte Weg des Einzugs: Sektion bündig, Beutel fort.
-## Der weitere Bogen zwischen Station und Wurfplatz.
-const LUCK_ROLL_CARRY := 0.8
-const LUCK_ROLL_PEAK := 5.0
 func _drop_bag_sinking() -> void:
 	if _bag_shaft != null and is_instance_valid(_bag_shaft) and _bag_shaft.riding():
-## Wo er ist: auf der Station, am Wurfplatz, in der Wurfgrube.
-const LUCK_HOME := 0
-const LUCK_ROLL := 1
-const LUCK_PIT := 2
 		_bag_shaft.settle_hard()
 	if _bag_sinking != null and is_instance_valid(_bag_sinking):
 		_free_data_cell(_bag_sinking)
@@ -17917,7 +17870,6 @@ func _settle_module_bag_hard() -> void:
 ## Der kleine goldene Würfel wohnt auf dem Sitz der GLÜCKS-STATION rechts neben dem Chip-Tray.
 ## Seine Augen sind gebucht (GameRun.luck_die), der Körper zeigt sie im eigenen Schlag; sein
 ## Wurf beim Öffnen IST die Zahl der Wahlen. Für jedes Paket fliegt er im Trage-Bogen hin -
-	_luck_last_face = -1
 ## Karten und Würfel an den WURFPLATZ neben der Öffnungs-Fläche, Module in die Wurfgrube -,
 ## würfelt dort und fliegt heim (die benannte Ausnahme: ein Wurf, kein Hub).
 
@@ -17926,8 +17878,15 @@ const LUCK_DIE_ROOM := 1.6
 ## Der Trage-Bogen zur Wurfgrube und zurück.
 const LUCK_DIE_CARRY := 0.6
 const LUCK_DIE_PEAK := 3.0
+## Der weitere Bogen zwischen Station und Wurfplatz.
+const LUCK_ROLL_CARRY := 0.8
+const LUCK_ROLL_PEAK := 5.0
 ## Sein Platz in der Wurfgrube: Anteil der Grubenbreite zwischen Modul-Reihe und Beutel.
 const PIT_LUCK_SHARE := 0.62
+## Wo er ist: auf der Station, am Wurfplatz, in der Wurfgrube.
+const LUCK_HOME := 0
+const LUCK_ROLL := 1
+const LUCK_PIT := 2
 
 var luck_die_view: LuckDieView
 ## Sein Ort (LUCK_*); fliegt er gerade, führt der Bogen dorthin.
@@ -17942,17 +17901,6 @@ var _luck_grabbed := false
 func _setup_luck_die() -> void:
 	luck_die_view = LuckDieView.new()
 	add_child(luck_die_view)
-	if table_screen == null:
-		return Rect2()
-	var seat := table_screen.luck_seat_px()
-	if seat.x < 0.0:
-		return Rect2()
-	var side := _world_len_px(LuckDieView.half_edge() * 2.0) * LUCK_DIE_ROOM
-	return Rect2(seat - Vector2.ONE * side * 0.5, Vector2(side, side))
-
-## Der WURFPLATZ der Karten- und Würfel-Pakete: eine Fuge rechts neben der Öffnungs-Fläche,
-## oben bündig mit dem Pool (leer = noch keiner).
-func _luck_die_roll_px() -> Rect2:
 	luck_die_view.visible = false
 	luck_die_view.hopped.connect(func(step: int) -> void:
 		if case_show != null:
@@ -17966,24 +17914,10 @@ func _luck_die_roll_px() -> Rect2:
 func _seat_luck_die_for_run() -> void:
 	if luck_die_view == null or run == null:
 		return
-## Der Punkt eines Ortes (ohne Wurfplatz würfelt er zu Hause).
-func _luck_spot(where: int) -> Vector3:
-	if where == LUCK_PIT:
-		return _pit_luck_rest()
-	if where == LUCK_ROLL:
-		var roll := _luck_die_roll_px()
-		if roll.size.x > 0.0:
-			var at := table_screen.pixel_to_world(roll.get_center())
-			return Vector3(at.x, 0.0, at.z)
-	return _luck_die_home()
-
-## Wohin er gehört, solange ihn kein Modul-Paket in der Grube hält.
-func _luck_wanted() -> int:
-	return LUCK_ROLL if _choice != null else LUCK_HOME
-
 	if not run.luck_die_changed.is_connected(_on_luck_die_changed):
 		run.luck_die_changed.connect(_on_luck_die_changed)
 	_luck_die_home_hard()
+	_luck_last_face = -1
 	luck_die_view.seat_hard(run.luck_die.faces)
 
 func _on_luck_die_changed(changes: Array) -> void:
@@ -17993,9 +17927,6 @@ func _on_luck_die_changed(changes: Array) -> void:
 ## Wie weit die Station nach rechts darf: bis eine Fuge vor das nächste Fenster, das neben
 ## dem Tray steht, höchstens bis an den Rand der Anzeige.
 func _luck_station_limit_x(tray: Rect2) -> float:
-	var station := table_screen.luck_station_window
-	if station != null and station.visible:
-		station.set_state(luck_die_view.shown_faces(), _luck_last_face, run.luck_station_state())
 	var gap := TableScreen.LAYOUT_SIZE.x * 0.005
 	var limit := float(TableScreen.RESOLUTION.x) - gap
 	for child in table_screen.get_children():
@@ -18013,6 +17944,17 @@ func _luck_station_limit_x(tray: Rect2) -> float:
 func _luck_die_place_px() -> Rect2:
 	if table_screen == null:
 		return Rect2()
+	var seat := table_screen.luck_seat_px()
+	if seat.x < 0.0:
+		return Rect2()
+	var side := _world_len_px(LuckDieView.half_edge() * 2.0) * LUCK_DIE_ROOM
+	return Rect2(seat - Vector2.ONE * side * 0.5, Vector2(side, side))
+
+## Der WURFPLATZ der Karten- und Würfel-Pakete: eine Fuge rechts neben der Öffnungs-Fläche,
+## oben bündig mit dem Pool (leer = noch keiner).
+func _luck_die_roll_px() -> Rect2:
+	if table_screen == null:
+		return Rect2()
 	var area := _opening_area_rect()
 	if area.size.x <= 0.0:
 		return Rect2()
@@ -18023,6 +17965,21 @@ func _luck_die_place_px() -> Rect2:
 func _luck_die_home() -> Vector3:
 	var at := table_screen.pixel_to_world(_luck_die_place_px().get_center())
 	return Vector3(at.x, 0.0, at.z)
+
+## Der Punkt eines Ortes (ohne Wurfplatz würfelt er zu Hause).
+func _luck_spot(where: int) -> Vector3:
+	if where == LUCK_PIT:
+		return _pit_luck_rest()
+	if where == LUCK_ROLL:
+		var roll := _luck_die_roll_px()
+		if roll.size.x > 0.0:
+			var at := table_screen.pixel_to_world(roll.get_center())
+			return Vector3(at.x, 0.0, at.z)
+	return _luck_die_home()
+
+## Wohin er gehört, solange ihn kein Modul-Paket in der Grube hält.
+func _luck_wanted() -> int:
+	return LUCK_ROLL if _choice != null else LUCK_HOME
 
 ## Sein Platz in der Wurfgrube, auf ihrem versenkten Boden.
 func _pit_luck_rest() -> Vector3:
@@ -18036,6 +17993,9 @@ func _pit_luck_rest() -> Vector3:
 func _sync_luck_die() -> void:
 	if luck_die_view == null or run == null or table_screen == null:
 		return
+	var station := table_screen.luck_station_window
+	if station != null and station.visible:
+		station.set_state(luck_die_view.shown_faces(), _luck_last_face, run.luck_station_state())
 	var place := _luck_die_place_px()
 	luck_die_view.visible = place.size.x > 0.0 and camera_rig.mode != CameraRig.Mode.TITLE
 	if place.size.x <= 0.0:
@@ -18043,16 +18003,11 @@ func _sync_luck_die() -> void:
 	if _luck_at != LUCK_PIT and _luck_wanted() != _luck_at:
 		_send_luck_die(_luck_wanted())
 	if not luck_die_view.carrying():
-## Ist er noch nicht am Wurfplatz gelandet, landet er hart - der Zähler wartet nie.
 		var spot := _luck_spot(_luck_at)
 		if luck_die_view.global_position != spot:
 			luck_die_view.global_position = spot
 
 ## Im Trage-Bogen an einen Ort (Endzustand zuerst: der Ort steht, der Bogen fährt hin). Ein
-	if _luck_focused:
-		_leave_die_focus()
-	if _luck_at != LUCK_ROLL or luck_die_view.carrying():
-		_luck_land_hard(LUCK_ROLL)
 ## laufender Wurf liegt sofort - sein Stillstand nennt die Zahl.
 func _send_luck_die(where: int) -> void:
 	if luck_die_view == null or table_screen == null:
@@ -18071,7 +18026,6 @@ func _luck_land_hard(where: int) -> void:
 	if luck_die_view == null or table_screen == null:
 		return
 	_luck_at = where
-	_luck_last_face = face
 	luck_die_view.land_at(_luck_spot(where))
 
 ## Der harte Weg: kein Wurf, kein Flug, der gebuchte Stand in Ruhe auf der Station.
@@ -18089,11 +18043,16 @@ func _luck_die_home_hard() -> void:
 
 ## Die Optionen liegen: der Glückswürfel rollt auf die gebuchte Seite, und erst sein
 ## Stillstand nennt die Wahlen (_on_luck_die_rolled).
+## Ist er noch nicht am Wurfplatz gelandet, landet er hart - der Zähler wartet nie.
 func _roll_luck_die_for(choice: PackChoice) -> void:
 	pack_choice_view.await_roll()
 	if luck_die_view == null or not luck_die_view.visible or _luck_at == LUCK_PIT:
 		pack_choice_view.die_landed()
 		return
+	if _luck_focused:
+		_leave_die_focus()
+	if _luck_at != LUCK_ROLL or luck_die_view.carrying():
+		_luck_land_hard(LUCK_ROLL)
 	_luck_roll_choice = choice
 	luck_die_view.roll_to(choice.die_face)
 
@@ -18112,6 +18071,7 @@ func _land_luck_roll_hard(choice: PackChoice) -> void:
 	luck_die_view.roll_to(choice.die_face, 0.0)
 
 func _on_luck_die_rolled(face: int) -> void:
+	_luck_last_face = face
 	if case_show != null and run != null:
 		case_show.play_roll_land(run.luck_die.value(face))
 	var choice := _luck_roll_choice
@@ -18121,11 +18081,6 @@ func _on_luck_die_rolled(face: int) -> void:
 		pack_choice_view.die_landed()
 
 func _on_roll_skip_requested() -> void:
-	if not button.double_click:
-		# Am Sitz: ein Zug schubst ihn an, der Schwung läuft aus.
-		_luck_grabbed = true
-		luck_die_view.grab()
-		return true
 	_finish_luck_roll()
 
 ## Modul-Paket: der Würfel fliegt im Trage-Bogen neben die Modul-Reihe (dort würfelt er).
@@ -18147,7 +18102,6 @@ func _roll_luck_die_in_pit() -> void:
 	luck_die_view.roll_to(int(run.last_module_roll["face"]))
 
 ## Der Beutel ist eingezogen: der Würfel fliegt heim (oder an den Wurfplatz einer Öffnung).
-		luck_die_view.release()
 func _send_luck_die_home() -> void:
 	if _luck_at != LUCK_PIT:
 		return
@@ -18167,6 +18121,11 @@ func _try_luck_die_click(event: InputEvent) -> bool:
 		return true
 	if camera_rig.die_focus or _luck_at != LUCK_HOME or luck_die_view.busy():
 		return false
+	if not button.double_click:
+		# Am Sitz: ein Zug schubst ihn an, der Schwung läuft aus.
+		_luck_grabbed = true
+		luck_die_view.grab()
+		return true
 	_focus_luck_die()
 	return true
 
@@ -18188,5 +18147,6 @@ func _handle_luck_drag_input(event: InputEvent) -> void:
 	var button := event as InputEventMouseButton
 	if button != null and not button.pressed and button.button_index == MOUSE_BUTTON_LEFT:
 		_luck_grabbed = false
+		luck_die_view.release()
 
 #endregion

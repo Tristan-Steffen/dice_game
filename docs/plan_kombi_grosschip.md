@@ -187,3 +187,51 @@ Zuständen). Blockmodelle: `tools/blender_combo_module_variants.py` (`chip_stift
 7. Sichtproben aus dem Spiel nach `E:/Generated Images/Fumble/kombi_stifte_spiel/`: Übersicht
    und GRUBEN-Station kompakt (leer, gemischt, voll), KOMBINATIONEN-Station ausgefahren, und
    eine kurze Bildfolge des Ausfahrens.
+
+## Welle D - NUR NOCH PINS (Spieler-Entscheide 2026-11-21, nach Welle C im Spiel)
+
+Stand: GEBAUT (2026-11-21). Gemessen: Pin 1,7 × 0,85 × 0,6 Welt, Zelle 319,2 × 130,2 Display-px (Fuge 16,8 px,
+Gehäuse zu Gehäuse 2,83 Welt), Feld x 791,2–1782,4. Abweichungen: an der GRUBEN-Station mißt ein Pin 27 × 13
+Bildschirm-px statt der erhofften ~35 × 18 (alle zwölf Kombinationen samt Nebenwetten im Bild lassen die Kamera nicht
+näher; `PIT_ZOOM_LEFT` 4,5 → 6,0, `PIT_ZOOM_DISTANCE_BONUS` unverändert); die Wurfgruben-Reihe des Modul-Pakets ist
+eine SÄULE (Pins untereinander wie am Chip); die Kopplung zeigt ihre Kopie als Feld in der Farbe des kopierten
+Moduls statt als Abbild. Sichtproben `E:/Generated Images/Fumble/kombi_nur_stifte_spiel/`.
+
+1. **Der ausgefahrene Zustand stirbt ganz.** Kein Spreizen des Feldes, keine Sockel, keine
+   Kontaktfelder, keine Platten, keine Leitungen im Deckel, kein zweites Cluster-Layout. Der Chip
+   ist IMMER kompakt. Weder der Klick auf die Kombinationen noch ein neues Modul fährt etwas aus.
+2. **Der PIN IST das Modul - überall.** Es gibt nur noch EINEN Körper je Modul: seinen Pin. Am
+   Chip, in der Wurfgruben-Reihe eines Modul-Pakets, im Flug, als Zieh-Geist, im Schwarzmarkt,
+   in der Debug-Ansicht - überall dieselbe Größe (EINE Größe je Ding). Die großen Modul-Modelle
+   auf Platte (`part_<id>.glb`, `ComboPartBody.PLATE` und der Platten-Modus) entfallen.
+3. **Der Pin-Platz IST der Steckplatz.** Einbau und Umstecken zielen auf die drei rechten Pins
+   des Chips: ein leerer Platz ist der schlichte Stahlpin (beim Einbau atmet er wie früher der
+   freie Sockel), ein belegter zeigt sein Modul. Hover-Hinweis, Pick, `play_plug`, Verdrängen,
+   Verwerfen in den Beutel: alles wie bisher, nur am Pin. „Sichtbar heißt bedienbar“ bleibt:
+   Umstecken nur an der KOMBINATIONEN-Station, Einbau nur im eigenen Rahmen.
+4. **Die Pins werden GRÖSSER.** Ziel etwa 1,7 lang × 0,85 tief (Welt; heute 0,9 × 0,56). Dafür
+   rücken die drei rechten Pin-Reihen so weit auseinander, wie die Chiptiefe hergibt, und die
+   Spalten-Fuge wächst um die zusätzliche Pin-Länge. Die linken Pins bleiben klein.
+   Das Feld bleibt rechtsbündig an der Grube; die GRUBEN-Station muß weiter alle zwölf
+   Kombinationen zeigen (`PIT_ZOOM_LEFT`, `PIT_ZOOM_DISTANCE_BONUS` nachmessen).
+5. **Die Pins werden UNTERSCHEIDBARER.** Die Familie bleibt an Grundform und Farbe erkennbar,
+   aber jedes Modul bekommt eine EIGENE Silhouette (nicht nur ein Zeichen auf gleicher Form) und
+   ein großes, helles Merkmal. Prüfmaß: an der GRUBEN-Station (rund 35 × 18 Bildschirm-px je
+   Pin) sind alle Module einer Familie auseinanderzuhalten; an der Übersicht mindestens die
+   Familien. Pins ruhen heller als bisher (nicht mehr auf 40 % gedimmt), feuernd blitzen sie.
+   Der leere Stahlpin darf nicht wie ein Modul lesen und nicht wie die linken Pins.
+6. Zustand am Pin wie in Welle C (Zählwerk, Fehlerspeicher, Anlasser, Nachbrenner,
+   Reihenklemme, Schwingkreis) - größer, wo die neue Größe es erlaubt.
+7. Regeln unverändert. Modul-Katalog = was `ComboPart.all()` heute liefert (die Ladungs-Welle
+   hat Thermistor und Magnetron entfernt).
+
+### Lieferumfang
+- `ComboChipView` ohne Ausfahren (`set_extended`, Sockel, Leitungen, Platten-Körper fort),
+  `TableScreen` mit EINEM Layout, scene_root ohne Entscheider - toter Code wird gelöscht.
+- `tools/blender_pin_models.py` mit den neuen, größeren Pins; `tools/blender_part_models.py`
+  und `part_*.glb` entfallen, soweit nichts mehr auf sie zeigt.
+- Wurfgruben-Reihe, Einbau, Umstecken, Schwarzmarkt-Auslage, Debug-Ansicht auf den Pin-Körper.
+- Tests und CLAUDE.md nachziehen; Sichtproben nach
+  `E:/Generated Images/Fumble/kombi_nur_stifte_spiel/`: Übersicht, GRUBEN-Station (leer,
+  gemischt, voll), KOMBINATIONEN-Station, ein Pin-Blatt aller Module in ECHTER Größe an der
+  Gruben-Station und vergrößert, Einbau aus dem Modul-Beutel und eines Wett-Moduls.

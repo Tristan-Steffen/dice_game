@@ -95,7 +95,8 @@ const WORKSHOP_CLOSE_AIM := Vector2.ZERO
 var pool_target := Vector3(-23.75, 0.4, 12)
 var combos_target := Vector3(-8, 0, 0)
 var combos_half := Vector2.ZERO
-const COMBOS_MARGIN := 1.04
+const COMBOS_MARGIN := 1.1
+const COMBOS_NEAREST := 10.0
 var pit_target := Vector3.ZERO
 var charms_target := Vector3(24, 0, 0)
 var hub_target := Vector3(-24, 0, 0)
@@ -620,7 +621,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 	if target_mode == Mode.SECRET_SHOP:
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.COMBOS and combos_half != Vector2.ZERO:
-		distance = maxf(distance, tilted_fit_distance(combos_half, COMBOS_MARGIN))
+		# Das Feld ist schmal: die Station fährt so nah heran, wie es ins Bild paßt.
+		distance = maxf(COMBOS_NEAREST, tilted_fit_distance(combos_half, COMBOS_MARGIN))
 	if target_mode == Mode.CHARMS and charms_half != Vector2.ZERO:
 		distance = maxf(distance, tilted_fit_distance(charms_half, CHARMS_MARGIN))
 	if target_mode == Mode.WORKSHOP:

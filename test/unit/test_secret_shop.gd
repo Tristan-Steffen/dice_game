@@ -107,7 +107,8 @@ func test_stock_slots_are_charm_special_wildcard() -> void:
 	# ist seit dem 2026-10-26 die dritte).
 	var special: String = run.secret_stock[1][GameRun.OFFER_KIND]
 	assert_true(special == GameRun.KIND_ENGRAVING or special == GameRun.KIND_CATALYST
-		or special == GameRun.KIND_BLANK, "unbekannte Sonderbestands-Ware: %s" % special)
+		or special == GameRun.KIND_BLANK or special == GameRun.KIND_PART,
+		"unbekannte Sonderbestands-Ware: %s" % special)
 	# Der dritte Platz ist die Wildcard - und sie würfelt nur noch WARE.
 	var wildcard: String = run.secret_stock[2][GameRun.OFFER_KIND]
 	assert_true(wildcard == GameRun.KIND_ENGRAVING or wildcard == GameRun.KIND_CATALYST

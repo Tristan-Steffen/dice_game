@@ -30,8 +30,6 @@ const BAY_FLOOR := 0.05
 ## sie im Tiefenpuffer).
 const CARD_THICKNESS := DataCellView.DEPTH * PackDrawerView.CASSETTE_SCALE
 const FLOOR_PROUD := 0.006
-## Der Rand der BUCHSE über und unter der Karte (das Modell card_socket.glb).
-const SOCKET_LIP := 0.05
 const PROUD := BAY_FLOOR + FLOOR_PROUD
 ## Die Luft, die die Karte unter der Tischkante behält - keine Karte ragt je über
 ## die Kante.
@@ -51,8 +49,7 @@ const HIGHLIGHT_GAIN := 2.2
 ## Die Fassung ohne Meldung (kopflos): Seite, oben, unten in Welt.
 const MARGINS_FALLBACK := Vector3(0.21, 0.21, 0.9)
 ## Die MULDE je Stellplatz: die Platte der Lamelle ist ihr Boden, Lippen und Rippen ihr
-## Rand bis Kartenhöhe, am Boden ein LICHTSAUM in der Sortenfarbe (leer kühl und stumpf)
-## und am Bild-rechten Ende die BUCHSE, in der die Karte steckt.
+## Rand bis Kartenhöhe, am Boden ein LICHTSAUM in der Sortenfarbe (leer kühl und stumpf).
 const BAY_ROOM := 1.06
 const LIP_MIN := 0.06
 const SEAM_WIDTH := 0.05
@@ -908,7 +905,7 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 		build_bay(place, bay, seams[across] if across < seams.size() else _seam_material(BAY_EMPTY),
 			_scale, _wall_material, lamps[across] if across < lamps.size()
 				else MagazinTrayDress.floor_material(column))
-		MagazinTrayDress.dress_bay(place, column, bay, FLOOR_RISE, PROUD)
+		MagazinTrayDress.dress_bay(place, column, bay, FLOOR_RISE, PROUD, _scale)
 
 ## Die EINE Bauregel einer Mulde - auch der Laden legt seine Kassetten so hinein
 ## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden; bay ist
@@ -931,15 +928,6 @@ static func build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D,
 	TableProps.box(node, "Boden",
 		Vector3(bay.x - SEAM_WIDTH * 2.0, FLOOR_RISE, bay.y - SEAM_WIDTH * 2.0),
 		Vector3(0.0, FLOOR_RISE * 0.5, 0.0), floor_material)
-	var socket := DataCellView.socket_model()
-	if socket != null:
-		socket.position = Vector3(0.0,
-			PROUD + DataCellView.DEPTH * cell_scale * 0.5,
-			DataCellView.HEIGHT * cell_scale * 0.5)
-		# In der Mulde trägt sie keinen Rand über der Karte - sie endet bündig im Deck.
-		var thick := DataCellView.DEPTH * cell_scale
-		socket.scale.y = thick / (thick + SOCKET_LIP * 2.0)
-		node.add_child(socket)
 
 ## Das Wand-Material einer Mulde: sein Verlauf mißt an der Wandhöhe.
 static func bay_wall_material(cell_scale: float) -> ShaderMaterial:

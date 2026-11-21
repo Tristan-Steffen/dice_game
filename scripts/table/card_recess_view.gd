@@ -2,8 +2,7 @@ class_name CardRecessView
 extends Node3D
 
 ## Die VERTIEFUNG eines Kassetten-Platzes im Laden (Spieler-Wunsch 2026-10-29):
-## dieselbe Mulde wie im Magazin - Saum, Boden, ausgekleidete Wände und die BUCHSE am
-## Bild-rechten Ende -, nur in die Tischfläche gesenkt statt in ein Tablett. Die
+## dieselbe Mulde wie im Magazin - Saum, Boden, ausgekleidete Wände -, nur in die Tischfläche gesenkt statt in ein Tablett. Die
 ## liegende Karte ist darin bündig mit der Anzeige. Das LOCH darüber schneidet
 ## scene_root; dieser Körper meldet nur seine Öffnung.
 
