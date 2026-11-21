@@ -783,8 +783,7 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 	if pack is DicePack:
 		_roll_dice_choice(choice, rng)
 	else:
-		var count := CardPack.options_after(int(pack.get("size")), pack_option_delta())
-		choice.options = _roll_pack_options(pack, count, rng)
+		choice.options = _roll_pack_options(pack, CardPack.option_count(int(pack.get("size"))), rng)
 	choice.picks = _choice_picks(choice)
 	return _queue_opened(choice)
 
@@ -805,14 +804,13 @@ func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) 
 			out.append(card)
 	return out
 
-## Ein WÜRFEL-Paket würfelt seine Zugabe-Kette und die Würfel - gebucht in der Auswahl,
+## Ein WÜRFEL-Paket würfelt GENAU so viele Würfel wie Augen - gebucht in der Auswahl,
 ## mit dem Glück der Güte obendrauf. Die Wahlen sagt der Glückswürfel.
 func _roll_dice_choice(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 	var dice_pack := choice.pack as DicePack
 	var luck := pack_luck(dice_pack)
-	choice.base_count = clampi(DicePack.base_count(dice_pack.size) + pack_option_delta(),
-		DicePack.MIN_COUNT, DicePack.MAX_COUNT)
-	var count := DicePack.roll_count(choice.base_count, luck, rng)
+	var count := DicePack.base_count(dice_pack.size)
+	choice.base_count = count
 	var souls := owned_essence_ids()
 	choice.options = []
 	for i in count:
@@ -835,15 +833,6 @@ func shop_dice_pack_quality_weights() -> Array:
 ## Die Güte-Gewichte der Karten-Pakete - dieselbe Leiter wie bei den Würfel-Paketen.
 func shop_card_pack_quality_weights() -> Array:
 	return DicePack.shop_quality_weights(shop_tier())
-
-## Beigabe (je Kopie) und Beipack legen Optionen dazu, Verplombt nimmt eine weg.
-func pack_option_delta() -> int:
-	var delta := charm_ids().count(Charm.EXTRA_OPTION)
-	if _clause_active(DealClause.SUPPLEMENT):
-		delta += deal_bonus_factor()
-	if _clause_active(DealClause.SEALED):
-		delta -= 1
-	return delta
 
 ## Die Auswahl, die gerade dran ist (null = keine).
 func current_pack_choice() -> PackChoice:

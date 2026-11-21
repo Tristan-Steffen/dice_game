@@ -7,17 +7,18 @@ func _rng(seed_value: int) -> RandomNumberGenerator:
 	return rng
 
 func test_option_count_follows_the_card_count() -> void:
-	for pack_size in CardPack.CARD_SIZES:
+	for pack_size in CardPack.SIZES:
 		var card_pack := CardPack.make(CardPack.SORT_NUMBER, pack_size)
 		var cards := CardPack.roll_contents(card_pack, 0.0, false, _rng(pack_size + 1))
-		assert_eq(cards.size(), [3, 4, 5][pack_size], "Größe %d" % pack_size)
+		assert_eq(cards.size(), [2, 3, 4, 5, 6][pack_size], "Größe %d" % pack_size)
 
-func test_card_packs_know_three_counts_only() -> void:
-	assert_eq(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_HUGE).size, CardPack.SIZE_LARGE,
-		"Riesig gibt es für Karten-Pakete nicht mehr")
+func test_card_packs_run_from_two_to_six() -> void:
+	assert_eq(CardPack.option_count(CardPack.SIZE_TINY), 2)
+	assert_eq(CardPack.option_count(CardPack.SIZE_HUGE), 6)
+	assert_eq(CardPack.make(CardPack.SORT_NUMBER, 9).size, CardPack.SIZE_HUGE, "geklemmt")
 	for i in 60:
 		var pack := CardPack.roll_shop(_rng(i))
-		assert_true(CardPack.CARD_SIZES.has(pack.size))
+		assert_true(CardPack.SIZES.has(pack.size))
 		assert_true(DicePack.QUALITIES.has(pack.quality))
 
 func test_quality_is_the_dice_pack_quality() -> void:
@@ -127,7 +128,7 @@ func test_bulk_order_lifts_the_card_sizes() -> void:
 ## Sonder rechnet mit dem Regalpreis der Sonder-Karte.
 func test_price_follows_the_formula() -> void:
 	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.CARD_SIZES:
+		for pack_size in CardPack.SIZES:
 			for pack_quality in DicePack.QUALITIES:
 				var premium := CardPack.CHOICE_PREMIUM + CardPack.OPTION_PREMIUM_STEP \
 					* float(CardPack.option_count(pack_size) - 3)
@@ -144,7 +145,7 @@ const FROZEN_PRICES := [9, 12, 17, 10, 13, 19, 17, 24, 34, 11, 15, 21, 12, 17, 2
 func test_prices_stay_frozen() -> void:
 	var i := 0
 	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.CARD_SIZES:
+		for pack_size in [CardPack.SIZE_SMALL, CardPack.SIZE_NORMAL, CardPack.SIZE_LARGE]:
 			for pack_quality in DicePack.QUALITIES:
 				assert_eq(CardPack.price_of(pack_sort, pack_size, pack_quality),
 					int(FROZEN_PRICES[i]), "%s / %d / %d" % [pack_sort, pack_size, pack_quality])
@@ -153,11 +154,10 @@ func test_prices_stay_frozen() -> void:
 func test_more_cards_and_better_quality_cost_more() -> void:
 	for pack_sort: String in CardPack.SORTS:
 		for pack_quality in DicePack.QUALITIES:
-			assert_true(CardPack.price_of(pack_sort, 0, pack_quality)
-				< CardPack.price_of(pack_sort, 1, pack_quality), "4er teurer als 3er")
-			assert_true(CardPack.price_of(pack_sort, 1, pack_quality)
-				< CardPack.price_of(pack_sort, 2, pack_quality), "5er teurer als 4er")
-		for pack_size in CardPack.CARD_SIZES:
+			for pack_size in range(1, CardPack.SIZES.size()):
+				assert_true(CardPack.price_of(pack_sort, pack_size - 1, pack_quality)
+					< CardPack.price_of(pack_sort, pack_size, pack_quality), "mehr Karten kosten mehr")
+		for pack_size in CardPack.SIZES:
 			assert_true(CardPack.price_of(pack_sort, pack_size, DicePack.QUALITY_STANDARD)
 				< CardPack.price_of(pack_sort, pack_size, DicePack.QUALITY_FINE))
 			assert_true(CardPack.price_of(pack_sort, pack_size, DicePack.QUALITY_FINE)

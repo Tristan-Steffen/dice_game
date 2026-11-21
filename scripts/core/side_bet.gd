@@ -443,7 +443,7 @@ static func _pack_price(pack_sort: String, pack_size: int, dice: bool) -> int:  
 static func _affordable_pack_sorts(weights: Dictionary, ware: int, dice: bool) -> Array:
 	var out: Array = []
 	for pack_sort: String in weights:
-		var smallest: int = DicePack.SIZES[0] if dice else CardPack.SIZE_SMALL
+		var smallest: int = DicePack.SIZES[0] if dice else CardPack.SIZE_TINY
 		if _pack_price(pack_sort, smallest, dice) <= ware:
 			out.append(pack_sort)
 	out.sort()
@@ -475,11 +475,11 @@ func reward_card_pack(factor: float = 1.0) -> CardPack:
 	return _card_packs[key]
 
 ## (Kartenzahl-Stufe, Güte) des teuersten Karten-Pakets bis zu diesem Wert (gleicher
-## Preis: mehr Karten); keines: 3er/Standard.
+## Preis: mehr Karten); keines: 2er/Standard.
 static func reward_card_pair(pack_sort: String, value: int) -> Vector2i:
-	var best := Vector2i(CardPack.SIZE_SMALL, DicePack.QUALITY_STANDARD)
+	var best := Vector2i(CardPack.SIZE_TINY, DicePack.QUALITY_STANDARD)
 	var best_price := -1
-	for pack_size in CardPack.CARD_SIZES:
+	for pack_size in CardPack.SIZES:
 		for pack_quality in DicePack.QUALITIES:
 			var price := CardPack.price_of(pack_sort, pack_size, pack_quality)
 			if price <= value and price >= best_price:

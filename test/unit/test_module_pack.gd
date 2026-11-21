@@ -30,7 +30,7 @@ func test_the_options_follow_the_size() -> void:
 		run.module_keeps = 0
 
 func test_the_prices_stay_frozen_and_the_grade_lifts_them() -> void:
-	assert_eq(ModulePack.PRICES, [10, 18, 20, 24])
+	assert_eq(ModulePack.PRICES, [7, 10, 18, 20, 24])
 	var last_size := 0
 	for pack_size in CardPack.SIZES:
 		assert_gt(int(ModulePack.PRICES[pack_size]), last_size, "größer kostet mehr")
@@ -68,7 +68,7 @@ func test_contents_are_shop_modules_without_duplicates_and_own_instances() -> vo
 	var rng := _rng(5)
 	for i in 30:
 		var parts := ModulePack.roll_contents(ModulePack.make(CardPack.SIZE_HUGE, i % 4), -1, rng)
-		assert_eq(parts.size(), 5, "die Optionen der Größe")
+		assert_eq(parts.size(), 6, "die Optionen der Größe")
 		var ids := {}
 		for part in parts:
 			assert_false(part.secret, "nie ein Schwarzmarkt-Teil")
@@ -88,8 +88,8 @@ func test_the_shop_grade_weights_climb_with_the_tier() -> void:
 
 func test_name_and_info_say_size_and_grade_never_the_modules() -> void:
 	var bag := ModulePack.make(CardPack.SIZE_LARGE, ModulePack.GRADE_EPIC)
-	assert_eq(bag.display_name, "Großes Modul-Paket · Episch")
-	assert_eq(ModulePack.make(CardPack.SIZE_NORMAL, 0).display_name, "Modul-Paket")
+	assert_eq(bag.display_name, "5er Modul-Paket · Episch")
+	assert_eq(ModulePack.make(CardPack.SIZE_NORMAL, 0).display_name, "4er Modul-Paket")
 	assert_string_contains(ModulePack.info_body(bag), "5 Module")
 	assert_string_contains(ModulePack.info_body(ModulePack.make(CardPack.SIZE_SMALL, 0)),
 		"3 Module. " + CardPack.DIE_SAYS)
@@ -102,8 +102,8 @@ func test_buying_stashes_every_module_and_opens_no_choice() -> void:
 	var bag := ModulePack.make(CardPack.SIZE_HUGE, ModulePack.GRADE_RARE)
 	var parts := run.purchase_module_pack(bag, 24, _rng(4))
 	assert_eq(run.money, 476)
-	assert_eq(parts.size(), 5)
-	assert_eq(run.pending_parts.size(), 5, "alle liegen in der Grube")
+	assert_eq(parts.size(), 6)
+	assert_eq(run.pending_parts.size(), 6, "alle liegen in der Grube")
 	assert_eq(run.module_keeps, 1, "der frische Glückswürfel: eines einbauen")
 	assert_eq(int(run.last_module_roll["keeps"]), 1)
 	for i in parts.size():
@@ -151,16 +151,6 @@ func test_bet_modules_never_lapse() -> void:
 	assert_true(run.install_pending_part_at(1, key, 0))
 	assert_eq(run.pending_parts.size(), 1, "das Wett-Modul bleibt")
 	assert_false(run.pending_parts[0].from_pack)
-
-func test_supplement_and_sealed_do_not_touch_module_packs() -> void:
-	_sign([DealClause.SUPPLEMENT])
-	assert_eq(run.purchase_module_pack(ModulePack.make(CardPack.SIZE_NORMAL, 0), 1,
-		_rng(1)).size(), 4)
-	run.active_deals.clear()
-	run.pending_parts.clear()
-	_sign([DealClause.SEALED])
-	assert_eq(run.purchase_module_pack(ModulePack.make(CardPack.SIZE_NORMAL, 0), 1,
-		_rng(1)).size(), 4)
 
 func test_no_free_socket_does_not_block_buying() -> void:
 	for key: String in DiceScoring.HAND_PRIORITY:

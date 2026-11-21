@@ -19,8 +19,8 @@ const GRADE_WEIGHTS := [[1.0, 0.45, 0.2, 0.08], [0.6, 0.8, 0.35, 0.15],
 	[0.3, 0.7, 0.8, 0.3], [0.15, 0.5, 1.0, 0.6]]
 ## Die Stufe hebt den Preis wie die Güte das Würfel-Paket.
 const GRADE_PRICE_FACTORS := [1.0, 1.4, 1.9, 2.6]
-## Grundpreis je Größe (Gewöhnlich) - eingefroren, bis das Balancing ihn neu setzt.
-const PRICES := [10, 18, 20, 24]
+## Grundpreis je Größe 2er..6er (Gewöhnlich) - vorläufig, bis das Balancing ihn neu setzt.
+const PRICES := [7, 10, 18, 20, 24]
 
 ## Laden: Gewichte der Stufen; je Fortschrittsstufe über 1 wandern sie nach oben.
 const SHOP_GRADE_WEIGHTS := [70, 22, 7, 1]
@@ -54,10 +54,10 @@ static func grade_rarity(pack_grade: int) -> String:
 static func grade_tint(pack_grade: int) -> Color:
 	return ComboPart.RARITY_COLORS[grade_rarity(pack_grade)]
 
-## "Großes Modul-Paket · Selten" (Gewöhnlich unmarkiert).
+## "4er Modul-Paket · Selten" (Gewöhnlich unmarkiert).
 var display_name: String:
 	get:
-		var base := CardPack.sized_name("Modul-Paket", size)
+		var base := "%der Modul-Paket" % option_count(size)
 		return base if grade == GRADE_COMMON else "%s · %s" % [base, grade_name(grade)]
 
 ## Was der Beutel von außen sagt: Optionen und Stufe - nie die Module.

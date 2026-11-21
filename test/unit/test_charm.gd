@@ -37,7 +37,8 @@ func test_all_returns_all_charms():
 	# −3 mit dem Pointer als KOPIE: Zündspule, Rückkopplung und Erdungskabel.
 	# +4 mit den Fumbles: Pechvogel, Fumble-Rente, Galgenfrist, Schwarze Katze.
 	# +4 mit der Paket-Auswahl: Sammelalbum, Neu gemischt, Glückspilz, Beigabe.
-	assert_eq(Charm.all().size(), 149)
+	# −1: die Beigabe (im Paket liegt genau die aufgedruckte Zahl).
+	assert_eq(Charm.all().size(), 148)
 
 func test_all_ids_are_unique():
 	var seen := {}

@@ -94,7 +94,6 @@ const FINE_PRINT := "fine_print"
 const ALBUM := "album"
 const RESHUFFLE := "reshuffle"
 const LUCKY_MUSHROOM := "lucky_mushroom"
-const EXTRA_OPTION := "extra_option"
 # Pool & Trays
 const RECYCLING := "recycling"
 const SEDIMENT := "sediment"
@@ -350,7 +349,6 @@ const RARITIES := {
 	ALBUM: RARITY_COMMON,
 	RESHUFFLE: RARITY_UNCOMMON,
 	LUCKY_MUSHROOM: RARITY_RARE,
-	EXTRA_OPTION: RARITY_RARE,
 	# Pool & Trays
 	RECYCLING: RARITY_UNCOMMON,
 	SEDIMENT: RARITY_UNCOMMON,
@@ -783,9 +781,6 @@ static func reshuffle() -> Charm:
 static func lucky_mushroom() -> Charm:
 	return _make(LUCKY_MUSHROOM, "Glückspilz", "Glück +5.")
 
-static func extra_option() -> Charm:
-	return _make(EXTRA_OPTION, "Beigabe", "Jedes Paket zeigt eine Option mehr.")
-
 # --- Pool & Trays ---
 
 static func recycling() -> Charm:
@@ -1041,7 +1036,7 @@ static func all() -> Array[Charm]:
 		blood_diamond(), bone_glue(), bone_marrow(), glassblower_lung(), mercury_vapor(),
 		display_case(), jewelry_box(), rectifier(),
 		bargain_hunter(), stamp_machine(), fine_print(),
-		album(), reshuffle(), lucky_mushroom(), extra_option(),
+		album(), reshuffle(), lucky_mushroom(),
 		recycling(), sediment(),
 		seal_of_quality(), bulk_discount(),
 		ad_drum(), shyster(),

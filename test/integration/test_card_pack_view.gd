@@ -71,7 +71,7 @@ func _cell_basis(hull: CardPackView) -> Basis:
 func test_every_card_pack_has_one_footprint_and_one_thickness() -> void:
 	var foot := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * CardPackView.FOOT_ROOM
 	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.CARD_SIZES:
+		for pack_size in CardPack.SIZES:
 			var box := _shell(_hull(pack_sort, pack_size))
 			assert_almost_eq(box.x, foot.x, 0.02, "%s quer" % pack_sort)
 			assert_almost_eq(box.y, foot.y, 0.02, "%s längs" % pack_sort)
@@ -96,7 +96,7 @@ func test_the_stair_lies_inside_the_pack() -> void:
 	var bottom := -DataCellView.DEPTH * 0.5
 	for pack_sort: String in CardPack.SORTS:
 		var rank := Pack.SHELF_ORDER.find(CardPackView.stair_shelf(pack_sort))
-		for pack_size in CardPack.CARD_SIZES:
+		for pack_size in CardPack.SIZES:
 			var hull := _hull(pack_sort, pack_size)
 			var holders := _stair(hull)
 			assert_eq(holders.size(), CardPack.option_count(pack_size), "eine Karte je Option")
@@ -385,7 +385,7 @@ func _coplanar_fights(hull: CardPackView) -> Array[String]:
 
 func test_no_two_cassette_parts_share_a_face() -> void:
 	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.CARD_SIZES:
+		for pack_size in CardPack.SIZES:
 			var fights := _coplanar_fights(_hull(pack_sort, pack_size))
 			assert_eq(fights, [] as Array[String], "%s Größe %d" % [pack_sort, pack_size])
 

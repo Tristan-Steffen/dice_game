@@ -4406,7 +4406,6 @@ func _detach_shop_packs() -> Array:
 		_shop_pack_leaving.append(cell)
 	shop_pack_cells.clear()
 	_shop_pack_keys.clear()
-	charm_shop.set_place_hover(-1)
 	return out
 
 func _release_shop_pack_bodies(bodies: Array) -> void:
@@ -4562,8 +4561,8 @@ func _recess_covered(rect: Rect2, covering: Array[int]) -> bool:
 	return false
 
 ## Der Griff auf einen Platz: das liegende Paket hebt sich an und leuchtet auf -
-## dieselbe Geste wie im Magazin -, und im Auskunfts-Band steht, was es ist.
-## GEFRAGT je Bild (der Zeiger liegt auf dem Tisch), EIN Walker für Griff und Auskunft.
+## dieselbe Geste wie im Magazin; eine Auskunft erscheint nicht.
+## GEFRAGT je Bild (der Zeiger liegt auf dem Tisch).
 func _sync_shop_pack_hover() -> void:
 	if charm_shop == null or not is_instance_valid(charm_shop):
 		return
@@ -4587,14 +4586,6 @@ func _sync_shop_pack_hover() -> void:
 		var cell: DataCellView = shop_pack_cells[seat]
 		if cell != null and is_instance_valid(cell):
 			cell.set_hovered(seat == hovered)
-	# Liegt der Zeiger auf einer Zelle eines Prägenetzes, nennt das Band DEREN Wirkung.
-	var cell_hint := ""
-	if hovered >= 0:
-		var camera := get_viewport().get_camera_3d()
-		if camera != null:
-			cell_hint = _cell_face_hint(shop_pack_cells.get(hovered), camera,
-				get_viewport().get_mouse_position())
-	charm_shop.set_place_hover(hovered, cell_hint)
 
 ## Laufwechsel: die Ware des alten Ladens liegt nirgends mehr.
 func _drop_shop_packs() -> void:
@@ -9182,12 +9173,10 @@ func _open_dice_burst(choice: PackChoice, generation: int, launched: GameRun) ->
 func _case_show_live(generation: int, launched: GameRun) -> bool:
 	return generation == _choice_gen and run == launched and _case_show_on
 
-## Das AUFPLATZEN und der FALL: die Hülle bläht sich und platzt, die Grund-Würfel fallen
-## heraus; der Glutkern pulst - und entweder fällt noch einer, heller als der vorige,
-## oder er verlischt. Danach Ruhe, Schiene, Walze.
+## Das AUFPLATZEN und der FALL: die Hülle bläht sich und platzt, die Würfel fallen
+## heraus, der Glutkern verlischt. Danach Ruhe, Schiene, Glückswürfel.
 func _play_case_show(generation: int, launched: GameRun) -> void:
 	var count := _choice.option_count()
-	var base := clampi(_choice.base_count, 1, count)
 	_build_case_ground()
 	var hull := _choice_hull
 	if hull != null and is_instance_valid(hull):
@@ -9203,26 +9192,11 @@ func _play_case_show(generation: int, launched: GameRun) -> void:
 		if not _case_show_live(generation, launched):
 			return
 	_burst_hull()
-	for i in base:
+	for i in count:
 		_drop_case_die(i, 0)
 		await get_tree().create_timer(PACK_DIE_STAGGER * 0.5).timeout
 		if not _case_show_live(generation, launched):
 			return
-	var extras := 0
-	while true:
-		# Die Spannung gibt es IMMER: der Kern pulst, ehe er entscheidet.
-		var wait := CaseShow.rattle_time(extras)
-		_pulse_burst_core(wait, CaseShow.glow(extras + 1))
-		if case_show != null:
-			case_show.play_rattle(extras)
-		await get_tree().create_timer(wait).timeout
-		if not _case_show_live(generation, launched):
-			return
-		var next := base + extras
-		if next >= count:
-			break
-		extras += 1
-		_drop_case_die(next, extras)
 	_fade_burst_core()
 	var waited := 0.0
 	while waited < PACK_SETTLE_MAX and not _case_dice_resting():
@@ -9335,23 +9309,6 @@ func _burst_flash(at: Vector3, color: Color, radius: float) -> void:
 	tween.tween_property(material, "albedo_color:a", 0.0, PACK_BURST_FLASH_TIME) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.chain().tween_callback(_drop_burst_part.bind(ball))
-
-## Der Glutkern schwillt in time zur Spannung an (glow = wie hell).
-func _pulse_burst_core(time: float, glow: float) -> void:
-	var core := _burst_core
-	if core == null or not is_instance_valid(core):
-		return
-	var rest := core.scale
-	var material := core.material_override as StandardMaterial3D
-	var tween := core.create_tween()
-	tween.tween_method(func(t: float) -> void:
-		if is_instance_valid(core):
-			core.scale = rest * (1.0 + 0.35 * t * t * absf(sin(t * 18.0)))
-			material.albedo_color = Color(CaseShow.GLOW_COLOR * glow * (0.8 + 0.6 * t), 0.9),
-		0.0, 1.0, time)
-	tween.tween_callback(func() -> void:
-		if is_instance_valid(core):
-			core.scale = rest)
 
 ## Kein Würfel mehr: der Kern schrumpft und ist fort - von der Hülle bleibt nichts.
 func _fade_burst_core() -> void:

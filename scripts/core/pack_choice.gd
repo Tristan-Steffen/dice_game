@@ -19,7 +19,7 @@ var die_face: int = 0
 var die_value: int = 1
 ## Was Freie Hand auf den Wurf legte (0 = nichts).
 var free_bonus: int = 0
-## Nur Würfel-Pakete: die Grundzahl, von der die Zugabe-Kette ausging.
+## Nur Würfel-Pakete: die Würfelzahl (= die Augen).
 var base_count: int = 0
 ## Neu mischen ist je Paket einmal erlaubt.
 var rerolled: bool = false
@@ -40,7 +40,7 @@ var display_name: String:
 			return (pack as DicePack).display_name
 		return "Paket"
 
-## Karten-Paket: 0..2 (3er/4er/5er); Würfel-Paket: seine Augen 2..6.
+## Karten-Paket: CardPack.SIZE_* (2er..6er); Würfel-Paket: seine Augen 2..6.
 var size: int:
 	get:
 		if pack is CardPack:

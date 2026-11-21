@@ -87,27 +87,10 @@ const PLACE_MIN_HEIGHT := 8.0
 ## Luft der breitesten Schatulle quer im Stellplatz.
 const CASE_ROOM := 1.06
 
-
-const FLANK_MIN_WIDTH := 14.0
-const FLANK_MIN_HEIGHT := 4.0
-const FLANK_SEPARATION := 0.7
-## Wieviel der Bandhöhe der NAME höchstens nimmt - der Rest gehört der
-## Beschreibung, die als einzige umbricht.
-const FLANK_NAME_SHARE := 0.38
-const FLANK_NAME_STEPS := [2.4, 2.2, 2.0, 1.8, 1.6]
-const FLANK_BODY_STEPS := [2.0, 1.8, 1.6, 1.45, 1.3, 1.15, 1.0]
-
 ## Mindesthöhe des AUSKUNFTS-BANDES unter der Paket-Fläche (u).
 const VITRINE_FOOTER_UNITS := 6.5
 const FOOTER_MARGIN := 2.0
 const FOOTER_STEPS := [2.0, 1.8, 1.6, 1.4, 1.25, 1.1]
-## Die Auskunft UNTER jedem Paket: Höhe in u und Anteil der Spaltenbreite. 2026-11-18 von
-## 4,6 auf 3,2: das Charm-Band wuchs um die liegende Diskette (gemessen +29,6 px).
-const PLACE_INFO_UNITS := 3.2
-const PLACE_INFO_WIDTH_SHARE := 0.9
-## Sie schrumpft, bis jede ungeschnitten in ihren Block paßt - EIN Grad für alle.
-const PLACE_INFO_STEPS := [1.45, 1.3, 1.15, 1.0, 0.9, 0.8]
-
 const FLIP_DURATION := 0.25
 ## Charm-Zeile und Pakete blättern DIESELBE Doppelseite: die Charm-Zeile wechselt im
 ## Augenblick des BAND-SCHRITTS. Spiegelt VitrineView.belt_moment() (ui/ greift nicht
@@ -165,9 +148,6 @@ var net_footer: LexikonText
 var ware_foot: Control
 ## Die Auskunft des gegriffenen Pakets (Name + Beschreibung). Absolut positioniertes
 ## Overlay der SEITE, kein Layout-Kind - die Bandhöhen bleiben davon unberührt.
-var place_info: Control
-var place_info_name: Label
-var place_info_body: Label
 var page_label: Label
 var done_button: Button
 var page_back_button: Button
@@ -183,7 +163,6 @@ var pack_rows: Array[Control] = []
 var _place_pads: Array[Panel] = []
 var _place_names: Array[Label] = []
 var _place_prices: Array[Label] = []
-var _place_infos: Array[Label] = []
 ## Eine eben gebaute Fläche hat noch KEIN Rechteck - erst das Sortieren ihres Bandes
 ## stellt sie hin. Wer vorher mißt, stapelt alles auf den Ursprung.
 var _places_fresh := true
@@ -217,7 +196,6 @@ var current_spread_index: int = 0
 var _standing_spread: MenuSpread = null
 var _vitrine_grade := GRADE_STAND
 ## Welches Paket die Flanke gerade erklärt ("" = keines).
-var _place_info_key := ""
 
 ## Der Laden RÄUMT AB: seine Seite steht noch (die Zeremonie der Auslage spielt auf
 ## ihr), er ist aber tot - kein Kauf, kein Neuaufbau, kein Forwarding. Erst
@@ -296,7 +274,6 @@ func _build_layout() -> void:
 
 	# Die Paket-Auskunft steht VOR dem Layout in der Kindliste: sie ist ein Overlay,
 	# kein Band - und das Möbel der Seite bleibt so ihr letztes Kind.
-	_build_place_info()
 
 	var margin := MarginContainer.new()
 	margin.name = "Margin"
@@ -465,7 +442,7 @@ func place_pad_size() -> Vector2:
 ## Ein ganzer Platz: Name und Preis, der Stellplatz, die Auskunft darunter.
 func _place_seat_size() -> Vector2:
 	return Vector2(column_width(), _place_head_height() + place_pad_size().y
-		+ u * WARE_PRICE_GAP + u * PLACE_INFO_UNITS)
+		+ u * WARE_PRICE_GAP)
 
 func _price_height() -> float:
 	return ThemeDB.fallback_font.get_height(maxi(8, int(u * WARE_PRICE_FONT)))
@@ -482,7 +459,6 @@ func _fill_places() -> void:
 	_place_pads.clear()
 	_place_names.clear()
 	_place_prices.clear()
-	_place_infos.clear()
 	for seat in place_count():
 		var r := row_of(seat)
 		if r >= pack_rows.size():
@@ -507,13 +483,10 @@ func rebuild_places() -> void:
 	var rows := pack_rows[0].get_parent() as Container
 	if rows != null:
 		rows.queue_sort()  # frische Knöpfe: erst das nächste Sortieren gilt
-	_place_info_key = ""  # die Fläche ist neu, die Flanke erklärt nichts mehr
-	if place_info != null and is_instance_valid(place_info):
-		place_info.visible = false
 	_refresh_ware_prices()
 
 ## Ein Platz: der leere KNOPF fängt Klick und Zeiger über die ganze Spalte; gezeichnet
-## wird der flache Stellplatz, darüber Name und Preis, darunter die Auskunft.
+## wird der flache Stellplatz, darüber Name und Preis.
 func _place_seat(seat: int) -> Button:
 	var pad_size := place_pad_size()
 	var whole := _place_seat_size()
@@ -546,14 +519,6 @@ func _place_seat(seat: int) -> Button:
 	pad.add_theme_stylebox_override("panel", _place_box())
 	button.add_child(pad)
 	_place_pads.append(pad)
-	var width := whole.x * PLACE_INFO_WIDTH_SHARE
-	var info := _wrapped_line(u * WARE_SOUL_FONT, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	info.name = "Info"
-	info.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	info.position = Vector2((whole.x - width) * 0.5, _place_head_height() + pad_size.y + gap)
-	info.size = Vector2(width, u * PLACE_INFO_UNITS)
-	button.add_child(info)
-	_place_infos.append(info)
 	# Nur der KLICK hängt hier: Anheben und Auskunft fragt scene_root je Bild ab.
 	button.pressed.connect(buy_pack.bind(seat))
 	button.set_meta(&"sfx_silent", true)  # der Kauf klingt selbst
@@ -613,111 +578,6 @@ func _shown_pack(seat: int) -> Resource:
 		return null
 	return packs[seat]
 
-# --- Die Paket-Auskunft im Auskunfts-Band --------------------------------------
-
-func _build_place_info() -> void:
-	place_info = Control.new()
-	place_info.name = "PlaceInfo"
-	place_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	place_info.visible = false
-	place_info_name = _wrapped_line(u * float(FLANK_NAME_STEPS[0]), NEON_TEXT,
-		HORIZONTAL_ALIGNMENT_LEFT)
-	place_info.add_child(place_info_name)
-	place_info_body = _wrapped_line(u * float(FLANK_BODY_STEPS[0]), NEON_MUTED,
-		HORIZONTAL_ALIGNMENT_LEFT)
-	place_info.add_child(place_info_body)
-	add_child(place_info)
-	_place_info_key = ""
-
-## Der Platz der Paket-Auskunft in globalen Pixeln: das AUSKUNFTS-BAND. GEMESSEN -
-## leer heißt, die Seite ist noch nicht ausgelegt.
-func place_flank_rect() -> Rect2:
-	if ware_foot == null or not is_instance_valid(ware_foot):
-		return Rect2()
-	var band := ware_foot.get_global_rect()
-	var margin := u * FOOTER_MARGIN
-	if band.size.x - margin * 2.0 < u * FLANK_MIN_WIDTH or band.size.y < u * FLANK_MIN_HEIGHT:
-		return Rect2()
-	return Rect2(band.position + Vector2(margin, 0.0),
-		Vector2(band.size.x - margin * 2.0, band.size.y))
-
-## Der EINE Schreiber der Auskunft (-1 = kein Platz gegriffen). Ein verkaufter Platz
-## zeigt NICHTS. Idempotent. `cell_hint` ist die Zeile der NETZ-ZELLE unter dem Zeiger
-## (scene_root fragt den Körper): sie übersteuert die Beschreibung, der Name bleibt.
-func set_place_hover(seat: int, cell_hint := "") -> void:
-	if place_info == null or not is_instance_valid(place_info):
-		return
-	var pack := _shown_pack(seat)
-	var key := "" if pack == null else "%d:%d:%s" % [seat, pack.get_instance_id(), cell_hint]
-	if key == _place_info_key:
-		return
-	_place_info_key = key
-	if pack == null:
-		place_info.visible = false
-		_redraw_foot()  # das Wett-Ergebnis kehrt zurück
-		return
-	var flank := place_flank_rect()
-	if flank.size.x <= 0.0:
-		place_info.visible = false
-		_place_info_key = ""  # ungemessen: beim nächsten Bild noch einmal versuchen
-		return
-	place_info.position = flank.position - get_global_rect().position
-	place_info.size = flank.size
-	place_info_name.text = String(pack.get("display_name"))
-	place_info_name.modulate = ware_tint(pack)
-	place_info_body.text = cell_hint if cell_hint != "" else ware_info(pack)
-	_fit_place_info(flank.size)
-	place_info.visible = true
-	if net_footer != null and is_instance_valid(net_footer):
-		net_footer.visible = false
-
-## Beide Zeilen passen sich in die Flanke ein: erst der Name in seinen Anteil,
-## dann die Beschreibung in den Rest.
-func _fit_place_info(flank: Vector2) -> void:
-	var font := ThemeDB.fallback_font
-	if font == null:
-		return
-	var gap := u * FLANK_SEPARATION
-	var lead := place_info_body.get_theme_constant("line_spacing")
-	var name_px := _block_font(font, place_info_name.text, flank.x,
-		flank.y * FLANK_NAME_SHARE, FLANK_NAME_STEPS, lead)
-	var name_h := wrapped_height(font, place_info_name.text, flank.x, name_px, lead)
-	var body_px := _block_font(font, place_info_body.text, flank.x,
-		maxf(flank.y - name_h - gap, 1.0), FLANK_BODY_STEPS, lead)
-	var body_h := wrapped_height(font, place_info_body.text, flank.x, body_px, lead)
-	var top := maxf((flank.y - name_h - gap - body_h) * 0.5, 0.0)
-	_lay_wrapped(place_info_name, name_px, Vector2(0.0, top), Vector2(flank.x, name_h))
-	_lay_wrapped(place_info_body, body_px, Vector2(0.0, top + name_h + gap),
-		Vector2(flank.x, body_h))
-
-## Eine umbrechende Zeile setzen: Grad, Platz, Rechteck. Sie MUSS clip_text tragen
-## (siehe _wrapped_line) - sonst klemmt Godot ihre Höhe an einer Mindesthöhe, die
-## aus der noch ungesetzten Breite gerechnet ist, und die Zeile wird meterhoch.
-func _lay_wrapped(label: Label, px: int, at: Vector2, span: Vector2) -> void:
-	label.add_theme_font_size_override("font_size", px)
-	label.position = at
-	label.size = span
-
-## Eine frei gesetzte, umbrechende Zeile: kein Layout-Kind, also trägt sie ihr
-## Rechteck selbst. clip_text nimmt ihr die autowrap-Mindesthöhe (und ist zugleich
-## das Netz, falls eine Leiter je zu kurz wäre).
-func _wrapped_line(font_size: float, color: Color, align: int) -> Label:
-	var label := CasinoStyle.label("", font_size, color, align)
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.clip_text = true
-	return label
-
-## Der größte Grad einer Leiter, in dem der umgebrochene Text noch in den Block
-## paßt - sonst der kleinste.
-func _block_font(font: Font, text: String, width: float, block: float, steps: Array,
-		spacing: int) -> int:
-	var smallest := maxi(8, int(u * float(steps[steps.size() - 1])))
-	for step in steps:
-		var px := maxi(8, int(u * float(step)))
-		if wrapped_height(font, text, width, px, spacing) <= block:
-			return px
-	return smallest
-
 ## Wie hoch eine umbrechende Zeile WIRKLICH steht: Godot rechnet je Zeile
 ## Schrifthöhe PLUS Zeilenabstand - text_block_height läßt den letzten weg, und
 ## genau der schnitt die unterste Zeile ab.
@@ -745,7 +605,7 @@ func _build_net_footer() -> void:
 		# Erst ausgelegt kennt das Band sein Maß.
 		ware_foot.resized.connect(_redraw_foot, CONNECT_ONE_SHOT)
 
-## Die Bet-Notiz steht, solange kein Paket spricht.
+## Die Bet-Notiz im Auskunfts-Band.
 func _redraw_foot() -> void:
 	if net_footer == null or not is_instance_valid(net_footer):
 		return
@@ -770,18 +630,6 @@ func _footer_font(block: Vector2, bay_u: float) -> int:
 			return px
 	return smallest
 
-## Die Auskunft eines Pakets - jede Art aus ihrer EINEN Quelle.
-static func ware_info(item: Object) -> String:
-	if item is ModulePack:
-		return ModulePack.info_body(item as ModulePack)
-	if item is DicePack:
-		return DicePack.info_body(item as DicePack)
-	if item is CardPack:
-		return CardPack.info_body(item as CardPack)
-	if item is Pack:
-		return Pack.info_body(item as Pack)
-	return ""
-
 ## Die Namensfarbe eines Pakets: Sorte bzw. Stufe.
 static func ware_tint(item: Object) -> Color:
 	if item is ModulePack:
@@ -800,37 +648,15 @@ static func die_foot_text(def: DieDefinition) -> String:
 	var info := WorkshopInfoView.die_info(def)
 	return "%s · %s - %s" % [info["title"], info["sub"], info["body"]]
 
-## Name und Auskunft je Platz - ein verkaufter Platz schweigt. Die Auskunft steht für
-## alle Plätze in EINEM Grad, dem größten, in dem jede ungeschnitten paßt.
+## Der Name je Platz - ein verkaufter Platz schweigt.
 func _refresh_place_labels() -> void:
-	var px := _info_px()
-	for seat in mini(_place_names.size(), _place_infos.size()):
+	for seat in _place_names.size():
 		var pack := _shown_pack(seat)
 		var name_label := _place_names[seat]
-		var info := _place_infos[seat]
-		if not is_instance_valid(name_label) or not is_instance_valid(info):
+		if not is_instance_valid(name_label):
 			continue
 		name_label.text = "" if pack == null else String(pack.get("display_name"))
 		name_label.modulate = NEON_TEXT if pack == null else ware_tint(pack)
-		info.text = "" if pack == null else ware_info(pack)
-		if px > 0:
-			info.add_theme_font_size_override("font_size", px)
-
-func _info_px() -> int:
-	var font := ThemeDB.fallback_font
-	if font == null or _place_infos.is_empty() or not is_instance_valid(_place_infos[0]):
-		return 0
-	var lead := _place_infos[0].get_theme_constant("line_spacing")
-	var width := column_width() * PLACE_INFO_WIDTH_SHARE
-	var px := 0
-	for seat in place_count():
-		var pack := _shown_pack(seat)
-		if pack == null:
-			continue
-		var fit := _block_font(font, ware_info(pack), width, u * PLACE_INFO_UNITS,
-			PLACE_INFO_STEPS, lead)
-		px = fit if px == 0 else mini(px, fit)
-	return px
 
 ## Der Ton einer Seelen-Zeile: das Kantenglühen der Essenz selbst. Ein dunkler Ton
 ## (Vakuum glüht schwarz) wird auf ein lesbares Maß gehoben.

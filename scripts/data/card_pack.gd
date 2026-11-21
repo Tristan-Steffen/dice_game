@@ -1,12 +1,12 @@
 class_name CardPack
 extends Resource
-## Ein KARTEN-PAKET des Ladens: Sorte, KARTENZAHL (3er/4er/5er = SIZE_SMALL..SIZE_LARGE)
+## Ein KARTEN-PAKET des Ladens: Sorte, KARTENZAHL (2er..6er = SIZE_TINY..SIZE_HUGE)
 ## und GÜTE (dieselbe wie bei Würfel-Paketen). Geöffnet zeigt es OPTIONEN (je eine Karte),
 ## von denen der Spieler eine Zahl WAHLEN nimmt; die Güte entscheidet die Kartengrößen.
 ## Je Kartensorte EIN Paket (seit dem 2026-11-20, das Misch-Paket ist gestorben), und die
 ## vorderste Karte (front) liegt sichtbar darin: sie ist IMMER Option 0, genau so.
-## Die Options-Tabelle hier teilen sich Karten- und Modul-Pakete (Modul: alle vier Größen);
-## wie viele Wahlen es gibt, sagt der GLÜCKSWÜRFEL (GameRun.luck_die).
+## Die Options-Tabelle hier teilen sich Karten- und Modul-Pakete; im Paket liegt GENAU die
+## aufgedruckte Zahl, und wie viele Wahlen es gibt, sagt der GLÜCKSWÜRFEL (GameRun.luck_die).
 
 const SORT_NUMBER := "number"
 const SORT_MATERIAL := "material"
@@ -28,29 +28,23 @@ const SORT_TYPES := {
 	SORT_RUNE: Pack.TYPE_DICE_MOD,
 }
 
-const SIZE_SMALL := 0
-const SIZE_NORMAL := 1
-const SIZE_LARGE := 2
-const SIZE_HUGE := 3
-const SIZES := [SIZE_SMALL, SIZE_NORMAL, SIZE_LARGE, SIZE_HUGE]
-
-## Karten-Pakete kennen nur die ersten drei Größen: 3er, 4er, 5er.
-const CARD_SIZES := [SIZE_SMALL, SIZE_NORMAL, SIZE_LARGE]
-
-## Paketgröße allein (Auskunft) und als Adjektiv vor dem Namen (Modul-Pakete).
-const SIZE_LABELS := ["Klein", "Normal", "Groß", "Riesig"]
-const SIZE_ADJECTIVES := ["Kleines", "", "Großes", "Riesiges"]
+const SIZE_TINY := 0
+const SIZE_SMALL := 1
+const SIZE_NORMAL := 2
+const SIZE_LARGE := 3
+const SIZE_HUGE := 4
+const SIZES := [SIZE_TINY, SIZE_SMALL, SIZE_NORMAL, SIZE_LARGE, SIZE_HUGE]
 
 # --- Die OPTIONS-Tabelle (Karten- und Modul-Pakete) --------------------------------
 
-const OPTION_COUNTS := [3, 4, 5, 5]
-## Kein Paket zeigt weniger Optionen (Verplombt).
-const MIN_OPTIONS := 2
+## 2er bis 6er - wie die Würfel-Pakete.
+const OPTION_COUNTS := [2, 3, 4, 5, 6]
 ## Der Preis zahlt die AUSWAHL mit: Preis-Wahlen × Optionswert × diese Prämie.
 const CHOICE_PREMIUM := 1.15
-## Eingefroren (2026-11-21): die erwarteten Wahlen der alten Wahl-Formel je Größe und Güte -
-## daran hängen die Preise Zahl für Zahl, bis das Balancing sie neu setzt.
-const PRICE_PICKS := [[1.2, 1.2, 1.254], [1.3, 1.3, 1.381], [2.25, 2.25, 2.3325]]
+## Preis-Wahlen je Größe und Güte - daran hängen die Preise, bis das Balancing sie neu setzt
+## (3er..5er eingefroren seit 2026-11-21, 2er und 6er vorläufig).
+const PRICE_PICKS := [[0.9, 0.9, 0.94], [1.2, 1.2, 1.254], [1.3, 1.3, 1.381],
+	[2.25, 2.25, 2.3325], [2.6, 2.6, 2.7]]
 
 ## Kartengrößen (Standard/Groß/Kolossal) je GÜTE.
 const QUALITY_TIER_WEIGHTS := [[0.70, 0.25, 0.05], [0.45, 0.40, 0.15], [0.20, 0.45, 0.35]]
@@ -63,12 +57,12 @@ const QUALITY_GUARANTEE := [-1, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]
 const SPECIAL_QUALITY_FACTORS := [1.0, 1.2, 1.45]
 ## Der Preis zahlt die WAHL mit: je Option über drei ein Stück Prämie mehr.
 const OPTION_PREMIUM_STEP := 0.05
+const PREMIUM_BASE_OPTIONS := 3
 
 ## Auslage-Gewichte: Zahlen/Material/Runen wie Pack.SHELF_WEIGHTS (×3), Sonder selten.
 const SHOP_SORT_WEIGHTS := {SORT_NUMBER: 18, SORT_MATERIAL: 9, SORT_RUNE: 6, SORT_SPECIAL: 4}
-## Die Größen-Gewichte der Modul-Pakete (vier Größen) und der Karten-Pakete (3er/4er/5er).
-const SHOP_SIZE_WEIGHTS := [30, 40, 22, 8]
-const CARD_SHOP_SIZE_WEIGHTS := [35, 42, 23]
+## Die Größen-Gewichte 2er..6er (Karten- und Modul-Pakete) - dieselben wie beim Würfel-Paket.
+const SHOP_SIZE_WEIGHTS := [20, 35, 25, 13, 7]
 ## So oft wird eine doppelte Karte neu gewürfelt, bevor sie bleibt.
 const DUPLICATE_RETRIES := 8
 
@@ -86,9 +80,9 @@ static func make(pack_sort: String, pack_size: int,
 	card_pack.quality = _quality(pack_quality)
 	return card_pack
 
-## Die größte Größe eines Karten-Pakets (5er).
+## Die größte Größe eines Karten-Pakets (6er).
 static func max_size(_pack_sort: String = SORT_NUMBER) -> int:
-	return CARD_SIZES.size() - 1
+	return SIZES.size() - 1
 
 static func _quality(pack_quality: int) -> int:
 	return clampi(pack_quality, DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL)
@@ -109,7 +103,7 @@ static func option_value(pack_sort: String, pack_quality: int) -> float:
 static func price_of(pack_sort: String, pack_size: int,
 		pack_quality: int = DicePack.QUALITY_STANDARD) -> int:
 	var at := clampi(pack_size, 0, max_size())
-	var premium := CHOICE_PREMIUM + OPTION_PREMIUM_STEP * float(option_count(at) - OPTION_COUNTS[0])
+	var premium := CHOICE_PREMIUM + OPTION_PREMIUM_STEP * float(option_count(at) - PREMIUM_BASE_OPTIONS)
 	var picks := float(PRICE_PICKS[at][_quality(pack_quality)])
 	return maxi(roundi(picks * option_value(pack_sort, pack_quality) * premium), 1)
 
@@ -138,20 +132,12 @@ func front_card(multiplier_chance := 0.0, bulk := false,
 static func sort_name(pack_sort: String) -> String:
 	return String(SORT_NAMES.get(pack_sort, SORT_NAMES[SORT_NUMBER]))
 
-static func size_label(pack_size: int) -> String:
-	return String(SIZE_LABELS[clampi(pack_size, 0, SIZE_LABELS.size() - 1)])
-
 ## "4er Zahlen-Paket · Edel"; Standard bleibt unmarkiert.
 var display_name: String:
 	get:
 		var base := "%der %s" % [option_count(size), sort_name(sort)]
 		return base if quality == DicePack.QUALITY_STANDARD \
 			else "%s · %s" % [base, DicePack.quality_name(quality)]
-
-## Modul-Pakete: "Großes Modul-Paket".
-static func sized_name(base: String, pack_size: int) -> String:
-	var adjective := String(SIZE_ADJECTIVES[clampi(pack_size, 0, SIZE_ADJECTIVES.size() - 1)])
-	return base if adjective == "" else "%s %s" % [adjective, base]
 
 ## Was das Paket von außen sagt: Inhalt, Wahlen, Garantie und Glück - nie die Karten.
 static func info_body(card_pack: CardPack) -> String:
@@ -190,17 +176,13 @@ static func choice_line(pack_size: int) -> String:
 ## Die Wahlen nennt kein Paket selbst - sie fallen beim Öffnen mit dem Glückswürfel.
 const DIE_SAYS := "Der Glückswürfel sagt, wie viele."
 
-## Die Zahl der Optionen nach den Zu- und Abschlägen: nie unter MIN_OPTIONS.
-static func options_after(pack_size: int, delta: int) -> int:
-	return maxi(option_count(pack_size) + delta, MIN_OPTIONS)
-
 # --- Die Auslage ------------------------------------------------------------------
 
 ## Ein Paket für einen Laden-Platz: Sorte, Kartenzahl und Güte nach den Auslage-Gewichten;
 ## quality_weights leer = die Güte-Gewichte der Stufe 1 (dieselben wie bei Würfel-Paketen).
 static func roll_shop(rng: RandomNumberGenerator = null, quality_weights: Array = []) -> CardPack:
 	var pack_sort := String(_pick_key(SHOP_SORT_WEIGHTS, rng))
-	var pack_size := _pick_index(CARD_SHOP_SIZE_WEIGHTS, rng)
+	var pack_size := _pick_index(SHOP_SIZE_WEIGHTS, rng)
 	var weights := quality_weights if not quality_weights.is_empty() \
 		else DicePack.SHOP_QUALITY_WEIGHTS
 	return make(pack_sort, pack_size, _pick_index(weights, rng))

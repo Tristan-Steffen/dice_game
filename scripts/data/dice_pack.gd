@@ -1,8 +1,8 @@
 class_name DicePack
 extends Resource
 ## Ein WÜRFEL-PAKET des Ladens: Sorte, AUGEN (2..6 = die Grund-Würfelzahl) und GÜTE,
-## unabhängig gewürfelt. Die Güte ist GLÜCK fürs Paket; beim Öffnen läuft die Zugabe-Kette der
-## Würfelzahl, die Wahlen sagt der Glückswürfel. Den Inhalt würfelt core/ (DiceOffer.roll_pack_die).
+## unabhängig gewürfelt. Die Güte ist GLÜCK fürs Paket; darin liegen GENAU so viele Würfel wie
+## Augen, die Wahlen sagt der Glückswürfel. Den Inhalt würfelt core/ (DiceOffer.roll_pack_die).
 
 const SORT_NORMAL := "normal"
 const SORT_SOUL := "soul"
@@ -36,16 +36,8 @@ const SHOP_QUALITY_SHIFT := [-5, 3, 2]
 
 # --- Die WÜRFELZAHL ------------------------------------------------------------------
 
-## Verplombt senkt die Grundzahl nie darunter (eine Wahl braucht zwei Würfel).
 const MIN_COUNT := 2
-## Nie mehr als sechs Würfel - auch die Zugabe-Kette füllt höchstens bis hierher auf.
 const MAX_COUNT := 6
-const MAX_EXTRA_DICE := 5
-## Zugabe-Kette: 20 % + 1,5 Punkte je Glück (Deckel 65 %), jeder weitere × 0,6.
-const EXTRA_DIE_CHANCE := 0.20
-const EXTRA_DIE_LUCK_STEP := 0.015
-const EXTRA_DIE_CAP := 0.65
-const EXTRA_DIE_DECAY := 0.6
 
 ## Die PREISE der Güte Standard je Augenzahl 2..6.
 const PRICES := {
@@ -101,11 +93,11 @@ var display_name: String:
 		var base := "%der %s" % [size, sort_name(sort)]
 		return base if quality == QUALITY_STANDARD else "%s · %s" % [base, quality_name(quality)]
 
-## Was das Paket von außen sagt: Sorte, Untergrenze und das Glück der Güte - nie Chancen.
+## Was das Paket von außen sagt: Sorte, Würfelzahl und das Glück der Güte - nie Chancen.
 static func info_body(dice_pack: DicePack) -> String:
 	if dice_pack == null:
 		return ""
-	var line := "Mindestens %d Würfel · %s" % [base_count(dice_pack.size), CardPack.DIE_SAYS]
+	var line := "%d Würfel · %s" % [base_count(dice_pack.size), CardPack.DIE_SAYS]
 	var luck := quality_luck(dice_pack.quality)
 	if luck > 0:
 		line += " · +%d Glück" % luck
@@ -125,21 +117,6 @@ static func _content_line(pack_sort: String) -> String:
 
 static func base_count(pack_size: int) -> int:
 	return clampi(pack_size, MIN_COUNT, MAX_COUNT)
-
-## Chance auf den ERSTEN Zusatz-Würfel.
-static func extra_die_chance(luck: int) -> float:
-	return minf(EXTRA_DIE_CHANCE + EXTRA_DIE_LUCK_STEP * float(maxi(luck, 0)), EXTRA_DIE_CAP)
-
-## Die Würfelzahl: Grundzahl (schon samt Zu-/Abschlägen) plus die Zugabe-Kette.
-static func roll_count(base: int, luck: int, rng: RandomNumberGenerator = null) -> int:
-	var count := clampi(base, MIN_COUNT, MAX_COUNT)
-	var chance := extra_die_chance(luck)
-	var extras := 0
-	while extras < MAX_EXTRA_DICE and count < MAX_COUNT and CardPack._unit(rng) < chance:
-		count += 1
-		extras += 1
-		chance *= EXTRA_DIE_DECAY
-	return count
 
 # --- Die Auslage ------------------------------------------------------------------------
 

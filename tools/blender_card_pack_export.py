@@ -2,7 +2,7 @@
 tools/blender_card_pack_media.py) nach assets/models/hardware/card_pack_<sorte>_<n>.glb:
   number   - LOCHTASCHE     material - KASSETTENFACH
   rune     - TONHÜLLE       special  - BLISTER
-Je Sorte und Kartenzahl (3/4/5) EIN Netz "Pack"; Godot gibt die Materialien nach ihrem
+Je Sorte und Kartenzahl (2..6) EIN Netz "Pack"; Godot gibt die Materialien nach ihrem
 NAMEN (CardPackView._dress_pack_part): Tinte_<sorte> = Sortendruck, Sorte_* = Sortenlicht,
 Praegung / MetallGuete = die Güte, Klar_* = Klarsicht. Die Karten legt Godot hinein.
 
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     led.metal = quality_metal
     os.makedirs(OUT, exist_ok=True)
     for key, sort, fn in PACKS:
-        for count in (3, 4, 5):
+        for count in (2, 3, 4, 5, 6):
             build(sort, fn, count)
             bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, "card_pack_%s_%d.glb" % (key, count)),
                                       export_format="GLB", export_apply=True)

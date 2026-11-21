@@ -673,8 +673,8 @@ func test_the_places_stand_in_two_rows_of_three() -> void:
 	assert_null(shop.find_child("DieNets", true, false), "die Würfel-Bucht ist fort")
 	assert_null(shop.find_child("SlitRow", true, false), "und die Gravuren-Zeile")
 
-## Name und Preis stehen ÜBER dem Paket, die Auskunft darunter - für jede Art.
-func test_name_and_price_stand_over_the_pack_and_the_info_under_it() -> void:
+## Name und Preis stehen ÜBER dem Paket, darunter steht nichts - für jede Art.
+func test_name_and_price_stand_over_the_pack() -> void:
 	_lay_out_page()
 	_force_packs(_mixed())
 	await wait_frames(2)
@@ -683,16 +683,13 @@ func test_name_and_price_stand_over_the_pack_and_the_info_under_it() -> void:
 		var pack: Resource = shop.packs[seat]
 		var name_label: Label = shop._place_names[seat]
 		var price: Label = shop._place_prices[seat]
-		var info: Label = shop._place_infos[seat]
 		assert_eq(name_label.text, pack.display_name, "der Name (%d)" % seat)
 		assert_eq(name_label.modulate, ShopController.ware_tint(pack), "in seiner Farbe (%d)" % seat)
 		assert_eq(price.text, ShopController.price_text(shop.pack_prices[seat]), "der Preis (%d)" % seat)
-		assert_eq(info.text, ShopController.ware_info(pack), "die Auskunft (%d)" % seat)
 		assert_lte(price.get_global_rect().end.y, rects[seat].position.y + 0.5,
 			"Name und Preis über dem Paket (%d)" % seat)
-		assert_gte(info.get_global_rect().position.y, rects[seat].end.y - 0.5,
-			"die Auskunft darunter (%d)" % seat)
-		assert_almost_eq(info.get_global_rect().get_center().x, rects[seat].get_center().x, 0.5)
+		assert_null(name_label.get_parent().find_child("Info", false, false),
+			"kein Kleingedrucktes (%d)" % seat)
 
 ## Jeder Platz ist für das GRÖSSTE Paket bemessen: Karte wie Schatulle quer.
 func test_every_place_fits_the_largest_pack() -> void:
@@ -811,97 +808,6 @@ func test_the_special_card_goes_straight_to_the_magazine() -> void:
 	assert_null(run.current_pack_choice(), "keine Auswahl - sie ist eine Einzelkarte")
 	assert_lt(run.money, before, "und sie ist bezahlt")
 	assert_true(shop.pack_bought[3], "sie liegt nicht mehr aus")
-
-# --- Die Auskunft im Band --------------------------------------------------------
-
-func test_the_band_names_the_pack_under_the_pointer() -> void:
-	_lay_out_page()
-	_force_packs(_mixed())
-	await wait_frames(2)
-	for seat in 6:
-		var pack: Resource = shop.packs[seat]
-		shop.set_place_hover(seat)
-		assert_true(shop.place_info.visible, "gegriffen heißt: das Band spricht (%d)" % seat)
-		assert_eq(shop.place_info_name.text, pack.display_name)
-		assert_eq(shop.place_info_body.text, ShopController.ware_info(pack))
-	shop.set_place_hover(2, "Zelle: +3")
-	assert_eq(shop.place_info_body.text, "Zelle: +3", "die Netz-Zelle übersteuert die Beschreibung")
-	shop.set_place_hover(-1)
-	assert_false(shop.place_info.visible, "ohne Zeiger steht dort NICHTS")
-
-func test_the_band_stands_under_the_pack_area() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var flank: Rect2 = shop.place_flank_rect()
-	var rects: Array[Rect2] = shop.place_rects()
-	assert_gt(flank.size.y, 0.0, "das Band steht")
-	assert_gte(flank.position.y, rects[5].end.y, "UNTER den Paketen, nicht darauf")
-	assert_lt(flank.end.y, shop.get_global_rect().end.y, "innerhalb der Seite")
-
-func test_a_sold_place_explains_nothing() -> void:
-	_lay_out_page()
-	_force_packs(_mixed())
-	await wait_frames(2)
-	run.money = 500
-	shop.set_place_hover(1)
-	assert_true(shop.place_info.visible)
-	shop.buy_pack(1)
-	shop.set_place_hover(1)
-	assert_false(shop.place_info.visible, "auf einem leeren Platz liegt nichts, was spräche")
-
-func test_the_longest_real_description_fits_the_band() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var list := _mixed()
-	list[0] = _longest_pack()
-	_force_packs(list)
-	shop.set_place_hover(0)
-	assert_eq(shop.place_info_body.text, CardPack.info_body(list[0]), "nichts wird beschnitten")
-	var block: Rect2 = shop.place_flank_rect()
-	assert_lte(shop.place_info_body.position.y + shop.place_info_body.size.y, block.size.y + 0.5,
-		"und der Block bleibt im Band")
-	assert_gte(shop.place_info_name.position.y, -0.5, "oben läuft er auch nicht heraus")
-
-## Die Auskunft UNTER jedem Paket paßt ungeschnitten - für das längste jeder Art.
-func test_the_longest_info_fits_under_its_pack() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var list := _mixed()
-	list[0] = _longest_pack()
-	_force_packs(list)
-	var font := ThemeDB.fallback_font
-	for seat in 6:
-		var info: Label = shop._place_infos[seat]
-		var px := info.get_theme_font_size("font_size")
-		assert_lte(ShopController.wrapped_height(font, info.text, info.size.x, px,
-			info.get_theme_constant("line_spacing")), info.size.y + 0.5,
-			"die Auskunft paßt (%d)" % seat)
-
-## Das Paket mit der längsten Auskunft, das im Laden je liegen kann.
-func _longest_pack() -> CardPack:
-	var worst: CardPack = null
-	for pack_sort: String in CardPack.SORTS:
-		for pack_size in CardPack.max_size(pack_sort) + 1:
-			var pack := CardPack.make(pack_sort, pack_size)
-			if worst == null or CardPack.info_body(pack).length() \
-					> CardPack.info_body(worst).length():
-				worst = pack
-	return worst
-
-func test_the_hover_moves_no_band() -> void:
-	_lay_out_page()
-	await wait_frames(2)
-	var bands := _band_rects()
-	var seats: Array[Rect2] = shop.place_rects()
-	shop.set_place_hover(0)
-	await wait_frames(2)
-	var after := _band_rects()
-	assert_eq(after.size(), bands.size())
-	for i in bands.size():
-		assert_true(after[i].is_equal_approx(bands[i]),
-			"Band %d steht mit und ohne Auskunft gleich (%s vs %s)" % [i, after[i], bands[i]])
-	for i in seats.size():
-		assert_true(shop.place_rects()[i].is_equal_approx(seats[i]), "und die Plätze (%d)" % i)
 
 # --- Die frisch gebaute Fläche hat noch kein Rechteck --------------------------
 

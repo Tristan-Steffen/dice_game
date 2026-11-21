@@ -145,7 +145,8 @@ def band(parent, name, y, width, material, proud=0.006):
     return o
 
 
-def marks(parent, fr, sort, count, a, b, pitch, size, material, along_v=False, name="Zahl"):
+def marks(parent, fr, sort, count, a, b, pitch, size, material, along_v=False, name="Zahl",
+          lift=box.EPS):
     """Die KARTENZAHL im Bild des Mediums: Stanzloch, Spule, Keil, LED."""
     for i in range(count):
         t = (i - (count - 1) * 0.5) * pitch
@@ -164,7 +165,7 @@ def marks(parent, fr, sort, count, a, b, pitch, size, material, along_v=False, n
             strip(parent, tag + "Stiel", fr, ca - size * 0.07, ca + size * 0.07, cb - size * 0.5,
                   cb + size * 0.2, material)
         else:
-            disc(parent, tag, fr, ca, cb, size * 0.36, material)
+            disc(parent, tag, fr, ca, cb, size * 0.36, material, lift)
 
 
 def label(parent, fr, sort, count, a, b, size, brand, name, mark, mark_sort=None):
@@ -227,7 +228,7 @@ def deck(parent, sort, count, cy, z_top, s, step=0.0, floor=None, pitch=None):
     if EXPORT:
         # Nur die Lochtasche trägt einen festen Stapel unter den echten Karten.
         if sort == "zahl" and floor is not None:
-            block(parent, sort, s, cy, floor, z_top - t * 5)
+            block(parent, sort, s, cy, floor, z_top - t * max(count, 5))
         return low
     if step == 0.0:
         block(parent, sort, s, cy, low if floor is None else floor, z_top - TOPS[sort] * s)
@@ -293,7 +294,7 @@ def lochtasche(parent, sort, count, quality):
     RB(parent, "Leuchtgrund", (W - 0.06, 0.5, 0.004), (0, -0.56, H - 0.022), glow(sort, 2.6), 0.0,
        0.0, 2)
     for i in range(count):
-        a = 0.6 + (i - (count - 1) * 0.5) * 0.085
+        a = 0.6 + (i - (count - 1) * 0.5) * min(0.085, 0.36 / count)
         box.cut(body, RB(parent, "SchnittLoch%d" % i, (0.13, 0.042, 0.06), (-0.2, -a, H),
                          box.kraft(), 0.0, 0.0, 2), True)
     fr = top(H)
@@ -369,7 +370,7 @@ def mehrfachpack(parent, sort, count, quality):
 
 
 def kassettenfach(parent, sort, count, quality):
-    """Das Paket ist das Kassettenfach eines Decks: Rauchglas-Klappe über dem Stapel, fünf
+    """Das Paket ist das Kassettenfach eines Decks: Rauchglas-Klappe über dem Stapel, mindestens fünf
     Laufwerkstasten am Fuß - so viele leuchten, wie Kassetten darin sind."""
     body = RB(parent, "Gehaeuse", (W, L, H), (0, 0, H * 0.5), plastic(), 0.05, 0.02, 8)
     pocket = (0.86, 1.22)
@@ -383,9 +384,11 @@ def kassettenfach(parent, sort, count, quality):
     led.frame_ring(parent, "Rahmen", (pocket[0] + 0.07, pocket[1] + 0.07),
                    (pocket[0] + 0.005, pocket[1] + 0.005), H + 0.002, 0.012, led.metal(quality),
                    0.03, py)
-    for i in range(5):
+    keys = max(5, count)
+    key_pitch = 0.925 / keys
+    for i in range(keys):
         on = i < count
-        RB(parent, "Taste%d" % i, (0.15, 0.2, 0.05), ((i - 2) * 0.185, -0.66, H + 0.004 + (0 if on else 0.012)),
+        RB(parent, "Taste%d" % i, (key_pitch * 0.81, 0.2, 0.05), ((i - (keys - 1) * 0.5) * key_pitch, -0.66, H + 0.004 + (0 if on else 0.012)),
            glow(sort, 1.4) if on else led.mat("TasteAus", (0.05, 0.05, 0.06), 0.3, 0.3,
                                                clearcoat=0.6), 0.02, 0.012, 4)
     RB(parent, "Naht", (W + 0.006, L + 0.006, 0.012), (0, 0, H * 0.42), glow(sort, 1.6), 0.052,
@@ -475,7 +478,8 @@ def tonhuelle(parent, sort, count, quality):
     press = led.mat("Eindruck", (0.16, 0.09, 0.05), 0.0, 0.95)
     box.text(parent, "FUMBLE", fr, 0.58, 0.3, 0.06, press, "Marke")
     box.text(parent, box.NAMES[sort], fr, 0.58, 0.18, 0.045, press, "Sorte")
-    marks(parent, fr, sort, count, 0.58, 0.0, 0.075, 0.13, glow(sort, 1.6))
+    marks(parent, fr, sort, count, 0.58, 0.0, min(0.075, 0.375 / count),
+          0.13 if count < 6 else 0.1, glow(sort, 1.6))
     rnd = random.Random(11)
     for i in range(26):
         a = -0.7 + i * 1.4 / 25
@@ -557,7 +561,10 @@ def blister(parent, sort, count, quality):
     strip(parent, "Kopf", fr, -HL + 0.02, -0.46, -HW + 0.02, HW - 0.02, box.ink(sort))
     box.text(parent, "FUMBLE", fr, -0.665, 0.33, 0.06, box.black_ink(), "Marke")
     box.text(parent, box.NAMES[sort], fr, -0.665, -0.33, 0.06, box.black_ink(), "Sorte")
-    marks(parent, fr, sort, count, -0.55, 0.0, 0.09, 0.11, box.black_ink(), True)
+    # Über dem Kopfdruck (sonst flimmern sie) und so eng, dass sechs zwischen die Schrift passen.
+    marks(parent, fr, sort, count, -0.55, 0.0, min(0.09, 0.42 / count),
+          0.11 if count < 6 else 0.09, box.black_ink(),
+          True, lift=box.EPS * 2)
     strip(parent, "EuroLoch", fr, -0.795, -0.755, -0.1, 0.1, box.black_ink(), box.EPS * 2)
     strip(parent, "Folienlinie", fr, -0.455, -0.441, -HW + 0.02, HW - 0.02, box.foil(quality))
     for k in range(14):
@@ -661,7 +668,7 @@ DESIGNS = {
     "sonder": [("A · BLISTER", "blister", blister), ("B · TRAY", "tray", tray),
                ("C · EINSCHUB", "einschub", einschub)],
 }
-SIZES = [(3, 0, "3er · Standard"), (4, 1, "4er · Edel"), (5, 2, "5er · Royal")]
+SIZES = [(2, 0, "2er · Standard"), (4, 1, "4er · Edel"), (6, 2, "6er · Royal")]
 
 
 # --- Bühne ------------------------------------------------------------------------------

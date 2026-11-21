@@ -31,12 +31,7 @@ func _all_faces(n: int) -> void:
 # --- Die Options-Tabelle und der Glückswürfel -----------------------------------------
 
 func test_options_per_size() -> void:
-	assert_eq(CardPack.OPTION_COUNTS, [3, 4, 5, 5])
-
-func test_options_never_below_two() -> void:
-	assert_eq(CardPack.options_after(CardPack.SIZE_SMALL, -1), 2)
-	assert_eq(CardPack.options_after(CardPack.SIZE_SMALL, -5), CardPack.MIN_OPTIONS)
-	assert_eq(CardPack.options_after(CardPack.SIZE_HUGE, 2), 7)
+	assert_eq(CardPack.OPTION_COUNTS, [2, 3, 4, 5, 6])
 
 func test_the_picks_are_the_rolled_face() -> void:
 	run.luck_die.faces.assign([1, 2, 3, 4, 5, 6])
@@ -75,23 +70,21 @@ func test_purchase_books_price_options_and_picks() -> void:
 	assert_same(run.current_pack_choice(), choice, "die Auswahl wartet")
 	assert_eq(run.owned_packs.size(), 0, "gebucht wird erst beim Bestätigen")
 
-func test_extra_options_from_charm_and_clauses() -> void:
-	run.owned_charms.append(Charm.extra_option())
-	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
-		CardPack.SIZE_NORMAL), 0, _rng(1))
-	assert_eq(choice.option_count(), 5, "Beigabe: eine Option mehr")
-	run.pending_pack_choices.clear()
-	_sign([DealClause.SUPPLEMENT])
-	choice = _buy_open(CardPack.make(CardPack.SORT_NUMBER,
-		CardPack.SIZE_NORMAL), 0, _rng(1))
-	assert_eq(choice.option_count(), 6, "Beigabe und Beipack")
-
-func test_sealed_takes_one_option_away() -> void:
-	_sign([DealClause.SEALED])
-	var choice := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
-		CardPack.SIZE_NORMAL), 0, _rng(1))
-	assert_eq(choice.option_count(), 3, "Verplombt")
-	assert_lte(choice.picks, choice.option_count())
+## Im Paket liegt GENAU die aufgedruckte Zahl - Glück und Güte ändern sie nicht.
+func test_a_pack_holds_exactly_its_printed_count() -> void:
+	run.luck = 100
+	for pack_size in CardPack.SIZES:
+		var cards := _buy_open(CardPack.make(CardPack.SORT_NUMBER, pack_size,
+			DicePack.QUALITY_ROYAL), 0, _rng(pack_size))
+		assert_eq(cards.option_count(), CardPack.option_count(pack_size))
+		run.pending_pack_choices.clear()
+	for pips in DicePack.SIZES:
+		for seed_value in 20:
+			var dice := _buy_open(DicePack.make(DicePack.SORT_NORMAL, pips,
+				DicePack.QUALITY_ROYAL), 0, _rng(seed_value))
+			assert_eq(dice.option_count(), pips, "%der" % pips)
+			assert_eq(dice.base_count, pips)
+			run.pending_pack_choices.clear()
 
 func test_free_hand_adds_a_pick_only_to_the_first_pack() -> void:
 	_sign([DealClause.FREE_HAND])
@@ -486,46 +479,12 @@ func test_a_new_run_has_no_open_choice() -> void:
 	var fresh := GameRun.new_run()
 	assert_true(fresh.pending_pack_choices.is_empty())
 
-# --- Würfel-Pakete: Größe, Güte-Glück und die zwei Ketten ------------------------------
-
-func test_dice_chain_chances_follow_luck_up_to_the_caps() -> void:
-	assert_almost_eq(DicePack.extra_die_chance(0), 0.20, 0.0001)
-	assert_almost_eq(DicePack.extra_die_chance(10), 0.35, 0.0001)
-	assert_almost_eq(DicePack.extra_die_chance(100), DicePack.EXTRA_DIE_CAP, 0.0001)
+# --- Würfel-Pakete: Größe und Güte-Glück --------------------------------------------
 
 func test_base_numbers_per_pips() -> void:
 	for pips in DicePack.SIZES:
 		assert_eq(DicePack.base_count(pips), pips, "die Augen sind die Grundzahl")
 	assert_eq(DicePack.MAX_COUNT, 6)
-
-func test_dice_count_chain_stays_in_bounds() -> void:
-	var extra := 0
-	var deep := false
-	for seed_value in 1000:
-		var low := DicePack.roll_count(3, 0, _rng(seed_value))
-		assert_between(low, 3, 6)
-		if low > 3:
-			extra += 1
-		var high := DicePack.roll_count(2, 100, _rng(seed_value))
-		assert_between(high, 2, 6)
-		if high >= 4:
-			deep = true
-		assert_eq(DicePack.roll_count(6, 100, _rng(seed_value)), 6, "der 6er bekommt nichts dazu")
-		assert_lte(DicePack.roll_count(8, 100, _rng(seed_value)), DicePack.MAX_COUNT)
-	assert_almost_eq(float(extra) / 1000.0, 0.20, 0.04, "20 % auf den ersten Zusatz")
-	assert_true(deep, "die Kette reicht weiter als einen Würfel")
-
-## Nie mehr als sechs Würfel - auch mit hohem Glück und Beigabe.
-func test_never_more_than_six_dice() -> void:
-	run.luck = 100
-	run.owned_charms.append(Charm.extra_option())
-	for pips in DicePack.SIZES:
-		for seed_value in 30:
-			var choice := _buy_open(DicePack.make(DicePack.SORT_NORMAL, pips,
-				DicePack.QUALITY_ROYAL), 0, _rng(seed_value))
-			assert_lte(choice.base_count, DicePack.MAX_COUNT, "Beigabe geklemmt")
-			assert_between(choice.option_count(), mini(pips + 1, 6), 6, "%der" % pips)
-			run.pending_pack_choices.clear()
 
 func test_quality_is_luck_for_the_pack() -> void:
 	assert_eq(DicePack.QUALITY_LUCK, [0, 6, 12])
@@ -537,22 +496,6 @@ func test_quality_is_luck_for_the_pack() -> void:
 	_buy_open(DicePack.make(DicePack.SORT_NORMAL, CardPack.SIZE_NORMAL, DicePack.QUALITY_ROYAL),
 		0, _rng(1))
 	assert_eq(run.shop_tier(), tier, "die Güte hebt die Augen-Vorlagen nicht")
-
-## Gleiche Würfe, nur die Güte anders: Royal (+12 Glück) bringt mehr Würfel - die Wahlen
-## sagt allein der Glückswürfel.
-func test_quality_luck_raises_the_count_not_the_picks() -> void:
-	var dice := [0, 0]
-	var picks := [0, 0]
-	for seed_value in 300:
-		for q in 2:
-			var quality := DicePack.QUALITY_STANDARD if q == 0 else DicePack.QUALITY_ROYAL
-			var choice := _buy_open(DicePack.make(DicePack.SORT_NORMAL, 3, quality), 0,
-				_rng(seed_value))
-			dice[q] += choice.option_count()
-			picks[q] += choice.picks
-			run.pending_pack_choices.clear()
-	assert_gt(dice[1], dice[0] + 40, "mehr Würfel")
-	assert_eq(picks[1], picks[0], "die Güte wirft nicht mit")
 
 func test_quality_luck_reaches_souls_and_runes() -> void:
 	var souls := [0, 0]
@@ -575,17 +518,6 @@ func test_dice_packs_may_take_every_die() -> void:
 		var choice := _buy_open(DicePack.make(DicePack.SORT_NORMAL, pack_size), 0, _rng(pack_size))
 		assert_eq(choice.picks, choice.option_count(), "der Deckel Zahl - 1 ist gefallen")
 		run.pending_pack_choices.clear()
-
-func test_option_clauses_move_the_base_count() -> void:
-	_sign([DealClause.SEALED])
-	var sealed := _buy_open(DicePack.make(DicePack.SORT_NORMAL, 3), 0, _rng(1))
-	assert_eq(sealed.base_count, DicePack.MIN_COUNT, "Verplombt: 3 - 1")
-	run.active_deals.clear()
-	run.pending_pack_choices.clear()
-	run.owned_charms.append(Charm.extra_option())
-	var extra := _buy_open(DicePack.make(DicePack.SORT_NORMAL, 3), 0, _rng(1))
-	assert_eq(extra.base_count, 4, "Beigabe: ein Würfel mehr")
-	assert_gte(extra.option_count(), 4)
 
 func test_free_hand_adds_to_the_dice_roll() -> void:
 	_sign([DealClause.FREE_HAND])
@@ -630,14 +562,15 @@ func test_shop_text_names_floors_and_quality_luck_but_no_odds() -> void:
 	assert_eq(DicePack.make(DicePack.SORT_NORMAL, 6, DicePack.QUALITY_ROYAL).display_name,
 		"6er Würfel-Paket · Royal")
 	var text := DicePack.info_body(dice_pack)
-	assert_string_contains(text, "Mindestens 5 Würfel")
+	assert_string_contains(text, "5 Würfel")
 	assert_string_contains(text, CardPack.DIE_SAYS)
 	assert_string_contains(text, "+6 Glück")
 	assert_false(text.contains("%"), "keine Chancen")
 	assert_string_contains(DicePack.info_body(DicePack.make(DicePack.SORT_RUNE, 6,
 		DicePack.QUALITY_ROYAL)), "+12 Glück")
 	var plain := DicePack.info_body(DicePack.make(DicePack.SORT_NORMAL, 4))
-	assert_string_contains(plain, "Mindestens 4 Würfel")
+	assert_string_contains(plain, "4 Würfel")
+	assert_false(plain.contains("Mindestens"), "genau so viele, nicht mindestens")
 	assert_false(plain.contains("Glück ·") or plain.contains("+"), "Standard nennt kein Glück")
 
 func test_side_bet_takes_the_dearest_affordable_pair() -> void:

@@ -116,8 +116,8 @@ const TRAY_RUNE_TINTS := [Color("#ffffff"), Color("#ffc23a"), Color("#ff7a1f"),
 const TRAY_RUNE_ENERGY := 3.0
 static var _dice_case_scenes := {}
 ## Der ESD-BEUTEL: Dicke je Größe, Anteile der Länge, Folie mit leichtem Rosa-Stich.
-const BAG_THICKNESS := [DataCellView.DEPTH * 1.3, DataCellView.DEPTH * 1.5,
-	DataCellView.DEPTH * 1.7, DataCellView.DEPTH * 1.9]
+const BAG_THICKNESS := [DataCellView.DEPTH * 1.1, DataCellView.DEPTH * 1.3,
+	DataCellView.DEPTH * 1.5, DataCellView.DEPTH * 1.7, DataCellView.DEPTH * 1.9]
 const BAG_ALBEDO := Color(0.82, 0.76, 0.79)
 const BAG_GLOW := Color(0.55, 0.5, 0.56)
 const BAG_GLOW_ENERGY := 0.5

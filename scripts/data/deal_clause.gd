@@ -53,7 +53,6 @@ const SOUL_MARKET := "soul_market"
 const FREE_FLIP := "free_flip"
 const BUYBACK := "buyback"
 const REINSURANCE := "reinsurance"
-const SUPPLEMENT := "supplement"
 
 # Bonus, Stufe 2
 const HIGH_VOLTAGE := "high_voltage"
@@ -95,7 +94,6 @@ const POWER_CUT := "power_cut"
 const EMPTY_SHELVES := "empty_shelves"
 const SOULLESS := "soulless"
 const FLIP_SURCHARGE := "flip_surcharge"
-const SEALED := "sealed"
 
 # Malus, Stufe 2
 const QUOTA_SURCHARGE_II := "quota_surcharge_ii"
@@ -336,19 +334,11 @@ static func big_storage() -> DealClause:
 	return _bonus(BIG_STORAGE, "Großer Speicher", "Börse dauerhaft +5 ⚡ Platz.",
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
-static func supplement() -> DealClause:
-	return _bonus(SUPPLEMENT, "Beipack", "Jedes Paket zeigt eine Option mehr.",
-		Scope.ROUND, Tier.ONE, [TAG_SHOP])
-
 static func free_hand() -> DealClause:
 	return _bonus(FREE_HAND, "Freie Hand", "Erstes geöffnetes Paket: +1 Wahl.",
 		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
 # --- Malusklauseln ------------------------------------------------------------
-
-static func sealed() -> DealClause:
-	return _malus(SEALED, "Verplombt", "Jedes Paket zeigt eine Option weniger.",
-		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func empty_shelves() -> DealClause:
 	return _malus(EMPTY_SHELVES, "Leere Regale", "Laden: zwei Paket-Plätze bleiben leer.",
@@ -501,7 +491,7 @@ static func all() -> Array[DealClause]:
 		back_room_contact(), loaded_reels(), reinsurance(), high_table(),
 		big_storage(),
 		empty_shelves(), shelf_warmer(), soulless(), flip_surcharge(),
-		supplement(), free_hand(), sealed(),
+		free_hand(),
 	]
 
 ## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
@@ -539,8 +529,6 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 	match clause_id:
 		ADVANCE_PAYMENT:
 			return "+$24 sofort."
-		SUPPLEMENT:
-			return "Jedes Paket zeigt zwei Optionen mehr."
 		FREE_HAND:
 			return "Erstes geöffnetes Paket: +2 Wahlen."
 		BLANK_CHEQUE:
