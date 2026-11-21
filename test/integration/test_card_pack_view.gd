@@ -129,18 +129,6 @@ func test_the_front_card_shows_the_pack_card() -> void:
 		for holder in _stair(hull).slice(0, -1):
 			assert_eq(_stair_card(holder).stamp_net, StampNet.empty_net(), "darunter leer")
 
-## Stehend bleibt die Treppe, wo sie ist.
-func test_standing_keeps_the_stair() -> void:
-	var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE)
-	var flat: Array[Transform3D] = []
-	for holder: Node3D in _stair(hull):
-		flat.append(holder.transform)
-	hull.set_standing(true)
-	hull._set_hover_share(0.7)
-	var holders := _stair(hull)
-	for i in holders.size():
-		assert_eq((holders[i] as Node3D).transform, flat[i], "die Treppe rührt sich nicht")
-
 ## Der Sortendruck trägt Hover und Flare; die GÜTE ist Folie bzw. Metall.
 func test_the_print_carries_sort_and_quality() -> void:
 	for pack_sort: String in CardPack.SORTS:
@@ -446,65 +434,4 @@ func test_tearing_writes_the_end_state_first() -> void:
 	bag.set_torn(true)
 	assert_false(strip.visible, "hart gesetzt ist der Streifen fort")
 	assert_eq(bag.case_outline_local().size(), 4, "sein Grundriß trägt die Einzugs-Sektion")
-
-# --- HOCHKANT im LAGER ---------------------------------------------------------------
-
-## Stehend hängt die Hülle unter ihrem Rücken: der Ursprung ist oben, die Fläche zeigt
-## nach Bild-rechts (+Z), die lange Seite senkrecht.
-func test_a_standing_pack_hangs_below_its_spine() -> void:
-	var hull := _hull(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE)
-	hull.rotation.y = -PI / 2.0  # wie scene_root._spawn_hull
-	hull.add_spine()
-	hull.stand_on(Vector3.ZERO)
-	var length := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE
-	var center := _center(hull)
-	assert_almost_eq(center.y, -length * 0.5, 0.01, "die Mitte eine halbe Länge tief")
-	assert_almost_eq(center.z, 0.0, 0.03, "mittig im Platz")
-	assert_gt(_cell_basis(hull).z.normalized().z, 0.99, "die Fläche zeigt nach Bild-rechts")
-	assert_gt(_cell_basis(hull).y.normalized().y, 0.99, "der Kopf zeigt nach oben")
-	assert_null(hull.find_child("Spine", true, false), "der Kopfdruck liest von selbst")
-	assert_true(hull.standing())
-
-## Der Griff hebt sie aus der Rinne und legt ihre Fläche zur Kamera - über dem Filz.
-func test_hover_presents_the_face_above_the_felt() -> void:
-	var hull := _hull(CardPack.SORT_RUNE, CardPack.SIZE_NORMAL)
-	hull.rotation.y = -PI / 2.0  # wie scene_root._spawn_hull
-	hull.stand_on(Vector3.ZERO)
-	hull._set_hover_share(CardPackView.PRESENT_RISE_SHARE)
-	var length := DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE
-	assert_gt(_center(hull).y - length * 0.5, 0.0, "gehoben steht sie ganz über dem Filz")
-	hull._set_hover_share(1.0)
-	assert_gt(_cell_basis(hull).z.normalized().y, 0.99, "gekippt liegt die Fläche oben")
-	assert_gt(_center(hull).y, 0.0, "über dem Filz")
-	for share in [0.6, 0.7, 0.8, 0.9]:
-		hull._set_hover_share(share)
-		var turn := _cell_basis(hull)
-		var low := _center(hull).y - absf(turn.y.normalized().y) * length * 0.5 \
-			- absf(turn.z.normalized().y) * hull.thickness() * PackDrawerView.CASSETTE_SCALE * 0.5
-		assert_gt(low, 0.0, "beim Kippen taucht kein Ende unter den Filz (%.1f)" % share)
-
-## Hinlegen gibt die gewohnte Liege-Lage byteweise zurück; der Grundriß kennt nur sie.
-func test_lying_down_restores_the_lying_pose() -> void:
-	var lying := _hull(DicePack.SORT_NORMAL, CardPack.SIZE_HUGE, true)
-	lying.lie_on_glass(Vector3.ZERO)
-	var body: Node3D = lying.get_node("Body")
-	var rest := body.transform
-	var outline := lying.case_outline_local()
-	lying.stand_on(Vector3.ZERO)
-	assert_ne(body.transform, rest)
-	assert_eq(lying.case_outline_local(), outline, "der Grundriß gilt liegend, auch im Stand")
-	lying.set_standing(false)
-	assert_eq(body.transform, rest)
-
-## Weder Schachtel noch Schale tragen eine Rücken-Marke: ihr Kopfdruck liest von selbst.
-func test_no_spine_mark_on_cassette_or_case() -> void:
-	var cassette := _hull(CardPack.SORT_MATERIAL, CardPack.SIZE_NORMAL)
-	cassette.add_spine()
-	assert_null(cassette.find_child("Spine", true, false), "der Druck trägt den Rücken")
-	var plain := _quality_hull(DicePack.QUALITY_ROYAL)
-	plain.add_spine()
-	assert_null(plain.find_child("Spine", true, false), "die Augen am Kopf tragen den Rücken")
-	var banded := _quality_hull(DicePack.QUALITY_STANDARD, CardPack.SIZE_HUGE, DicePack.SORT_SOUL)
-	banded.add_spine()
-	assert_null(banded.find_child("Spine", true, false), "auch die Seele keine Marke")
 

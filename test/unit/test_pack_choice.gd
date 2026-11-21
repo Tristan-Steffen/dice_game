@@ -69,7 +69,6 @@ func test_purchase_books_price_options_and_picks() -> void:
 	var choice := _buy_open(CardPack.make(CardPack.SORT_MATERIAL,
 		CardPack.SIZE_LARGE), 27, _rng(3))
 	assert_eq(run.money, 473, "der Preis ist bezahlt")
-	assert_eq(run.stored_card_packs.size(), 0, "nie ins Lager")
 	assert_not_null(choice)
 	assert_eq(choice.option_count(), 5)
 	assert_eq(choice.picks, 1, "der frische Glückswürfel")
@@ -431,7 +430,6 @@ func test_side_bet_pays_one_dice_pack() -> void:
 	assert_same(run.current_pack_choice(), bet.awarded_choice)
 	assert_true(bet.awarded_choice.is_dice())
 	assert_true(bet.awarded_choice.from_bet)
-	assert_true(run.stored_dice_packs.is_empty())
 
 func test_side_bet_card_pack_opens_a_choice() -> void:
 	var bet := SideBet.new()
@@ -442,7 +440,6 @@ func test_side_bet_card_pack_opens_a_choice() -> void:
 	run._pay_side_bet(bet, 1.0)
 	assert_not_null(bet.awarded_choice, "geöffnet")
 	assert_false(bet.awarded_choice.is_dice())
-	assert_true(run.stored_card_packs.is_empty(), "nie ins Lager")
 	assert_eq(run.owned_packs.size(), 0, "die Karten kommen erst mit der Wahl")
 
 func test_side_bet_packs_queue_one_after_another() -> void:
@@ -460,7 +457,7 @@ func test_side_bet_packs_queue_one_after_another() -> void:
 
 # --- Öffnen beim KAUF ---------------------------------------------------------------------
 
-func test_purchase_opens_at_once_and_stores_nothing() -> void:
+func test_purchase_opens_at_once() -> void:
 	var offer := DicePack.make(DicePack.SORT_NORMAL, 4, DicePack.QUALITY_FINE)
 	var choice := run.purchase_dice_pack(offer, 40)
 	assert_eq(run.money, 460, "bezahlt")
@@ -470,16 +467,6 @@ func test_purchase_opens_at_once_and_stores_nothing() -> void:
 	assert_eq(choice.size, 4)
 	assert_false(choice.from_bet)
 	assert_ne(choice.pack, offer, "die Auslage behält ihr Angebot")
-	assert_true(run.stored_dice_packs.is_empty(), "das Lager bekommt nichts mehr")
-
-func test_a_full_store_never_blocks_a_purchase() -> void:
-	run.debug_fill_store()
-	assert_true(run.store_full(GameRun.LANE_CARDS))
-	var choice := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER,
-		CardPack.SIZE_SMALL), 10)
-	assert_not_null(choice, "das Lager sperrt nichts mehr")
-	assert_eq(run.money, 490)
-	assert_eq(run.stored_card_packs.size(), GameRun.STORE_CAPACITY, "und wächst nicht")
 
 func test_purchases_queue_their_choices() -> void:
 	var a := run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
@@ -498,7 +485,6 @@ func test_a_new_run_has_no_open_choice() -> void:
 	run.purchase_card_pack(CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_SMALL), 0)
 	var fresh := GameRun.new_run()
 	assert_true(fresh.pending_pack_choices.is_empty())
-	assert_eq(fresh.stored_card_packs.size(), 0)
 
 # --- Würfel-Pakete: Größe, Güte-Glück und die zwei Ketten ------------------------------
 

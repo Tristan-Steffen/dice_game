@@ -84,9 +84,6 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	for i in TableScreen.SECRET_BAY_PIT_COUNT:
 		slots.append(TableScreen.PIT_SECRET_BAY0 + i)
 	slots.append(TableScreen.PIT_TRAY)
-	slots.append(TableScreen.PIT_STORE_CARDS)
-	slots.append(TableScreen.PIT_STORE_DICE)
-	slots.append(TableScreen.PIT_STORE_MODULES)
 	slots.append(TableScreen.PIT_OPENING)
 	slots.append(TableScreen.PIT_BAG)
 	slots.append(TableScreen.PIT_CHARM)
@@ -95,7 +92,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_SOCKET)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
-	assert_eq(slots.size(), TableScreen.MAX_PITS - 1, "und mehr gibt es nicht")
+	assert_eq(slots.size(), TableScreen.MAX_PITS - 4, "und mehr gibt es nicht (33-35 frei)")
 	# Die KAMMER haengt hinter den Schluck-Bahnen an (der Platz der toten Tischsektion).
 	assert_eq(TableScreen.PIT_CHAMBER,
 		TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1) + 1)
@@ -125,9 +122,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		TableScreen.PIT_CHARM, "Platz 31 zieht seit 2026-11-18 die ausgeworfene Diskette ein")
 	assert_eq(TableScreen.PIT_CHARM + 1, TableScreen.PIT_TRAY)
 	assert_false(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_CHARM), "ein Einzug ist kein Möbel")
-	assert_eq(TableScreen.PIT_TRAY + 1, TableScreen.PIT_STORE_CARDS, "dahinter das Paket-Lager")
-	assert_eq(TableScreen.PIT_STORE_DICE + 1, TableScreen.PIT_STORE_MODULES)
-	assert_eq(TableScreen.PIT_STORE_MODULES + 1, TableScreen.PIT_OPENING)
+	assert_eq(TableScreen.PIT_TRAY + 4, TableScreen.PIT_OPENING, "33-35 sind frei")
 	assert_eq(TableScreen.SHOP_PACK_PITS[1], TableScreen.shop_bay_pit(TableScreen.SHOP_BAY_PIT_COUNT - 1) + 1,
 		"dahinter die Sektionen der Paket-Fläche")
 	assert_eq(TableScreen.SHOP_PACK_PITS[5] + 1, TableScreen.PIT_BAG, "dahinter der Beutel-Einzug")
@@ -146,10 +141,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	for i in TableScreen.SHOP_BAY_PIT_COUNT:
 		assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.shop_bay_pit(i)), "Mulde %d ist Möbel" % i)
 	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_OPENING), "sie ist Möbel")
-	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_MODULES))
 	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_TRAY), "sie ist Möbel")
-	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_CARDS), "das Lager auch")
-	assert_true(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_STORE_DICE))
 	assert_eq(TableScreen.SWALLOW_PIT_COUNT, TableScreen.QUEUE_PIT_COUNT, "je Grubenwürfel eine Bahn")
 	var source: String = load("res://scripts/table/table_screen.gd").source_code
 	assert_false(source.contains("clamp_pit"), "clamp_pit ist tot")

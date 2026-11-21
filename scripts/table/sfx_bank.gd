@@ -95,7 +95,6 @@ func _ready() -> void:
 		&"shop_refund": _load_or(&"shop_refund", _chime.bind([D6, G5], 0.4, 0.05)),
 		&"shop_flip": _load_or(&"shop_flip", _whoosh.bind(0.3, true)),
 		&"store_land": _load_or(&"store_land", _thud.bind(D3, 0.18)),
-		&"store_open": _load_or(&"store_open", _latch.bind(0.08)),
 		&"pack_burst": _load_or(&"pack_burst", _tear.bind(0.3)),
 		&"bag_tear": _load_or(&"bag_tear", _tear.bind(0.5)),
 		&"pack_pick": _load_or(&"pack_pick", _blip.bind(D5, 0.1, 0.3)),

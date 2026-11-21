@@ -319,6 +319,8 @@ const LINEUP_DURATION := 0.35
 
 ## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben).
 const PIT_ZOOM_UP := 4.0
+## Die Gruben-Station schaut etwas nach Bild-links: so stehen alle zwölf Kombinationen im Bild.
+const PIT_ZOOM_LEFT := 4.5
 
 ## Mausrad-Navigation: EIN Rad-Schritt = EINE Zoomstufe, also genau die Fahrten,
 ## die auch Klick und Rechtsklick auslösen - die Zoom-Distanzen sind gerechnet
@@ -1203,14 +1205,9 @@ func _setup_table_screen() -> void:
 	if not chip_tray.chip_entered.is_connected(_on_tray_chip_entered):
 		chip_tray.chip_entered.connect(_on_tray_chip_entered)
 		chip_tray.chip_left.connect(_on_tray_chip_left)
-	# Das PAKET-LAGER rechts daneben; die Station rahmt Tray UND Lager.
-	var station_rect := t_rect
-	var store_rect := _place_pack_store(t_rect)
-	if store_rect.size.x > 0.0:
-		station_rect = t_rect.merge(store_rect)
-	# Klickzone zum Heranzoomen an Tray und Lager (Fußabdruck beider Fassungen).
-	var tr_a := table_screen.pixel_to_world(station_rect.position)
-	var tr_b := table_screen.pixel_to_world(station_rect.end)
+	# Klickzone zum Heranzoomen ans Tray (Fußabdruck der Fassung).
+	var tr_a := table_screen.pixel_to_world(t_rect.position)
+	var tr_b := table_screen.pixel_to_world(t_rect.end)
 	var tr_mid := (tr_a + tr_b) * 0.5
 	camera_rig.configure_chips_target(Vector3(tr_mid.x, 1.5, tr_mid.z),
 		Vector2(absf(tr_a.z - tr_b.z), absf(tr_a.x - tr_b.x)) * 0.5)
@@ -1492,7 +1489,8 @@ func _setup_camera_targets() -> void:
 	camera_rig.configure_tray_targets(_pool_tray_home)
 	# Grubenziel auf Tisch-Screen-Höhe (0), etwas Richtung Charms (+X = oben)
 	# verschoben, damit die Charm-Konsolen mit im Blick sind.
-	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0, DicePit.PIT_CENTER.z))
+	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0,
+		DicePit.PIT_CENTER.z - PIT_ZOOM_LEFT))
 	_setup_charms_zoom()
 	_setup_glide_bounds()
 
@@ -1646,7 +1644,6 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.debug_energy_requested.connect(_on_debug_energy_pressed)
-		table_screen.hub.debug_packs_requested.connect(_on_debug_packs_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
@@ -8569,18 +8566,9 @@ const ASSIGN_DOOMED_BODY := Color(0.42, 0.3, 0.3)
 const ASSIGN_SEAT_DELAY := 0.18
 const ASSIGN_SEAT_TIME := 0.5
 const ASSIGN_SEAT_PEAK := 1.2
-## Der Rand des Lagers zum Display, in Welt.
-const PACK_AREA_EDGE := 0.5
 ## Die Öffnungs-Fläche ist eine flache VERTIEFUNG: so tief liegt ihr Boden - über der
 ## Kartenoberkante des Magazins (−0,242), das im Übergang darunter liegt.
 const PACK_AREA_DEPTH := 0.2
-## Das LAGER: Nachrücken und die Grubentiefe (das dickste Paket plus Luft - es liegt
-## bündig unter der Schnittkante).
-const PACK_STORE_SHIFT := 0.3
-const PACK_STORE_CLEAR := 0.03
-const PACK_STORE_AIR := 0.15
-## Luft zwischen der Tasche des Chip-Trays und der ersten Lager-Grube (Welt).
-const PACK_POCKET_CLEAR := 0.12
 
 var pack_choice_view: PackChoiceView
 ## Die Auswahl, die gerade auf der Fläche steht (null = keine).
@@ -8591,12 +8579,6 @@ var _choice_gen := 0
 ## Die Kamera-Lage vor der Öffnung; nach dem Einsetzen kehrt sie dorthin zurück.
 var _choice_home: Dictionary = {}
 var _choice_hull: CardPackView = null
-## Das Lager: je uid sein Körper und sein Platz (es bekommt seit dem 2026-11-17 nichts mehr).
-var store_pits: Array[PackPitView] = []
-var _store_bodies := {}
-var _store_seats := {}
-var _store_locked := false
-var _store_hovered := -1
 var _opening_rect := Rect2()
 ## Die Vertiefung der Öffnungs-Fläche und ihr Boden, der das Bild der Fläche trägt.
 var opening_pit: PackPitView
@@ -8756,7 +8738,7 @@ func _sync_pack_choice() -> void:
 ## Darf JETZT eine Öffnung beginnen? Keine Runde läuft (dieselbe Frage wie am Vorrat),
 ## nichts Modales steht, und die letzte Schatulle ist fort - zwei lägen übereinander.
 func _pack_opening_ready() -> bool:
-	if run == null or not _store_unlocked():
+	if run == null or not _packs_unlocked():
 		return false
 	if not _case_flights.is_empty() or not _assign_sinking.is_empty() \
 			or not _card_carries.is_empty() or _bag_sinking != null:
@@ -8766,9 +8748,9 @@ func _pack_opening_ready() -> bool:
 		return false
 	return run.pending_dice.is_empty() and not _part_install_forced() and not _install_seating
 
-## Das Lager ist offen, solange keine Runde läuft: im Laden und vor der Unterschrift -
+## Geöffnet wird, solange keine Runde läuft: im Laden und vor der Unterschrift -
 ## genau dann, wenn auch am Vorrat gerührt werden darf.
-func _store_unlocked() -> bool:
+func _packs_unlocked() -> bool:
 	return run != null and (phase == Phase.SHOP or phase == Phase.IDLE) and _pool_editable()
 
 ## Bis die Fläche ihre Plätze gelegt hat: true, wenn die Öffnung noch dieselbe ist.
@@ -9000,223 +8982,13 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 				PACK_DIE_BOUNCE * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
 ## --- Die SCHATULLE: Würfel-Pakete öffnen sich AUF der Öffnungs-Fläche -----------
-## Die Schatulle fliegt aus dem Lager oben in die linke Spalte, klappt auf, und
+## Die Schatulle fliegt oben in die linke Spalte, klappt auf, und
 ## die Würfel springen auf eine unsichtbare Landefläche. Bestätigt fliegen die
 ## Gewählten in die Schale, die Schatulle klappt zu und der Tisch zieht sie ein.
-
-## --- Das PAKET-LAGER --------------------------------------------------------------
-## Rechts vom Chip-Tray: drei RINNEN übereinander (Karten, Würfel, Module), je acht
-## Plätze; die Pakete STEHEN hochkant darin. Die Fassung meldet die Plätze
-## (PackStoreView), die Körper stellt allein _sync_store_bodies.
-
-## Der RÜCKEN eines stehenden Pakets in Display-Pixeln: x die dickste Hülle (längs der
-## Rinne), y ihre kurze Seite (quer) - EIN Maß für alle Plätze.
-func _pack_spine_px() -> Vector2:
-	var scale := PackDrawerView.CASSETTE_SCALE
-	return Vector2(_world_len_px(CardPackView.lying_height(scale)),
-		_world_len_px(DataCellView.WIDTH * CardPackView.FOOT_ROOM * scale))
-
-## Stellt das Lager rechts neben das Tray (unten bündig) und baut seine drei Rinnen.
-## Liefert sein Rechteck in Display-Pixeln (leer = kein Platz).
-func _place_pack_store(tray_rect: Rect2) -> Rect2:
-	var store := table_screen.store_window
-	if store == null:
-		return Rect2()
-	store.spine_px = _pack_spine_px()
-	# Die Würfel-Rinne faßt die Schatulle quer.
-	var across := _world_len_px(CardPackView.max_case_across() * PackDrawerView.CASSETTE_SCALE)
-	store.lane_across.assign([store.spine_px.y, maxf(store.spine_px.y, across),
-		store.spine_px.y])
-	var want := store.preferred_size()
-
-	# BÜNDIG mit Wett-Tresen und Chip-Tray: dieselbe Ober- und Unterkante.
-	want.y = maxf(tray_rect.size.y, want.y)
-	# Dieselbe Fuge wie zwischen Tresen und Tray.
-	var gap := TableScreen.LAYOUT_SIZE.x * 0.005
-	var rect := Rect2(Vector2(tray_rect.end.x + gap, tray_rect.end.y - want.y), want)
-	if rect.end.x > table_screen.size.x - PACK_AREA_EDGE * table_screen.pixels_per_world():
-		push_warning("Paket-Lager ragt über den Displayrand (%.0f > %.0f)" % [rect.end.x,
-			table_screen.size.x])
-	table_screen.place_store_window(rect)
-	# Die Tasche hinter dem Wandschlitz des Trays endet vor der Lager-Grube - sonst sähe
-	# man durch die Grube in sie hinein (das Flimmern links).
-	if chip_tray != null:
-		var pit_left := table_screen.pixel_to_world(
-			table_screen.store_pit_rect(GameRun.LANE_CARDS).position).z
-		chip_tray.set_pocket_limit(pit_left - PACK_POCKET_CLEAR)
-	for pit in store_pits:
-		if is_instance_valid(pit):
-			pit.queue_free()
-	store_pits.clear()
-	for lane in PackStoreView.LANES:
-		var pit_rect := table_screen.store_pit_rect(lane)
-		var pit := PackPitView.new("StorePit%d" % lane)
-		pit.wall_skin = PIT_SKIN
-		add_child(pit)
-		pit.setup(table_screen.pixel_to_world(pit_rect.get_center()), _pit_half(pit_rect),
-			_store_pit_depth())
-		store_pits.append(pit)
-	return rect
-
-## Die Rinne ist so tief wie die LANGE Seite plus Luft: das Paket steckt ganz darin.
-func _store_pit_depth() -> float:
-	return DataCellView.HEIGHT * CardPackView.FOOT_ROOM * PackDrawerView.CASSETTE_SCALE \
-		+ PACK_STORE_CLEAR + PACK_STORE_AIR
-
-## Der Platz eines gelagerten Pakets: der Index in seiner Rinne (geöffnet rückt nach),
-## der Rücken mittig im Platz und knapp unter der Schnittkante.
-func _store_seat(pack: Resource) -> Vector3:
-	var lane := GameRun.store_lane_of(pack)
-	var index := maxi(run.stored_packs(lane).find(pack), 0) if run != null else 0
-	var store := table_screen.store_window
-	var at := table_screen.pixel_to_world(store.position + store.slot_center(lane, index))
-	at.y = -PACK_STORE_CLEAR
-	return at
 
 ## Die vorderste Karte eines Karten-Pakets (null bei jeder anderen Art).
 func _pack_front(pack: Resource) -> Pack:
 	return (pack as CardPack).front_card() if pack is CardPack else null
-
-## Die Hülle eines gelagerten Pakets - LIEGEND auf at, mit ihrer Rücken-Marke.
-func _spawn_store_hull(pack: Resource, at: Vector3) -> CardPackView:
-	var hull: CardPackView
-	if pack is ModulePack:
-		hull = _spawn_bag(pack as ModulePack, at)
-	else:
-		var dice := pack is DicePack
-		hull = _spawn_hull(String(pack.get("sort")), int(pack.get("size")), dice, at,
-			int(pack.get("quality")), _pack_front(pack))
-	hull.add_spine()
-	hull.lie_on_glass(at)
-	return hull
-
-## Der EINE Schreiber der Lager-Körper, je Bild: jedes gelagerte Paket steht hochkant auf
-## seinem Platz; öffnet eines, gleiten die rechten nach (Rinnen-Grammatik), und in der
-## Runde steht alles grau.
-func _sync_store_bodies() -> void:
-	if run == null or table_screen == null or table_screen.store_window == null \
-			or not table_screen.store_window.visible:
-		return
-	var locked := not _store_unlocked()
-	table_screen.store_window.set_state([run.stored_card_packs.size(),
-		run.stored_dice_packs.size(), run.stored_module_packs.size()], locked)
-	var dim_changed := locked != _store_locked
-	_store_locked = locked
-	var alive := {}
-	for lane in GameRun.STORE_LANES:
-		for pack: Resource in run.stored_packs(lane):
-			var uid := int(pack.get("store_uid"))
-			alive[uid] = true
-			var seat := _store_seat(pack)
-			var body: CardPackView = _store_bodies.get(uid)
-			if body == null or not is_instance_valid(body):
-				body = _spawn_store_hull(pack, seat)
-				body.stand_on(seat)
-				body.set_dimmed(locked)
-				_store_bodies[uid] = body
-				_store_seats[uid] = seat
-				continue
-			if dim_changed:
-				body.set_dimmed(locked)
-			if _store_seats.get(uid, seat) != seat:
-				_store_seats[uid] = seat
-				body.glide_to(seat, PACK_STORE_SHIFT)
-	for uid in _store_bodies.keys():
-		if not alive.has(uid):
-			_drop_store_body(uid)
-	_sync_store_hover()
-
-func _drop_store_body(uid: int) -> void:
-	var body: CardPackView = _store_bodies.get(uid)
-	_store_bodies.erase(uid)
-	_store_seats.erase(uid)
-	if _store_hovered == uid:
-		_store_hovered = -1
-	if body != null and is_instance_valid(body):
-		_free_data_cell(body)
-
-## Der harte Weg: jeder Körper fort (der Schreiber stellt beim nächsten Bild alles neu).
-func _drop_store_bodies() -> void:
-	for uid in _store_bodies.keys():
-		_drop_store_body(uid)
-	_store_hovered = -1
-
-## Welches Paket steht unter dem Zeiger? Gemessen auf der Glashöhe; ein Platz ist ein
-## Streifen über die volle Rinnenbreite, so trifft man auch das dünnste. {} = keines.
-func _store_slot_under(screen_pos: Vector2) -> Dictionary:
-	if table_screen == null or table_screen.store_window == null \
-			or not table_screen.store_window.visible:
-		return {}
-	var hit: Variant = _mouse_on_plane(screen_pos, 0.0)
-	if hit == null:
-		return {}
-	var store := table_screen.store_window
-	var slot := store.slot_at(table_screen.world_to_pixel(hit as Vector3) - store.position)
-	if slot.is_empty():
-		return {}
-	if run == null:
-		return {}
-	var pack := run.stored_pack_at(int(slot["lane"]), int(slot["index"]))
-	if pack == null:
-		return {}
-	slot["uid"] = int(pack.get("store_uid"))
-	return slot
-
-## Je Bild: das Paket unter dem Zeiger hebt sich aus der Rinne und zeigt seine Fläche -
-## nur, wenn es geöffnet werden darf.
-func _sync_store_hover() -> void:
-	var want := -1
-	if _store_unlocked() and _choice == null and _table_operable() and not _deck_glass \
-			and not log_open:
-		var slot := _store_slot_under(get_viewport().get_mouse_position())
-		if not slot.is_empty():
-			want = int(slot["uid"])
-	if want == _store_hovered:
-		return
-	var old: CardPackView = _store_bodies.get(_store_hovered)
-	if old != null and is_instance_valid(old):
-		old.set_hovered(false)
-	_store_hovered = want
-	var body: CardPackView = _store_bodies.get(want)
-	if body != null and is_instance_valid(body):
-		body.set_hovered(true)
-
-## Der Klick aufs Lager: ein Paket öffnet sich, wenn keine Runde läuft. In der Runde
-## (oder während etwas anderes steht) schweigt er - ein Klick neben die Pakete fliegt
-## wie jeder Tisch-Klick an die Station.
-func _forward_store_mouse(event: InputEventMouse) -> bool:
-	var press := event as InputEventMouseButton
-	if press == null or not press.pressed or press.button_index != MOUSE_BUTTON_LEFT:
-		return false
-	var slot := _store_slot_under(press.position)
-	if slot.is_empty():
-		return false
-	# Geöffnet wird nur an der eigenen Station; aus der Ferne wird der Klick zum Zoom.
-	if camera_rig.mode != CameraRig.Mode.CHIPS or not camera_rig.takes_input():
-		return false
-	if not _pack_opening_ready() or _choice != null or run.current_pack_choice() != null:
-		_sfx(&"ui_denied")
-		return true
-	_open_stored_pack(int(slot["uid"]))
-	return true
-
-## Bucht das Öffnen und übergibt den Lager-Körper an die Öffnung.
-func _open_stored_pack(uid: int) -> void:
-	if run == null or run.open_stored_pack(uid) == null:
-		return
-	_sfx(&"store_open")
-	var body: CardPackView = _store_bodies.get(uid)
-	_store_bodies.erase(uid)
-	_store_seats.erase(uid)
-	_store_hovered = -1
-	_drop_bought_case()
-	if body != null and is_instance_valid(body):
-		body.set_hovered(false)
-		body.set_dimmed(false)
-		# Sie legt sich hin, während sie zur Öffnung fliegt.
-		body.set_standing(false, CardPackView.STAND_TIME)
-		_case_bought = body
-	_sync_pack_choice()
 
 ## Die ÖFFNUNGS-FLÄCHE unter dem Vorrat: bei Karten-Paketen eine flache Vertiefung mit
 ## Schirm, bei Würfel-Paketen steht auf ihr die SCHIENE - ohne Schirm, ohne Loch, ohne
@@ -10511,7 +10283,7 @@ func _finish_pack_choice(keep_frame := false) -> void:
 
 ## Der EINE harte Aufräum-Pfad (Laufwechsel, verlorene Auswahl): alles fort, auch
 ## Landefläche und Loch, die Kamera heim. Eine noch offene Auswahl bleibt in GameRun
-## und öffnet neu; die Lager-Körper stellt ihr Schreiber neu.
+## und öffnet neu.
 func _settle_pack_openings() -> void:
 	_drop_pool_pin()
 	_settle_case_show()
@@ -10532,7 +10304,6 @@ func _settle_pack_openings() -> void:
 	_restore_assign_marks()
 	if not _choice_home.is_empty():
 		_leave_opening_frame()
-	_drop_store_bodies()
 
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
 ## das Chip-Tray. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
@@ -11709,9 +11480,6 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 	# auch während das Raster liegt - er kommt darum VOR dessen Modalität.
 	if _forward_raster_switch_mouse(event, pixel):
 		return true
-	# Das PAKET-LAGER: seine Pakete liegen in Gruben, gepickt auf ihrer Höhe.
-	if _forward_store_mouse(event):
-		return true
 	# Die GLAS-ANSICHT wohnt in ihrem EIGENEN Viewport: sie bekommt den Zeiger
 	# umgerechnet, nicht die Anzeige darunter. Modal - unter ihr liegt keine Fläche.
 	if _deck_glass and pixel.x >= 0.0 and table_screen.push_deck_glass_input(event, pixel):
@@ -12081,7 +11849,6 @@ func _process(delta: float) -> void:
 	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_pack_areas()  # die Öffnungs-Fläche unter dem Vorrat
 	_sync_luck_die()  # und der Glückswürfel rechts daneben
-	_sync_store_bodies()  # und jedes gelagerte Paket auf seinem Platz
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
@@ -16362,11 +16129,6 @@ func _on_debug_money_pressed() -> void:
 func _on_debug_energy_pressed() -> void:
 	if run != null:
 		run.add_energy(10)
-
-## Debug: jede Lager-Reihe bis zur Kapazität; die Körper stellt _sync_store_bodies hart.
-func _on_debug_packs_pressed() -> void:
-	if run != null:
-		run.debug_fill_store()
 
 ## Sichtbarkeit der Spiel-UI nach Spielzustand (false während Shop/GameOver).
 func _set_gameplay_ui_visible(is_visible: bool) -> void:

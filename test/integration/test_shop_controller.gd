@@ -76,7 +76,7 @@ func test_every_place_rolls_its_kind_three_two_one():
 	for i in 100:
 		var spread = shop._build_spread()
 		for pack in spread.packs:
-			counts[GameRun.store_lane_of(pack)] += 1
+			counts[GameRun.pack_kind_of(pack)] += 1
 	var total := 600.0
 	assert_almost_eq(counts[GameRun.LANE_CARDS] / total, 0.5, 0.08, "Karten ~1/2")
 	assert_almost_eq(counts[GameRun.LANE_DICE] / total, 1.0 / 3.0, 0.08, "Würfel ~1/3")
@@ -123,7 +123,6 @@ func test_buying_a_card_pack_opens_it():
 	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))
 	shop.buy_pack(0)
 	assert_eq(run.money, 100 - pack.price)
-	assert_true(run.stored_card_packs.is_empty(), "nie ins Lager")
 	assert_eq(seats, [0], "der Kauf meldet SEINEN Platz")
 	var choice := run.current_pack_choice()
 	assert_not_null(choice, "gekauft ist geöffnet")
@@ -141,8 +140,6 @@ func test_every_kind_buys_through_the_one_path():
 		shop.buy_pack(seat)
 	assert_eq(run.pending_pack_choices.size(), 5, "drei Karten- und zwei Würfel-Pakete")
 	assert_false(run.pending_parts.is_empty(), "das Modul-Paket legt seine Module hin")
-	assert_eq(run.stored_card_packs.size() + run.stored_dice_packs.size()
-		+ run.stored_module_packs.size(), 0, "das Lager bekommt nichts")
 	assert_eq(seats, [0, 1, 2, 3, 4, 5], "EIN Signal für jede Art")
 
 func test_pack_offer_is_single_use():
@@ -170,10 +167,9 @@ func test_a_purchase_leaves_the_shop_untouched():
 	assert_eq(shop.vitrine_grade(), ShopController.GRADE_STAND,
 		"ein Kauf blättert nicht - die Seite bleibt liegen")
 
-## Ein volles Lager sperrt nichts mehr - gekauft wird geöffnet.
-func test_a_full_store_blocks_nothing():
+## Jeder Platz nennt seinen Preis und läßt sich kaufen.
+func test_every_place_names_its_price_and_sells():
 	run.money = 5000
-	run.debug_fill_store()
 	shop.size = Vector2(1068, 1125)
 	shop.open()
 	_force_packs(_mixed())

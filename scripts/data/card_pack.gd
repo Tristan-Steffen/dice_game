@@ -78,10 +78,6 @@ const DUPLICATE_RETRIES := 8
 ## Die VORDERSTE Karte: sie liegt sichtbar im Paket und ist beim Öffnen Option 0.
 @export var front: Pack
 
-## Im LAGER: die Identität (GameRun._store_pack stempelt sie) und ob es ein Wett-Gewinn war.
-var store_uid: int = 0
-var from_bet: bool = false
-
 static func make(pack_sort: String, pack_size: int,
 		pack_quality: int = DicePack.QUALITY_STANDARD) -> CardPack:
 	var card_pack := CardPack.new()

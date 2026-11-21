@@ -110,7 +110,6 @@ func test_buying_stashes_every_module_and_opens_no_choice() -> void:
 		assert_same(run.pending_parts[i], parts[i], "geliefert wird, was wartet")
 		assert_true(parts[i].from_pack, "aus dem Paket: sein Einbau darf verdrängen")
 	assert_true(run.pending_pack_choices.is_empty(), "keine Auswahl")
-	assert_true(run.stored_module_packs.is_empty(), "nie ins Lager")
 
 func test_the_roll_caps_what_may_be_installed() -> void:
 	run.luck_die.faces.assign([4, 4, 4, 4, 4, 4])

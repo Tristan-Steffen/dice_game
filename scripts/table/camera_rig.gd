@@ -31,7 +31,7 @@ const TILT_RESUME_EASE := 0.5
 const ZOOM_DISTANCE := 20.0
 
 ## Die Grube wird bewusst etwas weiter weg gezeigt (mehr vom Screen im Blick).
-const PIT_ZOOM_DISTANCE_BONUS := 5.0
+const PIT_ZOOM_DISTANCE_BONUS := 9.0
 
 ## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
@@ -111,7 +111,7 @@ var chips_half := Vector2.ZERO
 ## Die Laufwerks-Reihe samt Hologrammen (2026-11-18): gerahmt statt fester Abstand.
 var charms_half := Vector2.ZERO
 const CHARMS_MARGIN := 1.04
-## Die Station Börse & Lager rahmt beide mit diesem Saum.
+## Die Station Börse rahmt das Chip-Tray mit diesem Saum.
 const CHIPS_MARGIN := 1.06
 var workshop_target := Vector3(-24, 0, 22)
 ## Halbe Ausmaße der GANZEN Ecke (Trays + Fenster + Schürze) - daraus rechnet die
@@ -437,7 +437,7 @@ func configure_slots_target(target: Vector3) -> void:
 func configure_secret_shop_target(target: Vector3) -> void:
 	secret_shop_target = target
 
-## half = halbe Ausmaße von Chip-Tray und Paket-Lager zusammen (Welt-Z, Welt-X); ZERO
+## half = halbe Ausmaße des Chip-Trays (Welt-Z, Welt-X); ZERO
 ## läßt den alten, festen Abstand stehen.
 func configure_chips_target(target: Vector3, half := Vector2.ZERO) -> void:
 	chips_target = target

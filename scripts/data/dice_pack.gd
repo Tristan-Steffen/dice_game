@@ -66,10 +66,6 @@ const MATERIAL_MIN_FACES := 2
 @export var size: int = 3
 @export var quality: int = QUALITY_STANDARD
 
-## Im LAGER: die Identität (GameRun._store_pack stempelt sie) und ob es ein Wett-Gewinn war.
-var store_uid: int = 0
-var from_bet: bool = false
-
 static func make(pack_sort: String, pack_size: int, pack_quality: int = QUALITY_STANDARD) -> DicePack:
 	var dice_pack := DicePack.new()
 	dice_pack.sort = pack_sort if SORTS.has(pack_sort) else SORT_NORMAL

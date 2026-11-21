@@ -162,8 +162,7 @@ var led_strip: LedStripView
 ## Fassung des Chip-Trays (Geldstand als Rinnen-Börse) rechts des Wett-Tresens, plus die
 ## LED-Leiste Hub <-> Tray (Geld-Lichtläufe).
 var treasure_window: TreasureChestView
-## Das PAKET-LAGER rechts vom Chip-Tray und die ÖFFNUNGS-FLÄCHE rechts vom Pool.
-var store_window: PackStoreView
+## Die ÖFFNUNGS-FLÄCHE rechts vom Pool.
 var opening_window: PackChoiceView
 var treasure_strip: LedStripView
 var pit_window: Panel
@@ -327,10 +326,7 @@ const PIT_CHARM := 31
 ## Die Grube des CHIP-TRAYS - Möbel, ans Ende gehängt.
 const PIT_TRAY := 32
 
-## Die drei Gruben des PAKET-LAGERS (Karten, Würfel, Module) - Möbel, ans Ende gehängt.
-const PIT_STORE_CARDS := 33
-const PIT_STORE_DICE := 34
-const PIT_STORE_MODULES := 35
+## 33-35 sind frei (bis 2026-11-21 das Paket-Lager).
 
 ## Die ÖFFNUNGS-FLÄCHE: eine flache Vertiefung - Möbel, ans Ende gehängt.
 const PIT_OPENING := 36
@@ -348,9 +344,6 @@ const MAGAZIN_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_TA
 ## Der Löcher-Platz des Magazin-Trays einer Sorte.
 static func magazin_pit(column: int) -> int:
 	return MAGAZIN_PITS[clampi(column, 0, MAGAZIN_PITS.size() - 1)]
-
-static func store_pit(lane: int) -> int:
-	return [PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES][clampi(lane, 0, 2)]
 
 ## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
 static func secret_pits() -> Array[int]:
@@ -606,9 +599,6 @@ func _build_content() -> void:
 	treasure_window.name = "TreasureWindow"
 	treasure_window.visible = false
 	add_child(treasure_window)
-	store_window = PackStoreView.new()
-	store_window.name = "PackStore"
-	add_child(store_window)
 
 	# Gruben-Fenster: bewusst früh gebaut - hinter allem, was später dazukommt.
 	# Position/Größe setzt scene_root über place_pit_window; bis dahin unsichtbar.
@@ -1257,23 +1247,6 @@ func place_treasure_window(rect: Rect2) -> void:
 	set_pit(PIT_TRAY, tray_pit_rect(), treasure_window.pit_radius())
 	_sync_reflection_windows()
 
-## Spannt das PAKET-LAGER über rect auf und schneidet seine zwei Gruben.
-func place_store_window(rect: Rect2) -> void:
-	store_window.position = rect.position
-	store_window.size = rect.size
-	store_window.visible = true
-	for lane in PackStoreView.LANES:
-		set_pit(store_pit(lane), store_pit_rect(lane), store_window.pit_radius())
-	_sync_reflection_windows()
-
-## Eine Grube des Lagers in Display-Pixeln.
-func store_pit_rect(lane: int) -> Rect2:
-	if store_window == null or not store_window.visible:
-		return Rect2()
-	var pit := store_window.lane_pit_rect(lane)
-	pit.position += store_window.position
-	return pit
-
 ## Die PAKET-AUSWAHL als Fenster auf der Öffnungs-Fläche unter dem Vorrat: bei Karten
 ## mit Schirm (sein Bild trägt der Boden ihrer Vertiefung), bei Würfeln die Schiene. Den
 ## Schirm (backdrop) setzt scene_root.
@@ -1404,7 +1377,7 @@ const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
-	PIT_STORE_CARDS, PIT_STORE_DICE, PIT_STORE_MODULES, PIT_OPENING, PIT_SOCKET]
+	PIT_OPENING, PIT_SOCKET]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
@@ -1508,11 +1481,6 @@ func _sync_reflection_windows() -> void:
 		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
 			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
 		radii.append(treasure_window.size.x / 100.0 * 3.0)
-	if store_window != null and store_window.visible:
-		rects.append(Vector4(store_window.position.x, store_window.position.y,
-			store_window.position.x + store_window.size.x,
-			store_window.position.y + store_window.size.y))
-		radii.append(store_window.frame_px() * 3.0)
 	if hub != null and hub.size.x > 0.0:
 		rects.append(Vector4(hub.position.x, hub.position.y,
 			hub.position.x + hub.size.x, hub.position.y + hub.size.y))
