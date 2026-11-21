@@ -291,18 +291,7 @@ const CATALYST_PROPELLANT := "propellant"
 ## Der TAKTGEBER ist am 2026-10-26 gestrichen (Spieler-Entscheid): seit der Deckel
 ## hart auf sechs steht, hob er nichts mehr, und eine Karte ohne Wirkung ist keine.
 const CATALYST_GROUND := "ground"
-## Die KÜHL-Karten: sie wirken nach der Hitze des Prägens und holen nie einen
-## durchgebrannten Würfel zurück.
-const CATALYST_COOL := "cool"
-const CATALYST_CHILL := "chill"
-## Die goldene REPARATUR-KARTE: nur im Schwarzmarkt, nie im Regal (Spieler-Entscheid
-## 2026-10-25).
-const CATALYST_REPAIR := "repair"
-
-## Der Zusatz der Kühl-Karten - Ruß kühlt keine weg.
-const AFTER_HEAT_SCOPE := "Wirkt nach der Hitze des Prägens und wird mit ihm verbraucht - einen durchgebrannten Würfel holt sie nicht zurück."
-
-## Die EINE Tabelle der fünf Karten: Name, Wirkzeile und Geldpreis. Die Wirkung
+## Die EINE Tabelle der Karten: Name, Wirkzeile und Geldpreis. Die Wirkung
 ## selbst liegt in GameRun.catalyst_terms - hier steht nur, was auf dem Schild
 ## steht (und die Reihenfolge, in der sie ausgewürfelt werden). "secret" = nur im
 ## Schwarzmarkt.
@@ -311,15 +300,6 @@ const CATALYSTS := {
 		"effect": "+1 auf jede gefüllte Zahl-Zelle des Summen-Netzes"},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
 		"effect": "Dieses Prägen verbraucht die Pressung der Runde nicht"},
-	CATALYST_COOL: {"name": "Kühlrippe", "price": 8,
-		"effect": "Senkt die Ladung des Zielwürfels um 1",
-		"scope": AFTER_HEAT_SCOPE},
-	CATALYST_CHILL: {"name": "Kältebad", "price": 14,
-		"effect": "Setzt die Ladung des Zielwürfels auf 0",
-		"scope": AFTER_HEAT_SCOPE},
-	CATALYST_REPAIR: {"name": "Generalüberholung", "price": 30, "secret": true,
-		"effect": "Repariert den Zielwürfel und setzt seine Ladung auf 0",
-		"scope": "Wirkt nach der Hitze des Prägens und wird mit ihm verbraucht."},
 }
 
 ## Der Satz, der jede Katalysator-Karte beschließt - eine Quelle, damit Regal,
@@ -333,10 +313,6 @@ static func catalyst_ids() -> Array[String]:
 	var ids: Array[String] = []
 	ids.assign(CATALYSTS.keys())
 	return ids
-
-## Nur im Schwarzmarkt zu haben (die Reparatur-Karte)?
-static func catalyst_secret_only(id: String) -> bool:
-	return bool(Dictionary(CATALYSTS.get(id, {})).get("secret", false))
 
 static func catalyst_name(id: String) -> String:
 	return String(Dictionary(CATALYSTS.get(id, {})).get("name", ""))
@@ -385,8 +361,6 @@ const SPECIAL_ROLL_WEIGHTS := {
 	SPECIAL_ENGRAVING: 30,
 	CATALYST_PROPELLANT: 10,
 	CATALYST_GROUND: 10,
-	CATALYST_COOL: 10,
-	CATALYST_CHILL: 10,
 	StampNet.OP_DOUBLER: 10,
 	StampNet.OP_MIRROR: 10,
 	StampNet.OP_COLLECTOR: 10,
@@ -539,19 +513,6 @@ func engraving_category() -> String:
 ## sie steckt.
 func is_catalyst() -> bool:
 	return catalyst_id != ""
-
-## Die goldene Reparatur-Karte? Sie trägt statt der Sortenfarbe Gold.
-func is_repair() -> bool:
-	return catalyst_id == CATALYST_REPAIR
-
-## Eine Kühl-Karte?
-func is_cooling() -> bool:
-	return catalyst_id == CATALYST_COOL or catalyst_id == CATALYST_CHILL
-
-## Wirkt sie NACH der Hitze des Prägens auf den Zielwürfel (Kühlen, Reparatur)?
-## Solche Karten tragen ein Prägen auch ohne Netz-Karte.
-func tends_die() -> bool:
-	return is_cooling() or is_repair()
 
 ## Ein Multiplikator-Netz? Die Identität IST das Netz - kein zweites Feld, das ihm
 ## widersprechen könnte.

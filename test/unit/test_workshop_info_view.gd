@@ -84,24 +84,6 @@ func test_both_body_lines_are_really_drawn() -> void:
 	assert_eq(body.get_line_count(), 2, "zwei Zeilen stehen im Label")
 	assert_eq(body.get_visible_line_count(), 2, "und beide werden gezeichnet")
 
-## Ein WÜRFEL: Name, Seele, Wirkung - und die Ladungszeile hängt hinten dran.
-func test_die_info_names_soul_and_charge() -> void:
-	var die := DieDefinition.standard()
-	die.display_name = "Prüfwürfel"
-	var plain := WorkshopInfoView.die_info(die)
-	assert_eq(String(plain["title"]), "Prüfwürfel")
-	assert_eq(String(plain["sub"]), WorkshopInfoView.SOULLESS, "ohne Seele")
-	assert_eq(String(plain["body"]), WorkshopInfoView.PLAIN_DIE,
-		"ohne Seele und ohne Ladung bleibt nur der schlichte Satz")
-	die.charge = 2
-	var charged := WorkshopInfoView.die_info(die)
-	assert_eq(String(charged["body"]), DieNetView.charge_hint(die),
-		"die Ladungszeile kommt aus der EINEN Quelle")
-	die.charge = 0
-	die.burned_out = true
-	assert_string_contains(String(WorkshopInfoView.die_info(die)["body"]),
-		"Durchgebrannt", "und der Durchbrenner sagt es")
-
 ## Mit Seele trägt die Unterzeile ihren Namen und die Wirkung ihre Beschreibung.
 func test_die_info_carries_the_essence() -> void:
 	var essence := Essence.all()[0]

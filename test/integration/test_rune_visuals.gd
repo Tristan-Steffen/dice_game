@@ -174,12 +174,10 @@ func test_the_digit_sits_in_front_of_every_rune_slot() -> void:
 
 func test_even_the_last_rune_slot_stays_under_the_digit() -> void:
 	# Der dritte Platz entsteht erst unter der Glasglocke - seine Tiefe steht
-	# trotzdem fest, und sie muss unter Asche UND Ziffer bleiben.
+	# trotzdem fest, und sie muss unter der Ziffer bleiben.
 	var deepest := DieFaceDisplay.RUNE_LIFT 		+ DieFaceDisplay.SECOND_RUNE_STEP * float(Rune.SLOT_SCALES.size() - 1)
-	assert_lt(deepest, DieFaceDisplay.BURN_LIFT, "unter der Asche")
 	# Der Abstand trägt die Tiefen-Auflösung unter flachem Blick.
 	assert_gt(DieFaceDisplay.LABEL_LIFT - deepest, 0.008, "und klar unter der Ziffer")
-	assert_gt(DieFaceDisplay.LABEL_LIFT - DieFaceDisplay.BURN_LIFT, 0.008, "die Asche ebenso")
 
 func test_the_figure_never_follows_the_value() -> void:
 	# Knochen lässt Werte wachsen, und eine Rune, die sich dabei neu zeichnet,

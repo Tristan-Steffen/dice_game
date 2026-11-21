@@ -14,7 +14,7 @@ Bild-oben, Höhe) über die Helfer unten.
 Knoten: Korpus (Licht eingemalt als Vertexfarben, der Tisch ist zu dunkel für Metall), Licht
 (Godot leuchtet in der Tönung der Modulart), optional Glas. Zustands-Teile setzt Godot
 (ComboPartBody._write_state): Ziffer0-2 (Leer-Objekte), Lampe0-4, Ring0-9, Klemme0-4, Rand,
-Flamme, Abbild (Leer-Objekt). Die Platine (expansion_board) ist code-gebaut.
+Flamme, Abbild (Leer-Objekt). tools/blender_pin_models.py leiht sich die Helfer hier.
 """
 import bmesh, bpy, math, os, sys
 from mathutils import Matrix, Vector
@@ -744,6 +744,7 @@ BUILDS = (resistor, coil, series_resistor, series_terminal, capacitor, starter, 
           high_voltage_tube, magnetron, coin_validator, power_pickup, cross_bridge, down_bridge, coupling, blocking_diode)
 NAMES = {counter_part: "counter"}
 
-for build in BUILDS:
-    if not ONLY or NAMES.get(build, build.__name__) in ONLY:
-        build()
+if __name__ == "__main__":
+    for build in BUILDS:
+        if not ONLY or NAMES.get(build, build.__name__) in ONLY:
+            build()

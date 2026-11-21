@@ -384,11 +384,8 @@ static func mult_bonus(values: Array[int], materials: Array[String], participati
 ## combination ist die engere Menge der Kombinationswürfel - leer heißt "beide
 ## gleich", was ohne diese beiden Erweiterungen immer stimmt. Nur die Zauberkarte
 ## fragt nach ihr.
-## burned: Slots, die schon VOR der Hand durchgebrannt waren - sie feuern nichts.
-## Wer erst in dieser Hand durchbrennt, hat vorher FERTIG gefeuert (sein Urteil
-## fällt nach der letzten Zündung), also läuft hier alles wie in der Wertung.
 ## chip_parts: die Steckplätze der genommenen Kombination (Relais, Endstufe).
-static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0, burned: Array[int] = [], chip_parts: Array = []) -> TakeReport:
+static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, lying: Array[int] = [], hands_taken: int = 0, round_bare_dice: int = 0, discard_defs: Array[DieDefinition] = [], combination: Array[int] = [], clause_growth: int = 0, chip_parts: Array = []) -> TakeReport:
 	var combo_slots := participating if combination.is_empty() else combination
 	var ends := ComboPartEffects.combo_ends(_take_order(order, participating), combo_slots)
 	# Die GEZEIGTEN Werte und der Schluss der Reihe: beide Achsen müssen exakt so
@@ -411,12 +408,9 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 	# Zündungs-Geld (Goldseiten, Seelen-Geld) zahlt die Zeremonie im Moment JEDER
 	# Zündung - hier steht es nur noch als Summe, damit nichts doppelt bucht.
 	report.activation_money = activation_money_total(plan_activation_money(defs, face_indices,
-		materials, participating, charm_ids, echo_slot, essences, order, is_stress, hands_taken, combination, burned, chip_parts))
+		materials, participating, charm_ids, echo_slot, essences, order, is_stress, hands_taken, combination, chip_parts))
 	for i in _take_order(order, participating):
 		if i >= defs.size() or i >= face_indices.size():
-			continue
-		# Durchgebrannt vor der Hand: nichts an ihm feuert.
-		if burned.has(i):
 			continue
 		var face: int = face_indices[i]
 		if face < 0:
@@ -520,8 +514,7 @@ static func apply_take_effects(defs: Array[DieDefinition], face_indices: Array[i
 ## Parameter wie apply_take_effects. Ergebnis je Slot:
 ##   {"groups": [{"firings": [int], "links": [int]}], "det_links": [int], "total": int}
 ## EINE Quelle: der Zug meldet die Summe als activation_money und bucht sie nicht.
-## burned wie in apply_take_effects: ein durchgebrannter Würfel zahlt nichts.
-static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, hands_taken: int = 0, combination: Array[int] = [], burned: Array[int] = [], chip_parts: Array = []) -> Dictionary:
+static func plan_activation_money(defs: Array[DieDefinition], face_indices: Array[int], materials: Array[String], participating: Array[int], charm_ids: Array[String] = [], echo_slot: int = -1, essences: Dictionary = {}, order: Array[int] = [], is_stress: bool = false, hands_taken: int = 0, combination: Array[int] = [], chip_parts: Array = []) -> Dictionary:
 	var combo_slots := participating if combination.is_empty() else combination
 	var ends := ComboPartEffects.combo_ends(_take_order(order, participating), combo_slots)
 	# Der Goldschmied legt auf JEDEN Gold-Träger denselben Zuschlag - additiv über
@@ -539,8 +532,6 @@ static func plan_activation_money(defs: Array[DieDefinition], face_indices: Arra
 	for i in _take_order(order, participating):
 		if i >= defs.size() or i >= face_indices.size():
 			continue
-		if burned.has(i):
-			continue  # durchgebrannt: er zahlt nichts
 		var face: int = face_indices[i]
 		if face < 0:
 			continue

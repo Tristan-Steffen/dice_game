@@ -19,6 +19,7 @@ func _chip(key: String) -> ComboChipView:
 	chip.combo_key = key
 	add_child_autofree(chip)
 	chip.setup(4.0, 1.5)
+	chip.set_extended(true, 0.0)
 	return chip
 
 func _sync(chip: ComboChipView) -> void:
@@ -79,49 +80,9 @@ func test_the_three_sockets_lie_on_the_lid() -> void:
 	var chip := _chip(_key())
 	_sync(chip)
 	for slot in chip.socket_count():
-		assert_eq(chip.socket_carrier(slot), -1, "Platz %d gehört dem Chip" % slot)
 		assert_almost_eq(chip.socket_world(slot).y, chip.global_position.y
 			+ ComboChipView.BODY_TOP * chip._sz, 0.001, "der Sockel liegt auf dem Deckel")
 	assert_lt(chip.socket_world(0).x, chip.socket_world(1).x, "eine Reihe längs des Chips")
-
-func test_an_expansion_board_is_a_riser_with_two_sockets_on_top() -> void:
-	var key := _key()
-	var chip := _chip(key)
-	run.stash_part(ComboPart.expansion_board())
-	run.install_pending_part(key, 1)
-	_sync(chip)
-	assert_eq(chip.socket_count(), GameRun.SOCKETS_PER_COMBO + 2, "netto +1 Platz, zwei neue")
-	assert_eq(chip.socket_count(), run.socket_count(key))
-	assert_eq(chip.socket_carrier(3), 1, "die neuen Plätze sitzen auf der Platine")
-	assert_eq(chip.socket_carrier(4), 1)
-	assert_gt(chip.socket_world(3).y, chip.socket_world(1).y, "oben auf ihr")
-	var riser := chip._sockets[1]["body"] as ComboPartBody
-	assert_true((chip._sockets[3]["node"] as Node3D).get_parent() == riser, "sie reisen mit ihr")
-
-func test_a_riser_on_a_riser_stacks_crosswise() -> void:
-	var key := _key()
-	var chip := _chip(key)
-	run.stash_part(ComboPart.expansion_board())
-	run.install_pending_part(key, 0)
-	run.stash_part(ComboPart.expansion_board())
-	assert_true(run.install_pending_part(key, 3), "eine Platine trägt eine Platine")
-	run.stash_part(ComboPart.relay())
-	assert_true(run.install_pending_part(key, 5))
-	_sync(chip)
-	assert_eq(chip.socket_count(), 7)
-	assert_eq(chip.socket_carrier(5), 3, "das zweite Paar sitzt auf der zweiten Platine")
-	var upper := chip._sockets[3]["body"] as ComboPartBody
-	assert_almost_eq(absf(upper.rotation.y), PI * 0.5, 0.001, "quer zu ihrer Trägerin")
-	assert_eq(chip.socket_part(5).id, ComboPart.RELAY)
-
-func test_a_riser_never_plugs_into_its_own_pair() -> void:
-	var key := _key()
-	run.stash_part(ComboPart.expansion_board())
-	run.install_pending_part(key, 0)
-	run.stash_part(ComboPart.expansion_board())
-	run.install_pending_part(key, 3)
-	assert_false(run.move_part(key, 3, key, 5, true), "nicht in ihr eigenes Paar")
-	assert_eq(run.parts_of(key)[3].id, ComboPart.EXPANSION_BOARD)
 
 func test_heat_buildup_dims_the_part() -> void:
 	var key := _key()
@@ -156,7 +117,7 @@ func test_the_pick_bodies_name_their_socket() -> void:
 	for body in chip.find_children("*", "StaticBody3D", true, false):
 		assert_eq(body.collision_layer, ComboChipView.SOCKET_PICK_LAYER)
 		picks.append(ComboChipView.pick_of(body))
-	assert_eq(picks.size(), GameRun.SOCKETS_PER_COMBO + 1, "je Platz einer plus der Chip")
+	assert_eq(picks.size(), 2 * GameRun.SOCKETS_PER_COMBO + 1, "je Platz Sockel und Pin, dazu der Chip")
 	for pick: Dictionary in picks:
 		assert_eq(pick["key"], key)
 	assert_true(picks.any(func(p: Dictionary) -> bool: return p["slot"] == -1), "der Chip selbst")
@@ -222,21 +183,6 @@ func test_moving_a_part_reaches_the_lids_of_both_chips() -> void:
 	_sync(b)
 	assert_null(a.socket_part(0))
 	assert_eq(b.socket_part(2).id, ComboPart.RELAY)
-
-func test_pulling_an_overfull_expansion_board_snaps_back() -> void:
-	var key := _key()
-	run.stash_part(ComboPart.expansion_board())
-	run.install_pending_part(key, 0)
-	for slot in range(1, run.socket_count(key)):
-		run.stash_part(ComboPart.resistor())
-		run.install_pending_part(key, slot)
-	var other := _key(1)
-	for slot in run.socket_count(other):
-		run.stash_part(ComboPart.capacitor())
-		run.install_pending_part(other, slot)
-	# Fünf Teile auf dem Chip, die Platine fort: vier blieben für drei Plätze.
-	assert_false(run.move_part(key, 0, other, 0, true), "GameRun weist ab - das Teil bleibt")
-	assert_eq(run.parts_of(key)[0].id, ComboPart.EXPANSION_BOARD)
 
 # --- Der SCHWARZMARKT ------------------------------------------------------------
 
@@ -310,7 +256,7 @@ func test_the_spotlight_pulse_has_a_truthful_name() -> void:
 	assert_true(chip.has_method("play_arrival_flash"))
 	assert_false(chip.has_method("play_upgrade_flash"))
 
-# --- Die Platine ----------------------------------------------------------------------
+# --- Der Chip in Tischgröße -----------------------------------------------------------
 
 ## Ein Chip in seiner echten Tischgröße und Lage (37,5 Display-px je Welt, Modell-X = Welt+Z).
 func _real_chip(key: String) -> ComboChipView:
@@ -322,52 +268,7 @@ func _real_chip(key: String) -> ComboChipView:
 	chip.setup(size.x, size.y)
 	return chip
 
-## Die Ecken einer Platine im Chip-Raum.
-func _riser_box(chip: ComboChipView, slot: int) -> AABB:
-	var body := chip._sockets[slot]["body"] as ComboPartBody
-	var box := AABB(chip.to_local(body.global_transform * ComboPartBody.riser_corners()[0]), Vector3.ZERO)
-	for corner in ComboPartBody.riser_corners():
-		box = box.expand(chip.to_local(body.global_transform * corner))
-	return box
-
-func test_a_riser_stays_within_the_chip_length_and_overhangs_front_and_back() -> void:
-	for slot in GameRun.SOCKETS_PER_COMBO:
-		run = GameRun.new_run()
-		var key := _key()
-		run.stash_part(ComboPart.expansion_board())
-		run.install_pending_part(key, slot)
-		var chip := _real_chip(key)
-		_sync(chip)
-		var box := _riser_box(chip, slot)
-		var half_x := ComboChipView.BODY_LENGTH * chip._sx * 0.5
-		assert_lte(absf(box.end.x), half_x + 0.001, "Platine auf Platz %d bleibt längs im Chip" % slot)
-		assert_gte(box.position.x, chip.display_right(), "und neben der Anzeige")
-		var z_min := ComboChipView.MODEL_Z_MIN * chip._sz + chip._z_shift
-		var z_max := ComboChipView.MODEL_Z_MAX * chip._sz + chip._z_shift
-		assert_lt(box.position.z, z_min, "sie ragt hinten über")
-		assert_gt(box.end.z, z_max, "und vorn")
-		var a := chip.to_local(chip.socket_world(3))
-		var b := chip.to_local(chip.socket_world(4))
-		assert_almost_eq(a.x, b.x, 0.001, "zwei Plätze hintereinander quer zum Chip")
-		assert_gt(absf(a.z - b.z), ComboPartBody.SOCKET_OUTER.x, "ohne sich zu überdecken")
-
-func test_the_name_yields_to_a_riser() -> void:
-	var key := DiceScoring.DOUBLE_THREE_KIND
-	var chip := _real_chip(key)
-	var cell := ComboCellView.new()
-	add_child_autofree(cell)
-	cell.combo_name = "Doppelter Dreierpasch"
-	chip.sync_cell(cell)
-	_sync(chip)
-	var free_size: float = chip._name_label.pixel_size
-	run.stash_part(ComboPart.expansion_board())
-	run.install_pending_part(key, 0)
-	_sync(chip)
-	var right: float = chip._name_label.position.x + chip._text_width(chip._name_label) * 0.5
-	assert_lt(right, chip._riser_name_limit(), "der Name endet vor der Platine")
-	assert_lte(chip._name_label.pixel_size, free_size)
-
-# --- Der große Chip: Anzeige, Abdeckung, Leitung -------------------------------------
+# --- Der Chip: Anzeige, Sockelzone, Pins, Leitungen ------------------------------------
 
 func _picks_enabled(chip: ComboChipView) -> int:
 	var on := 0
@@ -387,30 +288,6 @@ func test_the_display_lies_left_and_the_sockets_right() -> void:
 		assert_lt(at.x + ComboPartBody.SOCKET_OUTER.y * 0.5, half, "und im Gehäuse")
 	assert_almost_eq(chip.socket_x(1) - chip.socket_x(0), ComboChipView.SOCKET_PITCH, 0.0001)
 	assert_almost_eq(chip._sx, chip._sz, 0.001, "der Chip ist nicht verzerrt")
-
-func test_an_empty_chip_is_covered_and_its_sockets_take_no_pick() -> void:
-	var key := _key()
-	var chip := _real_chip(key)
-	_sync(chip)
-	assert_false(chip.cover_open(), "ohne Modul liegt die Abdeckung")
-	assert_eq(_picks_enabled(chip), 0, "zu nimmt kein Sockel den Zeiger")
-	var cover := chip.find_child("Abdeckung", true, false) as Node3D
-	assert_eq(cover.find_children("Wuerfel*", "", false, false).size(),
-		DiceScoring.EXAMPLE_DICE[key].size(), "das Würfelbild der Kombination")
-	chip.set_cover_called(true)
-	assert_true(chip.cover_open(), "der Zeiger an der Station öffnet sie")
-	assert_eq(_picks_enabled(chip), GameRun.SOCKETS_PER_COMBO, "Endzustand zuerst: sofort pickbar")
-	chip.set_cover_called(false)
-	chip.set_socket_beckon(true, false)
-	assert_true(chip.cover_open(), "der Einbau öffnet sie")
-	chip.set_socket_beckon(false, false)
-	assert_false(chip.cover_open())
-	run.stash_part(ComboPart.resistor())
-	run.install_pending_part(key, 2)
-	_sync(chip)
-	assert_true(chip.cover_open(), "ein Modul hält sie offen")
-	chip.settle_cover_hard()
-	assert_false(cover.visible, "hart: sofort fort")
 
 func test_the_base_value_shows_dimmed_only_when_it_differs() -> void:
 	var chip := _real_chip(_key())
@@ -442,7 +319,7 @@ func test_a_resting_module_glows_dimmed_and_flashes_full() -> void:
 	chip.flash_socket(0)
 	await wait_frames(1)
 	assert_gt(body.light_energy(), ComboPartBody.WINDOW_ENERGY, "feuernd voll")
-	assert_true(chip.line_pulsing(), "die Leitung pulst mit")
+	assert_gt(chip.pin_body(0).flash_level(), 0.5, "und sein Pin blitzt mit")
 
 func test_the_gold_rule_spares_sockets_and_modules() -> void:
 	var key := _key()
@@ -455,23 +332,181 @@ func test_the_gold_rule_spares_sockets_and_modules() -> void:
 	var rim_before := rim.emission
 	var light_before := body.light_energy()
 	var line_before := chip.line_energy(0)
+	var tile_before := chip.tile_color(0)
+	var pin_before := chip.pin_body(0).light_energy()
 	chip.set_glow(1.0)
 	assert_eq(rim.emission, rim_before, "Sockel bleiben")
 	assert_eq(body.light_energy(), light_before, "Module bleiben")
-	assert_gt(chip.line_energy(0), line_before, "die Leitung geht ins Gold")
+	assert_eq(chip.line_energy(0), line_before, "Leitungen bleiben")
+	assert_eq(chip.tile_color(0), tile_before, "Kacheln bleiben")
+	assert_eq(chip.pin_body(0).light_energy(), pin_before, "Modul-Pins bleiben")
+	assert_eq(chip._epoxy_material.emission, chip.EPOXY_ALBEDO.lerp(ComboChipView.HIGHLIGHT_COLOR, 1.0),
+		"das Gehäuse samt Endkappe geht ins Gold")
 
-func test_the_line_shows_the_strength_behind_each_socket() -> void:
+func test_each_socket_has_its_own_line_in_its_module_colour() -> void:
 	var key := _key()
 	run.stash_part(ComboPart.resistor())
 	run.install_pending_part(key, 0)
-	run.stash_part(ComboPart.magnetron())
+	run.stash_part(ComboPart.high_voltage_tube())
 	run.install_pending_part(key, 2)
 	var chip := _real_chip(key)
 	_sync(chip)
-	assert_eq(chip.line_style(0), ComboChipView.LINE_STYLES["gleich"], "vor dem ersten Sockel")
-	assert_eq(chip.line_style(1), ComboChipView.LINE_STYLES["dick"], "hinter dem Widerstand")
-	assert_eq(chip.line_style(2), ComboChipView.LINE_STYLES["dick"], "ein leerer Sockel hält das Maximum")
-	var strong: Vector3 = ComboChipView.LINE_STYLES["stark"]
-	assert_eq(chip.line_style(3).x, strong.x, "hinter dem Magnetron stark")
+	for slot in GameRun.SOCKETS_PER_COMBO:
+		assert_not_null(chip.find_child("Leitung_%d" % slot, true, false), "Leitung %d" % slot)
+	assert_eq(chip.tile_color(0), ComboPart.resistor().tint(), "die Kachel trägt die Modulfarbe")
+	assert_eq(chip.tile_color(2), ComboPart.high_voltage_tube().tint())
+	assert_gt(chip.line_energy(0), chip.line_energy(1), "ein leerer Sockel bleibt dunkel")
+	assert_null(chip.find_child("Abdeckung", true, false), "die Abdeckung ist tot")
 	chip.set_throttled(true)
-	assert_eq(chip.line_energy(3), 0.0, "gedrosselt ist die Leitung aus")
+	assert_eq(chip.line_energy(0), 0.0, "gedrosselt sind die Leitungen aus")
+	assert_true(chip.pin_body(0).dimmed(), "und die Pins dunkel")
+
+# --- KOMPAKT und AUSGEFAHREN ----------------------------------------------------------
+
+func test_a_chip_starts_compact_with_its_sockets_sunk_and_unpickable() -> void:
+	var chip := _real_chip(_key())
+	_sync(chip)
+	assert_false(chip.extended())
+	assert_eq(chip.extension(), 0.0)
+	assert_eq(_picks_enabled(chip), 0, "kompakt nimmt kein Sockel den Zeiger")
+	var sockets := chip.find_child("Sockets", false, false) as Node3D
+	assert_false(sockets.visible, "die Sockelzone ist eingefahren")
+	assert_almost_eq(chip.shift_now(), ComboChipView.compact_shift(), 0.0001, "die Anzeige rückt nach rechts")
+
+func test_extending_writes_the_end_state_first_and_rides_after() -> void:
+	var chip := _real_chip(_key())
+	_sync(chip)
+	chip.set_extended(true)
+	assert_true(chip.extended(), "Endzustand sofort")
+	assert_eq(_picks_enabled(chip), GameRun.SOCKETS_PER_COMBO, "und sofort pickbar")
+	assert_lt(chip.extension(), 1.0, "der Körper fährt erst noch")
+	await wait_seconds(ComboChipView.EXTEND_TIME + 0.15)
+	assert_eq(chip.extension(), 1.0)
+	assert_eq(chip.shift_now(), 0.0)
+	assert_true((chip.find_child("Sockets", false, false) as Node3D).visible)
+	chip.set_extended(false)
+	assert_eq(_picks_enabled(chip), 0)
+	chip.settle_extension_hard()
+	assert_eq(chip.extension(), 0.0, "der harte Weg steht sofort")
+	assert_false(chip.extension_running())
+
+func test_the_compact_display_ends_before_the_end_cap() -> void:
+	var chip := _real_chip(_key())
+	var cap_left := chip._half - ComboChipView.CAP
+	assert_almost_eq(chip.display_right() + ComboChipView.compact_shift(),
+		cap_left - ComboChipView.DISPLAY_CAP_GAP, 0.0001, "kompakt schließt die Anzeige an die Endkappe")
+	assert_lt(chip.socket_x(2) + ComboPartBody.SOCKET_OUTER.y * 0.5, cap_left, "ausgefahren vor der Endkappe")
+
+func test_the_body_mesh_telescopes_without_distortion() -> void:
+	assert_eq(ComboChipView.stretched_x(-40.0, 10.0), -30.0, "links rückt alles voll")
+	assert_eq(ComboChipView.stretched_x(40.0, 10.0), 40.0, "rechts bleibt alles")
+	assert_almost_eq(ComboChipView.stretched_x(0.0, 10.0), 5.0, 0.0001, "die Mitte staucht")
+	var chip := _real_chip(_key())
+	var pins := chip.find_child("Pins", true, false) as MeshInstance3D
+	assert_lt(pins.get_aabb().end.x, 0.0, "die rechten glb-Pins sind fort - dort stehen die Sockel-Pins")
+
+func test_every_socket_has_a_pin_that_takes_the_form_of_its_module() -> void:
+	var key := _key()
+	var chip := _real_chip(key)
+	_sync(chip)
+	for slot in GameRun.SOCKETS_PER_COMBO:
+		assert_null(chip.pin_body(slot), "leer: der Stahlpin")
+	run.stash_part(ComboPart.counter_part())
+	run.install_pending_part(key, 1)
+	_sync(chip)
+	var pin := chip.pin_body(1)
+	assert_not_null(pin)
+	assert_true(pin.is_pin())
+	assert_eq(pin.part, run.parts_of(key)[1], "der Pin IST das Modul")
+	assert_eq(ComboPartBody.pin_path(pin.part), ComboPartBody.PIN_MODEL % ComboPart.COUNTER)
+	var top := chip.to_local(chip.pin_world(0))
+	var bottom := chip.to_local(chip.pin_world(2))
+	assert_lt(top.z, bottom.z, "Sockel 0 = oberer Pin, 2 = unterer")
+	chip.set_socket_lifted(1)
+	assert_false(pin.visible, "in der Hand zeigt der Platz leer - auch am Pin")
+
+func test_the_pin_reads_the_state_through_the_same_writer() -> void:
+	var key := _key()
+	run.stash_part(ComboPart.counter_part())
+	run.install_pending_part(key, 0)
+	run.parts_of(key)[0].counter = 4
+	var chip := _real_chip(key)
+	_sync(chip)
+	var body := chip._sockets[0]["body"] as ComboPartBody
+	var pin := chip.pin_body(0)
+	assert_eq(pin.digits_text(), body.digits_text(), "Zählwerk-Ziffern am Pin wie am Modul")
+	assert_eq(pin.digits_text(), "005")
+	chip.set_part_context({"first_hand": false})
+	assert_false(bool(pin.state().get("first_hand", true)), "derselbe Kontext erreicht den Pin")
+
+func test_a_flash_reaches_pin_and_tile() -> void:
+	var key := _key()
+	run.stash_part(ComboPart.resistor())
+	run.install_pending_part(key, 2)
+	var chip := _real_chip(key)
+	_sync(chip)
+	var rest := chip.tile_energy(2)
+	chip.flash_socket(2, 2.0)
+	await wait_frames(2)
+	assert_gt(chip.pin_body(2).flash_level(), 0.5, "der Pin blitzt")
+	assert_gt(chip.tile_energy(2), rest, "die Kachel mit")
+
+func test_pin_offsets_center_the_tips_in_both_layouts() -> void:
+	var cell := TableScreen.CELL_SIZE
+	var wide: float = ComboChipView.pin_offsets_px(cell, true)["tip_dx"]
+	var compact: float = ComboChipView.pin_offsets_px(cell, false)["tip_dx"]
+	assert_lt(wide, cell.x * 0.5, "die Pin-Spitzen bleiben in der Zelle")
+	assert_almost_eq(wide - compact, ComboChipView.compact_shift() * ComboChipView.px_per_world(cell) * 0.5,
+		0.01, "kompakt fehlt die Sockelzone")
+	var compact_cell := ComboChipView.compact_cell_width(cell)
+	assert_almost_eq(cell.x * 0.5 - wide, compact_cell * 0.5 - compact, 0.01, "gleicher Rand in beiden")
+	var chip := _real_chip(_key())
+	var span_px := (chip.origin_offset(true) - chip.origin_offset(false)) * ComboChipView.px_per_world(cell)
+	assert_almost_eq(span_px, ComboChipView.compact_shift() * ComboChipView.px_per_world(cell) * 0.5, 0.01)
+
+# --- Die zwei Layouts des Clusters ------------------------------------------------------
+
+func _screen() -> TableScreen:
+	var world := Node3D.new()
+	add_child_autofree(world)
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(31.2, 0.2, 21.2)
+	mesh.mesh = box
+	world.add_child(mesh)
+	mesh.global_transform = Transform3D(Basis(Vector3(0, 0, 4), Vector3(0, 4, 0), Vector3(-4, 0, 0)),
+		Vector3(0, -3.8, 0))
+	var screen := TableScreen.new()
+	world.add_child(screen)
+	screen.attach_to(mesh)
+	return screen
+
+func test_both_layouts_stand_flush_right_at_the_pit() -> void:
+	var screen := _screen()
+	var pit := Rect2(1801.5, 1304.8, 1071.0, 570.0)
+	screen.place_combo_cluster(Vector2(1000, 1500), pit)
+	assert_false(screen.cluster_extended, "die Regel ist kompakt")
+	var key: String = DiceScoring.HAND_PRIORITY[2]
+	for extended in [false, true]:
+		var cell := screen.cell_rect_for(key, extended)
+		var tip: float = ComboChipView.pin_offsets_px(TableScreen.CELL_SIZE, extended)["tip_dx"]
+		assert_almost_eq(cell.get_center().x + tip, pit.position.x - TableScreen.PIT_SIDE_GAP, 0.01,
+			"Pin-Spitzen vor der Grube (%s)" % ("ausgefahren" if extended else "kompakt"))
+		var rect := screen.cluster_rect_for(extended)
+		assert_gt(rect.position.x, 0.0, "nichts über den linken Rand")
+		assert_lte(rect.end.y, pit.end.y + TableScreen.CLUSTER_PADDING + 0.01, "nichts unter die Grube")
+	assert_lt(screen.cluster_rect_for(false).size.x, 1285.0, "kompakt schmaler als vor dem großen Chip")
+	var cell := screen.combo_cells[key] as ComboCellView
+	assert_true(Rect2(cell.position, cell.size).is_equal_approx(screen.cell_rect_for(key, false)))
+	screen.set_cluster_extended(true)
+	assert_true(Rect2(cell.position, cell.size).is_equal_approx(screen.cell_rect_for(key, true)),
+		"Endzustand sofort")
+	assert_eq(screen.cluster_rect, screen.cluster_rect_for(true))
+	var paths := screen.wiring_paths_to_cell(2)
+	assert_false(paths.is_empty())
+	var tip_x := cell.position.x + cell.size.x * 0.5 \
+		+ float(ComboChipView.pin_offsets_px(TableScreen.CELL_SIZE, true)["tip_dx"])
+	assert_almost_eq(paths[0][paths[0].size() - 1].x, cell.position.x + cell.size.x * 0.5
+		- float(ComboChipView.pin_offsets_px(TableScreen.CELL_SIZE, true)["tip_dx"]), 0.01,
+		"die Kometen fahren die Pins des Endzustands an")
+	assert_gt(tip_x, 0.0)

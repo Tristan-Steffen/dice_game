@@ -26,9 +26,7 @@ const FIREDAMP := "firedamp"
 const CARBON_DIOXIDE := "carbon_dioxide"
 const HALOGEN := "halogen"
 const ACETYLENE := "acetylene"
-const ARC_LAMP := "arc_lamp"
 const SCAR := "scar"
-const COOLING_JACKET := "cooling_jacket"
 
 static func carbon_dioxide() -> Essence:
 	return _make(CARBON_DIOXIDE, "Kohlendioxid",
@@ -69,7 +67,6 @@ const LIGHT_PILLAR := "light_pillar"
 const MIDNIGHT_SUN := "midnight_sun"
 const GAMMA_BURST := "gamma_burst"
 const BACKGROUND_RADIATION := "background_radiation"
-const SPARK_GAP := "spark_gap"
 
 const NONE := ""
 
@@ -159,21 +156,10 @@ static func acetylene() -> Essence:
 		"+10 Basispunkte je Modul der Kombination.",
 		"+10 Basis je Modul", Rarity.COMMON, Color(0.85, 0.92, 1.0))
 
-## Warmes Weiss statt Ladungs-Violett: die Lampe brennt ruhig, sie glüht nicht.
-static func arc_lamp() -> Essence:
-	return _make(ARC_LAMP, "Bogenlampe",
-		"Brennt nie durch.",
-		"brennt nie durch", Rarity.COMMON, Color(1.0, 0.95, 0.85))
-
 static func scar() -> Essence:
 	return _make(SCAR, "Narbe",
 		"Fumble mit ihm: obere Seite dauerhaft +1.",
 		"Fumble: obere Seite +1", Rarity.COMMON, Color(0.85, 0.45, 0.5))
-
-static func cooling_jacket() -> Essence:
-	return _make(COOLING_JACKET, "Kühlmantel",
-		"Fumble mit ihm: −1 Ladung statt +1.",
-		"Fumble kühlt statt heizt", Rarity.COMMON, Color(0.55, 0.85, 1.0))
 
 # --- Phänomene --------------------------------------------------------------------
 
@@ -305,12 +291,6 @@ static func midnight_sun() -> Essence:
 		"+1 Auslösung je genommener Hand der Runde.",
 		"+1 Auslösung je genommener Hand", Rarity.EPIC, Color(1.0, 0.8, 0.35))
 
-## Heissweiss-violett wie die Ladung selbst - nie das Energie-Cyan.
-static func spark_gap() -> Essence:
-	return _make(SPARK_GAP, "Funkenstrecke",
-		"Jede Auslösung: Krit ×(1 + Ladung).",
-		"kritet ×(1 + Ladung)", Rarity.RARE, Color(0.88, 0.75, 1.0))
-
 static func background_radiation() -> Essence:
 	return _make(BACKGROUND_RADIATION, "Hintergrundstrahlung",
 		"Gewertet: alle Seiten aller liegenden Würfel dauerhaft +5.",
@@ -331,14 +311,13 @@ static func all() -> Array[Essence]:
 	return [
 		helium(), neon(), argon(), krypton(), xenon(), nitrogen(), oxygen(),
 		hydrogen(), sodium_vapor(), firedamp(), carbon_dioxide(), halogen(), acetylene(),
-		arc_lamp(), scar(), cooling_jacket(),
+		scar(),
 		mercury_vapor(), radon(), miasma(), st_elmos_fire(), ball_lightning(),
 		solar_wind(), photon_gas(), ozone(), vacuum(),
 		radiation_pressure(), cyanide(), xray(), varnish(),
 		phosphorescence(), detonating_gas(), aurora(), quintessence(), antimatter(),
 		cherenkov(), shooting_star(), foxfire(), black_light(), volcanic_lightning(),
 		light_pillar(), midnight_sun(), background_radiation(), gamma_burst(),
-		spark_gap(),
 	]
 
 static func by_id(essence_id: String) -> Essence:

@@ -123,17 +123,14 @@ func test_both_specials_reach_the_shelf() -> void:
 	for special_id: String in Engraving.SPECIAL_IDS:
 		assert_true(seen.has(special_id), "%s liegt irgendwann aus" % special_id)
 	for catalyst_id in Pack.catalyst_ids():
-		if Pack.catalyst_secret_only(catalyst_id):
-			assert_false(seen.has(catalyst_id), "%s nur im Schwarzmarkt" % catalyst_id)
-		else:
-			assert_true(seen.has(catalyst_id), "%s liegt irgendwann aus" % catalyst_id)
+		assert_true(seen.has(catalyst_id), "%s liegt irgendwann aus" % catalyst_id)
 	for op_id: String in StampNet.OPERATOR_IDS:
 		assert_true(seen.has(op_id), "%s liegt irgendwann aus" % op_id)
 
 # --- Die Katalysator-Kassetten -------------------------------------------------
 
 func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
-	assert_eq(Pack.catalyst_ids().size(), 5, "fuenf Karten, nicht mehr")
+	assert_eq(Pack.catalyst_ids().size(), 2, "zwei Karten, nicht mehr")
 	for id in Pack.catalyst_ids():
 		var pack := Pack.catalyst(id)
 		assert_not_null(pack, "%s baut sich" % id)
@@ -150,18 +147,7 @@ func test_every_catalyst_is_a_named_sonderbestand_card() -> void:
 
 func test_the_catalyst_prices_are_the_authored_ones() -> void:
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_PROPELLANT), 14)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_COOL), 8)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_CHILL), 14)
 	assert_eq(Pack.catalyst_price(Pack.CATALYST_GROUND), 8)
-	assert_eq(Pack.catalyst_price(Pack.CATALYST_REPAIR), 30)
-
-## Die Reparatur-Karte ist Schwarzmarkt-Ware und die einzige ihrer Art.
-func test_the_repair_card_is_secret_only() -> void:
-	for id in Pack.catalyst_ids():
-		assert_eq(Pack.catalyst_secret_only(id), id == Pack.CATALYST_REPAIR, id)
-	assert_true(Pack.catalyst(Pack.CATALYST_REPAIR).is_repair())
-	assert_false(Pack.catalyst(Pack.CATALYST_GROUND).is_repair())
-	assert_false(Pack.SPECIAL_ROLL_WEIGHTS.has(Pack.CATALYST_REPAIR), "nie im Regal")
 
 func test_an_unknown_catalyst_builds_nothing() -> void:
 	assert_null(Pack.catalyst("gibtsnicht"), "lieber keine Karte als eine namenlose")
@@ -187,25 +173,9 @@ func test_the_special_roll_weights_are_the_documented_table() -> void:
 	assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[Pack.SPECIAL_ENGRAVING]), 30)
 	var rest := 0
 	for id in Pack.catalyst_ids() + StampNet.OPERATOR_IDS:
-		if Pack.catalyst_secret_only(id):
-			continue
 		assert_eq(int(Pack.SPECIAL_ROLL_WEIGHTS[id]), 10, "%s" % id)
 		rest += int(Pack.SPECIAL_ROLL_WEIGHTS[id])
-	assert_eq(rest, 70, "vier Katalysatoren und drei Operatoren")
-
-# --- Die KÜHL-Karten ------------------------------------------------------------
-
-func test_the_cooling_cards_tend_the_die_and_are_shop_goods() -> void:
-	for id in [Pack.CATALYST_COOL, Pack.CATALYST_CHILL]:
-		var pack := Pack.catalyst(id)
-		assert_true(pack.is_cooling(), id)
-		assert_true(pack.tends_die(), id)
-		assert_false(Pack.catalyst_secret_only(id), "auch im Laden")
-		assert_true(Pack.SPECIAL_ROLL_WEIGHTS.has(id), "als Sonderposten")
-	assert_true(Pack.catalyst(Pack.CATALYST_REPAIR).tends_die())
-	assert_false(Pack.catalyst(Pack.CATALYST_PROPELLANT).tends_die())
-
-# --- Das MULTIPLIKATOR-NETZ -----------------------------------------------------
+	assert_eq(rest, 50, "zwei Katalysatoren und drei Operatoren")
 
 func test_the_multiplier_factor_and_faces_follow_the_size() -> void:
 	var rng := RandomNumberGenerator.new()

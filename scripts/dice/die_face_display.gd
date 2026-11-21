@@ -114,55 +114,10 @@ const MOTE_GLOW := 1.5
 ## Stützpunkte je Kante, aus denen die Funken treten (12 Kanten × 6).
 const MOTE_EDGE_SAMPLES := 6
 
-## --- Die LADUNG am Körper ------------------------------------------------------
-## NIE das Energie-Cyan: ein geladener Würfel darf nicht aussehen, als präge er ⚡.
-const CHARGE_COLOR := Color(0.86, 0.66, 1.35)
-## Durchgebrannt ist ASCHE (Spieler-Wahl 2026-09-07): hellgrauer Körper, helle
-## flache Kante, dunkle Ziffer, dazu eine Aschen-Auflage je Seite UNTER der Ziffer
-## (die_burn.gdshader; der Wert bleibt lesbar, der Würfel zählt für die Hand).
-const BURNED_BODY := Color(0.42, 0.41, 0.4)
-const BURNED_EDGE := Color(0.5, 0.48, 0.46)
-const BURNED_NUMBER := Color(0.2, 0.19, 0.19)
-const BURN_SHADER := preload("res://assets/shaders/die_burn.gdshader")
-const BURN_LIFT := 0.0092  # über der Runen-Auflage (0,008), unter der Ziffer
 ## Höhe der Ziffer über der Seite. Der Abstand zur Runen-Auflage muss gross bleiben:
 ## bei 0,002 reichte unter flachem Blick die Tiefen-Auflösung nicht, und die Rune
 ## schnitt durch die Zahl.
 const LABEL_LIFT := 0.02
-var burn_parts: Array[MeshInstance3D] = []
-## Ab dieser Stufe zünden die Eck-Lampen.
-const CHARGE_ARC_LEVEL := 3
-## Der Blitz beim Aufladen/Entladen/Reparieren.
-const CHARGE_FLASH_TIME := 0.35
-const CHARGE_FLASH_GAIN := 2.2
-## Wie kräftig die Ladung die Boden-Lache einfärbt und hebt.
-const CHARGE_POOL_MIX := 0.65
-const CHARGE_POOL_GAIN := 1.25
-
-## Ladung und Ruß des gezeigten Würfels (aus der Def) plus der TRANSIENTE
-## Zeremonie-Stand (-1 = keiner) - apply_definition löscht ihn.
-var _charge_level := 0
-var _burned := false
-## Die LADUNG lebt in der ZIFFER (Spieler-Wahl 2026-10-23; Hitze-Aura, Brand und
-## Marken sind gestorben - jede Auflage machte den Würfel noch voller): sie glüht wie
-## ein Glühfaden von Weiß über Gelb und Orange nach Rot, und durchgebrannt ist sie
-## schon immer dunkel. Index = Stufe.
-const HEAT_NUMBER_COLORS: Array[Color] = [
-	NUMBER_COLOR, Color(1.25, 1.12, 0.22), Color(1.6, 0.52, 0.05), Color(3.0, 0.24, 0.1)]
-## Stufe 3 FLACKERT (Ziffer) und ZITTERT (Körper) - dort droht das Durchbrennen.
-const HEAT_FLICKER := 0.22
-const HEAT_TREMOR := 0.022
-const HEAT_TREMOR_TILT := 0.02
-## Schlüssel der zuletzt geschriebenen Ziffernfarbe (-1 Ruß, -2 = neu schreiben).
-var _digit_key := -2
-## Eine Auswahl- oder Vorschau-Tönung hält die Ziffer - das Flackern schweigt dann.
-var _digits_tinted := false
-## Der Zufall der Zungen und Bruchlinien dieses Würfels (die Seiten zählen hoch).
-var _overlay_seed := randf() * 100.0
-var _charge_override := -1
-var _burned_override := false
-var _charge_flash := 0.0
-var _charge_flash_tween: Tween
 
 ## Interne Glyphen-Auflösung (Font-Atlas-Pixel) - Weltgröße steuert pixel_size.
 const LABEL_FONT_SIZE := 160
@@ -190,9 +145,8 @@ const LABEL_FIT_EXTENT := 1.5 * DIGIT_SHARE
 ## Klotz - halbiert trennt es immer noch, weil nicht die BREITE schneidet, sondern
 ## der Prepass (LABEL_ALPHA_SCISSOR).
 const LABEL_OUTLINE_SIZE := 24
-## Auf einer MATERIAL-Seite ist der Grund hell und farbig (Rubin, Bernstein, Gold
-## teilen die Töne der Hitze-Ziffer): dort ist das Band breiter, damit die Ziffer
-## immer auf eigenem Dunkel glüht.
+## Auf einer MATERIAL-Seite ist der Grund hell und farbig: dort ist das Band
+## breiter, damit die Ziffer immer auf eigenem Dunkel steht.
 const LABEL_OUTLINE_MATERIAL := 32
 ## Der Saum ist SCHWARZ, nicht körperfarben: auf einer schwarzen Seite sieht man
 ## ihn ohnehin nicht, auf einer hellen Material-Seite ist er das Band.
@@ -217,17 +171,16 @@ var cap_material: ShaderMaterial = null
 var beam_material: ShaderMaterial = null
 ## Gemeinsames Material ALLER Kanten-Teile - eine Zuweisung färbt den Rahmen.
 var edge_material_res: StandardMaterial3D = null
-## STUMM: der Würfel trägt seine AUFLAGEN nicht - Zittern, Seelen-Funken
+## STUMM: der Würfel trägt seine AUFLAGEN nicht - Seelen-Funken
 ## und Lichtlache bleiben fort, Körper und Ziffern nicht. Die
 ## GLAS-ANSICHT schaltet die versenkten Vorrats-Würfel so (Spieler-Wunsch
 ## 2026-09-11): unter dem halb durchsichtigen Schirm zögen ihre Effekte quer über
-## das Raster. Setzen genügt - die drei Schreiber fragen selbst.
+## das Raster. Setzen genügt - die Schreiber fragen selbst.
 var effects_muted := false:
 	set(value):
 		if effects_muted == value:
 			return
 		effects_muted = value
-		_refresh_charge()
 		_refresh_soul_motion()
 		_refresh_pool()
 
@@ -243,7 +196,7 @@ var _pool_color := Color(0, 0, 0, 0)
 const AURORA_HUE_SPAN := 0.22
 
 ## Tiefe der Runen-Auflage und der Schritt je weiterem Platz. Beide Zusatz-Plätze
-## müssen UNTER der Asche (BURN_LIFT 0.0092) und der Ziffer (0.01) bleiben - sonst
+## müssen UNTER der Ziffer (0.01) bleiben - sonst
 ## läge der dritte Rune eines Vakuum-Würfels VOR der Zahl.
 ## Deckung des dunklen Unterzugs einer Rune auf einer Material-Seite.
 const RUNE_CASING := 0.85
@@ -297,14 +250,8 @@ func apply_definition(def: DieDefinition) -> void:
 		face_base[axis] = DieMaterial.tint_for(material_id, level)
 		(labels[axis] as Label3D).outline_size = LABEL_OUTLINE_MATERIAL if material_id != "" else LABEL_OUTLINE_SIZE
 		_set_textures(_plain_face(axis), material_id)
-	# Die LADUNG kommt aus der Def - jeder Ort des Würfels bekommt sie damit über
-	# den EINEN Refresh-Pfad; der Zeremonie-Stand tritt hier ab.
-	_charge_level = clampi(def.charge, 0, DieDefinition.CHARGE_MAX)
-	_burned = def.burned_out
-	_charge_override = -1
-	_burned_override = false
-	_digit_key = -2
-	_digits_tinted = false
+	for axis in labels:
+		(labels[axis] as Label3D).modulate = NUMBER_COLOR
 	# Ein Zugriff statt is_valid_id + glow_for; die Rarität entscheidet die
 	# Animationsstufen der Seele.
 	var essence := Essence.by_id(def.essence_id)
@@ -351,16 +298,13 @@ func _refresh_face_colors() -> void:
 		_dress_face(axis, profile, level)
 	_apply_essence_edge()
 	if corner_caps != null:
-		# Ab dem Überschlag brennen die Eck-Lampen auch ohne Seele; Ruß löscht sie.
-		corner_caps.visible = not shown_burned() \
-			and (essence_id != "" or shown_charge() >= CHARGE_ARC_LEVEL)
+		corner_caps.visible = essence_id != ""
 	_has_material = edge_base != EDGE_COLOR
 	for axis in face_base:
 		if face_base[axis] != Color.WHITE:
 			_has_material = true
 	_refresh_soul_motion()
 	_refresh_pool()
-	_refresh_charge()
 
 ## Würfel-Farbe: kräftiger als der UI-Tint (siehe DIE_SATURATION). Wird auf
 ## alles gelegt, was Licht trägt - Emission, Würfellicht, Fresnel-Schimmer.
@@ -374,9 +318,8 @@ static func intense(color: Color) -> Color:
 ## Material-Boden, kahl das neutrale Neon unter der Bloom-Schwelle - dieselben
 ## zwei Fälle wie _apply_essence_edge/_apply_profile für den Füllkörper.
 func _frame_glow_color() -> Color:
-	var lamp := intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint \
+	return intense(edge_base) * MATERIAL_EDGE_GLOW_FLOOR * body_tint \
 		if essence_id != "" else intense(EDGE_NEON) * EDGE_GLOW * body_tint
-	return _charged_lamp(lamp)
 
 ## Bewegungsfarbe der Seele (Fluss-Ballungen, Seelenfunken): die Glow-Farbe,
 ## unter dem Luma-Boden der kalte Void-Ton.
@@ -507,7 +450,7 @@ func _apply_essence_edge() -> void:
 		return
 	edge_material_res.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	_apply_profile(edge_material_res, null, true)
-	# EINE Quelle für Balken, Kappen und Füllkörper - die Ladung färbt sie mit.
+	# EINE Quelle für Balken, Kappen und Füllkörper.
 	edge_material_res.emission = _frame_glow_color()
 
 ## Ohne Material: dunkler Glas-Körper, das Licht liegt allein in der Emission.
@@ -556,10 +499,10 @@ func _plain_face(axis: String) -> StandardMaterial3D:
 	return face_plain[axis]
 
 ## Was an einer Seite hängt: veredelt Glut und Kante, sonst die glatte
-## Oberfläche. Ruß löscht die Veredelung - Asche glüht nicht.
+## Oberfläche.
 func _dress_face(axis: String, profile: DieMaterial, level: int) -> void:
 	var quad: MeshInstance3D = quads[axis]
-	if profile != null and level >= DieMaterial.MAX_LEVEL and not shown_burned():
+	if profile != null and level >= DieMaterial.MAX_LEVEL:
 		var refined := _refined_face(axis, profile)
 		_apply_refined(refined, profile)
 		if quad.get_surface_override_material(0) != refined:
@@ -693,7 +636,6 @@ func set_pool_enabled(on: bool) -> void:
 ## Boden-Lache folgt dem Würfel und verblasst mit seiner Flughöhe.
 func _process(delta: float) -> void:
 	_pulse_phase = fmod(_pulse_phase + delta * PULSE_SPEED, TAU)
-	_tick_heat()
 	if edge_material_res != null:
 		var amount := PULSE_AMOUNT_MATERIAL if _has_material else PULSE_AMOUNT
 		edge_material_res.emission_energy_multiplier = 1.0 + sin(_pulse_phase) * amount
@@ -760,94 +702,7 @@ func _refresh_pool() -> void:
 			color = intense(mixed / float(tints.size()))
 			strength = POOL_MATERIAL_STRENGTH
 	color *= body_tint
-	# GLIMMEN: die Lache wärmt mit - sie ist die Erdung des geladenen Würfels.
-	var level := shown_charge()
-	if level > 0 and not shown_burned():
-		var mix := CHARGE_POOL_MIX * float(level) / float(DieDefinition.CHARGE_MAX)
-		color = color.lerp(CHARGE_COLOR, mix)
-		strength *= 1.0 + (CHARGE_POOL_GAIN - 1.0) * float(level) / float(DieDefinition.CHARGE_MAX)
 	_pool_color = Color(color.r, color.g, color.b, POOL_ALPHA_PER_STRENGTH * strength)
-
-# --- Die LADUNG am Körper ------------------------------------------------------
-# Vier Zustände auf EINEM Weg: die Ziffer glüht gelb, orange, rot (Stufe 3 flackert,
-# der Körper zittert, die Eck-Lampen zünden), Ruß ist flach und dunkel. Über den
-# Flächen liegt bewusst KEINE Auflage.
-
-## Die gezeigte Stufe: der Zeremonie-Stand schlägt den Def-Stand.
-func shown_charge() -> int:
-	if shown_burned():
-		return 0
-	return _charge_override if _charge_override >= 0 else _charge_level
-
-## Zeigt der Würfel Ruß? Ebenfalls Zeremonie vor Def.
-func shown_burned() -> bool:
-	if _charge_override >= 0:
-		return _burned_override
-	return _burned
-
-## Der TRANSIENTE Stand der Wertungs-Zeremonie (wie die Wert-Overrides): der Körper
-## folgt der laufenden Aufschlüsselung, apply_definition holt ihn zurück.
-func set_charge_override(level: int, burned: bool) -> void:
-	_charge_override = clampi(level, 0, DieDefinition.CHARGE_MAX)
-	_burned_override = burned
-	_refresh_face_colors()
-
-func clear_charge_override() -> void:
-	if _charge_override < 0:
-		return
-	_charge_override = -1
-	_burned_override = false
-	_refresh_face_colors()
-
-## Kurzer Blitz in Ladungsfarbe (Aufladen, Entladen, Reparatur) - wie flare_runes
-## eine reine Anzeige, die von selbst zurückfällt.
-func flash_charge(strength := 1.0) -> void:
-	if _charge_flash_tween != null and _charge_flash_tween.is_valid():
-		_charge_flash_tween.kill()
-	_charge_flash = clampf(strength, 0.0, 1.0)
-	_refresh_face_colors()
-	_charge_flash_tween = create_tween()
-	_charge_flash_tween.tween_method(func(v: float) -> void:
-		_charge_flash = v
-		_refresh_face_colors(), _charge_flash, 0.0, CHARGE_FLASH_TIME)
-
-## Der Rahmen-Ton mit dem Blitz. KEINE Stufe färbt die Kante (Spieler-Wunsch
-## 2026-09-06/07): die Ladung lebt in Ziffer, Zittern und Eck-Lampen.
-func _charged_lamp(lamp: Color) -> Color:
-	if _charge_flash <= 0.0:
-		return lamp
-	return lamp.lerp(CHARGE_COLOR * CHARGE_FLASH_GAIN, _charge_flash)
-
-## Was Ladung und Ruß über den fertig gefärbten Körper legen: die Ziffernfarbe der
-## Stufe und - bei Asche - der flache helle Rahmen samt Aschen-Auflagen.
-func _refresh_charge() -> void:
-	var burned := shown_burned()
-	var level := shown_charge()
-	_sync_digit_heat(level, burned)
-	_sync_burn(burned)
-	if not burned:
-		return
-	# Asche: flache helle Kanten (der set_edge_tint-Schalter), grauer Körper,
-	# dunkle Ziffer, keine Lache, keine Seelen-Bewegung.
-	set_edge_tint(BURNED_EDGE)
-	for axis in quads:
-		var material := _plain_face(axis)
-		material.albedo_color = BURNED_BODY
-		material.emission = BURNED_EDGE * FACE_GLOW
-		material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-	if glow_pool != null:
-		glow_pool.visible = false
-	if soul_motes != null:
-		soul_motes.queue_free()
-		soul_motes = null
-
-## Die Aschen-Auflagen kommen und gehen mit dem Ruß (lazy).
-func _sync_burn(wanted: bool) -> void:
-	if not wanted:
-		_free_overlays(burn_parts)
-	elif burn_parts.is_empty():
-		_face_overlays(burn_parts, "BurnOverlay", DieBuilder.FACE_SIZE, BURN_LIFT,
-			BURN_SHADER, -1)  # vor der Ziffer gezeichnet, also unter ihr
 
 ## Färbt den Kanten-Rahmen absolut (Kanten-Auswahl der Gravur-Station).
 ## Unschattiert, damit exakt die flache Auswahl-Farbe erscheint - beleuchtet
@@ -870,13 +725,11 @@ func set_face_number_tint(face_index: int, color: Color) -> void:
 	for axis in labels:
 		if DiceController.AXIS_FACE_INDEX[axis] == face_index:
 			(labels[axis] as Label3D).modulate = color
-			_digits_tinted = true
 			return
 
 func reset_number_tints() -> void:
-	_digits_tinted = false
 	for axis in labels:
-		(labels[axis] as Label3D).modulate = _resting_number_color()
+		(labels[axis] as Label3D).modulate = NUMBER_COLOR
 
 # --- Zeigen auf den Würfel ------------------------------------------------------
 # Getroffen wird über die BILDSCHIRM-Projektion der Seiten-/Kantenmitten, nicht
@@ -972,74 +825,3 @@ static func fit_label(label: Label3D) -> void:
 	var world_extent: float = maxf(size_px.x, size_px.y) * LABEL_PIXEL_SIZE
 	var shrink: float = maxf(1.0, world_extent / LABEL_FIT_EXTENT)
 	label.pixel_size = LABEL_PIXEL_SIZE / shrink
-
-# --- Die Ladung: Ziffer, Zittern, Asche ---------------------------------------
-
-## EIN Quad mit Shader-Material unter parent: die eine Bauweise aller Auflagen.
-func _overlay(parent: Node3D, part_name: String, size: Vector2, lift: float,
-		shader: Shader, priority: int, params: Dictionary) -> MeshInstance3D:
-	var quad := QuadMesh.new()
-	quad.size = size
-	var material := ShaderMaterial.new()
-	material.shader = shader
-	for key in params:
-		material.set_shader_parameter(key, params[key])
-	material.render_priority = priority
-	var part := MeshInstance3D.new()
-	part.name = part_name
-	part.mesh = quad
-	part.position = Vector3(0, 0, lift)
-	part.material_override = material
-	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(part)
-	_inherit_layers(part)
-	return part
-
-## Je Seite eine Auflage (Kind des Seiten-Quads, in dessen Ebene), mit eigenem
-## Zufall je Seite und der Phase des Würfels.
-func _face_overlays(store: Array[MeshInstance3D], part_name: String, span: float,
-		lift: float, shader: Shader, priority: int) -> void:
-	var face_index := 0
-	for axis in quads:
-		store.append(_overlay(quads[axis], part_name, Vector2.ONE * span, lift, shader, priority,
-			{"face_seed": _overlay_seed + float(face_index), "phase": _pulse_phase}))
-		face_index += 1
-
-func _free_overlays(store: Array[MeshInstance3D]) -> void:
-	for part in store:
-		if is_instance_valid(part):
-			part.queue_free()
-	store.clear()
-
-## Ziffern nach Ladung (Ruß dunkel); geschrieben nur bei Wechsel, damit eine
-## Auswahl-Tönung einen Neuanstrich des Körpers übersteht.
-func _sync_digit_heat(level: int, burned: bool) -> void:
-	var key := -1 if burned else level
-	if key == _digit_key:
-		return
-	_digit_key = key
-	_digits_tinted = false
-	for axis in labels:
-		(labels[axis] as Label3D).modulate = _resting_number_color()
-
-func _resting_number_color() -> Color:
-	return BURNED_NUMBER if _digit_key == -1 else HEAT_NUMBER_COLORS[maxi(_digit_key, 0)]
-
-## Flackern und Zittern der Stufe 3; darunter ruht der Körper auf seinem Platz.
-func _tick_heat() -> void:
-	if _digit_key < DieDefinition.CHARGE_MAX or effects_muted:
-		if position != Vector3.ZERO or rotation != Vector3.ZERO:
-			position = Vector3.ZERO
-			rotation = Vector3.ZERO
-		return
-	var t := Time.get_ticks_msec() * 0.001 + _overlay_seed
-	# Nervöse SCHÜBE statt Dauerzittern: ein Rauschen, das alle ~2 s hochschießt.
-	var burst := pow(maxf(0.0, sin(t * 2.9) * sin(t * 1.3 + 0.7)), 3.0)
-	var shake := 0.25 + 0.75 * burst
-	position = Vector3(sin(t * 61.0), sin(t * 47.0 + 1.3), sin(t * 53.0 + 2.1)) * HEAT_TREMOR * shake
-	rotation = Vector3(sin(t * 43.0), 0.0, sin(t * 57.0 + 0.4)) * HEAT_TREMOR_TILT * shake
-	if _digits_tinted:
-		return
-	var flicker := 1.0 - HEAT_FLICKER * burst * (0.5 + 0.5 * sin(t * 37.0))
-	for axis in labels:
-		(labels[axis] as Label3D).modulate = HEAT_NUMBER_COLORS[_digit_key] * flicker

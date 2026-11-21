@@ -13,7 +13,7 @@ const CH_MATERIAL := "material"
 const CH_RUNE := "rune"
 ## Der Sonderbestand: Veredelung, Pointer-Kopie - und jede Pflege läuft über seine Spur.
 const CH_SPECIAL := "special"
-## Pflege ohne Seite (Kühlen, Reparatur).
+## Ein Prägen, das keine Seite ändert.
 const CH_CARE := "care"
 const CHANNELS: Array[String] = [CH_NUMBER, CH_MATERIAL, CH_RUNE, CH_SPECIAL]
 const ALL_FACES := -1

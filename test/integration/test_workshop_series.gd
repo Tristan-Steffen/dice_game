@@ -230,29 +230,6 @@ func test_the_grip_needs_a_target_and_one_stamping_card() -> void:
 	assert_true(view.can_pull(), "Ziel plus EINE Karte genügt")
 	assert_false(view._action_button.disabled, "der Sitz steht bereit")
 
-## Die Reparatur-Karte allein greift - auch auf einen durchgebrannten Würfel.
-func test_a_lone_repair_card_pulls_on_a_burned_die() -> void:
-	run.owned_pool[0].burn_out()
-	var card := run.grant_pack(Pack.catalyst(Pack.CATALYST_REPAIR))
-	view.slot_pack(card.pack_uid)
-	view.choose_index(0)
-	await wait_frames(2)
-	assert_eq(view.stamping_card_count(), 0)
-	assert_true(view.series_repairs())
-	assert_true(view.can_pull(), "eine Reparatur ist eine Wirkung")
-	var seen: Array = []
-	view.series_applied.connect(func(result: Dictionary, _px: Vector2) -> void:
-		seen.append(result))
-	view.pull_lever()
-	assert_false(run.owned_pool[0].burned_out, "gebucht vor dem Licht")
-	assert_eq(run.owned_pool[0].charge, 0)
-	assert_true(view.burning(), "die Übertragung läuft auch mit einer Karte")
-	assert_true(view.burn_repaired())
-	await wait_seconds(view.ceremony_time() + 0.2)
-	assert_false(view.burning(), "und läuft zu Ende")
-	assert_eq(seen.size(), 1)
-	assert_true(bool(Dictionary(seen[0]).get("repaired", false)))
-
 ## Warum der Knopf grau steht, sagt der INFO-SCHIRM - der Sitz selbst schweigt. Die
 ## Klartexte sind die EINE Begruendung, und ihre Reihenfolge ist die von can_pull:
 ## gezurrt vor Ziel vor Karte vor Durchbrand vor Katalysator.
@@ -266,15 +243,6 @@ func test_der_knopf_nennt_seine_bremse_in_der_reihenfolge_von_can_pull() -> void
 	assert_eq(view.stamp_blocker(), "Keine Karte in der Reihe.", "dann die Karte")
 	view.slot_pack(_valued_pack(0, 3).pack_uid)
 	assert_eq(view.stamp_blocker(), "", "fertig: der Knopf schweigt")
-
-func test_ein_durchgebrannter_wuerfel_nennt_die_fehlende_karte() -> void:
-	run.owned_pool[0].burn_out()
-	view.slot_pack(_valued_pack(0, 3).pack_uid)
-	view.choose_index(0)
-	await wait_frames(2)
-	assert_eq(view.stamp_blocker(),
-		"Durchgebrannt - die %s fehlt." % Pack.catalyst_name(Pack.CATALYST_REPAIR),
-		"sie wird beim Namen genannt, nicht umschrieben")
 
 func test_eine_reine_katalysator_reihe_nennt_die_fehlende_netz_karte() -> void:
 	var fuel := run.grant_pack(Pack.catalyst(Pack.CATALYST_PROPELLANT))
@@ -1143,31 +1111,6 @@ func test_a_missing_target_names_itself() -> void:
 	assert_null(view.target_die(), "ohne Tipp auf den Vorrat steht kein Ziel")
 	assert_true(view.stamp_blocker().contains("Ziel"),
 		"das fehlende Ziel nennt sich: %s" % view.stamp_blocker())
-
-## Ein durchgebrannter Würfel nennt die fehlende Reparatur-Karte.
-func test_a_burned_target_names_the_missing_repair_card() -> void:
-	run.owned_pool[0].burn_out()
-	view.choose_die(run.owned_pool[0])
-	view.slot_pack(_valued_pack(0, 1).pack_uid)
-	assert_false(view.can_pull(), "ohne Reparatur-Karte greift er nicht")
-	assert_true(view.stamp_blocker().contains(Pack.catalyst_name(Pack.CATALYST_REPAIR)),
-		"das Prägen nennt sie: %s" % view.stamp_blocker())
-	view.slot_pack(run.grant_pack(Pack.catalyst(Pack.CATALYST_REPAIR)).pack_uid)
-	assert_true(view.can_pull(), "mit ihr prägt und repariert er")
-	assert_eq(view.stamp_blocker(), "")
-
-## Eine Kühl-Karte allein trägt das Prägen - einen Durchgebrannten schaltet sie nicht frei.
-func test_a_cooling_card_alone_may_press_but_never_unlocks_a_burned_die() -> void:
-	view.choose_die(run.owned_pool[0])
-	view.slot_pack(run.grant_pack(Pack.catalyst(Pack.CATALYST_COOL)).pack_uid)
-	assert_true(view.can_pull(), "kühlen ist ein Prägen ohne Netz")
-	run.owned_pool[0].burn_out()
-	assert_false(view.can_pull(), "Ruß kühlt man nicht weg")
-	assert_true(view.stamp_blocker().contains(Pack.catalyst_name(Pack.CATALYST_REPAIR)))
-
-# --- DIE VERDICHTUNG am Podest ----------------------------------------------------
-## Dasselbe Podest, dieselbe Reihe, derselbe Knopf - nur die ART des Ziels entscheidet,
-## ob geprägt oder verdichtet wird.
 
 func _blank() -> Pack:
 	return run.grant_pack(Pack.blank_card())

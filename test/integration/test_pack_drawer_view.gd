@@ -493,7 +493,7 @@ func test_a_blank_card_is_steel_blue() -> void:
 		"und liest nicht als Sonderbestand")
 	var cell := DataCellView.new()
 	add_child_autofree(cell)
-	cell.setup(Pack.shelf_of(blank), blank.tier, blank.stamp_net, false, true)
+	cell.setup(Pack.shelf_of(blank), blank.tier, blank.stamp_net, true)
 	assert_eq(cell.tint, PackDrawerView.BLANK_TINT, "der Koerper traegt denselben Ton")
 
 ## Die Faktor-Zelle schreibt ihren Faktor, im Karten-Netz wie in der Summe.

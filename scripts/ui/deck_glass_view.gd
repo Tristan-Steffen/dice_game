@@ -125,7 +125,7 @@ func _build() -> void:
 	_host.add_child(_grid)
 
 ## Die Belegung als reine Daten: je Sitz seine Instanz UND was seine Kachel zeigt -
-## Seiten, Materialien, Veredelung, Runen, Seele, Stil und LADUNG. Beides
+## Seiten, Materialien, Veredelung, Runen, Seele und Stil. Beides
 ## ist nötig:
 ## ein Umlegen tauscht nur die Instanzen (inhaltsgleiche Würfel gibt es reichlich),
 ## ein Tausch schreibt per become IN die Instanz und läßt die Liste unberührt.
@@ -137,7 +137,7 @@ static func pool_signature(defs: Array[DieDefinition]) -> Array:
 			continue
 		out.append([def.get_instance_id(), def.faces, def.materials, def.levels,
 			def.runes, def.second_runes, def.third_runes,
-			def.essence_id, def.style_id, def.charge, def.burned_out])
+			def.essence_id, def.style_id])
 	return out
 
 ## Der ganze Inhalt in EINEM Aufruf: die Kopfzeile, der Vorrat in Buch-Ordnung und

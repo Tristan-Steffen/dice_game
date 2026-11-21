@@ -90,7 +90,6 @@ func test_late_built_die_parts_inherit_the_reflection_layer() -> void:
 	def.set_rune(2, Rune.AFTERGLOW, 0, 1)
 	def.set_rune(2, Rune.SPARK_FLIGHT, 1, 1)
 	def.faces[3] = 12547
-	def.burn_out()
 	var faces: DieFaceDisplay = die.find_children("*", "DieFaceDisplay", true, false)[0]
 	faces.apply_definition(def)
 	assert_gt(faces.rune_overlays_second.size(), 0, "der zweite Runen-Platz muss gebaut worden sein")

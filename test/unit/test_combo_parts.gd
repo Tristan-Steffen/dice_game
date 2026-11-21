@@ -41,7 +41,8 @@ func test_the_catalog_has_fourteen_parts_with_unique_ids():
 		ids.append(part.id)
 		assert_ne(part.display_name, "")
 		assert_true(ComboPart.RARITY_WEIGHTS.has(part.rarity))
-	assert_eq(ids.size(), 26)
+	assert_eq(ids.size(), 23)
+	assert_null(ComboPart.make("expansion_board"), "die Erweiterungsplatine ist gestorben")
 
 func test_only_the_multiplying_and_legendary_parts_are_secret():
 	var secret: Array[String] = []
@@ -49,8 +50,8 @@ func test_only_the_multiplying_and_legendary_parts_are_secret():
 		secret.append(part.id)
 	secret.sort()
 	var expected: Array[String] = [ComboPart.AMPLIFIER_TUBE, ComboPart.COUPLING,
-		ComboPart.EXPANSION_BOARD, ComboPart.HIGH_VOLTAGE_TUBE, ComboPart.PARALLEL_CIRCUIT,
-		ComboPart.RESONATOR, ComboPart.MAGNETRON, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE, ComboPart.AFTERBURNER]
+		ComboPart.HIGH_VOLTAGE_TUBE, ComboPart.PARALLEL_CIRCUIT,
+		ComboPart.RESONATOR, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE, ComboPart.AFTERBURNER]
 	expected.sort()
 	assert_eq(secret, expected)
 
@@ -112,20 +113,10 @@ func test_die_parts_skip_dice_outside_the_combination():
 	assert_eq(plain, (10 + 12) * 2)
 	assert_eq(with_part, (10 + 12 + 8) * 2, "nur die zwei Kombinationswürfel bekommen +4")
 
-func test_thermistor_reads_the_live_charge():
-	var ctx := {DiceScoring.CTX_CHARGES: {0: 2, 1: 0}}
-	# Grundregel +2 Mult (zwei Ladungen), Thermistor +2 je Ladung an Würfel 0.
-	assert_eq(_score([], ctx), 20 * 4)
-	assert_eq(_score([ComboPart.thermistor()], ctx), 20 * 8)
-
 func test_crit_tubes_multiply():
 	assert_eq(_score([ComboPart.amplifier_tube()]), 60)
 	assert_eq(_score([ComboPart.high_voltage_tube()]), 80)
 	assert_eq(_score([ComboPart.amplifier_tube(), ComboPart.high_voltage_tube()]), 120)
-
-func test_crit_parts_strike_after_the_charge_rule():
-	var ctx := {DiceScoring.CTX_CHARGES: {0: 1, 1: 1}}
-	assert_eq(_score([ComboPart.high_voltage_tube()], ctx), 20 * 8, "(2 + 2) × 2")
 
 func test_coupling_copies_the_strongest_combo_part_on_its_left():
 	assert_eq(ComboPartEffects.left_of(PAIR), DiceScoring.TWO_PAIR)
@@ -152,13 +143,6 @@ func test_the_counter_grows_with_every_scoring():
 	assert_eq((run.parts_of(PAIR)[0] as ComboPart).counter, 2)
 	run.book_combo_scored(DiceScoring.THREE_KIND)
 	assert_eq((run.parts_of(PAIR)[0] as ComboPart).counter, 2, "nur die eigene Kombination zählt")
-
-func test_the_expansion_board_adds_two_sockets():
-	assert_eq(run.socket_count(PAIR), GameRun.SOCKETS_PER_COMBO)
-	run.stash_part(ComboPart.expansion_board())
-	assert_true(run.install_pending_part(PAIR, 0))
-	assert_eq(run.socket_count(PAIR), GameRun.SOCKETS_PER_COMBO + 2, "netto +1 Platz")
-	assert_eq(run.parts_of(PAIR).size(), 5)
 
 # --- Reihenfolge und Spiegel -----------------------------------------------------
 
@@ -187,9 +171,9 @@ func test_die_parts_name_their_sockets_in_the_firing():
 func test_breakdown_totals_match_scoring_with_parts():
 	var all_parts: Array = [ComboPart.resistor(), ComboPart.capacitor(), ComboPart.coil(),
 		ComboPart.relay(), ComboPart.output_stage(), ComboPart.solder_joint(),
-		ComboPart.series_resistor(), ComboPart.thermistor(), ComboPart.amplifier_tube(),
+		ComboPart.series_resistor(), ComboPart.amplifier_tube(),
 		ComboPart.counter_part(), ComboPart.coin_validator(), ComboPart.high_voltage_tube()]
-	var ctx := {DiceScoring.CTX_CHARGES: {0: 1, 1: 2}}
+	var ctx := {}
 	for a in all_parts.size():
 		for b in all_parts.size():
 			var parts := {PAIR: [all_parts[a], all_parts[b], ComboPart.relay()],
@@ -211,8 +195,7 @@ func test_trigger_counts_match_between_scoring_and_take():
 		var order: Array[int] = []
 		order.assign(bd["eye_slots"])
 		MaterialEffects.apply_take_effects(defs, _d([0, 0]), mats, _d([0, 1]), _ids([]), -1, {},
-			order, false, [] as Array[int], 0, 0, [] as Array[DieDefinition], _d([0, 1]), 0,
-			[] as Array[int], chip)
+			order, false, [] as Array[int], 0, 0, [] as Array[DieDefinition], _d([0, 1]), 0, chip)
 		for step: Dictionary in bd["die_steps"]:
 			var slot: int = step["slot"]
 			var groups: Array = step["die_triggers"]
@@ -259,16 +242,12 @@ func test_move_respects_the_edit_window():
 	assert_false(run.move_part(PAIR, 0, PAIR, 1, false), "Fenster zu - nichts bewegt sich")
 	assert_false(run.move_part(PAIR, 1, PAIR, 2), "ein leerer Platz hat nichts umzustecken")
 
-func test_moving_the_expansion_board_away_compacts_or_refuses():
-	run.combo_parts[PAIR] = [ComboPart.expansion_board(), null, null, ComboPart.resistor(), null]
-	assert_true(run.move_part(PAIR, 0, DiceScoring.THREE_KIND, 0))
-	var left := run.parts_of(PAIR)
-	assert_eq(left.size(), GameRun.SOCKETS_PER_COMBO)
-	assert_eq(ComboPartEffects.part_count(left), 1, "der Widerstand rückt nach vorn")
-	run.combo_parts[DiceScoring.FULL_HOUSE] = [ComboPart.expansion_board(), ComboPart.resistor(),
-		ComboPart.resistor(), ComboPart.resistor(), ComboPart.resistor()]
-	assert_false(run.move_part(DiceScoring.FULL_HOUSE, 0, DiceScoring.SIX_KIND, 0),
-		"kein Platz für die übrigen vier")
+func test_every_chip_has_three_sockets_for_good():
+	assert_eq(run.socket_count(PAIR), GameRun.SOCKETS_PER_COMBO)
+	run.combo_parts[PAIR] = [ComboPart.resistor(), null, null, ComboPart.coil(), null]
+	var fitted := run.parts_of(PAIR)
+	assert_eq(fitted.size(), GameRun.SOCKETS_PER_COMBO, "eine alte, längere Belegung rückt auf drei")
+	assert_eq(ComboPartEffects.part_count(fitted), 2, "nichts geht verloren, solange Platz ist")
 
 func test_parts_room_counts_the_waiting_parts():
 	for key: String in DiceScoring.HAND_PRIORITY:
@@ -390,24 +369,3 @@ func test_heat_buildup_needs_its_clause():
 	run.combo_parts[PAIR] = [ComboPart.resistor(), null, null]
 	assert_false(run.apply_heat_buildup(PAIR))
 
-# --- Platinen-Baum ---------------------------------------------------------------
-
-func test_socket_parents_follow_the_risers():
-	var parts := [ComboPart.expansion_board(), null, null, ComboPart.expansion_board(), null, null, null]
-	var parents := ComboPartEffects.socket_parents(parts, GameRun.SOCKETS_PER_COMBO)
-	assert_eq(parents[0], ComboPartEffects.CHIP_SOCKET)
-	assert_eq(parents[3], 0, "das erste Paar trägt die erste Platine")
-	assert_eq(parents[4], 0)
-	assert_eq(parents[5], 3, "das zweite die Platine darauf")
-
-func test_a_riser_left_without_its_carrier_drops_onto_the_chip():
-	run.combo_parts[PAIR] = [ComboPart.expansion_board(), null, null,
-		ComboPart.expansion_board(), null, ComboPart.resistor(), null]
-	assert_true(run.move_part(PAIR, 0, DiceScoring.THREE_KIND, 0))
-	var left := run.parts_of(PAIR)
-	assert_eq(left.size(), GameRun.SOCKETS_PER_COMBO + 2)
-	var parents := ComboPartEffects.socket_parents(left, GameRun.SOCKETS_PER_COMBO)
-	for slot in left.size():
-		if left[slot] != null:
-			assert_ne(parents[slot], ComboPartEffects.UNREACHABLE, "Platz %d hängt am Chip" % slot)
-	assert_eq(ComboPartEffects.part_count(left), 2, "nichts geht verloren")

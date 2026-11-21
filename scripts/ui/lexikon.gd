@@ -23,7 +23,6 @@ const KRIT := "krit"
 const MULT := "mult"
 const BASISPUNKTE := "basispunkte"
 const ENERGIE := "energie"
-const LADUNG := "ladung"
 const AUSLOESUNG := "ausloesung"
 const RUNE := "rune"
 const GRAVUR := "gravur"
@@ -53,7 +52,7 @@ const PAKET := "paket"
 const OPTION := "option"
 
 ## Alle Konzept-ids - test_lexikon hält Liste und _build_concepts() im Gleichschritt.
-const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, LADUNG, AUSLOESUNG,
+const CONCEPT_IDS: Array[String] = [KRIT, MULT, BASISPUNKTE, ENERGIE, AUSLOESUNG,
 	RUNE, GRAVUR, MATERIAL, VEREDELUNG, POINTER, ESSENZ, CHARM, KOMBINATION,
 	QUOTA, UEBERLADUNG, FUMBLE, STRESSTEST, VERTRAG, NEBENWETTE, MAGAZIN,
 	PRESSE, PRAEGENETZ, SERIE, VERDICHTUNG, SCHWARZMARKT, STECKPLATZ, GLUECK, RAMPENLICHT,
@@ -99,7 +98,6 @@ const SUMMARIES := {
 	MULT: "Der Multiplikator der Wertung: Punkte = Basispunkte × Mult.",
 	BASISPUNKTE: "Die linke Hälfte der Wertung: Punkte = Basispunkte × Mult.",
 	ENERGIE: "Die Zweitwährung ⚡ für Automaten und Schwarzmarkt.",
-	LADUNG: "Hitze eines Würfels von 0 bis 3: je Stufe +1 Mult, an der Spitze droht Durchbrennen.",
 	AUSLOESUNG: "Ein Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal.",
 	RUNE: "Ein Zeichen auf einer Würfelseite mit eigener Wirkung.",
 	GRAVUR: "Eine Aufwertung für Würfel, getragen von einer Karte.",
@@ -271,9 +269,6 @@ static func _build_concepts() -> void:
 	_add(ENERGIE, "Energie",
 		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert im Energie-Ring. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie an den Automaten und im Schwarzmarkt.",
 		CAT_BEGRIFFE)
-	_add(LADUNG, "Ladung",
-		"Jeder Würfel trägt eine Ladung von 0 bis 3 (Glimmen, Kriechstrom, Überschlag), und jede Ladung ist +1 Mult für seine Hand. Jede Auslösung eines gewerteten Würfels würfelt auf +1; wer mit Überschlag in eine Hand geht, würfelt statt dessen aufs Durchbrennen. Ein durchgebrannter Würfel zählt weiter für die Kombination, liefert aber keine Augen und feuert nichts - erst die goldene Generalüberholung aus dem Schwarzmarkt holt ihn beim Prägen in der Werkstatt zurück; Kühlrippe und Kältebad senken die Ladung nach dem Prägen, durchgebrannte Würfel retten sie nicht. Wer eine Runde lang nicht gewertet hat, verliert eine Stufe.",
-		CAT_BEGRIFFE)
 	_add(AUSLOESUNG, "Auslösung",
 		"Ein volles Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal. Essenzen wie Argon lassen den ganzen Würfel mehrfach auslösen, die Rune Nachglühen legt je Seite eine Auslösung obendrauf - Würfel-Faktor und Seiten-Faktor multiplizieren sich.",
 		CAT_BEGRIFFE)
@@ -323,7 +318,7 @@ static func _build_concepts() -> void:
 		"Die Grube der Werkstatt, in der jede Karte als eigene Kassette liegt. Die Kapazität ist gemessen, nicht gesetzt - ist das Magazin voll, zerfällt eine zugesprochene Prämie zu Geld. Tippen öffnet die Kassette, Ziehen sortiert um.",
 		CAT_BEGRIFFE)
 	_add(PRESSE, "Presse",
-		"Die Maschine der Werkstatt: die gesteckten Kassetten bilden eine Serie, und EIN Prägen projiziert ihr Summen-Netz auf einen selbst gewählten Würfel. Es wird nichts mehr gewürfelt - die Vorschau zeigt vorher genau das Ergebnis. Geprägt wird so oft man will, aber jedes Prägen heizt den Zielwürfel um eine Ladung auf.",
+		"Die Maschine der Werkstatt: die gesteckten Kassetten bilden eine Serie, und EIN Prägen projiziert ihr Summen-Netz auf einen selbst gewählten Würfel. Es wird nichts mehr gewürfelt - die Vorschau zeigt vorher genau das Ergebnis. Geprägt wird so oft man will.",
 		CAT_BEGRIFFE)
 	_add(PRAEGENETZ, "Prägenetz",
 		"Das aufgedruckte Würfelnetz einer Kassette: sechs Zellen, eine je Würfelseite, und je Zelle genau eines - ein Zahl-Bonus, ein Material, eine Rune, eine Veredelung, ein Pointer oder ein Operator. Es wird bei der Herstellung gewürfelt, steht ab da fest und liegt im Laden offen: der Zufall lebt im Angebot, nicht an der Maschine. Wie dicht und wie stark ein Netz besetzt ist, entscheidet die Kartengröße (Standard, Groß, Kolossal).",
@@ -335,7 +330,7 @@ static func _build_concepts() -> void:
 		"Mehrere Kassetten werden zu EINER dichteren gepresst. Das Ziel ist ein ROHLING - eine leere Kassette, die es nur im Schwarzmarkt gibt; er liegt dabei auf dem Podest und WIRD die neue Karte, das Futter ist verbraucht. Zahlen und Multiplikatoren ADDIEREN sich dabei (×4 und ×4 werden ×8) und stehen danach als Rechnung auf der Zelle, etwa \"4x+9\": vier mal die aufgelaufene Summe, plus neun. Material und Rune dürfen zusammen auf einer Seite liegen; ein zweites Material verdrängt das erste. Operatoren lassen sich nicht verdichten.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
-		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen und die goldene Generalüberholung, die einen durchgebrannten Würfel repariert, gibt es nur hier.",
+		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",
 		CAT_BEGRIFFE)
 	_add(GLUECK, "Glück",
 		"Der Gradmesser des Laufs: jede geschaffte Runde bringt +1 Glück, Glücks-Klauseln in den Verträgen mehr oder weniger. Je 3 Glück steigt die Fortschrittsstufe - sie hebt die Seltenheit im Laden, die Wetten, die Würfel-Angebote und die Automaten. Dazu wächst der goldene Glückswürfel: bei Glück 1, 3, 6, 10 … bekommt eine zufällige Seite ein Auge mehr (höchstens 6), und sinkt das Glück, geht das zuletzt gewonnene wieder.",

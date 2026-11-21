@@ -788,7 +788,6 @@ func test_a_special_card_replaces_a_random_place() -> void:
 			if spread.packs[seat] is Pack:
 				specials += 1
 				seen[seat] = true
-				assert_false((spread.packs[seat] as Pack).is_repair(), "nie die Reparatur-Karte")
 		assert_lte(specials, 1, "höchstens eine je Auslage")
 	assert_gt(seen.size(), 2, "sie liegt mal hier, mal dort - nicht immer hinten")
 
@@ -803,7 +802,7 @@ func test_a_low_tier_shop_never_carries_one() -> void:
 func test_the_special_card_goes_straight_to_the_magazine() -> void:
 	run.money = 999
 	var list := _mixed()
-	list[3] = Pack.catalyst(Pack.CATALYST_COOL)
+	list[3] = Pack.catalyst(Pack.CATALYST_PROPELLANT)
 	_force_packs(list)
 	var seats: Array = []
 	shop.shop_pack_purchased.connect(func(seat: int) -> void: seats.append(seat))

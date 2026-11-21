@@ -108,3 +108,82 @@ Anlasser, Nachbrenner, Thermistor-Rand) und die Punktreihe der Würfel-Module se
 - Kommentare: kurze deutsche Einzeiler, nur Nicht-Offensichtliches.
 - Im Arbeitsbaum liegt eine fremde, uncommittete Welle (Glückswürfel). Nichts davon zurückdrehen,
   nichts committen, nur die eigenen Stellen anfassen.
+
+## Welle C - der KOMPAKTE Chip: Module als PINS, Sockel fahren aus (Spieler-Entscheide 2026-11-21)
+
+Stand: GEBAUT (2026-11-21). Abweichungen: Modul-Pin 0,9 × 0,56 statt bis 1,1 × 0,73 (die Pin-Reihen stehen
+0,625 Welt auseinander, und der Pin muß samt Sammelschiene in die Spaltenfuge passen); 23 Module, weil die
+parallele Welle Thermistor und Magnetron strich. Siehe *Combo chips* in `scripts/table/CLAUDE.md`.
+
+Anlaß: der breite Chip machte das Feld zu breit, von der Grube aus waren nicht alle Kombinationen
+zu sehen. Sichtproben: `E:/Generated Images/Fumble/kombinationen_module_16_2026-11-21/`
+(`u_stifte_blatt_station.png` = alle 25 Pins groß, `t_stifte_station.png` = das Feld in beiden
+Zuständen). Blockmodelle: `tools/blender_combo_module_variants.py` (`chip_stift`, `PINS`, `pin_*`,
+`p_bar`/`p_block`/`p_fork`/`p_tube`/`p_blade`).
+
+### Entscheide
+1. **Zwei Zustände des Chips.**
+   - KOMPAKT (Regel): Anzeige, Frontband, links drei Pins, rechts eine Endkappe mit drei
+     Kacheln und den drei MODUL-PINS. Keine Sockel sichtbar.
+   - AUSGEFAHREN: zwischen Anzeige und Endkappe steht die Sockelzone mit den drei Sockeln
+     (Welle A, unverändert in Platte, Rand, Kontaktfeld) und den vollen Modulen (Welle B).
+2. **Wann ausgefahren:** genau dann, wenn die Kamera an der KOMBINATIONEN-Station steht ODER
+   ein Einbau/Umstecken läuft (Einbau-Rahmen, Modul-Beutel in der Grube, gezogenes Teil). Sonst
+   kompakt - auch im Laden aus der Übersicht und in der ganzen Runde. EIN Entscheider in
+   scene_root, je Bild gefragt; Endzustand zuerst, ein harter Weg.
+3. **Jeder Sockel gehört zu EINEM rechten Pin** (Sockel 0 = oberer, 1 = mittlerer, 2 = unterer
+   im Bild). Ist der Sockel leer, ist der Pin ein schlichter Stahlpin. Trägt er ein Modul, IST
+   der Pin dieses Modul: Form nach Familie, Zeichen und Details je Modul (Tabelle im
+   Blender-Skript, 25 Stück), Licht in `ComboPart.tint()`. Hinter jedem Pin liegt auf der
+   Endkappe eine Kachel mit einem Lichtstrich in der Modulfarbe (leer: dunkel).
+4. **Ausgefahren läuft je Sockel eine EIGENE Leitung zu SEINEM Pin** (drei parallele Leitungen).
+   Die eine Signalleitung durch alle Sockel und die Stärke-Regel (`LINE_STYLE_OF`) entfallen.
+5. **Die Abdeckung leerer Chips entfällt** (kompakt sind die Sockel ohnehin fort).
+6. **Die ERWEITERUNGSPLATINE verschwindet aus dem Spiel**: `ComboPart.EXPANSION_BOARD`, ihre
+   Fabrik, Katalog-Eintrag, `socket_parents`, alle Platinen-Geometrie (riser), Lexikon-/Hinweis-
+   Texte, Tests. Jeder Chip hat fest drei Sockel. Es bleiben 25 Module.
+7. Regeln sonst unverändert. Nachbarschaft bleibt 3 Spalten (`CLUSTER_COLUMNS`).
+
+### Geometrie (Richtwerte, an der echten Tiefe 2,84 Welt messen)
+- Kompaktes Gehäuse ≈ 6,3 Welt lang (Anzeige wie heute + Endkappe ≈ 0,7), Tiefe unverändert.
+- Modul-Pin: höchstens 1,1 lang × 0,73 tief, Pin-Reihen wie heute an den drei Pin-Höhen.
+- Das Feld steht in BEIDEN Zuständen rechtsbündig an der Grube (Pin-Spitzen `PIT_SIDE_GAP`
+  davor). Kompakt ist die Zelle schmal, ausgefahren breit wie heute: beim Wechsel gleiten die
+  Zellen seitlich, die Anzeige wandert nach links, Adernetz, Klickzone, Kometen-Anker und
+  Kamera-Rahmen der Station folgen dem ENDZUSTAND. Während der Fahrt darf nichts falsch
+  verdrahtet stehen (Adern mitführen oder für die Fahrt ausblenden).
+- Erwartung: das kompakte Feld ist deutlich schmaler als vor dem Großchip (damals 1285 px).
+
+### Verhalten
+- **Wertung:** feuert ein Modul, blitzt sein PIN (und kompakt seine Kachel); ausgefahren
+  zusätzlich wie bisher Körper und Sockelrand. `flash_socket(slot, strength, die)` bleibt der
+  Eingang. Krit-Schlag wie bisher stärker.
+- **Zustand am Pin**, wo er auf den Pin paßt: Zählwerk-Ziffern, Fehlerspeicher-Lampen,
+  Anlasser (nur vor der ersten Hand hell), Nachbrenner (Flamme nur scharf), Thermistor (Farbe
+  der Ladung), Reihenklemme (so viele Schrauben leuchten wie Module stecken, höchstens 3),
+  Schwingkreis (Helligkeit oder Windungen mit dem Wachstum). Derselbe Zustands-Schreiber wie
+  beim großen Modul (`set_state`), nicht ein zweiter Weg.
+- **Hinweis und Pick:** der Pin eines Sockels beantwortet den Zeiger wie der Sockel (Hinweis
+  überall; Einbau/Umstecken weiter nur an der Station bzw. im Einbau-Rahmen, also ausgefahren).
+- **Gold der gewürfelten Hand:** Gehäuse, Endkappe, linke Pins, Band. Modul-Pins, Kacheln,
+  Sockel und Module behalten ihre Farben. Drossel: Pins und Kacheln dunkel.
+- **EINE Größe je Ding:** das große Modul auf seiner Platte bleibt die EINE Größe des Moduls
+  (Chip ausgefahren, Wurfgruben-Reihe, Flug). Der Pin ist kein zweites Modul, sondern der
+  Anschluß des Sockels, der die Form seines Moduls annimmt.
+
+### Lieferumfang
+1. Kompaktes Chip-Modell und Endkappe (Blender-Export oder code-gebaut), die Sockelzone als
+   ausfahrendes Stück; `ComboChipView` mit `set_extended(on, time)` (Endzustand zuerst,
+   `settle_extension_hard`).
+2. 25 Pin-Modelle (`tools/blender_pin_models.py` → `assets/models/hardware/pin_<id>.glb`,
+   Knoten wie bei den Modulen `Korpus`/`Licht`/`Glas`; Zeichen als Geometrie, Zustand setzt Godot)
+   und der leere Pin. Familienform gleich, Modul am Zeichen unterscheidbar; Test: keine zwei
+   gleichen Umrisse samt Zeichen, alle im Hüllmaß.
+3. `TableScreen`: zwei Cluster-Layouts (kompakt/ausgefahren), ein Schreiber, Adernetz und
+   `pin_offsets_px` für beide.
+4. scene_root: der Entscheider, Einbau/Umstecken/Beutel-Show gegen den neuen Ablauf prüfen.
+5. Erweiterungsplatine entfernen (Punkt 6), Abdeckung und Signalleitung entfernen.
+6. Tests anpassen/ergänzen, CLAUDE.md (Wurzel-Kurzform, table/, data/, core/) nachziehen.
+7. Sichtproben aus dem Spiel nach `E:/Generated Images/Fumble/kombi_stifte_spiel/`: Übersicht
+   und GRUBEN-Station kompakt (leer, gemischt, voll), KOMBINATIONEN-Station ausgefahren, und
+   eine kurze Bildfolge des Ausfahrens.

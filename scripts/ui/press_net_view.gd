@@ -127,7 +127,6 @@ func build() -> void:
 		add_child(glyph)
 	for badge in DieNetView.level_badges(ghost, cell):
 		add_child(badge)
-	add_child(DieNetView.charge_lamps(ghost, cell))
 	if ticking:
 		_tick_span = takt
 		_tick_left = takt

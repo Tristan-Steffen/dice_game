@@ -12,13 +12,11 @@ const RELAY := "relay"
 const OUTPUT_STAGE := "output_stage"
 const SOLDER_JOINT := "solder_joint"
 const SERIES_RESISTOR := "series_resistor"
-const THERMISTOR := "thermistor"
 const AMPLIFIER_TUBE := "amplifier_tube"
 const COUNTER := "counter"
 const COIN_VALIDATOR := "coin_validator"
 const HIGH_VOLTAGE_TUBE := "high_voltage_tube"
 const COUPLING := "coupling"
-const EXPANSION_BOARD := "expansion_board"
 const SERIES_TERMINAL := "series_terminal"
 const STARTER := "starter"
 const BLOCKING_DIODE := "blocking_diode"
@@ -26,7 +24,6 @@ const POWER_PICKUP := "power_pickup"
 const SHUNT := "shunt"
 const PARALLEL_CIRCUIT := "parallel_circuit"
 const RESONATOR := "resonator"
-const MAGNETRON := "magnetron"
 const CROSS_BRIDGE := "cross_bridge"
 const DOWN_BRIDGE := "down_bridge"
 const ERROR_MEMORY := "error_memory"
@@ -53,13 +50,11 @@ const RARITIES := {
 	OUTPUT_STAGE: RARITY_RARE,
 	SOLDER_JOINT: RARITY_RARE,
 	SERIES_RESISTOR: RARITY_COMMON,
-	THERMISTOR: RARITY_RARE,
 	AMPLIFIER_TUBE: RARITY_EPIC,
 	COUNTER: RARITY_EPIC,
 	COIN_VALIDATOR: RARITY_COMMON,
 	HIGH_VOLTAGE_TUBE: RARITY_LEGENDARY,
 	COUPLING: RARITY_LEGENDARY,
-	EXPANSION_BOARD: RARITY_LEGENDARY,
 	SERIES_TERMINAL: RARITY_RARE,
 	STARTER: RARITY_COMMON,
 	BLOCKING_DIODE: RARITY_RARE,
@@ -67,7 +62,6 @@ const RARITIES := {
 	SHUNT: RARITY_EPIC,
 	PARALLEL_CIRCUIT: RARITY_LEGENDARY,
 	RESONATOR: RARITY_EPIC,
-	MAGNETRON: RARITY_LEGENDARY,
 	CROSS_BRIDGE: RARITY_LEGENDARY,
 	DOWN_BRIDGE: RARITY_LEGENDARY,
 	ERROR_MEMORY: RARITY_RARE,
@@ -111,11 +105,11 @@ const LINK_TINT := Color(1.0, 0.45, 0.85)
 const DATIVES := {
 	RESISTOR: "dem", CAPACITOR: "dem", COIL: "der", RELAY: "dem",
 	OUTPUT_STAGE: "der", SOLDER_JOINT: "dem", SERIES_RESISTOR: "dem",
-	THERMISTOR: "dem", AMPLIFIER_TUBE: "der", COUNTER: "dem",
+	AMPLIFIER_TUBE: "der", COUNTER: "dem",
 	COIN_VALIDATOR: "dem", HIGH_VOLTAGE_TUBE: "der", COUPLING: "der",
-	EXPANSION_BOARD: "der", SERIES_TERMINAL: "der", STARTER: "dem",
+	SERIES_TERMINAL: "der", STARTER: "dem",
 	BLOCKING_DIODE: "der", POWER_PICKUP: "dem", SHUNT: "dem",
-	PARALLEL_CIRCUIT: "der", RESONATOR: "dem", MAGNETRON: "dem",
+	PARALLEL_CIRCUIT: "der", RESONATOR: "dem",
 	CROSS_BRIDGE: "der", DOWN_BRIDGE: "der",
 	ERROR_MEMORY: "dem", AFTERBURNER: "dem",
 }
@@ -203,9 +197,6 @@ static func solder_joint() -> ComboPart:
 static func series_resistor() -> ComboPart:
 	return _make(SERIES_RESISTOR, "Vorwiderstand", "Jeder Kombinationswürfel: +4 Punkte je Auslösung.", PHASE_DIE, 6)
 
-static func thermistor() -> ComboPart:
-	return _make(THERMISTOR, "Thermistor", "+2 Mult je Ladung der Kombinationswürfel, je Auslösung.", PHASE_DIE, 10)
-
 static func amplifier_tube() -> ComboPart:
 	return _make(AMPLIFIER_TUBE, "Verstärkerröhre", "×1,5 Mult.", PHASE_CRIT, 30, true)
 
@@ -220,9 +211,6 @@ static func high_voltage_tube() -> ComboPart:
 
 static func coupling() -> ComboPart:
 	return _make(COUPLING, "Kopplung", "Kopiert das stärkste Kombi-Modul des Chips links daneben.", PHASE_COMBO, 50, true)
-
-static func expansion_board() -> ComboPart:
-	return _make(EXPANSION_BOARD, "Erweiterungsplatine", "Belegt einen Steckplatz und gibt dem Chip zwei neue.", PHASE_NONE, 40, true)
 
 static func series_terminal() -> ComboPart:
 	return _make(SERIES_TERMINAL, "Reihenklemme", "+5 Punkte und +1 Mult je Modul auf diesem Chip.", PHASE_COMBO, 10)
@@ -245,9 +233,6 @@ static func parallel_circuit() -> ComboPart:
 static func resonator() -> ComboPart:
 	return _make(RESONATOR, "Schwingkreis", "×1,1 Mult, wächst dauerhaft um ×0,1 bei jeder Wertung dieser Kombination.", PHASE_CRIT, 40, true)
 
-static func magnetron() -> ComboPart:
-	return _make(MAGNETRON, "Magnetron", "×3 Mult. Jede Wertung lädt alle Kombinationswürfel sicher um +1.", PHASE_CRIT, 60, true)
-
 static func cross_bridge() -> ComboPart:
 	return _make(CROSS_BRIDGE, "Querbrücke", "Aktiviert auch die Kombination rechts daneben samt ihrer Module.", PHASE_LINK, 60, true)
 
@@ -263,10 +248,10 @@ static func afterburner() -> ComboPart:
 static func all() -> Array[ComboPart]:
 	return [
 		resistor(), capacitor(), coil(), relay(), output_stage(), solder_joint(),
-		series_resistor(), thermistor(), amplifier_tube(), counter_part(),
-		coin_validator(), high_voltage_tube(), coupling(), expansion_board(),
+		series_resistor(), amplifier_tube(), counter_part(),
+		coin_validator(), high_voltage_tube(), coupling(),
 		series_terminal(), starter(), blocking_diode(), power_pickup(), shunt(),
-		parallel_circuit(), resonator(), magnetron(), cross_bridge(), down_bridge(),
+		parallel_circuit(), resonator(), cross_bridge(), down_bridge(),
 		error_memory(), afterburner(),
 	]
 

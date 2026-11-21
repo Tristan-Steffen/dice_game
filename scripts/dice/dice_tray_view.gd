@@ -195,7 +195,7 @@ func fill(defs: Array[DieDefinition]) -> void:
 		slot_face_displays[i].apply_definition(def)
 		slot_face_displays[i].set_tint(_style_tint(def))
 
-## Alle Anzeigen des Trays STUMM schalten: ihre Auflagen (Hitze, Blitze, Seelen-
+## Alle Anzeigen des Trays STUMM schalten: ihre Auflagen (Seelen-
 ## Funken, Lichtlache) bleiben fort, Körper und Ziffern nicht. Idempotent - die
 ## Anzeige selbst prüft den Wechsel.
 func set_effects_muted(muted: bool) -> void:

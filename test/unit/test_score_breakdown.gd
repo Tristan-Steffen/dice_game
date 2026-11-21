@@ -90,9 +90,6 @@ func _check_continuity(breakdown: Dictionary) -> void:
 			assert_almost_eq(float(pulse["mult_after_crit"]), mult, 0.0001, "Summe der Krit-Schläge")
 		assert_eq(step["base_after"], base, "Würfel-Schritt endet am laufenden Stand")
 		assert_almost_eq(float(step["mult_after"]), mult, 0.0001)
-	var charge_step: Dictionary = breakdown.get("charge_mult_step", {})
-	if not charge_step.is_empty():
-		mult += float(charge_step["mult_add"])
 	# Krit-Module nach allen Würfeln, je Teil ein Schlag.
 	for crit: Dictionary in breakdown.get("part_crit_steps", []):
 		mult *= float(crit["crit_x"])
@@ -568,7 +565,7 @@ func _prop_dice() -> Array:
 func test_breakdown_matches_scoring_across_the_matrix():
 	var levels := {
 		DiceScoring.TWO_KIND: [ComboPart.relay(), ComboPart.capacitor(), ComboPart.amplifier_tube()],
-		DiceScoring.THREE_KIND: [ComboPart.series_resistor(), ComboPart.solder_joint(), ComboPart.thermistor()],
+		DiceScoring.THREE_KIND: [ComboPart.series_resistor(), ComboPart.solder_joint()],
 		DiceScoring.FULL_HOUSE: [ComboPart.output_stage(), ComboPart.counter_part()],
 	}
 	# Zwei Umgebungen: nackt, und voll (Materialien + Essenzen + reicher Kontext +
@@ -620,36 +617,6 @@ func _collect_mismatch(into: Array[String], key: String, dice: Array[int], ids: 
 		if sum_base != int(step["base_add"]) or sum_mult != int(step["mult_add"]):
 			into.append("PULSE-SUMME %s/%s: %d/%d≠%d/%d" % [key, str(ids), sum_base, sum_mult, step["base_add"], step["mult_add"]])
 
-## Die LADUNG darf die Deckung nirgends aufbrechen: derselbe Fächer, einmal mit
-## Ladungen ohne Würfe (Vorschau) und einmal mit einem eingefrorenen Wurf-Vorrat,
-## in dem auch das Durchbrennen vorkommt.
-func test_breakdown_matches_scoring_with_charges():
-	var mismatches: Array[String] = []
-	var hot := {DiceScoring.CTX_CHARGES: {0: 1, 2: 3, 5: 2}}
-	var rolling := {
-		DiceScoring.CTX_CHARGES: {0: 1, 2: 3, 5: 2},
-		DiceScoring.CTX_BURNED: {3: true},
-		DiceScoring.CTX_CHARGE_ROLLS: _charge_rolls(),
-	}
-	for set: Array in _prop_charm_sets():
-		var ids := _ids(set)
-		for raw: Array in _prop_dice():
-			var dice := _d(raw)
-			for ctx: Dictionary in [hot, rolling]:
-				var key: String = DiceScoring.best_hand(dice, ids, false, NO_MATS, {}, ctx)["key"]
-				_collect_mismatch(mismatches, key, dice, ids, false, NO_MATS, {}, ctx)
-	assert_eq(mismatches, [] as Array[String], ", ".join(mismatches))
-
-## Vorgewürfelter Vorrat für alle sechs Slots - abwechselnd Treffer und Fehlwurf,
-## damit Aufladen UND Durchbrennen im Fächer vorkommen.
-func _charge_rolls() -> Dictionary:
-	var rolls := {}
-	for slot in 6:
-		var pool: Array[float] = []
-		for r in DiceScoring.CHARGE_ROLLS_PER_DIE:
-			pool.append(0.1 if (r + slot) % 2 == 0 else 0.9)
-		rolls[slot] = pool
-	return rolls
 
 
 func test_spotlight_growth_lifts_the_combo_base_and_mult() -> void:

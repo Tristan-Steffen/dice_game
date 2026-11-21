@@ -14,7 +14,6 @@ const COIL_MULT := 1
 const COUNTER_BASE_MULT := 1
 const SOLDER_JOINT_MULT := 1
 const SERIES_RESISTOR_POINTS := 4
-const THERMISTOR_MULT_PER_CHARGE := 2
 const AMPLIFIER_TUBE_CRIT := 1.5
 const HIGH_VOLTAGE_TUBE_CRIT := 2.0
 const COIN_VALIDATOR_MONEY := 2
@@ -24,8 +23,6 @@ const PARALLEL_RETRIGGERS := 1
 const SERIES_TERMINAL_POINTS := 5
 const SERIES_TERMINAL_MULT := 1
 const STARTER_MULT := 6
-const MAGNETRON_CRIT := 3.0
-const MAGNETRON_CHARGE := 1
 ## Zehntel, sonst summieren sich Rundungsfehler in die Anzeige.
 const RESONATOR_START_TENTHS := 11
 const POWER_PICKUP_ENERGY := 1
@@ -252,9 +249,8 @@ static func firing_base(sockets: Array, in_combination: bool) -> int:
 			base += SERIES_RESISTOR_POINTS
 	return base
 
-## Mult je Zündung eines Kombinationswürfels (Lötpunkt, Thermistor mit seinem
-## LEBENDEN Ladungsstand).
-static func firing_mult(sockets: Array, in_combination: bool, charge: int) -> int:
+## Mult je Zündung eines Kombinationswürfels (Lötpunkt).
+static func firing_mult(sockets: Array, in_combination: bool) -> int:
 	if not in_combination:
 		return 0
 	var mult := 0
@@ -263,12 +259,10 @@ static func firing_mult(sockets: Array, in_combination: bool, charge: int) -> in
 			continue
 		if part.id == ComboPart.SOLDER_JOINT:
 			mult += SOLDER_JOINT_MULT
-		elif part.id == ComboPart.THERMISTOR:
-			mult += THERMISTOR_MULT_PER_CHARGE * maxi(0, charge)
 	return mult
 
 ## Steckplätze, die an dieser Zündung etwas beitragen - der Blitz am Chip.
-static func firing_slots(sockets: Array, in_combination: bool, charge: int) -> Array[int]:
+static func firing_slots(sockets: Array, in_combination: bool) -> Array[int]:
 	var slots: Array[int] = []
 	if not in_combination:
 		return slots
@@ -276,8 +270,7 @@ static func firing_slots(sockets: Array, in_combination: bool, charge: int) -> A
 		var part: ComboPart = sockets[slot]
 		if part == null:
 			continue
-		if part.id == ComboPart.SERIES_RESISTOR or part.id == ComboPart.SOLDER_JOINT \
-				or (part.id == ComboPart.THERMISTOR and charge > 0):
+		if part.id == ComboPart.SERIES_RESISTOR or part.id == ComboPart.SOLDER_JOINT:
 			slots.append(slot)
 	return slots
 
@@ -293,8 +286,6 @@ static func crit_steps(sockets: Array) -> Array[Dictionary]:
 				steps.append({"slot": slot, "id": part.id, "crit_x": AMPLIFIER_TUBE_CRIT})
 			ComboPart.HIGH_VOLTAGE_TUBE:
 				steps.append({"slot": slot, "id": part.id, "crit_x": HIGH_VOLTAGE_TUBE_CRIT})
-			ComboPart.MAGNETRON:
-				steps.append({"slot": slot, "id": part.id, "crit_x": MAGNETRON_CRIT})
 			ComboPart.RESONATOR:
 				steps.append({"slot": slot, "id": part.id, "crit_x": resonator_crit(part)})
 			ComboPart.AFTERBURNER:
@@ -323,44 +314,9 @@ static func scoring_money(sockets: Array) -> int:
 			money += COIN_VALIDATOR_MONEY
 	return money
 
-## Zusätzliche Steckplätze eines Chips: jede Erweiterungsplatine gibt zwei.
+## Energie je Wertung (Stromabnehmer).
 static func scoring_energy(sockets: Array) -> int:
 	return POWER_PICKUP_ENERGY * count_of(sockets, ComboPart.POWER_PICKUP)
-
-static func extra_sockets(sockets: Array) -> int:
-	var extra := 0
-	for part in sockets:
-		if part != null and part.id == ComboPart.EXPANSION_BOARD:
-			extra += 2
-	return extra
-
-## Wer einen Platz TRÄGT: CHIP_SOCKET (-1) für die drei Grundplätze, sonst der Platz
-## der Platine, auf der er sitzt; UNREACHABLE (-2), wenn ihn keine erreichbare
-## Platine trägt. Die Zusatzpaare gehen der Reihe nach an die Platinen, in der
-## Reihenfolge, in der man sie vom Chip aus erreicht (kleinster Platz zuerst).
-const CHIP_SOCKET := -1
-const UNREACHABLE := -2
-
-static func socket_parents(sockets: Array, base: int) -> Array[int]:
-	var parents: Array[int] = []
-	for slot in sockets.size():
-		parents.append(CHIP_SOCKET if slot < base else UNREACHABLE)
-	var open: Array[int] = []
-	for slot in mini(base, sockets.size()):
-		open.append(slot)
-	var next := base
-	while not open.is_empty():
-		open.sort()
-		var slot: int = open.pop_front()
-		var part = sockets[slot]
-		if part == null or part.id != ComboPart.EXPANSION_BOARD:
-			continue
-		for child in [next, next + 1]:
-			if child < sockets.size():
-				parents[child] = slot
-				open.append(child)
-		next += 2
-	return parents
 
 ## Trägt der Chip irgendein Teil, das in der Würfelphase wirkt?
 static func has_die_parts(sockets: Array) -> bool:

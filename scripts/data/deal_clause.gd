@@ -33,8 +33,6 @@ const TAG_MONEY := "geld"
 ## Alles, was an der Serienlänge der Presse dreht - Bonus wie Malus tragen
 ## dasselbe Etikett, damit die Paarungsregel nie beide auf EINE Karte legt.
 const TAG_SERIES := "serie"
-## Alles, was an der LADUNG der Würfel dreht - nicht der Energie-Haushalt.
-const TAG_CHARGE := "ladung"
 ## Alles, was am GLÜCK des Laufs dreht.
 const TAG_LUCK := "glück"
 
@@ -49,7 +47,6 @@ const CASH_DISCOUNT := "cash_discount"
 const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
 const LUCKY_PENNY := "lucky_penny"
-const DRAIN := "drain"
 const LUCKY_DAY := "lucky_day"
 const BULK_ORDER := "bulk_order"
 const SOUL_MARKET := "soul_market"
@@ -69,14 +66,11 @@ const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
 const GOLDEN_HANDSHAKE := "golden_handshake"
 const WORK_HARDENING := "work_hardening"
-const COOLING_BREAK := "cooling_break"
-const NOISE_FILTER := "noise_filter"
 const LUCKY_STREAK := "lucky_streak"
 const CONNOISSEUR_EYE := "connoisseur_eye"
 const MATH_WEEK := "math_week"
 const BACK_ROOM_CONTACT := "back_room_contact"
 const LOADED_REELS := "loaded_reels"
-const COLD_PRESS := "cold_press"
 const BIG_STORAGE := "big_storage"
 
 # Bonus, Stufe 3
@@ -98,7 +92,6 @@ const DEDUCTION := "deduction"
 const SERVICE_FEE := "service_fee"
 const INFLATION := "inflation"
 const POWER_CUT := "power_cut"
-const STANDING_CURRENT := "standing_current"
 const EMPTY_SHELVES := "empty_shelves"
 const SOULLESS := "soulless"
 const FLIP_SURCHARGE := "flip_surcharge"
@@ -112,7 +105,6 @@ const MAINS_HUM := "mains_hum"
 const DISCHARGE := "discharge"
 const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
-const OVERLOAD := "overload"
 const UNLUCKY_NUMBER := "unlucky_number"
 const BAD_STREAK := "bad_streak"
 const SHELF_WARMER := "shelf_warmer"
@@ -131,7 +123,6 @@ const STANDARD_PROTOCOL := "standard_protocol"
 const ALL_ROUNDER := "all_rounder"
 const TILTED_FLOOR := "tilted_floor"
 const BALANCED_SCALES := "balanced_scales"
-const POWER_FAILURE := "power_failure"
 const PENALTY_FEE := "penalty_fee"
 
 ## Farbe der Marke: das erste Tag bestimmt sie, damit gleiche Themen am Hub
@@ -148,7 +139,6 @@ const TAG_COLORS := {
 	TAG_THROTTLE: "#ff8c42",
 	TAG_MONEY: "#ffd319",
 	TAG_SERIES: "#6effc7",
-	TAG_CHARGE: "#d9b3ff",
 	TAG_LUCK: "#9dff6b",
 }
 const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5555"]
@@ -218,19 +208,6 @@ static func insurance_fraud() -> DealClause:
 static func seed_capital() -> DealClause:
 	return _bonus(SEED_CAPITAL, "Startkapital", "+1 ⚡ sofort.",
 		Scope.INSTANT, Tier.ONE, [TAG_ENERGY])
-
-## Ableitung: der Ladungs-Schritt kehrt sich um - jede Zündung SENKT, ohne Wurf.
-static func drain() -> DealClause:
-	return _bonus(DRAIN, "Ableitung", "Jede Auslösung: Würfel −1 Ladung.",
-		Scope.ROUND, Tier.ONE, [TAG_CHARGE])
-
-static func cooling_break() -> DealClause:
-	return _bonus(COOLING_BREAK, "Kühlpause", "Kein Würfel brennt durch.",
-		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
-
-static func noise_filter() -> DealClause:
-	return _bonus(NOISE_FILTER, "Entstörung", "Alle Würfel sofort auf Ladung 1.",
-		Scope.INSTANT, Tier.TWO, [TAG_CHARGE])
 
 static func high_voltage() -> DealClause:
 	return _bonus(HIGH_VOLTAGE, "Hochspannung", "+3 Überladungs-Stufen.",
@@ -355,10 +332,6 @@ static func high_table() -> DealClause:
 	return _bonus(HIGH_TABLE, "Hoher Tisch", "Nebenwetten: Einsatz und Gewinn ×1,5.",
 		Scope.ROUND, Tier.THREE, [TAG_SIDEBET])
 
-static func cold_press() -> DealClause:
-	return _bonus(COLD_PRESS, "Kaltpressung", "Prägen erhitzt nicht.",
-		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
-
 static func big_storage() -> DealClause:
 	return _bonus(BIG_STORAGE, "Großer Speicher", "Börse dauerhaft +5 ⚡ Platz.",
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
@@ -421,10 +394,6 @@ static func power_cut() -> DealClause:
 	return _malus(POWER_CUT, "Stromsperre", "Automat aus.",
 		Scope.ROUND, Tier.ONE, [TAG_SLOT])
 
-static func standing_current() -> DealClause:
-	return _malus(STANDING_CURRENT, "Dauerstrom", "Ungespielte Würfel verlieren keine Ladung.",
-		Scope.ROUND, Tier.ONE, [TAG_CHARGE])
-
 static func quota_surcharge_ii() -> DealClause:
 	return _malus(QUOTA_SURCHARGE_II, "Blind-Aufschlag II", "Blinds dauerhaft +20 %.",
 		Scope.INSTANT, Tier.TWO, [TAG_QUOTA])
@@ -460,11 +429,6 @@ static func heat_warning() -> DealClause:
 static func rip_off() -> DealClause:
 	return _malus(RIP_OFF, "Abzocke", "Jeder gewertete Würfel: −$1.",
 		Scope.ROUND, Tier.TWO, [TAG_SIDEBET])
-
-## Überlast: der Ladungswurf trifft immer - bei 3 also sicheres Durchbrennen.
-static func overload() -> DealClause:
-	return _malus(OVERLOAD, "Überlast", "Jede Auslösung: Würfel +1 Ladung.",
-		Scope.ROUND, Tier.TWO, [TAG_CHARGE])
 
 static func quota_shock() -> DealClause:
 	return _malus(QUOTA_SHOCK, "Blind-Schock", "Blinds dauerhaft +35 %.",
@@ -512,10 +476,6 @@ static func balanced_scales() -> DealClause:
 	return _malus(BALANCED_SCALES, "Gleichgewicht", "Nur gerade Augen zählen.",
 		Scope.ROUND, Tier.BOSS, [TAG_THROTTLE])
 
-static func power_failure() -> DealClause:
-	return _malus(POWER_FAILURE, "Netzausfall", "Ladungswurf trifft immer.",
-		Scope.ROUND, Tier.BOSS, [TAG_CHARGE])
-
 static func penalty_fee() -> DealClause:
 	return _malus(PENALTY_FEE, "Strafgebühr", "Fumble: −$5.",
 		Scope.ROUND, Tier.BOSS, [TAG_MONEY])
@@ -523,24 +483,23 @@ static func penalty_fee() -> DealClause:
 static func all() -> Array[DealClause]:
 	return [
 		savings_bonus(), free_charm(), advance_payment(), spotlight(),
-		cash_discount(), insurance_fraud(), seed_capital(), drain(),
+		cash_discount(), insurance_fraud(), seed_capital(),
 		high_voltage(), anchor_clause(), odds_bonus(),
 		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
-		golden_handshake(), work_hardening(), cooling_break(), noise_filter(),
+		golden_handshake(), work_hardening(),
 		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
 		quota_surcharge(), betting_tax(), empties(), deduction(),
-		service_fee(), inflation(), power_cut(), standing_current(),
+		service_fee(), inflation(), power_cut(),
 		quota_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
 		discharge(), heat_warning(), rip_off(),
-		overload(),
 		quota_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
-		tilted_floor(), balanced_scales(), power_failure(), penalty_fee(),
+		tilted_floor(), balanced_scales(), penalty_fee(),
 		lucky_penny(), lucky_streak(), lucky_child(), unlucky_number(), bad_streak(),
 		lucky_day(), bulk_order(), connoisseur_eye(), soul_market(), free_flip(),
 		buyback(), math_week(), regular_customer(), special_delivery(),
 		back_room_contact(), loaded_reels(), reinsurance(), high_table(),
-		cold_press(), big_storage(),
+		big_storage(),
 		empty_shelves(), shelf_warmer(), soulless(), flip_surcharge(),
 		supplement(), free_hand(), sealed(),
 	]
@@ -618,8 +577,6 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 			return "+$20 je geräumter Überladungs-Stufe."
 		WORK_HARDENING:
 			return "Jede ausgelöste Seite dauerhaft +2."
-		DRAIN:
-			return "Jede Auslösung: Würfel −2 Ladung."
 		LUCKY_DAY:
 			return "Laden würfelt mit Glück +6."
 		CONNOISSEUR_EYE:

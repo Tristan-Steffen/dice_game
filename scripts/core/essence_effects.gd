@@ -80,11 +80,6 @@ const CHERENKOV_CRIT := 8.0
 const SHOOTING_STAR_CRIT := 4.0
 const GAMMA_BURST_CRIT := 10.0
 
-## Funkenstrecke: Krit ×(Sockel + Ladung). Ohne Zündkerze ist der Sockel 1, ein
-## kalter Würfel kritet also gar nicht.
-const SPARK_GAP_BASE := 1
-const SPARK_PLUG_BASE := 2
-
 ## Fuchsfeuer: Augen je zwei Würfeln in der Ablage (Pilzgeflecht legt zusätzlich
 ## die Augensumme der Ablage drauf).
 const FOXFIRE_PER_PAIR := 10
@@ -311,12 +306,8 @@ static func ball_crit_bonus(scored: Array[int], sets: Dictionary, charm_ids: Arr
 static func crit_once_for(essence_id: String, value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
 		energy: int = 0, first_scoring: bool = false, fumbles: int = 0,
-		first_firing: bool = true, charge: int = 0) -> float:
+		first_firing: bool = true) -> float:
 	match essence_id:
-		Essence.SPARK_GAP:
-			# Der LEBENDE Stand vor dem Wurf dieser Zündung; bei 1,0 kein Krit.
-			var spark_base := SPARK_PLUG_BASE if charm_ids.has(Charm.SPARK_PLUG) else SPARK_GAP_BASE
-			return maxf(1.0, float(spark_base + maxi(0, charge)))
 		Essence.XENON:
 			return XENON_CRIT
 		Essence.BALL_LIGHTNING:
@@ -498,10 +489,6 @@ const SCAR_GROWTH := 1
 static func scars_on_fumble(essence_id: String) -> bool:
 	return essence_id == Essence.SCAR
 
-## Kühlmantel: ein echter Fumble kühlt ihn um 1, statt ihn zu heizen.
-static func cools_on_fumble(essence_id: String) -> bool:
-	return essence_id == Essence.COOLING_JACKET
-
 ## Miasma: NACH jeder Zündung halbiert sich seine obere Seite dauerhaft, und genau
 ## dieser Betrag wächst auf jeder anderen gewerteten Seite der Hand - verschachtelt
 ## in die Zählung, spätere Würfel zählen also schon den Zuwachs.
@@ -674,21 +661,16 @@ static func protects_face_value_of(essence_ids: Array[String]) -> bool:
 			return true
 	return false
 
-## Kann dieser Würfel nicht durchbrennen? Eine immune Seele (Bogenlampe)
-## deckelt an der Spitze, statt durchzubrennen - in JEDER Quelle.
-static func immune_to_burnout(essence_ids: Array[String]) -> bool:
-	return essence_ids.has(Essence.ARC_LAMP)
-
 ## Krits ALLER wirksamen Seelen multipliziert - hier ist das Produkt richtig, es
 ## sind verschiedene Schläge (geborgtes Xenon + Kugelblitz ergibt ×3).
 static func crit_of(essence_ids: Array[String], value: int, crits_before: int = 0,
 		ball_bonus: int = 0, wild_value: int = 0, charm_ids: Array[String] = [],
 		energy: int = 0, first_scoring: bool = false, fumbles: int = 0,
-		first_firing: bool = true, charge: int = 0) -> float:
+		first_firing: bool = true) -> float:
 	var factor := 1.0
 	for essence_id in essence_ids:
 		factor *= crit_once_for(essence_id, value, crits_before, ball_bonus, wild_value,
-			charm_ids, energy, first_scoring, fumbles, first_firing, charge)
+			charm_ids, energy, first_scoring, fumbles, first_firing)
 	return maxf(1.0, factor)
 
 ## Essenz-id eines Slots aus dem ctx-Dictionary ("" = keine).

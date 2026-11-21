@@ -3,12 +3,18 @@ extends Node3D
 ## Ein MODUL als Körper: eine dunkle, abgerundete PLATTE (PLATE, die EINE Größe überall -
 ## Steckplatz, Bucht, Wurfgruben-Reihe, Geist), darauf sein Bauteil (part_<id>.glb aus
 ## tools/blender_part_models.py, ohne eigenes das Grundgehäuse part_module.glb). Den ZUSTAND
-## am Körper und die PUNKTREIHE der Würfel-Module setzt allein set_state. Die
-## Erweiterungsplatine ist code-gebaut: Platte, Stützen und eine Platine mit ZWEI Sockeln
-## hintereinander. Ursprung = Unterseite der Platte; lokal +X = Bild-oben, +Z = Bild-rechts.
+## am Körper und die PUNKTREIHE der Würfel-Module setzt allein set_state. Ursprung =
+## Unterseite der Platte; lokal +X = Bild-oben, +Z = Bild-rechts.
+## Als PIN (setup(part, true)) ist er der rechte Anschluß eines Sockels: pin_<id>.glb aus
+## tools/blender_pin_models.py ohne Platte, leer pin_empty.glb; Ursprung = Gehäusekante auf
+## der Pin-Achse, der Pin zeigt nach lokal +Z. Zustand über denselben Schreiber.
 
 const MODULE_SCENE := "res://assets/models/hardware/part_module.glb"
 const OWN_MODEL := "res://assets/models/hardware/part_%s.glb"
+const PIN_MODEL := "res://assets/models/hardware/pin_%s.glb"
+const PIN_EMPTY := "res://assets/models/hardware/pin_empty.glb"
+## Hüllmaß eines Pins (längs, quer, hoch) - tools/blender_pin_models.py spiegelt es.
+const PIN_HULL := Vector3(0.9, 0.56, 0.5)
 ## Die Platte trägt einen Hauch Seltenheit - sie soll den Aufbau tragen, nicht überstrahlen.
 const PLATE_RARITY_SHARE := 0.2
 
@@ -54,6 +60,8 @@ const LAMP_COLOR := Color(1.0, 0.22, 0.16)
 const FLAME_COLOR := Color(1.0, 0.55, 0.95)
 const DIGIT_PIXEL := 0.0068
 const DIGIT_FONT := 48
+## Am Pin stehen die Ziffern kleiner - sein Fenster ist schmaler als die Rollen.
+const PIN_DIGIT_SHARE := 0.55
 ## Die Kopplung zeigt das kopierte Modul als blasses Abbild über ihrem Feld.
 const COPY_SCALE := 0.42
 const COPY_ALPHA := 0.32
@@ -65,16 +73,8 @@ const SOCKET_OUTER := Vector2(PLATE.x + 2.0 * SOCKET_RIM, PLATE.z + 2.0 * SOCKET
 ## So hoch über dem Sockelgrund liegt die Platte: über Kontaktfeld und Leitung.
 const SOCKET_SEAT := 0.026
 
-## Die PLATINE trägt zwei Sockel hintereinander quer zum Chip und ragt dafür vorn und hinten über.
-const RISER_GAP := 0.08
-const RISER_PITCH := SOCKET_OUTER.x + RISER_GAP
-const RISER_BOARD := Vector3(2.0 * SOCKET_OUTER.x + RISER_GAP + 0.1, 0.06, SOCKET_OUTER.y + 0.1)
-const RISER_LIFT := 0.32
-const RISER_TOP := PLATE.y + RISER_LIFT + RISER_BOARD.y
-const RISER_POST := 0.05
 
 const WINDOW_ENERGY := 1.6
-const TRACE_ENERGY := 0.9
 const DIM_ENERGY := 0.12
 const DIM_ALBEDO := Color(0.16, 0.17, 0.2)
 const HOUSING_ALBEDO := Color(0.1, 0.1, 0.13)
@@ -104,7 +104,6 @@ var _flash_tween: Tween
 var _state: Dictionary = {}
 var _model: Node3D
 var _parts_lit: Array = []  # [Mesh, Material] je Zustands-Teil, in Modell-Reihenfolge
-var _rim: StandardMaterial3D
 var _flame: MeshInstance3D
 var _digits: Array[Label3D] = []
 var _dots: Node3D
@@ -112,6 +111,7 @@ var _dot_materials: Array[StandardMaterial3D] = []
 var _dot_count := -1
 var _dot_flash: Array[float] = []
 var _copy_id := ""
+var _pin := false
 
 static func _scene(path: String) -> PackedScene:
 	if not _scenes.has(path):
@@ -120,27 +120,19 @@ static func _scene(path: String) -> PackedScene:
 
 ## Das eigene Modell des Teils (tools/blender_part_models.py), sonst das Grundgehäuse.
 static func model_path(p_part: ComboPart) -> String:
-	if p_part != null and not is_riser(p_part):
+	if p_part != null:
 		var own := OWN_MODEL % p_part.id
 		if ResourceLoader.exists(own):
 			return own
 	return MODULE_SCENE
 
-## Ein Teil ist eine Platine, wenn es Steckplätze trägt.
-static func is_riser(p_part: ComboPart) -> bool:
-	return p_part != null and p_part.id == ComboPart.EXPANSION_BOARD
-
-## Wo die zwei Sockel der Platine sitzen, relativ zu ihrem Ursprung.
-static func riser_sockets() -> Array[Vector3]:
-	return [Vector3(RISER_PITCH * 0.5, RISER_TOP, 0.0), Vector3(-RISER_PITCH * 0.5, RISER_TOP, 0.0)]
-
-## Die vier oberen Ecken der Platine, relativ zum Ursprung (ihr Fußabdruck).
-static func riser_corners() -> Array[Vector3]:
-	var out: Array[Vector3] = []
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			out.append(Vector3(sx * RISER_BOARD.x * 0.5, RISER_TOP, sz * RISER_BOARD.z * 0.5))
-	return out
+## Der Pin eines Sockels: das Modul als Anschluß, leer ein schlichter Stahlpin.
+static func pin_path(p_part: ComboPart) -> String:
+	if p_part != null:
+		var own := PIN_MODEL % p_part.id
+		if ResourceLoader.exists(own):
+			return own
+	return PIN_EMPTY
 
 ## Ein gerundetes Rechteck als flacher Block (half = halbe Maße in X und Z), oben und an den Seiten.
 static func slab_mesh(half: Vector2, radius: float, height: float) -> ArrayMesh:
@@ -200,11 +192,6 @@ static func shared_material(name: String) -> StandardMaterial3D:
 			material.roughness = 0.4
 			material.emission = Color(0.5, 0.53, 0.6)
 			material.emission_energy_multiplier = 0.25
-		"board":
-			material.albedo_color = Color(0.05, 0.09, 0.08)
-			material.roughness = 0.6
-			material.emission = Color(0.05, 0.09, 0.08)
-			material.emission_energy_multiplier = 0.3
 	_shared[name] = material
 	return material
 
@@ -220,14 +207,14 @@ static func plate_material(rarity: String) -> StandardMaterial3D:
 	_shared[key] = material
 	return material
 
-func setup(p_part: ComboPart) -> void:
+func setup(p_part: ComboPart, as_pin := false) -> void:
 	part = p_part
+	_pin = as_pin
 	for child in get_children():
 		child.queue_free()
 	_korpus = null
 	_model = null
 	_parts_lit.clear()
-	_rim = null
 	_flame = null
 	_digits.clear()
 	_dots = null
@@ -238,6 +225,10 @@ func setup(p_part: ComboPart) -> void:
 	_lit = StandardMaterial3D.new()
 	_lit.emission_enabled = true
 	_lit.roughness = 0.3
+	if _pin:
+		_build_model(pin_path(part), Vector3.ZERO)
+		_apply()
+		return
 	var plate := MeshInstance3D.new()
 	plate.name = "Platte"
 	plate.mesh = slab_mesh(Vector2(PLATE.x, PLATE.z) * 0.5, PLATE_RADIUS, PLATE.y)
@@ -251,64 +242,31 @@ func setup(p_part: ComboPart) -> void:
 	strip.material_override = _lit
 	strip.position = Vector3(-PLATE.x * 0.5 + PLATE_LIGHT_INSET, PLATE.y + PLATE_LIGHT.y * 0.5, 0.0)
 	add_child(strip)
-	if is_riser(part):
-		_build_riser()
-	else:
-		var inst := _scene(model_path(part)).instantiate() as Node3D
-		inst.name = "Model"
-		inst.position = Vector3(MODEL_SHIFT, PLATE.y, 0.0)
-		add_child(inst)
-		_model = inst
-		var plug := inst.find_child("Stecker", true, false) as Node3D
-		if plug != null:
-			plug.visible = false  # das Grundgehäuse: die Platte trägt, kein Stecker darunter
-		_skin(inst, "Gehaeuse", _flat(HOUSING_ALBEDO, HOUSING_EMISSION))
-		_skin(inst, "Fenster", _lit)
-		_skin(inst, "Licht", _lit)
-		_apply_baked(inst)
-		_build_state_parts(inst)
+	_build_model(model_path(part), Vector3(MODEL_SHIFT, PLATE.y, 0.0))
 	_sync_dots()
 	_sync_copy()
 	_apply()
 
-## Die Platine: vier Stützen auf der Platte, darüber die Platine mit Bahnen.
-func _build_riser() -> void:
-	var model := Node3D.new()
-	model.name = "Model"
-	add_child(model)
-	var post := CylinderMesh.new()
-	post.top_radius = RISER_POST
-	post.bottom_radius = RISER_POST
-	post.height = RISER_LIFT
-	post.radial_segments = 10
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			var leg := MeshInstance3D.new()
-			leg.name = "Stuetze"
-			leg.mesh = post
-			leg.material_override = shared_material("steel")
-			leg.position = Vector3(sx * (PLATE.x * 0.5 - 0.25), PLATE.y + RISER_LIFT * 0.5,
-				sz * (PLATE.z * 0.5 - 0.25))
-			model.add_child(leg)
-	var board := MeshInstance3D.new()
-	board.name = "Platine"
-	board.mesh = slab_mesh(Vector2(RISER_BOARD.x, RISER_BOARD.z) * 0.5, 0.12, RISER_BOARD.y)
-	board.material_override = shared_material("board")
-	board.position = Vector3(0.0, PLATE.y + RISER_LIFT, 0.0)
-	model.add_child(board)
-	var traces := MeshInstance3D.new()
-	traces.name = "Bahnen"
-	var trace := BoxMesh.new()
-	trace.size = Vector3(RISER_BOARD.x - 0.3, 0.006, 0.03)
-	traces.mesh = trace
-	traces.material_override = _lit
-	traces.position = Vector3(0.0, RISER_TOP + 0.003, -RISER_BOARD.z * 0.5 + 0.06)
-	model.add_child(traces)
+func _build_model(path: String, at: Vector3) -> void:
+	var inst := _scene(path).instantiate() as Node3D
+	inst.name = "Model"
+	inst.position = at
+	add_child(inst)
+	_model = inst
+	var plug := inst.find_child("Stecker", true, false) as Node3D
+	if plug != null:
+		plug.visible = false  # das Grundgehäuse: die Platte trägt, kein Stecker darunter
+	_skin(inst, "Gehaeuse", _flat(HOUSING_ALBEDO, HOUSING_EMISSION))
+	_skin(inst, "Fenster", _lit)
+	_skin(inst, "Licht", _lit)
+	_apply_baked(inst)
+	_build_state_parts(inst)
+
+func is_pin() -> bool:
+	return _pin
 
 ## Höhe des Körpers über seinem Fuß.
 func height() -> float:
-	if is_riser(part):
-		return RISER_TOP
 	return PLATE.y + float(RISE.get(part.rarity if part != null else "", RISE[ComboPart.RARITY_COMMON]))
 
 ## Die Zustands-Teile des Modells bekommen je ein eigenes Material; die Ziffern des Zählwerks
@@ -321,10 +279,6 @@ func _build_state_parts(inst: Node3D) -> void:
 				var material := _glow_material()
 				mesh.material_override = material
 				_parts_lit.append([mesh, material])
-	var rim := inst.find_child("Rand", true, false) as MeshInstance3D
-	if rim != null:
-		_rim = _glow_material()
-		rim.material_override = _rim
 	_flame = inst.find_child("Flamme", true, false) as MeshInstance3D
 	if _flame != null:
 		var fire := _glow_material()
@@ -340,7 +294,7 @@ func _build_state_parts(inst: Node3D) -> void:
 			continue
 		var label := Label3D.new()
 		label.name = "Ziffer"
-		label.pixel_size = DIGIT_PIXEL
+		label.pixel_size = DIGIT_PIXEL * (PIN_DIGIT_SHARE if _pin else 1.0)
 		label.font_size = DIGIT_FONT
 		label.outline_size = 8
 		label.outline_modulate = Color(0.0, 0.0, 0.0, 0.9)
@@ -358,7 +312,7 @@ func _glow_material() -> StandardMaterial3D:
 	material.roughness = 0.35
 	return material
 
-## Der EINE Schreiber des Zustands: state = {dice, chip_parts, first_hand, charge, copy}
+## Der EINE Schreiber des Zustands: state = {dice, chip_parts, first_hand, copy}
 ## (ComboChipView reicht Chip und Lauf). Der Stand am Teil selbst (counter) liest _apply.
 func set_state(state: Dictionary) -> void:
 	_state = state.duplicate()
@@ -388,7 +342,7 @@ func dot_lit(index: int) -> bool:
 
 ## So viele Punkte stehen: die Würfel der Kombination, beim Nebenschluss bis DOT_MAX.
 func dot_count() -> int:
-	if part == null or not DOT_PARTS.has(part.id):
+	if _pin or part == null or not DOT_PARTS.has(part.id):
 		return 0
 	return DOT_MAX if part.id == ComboPart.SHUNT and _dice() > 0 else _dice()
 
@@ -495,9 +449,6 @@ func digits_text() -> String:
 func flame_shown() -> bool:
 	return _flame != null and _flame.visible
 
-func rim_color() -> Color:
-	return _rim.emission if _rim != null else Color.BLACK
-
 ## Hitzestau: das Teil ist für die Runde still - stumpf statt leuchtend.
 func set_dimmed(on: bool) -> void:
 	if _dimmed == on:
@@ -541,7 +492,7 @@ func _apply() -> void:
 	if _lit == null:
 		return
 	var tint := part.tint() if part != null else ComboPart.BOARD_TINT
-	var base := TRACE_ENERGY if is_riser(part) else WINDOW_ENERGY
+	var base := WINDOW_ENERGY
 	var rest := REST_SHARE if _resting else 1.0
 	# Feuert es, brennt es voll - der Ruhe-Anteil weicht mit dem Blitz.
 	rest = lerpf(rest, 1.0, clampf(_flash, 0.0, 1.0))
@@ -571,13 +522,6 @@ func _write_state(tint: Color, energy: float) -> void:
 			lit = clampi(int(_state.get("chip_parts", 0)), 0, TERMINALS)
 	for i in _parts_lit.size():
 		_glow(_parts_lit[i][1], color, energy + FLASH_ENERGY * _flash if i < lit else -1.0)
-	if _rim != null:
-		var charge := int(_state.get("charge", -1))
-		if charge >= 0:
-			_glow(_rim, DieFaceDisplay.HEAT_NUMBER_COLORS[clampi(charge, 0, DieFaceDisplay.HEAT_NUMBER_COLORS.size() - 1)],
-				energy + FLASH_ENERGY * _flash)
-		else:
-			_glow(_rim, DOT_DIM, -1.0)
 	if _flame != null:
 		_flame.visible = part.counter > 0 and not _dimmed
 	if not _digits.is_empty():

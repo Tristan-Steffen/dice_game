@@ -126,12 +126,6 @@ func flash_segment(index: int, strength: float) -> void:
 		peak, 0.0, FIELD_FLASH_DECAY)
 	_field_tweens[index] = tween
 
-## Ein Schlag in ALLE Wände zugleich: die Entladung eines durchgebrannten
-## Würfels fährt ringsum ins Feld, nicht in ein einzelnes Segment.
-func slam(strength: float) -> void:
-	for i in field_materials.size():
-		flash_segment(i, strength)
-
 ## Lockruf auf allen Wänden: share 0..1 färbt, breath 0..1 ist der Atem dazu -
 ## geführt vom Aufrufer, damit Wand und Schild im selben Takt atmen.
 func set_beckon(share: float, breath: float, color: Color) -> void:

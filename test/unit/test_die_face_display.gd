@@ -455,16 +455,6 @@ func test_glass_stays_sheer_when_doped():
 	assert_eq(_face_refined(display, 0).shader, DieFaceDisplay.DOPE_SHADER,
 		"alle anderen decken")
 
-func test_ash_wipes_the_glow_off_a_doped_face():
-	# Asche glüht nicht: der durchgebrannte Würfel fällt auf die glatte Oberfläche zurück.
-	var display := _display()
-	var def := _leveled(0, DieMaterial.RUBY, DieMaterial.MAX_LEVEL)
-	def.burn_out()
-	display.apply_definition(def)
-	var material := _face_material(display, 0)
-	assert_true(material is StandardMaterial3D, "Ruß löscht die Veredelung")
-	assert_eq(material.albedo_color, DieFaceDisplay.BURNED_BODY)
-
 func test_the_plain_state_leaves_the_face_exactly_where_it_was():
 	# Normal ist der Regelfall und kündigt sich nie an.
 	var display := _display()

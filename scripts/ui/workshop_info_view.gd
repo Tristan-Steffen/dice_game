@@ -284,15 +284,12 @@ func body_lines() -> int:
 # Jede liefert {title, sub, sub_tint, body}. Formuliert wird hier nichts: die
 # Texte kommen aus DieNetView, Essence und Pack.
 
-## Ein WÜRFEL: Name, Seele in ihrem Glühen, Wirkung plus Ladungszeile.
+## Ein WÜRFEL: Name, Seele in ihrem Glühen, Wirkung.
 static func die_info(def: DieDefinition) -> Dictionary:
 	if def == null:
 		return idle_info(null, "")
 	var soul := _soul_of(def.essence_id)
 	var body := String(soul.get("body", ""))
-	var charge := DieNetView.charge_hint(def)
-	if charge != "":
-		body = "%s%s%s" % [body, JOIN, charge] if body != "" else charge
 	return {"title": def.display_name,
 		"sub": String(soul.get("name", SOULLESS)),
 		"sub_tint": soul.get("tint", WorkshopView.MUTED_COLOR),

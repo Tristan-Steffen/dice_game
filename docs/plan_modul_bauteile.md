@@ -105,7 +105,7 @@ Zustandsanzeige und die kleine Wertzeile. Blockmodelle aller 26: `m_bauteile_obe
 | Modul | Wirkung | Bauteil | Was die Wirkung zeigt |
 |---|---|---|---|
 | Sperrdiode | Chip kann nicht gedrosselt werden | Schwarzer Zylinder mit einem Silberring, darunter das Schaltzeichen Dreieck-Strich | Sie läßt nur eine Richtung durch: die Drossel prallt sichtbar ab |
-| Erweiterungsplatine | Belegt einen Platz, gibt zwei | Kleine Tochterplatine, die den Platz in zwei halbe teilt | Die Leitung läuft durch beide |
+| Erweiterungsplatine (gestorben 2026-11-21) | Belegt einen Platz, gibt zwei | Kleine Tochterplatine, die den Platz in zwei halbe teilt | Die Leitung läuft durch beide |
 
 ## Offene Punkte
 

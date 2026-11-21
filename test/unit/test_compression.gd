@@ -85,19 +85,6 @@ func test_verdichten_meldet_den_bestand() -> void:
 	run.compress_series(_uids(fuel), blank.pack_uid, _rng(1))
 	assert_eq(seen.size(), 1, "EINE Bestandsmeldung")
 
-## Kein Wuerfel wird angefasst, also heizt das Verdichten nichts - anders als das
-## Praegen, das den Zielwuerfel um eine Ladung hebt.
-func test_verdichten_heizt_keinen_wuerfel() -> void:
-	var blank := _blank()
-	var before: Array[int] = []
-	for die in run.owned_pool:
-		before.append(die.charge)
-	run.compress_series(_uids([_card({0: StampNet.value_cell(3)})]), blank.pack_uid, _rng(1))
-	for i in run.owned_pool.size():
-		assert_eq(run.owned_pool[i].charge, before[i], "kein Wuerfel wird heiss")
-
-# --- Was sie VERWEIGERT -----------------------------------------------------------
-
 func test_ohne_rohling_verdichtet_nichts() -> void:
 	var fuel := [_card({0: StampNet.value_cell(3)})]
 	assert_eq(run.compress_series(_uids(fuel), 0, _rng(1)), {}, "ohne Ziel nichts")

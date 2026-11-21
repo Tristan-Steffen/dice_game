@@ -108,26 +108,8 @@ func test_scar_grows_its_up_face_on_a_real_fumble() -> void:
 	var die := DieDefinition.standard()
 	die.essence_id = Essence.SCAR
 	var before: int = die.faces[2]
-	run.charge_fumble_dice([die] as Array[DieDefinition], [2] as Array[int])
+	run.scar_fumble_dice([die] as Array[DieDefinition], [2] as Array[int])
 	assert_eq(die.faces[2], before + 1)
-	assert_eq(die.charge, 1, "geheizt wird trotzdem")
-
-func test_cooling_jacket_cools_instead_of_heating() -> void:
-	var die := DieDefinition.standard()
-	die.essence_id = Essence.COOLING_JACKET
-	die.charge = 2
-	run.charge_fumble_dice([die] as Array[DieDefinition], [0] as Array[int])
-	assert_eq(die.charge, 1)
-	die.charge = 0
-	run.charge_fumble_dice([die] as Array[DieDefinition], [0] as Array[int])
-	assert_eq(die.charge, 0, "nie unter 0")
-
-func test_a_plain_die_still_heats() -> void:
-	var die := DieDefinition.standard()
-	run.charge_fumble_dice([die] as Array[DieDefinition])
-	assert_eq(die.charge, 1)
-
-# --- Module ------------------------------------------------------------------------
 
 func test_error_memory_adds_the_block_fumbles_as_mult() -> void:
 	run.combo_parts[DiceScoring.TWO_KIND] = [ComboPart.error_memory(), null, null]

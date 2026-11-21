@@ -29,8 +29,7 @@ func setup(card_packs: Array[Pack], fan_span: float) -> void:
 		var pack := packs[i]
 		var cell := DataCellView.new()
 		add_child(cell)
-		cell.setup(Pack.shelf_of(pack), pack.tier, pack.stamp_net, pack.is_repair(),
-			pack.from_blank())
+		cell.setup(Pack.shelf_of(pack), pack.tier, pack.stamp_net, pack.from_blank())
 		cell.rotation.y = -PI / 2.0  # Bildschirm-oben = Welt+X, wie jede liegende Karte
 		cell.badge_on_face = true
 		cell.set_count(1)

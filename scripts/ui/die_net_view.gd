@@ -81,7 +81,6 @@ static func build(def: DieDefinition, up_face: int, cell: float) -> Control:
 		root.add_child(crack)
 	for badge in level_badges(def, cell):
 		root.add_child(badge)
-	root.add_child(charge_lamps(def, cell))
 	return root
 
 ## Face-Index der Zelle unter local (Netz-Lokalkoordinaten, Zellgröße cell);
@@ -107,11 +106,7 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 	if def == null:
 		return ""
 	if face == EDGE:
-		var soul := Essence.hint(def.essence_id)
-		var charge_line := charge_hint(def)
-		if charge_line == "":
-			return soul
-		return "%s  ·  %s" % [soul, charge_line] if soul != "" else charge_line
+		return Essence.hint(def.essence_id)
 	if face < 0 or face >= def.materials.size():
 		return ""
 	var hint := DieMaterial.face_hint(def.materials[face], MaterialEffects.face_level(def, face))
@@ -119,18 +114,6 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 		var rune_hint := Rune.hint(rune_id)
 		hint = "%s  ·  %s" % [hint, rune_hint] if hint != "" else rune_hint
 	return hint
-
-## Die Ladungs-Zeile eines Würfels ("" = kalt und heil). EINE Quelle für jede
-## Info-Zeile: Grube, Werkstatt-Caption, Laden-Fuß, Schwarzmarkt.
-static func charge_hint(def: DieDefinition) -> String:
-	if def == null:
-		return ""
-	if def.burned_out:
-		return "Durchgebrannt - die %s repariert" % Pack.catalyst_name(Pack.CATALYST_REPAIR)
-	if def.charge <= 0:
-		return ""
-	return "Ladung %d/%d - %s" % [def.charge, DieDefinition.CHARGE_MAX,
-		DieDefinition.charge_name(def.charge)]
 
 ## Größter Schriftgrad, der samt Saum noch IN eine Zelle der Kantenlänge cell paßt.
 ## Gemessen: die Mindesthöhe eines Labels ist ~1,42 × Grad, der Saum kommt beidseits
@@ -255,21 +238,7 @@ static func _edge_chip(def: DieDefinition, cell: float) -> Panel:
 static func cell_position(face_index: int, cell: float) -> Vector2:
 	return _cell_pos(face_index, cell)
 
-## Die drei LADUNGS-LAMPEN in der leeren oberen RECHTEN Kreuz-Ecke (Spieler-
-## Wunsch 2026-09-06): in JEDEM Netz, je Ladung eine brennt. Durchgebrannt: alle
-## drei tot, mit Glut-Saum.
-static func charge_lamps(def: DieDefinition, cell: float) -> Control:
-	var gap := cell * GAP_FACTOR
-	var lamps := ChargeLamps.new()
-	lamps.lit = clampi(def.charge, 0, DieDefinition.CHARGE_MAX)
-	lamps.burned = def.burned_out
-	lamps.position = Vector2(2.0 * (cell + gap), 0.0)
-	lamps.size = Vector2(2.0 * cell + gap, cell)
-	lamps.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return lamps
-
-## Augensumme in der leeren unteren RECHTEN Kreuz-Ecke (die obere gehört seit
-## 2026-09-06 den Ladungs-Lampen) - toter Raum im Kreuz, und damit braucht die
+## Augensumme in der leeren unteren RECHTEN Kreuz-Ecke - toter Raum im Kreuz, und damit braucht die
 ## Kachel darüber keinen eigenen Streifen.
 static func total_badge(def: DieDefinition, cell: float) -> Label:
 	var gap := cell * GAP_FACTOR
@@ -437,34 +406,6 @@ class LevelBadge:
 			draw_polyline(PackedVector2Array([
 				Vector2(size.x * 0.5 - half, y), Vector2(size.x * 0.5, y - rise),
 				Vector2(size.x * 0.5 + half, y)]), mark, width)
-
-## Drei runde Lampen nebeneinander: dunkle Platte, brennend in der Ladungsfarbe -
-## dieselbe Sprache wie die Plakette. Kein Text: bei 17 px Zelle wäre er Matsch.
-class ChargeLamps:
-	extends Control
-	var lit := 0
-	var burned := false
-
-	const COUNT := DieDefinition.CHARGE_MAX
-	const ON := DieFaceDisplay.CHARGE_COLOR
-	const OFF := Color(0.03, 0.05, 0.12, 0.95)
-	const RIM := Color(0.42, 0.40, 0.55, 0.9)
-	const EMBER := Color(0.55, 0.22, 0.14, 0.95)
-
-	func _draw() -> void:
-		var radius := minf(size.y * 0.32, size.x / (COUNT * 2.6))
-		var step := size.x / (COUNT + 1.0)
-		var rim := maxf(1.0, radius * 0.22)
-		for i in COUNT:
-			var center := Vector2(step * (i + 1), size.y * 0.5)
-			draw_circle(center, radius, OFF)
-			if burned:
-				draw_arc(center, radius, 0.0, TAU, 24, EMBER, rim)
-			elif i < lit:
-				draw_circle(center, radius * 0.8, ON)
-				draw_arc(center, radius, 0.0, TAU, 24, ON, rim)
-			else:
-				draw_arc(center, radius, 0.0, TAU, 24, RIM, rim)
 
 ## Zellposition eines Seiten-Index im Kreuz.
 static func _cell_pos(face_index: int, cell: float) -> Vector2:

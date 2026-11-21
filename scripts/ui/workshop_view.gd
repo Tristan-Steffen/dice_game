@@ -1418,22 +1418,6 @@ func stamping_card_count() -> int:
 			count += 1
 	return count
 
-## Steckt die Reparatur-Karte in der Reihe? Dann nimmt das Prägen auch einen
-## durchgebrannten Würfel an.
-func series_repairs() -> bool:
-	for pack in slotted_packs():
-		if pack.is_repair():
-			return true
-	return false
-
-## Steckt eine Kühl- oder Reparatur-Karte darin? Dann wirkt das Prägen auch ohne
-## Netz-Karte.
-func series_tends() -> bool:
-	for pack in slotted_packs():
-		if pack.tends_die():
-			return true
-	return false
-
 ## Wirft uids aus der Reihe, hinter denen keine Karte mehr liegt (Wett-Einsatz,
 ## Laufwechsel), und einen Zielwürfel, den der Pool nicht mehr hergibt.
 func _prune_series() -> void:
@@ -1493,8 +1477,7 @@ func _seat_button(u: float) -> Button:
 	return _action_button
 
 ## Darf jetzt geprägt werden? Ein gewählter Zielwürfel, mindestens EINE Karte
-## (Spieler-Wunsch 2026-10-25) und darunter eine, die prägt, kühlt oder repariert; ein
-## durchgebrannter Würfel nur mit der Reparatur-Karte.
+## (Spieler-Wunsch 2026-10-25) und darunter eine, die prägt.
 ## Prägen selbst ist unbegrenzt (Spieler-Entscheid 2026-09-05).
 func can_pull() -> bool:
 	if run == null or editing_locked or burning():
@@ -1505,10 +1488,7 @@ func can_pull() -> bool:
 		return not run.compressible_series(_series, _target_pack).has("blocker")
 	if target_die() == null:
 		return false
-	var repairs := series_repairs()
-	if target_die().burned_out and not repairs:
-		return false
-	return stamping_card_count() > 0 or series_tends()
+	return stamping_card_count() > 0
 
 ## Zwingt einen Knopf auf das Sitzmaß: clip_text nimmt der Aufschrift das Recht,
 ## das Rechteck zu verbreitern.
@@ -1565,9 +1545,7 @@ func stamp_blocker() -> String:
 			"compressed":
 				return "Ein %s verdichtet nicht in den nächsten." % Pack.BLANK_NAME
 		return ""
-	if target_die().burned_out and not series_repairs():
-		return "Durchgebrannt - die %s fehlt." % Pack.catalyst_name(Pack.CATALYST_REPAIR)
-	if stamping_card_count() <= 0 and not series_tends():
+	if stamping_card_count() <= 0:
 		return "Nur Katalysatoren - eine Netz-Karte fehlt."
 	return ""
 
@@ -1750,10 +1728,6 @@ func burning_cards() -> Array[Dictionary]:
 ## welche Seite einen Bonus bekommen hat und darum ihren Funken bekommt.
 func burn_projection() -> Dictionary:
 	return _burn_result.get("projection", {}) if not _burn_result.is_empty() else {}
-
-## Hat das laufende Prägen repariert? Dann blitzt der Würfel beim Einschlag golden.
-func burn_repaired() -> bool:
-	return bool(_burn_result.get("repaired", false))
 
 ## Wie lange das VERRIEGELN dauert: eine Scheibe plus die Staffel über die übrigen.
 func lock_time() -> float:

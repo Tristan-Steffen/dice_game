@@ -1,6 +1,6 @@
 extends GutTest
 ## Die Bauteile der Module (Welle B): eigenes Modell je Modul, Hüllmaß, Höhen-Leiter,
-## die Zustands-Schreiber und die Punktreihe.
+## die Zustands-Schreiber und die Punktreihe; dazu die PINS der Welle C.
 
 func _body(part_id: String) -> ComboPartBody:
 	var body := ComboPartBody.new()
@@ -15,16 +15,11 @@ func _box_in_model(model: Node3D, mesh: MeshInstance3D) -> AABB:
 
 func _modules() -> Array[ComboPart]:
 	var out: Array[ComboPart] = []
-	for part in ComboPart.all():
-		if not ComboPartBody.is_riser(part):
-			out.append(part)
+	out.assign(ComboPart.all())
 	return out
 
 func test_every_module_has_its_own_model_with_body_and_light() -> void:
 	for part in ComboPart.all():
-		if ComboPartBody.is_riser(part):
-			assert_not_null(_body(part.id).find_child("Platine", true, false), "die Platine ist code-gebaut")
-			continue
 		assert_eq(ComboPartBody.model_path(part), ComboPartBody.OWN_MODEL % part.id, "%s: eigenes glb" % part.id)
 		var body := _body(part.id)
 		for node_name in ["Platte", "Model", "Korpus", "Licht"]:
@@ -72,11 +67,11 @@ func test_the_height_ladder_grows_with_rarity() -> void:
 	assert_lt(tops[ComboPart.RARITY_EPIC], tops[ComboPart.RARITY_LEGENDARY])
 
 func test_the_plate_hints_the_rarity_and_the_light_the_phase() -> void:
-	var body := _body(ComboPart.MAGNETRON)
+	var body := _body(ComboPart.PARALLEL_CIRCUIT)
 	var plate := (body.find_child("Platte", true, false) as MeshInstance3D).material_override as StandardMaterial3D
 	var light := (body.find_child("Licht", true, false) as MeshInstance3D).material_override as StandardMaterial3D
 	assert_eq(plate, ComboPartBody.plate_material(ComboPart.RARITY_LEGENDARY), "geteilt je Seltenheit")
-	assert_eq(light.emission, ComboPart.magnetron().tint())
+	assert_eq(light.emission, ComboPart.parallel_circuit().tint())
 	var korpus := (body.find_child("Korpus", true, false) as MeshInstance3D).material_override as StandardMaterial3D
 	assert_true(korpus.vertex_color_use_as_albedo, "das Licht ist eingemalt")
 
@@ -161,15 +156,6 @@ func test_the_afterburner_shows_its_flame_only_when_armed() -> void:
 	body.set_state({})
 	assert_true(body.flame_shown(), "scharf")
 
-func test_the_thermistor_rim_reads_the_charge_of_the_hand() -> void:
-	var body := _body(ComboPart.THERMISTOR)
-	body.set_state({"charge": 3})
-	assert_eq(body.rim_color(), DieFaceDisplay.HEAT_NUMBER_COLORS[3])
-	body.set_state({"charge": 1})
-	assert_eq(body.rim_color(), DieFaceDisplay.HEAT_NUMBER_COLORS[1])
-	body.set_state({"charge": -1})
-	assert_eq(body.rim_color(), ComboPartBody.DOT_DIM, "ohne Hand stumpf")
-
 func test_the_coupling_shows_what_it_copies_as_a_pale_image() -> void:
 	var body := _body(ComboPart.COUPLING)
 	body.set_state({})
@@ -241,3 +227,91 @@ func test_the_firing_die_flashes_its_dot() -> void:
 	await wait_frames(1)
 	assert_gt(body.dot_energy(1), rest + 1.0, "der Punkt des Würfels blitzt")
 	assert_lt(body.dot_energy(0), body.dot_energy(1), "die anderen nicht")
+
+# --- Die PINS (Welle C) ----------------------------------------------------------------------
+
+func _pin(part: ComboPart) -> ComboPartBody:
+	var body := ComboPartBody.new()
+	add_child_autofree(body)
+	body.setup(part, true)
+	return body
+
+func test_every_module_has_its_own_pin_and_the_empty_socket_a_steel_pin() -> void:
+	assert_eq(ComboPartBody.pin_path(null), ComboPartBody.PIN_EMPTY)
+	assert_true(ResourceLoader.exists(ComboPartBody.PIN_EMPTY))
+	for part in ComboPart.all():
+		assert_eq(ComboPartBody.pin_path(part), ComboPartBody.PIN_MODEL % part.id, "%s: eigener Pin" % part.id)
+		var pin := _pin(part)
+		for node_name in ["Model", "Korpus", "Licht"]:
+			assert_not_null(pin.find_child(node_name, true, false), "%s: %s" % [part.id, node_name])
+		assert_null(pin.find_child("Platte", true, false), "%s: ein Pin steht ohne Platte" % part.id)
+
+func test_every_pin_stays_within_its_hull() -> void:
+	var parts: Array = ComboPart.all()
+	parts.append(null)
+	var hull := ComboPartBody.PIN_HULL
+	for part in parts:
+		var pin := _pin(part)
+		var model := pin.find_child("Model", false, false) as Node3D
+		for mesh in model.find_children("*", "MeshInstance3D", true, false):
+			var box := _box_in_model(model, mesh)
+			var id := "%s %s" % [part.id if part != null else "leer", mesh.name]
+			assert_gte(box.position.z, -0.15, id + ": beginnt an der Gehäusekante")
+			assert_lte(box.end.z, hull.x + 0.006, id + ": längs")
+			assert_lte(absf(box.position.x), hull.y * 0.5 + 0.006, id + ": quer")
+			assert_lte(absf(box.end.x), hull.y * 0.5 + 0.006, id + ": quer")
+			assert_gte(box.position.y, -0.005, id + ": auf dem Tisch")
+			assert_lte(box.end.y, hull.z + 0.006, id + ": Höhe")
+
+func test_no_two_pins_share_outline_and_sign() -> void:
+	var seen := {}
+	for part in ComboPart.all():
+		var pin := _pin(part)
+		var model := pin.find_child("Model", false, false) as Node3D
+		var key := ""
+		for name in ["Korpus", "Licht"]:
+			var mesh := pin.find_child(name, true, false) as MeshInstance3D
+			var box := _box_in_model(model, mesh)
+			var verts := 0
+			for s in mesh.mesh.get_surface_count():
+				verts += (mesh.mesh.surface_get_arrays(s)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+			key += "%.2f|%.2f|%.2f|%.2f|%d;" % [box.position.x, box.end.x, box.position.z, box.end.z, verts]
+		assert_false(seen.has(key), "%s gleicht %s" % [part.id, seen.get(key, "")])
+		seen[key] = part.id
+
+func test_the_counter_pin_carries_the_digits_smaller() -> void:
+	var counter := ComboPart.counter_part()
+	counter.counter = 6
+	var pin := _pin(counter)
+	pin.set_state({})
+	assert_eq(pin.digits_text(), "007", "dieselben Ziffern wie am Modul")
+	var label := pin.find_child("Ziffer", true, false) as Label3D
+	assert_lt(label.pixel_size, ComboPartBody.DIGIT_PIXEL, "kleiner am Pin")
+
+func test_the_pin_shows_the_state_where_it_fits() -> void:
+	var memory := ComboPart.error_memory()
+	memory.counter = 2
+	var pin := _pin(memory)
+	pin.set_state({})
+	assert_eq(pin.lit_state_parts(), 2, "Fehlerspeicher: je Fumble eine Lampe")
+	var terminal := _pin(ComboPart.series_terminal())
+	terminal.set_state({"chip_parts": 3})
+	assert_eq(terminal.lit_state_parts(), 3, "Reihenklemme: höchstens drei Schrauben")
+	var burner := ComboPart.afterburner()
+	var flame := _pin(burner)
+	flame.set_state({})
+	assert_false(flame.flame_shown())
+	burner.counter = 1
+	flame.set_state({})
+	assert_true(flame.flame_shown(), "Nachbrenner: Flamme nur scharf")
+	var resonator := ComboPart.resonator()
+	resonator.counter = 3
+	var ring := _pin(resonator)
+	ring.set_state({})
+	assert_eq(ring.lit_state_parts(), 3, "Schwingkreis: je Wachstum eine Windung")
+	var starter := _pin(ComboPart.starter())
+	starter.set_state({"first_hand": true})
+	var on := starter.light_energy()
+	starter.set_state({"first_hand": false})
+	assert_lt(starter.light_energy(), on, "Anlasser: nur vor der ersten Hand hell")
+	assert_eq(starter.dot_count(), 0, "die Punktreihe bleibt am Modul")

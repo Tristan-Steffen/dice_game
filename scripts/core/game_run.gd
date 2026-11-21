@@ -23,9 +23,6 @@ signal energy_changed(value: int)
 signal secret_stock_changed
 ## Die Serie der Werkbank hat sich geändert (Prägen, Slots, verbrauchte Karten).
 signal press_changed
-## Ein Ladungs-Ereignis in Klartext (Aufladen, Durchbrennen, Entladen, Reparatur) -
-## die Chronik hängt daran; gebucht ist es hier schon.
-signal charge_logged(text: String)
 
 const POOL_SIZE := 30
 ## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
@@ -247,15 +244,6 @@ var round_bare_dice: int = 0
 ## ist keine Erstwertung mehr (Sternschnuppe, Gammablitz).
 var die_scored_this_round: Dictionary = {}
 
-## --- LADUNG -------------------------------------------------------------------
-## Kühlkörper: Deckel der Ladung, solange er im Dock liegt.
-const HEAT_SINK_CAP := 2
-## Überlast/Netzausfall: der Ladungswurf trifft immer.
-const FORCED_CHARGE_CHANCE := 1.0
-## Entstörung: auf diese Stufe fällt der ganze Vorrat sofort.
-const NOISE_FILTER_CHARGE := 1
-## Die Sicherung hat in dieser Runde schon einen Durchbrenner abgefangen.
-var fuse_used_this_round: bool = false
 
 ## Sitzungszustand der Fumble-Automaten (überlebt Zoom/Runden, bis Fumble oder
 ## Auszahlung ihn zurücksetzt). Ökonomie läuft über spin_slot/redeem_slots.
@@ -679,7 +667,7 @@ func purchase_pack(pack: Pack, price: int, rng: RandomNumberGenerator = null) ->
 var last_card_pack_refund := 0
 
 # --- Die PAKET-AUSWAHL -------------------------------------------------------------
-# Ein Paket wird beim ÖFFNEN aus dem Lager gewürfelt: Optionen und Zahl der Wahlen
+# Ein Paket wird beim ÖFFNEN gewürfelt: Optionen und Zahl der Wahlen
 # stehen ab da fest (Buchung vor dem Licht). Gebucht wird jede Wahl beim Bestätigen.
 
 ## Geöffnete Pakete, die noch auf ihre Wahl warten - eines nach dem anderen.
@@ -693,8 +681,8 @@ const PACK_RESHUFFLE_ENERGY := 1
 ## Sammelalbum: so viel Geld je geöffnetem Paket und Kopie.
 const ALBUM_MONEY := 1
 
-## Kauft ein KARTEN-PAKET: zahlen, Kleingedrucktes würfeln, sofort ÖFFNEN (seit dem
-## 2026-11-17 geht es nicht mehr ins Lager). null = nichts gebucht.
+## Kauft ein KARTEN-PAKET: zahlen, Kleingedrucktes würfeln, sofort ÖFFNEN.
+## null = nichts gebucht.
 func purchase_card_pack(card_pack: CardPack, price: int,
 		rng: RandomNumberGenerator = null) -> PackChoice:
 	return _purchase_open(card_pack, price, rng)
@@ -763,104 +751,27 @@ func _roll_luck_die(choice: PackChoice, rng: RandomNumberGenerator) -> void:
 func _choice_picks(choice: PackChoice) -> int:
 	return mini(choice.die_value + choice.free_bonus, choice.options.size())
 
-# --- Das PAKET-LAGER ---------------------------------------------------------------
-# Gekaufte Pakete warten ungeöffnet, je Art eine Reihe (Reihenfolge = Kaufreihenfolge).
-# Art, Größe, Güte und Stufe stehen fest; Optionen und Wahlen würfelt erst open_stored_pack.
+# --- Die PAKET-ARTEN ---------------------------------------------------------------
 
-signal store_changed
-## Zwölf Plätze je Art in EINER Rinne; der Platz ist der Index (geöffnet rückt nach).
-const STORE_CAPACITY := 8
-## Die Rinnen des Lagers, von oben nach unten.
 const LANE_CARDS := 0
 const LANE_DICE := 1
 const LANE_MODULES := 2
 ## Jeder Platz würfelt seine Art unabhängig: Karten 3 : Würfel 2 : Module 1, keine Garantie.
 const SHOP_PACK_KIND_WEIGHTS := {LANE_CARDS: 3, LANE_DICE: 2, LANE_MODULES: 1}
-const STORE_LANES := 3
-var stored_card_packs: Array[CardPack] = []
-var stored_dice_packs: Array[DicePack] = []
-var stored_module_packs: Array[ModulePack] = []
-var store_serial := 0
 
-## Die Reihe eines Pakets nach seiner Art.
-static func store_lane_of(pack: Resource) -> int:
+## Die Art eines Pakets (LANE_*).
+static func pack_kind_of(pack: Resource) -> int:
 	if pack is DicePack:
 		return LANE_DICE
 	if pack is ModulePack:
 		return LANE_MODULES
 	return LANE_CARDS
 
-func stored_packs(lane: int) -> Array:
-	match lane:
-		LANE_DICE:
-			return stored_dice_packs
-		LANE_MODULES:
-			return stored_module_packs
-	return stored_card_packs
-
-func store_full(lane: int) -> bool:
-	return stored_packs(lane).size() >= STORE_CAPACITY
-
-func stored_pack_by_uid(uid: int) -> Resource:
-	for lane in STORE_LANES:
-		for pack in stored_packs(lane):
-			if int(pack.get("store_uid")) == uid:
-				return pack
-	return null
-
-## Legt eine KOPIE ins Lager und stempelt ihre uid (die Auslage behält ihr Angebot).
-func _store_pack(pack: Resource, from_bet: bool) -> Resource:
-	var stored: Resource = pack.duplicate()
-	store_serial += 1
-	stored.set("store_uid", store_serial)
-	stored.set("from_bet", from_bet)
-	if stored is DicePack:
-		stored_dice_packs.append(stored as DicePack)
-	elif stored is ModulePack:
-		stored_module_packs.append(stored as ModulePack)
-	else:
-		stored_card_packs.append(stored as CardPack)
-	store_changed.emit()
-	return stored
-
-## Debug: füllt jede Lager-Reihe mit Laden-Paketen bis STORE_CAPACITY. Liefert die Zahl.
-func debug_fill_store(rng: RandomNumberGenerator = null) -> int:
-	var added := 0
-	while not store_full(LANE_CARDS):
-		_store_pack(CardPack.roll_shop(rng, shop_card_pack_quality_weights()), false)
-		added += 1
-	while not store_full(LANE_DICE):
-		_store_pack(DicePack.roll_shop(rng, shop_dice_pack_quality_weights()), false)
-		added += 1
-	while not store_full(LANE_MODULES):
-		_store_pack(ModulePack.roll_shop(rng, shop_module_pack_grade_weights()), false)
-		added += 1
-	return added
-
-## Das Paket auf Platz index seiner Rinne (null = frei).
-func stored_pack_at(lane: int, index: int) -> Resource:
-	var packs := stored_packs(lane)
-	return packs[index] if index >= 0 and index < packs.size() else null
-
-## Ein Gewinn-Paket öffnet sofort (seit dem 2026-11-17 bekommt das Lager nichts mehr).
+## Ein Gewinn-Paket öffnet sofort.
 func _award_pack(pack: Resource, rng: RandomNumberGenerator) -> PackChoice:
 	if pack == null:
 		return null
 	return _open_pack(pack, true, rng)
-
-## Darf jetzt ein Lager-Paket geöffnet werden? Eines nach dem anderen.
-func can_open_stored_pack(uid: int) -> bool:
-	return pending_pack_choices.is_empty() and stored_pack_by_uid(uid) != null
-
-## ÖFFNEN: das Paket verläßt das Lager, Optionen, Wahlen und Glückswürfel fallen JETZT
-## (Buchung vor dem Licht). Die Phasen-Sperre fragt der Aufrufer.
-func open_stored_pack(uid: int, rng: RandomNumberGenerator = null) -> PackChoice:
-	if not can_open_stored_pack(uid):
-		return null
-	var pack := stored_pack_by_uid(uid)
-	stored_packs(store_lane_of(pack)).erase(pack)
-	store_changed.emit()
-	return _open_pack(pack, bool(pack.get("from_bet")), rng)
 
 ## Öffnet ein Paket in die Warteschlange der Auswahl.
 func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> PackChoice:
@@ -1217,14 +1128,11 @@ func series_slots() -> int:
 
 const CATALYST_PROPELLANT_STEP := 1
 
-## Was die Katalysatoren dieser Serie zulegen: {propellant, timer, free, repair,
-## aftercare}. "free" ist seit dem unbegrenzten Prägen (2026-09-05) WIRKUNGSLOS - es
-## liest niemand mehr; die Erdungsklemme bleibt im Katalog, ihre Wirkung ist OFFEN.
-## aftercare = die Kühl- und Reparatur-Karten in Steckreihenfolge.
+## Was die Katalysatoren dieser Serie zulegen: {propellant, free}. "free" ist seit
+## dem unbegrenzten Prägen (2026-09-05) WIRKUNGSLOS - es liest niemand mehr; die
+## Erdungsklemme bleibt im Katalog, ihre Wirkung ist OFFEN.
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
-	var aftercare: Array[String] = []
-	var terms := {"propellant": 0, "free": false, "repair": false,
-		"aftercare": aftercare}
+	var terms := {"propellant": 0, "free": false}
 	for pack in packs:
 		if pack == null:
 			continue
@@ -1233,10 +1141,6 @@ static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 				terms["propellant"] = int(terms["propellant"]) + CATALYST_PROPELLANT_STEP
 			Pack.CATALYST_GROUND:
 				terms["free"] = true
-			Pack.CATALYST_REPAIR:
-				terms["repair"] = true
-		if pack.tends_die():
-			aftercare.append(pack.catalyst_id)
 	return terms
 
 ## Die EINE Quelle der Serien-Terme für Vorschau, Buchung und Übertragung: die
@@ -1334,8 +1238,8 @@ func compressible_series(pack_uids: Array[int], blank_uid: int) -> Dictionary:
 
 ## DAS VERDICHTEN: EINE atomare Buchung. Der Rohling nimmt das zusammengepresste Netz
 ## auf und ist danach eine gewöhnliche Kassette; das Futter wird verbraucht (mit
-## demselben Überlebens-Wurf der Zwinge wie beim Prägen). Kein Würfel wird angefasst,
-## also heizt hier nichts. Liefert {"net", "fizzled", "cards", "kept", "uid"} oder {}.
+## demselben Überlebens-Wurf der Zwinge wie beim Prägen). Kein Würfel wird angefasst.
+## Liefert {"net", "fizzled", "cards", "kept", "uid"} oder {}.
 func compress_series(pack_uids: Array[int], blank_uid: int,
 		rng: RandomNumberGenerator = null) -> Dictionary:
 	var preview := compressible_series(pack_uids, blank_uid)
@@ -1353,16 +1257,10 @@ func compress_series(pack_uids: Array[int], blank_uid: int,
 	return {"net": preview["net"], "fizzled": preview["fizzled"],
 		"cards": int(preview["cards"]), "kept": kept, "uid": blank_uid}
 
-## Kaltpressung: das Prägen erhitzt den Zielwürfel nicht.
-func press_heats_free() -> bool:
-	return _clause_active(DealClause.COLD_PRESS)
-
 ## DAS PRÄGEN: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
 ## Karten verbrauchen. Es ist UNBEGRENZT (Spieler-Entscheid 2026-09-05) und geht
-## mit jeder Kartenzahl ab 1; ohne prägende Karte UND ohne Kühl- oder
-## Reparatur-Karte geschieht NICHTS (leeres Dictionary).
-## Ein DURCHGEBRANNTER Zielwürfel wird nur mit Reparatur-Karte angenommen.
-## Liefert {"projection", "cards", "kept", "burned", "repaired", "cooled"}.
+## mit jeder Kartenzahl ab 1; ohne prägende Karte geschieht NICHTS (leeres Dictionary).
+## Liefert {"projection", "cards", "kept"}.
 func apply_series(pack_uids: Array[int], die: DieDefinition,
 		rng: RandomNumberGenerator = null) -> Dictionary:
 	if die == null:
@@ -1373,38 +1271,15 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	var parts := _series_parts(chosen)
 	var nets: Array = parts["nets"]
 	var terms := series_terms(parts["catalysts"])
-	var repairs := bool(terms["repair"])
-	var aftercare: Array[String] = terms["aftercare"]
-	if die.burned_out and not repairs:
-		return {}
-	if nets.is_empty() and aftercare.is_empty():
+	if nets.is_empty():
 		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)
-	# Das Prägen HEIZT: erzwungenes +1 auf den Zielwürfel. Brennt er dabei durch,
-	# bleibt die Prägung trotzdem stehen - sie wirkt nach der Reparatur wieder.
-	var burned_target := false if press_heats_free() else charge_up_forced(die)
-	# Kühl- und Reparatur-Karten wirken NACH der Hitze, in Steckreihenfolge.
-	var cooled := false
-	for id in aftercare:
-		match id:
-			Pack.CATALYST_REPAIR:
-				die.repair()
-				charge_logged.emit("%s generalüberholt" % _die_label(die))
-			Pack.CATALYST_COOL:
-				cooled = die.charge_down(1) or cooled
-			Pack.CATALYST_CHILL:
-				cooled = die.charge_down(die.charge) or cooled
-	if cooled:
-		charge_logged.emit("%s gekühlt: %s" % [_die_label(die),
-			DieDefinition.charge_name(die.charge)])
 	var kept := _consume_series_cards(chosen, rng)
 	packs_changed.emit()
 	press_changed.emit()
 	note_pool_changed()
-	return {"projection": projection, "cards": chosen.size(), "kept": kept,
-		"burned": die.burned_out and burned_target, "repaired": repairs,
-		"cooled": cooled}
+	return {"projection": projection, "cards": chosen.size(), "kept": kept}
 
 ## Der EINE Schreibweg einer Projektion: über die vorhandenen DieDefinition-Wege,
 ## damit Veredelung, Runen-Plätze und Einbrand-Regel gelten wie überall.
@@ -1445,9 +1320,9 @@ func _consume_series_cards(indices: Array[int], rng: RandomNumberGenerator) -> i
 ## Grundzahl der Steckplätze je Chip - alle ab Runde 1 offen.
 const SOCKETS_PER_COMBO := 3
 
-## Steckplätze eines Chips: drei plus zwei je Erweiterungsplatine.
-func socket_count(combo_key: String) -> int:
-	return SOCKETS_PER_COMBO + ComboPartEffects.extra_sockets(combo_parts.get(combo_key, []))
+## Steckplätze eines Chips: fest drei.
+func socket_count(_combo_key: String) -> int:
+	return SOCKETS_PER_COMBO
 
 ## Belegung eines Chips, auf socket_count aufgefüllt (null = frei). NUR lesen -
 ## geschrieben wird über install_pending_part/move_part.
@@ -1571,10 +1446,7 @@ func install_pending_part_at(pending_index: int, combo_key: String, slot: int) -
 	var sockets := parts_of(combo_key).duplicate()
 	var displaced: ComboPart = sockets[slot]
 	sockets[slot] = part
-	var fitted := _fit_sockets(sockets)
-	if fitted.is_empty() or fitted[slot] != part:
-		return false  # eine Platine steckt nie in ihrem eigenen Paar
-	combo_parts[combo_key] = fitted
+	combo_parts[combo_key] = _fit_sockets(sockets)
 	var from_pack := part.from_pack
 	part.from_pack = false
 	pending_parts.remove_at(pending_index)
@@ -1655,21 +1527,14 @@ func move_part(from_key: String, from_slot: int, to_key: String, to_slot: int, e
 		var sockets := parts_of(from_key).duplicate()
 		sockets[from_slot] = sockets[to_slot]
 		sockets[to_slot] = part
-		var fitted := _fit_sockets(sockets)
-		if fitted.is_empty() or fitted[to_slot] != part:
-			return false
-		combo_parts[from_key] = fitted
+		combo_parts[from_key] = sockets
 	else:
 		var from_sockets := parts_of(from_key).duplicate()
 		var to_sockets := parts_of(to_key).duplicate()
 		from_sockets[from_slot] = to_sockets[to_slot]
 		to_sockets[to_slot] = part
-		var from_fitted := _fit_sockets(from_sockets)
-		var to_fitted := _fit_sockets(to_sockets)
-		if from_fitted.is_empty() or to_fitted.is_empty() or to_fitted[to_slot] != part:
-			return false
-		combo_parts[from_key] = from_fitted
-		combo_parts[to_key] = to_fitted
+		combo_parts[from_key] = from_sockets
+		combo_parts[to_key] = to_sockets
 		_release_guarded(to_key)
 		combo_parts_changed.emit(to_key)
 	_release_guarded(from_key)
@@ -1716,27 +1581,6 @@ func book_part_energy(combo_key: String) -> int:
 	book_copper_energy(count)
 	return energy - before
 
-## Magnetron: lädt die Kombinationswürfel erzwungen, je Kopie um eine Stufe. Liefert
-## je Würfel {die, slot, before, after, burned} wie book_charge_results.
-func book_magnetrons(combo_key: String, defs: Array[DieDefinition], combination: Array[int]) -> Array[Dictionary]:
-	var count := ComboPartEffects.MAGNETRON_CHARGE * ComboPartEffects.count_of(chain_chip(combo_key), ComboPart.MAGNETRON)
-	var changes: Array[Dictionary] = []
-	if count <= 0:
-		return changes
-	for slot in combination:
-		if slot < 0 or slot >= defs.size() or defs[slot] == null or defs[slot].burned_out:
-			continue
-		var die := defs[slot]
-		var before := die.charge
-		var burned := false
-		for _i in count:
-			burned = charge_up_forced(die) or burned
-		if burned or die.charge != before:
-			changes.append({"die": die, "slot": slot, "before": before, "after": die.charge, "burned": burned})
-	if not changes.is_empty():
-		note_pool_changed()
-	return changes
-
 ## Sperrdiode: dieser Chip wird nie gedrosselt und nie stillgelegt.
 func _chip_guarded(combo_key: String) -> bool:
 	return ComboPartEffects.has_part(combo_parts.get(combo_key, []), ComboPart.BLOCKING_DIODE)
@@ -1753,50 +1597,17 @@ func _release_guarded(combo_key: String) -> void:
 func _valid_socket(combo_key: String, slot: int) -> bool:
 	return DiceScoring.HAND_PRIORITY.has(combo_key) and slot >= 0 and slot < socket_count(combo_key)
 
-## Bringt eine Belegung auf ihre Kapazität: auffüllen mit null, und was jenseits
-## liegt (eine Erweiterungsplatine ging) rückt in freie Plätze davor. [] = passt nicht.
+## Bringt eine Belegung auf die drei Plätze: auffüllen mit null, was darüber liegt, rückt
+## in freie Plätze davor (alte Belegungen mit mehr Plätzen).
 func _fit_sockets(sockets: Array) -> Array:
-	var capacity := SOCKETS_PER_COMBO + ComboPartEffects.extra_sockets(sockets)
 	var out := sockets.duplicate()
-	while out.size() < capacity:
+	while out.size() < SOCKETS_PER_COMBO:
 		out.append(null)
-	var overflow: Array = []
-	while out.size() > capacity:
+	while out.size() > SOCKETS_PER_COMBO:
 		var tail = out.pop_back()
-		if tail != null:
-			overflow.append(tail)
-	for slot in out.size():
-		if overflow.is_empty():
-			break
-		if out[slot] == null:
-			out[slot] = overflow.pop_back()
-	if not overflow.is_empty():
-		return []
-	# Eine Platine, die keine erreichbare Platine trägt (ihr Träger ging, oder sie
-	# steckt in ihrem eigenen Paar), rückt auf den ersten freien getragenen Platz.
-	for _guard in out.size():
-		var parents := ComboPartEffects.socket_parents(out, SOCKETS_PER_COMBO)
-		var orphan := -1
-		for slot in out.size():
-			if parents[slot] == ComboPartEffects.UNREACHABLE and out[slot] != null \
-					and out[slot].id == ComboPart.EXPANSION_BOARD:
-				orphan = slot
-				break
-		if orphan < 0:
-			break
-		var free := -1
-		for slot in out.size():
-			if out[slot] == null and parents[slot] != ComboPartEffects.UNREACHABLE:
-				free = slot
-				break
-		if free < 0:
-			return []
-		out[free] = out[orphan]
-		out[orphan] = null
-	var reach := ComboPartEffects.socket_parents(out, SOCKETS_PER_COMBO)
-	for slot in out.size():
-		if out[slot] != null and reach[slot] == ComboPartEffects.UNREACHABLE:
-			return []
+		var free := out.find(null)
+		if tail != null and free >= 0:
+			out[free] = tail
 	return out
 
 ## Rundenbeginn: Runden-Marken zurücksetzen, Lumpensammler würfelt seine
@@ -2077,26 +1888,9 @@ func _apply_instant_clause(clause_id: String) -> void:
 			free_charm_pending = true
 		DealClause.FREE_SPINS:
 			free_spins_used.clear()
-		DealClause.NOISE_FILTER:
-			_apply_noise_filter()
 		DealClause.BIG_STORAGE:
 			storage_rows += boost
 			energy_changed.emit(energy)  # der Deckel ist gewachsen
-
-## Entstörung: der ganze Vorrat fällt sofort auf Ladung 1 (der Kühlkörper-Deckel
-## gilt auch hier). Durchgebrannte bleiben dunkel - sie werden repariert.
-func _apply_noise_filter() -> void:
-	var level := mini(NOISE_FILTER_CHARGE, int(charge_rule().get("cap", DieDefinition.CHARGE_MAX)))
-	var touched := 0
-	for die in owned_pool:
-		if die == null or die.burned_out or die.charge == level:
-			continue
-		die.charge = level
-		touched += 1
-	if touched == 0:
-		return
-	charge_logged.emit("%d Würfel entstört auf %d" % [touched, level])
-	note_pool_changed()
 
 ## Energie, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
 ## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zum Ring.
@@ -2489,7 +2283,6 @@ func roll_essence_round_state() -> void:
 	round_crit_count = 0
 	round_fumbles = 0
 	round_bare_dice = 0
-	fuse_used_this_round = false
 
 ## Gespeicherte Basispunkte dieses Würfel-Exemplars (0 = leer).
 func phosphor_store(die: DieDefinition) -> int:
@@ -2565,110 +2358,8 @@ func note_dice_scored(defs: Array[DieDefinition], participating: Array[int]) -> 
 func note_bare_dice(count: int) -> void:
 	round_bare_dice += maxi(0, count)
 
-# --- LADUNG: Regel und Buchungen ------------------------------------------------
-
-## Die Ladungs-Regel dieser Runde als EIN Dictionary - die EINE Stelle, an der
-## Charms und Klauseln zusammenkommen:
-##   chance    0,5   Überlast / Netzausfall: 1,0
-##   step      +1    Ableitung: −1 × Winkeladvokat (bei step < 0 gilt chance nicht)
-##   cap       3     Kühlkörper: 2
-##   can_burn  true  Kühlpause und Kühlkörper: false
-##   fuse_armed      Sicherung, solange sie diese Runde noch nicht gehalten hat
-func charge_rule() -> Dictionary:
-	var rule := DiceScoring.default_charge_rule()
-	var ids := charm_ids()
-	if _clause_active(DealClause.DRAIN):
-		rule["step"] = -1 * deal_bonus_factor()
-	if _clause_active(DealClause.OVERLOAD) or _clause_active(DealClause.POWER_FAILURE):
-		rule["chance"] = FORCED_CHARGE_CHANCE
-	if ids.has(Charm.HEAT_SINK):
-		rule["cap"] = HEAT_SINK_CAP
-		rule["can_burn"] = false
-	if _clause_active(DealClause.COOLING_BREAK):
-		rule["can_burn"] = false
-	rule["fuse_armed"] = ids.has(Charm.SAFETY_FUSE) and not fuse_used_this_round
-	return rule
-
-## "Würfel N" - die Vorrats-Position, an der die Chronik ihn nennt.
-func _die_label(die: DieDefinition) -> String:
-	var index := owned_pool.find(die)
-	return "Würfel %d" % (index + 1) if index >= 0 else "Ein Würfel"
-
-func _log_charge(die: DieDefinition, burned: bool) -> void:
-	if burned:
-		charge_logged.emit("%s brennt durch" % _die_label(die))
-	else:
-		charge_logged.emit("%s lädt auf %d" % [_die_label(die), die.charge])
-
-## Das EINE erzwungene +1 (Fumble, Prägen, Klausel): kein Wurf, sondern sicher -
-## und an der Spitze sicher durchgebrannt, sofern nicht die Seele immun ist, die
-## Regel das Brennen verbietet oder die Sicherung es abfängt.
-## true = der Würfel ist dabei durchgebrannt.
-func charge_up_forced(die: DieDefinition) -> bool:
-	if die == null or die.burned_out:
-		return false
-	var rule := charge_rule()
-	var cap := int(rule.get("cap", DieDefinition.CHARGE_MAX))
-	var souls: Array[String] = [die.essence_id]
-	var immune := EssenceEffects.immune_to_burnout(souls)
-	if die.charge >= cap:
-		if immune or not bool(rule.get("can_burn", true)):
-			return false
-		if bool(rule.get("fuse_armed", false)) and not fuse_used_this_round:
-			fuse_used_this_round = true
-			die.charge = 0
-			charge_logged.emit("%s: die Sicherung hält" % _die_label(die))
-			return false
-		die.burn_out()
-		_log_charge(die, true)
-		return true
-	die.charge = mini(cap, die.charge + 1)
-	_log_charge(die, false)
-	return false
-
-## Bucht die Ladung einer genommenen Hand: die END-Stände der (auf ECHTE Slots
-## umgerechneten) Aufschlüsselung wandern in die Defs. slots sind die gewerteten
-## Slots wie bei note_dice_scored; leer heißt "alles, was die Hand nennt".
-## Liefert je Änderung {die, slot, before, after, burned} für die Zeremonie -
-## gebucht ist hier schon alles (Buchung vor dem Licht).
-func book_charge_results(defs: Array[DieDefinition], breakdown: Dictionary,
-		slots: Array[int] = []) -> Array[Dictionary]:
-	var changes: Array[Dictionary] = []
-	var charges: Dictionary = breakdown.get("charges_after", {})
-	var burned: Array = breakdown.get("burned_after", [])
-	if bool(breakdown.get("fuse_used", false)):
-		fuse_used_this_round = true
-	var touched: Array[int] = []
-	for key in charges:
-		touched.append(int(key))
-	touched.sort()
-	for slot in touched:
-		if not slots.is_empty() and not slots.has(slot):
-			continue
-		if slot < 0 or slot >= defs.size() or defs[slot] == null:
-			continue
-		var die: DieDefinition = defs[slot]
-		if die.burned_out:
-			continue
-		var before := die.charge
-		var burns := burned.has(slot)
-		die.charge = maxi(0, int(charges[slot]))
-		if burns:
-			die.burn_out()
-		if before == die.charge and not burns:
-			continue
-		_log_charge(die, burns)
-		changes.append({"die": die, "slot": slot, "before": before,
-			"after": die.charge, "burned": burns})
-	if not changes.is_empty():
-		note_pool_changed()
-	return changes
-
-## Fumble: jeder Würfel, der beim ECHTEN Fumble in der Grube liegt, bekommt ein
-## erzwungenes +1 (Kühlmantel: −1 statt dessen). faces = obere Seite je Slot - die
-## Narbe wächst dort um +1. Ergebnisliste wie book_charge_results.
-func charge_fumble_dice(defs: Array[DieDefinition], faces: Array[int] = []) -> Array[Dictionary]:
-	var changes: Array[Dictionary] = []
+## Fumble: die Narbe wächst an der oberen Seite um +1 (faces = obere Seite je Slot).
+func scar_fumble_dice(defs: Array[DieDefinition], faces: Array[int] = []) -> void:
 	var scarred := false
 	for i in defs.size():
 		var die: DieDefinition = defs[i]
@@ -2678,53 +2369,8 @@ func charge_fumble_dice(defs: Array[DieDefinition], faces: Array[int] = []) -> A
 		if EssenceEffects.scars_on_fumble(die.essence_id) and face >= 0 and face < die.faces.size():
 			die.faces[face] += EssenceEffects.SCAR_GROWTH
 			scarred = true
-		if die.burned_out:
-			continue
-		var before := die.charge
-		var burned := false
-		if EssenceEffects.cools_on_fumble(die.essence_id):
-			die.charge_down()
-		else:
-			burned = charge_up_forced(die)
-		if before == die.charge and not burned:
-			continue
-		changes.append({"die": die, "slot": i, "before": before,
-			"after": die.charge, "burned": burned})
-	if not changes.is_empty() or scarred:
+	if scarred:
 		note_pool_changed()
-	return changes
-
-## Dauerbetrieb/Dauerstrom: nicht gespielte Würfel entladen gar nicht.
-func _cooling_spares_unplayed() -> bool:
-	return charm_ids().has(Charm.CONTINUOUS_DUTY) or _clause_active(DealClause.STANDING_CURRENT)
-
-## Erdung: am Rundenende entladen ALLE Würfel, auch die gespielten.
-func _cooling_hits_all() -> bool:
-	return charm_ids().has(Charm.GROUNDING)
-
-## Rundenende: jeder Vorrats-Würfel, der in DIESER Runde nicht gewertet hat,
-## verliert eine Ladung. Durchgebrannte sind ausgenommen - sie entladen nicht,
-## sie werden repariert.
-func cool_unplayed_dice() -> Array[DieDefinition]:
-	var cooled: Array[DieDefinition] = []
-	# Beide Schalter zugleich: die GESPIELTEN entladen (Erdung), die
-	# ungespielten nicht (Dauerbetrieb) - darum je Würfel entschieden.
-	var spares := _cooling_spares_unplayed()
-	var hits_all := _cooling_hits_all()
-	for die in owned_pool:
-		if die == null or die.burned_out or die.charge <= 0:
-			continue
-		var played := die_scored_this_round.has(die.get_instance_id())
-		if played and not hits_all:
-			continue
-		if not played and spares:
-			continue
-		if die.charge_down():
-			cooled.append(die)
-	if not cooled.is_empty():
-		charge_logged.emit("%d Würfel entladen" % cooled.size())
-		note_pool_changed()
-	return cooled
 
 ## Erster beteiligter Löschgas-Würfel (-1 = keiner). Er schluckt JEDEN Fumble,
 ## an dem er beteiligt war - kein Rundenlimit, kein Preis.
@@ -3215,10 +2861,7 @@ const KIND_PART := "part"
 const SECRET_MONEY_PER_ENERGY := 10
 ## Anteil der Katalysatoren am Sonderposten-Platz - die Gravur bleibt die Regel.
 const SECRET_CATALYST_CHANCE := 0.35
-## Eigene Ziehchance der Reparatur-Karte - sie wird VOR den Katalysatoren gezogen.
-const SECRET_REPAIR_CHANCE := 0.2
-## Eigene Ziehchance des ROHLINGS - er wird nach der Reparatur-Karte gezogen und ist
-## wie sie NUR hier zu haben (nie in Pack.SPECIAL_ROLL_WEIGHTS).
+## Eigene Ziehchance des ROHLINGS - er ist NUR hier zu haben (nie in Pack.SPECIAL_ROLL_WEIGHTS).
 const SECRET_BLANK_CHANCE := 0.25
 ## Eigene Ziehchance eines Moduls im Sonderbestand-Platz.
 const SECRET_PART_CHANCE := 0.25
@@ -3358,11 +3001,9 @@ func _roll_secret_stock() -> void:
 	secret_stock.append(_secret_wildcard_offer())
 
 ## Der Sonderposten-Platz führt beide Familien des Sonderbestands: meist ein
-## starke Gravur-Karte, manchmal eine Katalysator-Kassette, selten die Reparatur-Karte.
+## starke Gravur-Karte, manchmal eine Katalysator-Kassette.
 ## EIN Eingang, damit der Wildcard-Platz dieselbe Auswahl bekommt.
 func _secret_special_offer() -> Dictionary:
-	if randf() < SECRET_REPAIR_CHANCE and not _secret_catalyst_listed().has(Pack.CATALYST_REPAIR):
-		return _secret_catalyst_card(Pack.CATALYST_REPAIR)
 	if randf() < SECRET_BLANK_CHANCE and not _secret_blank_listed():
 		return _secret_blank_card()
 	if randf() < SECRET_PART_CHANCE:
@@ -3375,12 +3016,12 @@ func _secret_special_offer() -> Dictionary:
 
 ## Eine Katalysator-Kassette, die nicht schon in der Auslage liegt - zwei gleiche
 ## Plätze lesen sich als Fehler. Liegen alle, weicht der Platz auf eine
-## Gravur aus statt leer zu bleiben. Die Reparatur-Karte hat ihre eigene Chance.
+## Gravur aus statt leer zu bleiben.
 func _secret_catalyst_offer() -> Dictionary:
 	var listed := _secret_catalyst_listed()
 	var pool: Array[String] = []
 	for id in Pack.catalyst_ids():
-		if not listed.has(id) and not Pack.catalyst_secret_only(id):
+		if not listed.has(id):
 			pool.append(id)
 	if pool.is_empty():
 		return {}
@@ -3570,14 +3211,3 @@ func clear_all_essences() -> void:
 
 
 
-## Test-Knopf: jede Ladung des Vorrats zufällig 0..CHARGE_MAX, Ruß gelöscht -
-## damit Bucht, Lampen und Wertung ohne lange Runden zu sehen sind.
-func randomize_charges(rng: RandomNumberGenerator = null) -> void:
-	for die in owned_pool:
-		if die == null:
-			continue
-		die.burned_out = false
-		die.charge = rng.randi_range(0, DieDefinition.CHARGE_MAX) if rng != null \
-			else randi_range(0, DieDefinition.CHARGE_MAX)
-	charge_logged.emit("Ladung des Vorrats gewürfelt")
-	note_pool_changed()

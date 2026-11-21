@@ -192,16 +192,15 @@ func _init() -> void:
 	name = "DataCell"
 
 ## Einziger Eingang: baut die Zelle einer Sorte (Pack.SHELF_ORDER) in ihrer Paketgröße mit
-## dem Prägenetz ihres Pakets. gilded = die Reparatur-Karte (Gold), blank = der Rohling.
+## dem Prägenetz ihres Pakets. blank = der Rohling.
 func setup(cell_sort: String, cell_tier: int = 0, net: Array = [],
-		gilded := false, blank := false) -> void:
+		blank := false) -> void:
 	sort = cell_sort
 	_carrier = carrier_of(sort)
-	# Reparatur-Karte und ROHLING sind GRÖSSENLOS: volle Stufe, ihr Ton IST ihr Zeichen.
-	tier = Pack.TIER_KOLOSSAL if gilded or blank else maxi(cell_tier, 0)
+	# Der ROHLING ist GRÖSSENLOS: volle Stufe, sein Ton IST sein Zeichen.
+	tier = Pack.TIER_KOLOSSAL if blank else maxi(cell_tier, 0)
 	stamp_net = net.duplicate() if not net.is_empty() else StampNet.empty_net()
-	tint = PackDrawerView.REPAIR_TINT if gilded \
-		else PackDrawerView.tint_of(sort, "", stamp_net, blank)
+	tint = PackDrawerView.tint_of(sort, "", stamp_net, blank)
 	_build_materials()
 	_body = Node3D.new()
 	_body.name = "Body"

@@ -25,8 +25,8 @@ func test_a_click_reports_the_part_and_keeps_the_list_open() -> void:
 	view.toggle.pressed.emit()
 	var chosen: Array[String] = []
 	view.part_chosen.connect(func(id: String) -> void: chosen.append(id))
-	(view.buttons[ComboPart.MAGNETRON] as Button).pressed.emit()
-	assert_eq(chosen, [ComboPart.MAGNETRON] as Array[String])
+	(view.buttons[ComboPart.HIGH_VOLTAGE_TUBE] as Button).pressed.emit()
+	assert_eq(chosen, [ComboPart.HIGH_VOLTAGE_TUBE] as Array[String])
 	assert_true(view.is_open())
 
 func test_the_list_is_sorted_by_rarity() -> void:

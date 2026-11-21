@@ -209,7 +209,7 @@ func _tile_size() -> Vector2:
 
 ## Detail-Kachel: das WÜRFELNETZ wie im Netzfeld der Grube, damit Materialien
 ## UND Runen hier wie dort gelesen werden - die Augensumme sitzt in der
-## leeren unteren rechten Kreuz-Ecke, die Ladungs-Lampen oben rechts. Keine oben
+## leeren unteren rechten Kreuz-Ecke. Keine oben
 ## liegende Seite: im Lager liegt kein Würfel.
 func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: int) -> void:
 	var center := CenterContainer.new()
@@ -219,8 +219,6 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: 
 
 	var cell := u * DETAIL_CELL
 	var net := DieNetView.build(def, -1, cell)
-	if def.burned_out:
-		net.modulate = BURNED_NET_DIM  # tot, nicht heiß
 	center.add_child(net)
 	if index < _nets.size():
 		_nets[index] = net
@@ -236,18 +234,6 @@ func _fill_detailed(tile: Button, def: DieDefinition, highlighted: bool, index: 
 const SOUL_BORDER_U := 0.45
 const PLAIN_BORDER_U := 0.2
 const SOUL_GLOW_ALPHA := 0.35
-
-## Die LADUNG als FARBSTUFE über der Seelen-Grundlage: der Saum wandert stufenweise
-## in die Ladungsfarbe und bekommt ihren Außenschein - so sortiert der Spieler den
-## Vorrat nach Ladung, ohne jeden Würfel anzusehen. EINE Farbquelle ist der Würfel
-## selbst (DieFaceDisplay.CHARGE_COLOR).
-const CHARGE_TINT := DieFaceDisplay.CHARGE_COLOR
-const CHARGE_STEPS := [0.0, 0.35, 0.7, 1.0]
-const CHARGE_GLOW_ALPHA := 0.55
-## Durchgebrannt: dunkle Kachel, matter Saum, gedimmtes Netz.
-const BURNED_BG := Color("#17141fff")
-const BURNED_BORDER := Color(0.32, 0.29, 0.31)
-const BURNED_NET_DIM := Color(0.45, 0.42, 0.45, 1.0)
 
 ## Kachel-Saum: gold für das aktuelle Ziel, sonst das Essenzglühen
 ## bzw. Cyan bei normalen Würfeln - Spezialwürfel sind so vor Versehen geschützt.
@@ -281,20 +267,6 @@ static func tile_box(def: DieDefinition, unit: float, highlighted: bool) -> Styl
 		bg = Color(tinted.r, tinted.g, tinted.b, bg.a)
 	var width_u := SOUL_BORDER_U if souled else PLAIN_BORDER_U
 	var glow_alpha := SOUL_GLOW_ALPHA if souled else 0.0
-	# Die LADUNG legt sich ALS ZWEITER SAUM über die Seelen-Grundlage; Ruß nimmt
-	# beides zurück (der Würfel ist tot, nicht heiß).
-	if def.burned_out:
-		if not highlighted:
-			border = BURNED_BORDER  # der Gold-Saum des Ziels gewinnt weiterhin
-		bg = BURNED_BG
-		width_u = PLAIN_BORDER_U
-		glow_alpha = 0.0
-	elif def.charge > 0:
-		var heat := float(CHARGE_STEPS[clampi(def.charge, 0, DieDefinition.CHARGE_MAX)])
-		if not highlighted:
-			border = border.lerp(CHARGE_TINT, heat)
-		width_u = maxf(width_u, SOUL_BORDER_U * heat)
-		glow_alpha = maxf(glow_alpha, CHARGE_GLOW_ALPHA * heat)
 	return box(unit, bg, border, width_u, glow_alpha)
 
 ## Tooltip: Name, Augensumme, Seiten (aufsteigend) und Material-Seiten.
@@ -308,8 +280,7 @@ func _describe(def: DieDefinition) -> String:
 		parts.append(str(v))
 	var text := "%s\nAugensumme %d\nSeiten: %s" % [
 		def.display_name, DiceRowView.eye_total(def), " ".join(parts)]
-	# Seele UND Ladung kommen aus der EINEN Quelle - der Kanten-Chip erklärt beide,
-	# und ein zweiter Seelen-Name stünde sonst doppelt.
+	# Der Kanten-Chip erklärt die Seele - ein zweiter Name stünde sonst doppelt.
 	var edge := DieNetView.hint_for(def, DieNetView.EDGE)
 	if edge != "":
 		text += "\n%s" % edge

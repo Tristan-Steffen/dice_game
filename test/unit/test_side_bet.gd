@@ -330,21 +330,19 @@ func test_ware_roll_respects_minimum_values():
 	for i in 400:
 		var bet := SideBet._from_template(mid)
 		kinds[bet.payout_kind] = true
-		if bet.payout_kind == SideBet.Payout.CATALYST:
-			assert_eq(bet.reward_item_id, Pack.CATALYST_COOL, "nur die Kühlrippe kostet ≤ $10")
 		if bet.payout_kind == SideBet.Payout.PART:
 			assert_true(bet.reward_part().price <= 10, "ein Modul bis zum Wert")
+	assert_false(kinds.has(SideBet.Payout.CATALYST), "die Treibladung kostet $14")
 	assert_false(kinds.has(SideBet.Payout.OPERATOR), "Operatoren erst ab $11")
 	assert_false(kinds.has(SideBet.Payout.PACK), "Sonderposten erst ab $18")
 	assert_true(kinds.has(SideBet.Payout.MONEY) and kinds.has(SideBet.Payout.PACKS))
 
-func test_ware_roll_never_pays_repair_or_blank():
+func test_ware_roll_never_pays_a_blank():
 	var rich := {"id": "z", "condition": SideBet.Condition.CLEARED, "stake": 30,
 		"odds": SideBet.ODDS_HARD, "name": "z", "desc": "z"}
 	for i in 300:
 		var bet := SideBet._from_template(rich)
 		for card in bet.reward_cards():
-			assert_false(card.is_repair(), "keine Reparatur-Karte")
 			assert_false(card.is_blank_card(), "kein Rohling")
 
 ## Größte Größe, die der Wert trägt; Anzahl = Wert / Preis, höchstens vier.
@@ -394,9 +392,9 @@ func test_payout_factor_lifts_every_ware():
 
 func test_catalyst_and_operator_labels():
 	var cat := _with("full_house", SideBet.Payout.CATALYST)
-	cat.reward_item_id = Pack.CATALYST_CHILL
-	assert_eq(cat.reward_label(), "1 Kältebad")
-	assert_true(cat.reward_cards()[0].is_cooling())
+	cat.reward_item_id = Pack.CATALYST_PROPELLANT
+	assert_eq(cat.reward_label(), "1 Treibladung")
+	assert_true(cat.reward_cards()[0].is_catalyst())
 	var op := _with("shipment", SideBet.Payout.OPERATOR)
 	op.reward_item_id = StampNet.OP_MIRROR
 	assert_eq(op.reward_label(), "1 Spiegel")

@@ -119,7 +119,6 @@ func _ready() -> void:
 		&"slot_win": _load_or(&"slot_win", _chime.bind([G5, BB5, D6], 0.7, 0.05)),
 		&"part_install": _load_or(&"part_install", _latch.bind(0.07)),
 		&"part_move": _load_or(&"part_move", _click.bind(BB4, 0.06)),
-		&"charge_burn": _load_or(&"charge_burn", _zap.bind(F5, D3, 0.6)),
 	}
 	_playbacks = {
 		BUS_UI: _make_player(BUS_UI),

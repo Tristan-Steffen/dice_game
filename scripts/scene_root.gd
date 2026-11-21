@@ -244,15 +244,6 @@ const SCORE_STEP_GAP_MIN := 0.1
 ## Mult-Orbs (TableScreen.crit_pit_mult) ausspielen, bevor der nächste Schritt
 ## den Trommelwirbel fortsetzt - der Krit bricht das Accelerando bewusst.
 const CRIT_HOLD := 0.45
-## LADUNG in der Zeremonie: der Blitz einer ladenden Zündung, der Rundum-Einschlag
-## des Durchbrenners in die Grubenwände und der gedimmte Blitz des Entladens.
-const CHARGE_FLASH_STRENGTH := 0.9
-const CHARGE_BURN_SLAM := 1.0
-## Überschlag (Stufe 3): der Wand-Blitz bleibt deutlich unter dem Durchbrenner.
-const CHARGE_OVERSLAG_SLAM := 0.4
-const COOLING_FLASH_STRENGTH := 0.45
-## Das Entladen am Rundenende: alle betroffenen Würfel zugleich, kurz gehalten.
-const COOLING_TIME := 0.6
 ## Drain: Grunddauer + je Überladungs-Rollover; jeder Rollover hält kurz inne.
 const DRAIN_BASE_TIME := 0.8
 const DRAIN_PER_ROLLOVER := 0.4
@@ -784,24 +775,11 @@ var pre_reroll_runes: Dictionary = {}  # Runen der oberen Seiten VOR dem Neu-Wü
 var pre_reroll_det_links: Dictionary = {}  # Runen-Glieder VOR dem Neu-Würfeln
 var pre_reroll_essence_links: Dictionary = {}  # Röntgen-Glieder VOR dem Neu-Würfeln
 var pre_reroll_levels: Dictionary = {}  # Material-Zustände VOR dem Neu-Würfeln
-var pre_reroll_charges: Dictionary = {}  # Ladungen VOR dem Neu-Würfeln
-var pre_reroll_burned: Dictionary = {}  # Durchgebrannte VOR dem Neu-Würfeln
 var pre_reroll_phosphor: Dictionary = {}  # Phosphor-Speicher VOR dem Neu-Würfeln
 var pre_reroll_phosphor_mult: Dictionary = {}  # dito für den Mult-Speicher
 var pre_reroll_order: Array[int] = []  # angesagte Reihenfolge VOR dem Neu-Würfeln
 var pre_reroll_first_scoring: Dictionary = {}  # Erstwertungs-Marken VOR dem Neu-Würfeln
-## Eigener Würfelbecher der LADUNG - der einzige Zufall der Wertung.
-var charge_rng := RandomNumberGenerator.new()
-## Was die letzte Buchung der Ladung bewegt hat (Zug, Fumble, Rundenende) - die
-## Zeremonien der Welle 3 hängen daran, heute liest sie niemand.
-var _last_charge_results: Array[Dictionary] = []
 var _part_energy_shown := 0
-## Der ALTE Ladungsstand jedes Würfels, dessen Urteil in der Zeremonie noch
-## aussteht (Slot -> {"level", "burned"}): gebucht ist längst, gezeigt wird der
-## Stand von vorher, bis _play_charge_beat den Würfel freigibt.
-var _charge_holds: Dictionary = {}
-var _last_fumble_charges: Array[Dictionary] = []
-var _last_cooled_dice: Array[DieDefinition] = []
 ## Vom Spieler gelegte Zählreihenfolge der liegenden Würfel (Slot-Indizes).
 ## Jeder Wurf setzt sie auf die kanonische Reihe zurück; Ziehen permutiert sie,
 ## und die Reihe in der Grube wird DARAUS gerendert - nie umgekehrt.
@@ -1465,7 +1443,7 @@ func _setup_screen_spill_lights(workshop_corner: Rect2) -> void:
 		Rect2(table_screen.pit_window.position, table_screen.pit_window.size), cyan)
 	# Kombi-Cluster heller: dort stehen echte 3D-Chips, die ohne Licht schwarz
 	# blieben (die anderen Fenster beleuchten nur flaches Glas).
-	_add_spill_light("ClusterSpill", table_screen.cluster_rect, Color("#ffd9f0"), CLUSTER_SPILL_FACTOR)
+	_add_spill_light("ClusterSpill", table_screen.cluster_rect_for(true), Color("#ffd9f0"), CLUSTER_SPILL_FACTOR)
 	_add_spill_light("ScoreSpill", table_screen.score_rect, cyan)
 	_add_spill_light("HubSpill",
 		Rect2(table_screen.hub.position, table_screen.hub.size), cyan)
@@ -1536,8 +1514,8 @@ func _setup_debug_parts() -> void:
 		return
 	debug_parts = DebugPartsView.new()
 	table_screen.add_child(debug_parts)
-	# Links neben dem breiten Cluster ist kein Filz mehr: der Knopf steht unter seiner linken Kante.
-	var cluster := table_screen.cluster_rect
+	# Der Knopf steht unter der linken Kante des ausgefahrenen Clusters.
+	var cluster := table_screen.cluster_rect_for(true)
 	debug_parts.place(Vector2(cluster.position.x + debug_parts.size.x,
 		cluster.end.y + DEBUG_PARTS_GAP + DebugPartsView.TOGGLE_SIZE.y))
 	debug_parts.part_chosen.connect(_on_debug_part_chosen)
@@ -1671,7 +1649,6 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_packs_requested.connect(_on_debug_packs_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
-		table_screen.hub.test_charges_requested.connect(_on_test_charges_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
 		table_screen.hub.lexikon_requested.connect(func() -> void: open_lexikon())
 
@@ -1694,19 +1671,6 @@ func _setup_settings_ui() -> void:
 	test_engravings_button.pressed.connect(_on_test_engravings_pressed)
 	settings_menu.add_child(test_engravings_button)
 	CasinoStyle.style_button(test_engravings_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
-
-	var test_charges_button := Button.new()
-	test_charges_button.text = "🧪 Ladung würfeln"
-	test_charges_button.custom_minimum_size = Vector2(0, 48)
-	test_charges_button.pressed.connect(_on_test_charges_pressed)
-	settings_menu.add_child(test_charges_button)
-	CasinoStyle.style_button(test_charges_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, 14)
-
-## Test-Knopf: die Ladung aller Vorrats-Würfel zufällig neu setzen.
-func _on_test_charges_pressed() -> void:
-	if run == null:
-		return
-	run.randomize_charges()
 
 ## Casino-Look der verbliebenen 2D-Spiel-UI; der Shop stylt sich selbst.
 func _style_ui() -> void:
@@ -1807,16 +1771,19 @@ func _setup_combo_chips() -> void:
 	for key: String in table_screen.combo_cells:
 		var cell: ComboCellView = table_screen.combo_cells[key]
 		cell.socket_mode = true
-		var corner_a := table_screen.pixel_to_world(cell.position)
-		var corner_b := table_screen.pixel_to_world(cell.position + cell.size)
+		var wide := table_screen.cell_rect_for(key, true)
+		var corner_a := table_screen.pixel_to_world(wide.position)
+		var corner_b := table_screen.pixel_to_world(wide.end)
 		var chip := ComboChipView.new()
 		chip.name = "Chip_%s" % key
 		chip.combo_key = key  # vor setup: die Pick-Körper tragen ihn
 		chips_root.add_child(chip)
-		chip.position = (corner_a + corner_b) / 2.0
 		# Modell-X entlang der Zellbreite (Welt+Z), Display-Band zum Spieler (-X).
 		chip.rotation.y = -PI / 2.0
 		chip.setup(absf(corner_b.z - corner_a.z), absf(corner_b.x - corner_a.x))
+		chip.set_cells(table_screen.pixel_to_world(table_screen.cell_rect_for(key, false).get_center()),
+			table_screen.pixel_to_world(wide.get_center()))
+		chip.set_extended(table_screen.cluster_extended, 0.0)
 		chip.sync_cell(cell)
 		combo_chips[key] = chip
 	ScreenReflection.mark_reflective(chips_root)
@@ -2865,7 +2832,7 @@ func _on_stream_struck(time: float) -> void:
 			hits.append(face)
 	if chamber_rig != null and is_instance_valid(chamber_rig):
 		chamber_rig.pulse(time)
-	_strike_die(hits, workshop.burn_repaired(), time, _press_gen, run)  # nicht erwartet
+	_strike_die(hits, time, _press_gen, run)  # nicht erwartet
 
 ## EIN Funke von from nach to - alle Funken einer Zeremonie führt _sparks.
 func _fly_spark(from: Vector3, to: Vector3, tint: Color, time: float) -> void:
@@ -2877,8 +2844,8 @@ func _fly_spark(from: Vector3, to: Vector3, tint: Color, time: float) -> void:
 	spark.fly_to(to, time, SPARK_PEAK)
 
 ## Beim Einschlag steht der gebuchte Stand da - ALLE Seiten auf einmal -, die
-## getroffenen blitzen grün, und der Würfel pulst - repariert blitzt er golden.
-func _strike_die(hits: Array[int], repaired: bool, delay: float, generation: int,
+## getroffenen blitzen grün, und der Würfel pulst.
+func _strike_die(hits: Array[int], delay: float, generation: int,
 		launched: GameRun) -> void:
 	await get_tree().create_timer(maxf(delay, 0.0)).timeout
 	if run != launched or generation != _press_gen:
@@ -2897,8 +2864,6 @@ func _strike_die(hits: Array[int], repaired: bool, delay: float, generation: int
 		stage.emitter.ripple()
 	if stage.faces == null or not is_instance_valid(stage.faces):
 		return
-	if repaired:
-		_flash_die_tint(stage.faces, stage.faces.body_tint, stage.faces.scale)
 	for face in hits:
 		stage.faces.set_face_number_tint(face, REVEAL_FLASH_COLOR)
 	await get_tree().create_timer(SERIES_FLASH_TIME).timeout
@@ -2949,9 +2914,6 @@ func _series_tint(workshop: WorkshopView) -> Color:
 			continue
 		return PackDrawerView.tint_of(String(card.get("sort", "")), "",
 			card.get("net", []), bool(card.get("blank", false)))
-	# Ohne Wert-Karte trägt eine Reparatur-Reihe ihr Gold über die Walze.
-	if workshop.burn_repaired():
-		return PackDrawerView.REPAIR_TINT
 	return PressNetView.VALUE_TINT
 
 ## ... und seine INTENSITÄT: die höchste Paketgröße der Serie, dieselbe Leiter, die
@@ -3303,7 +3265,7 @@ func _seat_bench_blank(workshop: WorkshopView) -> void:
 	if center.x < 0.0:
 		return
 	var at := table_screen.pixel_to_world(center)
-	bench_blank_cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at, net, false,
+	bench_blank_cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at, net,
 		not filled)
 	_lay_cell_hard(bench_blank_cell, at)
 
@@ -4331,7 +4293,7 @@ func _spawn_shop_pack(ware: Resource, at: Vector3) -> DataCellView:
 		return _spawn_bag(ware as ModulePack, at)
 	var pack := ware as Pack
 	var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, at, pack.stamp_net,
-		pack.is_repair(), pack.from_blank())
+		pack.from_blank())
 	cell.set_count(maxi(pack.count, 1))
 	return cell
 
@@ -6416,7 +6378,7 @@ func _spawn_bet_body(spec: Dictionary, target: Vector3) -> Node3D:
 		var top: Pack = packs[0] if not packs.is_empty() else null
 		var cell := _spawn_data_cell(String(spec.get("sort", Pack.SHELF_SPECIAL)),
 			int(spec.get("tier", Pack.TIER_NORMAL)), target,
-			top.stamp_net if top != null else [], top != null and top.is_repair(),
+			top.stamp_net if top != null else [],
 			top != null and top.from_blank())
 		cell.set_count(maxi(int(spec.get("count", 1)), 1))
 		cell.badge_on_face = true  # neben der Karte läge die Marke im Nachbarplatz
@@ -8143,7 +8105,7 @@ func _sync_shelf_cells(workshop: WorkshopView) -> void:
 			cell = null
 		if cell == null or not is_instance_valid(cell):
 			cell = _spawn_data_cell(Pack.shelf_of(pack), pack.tier, target, pack.stamp_net,
-				pack.is_repair(), pack.from_blank())
+				pack.from_blank())
 			cell.set_body_scale(workshop.shelf_cell_scale())
 			shelf_cells[uid] = cell
 			_show_shelf_cell(cell, uid, line, target, fresh)
@@ -8274,7 +8236,6 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			var home := _shelf_seat(workshop, uid, workshop.shelf_column_of(uid))
 			cell = _spawn_data_cell(sorts[i], slotted.tier if slotted != null else 0,
 				home, slotted.stamp_net if slotted != null else [],
-				slotted != null and slotted.is_repair(),
 				slotted != null and slotted.from_blank())
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das Magazin-Maß
 			cell.badge_on_face = true
@@ -8347,11 +8308,11 @@ func _lay_cell_hard(cell: DataCellView, at: Vector3) -> void:
 	cell.set_socketed(true)  # die Kopfkante brennt: sie ist Teil der Rechnung
 
 func _spawn_data_cell(sort: String, tier: int, at: Vector3,
-		net: Array = [], gilded := false, blank := false) -> DataCellView:
+		net: Array = [], blank := false) -> DataCellView:
 	var cell := DataCellView.new()
 	cell.name = "DataCell"
 	add_child(cell)
-	cell.setup(sort, tier, net, gilded, blank)
+	cell.setup(sort, tier, net, blank)
 	# Dieselbe Vierteldrehung wie ein Tray-Würfel: erst damit steht das Siegel
 	# aufrecht im Bild (Bildschirm-oben = Welt+X).
 	cell.rotation.y = -PI / 2.0
@@ -9000,7 +8961,7 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 			var pack := option as Pack
 			var target := _data_cell_seat(px) + floor_drop
 			var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, from, pack.stamp_net,
-				pack.is_repair(), pack.from_blank())
+				pack.from_blank())
 			cell.badge_on_face = true
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 			cell.lie_on_glass(from)
@@ -11657,14 +11618,27 @@ func _screen_zoom_zone(zone_name: String, rect: Rect2, configure_target: Callabl
 	return _add_click_zone(zone_name, center,
 		Vector3(absf(corner_a.x - corner_b.x), 4.0, absf(corner_a.z - corner_b.z)))
 
-## Zoom-Ziel + Klickzone des Kombi-Clusters aus der Display-Fläche ableiten.
+## Zoom-Ziel + Klickzone des Kombi-Clusters aus der Display-Fläche ableiten: die Station
+## rahmt den AUSGEFAHRENEN Cluster (dort steht er ausgefahren), die Klickzone folgt dem Layout.
 func _setup_combos_zoom() -> void:
-	combos_click_zone = _screen_zoom_zone("CombosClickZone",
-		table_screen.cluster_rect, camera_rig.configure_combos_target)
-	var a := table_screen.pixel_to_world(table_screen.cluster_rect.position)
-	var b := table_screen.pixel_to_world(table_screen.cluster_rect.end)
+	var wide := table_screen.cluster_rect_for(true)
+	combos_click_zone = _screen_zoom_zone("CombosClickZone", wide, camera_rig.configure_combos_target)
+	var a := table_screen.pixel_to_world(wide.position)
+	var b := table_screen.pixel_to_world(wide.end)
 	camera_rig.configure_combos_target(camera_rig.combos_target,
 		Vector2(absf(b.z - a.z), absf(b.x - a.x)) * 0.5)
+	_place_combos_click_zone()
+
+## Die Klickzone deckt den Cluster, wie er gerade steht (Endzustand).
+func _place_combos_click_zone() -> void:
+	if combos_click_zone == null or table_screen == null:
+		return
+	var rect := table_screen.cluster_rect
+	var a := table_screen.pixel_to_world(rect.position)
+	var b := table_screen.pixel_to_world(rect.end)
+	combos_click_zone.position = table_screen.pixel_to_world(rect.get_center())
+	var box := (combos_click_zone.get_child(0) as CollisionShape3D).shape as BoxShape3D
+	box.size = Vector3(absf(a.x - b.x), 4.0, absf(a.z - b.z))
 
 ## Zoom-Ziel + Klickzone des Wertungs-Bildschirms (gleiche Mechanik wie der Kombi-Cluster).
 func _setup_score_zoom() -> void:
@@ -12103,6 +12077,7 @@ func _process(delta: float) -> void:
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
 	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
+	_sync_combo_extension()  # die Chips fahren ihre Sockel aus, wo man stecken kann
 	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_pack_areas()  # die Öffnungs-Fläche unter dem Vorrat
 	_sync_luck_die()  # und der Glückswürfel rechts daneben
@@ -12110,7 +12085,6 @@ func _process(delta: float) -> void:
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
-	_sync_combo_covers()
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
 	_sync_music()  # und die Musik-Schichten folgen der Phase
@@ -12444,22 +12418,12 @@ func _sync_screen_action_buttons() -> void:
 ## projizierten Stelle, mit der Augenzahl, die oben lag. Die Würfel des LETZTEN
 ## Wurfs blinken - sie haben den Fumble ausgelöst.
 func _show_fumble_marks() -> void:
-	# Welcher Slot beim Fumble +1 bekam - und welcher dabei durchbrannte.
-	var charged := {}
-	var burned := {}
-	for change in _last_fumble_charges:
-		var slot := int(change.get("slot", -1))
-		charged[slot] = true
-		if bool(change.get("burned", false)):
-			burned[slot] = true
 	var marks: Array[Dictionary] = []
 	for i in _visible_pit_slots():
 		marks.append({
 			"pixel": table_screen.world_to_pixel(dice.bodies[i].global_position),
 			"value": dice.values[i],
 			"fresh": last_thrown_slots.has(i),
-			"charged": charged.has(i),
-			"burned": burned.has(i),
 		})
 	table_screen.show_fumble_marks(marks, _die_pixel_side())
 
@@ -12704,25 +12668,6 @@ func _slot_essences() -> Dictionary:
 			essences[i] = def.essence_id
 	return essences
 
-## Slot -> Ladung bzw. durchgebrannt, aus den Defs gelesen. Beide sind
-## slot-gebunden, werden also umgeschlüsselt und für den Farkle-Vergleich
-## mitgeschnappt; kalte und heile Würfel fehlen einfach.
-func _slot_charges() -> Dictionary:
-	var charges := {}
-	for i in dice.count():
-		var def: DieDefinition = dice.slot_defs[i]
-		if def != null and def.charge > 0:
-			charges[i] = def.charge
-	return charges
-
-func _slot_burned() -> Dictionary:
-	var burned := {}
-	for i in dice.count():
-		var def: DieDefinition = dice.slot_defs[i]
-		if def != null and def.burned_out:
-			burned[i] = true
-	return burned
-
 ## Gespeicherte Basispunkte je Wurf-Slot (Phosphoreszenz) - Zustand am Würfel-
 ## Exemplar, den nur GameRun führt; er sammelt über den ganzen Run.
 func _phosphor_stores() -> Dictionary:
@@ -12867,12 +12812,6 @@ func _score_ctx() -> Dictionary:
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
 		DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets(),
 		DiceScoring.CTX_RUNES: _slot_runes(),  # Runen der oben liegenden Seiten
-		# LADUNG: Stand und Ruß je Würfel plus die Regel-Parameter der Runde. Die
-		# Würfe (CTX_CHARGE_ROLLS) fehlen hier mit Absicht - die Vorschau lädt nicht.
-		DiceScoring.CTX_CHARGES: _slot_charges(),
-		DiceScoring.CTX_BURNED: _slot_burned(),
-		DiceScoring.CTX_CHARGE_RULE: run.charge_rule(),
-		DiceScoring.CTX_EMBER_CORE: run.charm_ids().has(Charm.EMBER_CORE),  # Joker aus Ruß
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
 		# Kaltverfestigung: hand-weit, also ohne Umschlüsselung in _score_ctx_for_slots.
 		DiceScoring.CTX_CLAUSE_GROWTH: run.clause_face_growth(),
@@ -12987,8 +12926,7 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	ctx[DiceScoring.CTX_PLAYER_ORDER] = mapped_order
 	# Glieder hängen ebenfalls am Slot - auf die gefilterte Auswahl umschlüsseln,
 	# sonst feuern sie am falschen Würfel (gilt für beide Glieder-Schlüssel).
-	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_ESSENCE_LINKS,
-			DiceScoring.CTX_CHARGE_ROLLS]:
+	for link_key in [DiceScoring.CTX_DET_LINKS, DiceScoring.CTX_ESSENCE_LINKS]:
 		var mapped_links := {}
 		var links: Dictionary = ctx.get(link_key, {})
 		for s in links:
@@ -13006,8 +12944,7 @@ func _score_ctx_for_slots(slots: Array[int]) -> Dictionary:
 	# Essenzen, Runen und der Phosphor-Speicher hängen ebenso am Slot.
 	for essence_key in [DiceScoring.CTX_ESSENCES, DiceScoring.CTX_ESSENCE_SET, DiceScoring.CTX_RUNES,
 			DiceScoring.CTX_PHOSPHOR_STORE, DiceScoring.CTX_PHOSPHOR_MULT,
-			DiceScoring.CTX_FIRST_SCORING, DiceScoring.CTX_EQUAL_FACES,
-			DiceScoring.CTX_CHARGES, DiceScoring.CTX_BURNED]:
+			DiceScoring.CTX_FIRST_SCORING, DiceScoring.CTX_EQUAL_FACES]:
 		var mapped := {}
 		var source: Dictionary = ctx.get(essence_key, {})
 		for slot in source:
@@ -13318,8 +13255,6 @@ func _on_throw_button_pressed() -> void:
 		pre_reroll_det_links = _det_links()
 		pre_reroll_essence_links = _essence_links()
 		pre_reroll_levels = _material_levels()
-		pre_reroll_charges = _slot_charges()
-		pre_reroll_burned = _slot_burned()
 		pre_reroll_phosphor = _phosphor_stores()
 		pre_reroll_phosphor_mult = _phosphor_mults()
 		pre_reroll_first_scoring = _first_scoring_flags()
@@ -13554,8 +13489,6 @@ func _on_roll_finished() -> void:
 	old_ctx[DiceScoring.CTX_DET_LINKS] = pre_reroll_det_links
 	old_ctx[DiceScoring.CTX_ESSENCE_LINKS] = pre_reroll_essence_links
 	old_ctx[DiceScoring.CTX_MATERIAL_LEVELS] = pre_reroll_levels
-	old_ctx[DiceScoring.CTX_CHARGES] = pre_reroll_charges
-	old_ctx[DiceScoring.CTX_BURNED] = pre_reroll_burned
 	old_ctx[DiceScoring.CTX_ESSENCES] = pre_reroll_essences
 	old_ctx[DiceScoring.CTX_ESSENCE_SET] = EssenceEffects.effective_sets(pre_reroll_essences, _discarded_essence_ids())
 	old_ctx[DiceScoring.CTX_RUNES] = pre_reroll_runes
@@ -13665,13 +13598,10 @@ func _on_farkle(forgivable: bool = true) -> void:
 	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
 		_play_rune_energy_volley(consolation_energy)
-	# LADUNG: der echte Fumble heizt die ganze Hand - erzwungenes +1 auf jeden
-	# Würfel, der in der Grube liegt. Ein verziehener Fumble kommt nie hierher.
-	_last_fumble_charges = run.charge_fumble_dice(active_kinds, dice.face_indices)
+	run.scar_fumble_dice(active_kinds, dice.face_indices)
 	# Beim Fumble fliegen die Würfel zu schnell weg, um sie zu lesen: an ihrer
-	# Stelle bleibt der Umriss samt Augenzahl stehen. NACH der Ladungs-Buchung -
-	# die Umrisse tragen sie mit. Vor dem Verwerfen; der Phönixfeder-Zweig nimmt
-	# sie genauso mit.
+	# Stelle bleibt der Umriss samt Augenzahl stehen. Vor dem Verwerfen; der
+	# Phönixfeder-Zweig nimmt sie genauso mit.
 	if table_screen != null:
 		_show_fumble_marks()
 	momentum_streak = 0
@@ -13778,10 +13708,6 @@ func _on_take_button_pressed() -> void:
 	var sel_participating: Array[int] = sel_shape["participating"]
 	var sel_scored: Array[int] = sel_shape["scored"]
 	var sel_order: Array[int] = sel_shape["order"]
-	# LADUNG: die Würfe der Zündungen EINMAL je Zug auswürfeln und einfrieren -
-	# danach ist die Wertung wieder rein; hand["score"] ist damit veraltet,
-	# gezahlt wird breakdown["total"].
-	sel_ctx[DiceScoring.CTX_CHARGE_ROLLS] = DiceScoring.roll_charge_rolls(sel_scored, charge_rng)
 	# Zähl-Reihenfolge steckt in der Wertung selbst (DiceScoring.trigger_order =
 	# die aufgereihte Reihe) - kein Anordnungs-Parameter mehr, seit Krits am
 	# Würfel hängen können und die Ordnung wertungsrelevant ist.
@@ -13791,44 +13717,28 @@ func _on_take_button_pressed() -> void:
 	# Geld, das EINZELNE Zündungen erzeugen (Goldseiten, Seelen-Geld), hängt an
 	# seiner Zündung: der Plan reist in der Schrittliste mit, die Zeremonie zahlt
 	# ihn dort. Noch in AUSWAHL-Indizes, also vor dem Rückrechnen anhängen.
-	var sel_burned: Array[int] = []
-	for k in sel_scored:
-		if DiceScoring.burned_for(sel_ctx, k):
-			sel_burned.append(k)
 	ScoreBreakdown.attach_activation_money(breakdown, MaterialEffects.plan_activation_money(
 		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
 		GameRun.is_stress_round(run.round_number), hands_taken_this_round,
-		sel_participating, sel_burned,
+		sel_participating,
 		run.chain_chip(String(hand["key"]))))
 	_remap_breakdown_to_slots(breakdown, slots)
 	# Die Chronik hält den Zug fest, BEVOR irgendetwas gebucht wird: die Zerlegung
 	# ist fertig und die Grube liegt noch so da, wie sie gezählt wurde.
 	_log_begin_take(breakdown, String(hand["key"]), ids)
-	# Die gewerteten Slots, in ECHTEN Slots - die Ladung bucht damit, bevor das
-	# Licht läuft (Buchung vor dem Licht).
+	# Die gewerteten Slots, in ECHTEN Slots.
 	var scored_slots: Array[int] = []
 	for p in sel_scored:
 		scored_slots.append(slots[p])
-	_last_charge_results = run.book_charge_results(active_kinds, breakdown, scored_slots)
-	# Module der Kette: Zählwerk wächst, Münzprüfer zahlt, Stromabnehmer lädt, das
-	# Magnetron heizt die Kombinationswürfel - alles vor dem Licht.
+	# Module der Kette: Zählwerk wächst, Münzprüfer zahlt, Stromabnehmer lädt -
+	# alles vor dem Licht.
 	var take_parts := run.chain_chip(String(hand["key"]))
 	_hold_part_growth(String(hand["key"]), ComboPartEffects.chip(run.scoring_parts(), String(hand["key"])))
 	_suppress_money_light = true
 	_part_money_shown = run.book_combo_scored(String(hand["key"]))
 	_part_energy_shown = run.book_part_energy(String(hand["key"]))
 	_suppress_money_light = false
-	var magnetron_slots: Array[int] = []
-	for p in sel_participating:
-		magnetron_slots.append(slots[p])
-	_merge_charge_results(run.book_magnetrons(String(hand["key"]), active_kinds, magnetron_slots))
-	# ... und die Grube hält den ALTEN Stand fest, bis der Würfel sein Urteil hat:
-	# die Buchung hat gerade jeden Grubenwürfel neu gezeichnet.
-	_charge_holds.clear()
-	for change: Dictionary in _last_charge_results:
-		_charge_holds[int(change["slot"])] = {"level": int(change["before"]), "burned": false}
-	_apply_charge_holds()
 	hands_taken_this_round += 1
 	var new_total: int = hand_total + int(breakdown["total"])
 	# Verluste zahlen an ihrem Auslöser: Servicegebühr und Steuerwetten hängen an
@@ -13853,11 +13763,6 @@ func _on_take_button_pressed() -> void:
 	# Vollzähler ALLE liegenden), genau einmal hier (nie in der Vorschau);
 	# Knochen/Glas verändern die Pool-Würfel dauerhaft. sel_shape steht schon.
 	var participating: Array[int] = scored_slots.duplicate()
-	# Durchgebrannte Slots und die Abbruch-Zündungen auf echte Slots: die
-	# Nehmen-Effekte brechen an genau derselben Zündung ab wie die Wertung.
-	var burned_slots: Array[int] = []
-	for p in sel_burned:
-		burned_slots.append(slots[p])
 	# Die engere KOMBINATIONS-Menge auf echte Slots: Vollzähler und Krypton weiten
 	# die gewertete Menge, gehören der Kombination aber nicht an (Zauberkarte).
 	var combination: Array[int] = []
@@ -13875,7 +13780,7 @@ func _on_take_button_pressed() -> void:
 		ids, echo_slot, _effective_essence_sets(), take_order,
 		GameRun.is_stress_round(run.round_number), _visible_pit_slots(),
 		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
-		run.clause_face_growth(), burned_slots, take_parts)
+		run.clause_face_growth(), take_parts)
 	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
 	# seinem Krit losgeschickt, gebucht wird bei Ankunft.
 	report.tip_money = ScoreBreakdown.tip_money_total(breakdown)
@@ -14242,8 +14147,6 @@ func _play_die_step(step: Dictionary, slot: int, die_px: Vector2, gain_px: Vecto
 	# Runen-Glieder (Kehrseite) zuletzt - sie hängen am ganzen Würfel.
 	if not await _play_die_links(step.get("det_links", []), slot, die_px, gain_px, glow_by_slot):
 		return false
-	# LADUNG: das Urteil des Würfels NACH seiner letzten Zündung, vor dem nächsten.
-	_play_charge_beat(step.get("charge_step", {}), slot, die_px)
 	return true
 
 ## Glieder-Pulse eines Würfel-Schritts: das Netz-Feld zeigt den Würfel mit dem
@@ -14341,97 +14244,6 @@ func _play_die_pulse(pulse: Dictionary, slot: int, die_px: Vector2, gain_px: Vec
 	if pulse.has("value_after"):
 		_play_eye_pips(pulse, slot, die_px)
 	return true
-
-## Das ENTLADEN am Rundenende: die betroffenen Vorrats-Würfel zeigen kurz ihre
-## ALTE Stufe (gebucht ist die neue längst), blitzen gedimmt in Ladungsfarbe und
-## fallen dann auf den gebuchten Stand zurück. Steht der Vorrat nicht im Bild,
-## spielt nichts - eine Maschine, die keiner sieht, hat nicht gespielt.
-func _play_cooling_ceremony(defs: Array[DieDefinition]) -> void:
-	if defs.is_empty() or pool_tray_view == null or not pool_tray_view.visible:
-		return
-	var guard := run
-	var lit: Array[DieFaceDisplay] = []
-	for i in pool_tray_view.slot_defs.size():
-		var def: DieDefinition = pool_tray_view.slot_defs[i]
-		if def == null or not defs.has(def):
-			continue
-		var display: DieFaceDisplay = pool_tray_view.slot_face_displays[i]
-		if display == null:
-			continue
-		display.set_charge_override(mini(def.charge + 1, DieDefinition.CHARGE_MAX), false)
-		display.flash_charge(COOLING_FLASH_STRENGTH)
-		lit.append(display)
-	if lit.is_empty():
-		return
-	await get_tree().create_timer(COOLING_TIME).timeout
-	if run != guard:
-		return
-	for display in lit:
-		if is_instance_valid(display):
-			display.clear_charge_override()
-
-## Das Ladungs-URTEIL eines Würfels nach seiner letzten Zündung (charge_step),
-## rein visuell: der Override zeigt den Stand der Aufschlüsselung - der GEBUCHTE
-## steht schon in der Def und übernimmt am Ende der Zeremonie
-## (clear_charge_override). Ein abgebrochener Tween schuldet damit nichts.
-func _play_charge_beat(beat: Dictionary, slot: int, die_px: Vector2) -> void:
-	_charge_holds.erase(slot)  # der Würfel ist frei: ab jetzt gilt sein Urteil
-	if beat.is_empty() or slot < 0 or slot >= dice.count():
-		return
-	var display: DieFaceDisplay = dice.face_displays[slot]
-	if display == null:
-		return
-	# Lichtbogen: sein Pad blitzt mit dem Durchbrennen.
-	for charm_index: int in beat.get("charm_indices", []):
-		_flash_charm_and_pad(charm_index)
-	if bool(beat.get("burned", false)):
-		# DIE DURCHBRENN-ZEREMONIE: Einschlag in die Grubenwände, der Rundenpuls
-		# stottert wie beim Fumble, dann fällt der Würfel dunkel.
-		_sfx(&"charge_burn")
-		if dice_pit != null:
-			dice_pit.slam(CHARGE_BURN_SLAM)
-		if table_screen != null:
-			table_screen.pit_flinch()
-		display.set_charge_override(0, true)
-		return
-	var level := int(beat.get("charge_after", 0))
-	display.set_charge_override(level, false)
-	display.flash_charge(CHARGE_FLASH_STRENGTH)
-	# Nur ein STEIGEN heizt die Grube; die Ableitung senkt still.
-	if int(beat.get("gained", 0)) > 0:
-		_play_charge_heat(level, die_px)
-
-## Der HITZE-PULS der Grube, gestaffelt nach der erreichten Stufe: warmer Ring
-## (Glimmen), dazu der aufsteigende Hitzeschleier (Kriechstrom), dazu ein
-## gedämpfter Blitz in alle Wände (Überschlag). Rein visuell; das Zucken bleibt
-## dem Durchbrenner und dem Fumble.
-func _play_charge_heat(level: int, die_px: Vector2) -> void:
-	if level <= 0 or table_screen == null:
-		return
-	table_screen.pit_impulse(die_px, "charge")
-	if level >= 2:
-		table_screen.pit_heat_wave()
-	if level >= 3 and dice_pit != null:
-		dice_pit.slam(CHARGE_OVERSLAG_SLAM)
-
-## Nach der Zeremonie: der Def-Stand übernimmt an JEDEM Grubenwürfel.
-func _clear_charge_overrides() -> void:
-	for i in dice.count():
-		var display: DieFaceDisplay = dice.face_displays[i]
-		if display != null:
-			display.clear_charge_override()
-
-## Schreibt die gehaltenen ALTEN Stände auf die Grubenwürfel - der EINE Schreiber
-## dieses Orts, idempotent und nach jedem Refresh wiederholbar.
-func _apply_charge_holds() -> void:
-	for slot: int in _charge_holds:
-		if slot < 0 or slot >= dice.count():
-			continue
-		var display: DieFaceDisplay = dice.face_displays[slot]
-		if display == null:
-			continue
-		var hold: Dictionary = _charge_holds[slot]
-		display.set_charge_override(int(hold["level"]), bool(hold["burned"]))
 
 ## Augen-Pips einer Zündung. Drei Volleys im PHYSISCHEN Bereich: erst die eigene
 ## Wandlung (Knochen wächst, Glas schrumpft, Helium hebt), dann der Miasma-
@@ -14749,20 +14561,6 @@ func _play_part_scored_beat(keys: Array) -> void:
 	_part_energy_shown = 0
 	_release_part_growth()
 
-## Das Magnetron heizt nach dem Urteil der Hand: ein Würfel, der schon eine
-## Änderung hat, behält seinen Stand von vorher, damit die Grube ihn weiter hält.
-func _merge_charge_results(extra: Array[Dictionary]) -> void:
-	for change: Dictionary in extra:
-		var merged := false
-		for known: Dictionary in _last_charge_results:
-			if int(known["slot"]) == int(change["slot"]):
-				known["after"] = change["after"]
-				known["burned"] = bool(known["burned"]) or bool(change["burned"])
-				merged = true
-				break
-		if not merged:
-			_last_charge_results.append(change)
-
 ## Reines Anzeige-Geld vom Sockel zum Chip-Tray: gebucht ist es beim Nehmen.
 func _play_part_money(from_px: Vector2, amount: int) -> void:
 	table_screen.spawn_gain_number(from_px, "+%d$" % amount, TableScreen.SIDE_MONEY_COLOR, 1.0, true)
@@ -14974,8 +14772,6 @@ func _cleanup_take_animation() -> void:
 	_score_pending = 0
 	_eye_tick_applied.clear()
 	_eye_planned.clear()
-	_charge_holds.clear()  # der EINE Aufräum-Pfad: kein Halt überlebt die Zeremonie
-	_clear_charge_overrides()
 	_release_part_growth()
 	_part_money_shown = 0
 	_take_combo_key = ""
@@ -15214,16 +15010,6 @@ func _remap_breakdown_to_slots(breakdown: Dictionary, slots: Array[int]) -> void
 				for idx: int in firing["miasma_recipients"]:
 					mapped.append(slots[idx])
 				firing["miasma_recipients"] = mapped
-	# LADUNG: END-Stände und Durchbrenner nennen ebenfalls Auswahl-Indizes.
-	var mapped_charges := {}
-	var charges: Dictionary = breakdown.get("charges_after", {})
-	for idx in charges:
-		mapped_charges[slots[int(idx)]] = int(charges[idx])
-	breakdown["charges_after"] = mapped_charges
-	var mapped_burned: Array[int] = []
-	for idx: int in breakdown.get("burned_after", []):
-		mapped_burned.append(slots[idx])
-	breakdown["burned_after"] = mapped_burned
 	# Auch die Pro-Würfel-Pulse tragen Auswahl-Indizes - auf echte Slots umrechnen.
 	for step: Dictionary in breakdown["charm_steps"]:
 		if step.has("pulses"):
@@ -15425,8 +15211,6 @@ func _connect_run() -> void:
 	run.deals_changed.connect(_on_deals_changed)
 	_sfx_energy = run.energy
 	run.energy_changed.connect(_on_energy_changed)
-	# Jedes Ladungs-Ereignis geht in die Chronik der Runde.
-	run.charge_logged.connect(_log_record_charge)
 	# Paket-Einsätze werden bezahlbar oder knapp, während die Wettannahme offen ist.
 	run.packs_changed.connect(_refresh_side_bet_affordability)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
@@ -15724,12 +15508,6 @@ func _on_round_complete() -> void:
 		for entry in leftover_dice:
 			leftover_defs.append(entry["def"])
 		_jewelry_box_upgrades = run.apply_jewelry_box(leftover_defs)
-		# LADUNG: was diese Runde nicht gewertet hat, kühlt eine Stufe ab -
-		# gebucht VOR der Auszahlung.
-		_last_cooled_dice = run.cool_unplayed_dice()
-		await _play_cooling_ceremony(_last_cooled_dice)
-		if phase != Phase.PAYOUT:
-			return  # Reset während des Entladens
 		# Füllhorn: die Prämie hängt am BALKEN, also an den geräumten Stufen -
 		# gebucht hier, gezeigt an seinem Dock-Platz.
 		_encore_packs = run.apply_encore(stages)
@@ -16669,10 +16447,6 @@ func _on_pool_changed() -> void:
 	pool_tray_view.refresh_faces()
 	queue_tray_view.refresh_faces()
 	dice.refresh_faces()  # die liegenden Grubenwürfel zeigen sonst alte Augen
-	# refresh_faces hat gerade den gebuchten Ladungsstand zurückgemalt - in der
-	# Zeremonie gehört er dem Urteil, nicht dem Zählbeginn.
-	if phase == Phase.SCORING and not _charge_holds.is_empty():
-		_apply_charge_holds()
 	_refresh_bench_stage_faces()  # die Bühne hält eine geteilte Instanz
 	_sync_transform_previews()  # refresh_faces malte gerade den rohen Wert zurück
 	if _deck_glass:
@@ -16962,15 +16736,6 @@ func _log_finish_entry() -> void:
 	if run == null or round_log.is_empty():
 		return
 	round_log.entries[round_log.entries.size() - 1]["post_state"] = _log_display_state()
-
-## Ein Ladungs-Ereignis (Aufladen, Durchbrennen, Entladen, Bucht): eine reine
-## Pose-Zeile wie der Fumble - gebucht hat GameRun längst.
-func _log_record_charge(text: String) -> void:
-	if run == null or dice == null:
-		return
-	var entry := _log_entry_base(RoundLog.ENTRY_CHARGE, text)
-	entry["post_state"] = entry["state"].duplicate(true)
-	round_log.add_entry(entry)
 
 func _log_record_farkle() -> void:
 	if run == null:
@@ -17352,31 +17117,20 @@ func _sync_combo_sockets(key: String) -> void:
 	for part in parts:
 		dimmed.append(run.is_part_disabled(part))
 	combo_chips[key].set_sockets(parts, dimmed)
-	_sync_part_state(key, hands_taken_this_round == 0, _hand_max_charge())
+	_sync_part_state(key, hands_taken_this_round == 0)
 
 ## Was die Module am Körper zeigen und nur der Lauf weiß: erste Hand der Runde (Anlasser),
-## höchste Ladung der gewerteten Würfel (Thermistor), was die Kopplung kopiert.
-func _sync_part_state(key: String, first_hand: bool, charge: int) -> void:
+## was die Kopplung kopiert.
+func _sync_part_state(key: String, first_hand: bool) -> void:
 	var copy := ComboPartEffects.strongest_combo_part(
 		ComboPartEffects.chip(run.scoring_parts(), ComboPartEffects.left_of(key)), first_hand)
-	combo_chips[key].set_part_context({"first_hand": first_hand, "charge": charge, "copy": copy})
+	combo_chips[key].set_part_context({"first_hand": first_hand, "copy": copy})
 
 func _sync_part_states() -> void:
 	if run == null or log_open:
 		return
-	var charge := _hand_max_charge()
 	for key: String in combo_chips:
-		_sync_part_state(key, hands_taken_this_round == 0, charge)
-
-## Höchste Ladung der Würfel, die gerade als Hand zählen (-1 = keine Hand liegt).
-func _hand_max_charge() -> int:
-	if dice == null or not has_rolled_current_hand:
-		return -1
-	var best := -1
-	for slot in _hand_slots():
-		if slot < dice.slot_defs.size() and dice.slot_defs[slot] != null and not dice.slot_defs[slot].burned_out:
-			best = maxi(best, dice.slot_defs[slot].charge)
-	return best
+		_sync_part_state(key, hands_taken_this_round == 0)
 
 ## Welcher Chip-Platz unter dem Zeiger liegt ({key, slot}; slot -1 = der Chip).
 func _part_pick_at(screen_pos: Vector2) -> Dictionary:
@@ -17714,9 +17468,8 @@ func _settle_part_install_hard() -> void:
 	for key: String in combo_chips:
 		combo_chips[key].set_socket_hover(-1)
 		combo_chips[key].set_socket_beckon(false, false)
-		combo_chips[key].set_cover_called(false)
-		combo_chips[key].settle_cover_hard()
 	_part_hover_key = ""
+	_sync_combo_extension(true)
 
 ## Je Bild: der Platz unter dem Zeiger säumt sich und erklärt sich - aus JEDER
 ## Pose, in der der Chip zu sehen ist (Sichtbar heißt bedienbar gilt fürs Lesen).
@@ -17760,16 +17513,34 @@ func _sync_part_hover() -> void:
 			body += "\n" + PART_DISABLED_NOTE
 	table_screen.show_part_hint(title, body, accent)
 
-## Je Bild: die Abdeckung eines leeren Chips fährt auf, solange der Zeiger an der
-## KOMBINATIONEN-Station auf ihm liegt oder ein Modul umgesteckt wird (Einbau und
-## Belegung öffnet der Chip selbst).
-func _sync_combo_covers() -> void:
-	if camera_rig == null:
+## Der EINE Entscheider: ausgefahren stehen die Chips genau dann, wenn die Kamera an der
+## KOMBINATIONEN-Station steht oder ein Einbau/Umstecken läuft (Einbau-Rahmen, Modul-Beutel in
+## der Grube, gezogenes Teil). Je Bild gefragt; Layout und Pick-Körper stehen sofort am
+## Endzustand, die Körper fahren nach.
+func _combos_extended_wanted() -> bool:
+	if camera_rig == null or run == null:
+		return false
+	if camera_rig.mode == CameraRig.Mode.COMBOS and not camera_rig.free_camera:
+		return true
+	return _part_install_forced() or _install_seating or part_drag_key != "" or _module_bag != null
+
+func _sync_combo_extension(hard := false) -> void:
+	if table_screen == null:
 		return
-	var at_station := camera_rig.mode == CameraRig.Mode.COMBOS and not camera_rig.free_camera \
-		and not camera_rig.is_animating
+	var on := _combos_extended_wanted()
+	if on != table_screen.cluster_extended:
+		table_screen.set_cluster_extended(on)
+		_place_combos_click_zone()
+	var riding := false
 	for key: String in combo_chips:
-		combo_chips[key].set_cover_called(part_dragging or (at_station and key == _part_hover_key))
+		var chip: ComboChipView = combo_chips[key]
+		chip.set_extended(on, 0.0 if hard else ComboChipView.EXTEND_TIME)
+		if hard:
+			chip.settle_extension_hard()
+		riding = riding or chip.extension_running()
+	# Das Adernetz liegt schon am Endzustand - solange die Chips fahren, steht es nicht.
+	if table_screen.combo_wiring != null:
+		table_screen.combo_wiring.visible = not riding
 
 ## UMSTECKEN nur an der Kombinationen-Station und im Bearbeitungs-Fenster
 ## (benannte Ausnahme von "Sichtbar heißt bedienbar").
@@ -17833,8 +17604,7 @@ func _move_part_ghost(screen_pos: Vector2) -> void:
 	if hit != null:
 		part_drag_ghost.global_position = hit
 
-## Loslassen über einem Platz steckt um (belegt = Tausch); sonst - oder wenn
-## GameRun ablehnt (Erweiterungsplatine) - schnappt das Teil zurück.
+## Loslassen über einem Platz steckt um (belegt = Tausch); sonst schnappt das Teil zurück.
 func _finish_part_drag(screen_pos: Vector2) -> void:
 	var from_key := part_drag_key
 	var from_slot := part_drag_slot

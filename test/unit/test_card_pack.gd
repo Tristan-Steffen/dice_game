@@ -95,12 +95,11 @@ func _max_tier(cards: Array[Pack]) -> int:
 		best = maxi(best, card.tier)
 	return best
 
-func test_never_repair_card_or_blank() -> void:
+func test_never_a_blank() -> void:
 	for seed_value in 80:
 		var cards := CardPack.roll_contents(CardPack.make(CardPack.SORT_SPECIAL,
 			CardPack.SIZE_LARGE), 0.2, false, _rng(seed_value))
 		for card in cards:
-			assert_false(card.is_repair(), "nie die Reparatur-Karte")
 			assert_false(card.from_blank(), "nie ein Rohling")
 
 func test_no_duplicate_net_inside_one_pack() -> void:

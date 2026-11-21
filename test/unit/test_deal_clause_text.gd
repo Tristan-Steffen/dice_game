@@ -26,7 +26,6 @@ const DOUBLED := {
 	DealClause.CASH_DISCOUNT: "Ladenware −36 %.",
 	DealClause.GOLD_VEIN: "+$20 je geräumter Überladungs-Stufe.",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite dauerhaft +2.",
-	DealClause.DRAIN: "Jede Auslösung: Würfel −2 Ladung.",
 	DealClause.LUCKY_DAY: "Laden würfelt mit Glück +6.",
 	DealClause.CONNOISSEUR_EYE: "Seltene und legendäre Charms viermal so oft.",
 	DealClause.MATH_WEEK: "Multiplikator-Karten sechsmal so oft.",

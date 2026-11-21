@@ -1,6 +1,6 @@
 extends GutTest
 ## Die zweite Modul-Welle: Reihenklemme, Anlasser, Sperrdiode, Stromabnehmer,
-## Nebenschluss, Parallelschaltung, Schwingkreis, Magnetron und die Brücken, die
+## Nebenschluss, Parallelschaltung, Schwingkreis und die Brücken, die
 ## weitere Kombinationen samt ihrer Module mitzünden.
 
 const PAIR := DiceScoring.TWO_KIND
@@ -38,8 +38,8 @@ func _breakdown(key: String, values: Array, layout: Dictionary, ctx: Dictionary 
 	return ScoreBreakdown.build(key, _d(values), [] as Array[String], false, _m(values.size()), layout, ctx)
 
 func test_the_catalog_carries_the_new_parts() -> void:
-	assert_eq(ComboPart.all().size(), 26)
-	for id in [ComboPart.PARALLEL_CIRCUIT, ComboPart.MAGNETRON, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE]:
+	assert_eq(ComboPart.all().size(), 23)
+	for id in [ComboPart.PARALLEL_CIRCUIT, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE]:
 		var part := ComboPart.make(id)
 		assert_eq(part.rarity, ComboPart.RARITY_LEGENDARY, id)
 		assert_true(part.secret, id)
@@ -70,21 +70,6 @@ func test_the_resonator_grows_with_every_scoring() -> void:
 		run.book_combo_scored(PAIR)
 	assert_almost_eq(ComboPartEffects.resonator_crit(part), 2.0, 0.0001)
 	assert_eq(_pair([part, null, null]), 80)
-
-func test_the_magnetron_triples_and_heats_the_combination_dice() -> void:
-	assert_eq(_pair([ComboPart.magnetron(), null, null]), 120)
-	run.combo_parts[PAIR] = [ComboPart.magnetron(), null, null]
-	var inside := DieDefinition.standard()
-	var outside := DieDefinition.standard()
-	var defs: Array[DieDefinition] = [inside, outside]
-	var changes := run.book_magnetrons(PAIR, defs, _d([0]))
-	assert_eq(inside.charge, 1)
-	assert_eq(outside.charge, 0, "nur Kombinationswürfel")
-	assert_eq(changes.size(), 1)
-	inside.charge = DieDefinition.CHARGE_MAX
-	changes = run.book_magnetrons(PAIR, defs, _d([0]))
-	assert_true(inside.burned_out, "an der Spitze brennt er sicher durch")
-	assert_true(bool(changes[0]["burned"]))
 
 func test_the_power_pickup_pays_energy_and_overflows_into_money() -> void:
 	run.combo_parts[PAIR] = [ComboPart.power_pickup(), null, null]
@@ -171,7 +156,7 @@ func test_die_parts_of_the_neighbour_fire_on_the_taken_dice() -> void:
 func test_crit_parts_of_the_neighbour_slam_on_its_chip() -> void:
 	var key := _key(10)
 	var other := _key(11)
-	var layout := {key: [ComboPart.cross_bridge(), null, null], other: [ComboPart.magnetron(), null, null]}
+	var layout := {key: [ComboPart.cross_bridge(), null, null], other: [ComboPart.high_voltage_tube(), null, null]}
 	var crits: Array = _breakdown(key, [5, 5, 3, 3], layout)["part_crit_steps"]
 	assert_eq(crits.size(), 1)
 	assert_eq(String(crits[0]["key"]), other)
@@ -206,7 +191,7 @@ func test_the_perfect_wiring_reaches_every_combination() -> void:
 
 func test_new_parts_keep_score_and_breakdown_in_step() -> void:
 	var parts := [ComboPart.series_terminal(), ComboPart.starter(), ComboPart.parallel_circuit(),
-		ComboPart.resonator(), ComboPart.magnetron(), ComboPart.power_pickup()]
+		ComboPart.resonator(), ComboPart.power_pickup()]
 	var layout := {PAIR: parts}
 	assert_eq(int(_breakdown(PAIR, [5, 5], layout, FIRST)["total"]), _score_with(PAIR, [5, 5], layout, FIRST))
 

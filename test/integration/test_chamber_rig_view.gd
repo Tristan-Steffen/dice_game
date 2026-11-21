@@ -45,12 +45,6 @@ func test_the_sonderbestand_has_its_own_lane() -> void:
 	assert_eq(int(plan[0]["face"]), 4, "das Ziel der Kopie")
 	assert_eq(String(plan[0]["channel"]), ChamberRigView.CH_SPECIAL)
 
-func test_a_series_that_only_tends_uses_the_special_lane() -> void:
-	assert_true(ChamberRigView.cable_plan(SeriesResolver.blank()).is_empty())
-	var plan := ChamberRigView.cable_plan(SeriesResolver.blank(), true)
-	assert_eq(String(plan[0]["channel"]), ChamberRigView.CH_CARE)
-	assert_eq(ChamberRigView.plan_channels(plan), [3] as Array[int])
-
 func test_the_frame_has_the_proportions_of_the_die() -> void:
 	var reach := ChamberRigView.die_reach(HALF_EDGE)
 	assert_gt(reach, HALF_EDGE, "der Kantenrahmen zählt mit")

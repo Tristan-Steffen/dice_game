@@ -72,8 +72,8 @@ const WARES := [
 ## Sorten-Gewichte des Paket-Gewinns: die Auslage-Gewichte des Ladens.
 const CARD_PACK_SORT_WEIGHTS := CardPack.SHOP_SORT_WEIGHTS
 const DICE_PACK_SORT_WEIGHTS := DicePack.SHOP_SORT_WEIGHTS
-## Die Katalysatoren, die eine Wette zahlen darf (nie die Reparatur-Karte).
-const BET_CATALYSTS := [Pack.CATALYST_COOL, Pack.CATALYST_CHILL, Pack.CATALYST_PROPELLANT]
+## Die Katalysatoren, die eine Wette zahlen darf.
+const BET_CATALYSTS := [Pack.CATALYST_PROPELLANT]
 
 ## Fortschrittsstufe, ab der eine Wette ohne eigenen "unlock" ausliegt: ab Runde 1.
 const UNLOCK_BASE := 1

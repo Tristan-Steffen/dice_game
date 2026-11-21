@@ -243,109 +243,6 @@ static func equal_faces_for(ctx: Dictionary, slot: int) -> int:
 	var faces: Dictionary = ctx.get(CTX_EQUAL_FACES, {})
 	return int(faces.get(slot, 0))
 
-## LADUNG (ctx-Schlüssel): Slot -> Ladung BEIM NEHMEN, Slot -> schon vorher
-## durchgebrannt, Slot -> die vorgewürfelten Floats der Zündungen und die
-## Regel-Parameter als EIN Dictionary. Alle drei slot-gebundenen Schlüssel werden
-## umgeschlüsselt und für den Farkle-Vergleich mitgeschnappt.
-## FEHLT CTX_CHARGE_ROLLS, lädt die Wertung NICHT - das ist die Vorschau.
-const CTX_CHARGES := "charges"
-const CTX_BURNED := "burned"
-const CTX_CHARGE_ROLLS := "charge_rolls"
-const CTX_CHARGE_RULE := "charge_rule"
-## Glutkern (Charm): hand-weit, also OHNE Umschlüsselung - der erste
-## durchgebrannte Slot wird zum Joker der Erkennung.
-const CTX_EMBER_CORE := "ember_core"
-
-## Grundchance, mit der eine Zündung die Ladung hebt (bzw. durchbrennt).
-const CHARGE_CHANCE := 0.5
-## Wurf-Vorrat je Würfel. Reicht er nicht, gilt der Wurf als VERFEHLT - nie
-## nachwürfeln, die Wertung ist rein.
-const CHARGE_ROLLS_PER_DIE := 32
-## Grundregel: so viel Mult je Ladung der gewerteten Hand.
-const CHARGE_MULT_PER_POINT := 1
-
-## Der Standard der Ladungs-Regel; GameRun.charge_rule() füllt sie aus Charms
-## und Klauseln. step < 0 heißt: jede Zündung SENKT statt zu würfeln.
-static func default_charge_rule() -> Dictionary:
-	return {
-		"chance": CHARGE_CHANCE,
-		"step": 1,
-		"cap": DieDefinition.CHARGE_MAX,
-		"can_burn": true,
-		"fuse_armed": false,
-	}
-
-static func charge_rule_in(ctx: Dictionary) -> Dictionary:
-	var rule: Dictionary = ctx.get(CTX_CHARGE_RULE, {})
-	return rule if not rule.is_empty() else default_charge_rule()
-
-## Ladung des Slots beim Nehmen (0 = kalt).
-static func charge_for(ctx: Dictionary, slot: int) -> int:
-	var charges: Dictionary = ctx.get(CTX_CHARGES, {})
-	return maxi(0, int(charges.get(slot, 0)))
-
-## War dieser Slot schon VOR der Hand durchgebrannt?
-static func burned_for(ctx: Dictionary, slot: int) -> bool:
-	var burned: Dictionary = ctx.get(CTX_BURNED, {})
-	return bool(burned.get(slot, false))
-
-## Würfelt den Vorrat der Ladungs-Würfe aus - EINMAL je Nehmen:
-## Slot -> Array[float] mit CHARGE_ROLLS_PER_DIE Werten.
-static func roll_charge_rolls(slots: Array[int], rng: RandomNumberGenerator = null) -> Dictionary:
-	var rolls := {}
-	for slot in slots:
-		var pool: Array[float] = []
-		for _r in CHARGE_ROLLS_PER_DIE:
-			pool.append(rng.randf() if rng != null else randf())
-		rolls[slot] = pool
-	return rolls
-
-## Das Ladungs-URTEIL eines Würfels, EINMAL nach seiner letzten Zündung (Spieler-
-## Entscheid 2026-09-06): firings = seine Zündungen der oberen Seite, jede hat
-## gewürfelt, und erst jetzt fällt alles zusammen - vor dem nächsten Würfel.
-## Mutiert running und burned, liefert {"gained", "burned", "fuse"}. EINE Quelle
-## für die Wertung und ihre Spiegel.
-static func resolve_die_charge(slot: int, firings: int, running: Dictionary,
-		entered_hot: Dictionary, burned: Dictionary, rolls: Dictionary, rule: Dictionary,
-		immune: bool = false, fuse_ready: bool = false) -> Dictionary:
-	var result := {"gained": 0, "burned": false, "fuse": false}
-	if firings <= 0 or bool(burned.get(slot, false)):
-		return result
-	var step := int(rule.get("step", 1))
-	var cap := int(rule.get("cap", DieDefinition.CHARGE_MAX))
-	var before := int(running.get(slot, 0))
-	# Ableitung: jede Zündung SENKT, ohne Wurf.
-	if step < 0:
-		running[slot] = maxi(0, before + step * firings)
-		result["gained"] = int(running[slot]) - before
-		return result
-	if not rolls.has(slot):
-		return result  # Vorschau: ohne Vorrat lädt nichts
-	var pool: Array = rolls[slot]
-	var chance := float(rule.get("chance", CHARGE_CHANCE))
-	var hits := 0
-	for index in firings:
-		if index < pool.size() and float(pool[index]) < chance:
-			hits += 1
-	if hits == 0:
-		return result
-	# HEISS hereingekommen: jeder Treffer meint das Durchbrennen statt der Stufe.
-	# Wer die Spitze erst in dieser Hand erreicht, ist bis zur nächsten sicher.
-	if bool(entered_hot.get(slot, false)) and before >= cap:
-		if immune or not bool(rule.get("can_burn", true)):
-			return result
-		running[slot] = 0
-		result["gained"] = -before
-		if fuse_ready:
-			result["fuse"] = true
-			return result
-		burned[slot] = true
-		result["burned"] = true
-		return result
-	running[slot] = mini(cap, before + hits * step)
-	result["gained"] = int(running[slot]) - before
-	return result
-
 ## Stresstest-Flagge (ctx-Schlüssel): das Elmsfeuer glüht dort vierfach.
 const CTX_STRESS := "stress_round"
 
@@ -462,25 +359,13 @@ static func points_for(key: String) -> int:
 	return 0
 
 ## Der Joker-Slot (Polarlicht) oder -1. Legendär und damit Unikat: es kann NIE
-## mehr als einen geben, darum genügt EIN Index statt einer Liste. Ohne
-## Polarlicht macht der GLUTKERN den niedrigsten durchgebrannten Slot zum Joker -
-## er liefert 0 Augen, taugt der Erkennung aber als jede Zahl.
+## mehr als einen geben, darum genügt EIN Index statt einer Liste.
 static func wild_slot(ctx: Dictionary) -> int:
 	var essences := essences_in(ctx)
 	for slot in essences:
 		if EssenceEffects.is_wild(EssenceEffects.essence_at(essences, int(slot))):
 			return int(slot)
-	if not bool(ctx.get(CTX_EMBER_CORE, false)):
-		return -1
-	var burned: Dictionary = ctx.get(CTX_BURNED, {})
-	var lowest := -1
-	for key in burned:
-		if not bool(burned[key]):
-			continue
-		var slot := int(key)
-		if lowest < 0 or slot < lowest:
-			lowest = slot
-	return lowest
+	return -1
 
 ## Die Zahl, zu der sich der Joker (Polarlicht) für diese Kategorie macht - 0,
 ## wenn keiner mitspielt oder keine Belegung trägt. Dieselbe Wahl wie
@@ -784,22 +669,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 		running_values.append(raw[i] if i < raw.size() else dice[i])
 	# Wasserfall: die zuletzt AUSLÖSENDE Augenzahl, über die ganze Hand fortgeschrieben.
 	var cascade_last := CharmEffects.CASCADE_UNSET
-	# LADUNG: laufender Stand je Slot, wer HEISS hereinkam (nur der kann
-	# durchbrennen) und wer schon dunkel ist. entered_hot steht vor der Zählung
-	# fest - wer die Spitze erst hier erreicht, ist bis zur nächsten Hand sicher.
-	var charge_rule := charge_rule_in(ctx)
-	var charge_cap := int(charge_rule.get("cap", DieDefinition.CHARGE_MAX))
-	var charge_rolls: Dictionary = ctx.get(CTX_CHARGE_ROLLS, {})
-	var running_charges := {}
-	var entered_hot := {}
-	var burned_now := {}
-	for i in scored:
-		var charge_in := charge_for(ctx, i)
-		running_charges[i] = charge_in
-		entered_hot[i] = charge_in >= charge_cap
-		burned_now[i] = burned_for(ctx, i)
-	var fuse_armed := bool(charge_rule.get("fuse_armed", false))
-	var fuse_used := false
 	# Metronom: die einmal zündenden Würfel stehen VOR der Zählung fest.
 	var singles: Array[int] = []
 	if charm_ids.has(Charm.METRONOME):
@@ -808,11 +677,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# an, je Antritt zündet die obere Seite face_triggers-mal; je Zündung Augen ->
 	# Material -> würfelgebundene Charms (additiv, dann Krits) - siehe CharmEffects-Kopf.
 	for i in order:
-		# Durchgebrannt: zählt für die Erkennung, liefert aber 0 Augen und feuert
-		# nichts - kein Phosphor, keine Trigger, keine Glieder.
-		if bool(burned_now.get(i, false)):
-			continue
-		var charge_firings := 0
 		var info := level_info_for(ctx, i)
 		var level := MaterialEffects.level_in(info)
 		var eye_sum := int(info.get("eye_sum", 0))
@@ -875,7 +739,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 						mult += float(CharmEffects.die_charm_target_mult_at(j, i, dice, charm_ids, scored, shown))
 					# Würfel-Teile des Chips neben den würfelgebundenen Charms.
 					base += ComboPartEffects.firing_base(chip, in_combination)
-					mult += float(ComboPartEffects.firing_mult(chip, in_combination, int(running_charges.get(i, 0))))
+					mult += float(ComboPartEffects.firing_mult(chip, in_combination))
 					base += CharmEffects.metronome_base(i, singles, charm_ids)
 					mult += float(CharmEffects.strobe_mult(t * face_triggers + f, charm_ids))
 					var cascade_add := CharmEffects.cascade_mult(shown, cascade_last, charm_ids)
@@ -901,8 +765,7 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					for _e in essence_repeat:
 						var ess_crit := EssenceEffects.crit_of(essence_ids, shown, crits_before_essence, ball_bonus,
 							wild_eyes if i == wild else 0, charm_ids, energy,
-							first_scoring_for(ctx, i), volcanic, t == 0 and f == 0,
-							int(running_charges.get(i, 0)))
+							first_scoring_for(ctx, i), volcanic, t == 0 and f == 0)
 						if spends_energy and energy > 0:
 							energy -= 1
 						if not is_equal_approx(ess_crit, 1.0):
@@ -913,13 +776,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 						if not is_equal_approx(die_crit, 1.0):
 							crits += 1
 						mult *= die_crit
-					# Transformator: LEBENDER Ladungs-Stand, gelesen VOR dem Wurf
-					# dieser Zündung - der Krit gehört zur Zündung, der Wurf kommt danach.
-					for j in charm_ids.size():
-						var charge_crit := CharmEffects.charge_crit_at(j, int(running_charges.get(i, 0)), charm_ids)
-						if not is_equal_approx(charge_crit, 1.0):
-							crits += 1
-						mult *= charge_crit
 					running_values[i] = MaterialEffects.mutate_value_once(running_values[i], face_material, charm_ids, level, essence_ids, rune_ids, essence_repeat, clause_growth)
 					# Ansteckung: der Miasma-Würfel gibt jetzt die Hälfte seiner Augen an
 					# jeden anderen gewerteten Würfel ab - vor deren Zündung, also zählen
@@ -928,7 +784,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					# Bestrahlung: das Radon schiebt bei JEDER Zündung Augen auf jeden
 					# anderen gewerteten Würfel - dauerhaft, also auch in die Defs.
 					MaterialEffects.spread_radon_once(running_values, i, scored, essence_ids, charm_ids, essence_repeat)
-				charge_firings += 1
 			# Glieder: je Würfel-Trigger das Essenz-Glied (Röntgenlicht); im letzten
 			# Durchgang die Runen-Glieder. Jedes feuert EINMAL wie eine Zündung mit
 			# getauschter Seite (nie retriggert) - noch an der Position dieses Würfels,
@@ -968,41 +823,15 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 					if not is_equal_approx(link_die_crit, 1.0):
 						crits += 1
 					mult *= link_die_crit
-		# LADUNG: der Würfel hat FERTIG gefeuert, jetzt fällt sein Urteil - vor dem
-		# nächsten Würfel. Alle seine Zündungen haben gezählt, auch wenn er brennt.
-		var charge_hit := resolve_die_charge(i, charge_firings, running_charges, entered_hot,
-			burned_now, charge_rolls, charge_rule,
-			EssenceEffects.immune_to_burnout(essence_ids), fuse_armed and not fuse_used)
-		if bool(charge_hit["fuse"]):
-			fuse_used = true
-		# Lichtbogen: NUR das Durchbrennen in der Wertung zahlt.
-		if bool(charge_hit["burned"]):
-			base += CharmEffects.burnout_base(charm_ids)
-	# GRUNDREGEL: +1 Mult je Ladung der gewerteten Hand (END-Stand nach der
-	# Würfelphase; ein durchgebrannter Würfel zählt 0) - ein eigener Schritt VOR
-	# den statischen Charms.
-	var charge_points := 0
-	for i in scored:
-		if bool(burned_now.get(i, false)):
-			continue
-		charge_points += int(running_charges.get(i, 0))
-	mult += float(CHARGE_MULT_PER_POINT * charge_points)
 	# Krit-Teile nach allen Würfeln, vor den statischen Charms.
 	for step in ComboPartEffects.chain_crit_steps(combo_parts, chain):
 		crits += 1
 		mult *= float(step["crit_x"])
-	# Die statischen Charms lesen denselben END-Stand (Spannungsmesser) - über
-	# eine KOPIE, das Original bleibt unberührt.
-	var charm_ctx := ctx
-	if not running_charges.is_empty():
-		charm_ctx = ctx.duplicate()
-		charm_ctx[CTX_CHARGES] = running_charges
-		charm_ctx[CTX_BURNED] = burned_now
 	for j in charm_ids.size():
-		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, charm_ctx)
+		base += CharmEffects.charm_base_bonus_at(j, key, dice, participating, charm_ids, ctx)
 		mult += float(CharmEffects.mult_bonus_at(j, key, charm_ids) \
-			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, charm_ctx, participating, scored))
-		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, charm_ctx, participating, key, scored)
+			+ CharmEffects.charm_mult_bonus_at(j, key, dice, materials, charm_ids, ctx, participating, scored))
+		var static_crit := CharmEffects.charm_crit_at(j, dice, charm_ids, ctx, participating, key, scored)
 		if not is_equal_approx(static_crit, 1.0):
 			crits += 1
 		mult *= static_crit

@@ -140,17 +140,6 @@ const METRONOME := "metronome"
 const GAP_TOOTH := "gap_tooth"
 const DROP_HEIGHT := "drop_height"
 const INVENTORY := "inventory"
-# Ladung (Welle 2): die Sicherung heisst SAFETY_FUSE, weil FUSE schon die
-# Zündschnur des Knallgases ist - zwei Dinge, zwei ids.
-const VOLTMETER := "voltmeter"
-const SAFETY_FUSE := "safety_fuse"
-const HEAT_SINK := "heat_sink"
-const ARC_FLASH := "arc_flash"
-const GROUNDING := "grounding"
-const CONTINUOUS_DUTY := "continuous_duty"
-const TRANSFORMER := "transformer"
-const EMBER_CORE := "ember_core"
-const SPARK_PLUG := "spark_plug"
 # Fumbles als Laufzähler
 const UNLUCKY_BIRD := "unlucky_bird"
 const FUMBLE_PENSION := "fumble_pension"
@@ -225,7 +214,6 @@ const ESSENCE_REQUIREMENT := {
 	# Pflicht "je Seele ab selten genau ein Charm" bleibt davon unberührt.
 	CAMOUFLAGE: Essence.KRYPTON,
 	CUTTING_TORCH: Essence.ACETYLENE,
-	SPARK_PLUG: Essence.SPARK_GAP,
 }
 
 ## Zweite Angebots-Bedingung neben der Seele: das SPIELZEUG muss auf dem Tisch
@@ -409,16 +397,6 @@ const RARITIES := {
 	GAP_TOOTH: RARITY_RARE,
 	DROP_HEIGHT: RARITY_UNCOMMON,
 	INVENTORY: RARITY_RARE,
-	# Ladung
-	VOLTMETER: RARITY_UNCOMMON,
-	SAFETY_FUSE: RARITY_UNCOMMON,
-	HEAT_SINK: RARITY_RARE,
-	ARC_FLASH: RARITY_RARE,
-	GROUNDING: RARITY_UNCOMMON,
-	CONTINUOUS_DUTY: RARITY_RARE,
-	TRANSFORMER: RARITY_LEGENDARY,
-	EMBER_CORE: RARITY_RARE,
-	SPARK_PLUG: RARITY_RARE,
 	# Fumbles
 	UNLUCKY_BIRD: RARITY_UNCOMMON,
 	FUMBLE_PENSION: RARITY_COMMON,
@@ -1022,35 +1000,6 @@ static func drop_height() -> Charm:
 static func inventory() -> Charm:
 	return _make(INVENTORY, "Inventur", "+2 Basispunkte je Material-Seite im Vorrat.")
 
-# --- Ladung ------------------------------------------------------------------
-
-static func voltmeter() -> Charm:
-	return _make(VOLTMETER, "Spannungsmesser", "+2 Mult je Ladung der Hand.")
-
-static func safety_fuse() -> Charm:
-	return _make(SAFETY_FUSE, "Sicherung", "Erster Durchbrenner der Runde fällt stattdessen auf Ladung 0.")
-
-static func heat_sink() -> Charm:
-	return _make(HEAT_SINK, "Kühlkörper", "Ladung steigt nie über 2.")
-
-static func arc_flash() -> Charm:
-	return _make(ARC_FLASH, "Lichtbogen", "Würfel brennt beim Werten durch: +230 Basispunkte.")
-
-static func grounding() -> Charm:
-	return _make(GROUNDING, "Erdung", "Rundenende: alle Würfel −1 Ladung, auch gespielte.")
-
-static func continuous_duty() -> Charm:
-	return _make(CONTINUOUS_DUTY, "Dauerbetrieb", "Ungespielte Würfel verlieren am Rundenende keine Ladung.")
-
-static func transformer() -> Charm:
-	return _make(TRANSFORMER, "Transformator", "Gewerteter Würfel auf Ladung 3: Krit ×2.")
-
-static func ember_core() -> Charm:
-	return _make(EMBER_CORE, "Glutkern", "Erster durchgebrannter Würfel der Hand zählt für die Kombination als jede Zahl.")
-
-static func spark_plug() -> Charm:
-	return _make(SPARK_PLUG, "Zündkerze", "Funkenstrecke: Krit ×(2 + Ladung) statt ×(1 + Ladung).")
-
 # --- Fumbles -----------------------------------------------------------------
 
 static func unlucky_bird() -> Charm:
@@ -1113,9 +1062,6 @@ static func all() -> Array[Charm]:
 		factory_finish(), bottle_rack(), pressure_gauge(), empty_plinth(), odometer(),
 		tail_light(), strobe(), metronome(),
 		zahnluecke(), drop_height(), inventory(),
-		# Ladung
-		voltmeter(), safety_fuse(), heat_sink(), arc_flash(),
-		grounding(), continuous_duty(), transformer(), ember_core(), spark_plug(),
 		# Fumbles
 		unlucky_bird(), fumble_pension(), gallows_reprieve(), black_cat(),
 	]

@@ -25,7 +25,7 @@ const NEW_IDS := [DealClause.LUCKY_DAY, DealClause.BULK_ORDER, DealClause.CONNOI
 	DealClause.SOUL_MARKET, DealClause.FREE_FLIP, DealClause.BUYBACK, DealClause.MATH_WEEK,
 	DealClause.REGULAR_CUSTOMER, DealClause.SPECIAL_DELIVERY, DealClause.BACK_ROOM_CONTACT,
 	DealClause.LOADED_REELS, DealClause.REINSURANCE, DealClause.HIGH_TABLE,
-	DealClause.COLD_PRESS, DealClause.BIG_STORAGE, DealClause.EMPTY_SHELVES,
+	DealClause.BIG_STORAGE, DealClause.EMPTY_SHELVES,
 	DealClause.SHELF_WARMER, DealClause.SOULLESS, DealClause.FLIP_SURCHARGE]
 
 func test_every_new_clause_is_in_the_catalogue():
@@ -225,15 +225,6 @@ func _stamp(die: DieDefinition) -> void:
 	run.grant_pack(Pack.number_pack())
 	var uids: Array[int] = [run.owned_packs[0].pack_uid]
 	run.apply_series(uids, die)
-
-func test_cold_press_does_not_heat():
-	var die := run.owned_pool[0]
-	_stamp(die)
-	assert_eq(die.charge, 1, "ohne Klausel heizt das Prägen")
-	var cold := run.owned_pool[1]
-	_sign([DealClause.COLD_PRESS])
-	_stamp(cold)
-	assert_eq(cold.charge, 0, "Kaltpressung")
 
 func test_big_storage_widens_the_bank_for_good():
 	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW)

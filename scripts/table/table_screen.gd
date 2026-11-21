@@ -145,15 +145,8 @@ const FUMBLE_FADE := 0.6
 const FUMBLE_WAVE_TIME := 2.0
 const FUMBLE_WAVE_WIDTH := 55.0 * SUPERSAMPLE
 ## Punkt-Puls-Farbe je Punktart - dieselbe Sprache wie Kometen und Zuwachs-Zahlen.
-## Die Glut der Ladung, überbright für blend_add - Hitze ist WARM, nie das
-## Energie-Cyan und nie das Violett der Ladungsfarbe.
-const CHARGE_HEAT_COLOR := Color(2.28, 0.58, 0.19, 0.95)
 const PIT_IMPULSE_COLORS := {"base": TRAIL_BASE_COLOR, "mult": TRAIL_MULT_COLOR,
-	"crit": CRIT_COLOR, "charge": CHARGE_HEAT_COLOR}
-## Der Hitzeschleier steigt einmal durch die ganze Grube - gedämpft, er soll die
-## Würfel überhauchen, nicht die Grube fluten (gemessen an der überbright Glut).
-const PIT_HEAT_TIME := 0.6
-const PIT_HEAT_GAIN := 0.35
+	"crit": CRIT_COLOR}
 ## Erster senkrechter Hub aus der Quelle (~2.4 Weltmeter): hebt die Querstrecke
 ## über Nachbar-Würfel, hält sie unter Zählern und Punktebalken.
 const TRACE_RISE := 30.0 * SUPERSAMPLE
@@ -202,8 +195,6 @@ var _pit_impulse_colors := PackedColorArray()
 var _pit_impulse_progress := PackedFloat32Array()
 var _pit_impulse_tweens: Array = []
 var _pit_impulse_next := 0
-## Der Hitzeschleier hat genau EINE Bahn - ein zweiter Ruf startet sie neu.
-var _pit_heat_tween: Tween
 ## Nebenwetten-Fenster rechts vom Becher (eigenständige Anzeige, kein Hub-Panel).
 var side_bet_window: SideBetPanel
 ## Fumble-Automaten links vom Hub (unter der Ablage); wie das Nebenwetten-Fenster
@@ -443,6 +434,10 @@ var memory_veil: ColorRect
 
 ## Bildschirm-Rechteck des Kombi-Clusters inkl. Rahmen (Zoomziel/Klickzone).
 var cluster_rect := Rect2()
+## Die zwei Layouts des Clusters (false = kompakt, true = ausgefahren): {positions, rect}.
+var _cluster_layouts: Dictionary = {}
+## Welches steht: ausgefahren nur an der KOMBINATIONEN-Station und beim Einbau/Umstecken.
+var cluster_extended := false
 ## Das Rechteck des Anker-Blocks (siehe CLUSTER_ANCHOR_SIZE).
 var cluster_anchor_rect := Rect2()
 
@@ -639,9 +634,6 @@ func _build_content() -> void:
 	waves_material.set_shader_parameter("impulse_pos", _pit_impulse_pos)
 	waves_material.set_shader_parameter("impulse_color", _pit_impulse_colors)
 	waves_material.set_shader_parameter("impulse_progress", _pit_impulse_progress)
-	waves_material.set_shader_parameter("heat_progress", 0.0)  # keine Bahn
-	waves_material.set_shader_parameter("heat_color", CHARGE_HEAT_COLOR)
-	waves_material.set_shader_parameter("heat_gain", PIT_HEAT_GAIN)
 	pit_waves.material = waves_material
 	pit_window.add_child(pit_waves)
 	pit_lands = Control.new()
@@ -927,23 +919,6 @@ func pit_impulse(screen_px: Vector2, kind: String, color := Color(0, 0, 0, 0)) -
 		0.0, 1.0, PIT_IMPULSE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_pit_impulse_tweens[slot] = tween
 
-## HITZEFLIMMERN: EIN Schleier steigt von der Bild-Unterkante der Grube zur
-## Oberkante (Ladungsstufe 2 aufwärts). Ein zweiter Ruf setzt die Bahn neu;
-## ohne sichtbares Fenster passiert nichts.
-func pit_heat_wave(strength := 1.0) -> void:
-	if pit_waves == null or pit_window == null or not pit_window.visible:
-		return
-	var waves_material: ShaderMaterial = pit_waves.material
-	waves_material.set_shader_parameter("heat_color", CHARGE_HEAT_COLOR)
-	waves_material.set_shader_parameter("heat_gain", PIT_HEAT_GAIN * clampf(strength, 0.0, 3.0))
-	if _pit_heat_tween != null and _pit_heat_tween.is_valid():
-		_pit_heat_tween.kill()
-	waves_material.set_shader_parameter("heat_progress", 0.0)
-	_pit_heat_tween = create_tween()
-	_pit_heat_tween.tween_method(func(v: float) -> void:
-		waves_material.set_shader_parameter("heat_progress", v),
-		0.0, 1.0, PIT_HEAT_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-
 ## Schaltet den Rundenpuls der Grube ein/aus (weich über PIT_WAVES_FADE).
 func set_round_pulse(active: bool) -> void:
 	if pit_waves == null:
@@ -988,11 +963,6 @@ func _fire_fumble_wave(center: Vector2) -> void:
 ## Kurzes Zucken: der Rundenpuls sackt weg und kommt zurück (die Grube
 ## "erschrickt"). Nur solange die Runde läuft; endet sie, überschreibt der
 ## folgende set_round_pulse(false) das Zucken ohnehin.
-## Das Zucken auf Zuruf: der Durchbrenner läßt die Grube erschrecken wie der
-## Fumble. EIN Weg, zwei Anlässe.
-func pit_flinch() -> void:
-	_stutter_round_pulse()
-
 func _stutter_round_pulse() -> void:
 	if pit_waves == null:
 		return
@@ -1048,10 +1018,6 @@ const FUMBLE_MARK_FADE := 0.35
 const FUMBLE_MARK_BLINK := 0.22
 ## Ruhende Würfel stehen still und blass - sie haben den Fumble nicht ausgelöst.
 const FUMBLE_MARK_CALM := Color(1.1, 0.45, 0.45, 0.55)
-## Der Fumble LÄDT die ganze Hand: wer +1 bekam, steht in Ladungsfarbe da, wer
-## dabei durchbrannte, in Ruß. EINE Quelle für beides ist der Würfel selbst.
-const FUMBLE_MARK_CHARGED := DieFaceDisplay.CHARGE_COLOR
-const FUMBLE_MARK_BURNED := Color(0.34, 0.30, 0.32, 0.9)
 
 var _fumble_marks: Control
 
@@ -1071,9 +1037,8 @@ func show_fumble_marks(marks: Array[Dictionary], side_px: float) -> void:
 	for mark in marks:
 		var frame := _build_fumble_mark(mark, side_px)
 		_fumble_marks.add_child(frame)
-		# Der Blinktakt hängt am Umriss selbst: er stirbt mit ihm. Ein Würfel, den
-		# der Fumble geladen hat, blinkt ebenfalls - das +1 IST frisch.
-		if bool(mark.get("fresh", false)) or bool(mark.get("charged", false)):
+		# Der Blinktakt hängt am Umriss selbst: er stirbt mit ihm.
+		if bool(mark.get("fresh", false)):
 			var blink := frame.create_tween().set_loops()
 			blink.tween_property(frame, "modulate:a", 0.25, FUMBLE_MARK_BLINK)
 			blink.tween_property(frame, "modulate:a", 1.0, FUMBLE_MARK_BLINK)
@@ -1086,11 +1051,6 @@ func show_fumble_marks(marks: Array[Dictionary], side_px: float) -> void:
 func _build_fumble_mark(mark: Dictionary, side_px: float) -> Control:
 	var fresh: bool = bool(mark.get("fresh", false))
 	var tint := FUMBLE_COLOR if fresh else FUMBLE_MARK_CALM
-	# Die LADUNG schlägt den Wurf-Ton: sie ist die Nachricht dieses Umrisses.
-	if bool(mark.get("burned", false)):
-		tint = FUMBLE_MARK_BURNED
-	elif bool(mark.get("charged", false)):
-		tint = FUMBLE_MARK_CHARGED
 	var frame := Panel.new()
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var center: Vector2 = mark.get("pixel", Vector2.ZERO)
@@ -1576,38 +1536,87 @@ func _sync_reflection_windows() -> void:
 func _top_cell_rect(column: int) -> Rect2:
 	var key: String = DiceScoring.HAND_PRIORITY[clampi(column, 0, CLUSTER_COLUMNS - 1)]
 	if not combo_cells.has(key):
-		return Rect2(cluster_rect.position, CELL_SIZE)
+		return Rect2(cluster_rect.position, cell_size_for(cluster_extended))
 	var cell: ComboCellView = combo_cells[key]
 	return Rect2(cell.position, cell.size)
 
 ## Fuge zwischen der Grube und ihren Nachbarn links (Kombinationen) und rechts (Wett-Tresen).
 const PIT_SIDE_GAP := LAYOUT_SIZE.x * 0.005
 
-## Verschiebt den ganzen Kombi-Cluster (Sockel + Adernetz) neben die Grube: die
-## Chips enden PIT_SIDE_GAP vor ihrer linken Kante, die oberste Reihe ist bündig
-## mit ihrer Oberkante, die unterste mit ihrer Unterkante. Ohne Grube (Tests)
-## steht er am Editor-Anker CombosBlock, rechts um CLUSTER_RIGHT_PULL eingerückt.
+## Stellt den Kombi-Cluster (Zellen + Adernetz) neben die Grube, in ZWEI Layouts: KOMPAKT
+## (die Regel) und AUSGEFAHREN (Sockelzone offen). Beide stehen rechtsbündig - die Pin-Spitzen
+## PIT_SIDE_GAP vor der Grube -, die oberste Reihe bündig mit ihrer Oberkante, die unterste
+## mit ihrer Unterkante. Ohne Grube (Tests) steht er am Editor-Anker CombosBlock, rechts um
+## CLUSTER_RIGHT_PULL eingerückt.
 func place_combo_cluster(center_px: Vector2, pit_rect := Rect2()) -> void:
 	cluster_anchor_rect = Rect2(center_px - CLUSTER_ANCHOR_SIZE * 0.5, CLUSTER_ANCHOR_SIZE)
 	var corner := cluster_anchor_rect.end - Vector2(CLUSTER_RIGHT_PULL, 0.0)
-	var dx := corner.x - cluster_rect.end.x
-	if pit_rect.size.y > 0.0:
-		# Gemessen an den Pin-Spitzen, nicht am Zellrand - der Chip ist schmaler als seine Zelle.
-		var tip_inset := CELL_SIZE.x * 0.5 - float(ComboChipView.pin_offsets_px(CELL_SIZE)["tip_dx"])
-		dx = pit_rect.position.x - PIT_SIDE_GAP - (cluster_rect.end.x - CLUSTER_PADDING - tip_inset)
-	else:
-		# Ohne Grube (Tests): die Zellen behalten ihre Höhe, unten bündig am Anker.
-		var span := cluster_rect.size.y - 2.0 * CLUSTER_PADDING
-		pit_rect = Rect2(0.0, corner.y - CLUSTER_PADDING - span, 0.0, span)
 	var rows := ceili(float(DiceScoring.HAND_PRIORITY.size()) / float(CLUSTER_COLUMNS))
+	if pit_rect.size.y <= 0.0:
+		var span := float(rows) * CELL_SIZE.y + float(rows - 1) * CELL_GAP.y
+		pit_rect = Rect2(0.0, corner.y - CLUSTER_PADDING - span, 0.0, span)
 	var pitch := (pit_rect.size.y - CELL_SIZE.y) / float(maxi(1, rows - 1))
+	for extended in [false, true]:
+		var size := cell_size_for(extended)
+		var right := corner.x - CLUSTER_PADDING
+		if pit_rect.size.x > 0.0:
+			# Gemessen an den Pin-Spitzen, nicht am Zellrand - der Chip ist schmaler als seine Zelle.
+			var tip_dx: float = ComboChipView.pin_offsets_px(CELL_SIZE, extended)["tip_dx"]
+			right = pit_rect.position.x - PIT_SIDE_GAP + size.x * 0.5 - tip_dx
+		var full := float(CLUSTER_COLUMNS) * size.x + float(CLUSTER_COLUMNS - 1) * CELL_GAP.x
+		var positions := {}
+		var bounds := Rect2()
+		var total := DiceScoring.HAND_PRIORITY.size()
+		for i in total:
+			var row := i / CLUSTER_COLUMNS
+			var in_row: int = mini(CLUSTER_COLUMNS, total - row * CLUSTER_COLUMNS)
+			var row_width := float(in_row) * size.x + float(in_row - 1) * CELL_GAP.x
+			var at := Vector2(right - full + (full - row_width) * 0.5
+				+ float(i % CLUSTER_COLUMNS) * (size.x + CELL_GAP.x), pit_rect.position.y + float(row) * pitch)
+			positions[DiceScoring.HAND_PRIORITY[i]] = at
+			bounds = Rect2(at, size) if i == 0 else bounds.merge(Rect2(at, size))
+		_cluster_layouts[extended] = {"positions": positions, "rect": bounds.grow(CLUSTER_PADDING)}
+	_apply_cluster_layout()
+
+## Die Zellgröße eines Layouts: ausgefahren CELL_SIZE, kompakt ohne die Sockelzone.
+func cell_size_for(extended: bool) -> Vector2:
+	if extended:
+		return CELL_SIZE
+	return Vector2(ComboChipView.compact_cell_width(CELL_SIZE), CELL_SIZE.y)
+
+## Die Hülle des Zellfelds eines Layouts (leer, solange der Cluster nicht steht).
+func cluster_rect_for(extended: bool) -> Rect2:
+	return (_cluster_layouts.get(extended, {}) as Dictionary).get("rect", cluster_rect)
+
+## Wo eine Zelle in einem Layout steht.
+func cell_rect_for(key: String, extended: bool) -> Rect2:
+	var positions: Dictionary = (_cluster_layouts.get(extended, {}) as Dictionary).get("positions", {})
+	if not positions.has(key):
+		return Rect2()
+	return Rect2(positions[key], cell_size_for(extended))
+
+## Der EINE Schreiber des Layouts: Zellen, Hülle und alles, was an ihnen hängt (Adernetz,
+## Hub- und Wertungs-Ader), stehen sofort am ENDZUSTAND - die Chips fahren selbst nach.
+func set_cluster_extended(on: bool) -> void:
+	if on == cluster_extended:
+		return
+	cluster_extended = on
+	_apply_cluster_layout()
+
+func _apply_cluster_layout() -> void:
+	var layout: Dictionary = _cluster_layouts.get(cluster_extended, {})
+	if layout.is_empty():
+		return
+	var size := cell_size_for(cluster_extended)
 	for key: String in combo_cells:
-		var row := DiceScoring.HAND_PRIORITY.find(key) / CLUSTER_COLUMNS
-		combo_cells[key].position = Vector2(combo_cells[key].position.x + dx,
-			pit_rect.position.y + float(row) * pitch)
-	cluster_rect = Rect2(cluster_rect.position.x + dx + CLUSTER_PADDING, pit_rect.position.y,
-		cluster_rect.size.x - 2.0 * CLUSTER_PADDING, pit_rect.size.y).grow(CLUSTER_PADDING)
+		var cell: ComboCellView = combo_cells[key]
+		cell.position = layout["positions"][key]
+		cell.size = size
+		cell.pivot_offset = size / 2.0
+	cluster_rect = layout["rect"]
 	_lay_combo_wiring()
+	link_hub_to_cluster()
+	link_score_strips()
 	_sync_reflection_windows()
 
 ## Sammelschienen-x: je Zelle einen halben Spaltenabstand links und rechts
@@ -1638,7 +1647,7 @@ func _lay_combo_wiring() -> void:
 	var buses := combo_bus_xs()
 	if buses.is_empty():
 		return
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE, cluster_extended)
 	var tip_dx: float = offsets["tip_dx"]
 	var row: float = offsets["rows"][1]
 	var stub := CELL_GAP.x * 0.5
@@ -1678,7 +1687,7 @@ func wiring_paths_to_cell(index: int) -> Array[PackedVector2Array]:
 		return paths
 	var cell: ComboCellView = combo_cells[key]
 	var rect := Rect2(cell.position, cell.size)
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE, cluster_extended)
 	var tip_dx: float = offsets["tip_dx"]
 	var y: float = rect.get_center().y + float(offsets["rows"][1])
 	var stub := CELL_GAP.x * 0.5
@@ -2697,7 +2706,7 @@ func play_combo_pulse(combo_key: String) -> void:
 func play_bridge_pulse(from_key: String, to_key: String) -> float:
 	if not combo_cells.has(from_key) or not combo_cells.has(to_key):
 		return 0.0
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE, cluster_extended)
 	var tip_dx: float = offsets["tip_dx"]
 	var row: float = offsets["rows"][1]
 	var stub := CELL_GAP.x * 0.5

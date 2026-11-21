@@ -909,20 +909,3 @@ func test_work_hardening_lands_in_sim_and_def_alike():
 		_m(["", ""]), {}, ctx)
 	assert_eq(int(breakdown["total"]), (10 + 5 + 6 + 5) * 2, "die Schrittliste spiegelt sie")
 
-# --- Ladung: durchgebrannte Würfel feuern nicht -----------------------------------
-
-func test_a_burned_slot_fires_nothing_in_the_take():
-	# Er zählt für die Erkennung, aber weder Gold noch Knochen rühren sich.
-	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6]), _die([5, 2, 3, 4, 5, 6])]
-	var report := MaterialEffects.apply_take_effects(defs, _p([0, 0]),
-		_m([DieMaterial.GOLD, DieMaterial.GOLD]), _p([0, 1]), NO_CHARMS, -1, {}, _p([]),
-		false, _p([]), 0, 0, [] as Array[DieDefinition], _p([]), 0, _p([1]))
-	assert_eq(report.total_money(), 3, "nur der heile Würfel zahlt")
-
-func test_a_burned_slot_grows_no_bone():
-	var defs: Array[DieDefinition] = [_die([5, 2, 3, 4, 5, 6])]
-	MaterialEffects.apply_take_effects(defs, _p([0]), _m([DieMaterial.BONE]), _p([0]),
-		NO_CHARMS, -1, {}, _p([]), false, _p([]), 0, 0, [] as Array[DieDefinition],
-		_p([]), 0, _p([0]))
-	assert_eq(defs[0].faces[0], 5, "die Seite bleibt, wie sie war")
-

@@ -141,7 +141,6 @@ var run: GameRun:
 			run.charms_changed.disconnect(_on_run_charms_changed)
 		if run != null and run.packs_changed.is_connected(_on_run_packs_changed):
 			run.packs_changed.disconnect(_on_run_packs_changed)
-			run.store_changed.disconnect(_on_run_packs_changed)
 		run = value
 		# Ein frischer Lauf bekommt einen frischen Laden - auch ohne Sperre.
 		sortiment_locked = false
@@ -153,7 +152,6 @@ var run: GameRun:
 			run.money_changed.connect(_on_run_money_changed)
 			run.charms_changed.connect(_on_run_charms_changed)
 			run.packs_changed.connect(_on_run_packs_changed)
-			run.store_changed.connect(_on_run_packs_changed)
 
 ## Breiteneinheit (size.x / 100), in _build_layout gesetzt.
 var u := 8.0

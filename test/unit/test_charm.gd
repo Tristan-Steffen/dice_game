@@ -34,13 +34,10 @@ func test_all_returns_all_charms():
 	# −3 mit dem Essenz-Rework: Sumpflaterne, Sonnenfinsternis und Druckerpresse
 	# starben mit Irrlicht, Korona und Ethylen.
 	# +3: Zahnlücke, Fallhöhe und Inventur.
-	# +9 mit der LADUNG: Spannungsmesser, Sicherung, Kühlkörper, Lichtbogen, Erdung,
-	# Dauerbetrieb, Transformator, Glutkern und die Zündkerze als Essenz-Charm der
-	# Funkenstrecke.
 	# −3 mit dem Pointer als KOPIE: Zündspule, Rückkopplung und Erdungskabel.
 	# +4 mit den Fumbles: Pechvogel, Fumble-Rente, Galgenfrist, Schwarze Katze.
 	# +4 mit der Paket-Auswahl: Sammelalbum, Neu gemischt, Glückspilz, Beigabe.
-	assert_eq(Charm.all().size(), 158)
+	assert_eq(Charm.all().size(), 149)
 
 func test_all_ids_are_unique():
 	var seen := {}
