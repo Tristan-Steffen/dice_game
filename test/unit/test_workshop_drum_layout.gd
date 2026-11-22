@@ -199,25 +199,47 @@ func test_the_plate_is_as_wide_as_the_die_view() -> void:
 	assert_almost_eq(plate.size.x, net.size.x, 0.01)
 	assert_almost_eq(plate.position.x, net.position.x, 0.01)
 
-## Die Leiterbahnen: je Scheibe eine, vom Nummern-Rand ins UPGRADES-Netz, kreuzungsfrei.
+## Die Leiterbahnen: je Scheibe vier, von der Grabenkante in den Speicher, kreuzungsfrei.
 func test_the_traces_run_from_each_slice_into_the_upgrades_net() -> void:
 	var band: Rect2 = lay["trace_band"]
 	var upgrades: Rect2 = lay["upgrades"]
-	var paths := WorkshopView.trace_paths(lay["slices"], upgrades, band)
-	assert_eq(paths.size(), WorkshopView.DRUM_SLICES)
+	var lanes := WorkshopView.TRACE_LANES
+	var paths := WorkshopView.trace_paths(lay["slices"], upgrades, band, lanes)
+	assert_eq(paths.size(), WorkshopView.DRUM_SLICES * lanes)
 	assert_gte(band.position.y, POOL.end.y, "das Spur-Band liegt unter dem Pool")
 	for i in paths.size():
 		var path: PackedVector2Array = paths[i]
 		var first := path[0]
 		var last := path[path.size() - 1]
-		assert_almost_eq(first.x, (lay["slices"][i] as Rect2).get_center().x, 0.01)
-		assert_almost_eq(last.y, upgrades.end.y, 0.01, "sie endet an der Netz-Unterkante")
+		var slice: Rect2 = lay["slices"][i / lanes]
+		assert_between(first.x, slice.position.x, slice.end.x, "sie startet an ihrer Scheibe")
+		assert_almost_eq(first.y, slice.position.y, 0.01, "an der Grabenkante")
+		assert_almost_eq(last.y, upgrades.end.y, 0.01, "sie endet an der Speicher-Unterkante")
 		assert_between(last.x, upgrades.position.x, upgrades.end.x)
 		for k in range(1, path.size() - 1):
 			assert_between(path[k].y, band.position.y, band.end.y, "die Spur bleibt im Band")
+	var crossings := 0
 	for a in paths.size():
 		for b in range(a + 1, paths.size()):
-			assert_false(_cross(paths[a], paths[b]), "Bahn %d kreuzt Bahn %d nicht" % [a + 1, b + 1])
+			if _cross(paths[a], paths[b]):
+				crossings += 1
+	assert_eq(crossings, 0, "keine Bahn kreuzt eine andere")
+
+## Der Ausgangs-Bus: vier Spuren aus der Speicher-Oberkante in die linke Plattenkante.
+func test_the_feed_bus_runs_from_the_storage_into_the_plate() -> void:
+	var upgrades: Rect2 = lay["upgrades"]
+	var plate: Rect2 = lay["podium_stage"]
+	var paths := WorkshopView.feed_paths(upgrades, plate, WorkshopView.TRACE_LANES, U * 1.3)
+	assert_eq(paths.size(), WorkshopView.TRACE_LANES)
+	for path in paths:
+		assert_almost_eq(path[0].y, upgrades.position.y, 0.01)
+		assert_between(path[0].x, upgrades.position.x, upgrades.end.x)
+		var last := path[path.size() - 1]
+		assert_almost_eq(last.x, plate.position.x, 0.01)
+		assert_between(last.y, plate.position.y, plate.end.y)
+	for a in paths.size():
+		for b in range(a + 1, paths.size()):
+			assert_false(_cross(paths[a], paths[b]), "Spur %d kreuzt Spur %d nicht" % [a, b])
 
 func _cross(a: PackedVector2Array, b: PackedVector2Array) -> bool:
 	for i in a.size() - 1:

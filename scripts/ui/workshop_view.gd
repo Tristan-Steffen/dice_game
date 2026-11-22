@@ -110,9 +110,25 @@ const SLICE_NUMBER_GAP := 0.6
 const SLICE_NUMBER_FONT := 4.0
 ## Die Leiterbahnen: Breite (u), Rand ihres Spur-Bands, Abdunklung, dunkler Grund.
 const TRACE_WIDTH := 0.6
-const TRACE_BAND_MARGIN := 0.15
-const TRACE_DARKEN := 0.25
+const TRACE_BAND_MARGIN := 0.1
+const TRACE_DARKEN := 0.1
 const TRACE_BED := Color(0.03, 0.03, 0.06, 0.9)
+## Je Scheibe EINE Bahn je Sorte (Pack.SHELF_ORDER) - sie stehen immer, farblos; belegt
+## leuchtet die Bahn der Karten-Sorte.
+const TRACE_LANES := 4
+## Ihre Anschlüsse am Speicher: Rand und Anteil des Platzes einer Scheibe (das Bündel).
+const TRACE_PORT_MARGIN := 0.06
+const TRACE_PORT_SHARE := 0.36
+const TRACE_IDLE := Color(0.34, 0.36, 0.46)
+## Der AUSGANGS-BUS vom Speicher in die Podest-Platte: Spurabstand und Breite (u), Abstand
+## vom rechten Speicherrand und Höhe an der Platte (Anteile).
+const FEED_PITCH := 1.3
+const FEED_WIDTH := 0.55
+const FEED_INSET := 0.1
+const FEED_DROP := 0.3
+## Der SPEICHER (UPGRADES): Gehäuse, Zellen-Grund, Anschluß-Stifte (u).
+const STORAGE_BG := Color(0.035, 0.04, 0.085, 0.95)
+const STORAGE_CAN := Color(0.05, 0.06, 0.11)
 
 ## Der EINE Handlungs-Sitz am RECHTEN Ende der Zeile, neben dem Podest: er trägt
 ## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
@@ -597,41 +613,91 @@ func _build_street(u: float) -> void:
 	_build_action_seat(u)
 	_sync_equation_shown()
 
-## DIE LEITERBAHNEN: von jeder belegten Scheibe eine matte Bahn in der Farbe ihrer Karte
-## zum UPGRADES-Netz - gemalt auf den Filz zwischen Walze und Gleichung.
+## DIE LEITERBAHNEN stehen IMMER: von jeder Scheibe vier Bahnen (eine je Sorte) in den
+## SPEICHER, von dort ein vierspuriger Bus in die Podest-Platte. Leer sind sie farblos,
+## belegt leuchtet die Bahn der Karte. Sie enden AN der Speicherkante, nie darin.
 func _build_traces(u: float) -> void:
 	var layout := drum()
-	var paths := trace_paths(layout["slices"], layout["upgrades"], layout["trace_band"])
-	var cards := _slot_cards()
+	var paths := trace_paths(layout["slices"], layout["upgrades"], layout["trace_band"],
+		TRACE_LANES)
+	var slice_tints := _slice_tints()
+	var slice_lanes := _slice_lanes()
 	var layer := TraceLayer.new()
 	layer.name = "Traces"
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.width = maxf(u * TRACE_WIDTH, 1.5)
-	for card in cards:
-		var slot := int(card.get("slot", -1))
-		if slot < 0 or slot >= paths.size():
-			continue
-		layer.paths.append(paths[slot])
-		layer.tints.append(PackDrawerView.tint_of(String(card.get("sort", "")),
-			String(card.get("catalyst", "")), card.get("net", []), bool(card.get("blank", false))))
+	var band: Rect2 = layout["trace_band"]
+	var width := minf(maxf(u * TRACE_WIDTH, 1.5), maxf(band.size.y * 0.035, 1.0))
+	for i in paths.size():
+		var slot := i / TRACE_LANES
+		var lane := i % TRACE_LANES
+		var lit := slice_lanes[slot] == lane
+		layer.add_trace(paths[i], slice_tints[slot], lit, width, 0)
+	var feeds := feed_paths(layout["upgrades"], layout["podium_stage"], TRACE_LANES,
+		u * FEED_PITCH)
+	for lane in feeds.size():
+		layer.add_trace(feeds[lane], lane_tint(lane), slice_lanes.has(lane),
+			maxf(u * FEED_WIDTH, 1.5), feeds[lane].size() - 1)
 	_content.add_child(layer)
 
-## Je Scheibe ein Linienzug: senkrecht aus der Nummern-Zeile, mit 45°-Knick auf ihre Spur,
-## quer zum Netz, mit 45°-Knick hinauf in seine Unterkante. Wer weiter weg startet, fährt
-## die höhere Spur - so kreuzt keine Bahn eine andere.
-static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2) -> Array[PackedVector2Array]:
+## Die Sortenfarbe einer Spur (Pack.SHELF_ORDER).
+static func lane_tint(lane: int) -> Color:
+	var shelf := String(Pack.SHELF_ORDER[clampi(lane, 0, Pack.SHELF_ORDER.size() - 1)])
+	return PackDrawerView.COLORS.get(shelf, GOLD)
+
+## Je Scheibe die Farbe ihrer Karte (Alpha 0 = leer).
+func _slice_tints() -> Array[Color]:
+	var tints: Array[Color] = []
+	tints.resize(DRUM_SLICES)
+	tints.fill(Color(0.0, 0.0, 0.0, 0.0))
+	for card in _slot_cards():
+		var slot := int(card.get("slot", -1))
+		if slot >= 0 and slot < tints.size():
+			tints[slot] = PackDrawerView.tint_of(String(card.get("sort", "")),
+				String(card.get("catalyst", "")), card.get("net", []),
+				bool(card.get("blank", false)))
+	return tints
+
+## Je Scheibe die Spur ihrer Karten-Sorte (-1 = leer).
+func _slice_lanes() -> Array[int]:
+	var lanes: Array[int] = []
+	lanes.resize(DRUM_SLICES)
+	lanes.fill(-1)
+	for card in _slot_cards():
+		var slot := int(card.get("slot", -1))
+		if slot >= 0 and slot < lanes.size():
+			var rank := Pack.SHELF_ORDER.find(String(card.get("sort", "")))
+			lanes[slot] = rank if rank >= 0 else TRACE_LANES - 1
+	return lanes
+
+## Der Anschluß einer Bahn an der Speicher-Unterkante (index = Scheibe * lanes + Spur).
+static func trace_end_x(upgrades: Rect2, count: int, lanes: int, index: int) -> float:
+	var room := upgrades.size.x * (1.0 - TRACE_PORT_MARGIN * 2.0) / float(maxi(count, 1))
+	var slot := index / lanes
+	var lane := index % lanes
+	return upgrades.position.x + upgrades.size.x * TRACE_PORT_MARGIN \
+		+ room * (float(slot) + 0.5) \
+		+ (float(lane) - float(lanes - 1) * 0.5) * room * TRACE_PORT_SHARE / float(lanes)
+
+## Je Scheibe `lanes` Linienzüge: senkrecht aus der Grabenkante, mit 45°-Knick auf ihre
+## Spur, quer zum Speicher, mit 45°-Knick hinauf in seine Unterkante. Wer weiter weg
+## startet, fährt die höhere Spur - so kreuzt keine Bahn eine andere.
+static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2,
+		lanes := 1) -> Array[PackedVector2Array]:
 	var paths: Array[PackedVector2Array] = []
-	var count := slices.size()
+	var count := slices.size() * lanes
 	if count == 0 or band.size.y <= 0.0:
 		return paths
 	var starts: Array[float] = []
 	var ends: Array[float] = []
+	# Die Füße stehen über die ganze Walze in EINEM Abstand.
+	var step := (slices[0] as Rect2).size.x
+	if slices.size() > 1:
+		step = (slices[1] as Rect2).get_center().x - (slices[0] as Rect2).get_center().x
 	for i in count:
-		starts.append((slices[i] as Rect2).get_center().x)
-		var share := 0.5 if count == 1 else float(i) / float(count - 1)
-		ends.append(upgrades.position.x + upgrades.size.x * (0.2 + 0.6 * share))
-	var margin := band.size.y * TRACE_BAND_MARGIN
-	var pitch := (band.size.y - margin * 2.0) / float(maxi(count - 1, 1))
+		var slice: Rect2 = slices[i / lanes]
+		var lane := float(i % lanes) - float(lanes - 1) * 0.5
+		starts.append(slice.get_center().x + lane * step / float(lanes))
+		ends.append(trace_end_x(upgrades, slices.size(), lanes, i))
 	var right_rank := 0
 	var ranks: Array[int] = []
 	ranks.resize(count)
@@ -644,32 +710,166 @@ static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2) -> Array[Pa
 		if starts[i] > ends[i]:
 			ranks[i] = left_rank
 			left_rank += 1
+	var margin := band.size.y * TRACE_BAND_MARGIN
+	var pitch := (band.size.y - margin * 2.0) / float(maxi(maxi(right_rank, left_rank) - 1, 1))
 	for i in count:
-		var lane := band.position.y + margin + pitch * float(ranks[i])
+		var lane_y := band.position.y + margin + pitch * float(ranks[i])
 		var way := signf(ends[i] - starts[i])
-		var bend := minf(pitch, absf(ends[i] - starts[i]) * 0.5)
+		var bend := minf(minf(pitch, margin), absf(ends[i] - starts[i]) * 0.5)
+		var foot := maxf((slices[i / lanes] as Rect2).position.y, band.end.y)
 		paths.append(PackedVector2Array([
-			Vector2(starts[i], band.end.y), Vector2(starts[i], lane + bend),
-			Vector2(starts[i] + way * bend, lane), Vector2(ends[i] - way * bend, lane),
-			Vector2(ends[i], lane - bend), Vector2(ends[i], upgrades.end.y)]))
+			Vector2(starts[i], foot), Vector2(starts[i], lane_y + bend),
+			Vector2(starts[i] + way * bend, lane_y), Vector2(ends[i] - way * bend, lane_y),
+			Vector2(ends[i], lane_y - bend), Vector2(ends[i], upgrades.end.y)]))
 	return paths
 
-## Die gemalten Bahnen: dunkler Grund, matte Farbe, an beiden Enden ein Lötauge.
+## Der AUSGANGS-BUS: `lanes` Spuren aus der Speicher-Oberkante hinauf und mit 45°-Knick
+## nach rechts in die linke Kante der Podest-Platte. Die rechte Spur biegt am tiefsten ab.
+static func feed_paths(upgrades: Rect2, plate: Rect2, lanes: int,
+		pitch: float) -> Array[PackedVector2Array]:
+	var paths: Array[PackedVector2Array] = []
+	if plate.position.x <= upgrades.end.x or plate.end.y > upgrades.position.y + 0.5:
+		return paths
+	for lane in lanes:
+		var k := float(lanes - 1 - lane)
+		var x := feed_x(upgrades, lanes, pitch, lane)
+		var y := plate.end.y - plate.size.y * FEED_DROP - pitch * k
+		paths.append(PackedVector2Array([Vector2(x, upgrades.position.y),
+			Vector2(x, y + pitch), Vector2(x + pitch, y), Vector2(plate.position.x, y)]))
+	return paths
+
+## Der Abgang einer Bus-Spur an der Speicher-Oberkante (Spur 0 links).
+static func feed_x(upgrades: Rect2, lanes: int, pitch: float, lane: int) -> float:
+	return upgrades.end.x - upgrades.size.x * FEED_INSET - pitch * float(lanes - 1 - lane)
+
+## Die gemalten Bahnen: dunkler Grund, darauf matt (Ruhe) oder leuchtend, am Fuß ein Lötauge.
 class TraceLayer extends Control:
 	var paths: Array[PackedVector2Array] = []
 	var tints: Array[Color] = []
-	var width := 2.0
+	var lit: Array[bool] = []
+	var widths: Array[float] = []
+	## Der Punkt mit dem Lötauge - das Ende am Speicher trägt keines.
+	var eyes: Array[int] = []
+
+	func add_trace(path: PackedVector2Array, tint: Color, on: bool, width: float,
+			eye: int) -> void:
+		paths.append(path)
+		tints.append(tint)
+		lit.append(on)
+		widths.append(width)
+		eyes.append(eye)
 
 	func _draw() -> void:
 		for i in paths.size():
-			var tint := tints[i].darkened(TRACE_DARKEN)
-			tint.a = 1.0
-			draw_polyline(paths[i], TRACE_BED, width * 2.4, true)
-			draw_polyline(paths[i], tint, width, true)
-			for point: Vector2 in [paths[i][0], paths[i][paths[i].size() - 1]]:
-				draw_circle(point, width * 2.2, TRACE_BED)
-				draw_circle(point, width * 1.7, tint)
-				draw_circle(point, width * 0.7, TRACE_BED)
+			draw_polyline(paths[i], TRACE_BED, widths[i] * 2.6, true)
+		# Erst alle matten, dann die leuchtenden - ihr Schein liegt über den Nachbarn.
+		for pass_lit: bool in [false, true]:
+			for i in paths.size():
+				if lit[i] != pass_lit:
+					continue
+				var tint := tints[i].darkened(TRACE_DARKEN) if pass_lit else TRACE_IDLE
+				tint.a = 1.0
+				if pass_lit:
+					draw_polyline(paths[i], Color(tint, 0.22), widths[i] * 3.2, true)
+				draw_polyline(paths[i], tint, widths[i], true)
+				draw_circle(paths[i][eyes[i]], widths[i] * 1.5, TRACE_BED)
+				draw_circle(paths[i][eyes[i]], widths[i] * 1.1, tint)
+
+## DER SPEICHER hinter dem UPGRADES-Netz: in den freien Kreuz-Ecken rechts sechs
+## Speicherzellen (eine je Scheibe, geladen in der Farbe ihrer Karte), links oben der
+## Füllstand. Die Bahnen enden an seiner Kante - innen ist keine Leitung zu sehen.
+class StorageBody extends Control:
+	var u := 4.0
+	var cell := 10.0
+	var net_origin := Vector2.ZERO
+	var slice_tints: Array[Color] = []
+
+	static func housing() -> StyleBoxFlat:
+		var box := TableScreen.window_style()
+		box.bg_color = STORAGE_BG
+		box.set_border_width_all(3)
+		box.set_corner_radius_all(6)
+		return box
+
+	func stored() -> int:
+		var count := 0
+		for tint in slice_tints:
+			if tint.a > 0.0:
+				count += 1
+		return count
+
+	func _draw() -> void:
+		var rail := Color(CasinoStyle.ENERGY, 0.9) if stored() > 0 else TRACE_IDLE
+		var step := cell * (1.0 + DieNetView.GAP_FACTOR)
+		_draw_cans(net_origin + Vector2(step * 2.0, 0.0), 0)
+		_draw_cans(net_origin + Vector2(step * 2.0, step * 2.0), 3)
+		_draw_gauge(Rect2(net_origin, Vector2.ONE * cell), rail)
+		_draw_vents(Rect2(net_origin + Vector2(0.0, step * 2.0), Vector2.ONE * cell))
+
+	## Drei Speicherzellen in einem freien Zwei-Zellen-Block des Kreuzes.
+	func _draw_cans(origin: Vector2, first: int) -> void:
+		var block := Vector2(cell * (2.0 + DieNetView.GAP_FACTOR), cell)
+		var room := block.x / 3.0
+		var can := Vector2(room * 0.6, cell * 0.74)
+		for i in 3:
+			var slot := first + i
+			var tint: Color = slice_tints[slot] if slot < slice_tints.size() else Color(0, 0, 0, 0)
+			var full := tint.a > 0.0
+			var rect := Rect2(origin + Vector2(room * (float(i) + 0.5) - can.x * 0.5,
+				(block.y - can.y) * 0.5 + cell * 0.05), can)
+			var rim := tint if full else TRACE_IDLE
+			rim.a = 1.0
+			var box := StyleBoxFlat.new()
+			box.set_corner_radius_all(maxi(2, int(can.x * 0.28)))
+			if full:
+				box.bg_color = Color(tint, 0.16)
+				draw_style_box(box, rect.grow(can.x * 0.22))
+			box.bg_color = STORAGE_CAN
+			box.border_color = rim
+			box.set_border_width_all(maxi(1, int(can.x * 0.08)))
+			draw_style_box(box, rect)
+			# Pol oben, Ladung innen: geladen voll in Kartenfarbe, leer drei matte Marken.
+			draw_rect(Rect2(rect.get_center().x - can.x * 0.18, rect.position.y - cell * 0.07,
+				can.x * 0.36, cell * 0.07), rim)
+			var core := rect.grow(-can.x * 0.2)
+			if full:
+				box.bg_color = Color(tint.lightened(0.15), 0.92)
+				box.set_border_width_all(0)
+				box.set_corner_radius_all(maxi(1, int(can.x * 0.14)))
+				draw_style_box(box, core)
+			else:
+				for k in 3:
+					var y := core.position.y + core.size.y * (float(k) + 0.5) / 3.0
+					draw_line(Vector2(core.position.x, y), Vector2(core.end.x, y), rim,
+						maxf(cell * 0.03, 1.0))
+
+	## Der Füllstand in der freien Ecke oben links: "n/6" über einer Marken-Leiste.
+	func _draw_gauge(rect: Rect2, tint: Color) -> void:
+		var font := get_theme_default_font()
+		var grade := maxi(6, int(cell * 0.34))
+		var total := slice_tints.size()
+		var text := "%d/%d" % [stored(), total]
+		var span := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, grade)
+		draw_string(font, Vector2(rect.get_center().x - span.x * 0.5,
+			rect.position.y + rect.size.y * 0.52), text, HORIZONTAL_ALIGNMENT_LEFT, -1, grade,
+			Color(tint, 1.0))
+		var bar := Rect2(rect.position + Vector2(rect.size.x * 0.12, rect.size.y * 0.68),
+			Vector2(rect.size.x * 0.76, rect.size.y * 0.12))
+		var room := bar.size.x / float(maxi(total, 1))
+		for i in total:
+			var on := slice_tints[i].a > 0.0
+			var mark: Color = slice_tints[i] if on else TRACE_IDLE
+			mark.a = 1.0
+			draw_rect(Rect2(bar.position.x + room * float(i) + room * 0.12, bar.position.y,
+				room * 0.76, bar.size.y), mark)
+
+	## Lüftungs-Schlitze in der freien Ecke unten links.
+	func _draw_vents(rect: Rect2) -> void:
+		var tint := TRACE_IDLE
+		for k in 4:
+			var y := rect.position.y + rect.size.y * (0.3 + 0.14 * float(k))
+			draw_line(Vector2(rect.position.x + rect.size.x * 0.18, y),
+				Vector2(rect.end.x - rect.size.x * 0.18, y), tint, maxf(cell * 0.05, 1.0))
 
 ## Der leere Platz eines Podests: das Fenster MELDET ihn, gestellt wird der Körper
 ## von scene_root.
@@ -782,6 +982,7 @@ func _build_equation(u: float) -> void:
 	var cell := net_cell(u)
 	var layout := drum()
 	_sum_host = _net_screen("UpgradesScreen", layout["upgrades"], cell, UPGRADES_HEAD)
+	_build_storage(u, cell, layout["upgrades"])
 	var signs: Array = layout["signs"]
 	_equation_sign("PlusSign", signs[0], "+")
 	_equation_sign("EqualsSign", signs[1], "=")
@@ -797,6 +998,21 @@ func _build_equation(u: float) -> void:
 	_result_host = host
 	_sum_signature = ""
 	_refresh_sum_net()
+
+## UPGRADES ist ein SPEICHER: sein Gehäuse liegt unter dem Summen-Netz.
+func _build_storage(u: float, cell: float, rect: Rect2) -> void:
+	var screen := _sum_host.get_parent() as Panel
+	screen.add_theme_stylebox_override("panel", StorageBody.housing())
+	var body := StorageBody.new()
+	body.name = "Storage"
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.size = rect.size
+	body.u = u
+	body.cell = cell
+	body.net_origin = _sum_host.position
+	body.slice_tints = _slice_tints()
+	screen.add_child(body)
+	screen.move_child(body, 0)
 
 ## Der Würfel, den ORIGINAL zeigt (null = keiner, dann das leere Kreuz).
 func before_die() -> DieDefinition:
