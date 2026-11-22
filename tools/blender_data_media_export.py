@@ -195,9 +195,22 @@ CT = 0.126
 RX, RR = 0.52, 0.135
 
 
+PLATE_PAD = 0.03
+
+
+def net_cross(name, z, pad, material, corner):
+    """Das Kreuz des Netzes als zwei flache Platten: Arm und Querbalken."""
+    box(name + "Arm", (3 * P + C + 2 * pad, C + 2 * pad, 0.0004), ((ARM[0] + ARM[3]) * 0.5, 0, z),
+        material, corner)
+    box(name + "Quer", (C + 2 * pad, 2 * P + C + 2 * pad, 0.0004), (ARM[1], 0, z), material,
+        corner)
+
+
 def cassette():
-    """Schwarze Schale, Papier-Etikett hinter dem Netz, Sichtfenster mit zwei Naben am Kopf der
-    Langseite, darunter die Kopfpartie als Trapez. Im Netz-Feld bleibt alles unter CT + 0,004."""
+    """PAPIER (Spieler-Wahl 2026-11-22, tools/blender_cassette_calm_variants.py "D"): schwarze
+    Schale, Papier-Etikett, Sichtfenster mit zwei Naben, Kopfpartie als Trapez - und unter dem
+    Netz eine dunkle PLATTE in Kreuzform mit Saum, damit das Netz zuerst liest. Im Netz-Feld
+    bleibt alles unter CT + 0,004."""
     m = mats("material")
     shell = led.mat("Kassettenschale", (0.02, 0.02, 0.024), 0.0, 0.42, clearcoat=0.2)
     box("Koerper", (L - 0.008, W - 0.008, CT), (0, 0, CT * 0.5), shell, 0.05, 0.01, 3)
@@ -206,10 +219,10 @@ def cassette():
                       0.04))
     bpy.data.objects["SchnittNaht"].display_type = "WIRE"
     z = CT
-    box("HellEtikett", (1.5, 0.74, 0.0015), (0, 0.13, z + 0.00075), m["Hell"], 0.04)
-    line("SaumEtikett", z + 0.0015, -0.74, -0.2, 0.74, -0.2, 0.01, m["Saum"], 0.0006)
+    box("HellEtikett", (1.5, 0.74, 0.0012), (0, 0.13, z + 0.0006), m["Hell"], 0.04)
+    line("SaumEtikett", z + 0.0012, -0.74, -0.2, 0.74, -0.2, 0.01, m["Saum"], 0.0004)
     # Das SICHTFENSTER: Wickel, Naben mit sechs Zähnen, dazwischen das Band.
-    box("GlanzFenster", (1.38, 0.33, 0.0015), (0, P, z + 0.00225), m["Glanz"], 0.06)
+    box("GlanzFenster", (1.38, 0.33, 0.0008), (0, P, z + 0.0018), m["Glanz"], 0.06)
     zw = z + 0.003
     for s, f in ((-1, 0.75), (1, 0.3)):
         x = s * RX
@@ -222,18 +235,20 @@ def cassette():
             line("HellZahn%d_%d" % (s + 1, k), zw + 0.0035, x + math.cos(a) * RR * 0.18, P +
                  math.sin(a) * RR * 0.18, x + math.cos(a) * RR * 0.4, P + math.sin(a) * RR * 0.4,
                  RR * 0.12, m["Hell"], 0.0)
-        dm.annulus(None, "SaumFensterring%d" % (s + 1), x, P, zw + 0.004, RR * 1.08, RR * 1.17,
-                   m["Saum"], 28)
-    for k, (a, b) in enumerate(((-RX, ARM[1] - C * 0.5 - 0.02), (ARM[1] + C * 0.5 + 0.02, RX))):
+    edge = C * 0.5 + PLATE_PAD + 0.02
+    for k, (a, b) in enumerate(((-RX, ARM[1] - edge), (ARM[1] + edge, RX))):
         line("BandFenster%d" % k, zw, a, P - 0.135, b, P - 0.135, 0.012, m["Band"], 0.0008)
-    # Die KOPFPARTIE: erhabenes Trapez mit Capstan- und Paßlöchern, an der Kante zwei Kerben.
+    # Die KOPFPARTIE: erhabenes Trapez mit Capstan-Löchern.
     trap = [(-0.66, -0.536), (0.66, -0.536), (0.56, -0.2), (-0.56, -0.2)]
-    quad_prism("KoerperKopfpartie", trap, z - 0.001, z + 0.003, shell)
+    quad_prism("KoerperKopfpartie", trap, z - 0.001, z + 0.002, shell)
     for k, (x, y, r) in enumerate(((-0.47, -0.4, 0.04), (0.47, -0.4, 0.04))):
-        if not in_net(x, y, r + 0.01):
-            dm.cyl(None, "DunkelLoch%d" % k, r, 0.001, (x, y, z + 0.0041), m["Dunkel"], 18)
+        if not in_net(x, y, r + PLATE_PAD + 0.01):
+            dm.cyl(None, "DunkelLoch%d" % k, r, 0.001, (x, y, z + 0.0026), m["Dunkel"], 18)
     for k, (x, y) in enumerate(((0.76, 0.49), (0.76, -0.49), (-0.76, 0.49), (-0.76, -0.49))):
         dm.cyl(None, "MetallSchraube%d" % k, 0.024, 0.006, (x, y, z + 0.003), m["Metall"], 10)
+    # Die NETZPLATTE: Saum außen, dunkle Platte darauf - über Etikett, Fenster und Trapez.
+    net_cross("SaumPlatte", z + 0.0027, PLATE_PAD, m["Saum"], 0.05)
+    net_cross("DunkelPlatte", z + 0.0033, PLATE_PAD - 0.01, m["Dunkel"], 0.042)
 
 
 # --- RUNEN: die Tontafel (KEILSCHRIFT, 2026-11-19) ---------------------------------------------

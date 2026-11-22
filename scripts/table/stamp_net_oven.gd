@@ -22,7 +22,7 @@ const PUNCH_MARK_SHARE := 0.5
 const TILE_SHEEN := 0.22
 const GLAZE := Color(0.03, 0.034, 0.05)
 const GLAZE_BARE := Color(0.2, 0.155, 0.11)
-const TAPE_BARE := Color(0.07, 0.065, 0.12)
+const TAPE_BARE := Color(0.11, 0.09, 0.17)
 ## Der Saum einer LEEREN Zelle: die Sortenfarbe, so weit abgedunkelt.
 const BARE_RIM_DARK := 0.35
 const CLAY_RIM := Color(0.09, 0.07, 0.05)
@@ -117,8 +117,9 @@ static func dress(drawing: Control, net: Array, accent: Color, carrier: int) -> 
 					box.border_color = accent
 					_sheen(chip, TILE_SHEEN)
 				elif not filled:
+					# Auf der dunklen Netzplatte soll das ganze Kreuz lesen: voller Saum.
 					box.bg_color = TAPE_BARE
-					box.border_color = accent.darkened(BARE_RIM_DARK)
+					box.border_color = accent
 			DataCellView.CARRIER_CLAY:
 				box.bg_color = GLAZE if filled else GLAZE_BARE
 				box.border_color = accent.darkened(BARE_RIM_DARK)
