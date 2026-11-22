@@ -31,32 +31,33 @@ const RAIL_GROOVE_SHARE := 0.42
 const RAIL_THUMB_SHARE := 0.66
 ## Der Schieber ist ein Knopf: nie kürzer als das (Welt), mit Griffrillen.
 const RAIL_THUMB_MIN := 0.34
-const LAMP_OFF := Color(0.06, 0.1, 0.075)
-const LAMP_DARK := 0.25
-const LAMP_LIT := 1.2
+## Die Dioden des Lochrasters: ohne Karte glimmen sie, mit ihr scheinen sie durch die Löcher.
+const LAMP_OFF := Color(0.1, 0.32, 0.18)
+const LAMP_DARK := 0.6
+const LAMP_LIT := 2.0
 const RAIL_THUMB_ENERGY := 0.95
 const RAIL_THUMB_DIM := 0.32
 
 ## Je Gerät: Fassung, Grubeninneres (Platte, Lippen), Muldenboden, Wand und Saum der Grube.
-const FRAME_ALBEDO: Array[Color] = [Color(0.5, 0.52, 0.54), Color(0.035, 0.035, 0.04),
-	Color(0.55, 0.44, 0.3), Color(0.025, 0.04, 0.034)]
-const FRAME_GLOW: Array[Color] = [Color(0.26, 0.275, 0.29), Color(0.045, 0.045, 0.054),
-	Color(0.3, 0.235, 0.155), Color(0.025, 0.045, 0.036)]
-const FRAME_METALLIC: Array[float] = [0.35, 0.0, 0.0, 0.1]
-const FRAME_ROUGHNESS: Array[float] = [0.34, 0.82, 0.96, 0.7]
-const INSIDE_ALBEDO: Array[Color] = [Color(0.2, 0.21, 0.225), Color(0.04, 0.04, 0.046),
-	Color(0.36, 0.28, 0.19), Color(0.022, 0.036, 0.03)]
-const INSIDE_GLOW: Array[Color] = [Color(0.36, 0.38, 0.41), Color(0.085, 0.082, 0.1),
-	Color(0.4, 0.31, 0.21), Color(0.05, 0.085, 0.068)]
-const INSIDE_ENERGY: Array[float] = [0.5, 1.0, 0.55, 1.0]
-## Der Leuchttisch der Kartenzufuhr: matt, grünlich-weiß - er scheint durch die Löcher.
-const FLOOR_ALBEDO: Array[Color] = [Color(0.72, 0.82, 0.75), Color(0.05, 0.048, 0.058),
-	Color(0.3, 0.225, 0.15), Color(0.02, 0.05, 0.036)]
-const FLOOR_GLOW: Array[Color] = [Color(0.8, 0.95, 0.84), Color(0.09, 0.085, 0.11),
-	Color(0.33, 0.245, 0.16), Color(0.04, 0.095, 0.07)]
-const FLOOR_ENERGY: Array[float] = [0.42, 1.0, 0.62, 1.0]
-const WALL_ALBEDO: Array[Color] = [Color(0.11, 0.115, 0.125), Color(0.03, 0.03, 0.036),
-	Color(0.2, 0.155, 0.105), Color(0.02, 0.034, 0.028)]
+const FRAME_ALBEDO: Array[Color] = [Color(0.03, 0.036, 0.042), Color(0.13, 0.13, 0.15),
+	Color(0.4, 0.28, 0.17), Color(0.14, 0.14, 0.18)]
+const FRAME_GLOW: Array[Color] = [Color(0.04, 0.05, 0.056), Color(0.09, 0.09, 0.105),
+	Color(0.24, 0.165, 0.1), Color(0.1, 0.1, 0.13)]
+const FRAME_METALLIC: Array[float] = [0.2, 0.2, 0.0, 0.1]
+const FRAME_ROUGHNESS: Array[float] = [0.3, 0.5, 0.8, 0.7]
+const INSIDE_ALBEDO: Array[Color] = [Color(0.03, 0.035, 0.04), Color(0.1, 0.1, 0.115),
+	Color(0.36, 0.25, 0.15), Color(0.12, 0.12, 0.15)]
+const INSIDE_GLOW: Array[Color] = [Color(0.055, 0.065, 0.075), Color(0.08, 0.08, 0.092),
+	Color(0.36, 0.25, 0.15), Color(0.1, 0.1, 0.125)]
+const INSIDE_ENERGY: Array[float] = [1.0, 1.0, 0.55, 1.0]
+## Das Lochraster der Kartenzufuhr liegt auf schwarzem Glas.
+const FLOOR_ALBEDO: Array[Color] = [Color(0.012, 0.016, 0.02), Color(0.05, 0.05, 0.06),
+	Color(0.12, 0.08, 0.05), Color(0.36, 0.3, 0.62)]
+const FLOOR_GLOW: Array[Color] = [Color(0.02, 0.028, 0.03), Color(0.045, 0.045, 0.054),
+	Color(0.12, 0.08, 0.05), Color(0.36, 0.3, 0.62)]
+const FLOOR_ENERGY: Array[float] = [1.0, 1.0, 0.62, 0.55]
+const WALL_ALBEDO: Array[Color] = [Color(0.02, 0.024, 0.028), Color(0.03, 0.03, 0.036),
+	Color(0.16, 0.11, 0.07), Color(0.04, 0.04, 0.055)]
 const GLOW_COLOR: Array[Color] = [Color(0.42, 0.62, 0.5), Color(0.55, 0.32, 0.46),
 	Color(0.62, 0.52, 0.26), Color(0.45, 0.4, 0.62)]
 
@@ -95,7 +96,7 @@ static func inside_material(column: int) -> StandardMaterial3D:
 			FRAME_METALLIC[c] * 0.6, FRAME_ROUGHNESS[c])
 	return _materials[key]
 
-## Der Muldenboden; bei der Kartenzufuhr der Leuchttisch.
+## Der Muldenboden.
 static func floor_material(column: int) -> StandardMaterial3D:
 	var key := _key("floor", column)
 	if not _materials.has(key):
@@ -105,14 +106,20 @@ static func floor_material(column: int) -> StandardMaterial3D:
 		_materials[key] = material
 	return _materials[key]
 
-## Der LEUCHTTISCH eines Platzes der Kartenzufuhr: dunkel ohne Karte, mit ihr leuchtet er
-## in ihrer Farbe durch die Löcher (wie der Sockel der Walze). Je Platz ein eigenes.
-static func lamp_material() -> StandardMaterial3D:
-	return TableProps.metal(LAMP_OFF, LAMP_OFF, LAMP_DARK, 0.0, 1.0)
+## Das Licht der DIODEN eines Platzes der Kartenzufuhr: ohne Karte glimmen sie, mit ihr
+## leuchten sie in ihrer Farbe durch die Löcher. Je Platz ein eigenes.
+static func lamp_material(column := ZAHL) -> StandardMaterial3D:
+	return TableProps.metal(lamp_off(column), lamp_off(column), LAMP_DARK, 0.0, 1.0)
 
-static func write_lamp(material: StandardMaterial3D, tint: Color, lit: bool) -> void:
-	material.albedo_color = tint * 0.5 if lit else LAMP_OFF
-	material.emission = tint if lit else LAMP_OFF
+## Die Ruhefarbe des Platz-Lichts: die Dioden grün, der Bandweg des Decks gedämpftes Pink.
+static func lamp_off(column: int) -> Color:
+	return LAMP_OFF if column == ZAHL else tint(column) * 0.45
+
+static func write_lamp(material: StandardMaterial3D, tint_color: Color, lit: bool,
+		column := ZAHL) -> void:
+	var off := lamp_off(column)
+	material.albedo_color = tint_color * 0.5 if lit else off
+	material.emission = tint_color if lit else off
 	material.emission_energy_multiplier = LAMP_LIT if lit else LAMP_DARK
 
 ## Der Stahl der Führungsschienen des Schiebers.
@@ -256,31 +263,76 @@ static func _build_bar(host: Node3D, column: int, hole: Vector2, margins: Vector
 	host.add_child(label)
 	return {"bar": bar, "label": label, "material": material}
 
-## Kartenzufuhr: zwei Führungsschienen oben und unten, links die Transport-Löcher.
+## Die Lochpositionen der Karte im Roh-Maß ihres Exports: 14 Spalten längs, 10 Zeilen quer.
+const PUNCH_COLUMNS := 14
+const PUNCH_ROWS := 10
+const PUNCH_SPAN := Vector2(0.86, 1.46)
+const PUNCH_FIRST := Vector2(0.42, -0.72)
+const DOT_SIZE := Vector3(0.044, 0.006, 0.028)
+const HAIRLINE := 0.022
+const DIGIT_HIGH := 0.13
+
+static var _dot_meshes := {}
+
+## Wo die Lochposition (Spalte, Zeile) in der Mulde liegt: (X, Z) um die Kartenmitte.
+static func punch_spot(column: int, row: int, k: float) -> Vector2:
+	return Vector2(PUNCH_FIRST.x - float(row) * PUNCH_SPAN.x / float(PUNCH_ROWS - 1),
+		PUNCH_FIRST.y + float(column) * PUNCH_SPAN.y / float(PUNCH_COLUMNS - 1)) * k
+
+## Das LOCHRASTER einer Mulde: je Lochposition der Karte eine Diode auf dem schwarzen Glas
+## (Knoten "Lochraster", EIN geteiltes MultiMesh, das Licht kommt je Platz).
+static func build_dots(node: Node3D, floor_top: float, k: float, light: Material) -> void:
+	if not _dot_meshes.has(k):
+		var mesh := BoxMesh.new()
+		mesh.size = DOT_SIZE * Vector3(k, 1.0, k)
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.mesh = mesh
+		multi.instance_count = PUNCH_COLUMNS * PUNCH_ROWS
+		for column in PUNCH_COLUMNS:
+			for row in PUNCH_ROWS:
+				var spot := punch_spot(column, row, k)
+				multi.set_instance_transform(column * PUNCH_ROWS + row,
+					Transform3D(Basis.IDENTITY, Vector3(spot.x, 0.0, spot.y)))
+		_dot_meshes[k] = multi
+	var dots := MultiMeshInstance3D.new()
+	dots.name = "Lochraster"
+	dots.multimesh = _dot_meshes[k]
+	dots.material_override = light
+	dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	dots.position.y = floor_top + 0.004 + DOT_SIZE.y * 0.5
+	node.add_child(dots)
+
+## Kartenzufuhr: schwarzes Glas, eine grüne Haarlinie rings um das Loch und links die
+## Zeilen-Ziffern 0-9 jeder Reihe.
 static func _dress_feeder(host: Node3D, hole: Vector2, margins: Vector3) -> void:
-	var steel := _flat("feeder_steel", STEEL, 0.12, 0.85, 0.25)
-	var span := hole.y + margins.x * 2.0 - 0.1
-	var top_x := hole.x * 0.5 + (margins.y - OVERHANG) * 0.5
-	var bottom_x := -hole.x * 0.5 - OVERHANG * 0.5 - 0.06
-	for pair: Array in [["SchieneOben", top_x], ["SchieneUnten", bottom_x]]:
-		TableProps.box(host, pair[0], Vector3(0.05, 0.016, span),
-			Vector3(pair[1], FRAME_H + 0.008, 0.0), steel)
-	var dark := _flat("feeder_hole", Color(0.02, 0.025, 0.022), 0.4, 0.0, 1.0)
-	var lane_z := -hole.y * 0.5 - margins.x * 0.5 + OVERHANG * 0.5
-	var pitch := 0.42
-	var count := maxi(int((hole.x - 0.2) / pitch), 1)
-	for i in count:
-		var dot := MeshInstance3D.new()
-		dot.name = "Transportloch%d" % i
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = 0.045
-		cyl.bottom_radius = 0.045
-		cyl.height = 0.004
-		cyl.radial_segments = 12
-		dot.mesh = cyl
-		dot.material_override = dark
-		dot.position = Vector3((float(i) - float(count - 1) * 0.5) * pitch, FRAME_H + 0.002, lane_z)
-		host.add_child(dot)
+	var line := _flat("feeder_hairline", tint(ZAHL), 0.7, 0.0, 0.5)
+	var out := OVERHANG + 0.07
+	var half := hole * 0.5 + Vector2.ONE * out
+	var y := FRAME_H + 0.003
+	for side in 2:
+		var dir := float(side) * 2.0 - 1.0
+		TableProps.box(host, "HaarlinieX%d" % side, Vector3(HAIRLINE, 0.006, half.y * 2.0),
+			Vector3(dir * half.x, y, 0.0), line)
+		TableProps.box(host, "HaarlinieZ%d" % side, Vector3(half.x * 2.0 - HAIRLINE, 0.006,
+			HAIRLINE), Vector3(0.0, y, dir * half.y), line)
+	var k := PackDrawerView.CASSETTE_SCALE
+	var rows := PackDrawerView.PLACES
+	var pitch := hole.x / float(rows)
+	var z := -hole.y * 0.5 - margins.x * 0.5 + OVERHANG * 0.5 - 0.04
+	for row in rows:
+		var mid := hole.x * 0.5 - pitch * (float(row) + 0.5)
+		for digit in PUNCH_ROWS:
+			var label := Label3D.new()
+			label.name = "Ziffer%d_%d" % [row, digit]
+			label.text = str(digit)
+			label.font_size = 48
+			label.transform.basis = Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
+			label.pixel_size = DIGIT_HIGH / 34.0
+			label.position = Vector3(mid + punch_spot(0, digit, k).x, FRAME_H + 0.004, z)
+			label.modulate = tint(ZAHL).lerp(Color.WHITE, 0.4)
+			label.shaded = false
+			host.add_child(label)
 
 ## Kassetten-Deck: zwei Wickeldorne mit Zähnen am oberen Rand, dazwischen die Tonkopf-Brücke.
 static func _dress_deck(host: Node3D, hole: Vector2, margins: Vector3) -> void:
@@ -432,30 +484,15 @@ static func build_axle(host: Node3D, column: int, length: float, shaft_r: float,
 
 # --- Die MULDEN -----------------------------------------------------------------
 
-## Was ein Gerät in eine leere Mulde legt (unter der Karte, nie über ihr): Dorn-Stummel
-## im Deck, Pad-Feld und Leiterbahnen im Einschub. bay = (Welt-X, Welt-Z), y = 0 ist der
+## Was ein Gerät in eine leere Mulde legt (unter der Karte, nie über ihr): seine Halterung. bay = (Welt-X, Welt-Z), y = 0 ist der
 ## Muldenboden.
 static func dress_bay(node: Node3D, column: int, bay: Vector2, floor_top: float,
-		under_card: float, cell_scale := 0.0) -> void:
+		under_card: float, cell_scale := 0.0, light: Material = null) -> void:
 	var high := minf(0.02, under_card - floor_top - 0.006)
 	if high <= 0.002:
 		return
 	if cell_scale > 0.0:
-		build_holder(node, column, bay, floor_top, under_card, cell_scale)
-	match clampi(column, 0, 3):
-		SONDER:
-			var trace := _flat("slot_trace", TRACE, 0.9, 0.0, 0.9)
-			var pad := _flat("slot_pad", GOLD * 0.7, 0.25, 0.8, 0.4)
-			var thin := high * 0.4
-			for i in 3:
-				var x := (float(i) - 1.0) * bay.x * 0.24
-				TableProps.box(node, "Bahn%d" % i, Vector3(0.022, thin, bay.y * 0.62),
-					Vector3(x, floor_top + thin * 0.5, -bay.y * 0.08), trace)
-			for row in 3:
-				for col in 2:
-					TableProps.box(node, "Pad%d%d" % [row, col], Vector3(0.09, thin, 0.09),
-						Vector3((float(row) - 1.0) * bay.x * 0.24, floor_top + thin * 0.5,
-							bay.y * 0.3 + float(col) * 0.13), pad)
+		build_holder(node, column, bay, floor_top, under_card, cell_scale, light)
 
 # --- Die HALTERUNG ---------------------------------------------------------------
 
@@ -465,6 +502,18 @@ static func dress_bay(node: Node3D, column: int, bay: Vector2, floor_top: float,
 const CARD_HALF := Vector2(0.54, 0.81)
 const HUB := Vector3(0.52, 0.3216, 0.135)
 const CAPSTAN := Vector2(0.47, -0.4)
+## Der Radius eines Spulentellers der Studiospule (Roh-Maß).
+const REEL := 0.23
+## Der Korb der Tafeln: Kette, Schuß, Teilung des Geflechts, Stärke des Rands, das Etikett.
+const BASKET_WARP := Color(0.62, 0.47, 0.27)
+const BASKET_WEFT := Color(0.5, 0.36, 0.2)
+const WEAVE_PITCH := 0.4
+const BASKET_RIM := 0.055
+const CLAY_TAG := Color(0.62, 0.36, 0.22)
+## Die ESD-Matte der Module: Rasterlinie, Lagewinkel, Teilung des Rasters (längs, quer).
+const ESD_GRID := Color(0.56, 0.5, 0.86)
+const ESD_MARK := Color(0.92, 0.9, 1.0)
+const ESD_PITCH := Vector2(0.52, 0.6)
 const PUNCH_CUT := 0.156
 const CLAY_ROUND := 0.15
 const CONTACT := Vector2(0.7635, 0.085)
@@ -474,12 +523,12 @@ const HOLD_WALL := 0.024
 
 ## Was die Karte in ihrer Mulde HÄLT, je Datenträger ein eigener Mechanismus (Knoten
 ## "Halterung"): Lochkarte - Auflageschienen, Eckwinkel und der Schräganschlag ihrer
-## gekappten Ecke; Kassette - zwei gezahnte Wickeldorne in den Naben, Capstan-Stifte und
-## der Tonkopf; Tafel - Lagerbalken und Zapfen in den runden Ecken; Modul - Abstandsbolzen,
-## Federstifte unter der Kontaktleiste und Rasthaken am Kopf. Lokal +X = Karten-quer zum
+## gekappten Ecke; Kassette - zwei gezahnte Wickeldorne auf großen Spulentellern, Capstan-Stifte
+## und der Bandweg als Lichtlinie; Tafel - ein geflochtener Korb mit Rand und Ton-Etikett; Modul - die ESD-Matte mit Raster,
+## Lagewinkeln und Erdungsknopf. Lokal +X = Karten-quer zum
 ## Fenster hin, +Z = Kartenfuß; seat ist die Unterseite der Karte.
 static func build_holder(node: Node3D, column: int, bay: Vector2, floor_top: float,
-		seat: float, k: float) -> Node3D:
+		seat: float, k: float, light: Material = null) -> Node3D:
 	var c := clampi(column, 0, 3)
 	var hold := Node3D.new()
 	hold.name = "Halterung"
@@ -495,17 +544,33 @@ static func build_holder(node: Node3D, column: int, bay: Vector2, floor_top: flo
 		ZAHL:
 			_hold_punch(hold, half, thick, floor_top, rest, stop, k)
 		MATERIAL:
-			_hold_cassette(hold, thick, floor_top, rest, k)
+			_hold_cassette(hold, thick, floor_top, rest, k, light)
+			if light != null:
+				# Die Aufnahme-Lampe auf der Rippe unter dem Platz meldet die Kassette.
+				TableProps.box(node, "Aufnahme", Vector3(0.05, 0.006, 0.1 * k),
+					Vector3(-bay.x * 0.5 - 0.035, seat + DataCellView.DEPTH * k + 0.003,
+						-bay.y * 0.4), light)
 		RUNE:
-			_hold_clay(hold, half, thick, floor_top, rest, k)
+			_hold_clay(hold, bay, floor_top, rest, thick)
+			# Das Ton-Etikett auf der Rippe unter dem Platz; sein Zeichen leuchtet belegt.
+			var deck := seat + DataCellView.DEPTH * k
+			var tag_x := -bay.x * 0.5 - 0.038
+			TableProps.box(node, "Etikett", Vector3(0.07, 0.02, 0.22 * k),
+				Vector3(tag_x, deck + 0.01, 0.0), _flat("hold_clay_tag", CLAY_TAG, 0.5, 0.0, 0.95))
+			if light != null:
+				TableProps.box(node, "Aufnahme", Vector3(0.045, 0.006, 0.11 * k),
+					Vector3(tag_x, deck + 0.023, 0.0), light)
 		SONDER:
-			_hold_module(hold, half, thick, floor_top, rest, stop, k)
+			_hold_module(hold, bay, half, floor_top)
+			if light != null:
+				TableProps.box(node, "Aufnahme", Vector3(0.05, 0.006, 0.28 * k),
+					Vector3(-bay.x * 0.5 - 0.038, seat + DataCellView.DEPTH * k + 0.003, 0.0), light)
 	return hold
 
 static func _hold_punch(hold: Node3D, half: Vector2, thick: float, floor_top: float,
 		rest: float, stop: Vector2, k: float) -> void:
-	var steel := _flat("hold_steel", STEEL, 0.5, 0.7, 0.3)
-	var key := _flat("hold_punch_key", tint(ZAHL), 0.8, 0.0, 0.5)
+	var steel := _flat("hold_punch_glass", Color(0.05, 0.06, 0.068), 1.0, 0.2, 0.3)
+	var key := _flat("hold_punch_key", tint(ZAHL), 0.7, 0.0, 0.5)
 	var rail := 0.03 * k
 	for side in 2:
 		var dir := float(side) * 2.0 - 1.0
@@ -558,20 +623,28 @@ static func _wedge(host: Node3D, wedge_name: String, points: Array, y0: float, y
 	host.add_child(node)
 	return node
 
+## Die STUDIOSPULE (Spieler-Wahl 2026-11-22): große Aluminium-Teller mit drei Ausschnitten um
+## die Dorne, der Bandweg läuft als Lichtlinie über die beiden Umlenkrollen.
 static func _hold_cassette(hold: Node3D, thick: float, floor_top: float, rest: float,
-		k: float) -> void:
+		k: float, light: Material = null) -> void:
 	var white := _flat("hold_hub", HUB_WHITE, 0.5, 0.0, 0.6)
-	var chrome := _flat("hold_chrome", CHROME, 0.5, 0.8, 0.25)
-	var dark := _flat("hold_plate", Color(0.1, 0.1, 0.115), 0.6, 0.2, 0.6)
-	var ring := _flat("hold_deck_ring", tint(MATERIAL) * 0.55, 0.7, 0.0, 0.6)
+	var alu := _flat("hold_reel", Color(0.6, 0.61, 0.63), 0.4, 0.6, 0.25)
+	var cut := _flat("hold_reel_cut", Color(0.02, 0.02, 0.025), 0.8, 0.0, 0.8)
+	var core := _flat("hold_deck_ring", tint(MATERIAL) * 0.6, 0.8, 0.0, 0.6)
+	var path: Material = light if light != null else core
 	var radius := HUB.z * k
 	var high := rest + thick * 0.72
 	for side in 2:
 		var at := Vector3(HUB.y * k, floor_top, (float(side) * 2.0 - 1.0) * HUB.x * k)
-		var plate := _disc(hold, "Teller%d" % side, radius * 0.9, rest * 0.6, ring)
-		plate.position = at + Vector3(0.0, rest * 0.3, 0.0)
-		var rest_disc := _disc(hold, "Auflage%d" % side, radius * 0.7, rest, dark)
-		rest_disc.position = at + Vector3(0.0, rest * 0.5, 0.0)
+		var reel := _disc(hold, "Spulenteller%d" % side, REEL * k, 0.02, alu)
+		reel.position = at + Vector3(0.0, 0.01, 0.0)
+		for i in 3:
+			var a := TAU * float(i) / 3.0 + 0.5
+			var hole := _disc(hold, "Ausschnitt%d_%d" % [side, i], REEL * k * 0.27, 0.004, cut)
+			hole.position = at + Vector3(cos(a), 0.0, sin(a)) * REEL * k * 0.6 \
+				+ Vector3(0.0, 0.022, 0.0)
+		var plate := _disc(hold, "Teller%d" % side, radius * 0.6, rest, core)
+		plate.position = at + Vector3(0.0, rest * 0.5, 0.0)
 		var spindle := _disc(hold, "Wickeldorn%d" % side, radius * 0.27, high, white)
 		spindle.position = at + Vector3(0.0, high * 0.5, 0.0)
 		for tooth in 6:
@@ -582,54 +655,71 @@ static func _hold_cassette(hold: Node3D, thick: float, floor_top: float, rest: f
 					+ Vector3(0.0, rest + (high - rest - 0.01) * 0.5, 0.0), white)
 			if fin != null:
 				fin.rotation.y = -angle
-		var pin := _disc(hold, "Capstan%d" % side, 0.03 * k, rest + thick * 0.5, chrome)
+		var dir := float(side) * 2.0 - 1.0
+		var pin := _disc(hold, "Capstan%d" % side, 0.03 * k, rest + thick * 0.5, alu)
 		pin.position = Vector3(CAPSTAN.y * k, floor_top + (rest + thick * 0.5) * 0.5,
-			(float(side) * 2.0 - 1.0) * CAPSTAN.x * k)
-	TableProps.box(hold, "Tonkopf", Vector3(0.1 * k, rest, 0.3 * k),
-		Vector3((CAPSTAN.y - 0.06) * k, floor_top + rest * 0.5, 0.0), chrome)
+			dir * CAPSTAN.x * k)
+		var run := TableProps.box(hold, "Bandweg%d" % side, Vector3(0.625 * k, 0.008, 0.01 * k),
+			Vector3(-0.0625 * k, floor_top + 0.006, dir * 0.647 * k), path)
+		if run != null:
+			run.rotation.y = dir * 0.33
+	TableProps.box(hold, "BandwegKopf", Vector3(0.01 * k, 0.008, CAPSTAN.x * 2.0 * k),
+		Vector3((CAPSTAN.y - 0.044) * k, floor_top + 0.006, 0.0), path)
 
-static func _hold_clay(hold: Node3D, half: Vector2, thick: float, floor_top: float,
-		rest: float, k: float) -> void:
-	var stone := _flat("hold_stone", Color(0.5, 0.4, 0.27), 0.45, 0.0, 0.95)
-	var inlay := _flat("bed_inlay", tint(RUNE), 0.75, 0.0, 0.5)
+## Der KORB (Spieler-Wahl 2026-11-22): ein geflochtener Boden aus Kette und Schuß in zwei
+## Tönen, darüber der Korbrand rings um die Tafel.
+static func _hold_clay(hold: Node3D, bay: Vector2, floor_top: float, rest: float,
+		thick: float) -> void:
+	var warp := _flat("hold_basket_warp", BASKET_WARP, 0.4, 0.0, 0.9)
+	var weft := _flat("hold_basket_weft", BASKET_WEFT, 0.4, 0.0, 0.9)
+	var strand := minf(0.02, rest * 0.4)
+	var inner := bay - Vector2.ONE * 0.2
+	var across := maxi(int(inner.x / WEAVE_PITCH), 1)
+	for i in across:
+		TableProps.box(hold, "Kette%d" % i, Vector3(WEAVE_PITCH * 0.72, strand, inner.y),
+			Vector3((float(i) - float(across - 1) * 0.5) * WEAVE_PITCH,
+				floor_top + 0.002 + strand, 0.0), warp)
+	var along := maxi(int(inner.y / WEAVE_PITCH), 1)
+	for i in along:
+		# Der Schuß läuft abwechselnd über und unter der Kette.
+		var over := 1.6 if i % 2 == 0 else 0.4
+		TableProps.box(hold, "Schuss%d" % i, Vector3(inner.x, strand, WEAVE_PITCH * 0.7),
+			Vector3(0.0, floor_top + 0.002 + strand * over,
+				(float(i) - float(along - 1) * 0.5) * WEAVE_PITCH), weft)
+	var rim_y := rest + thick * 0.62
+	var half := bay * 0.5 - Vector2.ONE * 0.02
 	for side in 2:
-		TableProps.box(hold, "Lager%d" % side, Vector3(half.x * 1.7, rest, 0.07 * k),
-			Vector3(0.0, floor_top + rest * 0.5, (float(side) * 2.0 - 1.0) * half.y * 0.5), stone)
-	# Die Zapfen stehen in der Lücke, die die runde Ecke der Tafel läßt.
-	var peg := 0.035 * k
-	var out := (CLAY_ROUND * k + peg + HOLD_GAP) / sqrt(2.0) - CLAY_ROUND * k
-	var high := rest + thick * 0.75
+		var dir := float(side) * 2.0 - 1.0
+		TableProps.box(hold, "RandX%d" % side, Vector3(BASKET_RIM, BASKET_RIM, half.y * 2.0),
+			Vector3(dir * (half.x - BASKET_RIM * 0.5), floor_top + rim_y, 0.0), warp)
+		TableProps.box(hold, "RandZ%d" % side, Vector3(half.x * 2.0 - BASKET_RIM * 2.0, BASKET_RIM,
+			BASKET_RIM), Vector3(0.0, floor_top + rim_y, dir * (half.y - BASKET_RIM * 0.5)), warp)
+
+## Die ESD-MATTE (Spieler-Wahl 2026-11-22): der Muldenboden ist die lila Antistatik-Matte,
+## darauf ein grobes Raster, Lagewinkel an den Ecken der Platine und der Erdungsknopf.
+static func _hold_module(hold: Node3D, bay: Vector2, half: Vector2, floor_top: float) -> void:
+	var grid := _flat("hold_esd_grid", ESD_GRID, 0.7, 0.0, 1.0)
+	var mark := _flat("hold_esd_mark", ESD_MARK, 0.8, 0.0, 1.0)
+	var y := floor_top + 0.004
+	var inner := bay - Vector2.ONE * 0.2
+	var across := int(inner.x * 0.5 / ESD_PITCH.x)
+	for i in range(-across, across + 1):
+		TableProps.box(hold, "RasterZ%d" % (i + across), Vector3(0.022, 0.004, inner.y),
+			Vector3(float(i) * ESD_PITCH.x, y, 0.0), grid)
+	var along := int(inner.y * 0.5 / ESD_PITCH.y)
+	for i in range(-along, along + 1):
+		TableProps.box(hold, "RasterX%d" % (i + along), Vector3(inner.x, 0.004, 0.022),
+			Vector3(0.0, y, float(i) * ESD_PITCH.y), grid)
 	for corner in 4:
 		var sx := 1.0 if corner < 2 else -1.0
 		var sz := 1.0 if corner % 2 == 0 else -1.0
-		var at := Vector3(sx * (half.x + out), floor_top, sz * (half.y + out))
-		var body := _disc(hold, "Zapfen%d" % corner, peg, high, stone)
-		body.position = at + Vector3(0.0, high * 0.5, 0.0)
-		var cap := _disc(hold, "Zapfenkopf%d" % corner, peg * 0.55, 0.012, inlay)
-		cap.position = at + Vector3(0.0, high + 0.006, 0.0)
-
-static func _hold_module(hold: Node3D, half: Vector2, thick: float, floor_top: float,
-		rest: float, stop: Vector2, k: float) -> void:
-	var gold := _flat("hold_gold", GOLD, 0.55, 0.8, 0.3)
-	var dark := _flat("hold_plate", Color(0.1, 0.1, 0.115), 0.6, 0.2, 0.6)
-	var clip := _flat("hold_clip", tint(SONDER).lerp(Color.WHITE, 0.25), 0.6, 0.0, 0.5)
-	for corner in 4:
-		var sx := 1.0 if corner < 2 else -1.0
-		var sz := 1.0 if corner % 2 == 0 else -1.0
-		var bolt := _disc(hold, "Bolzen%d" % corner, 0.03 * k, rest, gold)
-		bolt.position = Vector3(sx * (half.x - 0.07 * k), floor_top + rest * 0.5,
-			sz * (half.y - 0.07 * k) - (0.12 * k if sz > 0.0 else 0.0))
-	# Die FEDERSTIFTE unter der Kontaktleiste am Kartenfuß.
-	var block := rest * 0.55
-	TableProps.box(hold, "Steckleiste", Vector3(CONTACT.y * 11.6 * k, block, 0.11 * k),
-		Vector3(0.0, floor_top + block * 0.5, CONTACT.x * k), dark)
-	for i in 11:
-		var pin := _disc(hold, "Feder%d" % i, 0.014 * k, rest, gold)
-		pin.position = Vector3((float(i) - 5.0) * CONTACT.y * k, floor_top + rest * 0.5,
-			CONTACT.x * k)
-	# Zwei RASTHAKEN am Kopf, eine Spur über die Platine hinaus.
-	var high := rest + thick + 0.04
-	for side in 2:
-		TableProps.box(hold, "Rasthaken%d" % side, Vector3(0.09 * k, high, stop.y),
-			Vector3((float(side) * 2.0 - 1.0) * half.x * 0.5, floor_top + high * 0.5,
-				-half.y - HOLD_GAP - stop.y * 0.5), clip)
+		TableProps.box(hold, "LagewinkelZ%d" % corner, Vector3(0.5, 0.006, 0.05),
+			Vector3(sx * (half.x - 0.2), y + 0.004, sz * half.y), mark)
+		TableProps.box(hold, "LagewinkelX%d" % corner, Vector3(0.05, 0.006, 0.5),
+			Vector3(sx * (half.x + 0.02), y + 0.004, sz * (half.y - 0.25)), mark)
+	var at := Vector3(-half.x + 0.3, 0.0, -half.y + 0.3)
+	var snap := _disc(hold, "Erdungsknopf", 0.13, 0.03, _flat("hold_chrome", CHROME, 0.5, 0.8, 0.25))
+	snap.position = at + Vector3(0.0, floor_top + 0.015, 0.0)
+	var eye := _disc(hold, "Erdungsauge", 0.06, 0.034, _flat("hold_esd_eye", Color(0.05, 0.05, 0.06),
+		0.5, 0.0, 0.8))
+	eye.position = at + Vector3(0.0, floor_top + 0.017, 0.0)

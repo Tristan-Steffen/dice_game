@@ -178,8 +178,10 @@ static func tip_angle(share: float) -> float:
 ## DIE KIPP-FUNKTION: die Lage einer Lamelle aus ihrer FLACHEN Mitte x (Spalten-lokal,
 ## jenseits des Fensters erlaubt), der halben Fensterlänge half, ihrer Länge pitch und der
 ## Höhe top ihrer Oberkante. {state, transform, angle}: transform führt die flache Lamelle
-## in ihre Lage. Ihr Scharnier ist die hintere Oberkante - es bleibt im Band; kippt sie aus,
-## hängt die nächste senkrecht unter ihrer Vorderkante.
+## in ihre Lage. Ihr Scharnier ist die hintere Oberkante; es SINKT beim Kippen um die Dicke
+## der Lamelle, so daß sie senkrecht ganz UNTER der flachen Nachbarin steht - auf Deckhöhe
+## deckte ihr Ende sonst die Randreihe des Fensters zu. Die nächste hängt senkrecht unter
+## ihrer vorderen Unterkante.
 static func lamella_pose(x: float, half: float, pitch: float, top: float) -> Dictionary:
 	var side := 1.0 if x >= 0.0 else -1.0
 	var u := x * side
@@ -189,13 +191,16 @@ static func lamella_pose(x: float, half: float, pitch: float, top: float) -> Dic
 	if way >= pitch * 2.0:
 		return {"state": LAM_GONE, "transform": Transform3D.IDENTITY, "angle": PI * 0.5}
 	var hinge := Vector2(u - pitch * 0.5, top)
+	var thick := top + PLATE
 	if way < pitch:
 		var angle := tip_angle(way / pitch)
-		return {"state": LAM_TIP, "transform": _tip_transform(side, hinge, hinge, angle),
+		var sunk := hinge - Vector2(0.0, thick * (1.0 - cos(angle)))
+		return {"state": LAM_TIP, "transform": _tip_transform(side, hinge, sunk, angle),
 			"angle": angle}
-	# Sie hängt an der Vorderkante der kippenden Lamelle davor.
+	# Sie hängt an der vorderen Unterkante der kippenden Lamelle davor.
 	var inner := tip_angle((way - pitch) / pitch)
-	var corner := Vector2(u - pitch * 1.5 + pitch * cos(inner), top - pitch * sin(inner))
+	var corner := Vector2(u - pitch * 1.5 + pitch * cos(inner) - thick * sin(inner),
+		top - thick - pitch * sin(inner))
 	return {"state": LAM_HANG, "transform": _tip_transform(side, hinge, corner, PI * 0.5),
 		"angle": PI * 0.5}
 
@@ -218,9 +223,10 @@ static func tip_reach(pitch: float) -> float:
 static func shaft_setback(pitch: float) -> float:
 	return maxf(tip_reach(pitch), SPROCKET_RADIUS - SPROCKET_INSET) + SHAFT_CLEAR
 
-## Wie tief der SCHACHT unter dem Glas reicht: bis unter die senkrecht hängende Lamelle.
+## Wie tief der SCHACHT unter dem Glas reicht: bis unter die senkrecht hängende Lamelle, die
+## um ihre eigene Dicke unter dem Deck beginnt.
 static func shaft_depth(cell_scale: float, pitch: float) -> float:
-	return deck_drop(cell_scale) + pitch + SHAFT_AIR
+	return stack_depth(cell_scale) + pitch + SHAFT_AIR
 
 # --- Aufbau ------------------------------------------------------------------------
 
@@ -619,7 +625,7 @@ func _write_lamella_tint(column: int, index: int) -> void:
 			seam.emission_energy_multiplier = \
 				SEAM_EMPTY_ENERGY if tint == BAY_EMPTY else SEAM_FILLED_ENERGY
 		if across < lamps.size():
-			MagazinTrayDress.write_lamp(lamps[across], tint, tint != BAY_EMPTY)
+			MagazinTrayDress.write_lamp(lamps[across], tint, tint != BAY_EMPTY, column)
 
 ## Welche Reihe eine Lamelle gerade trägt (Test und Probe).
 func lamella_row(column: int, index: int) -> int:
@@ -903,9 +909,11 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 		place.position = Vector3(0.0, 0.0, at_z)
 		node.add_child(place)
 		build_bay(place, bay, seams[across] if across < seams.size() else _seam_material(BAY_EMPTY),
-			_scale, _wall_material, lamps[across] if across < lamps.size()
-				else MagazinTrayDress.floor_material(column))
-		MagazinTrayDress.dress_bay(place, column, bay, FLOOR_RISE, PROUD, _scale)
+			_scale, _wall_material, MagazinTrayDress.floor_material(column))
+		var light: Material = lamps[across] if across < lamps.size() else null
+		if light != null and column == MagazinTrayDress.ZAHL:
+			MagazinTrayDress.build_dots(place, FLOOR_RISE, _scale, light)
+		MagazinTrayDress.dress_bay(place, column, bay, FLOOR_RISE, PROUD, _scale, light)
 
 ## Die EINE Bauregel einer Mulde - auch der Laden legt seine Kassetten so hinein
 ## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden; bay ist
@@ -961,12 +969,11 @@ func _row_seams() -> Array:
 		seams.append(_seam_material(BAY_EMPTY))
 	return seams
 
-## Die Leuchttische einer Reihe - nur die Kartenzufuhr hat welche.
+## Das Licht je Platz einer Reihe: Dioden, Bandweg, Etikett und die Lampe an der Matte.
 func _row_lamps(column: int) -> Array:
 	var lamps: Array = []
-	if column == MagazinTrayDress.ZAHL:
-		for across in ACROSS:
-			lamps.append(MagazinTrayDress.lamp_material())
+	for across in ACROSS:
+		lamps.append(MagazinTrayDress.lamp_material(column))
 	return lamps
 
 func _seam_material(tint: Color) -> StandardMaterial3D:

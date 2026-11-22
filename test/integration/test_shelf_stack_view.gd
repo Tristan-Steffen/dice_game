@@ -302,19 +302,19 @@ func test_die_vier_geraete_sind_verschieden() -> void:
 				MagazinTrayDress.frame_material(b).albedo_color, "Fassung %d/%d" % [a, b])
 			assert_ne(MagazinTrayDress.floor_material(a).albedo_color,
 				MagazinTrayDress.floor_material(b).albedo_color, "Boden %d/%d" % [a, b])
-	assert_not_null(stack.get_node_or_null("Fassung1/SchieneOben"), "Kartenzufuhr: Schienen")
-	assert_not_null(stack.get_node_or_null("Fassung1/Transportloch0"))
+	assert_not_null(stack.get_node_or_null("Fassung1/HaarlinieX0"), "Kartenzufuhr: Haarlinie")
+	assert_not_null(stack.get_node_or_null("Fassung1/Ziffer0_0"))
+	assert_not_null(stack.get_node_or_null("Fassung1/Ziffer1_9"), "je Reihe die Ziffern 0-9")
 	assert_not_null(stack.get_node_or_null("Fassung2/Wickeldorn0"), "Deck: Wickeldorne")
 	assert_not_null(stack.get_node_or_null("Fassung2/Tonkopf"))
 	assert_not_null(stack.get_node_or_null("Fassung3/WulstX0"), "Steinbett: Wulst")
 	assert_not_null(stack.get_node_or_null("Fassung3/Kerbe0_0"))
 	assert_not_null(stack.get_node_or_null("Fassung4/Kontakt0"), "Einschub: Kontaktleiste")
 	assert_not_null(stack.get_node_or_null("Fassung4/Bolzen0"))
-	# Der Leuchttisch der Kartenzufuhr ist der hellste Boden.
-	var light := MagazinTrayDress.floor_material(0)
-	for column in range(1, COLUMNS):
+	# Das Lochraster der Kartenzufuhr leuchtet heller als jeder Boden.
+	for column in COLUMNS:
 		var other := MagazinTrayDress.floor_material(column)
-		assert_gt(light.emission.get_luminance() * light.emission_energy_multiplier,
+		assert_gt(MagazinTrayDress.LAMP_LIT * 0.5,
 			other.emission.get_luminance() * other.emission_energy_multiplier)
 
 ## Die Lichtleiste liegt UNTEN vor dem Loch, nennt Name und Zähler und leuchtet hervorgehoben.
@@ -415,7 +415,7 @@ func test_farben_bauen_nichts_neu() -> void:
 
 ## Jede Mulde hält ihre Karte mit dem Mechanismus ihres Datenträgers; die alte Buchse ist fort.
 func test_jede_mulde_traegt_die_halterung_ihres_geraets() -> void:
-	var signs := ["Schraeganschlag", "Wickeldorn0", "Zapfen0", "Feder0"]
+	var signs := ["Schraeganschlag", "Wickeldorn0", "Kette0", "Erdungsknopf"]
 	for column in COLUMNS:
 		var place := _lamella_of(column, 0).get_node("Platz0") as Node3D
 		assert_null(place.get_node_or_null("Buchse"), "Tray %d" % column)
@@ -435,6 +435,58 @@ func test_die_wickeldorne_stehen_in_den_naben() -> void:
 		assert_almost_eq(absf(spindle.position.z), MagazinTrayDress.HUB.x * SCALE, 0.0001)
 		assert_lt(spindle.position.y + (spindle.mesh as CylinderMesh).height * 0.5, top)
 		assert_not_null(hold.get_node_or_null("Zahn%d_5" % side), "sechs Zähne")
+
+## Das Deck: Spulenteller um die Dorne, und Bandweg samt Aufnahme-Lampe leuchten nur belegt.
+func test_das_deck_meldet_die_kassette_mit_bandweg_und_lampe() -> void:
+	var pink := Color(1.0, 0.3, 0.6)
+	var tints := _empties(4)
+	tints[0] = pink
+	stack.set_bay_tints(MagazinTrayDress.MATERIAL, tints)
+	var lamella := _lamella_of(MagazinTrayDress.MATERIAL, 0)
+	assert_not_null(lamella.get_node_or_null("Platz0/Halterung/Spulenteller1"))
+	var lit := (lamella.get_node("Platz0/Aufnahme") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	var dark := (lamella.get_node("Platz1/Aufnahme") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	assert_eq(lit.emission, pink)
+	assert_almost_eq(lit.emission_energy_multiplier, MagazinTrayDress.LAMP_LIT, 0.001)
+	assert_almost_eq(dark.emission_energy_multiplier, MagazinTrayDress.LAMP_DARK, 0.001)
+	assert_eq((lamella.get_node("Platz0/Halterung/Bandweg0") as MeshInstance3D).material_override,
+		lit, "der Bandweg teilt das Licht des Platzes")
+
+## Der Korb: Kette und Schuß am Boden, ein Rand, und das Etikett auf der Rippe leuchtet belegt.
+func test_der_korb_meldet_die_tafel_am_etikett() -> void:
+	var yellow := Color(1.0, 0.8, 0.3)
+	var tints := _empties(4)
+	tints[1] = yellow
+	stack.set_bay_tints(MagazinTrayDress.RUNE, tints)
+	var lamella := _lamella_of(MagazinTrayDress.RUNE, 0)
+	for part in ["Halterung/Kette0", "Halterung/Schuss1", "Halterung/RandX0", "Etikett"]:
+		assert_not_null(lamella.get_node_or_null("Platz0/" + part), part)
+	var lit := (lamella.get_node("Platz1/Aufnahme") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	var dark := (lamella.get_node("Platz0/Aufnahme") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	assert_eq(lit.emission, yellow)
+	assert_gt(lit.emission_energy_multiplier, dark.emission_energy_multiplier)
+
+## Die ESD-Matte: lila Boden mit Raster und Lagewinkeln, die Lampe auf der Rippe leuchtet belegt.
+func test_die_esd_matte_meldet_das_modul_an_der_rippe() -> void:
+	var lila := Color(0.7, 0.5, 1.0)
+	var tints := _empties(4)
+	tints[0] = lila
+	stack.set_bay_tints(MagazinTrayDress.SONDER, tints)
+	var lamella := _lamella_of(MagazinTrayDress.SONDER, 0)
+	for part in ["RasterZ0", "RasterX0", "LagewinkelX3", "Erdungsknopf"]:
+		assert_not_null(lamella.get_node_or_null("Platz0/Halterung/" + part), part)
+	var mat := MagazinTrayDress.floor_material(MagazinTrayDress.SONDER)
+	assert_gt(mat.albedo_color.b, mat.albedo_color.g, "die Matte ist lila")
+	var lit := (lamella.get_node("Platz0/Aufnahme") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	var dark := (lamella.get_node("Platz1/Aufnahme") as MeshInstance3D).material_override \
+		as StandardMaterial3D
+	assert_eq(lit.emission, lila)
+	assert_gt(lit.emission_energy_multiplier, dark.emission_energy_multiplier)
 
 ## Nichts an einer Halterung ragt über das Deck oder aus der Mulde.
 func test_keine_halterung_ragt_aus_der_mulde() -> void:
@@ -532,8 +584,11 @@ func test_dieselben_masse_bauen_nichts_neu() -> void:
 	assert_eq(cell.get_parent().name, "Fach")
 
 func _floor(column: int, row: int, across: int) -> StandardMaterial3D:
-	return (_lamella_of(column, row).get_node("Platz%d/Boden" % across) as MeshInstance3D) \
-		.material_override as StandardMaterial3D
+	var place := _lamella_of(column, row).get_node("Platz%d" % across)
+	var dots := place.get_node_or_null("Lochraster") as GeometryInstance3D
+	if dots != null:
+		return dots.material_override as StandardMaterial3D
+	return (place.get_node("Boden") as MeshInstance3D).material_override as StandardMaterial3D
 
 ## Die Kartenzufuhr: der Boden eines Platzes leuchtet nur unter einer Karte, in ihrer Farbe.
 func test_der_leuchttisch_leuchtet_nur_unter_einer_karte() -> void:
