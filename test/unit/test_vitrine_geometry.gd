@@ -43,21 +43,12 @@ func test_das_loch_liegt_in_der_fassung() -> void:
 	assert_almost_eq(strip.end.y - hole.end.y, inset, 0.0001)
 	assert_almost_eq(hole.size.x, strip.size.x - inset * 2.0, 0.0001)
 
-func test_beide_shader_fuehren_dieselbe_loecherliste() -> void:
-	# Eine STÄNDIGE Grube (das Magazin, Platz 0) plus die flüchtigen Schächte der
-	# Hebebühnen. Beide Shader lesen dieselbe Liste - hinter einem Loch darf weder
-	# Anzeige noch Filz stehen.
+func test_das_glas_fuehrt_die_loecherliste() -> void:
 	var glass: String = load("res://assets/shaders/screen_glass.gdshader").code
-	var ground: String = load("res://assets/shaders/table_ground.gdshader").code
 	assert_true(glass.contains("pit_rects[MAX_PITS]"), "das Glas kennt die Liste")
 	assert_true(glass.contains("pit_count") and glass.contains("discard"))
-	assert_true(ground.contains("pit_bounds[MAX_PITS]"), "der Boden ebenso")
-	assert_true(ground.contains("pit_count"))
-	for code: String in [glass, ground]:
-		assert_true(code.contains("const int MAX_PITS = %d" % TableScreen.MAX_PITS),
-			"und beide auf demselben Deckel wie TableScreen")
-	# Die alten Einzel-Uniforms sind fort - sonst schriebe irgendwer noch an ihnen.
-	assert_false(ground.contains("pit_min"), "der Boden kennt pit_min nicht mehr")
+	assert_true(glass.contains("const int MAX_PITS = %d" % TableScreen.MAX_PITS),
+		"auf demselben Deckel wie TableScreen")
 	assert_false(glass.contains("uniform float pit_radius"),
 		"und das Glas keinen einzelnen Radius")
 

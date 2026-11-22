@@ -152,8 +152,8 @@ const SPILL_RANGE_FACTOR := 1.35   # Reichweite über den Fensterrand hinaus
 ## Der Kombi-Cluster braucht mehr: nur dort stehen echte Körper (die Chips).
 const CLUSTER_SPILL_FACTOR := 2.6
 
-## Der Tisch hat keinen Rand mehr: alles außer dem Screen-Mesh verschwindet,
-## stattdessen läuft der Filzboden (TableGround in room.tscn) endlos weiter.
+## Vom alten Tischmodell bleibt nur das Screen-Mesh; den Körper stellt die Wanne
+## (TableBody in room.tscn).
 ## Auch die Chrom-Zarge: ohne Raumlicht spiegelt Chrom nichts und stand als
 ## fetter schwarzer Ring zwischen Glas und Filz.
 const TABLE_HIDDEN_MESHES: Array[String] = ["Rail", "Skirt", "SkirtBottom", "Underglow", "LEDStrip", "ChromeTrim"]
@@ -541,9 +541,6 @@ var drum_pit: PackPitView
 ## Das SORTEN-MAGAZIN in seinen Gruben: vier Trays nebeneinander, jeder rollt für sich.
 ## Es TRÄGT die Karten (sie sind Kinder ihres Faches), also fahren sie mit.
 var shelf_stack: ShelfStackView
-## Der Filzboden rings um die Anzeige. Er muss dort ausblenden, wo die Grube steht,
-## sonst blickt man durch das Loch auf Filz statt in die Vertiefung.
-var table_ground: TableGround
 ## Zuletzt entschiedener Stand der Auslage - der Entscheider läuft je Bild.
 var _vitrine_curtain := false
 ## Wie beim Zellen-Abgleich: nur der ZULETZT angestoßene Aufbau misst weiter.
@@ -1067,12 +1064,6 @@ func _setup_table_screen() -> void:
 	_setup_score_audio()
 	_setup_sfx_bank()
 	_setup_music()
-	# Der Filzboden muss hinter jedem Loch ausblenden - sonst blickt man durch die
-	# Grube (oder einen offenen Schacht) auf Filz statt in die Vertiefung. Die
-	# Löcherliste führt TableScreen; hier wird ihm nur der Boden gemeldet.
-	table_ground = $Room.find_child("TableGround", true, false) as TableGround
-	if table_ground != null and table_ground.felt_material != null:
-		table_screen.set_ground_material(table_ground.felt_material)
 	var screen_mesh := $Room.find_child("Screen", true, false) as MeshInstance3D
 	if screen_mesh == null:
 		push_warning("Tisch-Screen-Mesh nicht gefunden - Display bleibt aus (siehe TableScreen)")

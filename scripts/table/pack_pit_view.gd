@@ -2,8 +2,7 @@ class_name PackPitView
 extends Node3D
 ## Die GRUBE des MAGAZINS: eine echte Vertiefung in der Schürze der Werkbank, in
 ## der die Kassetten versenkt STEHEN. Das Loch selbst schneidet der Shader
-## (screen_glass.pit_rect verwirft die Anzeige, table_ground den Filzboden
-## dahinter) - dieser Körper ist, was man durch das Loch sieht: vier nach innen
+## (screen_glass.pit_rect verwirft die Anzeige) - dieser Körper ist, was man durch das Loch sieht: vier nach innen
 ## blickende Wände, ein Boden und ein Kragen, der die harte Schnittkante deckt.
 ## Rein per Code gebaut wie DataCellView und EnergyBankView - kein .tscn.
 ## Drei Tischregeln gelten auch hier: nur EMISSION (die Bodenkacheln vertragen

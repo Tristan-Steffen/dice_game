@@ -186,9 +186,9 @@ var _pit_waves_tween: Tween
 ## Fumble-Welle: Vollbild-Overlay ÜBER allen Fenstern (fumble_wave.gdshader).
 var fumble_wave: ColorRect
 var _fumble_wave_tween: Tween
-## Filz-Material: braucht die Fenster-Rechtecke, um seine Textur unter den
+## Deck-Material: braucht die Fenster-Rechtecke, um seine Fugen unter den
 ## durchscheinenden Fenstergründen auszublenden.
-var _felt_material: ShaderMaterial
+var _deck_material: ShaderMaterial
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -367,8 +367,6 @@ static func swallow_pit(lane: int) -> int:
 
 var _pit_rects: Array[Rect2] = []
 var _pit_radii := PackedFloat32Array()
-## Der Filzboden hinter den Löchern - er blendet dieselbe Liste aus, nur in Welt-XZ.
-var _ground_material: ShaderMaterial
 ## Die EINE Haut, die jede Hebebühnen-Plattform trägt (display_skin).
 var _display_skin: ShaderMaterial
 ## Wertungs-Bildschirm: EIN Fenster-Rahmen HINTER Basis-Zähler, Zielbalken und
@@ -488,7 +486,7 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_z_span = max_z - min_z
 	_x_max = max_x
 	_x_span = max_x - min_x
-	_sync_ground_rect()
+	_sync_deck_world()
 
 	var material := ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/screen_glass.gdshader")
@@ -509,8 +507,7 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 ## (Buchten, Schürze), obwohl die UI dort längst gezeichnet war - die
 ## Pixel-Abbildung hing schon immer am Hüllquader, nicht am Oval. Also wird das
 ## Oval durch seinen eigenen Hüllquader ersetzt: nichts verschiebt sich, die
-## Ecken kommen dazu. Der Filz läuft daneben unverändert weiter (TableGround
-## blendet aus DEMSELBEN Rechteck aus).
+## Ecken kommen dazu.
 func _lay_display_surface(screen_mesh: MeshInstance3D, aabb: AABB) -> void:
 	# PlaneMesh statt eigener Geometrie: seine UV läuft u entlang +x, v entlang
 	# +z - genau die Achsen, die world_to_pixel liest.
@@ -532,14 +529,14 @@ func pixel_to_world(pixel: Vector2) -> Vector3:
 	return Vector3(_x_max - v * _x_span, _surface_y, _z_min + u * _z_span)
 
 func _build_content() -> void:
-	# Grundfläche = Casino-Filz; die Fenster-Panels darüber spiegeln als einzige.
+	# Grundfläche = gefrästes Deck; die Fenster-Panels darüber spiegeln als einzige.
 	var background := ColorRect.new()
 	background.name = "Background"
 	background.color = BACKGROUND_COLOR  # Rückfall, falls der Shader fehlt
-	_felt_material = ShaderMaterial.new()
-	_felt_material.shader = load("res://assets/shaders/table_felt.gdshader")
-	_felt_material.set_shader_parameter("rect_size", Vector2(RESOLUTION))
-	background.material = _felt_material
+	_deck_material = ShaderMaterial.new()
+	_deck_material.shader = load("res://assets/shaders/table_deck.gdshader")
+	_deck_material.set_shader_parameter("rect_size", Vector2(RESOLUTION))
+	background.material = _deck_material
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
 
@@ -1325,21 +1322,12 @@ func set_sunk_pit(rect: Rect2, radius: float, drop: float) -> void:
 	_sunk_drop = drop
 	set_pit(PIT_SOCKET, rect, radius)
 
-## Der Filzboden hinter den Löchern: er bekommt dieselbe Liste, nur in Welt-XZ.
-## Gemeldet, nicht gesucht - table/ greift nicht in die Szene.
-func set_ground_material(material: ShaderMaterial) -> void:
-	_ground_material = material
-	_sync_ground_rect()
-	_sync_pits()
-
-## Der Bodenfilz setzt das Muster der Anzeige fort und läuft um IHR Rechteck aus -
-## seit dem Streifen rechts liegt es nicht mehr mittig auf der Welt.
-func _sync_ground_rect() -> void:
-	if _ground_material == null or _z_span <= 1.0:
+## Die Fugen des Decks rechnen in Welt: so laufen sie in den Deck-Ring der Wanne durch.
+func _sync_deck_world() -> void:
+	if _deck_material == null or _z_span <= 1.0:
 		return
-	_ground_material.set_shader_parameter("screen_half", Vector2(_x_span, _z_span) * 0.5)
-	_ground_material.set_shader_parameter("screen_center",
-		Vector2(_x_max - _x_span * 0.5, _z_min + _z_span * 0.5))
+	_deck_material.set_shader_parameter("world_origin", Vector2(_x_max, _z_min))
+	_deck_material.set_shader_parameter("px_per_world", float(RESOLUTION.x) / _z_span)
 
 func _ensure_pits() -> void:
 	if _pit_rects.size() == MAX_PITS:
@@ -1418,13 +1406,11 @@ func pit_radius(slot: int) -> float:
 		return 0.0
 	return _pit_radii[slot]
 
-## Der eine Schreiber beider Shader: Glas verwirft die Anzeige, der Filzboden den
-## Grund dahinter. Sie lesen DIESELBE Liste, sonst stünde hinter einem Loch Filz.
+## Der eine Schreiber der Löcherliste: Glas und versenkter Grubenboden lesen DIESELBE.
 func _sync_pits() -> void:
 	_ensure_pits()
 	var rects := PackedVector4Array()
 	var radii := PackedFloat32Array()
-	var bounds := PackedVector4Array()
 	var count := 0
 	for i in MAX_PITS:
 		var hole := _pit_rects[i]
@@ -1434,7 +1420,6 @@ func _sync_pits() -> void:
 		rects.append(Vector4(hole.position.x, hole.position.y, hole.end.x, hole.end.y)
 			if live else Vector4.ZERO)
 		radii.append(_pit_radii[i])
-		bounds.append(_world_bounds(hole) if live else Vector4.ZERO)
 	if _glass_material != null:
 		_glass_material.set_shader_parameter("pit_count", count)
 		_glass_material.set_shader_parameter("pit_rects", rects)
@@ -1443,16 +1428,6 @@ func _sync_pits() -> void:
 		_sunk_skin.set_shader_parameter("pit_count", count)
 		_sunk_skin.set_shader_parameter("pit_rects", rects)
 		_sunk_skin.set_shader_parameter("pit_radii", radii)
-	if _ground_material != null:
-		_ground_material.set_shader_parameter("pit_count", count)
-		_ground_material.set_shader_parameter("pit_bounds", bounds)
-
-## Ein Pixel-Rechteck als Welt-XZ-Grenzen (world_to_pixel spiegelt die Tiefenachse,
-## also entscheidet min/max, nicht die Reihenfolge der Ecken).
-func _world_bounds(rect: Rect2) -> Vector4:
-	var a := pixel_to_world(rect.position)
-	var b := pixel_to_world(rect.end)
-	return Vector4(minf(a.x, b.x), minf(a.z, b.z), maxf(a.x, b.x), maxf(a.z, b.z))
 
 ## Meldet dem Display-Glas die aktuellen Fenster-Rechtecke samt Eckenradius.
 ## Nach jedem place_* neu gerufen; ohne Glas (headless) passiert nichts.
@@ -1513,10 +1488,10 @@ func _sync_reflection_windows() -> void:
 		wave_material.set_shader_parameter("window_rects", rects)
 		wave_material.set_shader_parameter("window_radius", radii)
 	# Der Filz blendet seine Textur unter den Fenstern aus (gleiche Rechtecke).
-	if _felt_material != null:
-		_felt_material.set_shader_parameter("window_count", rects.size())
-		_felt_material.set_shader_parameter("window_rects", rects)
-		_felt_material.set_shader_parameter("window_radius", radii)
+	if _deck_material != null:
+		_deck_material.set_shader_parameter("window_count", rects.size())
+		_deck_material.set_shader_parameter("window_rects", rects)
+		_deck_material.set_shader_parameter("window_radius", radii)
 
 ## Die Zelle oben in Spalte column (Platzhalter für die Plätze über dem Raster).
 func _top_cell_rect(column: int) -> Rect2:

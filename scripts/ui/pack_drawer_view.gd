@@ -10,7 +10,7 @@ extends Control
 ## liest statt umgekehrt.
 ## Die Karte hat ihr FESTES Maß (CASSETTE_SCALE); unbegrenzt ist der Bestand. Eine
 ## hinausgerollte Karte hat keinen Chip, ihr Liefer-Licht endet am Rand ihres Trays.
-## Die Gruben sind echt (screen_glass, table_ground, PackPitView); gemalt wird hier nichts,
+## Die Gruben sind echt (screen_glass, PackPitView); gemalt wird hier nichts,
 ## diese Klasse trägt nur die Gesten: getippt wählt, gezogen rollt.
 ## Reiner Renderer: was liegt, was reserviert ist und was noch fliegt, entscheidet
 ## WorkshopView (drawer_entries).
