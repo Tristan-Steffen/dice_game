@@ -717,9 +717,6 @@ var _secret_depart_px := Vector2(-1, -1)
 ## Würfel liegen, bis der Spieler ihren Platz im Vorrat wählt. Sie steht IMMER -
 ## pending_dice sind Lauf-Zustand und überdauern Besuche und Runden.
 var ausgabefach: AusgabefachView
-## Der RASTER-UMSCHALTER am Grubenrand: er legt den Vorrat zwischen KÖRPER und
-## RASTER um (siehe #region Die GLAS-ANSICHT). Er steht ebenfalls IMMER.
-var raster_switch: RasterSwitchView
 
 ## Der laufende TAUSCH: der Pool-Eintrag, dessen Sitz LEER bleibt, bis der alte
 ## Würfel unten hinaus ist (der Eintrag selbst trägt schon den neuen Inhalt -
@@ -1275,12 +1272,10 @@ func _setup_table_screen() -> void:
 	pool_bounds = pool_bounds.grow(slot_half)
 	_pool_seam_px = slot_half  # dieselbe Naht trennt den Streifen von der Reihe
 
-	# Rechts am Pool die GLEICHUNG samt Podest; die Raster-Taste steht über UPGRADES, die
-	# Schale rechts neben ERGEBNIS.
+	# Rechts am Pool die GLEICHUNG samt Podest, die Schale rechts neben ERGEBNIS.
 	_pool_row_px = pool_bounds
 	var corner := _place_workshop_strip()
 	_place_ausgabefach()
-	_place_raster_switch()
 	_setup_deck_glass()
 	_setup_screen_spill_lights(corner)
 
@@ -1296,9 +1291,8 @@ var _pool_seam_px := 0.0
 var _info_rect := Rect2()
 ## Der PODEST-Platz in der Gleichung (Platte samt Die-View) in Display-Pixeln.
 var _podium_place_px := Rect2()
-## Die GLEICHUNGS-ZEILE rechts am Pool und das Feld der Raster-Taste darin (Display-Pixel).
+## Die GLEICHUNGS-ZEILE rechts am Pool (Display-Pixel).
 var _equation_px := Rect2()
-var _raster_area_px := Rect2()
 
 ## Der EINE Schreiber der WERKSTATT: die Kette (WorkshopView.drum_layout) eine Naht unter
 ## dem Pool, Fenster, Info-Schirm, Gruben, Klickzone und die beiden Kamera-Rahmen.
@@ -1311,7 +1305,6 @@ func _place_workshop_strip() -> Rect2:
 		_pool_seam_px)
 	_podium_place_px = frame["podium"]
 	_equation_px = frame["equation"]
-	_raster_area_px = frame["raster"]
 	var bounds: Rect2 = frame["bounds"]
 	if workshop != null:
 		# Die Maße ZUERST: das Fenster legt seine Kette damit aus.
@@ -2455,14 +2448,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _try_start_drum_spin(event):
 		return
 
+	# Doppelklick aufs Pool-Feld legt aufs RASTER um.
+	if _try_pool_double_click(event):
+		return
+
 	# Zweite Werkbank-Stufe: VOR der Weiterleitung, sonst verschluckt das
 	# Werkstattfenster den Doppelklick.
 	if _try_workshop_close_zoom(event):
 		return
 
 	# Das Raster füllt eng gerahmt das ganze Bild: sein Rechtsklick muß VOR die
-	# Weiterleitung, sonst schluckt ihn der Glas-Viewport, und der Umschalter liegt
-	# außer Sicht - Rechtsklick ist der Weg hinaus.
+	# Weiterleitung, sonst schluckt ihn der Glas-Viewport - Rechtsklick ist der Weg hinaus.
 	if _deck_glass and event is InputEventMouseButton and event.pressed \
 			and event.button_index == MOUSE_BUTTON_RIGHT:
 		_close_deck_glass()
@@ -2720,7 +2716,7 @@ func _on_slices_locked(time: float) -> void:
 	if drum != null and is_instance_valid(drum) and workshop != null \
 			and is_instance_valid(workshop):
 		drum.light_on(_series_tint(workshop))
-		drum.light_to(drum.light_stop(0), time)
+		drum.light_to(_stream_stop(-1), time)
 	_lock_slices(_press_gen, run)  # nicht erwartet: der Ripple läuft für sich
 	if workshop != null and is_instance_valid(workshop):
 		_dock_cables(workshop)
@@ -2750,19 +2746,23 @@ func _drop_cables() -> void:
 		chamber_rig.settle_hard()
 
 func _lock_slices(generation: int, launched: GameRun) -> void:
-	var count := socket_cells.size()
-	for i in count:
+	var locked := 0
+	for i in socket_cells.size():
 		if run != launched or generation != _press_gen:
 			return
 		var cell := _socket_cell(i)
-		if cell != null:
-			cell.set_hovered(false)
-			cell.flare()
-		_sfx(&"slice_lock", 0.0, 1.0 + 0.05 * i)
+		if cell == null:
+			continue  # eine leere Scheibe verriegelt nicht
+		if locked > 0:
+			await get_tree().create_timer(WorkshopView.LOCK_STAGGER).timeout
+			if run != launched or generation != _press_gen:
+				return
+		cell.set_hovered(false)
+		cell.flare()
+		_sfx(&"slice_lock", 0.0, 1.0 + 0.05 * locked)
 		if drum != null and is_instance_valid(drum):
 			drum.flash(i)
-		if i < count - 1:
-			await get_tree().create_timer(WorkshopView.LOCK_STAGGER).timeout
+		locked += 1
 
 ## Der Strom hat Scheibe index erreicht: ihre Karte flammt auf, gibt ihre Zellen ab
 ## und BRENNT AUS, das LICHT-NETZ tickt auf den neuen Stand - und der Strom zieht zur
@@ -2784,18 +2784,20 @@ func _on_stream_passed(index: int, faces: Array, values: Array, glyph: String,
 		else:
 			_light_net.punch(glyph)
 	if drum != null and is_instance_valid(drum):
-		drum.light_to(_stream_stop(index + 1), time)
+		drum.light_to(_stream_stop(index), time)
 	if chamber_rig != null and is_instance_valid(chamber_rig):
 		chamber_rig.tick()
 
-## Wo der Strom als nächstes steht: über der nächsten Scheibe, nach der letzten
-## gelesenen Karte am Ende der Walze - er läuft über die leeren Scheiben dorthin.
-func _stream_stop(index: int) -> Vector3:
+## Wo der Strom nach Scheibe after steht: über der nächsten BELEGTEN, nach der letzten
+## am Ende der Walze - über leere Scheiben läuft er hinweg.
+func _stream_stop(after: int) -> Vector3:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
-	if workshop != null and is_instance_valid(workshop) \
-			and index >= workshop.burning_cards().size():
-		return drum.end_point() + Vector3.UP * DrumView.LIGHT_RISE
-	return drum.light_stop(index)
+	if workshop != null and is_instance_valid(workshop):
+		for card: Dictionary in workshop.burning_cards():
+			var slot := int(card.get("slot", -1))
+			if slot > after:
+				return drum.light_stop(slot)
+	return drum.end_point() + Vector3.UP * DrumView.LIGHT_RISE
 
 ## Das Ende der Walze auf dem Glas: die rechte Grabenwand - dort startet der Funke des
 ## Rohlings.
@@ -3160,6 +3162,9 @@ func _wanted_bench_die() -> DieDefinition:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop) or not workshop.visible:
 		return null
+	# Braucht eine Öffnung die Zone, wartet er gewählt in seinem Pool-Sitz.
+	if _zone_busy():
+		return null
 	return workshop.seated_die()
 
 ## Wählt den gewählten Würfel ab (true = es stand einer). Die Abwahl geht durch das
@@ -3248,7 +3253,10 @@ func _rebuild_podium_puck() -> void:
 	podium_stage = _seat_podium_puck(podium_stage, "PodiumStage",
 		_bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER)
 			if workshop.podium_stage_center().x >= 0.0 else Vector3.ZERO,
-		_bench_die == null and bench_blank_cell == null)
+		_bench_die == null and bench_blank_cell == null and not _zone_picture_open)
+	# Steht die Auswahl in der Zone, liegt der Rohling gewählt, aber fort (unter dem Tisch).
+	if bench_blank_cell != null and is_instance_valid(bench_blank_cell):
+		bench_blank_cell.visible = not _zone_picture_open
 
 ## Der EINE Schreiber des ROHLINGS. Er liegt statt des Würfels FLACH mittig auf der
 ## Podest-Platte in der Tischebene - ohne CLAMP_HOVER und ohne den Projektions-Trim des
@@ -3298,7 +3306,9 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 		add_child(puck)
 		puck.build(CLAMP_HOVER, DiceTrayView.DIE_SCALE, CLAMP_EMITTER_TINT)
 		ScreenReflection.mark_reflective(puck)
-	puck.global_position = at - Vector3.UP * CLAMP_HOVER
+	# Fährt er mit der Zone, gehört sein Ort der Hebebühne.
+	if not _zone_ride_bodies.has(puck):
+		puck.global_position = at - Vector3.UP * CLAMP_HOVER
 	puck.visible = shown
 	return puck
 
@@ -3664,13 +3674,13 @@ func _sync_drum_readers() -> void:
 		drum.set_loaded(i, cell != null and is_instance_valid(cell) and cell.socketed()
 			and not _carrying.has(cell))
 
-## Die Karte je Scheibe (null = leer) - in Steckreihenfolge.
+## Die Karte je Scheibe (null = leer).
 func _drum_packs(workshop: WorkshopView) -> Array:
 	var packs: Array = []
 	packs.resize(WorkshopView.DRUM_SLICES)
-	var uids := workshop.press_slot_uids()
+	var uids := workshop.slice_uids()
 	for i in mini(uids.size(), packs.size()):
-		packs[i] = run.pack_by_uid(uids[i]) if run != null else null
+		packs[i] = run.pack_by_uid(uids[i]) if run != null and uids[i] > 0 else null
 	return packs
 
 ## Ein Display-Rechteck in WELT-Spannen: x quer (Bild-hoch), y längs (Bild-breit).
@@ -5610,16 +5620,14 @@ func _reset_tray_stage_hard() -> void:
 #endregion
 
 #region Die GLAS-ANSICHT
-# Der Vorrat hat ZWEI Ansichten, und der RASTER-UMSCHALTER am Grubenrand legt um: die
+# Der Vorrat hat ZWEI Ansichten, und ein DOPPELKLICK aufs Pool-Feld legt um: die
 # KÖRPER (die schwebenden Würfel) oder das RASTER. Im Raster versinkt der Vorrat per
 # Plattform TIEF im Tisch (unter dem Glas darf nichts herausragen), der Gruben-Schirm
 # fährt darüber zu und trägt die ANZEIGE - und darauf liegt das Netz-Raster des ganzen
 # Vorrats, Sitz i = Zelle i. Ein Tipp darin bucht den Tausch, solange ein Neuzugang im
 # Ausgabefach wartet, und wählt sonst das Werkstatt-Ziel; ein Zug legt um.
-# ZWEI Wege hinein, EIN Weg hinaus: der UMSCHALTER öffnet den DAUER-MODUS (kein
-# Rahmen, keine gemerkte Station - das Raster steht, wo der Spieler steht), der TIPP
-# auf einen Neuzugang die enge Tausch-Frage (Rahmen und gemerkte Station wie bisher,
-# Wegzoomen bricht ab). Rechtsklick schließt beide. Danach steht die RUNDEN-
+# ZWEI Wege hinein, EIN Weg hinaus: der DOPPELKLICK öffnet den DAUER-MODUS, der ZWANG
+# die enge Tausch-Frage. Rechtsklick schließt beide. Danach steht die RUNDEN-
 # Konfiguration der Maschine wieder unverändert da (flach, ohne Schirm).
 
 ## Der Akzent des Glases: das Teal der Maschine, keine Wett-Farbe.
@@ -5647,7 +5655,7 @@ const DECK_GLASS_TITLE := "Tippen wählt das Werkstatt-Ziel"
 
 ## Steht die Ansicht? Dieses Bit ist der EINE Schreiber, und die Marke schützt jede
 ## Fahrt. _deck_glass_pinned trennt die beiden Wege hinein: der DAUER-Modus des
-## Umschalters bleibt stehen, die enge Tausch-Frage schließt sich selbst.
+## Doppelklicks bleibt stehen, die enge Tausch-Frage schließt sich selbst.
 var _deck_glass := false
 var _deck_glass_pinned := false
 var _deck_glass_gen := 0
@@ -5718,7 +5726,7 @@ func _deck_glass_frame() -> Dictionary:
 		"half": Vector2((hi.y - lo.y) * 0.5, (hi.x - lo.x) * 0.5)}
 
 ## Die Kamera eng auf diesen Rahmen (kein Moduswechsel - die Station bleibt).
-## Der UMSCHALTER schaut senkrecht von oben allein aufs Raster (Spieler-Wunsch
+## Der DAUER-Modus schaut senkrecht von oben allein aufs Raster (Spieler-Wunsch
 ## 2026-10-29); der Zwang braucht die Schale mit im Bild und bleibt geneigt.
 func _frame_deck_glass() -> void:
 	if _deck_glass_pinned and _deck_glass_pending() < 0:
@@ -5757,7 +5765,7 @@ func _deck_glass_die() -> DieDefinition:
 
 ## DER ZWANG: liegt ein Neuzugang in der Schale, waehrend das Raster steht, fuehrt
 ## hier KEIN Weg hinaus - es gibt kein Zwischenlager, der Wuerfel wird jetzt
-## eingesetzt. Rechtsklick, Rad, WASD, Umschalter und jedes andere Fenster schweigen
+## eingesetzt. Rechtsklick, Rad, WASD, Doppelklick und jedes andere Fenster schweigen
 ## solange (das Bit ist gerechnet, nicht gesetzt: es faellt mit dem letzten Tausch).
 func _exchange_forced() -> bool:
 	return _deck_glass and not _deck_glass_closing and _deck_glass_pending() >= 0
@@ -6025,85 +6033,6 @@ func _on_deck_glass_reordered(from_index: int, to_index: int) -> void:
 		return
 	run.reorder_pool(from_index, to_index)
 
-# --- Der RASTER-UMSCHALTER am Grubenrand -----------------------------------------
-# Eine flache Taste auf dem freien Filz ÜBER dem UPGRADES-Netz, links neben der Podest-
-# Platte. Sie legt zwischen KÖRPER und RASTER um und ist bedienbar, wo sie zu sehen ist
-# (Pool- wie Werkstatt-Station, Freikamera) - dieselbe Bedingung, unter der überhaupt am
-# Vorrat gerührt werden darf.
-
-## Die Taste mittig in ihr Feld der Gleichung stellen (idempotent) - die Kette rechnet es.
-func _place_raster_switch() -> void:
-	if table_screen == null:
-		return
-	if _raster_area_px.size.x <= 0.0:
-		return
-	if raster_switch == null or not is_instance_valid(raster_switch):
-		raster_switch = RasterSwitchView.new()
-		add_child(raster_switch)
-	raster_switch.setup(table_screen.pixel_to_world(_raster_area_px.get_center()))
-
-## Ihr Rechteck in Display-Pixeln (leer = sie steht nicht).
-func _raster_switch_rect_px() -> Rect2:
-	if table_screen == null or raster_switch == null or not is_instance_valid(raster_switch) \
-			or raster_switch.half.x <= 0.0:
-		return Rect2()
-	var lo := raster_switch.bounds_min()  # (Welt-x, Welt-z)
-	var hi := raster_switch.bounds_max()
-	# Welt +X ist Bildschirm-oben, Welt +Z Bildschirm-rechts.
-	var a := table_screen.world_to_pixel(Vector3(hi.x, 0.0, lo.y))
-	var b := table_screen.world_to_pixel(Vector3(lo.x, 0.0, hi.y))
-	return Rect2(a, b - a)
-
-## Das SICHTBARE Rechteck (leer = in den Werkbank-Nahstufen, während einer Fahrt oder
-## einer Paket-Öffnung - dort steht sie gar nicht).
-func _raster_switch_rect() -> Rect2:
-	if not _table_operable() or camera_rig.workshop_close or camera_rig.die_focus \
-			or _pack_choice_modal():
-		return Rect2()
-	return _raster_switch_rect_px()
-
-## Darf jetzt umgelegt werden? Hinein nur, wo auch getauscht werden dürfte
-## (_fach_swap_live); hinaus immer - ein stehendes Raster muß man loswerden. Die
-## eine Ausnahme ist der ZWANG: wer einen Neuzugang schuldet, kommt nicht heraus.
-func _raster_switch_live() -> bool:
-	return not _exchange_forced() and (_deck_glass or _fach_swap_live())
-
-## Aufschrift, Ton und Griff je Bild - der Zeiger liegt auf dem Tisch.
-func _sync_raster_switch() -> void:
-	if raster_switch == null or not is_instance_valid(raster_switch):
-		return
-	# Während einer Paket-Öffnung ist sie nicht zu bedienen - also steht sie nicht.
-	raster_switch.visible = not _pack_choice_modal()
-	raster_switch.set_open(_deck_glass)
-	raster_switch.set_live(_raster_switch_live())
-	var rect := _raster_switch_rect()
-	if rect.size.x <= 0.0:
-		raster_switch.set_hovered(false)
-		return
-	raster_switch.set_hovered(
-		rect.has_point(_screen_pixel(get_viewport().get_mouse_position())))
-
-## Der Druck auf die Taste (true = verbraucht). Blind fällt er durch - dann gehört
-## der Klick der Navigation, wie auf leerem Fachboden.
-func _forward_raster_switch_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
-	var rect := _raster_switch_rect()
-	if rect.size.x <= 0.0 or pixel.x < 0.0 or not rect.has_point(pixel):
-		return false
-	var button := event as InputEventMouseButton
-	if button == null or not button.pressed or button.button_index != MOUSE_BUTTON_LEFT:
-		return false
-	if not _raster_switch_live():
-		return false
-	_sfx(&"raster_toggle")
-	_toggle_deck_glass()
-	return true
-
-## Umlegen: EIN Weg hinein (der Dauer-Modus) und der EINE Weg hinaus.
-func _toggle_deck_glass() -> void:
-	if _deck_glass:
-		_close_deck_glass()
-		return
-	_open_deck_glass(true)
 #endregion
 
 # --- Der WETT-TRESEN ------------------------------------------------------------
@@ -7453,8 +7382,6 @@ func _sync_secret_plates(market: SecretShopView) -> void:
 ## heißt: abgedeckt oder weggezoomt - dann ist nichts greifbar. Das Hinterzimmer
 ## schreibt zusätzlich auf seine Fenster-Karte. holds meldet, ob der
 ## Zeiger auf der stehenden Karte liegt - dort bleibt alles, wie es steht (ihre
-	if market != null and market.window_card_has_point(pixel):
-		return false
 ## Schlüsselwörter sind Klickziele).
 func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
 		show := Callable(), hide := Callable(), holds := Callable(),
@@ -7528,6 +7455,8 @@ func _forward_vitrine_mouse(event: InputEventMouse, pixel: Vector2) -> bool:
 			and camera_rig.mode != CameraRig.Mode.SECRET_SHOP:
 		return false
 	var market := _secret_window()
+	if market != null and market.window_card_has_point(pixel):
+		return false
 	return _forward_bay_mouse(secret_vitrine, _secret_bay_rect(), event, pixel,
 		_buy_secret_item,
 		market.bay_annotation_has_point if market != null else Callable())
@@ -8183,13 +8112,11 @@ func _show_shelf_cell(cell: DataCellView, uid: int, line: int, target: Vector3,
 	cell.rise_through_glass(target, float(fresh) * DATA_CELL_STAGGER,
 		DataCellView.RISE_TIME, ShelfStackView.RISE_DEPTH)
 
-## DIE WALZE: je belegter Scheibe eine Zelle, LIEGEND auf ihr - die Fläche mit dem
+## DIE WALZE: je belegter Scheibe eine Zelle (Index = Scheibe, leer = null), LIEGEND auf ihr - die Fläche mit dem
 ## Prägenetz nach oben. Eine frisch gelegte ist der KÖRPER ihres Magazin-Platzes; er
 ## fliegt im TRAGE-BOGEN herüber, gebucht war die Vormerkung längst.
 func _sync_socket_cells(workshop: WorkshopView) -> void:
-	var sorts := workshop.press_slot_sorts()
-	var uids := workshop.press_slot_uids()
-	var anchors := workshop.press_slot_anchors()
+	var uids := workshop.slice_uids()  # je Scheibe, 0 = leer
 	var scale := PackDrawerView.CASSETTE_SCALE  # EINE Kartengröße, überall
 	# Gegriffen wird nach UID, nicht nach Platz: ein UMSORTIEREN verrückt die
 	# Indizes, aber es sind dieselben Körper - sie FAHREN um, sie entstehen nicht neu.
@@ -8204,13 +8131,14 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 			_free_data_cell(held)
 	socket_cells.clear()
 	socket_uids.clear()
-	socket_cells.resize(sorts.size())
-	socket_uids.resize(sorts.size())
+	socket_cells.resize(uids.size())
+	socket_uids.resize(uids.size())
 	socket_uids.fill(0)
-	var count := sorts.size()
-	for i in mini(count, anchors.size()):
+	for i in uids.size():
+		var uid := uids[i]
+		if uid <= 0:
+			continue  # die Scheibe ist leer
 		var target := _drum_seat(i)
-		var uid: int = uids[i] if i < uids.size() else 0
 		var cell: DataCellView = standing.get(uid)
 		if cell != null and is_instance_valid(cell):
 			socket_cells[i] = cell
@@ -8236,7 +8164,8 @@ func _sync_socket_cells(workshop: WorkshopView) -> void:
 		else:
 			var slotted: Pack = run.pack_by_uid(uid) if run != null else null
 			var home := _shelf_seat(workshop, uid, workshop.shelf_column_of(uid))
-			cell = _spawn_data_cell(sorts[i], slotted.tier if slotted != null else 0,
+			cell = _spawn_data_cell(Pack.shelf_of(slotted) if slotted != null else "",
+				slotted.tier if slotted != null else 0,
 				home, slotted.stamp_net if slotted != null else [],
 				slotted != null and slotted.from_blank())
 			cell.set_body_scale(PackDrawerView.CASSETTE_SCALE)  # das Magazin-Maß
@@ -8258,9 +8187,9 @@ func _on_pack_unslotted(slot_index: int, uid: int) -> void:
 	if slot_index < 0 or slot_index >= socket_cells.size():
 		return
 	var cell: DataCellView = socket_cells[slot_index]
-	socket_cells.remove_at(slot_index)
+	socket_cells[slot_index] = null  # die Scheibe bleibt leer, niemand rückt nach
 	if slot_index < socket_uids.size():
-		socket_uids.remove_at(slot_index)
+		socket_uids[slot_index] = 0
 	if cell == null or not is_instance_valid(cell) or uid <= 0:
 		_free_data_cell(cell)
 		return
@@ -8515,7 +8444,7 @@ const PACK_DIE_REST := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE + 0.03
 const PACK_CASE_FLIGHT := 0.85
 const PACK_CASE_PEAK := 4.0
 const PACK_CASE_SEAM := 0.15
-## Das AUFPLATZEN der Schale über der Schiene: Höhe, Blähen, Splitter, Blitz, Glutkern
+## Das AUFPLATZEN der Schale über der Aufstellung: Höhe, Blähen, Splitter, Blitz, Glutkern
 ## (Spannen in Würfelkanten).
 const PACK_BURST_HEIGHT := 4.0
 const PACK_BURST_SWELL := 0.18
@@ -8535,8 +8464,8 @@ const PACK_LAUNCH_SPIN := 14.0
 const PACK_LAUNCH_BOUNCE := 0.35
 const PACK_SPILL_UP := 2.0
 const PACK_SPILL_REACH := 0.7
-## Die LANDEFLÄCHE der Wegwerf-Würfel auf dem Filz: unsichtbarer Boden (Oberkante =
-## Tischhöhe) und Wände ringsum um die Schiene samt Saum (Würfelkanten), allein auf
+## Die LANDEFLÄCHE der Wegwerf-Würfel: unsichtbarer Boden (Oberkante = Boden der
+## Vertiefung) und Wände ringsum um die Aufstellung samt Saum (Würfelkanten), allein auf
 ## PACK_LAUNCH_LAYER.
 const PACK_GROUND_THICK := 1.0
 const PACK_GROUND_WALL := 6.0
@@ -8545,7 +8474,7 @@ const PACK_GROUND_SEAM := 0.5
 ## Zur Ruhe: liegt alles still oder ist die Höchstzeit um, friert alles hart ein.
 const PACK_SETTLE_MAX := 2.4
 const PACK_SETTLE_SPEED := 0.2
-## Alle heben sich ZUGLEICH und gleiten auf die Schiene.
+## Alle heben sich ZUGLEICH und gleiten auf ihre Plätze.
 const PACK_LINEUP_TIME := 0.75
 const PACK_LINEUP_LIFT := 1.8
 const PACK_DIE_STAGGER := 0.12
@@ -8553,8 +8482,7 @@ const PACK_DIE_STAGGER := 0.12
 ## Die Kamera rahmt die Öffnungs-Fläche mit diesem Saum.
 const PACK_OPENING_MARGIN := 1.06
 const PACK_DICE_FRAME_MARGIN := 1.1
-## Saum am Vorrat (Würfelkanten): schwebende Würfel lesen weiter außen - links im Rahmen,
-## rechts vor der Schiene.
+## Saum am Vorrat (Würfelkanten): schwebende Würfel lesen weiter außen.
 const PACK_DICE_FRAME_POOL_SEAM := 1.5
 ## Karten-Paket: Fläche ∪ Magazin, und die Gewählten tragen sich im Bogen auf ihren Platz.
 const PACK_CARD_FRAME_MARGIN := 1.05
@@ -8571,10 +8499,6 @@ const ASSIGN_DOOMED_BODY := Color(0.42, 0.3, 0.3)
 const ASSIGN_SEAT_DELAY := 0.18
 const ASSIGN_SEAT_TIME := 0.5
 const ASSIGN_SEAT_PEAK := 1.2
-## Die Öffnungs-Fläche ist eine flache VERTIEFUNG: so tief liegt ihr Boden - über der
-## Kartenoberkante des Magazins (−0,242), das im Übergang darunter liegt.
-const PACK_AREA_DEPTH := 0.2
-
 var pack_choice_view: PackChoiceView
 ## Die Auswahl, die gerade auf der Fläche steht (null = keine).
 var _choice: PackChoice = null
@@ -8585,18 +8509,28 @@ var _choice_gen := 0
 var _choice_home: Dictionary = {}
 var _choice_hull: CardPackView = null
 var _opening_rect := Rect2()
-## Die Vertiefung der Öffnungs-Fläche und ihr Boden, der das Bild der Fläche trägt.
-var opening_pit: PackPitView
-var _opening_floor: MeshInstance3D
-var _opening_floor_skin: ShaderMaterial
 ## Je Option ihr Körper (Würfel-Geist oder DataCellView), index-treu, und ihr Platz.
 var _choice_bodies: Array[Node3D] = []
 var _choice_rest: Array[Vector3] = []
 var _choice_landed := false
 ## Die gekaufte Hülle zwischen Kauf und Öffnen: sie hat ihren Laden-Platz verlassen.
 var _case_bought: CardPackView = null
-var _opening_shown := false
-## Wo das Fenster der Auswahl gerade steht (Schiene oder Fläche).
+## Die VERWANDLUNG der Gleichung in die Öffnungs-Zone: _zone_swapped ist der Endzustand
+## (sofort geschrieben), die Hebebühne fährt nur den Weg und den Tausch-Zeitpunkt.
+## So tief, daß ein schwebender Würfel auf dem Podest ganz unter dem Tisch stünde.
+const ZONE_SHAFT_DEPTH := 3.0
+var zone_shaft: LiftShaftView
+var _zone_swapped := false
+## Welches Bild die Platte gerade trägt (true = die Öffnung) - es kippt unten.
+var _zone_picture_open := false
+var _zone_tween: Tween
+var _zone_gen := 0
+## Was _sync_zone_bodies zuletzt geschrieben hat - nur der Wechsel schreibt.
+var _zone_bodies_key: Array = []
+## Die Mitfahrer der laufenden Fahrt und ihre bündigen Plätze.
+var _zone_ride_bodies: Array[Node3D] = []
+var _zone_ride_seats: Array[Vector3] = []
+## Wo das Fenster der Auswahl gerade steht (die Zone).
 var _choice_window_rect := Rect2()
 ## Die Show läuft (ein Klick springt an ihr Ende).
 var _case_show_on := false
@@ -8746,7 +8680,7 @@ func _pack_opening_ready() -> bool:
 	if run == null or not _packs_unlocked():
 		return false
 	if not _case_flights.is_empty() or not _assign_sinking.is_empty() \
-			or not _card_carries.is_empty() or _bag_sinking != null:
+			or not _card_carries.is_empty() or _bag_sinking != null or _transferring:
 		return false
 	if not _table_operable() or camera_rig.die_focus or _deck_glass or log_open \
 			or camera_rig.mode == CameraRig.Mode.TITLE:
@@ -8782,8 +8716,8 @@ func _world_len_px(length: float) -> float:
 	return absf(table_screen.world_to_pixel(Vector3(0.0, 0.0, length)).x - origin.x)
 
 ## Die Kamera rahmt die Öffnung - ein TEMPORÄRER Rahmen ohne Moduswechsel; die Lage
-## davor wird gemerkt. Ein Würfel-Paket nimmt den Vorrat, den Info-Schirm und das
-## Podest mit ins Bild: gewählt wird, indem man einsetzt.
+## davor wird gemerkt. Ein Würfel-Paket nimmt den Vorrat und den Info-Schirm mit ins
+## Bild: gewählt wird, indem man einsetzt.
 func _frame_opening() -> void:
 	if table_screen == null or pack_choice_view == null or _opening_rect.size.x <= 0.0:
 		return
@@ -8803,11 +8737,9 @@ func _frame_opening() -> void:
 	camera_rig.frame_rect((a + b) * 0.5,
 		Vector2(absf(a.z - b.z), absf(a.x - b.x)) * 0.5, margin)
 
-## Pool-Feld ∪ Schiene samt Fuß ∪ Info-Schirm ∪ Podest (mit Würfel), in Display-Pixeln.
+## Pool-Feld ∪ Zone ∪ Info-Schirm ∪ Wurfplatz, in Display-Pixeln.
 func _dice_opening_frame_px() -> Rect2:
-	var rect := PackChoiceView.rail_window_for(_dice_rail_rect())
-	if rect.size.x <= 0.0:
-		rect = _opening_rect
+	var rect := _opening_rect
 	# Die schwebenden Vorrats-Würfel projizieren nach außen: links ein Saum dazu. Der
 	# INFO-SCHIRM gehört dazu - dort liest man den angehefteten Würfel.
 	var pool := _deck_glass_rect().abs()
@@ -8815,12 +8747,6 @@ func _dice_opening_frame_px() -> Rect2:
 	for part: Rect2 in [pool, _info_rect.abs()]:
 		if part.size.x > 0.0 and part.size.y > 0.0:
 			rect = rect.merge(part)
-	# Das Podest nur, wenn dort der gewählte Würfel steht - er kann ersetzt werden.
-	var workshop: WorkshopView = table_screen.workshop_window
-	if _bench_die != null and workshop != null and is_instance_valid(workshop) and workshop.visible:
-		var place := workshop.podium_rect_px()
-		if place.size.x > 0.0 and place.size.y > 0.0:
-			rect = rect.merge(place)
 	return _merge_luck_die_place(rect)
 
 ## Der Glückswürfel würfelt am Wurfplatz - jeder Öffnungs-Rahmen sieht ihn.
@@ -8885,7 +8811,7 @@ func _open_pack_choice(choice: PackChoice) -> void:
 	_choice_gen += 1
 	var generation := _choice_gen
 	var launched := run
-	_place_choice_window(choice.is_dice())
+	_place_choice_window()
 	_frame_opening()
 	if choice.is_dice():
 		_open_dice_burst(choice, generation, launched)
@@ -8899,7 +8825,7 @@ func _open_pack_choice(choice: PackChoice) -> void:
 			_free_data_cell(hull)
 		return
 	var seat := table_screen.pixel_to_world(pack_choice_view.hull_seat_px())
-	var rest := Vector3(seat.x, _opening_floor_y() + PACK_HULL_REST, seat.z)
+	var rest := Vector3(seat.x, PACK_HULL_REST, seat.z)
 	if hull != null and is_instance_valid(hull):
 		# Die Kassette fliegt aus dem Laden über die Mitte der Fläche.
 		_choice_hull = hull
@@ -8917,6 +8843,11 @@ func _open_pack_choice(choice: PackChoice) -> void:
 		_choice_hull.materialize()
 		_choice_hull.glide_to(rest, PACK_HULL_FALL)
 		await get_tree().create_timer(PACK_HULL_FALL).timeout
+	# Die Hülle darf fliegen, aber aufgehen erst, wenn die Zone bündig steht.
+	while _zone_riding():
+		await get_tree().process_frame
+		if generation != _choice_gen or run != launched:
+			return
 	if generation != _choice_gen or run != launched:
 		return
 	var from := _choice_hull.global_position if is_instance_valid(_choice_hull) else rest
@@ -8939,14 +8870,13 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 	_clear_choice_bodies()
 	var centers := pack_choice_view.slot_centers()
 	var generation := _choice_gen
-	var floor_drop := Vector3.UP * _opening_floor_y()
 	for i in choice.option_count():
 		var px: Vector2 = centers[i] if i < centers.size() else Vector2.ZERO
 		var option: Variant = choice.options[i]
 		var delay := PACK_OPTION_STAGGER * float(i)
 		if option is Pack:
 			var pack := option as Pack
-			var target := _data_cell_seat(px) + floor_drop
+			var target := _data_cell_seat(px)
 			var cell := _spawn_data_cell(Pack.shelf_of(pack), pack.tier, from, pack.stamp_net,
 				pack.from_blank())
 			cell.badge_on_face = true
@@ -8962,7 +8892,7 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 				cell.arc_to(target, PACK_OPTION_FALL, PACK_OPTION_PEAK))
 		else:
 			var def := option as DieDefinition
-			var target := table_screen.pixel_to_world(px) + Vector3.UP * PACK_DIE_REST + floor_drop
+			var target := table_screen.pixel_to_world(px) + Vector3.UP * PACK_DIE_REST
 			var ghost := FloatingDie.build_ghost(def)
 			add_child(ghost)
 			var faces: DieFaceDisplay = ghost.get_node("RigidBody3D/Faces")
@@ -8995,94 +8925,217 @@ func _drop_pack_options(choice: PackChoice, from: Vector3) -> void:
 func _pack_front(pack: Resource) -> Pack:
 	return (pack as CardPack).front_card() if pack is CardPack else null
 
-## Die ÖFFNUNGS-FLÄCHE unter dem Vorrat: bei Karten-Paketen eine flache Vertiefung mit
-## Schirm, bei Würfel-Paketen steht auf ihr die SCHIENE - ohne Schirm, ohne Loch, ohne
-## Vertiefung. Idempotent je Bild.
+## Die ÖFFNUNGS-ZONE ist EINE Hebebühne (zone_shaft, die Maschine des Ladens): solange ein
+## Paket sie braucht, fährt die Gleichung samt ihrer Körper ganz hinab, unten tauscht das
+## Bild, und die Auswahl fährt BÜNDIG herauf - für Karten wie Würfel. Danach derselbe Weg
+## zurück. Idempotent je Bild.
 func _sync_pack_areas() -> void:
 	if table_screen == null or pack_choice_view == null or table_screen.hub == null:
 		return
 	var rect := _opening_area_rect()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
 		return
-	if rect != _opening_rect:
-		_opening_rect = rect
-		_opening_shown = true
-	var dice := _dice_choice_shown()
-	_place_choice_window(dice)
-	# Die Fläche liegt über "=", ERGEBNIS und PRÄGEN - solange sie gebraucht wird, sind die fort.
+	_opening_rect = rect
+	_place_choice_window()
+	# Eine laufende Prägung braucht die Kammer unter der Zone - erst danach verwandelt sie sich.
+	var wanted := _opening_in_use() and (_zone_swapped or not _transferring)
+	if wanted != _zone_swapped:
+		_zone_swapped = wanted
+		_ride_zone(wanted)
+	if not _zone_riding():
+		var key := [_zone_swapped, pack_choice_view.choice != null, rect]
+		if key != _zone_seat_key:
+			_seat_zone_hard()
+	_sync_zone_bodies()
+
+## Was der harte Schreiber zuletzt gesetzt hat - nur ein Wechsel schreibt neu.
+var _zone_seat_key: Array = []
+
+## Vor dem Tausch trägt die sinkende Platte noch die Gleichung - ein frisch geöffnetes
+## Fenster wartet bis unten.
+func _hold_zone_picture() -> void:
+	if table_screen != null and _zone_riding() and not _zone_picture_open:
+		table_screen.show_opening_window(false)
+
+## Fährt die Zone gerade?
+func _zone_riding() -> bool:
+	return _zone_tween != null and _zone_tween.is_valid() and _zone_tween.is_running()
+
+## Die Gleichung ist fort oder auf dem Weg (Endzustand oder Fahrt).
+func _zone_busy() -> bool:
+	return _zone_swapped or _zone_riding()
+
+## ALLE Körper der Gleichung, die mit ihr hinab- und heraufahren - neue kommen HIER dazu.
+func _zone_riders() -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for body: Node3D in [podium_stage, bench_blank_cell]:
+		if body != null and is_instance_valid(body):
+			out.append(body)
+	return out
+
+## Die Hebebühne der Zone, gestellt und verdrahtet (idempotent): Loch = die Zone, Tiefe
+## ZONE_SHAFT_DEPTH, Hohlräume nur so weit, wie vor und hinter ihr kein Loch steht.
+func _zone_shaft_on() -> LiftShaftView:
+	if table_screen == null or _opening_rect.size.x <= 0.0:
+		return null
+	if zone_shaft == null or not is_instance_valid(zone_shaft):
+		zone_shaft = LiftShaftView.new("ZoneShaft")
+		add_child(zone_shaft)
+		zone_shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(TableScreen.PIT_OPENING, at, hole))
+		zone_shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(TableScreen.PIT_OPENING))
+	zone_shaft.deck_skin = table_screen.display_skin()
+	zone_shaft.order_skin(PIT_SKIN)
+	var reach := _zone_cavity_reach()
+	zone_shaft.cavity_reach = reach.x
+	zone_shaft.front_cavity_reach = reach.y
+	zone_shaft.setup(table_screen.pixel_to_world(_opening_rect.get_center()),
+		_pit_half(_opening_rect), ZONE_SHAFT_DEPTH)
+	return zone_shaft
+
+## Wieviel Platz die Hohlräume haben (Welt, x = hinten/Bild-oben, y = vorn/Bild-unten):
+## hinten bis an die Grube des Chip-Trays, vorn bis an den Graben der Walze.
+func _zone_cavity_reach() -> Vector2:
+	var reach := Vector2(ZONE_SHAFT_DEPTH * 2.0, ZONE_SHAFT_DEPTH * 2.0)
+	var zone := _opening_rect
+	var tray := table_screen.tray_pit_rect()
+	if tray.size.x > 0.0 and tray.end.y <= zone.position.y \
+			and tray.position.x < zone.end.x and tray.end.x > zone.position.x:
+		reach.x = _px_to_world_x(zone.position.y - tray.end.y) - LiftShaftView.WALL
 	var workshop: WorkshopView = table_screen.workshop_window
 	if workshop != null and is_instance_valid(workshop):
-		workshop.opening_shown = _opening_in_use()
-	var shown := _opening_in_use() and not dice
-	if pack_choice_view.backdrop != shown:
-		pack_choice_view.backdrop = shown
-		pack_choice_view.queue_redraw()
-	if shown:
-		_seat_opening_pit(rect)
-	if shown != _opening_shown:
-		_opening_shown = shown
-		# Leer (oder bei Würfeln) steht weder Fläche noch Vertiefung: der Filz ist durchgehend.
-		if not shown:
-			table_screen.clear_pit(TableScreen.PIT_OPENING)
-		for body: Node3D in [opening_pit, _opening_floor]:
-			if body != null and is_instance_valid(body):
-				body.visible = shown
-	table_screen.show_opening_window(shown or pack_choice_view.choice != null)
+		var drum := workshop.drum_pit_rect()
+		if drum.size.x > 0.0 and drum.position.y >= zone.end.y:
+			reach.y = _px_to_world_x(drum.position.y - zone.end.y) - LiftShaftView.WALL
+	return Vector2(maxf(reach.x, 0.05), maxf(reach.y, 0.05))
 
-## Gebraucht wird die Fläche nur, solange ein Paket unterwegs oder offen ist.
+## Eine senkrechte Display-Strecke in Welt (Bild-oben ist Welt +X).
+func _px_to_world_x(px: float) -> float:
+	return absf(table_screen.pixel_to_world(Vector2(0.0, px)).x
+		- table_screen.pixel_to_world(Vector2.ZERO).x)
+
+## Die FAHRT: die Platte sinkt mit den Mitfahrern auf ZONE_SHAFT_DEPTH, unten tauscht das
+## Bild (und die Körper der Gleichung sind fort bzw. wieder da), dann hebt sie bündig.
+## Endzustand zuerst: _zone_swapped steht schon, gefahren wird nur der Weg.
+func _ride_zone(open: bool) -> void:
+	_zone_gen += 1
+	var generation := _zone_gen
+	var shaft := _zone_shaft_on()
+	if shaft == null:
+		_seat_zone_hard()
+		return
+	if not _zone_riding():
+		_zone_ride_bodies = _zone_riders()
+		_zone_ride_seats.clear()
+		for body in _zone_ride_bodies:
+			_zone_ride_seats.append(body.global_position)
+	var bodies: Array = []
+	var seats: Array = []
+	for i in _zone_ride_bodies.size():
+		if is_instance_valid(_zone_ride_bodies[i]):
+			bodies.append(_zone_ride_bodies[i])
+			seats.append(_zone_ride_seats[i])
+	_zone_tween = shaft.run_park([], [], [], [], 0.0, _zone_bottom.bind(open, generation),
+		bodies, seats)
+	if _zone_tween == null:
+		_seat_zone_hard()
+		return
+	_zone_tween.finished.connect(func() -> void:
+		if generation == _zone_gen:
+			_rise_zone(generation, bodies, seats))
+
+## Unten: das Bild tauscht, und die Körper der Gleichung sind fort (bzw. wieder da).
+func _zone_bottom(open: bool, generation: int) -> void:
+	if generation != _zone_gen:
+		return
+	_zone_picture_open = open
+	_apply_zone_picture()
+	_sync_zone_bodies()
+
+func _rise_zone(generation: int, bodies: Array, seats: Array) -> void:
+	if zone_shaft == null or not is_instance_valid(zone_shaft):
+		_seat_zone_hard()
+		return
+	var live: Array = []
+	var live_seats: Array = []
+	for i in bodies.size():
+		if is_instance_valid(bodies[i]):
+			live.append(bodies[i])
+			live_seats.append(seats[i])
+	_zone_tween = zone_shaft.run_rise(live, live_seats, 0.0)
+	if _zone_tween == null:
+		_seat_zone_hard()
+		return
+	_zone_tween.finished.connect(func() -> void:
+		if generation == _zone_gen:
+			_seat_zone_hard())
+
+## Die Dauer einer Verwandlung: hinab, Halt am Boden, herauf samt Setz-Dip.
+static func zone_ride_time() -> float:
+	return LiftShaftView.SINK_TIME + LiftShaftView.PUSH_TIME + LiftShaftView.LIFT_TIME \
+		+ LiftShaftView.DIP_TIME
+
+## Der EINE harte Schreiber der Zone: Fahrt aus, Schacht hart zu (Loch frei), jeder
+## Mitfahrer auf seinem Platz, Bild und Körper ohne Fahrt.
+func _seat_zone_hard() -> void:
+	_zone_gen += 1
+	if _zone_tween != null and _zone_tween.is_valid():
+		_zone_tween.kill()
+	_zone_tween = null
+	if zone_shaft != null and is_instance_valid(zone_shaft):
+		zone_shaft.settle_hard()
+	for i in _zone_ride_bodies.size():
+		var body: Node3D = _zone_ride_bodies[i]
+		if body != null and is_instance_valid(body):
+			body.global_position = _zone_ride_seats[i]
+	_zone_ride_bodies.clear()
+	_zone_ride_seats.clear()
+	if table_screen == null or _opening_rect.size.x <= 0.0:
+		return
+	_zone_seat_key = [_zone_swapped, pack_choice_view.choice != null, _opening_rect]
+	_zone_picture_open = _zone_swapped
+	_apply_zone_picture()
+	_sync_zone_bodies()
+
+## Welches Bild die Zone trägt: die Gleichung oder die Öffnung samt ihrem Fenster.
+func _apply_zone_picture() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window
+	if workshop != null and is_instance_valid(workshop):
+		workshop.opening_shown = _zone_picture_open
+	if pack_choice_view.backdrop != _zone_picture_open:
+		pack_choice_view.backdrop = _zone_picture_open
+		pack_choice_view.queue_redraw()
+	table_screen.show_opening_window(_zone_picture_open)
+
+## Puck und Rohling stehen, solange die Gleichung oben ist (bis zum Tausch fahren sie mit
+## hinab); der gewählte Würfel fliegt heim und kommt danach wieder (_wanted_bench_die).
+func _sync_zone_bodies() -> void:
+	var key := [_zone_busy(), _zone_picture_open]
+	if key == _zone_bodies_key:
+		return
+	_zone_bodies_key = key
+	_rebuild_podium_puck()
+	_sync_bench_migration()
+
+## Gebraucht wird die Zone, solange ein Paket unterwegs oder offen ist - und bis der letzte
+## Körper der Auswahl sie verlassen hat.
 func _opening_in_use() -> bool:
 	if run != null and run.current_pack_choice() != null:
 		return true
-	return _choice != null or _case_bought != null
+	return _choice != null or _case_bought != null or not _assign_sinking.is_empty() \
+		or not _case_flights.is_empty() or not _card_carries.is_empty()
 
-## Das Rechteck der Öffnungs-Fläche in Display-Pixeln: eine Fuge rechts neben dem Podest-
-## Platz, oben bündig mit der Pool-Reihe und so hoch wie sie (leer = kein Platz). Sie
-## liegt über "=", ERGEBNIS, PRÄGEN und der (dann leeren) Schale.
+## Die ÖFFNUNGS-ZONE in Display-Pixeln: sie VERWANDELT die Gleichung - links ab UPGRADES,
+## oben bündig mit der Pool-Reihe und so hoch wie sie (leer = kein Platz).
 func _opening_area_rect() -> Rect2:
-	if table_screen == null or _podium_place_px.size.x <= 0.0:
+	if table_screen == null or _podium_place_px.size.x <= 0.0 or _equation_px.size.x <= 0.0:
 		return Rect2()
-	var gap := _workshop_unit() * WorkshopView.DRUM_SHELF_GAP
-	var high := _pool_row_px.size.y
-	var rail := (high + _pool_seam_px) / (1.0 + PackChoiceView.RAIL_FOOT_UNITS
-		/ PackChoiceView.RAIL_UNITS)
-	var width := PackChoiceView.area_width_for(high, _data_cell_lying_px() * PackDrawerView.CASSETTE_SCALE,
-		_die_edge_px(), rail)
-	return PackChoiceView.area_beside(_pool_row_px, _podium_place_px, gap, width)
-
-## Die Vertiefung: Loch, Grube ohne Kragen, und ihr Boden trägt das Bild der Fläche
-## (die Haut rechnet aus der Weltposition - der Mahjong-Deckel). Möbel.
-func _seat_opening_pit(rect: Rect2) -> void:
-	table_screen.set_pit(TableScreen.PIT_OPENING, rect, 0.0)
-	if rect == _opening_rect and opening_pit != null and is_instance_valid(opening_pit):
-		return
-	var centre := table_screen.pixel_to_world(rect.get_center())
-	var half := _pit_half(rect)
-	if opening_pit == null or not is_instance_valid(opening_pit):
-		opening_pit = PackPitView.new("OpeningPit")
-		opening_pit.wall_skin = PIT_SKIN
-		# Kein Kragen: die Haut darüber zeigt das Bild der Fläche.
-		opening_pit.rimmed = false
-		add_child(opening_pit)
-	# EINE Bodenfläche: das Bild der Fläche trägt der Boden-Quad, die Grube keinen eigenen.
-	opening_pit.floored = false
-	opening_pit.setup(centre, half, PACK_AREA_DEPTH)
-	if _opening_floor == null or not is_instance_valid(_opening_floor):
-		_opening_floor = MeshInstance3D.new()
-		_opening_floor.name = "OpeningFloor"
-		_opening_floor.mesh = PlaneMesh.new()
-		add_child(_opening_floor)
-	var skin := table_screen.display_skin()
-	if _opening_floor_skin == null:
-		_opening_floor_skin = skin.duplicate() as ShaderMaterial
-	for param in ["screen_texture", "display_map", "emission_energy"]:
-		_opening_floor_skin.set_shader_parameter(param, skin.get_shader_parameter(param))
-	(_opening_floor.mesh as PlaneMesh).size = half * 2.0
-	_opening_floor.material_override = _opening_floor_skin
-	_opening_floor.global_position = centre + Vector3.UP * -PACK_AREA_DEPTH
-
-## Der Boden der Öffnungs-Fläche in Welt-Höhe (ohne Vertiefung die Tischebene).
-func _opening_floor_y() -> float:
-	return -PACK_AREA_DEPTH if opening_pit != null and is_instance_valid(opening_pit) else 0.0
+	# So breit wie die Würfel-Auswahl (die größte), mindestens die Gleichung.
+	var width := maxf(PackChoiceView.panel_width_for(_pool_row_px.size.y, _die_edge_px()),
+		_equation_px.size.x)
+	return PackChoiceView.area_beside(_pool_row_px, _equation_px,
+		_equation_px.position.x + width)
 
 func _drop_bought_case() -> void:
 	if _case_bought != null and is_instance_valid(_case_bought):
@@ -9093,34 +9146,18 @@ func _drop_bought_case() -> void:
 func _case_frame(hull: CardPackView, at: Vector3) -> Transform3D:
 	return Transform3D(hull.global_transform.basis.orthonormalized(), at)
 
-## --- Das AUFPLATZEN: Würfel-Pakete öffnen sich ÜBER der Schiene ------------------
-## Die Schale fliegt im Trage-Bogen über die Schiene, bläht sich, PLATZT (Splitter,
-## Blitz, Ring) und ist fort. Die Würfel fallen mit echter Physik auf den Filz; ein
+## --- Das AUFPLATZEN: Würfel-Pakete öffnen sich ÜBER der Aufstellung -------------
+## Die Schale fliegt im Trage-Bogen über die Aufstellung, bläht sich, PLATZT (Splitter,
+## Blitz, Ring) und ist fort. Die Würfel fallen mit echter Physik in die Vertiefung; ein
 ## Glutkern bleibt, solange noch einer herausfallen könnte. Dann gleiten alle auf ihre
 ## Plätze, und die Walze dreht. Ein Klick springt ans Ende (_end_case_show).
 
-## Die SCHIENE in Display-Pixeln: oben auf der Öffnungs-Fläche unter dem Vorrat, so breit
-## wie sie, samt Fuß darin.
-func _dice_rail_rect() -> Rect2:
-	if table_screen == null or _opening_rect.size.x <= 0.0:
-		return Rect2()
-	var count := 1
-	var choice: PackChoice = _choice
-	if choice == null and run != null:
-		choice = run.current_pack_choice()
-	if choice != null:
-		count = choice.option_count()
-	# Der Fuß darf in die Naht über der Walze ragen, nie in die Walze selbst.
-	return PackChoiceView.rail_in(_opening_rect, _die_edge_px(), count, _pool_seam_px)
-
-## Das Fenster der Auswahl: bei Würfeln die Schiene ohne Schirm, sonst die Fläche.
-## Idempotent; gebaut wird erst danach (open), denn die Ansicht mißt am Fenster.
-func _place_choice_window(dice: bool) -> void:
+## Das Fenster der Auswahl IST die Zone - für jede Art. Idempotent; gebaut wird erst
+## danach (open), denn die Ansicht mißt am Fenster.
+func _place_choice_window() -> void:
 	if table_screen == null or pack_choice_view == null:
 		return
-	var rect := PackChoiceView.rail_window_for(_dice_rail_rect()) if dice else _opening_rect
-	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-		rect = _opening_rect
+	var rect := _opening_rect
 	if rect == _choice_window_rect or rect.size.x <= 0.0:
 		return
 	_choice_window_rect = rect
@@ -9133,7 +9170,8 @@ func _dice_choice_shown() -> bool:
 		choice = run.current_pack_choice()
 	return choice != null and choice.is_dice()
 
-## Die Plätze der Schiene in Welt - Endzustand zuerst: sie stehen, bevor einer fällt.
+## Die Plätze der Aufstellung in Welt, auf dem Boden der Vertiefung - Endzustand zuerst:
+## sie stehen, bevor einer fällt.
 func _case_targets(choice: PackChoice) -> void:
 	_choice_rest.clear()
 	_choice_bodies.clear()
@@ -9141,11 +9179,12 @@ func _case_targets(choice: PackChoice) -> void:
 	var centers := pack_choice_view.slot_centers()
 	for i in choice.option_count():
 		var px: Vector2 = centers[i] if i < centers.size() else Vector2.ZERO
-		_choice_rest.append(table_screen.pixel_to_world(px) + Vector3.UP * PACK_DIE_REST)
+		_choice_rest.append(table_screen.pixel_to_world(px)
+			+ Vector3.UP * PACK_DIE_REST)
 		_choice_bodies.append(null)
 		_case_rigid.append(null)
 
-## Der Punkt ÜBER der Schiene, an dem die Schale platzt.
+## Der Punkt ÜBER der Aufstellung, an dem die Schale platzt.
 func _burst_point() -> Vector3:
 	var at := table_screen.pixel_to_world(pack_choice_view.lineup_area_px().get_center())
 	return Vector3(at.x, PACK_BURST_HEIGHT, at.z)
@@ -9173,13 +9212,18 @@ func _open_dice_burst(choice: PackChoice, generation: int, launched: GameRun) ->
 		hull.arc_to(_burst_at, PACK_CASE_FLIGHT, PACK_CASE_PEAK)
 		await get_tree().create_timer(PACK_CASE_FLIGHT).timeout
 	else:
-		# Ohne gekaufte Hülle (ein Wett-Gewinn) erscheint sie über der Schiene.
+		# Ohne gekaufte Hülle (ein Wett-Gewinn) erscheint sie über der Aufstellung.
 		hull = _spawn_hull(String(choice.pack.get("sort")), choice.size, true, _burst_at,
 			choice.quality)
 		_choice_hull = hull
 		hull.lie_on_glass(_burst_at)
 		hull.materialize()
 		await get_tree().create_timer(DataCellView.MATERIALIZE_TIME).timeout
+	# Geplatzt wird erst über der bündigen Zone.
+	while _zone_riding():
+		await get_tree().process_frame
+		if not _case_show_live(generation, launched):
+			return
 	if not _case_show_live(generation, launched):
 		return
 	_play_case_show(generation, launched)
@@ -9188,7 +9232,7 @@ func _case_show_live(generation: int, launched: GameRun) -> bool:
 	return generation == _choice_gen and run == launched and _case_show_on
 
 ## Das AUFPLATZEN und der FALL: die Hülle bläht sich und platzt, die Würfel fallen
-## heraus, der Glutkern verlischt. Danach Ruhe, Schiene, Glückswürfel.
+## heraus, der Glutkern verlischt. Danach Ruhe, Aufstellung, Glückswürfel.
 func _play_case_show(generation: int, launched: GameRun) -> void:
 	var count := _choice.option_count()
 	_build_case_ground()
@@ -9372,7 +9416,7 @@ func _drop_case_die(index: int, level: int) -> void:
 		* body.gravity_scale
 	var up := PACK_SPILL_UP * gain
 	var height := from.y - PACK_DIE_REST
-	var flight := maxf(up / gravity + sqrt(maxf(up * up / (gravity * gravity)
+	var flight :=maxf(up / gravity + sqrt(maxf(up * up / (gravity * gravity)
 		+ 2.0 * height / gravity, 0.0)), 0.1)
 	var goal: Vector3 = _choice_rest[index]
 	var reach := Vector3(goal.x - from.x, 0.0, goal.z - from.z)
@@ -9422,13 +9466,16 @@ func _case_ghost(index: int) -> Node3D:
 	_choice_bodies[index] = ghost
 	return ghost
 
-## Die LANDEFLÄCHE: ein unsichtbarer Boden auf dem Filz (Oberkante = Tischhöhe) über
-## die Schiene samt Saum, dazu vier Wände - nur für die Wegwerf-Würfel.
+## Die LANDEFLÄCHE: ein unsichtbarer Boden auf dem Boden der Vertiefung über die
+## Aufstellung samt Saum (nie über die Zone hinaus), dazu vier Wände - nur für die
+## Wegwerf-Würfel.
 func _build_case_ground() -> void:
 	_drop_case_ground()
 	if pack_choice_view == null or table_screen == null:
 		return
 	var page := pack_choice_view.lineup_area_px().grow(_die_edge_px() * PACK_GROUND_SEAM)
+	if _opening_rect.size.x > 0.0:
+		page = page.intersection(_opening_rect)
 	var a := table_screen.pixel_to_world(page.position)
 	var b := table_screen.pixel_to_world(page.end)
 	var lo := Vector2(minf(a.x, b.x), minf(a.z, b.z))
@@ -9558,8 +9605,8 @@ func _settle_case_show() -> void:
 
 ## BESTÄTIGT (Würfel): gebucht ist (confirm_dice_choice, VOR diesem Aufruf). Jeder
 ## ersetzte Vorrats-Würfel sinkt per Hebebühne aus seinem Sitz, die neue Option setzt
-## sich im kurzen Trage-Bogen hinein, und die Ungewählten zieht der Tisch an ihrem
-## Schienen-Platz ein. seats: option_index → {def, slot, bench, at, replaced} - gerechnet
+## sich im kurzen Trage-Bogen hinein, und die Ungewählten zieht der Tisch an ihrem Platz
+## ein. seats: option_index → {def, slot, at, replaced} - gerechnet
 ## VOR der Buchung, denn danach hält der Sitz eine Lücke.
 func _release_dice_options(seats: Dictionary) -> void:
 	if _case_show_on:
@@ -9576,9 +9623,8 @@ func _release_dice_options(seats: Dictionary) -> void:
 			unchosen.append(ghost)
 			continue
 		var seat: Dictionary = seats[i]
-		if not bool(seat["bench"]):
-			_sink_replaced_die(seat["replaced"], int(seat["slot"]), seat["at"], lane)
-			lane += 1
+		_sink_replaced_die(seat["replaced"], int(seat["slot"]), seat["at"], lane)
+		lane += 1
 		_seat_assigned_die(ghost, seat, delay)
 		delay += PACK_DIE_STAGGER
 	for ghost in unchosen:
@@ -9613,18 +9659,15 @@ func _sink_replaced_die(def: DieDefinition, slot: int, at: Vector3, lane: int) -
 		_drop_stage_body(body))
 
 ## Die neue Option setzt sich im Trage-Bogen in ihren Sitz (ein Spieler-Zug - über
-## dem Tisch); aufs Podest, wenn der Werkstatt-Zielwürfel ersetzt wird.
+## dem Tisch).
 func _seat_assigned_die(ghost: Node3D, seat: Dictionary, delay: float) -> void:
 	var from := ghost.global_position
 	var target: Vector3 = seat["at"]
 	var from_basis := ghost.global_basis
 	var to_basis := Basis(Vector3.UP, DiceTrayView.YAW_REST).scaled(
 		Vector3.ONE * DiceTrayView.DIE_SCALE)
-	var entry := {"ghost": ghost, "def": seat["def"], "slot": seat["slot"],
-		"bench": seat["bench"]}
+	var entry := {"ghost": ghost, "def": seat["def"], "slot": seat["slot"]}
 	_case_flights.append(entry)
-	if bool(seat["bench"]) and bench_stage != null and is_instance_valid(bench_stage):
-		bench_stage.dematerialize()
 	var tween := create_tween()
 	tween.tween_interval(maxf(delay + ASSIGN_SEAT_DELAY, 0.001))
 	tween.tween_method(func(t: float) -> void:
@@ -9647,17 +9690,11 @@ func _land_case_die(entry: Dictionary, hard: bool) -> void:
 		tween.kill()
 	_free_choice_body(entry["ghost"])
 	_assign_hidden.erase(entry["def"])
-	if bool(entry["bench"]):
-		if bench_stage != null and is_instance_valid(bench_stage):
-			bench_stage.materialize()
-			if not hard:
-				bench_stage.pulse()
-	else:
-		_refresh_dice_trays()
-		var slot := int(entry["slot"])
-		if not hard and pool_tray_view != null and slot >= 0 \
-				and slot < pool_tray_view.slot_roots.size():
-			pool_tray_view.slot_emitter(slot).ripple()
+	_refresh_dice_trays()
+	var slot := int(entry["slot"])
+	if not hard and pool_tray_view != null and slot >= 0 \
+			and slot < pool_tray_view.slot_roots.size():
+		pool_tray_view.slot_emitter(slot).ripple()
 	if hard or not _case_flights.is_empty() or _choice != null:
 		return
 	if run == null or run.current_pack_choice() == null:
@@ -9681,7 +9718,7 @@ func _settle_case_flights() -> void:
 		_refresh_dice_trays()
 
 ## Ein Ungewählter geht dort hinaus, wo er LIEGT: eine würfelgroße Sektion öffnet unter
-## seinem Schienen-Platz und zieht ihn ein (false = keine Bahn frei).
+## seinem Platz und zieht ihn ein (false = keine Bahn frei).
 func _sink_choice_die(ghost: Node3D, lane: int) -> bool:
 	if table_screen == null or lane >= TableScreen.SWALLOW_PIT_COUNT:
 		return false
@@ -9763,41 +9800,31 @@ func _assign_live() -> bool:
 		and pack_choice_view.assigning() \
 		and pack_choice_view.stage() == PackChoiceView.STAGE_PICK
 
-## Der Vorrats-Würfel unter dem Zeiger: {pool, def, slot, bench, label} ({} = keiner).
+## Der Vorrats-Würfel unter dem Zeiger: {pool, def, slot, label} ({} = keiner). Der
+## gewählte wartet während der Öffnung in seinem Pool-Sitz - ein Podest gibt es dann nicht.
 func _assign_target_at(screen_pos: Vector2) -> Dictionary:
 	if run == null or pool_tray_view == null:
 		return {}
 	var slot := _pool_tray_slot_at(screen_pos)
 	var def: DieDefinition = pool_tray_view.slot_defs[slot] if slot >= 0 else null
-	var bench := false
 	if def == null:
-		var stage := _bench_stage_under(screen_pos)
-		if stage == null or stage.def == null:
-			return {}
-		def = stage.def
-		bench = true
+		return {}
 	var pool := run.owned_pool.find(def)
 	if pool < 0:
 		return {}
-	return {"pool": pool, "def": def, "slot": slot, "bench": bench,
-		"label": "Podest" if bench else "Platz %d" % (pool + 1)}
+	return {"pool": pool, "def": def, "slot": slot, "label": "Platz %d" % (pool + 1)}
 
-## Wo der Würfel eines Vorrats-Index gerade schwebt: {at, def, key, slot, bench}. key ist
-## der Tray-Platz, -1 das Podest ({} = nicht zu sehen).
+## Wo der Würfel eines Vorrats-Index gerade schwebt: {at, def, key, slot}; key ist der
+## Tray-Platz ({} = nicht zu sehen).
 func _assign_seat(pool_index: int) -> Dictionary:
 	if run == null or pool_index < 0 or pool_index >= run.owned_pool.size():
 		return {}
 	var def: DieDefinition = run.owned_pool[pool_index]
-	if def == _bench_die and bench_stage != null and is_instance_valid(bench_stage) \
-			and bench_stage.def == def:
-		var at := bench_stage.center()
-		return {"at": Vector3(at.x, bench_stage.rest_y, at.z), "def": def, "key": -1,
-			"slot": -1, "bench": true}
 	var slot := pool_tray_view.slot_defs.find(def) if pool_tray_view != null else -1
 	if slot < 0:
 		return {}
 	return {"at": pool_tray_view.slot_home_position(slot, true), "def": def, "key": slot,
-		"slot": slot, "bench": false}
+		"slot": slot}
 
 ## true = die Geste gehörte dem Zuordnen (sonst geht sie an die Fläche).
 func _handle_assign_input(mouse: InputEventMouse) -> bool:
@@ -9968,18 +9995,12 @@ func _unmark_doomed(key: int, mark: Dictionary) -> void:
 		emitter.set_tint(mark["tint"])
 
 func _doomed_display(key: int) -> DieFaceDisplay:
-	if key < 0:
-		return bench_stage.faces if bench_stage != null and is_instance_valid(bench_stage) \
-			else null
-	if pool_tray_view == null or key >= pool_tray_view.slot_face_displays.size():
+	if key < 0 or pool_tray_view == null or key >= pool_tray_view.slot_face_displays.size():
 		return null
 	return pool_tray_view.slot_face_displays[key]
 
 func _doomed_emitter(key: int) -> StasisEmitter:
-	if key < 0:
-		return bench_stage.emitter if bench_stage != null and is_instance_valid(bench_stage) \
-			else null
-	if pool_tray_view == null or key >= pool_tray_view.slot_emitters.size():
+	if key < 0 or pool_tray_view == null or key >= pool_tray_view.slot_emitters.size():
 		return null
 	return pool_tray_view.slot_emitter(key)
 
@@ -10014,8 +10035,7 @@ func _confirm_dice_assignments() -> void:
 	_end_assign_gesture()
 	_restore_assign_marks()
 	for key in seats:
-		if not bool(seats[key]["bench"]):
-			_assign_hidden.append(seats[key]["def"])
+		_assign_hidden.append(seats[key]["def"])
 	run.confirm_dice_choice(choice, draft)
 	if run.pending_pack_choices.has(choice):
 		_assign_hidden.clear()
@@ -10052,7 +10072,7 @@ func _on_pack_choice_reshuffle() -> void:
 	if generation != _choice_gen or run != launched:
 		return
 	var seat := table_screen.pixel_to_world(pack_choice_view.hull_seat_px())
-	var from := Vector3(seat.x, _opening_floor_y() + PACK_HULL_REST, seat.z)
+	var from := Vector3(seat.x, PACK_HULL_REST, seat.z)
 	_drop_pack_options(_choice, from)
 	await get_tree().create_timer(PACK_OPTION_FALL + PACK_DIE_BOUNCE).timeout
 	if generation == _choice_gen and run == launched:
@@ -10275,6 +10295,10 @@ func _settle_pack_openings() -> void:
 	_restore_assign_marks()
 	if not _choice_home.is_empty():
 		_leave_opening_frame()
+	# Die Zone steht ohne Fahrt in dem Zustand, den eine noch offene Auswahl verlangt.
+	if pack_choice_view != null and table_screen != null:
+		_zone_swapped = _opening_in_use() and not _transferring
+		_seat_zone_hard()
 
 ## Das Kleingedruckte hat den Kaufpreis zurückgegeben: er fährt vom Kaufknopf in
 ## das Chip-Tray. Rein visuell - gebucht hat purchase_pack, sonst zahlte eine
@@ -10549,7 +10573,55 @@ func _handle_tray_drag_input(event: InputEvent) -> void:
 		# Bühnen-Fahrt auf das Podest der Werkbank.
 		var tapped: DieDefinition = pool_tray_view.slot_defs[tray_drag_index]
 		_end_tray_drag()
+		_note_pool_tap()
 		_choose_workshop_target(tapped)
+
+## Die Wahl VOR einem Pool-Tipp - ein folgender Doppelklick nimmt den Tipp zurück.
+var _pool_tap_undo: Dictionary = {}
+const POOL_TAP_UNDO_MS := 1000
+
+func _note_pool_tap() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		_pool_tap_undo = {}
+		return
+	_pool_tap_undo = {"index": workshop.chosen_index(), "at": Time.get_ticks_msec()}
+
+## Der DOPPELKLICK aufs Pool-Feld öffnet das RASTER (true = verbraucht) - unter derselben
+## Bedingung, unter der am Vorrat gerührt werden darf.
+func _try_pool_double_click(event: InputEvent) -> bool:
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed or not button.double_click \
+			or button.button_index != MOUSE_BUTTON_LEFT:
+		return false
+	if _deck_glass or _exchange_forced() or _pack_choice_modal() or not _fach_swap_live() \
+			or camera_rig.workshop_close or camera_rig.die_focus:
+		return false
+	var field := _deck_glass_rect()
+	var pixel := _screen_pixel(button.position)
+	if field.size.x <= 0.0 or pixel.x < 0.0 or not field.has_point(pixel):
+		return false
+	_undo_pool_tap()
+	_sfx(&"raster_toggle")
+	_open_deck_glass(true)
+	return true
+
+## Der erste Klick des Doppelklicks hat schon gewählt - zurück auf die Wahl davor.
+func _undo_pool_tap() -> void:
+	var undo := _pool_tap_undo
+	_pool_tap_undo = {}
+	if undo.is_empty() or Time.get_ticks_msec() - int(undo["at"]) > POOL_TAP_UNDO_MS:
+		return
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var before := int(undo["index"])
+	if workshop.chosen_index() == before:
+		return
+	if before < 0:
+		workshop.clear_choice()
+	else:
+		workshop.choose_index(before)
 
 ## Tray-Platz unter screen_pos - über DIESELBE Maske wie Klick und Hover.
 func _pool_tray_slot_at(screen_pos: Vector2) -> int:
@@ -11458,10 +11530,6 @@ func _forward_screen_mouse(event: InputEventMouse) -> bool:
 		return true
 	if _forward_fach_mouse(event, pixel):
 		return true
-	# Der RASTER-UMSCHALTER steht auf blankem Filz neben der Grube und legt um,
-	# auch während das Raster liegt - er kommt darum VOR dessen Modalität.
-	if _forward_raster_switch_mouse(event, pixel):
-		return true
 	# Die GLAS-ANSICHT wohnt in ihrem EIGENEN Viewport: sie bekommt den Zeiger
 	# umgerechnet, nicht die Anzeige darunter. Modal - unter ihr liegt keine Fläche.
 	if _deck_glass and pixel.x >= 0.0 and table_screen.push_deck_glass_input(event, pixel):
@@ -11825,11 +11893,11 @@ func _process(delta: float) -> void:
 	_sync_screen_action_buttons()
 	_sync_shell_hold()
 	_park_pool_shaft()  # das PIT ist Möbel: es steht beim nächsten Hinsehen wieder
-	_sync_raster_switch()  # und die Taste am Grubenrand, was ihr Druck liefert
 	_sync_forced_exchange()  # ein gelieferter Neuzugang zieht das Raster auf
 	_sync_part_install()  # ein wartendes Modul holt die Kamera an die Chips
 	_sync_pack_areas()  # die Öffnungs-Fläche unter dem Vorrat
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
+	_hold_zone_picture()
 	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
@@ -14868,6 +14936,8 @@ func _connect_run() -> void:
 		table_screen.secret_shop_window.run = run
 		if not table_screen.secret_shop_window.energy_spent.is_connected(_on_secret_shop_energy_spent):
 			table_screen.secret_shop_window.energy_spent.connect(_on_secret_shop_energy_spent)
+		if not table_screen.secret_shop_window.powerbank_purchased.is_connected(_on_secret_powerbank_purchased):
+			table_screen.secret_shop_window.powerbank_purchased.connect(_on_secret_powerbank_purchased)
 		if not table_screen.secret_shop_window.goods_purchased.is_connected(_on_secret_goods_purchased):
 			table_screen.secret_shop_window.goods_purchased.connect(_on_secret_goods_purchased)
 		if not table_screen.secret_shop_window.die_purchased.is_connected(_on_secret_die_purchased):
@@ -14877,8 +14947,6 @@ func _connect_run() -> void:
 		if not table_screen.secret_shop_window.vitrine_changed.is_connected(_on_secret_vitrine_changed):
 			table_screen.secret_shop_window.vitrine_changed.connect(_on_secret_vitrine_changed)
 	if table_screen != null and table_screen.side_bet_window != null:
-		if not table_screen.secret_shop_window.powerbank_purchased.is_connected(_on_secret_powerbank_purchased):
-			table_screen.secret_shop_window.powerbank_purchased.connect(_on_secret_powerbank_purchased)
 		table_screen.side_bet_window.run = run
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.run = run
@@ -15008,6 +15076,12 @@ func _on_secret_shop_energy_spent(_amount: int) -> void:
 	if table_screen != null:
 		table_screen.secret_shop_pay_comet(CasinoStyle.ENERGY)
 
+## Gekaufte Powerbank: ein Spieler-Zug, also fliegt die Kartusche im Trage-Bogen von der
+## Karte des Schwarzmarkts in ihr Dock. Gebucht ist längst.
+func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
+	if energy_bank != null and table_screen != null:
+		energy_bank.fly_in(table_screen.pixel_to_world(from_px))
+
 ## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
 func _route_choice_open() -> bool:
@@ -15017,12 +15091,6 @@ func _route_choice_open() -> bool:
 ## Aktions-Knöpfe und Wertungs-Orbs sind solange ausgeblendet.
 func _place_route_choice() -> void:
 	if route_choice == null or table_screen == null or table_screen.pit_window == null:
-## Gekaufte Powerbank: ein Spieler-Zug, also fliegt die Kartusche im Trage-Bogen von der
-## Karte des Schwarzmarkts in ihr Dock. Gebucht ist längst.
-func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
-	if energy_bank != null and table_screen != null:
-		energy_bank.fly_in(table_screen.pixel_to_world(from_px))
-
 		return
 	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var inset := pit.size.x * ROUTE_CHOICE_INSET
@@ -18049,10 +18117,45 @@ func _sync_luck_die() -> void:
 		return
 	if _luck_at != LUCK_PIT and _luck_wanted() != _luck_at:
 		_send_luck_die(_luck_wanted())
+	# Am Wurfplatz und in der Grube LIEGT er still, die gewürfelte Seite oben.
+	luck_die_view.set_lying(_luck_at != LUCK_HOME)
+	_sync_luck_pad()
 	if not luck_die_view.carrying():
 		var spot := _luck_spot(_luck_at)
 		if luck_die_view.global_position != spot:
 			luck_die_view.global_position = spot
+
+## Der WURFPLATZ neben der Öffnungs-Zone: eine flache Marke mit Goldsaum, auf der er
+## würfelt und liegen bleibt. Sie steht nur, solange er dorthin gehört.
+var _luck_pad: Node3D
+const LUCK_PAD_RIM := 0.08
+
+func _sync_luck_pad() -> void:
+	var roll := _luck_die_roll_px()
+	var shown := _luck_at == LUCK_ROLL and roll.size.x > 0.0 and luck_die_view.visible
+	if not shown:
+		if _luck_pad != null and is_instance_valid(_luck_pad):
+			_luck_pad.visible = false
+		return
+	var side := LuckDieView.half_edge() * 2.0 * LUCK_DIE_ROOM
+	if _luck_pad == null or not is_instance_valid(_luck_pad):
+		_luck_pad = Node3D.new()
+		_luck_pad.name = "LuckPad"
+		add_child(_luck_pad)
+		for layer in 2:
+			var plate := MeshInstance3D.new()
+			var mesh := PlaneMesh.new()
+			mesh.size = Vector2.ONE * (side - LUCK_PAD_RIM * 2.0 * float(layer))
+			plate.mesh = mesh
+			var look := StandardMaterial3D.new()
+			look.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			look.albedo_color = CasinoStyle.GOLD_DARK if layer == 0 else Color(0.05, 0.045, 0.08)
+			plate.material_override = look
+			plate.position.y = VitrineView.FLOOR_CLEAR * (0.5 + 0.5 * float(layer))
+			plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_luck_pad.add_child(plate)
+	_luck_pad.visible = true
+	_luck_pad.global_position = _luck_spot(LUCK_ROLL)
 
 ## Im Trage-Bogen an einen Ort (Endzustand zuerst: der Ort steht, der Bogen fährt hin). Ein
 ## laufender Wurf liegt sofort - sein Stillstand nennt die Zahl.

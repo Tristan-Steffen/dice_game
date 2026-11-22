@@ -916,17 +916,18 @@ func _build_segment(node: Node3D, column: int, pitch: float, shape: Dictionary,
 		MagazinTrayDress.dress_bay(place, column, bay, FLOOR_RISE, PROUD, _scale, light)
 
 ## Die EINE Bauregel einer Mulde - auch der Laden legt seine Kassetten so hinein
-## (Spieler-Wunsch 2026-10-29). Der Knoten sitzt auf dem Muldenboden; bay ist
-## (Welt-X, Welt-Z).
+## (Spieler-Wunsch 2026-10-29), die Walze ohne Wandauskleidung (lined). Der Knoten sitzt
+## auf dem Muldenboden; bay ist (Welt-X, Welt-Z).
 static func build_bay(node: Node3D, bay: Vector2, seam: StandardMaterial3D,
-		cell_scale: float, wall_material: Material, floor_material: Material) -> void:
+		cell_scale: float, wall_material: Material, floor_material: Material,
+		lined := true) -> void:
 	TableProps.box(node, "Saum", Vector3(bay.x, SEAM_RISE, bay.y),
 		Vector3(0.0, SEAM_RISE * 0.5, 0.0), seam)
 	# Die WÄNDE der Vertiefung tragen ihr EIGENES Material, eine Spur in die Mulde
 	# gerückt und unter der Oberkante, damit sie mit Lippe und Rippe nie eine Fläche teilen.
 	var high := deck_height_for(cell_scale) - WALL_TOP_GAP
 	var lining := WALL_LINING
-	for side in [-1.0, 1.0]:
+	for side: float in ([-1.0, 1.0] if lined else []):
 		TableProps.box(node, "WandL%s" % ("A" if side < 0.0 else "B"),
 			Vector3(lining, high, bay.y), Vector3(side * (bay.x - lining) * 0.5 - side
 				* WALL_INSET, high * 0.5, 0.0), wall_material)

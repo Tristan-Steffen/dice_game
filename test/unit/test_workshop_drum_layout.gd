@@ -59,7 +59,7 @@ func test_the_chamber_is_the_podium_plate() -> void:
 		WorkshopView.PODIUM_TILT_TRIM + FACE * WorkshopView.PODIUM_HEAD_FACES,
 		"oben Platz für den schwebenden Würfel")
 	assert_false(chamber.intersects(lay["podium_net"]), "die Die-View liegt frei")
-	for key in ["pit", "stamp", "shelf", "info", "upgrades", "result", "raster"]:
+	for key in ["pit", "stamp", "shelf", "info", "upgrades", "result"]:
 		assert_false(chamber.intersects(lay[key]), "die Kammer liegt nicht auf %s" % key)
 	assert_false(chamber.intersects(POOL), "und nicht im Pool")
 
@@ -121,24 +121,18 @@ func test_the_equation_stands_right_of_the_pool() -> void:
 	assert_true((signs[1] as Rect2).end.x <= result.position.x + 0.01)
 	assert_true((lay["equation"] as Rect2).grow(0.05).encloses(upgrades.merge(result)))
 
-func test_raster_and_stamp_stand_over_their_nets() -> void:
-	var raster: Rect2 = lay["raster"]
+## Die RASTER-Taste ist tot: PRÄGEN steht allein über ERGEBNIS.
+func test_stamp_stands_over_the_result_net() -> void:
+	assert_false(lay.has("raster"), "kein Raster-Feld mehr")
 	var stamp: Rect2 = lay["stamp"]
-	var upgrades: Rect2 = lay["upgrades"]
 	var result: Rect2 = lay["result"]
 	var plate: Rect2 = lay["podium_stage"]
-	assert_almost_eq(raster.get_center().x, upgrades.get_center().x, 0.01, "mittig über UPGRADES")
 	assert_almost_eq(stamp.get_center().x, result.get_center().x, 0.01, "mittig über ERGEBNIS")
-	assert_almost_eq(raster.get_center().y, plate.get_center().y, 0.01, "auf halber Plattenhöhe")
-	assert_almost_eq(stamp.get_center().y, plate.get_center().y, 0.01)
+	assert_almost_eq(stamp.get_center().y, plate.get_center().y, 0.01, "auf halber Plattenhöhe")
 	var heads := U * WorkshopView.EQ_HEAD_UNITS
-	assert_lte(raster.end.y, upgrades.position.y - heads + 0.01, "über der Überschrift")
-	assert_lte(stamp.end.y, result.position.y - heads + 0.01)
-	assert_gte(raster.position.y, POOL.position.y - 0.01, "nicht über dem Pool")
-	assert_false(stamp.intersects(plate) or raster.intersects(plate), "neben der Platte")
-	# Die echte Raster-Taste (Welt 1,84 × 4,08 bei 37,5 px/Welt) paßt hinein.
-	assert_gte(raster.size.x, RasterSwitchView.HALF.y * 2.0 * 37.5)
-	assert_gte(raster.size.y, RasterSwitchView.HALF.x * 2.0 * 37.5)
+	assert_lte(stamp.end.y, result.position.y - heads + 0.01, "über der Überschrift")
+	assert_gte(stamp.position.y, POOL.position.y - 0.01, "nicht über dem Pool")
+	assert_false(stamp.intersects(plate), "neben der Platte")
 
 ## Kein Rechteck der Kette überdeckt ein anderes.
 func test_no_two_parts_overlap() -> void:
@@ -149,7 +143,7 @@ func test_no_two_parts_overlap() -> void:
 		"info": lay["info"], "shelf": lay["shelf"],
 		"upgrades": (lay["upgrades"] as Rect2).grow_individual(0.0, heads, 0.0, 0.0),
 		"result": (lay["result"] as Rect2).grow_individual(0.0, heads, 0.0, 0.0),
-		"plate": lay["podium_stage"], "net": lay["podium_net"], "raster": lay["raster"],
+		"plate": lay["podium_stage"], "net": lay["podium_net"],
 		"stamp": lay["stamp"], "plus": lay["signs"][0], "equals": lay["signs"][1],
 		"pool": POOL}
 	var keys := parts.keys()

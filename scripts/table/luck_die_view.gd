@@ -75,6 +75,8 @@ var _rolled_face := -1
 var _idle_time := 0.0
 ## Von Hand gedreht oder in eine Lage gefahren: die Ruhe-Bewegung schweigt.
 var _posed := false
+## Am Wurfplatz LIEGT er flach und still, die gewürfelte Seite oben.
+var _lying := false
 ## Der Schubs: die Drehung über der Ruhe-Bewegung, ihr Schwung, und ob der Spieler ihn hält.
 var _nudge := Basis.IDENTITY
 var _swing := Vector3.ZERO
@@ -245,7 +247,7 @@ func _process(delta: float) -> void:
 	if not _queue.is_empty():
 		_play_beat(_queue.pop_front())
 		return
-	if _posed or (_pose_tween != null and _pose_tween.is_valid()):
+	if _lying or _posed or (_pose_tween != null and _pose_tween.is_valid()):
 		return
 	_step_nudge(delta)
 	if not _held:
@@ -284,7 +286,7 @@ func _turn_nudge(turn: Vector3) -> void:
 
 ## Der Spieler greift ihn am Sitz (kein Fokus): er hält an und folgt dem Zug.
 func grab() -> void:
-	if busy() or _posed:
+	if busy() or _posed or _lying:
 		return
 	_held = true
 	_swing = Vector3.ZERO
@@ -466,7 +468,7 @@ func roll_to(face: int, time := ROLL_TIME) -> void:
 	var start := _body.basis.orthonormalized()
 	var mid := Basis.from_euler(Vector3(randf_range(-PI, PI), randf_range(-PI, PI),
 		randf_range(-PI, PI)))
-	var end := face_up_basis(_up_face)
+	var end := _rest_basis()
 	var axis := Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
 	if axis == Vector3.ZERO:
 		axis = Vector3.RIGHT
@@ -570,8 +572,27 @@ func pose_to(target: Basis, time: float, lift := 0.0) -> void:
 
 ## Zurück in die Ruhe (die Inspektion endet).
 func rest_to(time: float) -> void:
-	pose_to(face_up_basis(_up_face), time)
+	pose_to(_rest_basis(), time)
 	_pose_tween.tween_callback(_rest_hard)
+
+## Liegen (Wurfplatz) oder schweben (Station). Zurück zur Station richtet er sich weich auf.
+func set_lying(on: bool) -> void:
+	if _lying == on:
+		return
+	_lying = on
+	if rolling():
+		return
+	if on:
+		_rest_hard()
+	else:
+		rest_to(TURN_TIME)
+
+func lying() -> bool:
+	return _lying
+
+## Die Ruhelage: liegend flach und gerade, sonst zum Betrachter geneigt.
+func _rest_basis() -> Basis:
+	return face_up_basis(_up_face, 0.0, 0.0) if _lying else face_up_basis(_up_face)
 
 func under(camera: Camera3D, screen_pos: Vector2) -> bool:
 	if camera == null or not is_visible_in_tree():
@@ -584,6 +605,8 @@ func under(camera: Camera3D, screen_pos: Vector2) -> bool:
 	return c.distance_to(screen_pos) <= c.distance_to(edge) * PICK_FACTOR
 
 func _rest_y() -> float:
+	if _lying:
+		return half_edge()
 	return half_edge() * (cos(REST_TILT) + sin(REST_TILT) * (absf(cos(REST_YAW)) + absf(sin(REST_YAW))))
 
 func _rest_hard() -> void:
@@ -591,7 +614,7 @@ func _rest_hard() -> void:
 	_posed = false
 	_idle_time = 0.0
 	_drop_nudge()
-	_body.basis = face_up_basis(_up_face).scaled(Vector3.ONE * SCALE)
+	_body.basis = _rest_basis().scaled(Vector3.ONE * SCALE)
 	_body.position = Vector3(0.0, _rest_y(), 0.0)
 
 func _kill(tween: Tween) -> void:

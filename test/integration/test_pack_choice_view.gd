@@ -1,20 +1,18 @@
 extends GutTest
-## Die Paket-Auswahl auf der ÖFFNUNGS-FLÄCHE rechts neben dem Pool: Würfel-Pakete stehen als
-## SCHIENE ohne Schirm (je Option eine Reihe, höchstens drei je Spalte, weitere Spalten
-## rechts), Karten-Pakete liegen mit Schirm 3 + 2.
+## Die Paket-Auswahl in der ÖFFNUNGS-ZONE: Karten- und Würfel-Pakete stehen als EIN Schirm
+## (Kopf, Aufstellung zu höchstens drei je Reihe, Auskunft, Knöpfe) - nichts hängt darunter.
 
 const DIE_PX := Vector2(45, 45)
-## Gemessen 1280 × 720 (2026-11-18, Layout A): Pool-Reihe, die Naht darunter, der
-## freigehaltene Podest-Platz und die Fuge zur Fläche.
+## Die Würfelkante am echten Tisch (Display-px).
+const DIE_EDGE := 57.4
+## Gemessen 1280 × 720 (Layout C): Pool-Reihe, die Naht darunter und die liegende Karte.
 const POOL := Rect2(2916.358, 1994.776, 585.0, 487.5)
 const SEAM := 48.75
-const PODIUM := Rect2(3660.3, 1994.776, 201.7, 352.9)
-const GAP := 20.17
 const CARD := Vector2(194.4, 129.6)
 const OPENING_POS := Vector2(3882.17, 1994.776)
 const OPENING_SIZE := Vector2(646.6, 487.5)
-## Die SCHIENE darauf (gemessen 646,6 × 442,3).
-const RAIL := Rect2(3882.17, 1994.776, 646.6, 442.3)
+## Die ZONE (gemessen 1300,4 × 487,5).
+const ZONE := Rect2(3521.527, 1994.776, 1300.437, 487.5)
 
 func _open_pack(run: GameRun, pack: Resource) -> PackChoice:
 	if pack is DicePack:
@@ -36,6 +34,14 @@ func _card_choice() -> PackChoice:
 	run.money = 999
 	return _open_pack(run, CardPack.make(CardPack.SORT_NUMBER, CardPack.SIZE_LARGE))
 
+func _card_choice_of(count: int) -> PackChoice:
+	var choice := _card_choice()
+	var base: Array = choice.options.duplicate()
+	choice.options.clear()
+	for i in count:
+		choice.options.append(base[i % base.size()])
+	return choice
+
 func _view() -> PackChoiceView:
 	var view := PackChoiceView.new()
 	add_child_autofree(view)
@@ -49,12 +55,11 @@ func _opening() -> PackChoiceView:
 	view.size = OPENING_SIZE
 	return view
 
-## Das Fenster der Schiene, so wie scene_root es stellt.
-func _rail_view() -> PackChoiceView:
+## Das Fenster IST die Zone - so stellt scene_root es für jede Art.
+func _zone_view() -> PackChoiceView:
 	var view := _view()
-	var window := PackChoiceView.rail_window_for(RAIL)
-	view.position = window.position
-	view.size = window.size
+	view.position = ZONE.position
+	view.size = ZONE.size
 	return view
 
 func _dice(view: PackChoiceView, count: int) -> PackChoice:
@@ -62,137 +67,103 @@ func _dice(view: PackChoiceView, count: int) -> PackChoice:
 	view.open(choice, DIE_PX, 1, 5, false, 2)
 	return choice
 
-# --- Die SCHIENE -------------------------------------------------------------------
+# --- Würfel im SCHIRM -------------------------------------------------------------
 
-## Das Fenster beginnt mit der Schiene (kein Kopf), der Fuß hängt darunter: die Auskunft
-## über die volle Breite, zuunterst der Knopf und rechts daneben der Zähler.
-func test_the_rail_window_wraps_the_rail() -> void:
-	var view := _rail_view()
-	_dice(view, 5)
-	assert_true(view.lineup(), "ein Würfel-Paket steht als Schiene")
-	var rail := view.lineup_area_px()
-	assert_almost_eq(rail.position.x, RAIL.position.x, 0.01)
-	assert_almost_eq(rail.position.y, RAIL.position.y, 0.01, "oben bündig mit dem Vorrat")
-	assert_almost_eq(view.page_rect_px().position.y, RAIL.position.y, 0.01, "kein Kopf darüber")
-	assert_almost_eq(rail.size.y, RAIL.size.y, 0.01, "so hoch wie der Vorrat")
-	var frame: Dictionary = view._frame_rects()
-	var bounds := Rect2(Vector2.ZERO, view.size).grow(0.01)
-	for key in ["info", "buttons", "count"]:
-		var rect: Rect2 = frame[key]
-		assert_true(bounds.encloses(rect), "%s im Fenster" % key)
-		assert_gte(rect.position.y, view.lineup_area().end.y, "%s unter der Schiene" % key)
-	var buttons: Rect2 = frame["buttons"]
-	var count: Rect2 = frame["count"]
-	assert_gt(count.position.x, buttons.end.x, "der Zähler steht rechts neben dem Knopf")
-	assert_almost_eq(count.position.y, buttons.position.y, 0.01, "auf derselben Zeile")
-	assert_lte((frame["info"] as Rect2).end.y, buttons.position.y, "die Auskunft darüber")
-	assert_false(view._title.visible, "kein Name über der Schiene")
-	assert_false(view._counter.visible, "kein Zähler über der Schiene")
-	assert_eq(PackChoiceView.rail_window_for(Rect2()), Rect2(), "keine Schiene, kein Fenster")
+## Karten und Würfel teilen EINE Feld-Rechnung: Kopf oben, Aufstellung, Auskunft, Knöpfe -
+## alles im Fenster, nichts darunter.
+func test_dice_and_cards_share_the_frame_rects() -> void:
+	var dice := _zone_view()
+	_dice(dice, 5)
+	var cards := _zone_view()
+	cards.open(_card_choice(), CARD, 1, 5)
+	var a: Dictionary = dice._frame_rects()
+	var b: Dictionary = cards._frame_rects()
+	for key in ["head", "info", "buttons"]:
+		assert_eq(a[key], b[key], "%s an derselben Stelle" % key)
+	assert_eq(dice.lineup_area(), cards.lineup_area(), "dieselbe Aufstellung")
+	var bounds := Rect2(Vector2.ZERO, dice.size).grow(0.01)
+	var stack: Array[Rect2] = [a["head"], dice.lineup_area(), a["info"], a["buttons"]]
+	for i in stack.size():
+		assert_true(bounds.encloses(stack[i]), "Feld %d im Fenster" % i)
+		if i > 0:
+			assert_lte(stack[i - 1].end.y, stack[i].position.y + 0.5, "Felder untereinander")
+	assert_true(dice._title.visible, "der Name steht im Kopf")
+	assert_true(dice._counter.visible, "der Zähler steht im Kopf")
+	var take := Rect2(dice._take_button.position, dice._take_button.size)
+	assert_true((a["buttons"] as Rect2).grow(0.01).encloses(take), "der Knopf in der Knopfzeile %s in %s" % [take, a["buttons"]])
 
-## Höchstens drei Würfel untereinander, weitere Spalten rechts daneben, oben bündig.
-func test_the_rail_stacks_three_per_column_and_grows_right() -> void:
-	for count in range(1, 7):
-		var view := _rail_view()
+## Höchstens drei Kacheln je Reihe, zwei Reihen, der Block mittig - wie die Karten.
+func test_dice_tiles_stand_in_rows_of_three() -> void:
+	for count in range(2, 7):
+		var view := _zone_view()
 		_dice(view, count)
-		var grid := PackChoiceView.rail_grid(count)
-		assert_eq(grid, Vector2i(int(ceil(count / 3.0)), mini(count, 3)), "%d Würfel" % count)
 		var area := view.lineup_area().grow(0.01)
-		var pitch := view.rail_pitch()
-		assert_almost_eq(pitch * 3.0, view.lineup_area().size.y, 0.01, "drei Reihen füllen die Höhe")
 		var taken: Array[Rect2] = []
+		var columns := view.per_row(count)
+		assert_lte(columns, 3, "%d Würfel: höchstens drei je Reihe" % count)
 		for i in count:
 			var block := view.lineup_block(i, count)
 			var die := view.slot_rect(i, count)
 			var net := view.net_rect(i, count)
-			var column := i / 3
-			var row := i % 3
-			assert_almost_eq(block.position.y, view.lineup_area().position.y + row * pitch, 0.01,
-				"%d/%d: Reihe %d oben bündig" % [i, count, row])
-			if column > 0:
-				var left := view.lineup_block(i - 3, count)
-				assert_almost_eq(block.position.y, left.position.y, 0.01, "Spalten oben bündig")
-				assert_gt(block.position.x, left.end.x, "die nächste Spalte steht rechts")
 			for rect: Rect2 in [block, die, net]:
-				assert_true(area.encloses(rect), "%d/%d: auf der Schiene" % [i, count])
+				assert_true(area.encloses(rect), "%d/%d: in der Aufstellung" % [i, count])
 			assert_true(block.grow(0.01).encloses(net), "das Netz steht in seiner Kachel")
 			assert_true(block.grow(0.01).encloses(die), "der Würfel liest in seiner Kachel")
 			assert_gte(net.position.x, die.end.x, "der Würfel liest links neben seinem Netz")
-			assert_almost_eq(die.position.x - block.position.x, block.end.x - net.end.x, 0.01,
-				"links und rechts dieselbe Luft")
 			for other in taken:
 				assert_false(other.intersects(block.grow(-0.5)), "Kacheln überlappen nicht")
 			taken.append(block)
-		assert_gte(view.net_cell(count), 25.0, "lesbare Zellen (%d Würfel)" % count)
-
-## Die Schiene ist so breit wie ihre Spalten (mindestens zwei, der Fuß braucht Platz).
-func test_the_rail_is_as_wide_as_its_columns() -> void:
-	for count in range(1, 11):
-		var width := PackChoiceView.rail_width_for(RAIL.size.y, DIE_PX.y, count)
-		var view := _view()
-		var window := PackChoiceView.rail_window_for(Rect2(RAIL.position, Vector2(width, RAIL.size.y)))
-		view.position = window.position
-		view.size = window.size
-		_dice(view, count)
+		var first := view.lineup_block(0, count)
 		var last := view.lineup_block(count - 1, count)
-		assert_lte(last.end.x, width + 0.01, "%d Würfel: nichts ragt hinaus" % count)
-		if count > 3:
-			assert_almost_eq(last.end.x, width, 0.01, "%d Würfel: die Spalten füllen die Breite" % count)
-	assert_almost_eq(PackChoiceView.rail_width_for(RAIL.size.y, DIE_PX.y, 1),
-		PackChoiceView.rail_width_for(RAIL.size.y, DIE_PX.y, 6), 0.01, "bis sechs Würfel gleich breit")
+		var middle := (first.position.y + last.end.y) * 0.5
+		assert_almost_eq(middle, view.lineup_area().get_center().y, 0.5, "der Block steht mittig")
+		assert_gte(view.net_cell(count), 30.0, "lesbare Zellen (%d Würfel)" % count)
+	var six := _zone_view()
+	_dice(six, 6)
+	assert_almost_eq(six.lineup_block(3, 6).position.x, six.lineup_block(0, 6).position.x, 0.01,
+		"6 = 3 + 3")
+	assert_gt(six.lineup_block(3, 6).position.y, six.lineup_block(0, 6).end.y)
 
-func test_five_dice_stand_three_and_two() -> void:
-	var view := _rail_view()
-	_dice(view, 5)
-	var top := view.lineup_block(0, 5).position.y
-	assert_almost_eq(view.lineup_block(3, 5).position.y, top, 0.01, "Spalte 2 beginnt oben")
-	assert_almost_eq(view.lineup_block(4, 5).position.y, view.lineup_block(1, 5).position.y, 0.01)
-	assert_gt(view.lineup_block(3, 5).position.x, view.lineup_block(2, 5).end.x)
-
-## Die Plätze stehen in Display-Pixeln auf der Schiene.
-func test_the_rail_reports_its_places_in_display_pixels() -> void:
-	var view := _rail_view()
+## Die Plätze stehen in Display-Pixeln in der Zone, der Sitz tiefer als die Bandmitte.
+func test_dice_report_their_places_in_display_pixels() -> void:
+	var view := _zone_view()
 	_dice(view, 6)
 	var centers := view.slot_centers()
 	assert_eq(centers.size(), 6)
 	for i in 6:
 		var local := view.slot_rect(i, 6).get_center()
 		assert_almost_eq(centers[i].x, view.position.x + local.x, 0.01)
-		assert_true(RAIL.grow(1.0).has_point(centers[i]), "Platz %d liegt auf der Schiene" % i)
-
-## Ohne Schirm: die Schiene malt keinen Hintergrund, das setzt scene_root nur bei Karten.
-func test_the_rail_has_no_backdrop_by_default() -> void:
-	var view := _rail_view()
-	_dice(view, 3)
-	assert_false(view.backdrop, "auf dem Filz steht kein Schirm")
+		assert_almost_eq(centers[i].y - view.position.y - local.y,
+			DIE_PX.y * PackChoiceView.DIE_SEAT_DROP, 0.01, "der Sitz liegt tiefer")
+		assert_true(ZONE.has_point(centers[i]), "Platz %d liegt in der Zone" % i)
 
 func test_the_nets_open_with_the_lineup() -> void:
-	var view := _rail_view()
+	var view := _zone_view()
 	_dice(view, 4)
 	for i in 4:
 		assert_false(view.net_shown(i), "beim Fall steht kein Netz")
 	view.show_lineup()
 	for i in 4:
-		assert_true(view.net_shown(i), "auf der Schiene steht jedes Netz sofort")
+		assert_true(view.net_shown(i), "in der Aufstellung steht jedes Netz sofort")
 	view.skip_to_pick()
 	assert_true(view.choosing())
 
 func test_the_launch_shows_no_slots_and_no_counter() -> void:
-	var view := _rail_view()
+	var view := _zone_view()
 	_dice(view, 5)
 	assert_eq(view.stage(), PackChoiceView.STAGE_LAUNCH)
 	assert_false(view.slots_shown(), "beim Fall zählt niemand mit")
 	assert_false(view.choosing())
-	assert_eq((view.get_node("RailCount") as Label).text, "", "keine Zahl vor dem Wurf")
+	assert_eq(view._counter.text, "", "keine Zahl vor dem Wurf")
 	view.show_lineup()
-	assert_true(view.slots_shown(), "die Schiene zeigt ihre Plätze")
+	assert_true(view.slots_shown(), "die Aufstellung zeigt ihre Plätze")
 	view.skip_to_pick()
 	for i in 5:
 		assert_eq(view.slot_rim(i), PackChoiceView.SLOT_RIM, "ein Würfel trägt einen neutralen Saum")
 
 ## Der Glückswürfel rollt (scene_root), und erst sein Stillstand nennt die Wahlen.
 func test_the_opening_waits_for_the_luck_die_then_picks() -> void:
-	var view := _rail_view()
+	var view := _zone_view()
 	var choice := _dice_choice(4)
 	choice.picks = 2
 	view.open(choice, DIE_PX, 1, 5, false, 2)
@@ -203,7 +174,7 @@ func test_the_opening_waits_for_the_luck_die_then_picks() -> void:
 	assert_eq(view.stage(), PackChoiceView.STAGE_ROLL, "es geht direkt zum Wurf")
 	assert_true(view.awaiting_roll())
 	assert_false(view.choosing(), "vor dem Stillstand keine Wahl")
-	var label := view.get_node("RailCount") as Label
+	var label := view._counter
 	assert_eq(label.text, "", "noch keine Zahl")
 	view.die_landed()
 	assert_eq(events, ["done"])
@@ -238,7 +209,7 @@ func test_free_hand_names_itself_in_the_counter() -> void:
 	assert_string_contains(view.counter_text(), "Freie Hand +1")
 
 func test_a_net_cell_names_its_face() -> void:
-	var view := _rail_view()
+	var view := _zone_view()
 	_dice(view, 3)
 	var net := view.net_rect(0, 3)
 	var cell := view.net_cell(3)
@@ -272,7 +243,7 @@ func test_a_card_option_names_its_shelf_column() -> void:
 		assert_eq(view.option_shelf_column(i), Pack.shelf_rank(choice.options[i] as Pack))
 	assert_eq(view.option_shelf_column(-1), -1)
 	assert_eq(view.option_shelf_column(choice.option_count()), -1)
-	var dice := _rail_view()
+	var dice := _zone_view()
 	_dice(dice, 3)
 	assert_eq(dice.option_shelf_column(0), -1)
 
@@ -297,55 +268,88 @@ func test_cards_on_the_opening_stack_their_fields() -> void:
 	assert_eq(view.page_rect_px().position, OPENING_POS)
 	assert_true(view.page_rect_px().has_point(view.hull_seat_px()), "die Hülle geht auf der Fläche auf")
 
-## Das Rechteck der Fläche: rechts neben dem Podest-Platz, oben bündig mit der Pool-Reihe
-## und so hoch wie sie.
-func test_the_opening_area_stands_beside_the_podium_place() -> void:
-	var width := PackChoiceView.area_width_for(POOL.size.y, CARD, DIE_PX.y, RAIL.size.y)
-	var area := PackChoiceView.area_beside(POOL, PODIUM, GAP, width)
-	assert_almost_eq(area.position.x, PODIUM.end.x + GAP, 0.01, "rechts vom Podest-Platz")
+## Die ZONE an der echten Kette (1280 × 720, Layout C).
+func _zone() -> Dictionary:
+	var lay := WorkshopView.drum_layout(POOL, CARD, 55.46, 5.042, 0.0, SEAM)
+	var equation: Rect2 = lay["equation"]
+	var width := maxf(PackChoiceView.panel_width_for(POOL.size.y, DIE_EDGE), equation.size.x)
+	var end_x := equation.position.x + width
+	return {"lay": lay, "end_x": end_x,
+		"area": PackChoiceView.area_beside(POOL, lay["equation"], end_x)}
+
+## Die reine Regel: die Zone beginnt mit der Gleichung, oben bündig mit der Pool-Reihe und
+## so hoch wie sie, und endet bei end_x.
+func test_the_zone_rule_starts_at_the_equation() -> void:
+	var equation := Rect2(3521.5, 1994.776, 968.2, 458.3)
+	var area := PackChoiceView.area_beside(POOL, equation, 4822.0)
+	assert_almost_eq(area.position.x, equation.position.x, 0.01, "links ab der Gleichung")
 	assert_almost_eq(area.position.y, POOL.position.y, 0.01, "oben bündig mit dem Pool")
 	assert_almost_eq(area.size.y, POOL.size.y, 0.01, "so hoch wie er")
-	assert_gte(area.size.x, CARD.x * PackChoiceView.SLOT_ROOM * 3.0, "drei Karten nebeneinander")
-	assert_eq(PackChoiceView.area_beside(Rect2(), PODIUM, GAP, width), Rect2(),
-		"ohne Pool keine Fläche")
+	assert_almost_eq(area.end.x, 4822.0, 0.01, "rechts bis end_x")
+	assert_eq(PackChoiceView.area_beside(Rect2(), equation, 4822.0), Rect2(), "ohne Pool keine Zone")
+	assert_eq(PackChoiceView.area_beside(POOL, equation, equation.position.x), Rect2(),
+		"ohne Breite keine Zone")
 
-## Layout C: an der echten Kette steht die Fläche rechts neben dem Podest der Gleichung -
-## über "=", ERGEBNIS und PRÄGEN (die dann fort sind), nie über Pool, UPGRADES oder Kammer,
-## und nicht über die Anzeige hinaus.
-func test_the_opening_area_stands_right_of_the_equation_podium() -> void:
-	var card := Vector2(194.4, 129.6)
-	var lay := WorkshopView.drum_layout(POOL, card, 55.46, 5.042, 0.0, 48.75)
-	var podium: Rect2 = lay["podium"]
-	var width := PackChoiceView.area_width_for(POOL.size.y, card, DIE_PX.y, RAIL.size.y)
-	var area := PackChoiceView.area_beside(POOL, podium, 5.042 * WorkshopView.DRUM_SHELF_GAP,
-		width)
-	assert_gt(area.position.x, podium.end.x, "rechts vom Podest-Platz")
-	assert_almost_eq(area.position.y, POOL.position.y, 0.01, "oben bündig mit dem Pool")
-	for key in ["upgrades", "podium_stage", "chamber", "podium_net", "raster", "bounds"]:
-		assert_false((lay[key] as Rect2).intersects(area), "nicht über %s" % key)
+## An der echten Kette deckt die Zone die GANZE Gleichung, bleibt aber neben Pool, Walze und
+## Info-Schirm; ihr rechter Rand ist der der alten Fläche neben dem Podest.
+func test_the_zone_covers_the_whole_equation() -> void:
+	var zone := _zone()
+	var lay: Dictionary = zone["lay"]
+	var area: Rect2 = zone["area"]
+	assert_almost_eq(area.position.x, POOL.end.x + 5.042 * WorkshopView.DRUM_SHELF_GAP, 0.01,
+		"eine Fuge rechts vom Pool")
+	for key in ["upgrades", "podium_stage", "podium_net", "result", "stamp"]:
+		assert_true(area.encloses(lay[key]), "die Zone deckt %s" % key)
+	assert_false(area.intersects(POOL), "nicht über dem Pool")
+	assert_false(area.intersects(lay["bounds"]), "nicht über Walze, Info-Schirm und Magazin")
 	assert_lte(area.end.x, 5094.0, "innerhalb der Anzeige")
-	var window := PackChoiceView.rail_window_for(PackChoiceView.rail_in(area, DIE_PX.y, 5, 48.75))
-	assert_lte(window.end.y, (lay["pit"] as Rect2).position.y
-		- 5.042 * (WorkshopView.SLICE_NUMBER_UNITS + WorkshopView.SLICE_NUMBER_GAP) + 0.01,
-		"der Fuß der Schiene endet vor den Nummern der Walze")
-	assert_false(window.intersects(lay["info"]), "und über dem Info-Schirm")
+	assert_gte(area.size.x, PackChoiceView.cards_width_for(POOL.size.y, CARD, 3),
+		"drei Karten passen nebeneinander")
 
-## Die Schiene steht oben auf der Fläche, ihr Fuß reicht höchstens um die Naht darunter.
-func test_the_rail_fits_the_area_and_the_seam() -> void:
-	var width := PackChoiceView.area_width_for(POOL.size.y, CARD, DIE_PX.y, RAIL.size.y)
-	var area := PackChoiceView.area_beside(POOL, PODIUM, GAP, width)
-	for count in [1, 3, 5, 6]:
-		var rail := PackChoiceView.rail_in(area, DIE_PX.y, count, SEAM)
-		var window := PackChoiceView.rail_window_for(rail)
-		assert_eq(rail.position, area.position, "%d Würfel: oben auf der Fläche" % count)
-		assert_almost_eq(rail.size.x, area.size.x, 0.01, "so breit wie sie")
-		assert_lte(window.end.y, area.end.y + SEAM + 0.01, "%d Würfel: der Fuß bleibt in der Naht"
-			% count)
-		assert_lte(PackChoiceView.rail_width_for(rail.size.y, DIE_PX.y, count), area.size.x + 0.01,
-			"die Spalten passen in die Breite")
-	assert_almost_eq(PackChoiceView.rail_in(area, DIE_PX.y, 5, SEAM).size.y, RAIL.size.y, 1.0,
-		"gemessen 442,3 hoch")
-	assert_eq(PackChoiceView.rail_in(Rect2(), DIE_PX.y, 5), Rect2(), "keine Fläche, keine Schiene")
+## Die Zone ist genau so breit wie die Würfel-Auswahl: drei Kacheln füllen die Aufstellung.
+func test_the_zone_is_as_wide_as_the_dice_selection() -> void:
+	var width := PackChoiceView.panel_width_for(POOL.size.y, DIE_EDGE)
+	var view := _view()
+	view.size = Vector2(width, POOL.size.y)
+	view.open(_dice_choice(6), Vector2.ONE * DIE_EDGE, -1, 0, true)
+	await wait_frames(2)
+	var first := view.lineup_block(0, 6)
+	var third := view.lineup_block(2, 6)
+	var area := view.lineup_area()
+	assert_almost_eq(first.position.x, area.position.x, 1.0, "links bündig")
+	assert_almost_eq(third.end.x, area.end.x, 1.0, "rechts bündig")
+
+## EIN Fußabdruck: das Würfel-Fenster ist die Zone, und nichts davon reicht darunter.
+func test_a_dice_panel_stays_inside_the_zone() -> void:
+	var view := _zone_view()
+	_dice(view, 6)
+	assert_true(view.page_rect_px().is_equal_approx(ZONE), "das Fenster ist die Zone")
+	var bounds := Rect2(Vector2.ZERO, view.size).grow(0.01)
+	for child in view.get_children():
+		var item := child as Control
+		if item == null or not item.visible:
+			continue
+		assert_true(bounds.encloses(Rect2(item.position, item.size)),
+			"%s bleibt in der Zone" % item.name)
+
+## Zwei Reihen zu drei: 5 = 3 + 2, 6 = 3 + 3, die Karte schrumpft nie.
+func test_cards_stand_in_two_rows_of_three() -> void:
+	for count in [5, 6]:
+		var choice := _card_choice_of(count)
+		var view := _zone_view()
+		view.open(choice, CARD, 1, 5)
+		assert_eq(view.per_row(count), 3, "%d Karten: drei je Reihe" % count)
+		var lineup := view.lineup_area()
+		for i in count:
+			var slot := view.slot_rect(i, count)
+			assert_true(lineup.encloses(slot), "Karte %d in der Aufstellung" % i)
+			assert_almost_eq(slot.size.x, CARD.x * PackChoiceView.SLOT_ROOM, 0.01,
+				"die Karte schrumpft nie")
+		assert_gt(view.slot_rect(3, count).position.y, view.slot_rect(0, count).end.y,
+			"die vierte steht in Reihe zwei")
+		var top := view.slot_rect(0, count).position.y
+		var bottom := view.slot_rect(count - 1, count).end.y
+		assert_almost_eq((top + bottom) * 0.5, lineup.get_center().y, 0.5, "der Block mittig")
 
 ## Fünf liegende Karten stehen 3 + 2 ganz in der Aufstellung, der Kopf ist EINE Zeile.
 func test_five_cards_stand_three_and_two_under_a_one_line_head() -> void:
@@ -367,7 +371,7 @@ func test_the_page_names_the_energy_for_the_reshuffle() -> void:
 	assert_true(label.visible)
 
 func test_a_dice_pack_has_no_reshuffle() -> void:
-	var view := _rail_view()
+	var view := _zone_view()
 	view.open(_dice_choice(3), DIE_PX, -1, 7, false, 2)
 	assert_false((view.get_node("Energy") as Label).visible)
 	assert_false(view._reshuffle_button.visible)
@@ -375,7 +379,7 @@ func test_a_dice_pack_has_no_reshuffle() -> void:
 # --- ZUORDNEN: beim Würfel-Paket ist Wählen Einsetzen -------------------------------
 
 func _picking(count: int, picks: int) -> PackChoiceView:
-	var view := _rail_view()
+	var view := _zone_view()
 	var choice := _dice_choice(count)
 	choice.picks = picks
 	view.open(choice, DIE_PX, 1, 5, false, 2)
@@ -386,8 +390,8 @@ func _picking(count: int, picks: int) -> PackChoiceView:
 func test_a_dice_pack_assigns_instead_of_picking() -> void:
 	var view := _picking(5, 2)
 	assert_true(view.assigning(), "Würfel-Pakete ordnen zu")
-	assert_eq((view.get_node("RailCount") as Label).text, "Wähle 2 von 5",
-		"der Zähler am Knopf nennt die Wahlen")
+	assert_eq(view._counter.text, "Wähle 2 von 5",
+		"der Zähler im Kopf nennt die Wahlen")
 	assert_eq(view._take_button.text, "Nichts nehmen")
 	assert_true(view.assign(1, 3, "Platz 4"))
 	assert_eq(view.assignments(), {1: 3})
@@ -401,7 +405,7 @@ func test_a_dice_pack_assigns_instead_of_picking() -> void:
 	assert_string_contains(view._info.text, "1 von 2 eingesetzt")
 	var button := Rect2(view._take_button.position, view._take_button.size)
 	assert_true(Rect2(Vector2.ZERO, view.size).grow(0.01).encloses(button), "der Knopf im Fenster")
-	assert_gte(button.position.y, view.lineup_area().end.y, "der Knopf unter der Schiene")
+	assert_gte(button.position.y, view.lineup_area().end.y, "der Knopf unter der Aufstellung")
 
 func test_cards_do_not_assign() -> void:
 	var view := _opening()
@@ -415,7 +419,7 @@ func test_assignments_stay_within_the_picks_one_per_seat() -> void:
 	assert_true(view.assign(1, 2, "Platz 3"))
 	assert_false(view.assign(2, 4, "Platz 5"), "mehr als K gibt es nicht")
 	assert_eq(view.assigned_count(), 2)
-	# Ein belegter Platz schickt seine Option zurück auf die Schiene.
+	# Ein belegter Platz schickt seine Option zurück in die Aufstellung.
 	assert_true(view.assign(2, 1, "Platz 2"))
 	assert_eq(view.assignments(), {1: 2, 2: 1})
 	assert_eq(view.option_on_seat(1), 2)
@@ -450,7 +454,7 @@ func test_the_draft_books_through_game_run() -> void:
 	var run := GameRun.new_run()
 	run.money = 999
 	var choice := run.purchase_dice_pack(DicePack.make(DicePack.SORT_NORMAL, 6), 1)
-	var view := _rail_view()
+	var view := _zone_view()
 	view.open(choice, DIE_PX, 1, 5, false, 2)
 	view.skip_to_pick()
 	var target := run.owned_pool[2]

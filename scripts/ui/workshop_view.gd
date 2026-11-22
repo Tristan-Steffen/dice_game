@@ -249,6 +249,9 @@ var die_face_px := 0.0:
 ## DIE SERIE: die uids der gesteckten Karten in STECKREIHENFOLGE - sie SIND die
 ## Rechnung. uids, nicht Indizes: das Magazin darf darunter umsortiert werden.
 var _series: Array[int] = []
+## Die SCHEIBE jeder Karte der Serie, parallel und aufsteigend: eine entnommene Karte läßt
+## ihre Scheibe leer, niemand rückt nach.
+var _series_slots: Array[int] = []
 ## Platz des GEWÄHLTEN Würfels im Pool (er steht auf dem Podest) - Ziel der Serie ist er
 ## erst, sobald eine Karte steckt (target_die).
 var _chosen_index := -1
@@ -535,28 +538,24 @@ func chamber_rect_px() -> Rect2:
 func stamp_seat_px() -> Rect2:
 	return _global(stamp_seat_rect())
 
-## Die GLEICHUNGS-ZEILE rechts am Pool in Display-Pixeln: Raster-Feld, UPGRADES, Podest,
-## ERGEBNIS und Präge-Sitz.
+## Die GLEICHUNGS-ZEILE rechts am Pool in Display-Pixeln: UPGRADES, Podest, ERGEBNIS und
+## Präge-Sitz.
 func equation_area_px() -> Rect2:
 	return _global(drum()["equation"])
 
-## Das freie Feld über UPGRADES, in dem die RASTER-Taste mittig steht (Display-Pixel).
-func raster_area_px() -> Rect2:
-	return _global(drum()["raster"])
-
 ## Was die Werkstatt in Display-Pixeln bedient: die Walze samt Nummern, der Info-Schirm,
-## die vier Trays des Magazins, die Netze der Gleichung samt Überschriften, das Podest
-## und der Präge-Sitz - der Filz dazwischen nicht, und die Raster-Taste ist ein eigener
-## Körper.
+## die vier Trays des Magazins und - solange keine Öffnung ihren Platz hat - die Netze
+## der Gleichung samt Überschriften, das Podest und der Präge-Sitz.
 func hit_rects() -> Array[Rect2]:
 	var layout := drum()
 	var pit: Rect2 = layout["pit"]
 	var drum_row := pit.grow_individual(0.0, unit() * (SLICE_NUMBER_UNITS + SLICE_NUMBER_GAP),
 		0.0, 0.0)
-	var nets := (layout["upgrades"] as Rect2).merge(layout["result"]) \
-		.grow_individual(0.0, unit() * EQ_HEAD_UNITS, 0.0, 0.0)
-	var rects: Array[Rect2] = [_global(drum_row), info_rect_px(), _global(nets),
-		podium_rect_px(), stamp_seat_px()]
+	var rects: Array[Rect2] = [_global(drum_row), info_rect_px()]
+	if not opening_shown:
+		var nets := (layout["upgrades"] as Rect2).merge(layout["result"]) \
+			.grow_individual(0.0, unit() * EQ_HEAD_UNITS, 0.0, 0.0)
+		rects.append_array([_global(nets), podium_rect_px(), stamp_seat_px()])
 	rects.append_array(shelf_tray_rects())
 	return rects
 
@@ -564,21 +563,26 @@ func hit_rects() -> Array[Rect2]:
 func stamp_seat_rect() -> Rect2:
 	return drum()["stamp"]
 
-## Steht gerade eine PAKET-ÖFFNUNG? Dann sind "=", ERGEBNIS und PRÄGEN fort (scene_root
-## meldet es; die Öffnungs-Fläche liegt dort).
+## Steht gerade eine PAKET-ÖFFNUNG? Dann ist die ganze Gleichung fort (scene_root meldet
+## es; die Öffnungs-Fläche liegt an ihrer Stelle).
 var opening_shown := false:
 	set(value):
 		if opening_shown == value:
 			return
 		opening_shown = value
-		_sync_result_side()
+		_sync_equation_shown()
 
-## "=", ERGEBNIS samt Überschrift und PRÄGEN stehen nur, solange keine Öffnung ihren Platz
-## braucht - ausgeblendet nehmen sie auch keinen Klick.
-func _sync_result_side() -> void:
+## Alle Knoten der Gleichung samt Leiterbahnen.
+const EQUATION_NODES: Array[String] = ["Traces", "UpgradesScreen", "UpgradesScreenHead",
+	"PlusSign", "PodiumPlate", "PodiumStage", "PodiumScreen", "EqualsSign", "ResultScreen",
+	"ResultScreenHead", "ActionSeat"]
+
+## Die Gleichung steht nur, solange keine Öffnung ihren Platz braucht - ausgeblendet nimmt
+## sie auch keinen Klick.
+func _sync_equation_shown() -> void:
 	if _content == null or not is_instance_valid(_content):
 		return
-	for node_name in ["EqualsSign", "ResultScreen", "ResultScreenHead", "ActionSeat"]:
+	for node_name in EQUATION_NODES:
 		var node := _content.get_node_or_null(node_name) as CanvasItem
 		if node != null:
 			node.visible = not opening_shown
@@ -591,7 +595,7 @@ func _build_street(u: float) -> void:
 	_build_equation(u)
 	_build_slices(u)
 	_build_action_seat(u)
-	_sync_result_side()
+	_sync_equation_shown()
 
 ## DIE LEITERBAHNEN: von jeder belegten Scheibe eine matte Bahn in der Farbe ihrer Karte
 ## zum UPGRADES-Netz - gemalt auf den Filz zwischen Walze und Gleichung.
@@ -603,9 +607,11 @@ func _build_traces(u: float) -> void:
 	layer.name = "Traces"
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.width = maxf(u * TRACE_WIDTH, 1.5)
-	for i in mini(cards.size(), paths.size()):
-		var card: Dictionary = cards[i]
-		layer.paths.append(paths[i])
+	for card in cards:
+		var slot := int(card.get("slot", -1))
+		if slot < 0 or slot >= paths.size():
+			continue
+		layer.paths.append(paths[slot])
 		layer.tints.append(PackDrawerView.tint_of(String(card.get("sort", "")),
 			String(card.get("catalyst", "")), card.get("net", []), bool(card.get("blank", false))))
 	_content.add_child(layer)
@@ -905,7 +911,7 @@ static func podium_net_size(card: Vector2, die_face: float, u: float,
 
 ## Die ganze Kette in Display-px aus Pool-Reihe, liegender Karte, Würfelfläche und u.
 ## Rechts am Pool (oben bündig, eine Fuge daneben) die GLEICHUNG: UPGRADES + PODEST =
-## ERGEBNIS, die Netze gleich groß und unten bündig, darüber das Raster-Feld bzw. PRÄGEN.
+## ERGEBNIS, die Netze gleich groß und unten bündig, über ERGEBNIS PRÄGEN.
 ## Unter dem Pool (eine Naht pool_seam darunter, linksbündig): die Nummern, der Graben mit
 ## den sechs Scheiben, eine Naht rechts daneben der Info-Schirm in Grabenhöhe; eine Fuge
 ## tiefer das Magazin aus vier Trays (columns = ihre Gruben, trays = samt Fassung), rechts
@@ -965,13 +971,12 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 	var plus := Rect2(Vector2(upgrades.end.x, row_y), Vector2(sign_w, net_span.y))
 	var equals := Rect2(Vector2(podium.end.x, row_y), Vector2(sign_w, net_span.y))
 	var result := Rect2(Vector2(equals.end.x, row_y), net_span)
-	# Raster-Taste und PRÄGEN stehen auf halber Plattenhöhe über ihren Netzen, im Filz
-	# zwischen Pool-Oberkante und Überschrift.
+	# PRÄGEN steht auf halber Plattenhöhe über ERGEBNIS, im Filz zwischen Pool-Oberkante
+	# und Überschrift.
 	var mid_y := podium_stage.get_center().y
 	var reach := maxf(minf(mid_y - pool.position.y, row_y - head_h - mid_y), 1.0)
-	var raster := Rect2(Vector2(upgrades.position.x, mid_y - reach), Vector2(net_span.x,
+	var stamp_area := Rect2(Vector2(result.position.x, mid_y - reach), Vector2(net_span.x,
 		reach * 2.0))
-	var stamp_area := Rect2(Vector2(result.position.x, mid_y - reach), raster.size)
 	var stage := die_face * STAGE_FACES
 	var action := Vector2(u * ACTION_WIDTH, maxf(stage * ACTION_SPAN_SHARE, u * ACTION_HEIGHT))
 	var stamp := Rect2(stamp_area.get_center() - action * 0.5, action)
@@ -985,7 +990,7 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 		"shelf": shelf, "columns": columns, "trays": trays, "info": info,
 		"original": podium_net,
 		"upgrades": upgrades, "result": result, "signs": [plus, equals] as Array[Rect2],
-		"equation": equation, "raster": raster, "podium": podium, "trace_band": trace_band,
+		"equation": equation, "podium": podium, "trace_band": trace_band,
 		"podium_stage": podium_stage, "podium_net": podium_net, "bounds": bounds}
 
 # --- Die Würfel des Vorrats und die Zielwahl ---------------------------------------
@@ -1139,11 +1144,11 @@ func _full_projection() -> Dictionary:
 ## Die Seiten, die die überfahrene Karte beiträgt (leer = kein Hover). Sie liest die
 ## gesteckten Karten - steht das Ergebnis, ist die Reihe leer und nichts leuchtet.
 func _highlight_faces() -> Array[int]:
-	var cards := _slot_cards()
-	if _hover_slot < 0 or _hover_slot >= cards.size():
+	var card := slot_card(_hover_slot)
+	if card.is_empty():
 		return [] as Array[int]
 	var faces: Array[int] = []
-	var net: Array = cards[_hover_slot].get("net", [])
+	var net: Array = card.get("net", [])
 	for face in StampNet.FACES:
 		if StampNet.is_filled(StampNet.cell_at(net, face)):
 			faces.append(face)
@@ -1201,11 +1206,40 @@ func unit() -> float:
 
 # --- DIE SCHEIBEN der Walze ----------------------------------------------------------
 
-## Wie viele Scheiben die Serie belegt: die Serienlänge des Laufs, mindestens so viele,
-## wie gerade stecken - höchstens die Scheiben der Walze.
+## Wie viele Scheiben die Serie belegen darf: die Serienlänge des Laufs, mindestens bis zur
+## letzten belegten - höchstens die Scheiben der Walze.
 func slot_count() -> int:
 	var slots := run.series_slots() if run != null else FALLBACK_SLOTS
-	return mini(maxi(slots, _slot_cards().size()), DRUM_SLICES)
+	for card in _slot_cards():
+		slots = maxi(slots, int(card.get("slot", 0)) + 1)
+	return mini(slots, DRUM_SLICES)
+
+## Die Karte auf Scheibe slot ({} = leer) - während der Zeremonie die des Prägens.
+func slot_card(slot: int) -> Dictionary:
+	if slot < 0:
+		return {}
+	for card in _slot_cards():
+		if int(card.get("slot", -1)) == slot:
+			return card
+	return {}
+
+## Die uid je Scheibe der Walze (0 = leer) - daran stellt scene_root die Körper.
+func slice_uids() -> Array[int]:
+	var uids: Array[int] = []
+	uids.resize(DRUM_SLICES)
+	uids.fill(0)
+	for card in _slot_cards():
+		var slot := int(card.get("slot", -1))
+		if slot >= 0 and slot < uids.size():
+			uids[slot] = int(card.get("uid", 0))
+	return uids
+
+## Die erste freie Scheibe (-1 = keine).
+func _first_free_slot() -> int:
+	for slot in slot_count():
+		if not _series_slots.has(slot):
+			return slot
+	return -1
 
 ## Der Fußabdruck der LIEGENDEN Kassette in Fenster-Pixeln, in der EINEN Größe, die
 ## sie überall hat: Langseite waagerecht, Breite nach unten. Gemeldet wird nur die
@@ -1216,11 +1250,9 @@ func lie_span_px() -> Vector2:
 ## DIE SCHEIBEN BAUEN: je Scheibe ein unsichtbarer Knopf über dem Graben (dort ist
 ## die Anzeige ohnehin fortgeschnitten), darüber ihre Nummer.
 func _build_slices(u: float) -> void:
-	var cards := _slot_cards()
 	for i in slot_count():
-		var card: Dictionary = cards[i] if i < cards.size() else {}
 		var rect := slice_rect(i)
-		var seat := _slice_button(i, card)
+		var seat := _slice_button(i, slot_card(i))
 		seat.position = rect.position
 		seat.size = rect.size
 		_content.add_child(seat)
@@ -1238,7 +1270,7 @@ func _build_slices(u: float) -> void:
 		number.size = Vector2(rect.size.x, high)
 		number.add_theme_font_size_override("font_size", maxi(8, int(u * SLICE_NUMBER_FONT)))
 		number.add_theme_color_override("font_color",
-			TEXT_COLOR if i < cards.size() else MUTED_COLOR)
+			MUTED_COLOR if slot_card(i).is_empty() else TEXT_COLOR)
 		_content.add_child(number)
 
 ## EINE Scheibe: ein flacher Knopf ohne Fassung - Klick und Zeiger, sonst nichts.
@@ -1266,16 +1298,14 @@ func _arm_slot(slot: Button, index: int, card: Dictionary) -> void:
 	slot.pressed.connect(clear_press_slot.bind(index))
 	slot.gui_input.connect(_on_slot_input.bind(index))
 
-## Die Sorten der belegten Schächte, in Reihenfolge - scene_root legt daran seine
-## Zellen ab.
+## Die Sorten der gesteckten Karten, in Reihenfolge.
 func press_slot_sorts() -> Array[String]:
 	var sorts: Array[String] = []
 	for card in _slot_cards():
 		sorts.append(String(card.get("sort", "")))
 	return sorts
 
-## Die uids derselben Reihe - scene_root übernimmt daran die Magazin-Körper in die
-## Schächte und gibt sie beim Auswerfen an ihre Plätze zurück.
+## Die uids derselben Reihe, in Rechenreihenfolge (ohne Lücken; je Scheibe: slice_uids).
 func press_slot_uids() -> Array[int]:
 	var uids: Array[int] = []
 	for card in _slot_cards():
@@ -1294,21 +1324,32 @@ func press_slot_anchors() -> Array[Vector2]:
 func shelf_locked() -> bool:
 	return editing_locked or burning()
 
-## Legt GENAU diese Karte in den nächsten freien Serien-Schacht. false = keine
-## solche Karte, kein Platz frei oder das Magazin ist zu.
+## Legt GENAU diese Karte auf die erste freie Scheibe. false = keine solche Karte, kein
+## Platz frei oder das Magazin ist zu.
 func slot_pack(uid: int) -> bool:
 	if run == null or shelf_locked():
 		return false
-	if _series.size() >= slot_count():
+	var slot := _first_free_slot()
+	if slot < 0:
 		return false
 	var pack := run.pack_by_uid(uid)
 	if pack == null:
 		return false
 	if _series.has(uid) or _pending_arrivals.has(uid):
 		return false
-	_series.append(uid)
+	_seat_series(uid, slot)
 	refresh()
 	return true
+
+## Trägt die Karte auf ihrer Scheibe ein - die Serie bleibt nach Scheiben geordnet.
+func _seat_series(uid: int, slot: int) -> void:
+	var at := _series_slots.bsearch(slot)
+	_series.insert(at, uid)
+	_series_slots.insert(at, slot)
+
+func _clear_series() -> void:
+	_series.clear()
+	_series_slots.clear()
 
 ## Legt die VORDERSTE Karte einer Sorte ein - der programmatische Griff (Tests,
 ## Debug); am Tisch wählt der Spieler seine Kassette selbst.
@@ -1323,31 +1364,37 @@ func slot_pack_from_stack(stack_category: String) -> bool:
 		return slot_pack(pack.pack_uid)
 	return false
 
-## Nimmt eine Karte wieder aus ihrem Schacht - sie liegt danach wieder auf ihrem
-## Magazin-Platz. Gemeldet wird VOR dem Neuaufbau: die Zelle dieses Platzes muss
-## sich ausklinken, bevor die Sockel neu abgezählt werden.
+## Nimmt die Karte von Scheibe index zurück ins Magazin - NUR sie: ihre Scheibe bleibt
+## leer, keine andere rückt nach (Spieler-Wunsch 2026-11-22). Gemeldet wird VOR dem
+## Neuaufbau: die Zelle muss sich ausklinken, bevor der Abgleich läuft.
 func clear_press_slot(index: int) -> void:
-	if index < 0 or index >= _series.size() or editing_locked or burning():
+	var at := _series_slots.find(index)
+	if at < 0 or editing_locked or burning():
 		return
-	var uid := _series[index]
-	_series.remove_at(index)
+	var uid := _series[at]
+	_series.remove_at(at)
+	_series_slots.remove_at(at)
 	pack_unslotted.emit(index, uid)
 	refresh()
 
-## UMSORTIEREN in der Reihe: die Karte wird an from herausgenommen und bei to
-## eingesetzt, alles dazwischen rückt eine Stelle - dieselbe move-statt-swap-
-## Semantik wie reorder_pool. Die Reihenfolge IST die Rechenreihenfolge; die
-## KÖRPER fahren um (scene_root, an den gemeldeten Ankern).
+## UMSORTIEREN, from und to sind SCHEIBEN: auf eine LEERE zieht nur diese Karte um, auf
+## einer BELEGTEN TAUSCHEN die beiden (Spieler-Wunsch 2026-11-22) - keine dritte Karte
+## bewegt sich. Die Reihenfolge IST die Rechnung.
 func move_slot(from_index: int, to_index: int) -> void:
 	if editing_locked or burning():
 		return
-	if from_index < 0 or from_index >= _series.size():
+	var from_at := _series_slots.find(from_index)
+	if from_at < 0 or to_index < 0 or to_index >= slot_count() or to_index == from_index:
 		return
-	if to_index < 0 or to_index == from_index:
-		return
-	var uid := _series[from_index]
-	_series.remove_at(from_index)
-	_series.insert(mini(to_index, _series.size()), uid)
+	var to_at := _series_slots.find(to_index)
+	var uid := _series[from_at]
+	if to_at < 0:
+		_series.remove_at(from_at)
+		_series_slots.remove_at(from_at)
+		_seat_series(uid, to_index)
+	else:
+		_series[from_at] = _series[to_at]
+		_series[to_at] = uid
 	refresh()
 
 ## Drücken merkt sich den Schacht, Loslassen über einem ANDEREN legt die Karte dort
@@ -1383,10 +1430,12 @@ func _slot_cards() -> Array[Dictionary]:
 	var cards: Array[Dictionary] = []
 	if run == null:
 		return cards
-	for uid in _series:
-		var pack := run.pack_by_uid(uid)
+	for i in _series.size():
+		var pack := run.pack_by_uid(_series[i])
 		if pack != null:
-			cards.append(card_data(uid, pack))
+			var card := card_data(_series[i], pack)
+			card["slot"] = _series_slots[i]
+			cards.append(card)
 	return cards
 
 ## Die Anzeigedaten EINER Kassette - EINE Quelle für Schacht, Schirm und Zeremonie.
@@ -1421,17 +1470,19 @@ func stamping_card_count() -> int:
 ## Wirft uids aus der Reihe, hinter denen keine Karte mehr liegt (Wett-Einsatz,
 ## Laufwechsel), und einen Zielwürfel, den der Pool nicht mehr hergibt.
 func _prune_series() -> void:
-	var kept: Array[int] = []
-	for uid in _series:
-		if run != null and run.pack_by_uid(uid) != null:
-			kept.append(uid)
-	_series = kept
+	for i in range(_series.size() - 1, -1, -1):
+		if run == null or run.pack_by_uid(_series[i]) == null:
+			_series.remove_at(i)
+			_series_slots.remove_at(i)
 	var pool := pool_defs().size()
 	if _chosen_index >= pool:
 		_chosen_index = -1
 	# Der Ziel-Rohling steckt NIE in der Reihe - sonst wäre er sein eigenes Futter.
 	if _target_pack > 0:
-		_series.erase(_target_pack)
+		var own := _series.find(_target_pack)
+		if own >= 0:
+			_series.remove_at(own)
+			_series_slots.remove_at(own)
 		if target_pack() == null:
 			_target_pack = 0
 
@@ -1652,9 +1703,9 @@ func _face_in(view: Control, pixel: Vector2) -> int:
 func hover_pack() -> Pack:
 	if run == null:
 		return null
-	var cards := _slot_cards()
-	if _hover_slot >= 0 and _hover_slot < cards.size():
-		var slotted := run.pack_by_uid(int(cards[_hover_slot].get("uid", 0)))
+	var card := slot_card(_hover_slot)
+	if not card.is_empty():
+		var slotted := run.pack_by_uid(int(card.get("uid", 0)))
 		if slotted != null:
 			return slotted
 	if _hover_pack_uid > 0:
@@ -1664,9 +1715,9 @@ func hover_pack() -> Pack:
 ## Der NAME der überfahrenen Karte ("" = keine) - während der Zeremonie ist ihr
 ## Paket längst verbraucht, die Kartendaten kennen ihn trotzdem.
 func hover_pack_name() -> String:
-	var cards := _slot_cards()
-	if _hover_slot >= 0 and _hover_slot < cards.size():
-		return String(cards[_hover_slot].get("name", ""))
+	var card := slot_card(_hover_slot)
+	if not card.is_empty():
+		return String(card.get("name", ""))
 	if _hover_pack_uid > 0 and run != null:
 		var pack := run.pack_by_uid(_hover_pack_uid)
 		if pack != null:
@@ -1697,7 +1748,7 @@ func pull_lever() -> void:
 		_burn_die = null
 		refresh()  # nichts gebucht: die Karten bleiben in ihren Schächten
 		return
-	_series.clear()
+	_clear_series()
 	_burning = cards
 	_burn_terms = terms
 	_burn_result = result
@@ -1818,7 +1869,7 @@ func _pull_compress() -> void:
 	if result.is_empty():
 		refresh()  # nichts gebucht: die Karten bleiben in ihren Schächten
 		return
-	_series.clear()
+	_clear_series()
 	_target_pack = 0  # gefüllt ist er kein Rohling mehr - die Wahl fällt mit
 	_burning = cards
 	_burn_blank = blank
@@ -1853,7 +1904,7 @@ func _read_card(index: int, tick: float, time: float) -> void:
 	_refresh_sum_net()  # die Summe tickt mit der Fahrt
 	var faces := _moved_faces(before, after, card.get("net", []))
 	var values: Array = after.get("bonus", [])
-	stream_passed.emit(index, faces, values, glyph, time)
+	stream_passed.emit(int(card.get("slot", index)), faces, values, glyph, time)
 
 ## Welche Seiten diese Karte BEWEGT hat - der Vergleich zweier Zwischenstände. So
 ## bekommt jeder Operator seinen Einschlag, ohne dass die Anzeige seine Regel noch
@@ -1918,7 +1969,7 @@ func _end_ceremony() -> void:
 func _drop_series() -> void:
 	_burn_gen += 1
 	_drop_result()  # das Ergebnis gehörte dem alten Lauf
-	_series.clear()
+	_clear_series()
 	_burning = []
 	_burn_step = -1
 	_burn_die = null
@@ -2326,7 +2377,7 @@ func sync_hover_at(pixel: Vector2, pack_uid := -1, slot := -1) -> void:
 
 ## Nur der WECHSEL baut das Netz neu - sync_hover_at läuft je Bild.
 func _set_hover_slot(index: int) -> void:
-	var wanted := index if index < _slot_cards().size() else -1
+	var wanted := -1 if slot_card(index).is_empty() else index
 	if wanted == _hover_slot:
 		return
 	_hover_slot = wanted
@@ -2347,13 +2398,15 @@ func net_hint_owner_at(pixel: Vector2) -> String:
 ## EIN Entscheider für beide Fragen: UPGRADES und die Ergebnis-Karte, dann das
 ## Ergebnis-Netz, dann ORIGINAL.
 func _net_hint_info(pixel: Vector2) -> Dictionary:
+	if opening_shown:
+		return {}
 	var summed := _sum_hint_at(pixel)
 	if not summed.is_empty() and String(summed.get("hint", "")) != "":
 		return summed
 	var podium := _face_hint(_podium_net, pixel)
 	if podium != "":
 		return {"hint": podium, "owner": _owner_line(ORIGINAL_OWNER, _podium_net.def)}
-	var after := _face_hint(_net, pixel) if not opening_shown else ""
+	var after := _face_hint(_net, pixel)
 	if after != "":
 		return {"hint": after, "owner": _owner_line(RESULT_OWNER, chosen_die())}
 	return {}

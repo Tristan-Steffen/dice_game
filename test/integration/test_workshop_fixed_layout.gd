@@ -85,19 +85,15 @@ func test_the_equation_stands_on_the_chain() -> void:
 	assert_almost_eq(view.info_rect_px().position.y, view.drum_pit_rect().position.y, 0.01,
 		"der Info-Schirm steht am Walzen-Ende")
 
-## Während einer Paket-Öffnung sind "=", ERGEBNIS und PRÄGEN fort.
-func test_an_opening_hides_the_result_side() -> void:
+## Die Gleichung bleibt auch nach einem Neuaufbau fort, solange die Öffnung steht.
+func test_an_opening_hides_the_equation_across_a_rebuild() -> void:
 	await wait_frames(2)
 	view.opening_shown = true
-	for node_name in ["EqualsSign", "ResultScreen", "ResultScreenHead", "ActionSeat"]:
-		assert_false((view.get_node("Street/%s" % node_name) as CanvasItem).visible,
-			"%s ist fort" % node_name)
-	assert_true((view.get_node("Street/UpgradesScreen") as CanvasItem).visible, "UPGRADES bleibt")
-	assert_true((view.get_node("Street/PodiumScreen") as CanvasItem).visible, "das Podest bleibt")
 	view.refresh()
 	await wait_frames(1)
-	assert_false((view.get_node("Street/ActionSeat") as CanvasItem).visible,
-		"auch nach einem Neuaufbau")
+	for node_name in ["ActionSeat", "Traces", "PodiumPlate", "UpgradesScreen"]:
+		assert_false((view.get_node("Street/%s" % node_name) as CanvasItem).visible,
+			"%s auch nach einem Neuaufbau fort" % node_name)
 	view.opening_shown = false
 	assert_true((view.get_node("Street/ActionSeat") as CanvasItem).visible)
 
@@ -184,9 +180,32 @@ func test_the_hit_rects_cover_column_magazine_and_podium() -> void:
 	assert_true(covered.call(view.info_rect_px().get_center()), "der Info-Schirm")
 	assert_true(covered.call((frame["upgrades"] as Rect2).get_center()), "UPGRADES")
 	assert_true(covered.call((frame["result"] as Rect2).get_center()), "ERGEBNIS")
-	assert_false(covered.call(view.raster_area_px().get_center()),
-		"die Raster-Taste ist ein eigener Körper")
 	assert_true(view.bench_rect().encloses(_drawer_rect()), "bench_rect deckt das Magazin")
+
+## Eine Öffnung braucht die Zone: die ganze Gleichung ist fort und nimmt keinen Klick.
+func test_an_opening_hides_the_whole_equation() -> void:
+	await wait_frames(2)
+	var before := view.hit_rects().size()
+	view.opening_shown = true
+	var street := view.get_node("Street")
+	for node_name in WorkshopView.EQUATION_NODES:
+		var node := street.get_node_or_null(node_name) as CanvasItem
+		assert_not_null(node, "%s steht im Fenster" % node_name)
+		if node != null:
+			assert_false(node.visible, "%s ist fort" % node_name)
+	var hits := view.hit_rects()
+	assert_eq(hits.size(), before - 3, "Netze, Podest und Präge-Sitz melden nichts")
+	for point: Vector2 in [(frame["upgrades"] as Rect2).get_center(),
+			(frame["result"] as Rect2).get_center(), view.podium_plate_px().get_center()]:
+		for rect in hits:
+			assert_false(rect.has_point(point), "die Zone nimmt keinen Klick")
+	assert_eq(view.net_hint_at((frame["upgrades"] as Rect2).get_center()), "")
+	view.opening_shown = false
+	for node_name in WorkshopView.EQUATION_NODES:
+		var node := street.get_node_or_null(node_name) as CanvasItem
+		if node != null:
+			assert_true(node.visible, "%s kommt zurück" % node_name)
+	assert_eq(view.hit_rects().size(), before)
 
 func test_the_strip_has_no_window_background() -> void:
 	await wait_frames(2)

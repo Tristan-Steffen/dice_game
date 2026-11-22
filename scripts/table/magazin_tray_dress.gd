@@ -526,9 +526,10 @@ const HOLD_WALL := 0.024
 ## gekappten Ecke; Kassette - zwei gezahnte Wickeldorne auf großen Spulentellern, Capstan-Stifte
 ## und der Bandweg als Lichtlinie; Tafel - ein geflochtener Korb mit Rand und Ton-Etikett; Modul - die ESD-Matte mit Raster,
 ## Lagewinkeln und Erdungsknopf. Lokal +X = Karten-quer zum
-## Fenster hin, +Z = Kartenfuß; seat ist die Unterseite der Karte.
+## Fenster hin, +Z = Kartenfuß; seat ist die Unterseite der Karte. rib_parts: Lampe und
+## Etikett auf der Rippe daneben (die Walze hat keine).
 static func build_holder(node: Node3D, column: int, bay: Vector2, floor_top: float,
-		seat: float, k: float, light: Material = null) -> Node3D:
+		seat: float, k: float, light: Material = null, rib_parts := true) -> Node3D:
 	var c := clampi(column, 0, 3)
 	var hold := Node3D.new()
 	hold.name = "Halterung"
@@ -545,13 +546,15 @@ static func build_holder(node: Node3D, column: int, bay: Vector2, floor_top: flo
 			_hold_punch(hold, half, thick, floor_top, rest, stop, k)
 		MATERIAL:
 			_hold_cassette(hold, thick, floor_top, rest, k, light)
-			if light != null:
+			if light != null and rib_parts:
 				# Die Aufnahme-Lampe auf der Rippe unter dem Platz meldet die Kassette.
 				TableProps.box(node, "Aufnahme", Vector3(0.05, 0.006, 0.1 * k),
 					Vector3(-bay.x * 0.5 - 0.035, seat + DataCellView.DEPTH * k + 0.003,
 						-bay.y * 0.4), light)
 		RUNE:
 			_hold_clay(hold, bay, floor_top, rest, thick)
+			if not rib_parts:
+				return hold
 			# Das Ton-Etikett auf der Rippe unter dem Platz; sein Zeichen leuchtet belegt.
 			var deck := seat + DataCellView.DEPTH * k
 			var tag_x := -bay.x * 0.5 - 0.038
@@ -562,7 +565,7 @@ static func build_holder(node: Node3D, column: int, bay: Vector2, floor_top: flo
 					Vector3(tag_x, deck + 0.023, 0.0), light)
 		SONDER:
 			_hold_module(hold, bay, half, floor_top)
-			if light != null:
+			if light != null and rib_parts:
 				TableProps.box(node, "Aufnahme", Vector3(0.05, 0.006, 0.28 * k),
 					Vector3(-bay.x * 0.5 - 0.038, seat + DataCellView.DEPTH * k + 0.003, 0.0), light)
 	return hold

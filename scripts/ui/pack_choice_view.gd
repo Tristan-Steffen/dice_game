@@ -1,10 +1,9 @@
 class_name PackChoiceView
 extends Control
 ## Die PAKET-AUSWAHL: die Optionen eines geöffneten Pakets (die Körper stellt scene_root auf
-## die gemeldeten PLÄTZE, in Display-Pixeln). Beide stehen auf der ÖFFNUNGS-FLÄCHE unter
-## dem Vorrat: KARTEN mit Schirm (Kopfzeile, Aufstellung, Auskunft, Knöpfe), WÜRFEL ohne
-## Schirm als SCHIENE: je Option eine Reihe (Würfel links, Netz rechts), höchstens drei je Spalte,
-## darunter die Auskunft und der Knopf mit dem Zähler rechts daneben.
+## die gemeldeten PLÄTZE, in Display-Pixeln). Karten wie Würfel stehen als EIN Schirm in der
+## ÖFFNUNGS-ZONE: Kopfzeile, Aufstellung (höchstens drei je Reihe, zwei Reihen), Auskunft,
+## Knöpfe. Eine Würfel-Option ist eine Kachel: links liest der Würfel, rechts sein Netz.
 ## Gebucht ist schon (GameRun.pending_pack_choices); das Fenster sammelt nur die Wahl
 ## und meldet sie. Erst der Inhalt, dann die Zahl: der GLÜCKSWÜRFEL rollt (scene_root), und
 ## erst mit seinem Stillstand (die_landed) nennt das Fenster die Wahlen.
@@ -27,9 +26,9 @@ const COUNT_STEP := 0.35
 ## Die Optionen stehen mit dieser Luft um ihren Körper.
 const SLOT_ROOM := 1.04
 const SLOT_GAP_UNITS := 0.8
-## Die Karten-Aufstellung steht höchstens so viele nebeneinander (fünf stehen 3 + 2), und
-## die Fläche hat dafür so viel Luft (u), damit die Zählung nie eine Spur darunter fällt.
+## Höchstens so viele Optionen nebeneinander (Karten wie Würfel): 5 stehen 3 + 2, 6 stehen 3 + 3.
 const CARDS_PER_ROW := 3
+## Luft (u) um die Aufstellung, damit die Zählung nie eine Spur darunter fällt.
 const AREA_AIR_UNITS := 1.0
 
 var choice: PackChoice = null
@@ -59,35 +58,27 @@ func _init() -> void:
 
 ## Welche Seite der liegende Würfel oben zeigt (sein Netz rahmt sie golden).
 var up_face := -1
-## Höchstens so viele Würfel stehen auf der Schiene.
-const LINEUP_MAX := 10
 ## Die Einheit folgt der Höhe; der Kopf ist EINE Zeile: Name · Zähler · Energie.
 const UNIT_DIV := 56.0
 const HEAD_UNITS := 3.0
-const FONT_UNITS := 1.6
-const COUNT_FONT_UNITS := 1.8
+## Die Zone ist doppelt so breit wie die alte Fläche: Kopf und Knöpfe lesen eine Spur größer.
+const FONT_UNITS := 2.0
+const COUNT_FONT_UNITS := 2.2
 const HEAD_TITLE_SHARE := 0.42
 const HEAD_COUNT_SHARE := 0.32
-const BUTTON_FONT_UNITS := 1.7
-const BUTTON_UNITS := 4.0
+const BUTTON_FONT_UNITS := 2.0
+const BUTTON_UNITS := 4.2
 const INFO_UNITS := 4.2
-## Die SCHIENE (Würfel-Pakete): höchstens RAIL_ROWS Reihen je Spalte, weitere Spalten
-## rechts daneben. Ihre Einheit ist die Schienenhöhe / RAIL_UNITS; der Fuß (Auskunft, darunter
-## Knopf und Zähler) hängt darunter - einen Kopf hat sie nicht.
-const RAIL_ROWS := 3
-const RAIL_UNITS := 40.0
-const RAIL_INFO_UNITS := 3.2
-const RAIL_FOOT_UNITS := 8.5  # Fuge 0,6 + Auskunft 3,2 + Fuge 0,3 + Knopfzeile 4,4
-const RAIL_ROW_UNITS := 4.4
-const RAIL_GAP_UNITS := 0.8
-const RAIL_INFO_FONT_UNITS := 1.5
-const RAIL_BUTTON_SHARE := 0.45
+const INFO_FONT_UNITS := 2.0
+## Die Würfel-Aufstellung hat immer Platz für zwei Reihen - die Kachel bleibt gleich hoch.
+const DICE_ROWS := 2
+const TILE_GAP_UNITS := 0.8
 ## Wie der liegende Würfel an der geneigten Kamera LIEST (in Würfelkanten): DIE_LOOK_HALF
-## über und unter seinem Sitz, quer DIE_LOOK_WIDTH. Der Sitz liegt RAIL_SEAT_DROP Kanten
+## über und unter seinem Sitz, quer DIE_LOOK_WIDTH. Der Sitz liegt DIE_SEAT_DROP Kanten
 ## unter der Bandmitte, denn die Kamera projiziert den Würfel nach oben (gemessen).
 const DIE_LOOK_HALF := 0.65
-const DIE_LOOK_WIDTH := 1.7
-const RAIL_SEAT_DROP := 0.22
+const DIE_LOOK_WIDTH := 2.4
+const DIE_SEAT_DROP := 0.22
 ## Die Kachel: gleiche Luft links und rechts (sie trägt auch den Hub der Wahl).
 const TILE_AIR_UNITS := 1.3
 const NET_GAP_UNITS := 1.0
@@ -116,12 +107,8 @@ const STAGE_LINEUP := 1
 const STAGE_ROLL := 2
 const STAGE_PICK := 3
 var _stage := STAGE_PICK
-## Der Zähler der Schiene (rechts neben dem Knopf).
-var _rail_count: Label
 
 func _unit() -> float:
-	if lineup():
-		return maxf(size.y / (RAIL_UNITS + RAIL_FOOT_UNITS), 1.0)
 	return maxf(size.y / UNIT_DIV, 1.0)
 
 func head_height() -> float:
@@ -131,53 +118,36 @@ func _draw() -> void:
 	if backdrop:
 		draw_style_box(TableScreen.window_style(), Rect2(Vector2.ZERO, size))
 
-## Das Fenster der SCHIENE zu ihrem Rechteck (Display-Pixel, rein): oben bündig mit ihr,
-## der Fuß darunter in ihrer Einheit.
-static func rail_window_for(rail: Rect2) -> Rect2:
-	if rail.size.x <= 0.0 or rail.size.y <= 0.0:
+## Das Rechteck der ÖFFNUNGS-ZONE in Display-Pixeln (rein, prüfbar): sie VERWANDELT die
+## Gleichung - links ab ihr, oben bündig mit der Pool-Reihe und so hoch wie sie, rechts
+## bis end_x.
+static func area_beside(pool: Rect2, equation: Rect2, end_x: float) -> Rect2:
+	if pool.size.y <= 0.0 or end_x <= equation.position.x:
 		return Rect2()
-	var u := rail.size.y / RAIL_UNITS
-	return Rect2(rail.position, Vector2(rail.size.x, rail.size.y + u * RAIL_FOOT_UNITS))
+	return Rect2(Vector2(equation.position.x, pool.position.y),
+		Vector2(end_x - equation.position.x, pool.size.y))
 
-## Das Rechteck der ÖFFNUNGS-FLÄCHE in Display-Pixeln (rein, prüfbar): rechts neben dem
-## freigehaltenen Podest-Platz, oben bündig mit der Pool-Reihe und so hoch wie sie.
-static func area_beside(pool: Rect2, podium: Rect2, gap: float, width: float) -> Rect2:
-	if pool.size.y <= 0.0 or width <= 0.0:
-		return Rect2()
-	return Rect2(Vector2(podium.end.x + gap, pool.position.y), Vector2(width, pool.size.y))
-
-## Wie breit die Fläche sein muß (rein): drei liegende Karten nebeneinander samt Fugen und
-## Rand - die Aufstellung der Karten-Pakete steht 3 + 2 -, mindestens die Schiene der
-## Würfel-Pakete in dieser Höhe.
-static func area_width_for(height: float, card: Vector2, die_px: float, rail_high: float) -> float:
+## Wie breit die Zone sein muß (rein): drei Würfel-Kacheln nebeneinander samt Fugen und
+## Rand - die Würfel-Auswahl ist die größte, Karten passen hinein.
+static func panel_width_for(height: float, die_px: float) -> float:
 	var u := maxf(height / UNIT_DIV, 1.0)
-	var cards := card.x * SLOT_ROOM * float(CARDS_PER_ROW) \
-		+ u * SLOT_GAP_UNITS * float(CARDS_PER_ROW - 1) + u * (2.0 + AREA_AIR_UNITS)
-	return maxf(cards, rail_width_for(rail_high, die_px, RAIL_ROWS * 2))
+	var top := u * (2.0 + HEAD_UNITS)
+	var info_y := height - u - u * BUTTON_UNITS - u * (INFO_UNITS + 0.4)
+	var lineup := maxf(info_y - u * 0.6 - top, 1.0)
+	var gap := u * TILE_GAP_UNITS
+	var tile_h := (lineup - gap * float(DICE_ROWS - 1)) / float(DICE_ROWS)
+	var cell := tile_cell(u, die_px, tile_h, INF)
+	return tile_width(u, die_px, cell) * float(CARDS_PER_ROW) + gap * float(CARDS_PER_ROW - 1) + u * 2.0
 
-## Die SCHIENE auf der Fläche (rein): oben bündig, so breit wie sie, und so hoch, wie Fuß
-## und Spalten es zulassen - der Fuß darf um below unter die Fläche reichen (in die Naht
-## über der Walze); die Würfel bleiben gleich groß, nur Reihe und Netz schrumpfen.
-static func rail_in(area: Rect2, die_px: float, count: int, below := 0.0) -> Rect2:
-	if area.size.x <= 0.0 or area.size.y <= 0.0:
-		return Rect2()
-	var high := (area.size.y + maxf(below, 0.0)) / (1.0 + RAIL_FOOT_UNITS / RAIL_UNITS)
-	var low := 0.0
-	if rail_width_for(high, die_px, count) > area.size.x:
-		for i in 40:
-			var mid := (low + high) * 0.5
-			if rail_width_for(mid, die_px, count) > area.size.x:
-				high = mid
-			else:
-				low = mid
-		high = low
-	return Rect2(area.position, Vector2(area.size.x, high))
+## Wie breit count liegende Karten samt Fugen und Rand stehen (rein).
+static func cards_width_for(height: float, card: Vector2, count: int) -> float:
+	var u := maxf(height / UNIT_DIV, 1.0)
+	return card.x * SLOT_ROOM * float(count) + u * SLOT_GAP_UNITS * float(count - 1) \
+		+ u * (2.0 + AREA_AIR_UNITS)
 
-## Die festen Felder der Seite (Fenster-Pixel): die Kopfzeile samt Energie rechts,
-## Auskunft und die Knopfzeile.
+## Die festen Felder der Seite (Fenster-Pixel), EINE Quelle für Karten und Würfel: die
+## Kopfzeile samt Energie rechts, Auskunft und die Knopfzeile.
 func _frame_rects() -> Dictionary:
-	if lineup():
-		return _rail_frame_rects()
 	var u := _unit()
 	var head := Rect2(Vector2(u, u), Vector2(maxf(size.x - u * 2.0, u), u * HEAD_UNITS))
 	var rest := head.size.x * (HEAD_TITLE_SHARE + HEAD_COUNT_SHARE)
@@ -189,20 +159,7 @@ func _frame_rects() -> Dictionary:
 		Vector2(size.x - u * 2.0, u * INFO_UNITS))
 	return {"head": head, "buttons": buttons, "info": info, "energy": energy}
 
-## Die Felder der SCHIENE (Fenster-Pixel): oben die Schiene, darunter die Auskunft über
-## die volle Breite und zuunterst der Knopf, rechts daneben der Zähler.
-func _rail_frame_rects() -> Dictionary:
-	var u := _unit()
-	var rail := Rect2(Vector2.ZERO, Vector2(size.x, u * RAIL_UNITS))
-	var info := Rect2(Vector2(0.0, rail.end.y + u * 0.6), Vector2(size.x, u * RAIL_INFO_UNITS))
-	var row := info.end.y + u * 0.3
-	var buttons := Rect2(Vector2(0.0, row), Vector2(size.x * RAIL_BUTTON_SHARE, u * RAIL_ROW_UNITS))
-	var count := Rect2(Vector2(buttons.end.x + u, row),
-		Vector2(maxf(size.x - buttons.end.x - u, u), u * RAIL_ROW_UNITS))
-	return {"head": Rect2(), "count": count, "rail": rail, "info": info, "buttons": buttons,
-		"energy": Rect2()}
-
-## Die SCHIENE der Würfel-Pakete (sonst die Reihe der Karten-Pakete).
+## Ein Würfel-Paket ist offen: seine Optionen sind Kacheln (Würfel + Netz).
 func lineup() -> bool:
 	return choice != null and choice.is_dice()
 
@@ -344,10 +301,13 @@ func hovered_index() -> int:
 
 ## Wie viele Plätze in eine Reihe passen.
 func per_row(count: int) -> int:
-	var u := _unit()
-	var slot := item_px.x * SLOT_ROOM
-	var usable := lineup_area().size.x
-	var fits := maxi(1, int((usable + u * SLOT_GAP_UNITS) / (slot + u * SLOT_GAP_UNITS)))
+	var fits := CARDS_PER_ROW
+	if not lineup():
+		var u := _unit()
+		var slot := item_px.x * SLOT_ROOM
+		var usable := lineup_area().size.x
+		fits = clampi(int((usable + u * SLOT_GAP_UNITS) / (slot + u * SLOT_GAP_UNITS)), 1,
+			CARDS_PER_ROW)
 	if count <= fits:
 		return count
 	return int(ceil(float(count) / ceil(float(count) / float(fits))))
@@ -379,7 +339,7 @@ func slot_rect(index: int, count: int) -> Rect2:
 func page_rect_px() -> Rect2:
 	return Rect2(global_position, size)
 
-## Die Fläche der Aufstellung (bei Würfeln die Schiene) in Display-Pixeln.
+## Die Fläche der Aufstellung in Display-Pixeln.
 func lineup_area_px() -> Rect2:
 	var area := lineup_area()
 	return Rect2(global_position + area.position, area.size)
@@ -388,71 +348,60 @@ func lineup_area_px() -> Rect2:
 func hull_seat_px() -> Vector2:
 	return global_position + lineup_area().get_center()
 
-## Die Fläche der Aufstellung: unter dem Kopf, über der Auskunft, volle Breite - bei
-## Würfeln die Schiene selbst.
+## Die Fläche der Aufstellung: unter dem Kopf, über der Auskunft, volle Breite - für
+## Karten wie Würfel.
 func lineup_area() -> Rect2:
-	if lineup():
-		return _rail_frame_rects()["rail"]
 	var u := _unit()
 	var top := u * 2.0 + head_height()
 	var info: Rect2 = _frame_rects()["info"]
 	return Rect2(Vector2(u, top),
 		Vector2(size.x - u * 2.0, maxf(info.position.y - u * 0.6 - top, 1.0)))
 
-## Spalten × Reihen der Schiene: höchstens RAIL_ROWS untereinander, dann die nächste
-## Spalte rechts daneben.
-static func rail_grid(count: int) -> Vector2i:
-	var n := clampi(count, 1, LINEUP_MAX)
-	return Vector2i(int(ceil(float(n) / float(RAIL_ROWS))), mini(n, RAIL_ROWS))
+func _tile_gap() -> float:
+	return _unit() * TILE_GAP_UNITS
 
-## Die Teilung der Schiene: drei Reihen füllen ihre Höhe, je Reihe bleibt eine Fuge.
-func rail_pitch() -> float:
-	return lineup_area().size.y / float(RAIL_ROWS)
+## Die Höhe einer Würfel-Kachel: zwei Reihen füllen die Aufstellung, immer.
+func tile_height() -> float:
+	return (lineup_area().size.y - _tile_gap() * float(DICE_ROWS - 1)) / float(DICE_ROWS)
 
-func _rail_gap() -> float:
-	return _unit() * RAIL_GAP_UNITS
-
-## Die Netz-Zelle einer Kachel (rein): die Höhe der Reihe bindet, die Spaltenbreite deckelt.
-static func rail_cell(u: float, die_px: float, pitch: float, column: float) -> float:
+## Die Netz-Zelle einer Kachel (rein): Höhe und Spaltenbreite binden, ein Deckel hält sie
+## vernünftig.
+static func tile_cell(u: float, die_px: float, height: float, column: float) -> float:
 	var air := u * TILE_AIR_UNITS * 2.0
 	var avail := Vector2(column - air - die_px * DIE_LOOK_WIDTH - u * NET_GAP_UNITS,
-		pitch - u * RAIL_GAP_UNITS - air)
+		height - air)
 	if avail.x <= 0.0 or avail.y <= 0.0:
 		return 0.0
 	return minf(DieNetView.cell_for(avail), u * NET_CELL_MAX_UNITS)
 
 ## Die Breite einer Kachel: Luft, Würfel, Fuge, Netz, dieselbe Luft.
-static func rail_tile_width(u: float, die_px: float, cell: float) -> float:
+static func tile_width(u: float, die_px: float, cell: float) -> float:
 	return u * TILE_AIR_UNITS * 2.0 + die_px * DIE_LOOK_WIDTH + u * NET_GAP_UNITS \
 		+ DieNetView.net_size(cell).x
 
-## Wie breit die Schiene zu ihrer Höhe sein muß (rein): ihre Spalten, mindestens zwei -
-## der Fuß braucht neben dem Knopf Platz für den Vergleich.
-static func rail_width_for(height: float, die_px: float, count: int) -> float:
-	var u := height / RAIL_UNITS
-	var cell := rail_cell(u, die_px, height / float(RAIL_ROWS), 1.0e9)
-	var columns := maxi(rail_grid(count).x, 2)
-	return rail_tile_width(u, die_px, cell) * float(columns) \
-		+ u * RAIL_GAP_UNITS * float(columns - 1)
+func _tile_net_cell() -> float:
+	var column := (lineup_area().size.x - _tile_gap() * float(CARDS_PER_ROW - 1)) \
+		/ float(CARDS_PER_ROW)
+	return tile_cell(_unit(), item_px.y, tile_height(), column)
 
-func _rail_net_cell(count: int) -> float:
-	var grid := rail_grid(count)
-	var column := (lineup_area().size.x - _rail_gap() * float(grid.x - 1)) / float(grid.x)
-	return rail_cell(_unit(), item_px.y, rail_pitch(), column)
+## Die Kachel liegt QUER und folgt dem INHALT; hoch ist sie eine halbe Aufstellung.
+func block_size(_count: int) -> Vector2:
+	return Vector2(tile_width(_unit(), item_px.y, _tile_net_cell()), tile_height())
 
-## Die Kachel liegt QUER und folgt dem INHALT; hoch ist sie eine Teilung ohne Fuge.
-func block_size(count: int) -> Vector2:
-	return Vector2(rail_tile_width(_unit(), item_px.y, _rail_net_cell(count)),
-		rail_pitch() - _rail_gap())
-
-## Die Kachel einer Option: Spalte = index / 3 von links, Reihe = index % 3 von oben.
+## Die Kachel einer Option: wie die Karten höchstens drei je Reihe, der Block mittig.
 func lineup_block(index: int, count: int) -> Rect2:
 	var area := lineup_area()
-	var cell := block_size(count)
-	var column := index / RAIL_ROWS
-	var row := index % RAIL_ROWS
-	return Rect2(Vector2(area.position.x + float(column) * (cell.x + _rail_gap()),
-		area.position.y + float(row) * rail_pitch()), cell)
+	var tile := block_size(count)
+	var gap := _tile_gap()
+	var columns := per_row(count)
+	var rows := int(ceil(float(count) / float(columns)))
+	var row := index / columns
+	var in_row := mini(columns, count - row * columns)
+	var row_width := float(in_row) * tile.x + float(in_row - 1) * gap
+	var block := float(rows) * tile.y + float(rows - 1) * gap
+	var top := area.position.y + maxf((area.size.y - block) * 0.5, 0.0)
+	return Rect2(Vector2(area.position.x + (area.size.x - row_width) * 0.5
+		+ float(index - row * columns) * (tile.x + gap), top + float(row) * (tile.y + gap)), tile)
 
 ## Das Band, in dem der Würfel liest.
 func die_look() -> Vector2:
@@ -461,9 +410,9 @@ func die_look() -> Vector2:
 func tile_air() -> float:
 	return _unit() * TILE_AIR_UNITS
 
-## Die Zellgröße der Netze - EINE für die ganze Schiene.
-func net_cell(count: int) -> float:
-	return _rail_net_cell(count)
+## Die Zellgröße der Netze - EINE für die ganze Aufstellung.
+func net_cell(_count: int) -> float:
+	return _tile_net_cell()
 
 ## Das Netz rechts neben seinem Würfel (Fenster-Pixel).
 func net_rect(index: int, count: int) -> Rect2:
@@ -499,7 +448,7 @@ func slot_centers() -> Array[Vector2]:
 		var center := global_position + slot_rect(i, choice.option_count()).get_center()
 		# Die geneigte Kamera projiziert den Würfel nach oben - er sitzt tiefer.
 		if lineup():
-			center.y += item_px.y * RAIL_SEAT_DROP
+			center.y += item_px.y * DIE_SEAT_DROP
 		out.append(center)
 	return out
 
@@ -536,19 +485,6 @@ func _build() -> void:
 		label.clip_text = true
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if lineup():
-		# Auf der Schiene steht kein Kopf - der Zähler am Knopf nennt die Zahl.
-		_title.visible = false
-		_counter.visible = false
-		var spot: Rect2 = frame["count"]
-		_rail_count = CasinoStyle.label("", u * COUNT_FONT_UNITS, COUNT_COLOR,
-			HORIZONTAL_ALIGNMENT_LEFT, 3)
-		_rail_count.name = "RailCount"
-		_rail_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_rail_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		_rail_count.clip_text = true
-		_rail_count.position = spot.position
-		_rail_count.size = spot.size
-		add_child(_rail_count)
 		_net_cell = net_cell(count)
 	for i in count:
 		var slot := Button.new()
@@ -584,8 +520,7 @@ func _build() -> void:
 			mark.visible = false
 			add_child(mark)
 			_marks.append(mark)
-	_info = CasinoStyle.label("", u * (RAIL_INFO_FONT_UNITS if lineup() else 2.0), MUTED_COLOR,
-		HORIZONTAL_ALIGNMENT_LEFT if lineup() else HORIZONTAL_ALIGNMENT_CENTER)
+	_info = CasinoStyle.label("", u * INFO_FONT_UNITS, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_info.clip_text = true
 	_info.position = info.position
@@ -614,11 +549,11 @@ func _build() -> void:
 	_energy_label.position = energy.position
 	_energy_label.size = energy.size
 	add_child(_energy_label)
-	# Würfel-Pakete mischen nicht neu: kein Knopf, keine Energie-Anzeige.
+	# Würfel-Pakete mischen nicht neu: kein Knopf, keine Energie - der Knopf steht mittig.
 	if choice != null and choice.is_dice():
 		_reshuffle_button.visible = false
 		_energy_label.visible = false
-		_take_button.size.x = buttons.size.x
+		_take_button.position.x = buttons.position.x + (buttons.size.x - button_size.x) * 0.5
 	# Ein Klick ins Leere überspringt die Enthüllung.
 	var skip := Button.new()
 	skip.name = "Skip"
@@ -682,8 +617,7 @@ func die_landed() -> void:
 		_finish_opening()
 	else:
 		_finish_count()
-	var label := _rail_count if lineup() else _counter
-	_pop(label)
+	_pop(_counter)
 
 ## Ein Klick: der rollende Glückswürfel soll liegen (das führt scene_root).
 func skip_count() -> void:
@@ -834,12 +768,8 @@ func _refresh() -> void:
 		_marks[i].visible = slots_shown() and label != ""
 	if _counter != null and is_instance_valid(_counter):
 		_counter.text = counter_text() if _counted else ""
-	if _rail_count != null and is_instance_valid(_rail_count):
-		_rail_count.text = counter_text() if _counted else ""
 	if _take_button != null and is_instance_valid(_take_button):
 		_take_button.disabled = not _counted
-		# Ohne Schirm steht auf der Schiene kein grauer Knopf: er kommt mit der Wahl.
-		_take_button.visible = not lineup() or _counted
 		if assign_mode:
 			_take_button.text = "Einsetzen (%d)" % _assign.size() if not _assign.is_empty() \
 				else "Nichts nehmen"

@@ -89,15 +89,49 @@ func test_clicking_a_filled_slot_reports_its_place_and_returns_it() -> void:
 	assert_eq(seen, [[0, uids[0]]], "Platz und Karte gemeldet")
 	assert_true(view.press_slot_uids().is_empty())
 
-func test_the_row_is_cap_and_reorder_is_move_not_swap() -> void:
+func test_reorder_onto_an_occupied_slice_swaps() -> void:
 	view.refresh()
 	var uids := _stock(3)
 	for uid in uids:
 		view.slot_pack(uid)
 	assert_eq(view.press_slot_uids(), uids)
 	view.move_slot(2, 0)
-	assert_eq(view.press_slot_uids(), [uids[2], uids[0], uids[1]] as Array[int],
-		"herausgenommen und eingesetzt - alles dazwischen rückt eine Stelle")
+	assert_eq(view.press_slot_uids(), [uids[2], uids[1], uids[0]] as Array[int],
+		"auf einer belegten Scheibe tauschen die beiden - die dritte bleibt liegen")
+
+## Spieler-Wunsch 2026-11-22: entnommen wird NUR diese Karte, niemand rückt nach.
+func test_removing_a_card_leaves_its_slice_empty() -> void:
+	var uids := _stock(4)
+	for i in 3:
+		view.slot_pack(uids[i])
+	view.clear_press_slot(1)
+	assert_eq(view.slice_uids(), [uids[0], 0, uids[2], 0, 0, 0] as Array[int],
+		"Scheibe 2 bleibt leer, Scheibe 3 behält ihre Karte")
+	assert_eq(view.press_slot_uids(), [uids[0], uids[2]] as Array[int], "die Rechnung überspringt die Lücke")
+	view.slot_pack(uids[3])
+	assert_eq(view.slice_uids(), [uids[0], uids[3], uids[2], 0, 0, 0] as Array[int],
+		"die nächste Karte füllt die erste freie Scheibe")
+
+func test_moving_onto_an_empty_slice_moves_only_that_card() -> void:
+	var uids := _stock(2)
+	for uid in uids:
+		view.slot_pack(uid)
+	view.move_slot(0, 4)
+	assert_eq(view.slice_uids(), [0, uids[1], 0, 0, uids[0], 0] as Array[int])
+	assert_eq(view.press_slot_uids(), [uids[1], uids[0]] as Array[int], "Scheibe 2 wirkt jetzt zuerst")
+
+func test_the_stream_reports_the_slice_not_the_rank() -> void:
+	view.choose_index(0)
+	view.slot_pack(_valued_pack(0, 1).pack_uid)
+	view.slot_pack(_valued_pack(1, 1).pack_uid)
+	view.clear_press_slot(0)
+	var seen: Array[int] = []
+	view.stream_passed.connect(func(index: int, _f: Array, _v: Array, _g: String, _t: float) -> void:
+		seen.append(index))
+	view.pull_lever()
+	assert_eq(view.slice_uids()[1] > 0, true, "die Karte liegt während der Fahrt auf Scheibe 2")
+	await wait_seconds(view.ceremony_time() + 0.3)
+	assert_eq(seen, [1] as Array[int], "gemeldet wird Scheibe 2")
 
 func test_the_row_never_takes_more_than_its_slots() -> void:
 	var uids := _stock(9)
@@ -162,7 +196,7 @@ func test_die_erste_karte_macht_ihn_zum_ziel_die_letzte_nimmt_es() -> void:
 	view.slot_pack(second.pack_uid)
 	view.clear_press_slot(0)
 	assert_eq(view.target_die(), run.owned_pool[2], "eine Karte steckt noch")
-	view.clear_press_slot(0)
+	view.clear_press_slot(1)  # sie liegt weiter auf Scheibe 2 - niemand rückt nach
 	assert_null(view.target_die(), "die letzte zurück: kein Ziel mehr")
 	assert_eq(view.chosen_die(), run.owned_pool[2], "aber weiter gewählt")
 	assert_eq(view.podium_die(), run.owned_pool[2], "wieder nur angesehen")

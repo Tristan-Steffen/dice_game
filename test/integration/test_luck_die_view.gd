@@ -111,3 +111,16 @@ func test_a_roll_ends_any_push() -> void:
 	view.roll_to(2, 0.0)
 	assert_false(view.held())
 	assert_true(view._nudge.is_equal_approx(Basis.IDENTITY))
+
+## Am Wurfplatz liegt er nach dem Wurf flach und still, die gewürfelte Seite oben.
+func test_a_lying_die_rests_flat_and_still_after_its_roll() -> void:
+	var view := _view()
+	view.set_lying(true)
+	view.roll_to(3, 0.0)
+	var body: Node3D = view.get_node("Body")
+	var up := body.basis.orthonormalized() * LuckDieView.FACE_DIRS[3]
+	assert_almost_eq(up.distance_to(Vector3.UP), 0.0, 0.001, "die gewürfelte Seite liegt oben")
+	assert_almost_eq(body.position.y, LuckDieView.half_edge(), 0.001, "er liegt auf dem Tisch")
+	var before := body.transform
+	await wait_frames(20)
+	assert_true(body.transform.is_equal_approx(before), "er bewegt sich nicht mehr")
