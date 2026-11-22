@@ -172,6 +172,20 @@ func test_debug_energy_button_emits_and_keeps_menu_open() -> void:
 	assert_signal_emit_count(hub, "debug_energy_requested", 2, "je Klick ein Signal")
 	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
 
+func test_debug_luck_and_storage_buttons_emit_and_keep_menu_open() -> void:
+	watch_signals(hub)
+	hub.settings_button.pressed.emit()
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	var found := 0
+	for button: Button in box.get_children():
+		if button.text == "Debug: +5 Glück" or button.text == "Debug: +5 ⚡-Speicher":
+			found += 1
+			button.pressed.emit()
+	assert_eq(found, 2, "beide Knöpfe sind im Menü")
+	assert_signal_emit_count(hub, "debug_luck_requested", 1)
+	assert_signal_emit_count(hub, "debug_energy_cap_requested", 1)
+	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+
 func test_settings_menu_hides_when_a_page_takes_the_hub() -> void:
 	hub.settings_button.pressed.emit()  # Menü offen auf der Home-Seite
 	assert_true(hub.settings_menu.visible)

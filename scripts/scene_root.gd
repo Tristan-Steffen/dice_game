@@ -366,7 +366,8 @@ var charm_shop: ShopController
 var debug_parts: DebugPartsView
 const DEBUG_PARTS_GAP := 12.0
 ## Die Ladungs-Bank in der Geld-Ecke - das physische Gegenstück der ⚡-Börse.
-var energy_ring: EnergyRingView
+var energy_bank: EnergyBankView
+var _energy_bank_px := Rect2()
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
 ## Vertragswahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
@@ -1210,6 +1211,15 @@ func _setup_table_screen() -> void:
 		_luck_station_limit_x(t_rect))
 	table_screen.place_luck_station(luck_rect)
 	var chips_rect := t_rect.merge(luck_rect) if luck_rect.size.x > 0.0 else t_rect
+	# Die AKKU-BANK eine Fuge rechts neben der Glücks-Station, so groß wie sie.
+	var bank_from := luck_rect if luck_rect.size.x > 0.0 else t_rect
+	_energy_bank_px = LuckStationView.placed_beside(t_rect, TableScreen.LAYOUT_SIZE.x * 0.005,
+		_luck_station_limit_x(t_rect))
+	_energy_bank_px.position.x = bank_from.end.x + TableScreen.LAYOUT_SIZE.x * 0.005
+	_energy_bank_px.size.x = minf(_energy_bank_px.size.x,
+		_luck_station_limit_x(t_rect) - _energy_bank_px.position.x)
+	if _energy_bank_px.size.x > 0.0:
+		chips_rect = chips_rect.merge(_energy_bank_px)
 	# Klickzone zum Heranzoomen ans Tray (Fußabdruck der Fassung).
 	var tr_a := table_screen.pixel_to_world(chips_rect.position)
 	var tr_b := table_screen.pixel_to_world(chips_rect.end)
@@ -1220,8 +1230,7 @@ func _setup_table_screen() -> void:
 		Vector3(tr_mid.x, 0.0, tr_mid.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
 	table_screen.link_hub_to_treasure()
-	# Der Energie-Ring steht vorläufig über der mittleren Chip-Spalte.
-	_setup_energy_ring(table_screen.energy_ring_rect())
+	_setup_energy_bank(_energy_bank_px)
 
 	# Fumble-Automaten: linker Zwilling des Hubs - Spalte des Kombi-Clusters (gleiche
 	# Rinne zum Hub), Ober- und Unterkante bündig mit dem Hub. Die Ablage ist zum
@@ -1649,6 +1658,8 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_win_round_requested.connect(_on_debug_win_round_pressed)
 		table_screen.hub.debug_money_requested.connect(_on_debug_money_pressed)
 		table_screen.hub.debug_energy_requested.connect(_on_debug_energy_pressed)
+		table_screen.hub.debug_luck_requested.connect(_on_debug_luck_pressed)
+		table_screen.hub.debug_energy_cap_requested.connect(_on_debug_energy_cap_pressed)
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
@@ -7361,7 +7372,7 @@ func _throw_bet_stake(bet: SideBet, pack_anchors: Array[Vector2],
 					"from": from, "to": _throw_scatter(seat, i, anchors.size())})
 		SideBet.Stake.ENERGY:
 			var count := BetPrizeView.energy_cells(run.side_bet_stake_energy(bet))
-			var from := energy_ring.global_position if energy_ring != null \
+			var from := energy_bank.global_position if energy_bank != null \
 				else _treasure_throw_point()
 			for i in mini(count, THROW_SALVO_CAP):
 				entries.append({"body": _throw_energy_body(), "from": from,
@@ -11291,23 +11302,17 @@ func _secret_shop_rect(slots_rect: Rect2, hub_rect: Rect2) -> Rect2:
 	var width := minf(height * SECRET_SHOP_ASPECT, slots_rect.size.x)
 	return Rect2(Vector2(slots_rect.end.x - width, top), Vector2(width, height))
 
-## Die Ladungs-Bank steht IM Chip-Raster: auf dem freien Platz unten rechts,
-## zwischen Grube und Kombinationen. Das 5×5-Raster hat einen FESTEN Fußabdruck,
-## also füllt es die Platzbreite exakt (span / max_length, ohne 1er-Deckel) -
-## Es wird auf BEIDE Achsen eingepasst (die knappere gewinnt): der Fußabdruck ist
-## auf das Platz-Verhältnis getrimmt, also füllen beide zugleich fast ganz - und
-## kein Rundungsdrift kann die Bank je in die Nachbarzelle schieben. Bewusst auf
-## blankem Filz, also NICHT spiegelnd (dort ist kein Glas).
-func _setup_energy_ring(field: Rect2) -> void:
+## Die Akku-Bank steht auf der Anzeige; uniform eingepasst, die knappere Achse gewinnt.
+func _setup_energy_bank(field: Rect2) -> void:
 	if field.size.x <= 0.0:
 		return
-	energy_ring = EnergyRingView.new()
-	energy_ring.name = "EnergyRing"
+	energy_bank = EnergyBankView.new()
+	energy_bank.name = "EnergyBank"
 	var center := table_screen.pixel_to_world(field.get_center())
-	energy_ring.position = Vector3(center.x, 0.0, center.z)
-	var fit := field.size.x / table_screen.pixels_per_world() / EnergyRingView.diameter()
-	energy_ring.scale = Vector3.ONE * fit
-	add_child(energy_ring)
+	energy_bank.position = Vector3(center.x, 0.0, center.z)
+	var world := field.size / table_screen.pixels_per_world()
+	energy_bank.scale = Vector3.ONE * minf(world.x / EnergyBankView.SIZE.y, world.y / EnergyBankView.SIZE.x)
+	add_child(energy_bank)
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
 ## Eine weitere Fläche derselben Klickzone (Display-Pixel) - die Zone bleibt EIN Körper.
@@ -14958,9 +14963,9 @@ func _sync_secret_shop_state() -> void:
 	_sync_secret_vitrine()
 
 func _sync_capacitor() -> void:
-	if energy_ring == null or run == null:
+	if energy_bank == null or run == null:
 		return
-	energy_ring.set_energy(run.energy, run.energy_cap())
+	energy_bank.set_energy(run.energy, run.energy_cap())
 
 func _on_energy_changed(value: int) -> void:
 	if value != _sfx_energy:
@@ -15962,9 +15967,9 @@ func _play_bank_discharge(base_blind: int, stored: int, overflow: int, cleared_s
 func _fly_energy_to_capacitor(book: bool = true, amount: int = 1) -> void:
 	var launched := run
 	var travel := 0.0
-	if table_screen != null and energy_ring != null:
+	if table_screen != null and energy_bank != null:
 		travel = table_screen.energy_comet(
-			table_screen.world_to_pixel(energy_ring.global_position), ENERGY_COMET_COLOR)
+			Vector2(_energy_bank_px.get_center().x, _energy_bank_px.end.y), ENERGY_COMET_COLOR)
 	if travel <= 0.0:
 		if book:
 			run.add_energy(amount)  # ohne Display still buchen, nichts verlieren
@@ -15975,8 +15980,8 @@ func _fly_energy_to_capacitor(book: bool = true, amount: int = 1) -> void:
 		if book:
 			run.add_energy(amount)
 			_ledger_energy(amount)  # book=false sind Sofort-Klauseln, nicht die Runde
-		if energy_ring != null:
-			energy_ring.pulse()
+		if energy_bank != null:
+			energy_bank.pulse()
 		if table_screen != null and table_screen.hub != null:
 			table_screen.hub.pulse_energy())
 
@@ -16105,6 +16110,17 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# das Podest gehört seit der Bühnen-Straße dem Fenster, nicht der Station.
 	_die_focus_home = {}
 	_sync_screen_reflection()
+func _on_debug_luck_pressed() -> void:
+	if run != null:
+		run.luck += 5
+		_refresh_hub_info()
+
+## Debug: eine Fünfergruppe mehr Speicher, bis zum Limit.
+func _on_debug_energy_cap_pressed() -> void:
+	if run != null:
+		run.storage_rows += 1
+		run.energy_changed.emit(run.energy)
+
 	# Wer mit offenem Lexikon wegfährt, hat es zugeklappt gemeint: hart zu, ohne
 	# Rückflug (der Spieler ist schon unterwegs). Hart und VOR der Laden-Logik
 	# unten, damit die Seitenregel einen verdrängten Laden JETZT zurückholt und
@@ -16644,8 +16660,8 @@ func _log_apply_display(state: Dictionary) -> void:
 	if chip_tray != null:
 		chip_tray.seat_hard(ChipTrayView.belegung(int(state.get("money", 0))))
 		_sync_tray_head(int(state.get("money", 0)))
-	if energy_ring != null:
-		energy_ring.set_energy(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
+	if energy_bank != null:
+		energy_bank.set_energy(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))
 	if table_screen != null and table_screen.hub != null:
 		table_screen.hub.set_run_info(int(state.get("round_number", 1)), int(state.get("money", 0)), _round_note())
 		table_screen.hub.set_energy_display(int(state.get("energy", 0)), int(state.get("energy_cap", 0)))

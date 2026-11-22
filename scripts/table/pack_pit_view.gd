@@ -5,7 +5,7 @@ extends Node3D
 ## (screen_glass.pit_rect verwirft die Anzeige, table_ground den Filzboden
 ## dahinter) - dieser Körper ist, was man durch das Loch sieht: vier nach innen
 ## blickende Wände, ein Boden und ein Kragen, der die harte Schnittkante deckt.
-## Rein per Code gebaut wie DataCellView und EnergyRingView - kein .tscn.
+## Rein per Code gebaut wie DataCellView und EnergyBankView - kein .tscn.
 ## Drei Tischregeln gelten auch hier: nur EMISSION (die Bodenkacheln vertragen
 ## 16 Lichter), das Ruhelicht bleibt unter Rune.IDLE_CEILING, und gespiegelt wird
 ## sie NICHT - ein Loch hat kein Spiegelbild.

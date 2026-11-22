@@ -2436,7 +2436,7 @@ func place_hub(center_px: Vector2, size_px: Vector2) -> void:
 
 ## Aderbreite beider Hub-Leisten (schlank = zurückhaltend).
 const HUB_STRIP_WIDTH := 3.4 * SUPERSAMPLE
-const ENERGY_RING_AIR := 3.0 * SUPERSAMPLE
+const CLUSTER_LANE_AIR := 3.0 * SUPERSAMPLE
 
 ## Gemeinsame Korridor-Höhe beider Hub-Leisten: mittig zwischen Grube-Unterkante
 ## und Hub-Oberkante - dort läuft ihr waagerechter Teil (unter der Grube).
@@ -2447,19 +2447,6 @@ func _hub_strip_lane_y() -> float:
 		obstacle_bottom = pit_window.position.y + pit_window.size.y
 	var lane_y := (obstacle_bottom + hub_top) * 0.5
 	return minf(lane_y, hub_top - 6.0 * SUPERSAMPLE)  # zur Not knapp über der Hub-Oberkante
-
-## Seitenlänge des Energie-Rings (quadratisch, der Ring ist rund).
-const ENERGY_RING_SIDE := 1.7 * CELL_SIZE.y
-
-## Der Platz des Energie-Rings (vorläufig): über der mittleren Chip-Spalte, knapp
-## über dem Cluster - die rechte liegt unter dem Wertungs-Bildschirm.
-func energy_ring_rect() -> Rect2:
-	if combo_cells.is_empty():
-		return Rect2()
-	var column := _top_cell_rect(1)
-	var bottom := cluster_rect.position.y - ENERGY_RING_AIR
-	return Rect2(column.get_center().x - ENERGY_RING_SIDE * 0.5, bottom - ENERGY_RING_SIDE,
-		ENERGY_RING_SIDE, ENERGY_RING_SIDE)
 
 ## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Tray rechts).
 func _hub_strip_exit_x(to_right: bool) -> float:
@@ -2861,9 +2848,16 @@ func _arc_path(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 ## Ladungs-Komet Hub -> Energie-Ring: die zweite Etappe einer Überladungs-
 ## Stufe. Sie fährt die Hub-Cluster-Ader, an deren Eintritt der Ring steht.
 func energy_comet(to_px: Vector2, color: Color) -> float:
-	if led_strip == null or led_strip.strip_path.size() < 2 or hub == null:
+	if hub == null:
 		return 0.0
-	var path := _route_via_strip(hub.position + hub.size * 0.5, led_strip, to_px)
+	var path := PackedVector2Array([hub.position + hub.size * 0.5])
+	# Die Akku-Bank hängt am Korridor der Geld-Ader: bis unter sie, dann hinauf.
+	if treasure_strip != null and treasure_strip.strip_path.size() >= 2:
+		var lane := treasure_strip.strip_path[1]
+		path.append(treasure_strip.strip_path[0])
+		path.append(lane)
+		path.append(Vector2(to_px.x, lane.y))
+	path.append(to_px)
 	var travel := _travel_time(path)
 	_pulse_along(path, travel, color)
 	return travel
@@ -3589,7 +3583,7 @@ var _install_banner_wanted := false
 func part_hint_slot() -> Rect2:
 	var column := _top_cell_rect(0)
 	var lane_h := column.size.y * PART_HINT_TALL
-	return Rect2(Vector2(column.position.x, cluster_rect.position.y - ENERGY_RING_AIR - lane_h),
+	return Rect2(Vector2(column.position.x, cluster_rect.position.y - CLUSTER_LANE_AIR - lane_h),
 		column.size)
 
 func _seat_part_card(card: HintCard, title: String, body: String, accent: Color) -> Rect2:
