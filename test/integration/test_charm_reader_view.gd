@@ -52,3 +52,18 @@ func test_the_disk_sits_at_slot_height() -> void:
 	assert_almost_eq(at.y + CharmDiskView.SIZE.y * 0.5, CharmReaderView.SLOT_Y, 0.001)
 	assert_lt(reader.lens_global_position().y - CharmReaderView.SIZE.y, 1.0,
 		"die Linse sitzt oben auf")
+
+func test_the_display_carries_the_charm_name() -> void:
+	reader.set_charm(Charm.rabbits_foot())
+	assert_eq(reader.name_text(), Charm.rabbits_foot().display_name.to_upper())
+	reader.set_sale("VERKAUF $5")
+	assert_eq(reader.name_text(), "", "der Preis steht allein")
+	reader.set_sale("")
+	reader.set_charm(null)
+	assert_eq(reader.name_text(), "", "leer nennt es nichts")
+
+func test_a_long_name_shrinks_to_fit_beside_its_counter() -> void:
+	reader.set_charm(Charm.four_leaf_clover())
+	var alone := reader.name_label.font_size
+	reader.set_badge("+12")
+	assert_lte(reader.name_label.font_size, alone, "neben dem Zähler bleibt weniger Breite")

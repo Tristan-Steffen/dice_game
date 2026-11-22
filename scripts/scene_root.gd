@@ -10997,7 +10997,7 @@ func _charm_anchor_px(slot: int) -> Vector2:
 ## Die Grundrisse der Laufwerke samt Diskette an die Anzeige melden (ihre Adern).
 func _place_charm_readers() -> void:
 	var rects: Array[Rect2] = []
-	for i in CharmRowView.SPOT_COUNT:
+	for i in charm_row.projector_count():
 		var corners := charm_row.footprint(i)
 		var a := table_screen.world_to_pixel(corners[0])
 		var b := table_screen.world_to_pixel(corners[1])
@@ -11384,6 +11384,24 @@ func _setup_side_bets_zoom() -> void:
 	side_bets_click_zone = _screen_zoom_zone("SideBetsClickZone",
 		Rect2(window.position, window.size), camera_rig.configure_side_bets_target)
 
+## Ein Projektor ist dazugekommen (oder der Lauf beginnt neu): Reihe, Adern, Klickzone
+## und Kamera-Rahmen ziehen nach.
+func _on_projectors_changed(hard := false) -> void:
+	if charm_row == null or run == null:
+		return
+	if not hard:
+		_sfx(&"shop_buy")
+	charm_row.set_projectors(run.projectors, hard)
+	if table_screen == null or table_screen.charm_reader_rects.is_empty():
+		return
+	_place_charm_readers()
+	table_screen.relink_charm_strips()
+	if charms_click_zone != null:
+		charms_click_zone.queue_free()
+	_setup_charms_zoom()
+	if not hard and camera_rig.mode == CameraRig.Mode.CHARMS:
+		_zoom_to_mode(CameraRig.Mode.CHARMS, true)
+
 ## Zoom-Ziel + Klickzone der Charms aus den Grundrissen der Laufwerke samt Disketten.
 func _setup_charms_zoom() -> void:
 	var rects := table_screen.charm_reader_rects
@@ -11396,7 +11414,7 @@ func _setup_charms_zoom() -> void:
 	# Laufwerken, also nimmt die Rahmung ihre halbe Höhe mit.
 	var lo := Vector3(INF, 0.0, INF)
 	var hi := Vector3(-INF, 0.0, -INF)
-	for i in CharmRowView.SPOT_COUNT:
+	for i in charm_row.projector_count():
 		for corner in charm_row.footprint(i):
 			lo = Vector3(minf(lo.x, corner.x), 0.0, minf(lo.z, corner.z))
 			hi = Vector3(maxf(hi.x, corner.x), 0.0, maxf(hi.z, corner.z))
@@ -12553,6 +12571,7 @@ func _score_ctx() -> Dictionary:
 		# Umschlüsselung; nur die Erstwertungs-Marken hängen am Slot.
 		DiceScoring.CTX_ENERGY: run.energy,
 		DiceScoring.CTX_ROUND: run.round_number,
+		DiceScoring.CTX_CHARM_SLOTS: run.charm_capacity(),
 		DiceScoring.CTX_HANDS_TAKEN: hands_taken_this_round,
 		DiceScoring.CTX_FUMBLES: run.round_fumbles,
 		DiceScoring.CTX_ASH_FUMBLES: run.ash_fumbles,
@@ -14928,6 +14947,8 @@ func _connect_run() -> void:
 	run.money_changed.connect(_on_money_changed)
 	_sfx_charm_count = run.owned_charms.size()
 	run.charms_changed.connect(_on_charms_changed)
+	run.projectors_changed.connect(_on_projectors_changed)
+	_on_projectors_changed(true)
 	# Würfel-Änderungen (Kauf, Paket, Gravur, Nehmen-Effekt) laufen über EINEN Weg.
 	run.pool_changed.connect(_on_pool_changed)
 	# Die Schale rechts der Bank zeigt, was bezahlt ist und noch keinen Platz hat.
@@ -16089,6 +16110,17 @@ func _on_debug_energy_pressed() -> void:
 	if run != null:
 		run.add_energy(10)
 
+func _on_debug_luck_pressed() -> void:
+	if run != null:
+		run.luck += 5
+		_refresh_hub_info()
+
+## Debug: eine Fünfergruppe mehr Speicher, bis zum Limit.
+func _on_debug_energy_cap_pressed() -> void:
+	if run != null:
+		run.storage_rows += 1
+		run.energy_changed.emit(run.energy)
+
 ## Sichtbarkeit der Spiel-UI nach Spielzustand (false während Shop/GameOver).
 func _set_gameplay_ui_visible(is_visible: bool) -> void:
 	gameplay_ui_state_visible = is_visible
@@ -16110,17 +16142,6 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# das Podest gehört seit der Bühnen-Straße dem Fenster, nicht der Station.
 	_die_focus_home = {}
 	_sync_screen_reflection()
-func _on_debug_luck_pressed() -> void:
-	if run != null:
-		run.luck += 5
-		_refresh_hub_info()
-
-## Debug: eine Fünfergruppe mehr Speicher, bis zum Limit.
-func _on_debug_energy_cap_pressed() -> void:
-	if run != null:
-		run.storage_rows += 1
-		run.energy_changed.emit(run.energy)
-
 	# Wer mit offenem Lexikon wegfährt, hat es zugeklappt gemeint: hart zu, ohne
 	# Rückflug (der Spieler ist schon unterwegs). Hart und VOR der Laden-Logik
 	# unten, damit die Seitenregel einen verdrängten Laden JETZT zurückholt und

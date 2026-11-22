@@ -261,7 +261,7 @@ func test_owning_a_charm_does_not_lock_its_card():
 func test_a_full_dock_locks_every_charm_card():
 	# Harte Obergrenze, keine Warteschlange: bei sechs Charms ist kein Kauf mehr
 	# möglich, egal wie viel Geld liegt.
-	for i in GameRun.CHARM_CAPACITY:
+	for i in GameRun.START_PROJECTORS:
 		run.owned_charms.append(Charm.rabbits_foot())
 	shop.open()
 	for button in shop.charm_buttons:
@@ -269,10 +269,10 @@ func test_a_full_dock_locks_every_charm_card():
 	var money_before: int = run.money
 	shop._on_charm_clicked(0)
 	assert_eq(run.money, money_before, "kein Abzug am vollen Dock")
-	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY)
+	assert_eq(run.owned_charms.size(), GameRun.START_PROJECTORS)
 
 func test_selling_a_charm_re_enables_the_cards():
-	for i in GameRun.CHARM_CAPACITY:
+	for i in GameRun.START_PROJECTORS:
 		run.owned_charms.append(Charm.rabbits_foot())
 	shop.open()
 	run.sell_charm(0)  # der Erlös meldet money_changed - die Karten frischen auf
@@ -304,7 +304,7 @@ func test_selling_a_charm_rebuilds_the_cards_and_the_click_works():
 	# bekam bei vollem Dock gar keinen pressed-Handler. Nach einem Verkauf muss
 	# beides wieder stimmen, nicht nur der disabled-Zustand.
 	run.money = 300
-	for i in GameRun.CHARM_CAPACITY:
+	for i in GameRun.START_PROJECTORS:
 		run.owned_charms.append(Charm.rabbits_foot())
 	shop.open()
 	await wait_frames(2)

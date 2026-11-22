@@ -271,3 +271,31 @@ func test_headless_starts_no_load_thread():
 	assert_eq(CharmRowView.models_in_flight(), 0, "kein Ladethread")
 	assert_eq(CharmRowView.models_queued(), 0, "und keine Schlange")
 	assert_not_null(CharmRowView.model_scene(path), "geliefert wird trotzdem")
+
+# --- Projektoren an der USB-Leiste ------------------------------------------------
+
+func test_ten_ports_stand_and_only_plugged_ones_glow():
+	assert_eq(row.ports.size(), CharmRowView.PORT_COUNT)
+	assert_eq(row.reader_ports, [2, 3, 4, 5, 6, 7] as Array[int], "die sechs mittleren zuerst")
+	assert_eq(row.port_light_color(0), CharmReaderView.DARK, "ein freier Port ist dunkel")
+	assert_eq(row.port_light_color(2), CharmReaderView.STANDBY, "angeschlossen glimmt er")
+
+func test_a_new_projector_takes_the_next_port_and_charms_keep_their_order():
+	var charms: Array[Charm] = [Charm.rabbits_foot(), Charm.horseshoe()]
+	row.set_charms(charms, {}, true)
+	row.set_projectors(7, true)
+	assert_eq(row.readers.size(), 7)
+	assert_eq(row.reader_ports.back(), 8, "der siebte steht rechts außen")
+	row.set_projectors(8, true)
+	assert_eq(row.reader_ports.front(), 1, "der achte links außen")
+	for i in charms.size():
+		assert_almost_eq(row.disk_of(i).global_position.distance_to(
+			row.readers[i].disk_global_transform().origin), 0.0, 0.001,
+			"die Diskette zieht mit an den Projektor ihres Platzes")
+	assert_ne(row.port_light_color(1), CharmReaderView.STANDBY, "der Port trägt die Rarität des Charms")
+
+func test_a_projector_lights_its_halo_only_with_a_charm():
+	var charms: Array[Charm] = [Charm.rabbits_foot()]
+	row.set_charms(charms, {}, true)
+	assert_ne(row.readers[0].halo_color(), Color.BLACK, "belegt fällt der Lichthof auf den Filz")
+	assert_eq(row.readers[1].halo_color(), Color.BLACK, "leer bleibt er aus")

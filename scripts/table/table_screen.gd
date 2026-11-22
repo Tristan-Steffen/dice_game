@@ -581,7 +581,7 @@ func _build_content() -> void:
 	charm_bus_strip.name = "CharmBusStrip"
 	charm_bus_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(charm_bus_strip)
-	for i in CharmRowView.SPOT_COUNT:
+	for i in CharmRowView.PORT_COUNT:
 		var strip := LedStripView.new()
 		strip.name = "CharmScoreStrip%d" % i
 		strip.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2583,6 +2583,8 @@ func _link_charm_strips() -> void:
 	_charm_trunk_x = score_rect.get_center().x
 	var rail_left := consoles[0].get_center().x
 	var rail_right := consoles[n - 1].get_center().x
+	for i in charm_score_strips.size():
+		charm_score_strips[i].visible = i < n
 	for i in n:
 		var cx := consoles[i].get_center().x
 		# Kurze senkrechte Ader von der Konsolen-Unterkante auf die Schiene.
@@ -2605,6 +2607,10 @@ func _charm_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 ## Die Grundrisse der Charm-Laufwerke (Display-Pixel) - daran hängen ihre Adern.
 func place_charm_readers(rects: Array[Rect2]) -> void:
 	charm_reader_rects = rects.duplicate()
+
+## Die Projektor-Zahl hat sich geändert: Adern und Schiene neu verlegen.
+func relink_charm_strips() -> void:
+	_link_charm_strips()
 
 ## --- Lichtlauf Hub -> Chip (Rampenlicht) --------------------------------------
 

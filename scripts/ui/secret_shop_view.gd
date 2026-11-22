@@ -121,6 +121,7 @@ func _card_seat_size() -> Vector2:
 		charm_disk_px.y + u * CHARM_TAG_UNITS)
 var vitrine_slot: Control
 var reroll_button: Button
+var projector_button: Button
 ## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
 ## Bucht liegt, hat auf dem Bildschirm keinen (die Lücken halten die Indizes).
 var offer_buttons: Array[Button] = []
@@ -230,18 +231,24 @@ func _build_layout() -> void:
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_theme_constant_override("separation", int(u * 1.2))
 	root.add_child(header)
-	header.add_child(CasinoStyle.label("SCHWARZMARKT", u * 4.2, Color(1.35, 0.7, 1.7)))
-	var rail := CasinoStyle.rail(VIOLET, u)
-	rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	header.add_child(rail)
-	wallet_label = CasinoStyle.label("⚡ 0/0", u * 4.2, ENERGY_COLOR)
+	header.add_child(CasinoStyle.label("SCHWARZMARKT", u * 3.6, Color(1.35, 0.7, 1.7)))
+	# Kein Zier-Streifen mehr: der Projektor-Knopf braucht die Breite.
+	var gap := Control.new()
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(gap)
+	wallet_label = CasinoStyle.label("⚡ 0/0", u * 3.6, ENERGY_COLOR)
 	wallet_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header.add_child(wallet_label)
-	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.6, Vector2(u * 24.0, u * 6.2))
+	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.3, Vector2(u * 20.0, u * 6.2))
 	reroll_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	reroll_button.pressed.connect(_on_reroll_pressed)
 	header.add_child(reroll_button)
+	projector_button = _neon_button("+Projektor", ENERGY_COLOR, u * 2.3, Vector2(u * 18.0, u * 6.2))
+	projector_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	projector_button.tooltip_text = "Ein weiterer Projektor: ein Charm-Platz mehr. Jeder belegt einen USB-Port des Tisches."
+	projector_button.pressed.connect(_on_projector_pressed)
+	header.add_child(projector_button)
 
 	# Darunter die zwei Zonen: links der Karten-Sitz (Bildschirm), rechts die Bucht.
 	var body := HBoxContainer.new()
@@ -741,6 +748,12 @@ func _refresh_afford_state() -> void:
 	var cost := run.secret_reroll_cost()
 	reroll_button.text = "Neu mischen ⚡%d" % cost
 	reroll_button.disabled = run.energy < cost
+	var projector_cost := run.projector_price()
+	if projector_cost < 0:
+		projector_button.text = "Ports voll"
+	else:
+		projector_button.text = "+Projektor ⚡%d" % projector_cost
+	projector_button.disabled = projector_cost < 0 or run.energy < projector_cost
 	for i in offer_buttons.size():
 		if i >= run.secret_stock.size() or offer_buttons[i] == null:
 			continue
@@ -839,6 +852,14 @@ func _on_reroll_pressed() -> void:
 	var cost := run.secret_reroll_cost()
 	if run.reroll_secret_stock():
 		energy_spent.emit(cost)
+
+func _on_projector_pressed() -> void:
+	if run == null:
+		return
+	var cost := run.projector_price()
+	if run.buy_projector():
+		energy_spent.emit(cost)
+		_refresh_afford_state()
 
 func _on_run_changed() -> void:
 	_refresh_offers()

@@ -1,7 +1,8 @@
 class_name CharmRowView
 extends Node3D
-## Die Charm-Reihe als LAUFWERKE (Spieler-Entscheid 2026-11-18): sechs feste
-## `CharmReaderView` am hinteren Tischrand, Schlitz zum Spieler. Je Charm steckt eine
+## Die Charm-Reihe als PROJEKTOREN an der USB-LEISTE (2026-11-22): zehn Ports im Tisch, je
+## gekauftem Projektor ein `CharmReaderView` an seinem Port (set_projectors), Schlitz zum
+## Spieler. Je Charm steckt eine
 ## `CharmDiskView` mit Schieber und Bild im Schlitz, ihr Text liegt davor; über der
 ## Projektor-Linse schwebt das HOLOGRAMM (massives Modell mit Lichtkante,
 ## charm_hologram.gdshader). set_charms() ist der EINE idempotente Schreiber: Disketten
@@ -16,8 +17,17 @@ const MODEL_SCALE := 4.0
 ## Das Hologramm schwebt über der Linse - eine Projektion steht nicht auf.
 const HOVER_HEIGHT := 0.6
 
-## Anzahl fester Plätze; die Obergrenze besitzbarer Charms führt GameRun.
-const SPOT_COUNT := GameRun.CHARM_CAPACITY
+## Projektoren eines frischen Laufs; wie viele stehen, führt GameRun.
+const SPOT_COUNT := GameRun.START_PROJECTORS
+const PORT_COUNT := GameRun.MAX_PROJECTORS
+## In dieser Folge belegen Projektoren die Ports: erst die Mitte, dann abwechselnd außen.
+const PORT_ORDER: Array[int] = [2, 3, 4, 5, 6, 7, 8, 1, 9, 0]
+const PORT_MODEL := "res://assets/models/hardware/usb_port.glb"
+const RAIL_DEPTH := 0.34 * CharmDiskView.BLENDER_SCALE
+const RAIL_HEIGHT := 0.03
+const RAIL_LINE := Color(0.2, 0.75, 0.9)
+const PORT_DIGIT := Color(0.55, 0.58, 0.64)
+const PORT_LIT := 1.1
 
 ## Der Hologramm-Look: Spieler-Wahl 2026-09-09 (Lichtkante plus Kegel), unverändert.
 const HOLO_SHADER := preload("res://assets/shaders/charm_hologram.gdshader")
@@ -54,6 +64,11 @@ const SLIDE_TIME := 0.22
 const DRAG_HEIGHT := CharmReaderView.SIZE.y + 1.6
 
 var readers: Array[CharmReaderView] = []
+## Port je Projektor, aufsteigend (index-parallel zu readers).
+var reader_ports: Array[int] = []
+var ports: Array[Node3D] = []
+var _port_lights: Array[StandardMaterial3D] = []
+var _by_port := {}  # Port -> CharmReaderView
 var current_charms: Array[Charm] = []
 ## Index-parallel zu current_charms (für Wertung und Tests).
 var charm_nodes: Array[Node3D] = []
@@ -76,14 +91,113 @@ func _ready() -> void:
 	_ensure_readers()
 
 func _ensure_readers() -> void:
-	if not readers.is_empty():
+	if readers.is_empty():
+		set_projectors(SPOT_COUNT, true)
+
+## Der EINE Schreiber der Projektoren: count stehen an den ersten Ports von PORT_ORDER.
+## Ein neuer wächst an seinem Port auf; rückt ein Platz dadurch, ziehen die Disketten um.
+func set_projectors(count: int, hard := false) -> void:
+	_ensure_rail()
+	var wanted: Array[int] = []
+	for i in clampi(count, 0, PORT_COUNT):
+		wanted.append(PORT_ORDER[i])
+	wanted.sort()
+	if wanted == reader_ports:
 		return
-	for i in SPOT_COUNT:
-		var reader := CharmReaderView.new()
-		reader.name = "Laufwerk%d" % i
-		reader.position = _spot_position(i)
-		add_child(reader)
-		readers.append(reader)
+	if current_charms.size() > wanted.size():
+		set_charms(current_charms.slice(0, wanted.size()), {}, true)
+	for port: int in _by_port.keys():
+		if not wanted.has(port):
+			(_by_port[port] as Node).queue_free()
+			_by_port.erase(port)
+	var old := readers.duplicate()
+	readers.clear()
+	for port in wanted:
+		if not _by_port.has(port):
+			var reader := CharmReaderView.new()
+			reader.name = "Projektor_Port%d" % port
+			reader.position = port_position(port)
+			add_child(reader)
+			_by_port[port] = reader
+			if not hard and is_inside_tree():
+				reader.appear()
+		readers.append(_by_port[port])
+	reader_ports = wanted
+	for i in current_charms.size():
+		if i >= old.size() or old[i] != readers[i]:
+			_move_body(current_charms[i], i, hard)
+	_refresh_readers()
+
+## Schiene und zehn Ports hinter der Reihe.
+func _ensure_rail() -> void:
+	if not ports.is_empty():
+		return
+	var back := CharmReaderView.PORT.x
+	var rail := MeshInstance3D.new()
+	rail.name = "Leiste"
+	var box := BoxMesh.new()
+	box.size = Vector3(RAIL_DEPTH, RAIL_HEIGHT, LINE_SPACING * float(PORT_COUNT - 1) + 4.2)
+	rail.mesh = box
+	rail.material_override = CharmDiskView.shell_material("Leistengrund")
+	rail.position = Vector3(LINE_X + back, RAIL_HEIGHT * 0.5, 0.0)
+	rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(rail)
+	var line := MeshInstance3D.new()
+	line.name = "Leistenlinie"
+	var line_box := BoxMesh.new()
+	line_box.size = Vector3(0.05, 0.02, box.size.z - 1.4)
+	line.mesh = line_box
+	line.material_override = CharmDiskView._unshaded(RAIL_LINE * 0.7)
+	line.position = Vector3(LINE_X + back + RAIL_DEPTH * 0.5 - 0.14, RAIL_HEIGHT + 0.005, 0.0)
+	add_child(line)
+	var scene: PackedScene = load(PORT_MODEL) if ResourceLoader.exists(PORT_MODEL) else null
+	for port in PORT_COUNT:
+		var node := Node3D.new()
+		node.name = "Port%d" % port
+		node.position = port_position(port) + Vector3(back, RAIL_HEIGHT, 0.0)
+		add_child(node)
+		var light := CharmDiskView._unshaded(CharmReaderView.DARK)
+		if scene != null:
+			var model := scene.instantiate() as Node3D
+			model.rotation = Vector3(0.0, -PI * 0.5, 0.0)
+			model.scale = Vector3.ONE * CharmDiskView.BLENDER_SCALE
+			CharmDiskView.dress_shell(model)
+			node.add_child(model)
+			var lamp := model.find_child("Portlicht*", true, false) as MeshInstance3D
+			if lamp != null:
+				lamp.material_override = light
+		var digit := Label3D.new()
+		digit.name = "Ziffer"
+		digit.text = "%02d" % (port + 1)
+		digit.font = CharmDiskView.disk_font()
+		digit.font_size = 34
+		digit.pixel_size = CharmDiskView.PIXEL
+		digit.shaded = false
+		digit.double_sided = false
+		digit.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS
+		digit.modulate = PORT_DIGIT
+		digit.basis = CharmDiskView._flat_basis()
+		digit.position = Vector3(0.62, 0.1, 0.0)
+		node.add_child(digit)
+		ports.append(node)
+		_port_lights.append(light)
+
+## Frei dunkel, angeschlossen glimmt der Port, mit Charm leuchtet er in dessen Rarität.
+func _refresh_ports() -> void:
+	for port in ports.size():
+		var reader: CharmReaderView = _by_port.get(port)
+		var color := CharmReaderView.DARK
+		if reader != null and reader.charm != null:
+			color = CharmDiskView.energized(CharmDiskView.rarity_color(reader.charm.rarity), PORT_LIT)
+		elif reader != null:
+			color = CharmReaderView.STANDBY
+		_port_lights[port].albedo_color = color
+
+func port_light_color(port: int) -> Color:
+	return _port_lights[port].albedo_color
+
+func projector_count() -> int:
+	return readers.size()
 
 ## Der EINE Schreiber. incoming: eine frisch gekaufte Diskette, die schon in der Welt
 ## liegt (Charm -> CharmDiskView) - sie fliegt hinein statt hart zu stecken.
@@ -91,7 +205,7 @@ func set_charms(charms: Array[Charm], incoming := {}, hard := false) -> void:
 	_ensure_readers()
 	_ensure_resources()
 	var wanted: Array[Charm] = []
-	for i in mini(charms.size(), SPOT_COUNT):
+	for i in mini(charms.size(), readers.size()):
 		wanted.append(charms[i])
 	for charm: Charm in _bodies.keys():
 		if not wanted.has(charm):
@@ -120,13 +234,14 @@ func _process(delta: float) -> void:
 			model.position.y = lift
 
 func _refresh_readers() -> void:
-	for i in SPOT_COUNT:
+	for i in readers.size():
 		var charm: Charm = current_charms[i] if i < current_charms.size() else null
 		var shown := charm != null and not _arriving.has(charm)
 		readers[i].set_charm(charm if shown else null)
 		readers[i].set_badge(String(_badges.get(i, "")))
 		if charm != null and _bodies.has(charm):
 			_set_holo_visible(charm, shown)
+	_refresh_ports()
 
 func _index_bodies() -> void:
 	charm_nodes.clear()
@@ -312,9 +427,8 @@ func end_drag() -> void:
 ## Zähler-Chips je Platz (Platz -> Text) auf das Front-Display.
 func set_badges(texts: Dictionary) -> void:
 	_badges = texts.duplicate()
-	for i in SPOT_COUNT:
-		if i < readers.size():
-			readers[i].set_badge(String(_badges.get(i, "")))
+	for i in readers.size():
+		readers[i].set_badge(String(_badges.get(i, "")))
 
 ## Der Verkaufspreis auf dem Display des Platzes (-1 = keiner).
 func set_sale(index: int, text: String) -> void:
@@ -628,9 +742,9 @@ static func placeholder_model(charm_id: String) -> Node3D:
 	root.add_child(mesh_instance)
 	return root
 
-## Mitte des Laufwerks i (lokal, auf dem Filz).
-func _spot_position(i: int) -> Vector3:
-	var z := (float(i) - float(SPOT_COUNT - 1) * 0.5) * LINE_SPACING
+## Mitte des Projektors an Port port (lokal, auf dem Filz).
+static func port_position(port: int) -> Vector3:
+	var z := (float(port) - float(PORT_COUNT - 1) * 0.5) * LINE_SPACING
 	return Vector3(LINE_X, SPOT_Y, z)
 
 ## Die Vorderkante der Reihe (lokal x): dort endet der Text der eingelegten Disketten.

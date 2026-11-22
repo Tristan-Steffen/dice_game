@@ -51,8 +51,8 @@ const SMALL_FRY_MULT := 2
 static func is_small_fry_value(value: int) -> bool:
 	return value == 1 or value == 2
 
-## Charm-Plätze im Dock - spiegelt GameRun.CHARM_CAPACITY (core greift nicht in
-## den Laufzustand; ein Test hält die beiden Zahlen gleich).
+## Charm-Plätze ohne gemeldeten Stand - spiegelt GameRun.START_PROJECTORS; im Spiel
+## reist die Projektor-Zahl als DiceScoring.CTX_CHARM_SLOTS mit.
 const CHARM_SLOTS := 6
 
 ## Leerer Sockel: Mult je freiem Charm-Platz.
@@ -493,7 +493,7 @@ static func charm_mult_bonus_at(j: int, _key: String, values: Array[int], materi
 		Charm.HOUSE_JOKER:
 			return HOUSE_JOKER_MULT
 		Charm.EMPTY_PLINTH:
-			return EMPTY_PLINTH_MULT * maxi(0, CHARM_SLOTS - charm_ids.size())
+			return EMPTY_PLINTH_MULT * maxi(0, int(ctx.get(DiceScoring.CTX_CHARM_SLOTS, CHARM_SLOTS)) - charm_ids.size())
 		Charm.LUMINOUS_PAINT:
 			var runes := 0
 			for slot in scored:

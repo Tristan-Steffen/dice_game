@@ -21,13 +21,16 @@ signal pool_changed
 signal pending_dice_changed
 signal energy_changed(value: int)
 signal secret_stock_changed
+signal projectors_changed
 ## Die Serie der Werkbank hat sich geändert (Prägen, Slots, verbrauchte Karten).
 signal press_changed
 
 const POOL_SIZE := 30
-## Charm-Plätze am Tisch (CharmRowView.SPOT_COUNT liest hier) - zugleich die harte
-## Obergrenze: bei sechs Charms nimmt der Dock keinen weiteren an.
-const CHARM_CAPACITY := 6
+## Je PROJEKTOR ein Charm-Platz; jeder hängt an einem der USB-Ports des Tisches.
+const START_PROJECTORS := 6
+const MAX_PROJECTORS := 10
+## ⚡-Preis des nächsten Projektors im Schwarzmarkt (7., 8., 9., 10.).
+const PROJECTOR_PRICES := [4, 6, 8, 10]
 const BASE_GOAL := 150
 ## Blind-Kurve: Wachstum je Runde = BLIND_GROWTH_BASE + BLIND_GROWTH_STEP × Block.
 const BLIND_GROWTH_BASE := 0.10
@@ -592,10 +595,31 @@ func purchase_charm(charm: Charm, price: int) -> bool:
 	add_money(-price)
 	return _grant_charm(charm)
 
-## Harte Obergrenze der Charm-Plätze (= CharmRowView.SPOT_COUNT): ist der Dock
-## voll, gibt es KEINE Warteschlange - ein weiterer Charm ist nicht kaufbar.
+var projectors: int = START_PROJECTORS
+
+func charm_capacity() -> int:
+	return projectors
+
+## Sind alle Projektoren belegt, gibt es KEINE Warteschlange - ein weiterer Charm ist
+## nicht kaufbar.
 func charms_full() -> bool:
-	return owned_charms.size() >= CHARM_CAPACITY
+	return owned_charms.size() >= charm_capacity()
+
+## -1 = alle Ports belegt.
+func projector_price() -> int:
+	if projectors >= MAX_PROJECTORS:
+		return -1
+	return int(PROJECTOR_PRICES[clampi(projectors - START_PROJECTORS, 0, PROJECTOR_PRICES.size() - 1)])
+
+func buy_projector() -> bool:
+	var price := projector_price()
+	if price < 0 or energy < price:
+		return false
+	spend_energy(price)
+	projectors += 1
+	projectors_changed.emit()
+	charms_changed.emit()  # ein Platz ist frei geworden: Läden und Reihe ziehen nach
+	return true
 
 ## Einziger Einzug eines Charms - Laden wie Schwarzmarkt gehen hier durch, damit
 ## der Sonderfall Lumpensammler (Glückszahl sofort würfeln) nie auseinanderläuft.

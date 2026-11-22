@@ -1,9 +1,13 @@
 class_name CharmProjectorView
 extends Node3D
-## Der PROJEKTOR eines Charm-Platzes im LADEN (Spieler-Wunsch 2026-11-20): eine flache
-## Brücke über dem Schieber der eingelegten Diskette, obenauf die Linse mit einem KLEINEN
-## Hologramm, rechts das Preisschild. Ursprung = Mitte der Brücke auf dem Tisch, lokal
-## +X = Bild-oben; die Diskette liegt davor (-X) und stellt der Aufrufer.
+## Der PROJEKTOR eines Charm-Platzes im LADEN (Spieler-Wunsch 2026-11-20, seit dem 2026-11-22 im
+## Stil des Stahldecks): eine flache Brücke über dem Schieber der eingelegten Diskette - schwarzer
+## Lack, Stahlplatte mit Schale und KLEINEM Hologramm, rechts das Preisfeld, vorn das Display mit
+## dem NAMEN. Modell charm_bridge.glb (Licht eingemalt). Ursprung = Mitte der Brücke auf dem
+## Tisch, lokal +X = Bild-oben; die Diskette liegt davor (-X) und stellt der Aufrufer.
+
+const MODEL_PATH := "res://assets/models/hardware/charm_bridge.glb"
+const S := CharmDiskView.BLENDER_SCALE
 
 const AIR := 0.04
 const BACK := 0.12
@@ -12,9 +16,14 @@ const UNDER := 0.4
 const DECK := 0.38
 const DEPTH := CharmDiskView.INSERT_DEPTH + BACK
 const WIDTH := CharmDiskView.SIZE.z + (CHEEK + AIR) * 2.0
-const TOP := UNDER + DECK
-const LENS := Vector3(0.0, TOP + 0.06, 0.0)
-const LENS_RADIUS := 0.36
+## Blender-Maße aus tools/blender_projector_baked.py (bruecke): Platte, Schalenmitte, Linse.
+const PLATE := 0.012 * S
+const TOP := UNDER + DECK + PLATE
+const PLATE_DEPTH := DEPTH - 0.125 * S
+const DISH_X := DEPTH * 0.5 - 0.012 * S - PLATE_DEPTH * 0.5
+const LENS := Vector3(DISH_X, TOP - 0.009 * S, 0.0)
+const LENS_RADIUS := 0.05 * S
+const GLOW_PARTS := ["Lippe", "Ring", "Umriss"]
 
 ## Kleiner als in der Reihe (CharmRowView.MODEL_SCALE 4).
 const HOLO_SCALE := 2.6
@@ -31,12 +40,18 @@ const LIGHT_ANGLE := 30.0
 const GLOW_REST := 0.62
 const GLOW_HOVER := 1.5
 const PRICE_Z := 2.25
-const PRICE_WIDTH := 1.9
-const PRICE_BIGGEST := 95
+const PRICE_WIDTH := 1.4
+const PRICE_BIGGEST := 72
 const PRICE_MUTED := Color(0.5, 0.5, 0.58)
+## Der Name steht auf dem Display vorn auf dem Deck.
+const NAME_INSET := 0.056 * S
+const NAME_WIDTH := WIDTH - 0.08 * S - 0.4
+const NAME_BIGGEST := 52
+const NAME_ENERGY := 1.15
 
 var charm: Charm
 var price_label: Label3D
+var name_label: Label3D
 var holo: Node3D
 var _glow: StandardMaterial3D
 var _lens: StandardMaterial3D
@@ -57,31 +72,27 @@ static func origin_for(center: Vector3) -> Vector3:
 func _build() -> void:
 	_glow = CharmDiskView._unshaded(CharmReaderView.DARK)
 	_lens = CharmDiskView._unshaded(CharmReaderView.DARK)
-	var body := CharmDiskView.shell_material("Gussgrau")
-	var lacquer := CharmDiskView.shell_material("Schwarzlack")
-	for side in [-1.0, 1.0]:
-		_box("Wange", Vector3(DEPTH, UNDER, CHEEK),
-			Vector3(0.0, UNDER * 0.5, side * (WIDTH - CHEEK) * 0.5), body)
-	_box("Rueckwand", Vector3(BACK, UNDER, WIDTH - CHEEK * 2.0),
-		Vector3((DEPTH - BACK) * 0.5, UNDER * 0.5, 0.0), body)
-	_box("Deck", Vector3(DEPTH, DECK, WIDTH), Vector3(0.0, UNDER + DECK * 0.5, 0.0), lacquer)
-	_box("Lippe", Vector3(0.05, 0.07, WIDTH - 0.7),
-		Vector3(-DEPTH * 0.5 - 0.012, UNDER + 0.07, 0.0), _glow)
-	_box("Lampe", Vector3(0.22, 0.04, 0.5), Vector3(-DEPTH * 0.5 + 0.4, TOP + 0.012, -2.6), _glow)
-	var collar := CylinderMesh.new()
-	collar.top_radius = LENS_RADIUS + 0.2
-	collar.bottom_radius = LENS_RADIUS + 0.26
-	collar.height = 0.08
-	_part("Kragen", collar, Vector3(0.0, TOP + 0.04, 0.0), CharmDiskView.shell_material("Chrom"))
-	var ring := TorusMesh.new()
-	ring.inner_radius = LENS_RADIUS
-	ring.outer_radius = LENS_RADIUS + 0.09
-	_part("Ring", ring, Vector3(0.0, TOP + 0.09, 0.0), _glow)
-	var glass := CylinderMesh.new()
-	glass.top_radius = LENS_RADIUS
-	glass.bottom_radius = LENS_RADIUS
-	glass.height = 0.04
-	_part("Linse", glass, LENS, _lens)
+	var scene: PackedScene = load(MODEL_PATH) if ResourceLoader.exists(MODEL_PATH) else null
+	if scene != null:
+		var shell := scene.instantiate() as Node3D
+		shell.name = "Bruecke"
+		shell.rotation = Vector3(0.0, -PI * 0.5, 0.0)
+		shell.scale = Vector3.ONE * S
+		CharmDiskView.dress_shell(shell)
+		add_child(shell)
+		for part in GLOW_PARTS:
+			var mesh := shell.find_child(part, true, false) as MeshInstance3D
+			if mesh != null:
+				mesh.material_override = _glow
+		var lens := shell.find_child("Linse", true, false) as MeshInstance3D
+		if lens != null:
+			lens.material_override = _lens
+		var korpus := shell.find_child("Korpus", true, false) as MeshInstance3D
+		if korpus != null and korpus.mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_COLOR:
+			korpus.material_override = CharmReaderView._baked_material()
+	else:
+		_box("Deck", Vector3(DEPTH, DECK, WIDTH), Vector3(0.0, UNDER + DECK * 0.5, 0.0),
+			CharmDiskView.shell_material("Schwarzlack"))
 	price_label = Label3D.new()
 	price_label.name = "Preis"
 	price_label.font = CharmDiskView.disk_font()
@@ -90,8 +101,12 @@ func _build() -> void:
 	price_label.double_sided = false
 	price_label.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS
 	price_label.basis = CharmDiskView._flat_basis()
-	price_label.position = Vector3(0.0, TOP + 0.02, PRICE_Z)
+	price_label.position = Vector3(DISH_X, TOP + 0.06, PRICE_Z)
 	add_child(price_label)
+	name_label = price_label.duplicate() as Label3D
+	name_label.name = "Name"
+	name_label.position = Vector3(-DEPTH * 0.5 + NAME_INSET, UNDER + DECK + 0.06, 0.0)
+	add_child(name_label)
 	_refresh()
 
 func _box(part: String, size: Vector3, at: Vector3, material: Material) -> void:
@@ -135,7 +150,7 @@ func set_price(text: String, muted := false) -> void:
 func price_text() -> String:
 	return price_label.text if price_label != null else ""
 
-## Der Zeiger liegt auf dem Platz: Lippe, Lampe und Ring leuchten heller.
+## Der Zeiger liegt auf dem Platz: Lippe und Ring leuchten heller.
 func set_hovered(on: bool) -> void:
 	if on == _hovered:
 		return
@@ -145,7 +160,19 @@ func set_hovered(on: bool) -> void:
 func glow_color() -> Color:
 	return _glow.albedo_color if _glow != null else CharmReaderView.DARK
 
+func name_text() -> String:
+	return name_label.text if name_label != null else ""
+
+func _write_name() -> void:
+	var title := charm.display_name.to_upper() if charm != null else ""
+	name_label.text = title
+	name_label.font_size = CharmDiskView.fit_line(title, NAME_WIDTH / CharmDiskView.PIXEL, NAME_BIGGEST)
+	if charm != null:
+		name_label.modulate = CharmDiskView.energized(CharmDiskView.rarity_color(charm.rarity),
+			NAME_ENERGY)
+
 func _refresh() -> void:
+	_write_name()
 	var lit := charm != null
 	var tint := CharmDiskView.rarity_color(charm.rarity) if lit else CharmReaderView.DARK
 	_glow.albedo_color = CharmDiskView.energized(tint, GLOW_HOVER if _hovered else GLOW_REST) \

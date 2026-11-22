@@ -125,7 +125,7 @@ func test_purchase_charm_grants_deducts_and_emits():
 ## --- Harte Obergrenze der Charm-Plätze (keine Warteschlange) --------------------
 
 func _fill_charm_dock() -> void:
-	for i in GameRun.CHARM_CAPACITY:
+	for i in GameRun.START_PROJECTORS:
 		run.owned_charms.append(Charm.rabbits_foot())
 
 func test_charms_full_reports_the_capacity():
@@ -140,7 +140,7 @@ func test_purchase_charm_at_capacity_costs_nothing_and_grants_nothing():
 	run.money = 30
 	assert_false(run.purchase_charm(Charm.horseshoe(), 25))
 	assert_eq(run.money, 30, "kein Abzug für einen Charm, der nicht einzieht")
-	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY, "keine unsichtbare Warteschlange")
+	assert_eq(run.owned_charms.size(), GameRun.START_PROJECTORS, "keine unsichtbare Warteschlange")
 	assert_signal_not_emitted(run, "charms_changed")
 
 func test_selling_frees_a_slot_again():
@@ -149,7 +149,7 @@ func test_selling_frees_a_slot_again():
 	assert_false(run.charms_full())
 	run.money = 30
 	assert_true(run.purchase_charm(Charm.horseshoe(), 25))
-	assert_eq(run.owned_charms.size(), GameRun.CHARM_CAPACITY)
+	assert_eq(run.owned_charms.size(), GameRun.START_PROJECTORS)
 
 func test_secret_market_charm_slot_is_barred_at_capacity():
 	# Der Schwarzmarkt geht denselben Weg: voller Dock, keine Energie abgebucht.
@@ -1871,3 +1871,29 @@ func test_a_bet_never_takes_a_multiplier_as_its_number_stake() -> void:
 	run.grant_pack(Pack.multiplier_pack())
 	assert_false(run.pack_stock().has(SideBet.pack_stock_key(Pack.TYPE_NUMBER,
 		Pack.TIER_NORMAL)), "das lila Netz ist kein Zahlen-Paket zum Verwetten")
+
+## --- Projektoren: jeder ist ein Charm-Platz, zehn Ports sind die Grenze -----------
+
+func test_a_bought_projector_frees_a_charm_place():
+	_fill_charm_dock()
+	watch_signals(run)
+	run.energy = GameRun.PROJECTOR_PRICES[0]
+	assert_true(run.buy_projector())
+	assert_eq(run.energy, 0, "der Preis ist abgebucht")
+	assert_eq(run.charm_capacity(), GameRun.START_PROJECTORS + 1)
+	assert_false(run.charms_full())
+	assert_signal_emitted(run, "projectors_changed")
+
+func test_a_projector_needs_its_energy():
+	run.energy = GameRun.PROJECTOR_PRICES[0] - 1
+	assert_false(run.buy_projector())
+	assert_eq(run.projectors, GameRun.START_PROJECTORS)
+
+func test_ten_ports_are_the_limit():
+	for i in GameRun.MAX_PROJECTORS - GameRun.START_PROJECTORS:
+		run.energy = 99
+		assert_true(run.buy_projector())
+	assert_eq(run.projector_price(), -1, "alle Ports belegt")
+	run.energy = 99
+	assert_false(run.buy_projector())
+	assert_eq(run.projectors, GameRun.MAX_PROJECTORS)

@@ -121,7 +121,7 @@ func test_the_empty_plinth_pays_for_the_free_spots():
 		"volles Dock, kein freier Sockel")
 
 func test_the_plinth_mirrors_the_dock_capacity():
-	assert_eq(CharmEffects.CHARM_SLOTS, GameRun.CHARM_CAPACITY,
+	assert_eq(CharmEffects.CHARM_SLOTS, GameRun.START_PROJECTORS,
 		"core spiegelt die Kapazität, statt in den Laufzustand zu greifen")
 
 # --- Metronom: die Einzelzünder takten sich gegenseitig ---------------------------

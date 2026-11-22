@@ -193,6 +193,7 @@ const CTX_ROUND_CRITS := "round_crits"
 ## (Flaschenregal - gezählt werden Würfel, nicht Sorten).
 const CTX_ENERGY := "energy"
 const CTX_ROUND := "round_number"
+const CTX_CHARM_SLOTS := "charm_slots"
 const CTX_HANDS_TAKEN := "hands_taken"
 const CTX_FUMBLES := "round_fumbles"
 const CTX_ASH_FUMBLES := "ash_fumbles"

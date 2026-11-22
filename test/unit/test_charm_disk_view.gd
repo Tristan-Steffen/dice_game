@@ -53,7 +53,9 @@ func test_the_text_lives_outside_the_slot() -> void:
 	var disk := _disk(Charm.anchor())
 	var mouth := CharmDiskView.SIZE.x * 0.5 - CharmDiskView.INSERT_DEPTH
 	assert_lt(disk.desc_label.position.x, mouth, "die Wirkung beginnt vor dem Schlitz")
-	assert_lt(disk.name_label.position.x, mouth, "der Name ebenso")
+	assert_eq(disk.find_children("*", "Label3D", true, false).filter(
+		func(label: Label3D) -> bool: return label.text.contains(Charm.anchor().display_name.to_upper())
+	).size(), 0, "den Namen trägt der Projektor, nicht die Diskette")
 
 func test_one_size_everywhere() -> void:
 	assert_almost_eq(CharmDiskView.SIZE.x, 0.94 * CharmDiskView.BLENDER_SCALE, 0.001)

@@ -1,10 +1,11 @@
 class_name CharmDiskView
 extends Node3D
-## Die CHARM-DISKETTE (Spieler-Entscheid 2026-11-18, Layout TERMINAL): eine 3,5"-Diskette mit
-## schwarzer Glasfront. OBEN (steckt im Laufwerk) der Schieber, durch sein breites Fenster sieht man
+## Die CHARM-DISKETTE (Spieler-Entscheid 2026-11-18, Layout TERMINAL; seit dem 2026-11-22 die
+## Fassung „Stahl“: gebürstete Stahlschale, Chrom-Schieber, Raritäts-Streifen links): eine
+## 3,5"-Diskette mit schwarzer Glasfront. OBEN (steckt im Laufwerk) der Schieber, durch sein breites Fenster sieht man
 ## die HOLO-SCHEIBE mit dem Charm-Bild unter Glas,
-## UNTEN (bleibt draußen) „> NAME“ in der Raritätsfarbe, die Wirkung in Bildschirm-Cyan,
-## Raritätswort und vier LEDs. Ursprung = Mitte der Unterseite; lokal +X = Schieber-Ende
+## UNTEN (bleibt draußen) die Wirkung in Bildschirm-Cyan, Raritätswort und vier LEDs - den NAMEN
+## trägt das Display des Projektors. Ursprung = Mitte der Unterseite; lokal +X = Schieber-Ende
 ## (steckt zuerst), +Z = Bild-rechts, +Y = oben. EINE Größe überall (SIZE).
 
 ## Blender-Einheit → Welt: die Diskette mißt so 6,39 × 6,67 (Laufwerk ~8 breit, Reihe 9).
@@ -15,8 +16,8 @@ const BLENDER_THICK := 0.033
 ## Welt-Maße: x = Länge (Einschub-Achse), y = Dicke, z = Breite.
 const SIZE := Vector3(BLENDER_LENGTH * BLENDER_SCALE, BLENDER_THICK * BLENDER_SCALE,
 	BLENDER_WIDTH * BLENDER_SCALE)
-## So tief steckt sie: nur der Schieber, der Rest ist Textfeld (Blender-Einheiten).
-const INSERT := 0.34
+## So tief steckt sie: Schieber und die frühere Namenszeile, draußen bleibt die Wirkung.
+const INSERT := 0.43
 const INSERT_DEPTH := INSERT * BLENDER_SCALE
 
 const MODEL_PATH := "res://assets/models/hardware/charm_disk.glb"
@@ -34,6 +35,11 @@ const SHELL_LOOK := {
 	"Schwarzchrom": [Color(0.32, 0.33, 0.37), 0.45, 0.3, 0.0],
 	"Displayglas": [Color(0.02, 0.035, 0.045), 0.0, 0.3, 0.0],
 	"Glasfront": [Color(0.02, 0.032, 0.04), 0.0, 0.35, 0.0],
+	"Kabelmantel": [Color(0.05, 0.05, 0.065), 0.0, 0.55, 0.3],
+	"Portstahl": [Color(0.3, 0.31, 0.35), 0.5, 0.3, 0.0],
+	"Portgrund": [Color(0.012, 0.012, 0.016), 0.0, 0.4, 0.0],
+	"Zungenblau": [Color(0.1, 0.36, 0.95), 0.0, 0.4, 0.0],
+	"Leistengrund": [Color(0.05, 0.05, 0.065), 0.3, 0.35, 0.25],
 }
 const SHELL_SELF_GLOW := 0.55
 ## Weltmaß eines Label-Pixels.
@@ -54,10 +60,8 @@ const LIFT_HEIGHT := 0.9
 const LIFT_TIME := 0.12
 
 ## Felder in Blender-Koordinaten (x = quer, y = längs) - dieselben wie terminal().
-const NAME_LEFT := -0.365
-const NAME_Y := 0.085
+const TEXT_LEFT := -0.365
 const TEXT_WIDTH := 0.73
-const NAME_BIGGEST := 0.135
 const DESC_TOP := 0.035
 const DESC_BOTTOM := -0.385
 const DESC_BIGGEST := 0.13
@@ -92,7 +96,6 @@ const RARITY_WORDS := {
 }
 
 var charm: Charm
-var name_label: Label3D
 var desc_label: Label3D
 var leds: Array[MeshInstance3D] = []
 var _frame_material: StandardMaterial3D
@@ -163,7 +166,7 @@ static func face_point(bx: float, by: float, lift := FACE_LIFT) -> Vector3:
 
 ## Mitte des Textfelds (lokal) - dort hängt der Schlüsselwort-Tip.
 static func text_center_local() -> Vector3:
-	return face_point(0.0, (NAME_Y + 0.05 + DESC_BOTTOM) * 0.5)
+	return face_point(0.0, (DESC_TOP + DESC_BOTTOM) * 0.5)
 
 ## Die Vorderkante (lokal -X): dort, wo der Text endet.
 static func front_x() -> float:
@@ -186,6 +189,9 @@ func _build() -> void:
 	var tint := rarity_color(charm.rarity)
 	_frame_material = _unshaded(energized(tint, FRAME_REST))
 	_led_material = _unshaded(energized(tint, NAME_ENERGY))
+	# Der Raritäts-Streifen der Stahlschale trägt das Rahmen-Licht (und pulst mit ihm).
+	for node in _body.find_children("Rar*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).material_override = _frame_material
 	# Rahmen in der Raritätsfarbe - auch aus der Ferne die Stufe.
 	var inset := 0.012
 	var t := 0.006
@@ -200,18 +206,14 @@ func _build() -> void:
 	var glass := ShaderMaterial.new()
 	glass.shader = DISC_GLASS_SHADER
 	_quad(WINDOW, glass, WINDOW_GLASS_LIFT).name = "Fensterglas"
-	# Draußen: Name in der Rarität, Wirkung in Cyan, so groß wie das Feld erlaubt.
+	# Draußen: die Wirkung in Cyan, so groß wie das Feld erlaubt.
 	var width := TEXT_WIDTH * BLENDER_SCALE / PIXEL
-	var title := "> " + charm.display_name.to_upper()
-	name_label = _label(title, NAME_LEFT, NAME_Y,
-		fit_line(title, width, int(NAME_BIGGEST * BLENDER_SCALE / PIXEL)),
-		energized(tint, NAME_ENERGY), VERTICAL_ALIGNMENT_CENTER)
 	var field_h := (DESC_TOP - DESC_BOTTOM) * BLENDER_SCALE / PIXEL
 	var desc_size := fit_size(charm.description, width, field_h,
 		int(DESC_BIGGEST * BLENDER_SCALE / PIXEL), int(DESC_SMALLEST * BLENDER_SCALE / PIXEL))
-	desc_label = _label(charm.description, NAME_LEFT, DESC_TOP, desc_size,
+	desc_label = _label(charm.description, TEXT_LEFT, DESC_TOP, desc_size,
 		energized(SCREEN_COLOR, SCREEN_ENERGY), VERTICAL_ALIGNMENT_TOP, width)
-	_label(String(RARITY_WORDS.get(charm.rarity, "")), NAME_LEFT, FOOT_Y,
+	_label(String(RARITY_WORDS.get(charm.rarity, "")), TEXT_LEFT, FOOT_Y,
 		int(0.03 * BLENDER_SCALE / PIXEL), energized(SCREEN_COLOR, DIM_SHARE), VERTICAL_ALIGNMENT_CENTER)
 	# Vier LEDs, so viele leuchten wie die Stufe.
 	var off := _unshaded(LED_OFF)
@@ -239,6 +241,13 @@ func _mount_shell() -> void:
 		shell.rotation = Vector3(0.0, -PI * 0.5, 0.0)
 		shell.scale = Vector3.ONE * BLENDER_SCALE
 		dress_shell(shell)
+		# Eingemaltes Licht (Vertexfarben) wie beim Projektor; ohne Charm bleibt der Streifen dunkel.
+		for node in shell.find_children("*", "MeshInstance3D", true, false):
+			var mesh := node as MeshInstance3D
+			if mesh.name == "Korpus" and mesh.mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_COLOR:
+				mesh.material_override = CharmReaderView._baked_material()
+			elif String(mesh.name).begins_with("Rar"):
+				mesh.material_override = _unshaded(LED_OFF)
 		_body.add_child(shell)
 		return
 	# Ohne Import ein schlichter schwarzer Kasten.
@@ -410,8 +419,6 @@ func flash() -> void:
 	var paint := func(energy: float) -> void:
 		_frame_material.albedo_color = energized(tint, energy)
 		_led_material.albedo_color = energized(tint, energy)
-		if name_label != null:
-			name_label.modulate = energized(tint, NAME_ENERGY * energy / FRAME_REST)
 	_flash_tween = create_tween()
 	_flash_tween.tween_method(paint, FRAME_REST, FRAME_FLASH, 0.08) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
