@@ -214,7 +214,7 @@ func test_moving_a_part_reaches_both_chips() -> void:
 
 func test_a_secret_part_offer_lies_as_a_pin_and_sells() -> void:
 	run.luck = (GameRun.TIER_MAX - 1) * GameRun.LUCK_PER_TIER
-	run.stress_tests_passed = 4  # volle Börse (25)
+	run.storage_rows = 4  # volle Börse (25)
 	run.energy = run.energy_cap()
 	var view := SecretShopView.new()
 	add_child_autofree(view)

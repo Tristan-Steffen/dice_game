@@ -4,7 +4,58 @@ extends GutTest
 ## Neuwurf-Preise und Kauf.
 
 func _run() -> GameRun:
+	GameRun.secret_projector_chance = 0.0  # die Auslage bleibt bei drei Plätzen
+	GameRun.secret_powerbank_chance = 0.0
 	return GameRun.new_run()
+
+func after_all() -> void:
+	GameRun.secret_powerbank_chance = GameRun.SECRET_POWERBANK_CHANCE
+	GameRun.secret_projector_chance = GameRun.SECRET_PROJECTOR_CHANCE
+
+# --- Der Projektor als Angebot ---------------------------------------------------
+
+func _projector_run() -> GameRun:
+	GameRun.secret_projector_chance = 1.0
+	var run := GameRun.new_run()
+	GameRun.secret_projector_chance = 0.0
+	return run
+
+func test_a_projector_offer_replaces_both_goods_seats() -> void:
+	var run := _projector_run()
+	assert_eq(run.secret_stock.size(), 2, "Karten-Sitz plus EIN Projektor")
+	assert_eq(run.secret_stock[1][GameRun.OFFER_KIND], GameRun.KIND_PROJECTOR)
+	assert_eq(int(run.secret_stock[1][GameRun.OFFER_PRICE]), GameRun.PROJECTOR_PRICE_STEP)
+
+func test_buying_the_projector_adds_a_charm_place() -> void:
+	var run := _projector_run()
+	watch_signals(run)
+	run.energy = GameRun.PROJECTOR_PRICE_STEP
+	assert_true(run.buy_secret_offer(1))
+	assert_eq(run.energy, 0, "der Preis ist abgebucht")
+	assert_eq(run.charm_capacity(), GameRun.START_PROJECTORS + 1)
+	assert_true(bool(run.secret_stock[1][GameRun.OFFER_SOLD]))
+	assert_signal_emitted(run, "projectors_changed")
+	assert_false(run.buy_secret_offer(1), "je Auslage einmal")
+
+func test_the_projector_needs_its_energy() -> void:
+	var run := _projector_run()
+	run.energy = GameRun.PROJECTOR_PRICE_STEP - 1
+	assert_false(run.buy_secret_offer(1))
+	assert_eq(run.projectors, GameRun.START_PROJECTORS)
+
+func test_the_projector_price_climbs_with_every_purchase() -> void:
+	var run := _projector_run()
+	run.projectors = GameRun.START_PROJECTORS + 2
+	assert_eq(run.projector_price(), GameRun.PROJECTOR_PRICE_STEP * 3)
+
+func test_no_projector_lies_out_once_all_ports_are_taken() -> void:
+	var run := _projector_run()
+	run.projectors = GameRun.MAX_PROJECTORS
+	GameRun.secret_projector_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_projector_chance = 0.0
+	assert_eq(run.projector_price(), -1)
+	assert_eq(run.secret_stock.size(), 3, "die gewohnte Auslage")
 
 ## Erste Runde der gewünschten Fortschrittsstufe.
 func _at_tier(run: GameRun, tier: int) -> void:
@@ -27,16 +78,53 @@ func test_fresh_run_starts_with_an_empty_wallet() -> void:
 	assert_eq(run.energy, 0)
 	assert_eq(run.secret_rerolls, 0)
 
-func test_energy_cap_grows_five_per_stress_test() -> void:
+func test_energy_cap_grows_only_with_storage_rows() -> void:
 	var run := _run()
 	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "zu Beginn eine Fünfergruppe")
 	_at_tier(run, GameRun.TIER_MAX)
-	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "die Fortschrittsstufe hebt nichts")
 	run.grant_stress_reward()
-	assert_eq(run.energy_cap(), 10, "ein Stresstest: +5")
-	for i in 20:
-		run.grant_stress_reward()
-	assert_eq(run.energy_cap(), GameRun.ENERGY_CAP_LIMIT, "der Ring faßt nicht mehr")
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW, "weder Stufe noch Stresstest heben ihn")
+	run.storage_rows = 30
+	assert_eq(run.energy_cap(), GameRun.ENERGY_CAP_LIMIT, "die Bank faßt nicht mehr")
+	assert_eq(run.powerbank_price(), -1)
+
+# --- Die Powerbank als Angebot ---------------------------------------------------
+
+func _powerbank_run() -> GameRun:
+	var run := _run()
+	GameRun.secret_powerbank_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_powerbank_chance = 0.0
+	return run
+
+func test_the_powerbank_takes_the_wildcard_seat() -> void:
+	var run := _powerbank_run()
+	assert_eq(run.secret_stock.size(), 3)
+	assert_eq(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_POWERBANK)
+	assert_eq(int(run.secret_stock[2][GameRun.OFFER_PRICE]), GameRun.POWERBANK_PRICE_BASE)
+
+func test_buying_the_powerbank_lifts_the_cap_by_one_row() -> void:
+	var run := _powerbank_run()
+	run.energy = GameRun.POWERBANK_PRICE_BASE
+	assert_true(run.buy_secret_offer(2))
+	assert_eq(run.energy, 0, "der Preis ist abgebucht")
+	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW * 2)
+	assert_eq(run.powerbank_price(), GameRun.POWERBANK_PRICE_BASE + 1, "die nächste kostet mehr")
+	assert_false(run.buy_secret_offer(2), "je Auslage einmal")
+
+func test_the_powerbank_price_always_fits_the_wallet() -> void:
+	var run := _run()
+	while run.powerbank_price() >= 0:
+		assert_lte(run.powerbank_price(), run.energy_cap(), "sonst wäre sie nie kaufbar")
+		run.storage_rows += 1
+
+func test_no_powerbank_lies_out_at_the_limit() -> void:
+	var run := _run()
+	run.storage_rows = 30
+	GameRun.secret_powerbank_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_powerbank_chance = 0.0
+	assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_POWERBANK)
 
 func test_add_energy_stores_to_cap_and_returns_overflow() -> void:
 	var run := _run()  # Deckel 5 (eine Reihe)

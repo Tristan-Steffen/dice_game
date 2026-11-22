@@ -1874,26 +1874,28 @@ func test_a_bet_never_takes_a_multiplier_as_its_number_stake() -> void:
 
 ## --- Projektoren: jeder ist ein Charm-Platz, zehn Ports sind die Grenze -----------
 
+func _lay_out_projector() -> void:
+	run.secret_stock.clear()
+	run.secret_stock.append({
+		GameRun.OFFER_KIND: GameRun.KIND_PROJECTOR, GameRun.OFFER_ITEM: null,
+		GameRun.OFFER_PRICE: run.projector_price(), GameRun.OFFER_SOLD: false,
+	})
+
 func test_a_bought_projector_frees_a_charm_place():
 	_fill_charm_dock()
-	watch_signals(run)
-	run.energy = GameRun.PROJECTOR_PRICES[0]
-	assert_true(run.buy_projector())
-	assert_eq(run.energy, 0, "der Preis ist abgebucht")
-	assert_eq(run.charm_capacity(), GameRun.START_PROJECTORS + 1)
+	_lay_out_projector()
+	run.energy = 99
+	assert_true(run.buy_secret_offer(0))
 	assert_false(run.charms_full())
-	assert_signal_emitted(run, "projectors_changed")
-
-func test_a_projector_needs_its_energy():
-	run.energy = GameRun.PROJECTOR_PRICES[0] - 1
-	assert_false(run.buy_projector())
-	assert_eq(run.projectors, GameRun.START_PROJECTORS)
 
 func test_ten_ports_are_the_limit():
 	for i in GameRun.MAX_PROJECTORS - GameRun.START_PROJECTORS:
+		_lay_out_projector()
 		run.energy = 99
-		assert_true(run.buy_projector())
+		assert_true(run.buy_secret_offer(0))
 	assert_eq(run.projector_price(), -1, "alle Ports belegt")
+	_lay_out_projector()
 	run.energy = 99
-	assert_false(run.buy_projector())
+	assert_false(run.buy_secret_offer(0))
+	assert_eq(run.energy, 99, "kein Abzug")
 	assert_eq(run.projectors, GameRun.MAX_PROJECTORS)

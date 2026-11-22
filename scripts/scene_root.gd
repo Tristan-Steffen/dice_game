@@ -7453,6 +7453,8 @@ func _sync_secret_plates(market: SecretShopView) -> void:
 ## heißt: abgedeckt oder weggezoomt - dann ist nichts greifbar. Das Hinterzimmer
 ## schreibt zusätzlich auf seine Fenster-Karte. holds meldet, ob der
 ## Zeiger auf der stehenden Karte liegt - dort bleibt alles, wie es steht (ihre
+	if market != null and market.window_card_has_point(pixel):
+		return false
 ## Schlüsselwörter sind Klickziele).
 func _paint_bay_hover(bay: VitrineView, rect: Rect2, annotate := Callable(),
 		show := Callable(), hide := Callable(), holds := Callable(),
@@ -14875,6 +14877,8 @@ func _connect_run() -> void:
 		if not table_screen.secret_shop_window.vitrine_changed.is_connected(_on_secret_vitrine_changed):
 			table_screen.secret_shop_window.vitrine_changed.connect(_on_secret_vitrine_changed)
 	if table_screen != null and table_screen.side_bet_window != null:
+		if not table_screen.secret_shop_window.powerbank_purchased.is_connected(_on_secret_powerbank_purchased):
+			table_screen.secret_shop_window.powerbank_purchased.connect(_on_secret_powerbank_purchased)
 		table_screen.side_bet_window.run = run
 	if table_screen != null and table_screen.slot_bank_window != null:
 		table_screen.slot_bank_window.run = run
@@ -15013,6 +15017,12 @@ func _route_choice_open() -> bool:
 ## Aktions-Knöpfe und Wertungs-Orbs sind solange ausgeblendet.
 func _place_route_choice() -> void:
 	if route_choice == null or table_screen == null or table_screen.pit_window == null:
+## Gekaufte Powerbank: ein Spieler-Zug, also fliegt die Kartusche im Trage-Bogen von der
+## Karte des Schwarzmarkts in ihr Dock. Gebucht ist längst.
+func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
+	if energy_bank != null and table_screen != null:
+		energy_bank.fly_in(table_screen.pixel_to_world(from_px))
+
 		return
 	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
 	var inset := pit.size.x * ROUTE_CHOICE_INSET

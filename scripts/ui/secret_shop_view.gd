@@ -35,6 +35,9 @@ signal vitrine_changed
 ## Ein Schlüsselwort auf dem Info-Fuß wurde geklickt - scene_root schlägt das
 ## Lexikon auf.
 signal lexikon_requested(entry_id: String)
+## Eine Powerbank ist gekauft (gebucht): scene_root fliegt ihre Kartusche von der Karte
+## (Display-Pixel) in ihr Dock.
+signal powerbank_purchased(from_px: Vector2)
 ## Gleich wird der Charm am Kartensitz gebucht: seine Diskette fliegt zum Laufwerk.
 signal charm_buying
 
@@ -121,7 +124,12 @@ func _card_seat_size() -> Vector2:
 		charm_disk_px.y + u * CHARM_TAG_UNITS)
 var vitrine_slot: Control
 var reroll_button: Button
-var projector_button: Button
+## Die Karte des Projektor-Angebots mitten in der Bucht (null = keins liegt aus).
+var projector_card: Button
+const PROJECTOR_CARD_UNITS := Vector2(36.0, 17.0)
+## Die Karte der Powerbank in der rechten Hälfte der Bucht (null = keine liegt aus).
+var powerbank_card: Button
+const POWERBANK_CARD_UNITS := Vector2(27.0, 17.0)
 ## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
 ## Bucht liegt, hat auf dem Bildschirm keinen (die Lücken halten die Indizes).
 var offer_buttons: Array[Button] = []
@@ -232,7 +240,6 @@ func _build_layout() -> void:
 	header.add_theme_constant_override("separation", int(u * 1.2))
 	root.add_child(header)
 	header.add_child(CasinoStyle.label("SCHWARZMARKT", u * 3.6, Color(1.35, 0.7, 1.7)))
-	# Kein Zier-Streifen mehr: der Projektor-Knopf braucht die Breite.
 	var gap := Control.new()
 	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -244,11 +251,8 @@ func _build_layout() -> void:
 	reroll_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	reroll_button.pressed.connect(_on_reroll_pressed)
 	header.add_child(reroll_button)
-	projector_button = _neon_button("+Projektor", ENERGY_COLOR, u * 2.3, Vector2(u * 18.0, u * 6.2))
-	projector_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	projector_button.tooltip_text = "Ein weiterer Projektor: ein Charm-Platz mehr. Jeder belegt einen USB-Port des Tisches."
-	projector_button.pressed.connect(_on_projector_pressed)
-	header.add_child(projector_button)
+	projector_card = null
+	powerbank_card = null
 
 	# Darunter die zwei Zonen: links der Karten-Sitz (Bildschirm), rechts die Bucht.
 	var body := HBoxContainer.new()
@@ -639,7 +643,8 @@ func vitrine_annotation(_kind: String, index: int) -> Dictionary:
 	if run == null or index < 0 or index >= run.secret_stock.size():
 		return {}
 	var offer := run.secret_stock[index]
-	if bool(offer[GameRun.OFFER_SOLD]):
+	if bool(offer[GameRun.OFFER_SOLD]) or offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR \
+			or offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
 		return {}
 	var data := {
 		"price": run.secret_offer_price(offer),
@@ -701,8 +706,27 @@ func _refresh_offers() -> void:
 			run.secret_offer_price(run.secret_stock[seat]))
 		card_seat.add_child(card)
 		offer_buttons[seat] = card
+	for old in [projector_card, powerbank_card]:
+		if old != null and is_instance_valid(old):
+			old.queue_free()
+	projector_card = null
+	powerbank_card = null
 	for i in run.secret_stock.size():
-		_sort_into_bay(run.secret_stock[i], i == seat)
+		var offer := run.secret_stock[i]
+		_sort_into_bay(offer, i == seat)
+		if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
+			projector_card = _build_window_card(offer, i, "PROJEKTOR", "Ein Charm-Platz mehr",
+				"PORTS VOLL", 0.5, PROJECTOR_CARD_UNITS)
+			projector_card.name = "ProjectorCard"
+			vitrine_slot.add_child(projector_card)
+			offer_buttons[i] = projector_card
+		elif offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
+			# Rechte Hälfte der Bucht: links liegt die Ware des Sonderposten-Platzes.
+			powerbank_card = _build_window_card(offer, i, "POWERBANK",
+				"Speicher +%d ⚡" % GameRun.ENERGY_ROW, "SPEICHER VOLL", 0.75, POWERBANK_CARD_UNITS)
+			powerbank_card.name = "PowerbankCard"
+			vitrine_slot.add_child(powerbank_card)
+			offer_buttons[i] = powerbank_card
 	# Ein WURF lässt die neue Ware aufsteigen, ein Kauf lässt sie liegen.
 	var rolls := run.secret_rerolls
 	_vitrine_grade = ShopController.GRADE_STAND if rolls == _seen_rolls \
@@ -720,11 +744,13 @@ func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
 	var pack: Pack = null
 	var die: DieDefinition = null
 	var part: ComboPart = null
-	if on_card_seat:
-		_bay_kinds.append("")
+	if on_card_seat or offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
+		_bay_kinds.append("")  # der Projektor ist eine Karte des Fensters, kein Bucht-Körper
 	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
 		_bay_kinds.append(ShopController.KIND_DIE)
-	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_PART:
+	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_PART \
+			or offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
+		# Die Powerbank hält ihren Platz in der Reihe als Lücke frei - dort steht ihre Karte.
 		_bay_kinds.append(ShopController.KIND_PART)
 	else:
 		_bay_kinds.append(ShopController.KIND_ENGRAVING_PACK)
@@ -748,12 +774,6 @@ func _refresh_afford_state() -> void:
 	var cost := run.secret_reroll_cost()
 	reroll_button.text = "Neu mischen ⚡%d" % cost
 	reroll_button.disabled = run.energy < cost
-	var projector_cost := run.projector_price()
-	if projector_cost < 0:
-		projector_button.text = "Ports voll"
-	else:
-		projector_button.text = "+Projektor ⚡%d" % projector_cost
-	projector_button.disabled = projector_cost < 0 or run.energy < projector_cost
 	for i in offer_buttons.size():
 		if i >= run.secret_stock.size() or offer_buttons[i] == null:
 			continue
@@ -774,7 +794,60 @@ func _offer_blocked(offer: Dictionary) -> bool:
 		return false
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PART:
 		return not run.parts_room()
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
+		return run.projectors >= GameRun.MAX_PROJECTORS
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
+		return run.powerbank_price() < 0
 	return run.pack_room() < 1
+
+## Ware ohne Körper (Projektor, Powerbank): eine Karte IN der Bucht, mittig um den
+## Breiten-Anteil at.
+func _build_window_card(offer: Dictionary, index: int, title: String, sub: String,
+		full_tag: String, at: float, units: Vector2) -> Button:
+	var sold: bool = offer[GameRun.OFFER_SOLD]
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var extent := units * u
+	card.anchor_left = at
+	card.anchor_right = at
+	card.anchor_top = 0.5
+	card.anchor_bottom = 0.5
+	card.offset_left = -extent.x * 0.5
+	card.offset_right = extent.x * 0.5
+	card.offset_top = -extent.y * 0.5
+	card.offset_bottom = extent.y * 0.5
+	card.add_theme_stylebox_override("normal", _card_box(CARD_BG, ENERGY_COLOR, 0.7, 0.24))
+	card.add_theme_stylebox_override("hover", _card_box(Color("#241a4add"), Color(1.4, 1.1, 0.2), 0.95, 0.3))
+	card.add_theme_stylebox_override("pressed", _card_box(Color("#2e2160"), Color(1.4, 1.1, 0.2), 1.0, 0.3))
+	card.add_theme_stylebox_override("disabled", _card_box(Color("#100c2266"), ENERGY_COLOR, 0.2, 0.0))
+	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var lines := VBoxContainer.new()
+	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lines.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lines.alignment = BoxContainer.ALIGNMENT_CENTER
+	lines.add_theme_constant_override("separation", int(u * 0.5))
+	card.add_child(lines)
+	lines.add_child(CasinoStyle.label(title, u * 3.4, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
+	lines.add_child(CasinoStyle.label(sub, u * 2.3, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	var blocked := _offer_blocked(offer)
+	var tag := "VERKAUFT" if sold else (full_tag if blocked
+		else "⚡ %d" % run.secret_offer_price(offer))
+	var price_label := CasinoStyle.label(tag, u * 3.0,
+		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
+	price_label.name = "Price"
+	lines.add_child(price_label)
+	if not sold:
+		card.pressed.connect(_on_offer_pressed.bind(index))
+	return card
+
+## Ob der Display-Pixel auf einer Karte in der Bucht liegt (Projektor, Powerbank): dort
+## gehört der Klick dem Fenster, nicht dem Griff der Bucht.
+func window_card_has_point(px: Vector2) -> bool:
+	for card in [projector_card, powerbank_card]:
+		if card != null and is_instance_valid(card) and card.get_global_rect().has_point(px):
+			return true
+	return false
 
 ## Die EINE Karte am Sitz: die FASSUNG der Charm-DISKETTE (2026-11-18) - Rahmen in der
 ## Rarität, unten der Preis. Name und Wirkung trägt die Diskette, die scene_root auf
@@ -833,9 +906,14 @@ func _on_offer_pressed(index: int) -> void:
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and not bool(offer[GameRun.OFFER_SOLD]) \
 			and run.energy >= price and not run.charms_full():
 		charm_buying.emit()
+	var powerbank_px := Vector2(-1.0, -1.0)
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK and powerbank_card != null 			and is_instance_valid(powerbank_card):
+		powerbank_px = powerbank_card.get_global_rect().get_center()
 	if not run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
 		return
 	energy_spent.emit(price)
+	if powerbank_px.x >= 0.0:
+		powerbank_purchased.emit(powerbank_px)
 	if run.owned_packs.size() > stocked:
 		var uids: Array[int] = []
 		for i in range(stocked, run.owned_packs.size()):
@@ -852,14 +930,6 @@ func _on_reroll_pressed() -> void:
 	var cost := run.secret_reroll_cost()
 	if run.reroll_secret_stock():
 		energy_spent.emit(cost)
-
-func _on_projector_pressed() -> void:
-	if run == null:
-		return
-	var cost := run.projector_price()
-	if run.buy_projector():
-		energy_spent.emit(cost)
-		_refresh_afford_state()
 
 func _on_run_changed() -> void:
 	_refresh_offers()

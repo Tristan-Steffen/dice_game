@@ -30,7 +30,11 @@ const POOL_SIZE := 30
 const START_PROJECTORS := 6
 const MAX_PROJECTORS := 10
 ## ⚡-Preis des nächsten Projektors im Schwarzmarkt (7., 8., 9., 10.).
-const PROJECTOR_PRICES := [4, 6, 8, 10]
+## ⚡-Preis je Projektor: Schritt × (schon gekaufte + 1).
+const PROJECTOR_PRICE_STEP := 5
+const SECRET_PROJECTOR_CHANCE := 0.15
+## Statisch, damit Tests die Auslage festhalten können.
+static var secret_projector_chance := SECRET_PROJECTOR_CHANCE
 const BASE_GOAL := 150
 ## Blind-Kurve: Wachstum je Runde = BLIND_GROWTH_BASE + BLIND_GROWTH_STEP × Block.
 const BLIND_GROWTH_BASE := 0.10
@@ -569,7 +573,6 @@ func stash_die(def: DieDefinition, price: int) -> void:
 ## Exemplar (null = keine Vorlage); zerfallen kann er nicht.
 func grant_stress_reward() -> DieDefinition:
 	stress_tests_passed += 1
-	energy_changed.emit(energy)  # der Deckel ist gewachsen
 	return _grant_reward_die()
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein - der EINE Weg, auf dem
@@ -609,17 +612,12 @@ func charms_full() -> bool:
 func projector_price() -> int:
 	if projectors >= MAX_PROJECTORS:
 		return -1
-	return int(PROJECTOR_PRICES[clampi(projectors - START_PROJECTORS, 0, PROJECTOR_PRICES.size() - 1)])
+	return PROJECTOR_PRICE_STEP * (projectors - START_PROJECTORS + 1)
 
-func buy_projector() -> bool:
-	var price := projector_price()
-	if price < 0 or energy < price:
-		return false
-	spend_energy(price)
+func _add_projector() -> void:
 	projectors += 1
 	projectors_changed.emit()
 	charms_changed.emit()  # ein Platz ist frei geworden: Läden und Reihe ziehen nach
-	return true
 
 ## Einziger Einzug eines Charms - Laden wie Schwarzmarkt gehen hier durch, damit
 ## der Sonderfall Lumpensammler (Glückszahl sofort würfeln) nie auseinanderläuft.
@@ -2879,6 +2877,14 @@ const KIND_CATALYST := "catalyst"
 const KIND_BLANK := "blank"
 ## Ein Modul (nur die vervielfachenden Schwarzmarkt-Teile).
 const KIND_PART := "part"
+## Ein Charm-Projektor: er ersetzt BEIDE Ware-Plätze der Auslage, OFFER_ITEM ist null.
+const KIND_PROJECTOR := "projector"
+## Eine Powerbank (+1 Fünfergruppe Energie-Deckel) auf dem Wildcard-Platz, OFFER_ITEM ist null.
+const KIND_POWERBANK := "powerbank"
+const POWERBANK_PRICE_BASE := 4
+const SECRET_POWERBANK_CHANCE := 0.25
+## Statisch, damit Tests die Auslage festhalten können.
+static var secret_powerbank_chance := SECRET_POWERBANK_CHANCE
 
 ## Umrechnungskurs des Hinterzimmers: zehn Dollar auf die Energie. Jede Ware, die
 ## beide Läden führen (die Katalysatoren), preist sich danach, statt eine zweite
@@ -2905,15 +2911,22 @@ var energy: int = 0:
 var secret_rerolls: int = 0
 var secret_stock: Array[Dictionary] = []
 
-## Deckel der Börse: eine Fünfergruppe, plus eine je bestandenem Stresstest.
+## Deckel der Börse: eine Fünfergruppe, plus eine je Powerbank (Spieler-Entscheid
+## 2026-11-22: der Stresstest hebt ihn nicht mehr).
 func energy_cap() -> int:
 	return mini(energy_cap_rows() * ENERGY_ROW, ENERGY_CAP_LIMIT)
 
 func energy_cap_rows() -> int:
-	return 1 + stress_tests_passed + storage_rows
+	return 1 + storage_rows
 
-## Großer Speicher: dauerhaft gekaufte Fünfergruppen der Börse (stirbt mit dem Lauf).
+## Zusätzliche Fünfergruppen der Börse: Powerbanks des Schwarzmarkts und der Große Speicher.
 var storage_rows: int = 0
+
+## ⚡-Preis der nächsten Powerbank, nie über dem Deckel (-1 = der Speicher ist voll ausgebaut).
+func powerbank_price() -> int:
+	if energy_cap() >= ENERGY_CAP_LIMIT:
+		return -1
+	return POWERBANK_PRICE_BASE + storage_rows
 
 ## Aufteilung von stages in Börse und Überlauf - reine Vorschau gegen den
 ## aktuellen Stand, damit die Zeremonie ihre Kometen vorab planen kann.
@@ -2992,14 +3005,24 @@ func buy_secret_offer(index: int) -> bool:
 		return false
 	if offer[OFFER_KIND] == KIND_PART and not parts_room():
 		return false
+	if offer[OFFER_KIND] == KIND_PROJECTOR and projectors >= MAX_PROJECTORS:
+		return false
+	if offer[OFFER_KIND] == KIND_POWERBANK and powerbank_price() < 0:
+		return false
 	# Volles Magazin: alles VERSIEGELTE sperrt der Deckel wie eine knappe Börse -
 	# prüfen vor dem Zahlen, sonst zerfiele bezahlte Ware zu $3. Der Würfel geht ins
 	# Ausgabefach und kennt darum keinen Deckel.
 	if offer[OFFER_KIND] != KIND_CHARM and offer[OFFER_KIND] != KIND_DIE \
-			and offer[OFFER_KIND] != KIND_PART and pack_room() < 1:
+			and offer[OFFER_KIND] != KIND_PART and offer[OFFER_KIND] != KIND_PROJECTOR \
+			and offer[OFFER_KIND] != KIND_POWERBANK and pack_room() < 1:
 		return false
 	spend_energy(price)
 	match offer[OFFER_KIND]:
+		KIND_POWERBANK:
+			storage_rows += 1
+			energy_changed.emit(energy)  # der Deckel ist gewachsen
+		KIND_PROJECTOR:
+			_add_projector()
 		KIND_CHARM:
 			var charm: Charm = offer[OFFER_ITEM]
 			_grant_charm(charm)
@@ -3018,10 +3041,14 @@ func buy_secret_offer(index: int) -> bool:
 	secret_stock_changed.emit()
 	return true
 
-## Feste Plätze: legendärer Charm, Spezial-Gravur, Wildcard.
+## Feste Plätze: legendärer Charm, Spezial-Gravur, Wildcard - oder, mit
+## secret_projector_chance, statt der beiden Ware-Plätze EIN Projektor.
 func _roll_secret_stock() -> void:
 	secret_stock.clear()
 	secret_stock.append(_secret_charm_offer())
+	if projectors < MAX_PROJECTORS and randf() < secret_projector_chance:
+		secret_stock.append(_secret_offer(KIND_PROJECTOR, null, projector_price()))
+		return
 	secret_stock.append(_secret_special_offer())
 	secret_stock.append(_secret_wildcard_offer())
 
@@ -3090,6 +3117,8 @@ func _secret_blank_listed() -> bool:
 ## Karten-Sitz, und der gehört dem legendären Platz - nie zwei Karten, nie null
 ## (nur der Erschöpfungs-Rückfall des legendären Topfes lässt ihn leer).
 func _secret_wildcard_offer() -> Dictionary:
+	if powerbank_price() >= 0 and randf() < secret_powerbank_chance:
+		return _secret_offer(KIND_POWERBANK, null, powerbank_price())
 	if randf() < SECRET_WILDCARD_DIE_CHANCE:
 		var die_offer := _secret_die_offer()
 		if not die_offer.is_empty():

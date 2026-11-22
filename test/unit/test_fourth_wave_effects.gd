@@ -35,7 +35,11 @@ const PAIR := DiceScoring.TWO_KIND
 var run: GameRun
 
 func before_each() -> void:
+	GameRun.secret_projector_chance = 0.0
+	GameRun.secret_powerbank_chance = 0.0
 	run = GameRun.new_run()
+	GameRun.secret_projector_chance = GameRun.SECRET_PROJECTOR_CHANCE
+	GameRun.secret_powerbank_chance = GameRun.SECRET_POWERBANK_CHANCE
 
 ## Würfel mit gesetzten Seitenwerten (und optional einem Material auf Seite 0).
 func _die(faces: Array, face_material := "", level := 1) -> DieDefinition:

@@ -9,10 +9,50 @@ extends GutTest
 var view: SecretShopView
 var run: GameRun
 
+func after_all() -> void:
+	GameRun.secret_projector_chance = GameRun.SECRET_PROJECTOR_CHANCE
+	GameRun.secret_powerbank_chance = GameRun.SECRET_POWERBANK_CHANCE
+
+func test_a_powerbank_is_a_card_in_the_right_half_of_the_bay() -> void:
+	GameRun.secret_powerbank_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_powerbank_chance = 0.0
+	run.secret_stock_changed.emit()
+	await wait_frames(2)
+	assert_not_null(view.powerbank_card, "die Karte steht")
+	var bay := view.vitrine_rect_px()
+	var card := view.powerbank_card.get_global_rect()
+	assert_true(bay.encloses(card), "sie liegt ganz in der Bucht")
+	assert_gte(card.position.x, bay.get_center().x, "rechts - links liegt die Ware")
+	assert_null(view.vitrine_stock()[ShopController.KIND_PART][2], "kein Körper an ihrem Platz")
+	watch_signals(view)
+	view.powerbank_card.pressed.emit()
+	assert_eq(run.storage_rows, 5, "eine Fünfergruppe mehr")
+	assert_signal_emitted(view, "powerbank_purchased", "die Kartusche fliegt von der Karte los")
+
+func test_a_projector_offer_is_one_card_in_the_bay() -> void:
+	GameRun.secret_projector_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_projector_chance = 0.0
+	run.secret_stock_changed.emit()
+	await wait_frames(2)
+	assert_not_null(view.projector_card, "die Karte steht")
+	assert_eq(view.offer_buttons[1], view.projector_card)
+	assert_true(view.vitrine_rect_px().encloses(view.projector_card.get_global_rect()),
+		"sie liegt ganz in der Bucht")
+	for kind in view.vitrine_stock()[VitrineView.STOCK_ROW_KINDS]:
+		assert_eq(String(kind), "", "kein Körper in der Bucht")
+	view.projector_card.pressed.emit()
+	assert_eq(run.projectors, GameRun.START_PROJECTORS + 1)
+	await wait_frames(2)
+	assert_true(view.projector_card.disabled, "verkauft")
+
 func before_each() -> void:
-	run = GameRun.new_run()
+	GameRun.secret_projector_chance = 0.0  # die Auslage bleibt bei drei Plätzen
+	GameRun.secret_powerbank_chance = 0.0
+	run =GameRun.new_run()
 	run.luck = (GameRun.TIER_MAX - 1) * GameRun.LUCK_PER_TIER
-	run.stress_tests_passed = 4  # volle Börse (25)
+	run.storage_rows = 4  # volle Börse (25)
 	run.energy = run.energy_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
