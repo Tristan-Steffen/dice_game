@@ -1,15 +1,22 @@
 class_name ComboPartBody
 extends Node3D
-## Ein MODUL als Körper: sein PIN (pin_<id>.glb aus tools/blender_pin_models.py) - der EINE
-## Körper überall, am Chip wie in der Wurfgruben-Reihe, im Flug, als Geist und im Schwarzmarkt.
-## Ohne Teil ist er der leere Platz (pin_empty.glb). Den ZUSTAND am Körper setzt allein
-## set_state. Ursprung = Mitte des Grundrisses auf dem Tisch; lokal +Z = Bild-rechts (der Pin
-## zeigt vom Chip weg), +X = Bild-oben.
+## Ein MODUL als Körper: ein Block, der ein FACH des Kombinations-Chips füllt, rechts sein
+## Beinchen bis auf den Tisch (pin_<id>.glb aus tools/blender_pin_models.py) - der EINE Körper
+## überall. Ohne Teil ist er das BLINDFACH (pin_empty.glb). Das Beinchen ist für alle gleich:
+## die Schulter-LED nennt die Seltenheit, die Fuß-LED die Art. Den ZUSTAND setzt allein
+## set_state. Ursprung = Mitte des Grundrisses auf dem Tisch; lokal +Z = Bild-rechts (das
+## Beinchen zeigt vom Chip weg), +X = Bild-oben.
 
 const PIN_MODEL := "res://assets/models/hardware/pin_%s.glb"
 const PIN_EMPTY := "res://assets/models/hardware/pin_empty.glb"
 ## Hüllmaß (längs, quer, hoch) - tools/blender_pin_models.py spiegelt es.
-const HULL := Vector3(1.7, 0.85, 0.6)
+const HULL := Vector3(2.3, 0.82, 1.68)
+## Deckelhöhe des Blocks; darüber stehen nur die Merkmale.
+const TOP := 1.32
+## Länge des Blocks allein (ohne Beinchen) - so tief ist ein Fach des Chips.
+const BLOCK := 1.845
+## Deckelhöhe des Blindfachs: bündig mit dem Chip.
+const BLANK_TOP := 1.28
 ## Die lange Kante - das Maß für Hub, Schweben und Teilung.
 const SIDE := HULL.x
 
@@ -20,7 +27,7 @@ const RING_SEGMENTS := 5
 const TERMINALS := 3
 const LAMP_COLOR := Color(1.0, 0.22, 0.16)
 const FLAME_COLOR := Color(1.0, 0.55, 0.95)
-const DIGIT_PIXEL := 0.0068
+const DIGIT_PIXEL := 0.0095
 const DIGIT_FONT := 48
 
 const WINDOW_ENERGY := 1.6
@@ -33,7 +40,7 @@ const UNLIT_ENERGY := 0.3
 const REST_SHARE := 0.8
 ## Wertungs-Blitz: Leuchten und Größe springen an und klingen ab.
 const FLASH_ENERGY := 4.0
-const FLASH_POP := 0.35
+const FLASH_POP := 0.1
 const FLASH_TIME := 0.45
 ## Die Kopplung zeigt im Feld die Farbe des kopierten Moduls.
 const COPY_ENERGY := 1.4
@@ -54,6 +61,7 @@ var _flame: MeshInstance3D
 var _digits: Array[Label3D] = []
 var _copy_material: StandardMaterial3D
 var _copy_id := ""
+var _rarity: StandardMaterial3D
 
 static func _scene(path: String) -> PackedScene:
 	if not _scenes.has(path):
@@ -100,6 +108,7 @@ func setup(p_part: ComboPart) -> void:
 	_digits.clear()
 	_copy_material = null
 	_copy_id = ""
+	_rarity = null
 	_lit = StandardMaterial3D.new()
 	_lit.emission_enabled = true
 	_lit.roughness = 0.3
@@ -110,6 +119,9 @@ func setup(p_part: ComboPart) -> void:
 	add_child(inst)
 	_model = inst
 	_skin(inst, "Licht", _lit)
+	if inst.find_child("Seltenheit", true, false) != null:
+		_rarity = _glow_material()
+		_skin(inst, "Seltenheit", _rarity)
 	_apply_baked(inst)
 	_build_state_parts(inst)
 	var copy := inst.find_child("Abbild", true, false) as MeshInstance3D
@@ -192,6 +204,10 @@ func digits_text() -> String:
 		text += label.text
 	return text
 
+## Die Schulter-LED: die Farbe der Seltenheit (schwarz = keine).
+func rarity_light() -> Color:
+	return _rarity.emission if _rarity != null else Color.BLACK
+
 func flame_shown() -> bool:
 	return _flame != null and _flame.visible
 
@@ -245,6 +261,8 @@ func _apply() -> void:
 	_lit.emission = tint
 	_lit.emission_energy_multiplier = (DIM_ENERGY if _dimmed or spent else WINDOW_ENERGY * rest) \
 		+ FLASH_ENERGY * _flash
+	if _rarity != null and part != null:
+		_glow(_rarity, part.rarity_color(), WINDOW_ENERGY)
 	_write_state(tint, WINDOW_ENERGY * rest)
 
 ## Zustand am Körper - je Modul aus _state und dem eigenen Zähler gerechnet.

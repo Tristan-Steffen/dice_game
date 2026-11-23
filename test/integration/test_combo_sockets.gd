@@ -91,8 +91,10 @@ func test_the_three_places_lie_at_the_right_edge() -> void:
 	for slot in chip.socket_count():
 		var at := chip.to_local(chip.pin_world(slot))
 		assert_almost_eq(at.y, 0.0, 0.001, "der Platz liegt auf dem Tisch")
-		assert_almost_eq(at.x, chip.half_length() + ComboPartBody.HULL.x * 0.5, 0.001, "rechts am Gehäuse")
-	assert_gt(chip.row_z(1) - chip.row_z(0) - ComboPartBody.HULL.y, 0.0, "die Pins berühren sich nicht")
+		assert_almost_eq(at.x, chip.seam_x() + ComboChipView.BAY_AIR + ComboPartBody.HULL.x * 0.5, 0.001,
+			"das Modul setzt an der Naht an")
+		assert_almost_eq(chip.seam_x() + ComboChipView.BAY, chip.half_length(), 0.0001, "der Block füllt das Fach")
+	assert_gt(chip.row_z(1) - chip.row_z(0) - ComboPartBody.HULL.y, 0.0, "die Module berühren sich nicht")
 	assert_lt(chip.row_z(0) - ComboPartBody.HULL.y * 0.5 - chip._z_shift, 0.0, "oben")
 	assert_gt(chip.row_z(0) - ComboPartBody.HULL.y * 0.5,
 		chip._z_shift - ComboChipView.BODY_WIDTH * chip._s * 0.5, "und noch vor der Gehäusekante")
@@ -285,37 +287,34 @@ func test_the_spotlight_pulse_has_a_truthful_name() -> void:
 	assert_true(chip.has_method("play_arrival_flash"))
 	assert_false(chip.has_method("play_upgrade_flash"))
 
-# --- Der Chip: Anzeige, Endkappe, Plätze -----------------------------------------------
+# --- Der Chip: Anzeige und Fächer -----------------------------------------------
 
 func test_the_display_lies_left_and_the_places_right() -> void:
 	var chip := _real_chip(_key())
 	_sync(chip)
 	var half := chip.half_length()
 	assert_gt(chip.display_right(), -half + 4.0, "die Anzeige hat Platz für Name und Wertung")
-	assert_almost_eq(chip.display_right(), half - ComboChipView.CAP - ComboChipView.DISPLAY_CAP_GAP, 0.0001,
-		"die Anzeige schließt an die Endkappe")
-	assert_almost_eq(chip._s * ComboChipView.BODY_COMPACT, half * 2.0, 0.0001)
+	assert_lt(chip.display_right(), chip.seam_x(), "die Anzeige endet vor der Naht")
+	assert_almost_eq(chip._s * ComboChipView.BODY_DISPLAY + ComboChipView.BAY, half * 2.0, 0.0001)
+	assert_almost_eq(ComboChipView.BAY / (half * 2.0), 0.25, 0.03, "die Fächer sind das rechte Viertel")
+	for wall in ["Holm0", "Holm1", "Steg0", "Steg1"]:
+		assert_not_null(chip.find_child(wall, true, false), wall)
+	assert_null(chip.find_child("Endkappe", true, false), "keine Endkappe mehr")
 	assert_null(chip.find_child("Sockets", true, false), "keine Sockelzone mehr")
 	assert_null(chip.find_child("Leitung_0", true, false), "keine Leitungen mehr")
 	assert_false(chip.has_method("set_extended"), "der Chip fährt nicht mehr aus")
 
-func test_the_base_value_shows_dimmed_only_when_it_differs() -> void:
+func test_the_chip_shows_only_the_current_value() -> void:
 	var chip := _real_chip(_key())
 	var cell := ComboCellView.new()
 	add_child_autofree(cell)
 	cell.combo_name = "Paar"
-	cell.set_score(10, 2, Vector2i(10, 2))
-	chip.sync_cell(cell)
-	assert_false(chip.shows_base())
-	assert_eq(chip._base_label.text, "")
 	cell.set_score(25, 2, Vector2i(10, 2))
 	chip.sync_cell(cell)
-	assert_true(chip.shows_base())
-	assert_eq(chip._base_label.text, "10 ×2")
-	assert_lt(chip._base_label.pixel_size, chip._points_label.pixel_size, "klein")
-	assert_lt(chip._base_label.modulate.a, 1.0, "und gedimmt")
-	assert_gt(chip._base_label.position.x, chip._mult_label.position.x, "neben der Wertung")
-	assert_lt(chip._base_label.position.x, chip.display_right(), "in der Anzeige")
+	assert_eq(chip._points_label.text, "25")
+	assert_eq(chip._mult_label.text, "×2")
+	assert_null(chip.find_child("BaseLabel", true, false), "kein Grundwert daneben")
+	assert_lt(chip._mult_label.position.x, chip.display_right(), "in der Anzeige")
 
 func test_a_resting_module_glows_bright_and_flashes_full() -> void:
 	var key := _key()
@@ -344,7 +343,7 @@ func test_the_gold_rule_spares_the_places() -> void:
 	assert_eq(chip.tile_color(0), tile_before, "Kacheln bleiben")
 	assert_eq(chip.pin_body(0).light_energy(), pin_before, "Modul-Pins bleiben")
 	assert_eq(chip._epoxy_material.emission, chip.EPOXY_ALBEDO.lerp(ComboChipView.HIGHLIGHT_COLOR, 1.0),
-		"das Gehäuse samt Endkappe geht ins Gold")
+		"das Gehäuse samt Holmen geht ins Gold")
 
 func test_each_tile_carries_its_module_colour() -> void:
 	var key := _key()
@@ -368,10 +367,10 @@ func test_the_body_mesh_is_compacted_without_distortion() -> void:
 	var chip := _real_chip(_key())
 	var body := chip.find_child("Body", true, false) as MeshInstance3D
 	var box := chip.global_transform.affine_inverse() * body.global_transform * body.get_aabb()
-	assert_almost_eq(box.get_center().x, 0.0, 0.05, "das gestauchte Gehäuse steht mittig")
-	assert_almost_eq(box.size.x, chip.half_length() * 2.0, 0.05)
+	assert_almost_eq(box.position.x, -chip.half_length(), 0.05, "der Anzeige-Teil beginnt links")
+	assert_almost_eq(box.end.x, chip.seam_x(), 0.05, "und endet an der Naht")
 	var pins := chip.find_child("Pins", true, false) as MeshInstance3D
-	assert_lt(pins.get_aabb().end.x, 0.0, "die rechten glb-Pins sind fort - dort stehen die Plätze")
+	assert_lt(pins.get_aabb().end.x, body.get_aabb().get_center().x, "die rechten glb-Pins sind fort - dort stehen die Fächer")
 
 func test_every_place_shows_its_module_or_the_empty_place() -> void:
 	var key := _key()
@@ -412,7 +411,7 @@ func test_pin_offsets_center_the_tips_in_the_cell() -> void:
 	assert_almost_eq(ppw, 37.5, 0.05, "der echte Tisch")
 	var chip := _real_chip(_key())
 	var left_tip := -chip.half_length() - (ComboChipView.MODEL_LENGTH - ComboChipView.BODY_LENGTH) * 0.5 * chip._s
-	var right_tip := chip.half_length() + ComboPartBody.HULL.x
+	var right_tip := chip.seam_x() + ComboChipView.BAY_AIR + ComboPartBody.HULL.x
 	assert_almost_eq((right_tip - left_tip) * ppw, tip * 2.0, 0.5, "Spanne Pin zu Pin")
 	assert_almost_eq((left_tip + right_tip) * 0.5, -chip.origin_offset(), 0.001, "die Zelle zentriert die Spitzen")
 

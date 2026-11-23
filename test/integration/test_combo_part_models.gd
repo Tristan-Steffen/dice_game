@@ -1,6 +1,6 @@
 extends GutTest
-## Die PINS der Module (Welle D): der EINE Körper eines Moduls - eigenes Modell je Modul,
-## Hüllmaß, eigene Silhouette und die Zustands-Schreiber.
+## Die FACH-EINSÄTZE der Module: der EINE Körper eines Moduls - eigenes Modell je Modul,
+## Hüllmaß, ein Beinchen für alle, eigenes Merkmal und die Zustands-Schreiber.
 
 func _pin(part: ComboPart) -> ComboPartBody:
 	var body := ComboPartBody.new()
@@ -22,7 +22,7 @@ func test_every_module_has_its_own_pin_and_the_empty_place_its_own_model() -> vo
 	for part in ComboPart.all():
 		assert_eq(ComboPartBody.pin_path(part), ComboPartBody.PIN_MODEL % part.id, "%s: eigener Pin" % part.id)
 		var pin := _pin(part)
-		for node_name in ["Model", "Korpus", "Licht"]:
+		for node_name in ["Model", "Korpus", "Licht", "Seltenheit"]:
 			assert_not_null(pin.find_child(node_name, true, false), "%s: %s" % [part.id, node_name])
 		for gone in ["Platte", "PlattenLicht", "Punkte"]:
 			assert_null(pin.find_child(gone, true, false), "%s: kein %s - der Pin ist der Körper" % [part.id, gone])
@@ -55,20 +55,41 @@ func test_every_module_fills_its_pin() -> void:
 		var all := light
 		for mesh in pin.find_children("*", "MeshInstance3D", true, false):
 			all = all.merge(_box_in_body(pin, mesh))
-		assert_gt(all.size.z, ComboPartBody.HULL.x * 0.78, "%s: lang" % part.id)
-		assert_gt(all.size.x, ComboPartBody.HULL.y * 0.45, "%s: breit genug" % part.id)
+		assert_almost_eq(all.size.z, ComboPartBody.HULL.x, 0.03, "%s: Block samt Beinchen" % part.id)
+		assert_almost_eq(all.size.x, ComboPartBody.HULL.y, 0.01, "%s: so breit wie sein Fach" % part.id)
 		assert_gt(light.size.x * light.size.z, 0.04, "%s: ein großes Licht-Merkmal" % part.id)
 
-func test_no_two_pins_share_an_outline() -> void:
+func test_every_module_shares_one_block_and_one_leg() -> void:
+	var hull := ComboPartBody.HULL
+	for part in ComboPart.all():
+		var pin := _pin(part)
+		var korpus := _box_in_body(pin, pin.find_child("Korpus", true, false) as MeshInstance3D)
+		assert_almost_eq(korpus.position.z, -hull.x * 0.5, 0.001, "%s: der Block beginnt an der Naht" % part.id)
+		assert_almost_eq(korpus.end.z, hull.x * 0.5, 0.001, "%s: das Beinchen endet an der Hülle" % part.id)
+		assert_almost_eq(korpus.position.y, 0.0, 0.001, "%s: der Fuß steht auf dem Tisch" % part.id)
+		var led := _box_in_body(pin, pin.find_child("Seltenheit", true, false) as MeshInstance3D)
+		assert_gt(led.position.z, -hull.x * 0.5 + ComboPartBody.BLOCK, "%s: die LED sitzt auf der Schulter" % part.id)
+		assert_eq(pin.rarity_light(), part.rarity_color(), "%s: sie nennt die Seltenheit" % part.id)
+
+func test_no_two_modules_share_a_face() -> void:
 	var seen := {}
 	for part in ComboPart.all():
 		var pin := _pin(part)
 		var key := ""
-		for name in ["Korpus", "Licht"]:
-			var box := _box_in_body(pin, pin.find_child(name, true, false) as MeshInstance3D)
-			key += "%.2f|%.2f|%.2f|%.2f;" % [box.position.x, box.end.x, box.position.z, box.end.z]
+		for mesh in pin.find_children("*", "MeshInstance3D", true, false):
+			var arrays := (mesh as MeshInstance3D).mesh.surface_get_arrays(0)
+			key += "%s:%d;" % [mesh.name, (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()]
 		assert_false(seen.has(key), "%s gleicht %s" % [part.id, seen.get(key, "")])
 		seen[key] = part.id
+
+func test_the_blank_bay_is_a_small_chip() -> void:
+	var blank := _pin(null)
+	for node_name in ["Gehaeuse", "Glas", "Bein"]:
+		assert_not_null(blank.find_child(node_name, true, false), node_name)
+	assert_null(blank.find_child("Seltenheit", true, false), "ohne Modul keine LED")
+	var body := _box_in_body(blank, blank.find_child("Gehaeuse", true, false) as MeshInstance3D)
+	assert_almost_eq(body.end.y, ComboPartBody.BLANK_TOP, 0.001, "bündig mit dem Deckel des Chips")
+	assert_almost_eq(body.size.z, ComboPartBody.BLOCK, 0.001)
 
 func test_the_light_carries_the_phase_and_the_body_is_baked() -> void:
 	var pin := _body(ComboPart.PARALLEL_CIRCUIT)
@@ -86,6 +107,7 @@ func test_a_resting_pin_stays_bright_and_flashes_full() -> void:
 	await wait_frames(1)
 	assert_gt(pin.light_energy(), ComboPartBody.WINDOW_ENERGY)
 	assert_gt(pin.scale.x, 1.0, "der Krit-Schlag poppt")
+	assert_lt(ComboPartBody.FLASH_POP, 0.15, "im Fach ist kaum Luft")
 
 # --- Zustand am Körper -----------------------------------------------------------------------
 

@@ -2,11 +2,11 @@ class_name ComboChipView
 extends Node3D
 ## Eine Kombination als physischer 3D-Chip auf dem Filz (chip_wide.glb aus
 ## tools/blender_combo_hardware.py, in X und Z gleich skaliert, die Gehäuse-Mitte auf
-## BODY_COMPACT gestaucht) über seiner Zelle, die nur noch als Anker dient
-## (ComboCellView.socket_mode). Links die Anzeige, das Frontband und drei glb-Pins, rechts die
-## ENDKAPPE mit drei Kacheln und den drei PLÄTZEN: ein Platz ist der Pin seines Moduls
-## (ComboPartBody), leer ein dunkler Grund mit Stahlhals. Ein Rahmen um jeden Platz trägt
-## Hover, Einbau-Ruf und Wertungs-Blitz.
+## BODY_DISPLAY gestaucht) über seiner Zelle, die nur noch als Anker dient
+## (ComboCellView.socket_mode). Links die Anzeige, das Frontband und drei glb-Pins; das rechte
+## Viertel sind drei FÄCHER zwischen Holmen und Stegen: in jedem steckt sein Modul
+## (ComboPartBody) oder das Blindfach - beide mit Beinchen bis auf den Tisch. Ein Rahmen um
+## jedes Fach trägt Hover, Einbau-Ruf und Wertungs-Blitz, ein Lichtstrich an der Naht die Art.
 
 const CHIP_SCENE := "res://assets/models/chip_wide.glb"
 
@@ -18,9 +18,14 @@ const MODEL_Z_MAX := 11.0
 const BODY_LENGTH := 83.7  # Gehäuse ohne Pins (X)
 const BODY_WIDTH := 20.0   # Gehäuse (Z)
 const BODY_TOP := 9.0      # Deckelhöhe im Modell (STANDOFF + BODY_H)
-## Das Gehäuse nach dem Stauchen (Modell-X): zwischen ±STRETCH_EDGE liegt nur Gehäuse-Mitte,
-## dort staucht es, Ecken und linke Pins bleiben in Form.
-const BODY_COMPACT := 43.1
+## Der ANZEIGE-Teil des Gehäuses nach dem Stauchen (Modell-X): zwischen ±STRETCH_EDGE liegt
+## nur Gehäuse-Mitte, dort staucht es, Ecken und linke Pins bleiben in Form.
+const BODY_DISPLAY := 38.8
+## Die FÄCHER (Welt): rechts an der Naht, so tief wie der Block eines Moduls plus Luft.
+const BAY_AIR := 0.012
+const BAY := ComboPartBody.BLOCK + BAY_AIR
+const BAY_BOTTOM := 0.03
+const WEB_AIR := 0.02
 const STRETCH_EDGE := 23.85
 
 ## Anteil der Zellhöhe, aus dem sich der Maßstab des Chips rechnet (Zelle × FIT / Modell-Tiefe).
@@ -73,9 +78,6 @@ const SCORE_HEIGHT := 5.4
 const STATE_HEIGHT := 3.8
 const TEXT_MARGIN := 3.4   # Abstand zur Gehäusekante (> SCREEN_INSET_X)
 const TEXT_GAP := 1.4      # Luft zwischen Punkten und ×Mult
-## Der GRUNDWERT neben der Wertung: klein und gedimmt, nur wenn die Module ihn verschieben.
-const BASE_SHARE := 0.5
-const BASE_COLOR := Color(0.62, 0.62, 0.72, 0.75)
 
 ## Textfarben wie in der 2D-Zelle (ComboCellView).
 const NAME_COLOR := Color("#ff79c6")
@@ -90,8 +92,8 @@ const FONT_SIZE := 96
 const BAND_COLOR := Color("#3f9bb5")
 const BAND_ENERGY := 0.8
 
-## Hervorhebung der gewürfelten Hand: Gehäuse samt Endkappe, linke Pins und Frontband gehen
-## ins Gold; Modul-Pins, Kacheln und Rahmen behalten ihre Farben.
+## Hervorhebung der gewürfelten Hand: Gehäuse samt Holmen und Blindfächern, linke Pins und
+## Frontband gehen ins Gold; Module, Lichtstriche und Rahmen behalten ihre Farben.
 const HIGHLIGHT_COLOR := Color(1.0, 0.81, 0.07)
 const HIGHLIGHT_BODY_ENERGY := 0.5
 const HIGHLIGHT_PIN_ENERGY := 0.7
@@ -101,7 +103,7 @@ const HIGHLIGHT_BAND_ENERGY := 1.2
 const HIGHLIGHT_SCREEN_ENERGY := 0.12
 
 ## Thermal Throttling (Stresstest): der Chip ist abgeschaltet - das Band glimmt nur noch als
-## rote Warnleuchte, das Display zeigt "AUS", Modul-Pins und Kacheln sind dunkel.
+## rote Warnleuchte, das Display zeigt "AUS", Module und Lichtstriche sind dunkel.
 const THROTTLE_COLOR := Color("#ff5555")
 const THROTTLE_ENERGY := 0.45
 
@@ -117,20 +119,16 @@ const BAND_EMISSION_SHARE := 0.7
 ## Wie weit das Frontband unter die Deckelfläche rutscht (Modelleinheiten).
 const BAND_SEAT_DROP := 0.5
 
-## Die ENDKAPPE (Welt): rechts am Gehäuse, je Platz eine Kachel mit einem Lichtstrich; die
-## Anzeige endet DISPLAY_CAP_GAP vor ihr.
-const CAP := 0.72
-const DISPLAY_CAP_GAP := 0.15
-const TILE := Vector2(0.52, 0.5)  # längs, quer
-const TILE_LIGHT := Vector2(0.08, 0.4)
-const TILE_COLOR := Color(0.09, 0.09, 0.12)
+## Der Lichtstrich an der Naht, je Fach einer (längs, quer; Welt), so weit vor der Naht.
+const TILE_LIGHT := Vector2(0.07, 0.5)
+const SEAM_LIGHT_BACK := 0.15
 const TILE_DIM := Color(0.2, 0.21, 0.26)
 const TILE_ENERGY := 1.6
 ## Linke glb-Pins als Anteile der Gehäusetiefe (ComboCellView.PIN_FRACTIONS).
 const PIN_FRACTIONS := [0.28, 0.5, 0.72]
 ## Die drei PLÄTZE rechts, so weit auseinander, wie die Gehäusetiefe hergibt (Platz 0 = oben).
 const SLOT_FRACTIONS := [0.175, 0.5, 0.825]
-## Der Rahmen um einen Platz (Welt): Breite und Höhe des Stahlrands auf dem Tisch.
+## Der Rahmen um ein Fach (Welt): Breite und Höhe des Stahlrands auf dem Deckel.
 const FRAME_RIM := 0.04
 const FRAME_H := 0.02
 ## Ein Pick-Körper je Platz plus einer über dem Deckel (slot -1 = der Chip selbst): EIN
@@ -163,10 +161,8 @@ var _name_label: Label3D
 var _points_label: Label3D
 var _mult_label: Label3D
 var _state_label: Label3D
-var _base_label: Label3D
 var _points := 0
 var _mult := 1
-var _base := Vector2i(-1, -1)
 var _spotlit := false
 var _spotlight_phase := 0.0
 var _throttled := false
@@ -177,6 +173,7 @@ var _part_context: Dictionary = {}
 var _z_shift := 0.0
 var _half := 0.0
 var _display_right := 0.0
+var _seam := 0.0
 var _hover_slot := -1
 var _lifted_slot := -1
 var _beckon_free := false
@@ -201,24 +198,25 @@ static func pin_offsets_px(cell_size: Vector2) -> Dictionary:
 static func px_per_world(cell_size: Vector2) -> float:
 	return cell_size.y * FIT_DEPTH / (MODEL_Z_MAX - MODEL_Z_MIN) / NOMINAL_SCALE
 
-## Von Pin-Spitze zu Pin-Spitze (Display-px): linker glb-Pin, gestauchtes Gehäuse, Modul-Pin.
+## Von Pin-Spitze zu Pin-Spitze (Display-px): linker glb-Pin, Anzeige-Teil, Fach samt Beinchen.
 static func tip_span_px(cell_size: Vector2) -> float:
 	var per_unit := cell_size.y * FIT_DEPTH / (MODEL_Z_MAX - MODEL_Z_MIN)
-	return (BODY_COMPACT + (MODEL_LENGTH - BODY_LENGTH) * 0.5) * per_unit \
-		+ ComboPartBody.HULL.x * px_per_world(cell_size)
+	return (BODY_DISPLAY + (MODEL_LENGTH - BODY_LENGTH) * 0.5) * per_unit \
+		+ (BAY_AIR + ComboPartBody.HULL.x) * px_per_world(cell_size)
 
 ## Skaliert das Modell auf die Zelltiefe (Weltmaß, X und Z gleich) und hängt Materialien,
-## Labels, Endkappe und Plätze an.
+## Labels und Fächer an.
 func setup(depth_world: float) -> void:
 	_s = depth_world * FIT_DEPTH / (MODEL_Z_MAX - MODEL_Z_MIN)
 	var inst := (load(CHIP_SCENE) as PackedScene).instantiate() as Node3D
 	inst.scale = Vector3(_s, _s, _s)
 	# Modellmitte (das Band ragt vorn über) auf die Zellmitte, die gestauchte Mitte aufs Gehäuse.
 	_z_shift = -(MODEL_Z_MAX + MODEL_Z_MIN) / 2.0 * _s
-	inst.position = Vector3(-(BODY_LENGTH - BODY_COMPACT) * 0.5 * _s, 0.0, _z_shift)
+	inst.position = Vector3(-(BODY_LENGTH - BODY_DISPLAY) * 0.5 * _s - BAY * 0.5, 0.0, _z_shift)
 	add_child(inst)
-	_half = BODY_COMPACT * _s * 0.5
-	_display_right = _half - CAP - DISPLAY_CAP_GAP
+	_half = (BODY_DISPLAY * _s + BAY) * 0.5
+	_seam = _half - BAY
+	_display_right = _seam - SCREEN_INSET_X * _s
 
 	# Das Frontband lehnt im Export GENAU auf Deckelhöhe an - seine obere Kante
 	# liegt dann fast koplanar zum Deckel und flimmert als gestrichelte Linie.
@@ -260,7 +258,11 @@ func setup(depth_world: float) -> void:
 func display_right() -> float:
 	return _display_right
 
-## Halbe Gehäuselänge (Welt).
+## Chip-X der Naht zwischen Anzeige-Teil und Fächern.
+func seam_x() -> float:
+	return _seam
+
+## Halbe Gehäuselänge samt Fächern (Welt).
 func half_length() -> float:
 	return _half
 
@@ -268,19 +270,19 @@ func half_length() -> float:
 func row_z(index: int) -> float:
 	return _z_shift + (float(SLOT_FRACTIONS[clampi(index, 0, 2)]) - 0.5) * BODY_WIDTH * _s
 
-## Wo der Pin eines Platzes ansetzt: an der rechten Gehäusekante, auf dem Tisch.
+## Wo das Modul eines Fachs ansetzt: an der Naht, auf dem Tisch.
 func pin_anchor(index: int) -> Vector3:
-	return Vector3(_half, 0.0, row_z(index))
+	return Vector3(_seam + BAY_AIR, 0.0, row_z(index))
 
-## Mitte der Kachel eines Platzes auf der Endkappe (Chip-Raum).
+## Mitte des Lichtstrichs eines Fachs: vor der Naht auf dem Deckel (Chip-Raum).
 func tile_center(index: int) -> Vector3:
-	return Vector3(_half - CAP * 0.5, BODY_TOP * _s, row_z(index))
+	return Vector3(_seam - SEAM_LIGHT_BACK, BODY_TOP * _s, row_z(index))
 
 ## Wo der Chip-Ursprung relativ zur Zellmitte steht (Chip-X, Welt): die Zelle zentriert die
 ## Pin-Spitzen.
 func origin_offset() -> float:
 	var left_pin := (MODEL_LENGTH - BODY_LENGTH) * 0.5 * _s
-	return -(ComboPartBody.HULL.x - left_pin) * 0.5
+	return -(ComboPartBody.HULL.x - ComboPartBody.BLOCK - left_pin) * 0.5
 
 ## Stellt den Chip auf seine Zellmitte (Welt, im Raum des Elternknotens).
 func set_cell(center: Vector3) -> void:
@@ -310,7 +312,7 @@ func _triplanar(material: StandardMaterial3D) -> void:
 ## Gehäuse, Pins und Band einmal gestaucht; die rechten glb-Pins fallen weg - dort stehen
 ## die Plätze.
 func _compact(inst: Node3D) -> void:
-	var shift := BODY_LENGTH - BODY_COMPACT
+	var shift := BODY_LENGTH - BODY_DISPLAY
 	for node_name in ["Body", "Pins", "Display"]:
 		var mesh_node := inst.find_child(node_name, true, false) as MeshInstance3D
 		if mesh_node == null or mesh_node.mesh == null:
@@ -404,8 +406,6 @@ func _build_screen() -> void:
 	_points_label = _make_label(board, POINTS_COLOR)
 	_mult_label = _make_label(board, MULT_COLOR)
 	_state_label = _make_label(board, THROTTLE_COLOR)
-	_base_label = _make_label(board, BASE_COLOR)
-	_base_label.name = "BaseLabel"
 	_layout_labels()
 
 func _make_label(board: Node3D, color: Color) -> Label3D:
@@ -418,25 +418,18 @@ func _make_label(board: Node3D, color: Color) -> Label3D:
 	board.add_child(label)
 	return label
 
-## Übernimmt Name/Wertung/Grundwert der 2D-Zelle - die bleibt die einzige Quelle.
+## Übernimmt Name und Wertung der 2D-Zelle - die bleibt die einzige Quelle.
 func sync_cell(cell: ComboCellView) -> void:
-	var base := Vector2i(cell.base_points, cell.base_mult)
-	if cell.combo_name == _name_label.text and cell.points == _points \
-			and cell.mult == _mult and base == _base:
+	if cell.combo_name == _name_label.text and cell.points == _points and cell.mult == _mult:
 		return
 	_name_label.text = cell.combo_name
 	_points = cell.points
 	_mult = cell.mult
-	_base = base
 	_layout_labels()
 	_apply_materials()
 
-## Zeigt der Chip einen anderen Wert als den Grundwert, steht dieser gedimmt daneben.
-func shows_base() -> bool:
-	return _base.x >= 0 and _base != Vector2i(_points, _mult)
-
-## Zeilenlayout in der Anzeige: Name oben, darunter Punkte, ×Mult und gedimmt der
-## Grundwert, rechts in der Namenszeile die Drossel-Marke. Was nicht paßt, schrumpft.
+## Zeilenlayout in der Anzeige: Name oben, darunter Punkte und ×Mult, rechts in der
+## Namenszeile die Drossel-Marke. Was nicht paßt, schrumpft.
 func _layout_labels() -> void:
 	var left := -_half + TEXT_MARGIN * _s
 	var right := _display_right - (TEXT_MARGIN - SCREEN_INSET_X) * _s
@@ -447,30 +440,21 @@ func _layout_labels() -> void:
 	_state_label.pixel_size = STATE_HEIGHT * _s / float(FONT_SIZE)
 	_points_label.text = str(_points)
 	_mult_label.text = "×%d" % _mult
-	_base_label.text = "%d ×%d" % [_base.x, _base.y] if shows_base() else ""
 	_points_label.pixel_size = SCORE_HEIGHT * _s / float(FONT_SIZE)
 	_mult_label.pixel_size = _points_label.pixel_size
-	_base_label.pixel_size = _points_label.pixel_size * BASE_SHARE
 
 	var points_w := _text_width(_points_label)
 	var mult_w := _text_width(_mult_label)
-	var base_w := _text_width(_base_label)
-	var gaps := gap + (gap if base_w > 0.0 else 0.0)
-	var needed := points_w + mult_w + base_w
-	if needed + gaps > avail_w and needed > 0.0:
-		var shrink := maxf(avail_w - gaps, 0.01) / needed
-		for label in [_points_label, _mult_label, _base_label]:
+	var needed := points_w + mult_w
+	if needed + gap > avail_w and needed > 0.0:
+		var shrink := maxf(avail_w - gap, 0.01) / needed
+		for label in [_points_label, _mult_label]:
 			(label as Label3D).pixel_size *= shrink
 		points_w *= shrink
 		mult_w *= shrink
-		base_w *= shrink
 	var score_y := SCORE_LINE_Y * _s
 	_points_label.position = Vector3(left + points_w / 2.0, score_y, 0.0)
 	_mult_label.position = Vector3(left + points_w + gap + mult_w / 2.0, score_y, 0.0)
-	# Der Grundwert sitzt unten bündig mit der Wertung.
-	var drop := (_points_label.pixel_size - _base_label.pixel_size) * float(FONT_SIZE) * 0.3
-	_base_label.position = Vector3(left + points_w + gap + mult_w + gap + base_w / 2.0,
-		score_y - drop, 0.0)
 	var state_w := _text_width(_state_label)
 	_state_label.position = Vector3(right - state_w / 2.0, NAME_LINE_Y * _s, 0.0)
 
@@ -638,7 +622,7 @@ func pin_body(slot: int) -> ComboPartBody:
 		return null
 	return _sockets[slot]["pin"]
 
-## Der Zeiger liegt auf diesem Platz (-1 = keinem): Rahmen und Kachel gehen ins Gold.
+## Der Zeiger liegt auf diesem Platz (-1 = keinem): Rahmen und Lichtstrich gehen ins Gold.
 func set_socket_hover(slot: int) -> void:
 	if slot == _hover_slot:
 		return
@@ -691,8 +675,8 @@ func flash_activation() -> void:
 	for slot in _sockets.size():
 		flash_socket(slot)
 
-## Ein Teil feuert in der Wertung: sein Pin blitzt, Rahmen und Kachel mit. strength > 1 ist
-## der Krit-Schlag. Ein leerer Platz blitzt nur an Rahmen und Kachel.
+## Ein Teil feuert in der Wertung: sein Modul blitzt, Rahmen und Lichtstrich mit. strength > 1 ist
+## der Krit-Schlag. Ein leerer Platz blitzt nur an Rahmen und Lichtstrich.
 func flash_socket(slot: int, strength := 1.0) -> void:
 	if slot < 0 or slot >= _sockets.size():
 		return
@@ -711,7 +695,7 @@ func socket_flash(slot: int) -> float:
 		return 0.0
 	return float(_sockets[slot].get("flash", 0.0))
 
-## Licht der Kachel eines Platzes.
+## Licht des Lichtstrichs eines Fachs.
 func tile_energy(slot: int) -> float:
 	if slot < 0 or slot >= _sockets.size():
 		return 0.0
@@ -744,18 +728,19 @@ func _build_chip_pick() -> void:
 	pick.set_meta("socket_slot", -1)
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(BODY_COMPACT * _s, BODY_TOP * _s, BODY_WIDTH * _s)
+	box.size = Vector3(_half * 2.0, BODY_TOP * _s, BODY_WIDTH * _s)
 	shape.shape = box
 	shape.position = Vector3(0.0, BODY_TOP * _s * 0.5, _z_shift)
 	pick.add_child(shape)
 	add_child(pick)
 
-## Die drei Plätze: je eine Kachel auf der Endkappe und an der rechten Kante der Platz mit
-## Rahmen, leerem Grund und Pick-Körper. Einmal gebaut; set_sockets belegt.
+## Die drei Fächer: Holme und Stege, je Fach der Lichtstrich an der Naht und der Platz mit
+## Rahmen, Blindfach und Pick-Körper. Einmal gebaut; set_sockets belegt.
 func _build_slots() -> void:
 	var cap := Node3D.new()
-	cap.name = "Endkappe"
+	cap.name = "Faecher"
 	add_child(cap)
+	_build_bay_walls(cap)
 	for slot in GameRun.SOCKETS_PER_COMBO:
 		var tile := _build_tile(cap, slot)
 		var holder := Node3D.new()
@@ -769,6 +754,7 @@ func _build_slots() -> void:
 		empty_pin.name = "LeererPlatz"
 		holder.add_child(empty_pin)
 		empty_pin.setup(null)
+		_dress_blank(empty_pin)
 		var hull := ComboPartBody.HULL
 		var pick := StaticBody3D.new()
 		pick.collision_layer = SOCKET_PICK_LAYER
@@ -785,7 +771,38 @@ func _build_slots() -> void:
 		_sockets.append({"part": null, "dimmed": false, "pin": null, "empty_pin": empty_pin,
 			"holder": holder, "frame": frame, "tile": tile})
 
-## Der Rahmen eines Platzes: ein dünner Stahlrand um den Grundriß des Pins, auf dem Tisch.
+## Zwei Holme verlängern die Langseiten des Gehäuses, zwei Stege trennen die Fächer.
+func _build_bay_walls(cap: Node3D) -> void:
+	var top := BODY_TOP * _s
+	var depth := BODY_WIDTH * _s * 0.5
+	var module := ComboPartBody.HULL.y * 0.5 + WEB_AIR * 0.5
+	var bars: Array = []  # [Mitte Z, Dicke]
+	for side in [0, 2]:
+		var inner := row_z(side) + (module if side == 2 else -module)
+		var outer := _z_shift + (depth if side == 2 else -depth)
+		bars.append([(inner + outer) * 0.5, absf(outer - inner)])
+	for i in 2:
+		bars.append([(row_z(i) + row_z(i + 1)) * 0.5, row_z(i + 1) - row_z(i) - module * 2.0])
+	for i in bars.size():
+		if float(bars[i][1]) < 0.01:
+			continue
+		var wall := MeshInstance3D.new()
+		wall.name = "Holm%d" % i if i < 2 else "Steg%d" % (i - 2)
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(BAY, top - BAY_BOTTOM, float(bars[i][1]))
+		wall.mesh = mesh
+		wall.material_override = _epoxy_material
+		wall.position = Vector3(_seam + BAY * 0.5, (top + BAY_BOTTOM) * 0.5, float(bars[i][0]))
+		cap.add_child(wall)
+
+## Das Blindfach trägt die Materialien des Chips: es geht mit ihm ins Gold.
+func _dress_blank(blank: ComboPartBody) -> void:
+	for pair in [["Gehaeuse", _epoxy_material], ["Bein", _pins_material], ["Glas", _screen_material]]:
+		var mesh := blank.find_child(pair[0], true, false) as MeshInstance3D
+		if mesh != null:
+			mesh.material_override = pair[1]
+
+## Der Rahmen eines Fachs: ein dünner Stahlrand um den Block, auf dem Deckel.
 func _build_frame(holder: Node3D) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color(0.5, 0.53, 0.6)
@@ -797,6 +814,7 @@ func _build_frame(holder: Node3D) -> StandardMaterial3D:
 	ring.name = "Rand"
 	ring.mesh = _frame_mesh()
 	ring.material_override = material
+	ring.position = Vector3(0.0, BODY_TOP * _s, -(ComboPartBody.HULL.x - ComboPartBody.BLOCK) * 0.5)
 	holder.add_child(ring)
 	return material
 
@@ -804,52 +822,27 @@ static var _frame_cache: ArrayMesh
 
 static func _frame_mesh() -> ArrayMesh:
 	if _frame_cache == null:
-		var half := Vector2(ComboPartBody.HULL.y, ComboPartBody.HULL.x) * 0.5
-		_frame_cache = ChipFrameView.ring_mesh(half, 0.12,
+		var half := Vector2(ComboPartBody.HULL.y, ComboPartBody.BLOCK) * 0.5 + Vector2.ONE * FRAME_RIM
+		_frame_cache = ChipFrameView.ring_mesh(half, 0.1,
 			[Vector2(0.0, 0.0), Vector2(0.0, FRAME_H), Vector2(FRAME_RIM, FRAME_H), Vector2(FRAME_RIM, 0.0)])
 	return _frame_cache
 
-## Die Kachel auf der Endkappe: dunkle Fläche, darauf ein Lichtstrich in der Modulfarbe.
+## Der Lichtstrich eines Fachs an der Naht: die Farbe der Modulart, leer dunkel.
 func _build_tile(cap: Node3D, slot: int) -> StandardMaterial3D:
-	var at := tile_center(slot)
-	var tile := MeshInstance3D.new()
-	tile.name = "Kachel_%d" % slot
-	tile.mesh = _tile_mesh()
-	tile.material_override = _tile_ground()
-	tile.position = at
-	cap.add_child(tile)
 	var light := MeshInstance3D.new()
-	light.name = "KachelLicht_%d" % slot
+	light.name = "NahtLicht_%d" % slot
 	var strip := BoxMesh.new()
-	strip.size = Vector3(TILE_LIGHT.x, 0.006, TILE_LIGHT.y)
+	strip.size = Vector3(TILE_LIGHT.x, 0.012, TILE_LIGHT.y)
 	light.mesh = strip
 	var material := StandardMaterial3D.new()
 	material.emission_enabled = true
 	material.roughness = 0.4
 	light.material_override = material
-	light.position = at + Vector3(-TILE.x * 0.5 + 0.12, 0.015, 0.0)
+	light.position = tile_center(slot) + Vector3(0.0, SCREEN_LIFT, 0.0)
 	cap.add_child(light)
 	return material
 
-static var _tile_cache: ArrayMesh
-static var _tile_ground_cache: StandardMaterial3D
-
-static func _tile_mesh() -> ArrayMesh:
-	if _tile_cache == null:
-		_tile_cache = ComboPartBody.slab_mesh(TILE * 0.5, 0.05, 0.012)
-	return _tile_cache
-
-static func _tile_ground() -> StandardMaterial3D:
-	if _tile_ground_cache == null:
-		_tile_ground_cache = StandardMaterial3D.new()
-		_tile_ground_cache.albedo_color = TILE_COLOR
-		_tile_ground_cache.roughness = 0.5
-		_tile_ground_cache.emission_enabled = true
-		_tile_ground_cache.emission = TILE_COLOR
-		_tile_ground_cache.emission_energy_multiplier = 0.4
-	return _tile_ground_cache
-
-## Steckt ein Teil: sein Pin steht auf dem Platz.
+## Steckt ein Teil: sein Modul füllt das Fach.
 func _seat_part(slot: int, part: ComboPart, off: bool) -> void:
 	var entry := _sockets[slot]
 	var old: ComboPartBody = entry["pin"]
@@ -877,17 +870,16 @@ func _dim_slot(slot: int) -> void:
 	if pin != null and is_instance_valid(pin):
 		pin.set_dimmed(bool(entry["dimmed"]) or _throttled)
 
-## Was an einem Platz steht: ein gehobenes Teil zeigt leer, sonst Modul-Pin oder leerer Platz.
+## Was in einem Fach steht: das Modul, sonst (auch gehoben) das Blindfach.
 func _show_slot(slot: int) -> void:
 	var entry := _sockets[slot]
 	var pin: ComboPartBody = entry["pin"]
 	var module_pin := pin != null and is_instance_valid(pin) and slot != _lifted_slot
 	if pin != null and is_instance_valid(pin):
 		pin.visible = module_pin
-	# Der freie Platz zeigt keinen dunklen Grund mehr (Spieler-Wunsch 2026-11-21): nur sein Rahmen meldet ihn.
-	(entry["empty_pin"] as Node3D).visible = false
+	(entry["empty_pin"] as Node3D).visible = not module_pin
 
-## Rahmen und Kachel je Platz: Ruhe, Hover, Einbau-Ruf, Wertungs-Blitz, Drossel.
+## Rahmen und Lichtstrich je Fach: Ruhe, Hover, Einbau-Ruf, Wertungs-Blitz, Drossel.
 func _apply_slot_lights() -> void:
 	var pulse := 0.5 + 0.5 * sin(_beckon_phase)
 	for slot in _sockets.size():
@@ -911,11 +903,11 @@ func _apply_slot_lights() -> void:
 		var frame: StandardMaterial3D = entry["frame"]
 		frame.emission = color
 		frame.emission_energy_multiplier = energy
-		# Ein freier Platz zeigt in Ruhe nichts; sein Rahmen erscheint nur, wenn er ruft, gemeint ist oder blitzt.
+		# Ein Blindfach trägt in Ruhe keinen Rahmen: er erscheint, wenn es ruft, gemeint ist oder blitzt.
 		var ring := (entry["holder"] as Node3D).get_node_or_null("Rand") as Node3D
 		if ring != null:
 			ring.visible = shown != null or socket_beckons(slot) or slot == _hover_slot or lit > 0.0
-		# Die Kachel trägt die Modulfarbe; leer bleibt sie dunkel.
+		# Der Lichtstrich trägt die Modulfarbe; leer bleibt er dunkel.
 		var tone := shown.tint() if shown != null else TILE_DIM
 		var tile_energy := TILE_ENERGY if shown != null else 0.15
 		if slot == _hover_slot:

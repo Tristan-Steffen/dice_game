@@ -1,18 +1,17 @@
-"""Fumble: je MODUL sein PIN - der EINE Körper eines Moduls (Welle D, Plan
-docs/plan_kombi_grosschip.md; Familien und Bauteile docs/plan_modul_bauteile.md), im
-PRÄZISIONS-Stil (Licht als Vertexfarben eingemalt).
+"""Fumble: je MODUL sein FACH-EINSATZ - der EINE Körper eines Moduls (2026-11-23; Familien und
+Bauteile docs/plan_modul_bauteile.md), Licht als Vertexfarben eingemalt.
 
 Aufruf (kopflos):
   blender -b -P tools/blender_pin_models.py -- assets/models/hardware [id ...]
 
-pin_<id>.glb und pin_empty.glb (der leere Platz: nur ein dunkler Grund - den
-Rahmen des Platzes baut Godot). Ursprung = die rechte Gehäusekante des Chips auf dem Tisch; der
-Pin zeigt nach Bild-rechts (u), quer ist Bild-oben (v), z die Höhe. Hüllmaß PIN_U × PIN_V × PIN_Z
-(spiegelt ComboPartBody.HULL). glTF: Godot (x, y, z) = (v, z, u).
-Die FAMILIE gibt Grundform und Material (Speicher Keramik-Riegel, Wandler Graphit mit Gold,
-Kontakte Stahl-Gabel, Röhren Glas, Abgriffe Stahl-Klinge, Brücken Pfeil), jedes Modul eine
-eigene Silhouette und ein großes Licht-Merkmal. Knoten: Korpus, Licht, optional Glas und Abbild,
-Zustands-Teile (Ziffer0-2, Lampe0-4, Ring0-4, Klemme0-2, Flamme) setzt Godot.
+pin_<id>.glb und pin_empty.glb (das Blindfach). Ein Modul ist ein Block, der ein Fach des
+Kombinations-Chips füllt, rechts sein Beinchen bis auf den Tisch - für alle gleich. Ursprung = die
+Naht am Chip auf dem Tisch; längs ist Bild-rechts (u), quer Bild-oben (v), z die Höhe. Hüllmaß
+PIN_U × PIN_V × PIN_Z (spiegelt ComboPartBody.HULL). glTF: Godot (x, y, z) = (v, z, u).
+Die FAMILIE gibt den Ton der Schale, jedes Modul sein Merkmal auf dem Deckel. Knoten: Korpus,
+Licht (Art: Statusstrich, Merkmal, Fuß-LED), Seltenheit (Schulter-LED), optional Glas und Abbild,
+Zustands-Teile (Ziffer0-2, Lampe0-4, Ring0-4, Klemme0-2, Flamme) setzt Godot. Das Blindfach trägt
+Gehaeuse, Glas und Bein - seine Materialien gibt der Chip.
 """
 import bmesh, bpy, math, os, sys
 from mathutils import Matrix, Vector
@@ -24,9 +23,11 @@ os.makedirs(OUT, exist_ok=True)
 STEPS = 48
 
 # Spiegelt ComboPartBody.HULL: wer es dort ändert, zieht es hier nach.
-PIN_U, PIN_V, PIN_Z = 1.7, 0.85, 0.6
-NECK = -0.04  # so weit steckt jeder Pin im Gehäuse
-AX = 0.28     # Achshöhe der liegenden Körper
+PIN_U, PIN_V, PIN_Z = 2.3, 0.82, 1.68
+BLOCK = 1.845        # Länge des Blocks; der Rest ist das Beinchen
+CHIP_TOP = 1.28      # Deckelhöhe des Chips: so hoch steht das Blindfach
+T = 1.32             # Deckel des Blocks (ComboPartBody.TOP); darüber stehen nur die Merkmale
+AX = T + 0.03        # Achshöhe der liegenden Körper: halb im Deckel versenkt
 
 STEEL = (0.7, 0.73, 0.8)
 COPPER = (1.0, 0.52, 0.26)
@@ -248,32 +249,10 @@ def ribbed(r_out, r_in, u0, u1, turns):
 
 
 def export(name):
-    # Jeder Pin sitzt DIREKT am Gehäuse: alles rückt, bis sein Anfang im Chip steckt.
-    # Ohne Hals füllt er den Platz wieder aus: gleichmäßig wachsen, bis Länge, Tiefe oder Höhe anstößt.
-    pts = [o.matrix_world @ v.co for o in bpy.data.objects if o.type == "MESH" for v in o.data.vertices]
-    length = max(q.y for q in pts) - min(q.y for q in pts)
-    grow = min((PIN_U - 0.02) / length, PIN_V / (2.0 * max(abs(q.x) for q in pts)), PIN_Z / max(q.z for q in pts))
-    if name == "empty":
-        grow = 1.0
-    for o in bpy.data.objects:
-        if o.type == "MESH":
-            o.data.transform(Matrix.Scale(grow, 4) @ o.matrix_world)
-            o.matrix_world = Matrix.Identity(4)
-        elif o.parent is None:
-            o.location = o.location * grow
-    reach = max(q.y for q in pts) * grow
-    for o in bpy.data.objects:
-        if o.parent is None:
-            o.location.y += -NECK - reach
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=os.path.join(OUT, "pin_%s.glb" % name), use_selection=True,
                               export_apply=True, export_format="GLB", export_colors=True)
     print("BUILT pin", name)
-
-
-def neck():
-    """Kein Hals mehr (Spieler-Wunsch 2026-11-21): das Modul sitzt selbst am Gehäuse."""
-    return None
 
 
 def arrow(name, pts, width, head_w, head_len, z0, z1):
@@ -285,335 +264,339 @@ def arrow(name, pts, width, head_w, head_len, z0, z1):
     base = (b[0] - du * head_len, b[1] - dv * head_len)
     shaft = list(pts[:-1]) + [base]
     pieces = [bar(name, p, q, width, z0, z1) for p, q in zip(shaft, shaft[1:])]
-    # Knicke bekommen ein volles Eck, sonst fehlte dort eine Ecke.
     pieces += [box(name, width, width, z0, z1, p[0], p[1]) for p in shaft[1:-1]]
     nu, nv = -dv * head_w / 2, du * head_w / 2
     pieces.append(prism(name, uv_outline([(base[0] + nu, base[1] + nv), b, (base[0] - nu, base[1] - nv)]), z0, z1))
     return pieces
 
 
-# --- SPEICHER (Punkte): liegender Keramik-Riegel -----------------------------------------------
+# --- Schale und Beinchen: für jedes Modul gleich ------------------------------------------------
+
+LEG = [(0.0, 0.68), (0.17, 0.68), (0.32, 0.1), (0.475, 0.1), (0.475, 0.0), (0.27, 0.0), (0.12, 0.56), (0.0, 0.56)]
+LEG_W = 0.4
+
+SPEICHER = (0.27, 0.24, 0.19)
+WANDLER = (0.13, 0.13, 0.17)
+KONTAKT = (0.1, 0.17, 0.19)
+ROEHRE = (0.16, 0.08, 0.22)
+ABGRIFF = (0.13, 0.17, 0.11)
+BRUECKE = (0.21, 0.08, 0.19)
+
+
+def leg(name="Bein"):
+    """Gull-Wing-Beinchen: Schulter am Block, Knick, Fuß auf dem Tisch."""
+    bm = bmesh.new()
+    sides = [[bm.verts.new(B(BLOCK - 0.02 + u, v, z)) for u, z in LEG] for v in (-LEG_W / 2, LEG_W / 2)]
+    n = len(LEG)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((sides[0][i], sides[0][j], sides[1][j], sides[1][i]))
+    caps = [bm.faces.new(sides[0]), bm.faces.new(sides[1])]
+    bmesh.ops.triangulate(bm, faces=caps)
+    return finish(name, bm, False)
+
+
+def shell(tone):
+    """Block, Beinchen und die festen Lichter: Statusstrich an der Naht, Fuß-LED (Art), Schulter-LED."""
+    parts = [paint(slab("Schale", BLOCK / 2, PIN_V / 2, 0.06, 0.03, T, BLOCK / 2, 0.0), "gloss", tone),
+             paint(leg(), "metal", STEEL)]
+    lights = [box("Status", 0.09, 0.56, T, T + 0.012, 0.13, 0.0),
+              box("FussLed", 0.09, 0.28, 0.1, 0.115, BLOCK + 0.36, 0.0)]
+    box("Seltenheit", 0.09, 0.28, 0.68, 0.695, BLOCK + 0.055, 0.0)
+    return parts, lights
+
+
+def done(name, parts, lights):
+    join("Korpus", parts)
+    join("Licht", lights)
+    export(name)
+
+
+def top(z):
+    return T + z
+
+
+# --- SPEICHER (Punkte) -------------------------------------------------------------------------
 
 def resistor():
-    """Widerstand: der schlichte Riegel, drei breite Farbringe."""
+    """Widerstand: Keramik-Riegel im Deckel, drei breite Farbringe."""
     reset()
-    join("Korpus", [neck(), paint(along("Riegel", capsule(0.22, 0.66), 0.96, squash=(1.3, 1.0)), "gloss", CERAMIC)])
-    join("Licht", [band("Ring", 0.222, 0.232, 0.07, u, squash=(1.3, 1.0)) for u in (0.62, 0.96, 1.3)])
-    export("resistor")
+    parts, lights = shell(SPEICHER)
+    parts.append(paint(along("Riegel", capsule(0.2, 0.62), 1.02, squash=(1.3, 1.0)), "gloss", CERAMIC))
+    lights += [band("Ring", 0.202, 0.215, 0.08, u, squash=(1.3, 1.0)) for u in (0.66, 1.02, 1.38)]
+    done("resistor", parts, lights)
 
 
 def coil():
-    """Spule: Spulenkörper mit zwei breiten Leucht-Flanschen (Hantel), Kupferwicklung dazwischen."""
+    """Spule: Kupferwicklung zwischen zwei Leucht-Flanschen."""
     reset()
-    parts = [neck(), paint(along("Kern", capsule(0.12, 0.68), 0.96), "gloss", GRAPHITE),
-             paint(along("Wicklung", ribbed(0.19, 0.175, -0.48, 0.48, 16), 0.96, squash=(1.2, 1.0)), "metal", COPPER)]
-    join("Korpus", parts)
-    join("Licht", [along("Flansch", capsule(0.27, 0.05, 0.015), u, squash=(1.5, 1.0)) for u in (0.4, 1.52)])
-    export("coil")
+    parts, lights = shell(SPEICHER)
+    parts.append(paint(along("Wicklung", ribbed(0.19, 0.175, -0.46, 0.46, 16), 1.02, squash=(1.2, 1.0)), "metal", COPPER))
+    lights += [along("Flansch", capsule(0.25, 0.05, 0.015), u, squash=(1.25, 1.0)) for u in (0.5, 1.54)]
+    done("coil", parts, lights)
 
 
 def series_resistor():
-    """Vorwiderstand: ein Kamm - Riegel oben, sechs Zinken hängen nach Bild-unten."""
+    """Vorwiderstand: ein Kamm - Riegel oben, sechs leuchtende Zinken."""
     reset()
-    parts = [neck(), paint(along("Riegel", capsule(0.12, 0.66), 0.96, 0.24, AX, (1.0, 1.0)), "gloss", CERAMIC)]
-    lights = []
-    for i in range(6):
-        u = 0.45 + i * 0.205
-        parts.append(paint(box("Zahn", 0.09, 0.34, 0.12, 0.3, u, 0.04), "gloss", CERAMIC))
-        lights.append(box("Spitze", 0.12, 0.2, 0.1, 0.32, u, -0.31))
-    join("Korpus", parts)
-    join("Licht", lights)
-    export("series_resistor")
+    parts, lights = shell(SPEICHER)
+    parts.append(paint(box("Riegel", 1.36, 0.14, T, top(0.07), 1.02, 0.24), "gloss", CERAMIC))
+    lights += [box("Zinke", 0.11, 0.4, T, top(0.03), 0.42 + i * 0.24, -0.06) for i in range(6)]
+    done("series_resistor", parts, lights)
 
 
 def series_terminal():
-    """Reihenklemme: Klemmleiste mit drei breiten Klemmen (Sägezahn), Schrauben leuchten je Modul."""
+    """Reihenklemme: drei Schrauben, ihr Ring leuchtet je Modul."""
     reset()
-    parts = [neck(), paint(box("Leiste", 1.3, 0.42, 0.0, 0.28, 0.95, 0.0), "gloss", CERAMIC)]
+    parts, lights = shell(SPEICHER)
     for i in range(3):
-        u = 0.55 + i * 0.4
-        parts.append(paint(slab("Klemmblock", 0.15, 0.41, 0.04, 0.0, 0.38, u, 0.0), "gloss", CERAMIC))
-        parts.append(paint(cyl("Schraube", 0.09, 0.38, 0.44, u, 0.12, 0.02, 24), "metal", STEEL))
-        parts.append(paint(box("Schlitz", 0.03, 0.14, 0.44, 0.445, u, 0.12), "gloss", BLACK))
-        ring("Klemme%d" % i, 0.1, 0.15, 0.38, 0.41, u, 0.12, 32)
-    join("Korpus", parts)
-    join("Licht", [box("Lichtstrich", 0.11, 0.08, 0.38, 0.4, 0.55 + i * 0.4, -0.25) for i in range(3)])
-    export("series_terminal")
+        u = 0.52 + i * 0.5
+        parts.append(paint(cyl("Schraube", 0.12, T, top(0.06), u, 0.08, 0.02, 24), "metal", STEEL))
+        parts.append(paint(box("Schlitz", 0.03, 0.18, top(0.06), top(0.065), u, 0.08), "gloss", BLACK))
+        ring("Klemme%d" % i, 0.14, 0.2, T, top(0.03), u, 0.08, 32)
+        lights.append(box("Lichtstrich", 0.26, 0.07, T, top(0.02), u, -0.27))
+    done("series_terminal", parts, lights)
 
 
-# --- WANDLER (Mult +): Graphit mit goldener Stirn ----------------------------------------------
-
-def gold_stirn(u, hv, z1):
-    return paint(box("Stirn", 0.06, hv, 0.0, z1, u, 0.0), "metal", GOLD)
-
+# --- WANDLER (Mult +) --------------------------------------------------------------------------
 
 def capacitor():
-    """Kondensator: der hohe runde Becher, ein großes Kreuz im Deckel."""
+    """Kondensator: runder Becher im Deckel, ein großes Kreuz."""
     reset()
-    parts = [neck(), paint(box("Fuss", 0.6, 0.3, 0.0, 0.2, 0.5, 0.0), "gloss", GRAPHITE),
-             paint(cyl("Becher", 0.38, 0.0, 0.5, 1.2, 0.0, 0.04, 56), "gloss", GRAPHITE),
-             paint(ring("Huelse", 0.38, 0.4, 0.0, 0.4, 1.2, 0.0, 56), "metal", GOLD)]
-    join("Korpus", parts)
-    join("Licht", [box("Kreuz", 0.56, 0.14, 0.5, 0.52, 1.2, 0.0), box("Kreuz", 0.14, 0.56, 0.5, 0.52, 1.2, 0.0)])
-    export("capacitor")
+    parts, lights = shell(WANDLER)
+    parts += [paint(cyl("Becher", 0.31, T, top(0.08), 1.02, 0.0, 0.03, 56), "gloss", BLACK),
+              paint(ring("Huelse", 0.31, 0.35, T, top(0.05), 1.02, 0.0, 56), "metal", GOLD)]
+    lights += [box("Kreuz", 0.48, 0.12, top(0.08), top(0.1), 1.02, 0.0), box("Kreuz", 0.12, 0.48, top(0.08), top(0.1), 1.02, 0.0)]
+    done("capacitor", parts, lights)
 
 
 def solder_joint():
-    """Lötpunkt: lange flache Leiste, sechs große leuchtende Zinnkuppen (eine je Würfel)."""
+    """Lötpunkt: sechs leuchtende Zinnkuppen (eine je Würfel)."""
     reset()
-    parts = [neck(), paint(slab("Leiste", 0.68, 0.36, 0.06, 0.0, 0.16, 0.96, 0.0), "gloss", GRAPHITE),
-             gold_stirn(1.64, 0.6, 0.2)]
-    lights = []
+    parts, lights = shell(WANDLER)
     for a in range(3):
         for b in (-1, 1):
-            u, v = 0.55 + a * 0.4, b * 0.17
-            parts.append(paint(ring("Pad", 0.13, 0.15, 0.16, 0.18, u, v, 32), "metal", SOLDER))
-            lights.append(dome("Kuppe", [(0.13, 0.16), (0.125, 0.22), (0.08, 0.27), (0.0, 0.29)], u, v))
-    join("Korpus", parts)
-    join("Licht", lights)
-    export("solder_joint")
+            u, v = 0.56 + a * 0.46, b * 0.18
+            parts.append(paint(ring("Pad", 0.13, 0.16, T, top(0.02), u, v, 32), "metal", SOLDER))
+            lights.append(dome("Kuppe", [(0.13, T), (0.125, top(0.06)), (0.08, top(0.1)), (0.0, top(0.12))], u, v))
+    done("solder_joint", parts, lights)
 
 
 def counter_part():
-    """Zählwerk: Kasten mit großem schwarzem Ziffernfenster."""
+    """Zählwerk: großes schwarzes Ziffernfenster."""
     reset()
-    parts = [neck(), paint(slab("Kasten", 0.66, 0.41, 0.08, 0.0, 0.4, 0.96, 0.0), "gloss", GRAPHITE),
-             paint(box("Fenster", 1.08, 0.54, 0.4, 0.41, 0.92, 0.04), "gloss", BLACK),
-             gold_stirn(1.63, 0.7, 0.42)]
+    parts, lights = shell(WANDLER)
+    parts.append(paint(box("Fenster", 1.2, 0.5, T, top(0.012), 1.04, 0.05), "gloss", BLACK))
     for i in range(3):
-        anchor("Ziffer%d" % i, 0.56 + i * 0.36, 0.04, 0.415)
-    join("Korpus", parts)
-    box("Licht", 1.08, 0.07, 0.4, 0.42, 0.92, -0.3)
-    export("counter")
+        anchor("Ziffer%d" % i, 0.66 + i * 0.38, 0.05, top(0.02))
+    lights.append(box("Unterstrich", 1.2, 0.06, T, top(0.02), 1.04, -0.29))
+    done("counter", parts, lights)
 
 
 def error_memory():
-    """Fehlerspeicher: EPROM mit Beinchen (Tausendfüßler), Quarzfenster, fünf rote Lampen."""
+    """Fehlerspeicher: Quarzfenster, fünf rote Lampen."""
     reset()
-    parts = [neck(), paint(box("Baustein", 1.3, 0.46, 0.05, 0.3, 0.96, 0.0), "gloss", GRAPHITE),
-             paint(ring("Fassung", 0.17, 0.21, 0.3, 0.32, 0.5, 0.0, 40), "metal", GOLD)]
-    for i in range(6):
-        for s in (-1, 1):
-            parts.append(paint(box("Bein", 0.08, 0.16, 0.0, 0.12, 0.45 + i * 0.205, s * 0.33), "metal", STEEL))
+    parts, lights = shell(WANDLER)
+    parts.append(paint(ring("Fassung", 0.17, 0.22, T, top(0.03), 0.52, 0.0, 40), "metal", GOLD))
     for i in range(5):
-        cyl("Lampe%d" % i, 0.08, 0.3, 0.34, 0.82 + i * 0.19, 0.0, 0.02, 24)
-    join("Korpus", parts)
-    paint(cyl("Glas", 0.17, 0.3, 0.33, 0.5, 0.0, steps=40), "glass", GLASS_VIOLET)
-    cyl("Licht", 0.13, 0.3, 0.325, 0.5, 0.0, steps=32)
-    export("error_memory")
+        cyl("Lampe%d" % i, 0.085, T, top(0.05), 0.92 + i * 0.2, 0.0, 0.02, 24)
+    lights.append(cyl("Quarz", 0.13, T, top(0.02), 0.52, 0.0, steps=32))
+    paint(cyl("Glas", 0.17, T, top(0.04), 0.52, 0.0, steps=40), "glass", GLASS_VIOLET)
+    done("error_memory", parts, lights)
 
 
 def starter():
-    """Anlasser: eckige Blende, darauf der große runde Knopf mit Ein-Zeichen."""
+    """Anlasser: der große runde Knopf mit Ein-Zeichen."""
     reset()
-    parts = [neck(), paint(slab("Blende", 0.5, 0.41, 0.08, 0.0, 0.2, 1.12, 0.0), "gloss", GRAPHITE),
-             paint(box("Steg", 0.3, 0.3, 0.0, 0.2, 0.47, 0.0), "gloss", GRAPHITE),
-             paint(dome("Knopf", [(0.33, 0.2), (0.33, 0.3), (0.3, 0.36), (0.0, 0.38)], 1.12, 0.0), "gloss", BLACK)]
-    join("Korpus", parts)
-    lights = []
+    parts, lights = shell(WANDLER)
+    parts += [paint(ring("Kragen", 0.3, 0.35, T, top(0.04), 1.02, 0.0, 48), "metal", STEEL),
+              paint(dome("Knopf", [(0.3, T), (0.3, top(0.06)), (0.27, top(0.1)), (0.0, top(0.11))], 1.02, 0.0), "gloss", BLACK)]
     for k in range(10):
         a0, a1 = math.radians(120 + 30 * k), math.radians(150 + 30 * k)
-        lights.append(bar("Zeichen", (1.12 + 0.22 * math.cos(a0), 0.22 * math.sin(a0)),
-                          (1.12 + 0.22 * math.cos(a1), 0.22 * math.sin(a1)), 0.07, 0.36, 0.39))
-    lights.append(bar("Zeichen", (1.12, 0.0), (1.12, 0.3), 0.08, 0.37, 0.4))
-    join("Licht", lights)
-    export("starter")
+        lights.append(bar("Zeichen", (1.02 + 0.19 * math.cos(a0), 0.19 * math.sin(a0)),
+                          (1.02 + 0.19 * math.cos(a1), 0.19 * math.sin(a1)), 0.06, top(0.1), top(0.125)))
+    lights.append(bar("Zeichen", (1.02, 0.0), (1.02, 0.26), 0.07, top(0.105), top(0.13)))
+    done("starter", parts, lights)
 
 
-# --- KONTAKTE (Würfel): Stahl-Gabel, leuchtende Spitzen ----------------------------------------
+# --- KONTAKTE (Würfel): eine Reihe Kontaktfelder, die gemeinten leuchten -------------------------
 
-def yoke(hv):
-    return paint(box("Joch", 0.18, hv, 0.0, 0.32, 0.34, 0.0), "metal", STEEL)
+PADS = [0.5 + i * 0.36 for i in range(4)]
 
 
-def prong(u1, v, width=0.12):
-    return paint(box("Zinke", u1 - 0.42, width, 0.12, 0.26, (0.42 + u1) * 0.5, v), "metal", STEEL)
+def pad_row(lit, parts, lights):
+    for i, u in enumerate(PADS):
+        if i in lit:
+            lights.append(slab("Kontakt", 0.13, 0.22, 0.04, T, top(0.05), u, 0.0))
+        else:
+            parts.append(paint(slab("Kontakt", 0.13, 0.22, 0.04, T, top(0.035), u, 0.0), "metal", STEEL))
 
 
 def relay():
-    """Relais: die OBERE Zinke lang mit großer Leuchtspitze, die untere kurz in einer Kupferspule."""
+    """Relais: der ERSTE Kontakt leuchtet, darunter die Kupferspule."""
     reset()
-    parts = [neck(), yoke(0.74), prong(1.36, 0.24), prong(0.95, -0.22),
-             paint(along("Spule", ribbed(0.17, 0.15, -0.22, 0.22, 8), 0.68, -0.22, 0.19), "metal", COPPER)]
-    join("Korpus", parts)
-    box("Licht", 0.32, 0.28, 0.1, 0.3, 1.52, 0.24)
-    export("relay")
+    parts, lights = shell(KONTAKT)
+    pad_row({0}, parts, lights)
+    parts.append(paint(box("Spule", 0.3, 0.1, T, top(0.03), PADS[0], -0.32), "metal", COPPER))
+    done("relay", parts, lights)
 
 
 def output_stage():
-    """Endstufe: Spiegelbild des Relais - die UNTERE Zinke leuchtet, breite Kühlrippen am Joch."""
+    """Endstufe: der LETZTE Kontakt leuchtet, daneben Kühlrippen."""
     reset()
-    parts = [neck(), yoke(0.74), prong(1.36, -0.24), prong(0.95, 0.22)]
-    for i in range(4):
-        parts.append(paint(box("Rippe", 0.05, 0.84, 0.0, 0.4, 0.5 + i * 0.1, 0.0), "metal", ALU))
-    join("Korpus", parts)
-    box("Licht", 0.32, 0.28, 0.1, 0.3, 1.52, -0.24)
-    export("output_stage")
+    parts, lights = shell(KONTAKT)
+    pad_row({3}, parts, lights)
+    parts += [paint(box("Rippe", 0.3, 0.035, T, top(0.05), PADS[3], s * (0.29 + k * 0.06)), "metal", ALU)
+              for s in (-1, 1) for k in range(2)]
+    done("output_stage", parts, lights)
 
 
 def shunt():
-    """Nebenschluss: zwei Zinken, am Ende zu einem geschlossenen Kupfer-Ring verbunden."""
+    """Nebenschluss: die Kontakte, drumherum eine leuchtende Schleife."""
     reset()
-    parts = [neck(), yoke(0.74), prong(1.2, 0.28), prong(1.2, -0.28),
-             paint(box("Buegel", 0.14, 0.7, 0.1, 0.3, 0.72, 0.0), "metal", COPPER)]
-    join("Korpus", parts)
-    join("Licht", [bar("Schleife", (1.2, 0.3), (1.6, 0.3), 0.12, 0.1, 0.3),
-                   bar("Schleife", (1.6, 0.36), (1.6, -0.36), 0.14, 0.1, 0.3),
-                   bar("Schleife", (1.6, -0.3), (1.2, -0.3), 0.12, 0.1, 0.3)])
-    export("shunt")
+    parts, lights = shell(KONTAKT)
+    pad_row(set(), parts, lights)
+    u0, u1 = PADS[0] - 0.22, PADS[3] + 0.22
+    lights += [bar("Schleife", (u0, 0.31), (u1, 0.31), 0.07, T, top(0.03)), bar("Schleife", (u0, -0.31), (u1, -0.31), 0.07, T, top(0.03)),
+               bar("Schleife", (u0, 0.34), (u0, -0.34), 0.07, T, top(0.03)), bar("Schleife", (u1, 0.34), (u1, -0.34), 0.07, T, top(0.03))]
+    done("shunt", parts, lights)
 
 
 def parallel_circuit():
-    """Parallelschaltung: ein Rechen aus vier Zinken, alle Spitzen leuchten."""
+    """Parallelschaltung: alle vier Kontakte leuchten, zwei Sammelschienen."""
     reset()
-    parts = [neck(), yoke(0.84)]
-    lights = []
-    for v in (0.33, 0.11, -0.11, -0.33):
-        parts.append(prong(1.36, v, 0.09))
-        lights.append(box("Spitze", 0.3, 0.13, 0.1, 0.3, 1.52, v))
-    join("Korpus", parts)
-    join("Licht", lights)
-    export("parallel_circuit")
+    parts, lights = shell(KONTAKT)
+    pad_row({0, 1, 2, 3}, parts, lights)
+    parts += [paint(box("Schiene", 1.36, 0.06, T, top(0.03), 1.04, s * 0.31), "metal", COPPER) for s in (-1, 1)]
+    done("parallel_circuit", parts, lights)
 
 
-# --- RÖHREN (Mult ×): Glaskolben mit Glutkern --------------------------------------------------
+# --- RÖHREN (Mult ×): Glaskolben liegend im Deckel ---------------------------------------------
 
-def foot(u, r):
-    return paint(along("Fuss", [(0.0, -0.04), (r, -0.04), (r, 0.04), (0.0, 0.04)], u), "metal", STEEL)
+def tube_feet(parts, r, u0, u1):
+    for u in (u0, u1):
+        parts.append(paint(band("Fassung", r, r + 0.03, 0.035, u), "metal", STEEL))
 
 
 def amplifier_tube():
-    """Verstärkerröhre: die schlanke lange Röhre, ein langer heller Kern, zwei Gitter."""
+    """Verstärkerröhre: schlanke lange Röhre, heller Kern, zwei Gitter."""
     reset()
-    paint(along("Glas", capsule(0.18, 0.62), 0.98), "glass", GLASS_VIOLET)
-    parts = [neck(), foot(0.36, 0.2)]
-    for u in (0.8, 1.16):
-        parts.append(paint(band("Gitter", 0.18, 0.2, 0.025, u), "metal", STEEL))
-    join("Korpus", parts)
-    along("Licht", capsule(0.1, 0.56, 0.03), 0.98)
-    export("amplifier_tube")
+    parts, lights = shell(ROEHRE)
+    paint(along("Glas", capsule(0.19, 0.64), 1.04), "glass", GLASS_VIOLET)
+    tube_feet(parts, 0.19, 0.44, 1.64)
+    parts += [paint(band("Gitter", 0.19, 0.205, 0.02, u), "metal", STEEL) for u in (0.86, 1.22)]
+    lights.append(along("Kern", capsule(0.1, 0.56, 0.03), 1.04))
+    done("amplifier_tube", parts, lights)
 
 
 def high_voltage_tube():
-    """Hochspannungsröhre: dicker Kolben, breiter Koronaring, große Anodenkugel am Ende."""
+    """Hochspannungsröhre: dicker Kolben, breiter Koronaring, Anodenkugel."""
     reset()
-    paint(along("Glas", capsule(0.24, 0.38), 0.78), "glass", GLASS_VIOLET)
-    parts = [neck(), foot(0.36, 0.26),
-             paint(along("Kugel", [(0.0, -0.22), (0.15, -0.16), (0.22, 0.0), (0.15, 0.16), (0.0, 0.22)], 1.42),
-                   "metal", STEEL)]
-    join("Korpus", parts)
-    join("Licht", [along("Kern", capsule(0.12, 0.3, 0.03), 0.78),
-                   band("Korona", 0.26, 0.4, 0.04, 0.78, squash=(1.0, 0.68)),
-                   along("Anode", [(0.0, -0.1), (0.1, -0.06), (0.12, 0.0), (0.1, 0.06), (0.0, 0.1)], 1.42, zc=AX + 0.17)])
-    export("high_voltage_tube")
+    parts, lights = shell(ROEHRE)
+    paint(along("Glas", capsule(0.27, 0.42), 0.86), "glass", GLASS_VIOLET)
+    tube_feet(parts, 0.27, 0.48, 1.24)
+    parts.append(paint(dome("Kugel", [(0.15, T), (0.15, top(0.06)), (0.1, top(0.12)), (0.0, top(0.14))], 1.56, 0.0), "metal", STEEL))
+    lights += [along("Kern", capsule(0.13, 0.32, 0.03), 0.86),
+               band("Korona", 0.275, 0.31, 0.06, 0.86),
+               cyl("Anode", 0.07, top(0.14), top(0.16), 1.56, 0.0, steps=24)]
+    done("high_voltage_tube", parts, lights)
 
 
 def resonator():
-    """Schwingkreis: dünne Röhre in fünf breiten Windungen - sie füllen sich mit dem Wachstum."""
+    """Schwingkreis: dünne Röhre in fünf Windungen - sie füllen sich mit dem Wachstum."""
     reset()
-    paint(along("Glas", capsule(0.13, 0.62), 0.98), "glass", GLASS_VIOLET)
-    join("Korpus", [neck(), foot(0.36, 0.15)])
-    along("Licht", capsule(0.07, 0.58, 0.02), 0.98)
+    parts, lights = shell(ROEHRE)
+    paint(along("Glas", capsule(0.13, 0.64), 1.04), "glass", GLASS_VIOLET)
+    tube_feet(parts, 0.13, 0.44, 1.64)
+    lights.append(along("Kern", capsule(0.07, 0.58, 0.02), 1.04))
     for k in range(5):
-        band("Ring%d" % k, 0.15, 0.27, 0.045, 0.62 + k * 0.18)
-    export("resonator")
+        band("Ring%d" % k, 0.15, 0.25, 0.05, 0.64 + k * 0.2)
+    done("resonator", parts, lights)
 
 
 def afterburner():
-    """Nachbrenner: kurze Röhre, weit offene Düse (Trompete), dahinter die Flamme."""
+    """Nachbrenner: Kühlrippen und die Düse im Deckel; scharf brennt die Flamme."""
     reset()
-    paint(along("Glas", capsule(0.16, 0.26), 0.62), "glass", GLASS_VIOLET)
-    parts = [neck(), foot(0.36, 0.18),
-             paint(along("Duese", [(0.15, -0.26), (0.2, -0.1), (0.3, 0.06), (0.4, 0.2), (0.36, 0.2), (0.26, 0.06),
-                                   (0.16, -0.1), (0.12, -0.26)], 1.1, squash=(1.0, 0.68), caps=False), "metal", STEEL)]
-    join("Korpus", parts)
-    along("Licht", capsule(0.09, 0.22, 0.02), 0.62)
-    along("Flamme", [(0.0, -0.08), (0.28, -0.04), (0.2, 0.1), (0.1, 0.22), (0.0, 0.28)], 1.38, squash=(1.0, 0.95), steps=24)
-    export("afterburner")
+    parts, lights = shell(ROEHRE)
+    parts += [paint(box("Rippe", 0.07, 0.56, T, top(0.07), 0.4 + i * 0.16, 0.0), "metal", ALU) for i in range(4)]
+    parts.append(paint(ring("Duese", 0.2, 0.3, T, top(0.07), 1.4, 0.0, 48), "metal", STEEL))
+    lights.append(box("Glut", 0.62, 0.5, T, top(0.012), 0.64, 0.0))
+    lights.append(ring("Brennring", 0.15, 0.2, T, top(0.04), 1.4, 0.0, 40))
+    dome("Flamme", [(0.15, T), (0.13, top(0.06)), (0.06, top(0.11)), (0.0, top(0.12))], 1.4, 0.0, 24)
+    done("afterburner", parts, lights)
 
 
-# --- ABGRIFFE (Ökonomie): flache Stahl-Klinge --------------------------------------------------
-
-def blade(u0, u1, hv):
-    return paint(slab("Klinge", (u1 - u0) * 0.5, hv, 0.06, 0.08, 0.16, (u0 + u1) * 0.5, 0.0), "metal", STEEL)
-
+# --- ABGRIFFE (Ökonomie) -----------------------------------------------------------------------
 
 def coin_validator():
-    """Münzprüfer: kurze Klinge, am Ende eine große Goldmünze."""
+    """Münzprüfer: Einwurfschlitz und eine große Goldmünze."""
     reset()
-    parts = [neck(), blade(0.2, 1.0, 0.2),
-             paint(dome("Muenze", [(0.38, 0.08), (0.38, 0.2), (0.35, 0.24), (0.0, 0.24)], 1.3, 0.0, 48), "metal", GOLD),
-             paint(ring("Rand", 0.28, 0.32, 0.24, 0.25, 1.3, 0.0, 48), "metal", COPPER)]
-    join("Korpus", parts)
-    join("Licht", [box("Schlitz", 0.5, 0.08, 0.16, 0.18, 0.62, 0.0), cyl("Praegung", 0.16, 0.24, 0.26, 1.3, 0.0, steps=32)])
-    export("coin_validator")
+    parts, lights = shell(ABGRIFF)
+    parts += [paint(dome("Muenze", [(0.3, T), (0.3, top(0.05)), (0.27, top(0.08)), (0.0, top(0.08))], 1.34, 0.0, 48), "metal", GOLD),
+              paint(box("Blende", 0.62, 0.3, T, top(0.03), 0.62, 0.0), "metal", STEEL)]
+    lights += [box("Schlitz", 0.48, 0.08, top(0.03), top(0.045), 0.62, 0.0),
+               cyl("Praegung", 0.14, top(0.08), top(0.1), 1.34, 0.0, steps=32)]
+    done("coin_validator", parts, lights)
 
 
 def power_pickup():
-    """Stromabnehmer: Klinge mit großem Blitz, am Ende der Schleifbügel quer (ein T)."""
+    """Stromabnehmer: ein großer Blitz, am Ende der Schleifbügel."""
     reset()
-    parts = [neck(), blade(0.2, 1.42, 0.2),
-             paint(box("Buegel", 0.16, 0.84, 0.0, 0.26, 1.54, 0.0), "metal", COPPER)]
-    join("Korpus", parts)
-    zig = [(0.32, -0.12), (0.62, 0.15), (0.82, -0.12), (1.12, 0.15), (1.36, -0.06)]
-    join("Licht", [bar("Funke", a, b, 0.09, 0.16, 0.19) for a, b in zip(zig, zig[1:])])
-    export("power_pickup")
+    parts, lights = shell(ABGRIFF)
+    parts.append(paint(box("Buegel", 0.14, 0.62, T, top(0.07), 1.64, 0.0), "metal", COPPER))
+    zig = [(0.36, -0.14), (0.68, 0.18), (0.9, -0.14), (1.2, 0.18), (1.46, -0.06)]
+    lights += [bar("Funke", a, b, 0.1, T, top(0.03)) for a, b in zip(zig, zig[1:])]
+    done("power_pickup", parts, lights)
 
 
 def blocking_diode():
-    """Sperrdiode: lange schmale Klinge, darauf groß das Schaltzeichen Dreieck-Strich."""
+    """Sperrdiode: groß das Schaltzeichen Dreieck-Strich auf einer Stahlbahn."""
     reset()
-    join("Korpus", [neck(), blade(0.2, 1.66, 0.3)])
-    join("Licht", [prism("Dreieck", uv_outline([(0.45, 0.25), (0.45, -0.25), (1.15, 0.0)]), 0.16, 0.19),
-                   box("Strich", 0.12, 0.54, 0.16, 0.19, 1.24, 0.0)])
-    export("blocking_diode")
+    parts, lights = shell(ABGRIFF)
+    parts.append(paint(box("Bahn", 1.4, 0.1, T, top(0.02), 1.02, 0.0), "metal", STEEL))
+    lights += [prism("Dreieck", uv_outline([(0.62, 0.27), (0.62, -0.27), (1.26, 0.0)]), top(0.02), top(0.05)),
+               box("Strich", 0.12, 0.56, top(0.02), top(0.05), 1.34, 0.0)]
+    done("blocking_diode", parts, lights)
 
 
-# --- BRÜCKEN (Verbindung): der Pfeil selbst ist die Form ---------------------------------------
-
-def bridge_parts(pts, head_w, head_len):
-    """Dunkler Pfeil-Körper und darauf derselbe Pfeil in Licht, eine Spur schmaler."""
-    body = [paint(p, "gloss", GRAPHITE) for p in arrow("Bahn", pts, 0.3, head_w, head_len, 0.1, 0.18)]
-    light = arrow("Pfeil", pts, 0.18, head_w - 0.16, head_len - 0.1, 0.18, 0.22)
-    return body, light
-
+# --- BRÜCKEN (Verbindung): der Pfeil auf dem Deckel --------------------------------------------
 
 def cross_bridge():
     """Querbrücke: ein großer Pfeil nach Bild-rechts."""
     reset()
-    body, light = bridge_parts([(0.2, 0.0), (1.68, 0.0)], 0.84, 0.5)
-    join("Korpus", [neck()] + body)
-    join("Licht", light)
-    export("cross_bridge")
+    parts, lights = shell(BRUECKE)
+    lights += arrow("Pfeil", [(0.34, 0.0), (1.72, 0.0)], 0.16, 0.56, 0.42, T, top(0.03))
+    done("cross_bridge", parts, lights)
 
 
 def down_bridge():
     """Längsbrücke: ein Haken - erst nach rechts, dann nach Bild-unten."""
     reset()
-    body, light = bridge_parts([(0.2, 0.18), (1.3, 0.18), (1.3, -0.42)], 0.7, 0.36)
-    join("Korpus", [neck()] + body)
-    join("Licht", light)
-    export("down_bridge")
+    parts, lights = shell(BRUECKE)
+    lights += arrow("Pfeil", [(0.34, 0.2), (1.4, 0.2), (1.4, -0.36)], 0.16, 0.5, 0.3, T, top(0.03))
+    done("down_bridge", parts, lights)
 
 
 def coupling():
     """Kopplung: ein Pfeil zurück nach links, rechts das Feld, in dem das kopierte Modul leuchtet."""
     reset()
-    body, light = bridge_parts([(1.0, 0.0), (0.26, 0.0)], 0.7, 0.36)
-    frame = [bar("Rahmen", (1.08, 0.36), (1.66, 0.36), 0.1, 0.1, 0.2), bar("Rahmen", (1.08, -0.36), (1.66, -0.36), 0.1, 0.1, 0.2),
-             bar("Rahmen", (1.13, 0.4), (1.13, -0.4), 0.1, 0.1, 0.2), bar("Rahmen", (1.61, 0.4), (1.61, -0.4), 0.1, 0.1, 0.2)]
-    join("Korpus", [neck()] + body + [paint(f, "metal", STEEL) for f in frame])
-    join("Licht", light)
-    box("Abbild", 0.38, 0.58, 0.1, 0.17, 1.37, 0.0)
-    export("coupling")
+    parts, lights = shell(BRUECKE)
+    lights += arrow("Pfeil", [(1.0, 0.0), (0.34, 0.0)], 0.16, 0.5, 0.3, T, top(0.03))
+    parts += [paint(f, "metal", STEEL) for f in (
+        bar("Rahmen", (1.14, 0.31), (1.7, 0.31), 0.07, T, top(0.05)), bar("Rahmen", (1.14, -0.31), (1.7, -0.31), 0.07, T, top(0.05)),
+        bar("Rahmen", (1.17, 0.34), (1.17, -0.34), 0.07, T, top(0.05)), bar("Rahmen", (1.67, 0.34), (1.67, -0.34), 0.07, T, top(0.05)))]
+    box("Abbild", 0.42, 0.54, T, top(0.025), 1.42, 0.0)
+    done("coupling", parts, lights)
 
 
-# --- Der leere Platz ---------------------------------------------------------------------------
+# --- Das Blindfach -----------------------------------------------------------------------------
 
 def empty():
-    """Nur ein dunkler Grund - kein Pin, ein freier Platz (den Rahmen baut Godot)."""
+    """Ein kleiner Chip: Gehäuse, dunkles Glas, Beinchen - bündig mit dem Deckel des Chips."""
     reset()
-    join("Korpus", [paint(slab("Grund", 0.7, 0.34, 0.1, 0.0, 0.015, 0.95, 0.0), "gloss", BLACK)])
+    slab("Gehaeuse", BLOCK / 2, PIN_V / 2, 0.06, 0.03, CHIP_TOP, BLOCK / 2, 0.0)
+    slab("Glas", BLOCK / 2 - 0.14, PIN_V / 2 - 0.11, 0.05, CHIP_TOP, CHIP_TOP + 0.012, BLOCK / 2, 0.0)
+    leg("Bein")
     export("empty")
 
 
