@@ -17,6 +17,7 @@ signal debug_money_requested
 signal debug_energy_requested
 signal debug_luck_requested
 signal debug_energy_cap_requested
+signal debug_parts_requested
 signal library_requested
 signal test_materials_requested
 signal test_engravings_requested
@@ -280,6 +281,9 @@ func _build_settings_menu(u: float) -> void:
 		u, debug_luck_requested.emit, true)
 	_make_menu_button(box, "Debug: +5 ⚡-Speicher", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_energy_cap_requested.emit, true)
+	if OS.is_debug_build():
+		_make_menu_button(box, "Debug: Module", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+			u, debug_parts_requested.emit)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
 	# Kein Schalter, eine Lieferung - und sie bleibt offen fürs Nachlegen.

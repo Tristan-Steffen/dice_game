@@ -362,7 +362,6 @@ var charm_library: CharmLibraryView
 const SHOP_SCENE := preload("res://scenes/shop_panel.tscn")
 var charm_shop: ShopController
 var debug_parts: DebugPartsView
-const DEBUG_PARTS_GAP := 12.0
 ## Die Ladungs-Bank in der Geld-Ecke - das physische Gegenstück der ⚡-Börse.
 var energy_bank: EnergyBankView
 var _energy_bank_px := Rect2()
@@ -1556,17 +1555,18 @@ func _setup_glide_bounds() -> void:
 		Vector2(absf(far.x - near.x), absf(far.z - near.z))))
 
 ## Shop, Gravur-Station und Bogen-Enthüllung anlegen und verdrahten.
-## Debug-Werkzeug links neben den Kombinationen - nur in Debug-Builds.
+## Debug-Werkzeug im Hub, geöffnet aus dem Einstellungs-Menü - nur in Debug-Builds.
 func _setup_debug_parts() -> void:
-	if not OS.is_debug_build() or table_screen == null:
+	if not OS.is_debug_build() or table_screen == null or table_screen.hub == null:
 		return
 	debug_parts = DebugPartsView.new()
-	table_screen.add_child(debug_parts)
-	# Der Knopf steht unter der linken Kante des Clusters.
-	var cluster := table_screen.cluster_rect
-	debug_parts.place(Vector2(cluster.position.x + debug_parts.size.x,
-		cluster.end.y + DEBUG_PARTS_GAP + DebugPartsView.TOGGLE_SIZE.y))
+	table_screen.hub.add_child(debug_parts)
 	debug_parts.part_chosen.connect(_on_debug_part_chosen)
+	# Erst beim Öffnen gestellt: der Hub bekommt Größe und Seiten nach diesem Aufbau.
+	table_screen.hub.debug_parts_requested.connect(func() -> void:
+		debug_parts.center_in(table_screen.hub.size)
+		debug_parts.move_to_front()
+		debug_parts.toggle_list())
 
 ## Das gewählte Modul nimmt den normalen Weg: es wartet, der EINBAU fragt nach dem Platz.
 func _on_debug_part_chosen(part_id: String) -> void:
@@ -11810,9 +11810,6 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		return _pack_choice_rect().has_point(pixel) \
 			or (_card_opening_browse() and _magazin_browse_rect().has_point(pixel))
 	var flying := camera_rig.is_animating
-	if debug_parts != null and TableScreen.window_takes_pixel(debug_parts, _window_rect(debug_parts),
-			pixel, is_click, false, flying):
-		return true
 	# Die GLAS-ANSICHT wird VOR dieser Kette bedient (_forward_screen_mouse reicht sie
 	# in ihren eigenen Viewport) - hier taucht sie darum nicht mehr auf.
 	# Das Gruben-Mobiliar meldet sich selbst: es steht nur, solange die Grube im
