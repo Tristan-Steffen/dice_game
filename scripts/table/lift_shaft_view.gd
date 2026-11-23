@@ -156,22 +156,17 @@ const COVER_FLASH_GAIN := 2.2
 const COVER_FLASH_TIME := 0.5
 
 ## Die WANDHAUT und ihre BLENDEN. Die Haut ist eine gemeldete Textur; ihr WELTMASS ist
-## eine Kachel, und weil sie per Welt-Triplanar liegt, laufen ihre Leuchtlinien als
-## GLEICH HOHE Ringe um alle vier Wände - es gibt keine UV-Naht und keinen
-## Maßstabssprung zwischen Seitenwand, Sturz und Blende.
-## Die Map teilt eine Kachel in ~0,21/0,50/0,79: bei 2,0 stehen damit in der 2,0 tiefen
-## Grube genau DREI Bänder (1,5 streift die Wand, 4,0 läßt eine einzige unter der Kante
-## stehen und doppelt den Lichtsaum), und der Sprung der längs NICHT nahtlosen Map
-## fällt genau auf die Sohle.
-const SKIN_TILE := 2.0
+## eine Kachel, und weil sie per Welt-Triplanar liegt, gibt es keine UV-Naht und keinen
+## Maßstabssprung zwischen Seitenwand, Sturz und Blende. Die Kachel trägt vier Lichtleisten,
+## bei 6,0 also eine je 1,5 Welt; ihre Oberkante ist die Grubenkante (Welt-Y 0).
+const SKIN_TILE := 6.0
 ## Mit Haut bringt die Textur ihren eigenen Ton mit: der fast schwarze Grundton der
 ## nackten Maschine würde sie ein zweites Mal abdunkeln.
-const SKIN_ALBEDO := Color(0.34, 0.35, 0.44)
+const SKIN_ALBEDO := Color(0.38, 0.38, 0.40)
 ## Lesbar wird sie im dunklen Schacht nur über EMISSION aus derselben Map - multipliziert,
 ## nicht addiert, sonst legte ein konstanter Schleier die Paneele flach. Der Ton bleibt
-## fast neutral-kühl, damit das Teal der Linien Teal bleibt; bei 0,9 verschwinden die
-## Paneele, bei 1,5 treten die Linien neben den Lichtsaum statt unter ihn.
-const SKIN_EMISSION := Color(0.55, 0.60, 0.72)
+## neutral, die Leisten bringen ihre Farbe mit.
+const SKIN_EMISSION := Color(0.64, 0.63, 0.62)
 const SKIN_EMISSION_ENERGY := 1.3
 ## Die beiden Öffnungsbänder als Flaggen - ein Schritt nennt, welches er benutzt.
 const BAND_BACK := 1
@@ -758,6 +753,8 @@ func _write_skin() -> void:
 	_wall_material.uv1_triplanar = true
 	_wall_material.uv1_world_triplanar = true
 	_wall_material.uv1_scale = Vector3.ONE / SKIN_TILE
+	# Die Wand wird flach gesehen: ohne Anisotropie verwaschen die Bahnen.
+	_wall_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 
 ## Der Körper beider Blenden. Ohne Schacht (Bestellung vor dem ersten setup) gibt es
 ## nichts zu verkleiden - _build_body holt es nach.

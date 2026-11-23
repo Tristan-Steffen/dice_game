@@ -621,10 +621,10 @@ var _bet_leaving: Dictionary = {}
 ## Die HEBEBÜHNEN des Tresens: je Plot EINE eigene Sektion mit eigenem Platz in der
 ## Löcherliste. Drei Wetten parken, fahren auf und gehen ab, ohne einander zu stören.
 var bet_shafts: Array[LiftShaftView] = []
-## Die WANDHAUT, die NUR sie bestellen: dunkle Technik-Paneele mit haarfeinen
-## Leuchtlinien. JEDE Grube des Tisches trägt sie - Wett-Tresen, Laden, Hinterzimmer,
+## Die WANDHAUT, die NUR sie bestellen: matte schwarze Paneele mit versenkten
+## Lichtleisten (tools/gen_pit_skin.py). JEDE Grube des Tisches trägt sie - Wett-Tresen, Laden, Hinterzimmer,
 ## Paket-Fläche und Magazin -, damit keine Vertiefung anders liest als die nächste.
-const PIT_SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
+const PIT_SKIN: Texture2D = preload("res://assets/textures/gruben_lichtleisten.png")
 ## Und die TIEFFAHRT, die ebenfalls nur sie bestellen: zum Ein- und Ausfahren sinkt
 ## eine Wett-Grube doppelt so tief wie sie aussieht. Nur hier steht die Nachbargrube
 ## offen, und nur hier ragte die wartende Ware aus dem kurzen Hohlraum in ihr Loch.

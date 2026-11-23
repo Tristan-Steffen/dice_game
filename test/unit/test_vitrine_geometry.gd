@@ -685,7 +685,7 @@ func test_die_wandhaut_hat_eine_quelle_und_deckt_jede_grube() -> void:
 			"res://scripts/table/pack_pit_view.gd",
 			"res://scripts/table/lift_shaft_view.gd"]:
 		var code: String = FileAccess.get_file_as_string(foreign)
-		assert_false(code.contains("gruben_paneel"),
+		assert_false(code.contains("gruben_lichtleisten"),
 			"%s greift nicht selbst nach der Textur - sie wird gemeldet" % foreign)
 
 ## Und die TIEFFAHRT ebenso: nur eine Grube, die OFFEN stehen bleibt, hat eine

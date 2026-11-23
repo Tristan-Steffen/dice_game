@@ -1180,7 +1180,7 @@ func test_a_rider_travels_with_the_platform_and_ends_on_its_seat():
 # schließen. Bestellt wird sie wie der Schirm - wer nichts bestellt, fährt die nackte
 # Maschine mit offenen Bändern (Laden, Hinterzimmer, Schlitzreihe, Magazin).
 
-const SKIN: Texture2D = preload("res://assets/textures/gruben_paneel.png")
+const SKIN: Texture2D = preload("res://assets/textures/gruben_lichtleisten.png")
 
 func _shutter(shaft: LiftShaftView, back: bool) -> Node3D:
 	var blinds := shaft.get_node_or_null("Blenden")

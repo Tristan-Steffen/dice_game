@@ -32,7 +32,7 @@ uniform float emission_cap = 1.45;
 // die naechste. Ohne Bestellung (skin_on = 0) bleibt die prozedurale Paneelwand.
 // Gekachelt wird in WELTMASS, also laufen die Leuchtlinien als gleich hohe Ringe
 // um die Grube, statt je Wand neu anzusetzen.
-uniform sampler2D wall_tex : source_color, filter_linear_mipmap, repeat_enable;
+uniform sampler2D wall_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform float skin_on = 0.0;
 uniform float skin_tile = 2.0;
 uniform vec3 skin_albedo : source_color = vec3(0.34, 0.35, 0.44);
@@ -109,7 +109,8 @@ void fragment() {
 		// WAND mit der bestellten HAUT: die Textur ersetzt Paneele, Fuge und Neon -
 		// sie bringt ihre eigenen Linien mit, zwei Muster uebereinander laesen sich
 		// als Rauschen. Der Tiefenverlauf bleibt, sonst laege die Wand flach.
-		vec3 tex = texture(wall_tex, vec2(along, world_pos.y) / max(skin_tile, 0.05)).rgb;
+		// Bildoberkante = Grubenkante, wie das Welt-Triplanar der Schacht-Gruben.
+		vec3 tex = texture(wall_tex, vec2(along, -world_pos.y) / max(skin_tile, 0.05)).rgb;
 		energy = skin_field_energy;
 		field = skin_albedo * tex * (1.0 - 0.62 * sink);
 		// Lesbar wird sie allein ueber Emission aus derselben Map, MULTIPLIZIERT.
