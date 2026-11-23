@@ -491,7 +491,6 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	_z_span = max_z - min_z
 	_x_max = max_x
 	_x_span = max_x - min_x
-	_sync_deck_world()
 
 	var material := ShaderMaterial.new()
 	material.shader = load("res://assets/shaders/screen_glass.gdshader")
@@ -543,6 +542,7 @@ func _build_content() -> void:
 	_deck_material = ShaderMaterial.new()
 	_deck_material.shader = load("res://assets/shaders/table_pcb.gdshader")
 	_deck_material.set_shader_parameter("deck_color", DECK_COLOR)
+	_deck_material.set_shader_parameter("pour_color", PcbDeckView.POUR)
 	_deck_material.set_shader_parameter("rect_size", Vector2(RESOLUTION))
 	background.material = _deck_material
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1344,12 +1344,89 @@ func set_deck_quiet_rects(rects: Array[Rect2]) -> void:
 func deck_quiet_rects() -> Array[Rect2]:
 	return _deck_quiet
 
-## Das Muster des Decks rechnet in Welt: so läuft es in den Deck-Ring der Wanne durch.
-func _sync_deck_world() -> void:
-	if _deck_material == null or _z_span <= 1.0:
+## Die Möbel des Decks als [Name, Rechteck] in Display-Pixeln: Fenster, Kombi-Feld, offene
+## Gruben und was scene_root dazu meldet; was sich fast berührt, ist EIN Bauteil.
+func deck_furniture(extra: Array = []) -> Array:
+	var raw: Array = []
+	for entry in [["HUB", hub], ["GRUBE", pit_window], ["ZIEL", goal_bar],
+			["WETTEN", side_bet_window], ["AUTOMAT", slot_bank_window],
+			["MARKT", secret_shop_window], ["CHIPS", treasure_window],
+			["GLUECK", luck_station_window], ["INFO", workshop_info_window]]:
+		var control: Control = entry[1]
+		if control != null and control.size.x > 4.0:
+			raw.append([entry[0], Rect2(control.position, control.size)])
+	raw.append(["WERTUNG", score_rect])
+	raw.append(["KOMBI", cluster_rect])
+	raw.append_array(extra)
+	for rect in charm_reader_rects:
+		raw.append(["PORT", rect])
+	for slot in MAX_PITS:
+		if pit_open(slot):
+			raw.append(["", pit_rect(slot)])
+	var board := Rect2(Vector2.ZERO, Vector2(RESOLUTION))
+	var out: Array = []
+	for entry in raw:
+		var rect: Rect2 = (entry[1] as Rect2).intersection(board)
+		if rect.size.x >= 8.0 and rect.size.y >= 8.0:
+			out.append([entry[0], rect])
+	var merged := true
+	while merged:
+		merged = false
+		for i in out.size():
+			for j in range(out.size() - 1, i, -1):
+				if (out[i][1] as Rect2).grow(DECK_MERGE_PX).intersects(out[j][1]):
+					out[i][1] = (out[i][1] as Rect2).merge(out[j][1])
+					if out[i][0] == "":
+						out[i][0] = out[j][0]
+					out.remove_at(j)
+					merged = true
+	return out
+
+const DECK_MERGE_PX := 22.0
+const DECK_ADER_ROOM := 30.0
+var _deck_oven: SubViewport
+var _deck_view: PcbDeckView
+
+## Backt das Deck als geroutete Platine (einmal nach dem Aufbau; idempotent). reserved =
+## weitere Flächen ohne Deko-Züge. Die Korridore aller verlegten Adern kommen von selbst dazu.
+func bake_deck(extra: Array = [], reserved: Array[Rect2] = []) -> void:
+	if _deck_material == null:
 		return
-	_deck_material.set_shader_parameter("world_origin", Vector2(_x_max, _z_min))
-	_deck_material.set_shader_parameter("px_per_world", float(RESOLUTION.x) / _z_span)
+	if _deck_oven == null:
+		_deck_oven = SubViewport.new()
+		_deck_oven.name = "DeckOven"
+		_deck_oven.size = RESOLUTION / 2
+		_deck_oven.disable_3d = true
+		_deck_oven.use_hdr_2d = false
+		_deck_view = PcbDeckView.new()
+		_deck_view.scale = Vector2(0.5, 0.5)
+		_deck_oven.add_child(_deck_view)
+		add_child(_deck_oven)
+	var rects: Array[Rect2] = []
+	var labels: Array[String] = []
+	for entry in deck_furniture(extra):
+		labels.append(entry[0])
+		rects.append(entry[1])
+	var corridors := reserved.duplicate()
+	for strip: LedStripView in find_children("*", "LedStripView", true, false):
+		var paths: Array[PackedVector2Array] = [strip.strip_path, strip.branch_path]
+		paths.append_array(strip.rail_paths)
+		for path in paths:
+			for i in path.size() - 1:
+				corridors.append(Rect2(path[i], Vector2.ZERO).expand(path[i + 1])
+					.grow(DECK_ADER_ROOM))
+	_deck_view.board = Rect2(Vector2.ZERO, Vector2(RESOLUTION))
+	_deck_view.comps = rects
+	_deck_view.names = labels
+	_deck_view.reserved = corridors
+	_deck_view.plan()
+	_deck_oven.render_target_update_mode = SubViewport.UPDATE_ONCE
+	_deck_material.set_shader_parameter("routing", _deck_oven.get_texture())
+	_deck_material.set_shader_parameter("routed", true)
+
+func deck_view() -> PcbDeckView:
+	return _deck_view
+
 
 func _ensure_pits() -> void:
 	if _pit_rects.size() == MAX_PITS:
@@ -2667,7 +2744,7 @@ func play_bridge_pulse(from_key: String, to_key: String) -> float:
 	var path := PackedVector2Array([from_tip, Vector2(bus_x, from_tip.y), Vector2(bus_x, to_tip.y),
 		to_tip])
 	var time := maxf(0.12, _path_length(path) / PULSE_SPEED)
-	_pulse_along(path, time)
+	_pulse_along(path, time, LINK_PULSE_COLOR, LedStripView.RAIL_TRACKS)
 	return time
 
 ## Bus-Kometen von den Randkontakten zum Chip; liefert ihre Laufzeit.
@@ -2682,7 +2759,7 @@ func _pulse_wiring_to_chip(combo_key: String, color: Color) -> float:
 		longest = maxf(longest, _path_length(path))
 	var board_time := maxf(0.12, longest / PULSE_SPEED)
 	for path in paths:
-		_pulse_along(path, board_time)
+		_pulse_along(path, board_time, LINK_PULSE_COLOR, LedStripView.RAIL_TRACKS)
 	return board_time
 
 ## Leiterbahn-Route Quelle -> Ader -> Ziel: L-Anschluss auf den Ader-Anfang, die
@@ -2986,12 +3063,13 @@ func meteor_comet(from_px: Vector2, slot_px: Vector2, color: Color,
 	return travel
 
 ## Kurzer, gedämpfter Komet entlang eines FESTEN Pfads (siehe TracePulseView).
-func _pulse_along(path: PackedVector2Array, duration: float, color := LINK_PULSE_COLOR) -> void:
+func _pulse_along(path: PackedVector2Array, duration: float, color := LINK_PULSE_COLOR,
+		tracks := LedStripView.TRACKS) -> void:
 	if path.size() < 2:
 		return
 	var pulse := TracePulseView.new()
 	add_child(pulse)
-	pulse.setup(path, color, LINK_PULSE_CORE, LINK_PULSE_GLOW, duration, LINK_COMET)
+	pulse.setup(path, color, LINK_PULSE_CORE, LINK_PULSE_GLOW, duration, LINK_COMET, tracks)
 
 func _path_length(path: PackedVector2Array) -> float:
 	var length := 0.0

@@ -6,14 +6,11 @@ render_mode unshaded, cull_disabled;
 
 uniform vec3 tint : source_color = vec3(0.5);
 uniform float seams = 0.0;   // Platten-Fugen in Welt (0 = keine)
-uniform bool pcb = false;    // das Deck: Platinen-Muster wie die Anzeige
 uniform float gloss = 0.25;
 uniform float glow = 0.0;    // 1 = Lichtleiste
 // 0 glatt, 1 Diamant-Pyramiden (Wand), 2 gestepptes Leder, 3 Teppich.
 uniform int style = 0;
 uniform vec2 carpet_center = vec2(0.0);
-
-#include "res://assets/shaders/pcb_pattern.gdshaderinc"
 
 varying vec3 wpos;
 
@@ -51,9 +48,6 @@ void fragment() {
 			if (d.x < 0.07 && d.y < 0.07) {
 				base = vec3(0.86, 0.64, 0.24);
 			}
-		}
-		if (pcb && nw.y > 0.9) {
-			base = pcb_paint(base, wpos.xz, fwidth(wpos.x) / PCB_TILE * 1.2, 1.0);
 		}
 		vec3 c = base * shade;
 		// Glanz nur gedämpft: die Flächen sind facettiert, ein harter Reflex springt je Polygon.

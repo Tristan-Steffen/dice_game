@@ -1,15 +1,13 @@
 shader_type canvas_item;
-// Das DECK: der 2D-Grund der Tisch-Anzeige (TableScreen._build_content) ist eine PLATINE in
-// dunklem Nachtgrün (Spieler-Wahl 2026-11-23). Das Muster rechnet in WELT-Koordinaten
-// (pcb_pattern.gdshaderinc) und läuft so in den Deck-Ring der Wanne durch.
-
-#include "res://assets/shaders/pcb_pattern.gdshaderinc"
+// Das DECK: der 2D-Grund der Tisch-Anzeige (TableScreen._build_content) ist eine geroutete
+// PLATINE. Ihr Bild backt PcbDeckView einmal aus den Möbel-Rechtecken (TableScreen.bake_deck);
+// ungebacken (Tests, Proben ohne Tisch) steht die glatte Massefläche.
 
 uniform vec3 deck_color : source_color = vec3(0.012, 0.05, 0.044);
+uniform vec3 pour_color : source_color = vec3(0.024, 0.096, 0.074);
 uniform float grain_strength : hint_range(0.0, 0.5) = 0.02;
-// Pixel -> Welt: x = origin.x - py / px_per_world, z = origin.y + px / px_per_world.
-uniform vec2 world_origin = vec2(42.4, -62.4);
-uniform float px_per_world = 37.5;
+uniform sampler2D routing : source_color, filter_linear, repeat_disable;
+uniform bool routed = false;
 
 // Unter den leicht durchscheinenden Fenstergründen bleibt der Lack glatt (dieselben
 // Rechtecke wie screen_glass.gdshader, TableScreen._sync_reflection_windows speist beide).
@@ -31,6 +29,10 @@ float window_mask(vec2 p, vec4 rect, float radius) {
 	return 1.0 - smoothstep(-4.0, 4.0, dist);
 }
 
+float grain_hash(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
 void fragment() {
 	vec2 p = UV * rect_size;
 	float calm = 0.0;
@@ -41,9 +43,9 @@ void fragment() {
 		calm = max(calm, window_mask(p, quiet_rects[i], 8.0));
 	}
 	float board = 1.0 - calm;
-	vec2 w = vec2(world_origin.x - p.y / px_per_world, world_origin.y + p.x / px_per_world);
-	vec3 deck = pcb_paint(deck_color, w, 1.2 / (px_per_world * PCB_TILE), board);
-	float grain = pcb_hash(floor(p / 3.0));
+	vec3 plate = routed ? texture(routing, UV).rgb : pour_color;
+	vec3 deck = mix(deck_color, plate, board);
+	float grain = grain_hash(floor(p / 3.0));
 	deck *= 1.0 + (grain - 0.5) * 2.0 * grain_strength * board;
 	COLOR = vec4(deck, 1.0);
 }

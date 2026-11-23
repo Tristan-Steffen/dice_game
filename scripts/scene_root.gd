@@ -938,6 +938,7 @@ func _ready() -> void:
 	_setup_camera_targets()
 	_setup_panels()
 	_setup_settings_ui()
+	_bake_deck_soon()
 
 	_style_ui()
 	_collect_combo_labels()
@@ -1273,6 +1274,25 @@ func _setup_table_screen() -> void:
 	_place_ausgabefach()
 	_setup_deck_glass()
 	_setup_screen_spill_lights(corner)
+
+## Das Deck wird EINMAL gebacken, sobald alle Fenster und Adern stehen. Die ganze Port-Leiste
+## samt dem Weg zur Wertung bleibt frei: dort wachsen Projektoren und ihre Adern nach.
+func _bake_deck_soon() -> void:
+	if table_screen == null:
+		return
+	for i in 3:
+		await get_tree().process_frame
+	var reserved: Array[Rect2] = []
+	if charm_row != null and not table_screen.charm_reader_rects.is_empty():
+		var row := table_screen.charm_reader_rects[0]
+		for rect in table_screen.charm_reader_rects:
+			row = row.merge(rect)
+		for port: int in [0, CharmRowView.PORT_COUNT - 1]:
+			var at := table_screen.world_to_pixel(charm_row.to_global(CharmRowView.port_position(port)))
+			row = row.expand(Vector2(at.x - row.size.y * 0.5, row.position.y))
+			row = row.expand(Vector2(at.x + row.size.y * 0.5, row.end.y))
+		reserved.append(row.expand(Vector2(row.position.x, table_screen.score_rect.position.y)))
+	table_screen.bake_deck([["POOL", _pool_row_px], ["GLEICHUNG", _equation_px]], reserved)
 
 ## Die POOL-REIHE in Display-Pixeln - das Höhen- und Ortsbudget des Streifens.
 ## Gemessen in _setup_panels, gemerkt, damit eine Neuplatzierung nicht neu messen

@@ -1,18 +1,11 @@
 class_name LedStripView
 extends Control
-## Eine durchgehende, glatte LED-Leiste auf dem Filz zwischen Hub und
-## Kombinationen-Fenster: dunkle Ader mit feinem, ununterbrochenem Platin-Saum;
-## nur zarte Quer-Ticks deuten die Segmentierung an. Bewusst zurückhaltend (eine
-## Ader). Der Kauf-Lichtlauf (TableScreen) läuft als kurzer Komet über strip_path.
+## Eine LICHT-ADER auf dem Deck: ein Bündel Leiterzüge im Stil der Platine (PcbDeckView),
+## mit Gold-Pads an beiden Enden der Haupt-Ader. Lichtläufe (TracePulseView) fahren als
+## Datenpakete über strip_path.
 
-const SCREEN_FILL := Color(0.022, 0.018, 0.055, 0.94)  # deutlich dunkler als das Fenster
-const SCREEN_BORDER := Color(0.72, 0.76, 0.86, 0.22)   # poliertes Platin, nur ein Hauch
-## Weicher Schatten-Sitz im Filz (zwei Lagen ~ Verlauf) - lässt die Ader
-## eingelassen statt aufgemalt wirken.
-const SHADOW_OUTER := Color(0.0, 0.0, 0.0, 0.10)
-const SHADOW_INNER := Color(0.0, 0.0, 0.0, 0.16)
-## Quer-Ticks: kaum sichtbarer Hinweis auf die LED-Segmente.
-const TICK_COLOR := Color(0.72, 0.76, 0.86, 0.07)
+const TRACKS := 3
+const RAIL_TRACKS := 2
 
 ## Mittellinie der Leiste (Screen-px, achsenparallele L-Führung ab Hub-Oberkante).
 var strip_path := PackedVector2Array()
@@ -91,72 +84,27 @@ func _draw() -> void:
 	for rail in rail_paths:
 		if rail.size() >= 2:
 			paths.append(rail)
-	if paths.is_empty():
-		return
-	# Durchgehendes Band von außen nach innen: weicher Schatten-Sitz, hauchdünner
-	# Platin-Saum, dunkle Füllung - der Saum bleibt ununterbrochen (keine
-	# Quer-Nähte an den Segmentgrenzen). Jede Lage über ALLE Adern, damit das
-	# T-Stück nahtlos verschmilzt (die Füllung deckt den Saum am Knoten).
-	var edge := maxf(1.0, _thickness * 0.09)
-	for path in paths:
-		_draw_band(path, SHADOW_OUTER, _thickness * 2.1)
-	for path in paths:
-		_draw_band(path, SHADOW_INNER, _thickness * 1.5)
-	for path in paths:
-		_draw_band(path, SCREEN_BORDER, _thickness + edge * 2.0)
-	for path in paths:
-		_draw_band(path, SCREEN_FILL, _thickness)
-	for path in paths:
-		_draw_segment_ticks(path)
+	for moat in [true, false]:
+		for path in paths:
+			var count := tracks_of(path)
+			var half := float(count - 1) * PcbDeckView.PITCH * 0.5
+			for k in count:
+				var offset := (float(k) - float(count - 1) * 0.5) * PcbDeckView.PITCH
+				var line := PcbDeckView.track_line(path, offset, half)
+				if line.size() < 2:
+					continue
+				if moat:
+					draw_polyline(line, PcbDeckView.MOAT, PcbDeckView.WIDTH + 9.0, true)
+					continue
+				draw_polyline(line, PcbDeckView.TRACE, PcbDeckView.WIDTH, true)
+				if path == strip_path:
+					_draw_pad(line[0], line[1])
+					_draw_pad(line[line.size() - 1], line[line.size() - 2])
 
-## Zeichnet ein durchgehendes Band der gegebenen Dicke entlang path.
-## Nur an INNEREN Ecken ragt ein Segment um die halbe Dicke über sein Ende
-## hinaus (füllt die Ecke); die beiden Enden der Ader (Hub-Oberkante,
-## Cluster-Unterkante) bleiben bündig - so ragt nichts in ein Fenster hinein.
-func _draw_band(path: PackedVector2Array, color: Color, thickness: float) -> void:
-	var half := thickness * 0.5
-	var last := path.size() - 1
-	for i in last:
-		var a := path[i]
-		var b := path[i + 1]
-		var seg := a.distance_to(b)
-		if seg <= 0.0:
-			continue
-		var dir := (b - a) / seg
-		var ea := a - dir * (half if i > 0 else 0.0)          # Start nur innen verlängern
-		var eb := b + dir * (half if i < last - 1 else 0.0)   # Ende nur innen verlängern
-		if absf(dir.x) > absf(dir.y):
-			draw_rect(Rect2(minf(ea.x, eb.x), a.y - half, absf(eb.x - ea.x), thickness), color)
-		else:
-			draw_rect(Rect2(a.x - half, minf(ea.y, eb.y), thickness, absf(eb.y - ea.y)), color)
+## Züge je Ader: die Schienen des Kombi-Netzes sind schmal, alles andere trägt drei.
+func tracks_of(path: PackedVector2Array) -> int:
+	return RAIL_TRACKS if rail_paths.has(path) else TRACKS
 
-## Zarte Quer-Ticks in gleichmäßigem Abstand - der einzige Hinweis auf die
-## LED-Segmentierung (sonst wirkt die Ader glatt).
-func _draw_segment_ticks(path: PackedVector2Array) -> void:
-	var gap := _thickness * 5.2
-	var tick_half := _thickness * 0.3
-	var tick_w := maxf(1.0, _thickness * 0.07)
-	var total := 0.0
-	for i in path.size() - 1:
-		total += path[i].distance_to(path[i + 1])
-	var d := gap
-	while d < total - _thickness:
-		var here := _point_dir_at(path, d)
-		var perp := Vector2(-here[1].y, here[1].x)
-		draw_line(here[0] - perp * tick_half, here[0] + perp * tick_half, TICK_COLOR, tick_w)
-		d += gap
-
-## Punkt UND Richtung in Bogenlänge-Distanz d entlang path.
-func _point_dir_at(path: PackedVector2Array, d: float) -> Array:
-	var run := 0.0
-	for i in path.size() - 1:
-		var a := path[i]
-		var b := path[i + 1]
-		var seg := a.distance_to(b)
-		if seg <= 0.0:
-			continue
-		if run + seg >= d:
-			var dir := (b - a) / seg
-			return [a + dir * (d - run), dir]
-		run += seg
-	return [path[path.size() - 1], Vector2.RIGHT]
+func _draw_pad(at: Vector2, toward: Vector2) -> void:
+	var dir := (toward - at).normalized()
+	draw_line(at + dir, at + dir * 15.0, PcbDeckView.GOLD, PcbDeckView.WIDTH + 4.0)

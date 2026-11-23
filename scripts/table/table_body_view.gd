@@ -26,8 +26,8 @@ const FLOOR_Y := -40.0
 ## Die Spielerwand steht auf halber Höhe.
 const NEAR_HEIGHT := 0.5
 
-## Der Lack der Platine: TableScreen.DECK_COLOR, um das eingemalte Licht (0,86) gehoben.
-const DECK := Color(0.014, 0.058, 0.051)
+## Die Massefläche der Platine: PcbDeckView.POUR, um das eingemalte Licht (0,86) gehoben.
+const DECK := Color(0.028, 0.111, 0.086)
 const LACQUER := Color(0.02, 0.02, 0.028)
 const LEATHER := Color(0.2, 0.06, 0.15)
 const SMOKE := Color(0.075, 0.065, 0.095)
@@ -110,7 +110,6 @@ func _build_floor(c: Vector2) -> void:
 ## Deck-Ring um die Anzeige, darauf die eine goldene Layout-Linie.
 func _build_deck(inner: PackedVector2Array) -> void:
 	var deck := _mat(DECK, 0.3)
-	deck.set_shader_parameter("pcb", true)
 	var hole := _rect_poly(DISPLAY)
 	var outline := inner.duplicate()
 	if Geometry2D.is_polygon_clockwise(outline):
