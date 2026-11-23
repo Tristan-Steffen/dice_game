@@ -123,8 +123,8 @@ func test_badges_are_rebuilt_wholesale_not_patched() -> void:
 
 func test_an_empty_reader_shows_no_badge() -> void:
 	var row := _row(1)
-	row.set_badges({3: "+4"})
-	assert_eq(row.readers[3].display_text(), "", "ein leeres Laufwerk zählt nichts")
+	row.set_badges({2: "+4"})
+	assert_eq(row.readers[2].display_text(), "", "ein leeres Laufwerk zählt nichts")
 
 func test_the_broken_mirror_counter_grows_with_farkles() -> void:
 	var run := GameRun.new_run()

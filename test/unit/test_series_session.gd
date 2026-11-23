@@ -1,11 +1,12 @@
 extends GutTest
-## Die Werkstatt-Sitzung an GameRun: der unbegrenzte Griff, die atomare Buchung,
-## der Karten-Verbrauch und die vier Katalysatoren.
+## Die Werkstatt-Sitzung an GameRun: EINE Prägung je Runde, die freischaltbaren
+## Scheiben, die atomare Buchung, der Karten-Verbrauch und die Katalysatoren.
 
 var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
+	run.drum_slots = GameRun.SERIES_SLOT_CAP
 
 func _rng(value: int) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()
@@ -30,24 +31,68 @@ func _card(cells: Dictionary) -> Pack:
 func _die() -> DieDefinition:
 	return run.owned_pool[0]
 
-# --- Das Prägen ist UNBEGRENZT -------------------------------------------------
-## Spieler-Entscheid 2026-09-05: die eine Pressung je Sitzung ist gestorben, und
-## mit ihr press_uses/press_allowed/reset_press_cycle.
+# --- EINE Prägung je Runde (Spieler-Entscheid 2026-11-23) -----------------------
 
-func test_the_session_has_no_press_counter_any_more() -> void:
-	assert_false(run.has_method("press_allowed"), "die Bremse ist fort")
-	assert_false(run.has_method("reset_press_cycle"))
-
-func test_two_grips_in_a_row_both_book() -> void:
+func test_a_second_press_in_the_same_round_books_nothing() -> void:
 	var first := _card({0: StampNet.value_cell(2)})
 	var second := _card({0: StampNet.value_cell(3)})
 	var die := _die()
 	var before := int(die.faces[0])
 	assert_false(run.apply_series(_uids([first]), die, _rng(1)).is_empty())
-	assert_false(run.apply_series(_uids([second]), die, _rng(1)).is_empty(),
-		"der zweite Griff bucht genauso")
-	assert_eq(int(die.faces[0]), before + 5, "beide Serien stehen auf dem Würfel")
-	assert_eq(run.owned_packs.size(), 0, "und beide Karten sind verbraucht")
+	assert_false(run.press_allowed(), "die Prägung der Runde ist verbraucht")
+	assert_true(run.apply_series(_uids([second]), die, _rng(1)).is_empty(),
+		"der zweite Griff bucht nichts")
+	assert_eq(int(die.faces[0]), before + 2)
+	assert_eq(run.owned_packs.size(), 1, "und die zweite Karte liegt noch da")
+
+func test_the_round_start_frees_the_press_again() -> void:
+	var first := _card({0: StampNet.value_cell(2)})
+	var second := _card({0: StampNet.value_cell(3)})
+	var die := _die()
+	run.apply_series(_uids([first]), die, _rng(1))
+	run.apply_round_start_charms()
+	assert_true(run.press_allowed())
+	assert_false(run.apply_series(_uids([second]), die, _rng(1)).is_empty())
+
+func test_the_grounding_clamp_presses_without_using_the_press() -> void:
+	var card := _card({0: StampNet.value_cell(2)})
+	var clamp := run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
+	assert_false(run.apply_series(_uids([card, clamp]), _die(), _rng(1)).is_empty())
+	assert_true(run.press_allowed(), "die Klemme verbraucht die Prägung nicht")
+
+func test_the_grounding_clamp_presses_even_after_the_press_is_used() -> void:
+	run.apply_series(_uids([_card({0: StampNet.value_cell(2)})]), _die(), _rng(1))
+	var card := _card({0: StampNet.value_cell(3)})
+	var clamp := run.grant_pack(Pack.catalyst(Pack.CATALYST_GROUND))
+	assert_true(run.series_press_allowed(_uids([card, clamp])))
+	assert_false(run.apply_series(_uids([card, clamp]), _die(), _rng(1)).is_empty())
+
+# --- Die SCHEIBEN der Walze werden freigeschaltet (2026-11-23) --------------------
+
+func test_a_run_starts_with_two_slices() -> void:
+	var fresh := GameRun.new_run()
+	assert_eq(fresh.series_slots(), GameRun.START_DRUM_SLOTS)
+	assert_eq(fresh.drum_slot_price(), 3, "die dritte kostet 3")
+
+func test_each_slice_costs_the_count_so_far_plus_one() -> void:
+	var fresh := GameRun.new_run()
+	fresh.energy = 50
+	var paid: Array[int] = []
+	while fresh.drum_slot_price() > 0:
+		var price := fresh.drum_slot_price()
+		assert_true(fresh.buy_drum_slot())
+		paid.append(price)
+	assert_eq(paid, [3, 4, 5, 6] as Array[int])
+	assert_eq(fresh.series_slots(), 6)
+	assert_eq(fresh.energy, 50 - 18)
+	assert_false(fresh.buy_drum_slot(), "eine siebte gibt es nicht")
+
+func test_a_slice_without_the_energy_stays_locked() -> void:
+	var fresh := GameRun.new_run()
+	fresh.energy = 2
+	assert_false(fresh.buy_drum_slot())
+	assert_eq(fresh.series_slots(), 2)
+	assert_eq(fresh.energy, 2)
 
 # --- Die Buchung --------------------------------------------------------------
 

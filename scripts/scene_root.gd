@@ -3615,6 +3615,19 @@ func _sync_data_cells() -> void:
 	_sync_socket_cells(workshop)
 	_flush_cell_pops()
 
+## Sperre und Strom der Walze (je Bild gefragt, nur der Wechsel schreibt): gesperrte
+## Scheiben tragen Hauben, nach der Prägung der Runde steht sie dunkel.
+func _sync_drum_state() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if drum == null or not is_instance_valid(drum) or run == null or workshop == null:
+		return
+	drum.set_lock_state(workshop.slot_count(), run.drum_slot_price(),
+		run.can_buy_drum_slot())
+	drum.set_powered(_drum_powered(workshop))
+
+func _drum_powered(workshop: WorkshopView) -> bool:
+	return run.press_allowed() or workshop.burning() or _transferring
+
 ## DIE WALZE: sechs Scheiben als EIN Körper, je Scheibe ihre Mitte auf dem Glas über
 ## dem gemeldeten Scheiben-Rechteck. Idempotent, die Seiten folgen der Serie.
 func _sync_drum(workshop: WorkshopView) -> void:
@@ -3630,6 +3643,7 @@ func _sync_drum(workshop: WorkshopView) -> void:
 		centers.append(_data_cell_seat(origin + rect.get_center()))
 	drum.setup(centers, _world_span(Vector2(0.0, workshop.drum_side())).x,
 		_world_span(Vector2(workshop.drum_pitch(), 0.0)).y)
+	_sync_drum_state()
 	# Während der Zeremonie sind die Karten schon verbraucht - die Scheiben bleiben,
 	# wie sie stehen, bis der Abgleich danach sie auf Kante dreht.
 	if not workshop.burning():
@@ -9090,7 +9104,8 @@ func _sync_die_view_dress() -> void:
 		"net": workshop._global(workshop.podium_net_rect()),
 		"result": workshop._global(workshop.result_net_rect()),
 		"signs": workshop.sign_rects_px(), "stamp": workshop.stamp_seat_px(),
-		"cell": workshop.podium_cell(), "live": workshop.target_die() != null,
+		"cell": workshop.podium_cell(),
+		"live": workshop.target_die() != null and _drum_powered(workshop),
 		"seated": seated, "ring_on": seated and not _chamber_down(),
 		"ring": _bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER),
 		"edge": DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * 2.0,
@@ -12068,6 +12083,7 @@ func _process(delta: float) -> void:
 	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
 	_sync_house_bank()  # und der Schirm der Bank nennt, was der Zeiger trifft
 	_sync_storage_bank()  # und die Energiezellen des Speichers
+	_sync_drum_state()
 	_sync_die_view_dress()
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich

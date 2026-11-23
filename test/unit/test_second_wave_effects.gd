@@ -114,9 +114,8 @@ func test_luminous_paint_counts_every_rune_of_the_scored_dice():
 
 func test_the_empty_plinth_pays_for_the_free_spots():
 	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([5, 5]), NO_MATS,
-		_ids([Charm.EMPTY_PLINTH])), 5 * CharmEffects.EMPTY_PLINTH_MULT)
-	var full := _ids([Charm.EMPTY_PLINTH, Charm.HOUSE_JOKER, Charm.LADYBUG, Charm.HORSESHOE,
-		Charm.PEARL_NECKLACE, Charm.FREE_DRINK])
+		_ids([Charm.EMPTY_PLINTH])), 2 * CharmEffects.EMPTY_PLINTH_MULT)
+	var full := _ids([Charm.EMPTY_PLINTH, Charm.HOUSE_JOKER, Charm.LADYBUG])
 	assert_eq(CharmEffects.charm_mult_bonus_at(0, DiceScoring.TWO_KIND, _d([5, 5]), NO_MATS, full), 0,
 		"volles Dock, kein freier Sockel")
 

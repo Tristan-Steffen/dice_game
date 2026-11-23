@@ -1776,17 +1776,20 @@ func test_the_odds_bonus_spares_unique_goods():
 
 # --- Die SERIENLÄNGE: fester Sockel, Klauseln, Wett-Schub -------------------------
 
-func test_the_series_length_is_six_on_every_tier():
-	# Die Stufen-Leiter ist gefallen (2026-09-04): SECHS Schächte ab Runde 1.
+## Die Serienlänge hängt an keiner Stufe: ZWEI Scheiben ab Runde 1, mehr nur gekauft
+## (Spieler-Entscheid 2026-11-23).
+func test_the_series_length_does_not_follow_the_tier():
 	for tier: int in range(1, GameRun.TIER_MAX + 1):
 		run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
-		assert_eq(run.series_slots(), 6, "Stufe %d" % tier)
+		assert_eq(run.series_slots(), GameRun.START_DRUM_SLOTS, "Stufe %d" % tier)
 
 ## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es nie.
 func test_more_than_six_slots_never_exist():
 	run.owned_charms.append(Charm.shyster())
+	run.drum_slots = 9
 	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Karten sind der Block")
 	assert_eq(run.series_slots(), 6)
+	assert_eq(run.drum_slot_price(), -1)
 
 ## Die Presse steht im LADEN der Runde - eine ROUND-Klausel muss dort noch leben,
 ## sonst wären die Serien-Klauseln tote Buchstaben.

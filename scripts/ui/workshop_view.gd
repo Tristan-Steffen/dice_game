@@ -106,6 +106,9 @@ const CARD_ASPECT := PackDrawerView.CARD_ASPECT
 const SLICE_NUMBER_UNITS := 4.0
 const SLICE_NUMBER_GAP := 0.6
 const SLICE_NUMBER_FONT := 4.0
+## Gesperrte Scheiben: Nummer und unbezahlbarer Preis gedämpft, bezahlbar in Energie-Farbe.
+const LOCKED_COLOR := Color(0.45, 0.47, 0.58)
+const ENERGY_COLOR := CasinoStyle.ENERGY
 ## Die Leiterbahnen: Breite (u), Rand ihres Spur-Bands, Abdunklung, dunkler Grund.
 const TRACE_WIDTH := 0.6
 const TRACE_BAND_MARGIN := 0.1
@@ -145,6 +148,9 @@ const ACTION_SPAN_SHARE := 0.5
 const ACTION_FONT_SHARE := 0.5
 const ACTION_TEXT_PAD := 1.0
 const ACTION_WIDEST := "Verdichten 6/6"
+## Der Sitz nach der Prägung der Runde: eine rote Anzeige statt des Knopfs.
+const SPENT_TEXT := "GEPRÄGT"
+const SPENT_COLOR := Color(1.25, 0.42, 0.38)
 
 ## DIE ÜBERTRAGUNG - die Zeremonie des Prägens. Der Boden unter dem Podest öffnet die
 ## Kammer, die Scheiben verriegeln, ein Strom läuft von Scheibe 1 bis ans Ende der Walze
@@ -179,6 +185,7 @@ var run: GameRun:
 			run.packs_changed.disconnect(refresh)
 			run.pool_changed.disconnect(refresh)
 			run.press_changed.disconnect(refresh)
+			run.energy_changed.disconnect(_on_energy_changed)
 		_pending_arrivals.clear()  # Lieferungen des alten Laufs verfallen
 		_queued_pops.clear()
 		_drop_series()  # eine Serie des alten Laufs schuldet nichts mehr
@@ -188,6 +195,7 @@ var run: GameRun:
 			run.packs_changed.connect(refresh)
 			run.pool_changed.connect(refresh)  # die Gleichung zeigt den Pool
 			run.press_changed.connect(refresh)  # eine Buchung räumt die Reihe
+			run.energy_changed.connect(_on_energy_changed)
 		refresh()
 
 var _content: Control
@@ -208,6 +216,9 @@ var _burn_struck := false
 ## Die SCHEIBEN-Knöpfe: je Scheibe einer, der Klick, Zug und Zeiger fängt - die
 ## WALZE darunter ist ein Körper (DrumView) und trägt nichts davon.
 var _slot_buttons: Array[Button] = []
+## Die nächste GESPERRTE Scheibe: ihr Kauf-Knopf und ihre Preis-Nummer.
+var _unlock_button: Button
+var _unlock_label: Label
 ## Das Magazin der Bank (null = gerade nicht gebaut).
 var _drawer: PackDrawerView
 ## Die WALZEN-KETTE in Display-Pixeln (drum_layout), gemeldet von scene_root - das
@@ -379,6 +390,8 @@ func _refresh_content() -> void:
 	if not is_inside_tree():
 		return
 	_slot_buttons.clear()
+	_unlock_button = null
+	_unlock_label = null
 	_podium_stage_host = null
 	_podium_view_host = null  # die Die-View des Podests hing am Inhalt
 	_podium_net = null
@@ -710,14 +723,13 @@ static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2,
 		return paths
 	var starts: Array[float] = []
 	var ends: Array[float] = []
-	# Die Füße stehen über die ganze Walze in EINEM Abstand.
-	var step := (slices[0] as Rect2).size.x
-	if slices.size() > 1:
-		step = (slices[1] as Rect2).get_center().x - (slices[0] as Rect2).get_center().x
+	# Die Füße einer Scheibe stehen so eng gebündelt wie ihr Anschluß am Speicher.
+	var lane_pitch := trace_end_x(upgrades, slices.size(), lanes, 1) \
+		- trace_end_x(upgrades, slices.size(), lanes, 0) if lanes > 1 else 0.0
 	for i in count:
 		var slice: Rect2 = slices[i / lanes]
 		var lane := float(i % lanes) - float(lanes - 1) * 0.5
-		starts.append(slice.get_center().x + lane * step / float(lanes))
+		starts.append(slice.get_center().x + lane * lane_pitch)
 		ends.append(trace_end_x(upgrades, slices.size(), lanes, i))
 	var right_rank := 0
 	var ranks: Array[int] = []
@@ -1575,7 +1587,59 @@ func _build_slices(u: float) -> void:
 		number.add_theme_font_size_override("font_size", maxi(8, int(u * SLICE_NUMBER_FONT)))
 		number.add_theme_color_override("font_color",
 			MUTED_COLOR if slot_card(i).is_empty() else TEXT_COLOR)
+		if i >= slot_count():
+			_lock_number(number, i)
 		_content.add_child(number)
+	_build_unlock()
+
+## GESPERRTE Scheiben: die nächste nennt ihren Preis, die übrigen stehen gedämpft.
+func _lock_number(number: Label, index: int) -> void:
+	if index == slot_count() and run != null and run.drum_slot_price() > 0:
+		number.text = "%d ⚡" % run.drum_slot_price()
+		_unlock_label = number
+		_sync_unlock()
+	else:
+		number.add_theme_color_override("font_color", LOCKED_COLOR)
+
+## Der Kauf-Knopf über der nächsten gesperrten Scheibe.
+func _build_unlock() -> void:
+	var index := slot_count()
+	if run == null or index >= DRUM_SLICES or run.drum_slot_price() <= 0:
+		return
+	var rect := slice_rect(index)
+	var button := Button.new()
+	button.name = "SliceUnlock"
+	button.focus_mode = Control.FOCUS_NONE
+	button.position = rect.position
+	button.size = rect.size
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.tooltip_text = "Scheibe %d freischalten: %d Energie" % [index + 1,
+		run.drum_slot_price()]
+	button.pressed.connect(_on_unlock_pressed)
+	_content.add_child(button)
+	_unlock_button = button
+	_sync_unlock()
+
+func _on_unlock_pressed() -> void:
+	if run == null or editing_locked or burning():
+		return
+	run.buy_drum_slot()  # bucht und meldet press_changed - das baut neu
+
+func _on_energy_changed(_value: int) -> void:
+	_sync_unlock()
+
+## Bezahlbar und bedienbar? Knopf und Preis-Farbe folgen.
+func _sync_unlock() -> void:
+	if run == null:
+		return
+	var open := run.can_buy_drum_slot() and not editing_locked and not burning()
+	if _unlock_button != null and is_instance_valid(_unlock_button):
+		_unlock_button.disabled = not open
+	if _unlock_label != null and is_instance_valid(_unlock_label):
+		_unlock_label.add_theme_color_override("font_color",
+			ENERGY_COLOR if run.can_buy_drum_slot() else LOCKED_COLOR)
 
 ## EINE Scheibe: ein flacher Knopf ohne Fassung - Klick und Zeiger, sonst nichts.
 func _slice_button(index: int, card: Dictionary) -> Button:
@@ -1827,13 +1891,32 @@ func _seat_button(u: float) -> Button:
 		_action_button = _seat_fit(_action_button_new("Fertig", GOLD, u,
 			skip_ceremony), u)
 		return _action_button
+	if press_spent():
+		_action_button = _spent_button(u)
+		return _action_button
 	_action_button = _seat_fit(_action_button_new(stamp_label(), GOLD, u, pull_lever), u)
 	_action_button.disabled = not can_pull()
 	return _action_button
 
+## Die Prägung der Runde ist verbraucht (und keine Erdungsklemme steckt): der Sitz wird
+## zur roten ANZEIGE.
+func press_spent() -> bool:
+	return run != null and not compressing() and not burning() \
+		and not run.series_press_allowed(_series)
+
+func _spent_button(u: float) -> Button:
+	var button := _seat_fit(_action_button_new(SPENT_TEXT, SPENT_COLOR, u, func() -> void: pass), u)
+	button.name = "StampSpent"
+	button.disabled = true
+	button.mouse_default_cursor_shape = Control.CURSOR_ARROW
+	button.add_theme_color_override("font_disabled_color", SPENT_COLOR)
+	button.add_theme_stylebox_override("disabled",
+		_button_box(Color(SPENT_COLOR.r, SPENT_COLOR.g, SPENT_COLOR.b, 0.16), SPENT_COLOR))
+	return button
+
 ## Darf jetzt geprägt werden? Ein gewählter Zielwürfel, mindestens EINE Karte
-## (Spieler-Wunsch 2026-10-25) und darunter eine, die prägt.
-## Prägen selbst ist unbegrenzt (Spieler-Entscheid 2026-09-05).
+## (Spieler-Wunsch 2026-10-25), darunter eine, die prägt, und die Prägung der Runde
+## ist noch frei (Spieler-Entscheid 2026-11-23; die Erdungsklemme prägt trotzdem).
 func can_pull() -> bool:
 	if run == null or editing_locked or burning():
 		return false
@@ -1843,7 +1926,7 @@ func can_pull() -> bool:
 		return not run.compressible_series(_series, _target_pack).has("blocker")
 	if target_die() == null:
 		return false
-	return stamping_card_count() > 0
+	return stamping_card_count() > 0 and run.series_press_allowed(_series)
 
 ## Zwingt einen Knopf auf das Sitzmaß: clip_text nimmt der Aufschrift das Recht,
 ## das Rechteck zu verbreitern.
@@ -1902,6 +1985,8 @@ func stamp_blocker() -> String:
 		return ""
 	if stamping_card_count() <= 0:
 		return "Nur Katalysatoren - eine Netz-Karte fehlt."
+	if not run.series_press_allowed(_series):
+		return "Schon geprägt - die nächste Prägung gibt es in der nächsten Runde."
 	return ""
 
 # --- UPGRADES und ERGEBNIS ohne Würfel-Ziel ------------------------------------------

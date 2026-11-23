@@ -45,6 +45,7 @@ func test_six_readers_stand_in_a_straight_row():
 			"das Laufwerk steht auf dem Filz")
 
 func test_readers_mirror_across_z_axis():
+	row.set_projectors(6, true)
 	assert_almost_eq(row.readers[0].position.z, -row.readers[5].position.z, 0.001)
 
 func test_readers_evenly_spaced_in_z():
@@ -87,7 +88,7 @@ func test_the_row_front_edge_is_the_disk_front():
 func test_occupied_readers_glow_and_empty_ones_stay_dark():
 	row.set_charms(_charms(2))
 	assert_ne(row.readers[0].glow_color(), CharmReaderView.DARK, "belegt leuchtet")
-	assert_eq(row.readers[3].glow_color(), CharmReaderView.DARK, "leer bleibt dunkel")
+	assert_eq(row.readers[2].glow_color(), CharmReaderView.DARK, "leer bleibt dunkel")
 
 func test_reader_glow_follows_rarity():
 	var charms: Array[Charm] = [Charm.rabbits_foot(), Charm.broken_mirror(), Charm.lucky_cigarettes()]
@@ -276,9 +277,11 @@ func test_headless_starts_no_load_thread():
 
 func test_ten_ports_stand_and_only_plugged_ones_glow():
 	assert_eq(row.ports.size(), CharmRowView.PORT_COUNT)
-	assert_eq(row.reader_ports, [2, 3, 4, 5, 6, 7] as Array[int], "die sechs mittleren zuerst")
+	assert_eq(row.reader_ports, [3, 4, 5] as Array[int], "die drei mittleren zuerst")
 	assert_eq(row.port_light_color(0), CharmReaderView.DARK, "ein freier Port ist dunkel")
-	assert_eq(row.port_light_color(2), CharmReaderView.STANDBY, "angeschlossen glimmt er")
+	assert_eq(row.port_light_color(3), CharmReaderView.STANDBY, "angeschlossen glimmt er")
+	row.set_projectors(6, true)
+	assert_eq(row.reader_ports, [2, 3, 4, 5, 6, 7] as Array[int], "sechs wachsen zur Mitte")
 
 func test_a_new_projector_takes_the_next_port_and_charms_keep_their_order():
 	var charms: Array[Charm] = [Charm.rabbits_foot(), Charm.horseshoe()]

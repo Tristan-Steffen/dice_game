@@ -43,6 +43,26 @@ const SEAM_ON := 0.9
 const BODY_ALBEDO := Color(0.16, 0.155, 0.21)
 const BODY_EMISSION := Color(0.36, 0.38, 0.52)
 const BODY_EMISSION_ENERGY := 0.3
+## Eine GESPERRTE Scheibe (noch nicht freigeschaltet) liegt flach und dunkel unter ihrer
+## HAUBE; die nächste käufliche nennt darauf ihren Preis.
+const LOCKED_ALBEDO := Color(0.06, 0.06, 0.08)
+const LOCKED_EMISSION_ENERGY := 0.03
+const LOCKED_ANGLE := 0.0
+const HOOD_SHADER := preload("res://assets/shaders/drum_hood.gdshader")
+const HOOD_HEIGHT := 0.07
+const HOOD_LIFT := 0.012
+const HOOD_SHARE := 0.96
+const HOOD_BAND := 0.22
+const HOOD_SLIDE_TIME := 0.45
+const HOOD_FLAT := Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
+const HOOD_TEXT := Color(0.62, 0.65, 0.72)
+const HOOD_PRICE_OFF := Color(0.75, 0.42, 0.38)
+const HOOD_PRICE_ON := Color(0.45, 1.5, 1.7)
+const HOOD_WORD_SHARE := 0.11
+const HOOD_PRICE_SHARE := 0.3
+## STROMLOS (die Prägung der Runde ist verbraucht): Lampen und Körper auf diesen Anteil.
+const POWER_OFF := 0.08
+const POWER_TIME := 0.5
 
 ## Der STROM der Übertragung läuft über die Scheiben von 1 nach rechts: eine additive
 ## Ebene in Kartengröße, knapp über der liegenden Karte.
@@ -68,6 +88,14 @@ var _pose: Array[int] = []
 var _pose_tweens: Array[Tween] = []
 ## Je Scheibe: um wie viel der Spieler die LEERE Scheibe weitergedreht hat (ganze Viertel).
 var _free: Array[float] = []
+var _locked: Array[bool] = []
+var _lock_known := false
+var _hoods: Array[Node3D] = []
+var _hood_tweens: Array[Tween] = []
+var _hood_key := ""
+var _powered := true
+var _power := 1.0
+var _power_tween: Tween
 var _side := 1.0
 var _pitch := 1.0
 var _light: Node3D
@@ -93,6 +121,11 @@ func setup(centers: Array[Vector3], side: float, pitch: float) -> void:
 	_pose.clear()
 	_pose_tweens.clear()
 	_free.clear()
+	_locked.clear()
+	_lock_known = false
+	_hoods.clear()
+	_hood_tweens.clear()
+	_hood_key = ""
 	_light = null
 	_light_ride = null
 	_side = side
@@ -109,6 +142,9 @@ func setup(centers: Array[Vector3], side: float, pitch: float) -> void:
 		_pose_tweens.append(null)
 		_target.append(EMPTY_ANGLE)
 		_free.append(0.0)
+		_locked.append(false)
+		_hoods.append(_build_hood(i, centers[i], side, pitch * SLICE_SHARE))
+		_hood_tweens.append(null)
 		_tweens.append(null)
 		_flashes.append(null)
 		pivot.rotation.z = EMPTY_ANGLE
@@ -136,7 +172,7 @@ static func angle_for(pack: Pack) -> float:
 func seat(packs: Array) -> void:
 	for i in _pivots.size():
 		var pack: Pack = packs[i] if i < packs.size() else null
-		var want := angle_for(pack)
+		var want := _rest_angle(i) if pack == null else angle_for(pack)
 		if is_equal_approx(_target[i], want):
 			continue
 		_target[i] = want
@@ -148,7 +184,7 @@ func seat(packs: Array) -> void:
 func seat_hard(packs: Array) -> void:
 	for i in _pivots.size():
 		var pack: Pack = packs[i] if i < packs.size() else null
-		_target[i] = angle_for(pack)
+		_target[i] = _rest_angle(i) if pack == null else angle_for(pack)
 		_set_rank(i, -1 if pack == null else Pack.shelf_rank(pack), true)
 		_free[i] = 0.0
 		_kill(i)
@@ -162,7 +198,170 @@ func side() -> float:
 ## Nur eine LEERE Scheibe läßt sich von Hand drehen - reine Anzeige, die Kante bleibt ihre Ruhe.
 func spinnable(index: int) -> bool:
 	return index >= 0 and index < _pivots.size() and _rank[index] == -1 \
-		and is_equal_approx(_target[index], EMPTY_ANGLE)
+		and not _locked[index] and is_equal_approx(_target[index], EMPTY_ANGLE)
+
+## Leer steht eine Scheibe auf Kante - gesperrt liegt sie flach unter ihrer Haube.
+func _rest_angle(index: int) -> float:
+	return LOCKED_ANGLE if _locked[index] else EMPTY_ANGLE
+
+## Der EINE Schreiber der Sperre: die ersten open Scheiben sind frei, der Rest liegt unter
+## Hauben; price ist der Energie-Preis der nächsten (<= 0 = keiner), payable färbt ihn.
+## Idempotent, je Bild gefragt. Eine frei gewordene Haube fährt nach hinten unter den Tisch.
+func set_lock_state(open: int, price := 0, payable := false) -> void:
+	var hard := not _lock_known or not is_inside_tree()
+	_lock_known = true
+	for i in _pivots.size():
+		var locked := i >= open
+		if _locked[i] != locked:
+			_locked[i] = locked
+			_write_body(i)
+			_ride_hood(i, locked, hard)
+			if _rank[i] < 0:
+				_free[i] = 0.0
+				_target[i] = _rest_angle(i)
+				if hard:
+					_kill(i)
+					_pivots[i].rotation.z = _target[i]
+				else:
+					_turn(i, _target[i])
+	var key := "%d:%d:%s" % [open, price, payable]
+	if key == _hood_key:
+		return
+	_hood_key = key
+	for i in _hoods.size():
+		var next := i == open and price > 0
+		var word: Label3D = _hoods[i].get_node("Wort")
+		var tag: Label3D = _hoods[i].get_node("Preis")
+		word.text = "FREISCHALTEN" if next else "GESPERRT"
+		word.position.x = -_side * 0.2 if next else 0.0
+		tag.visible = next
+		tag.text = "%d ⚡" % price
+		tag.modulate = HOOD_PRICE_ON if payable else HOOD_PRICE_OFF
+
+func hood_shown(index: int) -> bool:
+	return index >= 0 and index < _hoods.size() and _hoods[index].visible
+
+func hood_price_text(index: int) -> String:
+	if index < 0 or index >= _hoods.size():
+		return ""
+	var tag: Label3D = _hoods[index].get_node("Preis")
+	return tag.text if tag.visible else ""
+
+func _build_hood(index: int, center: Vector3, side: float, length: float) -> Node3D:
+	var hood := Node3D.new()
+	hood.name = "Haube%d" % (index + 1)
+	hood.visible = false
+	add_child(hood)
+	hood.global_position = center + Vector3.UP * HOOD_LIFT
+	hood.set_meta(&"home", hood.position)
+	var half := Vector2(side, length) * HOOD_SHARE * 0.5
+	var plate := MeshInstance3D.new()
+	plate.name = "Platte"
+	var box := BoxMesh.new()
+	box.size = Vector3(half.x * 2.0, HOOD_HEIGHT, half.y * 2.0)
+	plate.mesh = box
+	plate.position.y = HOOD_HEIGHT * 0.5
+	var material := ShaderMaterial.new()
+	material.shader = HOOD_SHADER
+	material.set_shader_parameter("half_size", half)
+	material.set_shader_parameter("band", side * HOOD_BAND * 0.5)
+	material.set_shader_parameter("stripe", side * 0.09)
+	plate.material_override = material
+	plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	hood.add_child(plate)
+	_hood_label(hood, "Wort", side * HOOD_WORD_SHARE, HOOD_TEXT)
+	var tag := _hood_label(hood, "Preis", side * HOOD_PRICE_SHARE, HOOD_PRICE_OFF)
+	tag.position.x = side * 0.1
+	return hood
+
+func _hood_label(hood: Node3D, part: String, height: float, color: Color) -> Label3D:
+	var label := Label3D.new()
+	label.name = part
+	label.font_size = 64
+	label.pixel_size = height / 64.0
+	label.outline_size = 0
+	label.modulate = color
+	label.shaded = false
+	label.transform = Transform3D(HOOD_FLAT, Vector3.UP * (HOOD_HEIGHT + 0.01))
+	hood.add_child(label)
+	return label
+
+## Endzustand zuerst: die Haube steht oder ist fort; frei geworden gleitet sie nach hinten
+## (Welt +X) knapp unter die Anzeige.
+func _ride_hood(index: int, locked: bool, hard: bool) -> void:
+	var hood := _hoods[index]
+	_kill_tween(_hood_tweens[index])
+	_hood_tweens[index] = null
+	var home: Vector3 = hood.get_meta(&"home")
+	hood.position = home
+	hood.visible = locked
+	if locked or hard:
+		return
+	hood.visible = true
+	var away := home + Vector3(_side * 1.05, -(HOOD_HEIGHT + HOOD_LIFT * 2.0), 0.0)
+	var tween := hood.create_tween()
+	_hood_tweens[index] = tween
+	tween.tween_property(hood, "position:y", away.y, HOOD_SLIDE_TIME * 0.2)
+	tween.tween_property(hood, "position:x", away.x, HOOD_SLIDE_TIME * 0.8) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tween.tween_callback(func() -> void:
+		hood.visible = false
+		hood.position = home)
+
+func _write_body(index: int) -> void:
+	var material := _bodies[index]
+	material.albedo_color = LOCKED_ALBEDO if _locked[index] else BODY_ALBEDO
+	material.emission_energy_multiplier = _body_energy(index)
+	# Unter der Haube ragte sonst ein Leser durch die Platte.
+	for child in _pivots[index].get_children():
+		if String(child.name).begins_with("Leser_"):
+			(child as Node3D).visible = not _locked[index]
+
+func _body_energy(index: int) -> float:
+	return LOCKED_EMISSION_ENERGY if _locked[index] else BODY_EMISSION_ENERGY * _power
+
+# --- STROM: nach der Prägung der Runde steht die Walze dunkel ---------------------------------
+
+func powered() -> bool:
+	return _powered
+
+## Der EINE Schreiber des Stroms. Aus: Lampen und Körper dunkel, bereitstehende Leser legen
+## sich flach (zugegriffene halten ihre Karte). Idempotent, je Bild gefragt.
+func set_powered(on: bool, hard := false) -> void:
+	if _powered == on:
+		return
+	_powered = on
+	_kill_tween(_power_tween)
+	_power_tween = null
+	for i in _pose.size():
+		if _rank[i] < 0:
+			continue
+		if not on and _pose[i] == POSE_READY:
+			_pose_to(i, POSE_REST, 0.0 if hard else REST_TIME)
+		elif on and _pose[i] == POSE_REST:
+			_pose_to(i, POSE_READY, 0.0 if hard else POSE_TIME)
+	var want := 1.0 if on else POWER_OFF
+	if hard or not is_inside_tree():
+		_write_power(want)
+		return
+	_power_tween = create_tween()
+	_power_tween.tween_method(_write_power, _power, want, POWER_TIME)
+
+func _write_power(share: float) -> void:
+	_power = share
+	for i in _readers.size():
+		_bodies[i].emission_energy_multiplier = _body_energy(i)
+		var faces: Array = _readers[i]
+		for rank in faces.size():
+			var pose := _pose[i] if rank == _rank[i] else POSE_REST
+			for lamp: Dictionary in faces[rank]["lamps"]:
+				(lamp["material"] as StandardMaterial3D).albedo_color = _lamp_color(lamp, pose)
+
+func _lamp_color(lamp: Dictionary, pose: int) -> Color:
+	return _lit(lamp["tint"], float((lamp["energies"] as Array)[pose]) * _power)
+
+func locked(index: int) -> bool:
+	return index >= 0 and index < _locked.size() and _locked[index]
 
 ## Das Rad: um ganze Viertel weiter.
 func spin_by(index: int, quarters: int) -> void:
@@ -277,7 +476,7 @@ func flash(index: int) -> void:
 	material.emission_energy_multiplier = FLASH_ENERGY
 	var tween := create_tween()
 	_flashes[index] = tween
-	tween.tween_property(material, "emission_energy_multiplier", BODY_EMISSION_ENERGY,
+	tween.tween_property(material, "emission_energy_multiplier", _body_energy(index),
 		FLASH_TIME)
 	_pulse_reader(index)
 
@@ -630,7 +829,8 @@ func reader_pose(index: int) -> int:
 func set_loaded(index: int, on: bool) -> void:
 	if index < 0 or index >= _pose.size() or _rank[index] < 0:
 		return
-	_pose_to(index, POSE_LOADED if on else POSE_READY, POSE_TIME)
+	var idle := POSE_READY if _powered else POSE_REST
+	_pose_to(index, POSE_LOADED if on else idle, POSE_TIME)
 
 ## Der EINE Schreiber der Leser-Stellung: Endzustand zuerst, die Fahrt folgt.
 func _pose_to(index: int, pose: int, time: float, delay := 0.0) -> void:
@@ -651,15 +851,14 @@ func _pose_to(index: int, pose: int, time: float, delay := 0.0) -> void:
 		tween.tween_property(mover["node"], "transform", (mover["poses"] as Array)[pose], time) \
 			.set_delay(delay).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	for lamp: Dictionary in reader["lamps"]:
-		tween.tween_property(lamp["material"], "albedo_color",
-			_lit(lamp["tint"], float((lamp["energies"] as Array)[pose])), time).set_delay(delay)
+		tween.tween_property(lamp["material"], "albedo_color", _lamp_color(lamp, pose), time) \
+			.set_delay(delay)
 
 func _pose_hard(reader: Dictionary, pose: int) -> void:
 	for mover: Dictionary in reader["movers"]:
 		(mover["node"] as Node3D).transform = (mover["poses"] as Array)[pose]
 	for lamp: Dictionary in reader["lamps"]:
-		(lamp["material"] as StandardMaterial3D).albedo_color = _lit(lamp["tint"],
-			float((lamp["energies"] as Array)[pose]))
+		(lamp["material"] as StandardMaterial3D).albedo_color = _lamp_color(lamp, pose)
 
 func _reader_of(index: int) -> Dictionary:
 	if index < 0 or index >= _readers.size() or _rank[index] < 0:
@@ -675,7 +874,7 @@ func _set_rank(index: int, rank: int, hard: bool) -> void:
 		_pose_to(index, POSE_REST, 0.0 if hard else REST_TIME)
 	_rank[index] = rank
 	_pose[index] = POSE_REST
-	if rank >= 0:
+	if rank >= 0 and _powered:
 		_pose_to(index, POSE_READY, 0.0 if hard else POSE_TIME, 0.0 if hard else QUARTER_TIME)
 
 ## Der Leser LIEST (die Scheibe verriegelt): seine Lampen blitzen, das Rollsiegel rollt
@@ -690,8 +889,8 @@ func _pulse_reader(index: int) -> void:
 	for lamp: Dictionary in reader["lamps"]:
 		var material: StandardMaterial3D = lamp["material"]
 		material.albedo_color = _lit(lamp["tint"], LAMP_FLASH)
-		tween.tween_property(material, "albedo_color",
-			_lit(lamp["tint"], float((lamp["energies"] as Array)[POSE_LOADED])), SWEEP_TIME * 2.0)
+		tween.tween_property(material, "albedo_color", _lamp_color(lamp, POSE_LOADED),
+			SWEEP_TIME * 2.0)
 	for mover: Dictionary in reader["movers"]:
 		if not mover.has("sweep"):
 			continue

@@ -299,7 +299,7 @@ const CATALYSTS := {
 	CATALYST_PROPELLANT: {"name": "Treibladung", "price": 14,
 		"effect": "+1 auf jede gefüllte Zahl-Zelle des Summen-Netzes"},
 	CATALYST_GROUND: {"name": "Erdungsklemme", "price": 8,
-		"effect": "Dieses Prägen verbraucht die Pressung der Runde nicht"},
+		"effect": "Dieses Prägen verbraucht die Prägung der Runde nicht"},
 }
 
 ## Der Satz, der jede Katalysator-Karte beschließt - eine Quelle, damit Regal,

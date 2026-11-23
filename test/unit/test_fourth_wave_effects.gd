@@ -259,6 +259,7 @@ func test_a_survivor_can_be_used_again():
 	run.grant_pack(Pack.material_pack())
 	_press(_press_seed(true))
 	assert_eq(run.owned_packs.size(), 1)
+	run.apply_round_start_charms()
 	assert_false(_press(_rng(3)).is_empty(), "sie prägt ein zweites Mal")
 
 # --- Füllhorn: ab fünf geräumten Überladungs-Stufen ein Sonderposten ------------------

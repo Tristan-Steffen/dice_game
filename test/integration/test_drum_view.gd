@@ -141,3 +141,37 @@ func test_a_seated_slice_does_not_spin_and_forgets_the_hand() -> void:
 	drum.seat([])
 	await wait_seconds(1.0)
 	assert_almost_eq(drum.shown_angle(0), DrumView.EMPTY_ANGLE, 0.001)
+
+# --- Sperre und Strom (2026-11-23) ------------------------------------------------
+
+func test_locked_slices_lie_flat_under_a_hood() -> void:
+	drum.set_lock_state(2, 3, false)
+	drum.seat_hard([])
+	for i in DrumView.SLICES:
+		assert_eq(drum.locked(i), i >= 2)
+		assert_eq(drum.hood_shown(i), i >= 2, "Haube nur ueber gesperrten")
+		assert_almost_eq(drum.shown_angle(i),
+			DrumView.LOCKED_ANGLE if i >= 2 else DrumView.EMPTY_ANGLE, 0.0001)
+	assert_false(drum.spinnable(3), "eine gesperrte Scheibe dreht nicht")
+
+func test_only_the_next_hood_names_the_price() -> void:
+	drum.set_lock_state(2, 3, true)
+	assert_string_contains(drum.hood_price_text(2), "3")
+	assert_eq(drum.hood_price_text(3), "")
+	assert_eq(drum.hood_price_text(1), "", "eine freie Scheibe traegt nichts")
+
+func test_an_unlocked_slice_ends_free_whatever_the_ride() -> void:
+	drum.set_lock_state(2, 3, true)
+	drum.set_lock_state(3, 4, false)
+	assert_false(drum.locked(2))
+	assert_almost_eq(drum.target_angle(2), DrumView.EMPTY_ANGLE, 0.0001, "Endzustand zuerst")
+	assert_string_contains(drum.hood_price_text(3), "4")
+
+func test_power_off_darkens_and_ready_readers_rest() -> void:
+	drum.seat_hard([_pack(Pack.SHELF_ORDER[0])])
+	assert_eq(drum.reader_pose(0), DrumView.POSE_READY)
+	drum.set_powered(false, true)
+	assert_false(drum.powered())
+	assert_eq(drum.reader_pose(0), DrumView.POSE_REST)
+	drum.set_powered(true, true)
+	assert_eq(drum.reader_pose(0), DrumView.POSE_READY)

@@ -27,10 +27,9 @@ signal press_changed
 
 const POOL_SIZE := 30
 ## Je PROJEKTOR ein Charm-Platz; jeder hängt an einem der USB-Ports des Tisches.
-const START_PROJECTORS := 6
+const START_PROJECTORS := 3
 const MAX_PROJECTORS := 10
-## ⚡-Preis des nächsten Projektors im Schwarzmarkt (7., 8., 9., 10.).
-## ⚡-Preis je Projektor: Schritt × (schon gekaufte + 1).
+## ⚡-Preis je Projektor im Schwarzmarkt: Schritt × (schon dazugekommene + 1).
 const PROJECTOR_PRICE_STEP := 5
 const SECRET_PROJECTOR_CHANCE := 0.15
 ## Statisch, damit Tests die Auslage festhalten können.
@@ -571,8 +570,11 @@ func stash_die(def: DieDefinition, price: int) -> void:
 ## Bestandener Stresstest: EIN frisch gewürfelter Würfel mit Seelengarantie, gratis
 ## ins Ausgabefach. Liefert das hinterlegte
 ## Exemplar (null = keine Vorlage); zerfallen kann er nicht.
+## Dazu ein PROJEKTOR, solange ein Port frei ist (Spieler-Entscheid 2026-11-23).
 func grant_stress_reward() -> DieDefinition:
 	stress_tests_passed += 1
+	if projectors < MAX_PROJECTORS:
+		_add_projector()
 	return _grant_reward_die()
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein - der EINE Weg, auf dem
@@ -1126,24 +1128,50 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 # --- Die SERIENSCHALTUNG: Kassetten in Reihe, EINE Projektion -----------------
 
 ## --- Die SERIENLÄNGE ----------------------------------------------------------
-## SECHS Schächte ab Runde 1 (Spieler-Entscheid 2026-09-04): die Hub-Leiter der
-## Werkstatt ist gefallen, der Sockel steht fest. Länger wird die Reihe nur noch
-## über den Schub der Nebenwette.
-const SERIES_LADDER := [
-	{"tier": 1, "slots": 6},
-]
+## Die Walze hat sechs Scheiben; ein Lauf beginnt mit ZWEI freigeschalteten, jede
+## weitere kostet Energie = bisherige Scheiben + 1 (Spieler-Entscheid 2026-11-23).
+const START_DRUM_SLOTS := 2
 ## Deckel = BLOCK-GRÖSSE: der Block der Zeremonie ist sechs Karten, also gibt es
 ## keine siebte (Spieler-Entscheid 2026-09-05).
 const SERIES_SLOT_CAP := 6
 
-## Serienlänge dieses Laufs: der feste Sockel (Kettentreiber und Kurzschluss sind
-## am 2026-11-09 gestorben).
+var drum_slots: int = START_DRUM_SLOTS
+
 func series_slots() -> int:
-	var slots := int(SERIES_LADDER[0]["slots"])
-	for step: Dictionary in SERIES_LADDER:
-		if progress_tier() >= int(step["tier"]):
-			slots = int(step["slots"])
-	return clampi(slots, 1, SERIES_SLOT_CAP)
+	return clampi(drum_slots, 1, SERIES_SLOT_CAP)
+
+## ⚡-Preis der nächsten Scheibe (-1 = alle frei).
+func drum_slot_price() -> int:
+	if drum_slots >= SERIES_SLOT_CAP:
+		return -1
+	return drum_slots + 1
+
+func can_buy_drum_slot() -> bool:
+	var price := drum_slot_price()
+	return price > 0 and energy >= price
+
+func buy_drum_slot() -> bool:
+	if not can_buy_drum_slot():
+		return false
+	spend_energy(drum_slot_price())
+	drum_slots += 1
+	press_changed.emit()
+	return true
+
+## --- EINE Prägung je Runde (Spieler-Entscheid 2026-11-23) -------------------------
+## Zurückgesetzt beim Rundenstart; die Erdungsklemme prägt, ohne sie zu verbrauchen -
+## auch dann noch, wenn sie schon verbraucht ist.
+var press_used_this_round := false
+
+func press_allowed() -> bool:
+	return not press_used_this_round
+
+## Darf DIESE Serie jetzt prägen? (Prägung frei oder eine Erdungsklemme steckt.)
+func series_press_allowed(pack_uids: Array[int]) -> bool:
+	if press_allowed():
+		return true
+	var parts := _series_parts(_series_indices(pack_uids))
+	return bool(series_terms(parts["catalysts"]).get("free", false))
 
 ## --- Die KATALYSATOREN einer Serie --------------------------------------------
 ## Eine Katalysator-Kassette prägt nichts; sie besetzt einen Serien-Slot als Preis
@@ -1151,9 +1179,8 @@ func series_slots() -> int:
 
 const CATALYST_PROPELLANT_STEP := 1
 
-## Was die Katalysatoren dieser Serie zulegen: {propellant, free}. "free" ist seit
-## dem unbegrenzten Prägen (2026-09-05) WIRKUNGSLOS - es liest niemand mehr; die
-## Erdungsklemme bleibt im Katalog, ihre Wirkung ist OFFEN.
+## Was die Katalysatoren dieser Serie zulegen: {propellant, free}. "free" = dieses
+## Prägen verbraucht die Prägung der Runde nicht (Erdungsklemme).
 static func catalyst_terms(packs: Array[Pack]) -> Dictionary:
 	var terms := {"propellant": 0, "free": false}
 	for pack in packs:
@@ -1281,8 +1308,8 @@ func compress_series(pack_uids: Array[int], blank_uid: int,
 		"cards": int(preview["cards"]), "kept": kept, "uid": blank_uid}
 
 ## DAS PRÄGEN: eine Serie, EINE atomare Buchung - prüfen, rechnen, schreiben,
-## Karten verbrauchen. Es ist UNBEGRENZT (Spieler-Entscheid 2026-09-05) und geht
-## mit jeder Kartenzahl ab 1; ohne prägende Karte geschieht NICHTS (leeres Dictionary).
+## Karten verbrauchen. EINMAL je Runde (press_allowed), mit jeder Kartenzahl ab 1;
+## ohne prägende Karte oder ohne freie Prägung geschieht NICHTS (leeres Dictionary).
 ## Liefert {"projection", "cards", "kept"}.
 func apply_series(pack_uids: Array[int], die: DieDefinition,
 		rng: RandomNumberGenerator = null) -> Dictionary:
@@ -1294,10 +1321,14 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	var parts := _series_parts(chosen)
 	var nets: Array = parts["nets"]
 	var terms := series_terms(parts["catalysts"])
+	if not press_allowed() and not bool(terms.get("free", false)):
+		return {}
 	if nets.is_empty():
 		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)
+	if not bool(terms.get("free", false)):
+		press_used_this_round = true
 	var kept := _consume_series_cards(chosen, rng)
 	packs_changed.emit()
 	press_changed.emit()
@@ -1648,6 +1679,9 @@ func apply_round_start_charms() -> void:
 	golden_handshake_used_this_round = false
 	packs_opened_this_round = 0
 	free_reshuffle_used_this_round = false
+	if press_used_this_round:
+		press_used_this_round = false
+		press_changed.emit()
 	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
 	# (der wertet nicht, das Licht wäre verschenkt).
 	if CharmEffects.has_spotlight(ids) or _clause_active(DealClause.SPOTLIGHT):

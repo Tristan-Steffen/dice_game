@@ -8,6 +8,7 @@ var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
+	run.drum_slots = GameRun.SERIES_SLOT_CAP
 
 func _rng(value: int) -> RandomNumberGenerator:
 	var rng := RandomNumberGenerator.new()

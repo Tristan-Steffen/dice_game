@@ -53,7 +53,7 @@ static func is_small_fry_value(value: int) -> bool:
 
 ## Charm-Plätze ohne gemeldeten Stand - spiegelt GameRun.START_PROJECTORS; im Spiel
 ## reist die Projektor-Zahl als DiceScoring.CTX_CHARM_SLOTS mit.
-const CHARM_SLOTS := 6
+const CHARM_SLOTS := 3
 
 ## Leerer Sockel: Mult je freiem Charm-Platz.
 const EMPTY_PLINTH_MULT := 3

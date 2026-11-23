@@ -21,7 +21,7 @@ const HOVER_HEIGHT := 0.6
 const SPOT_COUNT := GameRun.START_PROJECTORS
 const PORT_COUNT := GameRun.MAX_PROJECTORS
 ## In dieser Folge belegen Projektoren die Ports: erst die Mitte, dann abwechselnd außen.
-const PORT_ORDER: Array[int] = [2, 3, 4, 5, 6, 7, 8, 1, 9, 0]
+const PORT_ORDER: Array[int] = [4, 5, 3, 6, 2, 7, 8, 1, 9, 0]
 const PORT_MODEL := "res://assets/models/hardware/usb_port.glb"
 ## Die Leiste IST der Wandfuß des Tischs (TableBodyView.FOOT_HEIGHT hoch).
 const RAIL_HEIGHT := 2.0

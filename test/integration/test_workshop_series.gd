@@ -15,6 +15,7 @@ var run: GameRun
 
 func before_each() -> void:
 	run = GameRun.new_run()
+	run.drum_slots = GameRun.SERIES_SLOT_CAP
 	view = WorkshopView.new()
 	add_child_autofree(view)
 	view.unit_px = U
@@ -301,7 +302,7 @@ func test_a_catalysts_only_series_never_stamps() -> void:
 	assert_false(view.can_pull(), "Katalysatoren verstärken eine Projektion, sie sind keine")
 	assert_true(view._action_button.disabled)
 
-## Der Griff ist UNBEGRENZT (2026-09-05): zwei hintereinander buchen beide.
+## EINE Prägung je Runde (2026-11-23): die zweite wartet auf den Rundenstart.
 func test_two_grips_in_a_row_both_book() -> void:
 	view.slot_pack(_valued_pack(0, 3).pack_uid)
 	view.choose_index(0)
@@ -315,7 +316,12 @@ func test_two_grips_in_a_row_both_book() -> void:
 	view.slot_pack(_valued_pack(0, 4).pack_uid)
 	_fill_row()
 	await wait_frames(2)
-	assert_true(view.can_pull(), "und der zweite steht bereit")
+	assert_false(view.can_pull(), "eine Prägung je Runde")
+	assert_true(view.press_spent(), "der Sitz zeigt es rot")
+	assert_string_contains(view.stamp_blocker(), "Schon geprägt")
+	run.apply_round_start_charms()
+	await wait_frames(2)
+	assert_true(view.can_pull(), "die nächste Runde gibt sie zurück")
 	view.pull_lever()
 	view.skip_ceremony()
 	await wait_frames(2)
@@ -417,6 +423,7 @@ func test_the_chamber_closes_after_the_strike_and_a_skip_jumps_it() -> void:
 	assert_eq(kinds.back(), "closing", "zuletzt schließt die Kammer")
 	assert_eq(kinds[kinds.size() - 2], "struck", "nach dem Einschlag")
 	assert_almost_eq(float(beats.back()[1]), WorkshopView.CHAMBER_CLOSE_TIME, 0.001)
+	run.apply_round_start_charms()  # eine Prägung je Runde
 	view.slot_pack(_valued_pack(1, 2).pack_uid)
 	beats.clear()
 	var applied: Array = []
@@ -525,10 +532,12 @@ func test_the_full_ride_lands_in_the_same_end_state() -> void:
 	await wait_seconds(span + 0.35)
 	assert_false(view.burning(), "die Fahrt ist von selbst durch")
 	assert_true(view.press_slot_uids().is_empty(), "die Reihe ist leer")
+	assert_eq(view._action_button.text, WorkshopView.SPENT_TEXT,
+		"der Sitz zeigt die verbrauchte Prägung, nicht das Fertig")
+	run.apply_round_start_charms()
+	await wait_frames(2)
 	assert_eq(view._action_button.text, "Prägen 0/%d" % run.series_slots(),
-		"und der Zähler in der Aufschrift steht wieder auf null")
-	assert_true(String(view._action_button.text).begins_with("Prägen"),
-		"der Sitz trägt wieder den Griff, nicht das Fertig")
+		"und in der nächsten Runde steht der Zähler wieder auf null")
 	assert_almost_eq(view._net.get_global_rect().get_center().x, park.x, 0.5,
 		"das Netz steht auf seinem Parkplatz")
 	assert_almost_eq(view._net.get_global_rect().get_center().y, park.y, 0.5)
