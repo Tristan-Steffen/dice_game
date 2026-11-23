@@ -468,6 +468,8 @@ var score_click_zone: StaticBody3D
 var slots_click_zone: StaticBody3D
 var workshop_click_zone: StaticBody3D
 var chips_click_zone: StaticBody3D
+var bank_click_zone: StaticBody3D
+var house_bank: TableBankView
 ## Werkbank-Ecke ohne Trays (Display-Pixel): Ziel der Nahsicht und zugleich die
 ## Fläche, auf der ein Doppelklick sie öffnet.
 var workshop_close_rect := Rect2()
@@ -1305,12 +1307,12 @@ func _place_workshop_strip() -> Rect2:
 	table_screen.place_workshop_window(bounds)
 	_info_rect = frame["info"]
 	table_screen.place_workshop_info_window(_info_rect, u)
-	var bench_rect := workshop.bench_rect() if workshop != null else bounds
-	# Nichts der Werkstatt reicht unter die Hub-Unterkante (Spieler-Entscheid).
 	var quiet: Array[Rect2] = []
 	for part: String in ["upgrades", "podium_stage", "podium_net", "result", "info"]:
 		quiet.append((frame[part] as Rect2).grow(u))
 	table_screen.set_deck_quiet_rects(quiet)
+	var bench_rect := workshop.bench_rect() if workshop != null else bounds
+	# Nichts der Werkstatt reicht unter die Hub-Unterkante (Spieler-Entscheid).
 	var hub_bottom := table_screen.hub.position.y + table_screen.hub.size.y
 	if bench_rect.end.y > hub_bottom + 0.5:
 		push_warning("Werkstatt reicht unter den Hub: %.1f gegen %.1f px"
@@ -1493,7 +1495,31 @@ func _setup_camera_targets() -> void:
 	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0,
 		DicePit.PIT_CENTER.z - PIT_ZOOM_LEFT))
 	_setup_charms_zoom()
+	_setup_house_bank()
 	_setup_glide_bounds()
+
+## Die BANK des Hauses im linken Band: Station und Klickzone aus ihrem Tablett.
+func _setup_house_bank() -> void:
+	house_bank = get_tree().root.find_child("Bank", true, false) as TableBankView
+	if house_bank == null:
+		return
+	var frame := TableBankView.frame_rect()
+	var mid := house_bank.to_global(Vector3(frame.get_center().x, 0.0, frame.get_center().y))
+	var library := TableBankView.library_rect()
+	camera_rig.configure_bank_target(
+		house_bank.to_global(Vector3(library.get_center().x, 0.0, library.get_center().y)),
+		Vector2(library.size.y, library.size.x) * 0.5)
+	bank_click_zone = _add_click_zone("BankClickZone", mid, Vector3(frame.size.x, 4.0, frame.size.y))
+
+## Die BIBLIOTHEK der Bank: der Würfel oder das Modul unter dem Zeiger steht auf ihrem Schirm.
+func _sync_house_bank() -> void:
+	if house_bank == null or not is_instance_valid(house_bank):
+		return
+	var index := -1
+	if _table_operable():
+		var mouse := get_viewport().get_mouse_position()
+		index = house_bank.item_at(camera_rig.project_ray_origin(mouse), camera_rig.project_ray_normal(mouse))
+	house_bank.show_item(index)
 
 ## Grenze des Gleitflugs: an der echten Anzeigefläche GEMESSEN (sie IST das
 ## Rechteck ihrer Textur), nie getippt - daneben liegt nur noch dunkler Raum.
@@ -8963,32 +8989,6 @@ func _zone_riders() -> Array[Node3D]:
 			out.append(body)
 	return out
 
-## Die Hebebühne der Zone, gestellt und verdrahtet (idempotent): Loch = die Zone, Tiefe
-## ZONE_SHAFT_DEPTH, Hohlräume nur so weit, wie vor und hinter ihr kein Loch steht.
-func _zone_shaft_on() -> LiftShaftView:
-	if table_screen == null or _opening_rect.size.x <= 0.0:
-		return null
-	if zone_shaft == null or not is_instance_valid(zone_shaft):
-		zone_shaft = LiftShaftView.new("ZoneShaft")
-		add_child(zone_shaft)
-		zone_shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
-			table_screen.set_lift_pit(TableScreen.PIT_OPENING, at, hole))
-		zone_shaft.closed.connect(func() -> void:
-			table_screen.clear_pit(TableScreen.PIT_OPENING))
-	zone_shaft.deck_skin = table_screen.display_skin()
-	zone_shaft.order_skin(PIT_SKIN)
-	var reach := _zone_cavity_reach()
-	zone_shaft.cavity_reach = reach.x
-	zone_shaft.front_cavity_reach = reach.y
-	zone_shaft.setup(table_screen.pixel_to_world(_opening_rect.get_center()),
-		_pit_half(_opening_rect), ZONE_SHAFT_DEPTH)
-	return zone_shaft
-
-## Wieviel Platz die Hohlräume haben (Welt, x = hinten/Bild-oben, y = vorn/Bild-unten):
-## hinten bis an die Grube des Chip-Trays, vorn bis an den Graben der Walze.
-func _zone_cavity_reach() -> Vector2:
-	var reach := Vector2(ZONE_SHAFT_DEPTH * 2.0, ZONE_SHAFT_DEPTH * 2.0)
-	var zone := _opening_rect
 ## Die ENERGIEZELLEN des Speichers (UPGRADES): sechs Körper auf den gemeldeten Haltern.
 var storage_bank: StorageBankView
 var _storage_bank_key: Array = []
@@ -9026,6 +9026,32 @@ func _sync_storage_bank() -> void:
 	var half := _world_half(seats[0])
 	storage_bank.seat(centers, Vector2(half.y, half.x) * 2.0, tints)
 
+## Die Hebebühne der Zone, gestellt und verdrahtet (idempotent): Loch = die Zone, Tiefe
+## ZONE_SHAFT_DEPTH, Hohlräume nur so weit, wie vor und hinter ihr kein Loch steht.
+func _zone_shaft_on() -> LiftShaftView:
+	if table_screen == null or _opening_rect.size.x <= 0.0:
+		return null
+	if zone_shaft == null or not is_instance_valid(zone_shaft):
+		zone_shaft = LiftShaftView.new("ZoneShaft")
+		add_child(zone_shaft)
+		zone_shaft.opened.connect(func(at: Vector3, hole: Vector2) -> void:
+			table_screen.set_lift_pit(TableScreen.PIT_OPENING, at, hole))
+		zone_shaft.closed.connect(func() -> void:
+			table_screen.clear_pit(TableScreen.PIT_OPENING))
+	zone_shaft.deck_skin = table_screen.display_skin()
+	zone_shaft.order_skin(PIT_SKIN)
+	var reach := _zone_cavity_reach()
+	zone_shaft.cavity_reach = reach.x
+	zone_shaft.front_cavity_reach = reach.y
+	zone_shaft.setup(table_screen.pixel_to_world(_opening_rect.get_center()),
+		_pit_half(_opening_rect), ZONE_SHAFT_DEPTH)
+	return zone_shaft
+
+## Wieviel Platz die Hohlräume haben (Welt, x = hinten/Bild-oben, y = vorn/Bild-unten):
+## hinten bis an die Grube des Chip-Trays, vorn bis an den Graben der Walze.
+func _zone_cavity_reach() -> Vector2:
+	var reach := Vector2(ZONE_SHAFT_DEPTH * 2.0, ZONE_SHAFT_DEPTH * 2.0)
+	var zone := _opening_rect
 	var tray := table_screen.tray_pit_rect()
 	if tray.size.x > 0.0 and tray.end.y <= zone.position.y \
 			and tray.position.x < zone.end.x and tray.end.x > zone.position.x:
@@ -11763,6 +11789,8 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		station = CameraRig.Mode.SCORE
 	elif collider == chips_click_zone:
 		station = CameraRig.Mode.CHIPS
+	elif collider == bank_click_zone:
+		station = CameraRig.Mode.BANK
 	elif collider == secret_shop_click_zone:
 		station = CameraRig.Mode.SECRET_SHOP
 	return station
@@ -11897,6 +11925,8 @@ func _process(delta: float) -> void:
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
 	_hold_zone_picture()
 	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
+	_sync_house_bank()  # und der Schirm der Bank nennt, was der Zeiger trifft
+	_sync_storage_bank()  # und die Energiezellen des Speichers
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
@@ -11925,7 +11955,6 @@ func _sync_pit_beckon(delta: float) -> void:
 		"" if is_pit_focused else "Klick auf die Grube")
 	dice_pit.set_beckon(_pit_beckon_share, breath, CasinoStyle.GREEN)
 
-	_sync_storage_bank()  # und die Energiezellen des Speichers
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
 ## Würfel in der Schale, stellt das Hover-Highlight der Serie (Karte <-> Netz-Zellen)
 ## und schreibt den INFO-SCHIRM. Gefragt je Bild - der Zeiger liegt auf dem Tisch,

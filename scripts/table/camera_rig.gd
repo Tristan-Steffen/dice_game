@@ -7,7 +7,7 @@ extends Camera3D
 ## Das leichte Maus-Rundschauen läuft überall außer an den drei Stationen, deren
 ## Fenster das Bild füllt (Hub, Werkstatt, Titel) - dort verschöbe es nur.
 
-enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE }
+enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE, BANK }
 
 signal mode_changed(new_mode: Mode)
 
@@ -109,6 +109,12 @@ var slots_target := Vector3(-24, 0, -22)
 var secret_shop_target := Vector3(-24, 0, -12)
 var chips_target := Vector3(0, 1.5, 10)
 var chips_half := Vector2.ZERO
+## Die BANK des Hauses im linken Band: die Station rahmt ihre BIBLIOTHEK (Würfel, Schirm, Module).
+var bank_target := Vector3(-7, 0, -60)
+var bank_half := Vector2.ZERO
+const BANK_MARGIN := 1.04
+## Dort wiegt die Kamera nur leicht: beim vollen Zoom-Schwenk lief das kleine Stück dem Zeiger davon.
+const BANK_TILT_MAX_DEGREES := 1.2
 ## Die Laufwerks-Reihe samt Hologrammen (2026-11-18): gerahmt statt fester Abstand.
 var charms_half := Vector2.ZERO
 const CHARMS_MARGIN := 1.04
@@ -346,7 +352,10 @@ func _process(delta: float) -> void:
 
 	var pitch_max: float
 	var yaw_max: float
-	if free_camera or mode != Mode.OVERVIEW:
+	if mode == Mode.BANK and not free_camera:
+		pitch_max = BANK_TILT_MAX_DEGREES
+		yaw_max = BANK_TILT_MAX_DEGREES
+	elif free_camera or mode != Mode.OVERVIEW:
 		# Fokus-Stationen und die geparkte Freikamera stehen im Zoomblick.
 		pitch_max = ZOOM_TILT_MAX_PITCH_DEGREES
 		yaw_max = ZOOM_TILT_MAX_YAW_DEGREES
@@ -437,6 +446,11 @@ func configure_slots_target(target: Vector3) -> void:
 
 func configure_secret_shop_target(target: Vector3) -> void:
 	secret_shop_target = target
+
+## half = halbe Ausmaße des Bank-Tabletts (Welt-Z, Welt-X).
+func configure_bank_target(target: Vector3, half: Vector2) -> void:
+	bank_target = target
+	bank_half = half
 
 ## half = halbe Ausmaße des Chip-Trays (Welt-Z, Welt-X); ZERO
 ## läßt den alten, festen Abstand stehen.
@@ -597,6 +611,8 @@ func station_target(target_mode: Mode) -> Vector3:
 			return secret_shop_target
 		Mode.CHIPS:
 			return chips_target
+		Mode.BANK:
+			return bank_target
 		Mode.WORKSHOP:
 			return workshop_target
 	return Vector3.ZERO
@@ -618,6 +634,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 		distance -= CHIPS_ZOOM_DISTANCE_CUT
 		if chips_half != Vector2.ZERO:
 			distance = maxf(distance, tilted_fit_distance(chips_half, CHIPS_MARGIN))
+	if target_mode == Mode.BANK and bank_half != Vector2.ZERO:
+		distance = tilted_fit_distance(bank_half, BANK_MARGIN)
 	if target_mode == Mode.SECRET_SHOP:
 		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
 	if target_mode == Mode.COMBOS and combos_half != Vector2.ZERO:

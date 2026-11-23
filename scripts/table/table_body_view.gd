@@ -36,9 +36,6 @@ const DARK := Color(0.012, 0.012, 0.018)
 const AMBER := Color(1.0, 0.66, 0.24)
 const VIOLET := Color(0.62, 0.3, 1.0)
 const CARPET := Color(0.075, 0.025, 0.08)
-const BOARD := Color(0.015, 0.05, 0.045)
-const STEEL := Color(0.4, 0.43, 0.48)
-const NICKEL := Color(0.62, 0.64, 0.68)
 
 const STYLE_PLAIN := 0
 const STYLE_PYRAMID := 1
@@ -95,7 +92,9 @@ func _ready() -> void:
 	_build_wall(inner, c, half)
 	_build_back_rail(c, half)
 	_build_legs(c, half)
-	_build_tech_window(free_band())
+	var bank := TableBankView.new()
+	bank.name = "Bank"
+	add_child(bank)
 
 # --- Teile -------------------------------------------------------------------------
 
@@ -160,33 +159,6 @@ func _build_legs(c: Vector2, half: Vector2) -> void:
 			var p := c + Vector2(sx * (half.x - 14.0), sz * (half.y - 18.0))
 			_box("Bein", Vector3(13.0, height, 13.0), Vector3(p.x, FLOOR_Y + height * 0.5, p.y), lacquer)
 			_box("Beinschuh", Vector3(14.2, 1.6, 14.2), Vector3(p.x, FLOOR_Y + 0.8, p.y), _gold())
-
-## Technik als Akzent: ein in Messing gefaßtes Sichtfenster ins Innenleben des Tischs.
-func _build_tech_window(band: Rect2) -> void:
-	var mid := band.get_center()
-	var half := Vector2(17.0, band.size.y * 0.5 - 1.5)
-	var frame := rounded_rect(mid.x, mid.y, half.x, half.y, 2.0, 5)
-	_sweep("Fensterrahmen", frame, [0, 0.05, 0, 0.5, 1.0, 0.5, 1.0, 0.05], _gold())
-	var board := _mat(BOARD, 0.5)
-	board.set_shader_parameter("seams", 1.3)
-	var verts := PackedVector3Array()
-	for i in Geometry2D.triangulate_polygon(frame):
-		verts.append(Vector3(frame[i].x, 0.07, frame[i].y))
-	_add("Platine", _tri_mesh(verts), board)
-	var chip := _mat(LACQUER, 0.8)
-	_box("Chip", Vector3(6.0, 0.5, 6.0), Vector3(mid.x + 4.0, 0.3, mid.y), chip)
-	_box("Chipsockel", Vector3(6.6, 0.1, 6.6), Vector3(mid.x + 4.0, 0.1, mid.y), _gold())
-	_box("Speicher", Vector3(3.0, 0.4, 4.5), Vector3(mid.x - 6.0, 0.25, mid.y - half.y * 0.4), chip)
-	for k in 6:
-		_cyl("Elko%d" % k, 0.6, 1.0, Vector3(mid.x - 12.0, 0.55, mid.y - half.y * 0.6 + k * 1.9),
-			_mat(STEEL, 0.7))
-	for k in 3:
-		var z := mid.y + half.y * 0.35 + k * 1.3
-		_bar("Heatpipe%d" % k, Vector3(mid.x - half.x + 2.0, 0.5, z),
-			Vector3(mid.x + half.x - 2.0, 0.5, z), 0.4, _mat(NICKEL, 0.8))
-	for k in 12:
-		_box("Rippe%d" % k, Vector3(0.35, 0.9, 5.0),
-			Vector3(mid.x + 10.0 + k * 0.55, 0.5, mid.y - half.y * 0.45), _mat(NICKEL, 0.6))
 
 # --- Bausteine ---------------------------------------------------------------------
 

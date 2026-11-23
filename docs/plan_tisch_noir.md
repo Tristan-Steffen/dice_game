@@ -86,7 +86,7 @@ Gebaut sind Welle 1 und der Shader-Teil von Welle 2, „so wie in den Bildern“
 ## OFFEN (Spieler)
 
 - Spielerwand abgesenkt (Probe) oder ringsum gleich hoch (wie am echten Craps-Tisch)?
-- Technik-Fenster ja/nein, und was sonst ins freie linke Band gehört.
+- ENTSCHIEDEN 2026-11-23: ins freie linke Band gehört die BANK des Hauses (`TableBankView`), das Technik-Fenster ist gestorben.
 - Ein Limit-Schild an der Wand, das den Blind zeigt (Idee aus dem Halbmond-Entwurf)?
 - Der Tisch sitzt 7,4 zum Spieler hin: nur die Kamera rückt nach, das Layout der Anzeige bleibt.
 
