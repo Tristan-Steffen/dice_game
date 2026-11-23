@@ -11404,7 +11404,7 @@ func _sync_secret_charm_disk() -> void:
 ## Je Bild: ein Projektor-Angebot liegt als echter, leerer PROJEKTOR in der Bucht.
 func _sync_secret_projector_offer() -> void:
 	var market: SecretShopView = table_screen.secret_shop_window if table_screen != null else null
-	var rect := market.projector_rect_px() if market != null and run != null \r
+	var rect := market.projector_rect_px() if market != null and run != null \
 			and market.is_visible_in_tree() else Rect2()
 	if rect.size.x <= 0.0:
 		_drop_secret_projector()
@@ -11416,7 +11416,7 @@ func _sync_secret_projector_offer() -> void:
 		_secret_projector.set_charm(null)
 	var bounds := CharmReaderView.local_bounds()
 	var mid := bounds.get_center()
-	_secret_projector.global_position = table_screen.pixel_to_world(rect.get_center()) \r
+	_secret_projector.global_position = table_screen.pixel_to_world(rect.get_center()) \
 		- Vector3(mid.x, 0.0, mid.z) + Vector3.UP * BetPrizeView.FLOOR_CLEAR
 
 func _drop_secret_projector() -> void:
