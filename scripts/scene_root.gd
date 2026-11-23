@@ -905,7 +905,6 @@ var _secret_charm_disk: CharmDiskView
 var _secret_charm_projector: CharmProjectorView
 var _charm_sinking: CharmDiskView
 var _charm_shaft: LiftShaftView
-var _charm_tip_owner: Charm
 ## Ein Verkauf läßt das Geld am Laufwerk starten statt am Hub (INF = Hub).
 var _money_comet_origin := Vector2.INF
 var charm_drag_start_pos: Vector2
@@ -1533,8 +1532,6 @@ func _setup_panels() -> void:
 	# Schlüsselwörter: der Laden-Fuß und der Tip an der Diskette schlagen nach.
 	charm_shop.lexikon_requested.connect(open_lexikon)
 	charm_shop.charm_purchasing.connect(_on_shop_charm_purchasing)
-	if table_screen != null and table_screen.charm_tip != null:
-		table_screen.charm_tip.lexikon_requested.connect(open_lexikon)
 	# Die Paket-Fläche: der Laden MELDET seine Auslage, die Körper stellt scene_root.
 	charm_shop.vitrine_changed.connect(_on_vitrine_changed)
 	charm_shop.purchase_denied.connect(_sfx.bind(&"ui_denied", 0.0, 1.0))
@@ -1908,8 +1905,6 @@ func _on_charms_changed() -> void:
 	_sfx_charm_count = run.owned_charms.size()
 	charm_row.set_charms(run.owned_charms, _incoming_charm_disks)
 	_incoming_charm_disks.clear()
-	if table_screen != null and table_screen.charm_tip != null:
-		table_screen.charm_tip.hide_tip()
 	_update_charm_badges()
 
 ## Zeigt die laufenden Werte der Zähler-Charms auf dem FRONT-DISPLAY ihres Laufwerks
@@ -10902,8 +10897,6 @@ func _handle_charm_drag_input(event: InputEvent) -> void:
 		if not charm_is_dragging and event.position.distance_to(charm_drag_start_pos) > REORDER_DRAG_THRESHOLD:
 			charm_is_dragging = true
 			charm_row.begin_drag(charm_drag_index)
-			if table_screen != null:
-				table_screen.charm_tip.hide_tip()
 		if charm_is_dragging:
 			var at: Variant = _mouse_on_plane(event.position,
 				charm_row.global_position.y + CharmRowView.DRAG_HEIGHT)
@@ -11031,8 +11024,6 @@ func _settle_charm_disks_hard() -> void:
 	_incoming_charm_disks.clear()
 	_drop_shop_charm_disks()
 	_drop_secret_charm_disk()
-	if table_screen != null and table_screen.charm_tip != null:
-		table_screen.charm_tip.hide_tip()
 	if charm_row != null:
 		charm_row.settle_hard()
 
@@ -11069,8 +11060,7 @@ func _place_charm_readers() -> void:
 		rects.append(Rect2(a, Vector2.ZERO).expand(b))
 	table_screen.place_charm_readers(rects)
 
-## Hover über einem Laufwerk: das Display nennt den Preis, und der Schlüsselwort-Tip
-## hängt an der Diskette (gehoben verdeckte sie das Display). Antwortet überall, wo die Reihe steht.
+## Hover über einem Projektor: das Display nennt den Preis. Antwortet überall, wo die Reihe steht.
 func _update_charm_hover() -> void:
 	if table_screen == null or charm_row == null or run == null:
 		return
@@ -11078,22 +11068,10 @@ func _update_charm_hover() -> void:
 		return
 	var mouse := get_viewport().get_mouse_position()
 	var index := charm_row.charm_index_at_screen_pos(camera_rig, mouse)
-	var tip := table_screen.charm_tip
-	if index == -1 and tip.visible and _charm_tip_owner != null:
-		var pixel := _screen_pixel(mouse)
-		if pixel.x >= 0.0 and tip.has_pixel(pixel):
-			index = run.owned_charms.find(_charm_tip_owner)
 	if index < 0 or index >= run.owned_charms.size():
 		charm_row.set_sale(-1, "")
-		if _charm_tip_owner != null and run.owned_charms.has(_charm_tip_owner):
-			tip.hide_tip()
-			_charm_tip_owner = null
 		return
 	charm_row.set_sale(index, "VERKAUF $%d" % run.charm_sell_value(index))
-	var rect: Rect2 = table_screen.charm_reader_rects[index] \
-		if index < table_screen.charm_reader_rects.size() else Rect2()
-	_show_charm_tip(run.owned_charms[index], Vector2(rect.get_center().x, rect.end.y),
-		_charm_disk_px().x)
 
 # --- Disketten im LADEN und im SCHWARZMARKT ---------------------------------
 
@@ -11299,9 +11277,6 @@ func _claim_secret_charm_disk() -> void:
 		_secret_charm_disk = null
 
 func _drop_shop_charm_disks() -> void:
-	if _charm_tip_owner != null and _shop_charm_disks.has(_charm_tip_owner) and table_screen != null:
-		table_screen.charm_tip.hide_tip()
-		_charm_tip_owner = null
 	for charm: Charm in _shop_charm_disks:
 		var disk: CharmDiskView = _shop_charm_disks[charm]
 		if is_instance_valid(disk):
@@ -11343,11 +11318,6 @@ func _hovered_disk_rect(rects: Array) -> Rect2:
 		if rect.has_point(pixel):
 			return rect
 	return Rect2()
-
-func _show_charm_tip(charm: Charm, anchor: Vector2, width: float) -> void:
-	if table_screen != null and table_screen.charm_tip != null:
-		table_screen.charm_tip.show_for(charm, anchor, width)
-		_charm_tip_owner = charm
 
 ## Display-Pixel unter der Fenster-Mausposition (Kamerastrahl auf die Screen-
 ## Ebene), oder x<0 bei Verfehlen.
@@ -11598,10 +11568,6 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 		return _pack_choice_rect().has_point(pixel) \
 			or (_card_opening_browse() and _magazin_browse_rect().has_point(pixel))
 	var flying := camera_rig.is_animating
-	# Der Schlüsselwort-Tip an der Diskette: Bewegung immer, Klick nur aufs Schlüsselwort.
-	if not flying and table_screen.charm_tip != null \
-			and table_screen.charm_tip.takes_pixel(pixel, is_click):
-		return true
 	if debug_parts != null and TableScreen.window_takes_pixel(debug_parts, _window_rect(debug_parts),
 			pixel, is_click, false, flying):
 		return true

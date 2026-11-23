@@ -9,11 +9,18 @@ const SHADER := preload("res://assets/shaders/table_body.gdshader")
 
 ## Die Anzeige in Welt.
 const DISPLAY := Rect2(-42.4, -62.4, 84.8, 135.84)
-## Was auf der Anzeige belegt ist (gemessen: Fenster, Charm-Leiste, Chip-Rahmen, Wurfplatz).
-const CONTENT := Rect2(-41.7, -43.68, 68.57, 112.85)
+## Was auf der Anzeige belegt ist (gemessen: Fenster, Chip-Rahmen, Wurfplatz); hinten endet
+## es an der PORT-EBENE der Charm-Reihe (gemessen 25,667) - dort steht die Rückwand.
+const CONTENT := Rect2(-41.7, -43.68, 67.37, 112.85)
 ## Die Wurfgrube ist die waagerechte Mitte des Tischs.
 const PIT_Z := -0.08
-const MARGIN := 10.0
+const MARGIN := 8.0
+## Die Rückwand steht direkt hinter den USB-Ports.
+const BACK_MARGIN := 0.03
+## Der Wandfuß trägt die Port-Blende (CharmRowView.RAIL_HEIGHT).
+const FOOT_HEIGHT := 2.0
+## So weit reicht der Wandkörper nach außen (Zarge).
+const WALL_REACH := 14.2
 const RADIUS := 9.0 + MARGIN
 const FLOOR_Y := -40.0
 ## Die Spielerwand steht auf halber Höhe.
@@ -39,15 +46,20 @@ const STYLE_QUILT := 2
 const STYLE_CARPET := 3
 
 static func inner_center() -> Vector2:
-	return Vector2(CONTENT.get_center().x, PIT_Z)
+	return inner_rect().get_center()
 
-## Halbe Innenmaße: ringsum MARGIN Luft, waagerecht um die Grube gespiegelt.
 static func inner_half() -> Vector2:
-	return Vector2(CONTENT.size.x * 0.5, maxf(CONTENT.end.y - PIT_Z, PIT_Z - CONTENT.position.y)) \
-		+ Vector2(MARGIN, MARGIN)
+	return inner_rect().size * 0.5
 
+## Vorn und seitlich MARGIN Luft, hinten die Wand an den Ports; waagerecht um die Grube gespiegelt.
 static func inner_rect() -> Rect2:
-	return Rect2(inner_center() - inner_half(), inner_half() * 2.0)
+	var half_z := maxf(CONTENT.end.y - PIT_Z, PIT_Z - CONTENT.position.y) + MARGIN
+	var x0 := CONTENT.position.x - MARGIN
+	return Rect2(x0, PIT_Z - half_z, CONTENT.end.x + BACK_MARGIN - x0, half_z * 2.0)
+
+## Hinter dieser Linie (Welt-x) liegt die Anzeige ungenutzt im Wandkörper und wird nicht gezeichnet.
+static func display_cut_x() -> float:
+	return inner_rect().end.x + 1.0
 
 static func inner_outline() -> PackedVector2Array:
 	var c := inner_center()
@@ -119,15 +131,15 @@ func _build_wall(inner: PackedVector2Array, c: Vector2, half: Vector2) -> void:
 	var low := func(p: Vector2) -> float:
 		return lerpf(NEAR_HEIGHT, 1.0, smoothstep(c.x - half.x * 0.67, c.x + half.x * 0.55, p.x))
 	var lacquer := _mat(LACQUER, 0.95)
-	_sweep("Wandfuss", inner, [0, 0, 0.3, 2.0], _mat(LACQUER, 0.9), low)
-	_sweep("Pyramidenwand", inner, [0.3, 2.0, 1.6, 8.6], _mat(SMOKE, 0.5, STYLE_PYRAMID), low)
+	_sweep("Wandfuss", inner, [0, 0, 0.3, FOOT_HEIGHT], _mat(LACQUER, 0.9), low)
+	_sweep("Pyramidenwand", inner, [0.3, FOOT_HEIGHT, 1.6, 8.6], _mat(SMOKE, 0.5, STYLE_PYRAMID), low)
 	_sweep("Lichtlippe", inner, [1.6, 8.6, 1.2, 8.9, 1.2, 9.3], _light(AMBER), low)
 	_sweep("Ablage", inner, [1.2, 9.3, 1.2, 9.9, 5.6, 9.9], lacquer, low)
 	_sweep("Reling", inner, [5.6, 9.9, 6.1, 11.5, 8.0, 12.2, 12.2, 12.2, 14.1, 11.3, 14.7, 9.4],
 		_mat(LEATHER, 0.4, STYLE_QUILT), low)
 	_sweep("Keder", inner, [14.7, 9.4, 15.1, 9.0, 14.7, 8.6], _gold(), low)
-	_sweep("Zarge", inner, [14.7, 8.6, 14.2, -9.0], lacquer, low)
-	_sweep("Messingband", inner, [14.2, -9.0, 14.5, -10.0, 14.0, -11.0], _gold())
+	_sweep("Zarge", inner, [14.7, 8.6, WALL_REACH, -9.0], lacquer, low)
+	_sweep("Messingband", inner, [WALL_REACH, -9.0, 14.5, -10.0, 14.0, -11.0], _gold())
 	_sweep("Unterseite", inner, [14.0, -11.0, 2.0, -12.0], _mat(DARK))
 	_sweep("Unterlicht", inner, [13.6, -11.2, 12.4, -11.6], _light(VIOLET))
 

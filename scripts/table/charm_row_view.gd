@@ -1,6 +1,6 @@
 class_name CharmRowView
 extends Node3D
-## Die Charm-Reihe als PROJEKTOREN an der USB-LEISTE (2026-11-22): zehn Ports im Tisch, je
+## Die Charm-Reihe als PROJEKTOREN an der USB-LEISTE (2026-11-22): zehn Ports an der Rückwand, je
 ## gekauftem Projektor ein `CharmReaderView` an seinem Port (set_projectors), Schlitz zum
 ## Spieler. Je Charm steckt eine
 ## `CharmDiskView` mit Schieber und Bild im Schlitz, ihr Text liegt davor; über der
@@ -23,8 +23,10 @@ const PORT_COUNT := GameRun.MAX_PROJECTORS
 ## In dieser Folge belegen Projektoren die Ports: erst die Mitte, dann abwechselnd außen.
 const PORT_ORDER: Array[int] = [2, 3, 4, 5, 6, 7, 8, 1, 9, 0]
 const PORT_MODEL := "res://assets/models/hardware/usb_port.glb"
-const RAIL_DEPTH := 0.34 * CharmDiskView.BLENDER_SCALE
-const RAIL_HEIGHT := 0.03
+## Die Leiste steht als Blende am Fuß der Rückwand (TableBodyView.FOOT_HEIGHT hoch).
+const RAIL_DEPTH := 0.3
+const RAIL_HEIGHT := 2.0
+const PORT_PROUD := 0.02
 const RAIL_LINE := Color(0.2, 0.75, 0.9)
 const PORT_DIGIT := Color(0.55, 0.58, 0.64)
 const PORT_LIT := 1.1
@@ -128,7 +130,7 @@ func set_projectors(count: int, hard := false) -> void:
 			_move_body(current_charms[i], i, hard)
 	_refresh_readers()
 
-## Schiene und zehn Ports hinter der Reihe.
+## Blende und zehn Ports an der Wand hinter der Reihe.
 func _ensure_rail() -> void:
 	if not ports.is_empty():
 		return
@@ -139,27 +141,28 @@ func _ensure_rail() -> void:
 	box.size = Vector3(RAIL_DEPTH, RAIL_HEIGHT, LINE_SPACING * float(PORT_COUNT - 1) + 4.2)
 	rail.mesh = box
 	rail.material_override = CharmDiskView.shell_material("Leistengrund")
-	rail.position = Vector3(LINE_X + back, RAIL_HEIGHT * 0.5, 0.0)
+	rail.position = Vector3(LINE_X + back + RAIL_DEPTH * 0.5, RAIL_HEIGHT * 0.5, 0.0)
 	rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(rail)
 	var line := MeshInstance3D.new()
 	line.name = "Leistenlinie"
 	var line_box := BoxMesh.new()
-	line_box.size = Vector3(0.05, 0.02, box.size.z - 1.4)
+	line_box.size = Vector3(0.02, 0.05, box.size.z - 1.4)
 	line.mesh = line_box
 	line.material_override = CharmDiskView._unshaded(RAIL_LINE * 0.7)
-	line.position = Vector3(LINE_X + back + RAIL_DEPTH * 0.5 - 0.14, RAIL_HEIGHT + 0.005, 0.0)
+	line.position = Vector3(LINE_X + back - 0.005, RAIL_HEIGHT - 0.14, 0.0)
 	add_child(line)
 	var scene: PackedScene = load(PORT_MODEL) if ResourceLoader.exists(PORT_MODEL) else null
 	for port in PORT_COUNT:
 		var node := Node3D.new()
 		node.name = "Port%d" % port
-		node.position = port_position(port) + Vector3(back, RAIL_HEIGHT, 0.0)
+		node.position = port_position(port) + CharmReaderView.PORT - Vector3(PORT_PROUD, 0.0, 0.0)
 		add_child(node)
 		var light := CharmDiskView._unshaded(CharmReaderView.DARK)
 		if scene != null:
 			var model := scene.instantiate() as Node3D
-			model.rotation = Vector3(0.0, -PI * 0.5, 0.0)
+			# Platte senkrecht, Normale zum Spieler, Portlicht unten.
+			model.basis = Basis(Vector3.BACK, PI * 0.5) * Basis(Vector3.UP, -PI * 0.5)
 			model.scale = Vector3.ONE * CharmDiskView.BLENDER_SCALE
 			CharmDiskView.dress_shell(model)
 			node.add_child(model)
@@ -176,8 +179,8 @@ func _ensure_rail() -> void:
 		digit.double_sided = false
 		digit.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS
 		digit.modulate = PORT_DIGIT
-		digit.basis = CharmDiskView._flat_basis()
-		digit.position = Vector3(0.62, 0.1, 0.0)
+		digit.basis = Basis(Vector3.BACK, Vector3.UP, Vector3.LEFT)
+		digit.position = Vector3(-0.1, 0.62, 0.0)
 		node.add_child(digit)
 		ports.append(node)
 		_port_lights.append(light)

@@ -17,8 +17,8 @@ const SLOT_Y := 0.17 * S
 const LOADED_X := (-0.4 + CharmDiskView.INSERT - 0.47) * S
 ## Linsenmitte in der Schale (Blender pc + Linse).
 const LENS := Vector3(0.08 * S, (0.3 + 0.006) * S, 0.0)
-## Mitte des USB-Ports hinter dem Gehäuse (Blender PORT_Y).
-const PORT := Vector3(0.76 * S, 0.0, 0.0)
+## Mitte des USB-Ports an der Wand hinter dem Gehäuse (Blender PORT_Y, PLUG_Z).
+const PORT := Vector3(0.76 * S, 0.14 * S, 0.0)
 ## Namens-Display und Auswurf-Taste auf dem Deckel (blender_projector_baked.py DISPLAY, EJECT_X).
 const DISPLAY_CENTER := Vector3((-0.4 + 0.105) * S, (0.3 + 0.004) * S, -0.085 * S)
 const DISPLAY_SIZE := Vector2(0.8 * S, 0.115 * S)  # x quer, y längs

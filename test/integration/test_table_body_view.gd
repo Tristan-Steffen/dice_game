@@ -6,7 +6,7 @@ func test_der_inhalt_hat_ringsum_luft() -> void:
 	var content := TableBodyView.CONTENT
 	assert_true(inner.encloses(content), "der Inhalt liegt in der Wanne")
 	assert_almost_eq(content.position.x - inner.position.x, TableBodyView.MARGIN, 0.001)
-	assert_almost_eq(inner.end.x - content.end.x, TableBodyView.MARGIN, 0.001)
+	assert_almost_eq(inner.end.x - content.end.x, TableBodyView.BACK_MARGIN, 0.001, "hinten die Port-Wand")
 	assert_almost_eq(inner.end.y - content.end.y, TableBodyView.MARGIN, 0.001, "rechts")
 	assert_gt(content.position.y - inner.position.y, TableBodyView.MARGIN, "links bleibt das Band")
 
@@ -15,9 +15,21 @@ func test_die_wurfgrube_ist_die_waagerechte_mitte() -> void:
 	assert_almost_eq(inner.get_center().y, TableBodyView.PIT_Z, 0.001)
 
 func test_die_anzeige_endet_im_wandkoerper() -> void:
-	# Die Wand steht auf ungenutzter Anzeige; hinaus über die Zarge ragt sie nirgends.
-	var outer := TableBodyView.inner_rect().grow(14.0)
-	assert_true(outer.encloses(TableBodyView.DISPLAY))
+	# Die Wand steht auf ungenutzter Anzeige; hinten wird sie im Wandkörper abgeschnitten.
+	var display := TableBodyView.DISPLAY
+	var cut := TableBodyView.display_cut_x()
+	assert_gt(cut, TableBodyView.inner_rect().end.x, "der Schnitt liegt hinter der Wand")
+	var shown := Rect2(display.position, Vector2(cut - display.position.x, display.size.y))
+	assert_true(TableBodyView.inner_rect().grow(TableBodyView.WALL_REACH).encloses(shown))
+
+func test_die_rueckwand_steht_an_den_usb_ports() -> void:
+	var row := CharmRowView.new()
+	add_child_autofree(row)
+	var face := row.ports[0].global_position.x + CharmRowView.PORT_PROUD
+	# Die Reihe steht im Spiel bei x = -11,652 (scene_root rückt sie an die Wertung).
+	assert_almost_eq(face - 11.652, TableBodyView.inner_rect().end.x, 0.05)
+	assert_almost_eq(row.ports[0].global_position.y, CharmReaderView.PORT.y, 0.001, "an der Wand, nicht im Tisch")
+	assert_eq(CharmRowView.RAIL_HEIGHT, TableBodyView.FOOT_HEIGHT)
 
 func test_der_umriss_ist_geschlossen_und_liegt_im_rechteck() -> void:
 	var outline := TableBodyView.inner_outline()

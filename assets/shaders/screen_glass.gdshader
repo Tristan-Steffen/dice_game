@@ -51,6 +51,8 @@ const int MAX_PITS = 49;
 uniform int pit_count = 0;
 uniform vec4 pit_rects[MAX_PITS];   // xy = Pixel-Min, zw = Pixel-Max
 uniform float pit_radii[MAX_PITS];  // Eckenradius in Pixeln
+// Oberhalb dieser Pixelzeile liegt die Anzeige im Wandkörper des Tischs.
+uniform float clip_top_px = 0.0;
 
 // Abdeckung eines abgerundeten Fenster-Rechtecks am Pixel p (SDF, weiche
 // 4-Pixel-Kante, damit die Spiegelung am Rahmen nicht hart abreißt).
@@ -64,6 +66,9 @@ float window_mask(vec2 p, vec4 rect, float radius) {
 
 void fragment() {
 	vec2 pixel = UV * screen_px;
+	if (pixel.y < clip_top_px) {
+		discard;
+	}
 	// Zuerst die Löcher: was in einer Grube oder einem Schacht liegt, wird gar
 	// nicht erst gezeichnet.
 	for (int i = 0; i < pit_count; i++) {

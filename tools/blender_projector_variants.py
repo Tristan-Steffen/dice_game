@@ -30,6 +30,7 @@ SLOT_Z = fc.SLOT_Z
 FY = -RL * 0.5
 PITCH = 9.0 / 7.1                   # CharmRowView.LINE_SPACING in Blender-Einheiten
 PORT_Y = RL * 0.5 + 0.36
+PLUG_Z = 0.14                       # Höhe des Wand-Ports (CharmReaderView.PORT.y)
 PORTS = 10
 HOLO = fc.HOLO
 OFF = (0.03, 0.04, 0.05)
@@ -128,19 +129,20 @@ def front(parent, look, body, top=RH):
 
 
 def cable(parent, look, start, port):
-    """USB-Kabel von der Rückwand zum Winkelstecker über dem Port (port = Mitte auf dem Tisch)."""
-    plug_c = Vector((port.x, port.y, 0.036))
-    # Winkelstecker: flacher Griff über dem Port, das Kabel verläßt ihn seitlich (-X).
-    led.rounded_box(parent, "Stecker", (0.2, 0.12, 0.05), plug_c, look.black, 0.02, 0.008, 4)
-    fc.box(parent, "Steckerzunge", (0.12, 0.05, 0.02), (port.x, port.y, 0.008), look.chrome)
-    fc.box(parent, "Steckerlicht", (0.09, 0.012, 0.004), (port.x + 0.02, port.y, 0.062), look.glow)
-    fc.cyl(parent, "Knickschutz", 0.022, 0.06, (port.x - 0.125, port.y, 0.03), look.black,
-           rot=(0, math.radians(90), 0), verts=16)
-    end = Vector((port.x - 0.15, port.y, 0.03))
+    """USB-Kabel von der Rückwand zum geraden Stecker im WAND-Port (port.y = Wandebene, PLUG_Z hoch)."""
+    wall = port.y
+    led.rounded_box(parent, "Stecker", (0.12, 0.16, 0.05), (port.x, wall - 0.09, PLUG_Z), look.black,
+                    0.02, 0.008, 4)
+    fc.box(parent, "Steckerzunge", (0.1, 0.03, 0.02), (port.x, wall - 0.012, PLUG_Z), look.chrome)
+    fc.box(parent, "Steckerlicht", (0.012, 0.09, 0.004), (port.x, wall - 0.09, PLUG_Z + 0.027),
+           look.glow)
+    fc.cyl(parent, "Knickschutz", 0.022, 0.06, (port.x, wall - 0.195, PLUG_Z), look.black,
+           rot=(math.radians(90), 0, 0), verts=16)
+    end = Vector((port.x, wall - 0.22, PLUG_Z))
     s = Vector(start)
     fc.cyl(parent, "Buchse", 0.03, 0.03, (s.x, s.y + 0.01, s.z), look.black,
            rot=(math.radians(90), 0, 0), verts=16)
-    pts = bezier(s, s + Vector((0, 0.2, -0.03)), end + Vector((-0.2, 0.0, 0.0)), end)
+    pts = bezier(s, s + Vector((0, 0.13, -0.07)), end + Vector((0, -0.13, -0.07)), end)
     for p in pts:
         p.z = max(p.z, 0.016)
     tube(parent, "Kabel", pts, 0.016, led.mat("Kabelmantel", (0.012, 0.012, 0.016), 0.0, 0.55))
@@ -149,7 +151,7 @@ def cable(parent, look, start, port):
 
 
 def port(parent, index, x, y, lit_col=None):
-    """Ein USB-Port der Leiste, bündig im Tisch."""
+    """Ein USB-Port der Leiste; Godot stellt ihn senkrecht an die Wand."""
     steel = led.mat("Portstahl", (0.2, 0.21, 0.24), 1.0, 0.28)
     dark = led.mat("Portgrund", (0.004, 0.004, 0.006), 0.0, 0.4)
     led.rounded_box(parent, "Port%02d" % index, (0.36, 0.24, 0.012), (x, y, 0.004), steel,

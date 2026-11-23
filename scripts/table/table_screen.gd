@@ -392,7 +392,6 @@ var _charm_trunk_x := 0.0
 ## Grundrisse der Charm-Laufwerke samt Diskette (Display-Pixel, gemeldet von scene_root).
 var charm_reader_rects: Array[Rect2] = []
 ## Der Schlüsselwort-Tip an der gehoverten Diskette.
-var charm_tip: CharmDiskTip
 var goal_bar: Panel
 ## Zwei Füllschichten: goal_bar_base = die bereits gefüllten Stufen (volle Breite,
 ## Farbe der letzten Stufe), goal_bar_fill = die AKTUELLE Stufe darüber in neuer
@@ -498,6 +497,8 @@ func attach_to(screen_mesh: MeshInstance3D, reflection: ScreenReflection = null)
 	material.set_shader_parameter("screen_px", Vector2(size))
 	screen_mesh.material_override = material
 	_glass_material = material
+	material.set_shader_parameter("clip_top_px",
+		world_to_pixel(Vector3(TableBodyView.display_cut_x(), 0.0, 0.0)).y)
 	_lay_display_surface(screen_mesh, aabb)
 	_sync_reflection_windows()
 	_sync_pits()
@@ -584,10 +585,6 @@ func _build_content() -> void:
 		strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 		add_child(strip)
 		charm_score_strips.append(strip)
-
-	charm_tip = CharmDiskTip.new()
-	charm_tip.name = "CharmDiskTip"
-	add_child(charm_tip)
 
 	# Fassung des Chip-Trays: Position/Größe setzt scene_root über place_treasure_window.
 	treasure_window = TreasureChestView.new()

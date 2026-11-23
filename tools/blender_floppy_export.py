@@ -86,7 +86,7 @@ def meshify():
 
 def reader():
     """Der PROJEKTOR „Stahldeck“ (Spieler-Wahl 2026-11-22, tools/blender_projector_baked.py):
-    Licht eingemalt, samt USB-Kabel und Winkelstecker; der Port liegt bei (0, pv.PORT_Y)."""
+    Licht eingemalt, samt USB-Kabel und geradem Stecker; der Wand-Port sitzt bei (0, pv.PORT_Y, pv.PLUG_Z)."""
     pb.export("stahldeck", pb.stahldeck, os.path.join(OUT, "charm_reader.glb"))
 
 
