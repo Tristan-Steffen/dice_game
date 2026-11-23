@@ -75,11 +75,10 @@ func test_the_equation_stands_on_the_chain() -> void:
 			["ResultScreen", "result"]]:
 		assert_true(view.get_node("Street/%s" % pair[0]).get_global_rect().is_equal_approx(
 			frame[pair[1]]), "%s steht auf der Kette" % pair[0])
-	for screen in ["UpgradesScreen", "ResultScreen"]:
-		assert_not_null(view.get_node_or_null("Street/%sHead" % screen), "mit Überschrift")
-	assert_null(view.get_node_or_null("Street/OriginalScreen"), "die eigene ORIGINAL-Kachel ist fort")
-	assert_not_null(view.get_node_or_null("Street/PlusSign"))
-	assert_not_null(view.get_node_or_null("Street/EqualsSign"))
+	for gone in ["UpgradesScreenHead", "ResultScreenHead", "PlusSign", "EqualsSign",
+			"OriginalScreen"]:
+		assert_null(view.get_node_or_null("Street/%s" % gone), "%s ist ein Körper bzw. fort" % gone)
+	assert_eq(view.sign_rects_px().size(), 2, "die Zeichen-Felder sind gemeldet")
 	assert_true((frame["result"] as Rect2).encloses(Rect2(view.ist_net_center() - Vector2.ONE,
 		Vector2.ONE * 2.0)), "der Parkplatz des Ergebnis-Netzes liegt darin")
 	assert_almost_eq(view.info_rect_px().position.y, view.drum_pit_rect().position.y, 0.01,

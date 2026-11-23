@@ -75,8 +75,6 @@ const SUM_OWNER := "Summe der Serie"
 const ORIGINAL_OWNER := "Original"
 const RESULT_OWNER := "Ergebnis"
 ## Die Überschriften der Gleichung (ORIGINAL trägt keine - darüber steht die Platte).
-const UPGRADES_HEAD := "UPGRADES"
-const RESULT_HEAD := "ERGEBNIS"
 
 ## Die Bühne des schwebenden Zielwürfels ist ein WELTMASS: ihre Spanne ist die
 ## Würfelfläche mal diesem Faktor (Würfel plus seine Stasis-Station, die durch die
@@ -557,6 +555,20 @@ func chamber_rect() -> Rect2:
 func chamber_rect_px() -> Rect2:
 	return _global(chamber_rect())
 
+## Die WANNE von ORIGINAL in Display-Pixeln: unter der Kammer, so breit wie die Die-View.
+func net_tray_px() -> Rect2:
+	var mouth := chamber_rect_px()
+	var net := _global(podium_net_rect())
+	return Rect2(Vector2(net.position.x, mouth.end.y),
+		Vector2(net.size.x, net.end.y - mouth.end.y))
+
+## Die Zeichen-Felder "+" und "=" in Display-Pixeln.
+func sign_rects_px() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for field: Rect2 in drum()["signs"]:
+		out.append(_global(field))
+	return out
+
 ## Der Präge-Sitz in Display-Pixeln.
 func stamp_seat_px() -> Rect2:
 	return _global(stamp_seat_rect())
@@ -596,9 +608,8 @@ var opening_shown := false:
 		_sync_equation_shown()
 
 ## Alle Knoten der Gleichung samt Leiterbahnen.
-const EQUATION_NODES: Array[String] = ["Traces", "UpgradesScreen", "UpgradesScreenHead",
-	"PlusSign", "PodiumPlate", "PodiumStage", "PodiumScreen", "EqualsSign", "ResultScreen",
-	"ResultScreenHead", "ActionSeat"]
+const EQUATION_NODES: Array[String] = ["Traces", "UpgradesScreen", "PodiumPlate",
+	"PodiumStage", "PodiumScreen", "ResultScreen", "ActionSeat"]
 
 ## Die Gleichung steht nur, solange keine Öffnung ihren Platz braucht - ausgeblendet nimmt
 ## sie auch keinen Klick.
@@ -840,7 +851,6 @@ class StorageBody extends Control:
 		for slice in slice_tints.size():
 			_draw_route(slice)
 			_draw_holder(slice)
-		_draw_gauge(Rect2(net_origin, Vector2.ONE * cell), bus)
 
 	## Linienzug mit gefasten Ecken.
 	func _wire(points: Array, tint: Color, width: float) -> void:
@@ -945,26 +955,6 @@ class StorageBody extends Control:
 		for y: float in [seat.position.y - pad.y * 0.5, seat.end.y - pad.y * 0.5]:
 			draw_rect(Rect2(Vector2(seat.get_center().x - pad.x * 0.5, y), pad), STORAGE_PAD)
 
-	## Der Füllstand in der freien Ecke oben links: "n/6" über einer Marken-Leiste.
-	func _draw_gauge(rect: Rect2, tint: Color) -> void:
-		var font := get_theme_default_font()
-		var grade := maxi(6, int(cell * 0.34))
-		var total := slice_tints.size()
-		var text := "%d/%d" % [stored(), total]
-		var span := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, grade)
-		draw_string(font, Vector2(rect.get_center().x - span.x * 0.5,
-			rect.position.y + rect.size.y * 0.52), text, HORIZONTAL_ALIGNMENT_LEFT, -1, grade,
-			Color(tint, 1.0))
-		var bar := Rect2(rect.position + Vector2(rect.size.x * 0.12, rect.size.y * 0.68),
-			Vector2(rect.size.x * 0.76, rect.size.y * 0.12))
-		var room := bar.size.x / float(maxi(total, 1))
-		for i in total:
-			var on := slice_tints[i].a > 0.0
-			var mark: Color = slice_tints[i] if on else TRACE_IDLE
-			mark.a = 1.0
-			draw_rect(Rect2(bar.position.x + room * float(i) + room * 0.12, bar.position.y,
-				room * 0.76, bar.size.y), mark)
-
 ## Der leere Platz eines Podests: das Fenster MELDET ihn, gestellt wird der Körper
 ## von scene_root.
 func _podium_host(host_name: String, podium: Rect2) -> Control:
@@ -976,15 +966,13 @@ func _podium_host(host_name: String, podium: Rect2) -> Control:
 	_content.add_child(stage)
 	return stage
 
-## Ein Netz-Schirm der Gleichung mit einem leeren Platz in Netzgröße, mittig, und seiner
-## Überschrift darüber.
-func _net_screen(screen_name: String, rect: Rect2, cell: float, heading: String) -> Control:
-	if heading != "":
-		_net_heading(screen_name, rect, heading)
+## Ein Netz-Schirm der Gleichung mit einem leeren Platz in Netzgröße, mittig. Name und
+## Fassung sind Körper (DieViewDress).
+func _net_screen(screen_name: String, rect: Rect2, cell: float, style: StyleBox) -> Control:
 	var screen := Panel.new()
 	screen.name = screen_name
 	screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	screen.add_theme_stylebox_override("panel", TableScreen.window_style())
+	screen.add_theme_stylebox_override("panel", style)
 	screen.position = rect.position
 	screen.size = rect.size
 	_content.add_child(screen)
@@ -996,21 +984,6 @@ func _net_screen(screen_name: String, rect: Rect2, cell: float, heading: String)
 	host.size = span
 	screen.add_child(host)
 	return host
-
-## Die Überschrift über einem Schirm.
-func _net_heading(screen_name: String, rect: Rect2, heading: String) -> void:
-	var u := unit()
-	var head := Label.new()
-	head.name = "%sHead" % screen_name
-	head.text = heading
-	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	head.position = Vector2(rect.position.x, rect.position.y - u * EQ_HEAD_UNITS)
-	head.size = Vector2(rect.size.x, u * EQ_HEAD_UNITS)
-	head.add_theme_font_size_override("font_size", maxi(8, int(u * EQ_HEAD_FONT)))
-	head.add_theme_color_override("font_color", MUTED_COLOR)
-	_content.add_child(head)
 
 ## DAS PODEST: oben die Platte über der Kammer (der Puck gehört scene_root), unten seine
 ## DIE-VIEW = ORIGINAL - der Würfel, der dort steht, schlicht; ohne ihn das leere Kreuz.
@@ -1025,7 +998,8 @@ func _build_podium(_u: float) -> void:
 	plate.size = plate_rect.size
 	_content.add_child(plate)
 	_podium_stage_host = _podium_host("PodiumStage", podium_stage_rect())
-	_podium_view_host = _net_screen("PodiumScreen", layout["podium_net"], podium_cell(), "")
+	_podium_view_host = _net_screen("PodiumScreen", layout["podium_net"], podium_cell(),
+		StyleBoxEmpty.new())
 	_fill_podium()
 
 ## ORIGINAL: während der Zeremonie der Stand davor - erst der Einschlag deckt den gebuchten
@@ -1057,30 +1031,18 @@ func podium_cell() -> float:
 		return cell
 	return (die_face_px if die_face_px > 0.0 else unit() * U_PER_FACE) * PODIUM_FACE_GAIN
 
-## Ein gemaltes Zeichen der Gleichung ("+" bzw. "=") mittig in seinem Feld.
-func _equation_sign(sign_name: String, rect: Rect2, glyph: String) -> void:
-	var sign := Label.new()
-	sign.name = sign_name
-	sign.text = glyph
-	sign.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sign.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	sign.position = rect.position
-	sign.size = rect.size
-	sign.add_theme_font_size_override("font_size", maxi(10, int(unit() * EQ_SIGN_FONT)))
-	sign.add_theme_color_override("font_color", TEXT_COLOR)
-	_content.add_child(sign)
-
 ## DIE GLEICHUNG: UPGRADES + ORIGINAL (die Die-View des Podests) = ERGEBNIS.
 func _build_equation(u: float) -> void:
 	var cell := net_cell(u)
 	var layout := drum()
-	_sum_host = _net_screen("UpgradesScreen", layout["upgrades"], cell, UPGRADES_HEAD)
+	_sum_host = _net_screen("UpgradesScreen", layout["upgrades"], cell,
+		TableScreen.window_style())
 	_build_storage(u, cell, layout["upgrades"])
-	var signs: Array = layout["signs"]
-	_equation_sign("PlusSign", signs[0], "+")
-	_equation_sign("EqualsSign", signs[1], "=")
-	var host := _net_screen("ResultScreen", layout["result"], cell, RESULT_HEAD)
+	# Die Blende um ERGEBNIS ist ein Körper - der Schirm trägt keinen Saum.
+	var bare := TableScreen.window_style().duplicate() as StyleBox
+	if bare is StyleBoxFlat:
+		(bare as StyleBoxFlat).set_border_width_all(0)
+	var host := _net_screen("ResultScreen", layout["result"], cell, bare)
 	# Der PARKPLATZ des Netzes bleibt ein leerer Platz - die Ergebnis-Karte hängt daneben.
 	var park := Control.new()
 	park.name = "Park"
@@ -1206,10 +1168,8 @@ const PODIUM_NET_PAD := 2.0
 ## Reicht die Pool-Höhe nicht, schrumpft dieser Faktor, nie die Kammer.
 const PODIUM_FACE_GAIN := 1.17
 ## Die Gleichung: Breite der Zeichen-Felder, Überschrift, Grade (u).
-const EQ_SIGN_UNITS := 7.0
+const EQ_SIGN_UNITS := 12.0
 const EQ_HEAD_UNITS := 4.5
-const EQ_HEAD_FONT := 3.2
-const EQ_SIGN_FONT := 8.0
 
 ## Die Kante des Scheiben-Vierkants: die KURZE Kartenseite plus Luft.
 static func drum_side_px(card: Vector2) -> float:

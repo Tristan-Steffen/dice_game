@@ -303,6 +303,8 @@ const PIT_SWALLOW_TAIL0 := 21
 
 ## Die KAMMER unter dem Podest: offen nur, während der Würfel beim Prägen darin steht.
 const PIT_CHAMBER := 24
+## Die WANNE der Die-View von ORIGINAL unter der Kammer (der frei gewordene Lager-Platz).
+const PIT_NET_TRAY := 33
 
 ## Die VERTIEFUNGEN der Paket-Plätze im Laden, je Platz eine - offen, solange die
 ## Ladenseite steht. Die ersten drei liegen hier, die vierte auf dem frei gewordenen
@@ -1399,7 +1401,7 @@ const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
-	PIT_OPENING, PIT_SOCKET]
+	PIT_OPENING, PIT_SOCKET, PIT_CHAMBER, PIT_NET_TRAY]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
@@ -3512,6 +3514,16 @@ func _clear_pit_net() -> void:
 
 ## Schneidet einen Kamerastrahl mit der Bildschirm-Ebene und liefert den
 ## Display-Pixel - (-1,-1) bei Verfehlen oder außerhalb der Fläche.
+## Weitere versenkte Böden je Loch-Platz (die Wanne von ORIGINAL): dort zählt der
+## Zeiger auf IHREM Boden. Leeres Rechteck = fort.
+var _sunk_floors := {}
+
+func set_sunk_floor(slot: int, rect: Rect2, drop: float) -> void:
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0 or drop <= 0.0:
+		_sunk_floors.erase(slot)
+	else:
+		_sunk_floors[slot] = [rect, drop]
+
 func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 	if absf(direction.y) < 0.0001:
 		return Vector2(-1, -1)  # Strahl (fast) parallel zur Tischebene
@@ -3524,6 +3536,10 @@ func pixel_from_ray(origin: Vector3, direction: Vector3) -> Vector2:
 		var deep := origin + direction * ((_surface_y - _sunk_drop - origin.y) / direction.y)
 		if _sunk_rect.has_point(world_to_pixel(deep)):
 			hit = deep
+	for sunk: Array in _sunk_floors.values():
+		var low := origin + direction * ((_surface_y - float(sunk[1]) - origin.y) / direction.y)
+		if (sunk[0] as Rect2).has_point(world_to_pixel(low)):
+			hit = low
 	var pixel := world_to_pixel(hit)
 	if pixel.x < 0.0 or pixel.y < 0.0 or pixel.x > float(size.x) or pixel.y > float(size.y):
 		return Vector2(-1, -1)

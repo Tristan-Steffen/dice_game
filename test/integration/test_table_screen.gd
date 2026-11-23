@@ -700,7 +700,7 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 			"und die Grube von Plot %d auch" % i)
 	assert_true(screen.pit_open(TableScreen.PIT_MAGAZIN))
 	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL), "was nie auffuhr")
-	# Möbel: der Graben der Walze steht dauerhaft; die KAMMER unter dem Podest nur beim Prägen.
+	# Möbel: der Graben der Walze und die KAMMER samt der Wanne von ORIGINAL stehen dauerhaft.
 	var graben := Rect2(640, 480, 210, 164)
 	var kammer := Rect2(880, 300, 206, 206)
 	screen.set_pit(TableScreen.PIT_DRUM, graben)
@@ -718,8 +718,8 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 		"die Magazin-Grube ist Möbel, kein Auftritt")
 	assert_eq(screen.pit_rect(TableScreen.magazin_pit(3)), tray, "jeder Tray")
 	assert_eq(screen.pit_rect(TableScreen.PIT_DRUM), graben, "der Graben ebenso")
-	assert_false(screen.pit_open(TableScreen.PIT_CHAMBER),
-		"die Kammer ist kein Möbel mehr - der harte Weg schließt sie")
+	assert_eq(screen.pit_rect(TableScreen.PIT_CHAMBER), kammer,
+		"die Kammer steht seit 2026-11-23 dauerhaft offen - Möbel")
 	assert_eq(screen.pit_rect(TableScreen.PIT_OPENING), oeffnung,
 		"und die Vertiefung der Öffnungs-Fläche")
 
@@ -807,3 +807,17 @@ func test_die_schirm_haut_bildet_genau_das_glas_rechteck_ab():
 func test_das_filz_loch_der_vorwelle_ist_gestorben():
 	assert_false(screen.has_method("set_felt_hole"),
 	"der Schirm liest echtes Alpha - der Filz muss seinen Grund nicht mehr schwaerzen")
+
+## Die Wanne von ORIGINAL: der Zeiger zählt dort auf IHREM Boden, nicht in der Tischebene.
+func test_der_zeiger_misst_auf_einem_versenkten_boden():
+	var rect := Rect2(1000, 1000, 300, 200)
+	var at := screen.pixel_to_world(rect.get_center())
+	var origin := at + Vector3(-6.0, 20.0, 0.0)
+	var direction := (at + Vector3.DOWN * 0.85 - origin).normalized()
+	var flat := screen.pixel_from_ray(origin, direction)
+	assert_gt(flat.distance_to(rect.get_center()), 2.0, "ohne Boden trifft der Strahl daneben")
+	screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, rect, 0.85)
+	assert_lt(screen.pixel_from_ray(origin, direction).distance_to(rect.get_center()), 0.5,
+		"mit Boden genau die Mitte")
+	screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, Rect2(), 0.0)
+	assert_eq(screen.pixel_from_ray(origin, direction), flat, "abgemeldet wie zuvor")

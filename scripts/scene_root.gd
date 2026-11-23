@@ -3782,11 +3782,14 @@ var chamber_floor: Node3D
 var _chamber_doors: Array[MeshInstance3D] = []
 var _chamber_door_share := 0.0
 var _chamber_half := Vector2.ONE
-var _chamber_floor_skin: ShaderMaterial
 var _chamber_floor_tween: Tween
 ## So tief liegen die Tore unter der Anzeige - sie verschwinden unter ihr.
 const CHAMBER_DOOR_SINK := 0.02
 const CHAMBER_DOOR_EDGE := Color(1.0, 0.7, 0.15)
+## Die BRÜCKE über der Mündung: Breite längs Bild-oben, Dicke, halbe Kante des Tellers.
+const CHAMBER_BRIDGE_WIDE := 1.5
+const CHAMBER_BRIDGE_THICK := 0.12
+const CHAMBER_PAD_REACH := 1.05
 ## Steht der Würfel in der Kammer (bzw. fährt hinab)? Die Rückfahrt setzt es sofort falsch.
 var _chamber_open := false
 
@@ -3807,20 +3810,20 @@ func _sync_chamber(workshop: WorkshopView) -> void:
 		chamber_pit.floored = false
 		add_child(chamber_pit)
 	chamber_pit.setup(centre, half, CHAMBER_DEPTH)
+	# Zur Wanne von ORIGINAL hin steht keine Wand über Wannenhöhe (DieViewDress baut die Stufe).
+	for part: String in ["WallXMinus", "GlowXMinus"]:
+		var near := chamber_pit.find_child(part, true, false) as Node3D
+		if near != null:
+			near.visible = false
 	if chamber_rig == null or not is_instance_valid(chamber_rig):
 		chamber_rig = ChamberRigView.new()
 		chamber_rig.name = "ChamberRig"
 		add_child(chamber_rig)
 	chamber_rig.setup(centre, half, CHAMBER_DEPTH, CHAMBER_DIE_DROP,
 		DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE)
-	var skin := table_screen.display_skin()
-	if _chamber_floor_skin == null:
-		_chamber_floor_skin = skin.duplicate() as ShaderMaterial
-	for param in ["screen_texture", "display_map", "emission_energy"]:
-		_chamber_floor_skin.set_shader_parameter(param, skin.get_shader_parameter(param))
 	if chamber_floor == null or not is_instance_valid(chamber_floor):
 		chamber_floor = Node3D.new()
-		chamber_floor.name = "ChamberDoors"
+		chamber_floor.name = "ChamberBridge"
 		add_child(chamber_floor)
 		_chamber_doors.clear()
 		var edge := StandardMaterial3D.new()
@@ -3828,24 +3831,34 @@ func _sync_chamber(workshop: WorkshopView) -> void:
 		edge.albedo_color = CHAMBER_DOOR_EDGE
 		for side in 2:
 			var door := MeshInstance3D.new()
-			door.name = "Tor%d" % side
-			door.mesh = PlaneMesh.new()
-			door.material_override = _chamber_floor_skin
+			door.name = "Steg%d" % side
+			door.mesh = BoxMesh.new()
+			door.material_override = ChipFrameView._skin(ChipFrameView.STEEL, 0.4)
+			door.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			chamber_floor.add_child(door)
-			var lip := MeshInstance3D.new()
-			lip.name = "Kante"
-			lip.mesh = BoxMesh.new()
-			lip.material_override = edge
-			door.add_child(lip)
+			for part: String in ["Kante", "Teller"]:
+				var piece := MeshInstance3D.new()
+				piece.name = part
+				piece.mesh = BoxMesh.new()
+				piece.material_override = edge
+				if part == "Teller":
+					piece.material_override = ChipFrameView._skin(ChipFrameView.STEEL_DARK, 0.3)
+				piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				door.add_child(piece)
 			_chamber_doors.append(door)
 	chamber_floor.global_position = Vector3(centre.x, 0.0, centre.z)
 	_chamber_half = half
 	for side in _chamber_doors.size():
 		var door := _chamber_doors[side]
-		(door.mesh as PlaneMesh).size = Vector2(half.x * 2.0, half.y)
+		var inward := 1.0 if side == 0 else -1.0
+		(door.mesh as BoxMesh).size = Vector3(CHAMBER_BRIDGE_WIDE, CHAMBER_BRIDGE_THICK, half.y)
+		var pad := door.get_node("Teller") as MeshInstance3D
+		var reach := minf(CHAMBER_PAD_REACH, half.y)
+		(pad.mesh as BoxMesh).size = Vector3(reach * 2.0, 0.02, reach)
+		pad.position = Vector3(0.0, CHAMBER_BRIDGE_THICK * 0.5, (half.y - reach) * 0.5 * inward)
 		var lip := door.get_node("Kante") as MeshInstance3D
-		(lip.mesh as BoxMesh).size = Vector3(half.x * 2.0, 0.02, 0.06)
-		lip.position = Vector3(0.0, 0.0, (half.y * 0.5 - 0.03) * (1.0 if side == 0 else -1.0))
+		(lip.mesh as BoxMesh).size = Vector3(reach * 2.0, 0.03, 0.06)
+		lip.position = Vector3(0.0, CHAMBER_BRIDGE_THICK * 0.5, (half.y * 0.5 - 0.03) * inward)
 	if not _chamber_riding():
 		_seat_chamber_hard()
 
@@ -3863,7 +3876,7 @@ func _set_chamber_doors(share: float) -> void:
 	for side in _chamber_doors.size():
 		var door := _chamber_doors[side]
 		if is_instance_valid(door):
-			door.position = Vector3(0.0, -CHAMBER_DOOR_SINK,
+			door.position = Vector3(0.0, -CHAMBER_DOOR_SINK - CHAMBER_BRIDGE_THICK * 0.5,
 				(_chamber_half.y * 0.5 + share * _chamber_half.y) * (-1.0 if side == 0 else 1.0))
 
 ## Das Loch auf, Grube, Gerüst und Tore sichtbar - die Tore stehen noch zu.
@@ -3895,21 +3908,32 @@ func _ride_chamber_doors(share: float, time: float) -> void:
 			_chamber_floor_tween = null
 		_seat_chamber_hard())
 
-## Der EINE Schreiber des Endzustands: offen steht der Boden unten, zu ist kein Loch
-## da und nichts darunter zu sehen.
+## Kammer und Wanne stehen OFFEN, solange die Gleichung oben ist - fährt die Zone oder
+## steht die Auswahl, sind beide Löcher zu und die Körper fort.
+func _chamber_shown() -> bool:
+	return not _zone_busy() and not _zone_picture_open
+
+## Der EINE Schreiber des Endzustands: Löcher, Grube und Gerüst nach _chamber_shown, die
+## Brücke zu (Ruhepunkt) bzw. beim Prägen auseinandergefahren.
 func _seat_chamber_hard() -> void:
 	if _chamber_floor_tween != null and _chamber_floor_tween.is_valid():
 		_chamber_floor_tween.kill()
 	_chamber_floor_tween = null
+	var shown := _chamber_shown()
 	if table_screen != null:
-		if _chamber_open and table_screen.workshop_window != null:
+		if shown and table_screen.workshop_window != null:
 			table_screen.set_pit(TableScreen.PIT_CHAMBER,
 				table_screen.workshop_window.chamber_rect_px(), 0.0)
+			var tray := table_screen.workshop_window.net_tray_px()
+			table_screen.set_pit(TableScreen.PIT_NET_TRAY, tray, 0.0)
+			table_screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, tray, DieViewDress.TRAY_DROP)
 		else:
 			table_screen.clear_pit(TableScreen.PIT_CHAMBER)
+			table_screen.clear_pit(TableScreen.PIT_NET_TRAY)
+			table_screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, Rect2(), 0.0)
 	for body: Node3D in [chamber_pit, chamber_rig, chamber_floor]:
 		if body != null and is_instance_valid(body):
-			body.visible = _chamber_open
+			body.visible = shown
 	_set_chamber_doors(1.0 if _chamber_open else 0.0)
 	_sync_bench_reflection()
 
@@ -8984,7 +9008,7 @@ func _zone_busy() -> bool:
 ## ALLE Körper der Gleichung, die mit ihr hinab- und heraufahren - neue kommen HIER dazu.
 func _zone_riders() -> Array[Node3D]:
 	var out: Array[Node3D] = []
-	for body: Node3D in [podium_stage, bench_blank_cell, storage_bank]:
+	for body: Node3D in [podium_stage, bench_blank_cell, storage_bank, die_view_dress]:
 		if body != null and is_instance_valid(body):
 			out.append(body)
 	return out
@@ -9025,6 +9049,52 @@ func _sync_storage_bank() -> void:
 		storage_bank.seat_chips(spots, edge, edge * DieNetView.GAP_FACTOR * 0.22)
 	var half := _world_half(seats[0])
 	storage_bank.seat(centers, Vector2(half.y, half.x) * 2.0, tints)
+
+## Die BAUTEILE der Gleichung (DieViewDress): Schilder, Kragen, Wanne, Koppler, Marken.
+var die_view_dress: DieViewDress
+var _chamber_shown_key := true
+
+## Der EINE Schreiber der Bauteile (je Bild gefragt, nur der Wechsel baut): alles aus den
+## gemeldeten Rechtecken des Fensters. Führt auch die Oben-Marke und hält Kammer und
+## Wanne nach _chamber_shown.
+func _sync_die_view_dress() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var shown := _chamber_shown()
+	if shown != _chamber_shown_key and not _chamber_riding():
+		_chamber_shown_key = shown
+		_seat_chamber_hard()
+	var chips := workshop.storage_chips_px()
+	if chips.is_empty() or workshop.chamber_rect_px().size.x <= 0.0:
+		return
+	if die_view_dress == null or not is_instance_valid(die_view_dress):
+		die_view_dress = DieViewDress.new()
+		die_view_dress.name = "DieViewDress"
+		add_child(die_view_dress)
+	die_view_dress.visible = not _zone_picture_open
+	if _zone_busy():
+		return
+	var seated := _bench_die != null
+	var spec := {
+		"up": workshop._global(workshop.upgrades_net_rect()), "chips": chips,
+		"seats": workshop.storage_cells_px(), "tints": workshop.storage_tints(),
+		"mouth": workshop.chamber_rect_px(),
+		"net": workshop._global(workshop.podium_net_rect()),
+		"result": workshop._global(workshop.result_net_rect()),
+		"signs": workshop.sign_rects_px(), "stamp": workshop.stamp_seat_px(),
+		"cell": workshop.podium_cell(), "live": workshop.target_die() != null,
+		"seated": seated, "ring_on": seated and not _chamber_down(),
+		"ring": _bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER),
+		"edge": DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * 2.0,
+	}
+	die_view_dress.seat(spec, table_screen.pixel_to_world, table_screen.display_skin())
+	var up := die_view_dress.marked_face() if seated else -1
+	if seated and bench_stage != null and is_instance_valid(bench_stage) \
+			and bench_stage.die != null and not bench_stage.is_flying():
+		up = DiceController.face_index_for_local_dir(
+			(bench_stage.die.global_basis.inverse() * Vector3.UP).normalized())
+	die_view_dress.mark_up(up)
 
 ## Die Hebebühne der Zone, gestellt und verdrahtet (idempotent): Loch = die Zone, Tiefe
 ## ZONE_SHAFT_DEPTH, Hohlräume nur so weit, wie vor und hinter ihr kein Loch steht.
@@ -11927,6 +11997,7 @@ func _process(delta: float) -> void:
 	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
 	_sync_house_bank()  # und der Schirm der Bank nennt, was der Zeiger trifft
 	_sync_storage_bank()  # und die Energiezellen des Speichers
+	_sync_die_view_dress()
 	_sync_pool_pin()  # und der angeheftete Vorrats-Würfel schwebt höher
 	_sync_part_hover()  # und der Steckplatz unter dem Zeiger erklärt sich
 	_sync_deck_glass_hint()  # und die Hinweis-Zeile des Rasters, was der Zeiger trifft
