@@ -25,6 +25,9 @@ const RESOLUTION := LAYOUT_SIZE + Vector2i(EXTRA_RIGHT, 0)
 const DISPLAY_LAID := "display_min_z"
 ## Farbwelt = Obsidian-Theme "80s Neon".
 const BACKGROUND_COLOR := Color("#171520")
+## Der Lötstopplack des Decks (Nachtgrün, Spieler-Wahl 2026-11-23).
+const DECK_COLOR := Color(0.012, 0.05, 0.044)
+const MAX_QUIET := 12
 const EMISSION_ENERGY := 1.2
 
 ## Kombinations-Cluster: kleine Zellen in 3 Spalten, Reihenfolge =
@@ -189,6 +192,7 @@ var _fumble_wave_tween: Tween
 ## Deck-Material: braucht die Fenster-Rechtecke, um seine Fugen unter den
 ## durchscheinenden Fenstergründen auszublenden.
 var _deck_material: ShaderMaterial
+var _deck_quiet: Array[Rect2] = []
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -530,12 +534,13 @@ func pixel_to_world(pixel: Vector2) -> Vector3:
 	return Vector3(_x_max - v * _x_span, _surface_y, _z_min + u * _z_span)
 
 func _build_content() -> void:
-	# Grundfläche = gefrästes Deck; die Fenster-Panels darüber spiegeln als einzige.
+	# Grundfläche = das Deck, eine Platine; die Fenster-Panels darüber spiegeln als einzige.
 	var background := ColorRect.new()
 	background.name = "Background"
 	background.color = BACKGROUND_COLOR  # Rückfall, falls der Shader fehlt
 	_deck_material = ShaderMaterial.new()
-	_deck_material.shader = load("res://assets/shaders/table_deck.gdshader")
+	_deck_material.shader = load("res://assets/shaders/table_pcb.gdshader")
+	_deck_material.set_shader_parameter("deck_color", DECK_COLOR)
 	_deck_material.set_shader_parameter("rect_size", Vector2(RESOLUTION))
 	background.material = _deck_material
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1319,7 +1324,25 @@ func set_sunk_pit(rect: Rect2, radius: float, drop: float) -> void:
 	_sunk_drop = drop
 	set_pit(PIT_SOCKET, rect, radius)
 
-## Die Fugen des Decks rechnen in Welt: so laufen sie in den Deck-Ring der Wanne durch.
+## Felder des Decks OHNE Muster (Display-Pixel): Schirme, die nicht spiegeln, und der
+## Speicher - unter ihnen bleibt der Lack glatt.
+func set_deck_quiet_rects(rects: Array[Rect2]) -> void:
+	if _deck_material == null:
+		return
+	var packed: Array[Vector4] = []
+	for rect in rects.slice(0, MAX_QUIET):
+		packed.append(Vector4(rect.position.x, rect.position.y, rect.end.x, rect.end.y))
+	_deck_quiet = rects.slice(0, MAX_QUIET)
+	var count := packed.size()
+	while packed.size() < MAX_QUIET:
+		packed.append(Vector4.ZERO)
+	_deck_material.set_shader_parameter("quiet_count", count)
+	_deck_material.set_shader_parameter("quiet_rects", packed)
+
+func deck_quiet_rects() -> Array[Rect2]:
+	return _deck_quiet
+
+## Das Muster des Decks rechnet in Welt: so läuft es in den Deck-Ring der Wanne durch.
 func _sync_deck_world() -> void:
 	if _deck_material == null or _z_span <= 1.0:
 		return

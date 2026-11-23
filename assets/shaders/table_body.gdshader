@@ -5,12 +5,15 @@ render_mode unshaded, cull_disabled;
 // Netz finge sonst jedes Spill-Licht (max_lights_per_object).
 
 uniform vec3 tint : source_color = vec3(0.5);
-uniform float seams = 0.0;   // Platten-Fugen des Decks in Welt (0 = keine)
+uniform float seams = 0.0;   // Platten-Fugen in Welt (0 = keine)
+uniform bool pcb = false;    // das Deck: Platinen-Muster wie die Anzeige
 uniform float gloss = 0.25;
 uniform float glow = 0.0;    // 1 = Lichtleiste
 // 0 glatt, 1 Diamant-Pyramiden (Wand), 2 gestepptes Leder, 3 Teppich.
 uniform int style = 0;
 uniform vec2 carpet_center = vec2(0.0);
+
+#include "res://assets/shaders/pcb_pattern.gdshaderinc"
 
 varying vec3 wpos;
 
@@ -49,13 +52,15 @@ void fragment() {
 				base = vec3(0.86, 0.64, 0.24);
 			}
 		}
+		if (pcb && nw.y > 0.9) {
+			base = pcb_paint(base, wpos.xz, fwidth(wpos.x) / PCB_TILE * 1.2, 1.0);
+		}
 		vec3 c = base * shade;
 		c += gloss * pow(max(dot(nw, normalize(l + v)), 0.0), 40.0);
 		c += gloss * 0.2 * pow(1.0 - max(dot(nw, v), 0.0), 3.0);
 		vec3 r = reflect(-v, nw);
 		c += gloss * gloss * 0.3 * smoothstep(0.78, 0.84, r.y) * step(0.0, sin(r.x * 9.0));
 		if (seams > 0.0 && nw.y > 0.9) {
-			// Dieselbe Rechnung wie table_deck.gdshader: die Fugen laufen über die Kante durch.
 			vec2 g = abs(fract(wpos.xz / seams - 0.5) - 0.5) * seams;
 			c *= 1.0 - 0.5 * (1.0 - step(0.07, min(g.x, g.y)));
 		}

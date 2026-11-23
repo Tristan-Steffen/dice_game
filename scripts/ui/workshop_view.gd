@@ -119,16 +119,23 @@ const TRACE_LANES := 4
 ## Ihre Anschlüsse am Speicher: Rand und Anteil des Platzes einer Scheibe (das Bündel).
 const TRACE_PORT_MARGIN := 0.06
 const TRACE_PORT_SHARE := 0.36
+## Die Mitten der sechs Bündel an der Platine (Anteile ihrer Breite): 1-3 unter der freien
+## Ecke unten links, 4-6 unter ihren Energiezellen.
+const TRACE_PORTS: Array[float] = [0.085, 0.16, 0.235, 0.6, 0.755, 0.905]
 const TRACE_IDLE := Color(0.34, 0.36, 0.46)
 ## Der AUSGANGS-BUS vom Speicher in die Podest-Platte: Spurabstand und Breite (u), Abstand
 ## vom rechten Speicherrand und Höhe an der Platte (Anteile).
 const FEED_PITCH := 1.3
 const FEED_WIDTH := 0.55
-const FEED_INSET := 0.1
+const FEED_INSET := 0.012
 const FEED_DROP := 0.3
 ## Der SPEICHER (UPGRADES): Gehäuse, Zellen-Grund, Anschluß-Stifte (u).
-const STORAGE_BG := Color(0.035, 0.04, 0.085, 0.95)
-const STORAGE_CAN := Color(0.05, 0.06, 0.11)
+const STORAGE_CAN := Color(0.03, 0.035, 0.05)
+const STORAGE_PAD := Color(0.78, 0.6, 0.24)
+const STORAGE_BUS := Color(0.3, 0.8, 0.9)
+## Rest-Rand der Platine rechts bzw. unten neben dem Netz (px) - links und oben laufen Züge.
+const STORAGE_EDGE := 7.5
+const STORAGE_FOOT := 6.0
 
 ## Der EINE Handlungs-Sitz am RECHTEN Ende der Zeile, neben dem Podest: er trägt
 ## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
@@ -674,8 +681,11 @@ static func trace_end_x(upgrades: Rect2, count: int, lanes: int, index: int) -> 
 	var room := upgrades.size.x * (1.0 - TRACE_PORT_MARGIN * 2.0) / float(maxi(count, 1))
 	var slot := index / lanes
 	var lane := index % lanes
-	return upgrades.position.x + upgrades.size.x * TRACE_PORT_MARGIN \
-		+ room * (float(slot) + 0.5) \
+	var center := TRACE_PORT_MARGIN + (1.0 - TRACE_PORT_MARGIN * 2.0) * (float(slot) + 0.5) \
+		/ float(maxi(count, 1))
+	if count == TRACE_PORTS.size():
+		center = TRACE_PORTS[slot]
+	return upgrades.position.x + upgrades.size.x * center \
 		+ (float(lane) - float(lanes - 1) * 0.5) * room * TRACE_PORT_SHARE / float(lanes)
 
 ## Je Scheibe `lanes` Linienzüge: senkrecht aus der Grabenkante, mit 45°-Knick auf ihre
@@ -775,21 +785,39 @@ class TraceLayer extends Control:
 				draw_circle(paths[i][eyes[i]], widths[i] * 1.5, TRACE_BED)
 				draw_circle(paths[i][eyes[i]], widths[i] * 1.1, tint)
 
-## DER SPEICHER hinter dem UPGRADES-Netz: in den freien Kreuz-Ecken rechts sechs
-## Speicherzellen (eine je Scheibe, geladen in der Farbe ihrer Karte), links oben der
-## Füllstand. Die Bahnen enden an seiner Kante - innen ist keine Leitung zu sehen.
+## DER SPEICHER hinter dem UPGRADES-Netz ist eine PLATINE: unten die Kontaktfinger der 24
+## Bahnen, je Scheibe EIN Zug in ihre Energiezelle (1-3 links herum und oben herein, 4-6
+## gerade hinauf), aus jeder Zelle in den Flächen-Bus in beiden Fugen des Kreuzes, an dem
+## jede Netz-Zelle hängt, rechts hinauf zum Ausgang. Oben links der Füllstand. Die Zellen
+## selbst sind Körper (StorageBankView) - hier liegt nur ihr Halter.
 class StorageBody extends Control:
-	var u := 4.0
 	var cell := 10.0
 	var net_origin := Vector2.ZERO
 	var slice_tints: Array[Color] = []
+	var slice_lanes: Array[int] = []
+	## Die 24 Anschlüsse an der Unterkante und die vier Abgänge an der Oberkante (lokal x).
+	var ports: Array[float] = []
+	var feeds: Array[float] = []
 
-	static func housing() -> StyleBoxFlat:
-		var box := TableScreen.window_style()
-		box.bg_color = STORAGE_BG
-		box.set_border_width_all(3)
-		box.set_corner_radius_all(6)
-		return box
+	## Kein Rahmen, kein Grund: der Speicher liegt auf dem Deck des Tisches.
+	static func housing() -> StyleBox:
+		return StyleBoxEmpty.new()
+
+	## Der Netz-Platz im Schirm: nach rechts unten gerückt - links und oben laufen die Züge.
+	static func net_origin_in(size: Vector2, span: Vector2) -> Vector2:
+		var pad := ((size - span) * 0.5).max(Vector2.ZERO)
+		return Vector2(maxf(pad.x * 2.0 - STORAGE_EDGE, pad.x), maxf(pad.y * 2.0 - STORAGE_FOOT,
+			pad.y))
+
+	## Der Halter der Energiezelle einer Scheibe: oben liegen 3-2-1, unten 4-5-6.
+	static func cell_rect(origin: Vector2, cell_px: float, slice: int) -> Rect2:
+		var step := cell_px * (1.0 + DieNetView.GAP_FACTOR)
+		var block := cell_px * (2.0 + DieNetView.GAP_FACTOR)
+		var room := block / 3.0
+		var place := 2 - slice if slice < 3 else slice - 3
+		var can := Vector2(room * 0.6, cell_px * 0.74)
+		return Rect2(origin + Vector2(step * 2.0 + room * (float(place) + 0.5) - can.x * 0.5,
+			(step * 2.0 if slice >= 3 else 0.0) + (cell_px - can.y) * 0.5), can)
 
 	func stored() -> int:
 		var count := 0
@@ -798,50 +826,124 @@ class StorageBody extends Control:
 				count += 1
 		return count
 
-	func _draw() -> void:
-		var rail := Color(CasinoStyle.ENERGY, 0.9) if stored() > 0 else TRACE_IDLE
-		var step := cell * (1.0 + DieNetView.GAP_FACTOR)
-		_draw_cans(net_origin + Vector2(step * 2.0, 0.0), 0)
-		_draw_cans(net_origin + Vector2(step * 2.0, step * 2.0), 3)
-		_draw_gauge(Rect2(net_origin, Vector2.ONE * cell), rail)
-		_draw_vents(Rect2(net_origin + Vector2(0.0, step * 2.0), Vector2.ONE * cell))
+	func _line() -> float:
+		return maxf(cell * 0.028, 1.5)
 
-	## Drei Speicherzellen in einem freien Zwei-Zellen-Block des Kreuzes.
-	func _draw_cans(origin: Vector2, first: int) -> void:
-		var block := Vector2(cell * (2.0 + DieNetView.GAP_FACTOR), cell)
-		var room := block.x / 3.0
-		var can := Vector2(room * 0.6, cell * 0.74)
-		for i in 3:
-			var slot := first + i
-			var tint: Color = slice_tints[slot] if slot < slice_tints.size() else Color(0, 0, 0, 0)
-			var full := tint.a > 0.0
-			var rect := Rect2(origin + Vector2(room * (float(i) + 0.5) - can.x * 0.5,
-				(block.y - can.y) * 0.5 + cell * 0.05), can)
-			var rim := tint if full else TRACE_IDLE
-			rim.a = 1.0
-			var box := StyleBoxFlat.new()
-			box.set_corner_radius_all(maxi(2, int(can.x * 0.28)))
-			if full:
-				box.bg_color = Color(tint, 0.16)
-				draw_style_box(box, rect.grow(can.x * 0.22))
-			box.bg_color = STORAGE_CAN
-			box.border_color = rim
-			box.set_border_width_all(maxi(1, int(can.x * 0.08)))
-			draw_style_box(box, rect)
-			# Pol oben, Ladung innen: geladen voll in Kartenfarbe, leer drei matte Marken.
-			draw_rect(Rect2(rect.get_center().x - can.x * 0.18, rect.position.y - cell * 0.07,
-				can.x * 0.36, cell * 0.07), rim)
-			var core := rect.grow(-can.x * 0.2)
-			if full:
-				box.bg_color = Color(tint.lightened(0.15), 0.92)
-				box.set_border_width_all(0)
-				box.set_corner_radius_all(maxi(1, int(can.x * 0.14)))
-				draw_style_box(box, core)
-			else:
-				for k in 3:
-					var y := core.position.y + core.size.y * (float(k) + 0.5) / 3.0
-					draw_line(Vector2(core.position.x, y), Vector2(core.end.x, y), rim,
-						maxf(cell * 0.03, 1.0))
+	func _slice_color(slice: int) -> Color:
+		var tint: Color = slice_tints[slice] if slice < slice_tints.size() else Color(0, 0, 0, 0)
+		return Color(tint.darkened(TRACE_DARKEN), 1.0) if tint.a > 0.0 else TRACE_IDLE
+
+	func _draw() -> void:
+		var bus := STORAGE_BUS if stored() > 0 else TRACE_IDLE
+		_draw_bus(bus)
+		_draw_pins(bus.darkened(0.35))
+		for slice in slice_tints.size():
+			_draw_route(slice)
+			_draw_holder(slice)
+		_draw_gauge(Rect2(net_origin, Vector2.ONE * cell), bus)
+
+	## Linienzug mit gefasten Ecken.
+	func _wire(points: Array, tint: Color, width: float) -> void:
+		var path := PackedVector2Array([points[0]])
+		for i in range(1, points.size() - 1):
+			var a: Vector2 = points[i - 1]
+			var b: Vector2 = points[i]
+			var c: Vector2 = points[i + 1]
+			var cut := minf(_line() * 1.6, minf(a.distance_to(b), b.distance_to(c)) * 0.45)
+			path.append(b + (a - b).normalized() * cut)
+			path.append(b + (c - b).normalized() * cut)
+		path.append(points[points.size() - 1])
+		draw_polyline(path, tint, width, true)
+
+	## Finger, Sammelsteg und der EINE Zug der Scheibe bis an ihre Zelle.
+	func _draw_route(slice: int) -> void:
+		var line := _line()
+		var lanes := ports.size() / maxi(slice_tints.size(), 1)
+		if lanes <= 0:
+			return
+		var tint := _slice_color(slice)
+		var foot := size.y - line
+		var comb := size.y - STORAGE_FOOT * 0.5 - line
+		var first := ports[slice * lanes]
+		var last := ports[slice * lanes + lanes - 1]
+		for lane in lanes:
+			var x := ports[slice * lanes + lane]
+			var on := slice < slice_lanes.size() and slice_lanes[slice] == lane
+			draw_line(Vector2(x, foot), Vector2(x, comb), tint if on else TRACE_IDLE, line)
+		draw_line(Vector2(first, comb), Vector2(last, comb), tint, line)
+		var from := Vector2((first + last) * 0.5, comb)
+		var seat := cell_rect(net_origin, cell, slice)
+		var to_x := seat.get_center().x
+		if slice >= 3:
+			var rise := maxf(from.y - seat.end.y, 0.0)
+			var lean := minf(rise, absf(to_x - from.x)) * signf(to_x - from.x)
+			_wire([from, Vector2(from.x + lean, seat.end.y), Vector2(to_x, seat.end.y)], tint, line)
+			return
+		# Links herum: wer weiter links ansetzt, läuft außen und kommt am weitesten.
+		var pitch := (net_origin.x - line * 2.0) / 3.0
+		var side := line * 2.0 + pitch * (float(slice) + 0.5)
+		var high := line * 2.0 + (net_origin.y - line * 2.0) / 3.0 * (float(slice) + 0.5)
+		var low := comb - pitch * float(slice + 1)
+		_wire([from, Vector2(from.x, low), Vector2(side, low), Vector2(side, high),
+			Vector2(to_x, high), Vector2(to_x, seat.position.y)], tint, line)
+
+	## Der FLÄCHEN-BUS in beiden Fugen des Kreuzes, rechts verbunden und hinauf zum Ausgang.
+	func _draw_bus(bus: Color) -> void:
+		var line := _line()
+		var step := cell * (1.0 + DieNetView.GAP_FACTOR)
+		var gap := cell * DieNetView.GAP_FACTOR
+		var right := size.x - 3.0 - line
+		var top := line * 2.0
+		for row in 2:
+			var y := net_origin.y + cell + gap * 0.5 + step * float(row)
+			draw_line(Vector2(net_origin.x + cell * 0.5, y), Vector2(right, y), bus, line)
+		draw_line(Vector2(right, net_origin.y + step + cell + gap * 0.5), Vector2(right, top), bus,
+			line)
+		if feeds.is_empty():
+			return
+		draw_line(Vector2(feeds[0], top), Vector2(right, top), bus, line)
+		for lane in feeds.size():
+			var on := slice_lanes.has(lane)
+			draw_line(Vector2(feeds[lane], top), Vector2(feeds[lane], 0.0),
+				Color(WorkshopView.lane_tint(lane), 1.0) if on else TRACE_IDLE, line)
+		# Jede Zelle speist den Bus ihrer Reihe.
+		for slice in slice_tints.size():
+			var seat := cell_rect(net_origin, cell, slice)
+			var x := seat.get_center().x
+			var y := net_origin.y + cell + gap * 0.5 + (step if slice >= 3 else 0.0)
+			draw_line(Vector2(x, seat.end.y if slice < 3 else seat.position.y), Vector2(x, y),
+				_slice_color(slice), line)
+
+	## Die Beinchen der sechs Netz-Zellen: in den Fugen reichen sie an den Bus.
+	func _draw_pins(bus: Color) -> void:
+		var reach := cell * DieNetView.GAP_FACTOR * 0.5
+		var width := maxf(cell * 0.03, 1.0)
+		for face in 6:
+			var box := Rect2(net_origin + DieNetView.cell_position(face, cell), Vector2.ONE * cell)
+			for k in 5:
+				var t := (float(k) + 0.5) / 5.0
+				var x := box.position.x + box.size.x * t
+				var y := box.position.y + box.size.y * t
+				draw_line(Vector2(x, box.position.y), Vector2(x, box.position.y - reach), bus, width)
+				draw_line(Vector2(x, box.end.y), Vector2(x, box.end.y + reach), bus, width)
+				draw_line(Vector2(box.position.x, y), Vector2(box.position.x - reach, y), TRACE_IDLE,
+					width)
+				draw_line(Vector2(box.end.x, y), Vector2(box.end.x + reach, y), TRACE_IDLE, width)
+
+	## Der Halter einer Zelle: dunkle Platte, an beiden Enden ein Kontakt.
+	func _draw_holder(slice: int) -> void:
+		var seat := cell_rect(net_origin, cell, slice)
+		var tint: Color = slice_tints[slice] if slice < slice_tints.size() else Color(0, 0, 0, 0)
+		var box := StyleBoxFlat.new()
+		box.set_corner_radius_all(maxi(2, int(seat.size.x * 0.2)))
+		if tint.a > 0.0:
+			box.bg_color = Color(tint, 0.16)
+			draw_style_box(box, seat.grow(seat.size.x * 0.22))
+		box.bg_color = STORAGE_CAN
+		draw_style_box(box, seat.grow(_line()))
+		var pad := Vector2(seat.size.x * 0.5, _line() * 1.4)
+		for y: float in [seat.position.y - pad.y * 0.5, seat.end.y - pad.y * 0.5]:
+			draw_rect(Rect2(Vector2(seat.get_center().x - pad.x * 0.5, y), pad), STORAGE_PAD)
 
 	## Der Füllstand in der freien Ecke oben links: "n/6" über einer Marken-Leiste.
 	func _draw_gauge(rect: Rect2, tint: Color) -> void:
@@ -862,14 +964,6 @@ class StorageBody extends Control:
 			mark.a = 1.0
 			draw_rect(Rect2(bar.position.x + room * float(i) + room * 0.12, bar.position.y,
 				room * 0.76, bar.size.y), mark)
-
-	## Lüftungs-Schlitze in der freien Ecke unten links.
-	func _draw_vents(rect: Rect2) -> void:
-		var tint := TRACE_IDLE
-		for k in 4:
-			var y := rect.position.y + rect.size.y * (0.3 + 0.14 * float(k))
-			draw_line(Vector2(rect.position.x + rect.size.x * 0.18, y),
-				Vector2(rect.end.x - rect.size.x * 0.18, y), tint, maxf(cell * 0.05, 1.0))
 
 ## Der leere Platz eines Podests: das Fenster MELDET ihn, gestellt wird der Körper
 ## von scene_root.
@@ -999,6 +1093,35 @@ func _build_equation(u: float) -> void:
 	_sum_signature = ""
 	_refresh_sum_net()
 
+## Die Halter der sechs Energiezellen in Display-Pixeln (je Scheibe) - die Körper stellt
+## scene_root darauf. Leer, solange die Gleichung nicht steht.
+func storage_cells_px() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	if _sum_host == null or not is_instance_valid(_sum_host):
+		return out
+	var rect := upgrades_net_rect()
+	for slice in DRUM_SLICES:
+		var seat := StorageBody.cell_rect(_sum_host.position, net_cell(unit()), slice)
+		out.append(_global(Rect2(rect.position + seat.position, seat.size)))
+	return out
+
+## Die sechs Netz-Zellen des Speichers in Display-Pixeln (leer, solange die Gleichung nicht
+## steht) - scene_root stellt die Chip-Rahmen darum.
+func storage_chips_px() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	if _sum_host == null or not is_instance_valid(_sum_host):
+		return out
+	var cell := net_cell(unit())
+	var origin := upgrades_net_rect().position + _sum_host.position
+	for face in 6:
+		out.append(_global(Rect2(origin + DieNetView.cell_position(face, cell),
+			Vector2.ONE * cell)))
+	return out
+
+## Je Scheibe die Farbe ihrer Karte (Alpha 0 = leer).
+func storage_tints() -> Array[Color]:
+	return _slice_tints()
+
 ## UPGRADES ist ein SPEICHER: sein Gehäuse liegt unter dem Summen-Netz.
 func _build_storage(u: float, cell: float, rect: Rect2) -> void:
 	var screen := _sum_host.get_parent() as Panel
@@ -1007,10 +1130,15 @@ func _build_storage(u: float, cell: float, rect: Rect2) -> void:
 	body.name = "Storage"
 	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.size = rect.size
-	body.u = u
 	body.cell = cell
+	_sum_host.position = StorageBody.net_origin_in(rect.size, _sum_host.size)
 	body.net_origin = _sum_host.position
 	body.slice_tints = _slice_tints()
+	body.slice_lanes = _slice_lanes()
+	for i in DRUM_SLICES * TRACE_LANES:
+		body.ports.append(trace_end_x(rect, DRUM_SLICES, TRACE_LANES, i) - rect.position.x)
+	for lane in TRACE_LANES:
+		body.feeds.append(feed_x(rect, TRACE_LANES, u * FEED_PITCH, lane) - rect.position.x)
 	screen.add_child(body)
 	screen.move_child(body, 0)
 

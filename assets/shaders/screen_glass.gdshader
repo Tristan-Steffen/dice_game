@@ -29,7 +29,7 @@ uniform float fresnel_base : hint_range(0.0, 1.0) = 0.15;
 uniform float fresnel_power : hint_range(0.5, 8.0) = 3.0;
 
 // NUR die "Fenster" des Displays sind spiegelndes Glas - der Rest der Fläche
-// ist das Deck (matt, siehe table_deck.gdshader als 2D-Hintergrund der
+// ist das Deck (matt, siehe table_pcb.gdshader als 2D-Hintergrund der
 // Anzeige) und spiegelt NICHT. TableScreen meldet die Fenster-Rechtecke in
 // Display-Pixeln samt Eckenradius (siehe _sync_reflection_windows).
 // 6 Charm-Konsolen + 4 Vorrats-Schubladen + der Rest; mit Luft nach oben, denn

@@ -1307,6 +1307,10 @@ func _place_workshop_strip() -> Rect2:
 	table_screen.place_workshop_info_window(_info_rect, u)
 	var bench_rect := workshop.bench_rect() if workshop != null else bounds
 	# Nichts der Werkstatt reicht unter die Hub-Unterkante (Spieler-Entscheid).
+	var quiet: Array[Rect2] = []
+	for part: String in ["upgrades", "podium_stage", "podium_net", "result", "info"]:
+		quiet.append((frame[part] as Rect2).grow(u))
+	table_screen.set_deck_quiet_rects(quiet)
 	var hub_bottom := table_screen.hub.position.y + table_screen.hub.size.y
 	if bench_rect.end.y > hub_bottom + 0.5:
 		push_warning("Werkstatt reicht unter den Hub: %.1f gegen %.1f px"
@@ -8954,7 +8958,7 @@ func _zone_busy() -> bool:
 ## ALLE Körper der Gleichung, die mit ihr hinab- und heraufahren - neue kommen HIER dazu.
 func _zone_riders() -> Array[Node3D]:
 	var out: Array[Node3D] = []
-	for body: Node3D in [podium_stage, bench_blank_cell]:
+	for body: Node3D in [podium_stage, bench_blank_cell, storage_bank]:
 		if body != null and is_instance_valid(body):
 			out.append(body)
 	return out
@@ -8985,6 +8989,43 @@ func _zone_shaft_on() -> LiftShaftView:
 func _zone_cavity_reach() -> Vector2:
 	var reach := Vector2(ZONE_SHAFT_DEPTH * 2.0, ZONE_SHAFT_DEPTH * 2.0)
 	var zone := _opening_rect
+## Die ENERGIEZELLEN des Speichers (UPGRADES): sechs Körper auf den gemeldeten Haltern.
+var storage_bank: StorageBankView
+var _storage_bank_key: Array = []
+
+## Der EINE Schreiber der Energiezellen (je Bild gefragt, nur der Wechsel schreibt): Ort
+## und Maß aus den gemeldeten Haltern, die Ladung aus den Karten der Walze. Steht die
+## Auswahl in der Zone, sind sie fort.
+func _sync_storage_bank() -> void:
+	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
+	if workshop == null or not is_instance_valid(workshop):
+		return
+	var seats := workshop.storage_cells_px()
+	var tints := workshop.storage_tints()
+	var chips := workshop.storage_chips_px()
+	var key := [seats, tints, _zone_picture_open, chips]
+	if key == _storage_bank_key:
+		return
+	_storage_bank_key = key
+	if storage_bank == null or not is_instance_valid(storage_bank):
+		storage_bank = StorageBankView.new()
+		storage_bank.name = "StorageBank"
+		add_child(storage_bank)
+	storage_bank.visible = not _zone_picture_open and not seats.is_empty()
+	if seats.is_empty():
+		return
+	var centers: Array[Vector3] = []
+	for seat in seats:
+		centers.append(table_screen.pixel_to_world(seat.get_center()))
+	if not chips.is_empty():
+		var spots: Array[Vector3] = []
+		for chip in chips:
+			spots.append(table_screen.pixel_to_world(chip.get_center()))
+		var edge := _world_half(chips[0]).x * 2.0
+		storage_bank.seat_chips(spots, edge, edge * DieNetView.GAP_FACTOR * 0.22)
+	var half := _world_half(seats[0])
+	storage_bank.seat(centers, Vector2(half.y, half.x) * 2.0, tints)
+
 	var tray := table_screen.tray_pit_rect()
 	if tray.size.x > 0.0 and tray.end.y <= zone.position.y \
 			and tray.position.x < zone.end.x and tray.end.x > zone.position.x:
@@ -11884,6 +11925,7 @@ func _sync_pit_beckon(delta: float) -> void:
 		"" if is_pit_focused else "Klick auf die Grube")
 	dice_pit.set_beckon(_pit_beckon_share, breath, CasinoStyle.GREEN)
 
+	_sync_storage_bank()  # und die Energiezellen des Speichers
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
 ## Würfel in der Schale, stellt das Hover-Highlight der Serie (Karte <-> Netz-Zellen)
 ## und schreibt den INFO-SCHIRM. Gefragt je Bild - der Zeiger liegt auf dem Tisch,
