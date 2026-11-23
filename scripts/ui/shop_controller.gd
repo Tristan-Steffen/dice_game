@@ -633,7 +633,7 @@ func _footer_font(block: Vector2, bay_u: float) -> int:
 ## Die Namensfarbe eines Pakets: Sorte bzw. Stufe.
 static func ware_tint(item: Object) -> Color:
 	if item is ModulePack:
-		return ModulePack.grade_tint((item as ModulePack).grade)
+		return ModulePack.TINT
 	if item is DicePack:
 		return PackDrawerView.dice_pack_tint((item as DicePack).sort)
 	if item is CardPack:

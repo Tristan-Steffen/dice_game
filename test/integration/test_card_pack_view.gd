@@ -389,7 +389,7 @@ func test_no_two_cassette_parts_share_a_face() -> void:
 			var fights := _coplanar_fights(_hull(pack_sort, pack_size))
 			assert_eq(fights, [] as Array[String], "%s Größe %d" % [pack_sort, pack_size])
 
-# --- Der ESD-BEUTEL des Modul-Pakets ------------------------------------------------
+# --- Das STANGENMAGAZIN des Modul-Pakets ------------------------------------------------
 
 func _bag(pack_size: int, grade: int) -> CardPackView:
 	var bag := CardPackView.new()
@@ -398,40 +398,88 @@ func _bag(pack_size: int, grade: int) -> CardPackView:
 	bag.set_body_scale(PackDrawerView.CASSETTE_SCALE)
 	return bag
 
-func _bag_parts(bag: CardPackView, prefix: String) -> int:
-	return bag.find_children(prefix + "*", "", true, false).size()
+func _case_shown(bag: CardPackView, prefix: String) -> int:
+	var shown := 0
+	for node in bag.find_children(prefix + "?", "MeshInstance3D", true, false):
+		if (node as MeshInstance3D).visible:
+			shown += 1
+	return shown
 
-func test_the_bag_shares_the_one_footprint_and_grows_only_in_thickness() -> void:
-	var cassette := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * CardPackView.FOOT_ROOM
-	var last := 0.0
+func _case_box(bag: CardPackView) -> AABB:
+	var box := AABB()
+	var first := true
+	for node in bag.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		var own: AABB = bag.global_transform.affine_inverse() * mesh.global_transform * mesh.get_aabb()
+		box = own if first else box.merge(own)
+		first = false
+	return box
+
+func test_the_case_shares_the_one_footprint_and_one_thickness() -> void:
+	var cassette := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * CardPackView.FOOT_ROOM \
+		* PackDrawerView.CASSETTE_SCALE
 	for pack_size in CardPack.SIZES:
 		var bag := _bag(pack_size, ModulePack.GRADE_COMMON)
-		var film := ((bag.find_child("Film", true, false) as MeshInstance3D).mesh as BoxMesh).size
-		var seal := ((bag.find_child("Seal", true, false) as MeshInstance3D).mesh as BoxMesh).size
-		assert_almost_eq(film.y, cassette.y, 0.001, "dieselbe Länge wie jede Hülle")
-		assert_almost_eq(film.x + seal.x, cassette.x, 0.001, "Folie und Naht füllen die Breite")
-		assert_gt(bag.thickness(), last, "die Größe macht ihn dicker")
-		last = bag.thickness()
-	assert_lte(last, CardPackView.lying_height(1.0), "nie höher als die höchste Hülle")
+		var box := _case_box(bag)
+		var foot := [box.size.x, box.size.z]
+		foot.sort()
+		assert_almost_eq(float(foot[0]), cassette.x, 0.12, "dieselbe Breite wie jede Hülle")
+		assert_almost_eq(float(foot[1]), cassette.y, 0.12, "dieselbe Länge wie jede Hülle")
+		assert_eq(bag.thickness(), CardPackView.MODULE_CASE_THICKNESS, "für jede Größe gleich dick")
+		assert_lte(box.size.y, CardPackView.lying_height(PackDrawerView.CASSETTE_SCALE) + 0.05,
+			"nie höher als die höchste Hülle")
 
-func test_the_bag_carries_grade_stripe_label_and_contacts() -> void:
+func test_the_case_shows_one_module_per_option_and_counts_them() -> void:
 	for pack_size in CardPack.SIZES:
 		var bag := _bag(pack_size, ModulePack.GRADE_EPIC)
+		var count := CardPack.option_count(pack_size)
 		assert_true(bag.module_bag)
-		assert_eq(bag.tint, ModulePack.grade_tint(ModulePack.GRADE_EPIC), "Streifen = Stufe")
-		assert_eq(_bag_parts(bag, "Contact"), CardPack.option_count(pack_size),
-			"goldene Kontakte = Grund-Optionen")
-		assert_eq(_bag_parts(bag, "Ridge"), CardPackView.BAG_RIDGES, "Quetschrillen")
-		assert_not_null(bag.find_child("Notch", true, false), "die Reißkerbe")
-		assert_eq((bag.find_child("Esd", true, false) as Label3D).text, "ESD")
+		assert_eq(bag.case_modules(), count)
+		assert_eq(bag.tint, ModulePack.TINT, "jedes Modul-Paket trägt dieselbe Farbe")
+		assert_eq(_case_shown(bag, "Modul"), count, "so viele Module in den Röhren")
+		assert_eq(bag.find_children("Rohr?", "MeshInstance3D", true, false).size(), 3, "drei Röhren")
+		assert_eq(_case_shown(bag, "Bein"), count)
+		var lit := 0
+		for i in 6:
+			var led := bag.find_child("Auge%d" % i, true, false) as MeshInstance3D
+			assert_not_null(led, "sechs Augen auf der Kappe")
+			if led.material_override == bag._core_material:
+				lit += 1
+		assert_eq(lit, count, "die Augen zählen mit")
+		assert_null(bag.find_child("TearStrip", true, false), "kein Beutel mehr")
 
-func test_tearing_writes_the_end_state_first() -> void:
+func test_every_case_has_one_colour_and_the_grade_reads_like_a_quality() -> void:
+	var trims := {}
+	for pack_grade in [ModulePack.GRADE_COMMON, ModulePack.GRADE_RARE, ModulePack.GRADE_EPIC,
+			ModulePack.GRADE_LEGENDARY]:
+		var bag := _bag(CardPack.SIZE_NORMAL, pack_grade)
+		var trim := (bag.find_child("Kappenband0", true, false) as MeshInstance3D).material_override as StandardMaterial3D
+		trims[trim.emission] = true
+		var sash := bag.find_child("QualitySash", true, false) as Node3D
+		var light := (bag.find_child("ModulLicht0", true, false) as MeshInstance3D).material_override as StandardMaterial3D
+		assert_eq(light.emission, ModulePack.grade_tint(pack_grade), "die Modul-LEDs tragen die Stufe")
+		if pack_grade == ModulePack.GRADE_COMMON:
+			assert_null(sash, "Gewöhnlich trägt keine Schärpe")
+			continue
+		assert_not_null(sash, "die Schärpe nennt die Stufe")
+		assert_eq((sash.get_node("Name") as Label3D).text, CardPackView.GRADE_SASH_NAMES[pack_grade])
+		var band := (sash.get_node("Band") as MeshInstance3D).material_override as StandardMaterial3D
+		assert_eq(band.albedo_color, ModulePack.grade_tint(pack_grade), "in der Farbe der Stufe")
+	assert_eq(trims.size(), 1, "der Druck ist bei jeder Stufe derselbe")
+
+func test_opening_writes_the_end_state_first() -> void:
 	var bag := _bag(CardPack.SIZE_NORMAL, 0)
-	var strip := bag.find_child("TearStrip", true, false) as Node3D
-	assert_true(strip.visible)
+	var cap := bag.find_child("Kappe", true, false) as Node3D
+	assert_not_null(cap, "die rechte Kappe ist ein eigener Knoten")
+	assert_true(cap.visible)
+	assert_almost_eq(bag.lid_share(), 0.0, 0.001, "zu")
 	assert_gt(bag.tear_open(), 0.0)
-	assert_true(bag.torn(), "gerissen ist er sofort")
+	assert_true(bag.torn(), "offen ist er sofort")
 	bag.set_torn(true)
-	assert_false(strip.visible, "hart gesetzt ist der Streifen fort")
+	assert_almost_eq(bag.lid_share(), 1.0, 0.001, "hart gesetzt ist die Kappe ab")
+	assert_false(cap.visible, "und fort")
+	bag.set_torn(false)
+	assert_almost_eq(bag.lid_share(), 0.0, 0.001)
+	assert_true(cap.visible, "zu sitzt sie wieder")
 	assert_eq(bag.case_outline_local().size(), 4, "sein Grundriß trägt die Einzugs-Sektion")
 

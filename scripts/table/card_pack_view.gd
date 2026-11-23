@@ -115,33 +115,32 @@ const TRAY_RUNE_TINTS := [Color("#ffffff"), Color("#ffc23a"), Color("#ff7a1f"),
 	Color("#35e8ff"), Color("#b77bff"), Color("#ffffff")]
 const TRAY_RUNE_ENERGY := 3.0
 static var _dice_case_scenes := {}
-## Der ESD-BEUTEL: Dicke je Größe, Anteile der Länge, Folie mit leichtem Rosa-Stich.
-const BAG_THICKNESS := [DataCellView.DEPTH * 1.1, DataCellView.DEPTH * 1.3,
-	DataCellView.DEPTH * 1.5, DataCellView.DEPTH * 1.7, DataCellView.DEPTH * 1.9]
-const BAG_ALBEDO := Color(0.82, 0.76, 0.79)
-const BAG_GLOW := Color(0.55, 0.5, 0.56)
-const BAG_GLOW_ENERGY := 0.5
-const BAG_SEAL_SHARE := 0.13
-const BAG_STRIPE_SHARE := 0.05
-const BAG_RIDGES := 5
-const BAG_FILM_SHARE := 0.45
-const BAG_BULGE_SHARE := 0.86
-const BAG_LABEL_SHARE := Vector2(0.62, 0.36)
-const BAG_LABEL_ALBEDO := Color(0.03, 0.03, 0.035)
-const BAG_WARN := Color(1.0, 0.82, 0.1)
-const BAG_NOTCH_SHARE := 0.07
-const BAG_CONTACT_SHARE := 0.07
-const BAG_TEXT_SHARE := 0.11
-## Das AUFREISSEN: der Siegelstreifen hebt ab, kippt und vergeht.
+## Das STANGENMAGAZIN des Modul-Pakets: EIN Modell für jede Größe und Stufe, für alle gleich dick.
+const MODULE_CASE_SCENE := "res://assets/models/hardware/module_tubes.glb"
+const MODULE_CASE_THICKNESS := DataCellView.DEPTH * 3.0
+const CASE_MODULE := Color(0.17, 0.17, 0.22)
+const CASE_MODULE_GLOW := 0.55
+const CASE_DARK := Color(0.03, 0.03, 0.04)
+const CASE_PAPER := Color(0.85, 0.86, 0.9)
+const TUBE_GLASS := Color(0.7, 0.86, 1.0, 0.17)
+const TUBE_RIM := Color(0.75, 0.9, 1.0, 0.5)
+## Das ÖFFNEN: die rechte Kappe zieht nach Bild-rechts ab und vergeht.
 const TEAR_TIME := 0.45
-const TEAR_LIFT := DataCellView.HEIGHT * 0.35
-const TEAR_DRIFT := DataCellView.WIDTH * 0.6
-const TEAR_TILT := 1.1
+const CAP_PULL := 0.6
+## Die STUFE liest wie die Güte der anderen Pakete: Schärpe über der Kopf-Ecke und Schimmer.
+const GRADE_SASH_NAMES := ["", "SELTEN", "EPISCH", "LEGENDÄR"]
+const GRADE_SASH_REACH := [0.0, 0.34, 0.37, 0.4]
+const GRADE_SASH_WIDTH := [0.0, 0.17, 0.19, 0.22]
+const GRADE_SASH_ENERGY := [0.0, 0.9, 0.9, 0.85]
+const GRADE_SHIMMER := [0.0, 0.3, 0.4, 0.5]
+const GRADE_GLITTER := [0.0, 0.0, 0.0, 0.9]
 var _case_model: Node3D
 var _tray: StandardMaterial3D
 var _tray_materials := {}
 var _tray_dice: Array[MeshInstance3D] = []
-## Ein Modul-Paket (der Beutel) und seine Seltenheits-Stufe.
+var _case_materials := {}
+var _lid := 0.0
+## Ein Modul-Paket (das Stangenmagazin) und seine Seltenheits-Stufe.
 var module_bag := false
 var grade: int = ModulePack.GRADE_COMMON
 var _tear_strip: Node3D
@@ -179,7 +178,7 @@ func setup_pack(pack_sort: String, pack_size: int, dice := false,
 		else PackDrawerView.card_pack_tint(pack_sort)
 	_finish_setup()
 
-## Der ESD-BEUTEL eines Modul-Pakets dieser Größe und Stufe.
+## Das STANGENMAGAZIN eines Modul-Pakets dieser Größe und Stufe.
 func setup_module_bag(pack_size: int, pack_grade: int) -> void:
 	module_bag = true
 	dice_pack = false
@@ -187,7 +186,7 @@ func setup_module_bag(pack_size: int, pack_grade: int) -> void:
 	grade = clampi(pack_grade, ModulePack.GRADE_COMMON, ModulePack.GRADE_LEGENDARY)
 	card_pack_sort = ""
 	sort = ""
-	tint = ModulePack.grade_tint(grade)
+	tint = ModulePack.TINT
 	_finish_setup()
 
 func _finish_setup() -> void:
@@ -208,7 +207,7 @@ static func lying_height(cell_scale: float) -> float:
 
 func thickness() -> float:
 	if module_bag:
-		return float(BAG_THICKNESS[clampi(card_pack_size, 0, BAG_THICKNESS.size() - 1)])
+		return MODULE_CASE_THICKNESS
 	if dice_pack:
 		return DICE_THICKNESS if dice_case_model() != null else THICKNESS
 	return CASSETTE_THICKNESS
@@ -599,141 +598,176 @@ func _build_rims(cell: Node3D, width: float, length: float, lid: float) -> void:
 	TableProps.box(cell, "RimFoot", Vector3(outer.x, rim, rim),
 		Vector3(0.0, -(outer.y - rim) * 0.5, rim_z), _edge_material)
 
-## Der ESD-BEUTEL: flache Folie mit gewölbter Mitte, oben die Siegelnaht mit Rillen (sie
-## reißt ab), darunter der Stufen-Streifen, auf der Wölbung das schwarze Etikett. Gebaut im
-## BILD-Rahmen: der liegende Grundriß ist quer, Bild-oben ist die Zelle +x, Bild-rechts -y.
+## Das STANGENMAGAZIN (module_tubes.glb): drei antistatische Röhren zwischen zwei bedruckten
+## Karton-Kappen; in den Röhren so viele Module, wie das Paket Optionen hat, auf der rechten
+## Kappe zählen die Augen sie mit.
 func _build_bag() -> Node3D:
 	var cell := Node3D.new()
 	cell.name = "Hull%d" % _cells.size()
-	var wide := DataCellView.HEIGHT * FOOT_ROOM
-	var high := DataCellView.WIDTH * FOOT_ROOM
-	var depth := thickness()
-	var bottom := -DataCellView.DEPTH * 0.5
-	_shell_material.albedo_color = BAG_ALBEDO
-	_shell_material.metallic = 0.35
-	_shell_material.roughness = 0.32
-	_shell_material.emission = BAG_GLOW
-	_shell_material.emission_energy_multiplier = BAG_GLOW_ENERGY
-	var seal := high * BAG_SEAL_SHARE
-	var body_h := high - seal
-	var body_y := -seal * 0.5
-	var film := depth * BAG_FILM_SHARE
-	_bag_box(cell, "Film", Vector2(wide, body_h), film, Vector2(0.0, body_y), bottom,
-		_shell_material)
-	var bulge := Vector2(wide, body_h) * BAG_BULGE_SHARE
-	var bulge_y := body_y - body_h * (1.0 - BAG_BULGE_SHARE) * 0.3
-	_bag_box(cell, "Bulge", bulge, depth, Vector2(0.0, bulge_y), bottom, _shell_material)
-	# Die Siegelnaht: dünner als die Folie, die Quetschrillen stehen um LID_PROUD vor.
-	var strip := Node3D.new()
-	strip.name = "TearStrip"
-	cell.add_child(strip)
-	var seal_h := film * 0.7
-	var seal_y := high * 0.5 - seal * 0.5
-	_bag_box(strip, "Seal", Vector2(wide, seal), seal_h, Vector2(0.0, seal_y), bottom,
-		_shell_material)
-	for i in BAG_RIDGES:
-		var y := high * 0.5 - seal * (float(i) + 0.5) / float(BAG_RIDGES)
-		_bag_box(strip, "Ridge%d" % i, Vector2(wide * 0.98, seal / float(BAG_RIDGES) * 0.4),
-			seal_h + LID_PROUD, Vector2(0.0, y), bottom, _steel_material)
+	var scene := module_case_model()
+	if scene == null:
+		return cell
+	var model := scene.instantiate() as Node3D
+	model.name = "Case"
+	# Blender baut Z nach oben, die Zelle liest Z als Höhe: +90° um X stellt es gleich.
+	model.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	model.position = Vector3(0.0, 0.0, -DataCellView.DEPTH * 0.5)
+	cell.add_child(model)
+	for mesh: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_dress_case_part(mesh)
+	_build_grade_sash(cell)
 	if _cells.is_empty():
-		_tear_strip = strip
-		_tear_rest = strip.transform
+		_case_model = model
+		_tear_strip = model.find_child("Kappe", true, false) as Node3D
+		if _tear_strip != null:
+			_tear_rest = _tear_strip.transform
 		_apply_torn()
-	# Der STREIFEN der Stufe unter der Naht - er trägt Hover und Flare.
-	var stripe := high * BAG_STRIPE_SHARE
-	var stripe_y := high * 0.5 - seal - stripe * 0.9
-	_bag_box(cell, "Stripe", Vector2(wide * 0.999, stripe), film + LID_PROUD,
-		Vector2(0.0, stripe_y), bottom, _edge_material)
-	# Die REISSKERBE rechts, auf der Linie zwischen Naht und Streifen.
-	var notch := high * BAG_NOTCH_SHARE
-	var cut := _bag_box(cell, "Notch", Vector2(notch, notch), film + LID_PROUD * 2.0,
-		Vector2(wide * 0.5, high * 0.5 - seal), bottom - LID_PROUD, _label_material())
-	if cut != null:
-		cut.rotation.z = PI * 0.25
-	# Das ETIKETT auf der Wölbung: Warndreieck, „ESD“ und die Kontakte.
-	var top := bottom + depth
-	var label := Vector2(bulge.x * BAG_LABEL_SHARE.x, bulge.y * BAG_LABEL_SHARE.y * 2.0)
-	var label_c := Vector2(0.0, bulge_y)
-	_bag_box(cell, "Label", label, LID_PROUD, label_c, top, _label_material())
-	var face := top + LID_PROUD
-	var row_y := label_c.y + label.y * 0.16
-	var warn := MeshInstance3D.new()
-	warn.name = "Warning"
-	var prism := PrismMesh.new()
-	prism.size = Vector3(label.y * 0.42, label.y * 0.38, LID_PROUD)
-	warn.mesh = prism
-	warn.material_override = _warn_material()
-	warn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	warn.rotation.z = -PI * 0.5
-	warn.position = _bag_point(Vector2(-label.x * 0.27, row_y), face + LID_PROUD * 0.5)
-	cell.add_child(warn)
+	return cell
+
+static func module_case_model() -> PackedScene:
+	if not _dice_case_scenes.has(MODULE_CASE_SCENE) and ResourceLoader.exists(MODULE_CASE_SCENE):
+		_dice_case_scenes[MODULE_CASE_SCENE] = load(MODULE_CASE_SCENE) as PackedScene
+	return _dice_case_scenes.get(MODULE_CASE_SCENE) as PackedScene
+
+## Wie viele Module in den Röhren liegen.
+func case_modules() -> int:
+	return CardPack.option_count(card_pack_size) if module_bag else 0
+
+## Ein Teil des Magazins: zeigt es sich für dieses Paket, und was trägt es?
+func _dress_case_part(mesh: MeshInstance3D) -> void:
+	var part := String(mesh.name)
+	var filled := part.right(1).is_valid_int() and part.right(1).to_int() < case_modules()
+	if part.begins_with("Endkappe"):
+		mesh.material_override = _shell_material
+		mesh.material_overlay = _grade_shimmer()
+	elif part.begins_with("Kappenband") or part == "Schrift":
+		mesh.material_override = _edge_material
+	elif part.begins_with("Auge"):
+		mesh.material_override = _core_material if filled else _case_plain(CASE_DARK, 0.0)
+	elif part == "CodeFeld":
+		mesh.material_override = _case_plain(CASE_PAPER, 0.5)
+	elif part == "Code":
+		mesh.material_override = _case_plain(CASE_DARK, 0.0)
+	elif part.begins_with("Rohrkante") or part.begins_with("Schiene"):
+		mesh.material_override = _tube_material(TUBE_RIM, "rim")
+	elif part.begins_with("Rohr"):
+		mesh.material_override = _tube_material(TUBE_GLASS, "glass")
+	elif part.begins_with("ModulLicht"):
+		mesh.visible = filled
+		mesh.material_override = _grade_light_material()
+	elif part.begins_with("ModulGlas"):
+		mesh.visible = filled
+		mesh.material_override = _case_plain(CASE_DARK, 0.0)
+	elif part.begins_with("Modul"):
+		mesh.visible = filled
+		mesh.material_override = _case_plain(CASE_MODULE, CASE_MODULE_GLOW)
+	elif part.begins_with("Bein"):
+		mesh.visible = filled
+		mesh.material_override = _steel_material
+
+## Die Farbe der Stufe (Gewöhnlich bis Legendär).
+func grade_color() -> Color:
+	return ModulePack.grade_tint(grade)
+
+## Die LEDs der Module unter dem Glas leuchten in der Stufe - wie die Schulter-LED am Chip.
+func _grade_light_material() -> StandardMaterial3D:
+	if not _case_materials.has("grade"):
+		_case_materials["grade"] = _lit_material(grade_color())
+	return _case_materials["grade"]
+
+func _grade_shimmer() -> ShaderMaterial:
+	if grade <= ModulePack.GRADE_COMMON or not ResourceLoader.exists(SHIMMER_SHADER):
+		return null
+	if _shimmer == null:
+		_shimmer = ShaderMaterial.new()
+		_shimmer.shader = load(SHIMMER_SHADER) as Shader
+		_shimmer.set_shader_parameter("tint", grade_color())
+		_shimmer.set_shader_parameter("strength", GRADE_SHIMMER[grade])
+		_shimmer.set_shader_parameter("glitter", GRADE_GLITTER[grade])
+		_shimmer.render_priority = _prio(PRIORITY_PANE)
+	return _shimmer
+
+## Die SCHÄRPE über der Kopf-Ecke nennt die Stufe (Gewöhnlich trägt keine).
+func _build_grade_sash(cell: Node3D) -> void:
+	if grade <= ModulePack.GRADE_COMMON:
+		return
+	var foot := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * FOOT_ROOM * 0.5
+	var reach: float = GRADE_SASH_REACH[grade]
+	var width: float = GRADE_SASH_WIDTH[grade]
+	var band := Node3D.new()
+	band.name = "QualitySash"
+	cell.add_child(band)
+	band.position = Vector3(foot.x - reach * 0.7071, foot.y - reach * 0.7071,
+		-DataCellView.DEPTH * 0.5 + MODULE_CASE_THICKNESS + 0.012)
+	band.rotation.z = -PI * 0.25
+	var material := StandardMaterial3D.new()
+	material.albedo_color = grade_color()
+	material.metallic = 0.6
+	material.roughness = 0.25
+	material.emission_enabled = true
+	material.emission = grade_color()
+	material.emission_energy_multiplier = GRADE_SASH_ENERGY[grade]
+	var length := reach * 2.0 - width
+	TableProps.box(band, "Band", Vector3(length, width, SASH_HEIGHT),
+		Vector3(0.0, 0.0, SASH_HEIGHT * 0.5), material)
+	if grade >= ModulePack.GRADE_LEGENDARY:
+		for side in [-1.0, 1.0]:
+			TableProps.box(band, "Seam", Vector3(length, width * 0.07, 0.003),
+				Vector3(0.0, side * width * 0.38, SASH_HEIGHT + 0.0015), _sash_ink_material())
 	var text := Label3D.new()
-	text.name = "Esd"
-	text.text = "ESD"
+	text.name = "Name"
+	text.text = GRADE_SASH_NAMES[grade]
 	text.font_size = 64
-	text.pixel_size = high * BAG_TEXT_SHARE / 64.0 * 1.6
-	text.modulate = BAG_WARN
+	text.pixel_size = width * 0.42 / 64.0
+	text.modulate = SASH_INK
 	text.outline_size = 0
 	text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	text.render_priority = _prio(PRIORITY_NET)
-	text.rotation.z = -PI * 0.5
-	text.position = _bag_point(Vector2(label.x * 0.12, row_y), face + LID_PROUD * 0.2)
-	cell.add_child(text)
-	var contacts := CardPack.option_count(card_pack_size)
-	var side := high * BAG_CONTACT_SHARE
-	var span := label.x * 0.7
-	for i in contacts:
-		var x := -span * 0.5 + span * (float(i) + 0.5) / float(contacts)
-		_bag_box(cell, "Contact%d" % i, Vector2(side, side), LID_PROUD,
-			Vector2(x, label_c.y - label.y * 0.27), face, _gold_material)
-	return cell
+	text.position = Vector3(0.0, 0.0, SASH_HEIGHT + 0.004)
+	band.add_child(text)
 
-## Ein Bild-Punkt (rechts, oben) in der Zelle - Bild-oben ist +x, Bild-rechts -y.
-static func _bag_point(screen: Vector2, z: float) -> Vector3:
-	return Vector3(screen.y, -screen.x, z)
+## Matte Fläche mit einem Rest Eigenlicht - der Tisch beleuchtet nichts.
+func _case_plain(color: Color, glow: float) -> StandardMaterial3D:
+	var key := "%s|%.2f" % [color.to_html(), glow]
+	if not _case_materials.has(key):
+		var material := StandardMaterial3D.new()
+		material.albedo_color = color
+		material.roughness = 0.45
+		material.emission_enabled = glow > 0.0
+		material.emission = color
+		material.emission_energy_multiplier = glow
+		_case_materials[key] = material
+	return _case_materials[key]
 
-## Eine Box im Bild-Rahmen, ihre Unterseite auf z_bottom.
-func _bag_box(host: Node3D, box_name: String, screen_size: Vector2, height: float,
-		center: Vector2, z_bottom: float, material: Material) -> MeshInstance3D:
-	return TableProps.box(host, box_name, Vector3(screen_size.y, screen_size.x, height),
-		_bag_point(center, z_bottom + height * 0.5), material)
+## Antistatisches Rohr: klar mit einem Hauch Blau; die Kanten lesen etwas kräftiger.
+func _tube_material(color: Color, key: String) -> StandardMaterial3D:
+	if not _case_materials.has(key):
+		var material := StandardMaterial3D.new()
+		material.albedo_color = color
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.roughness = 0.08
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		material.emission_enabled = true
+		material.emission = Color(color.r, color.g, color.b)
+		material.emission_energy_multiplier = 0.25
+		_case_materials[key] = material
+	return _case_materials[key]
 
-var _bag_label_material: StandardMaterial3D
-var _bag_warn_material: StandardMaterial3D
-
-func _label_material() -> StandardMaterial3D:
-	if _bag_label_material == null:
-		_bag_label_material = StandardMaterial3D.new()
-		_bag_label_material.albedo_color = BAG_LABEL_ALBEDO
-		_bag_label_material.roughness = 0.6
-	return _bag_label_material
-
-func _warn_material() -> StandardMaterial3D:
-	if _bag_warn_material == null:
-		_bag_warn_material = _lit_material(BAG_WARN)
-		_bag_warn_material.emission_energy_multiplier = 0.8
-	return _bag_warn_material
-
-## Der Beutel REISST an der Kerbe auf: der Siegelstreifen hebt ab, kippt nach rechts
-## und vergeht. Endzustand zuerst - gerissen ist er sofort; zurück kommt die Dauer.
+## Das Magazin ÖFFNET: die rechte Kappe zieht ab. Endzustand zuerst - offen ist es sofort;
+## zurück kommt die Dauer.
 func tear_open(time := TEAR_TIME) -> float:
 	_torn = true
 	_kill(_tear_tween)
 	if _tear_strip == null or not is_instance_valid(_tear_strip) or time <= 0.0:
 		_apply_torn()
 		return 0.0
-	_tear_strip.visible = true
 	_tear_tween = create_tween()
-	_tear_tween.tween_method(func(t: float) -> void:
-		if is_instance_valid(_tear_strip):
-			_tear_strip.transform = _tear_rest.translated_local(Vector3(TEAR_LIFT * t * 0.3,
-				-TEAR_DRIFT * t, TEAR_LIFT * sin(t * PI) * 0.6)).rotated_local(
-				Vector3.UP, TEAR_TILT * t)
-			_tear_strip.scale = Vector3.ONE * maxf(1.0 - t * t, 0.01), 0.0, 1.0, time)
-	_tear_tween.tween_callback(_apply_torn)
+	_tear_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_tear_tween.tween_method(_set_lid, 0.0, 1.0, time)
 	return time
 
-## Gerissen oder ganz - hart gesetzt.
+## Offen oder zu - hart gesetzt.
 func set_torn(on: bool) -> void:
 	_torn = on
 	_kill(_tear_tween)
@@ -742,11 +776,19 @@ func set_torn(on: bool) -> void:
 func torn() -> bool:
 	return _torn
 
+## Wie weit die Kappe abgezogen ist (0 = sitzt, 1 = fort).
+func lid_share() -> float:
+	return _lid
+
+func _set_lid(share: float) -> void:
+	_lid = share
+	if _tear_strip != null and is_instance_valid(_tear_strip):
+		_tear_strip.transform = _tear_rest.translated_local(Vector3.RIGHT * CAP_PULL * share)
+		_tear_strip.scale = Vector3.ONE * maxf(1.0 - share * share, 0.001)
+		_tear_strip.visible = share < 0.999
+
 func _apply_torn() -> void:
-	if _tear_strip == null or not is_instance_valid(_tear_strip):
-		return
-	_tear_strip.transform = _tear_rest
-	_tear_strip.visible = not _torn
+	_set_lid(1.0 if _torn else 0.0)
 
 ## Das Blender-Modell der Schale (null = kein Import, dann bleibt die alte Hülle).
 static func dice_case_model() -> PackedScene:
@@ -877,24 +919,7 @@ func tray_dice_shown() -> int:
 ## der Zuschnitt einer Sektion; der Aufrufer rechnet ihn auf jede Lage um.
 func case_outline_local() -> Array[Vector3]:
 	var half := Vector2(DataCellView.WIDTH, DataCellView.HEIGHT) * FOOT_ROOM * 0.5
-	if module_bag:
-		return _bag_corners(half)
 	return _case_corners(half, 0.0)
-
-## Der Beutel hat kein Modell: seine Ecken liegen in der Zelle selbst (x Breite, y Länge).
-func _bag_corners(half: Vector2) -> Array[Vector3]:
-	var out: Array[Vector3] = []
-	if _cells.is_empty():
-		return out
-	var to_self := Transform3D()
-	var node: Node = _cells[0]
-	while node != null and node != self:
-		to_self = _pose_free(node) * to_self
-		node = node.get_parent()
-	for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
-		out.append(to_self * Vector3(half.x * corner.x, half.y * corner.y,
-			-DataCellView.DEPTH * 0.5))
-	return out
 
 func _case_corners(half_raw: Vector2, height: float) -> Array[Vector3]:
 	var out: Array[Vector3] = []

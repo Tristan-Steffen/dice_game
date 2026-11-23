@@ -222,7 +222,7 @@ func _build_packs(rect: Rect2) -> void:
 
 static func _hull_height(stack: Dictionary, k: int) -> float:
 	if stack["kind"] == "module":
-		return float(CardPackView.BAG_THICKNESS[k]) * PackDrawerView.CASSETTE_SCALE
+		return CardPackView.MODULE_CASE_THICKNESS * PackDrawerView.CASSETTE_SCALE
 	return PACK_THICKNESS
 
 func _build_dice(rect: Rect2) -> void:

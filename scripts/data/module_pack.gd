@@ -51,6 +51,10 @@ static func grade_rarity(pack_grade: int) -> String:
 	return String(GRADE_RARITIES[clampi(pack_grade, 0, GRADE_RARITIES.size() - 1)])
 
 ## Die Farbe der Stufe - dieselbe wie die der Modul-Seltenheit.
+## Die EINE Farbe jedes Modul-Pakets (wie die Sortenfarbe der Karten-Pakete); die Stufe
+## steht als Schärpe darauf.
+const TINT := Color("#3fb8d6")
+
 static func grade_tint(pack_grade: int) -> Color:
 	return ComboPart.RARITY_COLORS[grade_rarity(pack_grade)]
 
