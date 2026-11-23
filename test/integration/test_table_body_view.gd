@@ -56,7 +56,7 @@ func test_das_technik_fenster_bleibt_im_freien_band() -> void:
 func test_der_koerper_baut_seine_teile() -> void:
 	var body := TableBodyView.new()
 	add_child_autofree(body)
-	for part: String in ["Teppich", "Deck", "Layoutlinie", "Pyramidenwand", "Lichtlippe", "Reling",
+	for part: String in ["Teppich", "Deck", "Layoutlinie", "Pyramidenwand", "LedLeiste", "Lichtlippe", "Reling",
 			"Zarge", "Stange", "Bein", "Bank"]:
 		assert_not_null(body.get_node_or_null(part), part)
 	# Über der Tischebene steht nichts im Inneren der Wanne außer Linie und Fenster.

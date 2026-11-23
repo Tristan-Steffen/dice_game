@@ -16,8 +16,8 @@ const CONTENT := Rect2(-41.7, -43.68, 67.37, 112.85)
 const PIT_Z := -0.08
 const MARGIN := 8.0
 ## Die Rückwand steht direkt hinter den USB-Ports.
-const BACK_MARGIN := 0.03
-## Der Wandfuß trägt die Port-Blende (CharmRowView.RAIL_HEIGHT).
+const BACK_MARGIN := 0.0
+## Der Wandfuß ist die senkrechte Leiste der USB-Ports (CharmRowView.RAIL_HEIGHT), rundum.
 const FOOT_HEIGHT := 2.0
 ## So weit reicht der Wandkörper nach außen (Zarge).
 const WALL_REACH := 14.2
@@ -34,6 +34,8 @@ const SMOKE := Color(0.075, 0.065, 0.095)
 const GOLD := Color(0.86, 0.64, 0.24)
 const DARK := Color(0.012, 0.012, 0.018)
 const AMBER := Color(1.0, 0.66, 0.24)
+## Der ganze Wandfuß ist EIN LED-Band um den Tisch; die USB-Ports sitzen darauf.
+const LED := Color(0.2, 0.75, 0.9) * 0.6
 const VIOLET := Color(0.62, 0.3, 1.0)
 const CARPET := Color(0.075, 0.025, 0.08)
 
@@ -130,7 +132,7 @@ func _build_wall(inner: PackedVector2Array, c: Vector2, half: Vector2) -> void:
 	var low := func(p: Vector2) -> float:
 		return lerpf(NEAR_HEIGHT, 1.0, smoothstep(c.x - half.x * 0.67, c.x + half.x * 0.55, p.x))
 	var lacquer := _mat(LACQUER, 0.95)
-	_sweep("Wandfuss", inner, [0, 0, 0.3, FOOT_HEIGHT], _mat(LACQUER, 0.9), low)
+	_sweep("LedLeiste", inner, [0, 0, 0, FOOT_HEIGHT, 0.3, FOOT_HEIGHT], _light(LED), low)
 	_sweep("Pyramidenwand", inner, [0.3, FOOT_HEIGHT, 1.6, 8.6], _mat(SMOKE, 0.5, STYLE_PYRAMID), low)
 	_sweep("Lichtlippe", inner, [1.6, 8.6, 1.2, 8.9, 1.2, 9.3], _light(AMBER), low)
 	_sweep("Ablage", inner, [1.2, 9.3, 1.2, 9.9, 5.6, 9.9], lacquer, low)

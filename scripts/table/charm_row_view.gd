@@ -23,11 +23,9 @@ const PORT_COUNT := GameRun.MAX_PROJECTORS
 ## In dieser Folge belegen Projektoren die Ports: erst die Mitte, dann abwechselnd außen.
 const PORT_ORDER: Array[int] = [2, 3, 4, 5, 6, 7, 8, 1, 9, 0]
 const PORT_MODEL := "res://assets/models/hardware/usb_port.glb"
-## Die Leiste steht als Blende am Fuß der Rückwand (TableBodyView.FOOT_HEIGHT hoch).
-const RAIL_DEPTH := 0.3
+## Die Leiste IST der Wandfuß des Tischs (TableBodyView.FOOT_HEIGHT hoch).
 const RAIL_HEIGHT := 2.0
 const PORT_PROUD := 0.02
-const RAIL_LINE := Color(0.2, 0.75, 0.9)
 const PORT_DIGIT := Color(0.55, 0.58, 0.64)
 const PORT_LIT := 1.1
 
@@ -130,28 +128,10 @@ func set_projectors(count: int, hard := false) -> void:
 			_move_body(current_charms[i], i, hard)
 	_refresh_readers()
 
-## Blende und zehn Ports an der Wand hinter der Reihe.
+## Zehn Ports am Wandfuß hinter der Reihe.
 func _ensure_rail() -> void:
 	if not ports.is_empty():
 		return
-	var back := CharmReaderView.PORT.x
-	var rail := MeshInstance3D.new()
-	rail.name = "Leiste"
-	var box := BoxMesh.new()
-	box.size = Vector3(RAIL_DEPTH, RAIL_HEIGHT, LINE_SPACING * float(PORT_COUNT - 1) + 4.2)
-	rail.mesh = box
-	rail.material_override = CharmDiskView.shell_material("Leistengrund")
-	rail.position = Vector3(LINE_X + back + RAIL_DEPTH * 0.5, RAIL_HEIGHT * 0.5, 0.0)
-	rail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(rail)
-	var line := MeshInstance3D.new()
-	line.name = "Leistenlinie"
-	var line_box := BoxMesh.new()
-	line_box.size = Vector3(0.02, 0.05, box.size.z - 1.4)
-	line.mesh = line_box
-	line.material_override = CharmDiskView._unshaded(RAIL_LINE * 0.7)
-	line.position = Vector3(LINE_X + back - 0.005, RAIL_HEIGHT - 0.14, 0.0)
-	add_child(line)
 	var scene: PackedScene = load(PORT_MODEL) if ResourceLoader.exists(PORT_MODEL) else null
 	for port in PORT_COUNT:
 		var node := Node3D.new()
