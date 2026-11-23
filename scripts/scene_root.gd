@@ -317,10 +317,8 @@ const PIT_TOP_ROW_SPACING := 3.0
 const PIT_CENTER_ROW_X := 0.0
 const LINEUP_DURATION := 0.35
 
-## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben).
+## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben); waagerecht steht die Grube mittig.
 const PIT_ZOOM_UP := 4.0
-## Die Gruben-Station schaut etwas nach Bild-links: so stehen alle zwölf Kombinationen im Bild.
-const PIT_ZOOM_LEFT := 6.0
 
 ## Mausrad-Navigation: EIN Rad-Schritt = EINE Zoomstufe, also genau die Fahrten,
 ## die auch Klick und Rechtsklick auslösen - die Zoom-Distanzen sind gerechnet
@@ -905,6 +903,11 @@ const SHOP_DISK_TILT := 0.32
 const SHOP_DISK_SINK := 0.3
 var _secret_charm_disk: CharmDiskView
 var _secret_charm_projector: CharmProjectorView
+## Das Projektor-ANGEBOT des Schwarzmarkts als Körper, und der gekaufte auf dem Weg zum Port.
+var _secret_projector: CharmReaderView
+var _flying_projector: CharmReaderView
+const PROJECTOR_CARRY_TIME := 0.7
+const PROJECTOR_CARRY_PEAK := 6.0
 var _charm_sinking: CharmDiskView
 var _charm_shaft: LiftShaftView
 ## Ein Verkauf läßt das Geld am Laufwerk starten statt am Hub (INF = Hub).
@@ -1493,7 +1496,7 @@ func _setup_camera_targets() -> void:
 	# Grubenziel auf Tisch-Screen-Höhe (0), etwas Richtung Charms (+X = oben)
 	# verschoben, damit die Charm-Konsolen mit im Blick sind.
 	camera_rig.configure_pit_target(Vector3(DicePit.PIT_CENTER.x + PIT_ZOOM_UP, 0.0,
-		DicePit.PIT_CENTER.z - PIT_ZOOM_LEFT))
+		DicePit.PIT_CENTER.z))
 	_setup_charms_zoom()
 	_setup_house_bank()
 	_setup_glide_bounds()
@@ -7873,6 +7876,10 @@ func _place_secret_vitrine() -> void:
 	if not market.charm_buying.is_connected(_claim_secret_charm_disk):
 		market.charm_buying.connect(_claim_secret_charm_disk)
 	market.charm_disk_px = _charm_disk_px()
+	if not market.projector_buying.is_connected(_claim_secret_projector):
+		market.projector_buying.connect(_claim_secret_projector)
+	var reader := CharmReaderView.local_bounds()
+	market.projector_px = Vector2(_world_len_px(reader.size.z), _world_len_px(reader.size.x))
 	if secret_vitrine == null or not is_instance_valid(secret_vitrine):
 		secret_vitrine = VitrineView.new("SecretVitrine")
 		# EINE Reihe auf gleicher Tiefe, aber je Stück eine eigene Sektion.
@@ -11394,6 +11401,61 @@ func _sync_secret_charm_disk() -> void:
 		_secret_charm_disk.global_transform = projector.disk_global_transform()
 	projector.set_hovered(_hovered_disk_rect([rect]) == rect)
 
+## Je Bild: ein Projektor-Angebot liegt als echter, leerer PROJEKTOR in der Bucht.
+func _sync_secret_projector_offer() -> void:
+	var market: SecretShopView = table_screen.secret_shop_window if table_screen != null else null
+	var rect := market.projector_rect_px() if market != null and run != null \r
+			and market.is_visible_in_tree() else Rect2()
+	if rect.size.x <= 0.0:
+		_drop_secret_projector()
+		return
+	if _secret_projector == null or not is_instance_valid(_secret_projector):
+		_secret_projector = CharmReaderView.new()
+		_secret_projector.name = "SchwarzmarktProjektorAngebot"
+		add_child(_secret_projector)
+		_secret_projector.set_charm(null)
+	var bounds := CharmReaderView.local_bounds()
+	var mid := bounds.get_center()
+	_secret_projector.global_position = table_screen.pixel_to_world(rect.get_center()) \r
+		- Vector3(mid.x, 0.0, mid.z) + Vector3.UP * BetPrizeView.FLOOR_CLEAR
+
+func _drop_secret_projector() -> void:
+	if _secret_projector != null and is_instance_valid(_secret_projector):
+		_secret_projector.queue_free()
+	_secret_projector = null
+
+## Der gekaufte Projektor fliegt an seinen Port (_on_projectors_changed fängt ihn).
+func _claim_secret_projector() -> void:
+	if _secret_projector == null or not is_instance_valid(_secret_projector):
+		return
+	_drop_flying_projector()
+	_flying_projector = _secret_projector
+	_secret_projector = null
+
+func _drop_flying_projector() -> void:
+	if _flying_projector != null and is_instance_valid(_flying_projector):
+		_flying_projector.queue_free()
+	_flying_projector = null
+
+## Trage-Bogen vom Schwarzmarkt an den neuen Port; der neue Projektor der Reihe
+## zeigt sich erst bei der Landung (ein Ding wird nie zweimal gezeigt).
+func _fly_projector_home(reader: CharmReaderView) -> void:
+	var body := _flying_projector
+	_flying_projector = null
+	if body == null or not is_instance_valid(body):
+		return
+	reader.visible = false
+	var from := body.global_position
+	var to := reader.global_position
+	var tween := body.create_tween()
+	tween.tween_method(_fly_arc.bind(body, from, to, PROJECTOR_CARRY_PEAK), 0.0, 1.0,
+		PROJECTOR_CARRY_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tween.finished.connect(func() -> void:
+		if is_instance_valid(reader):
+			reader.scale = Vector3.ONE
+			reader.visible = true
+		body.queue_free())
+
 ## Der Projektor bleibt als Möbel stehen, solange der Sitz steht (keep_projector).
 func _drop_secret_charm_disk(keep_projector := false) -> void:
 	if _secret_charm_disk != null and is_instance_valid(_secret_charm_disk):
@@ -11563,7 +11625,15 @@ func _on_projectors_changed(hard := false) -> void:
 		return
 	if not hard:
 		_sfx(&"shop_buy")
+	var before := charm_row.readers.duplicate()
 	charm_row.set_projectors(run.projectors, hard)
+	var grown: CharmReaderView = null
+	for reader in charm_row.readers:
+		if not before.has(reader):
+			grown = reader
+	if grown != null and not hard:
+		_fly_projector_home(grown)
+	_drop_flying_projector()
 	if table_screen == null or table_screen.charm_reader_rects.is_empty():
 		return
 	_place_charm_readers()
@@ -11981,6 +12051,7 @@ func _process(delta: float) -> void:
 	_update_charm_hover()
 	_sync_shop_charm_disks()
 	_sync_secret_charm_disk()
+	_sync_secret_projector_offer()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
 	_sync_drum_readers()

@@ -40,6 +40,8 @@ signal lexikon_requested(entry_id: String)
 signal powerbank_purchased(from_px: Vector2)
 ## Gleich wird der Charm am Kartensitz gebucht: seine Diskette fliegt zum Laufwerk.
 signal charm_buying
+## Der Projektor wird gleich gebucht: scene_root schickt seinen Körper an den Port.
+signal projector_buying
 
 ## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
 ## legendären Rarität.
@@ -124,9 +126,8 @@ func _card_seat_size() -> Vector2:
 		charm_disk_px.y + u * CHARM_TAG_UNITS)
 var vitrine_slot: Control
 var reroll_button: Button
-## Die Karte des Projektor-Angebots mitten in der Bucht (null = keins liegt aus).
+## Der Sitz des Projektor-Angebots über der ganzen Bucht (null = keins liegt aus).
 var projector_card: Button
-const PROJECTOR_CARD_UNITS := Vector2(36.0, 17.0)
 ## Die Karte der Powerbank in der rechten Hälfte der Bucht (null = keine liegt aus).
 var powerbank_card: Button
 const POWERBANK_CARD_UNITS := Vector2(27.0, 17.0)
@@ -715,10 +716,10 @@ func _refresh_offers() -> void:
 		var offer := run.secret_stock[i]
 		_sort_into_bay(offer, i == seat)
 		if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
-			projector_card = _build_window_card(offer, i, "PROJEKTOR", "Ein Charm-Platz mehr",
-				"PORTS VOLL", 0.5, PROJECTOR_CARD_UNITS)
+			projector_card = _build_projector_seat(offer, i)
 			projector_card.name = "ProjectorCard"
 			vitrine_slot.add_child(projector_card)
+			_lay_projector_tag()
 			offer_buttons[i] = projector_card
 		elif offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
 			# Rechte Hälfte der Bucht: links liegt die Ware des Sonderposten-Platzes.
@@ -841,6 +842,70 @@ func _build_window_card(offer: Dictionary, index: int, title: String, sub: Strin
 		card.pressed.connect(_on_offer_pressed.bind(index))
 	return card
 
+## Grundriß des Projektor-Körpers in Display-Pixeln (x = Welt-Z, y = Welt-X), gemeldet.
+var projector_px := Vector2.ZERO:
+	set(value):
+		if projector_px != value:
+			projector_px = value
+			_lay_projector_tag()
+## Luft zwischen Bucht-Rand, Projektor und Schild (u).
+const PROJECTOR_PAD_UNITS := 0.8
+
+## Der PROJEKTOR liegt als Körper in der Bucht (scene_root stellt ihn auf
+## projector_rect_px): links, senkrecht mittig - er ist höher als die Bucht, also
+## steht er oben und unten etwas über. Das Fenster malt nur Schild und Hover-Rahmen.
+func _build_projector_seat(offer: Dictionary, index: int) -> Button:
+	var sold: bool = offer[GameRun.OFFER_SOLD]
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var clear := Color(0, 0, 0, 0)
+	card.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	card.add_theme_stylebox_override("hover", _card_box(clear, Color(1.4, 1.1, 0.2), 0.95, 0.3))
+	card.add_theme_stylebox_override("pressed", _card_box(clear, Color(1.4, 1.1, 0.2), 1.0, 0.3))
+	card.add_theme_stylebox_override("disabled", StyleBoxEmpty.new())
+	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var blocked := _offer_blocked(offer)
+	var tag := "VERKAUFT" if sold else ("PORTS VOLL" if blocked
+		else "+1 Charm-Platz\n⚡ %d" % run.secret_offer_price(offer))
+	var price_label := CasinoStyle.label(tag, u * 2.4,
+		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
+	price_label.name = "Price"
+	price_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	price_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	price_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	price_label.anchor_left = 0.0
+	price_label.anchor_right = 1.0
+	price_label.anchor_top = 0.0
+	price_label.anchor_bottom = 1.0
+	card.add_child(price_label)
+	if not sold:
+		card.pressed.connect(_on_offer_pressed.bind(index))
+	return card
+
+## Das Schild steht im Streifen rechts neben dem Projektor.
+func _lay_projector_tag() -> void:
+	if projector_card == null or not is_instance_valid(projector_card):
+		return
+	var label := projector_card.get_node_or_null("Price") as Label
+	if label != null:
+		label.offset_left = projector_px.x + u * PROJECTOR_PAD_UNITS * 3.0
+
+## Wo der Projektor-Körper liegt (Display-Pixel), leer ohne unverkauftes Angebot.
+func projector_rect_px() -> Rect2:
+	if projector_card == null or not is_instance_valid(projector_card) 			or not projector_card.is_visible_in_tree() or projector_px == Vector2.ZERO 			or projector_card.disabled and _projector_sold():
+		return Rect2()
+	var bay := projector_card.get_global_rect()
+	return Rect2(Vector2(bay.position.x + u * PROJECTOR_PAD_UNITS,
+		bay.get_center().y - projector_px.y * 0.5), projector_px)
+
+func _projector_sold() -> bool:
+	for offer in run.secret_stock:
+		if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
+			return bool(offer[GameRun.OFFER_SOLD])
+	return true
+
 ## Ob der Display-Pixel auf einer Karte in der Bucht liegt (Projektor, Powerbank): dort
 ## gehört der Klick dem Fenster, nicht dem Griff der Bucht.
 func window_card_has_point(px: Vector2) -> bool:
@@ -906,6 +971,8 @@ func _on_offer_pressed(index: int) -> void:
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and not bool(offer[GameRun.OFFER_SOLD]) \
 			and run.energy >= price and not run.charms_full():
 		charm_buying.emit()
+	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR and not bool(offer[GameRun.OFFER_SOLD]) 			and run.energy >= price and not _offer_blocked(offer):
+		projector_buying.emit()
 	var powerbank_px := Vector2(-1.0, -1.0)
 	if offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK and powerbank_card != null 			and is_instance_valid(powerbank_card):
 		powerbank_px = powerbank_card.get_global_rect().get_center()

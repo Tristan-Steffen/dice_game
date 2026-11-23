@@ -56,10 +56,9 @@ void fragment() {
 			base = pcb_paint(base, wpos.xz, fwidth(wpos.x) / PCB_TILE * 1.2, 1.0);
 		}
 		vec3 c = base * shade;
-		c += gloss * pow(max(dot(nw, normalize(l + v)), 0.0), 40.0);
+		// Glanz nur gedämpft: die Flächen sind facettiert, ein harter Reflex springt je Polygon.
+		c += gloss * 0.4 * pow(max(dot(nw, normalize(l + v)), 0.0), 40.0);
 		c += gloss * 0.2 * pow(1.0 - max(dot(nw, v), 0.0), 3.0);
-		vec3 r = reflect(-v, nw);
-		c += gloss * gloss * 0.3 * smoothstep(0.78, 0.84, r.y) * step(0.0, sin(r.x * 9.0));
 		if (seams > 0.0 && nw.y > 0.9) {
 			vec2 g = abs(fract(wpos.xz / seams - 0.5) - 0.5) * seams;
 			c *= 1.0 - 0.5 * (1.0 - step(0.07, min(g.x, g.y)));

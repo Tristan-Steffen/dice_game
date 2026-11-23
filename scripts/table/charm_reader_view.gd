@@ -314,6 +314,32 @@ func eject_screen_rect(camera: Camera3D) -> Rect2:
 	var rect := _screen_rect(camera, _corners(EJECT_CENTER, EJECT_SIZE))
 	return rect.grow(EJECT_PICK_PAD) if rect.size != Vector2.ZERO else rect
 
+## Hüllkasten der Hülle in lokalen Maßen (samt Kabel und Stecker), einmal gemessen.
+static var _bounds := AABB()
+
+static func local_bounds() -> AABB:
+	if _bounds.size == Vector3.ZERO:
+		var probe := CharmReaderView.new()
+		probe._build()
+		_bounds = _merge_bounds(probe, Transform3D.IDENTITY)
+		probe.free()
+	return _bounds
+
+static func _merge_bounds(node: Node, at: Transform3D) -> AABB:
+	var out := AABB()
+	for child in node.get_children():
+		if not child is Node3D or child.name == "Lichthof":
+			continue
+		var here := at * (child as Node3D).transform
+		var box := AABB()
+		if child is MeshInstance3D and not child is Label3D and (child as MeshInstance3D).mesh != null:
+			box = here * (child as MeshInstance3D).get_aabb()
+		var deeper := _merge_bounds(child, here)
+		for part in [box, deeper]:
+			if part.size != Vector3.ZERO:
+				out = part if out.size == Vector3.ZERO else out.merge(part)
+	return out
+
 ## Der Grundriß (Welt-XZ) samt der vorstehenden Diskette - für die Display-Pixel.
 func footprint_world() -> Array[Vector3]:
 	var back := SIZE.x * 0.5

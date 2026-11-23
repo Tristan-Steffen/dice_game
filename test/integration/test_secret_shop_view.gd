@@ -30,22 +30,30 @@ func test_a_powerbank_is_a_card_in_the_right_half_of_the_bay() -> void:
 	assert_eq(run.storage_rows, 5, "eine Fünfergruppe mehr")
 	assert_signal_emitted(view, "powerbank_purchased", "die Kartusche fliegt von der Karte los")
 
-func test_a_projector_offer_is_one_card_in_the_bay() -> void:
+func test_a_projector_offer_is_a_seat_for_the_real_projector() -> void:
+	view.projector_px = Vector2(120, 90)
 	GameRun.secret_projector_chance = 1.0
 	run._roll_secret_stock()
 	GameRun.secret_projector_chance = 0.0
 	run.secret_stock_changed.emit()
 	await wait_frames(2)
-	assert_not_null(view.projector_card, "die Karte steht")
+	assert_not_null(view.projector_card, "der Sitz steht")
 	assert_eq(view.offer_buttons[1], view.projector_card)
-	assert_true(view.vitrine_rect_px().encloses(view.projector_card.get_global_rect()),
-		"sie liegt ganz in der Bucht")
+	var seat := view.projector_card.get_global_rect()
+	assert_true(view.vitrine_rect_px().encloses(seat), "er liegt ganz in der Bucht")
+	var body := view.projector_rect_px()
+	assert_eq(body.size, view.projector_px, "der Körper hat seine EINE Größe")
+	assert_almost_eq(body.get_center().y, seat.get_center().y, 0.01, "senkrecht mittig in der Bucht")
+	assert_gte(body.position.x, seat.position.x, "links in der Bucht")
 	for kind in view.vitrine_stock()[VitrineView.STOCK_ROW_KINDS]:
-		assert_eq(String(kind), "", "kein Körper in der Bucht")
+		assert_eq(String(kind), "", "kein Vitrinen-Körper in der Bucht")
+	watch_signals(view)
 	view.projector_card.pressed.emit()
+	assert_signal_emitted(view, "projector_buying", "der Körper fliegt vor der Buchung los")
 	assert_eq(run.projectors, GameRun.START_PROJECTORS + 1)
 	await wait_frames(2)
 	assert_true(view.projector_card.disabled, "verkauft")
+	assert_eq(view.projector_rect_px(), Rect2(), "verkauft liegt kein Projektor mehr da")
 
 func before_each() -> void:
 	GameRun.secret_projector_chance = 0.0  # die Auslage bleibt bei drei Plätzen

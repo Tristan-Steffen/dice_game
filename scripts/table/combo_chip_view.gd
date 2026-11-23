@@ -225,6 +225,7 @@ func setup(depth_world: float) -> void:
 	_display_material = StandardMaterial3D.new()
 	_display_material.albedo_color = SCREEN_GLASS
 	_display_material.roughness = 0.2
+	_display_material.metallic_specular = 0.0  # kein Lichtfleck des Spill-Lichts
 	_display_material.emission_enabled = true
 	_override(inst, "Display", _display_material)
 
@@ -391,6 +392,7 @@ func _build_screen() -> void:
 	_screen_material = StandardMaterial3D.new()
 	_screen_material.albedo_color = SCREEN_GLASS
 	_screen_material.roughness = 0.15
+	_screen_material.metallic_specular = 0.0  # kein Lichtfleck des Spill-Lichts
 	_screen_material.emission_enabled = true
 	_screen_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	glass.material_override = _screen_material
