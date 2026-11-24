@@ -324,50 +324,49 @@ func test_wiring_paths_converge_on_pins():
 	assert_eq(paths[2][paths[2].size() - 1].x, paths[3][paths[3].size() - 1].x, "rechts: gleiche Pin-Spitze")
 
 func test_wiring_paths_use_only_existing_buses():
-	# Randspalten haben nur EINE Nachbarschiene - es darf kein Komet über eine
-	# Schiene laufen, die gar nicht liegt.
+	# Auch die Randspalte hängt an zwei Senkrechten (Lücke und Außenschiene).
 	var paths := screen.wiring_paths_to_cell(0)
-	assert_eq(paths.size(), 2, "Randspalte: zwei Zulauf-Pfade")
-	var buses := screen.combo_bus_xs()
+	assert_eq(paths.size(), 4, "Randspalte: vier Zulauf-Pfade")
+	var rails := screen.combo_rail_xs()
 	for path in paths:
-		assert_true(buses.has(path[0].x), "Pfad startet auf einer verlegten Schiene")
+		assert_true(rails.has(path[0].x), "Pfad startet auf einer verlegten Schiene")
 
-func test_wiring_paths_start_at_the_bus_ends():
+func test_wiring_paths_start_at_the_cross_rails():
+	var ys := screen.combo_rail_ys()
 	for path in screen.wiring_paths_to_cell(3):
 		var start_y: float = path[0].y
-		assert_true(is_equal_approx(start_y, screen.cluster_rect.position.y)
-				or is_equal_approx(start_y, screen.cluster_rect.end.y),
-			"Pfad startet an einem Ende der Sammelschiene")
+		assert_true(is_equal_approx(start_y, ys.x) or is_equal_approx(start_y, ys.y),
+			"Pfad startet auf einer Quer-Schiene")
 
-func test_wiring_keeps_only_the_shared_buses():
-	# Drei Spalten -> zwei geteilte Lücken; die äußeren Schienen entfallen.
-	assert_eq(screen.combo_bus_xs().size(), 2, "nur die inneren Sammelschienen")
+func test_the_bus_has_outer_rails_beside_the_gap_rails():
+	var rails := screen.combo_rail_xs()
+	assert_eq(rails.size(), screen.combo_bus_xs().size() + 2, "außen links und rechts dazu")
+	var tip: float = ComboChipView.pin_offsets_px(TableScreen.CELL_SIZE)["tip_dx"]
+	for rect in screen.combo_cell_rects():
+		assert_gt(rect.get_center().x - tip, rails[0], "die linke Außenschiene steht vor jedem Chip")
+		assert_lt(rect.get_center().x + tip, rails[rails.size() - 1], "die rechte dahinter")
 
-func test_wiring_gives_every_chip_exactly_one_stub_per_bus():
-	# Sparsam verdrahtet: ein Stich je Nachbarschiene (nicht je Pin-Höhe), dazu
-	# die zwei Senkrechten und EINE Quer-Schiene unten.
-	var stubs := 0
-	for key: String in screen.combo_cells:
-		var cell: ComboCellView = screen.combo_cells[key]
-		var buses := screen.combo_bus_xs()
-		var stub := TableScreen.CELL_GAP.x * 0.5
-		for bus: float in buses:
-			# Wie die Verlegung: auf ganze Pixel gerundet (die Zellen liegen nicht ganzzahlig).
-			if roundi(bus) == roundi(cell.position.x - stub) \
-					or roundi(bus) == roundi(cell.position.x + cell.size.x + stub):
-				stubs += 1
-	assert_gt(stubs, 0, "jeder Chip hängt an mindestens einer Schiene")
-	assert_eq(screen.combo_wiring.rail_paths.size(), stubs + 3,
-		"Stiche + zwei Senkrechte + eine Quer-Schiene")
+func test_every_pin_has_a_stub_onto_a_rail():
+	var pins := screen.combo_pin_tips()
+	assert_eq(screen.combo_wiring.stub_paths.size(), pins.size(), "jeder Pin hat seinen Stich")
+	assert_eq(screen.combo_wiring.rail_paths.size(), 1 + screen.combo_bus_xs().size(),
+		"der Ring und je Spaltenlücke eine Senkrechte")
+	var ring: PackedVector2Array = screen.combo_wiring.rail_paths[0]
+	var rails := screen.combo_rail_xs()
+	var xs := PackedFloat32Array()
+	for p in ring:
+		xs.append(p.x)
+	assert_true(xs.has(rails[0]) and xs.has(rails[rails.size() - 1]),
+		"die Quer-Schienen reichen bis zu den äußersten Chips")
 
 func test_link_hub_to_cluster_builds_led_strip():
 	screen.place_hub(Vector2(3400, 2200), Vector2(1500, 1500))
 	screen.link_hub_to_cluster()
 	assert_gt(screen.led_strip.strip_path.size(), 2, "eine Ader in Z-Führung mit Knicken")
 
-func test_hub_and_score_adern_meet_opposite_net_corners():
-	# Die Hub-Ader endet in der Ecke unten rechts, die Score-Ader startet oben
-	# links - beide auf einem Knoten des Chip-Netzes, nie auf freier Strecke.
+func test_hub_and_score_adern_meet_the_right_bit_line():
+	# Die Hub-Ader endet unten an der rechten Schiene, die Score-Ader startet oben an
+	# derselben - beide auf einer Lötbrücke der Karte, nie auf freier Strecke.
 	screen.place_hub(Vector2(3400, 2200), Vector2(1500, 1500))
 	screen.place_score_screen()  # ohne Wertungs-Rahmen legt link_score_strips nichts
 	screen.link_hub_to_cluster()
@@ -375,10 +374,12 @@ func test_hub_and_score_adern_meet_opposite_net_corners():
 	var buses := screen.combo_bus_xs()
 	var hub_end: Vector2 = screen.led_strip.strip_path[screen.led_strip.strip_path.size() - 1]
 	assert_almost_eq(hub_end.x, buses[buses.size() - 1], 0.5, "Hub trifft die rechte Schiene")
-	assert_almost_eq(hub_end.y, screen.cluster_rect.end.y, 0.5, "auf Höhe der Quer-Schiene")
+	assert_almost_eq(hub_end.y, screen.combo_rail_ys().y + PcbDeckView.PITCH * 0.5, 0.5,
+		"auf der äußeren Spur der unteren Quer-Schiene")
 	var score_start: Vector2 = screen.combos_score_strip.strip_path[0]
-	assert_almost_eq(score_start.x, buses[0], 0.5, "Score startet an der linken Schiene")
-	assert_almost_eq(score_start.y, screen.cluster_rect.position.y, 0.5, "an deren oberem Ende")
+	assert_almost_eq(score_start.x, buses[buses.size() - 1], 0.5, "Score startet an der rechten Schiene")
+	assert_almost_eq(score_start.y, screen.combo_rail_ys().x - PcbDeckView.PITCH * 0.5, 0.5,
+		"auf der äußeren Spur der oberen Quer-Schiene")
 
 func test_cluster_rect_covers_all_cells():
 	# cluster_rect ist die Hülle des Chip-Felds (Zoomziel, Spill-Licht,

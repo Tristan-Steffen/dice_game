@@ -26,8 +26,8 @@ func test_die_rueckwand_steht_an_den_usb_ports() -> void:
 	var row := CharmRowView.new()
 	add_child_autofree(row)
 	var face := row.ports[0].global_position.x + CharmRowView.PORT_PROUD
-	# Die Reihe steht im Spiel bei x = -11,652 (scene_root rückt sie an die Wertung).
-	assert_almost_eq(face - 11.652, TableBodyView.inner_rect().end.x, 0.05)
+	# Die Reihe steht im Spiel bei x = -10,522 (scene_root rückt sie an die Wertung).
+	assert_almost_eq(face - 10.522, TableBodyView.inner_rect().end.x, 0.05)
 	assert_almost_eq(row.ports[0].global_position.y, CharmReaderView.PORT.y, 0.001, "an der Wand, nicht im Tisch")
 	assert_eq(CharmRowView.RAIL_HEIGHT, TableBodyView.FOOT_HEIGHT)
 

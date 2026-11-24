@@ -114,7 +114,8 @@ const SWALLOW_SPEED := 2.0
 ## (Marker3D unter $ScreenAnchors); nur die GRÖSSEN stehen hier als Weltmaß.
 const PIT_SCORE_WIDTH_WORLD := 10.0
 ## Fuge Grube -> Wertungs-Bildschirm und Wertungs-Bildschirm -> Charm-Konsolen (Welt).
-const SCORE_PIT_GAP_WORLD := 1.17
+## Breit genug, daß zwischen den Fassungen von Wertung und Grube der Grubenbus sichtbar läuft.
+const SCORE_PIT_GAP_WORLD := 2.3
 const SCORE_CHARM_GAP_WORLD := 1.24
 ## Die ausgeworfene Diskette fällt in diesem Bogen vor ihr Laufwerk auf den Tisch.
 const CHARM_EJECT_DROP_TIME := 0.32
@@ -167,6 +168,8 @@ const BET_DIE_TINT := Color(0.55, 0.9, 1.0)
 ## Wuchs-Faktor des Wett-Tresens (Spieler-Entscheid 2026-08-27): die Fenster-
 ## EINHEIT ist seine eigene Breite (SideBetPanel: size.x/UNIT_DIV), also wachsen
 ## Plots, Fassungen, Löcher UND Schrift gemeinsam um dieses Maß.
+## Fuge zwischen Wetten, Chips, Glück und Energie als Anteil der Layout-Breite.
+const STATION_GAP_SHARE := 0.011
 const WETTEN_ROOM := 1.3
 
 ## Die AUFDECKUNG: eine Seite, die ein Funke trifft, blitzt so lange auf. Das
@@ -443,6 +446,8 @@ var highlighted_combo_key: String = ""  # gerade golden hervorgehobene Kombinati
 @onready var charm_row: CharmRowView = $Charms
 ## Geldstand als Chips in den Rinnen des Chip-Trays (ein Abakus des Geldes).
 @onready var chip_tray: ChipTrayView = $ChipTray
+## Die Fassung des Trays als Körper (Rahmen, Kappen, Schiene, Lichtschranken, Hubmagnete).
+var chip_dress: ChipTrayDress
 ## Zuletzt ANGEZEIGTER Geldstand - Vergleichsbasis der Geld-Lichtanimation.
 var _shown_money := 0
 
@@ -1185,7 +1190,7 @@ func _setup_table_screen() -> void:
 	# Das CHIP-TRAY RECHTS des Wett-Tresens, genau so groß wie er (Spieler-Entscheid
 	# 2026-11-12); die frei gewordene Hälfte des alten Schatzes bleibt frei.
 	var side_r := Rect2(table_screen.side_bet_window.position, table_screen.side_bet_window.size)
-	var t_rect := TreasureChestView.placed_beside(side_r, TableScreen.LAYOUT_SIZE.x * 0.005)
+	var t_rect := TreasureChestView.placed_beside(side_r, TableScreen.LAYOUT_SIZE.x * STATION_GAP_SHARE)
 	table_screen.place_treasure_window(t_rect)
 	var tray_pit := table_screen.tray_pit_rect()
 	var pit_a := table_screen.pixel_to_world(tray_pit.position)
@@ -1195,19 +1200,21 @@ func _setup_table_screen() -> void:
 	chip_tray.setup(Vector3(pit_mid.x, 0.0, pit_mid.z),
 		Vector2(absf(pit_a.x - pit_b.x), absf(pit_a.z - pit_b.z)) * 0.5)
 	chip_tray.seat_hard(ChipTrayView.belegung(_shown_money))
+	_setup_chip_dress(t_rect)
 	if not chip_tray.chip_entered.is_connected(_on_tray_chip_entered):
 		chip_tray.chip_entered.connect(_on_tray_chip_entered)
 		chip_tray.chip_left.connect(_on_tray_chip_left)
 	# Die GLÜCKS-STATION eine Fuge rechts neben dem Tray; Klickzone und Station CHIPS rahmen beide.
-	var luck_rect := LuckStationView.placed_beside(t_rect, TableScreen.LAYOUT_SIZE.x * 0.005,
+	var luck_rect := LuckStationView.placed_beside(t_rect, TableScreen.LAYOUT_SIZE.x * STATION_GAP_SHARE,
 		_luck_station_limit_x(t_rect))
 	table_screen.place_luck_station(luck_rect)
+	_setup_luck_station_body()
 	var chips_rect := t_rect.merge(luck_rect) if luck_rect.size.x > 0.0 else t_rect
 	# Die AKKU-BANK eine Fuge rechts neben der Glücks-Station, so groß wie sie.
 	var bank_from := luck_rect if luck_rect.size.x > 0.0 else t_rect
-	_energy_bank_px = LuckStationView.placed_beside(t_rect, TableScreen.LAYOUT_SIZE.x * 0.005,
+	_energy_bank_px = LuckStationView.placed_beside(t_rect, TableScreen.LAYOUT_SIZE.x * STATION_GAP_SHARE,
 		_luck_station_limit_x(t_rect))
-	_energy_bank_px.position.x = bank_from.end.x + TableScreen.LAYOUT_SIZE.x * 0.005
+	_energy_bank_px.position.x = bank_from.end.x + TableScreen.LAYOUT_SIZE.x * STATION_GAP_SHARE
 	_energy_bank_px.size.x = minf(_energy_bank_px.size.x,
 		_luck_station_limit_x(t_rect) - _energy_bank_px.position.x)
 	if _energy_bank_px.size.x > 0.0:
@@ -1221,6 +1228,7 @@ func _setup_table_screen() -> void:
 	chips_click_zone = _add_click_zone("ChipsClickZone",
 		Vector3(tr_mid.x, 0.0, tr_mid.z),
 		Vector3(absf(tr_a.x - tr_b.x), 4.0, absf(tr_a.z - tr_b.z)))
+	table_screen.place_energy_bank(_energy_bank_px)
 	table_screen.link_hub_to_treasure()
 	_setup_energy_bank(_energy_bank_px)
 
@@ -1460,7 +1468,7 @@ func _die_face_px() -> float:
 ## bekommt EIN gemeinsames Licht (ihre Fenster teilen sich den Zoom sowieso).
 func _setup_screen_spill_lights(workshop_corner: Rect2) -> void:
 	var cyan: Color = TableScreen.FRAME_COLOR
-	var gold: Color = TreasureChestView.GOLD
+	var gold := Color("#ffd36a")
 	_add_spill_light("PitSpill",
 		Rect2(table_screen.pit_window.position, table_screen.pit_window.size), cyan)
 	# Kombi-Cluster heller: dort stehen echte 3D-Chips, die ohne Licht schwarz
@@ -2130,6 +2138,37 @@ func _fire_tray_comets(steps: Array[Dictionary]) -> void:
 		else:
 			get_tree().create_timer(float(i) * MONEY_PULSE_GAP).timeout.connect(fire)
 
+## Die FASSUNG des Trays als Körper: Stahlrahmen über dem Rechteck des Platzes, in Welt
+## relativ zum Tray gerechnet (x Bild-oben, z Bild-rechts).
+func _setup_chip_dress(t_rect: Rect2) -> void:
+	if chip_dress == null:
+		chip_dress = ChipTrayDress.new()
+		chip_dress.name = "ChipTrayDress"
+		add_child(chip_dress)
+	var origin := chip_tray.global_position
+	var a := table_screen.pixel_to_world(t_rect.position) - origin
+	var b := table_screen.pixel_to_world(t_rect.end) - origin
+	var frame := Rect2(Vector2(minf(a.x, b.x), minf(a.z, b.z)), Vector2(absf(a.x - b.x), absf(a.z - b.z)))
+	var rail := table_screen.pixel_to_world(t_rect.position
+		+ Vector2(table_screen.treasure_window.rail_x(), 0.0)).z - origin.z
+	chip_dress.setup(chip_tray, frame, rail)
+
+## Je Bild: Belegung, Sperren, Übertrag und Blitze der Fassung an ihren Körper.
+func _sync_chip_dress() -> void:
+	if chip_dress == null or chip_tray == null or table_screen == null:
+		return
+	var treasure := table_screen.treasure_window
+	var gates: Array[bool] = []
+	for r in ChipTrayView.VALUES.size():
+		gates.append(chip_tray.gate_open(r))
+	chip_dress.set_state(chip_tray.body_counts(), gates, chip_tray.flow(), treasure.top_count())
+	var entry: Array[float] = []
+	var exit: Array[float] = []
+	for r in ChipTrayView.VALUES.size():
+		entry.append(treasure.entry_flash(r))
+		exit.append(treasure.exit_flash(r))
+	chip_dress.set_lights(treasure.glint_share(), entry, exit)
+
 ## Die Zahl der 10.000er steht am Kopf ihrer Rinne, sobald sie in Lagen liegen.
 func _sync_tray_head(money: int) -> void:
 	if table_screen != null and table_screen.treasure_window != null:
@@ -2139,10 +2178,8 @@ func _sync_tray_head(money: int) -> void:
 ## Ein Chip ist links eingelaufen: der Kopf seiner Rinne blitzt.
 func _on_tray_chip_entered(rank: int) -> void:
 	_sfx(&"chip_in", 0.0, 1.0 + 0.04 * rank)
-	if table_screen == null or table_screen.treasure_window == null:
-		return
-	table_screen.treasure_window.flash_entry(rank,
-		ChipStackView.denomination_color(ChipTrayView.VALUES[rank]))
+	if chip_dress != null:
+		chip_dress.flash_beam(rank)
 
 ## Ein Chip ist rechts im Tisch verschwunden: der Rand blitzt, und war er gezahlt,
 ## fährt sein Licht vom Auslauf zum Hub.
@@ -2593,7 +2630,7 @@ func _setup_chip_frames(pit_rect: Rect2) -> void:
 	var hub_rect := Rect2(table_screen.hub.position, table_screen.hub.size)
 	# Je Fenster: Gravur, Lippe über dem Rand, Flansch.
 	for entry: Array in [[hub_rect, "FUMBLE  FX-6  HUB  ·  L0420B117", 0.3, 0.7],
-			[table_screen.score_rect, "FUMBLE  FX-2  ·  B117", 0.14, 0.58]]:
+			[table_screen.score_rect, "FUMBLE  FX-2  ·  B117", 0.14, TableScreen.SCORE_FLANGE_WORLD]]:
 		var rect: Rect2 = entry[0]
 		var frame := ChipFrameView.new()
 		frame.name = "ChipFrame"
@@ -11231,13 +11268,16 @@ func _charm_anchor_px(slot: int) -> Vector2:
 
 ## Die Grundrisse der Laufwerke samt Diskette an die Anzeige melden (ihre Adern).
 func _place_charm_readers() -> void:
+	var to_rect := func(corners: Array[Vector3]) -> Rect2:
+		return Rect2(table_screen.world_to_pixel(corners[0]), Vector2.ZERO) \
+			.expand(table_screen.world_to_pixel(corners[1]))
 	var rects: Array[Rect2] = []
 	for i in charm_row.projector_count():
-		var corners := charm_row.footprint(i)
-		var a := table_screen.world_to_pixel(corners[0])
-		var b := table_screen.world_to_pixel(corners[1])
-		rects.append(Rect2(a, Vector2.ZERO).expand(b))
-	table_screen.place_charm_readers(rects)
+		rects.append(to_rect.call(charm_row.footprint(i)))
+	var bodies: Array[Rect2] = []
+	for port in CharmRowView.PORT_COUNT:
+		bodies.append(to_rect.call(charm_row.port_body_footprint(port)))
+	table_screen.place_charm_readers(rects, bodies)
 
 ## Hover über einem Projektor: das Display nennt den Preis. Antwortet überall, wo die Reihe steht.
 func _update_charm_hover() -> void:
@@ -11582,6 +11622,11 @@ func _setup_energy_bank(field: Rect2) -> void:
 	var world := field.size / table_screen.pixels_per_world()
 	energy_bank.scale = Vector3.ONE * minf(world.x / EnergyBankView.SIZE.y, world.y / EnergyBankView.SIZE.x)
 	add_child(energy_bank)
+	# Der Schacht ist versenkt: die Anzeige bekommt dort ein Loch.
+	var corners := energy_bank.shaft_world_corners()
+	var a := table_screen.world_to_pixel(corners[0])
+	var b := table_screen.world_to_pixel(corners[1])
+	table_screen.set_pit(TableScreen.PIT_ENERGY, Rect2(Vector2(minf(a.x, b.x), minf(a.y, b.y)), (a - b).abs()))
 
 ## Flache Klickbox auf der Kamera-Klickebene (Layer 8, wie PitClickZone).
 ## Eine weitere Fläche derselben Klickzone (Display-Pixel) - die Zone bleibt EIN Körper.
@@ -12098,6 +12143,7 @@ func _process(delta: float) -> void:
 	_sync_pack_choice()  # und ein geöffnetes Paket die Kamera an die Öffnungs-Fläche
 	_hold_zone_picture()
 	_sync_luck_die()  # danach der Glückswürfel: Station, Wurfplatz oder Grube
+	_sync_chip_dress()  # und die Fassung des Chip-Trays folgt seinen Schritten
 	_sync_house_bank()  # und der Schirm der Bank nennt, was der Zeiger trifft
 	_sync_storage_bank()  # und die Energiezellen des Speichers
 	_sync_drum_state()
@@ -15218,6 +15264,8 @@ func _connect_run() -> void:
 		charm_shop.pack_refunded.connect(_on_pack_refunded)
 	_settle_part_install_hard()  # ein Einbau des alten Laufs schuldet nichts mehr
 	_seat_luck_die_for_run()  # der Glückswürfel des neuen Laufs liegt hart am Platz
+	if chip_dress != null:
+		chip_dress.settle_hard()  # und die Fassung des Trays trägt keinen Blitz hinüber
 	charm_library.run = run
 	run.money_changed.connect(_on_money_changed)
 	_sfx_charm_count = run.owned_charms.size()
@@ -18207,6 +18255,8 @@ const LUCK_ROLL := 1
 const LUCK_PIT := 2
 
 var luck_die_view: LuckDieView
+## Der Körper der Station: Sockel, Hebel, Chip, Schalterbank, Steckbrücken.
+var luck_station_body: LuckStationBody
 ## Sein Ort (LUCK_*); fliegt er gerade, führt der Bogen dorthin.
 var _luck_at := LUCK_HOME
 ## Die Seite des letzten Wurfs (-1 = in diesem Lauf noch keiner) - die Station säumt sie.
@@ -18227,6 +18277,31 @@ func _setup_luck_die() -> void:
 	luck_die_view.pip_changed.connect(func(gain: bool, value: int) -> void:
 		if case_show != null:
 			case_show.play_pip(gain, value))
+
+## Der Körper der Station steht auf ihrem Fenster; jedes Teil kommt als gemeldetes
+## Rechteck, um die Stationsmitte in Welt gerechnet (x Bild-rechts, y Bild-unten).
+func _setup_luck_station_body() -> void:
+	var station := table_screen.luck_station_window
+	if station == null or not station.visible:
+		return
+	if luck_station_body == null:
+		luck_station_body = LuckStationBody.new()
+		luck_station_body.name = "LuckStationBody"
+		add_child(luck_station_body)
+	var rect := Rect2(station.position, station.size)
+	var at := table_screen.pixel_to_world(rect.get_center())
+	luck_station_body.position = Vector3(at.x, 0.0, at.z)
+	var ppw := table_screen.pixels_per_world()
+	var local := func(px: Rect2) -> Rect2:
+		return Rect2((px.position - rect.get_center()) / ppw, px.size / ppw)
+	var parts := {}
+	for key: String in LuckStationView.PARTS:
+		parts[key] = local.call(table_screen.luck_part_px(key))
+	var cells: Array[Rect2] = []
+	for face in LuckDie.FACES:
+		cells.append(local.call(table_screen.luck_cell_px(face)))
+	parts["cells"] = cells
+	luck_station_body.setup(parts)
 
 ## Ein frischer Lauf: der gebuchte Stand steht hart am Platz.
 func _seat_luck_die_for_run() -> void:
@@ -18280,9 +18355,10 @@ func _luck_die_roll_px() -> Rect2:
 	var side := _world_len_px(LuckDieView.half_edge() * 2.0) * LUCK_DIE_ROOM
 	return Rect2(Vector2(area.end.x + gap, area.position.y), Vector2(side, side))
 
+## Zu Hause ruht er auf dem Sitz des Sockels.
 func _luck_die_home() -> Vector3:
 	var at := table_screen.pixel_to_world(_luck_die_place_px().get_center())
-	return Vector3(at.x, 0.0, at.z)
+	return Vector3(at.x, LuckStationBody.SEAT_TOP if luck_station_body != null else 0.0, at.z)
 
 ## Der Punkt eines Ortes (ohne Wurfplatz würfelt er zu Hause).
 func _luck_spot(where: int) -> Vector3:
@@ -18311,9 +18387,10 @@ func _pit_luck_rest() -> Vector3:
 func _sync_luck_die() -> void:
 	if luck_die_view == null or run == null or table_screen == null:
 		return
-	var station := table_screen.luck_station_window
-	if station != null and station.visible:
-		station.set_state(luck_die_view.shown_faces(), _luck_last_face, run.luck_station_state())
+	if luck_station_body != null:
+		luck_station_body.set_state(luck_die_view.shown_faces(), _luck_last_face, run.luck_station_state())
+		# Der Hebel steht auf, solange der Würfel nicht auf seinem Sitz ruht.
+		luck_station_body.set_lever_open(_luck_at != LUCK_HOME or luck_die_view.carrying())
 	var place := _luck_die_place_px()
 	luck_die_view.visible = place.size.x > 0.0 and camera_rig.mode != CameraRig.Mode.TITLE
 	if place.size.x <= 0.0:
@@ -18393,6 +18470,9 @@ func _luck_die_home_hard() -> void:
 	luck_die_view.settle_hard()
 	if table_screen != null and _luck_die_place_px().size.x > 0.0:
 		luck_die_view.land_at(_luck_die_home())
+	if luck_station_body != null:
+		luck_station_body.set_lever_open(false)
+		luck_station_body.settle_hard()
 
 ## Die Optionen liegen: der Glückswürfel rollt auf die gebuchte Seite, und erst sein
 ## Stillstand nennt die Wahlen (_on_luck_die_rolled).

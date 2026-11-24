@@ -493,6 +493,12 @@ func footprint(i: int) -> Array[Vector3]:
 	_ensure_readers()
 	return readers[i].footprint_world()
 
+## Welt-XZ-Grundriß des Gehäuses an einem Port - auch wo (noch) kein Projektor steht.
+func port_body_footprint(port: int) -> Array[Vector3]:
+	var at := port_position(port)
+	var half := CharmReaderView.SIZE * 0.5
+	return [to_global(at + Vector3(half.x, 0.0, -half.z)), to_global(at + Vector3(-half.x, 0.0, half.z))]
+
 func disk_of(index: int) -> CharmDiskView:
 	if index < 0 or index >= current_charms.size():
 		return null

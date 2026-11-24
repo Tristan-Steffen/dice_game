@@ -1,5 +1,5 @@
 extends GutTest
-## Das geroutete Deck (PcbDeckView): Eckschnitt der Züge, Routing-Regeln, Adern-Korridore.
+## Das Deck (PcbDeckView): Eckschnitt der Züge, BGA-Felder, Tochterkarte.
 
 func _view(reserved: Array[Rect2] = []) -> PcbDeckView:
 	var view := PcbDeckView.new()
@@ -33,36 +33,16 @@ func test_parallel_tracks_keep_their_pitch_through_a_corner():
 		1.0, 0.001, "beide Schrägen laufen parallel")
 	assert_gt(gap, 0.0)
 
-func test_plan_is_deterministic_and_routes_something():
-	var a := _view()
-	var b := _view()
-	assert_gt(a.bundle_count(), 0)
-	assert_eq(a.bundle_count(), b.bundle_count())
-	assert_eq(str(a._bundles), str(b._bundles))
-	a.free()
-	b.free()
-
-func test_no_bundle_has_more_than_two_corners_or_crosses_furniture():
-	var view := _view()
-	for bundle in view._bundles:
-		var pts: Array = bundle["pts"]
-		assert_lte(pts.size(), 4, "höchstens zwei Ecken")
-		for i in range(1, pts.size() - 2):
-			var seg := Rect2(pts[i], Vector2.ZERO).expand(pts[i + 1])
-			for c in view.comps.size() - view._ghosts:
-				assert_false(view.comps[c].intersects(seg), "kein Zug durch ein Möbel")
-	view.free()
-
-func test_reserved_corridors_stay_free():
+func test_bga_fields_are_deterministic_and_stay_out_of_corridors():
 	var corridor := Rect2(0, 950, 3000, 120)
 	var reserved: Array[Rect2] = [corridor]
-	var view := _view(reserved)
-	for bundle in view._bundles:
-		var pts: Array = bundle["pts"]
-		for i in pts.size() - 1:
-			assert_false(corridor.intersects(Rect2(pts[i], Vector2.ZERO).expand(pts[i + 1])),
-				"kein Deko-Zug im Korridor einer Ader")
-	view.free()
+	var a := _view(reserved)
+	var b := _view(reserved)
+	assert_eq(str(a.comps), str(b.comps))
+	for i in range(a.comps.size() - a._ghosts, a.comps.size()):
+		assert_false(a.comps[i].intersects(corridor), "kein BGA-Feld im Korridor einer Ader")
+	a.free()
+	b.free()
 
 func test_pulse_runs_one_stream_per_track():
 	var pulse := TracePulseView.new()

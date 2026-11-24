@@ -38,3 +38,37 @@ func test_link_from_hub_top_matches_edges():
 	assert_eq(strip.strip_path, PackedVector2Array([
 		Vector2(250, 1000), Vector2(250, 850), Vector2(400, 850), Vector2(400, 700)]))
 	strip.free()
+
+func test_every_incoming_track_sends_a_shoot_into_every_rail_track() -> void:
+	var pitch := PcbDeckView.PITCH
+	var knot := {"at": Vector2(100, 200), "dir": Vector2(0, -1), "reach": 60.0, "branch": 3, "rail": 3}
+	var lines := LedStripView.knot_lines(knot)
+	var rail_ys := [200.0 - pitch, 200.0, 200.0 + pitch]
+	var shoots: Array = []
+	for line: PackedVector2Array in lines:
+		if line.size() > 2:
+			shoots.append(line)
+	# Außen je ein Trieb je Schienenzug, die Mitte nach beiden Seiten.
+	assert_eq(shoots.size(), 3 + 2 * 3 + 3, "zwölf Triebe")
+	for x: float in [100.0 - pitch, 100.0, 100.0 + pitch]:
+		for y: float in rail_ys:
+			var hit := false
+			for shoot: PackedVector2Array in shoots:
+				var start := shoot[0]
+				var tail := shoot[shoot.size() - 1]
+				if absf(start.x - x) < 0.01 and absf(tail.y - y) < 0.01:
+					hit = true
+			assert_true(hit, "Zug bei x %.1f trifft den Schienenzug bei y %.1f" % [x, y])
+
+func test_a_knot_is_mirror_symmetric_about_its_axis() -> void:
+	var knot := {"at": Vector2(100, 200), "dir": Vector2(0, 1), "reach": 50.0, "branch": 2, "rail": 2}
+	var ends: Array[Vector2] = []
+	for line: PackedVector2Array in LedStripView.knot_lines(knot):
+		ends.append(line[line.size() - 1])
+	for at in ends:
+		var mirrored := Vector2(200.0 - at.x, at.y)
+		var found := false
+		for other in ends:
+			if other.distance_to(mirrored) < 0.01:
+				found = true
+		assert_true(found, "Spiegelbild von %s" % at)

@@ -413,6 +413,25 @@ func busy() -> bool:
 				return true
 	return false
 
+## Steht die Sperre einer Rinne offen?
+func gate_open(rank: int) -> bool:
+	return _gate_open[rank] or _gate_t[rank] > 0.0
+
+## Der laufende Übertrag (von, nach) bzw. das Borgen (von, hinab nach); (-1, -1) = keiner.
+func flow() -> Vector2i:
+	if _ops.is_empty():
+		return Vector2i(-1, -1)
+	return _ops[0].get("flow", Vector2i(-1, -1))
+
+## Wo die Füllmarke nach count Chips auf dem Steg UNTER der Rinne liegt (lokal).
+func mark_point(rank: int, count: int) -> Vector3:
+	var s := slot_s(count - 1) - PITCH * 0.5
+	var floor_point := _floor_point(rank_x(rank) - _pitch_x * 0.5, s)
+	return floor_point + Basis(Vector3.RIGHT, TILT).y * TROUGH_R
+
+func groove_pitch() -> float:
+	return _pitch_x
+
 ## Wie viele Körper eine Rinne höchstens zeigt.
 static func shown_cap(_rank: int) -> int:
 	return TOP_SHOWN
@@ -461,16 +480,18 @@ func play(steps: Array) -> void:
 				_ops.append({"kind": STEP_OUT, "rank": r, "count": int(step["count"]),
 					"pay": bool(step.get("pay", false))})
 			STEP_CARRY:
-				_ops.append({"kind": STEP_OUT, "rank": r, "count": ratio(r), "pay": false})
-				_ops.append({"kind": STEP_IN, "comet": false, "parts": [_part(r + 1, 1, true)]})
+				var up := Vector2i(r, r + 1)
+				_ops.append({"kind": STEP_OUT, "rank": r, "count": ratio(r), "pay": false, "flow": up})
+				_ops.append({"kind": STEP_IN, "comet": false, "parts": [_part(r + 1, 1, true)], "flow": up})
 			STEP_BORROW:
 				var to: int = int(step["to"])
-				_ops.append({"kind": STEP_OUT, "rank": r, "count": 1, "pay": false})
+				var down := Vector2i(r, to)
+				_ops.append({"kind": STEP_OUT, "rank": r, "count": 1, "pay": false, "flow": down})
 				var parts: Array = []
 				for j in range(r - 1, to, -1):
 					parts.append(_part(j, ratio(j) - 1, true))
 				parts.append(_part(to, ratio(to), true))
-				_ops.append({"kind": STEP_IN, "comet": false, "parts": parts})
+				_ops.append({"kind": STEP_IN, "comet": false, "parts": parts, "flow": down})
 	if _ops.size() > OPS_CAP or not _built:
 		settle_hard()
 

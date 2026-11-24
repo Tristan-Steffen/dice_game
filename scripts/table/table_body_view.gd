@@ -10,8 +10,8 @@ const SHADER := preload("res://assets/shaders/table_body.gdshader")
 ## Die Anzeige in Welt.
 const DISPLAY := Rect2(-42.4, -62.4, 84.8, 135.84)
 ## Was auf der Anzeige belegt ist (gemessen: Fenster, Chip-Rahmen, Wurfplatz); hinten endet
-## es an der PORT-EBENE der Charm-Reihe (gemessen 25,667) - dort steht die Rückwand.
-const CONTENT := Rect2(-41.7, -43.68, 67.37, 112.85)
+## es an der PORT-EBENE der Charm-Reihe (gemessen 26,8) - dort steht die Rückwand.
+const CONTENT := Rect2(-41.7, -43.68, 68.5, 112.85)
 ## Die Wurfgrube ist die waagerechte Mitte des Tischs.
 const PIT_Z := -0.08
 const MARGIN := 8.0

@@ -432,7 +432,7 @@ func _screen() -> TableScreen:
 	screen.attach_to(mesh)
 	return screen
 
-func test_the_field_stands_flush_right_at_the_pit() -> void:
+func test_the_card_stands_flush_left_with_the_slot_machines() -> void:
 	var screen := _screen()
 	var pit := Rect2(1801.5, 1304.8, 1071.0, 570.0)
 	screen.place_combo_cluster(Vector2(1000, 1500), pit)
@@ -440,8 +440,10 @@ func test_the_field_stands_flush_right_at_the_pit() -> void:
 	var key: String = DiceScoring.HAND_PRIORITY[2]
 	var cell := screen.combo_cells[key] as ComboCellView
 	var tip: float = ComboChipView.pin_offsets_px(TableScreen.CELL_SIZE)["tip_dx"]
-	assert_almost_eq(cell.position.x + cell.size.x * 0.5 + tip, pit.position.x - TableScreen.PIT_SIDE_GAP, 0.01,
-		"Pin-Spitzen vor der Grube")
+	assert_almost_eq(screen.cluster_rect.position.x, screen.cluster_anchor_rect.position.x, 0.01,
+		"Kartenrand links bündig mit den Automaten")
+	assert_lte(cell.position.x + cell.size.x * 0.5 + tip, pit.position.x - TableScreen.PIT_SIDE_GAP + 0.01,
+		"Pin-Spitzen nie näher an der Grube als die Fuge")
 	assert_gt(screen.cluster_rect.position.x, 0.0, "nichts über den linken Rand")
 	assert_lte(screen.cluster_rect.end.y, pit.end.y + TableScreen.CLUSTER_PADDING + 0.01, "nichts unter die Grube")
 	var paths := screen.wiring_paths_to_cell(2)

@@ -1,98 +1,105 @@
 class_name EnergyBankView
 extends Node3D
-## Die AKKU-BANK: der physische ⚡-Speicher rechts neben der Glücks-Station. Zehn
-## Stellplätze mit Dock-Stecker, darin je Powerbank eine Glas-KARTUSCHE mit fünf Plasma-
-## Zellen, eine Zelle = eine Energie; eine Kartusche steckt erst, wenn der Deckel sie
-## freigibt. Oben nennt die Anzeige Stand und Deckel. Code-gebaut, nur Emission.
+## Die AKKU-BANK als KLINGEN-RACK: ein flacher Stahlkragen um einen dunklen Schacht, zehn
+## Plätze; je freigegebener Fünfergruppe steckt eine Akku-KLINGE, von der nur die Oberkante
+## über dem Tisch steht - fünf Lichtfenster (eine Energie je Fenster) und rechts der Hebel
+## mit Lichtspitze. Leere Plätze zeigen die Kontaktleiste. Oben das Segment-Modul.
+## Ein BATTERIE-RACK: die Batterie ist ein silberner Einschub mit Lüftungsschlitzen und
+## Rändelschrauben, die fünf Fenster in einer schwarzen Leiste in der Mitte. Der Schacht ist
+## versenkt (ein Loch der Anzeige, scene_root schneidet es): ein leerer Platz ist ein tiefes
+## Fach - Trennwände, Bodenblech mit Lochung, hinten der Stecker, vorn die Ruf-Lampe.
 
 const CELLS := GameRun.ENERGY_CAP_LIMIT
 const ACROSS := GameRun.ENERGY_ROW
 const ROWS := 10
 ## Grundriß in eigenen Einheiten: x = Bild-oben, y = Bild-rechts.
 const SIZE := Vector2(15.0, 6.2)
-const ROW_PITCH := 1.2
-const WINDOW_PITCH := 0.86
-const FRAME := 0.3
-const BASE_TOP := 0.1
-const FRAME_HEIGHT := 0.45
-const BLOCK := Vector3(1.04, 0.8, 5.4)
-## Achse der Kartusche über ihrem Stellplatz.
-const AXIS := 0.5
-## Eine Plasma-Zelle: Durchmesser und Länge.
-const WINDOW := Vector2(0.54, 0.74)
-const CORE_RADIUS := 0.135
-## Leer bleibt vom Kern nur die Elektrode.
-const EMPTY_CORE := 0.33
-const PLUG_PINS := 5
-const GUIDE_Z := 1.9
-const JAW_Z := 1.29
-const PLATE_LENGTH := 2.2
-const PLATE_TOP := 0.5
-
-const STEEL := Color(0.36, 0.4, 0.46)
-const CAP_STEEL := Color(0.42, 0.46, 0.52)
-const DARK := Color(0.07, 0.08, 0.11)
-const GOLD := Color(0.86, 0.66, 0.28)
-const GLASS := Color(0.62, 0.86, 0.96, 0.2)
-const FLOOR := Color(0.04, 0.05, 0.08)
-const BAY := Color(0.02, 0.03, 0.045)
-const BAY_RIM := Color(0.09, 0.11, 0.15)
-## Lichtsaum auf dem Rahmen, unter der Bloom-Schwelle.
-const TRIM_SHARE := 0.32
-const PLATE_ALBEDO := Color(0.02, 0.03, 0.05)
-const MANTLE_LIT := 0.5
-const MANTLE_EMPTY := 0.14
-const MANTLE_ALPHA := 0.55
-const LAMP_OFF := 0.15
-const DOCK_OFF := 0.1
-const DOCK_ON := 0.3
-## Unter der Bloom-Schwelle, damit Nachbarn nicht zu einem Balken verschmelzen.
-const LIT_SHARE := 0.6
-const LIT_BREATH := 0.12
-const FLASH_GAIN := 0.9
-const FLASH_TIME := 0.35
-const PLATE_ENERGY_EMPTY := 0.02
-const PLATE_ENERGY_FULL := 0.14
-const PLATE_ENERGY_RESTLESS := 0.2
-const SWEEP_TIME := 0.7
-const SWEEP_WIDTH := 1.5
-const RISE_TIME := 0.35
-## So hoch über dem Dock beginnt eine neue Kartusche ihren Weg.
-const RISE_FROM := 1.4
-## Trage-Bogen einer gekauften Kartusche vom Schwarzmarkt in ihr Dock.
+const ROW_PITCH := 1.15
+const ROW_START := -7.0
+## Der Schacht (x = Bild-oben, z = Bild-rechts) und sein Kragen.
+const SHAFT_X := Vector2(-7.05, 4.55)
+const SHAFT_Z := Vector2(-2.35, 2.85)
+const COLLAR := 0.2
+const COLLAR_HEIGHT := 0.18
+const NUMBER_Z := -2.82
+## Die Klinge: Mitte quer, Länge, Dicke; ihre Oberkante, der Rumpf reicht in den Tisch.
+const BLADE_Z := 0.25
+const BLADE_LENGTH := 5.0
+const BLADE_THICK := ROW_PITCH - 0.15
+const BLADE_TOP := 0.36
+## So tief liegt der Boden des Schachts unter dem Tisch; die Batterie reicht bis dorthin.
+const BAY_DEPTH := 0.8
+const BLADE_TALL := BLADE_TOP + BAY_DEPTH
+## Fußpunkt einer steckenden Klinge.
+const BASE_TOP := 0.0
+## Fünf Lichtfenster: Breite quer zur Klinge, Länge längs, Teilung, Versatz zur Mitte.
+const WINDOW := Vector2(0.36, 0.6)
+const WINDOW_PITCH := 0.78
+const WINDOW_OFFSET := -0.5
+const WINDOW_TOP := BLADE_TOP + 0.046
+## Höchster Punkt einer steckenden Klinge (Hebelspitze).
+const TOP_LIMIT := 0.45
+const TEETH := 26
+const TOOTH_PITCH := 0.16
+## So hoch steht eine neue Klinge über ihrem Platz: der Kontaktkamm über dem Tisch.
+const LIFT := BLADE_TALL - BLADE_TOP + 0.1
+const SINK_TIME := 0.35
+const ROW_STAGGER := 0.08
+## Trage-Bogen einer gekauften Klinge; die letzten SINK_SHARE senkt sie sich ein.
 const FLY_TIME := 0.9
 const FLY_PEAK := 3.5
 const FLY_START_SCALE := 0.6
-const ROW_STAGGER := 0.08
+const SINK_SHARE := 0.3
+## Das Segment-Modul am Kopf.
+const HEAD_X := Vector2(5.65, 7.35)
+const MODULE_Z := 0.1
+const MODULE_SIZE := Vector2(1.2, 4.0)
+const DIGIT_HEIGHT := 0.95
 
-const NUMBER_FONT := 150
-const CAP_FONT := 80
-const LABEL_PIXEL := 0.0105
-const NUMBER_Z := -0.95
-const CAP_Z := 1.25
-const NUMBER_COLOR := Color(1.3, 1.3, 1.25)
-const CAP_COLOR := Color(0.7, 1.1, 1.2)
+const CYAN := Color(0.25, 0.86, 0.95)
+const AMBER := Color(0.95, 0.62, 0.22)
+const TIP_OFF := Color(0.05, 0.06, 0.07)
+const LENS := Color(0.03, 0.045, 0.055)
+const SILK := Color(0.55, 0.6, 0.57)
+const HOLE := Color(0.008, 0.01, 0.014)
+const BLADE_BODY := Color(0.05, 0.055, 0.065)
+const LACQUER := Color(0.025, 0.027, 0.032)
+const GOLD := Color(0.42, 0.3, 0.12)
+const KAPTON := Color(0.42, 0.22, 0.05)
+const GHOST := Color(0.015, 0.05, 0.06)
+const PLATE := Color(0.34, 0.36, 0.4)
+const VENT := Color(0.006, 0.007, 0.009)
+const BAY_FLOOR := Color(0.12, 0.125, 0.14)
+const BAY_WALL := Color(0.06, 0.064, 0.074)
+const BAY_HOLE := Color(0.03, 0.032, 0.038)
+const CONNECTOR := Color(0.06, 0.062, 0.07)
+const LED_OFF := Color(0.05, 0.06, 0.065)
+const LIT_SHARE := 0.84
+const LIT_BREATH := 0.12
+const FLASH_GAIN := 0.6
+const FLASH_TIME := 0.35
+const SWEEP_TIME := 0.7
+const SWEEP_WIDTH := 1.5
 
+## Je Reihe ein eigenes Licht der Fassung (Steck-LED, Ruf-Lampe oder Schachtlicht).
+var _row_mats: Array[StandardMaterial3D] = []
 var _energy := 0
 var _cap := 0
 var _blocks: Array[Node3D] = []
 var _windows: Array[MeshInstance3D] = []
-var _mantles: Array[MeshInstance3D] = []
-var _lamps: Array[StandardMaterial3D] = []
-var _dock_lights: Array[StandardMaterial3D] = []
-var _mantle_lit: StandardMaterial3D
-var _mantle_empty: StandardMaterial3D
-var _glass_material: StandardMaterial3D
-var _cylinders := {}
-## Laufende Fahrt je Stellplatz (Senken oder Trage-Bogen).
+var _tips: Array[MeshInstance3D] = []
+var _contacts: Array[Node3D] = []
+var _calls: Array[Node3D] = []
+## Laufende Fahrt je Platz (Senken oder Trage-Bogen).
 var _rides := {}
-var _empty_material: StandardMaterial3D
+var _lens_material: StandardMaterial3D
 var _sweep_material: StandardMaterial3D
-var _plate_material: StandardMaterial3D
+var _tip_full: StandardMaterial3D
+var _tip_part: StandardMaterial3D
+var _tip_off: StandardMaterial3D
 var _lit_materials := {}
 var _flashes := {}
 var _number: Label3D
-var _cap_label: Label3D
 var _time := 0.0
 var _sweep := -1.0
 var _pulse_tween: Tween
@@ -116,40 +123,47 @@ func set_energy(energy: int, cap: int) -> void:
 		_sweep = 0.0
 	_apply(grew)
 
-## Die zuletzt freigegebene Kartusche fliegt von from_global (Welt) im Trage-Bogen in ihr
-## Dock. Sie steckt schon (Endzustand zuerst); bis zur Landung bleibt das Dock dunkel.
+## Die zuletzt freigegebene Klinge fliegt von from_global (Welt) im Trage-Bogen über ihren
+## Platz und senkt sich ein. Sie steckt schon (Endzustand zuerst).
 func fly_in(from_global: Vector3) -> void:
 	if _cap <= 0 or _blocks.is_empty():
 		return
 	var row := _row_of(_cap - 1)
 	var block := _blocks[row]
 	_end_ride(row)
-	var rest := Vector3(row_x(row), BASE_TOP, 0)
+	var rest := _rest(row)
+	var over := rest + Vector3.UP * LIFT
 	var start := to_local(from_global)
-	_dock_lights[row].albedo_color = CasinoStyle.ENERGY * DOCK_OFF
 	var tween := block.create_tween()
 	_rides[row] = tween
+	_calls[row].visible = true
 	var fly := func(t: float) -> void:
 		var eased := smoothstep(0.0, 1.0, t)
-		block.position = start.lerp(rest, eased) + Vector3.UP * FLY_PEAK * sin(PI * t)
+		block.position = start.lerp(over, eased) + Vector3.UP * FLY_PEAK * sin(PI * t)
 		block.scale = Vector3.ONE * lerpf(FLY_START_SCALE, 1.0, eased)
-	var land := func() -> void:
-		_rides.erase(row)
-		_dock_lights[row].albedo_color = CasinoStyle.ENERGY * DOCK_ON
-		pulse()
 	fly.call(0.0)
-	tween.tween_method(fly, 0.0, 1.0, FLY_TIME)
-	tween.tween_callback(land)
+	tween.tween_method(fly, 0.0, 1.0, FLY_TIME * (1.0 - SINK_SHARE))
+	tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(block, "position", rest, FLY_TIME * SINK_SHARE)
+	tween.tween_callback(func() -> void:
+		_rides.erase(row)
+		_calls[row].visible = false
+		pulse())
 
-## Harter Weg einer Fahrt: die Kartusche steht auf ihrem Platz.
+## Harter Weg einer Fahrt: die Klinge steckt auf ihrem Platz.
 func _end_ride(row: int) -> void:
 	if _rides.has(row):
 		var ride: Tween = _rides[row]
 		if ride != null and ride.is_valid():
 			ride.kill()
 		_rides.erase(row)
-	_blocks[row].position = Vector3(row_x(row), BASE_TOP, 0)
+	_blocks[row].position = _rest(row)
 	_blocks[row].scale = Vector3.ONE
+	_calls[row].visible = false
+
+## Ecken des Schachts in Welt (für das Loch der Anzeige).
+func shaft_world_corners() -> Array[Vector3]:
+	return [to_global(Vector3(SHAFT_X.x, 0.0, SHAFT_Z.x)), to_global(Vector3(SHAFT_X.y, 0.0, SHAFT_Z.y))]
 
 func riding(row: int) -> bool:
 	return _rides.has(row)
@@ -160,7 +174,7 @@ func pulse() -> void:
 		return
 	if _pulse_tween != null and _pulse_tween.is_valid():
 		_pulse_tween.kill()
-	_number.scale = Vector3.ONE * 1.25
+	_number.scale = Vector3.ONE * 1.2
 	_pulse_tween = create_tween()
 	_pulse_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_pulse_tween.tween_property(_number, "scale", Vector3.ONE, 0.35)
@@ -172,235 +186,227 @@ func cap_count() -> int:
 	return _cap
 
 func number_text() -> String:
-	return _number.text if _number != null else ""
+	return str(_energy) if _number != null else ""
 
 func cap_text() -> String:
-	return _cap_label.text if _cap_label != null else ""
+	return "/%d" % _cap if _number != null else ""
 
-## Der Plasma-Kern der Energie index.
+## Was das Segment-Modul zeigt ("12/15", auf zwei Stellen je Seite gesetzt).
+static func display_text(energy: int, cap: int) -> String:
+	return "%2d/%-2d" % [energy, cap]
+
+## Das Lichtfenster der Energie index.
 func segment(index: int) -> MeshInstance3D:
 	return _windows[index]
 
-## Steckt die Kartusche der Energie index (unter dem Deckel)?
+## Steckt die Klinge der Energie index (unter dem Deckel)?
 func cell_stands(index: int) -> bool:
 	return _blocks[_row_of(index)].visible
 
 func sweeping() -> bool:
 	return _sweep >= 0.0
 
-## Mitte der Zelle index in eigenen Einheiten: Kartusche 0 liegt Bild-unten, Zelle 0 links.
+## Wie die Hebelspitze einer Reihe leuchtet: "voll", "halb" oder "leer".
+func tip_state(row: int) -> String:
+	var material := _tips[row].material_override
+	if material == _tip_full:
+		return "voll"
+	return "halb" if material == _tip_part else "leer"
+
+## Steht der Platz einer Reihe leer (Kontaktleiste sichtbar)?
+func slot_bare(row: int) -> bool:
+	return _contacts[row].visible
+
+## Mitte des Fensters index in eigenen Einheiten: Klinge 0 Bild-unten, Fenster 0 links.
 static func cell_spot(index: int) -> Vector3:
-	return Vector3(row_x(_row_of(index)), BASE_TOP + AXIS,
-		(float(index % ACROSS) - float(ACROSS - 1) * 0.5) * WINDOW_PITCH)
+	return Vector3(row_x(_row_of(index)), WINDOW_TOP, BLADE_Z + _window_z(index % ACROSS))
 
 static func row_x(row: int) -> float:
-	return -SIZE.x * 0.5 + FRAME + ROW_PITCH * (float(row) + 0.5)
+	return ROW_START + ROW_PITCH * (float(row) + 0.5)
+
+static func _window_z(k: int) -> float:
+	return WINDOW_OFFSET + (float(k) - float(ACROSS - 1) * 0.5) * WINDOW_PITCH
 
 static func _row_of(index: int) -> int:
 	@warning_ignore("integer_division")
 	return index / ACROSS
 
+static func _rest(row: int) -> Vector3:
+	return Vector3(row_x(row), BASE_TOP, BLADE_Z)
+
 func _build() -> void:
-	_build_materials()
-	var steel := _solid(STEEL, 0.5, 0.4, 0.9)
-	var metal := _solid(CAP_STEEL, 0.85, 0.28, 0.9)
-	var dark := _solid(DARK, 0.4, 0.4, 1.0)
-	var gold := _solid(GOLD, 0.85, 0.25, 0.8)
-	var hole := _solid(BAY, 0.0, 0.9, 1.0)
-	var bay_rim := _solid(BAY_RIM, 0.1, 0.7, 1.0)
-	var trim := StandardMaterial3D.new()
-	trim.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	trim.albedo_color = CasinoStyle.ENERGY * TRIM_SHARE
-	_box("Boden", Vector3(SIZE.x, BASE_TOP, SIZE.y), Vector3(0, BASE_TOP * 0.5, 0), _solid(FLOOR, 0.1, 0.8, 1.0))
-	for side in [-1.0, 1.0]:
-		_box("Holm", Vector3(SIZE.x, FRAME_HEIGHT, 0.2),
-			Vector3(0, FRAME_HEIGHT * 0.5, side * (SIZE.y * 0.5 - 0.1)), steel)
-		_box("Traverse", Vector3(FRAME, FRAME_HEIGHT, SIZE.y),
-			Vector3(side * (SIZE.x * 0.5 - FRAME * 0.5), FRAME_HEIGHT * 0.5, 0), steel)
-		_box("SaumLang", Vector3(SIZE.x - 0.12, 0.02, 0.06),
-			Vector3(0, FRAME_HEIGHT + 0.01, side * (SIZE.y * 0.5 - 0.1)), trim)
-		_box("SaumQuer", Vector3(0.06, 0.02, SIZE.y - 0.14),
-			Vector3(side * (SIZE.x * 0.5 - FRAME * 0.5), FRAME_HEIGHT + 0.01, 0), trim)
+	_lens_material = StationParts.lit(LENS)
+	_sweep_material = StationParts.lit(CYAN)
+	_tip_full = StationParts.lit(CYAN)
+	_tip_part = StationParts.lit(AMBER)
+	_tip_off = StationParts.lit(TIP_OFF)
+	var steel := StationParts.steel(ChipFrameView.STEEL, 0.4)
+	var dark_steel := StationParts.steel(ChipFrameView.STEEL_DARK, 0.3)
+	var gold := StationParts.steel(GOLD, 0.1, 0.05)
+	var center := Vector2((SHAFT_X.x + SHAFT_X.y) * 0.5, (SHAFT_Z.x + SHAFT_Z.y) * 0.5)
+	var inner := Vector2(SHAFT_X.y - SHAFT_X.x, SHAFT_Z.y - SHAFT_Z.x)
+	# Der versenkte Schacht: dunkle Wände bis auf den Boden, der Boden selbst liegt je Fach.
+	StationParts.box(self, "Schachtgrund", Vector3(inner.x, 0.01, inner.y),
+		Vector3(center.x, -BAY_DEPTH - 0.01, center.y), StationParts.lit(HOLE))
+	StationParts.swarm(self, "Schachtwand", StationParts.frame_boxes(center, inner + Vector2.ONE * 0.04, inner,
+		-BAY_DEPTH * 0.5, BAY_DEPTH), StationParts.lit(BAY_WALL))
+	StationParts.swarm(self, "Kragen", StationParts.frame_boxes(center,
+		inner + Vector2.ONE * COLLAR * 2.0, inner, COLLAR_HEIGHT * 0.5, COLLAR_HEIGHT), steel)
 	for row in ROWS:
-		var dock := Node3D.new()
-		dock.name = "Dock%d" % row
-		dock.position = Vector3(row_x(row), BASE_TOP, 0)
-		add_child(dock)
-		_build_dock(dock, _flat(CasinoStyle.ENERGY * DOCK_OFF), bay_rim, hole, dark, metal, gold)
-		var block := Node3D.new()
-		block.name = "Block%d" % row
-		block.position = Vector3(row_x(row), BASE_TOP, 0)
-		add_child(block)
-		_build_cartridge(block, _flat(CasinoStyle.ENERGY * LAMP_OFF), dark, metal, gold)
-		_blocks.append(block)
-	var plate_x := SIZE.x * 0.5 - FRAME - PLATE_LENGTH * 0.5
-	_box("Anzeige", Vector3(PLATE_LENGTH, PLATE_TOP - BASE_TOP, SIZE.y - 0.6),
-		Vector3(plate_x, (PLATE_TOP + BASE_TOP) * 0.5, 0), _plate_material)
-	_number = _add_label("Number", NUMBER_FONT, Vector3(plate_x, PLATE_TOP + 0.01, NUMBER_Z), NUMBER_COLOR)
-	_cap_label = _add_label("Cap", CAP_FONT, Vector3(plate_x - 0.12, PLATE_TOP + 0.01, CAP_Z), CAP_COLOR)
+		var x := row_x(row)
+		StationParts.label(self, "Nummer%d" % row, "%02d" % (row + 1),
+			Vector3(x, 0.003, NUMBER_Z), 0.3, SILK)
+		_row_mats.append(StationParts.lit(LED_OFF))
+		_contacts.append(_build_contacts(row, gold, steel))
+		_calls.append(_build_call(row))
+		_blocks.append(_build_blade(row, steel, dark_steel, gold))
+	_dress_rack(steel)
+	_dress_bays(steel)
+	_build_head(steel)
 
-## Der Stellplatz: Buchse mit fünf Kontakten, Lichtrahmen, zwei Führungshülsen und zwei
-## Klemmbacken. Er steht immer - auch leer.
-func _build_dock(dock: Node3D, light: StandardMaterial3D, rim: Material, hole: Material,
-		dark: Material, metal: Material, gold: Material) -> void:
-	_dock_lights.append(light)
-	_box("Wanne", Vector3(BLOCK.x, 0.03, BLOCK.z), Vector3(0, 0.015, 0), rim, dock)
-	_box("Buchse", Vector3(0.56, 0.14, 1.2), Vector3(0, 0.1, 0), dark, dock)
-	_box("Schacht", Vector3(0.38, 0.02, 0.98), Vector3(0, 0.175, 0), hole, dock)
-	for i in PLUG_PINS:
-		_post("Kontakt%d" % i, 0.035, 0.02, Vector3(0, 0.19, _pin_z(i)), gold, dock)
-	for side in [-1.0, 1.0]:
-		_box("RahmenLang", Vector3(0.03, 0.015, 1.3), Vector3(side * 0.33, 0.04, 0), light, dock)
-		_box("RahmenQuer", Vector3(0.68, 0.015, 0.03), Vector3(0, 0.04, side * 0.65), light, dock)
-		_post("Huelse", 0.12, 0.1, Vector3(0, 0.08, side * GUIDE_Z), metal, dock)
-		_post("Huelsenloch", 0.07, 0.02, Vector3(0, 0.135, side * GUIDE_Z), hole, dock)
-		for jaw in [-1.0, 1.0]:
-			_box("Backenfuss", Vector3(0.2, 0.08, 0.26), Vector3(jaw * 0.41, 0.07, side * JAW_Z), dark, dock)
-			_box("Backe", Vector3(0.09, 0.5, 0.2), Vector3(jaw * 0.445, 0.33, side * JAW_Z), metal, dock)
-			_post("Schraube", 0.05, 0.03, Vector3(jaw * 0.445, 0.595, side * JAW_Z), gold, dock)
+## Was ein LEERER Platz zeigt: ein tiefes Fach - helleres Bodenblech mit Lochung, hinten der
+## Stecker mit Goldkontakten und vorn die Ruf-Lampe, die am nächsten freizuschaltenden Platz
+## bernstein leuchtet.
+func _build_contacts(row: int, gold: Material, steel: Material) -> Node3D:
+	var empty := Node3D.new()
+	empty.name = "Leer%d" % row
+	add_child(empty)
+	var x := row_x(row)
+	var lo := SHAFT_Z.x + 0.05
+	var hi := SHAFT_Z.y - 0.05
+	var y := -BAY_DEPTH
+	StationParts.box(empty, "Bodenblech", Vector3(BLADE_THICK, 0.012, hi - lo), Vector3(x, y + 0.006, (lo + hi) * 0.5),
+		StationParts.lit(BAY_FLOOR))
+	var holes: Array[Transform3D] = []
+	for a in 4:
+		for b in 16:
+			var z := lo + 0.95 + float(b) * 0.22 + (0.11 if a % 2 == 1 else 0.0)
+			if z < hi - 0.5:
+				holes.append(StationParts.cube(Vector3(0.1, 0.004, 0.1), Vector3(x + (float(a) - 1.5) * 0.2, y + 0.014, z)))
+	StationParts.swarm(empty, "Lochung", holes, StationParts.lit(BAY_HOLE))
+	StationParts.box(empty, "Stecker", Vector3(0.62, 0.16, 0.16), Vector3(x, y + 0.08, hi - 0.12), StationParts.lit(CONNECTOR))
+	var pins: Array[Transform3D] = []
+	for j in 8:
+		pins.append(StationParts.cube(Vector3(0.05, 0.006, 0.08), Vector3(x + (float(j) - 3.5) * 0.07, y + 0.163, hi - 0.12)))
+	StationParts.swarm(empty, "Kontakte", pins, gold)
+	StationParts.box(empty, "Ruf", Vector3(0.26, 0.02, 0.26), Vector3(x, y + 0.016, lo + 0.25), _row_mats[row])
+	return empty
 
-## Die Kartusche "Labor": Glasrohr mit fünf Plasma-Zellen zwischen Stahlbändern, gerändelte
-## Kappen, darunter der Steckerblock und zwei Führungszapfen.
-func _build_cartridge(block: Node3D, lamp: StandardMaterial3D, dark: Material, metal: Material,
-		gold: Material) -> void:
-	_lamps.append(lamp)
-	for side in [-1.0, 1.0]:
-		_tube("Kappe", 0.42, 0.34, side * 2.42, metal, block)
-		for k in 3:
-			_tube("Raendel%d" % k, 0.44, 0.04, side * (2.31 + float(k) * 0.1), dark, block)
-		_tube("Stirn", 0.3, 0.06, side * 2.62, dark, block)
-		_tube("Endstift", 0.15, 0.16, side * 2.66, gold, block)
-		_box("Lampe", Vector3(0.09, 0.03, 0.09), Vector3(0, AXIS + 0.425, side * 2.2), lamp, block)
-		_post("Zapfen", 0.06, 0.16, Vector3(0, AXIS - 0.43, side * GUIDE_Z), metal, block)
-	for across in ACROSS:
-		var z := cell_spot(across).z
-		_mantles.append(_tube("Mantel%d" % across, WINDOW.x * 0.5, WINDOW.y, z, _mantle_empty, block))
-		_windows.append(_tube("Fenster%d" % across, CORE_RADIUS, WINDOW.y, z, _empty_material, block))
-	for i in ACROSS + 1:
-		var z := (float(i) - float(ACROSS) * 0.5) * WINDOW_PITCH
-		_tube("Band%d" % i, 0.385, 0.07, z, metal, block)
-		_tube("Goldring%d" % i, 0.392, 0.02, z, gold, block)
-	_tube("Glas", 0.365, 4.5, 0.0, _glass_material, block)
-	_box("Stecker", Vector3(0.34, 0.14, 0.94), Vector3(0, AXIS - 0.4, 0), dark, block)
-	_box("Steckerleiste", Vector3(0.28, 0.03, 0.88), Vector3(0, AXIS - 0.48, 0), gold, block)
+static func _tooth_z(j: int) -> float:
+	return (float(j) - float(TEETH - 1) * 0.5) * TOOTH_PITCH
 
-static func _pin_z(i: int) -> float:
-	return (float(i) - float(PLUG_PINS - 1) * 0.5) * 0.2
-
-## Zylinder längs der Kartusche (Z) auf ihrer Achse.
-func _tube(part: String, radius: float, length: float, z: float, material: Material,
-		parent: Node3D) -> MeshInstance3D:
-	var node := _mesh(part, _cylinder(radius, length), Vector3(0, AXIS, z), material, parent)
-	node.rotation.x = PI * 0.5
+## Der Ruf um einen Platz, solange eine neue Klinge unterwegs ist.
+func _build_call(row: int) -> Node3D:
+	var boxes := StationParts.frame_boxes(Vector2(row_x(row), BLADE_Z),
+		Vector2(BLADE_THICK + 0.2, BLADE_LENGTH + 0.14), Vector2(BLADE_THICK + 0.1, BLADE_LENGTH + 0.04),
+		0.015, 0.01)
+	var node := StationParts.swarm(self, "SchachtRuf%d" % row, boxes, StationParts.lit(CYAN))
+	node.visible = false
 	return node
 
-func _post(part: String, radius: float, height: float, at: Vector3, material: Material,
-		parent: Node3D) -> MeshInstance3D:
-	return _mesh(part, _cylinder(radius, height), at, material, parent)
+## Die Batterie eines Platzes: ein silberner Einschub, Rumpf bis tief in den Tisch, oben die
+## Stahlplatte mit zwei Reihen Lüftungsschlitzen, in der Mitte die schwarze Leiste mit den fünf
+## Fenstern (eine Energie je Fenster), Rändelschrauben in den Ecken, rechts die Statuslampe.
+func _build_blade(row: int, steel: Material, dark_steel: Material, gold: Material) -> Node3D:
+	var block := Node3D.new()
+	block.name = "Block%d" % row
+	block.position = _rest(row)
+	add_child(block)
+	var hx := BLADE_LENGTH * 0.5
+	var hw := BLADE_THICK * 0.5
+	StationParts.box(block, "Rumpf", Vector3(BLADE_THICK, BLADE_TALL, BLADE_LENGTH),
+		Vector3(0, BLADE_TOP - BLADE_TALL * 0.5, 0), StationParts.steel(PLATE, 0.6))
+	var strip := _window_z(ACROSS - 1) - _window_z(0) + WINDOW.y + 0.12
+	StationParts.box(block, "Fensterleiste", Vector3(WINDOW.x + 0.1, 0.012, strip),
+		Vector3(0, BLADE_TOP + 0.006, WINDOW_OFFSET), StationParts.lit(VENT))
+	for k in ACROSS:
+		_windows.append(StationParts.box(block, "Fenster%d" % k,
+			Vector3(WINDOW.x, 0.012, WINDOW.y), Vector3(0, BLADE_TOP + 0.014, _window_z(k)), _lens_material))
+	var vents: Array[Transform3D] = []
+	for side in [-1.0, 1.0]:
+		for b in 6:
+			vents.append(StationParts.cube(Vector3(0.09, 0.004, 0.48),
+				Vector3(side * 0.34, BLADE_TOP + 0.002, -1.75 + float(b) * 0.6)))
+	StationParts.swarm(block, "Schlitze", vents, StationParts.lit(VENT))
+	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+		StationParts.cyl(block, "Schraube", 0.1, 0.05,
+			Vector3(corner.x * (hw - 0.14), BLADE_TOP + 0.025, corner.y * (hx - 0.16)), steel, 16)
+	StationParts.box(block, "Lampenfassung", Vector3(0.34, 0.012, 0.34), Vector3(0, BLADE_TOP + 0.006, hx - 0.62),
+		StationParts.lit(VENT))
+	_tips.append(StationParts.box(block, "HebelSpitze", Vector3(0.24, 0.02, 0.24),
+		Vector3(0, BLADE_TOP + 0.014, hx - 0.62), _tip_off))
+	var teeth: Array[Transform3D] = []
+	for j in TEETH:
+		teeth.append(StationParts.cube(Vector3(0.18, 0.12, 0.08),
+			Vector3(0, BLADE_TOP - BLADE_TALL - 0.06, _tooth_z(j))))
+	StationParts.swarm(block, "Kontaktkamm", teeth, gold)
+	return block
 
-func _flat(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = color
-	return material
+## Die TRENNWÄNDE zwischen den Plätzen: Stahlbleche vom Schachtboden bis knapp über den Tisch.
+func _dress_bays(steel: Material) -> void:
+	var rails: Array[Transform3D] = []
+	var lo := SHAFT_Z.x + 0.02
+	var hi := SHAFT_Z.y - 0.02
+	for k in ROWS + 1:
+		var x := ROW_START + ROW_PITCH * float(k)
+		x = clampf(x, SHAFT_X.x + 0.03, SHAFT_X.y - 0.03)
+		rails.append(StationParts.cube(Vector3(0.06, BAY_DEPTH + 0.06, hi - lo),
+			Vector3(x, (0.06 - BAY_DEPTH) * 0.5, (lo + hi) * 0.5)))
+	StationParts.swarm(self, "Fuehrungsschienen", rails, steel)
 
-func _box(part: String, size: Vector3, at: Vector3, material: Material, parent: Node3D = self) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	return _mesh(part, mesh, at, material, parent)
+## RACK: der Kragen als Rack-Schiene - je Platz zwei Vierkantlöcher links und rechts und
+## eine Schraube.
+func _dress_rack(steel: Material) -> void:
+	var holes: Array[Transform3D] = []
+	for row in ROWS:
+		var x := row_x(row)
+		for z in [SHAFT_Z.x - COLLAR * 0.5, SHAFT_Z.y + COLLAR * 0.5]:
+			for d in [-0.3, 0.3]:
+				holes.append(StationParts.cube(Vector3(0.12, 0.004, 0.12), Vector3(x + d, COLLAR_HEIGHT + 0.002, z)))
+		StationParts.cyl(self, "RackSchraube%d" % row, 0.075, 0.04, Vector3(x, COLLAR_HEIGHT + 0.02, SHAFT_Z.y + COLLAR * 0.5),
+			steel, 16)
+	StationParts.swarm(self, "RackLoecher", holes, StationParts.lit(VENT))
 
-func _mesh(part: String, mesh: Mesh, at: Vector3, material: Material, parent: Node3D = self) -> MeshInstance3D:
-	var node := MeshInstance3D.new()
-	node.name = part
-	node.mesh = mesh
-	node.position = at
-	node.material_override = material
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(node)
-	return node
-
-func _cylinder(radius: float, height: float) -> CylinderMesh:
-	var key := Vector2(radius, height)
-	if _cylinders.has(key):
-		return _cylinders[key]
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = height
-	mesh.radial_segments = 24
-	mesh.rings = 1
-	_cylinders[key] = mesh
-	return mesh
-
-## Liegend, Schriftrichtung Bild-rechts (+Z), Oberkante Bild-oben (+X).
-func _add_label(label_name: String, font: int, at: Vector3, color: Color) -> Label3D:
-	var label := Label3D.new()
-	label.name = label_name
-	label.font_size = font
-	label.pixel_size = LABEL_PIXEL
-	label.modulate = color
-	label.outline_size = 8
-	label.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-	label.basis = Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
-	label.position = at
-	add_child(label)
-	return label
-
-## Der Tisch beleuchtet nichts: jedes Teil trägt einen Anteil Eigenlicht.
-func _solid(color: Color, metallic: float, roughness: float, glow: float) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.metallic = metallic
-	material.roughness = roughness
-	if glow > 0.0:
-		material.emission_enabled = true
-		material.emission = color
-		material.emission_energy_multiplier = glow
-	return material
-
-func _build_materials() -> void:
-	_empty_material = _solid(CAP_STEEL, 0.8, 0.3, 0.9)
-	_mantle_lit = _flat(CasinoStyle.ENERGY * MANTLE_LIT)
-	_mantle_empty = _flat(CasinoStyle.ENERGY * MANTLE_EMPTY)
-	for mantle: StandardMaterial3D in [_mantle_lit, _mantle_empty]:
-		mantle.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mantle.albedo_color.a = MANTLE_ALPHA
-	_glass_material = _solid(Color(GLASS.r, GLASS.g, GLASS.b), 0.1, 0.08, 0.25)
-	_glass_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_glass_material.albedo_color.a = GLASS.a
-	_glass_material.render_priority = 1
-	_sweep_material = _new_lit_material()
-	_sweep_material.albedo_color = CasinoStyle.ENERGY
-	_plate_material = StandardMaterial3D.new()
-	_plate_material.albedo_color = PLATE_ALBEDO
-	_plate_material.metallic = 0.3
-	_plate_material.roughness = 0.2
-	_plate_material.emission_enabled = true
-	_plate_material.emission = CasinoStyle.ENERGY
+## Das Segment-Modul auf der Kopfplatte, mit Flachband zum Schacht.
+func _build_head(steel: Material) -> void:
+	var mid := (HEAD_X.x + HEAD_X.y) * 0.5
+	StationParts.box(self, "KopfPlatte", Vector3(HEAD_X.y - HEAD_X.x, 0.24, SIZE.y - 0.3),
+		Vector3(mid, 0.12, 0), StationParts.lit(LACQUER))
+	StationParts.box(self, "Modul", Vector3(MODULE_SIZE.x, 0.04, MODULE_SIZE.y),
+		Vector3(mid, 0.26, MODULE_Z), StationParts.lit(Color(0.01, 0.014, 0.018)))
+	for side in [-1.0, 1.0]:
+		StationParts.box(self, "Schraube", Vector3(0.14, 0.03, 0.14), Vector3(mid, 0.255, side * 2.65), steel)
+	var ribbon := SHAFT_X.y + COLLAR
+	StationParts.box(self, "Flachband", Vector3(HEAD_X.x - ribbon, 0.02, 1.2),
+		Vector3((ribbon + HEAD_X.x) * 0.5, 0.01, MODULE_Z),
+		StationParts.lit(KAPTON))
+	# Monospace: die Geister-Segmente "88/88" stehen genau unter der Anzeige.
+	StationParts.label(self, "Geist", "88/88", Vector3(mid, 0.283, MODULE_Z), DIGIT_HEIGHT, GHOST)
+	_number = StationParts.label(self, "Anzeige", "", Vector3(mid, 0.285, MODULE_Z), DIGIT_HEIGHT, CYAN)
+	# Der Umriß in derselben Farbe macht die Striche so kräftig wie Segmente.
+	_number.outline_size = 10
+	_number.outline_modulate = CYAN * 0.7
 
 func _new_lit_material() -> StandardMaterial3D:
-	var lit := StandardMaterial3D.new()
-	lit.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	lit.albedo_color = CasinoStyle.ENERGY * LIT_SHARE
-	return lit
+	return StationParts.lit(CYAN * LIT_SHARE)
 
 func _apply(grew: bool) -> void:
-	_number.text = str(_energy)
-	_cap_label.text = "/ %d" % _cap
+	_number.text = display_text(_energy, _cap)
 	for row in _blocks.size():
 		var stands := row * ACROSS < _cap
 		_stand(row, stands, grew)
-		if not _rides.has(row):
-			_dock_lights[row].albedo_color = CasinoStyle.ENERGY * (DOCK_ON if stands else DOCK_OFF)
-		_lamps[row].albedo_color = CasinoStyle.ENERGY * (1.0 if _energy > row * ACROSS else LAMP_OFF)
+		_contacts[row].visible = not stands
+		var charge := clampi(_energy - row * ACROSS, 0, ACROSS)
+		_tips[row].material_override = _tip_full if charge == ACROSS else (
+			_tip_part if charge > 0 else _tip_off)
+		_row_mats[row].albedo_color = _row_light(row, stands, charge)
 	for i in _windows.size():
 		if i >= _energy:
 			_lit_materials.erase(i)
 		_paint(i)
-	_apply_plate()
 	_sync_process()
 
-## Endzustand zuerst: die Kartusche steckt, eine neu freigegebene senkt sich nur dorthin.
+## Endzustand zuerst: die Klinge steckt, eine neu freigegebene senkt sich nur dorthin.
 func _stand(row: int, stands: bool, grew: bool) -> void:
 	var block := _blocks[row]
 	var was := block.visible
@@ -410,17 +416,24 @@ func _stand(row: int, stands: bool, grew: bool) -> void:
 	_end_ride(row)
 	if not stands or not grew:
 		return
-	block.position.y = BASE_TOP + RISE_FROM
+	block.position.y = BASE_TOP + LIFT
+	_calls[row].visible = true
 	var tween := block.create_tween()
 	_rides[row] = tween
 	tween.tween_interval(ROW_STAGGER * float(row % 5))
 	tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	tween.tween_property(block, "position:y", BASE_TOP, RISE_TIME)
-	tween.tween_callback(func() -> void: _rides.erase(row))
+	tween.tween_property(block, "position:y", BASE_TOP, SINK_TIME)
+	tween.tween_callback(func() -> void:
+		_rides.erase(row)
+		_calls[row].visible = false)
+
+## Das Licht der Fassung je Reihe.
+func _row_light(row: int, stands: bool, _charge: int) -> Color:
+	@warning_ignore("integer_division")
+	return AMBER * 0.85 if not stands and row == _cap / ACROSS else LED_OFF
 
 func _paint(index: int) -> void:
 	var window := _windows[index]
-	var lit := true
 	if _sweep >= 0.0 and index < _cap and absf(float(index) - _sweep) < SWEEP_WIDTH:
 		window.material_override = _sweep_material
 	elif index < _energy:
@@ -428,17 +441,7 @@ func _paint(index: int) -> void:
 			_lit_materials[index] = _new_lit_material()
 		window.material_override = _lit_materials[index]
 	else:
-		window.material_override = _empty_material
-		lit = false
-	window.scale = Vector3.ONE if lit else Vector3(EMPTY_CORE, 1.0, EMPTY_CORE)
-	_mantles[index].material_override = _mantle_lit if lit else _mantle_empty
-
-func _apply_plate() -> void:
-	var fill := float(_energy) / float(maxi(_cap, 1))
-	var glow := lerpf(PLATE_ENERGY_EMPTY, PLATE_ENERGY_FULL, fill)
-	if _is_full():
-		glow += PLATE_ENERGY_RESTLESS * absf(sin(_time * 7.3) * sin(_time * 3.1))
-	_plate_material.emission_energy_multiplier = glow
+		window.material_override = _lens_material
 
 func _is_full() -> bool:
 	return _cap > 0 and _energy >= _cap
@@ -446,7 +449,8 @@ func _is_full() -> bool:
 func _sync_process() -> void:
 	set_process(not _lit_materials.is_empty() or not _flashes.is_empty() or _sweep >= 0.0)
 
-## Jedes geladene Fenster atmet in eigener Phase; neu geladene blitzen kurz.
+## Jedes geladene Fenster atmet in eigener Phase; neu geladene blitzen kurz, der volle
+## Speicher flackert in der Anzeige.
 func _process(delta: float) -> void:
 	_time += delta
 	for i: int in _flashes.keys():
@@ -457,12 +461,13 @@ func _process(delta: float) -> void:
 		var breath := 0.5 + 0.5 * sin(_time * 2.6 + float(i) * 2.39) * sin(_time * 1.7 + float(i) * 5.7)
 		var flash := float(_flashes.get(i, 0.0))
 		var material: StandardMaterial3D = _lit_materials[i]
-		material.albedo_color = CasinoStyle.ENERGY * (LIT_SHARE + LIT_BREATH * breath + FLASH_GAIN * flash)
+		material.albedo_color = CYAN * (LIT_SHARE + LIT_BREATH * breath + FLASH_GAIN * flash)
 	if _sweep >= 0.0:
 		_sweep += delta / SWEEP_TIME * float(_cap)
 		if _sweep > float(_cap) + SWEEP_WIDTH:
 			_sweep = -1.0
 		for i in _cap:
 			_paint(i)
-	_apply_plate()
+	var restless := 0.75 + 0.25 * absf(sin(_time * 7.3) * sin(_time * 3.1)) if _is_full() else 1.0
+	_number.modulate = CYAN * restless
 	_sync_process()

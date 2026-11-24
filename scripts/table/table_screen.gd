@@ -170,6 +170,12 @@ var luck_station_window: LuckStationView
 ## Die ÖFFNUNGS-FLÄCHE rechts vom Pool.
 var opening_window: PackChoiceView
 var treasure_strip: LedStripView
+## Der HAUPT-BUS im Korridor über dem Hub: Kombi-Karte, Grube, Hub, Wetten, Chips, Glück und
+## Energie hängen daran. Die Kometen-Träger led_strip, treasure_strip und pit_hub_strip malen
+## nicht selbst - ihre Routen liegen auf ihm.
+var main_bus: LedStripView
+## Die Akku-Bank (Display-Pixel), gemeldet von scene_root.
+var energy_bank_rect := Rect2()
 var pit_window: Panel
 var pit_lands: Control
 var _pit_lands_radius := 0.0
@@ -193,6 +199,8 @@ var _fumble_wave_tween: Tween
 ## durchscheinenden Fenstergründen auszublenden.
 var _deck_material: ShaderMaterial
 var _deck_quiet: Array[Rect2] = []
+var _quiet_asked: Array[Rect2] = []
+var _station_quiet: Array[Rect2] = []
 ## Punkt-Pulse: CPU-seitiger Spiegel der Impuls-Uniform-Arrays (je Bahn Ort,
 ## Farbe, Fortschritt) - ein Tween je Bahn schreibt nur seinen eigenen Eintrag.
 var _pit_impulse_pos := PackedVector2Array()
@@ -338,6 +346,8 @@ const PIT_TRAY := 32
 
 ## Die ÖFFNUNGS-FLÄCHE: eine flache Vertiefung - Möbel, ans Ende gehängt.
 const PIT_OPENING := 36
+## Der versenkte Schacht der Akku-Bank (Möbel).
+const PIT_ENERGY := 34
 
 ## Der EINZUG des leeren Modul-Beutels in der Wurfgrube - ein eigenes Loch.
 const PIT_BAG := 44
@@ -389,7 +399,6 @@ var pit_score_strip: LedStripView
 ## der Rundenauszahlung (Zielbalken -> um die Grube -> Hub).
 var pit_hub_strip: LedStripView
 var combos_score_strip: LedStripView
-var charm_score_strips: Array[LedStripView] = []
 var charm_bus_strip: LedStripView
 ## Geometrie der Charm-Sammelschiene (für die Kometen-Route Konsole -> Schiene ->
 ## Stamm -> Score).
@@ -560,6 +569,12 @@ func _build_content() -> void:
 	treasure_strip.name = "TreasureStrip"
 	treasure_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(treasure_strip)
+	main_bus = LedStripView.new()
+	main_bus.name = "MainBus"
+	main_bus.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(main_bus)
+	led_strip.drawn = false
+	treasure_strip.drawn = false
 
 	# Wertungs-Leisten (Grube/Kombis -> Score): früh gebaut, damit sie UNTER den
 	# Fenstern liegen; verlegt werden sie in link_score_strips.
@@ -573,6 +588,7 @@ func _build_content() -> void:
 	pit_hub_strip = LedStripView.new()
 	pit_hub_strip.name = "PitHubStrip"
 	pit_hub_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pit_hub_strip.drawn = false
 	add_child(pit_hub_strip)
 
 	combos_score_strip = LedStripView.new()
@@ -586,12 +602,6 @@ func _build_content() -> void:
 	charm_bus_strip.name = "CharmBusStrip"
 	charm_bus_strip.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(charm_bus_strip)
-	for i in CharmRowView.PORT_COUNT:
-		var strip := LedStripView.new()
-		strip.name = "CharmScoreStrip%d" % i
-		strip.set_anchors_preset(Control.PRESET_FULL_RECT)
-		add_child(strip)
-		charm_score_strips.append(strip)
 
 	# Fassung des Chip-Trays: Position/Größe setzt scene_root über place_treasure_window.
 	treasure_window = TreasureChestView.new()
@@ -1254,7 +1264,20 @@ func place_luck_station(rect: Rect2) -> void:
 	luck_station_window.position = rect.position
 	luck_station_window.size = rect.size
 	luck_station_window.visible = rect.size.x > 0.0 and rect.size.y > 0.0
+	_station_quiet.clear()
+	_apply_deck_quiet()
 	_sync_reflection_windows()
+
+## Ein Teil der Glücks-Station in Display-Pixeln.
+func luck_part_px(key: String) -> Rect2:
+	var part := luck_station_window.part_rect(key)
+	part.position += luck_station_window.position
+	return part
+
+func luck_cell_px(face: int) -> Rect2:
+	var cell := luck_station_window.cell_rect(face)
+	cell.position += luck_station_window.position
+	return cell
 
 ## Der Sitz des Glückswürfels in Display-Pixeln (leer = keine Station).
 func luck_seat_px() -> Vector2:
@@ -1331,6 +1354,15 @@ func set_sunk_pit(rect: Rect2, radius: float, drop: float) -> void:
 func set_deck_quiet_rects(rects: Array[Rect2]) -> void:
 	if _deck_material == null:
 		return
+	_quiet_asked = rects.duplicate()
+	_apply_deck_quiet()
+
+## Die gemeldeten Felder, danach die der Stationen (die Glücks-Station hat keinen Schirm mehr).
+func _apply_deck_quiet() -> void:
+	if _deck_material == null:
+		return
+	var rects: Array[Rect2] = _quiet_asked.duplicate()
+	rects.append_array(_station_quiet)
 	var packed: Array[Vector4] = []
 	for rect in rects.slice(0, MAX_QUIET):
 		packed.append(Vector4(rect.position.x, rect.position.y, rect.end.x, rect.end.y))
@@ -1344,22 +1376,28 @@ func set_deck_quiet_rects(rects: Array[Rect2]) -> void:
 func deck_quiet_rects() -> Array[Rect2]:
 	return _deck_quiet
 
-## Die Möbel des Decks als [Name, Rechteck] in Display-Pixeln: Fenster, Kombi-Feld, offene
-## Gruben und was scene_root dazu meldet; was sich fast berührt, ist EIN Bauteil.
+## Die Möbel des Decks als [Name, Rechteck, Art] in Display-Pixeln: Fenster, Kombi-Feld,
+## offene Gruben und was scene_root dazu meldet; was sich fast berührt, ist EIN Bauteil -
+## außer den Bauteilen mit eigener ART (PcbDeckView.KIND_*), die stehen für sich.
 func deck_furniture(extra: Array = []) -> Array:
 	var raw: Array = []
-	for entry in [["HUB", hub], ["GRUBE", pit_window], ["ZIEL", goal_bar],
-			["WETTEN", side_bet_window], ["AUTOMAT", slot_bank_window],
+	if pit_window != null and pit_window.size.x > 4.0:
+		raw.append(["CPU", Rect2(pit_window.position, pit_window.size), PcbDeckView.KIND_SOCKET])
+	raw.append(["WERTUNG", score_rect, PcbDeckView.KIND_DISPLAY])
+	raw.append(["ROM BANK", combo_card_rect(), PcbDeckView.KIND_CARD])
+	if hub != null and hub.size.x > 4.0:
+		raw.append(["HUB", Rect2(hub.position, hub.size), PcbDeckView.KIND_HUB])
+	for entry in [["WETTEN", side_bet_window], ["AUTOMAT", slot_bank_window],
 			["MARKT", secret_shop_window], ["CHIPS", treasure_window],
-			["GLUECK", luck_station_window], ["INFO", workshop_info_window]]:
+			["GLUECK", luck_station_window], ["ENERGIE", null], ["INFO", workshop_info_window]]:
+		if entry[0] == "ENERGIE":
+			if energy_bank_rect.size.x > 4.0:
+				raw.append(["ENERGIE", energy_bank_rect])
+			continue
 		var control: Control = entry[1]
 		if control != null and control.size.x > 4.0:
 			raw.append([entry[0], Rect2(control.position, control.size)])
-	raw.append(["WERTUNG", score_rect])
-	raw.append(["KOMBI", cluster_rect])
 	raw.append_array(extra)
-	for rect in charm_reader_rects:
-		raw.append(["PORT", rect])
 	for slot in MAX_PITS:
 		if pit_open(slot):
 			raw.append(["", pit_rect(slot)])
@@ -1368,19 +1406,61 @@ func deck_furniture(extra: Array = []) -> Array:
 	for entry in raw:
 		var rect: Rect2 = (entry[1] as Rect2).intersection(board)
 		if rect.size.x >= 8.0 and rect.size.y >= 8.0:
-			out.append([entry[0], rect])
+			out.append([entry[0], rect, entry[2] if entry.size() > 2 else ""])
 	var merged := true
 	while merged:
 		merged = false
 		for i in out.size():
 			for j in range(out.size() - 1, i, -1):
-				if (out[i][1] as Rect2).grow(DECK_MERGE_PX).intersects(out[j][1]):
+				# Ein Bauteil mit eigener Art nimmt nur namenlose Gruben auf.
+				var typed: bool = out[i][2] != "" or out[j][2] != ""
+				if typed and out[i][0] != "" and out[j][0] != "":
+					continue
+				if not (out[i][1] as Rect2).grow(DECK_MERGE_PX).intersects(out[j][1]):
+					continue
+				if out[i][2] == "" or out[j][2] != "":
 					out[i][1] = (out[i][1] as Rect2).merge(out[j][1])
-					if out[i][0] == "":
-						out[i][0] = out[j][0]
-					out.remove_at(j)
-					merged = true
+				if out[i][0] == "":
+					out[i][0] = out[j][0]
+					out[i][2] = out[j][2]
+				out.remove_at(j)
+				merged = true
 	return out
+
+## Die TOCHTERKARTE unter dem Kombi-Feld ist cluster_rect: dort enden die Adern von außen.
+
+func combo_cell_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	for key: String in DiceScoring.HAND_PRIORITY:
+		if combo_cells.has(key):
+			var cell: ComboCellView = combo_cells[key]
+			out.append(Rect2(cell.position, cell.size))
+	return out
+
+func combo_card_rect() -> Rect2:
+	if combo_cells.is_empty():
+		return Rect2()
+	# Der Kopfrand weicht dem Flansch der Wertung, die über der rechten Ecke steht.
+	var rect := cluster_rect
+	if score_frame != null and score_frame.visible and score_rect.end.y <= rect.position.y:
+		var top := score_rect.end.y + SCORE_FLANGE_WORLD * pixels_per_world() + CARD_TOP_AIR
+		rect = rect.grow_individual(0.0, rect.position.y - maxf(top, rect.position.y), 0.0, 0.0)
+	return rect
+
+## Die Pin-Spitzen aller Chips als [Punkt, Richtung] - drei links, drei rechts je Chip.
+func combo_pin_tips() -> Array:
+	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
+	var tip_dx: float = offsets["tip_dx"]
+	var out: Array = []
+	for rect in combo_cell_rects():
+		# Links die Pins des Gehäuses, rechts die Beinchen der Modul-Fächer.
+		for row: float in offsets["rows"]:
+			out.append([Vector2(rect.get_center().x - tip_dx, rect.get_center().y + row), -1.0])
+		for row: float in offsets["bays"]:
+			out.append([Vector2(rect.get_center().x + tip_dx, rect.get_center().y + row), 1.0])
+	return out
+
+const CARD_TOP_AIR := 6.0
 
 const DECK_MERGE_PX := 22.0
 const DECK_ADER_ROOM := 30.0
@@ -1404,9 +1484,11 @@ func bake_deck(extra: Array = [], reserved: Array[Rect2] = []) -> void:
 		add_child(_deck_oven)
 	var rects: Array[Rect2] = []
 	var labels: Array[String] = []
+	var kinds: Array[String] = []
 	for entry in deck_furniture(extra):
 		labels.append(entry[0])
 		rects.append(entry[1])
+		kinds.append(entry[2])
 	var corridors := reserved.duplicate()
 	for strip: LedStripView in find_children("*", "LedStripView", true, false):
 		var paths: Array[PackedVector2Array] = [strip.strip_path, strip.branch_path]
@@ -1418,6 +1500,7 @@ func bake_deck(extra: Array = [], reserved: Array[Rect2] = []) -> void:
 	_deck_view.board = Rect2(Vector2.ZERO, Vector2(RESOLUTION))
 	_deck_view.comps = rects
 	_deck_view.names = labels
+	_deck_view.kinds = kinds
 	_deck_view.reserved = corridors
 	_deck_view.plan()
 	_deck_oven.render_target_update_mode = SubViewport.UPDATE_ONCE
@@ -1478,7 +1561,7 @@ const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
 	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
-	PIT_OPENING, PIT_SOCKET, PIT_CHAMBER, PIT_NET_TRAY]
+	PIT_OPENING, PIT_SOCKET, PIT_CHAMBER, PIT_NET_TRAY, PIT_ENERGY]
 
 func clear_lift_pits() -> void:
 	for slot in range(PIT_MAGAZIN + 1, MAX_PITS):
@@ -1565,14 +1648,7 @@ func _sync_reflection_windows() -> void:
 	# Die WERKSTATT ist KEIN Fenster mehr: ihr Streifen hat seit 2026-09-03 keinen
 	# Schirm-Hintergrund, ihre Teile liegen auf dem Filz (wie der Kombi-Cluster).
 	# Die REPARATUR-BUCHT teilt diese Grammatik und steht darum ebenfalls nicht hier.
-	if treasure_window != null and treasure_window.visible:
-		rects.append(Vector4(treasure_window.position.x, treasure_window.position.y,
-			treasure_window.position.x + treasure_window.size.x, treasure_window.position.y + treasure_window.size.y))
-		radii.append(treasure_window.size.x / 100.0 * 3.0)
-	if luck_station_window != null and luck_station_window.visible:
-		var luck := Rect2(luck_station_window.position, luck_station_window.size)
-		rects.append(Vector4(luck.position.x, luck.position.y, luck.end.x, luck.end.y))
-		radii.append(luck_station_window.frame_px() * 2.0)
+	# Chip-Tray und Glücks-Station sind Bauteile (ChipTrayDress, LuckStationBody), keine Fenster.
 	if hub != null and hub.size.x > 0.0:
 		rects.append(Vector4(hub.position.x, hub.position.y,
 			hub.position.x + hub.size.x, hub.position.y + hub.size.y))
@@ -1621,6 +1697,9 @@ func place_combo_cluster(center_px: Vector2, pit_rect := Rect2()) -> void:
 		var tip_dx: float = ComboChipView.pin_offsets_px(CELL_SIZE)["tip_dx"]
 		right = pit_rect.position.x - PIT_SIDE_GAP + CELL_SIZE.x * 0.5 - tip_dx
 	var full := float(CLUSTER_COLUMNS) * CELL_SIZE.x + float(CLUSTER_COLUMNS - 1) * CELL_GAP.x
+	if pit_rect.size.x > 0.0:
+		# Die Karte steht links bündig mit den Automaten darunter (cluster_anchor_rect).
+		right = minf(right, cluster_anchor_rect.position.x + CLUSTER_PADDING + full)
 	var bounds := Rect2()
 	var total := DiceScoring.HAND_PRIORITY.size()
 	for i in total:
@@ -1660,47 +1739,84 @@ func combo_bus_xs() -> PackedFloat32Array:
 	kept.sort()
 	return kept
 
-## Verlegt das Adernetz der Chips, so sparsam wie möglich: zwei senkrechte
-## Sammelschienen in den Spaltenlücken, EINE Quer-Schiene unten (dort speist die
-## Hub-Ader ein), und je Chip nur EIN Stich pro Nachbarschiene - auf der
-## mittleren Pin-Höhe, die auch die Kauf-Kometen anfahren. Alles in Screen-Pixeln.
+## Die Senkrechten des Kombi-Busses: außen links, in jeder Spaltenlücke, außen rechts.
+## Die äußeren stehen mittig zwischen Kartenrand und Pin-Spitzen.
+func combo_rail_xs() -> PackedFloat32Array:
+	var xs := combo_bus_xs()
+	var rects := combo_cell_rects()
+	if rects.is_empty():
+		return xs
+	var tip_dx: float = ComboChipView.pin_offsets_px(CELL_SIZE)["tip_dx"]
+	var lo := INF
+	var hi := -INF
+	for rect in rects:
+		lo = minf(lo, rect.get_center().x - tip_dx)
+		hi = maxf(hi, rect.get_center().x + tip_dx)
+	var card := combo_card_rect()
+	xs.insert(0, (card.position.x + lo) * 0.5)
+	xs.append((card.end.x + hi) * 0.5)
+	return xs
+
+## Die Quer-Schienen (oben, unten): mittig zwischen Kartenrand und Chips.
+func combo_rail_ys() -> Vector2:
+	var rects := combo_cell_rects()
+	if rects.is_empty():
+		return Vector2(cluster_rect.position.y, cluster_rect.end.y)
+	var top := INF
+	var bottom := -INF
+	for rect in rects:
+		top = minf(top, rect.position.y)
+		bottom = maxf(bottom, rect.end.y)
+	var card := combo_card_rect()
+	return Vector2((card.position.y + top) * 0.5, (card.end.y + bottom) * 0.5)
+
+## Die Senkrechte, an der eine Pin-Spitze hängt: die nächste in Pin-Richtung.
+func _combo_rail_beside(x: float, dir: float) -> float:
+	var best := NAN
+	for rail: float in combo_rail_xs():
+		if (rail - x) * dir > 0.0 and (is_nan(best) or absf(rail - x) < absf(best - x)):
+			best = rail
+	return best
+
+## Der Kombi-BUS im Stil aller Adern (zweispurig, RAIL_TRACKS): ein Ring aus den äußeren
+## Senkrechten und den Quer-Schienen über die ganze Breite, dazu je Spaltenlücke eine
+## Senkrechte; JEDER Pin sitzt mit einem Stich auf der nahen Spur seiner Senkrechten.
 func _lay_combo_wiring() -> void:
 	if combo_wiring == null or combo_cells.is_empty():
 		return
-	var buses := combo_bus_xs()
-	if buses.is_empty():
-		return
-	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
-	var tip_dx: float = offsets["tip_dx"]
-	var row: float = offsets["rows"][1]
-	var stub := CELL_GAP.x * 0.5
-	var rails: Array[PackedVector2Array] = []
-	for key: String in combo_cells:
-		var cell: ComboCellView = combo_cells[key]
-		var rect := Rect2(cell.position, cell.size)
-		var y := rect.get_center().y + row
-		var left_x := roundi(rect.position.x - stub)
-		var right_x := roundi(rect.end.x + stub)
-		for bus: float in buses:
-			if roundi(bus) == left_x:
-				rails.append(PackedVector2Array([
-					Vector2(bus, y), Vector2(rect.get_center().x - tip_dx, y)]))
-			elif roundi(bus) == right_x:
-				rails.append(PackedVector2Array([
-					Vector2(bus, y), Vector2(rect.get_center().x + tip_dx, y)]))
-	for bus: float in buses:
-		rails.append(PackedVector2Array([
-			Vector2(bus, cluster_rect.position.y), Vector2(bus, cluster_rect.end.y)]))
-	if buses.size() > 1:
-		rails.append(PackedVector2Array([
-			Vector2(buses[0], cluster_rect.end.y),
-			Vector2(buses[buses.size() - 1], cluster_rect.end.y)]))
-	combo_wiring.link_rails(rails, COMBO_WIRING_WIDTH)
+	var xs := combo_rail_xs()
+	var ys := combo_rail_ys()
+	var half := PcbDeckView.PITCH * 0.5
+	var left := xs[0]
+	var right := xs[xs.size() - 1]
+	var mid := (left + right) * 0.5
+	var rails: Array[PackedVector2Array] = [PackedVector2Array([Vector2(mid, ys.x),
+		Vector2(right, ys.x), Vector2(right, ys.y), Vector2(left, ys.y), Vector2(left, ys.x),
+		Vector2(mid, ys.x)])]
+	# Die Senkrechten treffen den Ring in KNOTEN; Haupt-Bus und Wertungs-Ader kreuzen ihn an der rechten.
+	var reach := LedStripView.JUNCTION_REACH * PcbDeckView.PITCH
+	var knots: Array = []
+	for i in range(1, xs.size() - 1):
+		rails.append(PackedVector2Array([Vector2(xs[i], ys.x + reach), Vector2(xs[i], ys.y - reach)]))
+		for end: Array in [[ys.x, Vector2(0, 1)], [ys.y, Vector2(0, -1)]]:
+			knots.append({"at": Vector2(xs[i], end[0]), "dir": end[1], "reach": reach,
+				"branch": LedStripView.RAIL_TRACKS, "rail": LedStripView.RAIL_TRACKS})
+	var cross := xs[xs.size() - 2] if xs.size() > 2 else mid
+	for end: Array in [[ys.x, Vector2(0, -1)], [ys.y, Vector2(0, 1)]]:
+		knots.append({"at": Vector2(cross, end[0]), "dir": end[1], "reach": reach,
+			"branch": LedStripView.TRACKS, "rail": LedStripView.RAIL_TRACKS})
+	var stubs: Array[PackedVector2Array] = []
+	for pin in combo_pin_tips():
+		var tip: Vector2 = pin[0]
+		var dir: float = pin[1]
+		stubs.append(PackedVector2Array([tip,
+			Vector2(_combo_rail_beside(tip.x, dir) - dir * half, tip.y)]))
+	combo_wiring.link_rails(rails, COMBO_WIRING_WIDTH, stubs)
+	combo_wiring.set_junctions(knots)
 
-## Kometen-Pfade zum Chip index: von beiden Enden JEDER benachbarten Sammel-
-## schiene über die Schiene auf die mittlere Pin-Höhe, dann in die Pin-Spitze.
-## Randspalten hängen nur an einer Schiene, also zwei Pfade statt vier - gleiche
-## Laufzeit, gleichzeitige Ankunft.
+## Kometen-Pfade zum Chip index: von beiden Quer-Schienen über die Senkrechten links und
+## rechts des Chips auf die mittlere Pin-Höhe, dann in die Pin-Spitze - vier Pfade,
+## gleiche Laufzeit, gleichzeitige Ankunft.
 func wiring_paths_to_cell(index: int) -> Array[PackedVector2Array]:
 	var paths: Array[PackedVector2Array] = []
 	if index < 0 or index >= DiceScoring.HAND_PRIORITY.size():
@@ -1713,14 +1829,13 @@ func wiring_paths_to_cell(index: int) -> Array[PackedVector2Array]:
 	var offsets := ComboChipView.pin_offsets_px(CELL_SIZE)
 	var tip_dx: float = offsets["tip_dx"]
 	var y: float = rect.get_center().y + float(offsets["rows"][1])
-	var stub := CELL_GAP.x * 0.5
-	var neighbours := PackedFloat32Array()
-	for bus: float in combo_bus_xs():
-		if roundi(bus) == roundi(rect.position.x - stub) or roundi(bus) == roundi(rect.end.x + stub):
-			neighbours.append(bus)
-	for bus_x: float in neighbours:
-		var tip_x: float = rect.get_center().x + (tip_dx if bus_x > rect.get_center().x else -tip_dx)
-		for from_y: float in [cluster_rect.position.y, cluster_rect.end.y]:
+	var ys := combo_rail_ys()
+	for dir: float in [-1.0, 1.0]:
+		var tip_x: float = rect.get_center().x + dir * tip_dx
+		var bus_x := _combo_rail_beside(tip_x, dir)
+		if is_nan(bus_x):
+			continue
+		for from_y: float in [ys.x, ys.y]:
 			paths.append(PackedVector2Array([
 				Vector2(bus_x, from_y), Vector2(bus_x, y), Vector2(tip_x, y)]))
 	return paths
@@ -2522,11 +2637,64 @@ func _hub_strip_lane_y() -> float:
 	var lane_y := (obstacle_bottom + hub_top) * 0.5
 	return minf(lane_y, hub_top - 6.0 * SUPERSAMPLE)  # zur Not knapp über der Hub-Oberkante
 
-## Gespiegelte Austrittspunkte an der Hub-Oberkante (Kombi links, Tray rechts).
-func _hub_strip_exit_x(to_right: bool) -> float:
-	var cx := hub.position.x + hub.size.x * 0.5
-	var d := hub.size.x * 0.25
-	return cx + d if to_right else cx - d
+## Der Hub zapft den Haupt-Bus mittig an.
+func _hub_strip_exit_x() -> float:
+	return hub.position.x + hub.size.x * 0.5
+
+## Legt den HAUPT-BUS neu: die äußersten Geräte sind seine Enden, alle übrigen und der Hub
+## zapfen ihn über genormte T-Stücke an.
+func link_main_bus() -> void:
+	if main_bus == null or hub == null or hub.size.x <= 0.0:
+		return
+	var lane := _hub_strip_lane_y()
+	var devices: Array = []
+	if not combo_cells.is_empty():
+		var buses := combo_bus_xs()
+		devices.append(Vector2(buses[buses.size() - 1] if not buses.is_empty()
+			else cluster_rect.get_center().x, _combo_bus_foot()))
+	if pit_window != null and pit_window.visible:
+		devices.append(Vector2(pit_window.position.x + pit_window.size.x * 0.5,
+			pit_window.position.y + pit_window.size.y))
+	if side_bet_window != null and side_bet_window.visible:
+		devices.append(Vector2(side_bet_window.position.x + side_bet_window.size.x * 0.5,
+			side_bet_window.position.y + side_bet_window.size.y))
+	if treasure_window != null and treasure_window.visible:
+		devices.append(Vector2(treasure_window.position.x + treasure_window.rail_x(),
+			treasure_window.position.y + treasure_window.size.y))
+	if luck_station_window != null and luck_station_window.visible:
+		devices.append(Vector2(luck_station_window.position.x + luck_station_window.size.x * 0.5,
+			luck_station_window.position.y + luck_station_window.size.y))
+	if energy_bank_rect.size.x > 0.0:
+		devices.append(Vector2(energy_bank_rect.get_center().x, energy_bank_rect.end.y))
+	if devices.size() < 2:
+		return
+	devices.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+	var first: Vector2 = devices[0]
+	var last: Vector2 = devices[devices.size() - 1]
+	var taps: Array = []
+	for i in range(1, devices.size() - 1):
+		var at: Vector2 = devices[i]
+		taps.append([Vector2(at.x, lane), Vector2(0, -1), at])
+	var hub_x := _hub_strip_exit_x()
+	taps.append([Vector2(hub_x, lane), Vector2(0, 1), Vector2(hub_x, hub.position.y)])
+	var pads: Array[Rect2] = []
+	main_bus.link_bus(PackedVector2Array([first, Vector2(first.x, lane), Vector2(last.x, lane), last]),
+		taps, pads, HUB_STRIP_WIDTH)
+	# Am Kombi-Ring beginnt die Ader erst am Knoten, den der Ring zeichnet.
+	main_bus.trim_start = _combo_knot_trim() if not combo_cells.is_empty() else 0.0
+
+## Die Akku-Bank hängt als rechtes Ende am Haupt-Bus.
+func place_energy_bank(rect: Rect2) -> void:
+	energy_bank_rect = rect
+	link_main_bus()
+
+## Wie weit eine Ader vor dem Kombi-Ring ungezeichnet bleibt: bis dorthin reicht sein Knoten.
+func _combo_knot_trim() -> float:
+	return (LedStripView.JUNCTION_REACH - 0.5) * PcbDeckView.PITCH
+
+## Wo Adern von unten auf den Kombi-Bus treffen: die äußere Spur seiner unteren Quer-Schiene.
+func _combo_bus_foot() -> float:
+	return combo_rail_ys().y + PcbDeckView.PITCH * 0.5
 
 ## Verlegt die LED-Leiste zwischen Hub (oben links) und Kombinationen-Fenster
 ## (nach place_hub UND place_combo_cluster rufen).
@@ -2539,8 +2707,9 @@ func link_hub_to_cluster() -> void:
 	var buses := combo_bus_xs()
 	var enter_x: float = buses[buses.size() - 1] if not buses.is_empty() \
 		else cluster_rect.get_center().x
-	led_strip.link_edges(hub.position.y, _hub_strip_exit_x(false),
-		cluster_rect.end.y, enter_x, _hub_strip_lane_y(), HUB_STRIP_WIDTH)
+	led_strip.link_edges(hub.position.y, _hub_strip_exit_x(),
+		_combo_bus_foot(), enter_x, _hub_strip_lane_y(), HUB_STRIP_WIDTH)
+	link_main_bus()
 
 ## Stellt sicher, dass das Nebenwetten-Fenster sichtbar ist.
 func set_side_bet_installed(_installed: bool) -> void:
@@ -2585,10 +2754,11 @@ func link_hub_to_treasure() -> void:
 	var rail := treasure_window.position.x + treasure_window.rail_x()
 	treasure_strip.link_from_hub_top(Rect2(hub.position, hub.size),
 		Rect2(Vector2(rail - 1.0, treasure_window.position.y), Vector2(2.0, treasure_window.size.y)),
-		HUB_STRIP_WIDTH, _hub_strip_exit_x(true), _hub_strip_lane_y())
-	# T-Stück: die Geld-Ader zweigt im Korridor zusätzlich zu den Nebenwetten ab.
+		HUB_STRIP_WIDTH, _hub_strip_exit_x(), _hub_strip_lane_y())
+	# Die Geld-Route zweigt im Korridor zusätzlich zu den Nebenwetten ab.
 	if side_bet_window != null and side_bet_window.visible:
 		treasure_strip.fork_to(Rect2(side_bet_window.position, side_bet_window.size))
+	link_main_bus()
 
 ## --- Wertungs-Leisten (Grube/Kombis -> Score) ----------------------------------
 
@@ -2596,14 +2766,18 @@ func link_hub_to_treasure() -> void:
 const SCORE_STRIP_WIDTH := 3.4 * SUPERSAMPLE
 const SCORE_BUS_WIDTH := 4.8 * SUPERSAMPLE
 
-## Korridor zwischen Score-Unterkante und Grube-Oberkante (dort läuft der
-## waagerechte Teil der Kombi-Leiste, klar über der Grube).
+## So weit ragen die Fassungen in den Korridor zwischen Wertung und Grube (Welt):
+## der Flansch der Wertung von oben, der Sockel der Grube von unten.
+const SCORE_FLANGE_WORLD := 0.58
+const PIT_SOCKET_OUT_WORLD := 0.09
+
+## Mitte des SICHTBAREN Korridors zwischen den Fassungen von Wertung und Grube.
 func _score_lane_y() -> float:
-	var score_bottom := score_rect.end.y
-	var pit_top := score_bottom + 24.0 * SUPERSAMPLE
+	var top := score_rect.end.y + SCORE_FLANGE_WORLD * pixels_per_world()
+	var bottom := score_rect.end.y + 24.0 * SUPERSAMPLE
 	if pit_window != null and pit_window.visible:
-		pit_top = pit_window.position.y
-	return (score_bottom + pit_top) * 0.5
+		bottom = pit_window.position.y - PIT_SOCKET_OUT_WORLD * pixels_per_world()
+	return (top + bottom) * 0.5
 
 ## Verlegt die Grube- und Kombi-Leiste in den Wertungs-Bildschirm (nach
 ## place_score_screen, place_pit_window UND place_combo_cluster rufen).
@@ -2612,11 +2786,12 @@ func link_score_strips() -> void:
 		return
 	var lane := _score_lane_y()
 	var score_bottom := score_rect.end.y
-	# Grube -> Score: senkrechter Datenbus (Grubenmitte in die Score-Mitte).
+	# Grube <-> Score: der Datenbus steigt gerade von der Grubenmitte in die Score-Mitte.
 	if pit_score_strip != null and pit_window != null and pit_window.visible:
 		var pit_cx := pit_window.position.x + pit_window.size.x * 0.5
-		pit_score_strip.link_edges(pit_window.position.y, pit_cx, score_bottom, pit_cx,
-			lane, SCORE_BUS_WIDTH)
+		var score_cx := score_rect.get_center().x
+		pit_score_strip.link_path(PackedVector2Array([Vector2(pit_cx, pit_window.position.y),
+			Vector2(score_cx, score_bottom)]), SCORE_BUS_WIDTH)
 	# Grube -> Hub: Bank-Leiste im Korridor zwischen Grube-Unterkante und Hub-Oberkante
 	# (mittig, zwischen den beiden Hub-Ecken-Austritten von Kombi/Tray).
 	if pit_hub_strip != null and pit_window != null and pit_window.visible \
@@ -2627,45 +2802,55 @@ func link_score_strips() -> void:
 		var hub_top := hub.position.y
 		pit_hub_strip.link_edges(pit_bottom, pcx, hub_top, hub_cx,
 			(pit_bottom + hub_top) * 0.5, SCORE_BUS_WIDTH)
+		link_main_bus()
 	# Kombinationen -> Score: von der Kombi-Oberkante in einen linken Score-Port.
 	if combos_score_strip != null and not combo_cells.is_empty():
 		# Austritt am OBEREN Ende der LINKEN Sammelschiene: die Hub-Ader speist
 		# unten rechts ein, also verlässt das Licht das Netz diagonal gegenüber -
 		# und beide Adern treffen je eine Ecke, keine freie Strecke.
+		# Die Ader verläßt die Karte nach OBEN (rechte Schiene) und mündet in die linke
+		# Flanke der Wertung - die steht über der rechten Kartenecke.
 		var buses := combo_bus_xs()
-		var exit_x: float = buses[0] if not buses.is_empty() \
+		var exit_x: float = buses[buses.size() - 1] if not buses.is_empty() \
 			else cluster_rect.get_center().x
-		var enter_x := score_rect.position.x + score_rect.size.x * 0.25
-		combos_score_strip.link_edges(cluster_rect.position.y, exit_x, score_bottom, enter_x,
-			lane, SCORE_STRIP_WIDTH)
+		var enter_y := score_rect.get_center().y
+		if exit_x < score_rect.position.x and enter_y < cluster_rect.position.y:
+			combos_score_strip.link_path(PackedVector2Array([
+				Vector2(exit_x, combo_rail_ys().x - PcbDeckView.PITCH * 0.5), Vector2(exit_x, enter_y),
+				Vector2(score_rect.position.x, enter_y)]), SCORE_STRIP_WIDTH)
+		else:
+			combos_score_strip.link_edges(combo_rail_ys().x - PcbDeckView.PITCH * 0.5, exit_x, score_bottom,
+				score_rect.position.x + score_rect.size.x * 0.25, lane, SCORE_STRIP_WIDTH)
+		combos_score_strip.trim_start = _combo_knot_trim()
 	# Charm-Laufwerke -> Score: je Laufwerk eine Ader, gebündelt wie ein Kabelbaum.
 	_link_charm_strips()
 
-## Verlegt die Charm-Adern geordnet: je Laufwerk eine kurze senkrechte Ader von der
-## Disketten-Vorderkante auf EINE gemeinsame Sammelschiene; die Schiene läuft als
-## Stamm mittig in die Score-Oberkante.
+## Der PROJEKTOR-BUS: jeder der zehn Ports hat sein Kontaktfeld, ob ein Projektor darauf steht
+## oder nicht; jedes Feld zapft die Schiene über ein T-Stück an, und der Stamm verläßt sie
+## mittig hinab in die Wertung.
 func _link_charm_strips() -> void:
-	if charm_reader_rects.is_empty() or score_frame == null or not score_frame.visible:
+	if charm_body_rects.is_empty() or score_frame == null or not score_frame.visible:
 		return
-	var consoles := charm_reader_rects
-	var n := mini(consoles.size(), charm_score_strips.size())
-	if n == 0:
-		return
-	var score_top := score_rect.position.y
-	var console_bottom := consoles[0].end.y
-	_charm_rail_y = lerpf(console_bottom, score_top, 0.32)  # Schiene knapp unter den Charms
+	var pad_front := charm_body_rects[0].end.y + CHARM_PAD_LIP
+	_charm_rail_y = pad_front + PcbDeckView.PITCH * CHARM_TAP_ROOM
 	_charm_trunk_x = score_rect.get_center().x
-	var rail_left := consoles[0].get_center().x
-	var rail_right := consoles[n - 1].get_center().x
-	for i in charm_score_strips.size():
-		charm_score_strips[i].visible = i < n
-	for i in n:
-		var cx := consoles[i].get_center().x
-		# Kurze senkrechte Ader von der Konsolen-Unterkante auf die Schiene.
-		charm_score_strips[i].link_edges(console_bottom, cx, _charm_rail_y, cx,
-			_charm_rail_y, SCORE_STRIP_WIDTH)
-	charm_bus_strip.link_tee(minf(rail_left, _charm_trunk_x), maxf(rail_right, _charm_trunk_x),
-		_charm_rail_y, _charm_trunk_x, score_top, SCORE_BUS_WIDTH)
+	var pads: Array[Rect2] = []
+	var xs: Array[float] = []
+	for body in charm_body_rects:
+		pads.append(body.grow_individual(CHARM_PAD_RIM, CHARM_PAD_RIM, CHARM_PAD_RIM, CHARM_PAD_LIP))
+		xs.append(body.get_center().x)
+	xs.sort()
+	# Die äußersten Projektoren SIND die Enden der Schiene; die übrigen zapfen sie an.
+	var taps: Array = []
+	for i in range(1, xs.size() - 1):
+		taps.append([Vector2(xs[i], _charm_rail_y), Vector2(0, -1), Vector2(xs[i], pad_front)])
+	taps.append([Vector2(_charm_trunk_x, _charm_rail_y), Vector2(0, 1),
+		Vector2(_charm_trunk_x, score_rect.position.y)])
+	var left: float = xs[0]
+	var right: float = xs[xs.size() - 1]
+	charm_bus_strip.link_bus(PackedVector2Array([Vector2(left, pad_front),
+		Vector2(left, _charm_rail_y), Vector2(right, _charm_rail_y), Vector2(right, pad_front)]),
+		taps, pads, SCORE_BUS_WIDTH)
 
 ## Kometen-Route eines Charm-Schritts: Karte -> senkrecht auf die Schiene ->
 ## waagerecht zum Stamm -> senkrecht in den Score bis zur Zielzahl.
@@ -2678,9 +2863,20 @@ func _charm_route(from_px: Vector2, to_px: Vector2) -> PackedVector2Array:
 		Vector2(_charm_trunk_x, to_px.y),
 		to_px])
 
-## Die Grundrisse der Charm-Laufwerke (Display-Pixel) - daran hängen ihre Adern.
-func place_charm_readers(rects: Array[Rect2]) -> void:
+## So weit ragt das Kontaktfeld um den Projektor-Körper (px).
+const CHARM_PAD_RIM := 12.0
+## Vorn reicht das Feld weiter heraus: dort sitzt seine Kontaktreihe sichtbar vor dem Gehäuse.
+const CHARM_PAD_LIP := 26.0
+## Die Schiene liegt so viele Teilungen vor den Feldern: Platz für die Via-Treppe eines
+## Abzweigs darüber und die des Stamms darunter, vor dem Flansch der Wertung.
+const CHARM_TAP_ROOM := 5.5
+## Die Körper-Grundrisse an ALLEN Ports (Display-Pixel): darunter liegt je ein Kontaktfeld.
+var charm_body_rects: Array[Rect2] = []
+
+## Die Grundrisse der stehenden Projektoren samt Diskette, dazu die Körper an allen Ports.
+func place_charm_readers(rects: Array[Rect2], port_bodies: Array[Rect2] = []) -> void:
 	charm_reader_rects = rects.duplicate()
+	charm_body_rects = port_bodies.duplicate()
 
 ## Die Projektor-Zahl hat sich geändert: Adern und Schiene neu verlegen.
 func relink_charm_strips() -> void:
@@ -3110,10 +3306,15 @@ func _round_end_prefix(from_px: Vector2) -> PackedVector2Array:
 	path.append(score_entry)
 	var pr := Rect2(pit_window.position, pit_window.size)
 	var pcx := pr.get_center().x
-	var score_exit := Vector2(clampf(pcx, score_rect.position.x, score_rect.end.x), score_rect.end.y)
+	var bus := pit_score_strip.strip_path if pit_score_strip != null else PackedVector2Array()
+	var score_exit := Vector2(score_rect.get_center().x, score_rect.end.y)
+	if bus.size() >= 2:
+		score_exit = bus[bus.size() - 1]
 	for corner in _border_route(score_rect, score_entry, score_exit):
 		path.append(corner)
 	path.append(score_exit)
+	for k in range(bus.size() - 2, 0, -1):
+		path.append(bus[k])
 	var pit_entry := Vector2(pcx, pr.position.y)
 	var pit_exit := Vector2(pcx, pr.end.y)
 	path.append(pit_entry)

@@ -192,7 +192,10 @@ static func pin_offsets_px(cell_size: Vector2) -> Dictionary:
 	var rows: Array[float] = []
 	for f: float in PIN_FRACTIONS:
 		rows.append(((f - 0.5) * BODY_WIDTH - center_z) * per_unit)
-	return {"tip_dx": tip_span_px(cell_size) / 2.0, "rows": rows}
+	var bays: Array[float] = []
+	for f: float in SLOT_FRACTIONS:
+		bays.append(((f - 0.5) * BODY_WIDTH - center_z) * per_unit)
+	return {"tip_dx": tip_span_px(cell_size) / 2.0, "rows": rows, "bays": bays}
 
 ## Pixel je Welt-Einheit am Tisch, aus dem Maßstab der Zelle.
 static func px_per_world(cell_size: Vector2) -> float:

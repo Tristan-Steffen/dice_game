@@ -662,12 +662,15 @@ func _build_traces(u: float) -> void:
 		var slot := i / TRACE_LANES
 		var lane := i % TRACE_LANES
 		var lit := slice_lanes[slot] == lane
-		layer.add_trace(paths[i], slice_tints[slot], lit, width, 0)
+		layer.add_trace(paths[i], slice_tints[slot], lit, width, 0, slot)
 	var feeds := feed_paths(layout["upgrades"], layout["podium_stage"], TRACE_LANES,
 		u * FEED_PITCH)
 	for lane in feeds.size():
 		layer.add_trace(feeds[lane], lane_tint(lane), slice_lanes.has(lane),
-			maxf(u * FEED_WIDTH, 1.5), feeds[lane].size() - 1)
+			maxf(u * FEED_WIDTH, 1.5), feeds[lane].size() - 1, DRUM_SLICES)
+	if paths.size() > 1:
+		layer.ribbon = maxf(absf(paths[1][0].x - paths[0][0].x),
+			absf(paths[1][3].y - paths[0][3].y))
 	_content.add_child(layer)
 
 ## Die Sortenfarbe einer Spur (Pack.SHELF_ORDER).
@@ -736,12 +739,12 @@ static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2,
 	ranks.resize(count)
 	for i in count:
 		if starts[i] <= ends[i]:
-			ranks[i] = right_rank
+			ranks[i] = _shared_rank(starts, ends, ranks, lanes, i, -lanes, right_rank)
 			right_rank += 1
 	var left_rank := 0
 	for i in range(count - 1, -1, -1):
 		if starts[i] > ends[i]:
-			ranks[i] = left_rank
+			ranks[i] = _shared_rank(starts, ends, ranks, lanes, i, lanes, left_rank)
 			left_rank += 1
 	var margin := band.size.y * TRACE_BAND_MARGIN
 	var pitch := (band.size.y - margin * 2.0) / float(maxi(maxi(right_rank, left_rank) - 1, 1))
@@ -755,6 +758,28 @@ static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2,
 			Vector2(starts[i] + way * bend, lane_y), Vector2(ends[i] - way * bend, lane_y),
 			Vector2(ends[i], lane_y - bend), Vector2(ends[i], upgrades.end.y)]))
 	return paths
+
+## Ein Bündel, dessen Querstrecke die des vorigen Bündels gleicher Richtung nicht berührt,
+## knickt auf dessen Höhe ab - keine Bahn kann die andere dort kreuzen.
+static func _shared_rank(starts: Array[float], ends: Array[float], ranks: Array[int],
+		lanes: int, i: int, back: int, fresh: int) -> int:
+	var own := i / lanes * lanes
+	var prev := own + back
+	if prev < 0 or prev + lanes > starts.size():
+		return fresh
+	var way := signf(ends[i] - starts[i])
+	var own_span := Vector2(INF, -INF)
+	var prev_span := Vector2(INF, -INF)
+	for k in lanes:
+		if signf(ends[prev + k] - starts[prev + k]) != way:
+			return fresh
+		own_span = Vector2(minf(own_span.x, minf(starts[own + k], ends[own + k])),
+			maxf(own_span.y, maxf(starts[own + k], ends[own + k])))
+		prev_span = Vector2(minf(prev_span.x, minf(starts[prev + k], ends[prev + k])),
+			maxf(prev_span.y, maxf(starts[prev + k], ends[prev + k])))
+	if own_span.x <= prev_span.y and prev_span.x <= own_span.y:
+		return fresh
+	return ranks[i + back]
 
 ## Der AUSGANGS-BUS: `lanes` Spuren aus der Speicher-Oberkante hinauf und mit 45°-Knick
 ## nach rechts in die linke Kante der Podest-Platte. Die rechte Spur biegt am tiefsten ab.
@@ -783,16 +808,44 @@ class TraceLayer extends Control:
 	var widths: Array[float] = []
 	## Der Punkt mit dem Lötauge - das Ende am Speicher trägt keines.
 	var eyes: Array[int] = []
+	## Das Bündel einer Bahn (Scheibe; der Ausgangs-Bus hat ein eigenes).
+	var bundles: Array[int] = []
+	## Der größte Spur-Abstand innerhalb eines Bündels.
+	var ribbon := 4.0
+	## ENTWURF: 0 heute, 1 Kupfer, 2 Bus-Band, 3 Datenstrom.
+	static var style := 0
+	var _flow := 0.0
 
 	func add_trace(path: PackedVector2Array, tint: Color, on: bool, width: float,
-			eye: int) -> void:
+			eye: int, bundle := -1) -> void:
 		paths.append(path)
 		tints.append(tint)
 		lit.append(on)
 		widths.append(width)
 		eyes.append(eye)
+		bundles.append(bundle)
+
+	func _process(delta: float) -> void:
+		if style == 3 and lit.has(true):
+			_flow += delta
+			queue_redraw()
+
+	func _lit_tint(i: int) -> Color:
+		var tint := tints[i].darkened(TRACE_DARKEN)
+		tint.a = 1.0
+		return tint
 
 	func _draw() -> void:
+		match style:
+			1:
+				_draw_copper()
+				return
+			2:
+				_draw_ribbon()
+				return
+			3:
+				_draw_stream()
+				return
 		for i in paths.size():
 			draw_polyline(paths[i], TRACE_BED, widths[i] * 2.6, true)
 		# Erst alle matten, dann die leuchtenden - ihr Schein liegt über den Nachbarn.
@@ -807,6 +860,132 @@ class TraceLayer extends Control:
 				draw_polyline(paths[i], tint, widths[i], true)
 				draw_circle(paths[i][eyes[i]], widths[i] * 1.5, TRACE_BED)
 				draw_circle(paths[i][eyes[i]], widths[i] * 1.1, tint)
+
+	## KUPFER: Kupfer unter grünem Lötstopplack, belegt glänzt die Bahn in der Sortenfarbe;
+	## jeder Fuß ist eine Durchkontaktierung (Ring mit Bohrung).
+	func _draw_copper() -> void:
+		var mask := Color(0.05, 0.16, 0.1, 0.95)
+		var copper := Color(0.62, 0.42, 0.2)
+		for i in paths.size():
+			draw_polyline(paths[i], mask, widths[i] * 2.4, true)
+		for pass_lit: bool in [false, true]:
+			for i in paths.size():
+				if lit[i] != pass_lit:
+					continue
+				var w := widths[i] * 1.4
+				if pass_lit:
+					var tint := _lit_tint(i)
+					draw_polyline(paths[i], Color(tint, 0.25), w * 3.0, true)
+					draw_polyline(paths[i], tint, w, true)
+					draw_polyline(paths[i], tint.lightened(0.45), w * 0.35, true)
+				else:
+					draw_polyline(paths[i], copper.darkened(0.35), w, true)
+					draw_polyline(paths[i], copper.darkened(0.1), w * 0.3, true)
+				var via := paths[i][eyes[i]]
+				draw_circle(via, w * 1.55, mask)
+				draw_circle(via, w * 1.25, Color(0.82, 0.68, 0.38))
+				draw_circle(via, w * 0.6, Color(0.02, 0.03, 0.03))
+
+	## BUS-BAND: jedes Bündel liegt als EIN Band mit Massering auf dem Deck, die Spuren
+	## darin; am Fuß steht der Bus-Name im Bestückungsdruck.
+	func _draw_ribbon() -> void:
+		var rim := Color(0.55, 0.62, 0.76)
+		var fill := Color(0.09, 0.14, 0.19)
+		var span := ribbon * 1.5
+		for i in paths.size():
+			draw_polyline(paths[i], rim, span + widths[i] * 2.4, true)
+		for i in paths.size():
+			draw_polyline(paths[i], fill, span, true)
+		for pass_lit: bool in [false, true]:
+			for i in paths.size():
+				if lit[i] != pass_lit:
+					continue
+				var w := widths[i] * 0.75
+				if pass_lit:
+					var tint := _lit_tint(i)
+					draw_polyline(paths[i], Color(tint, 0.3), w * 2.6, true)
+					draw_polyline(paths[i], tint, w, true)
+				else:
+					draw_polyline(paths[i], TRACE_IDLE.darkened(0.25), w, true)
+		var font := ThemeDB.fallback_font
+		var size := int(maxf(ribbon * 2.2, 8.0))
+		var seen := {}
+		for i in paths.size():
+			var bundle := bundles[i]
+			if bundle < 0 or bundle >= DRUM_SLICES or seen.has(bundle):
+				continue
+			seen[bundle] = true
+			var foot := paths[i][0]
+			var text := "BUS%d D0-3" % (bundle + 1)
+			draw_string(font, foot + Vector2(ribbon * 3.6 + widths[i] * 3.0, -size * 2.4),
+				text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0.75, 0.78, 0.85, 0.7))
+
+	## DATENSTROM: feine Spuren, am Fuß ein Abschluß-Widerstandsnetz je Bündel; über die
+	## belegte Spur laufen Datenpakete zum Speicher.
+	func _draw_stream() -> void:
+		var idle := Color(0.16, 0.34, 0.36)
+		for i in paths.size():
+			draw_polyline(paths[i], TRACE_BED, widths[i] * 1.8, true)
+		for i in paths.size():
+			var w := widths[i] * 0.7
+			draw_polyline(paths[i], _lit_tint(i).darkened(0.45) if lit[i] else idle, w, true)
+		for i in paths.size():
+			if not lit[i]:
+				continue
+			_draw_packets(paths[i], widths[i], _lit_tint(i))
+		var packs := {}
+		for i in paths.size():
+			var bundle := bundles[i]
+			if bundle < 0 or bundle >= DRUM_SLICES:
+				continue
+			var foot := paths[i][0]
+			var box: Rect2 = packs.get(bundle, Rect2(foot, Vector2.ZERO))
+			packs[bundle] = box.expand(foot)
+		for bundle: int in packs:
+			var box: Rect2 = packs[bundle]
+			var body := Rect2(box.position.x - ribbon * 0.8, box.position.y - ribbon * 7.0,
+				box.size.x + ribbon * 1.6, ribbon * 3.6)
+			for i in paths.size():
+				if bundles[i] != bundle:
+					continue
+				var pad := Vector2(ribbon * 0.55, ribbon * 0.8)
+				var x := paths[i][0].x - pad.x * 0.5
+				var pad_tint := _lit_tint(i) if lit[i] else Color(0.8, 0.7, 0.45)
+				draw_rect(Rect2(x, body.position.y - pad.y * 0.6, pad.x, pad.y), pad_tint)
+				draw_rect(Rect2(x, body.end.y - pad.y * 0.4, pad.x, pad.y), pad_tint)
+			draw_rect(body, Color(0.06, 0.06, 0.08))
+			draw_rect(body, Color(0.45, 0.47, 0.55), false, 1.0)
+			draw_circle(body.position + Vector2(ribbon * 0.6, ribbon * 0.6), ribbon * 0.25,
+				Color(0.5, 0.5, 0.55))
+
+	func _draw_packets(path: PackedVector2Array, width: float, tint: Color) -> void:
+		var length := 0.0
+		for k in range(1, path.size()):
+			length += path[k - 1].distance_to(path[k])
+		var gap := maxf(width * 14.0, 18.0)
+		var dash := gap * 0.35
+		var offset := fmod(_flow * gap * 1.6, gap)
+		var at := offset
+		while at < length:
+			_draw_piece(path, at, minf(at + dash, length), width * 1.1, tint.lightened(0.35))
+			at += gap
+
+	func _draw_piece(path: PackedVector2Array, from: float, to: float, width: float,
+			tint: Color) -> void:
+		var walked := 0.0
+		for k in range(1, path.size()):
+			var a := path[k - 1]
+			var b := path[k]
+			var seg := a.distance_to(b)
+			if seg <= 0.0:
+				continue
+			var lo := maxf(from - walked, 0.0)
+			var hi := minf(to - walked, seg)
+			if hi > lo:
+				draw_line(a.lerp(b, lo / seg), a.lerp(b, hi / seg), tint, width, true)
+			walked += seg
+			if walked >= to:
+				return
 
 ## DER SPEICHER hinter dem UPGRADES-Netz ist eine PLATINE: unten die Kontaktfinger der 24
 ## Bahnen, je Scheibe EIN Zug in ihre Energiezelle (1-3 links herum und oben herein, 4-6
