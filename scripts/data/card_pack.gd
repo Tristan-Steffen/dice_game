@@ -48,9 +48,6 @@ const PRICE_PICKS := [[0.9, 0.9, 0.94], [1.2, 1.2, 1.254], [1.3, 1.3, 1.381],
 
 ## Kartengrößen (Standard/Groß/Kolossal) je GÜTE.
 const QUALITY_TIER_WEIGHTS := [[0.70, 0.25, 0.05], [0.45, 0.40, 0.15], [0.20, 0.45, 0.35]]
-## Großauftrag: jede Güte würfelt eine Stufe besser.
-const BULK_QUALITY_TIER_WEIGHTS := [[0.45, 0.40, 0.15], [0.20, 0.45, 0.35],
-	[0.10, 0.40, 0.50]]
 ## Garantie unter den Optionen je Güte: so groß ist mindestens eine Karte (-1 = keine).
 const QUALITY_GUARANTEE := [-1, Pack.TIER_GROSS, Pack.TIER_KOLOSSAL]
 ## Preisfaktor der Güte im Sonder-Paket (seine Karten haben keine Größe).
@@ -121,11 +118,10 @@ func guaranteed_tier() -> int:
 	return int(QUALITY_GUARANTEE[_quality(quality)])
 
 ## Die vorderste Karte; beim ersten Fragen gewürfelt (Sorte und Güte des Pakets) und dann fest.
-func front_card(multiplier_chance := 0.0, bulk := false,
+func front_card(multiplier_chance := 0.0,
 		rng: RandomNumberGenerator = null) -> Pack:
 	if front == null:
-		var weights: Array = (BULK_QUALITY_TIER_WEIGHTS if bulk else QUALITY_TIER_WEIGHTS)[
-			_quality(quality)]
+		var weights: Array = QUALITY_TIER_WEIGHTS[_quality(quality)]
 		front = _roll_card(sort, Pack.roll_tier(rng, weights), multiplier_chance, rng)
 	return front
 
@@ -192,7 +188,7 @@ static func roll_shop(rng: RandomNumberGenerator = null, quality_weights: Array 
 ## Würfelt count OPTIONEN (ohne count: die Optionen der Kartenzahl) nach Sorte und Güte,
 ## mit Garantie und ohne doppeltes Netz. Option 0 ist IMMER die vorderste Karte des Pakets,
 ## unverändert - auch nach Neu mischen. Nie Reparatur-Karte, nie Rohling.
-static func roll_contents(card_pack: CardPack, multiplier_chance := 0.0, bulk := false,
+static func roll_contents(card_pack: CardPack, multiplier_chance := 0.0,
 		rng: RandomNumberGenerator = null, count := -1) -> Array[Pack]:
 	var cards: Array[Pack] = []
 	if card_pack == null:
@@ -201,9 +197,8 @@ static func roll_contents(card_pack: CardPack, multiplier_chance := 0.0, bulk :=
 		count = option_count(card_pack.size)
 	if count <= 0:
 		return cards
-	var weights: Array = (BULK_QUALITY_TIER_WEIGHTS if bulk else QUALITY_TIER_WEIGHTS)[
-		_quality(card_pack.quality)]
-	var shown := card_pack.front_card(multiplier_chance, bulk, rng)
+	var weights: Array = QUALITY_TIER_WEIGHTS[_quality(card_pack.quality)]
+	var shown := card_pack.front_card(multiplier_chance, rng)
 	var tiers: Array[int] = [shown.tier]
 	for i in count - 1:
 		tiers.append(Pack.roll_tier(rng, weights))

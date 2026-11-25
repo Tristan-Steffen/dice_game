@@ -55,7 +55,7 @@ func _process(_delta: float) -> bool:
 	var screen: TableScreen = game.get("table_screen")
 	var workshop: WorkshopView = screen.workshop_window
 	var area := workshop.call("_global", workshop.upgrades_net_rect()) as Rect2
-	area = area.merge(workshop.call("_global", workshop.result_net_rect()) as Rect2)
+	area = area.merge(workshop.call("_global", workshop.podium_net_rect()) as Rect2)
 	area = area.merge(workshop.podium_plate_px())
 	var t := screen.pixel_to_world(area.get_center())
 	var forward := Vector3(0.2588, -0.9659, 0.0)

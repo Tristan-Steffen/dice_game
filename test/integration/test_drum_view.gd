@@ -160,6 +160,21 @@ func test_only_the_next_hood_names_the_price() -> void:
 	assert_eq(drum.hood_price_text(3), "")
 	assert_eq(drum.hood_price_text(1), "", "eine freie Scheibe traegt nichts")
 
+## Nur die NÄCHSTE warnt; die übrigen sind ruhig, "GESPERRT" klein und gedämpft.
+func test_only_the_next_hood_warns() -> void:
+	drum.set_lock_state(2, 3, true)
+	assert_true(drum.hood_warns(2), "die nächste trägt die Schraffur")
+	assert_eq(drum.hood_word(2).text, "FREISCHALTEN")
+	for i in range(3, DrumView.SLICES):
+		assert_false(drum.hood_warns(i), "Haube %d ist ruhig" % (i + 1))
+		assert_eq(drum.hood_word(i).text, "GESPERRT")
+		assert_lt(drum.hood_word(i).pixel_size, drum.hood_word(2).pixel_size, "klein")
+		assert_lt(drum.hood_word(i).modulate.get_luminance(),
+			drum.hood_word(2).modulate.get_luminance(), "gedämpft")
+	drum.set_lock_state(3, 4, true)
+	assert_true(drum.hood_warns(3), "die Warnung wandert mit")
+	assert_false(drum.hood_warns(4))
+
 func test_an_unlocked_slice_ends_free_whatever_the_ride() -> void:
 	drum.set_lock_state(2, 3, true)
 	drum.set_lock_state(3, 4, false)

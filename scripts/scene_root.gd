@@ -1303,25 +1303,32 @@ var _pool_row_px := Rect2()
 ## Die NAHT, um die die Pool-Reihe gewachsen ist (halbe Slot-Teilung) - dieselbe
 ## trennt den Streifen von der Pool-Unterkante. EIN Maß, kein Streuwert.
 var _pool_seam_px := 0.0
-## Das Rechteck des INFO-SCHIRMS in Display-Pixeln (leer = noch nicht gestellt):
-## Kamera-Rahmen messen daran.
+## Das Rechteck des INFO-SCHIRMS in Display-Pixeln (leer = noch nicht gestellt).
 var _info_rect := Rect2()
-## Der PODEST-Platz in der Gleichung (Platte samt Die-View) in Display-Pixeln.
+## Der PODEST-Platz (Platte samt Die-View) in Display-Pixeln.
 var _podium_place_px := Rect2()
-## Die GLEICHUNGS-ZEILE rechts am Pool (Display-Pixel).
+## Die GLEICHUNG (Vorschau, Prägen, Info, Podest-Spalte) in Display-Pixeln.
 var _equation_px := Rect2()
+## Die VORSCHAU rechts am Pool (Display-Pixel) - eine Fuge rechts davon beginnt die
+## Öffnungs-Zone.
+var _preview_px := Rect2()
+## Der PRÄGE-Sitz (Display-Pixel) - rechts daneben steht die Schale.
+var _stamp_px := Rect2()
 
-## Der EINE Schreiber der WERKSTATT: die Kette (WorkshopView.drum_layout) eine Naht unter
-## dem Pool, Fenster, Info-Schirm, Gruben, Klickzone und die beiden Kamera-Rahmen.
-## Idempotent. Gibt die Ecke zurück, an der das Spill-Licht misst.
+## Der EINE Schreiber der WERKSTATT: die Kette (WorkshopView.drum_layout) unter und neben
+## dem Pool, Fenster, Info-Schirm, Gruben, Klickzone und die beiden Kamera-Rahmen. Das
+## Magazin endet mit seinen Gruben auf der Hub-Unterkante. Idempotent. Gibt die Ecke
+## zurück, an der das Spill-Licht misst.
 func _place_workshop_strip() -> Rect2:
 	var workshop: WorkshopView = table_screen.workshop_window
 	var u := _workshop_unit()
 	var card := PackDrawerView.lie_cell(_data_cell_apparent_px())
-	var frame := WorkshopView.drum_layout(_pool_row_px, card, _die_face_px(), u, 0.0,
-		_pool_seam_px)
+	var hub_bottom := table_screen.hub.position.y + table_screen.hub.size.y
+	var frame := WorkshopView.drum_layout(_pool_row_px, card, _die_face_px(), u, hub_bottom)
 	_podium_place_px = frame["podium"]
 	_equation_px = frame["equation"]
+	_preview_px = frame["preview"]
+	_stamp_px = frame["stamp"]
 	var bounds: Rect2 = frame["bounds"]
 	if workshop != null:
 		# Die Maße ZUERST: das Fenster legt seine Kette damit aus.
@@ -1332,16 +1339,25 @@ func _place_workshop_strip() -> Rect2:
 	table_screen.place_workshop_window(bounds)
 	_info_rect = frame["info"]
 	table_screen.place_workshop_info_window(_info_rect, u)
+	_sync_info_shown()
 	var quiet: Array[Rect2] = []
-	for part: String in ["upgrades", "podium_stage", "podium_net", "result", "info"]:
+	for part: String in ["preview", "info", "upgrades", "podium_stage", "podium_net"]:
 		quiet.append((frame[part] as Rect2).grow(u))
+	for sign: Rect2 in frame["signs"]:
+		quiet.append(sign.grow(u))
 	table_screen.set_deck_quiet_rects(quiet)
 	var bench_rect := workshop.bench_rect() if workshop != null else bounds
-	# Nichts der Werkstatt reicht unter die Hub-Unterkante (Spieler-Entscheid).
-	var hub_bottom := table_screen.hub.position.y + table_screen.hub.size.y
-	if bench_rect.end.y > hub_bottom + 0.5:
-		push_warning("Werkstatt reicht unter den Hub: %.1f gegen %.1f px"
-			% [bench_rect.end.y, hub_bottom])
+	# Die Gruben des Magazins enden auf der Hub-Unterkante, Fassung und Lichtleisten
+	# darunter bleiben auf der Anzeige (Spieler-Entscheid).
+	var pits_end := 0.0
+	for column: Rect2 in frame["columns"]:
+		pits_end = maxf(pits_end, column.end.y)
+	if pits_end > hub_bottom + 0.5:
+		push_warning("Magazin-Gruben reichen unter den Hub: %.1f gegen %.1f px"
+			% [pits_end, hub_bottom])
+	if (frame["shelf"] as Rect2).end.y > float(TableScreen.RESOLUTION.y):
+		push_warning("Magazin reicht über den Displayrand: %.1f px"
+			% (frame["shelf"] as Rect2).end.y)
 	if bench_rect.end.x > float(TableScreen.RESOLUTION.x) - WORKSHOP_RIGHT_MARGIN:
 		push_warning("Werkstatt reicht über die Anzeige: %.1f px" % bench_rect.end.x)
 	if workshop != null:
@@ -1374,13 +1390,22 @@ func _place_workshop_strip() -> Rect2:
 		table_screen.pixel_to_world(close_frame.get_center()), _world_half(close_frame))
 	return bench_rect.grow(seam)
 
+## Der INFO-SCHIRM ist während einer Paket-Öffnung fort - die Auswahl hat ihre eigene
+## Auskunft.
+func _sync_info_shown() -> void:
+	var info: WorkshopInfoView = table_screen.workshop_info_window if table_screen != null \
+		else null
+	if info != null and is_instance_valid(info):
+		info.visible = _info_rect.size.x > 0.0 and _info_rect.size.y > 0.0 \
+			and not _zone_picture_open
+
 ## Der Platz der SCHALE in Display-Pixeln, gerechnet (auch bevor sie steht): eine Fuge
-## rechts neben ERGEBNIS, oben bündig mit dem Pool.
+## rechts neben PRÄGEN, oben bündig mit dem Pool.
 func _fach_spot_px() -> Rect2:
-	if _equation_px.size.x <= 0.0 or table_screen == null:
+	if _stamp_px.size.x <= 0.0 or table_screen == null:
 		return Rect2()
 	var side := _world_len_px(AusgabefachView.HALF_Z * 2.0)
-	return Rect2(Vector2(_equation_px.end.x + _workshop_unit() * WorkshopView.DRUM_SHELF_GAP,
+	return Rect2(Vector2(_stamp_px.end.x + _workshop_unit() * WorkshopView.STREET_GAP,
 		_pool_row_px.position.y), Vector2(side, side))
 
 ## Die halbe Welt-Ausdehnung eines Kamera-Rahmens (x quer = Welt-Z, y = Welt-X).
@@ -1697,6 +1722,12 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_energy_requested.connect(_on_debug_energy_pressed)
 		table_screen.hub.debug_luck_requested.connect(_on_debug_luck_pressed)
 		table_screen.hub.debug_energy_cap_requested.connect(_on_debug_energy_cap_pressed)
+		table_screen.hub.debug_runes_requested.connect(func() -> void:
+			if run != null:
+				run.debug_rune_all_dice())
+		table_screen.hub.debug_random_faces_requested.connect(func() -> void:
+			if run != null:
+				run.debug_randomize_faces())
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)
@@ -3377,10 +3408,12 @@ func _seat_podium_puck(puck: StasisEmitter, puck_name: String, at: Vector3,
 		add_child(puck)
 		puck.build(CLAMP_HOVER, DiceTrayView.DIE_SCALE, CLAMP_EMITTER_TINT)
 		ScreenReflection.mark_reflective(puck)
-	# Fährt er mit der Zone, gehört sein Ort der Hebebühne.
-	if not _zone_ride_bodies.has(puck):
+	# Fährt er mit der Zone, gehört sein Ort der Hebebühne; wer nicht mitfährt, taucht
+	# während der Fahrt nicht über dem offenen Loch auf.
+	var riding := _zone_ride_bodies.has(puck)
+	if not riding:
 		puck.global_position = at - Vector3.UP * CLAMP_HOVER
-	puck.visible = shown
+	puck.visible = shown and (riding or not _zone_riding())
 	return puck
 
 # --- Die FAHRT Pool <-> Bühne (TRAGE-BOGEN) --------------------------------------
@@ -3977,8 +4010,8 @@ func _ride_chamber_doors(share: float, time: float) -> void:
 			_chamber_floor_tween = null
 		_seat_chamber_hard())
 
-## Kammer und Wanne stehen OFFEN, solange die Gleichung oben ist - fährt die Zone oder
-## steht die Auswahl, sind beide Löcher zu und die Körper fort.
+## Kammer und Wanne stehen OFFEN, solange die Zone oben ist - fährt sie oder steht die
+## Auswahl, sind beide Löcher zu und die Körper fort (das Podest liegt unter der Zone).
 func _chamber_shown() -> bool:
 	return not _zone_busy() and not _zone_picture_open
 
@@ -3988,9 +4021,10 @@ func _seat_chamber_hard() -> void:
 	if _chamber_floor_tween != null and _chamber_floor_tween.is_valid():
 		_chamber_floor_tween.kill()
 	_chamber_floor_tween = null
-	var shown := _chamber_shown()
+	var shown := _chamber_shown() and table_screen != null \
+		and table_screen.workshop_window != null
 	if table_screen != null:
-		if shown and table_screen.workshop_window != null:
+		if shown:
 			table_screen.set_pit(TableScreen.PIT_CHAMBER,
 				table_screen.workshop_window.chamber_rect_px(), 0.0)
 			var tray := table_screen.workshop_window.net_tray_px()
@@ -5824,9 +5858,9 @@ func _deck_glass_frame() -> Dictionary:
 	if ausgabefach != null and is_instance_valid(ausgabefach) and ausgabefach.half.x > 0.0:
 		lo = lo.min(ausgabefach.bounds_min())
 		hi = hi.max(ausgabefach.bounds_max())
-	# Der ZWANG zeigt den Neuzugang im INFO-SCHIRM unter dem Vorrat - er gehört ins Bild.
-	if _deck_glass_pending() >= 0 and _info_rect.size.x > 0.0:
-		for corner: Vector2 in [_info_rect.position, _info_rect.end]:
+	# Der ZWANG zeigt den Neuzugang in der VORSCHAU - sie gehört ins Bild.
+	if _deck_glass_pending() >= 0 and _preview_px.size.x > 0.0:
+		for corner: Vector2 in [_preview_px.position, _preview_px.end]:
 			var at_info := table_screen.pixel_to_world(corner)
 			lo = lo.min(Vector2(at_info.x, at_info.z))
 			hi = hi.max(Vector2(at_info.x, at_info.z))
@@ -8851,14 +8885,14 @@ func _frame_opening() -> void:
 	camera_rig.frame_rect((a + b) * 0.5,
 		Vector2(absf(a.z - b.z), absf(a.x - b.x)) * 0.5, margin)
 
-## Pool-Feld ∪ Zone ∪ Info-Schirm ∪ Wurfplatz, in Display-Pixeln.
+## Pool-Feld ∪ Vorschau ∪ Zone ∪ Wurfplatz - in Display-Pixeln.
 func _dice_opening_frame_px() -> Rect2:
 	var rect := _opening_rect
-	# Die schwebenden Vorrats-Würfel projizieren nach außen: links ein Saum dazu. Der
-	# INFO-SCHIRM gehört dazu - dort liest man den angehefteten Würfel.
+	# Die schwebenden Vorrats-Würfel projizieren nach außen: links ein Saum dazu. Die
+	# Vorschau zeigt den überfahrenen bzw. angehefteten Würfel.
 	var pool := _deck_glass_rect().abs()
 	pool = pool.grow_individual(_die_edge_px() * PACK_DICE_FRAME_POOL_SEAM, 0.0, 0.0, 0.0)
-	for part: Rect2 in [pool, _info_rect.abs()]:
+	for part: Rect2 in [pool, _preview_px]:
 		if part.size.x > 0.0 and part.size.y > 0.0:
 			rect = rect.merge(part)
 	return _merge_luck_die_place(rect)
@@ -9080,11 +9114,15 @@ func _zone_busy() -> bool:
 	return _zone_swapped or _zone_riding()
 
 ## ALLE Körper der Gleichung, die mit ihr hinab- und heraufahren - neue kommen HIER dazu.
+## Das PODEST liegt in der Zone und fährt mit; VORSCHAU, UPGRADES samt Energiezellen und
+## der Umschalter liegen daneben bzw. darunter und bleiben stehen.
 func _zone_riders() -> Array[Node3D]:
 	var out: Array[Node3D] = []
-	for body: Node3D in [podium_stage, bench_blank_cell, storage_bank, die_view_dress]:
+	for body: Node3D in [podium_stage, bench_blank_cell]:
 		if body != null and is_instance_valid(body):
 			out.append(body)
+	if die_view_dress != null and is_instance_valid(die_view_dress):
+		out.append_array(die_view_dress.zone_bodies())
 	return out
 
 ## Die ENERGIEZELLEN des Speichers (UPGRADES): sechs Körper auf den gemeldeten Haltern.
@@ -9092,8 +9130,7 @@ var storage_bank: StorageBankView
 var _storage_bank_key: Array = []
 
 ## Der EINE Schreiber der Energiezellen (je Bild gefragt, nur der Wechsel schreibt): Ort
-## und Maß aus den gemeldeten Haltern, die Ladung aus den Karten der Walze. Steht die
-## Auswahl in der Zone, sind sie fort.
+## und Maß aus den gemeldeten Haltern, die Ladung aus den Karten der Walze.
 func _sync_storage_bank() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
@@ -9101,7 +9138,7 @@ func _sync_storage_bank() -> void:
 	var seats := workshop.storage_cells_px()
 	var tints := workshop.storage_tints()
 	var chips := workshop.storage_chips_px()
-	var key := [seats, tints, _zone_picture_open, chips]
+	var key := [seats, tints, chips]
 	if key == _storage_bank_key:
 		return
 	_storage_bank_key = key
@@ -9109,7 +9146,7 @@ func _sync_storage_bank() -> void:
 		storage_bank = StorageBankView.new()
 		storage_bank.name = "StorageBank"
 		add_child(storage_bank)
-	storage_bank.visible = not _zone_picture_open and not seats.is_empty()
+	storage_bank.visible = not seats.is_empty()
 	if seats.is_empty():
 		return
 	var centers: Array[Vector3] = []
@@ -9124,8 +9161,8 @@ var die_view_dress: DieViewDress
 var _chamber_shown_key := true
 
 ## Der EINE Schreiber der Bauteile (je Bild gefragt, nur der Wechsel baut): alles aus den
-## gemeldeten Rechtecken des Fensters. Führt auch die Oben-Marke und hält Kammer und
-## Wanne nach _chamber_shown.
+## gemeldeten Rechtecken des Fensters. Führt auch Schild, Umschalter, die Teile der Zone
+## und die Oben-Marke.
 func _sync_die_view_dress() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
 	if workshop == null or not is_instance_valid(workshop):
@@ -9141,19 +9178,27 @@ func _sync_die_view_dress() -> void:
 		die_view_dress = DieViewDress.new()
 		die_view_dress.name = "DieViewDress"
 		add_child(die_view_dress)
-	die_view_dress.visible = not _zone_picture_open
+	die_view_dress.set_zone_shown(not _zone_picture_open)
+	var toggle := workshop.sign_rects_px()
+	die_view_dress.set_coupler(workshop.result_shown, not toggle.is_empty()
+		and workshop.visible and _table_operable()
+		and toggle[0].has_point(_screen_pixel(get_viewport().get_mouse_position())))
+	# Solange die Zone fort oder unterwegs ist, tragen die Podest-Teile den Hub bzw. liegen
+	# unten - neu gebaut wird erst danach.
 	if _zone_busy():
 		return
 	var seated := _bench_die != null
+	var buses := workshop.bus_paths_px()
 	var spec := {
 		"up": workshop._global(workshop.upgrades_net_rect()), "chips": chips,
 		"seats": workshop.storage_cells_px(), "tints": workshop.storage_tints(),
 		"mouth": workshop.chamber_rect_px(),
 		"net": workshop._global(workshop.podium_net_rect()),
-		"result": workshop._global(workshop.result_net_rect()),
-		"signs": workshop.sign_rects_px(), "stamp": workshop.stamp_seat_px(),
+		"preview": workshop.preview_rect_px(),
+		"entries": buses["entries"], "feeds": buses["feeds"], "pitch": buses["pitch"],
+		"bus_tints": workshop.bus_tints(),
+		"signs": toggle, "stamp": workshop.stamp_seat_px(),
 		"cell": workshop.podium_cell(),
-		"live": workshop.target_die() != null and _drum_powered(workshop),
 		"seated": seated, "ring_on": seated and not _chamber_down(),
 		"spent": workshop.press_spent(), "armed": workshop.can_pull(),
 		"ring": _bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER),
@@ -9189,19 +9234,22 @@ func _zone_shaft_on() -> LiftShaftView:
 	return zone_shaft
 
 ## Wieviel Platz die Hohlräume haben (Welt, x = hinten/Bild-oben, y = vorn/Bild-unten):
-## hinten bis an die Grube des Chip-Trays, vorn bis an den Graben der Walze.
+## bis an das nächste Möbel-Loch darüber bzw. darunter (Chip-Tray, Energie, Graben der
+## Walze ...), samt dessen Wand.
 func _zone_cavity_reach() -> Vector2:
 	var reach := Vector2(ZONE_SHAFT_DEPTH * 2.0, ZONE_SHAFT_DEPTH * 2.0)
 	var zone := _opening_rect
-	var tray := table_screen.tray_pit_rect()
-	if tray.size.x > 0.0 and tray.end.y <= zone.position.y \
-			and tray.position.x < zone.end.x and tray.end.x > zone.position.x:
-		reach.x = _px_to_world_x(zone.position.y - tray.end.y) - LiftShaftView.WALL
-	var workshop: WorkshopView = table_screen.workshop_window
-	if workshop != null and is_instance_valid(workshop):
-		var drum := workshop.drum_pit_rect()
-		if drum.size.x > 0.0 and drum.position.y >= zone.end.y:
-			reach.y = _px_to_world_x(drum.position.y - zone.end.y) - LiftShaftView.WALL
+	for slot in TableScreen.PERMANENT_PITS:
+		var pit := table_screen.pit_rect(slot)
+		if slot == TableScreen.PIT_OPENING or pit.size.x <= 0.0 \
+				or pit.position.x >= zone.end.x or pit.end.x <= zone.position.x:
+			continue
+		if pit.end.y <= zone.position.y:
+			reach.x = minf(reach.x, _px_to_world_x(zone.position.y - pit.end.y)
+				- LiftShaftView.WALL * 2.0)
+		elif pit.position.y >= zone.end.y:
+			reach.y = minf(reach.y, _px_to_world_x(pit.position.y - zone.end.y)
+				- LiftShaftView.WALL * 2.0)
 	return Vector2(maxf(reach.x, 0.05), maxf(reach.y, 0.05))
 
 ## Eine senkrechte Display-Strecke in Welt (Bild-oben ist Welt +X).
@@ -9297,13 +9345,15 @@ func _apply_zone_picture() -> void:
 	var workshop: WorkshopView = table_screen.workshop_window
 	if workshop != null and is_instance_valid(workshop):
 		workshop.opening_shown = _zone_picture_open
+	_sync_info_shown()
 	if pack_choice_view.backdrop != _zone_picture_open:
 		pack_choice_view.backdrop = _zone_picture_open
 		pack_choice_view.queue_redraw()
 	table_screen.show_opening_window(_zone_picture_open)
 
-## Puck und Rohling stehen, solange die Gleichung oben ist (bis zum Tausch fahren sie mit
-## hinab); der gewählte Würfel fliegt heim und kommt danach wieder (_wanted_bench_die).
+## Der gewählte Würfel fliegt heim, solange die Zone gebraucht wird, und kommt danach
+## wieder (_wanted_bench_die); Puck und Rohling fahren mit der Zone hinab und sind fort,
+## solange die Auswahl steht.
 func _sync_zone_bodies() -> void:
 	var key := [_zone_busy(), _zone_picture_open]
 	if key == _zone_bodies_key:
@@ -9320,16 +9370,19 @@ func _opening_in_use() -> bool:
 	return _choice != null or _case_bought != null or not _assign_sinking.is_empty() \
 		or not _case_flights.is_empty() or not _card_carries.is_empty()
 
-## Die ÖFFNUNGS-ZONE in Display-Pixeln: sie VERWANDELT die Gleichung - links ab UPGRADES,
-## oben bündig mit der Pool-Reihe und so hoch wie sie (leer = kein Platz).
+## Die ÖFFNUNGS-ZONE in Display-Pixeln: sie beginnt eine Fuge rechts neben der VORSCHAU,
+## oben bündig mit der Pool-Reihe und so hoch wie sie; samt Wurfplatz des Glückswürfels
+## endet sie vor dem Rand der Anzeige (leer = kein Platz).
 func _opening_area_rect() -> Rect2:
-	if table_screen == null or _podium_place_px.size.x <= 0.0 or _equation_px.size.x <= 0.0:
+	if table_screen == null or _preview_px.size.x <= 0.0:
 		return Rect2()
-	# So breit wie die Würfel-Auswahl (die größte), mindestens die Gleichung.
-	var width := maxf(PackChoiceView.panel_width_for(_pool_row_px.size.y, _die_edge_px()),
-		_equation_px.size.x)
-	return PackChoiceView.area_beside(_pool_row_px, _equation_px,
-		_equation_px.position.x + width)
+	var gap := _workshop_unit() * WorkshopView.DRUM_SHELF_GAP
+	var luck := _world_len_px(LuckDieView.half_edge() * 2.0) * LUCK_DIE_ROOM
+	var anchor := Rect2(Vector2(_preview_px.end.x + gap, _preview_px.position.y),
+		Vector2(1.0, _preview_px.size.y))
+	return PackChoiceView.zone_rect(_pool_row_px, anchor,
+		_world_len_px(DieViewDress.COLLAR_OUT + LiftShaftView.WALL), _die_edge_px(),
+		gap * 2.0 + luck, float(TableScreen.RESOLUTION.x))
 
 func _drop_bought_case() -> void:
 	if _case_bought != null and is_instance_valid(_case_bought):
@@ -12198,7 +12251,8 @@ func _update_workshop_hover() -> void:
 		elif _cell_holds_pointer(_socket_cell(_hovered_step), mouse):
 			step = _hovered_step
 	# Eine kippende Karte ist nicht greifbar.
-	if hover_uid != 0 and shelf_stack != null and is_instance_valid(shelf_stack) 			and not shelf_stack.card_flat(shelf_cells.get(hover_uid)):
+	if hover_uid != 0 and shelf_stack != null and is_instance_valid(shelf_stack) \
+			and not shelf_stack.card_flat(shelf_cells.get(hover_uid)):
 		hover_uid = 0
 	_sync_pack_hover(hover_uid)
 	_sync_fach_hover()
@@ -12212,36 +12266,52 @@ func _cell_holds_pointer(cell: DataCellView, mouse: Vector2) -> bool:
 		return false
 	return cell.holds_pointer(get_viewport().get_camera_3d(), mouse)
 
-## Der EINE Schreiber des INFO-SCHIRMS (je Bild). Nur der Wechsel schreibt
-## (set_info ist idempotent).
+## Der EINE Schreiber des INFO-SCHIRMS (je Bild). Nur der Wechsel schreibt (set_info ist
+## idempotent). Nebenher meldet er der VORSCHAU ihren Würfel (WorkshopView.hover_die).
 func _write_workshop_info(workshop: WorkshopView, pixel: Vector2) -> void:
 	var info: WorkshopInfoView = table_screen.workshop_info_window \
 		if table_screen != null else null
+	workshop.hover_die = _workshop_hover_die(pixel)
 	if info == null or not is_instance_valid(info):
 		return
 	var data := _workshop_info_data(workshop, pixel)
 	info.set_info(String(data.get("title", "")), String(data.get("sub", "")),
-		data.get("sub_tint", WorkshopView.MUTED_COLOR), String(data.get("body", "")))
-	info.set_net(data.get("net") as DieDefinition)
+		data.get("sub_tint", WorkshopView.MUTED_COLOR), String(data.get("body", "")),
+		String(data.get("action", "")))
 	info.set_die(data.get("die") as DieDefinition, int(data.get("face", -1)))
 
-## WAS der Schirm sagt - die erste Quelle gewinnt: Netz-Zelle im Fenster, Zelle auf
-## einem Karten-KÖRPER, die Karte selbst, der Podest-Würfel, ein POOL-Würfel, sonst
-## die Ruhe-Auskunft. Die Glas-Ansicht und die Inspektion haben ihr eigenes Bild.
+## Der Würfel der VORSCHAU (null = keiner): der überfahrene
+## Vorrats-Würfel, sonst der angeheftete einer Würfel-Öffnung, sonst der wartende
+## Neuzugang des ZWANGS.
+func _workshop_hover_die(pixel: Vector2) -> DieDefinition:
+	if pixel.x >= 0.0 and not _deck_glass and not camera_rig.die_focus:
+		var seat := _pool_tray_slot_at(get_viewport().get_mouse_position())
+		if seat >= 0:
+			return pool_tray_view.slot_defs[seat]
+	if _pool_pin != null:
+		return _pool_pin
+	return _waiting_fach_die()
+
+## Die Gesten der Werkstatt, wie sie der Info-Schirm am Fuß nennt.
+const INFO_ACT_SHELF := "Klick: auf die Walze · Zug: rollen"
+const INFO_ACT_SLICE := "Klick: zurück ins Magazin · Zug: umsortieren"
+const INFO_ACT_POOL := "Klick: wählen"
+const INFO_ACT_PODIUM := "Zug: drehen · Doppelklick: ansehen"
+const INFO_ACT_TOGGLE := "Klick: umschalten"
+const INFO_ACT_STAMP := "Klick: prägen"
+
+## WAS der Info-Schirm sagt - die erste Quelle gewinnt: Netz-Zelle im Fenster, Zelle auf einem
+## Karten-KÖRPER, die Karte selbst, Scheibe, Umschalter, PRÄGEN, der Podest-Würfel, ein
+## POOL-Würfel, sonst die Ruhe (der angeheftete bzw. wartende Würfel, sonst der nächste
+## Schritt). Die Glas-Ansicht und die Inspektion haben ihr eigenes Bild.
 func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
-	# Die Zellen des Netzes IM Schirm erklären sich selbst (der angeheftete Würfel).
-	var info: WorkshopInfoView = table_screen.workshop_info_window
-	if pixel.x >= 0.0 and info != null and info.net_def() != null:
-		var face := info.net_face_at(pixel)
-		if face != -1:
-			return {"die": info.net_def(), "face": face, "net": info.net_def()}
-	var idle := WorkshopInfoView.idle_info(workshop.chosen_die(),
-		workshop.stamp_blocker(), workshop.compressing())
-	# Der angeheftete Würfel, sonst ein wartender Neuzugang (der ZWANG), steht, solange
-	# nichts anderes spricht - auch ohne Zeiger auf dem Tisch.
-	var held: DieDefinition = _pool_pin if _pool_pin != null else _waiting_fach_die()
-	if held != null:
-		idle = _die_info_with_net(held)
+	var idle := WorkshopInfoView.idle_info(workshop.chosen_die() != null,
+		not workshop.press_slot_uids().is_empty(), workshop.press_spent(),
+		workshop.compressing(), workshop.stamp_blocker())
+	if _pool_pin != null:
+		idle = WorkshopInfoView.die_info(_pool_pin)
+	elif _waiting_fach_die() != null:
+		idle = WorkshopInfoView.die_info(_waiting_fach_die())
 	if pixel.x < 0.0 or _deck_glass or camera_rig.die_focus:
 		return idle
 	var cell_hint := workshop.net_hint_at(pixel)
@@ -12253,24 +12323,53 @@ func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
 		return WorkshopInfoView.cell_info(
 			owner.display_name if owner != null else WorkshopView.SUM_OWNER,
 			String(stamp.get("hint", "")))
+	var on_slice := workshop.slot_at(pixel)
 	var pack := workshop.hover_pack()
 	if pack != null:
-		return WorkshopInfoView.pack_info(pack)
+		return WorkshopInfoView.pack_info(pack,
+			INFO_ACT_SLICE if on_slice >= 0 else INFO_ACT_SHELF)
+	var slice := _workshop_slice_info(workshop, pixel, on_slice)
+	if not slice.is_empty():
+		return slice
+	var signs := workshop.sign_rects_px()
+	if not signs.is_empty() and signs[0].has_point(pixel):
+		return {"title": "Umschalter", "sub": workshop.die_view_label(),
+			"sub_tint": WorkshopView.MUTED_COLOR,
+			"body": "Die Die-View zeigt das Original oder das Ergebnis der Serie.",
+			"action": INFO_ACT_TOGGLE}
+	if not workshop.opening_shown and workshop.stamp_seat_px().has_point(pixel):
+		var blocker := workshop.stamp_blocker()
+		return {"title": "Prägen", "sub": workshop.stamp_label(),
+			"sub_tint": WorkshopView.MUTED_COLOR,
+			"body": blocker if blocker != "" else "Die Serie der Walze auf den Würfel prägen.",
+			"action": "" if blocker != "" else INFO_ACT_STAMP}
 	var mouse := get_viewport().get_mouse_position()
 	if _bench_die != null and _bench_stage_under(mouse) != null:
-		return WorkshopInfoView.die_info(_bench_die)
-	# Die NEUE Hover-Quelle: ein Würfel im VORRAT. Kein Highlight am Körper - nur
-	# die Auskunft.
+		return WorkshopInfoView.die_info(_bench_die, INFO_ACT_PODIUM)
 	var seat := _pool_tray_slot_at(mouse)
-	if seat >= 0 and pool_tray_view.slot_defs[seat] != null:
-		return _die_info_with_net(pool_tray_view.slot_defs[seat])
+	if seat >= 0:
+		return WorkshopInfoView.die_info(pool_tray_view.slot_defs[seat], INFO_ACT_POOL)
 	return idle
 
-## Die Auskunft eines Würfels samt seinem Netz rechts im Schirm.
-func _die_info_with_net(def: DieDefinition) -> Dictionary:
-	var data := WorkshopInfoView.die_info(def)
-	data["net"] = def
-	return data
+## Eine SCHEIBE ohne Karte unter dem Zeiger ({} = keine): leer oder gesperrt.
+func _workshop_slice_info(workshop: WorkshopView, pixel: Vector2, on_slice: int) -> Dictionary:
+	if on_slice >= 0:
+		return {"title": "Scheibe %d" % (on_slice + 1), "sub": "leer",
+			"sub_tint": WorkshopView.MUTED_COLOR,
+			"body": "Eine Karte aus dem Magazin antippen - sie legt sich auf die erste freie Scheibe.",
+			"action": ""}
+	var next := workshop.slot_count()
+	if next >= WorkshopView.DRUM_SLICES or run == null:
+		return {}
+	for i in range(next, WorkshopView.DRUM_SLICES):
+		if not workshop._global(workshop.slice_rect(i)).has_point(pixel):
+			continue
+		var price := run.drum_slot_price()
+		return {"title": "Scheibe %d" % (i + 1), "sub": "gesperrt",
+			"sub_tint": WorkshopView.LOCKED_COLOR,
+			"body": "Jede weitere Scheibe kostet so viel Energie, wie Scheiben schon frei sind, plus eins.",
+			"action": "Klick: freischalten · %d ⚡" % price if i == next and price > 0 else ""}
+	return {}
 
 ## Der offene Neuzugang in der Schale (null = keiner).
 func _waiting_fach_die() -> DieDefinition:
@@ -13640,10 +13739,11 @@ func _on_farkle(forgivable: bool = true) -> void:
 	_refresh_side_bet_panel()
 
 	# Der Kern zählt den Fumble (Lauf, Block, Runde), bucht Trostpreis, Pechsträhne,
-	# Strafgebühr und Nachbrenner - das Licht fliegt erst hinterher.
+	# Hitzestau und Nachbrenner - das Licht fliegt erst hinterher.
 	var consolation_energy := run.note_fumble(_volcanic_in_pit())
-	if run.last_fumble_fee > 0:
-		hand_note = "Strafgebühr: −$%d" % run.last_fumble_fee
+	if run.last_fumble_lost_part != null:
+		hand_note = "Hitzestau: %s ist zerstört." % run.last_fumble_lost_part.display_name
+	_destroy_fumble_charm()
 	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
 		_play_rune_energy_volley(consolation_energy)
@@ -13698,13 +13798,23 @@ func _on_farkle(forgivable: bool = true) -> void:
 			run.add_money(income)
 		_start_new_hand()
 
-## Klausel-Wirkungen einer genommenen Hand: Hitzestau und die mitwachsende
-## Boss-Drossel. Die GEBÜHREN stehen nicht mehr hier - sie zahlen an ihrem
-## Auslöser (Servicegebühr beim Banken der Hand, Abzocke je gezähltem Würfel
-## in der Zähl-Animation).
+## Strafgebühr (Boss): der Fumble zerstört einen Charm - die Diskette springt aus
+## ihrem Projektor, und der Tisch zieht sie ein wie beim Verkauf.
+func _destroy_fumble_charm() -> void:
+	var index := run.fumble_charm_loss()
+	if index < 0:
+		return
+	var lost := run.owned_charms[index].display_name
+	var disk := charm_row.release_disk(index) if charm_row != null else null
+	run.destroy_charm(index)  # charms_changed baut die Reihe
+	if disk != null:
+		_eject_charm_disk(disk)
+	hand_note = "Strafgebühr: %s ist zerstört." % lost
+
+## Klausel-Wirkungen einer genommenen Hand: die mitwachsende Boss-Drossel. Die
+## GEBÜHREN stehen nicht hier - sie zahlen an ihrem Auslöser (Servicegebühr beim
+## Banken der Hand, Abzocke je gezähltem Würfel in der Zähl-Animation).
 func _apply_hand_clauses(combo_key: String) -> void:
-	if run.apply_heat_buildup(combo_key):
-		hand_note = "Hitzestau: an %s fällt ein Modul aus." % DiceScoring.label_for(combo_key)
 	if run.note_hand_taken(combo_key):
 		_set_throttled_combos(run.throttled_combos)
 

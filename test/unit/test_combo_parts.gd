@@ -364,21 +364,26 @@ func _sign(ids: Array) -> void:
 	typed.assign(ids)
 	run.sign_clauses(typed)
 
-func test_heat_buildup_disables_the_last_live_part_for_the_round():
+func test_heat_buildup_destroys_a_part_per_fumble():
 	_sign([DealClause.HEAT_BUILDUP])
 	run.combo_parts[PAIR] = [ComboPart.resistor(), ComboPart.capacitor(), null]
-	assert_true(run.apply_heat_buildup(PAIR))
-	assert_true(run.is_part_disabled(run.parts_of(PAIR)[1]), "der hinterste belegte Platz zuerst")
-	var live: Array = ComboPartEffects.chip(run.scoring_parts(), PAIR)
-	assert_null(live[1], "stillgelegt wertet nicht")
-	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([]), false, _m(["", ""]),
-		run.scoring_parts()), 40 * 2)
-	assert_true(run.apply_heat_buildup(PAIR))
-	assert_false(run.apply_heat_buildup(PAIR), "alles aus")
-	run.apply_round_start_charms()
-	assert_true(run.heat_disabled_parts.is_empty(), "die neue Runde startet kalt")
+	run.note_fumble(false)
+	assert_not_null(run.last_fumble_lost_part, "ein Modul ist fort")
+	assert_eq(ComboPartEffects.part_count(run.parts_of(PAIR)), 1)
+	run.note_fumble(false)
+	run.note_fumble(false)
+	assert_eq(ComboPartEffects.part_count(run.parts_of(PAIR)), 0, "nichts bleibt")
+	assert_null(run.last_fumble_lost_part, "leere Chips verlieren nichts")
+
+func test_heat_buildup_spares_a_guarded_chip():
+	_sign([DealClause.HEAT_BUILDUP])
+	run.combo_parts[PAIR] = [ComboPart.blocking_diode(), ComboPart.resistor(), null]
+	for i in 5:
+		run.note_fumble(false)
+	assert_eq(ComboPartEffects.part_count(run.parts_of(PAIR)), 2, "die Sperrdiode schützt ihren Chip")
 
 func test_heat_buildup_needs_its_clause():
 	run.combo_parts[PAIR] = [ComboPart.resistor(), null, null]
-	assert_false(run.apply_heat_buildup(PAIR))
+	run.note_fumble(false)
+	assert_eq(ComboPartEffects.part_count(run.parts_of(PAIR)), 1)
 

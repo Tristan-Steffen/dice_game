@@ -7,7 +7,7 @@ extends GutTest
 ## Klauseln, die der Winkeladvokat sichtbar verändert: id -> verdoppelter Text.
 const DOUBLED := {
 	DealClause.ADVANCE_PAYMENT: "+$24 sofort.",
-	DealClause.FREE_HAND: "Erstes geöffnetes Paket: +2 Wahlen.",
+	DealClause.FREE_HAND: "Jedes Paket dieser Runde: +2 Wahlen.",
 	DealClause.BLANK_CHEQUE: "+$80 sofort.",
 	DealClause.SEED_CAPITAL: "+2 ⚡ sofort.",
 	DealClause.SAVINGS_BONUS: "+$2 je übrigem Würfel.",
@@ -25,13 +25,14 @@ const DOUBLED := {
 	DealClause.CASH_DISCOUNT: "Ladenware −36 %.",
 	DealClause.GOLD_VEIN: "+$20 je geräumter Überladungs-Stufe.",
 	DealClause.WORK_HARDENING: "Jede ausgelöste Seite dauerhaft +2.",
-	DealClause.LUCKY_DAY: "Laden würfelt mit Glück +6.",
-	DealClause.CONNOISSEUR_EYE: "Seltene und legendäre Charms viermal so oft.",
-	DealClause.MATH_WEEK: "Multiplikator-Karten sechsmal so oft.",
+	DealClause.LUCKY_DAY: "Glück +6 diese Runde.",
+	DealClause.CONNOISSEUR_EYE: "Laden führt sicher zwei legendäre Charms.",
+	DealClause.MATH_WEEK: "Glück +12 diese Runde.",
+	DealClause.SPECIAL_DELIVERY: "Glück +20 diese Runde.",
+	DealClause.FREE_FLIP: "Blättern im Laden 6× gratis.",
 	DealClause.REGULAR_CUSTOMER: "Ladenpreise −28 % bis zur Boss-Runde.",
-	DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware, Neuwurf gratis.",
-	DealClause.HIGH_TABLE: "Nebenwetten: Einsatz ×1,5, Gewinn ×3.",
-	DealClause.BIG_STORAGE: "Börse dauerhaft +10 ⚡ Platz.",
+	DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware.",
+	DealClause.BIG_STORAGE: "Zwei Powerbanks: Börse +10 ⚡ Platz.",
 }
 
 func test_text_for_returns_the_plain_text_without_the_charm():

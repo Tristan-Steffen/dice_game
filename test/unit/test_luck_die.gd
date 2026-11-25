@@ -171,10 +171,10 @@ func test_station_state_follows_the_run() -> void:
 	run.module_keeps = 2
 	assert_eq(int(run.luck_station_state()["keeps"]), 2)
 
-func test_station_state_names_free_hand_until_the_first_pack() -> void:
+func test_station_state_names_free_hand_for_the_whole_round() -> void:
 	var run := GameRun.new_run()
 	var ids: Array[String] = [DealClause.FREE_HAND]
 	run.sign_clauses(ids)
 	assert_eq(int(run.luck_station_state()["free_bonus"]), 1)
 	run.packs_opened_this_round = 1
-	assert_eq(int(run.luck_station_state()["free_bonus"]), 0)
+	assert_eq(int(run.luck_station_state()["free_bonus"]), 1, "jedes Paket der Runde")

@@ -1113,7 +1113,8 @@ func test_empty_shelves_leave_the_last_places_empty() -> void:
 
 ## Die Sonder-Karte meidet die geleerten Plätze.
 func test_a_special_never_lands_on_an_emptied_place() -> void:
-	_sign([DealClause.EMPTY_SHELVES, DealClause.SPECIAL_DELIVERY])
+	_sign([DealClause.EMPTY_SHELVES])
+	run.luck = GameRun.TIER_MAX * GameRun.LUCK_PER_TIER  # Sonderposten liegen oft aus
 	for i in 40:
 		var spread = shop._build_spread()
 		for seat in range(run.shop_packs_offered(), spread.packs.size()):
@@ -1136,10 +1137,21 @@ func test_free_flip_costs_nothing() -> void:
 	_sign([DealClause.FREE_FLIP])
 	assert_eq(shop._next_flip_fee(), 0)
 
-func test_special_delivery_puts_a_special_on_the_shelf() -> void:
-	_sign([DealClause.SPECIAL_DELIVERY])
-	var specials := 0
-	for pack in shop.packs:
-		if pack is Pack:
-			specials += 1
-	assert_eq(specials, 1)
+func test_connoisseur_eye_lays_out_a_legendary() -> void:
+	_sign([DealClause.CONNOISSEUR_EYE])
+	for i in 20:
+		var spread = shop._build_spread()
+		var legendary := 0
+		for charm in spread.charm_options:
+			if charm.rarity == Charm.RARITY_LEGENDARY:
+				legendary += 1
+		assert_gte(legendary, 1, "jede Doppelseite führt einen legendären Charm")
+
+func test_free_flips_run_out_after_three() -> void:
+	_sign([DealClause.FREE_FLIP])
+	run.money = 100
+	for i in GameRun.FREE_FLIPS:
+		assert_eq(shop._next_flip_fee(), 0, "Seite %d gratis" % (i + 1))
+		shop.current_spread_index = shop.spreads.size() - 1
+		shop._on_page_next_pressed()
+	assert_gt(shop._next_flip_fee(), 0, "die vierte kostet")

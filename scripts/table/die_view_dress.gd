@@ -1,11 +1,13 @@
 class_name DieViewDress
 extends Node3D
-## Die BAUTEILE der Gleichung: UPGRADES und ERGEBNIS als CHIPS (Epoxid-Gehäuse mit Beinchen
-## an allen vier Seiten, je Seite des Würfels ein Fenster auf das Bild der Anzeige), der
-## gemeinsame Kragen um Kammer und ORIGINAL samt Wanne des Netzes, die Koppler "+" und "=",
-## der Schutzschalter des Prägens, Abtastring und Oben-Marke. Alles kommt als Display-Pixel
-## herein (spec), `to_world` rechnet um. seat() ist der EINE Schreiber, mark_up() führt nur
-## die Oben-Marke. Der Knoten bleibt im Ursprung - die Hebebühne der Zone fährt ihn als Ganzes.
+## Die BAUTEILE der Gleichung (Layout E): VORSCHAU und UPGRADES als CHIPS (Epoxid-Gehäuse
+## mit Beinchen an allen vier Seiten, je Seite des Würfels ein Fenster auf das Bild der
+## Anzeige), der UMSCHALTER im "+"-Feld, die zwei Busse, das Podest (Kragen um Kammer und
+## Die-View samt Wanne, Abtastring, Oben-Marke) und der Schutzschalter des Prägens.
+## Alles kommt als Display-Pixel herein (spec), `to_world` rechnet um. seat() ist der EINE
+## Schreiber der Teile; Umschalter und Zone haben je einen Setter, der nur den
+## Wechsel schreibt. Podest und Schalter liegen in der Öffnungs-Zone und fahren mit ihrer
+## Hebebühne (zone_bodies()); Vorschau, UPGRADES, Umschalter und Busse stehen.
 
 ## So hoch steht das Gehäuse eines Chips über dem Tisch (die Energiezellen liegen darauf).
 const CHIP_HEIGHT := 0.14
@@ -17,9 +19,7 @@ const TRAY_DROP := 0.85
 const FLAT := Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
 const SILK := Color(0.72, 0.78, 0.84)
 const STANDBY := Color(0.45, 0.28, 0.06)
-const IDLE := Color(0.22, 0.25, 0.3)
 const BUS := Color(0.3, 0.8, 0.9)
-const RESULT := Color(0.35, 0.95, 0.6)
 const BEZEL := Color(0.07, 0.075, 0.09)
 const SEAM := Color(1.0, 0.7, 0.15)
 const COLLAR_OUT := 0.3
@@ -30,9 +30,22 @@ const GUARD := Color(1.0, 0.78, 0.25, 0.1)
 const GUARD_SPENT := Color(1.0, 0.2, 0.15, 0.24)
 const LAMP_READY := Color(0.35, 0.95, 0.6)
 const LAMP_SPENT := Color(0.95, 0.22, 0.18)
-const PLATE_HEIGHT := 0.05
 const TEXT_SHARE := 0.15
-const COUPLER_SHARE := 0.6
+## Der UMSCHALTER: ein Chip mittig im "+"-Feld, so tief wie dieser Anteil des Felds und
+## COUPLER_ASPECT mal so breit.
+const COUPLER_DEEP := 0.86
+const COUPLER_ASPECT := 1.7
+## AN leuchtet er cyan, AUS ist er grau; unter dem Zeiger hebt und hellt er sich.
+const COUPLER_ON := Color(0.35, 0.9, 1.0)
+const COUPLER_OFF := Color(0.1, 0.15, 0.19)
+const COUPLER_SIGN_ON := Color(0.6, 0.95, 1.0)
+const COUPLER_SIGN_OFF := Color(0.36, 0.4, 0.45)
+const COUPLER_HOVER_LIFT := 0.08
+const COUPLER_HOVER_LIGHT := 0.3
+## Die BUSSE: Träger und Spuren als flache Körper; eine Spur leuchtet in ihrer Sortenfarbe.
+const BUS_LANE_SHARE := 0.6
+const BUS_HEIGHT := 0.05
+const BUS_IDLE := Color(0.2, 0.26, 0.28)
 const RING_SHARE := 0.98
 const MARK_HEIGHT := 0.15
 
@@ -41,6 +54,16 @@ var _k := 1.0
 var _sink := 0.0
 var _key: Array = []
 var _parts: Node3D
+## Das PODEST: fährt mit der Zone.
+var _podium: Node3D
+## Wohin _box/_text/_ring gerade bauen.
+var _host: Node3D
+var _ring_node: Node3D
+var _coupler: Node3D
+var _coupler_frame: Array[MeshInstance3D] = []
+var _coupler_sign: Label3D
+var _coupler_state := [true, false]
+var _zone_shown := true
 var _mark: Node3D
 var _mark_cells: Array[Vector3] = []
 var _mark_face := -1
@@ -54,8 +77,10 @@ var _cover_tween: Tween
 static var _inks := {}
 static var _glasses := {}
 
-## spec: up, chips[6], seats[6], tints[6], mouth, net, cell, result, signs[2], stamp,
-## live, seated, ring_on, ring (Weltpunkt des schwebenden Würfels), edge (Würfelkante, Welt).
+## spec: up, chips[6], seats[6], tints[6], mouth, net, cell, signs[1], stamp, preview,
+## entries/feeds (Bus-Spuren, je eine Polylinie), bus_tints (je Spur, Alpha 0 = dunkel),
+## pitch (Spur-Teilung), seated, ring_on, ring (Weltpunkt des schwebenden Würfels),
+## edge (Würfelkante, Welt).
 func seat(spec: Dictionary, to_world: Callable, floor_skin: Material) -> void:
 	var key := [spec]
 	if key == _key and _parts != null and is_instance_valid(_parts):
@@ -63,23 +88,92 @@ func seat(spec: Dictionary, to_world: Callable, floor_skin: Material) -> void:
 	_key = [spec.duplicate(true)]
 	_to_world = to_world
 	_k = absf(_w(Vector2(100, 0)).z - _w(Vector2.ZERO).z) / 100.0
-	if _parts != null and is_instance_valid(_parts):
-		remove_child(_parts)
-		_parts.queue_free()
+	for old: Node3D in [_parts, _podium]:
+		if old != null and is_instance_valid(old):
+			remove_child(old)
+			old.queue_free()
 	_parts = Node3D.new()
 	_parts.name = "Teile"
 	add_child(_parts)
+	_podium = Node3D.new()
+	_podium.name = "Podestteile"
+	add_child(_podium)
 	_mark = null
+	_ring_node = null
+	_coupler = null
+	_coupler_frame.clear()
 	var cell: float = spec["cell"]
+	_host = _parts
 	_build_storage(spec, cell)
+	_build_preview(spec, cell)
+	_build_flow(spec, cell)
+	_build_buses(spec)
+	_host = _podium
 	_build_hull(spec, floor_skin)
 	_build_original(spec, cell)
-	_build_result(spec, cell)
-	_build_flow(spec, cell)
+	_host = _parts
 	_seat_switch(spec["stamp"], spec.get("spent", false), spec.get("armed", false))
+	_apply_coupler()
+	_apply_zone_shown()
 	var face := _mark_face
 	_mark_face = -2
 	mark_up(face)
+
+## Der UMSCHALTER: on = ERGEBNIS. AN leuchten Rahmen und Zeichen, AUS sind sie grau; unter
+## dem Zeiger hebt und hellt er sich.
+func set_coupler(on: bool, hovered: bool) -> void:
+	var state := [on, hovered]
+	if state == _coupler_state:
+		return
+	_coupler_state = state
+	_apply_coupler()
+
+func coupler_on() -> bool:
+	return bool(_coupler_state[0])
+
+func coupler_lifted() -> bool:
+	return _coupler != null and is_instance_valid(_coupler) and _coupler.position.y > 0.001
+
+func _apply_coupler() -> void:
+	if _coupler == null or not is_instance_valid(_coupler):
+		return
+	var on: bool = _coupler_state[0]
+	var hovered: bool = _coupler_state[1]
+	var frame := COUPLER_ON if on else COUPLER_OFF
+	var sign := COUPLER_SIGN_ON if on else COUPLER_SIGN_OFF
+	if hovered:
+		frame = frame.lightened(COUPLER_HOVER_LIGHT)
+		sign = sign.lightened(COUPLER_HOVER_LIGHT)
+	for bar in _coupler_frame:
+		bar.material_override = _ink(frame)
+	if _coupler_sign != null and is_instance_valid(_coupler_sign):
+		_coupler_sign.modulate = sign
+	_coupler.position.y = COUPLER_HOVER_LIFT if hovered else 0.0
+
+## Die Lichtfarbe des Umschalters.
+func coupler_light() -> Color:
+	if _coupler_frame.is_empty():
+		return Color.BLACK
+	return (_coupler_frame[0].material_override as StandardMaterial3D).albedo_color
+
+## Podest und Schalter des Prägens stehen nur, solange keine Paket-Öffnung ihren Platz hat.
+func set_zone_shown(shown: bool) -> void:
+	if shown == _zone_shown:
+		return
+	_zone_shown = shown
+	_apply_zone_shown()
+
+func _apply_zone_shown() -> void:
+	for node: Node3D in zone_bodies():
+		node.visible = _zone_shown
+
+## Was mit der Hebebühne der Zone fährt.
+func zone_bodies() -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for node: Node3D in [_podium, _switch]:
+		if node != null and is_instance_valid(node):
+			out.append(node)
+	return out
 
 ## Die OBEN-MARKE: der Goldrahmen um die Seite, die am Würfel oben liegt (-1 = keine).
 func mark_up(face: int) -> void:
@@ -88,27 +182,31 @@ func mark_up(face: int) -> void:
 	_mark_face = face
 	if _mark == null or not is_instance_valid(_mark):
 		return
-	_mark.visible = face >= 0 and face < _mark_cells.size()
-	if _mark.visible:
+	if face >= 0 and face < _mark_cells.size():
 		_mark.position = _mark_cells[face]
+	_mark.visible = face >= 0 and face < _mark_cells.size()
 
 func marked_face() -> int:
 	return _mark_face
 
 func part_count() -> int:
-	return _parts.get_child_count() if _parts != null and is_instance_valid(_parts) else 0
+	var count := 0
+	for node: Node3D in [_parts, _podium]:
+		if node != null and is_instance_valid(node):
+			count += node.get_child_count()
+	return count
 
 ## Der Ursprung eines Kreuzes im Rechteck seines Schirms (mittig).
 static func net_origin(rect: Rect2, cell: float) -> Vector2:
 	return rect.position + ((rect.size - DieNetView.net_size(cell)) * 0.5).max(Vector2.ZERO)
 
-## Das Schild im Kreuz: die freie Ecke unten links (Zeile 2, Spalte 0).
+## Eine freie Kreuz-Ecke links (Zeile row, Spalte 0).
 static func plate_rect(origin: Vector2, cell: float, row: int) -> Rect2:
 	var step := cell * (1.0 + DieNetView.GAP_FACTOR)
 	return Rect2(origin + Vector2(0, step * float(row)), Vector2.ONE * cell).grow(-cell * 0.04)
 
-## SPEICHER: der Chip UPGRADES - sechs Fenster, obenauf Aufschrift mit Füllstand, je
-## Energiezelle Nummer und Bereitschafts-Lampe.
+## SPEICHER: der Chip UPGRADES - sechs Fenster, obenauf der Füllstand, je Energiezelle
+## Nummer und Bereitschafts-Lampe (oben 1-2-3, unten 4-5-6).
 func _build_storage(spec: Dictionary, cell: float) -> void:
 	var chips: Array = spec["chips"]
 	if chips.is_empty():
@@ -120,15 +218,20 @@ func _build_storage(spec: Dictionary, cell: float) -> void:
 	_chip("UpgradesChip", (spec["up"] as Rect2).grow(3.0), holes)
 	var origin: Vector2 = (chips[3] as Rect2).position - DieNetView.cell_position(3, cell)
 	var plate := plate_rect(origin, cell, 0)
-	_etch(plate, "UPGRADES", cell, -cell * 0.14)
-	for i in 6:
-		var at := plate.get_center() + Vector2((float(i) - 2.5) * cell * 0.13, cell * 0.2)
+	var stored := 0
+	for tint: Color in tints:
+		if tint.a > 0.0:
+			stored += 1
+	_etch(plate, "%d/%d" % [stored, tints.size()], cell, -cell * 0.14)
+	for i in tints.size():
+		var at := plate.get_center() + Vector2((float(i) - float(tints.size() - 1) * 0.5)
+			* cell * 0.1, cell * 0.2)
 		_box(Rect2(at - Vector2.ONE * cell * 0.04, Vector2.ONE * cell * 0.08), 0.02,
 			CHIP_HEIGHT + 0.012, _ink(_lit(tints, i, STANDBY.darkened(0.4))))
 	var seats: Array = spec["seats"]
 	for i in seats.size():
 		var holder: Rect2 = seats[i]
-		var top := i < 3
+		var top := i < WorkshopView.StorageBody.ROW_CELLS
 		_text(str(i + 1), Vector2(holder.end.x + cell * 0.09,
 			holder.position.y + cell * 0.1 if top else holder.end.y - cell * 0.1),
 			cell * _k * 0.2, SILK, CHIP_HEIGHT + 0.02)
@@ -142,7 +245,7 @@ func _build_storage(spec: Dictionary, cell: float) -> void:
 func _chip(part: String, rect: Rect2, holes: Array[Rect2]) -> void:
 	var host := Node3D.new()
 	host.name = part
-	_parts.add_child(host)
+	_host.add_child(host)
 	var body: Array[Transform3D] = []
 	for piece in cut_plate(rect, holes):
 		body.append(_cube(piece, CHIP_HEIGHT, 0.0))
@@ -226,7 +329,7 @@ func _build_hull(spec: Dictionary, floor_skin: Material) -> void:
 	floor_quad.material_override = floor_skin
 	floor_quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	floor_quad.position = _w(tray.get_center()) + Vector3.DOWN * TRAY_DROP
-	_parts.add_child(floor_quad)
+	_podium.add_child(floor_quad)
 	var wall := ChipFrameView._skin(ChipFrameView.STEEL_DARK, 0.2)
 	var thick := 0.12 / _k
 	var sides := [
@@ -254,7 +357,7 @@ static func tray_rect(mouth: Rect2, net: Rect2) -> Rect2:
 	return Rect2(Vector2(net.position.x, mouth.end.y),
 		Vector2(net.size.x, net.end.y - mouth.end.y))
 
-## ORIGINAL auf dem Wannenboden: Stecker, Fassung der Seele, Schild.
+## ORIGINAL auf dem Wannenboden: Stecker und Fassung der Seele.
 func _build_original(spec: Dictionary, cell: float) -> void:
 	var net: Rect2 = spec["net"]
 	var o := net_origin(net, cell)
@@ -272,12 +375,11 @@ func _build_original(spec: Dictionary, cell: float) -> void:
 			head.get_center().y)
 		_box(Rect2(at - Vector2.ONE * cell * 0.045, Vector2.ONE * cell * 0.09), 0.05, 0.14, gold)
 	_rhomb(o + Vector2.ONE * cell * 0.5, cell)
-	_plate(plate_rect(o, cell, 2), "ORIGINAL", cell, 0.0)
 	# Die Oben-Marke: ein Rahmen um den Ursprung, mark_up() stellt ihn auf seine Zelle.
 	_mark = Node3D.new()
 	_mark.name = "ObenMarke"
 	_mark.visible = false
-	_parts.add_child(_mark)
+	_podium.add_child(_mark)
 	var half := cell * 0.53 * _k
 	var mark_gold := ChipFrameView._skin(ChipFrameView.GOLD, 0.2, 0.6)
 	for side: float in [-1.0, 1.0]:
@@ -299,21 +401,8 @@ func _build_original(spec: Dictionary, cell: float) -> void:
 	ring.material_override = _ink(BUS)
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ring.position = hover
-	_parts.add_child(ring)
-
-## ERGEBNIS: der Ausgangs-Chip - sechs Fenster und das der Seele, Aufschrift, Lampe.
-func _build_result(spec: Dictionary, cell: float) -> void:
-	var rect: Rect2 = spec["result"]
-	var o := net_origin(rect, cell)
-	var holes: Array[Rect2] = [Rect2(o, Vector2.ONE * cell)]
-	for face in 6:
-		holes.append(Rect2(o + DieNetView.cell_position(face, cell), Vector2.ONE * cell))
-	_chip("ErgebnisChip", rect.grow(3.0), holes)
-	var plate := plate_rect(o, cell, 2)
-	_etch(plate, "ERGEBNIS", cell, -cell * 0.1)
-	var led := plate.get_center() + Vector2(0, cell * 0.2)
-	_box(Rect2(led - Vector2(cell * 0.2, cell * 0.03), Vector2(cell * 0.4, cell * 0.06)), 0.02,
-		CHIP_HEIGHT + 0.012, _ink(RESULT if spec["live"] else IDLE))
+	_podium.add_child(ring)
+	_ring_node = ring
 
 ## Die Fassung der Seele: eine Stahl-Raute um den Platz oben links im Kreuz.
 func _rhomb(soul: Vector2, cell: float) -> void:
@@ -321,7 +410,7 @@ func _rhomb(soul: Vector2, cell: float) -> void:
 	var rhomb := [soul + Vector2(0, -reach), soul + Vector2(reach, 0), soul + Vector2(0, reach),
 		soul + Vector2(-reach, 0)]
 	for i in 4:
-		_bar(_parts, rhomb[i], rhomb[(i + 1) % 4], cell * 0.05, 0.08,
+		_bar(_podium, rhomb[i], rhomb[(i + 1) % 4], cell * 0.05, 0.08,
 			ChipFrameView._skin(StorageBankView.RIM_STEEL, 0.3))
 
 ## Der SCHUTZSCHALTER des Prägens: Sockel um den Knopf der Anzeige, hinten das Scharnier,
@@ -406,49 +495,134 @@ static func _glass(color: Color) -> StandardMaterial3D:
 		_glasses[key] = material
 	return _glasses[key]
 
-## "+" und "=" stehen als Koppler zwischen den drei Netzen; je drei kurze Züge mit
-## Gold-Pads binden sie an ihre Nachbarn.
-func _build_flow(spec: Dictionary, cell: float) -> void:
-	var live: bool = spec["live"]
-	var step := cell * (1.0 + DieNetView.GAP_FACTOR)
-	var net: Rect2 = spec["net"]
-	var o := net_origin(net, cell)
-	var reach := COLLAR_OUT / _k
-	var legs := 3.0 + 0.27 / _k
-	var bounds := [
-		[(spec["up"] as Rect2).end.x + legs, net.position.x - reach],
-		[net.end.x + reach, (spec["result"] as Rect2).position.x - legs]]
-	var signs: Array = spec["signs"]
-	for i in mini(signs.size(), 2):
-		var c := Vector2((signs[i] as Rect2).get_center().x, o.y + step + cell * 0.5)
-		var side := cell * COUPLER_SHARE
-		_box(Rect2(c - Vector2.ONE * side * 0.5, Vector2.ONE * side), 0.16, 0.03,
-			ChipFrameView._skin(BEZEL, 0.15))
-		for j in 3:
-			var y := c.y + float(j - 1) * side * 0.3
-			for s: float in [-1.0, 1.0]:
-				var leg := Vector2(c.x + s * side * 0.6, y)
-				_box(Rect2(leg - Vector2(side * 0.11, side * 0.05),
-					Vector2(side * 0.22, side * 0.1)), 0.05, 0.0, _steel())
-				var from := c.x + s * side * 0.7
-				var to: float = bounds[i][0 if s < 0.0 else 1]
-				if absf(to - from) < 1.0:
-					continue
-				var lane := Rect2(Vector2(minf(from, to), y - 1.6), Vector2(absf(to - from), 3.2))
-				_box(lane, 0.008, 0.002, _ink(LedStripView.TRACE))
-				_box(lane.grow_individual(0, -1.1, 0, -1.1), 0.004, 0.01,
-					_ink(LedStripView.CROWN))
-				_box(Rect2(Vector2(to - 2.4 if s > 0.0 else to, y - 2.4), Vector2(2.4, 4.8)),
-					0.014, 0.002, _ink(LedStripView.PAD))
-		var tint := SILK
-		if live:
-			tint = Color(0.6, 0.95, 1.0) if i == 0 else Color(0.5, 1.0, 0.65)
-		_text("+" if i == 0 else "=", c, side * _k, tint, 0.2)
+## VORSCHAU: ein Chip wie UPGRADES - sechs Fenster und das der Seele. Er steht neben der
+## Zone und bleibt bei jeder Öffnung.
+func _build_preview(spec: Dictionary, cell: float) -> void:
+	var rect: Rect2 = spec.get("preview", Rect2())
+	if rect.size.x <= 0.0:
+		return
+	var o := net_origin(rect, cell)
+	var holes: Array[Rect2] = [Rect2(o, Vector2.ONE * cell)]
+	for face in 6:
+		holes.append(Rect2(o + DieNetView.cell_position(face, cell), Vector2.ONE * cell))
+	_chip("VorschauChip", rect.grow(3.0), holes)
 
-func _plate(rect: Rect2, text: String, cell: float, shift: float) -> void:
-	_box(rect, PLATE_HEIGHT, 0.0, ChipFrameView._skin(ChipFrameView.STEEL_DARK, 0.3))
-	_text(text, rect.get_center() + Vector2(0, shift), cell * _k * TEXT_SHARE, SILK,
-		PLATE_HEIGHT + 0.006)
+## Der UMSCHALTER füllt das "+"-Feld zwischen der Die-View des Podests und UPGRADES.
+func _build_flow(spec: Dictionary, cell: float) -> void:
+	var signs: Array = spec["signs"]
+	if signs.is_empty():
+		return
+	_build_coupler(signs[0])
+
+## Der Umschalter, ein eigener Knoten (er hebt sich): ein Chip mit Lichtrahmen und "+".
+func _build_coupler(field: Rect2) -> void:
+	_coupler = Node3D.new()
+	_coupler.name = "Koppler"
+	_host.add_child(_coupler)
+	var at := _w(field.get_center())
+	var deep := field.size.y * COUPLER_DEEP * _k
+	var wide := minf(deep * COUPLER_ASPECT, field.size.x * _k)
+	var case := _solid(_coupler, Vector3(deep, 0.16, wide), at + Vector3.UP * 0.08,
+		ChipFrameView._skin(BEZEL, 0.15))
+	case.name = "Gehaeuse"
+	var bar := deep * 0.09
+	var w := wide * 0.9
+	var d := deep * 0.84
+	_coupler_frame.clear()
+	for e: float in [-1.0, 1.0]:
+		_coupler_frame.append(_solid(_coupler, Vector3(bar, 0.03, w),
+			at + Vector3(e * (d - bar) * 0.5, 0.175, 0.0), _ink(COUPLER_OFF)))
+		_coupler_frame.append(_solid(_coupler, Vector3(d - bar * 2.0, 0.03, bar),
+			at + Vector3(0.0, 0.175, e * (w - bar) * 0.5), _ink(COUPLER_OFF)))
+	_coupler_sign = Label3D.new()
+	_coupler_sign.name = "Zeichen"
+	_coupler_sign.text = "+"
+	_coupler_sign.font_size = 64
+	_coupler_sign.pixel_size = d * 0.95 / 64.0
+	_coupler_sign.outline_size = 0
+	_coupler_sign.shaded = false
+	_coupler_sign.transform = Transform3D(FLAT, at + Vector3.UP * 0.18)
+	_coupler.add_child(_coupler_sign)
+
+## Die BUSSE als Körper: je Bus ein dunkler Träger, darauf je Spur ein Steg (leuchtend in
+## ihrer Sortenfarbe, sonst matt) und Gold-Pads an beiden Enden. Der Ausgangs-Bus endet am
+## "+"-Feld; sein letztes Stück bis in die Wanne gehört dem Podest (es fährt mit der Zone)
+## samt der DURCHFÜHRUNG am Kragen.
+func _build_buses(spec: Dictionary) -> void:
+	var pitch: float = spec.get("pitch", 0.0)
+	if pitch <= 0.0:
+		return
+	var tints: Array = spec.get("bus_tints", [])
+	_bus("EingangsBus", spec.get("entries", []), tints, pitch, -1.0)
+	var signs: Array = spec["signs"]
+	var cut: float = (signs[0] as Rect2).position.y if not signs.is_empty() else -1.0
+	_bus("AusgangsBus", spec.get("feeds", []), tints, pitch, cut)
+	if cut < 0.0:
+		return
+	_host = _podium
+	var net: Rect2 = spec["net"]
+	var tops: Array = []
+	for path: PackedVector2Array in spec.get("feeds", []):
+		if path.size() >= 2:
+			tops.append(PackedVector2Array([Vector2(path[0].x, cut), Vector2(path[0].x,
+				net.end.y)]))
+	_bus("AusgangsBusOben", tops, tints, pitch, -1.0)
+	if not tops.is_empty():
+		var first: PackedVector2Array = tops[0]
+		var last: PackedVector2Array = tops[tops.size() - 1]
+		var gland := Rect2(Vector2(first[0].x - pitch, net.end.y - pitch * 0.6),
+			Vector2(last[0].x - first[0].x + pitch * 2.0, pitch * 1.6))
+		_box(gland, 0.14, 0.0, ChipFrameView._skin(ChipFrameView.STEEL_DARK, 0.3))
+	_host = _parts
+
+## Ein Bus aus waagerechten bzw. senkrechten Spuren; cut >= 0 kappt senkrechte Spuren oben
+## auf dieser Höhe (Display-y).
+func _bus(part: String, paths: Array, tints: Array, pitch: float, cut: float) -> void:
+	if paths.is_empty():
+		return
+	var host := Node3D.new()
+	host.name = part
+	_host.add_child(host)
+	var keep := _host
+	_host = host
+	var lane_w := pitch * BUS_LANE_SHARE
+	var carrier := Rect2()
+	var runs: Array[Rect2] = []
+	for i in paths.size():
+		var path: PackedVector2Array = paths[i]
+		if path.size() < 2:
+			continue
+		var a := path[0]
+		var b := path[path.size() - 1]
+		if cut >= 0.0:
+			if a.y < b.y:
+				a.y = maxf(a.y, cut)
+			else:
+				b.y = maxf(b.y, cut)
+		var run := Rect2(a, Vector2.ZERO).expand(b).grow(lane_w * 0.5)
+		runs.append(run)
+		carrier = run if carrier.size == Vector2.ZERO else carrier.merge(run)
+	if runs.is_empty():
+		_host = keep
+		return
+	_box(carrier.grow(pitch * 0.35), BUS_HEIGHT * 0.5, 0.0, _ink(BEZEL))
+	var gold := ChipFrameView._skin(ChipFrameView.GOLD, 0.2, 0.3)
+	for i in runs.size():
+		var tint: Color = tints[i] if i < tints.size() else Color(0, 0, 0, 0)
+		var lit := tint.a > 0.0
+		_box(runs[i], BUS_HEIGHT, BUS_HEIGHT * 0.5,
+			_ink(Color(tint, 1.0) if lit else BUS_IDLE))
+		var vertical := runs[i].size.y > runs[i].size.x
+		for end in 2:
+			var pad := Rect2(runs[i].position, Vector2.ONE * lane_w * 1.6)
+			if vertical:
+				pad.position = Vector2(runs[i].get_center().x - lane_w * 0.8,
+					runs[i].position.y if end == 0 else runs[i].end.y - lane_w * 1.6)
+			else:
+				pad.position = Vector2(runs[i].position.x if end == 0 else runs[i].end.x
+					- lane_w * 1.6, runs[i].get_center().y - lane_w * 0.8)
+			_box(pad, 0.012, BUS_HEIGHT * 1.5, gold)
+	_host = keep
 
 func _w(p: Vector2) -> Vector3:
 	var at: Vector3 = _to_world.call(p)
@@ -479,7 +653,7 @@ static func _solid(parent: Node3D, size: Vector3, at: Vector3, material: Materia
 
 ## Ein Quader über einem Display-Rechteck: height hoch, Unterkante auf base.
 func _box(rect: Rect2, height: float, base: float, material: Material) -> void:
-	_solid(_parts, Vector3(rect.size.y * _k, height, rect.size.x * _k),
+	_solid(_host, Vector3(rect.size.y * _k, height, rect.size.x * _k),
 		_w(rect.get_center()) + Vector3.UP * (base + height * 0.5), material)
 
 ## Ein Steg zwischen zwei Display-Punkten, beliebig gedreht.
@@ -499,9 +673,9 @@ func _ring(rect: Rect2, radius: float, profile: Array, material: Material) -> vo
 	body.material_override = material
 	body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	body.position = _w(rect.get_center())
-	_parts.add_child(body)
+	_host.add_child(body)
 
-func _text(text: String, at: Vector2, height: float, color: Color, lift := 0.02) -> void:
+func _text(text: String, at: Vector2, height: float, color: Color, lift := 0.02) -> Label3D:
 	var label := Label3D.new()
 	label.text = text
 	label.font_size = 64
@@ -510,4 +684,5 @@ func _text(text: String, at: Vector2, height: float, color: Color, lift := 0.02)
 	label.modulate = color
 	label.shaded = false
 	label.transform = Transform3D(FLAT, _w(at) + Vector3.UP * lift)
-	_parts.add_child(label)
+	_host.add_child(label)
+	return label

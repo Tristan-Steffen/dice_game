@@ -1,51 +1,43 @@
 class_name WorkshopInfoView
 extends Panel
-## Der INFO-SCHIRM der Werkstatt: seit Layout C (2026-11-20) steht er am ENDE der Walze,
-## so hoch wie ihr Graben, und trägt JEDE Auskunft der Station - Netz-Zelle, Karte,
-## Podest-Würfel und Pool-Würfel.
+## Der INFO-SCHIRM der Werkstatt (Layout E): ein BLOCK unter Vorschau und Prägen, der JEDE
+## Auskunft der Station trägt - Netz-Zelle, Karte, Würfel, Ruhe.
 ##
-## DREI Zeilen, linksbündig: TITEL (Name des Dings), UNTERZEILE (Seele bzw.
-## Größe·Sorte, in ihrer eigenen Tönung) und die WIRKUNG, die so viele Zeilen bricht,
-## wie die gegebene Höhe hergibt (mindestens BODY_LINES, höchstens BODY_LINES_MAX).
-##
-## RECHTS steht seit dem 2026-11-17 das NETZ eines Würfels (der Vorrats-Würfel unter dem
-## Zeiger, der angeheftete oder der wartende Neuzugang), der Text rückt dafür nach links.
-## Seine Zellen erklären sich: scene_root fragt je Bild net_hint_at am Zeiger.
-##
-## Seine Höhe ist GEGEBEN (die Kette); height_for nennt nur das Mindestmaß. Er faßt
-## nichts an - scene_root schneidet sein Rechteck und schreibt ihn je Bild.
+## Oben der TITEL, daneben die Unterzeile in ihrer Farbe; darunter die WIRKUNG mehrzeilig
+## (so groß, wie sie ungeschnitten in den Block paßt), am Fuß die GESTE gedämpft. Ein
+## Würfel spricht statt der Wirkung über DieInfoBand (ROWS). Die Größe ist GEGEBEN (die
+## Kette); er faßt nichts an.
 
-## Ränder und Zeilen-Fuge in u des STREIFENS.
+## Ränder und Fugen zwischen den Zeilen, in u des STREIFENS.
 const MARGIN_X := 2.4
 const MARGIN_Y := 1.4
-const LINE_GAP := 0.5
-## Die Grade der drei Zeilen in u. Die WIRKUNG paßt sich über ihre Leiter ein.
-const TITLE_UNITS := 5.2
-const SUB_UNITS := 3.8
-const BODY_STEPS := [3.6, 3.2, 2.8, 2.4, 2.0]
-## So viele Zeilen darf die Wirkung mindestens bzw. höchstens brechen.
-const BODY_LINES := 2
-const BODY_LINES_MAX := 5
-## Wie hoch ein Label über seinem Grad steht - EIN Faktor für alle drei Zeilen,
-## damit height_for und Aufbau nicht auseinanderlaufen. GEMESSEN: die Schrifthöhe
-## ist ~1,42 × Grad, und der Zeilenabstand kommt je Zeile dazu; ein knapperer Wert
-## schluckte die ZWEITE Wirkungszeile (Godot zählt sie nur, wenn sie samt Abstand
-## in die Kiste paßt).
-const LINE_BOX := 1.6
+const ROW_GAP := 0.8
+## Die Grade von Titel, Wirkung (größter) und Geste in u; LINE_BOX ist die Zeilenhöhe je
+## Grad einer einzeiligen Zeile (gemessen ~1,42 samt Luft).
+const TITLE_UNITS := 6.0
+const BODY_UNITS := 5.4
+const ACTION_UNITS := 4.2
+const LINE_BOX := 1.5
+## Die Unterzeile steht eine Spur kleiner als der Titel.
+const SUB_SHARE := 0.85
+## Die Fuge zwischen Titel und Unterzeile, in Schriftgraden.
+const SUB_GAP_EM := 0.8
+const ACTION_COLOR := Color(0.55, 0.58, 0.7)
 
-## Was der Schirm sagt, wenn nichts unter dem Zeiger liegt und kein Ziel steht.
-const IDLE_TITLE := "Werkstatt"
-const IDLE_BODY := "Einen Vorrats-Würfel antippen: er wird das Ziel der Serie. Ein Rohling aus dem Schwarzmarkt legt sich statt dessen aufs Podest und VERDICHTET."
+## Die RUHE sagt den NÄCHSTEN SCHRITT.
+const IDLE_TITLE := "Nächster Schritt"
+const STEP_DIE_FIRST := "Würfel im Vorrat antippen"
+const STEP_CARD := "Karte aus dem Magazin auf die Walze legen"
+const STEP_DIE := "Würfel wählen"
+const STEP_READY := "Prägen bereit"
+const STEP_SPENT := "Geprägt — die nächste Prägung gibt es in der nächsten Runde"
 ## Liegt ein Rohling auf dem Podest, sagt der Schirm, was dort geschieht.
 const PACKING_BODY := "Verdichten: die Karten der Reihe werden zu EINER. Zahlen und Multiplikatoren addieren sich, Material und Rune liegen danach auf derselben Seite."
-## Die Höhe der Würfel-Auskunft (DieInfoBand) am Fuß des Schirms, in u.
-const BAND_UNITS := 13.0
 ## Die Unterzeile einer Netz-Zelle.
 const CELL_SUB := "Zelle"
-## Das Netz rechts: höchstens dieser Anteil der Breite, die Fuge zum Text in u.
-const NET_WIDTH_SHARE := 0.4
-const NET_GAP := 2.0
-## Das Trennzeichen zweier Wirkungs-Teile - dieselbe Fuge wie in DieNetView.
+## Der Titel eines Würfels ohne Seele.
+const SOULLESS := "Normal"
+## Das Trennzeichen zweier Teile - dieselbe Fuge wie in DieNetView.
 const JOIN := "  ·  "
 
 ## Die Maßeinheit u (0 = die u-Konvention, Fensterbreite/100). scene_root schiebt
@@ -60,19 +52,13 @@ var unit_px := 0.0:
 var _title: Label
 var _sub: Label
 var _body: Label
+var _action: Label
 ## Die Signatur der gezeigten Auskunft - nur der WECHSEL schreibt (je Bild gefragt).
 var _signature := ""
 ## Die letzte Auskunft, damit ein Neuaufbau sie ohne den Schreiber wiederholt.
-var _shown := {"title": "", "sub": "", "sub_tint": Color.WHITE, "body": ""}
-## Die Restbreite der Wirkung und die Einheit, in der ihre Leiter mißt.
-var _body_span := Vector2.ZERO
-var _body_unit := 0.0
-## Das Netz rechts (null = keins) und sein Schlüssel - nur der Wechsel baut neu.
-var _net_def: DieDefinition = null
-var _net_key := ""
-var _net: Control = null
-## Der Würfel, über den der Schirm spricht (null = keiner): dann trägt allein die
-## Würfel-Auskunft am Fuß, die drei Zeilen schweigen.
+var _shown := {"title": "", "sub": "", "sub_tint": Color.WHITE, "body": "", "action": ""}
+## Der Würfel, über den der Schirm spricht (null = keiner): dann trägt die Würfel-Auskunft
+## den Platz der Wirkung.
 var _die: DieDefinition = null
 var _die_face := -1
 var _band: DieInfoBand
@@ -89,117 +75,64 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_rebuild()
 
-## Die MINDEST-HÖHE bei dieser Einheit: beide Ränder, Titel, Unterzeile, zwei
-## Wirkungs-Zeilen am größten Grad und die zwei Fugen.
-static func height_for(u: float) -> float:
-	var grades := TITLE_UNITS + SUB_UNITS + float(BODY_STEPS[0]) * float(BODY_LINES)
-	return u * (MARGIN_Y * 2.0 + LINE_GAP * 2.0 + LINE_BOX * grades)
-
 func unit() -> float:
 	if unit_px > 0.0:
 		return unit_px
 	return maxf(size.x, 200.0) / 100.0
 
 ## Der EINE Schreiber (scene_root, je Bild). Nur der WECHSEL schreibt.
-func set_info(title: String, sub: String, sub_tint: Color, body: String) -> void:
-	var signature := "%s|%s|%s|%s" % [title, sub, sub_tint.to_html(false), body]
+func set_info(title: String, sub: String, sub_tint: Color, body: String,
+		action := "") -> void:
+	var signature := "%s|%s|%s|%s|%s" % [title, sub, sub_tint.to_html(false), body, action]
 	if signature == _signature:
 		return
 	_signature = signature
-	_shown = {"title": title, "sub": sub, "sub_tint": sub_tint, "body": body}
+	_shown = {"title": title, "sub": sub, "sub_tint": sub_tint, "body": body,
+		"action": action}
 	_paint()
 
-## Das Netz rechts im Schirm (null = keins). Gebaut wird nur, wenn sich Würfel oder Inhalt
-## ändern; kommt oder geht es, rückt der Text neu.
-func set_net(def: DieDefinition) -> void:
-	var key := ""
-	if def != null:
-		var one: Array[DieDefinition] = [def]
-		key = "%d|%s" % [def.get_instance_id(), str(DeckGlassView.pool_signature(one))]
-	if key == _net_key:
-		return
-	var reflow := (def == null) != (_net_def == null)
-	_net_def = def
-	_net_key = key
-	if reflow:
-		_rebuild()
-	else:
-		_build_net()
-
-## Der Würfel bzw. seine Seite für die Würfel-Auskunft (null = die drei Zeilen sprechen).
+## Der Würfel bzw. seine Seite für die Würfel-Auskunft (null = die Wirkung spricht).
 func set_die(def: DieDefinition, face := -1) -> void:
-	var reflow := (def == null) != (_die == null)
 	_die = def
 	_die_face = face
-	if reflow:
-		_rebuild()
-	elif _band != null and is_instance_valid(_band):
-		_band.show_info(_die, _die_face)
+	if _band == null or not is_instance_valid(_band):
+		return
+	_band.show_info(_die, _die_face)
+	# Schweigt die Würfel-Auskunft (ohne Seele), spricht die Wirkung - nie eine leere Fläche.
+	var speaks := _die != null and not _band.is_empty()
+	_band.visible = speaks
+	if _body != null and is_instance_valid(_body):
+		_body.visible = not speaks
 
 func die_band() -> DieInfoBand:
 	return _band
 
+## Das Innere des Blocks in Fenster-Pixeln.
+func inner_rect() -> Rect2:
+	var u := unit()
+	var pad := Vector2(u * MARGIN_X, u * MARGIN_Y)
+	return Rect2(pad, (size - pad * 2.0).max(Vector2.ONE))
+
+## Die Kopfzeile (Titel samt Unterzeile).
+func head_rect() -> Rect2:
+	var inner := inner_rect()
+	return Rect2(inner.position, Vector2(inner.size.x,
+		minf(unit() * TITLE_UNITS * LINE_BOX, inner.size.y)))
+
+## Die Fußzeile (die Geste).
+func action_rect() -> Rect2:
+	var inner := inner_rect()
+	var high := minf(unit() * ACTION_UNITS * LINE_BOX, inner.size.y)
+	return Rect2(Vector2(inner.position.x, inner.end.y - high), Vector2(inner.size.x, high))
+
+## Wo die Wirkung bzw. die Würfel-Auskunft steht: alles zwischen Kopf und Fuß.
 func band_rect() -> Rect2:
-	var u := unit()
-	var high := u * BAND_UNITS
-	return Rect2(u * MARGIN_X, size.y - u * MARGIN_Y - high,
-		maxf(size.x - u * MARGIN_X * 2.0, 1.0), high)
-
-func net_def() -> DieDefinition:
-	return _net_def
-
-func net_shown() -> bool:
-	return _net != null and is_instance_valid(_net)
-
-## Wo das Netz im Schirm steht (Fenster-Pixel; leer = keins): rechts, mittig in der Höhe.
-func net_rect() -> Rect2:
-	if _net_def == null or size.x <= 0.0 or size.y <= 0.0:
-		return Rect2()
-	var u := unit()
-	var cell := net_cell()
-	var span := DieNetView.net_size(cell)
-	# Spricht die Würfel-Auskunft, steht das Netz über ihr statt mittig.
-	var room := _net_room()
-	return Rect2(Vector2(size.x - u * MARGIN_X - span.x,
-		u * MARGIN_Y + (room - span.y) * 0.5), span)
-
-func net_cell() -> float:
-	return DieNetView.cell_for(Vector2(size.x * NET_WIDTH_SHARE, _net_room()))
-
-func _net_room() -> float:
-	var u := unit()
-	var room := size.y - u * MARGIN_Y * 2.0
-	if _die != null:
-		room -= u * (BAND_UNITS + LINE_GAP)
-	return maxf(room, 1.0)
-
-## Die Seite unter einem Display-Pixel (DieNetView.EDGE für den Seelen-Chip, -1 = keine).
-func net_face_at(pixel: Vector2) -> int:
-	var rect := net_rect()
-	var local := pixel - get_global_rect().position
-	if rect.size.x <= 0.0 or not rect.has_point(local):
-		return -1
-	var face := DieNetView.face_at(local - rect.position, net_cell())
-	return face if face >= 0 or face == DieNetView.EDGE else -1
-
-## Was die Zelle unter dem Pixel sagt - dieselbe EINE Quelle wie jedes Netz ("" = nichts).
-func net_hint_at(pixel: Vector2) -> String:
-	var face := net_face_at(pixel)
-	return DieNetView.hint_for(_net_def, face) if face != -1 else ""
-
-func _build_net() -> void:
-	if _net != null and is_instance_valid(_net):
-		remove_child(_net)
-		_net.queue_free()
-	_net = null
-	var rect := net_rect()
-	if _net_def == null or rect.size.x <= 0.0 or not is_inside_tree():
-		return
-	_net = DieNetView.build(_net_def, -1, net_cell())
-	_net.name = "Netz"
-	_net.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_net.position = rect.position
-	add_child(_net)
+	var head := head_rect()
+	var foot := action_rect()
+	var gap := unit() * ROW_GAP
+	var top := head.end.y + gap
+	return Rect2(Vector2(head.position.x, top),
+		Vector2(head.size.x, maxf(foot.position.y - gap - top, 1.0)))
 
 func title_text() -> String:
 	return _title.text if _title != null and is_instance_valid(_title) else ""
@@ -210,10 +143,30 @@ func sub_text() -> String:
 func body_text() -> String:
 	return _body.text if _body != null and is_instance_valid(_body) else ""
 
+func action_text() -> String:
+	return _action.text if _action != null and is_instance_valid(_action) else ""
+
+func title_font_size() -> int:
+	return _font_of(_title)
+
 func body_font_size() -> int:
-	if _body == null or not is_instance_valid(_body):
+	return _font_of(_body)
+
+func action_font_size() -> int:
+	return _font_of(_action)
+
+func _font_of(label: Label) -> int:
+	if label == null or not is_instance_valid(label):
 		return 0
-	return _body.get_theme_font_size("font_size")
+	return label.get_theme_font_size("font_size")
+
+## Die Labels in Lese-Reihenfolge (für Tests: was abgeschnitten wäre, zeigt sich hier).
+func labels() -> Array[Label]:
+	var out: Array[Label] = []
+	for label: Label in [_title, _sub, _body, _action]:
+		if label != null and is_instance_valid(label):
+			out.append(label)
+	return out
 
 # --- Die Fassung ------------------------------------------------------------
 
@@ -227,58 +180,41 @@ func _rebuild() -> void:
 	_title = null
 	_sub = null
 	_body = null
-	_net = null
+	_action = null
 	_band = null
-	var u := unit()
-	var pad := Vector2(u * MARGIN_X, u * MARGIN_Y)
-	var inner := maxf(size.x - pad.x * 2.0, 1.0)
-	# Steht das Netz rechts, endet der Text eine Fuge davor.
-	if _net_def != null:
-		inner = maxf(net_rect().position.x - pad.x - u * NET_GAP, 1.0)
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
-	var gap := u * LINE_GAP
-	var title_h := u * TITLE_UNITS * LINE_BOX
-	var sub_h := u * SUB_UNITS * LINE_BOX
-	_title = _line("Titel", Vector2(pad.x, pad.y), Vector2(inner, title_h),
-		u * TITLE_UNITS, WorkshopView.TEXT_COLOR, false)
-	_sub = _line("Unterzeile", Vector2(pad.x, pad.y + title_h + gap),
-		Vector2(inner, sub_h), u * SUB_UNITS, WorkshopView.MUTED_COLOR, false)
-	var body_top := pad.y + title_h + gap + sub_h + gap
-	_body_span = Vector2(inner, maxf(size.y - body_top - pad.y, 1.0))
-	_body_unit = u
-	_body = _line("Wirkung", Vector2(pad.x, body_top), _body_span,
-		u * float(BODY_STEPS[0]), WorkshopView.MUTED_COLOR, true)
-	for line: Label in [_title, _sub, _body]:
-		line.visible = _die == null
+	var head := head_rect()
+	_title = _line("Titel", head, WorkshopView.TEXT_COLOR, false)
+	_sub = _line("Unterzeile", head, WorkshopView.MUTED_COLOR, false)
+	var middle := band_rect()
+	_body = _line("Wirkung", middle, WorkshopView.MUTED_COLOR, true)
+	_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_action = _line("Geste", action_rect(), ACTION_COLOR, true)
 	_band = DieInfoBand.new()
 	_band.name = "WuerfelAuskunft"
-	_band.visible = _die != null
+	_band.layout = DieInfoBand.Layout.ROWS
 	add_child(_band)
-	var band := band_rect()
-	_band.position = band.position
-	_band.size = band.size
-	_band.show_info(_die, _die_face)
-	_build_net()
+	_band.position = middle.position
+	_band.size = middle.size
+	set_die(_die, _die_face)
 	_paint()
 
-## Eine Zeile des Schirms - Grad, Umbruch und clip_text VOR dem Maß, sonst klemmt
-## die Mindestgröße das Label hoch.
-func _line(line_name: String, at: Vector2, span: Vector2, font_size: float,
-		tint: Color, wrap: bool) -> Label:
+## Eine Zeile des Schirms - Umbruch und clip_text VOR dem Maß, sonst klemmt die
+## Mindestgröße das Label hoch.
+func _line(line_name: String, rect: Rect2, tint: Color, wrap: bool) -> Label:
 	var label := Label.new()
 	label.name = line_name
-	label.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
 	label.add_theme_color_override("font_color", tint)
 	if wrap:
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.clip_text = true
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	label.vertical_alignment = VERTICAL_ALIGNMENT_TOP if wrap else VERTICAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(label)
-	label.position = at
-	label.size = span
+	label.position = rect.position
+	label.size = rect.size
 	return label
 
 func _paint() -> void:
@@ -289,73 +225,109 @@ func _paint() -> void:
 	_sub.add_theme_color_override("font_color",
 		_shown.get("sub_tint", WorkshopView.MUTED_COLOR))
 	_body.text = String(_shown.get("body", ""))
-	_fit_body()
+	_action.text = String(_shown.get("action", ""))
+	_fit()
 
-## Der Grad der Wirkung: die größte Stufe, die noch in BODY_LINES Zeilen UND in die
-## Kiste paßt. Gemessen wird mit ShopController.wrapped_height - die ehrliche Höhe
-## samt Zeilenabstand, denn genau der entscheidet, ob Godot die letzte Zeile noch
-## zeichnet.
-func _fit_body() -> void:
+## Titel und Unterzeile steigen gemeinsam ab, bis sie nebeneinander in den Kopf passen;
+## Wirkung und Geste nehmen den größten Grad, in dem sie UNGESCHNITTEN in ihre Kiste
+## passen - gemessen mit ShopController.wrapped_height, der ehrlichen Höhe samt
+## Zeilenabstand.
+func _fit() -> void:
 	var font := ThemeDB.fallback_font
-	if font == null or _body == null or not is_instance_valid(_body) \
-			or _body_span.x <= 0.0:
+	if font == null:
 		return
-	var lead := _body.get_theme_constant("line_spacing")
-	var px := maxi(8, int(_body_unit * float(BODY_STEPS[BODY_STEPS.size() - 1])))
-	for step: float in BODY_STEPS:
-		var wanted := maxi(8, int(_body_unit * step))
-		if WorkshopView.text_block_lines(font, _body.text, _body_span.x,
-				wanted) <= body_lines() \
-				and ShopController.wrapped_height(font, _body.text, _body_span.x,
-					wanted, lead) <= _body_span.y:
-			px = wanted
-			break
-	_body.add_theme_font_size_override("font_size", px)
+	var u := unit()
+	var head := head_rect()
+	var title_px := maxi(8, int(u * TITLE_UNITS))
+	while title_px > 8 and (_head_width(font, title_px) > head.size.x
+			or font.get_height(title_px) > head.size.y):
+		title_px -= 1
+	_title.add_theme_font_size_override("font_size", title_px)
+	_sub.add_theme_font_size_override("font_size", maxi(8, int(title_px * SUB_SHARE)))
+	var title_w := minf(_text_width(font, _title.text, title_px) + 1.0, head.size.x)
+	_title.size = Vector2(title_w, head.size.y)
+	var shift := title_w + (title_px * SUB_GAP_EM if _title.text != "" else 0.0)
+	_sub.position = head.position + Vector2(shift, 0.0)
+	_sub.size = Vector2(maxf(head.size.x - shift, 1.0), head.size.y)
+	_fit_wrapped(_body, font, int(u * BODY_UNITS))
+	_fit_wrapped(_action, font, int(u * ACTION_UNITS))
 
-## Wie viele Zeilen die Wirkung brechen darf: so viele, wie am größten Grad in ihre Kiste
-## passen.
-func body_lines() -> int:
-	var line := _body_unit * float(BODY_STEPS[0]) * LINE_BOX
-	if line <= 0.0:
-		return BODY_LINES
-	return clampi(int(_body_span.y / line), BODY_LINES, BODY_LINES_MAX)
+## Wie breit Titel und Unterzeile nebeneinander im Grad px stehen.
+func _head_width(font: Font, px: int) -> float:
+	var width := _text_width(font, _title.text, px)
+	if _sub.text != "":
+		width += px * SUB_GAP_EM + _text_width(font, _sub.text, maxi(8, int(px * SUB_SHARE)))
+	return width
+
+static func _text_width(font: Font, text: String, px: int) -> float:
+	if text == "":
+		return 0.0
+	return font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+
+## Der größte Grad bis top_px, in dem der Text ungeschnitten in seine Kiste paßt.
+func _fit_wrapped(label: Label, font: Font, top_px: int) -> void:
+	var lead := label.get_theme_constant("line_spacing")
+	var chosen := 8
+	for wanted in range(maxi(top_px, 8), 7, -1):
+		if ShopController.wrapped_height(font, label.text, label.size.x, wanted, lead) \
+				<= label.size.y:
+			chosen = wanted
+			break
+	label.add_theme_font_size_override("font_size", chosen)
 
 # --- Die reinen Text-Quellen ------------------------------------------------
-# Jede liefert {title, sub, sub_tint, body}. Formuliert wird hier nichts: die
-# Texte kommen aus DieNetView, Essence und Pack.
+# Jede liefert {title, sub, sub_tint, body, action}. Formuliert wird hier nichts: die
+# Texte kommen aus DieInfoBand, Essence und Pack.
 
-## Ein WÜRFEL: er spricht über die Würfel-Auskunft, die drei Zeilen schweigen.
-static func die_info(def: DieDefinition) -> Dictionary:
+## Ein WÜRFEL: oben der Name seiner Seele (ohne Seele "Normal"), darunter spricht die
+## Würfel-Auskunft bzw. ohne Seele die Augenzeile.
+static func die_info(def: DieDefinition, action := "") -> Dictionary:
 	if def == null:
-		return idle_info(null, "")
-	return {"title": "", "sub": "", "sub_tint": WorkshopView.MUTED_COLOR, "body": "",
-		"die": def}
+		return idle_info(false, false, false)
+	var soul := DieInfoBand.die_data(def)
+	var title := String(soul.get("name", SOULLESS))
+	var body := ""
+	if not soul.has("name"):
+		body = "Augen  %s" % " · ".join(
+			Array(def.faces).map(func(v: int) -> String: return str(v)))
+	return {"title": title, "sub": "", "sub_tint": WorkshopView.MUTED_COLOR,
+		"body": body, "action": action, "die": def}
 
 ## Eine KASSETTE: Name, Größe·Sorte in der Sortenfarbe, Wirkung plus Netz-Zeile.
 ## Die Sorte fällt weg, wenn sie schon der Titel ist (Standard-Pakete heißen so).
-static func pack_info(pack: Pack) -> Dictionary:
+static func pack_info(pack: Pack, action := "") -> Dictionary:
 	if pack == null:
-		return idle_info(null, "")
+		return idle_info(false, false, false)
 	var shelf := Pack.shelf_of(pack)
 	var sort := Pack.shelf_name(shelf)
 	var tier := Pack.tier_label(pack.tier)
 	return {"title": pack.display_name,
 		"sub": tier if sort == pack.display_name else "%s%s%s" % [tier, JOIN, sort],
 		"sub_tint": PackDrawerView.pack_tint(pack),
-		"body": Pack.info_body(pack)}
+		"body": Pack.info_body(pack), "action": action}
 
 ## Eine NETZ-ZELLE: sie gehört jemandem, und der steht im Titel.
-static func cell_info(owner_title: String, hint: String) -> Dictionary:
+static func cell_info(owner_title: String, hint: String, action := "") -> Dictionary:
 	return {"title": owner_title, "sub": CELL_SUB,
-		"sub_tint": WorkshopView.MUTED_COLOR, "body": hint}
+		"sub_tint": WorkshopView.MUTED_COLOR, "body": hint, "action": action}
 
-## RUHE: steht ein Ziel, erklärt der Schirm den Zielwürfel - sonst sagt er, warum
-## das Prägen schweigt, und sonst, was zu tun ist.
-static func idle_info(target: DieDefinition, blocker: String,
-		packing := false) -> Dictionary:
-	if target != null:
-		return die_info(target)
-	var idle := PACKING_BODY if packing else IDLE_BODY
-	return {"title": IDLE_TITLE, "sub": "",
-		"sub_tint": WorkshopView.MUTED_COLOR,
-		"body": blocker if blocker != "" else idle}
+## RUHE = der NÄCHSTE SCHRITT, nie leer. Ein Rohling sagt, was das Verdichten tut (oder
+## warum es nicht geht), eine verbrauchte Prägung sagt es; sonst führt die Leiter Würfel →
+## Karte → Prägen, und wo alles da ist, nennt sie die Bremse, falls eine greift.
+static func idle_info(die: bool, cards: bool, spent: bool, packing := false,
+		blocker := "") -> Dictionary:
+	var body := STEP_READY
+	if packing:
+		body = blocker if blocker != "" else PACKING_BODY
+	elif spent:
+		body = STEP_SPENT
+	elif not die and not cards:
+		body = STEP_DIE_FIRST
+	elif not cards:
+		body = STEP_CARD
+	elif not die:
+		body = STEP_DIE
+	elif blocker != "":
+		body = blocker
+	return {"title": IDLE_TITLE, "sub": "", "sub_tint": WorkshopView.MUTED_COLOR,
+		"body": body, "action": ""}

@@ -5,9 +5,8 @@ extends GutTest
 const DIE_PX := Vector2(45, 45)
 ## Die Würfelkante am echten Tisch (Display-px).
 const DIE_EDGE := 57.4
-## Gemessen 1280 × 720 (Layout C): Pool-Reihe, die Naht darunter und die liegende Karte.
+## Gemessen 1280 × 720: Pool-Reihe und die liegende Karte.
 const POOL := Rect2(2916.358, 1994.776, 585.0, 487.5)
-const SEAM := 48.75
 const CARD := Vector2(194.4, 129.6)
 const OPENING_POS := Vector2(3882.17, 1994.776)
 const OPENING_SIZE := Vector2(646.6, 487.5)
@@ -268,43 +267,66 @@ func test_cards_on_the_opening_stack_their_fields() -> void:
 	assert_eq(view.page_rect_px().position, OPENING_POS)
 	assert_true(view.page_rect_px().has_point(view.hull_seat_px()), "die Hülle geht auf der Fläche auf")
 
-## Die ZONE an der echten Kette (1280 × 720, Layout C).
-func _zone() -> Dictionary:
-	var lay := WorkshopView.drum_layout(POOL, CARD, 55.46, 5.042, 0.0, SEAM)
-	var equation: Rect2 = lay["equation"]
-	var width := maxf(PackChoiceView.panel_width_for(POOL.size.y, DIE_EDGE), equation.size.x)
-	var end_x := equation.position.x + width
-	return {"lay": lay, "end_x": end_x,
-		"area": PackChoiceView.area_beside(POOL, lay["equation"], end_x)}
+## Kragen des Podests plus Schachtwand der Zone (0,4 Welt) und Fuge, Wurfplatz und Luft
+## rechts davon - gemessen am echten Tisch (1280 × 720).
+const ZONE_CLEAR := 15.0
+const ZONE_TAIL := 132.1
+const RIGHT_EDGE := 5094.0
 
-## Die reine Regel: die Zone beginnt mit der Gleichung, oben bündig mit der Pool-Reihe und
-## so hoch wie sie, und endet bei end_x.
-func test_the_zone_rule_starts_at_the_equation() -> void:
-	var equation := Rect2(3521.5, 1994.776, 968.2, 458.3)
-	var area := PackChoiceView.area_beside(POOL, equation, 4822.0)
-	assert_almost_eq(area.position.x, equation.position.x, 0.01, "links ab der Gleichung")
+## Die ZONE an der echten Kette (1280 × 720, Layout E): ab einer Fuge rechts der Vorschau.
+func _zone() -> Dictionary:
+	var lay := WorkshopView.drum_layout(POOL, CARD, 55.46, 5.042)
+	var preview: Rect2 = lay["preview"]
+	var anchor := Rect2(Vector2(preview.end.x + 5.042 * WorkshopView.DRUM_SHELF_GAP,
+		preview.position.y), Vector2(1.0, preview.size.y))
+	return {"lay": lay, "area": PackChoiceView.zone_rect(POOL, anchor, ZONE_CLEAR, DIE_EDGE,
+		ZONE_TAIL, RIGHT_EDGE)}
+
+## Die reine Regel: die Zone beginnt bei left_x, oben bündig mit der Pool-Reihe und so hoch
+## wie sie, und endet bei end_x.
+func test_the_zone_rule_starts_at_left_x() -> void:
+	var area := PackChoiceView.area_beside(POOL, 3835.0, 4822.0)
+	assert_almost_eq(area.position.x, 3835.0, 0.01, "links ab left_x")
 	assert_almost_eq(area.position.y, POOL.position.y, 0.01, "oben bündig mit dem Pool")
 	assert_almost_eq(area.size.y, POOL.size.y, 0.01, "so hoch wie er")
 	assert_almost_eq(area.end.x, 4822.0, 0.01, "rechts bis end_x")
-	assert_eq(PackChoiceView.area_beside(Rect2(), equation, 4822.0), Rect2(), "ohne Pool keine Zone")
-	assert_eq(PackChoiceView.area_beside(POOL, equation, equation.position.x), Rect2(),
-		"ohne Breite keine Zone")
+	assert_eq(PackChoiceView.area_beside(Rect2(), 3835.0, 4822.0), Rect2(), "ohne Pool keine Zone")
+	assert_eq(PackChoiceView.area_beside(POOL, 3835.0, 3835.0), Rect2(), "ohne Breite keine Zone")
 
-## An der echten Kette deckt die Zone die GANZE Gleichung, bleibt aber neben Pool, Walze und
-## Info-Schirm; ihr rechter Rand ist der der alten Fläche neben dem Podest.
-func test_the_zone_covers_the_whole_equation() -> void:
+## Layout E: die Zone beginnt rechts der Vorschau, deckt Prägen und Podest und endet samt
+## Wurfplatz vor dem Rand der Anzeige; UPGRADES und Umschalter liegen darunter.
+func test_the_zone_starts_beside_the_preview_and_ends_before_the_edge() -> void:
 	var zone := _zone()
 	var lay: Dictionary = zone["lay"]
 	var area: Rect2 = zone["area"]
-	assert_almost_eq(area.position.x, POOL.end.x + 5.042 * WorkshopView.DRUM_SHELF_GAP, 0.01,
-		"eine Fuge rechts vom Pool")
-	for key in ["upgrades", "podium_stage", "podium_net", "result", "stamp"]:
+	assert_gt(area.position.x, (lay["preview"] as Rect2).end.x, "die Vorschau bleibt frei")
+	for key in ["podium", "podium_stage", "podium_net", "stamp"]:
 		assert_true(area.encloses(lay[key]), "die Zone deckt %s" % key)
+	for key in ["upgrades", "preview"]:
+		assert_false(area.intersects(lay[key]), "%s bleibt frei" % key)
+	assert_false(area.intersects((lay["signs"] as Array)[0]), "der Umschalter bleibt frei")
 	assert_false(area.intersects(POOL), "nicht über dem Pool")
-	assert_false(area.intersects(lay["bounds"]), "nicht über Walze, Info-Schirm und Magazin")
-	assert_lte(area.end.x, 5094.0, "innerhalb der Anzeige")
+	assert_false(area.intersects(lay["bounds"]), "nicht über Band, Walze und Magazin")
+	assert_lte(area.end.x + ZONE_TAIL, RIGHT_EDGE + 0.01, "samt Wurfplatz vor dem Rand")
 	assert_gte(area.size.x, PackChoiceView.cards_width_for(POOL.size.y, CARD, 3),
 		"drei Karten passen nebeneinander")
+
+## Reicht der Platz nicht, schrumpft die Netz-Zelle der Kacheln, nie der Würfel.
+func test_a_capped_zone_shrinks_the_net_not_the_die() -> void:
+	var full := PackChoiceView.panel_width_for(POOL.size.y, DIE_EDGE)
+	var capped := PackChoiceView.panel_width_for(POOL.size.y, DIE_EDGE, full - 120.0)
+	assert_almost_eq(capped, full - 120.0, 0.01, "die Obergrenze greift")
+	var wide := _view()
+	wide.size = Vector2(full, POOL.size.y)
+	wide.open(_dice_choice(6), Vector2.ONE * DIE_EDGE, -1, 0, true)
+	var narrow := _view()
+	narrow.size = Vector2(capped, POOL.size.y)
+	narrow.open(_dice_choice(6), Vector2.ONE * DIE_EDGE, -1, 0, true)
+	await wait_frames(2)
+	assert_lt(narrow.net_cell(6), wide.net_cell(6), "die Netz-Zelle schrumpft")
+	assert_eq(narrow.die_look(), wide.die_look(), "der Würfel nie")
+	assert_lte(narrow.lineup_block(2, 6).end.x, narrow.lineup_area().end.x + 0.5,
+		"drei Kacheln passen")
 
 ## Die Zone ist genau so breit wie die Würfel-Auswahl: drei Kacheln füllen die Aufstellung.
 func test_the_zone_is_as_wide_as_the_dice_selection() -> void:

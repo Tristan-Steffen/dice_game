@@ -1,29 +1,35 @@
 extends GutTest
-## Die Layout-Kette der Werkstatt (Layout C): gemessene Eingaben vom 2026-11-18,
-## 1280 × 720. Rechts am Pool die Gleichung samt Podest, unter dem Pool Walze und
-## Info-Schirm, darunter das breite Magazin.
+## Die Layout-Kette der Werkstatt (Layout E): gemessene Eingaben, 1280 × 720. Rechts am
+## Pool die VORSCHAU samt PRÄGEN, darunter der INFO-SCHIRM; unter dem Pool die Walze mit
+## sechs Scheiben, an ihrem Ende UPGRADES, darüber "+" und das PODEST; darunter das Magazin,
+## dessen Gruben auf der Hub-Unterkante enden.
 
 const POOL := Rect2(2916.4, 1994.8, 585.0, 487.5)
 const CARD := Vector2(194.4, 129.6)
 const FACE := 55.46
 const U := 5.042
-const SEAM := 48.75
 const HUB_BOTTOM := 3127.3
-const DISPLAY_WIDTH := 5094.0
+const DISPLAY := Vector2(5094.0, 3180.0)
 
 var lay: Dictionary
 
 func before_each() -> void:
-	lay = WorkshopView.drum_layout(POOL, CARD, FACE, U, 0.0, SEAM)
+	lay = WorkshopView.drum_layout(POOL, CARD, FACE, U, HUB_BOTTOM)
+
+func _numbers() -> float:
+	return U * (WorkshopView.SLICE_NUMBER_UNITS + WorkshopView.SLICE_NUMBER_GAP)
 
 func test_the_drum_lies_under_the_pool_left_aligned() -> void:
 	var pit: Rect2 = lay["pit"]
 	assert_almost_eq(pit.position.x, POOL.position.x, 0.01, "linksbündig mit dem Pool")
-	assert_gt(pit.position.y, POOL.end.y + SEAM, "eine Naht und die Nummern darunter")
+	assert_gte(pit.position.y - _numbers(), POOL.end.y, "die Nummern stehen unter dem Pool")
 
-func test_slices_run_left_to_right_inside_pit() -> void:
+func test_six_slices_run_left_to_right_inside_pit() -> void:
 	var slices: Array = lay["slices"]
 	var pit: Rect2 = lay["pit"]
+	assert_eq(WorkshopView.DRUM_SLICES, 6)
+	assert_eq(WorkshopView.DRUM_SLICES, GameRun.SERIES_SLOT_CAP, "eine Scheibe je Serien-Platz")
+	assert_eq(DrumView.SLICES, WorkshopView.DRUM_SLICES)
 	assert_eq(slices.size(), WorkshopView.DRUM_SLICES)
 	for i in slices.size():
 		var s: Rect2 = slices[i]
@@ -38,17 +44,64 @@ func test_drum_fits_on_edge_at_the_short_side() -> void:
 		0.001, "der Querschnitt mißt an der KURZEN Kartenseite")
 	assert_gt(pit.size.y, WorkshopView.drum_side_px(CARD) * sqrt(2.0))
 
-## Der INFO-SCHIRM steht am Walzen-Ende: eine Naht daneben, so hoch wie der Graben,
-## rechts bündig mit dem Magazin.
-func test_the_info_screen_closes_the_drum_row() -> void:
+## UPGRADES am rechten Walzen-Ende, die Strecke des Eingangs-Busses daneben, senkrecht
+## mittig zum Graben.
+func test_upgrades_sit_at_the_drum_end() -> void:
 	var pit: Rect2 = lay["pit"]
+	var upgrades: Rect2 = lay["upgrades"]
+	assert_almost_eq(upgrades.position.x - pit.end.x, U * WorkshopView.ENTRY_BUS_UNITS, 0.01,
+		"der Eingangs-Bus zwischen Grabenwand und UPGRADES")
+	assert_almost_eq(upgrades.get_center().y, pit.get_center().y, 0.01, "mittig zum Graben")
+	assert_eq(upgrades.size, (lay["podium_net"] as Rect2).size, "Netz-Maß wie ORIGINAL")
+
+## Das PODEST genau über UPGRADES, oben bündig mit dem Pool, dazwischen das breite "+".
+func test_the_podium_stands_over_upgrades() -> void:
+	var podium: Rect2 = lay["podium"]
+	var upgrades: Rect2 = lay["upgrades"]
+	var net: Rect2 = lay["podium_net"]
+	var signs: Array = lay["signs"]
+	assert_eq(signs.size(), 1, "nur das +")
+	var plus: Rect2 = signs[0]
+	assert_almost_eq(podium.position.y, POOL.position.y, 0.01, "oben bündig mit dem Pool")
+	assert_almost_eq(net.position.x, upgrades.position.x, 0.01, "gleiche x-Kanten")
+	assert_almost_eq(net.end.x, upgrades.end.x, 0.01)
+	assert_lt(net.end.y, plus.position.y, "+ unter der Die-View")
+	assert_lt(plus.end.y, upgrades.position.y, "UPGRADES unter dem +")
+	assert_gte(plus.size.y, 59.0, "das Feld ist mindestens ~60 px hoch")
+	assert_gte(plus.size.x, net.size.x - 0.01, "so breit wie die Netze")
+	assert_false(lay.has("result"), "ERGEBNIS ist gestorben")
+	assert_eq(lay["original"], net, "ORIGINAL IST die Die-View")
+
+## VORSCHAU eine Fuge rechts am Pool, oben bündig; PRÄGEN mittig zu ihr und mittig im
+## Feld zwischen Vorschau und Podest (über dem Info-Schirm).
+func test_preview_then_stamp_in_the_head_row() -> void:
+	var preview: Rect2 = lay["preview"]
+	var stamp: Rect2 = lay["stamp"]
+	assert_almost_eq(preview.position.x, POOL.end.x + U * WorkshopView.DRUM_SHELF_GAP, 0.01)
+	assert_almost_eq(preview.position.y, POOL.position.y, 0.01, "oben bündig")
+	assert_eq(preview.size, (lay["podium_net"] as Rect2).size, "Netz-Maß")
+	assert_lt(POOL.end.x, preview.position.x)
+	assert_lt(preview.end.x, stamp.position.x, "PRÄGEN rechts der Vorschau")
+	assert_almost_eq(stamp.get_center().y, preview.get_center().y, 0.01, "mittig zu ihr")
+	assert_gte(stamp.size.x, U * WorkshopView.ACTION_WIDTH - 0.01)
 	var info: Rect2 = lay["info"]
-	var shelf: Rect2 = lay["shelf"]
-	assert_almost_eq(info.position.x, pit.end.x + U * WorkshopView.STREET_GAP, 0.01,
-		"eine Naht rechts am Graben")
-	assert_almost_eq(info.position.y, pit.position.y, 0.01, "oben bündig mit dem Graben")
-	assert_almost_eq(info.size.y, pit.size.y, 0.01, "so hoch wie er")
-	assert_almost_eq(info.end.x, shelf.end.x, 0.01, "rechts bündig mit dem Magazin")
+	assert_almost_eq(stamp.get_center().x, (preview.end.x + info.end.x) * 0.5, 0.01,
+		"mittig im Feld bis vor das Podest")
+
+## Der INFO-SCHIRM: ein Block unter Vorschau und Prägen, links ab der Vorschau, bis eine
+## Fuge vor das Podest und bis zur Pool-Unterkante.
+func test_the_info_is_a_block_under_preview_and_stamp() -> void:
+	var info: Rect2 = lay["info"]
+	var preview: Rect2 = lay["preview"]
+	var podium: Rect2 = lay["podium"]
+	assert_almost_eq(info.position.x, preview.position.x, 0.01)
+	assert_gt(info.position.y, preview.end.y, "unter der Vorschau")
+	assert_gt(info.position.y, (lay["stamp"] as Rect2).end.y, "und unter PRÄGEN")
+	assert_almost_eq(info.end.y, POOL.end.y, 0.01, "bis zur Pool-Unterkante")
+	assert_almost_eq(podium.position.x - info.end.x, U * WorkshopView.DRUM_SHELF_GAP, 0.01,
+		"eine Fuge vor dem Podest")
+	assert_gt(info.size.x, 600.0, "ein breiter Block")
+	assert_gt(info.size.y, 200.0, "und ein hoher")
 
 func test_the_chamber_is_the_podium_plate() -> void:
 	var chamber: Rect2 = lay["chamber"]
@@ -59,14 +112,29 @@ func test_the_chamber_is_the_podium_plate() -> void:
 		WorkshopView.PODIUM_TILT_TRIM + FACE * WorkshopView.PODIUM_HEAD_FACES,
 		"oben Platz für den schwebenden Würfel")
 	assert_false(chamber.intersects(lay["podium_net"]), "die Die-View liegt frei")
-	for key in ["pit", "stamp", "shelf", "info", "upgrades", "result"]:
+	for key in ["pit", "stamp", "shelf", "info", "upgrades", "preview"]:
 		assert_false(chamber.intersects(lay[key]), "die Kammer liegt nicht auf %s" % key)
 	assert_false(chamber.intersects(POOL), "und nicht im Pool")
+
+## Das Magazin rückt so tief, daß die Unterkante der GRUBEN auf der Hub-Unterkante liegt;
+## Fassung und Lichtleisten bleiben auf der Anzeige.
+func test_the_shelf_pits_end_on_the_hub_bottom() -> void:
+	var shelf: Rect2 = lay["shelf"]
+	var columns: Array = lay["columns"]
+	for c: Rect2 in columns:
+		assert_almost_eq(c.end.y, HUB_BOTTOM, 0.01, "Gruben bündig mit dem Hub")
+	assert_lte(shelf.end.y, DISPLAY.y, "über dem Displayrand")
+	assert_gte(shelf.position.y - (lay["pit"] as Rect2).end.y,
+		U * WorkshopView.DRUM_SHELF_GAP - 0.01, "mindestens eine Fuge unter der Walze")
+
+func test_without_floor_the_shelf_hangs_one_gap_below() -> void:
+	var free := WorkshopView.drum_layout(POOL, CARD, FACE, U)
+	assert_almost_eq((free["shelf"] as Rect2).position.y - (free["pit"] as Rect2).end.y,
+		U * WorkshopView.DRUM_SHELF_GAP, 0.01)
 
 func test_shelf_spans_four_columns_of_two_cards() -> void:
 	var shelf: Rect2 = lay["shelf"]
 	assert_almost_eq(shelf.position.x, POOL.position.x, 0.01, "linksbündig")
-	assert_gt(shelf.position.y, (lay["pit"] as Rect2).end.y)
 	var columns: Array = lay["columns"]
 	assert_eq(columns.size(), PackDrawerView.COLUMNS)
 	for i in columns.size():
@@ -78,9 +146,8 @@ func test_shelf_spans_four_columns_of_two_cards() -> void:
 		if i > 0:
 			assert_gt(c.position.x, (columns[i - 1] as Rect2).end.x, "Spalten von links")
 
-## Vier TRAYS samt Fassung: sie überlappen nicht, zwischen ihnen derselbe Filz, und das
-## Magazin wird nicht höher als die eine Grube vor ihnen (Unterkante ≤ 3117,7).
-func test_the_shelf_is_four_trays_no_taller_than_before() -> void:
+## Vier TRAYS samt Fassung: sie überlappen nicht, zwischen ihnen derselbe Filz.
+func test_the_shelf_is_four_trays() -> void:
 	var shelf: Rect2 = lay["shelf"]
 	var trays: Array = lay["trays"]
 	var columns: Array = lay["columns"]
@@ -93,59 +160,14 @@ func test_the_shelf_is_four_trays_no_taller_than_before() -> void:
 			assert_false(tray.intersects(trays[i - 1]), "Tray %d steht frei" % (i + 1))
 			assert_almost_eq(tray.position.x - (trays[i - 1] as Rect2).end.x,
 				PackDrawerView.FELT_GAP_PX, 0.01, "derselbe Filz dazwischen")
-	assert_almost_eq((trays[0] as Rect2).position.x, shelf.position.x, 0.01)
-	assert_almost_eq((trays[trays.size() - 1] as Rect2).end.x, shelf.end.x, 0.01)
-	assert_lte(shelf.end.y, 3117.7, "nicht tiefer als die eine Grube vor den Trays")
-	assert_lt(shelf.size.x, 1874.8, "schmaler: die Ränder sind gespart")
-	assert_gte((lay["info"] as Rect2).size.x, CARD.x * 2.0, "der Info-Schirm bleibt breit genug")
-
-## Die GLEICHUNG rechts am Pool: UPGRADES + ORIGINAL = ERGEBNIS, drei gleich große Netze,
-## unten bündig.
-func test_the_equation_stands_right_of_the_pool() -> void:
-	var original: Rect2 = lay["podium_net"]
-	var upgrades: Rect2 = lay["upgrades"]
-	var result: Rect2 = lay["result"]
-	var signs: Array = lay["signs"]
-	assert_almost_eq(upgrades.position.x, POOL.end.x + U * WorkshopView.DRUM_SHELF_GAP, 0.01,
-		"eine Fuge rechts vom Pool")
-	assert_gt(original.position.x, upgrades.end.x, "ORIGINAL rechts von UPGRADES")
-	assert_gt(result.position.x, original.end.x, "ERGEBNIS rechts davon")
-	assert_eq(upgrades.size, original.size, "gleich groß wie die Die-View")
-	assert_eq(result.size, original.size)
-	assert_almost_eq(upgrades.end.y, original.end.y, 0.01, "unten bündig")
-	assert_almost_eq(result.end.y, original.end.y, 0.01)
-	assert_eq(lay["original"], original, "ORIGINAL IST die Die-View")
-	assert_true((signs[0] as Rect2).position.x >= upgrades.end.x - 0.01, "+ hinter UPGRADES")
-	assert_true((signs[0] as Rect2).end.x <= original.position.x + 0.01)
-	assert_true((signs[1] as Rect2).position.x >= original.end.x - 0.01, "= vor ERGEBNIS")
-	assert_true((signs[1] as Rect2).end.x <= result.position.x + 0.01)
-	assert_true((lay["equation"] as Rect2).grow(0.05).encloses(upgrades.merge(result)))
-
-## Die RASTER-Taste ist tot: PRÄGEN steht allein über ERGEBNIS.
-func test_stamp_stands_over_the_result_net() -> void:
-	assert_false(lay.has("raster"), "kein Raster-Feld mehr")
-	var stamp: Rect2 = lay["stamp"]
-	var result: Rect2 = lay["result"]
-	var plate: Rect2 = lay["podium_stage"]
-	assert_almost_eq(stamp.get_center().x, result.get_center().x, 0.01, "mittig über ERGEBNIS")
-	assert_almost_eq(stamp.get_center().y, plate.get_center().y, 0.01, "auf halber Plattenhöhe")
-	var heads := U * WorkshopView.EQ_HEAD_UNITS
-	assert_lte(stamp.end.y, result.position.y - heads + 0.01, "über der Überschrift")
-	assert_gte(stamp.position.y, POOL.position.y - 0.01, "nicht über dem Pool")
-	assert_false(stamp.intersects(plate), "neben der Platte")
 
 ## Kein Rechteck der Kette überdeckt ein anderes.
 func test_no_two_parts_overlap() -> void:
-	var heads := U * WorkshopView.EQ_HEAD_UNITS
 	var parts := {
-		"pit": (lay["pit"] as Rect2).grow_individual(0.0,
-			U * (WorkshopView.SLICE_NUMBER_UNITS + WorkshopView.SLICE_NUMBER_GAP), 0.0, 0.0),
-		"info": lay["info"], "shelf": lay["shelf"],
-		"upgrades": (lay["upgrades"] as Rect2).grow_individual(0.0, heads, 0.0, 0.0),
-		"result": (lay["result"] as Rect2).grow_individual(0.0, heads, 0.0, 0.0),
-		"plate": lay["podium_stage"], "net": lay["podium_net"],
-		"stamp": lay["stamp"], "plus": lay["signs"][0], "equals": lay["signs"][1],
-		"pool": POOL}
+		"pit": (lay["pit"] as Rect2).grow_individual(0.0, _numbers(), 0.0, 0.0),
+		"info": lay["info"], "shelf": lay["shelf"], "preview": lay["preview"],
+		"upgrades": lay["upgrades"], "plate": lay["podium_stage"], "net": lay["podium_net"],
+		"stamp": lay["stamp"], "plus": lay["signs"][0], "pool": POOL}
 	var keys := parts.keys()
 	for i in keys.size():
 		for j in range(i + 1, keys.size()):
@@ -154,20 +176,15 @@ func test_no_two_parts_overlap() -> void:
 			assert_false(a.intersection(b).get_area() > 1.0,
 				"%s und %s überlappen nicht" % [keys[i], keys[j]])
 
-func test_the_height_fits_under_the_pool() -> void:
+func test_everything_stays_on_the_display() -> void:
 	var bounds: Rect2 = lay["bounds"]
-	assert_lte(bounds.end.y, HUB_BOTTOM, "nichts reicht unter die Hub-Unterkante")
-	assert_lte(bounds.end.x, DISPLAY_WIDTH, "nichts über den Displayrand")
-	assert_gte(bounds.position.y, POOL.end.y + SEAM - 0.01, "und nichts in den Pool")
-	assert_lte((lay["equation"] as Rect2).end.x, DISPLAY_WIDTH)
-
-func test_the_podium_stands_in_the_equation_row() -> void:
-	var podium: Rect2 = lay["podium"]
-	assert_almost_eq(podium.position.y, POOL.position.y, 0.01, "oben bündig mit dem Pool")
-	assert_lte(podium.size.y, POOL.size.y + 0.01, "höchstens so hoch wie die Pool-Reihe")
-	assert_almost_eq(podium.size.x, maxf((lay["podium_net"] as Rect2).size.x,
-		(lay["podium_stage"] as Rect2).size.x), 0.01, "so breit wie Die-View bzw. Platte")
-	assert_false(podium.intersects(lay["bounds"]), "die Werkstatt berührt ihn nicht")
+	assert_lte(bounds.end.x, DISPLAY.x, "nichts über den Displayrand")
+	assert_lte(bounds.end.y, DISPLAY.y)
+	assert_gte(bounds.position.y, POOL.end.y, "und nichts in den Pool")
+	assert_lte((lay["equation"] as Rect2).end.x, DISPLAY.x)
+	var equation: Rect2 = (lay["equation"] as Rect2).grow(0.05)
+	for key in ["preview", "stamp", "info", "podium", "upgrades"]:
+		assert_true(equation.encloses(lay[key]), "die Gleichung umfaßt %s" % key)
 
 ## Oben die Platte, eine Naht darunter die Die-View in Würfelgröße.
 func test_the_podium_carries_its_plate_over_its_die_view() -> void:
@@ -181,13 +198,12 @@ func test_the_podium_carries_its_plate_over_its_die_view() -> void:
 	assert_almost_eq(net.get_center().x, podium.get_center().x, 0.01, "mittig")
 	assert_almost_eq(net.position.y, plate.end.y + U * WorkshopView.STREET_GAP, 0.01,
 		"eine Naht unter der Platte")
-	assert_true(podium.grow(0.05).encloses(plate) and podium.grow(0.05).encloses(net),
-		"beides im Platz")
+	assert_lte(podium.size.y, POOL.size.y + 0.01, "höchstens so hoch wie die Pool-Reihe")
 
 ## Reicht die Pool-Höhe nicht, schrumpft die Zelle - die Kammer bleibt so hoch.
 func test_a_short_pool_shrinks_the_die_view_not_the_chamber() -> void:
 	var short := Rect2(POOL.position, Vector2(POOL.size.x, 420.0))
-	var small := WorkshopView.drum_layout(short, CARD, FACE, U, 0.0, SEAM)
+	var small := WorkshopView.drum_layout(short, CARD, FACE, U)
 	assert_lte((small["podium"] as Rect2).size.y, 420.01)
 	assert_almost_eq((small["chamber"] as Rect2).size.y, (lay["chamber"] as Rect2).size.y, 0.01)
 	assert_lt((small["podium_net"] as Rect2).size.y, (lay["podium_net"] as Rect2).size.y)
@@ -199,44 +215,36 @@ func test_the_plate_is_as_wide_as_the_die_view() -> void:
 	assert_almost_eq(plate.size.x, net.size.x, 0.01)
 	assert_almost_eq(plate.position.x, net.position.x, 0.01)
 
-## Die Leiterbahnen: je Scheibe vier, von der Grabenkante in den Speicher, kreuzungsfrei.
-func test_the_traces_run_from_each_slice_into_the_upgrades_net() -> void:
-	var band: Rect2 = lay["trace_band"]
+## Der EINGANGS-BUS: vier gerade Spuren von der rechten Grabenwand in die linke Kante von
+## UPGRADES.
+func test_the_entry_bus_runs_from_the_drum_into_upgrades() -> void:
+	var pit: Rect2 = lay["pit"]
 	var upgrades: Rect2 = lay["upgrades"]
-	var lanes := WorkshopView.TRACE_LANES
-	var paths := WorkshopView.trace_paths(lay["slices"], upgrades, band, lanes)
-	assert_eq(paths.size(), WorkshopView.DRUM_SLICES * lanes)
-	assert_gte(band.position.y, POOL.end.y, "das Spur-Band liegt unter dem Pool")
-	for i in paths.size():
-		var path: PackedVector2Array = paths[i]
-		var first := path[0]
-		var last := path[path.size() - 1]
-		var slice: Rect2 = lay["slices"][i / lanes]
-		assert_between(first.x, slice.position.x, slice.end.x, "sie startet an ihrer Scheibe")
-		assert_almost_eq(first.y, slice.position.y, 0.01, "an der Grabenkante")
-		assert_almost_eq(last.y, upgrades.end.y, 0.01, "sie endet an der Speicher-Unterkante")
-		assert_between(last.x, upgrades.position.x, upgrades.end.x)
-		for k in range(1, path.size() - 1):
-			assert_between(path[k].y, band.position.y, band.end.y, "die Spur bleibt im Band")
-	var crossings := 0
-	for a in paths.size():
-		for b in range(a + 1, paths.size()):
-			if _cross(paths[a], paths[b]):
-				crossings += 1
-	assert_eq(crossings, 0, "keine Bahn kreuzt eine andere")
+	var paths := WorkshopView.entry_paths(pit, upgrades, WorkshopView.TRACE_LANES, U * 1.3)
+	assert_eq(paths.size(), WorkshopView.TRACE_LANES)
+	for path in paths:
+		assert_almost_eq(path[0].x, pit.end.x, 0.01, "an der Grabenwand")
+		assert_almost_eq(path[path.size() - 1].x, upgrades.position.x, 0.01, "an UPGRADES")
+		assert_almost_eq(path[0].y, path[1].y, 0.001, "waagerecht")
+		assert_between(path[0].y, pit.position.y, pit.end.y)
+	_assert_no_crossing(paths)
 
-## Der Ausgangs-Bus: vier Spuren aus der Speicher-Oberkante in die linke Plattenkante.
-func test_the_feed_bus_runs_from_the_storage_into_the_plate() -> void:
+## Der AUSGANGS-BUS: vier gerade Spuren aus der Oberkante von UPGRADES durch das "+" in
+## die Unterkante der Die-View des Podests.
+func test_the_feed_bus_runs_up_into_the_die_view() -> void:
 	var upgrades: Rect2 = lay["upgrades"]
-	var plate: Rect2 = lay["podium_stage"]
-	var paths := WorkshopView.feed_paths(upgrades, plate, WorkshopView.TRACE_LANES, U * 1.3)
+	var net: Rect2 = lay["podium_net"]
+	var plus: Rect2 = lay["signs"][0]
+	var paths := WorkshopView.feed_paths(upgrades, net, WorkshopView.TRACE_LANES, U * 1.3)
 	assert_eq(paths.size(), WorkshopView.TRACE_LANES)
 	for path in paths:
 		assert_almost_eq(path[0].y, upgrades.position.y, 0.01)
-		assert_between(path[0].x, upgrades.position.x, upgrades.end.x)
-		var last := path[path.size() - 1]
-		assert_almost_eq(last.x, plate.position.x, 0.01)
-		assert_between(last.y, plate.position.y, plate.end.y)
+		assert_almost_eq(path[path.size() - 1].y, net.end.y, 0.01)
+		assert_almost_eq(path[0].x, path[1].x, 0.001, "senkrecht")
+		assert_between(path[0].x, plus.position.x, plus.end.x, "durch das +-Feld")
+	_assert_no_crossing(paths)
+
+func _assert_no_crossing(paths: Array[PackedVector2Array]) -> void:
 	for a in paths.size():
 		for b in range(a + 1, paths.size()):
 			assert_false(_cross(paths[a], paths[b]), "Spur %d kreuzt Spur %d nicht" % [a, b])

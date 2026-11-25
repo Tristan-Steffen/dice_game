@@ -119,18 +119,29 @@ func _draw() -> void:
 	if backdrop:
 		draw_style_box(TableScreen.window_style(), Rect2(Vector2.ZERO, size))
 
-## Das Rechteck der ÖFFNUNGS-ZONE in Display-Pixeln (rein, prüfbar): sie VERWANDELT die
-## Gleichung - links ab ihr, oben bündig mit der Pool-Reihe und so hoch wie sie, rechts
-## bis end_x.
-static func area_beside(pool: Rect2, equation: Rect2, end_x: float) -> Rect2:
-	if pool.size.y <= 0.0 or end_x <= equation.position.x:
+## Das Rechteck der ÖFFNUNGS-ZONE in Display-Pixeln (rein, prüfbar): links ab left_x,
+## oben bündig mit der Pool-Reihe und so hoch wie sie, rechts bis end_x.
+static func area_beside(pool: Rect2, left_x: float, end_x: float) -> Rect2:
+	if pool.size.y <= 0.0 or end_x <= left_x:
 		return Rect2()
-	return Rect2(Vector2(equation.position.x, pool.position.y),
-		Vector2(end_x - equation.position.x, pool.size.y))
+	return Rect2(Vector2(left_x, pool.position.y), Vector2(end_x - left_x, pool.size.y))
+
+## Die ZONE an der Kette (rein): ab dem Anker (eine Fuge rechts der VORSCHAU), um clear
+## eingerückt (Kragen und Schachtwand stehen dazwischen), so breit wie die Würfel-Auswahl -
+## aber tail (Fuge, Wurfplatz des Glückswürfels, Luft) endet vor right_edge. Sie deckt
+## PRÄGEN, die Schale, den rechten Teil des Info-Schirms und das PODEST.
+static func zone_rect(pool: Rect2, anchor: Rect2, clear: float, die_px: float, tail: float,
+		right_edge: float) -> Rect2:
+	if anchor.size.x <= 0.0:
+		return Rect2()
+	var left := anchor.position.x + clear
+	return area_beside(pool, left,
+		left + panel_width_for(pool.size.y, die_px, right_edge - tail - left))
 
 ## Wie breit die Zone sein muß (rein): drei Würfel-Kacheln nebeneinander samt Fugen und
-## Rand - die Würfel-Auswahl ist die größte, Karten passen hinein.
-static func panel_width_for(height: float, die_px: float) -> float:
+## Rand - die Würfel-Auswahl ist die größte, Karten passen hinein. Höchstens limit: dann
+## schrumpft die Netz-Zelle der Kacheln, nie der Würfel.
+static func panel_width_for(height: float, die_px: float, limit := INF) -> float:
 	var u := maxf(height / UNIT_DIV, 1.0)
 	var top := u * (2.0 + HEAD_UNITS)
 	var info_y := height - u - u * BUTTON_UNITS - u * (INFO_UNITS + 0.4)
@@ -138,7 +149,8 @@ static func panel_width_for(height: float, die_px: float) -> float:
 	var gap := u * TILE_GAP_UNITS
 	var tile_h := (lineup - gap * float(DICE_ROWS - 1)) / float(DICE_ROWS)
 	var cell := tile_cell(u, die_px, tile_h, INF)
-	return tile_width(u, die_px, cell) * float(CARDS_PER_ROW) + gap * float(CARDS_PER_ROW - 1) + u * 2.0
+	return minf(tile_width(u, die_px, cell) * float(CARDS_PER_ROW)
+		+ gap * float(CARDS_PER_ROW - 1) + u * 2.0, limit)
 
 ## Wie breit count liegende Karten samt Fugen und Rand stehen (rein).
 static func cards_width_for(height: float, card: Vector2, count: int) -> float:

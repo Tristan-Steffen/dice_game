@@ -43,16 +43,17 @@ func test_bad_streak_raises_the_blind_for_good_per_fumble() -> void:
 	_fumble()
 	assert_almost_eq(run.blind_value, 150.0 * 1.05 * 1.05 * 1.1, 0.001, "nur in ihrer Runde")
 
-func test_penalty_fee_costs_five_but_never_below_zero() -> void:
+func test_penalty_fee_picks_a_charm_to_destroy() -> void:
 	run.round_number = GameRun.GOAL_BLOCK
+	assert_eq(run.fumble_charm_loss(), -1, "ohne Klausel kein Verlust")
 	run.sign_clauses(_ids([DealClause.PENALTY_FEE]))
-	run.money = 7
-	_fumble()
-	assert_eq(run.money, 2)
-	assert_eq(run.last_fumble_fee, 5)
-	_fumble()
-	assert_eq(run.money, 0, "nie unter $0")
-	assert_eq(run.last_fumble_fee, 2)
+	assert_eq(run.fumble_charm_loss(), -1, "ohne Charm nichts zu verlieren")
+	run.owned_charms.append(Charm.odds_sheet())
+	run.owned_charms.append(Charm.shyster())
+	var index := run.fumble_charm_loss()
+	assert_between(index, 0, 1)
+	run.destroy_charm(index)
+	assert_eq(run.owned_charms.size(), 1)
 
 func test_new_clauses_carry_their_tiers_and_tags() -> void:
 	assert_eq(DealClause.find(DealClause.BAD_STREAK).tier, DealClause.Tier.TWO)

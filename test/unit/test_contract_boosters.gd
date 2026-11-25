@@ -21,11 +21,10 @@ func _bet(id: String) -> SideBet:
 			return SideBet._from_template(t)
 	return null
 
-const NEW_IDS := [DealClause.LUCKY_DAY, DealClause.BULK_ORDER, DealClause.CONNOISSEUR_EYE,
+const NEW_IDS := [DealClause.LUCKY_DAY, DealClause.CONNOISSEUR_EYE,
 	DealClause.SOUL_MARKET, DealClause.FREE_FLIP, DealClause.BUYBACK, DealClause.MATH_WEEK,
 	DealClause.REGULAR_CUSTOMER, DealClause.SPECIAL_DELIVERY, DealClause.BACK_ROOM_CONTACT,
-	DealClause.LOADED_REELS, DealClause.REINSURANCE, DealClause.HIGH_TABLE,
-	DealClause.BIG_STORAGE, DealClause.EMPTY_SHELVES,
+	DealClause.REINSURANCE, DealClause.BIG_STORAGE, DealClause.EMPTY_SHELVES,
 	DealClause.SHELF_WARMER, DealClause.SOULLESS, DealClause.FLIP_SURCHARGE]
 
 func test_every_new_clause_is_in_the_catalogue():
@@ -36,13 +35,14 @@ func test_every_new_clause_is_in_the_catalogue():
 ## Jede neue Bonus-Klausel mit Zahl hat ihre ausgeschriebene Winkeladvokat-Fassung.
 func test_shyster_texts_are_written_out():
 	var expected := {
-		DealClause.LUCKY_DAY: "Laden würfelt mit Glück +6.",
-		DealClause.CONNOISSEUR_EYE: "Seltene und legendäre Charms viermal so oft.",
-		DealClause.MATH_WEEK: "Multiplikator-Karten sechsmal so oft.",
+		DealClause.LUCKY_DAY: "Glück +6 diese Runde.",
+		DealClause.CONNOISSEUR_EYE: "Laden führt sicher zwei legendäre Charms.",
+		DealClause.MATH_WEEK: "Glück +12 diese Runde.",
+		DealClause.SPECIAL_DELIVERY: "Glück +20 diese Runde.",
+		DealClause.FREE_FLIP: "Blättern im Laden 6× gratis.",
 		DealClause.REGULAR_CUSTOMER: "Ladenpreise −28 % bis zur Boss-Runde.",
-		DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware, Neuwurf gratis.",
-		DealClause.HIGH_TABLE: "Nebenwetten: Einsatz ×1,5, Gewinn ×3.",
-		DealClause.BIG_STORAGE: "Börse dauerhaft +10 ⚡ Platz.",
+		DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware.",
+		DealClause.BIG_STORAGE: "Zwei Powerbanks: Börse +10 ⚡ Platz.",
 	}
 	for clause_id: String in expected:
 		assert_eq(DealClause.text_for(clause_id, 2), expected[clause_id])
@@ -50,37 +50,33 @@ func test_shyster_texts_are_written_out():
 
 # --- Laden ----------------------------------------------------------------------
 
-func test_lucky_day_lifts_only_the_shop_tier():
+## Glück auf Zeit: mit der Unterschrift dazu, beim nächsten Rundenstart wieder fort.
+func test_temporary_luck_is_lent_for_one_round():
+	for pair in [[DealClause.LUCKY_DAY, 3], [DealClause.MATH_WEEK, 6], [DealClause.SPECIAL_DELIVERY, 10]]:
+		run = GameRun.new_run()
+		run.luck = 2
+		_sign([pair[0]])
+		assert_eq(run.luck, 2 + int(pair[1]), "%s leiht Glück" % pair[0])
+		assert_eq(run.progress_tier(), 1 + (2 + int(pair[1])) / GameRun.LUCK_PER_TIER,
+			"es wirkt wie echtes Glück")
+		run.advance_round()
+		assert_eq(run.luck, 3, "zurückgegeben, nur die +1 der geschafften Runde bleibt")
+
+func test_temporary_luck_doubles_under_the_shyster():
+	_shyster()
 	run.luck = 0
-	_sign([DealClause.LUCKY_DAY])
-	assert_eq(run.progress_tier(), 1, "die echte Stufe bleibt")
-	assert_eq(run.shop_tier(), 2, "der Laden würfelt mit Glück +3")
-	_shyster()
-	assert_eq(run.shop_tier(), 3, "der Winkeladvokat legt +6 drauf")
+	_sign([DealClause.SPECIAL_DELIVERY])
+	assert_eq(run.luck, 20)
+	run.advance_round()
+	assert_eq(run.luck, 1)
 
-func test_lucky_day_feeds_the_shop_ladders():
-	run.luck = 6 * GameRun.LUCK_PER_TIER  # Stufe 7
-	var before := run.shop_multiplier_chance()
-	assert_eq(run.shop_special_chance(), 0.0)
-	_sign([DealClause.LUCKY_DAY])
-	assert_eq(run.shop_tier(), 8)
-	assert_gt(run.shop_multiplier_chance(), before)
-	assert_gt(run.shop_special_chance(), 0.0, "Sonderposten ab Stufe 8")
-
-func test_bulk_order_shifts_the_size_weights():
-	assert_eq(run.shop_tier_weights(), Pack.TIER_WEIGHTS)
-	_sign([DealClause.BULK_ORDER])
-	assert_eq(run.shop_tier_weights(), GameRun.BULK_ORDER_TIER_WEIGHTS)
-
-func test_connoisseur_eye_doubles_rare_and_legendary():
-	assert_true(run.shop_charm_rarity_factors().is_empty())
+func test_connoisseur_eye_guarantees_legendaries():
+	assert_eq(run.shop_guaranteed_legendaries(), 0)
 	_sign([DealClause.CONNOISSEUR_EYE])
-	var factors := run.shop_charm_rarity_factors()
-	assert_eq(float(factors[Charm.RARITY_RARE]), 2.0)
-	assert_eq(float(factors[Charm.RARITY_LEGENDARY]), 2.0)
-	assert_false(factors.has(Charm.RARITY_COMMON))
+	assert_eq(run.shop_guaranteed_legendaries(), 1)
+	assert_eq(DealClause.find(DealClause.CONNOISSEUR_EYE).tier, DealClause.Tier.THREE)
 	_shyster()
-	assert_eq(float(run.shop_charm_rarity_factors()[Charm.RARITY_RARE]), 4.0)
+	assert_eq(run.shop_guaranteed_legendaries(), 2)
 
 func test_soul_market_always_sells_a_soul():
 	_sign([DealClause.SOUL_MARKET])
@@ -100,6 +96,10 @@ func test_flip_fee_clauses():
 	assert_eq(run.shop_flip_fee_factor(), 2.0, "Blätter-Aufschlag")
 	_sign([DealClause.FREE_FLIP])
 	assert_eq(run.shop_flip_fee_factor(), 0.0, "Freies Blättern schlägt alles")
+	for i in GameRun.FREE_FLIPS:
+		run.note_shop_flip()
+	assert_eq(run.free_flips_left(), 0)
+	assert_eq(run.shop_flip_fee_factor(), 2.0, "nach drei Gratis-Seiten kostet es wieder")
 
 func test_buyback_sells_at_full_price():
 	run.owned_charms.append(Charm.odds_sheet())
@@ -107,13 +107,6 @@ func test_buyback_sells_at_full_price():
 	_sign([DealClause.BUYBACK])
 	assert_eq(run.charm_sell_value(0), run.owned_charms[0].price)
 	assert_gt(run.charm_sell_value(0), half)
-
-func test_math_week_triples_the_multiplier_chance():
-	var base := run.shop_multiplier_chance()
-	_sign([DealClause.MATH_WEEK])
-	assert_almost_eq(run.shop_multiplier_chance(), base * 3.0, 0.0001)
-	run.luck = 9 * GameRun.LUCK_PER_TIER
-	assert_eq(run.shop_multiplier_chance(), GameRun.MULTIPLIER_CHANCE_CAP, "der Deckel bleibt")
 
 ## Der Stammkunde ist BLOCK: er überlebt seine Runde und stirbt mit der Abrechnung.
 func test_regular_customer_lasts_until_the_settlement():
@@ -130,11 +123,6 @@ func test_regular_customer_is_applied_twice_under_the_shyster():
 	_sign([DealClause.REGULAR_CUSTOMER])
 	assert_almost_eq(run.shop_price_factor(), 0.85 * 0.85, 0.0001)
 
-func test_special_delivery_guarantees_a_special_from_round_one():
-	assert_eq(run.shop_special_chance(), 0.0)
-	_sign([DealClause.SPECIAL_DELIVERY])
-	assert_eq(run.shop_special_chance(), 1.0)
-
 func test_empty_shelves_leave_two_places_empty():
 	assert_eq(run.shop_packs_offered(), GameRun.SHOP_PACK_PLACES)
 	_sign([DealClause.EMPTY_SHELVES])
@@ -148,24 +136,15 @@ func test_shelf_warmer_flags_common_charms():
 
 # --- Schwarzmarkt & Automaten ---------------------------------------------------
 
-func test_back_room_contact_cuts_prices_and_rerolls():
+func test_back_room_contact_cuts_prices():
 	var offer := {GameRun.OFFER_KIND: GameRun.KIND_CHARM, GameRun.OFFER_PRICE: 3}
 	assert_eq(run.secret_offer_price(offer), 3)
 	_sign([DealClause.BACK_ROOM_CONTACT])
 	assert_eq(run.secret_offer_price(offer), 2)
-	assert_eq(run.secret_reroll_cost(), 0)
+	assert_eq(run.secret_reroll_cost(), GameRun.SECRET_REROLL_BASE, "der Neuwurf kostet weiter")
 	var cheap := {GameRun.OFFER_KIND: GameRun.KIND_CHARM, GameRun.OFFER_PRICE: 1}
 	assert_eq(run.secret_offer_price(cheap), 1, "nie unter 1")
 
-func test_loaded_reels_roll_no_fumble():
-	_sign([DealClause.LOADED_REELS])
-	assert_true(run.slots_fumble_free())
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	for i in 30:
-		run.slot_bank.reset_session()
-		for col in run.slot_bank.roll(0, rng, 0, run.slots_fumble_free()):
-			assert_false((col as Array).has(SlotPrize.Kind.FUMBLE))
 
 # --- Nebenwetten ----------------------------------------------------------------
 
@@ -208,16 +187,31 @@ func test_without_reinsurance_a_lost_stake_is_gone():
 	_lose()
 	assert_eq(run.money, 16)
 
-func test_high_table_lifts_stake_and_prize():
-	var bet := _bet("two_pair")
-	bet.payout_kind = SideBet.Payout.MONEY
-	_sign([DealClause.HIGH_TABLE])
-	assert_eq(run.side_bet_stake(bet), 6, "$4 × 1,5")
-	assert_eq(run.side_bet_payout_factor(), 1.5)
-	assert_eq(bet.reward_money(run.side_bet_payout_factor()), 12)
-	_shyster()
-	assert_eq(run.side_bet_payout_factor(), 3.0, "der Advokat verdoppelt den Gewinn")
-	assert_eq(run.side_bet_stake(bet), 6, "den Einsatz nicht")
+## Wettsteuer: jede laufende Wette zahlt ihren Einsatz noch einmal - was nicht
+## reicht, entfällt, und die Wette läuft trotzdem weiter.
+func test_betting_tax_charges_every_stake_again():
+	run.money = 20
+	run.place_side_bet(_bet("two_pair"))
+	assert_eq(run.money, 16)
+	_sign([DealClause.BETTING_TAX])
+	assert_eq(run.money, 12, "noch einmal $4")
+	assert_eq(run.active_side_bets[0].paid_money, 8)
+	assert_false(run.active_side_bets[0].voided)
+
+func test_betting_tax_takes_only_what_is_there():
+	run.money = 4
+	run.place_side_bet(_bet("two_pair"))
+	assert_eq(run.money, 0)
+	_sign([DealClause.BETTING_TAX])
+	assert_eq(run.money, 0, "leere Kasse zahlt nichts")
+	assert_false(run.active_side_bets[0].voided, "die Wette läuft weiter")
+
+func test_betting_tax_takes_energy_stakes_too():
+	run.energy = 5
+	run.place_side_bet(_bet("feedback_loop"))
+	var after_bet := run.energy
+	_sign([DealClause.BETTING_TAX])
+	assert_lt(run.energy, after_bet)
 
 # --- Werkstatt & Energie --------------------------------------------------------
 
@@ -225,6 +219,15 @@ func _stamp(die: DieDefinition) -> void:
 	run.grant_pack(Pack.number_pack())
 	var uids: Array[int] = [run.owned_packs[0].pack_uid]
 	run.apply_series(uids, die)
+
+func test_big_storage_is_not_offered_at_a_full_bank():
+	run.storage_rows = run.max_storage_rows()
+	for i in 40:
+		run.route_offers.clear()
+		run.round_number = 2
+		run.roll_route_offers()
+		for card in run.route_offers:
+			assert_ne(String(card[GameRun.CARD_BONUS]), DealClause.BIG_STORAGE)
 
 func test_big_storage_widens_the_bank_for_good():
 	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW)

@@ -741,7 +741,7 @@ func _roll_shop_pack(lane: int) -> Resource:
 			return ModulePack.roll_shop(null, run.shop_module_pack_grade_weights())
 	var card_pack := CardPack.roll_shop(null, run.shop_card_pack_quality_weights())
 	# Die vorderste Karte steht ab der Auslage fest: sie liegt sichtbar im Paket.
-	card_pack.front_card(run.shop_multiplier_chance(), run.shop_card_pack_bulk())
+	card_pack.front_card(run.shop_multiplier_chance())
 	return card_pack
 
 # --- Blättern ------------------------------------------------------------------
@@ -762,6 +762,7 @@ func _on_page_next_pressed() -> void:
 		if run.money < fee:
 			return  # Knopf ist bei zu wenig Geld ohnehin deaktiviert
 		run.add_money(-fee)
+		run.note_shop_flip()
 		spreads.append(_build_spread())
 	current_spread_index += 1
 	_show_spread()
@@ -822,7 +823,7 @@ func _build_spread() -> MenuSpread:
 	var common_only := run.shop_common_charms_only()
 	if common_only:
 		available = _common_only(available)
-	var rarity_factors := run.shop_charm_rarity_factors()
+	var rarity_factors := {}
 	var charm_slots := run.shop_charm_slots()
 	var rarity_tier := 0 if common_only else run.shop_rarity_tier()
 	# Raritäts-Schub: der erste Platz zieht garantiert einen Charm ab der zur Stufe
@@ -834,6 +835,14 @@ func _build_spread() -> MenuSpread:
 			var top := Charm.pick_weighted(premium, owned, rarity_factors)
 			spread.charm_options.append(top)
 			available.erase(top)
+	# Kennerblick: so viele Plätze tragen sicher einen legendären Charm.
+	for i in mini(run.shop_guaranteed_legendaries(), charm_slots - spread.charm_options.size()):
+		var legendary := _charms_at_least(available, 3)
+		if legendary.is_empty() or legendary[0].rarity != Charm.RARITY_LEGENDARY:
+			break
+		var gem := Charm.pick_weighted(legendary, owned, rarity_factors)
+		spread.charm_options.append(gem)
+		available.erase(gem)
 	# Restliche Plätze gewichtet nach Rarität und Besitz ziehen, ohne Zurücklegen.
 	while spread.charm_options.size() < charm_slots and not available.is_empty():
 		var pick := Charm.pick_weighted(available, owned, rarity_factors)

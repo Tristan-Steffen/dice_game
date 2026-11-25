@@ -1,7 +1,7 @@
 extends GutTest
 ## Der SPEICHER als Platine: die Halter der sechs Energiezellen liegen in den freien
-## Kreuz-Ecken rechts, die Anschlüsse der Bahnen kreuzen nicht, und die Körper zeigen die
-## Ladung ihrer Scheibe.
+## Kreuz-Ecken rechts, der Eingang kommt von links, der Abgang geht oben ab, und die Körper
+## zeigen die Ladung ihrer Scheibe.
 
 const CELL := 64.9
 
@@ -16,33 +16,39 @@ func test_holders_lie_in_the_free_corners_and_never_touch() -> void:
 	for slice in WorkshopView.DRUM_SLICES:
 		seats.append(WorkshopView.StorageBody.cell_rect(origin, CELL, slice))
 	for slice in seats.size():
-		var block := Rect2(origin + Vector2(step * 2.0, step * 2.0 if slice >= 3 else 0.0),
+		var bottom := slice >= WorkshopView.StorageBody.ROW_CELLS
+		var block := Rect2(origin + Vector2(step * 2.0, step * 2.0 if bottom else 0.0),
 			Vector2(CELL * (2.0 + DieNetView.GAP_FACTOR), CELL))
 		assert_true(block.encloses(seats[slice]), "Halter %d in seiner Ecke" % slice)
 		for other in slice:
 			assert_false(seats[slice].intersects(seats[other]), "%d gegen %d" % [slice, other])
-	# Oben liegen 3-2-1 (die äußere Bahn kommt am weitesten), unten 4-5-6.
-	assert_gt(seats[0].position.x, seats[1].position.x)
-	assert_gt(seats[1].position.x, seats[2].position.x)
-	assert_lt(seats[3].position.x, seats[4].position.x)
-	assert_lt(seats[4].position.x, seats[5].position.x)
+	# Oben liegen 1-2-3, unten 4-5-6, je von links.
+	assert_eq(seats.size(), 6)
+	for i in 2:
+		assert_lt(seats[i].position.x, seats[i + 1].position.x, "oben %d links von %d" % [i, i + 1])
+		assert_lt(seats[i + 3].position.x, seats[i + 4].position.x, "unten %d links" % (i + 3))
 
-func test_the_net_moves_right_and_down_but_stays_inside() -> void:
+func test_the_net_moves_right_but_stays_inside() -> void:
 	var span := DieNetView.net_size(CELL)
 	var size := span + Vector2(20.0, 20.0)
 	var origin := WorkshopView.StorageBody.net_origin_in(size, span)
-	assert_gt(origin.x, 10.0)
-	assert_gt(origin.y, 10.0)
+	assert_gt(origin.x, 10.0, "links bleibt Platz für den Eingang")
 	assert_true(Rect2(Vector2.ZERO, size).encloses(Rect2(origin, span)))
 
-func test_ports_rise_from_left_to_right() -> void:
+## Der Eingang kommt mittig von links, der Abgang geht mittig oben ab - Spur 0 außen.
+func test_entries_and_feeds_are_centred() -> void:
 	var rect := Rect2(Vector2(100.0, 50.0), Vector2(299.2, 227.8))
-	var last := rect.position.x
-	for i in WorkshopView.DRUM_SLICES * WorkshopView.TRACE_LANES:
-		var x := WorkshopView.trace_end_x(rect, WorkshopView.DRUM_SLICES, WorkshopView.TRACE_LANES, i)
-		assert_gt(x, last, "Anschluß %d" % i)
-		last = x
-	assert_lt(last, rect.end.x)
+	var pitch := 6.5
+	var lanes := WorkshopView.TRACE_LANES
+	for lane in range(1, lanes):
+		assert_gt(WorkshopView.entry_y(rect, pitch, lane, lanes),
+			WorkshopView.entry_y(rect, pitch, lane - 1, lanes), "Spur %d unter der vorigen" % lane)
+		assert_gt(WorkshopView.feed_x(rect, pitch, lane), WorkshopView.feed_x(rect, pitch, lane - 1))
+	var mid_y := (WorkshopView.entry_y(rect, pitch, 0, lanes)
+		+ WorkshopView.entry_y(rect, pitch, lanes - 1, lanes)) * 0.5
+	assert_almost_eq(mid_y, rect.get_center().y, 0.01)
+	var mid_x := (WorkshopView.feed_x(rect, pitch, 0) + WorkshopView.feed_x(rect, pitch, lanes - 1)) * 0.5
+	assert_almost_eq(mid_x, rect.get_center().x, 0.01)
 
 func test_bodies_show_the_charge_of_their_slice() -> void:
 	var bank := StorageBankView.new()

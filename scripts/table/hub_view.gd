@@ -18,6 +18,8 @@ signal debug_energy_requested
 signal debug_luck_requested
 signal debug_energy_cap_requested
 signal debug_parts_requested
+signal debug_runes_requested
+signal debug_random_faces_requested
 signal library_requested
 signal test_materials_requested
 signal test_engravings_requested
@@ -281,6 +283,10 @@ func _build_settings_menu(u: float) -> void:
 		u, debug_luck_requested.emit, true)
 	_make_menu_button(box, "Debug: +5 ⚡-Speicher", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_energy_cap_requested.emit, true)
+	_make_menu_button(box, "Debug: Runen auf alle Würfel", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+		u, debug_runes_requested.emit, true)
+	_make_menu_button(box, "Debug: Seiten 1–2000", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK,
+		u, debug_random_faces_requested.emit, true)
 	if OS.is_debug_build():
 		_make_menu_button(box, "Debug: Module", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
 			u, debug_parts_requested.emit)

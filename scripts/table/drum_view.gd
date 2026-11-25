@@ -60,6 +60,9 @@ const HOOD_PRICE_OFF := Color(0.75, 0.42, 0.38)
 const HOOD_PRICE_ON := Color(0.45, 1.5, 1.7)
 const HOOD_WORD_SHARE := 0.11
 const HOOD_PRICE_SHARE := 0.3
+## Hinter der nächsten: ruhig, dunkel, "GESPERRT" klein und gedämpft.
+const HOOD_CALM_WORD_SHARE := 0.075
+const HOOD_CALM_TEXT := Color(0.3, 0.32, 0.37)
 ## STROMLOS (die Prägung der Runde ist verbraucht): Lampen und Körper auf diesen Anteil.
 const POWER_OFF := 0.08
 const POWER_TIME := 0.5
@@ -234,12 +237,27 @@ func set_lock_state(open: int, price := 0, payable := false) -> void:
 		var tag: Label3D = _hoods[i].get_node("Preis")
 		word.text = "FREISCHALTEN" if next else "GESPERRT"
 		word.position.x = -_side * 0.2 if next else 0.0
+		word.pixel_size = _side * (HOOD_WORD_SHARE if next else HOOD_CALM_WORD_SHARE) / 64.0
+		word.modulate = HOOD_TEXT if next else HOOD_CALM_TEXT
 		tag.visible = next
 		tag.text = "%d ⚡" % price
 		tag.modulate = HOOD_PRICE_ON if payable else HOOD_PRICE_OFF
+		var plate: MeshInstance3D = _hoods[i].get_node("Platte")
+		(plate.material_override as ShaderMaterial).set_shader_parameter("hazard",
+			1.0 if next else 0.0)
 
 func hood_shown(index: int) -> bool:
 	return index >= 0 and index < _hoods.size() and _hoods[index].visible
+
+## Trägt die Haube die Warnschraffur (nur die nächste käufliche)?
+func hood_warns(index: int) -> bool:
+	if index < 0 or index >= _hoods.size():
+		return false
+	var plate: MeshInstance3D = _hoods[index].get_node("Platte")
+	return float((plate.material_override as ShaderMaterial).get_shader_parameter("hazard")) > 0.5
+
+func hood_word(index: int) -> Label3D:
+	return _hoods[index].get_node("Wort") if index >= 0 and index < _hoods.size() else null
 
 func hood_price_text(index: int) -> String:
 	if index < 0 or index >= _hoods.size():
@@ -423,7 +441,7 @@ func light_stop(index: int) -> Vector3:
 		at += Vector3(0.0, 0.0, _pitch * float(index - last))
 	return at + Vector3.UP * LIGHT_RISE
 
-## Das Ende der Walze auf dem Glas: die Kammer-seitige Stirn hinter Scheibe 6.
+## Das Ende der Walze auf dem Glas: die Kammer-seitige Stirn hinter der letzten Scheibe.
 func end_point() -> Vector3:
 	if _pivots.is_empty():
 		return global_position

@@ -21,8 +21,7 @@ func before_each() -> void:
 	view.unit_px = U
 	view.data_cell_px = CELL
 	view.die_face_px = FACE
-	var frame := WorkshopView.drum_layout(POOL, PackDrawerView.lie_cell(CELL), FACE, U,
-		0.0, 48.75)
+	var frame := WorkshopView.drum_layout(POOL, PackDrawerView.lie_cell(CELL), FACE, U)
 	var bounds: Rect2 = frame["bounds"]
 	view.position = bounds.position
 	view.size = bounds.size
@@ -58,11 +57,11 @@ func _valued_pack(face: int, amount: int) -> Pack:
 func test_the_row_carries_exactly_the_series_slots() -> void:
 	await wait_frames(2)
 	assert_eq(view.slot_count(), run.series_slots(), "die Reihe IST die Serienlänge")
-	assert_eq(view._slot_buttons.size(), 6, "und die ist 6 ab Runde 1")
+	assert_eq(view._slot_buttons.size(), 6, "und die ist 6, alle frei")
 	view.refresh()
 	await wait_frames(2)
 	assert_eq(view._slot_buttons.size(), 6,
-		"der Deckel ist die Block-Größe: eine siebte gibt es nicht")
+		"der Deckel sind die Scheiben der Walze: eine siebte gibt es nicht")
 
 # --- Stecken, zurückwerfen, umsortieren -------------------------------------------
 
@@ -223,6 +222,7 @@ func test_die_abwahl_aus_der_kammer_laesst_die_karten_stecken() -> void:
 ## Nach dem PRÄGEN ist die Walze leer: der Würfel ist kein Ziel mehr und steht mit
 ## seinem neuen Stand auf dem Podest; das Ergebnis bleibt stehen.
 func test_nach_dem_praegen_steht_er_wieder_auf_dem_podest() -> void:
+	view.result_shown = false  # ORIGINAL
 	view.choose_index(0)
 	view.slot_pack(_valued_pack(0, 2).pack_uid)
 	await wait_frames(2)
@@ -239,6 +239,7 @@ func test_nach_dem_praegen_steht_er_wieder_auf_dem_podest() -> void:
 ## Die DIE-VIEW des Podests: der Würfel, der dort steht - Ziel oder nicht -, sonst das
 ## leere Kreuz; liegt der Rohling auf, ist sie leer.
 func test_die_view_des_podests_zeigt_den_podest_wuerfel() -> void:
+	view.result_shown = false  # ORIGINAL
 	await wait_frames(2)
 	assert_null(view._podium_net, "ohne Wahl das leere Kreuz")
 	view.choose_index(4)
@@ -667,8 +668,9 @@ func test_the_series_and_sum_screens_are_gone() -> void:
 	assert_null(view.get_node_or_null("Street/SumScreen"), "kein Summen-Schirm mehr")
 	assert_null(view.get_node_or_null("Street/BeforeScreen"), "VORHER ist gestorben")
 	assert_null(view.get_node_or_null("Street/AfterScreen"), "NACHHER ebenso")
-	for screen in ["PodiumScreen", "UpgradesScreen", "ResultScreen"]:
+	for screen in ["PodiumScreen", "UpgradesScreen"]:
 		assert_not_null(view.get_node_or_null("Street/" + screen), "%s steht" % screen)
+	assert_null(view.get_node_or_null("Street/ResultScreen"), "ERGEBNIS ist gestorben")
 
 # --- UPGRADES: die SUMME DER SERIE -------------------------------------------------
 # UPGRADES zeigt die REINE Summe der gesteckten Prägenetze, mit Ziel wie ohne.
@@ -709,16 +711,17 @@ func test_hovering_a_card_keeps_the_sum() -> void:
 	assert_eq(_sum_view().name, "SeriesSum", "die Summe bleibt stehen")
 	assert_eq(view.hover_pack_name(), slotted.display_name)
 
-## Mit Zielwürfel: ORIGINAL der Würfel, UPGRADES die Summe, ERGEBNIS die Vorschau.
-func test_with_a_target_the_equation_reads_original_upgrades_result() -> void:
+## Mit Zielwürfel: UPGRADES die Summe, die Die-View je nach Umschalter die Vorschau
+## (ERGEBNIS) oder der Würfel, wie er IST (ORIGINAL).
+func test_with_a_target_the_die_view_reads_result_or_original() -> void:
 	var value := _valued_pack(0, 3)
 	view.slot_pack(value.pack_uid)
 	view.choose_index(0)
 	await wait_frames(2)
-	assert_eq(view.get_node("Street/ResultScreen/Net").get_child_count(), 0,
-		"keine Karte neben dem Vorschau-Netz")
 	assert_eq(_sum_view().name, "SeriesSum", "UPGRADES trägt die Summe auch mit Ziel")
 	assert_false(view._net.projection.is_empty(), "ERGEBNIS ist die Vorschau")
+	assert_true(view._net.visible)
+	view.result_shown = false
 	assert_eq(view._podium_net.def, view.target_die(), "ORIGINAL ist der Würfel")
 	assert_true(view._podium_net.projection.is_empty(), "wie er IST")
 
@@ -925,6 +928,7 @@ func test_the_breakdown_rows_are_dead() -> void:
 ## Die drei Netze der Gleichung sind gleich groß: ERGEBNIS und ORIGINAL teilen die Zelle
 ## der Die-View.
 func test_both_nets_share_the_die_view_cell() -> void:
+	view.result_shown = false  # ORIGINAL
 	view.choose_index(0)
 	view.slot_pack(_valued_pack(0, 2).pack_uid)
 	await wait_frames(2)
@@ -970,8 +974,8 @@ func test_the_stencil_ride_is_gone() -> void:
 		assert_false(view.has_signal(dead), "%s ist mit dem Durchlicht gestorben" % dead)
 	var net := view.ist_net_center()
 	assert_gt(net.x, 0.0, "der Parkplatz des Netzes steht")
-	assert_almost_eq(net.x, view.result_net_rect().get_center().x
-		+ view.get_global_rect().position.x, 1.0, "und liegt in ERGEBNIS")
+	assert_almost_eq(net.x, view.podium_net_rect().get_center().x
+		+ view.get_global_rect().position.x, 1.0, "und liegt in der Die-View des Podests")
 
 ## Der Zielwürfel behält seine ALTEN Augen, bis die Funken einschlagen: held_faces
 ## trägt den Stand VOR dem Griff und ist danach wieder leer.
@@ -996,6 +1000,7 @@ func test_the_window_holds_the_faces_before_the_grip() -> void:
 ## VORHER hält den alten Stand wie der Würfel und springt erst mit dem EINSCHLAG
 ## der Funken auf den gebuchten.
 func test_before_jumps_with_the_strike() -> void:
+	view.result_shown = false  # ORIGINAL
 	var pack := _valued_pack(0, 4)
 	view.slot_pack(pack.pack_uid)
 	view.choose_index(0)
@@ -1271,8 +1276,8 @@ func test_nach_dem_verdichten_ist_das_podest_leer() -> void:
 	assert_false(view.compressing())
 	assert_true(blank.is_compressed(), "sondern eine verdichtete Karte")
 
-## ERGEBNIS zeigt beim Verdichten die KARTE, die herauskaeme - nicht die
-## Praege-Summe, denn das ist eine andere Rechnung.
+## Die Die-View zeigt beim Verdichten (Umschalter AN) die KARTE, die herauskaeme - nicht
+## die Praege-Summe, denn das ist eine andere Rechnung.
 func test_der_summen_schirm_zeigt_die_verdichtete_karte() -> void:
 	var blank := _blank()
 	var mult := run.grant_pack(Pack.number_pack())
@@ -1282,9 +1287,9 @@ func test_der_summen_schirm_zeigt_die_verdichtete_karte() -> void:
 	view.slot_pack(_valued_pack(0, 5).pack_uid)
 	view.set_target_pack(blank)
 	await wait_frames(2)
-	var source := view._result_view_source()
-	assert_eq(String(source["mode"]), "card", "als KARTE, nicht als Summe")
-	var cell: Dictionary = StampNet.cell_at(source["net"], 0)
+	assert_eq(view.die_view_mode(), "card", "als KARTE, nicht als Summe")
+	assert_eq(view.die_view_label(), "ERGEBNIS")
+	var cell: Dictionary = StampNet.cell_at(view._card_net, 0)
 	assert_eq(StampNet.compound_glyph(cell), "4x+5", "und zwar als die, die herauskäme")
 
 ## Die KARTE entscheidet, was der Tipp tut: eine Netz-Karte steckt, ein ROHLING legt

@@ -1,15 +1,14 @@
 class_name WorkshopView
 extends Panel
-## Die WERKSTATT unter dem Pool (Layout C, docs/plan_werkstatt_layout_c.md). Sie hat
-## KEINEN Schirm-Hintergrund - ihre Teile liegen auf dem Filz. Rechts am Pool steht die
-## GLEICHUNG in einer Zeile: UPGRADES + PODEST (Platte über der Kammer, darunter seine
-## Die-View = ORIGINAL) = ERGEBNIS, über UPGRADES die Raster-Taste, über ERGEBNIS PRÄGEN.
-## Unter dem Pool liest Zeile 1 die liegende WALZE (Scheibe 1 links), an ihrem Ende der
-## INFO-SCHIRM; Zeile 2 das MAGAZIN über die volle Breite. Die Kette rechnet drum_layout;
-## scene_root meldet sie.
+## Die WERKSTATT unter dem Pool (Layout E, docs/plan_werkstatt_layout_e.md). Sie hat
+## KEINEN Schirm-Hintergrund - ihre Teile liegen auf dem Filz. Rechts am Pool die VORSCHAU
+## (die Die-View des überfahrenen Würfels), daneben PRÄGEN, darunter der INFO-SCHIRM. Unter
+## dem Pool die liegende WALZE (Scheibe 1 links), an ihrem Ende UPGRADES, darüber das
+## "+"-Feld (der UMSCHALTER) und das PODEST (Platte über der Kammer, darunter seine
+## Die-View ORIGINAL/ERGEBNIS); darunter das MAGAZIN. Die Kette rechnet drum_layout.
 ##  - DIE WALZE ist ein Körper (DrumView); das Fenster MALT sie nicht, seine
 ##    unsichtbaren Scheiben-Knöpfe tragen Klick, Zug und Zeiger.
-##  - Die drei Netze der Gleichung sind gleich groß und teilen die Zelle der Die-View
+##  - Die Netze der Gleichung sind gleich groß und teilen die Zelle der Die-View
 ##    (podium_cell).
 ##
 ## Die Scheiben SIND die Rechnung: getippt geht eine Kassette auf die nächste freie
@@ -63,6 +62,8 @@ signal shelf_scrolling(column: int, offset_px: float)
 ## Losgelassen: der Roll-Stand ist schon gebucht, der Körper fährt von from_px auf
 ## to_px (beides gegen den ALTEN Stand) und rastet dort ein.
 signal shelf_scroll_snapped(column: int, from_px: float, to_px: float)
+## Der UMSCHALTER der Die-View hat gewechselt (true = ERGEBNIS).
+signal result_toggled(on: bool)
 
 const TEXT_COLOR := Color(1.35, 1.35, 1.3)
 const MUTED_COLOR := Color(0.75, 0.78, 0.9)
@@ -74,7 +75,7 @@ const OPERATOR_TINT := PressNetView.OPERATOR_TINT
 const SUM_OWNER := "Summe der Serie"
 const ORIGINAL_OWNER := "Original"
 const RESULT_OWNER := "Ergebnis"
-## Die Überschriften der Gleichung (ORIGINAL trägt keine - darüber steht die Platte).
+const PREVIEW_OWNER := "Vorschau"
 
 ## Die Bühne des schwebenden Zielwürfels ist ein WELTMASS: ihre Spanne ist die
 ## Würfelfläche mal diesem Faktor (Würfel plus seine Stasis-Station, die durch die
@@ -109,40 +110,28 @@ const SLICE_NUMBER_FONT := 4.0
 ## Gesperrte Scheiben: Nummer und unbezahlbarer Preis gedämpft, bezahlbar in Energie-Farbe.
 const LOCKED_COLOR := Color(0.45, 0.47, 0.58)
 const ENERGY_COLOR := CasinoStyle.ENERGY
-## Die Leiterbahnen: Breite (u), Rand ihres Spur-Bands, Abdunklung, dunkler Grund.
-const TRACE_WIDTH := 0.6
-const TRACE_BAND_MARGIN := 0.1
+## Die Leiterbahnen: Abdunklung, dunkler Grund.
 const TRACE_DARKEN := 0.1
 const TRACE_CLEAR := Color(0.02, 0.07, 0.05)
 const TRACE_BED := Color(0.03, 0.03, 0.06, 0.9)
-## Je Scheibe EINE Bahn je Sorte (Pack.SHELF_ORDER) - sie stehen immer, farblos; belegt
-## leuchtet die Bahn der Karten-Sorte.
+## Die zwei BUSSE (Graben -> UPGRADES, UPGRADES -> Podest) tragen EINE Spur je Sorte
+## (Pack.SHELF_ORDER) - farblos, solange ihre Sorte nicht steckt.
 const TRACE_LANES := 4
-## Ihre Anschlüsse am Speicher: Rand und Anteil des Platzes einer Scheibe (das Bündel).
-const TRACE_PORT_MARGIN := 0.06
-const TRACE_PORT_SHARE := 0.36
-## Die Mitten der sechs Bündel an der Platine (Anteile ihrer Breite): 1-3 unter der freien
-## Ecke unten links, 4-6 unter ihren Energiezellen.
-const TRACE_PORTS: Array[float] = [0.085, 0.16, 0.235, 0.6, 0.755, 0.905]
 const TRACE_IDLE := Color(0.34, 0.36, 0.46)
-## Der AUSGANGS-BUS vom Speicher in die Podest-Platte: Spurabstand und Breite (u), Abstand
-## vom rechten Speicherrand und Höhe an der Platte (Anteile).
-const FEED_PITCH := 1.3
+## Spurabstand und Breite der Busse (u).
+const FEED_PITCH := 2.0
 const FEED_WIDTH := 0.55
-const FEED_INSET := 0.012
-const FEED_DROP := 0.3
 ## Der SPEICHER (UPGRADES): Gehäuse, Zellen-Grund, Anschluß-Stifte (u).
 const STORAGE_CAN := Color(0.03, 0.035, 0.05)
 const STORAGE_PAD := Color(0.78, 0.6, 0.24)
 const STORAGE_BUS := Color(0.3, 0.8, 0.9)
-## Rest-Rand der Platine rechts bzw. unten neben dem Netz (px) - links und oben laufen Züge.
+## Rest-Rand der Platine rechts neben dem Netz (px) - links läuft der Eingang.
 const STORAGE_EDGE := 7.5
-const STORAGE_FOOT := 6.0
 
 ## Der EINE Handlungs-Sitz am RECHTEN Ende der Zeile, neben dem Podest: er trägt
 ## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
 ## steht fest, nur seine Aufschrift wechselt, und die Grundseite fließt nie um.
-## Bemessen an der breitesten Aufschrift ("Prägen 6/6") plus Rand.
+## Bemessen an der breitesten Aufschrift ("Verdichten 6/6") plus Rand.
 const ACTION_WIDTH := 21.0
 const ACTION_HEIGHT := 4.0
 const ACTION_SPAN_SHARE := 0.5
@@ -191,6 +180,8 @@ var run: GameRun:
 		_queued_pops.clear()
 		_drop_series()  # eine Serie des alten Laufs schuldet nichts mehr
 		_shelf_scroll.fill(0)  # ein neuer Lauf beginnt auf dem ersten Platz
+		hover_die = null
+		result_shown = true
 		run = value
 		if run != null:
 			run.packs_changed.connect(refresh)
@@ -204,16 +195,43 @@ var _content: Control
 ## Inhalts): sein ZÄHL-Takt darf nicht daran zerbrechen, daß eine Kassette
 ## umsortiert wird - nur so tickt es beim Prägen von der Vorschau herunter.
 var _net: PressNetView
-## Sein PARKPLATZ im ERGEBNIS-Schirm: ein leerer Platz in Netzgröße, auf den es je
-## Bild zurückgesetzt wird.
+## Sein PARKPLATZ in der Die-View des Podests: ein leerer Platz in Netzgröße, auf den es
+## je Bild zurückgesetzt wird.
 var _net_host: Control
-## Der Platz auf dem PODEST, seine Die-View und das Netz darin.
+## Der Platz auf dem PODEST, seine Die-View und das Netz darin (schlicht oder die Karte,
+## die das Verdichten ergäbe).
 var _podium_stage_host: Control
 var _podium_view_host: Control
 var _podium_net: PressNetView
-## ORIGINAL: der Platz und das Netz darin (PressNetView ohne Vorschau oder leeres Kreuz).
+var _card_view: Control
+var _card_net: Array = []
+## Die VORSCHAU rechts am Pool: ihr Netz-Platz, das Netz darin (null = leeres Kreuz) und
+## was sie zeigt - nur der Wechsel baut neu.
+var _preview_host: Control
+var _preview_net: PressNetView
+var _preview_key := ""
+## Was die Die-View gerade zeigt (die_view_mode) - nur der Wechsel baut neu.
+var _die_view_key := ""
 ## Haben die Funken schon eingeschlagen? Ab da zeigt ORIGINAL den gebuchten Stand.
 var _burn_struck := false
+## DER UMSCHALTER: true = die Die-View zeigt das ERGEBNIS, false = das ORIGINAL. Überlebt
+## Neuaufbau und Wahl; der Laufwechsel setzt ihn zurück.
+var result_shown := true:
+	set(value):
+		if result_shown == value:
+			return
+		result_shown = value
+		_view_source_changed()
+		_fill_preview()
+		result_toggled.emit(value)
+## Der VORRATS-Würfel unter dem Zeiger (bzw. angeheftet oder als Neuzugang wartend), null =
+## keiner - scene_root meldet ihn je Bild. Die VORSCHAU zeigt IHN.
+var hover_die: DieDefinition = null:
+	set(value):
+		if hover_die == value:
+			return
+		hover_die = value
+		_fill_preview()
 ## Die SCHEIBEN-Knöpfe: je Scheibe einer, der Klick, Zug und Zeiger fängt - die
 ## WALZE darunter ist ein Körper (DrumView) und trägt nichts davon.
 var _slot_buttons: Array[Button] = []
@@ -329,16 +347,11 @@ var _action_button: Button
 ## die SUMME DER SERIE, ohne Karte das leere Kreuz.
 var _sum_host: Control
 var _sum_net_view: Control
-## ERGEBNIS ohne Würfel-Ziel: die Karte, die das Verdichten ergäbe, sonst das leere Kreuz.
-var _result_host: Control
-var _result_view: Control
-## Was beide gerade zeigen - Signatur (nur der WECHSEL baut neu), Quelle und Inhalt,
-## damit die Zell-Frage sie beantworten kann.
+## Was es gerade zeigt - Signatur (nur der WECHSEL baut neu), Quelle und Inhalt, damit
+## die Zell-Frage es beantworten kann.
 var _sum_signature := ""
 var _sum_mode := ""
 var _sum_projection: Dictionary = {}
-var _result_mode := ""
-var _result_source_net: Array = []
 var _sum_cell := 0.0
 
 func _ready() -> void:
@@ -396,16 +409,19 @@ func _refresh_content() -> void:
 	_podium_stage_host = null
 	_podium_view_host = null  # die Die-View des Podests hing am Inhalt
 	_podium_net = null
+	_card_view = null
+	_die_view_key = ""
 	_net_host = null
+	_preview_host = null  # die Vorschau hing am Inhalt
+	_preview_net = null
+	_preview_key = ""
 	# Ein Neuaufbau mitten im Zug läßt ihn einrasten, statt ihn hängen zu lassen.
 	if shelf_dragging():
 		_on_scroll_released.call_deferred(_drag_column, _last_drag_px)
 	_free_own(_drawer)  # das Magazin hängt am Panel, nicht am Inhalt
 	_drawer = null
-	_sum_host = null  # UPGRADES und ERGEBNIS hingen am Inhalt
+	_sum_host = null  # UPGRADES hing am Inhalt
 	_sum_net_view = null
-	_result_host = null
-	_result_view = null
 	_sum_signature = ""  # ein Neuaufbau baut das Netz frisch
 	_prune_series()
 	var u := unit()
@@ -436,11 +452,10 @@ func _ensure_sum_net(u: float) -> void:
 		add_child(_net)
 	_net.cell = net_cell(u)
 	move_child(_net, get_child_count() - 1)
-	if not burning():
-		_refresh_preview_net()
+	_view_source_changed()
 	_sync_sum_net_park()
 
-## Sein Platz: die Mitte des Parkplatzes im ERGEBNIS-Schirm.
+## Sein Platz: die Mitte des Parkplatzes in der Die-View.
 func _sync_sum_net_park() -> void:
 	if _net == null or not is_instance_valid(_net):
 		return
@@ -517,15 +532,19 @@ func drum_pitch() -> float:
 func original_net_rect() -> Rect2:
 	return drum()["podium_net"]
 
-## UPGRADES: die Summe der Serie, links neben dem Podest.
+## UPGRADES: die Summe der Serie, am rechten Ende der Walze unter dem Podest.
 func upgrades_net_rect() -> Rect2:
 	return drum()["upgrades"]
 
-## ERGEBNIS: Vorschau bzw. Ergebnis, beim Verdichten die Karte, die herauskäme.
-func result_net_rect() -> Rect2:
-	return drum()["result"]
+## Die VORSCHAU rechts am Pool (Fenster-Koordinaten).
+func preview_net_rect() -> Rect2:
+	return drum()["preview"]
 
-## Der INFO-SCHIRM am Ende der Walze, in Display-Pixeln.
+## Die Vorschau in Display-Pixeln.
+func preview_rect_px() -> Rect2:
+	return _global(preview_net_rect())
+
+## Der INFO-SCHIRM unter Vorschau und Prägen, in Display-Pixeln.
 func info_rect_px() -> Rect2:
 	return _global(drum()["info"])
 
@@ -576,7 +595,7 @@ func net_tray_px() -> Rect2:
 	return Rect2(Vector2(net.position.x, mouth.end.y),
 		Vector2(net.size.x, net.end.y - mouth.end.y))
 
-## Die Zeichen-Felder "+" und "=" in Display-Pixeln.
+## Das Zeichen-Feld "+" (der Umschalter) in Display-Pixeln.
 func sign_rects_px() -> Array[Rect2]:
 	var out: Array[Rect2] = []
 	for field: Rect2 in drum()["signs"]:
@@ -587,33 +606,32 @@ func sign_rects_px() -> Array[Rect2]:
 func stamp_seat_px() -> Rect2:
 	return _global(stamp_seat_rect())
 
-## Die GLEICHUNGS-ZEILE rechts am Pool in Display-Pixeln: UPGRADES, Podest, ERGEBNIS und
-## Präge-Sitz.
+## Die GLEICHUNG in Display-Pixeln: Vorschau, Prägen, Info-Schirm und die Podest-Spalte
+## (Podest, Umschalter, UPGRADES).
 func equation_area_px() -> Rect2:
 	return _global(drum()["equation"])
 
-## Was die Werkstatt in Display-Pixeln bedient: die Walze samt Nummern, der Info-Schirm,
-## die vier Trays des Magazins und - solange keine Öffnung ihren Platz hat - die Netze
-## der Gleichung samt Überschriften, das Podest und der Präge-Sitz.
+## Was die Werkstatt in Display-Pixeln bedient: die Walze samt Nummern, Vorschau,
+## UPGRADES samt Umschalter, die vier Trays des Magazins und - solange keine Öffnung ihren
+## Platz hat - Info-Schirm, Podest und Präge-Sitz.
 func hit_rects() -> Array[Rect2]:
 	var layout := drum()
 	var pit: Rect2 = layout["pit"]
 	var drum_row := pit.grow_individual(0.0, unit() * (SLICE_NUMBER_UNITS + SLICE_NUMBER_GAP),
 		0.0, 0.0)
-	var rects: Array[Rect2] = [_global(drum_row), info_rect_px()]
+	var rects: Array[Rect2] = [_global(drum_row), preview_rect_px(),
+		_global((layout["upgrades"] as Rect2).merge((layout["signs"] as Array)[0]))]
 	if not opening_shown:
-		var nets := (layout["upgrades"] as Rect2).merge(layout["result"]) \
-			.grow_individual(0.0, unit() * EQ_HEAD_UNITS, 0.0, 0.0)
-		rects.append_array([_global(nets), podium_rect_px(), stamp_seat_px()])
+		rects.append_array([info_rect_px(), podium_rect_px(), stamp_seat_px()])
 	rects.append_array(shelf_tray_rects())
 	return rects
 
-## Der PRÄGE-SITZ über ERGEBNIS, rechts neben der Platte.
+## Der PRÄGE-SITZ rechts neben der Vorschau, mittig zu ihr.
 func stamp_seat_rect() -> Rect2:
 	return drum()["stamp"]
 
-## Steht gerade eine PAKET-ÖFFNUNG? Dann ist die ganze Gleichung fort (scene_root meldet
-## es; die Öffnungs-Fläche liegt an ihrer Stelle).
+## Steht gerade eine PAKET-ÖFFNUNG? Dann sind Podest und Prägen fort (scene_root meldet es;
+## die Öffnungs-Zone liegt an ihrer Stelle) - Vorschau, UPGRADES und Umschalter bleiben.
 var opening_shown := false:
 	set(value):
 		if opening_shown == value:
@@ -621,12 +639,12 @@ var opening_shown := false:
 		opening_shown = value
 		_sync_equation_shown()
 
-## Alle Knoten der Gleichung samt Leiterbahnen.
-const EQUATION_NODES: Array[String] = ["Traces", "UpgradesScreen", "PodiumPlate",
-	"PodiumStage", "PodiumScreen", "ResultScreen", "ActionSeat"]
+## Die Knoten der Gleichung in der Zone (die Die-View des Podests samt Ergebnis-Netz folgt
+## _sync_net_shown).
+const EQUATION_NODES: Array[String] = ["PodiumPlate", "ActionSeat"]
 
-## Die Gleichung steht nur, solange keine Öffnung ihren Platz braucht - ausgeblendet nimmt
-## sie auch keinen Klick.
+## Podest und Prägen stehen nur, solange keine Öffnung ihren Platz braucht - ausgeblendet
+## nehmen sie auch keinen Klick.
 func _sync_equation_shown() -> void:
 	if _content == null or not is_instance_valid(_content):
 		return
@@ -634,45 +652,83 @@ func _sync_equation_shown() -> void:
 		var node := _content.get_node_or_null(node_name) as CanvasItem
 		if node != null:
 			node.visible = not opening_shown
-	if _net != null and is_instance_valid(_net):
-		_net.visible = not opening_shown
+	_sync_net_shown()
 
 func _build_street(u: float) -> void:
 	_build_traces(u)  # zuerst: die Bahnen liegen unter allem
 	_build_podium(u)
+	_build_preview(u)
 	_build_equation(u)
+	_build_toggle()
 	_build_slices(u)
 	_build_action_seat(u)
 	_sync_equation_shown()
 
-## DIE LEITERBAHNEN stehen IMMER: von jeder Scheibe vier Bahnen (eine je Sorte) in den
-## SPEICHER, von dort ein vierspuriger Bus in die Podest-Platte. Leer sind sie farblos,
-## belegt leuchtet die Bahn der Karte. Sie enden AN der Speicherkante, nie darin.
+## Der UMSCHALTER: ein unsichtbarer Knopf auf dem "+"-Feld - den Koppler stellt scene_root.
+func _build_toggle() -> void:
+	var signs: Array = drum()["signs"]
+	if signs.is_empty():
+		return
+	var field: Rect2 = signs[0]
+	var button := Button.new()
+	button.name = "ResultToggle"
+	button.focus_mode = Control.FOCUS_NONE
+	button.position = field.position
+	button.size = field.size
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.pressed.connect(toggle_result)
+	_content.add_child(button)
+
+## Wechselt die Die-View zwischen ORIGINAL und ERGEBNIS.
+func toggle_result() -> void:
+	result_shown = not result_shown
+
+## DIE BUSSE stehen IMMER: vier Spuren (eine je Sorte) von der rechten Grabenwand in die
+## linke Kante von UPGRADES, und vier von seiner Oberkante durch das "+"-Feld in die
+## Unterkante der Die-View des Podests. Leer sind sie farblos, eine Spur leuchtet, sobald
+## ihre Sorte steckt.
 func _build_traces(u: float) -> void:
 	var layout := drum()
-	var paths := trace_paths(layout["slices"], layout["upgrades"], layout["trace_band"],
-		TRACE_LANES)
-	var slice_tints := _slice_tints()
-	var slice_lanes := _slice_lanes()
+	var lanes := _slice_lanes()
 	var layer := TraceLayer.new()
 	layer.name = "Traces"
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var band: Rect2 = layout["trace_band"]
-	var width := minf(maxf(u * TRACE_WIDTH, 1.5), maxf(band.size.y * 0.035, 1.0))
-	for i in paths.size():
-		var slot := i / TRACE_LANES
-		var lane := i % TRACE_LANES
-		var lit := slice_lanes[slot] == lane
-		layer.add_trace(paths[i], slice_tints[slot], lit, width, 0, slot)
-	var feeds := feed_paths(layout["upgrades"], layout["podium_stage"], TRACE_LANES,
-		u * FEED_PITCH)
-	for lane in feeds.size():
-		layer.add_trace(feeds[lane], lane_tint(lane), slice_lanes.has(lane),
-			maxf(u * FEED_WIDTH, 1.5), feeds[lane].size() - 1, DRUM_SLICES)
-	if paths.size() > 1:
-		layer.ribbon = maxf(absf(paths[1][0].x - paths[0][0].x),
-			absf(paths[1][3].y - paths[0][3].y))
+	var width := maxf(u * FEED_WIDTH, 1.5)
+	var pitch := u * FEED_PITCH
+	var entries := entry_paths(layout["pit"], layout["upgrades"], TRACE_LANES, pitch)
+	var feeds := feed_paths(layout["upgrades"], layout["podium_net"], TRACE_LANES, pitch)
+	for paths: Array[PackedVector2Array] in [entries, feeds]:
+		for lane in paths.size():
+			layer.add_trace(paths[lane], lane_tint(lane), lanes.has(lane), width, 0)
+	layer.ribbon = pitch
 	_content.add_child(layer)
+
+## Die BUSSE in Display-Pixeln für die Körper (DieViewDress): Spuren und Teilung.
+func bus_paths_px() -> Dictionary:
+	var layout := drum()
+	var pitch := unit() * FEED_PITCH
+	var shift := get_global_rect().position
+	var out := {"pitch": pitch, "entries": [], "feeds": []}
+	for key: String in ["entries", "feeds"]:
+		var paths := entry_paths(layout["pit"], layout["upgrades"], TRACE_LANES, pitch) \
+			if key == "entries" else feed_paths(layout["upgrades"], layout["podium_net"],
+				TRACE_LANES, pitch)
+		for path in paths:
+			var moved := PackedVector2Array()
+			for point in path:
+				moved.append(point + shift)
+			(out[key] as Array).append(moved)
+	return out
+
+## Je Spur ihre Farbe, sobald ihre Sorte auf der Walze steckt (Alpha 0 = dunkel).
+func bus_tints() -> Array[Color]:
+	var lanes := _slice_lanes()
+	var out: Array[Color] = []
+	for lane in TRACE_LANES:
+		out.append(lane_tint(lane) if lanes.has(lane) else Color(0.0, 0.0, 0.0, 0.0))
+	return out
 
 ## Die Sortenfarbe einer Spur (Pack.SHELF_ORDER).
 static func lane_tint(lane: int) -> Color:
@@ -704,102 +760,36 @@ func _slice_lanes() -> Array[int]:
 			lanes[slot] = rank if rank >= 0 else TRACE_LANES - 1
 	return lanes
 
-## Der Anschluß einer Bahn an der Speicher-Unterkante (index = Scheibe * lanes + Spur).
-static func trace_end_x(upgrades: Rect2, count: int, lanes: int, index: int) -> float:
-	var room := upgrades.size.x * (1.0 - TRACE_PORT_MARGIN * 2.0) / float(maxi(count, 1))
-	var slot := index / lanes
-	var lane := index % lanes
-	var center := TRACE_PORT_MARGIN + (1.0 - TRACE_PORT_MARGIN * 2.0) * (float(slot) + 0.5) \
-		/ float(maxi(count, 1))
-	if count == TRACE_PORTS.size():
-		center = TRACE_PORTS[slot]
-	return upgrades.position.x + upgrades.size.x * center \
-		+ (float(lane) - float(lanes - 1) * 0.5) * room * TRACE_PORT_SHARE / float(lanes)
+## Die Höhe einer Eingangs-Spur: mittig zu UPGRADES, Spur 0 oben.
+static func entry_y(upgrades: Rect2, pitch: float, lane: int, lanes: int) -> float:
+	return upgrades.get_center().y + (float(lane) - float(lanes - 1) * 0.5) * pitch
 
-## Je Scheibe `lanes` Linienzüge: senkrecht aus der Grabenkante, mit 45°-Knick auf ihre
-## Spur, quer zum Speicher, mit 45°-Knick hinauf in seine Unterkante. Wer weiter weg
-## startet, fährt die höhere Spur - so kreuzt keine Bahn eine andere.
-static func trace_paths(slices: Array, upgrades: Rect2, band: Rect2,
-		lanes := 1) -> Array[PackedVector2Array]:
-	var paths: Array[PackedVector2Array] = []
-	var count := slices.size() * lanes
-	if count == 0 or band.size.y <= 0.0:
-		return paths
-	var starts: Array[float] = []
-	var ends: Array[float] = []
-	# Die Füße einer Scheibe stehen so eng gebündelt wie ihr Anschluß am Speicher.
-	var lane_pitch := trace_end_x(upgrades, slices.size(), lanes, 1) \
-		- trace_end_x(upgrades, slices.size(), lanes, 0) if lanes > 1 else 0.0
-	for i in count:
-		var slice: Rect2 = slices[i / lanes]
-		var lane := float(i % lanes) - float(lanes - 1) * 0.5
-		starts.append(slice.get_center().x + lane * lane_pitch)
-		ends.append(trace_end_x(upgrades, slices.size(), lanes, i))
-	var right_rank := 0
-	var ranks: Array[int] = []
-	ranks.resize(count)
-	for i in count:
-		if starts[i] <= ends[i]:
-			ranks[i] = _shared_rank(starts, ends, ranks, lanes, i, -lanes, right_rank)
-			right_rank += 1
-	var left_rank := 0
-	for i in range(count - 1, -1, -1):
-		if starts[i] > ends[i]:
-			ranks[i] = _shared_rank(starts, ends, ranks, lanes, i, lanes, left_rank)
-			left_rank += 1
-	var margin := band.size.y * TRACE_BAND_MARGIN
-	var pitch := (band.size.y - margin * 2.0) / float(maxi(maxi(right_rank, left_rank) - 1, 1))
-	for i in count:
-		var lane_y := band.position.y + margin + pitch * float(ranks[i])
-		var way := signf(ends[i] - starts[i])
-		var bend := minf(minf(pitch, margin), absf(ends[i] - starts[i]) * 0.5)
-		var foot := maxf((slices[i / lanes] as Rect2).position.y, band.end.y)
-		paths.append(PackedVector2Array([
-			Vector2(starts[i], foot), Vector2(starts[i], lane_y + bend),
-			Vector2(starts[i] + way * bend, lane_y), Vector2(ends[i] - way * bend, lane_y),
-			Vector2(ends[i], lane_y - bend), Vector2(ends[i], upgrades.end.y)]))
-	return paths
-
-## Ein Bündel, dessen Querstrecke die des vorigen Bündels gleicher Richtung nicht berührt,
-## knickt auf dessen Höhe ab - keine Bahn kann die andere dort kreuzen.
-static func _shared_rank(starts: Array[float], ends: Array[float], ranks: Array[int],
-		lanes: int, i: int, back: int, fresh: int) -> int:
-	var own := i / lanes * lanes
-	var prev := own + back
-	if prev < 0 or prev + lanes > starts.size():
-		return fresh
-	var way := signf(ends[i] - starts[i])
-	var own_span := Vector2(INF, -INF)
-	var prev_span := Vector2(INF, -INF)
-	for k in lanes:
-		if signf(ends[prev + k] - starts[prev + k]) != way:
-			return fresh
-		own_span = Vector2(minf(own_span.x, minf(starts[own + k], ends[own + k])),
-			maxf(own_span.y, maxf(starts[own + k], ends[own + k])))
-		prev_span = Vector2(minf(prev_span.x, minf(starts[prev + k], ends[prev + k])),
-			maxf(prev_span.y, maxf(starts[prev + k], ends[prev + k])))
-	if own_span.x <= prev_span.y and prev_span.x <= own_span.y:
-		return fresh
-	return ranks[i + back]
-
-## Der AUSGANGS-BUS: `lanes` Spuren aus der Speicher-Oberkante hinauf und mit 45°-Knick
-## nach rechts in die linke Kante der Podest-Platte. Die rechte Spur biegt am tiefsten ab.
-static func feed_paths(upgrades: Rect2, plate: Rect2, lanes: int,
+## Der EINGANGS-BUS: waagerecht von der rechten Grabenwand in die linke Kante von UPGRADES.
+static func entry_paths(pit: Rect2, upgrades: Rect2, lanes: int,
 		pitch: float) -> Array[PackedVector2Array]:
 	var paths: Array[PackedVector2Array] = []
-	if plate.position.x <= upgrades.end.x or plate.end.y > upgrades.position.y + 0.5:
+	if upgrades.position.x <= pit.end.x:
 		return paths
 	for lane in lanes:
-		var k := float(lanes - 1 - lane)
-		var x := feed_x(upgrades, lanes, pitch, lane)
-		var y := plate.end.y - plate.size.y * FEED_DROP - pitch * k
-		paths.append(PackedVector2Array([Vector2(x, upgrades.position.y),
-			Vector2(x, y + pitch), Vector2(x + pitch, y), Vector2(plate.position.x, y)]))
+		var y := entry_y(upgrades, pitch, lane, lanes)
+		paths.append(PackedVector2Array([Vector2(pit.end.x, y), Vector2(upgrades.position.x, y)]))
 	return paths
 
-## Der Abgang einer Bus-Spur an der Speicher-Oberkante (Spur 0 links).
-static func feed_x(upgrades: Rect2, lanes: int, pitch: float, lane: int) -> float:
-	return upgrades.end.x - upgrades.size.x * FEED_INSET - pitch * float(lanes - 1 - lane)
+## Der AUSGANGS-BUS: senkrecht aus der Oberkante von UPGRADES durch das "+"-Feld in die
+## Unterkante der Die-View des Podests.
+static func feed_paths(upgrades: Rect2, view: Rect2, lanes: int,
+		pitch: float) -> Array[PackedVector2Array]:
+	var paths: Array[PackedVector2Array] = []
+	if view.end.y >= upgrades.position.y:
+		return paths
+	for lane in lanes:
+		var x := feed_x(upgrades, pitch, lane, lanes)
+		paths.append(PackedVector2Array([Vector2(x, upgrades.position.y), Vector2(x, view.end.y)]))
+	return paths
+
+## Der Abgang einer Bus-Spur an der Oberkante von UPGRADES: mittig, Spur 0 links.
+static func feed_x(upgrades: Rect2, pitch: float, lane: int, lanes := TRACE_LANES) -> float:
+	return upgrades.get_center().x + (float(lane) - float(lanes - 1) * 0.5) * pitch
 
 ## Die gemalten Bahnen im Stil der Licht-Adern: Kupferzug unter Lötstopplack mit hellem
 ## Grat, 45°-Ecken, Gold-Pads an beiden Enden; belegt trägt der Grat die Kartenfarbe.
@@ -999,39 +989,41 @@ class TraceLayer extends Control:
 			if walked >= to:
 				return
 
-## DER SPEICHER hinter dem UPGRADES-Netz ist eine PLATINE: unten die Kontaktfinger der 24
-## Bahnen, je Scheibe EIN Zug in ihre Energiezelle (1-3 links herum und oben herein, 4-6
-## gerade hinauf), aus jeder Zelle in den Flächen-Bus in beiden Fugen des Kreuzes, an dem
-## jede Netz-Zelle hängt, rechts hinauf zum Ausgang. Oben links der Füllstand. Die Zellen
-## selbst sind Körper (StorageBankView) - hier liegt nur ihr Halter.
+## DER SPEICHER hinter dem UPGRADES-Netz ist eine PLATINE: links kommt der Eingangs-Bus
+## aus der Walze an eine Sammelschiene, die den FLÄCHEN-BUS in beiden Fugen des Kreuzes
+## speist; an ihm hängen die sechs Energiezellen und jede Netz-Zelle, rechts hinauf geht
+## er an die vier Abgänge oben in der Mitte. Kein Zug kreuzt. Die Zellen selbst sind
+## Körper (StorageBankView) - hier liegt nur ihr Halter.
 class StorageBody extends Control:
+	## So viele Zellen liegen je Reihe in den freien Kreuz-Ecken rechts.
+	const ROW_CELLS := 3
 	var cell := 10.0
 	var net_origin := Vector2.ZERO
 	var slice_tints: Array[Color] = []
 	var slice_lanes: Array[int] = []
-	## Die 24 Anschlüsse an der Unterkante und die vier Abgänge an der Oberkante (lokal x).
-	var ports: Array[float] = []
+	## Die Höhen der vier Eingänge links und die vier Abgänge oben (lokal).
+	var entries: Array[float] = []
 	var feeds: Array[float] = []
 
 	## Kein Rahmen, kein Grund: der Speicher liegt auf dem Deck des Tisches.
 	static func housing() -> StyleBox:
 		return StyleBoxEmpty.new()
 
-	## Der Netz-Platz im Schirm: nach rechts unten gerückt - links und oben laufen die Züge.
+	## Der Netz-Platz im Schirm: nach rechts gerückt - links läuft der Eingang.
 	static func net_origin_in(size: Vector2, span: Vector2) -> Vector2:
 		var pad := ((size - span) * 0.5).max(Vector2.ZERO)
-		return Vector2(maxf(pad.x * 2.0 - STORAGE_EDGE, pad.x), maxf(pad.y * 2.0 - STORAGE_FOOT,
-			pad.y))
+		return Vector2(maxf(pad.x * 2.0 - STORAGE_EDGE, pad.x), pad.y)
 
-	## Der Halter der Energiezelle einer Scheibe: oben liegen 3-2-1, unten 4-5-6.
+	## Der Halter der Energiezelle einer Scheibe: oben liegen 1-2-3, unten 4-5-6.
 	static func cell_rect(origin: Vector2, cell_px: float, slice: int) -> Rect2:
 		var step := cell_px * (1.0 + DieNetView.GAP_FACTOR)
 		var block := cell_px * (2.0 + DieNetView.GAP_FACTOR)
-		var room := block / 3.0
-		var place := 2 - slice if slice < 3 else slice - 3
+		var room := block / float(ROW_CELLS)
+		var top := slice < ROW_CELLS
+		var place := slice % ROW_CELLS
 		var can := Vector2(room * 0.6, cell_px * 0.74)
 		return Rect2(origin + Vector2(step * 2.0 + room * (float(place) + 0.5) - can.x * 0.5,
-			(step * 2.0 if slice >= 3 else 0.0) + (cell_px - can.y) * 0.5), can)
+			(0.0 if top else step * 2.0) + (cell_px - can.y) * 0.5), can)
 
 	func stored() -> int:
 		var count := 0
@@ -1052,66 +1044,32 @@ class StorageBody extends Control:
 		_draw_bus(bus)
 		_draw_pins(bus.darkened(0.35))
 		for slice in slice_tints.size():
-			_draw_route(slice)
 			_draw_holder(slice)
 
-	## Linienzug mit gefasten Ecken.
-	func _wire(points: Array, tint: Color, width: float) -> void:
-		var path := PackedVector2Array([points[0]])
-		for i in range(1, points.size() - 1):
-			var a: Vector2 = points[i - 1]
-			var b: Vector2 = points[i]
-			var c: Vector2 = points[i + 1]
-			var cut := minf(_line() * 1.6, minf(a.distance_to(b), b.distance_to(c)) * 0.45)
-			path.append(b + (a - b).normalized() * cut)
-			path.append(b + (c - b).normalized() * cut)
-		path.append(points[points.size() - 1])
-		draw_polyline(path, tint, width, true)
-
-	## Finger, Sammelsteg und der EINE Zug der Scheibe bis an ihre Zelle.
-	func _draw_route(slice: int) -> void:
-		var line := _line()
-		var lanes := ports.size() / maxi(slice_tints.size(), 1)
-		if lanes <= 0:
-			return
-		var tint := _slice_color(slice)
-		var foot := size.y - line
-		var comb := size.y - STORAGE_FOOT * 0.5 - line
-		var first := ports[slice * lanes]
-		var last := ports[slice * lanes + lanes - 1]
-		for lane in lanes:
-			var x := ports[slice * lanes + lane]
-			var on := slice < slice_lanes.size() and slice_lanes[slice] == lane
-			draw_line(Vector2(x, foot), Vector2(x, comb), tint if on else TRACE_IDLE, line)
-		draw_line(Vector2(first, comb), Vector2(last, comb), tint, line)
-		var from := Vector2((first + last) * 0.5, comb)
-		var seat := cell_rect(net_origin, cell, slice)
-		var to_x := seat.get_center().x
-		if slice >= 3:
-			var rise := maxf(from.y - seat.end.y, 0.0)
-			var lean := minf(rise, absf(to_x - from.x)) * signf(to_x - from.x)
-			_wire([from, Vector2(from.x + lean, seat.end.y), Vector2(to_x, seat.end.y)], tint, line)
-			return
-		# Links herum: wer weiter links ansetzt, läuft außen und kommt am weitesten.
-		var pitch := (net_origin.x - line * 2.0) / 3.0
-		var side := line * 2.0 + pitch * (float(slice) + 0.5)
-		var high := line * 2.0 + (net_origin.y - line * 2.0) / 3.0 * (float(slice) + 0.5)
-		var low := comb - pitch * float(slice + 1)
-		_wire([from, Vector2(from.x, low), Vector2(side, low), Vector2(side, high),
-			Vector2(to_x, high), Vector2(to_x, seat.position.y)], tint, line)
-
-	## Der FLÄCHEN-BUS in beiden Fugen des Kreuzes, rechts verbunden und hinauf zum Ausgang.
+	## Eingang, Sammelschiene, FLÄCHEN-BUS in beiden Fugen, rechts hinauf zu den Abgängen.
 	func _draw_bus(bus: Color) -> void:
 		var line := _line()
 		var step := cell * (1.0 + DieNetView.GAP_FACTOR)
 		var gap := cell * DieNetView.GAP_FACTOR
+		var left := line * 2.0
 		var right := size.x - 3.0 - line
 		var top := line * 2.0
+		var rows: Array[float] = []
 		for row in 2:
-			var y := net_origin.y + cell + gap * 0.5 + step * float(row)
-			draw_line(Vector2(net_origin.x + cell * 0.5, y), Vector2(right, y), bus, line)
-		draw_line(Vector2(right, net_origin.y + step + cell + gap * 0.5), Vector2(right, top), bus,
-			line)
+			rows.append(net_origin.y + cell + gap * 0.5 + step * float(row))
+		for y in rows:
+			draw_line(Vector2(left, y), Vector2(right, y), bus, line)
+		var low := rows[0]
+		var high := rows[1]
+		for y in entries:
+			low = minf(low, y)
+			high = maxf(high, y)
+		draw_line(Vector2(left, low), Vector2(left, high), bus, line)
+		for lane in entries.size():
+			var on := slice_lanes.has(lane)
+			draw_line(Vector2(0.0, entries[lane]), Vector2(left, entries[lane]),
+				Color(WorkshopView.lane_tint(lane), 1.0) if on else TRACE_IDLE, line)
+		draw_line(Vector2(right, rows[1]), Vector2(right, top), bus, line)
 		if feeds.is_empty():
 			return
 		draw_line(Vector2(feeds[0], top), Vector2(right, top), bus, line)
@@ -1123,8 +1081,8 @@ class StorageBody extends Control:
 		for slice in slice_tints.size():
 			var seat := cell_rect(net_origin, cell, slice)
 			var x := seat.get_center().x
-			var y := net_origin.y + cell + gap * 0.5 + (step if slice >= 3 else 0.0)
-			draw_line(Vector2(x, seat.end.y if slice < 3 else seat.position.y), Vector2(x, y),
+			var y := rows[1] if slice >= ROW_CELLS else rows[0]
+			draw_line(Vector2(x, seat.end.y if slice < ROW_CELLS else seat.position.y), Vector2(x, y),
 				_slice_color(slice), line)
 
 	## Die Beinchen der sechs Netz-Zellen: in den Fugen reichen sie an den Bus.
@@ -1189,7 +1147,7 @@ func _net_screen(screen_name: String, rect: Rect2, cell: float, style: StyleBox)
 	return host
 
 ## DAS PODEST: oben die Platte über der Kammer (der Puck gehört scene_root), unten seine
-## DIE-VIEW = ORIGINAL - der Würfel, der dort steht, schlicht; ohne ihn das leere Kreuz.
+## DIE-VIEW - je nach Umschalter ORIGINAL oder ERGEBNIS des gewählten Würfels.
 func _build_podium(_u: float) -> void:
 	var layout := drum()
 	var plate_rect: Rect2 = layout["podium_stage"]
@@ -1203,27 +1161,140 @@ func _build_podium(_u: float) -> void:
 	_podium_stage_host = _podium_host("PodiumStage", podium_stage_rect())
 	_podium_view_host = _net_screen("PodiumScreen", layout["podium_net"], podium_cell(),
 		StyleBoxEmpty.new())
+	# Der PARKPLATZ des ERGEBNIS-Netzes liegt auf demselben Platz und bleibt leer.
+	var park := Control.new()
+	park.name = "Park"
+	park.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	park.position = _podium_view_host.position
+	park.size = _podium_view_host.size
+	_podium_view_host.get_parent().add_child(park)
+	_net_host = park
 	_fill_podium()
 
-## ORIGINAL: während der Zeremonie der Stand davor - erst der Einschlag deckt den gebuchten
-## auf -, sonst der Würfel auf dem Podest.
+## DIE VORSCHAU rechts am Pool: ihr Netz-Platz; gefüllt wird er von _fill_preview.
+func _build_preview(_u: float) -> void:
+	_preview_host = _net_screen("PreviewScreen", drum()["preview"], podium_cell(),
+		StyleBoxEmpty.new())
+	_preview_key = ""
+	_fill_preview()
+
+## Was die Vorschau über ihrem Würfel rechnet: bei Umschalter AN die gesteckte Serie auf
+## DIESEM Würfel - dieselbe Rechnung wie preview(), gebucht wird nichts. Während der
+## Zeremonie und beim Verdichten schlicht ({}).
+func preview_projection() -> Dictionary:
+	if hover_die == null or run == null or not result_shown or burning() or compressing() \
+			or _series.is_empty():
+		return {}
+	return run.resolve_series(_series, hover_die)
+
+## Die Vorschau neu: nur der WECHSEL von Würfel, Inhalt oder Rechnung baut.
+func _fill_preview() -> void:
+	if _preview_host == null or not is_instance_valid(_preview_host):
+		return
+	var die := hover_die
+	var projection := preview_projection()
+	var key := "%d|%s|%s" % [die.get_instance_id() if die != null else 0,
+		str(DeckGlassView.pool_signature([die] as Array[DieDefinition])) if die != null else "",
+		str(projection)]
+	if key == _preview_key:
+		return
+	_preview_key = key
+	for child in _preview_host.get_children():
+		_preview_host.remove_child(child)
+		child.queue_free()
+	_preview_net = null
+	var cell := podium_cell()
+	if die == null:
+		_preview_host.add_child(_empty_net_cross(cell))
+		return
+	_preview_net = PressNetView.new()
+	_preview_net.cell = cell
+	_preview_net.def = die
+	_preview_net.projection = projection
+	_preview_net.build()
+	_preview_host.add_child(_preview_net)
+
+## Der Würfel, den die VORSCHAU zeigt (null = leeres Kreuz).
+func preview_die() -> DieDefinition:
+	if _preview_net == null or not is_instance_valid(_preview_net):
+		return null
+	return _preview_net.def
+
+## Der Würfel, den die Die-View des Podests zeigt (null = keiner): während des Prägens bis
+## zum EINSCHLAG der Stand davor, sonst der auf dem Podest.
+func shown_die() -> DieDefinition:
+	return before_die() if before_die() != null else seated_die()
+
+## Was die Die-View zeigt: "result" (das geparkte ERGEBNIS-Netz), "card" (die Karte, die
+## das Verdichten ergäbe), "plain" (ein Würfel schlicht) oder "empty" (das leere Kreuz).
+## Gibt es nichts zu rechnen, zeigen beide Stellungen dasselbe.
+func die_view_mode() -> String:
+	if result_shown:
+		if preview_target() != null:
+			return "result"
+		if compressing() and not _sum_nets().is_empty():
+			return "card"
+	return "plain" if shown_die() != null else "empty"
+
+## Das Schild der Die-View: "ERGEBNIS", wo gerechnet wird, sonst "ORIGINAL".
+func die_view_label() -> String:
+	return "ERGEBNIS" if die_view_mode() in ["result", "card"] else "ORIGINAL"
+
+## Zeigt die Die-View gerade das geparkte ERGEBNIS-Netz?
+func _net_in_view() -> bool:
+	return die_view_mode() == "result"
+
+## Der Umschalter hat gewechselt: außerhalb der Zeremonie baut das Netz neu, in ihr nur die
+## schlichte Die-View - der Zähl-Takt des Netzes reißt nie ab.
+func _view_source_changed() -> void:
+	if burning():
+		_fill_podium()
+	else:
+		_refresh_preview_net()
+
+## Die Die-View neu: nur der WECHSEL von Art und Würfel baut, die Sichtbarkeit des
+## ERGEBNIS-Netzes folgt immer.
 func _fill_podium() -> void:
 	if _podium_view_host == null or not is_instance_valid(_podium_view_host):
 		return
-	for child in _podium_view_host.get_children():
-		_podium_view_host.remove_child(child)
-		child.queue_free()
-	_podium_net = null
-	var cell := podium_cell()
-	var die := before_die() if before_die() != null else seated_die()
-	if die == null:
-		_podium_view_host.add_child(_empty_net_cross(cell))
-		return
-	_podium_net = PressNetView.new()
-	_podium_net.cell = cell
-	_podium_net.def = die
-	_podium_net.build()
-	_podium_view_host.add_child(_podium_net)
+	var mode := die_view_mode()
+	var die := shown_die()
+	var key := "%s|%d|%s" % [mode, die.get_instance_id() if die != null else 0,
+		str(DeckGlassView.pool_signature([die] as Array[DieDefinition])) if die != null else ""]
+	if mode == "card":
+		key += "|" + str(_sum_nets())
+	if key != _die_view_key:
+		_die_view_key = key
+		for child in _podium_view_host.get_children():
+			_podium_view_host.remove_child(child)
+			child.queue_free()
+		_podium_net = null
+		_card_view = null
+		_card_net = []
+		var cell := podium_cell()
+		match mode:
+			"card":
+				_card_net = SeriesResolver.compress(_sum_nets())["net"]
+				_card_view = PressNetView.stamp_net(_card_net, cell)
+				_podium_view_host.add_child(_card_view)
+			"plain":
+				_podium_net = PressNetView.new()
+				_podium_net.cell = cell
+				_podium_net.def = die
+				_podium_net.build()
+				_podium_view_host.add_child(_podium_net)
+			"empty":
+				_podium_view_host.add_child(_empty_net_cross(cell))
+	_sync_net_shown()
+
+## Sichtbar ist genau EINES: das geparkte ERGEBNIS-Netz oder die Die-View darunter - und
+## während einer Öffnung keines von beiden.
+func _sync_net_shown() -> void:
+	var net := _net_in_view()
+	if _podium_view_host != null and is_instance_valid(_podium_view_host):
+		_podium_view_host.visible = not net and not opening_shown
+	if _net != null and is_instance_valid(_net):
+		_net.visible = net and not opening_shown
 
 ## Die Zelle der Die-View: die Fläche eines echten Würfels - aus der gemeldeten Kette
 ## gelesen, denn reicht die Pool-Höhe nicht, schrumpft sie dort.
@@ -1234,24 +1305,13 @@ func podium_cell() -> float:
 		return cell
 	return (die_face_px if die_face_px > 0.0 else unit() * U_PER_FACE) * PODIUM_FACE_GAIN
 
-## DIE GLEICHUNG: UPGRADES + ORIGINAL (die Die-View des Podests) = ERGEBNIS.
+## DIE GLEICHUNG: die Die-View des Podests + UPGRADES (die Summe der Serie).
 func _build_equation(u: float) -> void:
 	var cell := net_cell(u)
 	var layout := drum()
 	_sum_host = _net_screen("UpgradesScreen", layout["upgrades"], cell,
 		TableScreen.window_style())
 	_build_storage(u, cell, layout["upgrades"])
-	# ERGEBNIS liegt wie der Speicher auf dem Deck: Rahmen und Chips sind Körper.
-	var host := _net_screen("ResultScreen", layout["result"], cell, StyleBoxEmpty.new())
-	# Der PARKPLATZ des Netzes bleibt ein leerer Platz - die Ergebnis-Karte hängt daneben.
-	var park := Control.new()
-	park.name = "Park"
-	park.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	park.position = host.position
-	park.size = host.size
-	host.get_parent().add_child(park)
-	_net_host = park
-	_result_host = host
 	_sum_signature = ""
 	_refresh_sum_net()
 
@@ -1297,10 +1357,9 @@ func _build_storage(u: float, cell: float, rect: Rect2) -> void:
 	body.net_origin = _sum_host.position
 	body.slice_tints = _slice_tints()
 	body.slice_lanes = _slice_lanes()
-	for i in DRUM_SLICES * TRACE_LANES:
-		body.ports.append(trace_end_x(rect, DRUM_SLICES, TRACE_LANES, i) - rect.position.x)
 	for lane in TRACE_LANES:
-		body.feeds.append(feed_x(rect, TRACE_LANES, u * FEED_PITCH, lane) - rect.position.x)
+		body.entries.append(entry_y(rect, u * FEED_PITCH, lane, TRACE_LANES) - rect.position.y)
+		body.feeds.append(feed_x(rect, u * FEED_PITCH, lane) - rect.position.x)
 	screen.add_child(body)
 	screen.move_child(body, 0)
 
@@ -1332,8 +1391,7 @@ func _empty_net_cross(cell: float) -> Control:
 		cross.add_child(chip)
 	return cross
 
-## Das EINE Zellmaß der Gleichung: die drei Netze sind gleich groß, also teilen UPGRADES
-## und ERGEBNIS die Zelle der Die-View.
+## Das EINE Zellmaß der Gleichung: UPGRADES teilt die Zelle der Die-View.
 func net_cell(_u: float) -> float:
 	return podium_cell()
 
@@ -1351,13 +1409,13 @@ func net_span(u: float) -> Vector2:
 
 # --- Die reine Layout-Kette --------------------------------------------------------
 
-## Sechs Scheiben, Scheibe 1 links - der Deckel der Serie.
+## Sechs Scheiben, Scheibe 1 links - der Deckel der Serie (GameRun.SERIES_SLOT_CAP).
 const DRUM_SLICES := 6
 ## Luft der Karte in ihrer Scheibe, Anteil ihres Maßes (quer und längs).
 const DRUM_AIR := 0.06
 ## Luft QUER zur Achse: sie ist die Wand neben der Karte, also die Tiefe der Mulde.
 const DRUM_SIDE_AIR := 0.12
-## Fuge zwischen Pool und Gleichung und zwischen Walze und Magazin, in u.
+## Fuge zwischen Pool und Vorschau, vor dem Podest und zwischen Walze und Magazin, in u.
 const DRUM_SHELF_GAP := 4.0
 ## Rand der PLATTE um die Kammer, in u je Seite (oben kommt der Kopf des Würfels dazu).
 const PODIUM_RIM := 2.0
@@ -1367,9 +1425,11 @@ const PODIUM_NET_PAD := 2.0
 ## dem Glas - gemessen an der Werkstatt-Station (Pool-Teilung 60 gegen 51 Bildschirm-px).
 ## Reicht die Pool-Höhe nicht, schrumpft dieser Faktor, nie die Kammer.
 const PODIUM_FACE_GAIN := 1.17
-## Die Gleichung: Breite der Zeichen-Felder, Überschrift, Grade (u).
-const EQ_SIGN_UNITS := 18.0
-const EQ_HEAD_UNITS := 4.5
+## Die Höhe des "+"-Feldes (des Umschalters) zwischen ORIGINAL und UPGRADES, in u.
+const EQ_SIGN_UNITS := 12.0
+## Die Strecke des Eingangs-Busses zwischen Graben und UPGRADES, in u - lang genug, daß
+## er aus der Weitsicht liest.
+const ENTRY_BUS_UNITS := 8.0
 
 ## Die Kante des Scheiben-Vierkants: die KURZE Kartenseite plus Luft.
 static func drum_side_px(card: Vector2) -> float:
@@ -1414,30 +1474,63 @@ static func podium_net_size(card: Vector2, die_face: float, u: float,
 	return DieNetView.net_size(die_face * gain) + Vector2.ONE * u * PODIUM_NET_PAD * 2.0
 
 ## Die ganze Kette in Display-px aus Pool-Reihe, liegender Karte, Würfelfläche und u.
-## Rechts am Pool (oben bündig, eine Fuge daneben) die GLEICHUNG: UPGRADES + PODEST =
-## ERGEBNIS, die Netze gleich groß und unten bündig, über ERGEBNIS PRÄGEN.
-## Unter dem Pool (eine Naht pool_seam darunter, linksbündig): die Nummern, der Graben mit
-## den sechs Scheiben, eine Naht rechts daneben der Info-Schirm in Grabenhöhe; eine Fuge
-## tiefer das Magazin aus vier Trays (columns = ihre Gruben, trays = samt Fassung), rechts
-## bündig mit dem Info-Schirm.
-## bounds ist das Fenster: Walze, Info-Schirm und Magazin - die Gleichung liegt außerhalb.
-static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
-		u: float, _info_h := 0.0, pool_seam := -1.0) -> Dictionary:
+## Rechts am Pool (eine Fuge daneben, oben bündig) die VORSCHAU, daneben PRÄGEN mittig zu
+## ihr, darunter der INFO-SCHIRM bis zur Pool-Unterkante und eine Fuge vor das Podest.
+## Unter dem Pool die WALZE mit sechs Scheiben, an ihrem rechten Ende UPGRADES (senkrecht
+## mittig zum Graben), genau darüber das "+"-Feld und das PODEST (Platte über seiner
+## Die-View, oben bündig mit dem Pool). Eine Fuge unter dem Graben das MAGAZIN aus vier
+## Trays (columns = ihre Gruben, trays = samt Fassung); ist pit_floor gesetzt, rückt es so
+## tief, daß die Unterkante der Gruben dort liegt. bounds ist das Fenster: Nummern, Graben
+## und Magazin - Vorschau, Info und die Podest-Spalte liegen außerhalb.
+static func drum_layout(pool: Rect2, card: Vector2, die_face: float, u: float,
+		pit_floor := 0.0) -> Dictionary:
 	var seam := u * STREET_GAP
 	var gap := u * DRUM_SHELF_GAP
-	var below := pool_seam if pool_seam >= 0.0 else seam
 	var numbers := u * (SLICE_NUMBER_UNITS + SLICE_NUMBER_GAP)
+	var gain := podium_gain(pool.size.y, die_face, u)
+	var net_span := podium_net_size(card, die_face, u, gain)
+	var plate_size := podium_plate_size(die_face, u)
+	# Die Platte ist so breit wie die Die-View darunter (Spieler-Wunsch 2026-11-20).
+	plate_size.x = maxf(plate_size.x, net_span.x)
 	# Auf Kante gedreht braucht der Vierkant seine Diagonale.
 	var high := drum_side_px(card) * sqrt(2.0) + seam
 	var pitch := slice_length_px(card) + seam
-	var pit := Rect2(Vector2(pool.position.x, pool.end.y + below + numbers),
-		Vector2(pitch * float(DRUM_SLICES), high))
+	var pit_w := pitch * float(DRUM_SLICES)
+	# DIE PODEST-SPALTE am Ende der Walze: Platte, Die-View, "+"-Feld, UPGRADES.
+	var col := Rect2(Vector2(pool.position.x + pit_w + u * ENTRY_BUS_UNITS, pool.position.y),
+		Vector2(maxf(net_span.x, plate_size.x), 0.0))
+	var mid_x := col.get_center().x
+	var podium_stage := Rect2(Vector2(mid_x - plate_size.x * 0.5, pool.position.y), plate_size)
+	# Die KAMMER ist so groß wie die Platte (Spieler-Wunsch 2026-11-20); ihre Mitte ist
+	# der Anker des Würfels.
+	var chamber := podium_stage
+	var podium_net := Rect2(Vector2(mid_x - net_span.x * 0.5, podium_stage.end.y + seam),
+		net_span)
+	var podium := Rect2(col.position, Vector2(col.size.x, podium_net.end.y - col.position.y))
+	# Das "+"-Feld beginnt unter der Pool-Reihe (dort endet die Öffnungs-Zone), UPGRADES
+	# mittig zum Graben - der Graben hält Nummern-Abstand zum Pool, das Feld seine Höhe.
+	var plus_y := maxf(podium_net.end.y, pool.end.y) + seam
+	var up_y := maxf(plus_y + u * EQ_SIGN_UNITS + seam,
+		pool.end.y + seam + numbers + high * 0.5 - net_span.y * 0.5)
+	var upgrades := Rect2(Vector2(mid_x - net_span.x * 0.5, up_y), net_span)
+	var plus := Rect2(Vector2(col.position.x, plus_y), Vector2(col.size.x, up_y - seam - plus_y))
+	var pit := Rect2(Vector2(pool.position.x, upgrades.get_center().y - high * 0.5),
+		Vector2(pit_w, high))
 	var slices: Array[Rect2] = []
 	for i in DRUM_SLICES:
 		slices.append(Rect2(Vector2(pit.position.x + seam * 0.5 + pitch * float(i),
 			pit.position.y), Vector2(slice_length_px(card), high)))
-	var shelf := Rect2(Vector2(pool.position.x, pit.end.y + gap),
-		PackDrawerView.shelf_for(card))
+	# DAS MAGAZIN: eine Fuge unter dem Graben, wenn gemeldet so tief, daß die Gruben auf
+	# pit_floor enden.
+	var shelf_size := PackDrawerView.shelf_for(card)
+	var field0 := PackDrawerView.field_in(Rect2(Vector2.ZERO, shelf_size))
+	var pits_end := field0.end.y
+	for lane in PackDrawerView.column_rects(field0.size):
+		pits_end = field0.position.y + lane.end.y
+	var shelf_y := pit.end.y + gap
+	if pit_floor > 0.0:
+		shelf_y = maxf(shelf_y, pit_floor - pits_end)
+	var shelf := Rect2(Vector2(pool.position.x, shelf_y), shelf_size)
 	var field := PackDrawerView.field_in(shelf)
 	# Je SORTE ein Tray: seine Grube (columns) und samt Fassung (trays), EINE Quelle.
 	var columns: Array[Rect2] = []
@@ -1446,55 +1539,29 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float,
 		var hole := Rect2(field.position + lane.position, lane.size)
 		columns.append(hole)
 		trays.append(PackDrawerView.tray_of(hole))
-	var info_left := pit.end.x + seam
-	var info := Rect2(Vector2(info_left, pit.position.y),
-		Vector2(maxf(shelf.end.x - info_left, 1.0), pit.size.y))
 	var top := Rect2(Vector2(pit.position.x, pit.position.y - numbers), Vector2(pit.size.x,
 		numbers))
-	var bounds := top.merge(pit).merge(shelf).merge(info)
-	# DIE GLEICHUNG rechts am Pool: das Podest in der Mitte, seine Die-View ist ORIGINAL.
-	var plate_size := podium_plate_size(die_face, u)
-	var gain := podium_gain(pool.size.y, die_face, u)
-	var net_span := podium_net_size(card, die_face, u, gain)
-	# Die Platte ist so breit wie die Die-View darunter (Spieler-Wunsch 2026-11-20).
-	plate_size.x = maxf(plate_size.x, net_span.x)
-	var sign_w := u * EQ_SIGN_UNITS
-	var head_h := u * EQ_HEAD_UNITS
-	var upgrades_x := pool.end.x + gap
-	var podium := Rect2(Vector2(upgrades_x + net_span.x + sign_w, pool.position.y),
-		Vector2(maxf(net_span.x, plate_size.x), plate_size.y + seam + net_span.y))
-	var podium_stage := Rect2(Vector2(podium.get_center().x - plate_size.x * 0.5,
-		pool.position.y), plate_size)
-	# Die KAMMER ist so groß wie die Platte (Spieler-Wunsch 2026-11-20); ihre Mitte ist
-	# der Anker des Würfels.
-	var chamber := podium_stage
-	var podium_net := Rect2(Vector2(podium.get_center().x - net_span.x * 0.5,
-		podium_stage.end.y + seam), net_span)
-	var row_y := podium_net.position.y
-	var upgrades := Rect2(Vector2(upgrades_x, row_y), net_span)
-	var plus := Rect2(Vector2(upgrades.end.x, row_y), Vector2(sign_w, net_span.y))
-	var equals := Rect2(Vector2(podium.end.x, row_y), Vector2(sign_w, net_span.y))
-	var result := Rect2(Vector2(equals.end.x, row_y), net_span)
-	# PRÄGEN steht auf halber Plattenhöhe über ERGEBNIS, im Filz zwischen Pool-Oberkante
-	# und Überschrift.
-	var mid_y := podium_stage.get_center().y
-	var reach := maxf(minf(mid_y - pool.position.y, row_y - head_h - mid_y), 1.0)
-	var stamp_area := Rect2(Vector2(result.position.x, mid_y - reach), Vector2(net_span.x,
-		reach * 2.0))
+	var bounds := top.merge(pit).merge(shelf)
+	# Rechts am Pool: VORSCHAU, PRÄGEN mittig zu ihr, darunter der INFO-SCHIRM.
+	var preview := Rect2(Vector2(pool.end.x + gap, pool.position.y), net_span)
 	var stage := die_face * STAGE_FACES
 	var action := Vector2(u * ACTION_WIDTH, maxf(stage * ACTION_SPAN_SHARE, u * ACTION_HEIGHT))
+	var info_top := preview.end.y + seam
+	var info := Rect2(Vector2(preview.position.x, info_top),
+		Vector2(maxf(podium.position.x - gap - preview.position.x, 0.0),
+			maxf(pool.end.y - info_top, 0.0)))
+	# PRÄGEN mittig im Feld zwischen Vorschau und Podest (über dem Info-Schirm), die Schale
+	# rechts daneben; eine Fuge Luft zur Vorschau - PRÄGEN liegt schon in der Öffnungs-Zone.
+	var stamp_area := Rect2(Vector2(preview.end.x + gap, preview.position.y),
+		Vector2(maxf(info.end.x - preview.end.x - gap * 2.0, action.x), net_span.y))
 	var stamp := Rect2(stamp_area.get_center() - action * 0.5, action)
-	# Das Spur-Band der Leiterbahnen: der Filz zwischen Pool bzw. Netzen und den Nummern.
-	var band_top := maxf(pool.end.y, upgrades.end.y)
-	var trace_band := Rect2(Vector2(pit.position.x, band_top),
-		Vector2(pit.size.x, maxf(top.position.y - band_top, 0.0)))
-	var equation := Rect2(Vector2(upgrades.position.x, pool.position.y),
-		Vector2(result.end.x - upgrades.position.x, podium.size.y))
+	var equation := preview.merge(stamp_area).merge(podium).merge(plus).merge(upgrades)
+	if info.size.y > 0.0:
+		equation = equation.merge(info)
 	return {"pit": pit, "slices": slices, "chamber": chamber, "stamp": stamp,
 		"shelf": shelf, "columns": columns, "trays": trays, "info": info,
-		"original": podium_net,
-		"upgrades": upgrades, "result": result, "signs": [plus, equals] as Array[Rect2],
-		"equation": equation, "podium": podium, "trace_band": trace_band,
+		"original": podium_net, "upgrades": upgrades, "signs": [plus] as Array[Rect2],
+		"preview": preview, "equation": equation, "podium": podium,
 		"podium_stage": podium_stage, "podium_net": podium_net, "bounds": bounds}
 
 # --- Die Würfel des Vorrats und die Zielwahl ---------------------------------------
@@ -2177,7 +2244,7 @@ func stamp_blocker() -> String:
 		return "Schon geprägt - die nächste Prägung gibt es in der nächsten Runde."
 	return ""
 
-# --- UPGRADES und ERGEBNIS ohne Würfel-Ziel ------------------------------------------
+# --- UPGRADES ------------------------------------------------------------------------
 
 ## Was UPGRADES zeigt: die SUMME der gesteckten Netze (zielunabhängig), ohne Netz das
 ## leere Kreuz.
@@ -2186,18 +2253,6 @@ func _sum_view_source() -> Dictionary:
 	if nets.is_empty():
 		return {"mode": "empty"}
 	return {"mode": "sum", "projection": SeriesResolver.resolve(nets, null, _sum_terms())}
-
-## Was ERGEBNIS ohne Würfel-Ziel zeigt - EIN Entscheider: mit Würfel-Ziel nichts (dort
-## steht das Vorschau-Netz), beim Verdichten die Karte, die herauskäme, sonst das leere
-## Kreuz.
-func _result_view_source() -> Dictionary:
-	if preview_target() != null:
-		return {"mode": "die"}
-	var nets := _sum_nets()
-	# Verdichten ist eine ANDERE Rechnung als Prägen (Faktoren addieren).
-	if compressing() and not nets.is_empty():
-		return {"mode": "card", "net": SeriesResolver.compress(nets)["net"]}
-	return {"mode": "empty"}
 
 ## Die Netze, die in die Summe gehen: während der Fahrt die schon erfaßten, sonst
 ## die gesteckten Nicht-Katalysatoren in Steckreihenfolge.
@@ -2218,10 +2273,9 @@ func _sum_terms() -> Dictionary:
 		return GameRun.catalyst_terms(slotted_packs())
 	return run.series_terms(slotted_packs())
 
-## Die Signatur der Quellen - nur ihr WECHSEL baut die Netze neu.
+## Die Signatur der Quelle - nur ihr WECHSEL baut das Netz neu.
 func _sum_view_signature() -> String:
-	return "%s:%s:%d:%d:%s" % [str(preview_target() != null), str(_series), _burn_step,
-		_burning.size(), str(compressing())]
+	return "%s:%d:%d" % [str(_series), _burn_step, _burning.size()]
 
 func _refresh_sum_net() -> void:
 	if _sum_host == null or not is_instance_valid(_sum_host):
@@ -2231,42 +2285,37 @@ func _refresh_sum_net() -> void:
 		return
 	_sum_signature = signature
 	_sum_cell = net_cell(unit())
-	for view: Control in [_sum_net_view, _result_view]:
-		if view != null and is_instance_valid(view):
-			view.get_parent().remove_child(view)
-			view.queue_free()
+	if _sum_net_view != null and is_instance_valid(_sum_net_view):
+		_sum_net_view.get_parent().remove_child(_sum_net_view)
+		_sum_net_view.queue_free()
 	_sum_net_view = null
-	_result_view = null
 	var source := _sum_view_source()
 	_sum_mode = String(source.get("mode", "empty"))
 	_sum_projection = source.get("projection", {})
 	_sum_net_view = PressNetView.sum_net(_sum_projection, _sum_cell) if _sum_mode == "sum" \
 		else _empty_net_cross(_sum_cell)
 	_sum_host.add_child(_sum_net_view)
-	var result := _result_view_source()
-	_result_mode = String(result.get("mode", "empty"))
-	_result_source_net = result.get("net", [])
-	if _result_mode == "die" or _result_host == null or not is_instance_valid(_result_host):
-		return
-	_result_view = PressNetView.stamp_net(_result_source_net, _sum_cell) \
-		if _result_mode == "card" else _empty_net_cross(_sum_cell)
-	_result_host.add_child(_result_view)
 
-## Der Klartext einer Zelle von UPGRADES bzw. der Ergebnis-Karte ({} = keine getroffen).
+## Der Klartext einer Zelle von UPGRADES ({} = keine getroffen).
 func _sum_hint_at(pixel: Vector2) -> Dictionary:
-	if _sum_cell <= 0.0:
+	if _sum_cell <= 0.0 or _sum_mode != "sum":
 		return {}
-	if _sum_mode == "sum" and _sum_net_view != null and is_instance_valid(_sum_net_view):
+	if _sum_net_view != null and is_instance_valid(_sum_net_view):
 		var face := _face_in(_sum_net_view, pixel)
 		if face >= 0:
 			return {"hint": PressNetView.projection_hint(_sum_projection, face),
 				"owner": SUM_OWNER}
-	if _result_mode == "card" and _result_view != null and is_instance_valid(_result_view):
-		var face := _face_in(_result_view, pixel)
-		if face >= 0:
-			return {"hint": StampNet.cell_hint(StampNet.cell_at(_result_source_net, face)),
-				"owner": RESULT_OWNER}
 	return {}
+
+## Der Klartext einer Zelle der Karte, die das Verdichten ergäbe ({} = keine getroffen).
+func _card_hint_at(pixel: Vector2) -> Dictionary:
+	if _card_view == null or not is_instance_valid(_card_view) or die_view_mode() != "card":
+		return {}
+	var face := _face_in(_card_view, pixel)
+	if face < 0:
+		return {}
+	return {"hint": StampNet.cell_hint(StampNet.cell_at(_card_net, face)),
+		"owner": _owner_line(RESULT_OWNER, null)}
 
 ## Die Seite unter dem Pixel in einem gebauten Netz (-1 = keine).
 func _face_in(view: Control, pixel: Vector2) -> int:
@@ -2573,7 +2622,9 @@ func _refresh_preview_net(tick: float = 0.0) -> void:
 	_net.highlight = _highlight_faces()
 	_net.tick_time = tick
 	_net.build()
-	_refresh_sum_net()  # ohne Würfel-Ziel steht dort die Summe
+	_refresh_sum_net()
+	_fill_podium()
+	_fill_preview()
 
 ## Display-Pixel der WALZE - von dort geht das Licht aus.
 func hand_anchor_px() -> Vector2:
@@ -2967,26 +3018,34 @@ func net_hint_at(pixel: Vector2) -> String:
 	return String(_net_hint_info(pixel).get("hint", ""))
 
 ## WEM die getroffene Zelle gehört ("" = keine getroffen): UPGRADES die Summe der
-## Serie, ERGEBNIS und ORIGINAL samt dem Zielwürfel. Der Info-Schirm setzt das in
-## seinen Titel - geraten wird im Schreiber nichts.
+## Serie, die Vorschau ihr Würfel ("Vorschau · Name"), die Die-View des Podests samt dem
+## gezeigten Würfel ("Original · Name", "Ergebnis · Name"). Der Info-Schirm setzt das in
+## seinen Titel.
 func net_hint_owner_at(pixel: Vector2) -> String:
 	return String(_net_hint_info(pixel).get("owner", ""))
 
-## EIN Entscheider für beide Fragen: UPGRADES und die Ergebnis-Karte, dann das
-## Ergebnis-Netz, dann ORIGINAL.
+## EIN Entscheider für beide Fragen: UPGRADES, die Vorschau, dann - solange keine Öffnung
+## das Podest verdeckt - die Karte des Verdichtens bzw. die Die-View.
 func _net_hint_info(pixel: Vector2) -> Dictionary:
+	var summed := _sum_hint_at(pixel)
+	if String(summed.get("hint", "")) != "":
+		return summed
+	var previewed := _face_hint(_preview_net, pixel)
+	if previewed != "":
+		return {"hint": previewed, "owner": _owner_line(PREVIEW_OWNER, preview_die())}
 	if opening_shown:
 		return {}
-	var summed := _sum_hint_at(pixel)
-	if not summed.is_empty() and String(summed.get("hint", "")) != "":
-		return summed
-	var podium := _face_hint(_podium_net, pixel)
-	if podium != "":
-		return {"hint": podium, "owner": _owner_line(ORIGINAL_OWNER, _podium_net.def)}
-	var after := _face_hint(_net, pixel)
-	if after != "":
-		return {"hint": after, "owner": _owner_line(RESULT_OWNER, chosen_die())}
+	var card := _card_hint_at(pixel)
+	if String(card.get("hint", "")) != "":
+		return card
+	var shown := _face_hint(_net if _net_in_view() else _podium_net, pixel)
+	if shown != "":
+		return {"hint": shown, "owner": _owner_line(_view_owner(), shown_die())}
 	return {}
+
+## Der Besitzer der Die-View in Worten - dasselbe wie ihr Schild.
+func _view_owner() -> String:
+	return RESULT_OWNER if die_view_label() == "ERGEBNIS" else ORIGINAL_OWNER
 
 ## Der Klartext der Zelle eines Netzes unter dem Pixel ("" = keine).
 static func _face_hint(net: PressNetView, pixel: Vector2) -> String:

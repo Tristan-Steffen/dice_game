@@ -86,7 +86,7 @@ func test_a_pack_holds_exactly_its_printed_count() -> void:
 			assert_eq(dice.base_count, pips)
 			run.pending_pack_choices.clear()
 
-func test_free_hand_adds_a_pick_only_to_the_first_pack() -> void:
+func test_free_hand_adds_a_pick_to_every_pack_of_the_round() -> void:
 	_sign([DealClause.FREE_HAND])
 	var first := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(1))
@@ -95,8 +95,8 @@ func test_free_hand_adds_a_pick_only_to_the_first_pack() -> void:
 	run.confirm_pack_choice(first, [])
 	var second := _buy_open(CardPack.make(CardPack.SORT_NUMBER,
 		CardPack.SIZE_NORMAL), 0, _rng(2))
-	assert_eq(second.free_bonus, 0, "nur das erste geöffnete Paket der Runde")
-	assert_eq(second.picks, 1)
+	assert_eq(second.free_bonus, 1, "auch das zweite Paket der Runde")
+	assert_eq(second.picks, 2)
 
 func test_free_hand_stays_capped_by_the_options() -> void:
 	_sign([DealClause.FREE_HAND])

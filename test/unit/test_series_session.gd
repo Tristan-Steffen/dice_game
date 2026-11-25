@@ -170,7 +170,7 @@ func test_the_series_stops_at_the_slot_count() -> void:
 	var cards: Array[Pack] = []
 	for i in 8:
 		cards.append(_card({0: StampNet.value_cell(1)}))
-	assert_eq(run.series_slots(), 6, "sechs Schächte ab Runde 1")
+	assert_eq(run.series_slots(), 6, "sechs Scheiben, alle frei")
 	assert_eq(int(run.resolve_series(_uids(cards), _die())["bonus"][0]), 6,
 		"nur die ersten sechs Karten rechnen mit")
 

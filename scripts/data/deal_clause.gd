@@ -26,7 +26,6 @@ const TAG_SIDEBET := "nebenwette"
 const TAG_OVERCHARGE := "überladung"
 const TAG_LEFTOVER := "übrig"
 const TAG_SHOP := "shop"
-const TAG_SLOT := "automat"
 const TAG_ENERGY := "energie"
 const TAG_THROTTLE := "drossel"
 const TAG_MONEY := "geld"
@@ -48,8 +47,6 @@ const INSURANCE_FRAUD := "insurance_fraud"
 const SEED_CAPITAL := "seed_capital"
 const LUCKY_PENNY := "lucky_penny"
 const LUCKY_DAY := "lucky_day"
-const BULK_ORDER := "bulk_order"
-const SOUL_MARKET := "soul_market"
 const FREE_FLIP := "free_flip"
 const BUYBACK := "buyback"
 const REINSURANCE := "reinsurance"
@@ -60,16 +57,14 @@ const ANCHOR_CLAUSE := "anchor_clause"
 const ODDS_BONUS := "odds_bonus"
 const HAPPY_HOUR := "happy_hour"
 const INTEREST := "interest"
-const FREE_SPINS := "free_spins"
 const DOUBLE_LOADER := "double_loader"
 const CALIBRATION := "calibration"
 const GOLDEN_HANDSHAKE := "golden_handshake"
 const WORK_HARDENING := "work_hardening"
 const LUCKY_STREAK := "lucky_streak"
-const CONNOISSEUR_EYE := "connoisseur_eye"
+const SOUL_MARKET := "soul_market"
 const MATH_WEEK := "math_week"
 const BACK_ROOM_CONTACT := "back_room_contact"
-const LOADED_REELS := "loaded_reels"
 const BIG_STORAGE := "big_storage"
 
 # Bonus, Stufe 3
@@ -80,38 +75,37 @@ const GOLD_VEIN := "gold_vein"
 const LUCKY_CHILD := "lucky_child"
 const REGULAR_CUSTOMER := "regular_customer"
 const SPECIAL_DELIVERY := "special_delivery"
-const HIGH_TABLE := "high_table"
 const FREE_HAND := "free_hand"
+const CONNOISSEUR_EYE := "connoisseur_eye"
 
 # Malus, Stufe 1
 const QUOTA_SURCHARGE := "quota_surcharge"
 const BETTING_TAX := "betting_tax"
-const EMPTIES := "empties"
 const DEDUCTION := "deduction"
 const SERVICE_FEE := "service_fee"
 const INFLATION := "inflation"
-const POWER_CUT := "power_cut"
 const EMPTY_SHELVES := "empty_shelves"
 const SOULLESS := "soulless"
 const FLIP_SURCHARGE := "flip_surcharge"
+const MAINS_HUM := "mains_hum"
 
 # Malus, Stufe 2
 const QUOTA_SURCHARGE_II := "quota_surcharge_ii"
+const EMPTIES := "empties"
 const HALF_PAYOUT := "half_payout"
 const STAGE_CAP := "stage_cap"
-const MAINS_HUM := "mains_hum"
 const DISCHARGE := "discharge"
 const HEAT_WARNING := "heat_warning"
 const RIP_OFF := "rip_off"
 const UNLUCKY_NUMBER := "unlucky_number"
 const BAD_STREAK := "bad_streak"
 const SHELF_WARMER := "shelf_warmer"
+const FUSE_FAILURE := "fuse_failure"
 
 # Malus, Stufe 3
 const QUOTA_SHOCK := "quota_shock"
 const USURY_CLAUSE := "usury_clause"
 const BLACKOUT := "blackout"
-const FUSE_FAILURE := "fuse_failure"
 const HEAT_BUILDUP := "heat_buildup"
 
 # Stresstest-Konditionen (reiner Malus)
@@ -132,7 +126,6 @@ const TAG_COLORS := {
 	TAG_OVERCHARGE: "#50fa7b",
 	TAG_LEFTOVER: "#ffa62b",
 	TAG_SHOP: "#bd93f9",
-	TAG_SLOT: "#8be9fd",
 	TAG_ENERGY: "#7ef9ff",
 	TAG_THROTTLE: "#ff8c42",
 	TAG_MONEY: "#ffd319",
@@ -227,10 +220,6 @@ static func interest() -> DealClause:
 	return _bonus(INTEREST, "Zinsen", "Rundenende: +$1 je $10 in Besitz.",
 		Scope.ROUND, Tier.TWO, [TAG_MONEY])
 
-static func free_spins() -> DealClause:
-	return _bonus(FREE_SPINS, "Freispiele", "Jeder Automat: 1 Dreh gratis.",
-		Scope.ROUND, Tier.TWO, [TAG_SLOT])
-
 static func double_loader() -> DealClause:
 	return _bonus(DOUBLE_LOADER, "Doppellader", "Jede Überladungs-Stufe: +2 ⚡.",
 		Scope.ROUND, Tier.TWO, [TAG_ENERGY])
@@ -278,23 +267,19 @@ static func gold_vein() -> DealClause:
 		Scope.ROUND, Tier.THREE, [TAG_ENERGY, TAG_MONEY])
 
 static func lucky_day() -> DealClause:
-	return _bonus(LUCKY_DAY, "Glückstag", "Laden würfelt mit Glück +3.",
-		Scope.ROUND, Tier.ONE, [TAG_SHOP, TAG_LUCK])
-
-static func bulk_order() -> DealClause:
-	return _bonus(BULK_ORDER, "Großauftrag", "Karten in Paketen öfter Groß und Kolossal.",
-		Scope.ROUND, Tier.ONE, [TAG_SHOP])
+	return _bonus(LUCKY_DAY, "Glückstag", "Glück +3 diese Runde.",
+		Scope.ROUND, Tier.ONE, [TAG_LUCK])
 
 static func connoisseur_eye() -> DealClause:
-	return _bonus(CONNOISSEUR_EYE, "Kennerblick", "Seltene und legendäre Charms doppelt so oft.",
-		Scope.ROUND, Tier.TWO, [TAG_SHOP])
+	return _bonus(CONNOISSEUR_EYE, "Kennerblick", "Laden führt sicher einen legendären Charm.",
+		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
 static func soul_market() -> DealClause:
 	return _bonus(SOUL_MARKET, "Seelenmarkt", "Laden-Würfel tragen immer eine Seele.",
-		Scope.ROUND, Tier.ONE, [TAG_SHOP])
+		Scope.ROUND, Tier.TWO, [TAG_SHOP])
 
 static func free_flip() -> DealClause:
-	return _bonus(FREE_FLIP, "Freies Blättern", "Blättern im Laden gratis.",
+	return _bonus(FREE_FLIP, "Freies Blättern", "Blättern im Laden 3× gratis.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
 
 static func buyback() -> DealClause:
@@ -302,8 +287,8 @@ static func buyback() -> DealClause:
 		Scope.ROUND, Tier.ONE, [TAG_MONEY])
 
 static func math_week() -> DealClause:
-	return _bonus(MATH_WEEK, "Rechenwoche", "Multiplikator-Karten dreimal so oft.",
-		Scope.ROUND, Tier.TWO, [TAG_SHOP])
+	return _bonus(MATH_WEEK, "Rechenwoche", "Glück +6 diese Runde.",
+		Scope.ROUND, Tier.TWO, [TAG_LUCK])
 
 ## Die einzige BLOCK-Klausel: sie gilt bis zur Abrechnung nach der Boss-Runde.
 static func regular_customer() -> DealClause:
@@ -311,31 +296,23 @@ static func regular_customer() -> DealClause:
 		Scope.BLOCK, Tier.THREE, [TAG_SHOP])
 
 static func special_delivery() -> DealClause:
-	return _bonus(SPECIAL_DELIVERY, "Sonderlieferung", "Laden führt sicher eine Sonder-Karte.",
-		Scope.ROUND, Tier.THREE, [TAG_SHOP])
+	return _bonus(SPECIAL_DELIVERY, "Sonderlieferung", "Glück +10 diese Runde.",
+		Scope.ROUND, Tier.THREE, [TAG_LUCK])
 
 static func back_room_contact() -> DealClause:
 	return _bonus(BACK_ROOM_CONTACT, "Hinterzimmer-Kontakt",
-		"Schwarzmarkt: −1 ⚡ je Ware, Neuwurf gratis.", Scope.ROUND, Tier.TWO, [TAG_SHOP])
-
-static func loaded_reels() -> DealClause:
-	return _bonus(LOADED_REELS, "Gezinkte Walzen", "Automaten: kein Fumble-Feld.",
-		Scope.ROUND, Tier.TWO, [TAG_SLOT])
+		"Schwarzmarkt: −1 ⚡ je Ware.", Scope.ROUND, Tier.TWO, [TAG_SHOP])
 
 static func reinsurance() -> DealClause:
 	return _bonus(REINSURANCE, "Rückversicherung", "Verlorene Nebenwette: Einsatz zurück.",
 		Scope.ROUND, Tier.ONE, [TAG_SIDEBET])
 
-static func high_table() -> DealClause:
-	return _bonus(HIGH_TABLE, "Hoher Tisch", "Nebenwetten: Einsatz und Gewinn ×1,5.",
-		Scope.ROUND, Tier.THREE, [TAG_SIDEBET])
-
 static func big_storage() -> DealClause:
-	return _bonus(BIG_STORAGE, "Großer Speicher", "Börse dauerhaft +5 ⚡ Platz.",
+	return _bonus(BIG_STORAGE, "Großer Speicher", "Eine Powerbank: Börse +5 ⚡ Platz.",
 		Scope.INSTANT, Tier.TWO, [TAG_ENERGY])
 
 static func free_hand() -> DealClause:
-	return _bonus(FREE_HAND, "Freie Hand", "Erstes geöffnetes Paket: +1 Wahl.",
+	return _bonus(FREE_HAND, "Freie Hand", "Jedes Paket dieser Runde: +1 Wahl.",
 		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
 # --- Malusklauseln ------------------------------------------------------------
@@ -361,12 +338,12 @@ static func quota_surcharge() -> DealClause:
 		Scope.INSTANT, Tier.ONE, [TAG_QUOTA])
 
 static func betting_tax() -> DealClause:
-	return _malus(BETTING_TAX, "Wettsteuer", "Wett-Einsätze ×2.",
-		Scope.ROUND, Tier.ONE, [TAG_SIDEBET])
+	return _malus(BETTING_TAX, "Wettsteuer", "Alle Wett-Einsätze erneut zahlen.",
+		Scope.INSTANT, Tier.ONE, [TAG_SIDEBET])
 
 static func empties() -> DealClause:
 	return _malus(EMPTIES, "Leergut", "Übrige Würfel zahlen nichts.",
-		Scope.ROUND, Tier.ONE, [TAG_LEFTOVER])
+		Scope.ROUND, Tier.TWO, [TAG_LEFTOVER])
 
 static func deduction() -> DealClause:
 	return _malus(DEDUCTION, "Abschlag", "Rundenauszahlung −25 %.",
@@ -379,10 +356,6 @@ static func service_fee() -> DealClause:
 static func inflation() -> DealClause:
 	return _malus(INFLATION, "Inflation", "Ladenpreise +25 %.",
 		Scope.ROUND, Tier.ONE, [TAG_SHOP])
-
-static func power_cut() -> DealClause:
-	return _malus(POWER_CUT, "Stromsperre", "Automat aus.",
-		Scope.ROUND, Tier.ONE, [TAG_SLOT])
 
 static func quota_surcharge_ii() -> DealClause:
 	return _malus(QUOTA_SURCHARGE_II, "Blind-Aufschlag II", "Blinds dauerhaft +20 %.",
@@ -406,7 +379,7 @@ static func stage_cap() -> DealClause:
 
 static func mains_hum() -> DealClause:
 	return _malus(MAINS_HUM, "Netzbrummen", "Jede Überladungs-Stufe benötigt ×3 statt ×2.",
-		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE])
+		Scope.ROUND, Tier.ONE, [TAG_OVERCHARGE])
 
 static func discharge() -> DealClause:
 	return _malus(DISCHARGE, "Entladung", "−2 ⚡ sofort.",
@@ -429,15 +402,15 @@ static func usury_clause() -> DealClause:
 		Scope.INSTANT, Tier.THREE, [TAG_QUOTA])
 
 static func blackout() -> DealClause:
-	return _malus(BLACKOUT, "Blackout", "Übrige Würfel zahlen nichts.",
-		Scope.ROUND, Tier.THREE, [TAG_PAYOUT])
+	return _malus(BLACKOUT, "Blackout", "Diese Runde kein Geld.",
+		Scope.ROUND, Tier.THREE, [TAG_PAYOUT, TAG_MONEY])
 
 static func fuse_failure() -> DealClause:
 	return _malus(FUSE_FAILURE, "Sicherungsfall", "Jede Überladungs-Stufe benötigt ×4 statt ×2.",
-		Scope.ROUND, Tier.THREE, [TAG_OVERCHARGE, TAG_ENERGY])
+		Scope.ROUND, Tier.TWO, [TAG_OVERCHARGE, TAG_ENERGY])
 
 static func heat_buildup() -> DealClause:
-	return _malus(HEAT_BUILDUP, "Hitzestau", "Jede Hand legt ein Modul ihres Chips still.",
+	return _malus(HEAT_BUILDUP, "Hitzestau", "Fumble: ein zufälliges Modul wird zerstört.",
 		Scope.ROUND, Tier.THREE, [TAG_THROTTLE])
 
 # --- Stresstest-Konditionen ---------------------------------------------------
@@ -467,7 +440,7 @@ static func balanced_scales() -> DealClause:
 		Scope.ROUND, Tier.BOSS, [TAG_THROTTLE])
 
 static func penalty_fee() -> DealClause:
-	return _malus(PENALTY_FEE, "Strafgebühr", "Fumble: −$5.",
+	return _malus(PENALTY_FEE, "Strafgebühr", "Fumble: ein zufälliger Charm wird zerstört.",
 		Scope.ROUND, Tier.BOSS, [TAG_MONEY])
 
 static func all() -> Array[DealClause]:
@@ -475,20 +448,20 @@ static func all() -> Array[DealClause]:
 		savings_bonus(), free_charm(), advance_payment(), spotlight(),
 		cash_discount(), insurance_fraud(), seed_capital(),
 		high_voltage(), anchor_clause(), odds_bonus(),
-		happy_hour(), interest(), free_spins(), double_loader(), calibration(),
+		happy_hour(), interest(), double_loader(), calibration(),
 		golden_handshake(), work_hardening(),
 		all_on_red(), blank_cheque(), superconductor(), gold_vein(),
 		quota_surcharge(), betting_tax(), empties(), deduction(),
-		service_fee(), inflation(), power_cut(),
+		service_fee(), inflation(),
 		quota_surcharge_ii(), half_payout(), stage_cap(), mains_hum(),
 		discharge(), heat_warning(), rip_off(),
 		quota_shock(), usury_clause(), blackout(), fuse_failure(), heat_buildup(),
 		high_expectations(), all_in(), standard_protocol(), all_rounder(),
 		tilted_floor(), balanced_scales(), penalty_fee(),
 		lucky_penny(), lucky_streak(), lucky_child(), unlucky_number(), bad_streak(),
-		lucky_day(), bulk_order(), connoisseur_eye(), soul_market(), free_flip(),
+		lucky_day(), connoisseur_eye(), soul_market(), free_flip(),
 		buyback(), math_week(), regular_customer(), special_delivery(),
-		back_room_contact(), loaded_reels(), reinsurance(), high_table(),
+		back_room_contact(), reinsurance(),
 		big_storage(),
 		empty_shelves(), shelf_warmer(), soulless(), flip_surcharge(),
 		free_hand(),
@@ -530,7 +503,7 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		ADVANCE_PAYMENT:
 			return "+$24 sofort."
 		FREE_HAND:
-			return "Erstes geöffnetes Paket: +2 Wahlen."
+			return "Jedes Paket dieser Runde: +2 Wahlen."
 		BLANK_CHEQUE:
 			return "+$80 sofort."
 		SEED_CAPITAL:
@@ -566,19 +539,21 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 		WORK_HARDENING:
 			return "Jede ausgelöste Seite dauerhaft +2."
 		LUCKY_DAY:
-			return "Laden würfelt mit Glück +6."
+			return "Glück +6 diese Runde."
 		CONNOISSEUR_EYE:
-			return "Seltene und legendäre Charms viermal so oft."
+			return "Laden führt sicher zwei legendäre Charms."
 		MATH_WEEK:
-			return "Multiplikator-Karten sechsmal so oft."
+			return "Glück +12 diese Runde."
+		SPECIAL_DELIVERY:
+			return "Glück +20 diese Runde."
+		FREE_FLIP:
+			return "Blättern im Laden 6× gratis."
 		REGULAR_CUSTOMER:
 			return "Ladenpreise −28 % bis zur Boss-Runde."
 		BACK_ROOM_CONTACT:
-			return "Schwarzmarkt: −2 ⚡ je Ware, Neuwurf gratis."
-		HIGH_TABLE:
-			return "Nebenwetten: Einsatz ×1,5, Gewinn ×3."
+			return "Schwarzmarkt: −2 ⚡ je Ware."
 		BIG_STORAGE:
-			return "Börse dauerhaft +10 ⚡ Platz."
+			return "Zwei Powerbanks: Börse +10 ⚡ Platz."
 	return clause.text
 
 static func tags_of(clause_id: String) -> Array[String]:

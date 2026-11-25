@@ -95,8 +95,6 @@ const QUOTA_MALUS := {
 }
 ## Pechsträhne: jeder echte Fumble der Runde hebt blind_value dauerhaft.
 const BAD_STREAK_RAISE := 0.05
-## Strafgebühr (Boss): jeder echte Fumble kostet so viel, nie unter $0.
-const PENALTY_FEE_MONEY := 5
 ## Glücks-Klauseln: Glück je Unterschrift (Malus negativ).
 const LUCK_CLAUSES := {
 	DealClause.LUCKY_PENNY: 1,
@@ -104,6 +102,14 @@ const LUCK_CLAUSES := {
 	DealClause.LUCKY_CHILD: 3,
 	DealClause.UNLUCKY_NUMBER: -2,
 }
+## Glück auf Zeit: mit der Unterschrift dazu, mit dem Start der nächsten Runde wieder fort.
+const TEMP_LUCK_CLAUSES := {
+	DealClause.LUCKY_DAY: 3,
+	DealClause.MATH_WEEK: 6,
+	DealClause.SPECIAL_DELIVERY: 10,
+}
+## Freies Blättern: so viele Doppelseiten gratis.
+const FREE_FLIPS := 3
 
 ## Überladung: das Rundenziel lässt sich bis zu OVERCHARGE_STAGES-mal füllen,
 ## jede Stufe fordert die doppelte Punktzahl der vorigen (150 / 300 / 600 / …).
@@ -174,8 +180,10 @@ var route_offers: Array[Dictionary] = []
 var throttled_combos: Array[String] = []
 ## Hausgutschein: der nächste Charm im Laden ist gratis (verbraucht sich).
 var free_charm_pending: bool = false
-## Freispiele: Automaten, die ihren Gratisdreh dieser Runde schon hatten.
-var free_spins_used: Array[int] = []
+## Glück auf Zeit, das der nächste Rundenstart wieder abzieht.
+var temp_luck: int = 0
+## Freies Blättern: verbrauchte Gratis-Seiten dieser Runde.
+var free_flips_used: int = 0
 ## Freispiel-Charm: der Gratisdreh dieses LADENBESUCHS ist verbraucht. Er hängt
 ## am Besuch, nicht an der Runde - begin_shop_visit setzt ihn zurück.
 var free_spin_used_this_visit: bool = false
@@ -215,8 +223,8 @@ var heat_disabled_parts: Dictionary = {}
 ## Echte Fumbles des Laufs (sinkt nie) und des laufenden Blocks.
 var farkle_count: int = 0
 var block_fumbles: int = 0
-## Strafgebühr des letzten Fumbles (0 = keine) - nur für die Anzeige.
-var last_fumble_fee: int = 0
+## Hitzestau: das Modul, das der letzte Fumble zerstört hat (null = keins) - für die Anzeige.
+var last_fumble_lost_part: ComboPart = null
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 ## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
@@ -325,6 +333,8 @@ func add_money(amount: int) -> void:
 ## Hour durch add_money und wird dort ein zweites Mal gehoben - der Winkeladvokat
 ## bearbeitet jede Klausel einzeln, nicht die Summe am Ende.
 func money_gain_factor() -> float:
+	if _clause_active(DealClause.BLACKOUT):
+		return 0.0
 	var factor := 1.0
 	var boost := deal_bonus_factor()
 	if _clause_active(DealClause.HAPPY_HOUR):
@@ -444,43 +454,36 @@ func overcharge_frame() -> int:
 	return 5
 
 ## Halbierte Blätter-Gebühr ab TIER_CHEAP_FLIP (stapelt mit dem Wechselgeld-Charm);
-## Freies Blättern macht sie 0, der Blätter-Aufschlag verdoppelt sie.
+## Freies Blättern macht sie 0, solange Gratis-Seiten übrig sind, der Blätter-Aufschlag verdoppelt sie.
 func shop_flip_fee_factor() -> float:
-	if _clause_active(DealClause.FREE_FLIP):
+	if free_flips_left() > 0:
 		return 0.0
 	var factor := 0.5 if progress_tier() >= TIER_CHEAP_FLIP else 1.0
 	if _clause_active(DealClause.FLIP_SURCHARGE):
 		factor *= 2.0
 	return factor
 
-## Glückstag: so viel Glück legt der Laden für seine Würfe drauf.
-const LUCKY_DAY_LUCK := 3
+func free_flips_left() -> int:
+	if not _clause_active(DealClause.FREE_FLIP):
+		return 0
+	return maxi(0, FREE_FLIPS * deal_bonus_factor() - free_flips_used)
+
+## Eine neue Doppelseite ist aufgeschlagen: eine Gratis-Seite verbraucht, falls übrig.
+func note_shop_flip() -> void:
+	if free_flips_left() > 0:
+		free_flips_used += 1
 
 ## Die Fortschrittsstufe, mit der der LADEN würfelt (Seltenheit, Multiplikator,
-## Sonderposten, Würfel-Augen) - der Glückstag hebt sie.
+## Sonderposten, Würfel-Augen).
 func shop_tier() -> int:
-	if not _clause_active(DealClause.LUCKY_DAY):
-		return progress_tier()
-	var bonus := LUCKY_DAY_LUCK * deal_bonus_factor()
-	return clampi(1 + (effective_luck() + bonus) / LUCK_PER_TIER, 1, TIER_MAX)
-
-## Größen-Gewichte der Laden-Karten (Großauftrag: öfter Groß und Kolossal).
-const BULK_ORDER_TIER_WEIGHTS := [0.3, 0.45, 0.25]
+	return progress_tier()
 
 func shop_tier_weights() -> Array:
-	return BULK_ORDER_TIER_WEIGHTS if _clause_active(DealClause.BULK_ORDER) \
-		else Pack.TIER_WEIGHTS
+	return Pack.TIER_WEIGHTS
 
-## Großauftrag: die Karten eines Pakets würfeln eine Größenstufe besser.
-func shop_card_pack_bulk() -> bool:
-	return _clause_active(DealClause.BULK_ORDER)
-
-## Ziehgewicht-Faktoren je Charm-Seltenheit (Kennerblick).
-func shop_charm_rarity_factors() -> Dictionary:
-	if not _clause_active(DealClause.CONNOISSEUR_EYE):
-		return {}
-	var factor := 2.0 * deal_bonus_factor()
-	return {Charm.RARITY_RARE: factor, Charm.RARITY_LEGENDARY: factor}
+## Kennerblick: so viele legendäre Charms führt jede Doppelseite sicher (0 = keine Garantie).
+func shop_guaranteed_legendaries() -> int:
+	return deal_bonus_factor() if _clause_active(DealClause.CONNOISSEUR_EYE) else 0
 
 ## Ladenhüter: der Laden führt nur gewöhnliche Charms.
 func shop_common_charms_only() -> bool:
@@ -535,8 +538,6 @@ func shop_pack_places() -> int:
 ## Chance auf EINEN Sonderposten in der Auslage (0 = keiner). Höchstens einer je
 ## Doppelseite: er ersetzt einen zufälligen Paket-Platz, statt einen dazuzustellen.
 func shop_special_chance() -> float:
-	if _clause_active(DealClause.SPECIAL_DELIVERY):
-		return 1.0
 	var tier := shop_tier()
 	if tier < SHOP_SPECIAL_TIER:
 		return 0.0
@@ -548,14 +549,9 @@ const MULTIPLIER_CHANCE_BASE := 0.04
 const MULTIPLIER_CHANCE_STEP := 0.02
 const MULTIPLIER_CHANCE_CAP := 0.25
 
-## Rechenwoche: Multiplikator-Netze dreimal so oft (der Deckel bleibt).
-const MATH_WEEK_FACTOR := 3.0
-
 func shop_multiplier_chance() -> float:
 	var chance := MULTIPLIER_CHANCE_BASE \
 		+ MULTIPLIER_CHANCE_STEP * float(maxi(shop_tier() - 1, 0))
-	if _clause_active(DealClause.MATH_WEEK):
-		chance *= MATH_WEEK_FACTOR * deal_bonus_factor()
 	return minf(chance, MULTIPLIER_CHANCE_CAP)
 
 ## Kauf aus der Chip-Schale: bezahlt und SOFORT einzusetzen - pending_dice ist kein
@@ -774,7 +770,7 @@ var last_lapsed_parts: Array[ComboPart] = []
 
 ## Freie Hand: das erste geöffnete Paket der Runde bekommt Wahlen dazu.
 func _free_hand_bonus() -> int:
-	if packs_opened_this_round == 0 and _clause_active(DealClause.FREE_HAND):
+	if _clause_active(DealClause.FREE_HAND):
 		return deal_bonus_factor()
 	return 0
 
@@ -836,7 +832,7 @@ func _roll_pack_options(pack: Resource, count: int, rng: RandomNumberGenerator) 
 	var out: Array = []
 	if pack is CardPack:
 		for card in CardPack.roll_contents(pack as CardPack, shop_multiplier_chance(),
-				shop_card_pack_bulk(), rng, count):
+				rng, count):
 			out.append(card)
 	return out
 
@@ -1131,8 +1127,7 @@ func grant_packs(packs: Array[Pack]) -> Array[Pack]:
 ## Die Walze hat sechs Scheiben; ein Lauf beginnt mit ZWEI freigeschalteten, jede
 ## weitere kostet Energie = bisherige Scheiben + 1 (Spieler-Entscheid 2026-11-23).
 const START_DRUM_SLOTS := 2
-## Deckel = BLOCK-GRÖSSE: der Block der Zeremonie ist sechs Karten, also gibt es
-## keine siebte (Spieler-Entscheid 2026-09-05).
+## Deckel = Scheiben der Walze (Layout E, Spieler-Entscheid 2026-11-25).
 const SERIES_SLOT_CAP := 6
 
 var drum_slots: int = START_DRUM_SLOTS
@@ -1728,20 +1723,43 @@ func note_hand_taken(combo_key: String) -> bool:
 				throttled_combos.append(key)
 	return throttled_combos.size() > before
 
-## Hitzestau: die gespielte Kombination legt ein Teil ihres Chips für die Runde
-## still - das im HINTERSTEN belegten Steckplatz, das noch läuft. true = es ging
-## tatsächlich eins aus.
-func apply_heat_buildup(combo_key: String) -> bool:
-	if not _clause_active(DealClause.HEAT_BUILDUP) or _chip_guarded(combo_key):
-		return false
-	var sockets := parts_of(combo_key)
-	for slot in range(sockets.size() - 1, -1, -1):
-		var part: ComboPart = sockets[slot]
-		if part != null and not is_part_disabled(part):
-			heat_disabled_parts[part.get_instance_id()] = true
-			combo_parts_changed.emit(combo_key)
-			return true
-	return false
+## Hitzestau: ein echter Fumble zerstört ein zufälliges Modul - Chips mit Sperrdiode
+## bleiben verschont. Liefert das zerstörte Modul (null = keins).
+func destroy_fumble_part(rng: RandomNumberGenerator = null) -> ComboPart:
+	if not _clause_active(DealClause.HEAT_BUILDUP):
+		return null
+	var spots: Array[Array] = []
+	for key: String in DiceScoring.HAND_PRIORITY:
+		if _chip_guarded(key):
+			continue
+		var sockets: Array = combo_parts.get(key, [])
+		for slot in sockets.size():
+			if sockets[slot] != null:
+				spots.append([key, slot])
+	if spots.is_empty():
+		return null
+	var at := rng.randi_range(0, spots.size() - 1) if rng != null else randi_range(0, spots.size() - 1)
+	var key := String(spots[at][0])
+	var slot := int(spots[at][1])
+	var part: ComboPart = combo_parts[key][slot]
+	combo_parts[key][slot] = null
+	combo_parts_changed.emit(key)
+	return part
+
+## Strafgebühr (Boss): Platz des Charms, den dieser Fumble zerstört (-1 = keiner).
+## Gewählt wird hier, entfernt erst mit destroy_charm - die Diskette muss vorher heraus.
+func fumble_charm_loss(rng: RandomNumberGenerator = null) -> int:
+	if not _clause_active(DealClause.PENALTY_FEE) or owned_charms.is_empty():
+		return -1
+	return rng.randi_range(0, owned_charms.size() - 1) if rng != null \
+		else randi_range(0, owned_charms.size() - 1)
+
+## Entfernt den Charm auf Platz index ersatzlos.
+func destroy_charm(index: int) -> void:
+	if index < 0 or index >= owned_charms.size():
+		return
+	owned_charms.remove_at(index)
+	charms_changed.emit()
 
 ## Ist dieses Teil in der laufenden Runde stillgelegt (Hitzestau)?
 func is_part_disabled(part: ComboPart) -> bool:
@@ -1859,6 +1877,8 @@ func _draw_clause(tier: DealClause.Tier, kind: DealClause.Kind,
 			continue
 		if _shares_tag(clause_id, taboo_tags) or _quota_blocked(clause_id):
 			continue
+		if clause_id == DealClause.BIG_STORAGE and storage_rows >= max_storage_rows():
+			continue
 		pool.append(clause_id)
 	if pool.is_empty():
 		pool = all_ids
@@ -1917,6 +1937,10 @@ func _apply_instant_clause(clause_id: String) -> void:
 	if LUCK_CLAUSES.has(clause_id):
 		var amount := int(LUCK_CLAUSES[clause_id])
 		add_luck(amount * boost if amount > 0 else amount)
+	if TEMP_LUCK_CLAUSES.has(clause_id):
+		var lent := int(TEMP_LUCK_CLAUSES[clause_id]) * boost
+		temp_luck += lent
+		add_luck(lent)
 	match clause_id:
 		DealClause.CALIBRATION:
 			# Nachlass: zweimal angewandt statt verdoppelt.
@@ -1931,11 +1955,11 @@ func _apply_instant_clause(clause_id: String) -> void:
 			spend_energy(DISCHARGE_ENERGY)
 		DealClause.FREE_CHARM:
 			free_charm_pending = true
-		DealClause.FREE_SPINS:
-			free_spins_used.clear()
 		DealClause.BIG_STORAGE:
-			storage_rows += boost
+			storage_rows = mini(storage_rows + boost, max_storage_rows())
 			energy_changed.emit(energy)  # der Deckel ist gewachsen
+		DealClause.BETTING_TAX:
+			repay_side_bet_stakes()
 
 ## Energie, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
 ## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zum Ring.
@@ -1951,7 +1975,6 @@ func settle_block_deals() -> void:
 		return
 	active_deals.clear()
 	free_charm_pending = false
-	free_spins_used.clear()
 	deals_changed.emit()
 
 ## Ob die Klausel in diesem Block schon unterschrieben wurde (auch wenn ihre
@@ -2066,6 +2089,8 @@ func round_payout_factor() -> float:
 		factor *= 0.75
 	if _clause_active(DealClause.HALF_PAYOUT):
 		factor *= 0.5
+	if _clause_active(DealClause.BLACKOUT):
+		factor = 0.0
 	return factor
 
 ## Sparprämie: Aufschlag je übrigem Würfel (zusätzlich zum Sparschwein-Charm).
@@ -2136,13 +2161,6 @@ func charm_is_free() -> bool:
 func consume_free_charm() -> void:
 	free_charm_pending = false
 
-## Stromsperre: die Automaten bleiben diese Runde aus.
-func slots_enabled() -> bool:
-	return not _clause_active(DealClause.POWER_CUT)
-
-## Freispiele: dieser Automat hat seinen Gratisdreh noch offen.
-func slot_spin_is_free(machine: int) -> bool:
-	return _clause_active(DealClause.FREE_SPINS) and not free_spins_used.has(machine)
 
 ## Der Laden öffnet: der Gratisdreh des Freispiels lebt wieder auf.
 func begin_shop_visit() -> void:
@@ -2153,27 +2171,48 @@ func begin_shop_visit() -> void:
 func charm_free_spin_open() -> bool:
 	return not free_spin_used_this_visit and CharmEffects.has_free_spin(charm_ids())
 
-## Hoher Tisch: Einsatz und Gewinnwert der Nebenwetten ×1,5.
-const HIGH_TABLE_FACTOR := 1.5
-
-## Faktor auf den GEWINNWERT gewonnener Nebenwetten (Quotenbonus, Hoher Tisch).
+## Faktor auf den GEWINNWERT gewonnener Nebenwetten (Quotenbonus).
 func side_bet_payout_factor() -> float:
-	var factor := 1.0
 	if _clause_active(DealClause.ODDS_BONUS):
-		factor *= 2.0 * deal_bonus_factor()
-	if _clause_active(DealClause.HIGH_TABLE):
-		factor *= HIGH_TABLE_FACTOR * deal_bonus_factor()
-	return factor
+		return 2.0 * deal_bonus_factor()
+	return 1.0
 
-## Faktor auf den Einsatz (Wettsteuer ×2, Hoher Tisch ×1,5) - Anzeige UND Abbuchung
-## lesen das hier, gerundet wird aufwärts (SideBet.scaled).
+## Faktor auf den Einsatz - Anzeige UND Abbuchung lesen das hier, gerundet wird
+## aufwärts (SideBet.scaled). Keine Klausel dreht mehr daran.
 func side_bet_stake_factor() -> float:
-	var factor := 1.0
-	if _clause_active(DealClause.BETTING_TAX):
-		factor *= 2.0
-	if _clause_active(DealClause.HIGH_TABLE):
-		factor *= HIGH_TABLE_FACTOR
-	return factor
+	return 1.0
+
+## Wettsteuer: jede laufende Wette zahlt ihren Einsatz noch einmal. Was nicht reicht,
+## entfällt - die Wette läuft trotzdem weiter, als wäre gezahlt. Steuerwetten zahlen
+## beim Setzen nichts und hier darum auch nichts.
+func repay_side_bet_stakes() -> void:
+	var changed := false
+	for bet in active_side_bets:
+		if bet.voided:
+			continue
+		match bet.stake_kind:
+			SideBet.Stake.PACKS:
+				var packs := stake_packs_for(bet)
+				if not packs.is_empty():
+					bet.paid_packs.append_array(packs)
+					_consume_packs(packs)
+					changed = true
+			SideBet.Stake.ENERGY:
+				var due := mini(energy, side_bet_stake_energy(bet))
+				if due > 0:
+					spend_energy(due)
+					bet.paid_energy += due
+					changed = true
+			SideBet.Stake.MONEY_PER_HAND, SideBet.Stake.MONEY_PER_DIE:
+				pass
+			_:
+				var due := mini(maxi(money, 0), side_bet_stake(bet))
+				if due > 0:
+					add_money(-due)
+					bet.paid_money += due
+					changed = true
+	if changed:
+		side_bets_changed.emit()
 
 ## Fälliger Bar-Einsatz einer Wette.
 func side_bet_stake(bet: SideBet) -> int:
@@ -2377,11 +2416,8 @@ func note_fumble(volcanic: bool) -> int:
 		ash_fumbles += 1
 	if _clause_active(DealClause.BAD_STREAK):
 		raise_blind(1.0 + BAD_STREAK_RAISE)
-	last_fumble_fee = 0
-	if _clause_active(DealClause.PENALTY_FEE):
-		last_fumble_fee = mini(PENALTY_FEE_MONEY, maxi(0, money))
-		money -= last_fumble_fee
 	_arm_afterburners()
+	last_fumble_lost_part = destroy_fumble_part()
 	var minted := CharmEffects.fumble_energy(charm_ids())
 	if minted > 0:
 		add_energy(minted)
@@ -2683,15 +2719,14 @@ func _pay_side_bet(bet: SideBet, factor: float) -> void:
 
 ## Einsatz für einen Dreh an Automat machine in ⚡ (Freispiele drehen gratis).
 func slot_spin_energy(machine: int) -> int:
-	if slot_spin_is_free(machine) or charm_free_spin_open():
+	if charm_free_spin_open():
 		return 0
 	return SlotMachine.SPIN_ENERGYS[clampi(machine, 0, SlotMachine.MACHINE_COUNT - 1)]
 
-## Ob der Spieler Automat machine gerade drehen darf: nicht stromgesperrt, in der
-## Sitzung noch frei und der Einsatz bezahlbar.
+## Ob der Spieler Automat machine gerade drehen darf: in der Sitzung noch frei und
+## der Einsatz bezahlbar.
 func can_spin_slot(machine: int) -> bool:
-	return slots_enabled() and slot_bank.can_spin(machine) \
-		and energy >= slot_spin_energy(machine)
+	return slot_bank.can_spin(machine) and energy >= slot_spin_energy(machine)
 
 ## Bezahlt den Einsatz und WÜRFELT Automat machine, schreibt das Ergebnis aber noch
 ## NICHT auf die Wand - das tut commit_slot erst nach der Walzen-Animation, damit
@@ -2700,17 +2735,12 @@ func can_spin_slot(machine: int) -> bool:
 func spin_slot(machine: int) -> Array:
 	if not can_spin_slot(machine):
 		return []
-	if slot_spin_is_free(machine):
-		free_spins_used.append(machine)  # je Automat genau ein Gratisdreh je Runde
-	elif charm_free_spin_open():
+	if charm_free_spin_open():
 		free_spin_used_this_visit = true  # ein Freispiel je Besuch, nicht je Automat
 	else:
 		spend_energy(slot_spin_energy(machine))
-	return slot_bank.roll(machine, null, farkle_count, slots_fumble_free())
+	return slot_bank.roll(machine, null, farkle_count)
 
-## Gezinkte Walzen: der Walzen-Wurf kennt kein Fumble-Feld.
-func slots_fumble_free() -> bool:
-	return _clause_active(DealClause.LOADED_REELS)
 
 ## Schreibt den gewürfelten Block auf die Wand (Topf/Bust) - die Anzeige ruft das,
 ## sobald die Walze gelandet ist.
@@ -2759,7 +2789,11 @@ func advance_round() -> void:
 	while blind_history.size() < round_number - 1:
 		blind_history.append(floor_to_blind(float(BASE_GOAL)))
 	blind_history.append(effective_goal())
+	if temp_luck > 0:
+		add_luck(-temp_luck)
+		temp_luck = 0
 	add_luck(1)
+	free_flips_used = 0
 	var old_block := block_of_round(round_number)
 	round_number += 1
 	if block_of_round(round_number) != old_block:
@@ -2944,6 +2978,10 @@ func energy_cap_rows() -> int:
 ## Zusätzliche Fünfergruppen der Börse: Powerbanks des Schwarzmarkts und der Große Speicher.
 var storage_rows: int = 0
 
+## So viele Powerbanks passen höchstens in die Börse.
+func max_storage_rows() -> int:
+	return ENERGY_CAP_LIMIT / ENERGY_ROW - 1
+
 ## ⚡-Preis der nächsten Powerbank, nie über dem Deckel (-1 = der Speicher ist voll ausgebaut).
 func powerbank_price() -> int:
 	if energy_cap() >= ENERGY_CAP_LIMIT:
@@ -2987,7 +3025,7 @@ func book_copper_energy(count: int) -> int:
 ## Preis des nächsten Neuwurfs - immer derselbe. Die Hehlerware drückt ihn NICHT:
 ## ein Neuwurf ist keine Ware.
 func secret_reroll_cost() -> int:
-	return 0 if _clause_active(DealClause.BACK_ROOM_CONTACT) else SECRET_REROLL_BASE
+	return SECRET_REROLL_BASE
 
 ## Fälliger ⚡-Preis EINES Angebots (Hehlerware drückt ihn, nie unter 1). Einzige
 ## Quelle für Anzeige, Bezahlbarkeit und Abbuchung.
@@ -3257,6 +3295,24 @@ func clear_all_materials() -> void:
 			levels.append(0)  # ohne Material kein Zustand
 		die.materials = mats
 		die.levels = levels
+	pool_changed.emit()
+
+## Debug: jede Seite jedes Pool-Würfels bekommt eine zufällige Rune (Slot 0).
+func debug_rune_all_dice(rng: RandomNumberGenerator = null) -> void:
+	var ids: Array[String] = []
+	for rune in Rune.all():
+		ids.append(rune.id)
+	for die in owned_pool:
+		for face in die.runes.size():
+			var pick := rng.randi_range(0, ids.size() - 1) if rng != null else randi() % ids.size()
+			die.set_rune(face, ids[pick])
+	pool_changed.emit()
+
+## Debug: jede Seite jedes Pool-Würfels bekommt eine Zufallszahl 1..2000.
+func debug_randomize_faces(rng: RandomNumberGenerator = null) -> void:
+	for die in owned_pool:
+		for face in die.faces.size():
+			die.faces[face] = rng.randi_range(1, 2000) if rng != null else randi_range(1, 2000)
 	pool_changed.emit()
 
 ## Verteilt Seelen über den ganzen Pool. Der EINZIGE Weg im Spiel, der eine

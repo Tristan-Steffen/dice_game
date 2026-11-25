@@ -380,10 +380,6 @@ func _spin_button(i: int, u: float, tier: Color, spinning: bool,
 		button.disabled = true
 	elif run == null:
 		button.disabled = true
-	elif not run.slots_enabled():
-		button.text = "Strom aus"  # Stromsperre: kein Preis, der Automat ist tot
-		button.disabled = true
-		accent = MUTED_COLOR
 	else:
 		button.text = "gratis" if run.slot_spin_energy(i) <= 0 else "Drehen  %d⚡" % run.slot_spin_energy(i)
 		var can := not _spinning and run.can_spin_slot(i)

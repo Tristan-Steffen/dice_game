@@ -9,7 +9,7 @@ func _rng(seed_value: int) -> RandomNumberGenerator:
 func test_option_count_follows_the_card_count() -> void:
 	for pack_size in CardPack.SIZES:
 		var card_pack := CardPack.make(CardPack.SORT_NUMBER, pack_size)
-		var cards := CardPack.roll_contents(card_pack, 0.0, false, _rng(pack_size + 1))
+		var cards := CardPack.roll_contents(card_pack, 0.0, _rng(pack_size + 1))
 		assert_eq(cards.size(), [2, 3, 4, 5, 6][pack_size], "Größe %d" % pack_size)
 
 func test_card_packs_run_from_two_to_six() -> void:
@@ -36,11 +36,11 @@ func test_the_front_card_is_always_the_first_option() -> void:
 	for pack_sort: String in CardPack.SORTS:
 		for seed_value in 20:
 			var card_pack := CardPack.make(pack_sort, CardPack.SIZE_NORMAL, DicePack.QUALITY_FINE)
-			var shown := card_pack.front_card(0.0, false, _rng(seed_value))
+			var shown := card_pack.front_card(0.0, _rng(seed_value))
 			assert_eq(card_pack.front_card(), shown, "einmal gewürfelt, dann fest")
 			var net := shown.stamp_net.duplicate(true)
-			var first := CardPack.roll_contents(card_pack, 0.0, false, _rng(seed_value + 100))
-			var again := CardPack.roll_contents(card_pack, 0.0, false, _rng(seed_value + 200))
+			var first := CardPack.roll_contents(card_pack, 0.0, _rng(seed_value + 100))
+			var again := CardPack.roll_contents(card_pack, 0.0, _rng(seed_value + 200))
 			assert_eq(first[0], shown, "%s: Option 0 ist die sichtbare Karte" % pack_sort)
 			assert_eq(again[0], shown, "auch nach Neu mischen")
 			assert_eq(shown.stamp_net, net, "und sie bleibt, wie sie ist")
@@ -54,7 +54,7 @@ func test_the_front_card_survives_a_copy_of_the_pack() -> void:
 func test_special_packs_hold_only_special_cards() -> void:
 	for seed_value in 40:
 		for card in CardPack.roll_contents(CardPack.make(CardPack.SORT_SPECIAL,
-				CardPack.SIZE_LARGE, DicePack.QUALITY_ROYAL), 0.3, false, _rng(seed_value)):
+				CardPack.SIZE_LARGE, DicePack.QUALITY_ROYAL), 0.3, _rng(seed_value)):
 			assert_eq(Pack.shelf_of(card), Pack.SHELF_SPECIAL, "nur Sonderbestand")
 	assert_eq(CardPack.make(CardPack.SORT_SPECIAL, 0, DicePack.QUALITY_ROYAL).guaranteed_tier(),
 		-1, "Sonder-Karten kennen keine Größe, also keine Garantie")
@@ -65,7 +65,7 @@ func test_regular_sorts_hold_only_their_own_cards() -> void:
 	for pack_sort: String in expected:
 		for seed_value in 30:
 			var cards := CardPack.roll_contents(CardPack.make(pack_sort, CardPack.SIZE_LARGE),
-				0.0, false, _rng(seed_value))
+				0.0, _rng(seed_value))
 			for card in cards:
 				assert_eq(card.type, String(expected[pack_sort]), pack_sort)
 				assert_false(card.is_catalyst() or card.is_operator(), "keine Sonderware")
@@ -74,9 +74,9 @@ func test_fine_and_royal_keep_their_guarantee_among_the_options() -> void:
 	for pack_sort: String in [CardPack.SORT_NUMBER, CardPack.SORT_MATERIAL]:
 		for seed_value in 60:
 			var fine := CardPack.roll_contents(CardPack.make(pack_sort, CardPack.SIZE_SMALL,
-				DicePack.QUALITY_FINE), 0.0, false, _rng(seed_value))
+				DicePack.QUALITY_FINE), 0.0, _rng(seed_value))
 			var royal := CardPack.roll_contents(CardPack.make(pack_sort, CardPack.SIZE_SMALL,
-				DicePack.QUALITY_ROYAL), 0.0, false, _rng(seed_value + 1000))
+				DicePack.QUALITY_ROYAL), 0.0, _rng(seed_value + 1000))
 			assert_true(_max_tier(fine) >= Pack.TIER_GROSS, "Edel: mindestens eine Große")
 			assert_true(_max_tier(royal) >= Pack.TIER_KOLOSSAL, "Royal: eine Kolossale")
 
@@ -85,7 +85,7 @@ func test_quality_lifts_the_card_sizes() -> void:
 	for pack_quality in DicePack.QUALITIES:
 		for seed_value in 150:
 			for card in CardPack.roll_contents(CardPack.make(CardPack.SORT_NUMBER,
-					CardPack.SIZE_LARGE, pack_quality), 0.0, false, _rng(seed_value)):
+					CardPack.SIZE_LARGE, pack_quality), 0.0, _rng(seed_value)):
 				sums[pack_quality] += card.tier
 	assert_gt(sums[1], sums[0], "Edel größer als Standard")
 	assert_gt(sums[2], sums[1], "Royal größer als Edel")
@@ -99,30 +99,18 @@ func _max_tier(cards: Array[Pack]) -> int:
 func test_never_a_blank() -> void:
 	for seed_value in 80:
 		var cards := CardPack.roll_contents(CardPack.make(CardPack.SORT_SPECIAL,
-			CardPack.SIZE_LARGE), 0.2, false, _rng(seed_value))
+			CardPack.SIZE_LARGE), 0.2, _rng(seed_value))
 		for card in cards:
 			assert_false(card.from_blank(), "nie ein Rohling")
 
 func test_no_duplicate_net_inside_one_pack() -> void:
 	for seed_value in 60:
 		var cards := CardPack.roll_contents(CardPack.make(CardPack.SORT_RUNE,
-			CardPack.SIZE_LARGE, DicePack.QUALITY_ROYAL), 0.0, false, _rng(seed_value))
+			CardPack.SIZE_LARGE, DicePack.QUALITY_ROYAL), 0.0, _rng(seed_value))
 		var keys := {}
 		for card in cards:
 			keys[CardPack.content_key(card)] = true
 		assert_eq(keys.size(), cards.size(), "keine Dublette (Seed %d)" % seed_value)
-
-func test_bulk_order_lifts_the_card_sizes() -> void:
-	var plain := 0
-	var bulk := 0
-	for seed_value in 200:
-		for card in CardPack.roll_contents(CardPack.make(CardPack.SORT_NUMBER,
-				CardPack.SIZE_NORMAL), 0.0, false, _rng(seed_value)):
-			plain += card.tier
-		for card in CardPack.roll_contents(CardPack.make(CardPack.SORT_NUMBER,
-				CardPack.SIZE_NORMAL), 0.0, true, _rng(seed_value)):
-			bulk += card.tier
-	assert_gt(bulk, plain, "Großauftrag würfelt größer")
 
 ## Der Preis ist die Formel: Preis-Wahlen × Ladenwert einer Option × Auswahl-Prämie.
 ## Sonder rechnet mit dem Regalpreis der Sonder-Karte.

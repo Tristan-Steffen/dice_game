@@ -1270,9 +1270,8 @@ func test_the_shyster_never_touches_a_malus():
 	_shyster()
 	run.add_energy(5)
 	var before := run.energy
-	_sign([DealClause.DISCHARGE, DealClause.BETTING_TAX, DealClause.HALF_PAYOUT])
+	_sign([DealClause.DISCHARGE, DealClause.HALF_PAYOUT])
 	assert_eq(run.energy, before - GameRun.DISCHARGE_ENERGY, "die Entladung bleibt einfach")
-	assert_eq(run.side_bet_stake_factor(), 2.0, "die Wettsteuer bleibt einfach")
 	assert_almost_eq(run.round_payout_factor(), 0.5, 0.0001)
 
 func test_the_shyster_does_not_stack():
@@ -1434,7 +1433,21 @@ func test_leftover_clauses_silence_the_die_row():
 	assert_false(run.unused_dice_pay())
 	run.settle_block_deals()
 	_sign([DealClause.BLACKOUT])
-	assert_false(run.unused_dice_pay(), "Blackout wirkt genauso, nur eine Runde")
+	assert_false(run.unused_dice_pay(), "Blackout schweigt die Reihe auch")
+
+func test_blackout_earns_no_money_at_all():
+	_sign([DealClause.BLACKOUT])
+	run.money = 10
+	run.add_money(25)
+	assert_eq(run.money, 10, "kein Geld in dieser Runde")
+	assert_eq(run.round_payout_factor(), 0.0)
+	run.add_money(-4)
+	assert_eq(run.money, 6, "Ausgaben laufen weiter")
+	run.refund_money(3)
+	assert_eq(run.money, 9, "eine Erstattung ist kein Verdienst")
+	run.advance_round()
+	run.add_money(5)
+	assert_eq(run.money, 14, "die nächste Runde verdient wieder")
 
 func test_high_voltage_and_stage_cap_resolve_in_order():
 	assert_eq(run.max_overcharge_stages(), 5, "Hinterzimmer ohne Vertrag: voller Rahmen")
@@ -1516,22 +1529,6 @@ func test_the_first_charm_of_the_block_is_free():
 	run.consume_free_charm()
 	assert_false(run.charm_is_free(), "der Gutschein verbraucht sich")
 
-func test_free_spins_are_one_per_machine():
-	_sign([DealClause.FREE_SPINS])
-	assert_eq(run.slot_spin_energy(0), 0)
-	run.energy = 0
-	assert_true(run.can_spin_slot(0), "gratis geht auch ohne Energie")
-	run.spin_slot(0)
-	assert_gt(run.slot_spin_energy(0), 0, "der Gratisdreh ist verbraucht")
-	assert_eq(run.slot_spin_energy(1), 0, "der nächste Automat hat seinen noch")
-
-func test_power_cut_switches_the_slots_off():
-	run.energy = 9
-	assert_true(run.can_spin_slot(0))
-	_sign([DealClause.POWER_CUT])
-	assert_false(run.slots_enabled())
-	assert_false(run.can_spin_slot(0))
-
 func test_fees_and_consolations_are_plain_queries():
 	_sign([DealClause.SERVICE_FEE, DealClause.RIP_OFF])
 	assert_eq(run.hand_fee(), GameRun.SERVICE_FEE_MONEY)
@@ -1550,18 +1547,11 @@ func test_gold_vein_pays_per_stage():
 	_sign([DealClause.GOLD_VEIN])
 	assert_eq(run.gold_vein_income(), GameRun.GOLD_VEIN_MONEY)
 
-func test_odds_bonus_and_betting_tax_are_separate_clauses():
+func test_odds_bonus_does_not_raise_the_stake():
 	var bet := SideBet._from_template(_template("jackpot"))
 	_sign([DealClause.ODDS_BONUS])
 	assert_eq(run.side_bet_payout_factor(), 2.0)
 	assert_eq(run.side_bet_stake(bet), bet.stake, "der Bonus verteuert nichts")
-	_sign([DealClause.BETTING_TAX])
-	assert_eq(run.side_bet_stake(bet), bet.stake * 2)
-	run.money = bet.stake  # der einfache Einsatz reicht nicht mehr
-	assert_false(run.can_place_side_bet(bet))
-	run.money = bet.stake * 2
-	run.place_side_bet(bet)
-	assert_eq(run.money, 0, "der doppelte Einsatz wird abgebucht")
 
 func test_odds_bonus_doubles_the_prize_value():
 	_sign([DealClause.ODDS_BONUS])
@@ -1656,9 +1646,9 @@ func test_heat_buildup_runs_out_of_parts():
 	_sign([DealClause.HEAT_BUILDUP], GameRun.GOAL_BLOCK)
 	_fill(DiceScoring.TWO_KIND, 1)
 	watch_signals(run)
-	assert_true(run.apply_heat_buildup(DiceScoring.TWO_KIND))
+	assert_not_null(run.destroy_fumble_part())
 	assert_signal_emitted(run, "combo_parts_changed")
-	assert_false(run.apply_heat_buildup(DiceScoring.TWO_KIND), "nichts mehr stillzulegen")
+	assert_null(run.destroy_fumble_part(), "nichts mehr zu zerstören")
 
 func test_active_deal_sides_feed_the_hub_tokens():
 	_sign([DealClause.SAVINGS_BONUS, DealClause.EMPTIES, DealClause.HAPPY_HOUR])
@@ -1783,11 +1773,11 @@ func test_the_series_length_does_not_follow_the_tier():
 		run.luck = (tier - 1) * GameRun.LUCK_PER_TIER
 		assert_eq(run.series_slots(), GameRun.START_DRUM_SLOTS, "Stufe %d" % tier)
 
-## Der DECKEL ist die BLOCK-GRÖSSE (Welle U, 2026-09-05): mehr als sechs gibt es nie.
+## Der DECKEL sind die sechs Scheiben der Walze (Layout E, 2026-11-25).
 func test_more_than_six_slots_never_exist():
 	run.owned_charms.append(Charm.shyster())
 	run.drum_slots = 9
-	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Karten sind der Block")
+	assert_eq(GameRun.SERIES_SLOT_CAP, 6, "sechs Scheiben hat die Walze")
 	assert_eq(run.series_slots(), 6)
 	assert_eq(run.drum_slot_price(), -1)
 

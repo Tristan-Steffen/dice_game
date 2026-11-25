@@ -106,7 +106,7 @@ func test_pit_info_bar_fuellt_und_leert_das_wuerfelnetz():
 
 func test_pit_actions_flankieren_das_wuerfelnetz():
 	# Nehmen dockt links ans Netz-Feld, Würfeln rechts (feste Knopfhöhe, bündig
-	# mit der Feld-Unterkante), "Beenden" links neben "Nehmen"; die
+	# mit der Feld-Unterkante), "Beenden" über "Nehmen"; die
 	# Maus-Weiterleitung (pit_actions_hit) trifft NUR die sichtbaren Knöpfe.
 	var bar := Rect2(Vector2(600, 700), Vector2(400, 300))
 	screen.place_pit_window(Rect2(Vector2(200, 400), Vector2(1200, 700)), 40.0)
@@ -121,17 +121,20 @@ func test_pit_actions_flankieren_das_wuerfelnetz():
 	var roll_pos := screen.pit_actions_root.position + screen.roll_action_button.position
 	assert_eq(roll_pos, Vector2(1000 + gap, 1000 - size.y), "Würfeln an der rechten unteren Feldecke")
 	var roll_rect := Rect2(roll_pos, screen.roll_action_button.size)
-	# "Beenden" hängt mit der RECHTEN Kante an "Nehmen" - es wächst mit seiner
-	# Zahl nach links zur Grubenwand, nie in den Nachbarn hinein.
+	# "Beenden" steht über "Nehmen", rechtsbündig, und wächst nach links.
 	var bank_pos := screen.pit_actions_root.position + screen.bank_action_button.position
 	var bank_rect := Rect2(bank_pos, screen.bank_action_button.size)
-	assert_eq(bank_pos.y, take_pos.y, "Beenden steht in der Reihe von Nehmen")
-	assert_eq(bank_rect.end.x, take_pos.x - gap, "Beenden dockt links an Nehmen")
-	screen.set_bank_label("Beenden ⚡×12")
+	assert_eq(bank_pos.y, take_pos.y - gap - size.y, "Beenden steht über Nehmen")
+	assert_eq(bank_rect.end.x, take_rect.end.x, "rechtsbündig mit Nehmen")
+	screen.set_bank_label("Beenden ⚡×12 jetzt")
 	var grown := Rect2(screen.pit_actions_root.position + screen.bank_action_button.position,
 		screen.bank_action_button.size)
 	assert_gt(grown.size.x, bank_rect.size.x, "der längere Text macht den Knopf breiter")
-	assert_eq(grown.end.x, take_pos.x - gap, "und er wächst nach links, nicht über Nehmen")
+	assert_eq(grown.end.x, take_rect.end.x, "und er wächst nach links")
+	screen.set_bank_label("Beenden ⚡×12 mit einem sehr, sehr langen Zusatz")
+	var wall_x := screen.pit_actions_root.position.x + screen.bank_action_button.position.x
+	assert_eq(wall_x, 200.0 + TableScreen.PIT_WALL_MARGIN, "nie über die Grubenwand")
+	screen.set_bank_label("Beenden ⚡×12 jetzt")
 	# Der Rückblick steht in der oberen rechten Grubenecke.
 	var log_pos := screen.pit_actions_root.position + screen.log_action_button.position
 	var margin := TableScreen.PIT_WALL_MARGIN

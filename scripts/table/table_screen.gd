@@ -3504,12 +3504,9 @@ func _build_pit_actions() -> void:
 	roll_action_button = _make_pit_button("Würfeln", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK)
 	pit_actions_root.add_child(roll_action_button)
 
-	# Bank-Knopf: über Würfeln im rechten Flügel, erscheint erst ab Stufe 1;
-	# kleinere Schrift, damit "Beenden ⚡×N" in die Knopfbreite passt.
+	# Bank-Knopf: über "Nehmen", erscheint erst ab Stufe 1.
 	bank_action_button = _make_pit_button("Beenden", GOAL_STAGE_COLOR, GOAL_STAGE_DARK)
-	# Kleinere Schrift als die Nachbarn: links von "Nehmen" steht nur die Lücke
-	# zur Grubenwand zur Verfügung, und "Beenden ⚡×N" muss ganz hineinpassen.
-	bank_action_button.add_theme_font_size_override("font_size", 7 * SUPERSAMPLE)
+	bank_action_button.add_theme_font_size_override("font_size", 9 * SUPERSAMPLE)
 	bank_action_button.visible = false
 	pit_actions_root.add_child(bank_action_button)
 
@@ -3563,8 +3560,7 @@ func place_pit_actions(bar_rect: Rect2) -> void:
 	for button: Button in [take_action_button, roll_action_button, log_action_button]:
 		button.custom_minimum_size = PIT_ACTION_SIZE
 		button.size = PIT_ACTION_SIZE
-	# "Beenden" darf schmaler bleiben als die anderen (siehe _anchor_bank_button).
-	bank_action_button.custom_minimum_size = Vector2(0.0, PIT_ACTION_SIZE.y)
+	bank_action_button.custom_minimum_size = PIT_ACTION_SIZE
 	pit_actions_root.position = bar_rect.position - Vector2(PIT_ACTION_SIZE.x + PIT_ACTION_GAP, 0.0)
 	pit_actions_root.size = Vector2(
 		bar_rect.size.x + 2.0 * (PIT_ACTION_SIZE.x + PIT_ACTION_GAP),
@@ -3575,11 +3571,9 @@ func place_pit_actions(bar_rect: Rect2) -> void:
 	roll_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x, side_y)
 	_place_pit_wing_buttons(side_y)
 
-## "Beenden" und der Rückblick hängen an der GRUBENWAND, nicht am Netzfeld: der
-## Bank-Knopf füllt die Lücke zwischen Wand und "Nehmen" (seine Breite ist damit
-## gerechnet, nicht geraten - links bleiben nur ~1,1 Knopfbreiten), der Rückblick
-## steht in der oberen rechten Ecke. Ohne Grubenfenster (2D-Rückfall) bleibt es
-## beim alten rechten Flügel.
+## "Beenden" steht über "Nehmen" (neben dem Netz-Feld ist links kein Platz mehr),
+## der Rückblick in der oberen rechten Ecke der Grube. Ohne Grubenfenster
+## (2D-Rückfall) bleibt es beim alten rechten Flügel.
 func _place_pit_wing_buttons(side_y: float) -> void:
 	if pit_window == null:
 		bank_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x,
@@ -3587,29 +3581,27 @@ func _place_pit_wing_buttons(side_y: float) -> void:
 		log_action_button.position = Vector2(pit_actions_root.size.x - PIT_ACTION_SIZE.x,
 			side_y - 2.0 * (PIT_ACTION_GAP + PIT_ACTION_SIZE.y))
 		return
-	_bank_row_y = side_y
+	_bank_row_y = side_y - PIT_ACTION_GAP - PIT_ACTION_SIZE.y
 	_anchor_bank_button()
 	var right := pit_window.position.x + pit_window.size.x - pit_actions_root.position.x
 	log_action_button.position = Vector2(right - PIT_WALL_MARGIN - PIT_ACTION_SIZE.x,
 		pit_window.position.y - pit_actions_root.position.y + PIT_WALL_MARGIN)
 
-## "Beenden ⚡×N" wächst mit seiner Zahl, darum hängt es mit der RECHTEN Kante an
-## "Nehmen" - so läuft es nie in den Nachbarn, sondern höchstens zur Wand hin.
+## "Beenden ⚡×N" wächst mit seiner Zahl nach links, rechtsbündig mit "Nehmen".
 func set_bank_label(text: String) -> void:
 	if bank_action_button == null or bank_action_button.text == text:
 		return
 	bank_action_button.text = text
 	_anchor_bank_button()
 
-## Es wird NICHT an der Wand geklemmt: lieber ragt der Knopf im Extremfall in den
-## Grubenrand, als dass er "Nehmen" überdeckt - in der echten Grube reicht der
-## Platz auch für die zweistellige Stufenzahl.
 func _anchor_bank_button() -> void:
 	if pit_actions_root == null or pit_window == null:
 		return
 	bank_action_button.reset_size()
+	var right := take_action_button.position.x + take_action_button.size.x
+	var wall := pit_window.position.x - pit_actions_root.position.x + PIT_WALL_MARGIN
 	bank_action_button.position = Vector2(
-		take_action_button.position.x - PIT_ACTION_GAP - bank_action_button.size.x, _bank_row_y)
+		maxf(right - bank_action_button.size.x, wall), _bank_row_y)
 
 ## Trifft pixel einen sichtbaren Aktions-Knopf? Die Wurzel spannt die ganze
 ## Grubenbreite - für die Maus-Weiterleitung zählen nur die Knöpfe selbst,
