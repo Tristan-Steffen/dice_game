@@ -42,8 +42,11 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var eye_slots: Array[int] = shape["order"]
 	# Kaltverfestigung: hand-weit wie in DiceScoring.
 	var clause_growth := DiceScoring.clause_growth_in(ctx)
-	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(DiceScoring.CTX_THROTTLED, []))
-	var chip := ComboPartEffects.merged_chip(combo_parts, chain)
+	# Brücken und Parallelschaltungen ziehen ihre Energie zuerst - wie in DiceScoring.
+	var circuit_energy := maxi(0, int(ctx.get(DiceScoring.CTX_ENERGY, 0)))
+	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(DiceScoring.CTX_THROTTLED, []), circuit_energy)
+	var chip := ComboPartEffects.merged_chip(combo_parts, chain, circuit_energy)
+	var circuit_spent := ComboPartEffects.circuit_cost(chip, chain)
 	var chain_sockets := ComboPartEffects.merged_sockets(combo_parts, chain)
 	var has_die_bonus := not materials.is_empty() or not charm_ids.is_empty() \
 		or not essences.is_empty() or not runes.is_empty() or ComboPartEffects.has_die_parts(chip)
@@ -61,14 +64,14 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	var wild_eyes := DiceScoring.wild_value(key, dice, ctx, charm_ids) if wild >= 0 else 0
 	# Lauf-/Rundenzustand wie in DiceScoring._base_and_mult - einmal je Hand gelesen.
 	# Laufender REST der Energie wie in DiceScoring - der Tscherenkow verbrennt sie.
-	var energy := maxi(0, int(ctx.get(DiceScoring.CTX_ENERGY, 0)))
-	var energy_spent := 0
+	var energy := circuit_energy - circuit_spent
+	var energy_spent := circuit_spent
 	var hands_taken := int(ctx.get(DiceScoring.CTX_HANDS_TAKEN, 0))
 	var volcanic := DiceScoring.volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := DiceScoring.discard_values_in(ctx)
 	# Acetylen/Schneidbrenner zählen die Module, das Metronom die einmal
 	# zündenden Würfel - beide stehen vor der Zählung fest.
-	var part_count := ComboPartEffects.part_count(chip)
+	var part_count := ComboPartEffects.chain_part_count(combo_parts, chain)
 	var ends := ComboPartEffects.combo_ends(eye_slots, participating)
 	var tail_slot: int = shape["tail_slot"]
 	var singles: Array[int] = []
@@ -567,7 +570,8 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 		# es in der nächsten Hand als Startstand.
 		"triggers": triggers - trigger_offset,
 		"crits": crits - crit_offset,
-		# Energie, die der Tscherenkow in dieser Hand verbrannt hat - gebucht wird
+		# Energie, die Brücken, Parallelschaltungen und der Tscherenkow in dieser Hand
+		# gezogen haben - gebucht wird
 		# sie beim Nehmen (TakeReport.energy_spent), wie das Trinkgeld.
 		"energy_spent": energy_spent,
 	}

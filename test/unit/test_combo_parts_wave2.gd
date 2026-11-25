@@ -4,8 +4,10 @@ extends GutTest
 ## weitere Kombinationen samt ihrer Module mitzünden.
 
 const PAIR := DiceScoring.TWO_KIND
-const FIRST := {DiceScoring.CTX_HANDS_TAKEN: 0}
-const LATER := {DiceScoring.CTX_HANDS_TAKEN: 1}
+## Genug Energie für jede Brücke und Parallelschaltung; ohne sie bleiben sie dunkel.
+const FIRST := {DiceScoring.CTX_HANDS_TAKEN: 0, DiceScoring.CTX_ENERGY: 50}
+const LATER := {DiceScoring.CTX_HANDS_TAKEN: 1, DiceScoring.CTX_ENERGY: 50}
+const DRAINED := {DiceScoring.CTX_HANDS_TAKEN: 1, DiceScoring.CTX_ENERGY: 0}
 
 var run: GameRun
 
@@ -38,7 +40,7 @@ func _breakdown(key: String, values: Array, layout: Dictionary, ctx: Dictionary 
 	return ScoreBreakdown.build(key, _d(values), [] as Array[String], false, _m(values.size()), layout, ctx)
 
 func test_the_catalog_carries_the_new_parts() -> void:
-	assert_eq(ComboPart.all().size(), 23)
+	assert_eq(ComboPart.all().size(), 22)
 	for id in [ComboPart.PARALLEL_CIRCUIT, ComboPart.CROSS_BRIDGE, ComboPart.DOWN_BRIDGE]:
 		var part := ComboPart.make(id)
 		assert_eq(part.rarity, ComboPart.RARITY_LEGENDARY, id)
@@ -49,8 +51,8 @@ func test_the_catalog_carries_the_new_parts() -> void:
 
 func test_the_series_terminal_counts_every_part_of_its_chip() -> void:
 	var parts := [ComboPart.series_terminal(), ComboPart.resistor(), null]
-	assert_eq(_pair(parts), (10 + 10 + 15 + 10) * (2 + 2))
-	assert_eq(ComboPartEffects.display_values({PAIR: parts}, PAIR), Vector2i(10 + 10 + 15, 2 + 2))
+	assert_eq(_pair(parts), (10 + 10 + 20 + 10) * (2 + 4))
+	assert_eq(ComboPartEffects.display_values({PAIR: parts}, PAIR), Vector2i(10 + 10 + 20, 2 + 4))
 
 func test_the_starter_only_fires_in_the_first_hand() -> void:
 	var parts := [ComboPart.starter(), null, null]
@@ -60,6 +62,16 @@ func test_the_starter_only_fires_in_the_first_hand() -> void:
 
 func test_the_parallel_circuit_retriggers_every_combination_die() -> void:
 	assert_eq(_pair([ComboPart.parallel_circuit(), null, null]), (10 + 10 + 10) * 2)
+
+func test_the_parallel_circuit_needs_one_energy() -> void:
+	assert_eq(_pair([ComboPart.parallel_circuit(), null, null], DRAINED), 40, "ohne Energie wirkungslos")
+	var one := LATER.duplicate()
+	one[DiceScoring.CTX_ENERGY] = 1
+	assert_eq(_pair([ComboPart.parallel_circuit(), ComboPart.parallel_circuit(), null], one), (10 + 10 + 10) * 2,
+		"die zweite bleibt dunkel")
+	var breakdown := _breakdown(PAIR, [5, 5], {PAIR: [ComboPart.parallel_circuit(), null, null]}, one)
+	assert_eq(int(breakdown["energy_spent"]), 1)
+	assert_eq(int(breakdown["total"]), (10 + 10 + 10) * 2)
 
 func test_the_resonator_grows_with_every_scoring() -> void:
 	var part := ComboPart.resonator()
@@ -124,7 +136,7 @@ func test_a_bridge_scores_the_neighbour_and_its_parts() -> void:
 	var values := [5, 5, 3, 3]
 	var alone := _score_with(key, values, {})
 	var layout := {key: [ComboPart.cross_bridge(), null, null], other: [ComboPart.resistor(), null, null]}
-	var points := DiceScoring.points_for(key) + DiceScoring.points_for(other) + 15 + 16
+	var points := DiceScoring.points_for(key) + DiceScoring.points_for(other) + 20 + 16
 	var mult := DiceScoring.mult_for(key) + DiceScoring.mult_for(other)
 	assert_gt(points * mult, alone)
 	assert_eq(_score_with(key, values, layout), points * mult)
@@ -142,6 +154,14 @@ func test_a_throttled_neighbour_stays_dark() -> void:
 	var ctx := LATER.duplicate()
 	ctx[DiceScoring.CTX_THROTTLED] = [_key(11)]
 	assert_eq(_score_with(key, [5, 5, 3, 3], layout, ctx), _score_with(key, [5, 5, 3, 3], {}))
+
+func test_a_bridge_without_energy_stays_dark() -> void:
+	var key := _key(10)
+	var layout := {key: [ComboPart.cross_bridge(), null, null]}
+	assert_eq(_score_with(key, [5, 5, 3, 3], layout, DRAINED), _score_with(key, [5, 5, 3, 3], {}))
+	assert_eq(ComboPartEffects.chain_keys(layout, key, [], 0), [key] as Array[String])
+	var breakdown := _breakdown(key, [5, 5, 3, 3], layout)
+	assert_eq(int(breakdown["energy_spent"]), 1, "eine Brücke, eine Energie")
 
 func test_die_parts_of_the_neighbour_fire_on_the_taken_dice() -> void:
 	var key := _key(10)
@@ -164,6 +184,7 @@ func test_crit_parts_of_the_neighbour_slam_on_its_chip() -> void:
 func test_scoring_books_the_whole_chain() -> void:
 	var key := _key(10)
 	var counter := ComboPart.counter_part()
+	run.energy = 1
 	run.combo_parts[key] = [ComboPart.cross_bridge(), null, null]
 	run.combo_parts[_key(11)] = [counter, ComboPart.coin_validator(), null]
 	assert_eq(run.book_combo_scored(key), ComboPartEffects.COIN_VALIDATOR_MONEY)

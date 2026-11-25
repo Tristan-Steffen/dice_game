@@ -154,7 +154,7 @@ func test_combo_parts_get_their_own_steps():
 	assert_eq(breakdown["combo"]["mult_add"], 2)
 	var steps: Array = breakdown["part_steps"]
 	assert_eq(steps.size(), 2, "je Teil ein Schritt")
-	assert_eq(int(steps[0]["base_after"]), 25)
+	assert_eq(int(steps[0]["base_after"]), 30)
 	assert_eq(int(steps[1]["mult_add"]), 3)
 
 # --- Material-Schritte ----------------------------------------------------------

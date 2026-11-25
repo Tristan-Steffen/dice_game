@@ -26,7 +26,6 @@ const PARALLEL_CIRCUIT := "parallel_circuit"
 const RESONATOR := "resonator"
 const CROSS_BRIDGE := "cross_bridge"
 const DOWN_BRIDGE := "down_bridge"
-const ERROR_MEMORY := "error_memory"
 const AFTERBURNER := "afterburner"
 
 ## Wirk-Phasen: die Phase entscheidet, WANN ein Teil in der Wertung feuert.
@@ -64,7 +63,6 @@ const RARITIES := {
 	RESONATOR: RARITY_EPIC,
 	CROSS_BRIDGE: RARITY_LEGENDARY,
 	DOWN_BRIDGE: RARITY_LEGENDARY,
-	ERROR_MEMORY: RARITY_RARE,
 	AFTERBURNER: RARITY_EPIC,
 }
 
@@ -111,7 +109,7 @@ const DATIVES := {
 	BLOCKING_DIODE: "der", POWER_PICKUP: "dem", SHUNT: "dem",
 	PARALLEL_CIRCUIT: "der", RESONATOR: "dem",
 	CROSS_BRIDGE: "der", DOWN_BRIDGE: "der",
-	ERROR_MEMORY: "dem", AFTERBURNER: "dem",
+	AFTERBURNER: "dem",
 }
 
 @export var id: String = ""
@@ -123,8 +121,8 @@ const DATIVES := {
 @export var secret: bool = false
 ## Grundpreis in $; der Schwarzmarkt rechnet ihn über secret_energy_price um.
 @export var price: int = 6
-## Zählwerk: dauerhafter Zuwachs, reist beim Umstecken mit. Fehlerspeicher: die
-## Block-Fumbles; Nachbrenner: 1 = scharf (ein Fumble ist gefallen).
+## Zählwerk: dauerhafter Zuwachs, reist beim Umstecken mit. Nachbrenner: 1 = scharf
+## (ein Fumble ist gefallen).
 @export var counter: int = 0
 ## Laufzustand, nie gespeichert: wartet als Wahl aus einem Modul-Paket auf den Einbau.
 var from_pack := false
@@ -177,13 +175,13 @@ func with_dative() -> String:
 # --- Katalog v1 ---
 
 static func resistor() -> ComboPart:
-	return _make(RESISTOR, "Widerstand", "+15 Punkte.", PHASE_COMBO, 6)
+	return _make(RESISTOR, "Widerstand", "+20 Punkte.", PHASE_COMBO, 6)
 
 static func capacitor() -> ComboPart:
 	return _make(CAPACITOR, "Kondensator", "+3 Mult.", PHASE_COMBO, 7)
 
 static func coil() -> ComboPart:
-	return _make(COIL, "Spule", "+8 Punkte und +1 Mult.", PHASE_COMBO, 7)
+	return _make(COIL, "Spule", "+8 Punkte und +2 Mult.", PHASE_COMBO, 7)
 
 static func relay() -> ComboPart:
 	return _make(RELAY, "Relais", "Der erste Würfel der Kombination löst 1× zusätzlich aus.", PHASE_DIE, 10)
@@ -207,13 +205,13 @@ static func coin_validator() -> ComboPart:
 	return _make(COIN_VALIDATOR, "Münzprüfer", "+$2 je Wertung dieser Kombination.", PHASE_ECONOMY, 5)
 
 static func high_voltage_tube() -> ComboPart:
-	return _make(HIGH_VOLTAGE_TUBE, "Hochspannungsröhre", "×2 Mult.", PHASE_CRIT, 50, true)
+	return _make(HIGH_VOLTAGE_TUBE, "Hochspannungsröhre", "×3 Mult.", PHASE_CRIT, 50, true)
 
 static func coupling() -> ComboPart:
-	return _make(COUPLING, "Kopplung", "Kopiert das stärkste Kombi-Modul des Chips links daneben.", PHASE_COMBO, 50, true)
+	return _make(COUPLING, "Kopplung", "Jedes andere Modul dieses Chips zählt einmal mehr.", PHASE_COMBO, 50, true)
 
 static func series_terminal() -> ComboPart:
-	return _make(SERIES_TERMINAL, "Reihenklemme", "+5 Punkte und +1 Mult je Modul auf diesem Chip.", PHASE_COMBO, 10)
+	return _make(SERIES_TERMINAL, "Reihenklemme", "+5 Punkte und +2 Mult je Modul auf diesem Chip.", PHASE_COMBO, 10)
 
 static func starter() -> ComboPart:
 	return _make(STARTER, "Anlasser", "+6 Mult in der ersten Hand der Runde.", PHASE_COMBO, 6)
@@ -228,19 +226,16 @@ static func shunt() -> ComboPart:
 	return _make(SHUNT, "Nebenschluss", "Auch Würfel außerhalb der Kombination werden gewertet.", PHASE_DIE, 14)
 
 static func parallel_circuit() -> ComboPart:
-	return _make(PARALLEL_CIRCUIT, "Parallelschaltung", "Jeder Kombinationswürfel löst 1× zusätzlich aus.", PHASE_DIE, 60, true)
+	return _make(PARALLEL_CIRCUIT, "Parallelschaltung", "Kostet 1 ⚡: jeder Kombinationswürfel löst 1× zusätzlich aus. Ohne Energie wirkungslos.", PHASE_DIE, 60, true)
 
 static func resonator() -> ComboPart:
 	return _make(RESONATOR, "Schwingkreis", "×1,1 Mult, wächst dauerhaft um ×0,1 bei jeder Wertung dieser Kombination.", PHASE_CRIT, 40, true)
 
 static func cross_bridge() -> ComboPart:
-	return _make(CROSS_BRIDGE, "Querbrücke", "Aktiviert auch die Kombination rechts daneben samt ihrer Module.", PHASE_LINK, 60, true)
+	return _make(CROSS_BRIDGE, "Querbrücke", "Kostet 1 ⚡: aktiviert auch die Kombination rechts daneben samt ihrer Module.", PHASE_LINK, 60, true)
 
 static func down_bridge() -> ComboPart:
-	return _make(DOWN_BRIDGE, "Längsbrücke", "Aktiviert auch die Kombination darunter samt ihrer Module.", PHASE_LINK, 60, true)
-
-static func error_memory() -> ComboPart:
-	return _make(ERROR_MEMORY, "Fehlerspeicher", "+1 Mult je Fumble dieses Blocks.", PHASE_COMBO, 9)
+	return _make(DOWN_BRIDGE, "Längsbrücke", "Kostet 1 ⚡: aktiviert auch die Kombination darunter samt ihrer Module.", PHASE_LINK, 60, true)
 
 static func afterburner() -> ComboPart:
 	return _make(AFTERBURNER, "Nachbrenner", "×2 Mult in der ersten Hand dieser Kombination nach einem Fumble.", PHASE_CRIT, 40, true)
@@ -252,7 +247,7 @@ static func all() -> Array[ComboPart]:
 		coin_validator(), high_voltage_tube(), coupling(),
 		series_terminal(), starter(), blocking_diode(), power_pickup(), shunt(),
 		parallel_circuit(), resonator(), cross_bridge(), down_bridge(),
-		error_memory(), afterburner(),
+		afterburner(),
 	]
 
 ## Frisches Exemplar zu einer id (null = unbekannt).

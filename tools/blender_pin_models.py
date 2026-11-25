@@ -393,18 +393,6 @@ def counter_part():
     done("counter", parts, lights)
 
 
-def error_memory():
-    """Fehlerspeicher: Quarzfenster, fünf rote Lampen."""
-    reset()
-    parts, lights = shell(WANDLER)
-    parts.append(paint(ring("Fassung", 0.17, 0.22, T, top(0.03), 0.52, 0.0, 40), "metal", GOLD))
-    for i in range(5):
-        cyl("Lampe%d" % i, 0.085, T, top(0.05), 0.92 + i * 0.2, 0.0, 0.02, 24)
-    lights.append(cyl("Quarz", 0.13, T, top(0.02), 0.52, 0.0, steps=32))
-    paint(cyl("Glas", 0.17, T, top(0.04), 0.52, 0.0, steps=40), "glass", GLASS_VIOLET)
-    done("error_memory", parts, lights)
-
-
 def starter():
     """Anlasser: der große runde Knopf mit Ein-Zeichen."""
     reset()
@@ -601,7 +589,7 @@ def empty():
 
 
 BUILDS = {"resistor": resistor, "coil": coil, "series_resistor": series_resistor, "series_terminal": series_terminal,
-          "capacitor": capacitor, "solder_joint": solder_joint, "counter": counter_part, "error_memory": error_memory,
+          "capacitor": capacitor, "solder_joint": solder_joint, "counter": counter_part,
           "starter": starter, "relay": relay, "output_stage": output_stage, "shunt": shunt,
           "parallel_circuit": parallel_circuit, "amplifier_tube": amplifier_tube,
           "high_voltage_tube": high_voltage_tube, "resonator": resonator,

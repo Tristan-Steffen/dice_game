@@ -8,7 +8,7 @@ signal money_changed(money: int)
 signal charms_changed
 signal packs_changed
 ## Die Steckplätze einer Kombination haben sich geändert (Einbau, Umstecken,
-## Stilllegung). Kopplung liest den Nachbarn - Anzeigen frischen darum alle auf.
+## Stilllegung). Brücken lesen den Nachbarn - Anzeigen frischen darum alle auf.
 signal combo_parts_changed(combo_key: String)
 signal pending_parts_changed
 signal side_bets_changed
@@ -1400,7 +1400,6 @@ func parts_room() -> bool:
 
 ## Die Belegung, mit der gewertet wird: stillgelegte Teile (Hitzestau) fehlen.
 func scoring_parts() -> Dictionary:
-	_sync_error_memories()
 	if heat_disabled_parts.is_empty():
 		return combo_parts
 	var out := {}
@@ -1410,13 +1409,6 @@ func scoring_parts() -> Dictionary:
 			sockets.append(null if is_part_disabled(part) else part)
 		out[key] = sockets
 	return out
-
-## Fehlerspeicher lesen die Block-Fumbles über ihren Zähler - vor jeder Wertung gesetzt.
-func _sync_error_memories() -> void:
-	for key in combo_parts:
-		for part in combo_parts[key]:
-			if part != null and part.id == ComboPart.ERROR_MEMORY:
-				part.counter = block_fumbles
 
 ## Ein echter Fumble scharft jeden gesteckten Nachbrenner (counter 1 = scharf).
 func _arm_afterburners() -> void:
@@ -1443,11 +1435,6 @@ func fumble_readers() -> Array[String]:
 		lines.append("Schwarze Katze: Ladenpreise −%d%%" % roundi(cat * 100.0))
 	if ids.has(Charm.GALLOWS_REPRIEVE) and round_fumbles > 0:
 		lines.append("Galgenfrist: Blind dieser Runde −%d%%" % roundi((1.0 - _round_goal_factor_reprieve()) * 100.0))
-	var memories := 0
-	for key in combo_parts:
-		memories += ComboPartEffects.count_of(combo_parts[key], ComboPart.ERROR_MEMORY)
-	if memories > 0 and block_fumbles > 0:
-		lines.append("Fehlerspeicher: +%d Mult" % block_fumbles)
 	var joker := SlotMachine.joker_weight(farkle_count)
 	if joker > SlotMachine.W_JOKER:
 		lines.append("Automaten: Joker ×%s häufiger" % String.num(joker / SlotMachine.W_JOKER, 2))
@@ -1595,13 +1582,14 @@ func move_part(from_key: String, from_slot: int, to_key: String, to_slot: int, e
 	combo_parts_changed.emit(from_key)
 	return true
 
-## Was eine Wertung dieser Kombination mitzündet (sie selbst zuerst, dann die Brücken).
+## Was eine Wertung dieser Kombination mitzündet (sie selbst zuerst, dann die Brücken,
+## soweit die Energie reicht - gefragt VOR dem Abbuchen der Hand).
 func chain_keys(combo_key: String) -> Array[String]:
-	return ComboPartEffects.chain_keys(scoring_parts(), combo_key, throttled_combos)
+	return ComboPartEffects.chain_keys(scoring_parts(), combo_key, throttled_combos, energy)
 
 ## Alle Steckplätze dieser Kette - das, womit die Würfel der Hand zünden.
 func chain_chip(combo_key: String) -> Array:
-	return ComboPartEffects.merged_chip(scoring_parts(), chain_keys(combo_key))
+	return ComboPartEffects.merged_chip(scoring_parts(), chain_keys(combo_key), energy)
 
 ## Die Kette wurde gewertet: Zählwerke und Schwingkreise wachsen, Münzprüfer zahlen.
 ## Gebucht beim Nehmen, VOR der Zeremonie. Liefert das gezahlte Geld.
@@ -1613,7 +1601,7 @@ func book_combo_scored(combo_key: String) -> int:
 		var grew := false
 		for part in sockets:
 			if part != null and (part.id == ComboPart.COUNTER or part.id == ComboPart.RESONATOR):
-				part.counter += 1
+				part.counter += ComboPartEffects.weight(sockets, part)  # die Kopplung zählt mit
 				grew = true
 			elif part != null and part.id == ComboPart.AFTERBURNER and part.counter > 0:
 				part.counter = 0  # der Nachbrenner hat gezündet

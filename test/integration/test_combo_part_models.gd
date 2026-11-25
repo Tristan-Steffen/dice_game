@@ -117,17 +117,6 @@ func test_the_counter_shows_its_value_as_digits() -> void:
 	pin.set_state({})
 	assert_eq(pin.digits_text(), "007", "+1 Mult und sechs Wertungen")
 
-func test_the_error_memory_lights_one_lamp_per_fumble() -> void:
-	var pin := _body(ComboPart.ERROR_MEMORY)
-	pin.set_state({})
-	assert_eq(pin.lit_state_parts(), 0)
-	pin.part.counter = 2
-	pin.set_state({})
-	assert_eq(pin.lit_state_parts(), 2)
-	pin.part.counter = 9
-	pin.set_state({})
-	assert_eq(pin.lit_state_parts(), ComboPartBody.ERROR_LAMPS, "mehr Lampen gibt es nicht")
-
 func test_the_resonator_fills_its_windings_with_growth() -> void:
 	var pin := _body(ComboPart.RESONATOR)
 	pin.part.counter = 3

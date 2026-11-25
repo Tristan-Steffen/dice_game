@@ -56,13 +56,13 @@ func test_the_cutting_torch_puts_mult_on_the_same_parts():
 func test_acetylene_and_the_torch_land_in_the_score():
 	var parts := {DiceScoring.TWO_KIND: [ComboPart.resistor(), ComboPart.resistor()]}
 	var soul := {DiceScoring.CTX_ESSENCES: {0: Essence.ACETYLENE}}
-	# Paar mit zwei Widerständen: 10 + 2×15 Punkte, Mult 2, dazu 10 Augen.
+	# Paar mit zwei Widerständen: 10 + 2×20 Punkte, Mult 2, dazu 10 Augen.
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m(["", ""]), parts, {}), (40 + 10) * 2)
+		_m(["", ""]), parts, {}), (50 + 10) * 2)
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), NO_CHARMS, false,
-		_m(["", ""]), parts, soul), (40 + 10 + 20) * 2, "+10 Basis je Modul")
+		_m(["", ""]), parts, soul), (50 + 10 + 20) * 2, "+10 Basis je Modul")
 	assert_eq(DiceScoring.score_category(DiceScoring.TWO_KIND, _d([5, 5]), _ids([Charm.CUTTING_TORCH]),
-		false, _m(["", ""]), parts, soul), (40 + 10 + 20) * (2 + 6), "+3 Mult je Modul obendrauf")
+		false, _m(["", ""]), parts, soul), (50 + 10 + 20) * (2 + 6), "+3 Mult je Modul obendrauf")
 
 func test_acetylene_stays_dark_without_parts():
 	var soul := {DiceScoring.CTX_ESSENCES: {0: Essence.ACETYLENE}}

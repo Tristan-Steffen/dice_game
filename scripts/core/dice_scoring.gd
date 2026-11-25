@@ -624,13 +624,16 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	var mult := float(mult_for(key) + growth.y)
 	# Kombi-Teile Steckplatz für Steckplatz, nach dem Dreifachen Boden; Brücken
 	# zünden weitere Kombinationen samt ihrer Teile.
-	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(CTX_THROTTLED, []))
-	var chip := ComboPartEffects.merged_chip(combo_parts, chain)
+	# Brücken und Parallelschaltungen ziehen ihre Energie zuerst.
+	var energy := maxi(0, int(ctx.get(CTX_ENERGY, 0)))
+	var chain := ComboPartEffects.chain_keys(combo_parts, key, ctx.get(CTX_THROTTLED, []), energy)
+	var chip := ComboPartEffects.merged_chip(combo_parts, chain, energy)
+	energy -= ComboPartEffects.circuit_cost(chip, chain)
 	for step in ComboPartEffects.chain_steps(combo_parts, chain, int(ctx.get(CTX_HANDS_TAKEN, 0)) == 0):
 		base += int(step["points"])
 		mult += float(step["mult"])
 	# Acetylen und Schneidbrenner zählen die Module der Kombination.
-	var part_count := ComboPartEffects.part_count(chip)
+	var part_count := ComboPartEffects.chain_part_count(combo_parts, chain)
 	var ends := ComboPartEffects.combo_ends(shape["order"], participating)
 	var essences := essence_sets_in(ctx)
 	var runes := runes_in(ctx)
@@ -652,7 +655,6 @@ static func _base_and_mult(key: String, dice: Array[int], raw: Array[int], charm
 	# Lauf- und Rundenzustand der dritten Welle: einmal je Hand gelesen, damit
 	# sich kein Krit mitten in der Zählung verschiebt.
 	# Laufender REST der Energie: der Tscherenkow verbrennt je Schlag eine.
-	var energy := maxi(0, int(ctx.get(CTX_ENERGY, 0)))
 	var hands_taken := int(ctx.get(CTX_HANDS_TAKEN, 0))
 	var volcanic := volcanic_fumbles_in(ctx, charm_ids)
 	var discard_values := discard_values_in(ctx)

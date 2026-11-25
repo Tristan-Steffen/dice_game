@@ -22,10 +22,8 @@ const SIDE := HULL.x
 
 ## Zustands-Teile des Modells (Knotennamen aus tools/blender_pin_models.py).
 const DIGITS := 3
-const ERROR_LAMPS := 5
 const RING_SEGMENTS := 5
 const TERMINALS := 3
-const LAMP_COLOR := Color(1.0, 0.22, 0.16)
 const FLAME_COLOR := Color(1.0, 0.55, 0.95)
 const DIGIT_PIXEL := 0.0095
 const DIGIT_FONT := 48
@@ -42,7 +40,7 @@ const REST_SHARE := 0.8
 const FLASH_ENERGY := 4.0
 const FLASH_POP := 0.1
 const FLASH_TIME := 0.45
-## Die Kopplung zeigt im Feld die Farbe des kopierten Moduls.
+## Die Kopplung zeigt im Feld die Farbe des Moduls, das sie verdoppelt.
 const COPY_ENERGY := 1.4
 
 static var _scenes: Dictionary = {}
@@ -137,7 +135,7 @@ func height() -> float:
 ## Die Zustands-Teile des Modells bekommen je ein eigenes Material; die Ziffern des Zählwerks
 ## stehen als Schrift in seinem Fenster.
 func _build_state_parts(inst: Node3D) -> void:
-	for prefix_count in [["Lampe", ERROR_LAMPS], ["Ring", RING_SEGMENTS], ["Klemme", TERMINALS]]:
+	for prefix_count in [["Ring", RING_SEGMENTS], ["Klemme", TERMINALS]]:
 		for i in int(prefix_count[1]):
 			var mesh := inst.find_child("%s%d" % [prefix_count[0], i], true, false) as MeshInstance3D
 			if mesh != null:
@@ -186,11 +184,11 @@ func set_state(state: Dictionary) -> void:
 func state() -> Dictionary:
 	return _state
 
-## Das kopierte Modul der Kopplung (leer = "").
+## Das Modul, das die Kopplung verdoppelt (leer = "").
 func copy_id() -> String:
 	return _copy_id
 
-## Was die Zustands-Teile gerade zeigen: Zahl leuchtender Lampen/Ringe/Klemmen.
+## Was die Zustands-Teile gerade zeigen: Zahl leuchtender Ringe/Klemmen.
 func lit_state_parts() -> int:
 	var lit := 0
 	for entry in _parts_lit:
@@ -272,9 +270,6 @@ func _write_state(tint: Color, energy: float) -> void:
 	var lit := 0
 	var color := tint
 	match part.id:
-		ComboPart.ERROR_MEMORY:
-			lit = clampi(part.counter, 0, ERROR_LAMPS)
-			color = LAMP_COLOR
 		ComboPart.RESONATOR:
 			lit = clampi(part.counter, 0, RING_SEGMENTS)
 		ComboPart.SERIES_TERMINAL:

@@ -7,26 +7,27 @@ class_name ComboPartEffects
 ## (core/ greift nicht in table/), ein Test hält beide gleich.
 const CLUSTER_COLUMNS := 3
 
-const RESISTOR_POINTS := 15
+const RESISTOR_POINTS := 20
 const CAPACITOR_MULT := 3
 const COIL_POINTS := 8
-const COIL_MULT := 1
+const COIL_MULT := 2
 const COUNTER_BASE_MULT := 1
 const SOLDER_JOINT_MULT := 1
 const SERIES_RESISTOR_POINTS := 4
 const AMPLIFIER_TUBE_CRIT := 1.5
-const HIGH_VOLTAGE_TUBE_CRIT := 2.0
+const HIGH_VOLTAGE_TUBE_CRIT := 3.0
 const COIN_VALIDATOR_MONEY := 2
 const RELAY_RETRIGGERS := 1
 const OUTPUT_STAGE_RETRIGGERS := 1
 const PARALLEL_RETRIGGERS := 1
 const SERIES_TERMINAL_POINTS := 5
-const SERIES_TERMINAL_MULT := 1
+const SERIES_TERMINAL_MULT := 2
 const STARTER_MULT := 6
 ## Zehntel, sonst summieren sich Rundungsfehler in die Anzeige.
 const RESONATOR_START_TENTHS := 11
 const POWER_PICKUP_ENERGY := 1
-const ERROR_MEMORY_MULT := 1
+## Was Brücke und Parallelschaltung je Zündung aus dem Speicher ziehen.
+const CIRCUIT_ENERGY := 1
 const AFTERBURNER_CRIT := 2.0
 
 ## Die Steckplätze einer Kombination ([] = keine Belegung).
@@ -41,14 +42,6 @@ static func part_count(sockets: Array) -> int:
 		if part != null:
 			count += 1
 	return count
-
-## Der Chip LINKS im Cluster: dieselbe Reihe, eine Spalte davor (Reihenfolge =
-## HAND_PRIORITY in CLUSTER_COLUMNS Spalten). Die erste Spalte hat keinen.
-static func left_of(key: String) -> String:
-	var index := DiceScoring.HAND_PRIORITY.find(key)
-	if index <= 0 or index % CLUSTER_COLUMNS == 0:
-		return ""
-	return DiceScoring.HAND_PRIORITY[index - 1]
 
 ## Der Chip RECHTS im Cluster: dieselbe Reihe, eine Spalte weiter.
 static func right_of(key: String) -> String:
@@ -78,8 +71,11 @@ static func _cluster_column(index: int) -> int:
 
 ## Die Kombinationen, die eine Wertung zündet: sie selbst, dann was ihre Brücken
 ## erreichen. Jede höchstens einmal; eine gedrosselte Kombination leitet nicht.
-static func chain_keys(combo_parts: Dictionary, key: String, throttled: Array = []) -> Array[String]:
+## Jede Brücke, die zündet, kostet CIRCUIT_ENERGY; ohne Rest bleibt sie dunkel
+## (energy < 0 = unbegrenzt, nur für reine Rechnungen ohne Lauf).
+static func chain_keys(combo_parts: Dictionary, key: String, throttled: Array = [], energy: int = -1) -> Array[String]:
 	var keys: Array[String] = [key]
+	var budget := energy
 	var next := 0
 	while next < keys.size():
 		for part in chip(combo_parts, keys[next]):
@@ -90,33 +86,76 @@ static func chain_keys(combo_parts: Dictionary, key: String, throttled: Array = 
 				target = right_of(keys[next])
 			elif part.id == ComboPart.DOWN_BRIDGE:
 				target = below_of(keys[next])
-			if target != "" and not keys.has(target) and not throttled.has(target):
-				keys.append(target)
+			if target == "" or keys.has(target) or throttled.has(target):
+				continue
+			if budget >= 0:
+				if budget < CIRCUIT_ENERGY:
+					continue
+				budget -= CIRCUIT_ENERGY
+			keys.append(target)
 		next += 1
 	return keys
 
-## Alle Steckplätze einer Kette hintereinander, der gewertete Chip zuerst.
-static func merged_chip(combo_parts: Dictionary, keys: Array[String]) -> Array:
-	if keys.size() == 1:
-		return chip(combo_parts, keys[0])
+## Kopplung: jedes andere Modul ihres Chips zählt je Kopplung einmal mehr.
+static func weight(sockets: Array, part: ComboPart) -> int:
+	if part == null or part.id == ComboPart.COUPLING:
+		return 1
+	return 1 + count_of(sockets, ComboPart.COUPLING)
+
+## Die Wirk-Liste eines Chips: jedes Modul so oft, wie es zählt (Kopplung).
+static func weighted(sockets: Array) -> Array:
+	var out: Array = []
+	for part in sockets:
+		for _n in weight(sockets, part):
+			out.append(part)
+	return out
+
+## Alle Steckplätze einer Kette hintereinander, der gewertete Chip zuerst, jedes
+## Modul so oft, wie es zählt. Was die Brücken übrig ließen, speist die
+## Parallelschaltungen der Reihe nach; eine ohne Energie fällt als null aus.
+static func merged_chip(combo_parts: Dictionary, keys: Array[String], energy: int = -1) -> Array:
+	var budget := energy - bridge_cost(keys) if energy >= 0 else -1
 	var merged: Array = []
 	for key in keys:
-		merged.append_array(chip(combo_parts, key))
+		for part in weighted(chip(combo_parts, key)):
+			if part != null and part.id == ComboPart.PARALLEL_CIRCUIT and budget >= 0:
+				if budget < CIRCUIT_ENERGY:
+					merged.append(null)
+					continue
+				budget -= CIRCUIT_ENERGY
+			merged.append(part)
 	return merged
 
 ## Parallel zu merged_chip: wem gehört welcher Platz ({key, slot}).
 static func merged_sockets(combo_parts: Dictionary, keys: Array[String]) -> Array[Dictionary]:
 	var sockets: Array[Dictionary] = []
 	for key in keys:
-		for slot in chip(combo_parts, key).size():
-			sockets.append({"key": key, "slot": slot})
+		var own := chip(combo_parts, key)
+		for slot in own.size():
+			for _n in weight(own, own[slot]):
+				sockets.append({"key": key, "slot": slot})
 	return sockets
 
+## Energie, die die Brücken einer Kette gezogen haben.
+static func bridge_cost(keys: Array[String]) -> int:
+	return CIRCUIT_ENERGY * maxi(0, keys.size() - 1)
+
+## Energie, die eine Kette samt ihren gespeisten Parallelschaltungen zieht.
+static func circuit_cost(merged: Array, keys: Array[String]) -> int:
+	return bridge_cost(keys) + CIRCUIT_ENERGY * count_of(merged, ComboPart.PARALLEL_CIRCUIT)
+
+## Gesteckte Module der ganzen Kette, jedes einmal (Acetylen, Schneidbrenner).
+static func chain_part_count(combo_parts: Dictionary, keys: Array[String]) -> int:
+	var count := 0
+	for key in keys:
+		count += part_count(chip(combo_parts, key))
+	return count
+
 ## Kombinationen, deren Kette einen Nebenschluss trägt.
-static func shunted_keys(combo_parts: Dictionary, throttled: Array = []) -> Array[String]:
+static func shunted_keys(combo_parts: Dictionary, throttled: Array = [], energy: int = -1) -> Array[String]:
 	var keys: Array[String] = []
 	for key: String in DiceScoring.HAND_PRIORITY:
-		if has_part(merged_chip(combo_parts, chain_keys(combo_parts, key, throttled)), ComboPart.SHUNT):
+		if has_part(merged_chip(combo_parts, chain_keys(combo_parts, key, throttled, energy)), ComboPart.SHUNT):
 			keys.append(key)
 	return keys
 
@@ -130,7 +169,7 @@ static func count_of(sockets: Array, part_id: String) -> int:
 			count += 1
 	return count
 
-## Punkte (x) und Mult (y) eines Kombi-Teils (Kopplung ausgenommen). sockets = sein
+## Punkte (x) und Mult (y) eines Kombi-Teils, einmal gezählt. sockets = sein
 ## eigener Chip (Reihenklemme), first_hand = erste Hand der Runde (Anlasser).
 static func combo_values(part: ComboPart, sockets: Array = [], first_hand: bool = false) -> Vector2i:
 	match part.id:
@@ -147,27 +186,10 @@ static func combo_values(part: ComboPart, sockets: Array = [], first_hand: bool 
 			return Vector2i(COIL_POINTS, COIL_MULT)
 		ComboPart.COUNTER:
 			return Vector2i(0, COUNTER_BASE_MULT + maxi(0, part.counter))
-		ComboPart.ERROR_MEMORY:
-			return Vector2i(0, ERROR_MEMORY_MULT * maxi(0, part.counter))
 	return Vector2i.ZERO
 
-## Das stärkste Kombi-Teil eines Chips: mehr Mult zuerst, dann mehr Punkte, dann
-## der frühere Steckplatz. Kopplungen sind ausgenommen - keine Ketten.
-static func strongest_combo_part(sockets: Array, first_hand: bool = false) -> ComboPart:
-	var best: ComboPart = null
-	var best_values := Vector2i.ZERO
-	for part in sockets:
-		if part == null or part.phase != ComboPart.PHASE_COMBO or part.id == ComboPart.COUPLING:
-			continue
-		var values := combo_values(part, sockets, first_hand)
-		if best == null or values.y > best_values.y \
-				or (values.y == best_values.y and values.x > best_values.x):
-			best = part
-			best_values = values
-	return best
-
-## Kombi-Schritte der Kombination in Steckplatz-Reihenfolge, je Teil einer:
-## {slot, id, points, mult, copied}. Teile ohne Beitrag fehlen.
+## Kombi-Schritte der Kombination in Steckplatz-Reihenfolge, je Zählung eines Teils
+## einer (die Kopplung wiederholt): {slot, id, points, mult}. Teile ohne Beitrag fehlen.
 static func combo_steps(combo_parts: Dictionary, key: String, first_hand: bool = false) -> Array[Dictionary]:
 	var steps: Array[Dictionary] = []
 	var sockets := chip(combo_parts, key)
@@ -175,20 +197,12 @@ static func combo_steps(combo_parts: Dictionary, key: String, first_hand: bool =
 		var part: ComboPart = sockets[slot]
 		if part == null or part.phase != ComboPart.PHASE_COMBO:
 			continue
-		var source := part
-		var source_chip := sockets
-		var copied := ""
-		if part.id == ComboPart.COUPLING:
-			source_chip = chip(combo_parts, left_of(key))
-			source = strongest_combo_part(source_chip, first_hand)
-			if source == null:
-				continue
-			copied = source.id
-		var values := combo_values(source, source_chip, first_hand)
+		var values := combo_values(part, sockets, first_hand)
 		if values == Vector2i.ZERO:
 			continue
-		steps.append({"key": key, "slot": slot, "id": part.id, "points": values.x, "mult": values.y,
-			"copied": copied, "activated": false})
+		for _n in weight(sockets, part):
+			steps.append({"key": key, "slot": slot, "id": part.id, "points": values.x, "mult": values.y,
+				"copied": "", "activated": false})
 	return steps
 
 ## Kombi-Schritte der ganzen Kette: jede mitgezündete Kombination bringt ihren
@@ -274,23 +288,28 @@ static func firing_slots(sockets: Array, in_combination: bool) -> Array[int]:
 			slots.append(slot)
 	return slots
 
-## Krit-Schritte nach allen Würfeln, je Teil einer: {slot, id, crit_x}.
+## Krit-Schritte nach allen Würfeln, je Zählung eines Teils einer: {slot, id, crit_x}.
 static func crit_steps(sockets: Array) -> Array[Dictionary]:
 	var steps: Array[Dictionary] = []
 	for slot in sockets.size():
 		var part: ComboPart = sockets[slot]
 		if part == null:
 			continue
+		var crit := 1.0
 		match part.id:
 			ComboPart.AMPLIFIER_TUBE:
-				steps.append({"slot": slot, "id": part.id, "crit_x": AMPLIFIER_TUBE_CRIT})
+				crit = AMPLIFIER_TUBE_CRIT
 			ComboPart.HIGH_VOLTAGE_TUBE:
-				steps.append({"slot": slot, "id": part.id, "crit_x": HIGH_VOLTAGE_TUBE_CRIT})
+				crit = HIGH_VOLTAGE_TUBE_CRIT
 			ComboPart.RESONATOR:
-				steps.append({"slot": slot, "id": part.id, "crit_x": resonator_crit(part)})
+				crit = resonator_crit(part)
 			ComboPart.AFTERBURNER:
 				if part.counter > 0:
-					steps.append({"slot": slot, "id": part.id, "crit_x": AFTERBURNER_CRIT})
+					crit = AFTERBURNER_CRIT
+		if is_equal_approx(crit, 1.0):
+			continue
+		for _n in weight(sockets, part):
+			steps.append({"slot": slot, "id": part.id, "crit_x": crit})
 	return steps
 
 ## Der Schwingkreis wächst mit seinem Zähler; er reist beim Umstecken mit.
@@ -306,15 +325,11 @@ static func chain_crit_steps(combo_parts: Dictionary, keys: Array[String]) -> Ar
 			steps.append(step)
 	return steps
 
-## Geld je Wertung der Kombination (Münzprüfer).
+## Geld je Wertung der Kombination (Münzprüfer), sockets = ein Chip.
 static func scoring_money(sockets: Array) -> int:
-	var money := 0
-	for part in sockets:
-		if part != null and part.id == ComboPart.COIN_VALIDATOR:
-			money += COIN_VALIDATOR_MONEY
-	return money
+	return COIN_VALIDATOR_MONEY * count_of(weighted(sockets), ComboPart.COIN_VALIDATOR)
 
-## Energie je Wertung (Stromabnehmer).
+## Energie je Wertung (Stromabnehmer), sockets = die Wirk-Liste (merged_chip).
 static func scoring_energy(sockets: Array) -> int:
 	return POWER_PICKUP_ENERGY * count_of(sockets, ComboPart.POWER_PICKUP)
 

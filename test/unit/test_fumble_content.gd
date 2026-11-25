@@ -111,13 +111,6 @@ func test_scar_grows_its_up_face_on_a_real_fumble() -> void:
 	run.scar_fumble_dice([die] as Array[DieDefinition], [2] as Array[int])
 	assert_eq(die.faces[2], before + 1)
 
-func test_error_memory_adds_the_block_fumbles_as_mult() -> void:
-	run.combo_parts[DiceScoring.TWO_KIND] = [ComboPart.error_memory(), null, null]
-	_fumble(4)
-	var steps := ComboPartEffects.combo_steps(run.scoring_parts(), DiceScoring.TWO_KIND)
-	assert_eq(steps.size(), 1)
-	assert_eq(int(steps[0]["mult"]), 4)
-
 func test_afterburner_fires_once_after_a_fumble() -> void:
 	var part := ComboPart.afterburner()
 	run.combo_parts[DiceScoring.TWO_KIND] = [part, null, null]
@@ -133,7 +126,6 @@ func test_the_afterburner_is_a_secret_crit_part() -> void:
 	var part := ComboPart.afterburner()
 	assert_eq(part.phase, ComboPart.PHASE_CRIT)
 	assert_true(part.secret)
-	assert_eq(ComboPart.error_memory().phase, ComboPart.PHASE_COMBO)
 
 # --- Automaten ---------------------------------------------------------------------
 

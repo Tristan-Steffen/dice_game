@@ -1888,7 +1888,7 @@ var _part_growth_held := ""
 var _part_money_shown := 0
 const PART_CRIT_FLASH := 2.2
 
-## Steckplätze geändert: Kopplung liest den Nachbarn, also frischen alle auf.
+## Steckplätze geändert: Brücken lesen den Nachbarn, also frischen alle auf.
 func _on_combo_parts_changed(_combo_key: String) -> void:
 	_refresh_combo_label_texts()
 	_set_throttled_combos(run.throttled_combos)  # eine Sperrdiode hebt die Drossel auf
@@ -12849,7 +12849,7 @@ func _score_ctx() -> Dictionary:
 		CharmEffects.CTX_SPOTLIGHT: "" if run.spotlight_claimed_this_round else run.spotlight_combo,
 		DiceScoring.CTX_COMBO_GROWTH: run.combo_growth,
 		DiceScoring.CTX_THROTTLED: run.throttled_combos,  # Klausel-/Boss-Drossel
-		DiceScoring.CTX_SHUNTED: ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos),
+		DiceScoring.CTX_SHUNTED: ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos, run.energy),
 		DiceScoring.CTX_PARITY: run.parity_filter(),  # Schieflage/Gleichgewicht
 		DiceScoring.CTX_DET_LINKS: _det_links(),  # Kehrseite-Rune
 		DiceScoring.CTX_ESSENCE_LINKS: _essence_links(),  # Röntgenlicht
@@ -13849,7 +13849,7 @@ func _on_take_button_pressed() -> void:
 	if report.energy > 0:
 		run.add_energy(report.energy)
 		_play_rune_energy_volley(report.energy, report.sparks)
-	# Tscherenkow: jeder Krit verbrennt eine Energie. Ausgeben animiert nicht -
+	# Brücken, Parallelschaltungen und Tscherenkow-Krits ziehen Energie. Ausgeben animiert nicht -
 	# der Speicher zieht sich still aus energy_changed nach.
 	report.energy_spent = int(breakdown.get("energy_spent", 0))
 	if report.energy_spent > 0:
@@ -14986,7 +14986,7 @@ func _hand_scores() -> bool:
 func _shunt_widens(slots: Array[int]) -> bool:
 	if run == null or slots.is_empty():
 		return false
-	var shunted := ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos)
+	var shunted := ComboPartEffects.shunted_keys(run.scoring_parts(), run.throttled_combos, run.energy)
 	if shunted.is_empty():
 		return false
 	var materials := _rolled_materials()
@@ -17185,10 +17185,13 @@ func _sync_combo_sockets(key: String) -> void:
 	_sync_part_state(key, hands_taken_this_round == 0)
 
 ## Was die Module am Körper zeigen und nur der Lauf weiß: erste Hand der Runde (Anlasser),
-## was die Kopplung kopiert.
+## was die Kopplung verdoppelt (ihr Feld leuchtet in der Farbe des ersten anderen Moduls).
 func _sync_part_state(key: String, first_hand: bool) -> void:
-	var copy := ComboPartEffects.strongest_combo_part(
-		ComboPartEffects.chip(run.scoring_parts(), ComboPartEffects.left_of(key)), first_hand)
+	var copy: ComboPart = null
+	for part in ComboPartEffects.chip(run.scoring_parts(), key):
+		if part != null and part.id != ComboPart.COUPLING:
+			copy = part
+			break
 	combo_chips[key].set_part_context({"first_hand": first_hand, "copy": copy})
 
 func _sync_part_states() -> void:

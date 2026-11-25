@@ -42,7 +42,7 @@ func _fill() -> void:
 				part.counter = 7
 			if part.id == ComboPart.AFTERBURNER:
 				part.counter = 1
-			if part.id in [ComboPart.ERROR_MEMORY, ComboPart.RESONATOR]:
+			if part.id == ComboPart.RESONATOR:
 				part.counter = 3
 			run.stash_part(part)
 			if not run.install_pending_part(keys[k], slot):

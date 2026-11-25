@@ -303,7 +303,7 @@ static func _build_concepts() -> void:
 		"Die Stufen über dem Blind: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in den Energie-Ring; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
 		CAT_BEGRIFFE)
 	_add(FUMBLE, "Fumble",
-		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Jeder echte Fumble zählt im Lauf mit, der Zähler sinkt nie: Charms wie Pechvogel oder Fumble-Rente, Module wie der Fehlerspeicher und die Automaten lesen ihn. Manche Charms und Klauseln federn den ersten Fumble ab - ein verziehener zählt nicht.",
+		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Jeder echte Fumble zählt im Lauf mit, der Zähler sinkt nie: Charms wie Pechvogel oder Fumble-Rente und die Automaten lesen ihn. Manche Charms und Klauseln federn den ersten Fumble ab - ein verziehener zählt nicht.",
 		CAT_BEGRIFFE)
 	_add(STRESSTEST, "Boss-Runde",
 		"Die letzte Runde jedes Blocks (Runde 6, 12, ...). Statt der üblichen Verträge liegen nur Malus-Konditionen aus - die Wahl ist, WIE gekämpft wird, nicht wofür. Wer besteht, bekommt einen Würfel mit garantierter Essenz.",

@@ -41,7 +41,8 @@ func test_the_catalog_has_fourteen_parts_with_unique_ids():
 		ids.append(part.id)
 		assert_ne(part.display_name, "")
 		assert_true(ComboPart.RARITY_WEIGHTS.has(part.rarity))
-	assert_eq(ids.size(), 23)
+	assert_eq(ids.size(), 22)
+	assert_null(ComboPart.make("error_memory"), "der Fehlerspeicher ist gestorben")
 	assert_null(ComboPart.make("expansion_board"), "die Erweiterungsplatine ist gestorben")
 
 func test_only_the_multiplying_and_legendary_parts_are_secret():
@@ -76,9 +77,9 @@ func test_plain_pair_baseline():
 	assert_eq(_score([]), 40)
 
 func test_resistor_capacitor_coil():
-	assert_eq(_score([ComboPart.resistor()]), (25 + 10) * 2)
+	assert_eq(_score([ComboPart.resistor()]), (30 + 10) * 2)
 	assert_eq(_score([ComboPart.capacitor()]), 20 * 5)
-	assert_eq(_score([ComboPart.coil()]), (18 + 10) * 3)
+	assert_eq(_score([ComboPart.coil()]), (18 + 10) * 4)
 
 func test_counter_reads_its_growth():
 	var counter := ComboPart.counter_part()
@@ -115,19 +116,31 @@ func test_die_parts_skip_dice_outside_the_combination():
 
 func test_crit_tubes_multiply():
 	assert_eq(_score([ComboPart.amplifier_tube()]), 60)
-	assert_eq(_score([ComboPart.high_voltage_tube()]), 80)
-	assert_eq(_score([ComboPart.amplifier_tube(), ComboPart.high_voltage_tube()]), 120)
+	assert_eq(_score([ComboPart.high_voltage_tube()]), 120)
+	assert_eq(_score([ComboPart.amplifier_tube(), ComboPart.high_voltage_tube()]), 180)
 
-func test_coupling_copies_the_strongest_combo_part_on_its_left():
-	assert_eq(ComboPartEffects.left_of(PAIR), DiceScoring.TWO_PAIR)
-	assert_eq(ComboPartEffects.left_of(DiceScoring.FOUR_KIND), "", "erste Spalte hat keinen")
+func test_coupling_counts_every_other_part_of_its_chip_once_more():
+	assert_eq(_score([ComboPart.coupling()]), 40, "allein nichts")
+	assert_eq(_score([ComboPart.coupling(), ComboPart.capacitor()]), 20 * 8, "+3 Mult zweimal")
+	assert_eq(_score([ComboPart.coupling(), ComboPart.high_voltage_tube()]), 40 * 9, "zwei Schläge ×3")
+	assert_eq(_score([ComboPart.coupling(), ComboPart.relay()]), (10 + 20) * 2, "der Kopf zündet zweimal mehr")
+	var steps := ComboPartEffects.combo_steps({PAIR: [ComboPart.coupling(), ComboPart.resistor()]}, PAIR)
+	assert_eq(steps.size(), 2, "je Zählung ein Schritt")
+	assert_eq(int(steps[1]["slot"]), 1)
+
+func test_coupling_stays_on_its_own_chip():
 	var parts := {
-		DiceScoring.TWO_PAIR: [ComboPart.resistor(), ComboPart.capacitor()],
+		DiceScoring.TWO_PAIR: [ComboPart.capacitor()],
 		PAIR: [ComboPart.coupling()],
 	}
-	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([]), false, _m(["", ""]), parts),
-		20 * 5, "der Kondensator (mehr Mult) wird kopiert")
-	assert_eq(_score([ComboPart.coupling()]), 40, "ohne Nachbar-Teile nichts")
+	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([]), false, _m(["", ""]), parts), 40)
+
+func test_coupling_doubles_money_and_growth():
+	var counter := ComboPart.counter_part()
+	run.combo_parts[PAIR] = [ComboPart.coupling(), ComboPart.coin_validator(), counter]
+	run.money = 0
+	assert_eq(run.book_combo_scored(PAIR), 2 * ComboPartEffects.COIN_VALIDATOR_MONEY)
+	assert_eq(counter.counter, 2, "das Zählwerk wächst zweimal")
 
 func test_coin_validator_pays_when_booked():
 	run.combo_parts[PAIR] = [ComboPart.coin_validator(), null, null]
@@ -153,8 +166,8 @@ func test_each_combo_part_is_its_own_step_in_socket_order():
 	assert_eq(steps.size(), 3)
 	assert_eq(String(steps[0]["part_id"]), ComboPart.CAPACITOR)
 	assert_eq(int(steps[1]["slot"]), 1)
-	assert_eq(int(steps[2]["base_after"]), 10 + 15 + 8)
-	assert_almost_eq(float(steps[2]["mult_after"]), 2.0 + 3.0 + 1.0, 0.0001)
+	assert_eq(int(steps[2]["base_after"]), 10 + 20 + 8)
+	assert_almost_eq(float(steps[2]["mult_after"]), 2.0 + 3.0 + 2.0, 0.0001)
 
 func test_each_crit_part_strikes_alone():
 	var parts := {PAIR: [ComboPart.amplifier_tube(), ComboPart.amplifier_tube()]}
@@ -359,7 +372,7 @@ func test_heat_buildup_disables_the_last_live_part_for_the_round():
 	var live: Array = ComboPartEffects.chip(run.scoring_parts(), PAIR)
 	assert_null(live[1], "stillgelegt wertet nicht")
 	assert_eq(DiceScoring.score_category(PAIR, _d([5, 5]), _ids([]), false, _m(["", ""]),
-		run.scoring_parts()), 35 * 2)
+		run.scoring_parts()), 40 * 2)
 	assert_true(run.apply_heat_buildup(PAIR))
 	assert_false(run.apply_heat_buildup(PAIR), "alles aus")
 	run.apply_round_start_charms()
