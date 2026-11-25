@@ -267,12 +267,9 @@ var _eye_tick_seq := 0
 var _eye_tick_applied := {}
 var _eye_planned := {}
 
-## Ständiges Würfelnetz-Feld der Grube, mittig über der langen Grubenachse;
-## die Aktions-Knöpfe docken links/rechts an, der Bank-Knopf darunter
-## (place_pit_actions leitet alles aus diesem Rechteck ab).
-const PIT_INFO_BAR_INSET_X := 3.6  # Feldmitte unter der Würfelreihe (Welt -X)
-const PIT_INFO_BAR_HALF_X := 2.0   # halbe Feldhöhe (Welt-X); klarer Abstand zur Grubenwand
-const PIT_INFO_BAR_HALF_Z := 2.4   # halbe Feldbreite (Welt-Z)
+## Netz-Feld der Grube: Rand um das Netz (Zellen) und Fuge zur Erklärleiste (Welt).
+const PIT_NET_PAD_CELLS := 0.1
+const PIT_NET_HINT_GAP := 0.05
 ## Deal-Marken-Streifen am OBEREN Grubenrand (Welt-X), gegenüber der Erklärleiste:
 ## zwischen Grubenwand (+7.6) und der Würfelreihe (X = 0). Links aus der Mitte
 ## gerückt, weil dort die Daten-Ader des Wertungsfensters in die Grube steigt -
@@ -316,8 +313,7 @@ const SHELL_FLY_DURATION := 0.4
 const PIT_TOP_ROW_X := 4.0
 const PIT_TOP_ROW_SPACING := 3.0
 
-## Nach dem Ausrollen gleiten ALLE Würfel in eine Reihe in der Grubenmitte.
-const PIT_CENTER_ROW_X := 0.0
+## Nach dem Ausrollen gleiten ALLE Würfel in die Zähl-Reihe (SCORE_ROW_X), über dem Netz-Feld.
 const LINEUP_DURATION := 0.35
 
 ## Verschiebung des Grubenzooms Richtung Charms (+X = Screen-oben); waagerecht steht die Grube mittig.
@@ -1124,24 +1120,6 @@ func _setup_table_screen() -> void:
 	# Energiewände nach (±PIT_HALF um die Grubenmitte, Eckenrundung der Wände).
 	table_screen.place_pit_window(pit_rect, DicePit.CORNER_RADIUS * ppw)
 	_setup_chip_frames(pit_rect)
-	# Kompaktes Würfelnetz-Feld unter der Würfelreihe (mit Abstand zur Grubenwand).
-	var pit_info_cx := DicePit.PIT_CENTER.x - PIT_INFO_BAR_INSET_X
-	var pit_info_a := table_screen.world_to_pixel(Vector3(
-		pit_info_cx + PIT_INFO_BAR_HALF_X, 0.0, DicePit.PIT_CENTER.z - PIT_INFO_BAR_HALF_Z))
-	var pit_info_b := table_screen.world_to_pixel(Vector3(
-		pit_info_cx - PIT_INFO_BAR_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_INFO_BAR_HALF_Z))
-	var pit_info_rect := Rect2(pit_info_a, Vector2.ZERO).expand(pit_info_b)
-	table_screen.place_pit_info_bar(pit_info_rect)
-	# Aktions-Knöpfe flankieren das Netz-Feld, der Bank-Knopf hängt darunter.
-	table_screen.place_pit_actions(pit_info_rect)
-	# Einzeilige Material-Erklärleiste im Gruben-Screen, zwischen Netz-Feld und
-	# Grubenwand (breit).
-	var hint_cx := DicePit.PIT_CENTER.x - PIT_HINT_INSET_X
-	var hint_a := table_screen.world_to_pixel(Vector3(
-		hint_cx + PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z - PIT_HINT_HALF_Z))
-	var hint_b := table_screen.world_to_pixel(Vector3(
-		hint_cx - PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_HINT_HALF_Z))
-	table_screen.place_pit_net_hint(Rect2(hint_a, Vector2.ZERO).expand(hint_b))
 	# Deal-Marken am oberen Grubenrand - die Spiegelung der Hub-Marken.
 	var rail_cx := DicePit.PIT_CENTER.x + PIT_DEAL_RAIL_INSET_X
 	var rail_cz := DicePit.PIT_CENTER.z + PIT_DEAL_RAIL_OFFSET_Z
@@ -1276,10 +1254,29 @@ func _setup_table_screen() -> void:
 	_pool_seam_px = slot_half  # dieselbe Naht trennt den Streifen von der Reihe
 
 	# Rechts am Pool die GLEICHUNG samt Podest, die Schale rechts neben ERGEBNIS.
+	_place_pit_net_field()
 	_pool_row_px = pool_bounds
 	var corner := _place_workshop_strip()
 	_place_ausgabefach()
 	_setup_deck_glass()
+## Netz-Feld der Grube über der Erklärleiste: seine Zellen sind so groß wie die der
+## Die-Views der Werkstatt; die Aktions-Knöpfe flankieren es.
+func _place_pit_net_field() -> void:
+	var hint_cx := DicePit.PIT_CENTER.x - PIT_HINT_INSET_X
+	var hint_a := table_screen.world_to_pixel(Vector3(
+		hint_cx + PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z - PIT_HINT_HALF_Z))
+	var hint_b := table_screen.world_to_pixel(Vector3(
+		hint_cx - PIT_HINT_HALF_X, 0.0, DicePit.PIT_CENTER.z + PIT_HINT_HALF_Z))
+	var hint := Rect2(hint_a, Vector2.ZERO).expand(hint_b)
+	table_screen.place_pit_net_hint(hint)
+	var cell := table_screen.workshop_window.podium_cell()
+	var size := DieNetView.net_size(cell) + Vector2.ONE * cell * PIT_NET_PAD_CELLS * 2.0
+	var bottom := hint.position.y - PIT_NET_HINT_GAP * table_screen.pixels_per_world()
+	var cz := table_screen.world_to_pixel(DicePit.PIT_CENTER).x
+	var field := Rect2(Vector2(cz - size.x * 0.5, bottom - size.y), size)
+	table_screen.place_pit_info_bar(field, cell)
+	table_screen.place_pit_actions(field)
+
 	_setup_screen_spill_lights(corner)
 
 ## Das Deck wird EINMAL gebacken, sobald alle Fenster und Adern stehen. Die ganze Port-Leiste
@@ -9118,13 +9115,8 @@ func _sync_storage_bank() -> void:
 		return
 	var centers: Array[Vector3] = []
 	for seat in seats:
-		centers.append(table_screen.pixel_to_world(seat.get_center()))
-	if not chips.is_empty():
-		var spots: Array[Vector3] = []
-		for chip in chips:
-			spots.append(table_screen.pixel_to_world(chip.get_center()))
-		var edge := _world_half(chips[0]).x * 2.0
-		storage_bank.seat_chips(spots, edge, edge * DieNetView.GAP_FACTOR * 0.22)
+		centers.append(table_screen.pixel_to_world(seat.get_center())
+			+ Vector3.UP * DieViewDress.CHIP_HEIGHT)
 	var half := _world_half(seats[0])
 	storage_bank.seat(centers, Vector2(half.y, half.x) * 2.0, tints)
 
@@ -9163,6 +9155,7 @@ func _sync_die_view_dress() -> void:
 		"signs": workshop.sign_rects_px(), "stamp": workshop.stamp_seat_px(),
 		"cell": workshop.podium_cell(),
 		"live": workshop.target_die() != null and _drum_powered(workshop),
+		"spent": workshop.press_spent(), "armed": workshop.can_pull(),
 		"seated": seated, "ring_on": seated and not _chamber_down(),
 		"ring": _bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER),
 		"edge": DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * 2.0,
@@ -13457,12 +13450,12 @@ func _line_up_settled_dice() -> void:
 	lineup_tween = create_tween()
 	lineup_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	lineup_tween.set_parallel(true)
-	var span := PIT_TOP_ROW_SPACING * float(indices.size() - 1)
+	var span := SCORE_ROW_SPACING * float(indices.size() - 1)
 	for k in indices.size():
 		var body := dice.bodies[indices[k]]
 		body.freeze = true
-		var target := Vector3(DicePit.PIT_CENTER.x + PIT_CENTER_ROW_X, rest_y,
-			DicePit.PIT_CENTER.z - span * 0.5 + PIT_TOP_ROW_SPACING * float(k))
+		var target := Vector3(DicePit.PIT_CENTER.x + SCORE_ROW_X, rest_y,
+			DicePit.PIT_CENTER.z - span * 0.5 + SCORE_ROW_SPACING * float(k))
 		lineup_tween.tween_property(body, "global_transform",
 			Transform3D(_readable_upright_basis(body.global_basis), target), LINEUP_DURATION)
 
@@ -17081,12 +17074,12 @@ func _log_pose_pit(entry: Dictionary) -> void:
 		dice.tip_to_face(i, int(pit[i].get("face_index", 0)))
 	dice.note_pit_changed()  # auch die gestellte Erinnerung füllt die Grube
 	var rest_y := DicePit.FLOOR_TOP + DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT
-	var span := PIT_TOP_ROW_SPACING * float(maxi(row.size() - 1, 0))
+	var span := SCORE_ROW_SPACING * float(maxi(row.size() - 1, 0))
 	for k in row.size():
 		var body := dice.bodies[row[k]]
 		body.global_transform = Transform3D(_readable_upright_basis(body.global_basis),
-			Vector3(DicePit.PIT_CENTER.x + PIT_CENTER_ROW_X, rest_y,
-				DicePit.PIT_CENTER.z - span * 0.5 + PIT_TOP_ROW_SPACING * float(k)))
+			Vector3(DicePit.PIT_CENTER.x + SCORE_ROW_X, rest_y,
+				DicePit.PIT_CENTER.z - span * 0.5 + SCORE_ROW_SPACING * float(k)))
 	player_order = row.duplicate()
 
 ## Zurück in die Gegenwart: erst schweigt der Erinnerungs-Modus, dann bekommt der

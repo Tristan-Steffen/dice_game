@@ -3,9 +3,9 @@ extends SceneTree
 ## Spiel: leer, belegt, schräg, mitten im Prägen, danach, an der Station. Aufruf:
 ##   Godot --path . --resolution 1600x900 --position 4000,2400 --quit-after 2400 \
 ##     --script tools/godot_dieview_embed_probe.gd
-## Bilder: E:/Generated Images/Fumble/werkstatt_dieviews_2026-11-23/spiel/
+## Bilder: E:/Generated Images/Fumble/werkstatt_register_2026-11-24/
 
-const OUT := "E:/Generated Images/Fumble/werkstatt_dieviews_2026-11-23/spiel/"
+const OUT := "E:/Generated Images/Fumble/werkstatt_register_2026-11-24/"
 const VIEWS := ["leer", "belegt", "belegt_schraeg", "praegen", "nach_praegen", "station",
 	"oeffnung_fahrt", "oeffnung", "nach_oeffnung"]
 

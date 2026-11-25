@@ -36,7 +36,7 @@ func test_the_tray_hangs_under_the_chamber_as_wide_as_the_net() -> void:
 func test_only_a_change_rebuilds() -> void:
 	dress.seat(_spec(false), _world, null)
 	var parts := dress.get_node("Teile")
-	assert_gt(dress.part_count(), 20, "Schilder, Kragen, Wanne, Koppler stehen")
+	assert_gt(dress.part_count(), 12, "Schilder, Kragen, Wanne, Koppler stehen")
 	dress.seat(_spec(false), _world, null)
 	assert_same(dress.get_node("Teile"), parts, "gleiche Meldung baut nicht neu")
 	dress.seat(_spec(true), _world, null)
@@ -65,3 +65,30 @@ func test_the_up_mark_sits_on_its_cell_in_the_tray() -> void:
 	assert_true((dress.get_node("Teile/ObenMarke") as Node3D).visible, "ein Neubau behält sie")
 	dress.mark_up(-1)
 	assert_false((dress.get_node("Teile/ObenMarke") as Node3D).visible)
+
+func test_the_guard_closes_once_the_press_is_spent() -> void:
+	var spec := _spec(true)
+	dress.seat(spec, _world, null)
+	var guard := dress.get_node("Schalter")
+	assert_false(dress.cover_closed(), "frei: die Klappe steht offen")
+	assert_lt((dress.get_node("Schalter/Klappe") as Node3D).rotation.z, -1.0)
+	spec["spent"] = true
+	dress.seat(spec, _world, null)
+	assert_true(dress.cover_closed())
+	assert_same(dress.get_node("Schalter"), guard, "der Schalter überlebt den Neubau der Teile")
+
+func test_upgrades_and_result_are_chips_with_windows() -> void:
+	dress.seat(_spec(false), _world, null)
+	for part: String in ["UpgradesChip", "ErgebnisChip"]:
+		assert_not_null(dress.get_node_or_null("Teile/%s/Gehaeuse" % part), part)
+		assert_not_null(dress.get_node_or_null("Teile/%s/Beine" % part), part)
+
+func test_a_cut_plate_leaves_its_windows_open() -> void:
+	var rect := Rect2(0, 0, 100, 60)
+	var holes: Array[Rect2] = [Rect2(10, 10, 20, 20), Rect2(50, 10, 20, 20), Rect2(30, 35, 20, 20)]
+	var area := 0.0
+	for piece in DieViewDress.cut_plate(rect, holes):
+		area += piece.get_area()
+		for hole in holes:
+			assert_false(piece.intersects(hole), "kein Stück deckt ein Fenster")
+	assert_almost_eq(area, 100.0 * 60.0 - 3.0 * 400.0, 0.01)

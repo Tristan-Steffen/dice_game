@@ -113,6 +113,7 @@ const ENERGY_COLOR := CasinoStyle.ENERGY
 const TRACE_WIDTH := 0.6
 const TRACE_BAND_MARGIN := 0.1
 const TRACE_DARKEN := 0.1
+const TRACE_CLEAR := Color(0.02, 0.07, 0.05)
 const TRACE_BED := Color(0.03, 0.03, 0.06, 0.9)
 ## Je Scheibe EINE Bahn je Sorte (Pack.SHELF_ORDER) - sie stehen immer, farblos; belegt
 ## leuchtet die Bahn der Karten-Sorte.
@@ -800,7 +801,8 @@ static func feed_paths(upgrades: Rect2, plate: Rect2, lanes: int,
 static func feed_x(upgrades: Rect2, lanes: int, pitch: float, lane: int) -> float:
 	return upgrades.end.x - upgrades.size.x * FEED_INSET - pitch * float(lanes - 1 - lane)
 
-## Die gemalten Bahnen: dunkler Grund, darauf matt (Ruhe) oder leuchtend, am Fuß ein Lötauge.
+## Die gemalten Bahnen im Stil der Licht-Adern: Kupferzug unter Lötstopplack mit hellem
+## Grat, 45°-Ecken, Gold-Pads an beiden Enden; belegt trägt der Grat die Kartenfarbe.
 class TraceLayer extends Control:
 	var paths: Array[PackedVector2Array] = []
 	var tints: Array[Color] = []
@@ -846,20 +848,30 @@ class TraceLayer extends Control:
 			3:
 				_draw_stream()
 				return
+		var lines: Array[PackedVector2Array] = []
 		for i in paths.size():
-			draw_polyline(paths[i], TRACE_BED, widths[i] * 2.6, true)
+			lines.append(PcbDeckView.track_line(paths[i], 0.0, widths[i] * 0.5))
+			draw_polyline(lines[i], TRACE_CLEAR, widths[i] + 2.4, true)
 		# Erst alle matten, dann die leuchtenden - ihr Schein liegt über den Nachbarn.
 		for pass_lit: bool in [false, true]:
 			for i in paths.size():
 				if lit[i] != pass_lit:
 					continue
-				var tint := tints[i].darkened(TRACE_DARKEN) if pass_lit else TRACE_IDLE
-				tint.a = 1.0
+				var line := lines[i]
 				if pass_lit:
-					draw_polyline(paths[i], Color(tint, 0.22), widths[i] * 3.2, true)
-				draw_polyline(paths[i], tint, widths[i], true)
-				draw_circle(paths[i][eyes[i]], widths[i] * 1.5, TRACE_BED)
-				draw_circle(paths[i][eyes[i]], widths[i] * 1.1, tint)
+					var tint := _lit_tint(i)
+					draw_polyline(line, Color(tint, 0.2), widths[i] * 3.0, true)
+					draw_polyline(line, tint.darkened(0.55), widths[i], true)
+					draw_polyline(line, tint, widths[i] * 0.4, true)
+				else:
+					draw_polyline(line, LedStripView.TRACE, widths[i], true)
+					draw_polyline(line, LedStripView.CROWN, widths[i] * 0.32, true)
+				var last := line.size() - 1
+				for ends: Array in [[line[0], line[1]], [line[last], line[last - 1]]]:
+					var at: Vector2 = ends[0]
+					var dir := ((ends[1] as Vector2) - at).normalized()
+					var reach := minf(widths[i] * 3.0, at.distance_to(ends[1]))
+					draw_line(at, at + dir * reach, LedStripView.PAD, widths[i] + 1.6)
 
 	## KUPFER: Kupfer unter grünem Lötstopplack, belegt glänzt die Bahn in der Sortenfarbe;
 	## jeder Fuß ist eine Durchkontaktierung (Ring mit Bohrung).
@@ -1229,11 +1241,8 @@ func _build_equation(u: float) -> void:
 	_sum_host = _net_screen("UpgradesScreen", layout["upgrades"], cell,
 		TableScreen.window_style())
 	_build_storage(u, cell, layout["upgrades"])
-	# Die Blende um ERGEBNIS ist ein Körper - der Schirm trägt keinen Saum.
-	var bare := TableScreen.window_style().duplicate() as StyleBox
-	if bare is StyleBoxFlat:
-		(bare as StyleBoxFlat).set_border_width_all(0)
-	var host := _net_screen("ResultScreen", layout["result"], cell, bare)
+	# ERGEBNIS liegt wie der Speicher auf dem Deck: Rahmen und Chips sind Körper.
+	var host := _net_screen("ResultScreen", layout["result"], cell, StyleBoxEmpty.new())
 	# Der PARKPLATZ des Netzes bleibt ein leerer Platz - die Ergebnis-Karte hängt daneben.
 	var park := Control.new()
 	park.name = "Park"
@@ -1359,7 +1368,7 @@ const PODIUM_NET_PAD := 2.0
 ## Reicht die Pool-Höhe nicht, schrumpft dieser Faktor, nie die Kammer.
 const PODIUM_FACE_GAIN := 1.17
 ## Die Gleichung: Breite der Zeichen-Felder, Überschrift, Grade (u).
-const EQ_SIGN_UNITS := 12.0
+const EQ_SIGN_UNITS := 18.0
 const EQ_HEAD_UNITS := 4.5
 
 ## Die Kante des Scheiben-Vierkants: die KURZE Kartenseite plus Luft.
