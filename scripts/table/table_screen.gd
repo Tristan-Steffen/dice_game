@@ -1501,6 +1501,12 @@ func bake_deck(extra: Array = [], reserved: Array[Rect2] = []) -> void:
 	_deck_view.names = labels
 	_deck_view.kinds = kinds
 	_deck_view.reserved = corridors
+	# Die Gruben des Magazins tragen ihre eigene Fassung - kein Bestückungsdruck darum.
+	var bare: Array[Rect2] = []
+	for slot in MAGAZIN_PITS:
+		if pit_open(slot):
+			bare.append(pit_rect(slot))
+	_deck_view.bare = bare
 	_deck_view.plan()
 	_deck_oven.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_deck_material.set_shader_parameter("routing", _deck_oven.get_texture())

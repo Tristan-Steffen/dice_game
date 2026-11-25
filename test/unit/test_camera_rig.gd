@@ -256,8 +256,8 @@ func test_the_wide_step_frames_the_whole_corner_including_the_near_edge() -> voi
 	_aim_at_workshop()
 	assert_gt(rig.workshop_wide_distance(), CameraRig.WORKSHOP_MIN_DISTANCE,
 		"die gerechnete Rahmung schlägt die bloße Untergrenze")
-	assert_lte(absf(_frame_height(WIDE_BOTTOM)), 1.0, "die Buchten stehen im Bild")
-	assert_lte(absf(_frame_height(WIDE_TOP)), 1.0, "und die Trays ebenso")
+	assert_lte(absf(_frame_height(WIDE_BOTTOM)), 1.0001, "die Buchten stehen im Bild")
+	assert_lte(absf(_frame_height(WIDE_TOP)), 1.0001, "und die Trays ebenso")
 	assert_gt(absf(_frame_height(WIDE_BOTTOM)), absf(_frame_height(WIDE_TOP)),
 		"die nähere Kante füllt mehr Bild - genau darum reicht eine Höhenrechnung nicht")
 

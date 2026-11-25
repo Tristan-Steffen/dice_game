@@ -1386,7 +1386,7 @@ func _place_workshop_strip() -> Rect2:
 	var corner := station.grow_individual(seam * 0.5, seam * 0.5, seam * 0.5, seam * 0.5)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()),
 		_world_half(corner), DiceTrayView.FLOAT_HEIGHT
-		+ DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 1.5)
+		+ DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT)
 	workshop_close_rect = bench_rect
 	var close_frame := bench_rect.grow_individual(seam, seam + _lifted_card_head_px(), seam,
 		seam)

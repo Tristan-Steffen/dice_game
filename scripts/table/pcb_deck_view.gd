@@ -31,6 +31,8 @@ var names: Array[String] = []
 var kinds: Array[String] = []
 ## Korridore der Licht-Adern: dort liegt kein BGA-Feld.
 var reserved: Array[Rect2] = []
+## Gruben mit eigener Fassung (das Magazin): kein Bestückungsdruck um ihr Bauteil.
+var bare: Array[Rect2] = []
 
 var _ghosts := 0  # die letzten n Einträge von comps sind unbestückte BGA-Felder
 
@@ -167,6 +169,12 @@ func _silk_corners(rect: Rect2) -> float:
 		draw_line(at, at + Vector2(0, arm * (1.0 - corner.y * 2.0)), SILK, 3.0)
 	return arm
 
+func _is_bare(rect: Rect2) -> bool:
+	for pit in bare:
+		if rect.intersects(pit):
+			return true
+	return false
+
 func _draw_silk() -> void:
 	var font := ThemeDB.fallback_font
 	var cards := 0
@@ -177,7 +185,7 @@ func _draw_silk() -> void:
 			draw_string(font, comps[i].position + Vector2(14.0, -12.0),
 				"A%d  %s" % [cards, names[i]], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20, SILK)
 			continue
-		if _kind(i) in STANDING:
+		if _kind(i) in STANDING or _is_bare(comps[i]):
 			continue
 		var rect := comps[i].grow(KEEP + 4.0)
 		var arm := _silk_corners(rect)

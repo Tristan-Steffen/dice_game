@@ -87,12 +87,13 @@ func test_the_podium_stands_over_upgrades() -> void:
 	assert_false(lay.has("result"), "ERGEBNIS ist gestorben")
 	assert_eq(lay["original"], net, "ORIGINAL IST die Die-View")
 
-## VORSCHAU eine Fuge rechts am Pool, oben bündig; PRÄGEN mittig zu ihr und mittig im
-## Feld zwischen Vorschau und Podest (über dem Info-Schirm).
+## VORSCHAU eine Fuge (plus Beinchen) rechts am Pool, oben bündig; PRÄGEN mittig zu ihr,
+## samt Schale rechts bündig mit dem Info-Schirm.
 func test_preview_then_stamp_in_the_head_row() -> void:
 	var preview: Rect2 = lay["preview"]
 	var stamp: Rect2 = lay["stamp"]
-	assert_almost_eq(preview.position.x, POOL.end.x + U * WorkshopView.DRUM_SHELF_GAP, 0.01)
+	assert_almost_eq(preview.position.x, POOL.end.x + U * (WorkshopView.DRUM_SHELF_GAP
+		+ WorkshopView.CHIP_LEG_UNITS), 0.01, "eine Fuge rechts am Pool, dazu die Beinchen")
 	assert_almost_eq(preview.position.y, POOL.position.y, 0.01, "oben bündig")
 	assert_eq(preview.size, (lay["podium_net"] as Rect2).size, "Netz-Maß")
 	assert_lt(POOL.end.x, preview.position.x)
@@ -100,8 +101,8 @@ func test_preview_then_stamp_in_the_head_row() -> void:
 	assert_almost_eq(stamp.get_center().y, preview.get_center().y, 0.01, "mittig zu ihr")
 	assert_gte(stamp.size.x, U * WorkshopView.ACTION_WIDTH - 0.01)
 	var info: Rect2 = lay["info"]
-	assert_almost_eq(stamp.get_center().x, (preview.end.x + info.end.x) * 0.5, 0.01,
-		"mittig im Feld bis vor das Podest")
+	assert_almost_eq(stamp.end.x + U * (WorkshopView.STREET_GAP + WorkshopView.FACH_UNITS),
+		info.end.x, 0.01, "PRÄGEN samt Schale endet mit der Info-Kante")
 
 ## Der INFO-SCHIRM: ein Block eine Fuge unter Vorschau und Prägen, links ab der Vorschau,
 ## rechts bündig mit dem Graben und bis zur Pool-Unterkante.
@@ -109,14 +110,16 @@ func test_the_info_is_a_block_under_preview_and_stamp() -> void:
 	var info: Rect2 = lay["info"]
 	var preview: Rect2 = lay["preview"]
 	var podium: Rect2 = lay["podium"]
-	assert_almost_eq(info.position.x, preview.position.x, 0.01)
+	assert_almost_eq(info.position.x, preview.position.x - U * WorkshopView.CHIP_LEG_UNITS, 0.01,
+		"bündig mit den Beinchen der Vorschau")
 	assert_gt(info.position.y, preview.end.y, "unter der Vorschau")
 	assert_gt(info.position.y, (lay["stamp"] as Rect2).end.y, "und unter PRÄGEN")
 	assert_almost_eq(info.end.y, POOL.end.y, 0.01, "bis zur Pool-Unterkante")
 	assert_almost_eq(info.end.x, (lay["pit"] as Rect2).end.x, 0.01, "rechts bündig mit dem Graben")
 	assert_lt(info.end.x, podium.position.x, "vor dem Podest")
-	assert_almost_eq(info.position.y - preview.end.y, U * WorkshopView.DRUM_SHELF_GAP, 0.01,
-		"eine Fuge unter der Vorschau")
+	assert_almost_eq(info.position.y - preview.end.y, U * (WorkshopView.CHIP_LEG_UNITS
+		+ WorkshopView.DRUM_SHELF_GAP * WorkshopView.INFO_GAP_SHARE), 0.01,
+		"Luft unter den Beinchen der Vorschau")
 	assert_gt(info.size.x, 600.0, "ein breiter Block")
 	assert_gt(info.size.y, 200.0, "und ein hoher")
 

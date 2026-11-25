@@ -132,9 +132,15 @@ const STORAGE_EDGE := 7.5
 ## "Prägen n/m" (gesteckt / Serienlänge) bzw. "Fertig". EIN Maß für beide - der Sitz
 ## steht fest, nur seine Aufschrift wechselt, und die Grundseite fließt nie um.
 ## Bemessen an der breitesten Aufschrift ("Verdichten 6/6") plus Rand.
-const ACTION_WIDTH := 21.0
+const ACTION_WIDTH := 26.0
 const ACTION_HEIGHT := 4.0
-const ACTION_SPAN_SHARE := 0.5
+const ACTION_SPAN_SHARE := 0.62
+## Die Beinchen eines Chips (DieViewDress, 0,28 Welt über den Rand) in u.
+const CHIP_LEG_UNITS := 1.85
+## Die Fuge zwischen den Beinchen der Vorschau und dem Info-Schirm, Anteil von DRUM_SHELF_GAP.
+const INFO_GAP_SHARE := 1.5
+## Die Breite der Schale rechts neben PRÄGEN in u (AusgabefachView, 2,3 Welt).
+const FACH_UNITS := 15.2
 const ACTION_FONT_SHARE := 0.5
 const ACTION_TEXT_PAD := 1.0
 const ACTION_WIDEST := "Verdichten 6/6"
@@ -1551,18 +1557,22 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float, u: float,
 		numbers))
 	var bounds := top.merge(pit).merge(shelf)
 	# Rechts am Pool: VORSCHAU, PRÄGEN mittig zu ihr, darunter der INFO-SCHIRM.
-	var preview := Rect2(Vector2(pool.end.x + gap, pool.position.y), net_span)
+	# Die Beinchen des Vorschau-Chips enden bündig mit der linken Kante des Info-Schirms.
+	var legs := u * CHIP_LEG_UNITS
+	var preview := Rect2(Vector2(pool.end.x + gap + legs, pool.position.y), net_span)
 	var stage := die_face * STAGE_FACES
 	var action := Vector2(u * ACTION_WIDTH, maxf(stage * ACTION_SPAN_SHARE, u * ACTION_HEIGHT))
-	# Der INFO-SCHIRM eine Fuge unter der Vorschau, rechts bündig mit dem Graben.
-	var info_top := preview.end.y + gap
-	var info := Rect2(Vector2(preview.position.x, info_top),
-		Vector2(maxf(pit.end.x - preview.position.x, 0.0), maxf(pool.end.y - info_top, 0.0)))
-	# PRÄGEN mittig im Feld zwischen Vorschau und Podest (über dem Info-Schirm), die Schale
-	# rechts daneben; eine Fuge Luft zur Vorschau - PRÄGEN liegt schon in der Öffnungs-Zone.
-	var stamp_area := Rect2(Vector2(preview.end.x + gap, preview.position.y),
-		Vector2(maxf(info.end.x - preview.end.x - gap * 2.0, action.x), net_span.y))
-	var stamp := Rect2(stamp_area.get_center() - action * 0.5, action)
+	# Der INFO-SCHIRM eine Fuge unter den Beinchen der Vorschau, rechts bündig mit dem Graben.
+	var info_top := preview.end.y + legs + gap * INFO_GAP_SHARE
+	var info := Rect2(Vector2(pool.end.x + gap, info_top),
+		Vector2(maxf(pit.end.x - pool.end.x - gap, 0.0), maxf(pool.end.y - info_top, 0.0)))
+	# PRÄGEN samt der Schale rechts daneben enden mit der Info-Kante; die Öffnungs-Zone
+	# beginnt eine Fuge rechts der Vorschau und deckt PRÄGEN.
+	var stamp_area := Rect2(Vector2(preview.end.x + legs + gap, preview.position.y),
+		Vector2(maxf(info.end.x - preview.end.x - legs - gap, action.x), net_span.y))
+	var group := action.x + seam + u * FACH_UNITS
+	var stamp := Rect2(Vector2(maxf(info.end.x - group, stamp_area.position.x),
+		stamp_area.get_center().y - action.y * 0.5), action)
 	var equation := preview.merge(stamp_area).merge(podium).merge(plus).merge(upgrades)
 	if info.size.y > 0.0:
 		equation = equation.merge(info)

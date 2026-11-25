@@ -116,7 +116,12 @@ func _process(_delta: float) -> bool:
 			_plate_fonts("weit")
 			_info_fonts("ruhe")
 			workshop.toggle_result()
+			print("MASS ergebnis-netz %s zelle %.2f | dieview-netz %s" % [workshop._net.size,
+				workshop._net.cell, workshop._podium_net.size if workshop._podium_net else null])
 		2:
+			print("MASS nach umschalten ergebnis %s sichtbar %s | dieview %s" % [
+				workshop._net.get_global_rect(), workshop._net.visible,
+				workshop._podium_net.get_global_rect() if workshop._podium_net else null])
 			workshop.toggle_result()
 			_hover_pool(2)
 		3:
