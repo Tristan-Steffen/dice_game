@@ -140,6 +140,7 @@ const ACTION_TEXT_PAD := 1.0
 const ACTION_WIDEST := "Verdichten 6/6"
 ## Der Sitz nach der Prägung der Runde: eine rote Anzeige statt des Knopfs.
 const SPENT_TEXT := "GEPRÄGT"
+const BANNED_TEXT := "GESPERRT"
 const SPENT_COLOR := Color(1.25, 0.42, 0.38)
 
 ## DIE ÜBERTRAGUNG - die Zeremonie des Prägens. Der Boden unter dem Podest öffnet die
@@ -1426,7 +1427,7 @@ const PODIUM_NET_PAD := 2.0
 ## Reicht die Pool-Höhe nicht, schrumpft dieser Faktor, nie die Kammer.
 const PODIUM_FACE_GAIN := 1.17
 ## Die Höhe des "+"-Feldes (des Umschalters) zwischen ORIGINAL und UPGRADES, in u.
-const EQ_SIGN_UNITS := 12.0
+const EQ_SIGN_UNITS := 8.0
 ## Die Strecke des Eingangs-Busses zwischen Graben und UPGRADES, in u - lang genug, daß
 ## er aus der Weitsicht liest.
 const ENTRY_BUS_UNITS := 8.0
@@ -1487,15 +1488,34 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float, u: float,
 	var seam := u * STREET_GAP
 	var gap := u * DRUM_SHELF_GAP
 	var numbers := u * (SLICE_NUMBER_UNITS + SLICE_NUMBER_GAP)
-	var gain := podium_gain(pool.size.y, die_face, u)
-	var net_span := podium_net_size(card, die_face, u, gain)
-	var plate_size := podium_plate_size(die_face, u)
-	# Die Platte ist so breit wie die Die-View darunter (Spieler-Wunsch 2026-11-20).
-	plate_size.x = maxf(plate_size.x, net_span.x)
 	# Auf Kante gedreht braucht der Vierkant seine Diagonale.
 	var high := drum_side_px(card) * sqrt(2.0) + seam
 	var pitch := slice_length_px(card) + seam
 	var pit_w := pitch * float(DRUM_SLICES)
+	# DAS MAGAZIN: ist pit_floor gesetzt, enden seine Gruben dort; die WALZE steht mittig
+	# zwischen Pool und Magazin (gleiche Fuge oben wie unten, Spieler-Wunsch 2026-11-25).
+	var shelf_size := PackDrawerView.shelf_for(card)
+	var field0 := PackDrawerView.field_in(Rect2(Vector2.ZERO, shelf_size))
+	var pits_end := field0.end.y
+	for lane in PackDrawerView.column_rects(field0.size):
+		pits_end = field0.position.y + lane.end.y
+	var pit_y := pool.end.y + gap + numbers
+	var shelf_y := pit_y + high + gap
+	if pit_floor > 0.0:
+		shelf_y = pit_floor - pits_end
+		pit_y = pool.end.y + numbers + maxf((shelf_y - pool.end.y - numbers - high) * 0.5, 0.0)
+	var pit := Rect2(Vector2(pool.position.x, pit_y), Vector2(pit_w, high))
+	# Die PODEST-SPALTE (Platte, Die-View, "+", UPGRADES) endet spätestens mit der Walze:
+	# reicht der Platz nicht, schrumpfen die Die-Views (alle gleich groß), nie die Kammer.
+	var plate_size := podium_plate_size(die_face, u)
+	var col_room := pit.end.y - pool.position.y - plate_size.y - seam * 3.0 - u * EQ_SIGN_UNITS
+	var gain := podium_gain(pool.size.y, die_face, u)
+	if die_face > 0.0:
+		gain = clampf((col_room * 0.5 - u * PODIUM_NET_PAD * 2.0) / DieNetView.net_size(1.0).y
+			/ die_face, 0.1, gain)
+	var net_span := podium_net_size(card, die_face, u, gain)
+	# Die Platte ist so breit wie die Die-View darunter (Spieler-Wunsch 2026-11-20).
+	plate_size.x = maxf(plate_size.x, net_span.x)
 	# DIE PODEST-SPALTE am Ende der Walze: Platte, Die-View, "+"-Feld, UPGRADES.
 	var col := Rect2(Vector2(pool.position.x + pit_w + u * ENTRY_BUS_UNITS, pool.position.y),
 		Vector2(maxf(net_span.x, plate_size.x), 0.0))
@@ -1507,29 +1527,17 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float, u: float,
 	var podium_net := Rect2(Vector2(mid_x - net_span.x * 0.5, podium_stage.end.y + seam),
 		net_span)
 	var podium := Rect2(col.position, Vector2(col.size.x, podium_net.end.y - col.position.y))
-	# Das "+"-Feld beginnt unter der Pool-Reihe (dort endet die Öffnungs-Zone), UPGRADES
-	# mittig zum Graben - der Graben hält Nummern-Abstand zum Pool, das Feld seine Höhe.
-	var plus_y := maxf(podium_net.end.y, pool.end.y) + seam
+	# Das "+"-Feld unter der Die-View (dort endet die Öffnungs-Zone), UPGRADES mittig zum
+	# Graben, soweit das Feld darüber seine Höhe behält und es nicht unter die Walze reicht.
+	var plus_y := podium_net.end.y + seam
 	var up_y := maxf(plus_y + u * EQ_SIGN_UNITS + seam,
-		pool.end.y + seam + numbers + high * 0.5 - net_span.y * 0.5)
+		minf(pit.get_center().y - net_span.y * 0.5, pit.end.y - net_span.y))
 	var upgrades := Rect2(Vector2(mid_x - net_span.x * 0.5, up_y), net_span)
 	var plus := Rect2(Vector2(col.position.x, plus_y), Vector2(col.size.x, up_y - seam - plus_y))
-	var pit := Rect2(Vector2(pool.position.x, upgrades.get_center().y - high * 0.5),
-		Vector2(pit_w, high))
 	var slices: Array[Rect2] = []
 	for i in DRUM_SLICES:
 		slices.append(Rect2(Vector2(pit.position.x + seam * 0.5 + pitch * float(i),
 			pit.position.y), Vector2(slice_length_px(card), high)))
-	# DAS MAGAZIN: eine Fuge unter dem Graben, wenn gemeldet so tief, daß die Gruben auf
-	# pit_floor enden.
-	var shelf_size := PackDrawerView.shelf_for(card)
-	var field0 := PackDrawerView.field_in(Rect2(Vector2.ZERO, shelf_size))
-	var pits_end := field0.end.y
-	for lane in PackDrawerView.column_rects(field0.size):
-		pits_end = field0.position.y + lane.end.y
-	var shelf_y := pit.end.y + gap
-	if pit_floor > 0.0:
-		shelf_y = maxf(shelf_y, pit_floor - pits_end)
 	var shelf := Rect2(Vector2(pool.position.x, shelf_y), shelf_size)
 	var field := PackDrawerView.field_in(shelf)
 	# Je SORTE ein Tray: seine Grube (columns) und samt Fassung (trays), EINE Quelle.
@@ -1546,10 +1554,10 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float, u: float,
 	var preview := Rect2(Vector2(pool.end.x + gap, pool.position.y), net_span)
 	var stage := die_face * STAGE_FACES
 	var action := Vector2(u * ACTION_WIDTH, maxf(stage * ACTION_SPAN_SHARE, u * ACTION_HEIGHT))
-	var info_top := preview.end.y + seam
+	# Der INFO-SCHIRM eine Fuge unter der Vorschau, rechts bündig mit dem Graben.
+	var info_top := preview.end.y + gap
 	var info := Rect2(Vector2(preview.position.x, info_top),
-		Vector2(maxf(podium.position.x - gap - preview.position.x, 0.0),
-			maxf(pool.end.y - info_top, 0.0)))
+		Vector2(maxf(pit.end.x - preview.position.x, 0.0), maxf(pool.end.y - info_top, 0.0)))
 	# PRÄGEN mittig im Feld zwischen Vorschau und Podest (über dem Info-Schirm), die Schale
 	# rechts daneben; eine Fuge Luft zur Vorschau - PRÄGEN liegt schon in der Öffnungs-Zone.
 	var stamp_area := Rect2(Vector2(preview.end.x + gap, preview.position.y),
@@ -1558,7 +1566,10 @@ static func drum_layout(pool: Rect2, card: Vector2, die_face: float, u: float,
 	var equation := preview.merge(stamp_area).merge(podium).merge(plus).merge(upgrades)
 	if info.size.y > 0.0:
 		equation = equation.merge(info)
+	# Die Öffnungs-Zone endet zwischen Die-View und "+" (höchstens mit der Pool-Reihe).
+	var zone_bottom := minf(pool.end.y, podium_net.end.y + seam * 0.5)
 	return {"pit": pit, "slices": slices, "chamber": chamber, "stamp": stamp,
+		"zone_bottom": zone_bottom,
 		"shelf": shelf, "columns": columns, "trays": trays, "info": info,
 		"original": podium_net, "upgrades": upgrades, "signs": [plus] as Array[Rect2],
 		"preview": preview, "equation": equation, "podium": podium,
@@ -2160,7 +2171,8 @@ func press_spent() -> bool:
 		and not run.series_press_allowed(_series)
 
 func _spent_button(u: float) -> Button:
-	var button := _seat_fit(_action_button_new(SPENT_TEXT, SPENT_COLOR, u, func() -> void: pass), u)
+	var text := BANNED_TEXT if run != null and run.press_banned() else SPENT_TEXT
+	var button := _seat_fit(_action_button_new(text, SPENT_COLOR, u, func() -> void: pass), u)
 	button.name = "StampSpent"
 	button.disabled = true
 	button.mouse_default_cursor_shape = Control.CURSOR_ARROW
@@ -2240,6 +2252,8 @@ func stamp_blocker() -> String:
 		return ""
 	if stamping_card_count() <= 0:
 		return "Nur Katalysatoren - eine Netz-Karte fehlt."
+	if run.press_banned():
+		return "Werkstattsperre - diese Runde wird nicht geprägt."
 	if not run.series_press_allowed(_series):
 		return "Schon geprägt - die nächste Prägung gibt es in der nächsten Runde."
 	return ""

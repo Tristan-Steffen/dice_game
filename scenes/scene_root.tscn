@@ -30,7 +30,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.005979538, 0, 0.08044052)
 [node name="DiceTray" parent="." unique_id=427822618 instance=ExtResource("1_w2g3p")]
 
 [node name="PoolTrayView" parent="." unique_id=263660363 instance=ExtResource("14_pooltray")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.3, 0, 23.25)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.15, 0, 24.27)
 
 [node name="QueueTrayView" parent="." unique_id=1800299087 instance=ExtResource("13_queuetray")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.063042, 0, 20.779545)

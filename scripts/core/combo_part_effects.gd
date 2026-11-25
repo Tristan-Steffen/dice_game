@@ -98,9 +98,11 @@ static func chain_keys(combo_parts: Dictionary, key: String, throttled: Array = 
 
 ## Kopplung: jedes andere Modul ihres Chips zählt je Kopplung einmal mehr.
 static func weight(sockets: Array, part: ComboPart) -> int:
-	if part == null or part.id == ComboPart.COUPLING:
+	if part == null:
 		return 1
-	return 1 + count_of(sockets, ComboPart.COUPLING)
+	if part.id == ComboPart.COUPLING:
+		return 1 + part.weight_bonus
+	return 1 + count_of(sockets, ComboPart.COUPLING) + part.weight_bonus
 
 ## Die Wirk-Liste eines Chips: jedes Modul so oft, wie es zählt (Kopplung).
 static func weighted(sockets: Array) -> Array:
@@ -242,16 +244,18 @@ static func combo_ends(order: Array[int], combination: Array[int]) -> Vector2i:
 ## Ein Einzelwürfel ist beides und bekommt beides.
 static func die_retriggers(sockets: Array, i: int, head: int, tail: int, in_combination: bool = false) -> int:
 	var extra := 0
+	var overtime := 0  # Überstunden: einmal je Würfel, egal wie viele Module es tragen
 	for part in sockets:
 		if part == null:
 			continue
+		overtime = maxi(overtime, part.overtime)
 		if part.id == ComboPart.RELAY and i == head and head >= 0:
 			extra += RELAY_RETRIGGERS
 		elif part.id == ComboPart.OUTPUT_STAGE and i == tail and tail >= 0:
 			extra += OUTPUT_STAGE_RETRIGGERS
 		elif part.id == ComboPart.PARALLEL_CIRCUIT and in_combination:
 			extra += PARALLEL_RETRIGGERS
-	return extra
+	return extra + overtime
 
 ## Punkte je Zündung eines Kombinationswürfels (Vorwiderstand).
 static func firing_base(sockets: Array, in_combination: bool) -> int:
@@ -336,6 +340,6 @@ static func scoring_energy(sockets: Array) -> int:
 ## Trägt der Chip irgendein Teil, das in der Würfelphase wirkt?
 static func has_die_parts(sockets: Array) -> bool:
 	for part in sockets:
-		if part != null and part.phase == ComboPart.PHASE_DIE:
+		if part != null and (part.phase == ComboPart.PHASE_DIE or part.overtime > 0):
 			return true
 	return false

@@ -259,6 +259,12 @@ const CTX_CLAUSE_GROWTH := "clause_growth"
 static func clause_growth_in(ctx: Dictionary) -> int:
 	return maxi(0, int(ctx.get(CTX_CLAUSE_GROWTH, 0)))
 
+## Anlaufzeit (Klausel, hand-weit): die erste Hand der Runde wertet halb.
+const CTX_SLOW_START := "slow_start"
+
+static func slow_start_halves(ctx: Dictionary) -> bool:
+	return bool(ctx.get(CTX_SLOW_START, false)) and int(ctx.get(CTX_HANDS_TAKEN, 0)) == 0
+
 ## Runen (ctx-Schlüssel): Dictionary Slot -> Liste der Runen-ids auf der OBEN
 ## liegenden Seite. Wie die Essenz-Glieder löst der Aufrufer das EINMAL auf;
 ## das Nachglühen ändert Auslösungen, also braucht auch der Farkle-Vergleich die
@@ -453,7 +459,8 @@ static func score_category(key: String, dice: Array[int], charm_ids: Array[Strin
 	var pair := _base_and_mult(key, dice, raw, charm_ids, materials, combo_parts, ctx)
 	# Die EINZIGE Rundung der ganzen Rechnung: erst beim Verschmelzen, und
 	# aufgerundet. Zwei ×1,5 müssen ×2,25 ergeben, nie zweimal ×2.
-	return ceili(float(pair[0]) * maxf(1.0, pair[1]))
+	var total := ceili(float(pair[0]) * maxf(1.0, pair[1]))
+	return total / 2 if slow_start_halves(ctx) else total
 
 ## Kompletter Kombi-Multiplikator - die Mult-Seite derselben Rechnung; min. 1.
 ## Eine Quelle für Rechnung UND Anzeige.

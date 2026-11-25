@@ -34,6 +34,9 @@ const TAG_MONEY := "geld"
 const TAG_SERIES := "serie"
 ## Alles, was am GLÜCK des Laufs dreht.
 const TAG_LUCK := "glück"
+const TAG_WORKSHOP := "werkstatt"
+const TAG_CHARM := "charm"
+const TAG_MODULE := "modul"
 
 # --- Klausel-ids (Single Source of Truth) --------------------------------------
 
@@ -50,6 +53,9 @@ const LUCKY_DAY := "lucky_day"
 const FREE_FLIP := "free_flip"
 const BUYBACK := "buyback"
 const REINSURANCE := "reinsurance"
+const TRIAL_RUN := "trial_run"
+const HAND_WAGE := "hand_wage"
+const DEPOSIT := "deposit"
 
 # Bonus, Stufe 2
 const HIGH_VOLTAGE := "high_voltage"
@@ -66,6 +72,8 @@ const SOUL_MARKET := "soul_market"
 const MATH_WEEK := "math_week"
 const BACK_ROOM_CONTACT := "back_room_contact"
 const BIG_STORAGE := "big_storage"
+const OVERTIME := "overtime"
+const EXCHANGE_OFFICE := "exchange_office"
 
 # Bonus, Stufe 3
 const ALL_ON_RED := "all_on_red"
@@ -77,6 +85,9 @@ const REGULAR_CUSTOMER := "regular_customer"
 const SPECIAL_DELIVERY := "special_delivery"
 const FREE_HAND := "free_hand"
 const CONNOISSEUR_EYE := "connoisseur_eye"
+const LOADED_LUCK_DIE := "loaded_luck_die"
+const MASTER_PRESS := "master_press"
+const FULL_LOADOUT := "full_loadout"
 
 # Malus, Stufe 1
 const QUOTA_SURCHARGE := "quota_surcharge"
@@ -88,6 +99,8 @@ const EMPTY_SHELVES := "empty_shelves"
 const SOULLESS := "soulless"
 const FLIP_SURCHARGE := "flip_surcharge"
 const MAINS_HUM := "mains_hum"
+const SLOW_START := "slow_start"
+const WORKSHOP_BAN := "workshop_ban"
 
 # Malus, Stufe 2
 const QUOTA_SURCHARGE_II := "quota_surcharge_ii"
@@ -101,12 +114,20 @@ const UNLUCKY_NUMBER := "unlucky_number"
 const BAD_STREAK := "bad_streak"
 const SHELF_WARMER := "shelf_warmer"
 const FUSE_FAILURE := "fuse_failure"
+const LOOSE_CONTACT := "loose_contact"
+const PROJECTOR_FAILURE := "projector_failure"
+const SHORT_TIME := "short_time"
 
 # Malus, Stufe 3
 const QUOTA_SHOCK := "quota_shock"
 const USURY_CLAUSE := "usury_clause"
 const BLACKOUT := "blackout"
 const HEAT_BUILDUP := "heat_buildup"
+const SEIZURE := "seizure"
+const FORCED_AUCTION := "forced_auction"
+const SHOP_CLOSED := "shop_closed"
+const SCRAP_PRESS := "scrap_press"
+const UNLUCKY_PACT := "unlucky_pact"
 
 # Stresstest-Konditionen (reiner Malus)
 const HIGH_EXPECTATIONS := "high_expectations"
@@ -131,6 +152,9 @@ const TAG_COLORS := {
 	TAG_MONEY: "#ffd319",
 	TAG_SERIES: "#6effc7",
 	TAG_LUCK: "#9dff6b",
+	TAG_WORKSHOP: "#f1fa8c",
+	TAG_CHARM: "#e6e6ff",
+	TAG_MODULE: "#3ddc97",
 }
 const TIER_FALLBACK_COLORS := ["#9aa6ff", "#c9a2ff", "#ff9ecf", "#ffd319", "#ff5555"]
 
@@ -315,6 +339,38 @@ static func free_hand() -> DealClause:
 	return _bonus(FREE_HAND, "Freie Hand", "Jedes Paket dieser Runde: +1 Wahl.",
 		Scope.ROUND, Tier.THREE, [TAG_SHOP])
 
+static func trial_run() -> DealClause:
+	return _bonus(TRIAL_RUN, "Probelauf", "Prägen: +1 Mal.",
+		Scope.ROUND, Tier.ONE, [TAG_WORKSHOP])
+
+static func hand_wage() -> DealClause:
+	return _bonus(HAND_WAGE, "Lohnfortzahlung", "Jede Hand: +$2.",
+		Scope.ROUND, Tier.ONE, [TAG_MONEY])
+
+static func deposit() -> DealClause:
+	return _bonus(DEPOSIT, "Pfandflasche", "+1 ⚡ je geöffnetem Paket.",
+		Scope.ROUND, Tier.ONE, [TAG_ENERGY])
+
+static func overtime() -> DealClause:
+	return _bonus(OVERTIME, "Überstunden", "Kombination mit 3 Modulen: +1 Auslösung.",
+		Scope.ROUND, Tier.TWO, [TAG_MODULE])
+
+static func exchange_office() -> DealClause:
+	return _bonus(EXCHANGE_OFFICE, "Wechselstube", "Rundenende: +$3 je ⚡.",
+		Scope.ROUND, Tier.TWO, [TAG_MONEY, TAG_ENERGY])
+
+static func loaded_luck_die() -> DealClause:
+	return _bonus(LOADED_LUCK_DIE, "Gezinkter Glückswürfel",
+		"Erstes Paket: der Glückswürfel zeigt seine beste Seite.", Scope.ROUND, Tier.THREE, [TAG_LUCK])
+
+static func master_press() -> DealClause:
+	return _bonus(MASTER_PRESS, "Meisterprägung", "Prägen unbegrenzt.",
+		Scope.ROUND, Tier.THREE, [TAG_WORKSHOP])
+
+static func full_loadout() -> DealClause:
+	return _bonus(FULL_LOADOUT, "Vollbestückung", "Alle Module wirken doppelt.",
+		Scope.ROUND, Tier.THREE, [TAG_MODULE])
+
 # --- Malusklauseln ------------------------------------------------------------
 
 static func empty_shelves() -> DealClause:
@@ -413,6 +469,46 @@ static func heat_buildup() -> DealClause:
 	return _malus(HEAT_BUILDUP, "Hitzestau", "Fumble: ein zufälliges Modul wird zerstört.",
 		Scope.ROUND, Tier.THREE, [TAG_THROTTLE])
 
+static func slow_start() -> DealClause:
+	return _malus(SLOW_START, "Anlaufzeit", "Erste Hand: halbe Punkte.",
+		Scope.ROUND, Tier.ONE, [TAG_THROTTLE])
+
+static func workshop_ban() -> DealClause:
+	return _malus(WORKSHOP_BAN, "Werkstattsperre", "Prägen gesperrt.",
+		Scope.ROUND, Tier.ONE, [TAG_WORKSHOP])
+
+static func loose_contact() -> DealClause:
+	return _malus(LOOSE_CONTACT, "Wackelkontakt", "Glückswürfel zeigt höchstens 2 Augen.",
+		Scope.ROUND, Tier.TWO, [TAG_LUCK])
+
+static func projector_failure() -> DealClause:
+	return _malus(PROJECTOR_FAILURE, "Projektor-Ausfall", "Ein zufälliger Charm ist aus.",
+		Scope.ROUND, Tier.TWO, [TAG_CHARM])
+
+static func short_time() -> DealClause:
+	return _malus(SHORT_TIME, "Kurzarbeit", "6 Würfel weniger im Pool.",
+		Scope.ROUND, Tier.TWO, [TAG_THROTTLE])
+
+static func seizure() -> DealClause:
+	return _malus(SEIZURE, "Pfändung", "Die Hälfte deines Geldes ist weg.",
+		Scope.INSTANT, Tier.THREE, [TAG_MONEY])
+
+static func forced_auction() -> DealClause:
+	return _malus(FORCED_AUCTION, "Zwangsversteigerung", "Dein teuerster Charm wird verkauft.",
+		Scope.INSTANT, Tier.THREE, [TAG_CHARM])
+
+static func shop_closed() -> DealClause:
+	return _malus(SHOP_CLOSED, "Ladenschluss", "Kein Laden nach dieser Runde.",
+		Scope.ROUND, Tier.THREE, [TAG_SHOP])
+
+static func scrap_press() -> DealClause:
+	return _malus(SCRAP_PRESS, "Schrottpresse", "Ein zufälliges Modul wird zerstört.",
+		Scope.INSTANT, Tier.THREE, [TAG_MODULE])
+
+static func unlucky_pact() -> DealClause:
+	return _malus(UNLUCKY_PACT, "Pechvogel-Pakt", "Glück −4.",
+		Scope.INSTANT, Tier.THREE, [TAG_LUCK])
+
 # --- Stresstest-Konditionen ---------------------------------------------------
 
 static func high_expectations() -> DealClause:
@@ -465,6 +561,10 @@ static func all() -> Array[DealClause]:
 		big_storage(),
 		empty_shelves(), shelf_warmer(), soulless(), flip_surcharge(),
 		free_hand(),
+		trial_run(), hand_wage(), deposit(), overtime(), exchange_office(),
+		loaded_luck_die(), master_press(), full_loadout(),
+		slow_start(), workshop_ban(), loose_contact(), projector_failure(), short_time(),
+		seizure(), forced_auction(), shop_closed(), scrap_press(), unlucky_pact(),
 	]
 
 ## Alle Klausel-ids eines Topfes. TREAT hat keinen eigenen Topf mehr - das
@@ -554,6 +654,20 @@ static func text_for(clause_id: String, bonus_factor: int = 1) -> String:
 			return "Schwarzmarkt: −2 ⚡ je Ware."
 		BIG_STORAGE:
 			return "Zwei Powerbanks: Börse +10 ⚡ Platz."
+		TRIAL_RUN:
+			return "Prägen: +2 Mal."
+		HAND_WAGE:
+			return "Jede Hand: +$4."
+		DEPOSIT:
+			return "+2 ⚡ je geöffnetem Paket."
+		OVERTIME:
+			return "Kombination mit 3 Modulen: +2 Auslösungen."
+		EXCHANGE_OFFICE:
+			return "Rundenende: +$6 je ⚡."
+		LOADED_LUCK_DIE:
+			return "Erste zwei Pakete: der Glückswürfel zeigt seine beste Seite."
+		FULL_LOADOUT:
+			return "Alle Module wirken dreifach."
 	return clause.text
 
 static func tags_of(clause_id: String) -> Array[String]:

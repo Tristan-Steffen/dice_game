@@ -44,6 +44,20 @@ func test_drum_fits_on_edge_at_the_short_side() -> void:
 		0.001, "der Querschnitt mißt an der KURZEN Kartenseite")
 	assert_gt(pit.size.y, WorkshopView.drum_side_px(CARD) * sqrt(2.0))
 
+## Die Walze steht mittig zwischen Pool und Magazin: dieselbe Fuge über den Nummern wie
+## unter dem Graben (Spieler-Wunsch 2026-11-25), und UPGRADES endet nie unter der Walze.
+func test_the_drum_sits_midway_between_pool_and_magazine() -> void:
+	var tall := Rect2(POOL.position, Vector2(661.5, 551.25))
+	var big := WorkshopView.drum_layout(tall, CARD, 62.67, 5.697, HUB_BOTTOM)
+	var pit: Rect2 = big["pit"]
+	var shelf: Rect2 = big["shelf"]
+	var above := pit.position.y - 5.697 * (WorkshopView.SLICE_NUMBER_UNITS
+		+ WorkshopView.SLICE_NUMBER_GAP) - tall.end.y
+	assert_almost_eq(above, shelf.position.y - pit.end.y, 0.01, "gleiche Fuge oben wie unten")
+	assert_gt(above, 0.0)
+	assert_lte((big["upgrades"] as Rect2).end.y, pit.end.y + 0.01, "UPGRADES endet mit der Walze")
+	assert_eq((big["upgrades"] as Rect2).size, (big["preview"] as Rect2).size, "alle Die-Views gleich")
+
 ## UPGRADES am rechten Walzen-Ende, die Strecke des Eingangs-Busses daneben, senkrecht
 ## mittig zum Graben.
 func test_upgrades_sit_at_the_drum_end() -> void:
@@ -51,7 +65,8 @@ func test_upgrades_sit_at_the_drum_end() -> void:
 	var upgrades: Rect2 = lay["upgrades"]
 	assert_almost_eq(upgrades.position.x - pit.end.x, U * WorkshopView.ENTRY_BUS_UNITS, 0.01,
 		"der Eingangs-Bus zwischen Grabenwand und UPGRADES")
-	assert_almost_eq(upgrades.get_center().y, pit.get_center().y, 0.01, "mittig zum Graben")
+	assert_lt(absf(upgrades.get_center().y - pit.get_center().y), 10.0, "etwa mittig zum Graben")
+	assert_lte(upgrades.end.y, pit.end.y + 0.01, "und nie unter ihn")
 	assert_eq(upgrades.size, (lay["podium_net"] as Rect2).size, "Netz-Maß wie ORIGINAL")
 
 ## Das PODEST genau über UPGRADES, oben bündig mit dem Pool, dazwischen das breite "+".
@@ -67,7 +82,7 @@ func test_the_podium_stands_over_upgrades() -> void:
 	assert_almost_eq(net.end.x, upgrades.end.x, 0.01)
 	assert_lt(net.end.y, plus.position.y, "+ unter der Die-View")
 	assert_lt(plus.end.y, upgrades.position.y, "UPGRADES unter dem +")
-	assert_gte(plus.size.y, 59.0, "das Feld ist mindestens ~60 px hoch")
+	assert_gte(plus.size.y, U * WorkshopView.EQ_SIGN_UNITS - 0.01, "das Feld behält seine Höhe")
 	assert_gte(plus.size.x, net.size.x - 0.01, "so breit wie die Netze")
 	assert_false(lay.has("result"), "ERGEBNIS ist gestorben")
 	assert_eq(lay["original"], net, "ORIGINAL IST die Die-View")
@@ -88,8 +103,8 @@ func test_preview_then_stamp_in_the_head_row() -> void:
 	assert_almost_eq(stamp.get_center().x, (preview.end.x + info.end.x) * 0.5, 0.01,
 		"mittig im Feld bis vor das Podest")
 
-## Der INFO-SCHIRM: ein Block unter Vorschau und Prägen, links ab der Vorschau, bis eine
-## Fuge vor das Podest und bis zur Pool-Unterkante.
+## Der INFO-SCHIRM: ein Block eine Fuge unter Vorschau und Prägen, links ab der Vorschau,
+## rechts bündig mit dem Graben und bis zur Pool-Unterkante.
 func test_the_info_is_a_block_under_preview_and_stamp() -> void:
 	var info: Rect2 = lay["info"]
 	var preview: Rect2 = lay["preview"]
@@ -98,8 +113,10 @@ func test_the_info_is_a_block_under_preview_and_stamp() -> void:
 	assert_gt(info.position.y, preview.end.y, "unter der Vorschau")
 	assert_gt(info.position.y, (lay["stamp"] as Rect2).end.y, "und unter PRÄGEN")
 	assert_almost_eq(info.end.y, POOL.end.y, 0.01, "bis zur Pool-Unterkante")
-	assert_almost_eq(podium.position.x - info.end.x, U * WorkshopView.DRUM_SHELF_GAP, 0.01,
-		"eine Fuge vor dem Podest")
+	assert_almost_eq(info.end.x, (lay["pit"] as Rect2).end.x, 0.01, "rechts bündig mit dem Graben")
+	assert_lt(info.end.x, podium.position.x, "vor dem Podest")
+	assert_almost_eq(info.position.y - preview.end.y, U * WorkshopView.DRUM_SHELF_GAP, 0.01,
+		"eine Fuge unter der Vorschau")
 	assert_gt(info.size.x, 600.0, "ein breiter Block")
 	assert_gt(info.size.y, 200.0, "und ein hoher")
 

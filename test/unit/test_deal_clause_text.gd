@@ -33,6 +33,13 @@ const DOUBLED := {
 	DealClause.REGULAR_CUSTOMER: "Ladenpreise −28 % bis zur Boss-Runde.",
 	DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware.",
 	DealClause.BIG_STORAGE: "Zwei Powerbanks: Börse +10 ⚡ Platz.",
+	DealClause.TRIAL_RUN: "Prägen: +2 Mal.",
+	DealClause.HAND_WAGE: "Jede Hand: +$4.",
+	DealClause.DEPOSIT: "+2 ⚡ je geöffnetem Paket.",
+	DealClause.OVERTIME: "Kombination mit 3 Modulen: +2 Auslösungen.",
+	DealClause.EXCHANGE_OFFICE: "Rundenende: +$6 je ⚡.",
+	DealClause.LOADED_LUCK_DIE: "Erste zwei Pakete: der Glückswürfel zeigt seine beste Seite.",
+	DealClause.FULL_LOADOUT: "Alle Module wirken dreifach.",
 }
 
 func test_text_for_returns_the_plain_text_without_the_charm():

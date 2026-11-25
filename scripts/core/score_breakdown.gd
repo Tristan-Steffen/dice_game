@@ -539,6 +539,10 @@ static func build(key: String, dice: Array[int], charm_ids: Array[String] = [], 
 	# 5. Nach-Schritte auf die fertige Punktzahl: derzeit kennt kein Charm mehr
 	# einen Gesamtzahl-Effekt - die Liste bleibt als Bühne für den nächsten.
 	var post_steps: Array[Dictionary] = []
+	if DiceScoring.slow_start_halves(ctx):
+		total = total / 2
+		post_steps.append({"charm_indices": [], "total_add": 0, "total_x": 0.5,
+			"total_after": total, "label": "Anlaufzeit"})
 
 	# Sicherheitsnetz: die echte Wertung gewinnt, falls die Schrittliste je
 	# hinter einer DiceScoring-Änderung zurückbleibt.

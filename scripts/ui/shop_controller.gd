@@ -235,7 +235,7 @@ var bet_notice: String = ""
 func open() -> void:
 	_leaving = false  # ein Wieder-Aufdecken bricht jeden Abgang hart ab
 	_build_layout()
-	if not sortiment_locked or spreads.is_empty():
+	if not sortiment_locked or spreads.is_empty() or run.shop_closed():
 		spreads = [_build_spread()]
 		current_spread_index = 0
 	_relayout_and_show()
@@ -759,7 +759,7 @@ func _next_flip_is_new() -> bool:
 func _on_page_next_pressed() -> void:
 	if _next_flip_is_new():
 		var fee := _next_flip_fee()
-		if run.money < fee:
+		if run.money < fee or run.shop_closed():
 			return  # Knopf ist bei zu wenig Geld ohnehin deaktiviert
 		run.add_money(-fee)
 		run.note_shop_flip()
@@ -1215,7 +1215,7 @@ func _refresh_afford_state() -> void:
 	if page_next_button != null and is_instance_valid(page_next_button):
 		if _next_flip_is_new():
 			page_next_button.text = "$%d ›" % _next_flip_fee()
-			page_next_button.disabled = money < _next_flip_fee()
+			page_next_button.disabled = money < _next_flip_fee() or run.shop_closed()
 		else:
 			page_next_button.text = "›"
 			page_next_button.disabled = false

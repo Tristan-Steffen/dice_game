@@ -124,6 +124,8 @@ var workshop_target := Vector3(-24, 0, 22)
 ## Halbe Ausmaße der GANZEN Ecke (Trays + Fenster + Schürze) - daraus rechnet die
 ## weite Sicht ihren Abstand.
 var workshop_wide_half := Vector2(12.0, 14.0)
+## Wie hoch über dem Tisch der Inhalt an der Oberkante der weiten Sicht reicht (Welt).
+var workshop_wide_rise := 0.0
 ## Nahsicht-Ziel + halbe Ausmaße der Werkbank-Ecke ohne Trays (x = entlang
 ## Welt-Z, y = entlang Welt-X) - wie beim Titel aus den echten Rechtecken.
 var workshop_close_target := Vector3(-24, 0, 22)
@@ -460,8 +462,10 @@ func configure_chips_target(target: Vector3, half := Vector2.ZERO) -> void:
 
 ## half_extent = halbe Ausmaße der Ecke; ZERO (die Klickzone meldet nur den Punkt)
 ## lässt das zuletzt gemessene Maß stehen.
-func configure_workshop_target(target: Vector3, half_extent := Vector2.ZERO) -> void:
+func configure_workshop_target(target: Vector3, half_extent := Vector2.ZERO,
+		rise := 0.0) -> void:
 	workshop_target = target
+	workshop_wide_rise = rise
 	if half_extent.x > 0.0 and half_extent.y > 0.0:
 		workshop_wide_half = half_extent
 
@@ -537,8 +541,30 @@ func workshop_close_distance() -> float:
 ## Fenster und Schürze darunter. Der alte feste Abstand bleibt Untergrenze: näher
 ## als früher kommt sie nie.
 func workshop_wide_distance() -> float:
-	return maxf(WORKSHOP_MIN_DISTANCE,
-		tilted_fit_distance(workshop_wide_half, WORKSHOP_WIDE_MARGIN))
+	return workshop_target.distance_to(workshop_wide_origin())
+
+## Kamerastandort der WEITEN Werkbank-Sicht, exakt gelöst wie die Nahsicht: Ober- und
+## Unterkante liegen beide am Bildrand (Oberkante um workshop_wide_rise angehoben - dort
+## schweben die Würfel des Vorrats), die Breite ist Untergrenze, die Luft verteilt sich gleich.
+func workshop_wide_origin() -> Vector3:
+	var half := workshop_wide_half
+	var up := ZOOM_BASIS.y
+	var forward := ZOOM_FORWARD
+	var t := tan(deg_to_rad(fov * 0.5))
+	if t <= 0.0:
+		return workshop_target - forward * WORKSHOP_MIN_DISTANCE
+	var h := 1.0 / WORKSHOP_WIDE_MARGIN
+	var top := Vector3(half.y, workshop_wide_rise, 0.0)
+	var bottom := Vector3(-half.y, 0.0, 0.0)
+	var d := (top.dot(up) - bottom.dot(up)) / (2.0 * h * t) \
+		- (top.dot(forward) + bottom.dot(forward)) * 0.5
+	var aspect := maxf(_viewport_aspect(), 0.001)
+	d = maxf(d, half.x * WORKSHOP_WIDE_MARGIN / (t * aspect)
+		- minf(top.dot(forward), bottom.dot(forward)))
+	d = maxf(d, WORKSHOP_MIN_DISTANCE)
+	var s := (top.dot(up) - h * t * (top.dot(forward) + d)
+		+ bottom.dot(up) + h * t * (bottom.dot(forward) + d)) * 0.5
+	return workshop_target + up * s - forward * d
 
 ## Kamerastandort der Nahsicht. Die Ecke passt immer ganz ins Bild (Zugabe ≥ 1),
 ## füllt es aber fast nie genau aus - und wo die überschüssige Luft landet,
@@ -643,12 +669,12 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 		distance = maxf(COMBOS_NEAREST, tilted_fit_distance(combos_half, COMBOS_MARGIN))
 	if target_mode == Mode.CHARMS and charms_half != Vector2.ZERO:
 		distance = maxf(distance, tilted_fit_distance(charms_half, CHARMS_MARGIN))
-	if target_mode == Mode.WORKSHOP:
-		distance = workshop_wide_distance()
 	# Das höchste Fenster des Tisches: sein Abstand wird gerechnet, nicht gesetzt.
 	if target_mode == Mode.HUB:
 		distance = hub_distance()
 	var target_origin := target_point - ZOOM_FORWARD * distance
+	if target_mode == Mode.WORKSHOP:
+		target_origin = workshop_wide_origin()
 	workshop_close = false  # jeder Moduswechsel verlässt die Werkbank-Stufe
 	die_focus = false  # und die Würfel-Nahsicht
 	mode = target_mode
@@ -681,7 +707,7 @@ func zoom_workshop_wide() -> void:
 	if not workshop_close:
 		return
 	workshop_close = false
-	var target_origin := workshop_target - ZOOM_FORWARD * workshop_wide_distance()
+	var target_origin := workshop_wide_origin()
 	anchor_basis = ZOOM_BASIS
 	anchor_origin = target_origin
 	tilt_offset = Vector2.ZERO

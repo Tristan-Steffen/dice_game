@@ -153,7 +153,7 @@ static func flatten(breakdown: Dictionary, charm_ids: Array[String] = []) -> Arr
 	for post: Dictionary in breakdown.get("post_steps", []):
 		var total_after := int(post.get("total_after", 0))
 		var post_step := _step(STEP_POST, "%s · %s → %d" % [
-				_charm_label(post.get("charm_indices", []), charm_ids),
+				String(post.get("label", _charm_label(post.get("charm_indices", []), charm_ids))),
 				ScoreBreakdown.format_mult(float(post.get("total_x", 1.0))), total_after],
 			final_base, final_mult, overrides)
 		post_step["total_after"] = total_after

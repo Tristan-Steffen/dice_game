@@ -24,6 +24,8 @@ signal secret_stock_changed
 signal projectors_changed
 ## Die Serie der Werkbank hat sich geändert (Prägen, Slots, verbrauchte Karten).
 signal press_changed
+## Pfandflasche: so viel ⚡ ist gerade gebucht worden - scene_root schickt das Licht.
+signal deposit_energy(count: int)
 
 const POOL_SIZE := 30
 ## Je PROJEKTOR ein Charm-Platz; jeder hängt an einem der USB-Ports des Tisches.
@@ -73,6 +75,14 @@ const WORK_HARDENING_GROWTH := 1
 const INTEREST_PER := 10
 const STAGE_CAP_LIMIT := 2
 const HIGH_VOLTAGE_STAGES := 3
+const HAND_WAGE_MONEY := 2
+const DEPOSIT_ENERGY := 1
+const OVERTIME_RETRIGGERS := 1
+const EXCHANGE_MONEY_PER_ENERGY := 3
+## Wackelkontakt: höchstens so viele Augen zählt der Glückswürfel.
+const LOOSE_CONTACT_CAP := 2
+## Kurzarbeit: so viele Würfel verlassen den Stapel der Runde vom Ende her.
+const SHORT_TIME_DICE := 6
 ## Eichung: dauerhaft −10 % auf den Blind (der Winkeladvokat wendet sie zweimal an).
 const CALIBRATION_FACTOR := 0.9
 ## Skalierung der Überladungs-Stufen: der Sicherungsfall schlägt das Netzbrummen.
@@ -101,6 +111,7 @@ const LUCK_CLAUSES := {
 	DealClause.LUCKY_STREAK: 2,
 	DealClause.LUCKY_CHILD: 3,
 	DealClause.UNLUCKY_NUMBER: -2,
+	DealClause.UNLUCKY_PACT: -4,
 }
 ## Glück auf Zeit: mit der Unterschrift dazu, mit dem Start der nächsten Runde wieder fort.
 const TEMP_LUCK_CLAUSES := {
@@ -225,6 +236,10 @@ var farkle_count: int = 0
 var block_fumbles: int = 0
 ## Hitzestau: das Modul, das der letzte Fumble zerstört hat (null = keins) - für die Anzeige.
 var last_fumble_lost_part: ComboPart = null
+## Schrottpresse: das Modul, das die letzte Unterschrift zerstört hat (null = keins).
+var last_scrapped_part: ComboPart = null
+## Projektor-Ausfall: der Charm, der diese Runde nicht wirkt (gewählt bei der Unterschrift).
+var dark_charm: Charm = null
 var lumpensammler_value: int = 0  # Glückszahl, je Runde neu (0 = kein Lumpensammler)
 var old_penny_payouts: int = 0  # Glücksgroschen: wächst erst NACH jeder Auszahlung
 ## Rampenlicht: die hervorgehobene Kombination dieser Runde ("" = keine) und ob
@@ -295,7 +310,10 @@ func charm_slots() -> Array[int]:
 ## behält aber SEINEN Besitz-Slot - dort steht seine Vitrine.
 func _resolved_charms() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
+	var dark := dark_charm_slot()
 	for i in owned_charms.size():
+		if i == dark:
+			continue
 		var charm_id := owned_charms[i].id
 		match charm_id:
 			Charm.PARROT_TOTEM:
@@ -306,6 +324,12 @@ func _resolved_charms() -> Array[Dictionary]:
 			result.append({"id": charm_id, "slot": i})
 	return result
 
+## Besitz-Platz des Charms, den der Projektor-Ausfall diese Runde abschaltet (−1 = keiner).
+func dark_charm_slot() -> int:
+	if dark_charm == null or not _clause_active(DealClause.PROJECTOR_FAILURE):
+		return -1
+	return owned_charms.find(dark_charm)
+
 ## Rohe ids ohne Totem-Auflösung - für Besitz-Prüfungen und Anzeige.
 func owned_charm_ids() -> Array[String]:
 	var ids: Array[String] = []
@@ -314,7 +338,7 @@ func owned_charm_ids() -> Array[String]:
 	return ids
 
 func _neighbor_id(index: int) -> String:
-	if index < 0 or index >= owned_charms.size():
+	if index < 0 or index >= owned_charms.size() or index == dark_charm_slot():
 		return ""
 	var neighbor_id := owned_charms[index].id
 	if neighbor_id == Charm.PARROT_TOTEM or neighbor_id == Charm.ECHO_TOTEM:
@@ -501,6 +525,8 @@ func shop_soul_rule() -> Dictionary:
 ## Wie viele Paket-Plätze der Laden belegt - die Plätze bleiben stehen, Leere Regale
 ## lassen die hinteren leer wie verkauft.
 func shop_packs_offered() -> int:
+	if shop_closed():
+		return 0
 	if _clause_active(DealClause.EMPTY_SHELVES):
 		return maxi(1, SHOP_PACK_PLACES - EMPTY_SHELVES_CUT)
 	return SHOP_PACK_PLACES
@@ -530,7 +556,11 @@ func shop_rarity_tier() -> int:
 	return 0
 
 func shop_charm_slots() -> int:
-	return SHOP_CHARM_SLOTS
+	return 0 if shop_closed() else SHOP_CHARM_SLOTS
+
+## Ladenschluss: der Laden dieser Runde führt nichts, Blättern bringt nichts Neues.
+func shop_closed() -> bool:
+	return _clause_active(DealClause.SHOP_CLOSED)
 
 func shop_pack_places() -> int:
 	return SHOP_PACK_PLACES
@@ -750,15 +780,15 @@ func purchase_module_pack(module_pack: ModulePack, price: int,
 		return out
 	add_money(-price)
 	_roll_purchase_refund(price, rng)
-	var face := luck_die.roll(rng)
+	var face := _luck_roll(rng)
 	var bonus := _free_hand_bonus()
-	packs_opened_this_round += 1
+	_note_pack_opened()
 	for part in ModulePack.roll_contents(module_pack, ModulePack.option_count(module_pack.size), rng):
 		stash_part(part, true)
 		out.append(pending_parts[pending_parts.size() - 1])
-	var keeps := mini(luck_die.value(face) + bonus, out.size())
+	var keeps := mini(_luck_value(face) + bonus, out.size())
 	module_keeps += keeps
-	last_module_roll = {"face": face, "value": luck_die.value(face), "keeps": keeps}
+	last_module_roll = {"face": face, "value": _luck_value(face), "keeps": keeps}
 	return out
 
 ## Wie viele Paket-Module noch EINGEBAUT werden dürfen (die Würfe aller offenen Beutel).
@@ -776,9 +806,45 @@ func _free_hand_bonus() -> int:
 
 ## Der Glückswürfel fällt beim Öffnen (gebucht in der Auswahl).
 func _roll_luck_die(choice: PackChoice, rng: RandomNumberGenerator) -> void:
-	choice.die_face = luck_die.roll(rng)
-	choice.die_value = luck_die.value(choice.die_face)
+	choice.die_face = _luck_roll(rng)
+	choice.die_value = _luck_value(choice.die_face)
 	choice.free_bonus = _free_hand_bonus()
+
+## Der Wurf des Glückswürfels samt Klauseln: der Gezinkte legt den ersten Paketen der
+## Runde die beste Seite hin, der Wackelkontakt läßt nur Seiten bis LOOSE_CONTACT_CAP zu.
+func _luck_roll(rng: RandomNumberGenerator) -> int:
+	if _clause_active(DealClause.LOADED_LUCK_DIE) and packs_opened_this_round < deal_bonus_factor():
+		var best := 0
+		for face in LuckDie.FACES:
+			if luck_die.value(face) > luck_die.value(best):
+				best = face
+		return best
+	var face := luck_die.roll(rng)
+	if not _clause_active(DealClause.LOOSE_CONTACT) or luck_die.value(face) <= LOOSE_CONTACT_CAP:
+		return face
+	var low: Array[int] = []
+	for f in LuckDie.FACES:
+		if luck_die.value(f) <= LOOSE_CONTACT_CAP:
+			low.append(f)
+	if low.is_empty():
+		return face  # keine kleine Seite mehr: _luck_value klemmt
+	return low[rng.randi_range(0, low.size() - 1) if rng != null else randi_range(0, low.size() - 1)]
+
+func _luck_value(face: int) -> int:
+	var value := luck_die.value(face)
+	if _clause_active(DealClause.LOOSE_CONTACT):
+		return mini(value, LOOSE_CONTACT_CAP)
+	return value
+
+## Jedes geöffnete Paket zählt; die Pfandflasche bucht ihr ⚡ sofort.
+func _note_pack_opened() -> void:
+	packs_opened_this_round += 1
+	if not _clause_active(DealClause.DEPOSIT):
+		return
+	var before := energy
+	add_energy(DEPOSIT_ENERGY * deal_bonus_factor())
+	if energy > before:
+		deposit_energy.emit(energy - before)
 
 func _choice_picks(choice: PackChoice) -> int:
 	return mini(choice.die_value + choice.free_bonus, choice.options.size())
@@ -820,7 +886,7 @@ func _open_pack(pack: Resource, from_bet: bool, rng: RandomNumberGenerator) -> P
 	return _queue_opened(choice)
 
 func _queue_opened(choice: PackChoice) -> PackChoice:
-	packs_opened_this_round += 1
+	_note_pack_opened()
 	pending_pack_choices.append(choice)
 	var album := charm_ids().count(Charm.ALBUM)
 	if album > 0:
@@ -1156,13 +1222,32 @@ func buy_drum_slot() -> bool:
 ## --- EINE Prägung je Runde (Spieler-Entscheid 2026-11-23) -------------------------
 ## Zurückgesetzt beim Rundenstart; die Erdungsklemme prägt, ohne sie zu verbrauchen -
 ## auch dann noch, wenn sie schon verbraucht ist.
-var press_used_this_round := false
+var presses_this_round := 0
+## Meisterprägung: so gut wie unbegrenzt.
+const UNLIMITED_PRESSES := 999
+
+## Prägungen dieser Runde: eine, Probelauf mehr, Meisterprägung unbegrenzt, Werkstattsperre keine.
+func press_limit() -> int:
+	if press_banned():
+		return 0
+	if _clause_active(DealClause.MASTER_PRESS):
+		return UNLIMITED_PRESSES
+	var limit := 1
+	if _clause_active(DealClause.TRIAL_RUN):
+		limit += deal_bonus_factor()
+	return limit
+
+## Werkstattsperre: diese Runde prägt nichts, auch keine Erdungsklemme.
+func press_banned() -> bool:
+	return _clause_active(DealClause.WORKSHOP_BAN)
 
 func press_allowed() -> bool:
-	return not press_used_this_round
+	return presses_this_round < press_limit()
 
 ## Darf DIESE Serie jetzt prägen? (Prägung frei oder eine Erdungsklemme steckt.)
 func series_press_allowed(pack_uids: Array[int]) -> bool:
+	if press_banned():
+		return false
 	if press_allowed():
 		return true
 	var parts := _series_parts(_series_indices(pack_uids))
@@ -1316,14 +1401,14 @@ func apply_series(pack_uids: Array[int], die: DieDefinition,
 	var parts := _series_parts(chosen)
 	var nets: Array = parts["nets"]
 	var terms := series_terms(parts["catalysts"])
-	if not press_allowed() and not bool(terms.get("free", false)):
+	if press_banned() or (not press_allowed() and not bool(terms.get("free", false))):
 		return {}
 	if nets.is_empty():
 		return {}  # eine Serie aus lauter Katalysatoren prägt nicht
 	var projection := SeriesResolver.resolve(nets, die, terms)
 	_project(die, projection)
 	if not bool(terms.get("free", false)):
-		press_used_this_round = true
+		presses_this_round += 1
 	var kept := _consume_series_cards(chosen, rng)
 	packs_changed.emit()
 	press_changed.emit()
@@ -1395,6 +1480,7 @@ func parts_room() -> bool:
 
 ## Die Belegung, mit der gewertet wird: stillgelegte Teile (Hitzestau) fehlen.
 func scoring_parts() -> Dictionary:
+	_stamp_clause_parts()
 	if heat_disabled_parts.is_empty():
 		return combo_parts
 	var out := {}
@@ -1404,6 +1490,20 @@ func scoring_parts() -> Dictionary:
 			sockets.append(null if is_part_disabled(part) else part)
 		out[key] = sockets
 	return out
+
+## Vollbestückung und Überstunden schreiben ihre Wirkung an die gesteckten Module -
+## gelesen wird sie in ComboPartEffects (weight, die_retriggers) wie die Kopplung.
+func _stamp_clause_parts() -> void:
+	var boost := deal_bonus_factor() if _clause_active(DealClause.FULL_LOADOUT) else 0
+	var overtime := OVERTIME_RETRIGGERS * deal_bonus_factor() \
+		if _clause_active(DealClause.OVERTIME) else 0
+	for key in combo_parts:
+		var sockets: Array = combo_parts[key]
+		var full := ComboPartEffects.part_count(sockets) >= SOCKETS_PER_COMBO
+		for part in sockets:
+			if part != null:
+				part.weight_bonus = boost
+				part.overtime = overtime if full else 0
 
 ## Ein echter Fumble scharft jeden gesteckten Nachbrenner (counter 1 = scharf).
 func _arm_afterburners() -> void:
@@ -1662,8 +1762,8 @@ func apply_round_start_charms() -> void:
 	golden_handshake_used_this_round = false
 	packs_opened_this_round = 0
 	free_reshuffle_used_this_round = false
-	if press_used_this_round:
-		press_used_this_round = false
+	if presses_this_round > 0:
+		presses_this_round = 0
 		press_changed.emit()
 	# Rampenlicht per Charm ODER Klausel - nie auf einem gedrosselten Chip
 	# (der wertet nicht, das Licht wäre verschenkt).
@@ -1728,6 +1828,10 @@ func note_hand_taken(combo_key: String) -> bool:
 func destroy_fumble_part(rng: RandomNumberGenerator = null) -> ComboPart:
 	if not _clause_active(DealClause.HEAT_BUILDUP):
 		return null
+	return _destroy_random_part(rng)
+
+## Zerstört ein zufälliges gestecktes Modul (Sperrdiode schützt ihren Chip).
+func _destroy_random_part(rng: RandomNumberGenerator = null) -> ComboPart:
 	var spots: Array[Array] = []
 	for key: String in DiceScoring.HAND_PRIORITY:
 		if _chip_guarded(key):
@@ -1877,7 +1981,7 @@ func _draw_clause(tier: DealClause.Tier, kind: DealClause.Kind,
 			continue
 		if _shares_tag(clause_id, taboo_tags) or _quota_blocked(clause_id):
 			continue
-		if clause_id == DealClause.BIG_STORAGE and storage_rows >= max_storage_rows():
+		if not _clause_offerable(clause_id):
 			continue
 		pool.append(clause_id)
 	if pool.is_empty():
@@ -1960,6 +2064,38 @@ func _apply_instant_clause(clause_id: String) -> void:
 			energy_changed.emit(energy)  # der Deckel ist gewachsen
 		DealClause.BETTING_TAX:
 			repay_side_bet_stakes()
+		DealClause.TRIAL_RUN, DealClause.MASTER_PRESS, DealClause.WORKSHOP_BAN:
+			press_changed.emit()  # der Präge-Sitz zieht nach
+		DealClause.SEIZURE:
+			add_money(-money / 2)
+		DealClause.FORCED_AUCTION:
+			sell_charm(auction_charm_index())
+		DealClause.SCRAP_PRESS:
+			last_scrapped_part = _destroy_random_part()
+		DealClause.PROJECTOR_FAILURE:
+			dark_charm = owned_charms.pick_random() if not owned_charms.is_empty() else null
+			sync_luck_die()  # ein abgeschalteter Glückspilz dreht am wirkenden Glück
+
+## Zwangsversteigerung: der teuerste Charm (Gleichstand: der linke), −1 = keiner.
+func auction_charm_index() -> int:
+	var best := -1
+	for i in owned_charms.size():
+		if best < 0 or owned_charms[i].price > owned_charms[best].price:
+			best = i
+	return best
+
+## Klauseln ohne Ziel liegen nicht aus - ein Malus, der nichts trifft, wäre geschenkt.
+func _clause_offerable(clause_id: String) -> bool:
+	match clause_id:
+		DealClause.BIG_STORAGE:
+			return storage_rows < max_storage_rows()
+		DealClause.FORCED_AUCTION, DealClause.PROJECTOR_FAILURE:
+			return not owned_charms.is_empty()
+		DealClause.SCRAP_PRESS:
+			return free_socket_count() < SOCKETS_PER_COMBO * DiceScoring.HAND_PRIORITY.size()
+		DealClause.SEIZURE:
+			return money > 1
+	return true
 
 ## Energie, die diese Klausel mit der Unterschrift prägt (0 = keine). Eine Quelle
 ## für Buchung und Zeremonie: scene_root schickt je ⚡ einen Kometen zum Ring.
@@ -2114,6 +2250,24 @@ func deal_anchor_active() -> bool:
 ## Versicherungsbetrug: Trostgeld für jeden Farkle.
 func farkle_consolation() -> int:
 	return INSURANCE_FRAUD_MONEY * deal_bonus_factor() if _clause_active(DealClause.INSURANCE_FRAUD) else 0
+
+## Lohnfortzahlung: Geld je genommener Hand.
+func hand_wage() -> int:
+	return HAND_WAGE_MONEY * deal_bonus_factor() if _clause_active(DealClause.HAND_WAGE) else 0
+
+## Wechselstube: Rundenende-Ertrag je gehaltener Energie.
+func exchange_income() -> int:
+	if not _clause_active(DealClause.EXCHANGE_OFFICE):
+		return 0
+	return energy * EXCHANGE_MONEY_PER_ENERGY * deal_bonus_factor()
+
+## Anlaufzeit: die erste Hand der Runde wertet halb.
+func slow_start_active() -> bool:
+	return _clause_active(DealClause.SLOW_START)
+
+## Kurzarbeit: so viele Würfel verlassen den Stapel dieser Runde (0 = keiner).
+func short_time_cut() -> int:
+	return SHORT_TIME_DICE if _clause_active(DealClause.SHORT_TIME) else 0
 
 ## Servicegebühr: Abzug je genommener Hand.
 func hand_fee() -> int:
@@ -2792,6 +2946,7 @@ func advance_round() -> void:
 	if temp_luck > 0:
 		add_luck(-temp_luck)
 		temp_luck = 0
+	dark_charm = null
 	add_luck(1)
 	free_flips_used = 0
 	var old_block := block_of_round(round_number)

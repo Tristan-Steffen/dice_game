@@ -126,6 +126,9 @@ const DATIVES := {
 @export var counter: int = 0
 ## Laufzustand, nie gespeichert: wartet als Wahl aus einem Modul-Paket auf den Einbau.
 var from_pack := false
+## Klausel-Stempel von GameRun (Vollbestückung, Überstunden), nie gespeichert.
+var weight_bonus := 0
+var overtime := 0
 
 static func _make(part_id: String, name: String, desc: String, part_phase: String,
 		base_price: int, is_secret: bool = false) -> ComboPart:

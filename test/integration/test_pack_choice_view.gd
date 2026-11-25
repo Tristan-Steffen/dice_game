@@ -279,7 +279,8 @@ func _zone() -> Dictionary:
 	var preview: Rect2 = lay["preview"]
 	var anchor := Rect2(Vector2(preview.end.x + 5.042 * WorkshopView.DRUM_SHELF_GAP,
 		preview.position.y), Vector2(1.0, preview.size.y))
-	return {"lay": lay, "area": PackChoiceView.zone_rect(POOL, anchor, ZONE_CLEAR, DIE_EDGE,
+	var rows := Rect2(POOL.position, Vector2(POOL.size.x, float(lay["zone_bottom"]) - POOL.position.y))
+	return {"lay": lay, "area": PackChoiceView.zone_rect(rows, anchor, ZONE_CLEAR, DIE_EDGE,
 		ZONE_TAIL, RIGHT_EDGE)}
 
 ## Die reine Regel: die Zone beginnt bei left_x, oben bündig mit der Pool-Reihe und so hoch

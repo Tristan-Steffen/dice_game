@@ -4,9 +4,9 @@ extends SceneTree
 ## dazu alle Maße. Aufruf:
 ##   Godot --path . --resolution 1280x720 --position 4000,2400 --quit-after 5000 \
 ##     --script tools/godot_layout_e_probe.gd
-## Bilder: E:/Generated Images/Fumble/werkstatt_layout_e/welle3/
+## Bilder: E:/Generated Images/Fumble/werkstatt_layout_e/groessere_wuerfel/
 
-const OUT := "E:/Generated Images/Fumble/werkstatt_layout_e/welle3/"
+const OUT := "E:/Generated Images/Fumble/werkstatt_layout_e/groessere_wuerfel/"
 const VIEWS := ["weit_an", "weit_aus", "weit_vorschau", "nah", "wuerfel_oeffnung",
 	"nach_wuerfel", "karten_oeffnung", "nach_karten", "nach_weit"]
 const WAITS: Array[int] = [150, 60, 60, 120, 120, 700, 300, 700, 300, 150]

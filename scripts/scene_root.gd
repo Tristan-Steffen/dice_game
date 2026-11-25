@@ -755,6 +755,8 @@ var phoenix_used_this_round: bool = false
 var anchor_clause_used_this_round: bool = false
 
 var round_pool_kinds: Array[DieDefinition] = []  # feste Zieh-Reihenfolge der Runde
+## Kurzarbeit: die vom Stapel-Ende gestrichenen Würfel - sie kehren erst mit dem Rundenende zurück.
+var _short_time_dice: Array[DieDefinition] = []
 var next_draw_index: int = 0
 ## Das Nachschub-Tray materialisiert erst beim ersten Grubenzoom einer Runde;
 ## davor liegen ALLE Würfel im großen Dice-Tray. Reset je Rundenbeginn.
@@ -1314,6 +1316,8 @@ var _equation_px := Rect2()
 var _preview_px := Rect2()
 ## Der PRÄGE-Sitz (Display-Pixel) - rechts daneben steht die Schale.
 var _stamp_px := Rect2()
+## Wo die Öffnungs-Zone endet (Display-y): zwischen Podest-Die-View und "+".
+var _zone_bottom_px := 0.0
 
 ## Der EINE Schreiber der WERKSTATT: die Kette (WorkshopView.drum_layout) unter und neben
 ## dem Pool, Fenster, Info-Schirm, Gruben, Klickzone und die beiden Kamera-Rahmen. Das
@@ -1329,6 +1333,7 @@ func _place_workshop_strip() -> Rect2:
 	_equation_px = frame["equation"]
 	_preview_px = frame["preview"]
 	_stamp_px = frame["stamp"]
+	_zone_bottom_px = frame["zone_bottom"]
 	var bounds: Rect2 = frame["bounds"]
 	if workshop != null:
 		# Die Maße ZUERST: das Fenster legt seine Kette damit aus.
@@ -1343,8 +1348,6 @@ func _place_workshop_strip() -> Rect2:
 	var quiet: Array[Rect2] = []
 	for part: String in ["preview", "info", "upgrades", "podium_stage", "podium_net"]:
 		quiet.append((frame[part] as Rect2).grow(u))
-	for sign: Rect2 in frame["signs"]:
-		quiet.append(sign.grow(u))
 	table_screen.set_deck_quiet_rects(quiet)
 	var bench_rect := workshop.bench_rect() if workshop != null else bounds
 	# Die Gruben des Magazins enden auf der Hub-Unterkante, Fassung und Lichtleisten
@@ -1382,7 +1385,8 @@ func _place_workshop_strip() -> Rect2:
 		push_warning("Werkstatt-Station reicht über die Anzeige: %.1f px" % station.end.x)
 	var corner := station.grow_individual(seam * 0.5, seam * 0.5, seam * 0.5, seam * 0.5)
 	camera_rig.configure_workshop_target(table_screen.pixel_to_world(corner.get_center()),
-		_world_half(corner))
+		_world_half(corner), DiceTrayView.FLOAT_HEIGHT
+		+ DiceTrayView.DIE_SCALE * DieBuilder.HALF_EXTENT * 1.5)
 	workshop_close_rect = bench_rect
 	var close_frame := bench_rect.grow_individual(seam, seam + _lifted_card_head_px(), seam,
 		seam)
@@ -2002,6 +2006,9 @@ func _update_charm_badges() -> void:
 	var texts := {}
 	var ids := run.charm_ids()
 	var pendulum := CharmEffects.pendulum_mult(_score_ctx())
+	var dark := run.dark_charm_slot()
+	if dark >= 0:
+		texts[dark] = "AUS"
 	for j in ids.size():
 		var slot := _charm_slot(j)
 		if slot < 0:
@@ -5672,6 +5679,8 @@ func _reorder_pool_from_pit() -> void:
 		return
 	var order: Array[DieDefinition] = []
 	order.assign(round_pool_kinds.slice(next_draw_index, round_pool_kinds.size()))
+	order.append_array(_short_time_dice)
+	_short_time_dice.clear()
 	for item: Dictionary in _ablage_seats:
 		order.append(item["def"])
 	run.reorder_pool_full(order)
@@ -9380,7 +9389,10 @@ func _opening_area_rect() -> Rect2:
 	var luck := _world_len_px(LuckDieView.half_edge() * 2.0) * LUCK_DIE_ROOM
 	var anchor := Rect2(Vector2(_preview_px.end.x + gap, _preview_px.position.y),
 		Vector2(1.0, _preview_px.size.y))
-	return PackChoiceView.zone_rect(_pool_row_px, anchor,
+	var rows := _pool_row_px
+	if _zone_bottom_px > rows.position.y:
+		rows.size.y = minf(rows.size.y, _zone_bottom_px - rows.position.y)
+	return PackChoiceView.zone_rect(rows, anchor,
 		_world_len_px(DieViewDress.COLLAR_OUT + LiftShaftView.WALL), _die_edge_px(),
 		gap * 2.0 + luck, float(TableScreen.RESOLUTION.x))
 
@@ -12962,6 +12974,7 @@ func _score_ctx() -> Dictionary:
 		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
 		# Kaltverfestigung: hand-weit, also ohne Umschlüsselung in _score_ctx_for_slots.
 		DiceScoring.CTX_CLAUSE_GROWTH: run.clause_face_growth(),
+		DiceScoring.CTX_SLOW_START: run.slow_start_active(),
 		DiceScoring.CTX_PHOSPHOR_STORE: _phosphor_stores(),  # Speicherlicht
 		DiceScoring.CTX_PHOSPHOR_MULT: _phosphor_mults(),  # Speicherlicht + Leuchtstoffröhre
 		# Was die bisherigen Hände der Runde gebracht haben - Dunkelkammer und
@@ -13907,6 +13920,9 @@ func _on_take_button_pressed() -> void:
 	var hand_fee := run.hand_fee()
 	if hand_fee > 0:
 		run.add_money(-mini(hand_fee, run.money))
+	var hand_wage := run.hand_wage()
+	if hand_wage > 0:
+		run.add_money(hand_wage)
 	_tax_side_bets(slots.size())  # bucht wie eh und läßt je Zahlung einen Chip auflaufen
 	await _play_take_animation(breakdown, new_total)
 	if phase != Phase.SCORING:
@@ -15374,6 +15390,7 @@ func _connect_run() -> void:
 	run.deals_changed.connect(_on_deals_changed)
 	_sfx_energy = run.energy
 	run.energy_changed.connect(_on_energy_changed)
+	run.deposit_energy.connect(_play_deal_energy_volley)
 	# Paket-Einsätze werden bezahlbar oder knapp, während die Wettannahme offen ist.
 	run.packs_changed.connect(_refresh_side_bet_affordability)
 	_shown_money = run.money  # kein Geld-Licht beim Spielstart
@@ -15460,12 +15477,29 @@ func _on_route_chosen(index: int) -> void:
 	if not route_pending:
 		return  # doppelte Unterschrift = doppelter Vorschuss
 	var energy_before := run.energy
+	# Zwangsversteigerung: die Diskette muss heraus, BEVOR GameRun den Charm verkauft.
+	var auction_disk: CharmDiskView = null
+	var auction_from := Vector2.INF
+	if _route_card_has(index, DealClause.FORCED_AUCTION) and charm_row != null:
+		var at := run.auction_charm_index()
+		if at >= 0:
+			auction_from = _charm_anchor_px(at)
+			auction_disk = charm_row.release_disk(at)
+	_money_comet_origin = auction_from
 	run.take_route(index)
+	_money_comet_origin = Vector2.INF
+	if auction_disk != null:
+		_eject_charm_disk(auction_disk)
+	if run.last_scrapped_part != null:
+		hand_note = "Schrottpresse: %s ist zerstört." % run.last_scrapped_part.display_name
+		run.last_scrapped_part = null
 	# Startkapital & Co. prägen Energie SOFORT - GameRun hat gebucht, das Licht
 	# holt nach: je ⚡ ein Komet auf dem Weg der Überladungs-Auszahlung.
 	_play_deal_energy_volley(run.energy - energy_before)
 	route_pending = false
 	_commit_round()  # ab der Unterschrift sind die Würfel im Spiel
+	_apply_short_time()
+	_update_charm_badges()  # Projektor-Ausfall: der abgeschaltete Charm zeigt AUS
 	if route_choice != null:
 		route_choice.close()
 	# Jetzt erst fährt der Nachschub auf - ohne Neuzoom, die Grube steht ja schon.
@@ -15535,6 +15569,7 @@ func _start_new_round() -> void:
 	# Werkbank-Fenster über weiß der Spieler, wo ein Würfel steht (und ordnet ihn
 	# per reorder_pool an). Gemischt wird erst beim Festzurren (_commit_round).
 	round_pool_kinds = run.owned_pool.duplicate()
+	_short_time_dice.clear()
 
 	next_draw_index = 0
 	_reset_tray_stage_hard()
@@ -15547,6 +15582,24 @@ func _start_new_round() -> void:
 	if not betting_open:
 		_open_side_bet_betting()
 	_start_new_hand()
+
+## Trägt die Vertragskarte index der Auslage diese Klausel?
+func _route_card_has(index: int, clause_id: String) -> bool:
+	if index < 0 or index >= run.route_offers.size():
+		return false
+	var card := run.route_offers[index]
+	return card.get(GameRun.CARD_BONUS, "") == clause_id or card.get(GameRun.CARD_MALUS, "") == clause_id
+
+## Kurzarbeit: die letzten Würfel des Stapels gehen sofort aus dem Spiel und kehren
+## erst mit dem Rundenende in den Pool zurück (vor der Ablage, in ihrer Reihenfolge).
+func _apply_short_time() -> void:
+	var cut := mini(run.short_time_cut(), _remaining_in_pool() - 1)
+	if cut <= 0:
+		return
+	var from := round_pool_kinds.size() - cut
+	_short_time_dice.assign(round_pool_kinds.slice(from, round_pool_kinds.size()))
+	round_pool_kinds.resize(from)
+	_refresh_deck_trays()
 
 ## Zurren der Runde - Unterschrift oder, ohne Auslage, der erste Wurf. Beides
 ## macht dasselbe und darf je Runde nur EINMAL passieren: die Werkbank schließt und
@@ -15688,7 +15741,8 @@ func _on_round_complete() -> void:
 		# reisen mit dem Quota-Kometen: ein eigener Komet für ein paar Dollar
 		# wäre Zeremonie um ihrer selbst willen.
 		var interest := run.interest_income()
-		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split, leftover_dice)
+		var exchange := run.exchange_income()
+		await _play_round_clear_payout(base_blind, interest, per_die_row, stages, split, leftover_dice, exchange)
 		if phase != Phase.PAYOUT:
 			return  # Spiel wurde während der Auszahlung zurückgesetzt
 		# Rundenende-Charms: strikt links nach rechts, je Charm eine sichtbare
@@ -16023,7 +16077,7 @@ func _is_high_dice_hand(values: Array[int], scored: Array[int]) -> bool:
 ## ohne eigenes Aufblitzen). Drei Posten: Quota (einmal Geld), Überladung
 ## (je Stufe ⚡ bzw. Überlauf-Geld nach split), übrige Würfel.
 func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array[int], stages: int,
-		split: Dictionary, leftover_dice: Array) -> void:
+		split: Dictionary, leftover_dice: Array, exchange := 0) -> void:
 	# Die Zählsequenz läuft in der Übersicht: Hub, Geldanzeige und beide Trays
 	# sind gleichzeitig im Bild.
 	camera_rig.zoom_out()
@@ -16037,10 +16091,12 @@ func _play_round_clear_payout(base_blind: int, interest: int, per_die_row: Array
 		return
 	if hub != null:
 		hub.flash_frame(CasinoStyle.GOLD_INTENSE)
-	run.add_money(base_blind + interest)
+	run.add_money(base_blind + interest + exchange)
 	_ledger_money("quota", "Blind", base_blind)
 	if interest > 0:
 		_ledger_money("interest", "Zinsen", interest)
+	if exchange > 0:
+		_ledger_money("exchange", DealClause.find(DealClause.EXCHANGE_OFFICE).display_name, exchange)
 	await get_tree().create_timer(PAYOUT_TEXT_HOLD_DURATION).timeout
 
 	# 2) Bank-Entladung: je Überladungs-Stufe ein Komet aus dem Zielbalken um die

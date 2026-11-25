@@ -247,8 +247,7 @@ func test_stepping_back_returns_to_the_wide_workshop_not_the_overview() -> void:
 	rig.zoom_workshop_wide()
 	assert_false(rig.workshop_close)
 	assert_eq(rig.mode, CameraRig.Mode.WORKSHOP, "eine Stufe zurück, nicht ganz raus")
-	assert_almost_eq(rig.anchor_origin,
-		WORKSHOP_CENTER - CameraRig.ZOOM_FORWARD * rig.workshop_wide_distance(),
+	assert_almost_eq(rig.anchor_origin, rig.workshop_wide_origin(),
 		Vector3.ONE * 0.001, "wieder die weite Werkbank-Lage")
 
 ## Die weite Sicht rahmt die GANZE Ecke, und die untere Kante ist die harte: sie
