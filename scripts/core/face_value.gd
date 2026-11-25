@@ -35,6 +35,21 @@ static func magnitude(value: int) -> String:
 		shown = "%d.%02d" % [hundredths / 100, hundredths % 100]
 	return ("-" if value < 0 else "") + shown + String(SUFFIXES[step])
 
+## Kurzform für die Würfelseite, zwei gültige Stellen ("1.6k", "12k", "148k"):
+## jedes Zeichen weniger macht die breiten-begrenzte Zeile größer.
+static func magnitude_short(value: int) -> String:
+	if not is_big(value):
+		return ""
+	var whole := absi(value)
+	var unit := 1
+	var step := 0
+	while whole / unit >= 1000 and step < SUFFIXES.size() - 1:
+		unit *= 1000
+		step += 1
+	var tenths := whole / (unit / 10)
+	var shown := str(tenths / 10) if tenths >= 100 else "%d.%d" % [tenths / 10, tenths % 10]
+	return ("-" if value < 0 else "") + shown + String(SUFFIXES[step])
+
 ## Die Hauptzeile: die volle Zahl, ab BIG_FROM nur noch die Kombinationsziffer.
 static func main_text(value: int) -> String:
 	return str(digit(value)) if is_big(value) else str(value)

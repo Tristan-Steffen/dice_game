@@ -121,6 +121,8 @@ const LABEL_LIFT := 0.02
 
 ## Interne Glyphen-Auflösung (Font-Atlas-Pixel) - Weltgröße steuert pixel_size.
 const LABEL_FONT_SIZE := 160
+## Schmal und fett: die Breite begrenzt die Zahl, also trägt eine schmale Schrift sie größer.
+const NUMBER_FONT := preload("res://assets/fonts/BarlowCondensed-Bold.ttf")
 ## Basis-Umrechnung Font-Pixel -> Welteinheiten (Höhe einer einstelligen Ziffer).
 ## Seit den GRUNDFORMEN (2026-10-24) um DIGIT_SHARE kleiner als die 0.0085 davor:
 ## die Figur läuft hinter der Ziffer durch, und eine kleinere Zahl gibt mehr von
@@ -131,9 +133,9 @@ const LABEL_PIXEL_SIZE := 0.0085 * DIGIT_SHARE
 ## Ab vier Stellen (FaceValue): Ziffer etwas kleiner und tiefer, die Größe darüber.
 const MAGNITUDE_NAME := "Magnitude"
 const BIG_DIGIT_SHARE := 0.8
-const BIG_DIGIT_DROP := 0.16
-const MAGNITUDE_RISE := 0.62
-const MAGNITUDE_SHARE := 0.34
+const BIG_DIGIT_DROP := 0.26
+const MAGNITUDE_RISE := 0.55
+const MAGNITUDE_SHARE := 0.78
 const MAGNITUDE_COLOR := Color(0.82, 0.84, 0.9)
 const BIG_GUARD_DIGITS := 4
 ## Nutzbare Kantenlänge des Ziffernfelds (< DieBuilder.FACE_SIZE).
@@ -792,6 +794,7 @@ static func write_value(label: Label3D, value: int) -> void:
 		mag = Label3D.new()
 		mag.name = MAGNITUDE_NAME
 		mag.font_size = LABEL_FONT_SIZE
+		mag.font = label.font
 		mag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		mag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		mag.alpha_cut = label.alpha_cut
@@ -801,13 +804,13 @@ static func write_value(label: Label3D, value: int) -> void:
 		mag.modulate = MAGNITUDE_COLOR
 		mag.layers = label.layers  # spät gebaut: Spiegel-Bit der Ziffer erben
 		label.add_child(mag)
-	mag.text = FaceValue.magnitude(value)
+	mag.text = FaceValue.magnitude_short(value)
 	mag.position = Vector3(0.0, BIG_DIGIT_DROP + MAGNITUDE_RISE, 0.0)
 	var font: Font = mag.font if mag.font != null else ThemeDB.fallback_font
 	var wide := font.get_string_size(mag.text, HORIZONTAL_ALIGNMENT_CENTER, -1.0,
 		mag.font_size).x
 	mag.pixel_size = minf(LABEL_PIXEL_SIZE * MAGNITUDE_SHARE,
-		LABEL_FIT_EXTENT * 0.9 / maxf(wide, 1.0))
+		LABEL_FIT_EXTENT * 1.2 / maxf(wide, 1.0))
 
 ## Spät gebaute Teile erben die Render-Layer eines Seiten-Quads: das Spiegel-Bit des
 ## Tischglases setzt ScreenReflection nur EINMAL beim Aufbau über den Baum, sonst

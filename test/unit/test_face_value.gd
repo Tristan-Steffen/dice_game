@@ -23,3 +23,13 @@ func test_magnitude_keeps_three_digits_and_rounds_down() -> void:
 
 func test_inline_joins_both_parts() -> void:
 	assert_eq(FaceValue.inline(1_000_004), "1.00M·4")
+
+func test_short_magnitude_keeps_two_digits_and_rounds_down() -> void:
+	assert_eq(FaceValue.magnitude_short(999), "")
+	assert_eq(FaceValue.magnitude_short(1004), "1.0k")
+	assert_eq(FaceValue.magnitude_short(1620), "1.6k")
+	assert_eq(FaceValue.magnitude_short(9999), "9.9k", "abgerundet, nie 10k")
+	assert_eq(FaceValue.magnitude_short(12547), "12k")
+	assert_eq(FaceValue.magnitude_short(148000), "148k")
+	assert_eq(FaceValue.magnitude_short(2_300_000), "2.3M")
+	assert_eq(FaceValue.magnitude_short(-1500), "-1.5k")

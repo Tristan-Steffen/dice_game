@@ -288,6 +288,7 @@ static func _build_label(value: int) -> Label3D:
 	label.name = "Value"
 	label.text = str(value)
 	label.font_size = DieFaceDisplay.LABEL_FONT_SIZE
+	label.font = DieFaceDisplay.NUMBER_FONT
 	label.pixel_size = DieFaceDisplay.LABEL_PIXEL_SIZE
 	label.modulate = DieFaceDisplay.NUMBER_COLOR
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
