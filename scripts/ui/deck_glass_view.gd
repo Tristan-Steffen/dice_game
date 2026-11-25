@@ -28,8 +28,7 @@ const HEAD_GAP_UNITS := 1.6
 ## Zeiger berührt - die Seele des Würfels unter ihm oder die Wirkung seiner
 ## Netz-Zelle. Ihr Band ist RESERVIERT, auch wenn sie schweigt: sonst spränge das
 ## Raster bei jedem Überfahren. Dafür sitzt das Raster ein Stück höher.
-const FOOT_UNITS := 5.6
-const FOOT_FONT_UNITS := 3.0
+const FOOT_UNITS := 8.6
 const FOOT_GAP_UNITS := 1.4
 ## Ihr Grund ist DECKEND, der Schirm ringsum nicht: Text braucht einen ruhigen
 ## Grund, sonst schienen die versenkten Würfel mitten durch die Zeile. Er ist eine
@@ -42,7 +41,7 @@ const FOOT_PAD_UNITS := 2.0
 var _back: Panel
 var _foot_back: Panel
 var _head: Label
-var _foot: Label
+var _foot: DieInfoBand
 var _host: Control
 var _grid: DiceGridView
 var _columns := 6
@@ -53,8 +52,6 @@ var _signature: Array = []
 var _title := ""
 ## Der GESÄUMTE Sitz (-1 = keiner): das aktuelle Ziel der Werkstatt.
 var _target := -1
-## Was die Hinweis-Zeile gerade sagt ("" = sie schweigt).
-var _hint := ""
 
 func _init() -> void:
 	name = "DeckGlassWindow"
@@ -102,13 +99,8 @@ func _build() -> void:
 	_foot_back.add_theme_stylebox_override("panel", foot_style(FOOT_RADIUS_UNITS))
 	add_child(_foot_back)
 
-	_foot = Label.new()
+	_foot = DieInfoBand.new()
 	_foot.name = "Hinweis"
-	_foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_foot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_foot.clip_text = true
-	_foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_foot.add_theme_color_override("font_color", DiceGridView.MUTED_COLOR)
 	add_child(_foot)
 
 	_host = Control.new()
@@ -158,17 +150,12 @@ func show_pool(title: String, defs: Array[DieDefinition], columns: int,
 	_relayout()
 	_grid.set_highlight(_target)
 
-## Die HINWEIS-ZEILE schreiben ("" = schweigen). Idempotent - der Zeiger fragt je
-## Bild, gesetzt wird nur der Wechsel.
-func set_hint(text: String) -> void:
-	if text == _hint:
-		return
-	_hint = text
-	if _foot != null and is_instance_valid(_foot):
-		_foot.text = text
+## Die Würfel-Auskunft am Fuß (def null = schweigen); face < 0 zeigt den Würfel.
+func set_info(def: DieDefinition, face := -1) -> void:
+	_foot.show_info(def, face)
 
-func hint() -> String:
-	return _hint
+func info_band() -> DieInfoBand:
+	return _foot
 
 ## Der gesäumte Sitz (-1 = keiner).
 func target_index() -> int:
@@ -202,7 +189,6 @@ func _relayout() -> void:
 	var pad := u * FOOT_PAD_UNITS
 	_foot.position = Vector2(margin + pad, maxf(size.y - margin - foot, 0.0))
 	_foot.size = Vector2(maxf(size.x - (margin + pad) * 2.0, 1.0), foot)
-	_foot.add_theme_font_size_override("font_size", maxi(8, int(u * FOOT_FONT_UNITS)))
 	var top := margin + u * (HEAD_UNITS + HEAD_GAP_UNITS)
 	_host.position = Vector2(margin, top)
 	# Das Band der Hinweis-Zeile bleibt frei: das Raster sitzt dadurch HÖHER.

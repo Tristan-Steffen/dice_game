@@ -642,12 +642,6 @@ static func ware_tint(item: Object) -> Color:
 		return PackDrawerView.pack_tint(item as Pack)
 	return NEON_TEXT
 
-## Die Auskunft eines Würfels als EINE Zeile - aus derselben Quelle wie der
-## Info-Schirm der Werkstatt.
-static func die_foot_text(def: DieDefinition) -> String:
-	var info := WorkshopInfoView.die_info(def)
-	return "%s · %s - %s" % [info["title"], info["sub"], info["body"]]
-
 ## Der Name je Platz - ein verkaufter Platz schweigt.
 func _refresh_place_labels() -> void:
 	for seat in _place_names.size():

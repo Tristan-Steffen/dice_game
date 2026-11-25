@@ -145,6 +145,8 @@ var info_foot: Control
 var foot_net: CenterContainer
 var foot_title: Label
 var foot_body: LexikonText
+## Die Würfel-Auskunft des Fußes - bei einem Würfel steht sie statt des Texts.
+var foot_die: DieInfoBand
 var _foot_key := ""
 ## Das Netz im Fuß ist HOVERBAR: gemerkt werden sein Würfel, sein Zellmaß, sein
 ## Körper (das Rechteck sitzt mittig im Container) und die zuletzt gezeigte Zelle -
@@ -365,6 +367,9 @@ func _build_info_foot(root: Container) -> void:
 	foot_body.attach_hint(self, u * 0.9)
 	foot_body.visible = false
 	column.add_child(foot_body)
+	foot_die = DieInfoBand.new()
+	foot_die.visible = false
+	column.add_child(foot_die)
 
 ## Netz-Zellenmaß des Fußes: drei Kreuz-Zeilen müssen in das Band passen.
 func _foot_net_cell() -> float:
@@ -417,7 +422,8 @@ func show_bay_annotation(data: Dictionary, _anchor: Vector2) -> void:
 				break
 	_foot_body_width = body_width
 	foot_body.set_style(grade, CasinoStyle.CREAM, 2, CasinoStyle.INK)
-	_set_foot_body(naked)
+	foot_die.custom_minimum_size = Vector2(body_width, maxf(room, 1.0))
+	_write_foot_body()
 
 ## Der Fuß räumt NICHT sofort: er verweilt FOOT_LINGER_TIME und fadet dann in
 ## FOOT_FADE_TIME aus - der Zeiger darf unterwegs sein (Stück → Netz-Zellen).
@@ -459,13 +465,14 @@ func _clear_foot() -> void:
 	_foot_face = -1
 	foot_title.visible = false
 	foot_body.visible = false
+	foot_die.visible = false
+	foot_die.clear()
 	foot_net.visible = false
 	if info_foot != null and is_instance_valid(info_foot):
 		info_foot.modulate.a = 1.0
 
 ## Der Zeiger steht auf dem Fuß (globaler Display-Pixel): liegt er auf einer
-## NETZ-ZELLE, trägt der Body deren Materialzeile - dieselbe EINE Quelle wie überall
-## (DieNetView.hint_for). Sonst steht die Beschreibung wieder. Je Bild gerufen,
+## NETZ-ZELLE, zeigt die Würfel-Auskunft diese Seite, sonst wieder den Würfel. Je Bild gerufen,
 ## geschrieben nur beim Zellen-WECHSEL.
 func foot_hover(px: Vector2) -> void:
 	if not _built or foot_body == null or not is_instance_valid(foot_body):
@@ -490,8 +497,14 @@ func _restore_foot_body() -> void:
 	_write_foot_body()
 
 func _write_foot_body() -> void:
-	var line := DieNetView.hint_for(_foot_net_def, _foot_face) if _foot_face != -1 else ""
-	_set_foot_body(line if line != "" else _foot_body_naked)
+	# Ein Würfel spricht über die EINE Würfel-Auskunft, alles andere über den Text.
+	if _foot_net_def != null:
+		foot_body.visible = false
+		foot_die.show_info(_foot_net_def, _foot_face)
+		foot_die.visible = true
+		return
+	foot_die.visible = false
+	_set_foot_body(_foot_body_naked)
 
 ## Wort-Labels haben kein eigenes Maß - die Spalte bekommt die gesetzte Höhe.
 func _set_foot_body(text_in: String) -> void:

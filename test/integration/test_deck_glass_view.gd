@@ -147,7 +147,7 @@ func _box(index: int) -> StyleBoxFlat:
 ## jedem Überfahren. Dafür sitzt das Raster HÖHER als die Fenstermitte.
 func test_das_band_der_hinweis_zeile_bleibt_frei_und_hebt_das_raster() -> void:
 	await wait_frames(2)
-	var foot: Label = view.get_node("Hinweis")
+	var foot: Control = view.get_node("Hinweis")
 	var host: Control = view.get_node("RasterHost")
 	var u := view.size.x / DeckGlassView.UNIT_DIV
 	assert_almost_eq(foot.position.y + foot.size.y,
@@ -159,24 +159,28 @@ func test_das_band_der_hinweis_zeile_bleibt_frei_und_hebt_das_raster() -> void:
 	assert_gte(below, u * (DeckGlassView.FOOT_UNITS + DeckGlassView.FOOT_GAP_UNITS) - 0.5,
 		"unter dem Raster bleibt das ganze Band frei - um so viel sitzt es höher")
 
-## Sie sagt, was der Zeiger berührt - und schweigt, wo nichts liegt.
+## Sie zeigt den Würfel bzw. die Seite, die ihr gereicht wird - und schweigt sonst.
 func test_die_hinweis_zeile_traegt_was_ihr_gereicht_wird() -> void:
 	await wait_frames(2)
-	var foot: Label = view.get_node("Hinweis")
-	assert_eq(view.hint(), "", "ohne Zeiger schweigt sie")
-	view.set_hint("Gold: zahlt beim Nehmen")
-	assert_eq(view.hint(), "Gold: zahlt beim Nehmen")
-	assert_eq(foot.text, "Gold: zahlt beim Nehmen", "und die Zeile trägt sie")
-	view.set_hint("")
-	assert_eq(foot.text, "", "leer heißt still")
+	var band := view.info_band()
+	assert_true(band.is_empty(), "ohne Zeiger schweigt sie")
+	var die := DieDefinition.new()
+	die.materials[0] = DieMaterial.GOLD
+	view.set_info(die, 0)
+	assert_eq(band.mode(), "face")
+	assert_string_contains(band.plain_text(), DieMaterial.by_id(DieMaterial.GOLD).display_name)
+	view.set_info(die)
+	assert_true(band.is_empty(), "ein Würfel ohne Seele sagt nichts")
+	view.set_info(null)
+	assert_true(band.is_empty(), "leer heißt still")
 
-## Und sie kommt aus dem RASTER: die Kachel unter dem Zeiger erklärt sich selbst.
+## Und sie kommt aus dem RASTER: die Kachel unter dem Zeiger nennt Würfel und Seite.
 func test_das_raster_beantwortet_den_zeiger_fuer_die_zeile() -> void:
 	await wait_frames(2)
 	var grid := view.grid()
 	var at := grid.tiles[0].get_global_rect().get_center()
-	assert_ne(grid.hint_at(at), "", "die Detail-Kachel schweigt nie")
-	assert_eq(grid.hint_at(Vector2(-100, -100)), "", "außerhalb des Rasters schon")
+	assert_true(grid.info_at(at).has("def"), "die Kachel nennt ihren Würfel")
+	assert_true(grid.info_at(Vector2(-100, -100)).is_empty(), "außerhalb des Rasters nichts")
 
 ## Der SCHIRM bleibt halb durchsichtig wie jeder andere - DECKEND ist allein der
 ## Grund unter der Hinweis-Zeile (Spieler-Wunsch 2026-09-11: der Vorrat darf
@@ -197,7 +201,7 @@ func test_nur_der_grund_der_hinweis_zeile_deckt() -> void:
 func test_der_grund_traegt_die_ganze_zeile() -> void:
 	await wait_frames(2)
 	var foot_back: Panel = view.get_node("HinweisGrund")
-	var foot: Label = view.get_node("Hinweis")
+	var foot: Control = view.get_node("Hinweis")
 	assert_true(Rect2(foot_back.position, foot_back.size).encloses(
 		Rect2(foot.position, foot.size)), "die Zeile liegt ganz auf ihrem Grund")
 	assert_lt(foot_back.position.y, foot.position.y, "er beginnt über der Zeile")

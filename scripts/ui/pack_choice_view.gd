@@ -44,6 +44,7 @@ var _counted := false
 var _title: Label
 var _counter: Label
 var _info: Label
+var _die_info: DieInfoBand
 var _take_button: Button
 var _reshuffle_button: Button
 var _hovered := -1
@@ -526,6 +527,12 @@ func _build() -> void:
 	_info.position = info.position
 	_info.size = info.size
 	add_child(_info)
+	_die_info = DieInfoBand.new()
+	_die_info.layout = DieInfoBand.Layout.LINE
+	_die_info.position = info.position
+	_die_info.size = info.size
+	_die_info.visible = false
+	add_child(_die_info)
 	_reshuffle_button = _button("", u, false)
 	_reshuffle_button.pressed.connect(func() -> void:
 		if choosing():
@@ -789,13 +796,20 @@ func _refresh() -> void:
 func _refresh_info() -> void:
 	if _info == null or not is_instance_valid(_info) or choice == null:
 		return
-	if _hovered >= 0 and _hovered < choice.option_count():
+	var die: DieDefinition = null
+	var hovering := _hovered >= 0 and _hovered < choice.option_count()
+	if hovering:
 		var option: Variant = choice.options[_hovered]
-		var cell := ""
-		if _hover_face != NO_FACE and option is DieDefinition:
-			cell = DieNetView.hint_for(option as DieDefinition, _hover_face)
-		_info.text = cell if cell != "" else option_text(option)
-		_info.modulate = TEXT_COLOR
+		die = option as DieDefinition
+		if die == null:
+			_info.text = option_text(option)
+			_info.modulate = TEXT_COLOR
+	# Ein Würfel spricht über die EINE Würfel-Auskunft, die Zeile schweigt dann.
+	if _die_info != null and is_instance_valid(_die_info):
+		_die_info.show_info(die, _hover_face if _hover_face != NO_FACE else -1)
+		_die_info.visible = die != null
+	_info.visible = die == null
+	if hovering:
 		return
 	_info.modulate = MUTED_COLOR
 	if not _counted:
@@ -830,6 +844,4 @@ static func option_text(option: Variant) -> String:
 		var info := WorkshopInfoView.pack_info(option as Pack)
 		return "%s · %s - %s" % [info["title"], info["sub"],
 			String(info["body"]).replace("\n", " ")]
-	if option is DieDefinition:
-		return ShopController.die_foot_text(option as DieDefinition)
 	return ""

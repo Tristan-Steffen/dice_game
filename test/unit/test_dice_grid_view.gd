@@ -95,15 +95,14 @@ func test_a_soulless_tile_says_nothing() -> void:
 	assert_eq(grid.hint_at(grid.tiles[0].get_global_rect().get_center()), "",
 		"ohne Seele gibt es nichts zu sagen")
 
-## Die DETAIL-Kachel (die Glas-Ansicht) schweigt nie - sie trägt die Hinweis-Zeile,
-## und eine leere Zeile läse sich dort als Fehler.
-func test_a_soulless_detail_tile_still_names_the_die() -> void:
+## Auch die DETAIL-Kachel füllt nichts auf: ohne Seele schweigt sie.
+func test_a_soulless_detail_tile_says_nothing_either() -> void:
 	grid.place(3, grid.u, true)
 	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6])]))
 	await wait_frames(2)
-	var hint := grid.hint_at(grid.tiles[0].get_global_rect().get_center())
-	assert_string_contains(hint, WorkshopInfoView.SOULLESS)
-	assert_string_contains(hint, WorkshopInfoView.PLAIN_DIE)
+	var at := grid.tiles[0].get_global_rect().get_center()
+	assert_eq(grid.hint_at(at), "")
+	assert_true(grid.info_at(at).has("def"), "den Würfel nennt sie trotzdem")
 
 ## Und eine NETZ-ZELLE erklärt sich selbst - dieselbe Quelle wie Grube und Werkbank.
 func test_a_detail_cell_explains_itself() -> void:

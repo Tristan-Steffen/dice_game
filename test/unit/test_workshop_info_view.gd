@@ -84,14 +84,32 @@ func test_both_body_lines_are_really_drawn() -> void:
 	assert_eq(body.get_line_count(), 2, "zwei Zeilen stehen im Label")
 	assert_eq(body.get_visible_line_count(), 2, "und beide werden gezeichnet")
 
-## Mit Seele trägt die Unterzeile ihren Namen und die Wirkung ihre Beschreibung.
-func test_die_info_carries_the_essence() -> void:
-	var essence := Essence.all()[0]
+## Ein Würfel spricht über die Würfel-Auskunft: die drei Zeilen bleiben leer.
+func test_die_info_hands_the_die_to_the_band() -> void:
 	var die := DieDefinition.standard()
-	die.essence_id = essence.id
+	die.essence_id = Essence.all()[0].id
 	var info := WorkshopInfoView.die_info(die)
-	assert_eq(String(info["sub"]), essence.display_name)
-	assert_string_contains(String(info["body"]), essence.description)
+	assert_same(info["die"], die)
+	assert_eq(String(info["title"]), "")
+	assert_eq(String(info["body"]), "")
+
+## Die Würfel-Auskunft steht am Fuß, das Netz darüber - und die Zeilen schweigen.
+func test_the_die_band_stands_below_the_net() -> void:
+	await wait_frames(2)
+	var die := DieDefinition.standard()
+	die.essence_id = Essence.all()[0].id
+	view.set_net(die)
+	view.set_die(die)
+	var band := view.die_band()
+	assert_true(band.visible)
+	assert_eq(band.mode(), "die")
+	assert_false((view.get_node("Titel") as Control).visible, "die drei Zeilen schweigen")
+	assert_lte(view.net_rect().end.y, band.position.y + 0.5, "das Netz steht über ihr")
+	view.set_die(die, 0)
+	assert_eq(view.die_band().mode(), "face", "eine Seite schaltet auf die drei Plätze")
+	view.set_die(null)
+	assert_false(view.die_band().visible)
+	assert_true((view.get_node("Titel") as Control).visible)
 
 ## Eine KASSETTE: Größe·Sorte in der Unterzeile, Beschreibung plus Netz-Zeile.
 func test_pack_info_carries_description_and_net_line() -> void:
@@ -123,8 +141,7 @@ func test_idle_info_names_the_blocker_or_the_target() -> void:
 	assert_eq(String(WorkshopInfoView.idle_info(null, "")["body"]),
 		WorkshopInfoView.IDLE_BODY, "ohne Bremse steht die Einladung")
 	var die := DieDefinition.standard()
-	die.display_name = "Zielwürfel"
-	assert_eq(String(WorkshopInfoView.idle_info(die, "")["title"]), "Zielwürfel",
+	assert_same(WorkshopInfoView.idle_info(die, "")["die"], die,
 		"ein gewähltes Ziel erklärt sich selbst")
 
 ## Das NETZ steht rechts im Schirm, der Text endet davor - und es kommt und geht mit

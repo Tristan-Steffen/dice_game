@@ -427,8 +427,8 @@ func test_the_net_sits_at_the_right_end_of_the_foot() -> void:
 		Vector2.ZERO)
 	await wait_frames(2)
 	assert_gt(view.foot_net.get_global_rect().position.x,
-		view.foot_body.get_global_rect().position.x,
-		"das Netz steht rechts vom Text")
+		view.foot_die.get_global_rect().position.x,
+		"das Netz steht rechts von der Würfel-Auskunft")
 
 func test_hovering_a_net_cell_swaps_the_foot_body() -> void:
 	var die := _die_in_foot()
@@ -438,15 +438,17 @@ func test_hovering_a_net_cell_swaps_the_foot_body() -> void:
 	await wait_frames(2)
 	var body := view.foot_net.get_child(0) as Control
 	var cell: float = view._foot_net_cell()
-	# Der Kanten-Chip (EDGE) erklärt die Seele - dieselbe EINE Quelle wie überall.
-	var target := body.get_global_rect().position + Vector2(cell, cell) * 0.5
-	view.foot_hover(target)
-	assert_eq(view.foot_body.text, DieNetView.hint_for(die, DieNetView.EDGE),
-		"die Zelle schreibt ihre eigene Zeile in den Body")
-	# Zurück auf die Beschreibung, sobald keine Zelle mehr getroffen ist.
-	view.foot_hover(view.foot_body.get_global_rect().get_center())
-	assert_eq(view.foot_body.text, String(data["body"]),
-		"neben dem Netz steht die Beschreibung wieder")
+	assert_true(view.foot_die.visible, "ein Würfel spricht über die Würfel-Auskunft")
+	assert_false(view.foot_body.visible)
+	assert_eq(view.foot_die.mode(), "die")
+	assert_string_contains(view.foot_die.plain_text(), Essence.by_id(die.essence_id).display_name)
+	# Eine Seiten-Zelle (Mittelreihe) schaltet auf Augen, Material, Runen.
+	var step := cell * (1.0 + DieNetView.GAP_FACTOR)
+	view.foot_hover(body.get_global_rect().position + Vector2(step * 1.5, step * 1.5))
+	assert_eq(view.foot_die.mode(), "face", "die Zelle zeigt ihre Seite")
+	# Zurück auf den Würfel, sobald keine Zelle mehr getroffen ist.
+	view.foot_hover(view.foot_die.get_global_rect().get_center())
+	assert_eq(view.foot_die.mode(), "die", "neben dem Netz steht die Seele wieder")
 
 # --- Die stehenden Schilder der Bucht -------------------------------------------
 

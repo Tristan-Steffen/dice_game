@@ -98,13 +98,15 @@ func hint_at(pixel: Vector2) -> String:
 	var cell := DieNetView.hint_for(def, face_at(pixel, index))
 	if cell != "":
 		return cell
-	var soul := Essence.hint(def.essence_id)
-	if soul != "" or not detailed:
-		return soul
-	# Die DETAIL-Kachel schweigt NIE: sie trägt die Hinweis-Zeile der Glas-Ansicht,
-	# und eine leere Zeile läse sich dort als Fehler. Die Worte kommen aus der
-	# bestehenden Quelle für genau diesen Fall (der Info-Schirm der Werkstatt).
-	return "%s  ·  %s" % [WorkshopInfoView.SOULLESS, WorkshopInfoView.PLAIN_DIE]
+	return Essence.hint(def.essence_id)
+
+## Würfel und Seite unter pixel für die Würfel-Auskunft ({} = keine Kachel);
+## face -1 = die Kachel neben den Zellen, also der Würfel selbst.
+func info_at(pixel: Vector2) -> Dictionary:
+	var index := slot_at(pixel)
+	if index < 0 or index >= _defs.size() or _defs[index] == null:
+		return {}
+	return {"def": _defs[index], "face": face_at(pixel, index)}
 
 ## Die NETZ-ZELLE unter pixel auf Kachel index (-1 = keine, EDGE = der Kanten-Chip).
 ## Das Netz liegt mittig in seiner Kachel, also wird an SEINEM Rechteck gemessen.

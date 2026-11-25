@@ -38,9 +38,8 @@ const IDLE_TITLE := "Werkstatt"
 const IDLE_BODY := "Einen Vorrats-Würfel antippen: er wird das Ziel der Serie. Ein Rohling aus dem Schwarzmarkt legt sich statt dessen aufs Podest und VERDICHTET."
 ## Liegt ein Rohling auf dem Podest, sagt der Schirm, was dort geschieht.
 const PACKING_BODY := "Verdichten: die Karten der Reihe werden zu EINER. Zahlen und Multiplikatoren addieren sich, Material und Rune liegen danach auf derselben Seite."
-## Der Würfel ohne Seele und der Würfel ohne alles.
-const SOULLESS := "Ohne Seele"
-const PLAIN_DIE := "Ein schlichter Würfel."
+## Die Höhe der Würfel-Auskunft (DieInfoBand) am Fuß des Schirms, in u.
+const BAND_UNITS := 13.0
 ## Die Unterzeile einer Netz-Zelle.
 const CELL_SUB := "Zelle"
 ## Das Netz rechts: höchstens dieser Anteil der Breite, die Fuge zum Text in u.
@@ -72,9 +71,11 @@ var _body_unit := 0.0
 var _net_def: DieDefinition = null
 var _net_key := ""
 var _net: Control = null
-## Seelen-Auskunft je Essenz-id: Essence.by_id baut den ganzen Katalog, und die
-## Frage kommt je Bild.
-static var _soul_cache: Dictionary = {}
+## Der Würfel, über den der Schirm spricht (null = keiner): dann trägt allein die
+## Würfel-Auskunft am Fuß, die drei Zeilen schweigen.
+var _die: DieDefinition = null
+var _die_face := -1
+var _band: DieInfoBand
 
 func _init() -> void:
 	name = "WorkshopInfoWindow"
@@ -125,6 +126,25 @@ func set_net(def: DieDefinition) -> void:
 	else:
 		_build_net()
 
+## Der Würfel bzw. seine Seite für die Würfel-Auskunft (null = die drei Zeilen sprechen).
+func set_die(def: DieDefinition, face := -1) -> void:
+	var reflow := (def == null) != (_die == null)
+	_die = def
+	_die_face = face
+	if reflow:
+		_rebuild()
+	elif _band != null and is_instance_valid(_band):
+		_band.show_info(_die, _die_face)
+
+func die_band() -> DieInfoBand:
+	return _band
+
+func band_rect() -> Rect2:
+	var u := unit()
+	var high := u * BAND_UNITS
+	return Rect2(u * MARGIN_X, size.y - u * MARGIN_Y - high,
+		maxf(size.x - u * MARGIN_X * 2.0, 1.0), high)
+
 func net_def() -> DieDefinition:
 	return _net_def
 
@@ -138,11 +158,20 @@ func net_rect() -> Rect2:
 	var u := unit()
 	var cell := net_cell()
 	var span := DieNetView.net_size(cell)
-	return Rect2(Vector2(size.x - u * MARGIN_X - span.x, (size.y - span.y) * 0.5), span)
+	# Spricht die Würfel-Auskunft, steht das Netz über ihr statt mittig.
+	var room := _net_room()
+	return Rect2(Vector2(size.x - u * MARGIN_X - span.x,
+		u * MARGIN_Y + (room - span.y) * 0.5), span)
 
 func net_cell() -> float:
+	return DieNetView.cell_for(Vector2(size.x * NET_WIDTH_SHARE, _net_room()))
+
+func _net_room() -> float:
 	var u := unit()
-	return DieNetView.cell_for(Vector2(size.x * NET_WIDTH_SHARE, size.y - u * MARGIN_Y * 2.0))
+	var room := size.y - u * MARGIN_Y * 2.0
+	if _die != null:
+		room -= u * (BAND_UNITS + LINE_GAP)
+	return maxf(room, 1.0)
 
 ## Die Seite unter einem Display-Pixel (DieNetView.EDGE für den Seelen-Chip, -1 = keine).
 func net_face_at(pixel: Vector2) -> int:
@@ -199,6 +228,7 @@ func _rebuild() -> void:
 	_sub = null
 	_body = null
 	_net = null
+	_band = null
 	var u := unit()
 	var pad := Vector2(u * MARGIN_X, u * MARGIN_Y)
 	var inner := maxf(size.x - pad.x * 2.0, 1.0)
@@ -219,6 +249,16 @@ func _rebuild() -> void:
 	_body_unit = u
 	_body = _line("Wirkung", Vector2(pad.x, body_top), _body_span,
 		u * float(BODY_STEPS[0]), WorkshopView.MUTED_COLOR, true)
+	for line: Label in [_title, _sub, _body]:
+		line.visible = _die == null
+	_band = DieInfoBand.new()
+	_band.name = "WuerfelAuskunft"
+	_band.visible = _die != null
+	add_child(_band)
+	var band := band_rect()
+	_band.position = band.position
+	_band.size = band.size
+	_band.show_info(_die, _die_face)
 	_build_net()
 	_paint()
 
@@ -284,16 +324,12 @@ func body_lines() -> int:
 # Jede liefert {title, sub, sub_tint, body}. Formuliert wird hier nichts: die
 # Texte kommen aus DieNetView, Essence und Pack.
 
-## Ein WÜRFEL: Name, Seele in ihrem Glühen, Wirkung.
+## Ein WÜRFEL: er spricht über die Würfel-Auskunft, die drei Zeilen schweigen.
 static func die_info(def: DieDefinition) -> Dictionary:
 	if def == null:
 		return idle_info(null, "")
-	var soul := _soul_of(def.essence_id)
-	var body := String(soul.get("body", ""))
-	return {"title": def.display_name,
-		"sub": String(soul.get("name", SOULLESS)),
-		"sub_tint": soul.get("tint", WorkshopView.MUTED_COLOR),
-		"body": body if body != "" else PLAIN_DIE}
+	return {"title": "", "sub": "", "sub_tint": WorkshopView.MUTED_COLOR, "body": "",
+		"die": def}
 
 ## Eine KASSETTE: Name, Größe·Sorte in der Sortenfarbe, Wirkung plus Netz-Zeile.
 ## Die Sorte fällt weg, wenn sie schon der Titel ist (Standard-Pakete heißen so).
@@ -323,17 +359,3 @@ static func idle_info(target: DieDefinition, blocker: String,
 	return {"title": IDLE_TITLE, "sub": "",
 		"sub_tint": WorkshopView.MUTED_COLOR,
 		"body": blocker if blocker != "" else idle}
-
-## Name, Ton und Wirkung einer Seele - gecacht, denn Essence.by_id baut jedesmal
-## den ganzen Katalog.
-static func _soul_of(essence_id: String) -> Dictionary:
-	if _soul_cache.has(essence_id):
-		return _soul_cache[essence_id]
-	var essence := Essence.by_id(essence_id)
-	var entry := {"name": SOULLESS, "tint": WorkshopView.MUTED_COLOR, "body": ""}
-	if essence != null:
-		entry = {"name": essence.display_name,
-			"tint": ShopController.soul_tint(essence_id),
-			"body": essence.description}
-	_soul_cache[essence_id] = entry
-	return entry

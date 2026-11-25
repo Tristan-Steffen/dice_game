@@ -242,8 +242,8 @@ var secret_hub_strip: LedStripView
 var pit_info_bar: Panel
 var pit_net_holder: Control
 ## Material-Erklärzeile unter dem Netz-Feld: erscheint, wenn die Maus IM Feld
-## eine Netz-Zelle mit Material überfährt (set_pit_net_hint).
-var pit_net_hint: Label
+## eine Netz-Zelle mit Material überfährt (set_pit_die_info).
+var pit_net_hint: DieInfoBand
 ## Netz-Neubau nur bei Würfel-/Lagewechsel - der Hover ruft jeden Frame.
 var _pit_net_def: DieDefinition
 var _pit_net_face := -2
@@ -760,16 +760,12 @@ func _build_content() -> void:
 	pit_info_bar.add_child(pit_net_holder)
 	# Material-Erklärung als eigene, EINZEILIGE Leiste UNTER der Grube (nicht im
 	# Netz-Feld) - darf breit sein, damit sie nie umbricht.
-	pit_net_hint = Label.new()
+	pit_net_hint = DieInfoBand.new()
 	pit_net_hint.name = "NetHint"
+	pit_net_hint.layout = DieInfoBand.Layout.LINE
 	pit_net_hint.visible = false
-	pit_net_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pit_net_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pit_net_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	pit_net_hint.autowrap_mode = TextServer.AUTOWRAP_OFF
 	pit_net_hint.modulate = Color(1.35, 1.35, 1.3)
-	pit_net_hint.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
-	pit_net_hint.add_theme_constant_override("outline_size", 3 * SUPERSAMPLE)
+	pit_net_hint.outline_px = 3 * SUPERSAMPLE
 	add_child(pit_net_hint)
 	# Deal-Marken-Streifen am oberen Grubenrand (Platz: place_pit_deal_rail).
 	pit_deal_rail = DealTokenRow.new()
@@ -878,6 +874,9 @@ func _fit_pit_beckon() -> void:
 	var h := pit_window.size.y
 	pit_beckon.position = Vector2.ZERO
 	pit_beckon.size = pit_window.size
+	# Über dem Netz-Feld, nicht darauf.
+	if pit_info_bar != null and pit_info_bar.size.y > 0.0:
+		pit_beckon.size.y = clampf(pit_info_bar.position.y - pit_window.position.y, h * 0.3, h)
 	var title: Label = pit_beckon.get_child(0)
 	title.add_theme_font_size_override("font_size", int(h * PIT_BECKON_TITLE_SHARE))
 	title.add_theme_constant_override("outline_size", int(h * 0.02))
@@ -3640,20 +3639,25 @@ func set_memory_veil(active: bool) -> void:
 	if active:
 		move_child(memory_veil, get_child_count() - 1)
 
-## Spannt das kompakte Würfelnetz-Feld über rect auf (mit Abstand zur
-## Grubenwand): das Netz sitzt mittig, Zellgröße füllt das Feld.
-func place_pit_info_bar(rect: Rect2) -> void:
+## Spannt das kompakte Würfelnetz-Feld über rect auf: das Netz sitzt mittig, in
+## der Zelle cell (sonst füllt es das Feld).
+func place_pit_info_bar(rect: Rect2, cell := 0.0) -> void:
 	if pit_info_bar == null:
 		return
 	pit_info_bar.position = rect.position
 	pit_info_bar.size = rect.size
-	var pad := rect.size.y * 0.1
-	# Zellgröße füllt das Feld (kleinere der beiden Achsen bestimmt, Netz ist 4:3).
-	var cell_w := (rect.size.x - pad * 2.0) / (4.0 + 3.0 * DieNetView.GAP_FACTOR)
-	var cell_h := (rect.size.y - pad * 2.0) / (3.0 + 2.0 * DieNetView.GAP_FACTOR)
-	_pit_net_cell = minf(cell_w, cell_h)
+	if cell <= 0.0:
+		var pad := rect.size.y * 0.1
+		var cell_w := (rect.size.x - pad * 2.0) / (4.0 + 3.0 * DieNetView.GAP_FACTOR)
+		var cell_h := (rect.size.y - pad * 2.0) / (3.0 + 2.0 * DieNetView.GAP_FACTOR)
+		cell = minf(cell_w, cell_h)
+	if not is_equal_approx(cell, _pit_net_cell):
+		_pit_net_face = -2
+	_pit_net_cell = cell
 	pit_net_holder.size = DieNetView.net_size(_pit_net_cell)
 	pit_net_holder.position = (rect.size - pit_net_holder.size) / 2.0
+	if pit_beckon != null and pit_window != null:
+		_fit_pit_beckon()
 
 ## Spannt die einzeilige Material-Erklärleiste UNTER der Grube auf (breit, damit
 ## der Text nie umbricht); zentriert auf rect.
@@ -3662,7 +3666,6 @@ func place_pit_net_hint(rect: Rect2) -> void:
 		return
 	pit_net_hint.position = rect.position
 	pit_net_hint.size = rect.size
-	pit_net_hint.add_theme_font_size_override("font_size", maxi(10, int(rect.size.y * 0.55)))
 
 ## Spannt den Marken-Streifen am oberen Grubenrand auf. Die Hinweis-Karte
 ## entsteht erst hier: ihre Schriftgrade hängen an der Streifenhöhe.
@@ -3781,11 +3784,12 @@ func pit_net_face_at(pixel: Vector2) -> int:
 	return DieNetView.face_at(local, _pit_net_cell)
 
 ## Setzt die Material-Erklärzeile unter dem Netz-Feld ("" = ausblenden).
-func set_pit_net_hint(text: String) -> void:
+## Die Würfel-Auskunft der Grube: face < 0 zeigt den Würfel, def null räumt.
+func set_pit_die_info(def: DieDefinition, face := -1) -> void:
 	if pit_net_hint == null:
 		return
-	pit_net_hint.text = text
-	pit_net_hint.visible = text != ""
+	pit_net_hint.show_info(def, face)
+	pit_net_hint.visible = not pit_net_hint.is_empty()
 
 func _clear_pit_net() -> void:
 	for child in pit_net_holder.get_children():

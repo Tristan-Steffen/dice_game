@@ -278,11 +278,10 @@ const PIT_DEAL_RAIL_INSET_X := 5.3   # Streifenmitte (Welt +X)
 const PIT_DEAL_RAIL_HALF_X := 1.3    # halbe Streifenhöhe (Welt-X)
 const PIT_DEAL_RAIL_OFFSET_Z := -7.0 # Streifenmitte (Welt-Z), links der Ader
 const PIT_DEAL_RAIL_HALF_Z := 5.0    # halbe Streifenbreite (Welt-Z)
-## Einzeilige Material-Erklärleiste IM Gruben-Screen, zwischen Netz-Feld und
-## Grubenwand (breit, kein Umbruch).
-const PIT_HINT_INSET_X := 6.6  # Leistenmitte, zwischen Feld-Unterkante (-5.6) und Grubenwand (-7.6)
+## Die Würfel-Auskunft (DieInfoBand, EINE Zeile) IM Gruben-Screen, zwischen Netz-Feld und Grubenwand.
+const PIT_HINT_INSET_X := 6.95  # Leistenmitte, knapp vor der Grubenwand (-7.6)
 const PIT_HINT_HALF_X := 0.5   # halbe Leistenhöhe (Welt-X)
-const PIT_HINT_HALF_Z := 9.0   # halbe Leistenbreite (Welt-Z) - viel Platz für eine Zeile
+const PIT_HINT_HALF_Z := 9.0   # halbe Leistenbreite (Welt-Z)
 ## Nachlauf des Netzes, nachdem die Maus den Würfel verlassen hat - die Zeit,
 ## um mit dem Cursor ins Netz-Feld zu fahren, ohne dass es sich leert.
 const NET_LINGER_TIME := 0.7
@@ -823,7 +822,6 @@ var _net_linger := 0.0
 var _net_fade := 0.0
 ## Seelen-Zeile des gezeigten Würfels - nur beim Wechsel gebaut (Essence.by_id
 ## legt den ganzen Katalog an, und _show_pit_net läuft je Frame).
-var _net_essence_hint := ""
 ## Glühen des Miasma für seine Augen-Pips - aus demselben Grund einmal geholt.
 var _miasma_glow := Color(0, 0, 0, 0)
 ## Dasselbe für das Radon, dessen Bestrahlung ebenfalls Augen schiebt.
@@ -1254,11 +1252,13 @@ func _setup_table_screen() -> void:
 	_pool_seam_px = slot_half  # dieselbe Naht trennt den Streifen von der Reihe
 
 	# Rechts am Pool die GLEICHUNG samt Podest, die Schale rechts neben ERGEBNIS.
-	_place_pit_net_field()
 	_pool_row_px = pool_bounds
 	var corner := _place_workshop_strip()
+	_place_pit_net_field()
 	_place_ausgabefach()
 	_setup_deck_glass()
+	_setup_screen_spill_lights(corner)
+
 ## Netz-Feld der Grube über der Erklärleiste: seine Zellen sind so groß wie die der
 ## Die-Views der Werkstatt; die Aktions-Knöpfe flankieren es.
 func _place_pit_net_field() -> void:
@@ -1276,8 +1276,6 @@ func _place_pit_net_field() -> void:
 	var field := Rect2(Vector2(cz - size.x * 0.5, bottom - size.y), size)
 	table_screen.place_pit_info_bar(field, cell)
 	table_screen.place_pit_actions(field)
-
-	_setup_screen_spill_lights(corner)
 
 ## Das Deck wird EINMAL gebacken, sobald alle Fenster und Adern stehen. Die ganze Port-Leiste
 ## samt dem Weg zur Wertung bleibt frei: dort wachsen Projektoren und ihre Adern nach.
@@ -6098,11 +6096,12 @@ func _sync_deck_glass_hint() -> void:
 	if window == null:
 		return
 	if not _deck_glass or not _table_operable():
-		window.set_hint("")
+		window.set_info(null)
 		return
 	var at := table_screen.deck_glass_pixel(
 		_screen_pixel(get_viewport().get_mouse_position()))
-	window.set_hint("" if at.x < 0.0 else window.grid().hint_at(at))
+	var info := window.grid().info_at(at) if at.x >= 0.0 else {}
+	window.set_info(info.get("def"), int(info.get("face", -1)))
 
 ## Tipp auf ein Netz - die Zelle bedeutet zweierlei, und der Neuzugang entscheidet:
 ## WARTET einer im Ausgabefach, ist die Zelle sein Tausch-Ziel (gebucht SOFORT,
@@ -9155,8 +9154,8 @@ func _sync_die_view_dress() -> void:
 		"signs": workshop.sign_rects_px(), "stamp": workshop.stamp_seat_px(),
 		"cell": workshop.podium_cell(),
 		"live": workshop.target_die() != null and _drum_powered(workshop),
-		"spent": workshop.press_spent(), "armed": workshop.can_pull(),
 		"seated": seated, "ring_on": seated and not _chamber_down(),
+		"spent": workshop.press_spent(), "armed": workshop.can_pull(),
 		"ring": _bench_hover_target(workshop.podium_stage_center(), CLAMP_HOVER),
 		"edge": DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE * 2.0,
 	}
@@ -12224,6 +12223,7 @@ func _write_workshop_info(workshop: WorkshopView, pixel: Vector2) -> void:
 	info.set_info(String(data.get("title", "")), String(data.get("sub", "")),
 		data.get("sub_tint", WorkshopView.MUTED_COLOR), String(data.get("body", "")))
 	info.set_net(data.get("net") as DieDefinition)
+	info.set_die(data.get("die") as DieDefinition, int(data.get("face", -1)))
 
 ## WAS der Schirm sagt - die erste Quelle gewinnt: Netz-Zelle im Fenster, Zelle auf
 ## einem Karten-KÖRPER, die Karte selbst, der Podest-Würfel, ein POOL-Würfel, sonst
@@ -12232,11 +12232,9 @@ func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
 	# Die Zellen des Netzes IM Schirm erklären sich selbst (der angeheftete Würfel).
 	var info: WorkshopInfoView = table_screen.workshop_info_window
 	if pixel.x >= 0.0 and info != null and info.net_def() != null:
-		var hint := info.net_hint_at(pixel)
-		if hint != "":
-			var cell := WorkshopInfoView.cell_info(info.net_def().display_name, hint)
-			cell["net"] = info.net_def()
-			return cell
+		var face := info.net_face_at(pixel)
+		if face != -1:
+			return {"die": info.net_def(), "face": face, "net": info.net_def()}
 	var idle := WorkshopInfoView.idle_info(workshop.chosen_die(),
 		workshop.stamp_blocker(), workshop.compressing())
 	# Der angeheftete Würfel, sonst ein wartender Neuzugang (der ZWANG), steht, solange
@@ -12365,9 +12363,9 @@ func _update_pit_hover(delta: float) -> void:
 				_net_linger = NET_LINGER_TIME
 				_net_fade = NET_FADE_TIME
 				table_screen.set_pit_net_alpha(1.0)
-				table_screen.set_pit_net_hint(_net_face_hint(pixel))
+				table_screen.set_pit_die_info(_net_die_def, table_screen.pit_net_face_at(pixel))
 				return
-			table_screen.set_pit_net_hint("")
+			table_screen.set_pit_die_info(_net_die_def)
 			if _net_linger > 0.0:
 				_net_linger -= delta
 				return
@@ -12378,24 +12376,16 @@ func _update_pit_hover(delta: float) -> void:
 				return
 	_net_die_def = null
 	table_screen.clear_pit_die()
-	table_screen.set_pit_net_hint("")
+	table_screen.set_pit_die_info(null)
 
 ## Zeigt def im Netz-Feld, voll deckend, und spannt Nachlauf + Ausblenden neu auf.
-## Trägt der Würfel eine Seele, steht sie sofort in der Erklärzeile - dieselbe
-## Zeile, die auch der Essenz-Chip des Netzes spricht (seelenlos bleibt sie leer).
 func _show_pit_net(def: DieDefinition, up_face: int) -> void:
-	if def != _net_die_def:
-		_net_essence_hint = DieNetView.hint_for(def, DieNetView.EDGE)
 	_net_die_def = def
 	_net_linger = NET_LINGER_TIME
 	_net_fade = NET_FADE_TIME
 	table_screen.set_pit_die(def, up_face)
 	table_screen.set_pit_net_alpha(1.0)
-	table_screen.set_pit_net_hint(_net_essence_hint)
-
-## Kurz-Erklärzeile zur Netz-Zelle unter pixel (siehe DieNetView.hint_for).
-func _net_face_hint(pixel: Vector2) -> String:
-	return DieNetView.hint_for(_net_die_def, table_screen.pit_net_face_at(pixel))
+	table_screen.set_pit_die_info(def)
 
 ## Slot des ruhenden, sichtbaren Grubenwürfels unter screen_pos, sonst -1.
 func _hovered_die_index(screen_pos: Vector2) -> int:
@@ -12449,7 +12439,7 @@ func _sync_screen_action_buttons() -> void:
 	# Die Deal-Marken am oberen Rand kommen und gehen mit dem Mobiliar.
 	table_screen.pit_deal_rail.visible = show
 	if choosing:
-		table_screen.set_pit_net_hint("")
+		table_screen.set_pit_die_info(null)
 		table_screen.hide_pit_score()
 	if not show:
 		table_screen.hide_pit_deal_hint()
