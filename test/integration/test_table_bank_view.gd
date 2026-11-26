@@ -76,6 +76,29 @@ func test_der_schirm_nennt_was_der_zeiger_trifft() -> void:
 	bank.show_item(-1)
 	assert_string_contains(bank.screen_text(), TableBankView.IDLE_TEXT)
 
+func test_ein_wuerfel_spricht_ueber_die_wuerfel_karte() -> void:
+	var bank := TableBankView.new()
+	add_child_autofree(bank)
+	await wait_process_frames(6)
+	assert_false(bank.card_shown(), "in Ruhe stehen die Zeilen")
+	bank.show_item(1)
+	assert_true(bank.card_shown(), "ein Würfel zeigt die Karte der Werkstatt")
+	assert_ne(bank.card().shown_key(), "")
+	assert_true(bank.card().soul_only, "die Seiten sind schlicht - nur das Seelen-Fach spricht")
+	assert_not_null(bank.card().find_child("Seele", true, false))
+	assert_null(bank.card().find_child("Seiten", true, false))
+	bank.show_item(bank.item_count() - 1)
+	assert_false(bank.card_shown(), "ein Modul spricht in Zeilen")
+	bank.show_item(-1)
+	assert_false(bank.card_shown())
+
+func test_die_wuerfel_reihen_haben_luft() -> void:
+	var rects := TableBankView.section_rects(TableBankView.tray_rect(TableBodyView.free_band()))
+	var rect: Rect2 = rects["WÜRFEL"]
+	var count := TableBankView.dice_stock().size()
+	var rows := ceili(float(count) / TableBankView.DICE_ACROSS)
+	assert_gt(rect.size.x / rows, TableBankView.DIE_HALF * 2.0 * 1.4, "zwischen den Reihen liegt Luft")
+
 func test_die_kamera_kennt_die_station_bank() -> void:
 	var rig := CameraRig.new()
 	add_child_autofree(rig)

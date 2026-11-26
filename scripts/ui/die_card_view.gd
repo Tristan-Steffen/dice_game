@@ -11,6 +11,8 @@ const STATS_SHARE := 0.24
 const PIP_OFF := Color(0.18, 0.2, 0.34)
 const PIP_PLAIN := Color(0.51, 0.55, 0.86)
 const SOULLESS_BG := Color(0.13, 0.145, 0.27)
+## Nur das Seelen-Fach - wo die Seiten nichts sagen (die Bank: alle schlicht).
+var soul_only := false
 
 var _def: DieDefinition
 
@@ -85,6 +87,9 @@ func _rebuild_from_key(key: String) -> void:
 	_key = key
 	if _def == null or size.x <= 8.0 or size.y <= 8.0:
 		return
+	if soul_only:
+		_build_soul_wide(Rect2(Vector2.ZERO, size))
+		return
 	var gap := size.y / 30.0 * SLOT_GAP_UNITS
 	var soul_w := size.x * SOUL_SHARE
 	var stats_w := size.x * STATS_SHARE
@@ -146,6 +151,51 @@ func _build_soul(rect: Rect2) -> void:
 		Color(0.89, 0.9, 0.96), false, plate_rect.size.y * 0.17)
 	rest.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rest.add_theme_font_size_override("font_size", _wrapped_size(rest, plate_rect.size.y * 0.17))
+
+## Das Seelen-Fach als ZEILE: Kachel links, Seltenheit und Name daneben, rechts die Platte.
+func _build_soul_wide(rect: Rect2) -> void:
+	var essence := Essence.by_id(_def.essence_id)
+	if essence == null:
+		_build_soul(rect)
+		return
+	var glow := _peak_one(essence.glow)
+	var slot := _panel("Seele", rect, Color(glow.r * 0.16, glow.g * 0.12, glow.b * 0.12),
+		glow, 3.0)
+	var pad := rect.size.y * 0.1
+	var side := rect.size.y - pad * 2.0
+	var tile := _panel("Kachel", Rect2(Vector2(pad, pad), Vector2.ONE * side),
+		Color(glow.r * 0.26, glow.g * 0.18, glow.b * 0.14), glow, 3.0, slot)
+	_text(tile, "Ordnungszahl", str(Essence.number_of(essence.id)), Rect2(Vector2(side * 0.07,
+		side * 0.04), Vector2(side * 0.5, side * 0.26)), glow, true, side * 0.22).horizontal_alignment 		= HORIZONTAL_ALIGNMENT_LEFT
+	_text(tile, "Kuerzel", Essence.symbol_of(essence.id), Rect2(Vector2(0, side * 0.26),
+		Vector2(side, side * 0.66)), glow, false, side * 0.5)
+	var left := pad * 2.0 + side
+	var plate_w := rect.size.x * 0.42
+	var mid_w := rect.size.x - left - plate_w - pad * 2.0
+	_text(slot, "Seltenheit", Essence.rarity_name(essence.rarity), Rect2(Vector2(left, pad),
+		Vector2(mid_w, side * 0.28)), EMPTY_TEXT, false, side * 0.22).horizontal_alignment 		= HORIZONTAL_ALIGNMENT_LEFT
+	var name_line := _text(slot, "Name", essence.display_name, Rect2(Vector2(left, pad + side * 0.3),
+		Vector2(mid_w, side * 0.7)), glow, false, side * 0.34)
+	name_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_line.autowrap_mode = TextServer.AUTOWRAP_WORD
+	name_line.add_theme_font_size_override("font_size", _wrapped_size(name_line, side * 0.34))
+	var parts := effect_parts(essence.short)
+	var plate_rect := Rect2(Vector2(rect.size.x - plate_w - pad, pad), Vector2(plate_w, side))
+	var color := kind_color(String(parts[1])) if String(parts[0]) != "" else glow
+	var plate := _panel("Platte", plate_rect, PLATE_BG, color, 3.0, slot)
+	var inset := pad * 0.5
+	if String(parts[0]) == "":
+		var line := _text(plate, "Wirkung", String(parts[2]), Rect2(Vector2(inset, 0),
+			Vector2(plate_w - inset * 2.0, side)), Color(0.89, 0.9, 0.96), false, side * 0.24)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		line.add_theme_font_size_override("font_size", _wrapped_size(line, side * 0.24))
+		return
+	_text(plate, "Wert", String(parts[0]), Rect2(Vector2(0, side * 0.04),
+		Vector2(plate_w, side * 0.52)), color, true, side * 0.46)
+	var rest := _text(plate, "Wirkung", String(parts[2]), Rect2(Vector2(inset, side * 0.56),
+		Vector2(plate_w - inset * 2.0, side * 0.4)), Color(0.89, 0.9, 0.96), false, side * 0.2)
+	rest.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rest.add_theme_font_size_override("font_size", _wrapped_size(rest, side * 0.2))
 
 func _build_faces(rect: Rect2) -> void:
 	var slot := _panel("Seiten", rect, RUNE_BG, NUMBER_RIM, 3.0)

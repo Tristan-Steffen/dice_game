@@ -16,6 +16,11 @@ const PLAIN_TITLE := "Schlichter Würfel"
 const PLAIN_TEXT := "Ohne Seele. Sechs Seiten, eins bis sechs."
 const HOVER_LIFT := 0.45
 const PICK_PAD := 0.12
+## Die WÜRFEL-AUSKUNFT der Werkstatt (DieCardView) auf dem Schirm: Pixel je Welt-Einheit und Rand.
+const CARD_PX_PER_UNIT := 96.0
+const CARD_PAD := 0.15
+## Breite zu Höhe der Seelen-Karte.
+const CARD_ASPECT := 4.2
 
 const RIM := 0.5
 const RIM_HEIGHT := 0.6
@@ -34,14 +39,14 @@ const SCREEN := "SCHIRM"
 const ROWS := [
 	{"depth": 7.4, "cells": [["CHARMS", 1.0]]},
 	{"depth": 15.2, "head": 2.4, "cells": [["PAKETE", 1.0]]},
-	{"depth": 9.4, "cells": [["WÜRFEL", 1.0]]},
-	{"depth": 6.6, "bare": true, "cells": [[SCREEN, 1.0]]},
+	{"depth": 17.7, "cells": [["WÜRFEL", 1.0]]},
+	{"depth": 5.6, "bare": true, "cells": [[SCREEN, 1.0]]},
 	{"depth": 10.4, "cells": [["CHIPS", 0.58], ["MODULE", 0.42]]},
 ]
 
 const PACK_COLUMNS := 4
 const PACK_THICKNESS := CardPackView.CASSETTE_THICKNESS * PackDrawerView.CASSETTE_SCALE
-const DICE_ACROSS := 11
+const DICE_ACROSS := 9
 const DIE_HALF := DieBuilder.HALF_EXTENT * DiceTrayView.DIE_SCALE
 const MODULES_ACROSS := 4
 const DISK_RACKS := 3
@@ -56,6 +61,9 @@ var _shown := -1
 var _title: Label3D
 var _meta: Label3D
 var _text: Label3D
+var _card_viewport: SubViewport
+var _card: DieCardView
+var _card_quad: MeshInstance3D
 
 static var _materials := {}
 static var _looks := {}
@@ -241,7 +249,7 @@ func _build_dice(rect: Rect2) -> void:
 		var soul := Essence.by_id(defs[i].essence_id) if defs[i].essence_id != "" else null
 		_items.append({"node": die, "rest": die.position, "half": Vector2(DIE_HALF, DIE_HALF),
 			"top": BED_Y + DIE_HALF * 2.0, "kind": "Würfel",
-			"title": soul.display_name if soul != null else PLAIN_TITLE,
+			"def": defs[i], "title": soul.display_name if soul != null else PLAIN_TITLE,
 			"text": soul.description if soul != null else PLAIN_TEXT,
 			"meta": Essence.rarity_name(soul.rarity) if soul != null else "",
 			"tint": _readable(soul.glow) if soul != null else Color.WHITE})
@@ -311,7 +319,52 @@ func _build_screen(rect: Rect2) -> void:
 	_text = _screen_line("SchirmText", Vector3(mid.x - 0.75, y, mid.y - width * 0.5), 0.72, width)
 	_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_build_card(Vector3(mid.x, y, mid.y), size)
 	show_item(-1)
+
+## Ein Würfel spricht mit dem SEELEN-Fach der Werkstatt-Auskunft (die Seiten sind überall
+## schlicht): eigener SubViewport auf einem Quad mittig über dem Glas (u = Bild-rechts, v = Bild-unten).
+func _build_card(center: Vector3, screen: Vector2) -> void:
+	var size := Vector2(screen.x, minf(screen.x * CARD_ASPECT, screen.y))
+	var pixels := Vector2i(roundi(size.y * CARD_PX_PER_UNIT), roundi(size.x * CARD_PX_PER_UNIT))
+	_card_viewport = SubViewport.new()
+	_card_viewport.name = "KartenViewport"
+	_card_viewport.disable_3d = true
+	_card_viewport.size = pixels
+	_card_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	add_child(_card_viewport)
+	var ground := ColorRect.new()
+	ground.color = SCREEN_GLASS
+	ground.size = Vector2(pixels)
+	_card_viewport.add_child(ground)
+	var pad := CARD_PAD * CARD_PX_PER_UNIT
+	_card = DieCardView.new()
+	_card.name = "WuerfelKarte"
+	_card.soul_only = true
+	_card_viewport.add_child(_card)
+	_card.position = Vector2(pad, pad)
+	_card.size = Vector2(pixels) - Vector2(pad, pad) * 2.0
+	var quad := PlaneMesh.new()
+	quad.size = Vector2(size.y, size.x)
+	_card_quad = MeshInstance3D.new()
+	_card_quad.name = "SchirmKarte"
+	_card_quad.mesh = quad
+	_card_quad.transform = Transform3D(Basis(Vector3.UP, -PI * 0.5), center + Vector3.UP * 0.01)
+	var look := StandardMaterial3D.new()
+	look.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	look.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	look.albedo_texture = _card_viewport.get_texture()
+	_card_quad.material_override = look
+	_card_quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_card_quad.visible = false
+	add_child(_card_quad)
+
+## Steht gerade die Würfel-Karte auf dem Schirm?
+func card_shown() -> bool:
+	return _card_quad != null and _card_quad.visible
+
+func card() -> DieCardView:
+	return _card
 
 func _screen_line(part: String, pos: Vector3, height: float, width: float) -> Label3D:
 	var node := Label3D.new()
@@ -373,6 +426,7 @@ func show_item(index: int) -> void:
 		_lift(_items[_shown], false)
 	_shown = wanted
 	if _shown < 0:
+		_show_card(null)
 		_title.text = IDLE_TITLE
 		_title.modulate = GOLD
 		_meta.text = ""
@@ -381,12 +435,22 @@ func show_item(index: int) -> void:
 		return
 	var item := _items[_shown]
 	_lift(item, true)
+	_show_card(item.get("def") as DieDefinition)
 	_title.text = item["title"]
 	_title.modulate = item["tint"]
 	_meta.text = "%s · %s" % [item["kind"], item["meta"]] if item["meta"] != "" else String(item["kind"])
 	_meta.modulate = (item["tint"] as Color).lerp(Color.WHITE, 0.4)
 	_text.text = item["text"]
 	_text.modulate = Color(0.9, 0.92, 0.98)
+
+## Die Karte ersetzt die Zeilen, solange ein Würfel spricht; ihr Viewport malt nur dann.
+func _show_card(def: DieDefinition) -> void:
+	var on := def != null
+	_card.show_die(def)
+	_card_quad.visible = on
+	_card_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
+	for line: Label3D in [_title, _meta, _text]:
+		line.visible = not on
 
 func _lift(item: Dictionary, on: bool) -> void:
 	var node: Node3D = item["node"]
