@@ -17085,10 +17085,14 @@ var part_drag_ghost: ComboPartBody = null
 func _sync_combo_sockets(key: String) -> void:
 	if run == null or not combo_chips.has(key) or log_open:
 		return  # der Rückblick malt die aufgezeichnete Belegung
-	var parts := run.parts_of(key)
+	var parts := run.parts_of(key).duplicate()
 	var dimmed: Array = []
-	for part in parts:
-		dimmed.append(run.is_part_disabled(part))
+	for i in parts.size():
+		var part: ComboPart = parts[i]
+		# Ein Modul im Labor oder auf dem Heimflug liegt DORT: sein Fach steht leer.
+		if part != null and (run.part_in_labor(part) or part == _labor_homing_part):
+			parts[i] = null
+		dimmed.append(parts[i] != null and run.is_part_disabled(parts[i]))
 	combo_chips[key].set_sockets(parts, dimmed)
 	_sync_part_state(key, hands_taken_this_round == 0)
 
@@ -18509,6 +18513,7 @@ const LABOR_FLY_TIME := 0.55
 var _labor_flights: Array = []
 var _labor_homing_dice: Array[DieDefinition] = []
 var _labor_homing_charm: Charm = null
+var _labor_homing_part: ComboPart = null
 ## Die Diskette der Charm-Kopie, bereit vor der Buchung (_on_charms_changed übernimmt sie).
 var _labor_copy_disk: CharmDiskView = null
 var _labor_marked_cards := {}
@@ -18593,7 +18598,11 @@ func _sync_labor_body() -> void:
 	view.set_state(_labor_view_state())
 	var hard := _labor_hard or not _table_operable()
 	_labor_hard = false
-	labor_body.seat(view.body_state(), hard)
+	var shown_state := view.body_state()
+	# Die Haube wartet, bis der Einsatz in der Kammer liegt.
+	if labor_body.flying():
+		shown_state["hood"] = false
+	labor_body.seat(shown_state, hard)
 	if appear:
 		labor_body.appear()
 	labor_body.set_items(_labor_items())
@@ -18994,7 +19003,7 @@ func _collect_labor() -> void:
 
 ## Nach der Buchung fliegt das Ergebnis heim: Würfel auf ihre Sitze, das Charm-Original in
 ## seinen Projektor, Karten wie jede Lieferung ins Magazin; bis zur Landung bleibt der Platz
-## daheim leer. Das Modul-Original steckt schon (gedimmt), seine Kopie geht in den EINBAU.
+## daheim leer. Das Modul-Original fliegt in sein Fach, seine Kopie geht in den EINBAU.
 func _fly_labor_home(out: Dictionary, spots: Array[Transform3D]) -> void:
 	match String(out.get("station", "")):
 		Labor.SEELE:
@@ -19025,6 +19034,18 @@ func _fly_labor_home(out: Dictionary, spots: Array[Transform3D]) -> void:
 				LABOR_FLY_TIME, LaborBody.FLY_PEAK)
 			_labor_fly(disk, tween, func() -> void:
 				_labor_homing_charm = null)
+		Labor.MODUL:
+			var part: ComboPart = out.get("part")
+			var key := String(out.get("key", ""))
+			var slot := int(out.get("slot", -1))
+			if part == null or spots.is_empty() or slot < 0 or not combo_chips.has(key):
+				return
+			var body := _spawn_pit_part(part, spots[0].origin)
+			_labor_homing_part = part
+			_sync_combo_sockets(key)
+			_labor_fly(body, _labor_arc(body, combo_chips[key].pin_world(slot)), func() -> void:
+				_labor_homing_part = null
+				_sync_combo_sockets(key))
 		Labor.KARTEN:
 			var workshop: WorkshopView = table_screen.workshop_window
 			var from := table_screen.labor_part_px("chamber").get_center()

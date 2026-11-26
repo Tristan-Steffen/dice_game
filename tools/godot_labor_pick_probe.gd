@@ -217,7 +217,33 @@ func _probe() -> void:
 	await _arm(Labor.MODUL)
 	var chip: ComboChipView = (game.get("combo_chips") as Dictionary)[key]
 	await _shot("politur_wahl_modul")
-	await _click(_px(chip.pin_world(0) + Vector3.UP * ComboPartBody.TOP * 0.8))
+	# Die Stations-Kamera neigt sich zum Zeiger: erst hinfahren, setzen lassen, dann neu messen.
+	var pin_at := chip.pin_world(0) + Vector3.UP * ComboPartBody.TOP * 0.8
+	for _settle in 4:
+		await _move(_px(pin_at))
+		await _frames(30)
+	# Der Klick gilt dem Pixel, den das Spiel selbst Fach 0 zuschreibt - gesucht mit dem Zeiger
+	# schon dort, denn die Kamera neigt sich mit ihm.
+	var hit := _px(pin_at)
+	for _try in 8:
+		await _move(hit)
+		await _frames(40)
+		var here: Dictionary = game.call("_part_pick_at", hit)
+		if not here.is_empty() and String(here["key"]) == key and int(here["slot"]) == 0:
+			break
+		var best := hit
+		var best_d := INF
+		for dy in range(-72, 73, 6):
+			for dx in range(-72, 73, 6):
+				var probe_px := hit + Vector2(dx, dy)
+				var pick: Dictionary = game.call("_part_pick_at", probe_px)
+				if not pick.is_empty() and String(pick["key"]) == key and int(pick["slot"]) == 0 \
+						and Vector2(dx, dy).length() < best_d:
+					best = probe_px
+					best_d = Vector2(dx, dy).length()
+		hit = best
+	print("DIAG modul Klick bei ", hit, " trifft ", game.call("_part_pick_at", hit))
+	await _click(hit)
 	_check("modul gewählt", (game.call("labor_staged") as Array).size() == 1)
 	await _start_and_collect(Labor.MODUL)
 	# Die Kopie wartet im EINBAU; aufräumen, damit er die nächste Wahl nicht sperrt.
