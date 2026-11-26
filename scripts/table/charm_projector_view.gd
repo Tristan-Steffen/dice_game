@@ -59,6 +59,7 @@ var _model: Node3D
 var _light: SpotLight3D
 var _cone: MeshInstance3D
 var _hovered := false
+var _projecting := true
 var _bob := 0.0
 
 func _ready() -> void:
@@ -231,10 +232,13 @@ func _build_holo() -> void:
 	_cone.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_cone.position = LENS + Vector3(0.0, CONE_HEIGHT * 0.5, 0.0)
 	add_child(_cone)
+	_show_holo()
 
 func _drop_holo() -> void:
-	for node: Node in [holo, _light, _cone]:
+	for node: Node3D in [holo, _light, _cone]:
 		if node != null and is_instance_valid(node):
+			# Erst verbergen: ein sichtbar freigegebenes Hologramm fragt den Renderer nach Material.
+			node.visible = false
 			node.queue_free()
 	holo = null
 	_model = null
@@ -243,8 +247,30 @@ func _drop_holo() -> void:
 
 ## Lage der eingelegten Diskette (Ursprung = Mitte ihrer Unterseite), flach auf dem Tisch.
 func disk_global_transform() -> Transform3D:
-	return global_transform * Transform3D(Basis(), Vector3(
-		DEPTH * 0.5 - BACK - AIR - CharmDiskView.SIZE.x * 0.5, VitrineView.FLOOR_CLEAR, 0.0))
+	return global_transform * Transform3D(Basis(), disk_offset())
+
+## Dieselbe Lage relativ zur Brücke.
+static func disk_offset() -> Vector3:
+	return Vector3(DEPTH * 0.5 - BACK - AIR - CharmDiskView.SIZE.x * 0.5, VitrineView.FLOOR_CLEAR, 0.0)
+
+## Halbe Länge von Brücke samt eingelegter Diskette, längs der Einschub-Achse.
+static func assembly_reach() -> float:
+	return (CharmDiskView.SIZE.x + BACK) * 0.5 + AIR
+
+## Ob das Hologramm steht: in einem Gehäuse (Schwarzmarkt-Fach) schweigt es, bis es draußen ist.
+func set_projecting(on: bool) -> void:
+	if on == _projecting:
+		return
+	_projecting = on
+	_show_holo()
+
+func projecting() -> bool:
+	return _projecting and holo != null and holo.visible
+
+func _show_holo() -> void:
+	for node: Node3D in [holo, _light, _cone]:
+		if node != null and is_instance_valid(node):
+			node.visible = _projecting
 
 ## Vor dem Schlitz: dorthin gleitet sie beim Kauf, ehe sie abfliegt.
 func mouth_global_transform() -> Transform3D:

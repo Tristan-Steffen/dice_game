@@ -20,11 +20,31 @@ func _projector_run() -> GameRun:
 	GameRun.secret_projector_chance = 0.0
 	return run
 
-func test_a_projector_offer_replaces_both_goods_seats() -> void:
+func test_a_projector_takes_one_bay_and_the_stock_stays_three() -> void:
 	var run := _projector_run()
-	assert_eq(run.secret_stock.size(), 2, "Karten-Sitz plus EIN Projektor")
+	assert_eq(run.secret_stock.size(), 3, "der Projektor ist Ware wie jede andere")
 	assert_eq(run.secret_stock[1][GameRun.OFFER_KIND], GameRun.KIND_PROJECTOR)
+	assert_ne(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_PROJECTOR, "nie zwei zugleich")
 	assert_eq(int(run.secret_stock[1][GameRun.OFFER_PRICE]), GameRun.PROJECTOR_PRICE_STEP)
+
+func test_the_projector_never_lies_in_the_charm_bay() -> void:
+	var run := _run()
+	run.energy = 99
+	GameRun.secret_projector_chance = 1.0
+	for i in 10:
+		assert_true(run.reroll_secret_offer(0))
+		assert_ne(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_PROJECTOR)
+	GameRun.secret_projector_chance = 0.0
+
+func test_a_reroll_of_bay_two_can_bring_the_projector() -> void:
+	var run := _run()
+	run.energy = 99
+	GameRun.secret_projector_chance = 1.0
+	assert_true(run.reroll_secret_offer(2))
+	assert_eq(run.secret_stock[2][GameRun.OFFER_KIND], GameRun.KIND_PROJECTOR)
+	assert_true(run.reroll_secret_offer(1))
+	assert_ne(run.secret_stock[1][GameRun.OFFER_KIND], GameRun.KIND_PROJECTOR, "nie zwei zugleich")
+	GameRun.secret_projector_chance = 0.0
 
 func test_buying_the_projector_adds_a_charm_place() -> void:
 	var run := _projector_run()
@@ -354,42 +374,57 @@ func test_all_legendaries_owned_falls_back_to_specials() -> void:
 		# Auslage nie.
 		assert_ne(offer[GameRun.OFFER_KIND], GameRun.KIND_CHARM, "die Auslage kann nie tot sein")
 
-# --- Neuwurf -------------------------------------------------------------------
+# --- Neuwurf je Fach -----------------------------------------------------------
 
-func test_the_reroll_costs_the_same_every_time() -> void:
-	# Flach statt Leiter: der zweite Neuwurf eines Besuchs kostet wie der erste.
+func test_the_reroll_costs_one_energy_every_time() -> void:
 	var run := _run()
 	_at_tier(run, GameRun.TIER_MAX)
-	run.energy = 25
-	assert_eq(run.secret_reroll_cost(), 3)
-	assert_true(run.reroll_secret_stock())
-	assert_eq(run.energy, 22)
-	assert_eq(run.secret_reroll_cost(), 3)
-	assert_true(run.reroll_secret_stock())
-	assert_eq(run.energy, 19)
-	assert_true(run.reroll_secret_stock())
-	assert_eq(run.energy, 16)
-	assert_eq(run.secret_reroll_cost(), 3, "der Preis steigt nicht mehr")
-	assert_eq(run.secret_rerolls, 3, "der Zähler läuft weiter - er kostet nur nichts mehr")
+	run.energy = 5
+	assert_eq(run.secret_reroll_cost(), 1)
+	for i in 3:
+		assert_true(run.reroll_secret_offer(i))
+	assert_eq(run.energy, 2)
+	assert_eq(run.secret_reroll_cost(), 1, "der Preis steigt nicht")
+	assert_eq(run.secret_rerolls, 3, "der Zähler läuft weiter")
 
-func test_reroll_replaces_the_whole_stock() -> void:
+func test_a_reroll_touches_only_its_bay() -> void:
 	var run := _run()
-	run.energy = 3
-	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
-	assert_true(run.reroll_secret_stock())
+	run.energy = 1
+	var others: Array = [run.secret_stock[0], run.secret_stock[2]]
+	var before: Dictionary = run.secret_stock[1]
+	var fired: Array = []
+	run.secret_stock_changed.connect(func() -> void: fired.append(true))
+	assert_true(run.reroll_secret_offer(1))
 	assert_eq(run.secret_stock.size(), 3)
-	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
-	assert_ne(after, before, "frisch gewürfelte Instanzen")
+	assert_ne(run.secret_stock[1], before, "frisch gewürfelt")
+	assert_same(run.secret_stock[0], others[0], "die übrigen bleiben")
+	assert_same(run.secret_stock[2], others[1])
+	assert_eq(fired.size(), 1)
+
+func test_a_reroll_restocks_a_sold_bay() -> void:
+	var run := _run()
+	run.energy = GameRun.SECRET_CHARM_PRICE + 1
+	assert_true(run.buy_secret_offer(0))
+	assert_true(bool(run.secret_stock[0][GameRun.OFFER_SOLD]))
+	assert_true(run.reroll_secret_offer(0))
+	assert_false(bool(run.secret_stock[0][GameRun.OFFER_SOLD]), "der Platz trägt frische Ware")
+
+func test_the_charm_bay_rerolls_a_charm() -> void:
+	var run := _run()
+	run.energy = 1
+	var before: Charm = run.secret_stock[0][GameRun.OFFER_ITEM]
+	assert_true(run.reroll_secret_offer(0))
+	assert_eq(run.secret_stock[0][GameRun.OFFER_KIND], GameRun.KIND_CHARM)
+	assert_ne((run.secret_stock[0][GameRun.OFFER_ITEM] as Charm).id, before.id, "ein anderer Legendärer")
 
 func test_reroll_without_energy_changes_nothing() -> void:
 	var run := _run()
-	run.energy = 2  # Neuwurf kostet 3
-	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
-	assert_false(run.reroll_secret_stock())
-	assert_eq(run.energy, 2)
+	run.energy = 0
+	var before: Dictionary = run.secret_stock[1]
+	assert_false(run.reroll_secret_offer(1))
+	assert_false(run.reroll_secret_offer(7), "kein Platz 7")
 	assert_eq(run.secret_rerolls, 0)
-	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
-	assert_eq(after, before, "Auslage unverändert")
+	assert_same(run.secret_stock[1], before, "Auslage unverändert")
 
 # --- Kauf ----------------------------------------------------------------------
 

@@ -97,7 +97,7 @@ const SUMMARIES := {
 	KRIT: "Multipliziert den Mult, statt zu addieren.",
 	MULT: "Der Multiplikator der Wertung: Punkte = Basispunkte × Mult.",
 	BASISPUNKTE: "Die linke Hälfte der Wertung: Punkte = Basispunkte × Mult.",
-	ENERGIE: "Die Zweitwährung ⚡ für Automaten und Schwarzmarkt.",
+	ENERGIE: "Die Zweitwährung ⚡ für Schwarzmarkt und Werkstatt.",
 	AUSLOESUNG: "Ein Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal.",
 	RUNE: "Ein Zeichen auf einer Würfelseite mit eigener Wirkung.",
 	GRAVUR: "Eine Aufwertung für Würfel, getragen von einer Karte.",
@@ -267,7 +267,7 @@ static func _build_concepts() -> void:
 		"Die linke Hälfte der Wertung: Punkte = Basispunkte × Mult. Die Kombination legt ihre Basis, jeder gezählte Würfel wirft seine Augen darauf, und Materialien wie Bernstein legen nach.",
 		CAT_BEGRIFFE)
 	_add(ENERGIE, "Energie",
-		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert im Energie-Ring. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie an den Automaten und im Schwarzmarkt.",
+		"Die Betriebswährung des Casinos, angezeigt als ⚡ und gelagert im Energie-Ring. Energie entsteht aus abgeräumten Überladungs-Stufen, aus Klauseln, Nebenwetten, der Rune Funkenflug und aus Charms. Ausgegeben wird sie im Schwarzmarkt und in der Werkstatt.",
 		CAT_BEGRIFFE)
 	_add(AUSLOESUNG, "Auslösung",
 		"Ein volles Feuern eines gewerteten Würfels: Augen, Material und Charms zählen einmal. Essenzen wie Argon lassen den ganzen Würfel mehrfach auslösen, die Rune Nachglühen legt je Seite eine Auslösung obendrauf - Würfel-Faktor und Seiten-Faktor multiplizieren sich.",
@@ -303,7 +303,7 @@ static func _build_concepts() -> void:
 		"Die Stufen über dem Blind: jede volle Stufe über dem Rundenziel prägt bei der Auszahlung eine Energie in den Energie-Ring; was nicht mehr in den Speicher passt, zahlt bar. Der Rahmen fasst fünf Stufen - nur Klauseln bewegen ihn.",
 		CAT_BEGRIFFE)
 	_add(FUMBLE, "Fumble",
-		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Jeder echte Fumble zählt im Lauf mit, der Zähler sinkt nie: Charms wie Pechvogel oder Fumble-Rente und die Automaten lesen ihn. Manche Charms und Klauseln federn den ersten Fumble ab - ein verziehener zählt nicht.",
+		"Ein Wurf, der keine strikt höhere Kombination bringt als die zuletzt gewählte: die Hand verfällt. Nur der Rang entscheidet - mehr Augen retten nichts. Jeder echte Fumble zählt im Lauf mit, der Zähler sinkt nie: Charms wie Pechvogel oder Fumble-Rente lesen ihn. Manche Charms und Klauseln federn den ersten Fumble ab - ein verziehener zählt nicht.",
 		CAT_BEGRIFFE)
 	_add(STRESSTEST, "Boss-Runde",
 		"Die letzte Runde jedes Blocks (Runde 6, 12, ...). Statt der üblichen Verträge liegen nur Malus-Konditionen aus - die Wahl ist, WIE gekämpft wird, nicht wofür. Wer besteht, bekommt einen Würfel mit garantierter Essenz.",
@@ -330,10 +330,10 @@ static func _build_concepts() -> void:
 		"Mehrere Kassetten werden zu EINER dichteren gepresst. Das Ziel ist ein ROHLING - eine leere Kassette, die es nur im Schwarzmarkt gibt; er liegt dabei auf dem Podest und WIRD die neue Karte, das Futter ist verbraucht. Zahlen und Multiplikatoren ADDIEREN sich dabei (×4 und ×4 werden ×8) und stehen danach als Rechnung auf der Zelle, etwa \"4x+9\": vier mal die aufgelaufene Summe, plus neun. Material und Rune dürfen zusammen auf einer Seite liegen; ein zweites Material verdrängt das erste. Operatoren lassen sich nicht verdichten.",
 		CAT_BEGRIFFE)
 	_add(SCHWARZMARKT, "Schwarzmarkt",
-		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Plätze - legendärer Charm, Sonderposten-Bündel, Wildcard - bezahlt in Energie statt Geld. Geheime Essenzen gibt es nur hier.",
+		"Das Hinterzimmer des Casinos, offen ab Runde 1. Drei Schubfächer - legendärer Charm, Sonderbestand, Wildcard - bezahlt in Energie statt Geld. Jedes Fach würfelt für 1 Energie neu, auch ein verkauftes. Geheime Essenzen gibt es nur hier.",
 		CAT_BEGRIFFE)
 	_add(GLUECK, "Glück",
-		"Der Gradmesser des Laufs: jede geschaffte Runde bringt +1 Glück, Glücks-Klauseln in den Verträgen mehr oder weniger. Je 3 Glück steigt die Fortschrittsstufe - sie hebt die Seltenheit im Laden, die Wetten, die Würfel-Angebote und die Automaten. Dazu wächst der goldene Glückswürfel: bei Glück 1, 3, 6, 10 … bekommt eine zufällige Seite ein Auge mehr (höchstens 6), und sinkt das Glück, geht das zuletzt gewonnene wieder.",
+		"Der Gradmesser des Laufs: jede geschaffte Runde bringt +1 Glück, Glücks-Klauseln in den Verträgen mehr oder weniger. Je 3 Glück steigt die Fortschrittsstufe - sie hebt die Seltenheit im Laden, die Wetten und die Würfel-Angebote. Dazu wächst der goldene Glückswürfel: bei Glück 1, 3, 6, 10 … bekommt eine zufällige Seite ein Auge mehr (höchstens 6), und sinkt das Glück, geht das zuletzt gewonnene wieder.",
 		CAT_BEGRIFFE)
 	_add(STECKPLATZ, "Steckplatz",
 		"Jeder Kombinations-Chip hat drei Steckplätze für Module - Punkte, Mult, zusätzliche Auslösungen und mehr. Flache Module gibt es im Laden, vervielfachende nur im Schwarzmarkt. Gesteckt wird nach dem Kauf, umgesteckt im Laden und vor der Unterschrift.",

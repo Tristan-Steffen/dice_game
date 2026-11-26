@@ -220,28 +220,21 @@ func test_a_secret_part_offer_lies_as_a_pin_and_sells() -> void:
 	run.energy = run.energy_cap()
 	var view := SecretShopView.new()
 	add_child_autofree(view)
-	view.size = Vector2(786, 437)
+	view.size = SecretShopView.UNITS * 37.5
 	view.run = run
 	run.secret_stock[1] = run._secret_part_offer()
 	view.refresh()
 	await wait_frames(2)
-	var stock := view.vitrine_stock()
-	var part: ComboPart = stock[ShopController.KIND_PART][1]
-	assert_not_null(part, "das Modul liegt in der Bucht")
-	assert_eq(String(stock[VitrineView.STOCK_ROW_KINDS][1]), ShopController.KIND_PART)
-	var bay := VitrineView.new("PartBay")
-	bay.single_row = true
-	add_child_autofree(bay)
-	bay.setup(Vector3(-30.0, 0.0, 0.0), Vector2(4.0, 12.0))
-	bay.present(stock)
-	await wait_frames(2)
-	# Die übrigen Plätze dürfen zufällig auch ein Modul ziehen - gemeint ist Platz 1.
-	var found := bay.items.filter(func(item: Dictionary) -> bool:
-		return item["kind"] == ShopController.KIND_PART and int(item["index"]) == 1)
-	assert_eq(found.size(), 1, "ein Körper für das Modul")
-	assert_true(found[0]["node"] is ComboPartBody)
-	assert_eq((found[0]["node"] as ComboPartBody).part, part, "der Pin des Moduls")
-	assert_eq(view.vitrine_annotation(ShopController.KIND_PART, 1)["title"], part.display_name)
+	var state := view.bay_state(1)
+	var part: ComboPart = state["item"]
+	assert_not_null(part, "das Modul liegt in Fach 1")
+	assert_eq(String(state["kind"]), GameRun.KIND_PART)
+	var host := Node3D.new()
+	add_child_autofree(host)
+	var body := SecretShopBody.spawn_ware(GameRun.KIND_PART, part, host)
+	assert_true(body is ComboPartBody, "ein Körper für das Modul")
+	assert_eq((body as ComboPartBody).part, part, "der Pin des Moduls")
+	assert_eq(view.bay_info(1)["title"], part.display_name)
 	var bought: Array = []
 	view.part_purchased.connect(func(p: ComboPart) -> void: bought.append(p))
 	view.buy_offer(1)

@@ -1,10 +1,7 @@
 extends GutTest
-## Integrationstest des Schwarzmarkt-Fensters (SecretShopView an einem ECHTEN
-## GameRun). Aufgeteilt wie der Laden: Kopfstreifen und der feste KARTEN-SITZ mit
-## genau EINER Charm-Karte bleiben Bildschirm, die Ware meldet das Fenster nur als
-## Buchten-Rechteck plus Inhalt - aufgestellt wird sie von scene_root. Das Fenster
-## misst wie am Tisch (flache Glas-Tasche unter den Automaten). Unten steht der
-## vergitterte Zustand.
+## Das Schwarzmarkt-Fenster seit den SCHUBFÄCHERN (2026-11-26): es malt nichts, MELDET die
+## Teile in Stations-Einheiten und je Fach Name, Preis und Zustand; unsichtbare Knöpfe über
+## Fach und Neuwurf-Taste tragen den Klick. Gemessen an einem ECHTEN GameRun.
 
 var view: SecretShopView
 var run: GameRun
@@ -13,561 +10,182 @@ func after_all() -> void:
 	GameRun.secret_projector_chance = GameRun.SECRET_PROJECTOR_CHANCE
 	GameRun.secret_powerbank_chance = GameRun.SECRET_POWERBANK_CHANCE
 
-func test_a_powerbank_is_a_card_in_the_right_half_of_the_bay() -> void:
-	GameRun.secret_powerbank_chance = 1.0
-	run._roll_secret_stock()
-	GameRun.secret_powerbank_chance = 0.0
-	run.secret_stock_changed.emit()
-	await wait_frames(2)
-	assert_not_null(view.powerbank_card, "die Karte steht")
-	var bay := view.vitrine_rect_px()
-	var card := view.powerbank_card.get_global_rect()
-	assert_true(bay.encloses(card), "sie liegt ganz in der Bucht")
-	assert_gte(card.position.x, bay.get_center().x, "rechts - links liegt die Ware")
-	assert_null(view.vitrine_stock()[ShopController.KIND_PART][2], "kein Körper an ihrem Platz")
-	watch_signals(view)
-	view.powerbank_card.pressed.emit()
-	assert_eq(run.storage_rows, 5, "eine Fünfergruppe mehr")
-	assert_signal_emitted(view, "powerbank_purchased", "die Kartusche fliegt von der Karte los")
-
-func test_a_projector_offer_is_a_seat_for_the_real_projector() -> void:
-	view.projector_px = Vector2(120, 90)
-	GameRun.secret_projector_chance = 1.0
-	run._roll_secret_stock()
-	GameRun.secret_projector_chance = 0.0
-	run.secret_stock_changed.emit()
-	await wait_frames(2)
-	assert_not_null(view.projector_card, "der Sitz steht")
-	assert_eq(view.offer_buttons[1], view.projector_card)
-	var seat := view.projector_card.get_global_rect()
-	assert_true(view.vitrine_rect_px().encloses(seat), "er liegt ganz in der Bucht")
-	var body := view.projector_rect_px()
-	assert_eq(body.size, view.projector_px, "der Körper hat seine EINE Größe")
-	assert_almost_eq(body.get_center().y, seat.get_center().y, 0.01, "senkrecht mittig in der Bucht")
-	assert_gte(body.position.x, seat.position.x, "links in der Bucht")
-	for kind in view.vitrine_stock()[VitrineView.STOCK_ROW_KINDS]:
-		assert_eq(String(kind), "", "kein Vitrinen-Körper in der Bucht")
-	watch_signals(view)
-	view.projector_card.pressed.emit()
-	assert_signal_emitted(view, "projector_buying", "der Körper fliegt vor der Buchung los")
-	assert_eq(run.projectors, GameRun.START_PROJECTORS + 1)
-	await wait_frames(2)
-	assert_true(view.projector_card.disabled, "verkauft")
-	assert_eq(view.projector_rect_px(), Rect2(), "verkauft liegt kein Projektor mehr da")
-
 func before_each() -> void:
-	GameRun.secret_projector_chance = 0.0  # die Auslage bleibt bei drei Plätzen
+	GameRun.secret_projector_chance = 0.0
 	GameRun.secret_powerbank_chance = 0.0
-	run =GameRun.new_run()
+	run = GameRun.new_run()
 	run.luck = (GameRun.TIER_MAX - 1) * GameRun.LUCK_PER_TIER
-	run.storage_rows = 4  # volle Börse (25)
+	run.storage_rows = 4
 	run.energy = run.energy_cap()
 	view = SecretShopView.new()
 	add_child_autofree(view)
-	view.size = Vector2(786, 437)  # gemessene Tasche seit dem TOPF-Rückbau der Automaten
+	view.size = SecretShopView.UNITS * 37.5  # die Welt-Maße am Tisch
 	view.run = run
 	view.refresh()
 
-## Die eine Karte am Sitz (null = der legendäre Topf war erschöpft).
-func _card() -> Button:
-	var seat := view.card_slot_index()
-	return null if seat < 0 else view.offer_buttons[seat]
+# --- Rechtecke ------------------------------------------------------------------------
 
-func _live_buttons() -> Array[Button]:
-	var live: Array[Button] = []
-	for button in view.offer_buttons:
-		if button != null:
-			live.append(button)
-	return live
+func test_the_unit_is_one_world_unit_at_the_table() -> void:
+	assert_almost_eq(view.unit(), 37.5, 0.001, "die Teile stehen in Welt-Maßen")
 
-## Alle Label unter einem Knoten (rekursiv) - für die Kartenaufschrift.
-func _find_labels(node: Node) -> Array[Label]:
-	var out: Array[Label] = []
-	if node is Label:
-		out.append(node)
-	for child in node.get_children():
-		out.append_array(_find_labels(child))
-	return out
-
-# --- Der Karten-Sitz ------------------------------------------------------------
-
-func test_exactly_one_card_sits_on_the_seat() -> void:
-	await wait_frames(2)
-	assert_eq(view.offer_buttons.size(), run.secret_stock.size(),
-		"die Plätze bleiben index-treu, auch wo kein Knopf steht")
-	assert_eq(_live_buttons().size(), 1, "genau EINE Karte - der Rest liegt in der Bucht")
-	assert_eq(view.card_slot_index(), 0, "und sie sitzt auf dem legendären Platz")
-	assert_gt(_card().get_global_rect().size.x, 0.0, "die Karte hat Fläche")
-
-func test_the_seat_carries_the_legendary_charm() -> void:
-	await wait_frames(2)
-	assert_eq(run.secret_stock[view.card_slot_index()][GameRun.OFFER_KIND],
-		GameRun.KIND_CHARM, "Charms sind digitale Ware und bleiben Bildschirm")
-
-## Die Tasche ist flach: der Inhalt muss IN das Fenster passen, sonst schneidet
-## der Rahmen ihn ab.
-func test_content_fits_the_flat_window() -> void:
-	await wait_frames(2)
-	var window: Rect2 = view.get_global_rect()
-	assert_lt(_card().get_global_rect().end.y, window.end.y + 1.0,
-		"die Karte ragt unten nicht heraus")
-	assert_lt(view.reroll_button.get_global_rect().end.y, window.end.y + 1.0,
-		"der Misch-Knopf steht im Fenster")
-	assert_lt(view.reroll_button.get_global_rect().end.x, window.end.x + 1.0,
-		"und er wird nicht aus dem Kopfstreifen geschoben")
-
-func test_wallet_shows_energy_and_cap() -> void:
-	await wait_frames(2)
-	assert_eq(view.wallet_label.text, "⚡ %d/%d" % [run.energy, run.energy_cap()])
-
-func test_buying_a_charm_through_the_card_books_it() -> void:
-	await wait_frames(2)
-	var seat := view.card_slot_index()
-	var charm: Charm = run.secret_stock[seat][GameRun.OFFER_ITEM]
-	var price: int = run.secret_stock[seat][GameRun.OFFER_PRICE]
-	var before := run.energy
-	_card().pressed.emit()
-	assert_eq(run.energy, before - price, "in Energie bezahlt")
-	assert_true(run.owned_charm_ids().has(charm.id), "Charm im Dock")
-	assert_true(bool(run.secret_stock[seat][GameRun.OFFER_SOLD]))
-
-func test_reroll_button_swaps_the_whole_stock() -> void:
-	await wait_frames(2)
-	var before: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
-	var cost := run.secret_reroll_cost()
-	var energy_before := run.energy
-	view.reroll_button.pressed.emit()
-	await wait_frames(2)
-	assert_eq(run.energy, energy_before - cost)
-	assert_eq(run.secret_rerolls, 1)
-	var after: Resource = run.secret_stock[0][GameRun.OFFER_ITEM]
-	assert_ne(after, before, "frisch gewürfelte Auslage")
-	assert_eq(_live_buttons().size(), 1, "der Sitz trägt wieder genau eine Karte")
-	assert_string_contains(view.reroll_button.text, "⚡%d" % run.secret_reroll_cost(),
-		"der Knopf trägt den Preis des nächsten Wurfs")
-
-func test_reroll_is_disabled_without_energy() -> void:
-	run.energy = 0
-	await wait_frames(2)
-	assert_true(view.reroll_button.disabled)
-	for button in _live_buttons():
-		assert_true(button.disabled, "ohne Energie ist nichts kaufbar")
-
-## Das Fenster kennt keinen Schließen-Knopf mehr - zurück geht es per Rechtsklick
-## über die Kamera, wie bei jedem anderen Tisch-Fenster.
-func test_window_has_no_close_button() -> void:
-	await wait_frames(2)
-	assert_false("close_button" in view, "Schließen macht die Kamera, nicht das Fenster")
-
-# --- Die Bucht: gemeldete Geometrie, nie gezeichneter Inhalt --------------------
-
-func test_the_market_reports_a_vitrine_rect() -> void:
-	await wait_frames(2)
-	var bay: Rect2 = view.vitrine_rect_px()
-	assert_gt(bay.size.x, 0.0, "die Bucht hat eine Breite")
-	assert_gt(bay.size.y, 0.0, "und eine Höhe")
-	assert_true(view.get_global_rect().encloses(bay), "sie liegt ganz im Fenster")
-	assert_gt(bay.position.x, view.card_seat.get_global_rect().end.x - 1.0,
-		"und rechts neben dem Karten-Sitz")
-
-func test_the_vitrine_hole_sits_inside_its_frame() -> void:
-	await wait_frames(2)
-	var bay: Rect2 = view.vitrine_rect_px()
-	var hole: Rect2 = view.vitrine_pit_rect()
-	assert_true(bay.encloses(hole), "das Loch liegt im Rahmen")
-	assert_almost_eq(hole.position.x - bay.position.x,
-		PackDrawerView.rim_inset(view.u), 0.51, "links um die Fassung eingerückt")
-	assert_almost_eq(bay.end.y - hole.end.y,
-		PackDrawerView.rim_inset(view.u), 0.51, "unten ebenso")
-
-## Die Beschriftung misst in der EINHEIT DES FENSTERS - die Tasche ist die
-## kleinste des Tisches, und die Buchtbreite allein schriebe dort Matsch.
-func test_the_annotation_uses_the_window_unit() -> void:
-	await wait_frames(2)
-	assert_almost_eq(view.vitrine_unit(), view.u, 0.0001)
-	assert_gt(view.vitrine_unit(), view.vitrine_rect_px().size.x / 100.0,
-		"größer als eine an der Bucht hängende Einheit")
-
-func test_the_stock_maps_every_slot_to_its_body() -> void:
-	await wait_frames(2)
-	var stock: Dictionary = view.vitrine_stock()
-	var packs: Array = stock[ShopController.KIND_ENGRAVING_PACK]
-	var dice: Array = stock[ShopController.KIND_DIE]
-	assert_eq(packs.size(), run.secret_stock.size(), "je Auslage-Platz ein Regalplatz")
-	assert_eq(dice.size(), run.secret_stock.size(), "und ein Schalenplatz")
-	for i in run.secret_stock.size():
-		var kind := String(run.secret_stock[i][GameRun.OFFER_KIND])
-		if kind == GameRun.KIND_CHARM:
-			assert_null(packs[i], "die Karte liegt nicht in der Bucht")
-			assert_null(dice[i], "die Karte liegt nicht in der Bucht")
-		elif kind == GameRun.KIND_DIE:
-			assert_null(packs[i], "ein Würfel steht nicht versiegelt")
-			assert_not_null(dice[i], "er liegt offen in der Schale")
-		elif kind == GameRun.KIND_PART:
-			assert_null(packs[i])
-			assert_null(dice[i])
-			assert_eq(stock[ShopController.KIND_PART][i], run.secret_stock[i][GameRun.OFFER_ITEM],
-				"das Modul liegt als Körper in der Bucht")
-		else:
-			assert_not_null(packs[i], "Sonderbestand steht als versiegelte Kassette")
-			assert_eq(Pack.shelf_of(packs[i]), Pack.SHELF_SPECIAL)
-			assert_null(dice[i])
-
-func test_a_bought_slot_stays_as_an_empty_place() -> void:
-	if run.secret_stock[1][GameRun.OFFER_KIND] == GameRun.KIND_PART:
-		run.secret_stock[1] = run._secret_engraving_offer()
-		view.refresh()
-	await wait_frames(2)
-	view.buy_offer(1)
-	await wait_frames(2)
-	assert_eq(run.owned_packs.size(), 1, "Ware versiegelt im Magazin - genau EINE Karte")
-	var stock: Dictionary = view.vitrine_stock()
-	assert_eq(stock[ShopController.KIND_ENGRAVING_PACK].size(), run.secret_stock.size(),
-		"der Platz verschwindet nicht, er wird leer")
-	assert_null(stock[ShopController.KIND_ENGRAVING_PACK][1])
-	assert_null(stock[ShopController.KIND_DIE][1])
-
-func test_row_kinds_survive_a_sale() -> void:
-	# Die Sorten-Meldung je Platz überlebt den Verkauf: daran hält die Reihe ihre
-	# Plätze, damit ein Kauf die übrige Ware nicht verrückt.
-	await wait_frames(2)
-	var before: Array = view.vitrine_stock()[VitrineView.STOCK_ROW_KINDS]
-	assert_eq(before.size(), run.secret_stock.size(), "je Platz eine Sorte")
-	assert_eq(String(before[view.card_slot_index()]), "", "der Karten-Sitz meldet keine")
-	view.buy_offer(1)
-	await wait_frames(2)
-	var after: Array = view.vitrine_stock()[VitrineView.STOCK_ROW_KINDS]
-	assert_eq(after, before, "der Verkauf ändert keine Sorte - die Lücke behält ihren Ort")
-	assert_ne(String(after[1]), "", "auch der verkaufte Platz nennt seine Sorte")
-
-func test_a_purchase_reports_every_pack_it_booked() -> void:
-	# Platz 1 muss versiegelte Ware tragen - ein Modul meldet kein Paket.
-	if run.secret_stock[1][GameRun.OFFER_KIND] == GameRun.KIND_PART:
-		run.secret_stock[1] = run._secret_engraving_offer()
-		view.refresh()
-	await wait_frames(2)
-	var reports: Array = []  # ein Array, denn die Lambda fängt Zahlen nur als Kopie
-	view.goods_purchased.connect(func(uids: Array[int]) -> void: reports.append(uids))
-	var stocked := run.owned_packs.size()
-	view.buy_offer(1)
-	assert_eq(reports.size(), 1, "genau eine Meldung")
-	var seen: Array[int] = reports[0]
-	assert_eq(seen.size(), run.owned_packs.size() - stocked, "und sie nennt jede neue Karte")
-	for i in seen.size():
-		assert_eq(seen[i], run.owned_packs[stocked + i].pack_uid, "in Lager-Reihenfolge")
-
-func test_a_charm_purchase_reports_no_goods() -> void:
-	await wait_frames(2)
-	var seen: Array[int] = []
-	view.goods_purchased.connect(func(uids: Array[int]) -> void: seen.append_array(uids))
-	_card().pressed.emit()
-	assert_eq(seen.size(), 0, "ein Charm fährt nicht ins Magazin")
-
-# --- Die Beschriftung auf der Scheibe -------------------------------------------
-
-func test_the_annotation_prices_in_energy() -> void:
-	await wait_frames(2)
-	var data: Dictionary = view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1)
-	assert_true(bool(data["energy"]), "das Hinterzimmer zahlt in Energie")
-	assert_eq(int(data["price"]), run.secret_offer_price(run.secret_stock[1]))
-	assert_eq(int(data["money"]), run.energy, "kaufbar heißt hier: die Börse deckt es")
-	assert_ne(String(data["title"]), "", "ein Stück ohne Namen wäre keins")
-
-func test_an_essence_die_carries_its_net_and_its_soul() -> void:
-	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
-	die.essence_id = Essence.RADON
-	run.secret_stock[2] = {
-		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
-	}
-	view.refresh()
-	await wait_frames(2)
-	var data: Dictionary = view.vitrine_annotation(ShopController.KIND_DIE, 2)
-	assert_eq(data["net"], die, "der Würfel zeigt sein volles Netz")
-	assert_string_contains(String(data["title"]), Essence.by_id(Essence.RADON).display_name)
-
-func test_a_sold_slot_has_nothing_to_say() -> void:
-	await wait_frames(2)
-	view.buy_offer(1)
-	assert_true(view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1).is_empty(),
-		"ein leerer Platz beschriftet sich nicht")
-
-# --- Der Charm-Hover schreibt in den festen Fuß (Laden-Grammatik) ---------------
-
-func test_the_charm_card_is_the_seat_of_a_disk() -> void:
-	await wait_frames(2)
-	# Name und Wirkung trägt seit 2026-11-18 die DISKETTE, die scene_root auf den Sitz
-	# legt - die Karte malt nur Fassung und Preis; die Wirkung steht weiter im Fuß.
-	assert_false("detail_card" in view, "kein schwebendes Dropdown mehr")
-	assert_false("_charm_effect" in view, "kein Text-Tausch auf der Karte")
-	assert_false(view.has_method("_set_charm_hover"))
-	view.charm_disk_px = Vector2(240, 250)
-	await wait_frames(2)
-	var disk: Rect2 = view.charm_disk_rect_px()
-	assert_eq(disk.size, Vector2(240, 250), "die Diskette liegt in ihrer EINEN Größe")
-	assert_true(view.charm_seat_rect_px().grow(0.5).encloses(disk), "und ganz im Sitz")
-
-func test_hovering_the_charm_fills_the_foot() -> void:
-	await wait_frames(2)
-	var charm: Charm = run.secret_stock[view.card_slot_index()][GameRun.OFFER_ITEM]
-	var rect: Rect2 = _card().get_global_rect()
-	view.hover_charm(true)
-	assert_eq(view.foot_title.text, charm.display_name, "der Name steht im Fuß")
-	assert_true(view.foot_body.visible, "und die volle Wirkung")
-	assert_true(_card().get_global_rect().is_equal_approx(rect), "die Karte bewegt sich nicht")
-	# Der Bucht-Fluss räumt den Fuß NICHT, solange die Karte gehovert wird.
-	view.hide_bay_annotation()
-	assert_true(view.foot_title.visible, "die Karte hält den Fuß gegen den Bucht-Fluss")
-	view.hover_charm(false)
-	view.hide_bay_annotation(true)
-	assert_false(view.foot_title.visible, "losgelassen räumt der harte Weg sofort")
-
-func test_the_charm_seat_rect_is_reported_for_the_hover_check() -> void:
-	await wait_frames(2)
-	assert_true(view.charm_seat_rect_px().is_equal_approx(_card().get_global_rect()),
-		"scene_root fragt dieses Rechteck ab")
-
-# --- Der INFO-FUSS: die Auskunft steht, sie schwebt nicht -----------------------
-
-func test_the_foot_is_a_fixed_seat_for_every_annotation() -> void:
-	await wait_frames(2)
-	var foot: Rect2 = view.info_foot.get_global_rect()
-	assert_gt(foot.size.y, 0.0, "der Fuß reserviert sein Band")
-	assert_false(view.bay_annotation_has_point(foot.get_center()),
-		"leer fängt er keinen Zeiger")
-	var data: Dictionary = view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1)
-	view.show_bay_annotation(data, Vector2(9999, 9999))  # der Anker ist egal
-	assert_eq(view.foot_title.text, String(data["title"]), "der Fuß trägt den Namen")
-	assert_true(view.foot_body.visible, "und die Wirkung")
-	assert_true(view.info_foot.get_global_rect().is_equal_approx(foot),
-		"an IMMER derselben Stelle - nichts schwebt")
-	assert_true(view.bay_annotation_has_point(foot.get_center()),
-		"gefüllt hält er den Zeiger (die Schlüsselwörter sind Klickziele)")
-	view.hide_bay_annotation(true)
-	assert_false(view.foot_title.visible)
-	assert_false(view.bay_annotation_has_point(foot.get_center()))
-
-# --- Die Verweilzeit des Fußes --------------------------------------------------
-
-func test_the_foot_lingers_and_fades_after_the_pointer_leaves() -> void:
-	await wait_frames(2)
-	view.show_bay_annotation(view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1),
-		Vector2.ZERO)
-	view.hide_bay_annotation()
-	assert_true(view.foot_title.visible, "der Fuß verweilt statt sofort zu räumen")
-	view.hide_bay_annotation()  # der Bucht-Fluss ruft je Bild - der Tween läuft weiter
-	await wait_seconds(SecretShopView.FOOT_LINGER_TIME * 0.5)
-	assert_true(view.foot_title.visible, "mitten in der Verweilzeit steht er noch")
-	await wait_seconds(SecretShopView.FOOT_LINGER_TIME + SecretShopView.FOOT_FADE_TIME)
-	assert_false(view.foot_title.visible, "nach Verweilzeit plus Fade ist er leer")
-	assert_almost_eq(view.info_foot.modulate.a, 1.0, 0.001,
-		"und die Deckkraft steht wieder auf voll")
-
-func test_reaching_the_foot_during_the_linger_keeps_it() -> void:
-	await wait_frames(2)
-	view.show_bay_annotation(view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1),
-		Vector2.ZERO)
-	var body_before: String = view.foot_body.text
-	view.hide_bay_annotation()
-	await wait_seconds(SecretShopView.FOOT_LINGER_TIME * 0.5)
-	view.foot_hover(view.info_foot.get_global_rect().get_center())  # der Zeiger ist da
-	assert_almost_eq(view.info_foot.modulate.a, 1.0, 0.001, "der Fade ist abgebrochen")
-	await wait_seconds(SecretShopView.FOOT_LINGER_TIME + SecretShopView.FOOT_FADE_TIME)
-	assert_true(view.foot_title.visible, "der gehaltene Fuß bleibt stehen")
-	assert_eq(view.foot_body.text, body_before, "und trägt weiter seine Auskunft")
-
-func test_a_new_hover_during_the_fade_replaces_the_foot_at_full_strength() -> void:
-	await wait_frames(2)
-	view.show_bay_annotation(view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1),
-		Vector2.ZERO)
-	view.hide_bay_annotation()
-	await wait_seconds(SecretShopView.FOOT_LINGER_TIME + SecretShopView.FOOT_FADE_TIME * 0.5)
-	view.show_bay_annotation(view.vitrine_annotation(ShopController.KIND_ENGRAVING_PACK, 1),
-		Vector2.ZERO)
-	assert_true(view.foot_title.visible, "der neue Hover hält den Fuß")
-	assert_almost_eq(view.info_foot.modulate.a, 1.0, 0.001, "in voller Deckkraft")
-
-func test_the_foot_lies_under_the_bay_inside_the_window() -> void:
-	await wait_frames(2)
-	var foot: Rect2 = view.info_foot.get_global_rect()
-	assert_true(view.get_global_rect().encloses(foot), "der Fuß liegt ganz im Fenster")
-	assert_gt(foot.position.y, view.vitrine_rect_px().end.y - 1.0,
-		"und unter der Bucht - nie über der Ware")
-
-func test_a_die_annotation_carries_its_net_into_the_foot() -> void:
-	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
-	die.essence_id = Essence.RADON
-	run.secret_stock[2] = {
-		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
-	}
-	view.refresh()
-	await wait_frames(2)
-	view.show_bay_annotation(view.vitrine_annotation(ShopController.KIND_DIE, 2),
-		Vector2.ZERO)
-	assert_true(view.foot_net.visible, "der Würfel zeigt sein Netz im Fuß")
-	assert_gt(view.foot_net.get_child_count(), 0)
-
-## Ein Würfel auf Platz 2 und sein Netz im Fuß - die Vorlage der zwei Netz-Proben.
-func _die_in_foot() -> DieDefinition:
-	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
-	die.essence_id = Essence.RADON
-	run.secret_stock[2] = {
-		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
-	}
-	view.refresh()
-	return die
-
-func test_the_net_sits_at_the_right_end_of_the_foot() -> void:
-	# Rechts, unter dem Würfel: der Text bekommt die linke Spalte.
-	_die_in_foot()
-	await wait_frames(2)
-	view.show_bay_annotation(view.vitrine_annotation(ShopController.KIND_DIE, 2),
-		Vector2.ZERO)
-	await wait_frames(2)
-	assert_gt(view.foot_net.get_global_rect().position.x,
-		view.foot_die.get_global_rect().position.x,
-		"das Netz steht rechts von der Würfel-Auskunft")
-
-func test_hovering_a_net_cell_swaps_the_foot_body() -> void:
-	var die := _die_in_foot()
-	await wait_frames(2)
-	var data: Dictionary = view.vitrine_annotation(ShopController.KIND_DIE, 2)
-	view.show_bay_annotation(data, Vector2.ZERO)
-	await wait_frames(2)
-	var body := view.foot_net.get_child(0) as Control
-	var cell: float = view._foot_net_cell()
-	assert_true(view.foot_die.visible, "ein Würfel spricht über die Würfel-Auskunft")
-	assert_false(view.foot_body.visible)
-	assert_eq(view.foot_die.mode(), "die")
-	assert_string_contains(view.foot_die.plain_text(), Essence.by_id(die.essence_id).display_name)
-	# Eine Seiten-Zelle (Mittelreihe) schaltet auf Augen, Material, Runen.
-	var step := cell * (1.0 + DieNetView.GAP_FACTOR)
-	view.foot_hover(body.get_global_rect().position + Vector2(step * 1.5, step * 1.5))
-	assert_eq(view.foot_die.mode(), "face", "die Zelle zeigt ihre Seite")
-	# Zurück auf den Würfel, sobald keine Zelle mehr getroffen ist.
-	view.foot_hover(view.foot_die.get_global_rect().get_center())
-	assert_eq(view.foot_die.mode(), "die", "neben dem Netz steht die Seele wieder")
-
-# --- Die stehenden Schilder der Bucht -------------------------------------------
-
-## Schilder für Platz 1 (Kassette) und - wenn gestellt - Platz 2 als Würfel.
-func _push_plates() -> void:
-	var entries: Array = []
-	for i in run.secret_stock.size():
-		var kind := String(run.secret_stock[i][GameRun.OFFER_KIND])
-		if kind == GameRun.KIND_CHARM:
+## Nur die Kontaktleiste liegt rechts daneben auf dem Deck, auf halber Höhe: dort mündet die Ader.
+func test_every_part_lies_inside_the_footprint() -> void:
+	var frame := Rect2(Vector2.ZERO, view.size).grow(0.01)
+	for key: String in SecretShopView.PARTS:
+		if key == "contacts":
 			continue
-		var bay_kind := ShopController.KIND_DIE if kind == GameRun.KIND_DIE \
-			else ShopController.KIND_ENGRAVING_PACK
-		entries.append({"kind": bay_kind, "index": i,
-			"px": view.vitrine_pit_rect().get_center() + Vector2(40.0 * i, 0)})
-	view.set_bay_plates(entries)
+		assert_true(frame.encloses(view.part_rect(key)), "%s liegt im Grundriß" % key)
+	var contacts := view.part_rect("contacts")
+	assert_gte(contacts.position.x, frame.end.x - 0.02, "die Kontaktleiste liegt rechts daneben")
+	assert_almost_eq(contacts.get_center().y, view.size.y * 0.5, 0.5, "auf halber Höhe")
 
-func test_plates_stand_the_energy_price_without_a_pointer() -> void:
-	await wait_frames(2)
-	_push_plates()
-	assert_eq(view._plate_layer.get_child_count(), 2, "je Bucht-Stück ein Schild")
-	var plate: Container = view._plate_layer.get_child(0)
-	var price_line: Label = plate.get_child(plate.get_child_count() - 1)
-	assert_string_contains(price_line.text, "⚡", "der Preis steht in Energie da")
-	assert_true(view.vitrine_rect_px().grow(1.0).encloses(plate.get_global_rect()),
-		"und das Schild bleibt in der Bucht")
-
-func test_a_die_plate_leads_with_its_soul_line() -> void:
-	var die := DiceOffer.make_die(DiceOffer.TEMPLATES[0])
-	die.essence_id = Essence.RADON
-	run.secret_stock[2] = {
-		GameRun.OFFER_KIND: GameRun.KIND_DIE, GameRun.OFFER_ITEM: die,
-		GameRun.OFFER_PRICE: 6, GameRun.OFFER_SOLD: false,
-	}
+func test_the_rects_are_stable_through_every_state() -> void:
+	var before := view.layout()
+	view.buy_offer(0)
+	run.reroll_secret_offer(1)
 	view.refresh()
-	await wait_frames(2)
-	view.set_bay_plates([{"kind": ShopController.KIND_DIE, "index": 2,
-		"px": view.vitrine_pit_rect().get_center()}])
-	var plate: Container = view._plate_layer.get_child(0)
-	assert_eq(plate.get_child_count(), 2, "Seelen-Zeile plus Preis")
-	var soul: Label = plate.get_child(0)
-	assert_eq(soul.text, Essence.by_id(Essence.RADON).display_name,
-		"die Seelen-Zeile nennt die Essenz")
+	assert_eq(view.layout(), before, "kein Zustand verschiebt ein Teil")
 
-func test_plates_rebuild_only_on_change() -> void:
-	await wait_frames(2)
-	_push_plates()
-	var first: Node = view._plate_layer.get_child(0)
-	_push_plates()  # dieselbe Meldung: die Signatur hält den Umbau an
-	assert_eq(view._plate_layer.get_child(0), first, "unverändert wird nichts neu gebaut")
-	view.set_bay_plates([])
-	assert_eq(view._plate_layer.get_child_count(), 0, "keine Meldung, kein Schild")
+func test_three_equal_bays_side_by_side_under_the_housing() -> void:
+	var housing := view.part_rect("housing")
+	for i in SecretShopView.BAYS:
+		var bay := view.bay_rect(i)
+		assert_eq(bay.size, view.bay_rect(0).size, "gleich groß")
+		assert_almost_eq(bay.position.y, housing.end.y, 0.01, "es fährt aus der Gehäusefront")
+		assert_almost_eq(view.nose_rect(i).position.y, bay.end.y, 0.01, "die Nase vorn daran")
+		if i > 0:
+			assert_false(bay.intersects(view.bay_rect(i - 1)), "Fächer berühren sich nicht")
 
-# --- Die Ankunfts-Grade ---------------------------------------------------------
+## EINE Größe je Ding: der größte Körper liegt ganz im Fach, nichts wird skaliert.
+func test_the_largest_ware_fits_a_bay() -> void:
+	var inner := SecretShopView.BAY_INNER
+	var reader := CharmReaderView.local_bounds()
+	assert_lte(reader.size.z, inner.x, "der Projektor quer")
+	assert_lte(reader.size.x, inner.y, "und längs")
+	assert_lte(CharmDiskView.SIZE.z, inner.x, "die Diskette quer")
+	assert_lte(CharmDiskView.SIZE.x, inner.y, "und längs")
 
-func test_a_fresh_stock_raises_its_goods() -> void:
-	# Der ERSTE Bericht einer frisch gewürfelten Auslage lässt sie aufsteigen; ein
-	# zweiter Bericht derselben Ware lässt sie liegen - scene_root sammelt den
-	# lauteren Grad, solange die Auslage noch abgedeckt ist.
-	var fresh := SecretShopView.new()
-	add_child_autofree(fresh)
-	fresh.size = Vector2(786, 437)
-	var grades: Array[String] = []
-	fresh.vitrine_changed.connect(func() -> void: grades.append(fresh.vitrine_grade()))
-	fresh.run = GameRun.new_run()  # der Setter baut die erste Auslage
-	assert_gt(grades.size(), 0, "die neue Auslage meldet sich")
-	assert_eq(grades[0], ShopController.GRADE_RISE, "die erste Auslage steigt auf")
-	fresh.refresh()
-	assert_eq(fresh.vitrine_grade(), ShopController.GRADE_STAND,
-		"dieselbe Ware ein zweites Mal gemeldet wurde nicht neu gewürfelt")
+# --- Fach und Angebot -----------------------------------------------------------------
 
-func test_a_purchase_leaves_the_rest_lying() -> void:
-	await wait_frames(2)
+func test_bay_i_carries_offer_i() -> void:
+	for i in run.secret_stock.size():
+		var state := view.bay_state(i)
+		assert_eq(String(state["kind"]), String(run.secret_stock[i][GameRun.OFFER_KIND]))
+		assert_true(bool(state["open"]), "unverkauft steht es offen")
+		assert_eq(String(state["price"]), str(run.secret_offer_price(run.secret_stock[i])))
+	assert_eq(String(view.bay_state(0)["name"]), (run.secret_stock[0][GameRun.OFFER_ITEM] as Charm).display_name)
+
+func test_a_click_on_the_bay_button_buys() -> void:
+	var charms := run.owned_charms.size()
+	var order: Array[String] = []
+	view.offer_buying.connect(func(i: int) -> void: order.append("fach%d" % i))
+	view.charm_buying.connect(func() -> void: order.append("charm"))
+	view.bay_buttons[0].pressed.emit()
+	assert_eq(run.owned_charms.size(), charms + 1, "gebucht über GameRun")
+	assert_eq(order, ["fach0", "charm"], "erst das Fach, dann die Diskette - beides vor der Buchung")
+	assert_false(view.bay_open(0), "verkauft fährt es ein")
+	assert_eq(String(view.bay_state(0)["state"]), SecretShopView.STATE_SOLD)
+	assert_eq(String(view.bay_state(0)["name"]), SecretShopView.SOLD_NAME)
+
+func test_the_buttons_cover_tray_and_nose() -> void:
+	for i in SecretShopView.BAYS:
+		var button := view.bay_buttons[i]
+		assert_eq(Rect2(button.position, button.size), view.bay_hit_rect(i))
+		var key := view.reroll_buttons[i]
+		assert_eq(Rect2(key.position, key.size), view.reroll_rect(i))
+		assert_true(view.nose_rect(i).encloses(view.reroll_rect(i)), "die Taste sitzt auf der Nase")
+		assert_gt(key.get_index(), button.get_index(), "sie liegt über dem Fach-Knopf")
+
+func test_too_dear_dims_and_disables() -> void:
+	run.energy = 0
+	view.refresh()
+	for i in run.secret_stock.size():
+		assert_eq(String(view.bay_state(i)["state"]), SecretShopView.STATE_DEAR)
+		assert_true(view.bay_buttons[i].disabled)
+		assert_true(view.reroll_buttons[i].disabled, "auch die Taste")
+		assert_false(bool(view.reroll_state(i)["afford"]))
+
+func test_a_purchase_reports_its_goods() -> void:
+	run.secret_stock[1] = run._secret_engraving_offer()
+	var reported: Array = []
+	view.goods_purchased.connect(func(uids: Array[int]) -> void: reported.append(uids))
 	view.buy_offer(1)
-	assert_eq(view.vitrine_grade(), ShopController.GRADE_STAND,
-		"ein Kauf würfelt nichts - die übrige Ware bleibt liegen")
+	assert_eq(reported.size(), 1, "die Karte reist als Licht ins Magazin")
 
-func test_a_reroll_raises_the_new_goods() -> void:
-	await wait_frames(2)
+func test_a_die_offer_reports_the_die_and_its_net() -> void:
+	run.secret_stock[2] = run._secret_die_offer()
+	var info := view.bay_info(2)
+	assert_eq(info["net"], run.secret_stock[2][GameRun.OFFER_ITEM], "das INFO-DISPLAY zeigt sein Netz")
+	var bought: Array = []
+	view.die_purchased.connect(func(def: DieDefinition) -> void: bought.append(def))
+	view.buy_offer(2)
+	assert_eq(bought.size(), 1)
+
+func test_a_projector_offer_takes_one_bay() -> void:
+	GameRun.secret_projector_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_projector_chance = 0.0
+	assert_eq(run.secret_stock.size(), 3)
+	assert_eq(String(view.bay_state(1)["kind"]), GameRun.KIND_PROJECTOR)
+	assert_true(view.bay_open(2), "das dritte Fach trägt seine Ware")
+	var order: Array[String] = []
+	view.projector_buying.connect(func() -> void: order.append("projektor"))
 	view.buy_offer(1)
-	assert_eq(view.vitrine_grade(), ShopController.GRADE_STAND)
-	assert_true(run.reroll_secret_stock())
-	await wait_frames(2)
-	assert_eq(view.vitrine_grade(), ShopController.GRADE_RISE,
-		"ein Neuwurf ist ein voller Warenumschlag")
+	assert_eq(order, ["projektor"], "der Körper fliegt vor der Buchung")
+	assert_eq(run.projectors, GameRun.START_PROJECTORS + 1)
 
-func test_the_bay_carries_no_frame_at_all() -> void:
-	# Die Lichtfuge ist restlos fort: kein Umriss vor der Ware, kein Overlay, kein
-	# Symbol. Der Sitz und die Bucht stehen davon unberührt.
-	await wait_frames(2)
-	var bay: Rect2 = view.vitrine_rect_px()
-	var seat: Rect2 = view.card_seat.get_global_rect()
-	for gone: String in ["set_lift_seam", "hide_lift_seam"]:
-		assert_false(view.has_method(gone), "%s kündigt nichts mehr an" % gone)
-	assert_null(view.get_node_or_null("LiftSeam"), "und kein Fugen-Panel steht im Fenster")
-	await wait_frames(2)
-	assert_true(view.vitrine_rect_px().is_equal_approx(bay), "die Bucht steht gleich")
-	assert_true(view.card_seat.get_global_rect().is_equal_approx(seat),
-		"und der Karten-Sitz auch")
+func test_a_powerbank_reports_its_bay() -> void:
+	GameRun.secret_powerbank_chance = 1.0
+	run._roll_secret_stock()
+	GameRun.secret_powerbank_chance = 0.0
+	var bay := -1
+	for i in run.secret_stock.size():
+		if run.secret_stock[i][GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
+			bay = i
+	assert_gt(bay, -1, "eine Powerbank liegt aus")
+	var from: Array = []
+	view.powerbank_purchased.connect(func(px: Vector2) -> void: from.append(px))
+	view.buy_offer(bay)
+	assert_eq(from.size(), 1)
+	assert_true(Rect2(view.position + view.bay_rect(bay).position, view.bay_rect(bay).size).has_point(from[0]),
+		"sie fliegt aus ihrem Fach")
 
-func test_every_change_of_the_bay_is_reported() -> void:
-	await wait_frames(2)
-	var beats := []
-	view.vitrine_changed.connect(func() -> void: beats.append(1))
-	view.buy_offer(1)
-	assert_gt(beats.size(), 0, "der Kauf meldet die neue Auslage")
-	beats.clear()
-	assert_true(run.reroll_secret_stock())
-	assert_gt(beats.size(), 0, "und der Neuwurf auch")
+func test_a_sold_bay_says_nothing_and_takes_no_pointer() -> void:
+	view.buy_offer(0)
+	assert_eq(view.bay_info(0), {})
+	assert_eq(view.bay_at(view.bay_rect(0).get_center()), -1, "eingefahren ist dort nichts")
+	assert_eq(view.bay_at(view.bay_rect(1).get_center()), 1)
 
-# --- Offen ab Runde 1 -----------------------------------------------------------
+func test_a_reroll_key_swaps_only_its_bay_and_reports_energy() -> void:
+	var before := run.secret_stock.duplicate()
+	var spent: Array = []
+	view.energy_spent.connect(func(amount: int) -> void: spent.append(amount))
+	view.reroll_buttons[2].pressed.emit()
+	assert_eq(spent, [GameRun.SECRET_REROLL_BASE])
+	assert_ne(run.secret_stock[2], before[2], "Fach 2 ist neu")
+	assert_same(run.secret_stock[0], before[0], "die übrigen bleiben")
+	assert_same(run.secret_stock[1], before[1])
 
-func test_a_fresh_run_lays_out_its_stock_at_once() -> void:
-	var fresh := SecretShopView.new()
-	add_child_autofree(fresh)
-	fresh.size = Vector2(786, 437)
-	fresh.run = GameRun.new_run()
-	fresh.refresh()
-	await wait_frames(2)
-	assert_eq(fresh.offer_buttons.size(), 3, "die Plätze liegen index-treu")
-	assert_eq(fresh.card_slot_index(), 0, "und der Sitz trägt seine Karte")
-	assert_true(fresh.reroll_button.visible)
-	assert_null(fresh.get_node_or_null("LockOverlay"), "kein Gitter, kein Schleier")
+## Eingefahren steht die Taste eine Fachtiefe weiter oben - dort, wo die Nase dann ist.
+func test_the_key_of_a_sold_bay_rides_in_with_the_nose_and_restocks() -> void:
+	var open_key := view.reroll_rect(0)
+	view.buy_offer(0)
+	var closed_key := view.reroll_rect(0)
+	assert_almost_eq(open_key.position.y - closed_key.position.y, view.bay_rect(0).size.y, 0.01)
+	assert_eq(Rect2(view.reroll_buttons[0].position, view.reroll_buttons[0].size), closed_key,
+		"der Knopf folgt ihr")
+	view.reroll_buttons[0].pressed.emit()
+	assert_true(view.bay_open(0), "der verkaufte Platz ist neu bestückt")
+	assert_eq(view.reroll_rect(0), open_key)
+
+func test_a_full_dock_blocks_the_charm_bay() -> void:
+	while not run.charms_full():
+		run.owned_charms.append(Charm.rabbits_foot())
+	assert_eq(String(view.bay_state(0)["state"]), SecretShopView.STATE_BLOCKED)
+	assert_ne(SecretShopView.blocked_tag(GameRun.KIND_CHARM), "")
+
+func test_the_window_paints_nothing() -> void:
+	for child in view.get_children():
+		assert_true(child is Button, "nur unsichtbare Knöpfe")
+		for style in ["normal", "hover", "pressed", "disabled"]:
+			assert_true((child as Button).get_theme_stylebox(style) is StyleBoxEmpty)

@@ -2619,11 +2619,11 @@ func smother_slot(defs: Array[DieDefinition], slots: Array[int]) -> int:
 
 ## Was auf dem Tisch schon steht (Charm.FEATURE_*): ein Charm, dessen Spielzeug
 ## fehlt, ist so tot wie ein Essenz-Charm ohne Seele. EINE Quelle für Auslage,
-## Schwarzmarkt und Automat.
+## Schwarzmarkt und Automat. Die Automaten stehen seit 2026-11-26 nicht auf dem Tisch.
 func charm_offer_features() -> Dictionary:
 	return {
 		Charm.FEATURE_SECRET_SHOP: true,
-		Charm.FEATURE_SLOT_MACHINE: true,
+		Charm.FEATURE_SLOT_MACHINE: false,
 	}
 
 ## Alle Essenzen im Besitz - Grundlage der Unikat-Sperre im Angebot.
@@ -3059,10 +3059,8 @@ const SECRET_SPECIAL_GRADES := [
 	{"cells": 3, "price": 6, "weight": 2},
 	{"cells": 4, "price": 8, "weight": 1},
 ]
-## Preis des Neuwurfs - FLACH, jedes Mal derselbe. Die alte Fibonacci-Leiter
-## machte den zweiten Wurf eines Besuchs unbezahlbar; der Laden soll benutzbar
-## bleiben, die ⚡ selbst ist die Schranke.
-const SECRET_REROLL_BASE := 3
+## Preis des Neuwurfs EINES Fachs - flach, jedes Mal derselbe (seit 2026-11-26 je Fach).
+const SECRET_REROLL_BASE := 1
 ## Aufteilung des Wildcard-Platzes: ein Drittel Essenzwürfel, sonst Sonderbestand.
 const SECRET_WILDCARD_DIE_CHANCE := 0.34
 
@@ -3088,7 +3086,7 @@ const KIND_CATALYST := "catalyst"
 const KIND_BLANK := "blank"
 ## Ein Modul (nur die vervielfachenden Schwarzmarkt-Teile).
 const KIND_PART := "part"
-## Ein Charm-Projektor: er ersetzt BEIDE Ware-Plätze der Auslage, OFFER_ITEM ist null.
+## Ein Charm-Projektor: Ware wie jede andere auf Platz 1 oder 2, OFFER_ITEM ist null.
 const KIND_PROJECTOR := "projector"
 ## Eine Powerbank (+1 Fünfergruppe Energie-Deckel) auf dem Wildcard-Platz, OFFER_ITEM ist null.
 const KIND_POWERBANK := "powerbank"
@@ -3195,15 +3193,16 @@ func secret_offer_price(offer: Dictionary) -> int:
 		price -= deal_bonus_factor()  # Hinterzimmer-Kontakt
 	return maxi(1, price)
 
-## Würfelt die GANZE Auslage neu (auch verkaufte Plätze); false, wenn die Energie
-## nicht reicht.
-func reroll_secret_stock() -> bool:
+## Würfelt NUR Platz index neu, auch einen verkauften; false, wenn die Energie nicht reicht.
+func reroll_secret_offer(index: int) -> bool:
+	if index < 0 or index >= secret_stock.size():
+		return false
 	var cost := secret_reroll_cost()
 	if energy < cost:
 		return false
 	spend_energy(cost)
 	secret_rerolls += 1
-	_roll_secret_stock()
+	secret_stock[index] = _secret_offer_for(index)
 	secret_stock_changed.emit()
 	return true
 
@@ -3256,16 +3255,27 @@ func buy_secret_offer(index: int) -> bool:
 	secret_stock_changed.emit()
 	return true
 
-## Feste Plätze: legendärer Charm, Spezial-Gravur, Wildcard - oder, mit
-## secret_projector_chance, statt der beiden Ware-Plätze EIN Projektor.
+## Feste Plätze: legendärer Charm, Sonderbestand, Wildcard - immer genau drei.
 func _roll_secret_stock() -> void:
 	secret_stock.clear()
-	secret_stock.append(_secret_charm_offer())
-	if projectors < MAX_PROJECTORS and randf() < secret_projector_chance:
-		secret_stock.append(_secret_offer(KIND_PROJECTOR, null, projector_price()))
-		return
-	secret_stock.append(_secret_special_offer())
-	secret_stock.append(_secret_wildcard_offer())
+	for index in 3:
+		secret_stock.append(_secret_offer_for(index))
+
+## Die Ware EINES Platzes; auf Platz 1 und 2 kann statt ihrer der Projektor liegen.
+func _secret_offer_for(index: int) -> Dictionary:
+	if index == 0:
+		return _secret_charm_offer()
+	if projectors < MAX_PROJECTORS and not _secret_projector_listed() \
+			and randf() < secret_projector_chance:
+		return _secret_offer(KIND_PROJECTOR, null, projector_price())
+	return _secret_special_offer() if index == 1 else _secret_wildcard_offer()
+
+## Liegt schon ein Projektor aus? Nie zwei zugleich.
+func _secret_projector_listed() -> bool:
+	for offer in secret_stock:
+		if offer.get(OFFER_KIND) == KIND_PROJECTOR:
+			return true
+	return false
 
 ## Der Sonderposten-Platz führt beide Familien des Sonderbestands: meist ein
 ## starke Gravur-Karte, manchmal eine Katalysator-Kassette.

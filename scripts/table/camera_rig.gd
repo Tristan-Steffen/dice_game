@@ -36,17 +36,8 @@ const PIT_ZOOM_DISTANCE_BONUS := 9.0
 ## Der Chip-Haufen ist klein - deutlich näher heranfahren als an die Fenster.
 const CHIPS_ZOOM_DISTANCE_CUT := 8.0
 
-## Der Schwarzmarkt ist das kleinste Fenster (eine flache Tasche unter den
-## Automaten): keine 500 Textur-px breit. Die Distanz ist
-## deshalb der TEXTUR-Auflösung gerechnet, nicht dem Bildeindruck: bei Abzug 11
-## lag das Fenster auf ~780 Bildschirm-px, also 0,58 Textur-px je Bildschirm-px -
-## eine 1,7-fache Hochskalierung, die als "360p" gelesen wurde. Bei Abzug 4 füllen
-## seine 451 Textur-px ~440 Bildschirm-px, das Bild wird also nie mehr gestreckt.
-## Mehr Textur ginge nur über TableScreen.SUPERSAMPLE, und das kostet den ganzen
-## Tisch (gemessen: 3 -> 4 hebt die Bildzeit von 35 auf 58 ms und erreicht
-## trotzdem nur 0,77 tex/px). Die verlorene Bildgröße holt SecretShopView über
-## seine kleinere CONTENT_UNITS zurück.
-const SECRET_SHOP_ZOOM_DISTANCE_CUT := 4.0
+## Der Schwarzmarkt ist seit 2026-11-26 ein Bauteil: die Station rahmt seinen Grundriß.
+const SECRET_SHOP_MARGIN := 1.04
 
 ## Untergrenze der weiten Werkbank-Sicht. Sie ist seit der WELLE X eine reine
 ## SICHERUNG, kein Maß: der Streifen ist zu EINER flachen Zeile geworden und paßt
@@ -113,6 +104,7 @@ var chips_half := Vector2.ZERO
 var bank_target := Vector3(-7, 0, -60)
 var bank_half := Vector2.ZERO
 const BANK_MARGIN := 1.04
+var secret_shop_half := Vector2.ZERO
 ## Dort wiegt die Kamera nur leicht: beim vollen Zoom-Schwenk lief das kleine Stück dem Zeiger davon.
 const BANK_TILT_MAX_DEGREES := 1.2
 ## Die Laufwerks-Reihe samt Hologrammen (2026-11-18): gerahmt statt fester Abstand.
@@ -339,7 +331,8 @@ func felt_pick_live(station: int) -> bool:
 ## gefallen (Spieler: es erschwert das Arbeiten) - Nahsicht und Werkstück-Sicht
 ## bleiben WORKSHOP und stehen damit mit still. WASD bleibt: das ist Absicht.
 func _tilt_frozen_mode() -> bool:
-	return mode == Mode.HUB or mode == Mode.TITLE or mode == Mode.WORKSHOP
+	return mode == Mode.HUB or mode == Mode.TITLE or mode == Mode.WORKSHOP \
+		or mode == Mode.SECRET_SHOP
 
 func _process(delta: float) -> void:
 	if is_animating or tilt_locked or _tilt_frozen_mode():
@@ -446,8 +439,10 @@ func configure_score_target(target: Vector3) -> void:
 func configure_slots_target(target: Vector3) -> void:
 	slots_target = target
 
-func configure_secret_shop_target(target: Vector3) -> void:
+## half = halbe Ausmaße des Bauteils (Welt-Z, Welt-X); ZERO läßt den festen Abstand stehen.
+func configure_secret_shop_target(target: Vector3, half := Vector2.ZERO) -> void:
 	secret_shop_target = target
+	secret_shop_half = half
 
 ## half = halbe Ausmaße des Bank-Tabletts (Welt-Z, Welt-X).
 func configure_bank_target(target: Vector3, half: Vector2) -> void:
@@ -662,8 +657,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 			distance = maxf(distance, tilted_fit_distance(chips_half, CHIPS_MARGIN))
 	if target_mode == Mode.BANK and bank_half != Vector2.ZERO:
 		distance = tilted_fit_distance(bank_half, BANK_MARGIN)
-	if target_mode == Mode.SECRET_SHOP:
-		distance -= SECRET_SHOP_ZOOM_DISTANCE_CUT
+	if target_mode == Mode.SECRET_SHOP and secret_shop_half != Vector2.ZERO:
+		distance = tilted_fit_distance(secret_shop_half, SECRET_SHOP_MARGIN)
 	if target_mode == Mode.COMBOS and combos_half != Vector2.ZERO:
 		# Das Feld ist schmal: die Station fährt so nah heran, wie es ins Bild paßt.
 		distance = maxf(COMBOS_NEAREST, tilted_fit_distance(combos_half, COMBOS_MARGIN))

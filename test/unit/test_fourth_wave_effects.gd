@@ -477,10 +477,11 @@ func test_the_offer_gate_stays_permissive_without_features():
 	assert_true(_has_id(pool, Charm.FENCED_GOODS), "wer den Stand nicht kennt, verliert nichts")
 	assert_true(_has_id(pool, Charm.FREE_SPIN))
 
-func test_the_run_reports_that_everything_stands_from_round_one():
+func test_the_run_reports_what_stands_on_the_table():
 	var features := run.charm_offer_features()
 	assert_true(bool(features[Charm.FEATURE_SECRET_SHOP]), "der Schwarzmarkt steht offen")
-	assert_true(bool(features[Charm.FEATURE_SLOT_MACHINE]), "alle Automaten stehen")
+	assert_false(bool(features[Charm.FEATURE_SLOT_MACHINE]),
+		"die Automaten stehen seit 2026-11-26 nicht auf dem Tisch - kein Freispiel im Angebot")
 
 func test_the_back_room_charm_slot_passes_the_gate():
 	# Der Schwarzmarkt würfelt seine Charms durch dieselbe Schleuse - sein eigener

@@ -511,24 +511,33 @@ func test_a_won_charm_rides_the_strip_up_into_the_hub():
 
 # --- Schwarzmarkt-Ader (Energie fährt zum Hinterzimmer) --------------------------
 
-## Der Laden ist der Zwilling der Automaten eine Etage tiefer: rechte Kante wie
-## der Automat, Unterkante bündig mit dem Hub (der spannt 2000..3200).
+## Der Schwarzmarkt steht auf dem Grundriß der Automaten links vom Hub (der spannt 2000..3200).
 func _place_secret_corner() -> void:
 	screen.place_hub(Vector2(3400, 2600), Vector2(1400, 1200))
-	screen.place_slot_bank_window(Rect2(Vector2(1500, 2000), Vector2(1000, 850)))
-	screen.set_slot_bank_installed(true)
-	screen.place_secret_shop_window(Rect2(Vector2(1500, 2900), Vector2(1000, 300)))
+	screen.place_secret_shop_window(Rect2(Vector2(1500, 2000), SecretShopView.UNITS * 37.5))
 	screen.set_secret_shop_installed(true)
 
-func test_the_secret_shop_strip_runs_through_the_gap_to_the_hub():
+func test_the_secret_shop_strip_runs_from_its_contacts_to_the_hub():
 	_place_secret_corner()
 	var path := screen.secret_hub_strip.strip_path
+	var contacts := screen.secret_part_px("contacts")
 	assert_gt(path.size(), 1, "eine verlegte Ader")
-	assert_eq(path[0].x, 2500.0, "sie beginnt an der rechten Laden-Kante")
+	assert_almost_eq(path[0].x, contacts.end.x, 0.01, "sie beginnt an der Kontaktleiste rechts")
+	var market := screen.secret_shop_window
+	assert_almost_eq(contacts.get_center().y, market.position.y + market.size.y * 0.5, 0.5,
+		"auf halber Höhe des Schwarzmarkts")
 	assert_eq(path[path.size() - 1].x, screen.hub.position.x, "und endet an der linken Hub-Kante")
 	for point in path:
-		assert_eq(point.y, path[0].y, "gerade waagerecht durch die Lücke")
-	assert_between(path[0].y, 2900.0, 3200.0, "im Höhen-Überlapp von Laden und Hub")
+		assert_almost_eq(point.y, contacts.get_center().y, 0.01, "gerade waagerecht")
+
+func test_the_secret_shop_is_a_component_not_a_glass_window():
+	_place_secret_corner()
+	var market := screen.secret_shop_window
+	assert_false(screen.deck_quiet_rects().has(Rect2(market.position, market.size)),
+		"das Deck läuft unter ihm durch, kein dunkles Feld")
+	for entry: Array in screen.deck_furniture():
+		assert_ne(String(entry[0]), "AUTOMAT", "die Automaten stehen nicht im Druck")
+		assert_ne(String(entry[0]), "NICHT BESTÜCKT", "die alte Tasche trägt keinen Umriß")
 
 func test_the_energy_travels_from_the_hub_to_the_secret_shop():
 	_place_secret_corner()
@@ -703,7 +712,7 @@ func test_die_schacht_loecher_kommen_und_gehen_die_grube_bleibt():
 		assert_true(screen.pit_open(TableScreen.side_bet_pit(i)),
 			"und die Grube von Plot %d auch" % i)
 	assert_true(screen.pit_open(TableScreen.PIT_MAGAZIN))
-	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL), "was nie auffuhr")
+	assert_false(screen.pit_open(TableScreen.PIT_PAYOUT), "was nie auffuhr")
 	# Möbel: der Graben der Walze und die KAMMER samt der Wanne von ORIGINAL stehen dauerhaft.
 	var graben := Rect2(640, 480, 210, 164)
 	var kammer := Rect2(880, 300, 206, 206)
@@ -731,14 +740,14 @@ func test_ein_schacht_wird_in_weltmassen_genannt():
 	# Der Körper steht in der Welt, das Loch wird in Pixeln geschnitten - die
 	# Umrechnung gehört dem Bildschirm, nicht dem Aufrufer.
 	var at := screen.pixel_to_world(Vector2(500, 400))
-	screen.set_lift_pit(TableScreen.PIT_SECRET_BOWL, at, Vector2(3.0, 5.0))
-	var rect := screen.pit_rect(TableScreen.PIT_SECRET_BOWL)
+	screen.set_lift_pit(TableScreen.PIT_PAYOUT, at, Vector2(3.0, 5.0))
+	var rect := screen.pit_rect(TableScreen.PIT_PAYOUT)
 	assert_gt(rect.size.x, 0.0)
 	assert_gt(rect.size.y, 0.0)
 	assert_almost_eq(rect.get_center().x, 500.0, 1.0, "das Loch liegt am genannten Punkt")
 	assert_almost_eq(rect.get_center().y, 400.0, 1.0)
-	screen.set_lift_pit(TableScreen.PIT_SECRET_BOWL, at, Vector2.ZERO)
-	assert_false(screen.pit_open(TableScreen.PIT_SECRET_BOWL),
+	screen.set_lift_pit(TableScreen.PIT_PAYOUT, at, Vector2.ZERO)
+	assert_false(screen.pit_open(TableScreen.PIT_PAYOUT),
 		"ohne Ausdehnung gibt es kein Loch")
 
 ## Ein Schacht darf die Form seiner Fassung tragen: der Wett-Tresen meldet den Radius

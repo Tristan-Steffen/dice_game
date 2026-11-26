@@ -272,11 +272,7 @@ const PIT_MAGAZIN := 0
 ## Die PAKET-FLÄCHE des Ladens: je Platz SEINE Sektion - die erste auf Platz 1,
 ## die übrigen fünf hängen hinten an (SHOP_PACK_PITS).
 const PIT_SHOP_PACK0 := 1
-## Die Schwarzmarkt-Bucht fährt JEDES Stück aus seiner EIGENEN Sektion, und sie kann
-## drei Körper führen (der erschöpfte Legenden-Topf schiebt eine Sonder-Kassette in
-## den Kartensitz-Platz) - drei Plätze, die alten Namen sind ihre Zonen 0 und 1.
-const PIT_SECRET_SHELF := 3
-const PIT_SECRET_BOWL := 4
+## 3 und 4 sind frei (bis 2026-11-26 die Sektionen der Schwarzmarkt-Bucht).
 ## Der Wett-Tresen: je Angebots-Plot EIN eigener Schacht, denn drei Wetten können
 ## gleichzeitig und UNABHÄNGIG geparkt stehen (eine parkt, während die nächste
 ## auffährt) - drei Löcher, die einander nichts schulden.
@@ -289,9 +285,7 @@ const PIT_SIDE_BET2 := 7
 ## offen stehen dürfen.
 const PIT_PAYOUT := 8
 
-## Die dritte Sektion des Schwarzmarkts - ans ENDE gehängt, damit Wett- und
-## Auszahlungs-Plätze ihre Nummern behalten.
-const PIT_SECRET_THIRD := 9
+## 9 ist frei (bis 2026-11-26 die dritte Schwarzmarkt-Sektion).
 
 ## Die WÜRFEL-Hebebühnen, hinten angehängt, damit kein bestehender Platz umnummeriert
 ## wird. Die Warteschlange fährt je Platz eine EIGENE Maschine (sechs Fahrten dürfen
@@ -331,9 +325,7 @@ const PIT_SHOP_PACK_TAIL0 := 39
 const SHOP_PACK_PITS: Array[int] = [PIT_SHOP_PACK0, PIT_SHOP_PACK_TAIL0, PIT_SHOP_PACK_TAIL0 + 1,
 	PIT_SHOP_PACK_TAIL0 + 2, PIT_SHOP_PACK_TAIL0 + 3, PIT_SHOP_PACK_TAIL0 + 4]
 
-## Und dieselben Mulden unter den Kassetten der Schwarzmarkt-Reihe.
-const PIT_SECRET_BAY0 := 28
-const SECRET_BAY_PIT_COUNT := 3
+## 28-30 sind frei (bis 2026-11-26 die Mulden der Schwarzmarkt-Reihe).
 
 ## Der EINZUG einer ausgeworfenen Charm-Diskette (seit 2026-11-18 auf dem Platz, den der
 ## Einzug der Schatulle bis 2026-11-17 trug).
@@ -362,10 +354,6 @@ const MAGAZIN_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_TA
 ## Der Löcher-Platz des Magazin-Trays einer Sorte.
 static func magazin_pit(column: int) -> int:
 	return MAGAZIN_PITS[clampi(column, 0, MAGAZIN_PITS.size() - 1)]
-
-## Die Löcher-Plätze der Schwarzmarkt-Bucht, Zone für Zone.
-static func secret_pits() -> Array[int]:
-	return [PIT_SECRET_SHELF, PIT_SECRET_BOWL, PIT_SECRET_THIRD]
 
 ## Der Löcher-Platz EINES Wett-Plots.
 static func side_bet_pit(index: int) -> int:
@@ -739,6 +727,7 @@ func _build_content() -> void:
 	# Ader Automaten -> Hub (verlegt place_slot_bank_window).
 	slot_hub_strip = LedStripView.new()
 	slot_hub_strip.name = "SlotHubStrip"
+	slot_hub_strip.visible = false  # die Automaten stehen seit 2026-11-26 nicht auf dem Tisch
 	add_child(slot_hub_strip)
 
 	# Ader Schwarzmarkt -> Hub (verlegt place_secret_shop_window).
@@ -1172,7 +1161,8 @@ func place_slot_bank_window(rect: Rect2) -> void:
 	_link_slot_to_hub()
 	_sync_reflection_windows()
 
-## Spannt den Schwarzmarkt über rect auf (Tasche unter den Automaten).
+## Spannt den Schwarzmarkt über rect auf (seit 2026-11-26 der Grundriß der Automaten).
+## Er ist ein Bauteil: kein Schirm im Glas, das Deck läuft unter ihm durch.
 func place_secret_shop_window(rect: Rect2) -> void:
 	secret_shop_window.position = rect.position
 	secret_shop_window.size = rect.size
@@ -1183,20 +1173,22 @@ func place_secret_shop_window(rect: Rect2) -> void:
 		secret_hub_strip.visible = true
 	_sync_reflection_windows()
 
-## Ader Schwarzmarkt -> Hub: dieselbe gerade Waagerechte wie die Automaten-Ader,
-## nur eine Etage tiefer - auf halber Höhe der Überlappung beider Fenster, wo nur
-## Filz liegt. Sie wird immer gelegt, aber wie der Laden erst mit ihm sichtbar.
+## Ein Teil des Schwarzmarkts in Display-Pixeln.
+func secret_part_px(key: String) -> Rect2:
+	var part := secret_shop_window.part_rect(key)
+	part.position += secret_shop_window.position
+	return part
+
+## Ader Schwarzmarkt -> Hub: von der Kontaktleiste rechts auf halber Höhe waagerecht an die Hub-Kante.
 func _link_secret_shop_to_hub() -> void:
 	if secret_hub_strip == null or hub == null or hub.size.x <= 0.0 \
 			or secret_shop_window == null or secret_shop_window.size.x <= 0.0:
 		return
-	var top := maxf(hub.position.y, secret_shop_window.position.y)
-	var bottom := minf(hub.position.y + hub.size.y,
-		secret_shop_window.position.y + secret_shop_window.size.y)
-	if bottom <= top:
-		return  # keine Höhen-Überlappung - keine gerade Ader möglich
-	secret_hub_strip.link_horizontal(secret_shop_window.position.x + secret_shop_window.size.x,
-		hub.position.x, (top + bottom) * 0.5, HUB_STRIP_WIDTH)
+	var port := secret_part_px("contacts")
+	if port.get_center().y < hub.position.y or port.get_center().y > hub.position.y + hub.size.y:
+		return  # keine gerade Ader möglich
+	secret_hub_strip.link_horizontal(port.end.x, hub.position.x, port.get_center().y,
+		HUB_STRIP_WIDTH)
 
 ## Stellt sicher, dass der Schwarzmarkt sichtbar ist.
 func set_secret_shop_installed(_installed: bool) -> void:
@@ -1386,8 +1378,7 @@ func deck_furniture(extra: Array = []) -> Array:
 	raw.append(["ROM BANK", combo_card_rect(), PcbDeckView.KIND_CARD])
 	if hub != null and hub.size.x > 4.0:
 		raw.append(["HUB", Rect2(hub.position, hub.size), PcbDeckView.KIND_HUB])
-	for entry in [["WETTEN", side_bet_window], ["AUTOMAT", slot_bank_window],
-			["MARKT", secret_shop_window], ["CHIPS", treasure_window],
+	for entry in [["WETTEN", side_bet_window], ["MARKT", secret_shop_window], ["CHIPS", treasure_window],
 			["GLUECK", luck_station_window], ["ENERGIE", null], ["INFO", workshop_info_window]]:
 		if entry[0] == "ENERGIE":
 			if energy_bank_rect.size.x > 4.0:
@@ -1395,7 +1386,9 @@ func deck_furniture(extra: Array = []) -> Array:
 			continue
 		var control: Control = entry[1]
 		if control != null and control.size.x > 4.0:
-			raw.append([entry[0], Rect2(control.position, control.size)])
+			# Der Schwarzmarkt trägt seinen eigenen Körper: kein Druck um ihn.
+			var kind := PcbDeckView.KIND_MARKET if entry[0] == "MARKT" else ""
+			raw.append([entry[0], Rect2(control.position, control.size), kind])
 	raw.append_array(extra)
 	for slot in MAX_PITS:
 		if pit_open(slot):
@@ -1565,7 +1558,7 @@ const PERMANENT_PITS: Array[int] = [PIT_MAGAZIN, PIT_MAGAZIN_TAIL0, PIT_MAGAZIN_
 	PIT_MAGAZIN_TAIL0 + 2, PIT_DRUM,
 	PIT_SHOP_BAY0, PIT_SHOP_BAY0 + 1, PIT_SHOP_BAY0 + 2, 2,
 	PIT_SHOP_BAY_TAIL0, PIT_SHOP_BAY_TAIL0 + 1,
-	PIT_SECRET_BAY0, PIT_SECRET_BAY0 + 1, PIT_SECRET_BAY0 + 2, PIT_TRAY,
+	PIT_TRAY,
 	PIT_OPENING, PIT_SOCKET, PIT_CHAMBER, PIT_NET_TRAY, PIT_ENERGY]
 
 func clear_lift_pits() -> void:
@@ -1644,11 +1637,6 @@ func _sync_reflection_windows() -> void:
 	if slot_bank_window != null and slot_bank_window.visible:
 		rects.append(Vector4(slot_bank_window.position.x, slot_bank_window.position.y,
 			slot_bank_window.position.x + slot_bank_window.size.x, slot_bank_window.position.y + slot_bank_window.size.y))
-		radii.append(10.0)
-	if secret_shop_window != null and secret_shop_window.visible:
-		rects.append(Vector4(secret_shop_window.position.x, secret_shop_window.position.y,
-			secret_shop_window.position.x + secret_shop_window.size.x,
-			secret_shop_window.position.y + secret_shop_window.size.y))
 		radii.append(10.0)
 	# Die WERKSTATT ist KEIN Fenster mehr: ihr Streifen hat seit 2026-09-03 keinen
 	# Schirm-Hintergrund, ihre Teile liegen auf dem Filz (wie der Kombi-Cluster).

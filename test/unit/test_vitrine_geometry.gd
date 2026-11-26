@@ -57,10 +57,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	assert_eq(TableScreen.PIT_MAGAZIN, 0)
 	assert_gt(TableScreen.PIT_SHOP_PACK0, TableScreen.PIT_MAGAZIN)
 	var slots := [
-		TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
 		TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
-		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT,
-		TableScreen.PIT_SECRET_THIRD]
+		TableScreen.PIT_SIDE_BET2, TableScreen.PIT_PAYOUT]
 	for i in TableScreen.QUEUE_PIT_COUNT:
 		slots.append(TableScreen.queue_pit(i))
 	slots.append(TableScreen.PIT_POOL)
@@ -72,8 +70,6 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		slots.append(TableScreen.shop_bay_pit(i))
 	for pit: int in TableScreen.SHOP_PACK_PITS:
 		slots.append(pit)
-	for i in TableScreen.SECRET_BAY_PIT_COUNT:
-		slots.append(TableScreen.PIT_SECRET_BAY0 + i)
 	slots.append(TableScreen.PIT_TRAY)
 	slots.append(TableScreen.PIT_OPENING)
 	slots.append(TableScreen.PIT_BAG)
@@ -83,7 +79,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	slots.append(TableScreen.PIT_SOCKET)
 	for slot: int in slots:
 		assert_lt(slot, TableScreen.MAX_PITS, "jeder Schacht hat seinen Platz")
-	assert_eq(slots.size(), TableScreen.MAX_PITS - 4, "und mehr gibt es nicht (33-35 frei)")
+	assert_eq(slots.size(), TableScreen.MAX_PITS - 10,
+		"und mehr gibt es nicht (3, 4, 9, 28-30 und 33-35 frei)")
 	# Die KAMMER haengt hinter den Schluck-Bahnen an (der Platz der toten Tischsektion).
 	assert_eq(TableScreen.PIT_CHAMBER,
 		TableScreen.swallow_pit(TableScreen.SWALLOW_PIT_COUNT - 1) + 1)
@@ -91,7 +88,7 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 	# umnummeriert wird - und keine teilt ihr Loch mit einer anderen: die
 	# Warteschlange fährt je Platz eine eigene Maschine (Fahrten überlappen),
 	# der Schluck je Grubenwürfel eine Bahn.
-	assert_gt(TableScreen.PIT_QUEUE0, TableScreen.PIT_SECRET_THIRD)
+	assert_gt(TableScreen.PIT_QUEUE0, TableScreen.PIT_PAYOUT)
 	assert_eq(TableScreen.PIT_QUEUE0, 10)
 	assert_eq(TableScreen.queue_pit(TableScreen.QUEUE_PIT_COUNT - 1) + 1,
 		TableScreen.PIT_POOL, "die Warteschlangen-Plätze liegen am Stück")
@@ -105,12 +102,10 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		TableScreen.PIT_CHAMBER - 1)
 	# Die Mulden der Kassetten-Plätze hängen ganz hinten an (2026-10-29).
 	assert_eq(TableScreen.shop_bay_pit(0), TableScreen.PIT_CHAMBER + 1)
-	assert_eq(TableScreen.PIT_SECRET_BAY0, TableScreen.shop_bay_pit(2) + 1)
 	# Die vierte Mulde nimmt den frei gewordenen Platz 2, die letzten zwei hängen hinten an.
 	assert_eq(TableScreen.shop_bay_pit(3), 2)
 	assert_eq(TableScreen.shop_bay_pit(4), TableScreen.PIT_OPENING + 1)
-	assert_eq(TableScreen.PIT_SECRET_BAY0 + TableScreen.SECRET_BAY_PIT_COUNT,
-		TableScreen.PIT_CHARM, "Platz 31 zieht seit 2026-11-18 die ausgeworfene Diskette ein")
+	assert_eq(TableScreen.PIT_CHARM, 31, "Platz 31 zieht seit 2026-11-18 die ausgeworfene Diskette ein")
 	assert_eq(TableScreen.PIT_CHARM + 1, TableScreen.PIT_TRAY)
 	assert_false(TableScreen.PERMANENT_PITS.has(TableScreen.PIT_CHARM), "ein Einzug ist kein Möbel")
 	assert_eq(TableScreen.PIT_TRAY + 4, TableScreen.PIT_OPENING, "33-35 sind frei")
@@ -153,19 +148,8 @@ func test_die_magazin_grube_bleibt_auf_platz_null() -> void:
 		seen.append(slot)
 	assert_eq(seen, [TableScreen.PIT_SIDE_BET0, TableScreen.PIT_SIDE_BET1,
 		TableScreen.PIT_SIDE_BET2])
-	# Der Schwarzmarkt fährt JEDES Stück aus seiner eigenen Sektion: drei Zonen,
-	# drei eigene Plätze - und der dritte hängt ans ENDE, damit Wett- und
-	# Auszahlungs-Plätze ihre Nummern behalten.
-	var secret := TableScreen.secret_pits()
-	assert_eq(secret.size(), 3, "drei Sektionen, drei Löcher")
-	assert_eq(secret, [TableScreen.PIT_SECRET_SHELF, TableScreen.PIT_SECRET_BOWL,
-		TableScreen.PIT_SECRET_THIRD])
-	assert_gt(TableScreen.PIT_SECRET_THIRD, TableScreen.PIT_PAYOUT,
-		"hinter die Wett- und Auszahlungs-Plätze gehängt")
-	for slot: int in secret:
-		assert_ne(slot, TableScreen.PIT_PAYOUT)
-		for i in SideBetPanel.OFFER_COUNT:
-			assert_ne(slot, TableScreen.side_bet_pit(i))
+	# Der Schwarzmarkt schneidet seit den Schubfächern (2026-11-26) kein Loch mehr.
+	assert_false(source.contains("PIT_SECRET"), "seine Plätze sind frei")
 
 # --- Die Plätze der Ware (reine Mathematik, keine Körper) ----------------------
 
@@ -673,8 +657,6 @@ func test_die_gewinn_beschriftung_hat_genau_eine_quelle() -> void:
 ## scene_root nennt sie, alle anderen bekommen sie GEMELDET.
 func test_die_wandhaut_hat_eine_quelle_und_deckt_jede_grube() -> void:
 	var root: String = FileAccess.get_file_as_string("res://scripts/scene_root.gd")
-	assert_true(root.contains("secret_vitrine.wall_skin = PIT_SKIN"),
-		"das Hinterzimmer trägt sie")
 	assert_true(root.contains("shaft.order_skin(PIT_SKIN)"),
 		"die Paket-Fläche des Ladens trägt sie")
 	assert_true(root.contains("pit.wall_color = MagazinTrayDress.wall_color(column)"),

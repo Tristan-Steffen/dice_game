@@ -1,95 +1,66 @@
 class_name SecretShopView
-extends Panel
-## Der Schwarzmarkt: eigenes Tisch-Fenster UNTER den Fumble-Automaten, offen ab
-## Runde 1. Bezahlt wird ausschließlich in Energie (⚡) - drei Plätze, jeder EINMAL
-## kaufbar, "Neu mischen" tauscht alle drei zum immer gleichen Preis.
-## Aufgeteilt ist das Fenster wie der Laden: Kopfstreifen und der feste
-## KARTEN-SITZ (genau EINE Charm-Karte - Charms sind digitale Ware) bleiben
-## Bildschirm, die WARE liegt körperlich in der Bucht daneben. Die zeichnet dieses
-## Fenster nie selbst; es meldet nur ihr Rechteck und ihren Inhalt, aufgestellt
-## wird sie von scene_root. Das löst nebenbei das Auflösungs-Problem der kleinen
-## Tasche: ein echter Würfel unter Glas rendert in Bildschirmauflösung.
-## Die AUSKUNFT spricht die Laden-Grammatik (nichts schwebt über der Ware):
-## die Charm-Karte tauscht beim Hover ihr Modell gegen den vollen Wirkungstext,
-## unter jedem Bucht-Stück STEHT sein Schild (Seelen-Zeile beim Würfel, ⚡-Preis
-## bei allem - set_bay_plates, die Plätze meldet scene_root), und der INFO-FUSS
-## am Fensterboden trägt beim Hover Name und Wirkung des Stücks an IMMER
-## derselben Stelle (show_bay_annotation; seine Schlüsselwörter sind Klickziele).
-## Zustands-Mutation läuft ausschließlich über GameRun (buy_secret_offer/
-## reroll_secret_stock); die Anzeige folgt secret_stock_changed und
-## energy_changed. Geschlossen wird wie bei jedem Fenster per Rechtsklick.
+extends Control
+## Der SCHWARZMARKT auf dem Grundriß der Automaten (seit 2026-11-26): ein Bauteil aus
+## Gehäuse und drei SCHUBFÄCHERN, Fach i trägt Angebot i. Das Fenster malt nichts - es
+## MELDET die Teile in Stations-Einheiten und je Fach Name, Preis und Zustand als reine
+## Daten; den Körper (SecretShopBody) stellt scene_root. Unsichtbare Knöpfe über Fächern
+## und den Neuwurf-Tasten der Nasen tragen den Klick. Gebucht wird ausschließlich über GameRun.
 
-## Energie ist für den Laden geflossen (Kauf oder Neuwurf) - scene_root schickt sie
-## als Kometen über die Hinterzimmer-Ader. Erst gebucht, dann gemeldet.
+## Energie ist geflossen (Kauf oder Neuwurf) - erst gebucht, dann gemeldet.
 signal energy_spent(amount: int)
-## Versiegelte Ware ist gekauft (eine Karte, nie mehr): sie liegt schon
-## im Magazin, scene_root fährt sie nur noch dorthin.
+## Eine Karte ist gekauft: sie liegt schon im Magazin.
 signal goods_purchased(uids: Array[int])
-## Ein Seelenwürfel ist gekauft: er liegt schon im Ausgabefach, scene_root fährt
-## ihn nur noch dorthin. Kein Paket - ein Würfel wird nie versiegelt.
+## Ein Seelenwürfel ist gekauft: er liegt schon in pending_dice.
 signal die_purchased(def: DieDefinition)
-## Ein Modul ist gekauft: es wartet in pending_parts, scene_root schickt das Licht.
+## Ein Modul ist gekauft: es wartet in pending_parts.
 signal part_purchased(part: ComboPart)
-## Die Auslage der Bucht hat sich geändert (Wurf, Kauf, Freischaltung).
-signal vitrine_changed
-## Ein Schlüsselwort auf dem Info-Fuß wurde geklickt - scene_root schlägt das
-## Lexikon auf.
-signal lexikon_requested(entry_id: String)
-## Eine Powerbank ist gekauft (gebucht): scene_root fliegt ihre Kartusche von der Karte
-## (Display-Pixel) in ihr Dock.
+## Eine Powerbank ist gekauft (Display-Pixel des Fachs).
 signal powerbank_purchased(from_px: Vector2)
-## Gleich wird der Charm am Kartensitz gebucht: seine Diskette fliegt zum Laufwerk.
+## Gleich wird Fach index gebucht - vor charm_buying/projector_buying.
+signal offer_buying(index: int)
+## Gleich wird der Charm gebucht: seine Diskette fliegt zum Projektor.
 signal charm_buying
-## Der Projektor wird gleich gebucht: scene_root schickt seinen Körper an den Port.
+## Gleich wird der Projektor gebucht: sein Körper fliegt an den Port.
 signal projector_buying
 
-## Hinterzimmer-Palette: dunkler als der Laden, Akzent ist das Violett der
-## legendären Rarität.
-const VIOLET := Color(0.75, 0.35, 1.0)
-const ENERGY_COLOR := CasinoStyle.ENERGY
-const NEON_TEXT := Color(1.35, 1.35, 1.3)
-const NEON_MUTED := Color(0.72, 0.74, 0.86)
-const BACKROOM_BG := Color("#0b0918e6")
-const CARD_BG := Color("#150f2acc")
+const BAYS := 3
+## Der Grundriß in Stations-Einheiten (= Welt bei unit() = Pixel je Welt).
+const UNITS := Vector2(28.0, 19.05)
+const BAY_PITCH := 9.4
+## Innenmaß eines Fachs: der größte Körper (Projektor samt Kabel) liegt ganz darin.
+const BAY_INNER := Vector2(8.7, 8.7)
+const BAY_RIM := 0.25
+const BAY_Y := -1.35
+## Die Teile als (Mitte x, Mitte y, Breite, Höhe) in Stations-Einheiten, y Bild-OBEN;
+## je Fach "bay<i>" (Schale samt Rand, ausgefahren), "nose<i>", "label<i>" und die
+## Neuwurf-Taste "reroll<i>" auf der Nase (ausgefahren gemessen).
+const PARTS := {
+	"housing": Rect2(0.0, 6.3375, 28.0, 6.175),
+	"info": Rect2(0.0, 7.1, 26.8, 4.25),
+	"label0": Rect2(-9.4, 4.2, 8.6, 0.95),
+	"label1": Rect2(0.0, 4.2, 8.6, 0.95),
+	"label2": Rect2(9.4, 4.2, 8.6, 0.95),
+	"bay0": Rect2(-9.4, -1.35, 9.2, 9.2),
+	"bay1": Rect2(0.0, -1.35, 9.2, 9.2),
+	"bay2": Rect2(9.4, -1.35, 9.2, 9.2),
+	"nose0": Rect2(-9.4, -6.95, 9.2, 2.0),
+	"nose1": Rect2(0.0, -6.95, 9.2, 2.0),
+	"nose2": Rect2(9.4, -6.95, 9.2, 2.0),
+	"reroll0": Rect2(-6.3, -6.95, 2.0, 1.2),
+	"reroll1": Rect2(3.1, -6.95, 2.0, 1.2),
+	"reroll2": Rect2(12.5, -6.95, 2.0, 1.2),
+	# Rechts neben dem Gehäuse auf halber Höhe: dort mündet die Hub-Ader.
+	"contacts": Rect2(14.45, 0.0, 0.9, 1.1),
+}
 
-## Breite des Karten-Sitzes in Einheiten. Er steht FEST - ob eine Karte darin
-## liegt oder der legendäre Topf erschöpft ist, ändert die Aufteilung nie.
-const CARD_SEAT_WIDTH := 28.0
-## Die Diskette liegt in ihrer EINEN Größe am Sitz: er ist mindestens so breit, und unter
-## ihr steht der Preis.
-const CHARM_SEAT_ROOM := 1.08
-const CHARM_TAG_UNITS := 4.4
-
-## Bauhöhe des Inhalts in Einheiten. Seit der Schwarzmarkt in den vom
-## TOPF-Rückbau freigegebenen Filz gewachsen ist (~786×437 px), bindet weiter
-## die BREITE (54 liegt knapp unter dem Fenster-Seitenverhältnis 1,8) - die
-## Einheit ist Schriftgröße in Textur-Pixeln, größer trägt das Fenster nicht.
-const CONTENT_UNITS := 54.0
-
-## Der INFO-FUSS: das feste Band am Fensterboden, in dem die Auskunft des
-## berührten Bucht-Stücks steht - Laden-Grammatik, nichts schwebt über der Ware.
-## Unsichtbar, solange nichts berührt ist (kein Rahmen, keine Leerlauf-Zeile).
-const FOOT_UNITS := 12.0
-const FOOT_TITLE_FONT := 2.5
-## Der Fuß VERWEILT nach dem Verlassen des Stücks und fadet dann aus - so kann der
-## Zeiger vom Würfel auf das Netz wandern (dessen Zellen-Hover). Wer den Fuß in
-## dieser Zeit erreicht, hält ihn (foot_hover bricht den Fade ab).
-const FOOT_LINGER_TIME := 0.5
-const FOOT_FADE_TIME := 0.3
-## Grad-Leiter des Fuß-Textes: der erste Schritt, in dem der Text umgebrochen in
-## den Fuß passt (gemessen über wrapped_height, am NACKTEN Text - BBCode ist
-## keine Type).
-const FOOT_BODY_STEPS := [2.2, 1.9, 1.65, 1.4]
-
-## Die STEHENDEN Schilder der Bucht: Abstand unter dem Stück-Anker und Grade.
-## Gehängt wird die PREISZEILE, nicht der Kopf des Schildes (Spieler-Entscheid
-## 2026-09-04): so steht der Preis bei Würfel wie Kassette auf DERSELBEN Höhe, und
-## er steht tief genug, dass die liegende Karte ihn nicht mehr verdeckt (gemessen:
-## halbe Kartentiefe 44,3 px = 5,6 u). Seit die Karte in einer Mulde liegt
-## (2026-10-29), hängt er eine Spur tiefer - das Loch ist breiter als die Karte.
-const PLATE_PRICE_DROP_UNITS := 8.4
-const PLATE_SOUL_FONT := 2.2
-const PLATE_PRICE_FONT := 2.6
+const STATE_AFFORD := "bezahlbar"
+const STATE_DEAR := "zu teuer"
+const STATE_BLOCKED := "voll"
+const STATE_SOLD := "verkauft"
+const STATE_EMPTY := "leer"
+const EMPTY_NAME := "— — —"
+const SOLD_NAME := "VERKAUFT"
+const IDLE_TITLE := "SCHWARZMARKT"
 
 var run: GameRun:
 	set(value):
@@ -104,532 +75,166 @@ var run: GameRun:
 		if run != null:
 			run.secret_stock_changed.connect(_on_run_changed)
 			run.energy_changed.connect(_on_energy_changed)
-			run.charms_changed.connect(_on_run_changed)  # der Charm-Platz sperrt am vollen Dock
-		_seen_rolls = -1  # frischer Lauf: die erste Auslage rollt wieder an
+			run.charms_changed.connect(_on_run_changed)
 		refresh()
 
-## Einheit aus BEIDEN Achsen (in refresh gesetzt).
-var u := 4.0
-
-var wallet_label: Label
-## Der feste Sitz der EINEN Karte (Bildschirm) und daneben das Feld der Bucht.
-var card_seat: Control
-## Grundriß der liegenden Charm-Diskette in Display-Pixeln (meldet scene_root).
-var charm_disk_px := Vector2.ZERO:
-	set(value):
-		charm_disk_px = value
-		if card_seat != null and is_instance_valid(card_seat):
-			card_seat.custom_minimum_size = _card_seat_size()
-
-func _card_seat_size() -> Vector2:
-	return Vector2(maxf(u * CARD_SEAT_WIDTH, charm_disk_px.x * CHARM_SEAT_ROOM),
-		charm_disk_px.y + u * CHARM_TAG_UNITS)
-var vitrine_slot: Control
-var reroll_button: Button
-## Der Sitz des Projektor-Angebots über der ganzen Bucht (null = keins liegt aus).
-var projector_card: Button
-## Die Karte der Powerbank in der rechten Hälfte der Bucht (null = keine liegt aus).
-var powerbank_card: Button
-const POWERBANK_CARD_UNITS := Vector2(27.0, 17.0)
-## Index-treu zur Auslage: je Platz ein Knopf oder null - was körperlich in der
-## Bucht liegt, hat auf dem Bildschirm keinen (die Lücken halten die Indizes).
-var offer_buttons: Array[Button] = []
-
-## Ob der Zeiger auf der Charm-Karte liegt (gemeldet je Bild von scene_root):
-## dann trägt der INFO-FUSS ihren Text, wie bei der Bucht-Ware. Die Karte selbst
-## behält ihr Modell - nichts schwebt, alles steht im festen Fuß.
-var _charm_hovered := false
-
-## Der INFO-FUSS und die stehenden Bucht-Schilder.
-var info_foot: Control
-var foot_net: CenterContainer
-var foot_title: Label
-var foot_body: LexikonText
-## Die Würfel-Auskunft des Fußes - bei einem Würfel steht sie statt des Texts.
-var foot_die: DieInfoBand
-var _foot_key := ""
-## Das Netz im Fuß ist HOVERBAR: gemerkt werden sein Würfel, sein Zellmaß, sein
-## Körper (das Rechteck sitzt mittig im Container) und die zuletzt gezeigte Zelle -
-## nur der WECHSEL schreibt.
-var _foot_net_def: DieDefinition = null
-var _foot_net_body: Control = null
-var _foot_net_cell_px := 0.0
-var _foot_face := -1
-## Der nackte Beschreibungstext, auf den die Zelle zurückfällt.
-var _foot_body_naked := ""
-var _foot_body_width := 100.0
-## Der eigene Lexikon-Eintrag der gezeigten Ware (ihr Name verweist nicht auf sich).
-var _foot_own := ""
-## Der laufende Verweil-/Fade-Tween des Fußes (null = er steht oder ist leer).
-var _foot_fade_tween: Tween = null
-var _plate_layer: Control
-var _plate_signature := ""
-
-var _built := false
-## Zuletzt gesehener Wurf-Stand (-1 = noch keiner). Ein WURF rollt die
-## Ware an, ein Kauf lässt sie liegen - mehr entscheidet den Grad nicht.
-var _seen_rolls := -1
-var _vitrine_grade := ShopController.GRADE_STAND
-## Was körperlich in der Bucht liegt, je Auslage-Platz (null = kein solches Stück).
-var _bay_packs: Array = []
-var _bay_dice: Array = []
-var _bay_parts: Array = []
-## Die Bucht-Sorte je Platz, UNABHÄNGIG vom Verkauf ("" = Karten-Sitz): daran
-## rechnet die Reihe ihre Plätze, damit ein Kauf die übrige Ware nicht verrückt.
-var _bay_kinds: Array = []
+## Je Fach ein unsichtbarer Knopf über Schale und Nase und einer über seiner Neuwurf-Taste.
+var bay_buttons: Array[Button] = []
+var reroll_buttons: Array[Button] = []
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_IGNORE  # die Knöpfe fangen selbst
-	clip_contents = true
-	add_theme_stylebox_override("panel", _window_box())
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-## Fensterrahmen in Hinterzimmer-Farben: Form und Radius wie jedes Tisch-Fenster,
-## nur Füllung dunkler und Saum violett.
-func _window_box() -> StyleBoxFlat:
-	var box := TableScreen.window_style()
-	box.bg_color = BACKROOM_BG
-	box.border_color = Color(VIOLET.r, VIOLET.g, VIOLET.b, 0.75)
-	return box
+## Pixel je Stations-Einheit (die knappere Achse gewinnt).
+func unit() -> float:
+	return minf(size.x / UNITS.x, size.y / UNITS.y)
 
-## scene_root/TableScreen nach Platzierung und Zustandswechseln: Gerüst in der
-## aktuellen Fenstergröße, dann die Auslage.
+## Ein Teil in eigenen Pixeln.
+func part_rect(key: String) -> Rect2:
+	var part: Rect2 = PARTS[key]
+	var k := unit()
+	var mid := size * 0.5 + Vector2(part.position.x, -part.position.y) * k
+	return Rect2(mid - part.size * k * 0.5, part.size * k)
+
+func bay_rect(i: int) -> Rect2:
+	return part_rect("bay%d" % clampi(i, 0, BAYS - 1))
+
+func nose_rect(i: int) -> Rect2:
+	return part_rect("nose%d" % clampi(i, 0, BAYS - 1))
+
+func label_rect(i: int) -> Rect2:
+	return part_rect("label%d" % clampi(i, 0, BAYS - 1))
+
+func info_rect() -> Rect2:
+	return part_rect("info")
+
+## Die Neuwurf-Taste fährt mit der Nase: eingefahren steht sie eine Fachtiefe weiter oben.
+func reroll_rect(i: int) -> Rect2:
+	var rect := part_rect("reroll%d" % clampi(i, 0, BAYS - 1))
+	if not bay_open(i):
+		rect.position.y -= bay_rect(i).size.y
+	return rect
+
+## Schale und Nase eines Fachs: dort kauft der Klick, dort fragt der Zeiger.
+func bay_hit_rect(i: int) -> Rect2:
+	return bay_rect(i).merge(nose_rect(i))
+
+## Alle Teile in eigenen Pixeln.
+func layout() -> Dictionary:
+	var out := {}
+	for key: String in PARTS:
+		out[key] = part_rect(key)
+	return out
+
+## Das Fach unter einem eigenen Pixel (-1 = keins; nur offene Fächer zählen).
+func bay_at(local_px: Vector2) -> int:
+	for i in BAYS:
+		if bay_open(i) and bay_hit_rect(i).has_point(local_px):
+			return i
+	return -1
+
 func refresh() -> void:
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
-	_build_layout()
-	_refresh_offers()
+	_build_buttons()
+	_refresh_buttons()
 
-# --- Gerüst -------------------------------------------------------------------
+# --- Zustand je Fach (reine Daten) ----------------------------------------------------
 
-func _build_layout() -> void:
-	for child in get_children():
-		child.queue_free()
-	offer_buttons.clear()
-	_charm_hovered = false
-	# Der alte Fuß wird gleich frei - sein Fade darf kein totes Ziel treiben.
-	if _foot_fade_tween != null and _foot_fade_tween.is_valid():
-		_foot_fade_tween.kill()
-	_foot_fade_tween = null
-	_foot_key = ""
-	_foot_body_naked = ""
-	_foot_net_def = null
-	_foot_net_body = null
-	_foot_face = -1
-	_plate_signature = ""
-	u = minf(size.x / 100.0, size.y / CONTENT_UNITS)
-	_built = true
+## Ob Fach i ausgefahren steht: es trägt eine unverkaufte Ware.
+func bay_open(i: int) -> bool:
+	return run != null and i >= 0 and i < run.secret_stock.size() \
+		and not bool(run.secret_stock[i][GameRun.OFFER_SOLD])
 
-	var margin := MarginContainer.new()
-	margin.name = "Margin"
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_theme_constant_override("margin_left", int(u * 3.0))
-	margin.add_theme_constant_override("margin_right", int(u * 3.0))
-	margin.add_theme_constant_override("margin_top", int(u * 2.4))
-	margin.add_theme_constant_override("margin_bottom", int(u * 2.4))
-	add_child(margin)
-
-	var root := VBoxContainer.new()
-	root.name = "Root"
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_theme_constant_override("separation", int(u * 1.4))
-	margin.add_child(root)
-
-	# Kopfstreifen: Titel, Börse und der Neuwurf. Der alte Fuß ist weg - seine
-	# Höhe gehört jetzt der Bucht, und der Misch-Knopf steht ohnehin zum Titel.
-	var header := HBoxContainer.new()
-	header.name = "Header"
-	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_theme_constant_override("separation", int(u * 1.2))
-	root.add_child(header)
-	header.add_child(CasinoStyle.label("SCHWARZMARKT", u * 3.6, Color(1.35, 0.7, 1.7)))
-	var gap := Control.new()
-	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(gap)
-	wallet_label = CasinoStyle.label("⚡ 0/0", u * 3.6, ENERGY_COLOR)
-	wallet_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	header.add_child(wallet_label)
-	reroll_button = _neon_button("Neu mischen", VIOLET, u * 2.3, Vector2(u * 20.0, u * 6.2))
-	reroll_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	reroll_button.pressed.connect(_on_reroll_pressed)
-	header.add_child(reroll_button)
-	projector_card = null
-	powerbank_card = null
-
-	# Darunter die zwei Zonen: links der Karten-Sitz (Bildschirm), rechts die Bucht.
-	var body := HBoxContainer.new()
-	body.name = "Body"
-	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.add_theme_constant_override("separation", int(u * 1.8))
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(body)
-
-	card_seat = Control.new()
-	card_seat.name = "CardSeat"
-	card_seat.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card_seat.custom_minimum_size = _card_seat_size()
-	body.add_child(card_seat)
-
-	# Die Bucht bekommt den Rest der Zeile. Gemalt wird allein die FASSUNG - die
-	# Mitte ist frei, denn dort steht die Ware auf der Fläche.
-	vitrine_slot = Control.new()
-	vitrine_slot.name = "Vitrine"
-	vitrine_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vitrine_slot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vitrine_slot.add_child(_vitrine_frame())
-	body.add_child(vitrine_slot)
-
-	_build_info_foot(root)
-	# Die stehenden Schilder liegen als eigene Schicht ÜBER der Bucht (absolut
-	# gestellt, außerhalb des Layouts).
-	_plate_layer = Control.new()
-	_plate_layer.name = "BayPlates"
-	_plate_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_plate_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_plate_layer)
-
-# --- Die Bucht (gemeldete Geometrie, nie gezeichneter Inhalt) ------------------
-
-## Das Buchten-Rechteck in globalen Display-Pixeln (leeres Rect = noch keins).
-func vitrine_rect_px() -> Rect2:
-	if vitrine_slot == null or not is_instance_valid(vitrine_slot):
-		return Rect2()
-	return vitrine_slot.get_global_rect()
-
-## Das FELD darin: der Streifen ohne seine gemalte Fassung - dieselbe Rechnung wie
-## am Magazin und in der Laden-Bucht.
-func vitrine_pit_rect() -> Rect2:
-	var strip := vitrine_rect_px()
-	if strip.size.x <= 0.0 or strip.size.y <= 0.0:
-		return Rect2()
-	return PackDrawerView.pit_rect_in(strip, u)
-
-## Maßeinheit der Bucht-Beschriftung. Bewusst DIE DES FENSTERS: die Tasche ist
-## die kleinste des Tisches, und eine an der Buchtbreite hängende Einheit
-## schriebe dort kleiner als das Fenster selbst.
-func vitrine_unit() -> float:
-	return u
-
-## Die FASSUNG der Bucht - Rahmen ohne Füllung, Rezeptur aus der Magazin-Fassung.
-func _vitrine_frame() -> Panel:
-	var well := Panel.new()
-	well.name = "VitrineWell"
-	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	well.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var radius := int(u * PackDrawerView.RADIUS)
-	var box := StyleBoxFlat.new()
-	box.draw_center = false
-	box.border_color = PackDrawerView.RIM_BASE
-	box.set_border_width_all(maxi(2, int(u * PackDrawerView.RIM_WIDTH)))
-	box.set_corner_radius_all(radius)
-	well.add_theme_stylebox_override("panel", box)
-	var edge := maxi(2, int(u * PackDrawerView.EDGE))
-	well.add_child(PackDrawerView.edge_band("VitrineShade",
-		PackDrawerView.WELL_SHADOW, edge, radius, true))
-	well.add_child(PackDrawerView.edge_band("VitrineSheen",
-		PackDrawerView.WELL_SHEEN, edge, radius, false))
-	return well
-
-# --- Der INFO-FUSS -------------------------------------------------------------
-
-## Das feste Band am Fensterboden: links Name und Wirkung, RECHTS (nur beim Würfel)
-## das Netz - dort, wo der Würfel selbst liegt. Unsichtbar, solange nichts berührt ist.
-func _build_info_foot(root: Container) -> void:
-	var foot := HBoxContainer.new()
-	foot.name = "InfoFoot"
-	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	foot.add_theme_constant_override("separation", int(u * 1.8))
-	foot.custom_minimum_size = Vector2(0.0, u * FOOT_UNITS)
-	root.add_child(foot)
-	info_foot = foot
-
-	var column := VBoxContainer.new()
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_theme_constant_override("separation", int(u * 0.4))
-	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	foot.add_child(column)
-
-	foot_net = CenterContainer.new()
-	foot_net.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	foot_net.visible = false
-	foot.add_child(foot_net)
-
-	foot_title = CasinoStyle.label("", u * FOOT_TITLE_FONT, CasinoStyle.GOLD)
-	foot_title.clip_text = true
-	foot_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	foot_title.visible = false
-	column.add_child(foot_title)
-
-	# Die Schlüsselwörter sind Klickziele (Wort-Labels, siehe LexikonText).
-	foot_body = LexikonText.new()
-	foot_body.entry_requested.connect(func(id: String) -> void: lexikon_requested.emit(id))
-	foot_body.attach_hint(self, u * 0.9)
-	foot_body.visible = false
-	column.add_child(foot_body)
-	foot_die = DieInfoBand.new()
-	foot_die.visible = false
-	column.add_child(foot_die)
-
-## Netz-Zellenmaß des Fußes: drei Kreuz-Zeilen müssen in das Band passen.
-func _foot_net_cell() -> float:
-	return (u * FOOT_UNITS - u * 1.0) / 3.0
-
-## Die Auskunft des berührten Stücks in den Fuß schreiben. data kommt von
-## vitrine_annotation; der Anker wird bewusst ignoriert - der Fuß STEHT, nichts
-## schwebt über der Ware. Je Bild gerufen, gebaut nur beim Wechsel.
-func show_bay_annotation(data: Dictionary, _anchor: Vector2) -> void:
-	if not _built or info_foot == null or not is_instance_valid(info_foot):
-		return
-	_kill_foot_fade()  # ein neuer Hover hält den Fuß - auch mitten im Ausblenden
-	var naked := String(data.get("body", ""))
-	var key := "%s|%s" % [String(data.get("title", "")), naked]
-	if key == _foot_key:
-		_restore_foot_body()  # der Netz-Hover hat den Body vielleicht getauscht
-		return
-	_foot_key = key
-	_foot_body_naked = naked
-	_foot_own = String(data.get("own", ""))
-	_foot_face = -1
-	foot_title.text = String(data.get("title", ""))
-	foot_title.visible = foot_title.text != ""
-	for child in foot_net.get_children():
-		foot_net.remove_child(child)
-		child.queue_free()
-	_foot_net_body = null
-	var net_def: DieDefinition = data.get("net")
-	_foot_net_def = net_def
-	foot_net.visible = net_def != null
-	var cell := _foot_net_cell()
-	_foot_net_cell_px = cell
-	if net_def != null:
-		_foot_net_body = DieNetView.build(net_def, -1, cell)
-		foot_net.add_child(_foot_net_body)
-	# Grad des Wirkungstexts: der erste Leiter-Schritt, der umgebrochen unter den
-	# Titel passt - gemessen am nackten Text (BBCode ist keine Type).
-	var body_width := size.x - u * 6.0 - (cell * 4.0 + u * 1.8 if net_def != null else 0.0)
-	var font := ThemeDB.fallback_font
-	var title_h := u * FOOT_TITLE_FONT * 1.4
-	if font != null:
-		title_h = font.get_height(maxi(8, int(u * FOOT_TITLE_FONT)))
-	var room := u * FOOT_UNITS - title_h - u * 0.4
-	var grade := maxi(8, int(u * float(FOOT_BODY_STEPS[FOOT_BODY_STEPS.size() - 1])))
-	if font != null:
-		for step in FOOT_BODY_STEPS:
-			var px := maxi(8, int(u * float(step)))
-			if ShopController.wrapped_height(font, naked, body_width, px, 0) <= room:
-				grade = px
-				break
-	_foot_body_width = body_width
-	foot_body.set_style(grade, CasinoStyle.CREAM, 2, CasinoStyle.INK)
-	foot_die.custom_minimum_size = Vector2(body_width, maxf(room, 1.0))
-	_write_foot_body()
-
-## Der Fuß räumt NICHT sofort: er verweilt FOOT_LINGER_TIME und fadet dann in
-## FOOT_FADE_TIME aus - der Zeiger darf unterwegs sein (Stück → Netz-Zellen).
-## Je Bild gerufen, gestartet nur beim ÜBERGANG (ein laufender Tween bleibt).
-## immediate ist der harte Weg (Vorhangfall, Laufwechsel): sofort leer.
-func hide_bay_annotation(immediate := false) -> void:
-	if not _built or info_foot == null or not is_instance_valid(info_foot):
-		return
-	if immediate:
-		_kill_foot_fade()
-		_clear_foot()
-		return
-	if _charm_hovered:
-		return  # die Karte hält den Fuß - der Bucht-Fluss räumt ihn nicht
-	if not (foot_title.visible or foot_body.visible or foot_net.visible):
-		return  # schon leer
-	if _foot_fade_tween != null and _foot_fade_tween.is_valid():
-		return  # die Verweilzeit läuft schon
-	_foot_fade_tween = create_tween()
-	_foot_fade_tween.tween_interval(FOOT_LINGER_TIME)
-	_foot_fade_tween.tween_property(info_foot, "modulate:a", 0.0, FOOT_FADE_TIME)
-	_foot_fade_tween.tween_callback(_clear_foot)
-
-## Der Fade ist abgebrochen: der Fuß steht wieder voll da.
-func _kill_foot_fade() -> void:
-	if _foot_fade_tween != null and _foot_fade_tween.is_valid():
-		_foot_fade_tween.kill()
-	_foot_fade_tween = null
-	if info_foot != null and is_instance_valid(info_foot):
-		info_foot.modulate.a = 1.0
-
-## Endzustand des Ausblendens - und der eine harte Leer-Schreiber.
-func _clear_foot() -> void:
-	_foot_fade_tween = null
-	_foot_key = ""
-	_foot_body_naked = ""
-	_foot_net_def = null
-	_foot_net_body = null
-	_foot_face = -1
-	foot_title.visible = false
-	foot_body.visible = false
-	foot_die.visible = false
-	foot_die.clear()
-	foot_net.visible = false
-	if info_foot != null and is_instance_valid(info_foot):
-		info_foot.modulate.a = 1.0
-
-## Der Zeiger steht auf dem Fuß (globaler Display-Pixel): liegt er auf einer
-## NETZ-ZELLE, zeigt die Würfel-Auskunft diese Seite, sonst wieder den Würfel. Je Bild gerufen,
-## geschrieben nur beim Zellen-WECHSEL.
-func foot_hover(px: Vector2) -> void:
-	if not _built or foot_body == null or not is_instance_valid(foot_body):
-		return
-	_kill_foot_fade()  # der Zeiger STEHT auf dem Fuß - er bleibt
-	var face := -1
-	if _foot_net_def != null and _foot_net_body != null \
-			and is_instance_valid(_foot_net_body) and foot_net.visible:
-		var rect := _foot_net_body.get_global_rect()
-		if rect.has_point(px):
-			face = DieNetView.face_at(px - rect.position, _foot_net_cell_px)
-	if face == _foot_face:
-		return
-	_foot_face = face
-	_write_foot_body()
-
-## Der Body fällt auf die Beschreibung zurück, falls der Netz-Hover ihn getauscht hat.
-func _restore_foot_body() -> void:
-	if _foot_face == -1:
-		return
-	_foot_face = -1
-	_write_foot_body()
-
-func _write_foot_body() -> void:
-	# Ein Würfel spricht über die EINE Würfel-Auskunft, alles andere über den Text.
-	if _foot_net_def != null:
-		foot_body.visible = false
-		foot_die.show_info(_foot_net_def, _foot_face)
-		foot_die.visible = true
-		return
-	foot_die.visible = false
-	_set_foot_body(_foot_body_naked)
-
-## Wort-Labels haben kein eigenes Maß - die Spalte bekommt die gesetzte Höhe.
-func _set_foot_body(text_in: String) -> void:
-	foot_body.set_source(text_in, _foot_own)
-	foot_body.custom_minimum_size = Vector2(_foot_body_width,
-		foot_body.measure(_foot_body_width, foot_body.font_px))
-	foot_body.visible = text_in != ""
-
-## Der Zeiger liegt auf der Charm-Karte (gemeldet je Bild): dann trägt der Fuß
-## Name und Wirkung des Charms - dieselbe Auskunft wie bei der Bucht-Ware, an
-## IMMER derselben Stelle. Beim Verlassen räumt der normale Bucht-Fluss den Fuß
-## (hide/holds), damit der Wechsel Karte→Ware weich bleibt.
-func hover_charm(hovered: bool) -> void:
-	_charm_hovered = hovered and card_slot_index() >= 0
-	if _charm_hovered:
-		show_bay_annotation(charm_foot_data(), Vector2.ZERO)
-
-## Das Rechteck des Karten-Sitzes in globalen Display-Pixeln (leer = kein Charm
-## sitzt dort). scene_root fragt je Bild, ob der Zeiger darauf liegt.
-func charm_seat_rect_px() -> Rect2:
-	if not _built or card_seat == null or not is_instance_valid(card_seat) \
-			or card_slot_index() < 0:
-		return Rect2()
-	return card_seat.get_global_rect()
-
-## Die Fuß-Auskunft des Charms am Sitz: Name und volle Wirkung, dieselbe
-## Grammatik wie vitrine_annotation (nur ohne Preis - der steht auf der Karte).
-func charm_foot_data() -> Dictionary:
-	var seat := card_slot_index()
-	if run == null or seat < 0:
+func offer_at(i: int) -> Dictionary:
+	if run == null or i < 0 or i >= run.secret_stock.size():
 		return {}
-	var charm: Charm = run.secret_stock[seat][GameRun.OFFER_ITEM]
-	return {"title": charm.display_name, "body": charm.description, "own": "charm:%s" % charm.id}
+	return run.secret_stock[i]
 
-## Ob der globale Display-Pixel auf dem GEFÜLLTEN Fuß liegt. Der Zeiger muss vom
-## Stück auf seine Auskunft wandern dürfen - die Schlüsselwörter sind Klickziele -,
-## sonst verschwände sie unter ihm.
-func bay_annotation_has_point(px: Vector2) -> bool:
-	if not _built or info_foot == null or not is_instance_valid(info_foot) \
-			or not (foot_title.visible or foot_body.visible):
-		return false
-	return info_foot.get_global_rect().has_point(px)
+## Name, Preis und Zustand eines Fachs - was das Schild, die Nase und die Leiste tragen.
+func bay_state(i: int) -> Dictionary:
+	var offer := offer_at(i)
+	if offer.is_empty():
+		return {"kind": "", "item": null, "name": EMPTY_NAME, "price": "", "state": STATE_EMPTY,
+			"open": false}
+	var sold := bool(offer[GameRun.OFFER_SOLD])
+	var price := run.secret_offer_price(offer)
+	var state := STATE_SOLD if sold else (STATE_BLOCKED if _offer_blocked(offer)
+		else (STATE_AFFORD if run.energy >= price else STATE_DEAR))
+	return {"kind": String(offer[GameRun.OFFER_KIND]), "item": offer[GameRun.OFFER_ITEM],
+		"name": SOLD_NAME if sold else ware_name(offer), "price": "" if sold else str(price),
+		"state": state, "open": not sold}
 
-# --- Die stehenden Bucht-Schilder ----------------------------------------------
+## Der Name einer Ware auf ihrem Schild.
+static func ware_name(offer: Dictionary) -> String:
+	var item: Variant = offer.get(GameRun.OFFER_ITEM)
+	match String(offer.get(GameRun.OFFER_KIND, "")):
+		GameRun.KIND_CHARM:
+			return (item as Charm).display_name
+		GameRun.KIND_DIE:
+			var die := item as DieDefinition
+			if die.essence_id != "":
+				return "%s-Würfel" % Essence.by_id(die.essence_id).display_name
+			return "Würfel"
+		GameRun.KIND_PART:
+			return (item as ComboPart).display_name
+		GameRun.KIND_PROJECTOR:
+			return "Projektor"
+		GameRun.KIND_POWERBANK:
+			return "Powerbank"
+	return (item as Pack).display_name if item is Pack else ""
 
-## Die STEHENDEN Schilder der Bucht - die Laden-Grammatik "Hinsehen braucht
-## keinen Zeiger": unterm Würfel seine Seelen-Zeile plus ⚡-Preis, unter jeder
-## versiegelten Kassette ihr ⚡-Preis (versiegelt wirbt nicht mit Inhalt; Sorte
-## und Größe trägt die FARBE der Karte). Volles Lager schreibt VOLL in Rot statt des
-## Preises. entries = [{kind, index, px}] mit GLOBALEN Display-Pixeln - die
-## Plätze meldet scene_root, das Fenster fasst nie Körper an. Je Bild gerufen,
-## gebaut nur bei Änderung (Signatur).
-func set_bay_plates(entries: Array) -> void:
-	if not _built or _plate_layer == null or not is_instance_valid(_plate_layer):
-		return
-	var signature := ""
-	for entry: Dictionary in entries:
-		var px: Vector2 = entry["px"]
-		# Der PREIS gehört in die Signatur: ein Hehlerware-Rabatt kann sich ändern,
-		# ohne dass Energie oder Plätze sich rühren (Charm mit Geld gekauft).
-		var index := int(entry["index"])
-		var price := -1
-		if run != null and index >= 0 and index < run.secret_stock.size():
-			price = run.secret_offer_price(run.secret_stock[index])
-		signature += "%s:%d:%d,%d:%d;" % [String(entry["kind"]), index,
-			int(px.x), int(px.y), price]
-	if run != null:
-		signature += "|%d|%d|%s" % [run.energy, run.pack_room(), run.charms_full()]
-	if signature == _plate_signature:
-		return
-	_plate_signature = signature
-	for child in _plate_layer.get_children():
-		_plate_layer.remove_child(child)
-		child.queue_free()
-	if run == null:
-		return
-	var origin := get_global_rect().position
-	var field := vitrine_rect_px()
-	for entry: Dictionary in entries:
-		var index := int(entry["index"])
-		if index < 0 or index >= run.secret_stock.size():
-			continue
-		var offer: Dictionary = run.secret_stock[index]
-		if bool(offer[GameRun.OFFER_SOLD]):
-			continue
-		var plate := VBoxContainer.new()
-		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		plate.add_theme_constant_override("separation", int(u * 0.1))
-		if String(entry["kind"]) == ShopController.KIND_DIE:
+## Die Kurzform des vollen Lagers auf der Nase.
+static func blocked_tag(kind: String) -> String:
+	match kind:
+		GameRun.KIND_CHARM:
+			return "PORTS VOLL"
+		GameRun.KIND_PROJECTOR:
+			return "KEIN PORT"
+		GameRun.KIND_POWERBANK:
+			return "SPEICHER VOLL"
+		GameRun.KIND_PART:
+			return "MODULE VOLL"
+		GameRun.KIND_DIE:
+			return ""
+	return "MAGAZIN VOLL"
+
+## Preis und Zustand der Neuwurf-Taste von Fach i.
+func reroll_state(i: int) -> Dictionary:
+	if run == null or i < 0 or i >= run.secret_stock.size():
+		return {"price": "", "afford": false}
+	var cost := run.secret_reroll_cost()
+	return {"price": str(cost), "afford": run.energy >= cost}
+
+## Die Auskunft eines Fachs für das INFO-DISPLAY ({} = keine Ware).
+func bay_info(i: int) -> Dictionary:
+	var offer := offer_at(i)
+	if offer.is_empty() or bool(offer[GameRun.OFFER_SOLD]):
+		return {}
+	var data := {"title": ware_name(offer), "body": "", "net": null}
+	match String(offer[GameRun.OFFER_KIND]):
+		GameRun.KIND_CHARM:
+			data["body"] = (offer[GameRun.OFFER_ITEM] as Charm).description
+		GameRun.KIND_DIE:
 			var die: DieDefinition = offer[GameRun.OFFER_ITEM]
-			if die != null and die.essence_id != "":
-				plate.add_child(CasinoStyle.label(Essence.by_id(die.essence_id).display_name,
-					u * PLATE_SOUL_FONT, ShopController.soul_tint(die.essence_id),
-					HORIZONTAL_ALIGNMENT_CENTER))
-		var price := run.secret_offer_price(offer)
-		var blocked := _offer_blocked(offer)
-		var tag := ShopController.FULL_MARK if blocked else "⚡ %d" % price
-		var tint := CasinoStyle.RED if blocked or run.energy < price else ENERGY_COLOR
-		var price_line := CasinoStyle.label(tag, u * PLATE_PRICE_FONT, tint,
-			HORIZONTAL_ALIGNMENT_CENTER)
-		plate.add_child(price_line)
-		_plate_layer.add_child(plate)
-		plate.reset_size()
-		# Mittig unter den Stück-Anker, in die Bucht geklemmt - und die PREISZEILE
-		# hängt, nicht der Kopf: eine Seelen-Zeile darüber schöbe den Preis sonst
-		# tiefer als den einer Kassette, die keine trägt.
-		var local: Vector2 = (entry["px"] as Vector2) - origin
-		var above := maxf(plate.size.y - price_line.size.y, 0.0)
-		var pos := Vector2(local.x - plate.size.x * 0.5,
-			local.y + u * PLATE_PRICE_DROP_UNITS - above)
-		if field.size.x > 0.0:
-			var flocal := Rect2(field.position - origin, field.size)
-			pos.x = clampf(pos.x, flocal.position.x,
-				maxf(flocal.position.x, flocal.end.x - plate.size.x))
-			pos.y = clampf(pos.y, flocal.position.y,
-				maxf(flocal.position.y, flocal.end.y - plate.size.y))
-		plate.position = pos
+			var essence := Essence.by_id(die.essence_id)
+			data["body"] = "%s\n%s" % [essence.short, essence.description]
+			data["net"] = die
+		GameRun.KIND_PART:
+			data["body"] = (offer[GameRun.OFFER_ITEM] as ComboPart).description
+		GameRun.KIND_PROJECTOR:
+			data["body"] = "+1 Charm-Platz: ein weiterer Projektor an einem freien Port."
+		GameRun.KIND_POWERBANK:
+			data["body"] = "Speicher +%d ⚡ - eine Batterie mehr im Rack." % GameRun.ENERGY_ROW
+		GameRun.KIND_CATALYST, GameRun.KIND_BLANK:
+			data["body"] = (offer[GameRun.OFFER_ITEM] as Pack).description
+		_:
+			var card: Pack = offer[GameRun.OFFER_ITEM]
+			data["body"] = "%s\nAuf %d Seiten." % [card.fixed_engraving.description,
+				StampNet.filled_count(card.stamp_net)]
+	return data
 
-## Der Ankunfts-Grad der zuletzt gezeigten Auslage; scene_root fährt ihn EINMAL.
-func vitrine_grade() -> String:
-	return _vitrine_grade
-
-## Der Platz mit der EINEN Karte (-1 = keiner - der legendäre Topf ist erschöpft
-## und eine Sonder-Gravur ist nachgerückt; dann steht deren Kassette in der Bucht
-## und der Sitz bleibt leer).
+## Der Platz mit der Charm-Ware (-1 = keiner, der legendäre Topf ist erschöpft).
 func card_slot_index() -> int:
 	if run == null:
 		return -1
@@ -638,362 +243,94 @@ func card_slot_index() -> int:
 			return i
 	return -1
 
-## Was körperlich in der Bucht liegt: je Auslage-Platz ein Eintrag, null für
-## Verkauftes und für den Karten-Sitz. Die Lücken halten die Indizes treu - ein
-## Griff meint immer denselben Kaufweg (buy_offer). row_kinds nennt je Platz die
-## Bucht-Sorte AUCH für Verkauftes: daran rechnet die eine Reihe ihre Plätze, so
-## dass ein Kauf die übrige Ware nicht verrückt - die Lücke bleibt.
-func vitrine_stock() -> Dictionary:
-	return {
-		ShopController.KIND_ENGRAVING_PACK: _bay_packs.duplicate(),
-		ShopController.KIND_DIE: _bay_dice.duplicate(),
-		ShopController.KIND_PART: _bay_parts.duplicate(),
-		VitrineView.STOCK_ROW_KINDS: _bay_kinds.duplicate(),
-	}
-
-## Die Beschriftung EINES Stücks für den Info-Fuß und sein stehendes Schild. Der
-## Preis ist in ⚡ ausgewiesen - in der Bucht selbst hängt kein Schild an der Ware.
-func vitrine_annotation(_kind: String, index: int) -> Dictionary:
-	if run == null or index < 0 or index >= run.secret_stock.size():
-		return {}
-	var offer := run.secret_stock[index]
-	if bool(offer[GameRun.OFFER_SOLD]) or offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR \
-			or offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
-		return {}
-	var data := {
-		"price": run.secret_offer_price(offer),
-		"money": run.energy,
-		"energy": true,
-		"blocked": ShopController.FULL_TAG if _offer_blocked(offer) else "",
-	}
-	match String(offer[GameRun.OFFER_KIND]):
-		GameRun.KIND_DIE:
-			var die: DieDefinition = offer[GameRun.OFFER_ITEM]
-			var essence := Essence.by_id(die.essence_id)
-			data["title"] = "%s-Würfel" % essence.display_name
-			data["body"] = "%s\n%s" % [essence.short, essence.description]
-			data["net"] = die
-			data["own"] = "essence:%s" % die.essence_id
-		GameRun.KIND_PART:
-			var part: ComboPart = offer[GameRun.OFFER_ITEM]
-			data["title"] = part.display_name
-			data["body"] = part.description
-			data["own"] = "part:%s" % part.id
-		GameRun.KIND_CATALYST, GameRun.KIND_BLANK:
-			var card_pack: Pack = offer[GameRun.OFFER_ITEM]
-			data["title"] = card_pack.display_name
-			data["body"] = card_pack.description
-		_:
-			# Die STARKE Karte: die Wirkung und wie viele Seiten sie trägt.
-			var card: Pack = offer[GameRun.OFFER_ITEM]
-			data["title"] = card.display_name
-			data["body"] = "%s\nAuf %d Seiten." % [card.fixed_engraving.description,
-				StampNet.filled_count(card.stamp_net)]
-	return data
-
-## Der Griff in der Bucht kauft: derselbe Weg wie die Karte am Sitz.
-func buy_offer(index: int) -> void:
-	_on_offer_pressed(index)
-
-# --- Auslage ------------------------------------------------------------------
-
-## Baut den Karten-Sitz neu, sortiert die Ware in die Bucht und zieht Börse und
-## Misch-Preis nach. Rebuild statt Patch: ein verkaufter Platz wechselt seine
-## ganze Gestalt.
-func _refresh_offers() -> void:
-	if not _built or run == null:
-		return
-	wallet_label.text = "⚡ %d/%d" % [run.energy, run.energy_cap()]
-	for child in card_seat.get_children():
-		card_seat.remove_child(child)
-		child.queue_free()
-	offer_buttons.clear()
-	_charm_hovered = false
-	_bay_packs.clear()
-	_bay_dice.clear()
-	_bay_parts.clear()
-	_bay_kinds.clear()
-	offer_buttons.resize(run.secret_stock.size())
-	var seat := card_slot_index()
-	if seat >= 0:
-		var card := _build_charm_card(run.secret_stock[seat], seat,
-			run.secret_offer_price(run.secret_stock[seat]))
-		card_seat.add_child(card)
-		offer_buttons[seat] = card
-	for old in [projector_card, powerbank_card]:
-		if old != null and is_instance_valid(old):
-			old.queue_free()
-	projector_card = null
-	powerbank_card = null
-	for i in run.secret_stock.size():
-		var offer := run.secret_stock[i]
-		_sort_into_bay(offer, i == seat)
-		if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
-			projector_card = _build_projector_seat(offer, i)
-			projector_card.name = "ProjectorCard"
-			vitrine_slot.add_child(projector_card)
-			_lay_projector_tag()
-			offer_buttons[i] = projector_card
-		elif offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
-			# Rechte Hälfte der Bucht: links liegt die Ware des Sonderposten-Platzes.
-			powerbank_card = _build_window_card(offer, i, "POWERBANK",
-				"Speicher +%d ⚡" % GameRun.ENERGY_ROW, "SPEICHER VOLL", 0.75, POWERBANK_CARD_UNITS)
-			powerbank_card.name = "PowerbankCard"
-			vitrine_slot.add_child(powerbank_card)
-			offer_buttons[i] = powerbank_card
-	# Ein WURF lässt die neue Ware aufsteigen, ein Kauf lässt sie liegen.
-	var rolls := run.secret_rerolls
-	_vitrine_grade = ShopController.GRADE_STAND if rolls == _seen_rolls \
-		else ShopController.GRADE_RISE
-	_seen_rolls = rolls
-	_refresh_afford_state()
-	vitrine_changed.emit()
-
-## Ein Auslage-Platz wird zur körperlichen Ware: der Essenzwürfel liegt offen, der
-## Sonderbestand liegt versiegelt als seine Kassette. Verkauft, vergeben oder
-## Karte heißt: dieser Platz bleibt leer - die
-## SORTE des Platzes bleibt trotzdem gemeldet (row_kinds), damit die Lücke ihren
-## Ort behält.
-func _sort_into_bay(offer: Dictionary, on_card_seat: bool) -> void:
-	var pack: Pack = null
-	var die: DieDefinition = null
-	var part: ComboPart = null
-	if on_card_seat or offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
-		_bay_kinds.append("")  # der Projektor ist eine Karte des Fensters, kein Bucht-Körper
-	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
-		_bay_kinds.append(ShopController.KIND_DIE)
-	elif offer[GameRun.OFFER_KIND] == GameRun.KIND_PART \
-			or offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
-		# Die Powerbank hält ihren Platz in der Reihe als Lücke frei - dort steht ihre Karte.
-		_bay_kinds.append(ShopController.KIND_PART)
-	else:
-		_bay_kinds.append(ShopController.KIND_ENGRAVING_PACK)
-	if not on_card_seat and not bool(offer[GameRun.OFFER_SOLD]):
-		match String(offer[GameRun.OFFER_KIND]):
-			GameRun.KIND_DIE:
-				die = offer[GameRun.OFFER_ITEM]
-			GameRun.KIND_PART:
-				part = offer[GameRun.OFFER_ITEM]
-			GameRun.KIND_CATALYST, GameRun.KIND_BLANK, GameRun.KIND_ENGRAVING:
-				pack = offer[GameRun.OFFER_ITEM]
-	_bay_packs.append(pack)
-	_bay_dice.append(die)
-	_bay_parts.append(part)
-
-## Kaufbarkeit der Karte und des Misch-Knopfs am Ladungsstand ausrichten. Die Ware
-## in der Bucht sperrt sich nicht - ihr Schild sagt den Preis.
-func _refresh_afford_state() -> void:
-	if not _built or run == null:
-		return
-	var cost := run.secret_reroll_cost()
-	reroll_button.text = "Neu mischen ⚡%d" % cost
-	reroll_button.disabled = run.energy < cost
-	for i in offer_buttons.size():
-		if i >= run.secret_stock.size() or offer_buttons[i] == null:
-			continue
-		var offer := run.secret_stock[i]
-		var sold: bool = offer[GameRun.OFFER_SOLD]
-		offer_buttons[i].disabled = sold or _offer_blocked(offer) \
-			or run.energy < run.secret_offer_price(offer)
-
-## Ob ein Platz an einem vollen Lager hängt: der Charm am Dock, die versiegelte
-## Ware am Magazin (buy_secret_offer prüft dasselbe VOR dem Zahlen). Der Würfel
-## hängt an keinem - er geht ins Ausgabefach, und das hat keinen Deckel.
+## Ob ein Platz an einem vollen Lager hängt (buy_secret_offer prüft dasselbe).
 func _offer_blocked(offer: Dictionary) -> bool:
 	if run == null:
 		return false
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
-		return run.charms_full()
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_DIE:
-		return false
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PART:
-		return not run.parts_room()
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
-		return run.projectors >= GameRun.MAX_PROJECTORS
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK:
-		return run.powerbank_price() < 0
+	match String(offer[GameRun.OFFER_KIND]):
+		GameRun.KIND_CHARM:
+			return run.charms_full()
+		GameRun.KIND_DIE:
+			return false
+		GameRun.KIND_PART:
+			return not run.parts_room()
+		GameRun.KIND_PROJECTOR:
+			return run.projectors >= GameRun.MAX_PROJECTORS
+		GameRun.KIND_POWERBANK:
+			return run.powerbank_price() < 0
 	return run.pack_room() < 1
 
-## Ware ohne Körper (Projektor, Powerbank): eine Karte IN der Bucht, mittig um den
-## Breiten-Anteil at.
-func _build_window_card(offer: Dictionary, index: int, title: String, sub: String,
-		full_tag: String, at: float, units: Vector2) -> Button:
-	var sold: bool = offer[GameRun.OFFER_SOLD]
-	var card := Button.new()
-	card.focus_mode = Control.FOCUS_NONE
-	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var extent := units * u
-	card.anchor_left = at
-	card.anchor_right = at
-	card.anchor_top = 0.5
-	card.anchor_bottom = 0.5
-	card.offset_left = -extent.x * 0.5
-	card.offset_right = extent.x * 0.5
-	card.offset_top = -extent.y * 0.5
-	card.offset_bottom = extent.y * 0.5
-	card.add_theme_stylebox_override("normal", _card_box(CARD_BG, ENERGY_COLOR, 0.7, 0.24))
-	card.add_theme_stylebox_override("hover", _card_box(Color("#241a4add"), Color(1.4, 1.1, 0.2), 0.95, 0.3))
-	card.add_theme_stylebox_override("pressed", _card_box(Color("#2e2160"), Color(1.4, 1.1, 0.2), 1.0, 0.3))
-	card.add_theme_stylebox_override("disabled", _card_box(Color("#100c2266"), ENERGY_COLOR, 0.2, 0.0))
-	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var lines := VBoxContainer.new()
-	lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lines.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	lines.alignment = BoxContainer.ALIGNMENT_CENTER
-	lines.add_theme_constant_override("separation", int(u * 0.5))
-	card.add_child(lines)
-	lines.add_child(CasinoStyle.label(title, u * 3.4, NEON_TEXT, HORIZONTAL_ALIGNMENT_CENTER))
-	lines.add_child(CasinoStyle.label(sub, u * 2.3, NEON_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-	var blocked := _offer_blocked(offer)
-	var tag := "VERKAUFT" if sold else (full_tag if blocked
-		else "⚡ %d" % run.secret_offer_price(offer))
-	var price_label := CasinoStyle.label(tag, u * 3.0,
-		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
-	price_label.name = "Price"
-	lines.add_child(price_label)
-	if not sold:
-		card.pressed.connect(_on_offer_pressed.bind(index))
-	return card
+# --- Knöpfe -----------------------------------------------------------------------------
 
-## Grundriß des Projektor-Körpers in Display-Pixeln (x = Welt-Z, y = Welt-X), gemeldet.
-var projector_px := Vector2.ZERO:
-	set(value):
-		if projector_px != value:
-			projector_px = value
-			_lay_projector_tag()
-## Luft zwischen Bucht-Rand, Projektor und Schild (u).
-const PROJECTOR_PAD_UNITS := 0.8
+func _build_buttons() -> void:
+	if bay_buttons.is_empty():
+		for i in BAYS:
+			var button := _ghost_button("Fach%d" % i)
+			button.pressed.connect(_on_offer_pressed.bind(i))
+			bay_buttons.append(button)
+		# Nach den Fächern gebaut: die Taste liegt über ihrer Nase und fängt den Klick.
+		for i in BAYS:
+			var key := _ghost_button("Neuwurf%d" % i)
+			key.pressed.connect(_on_reroll_pressed.bind(i))
+			reroll_buttons.append(key)
+	for i in BAYS:
+		var rect := bay_hit_rect(i)
+		bay_buttons[i].position = rect.position
+		bay_buttons[i].size = rect.size
+		_place_reroll_button(i)
 
-## Der PROJEKTOR liegt als Körper in der Bucht (scene_root stellt ihn auf
-## projector_rect_px): links, senkrecht mittig - er ist höher als die Bucht, also
-## steht er oben und unten etwas über. Das Fenster malt nur Schild und Hover-Rahmen.
-func _build_projector_seat(offer: Dictionary, index: int) -> Button:
-	var sold: bool = offer[GameRun.OFFER_SOLD]
-	var card := Button.new()
-	card.focus_mode = Control.FOCUS_NONE
-	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var clear := Color(0, 0, 0, 0)
-	card.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
-	card.add_theme_stylebox_override("hover", _card_box(clear, Color(1.4, 1.1, 0.2), 0.95, 0.3))
-	card.add_theme_stylebox_override("pressed", _card_box(clear, Color(1.4, 1.1, 0.2), 1.0, 0.3))
-	card.add_theme_stylebox_override("disabled", StyleBoxEmpty.new())
-	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var blocked := _offer_blocked(offer)
-	var tag := "VERKAUFT" if sold else ("PORTS VOLL" if blocked
-		else "+1 Charm-Platz\n⚡ %d" % run.secret_offer_price(offer))
-	var price_label := CasinoStyle.label(tag, u * 2.4,
-		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
-	price_label.name = "Price"
-	price_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	price_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	price_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	price_label.anchor_left = 0.0
-	price_label.anchor_right = 1.0
-	price_label.anchor_top = 0.0
-	price_label.anchor_bottom = 1.0
-	card.add_child(price_label)
-	if not sold:
-		card.pressed.connect(_on_offer_pressed.bind(index))
-	return card
+func _ghost_button(part: String) -> Button:
+	var button := Button.new()
+	button.name = part
+	button.focus_mode = Control.FOCUS_NONE
+	button.flat = true
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	for style in ["normal", "hover", "pressed", "disabled", "focus", "hover_pressed"]:
+		button.add_theme_stylebox_override(style, StyleBoxEmpty.new())
+	add_child(button)
+	return button
 
-## Das Schild steht im Streifen rechts neben dem Projektor.
-func _lay_projector_tag() -> void:
-	if projector_card == null or not is_instance_valid(projector_card):
+func _refresh_buttons() -> void:
+	if bay_buttons.is_empty() or run == null:
 		return
-	var label := projector_card.get_node_or_null("Price") as Label
-	if label != null:
-		label.offset_left = projector_px.x + u * PROJECTOR_PAD_UNITS * 3.0
+	for i in BAYS:
+		var state := bay_state(i)
+		bay_buttons[i].disabled = String(state["state"]) != STATE_AFFORD
+		reroll_buttons[i].disabled = not bool(reroll_state(i)["afford"])
+		_place_reroll_button(i)
 
-## Wo der Projektor-Körper liegt (Display-Pixel), leer ohne unverkauftes Angebot.
-func projector_rect_px() -> Rect2:
-	if projector_card == null or not is_instance_valid(projector_card) 			or not projector_card.is_visible_in_tree() or projector_px == Vector2.ZERO 			or projector_card.disabled and _projector_sold():
-		return Rect2()
-	var bay := projector_card.get_global_rect()
-	return Rect2(Vector2(bay.position.x + u * PROJECTOR_PAD_UNITS,
-		bay.get_center().y - projector_px.y * 0.5), projector_px)
+func _place_reroll_button(i: int) -> void:
+	var rect := reroll_rect(i)
+	reroll_buttons[i].position = rect.position
+	reroll_buttons[i].size = rect.size
 
-func _projector_sold() -> bool:
-	for offer in run.secret_stock:
-		if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
-			return bool(offer[GameRun.OFFER_SOLD])
-	return true
+# --- Käufe ------------------------------------------------------------------------------
 
-## Ob der Display-Pixel auf einer Karte in der Bucht liegt (Projektor, Powerbank): dort
-## gehört der Klick dem Fenster, nicht dem Griff der Bucht.
-func window_card_has_point(px: Vector2) -> bool:
-	for card in [projector_card, powerbank_card]:
-		if card != null and is_instance_valid(card) and card.get_global_rect().has_point(px):
-			return true
-	return false
-
-## Die EINE Karte am Sitz: die FASSUNG der Charm-DISKETTE (2026-11-18) - Rahmen in der
-## Rarität, unten der Preis. Name und Wirkung trägt die Diskette, die scene_root auf
-## charm_disk_rect_px() legt; die volle Wirkung zeigt weiter der INFO-FUSS beim Hover.
-## price kommt fertig vom Aufrufer (GameRun.secret_offer_price).
-func _build_charm_card(offer: Dictionary, index: int, price: int) -> Button:
-	var sold: bool = offer[GameRun.OFFER_SOLD]
-	var charm: Charm = offer[GameRun.OFFER_ITEM]
-	var tint := charm.rarity_color()
-	var card := Button.new()
-	card.focus_mode = Control.FOCUS_NONE
-	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	card.add_theme_stylebox_override("normal", _card_box(CARD_BG, tint, 0.7, 0.24))
-	card.add_theme_stylebox_override("hover", _card_box(Color("#241a4add"), Color(1.4, 1.1, 0.2), 0.95, 0.3))
-	card.add_theme_stylebox_override("pressed", _card_box(Color("#2e2160"), Color(1.4, 1.1, 0.2), 1.0, 0.3))
-	card.add_theme_stylebox_override("disabled", _card_box(Color("#100c2266"), tint, 0.2, 0.0))
-	card.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	# Volles Dock: der Sitz zeigt das statt seines Preises.
-	var blocked := _offer_blocked(offer)
-	var tag := "VERKAUFT" if sold else ("DOCK VOLL" if blocked else "⚡ %d" % price)
-	var price_label := CasinoStyle.label(tag, u * 3.0,
-		NEON_MUTED if sold or blocked else ENERGY_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
-	price_label.name = "Price"
-	price_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	price_label.offset_top = -u * CHARM_TAG_UNITS
-	price_label.offset_bottom = -u * 0.6
-	card.add_child(price_label)
-	if not sold:
-		card.pressed.connect(_on_offer_pressed.bind(index))
-	return card
-
-## Wo die Diskette am Sitz liegt (Display-Pixel; leer = kein Charm-Sitz): mittig über
-## dem Preis, in ihrer EINEN Größe.
-func charm_disk_rect_px() -> Rect2:
-	var seat := charm_seat_rect_px()
-	if seat.size.x <= 0.0:
-		return Rect2()
-	var room := Vector2(seat.size.x, seat.size.y - u * CHARM_TAG_UNITS)
-	return Rect2(seat.position + (room - charm_disk_px) * 0.5, charm_disk_px)
-
-# --- Käufe --------------------------------------------------------------------
+## Der Griff ins Fach kauft.
+func buy_offer(index: int) -> void:
+	_on_offer_pressed(index)
 
 func _on_offer_pressed(index: int) -> void:
 	if run == null or index < 0 or index >= run.secret_stock.size():
 		return
-	var price := run.secret_offer_price(run.secret_stock[index])
-	# Was versiegelt hinausgeht, ist ein neues Paket im Magazin, ein Würfel ein
-	# neuer Platz im Ausgabefach - gemerkt wird beides VOR dem Kauf, damit die
-	# Meldung genau dieses Exemplar meint.
+	var offer := run.secret_stock[index]
+	var price := run.secret_offer_price(offer)
 	var stocked := run.owned_packs.size()
 	var stashed := run.pending_dice.size()
 	var parts_waiting := run.pending_parts.size()
-	var offer := run.secret_stock[index]
-	# Dieselben Bremsen wie die Buchung - erst dann gibt die Diskette ihren Sitz ab.
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM and not bool(offer[GameRun.OFFER_SOLD]) \
-			and run.energy >= price and not run.charms_full():
-		charm_buying.emit()
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR and not bool(offer[GameRun.OFFER_SOLD]) 			and run.energy >= price and not _offer_blocked(offer):
-		projector_buying.emit()
-	var powerbank_px := Vector2(-1.0, -1.0)
-	if offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK and powerbank_card != null 			and is_instance_valid(powerbank_card):
-		powerbank_px = powerbank_card.get_global_rect().get_center()
-	if not run.buy_secret_offer(index):  # Refresh kommt über secret_stock_changed
+	# Dieselben Bremsen wie die Buchung - erst dann gibt das Fach seine Ware ab.
+	if not bool(offer[GameRun.OFFER_SOLD]) and run.energy >= price and not _offer_blocked(offer):
+		offer_buying.emit(index)
+		if offer[GameRun.OFFER_KIND] == GameRun.KIND_CHARM:
+			charm_buying.emit()
+		elif offer[GameRun.OFFER_KIND] == GameRun.KIND_PROJECTOR:
+			projector_buying.emit()
+	var powerbank: bool = offer[GameRun.OFFER_KIND] == GameRun.KIND_POWERBANK
+	if not run.buy_secret_offer(index):
 		return
 	energy_spent.emit(price)
-	if powerbank_px.x >= 0.0:
-		powerbank_purchased.emit(powerbank_px)
+	if powerbank:
+		powerbank_purchased.emit(position + bay_rect(index).get_center())
 	if run.owned_packs.size() > stocked:
 		var uids: Array[int] = []
 		for i in range(stocked, run.owned_packs.size()):
@@ -1004,51 +341,19 @@ func _on_offer_pressed(index: int) -> void:
 	elif run.pending_parts.size() > parts_waiting:
 		part_purchased.emit(run.pending_parts.back())
 
-func _on_reroll_pressed() -> void:
+## Der Neuwurf EINES Fachs - auch ein verkauftes wird so neu bestückt.
+func reroll_offer(index: int) -> void:
+	_on_reroll_pressed(index)
+
+func _on_reroll_pressed(index: int) -> void:
 	if run == null:
 		return
 	var cost := run.secret_reroll_cost()
-	if run.reroll_secret_stock():
+	if run.reroll_secret_offer(index):
 		energy_spent.emit(cost)
 
 func _on_run_changed() -> void:
-	_refresh_offers()
+	_refresh_buttons()
 
-## Energie allein ändert die Auslage nicht - nur wer was bezahlen kann.
 func _on_energy_changed(_value: int) -> void:
-	if _built and run != null:
-		wallet_label.text = "⚡ %d/%d" % [run.energy, run.energy_cap()]
-		_refresh_afford_state()
-
-# --- Bausteine ----------------------------------------------------------------
-
-func _card_box(fill: Color, border: Color, border_alpha: float, glow_alpha: float) -> StyleBoxFlat:
-	var box := CasinoStyle.flat_box(fill, Color(border.r, border.g, border.b, border_alpha),
-		u * 0.22, u * 1.2, u * 0.8)
-	if glow_alpha > 0.0:
-		box.shadow_color = Color(border.r, border.g, border.b, glow_alpha)
-		box.shadow_size = int(u * 1.0)
-	return box
-
-func _neon_button(text: String, accent: Color, font_size: float, min_size: Vector2) -> Button:
-	var button := Button.new()
-	button.text = text
-	button.focus_mode = Control.FOCUS_NONE
-	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.custom_minimum_size = min_size
-	button.add_theme_font_size_override("font_size", maxi(8, int(font_size)))
-	button.add_theme_color_override("font_color", NEON_TEXT)
-	button.add_theme_color_override("font_hover_color", Color(1.4, 1.1, 0.2))
-	button.add_theme_color_override("font_pressed_color", Color(1.4, 1.1, 0.2))
-	button.add_theme_color_override("font_disabled_color",
-		Color(NEON_MUTED.r, NEON_MUTED.g, NEON_MUTED.b, 0.45))
-	button.add_theme_stylebox_override("normal", _button_box(Color("#1a1236cc"), accent))
-	button.add_theme_stylebox_override("hover", _button_box(Color("#251a4add"), Color(1.4, 1.1, 0.2)))
-	button.add_theme_stylebox_override("pressed", _button_box(Color("#30235e"), Color(1.4, 1.1, 0.2)))
-	button.add_theme_stylebox_override("focus", _button_box(Color("#1a1236cc"), accent))
-	button.add_theme_stylebox_override("disabled",
-		_button_box(Color("#12102466"), Color(accent.r, accent.g, accent.b, 0.25)))
-	return button
-
-func _button_box(bg: Color, border: Color) -> StyleBoxFlat:
-	return CasinoStyle.flat_box(bg, border, u * 0.22, u * 0.9, u * 0.8)
+	_refresh_buttons()
