@@ -58,12 +58,12 @@ static func _make(material_id: String, name: String, desc: String, face_tint: Co
 static func ruby() -> DieMaterial:
 	var m := _make(RUBY, "Rubin",
 		"+4 Mult, wenn diese Seite in der Kombination liegt.",
-		Color(0.82, 0.16, 0.26))
-	m.surface_color = Color(0.5, 0.07, 0.14)  # tiefer Edelstein, Facetten glitzern
+		Color(0.82, 0.12, 0.29))
+	m.surface_color = Color(0.5, 0.06, 0.17)  # tiefer Edelstein, Facetten glitzern
 	m.metallic = 0.15
 	m.roughness = 0.08
 	m.glow = 0.5
-	m.refined_color = Color(1.0, 0.08, 0.22)
+	m.refined_color = Color(1.0, 0.07, 0.27)
 	m.short = "+4 Mult"
 	m.short_doped = "Krit ×2"
 	m.description_doped = "Krit ×2 auf den Mult, statt zu addieren."
@@ -72,11 +72,11 @@ static func ruby() -> DieMaterial:
 static func amber() -> DieMaterial:
 	var m := _make(AMBER, "Bernstein",
 		"+20 Basispunkte plus die Augensumme des Würfels, wenn diese Seite in der Kombination liegt.",
-		Color(0.88, 0.5, 0.11))
-	m.surface_color = Color(0.8, 0.45, 0.14)  # Harz glüht von innen (Textur: Mitte hell)
+		Color(0.91, 0.48, 0.07))
+	m.surface_color = Color(0.84, 0.42, 0.1)  # Harz glüht von innen (Textur: Mitte hell)
 	m.roughness = 0.35
 	m.glow = 1.1
-	m.refined_color = Color(1.0, 0.56, 0.0)
+	m.refined_color = Color(1.0, 0.54, 0.0)
 	m.short = "+20 Basis +Augensumme"
 	m.short_doped = "5 × Augensumme"
 	m.description_doped = "Die fünffache Augensumme des Würfels - ohne festen Zuschlag."
@@ -85,14 +85,14 @@ static func amber() -> DieMaterial:
 static func gold() -> DieMaterial:
 	var m := _make(GOLD, "Gold",
 		"+$3, wenn diese Seite in der genommenen Kombination liegt.",
-		Color(0.92, 0.74, 0.1))
-	# Metall spiegelt statt glühen; ohne Sky-Radiance (Ambient-only-Env) macht
-	# volles metallic die Fläche schwarz - darum teil-metallisch + Restwärme.
-	m.surface_color = Color(1.0, 0.82, 0.3)
-	m.metallic = 0.6
-	m.roughness = 0.14
-	m.glow = 0.26
-	m.refined_color = Color(1.0, 0.82, 0.0)
+		Color(0.94, 0.8, 0.1))
+	# Ohne Sky-Radiance spiegelt Metall nur Schwarz: wenig metallic, viel Eigenlicht,
+	# damit normales Gold schon nah am veredelten leuchtet (Spieler-Wunsch 2026-11-26).
+	m.surface_color = Color(1.0, 0.84, 0.2)
+	m.metallic = 0.1
+	m.roughness = 0.2
+	m.glow = 1.2
+	m.refined_color = Color(1.0, 0.87, 0.0)
 	m.short = "+$3"
 	m.short_doped = "+$7 +$1 je Gold-Seite"
 	m.description_doped = "+$7, dazu +$1 je ausgelöster Gold-Seite dieser Nahme."
@@ -101,12 +101,13 @@ static func gold() -> DieMaterial:
 static func bone() -> DieMaterial:
 	var m := _make(BONE, "Knochen",
 		"Diese Seite wächst dauerhaft +2, wenn sie in der genommenen Kombination liegt.",
-		Color(0.76, 0.69, 0.5))
-	m.surface_color = Color(0.82, 0.76, 0.6)  # tot-matt: normal das EINZIGE Material ohne Leuchten
-	m.roughness = 0.95
-	m.glow = 0.0
+		Color(0.81, 0.78, 0.68))
+	# Matt, aber mit eigenem Licht: ohne las er fern der Tischlampen schwarz (2026-11-26).
+	m.surface_color = Color(0.94, 0.91, 0.82)
+	m.roughness = 0.8
+	m.glow = 1.0
 	# Veredelt glüht auch Knochen: warmes, helles Elfenbein statt mehr Farbe.
-	m.refined_color = Color(1.0, 0.94, 0.80)
+	m.refined_color = Color(1.0, 0.96, 0.88)
 	m.refined_glow = 0.85
 	m.short = "Seite wächst +2"
 	m.short_doped = "Seite wächst +10 / +20 %"
@@ -116,13 +117,14 @@ static func bone() -> DieMaterial:
 static func glass() -> DieMaterial:
 	var m := _make(GLASS, "Glas",
 		"Mult += Augen dieser Seite, höchstens 6; beim Nehmen schrumpft sie dauerhaft −1 (min. 1).",
-		Color(0.3, 0.66, 0.78))
-	m.surface_color = Color(0.62, 0.8, 0.86)  # durchsichtig: das Würfelinnere scheint durch
+		Color(0.25, 0.52, 0.9))
+	# Durchscheinend, aber deckend genug, dass der dunkle Körper es nicht grau färbt.
+	m.surface_color = Color(0.35, 0.6, 0.95)
 	m.roughness = 0.05
-	m.glow = 0.3
-	m.alpha = 0.42
+	m.glow = 0.7
+	m.alpha = 0.7
 	# Dichter als die glatte Seite: durch sie hätte die Glut keinen Grund.
-	m.refined_color = Color(0.22, 0.80, 1.0)
+	m.refined_color = Color(0.2, 0.6, 1.0)
 	m.refined_alpha = 0.78
 	m.short = "Mult += Augen (max 6)"
 	m.short_doped = "Krit ×Augen/2"
@@ -132,16 +134,14 @@ static func glass() -> DieMaterial:
 static func copper() -> DieMaterial:
 	var m := _make(COPPER, "Kupfer",
 		"+1 ⚡, wenn diese Seite in der genommenen Kombination liegt.",
-		Color(0.86, 0.47, 0.24))
-	# WARM, nicht grünspan-cyan (Spieler-Entscheid 2026-10-25): die Seite wechselte
-	# sonst beim Veredeln die Farbe. Seine Wirkung
-	# trägt jetzt das ⚡ im Kurztext, nicht mehr der Farbton.
-	m.surface_color = Color(0.72, 0.35, 0.17)
+		Color(0.18, 0.66, 0.54))
+	# PATINA-Grün in beiden Zuständen (Spieler-Entscheid 2026-11-26): warm lag es zu
+	# dicht an Bernstein; zwischen Zahl-Grün und Runen-Cyan.
+	m.surface_color = Color(0.16, 0.56, 0.46)
 	m.metallic = 0.55
 	m.roughness = 0.18
 	m.glow = 0.42
-	# Röter und dunkler als Bernstein, nie Energie-Cyan - das gehört den Runen.
-	m.refined_color = Color(0.86, 0.28, 0.14)
+	m.refined_color = Color(0.1, 0.88, 0.69)
 	m.short = "+1 ⚡"
 	m.short_doped = "+2 ⚡"
 	m.description_doped = "+2 ⚡; was über den Speicher hinausgeht, zahlt $2 je ⚡."

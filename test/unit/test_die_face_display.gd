@@ -109,7 +109,7 @@ func test_amber_face_glows_from_within_brighter_than_plain_faces():
 		DieFaceDisplay.intense(DieFaceDisplay.EDGE_NEON).r * DieFaceDisplay.FACE_GLOW, 0.001,
 		"neutrale Seite glimmt nur schwach (dunkles Glas)")
 
-func test_gold_face_is_reflective_metal_not_neon():
+func test_gold_face_carries_its_profile():
 	var def := DieDefinition.standard()
 	def.materials[0] = DieMaterial.GOLD
 	var display := _display()
@@ -119,16 +119,14 @@ func test_gold_face_is_reflective_metal_not_neon():
 	assert_almost_eq(material.metallic, DieMaterial.gold().metallic, 0.001, "Gold ist Metall")
 	assert_eq(material.albedo_color, gold.surface_color * Color.WHITE,
 		"helle Metall-Albedo statt dunklem Glas")
-	assert_lt(material.emission.r, DieFaceDisplay.EDGE_NEON.r * DieFaceDisplay.EDGE_GLOW,
-		"Gold glüht kaum - es spiegelt")
+	assert_gt(_peak(material.emission), 0.0, "Gold strahlt selbst")
 
-func test_bone_face_is_matte_and_dead():
+func test_bone_face_is_matte():
 	var def := DieDefinition.standard()
 	def.materials[0] = DieMaterial.BONE
 	var display := _display()
 	display.apply_definition(def)
 	var material := _face_material(display, 0)
-	assert_eq(material.emission, Color(0, 0, 0, 0), "Knochen leuchtet gar nicht")
 	assert_almost_eq(material.roughness, DieMaterial.bone().roughness, 0.001, "stumpf-matt")
 
 func test_glass_face_is_transparent():
@@ -472,14 +470,13 @@ func test_the_plain_face_never_lifts_over_the_bloom_threshold():
 		var grew := _peak(lit) - _peak(DieFaceDisplay.intense(material.tint) * material.glow)
 		assert_lt(grew, 0.10, "%s leuchtet höchstens einen Hauch heller" % material.id)
 
-func test_bone_only_glows_when_doped():
-	# Normal ist Knochen das einzige Material ohne Leuchten; veredelt glüht auch er.
+func test_bone_glows_in_both_states():
+	# Seit dem 2026-11-26 leuchtet Knochen auch normal - ohne las er fern der Lampen schwarz.
 	var display := _display()
 	var bone := DieMaterial.by_id(DieMaterial.BONE)
-	assert_eq(bone.glow, 0.0, "normal glüht Knochen nie")
-	assert_gt(bone.refined_glow, 0.0, "veredelt schon")
+	assert_gt(bone.refined_glow, 0.0, "veredelt")
 	display.apply_definition(_leveled(0, DieMaterial.BONE, 1))
-	assert_eq(_peak(_face_material(display, 0).emission), 0.0, "und seine Fläche bleibt dunkel")
+	assert_gt(_peak(_face_material(display, 0).emission), 0.0, "und normal")
 
 func test_doping_reaches_the_pool_through_face_base():
 	var display := _display()

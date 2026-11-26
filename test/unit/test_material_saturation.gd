@@ -62,10 +62,11 @@ func test_the_step_never_pushes_emission_over_the_bloom_threshold() -> void:
 		assert_lt(top - base, 0.10,
 			"%s: veredelt leuchtet höchstens einen Hauch heller" % material.id)
 
-func test_bone_stays_dead_matte_at_every_level() -> void:
-	# Tot-matt IST die Identität des Knochens; seine Veredelung reitet allein auf
-	# der Albedo. Ein Glühen wäre ein anderes Material.
+func test_bone_is_the_most_matte_material() -> void:
+	# Matt IST die Identität des Knochens; seit dem 2026-11-26 leuchtet er dabei selbst.
 	var bone := DieMaterial.by_id(DieMaterial.BONE)
-	assert_eq(bone.glow, 0.0, "Knochen glüht nie")
+	for material in DieMaterial.all():
+		if material.id != DieMaterial.BONE:
+			assert_gt(bone.roughness, material.roughness, "rauer als %s" % material.id)
 	for level in [1, DieMaterial.MAX_LEVEL]:
 		assert_gt(DieMaterial.tint_for(DieMaterial.BONE, level).s, 0.0, "aber er wird satter")

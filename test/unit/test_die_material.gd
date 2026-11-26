@@ -44,10 +44,10 @@ func test_every_material_has_its_own_surface_color():
 
 func test_signature_profiles_reflect_the_material_names():
 	# Jedes Material bricht die Glas-Regel anders - genau EINE Signatur je Name.
-	assert_gt(DieMaterial.gold().metallic, 0.5, "Gold spiegelt")
-	assert_almost_eq(DieMaterial.bone().glow, 0.0, 0.001, "Knochen leuchtet nicht")
+	# Gold glüht seit dem 2026-11-26 statt zu spiegeln - ohne Sky-Radiance las Metall schwarz.
+	assert_gt(DieMaterial.gold().glow, 1.0, "Gold strahlt")
+	assert_gt(DieMaterial.bone().roughness, 0.7, "Knochen bleibt matt")
 	assert_lt(DieMaterial.glass().alpha, 1.0, "Glas ist durchsichtig")
-	assert_gt(DieMaterial.amber().glow, DieMaterial.gold().glow, "Bernstein glüht, Gold nicht")
 	assert_ne(DieMaterial.die_normal_for(DieMaterial.RUBY), null, "Rubin hat Facetten-Relief")
 
 func test_die_normal_for_only_where_a_map_exists():
