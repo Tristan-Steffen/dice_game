@@ -306,6 +306,33 @@ static func antimatter() -> Essence:
 		"Augen zählen negativ, dafür Krit ×(Augenzahl).",
 		"Augen negativ, Krit ×Augen", Rarity.LEGENDARY, Color(0.45, 0.2, 0.6)))
 
+## Das ELEMENT-ZEICHEN jeder Seele (Spieler-Wahl 2026-11-26): Kürzel und Ordnungszahl wie im
+## Periodensystem. Echte Elemente tragen ihre echte Zahl, Moleküle die Summe ihrer Protonen,
+## Licht und Leere die 0, alles Erfundene liegt jenseits der Tafel ab 119.
+const SYMBOLS := {
+	HELIUM: ["He", 2], NEON: ["Ne", 10], ARGON: ["Ar", 18], KRYPTON: ["Kr", 36],
+	XENON: ["Xe", 54], NITROGEN: ["N", 7], OXYGEN: ["O", 8], HYDROGEN: ["H", 1],
+	SODIUM_VAPOR: ["Na", 11], FIREDAMP: ["CH₄", 10], CARBON_DIOXIDE: ["CO₂", 22],
+	HALOGEN: ["Cl", 17], ACETYLENE: ["C₂H₂", 14], SCAR: ["Nb", 139],
+	MERCURY_VAPOR: ["Hg", 80], RADON: ["Rn", 86], MIASMA: ["Mi", 119],
+	ST_ELMOS_FIRE: ["Ef", 120], BALL_LIGHTNING: ["Kb", 121], SOLAR_WIND: ["Sw", 122],
+	PHOTON_GAS: ["γ", 0], OZONE: ["O₃", 24], VACUUM: ["Va", 0],
+	RADIATION_PRESSURE: ["Sd", 126], CYANIDE: ["HCN", 14], XRAY: ["Rö", 127],
+	VARNISH: ["Fi", 128], PHOSPHORESCENCE: ["P", 15], DETONATING_GAS: ["Kn", 129],
+	AURORA: ["Pl", 124], QUINTESSENCE: ["Qe", 123], ANTIMATTER: ["Am", 125],
+	CHERENKOV: ["Tc", 130], SHOOTING_STAR: ["Ss", 131], FOXFIRE: ["Ff", 132],
+	BLACK_LIGHT: ["Uv", 133], VOLCANIC_LIGHTNING: ["Vb", 134], LIGHT_PILLAR: ["Ls", 135],
+	MIDNIGHT_SUN: ["Ms", 136], BACKGROUND_RADIATION: ["Hs", 137], GAMMA_BURST: ["Gb", 138],
+}
+
+## Das Kürzel einer Seele ("" ohne Essenz).
+static func symbol_of(essence_id: String) -> String:
+	return String(SYMBOLS.get(essence_id, ["", 0])[0])
+
+## Ihre Ordnungszahl (-1 ohne Essenz).
+static func number_of(essence_id: String) -> int:
+	return int(SYMBOLS.get(essence_id, ["", -1])[1])
+
 ## Kanonische Registrierung aller Essenzen.
 static func all() -> Array[Essence]:
 	return [

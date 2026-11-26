@@ -64,6 +64,8 @@ var _die_face := -1
 var _band: DieInfoBand
 ## Die SEITEN-AUSKUNFT: steht eine Seite (face >= 0), trägt sie den ganzen Schirm.
 var _card: FaceCardView
+## Die WÜRFEL-AUSKUNFT: steht ein ganzer Würfel (face < 0), trägt sie den ganzen Schirm.
+var _die_card: DieCardView
 
 func _init() -> void:
 	name = "WorkshopInfoWindow"
@@ -107,17 +109,24 @@ func set_die(def: DieDefinition, face := -1) -> void:
 		_body.visible = not speaks
 	_sync_card()
 
-## Eine SEITE spricht über die Karte (Zahl | Material | Rune), sonst die Zeilen.
+## Eine SEITE spricht über die Seiten-Karte, ein ganzer WÜRFEL über die Würfel-Karte,
+## sonst die Zeilen.
 func _sync_card() -> void:
-	if _card == null or not is_instance_valid(_card):
+	if _card == null or not is_instance_valid(_card) or _die_card == null 			or not is_instance_valid(_die_card):
 		return
 	var face_shown := _die != null and _die_face >= 0
+	var die_shown := _die != null and _die_face < 0
 	_card.visible = face_shown
 	_card.show_face(_die if face_shown else null, _die_face)
+	_die_card.visible = die_shown
+	_die_card.show_die(_die if die_shown else null)
 	for label: Label in labels():
-		label.visible = not face_shown and (label != _body or not _band.visible)
-	if face_shown:
+		label.visible = not (face_shown or die_shown) and (label != _body or not _band.visible)
+	if face_shown or die_shown:
 		_band.visible = false
+
+func die_card() -> DieCardView:
+	return _die_card
 
 func face_card() -> FaceCardView:
 	return _card
@@ -201,6 +210,7 @@ func _rebuild() -> void:
 	_action = null
 	_band = null
 	_card = null
+	_die_card = null
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
 	var head := head_rect()
@@ -223,6 +233,12 @@ func _rebuild() -> void:
 	var inner := inner_rect()
 	_card.position = inner.position
 	_card.size = inner.size
+	_die_card = DieCardView.new()
+	_die_card.name = "WuerfelKarte"
+	_die_card.visible = false
+	add_child(_die_card)
+	_die_card.position = inner.position
+	_die_card.size = inner.size
 	set_die(_die, _die_face)
 	_paint()
 

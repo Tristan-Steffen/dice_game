@@ -77,44 +77,36 @@ func test_the_sub_line_follows_the_title() -> void:
 	assert_gte(sub.position.x, title.position.x + title.size.x, "rechts vom Titel")
 	assert_lte(sub.position.x + sub.size.x, view.head_rect().end.x + 0.5, "im Kopf")
 
-## Ein Würfel spricht statt der Wirkung über die Würfel-Auskunft (ROWS).
-func test_the_die_speaks_in_place_of_the_body() -> void:
+## Ein ganzer WÜRFEL spricht über die Würfel-Karte, eine Seite über die Seiten-Karte -
+## beide tragen den ganzen Schirm.
+func test_the_die_speaks_through_its_card() -> void:
 	await wait_frames(2)
 	var die := DieDefinition.standard()
 	die.essence_id = Essence.all()[0].id
-	view.set_info(die.display_name, "Vorrat", Color.WHITE, "")
+	view.set_info(die.display_name, "", Color.WHITE, "")
 	view.set_die(die)
-	var band := view.die_band()
-	assert_true(band.visible)
-	assert_eq(band.layout, DieInfoBand.Layout.ROWS, "die Fassung des Schwarzmarkt-Fußes")
-	assert_eq(band.mode(), "die")
-	assert_false((view.get_node("Wirkung") as Control).visible, "die Wirkung schweigt")
-	assert_true(view.band_rect().encloses(Rect2(band.position, band.size)))
-	view.set_die(die, 0)
-	assert_eq(view.die_band().mode(), "face", "eine Seite schaltet auf die drei Plätze")
-	view.set_die(null)
+	assert_true(view.die_card().visible, "die Würfel-Karte steht")
+	assert_false(view.face_card().visible)
 	assert_false(view.die_band().visible)
-	assert_true((view.get_node("Wirkung") as Control).visible)
+	assert_false((view.get_node("Titel") as Label).visible, "kein Name doppelt")
+	assert_true(view.inner_rect().encloses(Rect2(view.die_card().position, view.die_card().size)))
+	view.set_die(die, 0)
+	assert_true(view.face_card().visible, "eine Seite schaltet auf die Seiten-Karte")
+	assert_false(view.die_card().visible)
+	view.set_die(null)
+	assert_false(view.die_card().visible)
+	assert_true((view.get_node("Titel") as Label).visible, "ohne Würfel sprechen die Zeilen")
 
-## Ein Würfel OHNE Seele heißt "Normal" und läßt keine leere Fläche: die Wirkung nennt
-## seine Augen.
+## Ein Würfel OHNE Seele heißt "Normal".
 func test_a_soulless_die_is_not_blank() -> void:
 	await wait_frames(2)
 	var die := DieDefinition.standard()
 	die.essence_id = ""
 	var info := WorkshopInfoView.die_info(die)
 	assert_eq(String(info["title"]), "Normal")
-	assert_eq(String(info["sub"]), "", "keine Unterzeile")
-	assert_string_contains(String(info["body"]), "1 · 2 · 3 · 4 · 5 · 6")
-	view.set_info(info["title"], info["sub"], info["sub_tint"], info["body"], info["action"])
 	view.set_die(die)
-	assert_false(view.die_band().visible, "die Würfel-Auskunft schweigt")
-	assert_true((view.get_node("Wirkung") as Control).visible, "die Wirkung spricht")
-	assert_ne(view.body_text(), "")
-	view.set_die(die, 0)
-	assert_true(view.face_card().visible, "eine Seite spricht über die Seiten-Auskunft")
-	assert_false(view.die_band().visible)
-	assert_false((view.get_node("Titel") as Label).visible, "die Karte trägt den ganzen Schirm")
+	assert_true(view.die_card().visible)
+	assert_eq((view.die_card().get_node("Seele/Name") as Label).text, "Normal")
 
 ## Der Titel eines Würfels ist der Name seiner Seele.
 func test_die_info_names_the_soul() -> void:
