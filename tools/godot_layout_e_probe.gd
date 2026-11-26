@@ -71,6 +71,19 @@ func _hover_pool(seat: int) -> void:
 	Input.parse_input_event(motion)
 	root.warp_mouse(motion.position)
 
+## Der Zeiger über eine Zelle der Podest-Die-View - der Info-Schirm zeigt die Seite.
+func _hover_face(workshop: WorkshopView, face: int) -> void:
+	var screen: TableScreen = game.get("table_screen")
+	var net: Rect2 = workshop._global(workshop.podium_net_rect())
+	var cell := workshop.podium_cell()
+	var origin := net.position + (net.size - DieNetView.net_size(cell)) * 0.5
+	var px := origin + DieNetView.cell_position(face, cell) + Vector2.ONE * cell * 0.5
+	# Die Maus läßt sich im verschobenen Fenster nicht einspeisen: der echte Schreiber des
+	# Info-Schirms bekommt das Pixel direkt, und scene_root hält derweil still.
+	game.set_process(false)
+	game.call("_write_workshop_info", workshop, px)
+	print("MASS seite px %s treffer %s" % [px, workshop.face_hit_at(px)])
+
 func _process(_delta: float) -> bool:
 	var ms := Time.get_ticks_msec()
 	if not started:
@@ -123,8 +136,10 @@ func _process(_delta: float) -> bool:
 				workshop._net.get_global_rect(), workshop._net.visible,
 				workshop._podium_net.get_global_rect() if workshop._podium_net else null])
 			workshop.toggle_result()
-			_hover_pool(2)
+			_hover_face(workshop, 1)
 		3:
+			print("MASS karte sichtbar %s" % screen.workshop_info_window.face_card().visible)
+			game.set_process(true)
 			_info_fonts("hover")
 			print("MASS vorschau-wuerfel %s" % workshop.preview_die())
 			rig.zoom_workshop_close()

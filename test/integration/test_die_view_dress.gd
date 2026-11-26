@@ -64,7 +64,8 @@ func test_the_up_mark_sits_on_its_cell_in_the_tray() -> void:
 	assert_false(mark.visible, "ohne Meldung keine Marke")
 	dress.mark_up(3)
 	assert_true(mark.visible)
-	assert_almost_eq(mark.position.y, -DieViewDress.TRAY_DROP, 0.001, "auf dem Wannenboden")
+	assert_almost_eq(mark.position.y, 0.0, 0.001, "ORIGINAL liegt auf dem Tisch")
+	assert_null(dress.get_node_or_null("Podestteile/Wannenboden"), "keine Wanne mehr")
 	var first := mark.position
 	dress.mark_up(0)
 	assert_ne(mark.position, first, "sie wandert mit der Seite")

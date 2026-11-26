@@ -745,7 +745,7 @@ func test_the_ware_price_turns_red_when_the_purse_is_short() -> void:
 	await wait_frames(2)
 	run.money = 999
 	await wait_frames(2)
-	assert_eq(shop._place_prices[0].modulate, ShopController.NEON_GOLD, "bezahlbar")
+	assert_eq(shop._place_prices[0].modulate, CasinoStyle.MONEY, "bezahlbar")
 	run.money = 0
 	await wait_frames(2)
 	assert_eq(shop._place_prices[0].modulate, CasinoStyle.RED,
@@ -895,8 +895,8 @@ func test_the_price_line_is_a_pure_function() -> void:
 	assert_eq(ShopController.price_text(0), "$0")
 
 func test_the_price_tint_says_whether_it_is_payable() -> void:
-	assert_eq(ShopController.price_tint(5, 10), ShopController.NEON_GOLD, "bezahlbar")
-	assert_eq(ShopController.price_tint(5, 5), ShopController.NEON_GOLD, "genau genug reicht")
+	assert_eq(ShopController.price_tint(5, 10), CasinoStyle.MONEY, "bezahlbar")
+	assert_eq(ShopController.price_tint(5, 5), CasinoStyle.MONEY, "genau genug reicht")
 	assert_eq(ShopController.price_tint(5, 4), CasinoStyle.RED, "zu teuer")
 
 

@@ -505,7 +505,7 @@ func _place_seat(seat: int) -> Button:
 	name_label.size = Vector2(whole.x, _name_height())
 	button.add_child(name_label)
 	_place_names.append(name_label)
-	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, NEON_GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	var tag := CasinoStyle.label("", u * WARE_PRICE_FONT, CasinoStyle.MONEY, HORIZONTAL_ALIGNMENT_CENTER)
 	tag.name = "Price"
 	tag.position = Vector2(0.0, _name_height() + gap * 0.5)
 	tag.size = Vector2(whole.x, _price_height())
@@ -1140,7 +1140,7 @@ static func price_text(price: int) -> String:
 	return "$%d" % price
 
 static func price_tint(price: int, money: int) -> Color:
-	return NEON_GOLD if money >= price else CasinoStyle.RED
+	return CasinoStyle.MONEY if money >= price else CasinoStyle.RED
 
 ## Knopf im Display-Neon-Stil: dunkler Grund, Rahmen in der Rubriken-Farbe;
 ## Hover/Druck wechseln auf Gold, deaktiviert dimmt ab.

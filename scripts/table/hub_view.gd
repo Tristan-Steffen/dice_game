@@ -184,7 +184,7 @@ func layout() -> void:
 	money_label.name = "MoneyLabel"
 	money_label.text = "$0"
 	money_label.add_theme_font_size_override("font_size", int(u * 6.0))
-	money_label.modulate = GOLD_COLOR
+	money_label.modulate = CasinoStyle.MONEY
 	money_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	money_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(money_label)

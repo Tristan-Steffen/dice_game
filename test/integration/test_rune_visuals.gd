@@ -103,7 +103,7 @@ func test_the_seam_colour_reaches_the_shader_normalized() -> void:
 	var seam: Vector3 = _material(faces, 0).get_shader_parameter("seam_color")
 	assert_almost_eq(maxf(seam.x, maxf(seam.y, seam.z)), 1.0, 0.001,
 		"energy heißt in jedem Profil dasselbe")
-	assert_almost_eq(seam.z, 1.0, 0.01, "und es bleibt das Energie-Cyan")
+	assert_almost_eq(seam.z, 1.0, 0.01, "und es bleibt das Energie-Violett")
 
 func test_the_vacuum_swallows_every_rune_and_nests_the_second() -> void:
 	var faces := _display(_die([Rune.AFTERGLOW, Rune.SPARK_FLIGHT], Essence.VACUUM))

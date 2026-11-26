@@ -56,7 +56,7 @@ const MODULE_Z := 0.1
 const MODULE_SIZE := Vector2(1.2, 4.0)
 const DIGIT_HEIGHT := 0.95
 
-const CYAN := Color(0.25, 0.86, 0.95)
+const CYAN := Color(0.62, 0.42, 0.98)  # das Violett der Energie (Name aus der Cyan-Zeit)
 const AMBER := Color(0.95, 0.62, 0.22)
 const TIP_OFF := Color(0.05, 0.06, 0.07)
 const LENS := Color(0.03, 0.045, 0.055)

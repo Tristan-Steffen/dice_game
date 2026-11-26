@@ -142,7 +142,7 @@ func layout() -> void:
 	total_value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	total_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	total_value.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	CasinoStyle.style_score_label(total_value, int(u * 8.0), CasinoStyle.GOLD_INTENSE)
+	CasinoStyle.style_score_label(total_value, int(u * 8.0), CasinoStyle.MONEY)
 	total_row.add_child(total_value)
 
 	# Die Summe folgt den Zeilen (in der Übersicht ist nur das obere Drittel der

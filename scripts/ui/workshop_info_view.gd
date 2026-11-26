@@ -62,6 +62,8 @@ var _shown := {"title": "", "sub": "", "sub_tint": Color.WHITE, "body": "", "act
 var _die: DieDefinition = null
 var _die_face := -1
 var _band: DieInfoBand
+## Die SEITEN-AUSKUNFT: steht eine Seite (face >= 0), trägt sie den ganzen Schirm.
+var _card: FaceCardView
 
 func _init() -> void:
 	name = "WorkshopInfoWindow"
@@ -103,6 +105,22 @@ func set_die(def: DieDefinition, face := -1) -> void:
 	_band.visible = speaks
 	if _body != null and is_instance_valid(_body):
 		_body.visible = not speaks
+	_sync_card()
+
+## Eine SEITE spricht über die Karte (Zahl | Material | Rune), sonst die Zeilen.
+func _sync_card() -> void:
+	if _card == null or not is_instance_valid(_card):
+		return
+	var face_shown := _die != null and _die_face >= 0
+	_card.visible = face_shown
+	_card.show_face(_die if face_shown else null, _die_face)
+	for label: Label in labels():
+		label.visible = not face_shown and (label != _body or not _band.visible)
+	if face_shown:
+		_band.visible = false
+
+func face_card() -> FaceCardView:
+	return _card
 
 func die_band() -> DieInfoBand:
 	return _band
@@ -182,6 +200,7 @@ func _rebuild() -> void:
 	_body = null
 	_action = null
 	_band = null
+	_card = null
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
 	var head := head_rect()
@@ -197,6 +216,13 @@ func _rebuild() -> void:
 	add_child(_band)
 	_band.position = middle.position
 	_band.size = middle.size
+	_card = FaceCardView.new()
+	_card.name = "SeitenAuskunft"
+	_card.visible = false
+	add_child(_card)
+	var inner := inner_rect()
+	_card.position = inner.position
+	_card.size = inner.size
 	set_die(_die, _die_face)
 	_paint()
 

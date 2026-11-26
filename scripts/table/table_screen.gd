@@ -3453,7 +3453,7 @@ func _tray_out_head(rank: int) -> PackedVector2Array:
 
 ## Farben der Nebenwetten-Lichter: Geld goldgelb (Tray-seitig), Gravur violett
 ## (Hub-seitig) - so verrät die Farbe schon die Herkunft des Lichts.
-const SIDE_MONEY_COLOR := Color(2.0, 1.55, 0.35, 0.9)
+const SIDE_MONEY_COLOR := Color(CasinoStyle.MONEY, 0.9)
 const SIDE_ENGRAVING_COLOR := Color(1.5, 0.7, 2.0, 0.9)
 
 ## Pfad Tray <-> Nebenwetten (Geld-Gewinn): Tray-Unterkante in den Korridor,

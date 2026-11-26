@@ -14,8 +14,6 @@ const CHIP_HEIGHT := 0.14
 const EPOXY := Color(0.075, 0.08, 0.092)
 const EPOXY_TOP := Color(0.105, 0.11, 0.124)
 const LEG_PITCH := 0.38
-## So tief liegt das Netz von ORIGINAL unter dem Tisch.
-const TRAY_DROP := 0.85
 const FLAT := Basis(Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0))
 const SILK := Color(0.72, 0.78, 0.84)
 const STANDBY := Color(0.45, 0.28, 0.06)
@@ -316,53 +314,26 @@ static func _lit(tints: Array, index: int, idle: Color) -> Color:
 		return Color(tints[index] as Color, 1.0)
 	return idle
 
-## Der Kragen um Kammer und Wanne, die Wanne selbst und die Stufe zur Kammer.
-func _build_hull(spec: Dictionary, floor_skin: Material) -> void:
+## Der Kragen um Kammer und ORIGINAL und der Steg zwischen beiden.
+func _build_hull(spec: Dictionary, _floor_skin: Material) -> void:
 	var mouth: Rect2 = spec["mouth"]
 	var tray := tray_rect(mouth, spec["net"])
 	_ring(mouth.merge(tray), 0.06, ChipFrameView.collar(-COLLAR_OUT, 0.02, 0.14, 0.05), _steel())
-	var floor_quad := MeshInstance3D.new()
-	floor_quad.name = "Wannenboden"
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(tray.size.y * _k, tray.size.x * _k)
-	floor_quad.mesh = plane
-	floor_quad.material_override = floor_skin
-	floor_quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	floor_quad.position = _w(tray.get_center()) + Vector3.DOWN * TRAY_DROP
-	_podium.add_child(floor_quad)
-	var wall := ChipFrameView._skin(ChipFrameView.STEEL_DARK, 0.2)
-	var thick := 0.12 / _k
-	var sides := [
-		Rect2(Vector2(tray.position.x - thick, tray.position.y), Vector2(thick, tray.size.y)),
-		Rect2(Vector2(tray.end.x, tray.position.y), Vector2(thick, tray.size.y))]
-	var runs := sides + [
-		Rect2(Vector2(tray.position.x, tray.end.y), Vector2(tray.size.x, thick)),
-		Rect2(Vector2(tray.position.x, tray.position.y - thick),
-			Vector2(maxf(mouth.position.x - tray.position.x, 0.0), thick)),
-		Rect2(Vector2(mouth.end.x, tray.position.y - thick),
-			Vector2(maxf(tray.end.x - mouth.end.x, 0.0), thick))]
-	for run: Rect2 in runs:
-		if run.size.x > 0.01:
-			_box(run, TRAY_DROP, -TRAY_DROP - 0.02, wall)
+	# Seit dem 2026-11-25 liegt ORIGINAL auf dem Tisch (keine Wanne): ein Steg trennt es
+	# von der Kammer, die Kammer hat ihre volle Wand.
 	var seam := _ink(BUS)
-	for side: Rect2 in sides:
-		var x := side.end.x if side.position.x < tray.position.x else side.position.x - 1.2
-		_box(Rect2(Vector2(x, side.position.y), Vector2(1.2, side.size.y)), 0.03, -0.12, seam)
-	# Die Stufe: die Kammerwand zur Wanne endet auf Wannenhöhe.
-	_box(Rect2(Vector2(mouth.position.x, mouth.end.y), Vector2(mouth.size.x, 0.1 / _k)),
-		0.3, -TRAY_DROP - 0.3, wall)
+	_box(Rect2(Vector2(tray.position.x, mouth.end.y), Vector2(tray.size.x, 1.2)), 0.03, 0.0, seam)
 
-## Die Wanne des Netzes: unter der Kammer, so breit wie die Die-View.
+## Das Feld von ORIGINAL: unter der Kammer, so breit wie die Die-View.
 static func tray_rect(mouth: Rect2, net: Rect2) -> Rect2:
 	return Rect2(Vector2(net.position.x, mouth.end.y),
 		Vector2(net.size.x, net.end.y - mouth.end.y))
 
-## ORIGINAL auf dem Wannenboden: Stecker und Fassung der Seele.
+## ORIGINAL auf dem Tisch: Stecker und Fassung der Seele.
 func _build_original(spec: Dictionary, cell: float) -> void:
 	var net: Rect2 = spec["net"]
 	var o := net_origin(net, cell)
 	var step := cell * (1.0 + DieNetView.GAP_FACTOR)
-	_sink = TRAY_DROP
 	_mark_cells.clear()
 	for face in 6:
 		_mark_cells.append(_w(o + DieNetView.cell_position(face, cell) + Vector2.ONE * cell * 0.5))
@@ -546,7 +517,7 @@ func _build_coupler(field: Rect2) -> void:
 
 ## Die BUSSE als Körper: je Bus ein dunkler Träger, darauf je Spur ein Steg (leuchtend in
 ## ihrer Sortenfarbe, sonst matt) und Gold-Pads an beiden Enden. Der Ausgangs-Bus endet am
-## "+"-Feld; sein letztes Stück bis in die Wanne gehört dem Podest (es fährt mit der Zone)
+## "+"-Feld; sein letztes Stück bis an ORIGINAL gehört dem Podest (es fährt mit der Zone)
 ## samt der DURCHFÜHRUNG am Kragen.
 func _build_buses(spec: Dictionary) -> void:
 	var pitch: float = spec.get("pitch", 0.0)

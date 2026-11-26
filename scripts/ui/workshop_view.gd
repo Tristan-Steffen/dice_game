@@ -3067,6 +3067,21 @@ func _net_hint_info(pixel: Vector2) -> Dictionary:
 		return {"hint": shown, "owner": _owner_line(_view_owner(), shown_die())}
 	return {}
 
+## Die WÜRFEL-SEITE unter dem Pixel ({} = keine): {die, face} aus der Vorschau oder der
+## Die-View des Podests - der Würfel so, wie das Netz ihn zeigt (samt Wirkung der Serie).
+## Daraus baut der Info-Schirm seine Seiten-Auskunft.
+func face_hit_at(pixel: Vector2) -> Dictionary:
+	var nets: Array = [_preview_net]
+	if not opening_shown:
+		nets.append(_net if _net_in_view() else _podium_net)
+	for net: PressNetView in nets:
+		if net == null or not is_instance_valid(net) or net.def == null:
+			continue
+		var face := net.face_at_pixel(pixel)
+		if face >= 0:
+			return {"die": net.preview_die(), "face": face}
+	return {}
+
 ## Der Besitzer der Die-View in Worten - dasselbe wie ihr Schild.
 func _view_owner() -> String:
 	return RESULT_OWNER if die_view_label() == "ERGEBNIS" else ORIGINAL_OWNER

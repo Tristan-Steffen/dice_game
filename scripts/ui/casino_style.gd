@@ -14,9 +14,13 @@ const GREEN := Color("46c46e")
 const GREEN_DARK := Color("2e8f4c")
 const PURPLE := Color("9b5de5")
 const PURPLE_DARK := Color("6f3bb0")
-## Energie (⚡): überhelles Cyan - Börse am Hub, Preise im Schwarzmarkt und die
-## Ladungs-Kometen der Auszahlung teilen sich diese eine Signalfarbe.
-const ENERGY := Color(0.55, 1.9, 2.1)
+## Energie (⚡): überhelles Violett - Börse am Hub, Preise im Schwarzmarkt und die
+## Ladungs-Kometen der Auszahlung teilen sich diese eine Signalfarbe (seit dem
+## 2026-11-26; das alte Cyan war von den Basispunkten nicht zu trennen).
+const ENERGY := Color(1.36, 0.9, 2.1)
+## Geld ($): überhelles Grün - Zuwachs-Zahlen, Geld-Kometen, Börse und Preise (seit dem
+## 2026-11-26; das alte Gold war vom Mult nicht zu trennen).
+const MONEY := Color(0.47, 2.0, 0.86)
 ## Vertragsstufen (DealClause.Tier): Standard, Risiko, Knebel, Werbegeschenk,
 ## Stresstest - die Akzentfarbe der Karte steigt mit der Gefahr.
 const CONTRACT_TIER_COLORS := [

@@ -112,7 +112,9 @@ func test_a_soulless_die_is_not_blank() -> void:
 	assert_true((view.get_node("Wirkung") as Control).visible, "die Wirkung spricht")
 	assert_ne(view.body_text(), "")
 	view.set_die(die, 0)
-	assert_true(view.die_band().visible, "eine Seite spricht wieder über die Auskunft")
+	assert_true(view.face_card().visible, "eine Seite spricht über die Seiten-Auskunft")
+	assert_false(view.die_band().visible)
+	assert_false((view.get_node("Titel") as Label).visible, "die Karte trägt den ganzen Schirm")
 
 ## Der Titel eines Würfels ist der Name seiner Seele.
 func test_die_info_names_the_soul() -> void:

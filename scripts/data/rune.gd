@@ -36,7 +36,7 @@ const NONE := ""
 ## Einordnung für die Anzeige, die Wirkung hängt an der id.
 @export var kind: String = ""
 ## Tönung des Zeichens - die TÖNUNG IST die Wirkung. Funkenflug trägt das
-## Energy-Cyan der Energie, denselben Wert wie CasinoStyle.ENERGY, hier
+## Violett der Energie, denselben Wert wie CasinoStyle.ENERGY, hier
 ## gespiegelt: data/ darf nie aus ui/ importieren.
 @export var tint: Color = Color.WHITE
 ## Zeichen dieser Rune (Schluessel in glyph_lines).
@@ -150,9 +150,9 @@ static func burn_in() -> Rune:
 static func spark_flight() -> Rune:
 	var rune := _make(SPARK_FLIGHT, "Funkenflug", "+1 ⚡ beim Werten",
 		"Wird diese Seite gewertet, springt ein Funke über: +1 Energie, einmal je Zug.",
-		"Wertung", Color(0.55, 1.9, 2.1), GLYPH_SPARK_FLIGHT)
+		"Wertung", Color(1.36, 0.9, 2.1), GLYPH_SPARK_FLIGHT)
 	rune.motion = MOTION_SPARK
-	rune.core = Color(0.80, 1.0, 1.0)
+	rune.core = Color(0.94, 0.86, 1.0)
 	# Die Naht glüht mit, seit die Rune auf Distanz lesen muss - der laufende Punkt
 	# bleibt trotzdem die Erkennungsmarke, er hebt sich um die volle Spanne ab.
 	rune.idle_low = 1.15
@@ -169,9 +169,9 @@ static func spark_flight() -> Rune:
 static func reverse() -> Rune:
 	var rune := _make(REVERSE, "Kehrseite", "Gegenseite löst mit aus",
 		"Wird diese Seite gewertet, löst die gegenüberliegende Seite zusätzlich einmal voll mit aus.",
-		"Wertung", Color(0.66, 0.36, 1.0), GLYPH_REVERSE)
+		"Wertung", Color(0.3, 0.6, 1.0), GLYPH_REVERSE)
 	rune.motion = MOTION_ECHO
-	rune.core = Color(0.92, 0.82, 1.0)
+	rune.core = Color(0.82, 0.9, 1.0)
 	rune.idle_low = 1.30
 	rune.idle_high = 2.50
 	rune.idle_period = 4.6
@@ -200,7 +200,7 @@ static func vacuum_profile() -> Rune:
 ## Naht-Farbe für den Shader: derselbe Farbton wie tint, aber auf max == 1
 ## normiert. So heißt "energy" in jedem Profil dasselbe (die hellste Komponente),
 ## und die Ruhe-Regel ist über alle vier Tönungen hinweg vergleichbar. Funkenflug
-## trägt HDR-Cyan (CasinoStyle.ENERGY) - erst die Normierung macht es messbar.
+## trägt HDR-Violett (CasinoStyle.ENERGY) - erst die Normierung macht es messbar.
 func normalized_seam() -> Color:
 	var peak := maxf(tint.r, maxf(tint.g, tint.b))
 	if peak <= 0.0:

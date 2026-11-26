@@ -123,6 +123,8 @@ static func hint_for(def: DieDefinition, face: int) -> String:
 ## Label, darum NACH dessen Farb-Overrides rufen.
 static func write_value(digit: Label, value: int, cell: float, font_size: int = -1) -> void:
 	var top := face_font_size(cell) if font_size < 0 else font_size
+	# Dieselbe Schrift wie die Ziffern am Würfel-Körper.
+	digit.add_theme_font_override("font", DieFaceDisplay.NUMBER_FONT)
 	digit.text = FaceValue.main_text(value)
 	var mag := digit.get_node_or_null(MAGNITUDE_NAME) as Label
 	if not FaceValue.is_big(value):
@@ -138,6 +140,7 @@ static func write_value(digit: Label, value: int, cell: float, font_size: int = 
 		mag.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		mag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		mag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		mag.add_theme_font_override("font", DieFaceDisplay.NUMBER_FONT)
 		digit.add_child(mag)
 	var band := cell * MAGNITUDE_BAND
 	# Die Ziffer rückt per Innenrand unter das Größen-Band; die Größe bleibt IM

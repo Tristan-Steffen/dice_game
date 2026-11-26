@@ -3919,11 +3919,6 @@ func _sync_chamber(workshop: WorkshopView) -> void:
 		chamber_pit.floored = false
 		add_child(chamber_pit)
 	chamber_pit.setup(centre, half, CHAMBER_DEPTH)
-	# Zur Wanne von ORIGINAL hin steht keine Wand über Wannenhöhe (DieViewDress baut die Stufe).
-	for part: String in ["WallXMinus", "GlowXMinus"]:
-		var near := chamber_pit.find_child(part, true, false) as Node3D
-		if near != null:
-			near.visible = false
 	if chamber_rig == null or not is_instance_valid(chamber_rig):
 		chamber_rig = ChamberRigView.new()
 		chamber_rig.name = "ChamberRig"
@@ -4034,13 +4029,11 @@ func _seat_chamber_hard() -> void:
 		if shown:
 			table_screen.set_pit(TableScreen.PIT_CHAMBER,
 				table_screen.workshop_window.chamber_rect_px(), 0.0)
-			var tray := table_screen.workshop_window.net_tray_px()
-			table_screen.set_pit(TableScreen.PIT_NET_TRAY, tray, 0.0)
-			table_screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, tray, DieViewDress.TRAY_DROP)
 		else:
 			table_screen.clear_pit(TableScreen.PIT_CHAMBER)
-			table_screen.clear_pit(TableScreen.PIT_NET_TRAY)
-			table_screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, Rect2(), 0.0)
+		# ORIGINAL liegt seit dem 2026-11-25 auf dem Tisch: kein Wannen-Loch mehr.
+		table_screen.clear_pit(TableScreen.PIT_NET_TRAY)
+		table_screen.set_sunk_floor(TableScreen.PIT_NET_TRAY, Rect2(), 0.0)
 	for body: Node3D in [chamber_pit, chamber_rig, chamber_floor]:
 		if body != null and is_instance_valid(body):
 			body.visible = shown
@@ -12326,6 +12319,9 @@ func _workshop_info_data(workshop: WorkshopView, pixel: Vector2) -> Dictionary:
 		idle = WorkshopInfoView.die_info(_waiting_fach_die())
 	if pixel.x < 0.0 or _deck_glass or camera_rig.die_focus:
 		return idle
+	var face_hit := workshop.face_hit_at(pixel)
+	if not face_hit.is_empty():
+		return face_hit
 	var cell_hint := workshop.net_hint_at(pixel)
 	if cell_hint != "":
 		return WorkshopInfoView.cell_info(workshop.net_hint_owner_at(pixel), cell_hint)
