@@ -46,6 +46,8 @@ var u := 8.0
 ## Seiten je Kachel zeigen (Würfel-Editor) statt nur der Augensumme.
 var detailed := false
 var tiles: Array[Button] = []
+## Aufschrift je leerem Platz (Index -> Text), etwa „IM LABOR“; ein solcher Platz ist kein Ziel.
+var empty_marks: Dictionary = {}
 
 var _defs: Array[DieDefinition] = []
 ## Hervorgehobene Plätze: EIN Ziel im Würfel-Editor, MEHRERE beim Einsetzen
@@ -159,7 +161,7 @@ func fill(defs: Array[DieDefinition], highlight_index: int = -1) -> void:
 		child.queue_free()
 	for i in defs.size():
 		if defs[i] == null:
-			add_child(_empty_tile())
+			add_child(_empty_tile(String(empty_marks.get(i, ""))))
 			tiles.append(null)
 		else:
 			var tile := _tile(defs[i], i == highlight_index, i)
@@ -288,8 +290,9 @@ func _describe(def: DieDefinition) -> String:
 		text += "\n%s" % edge
 	return text
 
-## Leerer Platz: stiller Platzhalter, damit das Raster die Lücken spiegelt.
-func _empty_tile() -> Control:
+## Leerer Platz: stiller Platzhalter, damit das Raster die Lücken spiegelt; mit mark
+## nennt er, wo sein Würfel gerade ist.
+func _empty_tile(mark := "") -> Control:
 	var cell := Panel.new()
 	cell.custom_minimum_size = _tile_size()
 	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -299,6 +302,17 @@ func _empty_tile() -> Control:
 	box.set_border_width_all(maxi(1, int(u * 0.15)))
 	box.set_corner_radius_all(int(u * 0.7))
 	cell.add_theme_stylebox_override("panel", box)
+	if mark != "":
+		box.border_color = Color(CasinoStyle.ENERGY, 0.7)
+		var label := Label.new()
+		label.text = mark
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", maxi(8, int(u * 1.6)))
+		label.modulate = CasinoStyle.ENERGY
+		cell.add_child(label)
 	return cell
 
 ## Die eine Kachel-Fassung, in Einheiten von unit gerechnet.

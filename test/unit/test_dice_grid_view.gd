@@ -36,6 +36,17 @@ func test_empty_slots_stay_silent() -> void:
 	assert_null(grid.tiles[1], "leerer Platz hat keine Kachel")
 	assert_eq(grid.get_child_count(), 2, "der Platzhalter steht trotzdem im Raster")
 
+## Ein Würfel im Labor: sein Platz bleibt leer, sagt es und ist kein Ziel.
+func test_a_marked_empty_slot_names_where_its_die_is() -> void:
+	grid.empty_marks = {1: "IM LABOR"}
+	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6]), null]))
+	assert_null(grid.tiles[1], "keine Kachel, also kein Ziel")
+	var holder := grid.get_child(1)
+	var label := holder.get_child(0) as Label
+	assert_not_null(label)
+	assert_eq(label.text, "IM LABOR")
+	assert_eq(grid.hint_at(Vector2(-5, -5)), "")
+
 func test_pressing_a_tile_reports_its_index() -> void:
 	grid.fill(_defs([_die([1, 2, 3, 4, 5, 6]), _die([2, 2, 2, 2, 2, 2])]))
 	var pressed: Array[int] = []

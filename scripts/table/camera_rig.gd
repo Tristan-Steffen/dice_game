@@ -7,7 +7,7 @@ extends Camera3D
 ## Das leichte Maus-Rundschauen läuft überall außer an den drei Stationen, deren
 ## Fenster das Bild füllt (Hub, Werkstatt, Titel) - dort verschöbe es nur.
 
-enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE, BANK }
+enum Mode { OVERVIEW, PIT, POOL, COMBOS, CHARMS, HUB, SIDE_BETS, SCORE, SLOTS, CHIPS, WORKSHOP, SECRET_SHOP, TITLE, BANK, LABOR }
 
 signal mode_changed(new_mode: Mode)
 
@@ -105,6 +105,9 @@ var bank_target := Vector3(-7, 0, -60)
 var bank_half := Vector2.ZERO
 const BANK_MARGIN := 1.04
 var secret_shop_half := Vector2.ZERO
+## Das LABOR unter dem Schwarzmarkt: gerahmt wie er.
+var labor_target := Vector3(-24, 0, -2)
+var labor_half := Vector2.ZERO
 ## Dort wiegt die Kamera nur leicht: beim vollen Zoom-Schwenk lief das kleine Stück dem Zeiger davon.
 const BANK_TILT_MAX_DEGREES := 1.2
 ## Die Laufwerks-Reihe samt Hologrammen (2026-11-18): gerahmt statt fester Abstand.
@@ -332,7 +335,7 @@ func felt_pick_live(station: int) -> bool:
 ## bleiben WORKSHOP und stehen damit mit still. WASD bleibt: das ist Absicht.
 func _tilt_frozen_mode() -> bool:
 	return mode == Mode.HUB or mode == Mode.TITLE or mode == Mode.WORKSHOP \
-		or mode == Mode.SECRET_SHOP
+		or mode == Mode.SECRET_SHOP or mode == Mode.LABOR
 
 func _process(delta: float) -> void:
 	if is_animating or tilt_locked or _tilt_frozen_mode():
@@ -443,6 +446,11 @@ func configure_slots_target(target: Vector3) -> void:
 func configure_secret_shop_target(target: Vector3, half := Vector2.ZERO) -> void:
 	secret_shop_target = target
 	secret_shop_half = half
+
+## half = halbe Ausmaße des Labors (Welt-Z, Welt-X); ZERO läßt den festen Abstand stehen.
+func configure_labor_target(target: Vector3, half := Vector2.ZERO) -> void:
+	labor_target = target
+	labor_half = half
 
 ## half = halbe Ausmaße des Bank-Tabletts (Welt-Z, Welt-X).
 func configure_bank_target(target: Vector3, half: Vector2) -> void:
@@ -634,6 +642,8 @@ func station_target(target_mode: Mode) -> Vector3:
 			return chips_target
 		Mode.BANK:
 			return bank_target
+		Mode.LABOR:
+			return labor_target
 		Mode.WORKSHOP:
 			return workshop_target
 	return Vector3.ZERO
@@ -659,6 +669,8 @@ func zoom_to(target_mode: Mode, duration := ZOOM_DURATION,
 		distance = tilted_fit_distance(bank_half, BANK_MARGIN)
 	if target_mode == Mode.SECRET_SHOP and secret_shop_half != Vector2.ZERO:
 		distance = tilted_fit_distance(secret_shop_half, SECRET_SHOP_MARGIN)
+	if target_mode == Mode.LABOR and labor_half != Vector2.ZERO:
+		distance = tilted_fit_distance(labor_half, SECRET_SHOP_MARGIN)
 	if target_mode == Mode.COMBOS and combos_half != Vector2.ZERO:
 		# Das Feld ist schmal: die Station fährt so nah heran, wie es ins Bild paßt.
 		distance = maxf(COMBOS_NEAREST, tilted_fit_distance(combos_half, COMBOS_MARGIN))

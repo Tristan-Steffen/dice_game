@@ -23,8 +23,9 @@ const KIND_SOCKET := "socket"    # CPU-Sockel: die Wurfgrube
 const KIND_DISPLAY := "display"  # Anzeige-Modul: die Wertung
 const KIND_HUB := "hub"          # der Hub
 const KIND_MARKET := "market"    # der Schwarzmarkt: ein Bauteil mit eigenem Körper
+const KIND_LABOR := "labor"      # das Labor: ebenso
 ## Diese Bauteile tragen ihre eigene 3D-Fassung: das Deck malt unter ihnen kein Feld und keinen Druck.
-const STANDING := [KIND_SOCKET, KIND_DISPLAY, KIND_HUB, KIND_MARKET]
+const STANDING := [KIND_SOCKET, KIND_DISPLAY, KIND_HUB, KIND_MARKET, KIND_LABOR]
 
 var board := Rect2()
 var comps: Array[Rect2] = []

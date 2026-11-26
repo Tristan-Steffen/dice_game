@@ -26,6 +26,8 @@ signal projectors_changed
 signal press_changed
 ## Pfandflasche: so viel ⚡ ist gerade gebucht worden - scene_root schickt das Licht.
 signal deposit_energy(count: int)
+## Das LABOR hat sich geändert (geöffnet, Auftrag gestartet, Runde vergangen, abgeholt).
+signal labor_changed
 
 const POOL_SIZE := 30
 ## Je PROJEKTOR ein Charm-Platz; jeder hängt an einem der USB-Ports des Tisches.
@@ -311,8 +313,9 @@ func charm_slots() -> Array[int]:
 func _resolved_charms() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var dark := dark_charm_slot()
+	var lab := labor_charm_slot()
 	for i in owned_charms.size():
-		if i == dark:
+		if i == dark or i == lab:
 			continue
 		var charm_id := owned_charms[i].id
 		match charm_id:
@@ -338,7 +341,8 @@ func owned_charm_ids() -> Array[String]:
 	return ids
 
 func _neighbor_id(index: int) -> String:
-	if index < 0 or index >= owned_charms.size() or index == dark_charm_slot():
+	if index < 0 or index >= owned_charms.size() or index == dark_charm_slot() \
+			or index == labor_charm_slot():
 		return ""
 	var neighbor_id := owned_charms[index].id
 	if neighbor_id == Charm.PARROT_TOTEM or neighbor_id == Charm.ECHO_TOTEM:
@@ -601,6 +605,7 @@ func grant_stress_reward() -> DieDefinition:
 	stress_tests_passed += 1
 	if projectors < MAX_PROJECTORS:
 		_add_projector()
+	open_labor()
 	return _grant_reward_die()
 
 ## Löst einen hinterlegten Würfel gegen einen Pool-Platz ein - der EINE Weg, auf dem
@@ -611,7 +616,7 @@ func grant_stress_reward() -> DieDefinition:
 func exchange_pending_die(pending_index: int, pool_index: int) -> bool:
 	if pending_index < 0 or pending_index >= pending_dice.size():
 		return false
-	if pool_index < 0 or pool_index >= owned_pool.size():
+	if pool_index < 0 or pool_index >= owned_pool.size() or die_in_labor(owned_pool[pool_index]):
 		return false
 	owned_pool[pool_index].become(pending_dice[pending_index])
 	pending_dice.remove_at(pending_index)
@@ -666,9 +671,17 @@ func move_charm(from_index: int, to_index: int) -> void:
 			or from_index < 0 or from_index >= owned_charms.size() \
 			or to_index < 0 or to_index >= owned_charms.size():
 		return
-	var charm := owned_charms[from_index]
-	owned_charms.remove_at(from_index)
-	owned_charms.insert(to_index, charm)
+	# Der Charm im Labor bleibt auf seinem Platz; die anderen rücken um ihn herum.
+	var fixed: Array[int] = []
+	if labor_charm_slot() >= 0:
+		fixed.append(labor_charm_slot())
+	var order := _order_around(owned_charms.size(), from_index, to_index, fixed)
+	if order.is_empty():
+		return
+	var next: Array[Charm] = []
+	for i in order:
+		next.append(owned_charms[i])
+	owned_charms.assign(next)
 	charms_changed.emit()
 
 ## Effektiver Verkaufserlös des Charms auf Platz index (Basis + Charm-Boni).
@@ -682,7 +695,7 @@ func charm_sell_value(index: int) -> int:
 
 ## Verkauft den Charm auf Platz index: entfernt ihn, Erlös aufs Konto.
 func sell_charm(index: int) -> void:
-	if index < 0 or index >= owned_charms.size():
+	if index < 0 or index >= owned_charms.size() or index == labor_charm_slot():
 		return
 	var value := charm_sell_value(index)
 	owned_charms.remove_at(index)
@@ -1000,6 +1013,7 @@ func confirm_dice_choice(choice: PackChoice, assignments: Dictionary) -> Array:
 	for key in assignments:
 		var seat := int(assignments[key])
 		if seat < 0 or seat >= owned_pool.size() or seats.has(seat) \
+				or die_in_labor(owned_pool[seat]) \
 				or not (choice.options[int(key)] is DieDefinition):
 			return out
 		seats[seat] = true
@@ -1393,7 +1407,7 @@ func compress_series(pack_uids: Array[int], blank_uid: int,
 ## Liefert {"projection", "cards", "kept"}.
 func apply_series(pack_uids: Array[int], die: DieDefinition,
 		rng: RandomNumberGenerator = null) -> Dictionary:
-	if die == null:
+	if die == null or die_in_labor(die):
 		return {}
 	var chosen := _series_indices(pack_uids)
 	if chosen.is_empty():
@@ -1481,7 +1495,7 @@ func parts_room() -> bool:
 ## Die Belegung, mit der gewertet wird: stillgelegte Teile (Hitzestau) fehlen.
 func scoring_parts() -> Dictionary:
 	_stamp_clause_parts()
-	if heat_disabled_parts.is_empty():
+	if heat_disabled_parts.is_empty() and labor_part() == null:
 		return combo_parts
 	var out := {}
 	for key in combo_parts:
@@ -1581,6 +1595,8 @@ func install_pending_part_at(pending_index: int, combo_key: String, slot: int) -
 	var part := pending_parts[pending_index]
 	var sockets := parts_of(combo_key).duplicate()
 	var displaced: ComboPart = sockets[slot]
+	if part_in_labor(displaced):
+		return false  # das Modul im Labor wird nicht verdrängt
 	sockets[slot] = part
 	combo_parts[combo_key] = _fit_sockets(sockets)
 	var from_pack := part.from_pack
@@ -1636,7 +1652,7 @@ func install_target(combo_key: String, slot: int, editable: bool) -> int:
 		return -1
 	if slot < 0:
 		return first_free_socket(combo_key)
-	if not _valid_socket(combo_key, slot):
+	if not _valid_socket(combo_key, slot) or part_in_labor(parts_of(combo_key)[slot]):
 		return -1
 	if parts_of(combo_key)[slot] == null or editable:
 		return slot
@@ -1657,7 +1673,7 @@ func move_part(from_key: String, from_slot: int, to_key: String, to_slot: int, e
 	if from_key == to_key and from_slot == to_slot:
 		return false
 	var part: ComboPart = parts_of(from_key)[from_slot]
-	if part == null:
+	if part == null or part_in_labor(part) or part_in_labor(parts_of(to_key)[to_slot]):
 		return false
 	if from_key == to_key:
 		var sockets := parts_of(from_key).duplicate()
@@ -1838,7 +1854,7 @@ func _destroy_random_part(rng: RandomNumberGenerator = null) -> ComboPart:
 			continue
 		var sockets: Array = combo_parts.get(key, [])
 		for slot in sockets.size():
-			if sockets[slot] != null:
+			if sockets[slot] != null and not part_in_labor(sockets[slot]):
 				spots.append([key, slot])
 	if spots.is_empty():
 		return null
@@ -1853,10 +1869,16 @@ func _destroy_random_part(rng: RandomNumberGenerator = null) -> ComboPart:
 ## Strafgebühr (Boss): Platz des Charms, den dieser Fumble zerstört (-1 = keiner).
 ## Gewählt wird hier, entfernt erst mit destroy_charm - die Diskette muss vorher heraus.
 func fumble_charm_loss(rng: RandomNumberGenerator = null) -> int:
-	if not _clause_active(DealClause.PENALTY_FEE) or owned_charms.is_empty():
+	if not _clause_active(DealClause.PENALTY_FEE):
 		return -1
-	return rng.randi_range(0, owned_charms.size() - 1) if rng != null \
-		else randi_range(0, owned_charms.size() - 1)
+	var slots: Array[int] = []
+	for i in owned_charms.size():
+		if i != labor_charm_slot():
+			slots.append(i)
+	if slots.is_empty():
+		return -1
+	return slots[rng.randi_range(0, slots.size() - 1) if rng != null \
+		else randi_range(0, slots.size() - 1)]
 
 ## Entfernt den Charm auf Platz index ersatzlos.
 func destroy_charm(index: int) -> void:
@@ -1865,9 +1887,9 @@ func destroy_charm(index: int) -> void:
 	owned_charms.remove_at(index)
 	charms_changed.emit()
 
-## Ist dieses Teil in der laufenden Runde stillgelegt (Hitzestau)?
+## Ist dieses Teil stillgelegt (Hitzestau dieser Runde oder im Labor)?
 func is_part_disabled(part: ComboPart) -> bool:
-	return part != null and heat_disabled_parts.has(part.get_instance_id())
+	return part != null and (heat_disabled_parts.has(part.get_instance_id()) or part_in_labor(part))
 
 func _clear_heat_disabled() -> void:
 	if heat_disabled_parts.is_empty():
@@ -2080,6 +2102,8 @@ func _apply_instant_clause(clause_id: String) -> void:
 func auction_charm_index() -> int:
 	var best := -1
 	for i in owned_charms.size():
+		if i == labor_charm_slot():
+			continue
 		if best < 0 or owned_charms[i].price > owned_charms[best].price:
 			best = i
 	return best
@@ -2089,7 +2113,9 @@ func _clause_offerable(clause_id: String) -> bool:
 	match clause_id:
 		DealClause.BIG_STORAGE:
 			return storage_rows < max_storage_rows()
-		DealClause.FORCED_AUCTION, DealClause.PROJECTOR_FAILURE:
+		DealClause.FORCED_AUCTION:
+			return auction_charm_index() >= 0
+		DealClause.PROJECTOR_FAILURE:
 			return not owned_charms.is_empty()
 		DealClause.SCRAP_PRESS:
 			return free_socket_count() < SOCKETS_PER_COMBO * DiceScoring.HAND_PRIORITY.size()
@@ -2654,17 +2680,63 @@ func reorder_pool(from_index: int, to_index: int) -> bool:
 		return false
 	if to_index < 0 or to_index >= owned_pool.size():
 		return false
-	var moved := owned_pool[from_index]
-	owned_pool.remove_at(from_index)
-	owned_pool.insert(to_index, moved)
+	# Würfel im Labor behalten ihre Sitze; umgelegt wird um sie herum.
+	var order := _order_around(owned_pool.size(), from_index, to_index, _labor_pool_seats())
+	if order.is_empty():
+		return false
+	var next: Array[DieDefinition] = []
+	for i in order:
+		next.append(owned_pool[i])
+	owned_pool.assign(next)
 	pool_changed.emit()
 	return true
+
+## Die Ordnung nach einem Umlegen from → to (alte Indizes), wobei die Plätze in fixed
+## stehen bleiben. Leer = from oder to ist fest.
+static func _order_around(count: int, from: int, to: int, fixed: Array[int]) -> Array[int]:
+	var free: Array[int] = []
+	for i in count:
+		if not fixed.has(i):
+			free.append(i)
+	var from_at := free.find(from)
+	var to_at := free.find(to)
+	if from_at < 0 or to_at < 0:
+		return [] as Array[int]
+	var moved := free[from_at]
+	free.remove_at(from_at)
+	free.insert(to_at, moved)
+	var order: Array[int] = []
+	var k := 0
+	for i in count:
+		if fixed.has(i):
+			order.append(i)
+		else:
+			order.append(free[k])
+			k += 1
+	return order
 
 ## Die GANZE Pool-Ordnung auf einmal setzen - der Kreislauf am Rundenende, wo der
 ## Pit-Inhalt zum neuen Pool wird. order muß eine PERMUTATION derselben Instanzen
 ## sein (dieselbe Identitäts-Regel wie reorder_pool); alles andere lässt den Pool
 ## unberührt, statt ihn halb umzuschreiben.
 func reorder_pool_full(order: Array[DieDefinition]) -> bool:
+	# Die Labor-Würfel (in keinem Stapel) behalten ihre Sitze, mit oder ohne sie in order.
+	var seats := _labor_pool_seats()
+	if not seats.is_empty():
+		var rest: Array[DieDefinition] = []
+		for die in order:
+			if not die_in_labor(die):
+				rest.append(die)
+		if rest.size() == owned_pool.size() - seats.size():
+			var full: Array[DieDefinition] = []
+			var k := 0
+			for i in owned_pool.size():
+				if seats.has(i):
+					full.append(owned_pool[i])
+				else:
+					full.append(rest[k])
+					k += 1
+			order = full
 	if order.size() != owned_pool.size():
 		return false
 	var seen := {}
@@ -2955,6 +3027,9 @@ func advance_round() -> void:
 		block_fumbles = 0
 	blind_value *= 1.0 + blind_growth(round_number)
 	round_goal = floor_to_blind(blind_value)
+	if labor_job != null and not labor_job.done:
+		labor_job.tick()
+		labor_changed.emit()
 	roll_route_offers()
 
 ## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
@@ -3505,6 +3580,275 @@ func clear_all_essences() -> void:
 		die.essence_id = ""
 		die.second_runes = ["", "", "", "", "", ""] as Array[String]
 	pool_changed.emit()
+
+# --- Das LABOR ----------------------------------------------------------------------
+# Öffnet nach der ersten Boss-Runde, EIN Auftrag zur Zeit. Einsatz (inputs) je Station:
+# seele {"dice": [Quell-, Ziel-Pool-Index]}, charm {"charm": Index}, modul {"part":
+# {"key": Kombi, "slot": Platz}}, karten {"packs": [uid, ...]} (1..6).
+
+## Die Station, die gerade steht ("" = Labor noch zu).
+var labor_station: String = ""
+## Der laufende oder fertige Auftrag (null = leer).
+var labor_job: Labor = null
+## Gestartete Aufträge des Laufs - zugleich der Preis des nächsten.
+var labor_uses: int = 0
+
+func labor_open() -> bool:
+	return stress_tests_passed >= 1 and labor_station != ""
+
+## Öffnet das Labor mit seiner ersten Station (idempotent).
+func open_labor(rng: RandomNumberGenerator = null) -> void:
+	if stress_tests_passed < 1 or labor_station != "":
+		return
+	labor_station = Labor.next_station("", rng)
+	labor_changed.emit()
+
+func labor_price() -> int:
+	return labor_uses
+
+func labor_dice() -> Array[DieDefinition]:
+	var out: Array[DieDefinition] = []
+	if labor_job != null:
+		out.assign(labor_job.dice)
+	return out
+
+func die_in_labor(die: DieDefinition) -> bool:
+	return die != null and labor_job != null and labor_job.dice.has(die)
+
+## Die Vorrats-Würfel, die eine Hand ziehen darf: alle außer denen im Labor, in Pool-Ordnung.
+func playable_pool() -> Array[DieDefinition]:
+	var out: Array[DieDefinition] = []
+	for die in owned_pool:
+		if not die_in_labor(die):
+			out.append(die)
+	return out
+
+func _labor_pool_seats() -> Array[int]:
+	var seats: Array[int] = []
+	if labor_job == null:
+		return seats
+	for i in owned_pool.size():
+		if labor_job.dice.has(owned_pool[i]):
+			seats.append(i)
+	return seats
+
+## Besitz-Platz des Charms im Labor (−1 = keiner).
+func labor_charm_slot() -> int:
+	if labor_job == null or labor_job.charm == null:
+		return -1
+	return owned_charms.find(labor_job.charm)
+
+func labor_part() -> ComboPart:
+	return labor_job.part if labor_job != null else null
+
+func part_in_labor(part: ComboPart) -> bool:
+	return part != null and labor_part() == part
+
+## Wo das Modul im Labor steckt ({key, slot}; leer = keins).
+func labor_part_socket() -> Dictionary:
+	var part := labor_part()
+	if part == null:
+		return {}
+	for key: String in DiceScoring.HAND_PRIORITY:
+		var at := parts_of(key).find(part)
+		if at >= 0:
+			return {"key": key, "slot": at}
+	return {}
+
+func labor_packs() -> Array[Pack]:
+	var out: Array[Pack] = []
+	if labor_job != null:
+		out.assign(labor_job.packs)
+	return out
+
+## Taugt diese Karte als Einsatz der Karten-Presse? Rohling, Verdichtete, Katalysator
+## und Operator nicht.
+static func labor_card_valid(pack: Pack) -> bool:
+	return pack != null and not pack.from_blank() and not pack.is_catalyst() \
+		and not pack.is_operator() and Pack.shelf_of(pack) != ""
+
+## Ist der Einsatz für die stehende Station gültig (ohne Preis und Auftrags-Sperre)?
+func labor_inputs_valid(inputs: Dictionary) -> bool:
+	return not _labor_resolve(inputs).is_empty()
+
+func can_start_labor(inputs: Dictionary) -> bool:
+	return labor_open() and labor_job == null and energy >= labor_price() \
+		and labor_inputs_valid(inputs)
+
+## Löst den Einsatz in seine Dinge auf ({dice|charm|part|packs}; leer = ungültig).
+func _labor_resolve(inputs: Dictionary) -> Dictionary:
+	match labor_station:
+		Labor.SEELE:
+			var picks = inputs.get("dice")
+			if not (picks is Array) or (picks as Array).size() != 2:
+				return {}
+			var source := int(picks[0])
+			var target := int(picks[1])
+			if source == target or source < 0 or target < 0 \
+					or source >= owned_pool.size() or target >= owned_pool.size():
+				return {}
+			var dice: Array[DieDefinition] = [owned_pool[source], owned_pool[target]]
+			if dice[0].essence_id == "" or dice[0].essence_id == dice[1].essence_id \
+					or die_in_labor(dice[0]) or die_in_labor(dice[1]):
+				return {}
+			return {"dice": dice}
+		Labor.CHARM:
+			if not inputs.has("charm"):
+				return {}
+			var index := int(inputs["charm"])
+			if index < 0 or index >= owned_charms.size():
+				return {}
+			return {"charm": owned_charms[index]}
+		Labor.MODUL:
+			var at = inputs.get("part")
+			if not (at is Dictionary):
+				return {}
+			var key := String((at as Dictionary).get("key", ""))
+			var slot := int((at as Dictionary).get("slot", -1))
+			if not _valid_socket(key, slot) or parts_of(key)[slot] == null:
+				return {}
+			return {"part": parts_of(key)[slot]}
+		Labor.KARTEN:
+			var uids = inputs.get("packs")
+			if not (uids is Array) or (uids as Array).is_empty() \
+					or (uids as Array).size() > Labor.MAX_CARDS:
+				return {}
+			var packs: Array[Pack] = []
+			for uid in uids:
+				var pack := pack_by_uid(int(uid))
+				if not labor_card_valid(pack) or packs.has(pack):
+					return {}
+				packs.append(pack)
+			return {"packs": packs}
+	return {}
+
+## START: prüfen, zahlen, Einsatz binden, den Glückswürfel werfen (Güte-Glück gilt nicht).
+## false = nichts gebucht.
+func start_labor_job(inputs: Dictionary, rng: RandomNumberGenerator = null) -> bool:
+	if not can_start_labor(inputs):
+		return false
+	var things := _labor_resolve(inputs)
+	var price := labor_price()
+	if price > 0:
+		spend_energy(price)
+	labor_uses += 1
+	var face := _luck_roll(rng)
+	var job := Labor.make(labor_station, inputs, face, _luck_value(face))
+	job.dice.assign(things.get("dice", []))
+	job.charm = things.get("charm")
+	job.part = things.get("part")
+	job.packs.assign(things.get("packs", []))
+	labor_job = job
+	match job.station:
+		Labor.SEELE:
+			pool_changed.emit()
+		Labor.CHARM:
+			charms_changed.emit()
+		Labor.MODUL:
+			combo_parts_changed.emit(String(labor_part_socket().get("key", "")))
+		Labor.KARTEN:
+			_consume_packs(job.packs)
+	labor_changed.emit()
+	return true
+
+## Fertig und abholbar? Eine Charm-Kopie braucht einen freien Projektor.
+func labor_collectable() -> bool:
+	if labor_job == null or not labor_job.done:
+		return false
+	if labor_job.station == Labor.CHARM:
+		return owned_charms.size() < charm_capacity()
+	return true
+
+## ABHOLEN: das Ergebnis buchen, den Auftrag leeren, eine andere Station würfeln.
+## Liefert, was herauskam (leer = nicht abholbar): immer "station", dazu je Station
+## seele {source, target, essence}, charm {charm, copy}, modul {part, key, slot, copy},
+## karten {spent, cards}.
+func collect_labor(rng: RandomNumberGenerator = null) -> Dictionary:
+	if not labor_collectable():
+		return {}
+	var job := labor_job
+	var out := {"station": job.station}
+	match job.station:
+		Labor.SEELE:
+			var source := job.dice[0]
+			var target := job.dice[1]
+			target.essence_id = source.essence_id
+			out.merge({"source": source, "target": target, "essence": source.essence_id})
+		Labor.CHARM:
+			var copy := job.charm.duplicate() as Charm
+			labor_job = null  # das Original wirkt wieder, bevor die Kopie einzieht
+			_grant_charm(copy)
+			out.merge({"charm": job.charm, "copy": copy})
+		Labor.MODUL:
+			out.merge(labor_part_socket())
+			stash_part(job.part)
+			out.merge({"part": job.part, "copy": pending_parts[pending_parts.size() - 1]})
+		Labor.KARTEN:
+			var luck := effective_luck() + Labor.CARD_LUCK
+			var cards: Array[Pack] = []
+			for spent in job.packs:
+				cards.append(_stash_pack(_labor_card(spent, luck, rng)))
+			out.merge({"spent": job.packs.duplicate(), "cards": cards})
+	labor_job = null
+	labor_station = Labor.next_station(job.station, rng)
+	match job.station:
+		Labor.SEELE:
+			pool_changed.emit()
+		Labor.MODUL:
+			combo_parts_changed.emit(String(out.get("key", "")))
+		Labor.KARTEN:
+			packs_changed.emit()
+	labor_changed.emit()
+	return out
+
+## Eine neue Karte derselben Sorte über den Weg einer Paket-Option dieser Sorte. Das
+## Glück wählt die Güte (die höchste, deren Güte-Glück es erreicht) - so wird es zur Größe.
+func _labor_card(spent: Pack, luck: int, rng: RandomNumberGenerator) -> Pack:
+	var quality := DicePack.QUALITY_STANDARD
+	for q in range(DicePack.QUALITY_STANDARD, DicePack.QUALITY_ROYAL + 1):
+		if DicePack.quality_luck(q) <= luck:
+			quality = q
+	var card_pack := CardPack.make(_labor_card_sort(Pack.shelf_of(spent)), CardPack.SIZE_TINY,
+		quality)
+	return CardPack.roll_contents(card_pack, shop_multiplier_chance(), rng, 1)[0]
+
+static func _labor_card_sort(shelf: String) -> String:
+	match shelf:
+		Engraving.CATEGORY_MATERIAL:
+			return CardPack.SORT_MATERIAL
+		Engraving.CATEGORY_DICE:
+			return CardPack.SORT_RUNE
+		Pack.SHELF_SPECIAL:
+			return CardPack.SORT_SPECIAL
+	return CardPack.SORT_NUMBER
+
+## Alles, was eine Ansicht vom Labor braucht, als reine Daten.
+func labor_state() -> Dictionary:
+	var job := labor_job
+	var socket := labor_part_socket()
+	return {
+		"open": labor_open(),
+		"station": labor_station,
+		"name": Labor.station_name(labor_station),
+		"text": Labor.station_text(labor_station),
+		"phase": Labor.PHASE_READY if job == null else job.phase(),
+		"die_face": job.die_face if job != null else -1,
+		"die_value": job.die_value if job != null else 0,
+		"rounds_left": job.rounds_left if job != null else 0,
+		"wait": Labor.wait_for(job.die_value) if job != null else 0,
+		"price": labor_price(),
+		"affordable": energy >= labor_price(),
+		"collectable": labor_collectable(),
+		"needs_projector": job != null and job.done and job.station == Labor.CHARM \
+			and not labor_collectable(),
+		"dice": labor_dice(),
+		"charm": job.charm if job != null else null,
+		"charm_slot": labor_charm_slot(),
+		"part": labor_part(),
+		"part_key": String(socket.get("key", "")),
+		"part_slot": int(socket.get("slot", -1)),
+		"packs": labor_packs(),
+	}
 
 
 

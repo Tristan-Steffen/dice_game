@@ -539,6 +539,39 @@ func test_the_secret_shop_is_a_component_not_a_glass_window():
 		assert_ne(String(entry[0]), "AUTOMAT", "die Automaten stehen nicht im Druck")
 		assert_ne(String(entry[0]), "NICHT BESTÜCKT", "die alte Tasche trägt keinen Umriß")
 
+# --- Das LABOR unter dem Schwarzmarkt --------------------------------------------------
+
+func test_the_labor_window_stays_hidden_until_it_is_shown():
+	var rect := Rect2(Vector2(1500, 2800), LaborView.UNITS * 37.5)
+	screen.place_labor_window(rect)
+	assert_false(screen.labor_window.visible, "platziert, aber noch zu")
+	assert_eq(Rect2(screen.labor_window.position, screen.labor_window.size), rect)
+	screen.set_labor_shown(true)
+	assert_true(screen.labor_window.visible, "geöffnet steht es")
+	screen.set_labor_shown(false)
+	assert_false(screen.labor_window.visible)
+
+func test_labor_parts_are_reported_in_display_pixels():
+	var rect := Rect2(Vector2(1500, 2800), LaborView.UNITS * 37.5)
+	screen.place_labor_window(rect)
+	for key: String in ["dish", "chamber", "start", "status", "name"]:
+		var part := screen.labor_part_px(key)
+		assert_true(rect.grow(0.5).encloses(part), "%s liegt im Labor" % key)
+	assert_almost_eq(screen.labor_part_px("chamber").size.x,
+		LaborView.CHAMBER_RADIUS * 2.0 * 37.5, 0.5, "die Kammer in Welt-Maßen")
+
+func test_the_labor_is_a_standing_component_without_print_or_quiet_field():
+	var rect := Rect2(Vector2(1500, 2800), LaborView.UNITS * 37.5)
+	screen.place_labor_window(rect)
+	assert_true(PcbDeckView.STANDING.has(PcbDeckView.KIND_LABOR), "es steht für sich")
+	var found := false
+	for entry: Array in screen.deck_furniture():
+		if String(entry[0]) == "LABOR":
+			found = true
+			assert_eq(String(entry[2]), PcbDeckView.KIND_LABOR)
+	assert_true(found, "das Deck kennt das Labor")
+	assert_false(screen.deck_quiet_rects().has(rect), "kein ruhiges Feld")
+
 func test_the_energy_travels_from_the_hub_to_the_secret_shop():
 	_place_secret_corner()
 	# Verlegt ist die Ader Laden -> Hub; die Zahlung fährt dagegen (wie der

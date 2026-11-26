@@ -84,6 +84,8 @@ var _cone_mesh: CylinderMesh
 var _bodies := {}
 ## Charms, deren Diskette noch fliegt: ihr Laufwerk zeigt den Platz LEER.
 var _arriving := {}
+## Der Charm im LABOR: sein Projektor steht dunkel und leer, die Diskette liegt in der Kammer.
+var _withheld: Charm = null
 var _drag: Charm = null
 var _badges := {}
 
@@ -216,10 +218,24 @@ func _process(delta: float) -> void:
 			model.rotate_object_local(Vector3.UP, ROTATION_SPEED * delta)
 			model.position.y = lift
 
+## Hält einen Charm zurück (null = keinen): kein Körper, kein Hologramm, der Projektor leer.
+func set_withheld(charm: Charm) -> void:
+	if charm == _withheld:
+		return
+	_withheld = charm
+	_refresh_readers()
+
+func withheld() -> Charm:
+	return _withheld
+
 func _refresh_readers() -> void:
 	for i in readers.size():
 		var charm: Charm = current_charms[i] if i < current_charms.size() else null
-		var shown := charm != null and not _arriving.has(charm)
+		var shown := charm != null and not _arriving.has(charm) and charm != _withheld
+		if charm != null and _bodies.has(charm):
+			var disk: Node3D = _bodies[charm].get("disk")
+			if disk != null and is_instance_valid(disk):
+				disk.visible = charm != _withheld
 		readers[i].set_charm(charm if shown else null)
 		readers[i].set_badge(String(_badges.get(i, "")))
 		if charm != null and _bodies.has(charm):

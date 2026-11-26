@@ -216,6 +216,7 @@ var slot_bank_window: SlotBankView
 ## Schwarzmarkt UNTER den Automaten (in der Glas-Tasche links unten); steht
 ## immer da und ist ab Runde 1 offen.
 var secret_shop_window: SecretShopView
+var labor_window: LaborView
 ## Werkstatt rechts vom Hub: das Lager der versiegelten Pakete.
 var workshop_window: WorkshopView
 ## Der INFO-SCHIRM in der Lücke über dem Streifen: er trägt jede Auskunft der
@@ -694,6 +695,11 @@ func _build_content() -> void:
 	secret_shop_window.name = "SecretShopWindow"
 	secret_shop_window.visible = false
 	add_child(secret_shop_window)
+	# Das LABOR: Platz setzt scene_root über place_labor_window, sichtbar erst ab Öffnung.
+	labor_window = LaborView.new()
+	labor_window.name = "LaborWindow"
+	labor_window.visible = false
+	add_child(labor_window)
 
 	# Werkstatt: Position/Größe setzt scene_root über place_workshop_window.
 	workshop_window = WorkshopView.new()
@@ -1179,6 +1185,56 @@ func secret_part_px(key: String) -> Rect2:
 	part.position += secret_shop_window.position
 	return part
 
+## Spannt das LABOR über rect auf - ein Bauteil wie der Schwarzmarkt; sichtbar macht es
+## erst set_labor_shown.
+func place_labor_window(rect: Rect2) -> void:
+	labor_window.position = rect.position
+	labor_window.size = rect.size
+	labor_window.refresh()
+
+func set_labor_shown(shown: bool) -> void:
+	if labor_window != null:
+		labor_window.visible = shown and labor_window.size.x > 0.0
+
+## Der Hinweis des Labors: eine kleine Karte im freien Feld unten rechts (labor_hint_box) -
+## darüber stehen die Fächer des Schwarzmarkts, sonst überall Körper des Labors.
+func show_labor_hint(box: Rect2, title: String, body: String, accent: Color) -> void:
+	if title == "":
+		hide_labor_hint()
+		return
+	if labor_hint == null:
+		labor_hint = HintCard.new(LABOR_HINT_U)
+		labor_hint.name = "LaborHint"
+		add_child(labor_hint)
+	labor_hint.fit_width(box.size.x, LABOR_HINT_U)
+	labor_hint.show_at(Rect2(box.position, Vector2(box.size.x, 0.0)), Vector2(size), title, body,
+		accent, 0.0)
+	labor_hint.position.y = minf(labor_hint.position.y, size.y - labor_hint.size.y - 2.0)
+
+## Das freie Feld für den Hinweis: rechts der Schale, unter dem Status-Fenster bis an den
+## Rand der Anzeige.
+func labor_hint_box() -> Rect2:
+	var dish := labor_part_px("dish")
+	var status := labor_part_px("status")
+	var right := labor_window.position.x + labor_window.size.x
+	var gap := LABOR_HINT_U
+	var top := status.end.y + gap
+	return Rect2(Vector2(dish.end.x + gap, top), Vector2(right - dish.end.x - gap * 2.0,
+		maxf(float(size.y) - top, 0.0)))
+
+func hide_labor_hint() -> void:
+	if labor_hint != null:
+		labor_hint.hide_card()
+
+func labor_hint_text() -> String:
+	return labor_hint.body_label.text if labor_hint != null and labor_hint.visible else ""
+
+## Ein Teil des Labors in Display-Pixeln.
+func labor_part_px(key: String) -> Rect2:
+	var part := labor_window.part_rect(key)
+	part.position += labor_window.position
+	return part
+
 ## Ader Schwarzmarkt -> Hub: von der Kontaktleiste rechts auf halber Höhe waagerecht an die Hub-Kante.
 func _link_secret_shop_to_hub() -> void:
 	if secret_hub_strip == null or hub == null or hub.size.x <= 0.0 \
@@ -1378,7 +1434,8 @@ func deck_furniture(extra: Array = []) -> Array:
 	raw.append(["ROM BANK", combo_card_rect(), PcbDeckView.KIND_CARD])
 	if hub != null and hub.size.x > 4.0:
 		raw.append(["HUB", Rect2(hub.position, hub.size), PcbDeckView.KIND_HUB])
-	for entry in [["WETTEN", side_bet_window], ["MARKT", secret_shop_window], ["CHIPS", treasure_window],
+	for entry in [["WETTEN", side_bet_window], ["MARKT", secret_shop_window], ["LABOR", labor_window],
+			["CHIPS", treasure_window],
 			["GLUECK", luck_station_window], ["ENERGIE", null], ["INFO", workshop_info_window]]:
 		if entry[0] == "ENERGIE":
 			if energy_bank_rect.size.x > 4.0:
@@ -1387,7 +1444,11 @@ func deck_furniture(extra: Array = []) -> Array:
 		var control: Control = entry[1]
 		if control != null and control.size.x > 4.0:
 			# Der Schwarzmarkt trägt seinen eigenen Körper: kein Druck um ihn.
-			var kind := PcbDeckView.KIND_MARKET if entry[0] == "MARKT" else ""
+			var kind := ""
+			if entry[0] == "MARKT":
+				kind = PcbDeckView.KIND_MARKET
+			elif entry[0] == "LABOR":
+				kind = PcbDeckView.KIND_LABOR
 			raw.append([entry[0], Rect2(control.position, control.size), kind])
 	raw.append_array(extra)
 	for slot in MAX_PITS:
@@ -3858,9 +3919,12 @@ func pixels_per_world() -> float:
 
 ## Grundmaß der Modul-Karten (HintCard-u): groß, denn der freie Platz gibt es her.
 const PART_HINT_U := 3.0 * SUPERSAMPLE
+## Kleiner als die Teil-Hinweise: das freie Feld am Labor ist knapp.
+const LABOR_HINT_U := 1.8 * SUPERSAMPLE
 ## Die Karte wächst aus ihrem Platz nach unten in den freien Filz.
 const PART_HINT_TALL := 2.25
 var part_hint: HintCard
+var labor_hint: HintCard
 var install_banner: HintCard
 var _install_banner_wanted := false
 

@@ -35,6 +35,17 @@ func test_rebuild_replaces_previous_models():
 	row.set_charms(_charms(2))
 	assert_eq(row.charm_nodes.size(), 2, "alte Modelle werden ersetzt, nicht angehängt")
 
+func test_a_withheld_charm_leaves_its_projector_dark_and_its_disk_hidden():
+	var charms := _charms(3)
+	row.set_charms(charms)
+	row.set_withheld(charms[1])
+	assert_false(row.disks[1].visible, "die Diskette liegt im Labor")
+	assert_false(row.charm_nodes[1].visible, "kein Hologramm")
+	assert_true(row.disks[0].visible, "die Nachbarn bleiben")
+	row.set_withheld(null)
+	assert_true(row.disks[1].visible, "zurück aus dem Labor")
+	assert_true(row.charm_nodes[1].visible)
+
 # --- Platz-Geometrie ----------------------------------------------------------
 
 func test_six_readers_stand_in_a_straight_row():

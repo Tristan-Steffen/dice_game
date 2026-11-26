@@ -617,3 +617,14 @@ func test_the_die_focus_pose_shows_three_faces() -> void:
 	assert_almost_eq(basis.get_scale(), Vector3.ONE, Vector3.ONE * 0.001,
 		"eine reine Drehung, keine Skalierung")
 	assert_ne(basis, CameraRig.ZOOM_BASIS, "und sie ist gegen die Kamera verdreht")
+
+func test_the_labor_station_stands_still_and_has_its_own_target() -> void:
+	rig.configure_labor_target(Vector3(-30, 0, -35), Vector2(14.0, 5.3))
+	assert_eq(rig.station_target(CameraRig.Mode.LABOR), Vector3(-30, 0, -35),
+		"das Labor hat einen eigenen Blickpunkt")
+	assert_true(CameraRig.is_station(CameraRig.Mode.LABOR), "und ist eine Station")
+	rig.mode = CameraRig.Mode.LABOR
+	rig.is_animating = false
+	var before := rig.global_transform
+	rig._process(0.1)
+	assert_eq(rig.global_transform, before, "dort steht die Kamera still")

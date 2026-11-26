@@ -355,6 +355,7 @@ var energy_bank: EnergyBankView
 var _energy_bank_px := Rect2()
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
+var labor_click_zone: StaticBody3D
 ## Vertragswahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
 ## Runde. route_pending = der Deal dieser Runde fehlt noch: bis dahin ruhen die
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
@@ -1219,6 +1220,7 @@ func _setup_table_screen() -> void:
 	camera_rig.configure_secret_shop_target(table_screen.pixel_to_world(secret_rect.get_center()),
 		secret_rect.size / ppw * 0.5)
 	_setup_secret_body()
+	_place_labor(secret_rect, hub_r, ppw)
 
 	# Werkstatt: unter dem Pool, linksbündig mit ihm; rechts von Pool und Schale der
 	# Podest-Platz und die Öffnungs-Fläche. Alle Kanten leiten sich aus den echten
@@ -1976,6 +1978,7 @@ func _on_charms_changed() -> void:
 	if phase == Phase.SHOP and run.owned_charms.size() > _sfx_charm_count:
 		_sfx(&"shop_buy")
 	_sfx_charm_count = run.owned_charms.size()
+	_adopt_labor_copy_disk()
 	charm_row.set_charms(run.owned_charms, _incoming_charm_disks)
 	_incoming_charm_disks.clear()
 	_update_charm_badges()
@@ -2488,6 +2491,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_title()
 		return
 
+	# Der Wurf des LABORS: ein Klick springt ans Ende.
+	var labor_click := event as InputEventMouseButton
+	if _labor_roll_face >= 0 and labor_click != null and labor_click.pressed \
+			and labor_click.button_index == MOUSE_BUTTON_LEFT:
+		_skip_labor_roll()
+		return
+
 	# DER ZWANG ist MODAL: solange ein Neuzugang seinen Platz schuldet, gehört jede
 	# Geste dem Raster - Rad, Zoom-Klick und jedes andere Fenster schweigen.
 	if _exchange_forced():
@@ -2502,6 +2512,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	# DER EINBAU ebenso: ein wartendes Modul will seinen Steckplatz.
 	if _part_install_forced() or _install_seating:
 		_handle_part_install_input(event)
+		return
+
+	# Die WAHL des Labors: Tipps auf gültige Dinge gehen ans Labor statt an ihre Geste.
+	if _labor_picking and _handle_labor_pick_input(event):
 		return
 
 	# Die Freikamera hat KEINEN eigenen Zweig mehr: sie durchläuft dieselbe Kette
@@ -5986,7 +6000,15 @@ func _show_deck_glass_window() -> void:
 	var die := _deck_glass_die()
 	var head := "Wohin mit %s? Kein Zwischenlager." % die.display_name \
 		if die != null else DECK_GLASS_TITLE
-	window.show_pool(head, run.owned_pool, pool_tray_view.columns, _deck_glass_target())
+	# Ein Würfel im LABOR ist kein Ziel: sein Sitz steht leer und sagt, wo er ist.
+	var defs: Array[DieDefinition] = []
+	var marks := {}
+	for i in run.owned_pool.size():
+		var in_labor := run.die_in_labor(run.owned_pool[i])
+		defs.append(null if in_labor else run.owned_pool[i])
+		if in_labor:
+			marks[i] = LABOR_SEAT_MARK
+	window.show_pool(head, defs, pool_tray_view.columns, _deck_glass_target(), marks)
 
 ## Die Auflösung des Glas-Viewports: GEMESSEN an der stehenden Kamera. Die vier
 ## Weltecken des Lochs werden projiziert, und der Viewport bekommt so viele Pixel,
@@ -11628,6 +11650,12 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 			table_screen.secret_shop_window, _window_rect(table_screen.secret_shop_window),
 			pixel, is_click, market_focused, flying):
 		return true
+	# Das LABOR wird nur an der eigenen Station bedient (wie der Schwarzmarkt).
+	var labor_focused := camera_rig.mode == CameraRig.Mode.LABOR
+	if (not is_click or labor_focused) and TableScreen.window_takes_pixel(
+			table_screen.labor_window, _window_rect(table_screen.labor_window),
+			pixel, is_click, labor_focused, flying):
+		return true
 	# Die Werkbank mißt sich samt SCHÜRZE - Konsole und Regal-Buchten hängen unter
 	# der Fensterkante und müssen Klicks bekommen. BEDIENT wird sie nur an der
 	# EIGENEN Station (Spieler-Entscheid 2026-09-11, wie der Wett-Tresen): aus der
@@ -11762,6 +11790,8 @@ func _zone_mode_at(screen_pos: Vector2) -> int:
 		station = CameraRig.Mode.BANK
 	elif collider == secret_shop_click_zone:
 		station = CameraRig.Mode.SECRET_SHOP
+	elif collider == labor_click_zone:
+		station = CameraRig.Mode.LABOR
 	return station
 
 ## Nimmt der Tisch Bedienung an bzw. antwortet ein Griff auf dem Filz? Die Regel
@@ -11880,6 +11910,7 @@ func _process(delta: float) -> void:
 	_update_charm_hover()
 	_sync_shop_charm_disks()
 	_sync_secret_body()
+	_sync_labor_body()
 	_update_pit_hover(delta)
 	_update_workshop_hover()
 	_sync_drum_readers()
@@ -12899,6 +12930,20 @@ func _pool_tray_source() -> Array[DieDefinition]:
 	if phase == Phase.SHOP:
 		return run.owned_pool
 	var pool_start := next_draw_index + _queue_display_capacity()
+	# Vor dem Zurren ist der Stapel der Pool ohne die Labor-Würfel: sie behalten
+	# trotzdem ihren Sitz (als Lücke, _tray_shows), statt die Reihe aufrücken zu lassen.
+	if not round_committed and next_draw_index == 0 and not run.labor_dice().is_empty():
+		var seats: Array[DieDefinition] = []
+		var drawn := 0
+		for die in run.owned_pool:
+			if run.die_in_labor(die):
+				if drawn >= pool_start:
+					seats.append(die)
+			elif drawn < pool_start:
+				drawn += 1
+			else:
+				seats.append(die)
+		return seats
 	return round_pool_kinds.slice(pool_start, round_pool_kinds.size())
 
 ## Zeigt ein Bank-Tray den Körper dieses Würfels? Ein Pool-Würfel LIEGT im Pool, bis
@@ -12915,6 +12960,9 @@ func _tray_shows(def: DieDefinition) -> bool:
 		return false
 	# Und wer gerade vom Podest HEIMfliegt, ist auch noch nicht da.
 	if def != null and def == _bench_homing:
+		return false
+	# Ein Würfel im LABOR liegt in der Kammer; sein Sitz bleibt leer.
+	if def != null and run != null and (run.die_in_labor(def) or _labor_homing_dice.has(def)):
 		return false
 	return DiceTrayView.seat_shows(def, null, def != null and def == _bench_die)
 
@@ -15054,6 +15102,7 @@ func _connect_run() -> void:
 	_secret_rolls_seen = run.secret_rerolls if run != null else 0
 	if secret_body != null and is_instance_valid(secret_body):
 		secret_body.settle_hard()
+	_labor_reset_hard()  # die Wahl und der Wurf des alten Laufs sind fort
 	if charm_shop != null \
 			and not charm_shop.shop_pack_purchased.is_connected(_on_shop_pack_purchased):
 		charm_shop.shop_pack_purchased.connect(_on_shop_pack_purchased)
@@ -15261,7 +15310,7 @@ func _start_new_round() -> void:
 	# Der Stapel liegt bis zur Unterschrift in der POOL-Reihenfolge: das ganze
 	# Werkbank-Fenster über weiß der Spieler, wo ein Würfel steht (und ordnet ihn
 	# per reorder_pool an). Gemischt wird erst beim Festzurren (_commit_round).
-	round_pool_kinds = run.owned_pool.duplicate()
+	round_pool_kinds = run.playable_pool()  # Würfel im Labor zieht keine Hand
 	_short_time_dice.clear()
 
 	next_draw_index = 0
@@ -16364,7 +16413,7 @@ func _on_pool_changed() -> void:
 	# darum sofort in den Trays stehen. Danach ist er gemischt und unantastbar -
 	# außer im Laden, wo die Runde vorbei ist und schlicht alles im Tray liegt.
 	if not round_committed and next_draw_index == 0:
-		round_pool_kinds = run.owned_pool.duplicate()
+		round_pool_kinds = run.playable_pool()
 		_refresh_dice_trays()
 	elif phase == Phase.SHOP:
 		_refresh_dice_trays()
@@ -18093,6 +18142,7 @@ const PIT_LUCK_SHARE := 0.62
 const LUCK_HOME := 0
 const LUCK_ROLL := 1
 const LUCK_PIT := 2
+const LUCK_LABOR := 3
 
 var luck_die_view: LuckDieView
 ## Der Körper der Station: Sockel, Hebel, Chip, Schalterbank, Steckbrücken.
@@ -18204,6 +18254,8 @@ func _luck_die_home() -> Vector3:
 func _luck_spot(where: int) -> Vector3:
 	if where == LUCK_PIT:
 		return _pit_luck_rest()
+	if where == LUCK_LABOR and labor_body != null and is_instance_valid(labor_body):
+		return labor_body.lid_point()
 	if where == LUCK_ROLL:
 		var roll := _luck_die_roll_px()
 		if roll.size.x > 0.0:
@@ -18213,7 +18265,9 @@ func _luck_spot(where: int) -> Vector3:
 
 ## Wohin er gehört, solange ihn kein Modul-Paket in der Grube hält.
 func _luck_wanted() -> int:
-	return LUCK_ROLL if _choice != null else LUCK_HOME
+	if _choice != null:
+		return LUCK_ROLL
+	return LUCK_LABOR if _labor_roll_face >= 0 else LUCK_HOME
 
 ## Sein Platz in der Wurfgrube, auf ihrem versenkten Boden.
 func _pit_luck_rest() -> Vector3:
@@ -18345,6 +18399,9 @@ func _land_luck_roll_hard(choice: PackChoice) -> void:
 
 func _on_luck_die_rolled(face: int) -> void:
 	_luck_last_face = face
+	if _labor_roll_started:
+		_labor_roll_face = -1  # gewürfelt: er fliegt heim
+		_labor_roll_started = false
 	if case_show != null and run != null:
 		case_show.play_roll_land(run.luck_die.value(face))
 	var choice := _luck_roll_choice
@@ -18421,5 +18478,634 @@ func _handle_luck_drag_input(event: InputEvent) -> void:
 	if button != null and not button.pressed and button.button_index == MOUSE_BUTTON_LEFT:
 		_luck_grabbed = false
 		luck_die_view.release()
+
+#endregion
+
+#region Das LABOR
+## Das LABOR unter dem Schwarzmarkt (Plan docs/plan_labor.md): das Fenster meldet Teile und
+## Zustand, der Körper (LaborBody) stellt Schale, Felder, Haube und Einsatz. Gebucht wird über
+## GameRun; die WAHL des Einsatzes ist reine Anzeige, bis START bucht.
+
+var labor_body: LaborBody
+var _labor_px := Rect2()
+var _labor_hard := true
+## Die WAHL: gerüstet, und was gewählt ist (Würfel, Charm, Modul bzw. Karten-uids).
+var _labor_picking := false
+var _labor_staged: Array = []
+var _labor_staged_station := ""
+## Der Wurf des Auftrags: die gebuchte Seite, bis der Glückswürfel liegt (-1 = keiner).
+var _labor_roll_face := -1
+var _labor_roll_started := false
+
+const LABOR_PROJECTOR_TEXT := "PROJEKTOR FREI MACHEN"
+const LABOR_ROLL_TEXT := "WÜRFELT"
+const LABOR_SEAT_MARK := "IM LABOR"
+## Der Gold-Saum der Wahl (überhell wie der rote Saum des Einsetzens).
+const LABOR_PICK_RIM := Color(1.6, 1.15, 0.2)
+var _labor_marked_dice := {}
+var _labor_was_open := false
+const LABOR_FLY_TIME := 0.55
+## Heimflüge nach dem Abholen: je {body, tween, land}; die Plätze daheim bleiben bis dahin leer.
+var _labor_flights: Array = []
+var _labor_homing_dice: Array[DieDefinition] = []
+var _labor_homing_charm: Charm = null
+## Die Diskette der Charm-Kopie, bereit vor der Buchung (_on_charms_changed übernimmt sie).
+var _labor_copy_disk: CharmDiskView = null
+var _labor_marked_cards := {}
+
+## Eine Fuge unter dem Schwarzmarkt, links bündig, in Welt-Maßen; reicht die Fuge nicht bis
+## zur Hub-Unterkante, rückt es näher heran.
+func _place_labor(market: Rect2, hub_r: Rect2, ppw: float) -> void:
+	var size := LaborView.UNITS * ppw
+	var gap := TableScreen.LAYOUT_SIZE.x * STATION_GAP_SHARE
+	gap = clampf(hub_r.end.y - market.end.y - size.y, 0.0, gap)
+	var rect := Rect2(Vector2(market.position.x, market.end.y + gap), size)
+	if rect.end.y > hub_r.end.y + 0.5 or rect.end.y > float(TableScreen.RESOLUTION.y):
+		push_warning("Labor reicht unter die Hub-Unterkante: %s (Hub bis %.1f)" % [rect, hub_r.end.y])
+	_labor_px = rect
+	table_screen.place_labor_window(rect)
+	labor_click_zone = _screen_zoom_zone("LaborClickZone", rect, camera_rig.configure_labor_target)
+	labor_click_zone.collision_layer = 0
+	camera_rig.configure_labor_target(table_screen.pixel_to_world(rect.get_center()),
+		rect.size / ppw * 0.5)
+	_setup_labor_body()
+
+func _labor_window() -> LaborView:
+	if table_screen == null or table_screen.labor_window == null \
+			or not is_instance_valid(table_screen.labor_window):
+		return null
+	return table_screen.labor_window
+
+func labor_rect_px() -> Rect2:
+	return _labor_px
+
+func _setup_labor_body() -> void:
+	var view := _labor_window()
+	if view == null:
+		return
+	if labor_body == null or not is_instance_valid(labor_body):
+		labor_body = LaborBody.new()
+		labor_body.name = "Labor"
+		add_child(labor_body)
+	var center := view.position + view.size * 0.5
+	var ppw := table_screen.pixels_per_world()
+	var parts := {}
+	for key: String in LaborView.PARTS:
+		var rect := table_screen.labor_part_px(key)
+		parts[key] = Rect2((rect.position - center) / ppw, rect.size / ppw)
+	var at := table_screen.pixel_to_world(center)
+	labor_body.global_position = Vector3(at.x, 0.0, at.z)
+	labor_body.setup(parts)
+	labor_body.visible = false
+	if not view.chamber_pressed.is_connected(_on_labor_chamber_pressed):
+		view.chamber_pressed.connect(_on_labor_chamber_pressed)
+		view.start_pressed.connect(_on_labor_start_pressed)
+
+## Je Bild der EINE Abgleich: Sichtbarkeit, Zustand samt Wahl, Einsatz in der Kammer, Hover,
+## Hinweis und der Wurf. Ungesehen (und nach einem Laufwechsel) wird hart gestellt.
+func _sync_labor_body() -> void:
+	var view := _labor_window()
+	if view == null or labor_body == null or not is_instance_valid(labor_body):
+		return
+	var open := run != null and run.labor_open()
+	table_screen.set_labor_shown(open)
+	if labor_click_zone != null:
+		labor_click_zone.collision_layer = 8 if open else 0
+	var shown := open and view.visible and camera_rig.mode != CameraRig.Mode.TITLE
+	labor_body.visible = shown
+	# Das erste Öffnen im Lauf leuchtet auf, statt aufzuploppen (nach dem Schreiber unten).
+	var appear := open and not _labor_was_open and shown and _table_operable()
+	_labor_was_open = open
+	if charm_row != null:
+		charm_row.set_withheld(run.labor_job.charm if run != null and run.labor_job != null \
+			else _labor_homing_charm)
+	if not shown:
+		if _labor_picking or not _labor_staged.is_empty() or _labor_roll_face >= 0:
+			_labor_reset_hard()
+		_labor_hard = true
+		table_screen.hide_labor_hint()
+		return
+	# Die Wahl gehört ihrer Station; ein laufender Auftrag oder ein Wechsel räumt sie.
+	if run.labor_job != null or _labor_staged_station != run.labor_station:
+		if _labor_picking or not _labor_staged.is_empty():
+			_drop_labor_pick()
+	_sync_labor_marks()
+	view.set_state(_labor_view_state())
+	var hard := _labor_hard or not _table_operable()
+	_labor_hard = false
+	labor_body.seat(view.body_state(), hard)
+	if appear:
+		labor_body.appear()
+	labor_body.set_items(_labor_items())
+	var part := _labor_part_under_pointer(view)
+	labor_body.set_hovered(part)
+	_sync_labor_hint(view, part)
+	_sync_labor_roll()
+
+## Der Zustand für das Fenster: GameRun plus die Wahl des Tisches.
+func _labor_view_state() -> Dictionary:
+	var state := run.labor_state()
+	state["staged"] = _labor_staged.size()
+	state["staged_max"] = _labor_stage_max(run.labor_station) if run.labor_job == null else 0
+	state["staged_ready"] = run.labor_job == null and not _labor_picking \
+		and _labor_staged_station == run.labor_station and run.labor_inputs_valid(_labor_inputs())
+	state["blocked_text"] = LABOR_PROJECTOR_TEXT if bool(state.get("needs_projector", false)) else ""
+	# Bis der Glückswürfel liegt, stehen die Felder dunkel und die Haube unten.
+	if _labor_roll_face >= 0 and run.labor_job != null:
+		state["phase"] = LaborView.PHASE_RUNNING
+		state["die_value"] = 0
+		state["blocked_text"] = LABOR_ROLL_TEXT
+	return state
+
+static func _labor_stage_max(station: String) -> int:
+	match station:
+		Labor.SEELE:
+			return 2
+		Labor.KARTEN:
+			return Labor.MAX_CARDS
+	return 1
+
+## Der Einsatz eines laufenden oder fertigen Auftrags liegt in der Kammer.
+func _labor_items() -> Array:
+	var out: Array = []
+	var job: Labor = run.labor_job if run != null else null
+	if job == null:
+		return out
+	for die in job.dice:
+		out.append({"kind": GameRun.KIND_DIE, "item": die})
+	if job.charm != null:
+		out.append({"kind": GameRun.KIND_CHARM, "item": job.charm})
+	if job.part != null:
+		out.append({"kind": GameRun.KIND_PART, "item": job.part})
+	for pack in job.packs:
+		out.append({"kind": GameRun.KIND_ENGRAVING, "item": pack})
+	return out
+
+## Das Teil unter dem Zeiger ("" = keins). Hover antwortet überall, wo es zu sehen ist.
+func _labor_part_under_pointer(view: LaborView) -> String:
+	if not _table_operable():
+		return ""
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	if pixel.x < 0.0 or not Rect2(view.position, view.size).has_point(pixel):
+		return ""
+	return view.part_at(pixel - view.position)
+
+func _sync_labor_hint(view: LaborView, part: String) -> void:
+	if part == "":
+		table_screen.hide_labor_hint()
+		return
+	var pixel := _screen_pixel(get_viewport().get_mouse_position())
+	var text := view.hint_at(pixel - view.position)
+	table_screen.show_labor_hint(table_screen.labor_hint_box(), LaborView.station_name(run.labor_station), text,
+		CasinoStyle.ENERGY)
+
+# --- Die WAHL ---------------------------------------------------------------------------
+
+func _on_labor_chamber_pressed() -> void:
+	if run == null or not run.labor_open():
+		return
+	if run.labor_job != null:
+		if run.labor_job.done and _labor_roll_face < 0:
+			_collect_labor()
+		return
+	_arm_labor_pick()
+
+## Die Station, an der der Einsatz dieser Labor-Station wohnt.
+static func _labor_pick_mode(station: String) -> int:
+	match station:
+		Labor.SEELE:
+			return CameraRig.Mode.POOL
+		Labor.CHARM:
+			return CameraRig.Mode.CHARMS
+		Labor.MODUL:
+			return CameraRig.Mode.COMBOS
+	return CameraRig.Mode.WORKSHOP
+
+## Darf jetzt gewählt werden? Nie im Zwang, nie in einer Öffnung oder im Einbau, und nur, wo
+## der Vorrat bzw. die Steckplätze bearbeitbar wären.
+func _labor_pick_allowed() -> bool:
+	if run == null or _exchange_forced() or _pack_choice_modal() or _part_install_forced() \
+			or _install_seating or _opening_in_use() or log_open:
+		return false
+	if phase != Phase.IDLE and phase != Phase.SHOP:
+		return false
+	match run.labor_station:
+		Labor.SEELE:
+			return _pool_editable()
+		Labor.MODUL:
+			return not _dice_editing_locked()
+		Labor.KARTEN:
+			return not _transferring
+	return true
+
+func _arm_labor_pick() -> void:
+	if not _labor_pick_allowed():
+		_sfx(&"ui_denied")
+		return
+	_labor_staged.clear()
+	_labor_staged_station = run.labor_station
+	_labor_picking = true
+	_zoom_to_mode(_labor_pick_mode(run.labor_station))
+
+## true = die Geste gehörte der Wahl. Bewegungen und Tipps neben jeden Kandidaten laufen
+## weiter wie immer (Rollen, Zoom, Hover).
+func _handle_labor_pick_input(event: InputEvent) -> bool:
+	var button := event as InputEventMouseButton
+	if button == null or not button.pressed:
+		return false
+	if button.button_index == MOUSE_BUTTON_RIGHT:
+		_finish_labor_pick()
+		return true
+	if button.button_index != MOUSE_BUTTON_LEFT or camera_rig.is_animating:
+		return false
+	var pos := button.position
+	match _labor_staged_station:
+		Labor.SEELE:
+			var slot := _pool_tray_slot_at(pos)
+			if slot < 0:
+				return false
+			_stage_labor_die(pool_tray_view.slot_defs[slot])
+		Labor.CHARM:
+			var index := charm_row.charm_index_at_screen_pos(camera_rig, pos) if charm_row != null else -1
+			if index < 0 or index >= run.owned_charms.size():
+				return false
+			_stage_labor_thing(run.owned_charms[index])
+		Labor.MODUL:
+			var pick := _part_pick_at(pos)
+			if pick.is_empty() or int(pick["slot"]) < 0:
+				return false
+			var part: ComboPart = run.parts_of(String(pick["key"]))[int(pick["slot"])]
+			if part == null:
+				return false
+			_stage_labor_thing(part)
+		Labor.KARTEN:
+			var workshop: WorkshopView = table_screen.workshop_window
+			var pixel := _screen_pixel(pos)
+			var uid := workshop.shelf_hover_uid_at(pixel) if workshop != null and pixel.x >= 0.0 else 0
+			if uid <= 0:
+				return false
+			_stage_labor_card(uid)
+		_:
+			return false
+	return true
+
+## Seele: erst die Quelle (sie trägt eine Seele), dann das Ziel.
+func _stage_labor_die(die: DieDefinition) -> void:
+	if die == null or run.die_in_labor(die):
+		_sfx(&"ui_denied")
+		return
+	if _labor_staged.is_empty():
+		if die.essence_id == "":
+			_sfx(&"ui_denied")
+			return
+		_labor_staged.append(die)
+		_sfx(&"raster_toggle")
+		return
+	var source: DieDefinition = _labor_staged[0]
+	if die == source:
+		_labor_staged.clear()  # die Quelle noch einmal: zurückgenommen
+		return
+	if die.essence_id == source.essence_id:
+		_sfx(&"ui_denied")
+		return
+	_labor_staged.append(die)
+	_finish_labor_pick()
+
+## Charm und Modul: ein Tipp, und die Wahl steht.
+func _stage_labor_thing(thing: Object) -> void:
+	_labor_staged = [thing]
+	_finish_labor_pick()
+
+## Karten: bis sechs, ein Tipp auf eine gewählte nimmt sie zurück.
+func _stage_labor_card(uid: int) -> void:
+	if _labor_staged.has(uid):
+		_labor_staged.erase(uid)
+		return
+	var pack := run.pack_by_uid(uid)
+	var workshop: WorkshopView = table_screen.workshop_window
+	if not GameRun.labor_card_valid(pack) \
+			or (workshop != null and workshop.press_slot_uids().has(uid)):
+		_sfx(&"ui_denied")
+		return
+	_labor_staged.append(uid)
+	_sfx(&"raster_toggle")
+	if _labor_staged.size() >= Labor.MAX_CARDS:
+		_finish_labor_pick()
+
+## Rechtsklick oder volle Wahl: steht ein vollständiger Einsatz, fährt die Kamera ans Labor
+## zurück und START leuchtet; sonst ist die Wahl verworfen.
+func _finish_labor_pick() -> void:
+	_labor_picking = false
+	if _labor_staged.size() < (2 if _labor_staged_station == Labor.SEELE else 1):
+		_labor_staged.clear()
+	_zoom_to_mode(CameraRig.Mode.LABOR)
+
+func _drop_labor_pick() -> void:
+	_labor_picking = false
+	_labor_staged.clear()
+	_sync_labor_marks()
+
+## Der GOLD-SAUM der Wahl, je Bild: gewählte Vorrats-Würfel tragen ihn und schweben höher,
+## gewählte Magazin-Karten heben sich aus ihrer Mulde. Charm und Modul brauchen keinen -
+## ihr Tipp schließt die Wahl sofort. Nur der Wechsel stellt zurück.
+func _sync_labor_marks() -> void:
+	var dice := {}
+	var cards := {}
+	if _labor_picking and pool_tray_view != null:
+		for thing in _labor_staged:
+			if thing is DieDefinition:
+				var seat := pool_tray_view.slot_defs.find(thing)
+				if seat >= 0:
+					dice[seat] = thing
+			elif thing is int:
+				cards[thing] = true
+	for seat: int in _labor_marked_dice.keys():
+		if dice.get(seat) != (_labor_marked_dice[seat] as Dictionary)["def"]:
+			_unmark_labor_die(seat, _labor_marked_dice[seat])
+			_labor_marked_dice.erase(seat)
+	for seat: int in dice:
+		if not _labor_marked_dice.has(seat):
+			var emitter := _doomed_emitter(seat)
+			_labor_marked_dice[seat] = {"def": dice[seat],
+				"tint": emitter.tint if emitter != null else Color.WHITE}
+		var display := _doomed_display(seat)
+		if display != null:
+			display.set_edge_tint(LABOR_PICK_RIM)
+		var lit := _doomed_emitter(seat)
+		if lit != null:
+			lit.set_tint(LABOR_PICK_RIM)
+		pool_tray_view.set_slot_lift(seat, POOL_PIN_LIFT)
+	for uid: int in _labor_marked_cards.keys():
+		if not cards.has(uid):
+			var cell: DataCellView = shelf_cells.get(uid)
+			if cell != null and is_instance_valid(cell) and uid != _hovered_pack_uid:
+				cell.set_hovered(false)
+			_labor_marked_cards.erase(uid)
+	for uid: int in cards:
+		var cell: DataCellView = shelf_cells.get(uid)
+		if cell != null and is_instance_valid(cell):
+			if not _labor_marked_cards.has(uid):
+				cell.flare()
+			cell.set_hovered(true)
+		_labor_marked_cards[uid] = true
+
+func _unmark_labor_die(seat: int, mark: Dictionary) -> void:
+	var def: DieDefinition = mark["def"]
+	var display := _doomed_display(seat)
+	if display != null and def != null:
+		display.set_tint(DiceController.KIND_TINTS.get(def.style_id, Color.WHITE))
+	var emitter := _doomed_emitter(seat)
+	if emitter != null:
+		emitter.set_tint(mark["tint"])
+	if pool_tray_view != null and seat != _pin_seat:
+		pool_tray_view.set_slot_lift(seat, 0.0)
+
+func labor_staged() -> Array:
+	return _labor_staged
+
+func labor_picking() -> bool:
+	return _labor_picking
+
+## Die Wahl als Einsatz für GameRun (Indizes erst jetzt, die Dinge können gewandert sein).
+func _labor_inputs() -> Dictionary:
+	match _labor_staged_station:
+		Labor.SEELE:
+			if _labor_staged.size() == 2:
+				return {"dice": [run.owned_pool.find(_labor_staged[0]),
+					run.owned_pool.find(_labor_staged[1])]}
+		Labor.CHARM:
+			if _labor_staged.size() == 1:
+				return {"charm": run.owned_charms.find(_labor_staged[0])}
+		Labor.MODUL:
+			if _labor_staged.size() == 1:
+				for key: String in DiceScoring.HAND_PRIORITY:
+					var at := run.parts_of(key).find(_labor_staged[0])
+					if at >= 0:
+						return {"part": {"key": key, "slot": at}}
+		Labor.KARTEN:
+			if not _labor_staged.is_empty():
+				return {"packs": _labor_staged.duplicate()}
+	return {}
+
+# --- START und Abholen ------------------------------------------------------------------
+
+## START bucht zuerst; der Einsatz liegt danach in der Kammer, die Haube senkt sich, und der
+## Glückswürfel fliegt herbei und würfelt die gebuchte Seite.
+func _on_labor_start_pressed() -> void:
+	if run == null or _labor_picking:
+		_sfx(&"ui_denied")
+		return
+	var inputs := _labor_inputs()
+	var workshop: WorkshopView = table_screen.workshop_window
+	# Wo der Einsatz jetzt steht - gemessen VOR der Buchung, die ihn dort verschwinden läßt.
+	var origins := _labor_stake_origins()
+	if not run.start_labor_job(inputs):
+		_sfx(&"ui_denied")
+		_labor_staged.clear()
+		return
+	_labor_staged.clear()
+	# Ein Würfel auf dem Podest geht mit ins Labor: abwählen, sonst stünde er zweimal.
+	if workshop != null and is_instance_valid(workshop) \
+			and run.die_in_labor(workshop.chosen_die()):
+		workshop.clear_choice()
+	_labor_roll_face = run.labor_job.die_face
+	_labor_roll_started = false
+	# Gebucht ist; jetzt fliegt der Einsatz im Trage-Bogen in die Kammer.
+	labor_body.set_items(_labor_items())
+	if _table_operable():
+		for i in origins.size():
+			if origins[i] != null:
+				labor_body.fly_in(i, origins[i])
+
+## Je Einsatz (Reihenfolge wie _labor_items) sein Weltpunkt am Tisch; null = keiner zu sehen.
+func _labor_stake_origins() -> Array:
+	var out: Array = []
+	for thing in _labor_staged:
+		var at: Variant = null
+		if thing is DieDefinition and pool_tray_view != null:
+			var seat := pool_tray_view.slot_defs.find(thing)
+			if seat >= 0:
+				at = pool_tray_view.slot_global_position(seat)
+		elif thing is Charm and charm_row != null:
+			var index := run.owned_charms.find(thing)
+			if index >= 0 and index < charm_row.readers.size():
+				at = charm_row.readers[index].disk_global_transform().origin
+		elif thing is ComboPart:
+			for key: String in combo_chips:
+				var slot := run.parts_of(key).find(thing)
+				if slot >= 0:
+					at = (combo_chips[key] as ComboChipView).pin_world(slot)
+		elif thing is int:
+			var cell: DataCellView = shelf_cells.get(thing)
+			if cell != null and is_instance_valid(cell) and cell.is_visible_in_tree():
+				at = cell.global_position
+		out.append(at)
+	return out
+
+## Liegt der Glückswürfel auf der Haube, würfelt er.
+func _sync_labor_roll() -> void:
+	if _labor_roll_face < 0 or _labor_roll_started or luck_die_view == null:
+		return
+	if run == null or run.labor_job == null:
+		_labor_roll_face = -1
+		return
+	if _luck_at != LUCK_LABOR or luck_die_view.carrying():
+		return
+	_labor_roll_started = true
+	luck_die_view.roll_to(_labor_roll_face)
+
+## Der Klick ans Ende: der Würfel liegt sofort auf der Haube, mit der gebuchten Seite oben.
+func _skip_labor_roll() -> void:
+	if luck_die_view == null or not luck_die_view.visible:
+		_labor_roll_face = -1
+		_labor_roll_started = false
+		return
+	var face := _labor_roll_face
+	_labor_roll_started = true
+	if _luck_at != LUCK_LABOR or luck_die_view.carrying():
+		_luck_land_hard(LUCK_LABOR)
+	luck_die_view.roll_to(face, 0.0)
+
+func _collect_labor() -> void:
+	if not run.labor_collectable():
+		_sfx(&"ui_denied")  # der Status nennt den Grund (PROJEKTOR FREI MACHEN)
+		return
+	_settle_labor_flights()
+	var job := run.labor_job
+	var spots: Array[Transform3D] = []
+	for body in labor_body.items():
+		spots.append(body.global_transform)
+	var seen := _table_operable() and labor_body.visible
+	# Die Kopie eines Charms fliegt wie ein gekaufter: ihre Diskette steht vor der Buchung bereit.
+	if seen and job.charm != null and not spots.is_empty():
+		_labor_copy_disk = CharmDiskView.new(job.charm)
+		add_child(_labor_copy_disk)
+		_labor_copy_disk.global_transform = spots[0]
+	var out := run.collect_labor()
+	_drop_labor_copy_disk()  # wer nicht übernommen wurde, ist fort
+	if out.is_empty():
+		return
+	_sfx(&"shop_buy")
+	labor_body.set_items(_labor_items())  # die Kammer ist leer, bevor etwas heimfliegt
+	if seen:
+		_fly_labor_home(out, spots)
+	# Würfel, Charm-Kopie, Modul-Kopie (EINBAU) und Karten kommen über ihre Signale an.
+	_refresh_dice_trays()
+
+## Nach der Buchung fliegt das Ergebnis heim: Würfel auf ihre Sitze, das Charm-Original in
+## seinen Projektor, Karten wie jede Lieferung ins Magazin; bis zur Landung bleibt der Platz
+## daheim leer. Das Modul-Original steckt schon (gedimmt), seine Kopie geht in den EINBAU.
+func _fly_labor_home(out: Dictionary, spots: Array[Transform3D]) -> void:
+	match String(out.get("station", "")):
+		Labor.SEELE:
+			var pair := [out.get("source"), out.get("target")]
+			for i in mini(pair.size(), spots.size()):
+				var die: DieDefinition = pair[i]
+				var seat := _pool_tray_source().find(die)
+				if die == null or seat < 0 or pool_tray_view == null:
+					continue
+				_labor_homing_dice.append(die)
+				var ghost := _spawn_deck_ghost(die)
+				ghost.global_position = spots[i].origin
+				var home := pool_tray_view.slot_global_position(seat)
+				_labor_fly(ghost, _labor_arc(ghost, home), func() -> void:
+					_labor_homing_dice.erase(die)
+					_refresh_dice_trays())
+		Labor.CHARM:
+			var charm: Charm = out.get("charm")
+			var index := run.owned_charms.find(charm)
+			if charm_row == null or spots.is_empty() or index < 0 \
+					or index >= charm_row.readers.size():
+				return
+			var disk := CharmDiskView.new(charm)
+			add_child(disk)
+			disk.global_transform = spots[0]
+			_labor_homing_charm = charm
+			var tween := disk.carry_to(charm_row.readers[index].disk_global_transform(),
+				LABOR_FLY_TIME, LaborBody.FLY_PEAK)
+			_labor_fly(disk, tween, func() -> void:
+				_labor_homing_charm = null)
+		Labor.KARTEN:
+			var workshop: WorkshopView = table_screen.workshop_window
+			var from := table_screen.labor_part_px("chamber").get_center()
+			for pack: Pack in out.get("cards", []):
+				if pack != null and pack.pack_uid > 0:
+					_fly_pack_to_magazine(workshop, pack.pack_uid, from,
+						PackIconRenderer.COLORS.get(pack.type, CasinoStyle.GOLD_INTENSE))
+
+## Ein schlichter Trage-Bogen für einen Körper ohne eigenen (der Würfel-Geist).
+func _labor_arc(body: Node3D, to: Vector3) -> Tween:
+	var from := body.global_position
+	var hump := maxf(from.y, to.y) + LaborBody.FLY_PEAK - (from.y + to.y) * 0.5
+	var tween := create_tween()
+	tween.tween_method(func(share: float) -> void:
+		if is_instance_valid(body):
+			var at := from.lerp(to, share)
+			at.y += 4.0 * hump * share * (1.0 - share)
+			body.global_position = at, 0.0, 1.0, LABOR_FLY_TIME) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	return tween
+
+## Merkt einen Heimflug; seine Landung (oder der harte Weg) gibt den Körper frei und zeigt
+## den Platz daheim wieder.
+func _labor_fly(body: Node3D, tween: Tween, land: Callable) -> void:
+	var flight := {"body": body, "tween": tween, "land": land}
+	_labor_flights.append(flight)
+	if tween == null:
+		_land_labor_flight(flight)
+		return
+	tween.finished.connect(func() -> void: _land_labor_flight(flight))
+
+func _land_labor_flight(flight: Dictionary) -> void:
+	if not _labor_flights.has(flight):
+		return
+	_labor_flights.erase(flight)
+	var tween: Tween = flight["tween"]
+	if tween != null and tween.is_valid():
+		tween.kill()
+	var body: Node3D = flight["body"]
+	if is_instance_valid(body):
+		body.queue_free()
+	(flight["land"] as Callable).call()
+
+## Der EINE harte Weg der Heimflüge: jeder ist gelandet, nichts bleibt daheim verborgen.
+func _settle_labor_flights() -> void:
+	for flight in _labor_flights.duplicate():
+		_land_labor_flight(flight)
+	_labor_homing_dice.clear()
+	_labor_homing_charm = null
+	_drop_labor_copy_disk()
+
+## Die Kopie aus dem Labor ist der neue Charm, den die Reihe noch nicht kennt: seine
+## Diskette fliegt hinein wie eine gekaufte.
+func _adopt_labor_copy_disk() -> void:
+	if _labor_copy_disk == null or not is_instance_valid(_labor_copy_disk) or charm_row == null:
+		return
+	for charm: Charm in run.owned_charms:
+		if charm.id == _labor_copy_disk.charm.id and charm != _labor_copy_disk.charm \
+				and not charm_row.current_charms.has(charm):
+			_labor_copy_disk.charm = charm
+			_incoming_charm_disks[charm] = _labor_copy_disk
+			_labor_copy_disk = null
+			return
+
+func _drop_labor_copy_disk() -> void:
+	if _labor_copy_disk != null and is_instance_valid(_labor_copy_disk) \
+			and _labor_copy_disk.get_parent() == self:
+		_labor_copy_disk.queue_free()
+	_labor_copy_disk = null
+
+## Der harte Weg: keine Wahl, kein Wurf, der Glückswürfel zu Hause, der Körper im Endzustand.
+func _labor_reset_hard() -> void:
+	_drop_labor_pick()
+	_settle_labor_flights()
+	_labor_roll_started = false
+	if _labor_roll_face >= 0:
+		_labor_roll_face = -1
+		if _luck_at == LUCK_LABOR:
+			_luck_die_home_hard()
+	_labor_hard = true
+	if labor_body != null and is_instance_valid(labor_body):
+		labor_body.settle_hard()
 
 #endregion

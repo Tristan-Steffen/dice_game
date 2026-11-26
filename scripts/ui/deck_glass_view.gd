@@ -135,10 +135,14 @@ static func pool_signature(defs: Array[DieDefinition]) -> Array:
 ## Der ganze Inhalt in EINEM Aufruf: die Kopfzeile, der Vorrat in Buch-Ordnung und
 ## der gesäumte Sitz. Idempotent - dieselbe Belegung baut das teure Raster nicht
 ## neu, ein gewechselter Saum stylt bloß um.
+## marks: je leerem Sitz eine Aufschrift (Index -> Text), etwa für einen Würfel im Labor.
 func show_pool(title: String, defs: Array[DieDefinition], columns: int,
-		target_index := -1) -> void:
+		target_index := -1, marks := {}) -> void:
 	var signature := pool_signature(defs)
 	var fresh := columns != _columns or signature != _signature
+	if _grid != null:
+		fresh = fresh or marks != _grid.empty_marks
+		_grid.empty_marks = marks.duplicate()
 	_title = title
 	_defs = defs.duplicate()
 	_signature = signature
