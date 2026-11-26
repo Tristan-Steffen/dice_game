@@ -24,7 +24,8 @@ func test_keywords_are_their_own_targets_and_plain_text_is_deaf() -> void:
 	var mult := _keyword(label, Lexikon.MULT)
 	assert_not_null(mult, "Mult ist ein eigenes Wort-Label")
 	assert_eq(mult.mouse_filter, Control.MOUSE_FILTER_STOP, "das Wort nimmt den Zeiger")
-	assert_eq(mult.get_theme_color("font_color"), CasinoStyle.LEXIKON_LINK)
+	assert_eq(mult.get_theme_color("font_color"), EffectText.color_of(EffectText.KIND_MULT),
+		"eine Wertungsart trägt ihre Farbe, auch als Verweis")
 	for piece in label._pieces:
 		if not piece.has_meta("id"):
 			assert_eq(piece.mouse_filter, Control.MOUSE_FILTER_IGNORE, "der Rest läßt durch")

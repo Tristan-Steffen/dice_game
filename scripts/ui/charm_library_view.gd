@@ -82,6 +82,7 @@ func _build_inspect_root(parent: VBoxContainer) -> void:
 	inspect_desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	CasinoStyle.style_body_label(inspect_desc_label, 14)
 	inspect_root.add_child(inspect_desc_label)
+	EffectText.colorize(inspect_desc_label)
 
 	# Debug: den gezeigten Charm gratis in den laufenden Run legen.
 	inspect_grant_button = Button.new()
@@ -193,4 +194,5 @@ func _build_row(charm: Charm, is_owned: bool) -> Control:
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	CasinoStyle.style_body_label(desc, 13)
 	text.add_child(desc)
+	EffectText.colorize(desc)
 	return row

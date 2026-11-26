@@ -29,9 +29,9 @@ const KIND_PLAIN := "plain"
 ## (normal, veredelt). Die Worte sind die von DieMaterial.short/short_doped; "%v" setzt
 ## die Augen der Seite ein (Glas), "%h" ihre Hälfte.
 const MATERIAL_EFFECTS := {
-	DieMaterial.RUBY: [["+4", KIND_MULT, "Mult", "in der Kombination"],
+	DieMaterial.RUBY: [["+4", KIND_MULT, "Mult", ""],
 		["×2", KIND_CRIT, "Krit", "in der Kombination"]],
-	DieMaterial.AMBER: [["+20", KIND_BASE, "Basis", "+ Augensumme"],
+	DieMaterial.AMBER: [["+20", KIND_BASE, "Basis", ""],
 		["5×", KIND_BASE, "Augensumme", "als Basis"]],
 	DieMaterial.GOLD: [["+$3", KIND_MONEY, "", "beim Nehmen"],
 		["+$7", KIND_MONEY, "", "+$1 je Gold-Seite"]],
@@ -39,7 +39,7 @@ const MATERIAL_EFFECTS := {
 		["+10", KIND_PLAIN, "Augen", "oder +20 % · Seite wächst"]],
 	DieMaterial.GLASS: [["+%v", KIND_MULT, "Mult", "Seite schrumpft −1"],
 		["×%h", KIND_CRIT, "Krit", "Seite halbiert sich"]],
-	DieMaterial.COPPER: [["+1", KIND_ENERGY, "Energie", "beim Nehmen"],
+	DieMaterial.COPPER: [["+1", KIND_ENERGY, "Energie", ""],
 		["+2", KIND_ENERGY, "Energie", "Überlauf zahlt $2"]],
 }
 ## Die Wirkung einer Rune: Wert, Art, Einheit (die Worte von Rune.short). Das ⚡ steht als
@@ -336,6 +336,7 @@ func _text(parent: Control, label_name: String, text: String, rect: Rect2, color
 	parent.add_child(label)
 	label.position = rect.position
 	label.size = rect.size
+	EffectText.colorize(label)
 	return label
 
 ## Der größte Grad bis top_px, in dem text einzeilig in room paßt.

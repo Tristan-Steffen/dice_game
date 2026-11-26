@@ -43,6 +43,7 @@ func _init(u: float) -> void:
 	body_label.modulate = BODY_COLOR
 	body_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(body_label)
+	EffectText.colorize(body_label)
 
 ## Feste Gesamtbreite: Titel und Text brechen um, statt die Karte zu weiten.
 func fit_width(width: float, u: float) -> void:

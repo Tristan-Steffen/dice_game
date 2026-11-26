@@ -68,6 +68,7 @@ func _label(px: int, color: Color) -> Label:
 	label.add_theme_color_override("font_outline_color", CasinoStyle.SHADOW)
 	label.add_theme_constant_override("outline_size", 4)
 	add_child(label)
+	EffectText.colorize(label)
 	return label
 
 ## Die Auskunft eines Fachs (SecretShopView.bay_info), beim Würfel samt der überfahrenen

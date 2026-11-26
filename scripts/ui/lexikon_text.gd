@@ -75,29 +75,40 @@ func keyword_at(point: Vector2) -> String:
 # --- Satz -------------------------------------------------------------------------
 
 static func _split_words(text_in: String, exclude_id := "") -> Array:
+	# Krit-, Mult- und Basis-Phrasen tragen ihre Farbe (EffectText), auch mitten im Wort.
+	var kinds := EffectText.kind_map(text_in)
 	var words: Array = []
 	var current: Array = []
+	var at := 0
 	for span in Lexikon.spans(text_in, exclude_id):
 		var id: String = span["id"]
-		if id != "":
-			current.append({"text": span["text"], "id": id})
-			continue
 		var chunk: String = span["text"]
+		if id != "":
+			current.append({"text": chunk, "id": id, "kind": kinds[at]})
+			at += chunk.length()
+			continue
 		var buffer := ""
+		var buffer_kind := ""
 		for ch in chunk:
+			var kind: String = kinds[at]
+			at += 1
 			if ch == " " or ch == "\n":
 				if buffer != "":
-					current.append({"text": buffer, "id": ""})
+					current.append({"text": buffer, "id": "", "kind": buffer_kind})
 					buffer = ""
 				if not current.is_empty():
 					words.append(current)
 					current = []
 				if ch == "\n":
-					words.append([{"text": "\n", "id": ""}])
-			else:
-				buffer += ch
+					words.append([{"text": "\n", "id": "", "kind": ""}])
+				continue
+			if buffer != "" and kind != buffer_kind:
+				current.append({"text": buffer, "id": "", "kind": buffer_kind})
+				buffer = ""
+			buffer_kind = kind
+			buffer += ch
 		if buffer != "":
-			current.append({"text": buffer, "id": ""})
+			current.append({"text": buffer, "id": "", "kind": buffer_kind})
 	if not current.is_empty():
 		words.append(current)
 	return words
@@ -145,8 +156,10 @@ func _rebuild() -> void:
 			var label := Label.new()
 			label.text = piece["text"]
 			label.add_theme_font_size_override("font_size", font_px)
-			label.add_theme_color_override("font_color",
-				CasinoStyle.LEXIKON_LINK if piece["id"] != "" else color)
+			var tint := CasinoStyle.LEXIKON_LINK if piece["id"] != "" else color
+			if String(piece.get("kind", "")) != "":
+				tint = EffectText.color_of(piece["kind"])
+			label.add_theme_color_override("font_color", tint)
 			if outline > 0:
 				label.add_theme_constant_override("outline_size", outline)
 				label.add_theme_color_override("font_outline_color", outline_color)

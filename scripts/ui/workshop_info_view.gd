@@ -257,6 +257,7 @@ func _line(line_name: String, rect: Rect2, tint: Color, wrap: bool) -> Label:
 	add_child(label)
 	label.position = rect.position
 	label.size = rect.size
+	EffectText.colorize(label)
 	return label
 
 func _paint() -> void:

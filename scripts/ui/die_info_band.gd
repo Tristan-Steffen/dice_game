@@ -195,6 +195,7 @@ func _label(wrap: bool) -> Label:
 	if wrap:
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(label)
+	EffectText.colorize(label)
 	return label
 
 func _style() -> void:
