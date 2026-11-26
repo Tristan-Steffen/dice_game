@@ -77,7 +77,7 @@ static func amber() -> DieMaterial:
 	m.roughness = 0.35
 	m.glow = 1.1
 	m.refined_color = Color(1.0, 0.54, 0.0)
-	m.short = "+20 Basis +Augensumme"
+	m.short = "+20 Basis"
 	m.short_doped = "5 × Augensumme"
 	m.description_doped = "Die fünffache Augensumme des Würfels - ohne festen Zuschlag."
 	return m

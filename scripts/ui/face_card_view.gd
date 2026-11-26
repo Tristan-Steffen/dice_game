@@ -30,10 +30,10 @@ const KIND_PLAIN := "plain"
 ## die Augen der Seite ein (Glas), "%h" ihre Hälfte.
 const MATERIAL_EFFECTS := {
 	DieMaterial.RUBY: [["+4", KIND_MULT, "Mult", ""],
-		["×2", KIND_CRIT, "Krit", "in der Kombination"]],
+		["×2", KIND_CRIT, "Krit", ""]],
 	DieMaterial.AMBER: [["+20", KIND_BASE, "Basis", ""],
 		["5×", KIND_BASE, "Augensumme", "als Basis"]],
-	DieMaterial.GOLD: [["+$3", KIND_MONEY, "", "beim Nehmen"],
+	DieMaterial.GOLD: [["+$3", KIND_MONEY, "", ""],
 		["+$7", KIND_MONEY, "", "+$1 je Gold-Seite"]],
 	DieMaterial.BONE: [["+2", KIND_PLAIN, "Augen", "Seite wächst beim Nehmen"],
 		["+10", KIND_PLAIN, "Augen", "oder +20 % · Seite wächst"]],
