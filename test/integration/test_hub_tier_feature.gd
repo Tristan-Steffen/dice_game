@@ -107,90 +107,41 @@ func test_charm_cards_fill_their_column() -> void:
 	shop.size = Vector2(1068, 1125)
 	assert_almost_eq(shop._charm_card_width(), shop.column_width(), 0.01)
 
-# --- Blind-Bühne: großer Blind + Block-Würfel ---------------------------------
+# --- Blind-Bühne: großer Blind + Etagen-Zeile ----------------------------------
 
-func _faces(hub: HubView) -> Array:
-	var out := []
-	for station in hub.roadmap_row.get_children():
-		out.append(station.get_node("Face"))
-	return out
-
-func _captions(hub: HubView) -> Array:
-	var out := []
-	for station in hub.roadmap_row.get_children():
-		out.append((station.get_node("Caption") as Label).text)
-	return out
-
-func _markers(values: Array) -> Array[String]:
-	var typed: Array[String] = []
-	typed.assign(values)
-	return typed
-
-func test_the_block_shows_one_die_face_per_round() -> void:
+func test_the_floor_line_names_floor_and_move() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int])
-	var faces := _faces(hub)
-	assert_eq(faces.size(), 6)
-	for i in faces.size():
-		assert_eq(faces[i].value, i + 1, "Seite %d zeigt %d Augen" % [i, i + 1])
+	hub.set_floor(1, 0, 150, false, false)
+	assert_eq(hub.floor_label.text, "Etage 1 · Eingang")
+	hub.set_floor(2, 3, 300, false, false)
+	assert_eq(hub.floor_label.text, "Etage 2 · Zug 3")
+	hub.set_floor(2, 4, 400, false, true)
+	assert_string_contains(hub.floor_label.text, "Büro")
+	assert_string_contains(hub.floor_label.text, GameRun.STRESS_NAME)
+	assert_almost_eq(hub.floor_label.modulate.h, ComboChipView.THROTTLE_COLOR.h, 0.02, "die Boss-Runde warnrot")
 
-func test_the_big_number_is_the_current_blind() -> void:
+func test_the_big_number_is_the_running_blind() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 2)
-	assert_eq(hub.blind_label.text, "180", "nur der laufende Blind steht groß")
+	hub.set_floor(1, 1, 180, false, false)
+	assert_eq(hub.blind_label.text, "180")
+	assert_eq(hub.blind_caption.text, HubView.BLIND_CAPTION)
 
-func test_only_played_faces_carry_their_blind() -> void:
+func test_before_the_move_the_next_blind_stands_named() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 2,
-		_markers(["", "", "", "", "", GameRun.STRESS_MARKER]))
-	assert_eq(_captions(hub), ["150", "165", " ", " ", " ", "BOSS"],
-		"keine geratene Zukunft - gespielte Seiten nennen ihren Blind, die Boss-Seite sich selbst")
-
-func test_face_states_read_apart() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 2)
-	var faces := _faces(hub)
-	assert_eq(faces[0].state, HubView.DieFace.DONE)
-	assert_eq(faces[2].state, HubView.DieFace.CURRENT)
-	assert_eq(faces[4].state, HubView.DieFace.OPEN)
-	assert_gt(faces[2].custom_minimum_size.x, faces[4].custom_minimum_size.x,
-		"die laufende Seite ist die größte")
-
-func test_the_boss_face_is_red_and_explains_itself() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180] as Array[int], 0,
-		_markers(["", "", GameRun.STRESS_MARKER]))
-	var faces := _faces(hub)
-	assert_true(faces[2].boss)
-	assert_almost_eq(faces[2].ring.h, ComboChipView.THROTTLE_COLOR.h, 0.02, "Boss-Seite warnrot")
-	assert_eq(faces[0].mouse_filter, Control.MOUSE_FILTER_IGNORE, "gewöhnliche Seite bleibt Deko")
-	assert_false(hub.marker_hint.visible)
-	faces[2].mouse_entered.emit()
-	assert_true(hub.marker_hint.visible)
-	assert_eq(hub.marker_hint.title_label.text, GameRun.STRESS_NAME)
-	assert_string_contains(hub.marker_hint.body_label.text, "Konditionen")
-	faces[2].mouse_exited.emit()
-	assert_false(hub.marker_hint.visible)
-
-func test_rebuilding_the_block_drops_a_standing_hint() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180] as Array[int], 0, _markers(["", GameRun.STRESS_MARKER, ""]))
-	_faces(hub)[1].mouse_entered.emit()
-	assert_true(hub.marker_hint.visible)
-	hub.set_goal_roadmap([300, 350, 400] as Array[int], 0, _markers(["", "", ""]))
-	assert_false(hub.marker_hint.visible)
+	hub.set_floor(1, 2, 184, true, false)
+	hub.set_run_stats(184, 0, 0, {}, 12)
+	assert_eq(hub.blind_caption.text, HubView.NEXT_BLIND_CAPTION, "nie der alte als laufend")
+	assert_eq(hub.blind_label.text, "184")
+	assert_eq((hub.stat_labels[HubView.STAT_BLIND] as Label).text, "Zug 2: +12 %")
 
 func test_a_raised_blind_ticks_the_big_number() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180] as Array[int], 0, _markers([]), 0)
-	hub.set_goal_roadmap([200, 220, 240] as Array[int], 0, _markers([]), 0)
+	hub.set_floor(1, 0, 150, false, false)
+	hub.set_floor(1, 0, 200, false, false)
 	assert_eq(hub.blind_label.text, "150", "die Zahl tickt erst")
 	await wait_seconds(HubView.STAT_TICK_TIME + 0.1)
 	assert_eq(hub.blind_label.text, "200")
@@ -198,19 +149,17 @@ func test_a_raised_blind_ticks_the_big_number() -> void:
 func test_the_stage_stays_inside_its_bounds() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_goal_roadmap([150, 165, 180, 200, 220, 240] as Array[int], 0,
-		_markers(["", "", "", "", "", GameRun.STRESS_MARKER]))
+	hub.set_floor(3, 4, 1234, false, false)
 	hub.set_run_stats(165, 12, 34)
 	await wait_frames(2)
 	var stage := Rect2(Vector2.ZERO, hub.roadmap_stage.size)
-	for c: Control in [hub.blind_label, hub.roadmap_row, hub.stat_labels[HubView.STAT_LUCK],
+	for c: Control in [hub.blind_label, hub.floor_label, hub.stat_labels[HubView.STAT_LUCK],
 			hub.stat_labels[HubView.STAT_FUMBLES]]:
 		var r := Rect2(c.position, c.size)
 		assert_true(stage.grow(1.0).encloses(r), "%s liegt in der Bühne" % c.name)
 	var luck := Rect2(hub.stat_labels[HubView.STAT_LUCK].position, hub.stat_labels[HubView.STAT_LUCK].size)
-	var row := Rect2(hub.roadmap_row.position, hub.roadmap_row.size)
-	assert_false(luck.intersects(row), "Glück steht unter den Seiten, nicht darauf")
-	assert_gt(luck.position.y, row.end.y - 1.0, "die Lauf-Werte stehen UNTER der Reihe")
+	var row := Rect2(hub.floor_label.position, hub.floor_label.size)
+	assert_false(luck.intersects(row), "Glück steht unter der Etagen-Zeile, nicht darauf")
 	var next: Label = hub.stat_labels[HubView.STAT_BLIND]
 	assert_almost_eq(next.position.x + next.size.x * 0.5, hub.roadmap_stage.size.x * 0.5, 1.0, "die Nächster-Zeile steht mittig")
 
@@ -301,14 +250,14 @@ func test_a_fresh_block_restores_swept_tokens() -> void:
 	hub.set_deal_tokens(_sides([_side(DealClause.HAPPY_HOUR)]))
 	assert_eq(hub.deal_token_row.modulate.a, 1.0)
 
-func test_a_quota_deal_lifts_the_current_and_every_future_station() -> void:
-	# Der Aufschlag ist DAUERHAFT: die laufende Station und alle künftigen springen mit.
+func test_a_quota_deal_lifts_the_current_and_the_next_blind() -> void:
+	# Der Aufschlag ist DAUERHAFT: der laufende und der nächste Blind springen mit.
 	var run := GameRun.new_run()
-	var before: Array = run.floor_roadmap()["goals"]
+	var now := run.effective_goal()
+	var next := run.next_blind()
 	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
-	var after: Array = run.floor_roadmap()["goals"]
-	for i in before.size():
-		assert_gt(after[i], before[i], "Station %d trägt den Aufschlag" % i)
+	assert_gt(run.effective_goal(), now)
+	assert_gt(run.next_blind(), next)
 
 func test_the_run_stats_tick_and_carry_their_hints() -> void:
 	var hub := _hub()
@@ -325,13 +274,3 @@ func test_the_run_stats_tick_and_carry_their_hints() -> void:
 	assert_eq((hub.stat_labels[HubView.STAT_FUMBLES] as Label).text, "Fumbles 7", "die Zahl tickt erst")
 	await wait_seconds(HubView.STAT_TICK_TIME + 0.1)
 	assert_eq((hub.stat_labels[HubView.STAT_FUMBLES] as Label).text, "Fumbles 9")
-
-func test_the_roadmap_tracks_blocks_by_id_not_by_numbers() -> void:
-	# Sonst gälte ein mitten im Block unterschriebener Quota-Malus als
-	# frischer Block und der Fahrplan spielte die falsche Animation.
-	var hub := _hub()
-	await wait_frames(2)
-	hub.set_goal_roadmap([150, 200, 250] as Array[int], 0, _markers([]), 0)
-	hub.set_goal_roadmap([188, 250, 313] as Array[int], 0, _markers([]), 0)
-	assert_eq(hub._roadmap_block, 0, "immer noch derselbe Block")
-	assert_eq(hub._roadmap_goals, [188, 250, 313] as Array[int], "aber neue Zahlen")

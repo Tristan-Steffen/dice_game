@@ -34,10 +34,10 @@ func _quiet_floor() -> void:
 func _room_door() -> String:
 	var due := run.move_due
 	run.move_due = true
-	var offers := run.move_offers()
+	var doors := run.walkable_doors()
 	run.move_due = due
-	for card in offers:
-		var entry := run.floor_map.door(String(card[GameRun.CARD_DOOR]))
+	for door_id in doors:
+		var entry := run.floor_map.door(door_id)
 		if not run.floor_map.is_office_door(entry):
 			return String(entry["id"])
 	return ""
@@ -134,10 +134,10 @@ func test_the_ad_drum_frees_more_doors() -> void:
 func test_round_one_stands_at_the_entrance_without_a_clause() -> void:
 	assert_eq(run.floor_map.position, run.floor_map.entrance)
 	assert_false(run.move_due, "Runde 1 hat keinen Zug")
-	assert_true(run.move_offers().is_empty())
+	assert_true(run.walkable_doors().is_empty())
 	assert_true(run.active_deals.is_empty())
 	run.advance_round()
-	assert_false(run.move_offers().is_empty(), "ab Runde 2 steht ein Zug an")
+	assert_false(run.walkable_doors().is_empty(), "ab Runde 2 steht ein Zug an")
 
 func test_the_entrance_doors_are_scouted_from_the_start() -> void:
 	for entry in run.floor_map.doors_from(run.floor_map.entrance):
@@ -254,8 +254,7 @@ func test_a_locked_door_is_no_move() -> void:
 	run.advance_round()
 	var door_id := _room_door()
 	run.floor_map.door(door_id)["state"] = FloorMap.DoorState.LOCKED
-	for card in run.move_offers():
-		assert_ne(String(card[GameRun.CARD_DOOR]), door_id)
+	assert_false(run.walkable_doors().has(door_id))
 	assert_false(run.move_through(door_id))
 
 # --- Laufzeiten ----------------------------------------------------------------
@@ -269,3 +268,55 @@ func test_the_regular_customer_lives_until_the_settlement() -> void:
 	assert_almost_eq(run.shop_price_factor(), discounted, 0.0001, "noch auf der Etage")
 	run.settle_block_deals()
 	assert_almost_eq(run.shop_price_factor(), 1.0, 0.0001, "die Abrechnung beendet ihn")
+
+# --- Die Daten der Karte (floor_view_state) --------------------------------------
+
+func test_the_view_state_carries_the_whole_floor() -> void:
+	run.advance_round()
+	var view := run.floor_view_state()
+	assert_eq((view["rooms"] as Array).size(), FloorMap.ROOM_COUNT + 2, "acht Räume, Eingang, Büro")
+	assert_eq((view["doors"] as Array).size(), run.floor_map.doors.size())
+	assert_eq(view["position"], run.floor_map.entrance)
+	assert_eq(int(view["floor"]), 1)
+	assert_eq(int(view["moves"]), 0)
+	assert_true(bool(view["due"]))
+	assert_eq(int(view["blind"]), run.effective_goal())
+	assert_eq(int(view["next_blind"]), run.next_blind(), "die Vorschau ist die Buchung")
+	assert_eq(int(view["step_percent"]), 10)
+	var walk: Array = view["walkable"]
+	assert_eq(walk.size(), run.floor_map.doors_from(run.floor_map.entrance).size())
+
+func test_the_view_state_hides_unscouted_and_locked_doors() -> void:
+	for t in FloorMap.TEMPLATES.size():
+		run.floor_map = _scouted_floor(t, 40 + t)
+		run.floor_map.doors[0]["state"] = FloorMap.DoorState.LOCKED
+		for entry in run.floor_map.doors:
+			if not run.floor_map.is_office_door(entry) and entry != run.floor_map.doors[0]:
+				entry["scouted"] = false
+				break
+		for door: Dictionary in run.floor_view_state()["doors"]:
+			var real := run.floor_map.door(String(door["id"]))
+			if int(real["state"]) == FloorMap.DoorState.LOCKED or not bool(real["scouted"]):
+				assert_eq(String(door["clause"]), "", "verdeckt: %s" % door["id"])
+				assert_eq(int(door["tier"]), -1, "auch die Stufe")
+				assert_false(bool(door["free"]))
+
+func test_office_doors_show_their_boss_condition_from_the_start() -> void:
+	for door: Dictionary in run.floor_view_state()["doors"]:
+		if bool(door["office"]):
+			assert_eq(DealClause.find(String(door["clause"])).tier, DealClause.Tier.BOSS)
+
+func test_move_clauses_name_what_the_move_signs() -> void:
+	run.advance_round()
+	var door_id := _room_door()
+	var expected := run.move_clauses(door_id)
+	run.move_through(door_id)
+	var signed: Array[String] = []
+	for deal in run.active_deals:
+		signed.append(String(deal["id"]))
+	assert_eq(signed, expected)
+	assert_true(run.move_clauses(door_id).is_empty(), "zurück unterschreibt nichts")
+
+func test_the_view_state_names_the_last_locked_door() -> void:
+	run.note_fumble(false)
+	assert_eq(String(run.floor_view_state()["locked"]), run.last_locked_door)

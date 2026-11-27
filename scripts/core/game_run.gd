@@ -45,14 +45,8 @@ const BLIND_GROWTH_STEP := 0.05
 const BLIND_MOVE_STEP := 0.02
 ## Gerundet wird nur das Ziel (abwärts auf Vielfache davon), nie der Akkumulator.
 const BLIND_ROUNDING := 5
-## Höchstens so viele Stationen zeigt der Hub-Fahrplan (bis Welle 2 der Etagen-Karte).
-const ROADMAP_SHOWN := 6
-
-## Fahrplan-Marker der Boss-Runde samt Anzeige-Texten - eine Quelle für Hub-Kopfzeile
-## und Fahrplan-Hinweis.
-const STRESS_MARKER := "stress"
+## Anzeige-Name der Boss-Runde (Hub-Kopfzeile).
 const STRESS_NAME := "Boss-Runde"
-const STRESS_HINT := "Boss-Konditionen: das Haus diktiert, unter welcher Auflage gespielt wird."
 
 ## --- Verträge mit dem Haus ----------------------------------------------------
 ## Chance je Wurf der Etage, dass eine Tür FREI ist (das frühere Werbegeschenk).
@@ -186,8 +180,6 @@ var floor_index: int = 0
 var floor_moves: int = 0
 ## Die laufende Runde wartet noch auf ihren Zug (ab Runde 2 jede).
 var move_due: bool = false
-## Erste Runde der laufenden Etage - ab ihr zeigt der Fahrplan die gespielten Blinds.
-var floor_first_round: int = 1
 ## Die Tür, die der letzte echte Fumble gesperrt hat ("" = keine).
 var last_locked_door: String = ""
 
@@ -1912,14 +1904,6 @@ func max_hands_this_round() -> int:
 	return 1 if _clause_active(DealClause.ALL_IN) else POOL_SIZE
 
 # --- Die ETAGEN-KARTE: Zug, Unterschrift, Abrechnung --------------------------
-## Ein Zug als Karte des alten Fensters (bis Welle 2): Stufe, Bonus des Zielraums,
-## Malus bzw. Boss-Kondition der Tür ("" = diese Seite fehlt), Raumname und Tür-Id.
-const CARD_TIER := "tier"
-const CARD_BONUS := "bonus"
-const CARD_MALUS := "malus"
-const CARD_ROOM := "room"
-const CARD_DOOR := "door"
-
 ## Etage würfeln, Puck auf den Eingang, dessen Türen erkunden.
 func _enter_floor(rng: RandomNumberGenerator = null) -> void:
 	floor_map = FloorMap.roll(rng, _clause_offerable, treat_chance(), _boss_condition_ids())
@@ -1932,7 +1916,6 @@ func _enter_floor(rng: RandomNumberGenerator = null) -> void:
 func _enter_next_floor() -> void:
 	floor_index += 1
 	block_fumbles = 0
-	floor_first_round = round_number + 1
 	_enter_floor()
 
 ## Drei verschiedene Boss-Konditionen für die Büro-Türen.
@@ -1956,20 +1939,15 @@ func blind_growth(move: int = 0) -> float:
 func next_blind() -> int:
 	return floor_to_blind(blind_value * (1.0 + blind_growth()))
 
-## Die Züge des Standraums als Karten (leer = kein Zug fällig).
-func move_offers() -> Array[Dictionary]:
-	var cards: Array[Dictionary] = []
+## Die Türen, durch die der fällige Zug gehen darf (leer = kein Zug fällig).
+func walkable_doors() -> Array[String]:
+	var ids: Array[String] = []
 	if not move_due or floor_map == null:
-		return cards
+		return ids
 	for entry in floor_map.doors_from(floor_map.position):
-		if not floor_map.passable(entry):
-			continue
-		var target := floor_map.room(floor_map.other_side(entry, floor_map.position))
-		var bonus := "" if bool(target["visited"]) else String(target["bonus"])
-		var malus := _door_malus(entry)
-		cards.append({CARD_TIER: _card_tier(entry, bonus, malus), CARD_BONUS: bonus,
-			CARD_MALUS: malus, CARD_ROOM: String(target["name"]), CARD_DOOR: String(entry["id"])})
-	return cards
+		if floor_map.passable(entry):
+			ids.append(String(entry["id"]))
+	return ids
 
 ## Was die Tür beim Durchschreiten unterschreibt: Boss-Kondition oder Malus, ausgebrannt nichts.
 func _door_malus(entry: Dictionary) -> String:
@@ -1977,12 +1955,49 @@ func _door_malus(entry: Dictionary) -> String:
 		return ""
 	return String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
 
-func _card_tier(entry: Dictionary, bonus: String, malus: String) -> int:
-	if String(entry["boss"]) != "":
-		return DealClause.Tier.BOSS
-	if malus == "" and bonus != "":
-		return DealClause.Tier.TREAT
-	return maxi(DealClause.Tier.ONE, int(entry["tier"]))
+## Was die Tür beim Zug unterschreiben würde, samt Bonus des Zielraums ("" = nichts).
+func move_clauses(door_id: String) -> Array[String]:
+	var ids: Array[String] = []
+	if floor_map == null:
+		return ids
+	var entry := floor_map.door(door_id)
+	if entry.is_empty():
+		return ids
+	var target := floor_map.room(floor_map.other_side(entry, floor_map.position))
+	if not bool(target["visited"]) and String(target["bonus"]) != "":
+		ids.append(String(target["bonus"]))
+	var malus := _door_malus(entry)
+	if malus != "":
+		ids.append(malus)
+	return ids
+
+## Die ganze Etage als reine Daten für die Karte: was der Spieler nicht sehen darf
+## (unerkundete und gesperrte Türen), steht nicht darin.
+func floor_view_state() -> Dictionary:
+	if floor_map == null:
+		return {}
+	var rooms: Array[Dictionary] = []
+	for room_id: String in floor_map.rooms:
+		var room: Dictionary = floor_map.rooms[room_id]
+		rooms.append({"id": room_id, "name": String(room["name"]), "bonus": String(room["bonus"]),
+			"tier": int(room["tier"]), "cell": room["cell"], "visited": bool(room["visited"]),
+			"entrance": room_id == floor_map.entrance, "office": room_id == floor_map.office})
+	var doors: Array[Dictionary] = []
+	for entry in floor_map.doors:
+		var state := int(entry["state"])
+		var shown := bool(entry["scouted"]) and state != FloorMap.DoorState.LOCKED
+		var clause := ""
+		if shown:
+			clause = String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
+		doors.append({"id": String(entry["id"]), "a": String(entry["a"]), "b": String(entry["b"]),
+			"state": state, "scouted": shown, "tier": int(entry["tier"]) if shown else -1,
+			"clause": clause, "free": shown and bool(entry["free"]),
+			"office": floor_map.is_office_door(entry)})
+	return {"floor": floor_index + 1, "moves": floor_moves, "due": move_due,
+		"position": floor_map.position, "entrance": floor_map.entrance, "office": floor_map.office,
+		"rooms": rooms, "doors": doors, "walkable": walkable_doors(),
+		"blind": effective_goal(), "next_blind": next_blind(),
+		"step_percent": roundi(blind_growth() * 100.0), "locked": last_locked_door}
 
 ## Der Zug der Runde durch door_id: Blind-Schritt, Tür ausbrennen, Raum leeren, Malus und
 ## Bonus unterschreiben, dann die Türen des neuen Raums erkunden. false = nichts gebucht.
@@ -1996,12 +2011,7 @@ func move_through(door_id: String) -> bool:
 	if entry["a"] != from and entry["b"] != from:
 		return false
 	var target := floor_map.room(floor_map.other_side(entry, from))
-	var ids: Array[String] = []
-	if not bool(target["visited"]) and String(target["bonus"]) != "":
-		ids.append(String(target["bonus"]))
-	var malus := _door_malus(entry)
-	if malus != "":
-		ids.append(malus)
+	var ids := move_clauses(door_id)
 	raise_blind(1.0 + blind_growth())
 	floor_moves += 1
 	entry["state"] = FloorMap.DoorState.PASSED
@@ -2031,28 +2041,6 @@ func locked_door_note() -> String:
 	if last_locked_door == "" or floor_map == null:
 		return ""
 	return "Tür gesperrt: %s" % floor_map.door_label(last_locked_door)
-
-## Fahrplan bis Welle 2: gespielte Blinds der Etage, der laufende, der nächste.
-## {goals, current, markers}, höchstens ROADMAP_SHOWN Stationen.
-func floor_roadmap() -> Dictionary:
-	var goals: Array[int] = []
-	var markers: Array[String] = []
-	for n in range(floor_first_round, round_number):
-		goals.append(blind_history[n - 1] if n - 1 < blind_history.size() else floor_to_blind(float(BASE_GOAL)))
-		markers.append("")
-	var current := goals.size()
-	goals.append(effective_goal())
-	markers.append(STRESS_MARKER if is_boss_round() else "")
-	if not is_boss_round():
-		goals.append(next_blind())
-		markers.append("")
-	var cut := maxi(0, goals.size() - ROADMAP_SHOWN)
-	var shown_goals: Array[int] = []
-	var shown_markers: Array[String] = []
-	for i in range(cut, goals.size()):
-		shown_goals.append(goals[i])
-		shown_markers.append(markers[i])
-	return {"goals": shown_goals, "current": current - cut, "markers": shown_markers}
 
 ## Chance, dass eine Tür FREI liegt - die Werbetrommel verdreifacht sie. Die Wirkung
 ## ist eine Abfrage hier, weil sie am Wurf der Etage hängt, nicht an der Wertung.
@@ -3026,6 +3014,7 @@ func advance_round() -> void:
 		labor_job.tick()
 		labor_changed.emit()
 	move_due = floor_map != null
+	floor_changed.emit()
 
 ## --- Überladung (Overcharge) --------------------------------------------------
 

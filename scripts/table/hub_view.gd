@@ -65,10 +65,9 @@ var lexikon_button: Button
 var _tier := 1
 var _tier_shown := 0  # 0 = noch nie angewandt
 
-## Blind-Bühne: oben der laufende Blind groß, darunter die sechs Seiten des
-## Block-Würfels (Seite 6 = Boss). roadmap_row sammelt die Seiten.
+## Blind-Bühne: oben der Blind groß, darunter die Zeile der Etage („Etage n · Zug m“).
 var roadmap_stage: Control
-var roadmap_row: HBoxContainer
+var floor_label: Label
 var blind_caption: Label
 var blind_label: Label
 var _blind_target := -1
@@ -76,14 +75,16 @@ var _blind_shown := 0
 var _blind_tween: Tween
 var _blind_growth_pct := 0
 const BLIND_FONT_UNITS := 13.0
-const FACE_UNITS := 7.2
-const FACE_UNITS_CURRENT := 9.0
-var _roadmap_goals: Array[int] = []
-var _roadmap_current := 0  # Position der laufenden Runde im Block (0-basiert)
-var _roadmap_block := -1   # Kennung des gezeigten Blocks (-1 = noch keiner)
-## Marker je Seite: GameRun.STRESS_MARKER oder "" (siehe GameRun.floor_roadmap).
-var _roadmap_markers: Array[String] = []
-## Hinweis-Karte der Boss-Seite, der Deal-Marken und der Lauf-Anzeigen (Hover).
+const FLOOR_FONT_UNITS := 4.2
+const BLIND_CAPTION := "BLIND"
+## Vor dem Zug der Runde steht groß der Blind NACH ihm.
+const NEXT_BLIND_CAPTION := "NÄCHSTER BLIND"
+## Etage (1-basiert) und Zug der Etage (0 = Eingang); scene_root meldet beides.
+var _floor := 0
+var _floor_move := 0
+var _move_due := false
+var _boss := false
+## Hinweis-Karte der Deal-Marken und der Lauf-Anzeigen (Hover).
 var marker_hint: HintCard
 
 ## Deal-Marken unter der Seiten-Reihe; dieselbe Reihe liegt am oberen Grubenrand.
@@ -606,195 +607,46 @@ func _apply_frame_tier() -> void:
 		_frame_style.border_color = _frame_base_color
 		_frame_style.bg_color = _frame_bg
 		_frame_style.set_border_width_all(maxi(2, int((size.x / 100.0) * _frame_base_width_u)))
-	if not _roadmap_goals.is_empty():
-		_rebuild_roadmap()
+	if floor_label != null and not _boss:
+		floor_label.modulate = _frame_base_color.lightened(0.25)
 
-# --- Blind-Anzeige + Block-Würfel (Home-Bänder) -------------------------------
+# --- Blind-Anzeige + Etagen-Zeile (Home-Bänder) ------------------------------
 
-## Setzt den Block: Blinds je Runde (gespielt / laufend / projiziert), die Position
-## der laufenden Runde und die Marker. Groß steht nur der LAUFENDE Blind; die
-## Würfelseiten zeigen den Fortschritt, gespielte Seiten ihren gespielten Blind.
-## block_id: laufende Etage (GameRun.floor_index) - sie entscheidet, ob ein
-## Block WEITERläuft; die Zahlen taugen dafür nicht, Verträge heben sie mitten im Block.
-func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String] = [],
-		block_id: int = -1) -> void:
+## Setzt die Etage: Zeile „Etage n · Zug m“ (am Eingang „Eingang“, im Büro die
+## Boss-Runde), groß den Blind - vor dem Zug der Runde den Blind NACH ihm.
+func set_floor(floor_no: int, move: int, blind: int, due: bool, boss: bool) -> void:
 	if not _built:
 		return
-	var same_block := (block_id == _roadmap_block) if block_id >= 0 else (goals == _roadmap_goals)
-	var cleared := same_block and current == _roadmap_current + 1
-	var fresh_block := not same_block and not _roadmap_goals.is_empty()
-	_roadmap_block = block_id
-	_roadmap_goals = goals.duplicate()
-	_roadmap_markers = markers.duplicate()
-	_roadmap_current = clampi(current, 0, maxi(0, goals.size() - 1))
-	_rebuild_roadmap()
-	_set_blind_value(current_blind())
+	_floor = floor_no
+	_floor_move = move
+	_move_due = due
+	_boss = boss
+	floor_label.text = floor_text(floor_no, move, boss)
+	floor_label.modulate = ComboChipView.THROTTLE_COLOR if boss else _frame_base_color.lightened(0.25)
+	blind_caption.text = NEXT_BLIND_CAPTION if due else BLIND_CAPTION
+	_set_blind_value(blind)
 	_write_stat(STAT_BLIND, int(_stat_shown.get(STAT_BLIND, 0)))
-	if cleared:
-		_play_station_cleared()
-	elif fresh_block:
-		_play_roadmap_advance()
-
-## Der Blind der laufenden Runde (0 = noch kein Block gesetzt).
-func current_blind() -> int:
-	if _roadmap_goals.is_empty():
-		return 0
-	return _roadmap_goals[_roadmap_current]
-
-## Baut die sechs Würfelseiten neu: Seite i+1 = Runde i des Blocks.
-func _rebuild_roadmap() -> void:
-	if roadmap_row == null:
-		return
-	_hide_marker_hint()  # die gehoverte Seite wird gleich freigegeben
-	for child in roadmap_row.get_children():
-		# Sofort aushängen: queue_free allein ließe bei zwei Aufbauten im selben
-		# Frame beide Generationen nebeneinander stehen.
-		roadmap_row.remove_child(child)
-		child.queue_free()
-	var u := size.x / 100.0
-	for i in _roadmap_goals.size():
-		roadmap_row.add_child(_make_station(i, u))
 	_layout_stage()
 
-## Eine Block-Seite samt Unterschrift: gespielt = gedimmt mit gespieltem Blind,
-## laufend = hell und größer, offen = leer; die Boss-Seite warnrot und anfassbar.
-func _make_station(index: int, u: float) -> Control:
-	var marker := _roadmap_markers[index] if index < _roadmap_markers.size() else ""
-	var boss := marker != ""
-	var current := index == _roadmap_current
-	var done := index < _roadmap_current
-	var station := VBoxContainer.new()
-	station.alignment = BoxContainer.ALIGNMENT_CENTER
-	station.add_theme_constant_override("separation", int(u * 0.5))
-	station.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var face := DieFace.new()
-	face.name = "Face"
-	face.value = index + 1
-	var edge := u * (FACE_UNITS_CURRENT if current else FACE_UNITS)
-	face.custom_minimum_size = Vector2(edge, edge)
-	face.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var accent := _marker_color(marker) if boss else _frame_base_color
-	face.ring = accent
-	face.state = DieFace.CURRENT if current else (DieFace.DONE if done else DieFace.OPEN)
-	face.boss = boss
-	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	station.add_child(face)
+## Die Zeile der Etage (rein, für die Anzeige und die Tests).
+static func floor_text(floor_no: int, move: int, boss: bool) -> String:
 	if boss:
-		_make_hoverable(face, marker)
-	var caption := Label.new()
-	caption.name = "Caption"
-	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	caption.add_theme_font_size_override("font_size", int(u * 2.2))
-	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if boss and not done:
-		caption.text = "BOSS"
-		caption.modulate = accent
-	elif done:
-		caption.text = str(_roadmap_goals[index])
-		caption.modulate = Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 0.45)
-	else:
-		caption.text = " "
-	station.add_child(caption)
-	return station
+		return "Etage %d · Büro · %s" % [floor_no, GameRun.STRESS_NAME]
+	if move <= 0:
+		return "Etage %d · Eingang" % floor_no
+	return "Etage %d · Zug %d" % [floor_no, move]
 
-## Farbe eines Block-Markers (heute nur die Boss-Runde).
-func _marker_color(marker: String) -> Color:
-	return ComboChipView.THROTTLE_COLOR if marker == GameRun.STRESS_MARKER else FRAME_COLOR
+## Der groß gezeigte Blind (0 = noch keiner gesetzt).
+func current_blind() -> int:
+	return maxi(_blind_target, 0)
 
-## Name + Wirkung eines Markers als [Titel, Beschreibung] für den Hinweis.
-func _marker_text(marker: String) -> PackedStringArray:
-	if marker == GameRun.STRESS_MARKER:
-		return PackedStringArray([GameRun.STRESS_NAME, GameRun.STRESS_HINT])
-	return PackedStringArray(["", ""])
-
-## Macht die Boss-Seite anfassbar: Hover zeigt, was die Runde bringt.
-func _make_hoverable(face: Control, marker: String) -> void:
-	face.mouse_filter = Control.MOUSE_FILTER_PASS
-	face.mouse_entered.connect(func() -> void: _show_marker_hint(face, marker))
-	face.mouse_exited.connect(_hide_marker_hint)
-
-## Rundensieg im Block: die eben gespielte Seite blitzt auf.
-func _play_station_cleared() -> void:
-	var stations := roadmap_row.get_children()
-	var done_index := _roadmap_current - 1
-	if done_index >= 0 and done_index < stations.size():
-		var st := stations[done_index] as Control
-		if st != null:
-			st.modulate = Color(2.2, 2.2, 2.0)
-			var tw := create_tween()
-			tw.tween_property(st, "modulate", Color.WHITE, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-
-## Frischer Block: die Seiten zünden von links nach rechts auf.
-func _play_roadmap_advance() -> void:
-	var i := 0
-	for child in roadmap_row.get_children():
-		var c := child as Control
-		if c == null:
-			continue
-		c.modulate = Color(1, 1, 1, 0)
-		var tw := create_tween()
-		tw.tween_interval(0.05 * i)
-		tw.tween_property(c, "modulate:a", 1.0, 0.18).set_trans(Tween.TRANS_SINE)
-		i += 1
-
-## Eine gezeichnete Würfelseite mit ihren Augen.
-class DieFace:
-	extends Control
-	const OPEN := 0
-	const DONE := 1
-	const CURRENT := 2
-	const PIPS := {
-		1: [Vector2(0.5, 0.5)],
-		2: [Vector2(0.27, 0.27), Vector2(0.73, 0.73)],
-		3: [Vector2(0.27, 0.27), Vector2(0.5, 0.5), Vector2(0.73, 0.73)],
-		4: [Vector2(0.27, 0.27), Vector2(0.73, 0.27), Vector2(0.27, 0.73), Vector2(0.73, 0.73)],
-		5: [Vector2(0.27, 0.27), Vector2(0.73, 0.27), Vector2(0.5, 0.5), Vector2(0.27, 0.73), Vector2(0.73, 0.73)],
-		6: [Vector2(0.27, 0.25), Vector2(0.73, 0.25), Vector2(0.27, 0.5), Vector2(0.73, 0.5), Vector2(0.27, 0.75), Vector2(0.73, 0.75)],
-	}
-	var value := 1
-	var state := OPEN
-	var boss := false
-	var ring := Color("#8be9fd")
-
-	func _draw() -> void:
-		var s := size
-		var box := StyleBoxFlat.new()
-		box.set_corner_radius_all(int(s.x * 0.2))
-		var pip := ring
-		match state:
-			CURRENT:
-				box.bg_color = Color(0.10, 0.09, 0.22, 0.95)
-				box.border_color = ring
-				box.set_border_width_all(maxi(2, int(s.x * 0.06)))
-				box.shadow_color = Color(ring.r, ring.g, ring.b, 0.45)
-				box.shadow_size = int(s.x * 0.18)
-				pip = Color(1.5, 1.5, 1.45)
-			DONE:
-				box.bg_color = Color(ring.r, ring.g, ring.b, 0.18)
-				box.border_color = Color(ring.r, ring.g, ring.b, 0.35)
-				box.set_border_width_all(maxi(1, int(s.x * 0.04)))
-				pip = Color(ring.r, ring.g, ring.b, 0.45)
-			_:
-				box.bg_color = Color(ring.r * 0.3, ring.g * 0.3, ring.b * 0.3, 0.85) if boss else Color("#161033cc")
-				box.border_color = Color(ring.r, ring.g, ring.b, 0.95 if boss else 0.4)
-				box.set_border_width_all(maxi(1, int(s.x * (0.06 if boss else 0.035))))
-				pip = Color(ring.r, ring.g, ring.b, 0.95 if boss else 0.5)
-		draw_style_box(box, Rect2(Vector2.ZERO, s))
-		var r := s.x * 0.085
-		for p: Vector2 in PIPS.get(value, []):
-			draw_circle(p * s, r, pip, true, -1.0, true)
-
-## Baut die Bühne: Blind-Kopf (Titel, große Zahl, Nächster-Zeile), die Reihe der
-## Block-Seiten zwischen Glück und Fumbles, darunter die Deal-Marken.
+## Baut die Bühne: Blind-Kopf (Titel, große Zahl, Nächster-Zeile), die Etagen-Zeile,
+## darunter Glück und Fumbles und die Deal-Marken.
 func _build_rim_stage(u: float) -> void:
-	blind_caption = _stage_label("BLIND", u * 2.6, Color(FRAME_COLOR.r, FRAME_COLOR.g, FRAME_COLOR.b, 0.75))
+	blind_caption = _stage_label(BLIND_CAPTION, u * 2.6, Color(FRAME_COLOR.r, FRAME_COLOR.g, FRAME_COLOR.b, 0.75))
 	blind_label = _stage_label("0", u * BLIND_FONT_UNITS, TEXT_COLOR)
-	roadmap_row = HBoxContainer.new()
-	roadmap_row.name = "RoadmapRow"
-	roadmap_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	roadmap_row.add_theme_constant_override("separation", int(u * 1.6))
-	roadmap_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	roadmap_stage.add_child(roadmap_row)
+	floor_label = _stage_label("", u * FLOOR_FONT_UNITS, FRAME_COLOR)
+	floor_label.name = "FloorLabel"
 	_build_run_stats(u)
 	_build_deal_tokens(u)
 	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über allem
@@ -854,15 +706,11 @@ func sweep_deal_tokens() -> float:
 	_hide_marker_hint()
 	return deal_token_row.sweep(size.y * 0.12)
 
-## Hinweis-Karte für Boss-Seite, Deal-Marken und Lauf-Anzeigen.
+## Hinweis-Karte für Deal-Marken und Lauf-Anzeigen.
 func _build_marker_hint(u: float) -> void:
 	marker_hint = HintCard.new(u)
 	marker_hint.name = "MarkerHint"
 	roadmap_stage.add_child(marker_hint)
-
-func _show_marker_hint(anchor_control: Control, marker: String) -> void:
-	var text := _marker_text(marker)
-	_show_hint(anchor_control, text[0], text[1], _marker_color(marker))
 
 func _show_hint(anchor_control: Control, title: String, body: String, accent: Color) -> void:
 	if marker_hint == null:
@@ -875,7 +723,7 @@ func _hide_marker_hint() -> void:
 		marker_hint.hide_card()
 
 ## Die Lauf-Anzeigen: die Nächster-Zeile unter der großen Zahl, Glück und Fumbles
-## als Zeile unter den Block-Seiten - je mit Hover-Hinweis.
+## als Zeile unter der Etagen-Zeile - je mit Hover-Hinweis.
 func _build_run_stats(u: float) -> void:
 	for key: String in [STAT_BLIND, STAT_LUCK, STAT_FUMBLES]:
 		var label := Label.new()
@@ -893,7 +741,7 @@ func _build_run_stats(u: float) -> void:
 		_write_stat(key, 0)
 
 ## Setzt die Lauf-Anzeigen samt Hinweisen; eine geänderte Zahl tickt hoch und blitzt.
-## growth_pct: natürliches Wachstum der nächsten Runde in Prozent (GameRun.blind_growth).
+## growth_pct: Schritt des nächsten Zugs in Prozent (GameRun.blind_growth).
 func set_run_stats(next_blind: int, luck: int, fumbles: int, hints: Dictionary = {},
 		growth_pct: int = 0) -> void:
 	if not _built or stat_labels.is_empty():
@@ -922,6 +770,10 @@ func _write_stat(key: String, value: int) -> void:
 	if label == null:
 		return
 	if key == STAT_BLIND:
+		# Vor dem Zug steht der nächste Blind schon groß - hier nur sein Schritt.
+		if _move_due:
+			label.text = "Zug %d: %+d %%" % [_floor_move, _blind_growth_pct]
+			return
 		label.text = "nächster %d" % value
 		if _blind_growth_pct != 0:
 			label.text += "  (%+d %%)" % _blind_growth_pct
@@ -945,13 +797,13 @@ func _tick_stat(key: String, target: int) -> void:
 func _on_stage_resized() -> void:
 	_layout_stage()
 
-## Stellt alles auf der Bühne: Kopf oben mittig, Seiten-Reihe darunter, darunter
+## Stellt alles auf der Bühne: Kopf oben mittig, Etagen-Zeile darunter, darunter
 ## Glück und Fumbles, die Deal-Marken am Boden.
 func _layout_stage() -> void:
 	var s := roadmap_stage.size
 	if s.x < 40.0 or s.y < 40.0 or blind_label == null:
 		return
-	# Die große Zahl gibt nach, wenn die Bühne flach ist - die Seiten-Reihe nie.
+	# Die große Zahl gibt nach, wenn die Bühne flach ist - die Etagen-Zeile nie.
 	var hero := int(minf((size.x / 100.0) * BLIND_FONT_UNITS, s.y * 0.26))
 	if blind_label.get_theme_font_size("font_size") != hero:
 		blind_label.add_theme_font_size_override("font_size", hero)
@@ -959,11 +811,11 @@ func _layout_stage() -> void:
 	var luck := stat_labels.get(STAT_LUCK) as Label
 	var fumbles := stat_labels.get(STAT_FUMBLES) as Label
 	var gap := s.y * 0.06
-	roadmap_row.reset_size()
+	floor_label.reset_size()
 	luck.reset_size()
 	fumbles.reset_size()
 	var stats_h := maxf(luck.size.y, fumbles.size.y)
-	var block := gap + roadmap_row.size.y + gap * 0.5 + stats_h
+	var block := gap + floor_label.size.y + gap * 0.5 + stats_h
 	for label in head:
 		label.reset_size()
 		block += label.size.y
@@ -975,9 +827,10 @@ func _layout_stage() -> void:
 		label.size = Vector2(s.x, label.size.y)
 		y += label.size.y
 	var row_y := y + gap
-	roadmap_row.position = Vector2((s.x - roadmap_row.size.x) * 0.5, row_y)
-	# Glück und Fumbles als EINE Zeile mittig unter den Seiten.
-	var stats_y := row_y + roadmap_row.size.y + gap * 0.5
+	floor_label.position = Vector2(0.0, row_y)
+	floor_label.size = Vector2(s.x, floor_label.size.y)
+	# Glück und Fumbles als EINE Zeile mittig unter der Etagen-Zeile.
+	var stats_y := row_y + floor_label.size.y + gap * 0.5
 	var spread := (size.x / 100.0) * 4.0
 	var pair := luck.size.x + spread + fumbles.size.x
 	luck.position = Vector2((s.x - pair) * 0.5, stats_y)

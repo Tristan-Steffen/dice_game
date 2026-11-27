@@ -137,6 +137,8 @@ Boss-Prämie (`grant_stress_reward`).
 - Nach dieser Welle wird GESPIELT, bevor Welle 3 beginnt. Zu prüfen: lohnt der lange Weg
   zu oft oder nie (`BLIND_MOVE_STEP`), sperren Fumbles zu viel, wie oft liegt eine freie Tür.
 
+Welle 2 umgesetzt am 2026-11-27. Abweichungen: Eingang und Büro stehen als hohe Kacheln über alle drei Reihen (so liegen alle ihre Türen waagerecht, kein schräger Steg); die Daten-Abfrage heißt `floor_view_state()`, dazu `walkable_doors()` und `move_clauses(door_id)`; `floor_roadmap`, `STRESS_MARKER`, `STRESS_HINT`, `ROADMAP_SHOWN` und `floor_first_round` sind mit dem Fahrplan gestorben; der Hub nennt vor dem Zug groß den Blind NACH ihm („NÄCHSTER BLIND“) und darunter „Zug m: +p %“; `advance_round` meldet `floor_changed`.
+
 ## Welle 3 — die Karte als Bauteil des Tisches (eigener Plan nach dem Testspiel)
 
 - Die Etage als Grundriß im Deck: Räume als Pads, Türen als Lichtspuren mit dem Malus als

@@ -706,11 +706,7 @@ func test_advance_round_remembers_the_played_blind_and_adds_luck():
 	run.advance_round()
 	assert_eq(run.blind_history, [played] as Array[int], "die Historie merkt den wirklich gespielten")
 	assert_eq(run.luck, 1, "eine geschaffte Runde = +1 Glück")
-	var roadmap := run.floor_roadmap()
-	assert_eq(roadmap["goals"][0], played, "die gespielte Station zeigt den gespielten Blind")
-	assert_eq(roadmap["goals"][1], run.effective_goal(), "dann der laufende")
-	assert_eq(roadmap["goals"][2], run.next_blind(), "dann der nächste Zug")
-	assert_eq(int(roadmap["current"]), 1)
+	assert_true(run.move_due, "die neue Runde wartet auf ihren Zug")
 
 # --- Testhilfen: Zufallsmaterialien (Testmodus) ----------------------------------
 
@@ -1147,7 +1143,7 @@ func test_blind_raises_are_permanent_and_instant():
 	assert_eq(run.stage_size(1), run.effective_goal(), "der Balken zieht mit")
 	_quiet_floor()
 	run.advance_round()
-	run.move_through(String(run.move_offers()[0][GameRun.CARD_DOOR]))
+	run.move_through(run.walkable_doors()[0])
 	assert_almost_eq(run.blind_value, 225.0 * 1.1, 0.001, "und jede spätere Runde")
 
 ## Leert die Etage: kein Bonus, kein Malus - ein Zug hebt dann nur den Blind.
@@ -1176,9 +1172,8 @@ func test_calibration_lowers_the_blind_for_good():
 
 func test_signing_lifts_the_current_and_every_future_station():
 	_sign([DealClause.QUOTA_SURCHARGE_II], 1)
-	var goals: Array = run.floor_roadmap()["goals"]
-	assert_eq(goals[0], GameRun.floor_to_blind(180.0))
-	assert_eq(goals[1], GameRun.floor_to_blind(180.0 * 1.1), "der nächste Zug steht auf dem gehobenen Blind")
+	assert_eq(run.effective_goal(), GameRun.floor_to_blind(180.0))
+	assert_eq(run.next_blind(), GameRun.floor_to_blind(180.0 * 1.1), "der nächste Zug steht auf dem gehobenen Blind")
 
 func test_high_expectations_stays_round_scoped():
 	_sign([DealClause.HIGH_EXPECTATIONS], 2)
@@ -1436,14 +1431,6 @@ func test_active_deal_sides_feed_the_hub_tokens():
 	assert_false(bool(sides[1]["bonus"]), "das Leergut ist Kleingedrucktes")
 	run.advance_round()
 	assert_eq(run.active_deal_sides().size(), 0, "mit der Runde sind alle Seiten fort")
-
-func test_roadmap_markers_flag_the_boss_station():
-	var markers: Array = run.floor_roadmap()["markers"]
-	assert_false(markers.has(GameRun.STRESS_MARKER), "am Eingang ist kein Boss")
-	run.floor_map.position = run.floor_map.office
-	var roadmap := run.floor_roadmap()
-	assert_eq(roadmap["markers"][int(roadmap["current"])], GameRun.STRESS_MARKER)
-	assert_eq((roadmap["goals"] as Array).size(), int(roadmap["current"]) + 1, "nach dem Büro kein nächster Zug")
 
 # --- Nebenwetten: Steuer-Einsätze und neue Ausschüttungen -------------------------
 

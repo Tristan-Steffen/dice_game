@@ -356,11 +356,13 @@ var _energy_bank_px := Rect2()
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
 var labor_click_zone: StaticBody3D
-## Vertragswahl auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
-## Runde. route_pending = der Deal dieser Runde fehlt noch: bis dahin ruhen die
+## Die ETAGEN-KARTE auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
+## Runde. route_pending = der Zug dieser Runde fehlt noch: bis dahin ruhen die
 ## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
-var route_choice: RouteChoiceView
+var floor_map_view: FloorMapView
 var route_pending := false
+## Die gesperrte Tür, die schon einmal geblitzt hat ("Etage:Tür").
+var _floor_flash_seen := ""
 ## Die Runde ist festgezurrt: der Vertrag ist unterschrieben bzw. - in einer Runde
 ## ohne Auslage - der erste Wurf ist gefallen. Bis dahin bleibt die Werkbank offen
 ## (siehe _dice_editing_locked), danach sind die Würfel tabu.
@@ -374,7 +376,7 @@ var shop_reopen_allowed := false
 var shop_reopened := false
 ## Rand der Auslage als Anteil der Grubenbreite (rundum gleich). Sie nimmt den
 ## ganzen Grubenboden - das Gruben-Mobiliar weicht ihr solange.
-const ROUTE_CHOICE_INSET := 0.04
+const FLOOR_MAP_INSET := 0.04
 
 ## Rückblick: die Chronik der laufenden Runde und ihr Fenster in der Grube.
 ## log_open ist das EINZIGE Arbitrierungs-Bit des Erinnerungs-Modus (die Phase
@@ -1619,16 +1621,16 @@ func _setup_panels() -> void:
 			* PackDrawerView.CASSETTE_SCALE)
 
 
-	# Vertragswahl liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
+	# Die Etagen-Karte liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
 	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
 	# landen. Ohne Screen-Mesh ersatzweise als Fenster-UI.
-	route_choice = RouteChoiceView.new()
+	floor_map_view = FloorMapView.new()
 	if table_screen != null:
-		table_screen.add_child(route_choice)
-		_place_route_choice()
+		table_screen.add_child(floor_map_view)
+		_place_floor_map()
 	else:
-		$UI.add_child(route_choice)
-	route_choice.route_chosen.connect(_on_route_chosen)
+		$UI.add_child(floor_map_view)
+	floor_map_view.door_chosen.connect(_on_route_chosen)
 
 	# Die PAKET-AUSWAHL wohnt auf der ÖFFNUNGS-FLÄCHE unter dem Vorrat (ohne Tisch der
 	# 2D-Rückfall); ihr Rechteck stellt _sync_pack_areas.
@@ -2383,13 +2385,10 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
-	# Fahrplan der Etage (bis Welle 2): gespielte Blinds, der laufende, der nächste.
-	var roadmap := run.floor_roadmap()
-	var goals: Array[int] = []
-	goals.assign(roadmap["goals"])
-	var markers: Array[String] = []
-	markers.assign(roadmap["markers"])
-	table_screen.hub.set_goal_roadmap(goals, int(roadmap["current"]), markers, run.floor_index)
+	# Vor dem Zug steht groß der Blind NACH ihm - der alte läuft dann nicht mehr.
+	var blind := run.next_blind() if run.move_due else run.effective_goal()
+	table_screen.hub.set_floor(run.floor_index + 1, run.floor_moves + (1 if run.move_due else 0),
+		blind, run.move_due, run.is_boss_round())
 	_refresh_deal_tokens()
 	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
@@ -11695,8 +11694,8 @@ func _window_rect(window: Control) -> Rect2:
 ## die Klicks ihr, der Rückblick nimmt Liste wie Schritt-Leiste, sonst sind es die
 ## Aktions-Knöpfe. Alle drei stehen nur, solange die Grube Mobiliar zeigt.
 func _pit_forwards_pixel(pixel: Vector2) -> bool:
-	if route_choice != null and route_choice.visible \
-			and Rect2(route_choice.position, route_choice.size).has_point(pixel):
+	if floor_map_view != null and floor_map_view.visible \
+			and Rect2(floor_map_view.position, floor_map_view.size).has_point(pixel):
 		return true
 	if log_view != null and log_view.hit(pixel):
 		return true
@@ -11957,7 +11956,7 @@ func _pit_beckons() -> bool:
 		and camera_rig.mode != CameraRig.Mode.TITLE \
 		and next_draw_index == 0 and not has_rolled_current_hand \
 		and _remaining_in_pool() > 0 and not log_open \
-		and not _route_choice_open() and not _exchange_forced()
+		and not _floor_map_open() and not _exchange_forced()
 
 func _sync_pit_beckon(delta: float) -> void:
 	var target := 1.0 if _pit_beckons() else 0.0
@@ -12260,8 +12259,8 @@ func _sync_screen_action_buttons() -> void:
 		return
 	# Die Auslage ist Gruben-Mobiliar: verlässt die Kamera die Grube, geht sie mit
 	# (der nächste Grubenzoom legt sie wieder auf - _on_camera_mode_changed).
-	if _route_choice_open() and not (gameplay_ui_state_visible and is_pit_focused):
-		route_choice.close()
+	if _floor_map_open() and not (gameplay_ui_state_visible and is_pit_focused):
+		floor_map_view.close()
 	# Der Rückblick ist ebenso Gruben-Mobiliar: die Grube zu verlassen schließt
 	# ihn samt Wiederherstellung des lebenden Tisches.
 	if log_open and not (gameplay_ui_state_visible and is_pit_focused):
@@ -12279,7 +12278,7 @@ func _sync_screen_action_buttons() -> void:
 	# das Mobiliar. Hier - nicht an den Setz-Stellen -, weil diese Funktion je
 	# Frame läuft und damit auch zurücknimmt, was update_pit_score/_refresh_ui
 	# nebenher wieder einschalten.
-	var choosing := _route_choice_open()
+	var choosing := _floor_map_open()
 	var show := gameplay_ui_state_visible and is_pit_focused and not choosing
 	table_screen.pit_actions_root.visible = show
 	# Das Würfelnetz-Feld steht dauerhaft neben den Knöpfen (leer ohne Hover).
@@ -15029,9 +15028,10 @@ func _reset_game() -> void:
 	# Frischer Run: der Puls ruht, bis wieder zum ersten Mal gewürfelt wird.
 	if table_screen != null:
 		table_screen.set_round_pulse(false)
-	if route_choice != null:
-		route_choice.close()  # eine offene Wahl gehört zum alten Lauf
+	if floor_map_view != null:
+		floor_map_view.close()  # eine offene Wahl gehört zum alten Lauf
 	route_pending = false
+	_floor_flash_seen = ""
 	if log_open:
 		_close_round_log()
 	round_log.clear()
@@ -15197,53 +15197,58 @@ func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
 	if energy_bank != null:
 		energy_bank.fly_in(from)
 
-## Ob die Auslage gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
+## Ob die Etagen-Karte gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
 ## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
-func _route_choice_open() -> bool:
-	return route_choice != null and route_choice.visible
+func _floor_map_open() -> bool:
+	return floor_map_view != null and floor_map_view.visible
 
-## Spannt die Auslage über den GANZEN Grubenboden - Netz-Feld, Erklärzeile,
+## Spannt die Karte über den GANZEN Grubenboden - Netz-Feld, Erklärzeile,
 ## Aktions-Knöpfe und Wertungs-Orbs sind solange ausgeblendet.
-func _place_route_choice() -> void:
-	if route_choice == null or table_screen == null or table_screen.pit_window == null:
+func _place_floor_map() -> void:
+	if floor_map_view == null or table_screen == null or table_screen.pit_window == null:
 		return
 	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
-	var inset := pit.size.x * ROUTE_CHOICE_INSET
-	route_choice.position = pit.position + Vector2(inset, inset)
-	route_choice.size = pit.size - Vector2(inset, inset) * 2.0
+	var inset := pit.size.x * FLOOR_MAP_INSET
+	floor_map_view.position = pit.position + Vector2(inset, inset)
+	floor_map_view.size = pit.size - Vector2(inset, inset) * 2.0
 
-## Erster Grubenzoom der Runde: die Auslage kommt auf den Grubenboden. Ohne
-## Display-Fläche fällt die Wahl automatisch aufs erste Angebot (2D-Rückfall).
-func _open_route_choice() -> void:
-	var offers := run.move_offers()
-	if offers.is_empty():
+## Erster Grubenzoom der Runde: die Etagen-Karte kommt auf den Grubenboden. Ohne
+## Display-Fläche fällt der Zug automatisch durch die erste gangbare Tür (2D-Rückfall).
+func _open_floor_map() -> void:
+	var doors := run.walkable_doors()
+	if doors.is_empty():
 		return
-	if route_choice == null:
-		_on_route_chosen(0)
+	if floor_map_view == null or table_screen == null:
+		_on_route_chosen(doors[0])
 		return
-	_place_route_choice()
-	route_choice.open(offers, false, run.deal_bonus_factor())
+	_place_floor_map()
+	# Die zuletzt gesperrte Tür blitzt beim ersten Aufschlagen danach einmal rot.
+	var flash := ""
+	if run.last_locked_door != "":
+		var key := "%d:%s" % [run.floor_index, run.last_locked_door]
+		if key != _floor_flash_seen:
+			_floor_flash_seen = key
+			flash = run.last_locked_door
+	floor_map_view.open(run.floor_view_state(), run.deal_bonus_factor(), flash)
 
-## Vertrag unterschrieben: Karten weg, JETZT erst greifen die Rundenbeginn-
-## Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach darf
-## geworfen werden.
-func _on_route_chosen(index: int) -> void:
+## Zug gewählt: Karte weg, JETZT erst greifen die Rundenbeginn-Wirkungen (die
+## Boss-Kondition muss vor der Drossel stehen) - danach darf geworfen werden.
+func _on_route_chosen(door_id: String) -> void:
 	if not route_pending:
 		return  # doppelte Unterschrift = doppelter Vorschuss
-	var offers := run.move_offers()
-	if index < 0 or index >= offers.size():
+	if not run.walkable_doors().has(door_id):
 		return
 	var energy_before := run.energy
 	# Zwangsversteigerung: die Diskette muss heraus, BEVOR GameRun den Charm verkauft.
 	var auction_disk: CharmDiskView = null
 	var auction_from := Vector2.INF
-	if _route_card_has(index, DealClause.FORCED_AUCTION) and charm_row != null:
+	if run.move_clauses(door_id).has(DealClause.FORCED_AUCTION) and charm_row != null:
 		var at := run.auction_charm_index()
 		if at >= 0:
 			auction_from = _charm_anchor_px(at)
 			auction_disk = charm_row.release_disk(at)
 	_money_comet_origin = auction_from
-	run.move_through(String(offers[index][GameRun.CARD_DOOR]))
+	run.move_through(door_id)
 	_money_comet_origin = Vector2.INF
 	if auction_disk != null:
 		_eject_charm_disk(auction_disk)
@@ -15257,8 +15262,8 @@ func _on_route_chosen(index: int) -> void:
 	_commit_round()  # ab der Unterschrift sind die Würfel im Spiel
 	_apply_short_time()
 	_update_charm_badges()  # Projektor-Ausfall: der abgeschaltete Charm zeigt AUS
-	if route_choice != null:
-		route_choice.close()
+	if floor_map_view != null:
+		floor_map_view.close()
 	# Jetzt erst fährt der Nachschub auf - ohne Neuzoom, die Grube steht ja schon.
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()
@@ -15313,7 +15318,7 @@ func _start_new_round() -> void:
 
 	# Steht ein Zug an, warten die Rundenbeginn-Wirkungen auf ihn: sonst stünde die
 	# Drossel fest, bevor die Boss-Kondition gewählt ist.
-	route_pending = not run.move_offers().is_empty()
+	route_pending = not run.walkable_doors().is_empty()
 	if not route_pending:
 		_apply_round_start_effects()
 
@@ -15338,14 +15343,6 @@ func _start_new_round() -> void:
 	if not betting_open:
 		_open_side_bet_betting()
 	_start_new_hand()
-
-## Unterschreibt der Zug index diese Klausel?
-func _route_card_has(index: int, clause_id: String) -> bool:
-	var offers := run.move_offers()
-	if index < 0 or index >= offers.size():
-		return false
-	var card := offers[index]
-	return card.get(GameRun.CARD_BONUS, "") == clause_id or card.get(GameRun.CARD_MALUS, "") == clause_id
 
 ## Kurzarbeit: die letzten Würfel des Stapels gehen sofort aus dem Spiel und kehren
 ## erst mit dem Rundenende in den Pool zurück (vor der Ablage, in ihrer Reihenfolge).
@@ -16397,8 +16394,8 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	# ...und dort wartet auch die Vertragswahl: der Spieler nimmt die Runde auf,
 	# das Haus legt seine Konditionen auf den Tisch.
 	if is_pit_focused and route_pending and phase == Phase.IDLE \
-			and (route_choice == null or not route_choice.visible):
-		_open_route_choice()
+			and (floor_map_view == null or not floor_map_view.visible):
+		_open_floor_map()
 	# Der Zielwürfel gehört auf die Bühne, solange der Spieler an der Werkstatt steht:
 	# das VERLASSEN bringt ihn an seinen Pool-Sitz zurück - derselbe Weg rückwärts.
 	_sync_bench_migration()
@@ -16751,7 +16748,7 @@ func _place_log_view() -> void:
 	if log_view == null or table_screen == null or table_screen.pit_window == null:
 		return
 	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
-	var inset := pit.size.x * ROUTE_CHOICE_INSET
+	var inset := pit.size.x * FLOOR_MAP_INSET
 	log_view.set_list_rect(Rect2(pit.position + Vector2(inset, inset),
 		pit.size - Vector2(inset, inset) * 2.0))
 	# Die Schritt-Leiste steht am oberen Grubenrand über die ganze Breite - der
@@ -17137,7 +17134,7 @@ func _part_install_calm() -> bool:
 		return false
 	if phase != Phase.IDLE and phase != Phase.SHOP:
 		return false
-	return camera_rig.mode != CameraRig.Mode.TITLE and not _route_choice_open()
+	return camera_rig.mode != CameraRig.Mode.TITLE and not _floor_map_open()
 
 ## DER EINBAU ist MODAL wie der ZWANG - gerechnet, kein Bit: ein Teil wartet,
 ## nichts läuft, und der Würfel geht vor. Ohne freien Platz außerhalb des
