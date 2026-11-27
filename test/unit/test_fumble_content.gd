@@ -24,13 +24,13 @@ func test_note_fumble_counts_run_block_and_round() -> void:
 	assert_eq(run.block_fumbles, 3)
 	assert_eq(run.round_fumbles, 3)
 
-func test_block_fumbles_reset_at_the_block_edge_only() -> void:
+func test_block_fumbles_reset_with_the_next_floor_only() -> void:
 	_fumble(2)
-	for i in GameRun.GOAL_BLOCK - 1:
+	for i in 5:
 		run.advance_round()
-	assert_eq(run.block_fumbles, 2, "noch im ersten Block")
-	run.advance_round()
-	assert_eq(run.block_fumbles, 0, "neuer Block, neuer Speicher")
+	assert_eq(run.block_fumbles, 2, "noch auf der ersten Etage")
+	run.settle_block_deals()
+	assert_eq(run.block_fumbles, 0, "neue Etage, neuer Speicher")
 	assert_eq(run.farkle_count, 2, "der Laufzähler sinkt nie")
 
 # --- Klauseln ----------------------------------------------------------------------
@@ -41,10 +41,10 @@ func test_bad_streak_raises_the_blind_for_good_per_fumble() -> void:
 	assert_almost_eq(run.blind_value, 150.0 * 1.05 * 1.05, 0.001)
 	run.advance_round()
 	_fumble()
-	assert_almost_eq(run.blind_value, 150.0 * 1.05 * 1.05 * 1.1, 0.001, "nur in ihrer Runde")
+	assert_almost_eq(run.blind_value, 150.0 * 1.05 * 1.05, 0.001, "nur in ihrer Runde")
 
 func test_penalty_fee_picks_a_charm_to_destroy() -> void:
-	run.round_number = GameRun.GOAL_BLOCK
+	run.round_number = 6
 	assert_eq(run.fumble_charm_loss(), -1, "ohne Klausel kein Verlust")
 	run.sign_clauses(_ids([DealClause.PENALTY_FEE]))
 	assert_eq(run.fumble_charm_loss(), -1, "ohne Charm nichts zu verlieren")

@@ -2383,18 +2383,20 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
-	# Fahrplan-Block (6 Ziele, bleibt stehen bis das letzte geschafft ist) + Position
-	# samt Markern (rot = Stresstest). Die Ziele sind die WIRKSAMEN: ein Deal mit
-	# Quota-Aufschlag hebt die kommenden Stationen sichtbar an.
-	table_screen.hub.set_goal_roadmap(run.goal_roadmap(6), run.goal_roadmap_index(6),
-		run.goal_roadmap_markers(6), GameRun.block_of_round(run.round_number))
+	# Fahrplan der Etage (bis Welle 2): gespielte Blinds, der laufende, der nächste.
+	var roadmap := run.floor_roadmap()
+	var goals: Array[int] = []
+	goals.assign(roadmap["goals"])
+	var markers: Array[String] = []
+	markers.assign(roadmap["markers"])
+	table_screen.hub.set_goal_roadmap(goals, int(roadmap["current"]), markers, run.floor_index)
 	_refresh_deal_tokens()
 	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
-	table_screen.hub.set_run_stats(run.projected_blind(run.round_number + 1), run.effective_luck(),
+	table_screen.hub.set_run_stats(run.next_blind(), run.effective_luck(),
 		run.farkle_count, {HubView.STAT_BLIND: run.blind_hint(), HubView.STAT_LUCK: run.luck_hint(),
 			HubView.STAT_FUMBLES: run.fumble_hint()},
-		roundi(GameRun.blind_growth(run.round_number + 1) * 100.0))
+		roundi(run.blind_growth() * 100.0))
 
 ## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
 ## Grubenrand. Gespiegelt aus EINER Hand, damit die Wirkung auch dort steht, wo
@@ -2414,7 +2416,7 @@ func _on_deals_changed() -> void:
 
 ## Kopfzeilen-Zusatz der laufenden Runde (die Deals zeigen die Marken).
 func _round_note() -> String:
-	return GameRun.STRESS_NAME if GameRun.is_stress_round(run.round_number) else ""
+	return GameRun.STRESS_NAME if run.is_boss_round() else ""
 
 func _physics_process(delta: float) -> void:
 	if phase != Phase.ROLLING:
@@ -12706,7 +12708,7 @@ func _score_ctx() -> Dictionary:
 		# anderen liegenden Würfel - danach lesen alle Hooks nur fertige Mengen.
 		DiceScoring.CTX_ESSENCE_SET: _effective_essence_sets(),
 		DiceScoring.CTX_RUNES: _slot_runes(),  # Runen der oben liegenden Seiten
-		DiceScoring.CTX_STRESS: GameRun.is_stress_round(run.round_number),
+		DiceScoring.CTX_STRESS: run.is_boss_round(),
 		# Kaltverfestigung: hand-weit, also ohne Umschlüsselung in _score_ctx_for_slots.
 		DiceScoring.CTX_CLAUSE_GROWTH: run.clause_face_growth(),
 		DiceScoring.CTX_SLOW_START: run.slow_start_active(),
@@ -13508,6 +13510,8 @@ func _on_farkle(forgivable: bool = true) -> void:
 	var consolation_energy := run.note_fumble(_volcanic_in_pit())
 	if run.last_fumble_lost_part != null:
 		hand_note = "Hitzestau: %s ist zerstört." % run.last_fumble_lost_part.display_name
+	elif run.last_locked_door != "":
+		hand_note = run.locked_door_note()
 	_destroy_fumble_charm()
 	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
@@ -13644,7 +13648,7 @@ func _on_take_button_pressed() -> void:
 	ScoreBreakdown.attach_activation_money(breakdown, MaterialEffects.plan_activation_money(
 		_selected_defs(slots), _selected_faces(slots), sel_materials, sel_scored, ids,
 		int(sel_shape["echo_slot"]), DiceScoring.essence_sets_in(sel_ctx), sel_order,
-		GameRun.is_stress_round(run.round_number), hands_taken_this_round,
+		run.is_boss_round(), hands_taken_this_round,
 		sel_participating,
 		run.chain_chip(String(hand["key"]))))
 	_remap_breakdown_to_slots(breakdown, slots)
@@ -13705,7 +13709,7 @@ func _on_take_button_pressed() -> void:
 	var take_order := DiceScoring.trigger_order(participating, _shown_pit_values(), player_order, combination)
 	var report := MaterialEffects.apply_take_effects(active_kinds, dice.face_indices, materials, participating,
 		ids, echo_slot, _effective_essence_sets(), take_order,
-		GameRun.is_stress_round(run.round_number), _visible_pit_slots(),
+		run.is_boss_round(), _visible_pit_slots(),
 		hands_taken_this_round - 1, run.round_bare_dice, discarded_this_round, combination,
 		run.clause_face_growth(), take_parts)
 	# Trinkgeldglas: nur die Bilanz - die Zeremonie hat jedes Paket längst an
@@ -15133,6 +15137,7 @@ func _connect_run() -> void:
 	run.combo_parts_changed.connect(_on_combo_parts_changed)
 	# Unterschrift/Abrechnung: Marken, Fahrplan und Wett-Preise sofort nachziehen.
 	run.deals_changed.connect(_on_deals_changed)
+	run.floor_changed.connect(_refresh_hub_info)
 	_sfx_energy = run.energy
 	run.energy_changed.connect(_on_energy_changed)
 	run.deposit_energy.connect(_play_deal_energy_volley)
@@ -15210,14 +15215,14 @@ func _place_route_choice() -> void:
 ## Erster Grubenzoom der Runde: die Auslage kommt auf den Grubenboden. Ohne
 ## Display-Fläche fällt die Wahl automatisch aufs erste Angebot (2D-Rückfall).
 func _open_route_choice() -> void:
-	if run.route_offers.is_empty():
+	var offers := run.move_offers()
+	if offers.is_empty():
 		return
 	if route_choice == null:
 		_on_route_chosen(0)
 		return
 	_place_route_choice()
-	route_choice.open(run.route_offers, GameRun.is_stress_round(run.round_number),
-		run.deal_bonus_factor())
+	route_choice.open(offers, false, run.deal_bonus_factor())
 
 ## Vertrag unterschrieben: Karten weg, JETZT erst greifen die Rundenbeginn-
 ## Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach darf
@@ -15225,6 +15230,9 @@ func _open_route_choice() -> void:
 func _on_route_chosen(index: int) -> void:
 	if not route_pending:
 		return  # doppelte Unterschrift = doppelter Vorschuss
+	var offers := run.move_offers()
+	if index < 0 or index >= offers.size():
+		return
 	var energy_before := run.energy
 	# Zwangsversteigerung: die Diskette muss heraus, BEVOR GameRun den Charm verkauft.
 	var auction_disk: CharmDiskView = null
@@ -15235,7 +15243,7 @@ func _on_route_chosen(index: int) -> void:
 			auction_from = _charm_anchor_px(at)
 			auction_disk = charm_row.release_disk(at)
 	_money_comet_origin = auction_from
-	run.take_route(index)
+	run.move_through(String(offers[index][GameRun.CARD_DOOR]))
 	_money_comet_origin = Vector2.INF
 	if auction_disk != null:
 		_eject_charm_disk(auction_disk)
@@ -15303,10 +15311,9 @@ func _start_new_round() -> void:
 		_close_round_log()
 	round_log.clear()
 
-	# Liegt eine Auslage bereit, warten die Rundenbeginn-Wirkungen auf die
-	# Unterschrift: sonst stünde die Drossel fest, bevor die Boss-Kondition
-	# gewählt ist.
-	route_pending = not run.route_offers.is_empty()
+	# Steht ein Zug an, warten die Rundenbeginn-Wirkungen auf ihn: sonst stünde die
+	# Drossel fest, bevor die Boss-Kondition gewählt ist.
+	route_pending = not run.move_offers().is_empty()
 	if not route_pending:
 		_apply_round_start_effects()
 
@@ -15332,11 +15339,12 @@ func _start_new_round() -> void:
 		_open_side_bet_betting()
 	_start_new_hand()
 
-## Trägt die Vertragskarte index der Auslage diese Klausel?
+## Unterschreibt der Zug index diese Klausel?
 func _route_card_has(index: int, clause_id: String) -> bool:
-	if index < 0 or index >= run.route_offers.size():
+	var offers := run.move_offers()
+	if index < 0 or index >= offers.size():
 		return false
-	var card := run.route_offers[index]
+	var card := offers[index]
 	return card.get(GameRun.CARD_BONUS, "") == clause_id or card.get(GameRun.CARD_MALUS, "") == clause_id
 
 ## Kurzarbeit: die letzten Würfel des Stapels gehen sofort aus dem Spiel und kehren
@@ -15523,7 +15531,7 @@ func _on_round_complete() -> void:
 		# Bestandener Stresstest: EIN beseelter Würfel als Preis. Gebucht wird hier
 		# (ins Ausgabefach), geliefert erst unten am Hub.
 		var stress_reward: DieDefinition = null
-		if GameRun.is_stress_round(run.round_number):
+		if run.is_boss_round():
 			run.settle_block_deals()
 			stress_reward = run.grant_stress_reward()
 		# Die Seite steht still, bis der Spieler kassiert. Gepollt statt auf ein

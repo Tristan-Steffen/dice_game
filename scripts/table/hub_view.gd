@@ -81,7 +81,7 @@ const FACE_UNITS_CURRENT := 9.0
 var _roadmap_goals: Array[int] = []
 var _roadmap_current := 0  # Position der laufenden Runde im Block (0-basiert)
 var _roadmap_block := -1   # Kennung des gezeigten Blocks (-1 = noch keiner)
-## Marker je Seite: GameRun.STRESS_MARKER oder "" (siehe goal_roadmap_markers).
+## Marker je Seite: GameRun.STRESS_MARKER oder "" (siehe GameRun.floor_roadmap).
 var _roadmap_markers: Array[String] = []
 ## Hinweis-Karte der Boss-Seite, der Deal-Marken und der Lauf-Anzeigen (Hover).
 var marker_hint: HintCard
@@ -614,7 +614,7 @@ func _apply_frame_tier() -> void:
 ## Setzt den Block: Blinds je Runde (gespielt / laufend / projiziert), die Position
 ## der laufenden Runde und die Marker. Groß steht nur der LAUFENDE Blind; die
 ## Würfelseiten zeigen den Fortschritt, gespielte Seiten ihren gespielten Blind.
-## block_id: laufender Block (GameRun.block_of_round) - er entscheidet, ob ein
+## block_id: laufende Etage (GameRun.floor_index) - sie entscheidet, ob ein
 ## Block WEITERläuft; die Zahlen taugen dafür nicht, Verträge heben sie mitten im Block.
 func set_goal_roadmap(goals: Array[int], current: int = 0, markers: Array[String] = [],
 		block_id: int = -1) -> void:

@@ -111,46 +111,6 @@ func test_thresholds_crossed_respects_cap() -> void:
 	# 0 -> 99999 kreuzt genau die fünf Schwellen des Rahmens.
 	assert_eq(run.thresholds_crossed(0, 99999).size(), 5)
 
-# --- Fahrplan (Ziel-Block bleibt stehen, bis er geschafft ist) ----------------
-
-## Erwartete Blinds eines Blocks ohne Verträge, ab dem exakten Stand value in Runde first.
-func _curve(value: float, first: int, count: int) -> Array[int]:
-	var goals: Array[int] = []
-	for i in count:
-		if i > 0:
-			value *= 1.0 + GameRun.blind_growth(first + i)
-		goals.append(GameRun.floor_to_blind(value))
-	return goals
-
-func test_goal_roadmap_block_starts_at_round_one() -> void:
-	var run := _run()  # Runde 1, Ziel 150
-	# 150, 165, 181,5, 199,65, 219,6, 241,6 -> abgerundet auf volle 25.
-	assert_eq(run.goal_roadmap(6), [150, 165, 180, 195, 215, 240] as Array[int])
-	assert_eq(run.goal_roadmap_index(6), 0, "Runde 1 = erste Station")
-
-func test_goal_roadmap_block_stays_fixed_while_position_advances() -> void:
-	var run := _run()
-	run.advance_round()
-	run.advance_round()
-	assert_eq(run.goal_roadmap(6), [150, 165, 180, 195, 215, 240] as Array[int],
-		"derselbe Block wie in Runde 1")
-	assert_eq(run.goal_roadmap_index(6), 2, "dritte Station ist dran")
-
-func test_goal_roadmap_rolls_to_a_fresh_block_after_the_sixth() -> void:
-	var run := _run()
-	for i in 6:
-		run.advance_round()  # -> Runde 7
-	assert_eq(run.goal_roadmap(6), _curve(run.blind_value, 7, 6),
-		"nach dem sechsten Sieg liegt ein frischer Block aus")
-	assert_eq(run.goal_roadmap_index(6), 0, "wieder die erste Station")
-
-func test_past_stations_show_the_played_blind() -> void:
-	var run := _run()
-	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
-	var played := run.effective_goal()
-	run.advance_round()
-	assert_eq(run.goal_roadmap(6)[0], played, "die geschaffte Station zeigt den gespielten Blind")
-
 # --- Fumble-Automaten (Ökonomie) ---------------------------------------------
 
 func test_every_machine_spins_from_round_one() -> void:

@@ -304,9 +304,9 @@ func test_a_fresh_block_restores_swept_tokens() -> void:
 func test_a_quota_deal_lifts_the_current_and_every_future_station() -> void:
 	# Der Aufschlag ist DAUERHAFT: die laufende Station und alle künftigen springen mit.
 	var run := GameRun.new_run()
-	var before := run.goal_roadmap(GameRun.GOAL_BLOCK)
+	var before: Array = run.floor_roadmap()["goals"]
 	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
-	var after := run.goal_roadmap(GameRun.GOAL_BLOCK)
+	var after: Array = run.floor_roadmap()["goals"]
 	for i in before.size():
 		assert_gt(after[i], before[i], "Station %d trägt den Aufschlag" % i)
 

@@ -9,7 +9,7 @@ func before_each() -> void:
 	view = add_child_autofree(RouteChoiceView.new())
 	view.size = Vector2(900, 500)
 
-## Eine Vertragskarte wie GameRun.route_offers sie liefert.
+## Eine Vertragskarte wie GameRun.move_offers sie liefert (ohne Raum und Tür).
 func _card(tier: DealClause.Tier, bonus_id: String, malus_id: String = "") -> Dictionary:
 	return {GameRun.CARD_TIER: tier, GameRun.CARD_BONUS: bonus_id, GameRun.CARD_MALUS: malus_id}
 
@@ -123,6 +123,16 @@ func test_the_unit_never_follows_the_width_alone() -> void:
 	view.size = Vector2(2000, 1200)
 	assert_almost_eq(view._unit(), 20.0, 0.01, "hoch genug -> die Breite bestimmt")
 	assert_lt(flat, view._unit())
+
+func test_a_move_card_names_its_room_and_four_fit() -> void:
+	var cards := _three_offers()
+	cards[0][GameRun.CARD_ROOM] = "Tresor"
+	cards.append(_card(DealClause.Tier.ONE, ""))
+	view.open(cards)
+	assert_eq(_cards().size(), 4, "bis zu vier Züge")
+	var texts := _label_texts()
+	assert_true(texts.has("Tresor"), "der Raumname ist der Titel")
+	assert_true(texts.has(RouteChoiceView.EMPTY_MOVE_TEXT), "ein leerer Zug sagt es")
 
 func test_close_hides_the_page() -> void:
 	view.open(_three_offers())

@@ -39,29 +39,24 @@ const SECRET_PROJECTOR_CHANCE := 0.15
 ## Statisch, damit Tests die Auslage festhalten können.
 static var secret_projector_chance := SECRET_PROJECTOR_CHANCE
 const BASE_GOAL := 150
-## Blind-Kurve: Wachstum je Runde = BLIND_GROWTH_BASE + BLIND_GROWTH_STEP × Block.
+## Blind-Kurve: Wachstum je Zug = BASE + STEP × Etage + MOVE_STEP × (Zug der Etage − 1).
 const BLIND_GROWTH_BASE := 0.10
 const BLIND_GROWTH_STEP := 0.05
+const BLIND_MOVE_STEP := 0.02
 ## Gerundet wird nur das Ziel (abwärts auf Vielfache davon), nie der Akkumulator.
 const BLIND_ROUNDING := 5
-## Blocklänge der Ziel-Eskalation = die sechs am Hub gezeigten Stationen.
-const GOAL_BLOCK := 6
+## Höchstens so viele Stationen zeigt der Hub-Fahrplan (bis Welle 2 der Etagen-Karte).
+const ROADMAP_SHOWN := 6
 
-## Fahrplan-Marker der Stresstest-Station (goal_roadmap_markers) samt Anzeige-
-## Texten - eine Quelle für Hub-Kopfzeile und Fahrplan-Hinweis.
+## Fahrplan-Marker der Boss-Runde samt Anzeige-Texten - eine Quelle für Hub-Kopfzeile
+## und Fahrplan-Hinweis.
 const STRESS_MARKER := "stress"
 const STRESS_NAME := "Boss-Runde"
 const STRESS_HINT := "Boss-Konditionen: das Haus diktiert, unter welcher Auflage gespielt wird."
 
 ## --- Verträge mit dem Haus ----------------------------------------------------
-## Angebotsgröße je Runde (Standard-, Risiko-, Knebelvertrag).
-const ROUTE_OFFER_COUNT := 3
-## Anteil der Auslagen, in denen EIN Platz statt seines Vertrags ein
-## Werbegeschenk zeigt.
+## Chance je Wurf der Etage, dass eine Tür FREI ist (das frühere Werbegeschenk).
 const TREAT_CHANCE := 0.3
-## Kommt ein Werbegeschenk, verteilt sich der ersetzte Platz so (Standard-,
-## Risiko-, Knebelvertrag): meist der Standardplatz, nur selten der Knebelplatz.
-const TREAT_TIER_WEIGHTS := [0.6, 0.3, 0.1]
 ## Zahlen der Klausel-Wirkungen - hier, nicht in DealClause: dort stehen Daten
 ## und Texte, die Wirkung lösen die Abfragen unten auf.
 const ADVANCE_PAYMENT_MONEY := 12
@@ -179,13 +174,22 @@ var luck: int = 0:
 signal luck_die_changed(changes: Array)
 var luck_die := LuckDie.new()
 
-## Unterschriebene Klauseln des laufenden Blocks als {id, round}; round = Runde
-## der Unterschrift und entscheidet, wie lange die Klausel wirkt (_scope_reaches -
-## keine überlebt ihre Runde). Geleert erst bei der Abrechnung: die abgelaufenen
-## Einträge bleiben stehen, denn sie sperren ihre Klausel für den Rest des Blocks.
+## Unterschriebene Klauseln der laufenden Etage als {id, round, floor}; round
+## entscheidet, wie lange die Klausel wirkt (_scope_reaches). Geleert bei der Abrechnung.
 var active_deals: Array[Dictionary] = []
-## Auslage der kommenden Runde als Vertragskarten (CARD_*); leer = unterschrieben.
-var route_offers: Array[Dictionary] = []
+
+## Die ETAGEN-KARTE: jeder Zug durch eine Tür ist eine Runde.
+signal floor_changed
+var floor_map: FloorMap = null
+## Etage (0-basiert) und Züge auf ihr; der Zähler fällt mit dem Aufzug auf 0.
+var floor_index: int = 0
+var floor_moves: int = 0
+## Die laufende Runde wartet noch auf ihren Zug (ab Runde 2 jede).
+var move_due: bool = false
+## Erste Runde der laufenden Etage - ab ihr zeigt der Fahrplan die gespielten Blinds.
+var floor_first_round: int = 1
+## Die Tür, die der letzte echte Fumble gesperrt hat ("" = keine).
+var last_locked_door: String = ""
 
 ## Gedrosselte Kombinationen dieser Runde (leer = keine). Steht mit Rundenbeginn
 ## fest; nur die Boss-Konditionen (Allrounder, Standardprotokoll) lassen sie mit
@@ -288,6 +292,7 @@ static func new_run() -> GameRun:
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
 	run._roll_secret_stock()  # der Schwarzmarkt steht ab Runde 1 offen
+	run._enter_floor()  # Runde 1 steht am Eingang, ohne Klausel
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -429,8 +434,9 @@ func luck_station_state() -> Dictionary:
 
 ## Hinweis-Texte der drei Lauf-Anzeigen am Hub (die Anzeige kennt keinen GameRun).
 func blind_hint() -> String:
-	var percent := roundi(blind_growth(round_number + 1) * 100.0)
-	return "Wächst je Runde um %d%% (dieser Block); Verträge heben ihn dauerhaft." % percent
+	var percent := roundi(blind_growth() * 100.0)
+	return "Der nächste Zug hebt ihn um %d%% (Etage %d, Zug %d); jeder weitere Zug der Etage etwas mehr, Verträge dauerhaft." \
+		% [percent, floor_index + 1, floor_moves + 1]
 
 func luck_hint() -> String:
 	var text := "Stufe %d. " % progress_tier()
@@ -443,7 +449,7 @@ func luck_hint() -> String:
 
 func fumble_hint() -> String:
 	var lines := fumble_readers()
-	var head := "%d in diesem Block." % block_fumbles
+	var head := "%d auf dieser Etage. Jeder sperrt eine Tür." % block_fumbles
 	if lines.is_empty():
 		return head + " Noch liest nichts den Zähler."
 	var nl := String.chr(10)
@@ -1792,13 +1798,9 @@ func apply_round_start_charms() -> void:
 
 # --- Stresstest ---------------------------------------------------------------
 
-## Stresstest: die letzte Runde jedes Blocks (Runde 6, 12, ...).
-static func is_stress_round(n: int) -> bool:
-	return n % GOAL_BLOCK == 0
-
-## Block-Nummer einer Runde (0-basiert) - Klauseln laufen bis zum Blockende.
-static func block_of_round(n: int) -> int:
-	return (n - 1) / GOAL_BLOCK
+## Boss-Runde: der Puck steht im Büro der Etage.
+func is_boss_round() -> bool:
+	return floor_map != null and floor_map.position == floor_map.office
 
 ## Die heißesten Chips zuerst: die meisten Module, bei Gleichstand der
 ## ranghöhere (HAND_PRIORITY). Deterministisch, damit der Spieler im Shop davor
@@ -1909,40 +1911,151 @@ func parity_filter() -> int:
 func max_hands_this_round() -> int:
 	return 1 if _clause_active(DealClause.ALL_IN) else POOL_SIZE
 
-## Fahrplan-Marker je Station: STRESS_MARKER oder "". Nur für die Hub-Anzeige.
-func goal_roadmap_markers(count: int) -> Array[String]:
-	var markers: Array[String] = []
-	var first_round := round_number - goal_roadmap_index(count)
-	for i in count:
-		markers.append(STRESS_MARKER if is_stress_round(first_round + i) else "")
-	return markers
-
-# --- Verträge: Auslage, Unterschrift, Abrechnung ------------------------------
-## Eine Vertragskarte der Auslage: Stufe + die beiden Klausel-ids ("" = die Karte
-## hat diese Seite nicht - Werbegeschenke ohne Kleingedrucktes, Boss ohne Bonus).
+# --- Die ETAGEN-KARTE: Zug, Unterschrift, Abrechnung --------------------------
+## Ein Zug als Karte des alten Fensters (bis Welle 2): Stufe, Bonus des Zielraums,
+## Malus bzw. Boss-Kondition der Tür ("" = diese Seite fehlt), Raumname und Tür-Id.
 const CARD_TIER := "tier"
 const CARD_BONUS := "bonus"
 const CARD_MALUS := "malus"
+const CARD_ROOM := "room"
+const CARD_DOOR := "door"
 
-## Würfelt die Auslage der kommenden Runde: von links nach rechts immer Standard-,
-## Risiko- und Knebelvertrag. Mit TREAT_CHANCE fällt bei EINEM Platz das
-## Kleingedruckte weg - sein Bonus kommt aus dem normalen Topf seiner Stufe, die
-## Karte zeigt sich als Werbegeschenk; welcher Platz, verteilt TREAT_TIER_WEIGHTS. In der Stresstest-Runde liegen stattdessen
-## drei Boss-Konditionen aus: dort entscheidet der Spieler, WIE er den Test angeht.
-func roll_route_offers() -> void:
-	route_offers.clear()
-	if is_stress_round(round_number):
-		_roll_boss_offers()
-		return
-	var treat_slot := _roll_treat_slot()
-	var tiers: Array[DealClause.Tier] = [
-		DealClause.Tier.ONE, DealClause.Tier.TWO, DealClause.Tier.THREE]
-	for i in tiers.size():
-		route_offers.append(_draw_card(tiers[i], i == treat_slot))
+## Etage würfeln, Puck auf den Eingang, dessen Türen erkunden.
+func _enter_floor(rng: RandomNumberGenerator = null) -> void:
+	floor_map = FloorMap.roll(rng, _clause_offerable, treat_chance(), _boss_condition_ids())
+	floor_moves = 0
+	last_locked_door = ""
+	floor_map.scout_from(floor_map.position, rng, _clause_offerable)
+	floor_changed.emit()
 
-## Chance, dass überhaupt ein Werbegeschenk ausliegt - die Werbetrommel verdreifacht
-## sie. Erster Charm am Vertragswesen: die Wirkung ist eine Abfrage hier, weil sie
-## an active_deals bzw. dem Angebots-Wurf hängt, nicht an der Wertung.
+## Der Aufzug nach der Abrechnung: nächste Etage ab der nächsten Runde.
+func _enter_next_floor() -> void:
+	floor_index += 1
+	block_fumbles = 0
+	floor_first_round = round_number + 1
+	_enter_floor()
+
+## Drei verschiedene Boss-Konditionen für die Büro-Türen.
+func _boss_condition_ids() -> Array[String]:
+	var pool: Array[String] = []
+	for clause_id in DealClause.ids_for(DealClause.Tier.BOSS, DealClause.Kind.MALUS):
+		if not _quota_blocked(clause_id):
+			pool.append(clause_id)
+	pool.shuffle()
+	var picked: Array[String] = []
+	for i in mini(FloorMap.BOSS_DOORS, pool.size()):
+		picked.append(pool[i])
+	return picked
+
+## Wachstum des Blinds beim Zug move (1-basiert) der Etage; ohne Angabe der nächste.
+func blind_growth(move: int = 0) -> float:
+	var n := move if move > 0 else floor_moves + 1
+	return BLIND_GROWTH_BASE + BLIND_GROWTH_STEP * float(floor_index) + BLIND_MOVE_STEP * float(n - 1)
+
+## Der Blind nach dem nächsten Zug - dieselbe Rechnung, die move_through bucht.
+func next_blind() -> int:
+	return floor_to_blind(blind_value * (1.0 + blind_growth()))
+
+## Die Züge des Standraums als Karten (leer = kein Zug fällig).
+func move_offers() -> Array[Dictionary]:
+	var cards: Array[Dictionary] = []
+	if not move_due or floor_map == null:
+		return cards
+	for entry in floor_map.doors_from(floor_map.position):
+		if not floor_map.passable(entry):
+			continue
+		var target := floor_map.room(floor_map.other_side(entry, floor_map.position))
+		var bonus := "" if bool(target["visited"]) else String(target["bonus"])
+		var malus := _door_malus(entry)
+		cards.append({CARD_TIER: _card_tier(entry, bonus, malus), CARD_BONUS: bonus,
+			CARD_MALUS: malus, CARD_ROOM: String(target["name"]), CARD_DOOR: String(entry["id"])})
+	return cards
+
+## Was die Tür beim Durchschreiten unterschreibt: Boss-Kondition oder Malus, ausgebrannt nichts.
+func _door_malus(entry: Dictionary) -> String:
+	if int(entry["state"]) != FloorMap.DoorState.OPEN:
+		return ""
+	return String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
+
+func _card_tier(entry: Dictionary, bonus: String, malus: String) -> int:
+	if String(entry["boss"]) != "":
+		return DealClause.Tier.BOSS
+	if malus == "" and bonus != "":
+		return DealClause.Tier.TREAT
+	return maxi(DealClause.Tier.ONE, int(entry["tier"]))
+
+## Der Zug der Runde durch door_id: Blind-Schritt, Tür ausbrennen, Raum leeren, Malus und
+## Bonus unterschreiben, dann die Türen des neuen Raums erkunden. false = nichts gebucht.
+func move_through(door_id: String) -> bool:
+	if not move_due or floor_map == null:
+		return false
+	var entry := floor_map.door(door_id)
+	if entry.is_empty() or not floor_map.passable(entry):
+		return false
+	var from := floor_map.position
+	if entry["a"] != from and entry["b"] != from:
+		return false
+	var target := floor_map.room(floor_map.other_side(entry, from))
+	var ids: Array[String] = []
+	if not bool(target["visited"]) and String(target["bonus"]) != "":
+		ids.append(String(target["bonus"]))
+	var malus := _door_malus(entry)
+	if malus != "":
+		ids.append(malus)
+	raise_blind(1.0 + blind_growth())
+	floor_moves += 1
+	entry["state"] = FloorMap.DoorState.PASSED
+	target["visited"] = true
+	floor_map.position = String(target["id"])
+	move_due = false
+	sign_clauses(ids)
+	floor_map.scout_from(floor_map.position, null, _clause_offerable)
+	floor_changed.emit()
+	return true
+
+## Ein echter Fumble sperrt eine Tür, ohne den Puck vom Büro zu trennen ("" = keine).
+func _lock_fumble_door(rng: RandomNumberGenerator = null) -> String:
+	if floor_map == null or is_boss_round():
+		return ""
+	var candidates := floor_map.lock_candidates()
+	if candidates.is_empty():
+		return ""
+	var at := rng.randi_range(0, candidates.size() - 1) if rng != null \
+		else randi_range(0, candidates.size() - 1)
+	candidates[at]["state"] = FloorMap.DoorState.LOCKED
+	floor_changed.emit()
+	return String(candidates[at]["id"])
+
+## "Tür gesperrt: Bar → Tresor" ("" = der letzte Fumble sperrte nichts).
+func locked_door_note() -> String:
+	if last_locked_door == "" or floor_map == null:
+		return ""
+	return "Tür gesperrt: %s" % floor_map.door_label(last_locked_door)
+
+## Fahrplan bis Welle 2: gespielte Blinds der Etage, der laufende, der nächste.
+## {goals, current, markers}, höchstens ROADMAP_SHOWN Stationen.
+func floor_roadmap() -> Dictionary:
+	var goals: Array[int] = []
+	var markers: Array[String] = []
+	for n in range(floor_first_round, round_number):
+		goals.append(blind_history[n - 1] if n - 1 < blind_history.size() else floor_to_blind(float(BASE_GOAL)))
+		markers.append("")
+	var current := goals.size()
+	goals.append(effective_goal())
+	markers.append(STRESS_MARKER if is_boss_round() else "")
+	if not is_boss_round():
+		goals.append(next_blind())
+		markers.append("")
+	var cut := maxi(0, goals.size() - ROADMAP_SHOWN)
+	var shown_goals: Array[int] = []
+	var shown_markers: Array[String] = []
+	for i in range(cut, goals.size()):
+		shown_goals.append(goals[i])
+		shown_markers.append(markers[i])
+	return {"goals": shown_goals, "current": current - cut, "markers": shown_markers}
+
+## Chance, dass eine Tür FREI liegt - die Werbetrommel verdreifacht sie. Die Wirkung
+## ist eine Abfrage hier, weil sie am Wurf der Etage hängt, nicht an der Wertung.
 func treat_chance() -> float:
 	var factor := 3.0 if charm_ids().has(Charm.AD_DRUM) else 1.0
 	return minf(1.0, TREAT_CHANCE * factor)
@@ -1953,104 +2066,18 @@ func treat_chance() -> float:
 func deal_bonus_factor() -> int:
 	return 2 if charm_ids().has(Charm.SHYSTER) else 1
 
-## Platz, den ein Werbegeschenk ersetzt (−1 = keins). treat_chance entscheidet, OB
-## eins kommt; TREAT_TIER_WEIGHTS, WELCHER Platz.
-func _roll_treat_slot() -> int:
-	if randf() >= treat_chance():
-		return -1
-	var r := randf()
-	var acc := 0.0
-	for i in TREAT_TIER_WEIGHTS.size():
-		acc += TREAT_TIER_WEIGHTS[i]
-		if r < acc:
-			return i
-	return 0
-
-## Drei der sechs Stresstest-Konditionen, ohne einen zweiten Quota-Aufschlag.
-func _roll_boss_offers() -> void:
-	var pool: Array[String] = []
-	for clause_id in DealClause.ids_for(DealClause.Tier.BOSS, DealClause.Kind.MALUS):
-		if not _quota_blocked(clause_id):
-			pool.append(clause_id)
-	pool.shuffle()
-	for i in mini(ROUTE_OFFER_COUNT, pool.size()):
-		route_offers.append({CARD_TIER: DealClause.Tier.BOSS, CARD_BONUS: "", CARD_MALUS: pool[i]})
-
-## Baut eine Vertragskarte: erst das Kleingedruckte, dann der Bonus - dessen Topf
-## muss die Tags des Malus meiden (sonst entstehen Nullsummen-Paare). Das
-## Werbegeschenk zieht seinen Bonus aus demselben Topf seiner Stufe und lässt nur
-## den Malus weg; TREAT ist reine Anzeigestufe.
-func _draw_card(tier: DealClause.Tier, treat: bool = false) -> Dictionary:
-	var malus_id := ""
-	if not treat:
-		malus_id = _draw_clause(tier, DealClause.Kind.MALUS, [] as Array[String])
-	var bonus_id := _draw_clause(tier, DealClause.Kind.BONUS, DealClause.tags_of(malus_id))
-	var card_tier: DealClause.Tier = DealClause.Tier.TREAT if treat else tier
-	return {CARD_TIER: card_tier, CARD_BONUS: bonus_id, CARD_MALUS: malus_id}
-
-## Zieht eine Klausel des Topfes: nie eine, die schon in der Auslage liegt oder in
-## diesem Block unterschrieben wurde, nie eine mit einem verbotenen Tag, nie einen
-## ZWEITEN Quota-Malus (sonst baut sich der Spieler ein unerreichbares Ziel).
-## Läuft der Topf dadurch leer, sind Wiederholungen erlaubt - ein leerer Platz
-## wäre schlimmer als eine bekannte Klausel.
-func _draw_clause(tier: DealClause.Tier, kind: DealClause.Kind,
-		taboo_tags: Array[String]) -> String:
-	var all_ids := DealClause.ids_for(tier, kind)
-	var listed := _listed_clause_ids()
-	var pool: Array[String] = []
-	for clause_id in all_ids:
-		if listed.has(clause_id) or _taken_this_block(clause_id):
-			continue
-		if _shares_tag(clause_id, taboo_tags) or _quota_blocked(clause_id):
-			continue
-		if not _clause_offerable(clause_id):
-			continue
-		pool.append(clause_id)
-	if pool.is_empty():
-		pool = all_ids
-	return pool.pick_random() if not pool.is_empty() else ""
-
-## Alle Klausel-ids, die schon in der Auslage liegen - keine darf doppelt.
-func _listed_clause_ids() -> Array[String]:
-	var ids: Array[String] = []
-	for card in route_offers:
-		for key in [CARD_BONUS, CARD_MALUS]:
-			var clause_id := String(card.get(key, ""))
-			if clause_id != "":
-				ids.append(clause_id)
-	return ids
-
-func _shares_tag(clause_id: String, taboo_tags: Array[String]) -> bool:
-	for tag in DealClause.tags_of(clause_id):
-		if taboo_tags.has(tag):
-			return true
-	return false
-
 ## Ob die Klausel als zweiter RUNDENWEISER Blind-Aufschlag ausgeschlossen ist -
 ## dauerhafte Hebungen dürfen sich stapeln.
 func _quota_blocked(clause_id: String) -> bool:
 	return QUOTA_MALUS.has(clause_id) and _quota_already_raised()
 
-## Unterschreibt die Vertragskarte index der Auslage.
-func take_route(index: int) -> void:
-	if index < 0 or index >= route_offers.size():
-		return
-	var card := route_offers[index]
-	var ids: Array[String] = []
-	for key in [CARD_BONUS, CARD_MALUS]:
-		var clause_id := String(card.get(key, ""))
-		if clause_id != "":
-			ids.append(clause_id)
-	route_offers.clear()
-	sign_clauses(ids)
-
 ## Zieht Klauseln in den Vertrag ein und feuert ihre SOFORT-Wirkungen. Einziger
-## Weg in active_deals - Auslage wie Test gehen hier durch.
+## Weg in active_deals - Zug wie Test gehen hier durch.
 func sign_clauses(clause_ids: Array[String]) -> void:
 	for clause_id in clause_ids:
 		if not DealClause.is_valid_id(clause_id):
 			continue
-		active_deals.append({"id": clause_id, "round": round_number})
+		active_deals.append({"id": clause_id, "round": round_number, "floor": floor_index})
 		_apply_instant_clause(clause_id)
 	deals_changed.emit()
 
@@ -2131,21 +2158,14 @@ static func instant_clause_energy(clause_id: String, bonus_factor: int = 1) -> i
 			return SEED_CAPITAL_ENERGY * bonus_factor
 	return 0
 
-## Abrechnung: der Stresstest ist überstanden, alle Klauseln des Blocks verfallen.
+## Abrechnung: die Boss-Runde ist überstanden, alle Klauseln der Etage verfallen, und
+## der Aufzug würfelt die nächste.
 func settle_block_deals() -> void:
-	if active_deals.is_empty():
-		return
-	active_deals.clear()
-	free_charm_pending = false
-	deals_changed.emit()
-
-## Ob die Klausel in diesem Block schon unterschrieben wurde (auch wenn ihre
-## Wirkung längst abgelaufen ist) - sie wird dann nicht erneut angeboten.
-func _taken_this_block(clause_id: String) -> bool:
-	for entry in active_deals:
-		if entry["id"] == clause_id:
-			return true
-	return false
+	if not active_deals.is_empty():
+		active_deals.clear()
+		free_charm_pending = false
+		deals_changed.emit()
+	_enter_next_floor()
 
 func _quota_already_raised() -> bool:
 	for clause_id: String in QUOTA_MALUS:
@@ -2155,8 +2175,7 @@ func _quota_already_raised() -> bool:
 
 ## Ob eine Klausel mit dieser Laufzeit in Runde n noch wirkt: INSTANT verfällt mit
 ## der Unterschrift, ROUND gilt nur in ihrer eigenen Runde, BLOCK bis zur
-## Abrechnung am Ende des Blocks (keine Klausel trägt BLOCK noch - die Stufe
-## bleibt der Schiedsrichter für künftige Laufzeiten).
+## Abrechnung der Etage, auf der sie unterschrieben wurde (der Stammkunde).
 func _scope_reaches(entry: Dictionary, scope: DealClause.Scope, n: int) -> bool:
 	var signed := int(entry["round"])
 	match scope:
@@ -2164,7 +2183,7 @@ func _scope_reaches(entry: Dictionary, scope: DealClause.Scope, n: int) -> bool:
 			return false
 		DealClause.Scope.ROUND:
 			return n == signed
-	return n >= signed and block_of_round(n) == block_of_round(signed)
+	return n >= signed and int(entry.get("floor", floor_index)) == floor_index
 
 ## Einzige Auflösung "wirkt diese Klausel gerade?" - Bonus wie Malus, denn die
 ## Art steckt in der Klausel selbst.
@@ -2211,10 +2230,6 @@ func _round_goal_factor() -> float:
 			factor *= 1.0 + float(QUOTA_MALUS[clause.id])
 	return factor * _round_goal_factor_reprieve()
 
-## Wachstum des Blinds beim Eintritt in Runde n: 10 % im ersten Block, je Block +5 %.
-static func blind_growth(n: int) -> float:
-	return BLIND_GROWTH_BASE + BLIND_GROWTH_STEP * float(block_of_round(n))
-
 ## Abwärts auf Vielfache von BLIND_ROUNDING, mindestens eines davon.
 static func floor_to_blind(value: float) -> int:
 	var steps := int(floor(value / float(BLIND_ROUNDING) + 0.000001))
@@ -2224,23 +2239,6 @@ static func floor_to_blind(value: float) -> int:
 func raise_blind(factor: float) -> void:
 	blind_value *= factor
 	round_goal = floor_to_blind(blind_value)
-
-## Projektion des Blinds der Runde k (ohne künftige Verträge), gerundet.
-func projected_blind(k: int) -> int:
-	var value := blind_value
-	for n in range(round_number + 1, k + 1):
-		value *= 1.0 + blind_growth(n)
-	return floor_to_blind(value)
-
-## Fahrplan-Wert der Runde n: gespielt (Historie), laufend (wirksam) oder projiziert.
-func roadmap_goal(n: int) -> int:
-	if n < round_number:
-		if n >= 1 and n - 1 < blind_history.size():
-			return blind_history[n - 1]
-		return floor_to_blind(float(BASE_GOAL))
-	if n == round_number:
-		return effective_goal()
-	return projected_blind(n)
 
 ## Faktor auf die GESAMTE Rundenauszahlung (Bank + übrige Würfel). Happy Hour und
 ## Alles auf Rot stehen bewusst NICHT hier, sondern in money_gain_factor - sonst
@@ -2598,6 +2596,7 @@ func note_fumble(volcanic: bool) -> int:
 		raise_blind(1.0 + BAD_STREAK_RAISE)
 	_arm_afterburners()
 	last_fumble_lost_part = destroy_fumble_part()
+	last_locked_door = _lock_fumble_door()
 	var minted := CharmEffects.fumble_energy(charm_ids())
 	if minted > 0:
 		add_energy(minted)
@@ -3010,7 +3009,7 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 					stash_die(prize.die, 0)
 
 ## Nächste Runde (läuft nur nach einer geschafften): gespielten Blind merken, Glück
-## +1, Blind wachsen lassen und die Auslage würfeln. Runde 1 bekommt keine Auslage.
+## +1, und die Runde wartet auf ihren Zug - den Blind hebt erst move_through.
 func advance_round() -> void:
 	while blind_history.size() < round_number - 1:
 		blind_history.append(floor_to_blind(float(BASE_GOAL)))
@@ -3021,33 +3020,12 @@ func advance_round() -> void:
 	dark_charm = null
 	add_luck(1)
 	free_flips_used = 0
-	var old_block := block_of_round(round_number)
 	round_number += 1
-	if block_of_round(round_number) != old_block:
-		block_fumbles = 0
-	blind_value *= 1.0 + blind_growth(round_number)
 	round_goal = floor_to_blind(blind_value)
 	if labor_job != null and not labor_job.done:
 		labor_job.tick()
 		labor_changed.emit()
-	roll_route_offers()
-
-## Fahrplan-BLOCK der Runden-Ziele: die Ziele stehen zu je count fest und bleiben
-## stehen, bis das letzte des Blocks geschafft ist - erst dann rückt ein frischer
-## Block nach. Rein für die Hub-Anzeige.
-func goal_roadmap(count: int) -> Array[int]:
-	var goals: Array[int] = []
-	if count <= 0:
-		return goals
-	var first_round := round_number - goal_roadmap_index(count)
-	for i in count:
-		goals.append(roadmap_goal(first_round + i))
-	return goals
-
-## Position des AKTUELLEN Ziels im Block (0-basiert): davor = geschafft, danach
-## = noch offen.
-func goal_roadmap_index(count: int) -> int:
-	return (round_number - 1) % maxi(1, count)
+	move_due = floor_map != null
 
 ## --- Überladung (Overcharge) --------------------------------------------------
 

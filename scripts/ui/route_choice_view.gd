@@ -9,11 +9,13 @@ extends Control
 ## Die Einheit u kommt aus BEIDEN Achsen (die Grube ist breit und flach - allein
 ## aus der Breite gerechnet würde die Schrift riesig).
 
-## Der unterschriebene Platz der Auslage (Index in GameRun.route_offers).
+## Der gewählte Zug (Index in GameRun.move_offers).
 signal route_chosen(index: int)
 
 const TITLE := "Vertragswahl"
 const STRESS_TITLE := "Boss-Konditionen"
+## Eine Karte ohne Bonus und Malus: ein Zug, der nur die Runde kostet.
+const EMPTY_MOVE_TEXT := "Zurück - nichts zu unterschreiben"
 
 const BONUS_COLOR := Color("#50fa7b")
 const MALUS_COLOR := Color("#ff6b6b")
@@ -24,7 +26,7 @@ const CARD_BG := Color(0.07, 0.06, 0.16, 0.96)
 const SECTION_MIN := 3
 const SECTION_MAX := 219
 
-## Angebotene Vertragskarten (GameRun.route_offers); open() baut daraus die Karten.
+## Die Züge als Karten (GameRun.move_offers); open() baut daraus die Karten.
 var offers: Array[Dictionary] = []
 ## Boss-Runde: andere Überschrift, die Karten sind Boss-Konditionen.
 var stress_round := false
@@ -38,7 +40,7 @@ func _init() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true  # nie über den Hub-Rahmen hinaus (dort endet die Maus)
 
-## Baut die Auslage neu auf und zeigt sie. cards kommt aus GameRun.route_offers.
+## Baut die Karten neu auf und zeigt sie (1 bis 4, aus GameRun.move_offers).
 func open(cards: Array[Dictionary], is_stress: bool = false, deal_bonus_factor: int = 1) -> void:
 	offers = cards.duplicate()
 	stress_round = is_stress
@@ -121,7 +123,9 @@ func _make_card(offer: Dictionary, index: int, u: float) -> Control:
 	# Lange Namen dürfen weder an der Kartenkante abreißen noch MITTEN IM WORT
 	# umbrechen: Umbruch nur an Leerzeichen, und je länger der Name, desto
 	# kleiner die Schrift.
-	var tier_name := DealClause.tier_label(tier)
+	var tier_name := String(offer.get(GameRun.CARD_ROOM, ""))
+	if tier_name == "":
+		tier_name = DealClause.tier_label(tier)
 	var title := CasinoStyle.label(tier_name, u * _title_scale(tier_name), accent, HORIZONTAL_ALIGNMENT_LEFT, 3)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -130,6 +134,10 @@ func _make_card(offer: Dictionary, index: int, u: float) -> Control:
 		MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3))
 	_add_clause_block(column, String(offer.get(GameRun.CARD_BONUS, "")), BONUS_COLOR, u, bonus_factor)
 	_add_clause_block(column, String(offer.get(GameRun.CARD_MALUS, "")), MALUS_COLOR, u)
+	if String(offer.get(GameRun.CARD_BONUS, "")) == "" and String(offer.get(GameRun.CARD_MALUS, "")) == "":
+		var empty := CasinoStyle.label(EMPTY_MOVE_TEXT, u * 2.8, MUTED_COLOR, HORIZONTAL_ALIGNMENT_CENTER, 3)
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		column.add_child(empty)
 	return card
 
 ## Paragraphen-Nummer: reine Zierde, aber AUS DEN KLAUSELN abgeleitet - so steht
