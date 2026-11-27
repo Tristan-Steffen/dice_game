@@ -23,3 +23,14 @@ func test_floor_sign_shows_only_while_beckoning() -> void:
 	assert_true(screen.pit_beckon.visible)
 	assert_eq((screen.pit_beckon.get_child(0) as Label).text, "WÜRFELN")
 	assert_eq((screen.pit_beckon.get_child(1) as Label).text, "Klick auf die Grube")
+
+## Ist ein Zug fällig, ruft die Grube golden zur Wahl - aus der Ferne mit „Klick auf die Grube“.
+func test_a_due_move_calls_for_a_room() -> void:
+	var screen := TableScreen.new()
+	add_child_autofree(screen)
+	await wait_frames(1)
+	screen.place_pit_window(Rect2(0, 0, 400, 200), 10.0)
+	screen.set_pit_beckon(1.0, 1.0, "Klick auf die Grube", "RAUM WÄHLEN", CasinoStyle.GOLD)
+	assert_eq((screen.pit_beckon.get_child(0) as Label).text, "RAUM WÄHLEN")
+	assert_eq((screen.pit_beckon.get_child(1) as Label).text, "Klick auf die Grube")
+	assert_eq((screen.pit_beckon.get_child(0) as Label).get_theme_color("font_color"), CasinoStyle.GOLD)

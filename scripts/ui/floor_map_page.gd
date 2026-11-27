@@ -1,21 +1,19 @@
 class_name FloorMapPage
 extends Control
-## Die GROSSE ETAGEN-KARTE als Hub-Seite: derselbe Turm wie der Streifen der Startseite,
-## mit Namen und Tür-Marken, nach unten in die Geschichte rollbar. Von der Startseite
-## geöffnet nimmt sie den fälligen Zug, aus dem Laden nur zum Ansehen; „Zurück“ führt
-## dorthin, woher man kam (die Seitenregel des Hubs).
+## Die NAHSICHT der Etage als Hub-Seite des Ladens (Knopf „Etage“): dieselbe Ansicht wie
+## auf dem Grubenboden, nur zum Ansehen - Ziehen und Rad sehen sich um, ein Klick zieht
+## nie. „Zurück zum Laden“ blättert heim (die Seitenregel des Hubs).
 
 signal close_requested
 
 const TITLE := "E T A G E"
 const BACK_SHOP_TEXT := "Zurück zum Laden"
-const BACK_HOME_TEXT := "Zurück"
 const MARGIN_UNITS := 1.6
+## Die Seite steht an der Hub-Station weiter weg als der Grubenboden: größere Einheit.
+const MAP_UNIT_DIV := 62.0
 
 var map_view: FloorMapView
 var back_button: Button
-## Aus dem Laden geöffnet: nur ansehen.
-var from_shop := true
 var _margin: MarginContainer
 var _column: VBoxContainer
 var _title: Label
@@ -54,25 +52,19 @@ func layout() -> void:
 	header.add_child(back_button)
 	map_view = FloorMapView.new()
 	map_view.name = "FloorMap"
+	map_view.mode = FloorMapView.Mode.DETAIL
 	map_view.read_only = true
 	map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_column.add_child(map_view)
 	resized.connect(_restyle)
 	_restyle()
 
-## Woher die Seite kommt: aus dem Laden nur ansehen, von der Startseite mit Zug.
-func open_from(shop: bool) -> void:
-	layout()
-	from_shop = shop
-	map_view.read_only = shop
-	back_button.text = BACK_SHOP_TEXT if shop else BACK_HOME_TEXT
-
 ## Zeigt den Stand der Etage (reine Daten aus GameRun.floor_view_state).
 func show_state(view_state: Dictionary, deal_bonus_factor: int = 1) -> void:
 	layout()
 	map_view.open(view_state, deal_bonus_factor)
 
-## Das Rad über der Karte rollt sie in die Geschichte (true = verbraucht).
+## Das Rad über der Karte schiebt den Ausschnitt (true = verbraucht).
 func wheel_at(pixel: Vector2, up: bool) -> bool:
 	if not visible or map_view == null or not map_view.get_global_rect().has_point(pixel):
 		return false
@@ -90,3 +82,4 @@ func _restyle() -> void:
 	_column.add_theme_constant_override("separation", int(u * 1.5))
 	_title.add_theme_font_size_override("font_size", int(u * 4.5))
 	CasinoStyle.style_button(back_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 2.8))
+	map_view.unit_px = size.x / MAP_UNIT_DIV

@@ -356,11 +356,17 @@ var _energy_bank_px := Rect2()
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
 var labor_click_zone: StaticBody3D
-## route_pending = der Zug dieser Runde fehlt noch (gewählt auf der ETAGEN-KARTE der
-## Hub-Startseite): bis dahin ruhen die Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
+## route_pending = der Zug dieser Runde fehlt noch (gewählt in der NAHSICHT auf dem
+## Grubenboden): bis dahin ruhen die Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
 var route_pending := false
 ## Die Etagen-Karte als Laden-Seite (Knopf „Etage“), nur zum Ansehen.
 var floor_page: FloorMapPage
+## Die NAHSICHT der Etage auf dem Grubenboden: hier wird gezogen.
+var floor_detail: FloorMapView
+## Die Kamera-Lage vor ihrem engen Rahmen (leer = kein Rahmen steht).
+var _floor_detail_home: Dictionary = {}
+## Die gesperrte Tür, die in der Nahsicht schon geblitzt hat ("Etage:Tür").
+var _detail_flash_seen := ""
 ## Die gesperrte Tür, die schon einmal geblitzt hat ("Etage:Tür").
 var _floor_flash_seen := ""
 ## Die Runde ist festgezurrt: der Vertrag ist unterschrieben bzw. - in einer Runde
@@ -376,6 +382,8 @@ var shop_reopen_allowed := false
 var shop_reopened := false
 ## Rand des Rückblicks als Anteil der Grubenbreite (rundum gleich).
 const PIT_FLOOR_INSET := 0.04
+## Saum des engen Rahmens über der Nahsicht der Etage.
+const FLOOR_DETAIL_MARGIN := 1.03
 
 ## Rückblick: die Chronik der laufenden Runde und ihr Fenster in der Grube.
 ## log_open ist das EINZIGE Arbitrierungs-Bit des Erinnerungs-Modus (die Phase
@@ -1626,18 +1634,21 @@ func _setup_panels() -> void:
 			* PackDrawerView.CASSETTE_SCALE)
 
 
-	# Der TURM-Streifen wohnt auf der Startseite des Hubs; die große Karte ist eine eigene
-	# Seite - von der Startseite mit Zug, aus dem Laden („Etage“) nur zum Ansehen.
+	# Der TURM-Streifen wohnt auf der Startseite des Hubs (nur Übersicht); die Nahsicht
+	# steht als Laden-Seite („Etage“, nur ansehen) und auf dem Grubenboden (dort wird gezogen).
 	if table_screen != null and table_screen.hub != null and table_screen.hub.floor_map != null:
-		table_screen.hub.floor_map.door_chosen.connect(_on_route_chosen)
-		table_screen.hub.map_requested.connect(_open_floor_page.bind(false))
 		floor_page = FloorMapPage.new()
 		floor_page.name = "FloorMapPage"
 		table_screen.hub.attach_panel(floor_page)
 		floor_page.layout()
 		floor_page.close_requested.connect(_close_floor_page)
-		floor_page.map_view.door_chosen.connect(_on_page_move)
-	charm_shop.floor_requested.connect(_open_floor_page.bind(true))
+	charm_shop.floor_requested.connect(_open_floor_page)
+	if table_screen != null and table_screen.pit_window != null:
+		floor_detail = FloorMapView.new()
+		floor_detail.name = "FloorDetail"
+		floor_detail.mode = FloorMapView.Mode.DETAIL
+		table_screen.add_child(floor_detail)
+		floor_detail.door_chosen.connect(_on_route_chosen)
 
 	# Die PAKET-AUSWAHL wohnt auf der ÖFFNUNGS-FLÄCHE unter dem Vorrat (ohne Tisch der
 	# 2D-Rückfall); ihr Rechteck stellt _sync_pack_areas.
@@ -2403,6 +2414,8 @@ func _refresh_hub_info() -> void:
 	table_screen.hub.set_floor_state(floor_state, run.deal_bonus_factor(), flash)
 	if floor_page != null and floor_page.visible:
 		floor_page.show_state(floor_state, run.deal_bonus_factor())
+	if floor_detail != null and floor_detail.visible:
+		floor_detail.open(floor_state, run.deal_bonus_factor())
 	_refresh_deal_tokens()
 	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
@@ -2641,6 +2654,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Gegenwart, dann darf man den Zoom verlassen.
 		if log_open:
 			_close_round_log()
+			return
+		# Ein verschobener Ausschnitt der Nahsicht kehrt zuerst auf den Puck zurück.
+		if _floor_detail_open() and floor_detail.scrolled_free():
+			floor_detail.snap_to_puck(false)
 			return
 		# Aus der Inspektion führt Rechtsklick EINE Stufe zurück aufs Podest: der
 		# Würfel legt sich in seine Schwebe-Ruhelage, abgewählt ist er noch nicht.
@@ -11729,9 +11746,6 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# schließenden Laden. Sie deckt den ganzen Hub, also schweigt der ganze Hub.
 	if charm_shop != null and is_instance_valid(charm_shop) and charm_shop.leaving():
 		return false
-	# Ein gangbarer Raum der Etagen-Karte nimmt den Klick, wo die Startseite zu sehen ist.
-	if is_click and not flying and hub != null and hub.floor_move_at(pixel) != "":
-		return true
 	return TableScreen.window_takes_pixel(hub, _window_rect(hub), pixel, is_click,
 		camera_rig.mode == CameraRig.Mode.HUB, flying)
 
@@ -11741,9 +11755,13 @@ func _window_rect(window: Control) -> Rect2:
 		return Rect2()
 	return Rect2(window.position, window.size)
 
-## Die Bedienteile der Grube: der Rückblick nimmt Liste wie Schritt-Leiste, sonst
-## sind es die Aktions-Knöpfe. Beide stehen nur, solange die Grube Mobiliar zeigt.
+## Die Bedienteile der Grube: steht die NAHSICHT der Etage, gehört ihr der Boden (und
+## ein laufender Zug auch jenseits ihres Randes), der Rückblick nimmt Liste wie
+## Schritt-Leiste, sonst sind es die Aktions-Knöpfe.
 func _pit_forwards_pixel(pixel: Vector2) -> bool:
+	if _floor_detail_open() and (floor_detail.pressing()
+			or Rect2(floor_detail.position, floor_detail.size).has_point(pixel)):
+		return true
 	if log_view != null and log_view.hit(pixel):
 		return true
 	return table_screen.pit_actions_hit(pixel)
@@ -11907,6 +11925,12 @@ func _wheel_shelf(screen_pos: Vector2, up: bool) -> void:
 	if camera_rig.mode == CameraRig.Mode.HUB and not camera_rig.die_focus:
 		_wheel_hub(screen_pos, up)
 		return
+	# An der GRUBE schiebt das Rad über der Nahsicht ihren Ausschnitt den Turm entlang.
+	if camera_rig.mode == CameraRig.Mode.PIT and _floor_detail_open():
+		var pixel := _screen_pixel(screen_pos)
+		if Rect2(floor_detail.position, floor_detail.size).has_point(pixel):
+			floor_detail.scroll_by(1.0 if up else -1.0)
+		return
 	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.die_focus or _deck_glass:
 		return
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
@@ -11937,6 +11961,72 @@ func _wheel_hub(screen_pos: Vector2, up: bool) -> void:
 	if floor_page != null and floor_page.wheel_at(pixel, up):
 		return
 	table_screen.hub.wheel_at(pixel, up)
+
+## Die NAHSICHT steht auf dem Grubenboden.
+func _floor_detail_open() -> bool:
+	return floor_detail != null and floor_detail.visible
+
+## Ob die Nahsicht JETZT stehen soll - der EINE Entscheider je Bild: an der Grube, ein Zug
+## ist fällig, und kein modaler Rahmen, kein Rückblick, keine Inspektion liegt darüber.
+func _floor_detail_wanted() -> bool:
+	if floor_detail == null or run == null or table_screen == null or camera_rig == null:
+		return false
+	return route_pending and phase == Phase.IDLE and gameplay_ui_state_visible \
+		and camera_rig.mode == CameraRig.Mode.PIT and not camera_rig.die_focus and not log_open \
+		and not _exchange_forced() and not _pack_choice_modal() and not _part_install_forced() \
+		and not _install_seating and not _deck_glass
+
+## Der Rand der Nahsicht: der Grubenboden samt dem Rand des Rückblicks.
+func _place_floor_detail() -> void:
+	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
+	var inset := pit.size.x * PIT_FLOOR_INSET
+	floor_detail.position = pit.position + Vector2(inset, inset)
+	floor_detail.size = pit.size - Vector2(inset, inset) * 2.0
+
+## Je Bild: die Nahsicht kommt mit der Grube und geht mit ihr (unsichtbar UND klick-taub).
+## Sie rahmt den Grubenboden eng von oben - an der Station selbst stünde ihr Text zu klein -,
+## ohne Moduswechsel; nach dem Zug kehrt die Kamera an die Station zurück.
+func _sync_floor_detail() -> void:
+	if floor_detail == null:
+		return
+	var wanted := _floor_detail_wanted()
+	if wanted and not floor_detail.visible:
+		_place_floor_detail()
+		var flash := ""
+		if run.last_locked_door != "":
+			var key := "%d:%s" % [run.floor_index, run.last_locked_door]
+			if key != _detail_flash_seen:
+				_detail_flash_seen = key
+				flash = run.last_locked_door
+		floor_detail.open(run.floor_view_state(), run.deal_bonus_factor(), flash)
+		_frame_floor_detail()
+	elif not wanted and floor_detail.visible:
+		_close_floor_detail()
+	if floor_detail.pressing() and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		floor_detail.cancel_press()
+
+## Die Kamera senkrecht über den Grubenboden; die Lage davor wird gemerkt.
+func _frame_floor_detail() -> void:
+	if not _floor_detail_home.is_empty():
+		return
+	var a := table_screen.pixel_to_world(floor_detail.position)
+	var b := table_screen.pixel_to_world(floor_detail.position + floor_detail.size)
+	_floor_detail_home = camera_rig.camera_pose()
+	camera_rig.set_tilt_locked(true)
+	camera_rig.frame_rect_top((a + b) * 0.5, Vector2(absf(b.z - a.z) * 0.5, absf(b.x - a.x) * 0.5),
+		FLOOR_DETAIL_MARGIN)
+
+## Schließt die Nahsicht; steht die Kamera noch an der Grube, kehrt sie an die Station
+## zurück - ein schon laufender Flug woandershin wird nie zurückgerissen.
+func _close_floor_detail() -> void:
+	floor_detail.close()
+	if _floor_detail_home.is_empty():
+		return
+	var home := _floor_detail_home
+	_floor_detail_home = {}
+	camera_rig.set_tilt_locked(false)
+	if camera_rig.mode == CameraRig.Mode.PIT and not camera_rig.die_focus:
+		camera_rig.restore_pose(home)
 
 ## Ob WASD gerade greifen darf. Taub sind: jede laufende Zieh-Geste, der
 ## Rückblick (dort gehören die Tasten dem Cursor), das Titel-HUD, die Werkbank-
@@ -11976,6 +12066,8 @@ func _sync_free_camera(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_sync_free_camera(delta)
+	# Früh: ihr Rückweg der Kamera steht, bevor ein modaler Rahmen sich seine Lage merkt.
+	_sync_floor_detail()
 	_update_charm_hover()
 	_sync_shop_charm_disks()
 	_sync_secret_body()
@@ -12007,23 +12099,20 @@ func _process(delta: float) -> void:
 	_sync_pit_beckon(delta)  # und die Grube ruft, solange die Runde auf ihren ersten Wurf wartet
 	_sync_floor_map()  # und die Etagen-Karte nimmt den Zug nur, solange er fällig ist
 
-## Die ETAGEN-KARTE des Hubs je Bild: den Zug nimmt sie nur, solange die Runde auf
-## ihn wartet; ihre Auskunft fällt, sobald der Zeiger sie verläßt (verläßt er den
-## weitergereichten Bereich, kommt bei ihr kein Motion-Event mehr an). Die Etagen-Seite
+## Die ETAGEN-KARTE je Bild: der Streifen hebt einen fälligen Zug hervor (gezogen wird in
+## der Grube); jede Auskunft fällt, sobald der Zeiger ihre Karte verläßt (verläßt er den
+## weitergereichten Bereich, kommt dort kein Motion-Event mehr an). Die Etagen-Seite
 ## gehört dem Laden und geht mit ihm.
 func _sync_floor_map() -> void:
 	if table_screen == null or table_screen.hub == null or table_screen.hub.floor_map == null:
 		return
 	var hub := table_screen.hub
-	var due := route_pending and phase == Phase.IDLE
-	hub.set_floor_moves_enabled(due)
-	if floor_page != null:
-		floor_page.map_view.set_moves_enabled(due)
-		# Die Laden-Seite geht mit dem Laden.
-		if floor_page.visible and floor_page.from_shop and phase != Phase.SHOP:
-			_close_floor_page(true)
-	for map: FloorMapView in [hub.floor_map, floor_page.map_view if floor_page != null else null]:
-		if map == null or (map.hovered().is_empty() and not map.pointer_inside()):
+	hub.set_floor_moves_enabled(route_pending and phase == Phase.IDLE)
+	if floor_page != null and floor_page.visible and phase != Phase.SHOP:
+		_close_floor_page(true)
+	for map: FloorMapView in [hub.floor_map, floor_page.map_view if floor_page != null else null,
+			floor_detail]:
+		if map == null or map.pressing() or (map.hovered().is_empty() and not map.pointer_inside()):
 			continue
 		var pixel := _screen_pixel(get_viewport().get_mouse_position())
 		if not map.is_visible_in_tree() or not map.get_global_rect().has_point(pixel) \
@@ -12043,27 +12132,29 @@ func _pit_beckons() -> bool:
 		and _remaining_in_pool() > 0 and not log_open \
 		and not route_pending and not _exchange_forced()
 
-## Vor dem ersten Wurf fehlt noch der Zug der Runde: das Schild der Grube schickt an
-## den Hub, statt zum Würfeln zu rufen (die Wände atmen dann nicht).
+## Vor dem ersten Wurf fehlt noch der Zug der Runde: das Schild der Grube ruft zur Wahl,
+## statt zum Würfeln (die Wände atmen dann nicht). Steht die Nahsicht, gehört ihr der Boden.
 const PIT_MOVE_TITLE := "RAUM WÄHLEN"
-const PIT_MOVE_SUB := "Erst einen Raum wählen (Hub)"
 
 func _pit_awaits_move() -> bool:
 	return run != null and route_pending and phase == Phase.IDLE and gameplay_ui_state_visible \
-		and camera_rig.mode != CameraRig.Mode.TITLE and not log_open and not _exchange_forced()
+		and camera_rig.mode != CameraRig.Mode.TITLE and not log_open and not _exchange_forced() \
+		and not _floor_detail_open()
 
 func _sync_pit_beckon(delta: float) -> void:
 	var awaits_move := _pit_awaits_move()
 	var target := 1.0 if _pit_beckons() or awaits_move else 0.0
 	_pit_beckon_share = move_toward(_pit_beckon_share, target, PIT_BECKON_FADE * delta)
+	if _floor_detail_open():
+		_pit_beckon_share = 0.0  # das Schild verblaßt nicht über der Karte
 	var breath := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * DicePit.BECKON_RATE)
+	var sub := "" if is_pit_focused else "Klick auf die Grube"
 	if awaits_move:
-		table_screen.set_pit_beckon(_pit_beckon_share, breath, PIT_MOVE_SUB, PIT_MOVE_TITLE,
+		table_screen.set_pit_beckon(_pit_beckon_share, breath, sub, PIT_MOVE_TITLE,
 			CasinoStyle.GOLD)
 		dice_pit.set_beckon(0.0, breath, CasinoStyle.GREEN)
 		return
-	table_screen.set_pit_beckon(_pit_beckon_share, breath,
-		"" if is_pit_focused else "Klick auf die Grube")
+	table_screen.set_pit_beckon(_pit_beckon_share, breath, sub)
 	dice_pit.set_beckon(_pit_beckon_share, breath, CasinoStyle.GREEN)
 
 ## Der ZEIGER an der Werkstatt-Station: er hebt die Kassette im Magazin und den
@@ -12372,12 +12463,17 @@ func _sync_screen_action_buttons() -> void:
 		return
 	# Hier - nicht an den Setz-Stellen -, weil diese Funktion je Frame läuft und damit
 	# auch zurücknimmt, was update_pit_score/_refresh_ui nebenher wieder einschalten.
-	var show := gameplay_ui_state_visible and is_pit_focused
+	# Die Nahsicht der Etage braucht den ganzen Grubenboden: solange sie steht, weicht das Mobiliar.
+	var choosing := _floor_detail_open()
+	var show := gameplay_ui_state_visible and is_pit_focused and not choosing
 	table_screen.pit_actions_root.visible = show
 	# Das Würfelnetz-Feld steht dauerhaft neben den Knöpfen (leer ohne Hover).
 	table_screen.pit_info_bar.visible = show
 	# Die Deal-Marken am oberen Rand kommen und gehen mit dem Mobiliar.
 	table_screen.pit_deal_rail.visible = show
+	if choosing:
+		table_screen.set_pit_die_info(null)
+		table_screen.hide_pit_score()
 	if not show:
 		table_screen.hide_pit_deal_hint()
 		table_screen.clear_fumble_marks()  # Nachglühen ist Gruben-Mobiliar
@@ -15121,6 +15217,12 @@ func _reset_game() -> void:
 		table_screen.set_round_pulse(false)
 	route_pending = false
 	_floor_flash_seen = ""
+	_detail_flash_seen = ""
+	if floor_detail != null:
+		floor_detail.close()  # ein offener Zug gehört zum alten Lauf
+		if not _floor_detail_home.is_empty():
+			_floor_detail_home = {}
+			camera_rig.set_tilt_locked(false)
 	if log_open:
 		_close_round_log()
 	round_log.clear()
@@ -15286,9 +15388,9 @@ func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
 	if energy_bank != null:
 		energy_bank.fly_in(from)
 
-## Zug gewählt (Klick auf der Etagen-Karte des Hubs): JETZT erst greifen die
+## Zug gewählt (Klick in der Nahsicht auf dem Grubenboden): JETZT erst greifen die
 ## Rundenbeginn-Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach
-## fährt die Kamera zur Grube, und es darf geworfen werden.
+## schließt die Nahsicht, die Grube ruft WÜRFELN, und es darf geworfen werden.
 func _on_route_chosen(door_id: String) -> void:
 	if not route_pending or phase != Phase.IDLE:
 		return  # doppelte Unterschrift = doppelter Vorschuss
@@ -15377,8 +15479,8 @@ func _start_new_round() -> void:
 	route_pending = not run.walkable_doors().is_empty()
 	if not route_pending:
 		_apply_round_start_effects()
-	elif table_screen == null or table_screen.hub == null:
-		# Ohne Display-Fläche keine Karte: der Zug fällt durch die erste gangbare Tür.
+	elif floor_detail == null:
+		# Ohne Display-Fläche keine Nahsicht: der Zug fällt durch die erste gangbare Tür.
 		_on_route_chosen.call_deferred(run.walkable_doors()[0])
 
 	if test_materials_enabled:
@@ -16513,13 +16615,13 @@ func _on_shop_closed() -> void:
 		_sync_editing_lock()
 		_refresh_dice_trays()
 		_sync_shop_reopen_button()
-		if camera_rig.mode == CameraRig.Mode.HUB and not route_pending:
+		if camera_rig.mode == CameraRig.Mode.HUB:
 			camera_rig.zoom_out()
 		return
 	run.advance_round()  # würfelt zugleich die Auslage der neuen Runde
 	_set_gameplay_ui_visible(true)
-	# Ist ein Zug fällig, bleibt die Kamera am Hub: dort wartet die Etagen-Karte.
-	if camera_rig.mode == CameraRig.Mode.HUB and run.walkable_doors().is_empty():
+	# Ein fälliger Zug wartet in der Grube - ihr Lockruf ruft „RAUM WÄHLEN“.
+	if camera_rig.mode == CameraRig.Mode.HUB:
 		camera_rig.zoom_out()
 	_start_new_round()
 	_sfx(&"round_start")
@@ -16585,24 +16687,16 @@ func _close_lexikon() -> void:
 		else:
 			camera_rig.zoom_to(lexikon_prev_mode)
 
-## Die GROSSE Etagen-Karte: aus dem Laden („Etage“) verdrängt sie die Ladenseite wie das
-## Lexikon (LIFO) und ist nur zum Ansehen; von der Startseite (Streifen, „Karte öffnen“)
-## nimmt sie den fälligen Zug. Zurück führt jeweils dorthin, woher man kam.
-func _open_floor_page(from_shop: bool) -> void:
+## Die NAHSICHT als Laden-Seite („Etage“): sie verdrängt die Ladenseite wie das Lexikon
+## (LIFO) und ist nur zum Ansehen; „Zurück zum Laden“ blättert heim.
+func _open_floor_page() -> void:
 	if floor_page == null or run == null or table_screen == null or table_screen.hub == null:
 		return
-	if floor_page.visible or (from_shop and phase != Phase.SHOP):
+	if floor_page.visible or phase != Phase.SHOP:
 		return
-	floor_page.open_from(from_shop)
-	floor_page.map_view.set_moves_enabled(route_pending and phase == Phase.IDLE)
 	floor_page.show_state(run.floor_view_state(), run.deal_bonus_factor())
+	floor_page.map_view.snap_to_puck(true)
 	table_screen.hub.fade_page_in(floor_page)
-
-## Ein Zug aus der großen Karte: derselbe Ablauf wie am Streifen, danach schließt sie.
-func _on_page_move(door_id: String) -> void:
-	_on_route_chosen(door_id)
-	if not route_pending:
-		_close_floor_page(true)
 
 ## Zurück zum Laden; hard = ohne Blende (Kamerawechsel, Laden zu).
 func _close_floor_page(hard := false) -> void:

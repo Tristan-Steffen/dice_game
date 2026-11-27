@@ -65,15 +65,11 @@ var lexikon_button: Button
 var _tier := 1
 var _tier_shown := 0  # 0 = noch nie angewandt
 
-## Die große Etagen-Karte soll aufschlagen (Klick auf den Streifen oder den Knopf).
-signal map_requested
-
-## Die Bühne der Startseite: links der TURM-Streifen samt Knopf „Karte öffnen“, rechts
-## Blind, Auskunft, Laufwerte, Diagramm und die Deal-Marken.
+## Die Bühne der Startseite: links der TURM-Streifen, rechts Blind, Auskunft, Laufwerte,
+## Diagramm und die Deal-Marken.
 var roadmap_stage: Control
-## Der Turm-Streifen; ein Klick auf einen gangbaren Raum meldet door_chosen.
+## Der Turm-Streifen: reine Übersicht, gezogen wird in der Grube.
 var floor_map: FloorMapView
-var open_map_button: Button
 var blind_panel: Panel
 var blind_title: Label
 var blind_value: Label
@@ -90,7 +86,6 @@ const STRIP_SHARE := 0.34
 const MAP_BLEED_UNITS := 3.0
 const COLUMN_GAP_UNITS := 2.2
 const SECTION_GAP_UNITS := 1.2
-const MAP_BUTTON_UNITS := 5.0
 const BLIND_UNITS := 10.2
 const INFO_UNITS := 16.5
 const GRID_ROWS_SHOWN := 2
@@ -102,7 +97,6 @@ const BODY_FONT_UNITS := 2.2
 const TITLE_FONT_UNITS := 2.5
 const BIG_FONT_UNITS := 4.6
 const CARD_BG := Color(0.07, 0.065, 0.16, 0.85)
-const OPEN_MAP_TEXT := "Karte öffnen"
 const BLIND_TITLE := "Blind"
 const NEXT_BLIND_TITLE := "Nächster Blind"
 const BOSS_TITLE := "Boss-Runde"
@@ -646,21 +640,10 @@ func set_floor_state(view_state: Dictionary, deal_bonus_factor: int = 1,
 	_write_blind_card()
 	_write_info()
 
-## Ob der fällige Zug jetzt angenommen wird (scene_root fragt es je Bild).
+## Ob ein Zug fällig ist: der Streifen hebt die gangbaren Räume hervor (scene_root je Bild).
 func set_floor_moves_enabled(on: bool) -> void:
 	if floor_map != null:
 		floor_map.set_moves_enabled(on)
-
-## Der Zug, den ein Klick auf dieses Display-Pixel wählen würde ("" = keiner) - so
-## nimmt der Streifen den Klick auch aus der Ferne, wo der Hub sonst nur Knöpfe bedient.
-func floor_move_at(pixel: Vector2) -> String:
-	if floor_map == null or not floor_map.is_visible_in_tree() or content_root == null \
-			or not content_root.visible:
-		return ""
-	var rect := floor_map.get_global_rect()
-	if not rect.has_point(pixel):
-		return ""
-	return floor_map.move_for(floor_map.target_at(pixel - rect.position))
 
 ## Das Rad über Streifen oder Laufwerten rollt sie (true = verbraucht).
 func wheel_at(pixel: Vector2, up: bool) -> bool:
@@ -689,20 +672,10 @@ func set_chart(data: Dictionary) -> void:
 func _build_rim_stage(u: float) -> void:
 	floor_map = FloorMapView.new()
 	floor_map.name = "FloorMap"
-	floor_map.compact = true
+	floor_map.mode = FloorMapView.Mode.COMPACT
 	floor_map.unit_px = u
-	floor_map.open_requested.connect(func() -> void: map_requested.emit())
 	floor_map.hover_changed.connect(_write_info)
 	roadmap_stage.add_child(floor_map)
-	open_map_button = Button.new()
-	open_map_button.name = "OpenMapButton"
-	open_map_button.text = OPEN_MAP_TEXT
-	open_map_button.focus_mode = Control.FOCUS_NONE
-	open_map_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	CasinoStyle.style_button(open_map_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
-		int(u * TITLE_FONT_UNITS))
-	open_map_button.pressed.connect(func() -> void: map_requested.emit())
-	roadmap_stage.add_child(open_map_button)
 	blind_panel = _card_panel("BlindCard", u)
 	blind_title = _stage_label("BlindTitle", SMALL_FONT_UNITS, u)
 	blind_value = _stage_label("BlindValue", BIG_FONT_UNITS, u)
@@ -827,18 +800,16 @@ func _hide_marker_hint() -> void:
 func _on_stage_resized() -> void:
 	_layout_stage()
 
-## Rechtecke der Bühne (Bühnen-Koordinaten): strip, button, blind, info, grid, chart, tokens.
+## Rechtecke der Bühne (Bühnen-Koordinaten): strip, blind, info, grid, chart, tokens.
 func stage_rects() -> Dictionary:
 	var s := roadmap_stage.size
 	var u := size.x / 100.0
 	var gap := u * SECTION_GAP_UNITS
 	var bleed := u * MAP_BLEED_UNITS
 	var strip_w := s.x * STRIP_SHARE
-	var button_h := u * MAP_BUTTON_UNITS
 	var rects := {}
 	# Der Streifen darf in den Seitenrand greifen: jede Spalte zählt.
-	rects["strip"] = Rect2(-bleed, 0.0, strip_w + bleed, maxf(s.y - button_h - gap, 1.0))
-	rects["button"] = Rect2(-bleed, s.y - button_h, strip_w + bleed, button_h)
+	rects["strip"] = Rect2(-bleed, 0.0, strip_w + bleed, maxf(s.y, 1.0))
 	var x := strip_w + u * COLUMN_GAP_UNITS
 	var w := maxf(s.x + bleed - x, 1.0)
 	var y := 0.0
@@ -864,7 +835,6 @@ func _layout_stage() -> void:
 	var pad := u * CARD_PAD_UNITS
 	var r := stage_rects()
 	_place(floor_map, r["strip"])
-	_place(open_map_button, r["button"])
 	var blind: Rect2 = r["blind"]
 	_place(blind_panel, blind)
 	var inner := blind.grow(-pad)

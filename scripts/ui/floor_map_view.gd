@@ -2,16 +2,17 @@ class_name FloorMapView
 extends Control
 ## Die ETAGEN-KARTE als TURM: die Etagen stapeln sich von unten nach oben, je Reihe bis zu
 ## drei Räume, über dem Büro einer Etage beginnt die nächste. Zwei Fassungen derselben
-## Klasse: der STREIFEN der Hub-Startseite (compact: Kacheln ohne Text, der Ausschnitt
-## folgt dem Puck) und die GROSSE Karte (Namen, Tür-Marken, Auskunft am Fuß). Regeln und
-## Auskunft stehen nur hier. Kennt GameRun nicht: sie malt GameRun.floor_view_state.
+## Klasse: der STREIFEN der Hub-Startseite (COMPACT: Kacheln ohne Text, reine Übersicht)
+## und die NAHSICHT (DETAIL: drei große Kacheln quer mit vollem Klausel-Text, gezogen wird
+## hier). Regeln, Auskunft und Turm-Geometrie stehen nur hier. Kennt GameRun nicht: sie
+## malt GameRun.floor_view_state.
 
 ## Der gewählte Zug (Tür-Id).
 signal door_chosen(door_id: String)
-## Klick auf den Streifen ohne Zug: die große Karte soll aufschlagen.
-signal open_requested
 ## Ziel unter dem Zeiger gewechselt - der Hub schreibt die Auskunft neben den Streifen.
 signal hover_changed
+
+enum Mode { COMPACT, DETAIL }
 
 const ENTRANCE_HEAD := "Etage %d · Eingang"
 const MOVE_HEAD := "Etage %d · Zug %d"
@@ -20,12 +21,15 @@ const BLIND_HEAD := "Blind %s"
 const NEXT_BLIND_HEAD := "Nächster Blind %s"
 const FREE_TEXT := "frei"
 const UNKNOWN_TEXT := "?"
+const VISITED_TEXT := "besucht"
 const BLIND_LINE := "Blind nach diesem Zug: %s (%s)"
+const MOVE_LINE := "Blind %s"
 const CUSHION_PART := " · Polster %s"
+const TO_PUCK_TEXT := "Zum Puck"
 ## Polster unter ×1: typisch nicht zu schaffen.
 const SHORT_COLOR := Color("#ff5555")
 const IDLE_TITLE := "Wähle den nächsten Raum"
-const IDLE_BODY := "Der Zug unterschreibt den Malus der Tür und den Bonus des Raums."
+const IDLE_BODY := "Gewählt wird in der Grube."
 const STAND_TITLE := "Der Puck steht: %s"
 const STAND_BODY := "Zeig auf einen Raum oder eine Tür - hier steht ihre Klausel. Der nächste Zug folgt nach dem Laden."
 const ENTRANCE_BODY := "Hier beginnt die Etage. Kein Bonus."
@@ -49,7 +53,7 @@ const NEXT_BAND := "Etage %d"
 const TEXT_COLOR := Color("#e8e6ff")
 const MUTED_COLOR := Color("#9a93c9")
 const TILE_BG := Color(0.07, 0.06, 0.16, 0.96)
-const FOOT_BG := Color(0.05, 0.045, 0.12, 0.97)
+const DETAIL_BG := Color(0.03, 0.028, 0.08, 0.9)
 const PASSED_COLOR := Color(0.82, 0.95, 1.0, 0.95)
 const UNKNOWN_COLOR := Color(0.55, 0.52, 0.72, 0.8)
 const LOCKED_COLOR := Color("#ff3b3b")
@@ -61,44 +65,54 @@ const VISITED_ALPHA := 0.45
 ## Geschaffte Etagen stehen gedimmt unter dem Puck.
 const HISTORY_ALPHA := 0.42
 
-## Querschnitt: drei Querplätze, dazwischen die Fuge (Anteil einer Kachelbreite).
-const LANE_GAP := 0.55
+## Querschnitt des Streifens: drei Querplätze, dazwischen die Fuge (Anteil einer Kachelbreite).
 const COMPACT_LANE_GAP := 0.38
 ## Höhen in Kachelhöhen: Band (Eingang/Büro), Reihenfuge, das verborgene Band darüber.
 const BAND_SHARE := 0.42
 const ROW_GAP_SHARE := 0.6
 const HIDDEN_SHARE := 0.55
-## Kachelhöhe aus der Kachelbreite (höchstens).
+## Kachelhöhe aus der Kachelbreite im Streifen.
 const TILE_ASPECT := 0.62
-## Die große Karte zeigt die laufende Etage ganz: Band + 3 Reihen + Büro + Fugen + Rest.
-const BIG_FLOOR_TILES := 6.74
 ## Der Puck steht im Streifen im unteren Drittel - man schaut nach oben.
 const PUCK_SHARE := 0.33
 const SNAP_TIME := 0.3
 ## So lange darf der Streifen frei gerollt stehen, wenn der Zeiger ihn verlassen hat.
 const SNAP_BACK_DELAY := 1.2
-## Maße der großen Karte in u (u = Breite/UNIT_WIDTH; die Kachelhöhe paßt sich an).
-const UNIT_WIDTH := 100.0
 ## Der Streifen rechnet in der Einheit des Hubs; ohne Meldung Breite / COMPACT_UNIT_DIV.
 const COMPACT_UNIT_DIV := 30.0
+## Die Nahsicht rechnet ohne Meldung in Breite / DETAIL_UNIT_DIV.
+const DETAIL_UNIT_DIV := 100.0
 const PAD_UNITS := 0.6
-const HEAD_UNITS := 3.6
-const FOOT_UNITS := 9.0
-const BAND_GAP_UNITS := 0.8
 ## Fußzeile des Streifens („Etage n · Zug m“).
 const STRIP_FOOT_UNITS := 3.2
 const STRIP_FOOT_FONT_UNITS := 2.2
 const BAND_FONT_UNITS := 1.7
-## Schriftleiter der großen Karte (Ober- und Untergrenze in u).
-const NAME_UNITS := Vector2(2.9, 2.2)
-const BONUS_UNITS := Vector2(2.3, 1.8)
-const MARK_UNITS := Vector2(2.1, 1.8)
-const HEAD_FONT_UNITS := 2.8
-const INFO_TITLE_UNITS := 2.4
-const INFO_BODY_UNITS := 2.1
 const PUCK_UNITS := 1.7
 const LINE_BOX := 1.12
 const FLASH_TIME := 1.1
+
+## NAHSICHT: Fugen in Kachelbreiten (Querfuge trägt die Tür-Marken, der Rand die halben
+## Marken der Rand-Spalten), Kachelhöhe als Anteil der Kartenhöhe, Reihenfuge in Kachelhöhen.
+const DETAIL_LANE_GAP := 0.5
+const DETAIL_SIDE := 0.2
+const DETAIL_TILE_SHARE := 0.37
+const DETAIL_TILE_ASPECT_MAX := 0.95
+const DETAIL_GAP_SHARE := 0.49
+const DETAIL_BAND_SHARE := 0.5
+## Kopfzeile der Nahsicht und ihre Schrift.
+const DETAIL_HEAD_UNITS := 2.8
+const DETAIL_HEAD_FONT_UNITS := 1.35
+## Schriftleiter der Nahsicht (Ober- und Untergrenze in u): Raumname > Bonus-Name > Text.
+const DETAIL_NAME := Vector2(1.8, 1.4)
+const DETAIL_BONUS := Vector2(1.5, 1.2)
+const DETAIL_TEXT := Vector2(1.35, 1.0)
+const DETAIL_MOVE_UNITS := 1.25
+const DETAIL_MARK_NAME := Vector2(1.45, 1.1)
+const DETAIL_MARK_TEXT := Vector2(1.3, 0.95)
+const DETAIL_PLAIN_UNITS := 4.2
+const DETAIL_PUCK_UNITS := 1.6
+## Über die Enden gezogen gibt der Ausschnitt nur noch so viel nach (weich begrenzt).
+const RUBBER := 0.3
 ## Fugen langer Wörter: hier darf umbrochen werden, sonst nie mitten im Wort.
 const WORD_JOINTS := ["Standard|protokoll", "Zwangs|versteigerung", "Versicherungs|betrug",
 	"Rück|versicherung", "Kalt|verfestigung", "Glücks|würfel", "Werkstatt|sperre",
@@ -106,19 +120,20 @@ const WORD_JOINTS := ["Standard|protokoll", "Zwangs|versteigerung", "Versicherun
 	"Glücks|strähne", "Sicherungs|fall", "Service|gebühr", "Rückkauf|recht", "Glücks|pfennig",
 	"Wucher|klausel", "Wackel|kontakt", "Unglücks|zahl", "Hinter|zimmer", "Erwar|tungen",
 	"Aus|zahlung", "Hand|schlag", "Wandel|halle", "Spiegel|saal", "Treppen|haus",
-	"Rauch|salon", "Garde|robe", "Blanko|scheck", "Supra|leiter", "Glücks|kind"]
+	"Rauch|salon", "Garde|robe", "Blanko|scheck", "Supra|leiter", "Glücks|kind",
+	"Neben|wetten", "Runden|beginn"]
 
 ## Der Zustand aus GameRun.floor_view_state (leer = geschlossen).
 var state: Dictionary = {}
 ## Bonus-Faktor des Winkeladvokats für die Klausel-Texte.
 var bonus_factor := 1
-## Nur ansehen (die Karte im Laden): kein Zug, wie auch immer der Zustand steht.
+## Nur ansehen (die Nahsicht im Laden): kein Zug, wie auch immer der Zustand steht.
 var read_only := false
 ## Darf der fällige Zug JETZT gewählt werden (scene_root: die Runde wartet auf ihn)?
 var moves_enabled := true
-## Der STREIFEN der Startseite: ohne Text, der Ausschnitt folgt dem Puck.
-var compact := false
-## Einheit des Streifens in Display-px (der Hub meldet seine; 0 = selbst rechnen).
+## Streifen oder Nahsicht.
+var mode := Mode.DETAIL
+## Einheit in Display-px (der Hub bzw. die Seite meldet ihre; 0 = selbst rechnen).
 var unit_px := 0.0
 ## Ausschnitt: Inhalts-Höhe (von unten) an der Unterkante der Kartenfläche.
 var scroll := 0.0
@@ -134,13 +149,20 @@ var _puck_key := ""
 var _free_scroll := false
 var _pointer_in := false
 var _away := 0.0
-var _built_scroll := INF
-var _info_title: Label
-var _info_body: Label
-var _info_move: Label
-var _info_row := Rect2()
+var _built_scroll := 0.0
+var _built_keys: Array[String] = []
+## open() baut selbst - das Einrasten dabei baut nicht noch einmal.
+var _opening := false
+## Die laufende Geste der Nahsicht: gedrückt, wo, bei welchem Ausschnitt, und ob gezogen.
+var _pressing := false
+var _dragging := false
+var _press_at := Vector2.ZERO
+var _press_scroll := 0.0
+var _to_puck: Button
 ## Die Kartenfläche als eigene, beschnittene Ebene: Turm und Namen enden an ihrem Rand.
 var _layer: Control
+## Die Beschriftung des Ausschnitts; ein Zug verschiebt sie, statt sie neu zu bauen.
+var _holder: Control
 var _canvas: CanvasItem = self
 
 func _init() -> void:
@@ -154,6 +176,21 @@ func _init() -> void:
 	_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_layer.draw.connect(_draw_map)
 	add_child(_layer)
+	_holder = Control.new()
+	_holder.name = "Labels"
+	_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(_holder)
+	_to_puck = Button.new()
+	_to_puck.name = "ToPuck"
+	_to_puck.text = TO_PUCK_TEXT
+	_to_puck.visible = false
+	_to_puck.focus_mode = Control.FOCUS_NONE
+	_to_puck.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_to_puck.pressed.connect(func() -> void: snap_to_puck(false))
+	add_child(_to_puck)
+
+func detail() -> bool:
+	return mode == Mode.DETAIL
 
 func _redraw() -> void:
 	queue_redraw()
@@ -176,7 +213,9 @@ func open(view_state: Dictionary, deal_bonus_factor: int = 1, flash_door: String
 	var key := "%d:%s" % [current_floor(), String(state.get("position", ""))]
 	if key != _puck_key or first:
 		_puck_key = key
-		snap_to_puck(first or not compact)
+		_opening = true
+		snap_to_puck(first or detail())
+		_opening = false
 	_rebuild()
 	if flash_door != "":
 		_flash_door = flash_door if (_floors.back()["doors"] as Dictionary).has(flash_door) else ""
@@ -185,6 +224,8 @@ func open(view_state: Dictionary, deal_bonus_factor: int = 1, flash_door: String
 func close() -> void:
 	visible = false
 	_hover = {}
+	_pressing = false
+	_dragging = false
 	if _flash_tween != null and _flash_tween.is_valid():
 		_flash_tween.kill()
 	_flash = 0.0
@@ -219,7 +260,7 @@ func _floor_of(data: Dictionary, current: bool) -> Dictionary:
 func current_floor() -> int:
 	return int(state.get("floor", 1))
 
-## Die gangbaren Türen, die JETZT einen Klick nehmen (leer = nur ansehen).
+## Die gangbaren Türen des fälligen Zugs (leer = nur ansehen).
 func walkable_doors() -> Array[String]:
 	var ids: Array[String] = []
 	if read_only or not moves_enabled:
@@ -227,11 +268,16 @@ func walkable_doors() -> Array[String]:
 	ids.assign(state.get("walkable", []))
 	return ids
 
+## Ob ein Klick hier je zieht: nur die Nahsicht, und nie im Laden.
+func takes_moves() -> bool:
+	return detail() and not read_only
+
 ## Ob der fällige Zug gerade gewählt werden darf; nur der Wechsel malt neu.
 func set_moves_enabled(on: bool) -> void:
 	if on == moves_enabled:
 		return
 	moves_enabled = on
+	_rebuild()
 	_refresh_pointer()
 
 ## Die Auskunft unter dem Zeiger fällt weg (der Zeiger hat die Karte verlassen).
@@ -245,6 +291,13 @@ func hovered() -> Dictionary:
 func pointer_inside() -> bool:
 	return _pointer_in
 
+## Ob gerade gedrückt ist (scene_root reicht dann jede Bewegung durch).
+func pressing() -> bool:
+	return _pressing
+
+func dragging() -> bool:
+	return _dragging
+
 ## Die Tür, deren Zug der Klick auf den Raum der laufenden Etage wäre ("" = keiner).
 func door_to(room_id: String) -> String:
 	if walkable_doors().is_empty():
@@ -257,39 +310,44 @@ func flashing_door() -> String:
 # --- Geometrie ------------------------------------------------------------------
 
 func unit() -> float:
-	if compact:
-		return unit_px if unit_px > 0.0 else maxf(size.x / COMPACT_UNIT_DIV, 1.0)
-	return maxf(size.x / UNIT_WIDTH, 1.0)
+	if unit_px > 0.0:
+		return unit_px
+	return maxf(size.x / (DETAIL_UNIT_DIV if detail() else COMPACT_UNIT_DIV), 1.0)
 
-## Die Fläche, in der der Turm steht (ohne Kopf, Fuß und Fußzeile).
+## Die Kopfzeile der Nahsicht.
+func head_rect() -> Rect2:
+	var u := unit()
+	return Rect2(u * PAD_UNITS, u * PAD_UNITS * 0.5, size.x - u * PAD_UNITS * 2.0, u * DETAIL_HEAD_UNITS)
+
+## Die Fläche, in der der Turm steht (ohne Kopf bzw. Fußzeile).
 func map_rect() -> Rect2:
 	var u := unit()
-	if compact:
+	if not detail():
 		return Rect2(0.0, 0.0, size.x, maxf(size.y - u * STRIP_FOOT_UNITS, 1.0))
-	var top := u * (PAD_UNITS + HEAD_UNITS + BAND_GAP_UNITS)
-	var bottom := size.y - u * (PAD_UNITS + FOOT_UNITS + BAND_GAP_UNITS)
-	return Rect2(u * PAD_UNITS, top, size.x - u * PAD_UNITS * 2.0, maxf(bottom - top, 1.0))
+	var top := head_rect().end.y + u * PAD_UNITS * 0.5
+	return Rect2(u * PAD_UNITS, top, size.x - u * PAD_UNITS * 2.0, maxf(size.y - u * PAD_UNITS * 0.5 - top, 1.0))
 
-## Die Fußzeile des Streifens („Etage n · Zug m“) bzw. die Auskunft der großen Karte.
+## Die Fußzeile des Streifens („Etage n · Zug m“).
 func foot_rect() -> Rect2:
 	var u := unit()
-	if compact:
-		return Rect2(0.0, size.y - u * STRIP_FOOT_UNITS, size.x, u * STRIP_FOOT_UNITS)
-	return Rect2(u * PAD_UNITS, size.y - u * (PAD_UNITS + FOOT_UNITS),
-		size.x - u * PAD_UNITS * 2.0, u * FOOT_UNITS)
+	return Rect2(0.0, size.y - u * STRIP_FOOT_UNITS, size.x, u * STRIP_FOOT_UNITS)
 
-## {tile_w, lane_gap, tile_h, band_h, gap, hidden_h, block}
+## {tile_w, lane_gap, side, tile_h, band_h, gap, hidden_h, block}
 func metrics() -> Dictionary:
 	var area := map_rect()
-	var lane_gap_share := COMPACT_LANE_GAP if compact else LANE_GAP
-	var tile_w := area.size.x / (float(FloorMap.LANES) + lane_gap_share * float(FloorMap.LANES - 1))
+	var lanes := float(FloorMap.LANES)
+	var gap_share := DETAIL_LANE_GAP if detail() else COMPACT_LANE_GAP
+	var side_share := DETAIL_SIDE if detail() else 0.0
+	var tile_w := area.size.x / (lanes + gap_share * (lanes - 1.0) + side_share * 2.0)
 	var tile_h := tile_w * TILE_ASPECT
-	if not compact:
-		tile_h = minf(tile_h, area.size.y / BIG_FLOOR_TILES)
 	var band_h := tile_h * BAND_SHARE
 	var gap := tile_h * ROW_GAP_SHARE
-	return {"tile_w": tile_w, "lane_gap": tile_w * lane_gap_share, "tile_h": tile_h,
-		"band_h": band_h, "gap": gap, "hidden_h": tile_h * HIDDEN_SHARE,
+	if detail():
+		tile_h = minf(area.size.y * DETAIL_TILE_SHARE, tile_w * DETAIL_TILE_ASPECT_MAX)
+		band_h = tile_h * DETAIL_BAND_SHARE
+		gap = tile_h * DETAIL_GAP_SHARE
+	return {"tile_w": tile_w, "lane_gap": tile_w * gap_share, "side": tile_w * side_share,
+		"tile_h": tile_h, "band_h": band_h, "gap": gap, "hidden_h": tile_h * HIDDEN_SHARE,
 		"block": band_h + tile_h * float(FloorMap.ROWS - 2) + gap * float(FloorMap.ROWS - 1)}
 
 ## Turm-Reihe (von unten, über alle Etagen) - je Etage vier: Band, drei Raumreihen.
@@ -318,9 +376,10 @@ func _row_rect(row: int, lane: int) -> Rect2:
 	var m := metrics()
 	var area := map_rect()
 	var y := _local_y(row_bottom(row) + row_height(row))
+	var side := float(m["side"])
 	if lane < 0:
-		return Rect2(area.position.x, y, area.size.x, row_height(row))
-	var x := area.position.x + float(lane) * (float(m["tile_w"]) + float(m["lane_gap"]))
+		return Rect2(area.position.x + side, y, area.size.x - side * 2.0, row_height(row))
+	var x := area.position.x + side + float(lane) * (float(m["tile_w"]) + float(m["lane_gap"]))
 	return Rect2(x, y, float(m["tile_w"]), row_height(row))
 
 ## Reihe eines Raums im Turm; Eingang und Büro sind Bänder über die Breite.
@@ -383,7 +442,14 @@ func door_segment(door_id: String, floor_no: int = 0) -> PackedVector2Array:
 func _door_vertical(seg: PackedVector2Array) -> bool:
 	return seg.size() == 2 and is_equal_approx(seg[0].x, seg[1].x)
 
-## Die Marke einer Tür: mittig auf dem Steg, nie auf einer Kachel.
+## Ob eine Tür nur eine kleine Marke trägt (unerkundet, frei, gesperrt, ausgebrannt).
+func _plain_door(door: Dictionary) -> bool:
+	return not bool(door.get("scouted", false)) or int(door["state"]) != FloorMap.DoorState.OPEN \
+		or (detail() and String(door.get("clause", "")) == "")
+
+## Die Marke einer Tür: mittig auf dem Steg, nie auf einer Kachel. In der Nahsicht trägt
+## eine erkundete Tür Namen und vollen Text: quer so breit wie Kachel und Fuge, längs so
+## hoch wie die Kachel.
 func door_mark_rect(door_id: String, floor_no: int = 0) -> Rect2:
 	var seg := door_segment(door_id, floor_no)
 	if seg.size() != 2:
@@ -393,18 +459,19 @@ func door_mark_rect(door_id: String, floor_no: int = 0) -> Rect2:
 	var mid := (seg[0] + seg[1]) * 0.5
 	var gap := seg[0].distance_to(seg[1])
 	var door: Dictionary = _floor_data(floor_no)["doors"][door_id]
-	var plain := not bool(door.get("scouted", false)) or int(door["state"]) != FloorMap.DoorState.OPEN
-	if compact or plain:
-		var side := minf(gap * 0.82, minf(float(m["gap"]), float(m["lane_gap"])) * 0.82)
-		if not compact:
-			side = minf(gap - u * 0.4, u * 2.8)
+	if _plain_door(door):
+		var side: float
+		if detail():
+			side = minf(u * DETAIL_PLAIN_UNITS, gap * 0.82)
+		else:
+			side = minf(gap * 0.82, minf(float(m["gap"]), float(m["lane_gap"])) * 0.82)
 		side = maxf(side, 4.0)
 		return Rect2(mid - Vector2(side, side) * 0.5, Vector2(side, side))
 	var size_px: Vector2
 	if _door_vertical(seg):
-		size_px = Vector2(float(m["tile_w"]), gap - u * 0.5)
+		size_px = Vector2(float(m["tile_w"]) + float(m["lane_gap"]) * 0.8, gap - u * 0.6)
 	else:
-		size_px = Vector2(gap - u * 0.5, float(m["tile_h"]) * 0.86)
+		size_px = Vector2(gap - u * 0.5, float(m["tile_h"]) * 0.9)
 	return Rect2(mid - size_px * 0.5, size_px)
 
 ## Oberkante des Inhalts: das verborgene Band über dem Büro der laufenden Etage.
@@ -418,23 +485,39 @@ func _hidden_rect() -> Rect2:
 	var h := float(metrics()["hidden_h"])
 	return Rect2(area.position.x, _local_y(row_bottom(row) + h), area.size.x, h)
 
-func _scroll_range() -> Vector2:
+## Wohin der Ausschnitt darf: von der Unterkante des Turms bis über das verborgene Band;
+## der Platz des Pucks gehört immer dazu.
+func scroll_range() -> Vector2:
 	var u := unit()
 	var low := -u * PAD_UNITS
 	var high := maxf(low, content_top() + u * PAD_UNITS - map_rect().size.y)
+	if not _floors.is_empty():
+		var target := _puck_target()
+		low = minf(low, target)
+		high = maxf(high, target)
 	return Vector2(low, high)
 
-## Wo der Ausschnitt für den Puck steht: im Streifen im unteren Drittel, groß die ganze Etage.
+## Wo der Ausschnitt für den Puck steht: im Streifen im unteren Drittel, in der Nahsicht
+## steht die Reihe über dem Puck mittig - der Standraum ragt unten herein.
 func puck_scroll() -> float:
-	var target: float
-	if compact:
-		var here := _puck_rect()
+	var span := scroll_range()
+	return clampf(_puck_target(), span.x, span.y)
+
+func _puck_target() -> float:
+	var here := _puck_rect()
+	if not detail():
 		var center_content := map_rect().end.y - here.get_center().y + scroll
-		target = center_content - map_rect().size.y * PUCK_SHARE
-	else:
-		target = row_bottom(global_row(current_floor(), 0)) - unit() * PAD_UNITS
-	var span := _scroll_range()
-	return clampf(target, span.x, span.y)
+		return center_content - map_rect().size.y * PUCK_SHARE
+	var row := _puck_row() + 1
+	var middle := row_bottom(row) + row_height(row) * 0.5
+	return middle - map_rect().size.y * 0.5
+
+func _puck_row() -> int:
+	var data := _floor_data(0)
+	var room: Dictionary = (data.get("rooms", {}) as Dictionary).get(String(state.get("position", "")), {})
+	if room.is_empty():
+		return global_row(current_floor(), 0)
+	return _room_row(int(data["floor"]), room)
 
 func _puck_rect() -> Rect2:
 	return room_rect(String(state.get("position", "")))
@@ -462,19 +545,26 @@ func scroll_by(steps: float) -> void:
 	if _scroll_tween != null and _scroll_tween.is_valid():
 		_scroll_tween.kill()
 	var m := metrics()
-	var span := _scroll_range()
+	var span := scroll_range()
 	_set_scroll(clampf(scroll + steps * (float(m["tile_h"]) + float(m["gap"])), span.x, span.y))
 	_free_scroll = true
 	_away = 0.0
-	set_process(compact)
+	set_process(not detail())
 
+## Ob der Ausschnitt vom Puck weggerollt steht.
 func scrolled_free() -> bool:
+	if detail():
+		return not _floors.is_empty() and absf(scroll - puck_scroll()) > 0.5
 	return _free_scroll
 
 func _set_scroll(value: float) -> void:
 	scroll = value
-	if not compact and not is_equal_approx(_built_scroll, scroll):
-		_rebuild()
+	if detail() and not _opening:
+		if _visible_item_keys() != _built_keys:
+			_rebuild_items()
+		else:
+			_holder.position = Vector2(0.0, scroll - _built_scroll)
+		_sync_to_puck()
 	_redraw()
 
 func _process(delta: float) -> void:
@@ -509,6 +599,17 @@ func visible_room_keys() -> Array[String]:
 				continue
 			if room_rect(room_id, f).intersects(area):
 				keys.append("%d/%s" % [f, room_id])
+	return keys
+
+## Räume und Tür-Marken im Ausschnitt - genau das baut die Nahsicht.
+func _visible_item_keys() -> Array[String]:
+	var keys := visible_room_keys()
+	var area := map_rect()
+	for f in visible_floors():
+		var data := _floor_data(f)
+		for door_id: String in data["doors"]:
+			if door_mark_rect(door_id, f).intersects(area):
+				keys.append("%d/d/%s" % [f, door_id])
 	return keys
 
 ## Der Eingang einer höheren Etage wird nicht gezeichnet: das Büro darunter steht dort.
@@ -547,7 +648,7 @@ func _entry(target: Dictionary) -> Dictionary:
 func _on_current(target: Dictionary) -> bool:
 	return not target.is_empty() and int(target.get("floor", current_floor())) == current_floor()
 
-## Der Zug hinter dem Ziel ("" = es nimmt keinen Klick).
+## Der gangbare Zug hinter dem Ziel ("" = keiner).
 func move_for(target: Dictionary) -> String:
 	if not _on_current(target):
 		return ""
@@ -560,17 +661,27 @@ func move_for(target: Dictionary) -> String:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
-		hover_at((event as InputEventMouseMotion).position)
+		var motion := event as InputEventMouseMotion
+		if _pressing:
+			drag_to(motion.position)
+			accept_event()
+			return
+		hover_at(motion.position)
 	elif event is InputEventMouseButton:
 		var button := event as InputEventMouseButton
-		if button.button_index == MOUSE_BUTTON_LEFT and button.pressed:
-			if press_at(button.position):
+		if button.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if button.pressed:
+			if begin_press(button.position):
 				accept_event()
+		elif end_press(button.position):
+			accept_event()
 
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_MOUSE_EXIT, NOTIFICATION_VISIBILITY_CHANGED:
-			clear_hover()
+			if not _pressing:
+				clear_hover()
 		NOTIFICATION_RESIZED:
 			if not state.is_empty():
 				snap_to_puck(true)
@@ -585,30 +696,85 @@ func hover_at(local: Vector2) -> void:
 	_refresh_pointer()
 
 func _refresh_pointer() -> void:
-	_write_info()
-	var shape := Control.CURSOR_POINTING_HAND if move_for(_hover) != "" or compact else Control.CURSOR_ARROW
+	var shape := Control.CURSOR_POINTING_HAND if takes_moves() and move_for(_hover) != "" \
+		else Control.CURSOR_ARROW
 	mouse_default_cursor_shape = shape
 	_redraw()
 	hover_changed.emit()
 
-## Klick an der Stelle: ein gangbarer Nachbar meldet seinen Zug; im Streifen rastet die
-## Fußzeile auf den Puck zurück, und jeder andere Klick schlägt die große Karte auf.
-func press_at(local: Vector2) -> bool:
-	if state.is_empty():
+## Druck in der Nahsicht: eine MÖGLICHE Geste - erst das Loslassen sagt Klick oder Zug.
+func begin_press(local: Vector2) -> bool:
+	if not detail() or state.is_empty() or not Rect2(Vector2.ZERO, size).has_point(local):
 		return false
-	if compact and foot_rect().has_point(local):
-		snap_to_puck(false)
-		return true
-	var door_id := move_for(target_at(local))
-	if door_id != "":
-		door_chosen.emit(door_id)
-		return true
-	if compact and map_rect().has_point(local):
-		open_requested.emit()
-		return true
-	return false
+	if _scroll_tween != null and _scroll_tween.is_valid():
+		_scroll_tween.kill()
+	_pressing = true
+	_dragging = false
+	_press_at = local
+	_press_scroll = scroll
+	return true
 
-# --- Auskunft (die EINE Quelle für Karte und Hub) ---------------------------------
+## Über der Schwelle des Magazins wird der Druck zum ZUG: er schiebt den Ausschnitt.
+func drag_to(local: Vector2) -> void:
+	if not _pressing:
+		return
+	if not _dragging and local.distance_to(_press_at) > PackDrawerView.DRAG_THRESHOLD:
+		_dragging = true
+		_hover = {}
+		_refresh_pointer()
+	if _dragging:
+		_set_scroll(_rubber(_press_scroll + (local.y - _press_at.y)))
+
+## Loslassen: unter der Schwelle ist es ein Klick (er zieht), ein Zug bleibt liegen, wo er
+## losgelassen wird, und federt nur über die Enden zurück.
+func end_press(local: Vector2) -> bool:
+	if not _pressing:
+		return false
+	_pressing = false
+	if not _dragging:
+		press_at(local)
+		hover_at(local)
+		return true
+	_dragging = false
+	var span := scroll_range()
+	var settled := clampf(scroll, span.x, span.y)
+	if not is_equal_approx(settled, scroll):
+		if is_inside_tree():
+			_scroll_tween = create_tween()
+			_scroll_tween.tween_method(_set_scroll, scroll, settled, SNAP_TIME).set_trans(Tween.TRANS_SINE)
+		else:
+			_set_scroll(settled)
+	hover_at(local)
+	return true
+
+## Das Loslassen kam nicht an (außerhalb der Anzeige): kein Klick, ein Zug federt ein.
+func cancel_press() -> void:
+	if not _pressing:
+		return
+	_dragging = true
+	end_press(_press_at)
+
+## Über die Enden hinaus gibt der Ausschnitt nur gedämpft nach.
+func _rubber(value: float) -> float:
+	var span := scroll_range()
+	if value < span.x:
+		return span.x - (span.x - value) * RUBBER
+	if value > span.y:
+		return span.y + (value - span.y) * RUBBER
+	return value
+
+## Klick an der Stelle: ein gangbarer Raum oder seine Tür meldet den Zug. Nur die
+## Nahsicht zieht; der Streifen ist reine Übersicht.
+func press_at(local: Vector2) -> bool:
+	if state.is_empty() or not takes_moves():
+		return false
+	var door_id := move_for(target_at(local))
+	if door_id == "":
+		return false
+	door_chosen.emit(door_id)
+	return true
+
+# --- Auskunft (die EINE Quelle für den Hub) ----------------------------------------
 
 ## {title, body, color, move, move_color}: das Ziel unter dem Zeiger, sonst die Ruhe.
 func info_parts() -> Dictionary:
@@ -651,6 +817,14 @@ func info_text() -> String:
 static func _blind_line(blind: float, percent: int, cushion: float) -> Array:
 	var prefix := "+" if percent >= 0 else "−"
 	var text := BLIND_LINE % [BigNumber.short(blind), "%s%d %%" % [prefix, absi(percent)]]
+	if cushion <= 0.0:
+		return [text, TEXT_COLOR]
+	return [text + CUSHION_PART % BigNumber.factor(cushion), SHORT_COLOR if cushion < 1.0 else TEXT_COLOR]
+
+## [Text, Farbe] der kurzen Zug-Zeile an einer Kachel der Nahsicht („Blind 520 · Polster ×2,9“).
+static func move_line(door: Dictionary) -> Array:
+	var text := MOVE_LINE % BigNumber.short(float(door.get("blind_after", 0)))
+	var cushion := float(door.get("cushion_after", 0.0))
 	if cushion <= 0.0:
 		return [text, TEXT_COLOR]
 	return [text + CUSHION_PART % BigNumber.factor(cushion), SHORT_COLOR if cushion < 1.0 else TEXT_COLOR]
@@ -772,117 +946,156 @@ static func wrap_name(text: String, font: Font, px: int, width: float) -> Packed
 		lines.append(line)
 	return lines
 
-## Größter Grad von biggest bis smallest, in dem der Name umbrochen in die Fläche paßt:
-## {lines, px}. Paßt er nicht einmal klein, steht er klein in ganzen Wörtern.
+## Größter Grad von biggest bis smallest, in dem der Text umbrochen in die Fläche paßt:
+## {lines, px, fits}. Paßt er nicht einmal klein, steht er klein in ganzen Wörtern.
 static func fit_name(text: String, font: Font, width: float, height: float, biggest: int,
 		smallest: int) -> Dictionary:
 	for px in range(biggest, smallest - 1, -1):
 		var lines := wrap_name(text, font, px, width)
-		if not lines.is_empty() and font.get_height(px) * LINE_BOX * float(lines.size()) <= height:
-			return {"lines": lines, "px": px}
+		if not lines.is_empty() and text_height(font, px, lines.size()) <= height:
+			return {"lines": lines, "px": px, "fits": true}
 	var fallback := wrap_name(text, font, smallest, width)
 	if fallback.is_empty():
 		fallback = text.split(" ", false)
-	return {"lines": fallback, "px": smallest}
+	return {"lines": fallback, "px": smallest, "fits": false}
+
+## Die Höhe von n Zeilen im Grad px.
+static func text_height(font: Font, px: int, lines: int) -> float:
+	return font.get_height(px) * LINE_BOX * float(lines)
 
 func _font() -> Font:
 	var font := get_theme_font("font", "Label")
 	return font if font != null else ThemeDB.fallback_font
 
-# --- Aufbau (nur die große Karte baut Schrift) --------------------------------------
+# --- Aufbau (nur die Nahsicht baut Schrift, und nur im Ausschnitt) -----------------
 
 func _rebuild() -> void:
-	_built_scroll = scroll
 	var area := map_rect()
 	_layer.position = area.position
 	_layer.size = area.size
-	if compact:
+	for child in get_children():
+		if child != _layer and child != _to_puck:
+			remove_child(child)
+			child.free()
+	if detail() and not state.is_empty():
+		var u := unit()
+		var head := head_rect()
+		var head_tint := LOCKED_COLOR if is_boss(state) else TEXT_COLOR
+		var left := _place_label("Head", head_text(state), head, u * DETAIL_HEAD_FONT_UNITS, head_tint,
+			HORIZONTAL_ALIGNMENT_LEFT)
+		left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var right := _place_label("HeadBlind", blind_text(state), head, u * DETAIL_HEAD_FONT_UNITS,
+			head_tint, HORIZONTAL_ALIGNMENT_RIGHT)
+		right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_rebuild_items()
+
+## Die Beschriftung des Ausschnitts - ein Zug baut nur sie neu, wenn andere Räume ins Bild kommen.
+func _rebuild_items() -> void:
+	_built_scroll = scroll
+	_holder.position = Vector2.ZERO
+	_built_keys.clear()
+	if detail() and not state.is_empty():
+		_built_keys = _visible_item_keys()
+	for child in _holder.get_children():
+		_holder.remove_child(child)
+		child.free()
+	_sync_to_puck()
+	if _built_keys.is_empty():
 		_redraw()
 		return
-	for host: Node in [self, _layer]:
-		for child in host.get_children():
-			if child == _layer:
-				continue
-			host.remove_child(child)
-			child.queue_free()
-	if state.is_empty():
-		return
 	var u := unit()
-	var head := Rect2(u * PAD_UNITS, u * PAD_UNITS, size.x - u * PAD_UNITS * 2.0, u * HEAD_UNITS)
-	var head_tint := LOCKED_COLOR if is_boss(state) else TEXT_COLOR
-	var left := _place_label("Head", head_text(state), head, u * HEAD_FONT_UNITS, head_tint,
-		HORIZONTAL_ALIGNMENT_LEFT)
-	left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var right := _place_label("HeadBlind", blind_text(state), head, u * HEAD_FONT_UNITS, head_tint,
-		HORIZONTAL_ALIGNMENT_RIGHT)
-	right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	for f in visible_floors():
 		var data := _floor_data(f)
 		for room_id: String in data["rooms"]:
-			if not _hidden_entrance(data, room_id) and room_rect(room_id, f).intersects(area):
+			if _built_keys.has("%d/%s" % [f, room_id]):
 				_build_room(data, room_id, u)
 		for door_id: String in data["doors"]:
-			if door_mark_rect(door_id, f).intersects(area):
+			if _built_keys.has("%d/d/%s" % [f, door_id]):
 				_build_mark(data, door_id, u)
-	var foot := foot_rect().grow_individual(-u * 1.2, -u * 0.6, -u * 1.2, -u * 0.6)
-	var title_h := u * INFO_TITLE_UNITS * 1.35
-	_info_row = Rect2(foot.position, Vector2(foot.size.x, title_h))
-	_info_title = _place_label("InfoTitle", "", _info_row, u * INFO_TITLE_UNITS, TEXT_COLOR,
-		HORIZONTAL_ALIGNMENT_LEFT)
-	_info_move = _place_label("InfoMove", "", _info_row, u * INFO_BODY_UNITS, TEXT_COLOR,
-		HORIZONTAL_ALIGNMENT_RIGHT)
-	_info_move.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_info_body = _place_label("InfoBody", "", Rect2(foot.position + Vector2(0.0, title_h),
-		Vector2(foot.size.x, foot.size.y - title_h)), u * INFO_BODY_UNITS, MUTED_COLOR.lightened(0.35),
-		HORIZONTAL_ALIGNMENT_LEFT)
-	_info_body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_info_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	_write_info()
 	_redraw()
+
+## Der Knopf „Zum Puck“ steht mittig im Kopf, nur wenn der Ausschnitt verschoben ist.
+func _sync_to_puck() -> void:
+	var shown := detail() and not state.is_empty() and scrolled_free()
+	_to_puck.visible = shown
+	if not shown:
+		return
+	var u := unit()
+	var head := head_rect()
+	var w := u * 11.0
+	_to_puck.position = Vector2(head.get_center().x - w * 0.5, head.position.y)
+	_to_puck.size = Vector2(w, head.size.y)
+	CasinoStyle.style_button(_to_puck, BRASS, BRASS_DARK, int(u * DETAIL_HEAD_FONT_UNITS))
 
 ## Name der Kachel-Knoten: die laufende Etage schlicht, die Geschichte mit Etage davor.
 func _node_name(data: Dictionary, kind: String, id: String) -> String:
 	return "%s_%s" % [kind, id] if bool(data["current"]) else "H%d_%s_%s" % [int(data["floor"]), kind, id]
 
+## Ein Text in einer Fläche: größter Grad, der ohne Wortbruch paßt; liefert seine Höhe.
+func _fit_label(node_name: String, text: String, rect: Rect2, grades: Vector2, u: float,
+		color: Color, align: int = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
+	var fit := fit_name(text, _font(), rect.size.x, rect.size.y, int(u * grades.x), int(u * grades.y))
+	var lines: PackedStringArray = fit["lines"]
+	var h := minf(text_height(_font(), int(fit["px"]), lines.size()) + 1.0, rect.size.y)
+	var label := _place_label(node_name, "\n".join(lines), Rect2(rect.position, Vector2(rect.size.x, h)),
+		float(fit["px"]), color, align)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	return label
+
 func _build_room(data: Dictionary, room_id: String, u: float) -> void:
 	var room: Dictionary = data["rooms"][room_id]
 	var f := int(data["floor"])
-	var rect := room_rect(room_id, f).grow(-u * 0.5)
-	var tint := _room_color(room)
 	var current := bool(data["current"])
-	var standing := current and room_id == String(state.get("position", ""))
 	var fade := 1.0 if current else HISTORY_ALPHA
+	var tint := _room_color(room)
+	var inner := room_rect(room_id, f).grow(-u * 0.9)
 	if _is_band(room):
-		var text := _band_text(data, room)
-		# Links, damit der Puck in der Mitte des Bandes nichts verdeckt.
-		var band := _place_label(_node_name(data, "Room", room_id), text, rect.grow_individual(-u, 0, -u, 0),
-			u * NAME_UNITS.y, tint if current else MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT)
+		var band := _place_label(_node_name(data, "Room", room_id), _band_text(data, room),
+			inner, u * DETAIL_NAME.x, tint if current else MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT)
 		band.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		band.modulate.a = fade
 		return
-	var dim := bool(room["visited"]) and not standing
-	var name_fit := fit_name(String(room["name"]), _font(), rect.size.x - u, rect.size.y * 0.42,
-		int(u * NAME_UNITS.x), int(u * NAME_UNITS.y))
-	var name_h := rect.size.y * 0.42
-	var name_rect := Rect2(rect.position + Vector2(0.0, rect.size.y * 0.08), Vector2(rect.size.x, name_h))
-	var name_label := _place_label(_node_name(data, "Room", room_id),
-		"\n".join(name_fit["lines"]), name_rect, float(name_fit["px"]), TEXT_COLOR,
-		HORIZONTAL_ALIGNMENT_CENTER)
-	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_label.modulate.a = fade * (VISITED_ALPHA + 0.25 if dim else 1.0)
+	var standing := current and room_id == String(state.get("position", ""))
+	var visited := bool(room["visited"]) and not standing
+	var name_rect := inner
+	if standing:  # rechts oben steht der Puck
+		name_rect.size.x -= u * (DETAIL_PUCK_UNITS * 2.0 + 1.0)
+	name_rect.size.y = text_height(_font(), int(u * DETAIL_NAME.x), 1) + 1.0
+	var name_label := _fit_label(_node_name(data, "Room", room_id), String(room["name"]),
+		name_rect, Vector2(DETAIL_NAME.x, DETAIL_NAME.y), u, TEXT_COLOR)
+	name_label.modulate.a = fade * (VISITED_ALPHA + 0.25 if visited else 1.0)
+	var y := name_rect.position.y + name_label.size.y + u * 0.2
 	if standing:
-		return  # dort steht der Puck
+		return
+	if visited:
+		var seen := _place_label(_node_name(data, "Visited", room_id), VISITED_TEXT,
+			Rect2(inner.position.x, y, inner.size.x, text_height(_font(), int(u * DETAIL_BONUS.y), 1)),
+			u * DETAIL_BONUS.y, MUTED_COLOR, HORIZONTAL_ALIGNMENT_LEFT)
+		seen.modulate.a = fade
+		return
 	var clause := DealClause.find(String(room["bonus"]))
 	if clause == null:
 		return
-	var sub_rect := Rect2(Vector2(rect.position.x, name_rect.end.y),
-		Vector2(rect.size.x, rect.end.y - name_rect.end.y - u * 0.3))
-	var sub_fit := fit_name(clause.display_name, _font(), sub_rect.size.x - u, sub_rect.size.y,
-		int(u * BONUS_UNITS.x), int(u * BONUS_UNITS.y))
-	var sub := _place_label(_node_name(data, "Bonus", room_id), "\n".join(sub_fit["lines"]),
-		sub_rect, float(sub_fit["px"]), tint, HORIZONTAL_ALIGNMENT_CENTER)
-	sub.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	sub.modulate.a = fade * (VISITED_ALPHA if dim else 1.0)
+	var bottom := inner.end.y
+	var door_id := door_to(room_id) if current else ""
+	if door_id != "":
+		var line := move_line((data["doors"] as Dictionary).get(door_id, {}))
+		var line_h := text_height(_font(), int(u * DETAIL_MOVE_UNITS), 1) + 1.0
+		var move := _place_label(_node_name(data, "Move", room_id), String(line[0]),
+			Rect2(inner.position.x, inner.end.y - line_h, inner.size.x, line_h),
+			u * DETAIL_MOVE_UNITS, line[1], HORIZONTAL_ALIGNMENT_LEFT)
+		move.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		bottom = move.position.y - u * 0.2
+	var sub := _fit_label(_node_name(data, "Bonus", room_id), clause.display_name,
+		Rect2(inner.position.x, y, inner.size.x, text_height(_font(), int(u * DETAIL_BONUS.x), 2)),
+		DETAIL_BONUS, u, tint)
+	sub.modulate.a = fade
+	y += sub.size.y + u * 0.15
+	var body := _fit_label(_node_name(data, "Text", room_id),
+		DealClause.text_for(String(room["bonus"]), bonus_factor),
+		Rect2(inner.position.x, y, inner.size.x, maxf(bottom - y, 1.0)), DETAIL_TEXT, u,
+		MUTED_COLOR.lightened(0.45))
+	body.modulate.a = fade
 
 func _band_text(data: Dictionary, room: Dictionary) -> String:
 	if bool(room.get("entrance", false)):
@@ -896,63 +1109,57 @@ func _build_mark(data: Dictionary, door_id: String, u: float) -> void:
 	if int(door["state"]) != FloorMap.DoorState.OPEN:
 		return  # ausgebrannt: heller Weg; gesperrt: Kreuz - beides gemalt, ohne Text
 	var f := int(data["floor"])
-	var inner := door_mark_rect(door_id, f).grow(-u * 0.3)
 	var fade := 1.0 if bool(data["current"]) else HISTORY_ALPHA
-	if not bool(door["scouted"]):
-		var unknown := _place_label(_node_name(data, "Mark", door_id), UNKNOWN_TEXT, inner,
-			u * MARK_UNITS.x, UNKNOWN_COLOR, HORIZONTAL_ALIGNMENT_CENTER)
-		unknown.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		unknown.modulate.a *= fade
+	var rect := door_mark_rect(door_id, f)
+	if _plain_door(door):
+		var plain := FREE_TEXT if bool(door["scouted"]) else UNKNOWN_TEXT
+		var color := _door_color(door) if bool(door["scouted"]) else UNKNOWN_COLOR
+		var small := _place_label(_node_name(data, "Mark", door_id), plain, rect,
+			u * DETAIL_MARK_NAME.y, color, HORIZONTAL_ALIGNMENT_CENTER)
+		small.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		small.modulate.a *= fade
 		return
-	var text := FREE_TEXT
-	if String(door["clause"]) != "":
-		var clause := DealClause.find(String(door["clause"]))
-		text = clause.display_name if clause != null else String(door["clause"])
-	var fit := fit_name(text, _font(), inner.size.x, inner.size.y, int(u * MARK_UNITS.x),
-		int(u * MARK_UNITS.y))
-	var label := _place_label(_node_name(data, "Mark", door_id), "\n".join(fit["lines"]), inner,
-		float(fit["px"]), _door_color(door), HORIZONTAL_ALIGNMENT_CENTER)
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.modulate.a *= fade
+	var inner := rect.grow(-u * 0.5)
+	var clause_id := String(door["clause"])
+	var clause := DealClause.find(clause_id)
+	var title := clause.display_name if clause != null else clause_id
+	var name_box := Rect2(inner.position, Vector2(inner.size.x,
+		text_height(_font(), int(u * DETAIL_MARK_NAME.x), 2)))
+	var name_label := _fit_label(_node_name(data, "Mark", door_id), title, name_box,
+		DETAIL_MARK_NAME, u, _door_color(door), HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.modulate.a *= fade
+	var top := inner.position.y + name_label.size.y + u * 0.1
+	var body := _fit_label(_node_name(data, "MarkText", door_id),
+		DealClause.text_for(clause_id, bonus_factor),
+		Rect2(inner.position.x, top, inner.size.x, maxf(inner.end.y - top, 1.0)), DETAIL_MARK_TEXT, u,
+		MUTED_COLOR.lightened(0.45), HORIZONTAL_ALIGNMENT_CENTER)
+	body.modulate.a *= fade
+	# Name und Text stehen als Block mittig in der Marke.
+	var used := body.position.y + body.size.y - name_label.position.y
+	var drop := maxf(0.0, (inner.size.y - used) * 0.5)
+	name_label.position.y += drop
+	body.position.y += drop
 
+## Kopf und Knopf stehen auf der Karte, alles andere in der beschnittenen Kartenfläche.
 func _place_label(node_name: String, text: String, rect: Rect2, font_px: float, color: Color,
 		align: int) -> Label:
 	var label := CasinoStyle.label(text, font_px, color, align)
 	label.name = node_name
 	label.clip_text = true
 	label.size = rect.size
-	# Kopf und Auskunft stehen auf der Karte, alles andere in der beschnittenen Kartenfläche.
-	if node_name.begins_with("Head") or node_name.begins_with("Info"):
+	if node_name.begins_with("Head"):
 		label.position = rect.position
 		add_child(label)
 	else:
 		label.position = rect.position - _layer.position
-		_layer.add_child(label)
+		_holder.add_child(label)
 	return label
 
-func _write_info() -> void:
-	if compact or _info_title == null or not is_instance_valid(_info_title):
-		return
-	var parts := info_parts()
-	_info_title.text = String(parts["title"])
-	_info_title.modulate = parts["color"]
-	_info_body.text = String(parts["body"])
-	_info_move.text = String(parts["move"])
-	_info_move.modulate = parts["move_color"]
-	_fit_info_row()
-
-## Die Zug-Zeile steht rechts in der Titelzeile, der Titel nimmt den Rest.
-func _fit_info_row() -> void:
-	var u := unit()
-	var width := 0.0
-	if _info_move.text != "":
-		var font := _info_move.get_theme_font("font")
-		var px := _info_move.get_theme_font_size("font_size")
-		width = minf(font.get_string_size(_info_move.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + u,
-			_info_row.size.x * 0.65) if font != null else _info_row.size.x * 0.5
-	_info_move.position = Vector2(_info_row.end.x - width, _info_row.position.y)
-	_info_move.size = Vector2(width, _info_row.size.y)
-	_info_title.size = Vector2(maxf(_info_row.size.x - width - u, 1.0), _info_row.size.y)
+## Wo ein Text der Ebene auf der Karte steht (für Tests und Sichtproben).
+func label_rect(label: Label) -> Rect2:
+	if label.get_parent() == _holder:
+		return Rect2(label.position + _layer.position + _holder.position, label.size)
+	return Rect2(label.position, label.size)
 
 # --- Malen ----------------------------------------------------------------------
 
@@ -974,15 +1181,13 @@ func _draw() -> void:
 	if state.is_empty():
 		return
 	var u := unit()
-	if compact:
+	if not detail():
 		_draw_strip_foot(u)
 		return
-	var foot := StyleBoxFlat.new()
-	foot.bg_color = FOOT_BG
-	foot.border_color = Color(MUTED_COLOR.r, MUTED_COLOR.g, MUTED_COLOR.b, 0.35)
-	foot.set_border_width_all(maxi(1, int(u * 0.15)))
-	foot.set_corner_radius_all(int(u * 1.0))
-	draw_style_box(foot, foot_rect())
+	var back := StyleBoxFlat.new()
+	back.bg_color = DETAIL_BG
+	back.set_corner_radius_all(int(u * 1.0))
+	draw_style_box(back, Rect2(Vector2.ZERO, size))
 
 ## Der Turm in der beschnittenen Kartenfläche (in Koordinaten der Karte gemalt).
 func _draw_map() -> void:
@@ -1004,7 +1209,7 @@ func _draw_map() -> void:
 	_draw_hidden(u)
 	var here := _puck_rect()
 	if here.intersects(area):
-		_draw_puck(_puck_center(here, u), u * PUCK_UNITS * (0.8 if compact else 1.0))
+		_draw_puck(_puck_center(here, u), u * (DETAIL_PUCK_UNITS if detail() else PUCK_UNITS * 0.8))
 	_canvas = self
 
 func _draw_door(data: Dictionary, door_id: String, u: float) -> void:
@@ -1058,7 +1263,7 @@ func _draw_room(data: Dictionary, room_id: String, u: float) -> void:
 	var dim := (bool(room["visited"]) and not standing) or not current
 	var box := StyleBoxFlat.new()
 	var mix := 0.32 if hovered else (0.2 if walk else (0.1 if dim else 0.16))
-	if compact:
+	if not detail():
 		mix += 0.14  # ohne Text trägt die Fläche die Stufe
 	box.bg_color = TILE_BG.lerp(Color(tint.r, tint.g, tint.b, TILE_BG.a), mix)
 	box.border_color = Color(tint.r, tint.g, tint.b, 1.0 if walk else (0.4 if dim else 0.75))
@@ -1068,7 +1273,7 @@ func _draw_room(data: Dictionary, room_id: String, u: float) -> void:
 	elif dim:
 		box.bg_color.a = 0.7
 	box.set_border_width_all(maxi(1, int(u * (0.4 if walk else 0.2))))
-	box.set_corner_radius_all(int(u * (0.7 if compact else 1.0)))
+	box.set_corner_radius_all(int(u * (1.0 if detail() else 0.7)))
 	if walk:
 		box.shadow_color = Color(tint.r, tint.g, tint.b, 0.55 if hovered else 0.32)
 		box.shadow_size = int(u * (1.3 if hovered else 0.8))
@@ -1088,7 +1293,7 @@ func _draw_band(data: Dictionary, room: Dictionary, rect: Rect2, u: float) -> vo
 		box.shadow_color = Color(tint.r, tint.g, tint.b, 0.4)
 		box.shadow_size = int(u * 0.9)
 	_canvas.draw_style_box(box, rect)
-	if compact:
+	if not detail():
 		_draw_centered(_band_text(data, room), rect.grow_individual(-u * 0.8, 0, -u * 0.8, 0),
 			u * BAND_FONT_UNITS, Color(tint.r, tint.g, tint.b, 1.0 if current else 0.75),
 			HORIZONTAL_ALIGNMENT_LEFT)
@@ -1105,12 +1310,11 @@ func _draw_hidden(u: float) -> void:
 	_canvas.draw_dashed_line(rect.position, Vector2(rect.position.x, rect.end.y), c, w, dash)
 	_canvas.draw_dashed_line(Vector2(rect.end.x, rect.position.y), rect.end, c, w, dash)
 	_draw_centered(NEXT_BAND % (current_floor() + 1), rect,
-		u * (BAND_FONT_UNITS if compact else NAME_UNITS.y), c)
+		u * (DETAIL_NAME.y if detail() else BAND_FONT_UNITS), c)
 
 func _draw_strip_foot(u: float) -> void:
 	var rect := foot_rect()
-	var free := _free_scroll
-	var color := TEXT_COLOR if not free else BRASS_LIGHT
+	var color := TEXT_COLOR if not _free_scroll else BRASS_LIGHT
 	_draw_centered(head_text(state), rect, u * STRIP_FOOT_FONT_UNITS,
 		LOCKED_COLOR if is_boss(state) else color)
 
@@ -1122,11 +1326,13 @@ func _draw_centered(text: String, rect: Rect2, px: float, color: Color,
 	_canvas.draw_string(font, Vector2(rect.position.x, y), text, align, rect.size.x,
 		size_px, color)
 
+## Im Streifen mittig; in der Nahsicht rechts oben in der Kachel - der Standraum ragt nur
+## mit seinem oberen Teil ins Bild.
 func _puck_center(rect: Rect2, u: float) -> Vector2:
-	if compact or rect.size.y < row_height(global_row(1, 1)) * 0.9:
+	if not detail() or rect.size.y < row_height(global_row(1, 1)) * 0.9:
 		return rect.get_center()
-	var inner := rect.grow(-u * 0.5)
-	return Vector2(inner.get_center().x, inner.get_center().y + u * (PUCK_UNITS + 0.8))
+	var r := u * DETAIL_PUCK_UNITS
+	return Vector2(rect.end.x - u * 0.9 - r, rect.position.y + u * 0.9 + r)
 
 ## Der Puck: eine Messing-Scheibe mit Rand und Glanz.
 func _draw_puck(center: Vector2, radius: float) -> void:
@@ -1148,7 +1354,7 @@ func _draw_mark(data: Dictionary, door_id: String, u: float) -> void:
 	var box := StyleBoxFlat.new()
 	box.bg_color = TILE_BG
 	box.border_color = Color(color.r, color.g, color.b, 1.0 if walk else 0.7)
-	if compact and bool(door["scouted"]):
+	if not detail() and bool(door["scouted"]):
 		# Ohne Text trägt die Marke ihre Stufe als Fläche.
 		box.bg_color = TILE_BG.lerp(Color(color.r, color.g, color.b, TILE_BG.a), 0.7)
 	if not current:
@@ -1159,6 +1365,6 @@ func _draw_mark(data: Dictionary, door_id: String, u: float) -> void:
 	if move_for(_hover) == door_id and walk:
 		box.bg_color = box.bg_color.lerp(Color(color.r, color.g, color.b, box.bg_color.a), 0.3)
 	_canvas.draw_style_box(box, rect)
-	if compact and not bool(door["scouted"]):
+	if not detail() and not bool(door["scouted"]):
 		_draw_centered(UNKNOWN_TEXT, rect, rect.size.y * 0.8,
 			Color(TEXT_COLOR.r, TEXT_COLOR.g, TEXT_COLOR.b, 1.0 if current else HISTORY_ALPHA))

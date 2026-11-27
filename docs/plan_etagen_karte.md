@@ -220,6 +220,37 @@ Welle 4 umgesetzt am 2026-11-27. Abweichungen: die Rundenpunkte lebten nur in `s
 
 Welle 5 umgesetzt am 2026-11-27. Abweichungen: Streifen und große Karte sind EINE Klasse (`FloorMapView`, `compact`), die Geschichte reist als `history` in `floor_view_state()`; die FUMBLE-QUOTE fehlt weiter (kein Wurf läuft durch GameRun), statt ihr steht „Blind-Schritt“ im Raster; die Laufwerte ticken nicht mehr, ein geänderter Wert blitzt nur; die große Karte rollt ohne Fahrt.
 
+## Welle 6 — die ENTSCHEIDUNG fällt in der GRUBE (Spieler-Entscheid 2026-11-27, nach dem ersten Blick ins Spiel)
+
+Der Streifen am Hub war Übersicht UND Bedienung zugleich und zu klein für beides; ein Klick
+zog sofort. Jetzt ist er nur noch der UMRISS, und gezogen wird auf dem Grubenboden.
+
+- HUB-STREIFEN: reine Übersicht. Er nimmt KEINEN Klick mehr (kein Zug, kein „Karte öffnen“),
+  der Zeiger zeigt weiter die Auskunft rechts. Der Knopf „Karte öffnen“ und das Öffnen der
+  großen Karte von der Startseite sind gestorben.
+- ABLAUF: nach dem Laden fährt die Kamera wie vor Welle 3 zurück (kein Halt am Hub). Ist ein
+  Zug fällig, ruft die Grube „RAUM WÄHLEN“ (statt „WÜRFELN“). Ein Klick auf die Grube fährt
+  heran, und auf dem GRUBENBODEN steht die NAHSICHT der Etage. Nach dem Zug schließt sie,
+  die Grube ruft „WÜRFELN“, die Runde beginnt wie bisher. Verläßt die Kamera die Grube ohne
+  Zug, ist die Nahsicht fort und kommt mit der Grube wieder. Runde 1 hat keinen Zug.
+- NAHSICHT (dieselbe Klasse, dritte Fassung „detail“): so groß, daß nur die aktuelle
+  Entscheidung im Bild ist — der Standraum am unteren Rand, die Reihe der gangbaren Räume in
+  der Mitte, die Reihe danach angeschnitten am oberen Rand. Drei Räume quer füllen die Breite.
+  Jeder Raum trägt Name, Bonus-Name UND den vollen Bonus-Text, jede erkundete Tür Name und
+  vollen Malus-Text (unerkundet „?“, frei „frei“, gesperrt rot ohne Inhalt); an jedem
+  gangbaren Raum steht „Blind … · Polster ×…“ nach diesem Zug. Räume der eigenen Reihe und
+  der Raum darunter stehen an ihrem Platz und sind ebenso wählbar.
+- BEDIENUNG: ein kurzer Klick auf einen gangbaren Raum (oder seine Tür) zieht. Drücken und
+  ZIEHEN schiebt den Ausschnitt den Turm hinauf und hinab (auch in die geschafften Etagen),
+  ebenso das RAD an der Gruben-Station; die Schwelle zwischen Klick und Zug ist die des
+  Magazins. Der Ausschnitt bleibt, wo er losgelassen wird; ein Knopf „Zum Puck“ (und der
+  Rechtsklick, bevor er die Station verläßt) holt ihn zurück.
+- LADEN: der Knopf „Etage“ zeigt dieselbe Nahsicht als Hub-Seite, nur zum Ansehen.
+- Gestorben: der Zug am Hub-Streifen, „Karte öffnen“, die große Karte von der Startseite,
+  der Halt der Kamera am Hub nach „Fertig“.
+
+Welle 6 umgesetzt am 2026-11-27. Abweichungen: die Nahsicht rahmt die Kamera an der Gruben-Station senkrecht und eng von oben (temporärer Rahmen ohne Moduswechsel) - an der Station selbst stünden 0,43 Bildschirm-px je Display-px, kein Klausel-Text wäre lesbar; die FULL-Fassung ist gestorben (Modi COMPACT/DETAIL), die Laden-Seite zeigt die Nahsicht mit größerer Einheit; der Standraum ragt nur mit seinem oberen Teil herein, darum steht der Puck rechts oben in seiner Kachel.
+
 ## OFFEN (Spieler-Entscheid nötig oder erst im Testspiel zu klären)
 
 - WÖRTER: „Etage“, „Raum“, „Tür“, „Büro“ sind vorläufig. „Boss-Runde“ bleibt (Entscheid

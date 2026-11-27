@@ -1,61 +1,62 @@
 extends SceneTree
-## Sichtprobe des TURMS (Welle 5 der Etagen-Karte): im Maß des echten Hubs (1068 × 1125)
-## (1) die Startseite in Etage 1 mit fälligem Zug, (2) mitten in Etage 3 über zwei
-## geschafften Etagen mit gesperrter und freier Tür, Hover auf einem gangbaren Raum und
-## einem Diagramm über zehn Runden im Millionenbereich, (3) die große Karte, (4) das echte
-## Spiel an der Hub-Station. Gemessen werden die Schriftgrade (Display- und Bildschirm-px).
-## Aufruf: --path . --resolution 1280x720 --position 4000,2400 --quit-after 600
+## Sichtprobe der Welle 6 der Etagen-Karte (die Entscheidung fällt in der Grube):
+## (1) die NAHSICHT im Maß des Grubenbodens, Etage 1, Zug 1 vom Eingang; (2) mitten in der
+## Etage mit gesperrter und freier Tür, besuchtem Raum und rotem Polster; (3) nach oben
+## verschoben mit „Zum Puck“; (4) das echte Spiel an der GRUBEN-Station mit fälligem Zug;
+## (5) die Übersicht mit dem Lockruf „RAUM WÄHLEN“; (6) die Hub-Startseite mit dem höheren
+## Streifen. Gemessen werden die Schriftgrade (Display- und Bildschirm-px).
+## Aufruf: --path . --resolution 1280x720 --position 4000,2400 --quit-after 900
 ##   --script tools/godot_floor_map_probe.gd
 
-const OUT := "E:/Generated Images/Fumble/etagen_turm_2026-11-27/"
+const OUT := "E:/Generated Images/Fumble/etagen_grube_2026-11-27/"
 const HUB_SIZE := Vector2i(1068, 1125)
+const PIT_SIZE := Vector2i(985, 484)
 
 var game: Node
 var frame := 0
 var start := -1
-var _viewport: SubViewport
+var _hub_vp: SubViewport
+var _pit_vp: SubViewport
 var _hub: HubView
-var _page: FloorMapPage
+var _detail: FloorMapView
 var _studio: GameRun
+var _ratio := 0.0
 
 func _initialize() -> void:
 	DirAccess.make_dir_recursive_absolute(OUT)
 	game = (load("res://scenes/scene_root.tscn") as PackedScene).instantiate()
 	root.add_child(game)
 	current_scene = game
-	_viewport = SubViewport.new()
-	_viewport.size = HUB_SIZE
-	_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	root.add_child(_viewport)
-	var ground := ColorRect.new()
-	ground.color = Color("#0b1712")
-	ground.size = Vector2(HUB_SIZE)
-	_viewport.add_child(ground)
+	_hub_vp = _studio_viewport(HUB_SIZE)
 	_hub = HubView.new()
 	_hub.size = Vector2(HUB_SIZE)
-	_viewport.add_child(_hub)
+	_hub_vp.add_child(_hub)
 	_hub.layout()
-	_page = FloorMapPage.new()
-	_hub.attach_panel(_page)
-	_page.layout()
+	_pit_vp = _studio_viewport(PIT_SIZE)
+	_detail = FloorMapView.new()
+	_detail.mode = FloorMapView.Mode.DETAIL
+	_detail.size = Vector2(PIT_SIZE)
+	_pit_vp.add_child(_detail)
+
+func _studio_viewport(size: Vector2i) -> SubViewport:
+	var vp := SubViewport.new()
+	vp.size = size
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	root.add_child(vp)
+	var ground := ColorRect.new()
+	ground.color = Color("#0b1712")
+	ground.size = Vector2(size)
+	vp.add_child(ground)
+	return vp
 
 func _rig() -> CameraRig:
 	return game.get("camera_rig")
 
-func _shot_hub(file: String) -> void:
-	_viewport.get_texture().get_image().save_png(OUT + file)
+func _shot(vp: Viewport, file: String) -> void:
+	vp.get_texture().get_image().save_png(OUT + file)
 	print("Bild: ", OUT + file)
 
-## Hub-Stand aus einem Lauf - dieselben Aufrufe wie scene_root._refresh_hub_info.
-func _feed(run: GameRun, flash: String = "") -> void:
-	_hub.set_floor_state(run.floor_view_state(), run.deal_bonus_factor(), flash)
-	var saved: GameRun = game.get("run")
-	game.set("run", run)
-	_hub.set_run_values(game.call("_run_value_entries"))
-	game.set("run", saved)
-	_hub.set_chart(run.run_chart())
-
-func _sizes(node: Node, tag: String) -> void:
+func _sizes(node: Node, tag: String, ratio := 0.0) -> void:
 	var by: Dictionary = {}
 	for child in node.find_children("*", "Label", true, false):
 		var label := child as Label
@@ -65,7 +66,13 @@ func _sizes(node: Node, tag: String) -> void:
 		var px := label.get_theme_font_size("font_size")
 		var span: Vector2i = by.get(kind, Vector2i(9999, 0))
 		by[kind] = Vector2i(mini(span.x, px), maxi(span.y, px))
-	print("SCHRIFT ", tag, " ", by)
+	print("SCHRIFT ", tag, " (Display-px) ", by)
+	if ratio > 0.0:
+		var screen := {}
+		for kind: String in by:
+			var span: Vector2i = by[kind]
+			screen[kind] = "%.1f-%.1f" % [span.x * ratio, span.y * ratio]
+		print("SCHRIFT ", tag, " (Bildschirm-px) ", screen)
 
 ## Ein Zug Richtung Büro (gangbar, kürzester Weg).
 func _step(run: GameRun) -> void:
@@ -80,12 +87,6 @@ func _step(run: GameRun) -> void:
 			run.move_through(String(entry["id"]))
 			return
 
-## Eine Etage bis ins Büro gehen und abrechnen.
-func _clear_floor(run: GameRun) -> void:
-	while run.floor_map.position != run.floor_map.office:
-		_step(run)
-	run.settle_block_deals()
-
 func _process(_delta: float) -> bool:
 	frame += 1
 	if frame == 30:
@@ -93,91 +94,78 @@ func _process(_delta: float) -> bool:
 	if start < 0:
 		if frame > 120 and not _rig().is_animating:
 			start = frame
-		return frame > 590
+		return frame > 890
 	var t := frame - start
 	var run: GameRun = game.get("run")
 	var screen: TableScreen = game.get("table_screen")
 	match t:
 		2:
-			# (1) Etage 1, Runde 2: ein Zug ist fällig.
+			# (1) Etage 1, Runde 2: der erste Zug vom Eingang.
 			_studio = GameRun.new_run()
 			_studio.round_points = 620
 			_studio.advance_round()
-			_feed(_studio)
+			_detail.open(_studio.floor_view_state())
+			_hub.set_floor_state(_studio.floor_view_state())
+			_hub.set_floor_moves_enabled(true)
 		10:
-			_shot_hub("1_startseite_etage1_zug_faellig.png")
-			_sizes(_hub, "startseite")
+			_shot(_pit_vp, "1_nahsicht_etage1_zug1.png")
+			_sizes(_detail, "nahsicht_1")
+			_shot(_hub_vp, "6_startseite_streifen.png")
+			print("STREIFEN ", _hub.floor_map.size, " buehne ", _hub.roadmap_stage.size)
 		12:
-			# (2) Zwei Etagen geschafft, mitten in Etage 3, Zahlen im Millionenbereich.
-			_clear_floor(_studio)
-			_clear_floor(_studio)
+			# (2) Mitten in der Etage: besuchter Raum, gesperrte und freie Tür, rotes Polster.
 			_step(_studio)
 			_step(_studio)
 			_studio.move_due = true
+			_studio.round_scores.assign([30, 40])
 			var map := _studio.floor_map
-			for entry in map.doors_from(map.position):
-				if int(entry["state"]) == FloorMap.DoorState.OPEN and not map.is_office_door(entry):
-					entry["free"] = true
-					entry["malus"] = ""
-					break
 			var locked := ""
 			for entry in map.lock_candidates():
-				if not map.is_office_door(entry) and not bool(entry["free"]):
+				if not map.is_office_door(entry):
 					entry["state"] = FloorMap.DoorState.LOCKED
 					locked = String(entry["id"])
 					break
-			var blinds: Array[int] = []
-			var scores: Array[int] = []
-			for i in 10:
-				blinds.append(int(180.0 * pow(4.1, i)))
-				scores.append(int(520.0 * pow(4.4, i)))
-			_studio.blind_history = blinds
-			_studio.round_scores = scores
-			# Der laufende Blind setzt die Reihe fort (sonst bräche die Linie ab).
-			_studio.blind_value = float(blinds[-1]) * 3.2
-			_studio.round_goal = GameRun.floor_to_blind(_studio.blind_value)
-			_studio.best_hand = 2_400_000
-			_studio.farkle_count = 7
-			_feed(_studio, locked)
-			var walk: Array = _studio.floor_view_state()["walkable"]
-			var target := map.other_side(map.door(String(walk[0])), map.position)
-			_hub.floor_map.hover_at(_hub.floor_map.room_rect(target).get_center())
-		24:
-			_shot_hub("2_startseite_etage3_geschichte_hover.png")
-			_sizes(_hub, "mitten")
-			print("STREIFEN etagen sichtbar ", _hub.floor_map.visible_floors(),
-				" kacheln ", _hub.floor_map.visible_room_keys().size(), " u ", _hub.floor_map.unit())
-		26:
-			# (3) Die große Karte von der Startseite.
-			_page.open_from(false)
-			_page.show_state(_studio.floor_view_state())
-			_page.visible = true
-		30:
-			var map := _studio.floor_map
 			for entry in map.doors_from(map.position):
-				if int(entry["state"]) == FloorMap.DoorState.OPEN and bool(entry["scouted"]):
-					_page.map_view.hover_at(_page.map_view.door_mark_rect(String(entry["id"])).get_center())
+				if int(entry["state"]) == FloorMap.DoorState.OPEN and not map.is_office_door(entry) \
+						and String(entry["id"]) != locked and not map.rooms[map.other_side(entry, map.position)]["visited"]:
+					entry["free"] = true
+					entry["malus"] = ""
 					break
-		40:
-			_shot_hub("3_grosse_karte.png")
-			_sizes(_page.map_view, "grosse_karte")
-			# (4) Das echte Spiel: Runde 2 mit fälligem Zug, Kamera an der Hub-Station.
+			_detail.close()
+			_detail.open(_studio.floor_view_state(), 1, locked)
+		24:
+			_shot(_pit_vp, "2_nahsicht_mitte_gesperrt_frei_besucht.png")
+			_sizes(_detail, "nahsicht_2")
+			# (3) nach oben verschoben: „Zum Puck“ steht.
+			_detail.scroll_by(1.6)
+		30:
+			_shot(_pit_vp, "3_nahsicht_verschoben_zum_puck.png")
+			# (4) Das echte Spiel: Runde 2 mit fälligem Zug, Kamera an der GRUBEN-Station.
 			run.round_points = 480
 			run.advance_round()
 			game.call("_start_new_round")
-			_rig().zoom_to(CameraRig.Mode.HUB)
+			_rig().zoom_to(CameraRig.Mode.PIT)
 		200:
-			root.get_texture().get_image().save_png(OUT + "4_spiel_hub_station.png")
-			print("Bild: ", OUT + "4_spiel_hub_station.png")
-			var hub := screen.hub
+			root.get_texture().get_image().save_png(OUT + "4_spiel_gruben_station.png")
+			print("Bild: ", OUT + "4_spiel_gruben_station.png")
+			var detail: FloorMapView = game.get("floor_detail")
 			var camera := root.get_camera_3d()
-			var a := hub.floor_map.get_global_rect().position
+			var a := detail.position + Vector2(0.0, detail.size.y * 0.5)
 			var b := a + Vector2(100.0, 0.0)
-			var pa := camera.unproject_position(screen.pixel_to_world(a))
-			var pb := camera.unproject_position(screen.pixel_to_world(b))
-			print("BILDSCHIRM je Display-px ", pa.distance_to(pb) / 100.0, " hub ", hub.size,
-				" streifen ", hub.floor_map.size)
-			_sizes(hub, "spiel")
+			var floor_y := Vector3(0.0, DicePit.FLOOR_TOP, 0.0)
+			var pa := camera.unproject_position(screen.pixel_to_world(a) + floor_y)
+			var pb := camera.unproject_position(screen.pixel_to_world(b) + floor_y)
+			_ratio = pa.distance_to(pb) / 100.0
+			print("NAHSICHT sichtbar ", detail.visible, " groesse ", detail.size, " u ", detail.unit(),
+				" BILDSCHIRM je Display-px ", _ratio, " modus ", _rig().mode)
+			_sizes(detail, "spiel", _ratio)
 			print("ROUTE_PENDING ", game.get("route_pending"), " walk ", run.walkable_doors().size())
+			_rig().zoom_out()
+		330:
+			root.get_texture().get_image().save_png(OUT + "5_spiel_uebersicht_lockruf.png")
+			print("Bild: ", OUT + "5_spiel_uebersicht_lockruf.png")
+			var beckon: Control = screen.pit_beckon
+			print("LOCKRUF sichtbar ", beckon.visible, " titel ", (beckon.get_child(0) as Label).text,
+				" unter ", (beckon.get_child(1) as Label).text, " nahsicht ", (game.get("floor_detail") as FloorMapView).visible)
 			quit()
 	return false

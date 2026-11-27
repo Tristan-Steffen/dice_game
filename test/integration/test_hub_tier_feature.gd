@@ -124,11 +124,11 @@ func test_the_tower_strip_stands_on_the_start_page() -> void:
 	hub.set_floor_state(run.floor_view_state())
 	await wait_frames(2)
 	assert_true(hub.floor_map.is_visible_in_tree(), "der Streifen steht auf der Startseite")
-	assert_true(hub.floor_map.compact, "schmal und ohne Text")
-	assert_true(hub.open_map_button.is_visible_in_tree())
-	assert_eq(hub.open_map_button.text, HubView.OPEN_MAP_TEXT)
+	assert_eq(hub.floor_map.mode, FloorMapView.Mode.COMPACT, "schmal und ohne Text")
+	assert_null(hub.find_child("OpenMapButton", true, false), "„Karte öffnen“ ist gestorben")
 	assert_lt(hub.floor_map.size.x, hub.roadmap_stage.size.x * 0.45, "rund ein Drittel der Breite")
-	assert_gt(hub.floor_map.size.y, hub.roadmap_stage.size.y * 0.8, "volle Höhe der Bühne")
+	assert_almost_eq(hub.floor_map.size.y, hub.roadmap_stage.size.y, 0.5,
+		"die Höhe des Knopfs gehört dem Streifen")
 	assert_eq(hub.blind_title.text, HubView.BLIND_TITLE)
 	assert_eq(hub.blind_value.text, BigNumber.short(run.effective_goal()))
 
@@ -151,24 +151,31 @@ func test_the_office_names_the_boss_round() -> void:
 	assert_eq(hub.blind_title.text, HubView.BOSS_TITLE)
 	assert_eq(hub.blind_title.modulate, HubView.BOSS_COLOR)
 
-func test_a_due_move_is_clickable_from_afar_only_on_a_walkable_room() -> void:
+## Der Streifen ist reine Übersicht: auch ein fälliger Zug nimmt hier keinen Klick.
+func test_the_strip_takes_no_move_and_opens_nothing() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	var run := GameRun.new_run()
-	hub.set_floor_state(run.floor_view_state())
-	await wait_frames(2)
-	var map := hub.floor_map
-	var origin := map.get_global_rect().position
-	for room_id in run.floor_map.room_ids():
-		assert_eq(hub.floor_move_at(origin + map.room_rect(room_id).get_center()), "",
-			"Runde 1: kein Zug fällig")
 	run.advance_round()
 	hub.set_floor_state(run.floor_view_state())
+	hub.set_floor_moves_enabled(true)
+	await wait_frames(2)
+	var chosen: Array[String] = []
+	hub.floor_map.door_chosen.connect(func(door_id: String) -> void: chosen.append(door_id))
+	var map := hub.floor_map
 	var door_id := String(run.walkable_doors()[0])
 	var target := run.floor_map.other_side(run.floor_map.door(door_id), run.floor_map.position)
-	assert_eq(hub.floor_move_at(origin + map.room_rect(target).get_center()), door_id)
-	hub.set_floor_moves_enabled(false)
-	assert_eq(hub.floor_move_at(origin + map.room_rect(target).get_center()), "")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = map.room_rect(target).get_center()
+	map._gui_input(click)
+	click = click.duplicate()
+	click.pressed = false
+	map._gui_input(click)
+	assert_true(chosen.is_empty(), "gezogen wird in der Grube")
+	assert_false(hub.has_signal("map_requested"), "kein Öffnen der großen Karte mehr")
+	assert_false(hub.has_method("floor_move_at"))
 
 func test_the_stage_parts_never_overlap() -> void:
 	var hub := _hub()
@@ -196,6 +203,7 @@ func test_the_info_follows_the_strip_and_rests_without_a_pointer() -> void:
 	run.advance_round()
 	hub.set_floor_state(run.floor_view_state())
 	assert_string_contains(hub.info_text(), FloorMapView.IDLE_TITLE, "ein Zug ist fällig")
+	assert_string_contains(hub.info_text(), "Gewählt wird in der Grube.")
 	var door_id := String(run.walkable_doors()[0])
 	var target := run.floor_map.other_side(run.floor_map.door(door_id), run.floor_map.position)
 	hub.floor_map.hover_at(hub.floor_map.room_rect(target).get_center())
@@ -207,18 +215,6 @@ func test_the_info_follows_the_strip_and_rests_without_a_pointer() -> void:
 	run.move_through(door_id)
 	hub.set_floor_state(run.floor_view_state())
 	assert_string_contains(hub.info_text(), "Der Puck steht")
-
-func test_strip_and_button_ask_for_the_big_map() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	var asked := [0]
-	hub.map_requested.connect(func() -> void: asked[0] += 1)
-	hub.open_map_button.pressed.emit()
-	assert_eq(asked[0], 1)
-	var run := GameRun.new_run()
-	hub.set_floor_state(run.floor_view_state())
-	hub.floor_map.press_at(hub.floor_map.room_rect(run.floor_map.room_ids()[0]).get_center())
-	assert_eq(asked[0], 2, "ein Klick auf den Streifen ohne Zug")
 
 func test_the_values_grid_takes_any_number_of_entries() -> void:
 	var hub := _hub()
@@ -303,7 +299,6 @@ func test_the_etage_button_shows_the_map_and_leads_back() -> void:
 	page.layout()
 	# Die Verdrahtung von scene_root: der Knopf blättert auf, „Zurück“ blättert heim.
 	shop.floor_requested.connect(func() -> void:
-		page.open_from(true)
 		page.show_state(run.floor_view_state())
 		page.visible = true)
 	page.close_requested.connect(func() -> void: page.visible = false)
@@ -312,6 +307,7 @@ func test_the_etage_button_shows_the_map_and_leads_back() -> void:
 	shop.floor_button.pressed.emit()
 	assert_true(page.visible, "die Karte steht")
 	assert_false(shop.visible, "die Ladenseite ist verdrängt - ihre Ware weicht mit")
+	assert_eq(page.map_view.mode, FloorMapView.Mode.DETAIL, "dieselbe Nahsicht wie in der Grube")
 	assert_true(page.map_view.read_only, "im Laden nur ansehen")
 	assert_eq(page.back_button.text, FloorMapPage.BACK_SHOP_TEXT)
 	assert_true(page.map_view.walkable_doors().is_empty())
@@ -320,29 +316,35 @@ func test_the_etage_button_shows_the_map_and_leads_back() -> void:
 	assert_true(shop.visible, "die Seitenregel holt den Laden zurück")
 	assert_false(hub.content_root.visible, "nicht die Startseite")
 
-func test_from_the_start_page_the_big_map_takes_the_move() -> void:
+## Die Laden-Seite zieht nie, auch wenn ein Zug fällig wäre - Ziehen und Rad sehen sich um.
+func test_the_shop_page_only_looks() -> void:
 	var hub := _hub()
 	var page := FloorMapPage.new()
 	hub.attach_panel(page)
 	page.layout()
 	var run := GameRun.new_run()
 	run.advance_round()
-	page.open_from(false)
 	page.show_state(run.floor_view_state())
 	page.visible = true
 	await wait_frames(2)
-	assert_false(hub.content_root.visible, "die Karte verdrängt die Startseite")
-	assert_eq(page.back_button.text, FloorMapPage.BACK_HOME_TEXT)
-	assert_false(page.map_view.read_only)
+	var map := page.map_view
 	var chosen: Array[String] = []
-	page.map_view.door_chosen.connect(func(door_id: String) -> void: chosen.append(door_id))
+	map.door_chosen.connect(func(door_id: String) -> void: chosen.append(door_id))
 	var door_id := String(run.walkable_doors()[0])
 	var target := run.floor_map.other_side(run.floor_map.door(door_id), run.floor_map.position)
-	assert_true(page.map_view.press_at(page.map_view.room_rect(target).get_center()))
-	assert_eq(chosen, [door_id] as Array[String])
-	page.back_button.pressed.emit()
-	page.visible = false
-	assert_true(hub.content_root.visible, "zurück auf die Startseite")
+	var at := map.room_rect(target).get_center()
+	map.begin_press(at)
+	map.end_press(at)
+	assert_true(chosen.is_empty(), "nur ansehen")
+	var home := map.scroll
+	map.begin_press(at)
+	map.drag_to(at + Vector2(0, 60))
+	map.end_press(at + Vector2(0, 60))
+	assert_ne(map.scroll, home, "ziehen sieht sich um")
+	map.snap_to_puck(true)
+	assert_true(page.wheel_at(map.get_global_rect().get_center(), true), "das Rad auch")
+	assert_gt(map.scroll, home)
+	assert_gte(map.unit(), page.size.x / FloorMapPage.MAP_UNIT_DIV - 0.01, "größere Einheit als am Grubenboden")
 
 # --- Deal-Marken --------------------------------------------------------------
 
