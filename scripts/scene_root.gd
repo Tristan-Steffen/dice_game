@@ -1736,6 +1736,9 @@ func _setup_settings_ui() -> void:
 		table_screen.hub.debug_random_faces_requested.connect(func() -> void:
 			if run != null:
 				run.debug_randomize_faces())
+		table_screen.hub.debug_labor_requested.connect(func() -> void:
+			if run != null:
+				run.debug_open_labor())
 		table_screen.hub.test_materials_requested.connect(_on_test_materials_pressed)
 		table_screen.hub.test_engravings_requested.connect(_on_test_engravings_pressed)
 		table_screen.hub.shop_reopen_requested.connect(_on_shop_reopen_requested)

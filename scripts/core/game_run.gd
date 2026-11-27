@@ -3716,6 +3716,11 @@ func open_labor(rng: RandomNumberGenerator = null) -> void:
 	labor_station = Labor.next_station("", rng)
 	labor_changed.emit()
 
+## Debug: das Labor sofort öffnen, als wäre die erste Boss-Runde geschafft.
+func debug_open_labor(rng: RandomNumberGenerator = null) -> void:
+	stress_tests_passed = maxi(stress_tests_passed, 1)
+	open_labor(rng)
+
 func labor_price() -> int:
 	return labor_uses
 

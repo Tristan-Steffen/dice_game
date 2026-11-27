@@ -49,6 +49,14 @@ func test_dict_roundtrip() -> void:
 
 # --- Öffnen und Preis ---------------------------------------------------------------
 
+func test_debug_opens_the_labor_at_once() -> void:
+	var run := GameRun.new_run()
+	run.debug_open_labor(_rng(1))
+	assert_true(run.labor_open(), "ohne Boss-Runde sofort offen")
+	var first := run.labor_station
+	run.debug_open_labor(_rng(2))
+	assert_eq(run.labor_station, first, "ein zweiter Druck ändert nichts")
+
 func test_opens_with_first_boss_round() -> void:
 	var run := GameRun.new_run()
 	assert_false(run.labor_open())

@@ -135,7 +135,7 @@ func test_settings_menu_entries_emit_their_action_and_close_the_menu() -> void:
 	var box: VBoxContainer = hub.settings_menu.get_node("Box")
 	var wanted := {
 		"Neues Spiel": "new_game_requested",
-		"Debug: Runde gewinnen": "debug_win_round_requested",
+		"🏠  Menü": "menu_requested",
 	}
 	for button: Button in box.get_children():
 		for label: String in wanted:
@@ -146,51 +146,84 @@ func test_settings_menu_entries_emit_their_action_and_close_the_menu() -> void:
 
 func test_debug_money_button_emits_and_keeps_menu_open() -> void:
 	watch_signals(hub)
-	hub.settings_button.pressed.emit()  # aufklappen
-	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	hub.debug_button.pressed.emit()  # aufklappen
+	var box: VBoxContainer = hub.debug_menu.get_node("Box")
 	var found := false
 	for button: Button in box.get_children():
-		if button.text == "Debug: +100$":
+		if button.text == "+100$":
 			found = true
 			button.pressed.emit()
 			button.pressed.emit()  # zweimal für Mehrfach-Klick
 	assert_true(found, "der +100$-Knopf ist im Menü")
 	assert_signal_emit_count(hub, "debug_money_requested", 2, "je Klick ein Signal")
-	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+	assert_true(hub.debug_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
 
 func test_debug_energy_button_emits_and_keeps_menu_open() -> void:
 	watch_signals(hub)
-	hub.settings_button.pressed.emit()  # aufklappen
-	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	hub.debug_button.pressed.emit()  # aufklappen
+	var box: VBoxContainer = hub.debug_menu.get_node("Box")
 	var found := false
 	for button: Button in box.get_children():
-		if button.text == "Debug: +10 ⚡":
+		if button.text == "+10 ⚡":
 			found = true
 			button.pressed.emit()
 			button.pressed.emit()  # zweimal für Mehrfach-Klick
 	assert_true(found, "der Energie-Knopf ist im Menü")
 	assert_signal_emit_count(hub, "debug_energy_requested", 2, "je Klick ein Signal")
-	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+	assert_true(hub.debug_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
 
 func test_debug_luck_and_storage_buttons_emit_and_keep_menu_open() -> void:
 	watch_signals(hub)
-	hub.settings_button.pressed.emit()
-	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	hub.debug_button.pressed.emit()
+	var box: VBoxContainer = hub.debug_menu.get_node("Box")
 	var found := 0
 	for button: Button in box.get_children():
-		if button.text == "Debug: +5 Glück" or button.text == "Debug: +5 ⚡-Speicher":
+		if button.text == "+5 Glück" or button.text == "+5 ⚡-Speicher":
 			found += 1
 			button.pressed.emit()
 	assert_eq(found, 2, "beide Knöpfe sind im Menü")
 	assert_signal_emit_count(hub, "debug_luck_requested", 1)
 	assert_signal_emit_count(hub, "debug_energy_cap_requested", 1)
-	assert_true(hub.settings_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+	assert_true(hub.debug_menu.visible, "Menü bleibt für Mehrfach-Klick offen")
+
+func test_settings_menu_holds_only_real_menu_entries() -> void:
+	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	for button: Button in box.get_children():
+		assert_false(button.text.begins_with("Debug") or button.text.begins_with("🧪"),
+			"'%s' gehört ins Debug-Menü" % button.text)
+
+func test_debug_menu_toggles_and_closes_the_settings_menu() -> void:
+	hub.settings_button.pressed.emit()
+	hub.debug_button.pressed.emit()
+	assert_true(hub.debug_menu.visible, "der Debug-Knopf öffnet sein Menü")
+	assert_false(hub.settings_menu.visible, "nur ein Menü zugleich")
+	hub.debug_button.pressed.emit()
+	assert_false(hub.debug_menu.visible, "zweiter Druck schließt")
+
+func test_debug_entries_emit_their_action_and_close_the_menu() -> void:
+	watch_signals(hub)
+	var wanted := {
+		"Runde gewinnen": "debug_win_round_requested",
+		"Labor öffnen": "debug_labor_requested",
+	}
+	for label: String in wanted:
+		hub.debug_button.pressed.emit()
+		var box: VBoxContainer = hub.debug_menu.get_node("Box")
+		for button: Button in box.get_children():
+			if button.text == label:
+				button.pressed.emit()
+		assert_signal_emitted(hub, wanted[label], "'%s' meldet %s" % [label, wanted[label]])
+		assert_false(hub.debug_menu.visible, "eine Aktion schließt das Menü wieder")
 
 func test_settings_menu_hides_when_a_page_takes_the_hub() -> void:
 	hub.settings_button.pressed.emit()  # Menü offen auf der Home-Seite
 	assert_true(hub.settings_menu.visible)
 	page_a.visible = true  # eine Seite verdrängt Home
 	assert_false(hub.settings_menu.visible, "das Menü gehört zur Home-Seite und weicht mit ihr")
+	page_a.visible = false
+	hub.debug_button.pressed.emit()
+	page_a.visible = true
+	assert_false(hub.debug_menu.visible, "das Debug-Menü ebenso")
 
 func test_interactive_at_detects_buttons_but_not_empty_felt() -> void:
 	# Grundlage der neuen Klick-Regel (scene_root): ein Klick auf einen Knopf
@@ -215,8 +248,8 @@ func test_interactive_at_ignores_a_hidden_button() -> void:
 
 func test_test_materials_label_can_be_updated() -> void:
 	hub.set_test_materials_label("🧪 Testmaterialien: AN")
-	hub.settings_button.pressed.emit()
-	var box: VBoxContainer = hub.settings_menu.get_node("Box")
+	hub.debug_button.pressed.emit()
+	var box: VBoxContainer = hub.debug_menu.get_node("Box")
 	var found := false
 	for button: Button in box.get_children():
 		if button.text == "🧪 Testmaterialien: AN":

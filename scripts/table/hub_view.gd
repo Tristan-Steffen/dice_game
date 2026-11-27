@@ -20,6 +20,7 @@ signal debug_energy_cap_requested
 signal debug_parts_requested
 signal debug_runes_requested
 signal debug_random_faces_requested
+signal debug_labor_requested
 signal library_requested
 signal test_materials_requested
 signal test_engravings_requested
@@ -129,6 +130,9 @@ const NO_VALUE := "–"
 var settings_button: Button
 ## Aufklappbares Menü auf dem Display; öffnet nach OBEN über dem Knopf.
 var settings_menu: PanelContainer
+## Debug-Knopf samt eigenem Menü: alle Test-Abkürzungen der Entwicklung.
+var debug_button: Button
+var debug_menu: PanelContainer
 var _test_materials_button: Button
 var _test_engravings_button: Button
 var _menu_u := 1.0  # Breiteneinheit, für die Neupositionierung gemerkt
@@ -261,55 +265,74 @@ func layout() -> void:
 	CasinoStyle.style_button(shop_button, CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, int(u * 3.4))
 	shop_button.pressed.connect(func() -> void: shop_reopen_requested.emit())
 	footer.add_child(shop_button)
+	debug_button = Button.new()
+	debug_button.name = "DebugButton"
+	debug_button.text = "🛠  Debug"
+	debug_button.focus_mode = Control.FOCUS_NONE
+	debug_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	CasinoStyle.style_button(debug_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK, int(u * 3.4))
+	debug_button.pressed.connect(_toggle_debug_menu)
+	footer.add_child(debug_button)
 	footer.add_child(settings_button)
 
 	_menu_u = u
 	_build_settings_menu(u)
+	_build_debug_menu(u)
 
-## Baut das Einstellungs-Menü (Kind der Hub-Fläche, anfangs verborgen);
-## positioniert wird es erst beim Öffnen.
-func _build_settings_menu(u: float) -> void:
-	settings_menu = PanelContainer.new()
-	settings_menu.name = "SettingsMenu"
-	settings_menu.visible = false
+## Baut ein Klapp-Menü (Kind der Hub-Fläche, anfangs verborgen); positioniert
+## wird es erst beim Öffnen.
+func _make_popup(node_name: String, u: float) -> VBoxContainer:
+	var menu := PanelContainer.new()
+	menu.name = node_name
+	menu.visible = false
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("#1a1836")  # wie FRAME_BG, aber deckend (Dropdown)
 	style.border_color = FRAME_COLOR
 	style.set_border_width_all(maxi(2, int(u * 0.3)))
 	style.set_corner_radius_all(int(u * 1.2))
 	style.set_content_margin_all(int(u * 1.6))
-	settings_menu.add_theme_stylebox_override("panel", style)
-	add_child(settings_menu)
-
+	menu.add_theme_stylebox_override("panel", style)
+	add_child(menu)
 	var box := VBoxContainer.new()
 	box.name = "Box"
 	box.add_theme_constant_override("separation", int(u * 1.4))
-	settings_menu.add_child(box)
+	menu.add_child(box)
+	return box
 
+## Nur echte Menü-Einträge; alles zum Testen steht im Debug-Menü.
+func _build_settings_menu(u: float) -> void:
+	var box := _make_popup("SettingsMenu", u)
+	settings_menu = box.get_parent()
 	_make_menu_button(box, "🏠  Menü", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK,
 		u, menu_requested.emit)
 	_make_menu_button(box, "📖  Charm-Bibliothek", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK,
 		u, library_requested.emit)
 	_make_menu_button(box, "Neues Spiel", CasinoStyle.RED, CasinoStyle.RED_DARK,
 		u, new_game_requested.emit)
-	_make_menu_button(box, "Debug: Runde gewinnen", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
+
+## Mehrfach-Klick-Einträge (keep_open) lassen das Menü offen.
+func _build_debug_menu(u: float) -> void:
+	var box := _make_popup("DebugMenu", u)
+	debug_menu = box.get_parent()
+	_make_menu_button(box, "Runde gewinnen", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_win_round_requested.emit)
-	# Bleibt offen für schnelles Mehrfach-Klicken (+$100 je Klick).
-	_make_menu_button(box, "Debug: +100$", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK,
+	_make_menu_button(box, "+100$", CasinoStyle.GREEN, CasinoStyle.GREEN_DARK,
 		u, debug_money_requested.emit, true)
-	# Ebenso ein Nachschlag-Knopf; der Speicherdeckel bleibt in Kraft.
-	_make_menu_button(box, "Debug: +10 ⚡", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
+	# Der Speicherdeckel bleibt in Kraft.
+	_make_menu_button(box, "+10 ⚡", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_energy_requested.emit, true)
-	_make_menu_button(box, "Debug: +5 Glück", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+	_make_menu_button(box, "+5 Glück", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
 		u, debug_luck_requested.emit, true)
-	_make_menu_button(box, "Debug: +5 ⚡-Speicher", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
+	_make_menu_button(box, "+5 ⚡-Speicher", CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
 		u, debug_energy_cap_requested.emit, true)
-	_make_menu_button(box, "Debug: Runen auf alle Würfel", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+	_make_menu_button(box, "Labor öffnen", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK,
+		u, debug_labor_requested.emit)
+	_make_menu_button(box, "Runen auf alle Würfel", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
 		u, debug_runes_requested.emit, true)
-	_make_menu_button(box, "Debug: Seiten 1–2000", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK,
+	_make_menu_button(box, "Seiten 1–2000", CasinoStyle.PURPLE, CasinoStyle.PURPLE_DARK,
 		u, debug_random_faces_requested.emit, true)
 	if OS.is_debug_build():
-		_make_menu_button(box, "Debug: Module", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
+		_make_menu_button(box, "Module", CasinoStyle.GOLD, CasinoStyle.GOLD_DARK,
 			u, debug_parts_requested.emit)
 	_test_materials_button = _make_menu_button(box, "🧪 Testmaterialien: aus",
 		CasinoStyle.GOLD, CasinoStyle.GOLD_DARK, u, test_materials_requested.emit)
@@ -320,6 +343,7 @@ func _build_settings_menu(u: float) -> void:
 ## keep_open = true lässt das Menü nach dem Klick offen (für Mehrfach-Klick-Debug).
 func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color,
 		u: float, on_pressed: Callable, keep_open := false) -> Button:
+	var menu: Control = parent.get_parent()
 	var button := Button.new()
 	button.text = text
 	button.focus_mode = Control.FOCUS_NONE
@@ -329,7 +353,7 @@ func _make_menu_button(parent: Control, text: String, accent: Color, dark: Color
 	button.pressed.connect(func() -> void:
 		on_pressed.call()
 		if not keep_open:
-			settings_menu.visible = false)
+			menu.visible = false)
 	parent.add_child(button)
 	return button
 
@@ -340,20 +364,29 @@ func set_test_materials_label(text: String) -> void:
 
 func _toggle_settings_menu() -> void:
 	settings_pressed.emit()
-	if settings_menu == null:
+	_toggle_popup(settings_menu, settings_button, debug_menu)
+
+func _toggle_debug_menu() -> void:
+	_toggle_popup(debug_menu, debug_button, settings_menu)
+
+## Es steht immer nur eines der beiden Menüs offen.
+func _toggle_popup(menu: Control, anchor_button: Button, other: Control) -> void:
+	if menu == null:
 		return
-	settings_menu.visible = not settings_menu.visible
-	if settings_menu.visible:
-		_position_settings_menu()
+	if other != null:
+		other.visible = false
+	menu.visible = not menu.visible
+	if menu.visible:
+		_position_popup(menu, anchor_button)
 
 ## Rechtsbündig ÜBER dem Knopf (klappt nach oben, bleibt im Rahmen).
-func _position_settings_menu() -> void:
-	settings_menu.reset_size()
-	var anchor := settings_button.get_global_rect()
+func _position_popup(menu: Control, anchor_button: Button) -> void:
+	menu.reset_size()
+	var anchor := anchor_button.get_global_rect()
 	var top_left := Vector2(
-		anchor.end.x - settings_menu.size.x,
-		anchor.position.y - settings_menu.size.y - _menu_u * 1.2)
-	settings_menu.position = top_left - global_position  # Viewport -> Hub-lokal
+		anchor.end.x - menu.size.x,
+		anchor.position.y - menu.size.y - _menu_u * 1.2)
+	menu.position = top_left - global_position  # Viewport -> Hub-lokal
 
 ## Ob unter dem Display-Pixel ein sichtbarer, aktiver Knopf liegt - so
 ## unterscheidet scene_root Knopf-Klick von Hub-Zoom-Klick.
@@ -448,8 +481,9 @@ func _apply_page_opened(panel: Control) -> void:
 	_suppressed.erase(panel)  # falls sie selbst verdrängt war und nun zurück ist
 	if content_root != null:
 		content_root.visible = false
-	if settings_menu != null:
-		settings_menu.visible = false  # gehört zur Home-Seite, weicht mit ihr
+	for menu: Control in [settings_menu, debug_menu]:
+		if menu != null:
+			menu.visible = false  # gehört zur Home-Seite, weicht mit ihr
 	_switching = false
 
 ## Seite geschlossen: zuletzt verdrängte zurückholen, sonst Home zeigen.
