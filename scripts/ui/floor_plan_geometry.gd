@@ -6,7 +6,7 @@ extends RefCounted
 
 ## Anteil einer Wandkante, den eine Tür offen läßt.
 const DOOR_GAP := 0.6
-## So weit innen läuft der Weg im Raum an der Wand entlang (Zellen) - Namen stehen tiefer innen.
+## So weit sticht der Weg hinter einer Tür in den Raum (Zellen) - Namen stehen tiefer innen.
 const TRAIL_INSET := 0.16
 ## Trefferradius einer Tür in Zellen.
 const DOOR_HIT := 0.42
@@ -162,39 +162,89 @@ func home_rect_cells() -> Rect2:
 
 # --- Der gegangene Weg ------------------------------------------------------------
 
-## Der Weg in Zellkoordinaten: in Räumen nur ein Stück hinter der Tür und an der Wand
-## entlang, auf dem Flur durch die Flurmitten - nie quer über einen Raumnamen.
-func trail_points() -> Array[Vector2]:
-	var points: Array[Vector2] = []
-	for step: Dictionary in plan.get("trail", []):
-		var from := String(step["from"])
-		var to := String(step["to"])
-		if not doors.has(String(step["door"])):
+## Der Weg als Strecken {a, b, age, horizontal} in Zellen, jede Strecke nur einmal: je Zug von
+## Tür zu Tür über die Flurmitten, im Raum nur ein Stich hinter die Tür. age 0 = der letzte Zug;
+## eine Strecke trägt das jüngste Alter, das sie benutzt. Gerade Läufe gleichen Alters sind verschmolzen.
+func trail_segments() -> Array[Dictionary]:
+	var steps: Array = plan.get("trail", [])
+	var edges: Dictionary = {}
+	for i in steps.size():
+		var leg := _leg(steps[i])
+		var age := steps.size() - 1 - i
+		for k in range(1, leg.size()):
+			_add_edge(edges, leg[k - 1], leg[k], age)
+	return _merge_runs(edges.values())
+
+## Die Punkte eines Zugs: Stich, Tür, Flurmitten, Tür, Stich.
+func _leg(step: Dictionary) -> Array[Vector2]:
+	var leg: Array[Vector2] = []
+	var door_id := String(step.get("door", ""))
+	if not doors.has(door_id):
+		return leg
+	var entry: Dictionary = doors[door_id]
+	var from := String(step["from"])
+	var to := String(step["to"])
+	if not is_corridor_door(entry):
+		leg.assign([_stub(entry, from), Vector2(entry["center"]), _stub(entry, to)])
+		return leg
+	var start := _exit(from, String(step.get("section_from", "")))
+	if start.is_empty():
+		return leg
+	leg.append_array(start)
+	var front := Vector2(entry["center"]) + Vector2(entry["side"]) * 0.5
+	var walk := corridor_path(Vector2i(start[start.size() - 1].floor()), Vector2i(front.floor()), true)
+	for i in range(1, walk.size()):
+		leg.append(walk[i])
+	if walk.is_empty():
+		leg.append(front)
+	leg.append(Vector2(entry["center"]))
+	leg.append(_stub(entry, to))
+	return leg
+
+static func _add_edge(edges: Dictionary, p: Vector2, q: Vector2, age: int) -> void:
+	if p.is_equal_approx(q):
+		return
+	var lo := p if (p.x < q.x - 0.001 or (absf(p.x - q.x) <= 0.001 and p.y < q.y)) else q
+	var hi := q if lo == p else p
+	var key := "%.2f,%.2f|%.2f,%.2f" % [lo.x, lo.y, hi.x, hi.y]
+	if edges.has(key):
+		edges[key]["age"] = mini(int(edges[key]["age"]), age)
+	else:
+		edges[key] = {"a": lo, "b": hi, "age": age}
+
+## Verschmilzt achsparallele Strecken gleicher Zeile und gleichen Alters zu Läufen.
+static func _merge_runs(edges: Array) -> Array[Dictionary]:
+	var groups: Dictionary = {}
+	var out: Array[Dictionary] = []
+	for edge: Dictionary in edges:
+		var a: Vector2 = edge["a"]
+		var b: Vector2 = edge["b"]
+		var horizontal := absf(a.y - b.y) < 0.001
+		if not horizontal and absf(a.x - b.x) >= 0.001:
+			out.append({"a": a, "b": b, "age": edge["age"], "horizontal": false})
 			continue
-		var entry: Dictionary = doors[String(step["door"])]
-		var leg: Array[Vector2] = []
-		if not is_corridor_door(entry) and String(entry["kind"]) != FloorPlan.DOOR_FIRE:
-			leg = [_stub(entry, from), Vector2(entry["center"]), _stub(entry, to)]
-		else:
-			var start := _exit(from, String(step.get("section_from", "")))
-			if start.is_empty():
+		var key := "%s|%.2f|%d" % ["h" if horizontal else "v", a.y if horizontal else a.x, mini(int(edge["age"]), 2)]
+		if not groups.has(key):
+			groups[key] = []
+		(groups[key] as Array).append([a.x if horizontal else a.y, b.x if horizontal else b.y, int(edge["age"])])
+	for key: String in groups:
+		var parts := key.split("|")
+		var horizontal := parts[0] == "h"
+		var fixed := float(parts[1])
+		var spans: Array = groups[key]
+		spans.sort_custom(func(x: Array, y: Array) -> bool: return float(x[0]) < float(y[0]))
+		var run: Array = spans[0].duplicate()
+		for i in range(1, spans.size() + 1):
+			if i < spans.size() and float(spans[i][0]) <= float(run[1]) + 0.001:
+				run[1] = maxf(float(run[1]), float(spans[i][1]))
+				run[2] = mini(int(run[2]), int(spans[i][2]))
 				continue
-			leg.append_array(start)
-			var front := Vector2(entry["center"]) + Vector2(entry["side"]) * 0.5
-			var walk := corridor_path(Vector2i(start[start.size() - 1].floor()), Vector2i(front.floor()))
-			for i in range(1, walk.size()):
-				leg.append(walk[i])
-			if walk.size() <= 1:
-				leg.append(front)
-			leg.append(Vector2(entry["center"]))
-			leg.append(_stub(entry, to))
-		if not points.is_empty() and from != "" and rooms.has(from):
-			for corner in ring_path(Rect2(rooms[from]["rect"]), points[points.size() - 1], leg[0]):
-				points.append(corner)
-		for point in leg:
-			if points.is_empty() or not points[points.size() - 1].is_equal_approx(point):
-				points.append(point)
-	return points
+			var a := Vector2(run[0], fixed) if horizontal else Vector2(fixed, run[0])
+			var b := Vector2(run[1], fixed) if horizontal else Vector2(fixed, run[1])
+			out.append({"a": a, "b": b, "age": run[2], "horizontal": horizontal})
+			if i < spans.size():
+				run = spans[i].duplicate()
+	return out
 
 ## Punkt knapp hinter der Tür im Raum (auf dem Wandring).
 func _stub(entry: Dictionary, room_id: String) -> Vector2:
@@ -223,8 +273,8 @@ func _exit(room_id: String, section_id: String) -> Array[Vector2]:
 	out.append_array([_stub(found, room_id), middle, middle + Vector2(found["side"]) * 0.5])
 	return out
 
-## Flurmitten von a nach b (Breitensuche über die Flurzellen), Knicke nur an Ecken.
-func corridor_path(a: Vector2i, b: Vector2i) -> Array[Vector2]:
+## Flurmitten von a nach b (Breitensuche über die Flurzellen), Knicke nur an Ecken (every_cell: jede Zelle).
+func corridor_path(a: Vector2i, b: Vector2i, every_cell: bool = false) -> Array[Vector2]:
 	var path: Array[Vector2] = []
 	if not corridor.has(a) or not corridor.has(b):
 		return path
@@ -246,58 +296,10 @@ func corridor_path(a: Vector2i, b: Vector2i) -> Array[Vector2]:
 		cells.insert(0, came[cells[0]])
 	for i in cells.size():
 		var point := Vector2(cells[i]) + Vector2(0.5, 0.5)
-		if i > 0 and i < cells.size() - 1:
+		if i > 0 and i < cells.size() - 1 and not every_cell:
 			var before := cells[i] - cells[i - 1]
 			var after := cells[i + 1] - cells[i]
 			if before == after:
 				continue
 		path.append(point)
 	return path
-
-## Ecken des Wandrings (Raum um TRAIL_INSET eingerückt) auf dem kürzeren Weg von p nach q.
-static func ring_path(room_cells: Rect2, p: Vector2, q: Vector2) -> Array[Vector2]:
-	var ring := room_cells.grow(-TRAIL_INSET)
-	var w := ring.size.x
-	var h := ring.size.y
-	var total := 2.0 * (w + h)
-	var corners: Array[Vector2] = [ring.position, Vector2(ring.end.x, ring.position.y), ring.end,
-		Vector2(ring.position.x, ring.end.y)]
-	var marks: Array[float] = [0.0, w, w + h, 2.0 * w + h]
-	var tp := _ring_param(ring, p)
-	var tq := _ring_param(ring, q)
-	var forward := fposmod(tq - tp, total)
-	var out: Array[Vector2] = []
-	if forward <= total * 0.5:
-		for k in 4:
-			var d := fposmod(marks[k] - tp, total)
-			if d > 0.001 and d < forward - 0.001:
-				out.append(corners[k])
-		out.sort_custom(func(x: Vector2, y: Vector2) -> bool:
-			return fposmod(_ring_param(ring, x) - tp, total) < fposmod(_ring_param(ring, y) - tp, total))
-	else:
-		var backward := total - forward
-		for k in 4:
-			var d := fposmod(tp - marks[k], total)
-			if d > 0.001 and d < backward - 0.001:
-				out.append(corners[k])
-		out.sort_custom(func(x: Vector2, y: Vector2) -> bool:
-			return fposmod(tp - _ring_param(ring, x), total) < fposmod(tp - _ring_param(ring, y), total))
-	return out
-
-## Lage eines Punkts auf dem Ring im Uhrzeigersinn ab der linken oberen Ecke.
-static func _ring_param(ring: Rect2, point: Vector2) -> float:
-	var p := point.clamp(ring.position, ring.end)
-	var w := ring.size.x
-	var h := ring.size.y
-	var d_top := absf(p.y - ring.position.y)
-	var d_right := absf(p.x - ring.end.x)
-	var d_bottom := absf(p.y - ring.end.y)
-	var d_left := absf(p.x - ring.position.x)
-	var nearest := minf(minf(d_top, d_right), minf(d_bottom, d_left))
-	if nearest == d_top:
-		return p.x - ring.position.x
-	if nearest == d_right:
-		return w + (p.y - ring.position.y)
-	if nearest == d_bottom:
-		return w + h + (ring.end.x - p.x)
-	return 2.0 * w + h + (ring.end.y - p.y)

@@ -359,6 +359,8 @@ func _build_layout(rng: RandomNumberGenerator) -> bool:
 		return false
 	if _distances("", false).size() < rooms.size() - 1:
 		return false
+	if moves_from("", false).size() < MIN_SECTION_ROOMS:
+		return false
 	return _place_key(rng)
 
 func _section_lengths(count: int, rng: RandomNumberGenerator) -> Array[int]:
@@ -830,10 +832,12 @@ func own_sections(standpoint: String) -> Array[String]:
 
 ## Die Züge von einem Standort: (a) Räume am eigenen Abschnitt, (b) Verbindungstür-Nachbarn,
 ## (c) Räume am Nachbar-Abschnitt hinter genau EINER Brandschutztür. Das Büro nur mit Karte.
+## Vom Aufzug gilt allein sein Abschnitt (Plan-Regel, Welle 7 Teil C).
 func moves_from(standpoint: String, with_key: bool) -> Array[Dictionary]:
 	var own := own_sections(standpoint)
 	var found: Array[Dictionary] = []
 	var seen: Dictionary = {}
+	var through_fire := standpoint != ""
 	for entry in doors:
 		var kind: String = entry["kind"]
 		if kind == DOOR_FIRE:
@@ -846,7 +850,7 @@ func moves_from(standpoint: String, with_key: bool) -> Array[Dictionary]:
 			_offer_move(found, seen, standpoint, entry["b"], entry, "", "", "", with_key)
 		elif entry["b"] == standpoint:
 			_offer_move(found, seen, standpoint, entry["a"], entry, "", "", "", with_key)
-	for sid in own:
+	for sid in (own if through_fire else [] as Array[String]):
 		for fire in doors:
 			if fire["kind"] != DOOR_FIRE or (fire["a"] != sid and fire["b"] != sid):
 				continue

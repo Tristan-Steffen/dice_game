@@ -118,13 +118,11 @@ const STAT_TREND := "trend"
 const STAT_LUCK := "luck"
 const STAT_FUMBLES := "fumbles"
 const STAT_BEST := "best"
-const STAT_STEP := "step"
 const STAT_KEY := "key"
 const AVERAGE_TITLE := "Rundenschnitt"
 const KEY_TITLE := "Schlüsselkarte"
 const STAT_COLORS := {STAT_AVERAGE: Color("#7fe0c8"), STAT_KEY: Color("#f4f1e4"), STAT_TREND: Color("#b8b0ff"),
-	STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42"), STAT_BEST: Color("#ecebff"),
-	STAT_STEP: Color("#ff8f8f")}
+	STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42"), STAT_BEST: Color("#ecebff")}
 const NO_VALUE := "–"
 
 ## Einstellungen-Knopf unten rechts auf der Home-Seite (blendet mit ihr aus).

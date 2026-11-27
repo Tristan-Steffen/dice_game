@@ -58,7 +58,7 @@ func test_fifty_floors_draw_in_both_modes() -> void:
 		detail.open(state)
 		compact.open(state)
 		assert_gt(detail.zoom_cell(), 0.0)
-		assert_false(detail.geometry().trail_points().size() == 1)
+		assert_true(detail.geometry().trail_segments().is_empty(), "ohne Zug kein Weg")
 		detail.queue_redraw()
 		compact.queue_redraw()
 		if i % 10 == 0:
@@ -246,3 +246,172 @@ func test_compact_stacks_the_history_and_the_wheel_rolls_it() -> void:
 	assert_gt(view.scroll, 0.0, "das Rad rollt in die Geschichte")
 	view.scroll_by(10.0)
 	assert_eq(view.scroll, 0.0)
+
+## Ein Lauf mitten in der Etage: n Züge gegangen, ein Zug fällig, ein Rundenschnitt steht.
+func _walked(seed_value: int, steps: int) -> GameRun:
+	var run := GameRun.new_run()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	run.floor_plan = FloorPlan.roll(rng, Callable(), 0.3, _bosses(), 0)
+	run.floor_plan.scout(rng, Callable())
+	run.round_scores.assign([300])
+	for i in steps:
+		var options: Array[Dictionary] = []
+		for move in run.walkable_moves():
+			if String(move["room"]) != run.floor_plan.office:
+				options.append(move)
+		if options.is_empty():
+			break
+		run.move_to(options[rng.randi_range(0, options.size() - 1)])
+		run.move_due = true
+	return run
+
+func test_every_walkable_room_carries_its_price_block() -> void:
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	for seed_value in range(1, 30):
+		var run := _walked(seed_value, seed_value % 4)
+		view.open(run.floor_view_state())
+		for room_id in run.floor_plan.reachable_rooms():
+			var cheapest := run.floor_plan.cheapest_move(room_id)
+			var block := view.price_block(room_id)
+			assert_false(block.is_empty(), "%s trägt einen Preis" % room_id)
+			var door_line := FloorPlanView.segments_text(block["door"])
+			var label := view.door_label(cheapest)
+			assert_true(door_line.begins_with(FloorPlanView.PRICE_DOOR % String(label[0])), door_line)
+			var fire := String(cheapest["fire_door"]) != ""
+			assert_eq(door_line.find("Maut +") >= 0, fire, "die Maut nur bei einem Zug durch eine Brandschutztür")
+			var blind: Array = block["blind"]
+			assert_eq((blind[0] as Array)[1], FloorPlanView.TEXT_COLOR, "der Blind trägt keine Ampel")
+			var last: Array = blind[blind.size() - 1]
+			assert_true(String(last[0]).begins_with("dein Schnitt"), "die Ampel steht nur am Schnitt")
+			var options := 0
+			for move in run.walkable_moves():
+				if String(move["room"]) == room_id:
+					options += 1
+			assert_eq(int(block["more"]), options - 1, "weitere Türen werden gezählt")
+
+func test_the_door_label_follows_the_scale() -> void:
+	var run := _walked(4, 0)
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	view.open(run.floor_view_state())
+	for move in run.walkable_moves():
+		var entry: Dictionary = view.geometry().doors[String(move["door"])]
+		var label := view.door_label(move)
+		if bool(entry["passed"]):
+			assert_eq(label[0], FloorPlanView.PRICE_PASSED)
+		elif int(entry["tier"]) <= FloorPlan.TIER_FREE:
+			assert_eq(label[0], FloorPlanView.PRICE_FREE)
+		else:
+			assert_eq(label[0], String(entry["malus_name"]))
+			assert_eq(label[1], FloorPlanView.DOOR_TIER_COLORS[clampi(int(entry["tier"]), 0, 3)])
+
+func test_no_toll_marks_on_rooms_and_no_names_in_the_corridor() -> void:
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	assert_false(view.has_method("_draw_door_label"), "keine Malus-Namen im Flur")
+	var run := _walked(7, 2)
+	view.open(run.floor_view_state())
+	var maluses := {}
+	for entry: Dictionary in view.geometry().doors.values():
+		if String(entry.get("malus_name", "")) != "":
+			maluses[String(entry["malus_name"])] = true
+	for text in view.label_texts():
+		assert_false(maluses.has(text), "%s steht nicht lose im Grundriß" % text)
+
+func test_the_plan_area_lies_between_head_and_foot() -> void:
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	view.open(GameRun.new_run().floor_view_state())
+	assert_eq(view.map_rect().position.y, view.head_rect().end.y)
+	assert_eq(view.map_rect().end.y, view.info_rect().position.y, "der Plan endet über der Auskunft")
+	assert_eq(FloorPlanView.BAR_BG.a, 1.0, "Kopf und Fuß decken")
+	var home: Array = view.home_view()
+	var half: Vector2 = view.map_rect().size / float(home[1]) * 0.5
+	var here := view.geometry().home_rect_cells()
+	assert_true(Rect2(Vector2(home[0]) - half, half * 2.0).grow(0.01).encloses(here), "der Standort liegt ganz im Plan-Bereich")
+
+func test_labels_never_overlap_and_stay_in_their_room() -> void:
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	var bad := 0
+	for i in 50:
+		var run := _walked(2000 + i, i % 4)
+		view.open(run.floor_view_state())
+		view.snap_home(true)
+		var geo := view.geometry()
+		var all := view.label_rects()
+		for room_id: String in all:
+			var room := geo.room_rect(room_id).grow(0.5)
+			var rects: Array = all[room_id]
+			for a in rects.size():
+				var ra: Rect2 = rects[a]
+				if not room.encloses(ra):
+					bad += 1
+					if bad <= 5:
+						gut.p("Etage %d %s: %s ragt aus %s" % [i, room_id, ra, room])
+				for b in range(a + 1, rects.size()):
+					if ra.grow(-0.5).intersects((rects[b] as Rect2).grow(-0.5)):
+						bad += 1
+						if bad <= 5:
+							gut.p("Etage %d %s: %s schneidet %s" % [i, room_id, ra, rects[b]])
+	assert_eq(bad, 0, "keine Beschriftung schneidet eine andere oder ragt aus ihrem Raum")
+
+func test_the_trail_draws_every_stretch_once() -> void:
+	var run := _walked(11, 6)
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	view.open(run.floor_view_state())
+	var segs := view.geometry().trail_segments()
+	assert_gt(segs.size(), 0)
+	for i in segs.size():
+		for j in range(i + 1, segs.size()):
+			assert_lt(_overlap(segs[i], segs[j]), 0.01, "keine Strecke doppelt")
+	var ages := {}
+	for seg: Dictionary in segs:
+		ages[int(seg["age"])] = true
+	assert_true(ages.has(0), "der letzte Zug ist dabei")
+
+## Gemeinsame Länge zweier achsparalleler Strecken auf derselben Linie (0 = keine).
+func _overlap(p: Dictionary, q: Dictionary) -> float:
+	var a1: Vector2 = p["a"]
+	var b1: Vector2 = p["b"]
+	var a2: Vector2 = q["a"]
+	var b2: Vector2 = q["b"]
+	if absf(a1.y - b1.y) < 0.001 and absf(a2.y - b2.y) < 0.001 and absf(a1.y - a2.y) < 0.001:
+		return minf(maxf(a1.x, b1.x), maxf(a2.x, b2.x)) - maxf(minf(a1.x, b1.x), minf(a2.x, b2.x))
+	if absf(a1.x - b1.x) < 0.001 and absf(a2.x - b2.x) < 0.001 and absf(a1.x - a2.x) < 0.001:
+		return minf(maxf(a1.y, b1.y), maxf(a2.y, b2.y)) - maxf(minf(a1.y, b1.y), minf(a2.y, b2.y))
+	return 0.0
+
+func test_brightness_ranks_open_fire_and_unwalkable() -> void:
+	var run := _walked(3, 1)
+	var view := _view(FloorPlanView.Mode.DETAIL)
+	view.open(run.floor_view_state())
+	for room_id: String in view.geometry().rooms:
+		var plain := false
+		var fire := false
+		for move in run.walkable_moves():
+			if String(move["room"]) == room_id:
+				if String(move["fire_door"]) == "":
+					plain = true
+				else:
+					fire = true
+		var expected := FloorPlanView.REACH_OPEN if plain else (FloorPlanView.REACH_FIRE if fire else FloorPlanView.REACH_NONE)
+		assert_eq(view.room_reach(room_id), expected, room_id)
+		var current := room_id == run.floor_plan.position
+		assert_eq(view.room_dimmed(room_id), expected == FloorPlanView.REACH_NONE and not current, room_id)
+	if not run.floor_plan.key_taken:
+		assert_true(view.room_dimmed(run.floor_plan.office), "das Büro ohne Karte ist gedimmt")
+	view.read_only = true
+	for room_id: String in view.geometry().rooms:
+		assert_false(view.room_dimmed(room_id), "nur ansehen dimmt nichts")
+
+func test_a_walkable_room_names_bonus_and_door_in_the_info() -> void:
+	var run := _walked(5, 1)
+	var view := _detail_whole(run)
+	var move: Dictionary = run.walkable_moves()[0]
+	var room_id := String(move["room"])
+	view.hover_at(_room_point(view, room_id))
+	var info := view.info_parts()
+	assert_ne(String(info["door"]), "", "die Tür steht in der Auskunft")
+	var label := view.door_label(run.floor_plan.cheapest_move(room_id))
+	assert_string_contains(String(info["door"]), String(label[0]))
+	var bonus := String(run.floor_plan.rooms[room_id]["bonus"])
+	if not bool(run.floor_plan.rooms[room_id]["visited"]):
+		assert_string_contains(String(info["body"]), DealClause.text_for(bonus))

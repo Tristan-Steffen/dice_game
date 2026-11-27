@@ -1068,6 +1068,9 @@ func _setup_table_screen() -> void:
 	table_screen = TableScreen.new()
 	table_screen.name = "TableScreen"
 	add_child(table_screen)
+	# Ohne SubViewportContainer meldet niemand dem Display, daß der Zeiger darin ist - ohne diese
+	# Meldung erreicht ein weitergereichter Zeiger ohne gedrückte Taste kein Control (kein Hover).
+	table_screen.notification(Node.NOTIFICATION_VP_MOUSE_ENTER)
 	_setup_score_audio()
 	_setup_sfx_bank()
 	_setup_music()
@@ -2426,7 +2429,6 @@ func _run_value_entries() -> Array:
 	if growth > 0.0:
 		trend_sub = "Haus %s · %s" % [BigNumber.factor(run.house_growth(), 2),
 			"voraus" if caught < 0 else ("eingeholt" if caught == 0 else "eingeholt in %d" % caught)]
-	var step := roundi(run.blind_growth() * 100.0)
 	return [
 		{"key": HubView.STAT_AVERAGE, "title": HubView.AVERAGE_TITLE,
 			"text": BigNumber.short(typical) if typical > 0.0 else HubView.NO_VALUE,
@@ -2440,16 +2442,12 @@ func _run_value_entries() -> Array:
 			"sub": "Stufe %d" % run.progress_tier(), "color": colors[HubView.STAT_LUCK],
 			"hint": run.luck_hint()},
 		{"key": HubView.STAT_FUMBLES, "title": "Fumbles", "text": BigNumber.short(run.farkle_count),
-			"sub": "Etage %s" % BigNumber.short(run.block_fumbles), "color": colors[HubView.STAT_FUMBLES],
+			"sub": "auf dieser Etage: %s" % BigNumber.short(run.block_fumbles), "color": colors[HubView.STAT_FUMBLES],
 			"hint": run.fumble_hint()},
 		{"key": HubView.STAT_BEST, "title": "Beste Hand",
 			"text": BigNumber.short(run.best_hand) if run.best_hand > 0 else HubView.NO_VALUE,
 			"sub": "", "color": colors[HubView.STAT_BEST],
 			"hint": "Die höchste Punktzahl einer einzelnen Hand in diesem Lauf."},
-		{"key": HubView.STAT_STEP, "title": "Blind-Schritt",
-			"text": "%s%d %%" % ["+" if step >= 0 else "−", absi(step)],
-			"sub": "nächster Zug %d" % (run.floor_moves + 1),
-			"color": colors[HubView.STAT_STEP], "hint": run.blind_hint()},
 		{"key": HubView.STAT_KEY, "title": HubView.KEY_TITLE, "text": "geholt" if taken else "fehlt",
 			"sub": "Büro offen" if taken else "Büro verschlossen",
 			"color": colors[HubView.STAT_KEY] if taken else FloorPlanView.MUTED_COLOR,

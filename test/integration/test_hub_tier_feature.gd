@@ -232,6 +232,8 @@ func test_the_values_grid_carries_round_average_and_key_card() -> void:
 	assert_eq(HubView.KEY_TITLE, "Schlüsselkarte")
 	assert_not_null(hub.values_grid.tile(HubView.STAT_AVERAGE))
 	assert_not_null(hub.values_grid.tile(HubView.STAT_KEY))
+	assert_eq(hub.values_grid.max_scroll(), 0.0, "sechs Kacheln, die Schlüsselkarte rollt nicht")
+	assert_false(HubView.STAT_COLORS.has("step"), "die Kachel Blind-Schritt ist fort")
 
 func test_the_values_grid_takes_any_number_of_entries() -> void:
 	var hub := _hub()

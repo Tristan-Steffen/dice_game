@@ -2137,6 +2137,7 @@ func floor_view_state() -> Dictionary:
 	var typical := typical_score()
 	var moves: Array[Dictionary] = []
 	var cheapest: Dictionary = {}
+	var door_options: Dictionary = {}
 	if move_due:
 		for move: Dictionary in view["moves"]:
 			var entry := move.duplicate()
@@ -2147,6 +2148,7 @@ func floor_view_state() -> Dictionary:
 			entry["toll_percent"] = toll_percent() if String(move["fire_door"]) != "" else 0
 			entry["clauses"] = move_clauses(move)
 			moves.append(entry)
+			door_options[move["room"]] = int(door_options.get(move["room"], 0)) + 1
 		for room_id in floor_plan.reachable_rooms():
 			cheapest[room_id] = String(floor_plan.cheapest_move(room_id).get("door", ""))
 	view["moves"] = moves
@@ -2155,6 +2157,7 @@ func floor_view_state() -> Dictionary:
 		room["bonus_text"] = DealClause.text_for(bonus, boost) if bonus != "" else ""
 		room["cheapest_door"] = String(cheapest.get(room["id"], ""))
 		room["reachable"] = cheapest.has(room["id"])
+		room["door_options"] = int(door_options.get(room["id"], 0))
 	for door: Dictionary in view["doors"]:
 		var malus := String(door["malus"])
 		var malus_clause := DealClause.find(malus)

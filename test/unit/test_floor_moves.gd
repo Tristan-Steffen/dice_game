@@ -22,13 +22,22 @@ func _move(fire: bool) -> Dictionary:
 			return move
 	return {}
 
-## Ein Lauf, dessen Aufzug einen Zug durch eine Brandschutztür bietet.
+## Ein Lauf, der nach dem ersten Zug einen Zug durch eine Brandschutztür bietet
+## (vom Aufzug aus gilt nur der eigene Abschnitt).
 func _run_with_fire_move() -> Dictionary:
-	for attempt in 40:
-		var move := _move(true)
-		if not move.is_empty():
-			return move
+	for attempt in 60:
 		run = GameRun.new_run()
+		_quiet_floor()
+		for first in run.walkable_moves():
+			if first["room"] == run.floor_plan.office:
+				continue
+			run.move_to(first)
+			run.advance_round()
+			_quiet_floor()
+			var move := _move(true)
+			if not move.is_empty():
+				return move
+			break
 	return {}
 
 func test_round_one_begins_with_a_room_choice() -> void:
@@ -76,17 +85,18 @@ func test_a_move_signs_bonus_and_malus_once() -> void:
 
 func test_the_toll_is_booked_on_every_crossing() -> void:
 	var move := _run_with_fire_move()
+	assert_false(move.is_empty(), "ein Zug durch eine Brandschutztür")
 	if move.is_empty():
-		pending("kein Aufzug mit Brandschutztür gewürfelt")
 		return
-	_quiet_floor()
 	var start_section := String(move["section_from"])
-	var g1 := run.blind_growth(1)
+	assert_eq(run.floor_moves, 1, "ein Zug liegt schon hinter uns")
+	var start := run.blind_value
 	var g2 := run.blind_growth(2)
-	assert_eq(run.toll_percent(), roundi(g1 * 100.0), "die Maut ist der laufende Schritt")
+	var g3 := run.blind_growth(3)
+	assert_eq(run.toll_percent(), roundi(g2 * 100.0), "die Maut ist der laufende Schritt")
 	assert_true(run.move_to(move))
-	assert_eq(run.floor_moves, 2, "Maut und Zug zählen je einen Schritt")
-	assert_almost_eq(run.blind_value, 150.0 * (1.0 + g1) * (1.0 + g2), 0.001)
+	assert_eq(run.floor_moves, 3, "Maut und Zug zählen je einen Schritt")
+	assert_almost_eq(run.blind_value, start * (1.0 + g2) * (1.0 + g3), 0.001)
 	# Zurück über eine Brandschutztür kostet wieder.
 	run.advance_round()
 	var back: Dictionary = {}
@@ -94,12 +104,15 @@ func test_the_toll_is_booked_on_every_crossing() -> void:
 		if String(option["fire_door"]) != "" and String(option["section_to"]) == start_section \
 				and option["room"] != run.floor_plan.office:
 			back = option
+	assert_false(back.is_empty(), "der Rückweg führt wieder durch die Brandschutztür")
 	if back.is_empty():
 		return
 	var before := run.blind_value
+	var g4 := run.blind_growth(4)
+	var g5 := run.blind_growth(5)
 	assert_true(run.move_to(back))
-	assert_eq(run.floor_moves, 4, "die zweite Durchquerung kostet wieder")
-	assert_almost_eq(run.blind_value, before * (1.0 + run.blind_growth(3)) * (1.0 + run.blind_growth(4)), 0.001)
+	assert_eq(run.floor_moves, 5, "die zweite Durchquerung kostet wieder")
+	assert_almost_eq(run.blind_value, before * (1.0 + g4) * (1.0 + g5), 0.001)
 
 func test_preview_equals_booking_with_and_without_fire_door_and_blind_clause() -> void:
 	for fire in [false, true]:

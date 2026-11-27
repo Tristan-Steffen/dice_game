@@ -5,12 +5,12 @@ extends SceneTree
 ## und die Hub-Startseite mit dem Streifen (Etage 3, zwei geschaffte darunter). Aufruf:
 ##   Godot --path . --resolution 1280x720 --position 4000,2400 --quit-after 600 \
 ##     --script tools/godot_floor_plan_probe.gd
-## Bilder: E:/Generated Images/Fumble/etagen_grundriss_spiel_2026-11-27/
+## Bilder: E:/Generated Images/Fumble/etagen_grundriss_feinschliff_2026-11-27/
 
-const OUT := "E:/Generated Images/Fumble/etagen_grundriss_spiel_2026-11-27/"
+const OUT := "E:/Generated Images/Fumble/etagen_grundriss_feinschliff_2026-11-27/"
 const PIT := Vector2i(985, 484)
-## Bildschirm-px je Display-px im engen Rahmen der Gruben-Station (gemessen Welle 6).
-const SCREEN_SCALE := 1.45
+## Bildschirm-px je Display-px im engen Rahmen der Gruben-Station (gemessen Welle 7 Teil B).
+const SCREEN_SCALE := 1.58
 const HUB := Vector2i(1068, 1125)
 
 var frames := 0
@@ -62,9 +62,20 @@ func _walked_run() -> GameRun:
 			run.move_to(best)
 			run.round_points = 300 + step * 60
 			run.advance_round()
-		if run.floor_plan.key_taken and crossed:
+		if run.floor_plan.key_taken and crossed and _has_fire_only_room(run):
 			return run
 	return GameRun.new_run()
+
+## Liegt ein Raum, der nur hinter einer Brandschutztür gangbar ist (für den Zeiger im Bild 2)?
+func _has_fire_only_room(run: GameRun) -> bool:
+	var plain := {}
+	var fire := {}
+	for move in run.walkable_moves():
+		(fire if String(move["fire_door"]) != "" else plain)[move["room"]] = true
+	for room_id in fire:
+		if not plain.has(room_id) and room_id != run.floor_plan.office:
+			return true
+	return false
 
 func _walk_some(run: GameRun, count: int) -> void:
 	for i in count:
@@ -134,12 +145,20 @@ func _hub(run: GameRun) -> void:
 func _report(view: FloorPlanView, file: String) -> void:
 	print("%s: Zelle %.1f px (ganz %.1f), u %.2f, Text voll %s" % [file, view.zoom_cell(), view.whole_cell(),
 		view.unit(), view.full_text()])
-	for role in ["name", "bonus_name", "bonus_text", "move"]:
+	for role in ["name", "bonus_name", "bonus_text", "price"]:
 		var px := view.label_px(role)
 		print("  %s %d Display-px = %.1f Bildschirm-px" % [role, px, px * SCREEN_SCALE])
-	print("  Kopf %d, Auskunft %d/%d, Tür %d Display-px" % [int(view.unit() * FloorPlanView.HEAD_FONT),
-		int(view.unit() * FloorPlanView.INFO_TITLE_FONT), int(view.unit() * FloorPlanView.INFO_BODY.x),
-		int(view.unit() * FloorPlanView.DOOR_FONT.x)])
+	print("  Kopf %d, Auskunft %d/%d Display-px" % [int(view.unit() * FloorPlanView.HEAD_FONT),
+		int(view.unit() * FloorPlanView.INFO_TITLE_FONT), int(view.unit() * FloorPlanView.INFO_BODY.x)])
+	var bad := 0
+	var all := view.label_rects()
+	for room_id: String in all:
+		var rects: Array = all[room_id]
+		for a in rects.size():
+			for b in range(a + 1, rects.size()):
+				if (rects[a] as Rect2).grow(-0.5).intersects((rects[b] as Rect2).grow(-0.5)):
+					bad += 1
+	print("  Überlappungen der Beschriftung: %d" % bad)
 
 func _process(_delta: float) -> bool:
 	frames += 1
@@ -152,8 +171,10 @@ func _process(_delta: float) -> bool:
 			if view.has_meta("hover"):
 				var move: Dictionary = view.walkable_moves()[0]
 				for option in view.walkable_moves():
-					if view.map_rect().has_point(view.geometry().room_rect(String(option["room"])).get_center()):
+					if view.room_reach(String(option["room"])) == FloorPlanView.REACH_FIRE \
+							and view.map_rect().has_point(view.geometry().room_rect(String(option["room"])).get_center()):
 						move = option
+				print("HOVER auf %s, Erreichbarkeit %d" % [move["room"], view.room_reach(String(move["room"]))])
 				var rect := view.geometry().room_rect(String(move["room"]))
 				view.hover_at(rect.position + rect.size * Vector2(0.5, 0.6))
 	if frames < 10:
@@ -163,6 +184,7 @@ func _process(_delta: float) -> bool:
 		if views[i] != null:
 			_report(views[i], names[i])
 	if hub != null:
-		print("HUB Streifen ", hub.floor_plan.size, " Info: ", hub.info_text().replace("\n", " | "))
+		print("HUB Streifen %s, Zelle der laufenden Etage %.1f Display-px" % [hub.floor_plan.size,
+			hub.floor_plan.geometry().cell])
 	print("FLOOR PLAN PROBE: ", ports.size(), " Bilder nach ", OUT)
 	return true

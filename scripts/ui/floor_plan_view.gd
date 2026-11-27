@@ -26,6 +26,13 @@ const OFFICE_SUB := "Boss-Runde"
 const HOME_TEXT := "Zum Standort"
 const MOVE_LINE := "Blind %s"
 const AVERAGE_PART := " · dein Schnitt %s"
+const AVERAGE_TEXT := "dein Schnitt %s"
+const PRICE_DOOR := "Tür: %s"
+const PRICE_FREE := "frei"
+const PRICE_PASSED := "offen"
+const PRICE_TOLL := " · Maut +%d %%"
+const MORE_DOORS := "+%d Tür"
+const INFO_DOOR := "Tür · %s: %s"
 const TOLL_TEXT := "+%d %%"
 const NEXT_FLOOR_TEXT := "Etage %d"
 const DONE_FLOOR_TEXT := "Etage %d · geschafft"
@@ -63,12 +70,20 @@ const YOU := Color.WHITE
 const FIRE_RED := Color("#e0352b")
 const BOSS_RED := Color("#ff3b30")
 const KEY_CARD := Color("#f4f1e4")
-const BAR_BG := Color(0.035, 0.045, 0.065, 0.96)
+## Kopf und Fuß decken: vom Plan scheint nichts darunter durch.
+const BAR_BG := Color(0.035, 0.045, 0.065, 1.0)
+## Nicht gangbare Räume, solange ein Zug fällig ist: Fläche und Schrift gedimmt.
+const DIM_ALPHA := 0.4
+const DIM_FLOOR := 0.45
 ## Raumtür-Stufen: offen, leicht, mittel, schwer - eine eigene Skala, nicht die Raumfarben.
 const DOOR_TIER_COLORS := [Color("#d6dbe4"), Color("#8fa3bf"), Color("#e0a840"), Color("#ff7a2e")]
 ## Ampel des Rundenschnitts (GameRun.margin_of).
 const MARGIN_COLORS := {"gut": Color("#6fdc8c"), "knapp": Color("#f2c94c"), "rot": Color("#ff5a4f")}
 const ROOM_ALPHA := 0.2
+## Der gegangene Weg: halbtransparent, die letzten zwei Züge heller.
+const TRAIL_RECENT := 0.5
+const TRAIL_OLD := 0.2
+const TRAIL_WIDTH := 0.05
 const OFFICE_ALPHA := 0.3
 ## Geschaffte Etagen stehen gedimmt unter der laufenden.
 const HISTORY_ALPHA := 0.42
@@ -82,7 +97,7 @@ const INNER_WIDTH := 0.04
 const LABEL_PAD := 0.3
 const HEAD_UNITS := 3.0
 const HEAD_FONT := 1.35
-const INFO_UNITS := 5.4
+const INFO_UNITS := 6.6
 const INFO_TITLE_FONT := 1.4
 const INFO_BODY := Vector2(1.3, 1.0)
 const PAD_UNITS := 0.6
@@ -91,7 +106,9 @@ const NAME := Vector2(1.7, 1.15)
 const BONUS := Vector2(1.4, 1.05)
 const TEXT := Vector2(1.3, 1.0)
 const MOVE := Vector2(1.25, 1.0)
-const DOOR_FONT := Vector2(1.15, 0.95)
+const PRICE := Vector2(1.15, 0.95)
+## Das Schild „DU BIST HIER“ darf in schmalen Räumen bis hierher schrumpfen (u).
+const PILL_MIN := 0.75
 const TOLL_FONT := 1.05
 ## Unter so vielen u je Zelle steht nur Symbol und Name (ganz herausgezoomt).
 const FULL_TEXT_CELL := 4.5
@@ -152,8 +169,6 @@ var _home_key := ""
 var _labels: Dictionary = {}
 var _labels_cell := -1.0
 var _home_button: Button
-## Was die Malerei dieses Bilds schon belegt hat (Maut-Marken, Tür-Namen) - Tür-Namen weichen aus.
-var _occupied: Array[Rect2] = []
 
 func _init() -> void:
 	visible = false
@@ -475,11 +490,66 @@ func move_for(target: Dictionary) -> Dictionary:
 func move_to_room(room_id: String) -> Dictionary:
 	return move_for({"kind": "room", "id": room_id})
 
-func _moves_by_room() -> Dictionary:
-	var by := {}
+const REACH_NONE := 0
+const REACH_FIRE := 1
+const REACH_OPEN := 2
+
+## Rang eines Raums für die Helligkeit: ohne Brandschutztür gangbar, nur dahinter, gar nicht.
+func room_reach(room_id: String) -> int:
+	var best := REACH_NONE
 	for move in walkable_moves():
-		by[String(move["room"])] = true
-	return by
+		if String(move["room"]) == room_id:
+			best = maxi(best, REACH_FIRE if String(move["fire_door"]) != "" else REACH_OPEN)
+	return best
+
+## Ob gedimmt wird: nur solange gewählt werden darf, und nie der Standraum.
+func room_dimmed(room_id: String) -> bool:
+	if walkable_moves().is_empty() or _geo == null:
+		return false
+	var info: Dictionary = _geo.rooms.get(room_id, {})
+	return not bool(info.get("current", false)) and room_reach(room_id) == REACH_NONE
+
+## [Text, Farbe] der Tür eines Zugs: Malus-Name in der Tür-Skala, frei, offen oder die Boss-Kondition.
+func door_label(move: Dictionary) -> Array:
+	var entry: Dictionary = _geo.doors.get(String(move.get("door", "")), {}) if _geo != null else {}
+	if entry.is_empty():
+		return ["", TEXT_COLOR]
+	if String(entry["kind"]) == FloorPlan.DOOR_BOSS:
+		return [String(entry.get("boss_name", "")), BOSS_RED]
+	if bool(entry["passed"]):
+		return [PRICE_PASSED, YOU]
+	var tier := int(entry["tier"])
+	if tier <= FloorPlan.TIER_FREE:
+		return [PRICE_FREE, DOOR_TIER_COLORS[0]]
+	return [String(entry.get("malus_name", "")), DOOR_TIER_COLORS[clampi(tier, 0, 3)]]
+
+## Der PREIS-Block eines gangbaren Raums als Zeilen aus [Text, Farbe]-Stücken ({} = keiner):
+## {door: [[..]], blind: [[..]], more: n}.
+func price_block(room_id: String) -> Dictionary:
+	var move := move_to_room(room_id)
+	if move.is_empty():
+		return {}
+	var door := door_label(move)
+	var first: Array = [[PRICE_DOOR % String(door[0]), door[1]]]
+	var toll: Array = []
+	if int(move.get("toll_percent", 0)) > 0:
+		first.append([PRICE_TOLL % int(move["toll_percent"]), FIRE_RED.lightened(0.25)])
+		toll = [[(PRICE_TOLL % int(move["toll_percent"])).trim_prefix(" · "), FIRE_RED.lightened(0.25)]]
+	var second: Array = [[MOVE_LINE % BigNumber.short(float(move.get("blind_after", 0))), TEXT_COLOR]]
+	var typical := float(move.get("typical", 0.0))
+	if typical > 0.0:
+		second.append([" · ", TEXT_COLOR])
+		second.append([AVERAGE_TEXT % BigNumber.short(typical),
+			MARGIN_COLORS.get(String(move.get("margin", "")), TEXT_COLOR)])
+	var info: Dictionary = _geo.rooms.get(room_id, {})
+	return {"door": first, "name": [first[0]], "toll": toll, "blind": second,
+		"more": maxi(0, int(info.get("door_options", 1)) - 1)}
+
+static func segments_text(segments: Array) -> String:
+	var text := ""
+	for piece: Array in segments:
+		text += String(piece[0])
+	return text
 
 # --- Eingabe --------------------------------------------------------------------
 
@@ -581,7 +651,7 @@ func press_at(local: Vector2) -> bool:
 ## {title, body, color, move, move_color}: das Ziel unter dem Zeiger, sonst die Ruhe.
 func info_parts() -> Dictionary:
 	var parts := {"title": IDLE_TITLE, "body": IDLE_BODY if not detail() else PICK_BODY,
-		"color": TEXT_COLOR, "move": "", "move_color": TEXT_COLOR}
+		"color": TEXT_COLOR, "move": "", "move_color": TEXT_COLOR, "door": "", "door_color": TEXT_COLOR}
 	if state.is_empty():
 		return parts
 	if walkable_moves().is_empty():
@@ -598,11 +668,28 @@ func info_parts() -> Dictionary:
 		var line := move_line(move)
 		parts["move"] = line[0]
 		parts["move_color"] = line[1]
+		if _hover["kind"] == "room":
+			# Ein gangbarer Raum nennt beides: seinen Bonus und den Malus der gezeigten Tür.
+			var label := door_label(move)
+			var entry: Dictionary = _geo.doors.get(String(move["door"]), {})
+			var text := String(entry.get("malus_text", ""))
+			if String(entry.get("kind", "")) == FloorPlan.DOOR_BOSS:
+				text = String(entry.get("boss_text", ""))
+			elif bool(entry.get("passed", false)):
+				text = PASSED_BODY
+			elif int(entry.get("tier", 0)) <= FloorPlan.TIER_FREE:
+				text = OPEN_BODY
+			if int(move.get("toll_percent", 0)) > 0:
+				text += PRICE_TOLL % int(move["toll_percent"])
+			parts["door"] = INFO_DOOR % [String(label[0]), text]
+			parts["door_color"] = label[1]
 	return parts
 
 func info_text() -> String:
 	var parts := info_parts()
 	var text := String(parts["title"]) + "\n" + String(parts["body"])
+	if String(parts["door"]) != "":
+		text += "\n" + String(parts["door"])
 	if String(parts["move"]) != "":
 		text += "\n" + String(parts["move"])
 	return text
@@ -689,7 +776,7 @@ static func word_parts(word: String) -> PackedStringArray:
 	return PackedStringArray([word])
 
 ## Zeilen im Grad px, die in width passen (leer = ein Teil ist zu breit).
-static func wrap_text(text: String, font: Font, px: int, width: float) -> PackedStringArray:
+static func wrap_text(text: String, font: Font, px: int, width: float, split_words: bool = true) -> PackedStringArray:
 	var lines := PackedStringArray()
 	var line := ""
 	# Eine Einheit bleibt an ihrer Zahl („−10 %“ bricht nie).
@@ -699,7 +786,7 @@ static func wrap_text(text: String, font: Font, px: int, width: float) -> Packed
 		if font.get_string_size(joined, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= width:
 			line = joined
 			continue
-		var parts := word_parts(word)
+		var parts := word_parts(word) if split_words else PackedStringArray([word])
 		if line != "" and parts.size() > 1:
 			var head := line + " " + parts[0]
 			if font.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= width:
@@ -725,9 +812,13 @@ static func wrap_text(text: String, font: Font, px: int, width: float) -> Packed
 	return lines
 
 ## Größter Grad von biggest bis smallest, in dem der Text umbrochen in die Fläche paßt:
-## {lines, px, fits}.
+## {lines, px, fits}. Lieber kleiner als ein Wort an seiner Fuge zu teilen.
 static func fit_text(text: String, font: Font, width: float, height: float, biggest: int,
 		smallest: int) -> Dictionary:
+	for px in range(biggest, smallest - 1, -1):
+		var whole := wrap_text(text, font, px, width, false)
+		if not whole.is_empty() and text_height(font, px, whole.size()) <= height:
+			return {"lines": whole, "px": px, "fits": true}
 	for px in range(biggest, smallest - 1, -1):
 		var lines := wrap_text(text, font, px, width)
 		if not lines.is_empty() and text_height(font, px, lines.size()) <= height:
@@ -748,7 +839,8 @@ func full_text() -> bool:
 	var home := float(home_view()[1]) if _geo != null else 0.0
 	return _cell >= minf(unit() * FULL_TEXT_CELL, home - 0.5)
 
-## Je Raum die Zeilen relativ zur Raumecke: {lines, px, at, color, kind}.
+## Je Raum die Beschriftung relativ zur Raumecke: {kind, at, rect, ...}. Jedes Stück trägt sein
+## Rechteck - keines schneidet ein anderes oder ragt aus dem Raum (ein Test prüft es).
 func _build_labels() -> void:
 	_labels.clear()
 	_labels_cell = _cell
@@ -757,63 +849,76 @@ func _build_labels() -> void:
 	var font := _font()
 	var u := unit()
 	var full := full_text()
-	var walkable := _moves_by_room()
 	for room_id: String in _geo.rooms:
 		var info: Dictionary = _geo.rooms[room_id]
 		var size_px := Vector2(Rect2(info["rect"]).size) * _cell
 		var pad := maxf(_cell * LABEL_PAD, 3.0)
 		var inner := Rect2(Vector2(pad, pad), size_px - Vector2(pad, pad) * 2.0)
 		var items: Array[Dictionary] = []
+		_labels[room_id] = items
+		if inner.size.x <= 0.0 or inner.size.y <= 0.0:
+			continue
+		var dim := room_dimmed(room_id)
+		var fade := DIM_ALPHA if dim else 1.0
 		var y := inner.position.y
 		var name_px_max := int(u * NAME.x)
 		var icon := float(name_px_max) * 0.95
-		var name_w := inner.size.x - icon * 1.3
-		if bool(info["has_key"]):
-			name_w -= key_card_size().x + u * 0.4  # die Schlüsselkarte steht rechts oben
-		var name_x := inner.position.x + icon * 1.3
-		var name_fit := fit_text(String(info["name"]), font, name_w,
-			text_height(font, name_px_max, 1 if full else 2), name_px_max, int(u * NAME.y))
-		if not name_fit["fits"]:
-			name_fit = fit_text(String(info["name"]), font, name_w, inner.size.y, int(u * NAME.y), int(u * NAME.y))
+		var key_w := key_card_size().x + u * 0.4 if bool(info["has_key"]) else 0.0
 		var head_color := BOSS_RED.lightened(0.25) if bool(info["is_office"]) else TEXT_COLOR
 		if bool(info["visited"]) and not bool(info["current"]):
 			head_color = MUTED_COLOR
-		items.append({"kind": "icon", "at": Vector2(inner.position.x, y), "px": icon})
-		if not name_fit["fits"]:
+		head_color.a *= fade
+		var has_icon := icon <= inner.size.x - key_w and icon <= inner.size.y
+		if has_icon:
+			items.append({"kind": "icon", "at": inner.position, "px": icon,
+				"rect": Rect2(inner.position, Vector2(icon, icon))})
+		var room_name := String(info["name"])
+		var name_x := inner.position.x + (icon * 1.3 if has_icon else 0.0)
+		var name_fit := fit_text(room_name, font, inner.end.x - key_w - name_x,
+			minf(inner.size.y, text_height(font, name_px_max, 1 if full else 2)), name_px_max, int(u * NAME.y))
+		var head_end := y + (icon if has_icon else 0.0)
+		if not name_fit["fits"] and has_icon:
 			# Zu schmal neben dem Symbol: der Name steht darunter über die ganze Breite.
 			y += icon * 1.1
 			name_x = inner.position.x
-			name_fit = fit_text(String(info["name"]), font, inner.size.x, text_height(font, name_px_max, 2),
+			name_fit = fit_text(room_name, font, inner.size.x, minf(inner.end.y - y, text_height(font, name_px_max, 2)),
 				name_px_max, int(u * NAME.y))
 		if name_fit["fits"]:
-			items.append({"kind": "text", "lines": name_fit["lines"], "px": name_fit["px"],
-				"at": Vector2(name_x, y), "color": head_color, "role": "name"})
-			y += text_height(font, int(name_fit["px"]), (name_fit["lines"] as PackedStringArray).size())
-		y += u * 0.15
+			var px := int(name_fit["px"])
+			var lines: PackedStringArray = name_fit["lines"]
+			var box := Rect2(Vector2(name_x, y), Vector2(_lines_width(lines, px), text_height(font, px, lines.size())))
+			items.append({"kind": "text", "lines": lines, "px": px, "at": box.position, "color": head_color,
+				"role": "name", "rect": box})
+			head_end = maxf(head_end, box.end.y)
+		y = maxf(head_end, y) + u * 0.15
 		var bottom := inner.end.y
-		var move: Dictionary = {}
-		if walkable.has(room_id):
-			move = move_to_room(room_id)
 		if bool(info["current"]):
-			var pill_h := text_height(font, int(u * MOVE.y), 1) + u * 0.3
-			items.append({"kind": "here", "at": Vector2(inner.position.x, bottom - pill_h), "px": int(u * MOVE.y),
-				"height": pill_h})
-			bottom -= pill_h + u * 0.2
-		elif not move.is_empty() and full:
-			var line := move_line(move)
-			var fit := fit_text(String(line[0]), font, inner.size.x, text_height(font, int(u * MOVE.x), 1),
-				int(u * MOVE.x), int(u * MOVE.y))
-			if not fit["fits"]:
-				line = [MOVE_LINE % BigNumber.short(float(move.get("blind_after", 0))), line[1]]
-				fit = fit_text(String(line[0]), font, inner.size.x, text_height(font, int(u * MOVE.x), 1),
-					int(u * MOVE.x), int(u * MOVE.y))
-			if fit["fits"]:
-				var h := text_height(font, int(fit["px"]), 1)
-				items.append({"kind": "text", "lines": fit["lines"], "px": fit["px"],
-					"at": Vector2(inner.position.x, bottom - h), "color": line[1], "role": "move"})
+			var pill_px := int(u * MOVE.y)
+			var pill_h := text_height(font, pill_px, 1) + u * 0.3
+			var pill_w := _pill_width(pill_px, pill_h)
+			while pill_w > inner.size.x and pill_px > int(u * PILL_MIN):
+				pill_px -= 1
+				pill_h = text_height(font, pill_px, 1) + u * 0.3
+				pill_w = _pill_width(pill_px, pill_h)
+			if bottom - pill_h >= y and pill_w <= inner.size.x:
+				var at := Vector2(inner.position.x, bottom - pill_h)
+				items.append({"kind": "here", "at": at, "px": pill_px, "height": pill_h,
+					"rect": Rect2(at, Vector2(pill_w, pill_h))})
+				bottom -= pill_h + u * 0.2
+		elif full:
+			var price := _fit_price(price_block(room_id), font, inner.size.x, bottom - y)
+			if not price.is_empty():
+				var h := float(price["height"])
+				var at := Vector2(inner.position.x, bottom - h)
+				price["kind"] = "price"
+				price["role"] = "price"
+				price["at"] = at
+				price["width"] = inner.size.x
+				price["fade"] = 1.0 if room_reach(room_id) == REACH_OPEN else 0.8
+				price["rect"] = Rect2(at, Vector2(inner.size.x, h))
+				items.append(price)
 				bottom -= h + u * 0.15
 		if not full:
-			_labels[room_id] = items
 			continue
 		var sub := String(info["bonus_name"])
 		var sub_color: Color = (info["color"] as Color).lightened(0.35)
@@ -823,21 +928,107 @@ func _build_labels() -> void:
 		elif bool(info["visited"]):
 			sub = VISITED_TEXT
 			sub_color = MUTED_COLOR
-		if sub != "":
+		sub_color.a *= fade
+		var sub_shown := false
+		if sub != "" and bottom - y > 0.0:
 			var fit := fit_text(sub, font, inner.size.x, minf(bottom - y, text_height(font, int(u * BONUS.x), 2)),
 				int(u * BONUS.x), int(u * BONUS.y))
 			if fit["fits"]:
-				items.append({"kind": "text", "lines": fit["lines"], "px": fit["px"],
-					"at": Vector2(inner.position.x, y), "color": sub_color, "role": "bonus_name"})
-				y += text_height(font, int(fit["px"]), (fit["lines"] as PackedStringArray).size()) + u * 0.2
+				var px := int(fit["px"])
+				var lines: PackedStringArray = fit["lines"]
+				var box := Rect2(Vector2(inner.position.x, y), Vector2(_lines_width(lines, px),
+					text_height(font, px, lines.size())))
+				items.append({"kind": "text", "lines": lines, "px": px, "at": box.position, "color": sub_color,
+					"role": "bonus_name", "rect": box})
+				y = box.end.y + u * 0.2
+				sub_shown = true
 		var text := String(info.get("bonus_text", ""))
-		var shows_text := text != "" and not bool(info["visited"]) and not bool(info["is_office"])
+		# Ohne seinen Namen stünde der Text namenlos da - dann sagt ihn die Auskunft.
+		var shows_text := text != "" and not bool(info["visited"]) and not bool(info["is_office"]) \
+			and (sub_shown or sub == "")
 		if shows_text and bottom - y > 0.0:
 			var fit := fit_text(text, font, inner.size.x, bottom - y, int(u * TEXT.x), int(u * TEXT.y))
 			if fit["fits"]:
-				items.append({"kind": "text", "lines": fit["lines"], "px": fit["px"],
-					"at": Vector2(inner.position.x, y), "color": MUTED_COLOR.lightened(0.25), "role": "bonus_text"})
-		_labels[room_id] = items
+				var px := int(fit["px"])
+				var lines: PackedStringArray = fit["lines"]
+				var box := Rect2(Vector2(inner.position.x, y), Vector2(_lines_width(lines, px),
+					text_height(font, px, lines.size())))
+				var text_color := MUTED_COLOR.lightened(0.25)
+				text_color.a *= fade
+				items.append({"kind": "text", "lines": lines, "px": px, "at": box.position, "color": text_color,
+					"role": "bonus_text", "rect": box})
+
+func _lines_width(lines: PackedStringArray, px: int) -> float:
+	var font := _font()
+	var widest := 0.0
+	for line in lines:
+		widest = maxf(widest, font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x)
+	return widest
+
+func _segments_width(segments: Array, px: int) -> float:
+	return _font().get_string_size(segments_text(segments), HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+
+## Der Preis-Block im größten Grad, der paßt; wird es eng, fällt erst „+1 Tür“, dann der
+## Schnitt, dann bricht die Maut auf eine eigene Zeile, zuletzt fällt der Tür-Name - die Maut nie
+## vor ihm ({} = kein Platz).
+func _fit_price(block: Dictionary, font: Font, width: float, height: float) -> Dictionary:
+	if block.is_empty():
+		return {}
+	var u := unit()
+	var more: int = block["more"]
+	var door: Array = block["door"]
+	var door_name: Array = block["name"]
+	var toll: Array = block["toll"]
+	var blind: Array = block["blind"]
+	var short_blind: Array = [blind[0]]
+	var options: Array = [[[door, blind], more], [[door, blind], 0], [[door, short_blind], 0]]
+	if not toll.is_empty():
+		options.append([[door_name, toll, short_blind], 0])
+		options.append([[toll, short_blind], 0])
+	else:
+		options.append([[door_name, short_blind], 0])
+	options.append([[short_blind], 0])
+	var gap := u * 0.35
+	for option: Array in options:
+		for px in range(int(u * PRICE.x), int(u * PRICE.y) - 1, -1):
+			var rows: Array = option[0]
+			var more_text := (MORE_DOORS % int(option[1])) if int(option[1]) > 0 else ""
+			var ok := true
+			for i in rows.size():
+				var w := _segments_width(rows[i], px)
+				if i == 0 and more_text != "":
+					w += font.get_string_size("  " + more_text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+				if w > width:
+					ok = false
+			var h := gap + text_height(font, px, rows.size())
+			if ok and h <= height:
+				return {"rows": rows, "px": px, "more": more_text, "gap": gap, "height": h}
+	return {}
+
+func _pill_width(px: int, height: float) -> float:
+	return _font().get_string_size(HERE_TEXT, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + height * 0.8
+
+## Alle Beschriftungs-Rechtecke der Nahsicht in Pixeln, je Raum (Schlüsselkarte samt).
+func label_rects() -> Dictionary:
+	var out := {}
+	if _geo == null:
+		return out
+	for room_id: String in _labels:
+		var box := _geo.room_rect(room_id)
+		var rects: Array[Rect2] = []
+		for item: Dictionary in _labels[room_id]:
+			var r: Rect2 = item["rect"]
+			rects.append(Rect2(box.position + r.position, r.size))
+		if bool(_geo.rooms[room_id]["has_key"]):
+			rects.append(_key_card_rect(box, _geo.cell))
+		out[room_id] = rects
+	return out
+
+func _key_card_rect(box: Rect2, unit_cell: float) -> Rect2:
+	# Im Streifen groß genug, um als Karte zu lesen (eine Zelle mißt dort ~20 Display-px).
+	var card := key_card_size() if detail() else Vector2(unit_cell * 0.85, unit_cell * 0.56)
+	var pad := maxf(unit_cell * LABEL_PAD, 3.0)
+	return Rect2(Vector2(box.end.x - pad - card.x, box.position.y + pad), card)
 
 ## Alle Texte, die die Nahsicht gerade im Grundriß trägt (für Tests und Sichtproben).
 func label_texts() -> Array[String]:
@@ -948,25 +1139,39 @@ func _draw_info() -> void:
 	_text_line(String(parts["title"]), Vector2(inner.position.x, inner.position.y + font.get_ascent(title_px)),
 		title_px, parts["color"], inner.size.x - move_w - u)
 	var body_top := inner.position.y + text_height(font, title_px, 1)
-	var fit := fit_text(String(parts["body"]), font, inner.size.x, inner.end.y - body_top,
+	var body_end := inner.end.y
+	var door := String(parts["door"])
+	if door != "":
+		var door_fit := fit_text(door, font, inner.size.x, text_height(font, int(u * INFO_BODY.x), 1),
+			int(u * INFO_BODY.x), int(u * INFO_BODY.y))
+		var door_px := int(door_fit["px"])
+		body_end -= text_height(font, door_px, 1)
+		if door_fit["fits"]:
+			_draw_lines(door_fit["lines"], Vector2(inner.position.x, body_end), door_px, parts["door_color"],
+				inner.size.x)
+		else:
+			_text_line(door, Vector2(inner.position.x, body_end + font.get_ascent(door_px)), door_px,
+				parts["door_color"], inner.size.x)
+	var fit := fit_text(String(parts["body"]), font, inner.size.x, body_end - body_top,
 		int(u * INFO_BODY.x), int(u * INFO_BODY.y))
-	var lines: PackedStringArray = fit["lines"] if fit["fits"] else PackedStringArray([String(parts["body"])])
-	_draw_lines(lines, Vector2(inner.position.x, body_top), int(fit["px"]), MUTED_COLOR.lightened(0.3),
-		inner.size.x)
+	if fit["fits"]:
+		_draw_lines(fit["lines"], Vector2(inner.position.x, body_top), int(fit["px"]), MUTED_COLOR.lightened(0.3),
+			inner.size.x)
+	else:
+		_text_line(String(parts["body"]), Vector2(inner.position.x, body_top + font.get_ascent(int(fit["px"]))),
+			int(fit["px"]), MUTED_COLOR.lightened(0.3), inner.size.x)
 
 ## Ein Grundriß: Flure, Aufzug, Räume, Weg, Wände, Türen, Marken; strong = die laufende Etage.
 func _draw_plan(geo: FloorPlanGeometry, alpha: float, live: bool) -> void:
 	var unit_cell := geo.cell
 	var plan := geo.plan
-	if live:
-		_occupied.clear()
 	draw_rect(geo.bounds_px().grow(unit_cell * 0.2), Color(BACKGROUND.lightened(0.02), alpha))
 	for info: Dictionary in plan.get("corridors", []):
 		for rect: Rect2i in info["rects"]:
 			draw_rect(geo.rect_px(Rect2(rect)), Color(CORRIDOR, alpha))
 	_draw_elevator(geo, alpha, live)
 	for info: Dictionary in plan.get("rooms", []):
-		_draw_room_floor(geo, info, alpha)
+		_draw_room_floor(geo, info, alpha * (DIM_FLOOR if live and room_dimmed(String(info["id"])) else 1.0))
 	_draw_trail(geo, alpha)
 	for wall: Dictionary in plan.get("walls", []):
 		var outer := bool(wall["outer"])
@@ -982,11 +1187,6 @@ func _draw_plan(geo: FloorPlanGeometry, alpha: float, live: bool) -> void:
 		_draw_door(geo, entry, alpha, live)
 	for info: Dictionary in plan.get("rooms", []):
 		_draw_room_marks(geo, info, alpha, live)
-	if live and detail() and full_text():
-		for entry: Dictionary in plan.get("doors", []):
-			if bool(entry.get("reachable", false)) and String(entry.get("malus_name", "")) != "" \
-					and String(entry.get("section", "")) != "" and not bool(entry["passed"]):
-				_draw_door_label(geo, entry, DOOR_TIER_COLORS[clampi(int(entry["tier"]), 0, 3)])
 
 func _draw_elevator(geo: FloorPlanGeometry, alpha: float, live: bool) -> void:
 	var box := geo.elevator_rect()
@@ -1032,41 +1232,66 @@ func _draw_room_marks(geo: FloorPlanGeometry, info: Dictionary, alpha: float, li
 	var room_id := String(info["id"])
 	var box := geo.room_rect(room_id)
 	var unit_cell := geo.cell
-	var walkable := live and _moves_by_room().has(room_id)
+	var reach := room_reach(room_id) if live else REACH_NONE
+	var fade := DIM_ALPHA if live and room_dimmed(room_id) else 1.0
 	if live and detail():
 		for item: Dictionary in _labels.get(room_id, []):
 			var at: Vector2 = box.position + item["at"]
 			match String(item["kind"]):
 				"icon":
 					var s := float(item["px"])
-					_draw_symbol(_symbol_of(info), Rect2(at, Vector2(s, s)), _room_tint(info).lightened(0.35))
+					var tint := _room_tint(info).lightened(0.35)
+					tint.a *= fade
+					_draw_symbol(_symbol_of(info), Rect2(at, Vector2(s, s)), tint)
 				"here":
 					_draw_here_pill(at, int(item["px"]), float(item["height"]))
+				"price":
+					_draw_price(item, at)
 				_:
 					_draw_lines(item["lines"], at, int(item["px"]), item["color"], box.size.x)
 	else:
 		var s := minf(box.size.x, box.size.y) * 0.42
 		var symbol_color := _room_tint(info).lightened(0.3)
-		symbol_color.a = alpha
+		symbol_color.a = alpha * fade
 		_draw_symbol(_symbol_of(info), Rect2(box.get_center() - Vector2(s, s) * 0.5, Vector2(s, s)), symbol_color)
 	if bool(info["has_key"]):
-		var card := key_card_size() if live and detail() else Vector2(unit_cell * 0.5, unit_cell * 0.33)
-		var pad := maxf(unit_cell * LABEL_PAD, 3.0)
-		var at := Vector2(box.end.x - pad - card.x, box.position.y + pad)
-		_draw_key_card(Rect2(at, card), true, alpha)
+		_draw_key_card(_key_card_rect(box, unit_cell), true, alpha)
 	if live and bool(info["current"]):
+		if not detail():
+			draw_rect(box.grow(-unit_cell * 0.08), Color(1, 1, 1, 0.22))
 		_draw_you_rim(box, unit_cell)
-	elif walkable:
-		var rim := Color(1, 1, 1, 0.5 + 0.2 * _breath())
-		draw_rect(box.grow(-unit_cell * 0.07), rim, false, maxf(1.0, unit_cell * 0.045))
-		var move := move_to_room(room_id)
-		if detail() and int(move.get("toll_percent", 0)) > 0:
-			# Auf der oberen Wand, rechts - über dem Rand, nie über dem Namen.
-			var tag := _toll_size(int(move["toll_percent"]))
-			_draw_toll(Vector2(box.end.x - unit_cell * 0.2, box.position.y - tag.y * 0.5),
-				int(move["toll_percent"]), true)
+	elif reach == REACH_OPEN:
+		var rim := Color(1, 1, 1, 0.62 + 0.25 * _breath())
+		draw_rect(box.grow(-unit_cell * 0.07), rim, false, maxf(1.5, unit_cell * 0.055))
+	elif reach == REACH_FIRE:
+		# Hinter einer Brandschutztür: sichtbar, aber eine Stufe ruhiger.
+		var rim := Color(1, 1, 1, 0.32 + 0.12 * _breath())
+		draw_rect(box.grow(-unit_cell * 0.07), rim, false, maxf(1.0, unit_cell * 0.025))
 	if live and _hover.get("kind", "") == "room" and _hover.get("id", "") == room_id:
 		draw_rect(box.grow(-unit_cell * 0.04), Color(1, 1, 1, 0.08))
+
+## Der Preis-Block: Trennlinie, „Tür: …“ samt Maut und „+1 Tür“, darunter „Blind … · dein Schnitt …“.
+func _draw_price(item: Dictionary, at: Vector2) -> void:
+	var font := _font()
+	var px := int(item["px"])
+	var fade := float(item["fade"])
+	var width := float(item["width"])
+	var gap := float(item["gap"])
+	draw_line(at, at + Vector2(width, 0.0), Color(INNER_WALL, 0.55 * fade), 1.0)
+	var y := at.y + gap
+	var step := font.get_height(px) * LINE_BOX
+	var rows: Array = item["rows"]
+	for i in rows.size():
+		var x := at.x
+		for piece: Array in rows[i]:
+			var color: Color = piece[1]
+			color.a *= fade
+			draw_string(font, Vector2(x, y + font.get_ascent(px)), String(piece[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, px, color)
+			x += font.get_string_size(String(piece[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+		if i == 0 and String(item["more"]) != "":
+			draw_string(font, Vector2(x, y + font.get_ascent(px)), "  " + String(item["more"]),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(MUTED_COLOR, fade))
+		y += step
 
 func _draw_you_rim(box: Rect2, unit_cell: float) -> void:
 	var glow := 0.55 + 0.45 * _breath()
@@ -1095,7 +1320,6 @@ func _draw_toll(at: Vector2, percent: int, corner: bool) -> void:
 	var w := _toll_size(percent).x
 	var h := _toll_size(percent).y
 	var box := Rect2(at - Vector2(w, 0.0), Vector2(w, h)) if corner else Rect2(at - Vector2(w, h) * 0.5, Vector2(w, h))
-	_occupied.append(box)
 	draw_rect(box, FIRE_RED)
 	draw_rect(box, Color.WHITE, false, maxf(1.0, px * 0.1))
 	draw_string(font, Vector2(box.position.x + px * 0.35, box.position.y + (h + font.get_ascent(px) - font.get_descent(px)) * 0.5),
@@ -1155,32 +1379,6 @@ func _draw_door(geo: FloorPlanGeometry, entry: Dictionary, alpha: float, live: b
 		var at := c + along * half * ((i + 1.0) / (tier + 1.0) * 2.0 - 1.0)
 		draw_line(at - across * unit_cell * 0.1, at + across * unit_cell * 0.1, color, maxf(1.5, unit_cell * 0.05))
 
-## Der Malus-Name einer Flurtür im Flur davor, auf der Seite der Tür - nie über die Flurmitte.
-func _draw_door_label(geo: FloorPlanGeometry, entry: Dictionary, color: Color) -> void:
-	var font := _font()
-	var u := unit()
-	var side := Vector2(entry["side"])
-	if side.x != 0.0:
-		return  # Türen zu Seitenfluren: der Name steht in der Auskunft
-	var center: Vector2 = geo.to_px(entry["center"])
-	var width := geo.cell * 1.9
-	var fit := fit_text(String(entry["malus_name"]), font, width, text_height(font, int(u * DOOR_FONT.x), 1),
-		int(u * DOOR_FONT.x), int(u * DOOR_FONT.y))
-	if not fit["fits"]:
-		return
-	var px := int(fit["px"])
-	var h := text_height(font, px, 1)
-	var y := center.y + geo.cell * 0.06 if side.y > 0.0 else center.y - geo.cell * 0.06 - h
-	var text := String(fit["lines"][0])
-	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
-	var box := Rect2(center.x - w * 0.5, y, w, h).grow(u * 0.2)
-	for taken in _occupied:
-		if taken.intersects(box):
-			return  # kein Platz: der Name steht in der Auskunft
-	_occupied.append(box)
-	draw_string(font, Vector2(center.x - w * 0.5, y + font.get_ascent(px)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px,
-		color.lightened(0.2))
-
 func _draw_swing(hinge: Vector2, along: Vector2, into: Vector2, radius: float, color: Color) -> void:
 	var start := along.angle()
 	var end := into.angle()
@@ -1198,14 +1396,18 @@ func _draw_fire_door(c: Vector2, along: Vector2, unit_cell: float, alpha: float)
 	for end in [a, b]:
 		draw_rect(Rect2(end - Vector2.ONE * unit_cell * 0.07, Vector2.ONE * unit_cell * 0.14), Color(FIRE_RED, alpha))
 
+## Der Weg: EINE ruhige Linie, jede Strecke einmal; die letzten zwei Züge heller, ältere blasser.
+## Waagerechte Läufe ragen um die halbe Breite über, so schließen die Ecken ohne Doppel-Deckung.
 func _draw_trail(geo: FloorPlanGeometry, alpha: float) -> void:
-	var cells := geo.trail_points()
-	if cells.size() < 2:
-		return
-	var points := PackedVector2Array()
-	for point in cells:
-		points.append(geo.to_px(point))
-	draw_polyline(points, Color(1, 1, 1, 0.7 * alpha), maxf(1.5, geo.cell * 0.05), true)
+	var width := maxf(1.5, geo.cell * TRAIL_WIDTH)
+	for seg: Dictionary in geo.trail_segments():
+		var a := geo.to_px(seg["a"])
+		var b := geo.to_px(seg["b"])
+		if bool(seg["horizontal"]):
+			a.x -= width * 0.5
+			b.x += width * 0.5
+		var shade := TRAIL_RECENT if int(seg["age"]) < 2 else TRAIL_OLD
+		draw_line(a, b, Color(1, 1, 1, shade * alpha), width)
 
 # --- Symbole der Themen (gezeichnet, keine Bilder) ----------------------------------
 

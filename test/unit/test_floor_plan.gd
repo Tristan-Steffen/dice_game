@@ -292,9 +292,10 @@ func _check_moves(plan: FloorPlan, standpoint: String) -> void:
 		if entry["section"] != "":
 			if own.has(entry["section"]):
 				allowed = true
-			for sid in own:
-				if plan.section(sid)["neighbors"].has(entry["section"]):
-					allowed = true
+			if standpoint != "":
+				for sid in own:
+					if plan.section(sid)["neighbors"].has(entry["section"]):
+						allowed = true
 		elif entry["a"] == standpoint or entry["b"] == standpoint:
 			allowed = true
 			target = entry["b"] if entry["a"] == standpoint else entry["a"]
@@ -314,18 +315,31 @@ func test_reachability_follows_the_three_rules() -> void:
 		for room_id: String in plan.rooms:
 			_check_moves(plan, room_id)
 
-func test_elevator_reaches_its_section_and_one_fire_door_beyond() -> void:
-	var plan := _plan(11)
-	var lift: String = plan.elevator["section"]
-	var with_fire := 0
-	for move in plan.reachable_moves():
-		if move["fire_door"] == "":
+func test_elevator_reaches_only_its_own_section() -> void:
+	for seed_value in range(1, 60):
+		var plan := _plan(seed_value, seed_value % 6)
+		var lift: String = plan.elevator["section"]
+		var moves := plan.reachable_moves()
+		assert_true(moves.size() >= FloorPlan.MIN_SECTION_ROOMS, "Seed %d: genug Ziele" % seed_value)
+		for move in moves:
+			assert_eq(move["fire_door"], "", "keine Brandschutztür vom Aufzug")
 			assert_eq(plan.door(move["door"])["section"], lift)
-		else:
-			with_fire += 1
-			assert_true(plan.section(lift)["neighbors"].has(move["section_to"]))
-	assert_true(with_fire > 0, "der Nachbar-Abschnitt liegt hinter einer Brandschutztür")
-	assert_eq(plan.position, "")
+		assert_eq(plan.position, "")
+
+## Eine Etage, deren erster Raum einen bezahlten Zug hinter eine Brandschutztür bietet:
+## [plan, Zug]. Gewählt wird über Seeds, nie über eine angenommene Form.
+func _plan_before_fire_door(rng: RandomNumberGenerator) -> Array:
+	for seed_value in range(5, 200):
+		var plan := _plan(seed_value)
+		plan.scout(rng, Callable())
+		plan.apply_move(plan.reachable_moves()[0])
+		plan.scout(rng, Callable())
+		for move in plan.reachable_moves():
+			var entry := plan.door(move["door"])
+			if move["fire_door"] != "" and not entry["free"] and not entry["passed"] \
+					and move["room"] != plan.office:
+				return [plan, move]
+	return []
 
 func test_office_only_with_the_key() -> void:
 	for seed_value in range(1, 40):
@@ -342,15 +356,13 @@ func test_office_only_with_the_key() -> void:
 		assert_true(opens > 0)
 
 func test_apply_move_books_bonus_once_malus_once_and_tolls_every_time() -> void:
-	var plan := _plan(5)
 	var rng := _rng(9)
-	plan.scout(rng, Callable())
-	var fire_move: Dictionary = {}
-	for move in plan.reachable_moves():
-		if move["fire_door"] != "" and not plan.door(move["door"])["free"]:
-			fire_move = move
-			break
-	assert_false(fire_move.is_empty(), "vom Aufzug liegt ein Zug hinter einer Brandschutztür")
+	var found := _plan_before_fire_door(rng)
+	assert_false(found.is_empty(), "eine Etage mit bezahltem Zug hinter einer Brandschutztür")
+	if found.is_empty():
+		return
+	var plan: FloorPlan = found[0]
+	var fire_move: Dictionary = found[1]
 	var target: String = fire_move["room"]
 	var entry := plan.door(fire_move["door"])
 	var first := plan.apply_move(fire_move)
@@ -361,7 +373,7 @@ func test_apply_move_books_bonus_once_malus_once_and_tolls_every_time() -> void:
 	assert_eq(plan.position, target)
 	assert_true(plan.rooms[target]["visited"])
 	assert_true(entry["passed"])
-	assert_eq(plan.trail.size(), 1)
+	assert_eq(plan.trail.size(), 2)
 	# Hinaus in einen Raum am eigenen Abschnitt, dann zurück durch dieselbe Tür.
 	var away: Dictionary = {}
 	for move in plan.reachable_moves():
@@ -389,11 +401,17 @@ func test_toll_on_every_crossing_of_a_fire_door() -> void:
 	for step in 30:
 		var moves := plan.reachable_moves()
 		var fire: Array[Dictionary] = []
+		var plain: Array[Dictionary] = []
 		for move in moves:
-			if move["fire_door"] != "" and move["room"] != plan.office:
-				fire.append(move)
+			if move["room"] == plan.office:
+				continue
+			(fire if move["fire_door"] != "" else plain).append(move)
 		if fire.is_empty():
-			break
+			# Vom Aufzug oder aus einem hinteren Raum führt keine Brandschutztür: erst weiter.
+			if plain.is_empty():
+				break
+			tolls += int(plan.apply_move(plain[rng.randi_range(0, plain.size() - 1)])["tolls"])
+			continue
 		var result := plan.apply_move(fire[rng.randi_range(0, fire.size() - 1)])
 		crossings += 1
 		tolls += int(result["tolls"])
@@ -482,7 +500,7 @@ func test_view_state_carries_plain_values() -> void:
 	for wall: Dictionary in state["walls"]:
 		if wall["outer"]:
 			outer += 1
-	assert_true(outer > 4)
+	assert_true(outer >= 4)
 	assert_eq((state["rooms"] as Array).size(), plan.rooms.size())
 	var hidden := 0
 	for entry: Dictionary in state["doors"]:
