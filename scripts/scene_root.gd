@@ -361,14 +361,10 @@ var labor_click_zone: StaticBody3D
 var route_pending := false
 ## Die Etagen-Karte als Laden-Seite (Knopf „Etage“), nur zum Ansehen.
 var floor_page: FloorMapPage
-## Die NAHSICHT der Etage auf dem Grubenboden: hier wird gezogen.
-var floor_detail: FloorMapView
+## Die NAHSICHT des Grundrisses auf dem Grubenboden: hier wird gezogen.
+var floor_detail: FloorPlanView
 ## Die Kamera-Lage vor ihrem engen Rahmen (leer = kein Rahmen steht).
 var _floor_detail_home: Dictionary = {}
-## Die gesperrte Tür, die in der Nahsicht schon geblitzt hat ("Etage:Tür").
-var _detail_flash_seen := ""
-## Die gesperrte Tür, die schon einmal geblitzt hat ("Etage:Tür").
-var _floor_flash_seen := ""
 ## Die Runde ist festgezurrt: der Vertrag ist unterschrieben bzw. - in einer Runde
 ## ohne Auslage - der erste Wurf ist gefallen. Bis dahin bleibt die Werkbank offen
 ## (siehe _dice_editing_locked), danach sind die Würfel tabu.
@@ -1636,7 +1632,7 @@ func _setup_panels() -> void:
 
 	# Der TURM-Streifen wohnt auf der Startseite des Hubs (nur Übersicht); die Nahsicht
 	# steht als Laden-Seite („Etage“, nur ansehen) und auf dem Grubenboden (dort wird gezogen).
-	if table_screen != null and table_screen.hub != null and table_screen.hub.floor_map != null:
+	if table_screen != null and table_screen.hub != null and table_screen.hub.floor_plan != null:
 		floor_page = FloorMapPage.new()
 		floor_page.name = "FloorMapPage"
 		table_screen.hub.attach_panel(floor_page)
@@ -1644,11 +1640,11 @@ func _setup_panels() -> void:
 		floor_page.close_requested.connect(_close_floor_page)
 	charm_shop.floor_requested.connect(_open_floor_page)
 	if table_screen != null and table_screen.pit_window != null:
-		floor_detail = FloorMapView.new()
+		floor_detail = FloorPlanView.new()
 		floor_detail.name = "FloorDetail"
-		floor_detail.mode = FloorMapView.Mode.DETAIL
+		floor_detail.mode = FloorPlanView.Mode.DETAIL
 		table_screen.add_child(floor_detail)
-		floor_detail.door_chosen.connect(_on_route_chosen)
+		floor_detail.move_chosen.connect(_on_route_chosen)
 
 	# Die PAKET-AUSWAHL wohnt auf der ÖFFNUNGS-FLÄCHE unter dem Vorrat (ohne Tisch der
 	# 2D-Rückfall); ihr Rechteck stellt _sync_pack_areas.
@@ -2406,19 +2402,12 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
-	# Die zuletzt gesperrte Tür blitzt einmal rot - gemalt ist sie da schon gesperrt.
-	var flash := ""
-	if run.last_locked_door != "":
-		var key := "%d:%s" % [run.floor_index, run.last_locked_door]
-		if key != _floor_flash_seen:
-			_floor_flash_seen = key
-			flash = run.last_locked_door
 	var floor_state := run.floor_view_state()
-	table_screen.hub.set_floor_state(floor_state, run.deal_bonus_factor(), flash)
+	table_screen.hub.set_floor_state(floor_state)
 	if floor_page != null and floor_page.visible:
-		floor_page.show_state(floor_state, run.deal_bonus_factor())
+		floor_page.show_state(floor_state)
 	if floor_detail != null and floor_detail.visible:
-		floor_detail.open(floor_state, run.deal_bonus_factor())
+		floor_detail.open(floor_state)
 	_refresh_deal_tokens()
 	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
@@ -2428,7 +2417,9 @@ func _refresh_hub_info() -> void:
 ## Die LAUFWERTE der Startseite als Liste - ein weiterer Wert ist ein weiterer Eintrag.
 func _run_value_entries() -> Array:
 	var colors := HubView.STAT_COLORS
-	var pad := run.cushion(run.cushion_blind())
+	var typical := run.typical_score()
+	var margin := GameRun.margin_of(typical, run.cushion_blind())
+	var taken := run.floor_plan != null and run.floor_plan.key_taken
 	var growth := run.score_growth()
 	var caught := run.rounds_until_caught()
 	var trend_sub := ""
@@ -2437,11 +2428,11 @@ func _run_value_entries() -> Array:
 			"voraus" if caught < 0 else ("eingeholt" if caught == 0 else "eingeholt in %d" % caught)]
 	var step := roundi(run.blind_growth() * 100.0)
 	return [
-		{"key": HubView.STAT_CUSHION, "title": "Polster",
-			"text": BigNumber.factor(pad) if pad > 0.0 else HubView.NO_VALUE,
-			"sub": "gegen %s" % BigNumber.short(run.cushion_blind()),
-			"color": HubView.CUSHION_SHORT_COLOR if pad > 0.0 and pad < 1.0 else colors[HubView.STAT_CUSHION],
-			"hint": run.cushion_hint()},
+		{"key": HubView.STAT_AVERAGE, "title": HubView.AVERAGE_TITLE,
+			"text": BigNumber.short(typical) if typical > 0.0 else HubView.NO_VALUE,
+			"sub": "Blind %s" % BigNumber.short(run.cushion_blind()),
+			"color": FloorPlanView.MARGIN_COLORS.get(margin, colors[HubView.STAT_AVERAGE]),
+			"hint": run.round_average_hint()},
 		{"key": HubView.STAT_TREND, "title": "Trend",
 			"text": "Du %s" % BigNumber.factor(growth, 2) if growth > 0.0 else HubView.NO_VALUE,
 			"sub": trend_sub, "color": colors[HubView.STAT_TREND], "hint": run.trend_hint()},
@@ -2459,6 +2450,10 @@ func _run_value_entries() -> Array:
 			"text": "%s%d %%" % ["+" if step >= 0 else "−", absi(step)],
 			"sub": "nächster Zug %d" % (run.floor_moves + 1),
 			"color": colors[HubView.STAT_STEP], "hint": run.blind_hint()},
+		{"key": HubView.STAT_KEY, "title": HubView.KEY_TITLE, "text": "geholt" if taken else "fehlt",
+			"sub": "Büro offen" if taken else "Büro verschlossen",
+			"color": colors[HubView.STAT_KEY] if taken else FloorPlanView.MUTED_COLOR,
+			"hint": "Das Büro des Pit Boss öffnet erst, wenn du den Raum mit der Schlüsselkarte betreten hast. Sie gilt für eine Etage."},
 	]
 
 ## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
@@ -2658,9 +2653,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if log_open:
 			_close_round_log()
 			return
-		# Ein verschobener Ausschnitt der Nahsicht kehrt zuerst auf den Puck zurück.
-		if _floor_detail_open() and floor_detail.scrolled_free():
-			floor_detail.snap_to_puck(false)
+		# Ein verschobener oder gezoomter Ausschnitt der Nahsicht kehrt zuerst zum Standort zurück.
+		if _floor_detail_open() and floor_detail.away_from_home():
+			floor_detail.snap_home(false)
 			return
 		# Aus der Inspektion führt Rechtsklick EINE Stufe zurück aufs Podest: der
 		# Würfel legt sich in seine Schwebe-Ruhelage, abgewählt ist er noch nicht.
@@ -11928,11 +11923,11 @@ func _wheel_shelf(screen_pos: Vector2, up: bool) -> void:
 	if camera_rig.mode == CameraRig.Mode.HUB and not camera_rig.die_focus:
 		_wheel_hub(screen_pos, up)
 		return
-	# An der GRUBE schiebt das Rad über der Nahsicht ihren Ausschnitt den Turm entlang.
+	# An der GRUBE zoomt das Rad über der Nahsicht um den Zeiger.
 	if camera_rig.mode == CameraRig.Mode.PIT and _floor_detail_open():
 		var pixel := _screen_pixel(screen_pos)
 		if Rect2(floor_detail.position, floor_detail.size).has_point(pixel):
-			floor_detail.scroll_by(1.0 if up else -1.0)
+			floor_detail.wheel(pixel - floor_detail.position, up)
 		return
 	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.die_focus or _deck_glass:
 		return
@@ -11995,13 +11990,7 @@ func _sync_floor_detail() -> void:
 	var wanted := _floor_detail_wanted()
 	if wanted and not floor_detail.visible:
 		_place_floor_detail()
-		var flash := ""
-		if run.last_locked_door != "":
-			var key := "%d:%s" % [run.floor_index, run.last_locked_door]
-			if key != _detail_flash_seen:
-				_detail_flash_seen = key
-				flash = run.last_locked_door
-		floor_detail.open(run.floor_view_state(), run.deal_bonus_factor(), flash)
+		floor_detail.open(run.floor_view_state())
 		_frame_floor_detail()
 	elif not wanted and floor_detail.visible:
 		_close_floor_detail()
@@ -12107,13 +12096,13 @@ func _process(delta: float) -> void:
 ## weitergereichten Bereich, kommt dort kein Motion-Event mehr an). Die Etagen-Seite
 ## gehört dem Laden und geht mit ihm.
 func _sync_floor_map() -> void:
-	if table_screen == null or table_screen.hub == null or table_screen.hub.floor_map == null:
+	if table_screen == null or table_screen.hub == null or table_screen.hub.floor_plan == null:
 		return
 	var hub := table_screen.hub
 	hub.set_floor_moves_enabled(route_pending and phase == Phase.IDLE)
 	if floor_page != null and floor_page.visible and phase != Phase.SHOP:
 		_close_floor_page(true)
-	for map: FloorMapView in [hub.floor_map, floor_page.map_view if floor_page != null else null,
+	for map: FloorPlanView in [hub.floor_plan, floor_page.map_view if floor_page != null else null,
 			floor_detail]:
 		if map == null or map.pressing() or (map.hovered().is_empty() and not map.pointer_inside()):
 			continue
@@ -13699,8 +13688,6 @@ func _on_farkle(forgivable: bool = true) -> void:
 	var consolation_energy := run.note_fumble(_volcanic_in_pit())
 	if run.last_fumble_lost_part != null:
 		hand_note = "Hitzestau: %s ist zerstört." % run.last_fumble_lost_part.display_name
-	elif run.last_locked_door != "":
-		hand_note = run.locked_door_note()
 	_destroy_fumble_charm()
 	if consolation_energy > 0:
 		_flash_charm_and_pad(ids.find(Charm.CONSOLATION_PRIZE))
@@ -15219,8 +15206,6 @@ func _reset_game() -> void:
 	if table_screen != null:
 		table_screen.set_round_pulse(false)
 	route_pending = false
-	_floor_flash_seen = ""
-	_detail_flash_seen = ""
 	if floor_detail != null:
 		floor_detail.close()  # ein offener Zug gehört zum alten Lauf
 		if not _floor_detail_home.is_empty():
@@ -15394,22 +15379,26 @@ func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
 ## Zug gewählt (Klick in der Nahsicht auf dem Grubenboden): JETZT erst greifen die
 ## Rundenbeginn-Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach
 ## schließt die Nahsicht, die Grube ruft WÜRFELN, und es darf geworfen werden.
-func _on_route_chosen(door_id: String) -> void:
+func _on_route_chosen(move: Dictionary) -> void:
 	if not route_pending or phase != Phase.IDLE:
 		return  # doppelte Unterschrift = doppelter Vorschuss
-	if not run.walkable_doors().has(door_id):
+	var known := false
+	for option in run.walkable_moves():
+		if option["door"] == move.get("door", "") and option["fire_door"] == move.get("fire_door", ""):
+			known = true
+	if not known:
 		return
 	var energy_before := run.energy
 	# Zwangsversteigerung: die Diskette muss heraus, BEVOR GameRun den Charm verkauft.
 	var auction_disk: CharmDiskView = null
 	var auction_from := Vector2.INF
-	if run.move_clauses(door_id).has(DealClause.FORCED_AUCTION) and charm_row != null:
+	if run.move_clauses(move).has(DealClause.FORCED_AUCTION) and charm_row != null:
 		var at := run.auction_charm_index()
 		if at >= 0:
 			auction_from = _charm_anchor_px(at)
 			auction_disk = charm_row.release_disk(at)
 	_money_comet_origin = auction_from
-	run.move_through(door_id)
+	run.move_to(move)
 	_money_comet_origin = Vector2.INF
 	if auction_disk != null:
 		_eject_charm_disk(auction_disk)
@@ -15479,12 +15468,12 @@ func _start_new_round() -> void:
 
 	# Steht ein Zug an, warten die Rundenbeginn-Wirkungen auf ihn: sonst stünde die
 	# Drossel fest, bevor die Boss-Kondition gewählt ist.
-	route_pending = not run.walkable_doors().is_empty()
+	route_pending = not run.walkable_moves().is_empty()
 	if not route_pending:
 		_apply_round_start_effects()
 	elif floor_detail == null:
-		# Ohne Display-Fläche keine Nahsicht: der Zug fällt durch die erste gangbare Tür.
-		_on_route_chosen.call_deferred(run.walkable_doors()[0])
+		# Ohne Display-Fläche keine Nahsicht: der erste gangbare Zug.
+		_on_route_chosen.call_deferred(run.walkable_moves()[0])
 
 	if test_materials_enabled:
 		run.randomize_all_materials()
@@ -16697,8 +16686,8 @@ func _open_floor_page() -> void:
 		return
 	if floor_page.visible or phase != Phase.SHOP:
 		return
-	floor_page.show_state(run.floor_view_state(), run.deal_bonus_factor())
-	floor_page.map_view.snap_to_puck(true)
+	floor_page.show_state(run.floor_view_state())
+	floor_page.map_view.snap_home(true)
 	table_screen.hub.fade_page_in(floor_page)
 
 ## Zurück zum Laden; hard = ohne Blende (Kamerawechsel, Laden zu).

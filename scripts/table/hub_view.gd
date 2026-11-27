@@ -69,8 +69,8 @@ var _tier_shown := 0  # 0 = noch nie angewandt
 ## Die Bühne der Startseite: links der TURM-Streifen, rechts Blind, Auskunft, Laufwerte,
 ## Diagramm und die Deal-Marken.
 var roadmap_stage: Control
-## Der Turm-Streifen: reine Übersicht, gezogen wird in der Grube.
-var floor_map: FloorMapView
+## Der Grundriß-Streifen: reine Übersicht, gezogen wird in der Grube.
+var floor_plan: FloorPlanView
 var blind_panel: Panel
 var blind_title: Label
 var blind_value: Label
@@ -113,17 +113,18 @@ var deal_token_row: DealTokenRow
 var info_page: Control  # Alias auf roadmap_stage (Rückwärts-Bezug)
 
 ## Laufwerte (Schlüssel und Farben; die Einträge reicht scene_root als Liste).
-const STAT_CUSHION := "cushion"
+const STAT_AVERAGE := "average"
 const STAT_TREND := "trend"
 const STAT_LUCK := "luck"
 const STAT_FUMBLES := "fumbles"
 const STAT_BEST := "best"
 const STAT_STEP := "step"
-const STAT_COLORS := {STAT_CUSHION: Color("#7fe0c8"), STAT_TREND: Color("#b8b0ff"),
+const STAT_KEY := "key"
+const AVERAGE_TITLE := "Rundenschnitt"
+const KEY_TITLE := "Schlüsselkarte"
+const STAT_COLORS := {STAT_AVERAGE: Color("#7fe0c8"), STAT_KEY: Color("#f4f1e4"), STAT_TREND: Color("#b8b0ff"),
 	STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42"), STAT_BEST: Color("#ecebff"),
 	STAT_STEP: Color("#ff8f8f")}
-## Polster unter ×1: der Blind ist typisch nicht zu schaffen.
-const CUSHION_SHORT_COLOR := Color("#ff5555")
 const NO_VALUE := "–"
 
 ## Einstellungen-Knopf unten rechts auf der Home-Seite (blendet mit ihr aus).
@@ -664,27 +665,26 @@ func _apply_frame_tier() -> void:
 
 # --- Die Bühne: Turm-Streifen, Blind, Auskunft, Laufwerte, Diagramm ----------
 
-## Setzt den Stand der Etage (GameRun.floor_view_state); flash_door blitzt einmal rot.
-func set_floor_state(view_state: Dictionary, deal_bonus_factor: int = 1,
-		flash_door: String = "") -> void:
-	if not _built or floor_map == null:
+## Setzt den Stand der Etage (GameRun.floor_view_state).
+func set_floor_state(view_state: Dictionary) -> void:
+	if not _built or floor_plan == null:
 		return
 	_floor_state = view_state
-	floor_map.open(view_state, deal_bonus_factor, flash_door)
+	floor_plan.open(view_state)
 	_write_blind_card()
 	_write_info()
 
 ## Ob ein Zug fällig ist: der Streifen hebt die gangbaren Räume hervor (scene_root je Bild).
 func set_floor_moves_enabled(on: bool) -> void:
-	if floor_map != null:
-		floor_map.set_moves_enabled(on)
+	if floor_plan != null:
+		floor_plan.set_moves_enabled(on)
 
 ## Das Rad über Streifen oder Laufwerten rollt sie (true = verbraucht).
 func wheel_at(pixel: Vector2, up: bool) -> bool:
 	if not _built or content_root == null or not content_root.visible:
 		return false
-	if floor_map != null and floor_map.get_global_rect().has_point(pixel):
-		floor_map.scroll_by(1.0 if up else -1.0)
+	if floor_plan != null and floor_plan.get_global_rect().has_point(pixel):
+		floor_plan.scroll_by(1.0 if up else -1.0)
 		return true
 	if values_grid != null and values_grid.get_global_rect().has_point(pixel):
 		values_grid.scroll_by(-1.0 if up else 1.0)
@@ -704,12 +704,12 @@ func set_chart(data: Dictionary) -> void:
 
 ## Baut die Bühne: Streifen samt Knopf, die Karten rechts, Raster, Diagramm, Marken.
 func _build_rim_stage(u: float) -> void:
-	floor_map = FloorMapView.new()
-	floor_map.name = "FloorMap"
-	floor_map.mode = FloorMapView.Mode.COMPACT
-	floor_map.unit_px = u
-	floor_map.hover_changed.connect(_write_info)
-	roadmap_stage.add_child(floor_map)
+	floor_plan = FloorPlanView.new()
+	floor_plan.name = "FloorPlan"
+	floor_plan.mode = FloorPlanView.Mode.COMPACT
+	floor_plan.unit_px = u
+	floor_plan.hover_changed.connect(_write_info)
+	roadmap_stage.add_child(floor_plan)
 	blind_panel = _card_panel("BlindCard", u)
 	blind_title = _stage_label("BlindTitle", SMALL_FONT_UNITS, u)
 	blind_value = _stage_label("BlindValue", BIG_FONT_UNITS, u)
@@ -747,7 +747,7 @@ func _card_panel(node_name: String, u: float) -> Panel:
 	return panel
 
 func _stage_label(node_name: String, font_units: float, u: float) -> Label:
-	var label := CasinoStyle.label("", u * font_units, FloorMapView.TEXT_COLOR)
+	var label := CasinoStyle.label("", u * font_units, FloorPlanView.TEXT_COLOR)
 	label.name = node_name
 	label.clip_text = true
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -759,26 +759,26 @@ func _write_blind_card() -> void:
 	if blind_title == null or _floor_state.is_empty():
 		return
 	var due := bool(_floor_state.get("due", false))
-	var boss := FloorMapView.is_boss(_floor_state)
+	var boss := FloorPlanView.is_boss(_floor_state)
 	blind_title.text = BOSS_TITLE if boss else (NEXT_BLIND_TITLE if due else BLIND_TITLE)
-	blind_title.modulate = BOSS_COLOR if boss else FloorMapView.MUTED_COLOR.lightened(0.2)
+	blind_title.modulate = BOSS_COLOR if boss else FloorPlanView.MUTED_COLOR.lightened(0.2)
 	blind_value.text = BigNumber.short(int(_floor_state.get("next_blind" if due else "blind", 0)))
 	blind_value.modulate = BOSS_COLOR if boss else BLIND_COLOR
 	var percent := int(_floor_state.get("step_percent", 0))
 	# Vor dem Zug sein eigener Schritt, danach der des nächsten.
-	var move := int(_floor_state.get("moves", 0)) + 1
-	blind_step.text = FloorMapView.head_text(_floor_state) if boss \
+	var move := int(_floor_state.get("move_count", 0)) + 1
+	blind_step.text = FloorPlanView.head_text(_floor_state) if boss \
 		else STEP_TEXT % [move, "+" if percent >= 0 else "−", absi(percent)]
 
 ## Die Auskunft: was der Streifen unter dem Zeiger hat, sonst die ruhige Zeile.
 func _write_info() -> void:
-	if info_title == null or floor_map == null:
+	if info_title == null or floor_plan == null:
 		return
-	var parts := floor_map.info_parts()
+	var parts := floor_plan.info_parts()
 	info_title.text = String(parts["title"])
 	info_title.modulate = parts["color"]
 	info_body.text = String(parts["body"])
-	info_body.modulate = FloorMapView.MUTED_COLOR.lightened(0.4)
+	info_body.modulate = FloorPlanView.MUTED_COLOR.lightened(0.4)
 	info_move.text = String(parts["move"])
 	info_move.modulate = parts["move_color"]
 
@@ -863,12 +863,12 @@ func stage_rects() -> Dictionary:
 ## Stellt alles auf der Bühne nach stage_rects.
 func _layout_stage() -> void:
 	var s := roadmap_stage.size
-	if s.x < 40.0 or s.y < 40.0 or floor_map == null:
+	if s.x < 40.0 or s.y < 40.0 or floor_plan == null:
 		return
 	var u := size.x / 100.0
 	var pad := u * CARD_PAD_UNITS
 	var r := stage_rects()
-	_place(floor_map, r["strip"])
+	_place(floor_plan, r["strip"])
 	var blind: Rect2 = r["blind"]
 	_place(blind_panel, blind)
 	var inner := blind.grow(-pad)

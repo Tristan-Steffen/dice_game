@@ -30,6 +30,8 @@ const MIN_SECTION_ROOMS := 2
 const MAX_SECTION_ROOMS := 5
 ## Aufzug → Schlüsselkarte → Büro in Zügen, mindestens.
 const MIN_KEY_MOVES := 3
+## So viele Boss-Konditionen braucht das Büro höchstens (Flurtür plus bis zu zwei Verbindungstüren).
+const BOSS_DOORS := 3
 const MAX_ATTEMPTS := 80
 ## Mit diesem Seed baut der Erzeuger einen gültigen Grundriß (ein Test hält es fest).
 const FALLBACK_SEED := 7
@@ -1130,12 +1132,15 @@ static func _merge_segments(pieces: Array[Dictionary]) -> Array[Dictionary]:
 
 # --- Ansicht und Geschichte -----------------------------------------------------
 
-## Der Etagen-Zustand als reine Werte (für die Turm-Geschichte).
+## Der Endzustand als reine Werte für die Turm-Geschichte: die Zeichnung ohne Züge.
 func snapshot() -> Dictionary:
-	return {"floor_index": floor_index, "grid": GRID, "cells": cells.duplicate(),
-		"sections": sections.duplicate(true), "rooms": rooms.duplicate(true), "doors": doors.duplicate(true),
-		"elevator": elevator.duplicate(true), "office": office, "key_room": key_room,
-		"key_taken": key_taken, "position": position, "trail": trail.duplicate(true)}
+	var view := view_state()
+	view["moves"] = [] as Array[Dictionary]
+	for info: Dictionary in view["rooms"]:
+		info["reachable"] = false
+	for entry: Dictionary in view["doors"]:
+		entry["reachable"] = false
+	return view
 
 ## Alles für die Zeichnung, als reine Werte. Ein Malus steht erst da, wenn erkundet.
 func view_state() -> Dictionary:
@@ -1162,6 +1167,7 @@ func view_state() -> Dictionary:
 	var door_views: Array[Dictionary] = []
 	for entry in doors:
 		door_views.append({"id": entry["id"], "kind": entry["kind"], "a": entry["a"], "b": entry["b"],
+			"section": entry["section"],
 			"center": door_center(entry), "vertical": door_vertical(entry), "cell": entry["cell"],
 			"side": entry["side"], "tier": entry["tier"], "free": entry["free"],
 			"malus": entry["malus"] if bool(entry["scouted"]) else "", "scouted": entry["scouted"],

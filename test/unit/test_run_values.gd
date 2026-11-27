@@ -1,5 +1,5 @@
 extends GutTest
-## Laufwerte (Welle 4 der Etagen-Karte): typische Rundenpunkte, Polster, Trend, Einholen,
+## Laufwerte (Welle 4 der Etagen-Karte): Rundenschnitt, Trend, Einholen,
 ## der Blind nach einem Zug und die beste Hand.
 
 var run: GameRun
@@ -16,7 +16,7 @@ func test_a_fresh_run_has_no_values() -> void:
 	assert_true(run.round_scores.is_empty())
 	assert_false(run.has_typical_score())
 	assert_eq(run.typical_score(), 0.0)
-	assert_eq(run.cushion(150), 0.0, "kein Polster ohne Runde")
+	assert_eq(run.cushion(150), 0.0, "kein Wert ohne Runde")
 	assert_eq(run.score_growth(), 0.0)
 	assert_eq(run.rounds_until_caught(), -1)
 
@@ -75,77 +75,97 @@ func test_a_cushion_below_one_is_caught_already() -> void:
 	assert_lt(run.cushion(run.cushion_blind()), 1.0)
 	assert_eq(run.rounds_until_caught(), 0)
 
-func test_before_the_move_the_cushion_measures_the_next_blind() -> void:
+func test_before_the_move_the_values_measure_the_next_blind() -> void:
 	_scores([600])
 	run.advance_round()
 	assert_eq(run.cushion_blind(), run.next_blind())
-	run.move_through(String(run.walkable_doors()[0]))
+	assert_true(run.move_to(_plain_move()))
 	assert_eq(run.cushion_blind(), run.effective_goal())
 
 func test_the_hints_explain_without_data_and_with_it() -> void:
-	assert_string_contains(run.cushion_hint(), "ersten geschafften Runde")
+	assert_string_contains(run.round_average_hint(), "ersten geschafften Runde")
+	assert_eq(run.round_average_hint().find("Polster"), -1)
 	assert_string_contains(run.trend_hint(), "zwei geschafften Runden")
 	_scores([300, 600])
 	assert_string_contains(run.trend_hint(), "voraus")
 	_scores([1000, 1000, 1000])
 	assert_string_contains(run.trend_hint(), "bei diesem Tempo")
 
+func test_the_margin_light_has_three_steps() -> void:
+	assert_eq(GameRun.margin_of(0.0, 100), "", "ohne Schnitt kein Licht")
+	assert_eq(GameRun.margin_of(151.0, 100), GameRun.MARGIN_GOOD)
+	assert_eq(GameRun.margin_of(150.0, 100), GameRun.MARGIN_TIGHT)
+	assert_eq(GameRun.margin_of(100.0, 100), GameRun.MARGIN_TIGHT)
+	assert_eq(GameRun.margin_of(99.0, 100), GameRun.MARGIN_SHORT)
+
 # --- Der Blind nach dem Zug ----------------------------------------------------------
 
-## Eine gangbare Tür vom Eingang samt Zielraum, mit gesetzten Klauseln.
-func _door_with(malus: String, bonus: String, boss: String = "") -> String:
+## Ein gangbarer Zug ohne bzw. mit Brandschutztür ({} = keiner auf dieser Etage).
+func _move(fire: bool) -> Dictionary:
+	for move in run.walkable_moves():
+		if (String(move["fire_door"]) != "") == fire:
+			return move
+	return {}
+
+func _plain_move() -> Dictionary:
+	return _move(false)
+
+## Ein gangbarer Zug samt gesetzten Klauseln an Tür und Zielraum.
+func _move_with(malus: String, bonus: String, boss: String = "", fire: bool = false) -> Dictionary:
 	run.advance_round()
-	var door_id := String(run.walkable_doors()[0])
-	var entry := run.floor_map.door(door_id)
+	var move := _move(fire)
+	if move.is_empty():
+		return move
+	var entry := run.floor_plan.door(String(move["door"]))
 	entry["malus"] = malus
 	entry["boss"] = boss
 	entry["free"] = malus == "" and boss == ""
-	var target := run.floor_map.room(run.floor_map.other_side(entry, run.floor_map.position))
-	target["bonus"] = bonus
-	return door_id
+	if boss != "":
+		entry["kind"] = FloorPlan.DOOR_BOSS
+		run.floor_plan.key_taken = true
+	run.floor_plan.room(String(move["room"]))["bonus"] = bonus
+	return move
 
-func _assert_preview_books(door_id: String) -> void:
-	var preview := run.blind_after_move(door_id)
-	assert_true(run.move_through(door_id))
+func _assert_preview_books(move: Dictionary) -> void:
+	var preview := run.blind_after_move(move)
+	assert_true(run.move_to(move))
 	assert_eq(preview, run.effective_goal(), "die Vorschau ist die Buchung")
 
 func test_a_plain_move_previews_the_next_blind() -> void:
-	var door_id := _door_with("", "")
-	assert_eq(run.blind_after_move(door_id), run.next_blind())
-	var preview := run.blind_after_move(door_id)
-	assert_true(run.move_through(door_id))
+	var move := _move_with("", "")
+	assert_eq(run.blind_after_move(move), run.next_blind())
+	var preview := run.blind_after_move(move)
+	assert_true(run.move_to(move))
 	assert_eq(preview, run.round_goal)
 	assert_eq(preview, run.effective_goal())
 
 func test_a_blind_raise_on_the_door_shows_in_the_preview() -> void:
-	var door_id := _door_with(DealClause.QUOTA_SHOCK, "")
-	assert_gt(run.blind_after_move(door_id), run.next_blind())
-	var preview := run.blind_after_move(door_id)
-	assert_true(run.move_through(door_id))
+	var move := _move_with(DealClause.QUOTA_SHOCK, "")
+	assert_gt(run.blind_after_move(move), run.next_blind())
+	var preview := run.blind_after_move(move)
+	assert_true(run.move_to(move))
 	assert_eq(preview, run.round_goal, "Aufschläge sind dauerhaft: der gebuchte Blind")
 
 func test_calibration_and_surcharge_with_the_shyster() -> void:
 	run.owned_charms.append(Charm.shyster())
-	var door_id := _door_with(DealClause.USURY_CLAUSE, DealClause.CALIBRATION)
-	_assert_preview_books(door_id)
+	_assert_preview_books(_move_with(DealClause.USURY_CLAUSE, DealClause.CALIBRATION))
 
 func test_a_round_wise_boss_raise_counts_in_the_preview() -> void:
-	var door_id := _door_with("", "", DealClause.HIGH_EXPECTATIONS)
-	assert_gt(run.blind_after_move(door_id), run.next_blind() * 2)
-	_assert_preview_books(door_id)
+	var move := _move_with("", "", DealClause.HIGH_EXPECTATIONS)
+	assert_gt(run.blind_after_move(move), run.next_blind() * 2)
+	_assert_preview_books(move)
 
 func test_the_floor_state_carries_the_numbers_of_each_move() -> void:
 	_scores([800])
 	run.advance_round()
 	var state := run.floor_view_state()
-	for door: Dictionary in state["doors"]:
-		var walk: bool = (state["walkable"] as Array).has(door["id"])
-		assert_eq(door.has("blind_after"), walk, "nur gangbare Züge tragen Zahlen")
-		if walk:
-			var after := run.blind_after_move(String(door["id"]))
-			assert_eq(int(door["blind_after"]), after)
-			assert_almost_eq(float(door["cushion_after"]), run.cushion(after), 0.0001)
-	assert_almost_eq(float(state["cushion_next"]), run.cushion(run.next_blind()), 0.0001)
+	assert_false((state["moves"] as Array).is_empty())
+	for move: Dictionary in state["moves"]:
+		var after := run.blind_after_move(move)
+		assert_eq(int(move["blind_after"]), after)
+		assert_almost_eq(float(move["typical"]), run.typical_score(), 0.0001)
+		assert_eq(String(move["margin"]), GameRun.margin_of(run.typical_score(), after))
+	assert_eq(String(state["margin_next"]), GameRun.margin_of(run.typical_score(), run.next_blind()))
 
 # --- Beste Hand ------------------------------------------------------------------------
 

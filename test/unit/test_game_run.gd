@@ -945,8 +945,8 @@ func test_the_jewelry_box_never_touches_a_die():
 # --- Stresstest (Thermal Throttling) ----------------------------------------------
 
 func test_the_boss_round_is_the_office():
-	assert_false(run.is_boss_round(), "Runde 1 steht am Eingang")
-	run.floor_map.position = run.floor_map.office
+	assert_false(run.is_boss_round(), "Runde 1 steigt aus dem Aufzug")
+	run.floor_plan.position = run.floor_plan.office
 	assert_true(run.is_boss_round())
 
 func test_hottest_combo_takes_the_most_parts():
@@ -1143,17 +1143,19 @@ func test_blind_raises_are_permanent_and_instant():
 	assert_eq(run.stage_size(1), run.effective_goal(), "der Balken zieht mit")
 	_quiet_floor()
 	run.advance_round()
-	run.move_through(run.walkable_doors()[0])
+	for move in run.walkable_moves():
+		if String(move["fire_door"]) == "":
+			run.move_to(move)
+			break
 	assert_almost_eq(run.blind_value, 225.0 * 1.1, 0.001, "und jede spätere Runde")
 
 ## Leert die Etage: kein Bonus, kein Malus - ein Zug hebt dann nur den Blind.
 func _quiet_floor() -> void:
-	for room_id: String in run.floor_map.rooms:
-		run.floor_map.rooms[room_id]["bonus"] = ""
-	for entry in run.floor_map.doors:
+	for room_id: String in run.floor_plan.rooms:
+		run.floor_plan.rooms[room_id]["bonus"] = ""
+	for entry in run.floor_plan.doors:
 		entry["malus"] = ""
 		entry["boss"] = ""
-		entry["free"] = true
 
 func test_each_raise_lifts_by_its_own_percentage():
 	for clause_id: String in GameRun.BLIND_RAISE:
@@ -1377,7 +1379,7 @@ func test_golden_handshake_spares_a_burned_in_material_face():
 
 func test_the_stress_round_no_longer_throttles_on_its_own():
 	_fill(DiceScoring.SIX_KIND, 3)
-	run.floor_map.position = run.floor_map.office
+	run.floor_plan.position = run.floor_plan.office
 	run.apply_round_start_charms()
 	assert_eq(run.throttled_combos, [], "gedrosselt wird nur noch per Klausel")
 

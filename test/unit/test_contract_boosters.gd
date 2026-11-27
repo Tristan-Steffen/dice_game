@@ -224,8 +224,8 @@ func test_big_storage_is_not_offered_at_a_full_bank():
 	run.storage_rows = run.max_storage_rows()
 	for i in 40:
 		run.settle_block_deals()
-		for room_id: String in run.floor_map.rooms:
-			assert_ne(String(run.floor_map.rooms[room_id]["bonus"]), DealClause.BIG_STORAGE)
+		for room_id: String in run.floor_plan.rooms:
+			assert_ne(String(run.floor_plan.rooms[room_id]["bonus"]), DealClause.BIG_STORAGE)
 
 func test_big_storage_widens_the_bank_for_good():
 	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW)

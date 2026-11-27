@@ -1,7 +1,7 @@
 class_name FloorMapPage
 extends Control
-## Die NAHSICHT der Etage als Hub-Seite des Ladens (Knopf „Etage“): dieselbe Ansicht wie
-## auf dem Grubenboden, nur zum Ansehen - Ziehen und Rad sehen sich um, ein Klick zieht
+## Die NAHSICHT des Grundrisses als Hub-Seite des Ladens (Knopf „Etage“): dieselbe Ansicht
+## wie auf dem Grubenboden, nur zum Ansehen - Ziehen schiebt, das Rad zoomt, ein Klick zieht
 ## nie. „Zurück zum Laden“ blättert heim (die Seitenregel des Hubs).
 
 signal close_requested
@@ -12,7 +12,7 @@ const MARGIN_UNITS := 1.6
 ## Die Seite steht an der Hub-Station weiter weg als der Grubenboden: größere Einheit.
 const MAP_UNIT_DIV := 62.0
 
-var map_view: FloorMapView
+var map_view: FloorPlanView
 var back_button: Button
 var _margin: MarginContainer
 var _column: VBoxContainer
@@ -50,9 +50,9 @@ func layout() -> void:
 	back_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	back_button.pressed.connect(func() -> void: close_requested.emit())
 	header.add_child(back_button)
-	map_view = FloorMapView.new()
-	map_view.name = "FloorMap"
-	map_view.mode = FloorMapView.Mode.DETAIL
+	map_view = FloorPlanView.new()
+	map_view.name = "FloorPlan"
+	map_view.mode = FloorPlanView.Mode.DETAIL
 	map_view.read_only = true
 	map_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_column.add_child(map_view)
@@ -60,15 +60,15 @@ func layout() -> void:
 	_restyle()
 
 ## Zeigt den Stand der Etage (reine Daten aus GameRun.floor_view_state).
-func show_state(view_state: Dictionary, deal_bonus_factor: int = 1) -> void:
+func show_state(view_state: Dictionary) -> void:
 	layout()
-	map_view.open(view_state, deal_bonus_factor)
+	map_view.open(view_state)
 
-## Das Rad über der Karte schiebt den Ausschnitt (true = verbraucht).
+## Das Rad über dem Grundriß zoomt um den Zeiger (true = verbraucht).
 func wheel_at(pixel: Vector2, up: bool) -> bool:
 	if not visible or map_view == null or not map_view.get_global_rect().has_point(pixel):
 		return false
-	map_view.scroll_by(1.0 if up else -1.0)
+	map_view.wheel(map_view.get_global_transform().affine_inverse() * pixel, up)
 	return true
 
 func _restyle() -> void:

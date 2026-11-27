@@ -181,18 +181,16 @@ var luck_die := LuckDie.new()
 ## entscheidet, wie lange die Klausel wirkt (_scope_reaches). Geleert bei der Abrechnung.
 var active_deals: Array[Dictionary] = []
 
-## Die ETAGEN-KARTE: jeder Zug durch eine Tür ist eine Runde.
+## Die ETAGEN-KARTE: jede Etage ist ein Grundriß, jeder Zug in einen Raum ist eine Runde.
 signal floor_changed
-var floor_map: FloorMap = null
-## Etage (0-basiert) und Züge auf ihr; der Zähler fällt mit dem Aufzug auf 0.
+var floor_plan: FloorPlan = null
+## Etage (0-basiert) und Blind-Schritte auf ihr (Züge und Mauten); fällt mit dem Aufzug auf 0.
 var floor_index: int = 0
 var floor_moves: int = 0
-## Die laufende Runde wartet noch auf ihren Zug (ab Runde 2 jede).
+## Die laufende Runde wartet noch auf ihren Zug (jede, auch Runde 1).
 var move_due: bool = false
-## Geschaffte Etagen als reine Anzeige-Daten (Endzustand), von unten nach oben.
+## Geschaffte Etagen als FloorPlan.snapshot(), von unten nach oben.
 var floor_history: Array[Dictionary] = []
-## Die Tür, die der letzte echte Fumble gesperrt hat ("" = keine).
-var last_locked_door: String = ""
 
 ## Gedrosselte Kombinationen dieser Runde (leer = keine). Steht mit Rundenbeginn
 ## fest; nur die Boss-Konditionen (Allrounder, Standardprotokoll) lassen sie mit
@@ -295,7 +293,8 @@ static func new_run() -> GameRun:
 	for i in POOL_SIZE:
 		run.owned_pool.append(DieDefinition.standard())
 	run._roll_secret_stock()  # der Schwarzmarkt steht ab Runde 1 offen
-	run._enter_floor()  # Runde 1 steht am Eingang, ohne Klausel
+	run._enter_floor()
+	run.move_due = true  # auch Runde 1 beginnt mit einer Raumwahl
 	return run
 
 ## Wirkende Charm-ids für Wertungen: Totems (Papagei/Echo) liefern die id ihres
@@ -1801,9 +1800,9 @@ func apply_round_start_charms() -> void:
 
 # --- Stresstest ---------------------------------------------------------------
 
-## Boss-Runde: der Puck steht im Büro der Etage.
+## Boss-Runde: der Standraum ist das Büro der Etage.
 func is_boss_round() -> bool:
-	return floor_map != null and floor_map.position == floor_map.office
+	return floor_plan != null and floor_plan.office != "" and floor_plan.position == floor_plan.office
 
 ## Die heißesten Chips zuerst: die meisten Module, bei Gleichstand der
 ## ranghöhere (HAND_PRIORITY). Deterministisch, damit der Spieler im Shop davor
@@ -1915,23 +1914,29 @@ func max_hands_this_round() -> int:
 	return 1 if _clause_active(DealClause.ALL_IN) else POOL_SIZE
 
 # --- Die ETAGEN-KARTE: Zug, Unterschrift, Abrechnung --------------------------
-## Etage würfeln, Puck auf den Eingang, dessen Türen erkunden.
+## Ampel des Rundenschnitts gegen den Blind nach dem Zug: über dem 1,5-fachen „gut“,
+## ab dem Blind „knapp“, darunter „rot“ ("" = noch kein Schnitt).
+const MARGIN_GOOD_FACTOR := 1.5
+const MARGIN_GOOD := "gut"
+const MARGIN_TIGHT := "knapp"
+const MARGIN_SHORT := "rot"
+
+## Etage würfeln, Standort im Aufzug, die Türen der ersten Wahl erkunden.
 func _enter_floor(rng: RandomNumberGenerator = null) -> void:
-	floor_map = FloorMap.roll(rng, _clause_offerable, treat_chance(), _boss_condition_ids())
+	floor_plan = FloorPlan.roll(rng, _clause_offerable, treat_chance(), _boss_condition_ids(), floor_index)
 	floor_moves = 0
-	last_locked_door = ""
-	floor_map.scout_from(floor_map.position, rng, _clause_offerable)
+	floor_plan.scout(rng, _clause_offerable)
 	floor_changed.emit()
 
 ## Der Aufzug nach der Abrechnung: nächste Etage ab der nächsten Runde.
 func _enter_next_floor() -> void:
-	if floor_map != null:
-		floor_history.append(_floor_snapshot())
+	if floor_plan != null:
+		floor_history.append(floor_plan.snapshot())
 	floor_index += 1
 	block_fumbles = 0
 	_enter_floor()
 
-## Drei verschiedene Boss-Konditionen für die Büro-Türen.
+## Verschiedene Boss-Konditionen für die Büro-Türen.
 func _boss_condition_ids() -> Array[String]:
 	var pool: Array[String] = []
 	for clause_id in DealClause.ids_for(DealClause.Tier.BOSS, DealClause.Kind.MALUS):
@@ -1939,34 +1944,59 @@ func _boss_condition_ids() -> Array[String]:
 			pool.append(clause_id)
 	pool.shuffle()
 	var picked: Array[String] = []
-	for i in mini(FloorMap.BOSS_DOORS, pool.size()):
+	for i in mini(FloorPlan.BOSS_DOORS, pool.size()):
 		picked.append(pool[i])
 	return picked
 
-## Wachstum des Blinds beim Zug move (1-basiert) der Etage; ohne Angabe der nächste.
+## Wachstum des Blinds beim Schritt move (1-basiert) der Etage; ohne Angabe der nächste.
 func blind_growth(move: int = 0) -> float:
 	var n := move if move > 0 else floor_moves + 1
 	return BLIND_GROWTH_BASE + BLIND_GROWTH_STEP * float(floor_index) + BLIND_MOVE_STEP * float(n - 1)
 
-## Der Blind nach dem nächsten Zug - dieselbe Rechnung, die move_through bucht.
+## Der Blind nach dem nächsten Zug ohne Brandschutztür.
 func next_blind() -> int:
 	return floor_to_blind(blind_value * (1.0 + blind_growth()))
 
-## Der Blind nach dem Zug durch door_id SAMT seinen Sofort-Klauseln (und einem rundenweisen
-## Aufschlag der Boss-Kondition) - dieselbe Rechnung, in derselben Reihenfolge wie die Buchung.
-func blind_after_move(door_id: String) -> int:
-	var value := blind_value * (1.0 + blind_growth())
+## Die Maut, die eine Brandschutztür JETZT kostet, in Prozent.
+func toll_percent() -> int:
+	return roundi(blind_growth() * 100.0)
+
+## Die Blind-Schritte eines Zugs in Buchungs-Reihenfolge - EINE Rechnung für Buchung und
+## Vorschau: zuerst die Maut einer Brandschutztür, dann der Schritt mit erhöhtem Zähler.
+func move_step_factors(move: Dictionary) -> Array[float]:
+	var factors: Array[float] = []
+	var n := floor_moves + 1
+	if String(move.get("fire_door", "")) != "":
+		factors.append(1.0 + blind_growth(n))
+		n += 1
+	factors.append(1.0 + blind_growth(n))
+	return factors
+
+## Der Blind nach dem Zug SAMT Maut, Sofort-Klauseln und rundenweisem Aufschlag der
+## Boss-Kondition - in derselben Reihenfolge wie die Buchung.
+func blind_after_move(move: Dictionary) -> int:
+	var value := blind_value
+	for factor in move_step_factors(move):
+		value *= factor
 	var round_factor := 1.0
 	var boost := deal_bonus_factor()
-	for clause_id in move_clauses(door_id):
+	for clause_id in move_clauses(move):
 		value *= instant_blind_factor(clause_id, boost)
 		if QUOTA_MALUS.has(clause_id):
 			round_factor *= 1.0 + float(QUOTA_MALUS[clause_id])
 	return roundi(floor_to_blind(value) * round_factor * _round_goal_factor_reprieve())
 
+## Ampel des Rundenschnitts gegen einen Blind.
+static func margin_of(typical: float, blind: int) -> String:
+	if typical <= 0.0 or blind <= 0:
+		return ""
+	if typical > float(blind) * MARGIN_GOOD_FACTOR:
+		return MARGIN_GOOD
+	return MARGIN_TIGHT if typical >= float(blind) else MARGIN_SHORT
+
 # --- Laufwerte: bin ich dem Haus noch voraus? ----------------------------------
 
-## Typische Rundenpunkte: geometrisches Mittel der letzten SCORE_WINDOW beendeten Runden
+## Rundenschnitt: geometrisches Mittel der letzten SCORE_WINDOW beendeten Runden
 ## (0 = noch keine beendete Runde). Nullrunden zählen als 1.
 func typical_score() -> float:
 	if round_scores.is_empty():
@@ -1980,13 +2010,13 @@ func typical_score() -> float:
 func has_typical_score() -> bool:
 	return not round_scores.is_empty()
 
-## Polster = typische Rundenpunkte / Blind (0 = kein Wert).
+## Rundenschnitt / Blind (0 = kein Wert) - nur noch intern für den Trend.
 func cushion(blind: int) -> float:
 	if not has_typical_score() or blind <= 0:
 		return 0.0
 	return typical_score() / float(blind)
 
-## Der Blind, gegen den das Polster der Startseite mißt: vor dem Zug der nächste.
+## Der Blind, gegen den die Startseite mißt: vor dem Zug der nächste.
 func cushion_blind() -> int:
 	return next_blind() if move_due else effective_goal()
 
@@ -2004,7 +2034,7 @@ func score_growth() -> float:
 func house_growth() -> float:
 	return 1.0 + blind_growth()
 
-## Runden, bis das Polster bei diesem Tempo unter 1 fällt (−1 = voraus oder kein Wert).
+## Runden, bis der Rundenschnitt bei diesem Tempo unter den Blind fällt (−1 = voraus oder kein Wert).
 func rounds_until_caught() -> int:
 	var du := score_growth()
 	var pad := cushion(cushion_blind())
@@ -2015,14 +2045,13 @@ func rounds_until_caught() -> int:
 		return 0
 	return maxi(1, ceili(log(pad) / log(haus / du)))
 
-## Hover des Polsters: die Rechnung in einem Satz.
-func cushion_hint() -> String:
+## Hover des Rundenschnitts: die Rechnung in einem Satz.
+func round_average_hint() -> String:
 	if not has_typical_score():
-		return "Typische Rundenpunkte geteilt durch den Blind - steht nach der ersten geschafften Runde."
+		return "Deine typischen Punkte je Runde - stehen nach der ersten geschafften Runde."
 	var against := "den nächsten Blind" if move_due else "den Blind dieser Runde"
-	return "Typische Rundenpunkte (Mittel der letzten %d Runden: %s) geteilt durch %s (%s); unter ×1 reicht es nicht." \
-		% [mini(SCORE_WINDOW, round_scores.size()), BigNumber.short(typical_score()), against,
-			BigNumber.short(cushion_blind())]
+	return "Mittel deiner letzten %d Runden, gemessen gegen %s (%s): grün über dem 1,5-fachen, gelb knapp darüber, rot darunter." \
+		% [mini(SCORE_WINDOW, round_scores.size()), against, BigNumber.short(cushion_blind())]
 
 ## Hover des Trends: wer schneller wächst und, wenn das Haus, wann es dich einholt.
 func trend_hint() -> String:
@@ -2037,94 +2066,118 @@ func trend_hint() -> String:
 		return head + " - das Haus hat dich schon eingeholt."
 	return head + " - bei diesem Tempo holt dich das Haus in %d %s ein." % [caught, "Runde" if caught == 1 else "Runden"]
 
-## Die Türen, durch die der fällige Zug gehen darf (leer = kein Zug fällig).
-func walkable_doors() -> Array[String]:
-	var ids: Array[String] = []
-	if not move_due or floor_map == null:
-		return ids
-	for entry in floor_map.doors_from(floor_map.position):
-		if floor_map.passable(entry):
-			ids.append(String(entry["id"]))
-	return ids
+# --- Der Zug --------------------------------------------------------------------
 
-## Was die Tür beim Durchschreiten unterschreibt: Boss-Kondition oder Malus, ausgebrannt nichts.
-func _door_malus(entry: Dictionary) -> String:
-	if int(entry["state"]) != FloorMap.DoorState.OPEN:
-		return ""
-	return String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
+## Die gangbaren Züge des fälligen Zugs (leer = kein Zug fällig).
+func walkable_moves() -> Array[Dictionary]:
+	if not move_due or floor_plan == null:
+		return [] as Array[Dictionary]
+	return floor_plan.reachable_moves()
 
-## Was die Tür beim Zug unterschreiben würde, samt Bonus des Zielraums ("" = nichts).
-func move_clauses(door_id: String) -> Array[String]:
+## Der gangbare Zug, der zu move paßt (Tür und Brandschutztür), {} = keiner.
+func _walkable_move(move: Dictionary) -> Dictionary:
+	for option in walkable_moves():
+		if option["door"] == String(move.get("door", "")) \
+				and option["fire_door"] == String(move.get("fire_door", "")):
+			return option
+	return {}
+
+## Was der Zug unterschriebe: Bonus des Zielraums (unbesucht), Malus der Tür (noch nicht
+## durchschritten) bzw. die Boss-Kondition - dieselbe Liste, die move_to bucht.
+func move_clauses(move: Dictionary) -> Array[String]:
 	var ids: Array[String] = []
-	if floor_map == null:
+	if floor_plan == null:
 		return ids
-	var entry := floor_map.door(door_id)
-	if entry.is_empty():
+	var entry := floor_plan.door(String(move.get("door", "")))
+	var target := floor_plan.room(String(move.get("room", "")))
+	if entry.is_empty() or target.is_empty():
 		return ids
-	var target := floor_map.room(floor_map.other_side(entry, floor_map.position))
 	if not bool(target["visited"]) and String(target["bonus"]) != "":
 		ids.append(String(target["bonus"]))
-	var malus := _door_malus(entry)
-	if malus != "":
-		ids.append(malus)
+	if not bool(entry["passed"]) and String(entry["malus"]) != "":
+		ids.append(String(entry["malus"]))
+	if String(entry["kind"]) == FloorPlan.DOOR_BOSS and String(entry["boss"]) != "":
+		ids.append(String(entry["boss"]))
 	return ids
 
-## Die ganze Etage als reine Daten für die Karte: was der Spieler nicht sehen darf
-## (unerkundete und gesperrte Türen), steht nicht darin.
+## Der Zug der Runde: Maut und Blind-Schritt, Etagen-Zustand, Unterschrift, dann die
+## Türen der nächsten Wahl erkunden. false = nichts gebucht.
+func move_to(move: Dictionary) -> bool:
+	if not move_due or floor_plan == null:
+		return false
+	var chosen := _walkable_move(move)
+	if chosen.is_empty():
+		return false
+	var ids := move_clauses(chosen)
+	var factors := move_step_factors(chosen)
+	for factor in factors:
+		raise_blind(factor)
+	floor_moves += factors.size()
+	floor_plan.apply_move(chosen)
+	move_due = false
+	sign_clauses(ids)
+	floor_plan.scout(null, _clause_offerable)
+	floor_changed.emit()
+	return true
+
+## Kurzform: der Zug durch door_id in room_id.
+func move_through(room_id: String, door_id: String) -> bool:
+	for option in walkable_moves():
+		if option["room"] == room_id and option["door"] == door_id:
+			return move_to(option)
+	return false
+
+## Die laufende Etage als reine Werte für die drei Ansichten: der Grundriß samt fertiger
+## Zahlen je gangbarem Zug, vollen Klausel-Texten und der Geschichte. Die Ansicht rechnet nichts.
 func floor_view_state() -> Dictionary:
-	if floor_map == null:
+	if floor_plan == null:
 		return {}
-	var doors: Array[Dictionary] = []
-	var walkable := walkable_doors()
-	var blind_now := float(maxi(1, effective_goal()))
-	for door in _door_views(floor_map):
-		if walkable.has(String(door["id"])):
-			# Fertige Zahlen je gangbarem Zug: die Karte rechnet nichts selbst.
-			var after := blind_after_move(String(door["id"]))
-			door["blind_after"] = after
-			door["after_percent"] = roundi((float(after) / blind_now - 1.0) * 100.0)
-			door["cushion_after"] = cushion(after)
-		doors.append(door)
-	# Die nächste Etage steht hier nie: sie ist bis zum Aufzug verborgen.
-	return {"floor": floor_index + 1, "moves": floor_moves, "due": move_due,
-		"position": floor_map.position, "entrance": floor_map.entrance, "office": floor_map.office,
-		"rooms": _room_views(floor_map), "doors": doors, "walkable": walkable,
-		"blind": effective_goal(), "next_blind": next_blind(),
-		"step_percent": roundi(blind_growth() * 100.0), "locked": last_locked_door,
-		"cushion_next": cushion(next_blind()), "history": floor_history.duplicate(true)}
-
-## Räume als Anzeige-Daten samt senkrechter Lesart (Reihe von unten, Querplatz).
-func _room_views(map: FloorMap) -> Array[Dictionary]:
-	var rooms: Array[Dictionary] = []
-	for room_id: String in map.rooms:
-		var room: Dictionary = map.rooms[room_id]
-		var cell: Vector2i = room["cell"]
-		rooms.append({"id": room_id, "name": String(room["name"]), "bonus": String(room["bonus"]),
-			"tier": int(room["tier"]), "cell": cell, "visited": bool(room["visited"]),
-			"row": FloorMap.row_of(cell), "lane": FloorMap.lane_of(cell),
-			"entrance": room_id == map.entrance, "office": room_id == map.office})
-	return rooms
-
-## Türen als Anzeige-Daten: unerkundete und gesperrte ohne Klausel und Stufe.
-func _door_views(map: FloorMap) -> Array[Dictionary]:
-	var doors: Array[Dictionary] = []
-	for entry in map.doors:
-		var state := int(entry["state"])
-		var shown := bool(entry["scouted"]) and state != FloorMap.DoorState.LOCKED
-		var clause := ""
-		if shown:
-			clause = String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
-		doors.append({"id": String(entry["id"]), "a": String(entry["a"]), "b": String(entry["b"]),
-			"state": state, "scouted": shown, "tier": int(entry["tier"]) if shown else -1,
-			"clause": clause, "free": shown and bool(entry["free"]),
-			"office": map.is_office_door(entry)})
-	return doors
-
-## Der Endzustand einer geschafften Etage - nur Werte, kein Verweis auf die lebende Karte.
-func _floor_snapshot() -> Dictionary:
-	return {"floor": floor_index + 1, "position": floor_map.position,
-		"entrance": floor_map.entrance, "office": floor_map.office,
-		"rooms": _room_views(floor_map), "doors": _door_views(floor_map)}
+	var view := floor_plan.view_state()
+	var boost := deal_bonus_factor()
+	var typical := typical_score()
+	var moves: Array[Dictionary] = []
+	var cheapest: Dictionary = {}
+	if move_due:
+		for move: Dictionary in view["moves"]:
+			var entry := move.duplicate()
+			var after := blind_after_move(move)
+			entry["blind_after"] = after
+			entry["typical"] = typical
+			entry["margin"] = margin_of(typical, after)
+			entry["toll_percent"] = toll_percent() if String(move["fire_door"]) != "" else 0
+			entry["clauses"] = move_clauses(move)
+			moves.append(entry)
+		for room_id in floor_plan.reachable_rooms():
+			cheapest[room_id] = String(floor_plan.cheapest_move(room_id).get("door", ""))
+	view["moves"] = moves
+	for room: Dictionary in view["rooms"]:
+		var bonus := String(room["bonus"])
+		room["bonus_text"] = DealClause.text_for(bonus, boost) if bonus != "" else ""
+		room["cheapest_door"] = String(cheapest.get(room["id"], ""))
+		room["reachable"] = cheapest.has(room["id"])
+	for door: Dictionary in view["doors"]:
+		var malus := String(door["malus"])
+		var malus_clause := DealClause.find(malus)
+		door["malus_name"] = malus_clause.display_name if malus_clause != null else ""
+		door["malus_text"] = DealClause.text_for(malus, boost) if malus != "" else ""
+		var boss := String(door["boss"])
+		var boss_clause := DealClause.find(boss)
+		door["boss_name"] = boss_clause.display_name if boss_clause != null else ""
+		door["boss_text"] = DealClause.text_for(boss, boost) if boss != "" else ""
+		if not move_due:
+			door["reachable"] = false
+	view["floor"] = floor_index + 1
+	view["move_count"] = floor_moves
+	view["due"] = move_due
+	view["boss_round"] = is_boss_round() and not move_due
+	view["blind"] = effective_goal()
+	view["next_blind"] = next_blind()
+	view["step_percent"] = roundi(blind_growth() * 100.0)
+	view["toll_percent"] = toll_percent()
+	view["typical"] = typical
+	view["margin_next"] = margin_of(typical, cushion_blind())
+	view["history"] = floor_history.duplicate(true)
+	return view
 
 ## Diagramm des Hubs: Blind und Punkte je beendeter Runde, der laufende Blind als letzter Punkt.
 func run_chart() -> Dictionary:
@@ -2132,49 +2185,6 @@ func run_chart() -> Dictionary:
 	blinds.append(cushion_blind())
 	var scores: Array[int] = round_scores.duplicate()
 	return {"blinds": blinds, "scores": scores}
-
-## Der Zug der Runde durch door_id: Blind-Schritt, Tür ausbrennen, Raum leeren, Malus und
-## Bonus unterschreiben, dann die Türen des neuen Raums erkunden. false = nichts gebucht.
-func move_through(door_id: String) -> bool:
-	if not move_due or floor_map == null:
-		return false
-	var entry := floor_map.door(door_id)
-	if entry.is_empty() or not floor_map.passable(entry):
-		return false
-	var from := floor_map.position
-	if entry["a"] != from and entry["b"] != from:
-		return false
-	var target := floor_map.room(floor_map.other_side(entry, from))
-	var ids := move_clauses(door_id)
-	raise_blind(1.0 + blind_growth())
-	floor_moves += 1
-	entry["state"] = FloorMap.DoorState.PASSED
-	target["visited"] = true
-	floor_map.position = String(target["id"])
-	move_due = false
-	sign_clauses(ids)
-	floor_map.scout_from(floor_map.position, null, _clause_offerable)
-	floor_changed.emit()
-	return true
-
-## Ein echter Fumble sperrt eine Tür, ohne den Puck vom Büro zu trennen ("" = keine).
-func _lock_fumble_door(rng: RandomNumberGenerator = null) -> String:
-	if floor_map == null or is_boss_round():
-		return ""
-	var candidates := floor_map.lock_candidates()
-	if candidates.is_empty():
-		return ""
-	var at := rng.randi_range(0, candidates.size() - 1) if rng != null \
-		else randi_range(0, candidates.size() - 1)
-	candidates[at]["state"] = FloorMap.DoorState.LOCKED
-	floor_changed.emit()
-	return String(candidates[at]["id"])
-
-## "Tür gesperrt: Bar → Tresor" ("" = der letzte Fumble sperrte nichts).
-func locked_door_note() -> String:
-	if last_locked_door == "" or floor_map == null:
-		return ""
-	return "Tür gesperrt: %s" % floor_map.door_label(last_locked_door)
 
 ## Chance, dass eine Tür FREI liegt - die Werbetrommel verdreifacht sie. Die Wirkung
 ## ist eine Abfrage hier, weil sie am Wurf der Etage hängt, nicht an der Wertung.
@@ -2726,7 +2736,6 @@ func note_fumble(volcanic: bool) -> int:
 		raise_blind(1.0 + BAD_STREAK_RAISE)
 	_arm_afterburners()
 	last_fumble_lost_part = destroy_fumble_part()
-	last_locked_door = _lock_fumble_door()
 	var minted := CharmEffects.fumble_energy(charm_ids())
 	if minted > 0:
 		add_energy(minted)
@@ -3139,7 +3148,7 @@ func _book_slot_prize(prize: SlotPrize, mult: int) -> void:
 					stash_die(prize.die, 0)
 
 ## Nächste Runde (läuft nur nach einer geschafften): gespielten Blind merken, Glück
-## +1, und die Runde wartet auf ihren Zug - den Blind hebt erst move_through.
+## +1, und die Runde wartet auf ihren Zug - den Blind hebt erst move_to.
 func advance_round() -> void:
 	while blind_history.size() < round_number - 1:
 		blind_history.append(floor_to_blind(float(BASE_GOAL)))
@@ -3159,7 +3168,7 @@ func advance_round() -> void:
 	if labor_job != null and not labor_job.done:
 		labor_job.tick()
 		labor_changed.emit()
-	move_due = floor_map != null
+	move_due = floor_plan != null
 	floor_changed.emit()
 
 ## --- Überladung (Overcharge) --------------------------------------------------
