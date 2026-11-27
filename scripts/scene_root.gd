@@ -5104,7 +5104,12 @@ func _carrier_park() -> Vector3:
 
 ## Der erste Sitz der ABLAGE: gleich hinter dem letzten Pool-Sitz.
 func _ablage_base() -> int:
-	return round_pool_kinds.size()
+	return round_pool_kinds.size() + _labor_seat_room()
+
+## Gezurrt ist der Stapel gemischt, ein Labor-Würfel hat darin keinen Platz: der Träger
+## hält je einen leeren Sitz hinter dem Stapel frei, damit der Vorrat seine Lücke zeigt.
+func _labor_seat_room() -> int:
+	return run.labor_dice().size() if run != null else 0
 
 ## Wieviele Träger-Reihen schon leer sind - alles vor dem Warteschlangen-Fenster ist
 ## gezogen, und eine Reihe zählt erst, wenn sie GANZ leer ist.
@@ -5156,7 +5161,7 @@ func _sink_pool_tray() -> void:
 	if not _pool_standing or pool_tray_view == null or table_screen == null:
 		return
 	# Der Träger braucht seinen ganzen Sitz-Plan, bevor sein Loch daran gemessen wird.
-	pool_tray_view.ensure_capacity(maxi(round_pool_kinds.size(), 1))
+	pool_tray_view.ensure_capacity(maxi(round_pool_kinds.size() + _labor_seat_room(), 1))
 	var field := _pool_field()
 	if field.is_empty():
 		return
@@ -5209,6 +5214,8 @@ func _carrier_seats() -> Array[DieDefinition]:
 			seats.append(null)
 		else:
 			seats.append(def)
+	for _gap in _labor_seat_room():
+		seats.append(null)
 	return seats
 
 ## Der ABGANG eines gezogenen Würfels vom Träger: er sinkt an SEINEM Sitz in die
@@ -12917,7 +12924,7 @@ func _refresh_deck_trays() -> void:
 		return
 	# Geparkt trägt das Tray den SITZ-PLAN: Platz i IST Deck-Eintrag i, gezogene
 	# hinterlassen Lücken - nichts rückt einzeln nach, nur der ganze Träger.
-	pool_tray_view.ensure_capacity(maxi(round_pool_kinds.size(), 1))
+	pool_tray_view.ensure_capacity(maxi(round_pool_kinds.size() + _labor_seat_room(), 1))
 	pool_tray_view.fill(_carrier_seats())
 	_sync_carrier_shift()
 
