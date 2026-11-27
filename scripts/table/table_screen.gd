@@ -177,14 +177,6 @@ var main_bus: LedStripView
 ## Die Akku-Bank (Display-Pixel), gemeldet von scene_root.
 var energy_bank_rect := Rect2()
 var pit_window: Panel
-var pit_lands: Control
-var _pit_lands_radius := 0.0
-## Landeraster (Welt): Teilung, Pad-Kante, Tiefe des Randbands, Abstand des ersten Pads vom Rand.
-const PIT_LAND_PITCH := 0.62
-const PIT_LAND_SIDE := 0.3
-const PIT_LAND_BAND := 2.4
-const PIT_LAND_EDGE := 0.7
-const PIT_LAND_COLOR := Color(0.83, 0.6, 0.22, 0.34)
 var pit_beckon: VBoxContainer
 ## Schriftgrade des Lockruf-Schilds als Anteil der Grubenhöhe.
 const PIT_BECKON_TITLE := "WÜRFELN"
@@ -629,11 +621,6 @@ func _build_content() -> void:
 	waves_material.set_shader_parameter("impulse_progress", _pit_impulse_progress)
 	pit_waves.material = waves_material
 	pit_window.add_child(pit_waves)
-	pit_lands = Control.new()
-	pit_lands.name = "PitLands"
-	pit_lands.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pit_lands.draw.connect(_draw_pit_lands)
-	pit_window.add_child(pit_lands)
 	_build_pit_beckon()
 
 	# Zellpositionen vorab berechnen - der Neon-Rahmen muss hinter die Zellen.
@@ -819,35 +806,8 @@ func place_pit_window(rect: Rect2, corner_radius: float) -> void:
 	waves_material.set_shader_parameter("impulse_radius", pit_waves.size.y * 0.75)
 	waves_material.set_shader_parameter("impulse_width", pit_waves.size.y * 0.1)
 	_fit_pit_beckon()
-	pit_lands.size = rect.size
-	_pit_lands_radius = corner_radius
-	pit_lands.queue_redraw()
 	pit_window.visible = true
 	_sync_reflection_windows()
-
-## Das LANDERASTER des Sockels: Gold-Pads nur im Randband, die Mitte bleibt der Anzeige.
-func _draw_pit_lands() -> void:
-	var size := pit_lands.size
-	var pitch := PIT_LAND_PITCH * pixels_per_world()
-	var side := PIT_LAND_SIDE * pixels_per_world()
-	var band := PIT_LAND_BAND * pixels_per_world()
-	var first := PIT_LAND_EDGE * pixels_per_world()
-	var r := _pit_lands_radius
-	var cols := int((size.x - first * 2.0) / pitch) + 1
-	var rows := int((size.y - first * 2.0) / pitch) + 1
-	var start := (size - Vector2(cols - 1, rows - 1) * pitch) * 0.5
-	for i in cols:
-		for j in rows:
-			var p := start + Vector2(i, j) * pitch
-			var edge := minf(minf(p.x, size.x - p.x), minf(p.y, size.y - p.y))
-			if edge > band:
-				continue
-			# Die gerundete Ecke: außerhalb des Bogens liegt kein Pad.
-			var q := Vector2(minf(p.x, size.x - p.x), minf(p.y, size.y - p.y))
-			if q.x < r and q.y < r and q.distance_to(Vector2(r, r)) > r - first:
-				continue
-			pit_lands.draw_rect(Rect2(p - Vector2.ONE * side * 0.5, Vector2.ONE * side),
-				PIT_LAND_COLOR)
 
 ## Das LOCKRUF-Schild im leeren Grubenboden: WÜRFELN, darunter wie man hinkommt.
 func _build_pit_beckon() -> void:

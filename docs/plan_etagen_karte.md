@@ -251,6 +251,134 @@ zog sofort. Jetzt ist er nur noch der UMRISS, und gezogen wird auf dem Grubenbod
 
 Welle 6 umgesetzt am 2026-11-27. Abweichungen: die Nahsicht rahmt die Kamera an der Gruben-Station senkrecht und eng von oben (temporärer Rahmen ohne Moduswechsel) - an der Station selbst stünden 0,43 Bildschirm-px je Display-px, kein Klausel-Text wäre lesbar; die FULL-Fassung ist gestorben (Modi COMPACT/DETAIL), die Laden-Seite zeigt die Nahsicht mit größerer Einheit; der Standraum ragt nur mit seinem oberen Teil herein, darum steht der Puck rechts oben in seiner Kachel.
 
+## Welle 7 — der GRUNDRISS: jede Etage ist ein Gebäude mit Flügeln und Fluren (Spieler-Entscheide 2026-11-27)
+
+Vorbild ist ein Flucht- und Rettungsplan: unregelmäßiger Umriß, ein Hauptflur, Seitenflure,
+Räume sehr verschiedener Größe, manche nur über andere Räume erreichbar. Die erste Fassung
+dieser Welle (gefülltes 4×4-Raster ohne Flure) ist verworfen — zu starr. Raum = Bonus und
+Tür = Malus bleiben; der Turm (Welle 5) und die Nahsicht in der Grube (Welle 6) bleiben als Orte.
+
+### Regeln
+- Ein ZUG führt immer in einen RAUM und ist eine Runde. Auf dem FLUR geht man frei.
+- ERREICHBAR sind von einem Raum aus: (a) jeder Raum mit einer Tür an einem Flurabschnitt,
+  an dem auch der eigene Raum eine Tür hat, (b) jeder Raum mit einer VERBINDUNGSTÜR zum
+  eigenen, (c) jeder Raum an einem NACHBAR-Abschnitt hinter genau EINER Brandschutztür.
+  Je Zug höchstens eine Brandschutztür. Vom Aufzug aus gilt sein Abschnitt.
+- RAUMTÜR: ihr Malus gilt beim ERSTEN Betreten eines Raums durch sie; danach ist sie
+  ausgebrannt. Hinausgehen kostet nie. Hat ein Zielraum mehrere erreichbare Türen, wählt der
+  Spieler die Tür (in der Nahsicht klickt er die Tür; ein Klick auf den Raum nimmt die
+  billigste: ausgebrannt vor offen vor niedriger Stufe).
+- BRANDSCHUTZTÜR: jede Durchquerung, in jeder Richtung und jedes Mal, ist ein BLIND-SCHRITT
+  ohne Runde — `blind_value` steigt um den aktuellen Schritt und der Zug-Zähler der Etage um
+  eins (der nächste Schritt wird teurer). An der Tür steht nur die Zahl („+14 %“). Sie trägt
+  keine Klausel.
+- SCHLÜSSELKARTE: das Büro des Pit Boss ist verschlossen, bis der Spieler den Raum mit der
+  Schlüsselkarte betreten hat (`has_key`, je Etage). Die Karte ist ab Etagen-Beginn auf dem
+  Plan sichtbar und liegt zusätzlich zum Bonus ihres Raums dort.
+- BÜRO: ein Raum im Gebäude mit zwei bis drei Türen (eine am Flur, die übrigen als
+  Verbindungstüren aus Nachbarräumen); jede trägt eine Boss-Kondition. Die Tür, durch die man
+  eintritt, bestimmt die Kondition. Ohne Schlüsselkarte ist keine davon gangbar.
+- AUFZUG: Startpunkt am Hauptflur, kein Raum, nie wieder betretbar. Man steigt aus und wählt
+  sofort — auch RUNDE 1 beginnt mit einer Raumwahl (aus der Aussage des Spielers „man fängt
+  beim Eingang an und wählt direkt einen Weg“; die Runde ohne Klausel ist damit gestorben).
+- Zurück in einen besuchten Raum geht immer (kein Bonus, die Tür ausgebrannt), kostet aber
+  die Runde und den Blind-Schritt.
+- FUMBLES SPERREN KEINE TÜREN MEHR: `_lock_fumble_door`, der Tür-Zustand LOCKED,
+  `last_locked_door`, die Zeile in `hand_note`, das rote Kreuz und der Blitz sind gestorben.
+- Die STUFE jeder Raumtür und die Maut jeder Brandschutztür sind ab Etagen-Beginn sichtbar,
+  der genaue Malus einer Raumtür erst, wenn sie erreichbar ist.
+
+### Erzeugung (`FloorMap.roll`, ersetzt die fünf Vorlagen)
+Gerechnet wird auf einem feinen Zellraster (rund 16 × 11), gezeichnet werden nur Wände.
+1. HAUPTFLUR: waagerecht, eine Zelle hoch, auf einer zufälligen mittleren Zeile.
+2. ABSCHNITTE: der Flur zerfällt in drei bis vier Abschnitte (je drei bis fünf Zellen
+   lang), dazwischen je eine Brandschutztür.
+3. FLÜGEL: jeder Abschnitt bekommt oberhalb und unterhalb eine eigene Bautiefe (null bis
+   vier Zellen, mindestens eine Seite ab zwei). Verschiedene Tiefen ergeben Vor- und
+   Rücksprünge — der Umriß ist nie ein Rechteck.
+4. SEITENFLUR: mit 50 % bekommt ein Abschnitt mit tiefer Seite einen senkrechten Seitenflur
+   hinein; mit 30 % liegt vor ihm eine weitere Brandschutztür (dann ist er ein eigener Abschnitt).
+5. RÄUME: jede Flügelfläche wird durch zufällige Schnitte in Rechtecke geteilt
+   (Mindestmaß 2 × 2 Zellen, Schnittlagen unregelmäßig). Die FLÄCHE ist die AUSSTATTUNG:
+   klein = Stufe 1, mittel = Stufe 2, groß = Stufe 3 (Schwellen so, daß je Etage ein bis
+   zwei große und drei bis vier mittlere entstehen).
+6. TÜREN: jeder Raum mit Flurwand bekommt eine Flurtür; jeder Raum ohne Flurwand (ein
+   HINTERER Raum) eine Verbindungstür zu einem Nachbarn; dazu mit 25 % je gemeinsamer Wand
+   eine weitere Verbindungstür. Tür-Stufe: mit 60 % die Ausstattung des Raums, in den sie
+   führt, sonst eine darunter; freie Türen über `treat_chance()` wie bisher.
+7. AUFZUG: ein kleiner Kern am Hauptflur in einem mittleren Abschnitt. BÜRO: ein mittlerer
+   Raum im Abschnitt, der vom Aufzug am weitesten liegt. SCHLÜSSELKARTE: in einem Raum, der
+   weder im Abschnitt des Aufzugs noch in dem des Büros liegt (bei drei Abschnitten: nicht
+   im Abschnitt des Büros), bevorzugt ein hinterer Raum.
+8. PRÜFUNG, sonst neu würfeln: 10 bis 14 Räume ohne Büro; je Abschnitt zwei bis fünf Räume;
+   jeder Raum vom Aufzug erreichbar; die Schlüsselkarte ohne das Büro erreichbar; der Weg
+   Aufzug → Schlüsselkarte → Büro braucht mindestens drei Züge.
+9. THEMEN und Klauseln wie unten; der Malus einer Raumtür fällt, sobald sie erreichbar wird.
+
+### Räume mit festem THEMA
+- Elf Raum-Arten mit Symbol und Themenfarbe, die Bonus-Klauseln sind ihre Varianten
+  (`FloorMap.ROOM_OF_CLAUSE`, ein Test verlangt für JEDE Bonus-Klausel genau einen Raum):
+  KASSE (Vorschuss, Sparbonus, Zinsen, Lohnfortzahlung, Wechselstube, Blankoscheck) · BAR
+  (Happy Hour, Goldener Handschlag, Alles auf Rot) · BOUTIQUE (Skonto, Freies Blättern,
+  Rückkaufrecht, Seelenmarkt, Rechenwoche, Stammkunde, Sonderlieferung) · WERKSTATT
+  (Probelauf, Kaltverfestigung, Meisterprägung) · GENERATOR (Startkapital, Pfandflasche,
+  Hochspannung, Doppellader, Großer Speicher, Supraleiter) · LOUNGE (Glückspfennig,
+  Glückstag, Glückssträhne, Glückskind, Freie Hand, Gezinkter Glückswürfel) · WETTBÜRO
+  (Rückversicherung, Versicherungsbetrug, Quotenbonus) · STUDIO (Gratis-Charm, Kennerblick)
+  · TECHNIKRAUM (Rampenlicht, Überstunden, Vollbestückung) · HINTERZIMMER
+  (Hinterzimmer-Kontakt) · EICHAMT (Eichung). Ankerklausel und Goldader beim Bau nach ihrer
+  Wirkung einordnen.
+- Erst steht der Raum (Fläche = Stufe), dann wird ein Thema gewählt, das in dieser Stufe
+  eine freie Klausel hat. Je Etage jedes Thema höchstens zweimal, jede Klausel einmal.
+- OFFEN: Hinterzimmer, Eichamt, Studio und Wettbüro haben wenige Varianten — sie brauchen
+  neue Klauseln, sonst sind sie selten.
+
+### Design des Raumplans
+- STIL: Architektur-Grundriß auf dunklem Grund. Kräftige helle AUSSENWAND um den
+  unregelmäßigen Umriß, dünnere Innenwände, die FLURE als etwas hellere Bodenfläche, jede
+  Tür eine LÜCKE in der Wand mit Türblatt-Bogen. Ruhig, flach, hochwertig; kein Kerker.
+- RAUM: Fläche schwach in der Themenfarbe, Symbol und Name oben links, darunter der
+  Bonus-Name, in der Nahsicht der volle Text. Die Ausstattung liest an der Fläche. Besucht:
+  entsättigt, Schild „besucht“.
+- „DU BIST HIER“: keine Spielfigur. Der Standraum hat einen weißen, atmenden Rand und das
+  Schild „DU BIST HIER“; der gegangene Weg läuft als weiße Linie durch Flure und Türen. Weiß
+  heißt überall „du“. Der Goldchip ist gestorben.
+- RAUMTÜR-STUFEN (eigene Skala, nicht die Farben der Räume): OFFEN = Lücke ohne Türblatt ·
+  LEICHT = ein Riegel, kühles Graublau · MITTEL = zwei Riegel, Bernstein · SCHWER = drei
+  Riegel, Orange · BOSS = rotes Tor. Ausgebrannt = Türblatt offen, weiß. Erreichbar steht der
+  Malus-Name an der Tür (Nahsicht: voller Text), sonst nur die Riegel.
+- BRANDSCHUTZTÜR: eine zweiflügelige Tür quer über den Flur, rot-weiß gesäumt wie auf einem
+  Fluchtplan, daneben ihre Maut „+14 %“ (immer der Schritt, den sie JETZT kosten würde).
+- SCHLÜSSELKARTE: ein helles Kartensymbol am Raum; ist sie geholt, wandert es in die
+  Kopfzeile. Das BÜRO trägt bis dahin ein Schloß und den Text „Schlüsselkarte fehlt“.
+- AUFZUG: ein Kern mit Treppen-Schraffur und Pfeil; in geschafften Etagen dunkel.
+- GANGBAR: die Zielräume des Zugs tragen einen hellen Rand, ihre Türen pulsieren leicht;
+  Räume hinter einer Brandschutztür tragen dazu die Maut am Rand.
+- Statt „Polster ×n“ steht am gangbaren Raum „Blind 290 · dein Schnitt 300“ in Grün (über
+  dem 1,5-fachen), Gelb (darüber) oder Rot (darunter); die Maut einer Brandschutztür ist
+  darin schon eingerechnet. Die Hub-Kachel heißt „Rundenschnitt“.
+
+### Die drei Ansichten
+- NAHSICHT (Grubenboden): der eigene FLURABSCHNITT mit seinen Räumen füllt das Bild, die
+  Nachbar-Abschnitte ragen hinter ihren Brandschutztüren herein. Ziehen schiebt in beide
+  Richtungen, das Rad zoomt hier zwischen Abschnitt und ganzer Etage; „Zum Standort“ holt
+  zurück. Klick auf einen gangbaren Raum oder eine seiner Türen zieht.
+- HUB-STREIFEN: der Umriß der ganzen Etage mit Fluren, Räumen (Symbol in Themenfarbe),
+  Standort, Schlüsselkarte und Büro; darunter gedimmt die geschafften Etagen als kleinere
+  Pläne, darüber gestrichelt die nächste. Kein Klick.
+- LADEN: der Knopf „Etage“ zeigt die Nahsicht zum Ansehen wie bisher.
+
+### Bau in drei Teilen
+1. core/data: Datenmodell (Zellraster, Räume als Rechtecke, Flurabschnitte, Raum-, Verbindungs-
+   und Brandschutztüren, Aufzug, Büro, Schlüsselkarte), der Erzeuger mit Prüfung, die
+   Themen-Tabelle, die Zug-Regeln (Erreichbarkeit, Maut als Blind-Schritt, Schlüssel,
+   Runde 1 mit Wahl), Fumble-Sperre entfernen, `blind_after_move` samt Maut. Tests:
+   1000 gewürfelte Etagen bestehen die Prüfung; Erreichbarkeit; Maut bei jeder Durchquerung;
+   Büro ohne Karte nicht gangbar; Vorschau gleich Buchung.
+2. Ansichten: Grundriß-Zeichnung in Nahsicht und Streifen, Tür-Skalen, Brandschutztüren,
+   Schlüsselkarte, „DU BIST HIER“, Schieben in zwei Richtungen, „Rundenschnitt“.
+3. Sichtproben im Spiel, Lesbarkeit, Feinschliff — danach wird gespielt.
+
 ## OFFEN (Spieler-Entscheid nötig oder erst im Testspiel zu klären)
 
 - WÖRTER: „Etage“, „Raum“, „Tür“, „Büro“ sind vorläufig. „Boss-Runde“ bleibt (Entscheid
