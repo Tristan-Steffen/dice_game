@@ -65,25 +65,19 @@ var lexikon_button: Button
 var _tier := 1
 var _tier_shown := 0  # 0 = noch nie angewandt
 
-## Blind-Bühne: oben der Blind groß, darunter die Zeile der Etage („Etage n · Zug m“).
+## Die Bühne der Startseite: oben die ETAGEN-KARTE (ihr Kopf nennt Etage, Zug und
+## Blind), darunter die Lauf-Anzeigen und die Deal-Marken.
 var roadmap_stage: Control
-var floor_label: Label
-var blind_caption: Label
-var blind_label: Label
-var _blind_target := -1
-var _blind_shown := 0
-var _blind_tween: Tween
+## Die Etagen-Karte; ein Klick auf einen gangbaren Raum meldet door_chosen.
+var floor_map: FloorMapView
 var _blind_growth_pct := 0
-const BLIND_FONT_UNITS := 13.0
-const FLOOR_FONT_UNITS := 4.2
-const BLIND_CAPTION := "BLIND"
-## Vor dem Zug der Runde steht groß der Blind NACH ihm.
-const NEXT_BLIND_CAPTION := "NÄCHSTER BLIND"
-## Etage (1-basiert) und Zug der Etage (0 = Eingang); scene_root meldet beides.
-var _floor := 0
+## Zug der Etage samt fälligem (0 = Eingang) und ob er fällig ist - für die Nächster-Zeile.
 var _floor_move := 0
 var _move_due := false
-var _boss := false
+## Band unter der Karte: Lauf-Anzeigen, dann die Deal-Marken (in u).
+const STATS_GAP_UNITS := 1.2
+const TOKEN_BAND_UNITS := 6.2
+const MAP_BLEED_UNITS := 3.0
 ## Hinweis-Karte der Deal-Marken und der Lauf-Anzeigen (Hover).
 var marker_hint: HintCard
 
@@ -607,80 +601,44 @@ func _apply_frame_tier() -> void:
 		_frame_style.border_color = _frame_base_color
 		_frame_style.bg_color = _frame_bg
 		_frame_style.set_border_width_all(maxi(2, int((size.x / 100.0) * _frame_base_width_u)))
-	if floor_label != null and not _boss:
-		floor_label.modulate = _frame_base_color.lightened(0.25)
 
-# --- Blind-Anzeige + Etagen-Zeile (Home-Bänder) ------------------------------
+# --- Etagen-Karte + Lauf-Anzeigen (Home-Bänder) ------------------------------
 
-## Setzt die Etage: Zeile „Etage n · Zug m“ (am Eingang „Eingang“, im Büro die
-## Boss-Runde), groß den Blind - vor dem Zug der Runde den Blind NACH ihm.
-func set_floor(floor_no: int, move: int, blind: int, due: bool, boss: bool) -> void:
-	if not _built:
+## Setzt den Stand der Etage (GameRun.floor_view_state); flash_door blitzt einmal rot.
+func set_floor_state(view_state: Dictionary, deal_bonus_factor: int = 1,
+		flash_door: String = "") -> void:
+	if not _built or floor_map == null:
 		return
-	_floor = floor_no
-	_floor_move = move
-	_move_due = due
-	_boss = boss
-	floor_label.text = floor_text(floor_no, move, boss)
-	floor_label.modulate = ComboChipView.THROTTLE_COLOR if boss else _frame_base_color.lightened(0.25)
-	blind_caption.text = NEXT_BLIND_CAPTION if due else BLIND_CAPTION
-	_set_blind_value(blind)
+	_move_due = bool(view_state.get("due", false))
+	_floor_move = int(view_state.get("moves", 0)) + (1 if _move_due else 0)
+	floor_map.open(view_state, deal_bonus_factor, flash_door)
 	_write_stat(STAT_BLIND, int(_stat_shown.get(STAT_BLIND, 0)))
 	_layout_stage()
 
-## Die Zeile der Etage (rein, für die Anzeige und die Tests).
-static func floor_text(floor_no: int, move: int, boss: bool) -> String:
-	if boss:
-		return "Etage %d · Büro · %s" % [floor_no, GameRun.STRESS_NAME]
-	if move <= 0:
-		return "Etage %d · Eingang" % floor_no
-	return "Etage %d · Zug %d" % [floor_no, move]
+## Ob der fällige Zug jetzt angenommen wird (scene_root fragt es je Bild).
+func set_floor_moves_enabled(on: bool) -> void:
+	if floor_map != null:
+		floor_map.set_moves_enabled(on)
 
-## Der groß gezeigte Blind (0 = noch keiner gesetzt).
-func current_blind() -> int:
-	return maxi(_blind_target, 0)
+## Der Zug, den ein Klick auf dieses Display-Pixel wählen würde ("" = keiner) - so
+## nimmt die Karte den Klick auch aus der Ferne, wo der Hub sonst nur Knöpfe bedient.
+func floor_move_at(pixel: Vector2) -> String:
+	if floor_map == null or not floor_map.is_visible_in_tree() or content_root == null \
+			or not content_root.visible:
+		return ""
+	var rect := floor_map.get_global_rect()
+	if not rect.has_point(pixel):
+		return ""
+	return floor_map.move_for(floor_map.target_at(pixel - rect.position))
 
-## Baut die Bühne: Blind-Kopf (Titel, große Zahl, Nächster-Zeile), die Etagen-Zeile,
-## darunter Glück und Fumbles und die Deal-Marken.
+## Baut die Bühne: die Etagen-Karte, die Lauf-Anzeigen und die Deal-Marken.
 func _build_rim_stage(u: float) -> void:
-	blind_caption = _stage_label(BLIND_CAPTION, u * 2.6, Color(FRAME_COLOR.r, FRAME_COLOR.g, FRAME_COLOR.b, 0.75))
-	blind_label = _stage_label("0", u * BLIND_FONT_UNITS, TEXT_COLOR)
-	floor_label = _stage_label("", u * FLOOR_FONT_UNITS, FRAME_COLOR)
-	floor_label.name = "FloorLabel"
+	floor_map = FloorMapView.new()
+	floor_map.name = "FloorMap"
+	roadmap_stage.add_child(floor_map)
 	_build_run_stats(u)
 	_build_deal_tokens(u)
 	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über allem
-
-func _stage_label(text: String, font_px: float, color: Color) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", int(font_px))
-	label.modulate = color
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	roadmap_stage.add_child(label)
-	return label
-
-## Die große Zahl: ein geänderter Blind tickt hin und blitzt.
-func _set_blind_value(target: int) -> void:
-	if blind_label == null or target == _blind_target:
-		return
-	var first := _blind_target < 0
-	_blind_target = target
-	if _blind_tween != null and _blind_tween.is_valid():
-		_blind_tween.kill()
-	if first:
-		_write_blind(target)
-		return
-	_blind_tween = create_tween()
-	_blind_tween.tween_method(_write_blind, _blind_shown, target, STAT_TICK_TIME)
-	blind_label.modulate = Color(2.2, 2.0, 1.6)
-	var flash := create_tween()
-	flash.tween_property(blind_label, "modulate", TEXT_COLOR, STAT_TICK_TIME + 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-
-func _write_blind(value: int) -> void:
-	_blind_shown = value
-	blind_label.text = str(value)
 
 ## Marken-Reihe unten mittig auf der Bühne (Position setzt _layout_stage).
 func _build_deal_tokens(_u: float) -> void:
@@ -722,8 +680,8 @@ func _hide_marker_hint() -> void:
 	if marker_hint != null:
 		marker_hint.hide_card()
 
-## Die Lauf-Anzeigen: die Nächster-Zeile unter der großen Zahl, Glück und Fumbles
-## als Zeile unter der Etagen-Zeile - je mit Hover-Hinweis.
+## Die Lauf-Anzeigen: Nächster Blind, Glück und Fumbles als EINE Zeile unter der
+## Karte - je mit Hover-Hinweis.
 func _build_run_stats(u: float) -> void:
 	for key: String in [STAT_BLIND, STAT_LUCK, STAT_FUMBLES]:
 		var label := Label.new()
@@ -770,7 +728,7 @@ func _write_stat(key: String, value: int) -> void:
 	if label == null:
 		return
 	if key == STAT_BLIND:
-		# Vor dem Zug steht der nächste Blind schon groß - hier nur sein Schritt.
+		# Vor dem Zug nennt der Kopf der Karte den nächsten Blind - hier nur sein Schritt.
 		if _move_due:
 			label.text = "Zug %d: %+d %%" % [_floor_move, _blind_growth_pct]
 			return
@@ -797,49 +755,39 @@ func _tick_stat(key: String, target: int) -> void:
 func _on_stage_resized() -> void:
 	_layout_stage()
 
-## Stellt alles auf der Bühne: Kopf oben mittig, Etagen-Zeile darunter, darunter
-## Glück und Fumbles, die Deal-Marken am Boden.
+## Stellt alles auf der Bühne: die Karte füllt sie, darunter die Lauf-Anzeigen als
+## Zeile und zuunterst das Band der Deal-Marken.
 func _layout_stage() -> void:
 	var s := roadmap_stage.size
-	if s.x < 40.0 or s.y < 40.0 or blind_label == null:
+	if s.x < 40.0 or s.y < 40.0 or floor_map == null:
 		return
-	# Die große Zahl gibt nach, wenn die Bühne flach ist - die Etagen-Zeile nie.
-	var hero := int(minf((size.x / 100.0) * BLIND_FONT_UNITS, s.y * 0.26))
-	if blind_label.get_theme_font_size("font_size") != hero:
-		blind_label.add_theme_font_size_override("font_size", hero)
-	var head: Array[Label] = [blind_caption, blind_label, stat_labels.get(STAT_BLIND) as Label]
-	var luck := stat_labels.get(STAT_LUCK) as Label
-	var fumbles := stat_labels.get(STAT_FUMBLES) as Label
-	var gap := s.y * 0.06
-	floor_label.reset_size()
-	luck.reset_size()
-	fumbles.reset_size()
-	var stats_h := maxf(luck.size.y, fumbles.size.y)
-	var block := gap + floor_label.size.y + gap * 0.5 + stats_h
-	for label in head:
+	var u := size.x / 100.0
+	var row: Array[Label] = [stat_labels.get(STAT_BLIND) as Label, stat_labels.get(STAT_LUCK) as Label,
+		stat_labels.get(STAT_FUMBLES) as Label]
+	var stats_h := 0.0
+	var widths := 0.0
+	for label in row:
 		label.reset_size()
-		block += label.size.y
-	# Alles steht gemeinsam etwas über der Mitte der Bühne; Kopfzeilen bühnenbreit,
-	# damit eine tickende Zahl mittig bleibt.
-	var y := maxf(0.0, (s.y - block) * 0.4)
-	for label in head:
-		label.position = Vector2(0.0, y)
-		label.size = Vector2(s.x, label.size.y)
-		y += label.size.y
-	var row_y := y + gap
-	floor_label.position = Vector2(0.0, row_y)
-	floor_label.size = Vector2(s.x, floor_label.size.y)
-	# Glück und Fumbles als EINE Zeile mittig unter der Etagen-Zeile.
-	var stats_y := row_y + floor_label.size.y + gap * 0.5
-	var spread := (size.x / 100.0) * 4.0
-	var pair := luck.size.x + spread + fumbles.size.x
-	luck.position = Vector2((s.x - pair) * 0.5, stats_y)
-	fumbles.position = Vector2(luck.position.x + luck.size.x + spread, stats_y)
-	var below := stats_y + stats_h
+		stats_h = maxf(stats_h, label.size.y)
+		widths += label.size.x
+	var token_band := u * TOKEN_BAND_UNITS
+	var gap := u * STATS_GAP_UNITS
+	var map_h := maxf(s.y - token_band - stats_h - gap * 2.0, 40.0)
+	# Die Karte darf in den Seitenrand der Startseite greifen: jede Spalte zählt.
+	var bleed := u * MAP_BLEED_UNITS
+	floor_map.position = Vector2(-bleed, 0.0)
+	floor_map.size = Vector2(s.x + bleed * 2.0, map_h)
+	var spread := u * 4.0
+	var x := (s.x - widths - spread * float(row.size() - 1)) * 0.5
+	var stats_y := map_h + gap
+	for label in row:
+		label.position = Vector2(x, stats_y)
+		x += label.size.x + spread
 	if deal_token_row != null:
 		deal_token_row.reset_size()
+		var band_top := stats_y + stats_h + gap
 		deal_token_row.position = Vector2((s.x - deal_token_row.size.x) * 0.5,
-			maxf(below, s.y - deal_token_row.size.y))
+			band_top + maxf(0.0, (s.y - band_top - deal_token_row.size.y) * 0.5))
 
 func _make_h_spacer() -> Control:
 	var spacer := Control.new()

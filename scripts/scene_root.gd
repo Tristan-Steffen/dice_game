@@ -356,11 +356,11 @@ var _energy_bank_px := Rect2()
 ## Klickzone des Schwarzmarkt-Fensters; erst mit der Entdeckung anfassbar.
 var secret_shop_click_zone: StaticBody3D
 var labor_click_zone: StaticBody3D
-## Die ETAGEN-KARTE auf dem Grubenboden; sie erscheint beim ersten Grubenzoom der
-## Runde. route_pending = der Zug dieser Runde fehlt noch: bis dahin ruhen die
-## Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
-var floor_map_view: FloorMapView
+## route_pending = der Zug dieser Runde fehlt noch (gewählt auf der ETAGEN-KARTE der
+## Hub-Startseite): bis dahin ruhen die Rundenbeginn-Wirkungen und der Wurf ist gesperrt.
 var route_pending := false
+## Die Etagen-Karte als Laden-Seite (Knopf „Etage“), nur zum Ansehen.
+var floor_page: FloorMapPage
 ## Die gesperrte Tür, die schon einmal geblitzt hat ("Etage:Tür").
 var _floor_flash_seen := ""
 ## Die Runde ist festgezurrt: der Vertrag ist unterschrieben bzw. - in einer Runde
@@ -374,9 +374,8 @@ var shop_reopen_allowed := false
 ## Der offene Laden ist ein Wieder-Eintritt: sein Schließen zieht die Runde NICHT
 ## noch einmal weiter.
 var shop_reopened := false
-## Rand der Auslage als Anteil der Grubenbreite (rundum gleich). Sie nimmt den
-## ganzen Grubenboden - das Gruben-Mobiliar weicht ihr solange.
-const FLOOR_MAP_INSET := 0.04
+## Rand des Rückblicks als Anteil der Grubenbreite (rundum gleich).
+const PIT_FLOOR_INSET := 0.04
 
 ## Rückblick: die Chronik der laufenden Runde und ihr Fenster in der Grube.
 ## log_open ist das EINZIGE Arbitrierungs-Bit des Erinnerungs-Modus (die Phase
@@ -1621,16 +1620,16 @@ func _setup_panels() -> void:
 			* PackDrawerView.CASSETTE_SCALE)
 
 
-	# Die Etagen-Karte liegt IN DER GRUBE, nicht am Hub: sie erscheint beim ersten
-	# Grubenzoom der Runde, direkt über dem Boden, auf dem gleich die Würfel
-	# landen. Ohne Screen-Mesh ersatzweise als Fenster-UI.
-	floor_map_view = FloorMapView.new()
-	if table_screen != null:
-		table_screen.add_child(floor_map_view)
-		_place_floor_map()
-	else:
-		$UI.add_child(floor_map_view)
-	floor_map_view.door_chosen.connect(_on_route_chosen)
+	# Die Etagen-Karte wohnt auf der Startseite des Hubs; im Laden blättert „Etage“ auf
+	# eine eigene Seite mit derselben Karte, nur zum Ansehen.
+	if table_screen != null and table_screen.hub != null and table_screen.hub.floor_map != null:
+		table_screen.hub.floor_map.door_chosen.connect(_on_route_chosen)
+		floor_page = FloorMapPage.new()
+		floor_page.name = "FloorMapPage"
+		table_screen.hub.attach_panel(floor_page)
+		floor_page.layout()
+		floor_page.close_requested.connect(_close_floor_page)
+	charm_shop.floor_requested.connect(_open_floor_page)
 
 	# Die PAKET-AUSWAHL wohnt auf der ÖFFNUNGS-FLÄCHE unter dem Vorrat (ohne Tisch der
 	# 2D-Rückfall); ihr Rechteck stellt _sync_pack_areas.
@@ -2385,10 +2384,14 @@ func _refresh_hub_info() -> void:
 	if run == null or table_screen == null or table_screen.hub == null:
 		return
 	table_screen.hub.set_run_info(run.round_number, run.money, _round_note())
-	# Vor dem Zug steht groß der Blind NACH ihm - der alte läuft dann nicht mehr.
-	var blind := run.next_blind() if run.move_due else run.effective_goal()
-	table_screen.hub.set_floor(run.floor_index + 1, run.floor_moves + (1 if run.move_due else 0),
-		blind, run.move_due, run.is_boss_round())
+	# Die zuletzt gesperrte Tür blitzt einmal rot - gemalt ist sie da schon gesperrt.
+	var flash := ""
+	if run.last_locked_door != "":
+		var key := "%d:%s" % [run.floor_index, run.last_locked_door]
+		if key != _floor_flash_seen:
+			_floor_flash_seen = key
+			flash = run.last_locked_door
+	table_screen.hub.set_floor_state(run.floor_view_state(), run.deal_bonus_factor(), flash)
 	_refresh_deal_tokens()
 	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
@@ -11681,6 +11684,9 @@ func _screen_forwards_pixel(pixel: Vector2, is_click: bool) -> bool:
 	# schließenden Laden. Sie deckt den ganzen Hub, also schweigt der ganze Hub.
 	if charm_shop != null and is_instance_valid(charm_shop) and charm_shop.leaving():
 		return false
+	# Ein gangbarer Raum der Etagen-Karte nimmt den Klick, wo die Startseite zu sehen ist.
+	if is_click and not flying and hub != null and hub.floor_move_at(pixel) != "":
+		return true
 	return TableScreen.window_takes_pixel(hub, _window_rect(hub), pixel, is_click,
 		camera_rig.mode == CameraRig.Mode.HUB, flying)
 
@@ -11690,13 +11696,9 @@ func _window_rect(window: Control) -> Rect2:
 		return Rect2()
 	return Rect2(window.position, window.size)
 
-## Die Bedienteile der Grube: liegt die Vertrags-Auslage auf dem Boden, gehören
-## die Klicks ihr, der Rückblick nimmt Liste wie Schritt-Leiste, sonst sind es die
-## Aktions-Knöpfe. Alle drei stehen nur, solange die Grube Mobiliar zeigt.
+## Die Bedienteile der Grube: der Rückblick nimmt Liste wie Schritt-Leiste, sonst
+## sind es die Aktions-Knöpfe. Beide stehen nur, solange die Grube Mobiliar zeigt.
 func _pit_forwards_pixel(pixel: Vector2) -> bool:
-	if floor_map_view != null and floor_map_view.visible \
-			and Rect2(floor_map_view.position, floor_map_view.size).has_point(pixel):
-		return true
 	if log_view != null and log_view.hit(pixel):
 		return true
 	return table_screen.pit_actions_hit(pixel)
@@ -11944,6 +11946,26 @@ func _process(delta: float) -> void:
 	_sync_pool_die_effects()  # und die versenkten Würfel schweigen unter dem Raster
 	_sync_music()  # und die Musik-Schichten folgen der Phase
 	_sync_pit_beckon(delta)  # und die Grube ruft, solange die Runde auf ihren ersten Wurf wartet
+	_sync_floor_map()  # und die Etagen-Karte nimmt den Zug nur, solange er fällig ist
+
+## Die ETAGEN-KARTE des Hubs je Bild: den Zug nimmt sie nur, solange die Runde auf
+## ihn wartet; ihre Auskunft fällt, sobald der Zeiger sie verläßt (verläßt er den
+## weitergereichten Bereich, kommt bei ihr kein Motion-Event mehr an). Die Etagen-Seite
+## gehört dem Laden und geht mit ihm.
+func _sync_floor_map() -> void:
+	if table_screen == null or table_screen.hub == null or table_screen.hub.floor_map == null:
+		return
+	var hub := table_screen.hub
+	hub.set_floor_moves_enabled(route_pending and phase == Phase.IDLE)
+	if floor_page != null and floor_page.visible and phase != Phase.SHOP:
+		_close_floor_page(true)
+	for map: FloorMapView in [hub.floor_map, floor_page.map_view if floor_page != null else null]:
+		if map == null or map.hovered().is_empty():
+			continue
+		var pixel := _screen_pixel(get_viewport().get_mouse_position())
+		if not map.is_visible_in_tree() or not map.get_global_rect().has_point(pixel) \
+				or not _screen_forwards_pixel(pixel, false):
+			map.clear_hover()
 
 ## Der LOCKRUF der Grube: vor dem ersten Wurf der Runde atmen ihre Wände grün und
 ## im leeren Boden steht WÜRFELN (Spieler-Wunsch 2026-10-24 - Tester fanden nach
@@ -11956,12 +11978,27 @@ func _pit_beckons() -> bool:
 		and camera_rig.mode != CameraRig.Mode.TITLE \
 		and next_draw_index == 0 and not has_rolled_current_hand \
 		and _remaining_in_pool() > 0 and not log_open \
-		and not _floor_map_open() and not _exchange_forced()
+		and not route_pending and not _exchange_forced()
+
+## Vor dem ersten Wurf fehlt noch der Zug der Runde: das Schild der Grube schickt an
+## den Hub, statt zum Würfeln zu rufen (die Wände atmen dann nicht).
+const PIT_MOVE_TITLE := "RAUM WÄHLEN"
+const PIT_MOVE_SUB := "Erst einen Raum wählen (Hub)"
+
+func _pit_awaits_move() -> bool:
+	return run != null and route_pending and phase == Phase.IDLE and gameplay_ui_state_visible \
+		and camera_rig.mode != CameraRig.Mode.TITLE and not log_open and not _exchange_forced()
 
 func _sync_pit_beckon(delta: float) -> void:
-	var target := 1.0 if _pit_beckons() else 0.0
+	var awaits_move := _pit_awaits_move()
+	var target := 1.0 if _pit_beckons() or awaits_move else 0.0
 	_pit_beckon_share = move_toward(_pit_beckon_share, target, PIT_BECKON_FADE * delta)
 	var breath := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * DicePit.BECKON_RATE)
+	if awaits_move:
+		table_screen.set_pit_beckon(_pit_beckon_share, breath, PIT_MOVE_SUB, PIT_MOVE_TITLE,
+			CasinoStyle.GOLD)
+		dice_pit.set_beckon(0.0, breath, CasinoStyle.GREEN)
+		return
 	table_screen.set_pit_beckon(_pit_beckon_share, breath,
 		"" if is_pit_focused else "Klick auf die Grube")
 	dice_pit.set_beckon(_pit_beckon_share, breath, CasinoStyle.GREEN)
@@ -12257,10 +12294,6 @@ func _hovered_queue_index(screen_pos: Vector2) -> int:
 func _sync_screen_action_buttons() -> void:
 	if table_screen == null or table_screen.pit_actions_root == null:
 		return
-	# Die Auslage ist Gruben-Mobiliar: verlässt die Kamera die Grube, geht sie mit
-	# (der nächste Grubenzoom legt sie wieder auf - _on_camera_mode_changed).
-	if _floor_map_open() and not (gameplay_ui_state_visible and is_pit_focused):
-		floor_map_view.close()
 	# Der Rückblick ist ebenso Gruben-Mobiliar: die Grube zu verlassen schließt
 	# ihn samt Wiederherstellung des lebenden Tisches.
 	if log_open and not (gameplay_ui_state_visible and is_pit_focused):
@@ -12274,20 +12307,14 @@ func _sync_screen_action_buttons() -> void:
 		table_screen.hide_pit_deal_hint()
 		table_screen.clear_fumble_marks()
 		return
-	# Die Vertragswahl braucht den ganzen Grubenboden: solange sie liegt, weicht
-	# das Mobiliar. Hier - nicht an den Setz-Stellen -, weil diese Funktion je
-	# Frame läuft und damit auch zurücknimmt, was update_pit_score/_refresh_ui
-	# nebenher wieder einschalten.
-	var choosing := _floor_map_open()
-	var show := gameplay_ui_state_visible and is_pit_focused and not choosing
+	# Hier - nicht an den Setz-Stellen -, weil diese Funktion je Frame läuft und damit
+	# auch zurücknimmt, was update_pit_score/_refresh_ui nebenher wieder einschalten.
+	var show := gameplay_ui_state_visible and is_pit_focused
 	table_screen.pit_actions_root.visible = show
 	# Das Würfelnetz-Feld steht dauerhaft neben den Knöpfen (leer ohne Hover).
 	table_screen.pit_info_bar.visible = show
 	# Die Deal-Marken am oberen Rand kommen und gehen mit dem Mobiliar.
 	table_screen.pit_deal_rail.visible = show
-	if choosing:
-		table_screen.set_pit_die_info(null)
-		table_screen.hide_pit_score()
 	if not show:
 		table_screen.hide_pit_deal_hint()
 		table_screen.clear_fumble_marks()  # Nachglühen ist Gruben-Mobiliar
@@ -12297,7 +12324,8 @@ func _sync_screen_action_buttons() -> void:
 	table_screen.take_action_button.disabled = not interactable or not _hand_scores()
 	# Würfeln braucht mindestens einen ungeschützten Würfel - sind alle geschützt,
 	# gibt es nichts neu zu würfeln (dann führt nur "Nehmen" weiter).
-	var can_roll := phase == Phase.IDLE and _remaining_in_pool() > 0 and not _all_in_play_dice_selected()
+	var can_roll := phase == Phase.IDLE and not route_pending and _remaining_in_pool() > 0 \
+		and not _all_in_play_dice_selected()
 	table_screen.roll_action_button.disabled = not can_roll
 	# Bank-Knopf: erst ab der ersten gefüllten Überladungs-Stufe, zeigt die Stufenzahl.
 	var stages := run.stages_cleared(hand_total) if run != null else 0
@@ -15028,8 +15056,6 @@ func _reset_game() -> void:
 	# Frischer Run: der Puls ruht, bis wieder zum ersten Mal gewürfelt wird.
 	if table_screen != null:
 		table_screen.set_round_pulse(false)
-	if floor_map_view != null:
-		floor_map_view.close()  # eine offene Wahl gehört zum alten Lauf
 	route_pending = false
 	_floor_flash_seen = ""
 	if log_open:
@@ -15197,44 +15223,11 @@ func _on_secret_powerbank_purchased(from_px: Vector2) -> void:
 	if energy_bank != null:
 		energy_bank.fly_in(from)
 
-## Ob die Etagen-Karte gerade auf dem Grubenboden liegt: dann weicht ihr das Mobiliar.
-## Die Grube bleibt begehbar - gesperrt ist nur der Wurf (route_pending).
-func _floor_map_open() -> bool:
-	return floor_map_view != null and floor_map_view.visible
-
-## Spannt die Karte über den GANZEN Grubenboden - Netz-Feld, Erklärzeile,
-## Aktions-Knöpfe und Wertungs-Orbs sind solange ausgeblendet.
-func _place_floor_map() -> void:
-	if floor_map_view == null or table_screen == null or table_screen.pit_window == null:
-		return
-	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
-	var inset := pit.size.x * FLOOR_MAP_INSET
-	floor_map_view.position = pit.position + Vector2(inset, inset)
-	floor_map_view.size = pit.size - Vector2(inset, inset) * 2.0
-
-## Erster Grubenzoom der Runde: die Etagen-Karte kommt auf den Grubenboden. Ohne
-## Display-Fläche fällt der Zug automatisch durch die erste gangbare Tür (2D-Rückfall).
-func _open_floor_map() -> void:
-	var doors := run.walkable_doors()
-	if doors.is_empty():
-		return
-	if floor_map_view == null or table_screen == null:
-		_on_route_chosen(doors[0])
-		return
-	_place_floor_map()
-	# Die zuletzt gesperrte Tür blitzt beim ersten Aufschlagen danach einmal rot.
-	var flash := ""
-	if run.last_locked_door != "":
-		var key := "%d:%s" % [run.floor_index, run.last_locked_door]
-		if key != _floor_flash_seen:
-			_floor_flash_seen = key
-			flash = run.last_locked_door
-	floor_map_view.open(run.floor_view_state(), run.deal_bonus_factor(), flash)
-
-## Zug gewählt: Karte weg, JETZT erst greifen die Rundenbeginn-Wirkungen (die
-## Boss-Kondition muss vor der Drossel stehen) - danach darf geworfen werden.
+## Zug gewählt (Klick auf der Etagen-Karte des Hubs): JETZT erst greifen die
+## Rundenbeginn-Wirkungen (die Boss-Kondition muss vor der Drossel stehen) - danach
+## fährt die Kamera zur Grube, und es darf geworfen werden.
 func _on_route_chosen(door_id: String) -> void:
-	if not route_pending:
+	if not route_pending or phase != Phase.IDLE:
 		return  # doppelte Unterschrift = doppelter Vorschuss
 	if not run.walkable_doors().has(door_id):
 		return
@@ -15262,11 +15255,11 @@ func _on_route_chosen(door_id: String) -> void:
 	_commit_round()  # ab der Unterschrift sind die Würfel im Spiel
 	_apply_short_time()
 	_update_charm_badges()  # Projektor-Ausfall: der abgeschaltete Charm zeigt AUS
-	if floor_map_view != null:
-		floor_map_view.close()
-	# Jetzt erst fährt der Nachschub auf - ohne Neuzoom, die Grube steht ja schon.
+	# Jetzt erst fährt der Nachschub auf - steht die Grube schon im Blick, ohne Neuzoom.
 	if is_pit_focused and not queue_activated and _is_playing():
 		_activate_queue()
+	elif not is_pit_focused and camera_rig != null:
+		_zoom_to_mode(CameraRig.Mode.PIT)
 	_apply_round_start_effects()
 	_refresh_round_hud()  # ein Quota-Aufschlag verschiebt den Balken sofort
 	_refresh_ui()
@@ -15321,6 +15314,9 @@ func _start_new_round() -> void:
 	route_pending = not run.walkable_doors().is_empty()
 	if not route_pending:
 		_apply_round_start_effects()
+	elif table_screen == null or table_screen.hub == null:
+		# Ohne Display-Fläche keine Karte: der Zug fällt durch die erste gangbare Tür.
+		_on_route_chosen.call_deferred(run.walkable_doors()[0])
 
 	if test_materials_enabled:
 		run.randomize_all_materials()
@@ -16381,6 +16377,9 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	if lexikon_view != null and lexikon_view.visible \
 			and new_mode != CameraRig.Mode.HUB and new_mode != CameraRig.Mode.TITLE:
 		lexikon_view.visible = false
+	# Ebenso die Etagen-Seite des Ladens: hart zu, die Seitenregel holt den Laden zurück.
+	if new_mode != CameraRig.Mode.HUB and new_mode != CameraRig.Mode.TITLE:
+		_close_floor_page(true)
 	# Wer aus dem Laden in die Grube fährt, hat "Fertig" gemeint: der Laden macht
 	# zu und die neue Runde steht - sonst säße der Spieler vor gesperrten Knöpfen.
 	# Synchron, damit Nachschub-Tray und Vertragsauslage unten dieselbe Fahrt noch
@@ -16388,14 +16387,9 @@ func _on_camera_mode_changed(new_mode: CameraRig.Mode) -> void:
 	if is_pit_focused and phase == Phase.SHOP and charm_shop != null:
 		charm_shop.close()
 	# Beim ERSTEN Grubenzoom einer Runde materialisiert das Nachschub-Tray - aber
-	# erst nach der Unterschrift: vor dem Vertrag fährt nichts auf.
+	# erst nach dem Zug: vor ihm fährt nichts auf (das Schild der Grube schickt an den Hub).
 	if is_pit_focused and not queue_activated and not route_pending and _is_playing():
 		_activate_queue()
-	# ...und dort wartet auch die Vertragswahl: der Spieler nimmt die Runde auf,
-	# das Haus legt seine Konditionen auf den Tisch.
-	if is_pit_focused and route_pending and phase == Phase.IDLE \
-			and (floor_map_view == null or not floor_map_view.visible):
-		_open_floor_map()
 	# Der Zielwürfel gehört auf die Bühne, solange der Spieler an der Werkstatt steht:
 	# das VERLASSEN bringt ihn an seinen Pool-Sitz zurück - derselbe Weg rückwärts.
 	_sync_bench_migration()
@@ -16456,12 +16450,13 @@ func _on_shop_closed() -> void:
 		_sync_editing_lock()
 		_refresh_dice_trays()
 		_sync_shop_reopen_button()
-		if camera_rig.mode == CameraRig.Mode.HUB:
+		if camera_rig.mode == CameraRig.Mode.HUB and not route_pending:
 			camera_rig.zoom_out()
 		return
 	run.advance_round()  # würfelt zugleich die Auslage der neuen Runde
 	_set_gameplay_ui_visible(true)
-	if camera_rig.mode == CameraRig.Mode.HUB:
+	# Ist ein Zug fällig, bleibt die Kamera am Hub: dort wartet die Etagen-Karte.
+	if camera_rig.mode == CameraRig.Mode.HUB and run.walkable_doors().is_empty():
 		camera_rig.zoom_out()
 	_start_new_round()
 	_sfx(&"round_start")
@@ -16526,6 +16521,26 @@ func _close_lexikon() -> void:
 			camera_rig.zoom_out()
 		else:
 			camera_rig.zoom_to(lexikon_prev_mode)
+
+## Der Knopf „Etage“ im Laden: die Etagen-Karte verdrängt die Ladenseite wie das
+## Lexikon (LIFO) - die Ware weicht mit ihr, und das Zurückblättern holt beides wieder.
+func _open_floor_page() -> void:
+	if floor_page == null or run == null or table_screen == null or table_screen.hub == null:
+		return
+	if floor_page.visible or phase != Phase.SHOP:
+		return
+	floor_page.show_state(run.floor_view_state(), run.deal_bonus_factor())
+	table_screen.hub.fade_page_in(floor_page)
+
+## Zurück zum Laden; hard = ohne Blende (Kamerawechsel, Laden zu).
+func _close_floor_page(hard := false) -> void:
+	if floor_page == null or not floor_page.visible:
+		return
+	if hard:
+		floor_page.visible = false
+		floor_page.modulate.a = 1.0
+		return
+	table_screen.hub.fade_page_out(floor_page)
 
 ## Spielende auf dem Display: die Ende-Karte des Titel-HUDs übernimmt die
 ## Hub-Fläche, die Kamera fährt in die Nahsicht. Ohne Display bleibt das
@@ -16748,7 +16763,7 @@ func _place_log_view() -> void:
 	if log_view == null or table_screen == null or table_screen.pit_window == null:
 		return
 	var pit := Rect2(table_screen.pit_window.position, table_screen.pit_window.size)
-	var inset := pit.size.x * FLOOR_MAP_INSET
+	var inset := pit.size.x * PIT_FLOOR_INSET
 	log_view.set_list_rect(Rect2(pit.position + Vector2(inset, inset),
 		pit.size - Vector2(inset, inset) * 2.0))
 	# Die Schritt-Leiste steht am oberen Grubenrand über die ganze Breite - der
@@ -17134,7 +17149,7 @@ func _part_install_calm() -> bool:
 		return false
 	if phase != Phase.IDLE and phase != Phase.SHOP:
 		return false
-	return camera_rig.mode != CameraRig.Mode.TITLE and not _floor_map_open()
+	return camera_rig.mode != CameraRig.Mode.TITLE
 
 ## DER EINBAU ist MODAL wie der ZWANG - gerechnet, kein Bit: ein Teil wartet,
 ## nichts läuft, und der Würfel geht vor. Ohne freien Platz außerhalb des

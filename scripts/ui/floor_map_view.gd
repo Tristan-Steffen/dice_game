@@ -1,21 +1,25 @@
 class_name FloorMapView
 extends Control
-## Die ETAGEN-KARTE auf dem Grubenboden: Räume als Kacheln an ihrem Rasterplatz,
-## Türen als Stege dazwischen, der Puck auf dem Standraum. Ein Klick auf einen
-## gangbaren Nachbarraum (oder seine Tür) ist der Zug der Runde. Kennt GameRun nicht:
-## sie malt GameRun.floor_view_state.
+## Die ETAGEN-KARTE auf der Startseite des Hubs: Räume als Kacheln an ihrem Rasterplatz,
+## Türen als Stege dazwischen, der Puck auf dem Standraum. Ist ein Zug fällig, ist ein
+## Klick auf einen gangbaren Nachbarraum (oder seine Tür) der Zug der Runde. Kennt
+## GameRun nicht: sie malt GameRun.floor_view_state.
 
 ## Der gewählte Zug (Tür-Id).
 signal door_chosen(door_id: String)
 
 const ENTRANCE_HEAD := "Etage %d · Eingang"
 const MOVE_HEAD := "Etage %d · Zug %d"
+const OFFICE_HEAD := "Etage %d · Büro · Boss-Runde"
 const BLIND_HEAD := "Blind %d"
+const NEXT_BLIND_HEAD := "Nächster Blind %d"
 const FREE_TEXT := "frei"
 const UNKNOWN_TEXT := "?"
 const BLIND_LINE := "Blind nach diesem Zug: %d (+%d %%)"
 const IDLE_TITLE := "Wähle den nächsten Raum"
 const IDLE_BODY := "Der Zug unterschreibt den Malus der Tür und den Bonus des Raums."
+const STAND_TITLE := "Der Puck steht: %s"
+const STAND_BODY := "Zeig auf einen Raum oder eine Tür - hier steht ihre Klausel. Der nächste Zug folgt nach dem Laden."
 const ENTRANCE_BODY := "Hier beginnt die Etage. Kein Bonus."
 const OFFICE_BODY := "Das Büro des Pit Boss: der Zug hierher macht die Runde zur Boss-Runde."
 const VISITED_BODY := "Besucht - der Bonus ist unterschrieben."
@@ -44,30 +48,39 @@ const VISITED_ALPHA := 0.45
 
 ## Raster: Spaltenbreiten in Teilen von Kachel, Eingang, Büro und Fuge.
 const ROOM_PART := 1.0
-const ENTRANCE_PART := 0.55
-const OFFICE_PART := 0.85
-const GAP_PART := 1.1
+const ENTRANCE_PART := 0.5
+const OFFICE_PART := 0.7
+const GAP_PART := 0.75
 ## Senkrechte Fuge zwischen zwei Reihen, in Teilen einer Kachelhöhe.
 const ROW_GAP_PART := 0.5
-## Maße in u (u = min(Breite/100, Höhe/46)).
-const PAD_UNITS := 1.0
-const HEAD_UNITS := 3.2
-const FOOT_UNITS := 7.2
-const BAND_GAP_UNITS := 0.6
-const NAME_UNITS := 1.75
-const BONUS_UNITS := 1.45
-const MARK_BIG_UNITS := 1.45
-const MARK_SMALL_UNITS := 1.0
-const HEAD_FONT_UNITS := 2.3
-const INFO_TITLE_UNITS := 1.8
-const INFO_BODY_UNITS := 1.6
-const PUCK_UNITS := 1.5
+## Maße in u (u = min(Breite/UNIT_WIDTH, Höhe/UNIT_HEIGHT)); auf dem Hub bindet die Breite.
+const UNIT_WIDTH := 90.0
+const UNIT_HEIGHT := 46.0
+const PAD_UNITS := 0.6
+const HEAD_UNITS := 3.6
+const FOOT_UNITS := 7.6
+const BAND_GAP_UNITS := 0.8
+const NAME_UNITS := 2.5
+const BONUS_UNITS := 2.1
+const MARK_BIG_UNITS := 1.8
+const MARK_SMALL_UNITS := 1.05
+const MARK_HEIGHT_UNITS := 8.0
+## Höhe einer Marke in der Fuge zwischen zwei Reihen.
+const MARK_ROW_UNITS := 4.2
+const HEAD_FONT_UNITS := 2.8
+const INFO_TITLE_UNITS := 2.0
+const INFO_BODY_UNITS := 1.8
+const PUCK_UNITS := 1.7
 const FLASH_TIME := 1.1
 
 ## Der Zustand aus GameRun.floor_view_state (leer = geschlossen).
 var state: Dictionary = {}
 ## Bonus-Faktor des Winkeladvokats für die Klausel-Texte.
 var bonus_factor := 1
+## Nur ansehen (die Karte im Laden): kein Zug, wie auch immer der Zustand steht.
+var read_only := false
+## Darf der fällige Zug JETZT gewählt werden (scene_root: die Runde wartet auf ihn)?
+var moves_enabled := true
 
 var _rooms: Dictionary = {}  # id -> Raum-Dictionary
 var _doors: Dictionary = {}  # id -> Tür-Dictionary
@@ -87,7 +100,11 @@ func _init() -> void:
 	clip_contents = true
 
 ## Baut die Karte aus dem Zustand neu und zeigt sie; flash_door blitzt einmal rot.
+## Ein unveränderter Zustand baut nichts neu - der Hub fragt oft.
 func open(view_state: Dictionary, deal_bonus_factor: int = 1, flash_door: String = "") -> void:
+	if visible and flash_door == "" and deal_bonus_factor == bonus_factor and view_state == state:
+		return
+	var kept := _hover
 	state = view_state.duplicate(true)
 	bonus_factor = deal_bonus_factor
 	_rooms.clear()
@@ -103,10 +120,13 @@ func open(view_state: Dictionary, deal_bonus_factor: int = 1, flash_door: String
 		if not door.is_empty():
 			_walk_rooms[_other_side(door, here)] = door_id
 	_hover = {}
+	if not kept.is_empty() and (_rooms.has(kept["id"]) or _doors.has(kept["id"])):
+		_hover = kept
 	visible = true
 	_build()
-	_flash_door = flash_door if _doors.has(flash_door) else ""
-	_start_flash()
+	if flash_door != "":
+		_flash_door = flash_door if _doors.has(flash_door) else ""
+		_start_flash()
 
 func close() -> void:
 	visible = false
@@ -115,13 +135,32 @@ func close() -> void:
 		_flash_tween.kill()
 	_flash = 0.0
 
+## Die gangbaren Türen, die JETZT einen Klick nehmen (leer = nur ansehen).
 func walkable_doors() -> Array[String]:
 	var ids: Array[String] = []
+	if read_only or not moves_enabled:
+		return ids
 	ids.assign(state.get("walkable", []))
 	return ids
 
+## Ob der fällige Zug gerade gewählt werden darf; nur der Wechsel malt neu.
+func set_moves_enabled(on: bool) -> void:
+	if on == moves_enabled:
+		return
+	moves_enabled = on
+	_refresh_pointer()
+
+## Die Auskunft unter dem Zeiger fällt weg (der Zeiger hat die Karte verlassen).
+func clear_hover() -> void:
+	hover_at(Vector2(-1, -1))
+
+func hovered() -> Dictionary:
+	return _hover
+
 ## Die Tür, deren Zug der Klick auf den Raum wäre ("" = kein gangbarer Nachbar).
 func door_to(room_id: String) -> String:
+	if walkable_doors().is_empty():
+		return ""
 	return String(_walk_rooms.get(room_id, ""))
 
 func flashing_door() -> String:
@@ -130,7 +169,7 @@ func flashing_door() -> String:
 # --- Geometrie ------------------------------------------------------------------
 
 func _unit() -> float:
-	return maxf(minf(size.x / 100.0, size.y / 46.0), 1.0)
+	return maxf(minf(size.x / UNIT_WIDTH, size.y / UNIT_HEIGHT), 1.0)
 
 func _map_rect() -> Rect2:
 	var u := _unit()
@@ -235,9 +274,9 @@ func door_mark_rect(door_id: String) -> Rect2:
 	if _door_vertical(door_id):
 		# In der Fuge zwischen zwei Reihen ist quer Platz bis knapp an die Nachbar-Spalte.
 		var cell: Vector2i = _rooms[String(door["a"])]["cell"]
-		size_px = Vector2(_column_span(cell.x).y * 1.5, minf(gap - u * 0.6, u * 2.9))
+		size_px = Vector2(_column_span(cell.x).y * 1.5, minf(gap - u * 0.6, u * MARK_ROW_UNITS))
 	else:
-		size_px = Vector2(gap - u * 0.8, minf(_row_metrics().x * 0.86, u * 6.0))
+		size_px = Vector2(gap - u * 0.8, minf(_row_metrics().x * 0.86, u * MARK_HEIGHT_UNITS))
 	return Rect2(mid - size_px * 0.5, size_px)
 
 ## Was unter dem Punkt liegt: {kind: "room"|"door", id} (leer = nichts).
@@ -275,16 +314,23 @@ func _gui_input(event: InputEvent) -> void:
 			accept_event()
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_MOUSE_EXIT:
-		hover_at(Vector2(-1, -1))
+	match what:
+		NOTIFICATION_MOUSE_EXIT, NOTIFICATION_VISIBILITY_CHANGED:
+			clear_hover()
+		NOTIFICATION_RESIZED:
+			if not state.is_empty():
+				_build()
 
 func hover_at(local: Vector2) -> void:
-	var target := target_at(local) if local.x >= 0.0 else {}
+	var target := target_at(local) if local.x >= 0.0 and not state.is_empty() else {}
 	if target == _hover:
 		return
 	_hover = target
+	_refresh_pointer()
+
+func _refresh_pointer() -> void:
 	_write_info()
-	var shape := Control.CURSOR_POINTING_HAND if move_for(target) != "" else Control.CURSOR_ARROW
+	var shape := Control.CURSOR_POINTING_HAND if move_for(_hover) != "" else Control.CURSOR_ARROW
 	mouse_default_cursor_shape = shape
 	queue_redraw()
 
@@ -309,6 +355,10 @@ func _write_info() -> void:
 	var title := IDLE_TITLE
 	var body := IDLE_BODY + " " + _blind_line()
 	var tint := TEXT_COLOR
+	if walkable_doors().is_empty():
+		var here: Dictionary = _rooms.get(String(state.get("position", "")), {})
+		title = STAND_TITLE % String(here.get("name", ""))
+		body = STAND_BODY
 	if not _hover.is_empty():
 		var parts := _hover_info()
 		title = parts[0]
@@ -381,13 +431,13 @@ func _build() -> void:
 		child.queue_free()
 	var u := _unit()
 	var head := Rect2(u * PAD_UNITS, u * PAD_UNITS, size.x - u * PAD_UNITS * 2.0, u * HEAD_UNITS)
-	var moves := int(state.get("moves", 0)) + (1 if bool(state.get("due", false)) else 0)
-	var floor_no := int(state.get("floor", 1))
-	var head_text := ENTRANCE_HEAD % floor_no if moves == 0 else MOVE_HEAD % [floor_no, moves]
-	_head_left = _place_label("Head", head_text, head, u * HEAD_FONT_UNITS, TEXT_COLOR,
+	var head_tint := LOCKED_COLOR if is_boss(state) else TEXT_COLOR
+	_head_left = _place_label("Head", head_text(state), head, u * HEAD_FONT_UNITS, head_tint,
 		HORIZONTAL_ALIGNMENT_LEFT)
-	_head_right = _place_label("HeadBlind", BLIND_HEAD % int(state.get("blind", 0)), head,
-		u * HEAD_FONT_UNITS, TEXT_COLOR, HORIZONTAL_ALIGNMENT_RIGHT)
+	_head_left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_head_right = _place_label("HeadBlind", blind_text(state), head,
+		u * HEAD_FONT_UNITS, head_tint, HORIZONTAL_ALIGNMENT_RIGHT)
+	_head_right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	for room_id: String in _rooms:
 		_build_room(room_id, u)
 	for door_id: String in _doors:
@@ -404,6 +454,25 @@ func _build() -> void:
 	_write_info()
 	queue_redraw()
 
+## Die Kopfzeile links: Etage und Zug (am Eingang „Eingang“, im Büro die Boss-Runde).
+static func head_text(view_state: Dictionary) -> String:
+	var floor_no := int(view_state.get("floor", 1))
+	if is_boss(view_state):
+		return OFFICE_HEAD % floor_no
+	var moves := int(view_state.get("moves", 0)) + (1 if bool(view_state.get("due", false)) else 0)
+	return ENTRANCE_HEAD % floor_no if moves == 0 else MOVE_HEAD % [floor_no, moves]
+
+## Die Kopfzeile rechts: der laufende Blind, vor dem Zug der Blind NACH ihm.
+static func blind_text(view_state: Dictionary) -> String:
+	if bool(view_state.get("due", false)):
+		return NEXT_BLIND_HEAD % int(view_state.get("next_blind", 0))
+	return BLIND_HEAD % int(view_state.get("blind", 0))
+
+## Der Puck steht im Büro und kein Zug ist fällig: die laufende Runde ist die Boss-Runde.
+static func is_boss(view_state: Dictionary) -> bool:
+	return not bool(view_state.get("due", false)) and view_state.has("office") \
+		and String(view_state.get("position", "")) == String(view_state["office"])
+
 func _build_room(room_id: String, u: float) -> void:
 	var room: Dictionary = _rooms[room_id]
 	var rect := room_rect(room_id).grow(-u * 0.5)
@@ -411,9 +480,9 @@ func _build_room(room_id: String, u: float) -> void:
 	var standing := room_id == String(state.get("position", ""))
 	var dim := bool(room["visited"]) and not standing and not bool(room.get("entrance", false))
 	var name_h := u * NAME_UNITS * 1.4
-	var name_rect := Rect2(rect.position, Vector2(rect.size.x, name_h))
-	if _is_tall(room):
-		name_rect.position.y = rect.get_center().y - name_h - u * 0.6
+	# Name über, Bonus (bzw. Puck) unter der Mitte: die hohe Kachel liest als Block.
+	var name_rect := Rect2(Vector2(rect.position.x, rect.get_center().y - name_h - u * 0.3),
+		Vector2(rect.size.x, name_h))
 	var name_label := _place_label("Room_" + room_id, String(room["name"]), name_rect,
 		_fit(String(room["name"]), rect.size.x, name_h, NAME_UNITS, 1.2), TEXT_COLOR,
 		HORIZONTAL_ALIGNMENT_CENTER)
@@ -428,9 +497,8 @@ func _build_room(room_id: String, u: float) -> void:
 		sub = clause.display_name if clause != null else ""
 	if sub == "":
 		return
-	var sub_rect := Rect2(rect.position + Vector2(0.0, name_h), Vector2(rect.size.x, rect.size.y - name_h))
-	if _is_tall(room):
-		sub_rect = Rect2(Vector2(rect.position.x, rect.get_center().y), Vector2(rect.size.x, name_h * 1.6))
+	var sub_rect := Rect2(Vector2(rect.position.x, rect.get_center().y),
+		Vector2(rect.size.x, minf(rect.end.y - rect.get_center().y - u * 0.5, name_h * 2.2)))
 	var sub_label := _place_label("Bonus_" + room_id, sub, sub_rect,
 		_fit(sub, sub_rect.size.x, sub_rect.size.y, BONUS_UNITS, 1.1), tint, HORIZONTAL_ALIGNMENT_CENTER)
 	sub_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -561,7 +629,7 @@ func _draw_room(room_id: String, u: float) -> void:
 	var rect := room_rect(room_id)
 	var tint := _room_color(room)
 	var standing := room_id == String(state.get("position", ""))
-	var walk := _walk_rooms.has(room_id)
+	var walk := door_to(room_id) != ""
 	var hovered := walk and _hover_move() == door_to(room_id)
 	var dim := bool(room["visited"]) and not standing and not bool(room.get("entrance", false))
 	var box := StyleBoxFlat.new()
@@ -581,10 +649,7 @@ func _draw_room(room_id: String, u: float) -> void:
 
 func _puck_center(room_id: String, u: float) -> Vector2:
 	var rect := room_rect(room_id).grow(-u * 0.5)
-	if _is_tall(_rooms[room_id]):
-		return Vector2(rect.get_center().x, rect.get_center().y + u * NAME_UNITS * 1.6)
-	var name_h := u * NAME_UNITS * 1.4
-	return Vector2(rect.get_center().x, rect.position.y + name_h + (rect.size.y - name_h) * 0.5)
+	return Vector2(rect.get_center().x, rect.get_center().y + u * (PUCK_UNITS + 0.8))
 
 ## Der Puck: eine Messing-Scheibe mit Rand und Glanz.
 func _draw_puck(center: Vector2, radius: float) -> void:

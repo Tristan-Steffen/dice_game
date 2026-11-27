@@ -139,13 +139,28 @@ Boss-Prämie (`grant_stress_reward`).
 
 Welle 2 umgesetzt am 2026-11-27. Abweichungen: Eingang und Büro stehen als hohe Kacheln über alle drei Reihen (so liegen alle ihre Türen waagerecht, kein schräger Steg); die Daten-Abfrage heißt `floor_view_state()`, dazu `walkable_doors()` und `move_clauses(door_id)`; `floor_roadmap`, `STRESS_MARKER`, `STRESS_HINT`, `ROADMAP_SHOWN` und `floor_first_round` sind mit dem Fahrplan gestorben; der Hub nennt vor dem Zug groß den Blind NACH ihm („NÄCHSTER BLIND“) und darunter „Zug m: +p %“; `advance_round` meldet `floor_changed`.
 
-## Welle 3 — die Karte als Bauteil des Tisches (eigener Plan nach dem Testspiel)
+## Welle 3 — die Karte wohnt auf der Startseite des Hubs (Spieler-Entscheid 2026-11-27)
 
-- Die Etage als Grundriß im Deck: Räume als Pads, Türen als Lichtspuren mit dem Malus als
-  Bauteil in der Spur, der Puck als Messing-Körper (Spieler-Zug, Trage-Bogen). Die
-  unterschriebene Klausel reist als Komet vom Raum zu dem Möbel, das sie trifft.
-- Braucht vorher: einen gemessenen freien Grundriß auf dem Deck, eine eigene Kamera-Station,
-  die Entscheidung, ob der Hub-Fahrplan-Platz frei wird, und Blender-Entwürfe zur Wahl.
+Die Karte als Bauteil des Tisches (Pads, Lichtspuren, Messing-Puck) ist verworfen: für einen
+Grundriß dieser Größe ist auf dem Deck kein Platz, und der Hub ist ohnehin der Schirm des Hauses.
+
+- `FloorMapView` verläßt den Grubenboden und wird der Hauptteil der HUB-STARTSEITE (dort, wo
+  früher der Fahrplan stand). Sie steht dort DAUERND, nicht mehr modal: während der Runde
+  zeigt sie den Stand (ein Fumble sperrt seine Tür sichtbar im selben Moment), ist ein Zug
+  fällig, sind die gangbaren Nachbarn hervorgehoben und klickbar.
+- Der große Blind der Startseite schrumpft in die Kopfzeile der Karte („Etage n · Zug m“
+  links, Blind rechts; vor dem Zug „Nächster Blind“ wie bisher). Glück, Fumbles, Vertrags-Marken
+  und die Knöpfe der Startseite bleiben.
+- Ablauf: „Fertig“ im Laden → die Startseite zeigt die Karte mit fälligem Zug → Klick auf
+  einen Raum → der bisherige Ablauf nach dem Zug (Kamera zur Grube, Rundenbeginn). Der
+  LOCKRUF der Grube wartet, bis gezogen ist. In Runde 1 ist kein Zug fällig.
+- Bedienbar, wo sichtbar: der Klick auf einen gangbaren Raum gilt in jeder Kamera-Lage, in
+  der die Startseite zu sehen ist.
+- Im LADEN: ein Knopf „Etage“ im Kopf der Ladenseite blättert auf die Karte und zurück
+  (nur ansehen, kein Zug, solange der Laden offen ist).
+- Der Puck bleibt gemalt.
+
+Welle 3 umgesetzt am 2026-11-27. Abweichungen: die Blind-Zähl-Animation ist entfallen (der Kopf der Karte nennt den Blind ohne Ticken); steht die Kamera nicht am Hub, wenn ein Zug fällig ist (Laden über die Grube verlassen), zeigt die Grube golden „RAUM WÄHLEN / Erst einen Raum wählen (Hub)“ statt WÜRFELN, nach „Fertig“ bleibt die Kamera am Hub; die Laden-Karte ist eine eigene Hub-Seite `FloorMapPage` mit derselben `FloorMapView` (`read_only`); die Karte greift in den Seitenrand des Hubs (`MAP_BLEED_UNITS`).
 
 ## OFFEN (Spieler-Entscheid nötig oder erst im Testspiel zu klären)
 

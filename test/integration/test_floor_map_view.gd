@@ -1,6 +1,10 @@
 extends GutTest
-## Die ETAGEN-KARTE als Fenster (FloorMapView): Kachel je Raum, Marke je Türzustand,
-## nur gangbare Nachbarn nehmen den Klick, die Auskunft folgt dem Zeiger.
+## Die ETAGEN-KARTE (FloorMapView) auf der Hub-Startseite: Kachel je Raum, Marke je
+## Türzustand, nur gangbare Nachbarn eines fälligen Zugs nehmen den Klick, die Auskunft
+## folgt dem Zeiger und fällt, wenn er geht.
+
+## Das Maß der Karte auf der echten Hub-Startseite (gemessen, Hub 1068 × 1125).
+const MAP_SIZE := Vector2(961, 680)
 
 var view: FloorMapView
 var run: GameRun
@@ -10,7 +14,7 @@ func before_each() -> void:
 	run = GameRun.new_run()
 	run.advance_round()  # ab Runde 2 ist ein Zug fällig
 	view = add_child_autofree(FloorMapView.new())
-	view.size = Vector2(985, 484)  # das Maß auf dem echten Grubenboden
+	view.size = MAP_SIZE
 	chosen.clear()
 	view.door_chosen.connect(func(door_id: String) -> void: chosen.append(door_id))
 
@@ -173,10 +177,27 @@ func test_the_info_names_a_scouted_door_malus() -> void:
 		return
 	pass_test("keine Eingangstür mit Malus in diesem Wurf")
 
-func test_the_head_names_floor_move_and_blind() -> void:
+func test_the_head_names_floor_move_and_the_next_blind_before_the_move() -> void:
+	view.open(run.floor_view_state())
+	assert_eq(_label("Head").text, "Etage 1 · Zug 1")
+	assert_eq(_label("HeadBlind").text, FloorMapView.NEXT_BLIND_HEAD % run.next_blind(),
+		"vor dem Zug der Blind NACH ihm")
+
+func test_after_the_move_the_head_names_the_running_blind() -> void:
+	run.move_through(String(run.walkable_doors()[0]))
 	view.open(run.floor_view_state())
 	assert_eq(_label("Head").text, "Etage 1 · Zug 1")
 	assert_eq(_label("HeadBlind").text, FloorMapView.BLIND_HEAD % run.effective_goal())
+
+func test_the_entrance_and_the_office_head() -> void:
+	var fresh := GameRun.new_run()
+	view.open(fresh.floor_view_state())
+	assert_eq(_label("Head").text, "Etage 1 · Eingang")
+	var state := fresh.floor_view_state()
+	state["position"] = state["office"]
+	view.open(state)
+	assert_eq(_label("Head").text, FloorMapView.OFFICE_HEAD % 1)
+	assert_eq(_label("Head").modulate, FloorMapView.LOCKED_COLOR, "die Boss-Runde rot")
 
 func test_the_locked_door_flashes_once_but_stays_locked() -> void:
 	var doors := _mixed_floor()
@@ -185,3 +206,61 @@ func test_the_locked_door_flashes_once_but_stays_locked() -> void:
 	assert_null(_label("Mark_" + doors["locked"]), "Endzustand zuerst: gesperrt gemalt")
 	await wait_seconds(FloorMapView.FLASH_TIME + 0.1)
 	assert_eq(view.flashing_door(), "")
+
+func test_disabled_moves_take_no_click_but_still_explain() -> void:
+	var state := run.floor_view_state()
+	view.open(state)
+	view.set_moves_enabled(false)
+	var door_id := String((state["walkable"] as Array)[0])
+	var target := run.floor_map.other_side(run.floor_map.door(door_id), run.floor_map.position)
+	assert_false(view.press_at(view.room_rect(target).get_center()))
+	assert_true(chosen.is_empty())
+	view.hover_at(view.room_rect(target).get_center())
+	assert_false(view.info_text().is_empty(), "die Auskunft antwortet trotzdem")
+	assert_false(view.info_text().contains("Blind nach diesem Zug"))
+	view.set_moves_enabled(true)
+	assert_true(view.press_at(view.room_rect(target).get_center()))
+
+func test_a_read_only_map_never_takes_a_move() -> void:
+	view.read_only = true
+	view.open(run.floor_view_state())
+	for room: Dictionary in run.floor_view_state()["rooms"]:
+		assert_false(view.press_at(view.room_rect(String(room["id"])).get_center()))
+	assert_true(chosen.is_empty())
+
+func test_the_hover_info_falls_when_the_pointer_leaves() -> void:
+	var state := run.floor_view_state()
+	view.open(state)
+	var idle := view.info_text()
+	var room_id := String((state["rooms"] as Array)[1]["id"])
+	view.hover_at(view.room_rect(room_id).get_center())
+	assert_ne(view.info_text(), idle)
+	view.clear_hover()
+	assert_eq(view.info_text(), idle, "ohne Zeiger die Ruhe-Auskunft")
+	view.hover_at(view.room_rect(room_id).get_center())
+	view.notification(Control.NOTIFICATION_MOUSE_EXIT)
+	assert_eq(view.info_text(), idle, "mouse_exited räumt ebenso")
+
+func test_an_unchanged_state_keeps_the_hover_and_builds_nothing() -> void:
+	var state := run.floor_view_state()
+	view.open(state)
+	var room_id := String((state["rooms"] as Array)[1]["id"])
+	view.hover_at(view.room_rect(room_id).get_center())
+	var label := _label("Head")
+	view.open(run.floor_view_state())
+	assert_same(_label("Head"), label, "derselbe Zustand baut nicht neu")
+	assert_eq(view.hovered()["id"], room_id)
+
+func test_a_fumble_lock_shows_at_once() -> void:
+	var state := run.floor_view_state()
+	view.open(state)
+	run.move_through(String(run.walkable_doors()[0]))
+	var locked := run._lock_fumble_door()
+	if locked == "":
+		pass_test("kein Sperr-Kandidat in diesem Wurf")
+		return
+	view.open(run.floor_view_state(), 1, locked)
+	for door: Dictionary in view.state["doors"]:
+		if String(door["id"]) == locked:
+			assert_eq(int(door["state"]), FloorMap.DoorState.LOCKED)
+	assert_eq(view.flashing_door(), locked)

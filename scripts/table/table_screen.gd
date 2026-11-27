@@ -187,6 +187,7 @@ const PIT_LAND_EDGE := 0.7
 const PIT_LAND_COLOR := Color(0.83, 0.6, 0.22, 0.34)
 var pit_beckon: VBoxContainer
 ## Schriftgrade des Lockruf-Schilds als Anteil der Grubenhöhe.
+const PIT_BECKON_TITLE := "WÜRFELN"
 const PIT_BECKON_TITLE_SHARE := 0.16
 const PIT_BECKON_SUB_SHARE := 0.08
 ## Rundenpuls: Wellen-Overlay im Gruben-Fenster (siehe pit_waves.gdshader).
@@ -855,7 +856,7 @@ func _build_pit_beckon() -> void:
 	pit_beckon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pit_beckon.alignment = BoxContainer.ALIGNMENT_CENTER
 	pit_beckon.visible = false
-	for line in ["WÜRFELN", ""]:
+	for line in [PIT_BECKON_TITLE, ""]:
 		var label := Label.new()
 		label.text = line
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -881,15 +882,20 @@ func _fit_pit_beckon() -> void:
 
 ## share 0..1 blendet das Schild, breath 0..1 ist der Atem der Wände; leere
 ## Unterzeile heißt: man steht schon an der Grube.
-func set_pit_beckon(share: float, breath: float, sub_text: String) -> void:
+func set_pit_beckon(share: float, breath: float, sub_text: String,
+		title_text := PIT_BECKON_TITLE, color := CasinoStyle.GREEN) -> void:
 	if pit_beckon == null:
 		return
 	pit_beckon.visible = share > 0.001
 	if not pit_beckon.visible:
 		return
 	pit_beckon.modulate.a = share * lerpf(0.55, 1.0, breath)
+	var title: Label = pit_beckon.get_child(0)
+	title.text = title_text
 	var sub: Label = pit_beckon.get_child(1)
 	sub.text = sub_text
+	for label: Label in [title, sub]:
+		label.add_theme_color_override("font_color", color)
 
 ## Punkt-Puls: schnelle Stoßwelle vom Würfel (screen_px) in der Farbe der
 ## Punktart - "base" (Cyan), "mult" (Gold), "crit" (Magenta). Hell bei Geburt,
