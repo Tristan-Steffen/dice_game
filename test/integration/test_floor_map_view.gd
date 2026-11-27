@@ -154,7 +154,39 @@ func test_the_info_names_the_bonus_and_the_blind_after_the_move() -> void:
 	view.hover_at(view.room_rect(target).get_center())
 	assert_string_contains(view.info_text(), DealClause.text_for(bonus, 2), "voller Bonus-Text mit Faktor")
 	assert_string_contains(view.info_text(),
-		FloorMapView.BLIND_LINE % [run.next_blind(), roundi(run.blind_growth() * 100.0)])
+		"Blind nach diesem Zug: %s (" % BigNumber.short(run.blind_after_move(door_id)),
+		"der Blind dieses Zugs samt seinen Klauseln")
+
+func test_the_info_names_the_cushion_of_the_move() -> void:
+	run.round_scores.assign([600, 900])
+	var state := run.floor_view_state()
+	view.open(state)
+	var door_id := String((state["walkable"] as Array)[0])
+	var target := run.floor_map.other_side(run.floor_map.door(door_id), run.floor_map.position)
+	view.hover_at(view.room_rect(target).get_center())
+	var cushion := run.cushion(run.blind_after_move(door_id))
+	assert_string_contains(view.info_text(), FloorMapView.CUSHION_PART % BigNumber.factor(cushion))
+	assert_ne(_label("InfoMove").modulate, FloorMapView.SHORT_COLOR, "über ×1 nicht rot")
+	assert_false(_label("InfoMove").get_rect().intersects(_label("InfoTitle").get_rect()),
+		"Titel und Zug-Zeile teilen sich die Zeile")
+
+func test_a_cushion_below_one_reads_red() -> void:
+	run.round_scores.assign([20])
+	var state := run.floor_view_state()
+	view.open(state)
+	var door_id := String((state["walkable"] as Array)[0])
+	view.hover_at(view.door_mark_rect(door_id).get_center())
+	assert_string_contains(view.info_text(), "Polster ×0,1")
+	assert_eq(_label("InfoMove").modulate, FloorMapView.SHORT_COLOR)
+
+func test_without_a_typical_score_the_cushion_stays_out() -> void:
+	run.round_scores.clear()
+	var state := run.floor_view_state()
+	view.open(state)
+	var door_id := String((state["walkable"] as Array)[0])
+	view.hover_at(view.door_mark_rect(door_id).get_center())
+	assert_string_contains(view.info_text(), "Blind nach diesem Zug")
+	assert_false(view.info_text().contains("Polster"), "ohne typischen Wert kein Polster")
 
 func test_a_far_room_names_its_bonus_without_a_blind_line() -> void:
 	view.open(run.floor_view_state())

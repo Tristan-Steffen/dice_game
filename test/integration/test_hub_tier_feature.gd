@@ -162,11 +162,33 @@ func test_the_stage_stays_inside_its_bounds() -> void:
 	assert_true(hub.get_global_rect().encloses(hub.floor_map.get_global_rect()),
 		"die Karte greift höchstens in den Seitenrand")
 	assert_true(map.position.y >= 0.0 and map.end.y <= stage.size.y, "und liegt der Höhe nach in der Bühne")
-	for key: String in [HubView.STAT_BLIND, HubView.STAT_LUCK, HubView.STAT_FUMBLES]:
+	var rects: Array[Rect2] = []
+	for key: String in [HubView.STAT_BLIND, HubView.STAT_LUCK, HubView.STAT_FUMBLES,
+			HubView.STAT_CUSHION, HubView.STAT_TREND]:
 		var c: Control = hub.stat_labels[key]
 		var r := Rect2(c.position, c.size)
 		assert_true(stage.grow(1.0).encloses(r), "%s liegt in der Bühne" % c.name)
 		assert_false(r.intersects(map), "%s steht unter der Karte, nicht darauf" % c.name)
+		for other in rects:
+			assert_false(r.intersects(other), "%s überdeckt keine andere Anzeige" % c.name)
+		rects.append(r)
+
+func test_cushion_and_trend_read_as_ratios() -> void:
+	var hub := _hub()
+	await wait_frames(2)
+	hub.set_floor_state(GameRun.new_run().floor_view_state())
+	hub.set_run_trends(0.0, 0.0, 1.1, {HubView.STAT_CUSHION: "Rechnung."})
+	var pad: Label = hub.stat_labels[HubView.STAT_CUSHION]
+	var trend: Label = hub.stat_labels[HubView.STAT_TREND]
+	assert_eq(pad.text, "Polster –", "ohne Daten ein ruhiger Platzhalter")
+	assert_eq(trend.text, "Trend –")
+	assert_eq(hub._stat_hints[HubView.STAT_CUSHION], "Rechnung.")
+	hub.set_run_trends(3.6, 1.318, 1.14)
+	assert_eq(pad.text, "Polster ×3,6")
+	assert_eq(trend.text, "Du ×1,32 · Haus ×1,14")
+	assert_eq(pad.modulate, HubView.TREND_COLORS[HubView.STAT_CUSHION])
+	hub.set_run_trends(0.8, 1.0, 1.1)
+	assert_eq(pad.modulate, HubView.CUSHION_SHORT_COLOR, "unter ×1 rot")
 
 func test_the_etage_button_shows_the_map_and_leads_back() -> void:
 	var hub := _hub()

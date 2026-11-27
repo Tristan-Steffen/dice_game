@@ -162,6 +162,62 @@ Grundriß dieser Größe ist auf dem Deck kein Platz, und der Hub ist ohnehin de
 
 Welle 3 umgesetzt am 2026-11-27. Abweichungen: die Blind-Zähl-Animation ist entfallen (der Kopf der Karte nennt den Blind ohne Ticken); steht die Kamera nicht am Hub, wenn ein Zug fällig ist (Laden über die Grube verlassen), zeigt die Grube golden „RAUM WÄHLEN / Erst einen Raum wählen (Hub)“ statt WÜRFELN, nach „Fertig“ bleibt die Kamera am Hub; die Laden-Karte ist eine eigene Hub-Seite `FloorMapPage` mit derselben `FloorMapView` (`read_only`); die Karte greift in den Seitenrand des Hubs (`MAP_BLEED_UNITS`).
 
+## Welle 4 — „Bin ich dem Haus noch voraus?“ (Spieler-Entscheid 2026-11-27)
+
+In einem Spiel mit explodierenden Zahlen lesen sich nur Verhältnisse und Raten. Die erste
+Gruppe Laufwerte beantwortet die Frage, an der die Zugwahl hängt.
+
+- `GameRun.round_scores`: die erreichten Punkte jeder BEENDETEN Runde, gebucht in
+  `advance_round` neben `blind_history` (dieselbe Länge, derselbe Index).
+- TYPISCHE Rundenpunkte `typical_score()`: geometrisches Mittel der letzten bis zu
+  `SCORE_WINDOW` 3 Runden (geometrisch, weil das Wachstum exponentiell ist); ohne beendete
+  Runde gibt es keinen Wert.
+- POLSTER `cushion(blind)` = typische Rundenpunkte / Blind, gezeigt als „×3,6“; unter 1 rot.
+- TREND: `score_growth()` = geometrisches Mittel der Runde-zu-Runde-Verhältnisse der letzten
+  bis zu vier Runden (ab zwei beendeten Runden), `house_growth()` = 1 + Schritt des nächsten
+  Zugs. Gezeigt „Du ×1,32 · Haus ×1,14“. Ist das Haus schneller, nennt `rounds_until_caught()`
+  die Runden, bis das Polster bei diesem Tempo unter 1 fällt (ln(Polster) / ln(Haus/Du),
+  aufgerundet); sonst „voraus“. Der Schritt des Hauses eskaliert je Zug, die Zahl ist darum
+  eine Schätzung und heißt auch so („bei diesem Tempo“).
+- POLSTER JE TÜR: `blind_after_move(door_id)` = der Blind nach dem Zug SAMT den
+  Sofort-Klauseln dieses Zugs (Blind-Aufschläge, Eichung, mit `deal_bonus_factor()`), eine
+  reine Vorschau mit derselben Rechnung wie die Buchung. Die Karte zeigt an jedem gangbaren
+  Nachbarn bzw. in der Auskunft „Blind 520 · Polster ×2,9“ statt nur „+14 %“.
+- ZAHLENFORMAT: EIN Helfer für große Zahlen (bis 99.999 ausgeschrieben mit Tausenderpunkt,
+  dann „123 Tsd“, „1,2 Mio“, „3,4 Mrd“, „5,6 Bio“, danach Zehnerpotenz „1,2e15“), deutsches
+  Komma. Diese Welle nutzt ihn für die neuen Laufwerte und die Karte; die übrige Anzeige
+  bleibt unberührt.
+- Anzeige in dieser Welle: Polster und Trend als Lauf-Anzeigen der Hub-Startseite neben
+  Glück und Fumbles (mit Hover-Hinweis, der die Rechnung in einem Satz erklärt). Das Diagramm
+  (Blind und Rundenpunkte, logarithmisch) kommt mit dem neuen Hub-Layout in Welle 5.
+- Wenn ein sauberer Haken da ist, dazu: FUMBLE-QUOTE (echte Fumbles je Wurf) und BESTE HAND.
+
+Welle 4 umgesetzt am 2026-11-27. Abweichungen: die Rundenpunkte lebten nur in `scene_root.hand_total` — sie stehen jetzt in `GameRun.round_points` (`hand_total` ist eine Eigenschaft darauf); `blind_after_move` rechnet auch einen rundenweisen Boss-Aufschlag (Hohe Erwartungen) und die Galgenfrist ein und gleicht darum `effective_goal()` nach dem Zug; das Polster steht nur in der Auskunft, nicht an den Nachbar-Kacheln (zu eng); der Kopf der Karte nennt den Blind ebenfalls über `BigNumber`; BESTE HAND gebaut (`best_hand` über `note_hand_counters`), FUMBLE-QUOTE nicht — kein Wurf läuft durch GameRun.
+
+## Welle 5 — der TURM: die Karte wird senkrecht, schmal und endlos (Spieler-Entscheid 2026-11-27)
+
+- Die Karte läuft von UNTEN nach OBEN, je Reihe bis zu drei Räume. Die Vorlagen werden um
+  90° gedreht gelesen (Spalte → Reihe); Regeln und Erzeugung ändern sich nicht.
+- Die Etagen STAPELN sich: über dem Büro einer Etage beginnt die nächste. Ihr Eingang wird
+  nicht mehr gezeichnet — das Büro darunter ist der Standplatz. Die nächste Etage bleibt
+  VERBORGEN bis zum Aufzug (nach der Abrechnung).
+- Geschaffte Etagen bleiben als gedimmte Geschichte unter dem Puck stehen
+  (`GameRun.floor_history`, nur Anzeige). Der Turm hat keine Obergrenze.
+- Auf der Hub-Startseite steht der Turm als schmaler STREIFEN links (rund ein Drittel der
+  Breite, volle Höhe): Räume nur als Kachel in Stufenfarbe mit Zustand (besucht, gangbar,
+  Standraum mit Puck), Türen als kleine Marken (Stufenfarbe, „?“, frei, rot gesperrt), keine
+  Namen. Der Ausschnitt folgt dem Puck; das RAD rollt ihn an der Hub-Station, ein Zug rastet
+  auf den Puck zurück.
+- Rechts daneben: oben der Blind samt Schritt, darunter die AUSKUNFT (Raum und Tür unter dem
+  Zeiger mit vollem Text, Blind und Polster nach dem Zug), darunter die LAUFWERTE (Polster,
+  Trend, Fumble-Quote, Glück, Fumbles, Beste Hand — als Raster, das weitere Werte aufnimmt
+  und bei Überlauf rollt) und das DIAGRAMM: Blind und Rundenpunkte über die Runden,
+  logarithmische Achse, zwei Linien. Unten die Knöpfe wie bisher.
+- Die GROSSE Karte bleibt die Hub-Seite `FloorMapPage`, jetzt ebenfalls senkrecht und mit
+  Namen und Tür-Marken in lesbarer Größe: ein Klick auf den Streifen (auf keinen gangbaren
+  Raum) oder der Knopf „Karte öffnen“ öffnet sie, im Laden der Knopf „Etage“. Gezogen wird
+  in beiden Ansichten; im Laden bleibt sie nur zum Ansehen.
+
 ## OFFEN (Spieler-Entscheid nötig oder erst im Testspiel zu klären)
 
 - WÖRTER: „Etage“, „Raum“, „Tür“, „Büro“ sind vorläufig. „Boss-Runde“ bleibt (Entscheid

@@ -11,11 +11,14 @@ signal door_chosen(door_id: String)
 const ENTRANCE_HEAD := "Etage %d · Eingang"
 const MOVE_HEAD := "Etage %d · Zug %d"
 const OFFICE_HEAD := "Etage %d · Büro · Boss-Runde"
-const BLIND_HEAD := "Blind %d"
-const NEXT_BLIND_HEAD := "Nächster Blind %d"
+const BLIND_HEAD := "Blind %s"
+const NEXT_BLIND_HEAD := "Nächster Blind %s"
 const FREE_TEXT := "frei"
 const UNKNOWN_TEXT := "?"
-const BLIND_LINE := "Blind nach diesem Zug: %d (+%d %%)"
+const BLIND_LINE := "Blind nach diesem Zug: %s (%s)"
+const CUSHION_PART := " · Polster %s"
+## Polster unter ×1: typisch nicht zu schaffen.
+const SHORT_COLOR := Color("#ff5555")
 const IDLE_TITLE := "Wähle den nächsten Raum"
 const IDLE_BODY := "Der Zug unterschreibt den Malus der Tür und den Bonus des Raums."
 const STAND_TITLE := "Der Puck steht: %s"
@@ -93,6 +96,9 @@ var _head_left: Label
 var _head_right: Label
 var _info_title: Label
 var _info_body: Label
+## Blind und Polster nach dem Zug, rechts in der Titelzeile der Auskunft.
+var _info_move: Label
+var _info_row := Rect2()
 
 func _init() -> void:
 	visible = false
@@ -347,33 +353,65 @@ func press_at(local: Vector2) -> bool:
 func info_text() -> String:
 	if _info_title == null:
 		return ""
-	return _info_title.text + "\n" + _info_body.text
+	var text := _info_title.text + "\n" + _info_body.text
+	if _info_move != null and _info_move.text != "":
+		text += "\n" + _info_move.text
+	return text
 
 func _write_info() -> void:
 	if _info_title == null:
 		return
 	var title := IDLE_TITLE
-	var body := IDLE_BODY + " " + _blind_line()
+	var body := IDLE_BODY
 	var tint := TEXT_COLOR
+	var move := _blind_line(float(state.get("next_blind", 0)), int(state.get("step_percent", 0)),
+		float(state.get("cushion_next", 0.0)))
 	if walkable_doors().is_empty():
 		var here: Dictionary = _rooms.get(String(state.get("position", "")), {})
 		title = STAND_TITLE % String(here.get("name", ""))
 		body = STAND_BODY
+		move = []
 	if not _hover.is_empty():
 		var parts := _hover_info()
 		title = parts[0]
 		body = parts[1]
 		tint = parts[2]
-		if move_for(_hover) != "":
-			body += "  " + _blind_line()
+		move = []
+		var door_id := move_for(_hover)
+		if door_id != "":
+			var door: Dictionary = _doors.get(door_id, {})
+			move = _blind_line(float(door.get("blind_after", state.get("next_blind", 0))),
+				int(door.get("after_percent", state.get("step_percent", 0))),
+				float(door.get("cushion_after", 0.0)))
 	_info_title.text = title
 	_info_title.modulate = tint
 	_info_body.text = body
 	_info_body.add_theme_font_size_override("font_size",
 		_fit(body, _info_body.size.x, _info_body.size.y, INFO_BODY_UNITS, 1.15))
+	_info_move.text = String(move[0]) if not move.is_empty() else ""
+	_info_move.modulate = move[1] if not move.is_empty() else TEXT_COLOR
+	_fit_info_row()
 
-func _blind_line() -> String:
-	return BLIND_LINE % [int(state.get("next_blind", 0)), int(state.get("step_percent", 0))]
+## [Text, Farbe] der Zug-Zeile: Blind samt Schritt, mit typischem Wert dazu das Polster.
+static func _blind_line(blind: float, percent: int, cushion: float) -> Array:
+	var prefix := "+" if percent >= 0 else "−"
+	var text := BLIND_LINE % [BigNumber.short(blind), "%s%d %%" % [prefix, absi(percent)]]
+	if cushion <= 0.0:
+		return [text, TEXT_COLOR]
+	return [text + CUSHION_PART % BigNumber.factor(cushion), SHORT_COLOR if cushion < 1.0 else TEXT_COLOR]
+
+## Die Zug-Zeile steht rechts in der Titelzeile, der Titel nimmt den Rest.
+func _fit_info_row() -> void:
+	var u := _unit()
+	var width := 0.0
+	if _info_move.text != "":
+		var font := _info_move.get_theme_font("font")
+		var px := _info_move.get_theme_font_size("font_size")
+		width = minf(font.get_string_size(_info_move.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + u,
+			_info_row.size.x * 0.65) if font != null else _info_row.size.x * 0.5
+	_info_move.position = Vector2(_info_row.end.x - width, _info_row.position.y)
+	_info_move.size = Vector2(width, _info_row.size.y)
+	_info_title.size = Vector2(maxf(_info_row.size.x - width - u, 1.0), _info_row.size.y)
 
 func _hover_info() -> Array:
 	var id := String(_hover["id"])
@@ -444,8 +482,12 @@ func _build() -> void:
 		_build_mark(door_id, u)
 	var foot := _foot_rect().grow_individual(-u * 1.2, -u * 0.5, -u * 1.2, -u * 0.5)
 	var title_h := u * INFO_TITLE_UNITS * 1.35
-	_info_title = _place_label("InfoTitle", "", Rect2(foot.position, Vector2(foot.size.x, title_h)),
-		u * INFO_TITLE_UNITS, TEXT_COLOR, HORIZONTAL_ALIGNMENT_LEFT)
+	_info_row = Rect2(foot.position, Vector2(foot.size.x, title_h))
+	_info_title = _place_label("InfoTitle", "", _info_row, u * INFO_TITLE_UNITS, TEXT_COLOR,
+		HORIZONTAL_ALIGNMENT_LEFT)
+	_info_move = _place_label("InfoMove", "", _info_row, u * INFO_BODY_UNITS, TEXT_COLOR,
+		HORIZONTAL_ALIGNMENT_RIGHT)
+	_info_move.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_info_body = _place_label("InfoBody", "", Rect2(foot.position + Vector2(0.0, title_h),
 		Vector2(foot.size.x, foot.size.y - title_h)), u * INFO_BODY_UNITS, MUTED_COLOR.lightened(0.35),
 		HORIZONTAL_ALIGNMENT_LEFT)
@@ -465,8 +507,8 @@ static func head_text(view_state: Dictionary) -> String:
 ## Die Kopfzeile rechts: der laufende Blind, vor dem Zug der Blind NACH ihm.
 static func blind_text(view_state: Dictionary) -> String:
 	if bool(view_state.get("due", false)):
-		return NEXT_BLIND_HEAD % int(view_state.get("next_blind", 0))
-	return BLIND_HEAD % int(view_state.get("blind", 0))
+		return NEXT_BLIND_HEAD % BigNumber.short(int(view_state.get("next_blind", 0)))
+	return BLIND_HEAD % BigNumber.short(int(view_state.get("blind", 0)))
 
 ## Der Puck steht im Büro und kein Zug ist fällig: die laufende Runde ist die Boss-Runde.
 static func is_boss(view_state: Dictionary) -> bool:

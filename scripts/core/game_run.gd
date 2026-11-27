@@ -45,6 +45,9 @@ const BLIND_GROWTH_STEP := 0.05
 const BLIND_MOVE_STEP := 0.02
 ## Gerundet wird nur das Ziel (abwärts auf Vielfache davon), nie der Akkumulator.
 const BLIND_ROUNDING := 5
+## Laufwerte: typische Rundenpunkte über so viele Runden, der Trend über so viele.
+const SCORE_WINDOW := 3
+const TREND_WINDOW := 4
 ## Anzeige-Name der Boss-Runde (Hub-Kopfzeile).
 const STRESS_NAME := "Boss-Runde"
 
@@ -158,6 +161,12 @@ var round_goal: int = BASE_GOAL
 var blind_value: float = float(BASE_GOAL)
 ## Wirklich gespielter Blind je geschaffter Runde (Index = Runde − 1) für den Fahrplan.
 var blind_history: Array[int] = []
+## Erreichte Punkte je BEENDETER Runde, Index wie blind_history.
+var round_scores: Array[int] = []
+## Punkte der laufenden Runde - die EINE Quelle; scene_root bucht seine Hände hierher.
+var round_points: int = 0
+## Höchste Punktzahl einer einzelnen Hand im Lauf.
+var best_hand: int = 0
 ## GLÜCK: +1 je geschaffter Runde, Glücks-Klauseln drehen daran; trägt progress_tier.
 ## Jede Änderung gleicht den Glückswürfel an (Buchung vor dem Licht).
 var luck: int = 0:
@@ -1939,6 +1948,91 @@ func blind_growth(move: int = 0) -> float:
 func next_blind() -> int:
 	return floor_to_blind(blind_value * (1.0 + blind_growth()))
 
+## Der Blind nach dem Zug durch door_id SAMT seinen Sofort-Klauseln (und einem rundenweisen
+## Aufschlag der Boss-Kondition) - dieselbe Rechnung, in derselben Reihenfolge wie die Buchung.
+func blind_after_move(door_id: String) -> int:
+	var value := blind_value * (1.0 + blind_growth())
+	var round_factor := 1.0
+	var boost := deal_bonus_factor()
+	for clause_id in move_clauses(door_id):
+		value *= instant_blind_factor(clause_id, boost)
+		if QUOTA_MALUS.has(clause_id):
+			round_factor *= 1.0 + float(QUOTA_MALUS[clause_id])
+	return roundi(floor_to_blind(value) * round_factor * _round_goal_factor_reprieve())
+
+# --- Laufwerte: bin ich dem Haus noch voraus? ----------------------------------
+
+## Typische Rundenpunkte: geometrisches Mittel der letzten SCORE_WINDOW beendeten Runden
+## (0 = noch keine beendete Runde). Nullrunden zählen als 1.
+func typical_score() -> float:
+	if round_scores.is_empty():
+		return 0.0
+	var recent := round_scores.slice(-SCORE_WINDOW)
+	var logs := 0.0
+	for score: int in recent:
+		logs += log(float(maxi(1, score)))
+	return exp(logs / float(recent.size()))
+
+func has_typical_score() -> bool:
+	return not round_scores.is_empty()
+
+## Polster = typische Rundenpunkte / Blind (0 = kein Wert).
+func cushion(blind: int) -> float:
+	if not has_typical_score() or blind <= 0:
+		return 0.0
+	return typical_score() / float(blind)
+
+## Der Blind, gegen den das Polster der Startseite mißt: vor dem Zug der nächste.
+func cushion_blind() -> int:
+	return next_blind() if move_due else effective_goal()
+
+## Wachstum je Runde: geometrisches Mittel der Verhältnisse über die letzten TREND_WINDOW
+## Runden (0 = weniger als zwei beendete Runden).
+func score_growth() -> float:
+	if round_scores.size() < 2:
+		return 0.0
+	var recent := round_scores.slice(-TREND_WINDOW)
+	var first := float(maxi(1, int(recent[0])))
+	var last := float(maxi(1, int(recent[-1])))
+	return pow(last / first, 1.0 / float(recent.size() - 1))
+
+## Wachstum des Hauses: der Schritt des nächsten Zugs.
+func house_growth() -> float:
+	return 1.0 + blind_growth()
+
+## Runden, bis das Polster bei diesem Tempo unter 1 fällt (−1 = voraus oder kein Wert).
+func rounds_until_caught() -> int:
+	var du := score_growth()
+	var pad := cushion(cushion_blind())
+	var haus := house_growth()
+	if du <= 0.0 or pad <= 0.0 or haus <= du:
+		return -1
+	if pad < 1.0:
+		return 0
+	return maxi(1, ceili(log(pad) / log(haus / du)))
+
+## Hover des Polsters: die Rechnung in einem Satz.
+func cushion_hint() -> String:
+	if not has_typical_score():
+		return "Typische Rundenpunkte geteilt durch den Blind - steht nach der ersten geschafften Runde."
+	var against := "den nächsten Blind" if move_due else "den Blind dieser Runde"
+	return "Typische Rundenpunkte (Mittel der letzten %d Runden: %s) geteilt durch %s (%s); unter ×1 reicht es nicht." \
+		% [mini(SCORE_WINDOW, round_scores.size()), BigNumber.short(typical_score()), against,
+			BigNumber.short(cushion_blind())]
+
+## Hover des Trends: wer schneller wächst und, wenn das Haus, wann es dich einholt.
+func trend_hint() -> String:
+	if score_growth() <= 0.0:
+		return "Wie schnell deine Rundenpunkte wachsen gegen den Schritt des Blinds - steht nach zwei geschafften Runden."
+	var head := "Deine Rundenpunkte wachsen je Runde %s, der Blind beim nächsten Zug %s" \
+		% [BigNumber.factor(score_growth(), 2), BigNumber.factor(house_growth(), 2)]
+	var caught := rounds_until_caught()
+	if caught < 0:
+		return head + " - du bist dem Haus voraus."
+	if caught == 0:
+		return head + " - das Haus hat dich schon eingeholt."
+	return head + " - bei diesem Tempo holt dich das Haus in %d %s ein." % [caught, "Runde" if caught == 1 else "Runden"]
+
 ## Die Türen, durch die der fällige Zug gehen darf (leer = kein Zug fällig).
 func walkable_doors() -> Array[String]:
 	var ids: Array[String] = []
@@ -1983,21 +2077,31 @@ func floor_view_state() -> Dictionary:
 			"tier": int(room["tier"]), "cell": room["cell"], "visited": bool(room["visited"]),
 			"entrance": room_id == floor_map.entrance, "office": room_id == floor_map.office})
 	var doors: Array[Dictionary] = []
+	var walkable := walkable_doors()
+	var blind_now := float(maxi(1, effective_goal()))
 	for entry in floor_map.doors:
 		var state := int(entry["state"])
 		var shown := bool(entry["scouted"]) and state != FloorMap.DoorState.LOCKED
 		var clause := ""
 		if shown:
 			clause = String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
-		doors.append({"id": String(entry["id"]), "a": String(entry["a"]), "b": String(entry["b"]),
+		var door := {"id": String(entry["id"]), "a": String(entry["a"]), "b": String(entry["b"]),
 			"state": state, "scouted": shown, "tier": int(entry["tier"]) if shown else -1,
 			"clause": clause, "free": shown and bool(entry["free"]),
-			"office": floor_map.is_office_door(entry)})
+			"office": floor_map.is_office_door(entry)}
+		if walkable.has(String(entry["id"])):
+			# Fertige Zahlen je gangbarem Zug: die Karte rechnet nichts selbst.
+			var after := blind_after_move(String(entry["id"]))
+			door["blind_after"] = after
+			door["after_percent"] = roundi((float(after) / blind_now - 1.0) * 100.0)
+			door["cushion_after"] = cushion(after)
+		doors.append(door)
 	return {"floor": floor_index + 1, "moves": floor_moves, "due": move_due,
 		"position": floor_map.position, "entrance": floor_map.entrance, "office": floor_map.office,
-		"rooms": rooms, "doors": doors, "walkable": walkable_doors(),
+		"rooms": rooms, "doors": doors, "walkable": walkable,
 		"blind": effective_goal(), "next_blind": next_blind(),
-		"step_percent": roundi(blind_growth() * 100.0), "locked": last_locked_door}
+		"step_percent": roundi(blind_growth() * 100.0), "locked": last_locked_door,
+		"cushion_next": cushion(next_blind())}
 
 ## Der Zug der Runde durch door_id: Blind-Schritt, Tür ausbrennen, Raum leeren, Malus und
 ## Bonus unterschreiben, dann die Türen des neuen Raums erkunden. false = nichts gebucht.
@@ -2073,8 +2177,9 @@ func sign_clauses(clause_ids: Array[String]) -> void:
 ## Zähler, die eine Runden-Klausel beim Einzug aufstellt.
 func _apply_instant_clause(clause_id: String) -> void:
 	var boost := deal_bonus_factor()
-	if BLIND_RAISE.has(clause_id):
-		raise_blind(1.0 + float(BLIND_RAISE[clause_id]))
+	var blind_factor := instant_blind_factor(clause_id, boost)
+	if blind_factor != 1.0:
+		raise_blind(blind_factor)
 	if LUCK_CLAUSES.has(clause_id):
 		var amount := int(LUCK_CLAUSES[clause_id])
 		add_luck(amount * boost if amount > 0 else amount)
@@ -2083,9 +2188,6 @@ func _apply_instant_clause(clause_id: String) -> void:
 		temp_luck += lent
 		add_luck(lent)
 	match clause_id:
-		DealClause.CALIBRATION:
-			# Nachlass: zweimal angewandt statt verdoppelt.
-			raise_blind(pow(CALIBRATION_FACTOR, boost))
 		DealClause.ADVANCE_PAYMENT:
 			add_money(ADVANCE_PAYMENT_MONEY * boost)
 		DealClause.BLANK_CHEQUE:
@@ -2112,6 +2214,15 @@ func _apply_instant_clause(clause_id: String) -> void:
 		DealClause.PROJECTOR_FAILURE:
 			dark_charm = owned_charms.pick_random() if not owned_charms.is_empty() else null
 			sync_luck_die()  # ein abgeschalteter Glückspilz dreht am wirkenden Glück
+
+## Dauerhafter Faktor einer Klausel auf blind_value (1 = keiner) - Buchung und Vorschau
+## teilen ihn. Die Eichung ist ein Nachlass: zweimal angewandt statt verdoppelt.
+static func instant_blind_factor(clause_id: String, boost: int) -> float:
+	if BLIND_RAISE.has(clause_id):
+		return 1.0 + float(BLIND_RAISE[clause_id])
+	if clause_id == DealClause.CALIBRATION:
+		return pow(CALIBRATION_FACTOR, boost)
+	return 1.0
 
 ## Zwangsversteigerung: der teuerste Charm (Gleichstand: der linke), −1 = keiner.
 func auction_charm_index() -> int:
@@ -2565,10 +2676,11 @@ func note_phosphor_stores(defs: Array[DieDefinition], breakdown: Dictionary) -> 
 			essence_phosphor_mult[key] = float(essence_phosphor_mult.get(key, 0.0)) \
 				+ float(step.get("mult_contribution", 0.0))
 
-## Schreibt die Hand-Zähler der Runde fort (Dunkelkammer, Gewitterfront).
+## Schreibt die Hand-Zähler der Runde fort (Dunkelkammer, Gewitterfront) und die beste Hand des Laufs.
 func note_hand_counters(breakdown: Dictionary) -> void:
 	round_trigger_count += maxi(0, int(breakdown.get("triggers", 0)))
 	round_crit_count += maxi(0, int(breakdown.get("crits", 0)))
+	best_hand = maxi(best_hand, int(breakdown.get("total", 0)))
 
 ## Ein Fumble ist gefallen. volcanic = ein Vulkanblitz lag dabei in der Grube;
 ## dieser Zähler läuft IMMER mit, gelesen wird er nur unter der Aschewolke.
@@ -3002,6 +3114,10 @@ func advance_round() -> void:
 	while blind_history.size() < round_number - 1:
 		blind_history.append(floor_to_blind(float(BASE_GOAL)))
 	blind_history.append(effective_goal())
+	while round_scores.size() < blind_history.size() - 1:
+		round_scores.append(0)
+	round_scores.append(round_points)
+	round_points = 0
 	if temp_luck > 0:
 		add_luck(-temp_luck)
 		temp_luck = 0

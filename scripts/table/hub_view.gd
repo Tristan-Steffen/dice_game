@@ -93,6 +93,16 @@ const STAT_FUMBLES := "fumbles"
 const STAT_TITLES := {STAT_BLIND: "Nächster Blind", STAT_LUCK: "Glück", STAT_FUMBLES: "Fumbles"}
 const STAT_COLORS := {STAT_BLIND: Color("#ff5555"), STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42")}
 const STAT_TICK_TIME := 0.45
+## Zweite Zeile: Polster und Trend - Verhältnisse statt Zahlen, darum Text statt Ticken.
+const STAT_CUSHION := "cushion"
+const STAT_TREND := "trend"
+const TREND_TITLES := {STAT_CUSHION: "Polster", STAT_TREND: "Trend"}
+const TREND_COLORS := {STAT_CUSHION: Color("#7fe0c8"), STAT_TREND: Color("#b8b0ff")}
+## Polster unter ×1: der Blind ist typisch nicht zu schaffen.
+const CUSHION_SHORT_COLOR := Color("#ff5555")
+const NO_VALUE := "–"
+## Fuge zwischen den beiden Zeilen der Lauf-Anzeigen, in u.
+const STATS_ROW_GAP_UNITS := 0.4
 var stat_labels: Dictionary = {}  # Schlüssel -> Label
 var _stat_values: Dictionary = {}  # Schlüssel -> zuletzt gezeigter Zielwert
 var _stat_shown: Dictionary = {}  # Schlüssel -> gerade angezeigte (tickende) Zahl
@@ -680,8 +690,8 @@ func _hide_marker_hint() -> void:
 	if marker_hint != null:
 		marker_hint.hide_card()
 
-## Die Lauf-Anzeigen: Nächster Blind, Glück und Fumbles als EINE Zeile unter der
-## Karte - je mit Hover-Hinweis.
+## Die Lauf-Anzeigen unter der Karte, je mit Hover-Hinweis: Nächster Blind, Glück und
+## Fumbles, darunter Polster und Trend.
 func _build_run_stats(u: float) -> void:
 	for key: String in [STAT_BLIND, STAT_LUCK, STAT_FUMBLES]:
 		var label := Label.new()
@@ -697,6 +707,19 @@ func _build_run_stats(u: float) -> void:
 		stat_labels[key] = label
 		_stat_shown[key] = 0
 		_write_stat(key, 0)
+	for key: String in [STAT_CUSHION, STAT_TREND]:
+		var label := Label.new()
+		label.name = "Stat_" + key
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.add_theme_font_size_override("font_size", int(u * 2.6))
+		label.modulate = TREND_COLORS[key]
+		label.mouse_filter = Control.MOUSE_FILTER_PASS
+		label.mouse_entered.connect(func() -> void: _show_hint(label, String(TREND_TITLES[key]),
+			String(_stat_hints.get(key, "")), TREND_COLORS[key]))
+		label.mouse_exited.connect(_hide_marker_hint)
+		label.text = "%s %s" % [TREND_TITLES[key], NO_VALUE]
+		roadmap_stage.add_child(label)
+		stat_labels[key] = label
 
 ## Setzt die Lauf-Anzeigen samt Hinweisen; eine geänderte Zahl tickt hoch und blitzt.
 ## growth_pct: Schritt des nächsten Zugs in Prozent (GameRun.blind_growth).
@@ -720,6 +743,22 @@ func set_run_stats(next_blind: int, luck: int, fumbles: int, hints: Dictionary =
 			_write_stat(key, target)
 		else:
 			_tick_stat(key, target)
+	_layout_stage()
+
+## Polster und Trend (GameRun.cushion/score_growth/house_growth; ≤ 0 = noch kein Wert).
+func set_run_trends(cushion: float, score_growth: float, house_growth: float,
+		hints: Dictionary = {}) -> void:
+	if not _built or not stat_labels.has(STAT_CUSHION):
+		return
+	for key in hints:
+		_stat_hints[key] = String(hints[key])
+	var pad := stat_labels[STAT_CUSHION] as Label
+	pad.text = "%s %s" % [TREND_TITLES[STAT_CUSHION],
+		BigNumber.factor(cushion) if cushion > 0.0 else NO_VALUE]
+	pad.modulate = CUSHION_SHORT_COLOR if cushion > 0.0 and cushion < 1.0 else TREND_COLORS[STAT_CUSHION]
+	var trend := stat_labels[STAT_TREND] as Label
+	trend.text = "%s %s" % [TREND_TITLES[STAT_TREND], NO_VALUE] if score_growth <= 0.0 \
+		else "Du %s · Haus %s" % [BigNumber.factor(score_growth, 2), BigNumber.factor(house_growth, 2)]
 	_layout_stage()
 
 func _write_stat(key: String, value: int) -> void:
@@ -762,14 +801,19 @@ func _layout_stage() -> void:
 	if s.x < 40.0 or s.y < 40.0 or floor_map == null:
 		return
 	var u := size.x / 100.0
-	var row: Array[Label] = [stat_labels.get(STAT_BLIND) as Label, stat_labels.get(STAT_LUCK) as Label,
-		stat_labels.get(STAT_FUMBLES) as Label]
+	var rows: Array = [[STAT_BLIND, STAT_LUCK, STAT_FUMBLES], [STAT_CUSHION, STAT_TREND]]
+	var row_heights: Array[float] = []
 	var stats_h := 0.0
-	var widths := 0.0
-	for label in row:
-		label.reset_size()
-		stats_h = maxf(stats_h, label.size.y)
-		widths += label.size.x
+	for keys: Array in rows:
+		var h := 0.0
+		for key: String in keys:
+			var label := stat_labels.get(key) as Label
+			if label != null:
+				label.reset_size()
+				h = maxf(h, label.size.y)
+		row_heights.append(h)
+		stats_h += h
+	stats_h += u * STATS_ROW_GAP_UNITS * float(rows.size() - 1)
 	var token_band := u * TOKEN_BAND_UNITS
 	var gap := u * STATS_GAP_UNITS
 	var map_h := maxf(s.y - token_band - stats_h - gap * 2.0, 40.0)
@@ -778,11 +822,21 @@ func _layout_stage() -> void:
 	floor_map.position = Vector2(-bleed, 0.0)
 	floor_map.size = Vector2(s.x + bleed * 2.0, map_h)
 	var spread := u * 4.0
-	var x := (s.x - widths - spread * float(row.size() - 1)) * 0.5
 	var stats_y := map_h + gap
-	for label in row:
-		label.position = Vector2(x, stats_y)
-		x += label.size.x + spread
+	var y := stats_y
+	for r in rows.size():
+		var labels: Array[Label] = []
+		var widths := 0.0
+		for key: String in rows[r]:
+			var label := stat_labels.get(key) as Label
+			if label != null:
+				labels.append(label)
+				widths += label.size.x
+		var x := (s.x - widths - spread * float(labels.size() - 1)) * 0.5
+		for label in labels:
+			label.position = Vector2(x, y)
+			x += label.size.x + spread
+		y += row_heights[r] + u * STATS_ROW_GAP_UNITS
 	if deal_token_row != null:
 		deal_token_row.reset_size()
 		var band_top := stats_y + stats_h + gap

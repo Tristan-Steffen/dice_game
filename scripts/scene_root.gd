@@ -734,7 +734,13 @@ var _die_focus_home: Dictionary = {}
 
 var phase: Phase = Phase.IDLE
 var has_rolled_current_hand: bool = false
-var hand_total: int = 0
+## Punkte der laufenden Runde: steht in GameRun.round_points (dort bucht advance_round sie).
+var hand_total: int:
+	get:
+		return run.round_points if run != null else 0
+	set(value):
+		if run != null:
+			run.round_points = value
 
 var displayed_points: int = 0  # läuft hand_total animiert hinterher
 var points_tween: Tween
@@ -2399,6 +2405,8 @@ func _refresh_hub_info() -> void:
 		run.farkle_count, {HubView.STAT_BLIND: run.blind_hint(), HubView.STAT_LUCK: run.luck_hint(),
 			HubView.STAT_FUMBLES: run.fumble_hint()},
 		roundi(run.blind_growth() * 100.0))
+	table_screen.hub.set_run_trends(run.cushion(run.cushion_blind()), run.score_growth(),
+		run.house_growth(), {HubView.STAT_CUSHION: run.cushion_hint(), HubView.STAT_TREND: run.trend_hint()})
 
 ## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
 ## Grubenrand. Gespiegelt aus EINER Hand, damit die Wirkung auch dort steht, wo
