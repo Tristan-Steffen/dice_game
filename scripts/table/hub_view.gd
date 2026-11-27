@@ -65,20 +65,51 @@ var lexikon_button: Button
 var _tier := 1
 var _tier_shown := 0  # 0 = noch nie angewandt
 
-## Die Bühne der Startseite: oben die ETAGEN-KARTE (ihr Kopf nennt Etage, Zug und
-## Blind), darunter die Lauf-Anzeigen und die Deal-Marken.
+## Die große Etagen-Karte soll aufschlagen (Klick auf den Streifen oder den Knopf).
+signal map_requested
+
+## Die Bühne der Startseite: links der TURM-Streifen samt Knopf „Karte öffnen“, rechts
+## Blind, Auskunft, Laufwerte, Diagramm und die Deal-Marken.
 var roadmap_stage: Control
-## Die Etagen-Karte; ein Klick auf einen gangbaren Raum meldet door_chosen.
+## Der Turm-Streifen; ein Klick auf einen gangbaren Raum meldet door_chosen.
 var floor_map: FloorMapView
-var _blind_growth_pct := 0
-## Zug der Etage samt fälligem (0 = Eingang) und ob er fällig ist - für die Nächster-Zeile.
-var _floor_move := 0
-var _move_due := false
-## Band unter der Karte: Lauf-Anzeigen, dann die Deal-Marken (in u).
-const STATS_GAP_UNITS := 1.2
-const TOKEN_BAND_UNITS := 6.2
+var open_map_button: Button
+var blind_panel: Panel
+var blind_title: Label
+var blind_value: Label
+var blind_step: Label
+var info_panel: Panel
+var info_title: Label
+var info_body: Label
+var info_move: Label
+var values_grid: RunValuesGrid
+var chart: RunChartView
+var _floor_state: Dictionary = {}
+## Maße der Bühne in u: Streifen-Anteil, Spalten-Fuge, die Höhen rechts von oben.
+const STRIP_SHARE := 0.34
 const MAP_BLEED_UNITS := 3.0
-## Hinweis-Karte der Deal-Marken und der Lauf-Anzeigen (Hover).
+const COLUMN_GAP_UNITS := 2.2
+const SECTION_GAP_UNITS := 1.2
+const MAP_BUTTON_UNITS := 5.0
+const BLIND_UNITS := 10.2
+const INFO_UNITS := 16.5
+const GRID_ROWS_SHOWN := 2
+const TOKEN_BAND_UNITS := 6.2
+const CARD_PAD_UNITS := 1.2
+## Die eine Schriftleiter der rechten Seite (in u).
+const SMALL_FONT_UNITS := 2.1
+const BODY_FONT_UNITS := 2.2
+const TITLE_FONT_UNITS := 2.5
+const BIG_FONT_UNITS := 4.6
+const CARD_BG := Color(0.07, 0.065, 0.16, 0.85)
+const OPEN_MAP_TEXT := "Karte öffnen"
+const BLIND_TITLE := "Blind"
+const NEXT_BLIND_TITLE := "Nächster Blind"
+const BOSS_TITLE := "Boss-Runde"
+const STEP_TEXT := "Zug %d: %s%d %%"
+const BLIND_COLOR := Color("#ff5555")
+const BOSS_COLOR := Color("#ff3b3b")
+## Hinweis-Karte der Deal-Marken und der Laufwerte (Hover).
 var marker_hint: HintCard
 
 ## Deal-Marken unter der Seiten-Reihe; dieselbe Reihe liegt am oberen Grubenrand.
@@ -86,28 +117,19 @@ var deal_token_row: DealTokenRow
 
 var info_page: Control  # Alias auf roadmap_stage (Rückwärts-Bezug)
 
-## Lauf-Anzeigen der Blind-Bühne: Nächster Blind, Glück, Fumbles (Schlüssel STAT_*).
-const STAT_BLIND := "blind"
-const STAT_LUCK := "luck"
-const STAT_FUMBLES := "fumbles"
-const STAT_TITLES := {STAT_BLIND: "Nächster Blind", STAT_LUCK: "Glück", STAT_FUMBLES: "Fumbles"}
-const STAT_COLORS := {STAT_BLIND: Color("#ff5555"), STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42")}
-const STAT_TICK_TIME := 0.45
-## Zweite Zeile: Polster und Trend - Verhältnisse statt Zahlen, darum Text statt Ticken.
+## Laufwerte (Schlüssel und Farben; die Einträge reicht scene_root als Liste).
 const STAT_CUSHION := "cushion"
 const STAT_TREND := "trend"
-const TREND_TITLES := {STAT_CUSHION: "Polster", STAT_TREND: "Trend"}
-const TREND_COLORS := {STAT_CUSHION: Color("#7fe0c8"), STAT_TREND: Color("#b8b0ff")}
+const STAT_LUCK := "luck"
+const STAT_FUMBLES := "fumbles"
+const STAT_BEST := "best"
+const STAT_STEP := "step"
+const STAT_COLORS := {STAT_CUSHION: Color("#7fe0c8"), STAT_TREND: Color("#b8b0ff"),
+	STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42"), STAT_BEST: Color("#ecebff"),
+	STAT_STEP: Color("#ff8f8f")}
 ## Polster unter ×1: der Blind ist typisch nicht zu schaffen.
 const CUSHION_SHORT_COLOR := Color("#ff5555")
 const NO_VALUE := "–"
-## Fuge zwischen den beiden Zeilen der Lauf-Anzeigen, in u.
-const STATS_ROW_GAP_UNITS := 0.4
-var stat_labels: Dictionary = {}  # Schlüssel -> Label
-var _stat_values: Dictionary = {}  # Schlüssel -> zuletzt gezeigter Zielwert
-var _stat_shown: Dictionary = {}  # Schlüssel -> gerade angezeigte (tickende) Zahl
-var _stat_hints: Dictionary = {}  # Schlüssel -> Hinweis-Text
-var _stat_tweens: Dictionary = {}
 
 ## Einstellungen-Knopf unten rechts auf der Home-Seite (blendet mit ihr aus).
 var settings_button: Button
@@ -612,18 +634,17 @@ func _apply_frame_tier() -> void:
 		_frame_style.bg_color = _frame_bg
 		_frame_style.set_border_width_all(maxi(2, int((size.x / 100.0) * _frame_base_width_u)))
 
-# --- Etagen-Karte + Lauf-Anzeigen (Home-Bänder) ------------------------------
+# --- Die Bühne: Turm-Streifen, Blind, Auskunft, Laufwerte, Diagramm ----------
 
 ## Setzt den Stand der Etage (GameRun.floor_view_state); flash_door blitzt einmal rot.
 func set_floor_state(view_state: Dictionary, deal_bonus_factor: int = 1,
 		flash_door: String = "") -> void:
 	if not _built or floor_map == null:
 		return
-	_move_due = bool(view_state.get("due", false))
-	_floor_move = int(view_state.get("moves", 0)) + (1 if _move_due else 0)
+	_floor_state = view_state
 	floor_map.open(view_state, deal_bonus_factor, flash_door)
-	_write_stat(STAT_BLIND, int(_stat_shown.get(STAT_BLIND, 0)))
-	_layout_stage()
+	_write_blind_card()
+	_write_info()
 
 ## Ob der fällige Zug jetzt angenommen wird (scene_root fragt es je Bild).
 func set_floor_moves_enabled(on: bool) -> void:
@@ -631,7 +652,7 @@ func set_floor_moves_enabled(on: bool) -> void:
 		floor_map.set_moves_enabled(on)
 
 ## Der Zug, den ein Klick auf dieses Display-Pixel wählen würde ("" = keiner) - so
-## nimmt die Karte den Klick auch aus der Ferne, wo der Hub sonst nur Knöpfe bedient.
+## nimmt der Streifen den Klick auch aus der Ferne, wo der Hub sonst nur Knöpfe bedient.
 func floor_move_at(pixel: Vector2) -> String:
 	if floor_map == null or not floor_map.is_visible_in_tree() or content_root == null \
 			or not content_root.visible:
@@ -641,16 +662,129 @@ func floor_move_at(pixel: Vector2) -> String:
 		return ""
 	return floor_map.move_for(floor_map.target_at(pixel - rect.position))
 
-## Baut die Bühne: die Etagen-Karte, die Lauf-Anzeigen und die Deal-Marken.
+## Das Rad über Streifen oder Laufwerten rollt sie (true = verbraucht).
+func wheel_at(pixel: Vector2, up: bool) -> bool:
+	if not _built or content_root == null or not content_root.visible:
+		return false
+	if floor_map != null and floor_map.get_global_rect().has_point(pixel):
+		floor_map.scroll_by(1.0 if up else -1.0)
+		return true
+	if values_grid != null and values_grid.get_global_rect().has_point(pixel):
+		values_grid.scroll_by(-1.0 if up else 1.0)
+		return true
+	return false
+
+## Die Laufwerte als Liste {key, title, text, sub, color, hint} - ein weiterer Wert ist
+## ein weiterer Eintrag.
+func set_run_values(values: Array) -> void:
+	if _built and values_grid != null:
+		values_grid.set_values(values)
+
+## Das Diagramm aus GameRun.run_chart ({blinds, scores}).
+func set_chart(data: Dictionary) -> void:
+	if _built and chart != null:
+		chart.set_series(data.get("blinds", []), data.get("scores", []))
+
+## Baut die Bühne: Streifen samt Knopf, die Karten rechts, Raster, Diagramm, Marken.
 func _build_rim_stage(u: float) -> void:
 	floor_map = FloorMapView.new()
 	floor_map.name = "FloorMap"
+	floor_map.compact = true
+	floor_map.unit_px = u
+	floor_map.open_requested.connect(func() -> void: map_requested.emit())
+	floor_map.hover_changed.connect(_write_info)
 	roadmap_stage.add_child(floor_map)
-	_build_run_stats(u)
+	open_map_button = Button.new()
+	open_map_button.name = "OpenMapButton"
+	open_map_button.text = OPEN_MAP_TEXT
+	open_map_button.focus_mode = Control.FOCUS_NONE
+	open_map_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	CasinoStyle.style_button(open_map_button, CasinoStyle.BLUE, CasinoStyle.BLUE_DARK,
+		int(u * TITLE_FONT_UNITS))
+	open_map_button.pressed.connect(func() -> void: map_requested.emit())
+	roadmap_stage.add_child(open_map_button)
+	blind_panel = _card_panel("BlindCard", u)
+	blind_title = _stage_label("BlindTitle", SMALL_FONT_UNITS, u)
+	blind_value = _stage_label("BlindValue", BIG_FONT_UNITS, u)
+	blind_step = _stage_label("BlindStep", TITLE_FONT_UNITS, u)
+	blind_step.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	info_panel = _card_panel("InfoCard", u)
+	info_title = _stage_label("InfoTitle", TITLE_FONT_UNITS, u)
+	info_move = _stage_label("InfoMove", SMALL_FONT_UNITS, u)
+	info_body = _stage_label("InfoBody", BODY_FONT_UNITS, u)
+	info_body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	info_body.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	values_grid = RunValuesGrid.new()
+	values_grid.name = "RunValues"
+	values_grid.unit_px = u
+	values_grid.tile_hovered.connect(func(tile: Control, title: String, hint: String, color: Color) -> void:
+		_show_hint(tile, title, hint, color))
+	values_grid.tile_left.connect(_hide_marker_hint)
+	roadmap_stage.add_child(values_grid)
+	chart = RunChartView.new()
+	chart.name = "RunChart"
+	chart.unit_px = u
+	roadmap_stage.add_child(chart)
 	_build_deal_tokens(u)
 	_build_marker_hint(u)  # zuletzt: der Hinweis liegt über allem
 
-## Marken-Reihe unten mittig auf der Bühne (Position setzt _layout_stage).
+func _card_panel(node_name: String, u: float) -> Panel:
+	var panel := Panel.new()
+	panel.name = node_name
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = CARD_BG
+	box.set_corner_radius_all(int(u * 0.9))
+	panel.add_theme_stylebox_override("panel", box)
+	roadmap_stage.add_child(panel)
+	return panel
+
+func _stage_label(node_name: String, font_units: float, u: float) -> Label:
+	var label := CasinoStyle.label("", u * font_units, FloorMapView.TEXT_COLOR)
+	label.name = node_name
+	label.clip_text = true
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	roadmap_stage.add_child(label)
+	return label
+
+## Die Blind-Karte: vor dem Zug der nächste Blind, im Büro die Boss-Runde.
+func _write_blind_card() -> void:
+	if blind_title == null or _floor_state.is_empty():
+		return
+	var due := bool(_floor_state.get("due", false))
+	var boss := FloorMapView.is_boss(_floor_state)
+	blind_title.text = BOSS_TITLE if boss else (NEXT_BLIND_TITLE if due else BLIND_TITLE)
+	blind_title.modulate = BOSS_COLOR if boss else FloorMapView.MUTED_COLOR.lightened(0.2)
+	blind_value.text = BigNumber.short(int(_floor_state.get("next_blind" if due else "blind", 0)))
+	blind_value.modulate = BOSS_COLOR if boss else BLIND_COLOR
+	var percent := int(_floor_state.get("step_percent", 0))
+	# Vor dem Zug sein eigener Schritt, danach der des nächsten.
+	var move := int(_floor_state.get("moves", 0)) + 1
+	blind_step.text = FloorMapView.head_text(_floor_state) if boss \
+		else STEP_TEXT % [move, "+" if percent >= 0 else "−", absi(percent)]
+
+## Die Auskunft: was der Streifen unter dem Zeiger hat, sonst die ruhige Zeile.
+func _write_info() -> void:
+	if info_title == null or floor_map == null:
+		return
+	var parts := floor_map.info_parts()
+	info_title.text = String(parts["title"])
+	info_title.modulate = parts["color"]
+	info_body.text = String(parts["body"])
+	info_body.modulate = FloorMapView.MUTED_COLOR.lightened(0.4)
+	info_move.text = String(parts["move"])
+	info_move.modulate = parts["move_color"]
+
+## Die Texte der Auskunft (für Tests und Sichtproben).
+func info_text() -> String:
+	if info_title == null:
+		return ""
+	var text := info_title.text + "\n" + info_body.text
+	if info_move.text != "":
+		text += "\n" + info_move.text
+	return text
+
+## Marken-Reihe unten rechts auf der Bühne (Position setzt _layout_stage).
 func _build_deal_tokens(_u: float) -> void:
 	deal_token_row = DealTokenRow.new()
 	deal_token_row.name = "DealTokens"
@@ -674,7 +808,7 @@ func sweep_deal_tokens() -> float:
 	_hide_marker_hint()
 	return deal_token_row.sweep(size.y * 0.12)
 
-## Hinweis-Karte für Deal-Marken und Lauf-Anzeigen.
+## Hinweis-Karte für Deal-Marken und Laufwerte.
 func _build_marker_hint(u: float) -> void:
 	marker_hint = HintCard.new(u)
 	marker_hint.name = "MarkerHint"
@@ -690,158 +824,79 @@ func _hide_marker_hint() -> void:
 	if marker_hint != null:
 		marker_hint.hide_card()
 
-## Die Lauf-Anzeigen unter der Karte, je mit Hover-Hinweis: Nächster Blind, Glück und
-## Fumbles, darunter Polster und Trend.
-func _build_run_stats(u: float) -> void:
-	for key: String in [STAT_BLIND, STAT_LUCK, STAT_FUMBLES]:
-		var label := Label.new()
-		label.name = "Stat_" + key
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_size_override("font_size", int(u * 3.0))
-		label.modulate = STAT_COLORS[key]
-		label.mouse_filter = Control.MOUSE_FILTER_PASS
-		label.mouse_entered.connect(func() -> void: _show_hint(label, String(STAT_TITLES[key]),
-			String(_stat_hints.get(key, "")), STAT_COLORS[key]))
-		label.mouse_exited.connect(_hide_marker_hint)
-		roadmap_stage.add_child(label)
-		stat_labels[key] = label
-		_stat_shown[key] = 0
-		_write_stat(key, 0)
-	for key: String in [STAT_CUSHION, STAT_TREND]:
-		var label := Label.new()
-		label.name = "Stat_" + key
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_size_override("font_size", int(u * 2.6))
-		label.modulate = TREND_COLORS[key]
-		label.mouse_filter = Control.MOUSE_FILTER_PASS
-		label.mouse_entered.connect(func() -> void: _show_hint(label, String(TREND_TITLES[key]),
-			String(_stat_hints.get(key, "")), TREND_COLORS[key]))
-		label.mouse_exited.connect(_hide_marker_hint)
-		label.text = "%s %s" % [TREND_TITLES[key], NO_VALUE]
-		roadmap_stage.add_child(label)
-		stat_labels[key] = label
-
-## Setzt die Lauf-Anzeigen samt Hinweisen; eine geänderte Zahl tickt hoch und blitzt.
-## growth_pct: Schritt des nächsten Zugs in Prozent (GameRun.blind_growth).
-func set_run_stats(next_blind: int, luck: int, fumbles: int, hints: Dictionary = {},
-		growth_pct: int = 0) -> void:
-	if not _built or stat_labels.is_empty():
-		return
-	if growth_pct != _blind_growth_pct:
-		_blind_growth_pct = growth_pct
-		_write_stat(STAT_BLIND, int(_stat_shown.get(STAT_BLIND, 0)))
-	for key in hints:
-		_stat_hints[key] = String(hints[key])
-	var values := {STAT_BLIND: next_blind, STAT_LUCK: luck, STAT_FUMBLES: fumbles}
-	for key: String in values:
-		var target := int(values[key])
-		if _stat_values.has(key) and int(_stat_values[key]) == target:
-			continue
-		var first := not _stat_values.has(key)
-		_stat_values[key] = target
-		if first:
-			_write_stat(key, target)
-		else:
-			_tick_stat(key, target)
-	_layout_stage()
-
-## Polster und Trend (GameRun.cushion/score_growth/house_growth; ≤ 0 = noch kein Wert).
-func set_run_trends(cushion: float, score_growth: float, house_growth: float,
-		hints: Dictionary = {}) -> void:
-	if not _built or not stat_labels.has(STAT_CUSHION):
-		return
-	for key in hints:
-		_stat_hints[key] = String(hints[key])
-	var pad := stat_labels[STAT_CUSHION] as Label
-	pad.text = "%s %s" % [TREND_TITLES[STAT_CUSHION],
-		BigNumber.factor(cushion) if cushion > 0.0 else NO_VALUE]
-	pad.modulate = CUSHION_SHORT_COLOR if cushion > 0.0 and cushion < 1.0 else TREND_COLORS[STAT_CUSHION]
-	var trend := stat_labels[STAT_TREND] as Label
-	trend.text = "%s %s" % [TREND_TITLES[STAT_TREND], NO_VALUE] if score_growth <= 0.0 \
-		else "Du %s · Haus %s" % [BigNumber.factor(score_growth, 2), BigNumber.factor(house_growth, 2)]
-	_layout_stage()
-
-func _write_stat(key: String, value: int) -> void:
-	_stat_shown[key] = value
-	var label := stat_labels.get(key) as Label
-	if label == null:
-		return
-	if key == STAT_BLIND:
-		# Vor dem Zug nennt der Kopf der Karte den nächsten Blind - hier nur sein Schritt.
-		if _move_due:
-			label.text = "Zug %d: %+d %%" % [_floor_move, _blind_growth_pct]
-			return
-		label.text = "nächster %d" % value
-		if _blind_growth_pct != 0:
-			label.text += "  (%+d %%)" % _blind_growth_pct
-	else:
-		label.text = "%s %d" % [STAT_TITLES[key], value]
-
-func _tick_stat(key: String, target: int) -> void:
-	var label := stat_labels.get(key) as Label
-	if label == null:
-		return
-	if _stat_tweens.has(key) and (_stat_tweens[key] as Tween).is_valid():
-		(_stat_tweens[key] as Tween).kill()
-	var tween := create_tween()
-	_stat_tweens[key] = tween
-	tween.tween_method(func(v: int) -> void: _write_stat(key, v), int(_stat_shown[key]), target, STAT_TICK_TIME)
-	var base: Color = STAT_COLORS[key]
-	label.modulate = Color(base.r * 2.2, base.g * 2.2, base.b * 2.2)
-	var flash := create_tween()
-	flash.tween_property(label, "modulate", base, STAT_TICK_TIME + 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-
 func _on_stage_resized() -> void:
 	_layout_stage()
 
-## Stellt alles auf der Bühne: die Karte füllt sie, darunter die Lauf-Anzeigen als
-## Zeile und zuunterst das Band der Deal-Marken.
+## Rechtecke der Bühne (Bühnen-Koordinaten): strip, button, blind, info, grid, chart, tokens.
+func stage_rects() -> Dictionary:
+	var s := roadmap_stage.size
+	var u := size.x / 100.0
+	var gap := u * SECTION_GAP_UNITS
+	var bleed := u * MAP_BLEED_UNITS
+	var strip_w := s.x * STRIP_SHARE
+	var button_h := u * MAP_BUTTON_UNITS
+	var rects := {}
+	# Der Streifen darf in den Seitenrand greifen: jede Spalte zählt.
+	rects["strip"] = Rect2(-bleed, 0.0, strip_w + bleed, maxf(s.y - button_h - gap, 1.0))
+	rects["button"] = Rect2(-bleed, s.y - button_h, strip_w + bleed, button_h)
+	var x := strip_w + u * COLUMN_GAP_UNITS
+	var w := maxf(s.x + bleed - x, 1.0)
+	var y := 0.0
+	rects["blind"] = Rect2(x, y, w, u * BLIND_UNITS)
+	y += u * BLIND_UNITS + gap
+	rects["info"] = Rect2(x, y, w, u * INFO_UNITS)
+	y += u * INFO_UNITS + gap
+	var tile_h := u * RunValuesGrid.TILE_HEIGHT_UNITS
+	var grid_h := tile_h * float(GRID_ROWS_SHOWN) + u * RunValuesGrid.GAP_UNITS * float(GRID_ROWS_SHOWN - 1)
+	rects["grid"] = Rect2(x, y, w, grid_h)
+	y += grid_h + gap
+	var tokens_h := u * TOKEN_BAND_UNITS
+	rects["tokens"] = Rect2(x, s.y - tokens_h, w, tokens_h)
+	rects["chart"] = Rect2(x, y, w, maxf(s.y - tokens_h - gap - y, 1.0))
+	return rects
+
+## Stellt alles auf der Bühne nach stage_rects.
 func _layout_stage() -> void:
 	var s := roadmap_stage.size
 	if s.x < 40.0 or s.y < 40.0 or floor_map == null:
 		return
 	var u := size.x / 100.0
-	var rows: Array = [[STAT_BLIND, STAT_LUCK, STAT_FUMBLES], [STAT_CUSHION, STAT_TREND]]
-	var row_heights: Array[float] = []
-	var stats_h := 0.0
-	for keys: Array in rows:
-		var h := 0.0
-		for key: String in keys:
-			var label := stat_labels.get(key) as Label
-			if label != null:
-				label.reset_size()
-				h = maxf(h, label.size.y)
-		row_heights.append(h)
-		stats_h += h
-	stats_h += u * STATS_ROW_GAP_UNITS * float(rows.size() - 1)
-	var token_band := u * TOKEN_BAND_UNITS
-	var gap := u * STATS_GAP_UNITS
-	var map_h := maxf(s.y - token_band - stats_h - gap * 2.0, 40.0)
-	# Die Karte darf in den Seitenrand der Startseite greifen: jede Spalte zählt.
-	var bleed := u * MAP_BLEED_UNITS
-	floor_map.position = Vector2(-bleed, 0.0)
-	floor_map.size = Vector2(s.x + bleed * 2.0, map_h)
-	var spread := u * 4.0
-	var stats_y := map_h + gap
-	var y := stats_y
-	for r in rows.size():
-		var labels: Array[Label] = []
-		var widths := 0.0
-		for key: String in rows[r]:
-			var label := stat_labels.get(key) as Label
-			if label != null:
-				labels.append(label)
-				widths += label.size.x
-		var x := (s.x - widths - spread * float(labels.size() - 1)) * 0.5
-		for label in labels:
-			label.position = Vector2(x, y)
-			x += label.size.x + spread
-		y += row_heights[r] + u * STATS_ROW_GAP_UNITS
+	var pad := u * CARD_PAD_UNITS
+	var r := stage_rects()
+	_place(floor_map, r["strip"])
+	_place(open_map_button, r["button"])
+	var blind: Rect2 = r["blind"]
+	_place(blind_panel, blind)
+	var inner := blind.grow(-pad)
+	var title_h := u * SMALL_FONT_UNITS * 1.5
+	_place(blind_title, Rect2(inner.position, Vector2(inner.size.x * 0.55, title_h)))
+	# Der große Wert nimmt die Karte bis zur Unterkante, sonst ragt er über ihren Rand.
+	_place(blind_value, Rect2(inner.position + Vector2(0.0, title_h),
+		Vector2(inner.size.x * 0.6, blind.end.y - inner.position.y - title_h)))
+	_place(blind_step, Rect2(inner.position + Vector2(inner.size.x * 0.4, title_h),
+		Vector2(inner.size.x * 0.6, inner.size.y - title_h)))
+	var info: Rect2 = r["info"]
+	_place(info_panel, info)
+	inner = info.grow(-pad)
+	var row_h := u * TITLE_FONT_UNITS * 1.4
+	_place(info_title, Rect2(inner.position, Vector2(inner.size.x, row_h)))
+	var move_h := u * SMALL_FONT_UNITS * 1.5
+	_place(info_move, Rect2(Vector2(inner.position.x, inner.end.y - move_h), Vector2(inner.size.x, move_h)))
+	_place(info_body, Rect2(inner.position + Vector2(0.0, row_h),
+		Vector2(inner.size.x, inner.size.y - row_h - move_h)))
+	_place(values_grid, r["grid"])
+	_place(chart, r["chart"])
 	if deal_token_row != null:
 		deal_token_row.reset_size()
-		var band_top := stats_y + stats_h + gap
-		deal_token_row.position = Vector2((s.x - deal_token_row.size.x) * 0.5,
-			band_top + maxf(0.0, (s.y - band_top - deal_token_row.size.y) * 0.5))
+		var band: Rect2 = r["tokens"]
+		deal_token_row.position = Vector2(band.position.x + (band.size.x - deal_token_row.size.x) * 0.5,
+			band.position.y + maxf(0.0, (band.size.y - deal_token_row.size.y) * 0.5))
+
+func _place(control: Control, rect: Rect2) -> void:
+	if control == null:
+		return
+	control.position = rect.position
+	control.size = rect.size
 
 func _make_h_spacer() -> Control:
 	var spacer := Control.new()

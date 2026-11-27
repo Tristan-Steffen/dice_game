@@ -189,6 +189,8 @@ var floor_index: int = 0
 var floor_moves: int = 0
 ## Die laufende Runde wartet noch auf ihren Zug (ab Runde 2 jede).
 var move_due: bool = false
+## Geschaffte Etagen als reine Anzeige-Daten (Endzustand), von unten nach oben.
+var floor_history: Array[Dictionary] = []
 ## Die Tür, die der letzte echte Fumble gesperrt hat ("" = keine).
 var last_locked_door: String = ""
 
@@ -1923,6 +1925,8 @@ func _enter_floor(rng: RandomNumberGenerator = null) -> void:
 
 ## Der Aufzug nach der Abrechnung: nächste Etage ab der nächsten Runde.
 func _enter_next_floor() -> void:
+	if floor_map != null:
+		floor_history.append(_floor_snapshot())
 	floor_index += 1
 	block_fumbles = 0
 	_enter_floor()
@@ -2070,38 +2074,64 @@ func move_clauses(door_id: String) -> Array[String]:
 func floor_view_state() -> Dictionary:
 	if floor_map == null:
 		return {}
-	var rooms: Array[Dictionary] = []
-	for room_id: String in floor_map.rooms:
-		var room: Dictionary = floor_map.rooms[room_id]
-		rooms.append({"id": room_id, "name": String(room["name"]), "bonus": String(room["bonus"]),
-			"tier": int(room["tier"]), "cell": room["cell"], "visited": bool(room["visited"]),
-			"entrance": room_id == floor_map.entrance, "office": room_id == floor_map.office})
 	var doors: Array[Dictionary] = []
 	var walkable := walkable_doors()
 	var blind_now := float(maxi(1, effective_goal()))
-	for entry in floor_map.doors:
+	for door in _door_views(floor_map):
+		if walkable.has(String(door["id"])):
+			# Fertige Zahlen je gangbarem Zug: die Karte rechnet nichts selbst.
+			var after := blind_after_move(String(door["id"]))
+			door["blind_after"] = after
+			door["after_percent"] = roundi((float(after) / blind_now - 1.0) * 100.0)
+			door["cushion_after"] = cushion(after)
+		doors.append(door)
+	# Die nächste Etage steht hier nie: sie ist bis zum Aufzug verborgen.
+	return {"floor": floor_index + 1, "moves": floor_moves, "due": move_due,
+		"position": floor_map.position, "entrance": floor_map.entrance, "office": floor_map.office,
+		"rooms": _room_views(floor_map), "doors": doors, "walkable": walkable,
+		"blind": effective_goal(), "next_blind": next_blind(),
+		"step_percent": roundi(blind_growth() * 100.0), "locked": last_locked_door,
+		"cushion_next": cushion(next_blind()), "history": floor_history.duplicate(true)}
+
+## Räume als Anzeige-Daten samt senkrechter Lesart (Reihe von unten, Querplatz).
+func _room_views(map: FloorMap) -> Array[Dictionary]:
+	var rooms: Array[Dictionary] = []
+	for room_id: String in map.rooms:
+		var room: Dictionary = map.rooms[room_id]
+		var cell: Vector2i = room["cell"]
+		rooms.append({"id": room_id, "name": String(room["name"]), "bonus": String(room["bonus"]),
+			"tier": int(room["tier"]), "cell": cell, "visited": bool(room["visited"]),
+			"row": FloorMap.row_of(cell), "lane": FloorMap.lane_of(cell),
+			"entrance": room_id == map.entrance, "office": room_id == map.office})
+	return rooms
+
+## Türen als Anzeige-Daten: unerkundete und gesperrte ohne Klausel und Stufe.
+func _door_views(map: FloorMap) -> Array[Dictionary]:
+	var doors: Array[Dictionary] = []
+	for entry in map.doors:
 		var state := int(entry["state"])
 		var shown := bool(entry["scouted"]) and state != FloorMap.DoorState.LOCKED
 		var clause := ""
 		if shown:
 			clause = String(entry["boss"]) if String(entry["boss"]) != "" else String(entry["malus"])
-		var door := {"id": String(entry["id"]), "a": String(entry["a"]), "b": String(entry["b"]),
+		doors.append({"id": String(entry["id"]), "a": String(entry["a"]), "b": String(entry["b"]),
 			"state": state, "scouted": shown, "tier": int(entry["tier"]) if shown else -1,
 			"clause": clause, "free": shown and bool(entry["free"]),
-			"office": floor_map.is_office_door(entry)}
-		if walkable.has(String(entry["id"])):
-			# Fertige Zahlen je gangbarem Zug: die Karte rechnet nichts selbst.
-			var after := blind_after_move(String(entry["id"]))
-			door["blind_after"] = after
-			door["after_percent"] = roundi((float(after) / blind_now - 1.0) * 100.0)
-			door["cushion_after"] = cushion(after)
-		doors.append(door)
-	return {"floor": floor_index + 1, "moves": floor_moves, "due": move_due,
-		"position": floor_map.position, "entrance": floor_map.entrance, "office": floor_map.office,
-		"rooms": rooms, "doors": doors, "walkable": walkable,
-		"blind": effective_goal(), "next_blind": next_blind(),
-		"step_percent": roundi(blind_growth() * 100.0), "locked": last_locked_door,
-		"cushion_next": cushion(next_blind())}
+			"office": map.is_office_door(entry)})
+	return doors
+
+## Der Endzustand einer geschafften Etage - nur Werte, kein Verweis auf die lebende Karte.
+func _floor_snapshot() -> Dictionary:
+	return {"floor": floor_index + 1, "position": floor_map.position,
+		"entrance": floor_map.entrance, "office": floor_map.office,
+		"rooms": _room_views(floor_map), "doors": _door_views(floor_map)}
+
+## Diagramm des Hubs: Blind und Punkte je beendeter Runde, der laufende Blind als letzter Punkt.
+func run_chart() -> Dictionary:
+	var blinds: Array[int] = blind_history.duplicate()
+	blinds.append(cushion_blind())
+	var scores: Array[int] = round_scores.duplicate()
+	return {"blinds": blinds, "scores": scores}
 
 ## Der Zug der Runde durch door_id: Blind-Schritt, Tür ausbrennen, Raum leeren, Malus und
 ## Bonus unterschreiben, dann die Türen des neuen Raums erkunden. false = nichts gebucht.

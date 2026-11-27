@@ -1,16 +1,21 @@
 class_name FloorMapPage
 extends Control
-## Die ETAGEN-KARTE als Hub-Seite im LADEN: dieselbe FloorMapView, nur zum Ansehen.
-## Der Knopf „Zurück zum Laden“ blättert zurück; die Seitenregel des Hubs holt den Laden.
+## Die GROSSE ETAGEN-KARTE als Hub-Seite: derselbe Turm wie der Streifen der Startseite,
+## mit Namen und Tür-Marken, nach unten in die Geschichte rollbar. Von der Startseite
+## geöffnet nimmt sie den fälligen Zug, aus dem Laden nur zum Ansehen; „Zurück“ führt
+## dorthin, woher man kam (die Seitenregel des Hubs).
 
 signal close_requested
 
 const TITLE := "E T A G E"
-const BACK_TEXT := "Zurück zum Laden"
+const BACK_SHOP_TEXT := "Zurück zum Laden"
+const BACK_HOME_TEXT := "Zurück"
 const MARGIN_UNITS := 1.6
 
 var map_view: FloorMapView
 var back_button: Button
+## Aus dem Laden geöffnet: nur ansehen.
+var from_shop := true
 var _margin: MarginContainer
 var _column: VBoxContainer
 var _title: Label
@@ -41,7 +46,7 @@ func layout() -> void:
 	header.add_child(_title)
 	back_button = Button.new()
 	back_button.name = "BackButton"
-	back_button.text = BACK_TEXT
+	back_button.text = BACK_SHOP_TEXT
 	back_button.focus_mode = Control.FOCUS_NONE
 	back_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	back_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -55,10 +60,24 @@ func layout() -> void:
 	resized.connect(_restyle)
 	_restyle()
 
+## Woher die Seite kommt: aus dem Laden nur ansehen, von der Startseite mit Zug.
+func open_from(shop: bool) -> void:
+	layout()
+	from_shop = shop
+	map_view.read_only = shop
+	back_button.text = BACK_SHOP_TEXT if shop else BACK_HOME_TEXT
+
 ## Zeigt den Stand der Etage (reine Daten aus GameRun.floor_view_state).
 func show_state(view_state: Dictionary, deal_bonus_factor: int = 1) -> void:
 	layout()
 	map_view.open(view_state, deal_bonus_factor)
+
+## Das Rad über der Karte rollt sie in die Geschichte (true = verbraucht).
+func wheel_at(pixel: Vector2, up: bool) -> bool:
+	if not visible or map_view == null or not map_view.get_global_rect().has_point(pixel):
+		return false
+	map_view.scroll_by(1.0 if up else -1.0)
+	return true
 
 func _restyle() -> void:
 	if _margin == null or size.x < 10.0:

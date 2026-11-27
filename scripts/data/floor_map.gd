@@ -29,6 +29,15 @@ const FREE_DOOR_THROWS := 3
 ## Rasterplätze: Eingang links, Büro rechts, die Räume in drei Spalten dazwischen.
 const ENTRANCE_CELL := Vector2i(0, 1)
 const OFFICE_CELL := Vector2i(4, 1)
+## Senkrechte Lesart (der TURM): die Spalte ist die Reihe von unten, die Reihe der Querplatz.
+const ROWS := 5
+const LANES := 3
+
+static func row_of(cell: Vector2i) -> int:
+	return cell.x
+
+static func lane_of(cell: Vector2i) -> int:
+	return cell.y
 ## Grundriß-Vorlagen: acht Raum-Plätze, Türen als Paare. Jeder Raum der dritten
 ## Spalte hat zusätzlich seine Büro-Tür (drei je Vorlage).
 const TEMPLATES := [

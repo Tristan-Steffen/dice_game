@@ -320,3 +320,77 @@ func test_move_clauses_name_what_the_move_signs() -> void:
 func test_the_view_state_names_the_last_locked_door() -> void:
 	run.note_fumble(false)
 	assert_eq(String(run.floor_view_state()["locked"]), run.last_locked_door)
+
+# --- Der TURM: senkrechte Lesart, Geschichte, Diagramm ---------------------------------
+
+func test_every_room_carries_its_row_and_lane() -> void:
+	for room: Dictionary in run.floor_view_state()["rooms"]:
+		var cell: Vector2i = room["cell"]
+		assert_eq(int(room["row"]), cell.x, "die Spalte ist die Reihe von unten")
+		assert_eq(int(room["lane"]), cell.y, "die Reihe ist der Querplatz")
+		assert_between(int(room["lane"]), 0, FloorMap.LANES - 1)
+		if bool(room["entrance"]):
+			assert_eq(int(room["row"]), 0, "der Eingang unten")
+		if bool(room["office"]):
+			assert_eq(int(room["row"]), FloorMap.ROWS - 1, "das Büro oben")
+
+func test_the_history_grows_with_the_elevator() -> void:
+	assert_true(run.floor_view_state()["history"].is_empty())
+	run.advance_round()
+	var door_id := _room_door()
+	run.move_through(door_id)
+	var rooms_before: Array = run.floor_view_state()["rooms"]
+	run.settle_block_deals()
+	var state := run.floor_view_state()
+	var history: Array = state["history"]
+	assert_eq(history.size(), 1)
+	assert_eq(int(history[0]["floor"]), 1)
+	assert_eq(int(state["floor"]), 2)
+	assert_eq(history[0]["rooms"], rooms_before, "der Endzustand der Etage")
+	var passed := false
+	for door: Dictionary in history[0]["doors"]:
+		if String(door["id"]) == door_id:
+			passed = int(door["state"]) == FloorMap.DoorState.PASSED
+	assert_true(passed, "der gegangene Weg steht darin")
+	run.settle_block_deals()
+	assert_eq((run.floor_view_state()["history"] as Array).size(), 2)
+
+func test_the_history_is_plain_data() -> void:
+	run.settle_block_deals()
+	var snapshot: Dictionary = run.floor_history[0]
+	var copy: Array = run.floor_view_state()["history"]
+	copy[0]["floor"] = 99
+	assert_eq(int(run.floor_history[0]["floor"]), 1, "die Ansicht bekommt eine Kopie")
+	for value in snapshot.values():
+		assert_false(value is Object, "kein Verweis auf lebende Objekte")
+
+func test_a_new_run_starts_without_history() -> void:
+	run.settle_block_deals()
+	assert_eq(run.floor_history.size(), 1)
+	var fresh := GameRun.new_run()
+	assert_true(fresh.floor_history.is_empty())
+
+func test_the_next_floor_is_not_in_the_view_data() -> void:
+	var state := run.floor_view_state()
+	for key: String in state:
+		assert_false(key.begins_with("next_floor"), "verborgen bis zum Aufzug")
+	var ids: Array[String] = []
+	for past: Dictionary in state["history"]:
+		ids.append(str(past["floor"]))
+	assert_true(ids.is_empty(), "vor dem Aufzug weder Geschichte noch nächste Etage")
+	assert_eq(int(state["floor"]), 1)
+
+func test_the_chart_carries_each_round_and_the_running_blind() -> void:
+	var empty := run.run_chart()
+	assert_eq(str(empty["blinds"]), str([run.cushion_blind()]), "nur der laufende Blind")
+	assert_true((empty["scores"] as Array).is_empty())
+	run.round_points = 400
+	run.advance_round()
+	run.move_through(String(run.walkable_doors()[0]))
+	run.round_points = 900
+	run.advance_round()
+	var chart := run.run_chart()
+	assert_eq(str(chart["scores"]), str([400, 900]))
+	assert_eq((chart["blinds"] as Array).size(), 3, "zwei gespielte und der laufende")
+	assert_eq(int(chart["blinds"][0]), run.blind_history[0])
+	assert_eq(int(chart["blinds"][2]), run.cushion_blind())

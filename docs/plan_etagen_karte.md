@@ -218,6 +218,8 @@ Welle 4 umgesetzt am 2026-11-27. Abweichungen: die Rundenpunkte lebten nur in `s
   Raum) oder der Knopf „Karte öffnen“ öffnet sie, im Laden der Knopf „Etage“. Gezogen wird
   in beiden Ansichten; im Laden bleibt sie nur zum Ansehen.
 
+Welle 5 umgesetzt am 2026-11-27. Abweichungen: Streifen und große Karte sind EINE Klasse (`FloorMapView`, `compact`), die Geschichte reist als `history` in `floor_view_state()`; die FUMBLE-QUOTE fehlt weiter (kein Wurf läuft durch GameRun), statt ihr steht „Blind-Schritt“ im Raster; die Laufwerte ticken nicht mehr, ein geänderter Wert blitzt nur; die große Karte rollt ohne Fahrt.
+
 ## OFFEN (Spieler-Entscheid nötig oder erst im Testspiel zu klären)
 
 - WÖRTER: „Etage“, „Raum“, „Tür“, „Büro“ sind vorläufig. „Boss-Runde“ bleibt (Entscheid

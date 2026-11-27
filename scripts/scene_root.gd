@@ -1626,16 +1626,18 @@ func _setup_panels() -> void:
 			* PackDrawerView.CASSETTE_SCALE)
 
 
-	# Die Etagen-Karte wohnt auf der Startseite des Hubs; im Laden blättert „Etage“ auf
-	# eine eigene Seite mit derselben Karte, nur zum Ansehen.
+	# Der TURM-Streifen wohnt auf der Startseite des Hubs; die große Karte ist eine eigene
+	# Seite - von der Startseite mit Zug, aus dem Laden („Etage“) nur zum Ansehen.
 	if table_screen != null and table_screen.hub != null and table_screen.hub.floor_map != null:
 		table_screen.hub.floor_map.door_chosen.connect(_on_route_chosen)
+		table_screen.hub.map_requested.connect(_open_floor_page.bind(false))
 		floor_page = FloorMapPage.new()
 		floor_page.name = "FloorMapPage"
 		table_screen.hub.attach_panel(floor_page)
 		floor_page.layout()
 		floor_page.close_requested.connect(_close_floor_page)
-	charm_shop.floor_requested.connect(_open_floor_page)
+		floor_page.map_view.door_chosen.connect(_on_page_move)
+	charm_shop.floor_requested.connect(_open_floor_page.bind(true))
 
 	# Die PAKET-AUSWAHL wohnt auf der ÖFFNUNGS-FLÄCHE unter dem Vorrat (ohne Tisch der
 	# 2D-Rückfall); ihr Rechteck stellt _sync_pack_areas.
@@ -2397,16 +2399,51 @@ func _refresh_hub_info() -> void:
 		if key != _floor_flash_seen:
 			_floor_flash_seen = key
 			flash = run.last_locked_door
-	table_screen.hub.set_floor_state(run.floor_view_state(), run.deal_bonus_factor(), flash)
+	var floor_state := run.floor_view_state()
+	table_screen.hub.set_floor_state(floor_state, run.deal_bonus_factor(), flash)
+	if floor_page != null and floor_page.visible:
+		floor_page.show_state(floor_state, run.deal_bonus_factor())
 	_refresh_deal_tokens()
 	# Medaillon und Pips folgen dem Glück.
 	table_screen.hub.set_progress_tier(run.progress_tier())
-	table_screen.hub.set_run_stats(run.next_blind(), run.effective_luck(),
-		run.farkle_count, {HubView.STAT_BLIND: run.blind_hint(), HubView.STAT_LUCK: run.luck_hint(),
-			HubView.STAT_FUMBLES: run.fumble_hint()},
-		roundi(run.blind_growth() * 100.0))
-	table_screen.hub.set_run_trends(run.cushion(run.cushion_blind()), run.score_growth(),
-		run.house_growth(), {HubView.STAT_CUSHION: run.cushion_hint(), HubView.STAT_TREND: run.trend_hint()})
+	table_screen.hub.set_run_values(_run_value_entries())
+	table_screen.hub.set_chart(run.run_chart())
+
+## Die LAUFWERTE der Startseite als Liste - ein weiterer Wert ist ein weiterer Eintrag.
+func _run_value_entries() -> Array:
+	var colors := HubView.STAT_COLORS
+	var pad := run.cushion(run.cushion_blind())
+	var growth := run.score_growth()
+	var caught := run.rounds_until_caught()
+	var trend_sub := ""
+	if growth > 0.0:
+		trend_sub = "Haus %s · %s" % [BigNumber.factor(run.house_growth(), 2),
+			"voraus" if caught < 0 else ("eingeholt" if caught == 0 else "eingeholt in %d" % caught)]
+	var step := roundi(run.blind_growth() * 100.0)
+	return [
+		{"key": HubView.STAT_CUSHION, "title": "Polster",
+			"text": BigNumber.factor(pad) if pad > 0.0 else HubView.NO_VALUE,
+			"sub": "gegen %s" % BigNumber.short(run.cushion_blind()),
+			"color": HubView.CUSHION_SHORT_COLOR if pad > 0.0 and pad < 1.0 else colors[HubView.STAT_CUSHION],
+			"hint": run.cushion_hint()},
+		{"key": HubView.STAT_TREND, "title": "Trend",
+			"text": "Du %s" % BigNumber.factor(growth, 2) if growth > 0.0 else HubView.NO_VALUE,
+			"sub": trend_sub, "color": colors[HubView.STAT_TREND], "hint": run.trend_hint()},
+		{"key": HubView.STAT_LUCK, "title": "Glück", "text": BigNumber.short(run.effective_luck()),
+			"sub": "Stufe %d" % run.progress_tier(), "color": colors[HubView.STAT_LUCK],
+			"hint": run.luck_hint()},
+		{"key": HubView.STAT_FUMBLES, "title": "Fumbles", "text": BigNumber.short(run.farkle_count),
+			"sub": "Etage %s" % BigNumber.short(run.block_fumbles), "color": colors[HubView.STAT_FUMBLES],
+			"hint": run.fumble_hint()},
+		{"key": HubView.STAT_BEST, "title": "Beste Hand",
+			"text": BigNumber.short(run.best_hand) if run.best_hand > 0 else HubView.NO_VALUE,
+			"sub": "", "color": colors[HubView.STAT_BEST],
+			"hint": "Die höchste Punktzahl einer einzelnen Hand in diesem Lauf."},
+		{"key": HubView.STAT_STEP, "title": "Blind-Schritt",
+			"text": "%s%d %%" % ["+" if step >= 0 else "−", absi(step)],
+			"sub": "nächster Zug %d" % (run.floor_moves + 1),
+			"color": colors[HubView.STAT_STEP], "hint": run.blind_hint()},
+	]
 
 ## Deal-Marken: was gerade wirkt und wie lange noch - am Hub-Rad UND am oberen
 ## Grubenrand. Gespiegelt aus EINER Hand, damit die Wirkung auch dort steht, wo
@@ -11864,8 +11901,12 @@ func _handle_zoom_wheel(event: InputEventMouseButton) -> void:
 		last_screen_pixel = Vector2(-1, -1)  # Hover-Verlauf neu ansetzen
 	camera_rig.free_zoom(1.0 if up else -1.0)
 
-## Das Rad über einer Magazin-Spalte rollt sie um einen Platz - nur an der Werkstatt.
+## Das Rad über einer Magazin-Spalte rollt sie um einen Platz - nur an der Werkstatt. An
+## der HUB-Station rollt es Turm-Streifen, Laufwerte oder die große Karte unter dem Zeiger.
 func _wheel_shelf(screen_pos: Vector2, up: bool) -> void:
+	if camera_rig.mode == CameraRig.Mode.HUB and not camera_rig.die_focus:
+		_wheel_hub(screen_pos, up)
+		return
 	if camera_rig.mode != CameraRig.Mode.WORKSHOP or camera_rig.die_focus or _deck_glass:
 		return
 	var workshop: WorkshopView = table_screen.workshop_window if table_screen != null else null
@@ -11886,6 +11927,16 @@ func _wheel_shelf(screen_pos: Vector2, up: bool) -> void:
 		if trays[column].has_point(pixel):
 			workshop.wheel_shelf(column, -1 if up else 1)
 			return
+
+func _wheel_hub(screen_pos: Vector2, up: bool) -> void:
+	if table_screen == null or table_screen.hub == null:
+		return
+	var pixel := _screen_pixel(screen_pos)
+	if pixel.x < 0.0:
+		return
+	if floor_page != null and floor_page.wheel_at(pixel, up):
+		return
+	table_screen.hub.wheel_at(pixel, up)
 
 ## Ob WASD gerade greifen darf. Taub sind: jede laufende Zieh-Geste, der
 ## Rückblick (dort gehören die Tasten dem Cursor), das Titel-HUD, die Werkbank-
@@ -11964,11 +12015,15 @@ func _sync_floor_map() -> void:
 	if table_screen == null or table_screen.hub == null or table_screen.hub.floor_map == null:
 		return
 	var hub := table_screen.hub
-	hub.set_floor_moves_enabled(route_pending and phase == Phase.IDLE)
-	if floor_page != null and floor_page.visible and phase != Phase.SHOP:
-		_close_floor_page(true)
+	var due := route_pending and phase == Phase.IDLE
+	hub.set_floor_moves_enabled(due)
+	if floor_page != null:
+		floor_page.map_view.set_moves_enabled(due)
+		# Die Laden-Seite geht mit dem Laden.
+		if floor_page.visible and floor_page.from_shop and phase != Phase.SHOP:
+			_close_floor_page(true)
 	for map: FloorMapView in [hub.floor_map, floor_page.map_view if floor_page != null else null]:
-		if map == null or map.hovered().is_empty():
+		if map == null or (map.hovered().is_empty() and not map.pointer_inside()):
 			continue
 		var pixel := _screen_pixel(get_viewport().get_mouse_position())
 		if not map.is_visible_in_tree() or not map.get_global_rect().has_point(pixel) \
@@ -16530,15 +16585,24 @@ func _close_lexikon() -> void:
 		else:
 			camera_rig.zoom_to(lexikon_prev_mode)
 
-## Der Knopf „Etage“ im Laden: die Etagen-Karte verdrängt die Ladenseite wie das
-## Lexikon (LIFO) - die Ware weicht mit ihr, und das Zurückblättern holt beides wieder.
-func _open_floor_page() -> void:
+## Die GROSSE Etagen-Karte: aus dem Laden („Etage“) verdrängt sie die Ladenseite wie das
+## Lexikon (LIFO) und ist nur zum Ansehen; von der Startseite (Streifen, „Karte öffnen“)
+## nimmt sie den fälligen Zug. Zurück führt jeweils dorthin, woher man kam.
+func _open_floor_page(from_shop: bool) -> void:
 	if floor_page == null or run == null or table_screen == null or table_screen.hub == null:
 		return
-	if floor_page.visible or phase != Phase.SHOP:
+	if floor_page.visible or (from_shop and phase != Phase.SHOP):
 		return
+	floor_page.open_from(from_shop)
+	floor_page.map_view.set_moves_enabled(route_pending and phase == Phase.IDLE)
 	floor_page.show_state(run.floor_view_state(), run.deal_bonus_factor())
 	table_screen.hub.fade_page_in(floor_page)
+
+## Ein Zug aus der großen Karte: derselbe Ablauf wie am Streifen, danach schließt sie.
+func _on_page_move(door_id: String) -> void:
+	_on_route_chosen(door_id)
+	if not route_pending:
+		_close_floor_page(true)
 
 ## Zurück zum Laden; hard = ohne Blende (Kamerawechsel, Laden zu).
 func _close_floor_page(hard := false) -> void:
