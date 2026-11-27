@@ -379,6 +379,8 @@ Gerechnet wird auf einem feinen Zellraster (rund 16 × 11), gezeichnet werden nu
    Schlüsselkarte, „DU BIST HIER“, Schieben in zwei Richtungen, „Rundenschnitt“.
 3. Sichtproben im Spiel, Lesbarkeit, Feinschliff — danach wird gespielt.
 
+Welle 7 Teil A umgesetzt am 2026-11-27 (`FloorPlan`, `FloorPlanView`, noch nicht verdrahtet). Abweichungen: Bautiefen 0/2/3/4 (eine Zelle tief geht nicht bei Mindestmaß 2 × 2); Flügelgrenzen springen um bis zu eine Zelle gegen die Brandschutztür; der Aufzug ist ein 2 × 2-Kern, ein vierter Abschnitt wird mit der Etage häufiger; je Etage höchstens zwei Seitenflure (50 %, dann 25 %); das Büro hat 1–2 Verbindungstüren nur aus Räumen, die nicht über das Büro erreicht werden; vom Aufzug gilt auch der Nachbar-Abschnitt hinter einer Brandschutztür; die Schlüsselkarte liegt immer in einem hinteren Raum, wenn einer paßt; Ankerklausel → Wettbüro, Goldader → Generator; kein Thema hat in jeder Stufe Klauseln (Bar ohne Stufe 1, Wettbüro ohne 3, Studio ohne 2, Hinterzimmer und Eichamt nur Stufe 2). Gemessen über 1000 Etagen: Räume 10/11,4/14, Abschnitte 3/3,9/5, hintere Räume 0/2,4/7, Seitenflure 0,46, groß 1,6 und mittel 2,3 je Etage (mittel liegt unter dem Ziel 3–4), Züge vom Aufzug 4/7,6/11, im Zufallslauf 6,0, Aufzug → Karte → Büro 3/4,6/8 Züge, Rückfall 0 %, 9,5 ms je Etage.
+
 ## OFFEN (Spieler-Entscheid nötig oder erst im Testspiel zu klären)
 
 - WÖRTER: „Etage“, „Raum“, „Tür“, „Büro“ sind vorläufig. „Boss-Runde“ bleibt (Entscheid
