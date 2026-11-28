@@ -74,11 +74,10 @@ func _build() -> void:
 func _title_text() -> String:
 	if stress_round():
 		return STRESS_TITLE
-	var level := int(state.get("heat", GameRun.HEAT_MIN))
-	return "%s · Hitze %s" % [TITLE, HeatStyle.level_name(level)]
+	return TITLE
 
 ## Schriftgrade der Klauseln (in u), vom größten abwärts.
-const TEXT_STEPS := [2.5, 2.25, 2.0, 1.8, 1.65, 1.5, 1.35, 1.2]
+const TEXT_STEPS := [3.1, 2.8, 2.5, 2.25, 2.0, 1.8, 1.65, 1.5, 1.35, 1.2]
 ## Luft für Umriß und Rundung beim Messen.
 const FIT_SLACK := 0.92
 
@@ -106,7 +105,7 @@ func _fit_units(card: Dictionary, u: float, count: int) -> float:
 	return TEXT_STEPS[-1]
 
 static func _clause_text(clause: Dictionary) -> String:
-	return "%s: %s" % [String(clause.get("name", "")), String(clause.get("text", ""))]
+	return String(clause.get("text", "")).trim_suffix(".")
 
 func _make_card(card: Dictionary, index: int, u: float, text_units: float) -> Control:
 	var boss := bool(card.get("boss", false))

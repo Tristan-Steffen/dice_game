@@ -52,28 +52,27 @@ func test_the_head_names_level_and_heat_effect() -> void:
 	_open_at(3)
 	for name in ["Warm", "Heiß", "Glühend"]:
 		assert_true(_label_texts().has(name), "Stufenname %s" % name)
-	assert_true(_texts_contain("Hitze −1 · kein Malus"))
+	assert_true(_texts_contain("Hitze −1"))
 	assert_true(_texts_contain("Hitze +1"))
-	assert_true(_texts_contain("Hitze %s" % HeatStyle.level_name(3)), "der Titel nennt die Hitze")
+	assert_true(_texts_contain("Hitze ±0"))
 
 func test_white_heat_reads_as_such() -> void:
 	_open_at(5)
 	assert_true(_label_texts().has("Weißglut"))
-	assert_true(_texts_contain("Hitze bleibt · Weißglut"))
+	assert_true(_texts_contain("Hitze ±0"))
 
 func test_every_clause_stands_with_its_full_text() -> void:
 	run.owned_charms.append(Charm.shyster())
 	_open_at(4)
 	for card: Dictionary in run.route_view_state()["cards"]:
 		for clause: Dictionary in card["bonus"] + card["malus"]:
-			assert_true(_texts_contain(String(clause["text"])), String(clause["id"]))
-			assert_true(_texts_contain(String(clause["name"])))
+			assert_true(_texts_contain(String(clause["text"]).trim_suffix(".")), String(clause["id"]))
 
 func test_the_foot_names_blind_and_average() -> void:
 	run.round_scores.assign([300])
 	_open_at(2)
 	var card: Dictionary = run.route_view_state()["cards"][1]
-	assert_true(_texts_contain("Blind %s · dein Schnitt 300" % BigNumber.short(int(card["blind_after"]))))
+	assert_true(_texts_contain("Blind %s" % BigNumber.short(int(card["blind_after"]))))
 
 func test_six_clauses_fit_on_a_white_heat_card() -> void:
 	# Über viele Würfe: jede Karte trägt ihren ganzen Text, auch die Weißglut mit sechs Klauseln.

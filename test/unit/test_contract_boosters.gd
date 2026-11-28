@@ -36,13 +36,13 @@ func test_every_new_clause_is_in_the_catalogue():
 func test_shyster_texts_are_written_out():
 	var expected := {
 		DealClause.LUCKY_DAY: "Glück +6 diese Runde.",
-		DealClause.CONNOISSEUR_EYE: "Laden führt sicher zwei legendäre Charms.",
+		DealClause.CONNOISSEUR_EYE: "Laden: 2 legendäre Charms.",
 		DealClause.MATH_WEEK: "Glück +12 diese Runde.",
 		DealClause.SPECIAL_DELIVERY: "Glück +20 diese Runde.",
-		DealClause.FREE_FLIP: "Blättern im Laden 6× gratis.",
-		DealClause.REGULAR_CUSTOMER: "Ladenpreise −28 % bis zur Boss-Runde.",
+		DealClause.FREE_FLIP: "Blättern 6× gratis.",
+		DealClause.REGULAR_CUSTOMER: "Laden −28 % bis zum Boss.",
 		DealClause.BACK_ROOM_CONTACT: "Schwarzmarkt: −2 ⚡ je Ware.",
-		DealClause.BIG_STORAGE: "Zwei Powerbanks: Börse +10 ⚡ Platz.",
+		DealClause.BIG_STORAGE: "+10 ⚡ Platz.",
 	}
 	for clause_id: String in expected:
 		assert_eq(DealClause.text_for(clause_id, 2), expected[clause_id])

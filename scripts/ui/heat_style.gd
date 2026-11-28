@@ -38,25 +38,17 @@ static func margin_color(margin: String) -> Color:
 ## Was die Wahl einer Karte mit der Hitze macht (route_view_state-Karte).
 static func effect_text(card: Dictionary) -> String:
 	if bool(card.get("boss", false)):
-		return "Boss-Kondition · Hitze bleibt"
+		return "Hitze ±0"
 	var delta := int(card.get("heat_delta", 0))
 	var text := ""
 	if delta < 0:
-		text = "Hitze −%d · kein Malus" % -delta
+		text = "Hitze −%d" % -delta
 	elif delta > 0:
 		text = "Hitze +%d" % delta
-	elif int(card.get("level", 0)) >= GameRun.HEAT_WHITE:
-		text = "Hitze bleibt · Weißglut"
 	else:
-		text = "Hitze bleibt"
-	if bool(card.get("treat", false)):
-		text += " · Werbegeschenk"
+		text = "Hitze ±0"
 	return text
 
-## Fuß einer Karte: „Blind 335 · dein Schnitt 300“ (ohne Schnitt nur der Blind).
+## Fuß einer Karte: nur der Blind - die Ampelfarbe sagt, wie er zum Schnitt steht.
 static func foot_text(card: Dictionary) -> String:
-	var text := "Blind %s" % BigNumber.short(int(card.get("blind_after", 0)))
-	var typical := float(card.get("typical", 0.0))
-	if typical > 0.0:
-		text += " · dein Schnitt %s" % BigNumber.short(roundi(typical))
-	return text
+	return "Blind %s" % BigNumber.short(int(card.get("blind_after", 0)))
