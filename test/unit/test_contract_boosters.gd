@@ -223,9 +223,11 @@ func _stamp(die: DieDefinition) -> void:
 func test_big_storage_is_not_offered_at_a_full_bank():
 	run.storage_rows = run.max_storage_rows()
 	for i in 40:
-		run.settle_block_deals()
-		for room_id: String in run.floor_plan.rooms:
-			assert_ne(String(run.floor_plan.rooms[room_id]["bonus"]), DealClause.BIG_STORAGE)
+		run.route_offers.clear()
+		run.round_number = 2
+		run.roll_route_offers()
+		for card in run.route_offers:
+			assert_false(card[GameRun.CARD_BONUS].has(DealClause.BIG_STORAGE))
 
 func test_big_storage_widens_the_bank_for_good():
 	assert_eq(run.energy_cap(), GameRun.ENERGY_ROW)

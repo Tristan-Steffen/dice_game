@@ -10,7 +10,7 @@ func test_a_fresh_run_gets_nothing() -> void:
 func test_the_reward_die_always_carries_a_soul() -> void:
 	for _i in 30:
 		var run := GameRun.new_run()
-		var die := run.grant_stress_reward()
+		var die := run.grant_stress_reward()[0]
 		assert_eq(run.pending_dice.size(), 1)
 		assert_eq(run.pending_dice[0], die, "geliefert wird das hinterlegte Exemplar")
 		assert_ne(die.essence_id, "", "der Prämien-Würfel ist beseelt")

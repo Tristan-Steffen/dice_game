@@ -262,7 +262,7 @@ func _fill(key: String, n: int) -> void:
 
 func test_stress_reward_books_a_souled_die_into_the_tray():
 	watch_signals(run)
-	var die := run.grant_stress_reward()
+	var die := run.grant_stress_reward()[0]
 	assert_not_null(die, "der Stresstest zahlt einen Würfel")
 	assert_eq(run.pending_dice.size(), 1, "er liegt im Ausgabefach")
 	assert_eq(run.pending_dice[0], die, "gemeldet wird genau das hinterlegte Exemplar")
@@ -284,7 +284,7 @@ func test_stress_reward_costs_nothing_and_leaves_the_pool_alone():
 func test_the_stress_die_never_carries_a_secret_soul():
 	for _i in 20:
 		var fresh := GameRun.new_run()
-		var die := fresh.grant_stress_reward()
+		var die := fresh.grant_stress_reward()[0]
 		var essence := Essence.by_id(die.essence_id)
 		assert_ne(die.essence_id, "", "garantiert beseelt")
 		assert_false(essence != null and essence.secret,
@@ -486,7 +486,7 @@ func test_a_multi_grant_lands_everything():
 func test_the_stress_reward_never_fizzles():
 	run.grant_pack(Pack.number_pack())
 	var before := run.money
-	assert_not_null(run.grant_stress_reward(), "der Preis kommt immer an")
+	assert_eq(run.grant_stress_reward().size(), 1, "der Preis kommt immer an")
 	assert_eq(run.pending_dice.size(), 1)
 	assert_eq(run.money, before, "und zerfällt nie zu Geld")
 
@@ -688,11 +688,20 @@ func test_the_multiplier_scales_the_won_energy():
 
 # --- Rundenfortschritt -----------------------------------------------------------
 
-func test_advance_round_leaves_the_blind_to_the_move():
+func test_advance_round_increments_number_and_goal():
 	run.advance_round()
-	assert_eq(run.round_number, 2)
-	assert_almost_eq(run.blind_value, 150.0, 0.001, "erst der Zug hebt den Blind")
-	assert_true(run.move_due, "die Runde wartet auf ihren Zug")
+	run.advance_round()
+	assert_eq(run.round_number, 3)
+	# 150 × 1,1 × 1,1 = 181,5 -> abgerundet auf 180.
+	assert_eq(run.round_goal, 180)
+	assert_almost_eq(run.blind_value, 181.5, 0.001, "der Akkumulator bleibt exakt")
+
+func test_blind_growth_climbs_five_points_per_block():
+	assert_almost_eq(GameRun.blind_growth(2), 0.10, 0.0001)
+	assert_almost_eq(GameRun.blind_growth(6), 0.10, 0.0001, "die Boss-Runde gehört zum Block")
+	assert_almost_eq(GameRun.blind_growth(7), 0.15, 0.0001)
+	assert_almost_eq(GameRun.blind_growth(13), 0.20, 0.0001)
+	assert_almost_eq(GameRun.blind_growth(19), 0.25, 0.0001)
 
 func test_the_goal_floors_to_multiples_of_5():
 	assert_eq(GameRun.floor_to_blind(663.0), 660)
@@ -700,13 +709,28 @@ func test_the_goal_floors_to_multiples_of_5():
 	assert_eq(GameRun.floor_to_blind(664.99), 660)
 	assert_eq(GameRun.floor_to_blind(3.0), GameRun.BLIND_ROUNDING, "nie unter 5")
 
+func test_advance_round_follows_the_curve_across_a_block_edge():
+	for i in 6:
+		run.advance_round()
+	assert_eq(run.round_number, 7)
+	var expected := 150.0 * pow(1.1, 5) * 1.15
+	assert_almost_eq(run.blind_value, expected, 0.001)
+	assert_eq(run.round_goal, GameRun.floor_to_blind(expected))
+
+func test_projected_blind_reads_the_curve_ahead():
+	assert_eq(run.projected_blind(1), 150)
+	assert_eq(run.projected_blind(3), 180)
+	assert_eq(run.projected_blind(7), GameRun.floor_to_blind(150.0 * pow(1.1, 5) * 1.15))
+
 func test_advance_round_remembers_the_played_blind_and_adds_luck():
 	_sign([DealClause.HIGH_EXPECTATIONS])
 	var played := run.effective_goal()
 	run.advance_round()
 	assert_eq(run.blind_history, [played] as Array[int], "die Historie merkt den wirklich gespielten")
 	assert_eq(run.luck, 1, "eine geschaffte Runde = +1 Glück")
-	assert_true(run.move_due, "die neue Runde wartet auf ihren Zug")
+	assert_eq(run.roadmap_goal(1), played)
+	assert_eq(run.roadmap_goal(2), run.effective_goal())
+	assert_eq(run.roadmap_goal(3), run.projected_blind(3))
 
 # --- Testhilfen: Zufallsmaterialien (Testmodus) ----------------------------------
 
@@ -944,10 +968,12 @@ func test_the_jewelry_box_never_touches_a_die():
 
 # --- Stresstest (Thermal Throttling) ----------------------------------------------
 
-func test_the_boss_round_is_the_office():
-	assert_false(run.is_boss_round(), "Runde 1 steigt aus dem Aufzug")
-	run.floor_plan.position = run.floor_plan.office
-	assert_true(run.is_boss_round())
+func test_stress_round_is_every_last_block_station():
+	assert_false(GameRun.is_stress_round(1))
+	assert_false(GameRun.is_stress_round(5))
+	assert_true(GameRun.is_stress_round(6))
+	assert_false(GameRun.is_stress_round(7))
+	assert_true(GameRun.is_stress_round(12))
 
 func test_hottest_combo_takes_the_most_parts():
 	_fill(DiceScoring.TWO_KIND, 2)
@@ -1019,13 +1045,21 @@ func test_round_clause_dies_with_its_round():
 func test_the_scope_arbiter_knows_all_three_durations():
 	# _scope_reaches bleibt der einzige Schiedsrichter - auch für BLOCK, das
 	# aktuell keine Klausel trägt.
-	var entry := {"id": DealClause.SAVINGS_BONUS, "round": 2, "floor": 0}
+	var entry := {"id": DealClause.SAVINGS_BONUS, "round": 2}
 	assert_false(run._scope_reaches(entry, DealClause.Scope.INSTANT, 2))
 	assert_true(run._scope_reaches(entry, DealClause.Scope.ROUND, 2))
 	assert_false(run._scope_reaches(entry, DealClause.Scope.ROUND, 3))
-	assert_true(run._scope_reaches(entry, DealClause.Scope.BLOCK, 9), "noch auf der Etage")
-	run.floor_index = 1
-	assert_false(run._scope_reaches(entry, DealClause.Scope.BLOCK, 9), "die nächste Etage nicht")
+	assert_true(run._scope_reaches(entry, DealClause.Scope.BLOCK, 3), "noch im Block")
+	assert_false(run._scope_reaches(entry, DealClause.Scope.BLOCK, GameRun.GOAL_BLOCK + 1))
+
+func test_the_signature_locks_the_clause_for_the_whole_block():
+	# Die Wirkung endet mit der Runde, der Eintrag bleibt: er sperrt seine Klausel
+	# bis zur Abrechnung gegen ein zweites Angebot.
+	_sign([DealClause.SAVINGS_BONUS])
+	run.advance_round()
+	assert_true(run._taken_this_block(DealClause.SAVINGS_BONUS))
+	run.settle_block_deals()
+	assert_false(run._taken_this_block(DealClause.SAVINGS_BONUS))
 
 func test_instant_clause_pays_once_on_signing():
 	var before := run.money
@@ -1039,6 +1073,50 @@ func test_instant_energy_clauses_book_immediately():
 	assert_eq(run.energy, GameRun.SEED_CAPITAL_ENERGY)
 	_sign([DealClause.DISCHARGE])
 	assert_eq(run.energy, 0, "unter null geht die Börse nie")
+
+func test_signing_a_card_clears_the_offers_and_signals():
+	run.roll_route_offers()
+	watch_signals(run)
+	# Der mittlere Deal kann als Werbegeschenk ohne Kleingedrucktes liegen - für die
+	# Zwei-Seiten-Zusicherung braucht es eine Karte, die beide trägt.
+	var slot := 1
+	for i in run.route_offers.size():
+		if not run.route_offers[i][GameRun.CARD_MALUS].is_empty():
+			slot = i
+			break
+	assert_true(run.take_route(slot))
+	assert_true(run.route_offers.is_empty(), "die Auslage ist verbraucht")
+	assert_eq(run.active_deals.size(), 2, "Bonus UND Kleingedrucktes ziehen ein")
+	assert_signal_emitted(run, "deals_changed")
+
+# --- Deals: Auslage ----------------------------------------------------------------
+
+func test_the_first_round_already_offers_deals():
+	var fresh := GameRun.new_run()
+	assert_eq(fresh.route_offers.size(), GameRun.ROUTE_OFFER_COUNT, "auch Runde 1 wählt einen Deal")
+	fresh.take_route(1)
+	fresh.advance_round()
+	assert_eq(fresh.route_offers.size(), GameRun.ROUTE_OFFER_COUNT, "und jede weitere")
+
+func test_every_offered_clause_is_valid():
+	for i in 40:
+		run.roll_route_offers()
+		assert_eq(run.route_offers.size(), GameRun.ROUTE_OFFER_COUNT)
+		for card in run.route_offers:
+			for clause_id in GameRun.card_clauses(card):
+				assert_true(DealClause.is_valid_id(clause_id))
+
+func test_a_werbegeschenk_only_strikes_the_middle_deal():
+	run.owned_charms.append(Charm.ad_drum())  # 90 %: fast jede Auslage trägt eins
+	var seen := 0
+	for i in 60:
+		run.roll_route_offers()
+		for slot in 3:
+			if bool(run.route_offers[slot][GameRun.CARD_TREAT]):
+				assert_eq(slot, 1, "nur der mittlere Deal verliert sein Kleingedrucktes")
+				assert_true(run.route_offers[slot][GameRun.CARD_MALUS].is_empty())
+				seen += 1
+	assert_gt(seen, 30, "die Werbetrommel schlägt durch")
 
 # --- Werbetrommel: der erste Charm am Vertragswesen -------------------------------
 
@@ -1134,6 +1212,84 @@ func test_active_deal_sides_carry_the_doubled_text():
 		var expected := DealClause.text_for(String(side["id"]), 2 if side["bonus"] else 1)
 		assert_eq(String(side["text"]), expected, "Marke und Buchung lesen dieselbe Quelle")
 
+func test_a_card_never_pairs_two_clauses_of_the_same_tag():
+	for i in 60:
+		run.heat = 1 + i % GameRun.HEAT_MAX
+		run.roll_route_offers()
+		for card in run.route_offers:
+			var malus_tags: Array[String] = []
+			for malus_id in card[GameRun.CARD_MALUS]:
+				malus_tags.append_array(DealClause.tags_of(String(malus_id)))
+			for bonus_id in card[GameRun.CARD_BONUS]:
+				for tag in DealClause.tags_of(String(bonus_id)):
+					assert_false(malus_tags.has(tag), "%s teilt das Tag %s mit einem Malus" % [bonus_id, tag])
+
+func test_no_clause_appears_twice_in_one_offer():
+	for i in 40:
+		run.heat = 1 + i % GameRun.HEAT_MAX
+		run.roll_route_offers()
+		var seen: Array[String] = []
+		for card in run.route_offers:
+			for clause_id in GameRun.card_clauses(card):
+				assert_false(seen.has(clause_id), "%s liegt doppelt aus" % clause_id)
+				seen.append(clause_id)
+
+func test_offers_never_repeat_a_clause_taken_this_block():
+	# Den Stufe-1-Malustopf leerspielen (Hitze 1: der mittlere Deal trägt einen ONE-Malus).
+	var seen: Array[String] = []
+	for i in DealClause.ids_for(DealClause.Tier.ONE, DealClause.Kind.MALUS).size() / 3:
+		run.roll_route_offers()
+		var card: Dictionary = run.route_offers[1]
+		if card[GameRun.CARD_MALUS].is_empty():
+			continue  # ein Werbegeschenk hat kein Kleingedrucktes
+		var offer := String(card[GameRun.CARD_MALUS][0])
+		assert_false(seen.has(offer), "%s wurde zweimal angeboten" % offer)
+		seen.append(offer)
+		run.take_route(1)
+
+func test_permanent_raises_may_stack_across_offers():
+	# Dauerhafte Hebungen sperren nichts - der Wächter gilt nur der Boss-Klausel.
+	_sign([DealClause.QUOTA_SURCHARGE])
+	var found := false
+	for i in 40:
+		run.heat = 1 + i % GameRun.HEAT_MAX
+		run.roll_route_offers()
+		for card in run.route_offers:
+			for clause_id in GameRun.card_clauses(card):
+				found = found or GameRun.BLIND_RAISE.has(clause_id)
+	assert_true(found, "ein weiterer Aufschlag darf ausliegen")
+
+func test_the_boss_pool_gates_a_second_round_raise():
+	_sign([DealClause.HIGH_EXPECTATIONS], GameRun.GOAL_BLOCK)
+	for i in 20:
+		run.roll_route_offers()
+		for card in run.route_offers:
+			assert_false(card[GameRun.CARD_MALUS].has(DealClause.HIGH_EXPECTATIONS))
+
+func test_stress_round_offers_the_boss_conditions():
+	run.round_number = GameRun.GOAL_BLOCK
+	run.roll_route_offers()
+	assert_eq(run.route_offers.size(), GameRun.ROUTE_OFFER_COUNT)
+	for card in run.route_offers:
+		assert_true(bool(card[GameRun.CARD_BOSS]))
+		assert_true(card[GameRun.CARD_BONUS].is_empty(), "Boss-Karten haben keinen Bonus")
+		assert_eq(DealClause.find(String(card[GameRun.CARD_MALUS][0])).tier, DealClause.Tier.BOSS)
+
+func test_exhausted_pool_falls_back_to_repeats():
+	# Lieber eine bekannte Klausel als ein leerer Platz.
+	var ids: Array[String] = []
+	ids.assign(DealClause.ids_for(DealClause.Tier.TWO, DealClause.Kind.MALUS))
+	_sign(ids)
+	run.round_number = 2
+	run.heat = 2
+	var repeated := false
+	for i in 40:
+		run.roll_route_offers()
+		if not run.route_offers[1][GameRun.CARD_MALUS].is_empty():
+			repeated = true
+			break
+	assert_true(repeated, "der gleiche Deal hat trotzdem ein Kleingedrucktes")
+
 # --- Klausel-Wirkungen -------------------------------------------------------------
 
 func test_blind_raises_are_permanent_and_instant():
@@ -1141,21 +1297,8 @@ func test_blind_raises_are_permanent_and_instant():
 	assert_almost_eq(run.blind_value, 225.0, 0.001, "+50 % sofort")
 	assert_eq(run.round_goal, 225, "die laufende Runde zieht sofort mit")
 	assert_eq(run.stage_size(1), run.effective_goal(), "der Balken zieht mit")
-	_quiet_floor()
 	run.advance_round()
-	for move in run.walkable_moves():
-		if String(move["fire_door"]) == "":
-			run.move_to(move)
-			break
 	assert_almost_eq(run.blind_value, 225.0 * 1.1, 0.001, "und jede spätere Runde")
-
-## Leert die Etage: kein Bonus, kein Malus - ein Zug hebt dann nur den Blind.
-func _quiet_floor() -> void:
-	for room_id: String in run.floor_plan.rooms:
-		run.floor_plan.rooms[room_id]["bonus"] = ""
-	for entry in run.floor_plan.doors:
-		entry["malus"] = ""
-		entry["boss"] = ""
 
 func test_each_raise_lifts_by_its_own_percentage():
 	for clause_id: String in GameRun.BLIND_RAISE:
@@ -1174,8 +1317,8 @@ func test_calibration_lowers_the_blind_for_good():
 
 func test_signing_lifts_the_current_and_every_future_station():
 	_sign([DealClause.QUOTA_SURCHARGE_II], 1)
-	assert_eq(run.effective_goal(), GameRun.floor_to_blind(180.0))
-	assert_eq(run.next_blind(), GameRun.floor_to_blind(180.0 * 1.1), "der nächste Zug steht auf dem gehobenen Blind")
+	assert_eq(run.roadmap_goal(1), GameRun.floor_to_blind(180.0))
+	assert_eq(run.roadmap_goal(3), GameRun.floor_to_blind(180.0 * 1.1 * 1.1))
 
 func test_high_expectations_stays_round_scoped():
 	_sign([DealClause.HIGH_EXPECTATIONS], 2)
@@ -1379,7 +1522,7 @@ func test_golden_handshake_spares_a_burned_in_material_face():
 
 func test_the_stress_round_no_longer_throttles_on_its_own():
 	_fill(DiceScoring.SIX_KIND, 3)
-	run.floor_plan.position = run.floor_plan.office
+	run.round_number = GameRun.GOAL_BLOCK
 	run.apply_round_start_charms()
 	assert_eq(run.throttled_combos, [], "gedrosselt wird nur noch per Klausel")
 
@@ -1391,7 +1534,7 @@ func test_heat_warning_throttles_the_hottest_chip():
 	assert_eq(run.throttled_combos, [DiceScoring.SIX_KIND], "nur der heißeste")
 
 func test_all_rounder_locks_each_played_combination():
-	_sign([DealClause.ALL_ROUNDER], 6)
+	_sign([DealClause.ALL_ROUNDER], GameRun.GOAL_BLOCK)
 	assert_true(run.note_hand_taken(DiceScoring.TWO_KIND))
 	assert_eq(run.throttled_combos, [DiceScoring.TWO_KIND])
 	assert_false(run.note_hand_taken(DiceScoring.TWO_KIND), "zweimal sperren ändert nichts")
@@ -1399,26 +1542,26 @@ func test_all_rounder_locks_each_played_combination():
 	assert_eq(run.throttled_combos.size(), 2)
 
 func test_standard_protocol_locks_every_other_combination():
-	_sign([DealClause.STANDARD_PROTOCOL], 6)
+	_sign([DealClause.STANDARD_PROTOCOL], GameRun.GOAL_BLOCK)
 	run.note_hand_taken(DiceScoring.TWO_KIND)
 	assert_eq(run.throttled_combos.size(), DiceScoring.HAND_PRIORITY.size() - 1)
 	assert_false(run.throttled_combos.has(DiceScoring.TWO_KIND))
 
 func test_all_in_caps_the_round_at_one_hand():
 	assert_gt(run.max_hands_this_round(), 1)
-	_sign([DealClause.ALL_IN], 6)
+	_sign([DealClause.ALL_IN], GameRun.GOAL_BLOCK)
 	assert_eq(run.max_hands_this_round(), 1)
 
 func test_parity_conditions_set_the_filter():
 	assert_eq(run.parity_filter(), DiceScoring.PARITY_ANY)
-	_sign([DealClause.TILTED_FLOOR], 6)
+	_sign([DealClause.TILTED_FLOOR], GameRun.GOAL_BLOCK)
 	assert_eq(run.parity_filter(), DiceScoring.PARITY_ODD)
 	run.settle_block_deals()
-	_sign([DealClause.BALANCED_SCALES], 6)
+	_sign([DealClause.BALANCED_SCALES], GameRun.GOAL_BLOCK)
 	assert_eq(run.parity_filter(), DiceScoring.PARITY_EVEN)
 
 func test_heat_buildup_runs_out_of_parts():
-	_sign([DealClause.HEAT_BUILDUP], 6)
+	_sign([DealClause.HEAT_BUILDUP], GameRun.GOAL_BLOCK)
 	_fill(DiceScoring.TWO_KIND, 1)
 	watch_signals(run)
 	assert_not_null(run.destroy_fumble_part())

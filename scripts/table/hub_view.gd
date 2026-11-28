@@ -66,11 +66,10 @@ var lexikon_button: Button
 var _tier := 1
 var _tier_shown := 0  # 0 = noch nie angewandt
 
-## Die Bühne der Startseite: links der TURM-Streifen, rechts Blind, Auskunft, Laufwerte,
-## Diagramm und die Deal-Marken.
+## Die Bühne der Startseite: oben der BLOCK-STREIFEN samt Hitze-Pegel, darunter Blind,
+## Auskunft, Laufwerte, Diagramm und die Deal-Marken.
 var roadmap_stage: Control
-## Der Grundriß-Streifen: reine Übersicht, gezogen wird in der Grube.
-var floor_plan: FloorPlanView
+var block_strip: BlockStripView
 var blind_panel: Panel
 var blind_title: Label
 var blind_value: Label
@@ -81,10 +80,9 @@ var info_body: Label
 var info_move: Label
 var values_grid: RunValuesGrid
 var chart: RunChartView
-var _floor_state: Dictionary = {}
-## Maße der Bühne in u: Streifen-Anteil, Spalten-Fuge, die Höhen rechts von oben.
-const STRIP_SHARE := 0.34
-const MAP_BLEED_UNITS := 3.0
+var _strip_state: Dictionary = {}
+## Maße der Bühne in u: Streifen-Höhe, Spalten-Fuge, die Höhen darunter.
+const STRIP_UNITS := 17.0
 const COLUMN_GAP_UNITS := 2.2
 const SECTION_GAP_UNITS := 1.2
 const BLIND_UNITS := 10.2
@@ -99,9 +97,8 @@ const TITLE_FONT_UNITS := 2.5
 const BIG_FONT_UNITS := 4.6
 const CARD_BG := Color(0.07, 0.065, 0.16, 0.85)
 const BLIND_TITLE := "Blind"
-const NEXT_BLIND_TITLE := "Nächster Blind"
 const BOSS_TITLE := "Boss-Runde"
-const STEP_TEXT := "Zug %d: %s%d %%"
+const STEP_TEXT := "Runde %d: +%d %%"
 const BLIND_COLOR := Color("#ff5555")
 const BOSS_COLOR := Color("#ff3b3b")
 ## Hinweis-Karte der Deal-Marken und der Laufwerte (Hover).
@@ -118,10 +115,10 @@ const STAT_TREND := "trend"
 const STAT_LUCK := "luck"
 const STAT_FUMBLES := "fumbles"
 const STAT_BEST := "best"
-const STAT_KEY := "key"
+const STAT_HEAT := "heat"
 const AVERAGE_TITLE := "Rundenschnitt"
-const KEY_TITLE := "Schlüsselkarte"
-const STAT_COLORS := {STAT_AVERAGE: Color("#7fe0c8"), STAT_KEY: Color("#f4f1e4"), STAT_TREND: Color("#b8b0ff"),
+const HEAT_TITLE := "Hitze"
+const STAT_COLORS := {STAT_AVERAGE: Color("#7fe0c8"), STAT_HEAT: Color("#ee6a22"), STAT_TREND: Color("#b8b0ff"),
 	STAT_LUCK: Color("#9dff6b"), STAT_FUMBLES: Color("#ff8c42"), STAT_BEST: Color("#ecebff")}
 const NO_VALUE := "–"
 
@@ -661,29 +658,21 @@ func _apply_frame_tier() -> void:
 		_frame_style.bg_color = _frame_bg
 		_frame_style.set_border_width_all(maxi(2, int((size.x / 100.0) * _frame_base_width_u)))
 
-# --- Die Bühne: Turm-Streifen, Blind, Auskunft, Laufwerte, Diagramm ----------
+# --- Die Bühne: Block-Streifen, Blind, Auskunft, Laufwerte, Diagramm ----------
 
-## Setzt den Stand der Etage (GameRun.floor_view_state).
-func set_floor_state(view_state: Dictionary) -> void:
-	if not _built or floor_plan == null:
+## Setzt den Block-Streifen (GameRun.block_strip_state).
+func set_block_state(view_state: Dictionary) -> void:
+	if not _built or block_strip == null:
 		return
-	_floor_state = view_state
-	floor_plan.open(view_state)
+	_strip_state = view_state
+	block_strip.set_state(view_state)
 	_write_blind_card()
 	_write_info()
 
-## Ob ein Zug fällig ist: der Streifen hebt die gangbaren Räume hervor (scene_root je Bild).
-func set_floor_moves_enabled(on: bool) -> void:
-	if floor_plan != null:
-		floor_plan.set_moves_enabled(on)
-
-## Das Rad über Streifen oder Laufwerten rollt sie (true = verbraucht).
+## Das Rad über den Laufwerten rollt sie (true = verbraucht).
 func wheel_at(pixel: Vector2, up: bool) -> bool:
 	if not _built or content_root == null or not content_root.visible:
 		return false
-	if floor_plan != null and floor_plan.get_global_rect().has_point(pixel):
-		floor_plan.scroll_by(1.0 if up else -1.0)
-		return true
 	if values_grid != null and values_grid.get_global_rect().has_point(pixel):
 		values_grid.scroll_by(-1.0 if up else 1.0)
 		return true
@@ -700,14 +689,12 @@ func set_chart(data: Dictionary) -> void:
 	if _built and chart != null:
 		chart.set_series(data.get("blinds", []), data.get("scores", []))
 
-## Baut die Bühne: Streifen samt Knopf, die Karten rechts, Raster, Diagramm, Marken.
+## Baut die Bühne: Streifen, die Karten, Raster, Diagramm, Marken.
 func _build_rim_stage(u: float) -> void:
-	floor_plan = FloorPlanView.new()
-	floor_plan.name = "FloorPlan"
-	floor_plan.mode = FloorPlanView.Mode.COMPACT
-	floor_plan.unit_px = u
-	floor_plan.hover_changed.connect(_write_info)
-	roadmap_stage.add_child(floor_plan)
+	block_strip = BlockStripView.new()
+	block_strip.name = "BlockStrip"
+	block_strip.unit_px = u
+	roadmap_stage.add_child(block_strip)
 	blind_panel = _card_panel("BlindCard", u)
 	blind_title = _stage_label("BlindTitle", SMALL_FONT_UNITS, u)
 	blind_value = _stage_label("BlindValue", BIG_FONT_UNITS, u)
@@ -745,40 +732,37 @@ func _card_panel(node_name: String, u: float) -> Panel:
 	return panel
 
 func _stage_label(node_name: String, font_units: float, u: float) -> Label:
-	var label := CasinoStyle.label("", u * font_units, FloorPlanView.TEXT_COLOR)
+	var label := CasinoStyle.label("", u * font_units, HeatStyle.TEXT_COLOR)
 	label.name = node_name
 	label.clip_text = true
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	roadmap_stage.add_child(label)
 	return label
 
-## Die Blind-Karte: vor dem Zug der nächste Blind, im Büro die Boss-Runde.
+## Die Blind-Karte: der Blind dieser Runde, in der sechsten die Boss-Runde.
 func _write_blind_card() -> void:
-	if blind_title == null or _floor_state.is_empty():
+	if blind_title == null or _strip_state.is_empty():
 		return
-	var due := bool(_floor_state.get("due", false))
-	var boss := FloorPlanView.is_boss(_floor_state)
-	blind_title.text = BOSS_TITLE if boss else (NEXT_BLIND_TITLE if due else BLIND_TITLE)
-	blind_title.modulate = BOSS_COLOR if boss else FloorPlanView.MUTED_COLOR.lightened(0.2)
-	blind_value.text = BigNumber.short(int(_floor_state.get("next_blind" if due else "blind", 0)))
+	var boss := bool(_strip_state.get("boss_round", false))
+	blind_title.text = BOSS_TITLE if boss else BLIND_TITLE
+	blind_title.modulate = BOSS_COLOR if boss else HeatStyle.MUTED_COLOR.lightened(0.2)
+	blind_value.text = BigNumber.short(int(_strip_state.get("blind", 0)))
 	blind_value.modulate = BOSS_COLOR if boss else BLIND_COLOR
-	var percent := int(_floor_state.get("step_percent", 0))
-	# Vor dem Zug sein eigener Schritt, danach der des nächsten.
-	var move := int(_floor_state.get("move_count", 0)) + 1
-	blind_step.text = FloorPlanView.head_text(_floor_state) if boss \
-		else STEP_TEXT % [move, "+" if percent >= 0 else "−", absi(percent)]
+	blind_step.text = STEP_TEXT % [int(_strip_state.get("round", 1)), int(_strip_state.get("step_percent", 0))]
 
-## Die Auskunft: was der Streifen unter dem Zeiger hat, sonst die ruhige Zeile.
+## Die Auskunft: was die Hitze gerade bedeutet.
 func _write_info() -> void:
-	if info_title == null or floor_plan == null:
+	if info_title == null or _strip_state.is_empty():
 		return
-	var parts := floor_plan.info_parts()
-	info_title.text = String(parts["title"])
-	info_title.modulate = parts["color"]
-	info_body.text = String(parts["body"])
-	info_body.modulate = FloorPlanView.MUTED_COLOR.lightened(0.4)
-	info_move.text = String(parts["move"])
-	info_move.modulate = parts["move_color"]
+	var level := int(_strip_state.get("heat", GameRun.HEAT_MIN))
+	info_title.text = "Hitze: %s" % HeatStyle.level_name(level)
+	info_title.modulate = HeatStyle.color(level)
+	info_body.text = INFO_BODY % [level, int(_strip_state.get("heat_max", GameRun.HEAT_MAX))]
+	info_body.modulate = HeatStyle.MUTED_COLOR.lightened(0.4)
+	info_move.text = "Boss-Prämie: %d Würfel" % int(_strip_state.get("reward_dice", 1))
+	info_move.modulate = HeatStyle.color(level)
+
+const INFO_BODY := "Stufe %d von %d. Jede Runde liegen drei Deals: kühler (Hitze −1, ohne Malus), gleich und heißer (Hitze +1). Der erste Fumble einer Runde kostet eine Stufe, nach der Boss-Runde halbiert sie sich."
 
 ## Die Texte der Auskunft (für Tests und Sichtproben).
 func info_text() -> String:
@@ -837,36 +821,35 @@ func stage_rects() -> Dictionary:
 	var s := roadmap_stage.size
 	var u := size.x / 100.0
 	var gap := u * SECTION_GAP_UNITS
-	var bleed := u * MAP_BLEED_UNITS
-	var strip_w := s.x * STRIP_SHARE
 	var rects := {}
-	# Der Streifen darf in den Seitenrand greifen: jede Spalte zählt.
-	rects["strip"] = Rect2(-bleed, 0.0, strip_w + bleed, maxf(s.y, 1.0))
-	var x := strip_w + u * COLUMN_GAP_UNITS
-	var w := maxf(s.x + bleed - x, 1.0)
-	var y := 0.0
-	rects["blind"] = Rect2(x, y, w, u * BLIND_UNITS)
-	y += u * BLIND_UNITS + gap
-	rects["info"] = Rect2(x, y, w, u * INFO_UNITS)
-	y += u * INFO_UNITS + gap
+	rects["strip"] = Rect2(0.0, 0.0, s.x, u * STRIP_UNITS)
+	var top := u * STRIP_UNITS + gap
+	var tokens_h := u * TOKEN_BAND_UNITS
+	rects["tokens"] = Rect2(0.0, s.y - tokens_h, s.x, tokens_h)
+	var bottom := s.y - tokens_h - gap
+	var col_gap := u * COLUMN_GAP_UNITS
+	var left_w := (s.x - col_gap) * 0.36
+	var right_x := left_w + col_gap
+	var right_w := maxf(s.x - right_x, 1.0)
+	rects["blind"] = Rect2(0.0, top, left_w, u * BLIND_UNITS)
+	var info_y := top + u * BLIND_UNITS + gap
+	rects["info"] = Rect2(0.0, info_y, left_w, maxf(bottom - info_y, 1.0))
 	var tile_h := u * RunValuesGrid.TILE_HEIGHT_UNITS
 	var grid_h := tile_h * float(GRID_ROWS_SHOWN) + u * RunValuesGrid.GAP_UNITS * float(GRID_ROWS_SHOWN - 1)
-	rects["grid"] = Rect2(x, y, w, grid_h)
-	y += grid_h + gap
-	var tokens_h := u * TOKEN_BAND_UNITS
-	rects["tokens"] = Rect2(x, s.y - tokens_h, w, tokens_h)
-	rects["chart"] = Rect2(x, y, w, maxf(s.y - tokens_h - gap - y, 1.0))
+	rects["grid"] = Rect2(right_x, top, right_w, grid_h)
+	var chart_y := top + grid_h + gap
+	rects["chart"] = Rect2(right_x, chart_y, right_w, maxf(bottom - chart_y, 1.0))
 	return rects
 
 ## Stellt alles auf der Bühne nach stage_rects.
 func _layout_stage() -> void:
 	var s := roadmap_stage.size
-	if s.x < 40.0 or s.y < 40.0 or floor_plan == null:
+	if s.x < 40.0 or s.y < 40.0 or block_strip == null:
 		return
 	var u := size.x / 100.0
 	var pad := u * CARD_PAD_UNITS
 	var r := stage_rects()
-	_place(floor_plan, r["strip"])
+	_place(block_strip, r["strip"])
 	var blind: Rect2 = r["blind"]
 	_place(blind_panel, blind)
 	var inner := blind.grow(-pad)

@@ -26,8 +26,6 @@ signal vitrine_changed
 signal lexikon_requested(entry_id: String)
 ## Ein Kauf wurde abgelehnt (zu wenig Geld, Lager voll) - scene_root spielt den Ton.
 signal purchase_denied
-## Der Knopf „Etage“ im Kopf: die Etagen-Karte zum Ansehen aufblättern.
-signal floor_requested
 ## Gleich wird der Charm dieses Platzes gebucht: seine Diskette fliegt zum Laufwerk.
 signal charm_purchasing(index: int)
 
@@ -156,8 +154,6 @@ var page_back_button: Button
 var page_next_button: Button
 ## Umschalter der Sortiment-Sperre (Kopfzeile).
 var lock_button: Button
-## Blättert auf die Etagen-Karte (nur ansehen) und zurück.
-var floor_button: Button
 
 ## Die PAKET-FLÄCHE: zwei Reihen zu drei Plätzen; der Laden meldet ihre Mitten, die
 ## Körper stellt scene_root.
@@ -305,11 +301,6 @@ func _build_layout() -> void:
 	title_rail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_rail.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	header.add_child(title_rail)
-	floor_button = _neon_button("Etage", NEON_CYAN, u * 2.4, Vector2(u * 12.0, u * 4.6))
-	floor_button.name = "FloorButton"
-	floor_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	floor_button.pressed.connect(func() -> void: floor_requested.emit())
-	header.add_child(floor_button)
 	lock_button = _neon_button("", NEON_CYAN, u * 2.4, Vector2(u * 22.0, u * 4.6))
 	lock_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lock_button.pressed.connect(_on_lock_pressed)

@@ -107,7 +107,7 @@ func test_charm_cards_fill_their_column() -> void:
 	shop.size = Vector2(1068, 1125)
 	assert_almost_eq(shop._charm_card_width(), shop.column_width(), 0.01)
 
-# --- Startseite: Turm-Streifen, Blind, Auskunft, Laufwerte, Diagramm ---------------
+# --- Startseite: Block-Streifen, Blind, Auskunft, Laufwerte, Diagramm --------------
 
 ## Eine Liste Laufwerte wie die von scene_root, mit n Einträgen.
 func _values(count: int) -> Array:
@@ -117,68 +117,33 @@ func _values(count: int) -> Array:
 			"sub": "Zusatz", "color": Color.WHITE, "hint": "Hinweis %d." % i})
 	return out
 
-func test_the_plan_strip_stands_on_the_start_page() -> void:
+func test_the_block_strip_stands_on_the_start_page() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	var run := GameRun.new_run()
-	hub.set_floor_state(run.floor_view_state())
+	hub.set_block_state(run.block_strip_state())
 	await wait_frames(2)
-	assert_true(hub.floor_plan.is_visible_in_tree(), "der Streifen steht auf der Startseite")
-	assert_eq(hub.floor_plan.mode, FloorPlanView.Mode.COMPACT, "der ganze Umriß, ohne Text")
-	assert_null(hub.find_child("OpenMapButton", true, false), "„Karte öffnen“ ist gestorben")
-	assert_lt(hub.floor_plan.size.x, hub.roadmap_stage.size.x * 0.45, "rund ein Drittel der Breite")
-	assert_almost_eq(hub.floor_plan.size.y, hub.roadmap_stage.size.y, 0.5)
-	assert_eq(hub.blind_title.text, HubView.NEXT_BLIND_TITLE, "auch Runde 1 wartet auf ihren Zug")
-	assert_eq(hub.blind_value.text, BigNumber.short(run.next_blind()))
+	assert_true(hub.block_strip.is_visible_in_tree(), "der Streifen steht auf der Startseite")
+	assert_almost_eq(hub.block_strip.size.x, hub.roadmap_stage.size.x, 0.5, "quer über die Bühne")
+	assert_eq(hub.block_strip.stops().size(), GameRun.GOAL_BLOCK)
+	assert_eq(hub.blind_title.text, HubView.BLIND_TITLE)
+	assert_eq(hub.blind_value.text, BigNumber.short(run.effective_goal()))
+	assert_eq(hub.blind_step.text, "Runde 1: +10 %")
 
-func test_before_the_move_the_blind_card_names_the_next_blind() -> void:
+func test_the_sixth_round_names_the_boss_round() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	var run := GameRun.new_run()
-	run.advance_round()
-	hub.set_floor_state(run.floor_view_state())
-	assert_eq(hub.blind_title.text, HubView.NEXT_BLIND_TITLE)
-	assert_eq(hub.blind_value.text, BigNumber.short(run.next_blind()), "nie der alte als laufend")
-	assert_eq(hub.blind_step.text, "Zug 1: +10 %")
-
-func test_the_office_names_the_boss_round() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	var state := GameRun.new_run().floor_view_state()
-	state["boss_round"] = true
-	state["due"] = false
-	hub.set_floor_state(state)
+	for i in GameRun.GOAL_BLOCK - 1:
+		run.advance_round()
+	hub.set_block_state(run.block_strip_state())
 	assert_eq(hub.blind_title.text, HubView.BOSS_TITLE)
 	assert_eq(hub.blind_title.modulate, HubView.BOSS_COLOR)
-
-## Der Streifen ist reine Übersicht: auch ein fälliger Zug nimmt hier keinen Klick.
-func test_the_strip_takes_no_move_and_opens_nothing() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	var run := GameRun.new_run()
-	hub.set_floor_state(run.floor_view_state())
-	hub.set_floor_moves_enabled(true)
-	await wait_frames(2)
-	var chosen: Array[Dictionary] = []
-	hub.floor_plan.move_chosen.connect(func(move: Dictionary) -> void: chosen.append(move))
-	var map := hub.floor_plan
-	var target := String(run.walkable_moves()[0]["room"])
-	var click := InputEventMouseButton.new()
-	click.button_index = MOUSE_BUTTON_LEFT
-	click.pressed = true
-	click.position = map.geometry().room_rect(target).get_center()
-	map._gui_input(click)
-	click = click.duplicate()
-	click.pressed = false
-	map._gui_input(click)
-	assert_true(chosen.is_empty(), "gezogen wird in der Grube")
-	assert_false(hub.has_signal("map_requested"), "kein Öffnen der großen Karte mehr")
-	assert_false(hub.has_method("floor_move_at"))
 
 func test_the_stage_parts_never_overlap() -> void:
 	var hub := _hub()
 	await wait_frames(2)
-	hub.set_floor_state(GameRun.new_run().floor_view_state())
+	hub.set_block_state(GameRun.new_run().block_strip_state())
 	hub.set_run_values(_values(6))
 	await wait_frames(2)
 	var rects := hub.stage_rects()
@@ -194,46 +159,31 @@ func test_the_stage_parts_never_overlap() -> void:
 			assert_false(a.intersects(rects[keys[j]]), "%s überdeckt %s" % [keys[i], keys[j]])
 	assert_true((rects["chart"] as Rect2).size.y > hub.size.x / 100.0 * 15.0, "das Diagramm hat Platz")
 
-func test_the_info_follows_the_strip_and_rests_without_a_pointer() -> void:
+func test_the_info_names_the_heat() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	var run := GameRun.new_run()
-	hub.set_floor_state(run.floor_view_state())
-	assert_string_contains(hub.info_text(), FloorPlanView.IDLE_TITLE, "ein Zug ist fällig")
-	assert_string_contains(hub.info_text(), "Gewählt wird in der Grube.")
-	var move: Dictionary = run.walkable_moves()[0]
-	var target := String(move["room"])
-	var rect := hub.floor_plan.geometry().room_rect(target)
-	var at := rect.get_center()
-	if hub.floor_plan.geometry().door_at(at) != "":
-		at = rect.position + rect.size * 0.3
-	hub.floor_plan.hover_at(at)
-	var bonus := String(run.floor_plan.rooms[target]["bonus"])
-	assert_string_contains(hub.info_text(), DealClause.text_for(bonus), "voller Klausel-Text")
-	assert_string_contains(hub.info_text(), "Blind ")
-	hub.floor_plan.clear_hover()
-	assert_string_contains(hub.info_text(), FloorPlanView.IDLE_TITLE, "der Zeiger ist fort")
-	run.move_to(move)
-	hub.set_floor_state(run.floor_view_state())
-	assert_string_contains(hub.info_text(), "Du bist hier")
+	run.heat = 4
+	hub.set_block_state(run.block_strip_state())
+	assert_string_contains(hub.info_text(), "Hitze: Glühend")
+	assert_string_contains(hub.info_text(), "Boss-Prämie: 2 Würfel")
 	assert_eq(hub.info_text().find("Polster"), -1)
 
-func test_the_values_grid_carries_round_average_and_key_card() -> void:
+func test_the_values_grid_carries_round_average_and_heat() -> void:
 	var hub := _hub()
 	await wait_frames(2)
 	var values := _values(4)
 	values.append({"key": HubView.STAT_AVERAGE, "title": HubView.AVERAGE_TITLE, "text": "300",
 		"sub": "Blind 290", "color": Color.WHITE, "hint": "Mittel."})
-	values.append({"key": HubView.STAT_KEY, "title": HubView.KEY_TITLE, "text": "fehlt",
-		"sub": "Büro verschlossen", "color": Color.WHITE, "hint": "Karte."})
+	values.append({"key": HubView.STAT_HEAT, "title": HubView.HEAT_TITLE, "text": "Kühl",
+		"sub": "Stufe 1 von 5", "color": Color.WHITE, "hint": "Hitze."})
 	hub.set_run_values(values)
 	await wait_frames(1)
 	assert_eq(HubView.AVERAGE_TITLE, "Rundenschnitt")
-	assert_eq(HubView.KEY_TITLE, "Schlüsselkarte")
+	assert_eq(HubView.HEAT_TITLE, "Hitze")
 	assert_not_null(hub.values_grid.tile(HubView.STAT_AVERAGE))
-	assert_not_null(hub.values_grid.tile(HubView.STAT_KEY))
-	assert_eq(hub.values_grid.max_scroll(), 0.0, "sechs Kacheln, die Schlüsselkarte rollt nicht")
-	assert_false(HubView.STAT_COLORS.has("step"), "die Kachel Blind-Schritt ist fort")
+	assert_not_null(hub.values_grid.tile(HubView.STAT_HEAT))
+	assert_eq(hub.values_grid.max_scroll(), 0.0, "sechs Kacheln, nichts rollt")
 
 func test_the_values_grid_takes_any_number_of_entries() -> void:
 	var hub := _hub()
@@ -264,22 +214,6 @@ func test_a_tile_explains_itself_on_hover() -> void:
 	assert_eq(hub.marker_hint.title_label.text, "Wert 1")
 	assert_string_contains(hub.marker_hint.body_label.text, "Hinweis 1.")
 
-func test_the_wheel_rolls_the_strip() -> void:
-	var hub := _hub()
-	await wait_frames(2)
-	var run := GameRun.new_run()
-	# Flache Etagen passen zu dritt in den Streifen: so viele stapeln, bis er überläuft.
-	for i in 12:
-		run.settle_block_deals()
-		hub.set_floor_state(run.floor_view_state())
-		await wait_frames(2)
-		if hub.floor_plan.stack_height() > hub.floor_plan.size.y + 20.0:
-			break
-	assert_eq(hub.floor_plan.scroll, 0.0)
-	assert_true(hub.wheel_at(hub.floor_plan.get_global_rect().get_center(), false))
-	assert_gt(hub.floor_plan.scroll, 0.0, "das Rad rollt den Stapel in die Geschichte")
-	assert_false(hub.wheel_at(Vector2(-50, -50), true), "daneben verbraucht es nichts")
-
 func test_the_chart_with_zero_one_and_twelve_rounds() -> void:
 	var hub := _hub()
 	await wait_frames(2)
@@ -308,62 +242,10 @@ func test_the_chart_with_zero_one_and_twelve_rounds() -> void:
 	assert_gt(low.y, high.y, "logarithmisch nach oben")
 	assert_true(chart.plot_rect().grow(1.0).has_point(high))
 
-func test_the_etage_button_shows_the_map_and_leads_back() -> void:
-	var hub := _hub()
-	var shop: ShopController = ShopPanelScene.instantiate()
-	hub.attach_panel(shop)
-	var run := GameRun.new_run()
-	run.money = 999
-	shop.run = run
-	shop.open()
-	var page := FloorMapPage.new()
-	hub.attach_panel(page)
-	page.layout()
-	# Die Verdrahtung von scene_root: der Knopf blättert auf, „Zurück“ blättert heim.
-	shop.floor_requested.connect(func() -> void:
-		page.show_state(run.floor_view_state())
-		page.visible = true)
-	page.close_requested.connect(func() -> void: page.visible = false)
-	await wait_frames(2)
-	assert_true(shop.visible)
-	shop.floor_button.pressed.emit()
-	assert_true(page.visible, "die Karte steht")
-	assert_false(shop.visible, "die Ladenseite ist verdrängt - ihre Ware weicht mit")
-	assert_eq(page.map_view.mode, FloorPlanView.Mode.DETAIL, "dieselbe Nahsicht wie in der Grube")
-	assert_true(page.map_view.read_only, "im Laden nur ansehen")
-	assert_eq(page.back_button.text, FloorMapPage.BACK_SHOP_TEXT)
-	assert_true(page.map_view.walkable_moves().is_empty())
-	page.back_button.pressed.emit()
-	assert_false(page.visible)
-	assert_true(shop.visible, "die Seitenregel holt den Laden zurück")
-	assert_false(hub.content_root.visible, "nicht die Startseite")
-
-## Die Laden-Seite zieht nie, auch wenn ein Zug fällig wäre - Ziehen und Rad sehen sich um.
-func test_the_shop_page_only_looks() -> void:
-	var hub := _hub()
-	var page := FloorMapPage.new()
-	hub.attach_panel(page)
-	page.layout()
-	var run := GameRun.new_run()
-	page.show_state(run.floor_view_state())
-	page.visible = true
-	await wait_frames(2)
-	var map := page.map_view
-	var chosen: Array[Dictionary] = []
-	map.move_chosen.connect(func(move: Dictionary) -> void: chosen.append(move))
-	var at := map.geometry().room_rect(String(run.walkable_moves()[0]["room"])).get_center()
-	map.begin_press(at)
-	map.end_press(at)
-	assert_true(chosen.is_empty(), "nur ansehen")
-	var home := map.view_center()
-	map.begin_press(at)
-	map.drag_to(at + Vector2(60, 60))
-	map.end_press(at + Vector2(60, 60))
-	assert_true(map.away_from_home() or map.view_center() == home, "ziehen sieht sich um")
-	map.snap_home(true)
-	var cell := map.zoom_cell()
-	assert_true(page.wheel_at(map.get_global_rect().get_center(), false), "das Rad zoomt")
-	assert_lt(map.zoom_cell(), cell)
+func test_the_shop_has_no_etage_button() -> void:
+	var shop := _shop(1)
+	assert_null(shop.find_child("FloorButton", true, false), "der Knopf „Etage“ ist gestorben")
+	assert_false(shop.has_signal("floor_requested"))
 
 # --- Deal-Marken --------------------------------------------------------------
 
@@ -456,8 +338,7 @@ func test_a_quota_deal_lifts_the_current_and_the_next_blind() -> void:
 	# Der Aufschlag ist DAUERHAFT: der laufende und der nächste Blind springen mit.
 	var run := GameRun.new_run()
 	var now := run.effective_goal()
-	var next := run.next_blind()
+	var next := run.projected_blind(2)
 	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
 	assert_gt(run.effective_goal(), now)
-	assert_gt(run.next_blind(), next)
-
+	assert_gt(run.projected_blind(2), next)

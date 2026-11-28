@@ -1,6 +1,5 @@
 extends GutTest
-## Laufwerte (Welle 4 der Etagen-Karte): Rundenschnitt, Trend, Einholen,
-## der Blind nach einem Zug und die beste Hand.
+## Laufwerte: Rundenschnitt, Trend, Einholen, der Blind nach einem Deal und die beste Hand.
 
 var run: GameRun
 
@@ -52,7 +51,7 @@ func test_the_score_growth_reads_the_last_four_rounds() -> void:
 	assert_almost_eq(run.score_growth(), 1.1, 0.0001, "Verhältnisse 1,1 über die letzten vier")
 
 func test_the_house_grows_by_the_next_step() -> void:
-	assert_almost_eq(run.house_growth(), 1.0 + run.blind_growth(), 0.0001)
+	assert_almost_eq(run.house_growth(), 1.0 + GameRun.blind_growth(run.round_number + 1), 0.0001)
 
 func test_ahead_of_the_house_never_gets_caught() -> void:
 	_scores([300, 600])
@@ -75,11 +74,9 @@ func test_a_cushion_below_one_is_caught_already() -> void:
 	assert_lt(run.cushion(run.cushion_blind()), 1.0)
 	assert_eq(run.rounds_until_caught(), 0)
 
-func test_before_the_move_the_values_measure_the_next_blind() -> void:
+func test_the_values_measure_the_blind_of_this_round() -> void:
 	_scores([600])
 	run.advance_round()
-	assert_eq(run.cushion_blind(), run.next_blind())
-	assert_true(run.move_to(_plain_move()))
 	assert_eq(run.cushion_blind(), run.effective_goal())
 
 func test_the_hints_explain_without_data_and_with_it() -> void:
@@ -98,74 +95,55 @@ func test_the_margin_light_has_three_steps() -> void:
 	assert_eq(GameRun.margin_of(100.0, 100), GameRun.MARGIN_TIGHT)
 	assert_eq(GameRun.margin_of(99.0, 100), GameRun.MARGIN_SHORT)
 
-# --- Der Blind nach dem Zug ----------------------------------------------------------
+# --- Der Blind nach dem Deal --------------------------------------------------------
 
-## Ein gangbarer Zug ohne bzw. mit Brandschutztür ({} = keiner auf dieser Etage).
-func _move(fire: bool) -> Dictionary:
-	for move in run.walkable_moves():
-		if (String(move["fire_door"]) != "") == fire:
-			return move
-	return {}
+## Setzt die Klauseln einer Karte der Auslage von Hand.
+func _card_with(index: int, bonus: Array, malus: Array) -> void:
+	var card: Dictionary = run.route_offers[index]
+	var bonus_ids: Array[String] = []
+	bonus_ids.assign(bonus)
+	var malus_ids: Array[String] = []
+	malus_ids.assign(malus)
+	card[GameRun.CARD_BONUS] = bonus_ids
+	card[GameRun.CARD_MALUS] = malus_ids
 
-func _plain_move() -> Dictionary:
-	return _move(false)
-
-## Ein gangbarer Zug samt gesetzten Klauseln an Tür und Zielraum.
-func _move_with(malus: String, bonus: String, boss: String = "", fire: bool = false) -> Dictionary:
-	run.advance_round()
-	var move := _move(fire)
-	if move.is_empty():
-		return move
-	var entry := run.floor_plan.door(String(move["door"]))
-	entry["malus"] = malus
-	entry["boss"] = boss
-	entry["free"] = malus == "" and boss == ""
-	if boss != "":
-		entry["kind"] = FloorPlan.DOOR_BOSS
-		run.floor_plan.key_taken = true
-	run.floor_plan.room(String(move["room"]))["bonus"] = bonus
-	return move
-
-func _assert_preview_books(move: Dictionary) -> void:
-	var preview := run.blind_after_move(move)
-	assert_true(run.move_to(move))
+func _assert_preview_books(index: int) -> void:
+	var preview := run.blind_after_offer(index)
+	assert_true(run.take_route(index))
 	assert_eq(preview, run.effective_goal(), "die Vorschau ist die Buchung")
 
-func test_a_plain_move_previews_the_next_blind() -> void:
-	var move := _move_with("", "")
-	assert_eq(run.blind_after_move(move), run.next_blind())
-	var preview := run.blind_after_move(move)
-	assert_true(run.move_to(move))
-	assert_eq(preview, run.round_goal)
-	assert_eq(preview, run.effective_goal())
+func test_a_plain_deal_previews_the_blind_of_this_round() -> void:
+	run.advance_round()
+	_card_with(1, [], [])
+	assert_eq(run.blind_after_offer(1), run.effective_goal())
+	_assert_preview_books(1)
 
-func test_a_blind_raise_on_the_door_shows_in_the_preview() -> void:
-	var move := _move_with(DealClause.QUOTA_SHOCK, "")
-	assert_gt(run.blind_after_move(move), run.next_blind())
-	var preview := run.blind_after_move(move)
-	assert_true(run.move_to(move))
-	assert_eq(preview, run.round_goal, "Aufschläge sind dauerhaft: der gebuchte Blind")
+func test_a_blind_raise_shows_in_the_preview() -> void:
+	run.advance_round()
+	_card_with(1, [], [DealClause.QUOTA_SHOCK])
+	assert_gt(run.blind_after_offer(1), run.effective_goal())
+	_assert_preview_books(1)
 
 func test_calibration_and_surcharge_with_the_shyster() -> void:
 	run.owned_charms.append(Charm.shyster())
-	_assert_preview_books(_move_with(DealClause.USURY_CLAUSE, DealClause.CALIBRATION))
+	_card_with(2, [DealClause.CALIBRATION], [DealClause.USURY_CLAUSE])
+	_assert_preview_books(2)
 
 func test_a_round_wise_boss_raise_counts_in_the_preview() -> void:
-	var move := _move_with("", "", DealClause.HIGH_EXPECTATIONS)
-	assert_gt(run.blind_after_move(move), run.next_blind() * 2)
-	_assert_preview_books(move)
+	_card_with(0, [], [DealClause.HIGH_EXPECTATIONS])
+	assert_gt(run.blind_after_offer(0), run.effective_goal() * 2)
+	_assert_preview_books(0)
 
-func test_the_floor_state_carries_the_numbers_of_each_move() -> void:
+func test_the_route_state_carries_the_numbers_of_each_card() -> void:
 	_scores([800])
 	run.advance_round()
-	var state := run.floor_view_state()
-	assert_false((state["moves"] as Array).is_empty())
-	for move: Dictionary in state["moves"]:
-		var after := run.blind_after_move(move)
-		assert_eq(int(move["blind_after"]), after)
-		assert_almost_eq(float(move["typical"]), run.typical_score(), 0.0001)
-		assert_eq(String(move["margin"]), GameRun.margin_of(run.typical_score(), after))
-	assert_eq(String(state["margin_next"]), GameRun.margin_of(run.typical_score(), run.next_blind()))
+	var state := run.route_view_state()
+	assert_eq((state["cards"] as Array).size(), GameRun.ROUTE_OFFER_COUNT)
+	for card: Dictionary in state["cards"]:
+		var after := run.blind_after_offer(int(card["index"]))
+		assert_eq(int(card["blind_after"]), after)
+		assert_almost_eq(float(card["typical"]), run.typical_score(), 0.0001)
+		assert_eq(String(card["margin"]), GameRun.margin_of(run.typical_score(), after))
 
 # --- Beste Hand ------------------------------------------------------------------------
 

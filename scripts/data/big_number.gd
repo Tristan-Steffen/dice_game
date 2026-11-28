@@ -1,7 +1,7 @@
 class_name BigNumber
 extends RefCounted
 ## Große Zahlen kurz und deutsch: bis 99.999 ausgeschrieben, dann Tsd/Mio/Mrd/Bio, danach
-## Zehnerpotenz. Der EINE Helfer für Laufwerte und Etagen-Karte.
+## Zehnerpotenz. Der EINE Helfer für Laufwerte und Deal-Karten.
 
 ## Ab hier wird gekürzt; darunter steht die Zahl ganz.
 const SHORT_FROM := 100000.0

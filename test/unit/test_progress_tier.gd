@@ -111,6 +111,44 @@ func test_thresholds_crossed_respects_cap() -> void:
 	# 0 -> 99999 kreuzt genau die fünf Schwellen des Rahmens.
 	assert_eq(run.thresholds_crossed(0, 99999).size(), 5)
 
+# --- Block-Streifen (die sechs Runden des Blocks) ----------------------------
+
+func _strip_blinds(run: GameRun) -> Array[int]:
+	var blinds: Array[int] = []
+	for stop: Dictionary in run.block_strip_state()["stops"]:
+		blinds.append(int(stop["blind"]))
+	return blinds
+
+func test_the_strip_starts_at_round_one() -> void:
+	var run := _run()  # Runde 1, Ziel 150
+	# 150, 165, 181,5, 199,65, 219,6, 241,6 -> abgerundet auf Vielfache von 5.
+	assert_eq(_strip_blinds(run), [150, 165, 180, 195, 215, 240] as Array[int])
+	assert_eq(String(run.block_strip_state()["stops"][0]["state"]), GameRun.STOP_NOW)
+
+func test_the_strip_stays_fixed_while_the_position_advances() -> void:
+	var run := _run()
+	run.advance_round()
+	run.advance_round()
+	assert_eq(_strip_blinds(run), [150, 165, 180, 195, 215, 240] as Array[int],
+		"derselbe Block wie in Runde 1")
+	assert_eq(String(run.block_strip_state()["stops"][2]["state"]), GameRun.STOP_NOW)
+
+func test_the_strip_rolls_to_a_fresh_block_after_the_sixth() -> void:
+	var run := _run()
+	for i in 6:
+		run.advance_round()  # -> Runde 7
+	var state := run.block_strip_state()
+	assert_eq(int(state["block"]), 2)
+	assert_eq(int(state["stops"][0]["round"]), 7, "nach dem sechsten Sieg ein frischer Block")
+	assert_eq(int(state["stops"][0]["blind"]), run.effective_goal())
+
+func test_past_stops_show_the_played_blind() -> void:
+	var run := _run()
+	run.sign_clauses([DealClause.QUOTA_SHOCK] as Array[String])
+	var played := run.effective_goal()
+	run.advance_round()
+	assert_eq(_strip_blinds(run)[0], played, "der geschaffte Stop zeigt den gespielten Blind")
+
 # --- Fumble-Automaten (Ökonomie) ---------------------------------------------
 
 func test_every_machine_spins_from_round_one() -> void:
